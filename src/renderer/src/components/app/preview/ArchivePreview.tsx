@@ -64,6 +64,7 @@ export default function ArchivePreview(props: { bytes: Uint8Array }) {
 					size: formatBytes(parsed.totalSize),
 				})}
 			</div>
+			{/* scroll-ok: bounded —— 归档条目来自单个预览文件，条目数受预览大小上限约束，行数不随数据量无限增长。 */}
 			<div className="min-h-0 flex-1 overflow-auto py-1">
 				<ul>
 					{parsed.entries.map((entry, index) => (

@@ -17,13 +17,32 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
  * 图片走独立预览：远端文本通道拒绝非 UTF-8 内容，把 PNG 喂给草稿编辑器只会得到
  * `REMOTE_FILE_NOT_TEXT`——那不是"文件坏了"，是"这个文件不该用编辑器打开"。
  */
-export function RemoteFileEditor(props: { services: ProjectServices; path: string }) {
+export function RemoteFileEditor(props: { services: ProjectServices; path: string; canWrite?: boolean }) {
 	if (imageMimeForPath(props.path) !== undefined) return <RemoteImagePreview projectId={props.services.projectId} path={props.path} />;
-	return <RemoteTextFileEditor services={props.services} path={props.path} />;
+	// 缺省 true：只有明确声明「不能写」的调用方才降级，既有调用方零行为变化。
+	return <RemoteTextFileEditor services={props.services} path={props.path} canWrite={props.canWrite ?? true} />;
 }
 
-function RemoteTextFileEditor(props: { services: ProjectServices; path: string }) {
+/**
+ * Ctrl/Cmd+S 的处理结论：只读时仍吞掉浏览器默认动作（不弹「另存网页」），但绝不发保存。
+ * 抽成纯函数，让「只读时快捷键不保存」可以离开渲染树单测。
+ */
+/**
+ * 编辑器只读门禁：能力位关闭，或草稿仍在加载（内容还没到，输入会被覆盖）。
+ * 抽成纯函数，让懒加载包装（Suspense 只渲染 fallback）也能被单测钉住。
+ */
+export function remoteFileEditorReadOnly(canWrite: boolean, phase: string): boolean {
+	return !canWrite || phase === "loading";
+}
+
+export function remoteFileSaveShortcut(event: { ctrlKey: boolean; metaKey: boolean; key: string }, canWrite: boolean): "save" | "swallow" | "pass" {
+	if (!((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s")) return "pass";
+	return canWrite ? "save" : "swallow";
+}
+
+function RemoteTextFileEditor(props: { services: ProjectServices; path: string; canWrite: boolean }) {
 	const { draft, loadError, change, save, reload, dirty } = useRemoteFileDraft(props.services, props.path);
+	const { canWrite } = props;
 	const [confirmReload, setConfirmReload] = useState(false);
 	const code = loadError ?? draft?.errorCode;
 	const errorText =
@@ -59,17 +78,18 @@ function RemoteTextFileEditor(props: { services: ProjectServices; path: string }
 			className="flex min-h-0 flex-1 flex-col overflow-hidden"
 			aria-label={t("remoteFile.editor")}
 			onKeyDownCapture={(event) => {
-				if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-					event.preventDefault();
-					event.stopPropagation();
-					void save();
-				}
+				const action = remoteFileSaveShortcut(event, canWrite);
+				if (action === "pass") return;
+				// 只读也拦下默认动作：浏览器「另存网页」不是这里要的保存。
+				event.preventDefault();
+				event.stopPropagation();
+				if (action === "save") void save();
 			}}
 		>
 			<div className="flex h-8 shrink-0 items-center gap-2 border-b border-border/40 px-2">
 				<strong className="min-w-0 flex-1 truncate font-mono text-label">{props.path}</strong>
 				<span className="text-label text-muted-foreground">{draft?.phase === "saving" ? t("remoteFile.saving") : dirty ? t("remoteFile.unsaved") : draft?.phase === "ready" ? t("remoteFile.saved") : ""}</span>
-				<Button size="icon-sm" variant="ghost" aria-label={t("remoteFile.save")} title={t("remoteFile.save")} disabled={!dirty || draft?.phase !== "ready" || draft.blocked} onClick={() => void save()}>
+				<Button size="icon-sm" variant="ghost" aria-label={t("remoteFile.save")} title={t("remoteFile.save")} disabled={!canWrite || !dirty || draft?.phase !== "ready" || draft.blocked} onClick={() => void save()}>
 					<Save className="size-4" />
 				</Button>
 				<Button
@@ -88,6 +108,12 @@ function RemoteTextFileEditor(props: { services: ProjectServices; path: string }
 			</div>
 			{/* 脏草稿在 rename/delete 后保留并标 stale（§5.7）：保存会失败，但绝不自动丢弃用户输入。 */}
 			{draft?.stale ? <p className="text-label text-muted-foreground">{t("remoteFileEntry.staleDraft")}</p> : null}
+			{/* 能力位只读：先说清原因，避免「能打字、点了保存才拿到稳定码」。 */}
+			{canWrite ? null : (
+				<p data-testid="remote-file-read-only" className="text-label text-muted-foreground">
+					{t("remoteFile.readOnlyReason")}
+				</p>
+			)}
 			{errorText ? (
 				<p role="alert" className="text-label text-destructive">
 					{errorText}
@@ -103,7 +129,7 @@ function RemoteTextFileEditor(props: { services: ProjectServices; path: string }
 							</div>
 						}
 					>
-						<CodeMirrorEditor key={draft.rejectedEdits ?? 0} value={draft.content} lineSeparator={draft.savedContent.includes("\r\n") ? "\r\n" : "\n"} onChange={change} language={props.path.split(".").at(-1)} readOnly={draft.phase === "loading"} />
+						<CodeMirrorEditor key={draft.rejectedEdits ?? 0} value={draft.content} lineSeparator={draft.savedContent.includes("\r\n") ? "\r\n" : "\n"} onChange={change} language={props.path.split(".").at(-1)} readOnly={remoteFileEditorReadOnly(canWrite, draft.phase)} />
 					</Suspense>
 				</div>
 			) : null}

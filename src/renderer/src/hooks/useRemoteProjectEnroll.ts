@@ -110,7 +110,7 @@ export function useRemoteProjectEnroll(options: RemoteProjectEnrollOptions) {
 		}
 		if (generation !== generationRef.current) return;
 		if (!result.ok) {
-			// REMOTE_FEATURE_DISABLED 是正式包的正常状态（开发态门禁），不是异常。
+			// REMOTE_FEATURE_DISABLED 是能力下线的稳定状态，不是请求异常。
 			commit({ ...initialState(), stage: "unavailable", errorCode: result.code });
 			return;
 		}

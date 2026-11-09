@@ -80,10 +80,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
 							<ul className="font-mono text-caption text-muted-foreground">
 								{processCpu.slice(0, 12).map((row) => (
 									<li key={row.pid}>
-										{processTypeLabel(row.type)} #{row.pid} {row.cpuPct}%
-										{row.peakCpuPct > row.cpuPct
-											? ` · ${t("settings.developerDiagnosticsProcessPeak", { peak: String(row.peakCpuPct) })}`
-											: ""}
+										{processTypeLabel(row.type)} #{row.pid} {row.cpuPct}%{row.peakCpuPct > row.cpuPct ? ` · ${t("settings.developerDiagnosticsProcessPeak", { peak: String(row.peakCpuPct) })}` : ""}
 									</li>
 								))}
 							</ul>

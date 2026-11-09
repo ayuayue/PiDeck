@@ -123,14 +123,7 @@ test("DiagnosticsPanel 展示每进程 CPU 且开着才轮询", () => {
 });
 
 test("进程 CPU 文案在 zh-CN / en-US 都存在", () => {
-	for (const key of [
-		"settings.developerDiagnosticsProcesses",
-		"settings.developerDiagnosticsProcessPeak",
-		"settings.developerDiagnosticsProcMain",
-		"settings.developerDiagnosticsProcRender",
-		"settings.developerDiagnosticsProcGpu",
-		"settings.developerDiagnosticsProcUtility",
-	]) {
+	for (const key of ["settings.developerDiagnosticsProcesses", "settings.developerDiagnosticsProcessPeak", "settings.developerDiagnosticsProcMain", "settings.developerDiagnosticsProcRender", "settings.developerDiagnosticsProcGpu", "settings.developerDiagnosticsProcUtility"]) {
 		assert.match(zh, new RegExp(`"${key.replace(/\./g, "\\.")}"`), `zh-CN 缺 ${key}`);
 		assert.match(en, new RegExp(`"${key.replace(/\./g, "\\.")}"`), `en-US 缺 ${key}`);
 	}

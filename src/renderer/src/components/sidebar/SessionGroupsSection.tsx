@@ -56,13 +56,7 @@ function writeIdSet(key: string, ids: Set<string>): void {
 /** 分组标题行：比会话行略低密度（无时间列、无更多按钮），只做折叠开关。 */
 const groupRowClass = "relative flex min-h-7 w-full cursor-pointer select-none items-center gap-1.5 rounded-lg border border-transparent px-2 py-0 text-left text-caption font-medium text-foreground transition-[background-color,border-color] duration-base hover:border-border-subtle hover:bg-bg-hover";
 
-export function SessionGroupsSection(props: {
-	nodes: readonly SessionGroupNode[];
-	projectsById: Readonly<Record<string, Project>>;
-	controller: SidebarController;
-	actions: SidebarActions;
-	currentSessionId?: string;
-}) {
+export function SessionGroupsSection(props: { nodes: readonly SessionGroupNode[]; projectsById: Readonly<Record<string, Project>>; controller: SidebarController; actions: SidebarActions; currentSessionId?: string }) {
 	const [sectionCollapsed, setSectionCollapsed] = useState(() => readIdSet(SECTION_COLLAPSED_KEY).has("section"));
 	const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readIdSet(GROUP_COLLAPSED_KEY));
 	const activityAt = useSessionActivityAt();

@@ -9,11 +9,7 @@ const PROJECT = (id, name, path) => ({ id, name, path });
 const ids = (records) => [...Array.from(records).map((record) => record.id)];
 
 test("分组引用解析成分组→会话两层列表；失效引用丢弃、重复 id 去重", () => {
-	const nodes = buildSessionGroupNodes(
-		[{ id: "g1", name: "other", color: "blue", createdAt: 1, sessionIds: ["s1", "ghost", "s1", "s2"], dirs: [] }],
-		{ s1: RECORD("s1", "p1", 100), s2: RECORD("s2", "p2", 200) },
-		{ p1: PROJECT("p1", "Alpha", "D:\\alpha"), p2: PROJECT("p2", "Beta", "D:\\beta") },
-	);
+	const nodes = buildSessionGroupNodes([{ id: "g1", name: "other", color: "blue", createdAt: 1, sessionIds: ["s1", "ghost", "s1", "s2"], dirs: [] }], { s1: RECORD("s1", "p1", 100), s2: RECORD("s2", "p2", 200) }, { p1: PROJECT("p1", "Alpha", "D:\\alpha"), p2: PROJECT("p2", "Beta", "D:\\beta") });
 	assert.equal(nodes.length, 1);
 	assert.equal(nodes[0].total, 2);
 	// 不再有目录（项目）这一层：分组下直接是会话。

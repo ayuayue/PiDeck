@@ -48,6 +48,7 @@ export * from "./types/mcp";
 export * from "./types/resourceImport";
 export * from "./types/rewind";
 export * from "./types/health";
+export * from "./types/cloudSync";
 export * from "./types/backup";
 export * from "./types/soundAlert";
 export * from "./types/packageCatalog";

@@ -49,13 +49,7 @@ function runCollect(args: string[], timeoutMs: number): Promise<string> {
 /** CPU 用整数毫秒而不是 `$_.CPU` 的浮点秒：小数逗号 locale 下 `0,5` 会被读成 NaN。 */
 function buildWindowsCommand(pids: number[]): string[] {
 	const ids = pids.join(",");
-	return [
-		"powershell",
-		"-NoProfile",
-		"-NonInteractive",
-		"-Command",
-		`Get-Process -Id ${ids} -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id);$($_.PrivateMemorySize64);$([long]($_.CPU*1000))" }`,
-	];
+	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", `Get-Process -Id ${ids} -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id);$($_.PrivateMemorySize64);$([long]($_.CPU*1000))" }`];
 }
 
 function buildPosixCommand(pids: number[]): string[] {
@@ -65,10 +59,7 @@ function buildPosixCommand(pids: number[]): string[] {
 async function sampleProcessTable(pids: number[]): Promise<ProcessTable> {
 	const isWindows = process.platform === "win32";
 	try {
-		const output = await runCollect(
-			isWindows ? buildWindowsCommand(pids) : buildPosixCommand(pids),
-			PROCESS_SAMPLE_TIMEOUT_MS,
-		);
+		const output = await runCollect(isWindows ? buildWindowsCommand(pids) : buildPosixCommand(pids), PROCESS_SAMPLE_TIMEOUT_MS);
 		return isWindows ? parseWindowsProcessTable(output) : parsePsProcessTable(output);
 	} catch {
 		// 命令缺失 / 全部进程已退出：返回空表，快照照常返回（内存与 CPU 显示为 "-"）
@@ -80,12 +71,8 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function getProcessSnapshot(
-	agents: readonly Omit<AgentProcessMetric, "memoryBytes" | "cpuPct" | "error">[],
-): Promise<ProcessMetricsSnapshot> {
-	const pids = [
-		...new Set(agents.map((agent) => agent.pid).filter((pid) => Number.isInteger(pid) && pid > 0)),
-	];
+export async function getProcessSnapshot(agents: readonly Omit<AgentProcessMetric, "memoryBytes" | "cpuPct" | "error">[]): Promise<ProcessMetricsSnapshot> {
+	const pids = [...new Set(agents.map((agent) => agent.pid).filter((pid) => Number.isInteger(pid) && pid > 0))];
 	if (pids.length === 0) {
 		return { agents: agents.map((agent) => ({ ...agent })), totalAgentBytes: 0, sampledAt: Date.now() };
 	}

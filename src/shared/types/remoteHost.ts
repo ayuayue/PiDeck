@@ -135,7 +135,7 @@ export type RemoteHostStateChange = { hostId: string; state: RemoteHostConnectio
 export type RemoteHostRepairClassification = "orphan-pin" | "anchor-invalid" | "lock" | "snapshot" | "write-uncertain" | "unknown";
 
 /** 诊断给出的**合法**动作。界面只能从这些里选，不能自己发明。 */
-export type RemoteHostRepairAction = "complete-activation-from-pin" | "discard-orphan-pin" | "clear-stale-lock" | "rebuild-target-and-rebind" | "forget-trust-anchor" | "inspect-snapshot-pair" | "refresh-then-recheck" | "fix-filesystem-permissions" | "human-review";
+export type RemoteHostRepairAction = "complete-activation-from-pin" | "discard-orphan-pin" | "clear-stale-lock" | "clear-rebind-lock" | "rebuild-target-and-rebind" | "forget-trust-anchor" | "inspect-snapshot-pair" | "refresh-then-recheck" | "fix-filesystem-permissions" | "human-review";
 
 export type RemoteHostRepairFinding = {
 	reason: string;
@@ -220,7 +220,7 @@ export type RemoteProjectCreateAnswerResult = Op<{ enrolled: boolean; projectId?
  * `revision` 是目录事实的版本：值被替换或标脏时递增。两个读者拿到同一个数 = 看到同一份事实，
  * 所以树与面板不再各自「再问一遍确认一下」。
  */
-export type RemoteProjectListResult = Op<{ entries: RemoteWorkspaceEntry[]; revision: number }>;
+export type RemoteProjectListResult = Op<{ entries: RemoteWorkspaceEntry[]; revision: number; truncated: boolean; scanned: number }>;
 
 /** 读项目内文件的结果；`contentBase64` 跨 IPC 传二进制。 */
 export type RemoteProjectReadResult = Op<{ contentBase64: string; bytes: number; mtimeMs: number }>;
@@ -336,3 +336,52 @@ export type RemoteSessionTitleIpcResult = Op<RemoteSessionTitleValue>;
 export type RemoteSessionRegisterValue = { sessionId: string; created: boolean; remoteSessionId: string; remotePath: string };
 export type RemoteSessionRegisterResult = ({ ok: true } & RemoteSessionRegisterValue) | { ok: false; code: string };
 export type RemoteSessionRegisterIpcResult = Op<RemoteSessionRegisterValue>;
+
+/* ----------------------------- 重新绑定（host rebind，设计 §3.2/§4） ----------------------------- */
+
+/** tx 状态（§4.3）；界面只显示这四种，不显示 pid/bootId/时间戳。 */
+export type RemoteHostRebindTxState = "idle" | "journal-present" | "busy" | "lock-unreadable";
+
+/** journal 阶段（§4.1）：只用来显示"大概在哪一步"，不承担完成判定。 */
+export type RemoteHostRebindStage = "prepared" | "source-disabled" | "projects-written" | "sessions-written" | "source-retired" | "committed";
+
+/** 预检结果（②）：只有计数与稳定码，不含 recordId、路径或 pin 字节。 */
+export type RemoteHostRebindSummary = {
+	readonly sourceHostId: string;
+	readonly targetHostId: string;
+	readonly records: { readonly projects: number; readonly sessions: number };
+	readonly referenceScan: { readonly complete: boolean; readonly count: number };
+	/** Non-fatal stable tokens from the plan (empty today; reserved so the field never changes shape). */
+	readonly warnings: readonly string[];
+	readonly tx: RemoteHostRebindTxState;
+};
+
+/** 终态（INV-10）：committed 带或不带非致命遗留。 */
+export type RemoteHostRebindOutcome = {
+	readonly code: "REMOTE_HOST_REBIND_COMMITTED" | "REMOTE_HOST_REBIND_COMMITTED_WITH_WARNINGS";
+	readonly stage: RemoteHostRebindStage;
+	readonly migratedProjects: number;
+	readonly migratedSessions: number;
+	readonly sourceRetired: boolean;
+	readonly warnings: readonly string[];
+};
+
+export type RemoteHostRebindPlanResult = { ok: true; summary: RemoteHostRebindSummary; requestId: string; expiresAt: number } | { ok: false; code: string };
+
+export type RemoteHostRebindAnswerResult = { ok: true; ran: false } | { ok: true; ran: true; outcome: RemoteHostRebindOutcome } | { ok: false; code: string };
+
+export type RemoteHostRebindPending =
+	| { readonly present: false; readonly tx: RemoteHostRebindTxState }
+	| {
+			readonly present: true;
+			readonly tx: RemoteHostRebindTxState;
+			readonly stage: RemoteHostRebindStage;
+			readonly sourceHostId: string;
+			readonly targetHostId: string;
+			readonly records: { readonly projects: number; readonly sessions: number };
+			readonly referenceScan: { readonly complete: boolean; readonly count: number };
+	  };
+
+export type RemoteHostRebindDescribeResult = { ok: true; pending: RemoteHostRebindPending } | { ok: false; code: string };
+
+export type RemoteHostRebindResumeResult = { ok: true; resumed: boolean; outcome?: RemoteHostRebindOutcome } | { ok: false; code: string };

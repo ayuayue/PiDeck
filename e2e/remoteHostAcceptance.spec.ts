@@ -13,7 +13,6 @@ import { REMOTE_ACCEPTANCE_ENV, REMOTE_APP_DATA_DIR_NAME, attachRemoteDiagnostic
  *
  * 隔离（硬要求 2）：userData 走临时目录（--user-data-dir + APPDATA/LOCALAPPDATA + PIDECK_E2E_USER_DATA_DIR）；
  * 刻意**不隔离 HOME/USERPROFILE**——产品用系统 OpenSSH 连接，必须读到真实用户的 ~/.ssh/config 与私钥。
- * 启动带 PIDECK_REMOTE_EXPERIMENTAL=1（远端能力在 main 里的开发态门禁）。
  *
  * 远端夹具（硬要求 5）：会话夹具与两个项目目录都用唯一 runId 命名，finally 里恢复被移动的目录并整目录删除，
  * 不留远端垃圾；失败时 Playwright 的 trace（retain-on-failure）与截图会保留在 test-results/。

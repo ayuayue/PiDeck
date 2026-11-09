@@ -60,7 +60,8 @@ test("单项变更时关闭弹确认并点名变更项", async ({ window }) => {
 test("配置管理：修改后关闭弹确认并点名变更项", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await openConfigPane(window);
-	const modal = window.locator(".config-modal");
+	// 设置页里的配置面板是嵌入模式（.config-pane）；独立弹窗模式才是 .config-modal。
+	const modal = window.locator(".config-pane, .config-modal").first();
 	await expect(modal).toBeVisible();
 
 	// 默认「模型」tab：新增一个供应商 = 真实脏变更

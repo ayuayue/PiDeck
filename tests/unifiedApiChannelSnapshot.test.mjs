@@ -47,8 +47,25 @@
  *   ipcChannels 808→811，remote 前缀已存在，前缀数仍 92。
  * 2026-11-03 合并刷新（+3）：codebuddySessions 的 start/answer/cancel 入场；
  *   ipcChannels 811→814，新增 codebuddy 前缀，前缀数 92→93。
- * 2026-11-04 刷新（净 +1）：WSL 目录浏览（Wave 0，提交 0f91282e4）退役 projects:add-wsl，
+ * 2026-11-03 SFTP-2 刷新（-3）：legacy remoteProjectTransfer{Start,Cancel,Event} 下线；
+ *   ipcChannels 814→811，remote 前缀仍存在，前缀数仍 93。
+ * 2026-11-04 本地 dev 集成刷新（+32）：CloudSyncManager 的 cloud-sync 域入场，
+ *   ipcChannels 811→843，新增 cloud-sync 前缀，前缀数 93→94。
+ * 2026-11-04 上游刷新（净 +1）：WSL 目录浏览（Wave 0，提交 0f91282e4）退役 projects:add-wsl，
  *   新增 projects:list-wsl-directory / projects:add-wsl-path → 815，projects 前缀已存在，前缀数仍 93。
+ * 2026-11-07 合并刷新（+1）：上面两条并轨后 ipcChannels 843→844、前缀仍 94（无新增前缀）。
+ * 2026-11-07 兼容壳下线（-3）：git:remote-repos / remote-log / remote-compare 删除，
+ *   ipcChannels 844→842，git 前缀 62→59，前缀数仍 94。
+ * 2026-11-07 兼容壳下线（-1）：files:search 旧形状删除（调用方一律用 files:search-page），
+ *   ipcChannels 842→841，前缀数仍 94。
+ * 2026-11-07 兼容壳下线（-6）：remote:project-entry-stat / file-create / directory-create /
+ *   entry-rename / entry-delete / project-search 删除（renderer 已全走公共 files:*），
+ *   ipcChannels 841→835，前缀数仍 94。
+ * 2026-11-07 rebind 向导（+4）：remote:rebind-plan / answer / describe / resume，
+ *   ipcChannels 835→839，前缀数仍 94（remote 前缀已存在）。
+ * 2026-11-07 P1-2（+1）：files:move-to（单源移动到目标全路径），ipcChannels 839→840。
+ * 2026-11-08 合并 origin/dev（+4）：linked-sessions 域入场（+4 通道），ipcChannels 840→844，
+ *   前缀数 94→95；git 前缀仍 59（兼容壳下线未被远端改回）。
  * 2026-11-07 刷新（+1）：agentMemoryDeleteEntries（记忆条目批量删除，一次 IPC 按落盘文件分组写入，
  *   提交 483a52dfe 漏刷快照）→ 816，agent-memory 前缀已存在，前缀数仍 93。
  * 2026-11-08 刷新（+4）：关联会话（子对话，host-boundaries 例外九）linked-sessions:snapshot/answer/archive/changed
@@ -59,9 +76,9 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 820;
-const PREFIX_COUNT = 94;
-const CHANNEL_DIGEST = "7a280f3d6ab71a2588fe8c694845c4673dad3bd667cc0ba108ce419eb94d0cfe";
+const CHANNEL_TOTAL = 844;
+const PREFIX_COUNT = 95;
+const CHANNEL_DIGEST = "af428f15e872d8cea881f09fb85b465a6893fe4807bdaafb80f76041d4ca918a";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -80,11 +97,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 820", () => {
+test("F3-1 通道常量总数 === 844", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 820（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 844（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 
@@ -105,11 +122,11 @@ test("F3-7 agentEventTags 单独锚定：8 个标签 + 摘要（与 ipcChannels 
 	for (const [key, value] of tagEntries) assert.ok(!channelValues.has(value), `事件标签 ${key}=${value} 与 IPC 通道同名`);
 });
 
-test("F3-5 锚点抽查：appGetChannel=update:get-channel、sessionsRuntimeEvent=sessions:runtime-event、git=62、enhance=3", () => {
+test("F3-5 锚点抽查：appGetChannel=update:get-channel、sessionsRuntimeEvent=sessions:runtime-event、git=59、enhance=3", () => {
 	assert.equal(ipcChannels.appGetChannel, "update:get-channel");
 	assert.equal(ipcChannels.sessionsRuntimeEvent, "sessions:runtime-event");
 	const countByPrefix = (prefix) => values.filter((value) => value.startsWith(`${prefix}:`)).length;
-	assert.equal(countByPrefix("git"), 62);
+	assert.equal(countByPrefix("git"), 59);
 	assert.equal(countByPrefix("enhance"), 3);
 });
 

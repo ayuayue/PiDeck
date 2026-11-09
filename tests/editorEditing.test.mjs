@@ -76,8 +76,10 @@ test("FileDiffViewer: auto-save reads the latest edit and never reapplies a stal
 	assert.match(viewer, /const latest = contentRef\.current;/);
 	assert.match(viewer, /contentRef\.current = value;\n\s*setContent\(value\)/);
 	// 保存完成后若用户已继续输入，不得用保存开始时的快照覆盖当前编辑内容。
-	// 循环先把 latest 落盘并记为基准，下一轮只有 ref 仍等于它时才清脏。
-	assert.match(viewer, /await saveContent\(savePath, latest, props\.fileAccessScope\);\n\s*if \(saveGeneration !== saveGenerationRef\.current\) return false;\n\s*lastSavedRef\.current = latest;/);
+	// 循环先把 latest 连同它的基准指纹落盘，再用新内容的指纹推进基准；下一轮只有 ref 仍等于它时才清脏。
+	assert.match(viewer, /await saveContent\(savePath, latest, props\.fileAccessScope, baselineRevisionRef\.current\);\n\s*if \(saveGeneration !== saveGenerationRef\.current\) return false;\n\s*baselineRevisionRef\.current = await contentRevision\(latest\);\n\s*lastSavedRef\.current = latest;/);
+	// 载入完成即建立基准指纹（sha256）：保存时带上它，盘上被外部改过就拒绝而不是静默覆盖。
+	assert.match(viewer, /baselineRevisionRef\.current = revision/);
 	assert.doesNotMatch(viewer, /setContent\(latest\)/);
 });
 

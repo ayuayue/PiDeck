@@ -97,6 +97,33 @@ test("runs one SFTP list job and validates the final frame", async () => {
 	});
 });
 
+test("rejects list metadata that claims fewer scanned entries than it returned", async () => {
+	const result = await runRemoteSftpJob(
+		process.platform === "win32" ? "C:\\tools\\remote-sftp.exe" : "/tmp/remote-sftp",
+		{ operation: "list", invocation: invocation(), root: "/srv/project", maxEntries: 2 },
+		{
+			spawnFn() {
+				return fakeChild((child) => {
+					child.stdout.write(
+						`${JSON.stringify({
+							type: "result",
+							ok: true,
+							result: {
+								entries: [{ name: "a.txt", kind: "file", isSymlink: false }],
+								scanned: 0,
+								truncated: false,
+							},
+						})}\n`,
+					);
+					child.exitCode = 0;
+					child.emit("close", 0, null);
+				});
+			},
+		},
+	);
+	assert.deepEqual(plain(result), { ok: false, code: "SFTP_RESULT_INVALID" });
+});
+
 test("forwards progress only for the requested transfer operation", async () => {
 	const progress = [];
 	const result = await runRemoteSftpJob(

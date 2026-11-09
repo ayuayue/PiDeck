@@ -158,7 +158,7 @@ function loadAgentManagerModule() {
 				// todo 快照解析纯函数：本测试不覆盖，空实现满足依赖契约
 				if (specifier === "../../shared/sessionTodo") return { parseTodoSnapshotData: () => undefined };
 				// acp_delegate 推导纯函数：本测试不覆盖（另有 sessionAcpDelegateDerive.test.mjs），空实现满足依赖契约
-				if (specifier === "./derivedSubagents") return { deriveToolSubagentEntries: () => [] };
+				if (specifier === "./derivedSubagents") return { deriveToolSubagentEntries: () => [], isSubagentDerivationInput: () => false };
 				// 会话 JSONL 流式行扫描器：真实加载（索引重建已改为流式，不再整文件 readFile）
 				if (specifier === "../sessions/jsonlLineStream") return loadTsCommonJs("src/main/sessions/jsonlLineStream.ts");
 				// 其余相对 import 交给统一沙箱按源文件目录解析（生产新增本地模块不再整片 MODULE_NOT_FOUND）
@@ -171,6 +171,9 @@ function loadAgentManagerModule() {
 			Promise,
 			JSON,
 			console,
+			// SessionHistoryReader 已改为流式行扫描（scanJsonlLines），需要 TextDecoder。
+			TextDecoder,
+			TextEncoder,
 		},
 		{ filename: "SessionHistoryReader.ts" },
 	);

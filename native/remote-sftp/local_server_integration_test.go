@@ -46,14 +46,15 @@ func newLocalSftpRemote(t *testing.T) (*sftpRemoteClient, func()) {
 	go func() {
 		_ = server.Serve()
 	}()
-	client, err := sftp.NewClientPipe(clientSide, clientSide)
+	bounded := newBoundedPacketReader(clientSide)
+	client, err := sftp.NewClientPipe(bounded, clientSide)
 	if err != nil {
 		_ = server.Close()
 		_ = serverSide.Close()
 		_ = clientSide.Close()
 		t.Fatal(err)
 	}
-	return &sftpRemoteClient{client: client}, func() {
+	return &sftpRemoteClient{client: client, bounded: bounded}, func() {
 		_ = client.Close()
 		_ = server.Close()
 		_ = clientSide.Close()

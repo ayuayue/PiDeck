@@ -284,11 +284,11 @@ function validateOAuth(oauth: unknown): string | null {
 	if (oauth.clientName !== undefined && (typeof oauth.clientName !== "string" || !oauth.clientName.trim())) {
 		return "oauth.clientName must be a non-empty string";
 	}
-	// pi 1.0.1：clientRegistration 选 dcr（动态注册，默认）或 cimd（Client ID Metadata Document）。
-	// cimd 用 pi.dev 的元数据文档标识客户端，不能与预注册的 clientId/clientName 组合，
+	// pi 1.5.0：clientRegistration 取值 auto（默认：支持 CIMD 时用 CIMD，否则动态注册）/ dcr / cimd。
+	// 与 pi 自己的 validateMcpServer 同口径：cimd 不能与预注册的 clientId/clientName 组合，
 	// 且回调地址必须是 localhost/127.0.0.1 上的 /callback（[::1] 不行）。
-	if (oauth.clientRegistration !== undefined && oauth.clientRegistration !== "dcr" && oauth.clientRegistration !== "cimd") {
-		return 'oauth.clientRegistration must be "dcr" or "cimd"';
+	if (oauth.clientRegistration !== undefined && oauth.clientRegistration !== "auto" && oauth.clientRegistration !== "dcr" && oauth.clientRegistration !== "cimd") {
+		return 'oauth.clientRegistration must be "auto", "dcr", or "cimd"';
 	}
 	if (oauth.clientRegistration === "cimd") {
 		if (oauth.clientId !== undefined || oauth.clientName !== undefined) {

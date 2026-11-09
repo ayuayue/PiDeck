@@ -17,7 +17,7 @@ import type { RemoteHostRepairAction, RemoteHostRepairFinding, RemoteHostRepairR
  */
 
 /** 只有会写东西的动作需要确认；只读/人工动作直接呈现为说明。 */
-const EXECUTABLE: ReadonlySet<RemoteHostRepairAction> = new Set(["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "forget-trust-anchor"]);
+const EXECUTABLE: ReadonlySet<RemoteHostRepairAction> = new Set(["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "clear-rebind-lock", "forget-trust-anchor"]);
 
 /** 动作靠显式映射而不是拼 key：远端回来的字符串拼出的 key 不存在。 */
 function actionLabel(action: RemoteHostRepairAction): string {
@@ -28,6 +28,8 @@ function actionLabel(action: RemoteHostRepairAction): string {
 			return t("settings.connections.repair.action.discardOrphanPin");
 		case "clear-stale-lock":
 			return t("settings.connections.repair.action.clearStaleLock");
+		case "clear-rebind-lock":
+			return t("settings.connections.repair.action.clearRebindLock");
 		case "forget-trust-anchor":
 			return t("settings.connections.repair.action.forgetTrustAnchor");
 		case "rebuild-target-and-rebind":
@@ -51,6 +53,8 @@ function actionHint(action: RemoteHostRepairAction): string {
 			return t("settings.connections.repair.hint.discardOrphanPin");
 		case "clear-stale-lock":
 			return t("settings.connections.repair.hint.clearStaleLock");
+		case "clear-rebind-lock":
+			return t("settings.connections.repair.hint.clearRebindLock");
 		case "forget-trust-anchor":
 			return t("settings.connections.repair.hint.forgetTrustAnchor");
 		default:

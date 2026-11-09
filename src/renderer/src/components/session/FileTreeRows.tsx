@@ -156,7 +156,7 @@ const FileRow = memo(function FileRow(props: FileTreeRowProps) {
 				{/* 文件也保留 16px twistie 槽位，确保与同级目录的图标和名称对齐。 */}
 				<span data-file-tree-twistie="" aria-hidden="true" className="h-full w-4 shrink-0" />
 				<span className="file-node-icon">{fileIconElement(node.name, false, false)}</span>
-				<span className={cn("file-node-name", gitStatusClass)}>{node.name}</span>
+				<span className={cn("file-node-name", gitStatusClass, node.ignored === true && "opacity-60")}>{node.name}</span>
 				<span className="file-node-type-label">{typeLabel}</span>
 			</button>
 		</div>
@@ -260,7 +260,7 @@ const DirectoryRow = memo(function DirectoryRow(props: FileTreeRowProps) {
 							/>
 						</span>
 						<span className="file-node-icon">{fileIconElement(node.name, true, expanded)}</span>
-						<span className={cn("file-node-name", gitStatusClass)}>{node.name}</span>
+						<span className={cn("file-node-name", gitStatusClass, node.ignored === true && "opacity-60")}>{node.name}</span>
 					</button>
 				</CollapsibleTrigger>
 				{/* overflow-clip 取代默认的 overflow-hidden：hidden 会让本层变成「不滚动的 scrollport」，

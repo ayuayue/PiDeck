@@ -170,7 +170,16 @@ export function WebHeader(props: {
 							) : null}
 							{/* P3：工作区抽屉（Git / 文件）入口 */}
 							{actions?.onOpenWorkspace ? (
-								<Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground max-[480px]:hidden pointer-coarse:size-9" onClick={actions.onOpenWorkspace} aria-label={t("web.workspaceDrawer")} title={t("web.workspaceDrawer")} data-testid="web-header-workspace">
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground max-[480px]:hidden pointer-coarse:size-9"
+									onClick={actions.onOpenWorkspace}
+									aria-label={t("web.workspaceDrawer")}
+									title={t("web.workspaceDrawer")}
+									data-testid="web-header-workspace"
+								>
 									<PanelRight className="size-4" aria-hidden="true" />
 								</Button>
 							) : null}

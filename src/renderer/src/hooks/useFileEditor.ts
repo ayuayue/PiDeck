@@ -59,7 +59,7 @@ export interface UseFileEditorInput {
 	/** 读取 Git 原始内容的 API */
 	readGitOriginalContent: (target: ProjectFileTarget) => Promise<string>;
 	/** 保存文件内容的 API；项目来源的 tab 必须把同一授权 scope 带到写入边界 */
-	writeFileContent: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
+	writeFileContent: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope, expectedRevision?: string) => Promise<void>;
 	/** 系统打开文件 */
 	openFile: (path: string | ProjectFileTarget) => Promise<void>;
 	/** 获取 Git 工作区差异 */
@@ -103,7 +103,7 @@ export interface UseFileEditorOutput {
 	editorTabAccessSequenceRef: React.MutableRefObject<number>;
 	readEditorFileContent: (path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
 	readEditorOriginalContent: (target?: ProjectFileTarget) => Promise<string>;
-	saveEditorFileContent: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
+	saveEditorFileContent: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope, expectedRevision?: string) => Promise<void>;
 	openEditorTab: (path: string | ProjectFileTarget, mode: "view" | "diff", originalContent?: string, modifiedContent?: string, allowSave?: boolean, tabKey?: string, label?: string, preserveDrawer?: boolean, openMode?: EditorTabOpenMode, initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => void;
 	closeEditorTab: (tabId: string) => void;
 	selectEditorTab: (tabId: string) => void;
@@ -217,7 +217,7 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 	// ---- IO callbacks ----
 	const readEditorFileContent = useCallback((path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => readFileContent(path, maxBytes, scope), [readFileContent]);
 	const readEditorOriginalContent = useCallback((target?: ProjectFileTarget) => (target ? readGitOriginalContent(target) : Promise.resolve("")), [readGitOriginalContent]);
-	const saveEditorFileContent = useCallback((path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => writeFileContent(path, content, scope), [writeFileContent]);
+	const saveEditorFileContent = useCallback((path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope, expectedRevision?: string) => writeFileContent(path, content, scope, expectedRevision), [writeFileContent]);
 
 	// ---- tab management helpers ----
 	const editorTabTextBytes = (tab: EditorTab) => (tab.originalContent.length + (tab.modifiedContent?.length ?? 0)) * 2;

@@ -35,11 +35,7 @@ const round1 = (value: number): number => Math.round(value * 10) / 10;
 /**
  * 用上一轮基线算这一轮的平均 CPU%。首轮没有基线，只建基线不产出行。
  */
-export function sampleProcessCpu(
-	input: readonly CpuSampleInput[],
-	baseline: CpuBaseline,
-	at: number,
-): { rows: ProcessCpuSample[]; baseline: CpuBaseline } {
+export function sampleProcessCpu(input: readonly CpuSampleInput[], baseline: CpuBaseline, at: number): { rows: ProcessCpuSample[]; baseline: CpuBaseline } {
 	const next: CpuBaseline = new Map();
 	const rows: ProcessCpuSample[] = [];
 	for (const proc of input) {

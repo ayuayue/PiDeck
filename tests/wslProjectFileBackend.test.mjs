@@ -129,7 +129,7 @@ function makeFallback() {
 		},
 		async stat(...args) {
 			calls.push(["stat", ...args]);
-			return { exists: true, isDirectory: false };
+			return { availability: "present", exists: true, isDirectory: false };
 		},
 		async writeContent(...args) {
 			calls.push(["writeContent", ...args]);
@@ -331,16 +331,16 @@ test("pathsExist answers per path when the all-or-nothing batch contains a missi
 
 test("stat reports absence from PATH_NOT_FOUND instead of failing", async () => {
 	const { backend } = makeBackend();
-	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "README.md" })), { exists: true, isDirectory: false });
-	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "src" })), { exists: true, isDirectory: true });
-	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "missing.txt" })), { exists: false, isDirectory: false });
+	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "README.md" })), { availability: "present", exists: true, isDirectory: false });
+	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "src" })), { availability: "present", exists: true, isDirectory: true });
+	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "missing.txt" })), { availability: "missing", exists: false, isDirectory: false, code: "PATH_NOT_FOUND" });
 });
 
 test("read paths fall back to the local backend when the helper chain is unavailable", async () => {
 	const { backend, fallback } = makeBackend({ pool: makePool("unavailable") });
 	assert.equal(await backend.readContent({ projectId: PROJECT, relativePath: "README.md" }), "fallback-content");
 	assert.deepEqual(await backend.pathsExist([{ projectId: PROJECT, relativePath: "README.md" }]), [true, true]);
-	assert.deepEqual(await backend.stat({ projectId: PROJECT, relativePath: "README.md" }), { exists: true, isDirectory: false });
+	assert.deepEqual(await backend.stat({ projectId: PROJECT, relativePath: "README.md" }), { availability: "present", exists: true, isDirectory: false });
 	assert.deepEqual(
 		fallback.calls.map((call) => call[0]),
 		["readContent", "pathsExist", "stat"],
@@ -355,4 +355,30 @@ test("writes stay delegated to the local backend in Wave 1a", async () => {
 		["writeContent"],
 	);
 	assert.equal(pool.calls.length, 0);
+});
+
+test("helper 链路也带 Git ignore 修饰（P1-5）：判定失败只是不修饰", async () => {
+	const calls = [];
+	const fallback = makeFallback();
+	fallback.checkIgnore = async (target, paths) => {
+		calls.push([target.relativePath, [...paths]]);
+		return paths.map((path) => path === "src");
+	};
+	const { backend } = makeBackend({ fallback });
+	const page = await backend.directoryPage({ projectId: PROJECT, relativePath: "" });
+	const byPath = Object.fromEntries(page.entries.map((entry) => [entry.relativePath, entry]));
+	assert.equal(byPath.src.ignored, true);
+	assert.equal(byPath["README.md"].ignored, undefined, "未忽略不写字段（未知 ≠ 未忽略）");
+	assert.deepEqual(calls, [["", ["src", "README.md"]]], ".git 与 node_modules 已在 helper 链路被隐藏，不参与判定");
+
+	const throwing = makeFallback();
+	throwing.checkIgnore = async () => {
+		throw new Error("GIT_COMMAND_FAILED");
+	};
+	const { backend: degraded } = makeBackend({ fallback: throwing });
+	const degradedPage = await degraded.directoryPage({ projectId: PROJECT, relativePath: "" });
+	assert.ok(
+		degradedPage.entries.every((entry) => entry.ignored === undefined),
+		"判定失败 = 不修饰，目录页仍然成功",
+	);
 });

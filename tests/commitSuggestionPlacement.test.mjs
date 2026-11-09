@@ -77,7 +77,12 @@ function renderComposer(run, options = {}) {
 			"../../desktopApi": { desktopApi: {} },
 			"../../rendererUtils": { COMPOSER_TEXT_MAX_HEIGHT: 320 },
 			"./ComposerStatsLine": { ComposerStatsLine: hidden },
-			"./ComposerWidgetLayout": { ComposerWidgetLayoutProvider: passthrough, useComposerWidgetLayoutValue: () => ({}) },
+			"./ComposerWidgetLayout": {
+				ComposerWidgetLayoutProvider: passthrough,
+				useComposerWidgetLayoutValue: () => ({}),
+				// PR #508：卡片折叠 hook 入场；本测试只关心快捷操作位置，给稳定默认值。
+				useComposerWidgetCollapsed: (_key, defaultCollapsed = true) => ({ collapsed: defaultCollapsed, setCollapsed: () => {}, toggleCollapsed: () => {}, clearCollapsed: () => {}, clearCollapsedByPrefix: () => {} }),
+			},
 			"./VoiceTranscriptionControls": { VoiceTranscriptionControls: hidden },
 			"../../i18n": { t: (key) => key },
 			"../ui-shadcn/button": { Button: ({ children, variant: _variant, size: _size, ...props }) => createElement("button", props, children) },

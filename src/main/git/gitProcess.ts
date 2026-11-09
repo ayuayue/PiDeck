@@ -49,6 +49,12 @@ export interface RunGitOptions {
 	 * 缺省时 stdin 直接 ignore，避免误留管道句柄。
 	 */
 	input?: string;
+	/**
+	 * 把列出的退出码当**正常结果**返回（stdout/stderr 原样带回），而不是 reject。
+	 * 只给「非 0 也是答案」的探测命令用：`git check-ignore` 的 exit 1 = 没有任何路径被忽略。
+	 * 缺省时保持原语义（非 0 一律失败）。
+	 */
+	allowExitCodes?: readonly number[];
 }
 
 /**
@@ -147,7 +153,7 @@ export function runGit(args: string[], options: RunGitOptions, command = "git"):
 			clearTimers();
 			if (overflowed) {
 				settle(() => reject(new Error(`Command output exceeded ${maxBuffer} bytes: ${command} ${args.join(" ")}`)));
-			} else if (code === 0) {
+			} else if (code === 0 || (code !== null && (options.allowExitCodes?.includes(code) ?? false))) {
 				settle(() => resolve({ stdout, stderr }));
 			} else {
 				// 对齐 execFile 的报错格式（"Command failed: git <cmd>\n<stderr>"），

@@ -9,7 +9,6 @@ const locator = { kind: "ssh", hostId: "remote-host", remotePath: "/workspace/pr
 const oid = (char) => char.repeat(40);
 const snapshot = { status: Buffer.from(" M tracked.txt\0").toString("base64"), head: oid("a"), branch: "main" };
 const hello = { protocolVersion: 1, root: locator.remotePath, capabilities: ["git.status", "git.workspaceDiff", "git.log", "git.commitDetail", "git.refs", "git.refFileDiff"] };
-const logPage = { commits: [{ oid: oid("a"), parents: [oid("b")], authorName: "Fixture", authorEmail: "fixture@example.invalid", authorTimeSec: 1700000000, subject: "one" }], hasMore: true };
 const detailValue = {
 	parents: [oid("b")],
 	authorName: "Fixture",
@@ -52,7 +51,6 @@ function fixture(overrides = {}) {
 			options?.onRequestId?.("request-id");
 			if (method === "hello") return hello;
 			if (method === "git.status") return snapshot;
-			if (method === "git.log") return logPage;
 			if (method === "git.commitDetail") return { ...detailValue, oid: params.oid };
 			if (method === "git.refs") return refsValue;
 			return { originalContent: "base\n", modifiedContent: "working\n" };
@@ -198,16 +196,8 @@ test("remote Git IPC disposal cancels reads and admits no further operations", a
 	assert.equal(f.calls.length, 0);
 });
 
-test("remote history IPC answers log, detail, refs and ref-file diff through the real service", async () => {
+test("remote history IPC answers detail, refs and ref-file diff through the real service", async () => {
 	const f = fixture();
-	const page = await f.handlers.get(ipcChannels.gitRemoteLog)(f.event, projectId, { maxCount: 10, skip: 5 });
-	assert.equal(page.ok, true);
-	assert.equal(page.page.hasMore, true);
-	assert.deepEqual(plain(page.page.commits), logPage.commits);
-	assert.deepEqual(plain(f.calls.at(-1)), { method: "git.log", params: { maxCount: 10, skip: 5 } });
-	const defaults = await f.handlers.get(ipcChannels.gitRemoteLog)(f.event, projectId);
-	assert.equal(defaults.ok, true);
-	assert.deepEqual(plain(f.calls.at(-1)), { method: "git.log", params: { maxCount: 50, skip: 0 } });
 	const detail = await f.handlers.get(ipcChannels.gitRemoteCommitDetail)(f.event, projectId, oid("d"));
 	assert.equal(detail.ok, true);
 	assert.equal(detail.detail.oid, oid("d"));
@@ -230,11 +220,6 @@ test("remote history IPC answers log, detail, refs and ref-file diff through the
 
 test("remote history IPC rejects invalid parameters before any helper session is opened", async () => {
 	const f = fixture();
-	for (const options of [0, 101, 1.5, "10", null, { maxCount: 10, extra: 1 }, { skip: -1 }, { skip: 100001 }]) {
-		const result = await f.handlers.get(ipcChannels.gitRemoteLog)(f.event, projectId, options);
-		assert.equal(result.ok, false, JSON.stringify(options));
-		assert.equal(result.code, "GIT_RESULT_INVALID");
-	}
 	for (const value of ["abc", oid("d").toUpperCase(), 42, null]) {
 		const result = await f.handlers.get(ipcChannels.gitRemoteCommitDetail)(f.event, projectId, value);
 		assert.equal(result.ok, false, String(value));
@@ -253,13 +238,11 @@ test("remote history IPC re-validates helper answers and refuses anything outsid
 	const f = fixture();
 	f.session.request = async (method, params) => {
 		if (method === "hello") return hello;
-		if (method === "git.log") return { commits: Array.from({ length: 101 }, () => ({ oid: oid("a"), parents: [], authorName: "F", authorEmail: "f@e.invalid", authorTimeSec: 1, subject: "s" })), hasMore: false };
 		if (method === "git.commitDetail") return { ...detailValue, oid: oid("e") };
 		if (method === "git.refs") return { head: oid("a"), branch: "main", refs: [{ fullName: "refs/remotes/origin/main", name: "origin/main", oid: oid("b"), kind: "branch" }] };
 		return { originalContent: "a\0b", modifiedContent: "" };
 	};
-	// A page longer than the ceiling, an answer for a different commit, a remote-tracking ref and a NUL byte.
-	assert.equal((await f.handlers.get(ipcChannels.gitRemoteLog)(f.event, projectId)).code, "GIT_RESULT_INVALID");
+	// An answer for a different commit, a remote-tracking ref and a NUL byte.
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteCommitDetail)(f.event, projectId, oid("d"))).code, "GIT_RESULT_INVALID");
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefs)(f.event, projectId)).code, "GIT_RESULT_INVALID");
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefFileDiff)(f.event, projectId, null, oid("d"), { projectId, relativePath: "x.txt" })).code, "GIT_RESULT_INVALID");
@@ -267,7 +250,6 @@ test("remote history IPC re-validates helper answers and refuses anything outsid
 
 test("disabled remote history IPC refuses with zero helper work", async () => {
 	const f = fixture({ enabled: false });
-	assert.equal((await f.handlers.get(ipcChannels.gitRemoteLog)(f.event, projectId)).code, "REMOTE_FEATURE_DISABLED");
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteCommitDetail)(f.event, projectId, oid("d"))).code, "REMOTE_FEATURE_DISABLED");
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefs)(f.event, projectId)).code, "REMOTE_FEATURE_DISABLED");
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefFileDiff)(f.event, projectId, null, oid("d"), { projectId, relativePath: "x.txt" })).code, "REMOTE_FEATURE_DISABLED");
@@ -276,32 +258,32 @@ test("disabled remote history IPC refuses with zero helper work", async () => {
 
 test("every read channel carries the repository scope into the helper frame", async () => {
 	const f = fixture();
-	const readCapabilities = ["git.status", "git.log", "git.commitDetail", "git.refs", "git.compare", "git.refFileDiff", "git.recoveryList", "git.syncFacts"];
+	const readCapabilities = ["git.status", "git.commitDetail", "git.refs", "git.refFileDiff", "git.recoveryList", "git.syncFacts"];
 	f.session.request = async (method, params, options) => {
 		f.calls.push({ method, params, repo: options?.repo });
 		options?.onRequestId?.("request-" + f.calls.length);
 		if (method === "hello") return { protocolVersion: 1, root: locator.remotePath, capabilities: readCapabilities };
 		if (method === "git.status") return snapshot;
-		if (method === "git.log") return logPage;
 		if (method === "git.commitDetail") return { ...detailValue, oid: params.oid };
 		if (method === "git.refs") return refsValue;
-		if (method === "git.compare") return { base: { ref: params.base, oid: oid("a") }, head: { ref: params.head, oid: oid("b") }, files: [] };
 		if (method === "git.recoveryList") return { entries: [], truncated: false };
 		if (method === "git.syncFacts") return { branch: "main", upstream: null, ahead: 0, behind: 0, remotes: [] };
 		return { originalContent: "base\n", modifiedContent: "working\n" };
 	};
 	const scoped = "packages/nested";
+	// T5：公共 target 是**项目相对**的——嵌套仓库里的文件是 `packages/nested/x.txt`，不是 `x.txt`。
+	const scopedFile = { projectId, relativePath: "packages/nested/x.txt" };
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteSnapshot)(f.event, projectId, scoped)).ok, true);
-	assert.equal((await f.handlers.get(ipcChannels.gitRemoteLog)(f.event, projectId, { maxCount: 10 }, scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteCommitDetail)(f.event, projectId, oid("d"), scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefs)(f.event, projectId, scoped)).ok, true);
-	assert.equal((await f.handlers.get(ipcChannels.gitRemoteCompare)(f.event, projectId, "refs/heads/main", "refs/tags/v1", scoped)).ok, true);
-	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefFileDiff)(f.event, projectId, null, oid("d"), { projectId, relativePath: "x.txt" }, scoped)).ok, true);
+	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefFileDiff)(f.event, projectId, null, oid("d"), scopedFile, scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRecoveryList)(f.event, projectId, scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteSyncFacts)(f.event, projectId, scoped)).ok, true);
 	const scopedCalls = f.calls.filter((call) => call.method !== "hello");
-	assert.equal(scopedCalls.length, 8, "eight scoped reads reach the helper");
+	assert.equal(scopedCalls.length, 6, "six scoped reads reach the helper");
 	for (const call of scopedCalls) assert.equal(call.repo, scoped, call.method + " must carry the selected repository");
+	// helper 只看到仓库内路径：项目相对的公共 target 在边界处被削回仓库内。
+	assert.equal(f.calls.find((call) => call.method === "git.refFileDiff").params.path, "x.txt", "the helper boundary only ever sees a repository-relative path");
 });
 
 const WRITE_CAPABILITIES = ["git.status", "git.stage", "git.unstage", "git.commit", "git.createBranch", "git.switchBranch", "git.discard", "git.recoveryRestore", "git.recoveryDrop", "git.fetch", "git.push", "git.pull"];
@@ -309,13 +291,15 @@ const WRITE_TOKENS = ["mutationToken", "commitToken", "branchToken", "switchToke
 
 /** Every write handler, in call order: the trailing scope is the last argument, exactly like preload sends it. */
 function writeInvocations(grants, repo) {
+	// T5：公共 target/路径是项目相对的（嵌套 scope 下带 `packages/nested/` 前缀）。
+	const file = { projectId, relativePath: repo === undefined || repo === "" ? "a.txt" : repo + "/a.txt" };
 	return [
-		["gitRemoteMutateIndex", projectId, "stage", "workingTree", { projectId, relativePath: "a.txt" }, grants.mutationToken, repo],
+		["gitRemoteMutateIndex", projectId, "stage", "workingTree", file, grants.mutationToken, repo],
 		["gitRemoteCommit", projectId, "message", grants.commitToken, repo],
 		["gitRemoteCreateBranch", projectId, "feature", grants.branchToken, repo],
 		["gitRemoteSwitchBranch", projectId, "feature", grants.switchToken, repo],
-		["gitRemoteDiscard", projectId, "workingTree", { projectId, relativePath: "a.txt" }, grants.discardToken, repo],
-		["gitRemoteRecoveryRestore", projectId, "refs/pideck/recovery/x", oid("a"), "a.txt", grants.restoreToken, repo],
+		["gitRemoteDiscard", projectId, "workingTree", file, grants.discardToken, repo],
+		["gitRemoteRecoveryRestore", projectId, "refs/pideck/recovery/x", oid("a"), file.relativePath, grants.restoreToken, repo],
 		["gitRemoteRecoveryDrop", projectId, "refs/pideck/recovery/x", oid("a"), grants.dropToken, repo],
 		["gitRemoteFetch", projectId, "origin", grants.fetchToken, repo],
 		["gitRemotePush", projectId, "origin", "main", grants.pushToken, repo],
@@ -361,9 +345,11 @@ test("every snapshot mints grants bound to its own scope, and a cross-scope toke
 	assert.equal(crossed.code, "GIT_WRITE_SNAPSHOT_EXPIRED");
 	assert.equal(f.calls.length, callsBefore, "a cross-scope token must never reach the helper");
 	// The same grant still works in the scope it was minted for.
-	const scoped = await f.handlers.get(ipcChannels.gitRemoteMutateIndex)(f.event, projectId, "stage", "workingTree", { projectId, relativePath: "a.txt" }, nested.snapshot.mutationToken, "packages/nested");
+	const scoped = await f.handlers.get(ipcChannels.gitRemoteMutateIndex)(f.event, projectId, "stage", "workingTree", { projectId, relativePath: "packages/nested/a.txt" }, nested.snapshot.mutationToken, "packages/nested");
 	assert.equal(scoped.ok, true);
 	assert.equal(f.calls.at(-1).repo, "packages/nested");
+	// helper 边界只看仓库内路径：项目相对 target 的前缀在这里被剥掉。
+	assert.equal(f.calls.at(-1).params.path, "a.txt");
 });
 
 test("write channels carry the trailing repository scope into the helper frame", async () => {
@@ -404,57 +390,6 @@ test("a write channel refuses an unsafe scope before any host work", async () =>
 	assert.equal(f.calls.length, callsBefore);
 });
 
-test("remote repo discovery is a token-free read with a re-validated answer", async () => {
-	const f = fixture();
-	f.session.request = async (method, params, options) => {
-		f.calls.push({ method, params, repo: options?.repo });
-		options?.onRequestId?.("request-" + f.calls.length);
-		if (method === "hello") return { protocolVersion: 1, root: locator.remotePath, capabilities: ["git.repos"] };
-		return {
-			repos: [
-				{ path: "", name: "project" },
-				{ path: "packages/nested", name: "nested" },
-			],
-			truncated: true,
-		};
-	};
-	const result = await f.handlers.get(ipcChannels.gitRemoteRepos)(f.event, projectId);
-	assert.deepEqual(plain(result), {
-		ok: true,
-		repos: [
-			{ path: "", name: "project" },
-			{ path: "packages/nested", name: "nested" },
-		],
-		truncated: true,
-	});
-	assert.deepEqual(
-		f.calls.map((call) => call.method),
-		["hello", "git.repos"],
-	);
-	assert.equal(f.calls[1].repo, undefined, "discovery names no repository scope itself");
-	// Trust refusal and disabled mode issue zero helper requests.
-	const untrusted = fixture({ trusted: async () => false });
-	assert.deepEqual(plain(await untrusted.handlers.get(ipcChannels.gitRemoteRepos)(untrusted.event, projectId)), { ok: false, code: "GIT_TRUST_REQUIRED" });
-	assert.equal(untrusted.calls.length, 0);
-	const disabled = fixture({ enabled: false });
-	assert.deepEqual(plain(await disabled.handlers.get(ipcChannels.gitRemoteRepos)(disabled.event, projectId)), { ok: false, code: "REMOTE_FEATURE_DISABLED" });
-	assert.equal(disabled.calls.length, 0);
-	// Duplicate or escaping paths are refused, never silently filtered.
-	for (const reply of [
-		{
-			repos: [
-				{ path: "", name: "project" },
-				{ path: "", name: "again" },
-			],
-			truncated: false,
-		},
-		{ repos: [{ path: "../outside", name: "escape" }], truncated: false },
-	]) {
-		const broken = fixture();
-		broken.session.request = async (method) => (method === "hello" ? { protocolVersion: 1, root: locator.remotePath, capabilities: ["git.repos"] } : reply);
-		assert.deepEqual(plain(await broken.handlers.get(ipcChannels.gitRemoteRepos)(broken.event, projectId)), { ok: false, code: "GIT_RESULT_INVALID" });
-	}
-});
 /** 同主机、不同 root 的两个项目：能力/事实必须按项目自己的 root 回答。 */
 const projectLocators = {
 	[projectId]: locator,

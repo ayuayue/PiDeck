@@ -107,10 +107,10 @@ export function classifyStoreFileLockOwner(owner: StoreFileLockOwner | undefined
  * a crashed one. `undefined` means the age is unknown (e.g. `lstat` itself was refused), i.e. it
  * must not be reclaimed.
  */
-type StoreFileLockState = { readonly kind: "missing" } | { readonly kind: "owner"; readonly owner: StoreFileLockOwner } | { readonly kind: "unreadable"; readonly modifiedAtMs: number | undefined };
+export type StoreFileLockState = { readonly kind: "missing" } | { readonly kind: "owner"; readonly owner: StoreFileLockOwner } | { readonly kind: "unreadable"; readonly modifiedAtMs: number | undefined };
 
 /** Owner metadata read fail-closed: unreadable, garbage or mis-sized all mean "cannot be judged". */
-async function readLockFileState(lockPath: string): Promise<StoreFileLockState> {
+export async function readStoreFileLockState(lockPath: string): Promise<StoreFileLockState> {
 	let stats;
 	try {
 		stats = await lstat(lockPath);
@@ -174,7 +174,7 @@ export async function acquireStoreFileLock(options: StoreFileLockOptions): Promi
 		} catch (error) {
 			// Anything but "somebody else made it first" is an unwritable lock directory, not contention.
 			if (errorCode(error) !== "EEXIST") throw new Error(options.unwritableCode);
-			const existing = await readLockFileState(options.lockPath);
+			const existing = await readStoreFileLockState(options.lockPath);
 			// Released between our create attempt and this read: retry the exclusive create.
 			if (existing.kind === "missing") continue;
 			const reclaimable = existing.kind === "owner" ? classifyStoreFileLockOwner(existing.owner, probe) === "stale" : isAbandonedUnreadableLockFile(existing.modifiedAtMs, options.now());

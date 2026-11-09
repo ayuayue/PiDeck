@@ -42,13 +42,13 @@ test("智能体市场网格：删除淡出 + 网格位移收拢", () => {
 test("侧栏活动页：活动行与最近会话行删除淡出 + 位移收拢", () => {
 	const active = read("components/sidebar/ActiveSessionsTree.tsx");
 	// remainingIds 只圈活动行（agent.id）：会话关闭离开活动区也是一次移除，淡出后落到下方「最近」
-	assert.match(active, /<RemovalList\s+remainingIds=\{liveRows\.map\(\(row\) => row\.agent\.id\)\}>/, "活动行 remainingIds 必须来自 liveRows 本身");
+	assert.match(active, /<RemovalList\s+remainingIds=\{nestedLiveRows\.map\(\(\{ row \}\) => row\.agent\.id\)\}>/, "活动行 remainingIds 必须来自 liveRows 本身（嵌套行结构）");
 	assert.match(active, /<RemovalRow\s+key=\{agent\.id\}\s+itemId=\{agent\.id\}/, "活动行必须逐个包在 RemovalRow 里");
 	// 活动行按最近活动排序：顺序随消息实时变化不是用户动作，不得开 orderSensitive
 	assert.doesNotMatch(active, /orderSensitive/, "活动行排序非用户动作，开启会让每次流式刷新都整列测量");
 
 	const recent = read("components/sidebar/RecentSessionsSection.tsx");
-	assert.match(recent, /<RemovalList\s+remainingIds=\{props\.rows\.map\(\(row\) => row\.session\.id\)\}>/, "最近会话 remainingIds 必须来自 props.rows 本身");
+	assert.match(recent, /<RemovalList\s+remainingIds=\{nestedRows\.map\(\(\{ row \}\) => row\.session\.id\)\}>/, "最近会话 remainingIds 必须来自 props.rows 本身（嵌套行结构）");
 	assert.match(recent, /<RemovalRow\s+key=\{row\.session\.id\}\s+itemId=\{row\.session\.id\}>/, "最近会话行必须逐个包在 RemovalRow 里");
 });
 

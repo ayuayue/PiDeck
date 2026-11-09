@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { createLocalProjectFileService, createRemoteProjectFileService } = loadTsCommonJs("src/renderer/src/services/projectFileService.ts");
+const { createProjectFileService, localProjectFilePorts, remoteProjectFilePorts } = loadTsCommonJs("src/renderer/src/services/projectFileService.ts");
 const { PROJECT_SERVICE_CODES } = loadTsCommonJs("src/renderer/src/services/projectServiceContracts.ts");
 const { createRemoteProjectEntryService } = loadTsCommonJs("src/main/remote/RemoteProjectEntryService.ts");
 
@@ -32,9 +32,15 @@ function fixture() {
 	});
 	const api = {
 		files: {
+			async rename(target, newName) {
+				// 收口后改名走公共 files:rename：main 内部现读版本并提交，renderer 不持令牌。
+				return { ok: true, value: { projectId: target.projectId, relativePath: target.relativePath.replace(/[^/]+$/, newName) } };
+			},
 			async stat(target) {
 				assert.equal(target.projectId, projectId);
-				return { exists: target.relativePath !== "missing", isDirectory: target.relativePath === "" };
+				if (target.relativePath === "missing") return { availability: "missing", exists: false, isDirectory: false, code: "ENOENT" };
+				if (target.relativePath === "unavailable") return { availability: "unavailable", exists: false, isDirectory: false, code: "SSH_HOST_NOT_READY" };
+				return { availability: "present", exists: true, isDirectory: target.relativePath === "" };
 			},
 		},
 		remoteHosts: {
@@ -51,23 +57,22 @@ function fixture() {
 
 test("remote provider stat preserves an outstanding rename grant across 128 reads", async () => {
 	const { api, entries } = fixture();
-	const files = createRemoteProjectFileService(projectId, api, testFence());
+	const files = createProjectFileService(projectId, api, testFence(), remoteProjectFilePorts(projectId, api));
 	const target = { projectId, relativePath: "src/a.ts" };
-	const grant = await entries.stat(1, projectId, target.relativePath);
 	for (let index = 0; index < 128; index++) {
 		const state = await files.stat({ projectId, relativePath: `src/file-${index}.ts` });
 		assert.equal(state.availability, "present");
 	}
-	assert.equal(entries.tokenCount(), 1);
-	const renamed = await files.renameEntry(target, "renamed.ts", grant.version);
+	// 改名不再需要 renderer 持有的 grant：public files:rename 由 main 现读版本并提交。
+	const renamed = await files.renameEntry(target, "renamed.ts");
 	assert.deepEqual(plain(renamed.target), { projectId, relativePath: "src/renamed.ts" });
-	assert.equal(entries.tokenCount(), 0);
+	assert.equal(entries.tokenCount(), 0, "provider 不再签发/持有 entry 令牌");
 });
 
-test("both providers keep project identity and report present, directory, and unavailable states", async () => {
-	for (const createService of [createLocalProjectFileService, createRemoteProjectFileService]) {
+test("both providers keep project identity and report present, missing, and unavailable states", async () => {
+	for (const makePorts of [localProjectFilePorts, remoteProjectFilePorts]) {
 		const { api, entries } = fixture();
-		const files = createService(projectId, api, testFence());
+		const files = createProjectFileService(projectId, api, testFence(), makePorts(projectId, api));
 		const present = await files.stat({ projectId, relativePath: "src/a.ts" });
 		assert.deepEqual(plain(present.target), { projectId, relativePath: "src/a.ts" });
 		assert.equal(present.availability, "present");
@@ -75,11 +80,14 @@ test("both providers keep project identity and report present, directory, and un
 		const directory = await files.stat({ projectId, relativePath: "" });
 		assert.equal(directory.availability, "present");
 		assert.equal(directory.isDirectory, true);
-		// 公共 files.stat 的负结果无法区分“缺失”和“读取失败”：只能记 unavailable，不能谎报不存在。
-		const negative = await files.stat({ projectId, relativePath: "missing" });
-		assert.equal(negative.availability, "unavailable");
-		assert.equal(negative.code, PROJECT_SERVICE_CODES.statUnavailable);
-		assert.equal("isDirectory" in negative, false, "读不到时不能猜是不是目录");
+		const missing = await files.stat({ projectId, relativePath: "missing" });
+		assert.equal(missing.availability, "missing");
+		assert.equal(missing.code, "ENOENT");
+		assert.equal("isDirectory" in missing, false, "missing is not evidence of a file type");
+		const unavailable = await files.stat({ projectId, relativePath: "unavailable" });
+		assert.equal(unavailable.availability, "unavailable");
+		assert.equal(unavailable.code, "SSH_HOST_NOT_READY");
+		assert.equal("isDirectory" in unavailable, false, "an unavailable read cannot guess a file type");
 		assert.equal(entries.tokenCount(), 0);
 	}
 });
@@ -95,7 +103,7 @@ test("stat rejects a target from another project before touching any read channe
 		},
 		remoteHosts: {},
 	};
-	const files = createRemoteProjectFileService(projectId, api, testFence());
+	const files = createProjectFileService(projectId, api, testFence(), remoteProjectFilePorts(projectId, api));
 	await assert.rejects(
 		() => files.stat({ projectId: "other-project", relativePath: "a.ts" }),
 		(error) => error?.code === PROJECT_SERVICE_CODES.projectMismatch,

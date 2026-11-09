@@ -42,11 +42,11 @@ export type McpOAuth = {
 	 */
 	authServerMetadataUrl?: string;
 	/**
-	 * 客户端注册方式（pi 1.0.1）：`dcr` 动态注册（默认）/ `cimd` 用 pi.dev 的
-	 * Client ID Metadata Document 标识客户端。cimd 不能与 clientId/clientName 组合，
-	 * 且回调地址必须是 localhost/127.0.0.1 上的 /callback。
+	 * 客户端注册方式（pi 1.0.1 起 `dcr`/`cimd`；pi 1.5.0 起默认 `auto`）：
+	 * `auto` 支持时用 CIMD、否则动态注册；`dcr` 总是动态注册；`cimd` 强制 CIMD。
+	 * cimd 不能与 clientId/clientName 组合，且回调地址必须是 localhost/127.0.0.1 上的 /callback。
 	 */
-	clientRegistration?: "dcr" | "cimd";
+	clientRegistration?: "auto" | "dcr" | "cimd";
 	[key: string]: unknown;
 };
 

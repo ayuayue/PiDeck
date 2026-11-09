@@ -76,6 +76,7 @@ export default function SheetPreview(props: { bytes: Uint8Array }) {
 			{colCount === 0 ? (
 				<div className="file-diff-error">{t("editor.sheetEmpty")}</div>
 			) : (
+				/* scroll-ok: text —— 单个表格的二维滚动，行集合由预览行数上限约束，没有可虚拟化的长列表。 */
 				<div className="min-h-0 flex-1 overflow-auto">
 					<table className="border-collapse text-caption">
 						<tbody>

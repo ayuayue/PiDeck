@@ -63,11 +63,7 @@ test("dot-matrix 九点用 CSS keyframes，不再由 Motion 驱动", () => {
 test("Tailwind token 与 keyframes 成对存在（少一边就等于没有动画）", () => {
 	const css = read(TAILWIND);
 	for (const name of ["pideck-dot", "pideck-pulse"]) {
-		assert.match(
-			css,
-			new RegExp("--animate-" + name + ":\\s*" + name + " [^;]+infinite[^;]*;"),
-			"--animate-" + name + " 必须指向同名 keyframes 且是 infinite",
-		);
+		assert.match(css, new RegExp("--animate-" + name + ":\\s*" + name + " [^;]+infinite[^;]*;"), "--animate-" + name + " 必须指向同名 keyframes 且是 infinite");
 		assert.match(css, new RegExp("@keyframes " + name + " \\{"), "@keyframes " + name + " 必须存在");
 	}
 	// 错峰靠 animation-delay：必须 backwards 填充，否则延迟期显示基准样式（九点先实心亮一下）

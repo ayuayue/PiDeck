@@ -33,7 +33,7 @@ test("主进程对旧配置缺字段/脏值回落，且拒绝非布尔补丁", (
 test("渲染层写 data-motion 并进 effect 依赖", () => {
 	const appearance = read("src/renderer/src/hooks/appearance/useAppAppearance.ts");
 	assert.ok(appearance.includes('root.dataset.motion = settings.reduceMotion === true ? "reduced" : "on";'), "没写 dataset.motion");
-	assert.ok(appearance.includes("settings.codeBlockWordWrap, settings.reduceMotion,"), "dataset 没进 effect 依赖");
+	assert.match(appearance, /settings\.codeBlockWordWrap,\s*settings\.reduceMotion,/, "dataset 没进 effect 依赖");
 });
 
 test("全局 CSS 用 0.001ms 降级，保留 animationend", () => {

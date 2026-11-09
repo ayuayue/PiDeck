@@ -1063,7 +1063,11 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		const query = atFileQuery;
 		let current = true;
 		const timer = window.setTimeout(() => {
-			void loadAtFileNameSearch(projectId, query, (id, text) => desktopApi.files.search(id, text))
+			// files:search（旧形状）已下线：公共搜索页本机/远端同形，results 就是文件名命中。
+			void loadAtFileNameSearch(projectId, query, async (id, text) => {
+				const page = await desktopApi.files.searchPage(id, text);
+				return page.ok ? page.value.results : [];
+			})
 				.then((snapshot) => {
 					if (current) setAtFileNameSearch(snapshot);
 				})

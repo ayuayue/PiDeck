@@ -8,6 +8,8 @@
  */
 import type { Op } from "../op";
 import type { ProjectFileTarget } from "./project";
+import type { RemoteProjectSearchEntry } from "./remoteHost";
+import type { FileSearchResult } from "./session";
 
 export type ProjectDirectoryEntry = {
 	target: ProjectFileTarget;
@@ -23,9 +25,32 @@ export type ProjectDirectoryEntry = {
 	mtimeMs?: number;
 	ctimeMs?: number;
 	size?: number;
-	/** Git ignore 修饰（仅当 backend 有 Git 判定时出现）；不是“隐藏”。 */
+	/**
+	 * Git ignore 修饰（仅当 backend 有 Git 判定时出现）；不是“隐藏”。
+	 *
+	 * 本机与远端目录页都填这一个字段：远端走 `probeIgnore`（最长仓库前缀归因、64 路径/批、能力门控），
+	 * 本机走 `GitService.checkIgnore`（`git check-ignore --no-index -z --stdin`，WSL 经同一条 git 分派）。
+	 * 渲染层只用来把行置灰（文件行与目录行各一处）。**字段缺失表示“没判定”**，不能当成“未被忽略”，
+	 * 也不该改成本地重写 gitignore 语义或当成过滤条件。
+	 */
 	ignored?: boolean;
 };
+
+/**
+ * 公共文件名搜索页（位置分派收口）：本机与远端同一个形状。
+ *
+ * `results` 只含 file/directory；远端 `kind:"other"` 只保留在 `entries` 里，不伪装成文件。
+ * `truncated`/`scanned` 只在 backend 真能给出时出现——本机不填，不冒充“完整”。
+ */
+export type ProjectFileSearchPage = {
+	results: FileSearchResult[];
+	truncated?: boolean;
+	scanned?: number;
+	/** 远端 searchProject 的原始条目（保留 other/bytes）；本机缺席。 */
+	entries?: RemoteProjectSearchEntry[];
+};
+
+export type ProjectFileSearchPageResult = Op<ProjectFileSearchPage>;
 
 /**
  * 深层目录订阅的降级（watch 能力不足，不是读失败）。
@@ -62,9 +87,21 @@ export type ProjectDirectoryPage = {
 	dirWatch?: ProjectDirectoryWatchDegradation;
 	/** 仅本机页在单层超限截断时出现：截断前总数，供文件树复现“目录过大”提示。 */
 	totalEntries?: number;
+	/**
+	 * 远端 SFTP 本次实际检查到的条目数：它可能大于公共投影（类型过滤/2000 上限），
+	 * 也只描述本次有界读取，不是远端目录总数。本机页缺席。
+	 */
+	scanned?: number;
 };
 
 export type ProjectDirectoryPageResult = Op<ProjectDirectoryPage>;
+
+/**
+ * 单路径只读 stat 的三态。`exists` 保留给旧调用方：
+ * - present 时才是 true；
+ * - missing / unavailable 都是 false，但二者绝不能混用。
+ */
+export type ProjectFileStatResult = { availability: "present"; exists: true; isDirectory: boolean } | { availability: "missing"; exists: false; isDirectory: false; code: string } | { availability: "unavailable"; exists: false; isDirectory: false; code: string };
 
 /** 批量存在性/类型（只读 fs 面；不签发任何 entry/文本授权）。 */
 export type ProjectPathState = { target: ProjectFileTarget; exists: boolean; isDirectory: boolean };

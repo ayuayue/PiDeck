@@ -30,7 +30,7 @@ test("渲染层写 data 属性，CSS 只认 on", () => {
 	const appearance = read("src/renderer/src/hooks/appearance/useAppAppearance.ts");
 	assert.ok(appearance.includes('root.dataset.codeBlockWrap = settings.codeBlockWordWrap === true ? "on" : "off";'), "没写 dataset");
 	// dataset 必须进 effect 依赖，否则改设置后要重启才生效
-	assert.ok(appearance.includes("settings.codeBlockWordWrap, settings.reduceMotion, settings.themePalette"), "dataset 没进依赖");
+	assert.match(appearance, /settings\.codeBlockWordWrap,\s*settings\.reduceMotion,\s*settings\.themePalette/, "dataset 没进依赖");
 
 	const css = read("src/renderer/src/styles/streamdownChrome.css");
 	assert.ok(css.includes('[data-code-block-wrap="on"] [data-streamdown="code-block-body"] > pre'), "CSS 缺折行选择器");

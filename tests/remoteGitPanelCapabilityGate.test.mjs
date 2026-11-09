@@ -17,6 +17,7 @@ const panel = readFileSync("src/renderer/src/components/workspace/RemoteGitPanel
 const view = loadTsCommonJs("src/renderer/src/utils/remoteGitCapabilityView.ts");
 const { describeGitCapabilityBanner, gitCapabilityReasonKey, normalizeGitCapabilities, ALL_GIT_CAPABILITIES, REMOTE_GIT_BANNER_ITEM_IDS, SHARED_GIT_BANNER_ITEM_IDS } = view;
 const { RemoteGitCapabilityBanner } = loadTsCommonJs("src/renderer/src/components/workspace/RemoteGitCapabilityBanner.tsx", { stubs: { react: React } });
+const { RemoteGitClosedNote } = loadTsCommonJs("src/renderer/src/components/workspace/RemoteGitClosedNote.tsx", { stubs: { react: React } });
 const { zhCN } = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 
 const allOpen = ALL_GIT_CAPABILITIES;
@@ -29,6 +30,58 @@ test("全可用时不渲染能力条（只在有入口被关闭时解释原因�
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen)), [], "nothing is blocked");
 	assert.equal(renderBanner(allOpen), "", "all-available must not render the banner");
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen, { "git.write": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" })), []);
+});
+
+test("干净态与本机同一套文案与图标，不再各写一句", () => {
+	assert.match(panel, /t\("git\.noPendingChanges"\)/, "必须复用本机那句 copy");
+	assert.match(panel, /<CheckCircle2/, "图标与本机一致（勾）");
+	assert.ok(!panel.includes('t("remoteGit.clean")'), "自造文案必须退场");
+});
+
+test("分支选择在顶栏：branchRead 门禁，refs 关闭也有入口，打开下拉才加载列表", () => {
+	// 原来切换按钮只长在「引用」折叠区里：refs 能力一关，即使 branchWrite 开着也没有切分支入口。
+	assert.match(panel, /data-testid="remote-git-branch-select"/);
+	assert.match(panel, /capabilities\.branchRead \? \(/, "顶栏分支选择按 branchRead 渲染");
+	assert.match(panel, /disabled=\{!capabilities\.branchWrite \|\| busy \|\| branches\.length <= 1\}/, "没有可切目标时禁用，而不是假装能给选项");
+	// 列表按需加载：打开下拉才发 refs 请求（面板打开时不额外打主机）。
+	assert.match(panel, /onOpenChange=\{\(open\) => \{[\s\S]{0,240}loadRefs\(\)/, "打开下拉才加载分支列表");
+	// refs 关闭时仍显示当前分支，区块不会整块消失。
+	assert.match(panel, /const branches = branchNames\.length > 0 \? branchNames : snapshot\?\.branch \? \[snapshot\.branch\] : \[\]/);
+});
+
+test("脏工作区切分支先确认，干净时直接切", () => {
+	// 切换会带着未提交更改过去；失败时只回一个稳定码，所以先问一句（与本机同一条规则）。
+	assert.match(panel, /changeCount > 0 \? setPendingSwitch\(ref\.name\) : switchBranch\(ref\.name\)/, "切换入口必须区分脏/干净两种路径");
+	assert.match(panel, /remote-git-switch-confirm-bar/);
+	assert.match(panel, /remote-git-switch-confirm/);
+	assert.match(panel, /remote-git-switch-cancel/);
+	// 未提交更改总数只用于提示，不参与任何写授权判定。
+	assert.match(panel, /const changeCount = snapshot === undefined \? 0 : GROUPS\.reduce/);
+});
+
+test("能力关闭时区块不消失：保留标题并就地说明原因", () => {
+	// 依据 ui-commercialization-plan「disabled 是必查态」：整块隐藏会让人以为功能不存在，
+	// 也分不清是「没做」还是「这台主机/这个 helper 不行」。
+	for (const key of ["git.recovery", "git.history", "git.refs", "git.compare"]) {
+		assert.match(panel, new RegExp('<RemoteGitClosedNote capability="' + key + '"'), "缺少关闭占位：" + key);
+	}
+	const html = renderToStaticMarkup(React.createElement(RemoteGitClosedNote, { capability: "git.history", blocked: { "git.history": "PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN" } }));
+	assert.match(html, /data-testid="remote-git-closed-git\.history"/);
+	assert.match(html, /检测/, "占位要给出可读原因，而不是只说不可用");
+	// 未知原因码不猜文案：只保留「不可用」，不编造自由文本。
+	const bare = renderToStaticMarkup(React.createElement(RemoteGitClosedNote, { capability: "git.refs", blocked: { "git.refs": "SOMETHING_ELSE" } }));
+	assert.match(bare, /data-testid="remote-git-closed-git\.refs"/);
+	assert.ok(!bare.includes("SOMETHING_ELSE"), "未知原因码不得出现在 UI 上");
+});
+
+test("能力未知说「正在检测」，不冒充「不支持」", () => {
+	// root 会话还在握手时 helperCapabilities 缺席：这时说「缺少方法」是错的，用户会以为功能坏了。
+	assert.equal(gitCapabilityReasonKey("PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN"), "remoteGit.capabilityDetecting");
+	assert.equal(gitCapabilityReasonKey("PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING"), "remoteGit.unsupported");
+	const lines = describeGitCapabilityBanner({ ...allOpen, write: false }, { "git.write": "PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN" });
+	assert.equal(lines.length, 1, "未知原因仍要解释，不能把区块静默隐藏");
+	assert.equal(lines[0].reasonKey, "remoteGit.capabilityDetecting");
+	assert.ok(zhCN["remoteGit.capabilityDetecting"].includes("检测"), "词典必须有「检测中」文案");
 });
 
 test("写入口按能力位成行：提交 / 暂存 / 丢弃，原因码映射到既有文案", () => {

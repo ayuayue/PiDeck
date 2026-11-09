@@ -28,6 +28,7 @@ import type {
 } from "../../../shared/types/git";
 import type { ProjectFileTarget } from "../../../shared/types/project";
 import type { ProjectGitCapabilities } from "../services/projectServiceContracts";
+import { createGitOperationGate } from "./gitOperationGate";
 import { createRemoteGitStatusRefresher } from "./remoteGitStatusPolling";
 
 /** The panel's own snapshot: the service contract no longer hands the renderer any authorization token. */
@@ -182,7 +183,8 @@ type RemoteGitStatusPollState = {
 export function createRemoteGitViewController(projectId: string, projectKey: string, api: RemoteGitViewApi, publish: (state: RemoteGitViewState) => void, repoPath = "", capabilities?: ProjectGitCapabilities) {
 	const cap = capabilities ?? ALL_GIT_CAPABILITIES;
 	let active = true;
-	let epoch = 0;
+	// 取消 / 互斥（写单飞）/ unknown / 迟到读 四条规则走共用闸门（与本地 GitPanel 同一份实现）。
+	const gate = createGitOperationGate({ isWriting: () => state.mutating === true });
 	let diffEpoch = 0;
 	let historyEpoch = 0;
 	let detailEpoch = 0;
@@ -200,6 +202,9 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 	let refsPollInFlight = false;
 	let state: RemoteGitViewState = { projectKey, loading: false, diffLoading: false };
 	function update(next: RemoteGitViewState) {
+		// unknown 写是一条持续告警：任何把它发布出来的路径（信封失败或抛错）都让闸门记住，
+		// 只有一次成功的事实读（refresh 的 facts.ok）能解除，取消/断连/失败读都不算。
+		if (next.errorCode === "GIT_WRITE_RESULT_UNCONFIRMED") gate.markUnknown("GIT_WRITE_RESULT_UNCONFIRMED");
 		// The confirmed-commit counter is sticky: a later read (or a connection loss) must not resurrect the
 		// message box the user already cleared.
 		const sticky = state.confirmedCommits;
@@ -220,7 +225,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 	/** Retire every silent poll and invalidate the in-flight answers a new "unavailable/uncertain" state must not inherit. */
 	function stopPolling(): void {
 		statusRefresher.stop();
-		epoch += 1;
+		gate.retire();
 		diffEpoch += 1;
 		historyEpoch += 1;
 		detailEpoch += 1;
@@ -259,7 +264,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			...(state.snapshot === undefined ? {} : { snapshot: { head: null, branch: state.snapshot.branch, groups: state.snapshot.groups } }),
 			...(state.errorCode === undefined ? {} : { errorCode: state.errorCode }),
 		}),
-		factGeneration: () => epoch,
+		factGeneration: () => gate.current(),
 		publish: (next) => update({ ...state, ...(next.snapshot === undefined ? {} : { snapshot: { groups: next.snapshot.groups, branch: next.snapshot.branch } }), errorCode: next.errorCode }),
 		readSnapshot: async () => {
 			// 静默读也要越过主进程已完成的事实缓存：外部 commit/checkout 不会让主进程标脏（能力允许时）。
@@ -284,7 +289,8 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 		async refresh(force = false): Promise<void> {
 			if (!active || state.loading || state.diffLoading || state.mutating) return;
 			if (!cap.read) return;
-			const generation = ++epoch;
+			// 显式刷新是一次读：换一代（在途读作废），并让新的读成为现状。
+			const generation = gate.retire();
 			diffEpoch += 1;
 			// History, detail and refs facts die with the snapshot facts; in-flight section loads are stale too.
 			historyEpoch += 1;
@@ -293,21 +299,23 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			compareEpoch += 1;
 			recoveryEpoch += 1;
 			// Clear previous facts during refresh; a failed read must not display a stale clean repository.
-			const uncertainWrite = state.errorCode === "GIT_WRITE_RESULT_UNCONFIRMED";
+			const uncertainWrite = gate.unknownCode() !== undefined;
 			const failureCode = (code: string) => (uncertainWrite ? "GIT_WRITE_RESULT_UNCONFIRMED" : code);
 			// A failed refresh cannot resolve an uncertain write; only fresh repository facts can.
 			update({ projectKey, loading: true, diffLoading: false, ...(uncertainWrite ? { errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" } : {}) });
 			try {
 				// 显式刷新必须重新核对：已完成的旧缓存不能满足一次明确的刷新请求（force 通道在能力允许时使用）。
 				const { facts, branch } = await readRepository(repoPath, force);
-				if (!active || generation !== epoch) return;
+				if (!active || !gate.isCurrent(generation)) return;
 				if (facts.ok) {
 					// 一次成功的显式刷新才能解除「连接失效后暂停自动轮询」；失败/断开本身绝不重放一次读。
+					// 它同时也是 unknown 写要求的核对：只有成功的事实读能清掉那条告警。
+					gate.resolveUnknown();
 					statusRefresher.resume();
 					update({ projectKey, loading: false, diffLoading: false, snapshot: { groups: facts.snapshot.groups, branch } });
 				} else update({ projectKey, loading: false, diffLoading: false, errorCode: failureCode(facts.code) });
 			} catch (error) {
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, errorCode: failureCode(errorCode(error)) });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: failureCode(errorCode(error)) });
 			}
 		},
 		/**
@@ -326,6 +334,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 		 */
 		setUncertain(): void {
 			if (!active) return;
+			gate.markUnknown("GIT_WRITE_RESULT_UNCONFIRMED");
 			stopPolling();
 			update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 		},
@@ -333,7 +342,8 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			if (!active || state.loading || state.diffLoading || state.mutating || !cap.write || !state.snapshot) return;
 			if (target.projectId !== projectId || (operation === "unstage" ? group !== "index" : group !== "workingTree" && group !== "untracked")) return;
 			if (!state.snapshot.groups[group].some((resource) => resource.target.projectId === projectId && resource.target.relativePath === target.relativePath)) return;
-			const generation = ++epoch;
+			const generation = gate.beginWrite();
+			if (generation === undefined) return;
 			diffEpoch += 1;
 			historyEpoch += 1;
 			detailEpoch += 1;
@@ -343,7 +353,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			update({ ...state, mutating: true, mutatingKind: "index", errorCode: undefined, diff: undefined, diffErrorCode: undefined });
 			try {
 				const result = await api.mutateIndex(operation, group, target, repoPath);
-				if (!active || generation !== epoch) return;
+				if (!active || !gate.isCurrent(generation)) return;
 				if (!result.ok) {
 					update({ projectKey, loading: false, diffLoading: false, errorCode: result.code });
 					return;
@@ -351,14 +361,15 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				update({ projectKey, loading: false, diffLoading: false });
 				await controller.refresh();
 			} catch {
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 			}
 		},
 		async commit(message: string): Promise<void> {
 			if (!active || state.loading || state.diffLoading || state.mutating || !cap.write || !state.snapshot) return;
 			// The panel keeps the text; main re-validates it, so an empty/oversized message never reaches the helper.
 			if (typeof message !== "string" || message.trim().length === 0 || message.includes("\0")) return;
-			const generation = ++epoch;
+			const generation = gate.beginWrite();
+			if (generation === undefined) return;
 			diffEpoch += 1;
 			historyEpoch += 1;
 			detailEpoch += 1;
@@ -368,7 +379,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			update({ ...state, mutating: true, mutatingKind: "commit", errorCode: undefined, diff: undefined, diffErrorCode: undefined });
 			try {
 				const result = await api.commit(message, repoPath);
-				if (!active || generation !== epoch) return;
+				if (!active || !gate.isCurrent(generation)) return;
 				if (!result.ok) {
 					// A refusal and an unknown result both drop the facts: only a fresh read may show a clean repository.
 					update({ projectKey, loading: false, diffLoading: false, errorCode: result.code });
@@ -378,21 +389,21 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				await controller.refresh();
 			} catch {
 				// The commit may have happened; never retry it, and say so until the user refreshes.
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 			}
 		},
 		async openDiff(group: GitResourceGroupType, target: ProjectFileTarget) {
 			if (!active || state.loading || state.diffLoading || state.mutating || !cap.diff || !state.snapshot || target.projectId !== projectId) return;
-			const generation = epoch;
+			const generation = gate.current();
 			const request = ++diffEpoch;
 			update({ ...state, diff: undefined, diffKind: "workspace", diffGroup: group, diffErrorCode: undefined, diffLoading: true });
 			try {
 				const diff = await api.workspaceFileDiff(group, target, repoPath);
-				if (!active || generation !== epoch || request !== diffEpoch) return;
+				if (!active || !gate.isCurrent(generation) || request !== diffEpoch) return;
 				if (!diff || diff.target.projectId !== projectId || diff.target.relativePath !== target.relativePath) update({ ...state, diffLoading: false, diffErrorCode: "GIT_RESOURCE_CHANGED" });
 				else update({ ...state, diffLoading: false, diff });
 			} catch (error) {
-				if (active && generation === epoch && request === diffEpoch) update({ ...state, diffLoading: false, diffErrorCode: errorCode(error) });
+				if (active && gate.isCurrent(generation) && request === diffEpoch) update({ ...state, diffLoading: false, diffErrorCode: errorCode(error) });
 			}
 		},
 		closeDiff() {
@@ -526,17 +537,17 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 		async openHistoryFileDiff(base: string | null, head: string, target: ProjectFileTarget) {
 			if (!active || state.loading || state.diffLoading || state.mutating || !cap.diff || target.projectId !== projectId) return;
 			if (typeof head !== "string" || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head) || (base !== null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(base))) return;
-			const generation = epoch;
+			const generation = gate.current();
 			const request = ++diffEpoch;
 			update({ ...state, diff: undefined, diffKind: "revision", diffGroup: undefined, diffErrorCode: undefined, diffLoading: true });
 			try {
 				const result = await api.refFileDiff(base, head, target, repoPath);
-				if (!active || generation !== epoch || request !== diffEpoch) return;
+				if (!active || !gate.isCurrent(generation) || request !== diffEpoch) return;
 				const diff = result.ok ? result.diff : undefined;
 				if (!diff || diff.target.projectId !== projectId || diff.target.relativePath !== target.relativePath || diff.head !== head || diff.base !== base) update({ ...state, diffLoading: false, diffErrorCode: result.ok ? "GIT_RESOURCE_CHANGED" : result.code });
 				else update({ ...state, diffLoading: false, diff });
 			} catch (error) {
-				if (active && generation === epoch && request === diffEpoch) update({ ...state, diffLoading: false, diffErrorCode: errorCode(error) });
+				if (active && gate.isCurrent(generation) && request === diffEpoch) update({ ...state, diffLoading: false, diffErrorCode: errorCode(error) });
 			}
 		},
 		/**
@@ -548,7 +559,8 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			if (!active || state.loading || state.diffLoading || state.mutating || !cap.write || !state.snapshot) return;
 			if (target.projectId !== projectId || (group !== "workingTree" && group !== "untracked")) return;
 			if (!state.snapshot.groups[group].some((resource) => resource.target.projectId === projectId && resource.target.relativePath === target.relativePath)) return;
-			const generation = ++epoch;
+			const generation = gate.beginWrite();
+			if (generation === undefined) return;
 			diffEpoch += 1;
 			historyEpoch += 1;
 			detailEpoch += 1;
@@ -558,7 +570,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			update({ ...state, mutating: true, mutatingKind: "discard", discardRecovery: undefined, errorCode: undefined, diff: undefined, diffErrorCode: undefined });
 			try {
 				const result = await api.discard(group, target, repoPath);
-				if (!active || generation !== epoch) return;
+				if (!active || !gate.isCurrent(generation)) return;
 				if (!result.ok) {
 					update({ projectKey, loading: false, diffLoading: false, errorCode: result.code });
 					return;
@@ -566,7 +578,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				update({ projectKey, loading: false, diffLoading: false, discardRecovery: { ref: result.recoveryRef, path: target.relativePath } });
 				await controller.refresh();
 			} catch {
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 			}
 		},
 		/* G5a sync: facts are read on demand; every verb is a network side effect and is never replayed. */
@@ -590,7 +602,8 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			if (!active || state.loading || state.diffLoading || state.mutating || !cap.sync || !state.sync) return;
 			if (state.sync.remotes.indexOf(remote) < 0) return;
 			if (kind !== "fetch" && state.sync.branch !== branch) return;
-			const generation = ++epoch;
+			const generation = gate.beginWrite();
+			if (generation === undefined) return;
 			syncEpoch += 1;
 			diffEpoch += 1;
 			historyEpoch += 1;
@@ -601,7 +614,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			update({ ...state, mutating: true, mutatingKind: kind, syncNotice: undefined, errorCode: undefined, diff: undefined, diffErrorCode: undefined });
 			try {
 				const result = kind === "fetch" ? await api.fetch(remote, repoPath) : kind === "push" ? await api.push(remote, branch, repoPath) : await api.pull(remote, branch, repoPath);
-				if (!active || generation !== epoch) return;
+				if (!active || !gate.isCurrent(generation)) return;
 				if (!result.ok) {
 					update({ projectKey, loading: false, diffLoading: false, errorCode: result.code });
 					return;
@@ -612,7 +625,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				await controller.loadSync();
 			} catch {
 				// The remote may have moved: say so instead of pretending nothing happened, and never retry.
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 			}
 		},
 		fetch(remote: string): Promise<void> {
@@ -642,7 +655,8 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 		async restoreRecovery(entry: RemoteGitRecoveryEntryView): Promise<void> {
 			if (!active || state.loading || state.diffLoading || state.mutating || !cap.recovery || !state.snapshot) return;
 			if (!entry || typeof entry.ref !== "string" || !/^refs\/pideck\/recovery\/[A-Za-z0-9._-]+$/.test(entry.ref) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(entry.oid)) return;
-			const generation = ++epoch;
+			const generation = gate.beginWrite();
+			if (generation === undefined) return;
 			diffEpoch += 1;
 			historyEpoch += 1;
 			detailEpoch += 1;
@@ -652,7 +666,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			update({ ...state, mutating: true, mutatingKind: "restore", recoveryNotice: undefined, errorCode: undefined, diff: undefined, diffErrorCode: undefined });
 			try {
 				const result = await api.recoveryRestore(entry.ref, entry.oid, entry.path, repoPath);
-				if (!active || generation !== epoch) return;
+				if (!active || !gate.isCurrent(generation)) return;
 				if (!result.ok) {
 					update({ projectKey, loading: false, diffLoading: false, errorCode: result.code });
 					return;
@@ -661,18 +675,19 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				await controller.refresh();
 				await controller.loadRecovery();
 			} catch {
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 			}
 		},
 		/** The only action that makes a snapshot disappear; the helper deletes it with a compare-and-swap. */
 		async dropRecovery(entry: RemoteGitRecoveryEntryView): Promise<void> {
 			if (!active || state.loading || state.mutating || !cap.recovery || !state.snapshot) return;
 			if (!entry || typeof entry.ref !== "string" || !/^refs\/pideck\/recovery\/[A-Za-z0-9._-]+$/.test(entry.ref) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(entry.oid)) return;
-			const generation = ++epoch;
+			const generation = gate.beginWrite();
+			if (generation === undefined) return;
 			update({ ...state, mutating: true, mutatingKind: "drop", recoveryNotice: undefined, errorCode: undefined });
 			try {
 				const result = await api.recoveryDrop(entry.ref, entry.oid, repoPath);
-				if (!active || generation !== epoch) return;
+				if (!active || !gate.isCurrent(generation)) return;
 				if (!result.ok) {
 					update({ projectKey, loading: false, diffLoading: false, errorCode: result.code });
 					return;
@@ -683,7 +698,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				await controller.refresh();
 				await controller.loadRecovery();
 			} catch {
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 			}
 		},
 		/* G3b branch write face: one explicit action per click, an unknown outcome is never replayed, and only a
@@ -691,7 +706,8 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 		async createBranch(name: string): Promise<void> {
 			if (!active || state.loading || state.diffLoading || state.mutating || !cap.branchWrite || cap.branchCreateMode === "none" || !state.snapshot) return;
 			if (!validRemoteGitBranchName(name)) return;
-			const generation = ++epoch;
+			const generation = gate.beginWrite();
+			if (generation === undefined) return;
 			diffEpoch += 1;
 			historyEpoch += 1;
 			detailEpoch += 1;
@@ -701,7 +717,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			update({ ...state, mutating: true, mutatingKind: "branch", errorCode: undefined, diff: undefined, diffErrorCode: undefined });
 			try {
 				const result = await api.createBranch(name, repoPath);
-				if (!active || generation !== epoch) return;
+				if (!active || !gate.isCurrent(generation)) return;
 				if (!result.ok) {
 					update({ projectKey, loading: false, diffLoading: false, errorCode: result.code });
 					return;
@@ -710,14 +726,15 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				await controller.refresh();
 			} catch {
 				// A ref write with a lost reply may well have happened: say unknown instead of retrying it.
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 			}
 		},
 		async switchBranch(name: string): Promise<void> {
 			if (!active || state.loading || state.diffLoading || state.mutating || !cap.branchWrite || !state.snapshot) return;
 			if (!validRemoteGitBranchName(name)) return;
 			if (state.snapshot.branch === name) return;
-			const generation = ++epoch;
+			const generation = gate.beginWrite();
+			if (generation === undefined) return;
 			diffEpoch += 1;
 			historyEpoch += 1;
 			detailEpoch += 1;
@@ -727,7 +744,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			update({ ...state, mutating: true, mutatingKind: "switch", errorCode: undefined, diff: undefined, diffErrorCode: undefined });
 			try {
 				const result = await api.switchBranch(name, repoPath);
-				if (!active || generation !== epoch) return;
+				if (!active || !gate.isCurrent(generation)) return;
 				if (!result.ok) {
 					update({ projectKey, loading: false, diffLoading: false, errorCode: result.code });
 					return;
@@ -736,7 +753,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				await controller.refresh();
 			} catch {
 				// The checkout may have happened; never replay it, and keep saying the result is unknown.
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 			}
 		},
 		/**
@@ -753,7 +770,8 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			if (repoPath !== "") return false;
 			// Only a confirmed non-repository offers this action; anything else is a main/helper decision, not a guess.
 			if (state.errorCode !== "GIT_NOT_REPOSITORY") return false;
-			const generation = ++epoch;
+			const generation = gate.beginWrite();
+			if (generation === undefined) return false;
 			diffEpoch += 1;
 			historyEpoch += 1;
 			detailEpoch += 1;
@@ -763,7 +781,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			update({ ...state, initializing: true, mutating: true, mutatingKind: "init", initNotice: undefined, errorCode: undefined, diff: undefined, diffErrorCode: undefined });
 			try {
 				const result = await api.init();
-				if (!active || generation !== epoch) return false;
+				if (!active || !gate.isCurrent(generation)) return false;
 				if (!result.ok) {
 					update({ projectKey, loading: false, diffLoading: false, initializing: false, errorCode: result.code });
 					return false;
@@ -773,7 +791,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				return true;
 			} catch {
 				// The helper may have created .git before the reply was lost: say so and never retry or auto-refresh.
-				if (active && generation === epoch) update({ projectKey, loading: false, diffLoading: false, initializing: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
+				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, initializing: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
 				return false;
 			}
 		},
@@ -782,7 +800,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			if (!active) return;
 			// 断开/重连只作废事实，不自己读回来：暂停自动轮询，直到一次成功的显式 refresh()。
 			statusRefresher.pause();
-			epoch += 1;
+			gate.retire();
 			diffEpoch += 1;
 			historyEpoch += 1;
 			detailEpoch += 1;
@@ -791,14 +809,14 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			recoveryEpoch += 1;
 			cancelReads();
 			// Reconnect may emit several failure states; retain uncertainty until a successful explicit refresh.
-			const uncertainWrite = state.mutating || state.errorCode === "GIT_WRITE_RESULT_UNCONFIRMED";
+			const uncertainWrite = state.mutating || gate.unknownCode() !== undefined;
 			update({ projectKey, loading: false, diffLoading: false, errorCode: uncertainWrite ? "GIT_WRITE_RESULT_UNCONFIRMED" : "REMOTE_CONNECTION_LOST" });
 		},
 		/** Component/project identity changes invalidate results; they never connect/replay automatically. */
 		dispose() {
 			active = false;
 			cancelReads();
-			epoch += 1;
+			gate.retire();
 			diffEpoch += 1;
 			historyEpoch += 1;
 			detailEpoch += 1;

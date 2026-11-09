@@ -3,7 +3,7 @@ import { getDefaultStore, useAtom, useAtomValue } from "jotai";
 import { settingsFocusAtom, type SettingsPaneId, type SettingsSectionId, type SettingsTabId } from "../../atoms";
 import { hasPendingUpdateAtom, updateStatusAtom } from "../../atoms/update-atoms";
 import { useSettingsFocus } from "./settings/useSettingsFocus.ts";
-import { Settings2, Network, Plug, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, Loader2, SlidersHorizontal, MonitorCog, Keyboard, TerminalSquare, X, Bot, Puzzle, Clapperboard, Brain } from "lucide-react";
+import { Settings2, Network, Plug, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, Loader2, SlidersHorizontal, MonitorCog, Keyboard, TerminalSquare, X, Bot, Puzzle, Clapperboard, Cloud, Brain } from "lucide-react";
 import { t, type TranslationKey } from "../../i18n";
 import { applyAppearanceAttributes, type AppearanceSettings } from "../../themeAppearance";
 import { applyCustomThemeTokens, applyFontSizeAttributes } from "../../hooks/appearance/useAppAppearance";
@@ -50,6 +50,7 @@ const UsageStatsTab = lazy(() => import("./settings/UsageStatsTab").then((m) => 
 const VisionBridgeSettingsTab = lazy(() => import("./settings/VisionBridgeSettingsTab").then((m) => ({ default: m.VisionBridgeSettingsTab })));
 const ImageGenSettingsTab = lazy(() => import("./settings/ImageGenSettingsTab").then((m) => ({ default: m.ImageGenSettingsTab })));
 const VideoGenSettingsTab = lazy(() => import("./settings/VideoGenSettingsTab").then((m) => ({ default: m.VideoGenSettingsTab })));
+const CloudSyncSettingsTab = lazy(() => import("./settings/CloudSyncSettingsTab").then((m) => ({ default: m.CloudSyncSettingsTab })));
 const AcpToolsTab = lazy(() => import("./settings/AcpToolsTab").then((m) => ({ default: m.AcpToolsTab })));
 const HostPluginsTab = lazy(() => import("../../config/HostPluginsTab").then((m) => ({ default: m.HostPluginsTab })));
 const TerminalTab = lazy(() => import("./settings/TerminalTab").then((m) => ({ default: m.TerminalTab })));
@@ -269,6 +270,7 @@ const TAB_META: Record<SettingsTabId, { labelKey: TranslationKey; icon: ReactNod
 	acp: { labelKey: SETTINGS_TAB_LABEL_KEYS.acp, icon: <Bot size={16} /> },
 	hostplugins: { labelKey: SETTINGS_TAB_LABEL_KEYS.hostplugins, icon: <Puzzle size={16} /> },
 	memory: { labelKey: SETTINGS_TAB_LABEL_KEYS.memory, icon: <Brain size={16} /> },
+	cloudsync: { labelKey: SETTINGS_TAB_LABEL_KEYS.cloudsync, icon: <Cloud size={16} /> },
 };
 
 /**
@@ -1079,6 +1081,12 @@ function SettingsModalContent(props: SettingsModalProps) {
 							<TabsContent value="imagegen" className="settings-panel min-w-0" hidden={activeTab !== "imagegen"}>
 								<Suspense fallback={<SettingsTabLoading />}>
 									<ImageGenSettingsTab ref={imageGenRef} onDirtyChange={handleImageGenDirtyChange} />
+								</Suspense>
+							</TabsContent>
+							{/* ── 云同步 tab：主密码/Provider/选择树由 CloudSyncSettingsTab 自管理 ── */}
+							<TabsContent value="cloudsync" className="settings-panel min-w-0" hidden={activeTab !== "cloudsync"}>
+								<Suspense fallback={<SettingsTabLoading />}>
+									<CloudSyncSettingsTab />
 								</Suspense>
 							</TabsContent>
 							{/* ── 生视频 tab：独立 videogen.json，草稿/脏标记/保存链与生图同构（hidden 保挂载）。 ── */}

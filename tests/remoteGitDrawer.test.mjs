@@ -18,17 +18,10 @@ function drawer(project, collapsed = false, enabled = true) {
 			// DrawerSurface 的依赖链在合并后经 message-scroller 引入投递跟随 hook；
 			// 本测试只关心 git 抽屉挂载哪个面板，不需要真实滚动引擎。
 			"@/lib/stick-to-bottom": { useStickToBottom: () => ({}), isFollowEscapeEdge: () => false, isFollowSnapshotFresh: () => false },
-			"../../hooks/useProjectServices": { useProjectServices: () => ({ capabilities: { git: {} } }) },
-			"./GitDrawerHost": {
-				GitDrawerHost: () => {
-					mounts.push("native");
-					return React.createElement("div", null, "native");
-				},
-			},
-			"./RemoteGitPanel": {
-				RemoteGitPanel: () => {
-					mounts.push("remote");
-					return React.createElement("div", null, "remote");
+			"./ProjectGitDrawer": {
+				ProjectGitDrawer: ({ project }) => {
+					mounts.push(project?.locator?.kind === "ssh" ? "remote" : "native");
+					return React.createElement("div", null, project?.locator?.kind ?? "native");
 				},
 			},
 			"../session/RemoteProjectPanel": { RemoteProjectPanel: empty },
@@ -49,7 +42,7 @@ function drawer(project, collapsed = false, enabled = true) {
 	return mounts;
 }
 
-test("SSH drawer mounts only the read-only panel, never native repo/history/watch effects", () => {
+test("DrawerSurface forwards the active project to the single Git drawer entry", () => {
 	assert.deepEqual(drawer(remote), ["remote"]);
 	assert.deepEqual(drawer(local), ["native"]);
 	assert.deepEqual(drawer(remote, true), []);

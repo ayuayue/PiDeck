@@ -46,15 +46,16 @@ export function useRemoteGitView(project: RemoteProject, repoPath = "") {
 		},
 		[projectKey, identityKey],
 	);
-	// The bridge is the only place the preload API is still touched (three frozen-contract gaps); everything else is
-	// delegated to the project-bound service, which owns the tokens.
-	const api = useMemo(() => createRemoteGitPanelApi(services, desktopApi), [services]);
+	// The bridge only delegates to the project-bound service; preload stays behind the provider boundary.
+	const api = useMemo(() => createRemoteGitPanelApi(services), [services]);
 	// Host readiness is no longer read from host events: `git.write` is the capability that only opens for a host the
 	// service facts really consider ready, trusted and writable. Read/write themselves are still gated per action.
 	const hostReady = capabilities.write;
 	// 隐藏的窗口不轮询：document 可见性只影响读的节奏，不影响已落地的事实。
 	const pageVisible = useDocumentPageVisible();
 	const controller = useRef<ReturnType<typeof createRemoteGitViewController> | null>(null);
+	/** 每个项目身份只自动读一次：断线重连后等用户显式刷新，不重放读。 */
+	const autoReadIdentity = useRef<string | null>(null);
 	useEffect(() => {
 		const reads = createRemoteGitViewController(project.id, projectKey, api, publish, repoPath, capabilities);
 		controller.current = reads;
@@ -64,10 +65,15 @@ export function useRemoteGitView(project: RemoteProject, repoPath = "") {
 			// A write that was in flight when the previous generation retired never loses its "unconfirmed" outcome:
 			// the new controller adopts it before its first read, and only a successful fact read retires it.
 			if (uncertainWrites.has(identityKey)) reads.setUncertain();
-			// The sync facts belong to the project identity, not to a snapshot generation: they are read once after
-			// the first repository read, and afterwards only when the user acts (refresh or a sync verb). No effect
-			// watches the snapshot, so a refresh can never trigger a second, self-feeding load that moves the rows.
-			void reads.refresh().then(() => reads.loadSync());
+			// 自动读只发生在这个面板第一次拿到能力时：断线→重连后能力重新打开不算用户手势，必须等显式刷新
+			// （真机 G1 的「显式重连不重放读」）。
+			if (autoReadIdentity.current !== identityKey) {
+				autoReadIdentity.current = identityKey;
+				// The sync facts belong to the project identity, not to a snapshot generation: they are read once after
+				// the first repository read, and afterwards only when the user acts (refresh or a sync verb). No effect
+				// watches the snapshot, so a refresh can never trigger a second, self-feeding load that moves the rows.
+				void reads.refresh().then(() => reads.loadSync());
+			}
 		}
 		return () => {
 			// Cleanup runs before the next effect: whatever the retired controller still owed the user travels with
@@ -78,6 +84,48 @@ export function useRemoteGitView(project: RemoteProject, repoPath = "") {
 			if (controller.current === reads) controller.current = null;
 		};
 	}, [project.id, project.locator.hostId, projectKey, repoPath, api, capabilities, blocked, identityKey, publish]);
+	/**
+	 * 自锁修复：能力查询按设计不唤醒主机（'no session → unknown/unsupported'），而 root 会话只由
+	 * 真实操作建立。于是「能力没开 → 不读 → 会话不存在 → 能力永远没开」会把 Git 面板锁死
+	 * （真机数据：rootStatus 恒 ok、helperCapabilities 恒缺）。
+	 *
+	 * 断线→重连后会话要重新建，握手可能晚于第一次尝试（真机 G1：一次性重试耗尽后按钮一直 disabled），
+	 * 所以这里改成"只要仍被挡、主机已就绪就每 2 秒补一脚"，按项目键封顶 15 次（约 30 秒），
+	 * 能力一开就停；不做无限重试。
+	 */
+	const warmTicks = useRef(0);
+	const warmKey = useRef<string | null>(null);
+	const warmHostReady = services.facts.hostState === "ready";
+	useEffect(() => {
+		if (capabilities.read || !warmHostReady) return;
+		// 「未知」也要预热：那正是 root 会话还没起来的形态；「明确缺方法」才是真的旧 helper。
+		const readBlocked = blocked["git.read"];
+		if (readBlocked !== "PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING" && readBlocked !== "PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN") return;
+		if (warmKey.current !== projectKey) {
+			warmKey.current = projectKey;
+			warmTicks.current = 0;
+		}
+		let cancelled = false;
+		const tick = async (): Promise<void> => {
+			if (cancelled || warmTicks.current >= 15) return;
+			warmTicks.current += 1;
+			try {
+				await services.files.listDirectory({ projectId: project.id, relativePath: "" });
+			} catch {
+				// 读失败不影响计数：下一拍再试，封顶后放弃（面板仍可手动刷新）。
+			}
+			if (!cancelled) await services.refresh().catch(() => undefined);
+		};
+		void tick();
+		const timer = window.setInterval(() => {
+			void tick();
+		}, 2000);
+		return () => {
+			cancelled = true;
+			window.clearInterval(timer);
+		};
+	}, [capabilities.read, blocked, services, project.id, projectKey, warmHostReady]);
+
 	/**
 	 * 事实失效通知（主进程只标脏，面板自己决定重读）：
 	 * runtime 对**同代**事实事件不会重建 services，所以 hook 必须自己订阅；否则写成功/未知写/文件写发出的
@@ -186,6 +234,8 @@ export function useRemoteGitView(project: RemoteProject, repoPath = "") {
 		// Returning the promise lets an explicit refresh gesture sequence the sync-facts read after the snapshot
 		// read; the snapshot update replaces the whole state and would wipe facts read concurrently.
 		refresh: (force = false): Promise<void> => controller.current?.refresh(force) ?? Promise.resolve(),
+		// 本机事实（host/root/trust）没有推送事件：信任决策后由调用方显式重采，能力表才会重新判定。
+		refreshFacts: (): Promise<void> => services.refresh(),
 		openDiff: (group: Parameters<NonNullable<typeof controller.current>["openDiff"]>[0], target: Parameters<NonNullable<typeof controller.current>["openDiff"]>[1]) => {
 			void controller.current?.openDiff(group, target);
 		},

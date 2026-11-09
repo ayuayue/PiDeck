@@ -77,7 +77,7 @@ test("mobile: layout fits and composer toolbar stays reachable", async ({ app })
 	const [titleBox, actionsBox] = await Promise.all([titleBlock.boundingBox(), headerActions.boundingBox()]);
 	expect((titleBox?.x ?? 0) + (titleBox?.width ?? 0)).toBeLessThanOrEqual((actionsBox?.x ?? 999) + 1);
 	const statusBox = await page.locator(".web-title-block [role='status']").boundingBox();
-	expect(Math.abs(((statusBox?.y ?? 0) + (statusBox?.height ?? 0) / 2) - ((titleBox?.y ?? 0) + (titleBox?.height ?? 0) / 2))).toBeLessThanOrEqual(1);
+	expect(Math.abs((statusBox?.y ?? 0) + (statusBox?.height ?? 0) / 2 - ((titleBox?.y ?? 0) + (titleBox?.height ?? 0) / 2))).toBeLessThanOrEqual(1);
 	expect(statusBox?.height ?? 999).toBeLessThanOrEqual(20);
 
 	// 手机只保留高频头部动作；先建立会话，再确认工作区仍能经溢出菜单打开。

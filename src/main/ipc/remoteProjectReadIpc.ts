@@ -14,12 +14,12 @@ import type { RemoteProjectTargetResolver } from "./remoteProjectTarget";
 import type { RemoteProjectSession } from "../remote/RemoteHostConnectionService";
 import { REMOTE_HELPER_MAX_SEARCH_QUERY_LENGTH } from "../remote/RemoteHelperContract";
 import { REMOTE_PROJECT_TRASH_DIR } from "../remote/RemoteProjectEntryCommands";
-import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectFileUpload";
+import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectUploadNames";
 import { createRemoteSearchReader, REMOTE_SEARCH_READER_CODES } from "../remote/RemoteSearchReader";
 import { createRemoteWorkspaceReader, type RemoteWorkspacePort } from "../remote/RemoteWorkspaceReader";
 import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
 
-export type RemoteProjectDirSnapshot = { ok: true; snapshot: { value: RemoteWorkspaceEntry[]; revision: number } } | { ok: false; code: string };
+export type RemoteProjectDirSnapshot = { ok: true; snapshot: { value: RemoteWorkspaceEntry[]; revision: number; truncated: boolean; scanned: number } } | { ok: false; code: string };
 
 /** 校验项目根相对路径：绝对路径、穿越段、控制字节与反斜杠一律拒绝。空串表示根。 */
 export function readRelativePath(value: unknown): string | undefined {
@@ -45,7 +45,15 @@ export function sessionPort(session: RemoteProjectSession, hostId: string): Remo
 	};
 }
 
-export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub; readDirSnapshot: (projectId: string, relative: string, force: boolean) => Promise<RemoteProjectDirSnapshot> }): void {
+export type RemoteProjectReadIpcHandle = {
+	/**
+	 * 项目内**文件名**搜索的公共实现（`remote:project-search` 与 `files:search-page` 共用）：
+	 * 只做读取与投影，不改事实、不签令牌。非法输入/未启用返回 `Op` 失败，不抛异常。
+	 */
+	searchProject(projectIdValue: unknown, pathValue: unknown, queryValue: unknown): Promise<RemoteProjectSearchResult>;
+};
+
+export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub; readDirSnapshot: (projectId: string, relative: string, force: boolean) => Promise<RemoteProjectDirSnapshot> }): RemoteProjectReadIpcHandle {
 	ipcMain.handle(ipcChannels.remoteProjectList, async (_event, projectIdValue: unknown, pathValue: unknown): Promise<RemoteProjectListResult> => {
 		if (!input.enabled) return opFailFromCode("REMOTE_FEATURE_DISABLED");
 		const relative = readRelativePath(pathValue);
@@ -54,7 +62,7 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 		const read = await input.readDirSnapshot(projectIdValue, relative, false);
 		if (!read.ok) return opFailFromCode(read.code);
 		// revision 随值替换或标脏递增：两个读者拿到同一个数就说明他们看的是同一份事实。
-		return opOk({ entries: read.snapshot.value, revision: read.snapshot.revision });
+		return opOk({ entries: read.snapshot.value, revision: read.snapshot.revision, truncated: read.snapshot.truncated, scanned: read.snapshot.scanned });
 	});
 
 	ipcMain.handle(ipcChannels.remoteProjectFactsSubscribe, (event, projectIdValue: unknown) => {
@@ -98,7 +106,7 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 	 * 因此一次搜索不会横跨两个 root；非法 query 一个帧都不发出去。
 	 * `truncated` 如实透传，不能把一屏结果伪装成完整答案。
 	 */
-	ipcMain.handle(ipcChannels.remoteProjectSearch, async (_event, projectIdValue: unknown, pathValue: unknown, queryValue: unknown): Promise<RemoteProjectSearchResult> => {
+	const searchProject: RemoteProjectReadIpcHandle["searchProject"] = async (projectIdValue, pathValue, queryValue) => {
 		if (!input.enabled) return opFailFromCode("REMOTE_FEATURE_DISABLED");
 		const relative = readRelativePath(pathValue);
 		if (relative === undefined) return opFailFromCode("REMOTE_PROJECT_PATH_INVALID");
@@ -121,7 +129,7 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 		} catch (error) {
 			return opFailFromCode(codeOf(error, "REMOTE_PROJECT_READ_FAILED"));
 		}
-	});
+	};
 
 	ipcMain.handle(ipcChannels.remoteProjectRootStatus, async (_event, projectIdValue: unknown): Promise<RemoteProjectRootStatusResult> => {
 		if (!input.enabled) return opFailFromCode("REMOTE_FEATURE_DISABLED");
@@ -140,4 +148,6 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 			...(capabilities === undefined ? {} : { helperCapabilities: capabilities }),
 		});
 	});
+
+	return { searchProject };
 }

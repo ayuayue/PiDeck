@@ -193,7 +193,12 @@ export function SessionTree(props: {
 	// 会以为会话丢了；搜索词非空时不隐藏，所以这里也不必考虑搜索结果。
 	const onlyInGroups = groupedHiddenSummaries.length > 0;
 	if (!hasRows) {
-		if (onlyInGroups) return <div className="px-2 py-1 text-caption text-muted-foreground/70" data-testid="sessions-in-groups-only">{t("sidebar.sessionsOnlyInGroups")}</div>;
+		if (onlyInGroups)
+			return (
+				<div className="px-2 py-1 text-caption text-muted-foreground/70" data-testid="sessions-in-groups-only">
+					{t("sidebar.sessionsOnlyInGroups")}
+				</div>
+			);
 		if (!retainingExit) return props.emptyState ? <>{props.emptyState}</> : null;
 	}
 

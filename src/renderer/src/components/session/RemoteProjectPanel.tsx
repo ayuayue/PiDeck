@@ -22,9 +22,10 @@ import { createRequestGate } from "./remoteRequestGate";
 import { RemoteFileEditor } from "../workspace/RemoteFileEditor";
 import { RemoteProjectEntryDialogs, type RemoteEntryDialog } from "./RemoteProjectEntryDialogs";
 import { RemoteTrashPanel } from "./RemoteTrashPanel";
-import { remoteFileEntryKeepsInput } from "./remoteFileManagementState";
+import { remoteFileEntryIsUnknown, remoteFileEntryKeepsInput } from "./remoteFileManagementState";
 import { FileTreeNodeRow } from "./FileTreeRows";
 import { useRemoteFileTree } from "../../hooks/useRemoteFileTree";
+import { useFileTreeGitStatus } from "../../hooks/files/useFileTreeGitStatus";
 import { fileTreeNodeKey, projectFileKey } from "../../utils/fileTreeLazy";
 import type { RemoteSearchEntryView } from "./remoteProjectSearchState";
 import { RemoteProjectSearchBar } from "./RemoteProjectSearchBar";
@@ -46,7 +47,7 @@ import { RemoteProjectTransferStatus } from "./RemoteProjectTransferStatus";
  *
  * 仍保留的远端专属薄壳：回收站列表/恢复/清空、图片预览与跨目录移动。
  */
-type RemoteProjectPanelProps = { projectId: string; projectName: string; onOpenTerminal?: () => void; onCreateSession?: () => void; onBack?: () => void };
+type RemoteProjectPanelProps = { projectId: string; projectName: string; onOpenTerminal?: () => void; onCreateSession?: () => void; onBack?: () => void; onOpenFile?: (target: { projectId: string; relativePath: string }) => void };
 
 export function RemoteProjectPanel(props: RemoteProjectPanelProps) {
 	const project = useAtomValue(projectByIdAtomFamily(props.projectId));
@@ -58,6 +59,7 @@ export function RemoteProjectPanel(props: RemoteProjectPanelProps) {
 function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: RemoteProject }) {
 	const services = useProjectServices(props.project);
 	const tree = useRemoteFileTree(props.project, services);
+	const treeGitStatus = useFileTreeGitStatus({ projectId: props.projectId, enabled: services.capabilities.git.read });
 	const [file, setFile] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [query, setQuery] = useState("");
@@ -90,8 +92,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 	const searching = search.phase !== "idle";
 	const busy = tree.loadingDirs.size > 0;
 
-	// 传输关注点（上传 / 拖放 / 下载）整块在 hook 里，面板只保留接线：这个文件已经同时管导航、
-	// 搜索、写操作弹框与回收站，再塞传输就越过「单文件 ≤400 行」的目标。
+	// 传输（上传/拖放/下载）整块在 hook 里：本文件已管导航、搜索、写弹框与回收站，再塞就越过行数目标。
 	const transfer = useRemoteProjectTransfer({ services, directory: tree.currentDir, reload: () => tree.refresh(), setError, searching });
 
 	const files = useRemoteProjectEntries({ services, reload: () => tree.refresh() });
@@ -129,15 +130,15 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 	);
 
 	const bumpTrash = useCallback(() => setTrashReloadToken((value) => value + 1), []);
-	/**
-	 * 写操作失败时按稳定码决定弹框去留（§10.3）：目标已存在/条目已变化/名字非法保留输入便于重试，
-	 * 其余（受保护路径、未知结果、权限/连接）关闭弹框，避免用户对着不可能成功的输入反复提交。
-	 */
+	/** 写失败按稳定码决定弹框去留（§10.3）：保留输入的码不关框，其余关闭；未知结果关框但照样刷新派生视图。 */
 	const closeDialogAfter = useCallback((result: { ok: true } | { ok: false; code: string }, afterSuccess?: () => void) => {
 		if (result.ok) {
 			setEntryDialog(null);
 			afterSuccess?.();
-		} else if (!remoteFileEntryKeepsInput(result.code)) setEntryDialog(null);
+			return;
+		}
+		if (!remoteFileEntryKeepsInput(result.code)) setEntryDialog(null);
+		if (remoteFileEntryIsUnknown(result.code)) afterSuccess?.(); // 写可能已落地：派生视图照样刷新。
 	}, []);
 
 	const submitNew = useCallback(
@@ -172,10 +173,8 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 	);
 
 	/**
-	 * 把拖动的条目移动到目标目录。
-	 *
-	 * 复用 rename（服务端本来就是同目录树内的 rename）：不新增 IPC，也不放宽版本令牌与边界校验。
-	 * 拖到自己身上/自己的子目录由服务端 `assertRemoteProjectEntryMove` 拒绝，这里只拦「拖到同一目录」。
+	 * 把拖动的条目移动到目标目录：复用 rename（同目录树内 rename），不新增 IPC、不放宽令牌。
+	 * 拖到自身/子目录由服务端 `assertRemoteProjectEntryMove` 拒绝，这里只拦「拖到同一目录」。
 	 */
 	const moveInto = useCallback(
 		(sourcePath: string, targetDirectory: string) => {
@@ -203,8 +202,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 			className={`files-panel flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 py-3 ${transfer.dragActive ? "outline outline-2 -outline-offset-2 outline-primary/60" : ""}`}
 			data-testid="remote-project-drop"
 			onDragOver={(event) => {
-				// 内部拖动也接受 drop（不 preventDefault 就不会派发 drop）：落在空白处 = 当前目录，
-				// 条目本来就在这里，因此是个 no-op。这样「拖到空白」不会显示禁止光标，也不会被误当上传。
+				// 内部拖动的空白 drop = 当前目录，属 no-op：既不显示禁止光标，也不会被当成上传。
 				const route = remoteDropRoute({ hasFiles: event.dataTransfer.types.includes("Files"), hasEntryMarker: event.dataTransfer.types.includes(REMOTE_ENTRY_DRAG_TYPE) });
 				if (route === "move") {
 					event.preventDefault();
@@ -215,8 +213,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 			}}
 			onDragLeave={transfer.onDragLeave}
 			onDrop={(event) => {
-				// 两条路径由纯函数判定（`remoteEntryDrag.ts`）：内部拖动落在空白处既不是移动也不算上传；
-				// 只有从系统拖进来的文件会走上传。
+				// 两条路径由纯函数判定（`remoteEntryDrag.ts`）：只有系统拖进来的文件才算上传。
 				const route = remoteDropRoute({ hasFiles: event.dataTransfer.types.includes("Files"), hasEntryMarker: event.dataTransfer.types.includes(REMOTE_ENTRY_DRAG_TYPE) });
 				if (remoteDropOnBlankArea(route)) {
 					event.preventDefault();
@@ -354,6 +351,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 							onDragOverDirChange={setDragOverDir}
 							scrollRef={scrollRef}
 							remoteDragType={REMOTE_ENTRY_DRAG_TYPE}
+							gitStatusOf={treeGitStatus.statusOf}
 						/>
 					))}
 				</div>
@@ -414,6 +412,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 				<RemoteProjectRowMenu
 					menu={rowMenu}
 					busy={files.busy || busy}
+					onOpenInEditor={props.onOpenFile === undefined ? undefined : () => props.onOpenFile?.({ projectId: props.projectId, relativePath: rowMenu.node.relativePath })}
 					canWrite={canWrite}
 					canDownload={services.capabilities.files.read && services.capabilities.files.download}
 					onClose={() => setRowMenu(null)}
@@ -432,7 +431,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 				/>
 			) : null}
 			{!searching ? <RemoteTrashPanel projectId={props.projectId} open={trashOpen} reloadToken={trashReloadToken} busy={files.busy} outcome={trashOutcomeText} onRestore={restoreTrash} onRequestPrune={(ids, count) => setEntryDialog({ kind: "prune", ids, count })} /> : null}
-			{file !== null ? <RemoteFileEditor key={JSON.stringify([props.projectId, file])} services={services} path={file} /> : null}
+			{file !== null ? <RemoteFileEditor key={JSON.stringify([props.projectId, file])} services={services} path={file} canWrite={canWrite} /> : null}
 			<RemoteProjectEntryDialogs dialog={entryDialog} busy={files.busy} errorText={dialogErrorText} onClose={() => setEntryDialog(null)} onCreate={submitNew} onRename={submitRename} onDelete={submitDelete} onPrune={submitPrune} />
 		</div>
 	);

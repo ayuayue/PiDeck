@@ -28,7 +28,9 @@ test("FileDiffViewer：dirty 翻转上报宿主（只在翻转时回调，不随
 
 test("FileDiffViewer：保存失败是 role=alert 横幅 + 显式重试，不再是静默 error div", () => {
 	assert.match(fileDiffViewer, /const \[saveError, setSaveError\] = useState<string \| null>\(null\);/);
-	assert.match(fileDiffViewer, /setSaveError\(fileLoadErrorMessage\(e\)\)/);
+	// 冲突（PROJECT_FILE_CHANGED）与普通失败分开：冲突要求重新加载，不能被当成可重试的普通错误。
+	assert.match(fileDiffViewer, /const conflict = e instanceof Error && e\.message\.includes\("PROJECT_FILE_CHANGED"\)/);
+	assert.match(fileDiffViewer, /setSaveError\(conflict \? t\("editor\.fileChangedOnDisk"\) : fileLoadErrorMessage\(e\)\)/);
 	assert.match(fileDiffViewer, /role="alert"/);
 	assert.match(fileDiffViewer, /editor\.saveFailedBanner/);
 	// 重试按钮触发的是 saveNow（内容取 contentRef 最新值），不是重新加载
@@ -63,4 +65,5 @@ test("词典：关闭确认与保存失败文案三语齐全", () => {
 	assert.match(zhCopy, /"editor\.dirtyCloseTitle"/);
 	assert.match(zhCopy, /"editor\.dirtyCloseMessage"/);
 	assert.match(zhCopy, /"editor\.saveFailedBanner"/);
+	assert.match(zhCopy, /"editor\.fileChangedOnDisk"/);
 });

@@ -71,7 +71,10 @@ export function parsePsProcessTable(output: string): ProcessTable {
 export function parseWindowsProcessTable(output: string): ProcessTable {
 	const table: ProcessTable = new Map();
 	for (const line of output.split(/\r?\n/)) {
-		const fields = line.replace(/^\uFEFF/, "").trim().split(";");
+		const fields = line
+			.replace(/^\uFEFF/, "")
+			.trim()
+			.split(";");
 		if (fields.length !== 3) continue;
 		const pid = Number(fields[0]);
 		const memoryBytes = Number(fields[1]);

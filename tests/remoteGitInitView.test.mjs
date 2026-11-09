@@ -4,6 +4,7 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { createRemoteGitViewController } = loadTsCommonJs("src/renderer/src/utils/remoteGitViewState.ts");
+const { remoteGitErrorMessage } = loadTsCommonJs("src/renderer/src/utils/gitErrorPresentation.ts");
 const projectId = "project";
 const untrackedSnapshot = {
 	head: null,
@@ -189,9 +190,9 @@ test("the panel and the dictionaries carry the explicit init action without pret
 	assert.ok(panel.includes('"remote-git-not-repository"'), "remote-git-not-repository");
 	for (const id of ["remote-git-init", "remote-git-init-confirm", "remote-git-init-cancel", "remote-git-init-outcome"]) assert.match(panel, new RegExp('data-testid="' + id + '"'), id);
 	assert.match(panel, /GIT_NOT_REPOSITORY[\s\S]{0,1200}?initRepository\(/, "the init section is gated on the confirmed non-repository state");
-	assert.match(panel, /GIT_REPO_EXISTS"\s*\)\s*return t\("remoteGit\.repoExists"\)/, "the refusal has its own copy");
 	const zh = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts").zhCN;
 	const en = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.en-US.ts").enUS;
+	assert.equal(remoteGitErrorMessage("GIT_REPO_EXISTS"), zh["remoteGit.repoExists"], "the refusal has its own copy");
 	for (const key of ["remoteGit.initHint", "remoteGit.initAction", "remoteGit.initConfirm", "remoteGit.initConfirmAction", "remoteGit.initCancel", "remoteGit.initializing", "remoteGit.initCreated", "remoteGit.repoExists"]) {
 		assert.equal(typeof zh[key], "string", key + " zh");
 		assert.equal(typeof en[key], "string", key + " en");

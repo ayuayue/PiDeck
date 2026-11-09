@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { openSettings } from "./open-session";
 
@@ -31,13 +32,29 @@ test("settings modal opens with web service tab", async ({ window }) => {
  * 外观主题切换回归（issue #115 收尾时修复）：设置里改主题色必须立即生效——
  * 曾因 App.tsx applyTheme effect 依赖缺 settings.accent 导致 data-accent 不更新。
  * UI 2.0 重构后外观主题选择器（themeSkin + 自带主色 accent）替代了独立主色下拉：
- * 选择森系绿 → data-appearance=fresh-green 且联动 data-accent=green。
+ * 选择森系绿 → data-palette=fresh-green 且联动 data-accent=green。
  * 出厂默认 classic-green 绑定黑白灰主色，因此初始 data-accent 为 default。
  */
+/** 保存成功会弹 toast，容器会盖住弹窗右上角；点关闭前先收掉，避免被拦截。 */
+async function dismissToasts(window: Page): Promise<void> {
+	const region = window.getByRole("region", { name: /Notifications/ });
+	const close = region.getByRole("button", { name: "关闭", exact: true });
+	for (let index = 0; index < 8; index += 1) {
+		if ((await close.count()) === 0) break;
+		await close
+			.first()
+			.click({ timeout: 2_000 })
+			.catch(() => undefined);
+		await window.waitForTimeout(30);
+	}
+}
+
 test("appearance theme switch applies data-appearance and bundled accent", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await expect(window.locator("html")).toHaveAttribute("data-accent", "default");
-	await expect(window.locator("html")).toHaveAttribute("data-appearance", "classic-green");
+	// UI 2.0：外观拆成 themeStyle（data-appearance）与 themePalette（data-palette），
+	// 出厂默认是 classic 风格 + classic-green 配色；data-accent 由配色联动。
+	await expect(window.locator("html")).toHaveAttribute("data-palette", "classic-green");
 
 	await openSettings(window);
 	const modal = window.locator(".settings-modal");
@@ -51,14 +68,17 @@ test("appearance theme switch applies data-appearance and bundled accent", async
 	// 外观主题卡片（radio）：选择森系绿 → 联动主色 green
 	await modal.getByRole("radio", { name: "森系绿" }).click();
 
-	// 保存后即时生效：data-appearance 与 data-accent 同时更新
+	// 保存后即时生效：data-palette 与 data-accent 同时更新（data-appearance 是 themeStyle，保持不变）
 	await modal.getByRole("button", { name: "保存" }).click();
-	await expect(window.locator("html")).toHaveAttribute("data-appearance", "fresh-green");
+	await expect(window.locator("html")).toHaveAttribute("data-palette", "fresh-green");
 	await expect(window.locator("html")).toHaveAttribute("data-accent", "green");
 
-	// 关闭弹窗后保持
-	await modal.getByRole("button", { name: "关闭" }).first().click();
+	// 保存写盘完成后关闭按钮才可用（保存中禁用关闭，防中途丢状态）。
+	const closeButton = modal.getByRole("button", { name: "关闭" }).first();
+	await expect(closeButton).toBeEnabled({ timeout: 60_000 });
+	await dismissToasts(window);
+	await closeButton.click();
 	await expect(modal).toHaveCount(0);
-	await expect(window.locator("html")).toHaveAttribute("data-appearance", "fresh-green");
+	await expect(window.locator("html")).toHaveAttribute("data-palette", "fresh-green");
 	await expect(window.locator("html")).toHaveAttribute("data-accent", "green");
 });

@@ -14,13 +14,19 @@ import { isUncertainWrite } from "../remote/RemoteProjectWriteFacts";
  * 信封形状是契约层的 `Op<T>`（v5 §2「单信封」）：与 entry 域逐字同款，成功 `{ok:true, value}`、
  * 失败 `{ok:false, code, outcome}`，`outcome` 由稳定码落在闭集里推出。
  */
+/** 供 `files:read-content` / `files:write-content` 复用的远端正文端口（同一份服务与令牌表）。 */
+export type RemoteProjectTextPort = {
+	openText(senderId: number, projectId: string, path: string): Promise<{ content: string; version?: string }>;
+	saveText(senderId: number, projectId: string, path: string, content: string, version: string): Promise<void>;
+};
+
 export function registerRemoteProjectFileIpc(input: {
 	enabled: boolean;
 	service: () => RemoteHostConnectionService | undefined | Promise<RemoteHostConnectionService | undefined>;
 	locator: (projectId: string) => { kind: "ssh"; hostId: string; remotePath: string } | undefined;
 	/** 事实层失效钩子（W3）：保存成功后只标脏该文件所在目录，不触发装载。 */
 	afterWrite?: (projectId: string, paths: readonly string[]) => void;
-}): void {
+}): RemoteProjectTextPort {
 	const files = createRemoteProjectFileService({
 		locator: input.locator,
 		withProject: async (target, work) => {
@@ -82,4 +88,12 @@ export function registerRemoteProjectFileIpc(input: {
 				}
 			}),
 	);
+	// 中央编辑器这条路走同一个服务实例：令牌表、256KiB 上限、事实失效钩子都只有一份。
+	return {
+		openText: (senderId, projectId, path) => files.open(senderId, projectId, validateRemoteProjectTextPath(path)),
+		saveText: async (senderId, projectId, path, content, version) => {
+			await files.save(senderId, projectId, validateRemoteProjectTextPath(path), content, version);
+			input.afterWrite?.(projectId, [path]);
+		},
+	};
 }

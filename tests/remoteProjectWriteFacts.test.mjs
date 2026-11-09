@@ -18,6 +18,16 @@ const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
 
 const PROJECT = "remote-project";
 const plain = (value) => JSON.parse(JSON.stringify(value));
+/** vm 里创建的 Error 不是宿主 Error：按消息断言。 */
+async function rejectsWith(run, pattern) {
+	try {
+		await run();
+	} catch (error) {
+		assert.match(String(error?.message ?? error), pattern);
+		return;
+	}
+	assert.fail("expected rejection: " + pattern);
+}
 
 function sender() {
 	const emitter = new EventEmitter();
@@ -38,13 +48,13 @@ function entryHarness(entry) {
 			},
 		},
 	});
-	registerRemoteProjectEntryIpc({
+	const handle = registerRemoteProjectEntryIpc({
 		enabled: true,
 		service: async () => ({}),
 		locator: () => ({ kind: "ssh", hostId: "host", remotePath: "/srv/app" }),
 		afterWrite: (projectId, paths) => afterWrite.push([projectId, [...paths]]),
 	});
-	return { handlers, afterWrite };
+	return { handlers, afterWrite, handle };
 }
 
 function fileHarness(fileService) {
@@ -84,10 +94,8 @@ test("entry 写：结果未知时按请求目标路径失效，且不重放写",
 		},
 	};
 	const h = entryHarness(entry);
-	const result = await h.handlers.get(ipcChannels.remoteProjectFileCreate)({ sender: sender() }, PROJECT, "src", "new.txt");
-	assert.equal(result.ok, false);
-	assert.equal(result.code, "REMOTE_FILE_RESULT_UNCONFIRMED");
-	assert.equal(result.outcome, "unknown", "信封必须把「可能已执行」传下去");
+	// 旧通道已删除；files:create 走同一 handle，unknown 仍按请求目标路径标脏。
+	await rejectsWith(() => h.handle.create(sender(), PROJECT, "src", "new.txt", "file"), /REMOTE_FILE_RESULT_UNCONFIRMED/);
 	assert.equal(calls.length, 1, "未知结果绝不重放写");
 	assert.deepEqual(h.afterWrite, [[PROJECT, ["src/new.txt"]]], "按请求的目标路径标脏（不猜远端实际状态）");
 });
@@ -99,9 +107,7 @@ test("entry 写：明确失败不失效事实", async () => {
 		},
 	};
 	const h = entryHarness(entry);
-	const result = await h.handlers.get(ipcChannels.remoteProjectFileCreate)({ sender: sender() }, PROJECT, "", "taken.txt");
-	assert.equal(result.ok, false);
-	assert.equal(result.code, "REMOTE_FILE_TARGET_EXISTS");
+	await rejectsWith(() => h.handle.create(sender(), PROJECT, "", "taken.txt", "file"), /REMOTE_FILE_TARGET_EXISTS/);
 	assert.deepEqual(h.afterWrite, [], "远端明确拒绝时远端没变，不标脏");
 });
 
@@ -112,20 +118,22 @@ test("entry 写：成功仍只按结果路径失效（行为不变）", async ()
 		},
 	};
 	const h = entryHarness(entry);
-	const result = await h.handlers.get(ipcChannels.remoteProjectFileCreate)({ sender: sender() }, PROJECT, "src", "new.txt");
-	assert.equal(result.ok, true);
+	const created = await h.handle.create(sender(), PROJECT, "src", "new.txt", "file");
+	assert.deepEqual(plain(created), { relativePath: "src/new.txt", kind: "file" });
 	assert.deepEqual(h.afterWrite, [[PROJECT, ["src/new.txt"]]]);
 });
 
 test("entry 改名：未知结果时源与目标都标脏", async () => {
 	const entry = {
+		async stat() {
+			return { stat: { kind: "file", bytes: 0, mtimeMs: 1 }, version: "a".repeat(32) };
+		},
 		async rename() {
 			throw new Error("REMOTE_FILE_RESULT_UNCONFIRMED");
 		},
 	};
 	const h = entryHarness(entry);
-	const result = await h.handlers.get(ipcChannels.remoteProjectEntryRename)({ sender: sender() }, PROJECT, "a.txt", "b.txt", "a".repeat(32));
-	assert.equal(result.code, "REMOTE_FILE_RESULT_UNCONFIRMED");
+	await rejectsWith(() => h.handle.rename(sender(), PROJECT, "a.txt", "b.txt"), /REMOTE_FILE_RESULT_UNCONFIRMED/);
 	assert.deepEqual(h.afterWrite, [[PROJECT, ["a.txt", "b.txt"]]], "改名两边都可能变了");
 });
 

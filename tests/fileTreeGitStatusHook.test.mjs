@@ -80,6 +80,25 @@ function createHarness() {
 	};
 }
 
+test("Git 读能力关闭（enabled: false）：一个请求都不发，也不上色", async () => {
+	const h = createHarness();
+	h.render({ projectId: "p9", projectRoot: "/p", enabled: false });
+	await flush();
+	assert.equal(h.listReposCalls().length, 0, "能力关闭时不得打主机");
+	assert.equal(h.statusCalls().length, 0, "连状态请求都不该发");
+	assert.equal(h.render({ projectId: "p9", projectRoot: "/p", enabled: false }).statusOf("/p/a.ts"), undefined);
+});
+
+test("能力从关到开：打开后才取一次数", async () => {
+	const h = createHarness();
+	h.render({ projectId: "p10", projectRoot: "/p", enabled: false });
+	await flush();
+	assert.equal(h.listReposCalls().length, 0);
+	h.render({ projectId: "p10", projectRoot: "/p", enabled: true });
+	await flush();
+	assert.equal(h.listReposCalls().length, 1, "能力打开后应按项目取一次仓库列表");
+});
+
 test("多仓：根仓与嵌套仓状态合并；嵌套仓根取数成功时外层仓的未跟踪占位被丢弃", async () => {
 	const h = createHarness();
 	h.render({ projectId: "p1", projectRoot: "/p" });

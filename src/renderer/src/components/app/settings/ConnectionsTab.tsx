@@ -14,6 +14,7 @@ import { AddHostDialog } from "./AddHostDialog";
 import type { AddHostEditSeed } from "./AddHostDialog";
 import { RemoteConnectionProgressDialog } from "./RemoteConnectionProgressDialog";
 import { RepairPanel } from "./RepairPanel";
+import { RebindPanel } from "./RebindPanel";
 import { RemoteProjectTrustPanel } from "./RemoteProjectTrustPanel";
 import type { RemoteHostConnectionState, RemoteHostDiagnosticEntry, RemoteHostListItem } from "../../../../../shared/types/remoteHost";
 import type { WslHostListItem } from "../../../../../shared/types/wslHost";
@@ -82,7 +83,7 @@ export function ConnectionsTab() {
 	const refresh = useCallback(async () => {
 		const result = await desktopApi.remoteHosts.list();
 		if (!result.ok) {
-			// REMOTE_FEATURE_DISABLED 是正常状态（正式包默认关闭），不是错误。
+			// REMOTE_FEATURE_DISABLED 是能力下线的稳定状态，不是请求异常。
 			setMessage(result.code === "REMOTE_FEATURE_DISABLED" ? t("settings.connections.disabled") : t("settings.connections.listUnavailable"));
 			setHosts([]);
 			return;
@@ -275,6 +276,7 @@ export function ConnectionsTab() {
 		<div className="flex min-w-0 flex-col gap-3">
 			{/* 放在列表之前：store 进入 needs-repair 时列表读不出来，恢复入口必须先可见。 */}
 			<RepairPanel onRepaired={() => void refresh()} />
+			<RebindPanel hosts={hosts} onChanged={() => void refresh()} />
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<p className="text-body text-muted-foreground">{t("settings.connections.overview")}</p>
 				<Button size="sm" onClick={() => setAdding(true)}>

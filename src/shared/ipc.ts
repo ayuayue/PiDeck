@@ -34,6 +34,14 @@ export const ipcChannels = {
 	remoteHostRepairAnswer: "remote:repair-answer",
 	/** 主进程 → 渲染层：修复确认请求推送。 */
 	remoteHostRepairConfirm: "remote:repair-confirm",
+	/** 重新绑定预检（只读）：校验来源/目标并枚举记录，返回计数与一次性确认 requestId。 */
+	remoteHostRebindPlan: "remote:rebind-plan",
+	/** 回答重新绑定确认；批准后才执行（不可取消，见设计 F2）。 */
+	remoteHostRebindAnswer: "remote:rebind-answer",
+	/** 只读：是否有未完成的重新绑定 journal（横幅 + 继续收敛）。 */
+	remoteHostRebindDescribe: "remote:rebind-describe",
+	/** 继续收敛残留 journal（幂等；没有 journal 或另一个活进程持锁时 resumed=false）。 */
+	remoteHostRebindResume: "remote:rebind-resume",
 	/** 登记远端目录为持久项目：canonical 化并推送确认（不写任何东西）。 */
 	remoteProjectEnroll: "remote:project-enroll",
 	/** 回答登记确认；批准后才写 ProjectStore。 */
@@ -44,28 +52,13 @@ export const ipcChannels = {
 	remoteProjectList: "remote:project-list",
 	/** 按 projectId 读文件（相对路径）。 */
 	remoteProjectRead: "remote:project-read",
-	/** 把远端项目里的一个文件下载到本机（主进程弹保存对话框；字节数受远端读上限约束）。 */
-	remoteProjectDownload: "remote:project-download",
-	/** 把本机文件上传到远端项目的当前目录（主进程弹选择对话框；stdin 分块写，支持二进制）。 */
-	remoteProjectUpload: "remote:project-upload",
-	/** 同上，但本机路径由拖放给出（主进程逐条校验是常规文件，不弹对话框）。 */
-	remoteProjectUploadPaths: "remote:project-upload-paths",
+	/** 传输任务只暴露 start/cancel/event；不可回退到旧的单次 upload/download 通道。 */
 	remoteProjectTransferStart: "remote:project-transfer-start",
 	remoteProjectTransferCancel: "remote:project-transfer-cancel",
 	remoteProjectTransferEvent: "remote:project-transfer-event",
 	/** 已有远端文本文件编辑：main持有版本，保存必须携带打开时签发的令牌。 */
 	remoteProjectTextOpen: "remote:project-text-open",
 	remoteProjectTextSave: "remote:project-text-save",
-	/** 远端文件管理（Phase 5 文件面）：entry-stat 签发 rename/delete 的一次性 entry 令牌。 */
-	remoteProjectEntryStat: "remote:project-entry-stat",
-	/** 新建 0 字节文件（create-only；目标已存在返回稳定码）。 */
-	remoteProjectFileCreate: "remote:project-file-create",
-	/** 新建单层空目录（create-only；不递归创建父链）。 */
-	remoteProjectDirectoryCreate: "remote:project-directory-create",
-	/** 项目根内重命名/移动（create-only；不覆盖已有目标）。 */
-	remoteProjectEntryRename: "remote:project-entry-rename",
-	/** 删除到项目内 .pideck-trash（可还原；不是 unlink）。 */
-	remoteProjectEntryDelete: "remote:project-entry-delete",
 	/** 列出项目内回收站（有界；只读，不创建回收站目录）。 */
 	remoteProjectTrashList: "remote:project-trash-list",
 	/** 还原回收站条目到 manifest 记录的原路径（目标必须不存在）。 */
@@ -76,8 +69,6 @@ export const ipcChannels = {
 	remoteProjectCreateAnswer: "remote:project-create-answer",
 	/** 主进程 → 渲染层：「新建空远端项目」确认请求推送（与既有目录登记确认分开）。 */
 	remoteProjectCreateConfirm: "remote:project-create-confirm",
-	/** 按 projectId 在项目内做**文件名**搜索（不含内容搜索）；query 在 main 边界重新校验。 */
-	remoteProjectSearch: "remote:project-search",
 	/** 项目已确认 root 的最近一次复核结果（只读、不建会话、无 helper 请求）。 */
 	remoteProjectRootStatus: "remote:project-root-status",
 	/** 订阅一个项目的目录/Git 事实变化（只标脏，不触发装载）；订阅绑定 sender + project。 */
@@ -148,7 +139,8 @@ export const ipcChannels = {
 	/** 公共目录页（v5 T6）：本地/SSH 同一形状，带 truncated + revision + generation。 */
 	filesDirectoryPage: "files:directory-page",
 	/** 工作区文件名搜索（issue #215）：主进程全盘扫描，不受抽屉懒加载深度限制 */
-	filesSearch: "files:search",
+	/** 公共文件名搜索页（本机与远端同一形状，带 truncated/scanned）。 */
+	filesSearchPage: "files:search-page",
 	/** 工作区文件内容检索（Go file-index sidecar）：未就绪/不可用时回 null，渲染层不展示内容分区 */
 	filesSearchContent: "files:search-content",
 	filesOpen: "files:open",
@@ -170,6 +162,8 @@ export const ipcChannels = {
 	filesCopy: "files:copy",
 	/** 移动来源路径到目标目录（同设备 rename，跨设备 cp+rm） */
 	filesMove: "files:move",
+	/** 单源移动到目标全路径（一次写）：跨目录改名不再退化成 move + rename 两步。 */
+	filesMoveTo: "files:move-to",
 	/** 读取文件返回 base64 编码的数据 URL，用于图片等二进制文件 */
 	filesReadBase64: "files:read-base64",
 	/** 粘贴大文本转文件：新写入一律落 userData/paste-files/（项目路径仅做登记校验） */
@@ -668,15 +662,11 @@ export const ipcChannels = {
 	gitStatus: "git:status",
 	/** SSH root repository facts plus SCM groups; writes/history/sync remain capability-blocked. */
 	gitRemoteSnapshot: "git:remote-snapshot",
-	/** G5d: bounded repository discovery under the project root (no token, read only). */
-	gitRemoteRepos: "git:remote-repos",
 	gitRemoteMutateIndex: "git:remote-mutate-index",
 	gitRemoteCommit: "git:remote-commit",
-	gitRemoteLog: "git:remote-log",
 	gitRemoteCommitDetail: "git:remote-commit-detail",
 	gitRemoteRefs: "git:remote-refs",
 	gitRemoteRefFileDiff: "git:remote-ref-file-diff",
-	gitRemoteCompare: "git:remote-compare",
 	/** Explicit init at the project root; no token because there is no confirmed repository state to bind. */
 	gitRemoteInit: "git:remote-init",
 	gitRemoteCreateBranch: "git:remote-create-branch",
@@ -1318,6 +1308,53 @@ export const ipcChannels = {
 	 * 必须走主进程（渲染进程直连 clipboard 在 Electron 38 已废弃，大文本会静默失败）。
 	 */
 	clipboardWriteText: "clipboard:write-text",
+
+	// ===== 云同步（CloudSyncManager，主进程持有密码/密钥/Provider 凭据） =====
+	cloudSyncGetState: "cloud-sync:get-state",
+	/** 主进程 → 渲染：同步状态/安全状态变化推送 */
+	cloudSyncStateChanged: "cloud-sync:state-changed",
+	cloudSyncSetupMasterKey: "cloud-sync:setup-master-key",
+	cloudSyncUnlock: "cloud-sync:unlock",
+	cloudSyncLock: "cloud-sync:lock",
+	cloudSyncChangePassword: "cloud-sync:change-password",
+	cloudSyncConfigureProvider: "cloud-sync:configure-provider",
+	cloudSyncDisconnectProvider: "cloud-sync:disconnect-provider",
+	cloudSyncConnect: "cloud-sync:connect",
+	cloudSyncGithubDeviceStart: "cloud-sync:github-device-start",
+	cloudSyncGithubDevicePoll: "cloud-sync:github-device-poll",
+	cloudSyncScan: "cloud-sync:scan",
+	cloudSyncUpdateSelection: "cloud-sync:update-selection",
+	cloudSyncSyncNow: "cloud-sync:sync-now",
+	cloudSyncResolveConflicts: "cloud-sync:resolve-conflicts",
+	cloudSyncRestoreExtensions: "cloud-sync:restore-extensions",
+	cloudSyncSetAutoSync: "cloud-sync:set-auto-sync",
+	cloudSyncSetStrategy: "cloud-sync:set-strategy",
+	/** 本地一键导出：`.pideckbackup` 加密备份包（可离线、无需云服务） */
+	cloudSyncExport: "cloud-sync:export",
+	/** 本地一键导入：从备份包恢复（可离线、无需云服务） */
+	cloudSyncImport: "cloud-sync:import",
+	/** OneDrive 浏览器授权启动（token 只在主进程流转） */
+	cloudSyncOneDriveStart: "cloud-sync:onedrive-start",
+	/** OneDrive 授权轮询（成功即完成 provider 配置） */
+	cloudSyncOneDrivePoll: "cloud-sync:onedrive-poll",
+	/** Google Drive 浏览器授权启动（token 只在主进程流转） */
+	cloudSyncGoogleStart: "cloud-sync:google-start",
+	/** Google Drive 授权轮询（成功即完成 provider 配置） */
+	cloudSyncGooglePoll: "cloud-sync:google-poll",
+	/** M9：设置扫描排除规则（用户黑名单） */
+	cloudSyncSetExclusions: "cloud-sync:set-exclusions",
+	/** M9：添加自选同步路径（文件/文件夹） */
+	cloudSyncAddCustomPath: "cloud-sync:add-custom-path",
+	/** M9：移除自选同步路径 */
+	cloudSyncRemoveCustomPath: "cloud-sync:remove-custom-path",
+	/** M9：云端项目挂载到本地目录（全手动策略） */
+	cloudSyncMountProject: "cloud-sync:mount-project",
+	/** M9：解除挂载 */
+	cloudSyncUnmountProject: "cloud-sync:unmount-project",
+	/** M9：弹文件/文件夹选择器，选择后归属计算并加入自选同步清单 */
+	cloudSyncPickCustomPath: "cloud-sync:pick-custom-path",
+	/** M9：弹目录选择器，供云端项目挂载选本地目录 */
+	cloudSyncPickMountDirectory: "cloud-sync:pick-mount-directory",
 
 	// ===== 资源管理器右键菜单（HKCU 注册/查询，portable 亦可用） =====
 	/** 渲染层 → 主进程：查询「用 PiDeck 打开」右键菜单是否已注册 */

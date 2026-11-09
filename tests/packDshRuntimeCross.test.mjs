@@ -12,6 +12,7 @@
  * 本机 npm 缓存命中 tarball 则秒级）。用 --dry-run 时脚本走到闭包收集 + npm install 后跳过打包，
  * 既能验证解析链路又不写 55MB 归档——本文件用 dry-run + 检查 npm 安装产物目录的方式，
  * 把完整打包验证留给 CI / 手动 runtime:check:boot。
+ * 慢 registry 下单次安装可超过 10 分钟；预算只保护真卡死，不把慢网络误判成回归。
  *
  * 若 npm 缓存与 registry 均不可达，skip（本机环境问题，不算回归）。
  */
@@ -25,6 +26,7 @@ import { fileURLToPath } from "node:url";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "..");
 const packScript = join(projectRoot, "scripts", "pack-dsh-runtime.mjs");
+const PACK_TIMEOUT_MS = 20 * 60 * 1000;
 
 /** 当前 dsh 版本（lock 精确版，交叉解析的版本钉死来源）。 */
 const lockPackages = JSON.parse(readFileSync(join(projectRoot, "package-lock.json"), "utf8")).packages;
@@ -33,8 +35,16 @@ assert.ok(DSH_VERSION, "lock 里必须有 @deepseek-ai/dsh 条目");
 
 /** 运行 pack 脚本（dry-run，超时保护）。返回 stdout 文本。 */
 function runPack(extraArgs) {
-	return execFileSync(process.execPath, [packScript, "--dry-run", ...extraArgs], { cwd: projectRoot, encoding: "utf8", timeout: 10 * 60 * 1000, env: { ...process.env } });
+	const key = extraArgs.join("\0");
+	let output = packOutputByArgs.get(key);
+	if (output === undefined) {
+		output = execFileSync(process.execPath, [packScript, "--dry-run", ...extraArgs], { cwd: projectRoot, encoding: "utf8", timeout: PACK_TIMEOUT_MS, env: { ...process.env } });
+		packOutputByArgs.set(key, output);
+	}
+	return output;
 }
+/** 同一参数只跑一次真实 dry-run；三个断言消费同一份可复现输出。 */
+const packOutputByArgs = new Map();
 
 test("默认模式（无 --target-*）保持本机平台行为", () => {
 	const out = runPack([]);
@@ -50,7 +60,7 @@ test(
 		// 版本钉死：runtimeVersion 必须等于 lock 里 dsh 的精确版本（不允许 ^ 漂移到更新 rc）
 		assert.match(out, new RegExp(`runtime 版本: ${DSH_VERSION.replace(/[.]/g, "\\.")} `));
 	},
-	{ timeout: 10 * 60 * 1000 },
+	{ timeout: PACK_TIMEOUT_MS },
 );
 
 test(
@@ -64,7 +74,7 @@ test(
 		assert.ok(match, "输出缺少临时 package.json 统计行");
 		assert.ok(Number.parseInt(match[2], 10) > 0, "平台 optional 包数量为 0（EBADPLATFORM 回归）");
 	},
-	{ timeout: 10 * 60 * 1000 },
+	{ timeout: PACK_TIMEOUT_MS },
 );
 
 test("交叉模式：不使用 --prefer-offline（stale packument 回归）", () => {

@@ -3144,7 +3144,15 @@ export function App() {
 					<ResizablePanel id="empty-main" minSize={200} className="flex min-h-0 flex-col">
 						{/* 无会话空态：引导页 = 新建页面形态（居中 ComposerArea + 虚拟会话），
                 不登记 Tab；首次发送才由 ensureSessionForSend 创建真实会话并落 Tab */}
-						<ProjectEmptyState activeProject={activeProject} projects={projects} onAddProject={() => void addProject()} onSelectProject={selectProjectCommand} onOpenTerminal={!isLanWeb && terminalTarget ? () => setTerminalOpenForOwner(true) : undefined} onCreateSession={createSessionDraftWithTab} />
+						<ProjectEmptyState
+							activeProject={activeProject}
+							projects={projects}
+							onAddProject={() => void addProject()}
+							onSelectProject={selectProjectCommand}
+							onOpenTerminal={!isLanWeb && terminalTarget ? () => setTerminalOpenForOwner(true) : undefined}
+							onOpenFile={(target) => viewFilePath(target)}
+							onCreateSession={createSessionDraftWithTab}
+						/>
 					</ResizablePanel>
 					{!isLanWeb && terminalDockVisible && terminalTarget && (
 						<TerminalDockPanel
@@ -3787,7 +3795,10 @@ export function App() {
 									onConfirm: async () => {
 										overlays.clearConfirm();
 										try {
-											await api.files.delete(target, true);
+											// 公共写面返回 Op：失败必须显式抛出，才能沿用下面的错误提示；
+											// unknown 也走同一条提示（不自动重放）。
+											const deleted = await api.files.delete(target, true);
+											if (!deleted.ok) throw new Error(deleted.code);
 											void refreshVisibleFiles();
 											showToast(t("app.fileDeleted"), 2000);
 										} catch (error) {

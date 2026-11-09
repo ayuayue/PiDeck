@@ -79,4 +79,4 @@
 - Wave 3：#9 `useSessionFileLinks`（会话文件链接域 + useDrawerPorts 24 个 any 型化 + DrawerSurface 端口接口型化）、#11 `useSessionDurationTracking`、#8 `useSessionPromptDispatch`（提示词分发域：livePrompt 镜像/草稿写入/DSH 目标改写/unknown 不降级/busy 投递语义/BUSY 错误码本地化，3306→3092）。
 - 契约测试同步：约 20 个测试文件的 App.tsx 源码断言改指新 hook 文件（含 queuedPromptQueue/turnCollapsePolicy/busySendDelivery/editorAttachSelection/sessionComposer/userMessageEdit/fileTreeRequest/abortStreamRegression/dshManualStopWiring/gitPanelUi/tabBarFontSize/toolCallComponents/workspaceDrawer/externalPathOpenGate/sessionDraftRenameGate）。最后一项同时把 onRenameSession 旧契约更新为 onRename 工厂形态（闸门语义不变，形态随 ⋯ 菜单工厂早已演进）。
 - 验证：typecheck 0 错；673 契约测试 672 绿（唯一失败 webLayout 为用户并行改动 src/renderer/src/web/*，与本拆分无关）。
-- [ ] 全量 `npm test` 合并前通过
+- [x] 全量 `npm test` 合并前通过（合并 `origin/dev` 后实测：16846 tests / 16555 pass / 0 fail）

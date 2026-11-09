@@ -219,7 +219,7 @@ function readProbe(value: unknown, expectedRoot: string): RemoteSftpProbe | unde
 }
 
 function readList(value: unknown, maxEntries: number): RemoteSftpList | undefined {
-	if (!isRecord(value) || !Array.isArray(value.entries) || value.entries.length > maxEntries || !safeInteger(value.scanned) || typeof value.truncated !== "boolean") return undefined;
+	if (!isRecord(value) || !Array.isArray(value.entries) || value.entries.length > maxEntries || !safeInteger(value.scanned) || value.scanned < value.entries.length || typeof value.truncated !== "boolean") return undefined;
 	const entries: RemoteSftpEntry[] = [];
 	for (const item of value.entries) {
 		if (!isRecord(item) || !validText(item.name, 4096) || !["file", "directory", "other"].includes(item.kind as string) || typeof item.isSymlink !== "boolean") return undefined;

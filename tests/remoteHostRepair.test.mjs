@@ -466,3 +466,32 @@ test("a live host's pin is still refused by discardOrphanPin", async (t) => {
 	await assert.rejects(() => repair.discardOrphanPin(verified.id, CONFIRMATION), /HOST_REPAIR_NOT_APPLICABLE/);
 	assert.ok((await pinBytes(host.directory, verified.id)).length > 0, "the anchor must still be there");
 });
+
+test("clearStaleRebindLock：残留 rebind 锁由同一 owner 规则清理，diagnose 给出可执行动作", async (t) => {
+	const host = await fixture(t);
+	const rebindLockPath = join(host.directory, "remote-host-rebind.lock");
+	await writeFile(rebindLockPath, "");
+	const past = new Date(Date.now() - 120_000);
+	await utimes(rebindLockPath, past, past);
+	const repair = repairFor(host, { repair: { lockAgeMs: 60_000 } });
+	const findings = await repair.diagnose();
+	assert.ok(
+		findings.some((finding) => finding.actions.includes("clear-rebind-lock")),
+		"diagnose 必须给出清锁动作",
+	);
+	await repair.clearStaleRebindLock(process.pid, CONFIRMATION);
+	await assertMissing(rebindLockPath, "残留 rebind 锁已删除");
+	await rejectsWithCode(repair.clearStaleRebindLock(process.pid, CONFIRMATION), "HOST_REPAIR_NOT_APPLICABLE");
+});
+
+test("clearStaleRebindLock：活 owner 与过新的锁都拒绝", async (t) => {
+	const host = await fixture(t);
+	const rebindLockPath = join(host.directory, "remote-host-rebind.lock");
+	const ownerOf = (overrides = {}) => JSON.stringify({ pid: 424242, bootId: "boot-1", startedAt: "2026-09-01T00:00:00.000Z", ...overrides });
+	await writeFile(rebindLockPath, ownerOf());
+	await rejectsWithCode(repairFor(host, { repair: { isProcessAlive: () => true, bootId: "boot-1", lockAgeMs: 0 } }).clearStaleRebindLock(999, CONFIRMATION), "HOST_REPAIR_LOCK_HELD");
+	assert.equal((await lstat(rebindLockPath)).isFile(), true, "活 owner 的锁不会被删除");
+
+	await writeFile(rebindLockPath, "");
+	await rejectsWithCode(repairFor(host, { repair: { lockAgeMs: 60_000 } }).clearStaleRebindLock(process.pid, CONFIRMATION), "HOST_REPAIR_LOCK_HELD");
+});

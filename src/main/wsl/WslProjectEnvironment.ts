@@ -19,6 +19,11 @@ export type WslSettingsLike = {
 
 export type WslProjectIdentity = { distro: string; user: string; hostId?: string };
 
+/** 全局 WSL 来源只有这三项会改变资源目录与 spawn 环境。 */
+export function hasWslSettingsChanged(previous: WslSettingsLike, next: WslSettingsLike): boolean {
+	return previous.wslEnabled !== next.wslEnabled || previous.wslDistro !== next.wslDistro || previous.wslUser !== next.wslUser;
+}
+
 export function resolveProjectWslIdentity(project: WslProjectLike | undefined, settings: WslSettingsLike): WslProjectIdentity | undefined {
 	if (project?.environment !== "wsl") return undefined;
 	const distro = (project.wslDistro ?? settings.wslDistro ?? "").trim();

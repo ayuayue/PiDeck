@@ -248,10 +248,12 @@ export class DiagnosticsMonitor {
 			ts: at,
 			procs: rows.map((row) => ({ pid: row.pid, type: row.type, cpu: row.cpuPct })),
 		});
-		this.writeQueue = this.writeQueue.then(() => appendFile(path, `${line}\n`, "utf8")).catch((error) => {
-			this.deps.logger?.warn("diagnostics", "Failed to append cpu sample", {
-				error: error instanceof Error ? error.message : String(error),
+		this.writeQueue = this.writeQueue
+			.then(() => appendFile(path, `${line}\n`, "utf8"))
+			.catch((error) => {
+				this.deps.logger?.warn("diagnostics", "Failed to append cpu sample", {
+					error: error instanceof Error ? error.message : String(error),
+				});
 			});
-		});
 	}
 }

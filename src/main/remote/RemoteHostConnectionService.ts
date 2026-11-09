@@ -26,7 +26,6 @@ import { withClientEnv, type SshClientRuntime } from "./SshClientRuntime";
 import { createSshAskpassBridge, type SshAskpassBridge } from "./SshAskpass";
 import { RemoteHostCredentialStore } from "./RemoteHostCredentialStore";
 import type { SshProcessLauncher } from "./RemoteHostConnectionTypes";
-import { uploadRemoteProjectFile } from "./RemoteProjectFileUpload";
 import type { ConnectionMachineState } from "./RemoteHostConnectionState";
 import type { RemoteHostConnectionState } from "./RemoteHostConnectionTypes";
 
@@ -1570,38 +1569,6 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		},
 		async pushSecurityPolicySnapshot(hostId: string, bytes: Buffer | Uint8Array): Promise<void> {
 			await pushSnapshot(hostId, bytes);
-		},
-		/**
-		 * 把一个本机文件写到远端项目里（任意字节，stdin 分块）。
-		 *
-		 * 与 `pushSecurityPolicySnapshot` 同一条 stdin 通道纪律（持 per-host 操作锁、按需建 held session、
-		 * 失败折叠成稳定码），差别是目标路径来自项目 locator 而不是固定 deploy 根——所以 root 只接受
-		 * canonical 绝对路径，真正的越界判定在远端脚本里（BOUNDARY_SCRIPT），这里不重复实现。
-		 */
-		async uploadProjectFile(input: { hostId: string; root: string; relative: string; bytes: Buffer | Uint8Array; overwrite?: boolean }): Promise<void> {
-			if (typeof input.hostId !== "string" || !HOST_ID.test(input.hostId)) throw new Error("SSH_HOST_ID_INVALID");
-			await operationLock.run(input.hostId, async () => {
-				const entry = entryFor(input.hostId);
-				if (entry.held === undefined) {
-					const result = await connectLocked(input.hostId);
-					if (!result.ok) throw new Error(result.code);
-				}
-				const held = entry.held;
-				if (held === undefined) throw new Error("SSH_HOST_NOT_READY");
-				await uploadRemoteProjectFile({
-					userDataDir: options.userDataDir,
-					hostId: input.hostId,
-					generation: held.generation,
-					nodePath: held.session.nodePath,
-					root: input.root,
-					relative: input.relative,
-					bytes: input.bytes,
-					overwrite: input.overwrite === true,
-					client: hostClient(input.hostId),
-					launcher,
-					nonce: ports.createNonce(),
-				});
-			});
 		},
 		async pushSecurityPolicySnapshotToReadyHosts(bytes: Buffer | Uint8Array): Promise<void> {
 			await pushSnapshotToReadyHosts(bytes);

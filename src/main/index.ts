@@ -1,9 +1,9 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell, Tray, Notification, webContents } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { hostname, release as osRelease } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { renderDshSessionHtml as renderSessionHtmlForExport, sanitizeExportFileName } from "./dsh/dshSessionHtmlExport";
-import { release as osRelease } from "node:os";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
@@ -69,7 +69,7 @@ import { readDataEnvDecision, validateStartupDataEnv, writeDataEnvDecision } fro
 import { registerDataEnvIpc } from "./ipc/dataEnvIpc";
 import { ChannelSwitchService } from "./update/ChannelSwitchService";
 import { registerChannelSwitchIpc } from "./ipc/channelSwitchIpc";
-import { isDevChannelBuild, resolveUpdateChannel } from "./update/channelIdentity";
+import { resolveUpdateChannel } from "./update/channelIdentity";
 import { resolveBuildOrigin } from "./buildIdentity";
 import { APP_DEEP_LINK_SCHEME } from "./utils/deepLinkScheme";
 import { APP_DISPLAY_NAME, initializeAppBrand } from "./utils/appBrand";
@@ -445,6 +445,7 @@ import { ResourceImportManager } from "./resourceImport/ResourceImportManager";
 import { toWslLinuxPath, toWindowsHostPath } from "./wsl/WslPaths";
 import { registerProjectsIpc } from "./ipc/projectsIpc";
 import { registerRemoteHostIpc } from "./ipc/remoteHostIpc";
+import { registerRemoteHostRebindIpc } from "./ipc/remoteHostRebindIpc";
 import { registerWslHostIpc } from "./ipc/wslHostIpc";
 import { createWslHostReferenceRegistry } from "./wsl/WslHostReferences";
 import { createWslHostStore } from "./wsl/WslHostStore";
@@ -452,8 +453,8 @@ import { resolveProjectWslIdentity } from "./wsl/WslProjectEnvironment";
 import { createWslHelperSessionPool } from "./wsl/WslHelperSession";
 import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
+import { REMOTE_FEATURE_AVAILABLE } from "./remote/remoteFeaturePolicy";
 import { registerRemoteProjectFileIpc } from "./ipc/remoteProjectFileIpc";
-import { registerRemoteProjectTransferIpc } from "./ipc/remoteProjectTransferIpc";
 import { registerRemoteProjectTransferJobIpc } from "./ipc/remoteProjectTransferJobIpc";
 import { registerRemoteProjectEntryIpc } from "./ipc/remoteProjectEntryIpc";
 import { registerRemoteProjectTrustIpc } from "./ipc/remoteProjectTrustIpc";
@@ -466,6 +467,10 @@ import { createRemoteModelCatalog, REMOTE_MODEL_CATALOG_CODES } from "./remote/R
 import { createSshClientRuntime, resolvePosixSshClient, type SshClientRuntime } from "./remote/SshClientRuntime";
 import { buildPinnedSshInvocation } from "./remote/SshVerifiedConnection";
 import { loadRemoteSftpBinaryIdentity, type RemoteSftpBinaryIdentity } from "./remote/RemoteSftpBinary";
+import { createRemoteSftpCapabilityCache } from "./remote/RemoteSftpCapabilityCache";
+import { createRemoteSftpCapabilityProbe } from "./remote/RemoteSftpCapabilityProbe";
+import { createRemoteSftpDirectoryReader } from "./remote/RemoteSftpDirectoryReader";
+import type { RemoteSftpProbe } from "./remote/RemoteSftpAdapter";
 import { createRemoteSessionHistoryReader } from "./remote/RemoteSessionHistoryReader";
 import { createRemoteSessionArchive } from "./remote/RemoteSessionArchive";
 import { createRemoteSessionDelete } from "./remote/RemoteSessionDelete";
@@ -510,6 +515,8 @@ import { registerPasteFilesIpc } from "./ipc/pasteFilesIpc";
 import { registerSecurityIpc } from "./ipc/securityIpc";
 import { registerVisionIpc } from "./ipc/visionIpc";
 import { registerImageGenIpc } from "./ipc/imagegenIpc";
+import { registerCloudSyncIpc } from "./ipc/cloudSyncIpc";
+import { CloudSyncManager } from "./cloudSync/CloudSyncManager";
 import { ImageGenService } from "./imagegen/ImageGenService";
 import { ImageSessionStore } from "./imagegen/ImageSessionStore";
 import { ImageBlobStore } from "./imagegen/ImageBlobStore";
@@ -658,6 +665,8 @@ let isQuitting = false;
  *  非正常崩溃自动 reload 恢复，崩溃风暴（60s 内超 2 次）放弃。 */
 const rendererCrashGuard = createRendererCrashRecoveryGuard();
 let projectStore: ProjectStore;
+/** rebind IPC 的启动收敛入口（Q8）；注册发生在 whenReady 前半段，调用发生在两个 store load 之后。 */
+let remoteHostRebindIpc: { resumePendingAtStartup: () => Promise<void> } | undefined;
 let fileSystemService: FileSystemService;
 /**
  * 跨会话正文搜索的项目来源：当前环境可见的项目（WSL 项目不进——宿主 Go 进程读 UNC
@@ -972,6 +981,7 @@ function syncSelectionToolShortcut(): void {
 }
 /** 粘贴文件启动清理（registerIpc 阶段赋值；whenReady 后 fire-and-forget 执行） */
 let cleanupPasteFiles: (() => Promise<number>) | undefined;
+let cloudSyncManager: CloudSyncManager;
 
 /** 退出清理登记表（C12）：常驻资源创建处登记，before-quit 统一顺序执行。 */
 const quitCleanup = new QuitCleanupRegistry();
@@ -1057,6 +1067,13 @@ function broadcastVisibleProjects(): void {
 	window.webContents.send(ipcChannels.projectsChanged, visible);
 	// 项目集变化同步重建托盘菜单（最近项目区），否则增删项目后菜单滞后。
 	refreshTrayContextMenu();
+}
+
+/** 云同步状态变化 → 渲染层（设置页/全局状态订阅共用）。 */
+function broadcastCloudSyncStateChanged(): void {
+	const window = mainWindow;
+	if (!window || window.isDestroyed() || !cloudSyncManager) return;
+	window.webContents.send(ipcChannels.cloudSyncStateChanged, cloudSyncManager.getStateSnapshot());
 }
 
 /**
@@ -3641,15 +3658,10 @@ async function syncWslConfig(): Promise<void> {
 }
 
 function registerIpc() {
-	// 通道策略（2026-10-27）：远端能力**只在 dev 通道提供**，正式包不启用、界面也不暴露入口。
-	// 判据复用 isDevChannelBuild()（未打包运行 / dev 通道安装包为 true，release 产物为 false），
-	// 与更新通道同源，不再另外维护第二份打包/环境变量表达式（历史上这里是
-	// `!app.isPackaged && env === "1"`，后来一度写死 true 便于集成分支验收）。
-	// 关掉时开关只是策略位：远端 IPC 本就统一返回 REMOTE_FEATURE_DISABLED；
-	// 渲染层按同一判据（app:get-channel 的 devBuild）连入口都不渲染。
-	// pack:dev 的 dev 渠道标记由 pack-dev.js 注入 PIDECK_DEV_BUILD=1 保证——缺了它打包验收包会以稳定渠道
-	// 运行、远端静默关闭（真机验收表现为「功能没启用」且难排查）。
-	const remoteExperimentEnabled = isDevChannelBuild();
+	// 远端能力与更新通道正交：正式包和 dev 包都装配；同一策略位由
+	// update:get-channel 的 remoteAvailable 下发给渲染层，避免主/渲染判据漂移。
+	// 各远端 IPC 仍保留 enabled=false 的 fail-closed 分支，供测试和后续下线策略使用。
+	const remoteFeatureEnabled = REMOTE_FEATURE_AVAILABLE;
 	let remoteHostService: import("./remote/RemoteHostConnectionService").RemoteHostConnectionService | undefined;
 	/**
 	 * 已解析的 OpenSSH 客户端（SSH 路由校验与每个 ssh/scp 子进程共用同一份）。
@@ -3668,7 +3680,7 @@ function registerIpc() {
 	/** Discover the verified client once; failed construction can be retried. */
 	let remoteHostServicePending: Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
 	const remoteHostServiceIfEnabled = (): Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined => {
-		if (!remoteExperimentEnabled) return undefined;
+		if (!remoteFeatureEnabled) return undefined;
 		remoteHostServicePending ??= (async () => {
 			// Windows resolves its client internally; elsewhere the client must be discovered and proven
 			// capable before we let it answer route checks. Failing here is a stable code, not a crash.
@@ -3725,8 +3737,8 @@ function registerIpc() {
 	// 远端会话的 trust 解析发生在 AgentManager 的端口里（它比本函数先构造），所以实例挂在模块级变量上：
 	// 那里的 `resolveTrust` 闭包在**真正 spawn 时**才求值，不会拿到一个当时还不存在的对象。
 	remoteProjectTrustService = remoteProjectTrust;
-	registerRemoteHostIpc({
-		enabled: remoteExperimentEnabled,
+	const remoteHostIpc = registerRemoteHostIpc({
+		enabled: remoteFeatureEnabled,
 		userDataDir: app.getPath("userData"),
 		// 主机退役时同时清掉它的 trust 决策（与 pin 清理同一位置、同一重试语义）。
 		list: () => openRemoteHostCatalogView(app.getPath("userData"), { onHostRetired: (hostId) => remoteProjectTrustService?.forgetHost(hostId) ?? Promise.resolve() }),
@@ -3737,6 +3749,20 @@ function registerIpc() {
 		// lifetime is the process, not a call. Registering disposal here keeps the broker's timers from
 		// outliving the app.
 		registerCleanup: (cleanup) => quitCleanup.register("remote-host-stores", cleanup),
+	});
+	// 重新绑定（rebind）：与 remoteHostIpc 共用同一对 store/pin 实例；通道没有消费者之前不建。
+	remoteHostRebindIpc = registerRemoteHostRebindIpc({
+		enabled: remoteFeatureEnabled,
+		userDataDir: app.getPath("userData"),
+		openStores: remoteHostIpc.openStores,
+		projectStore: () => projectStore,
+		sessionCatalog: () => sessionCatalog,
+		// §5.5：执行前断开来源；失败直接上报（此时 tx 还没写任何东西）。
+		disconnect: async (hostId) => {
+			const service = await remoteHostServiceIfEnabled();
+			await service?.disconnect(hostId, "shutdown");
+		},
+		registerCleanup: (cleanup) => quitCleanup.register("remote-host-rebind", cleanup),
 	});
 	// 远端项目域（登记/回答/列表/读取/搜索）与 hosts 域分开注册：同一个连接服务端口，不同域的 handler。
 	// 远端 trust 域（决策表的清单/写入/撤销）同样分开：它不动 SSH，只读写桌面配置 + 已确认的 pin 事实。
@@ -3765,12 +3791,22 @@ function registerIpc() {
 		| undefined;
 	/** 目录与 Git 共用的事实变化通知出口（T4）：订阅按 sender + project，事件只标脏。 */
 	const remoteFactsEvents = createRemoteFactsHub(ipcChannels.remoteProjectFactsChanged);
-	registerRemoteProjectTrustIpc({ enabled: remoteExperimentEnabled, trust: () => remoteProjectTrustService });
+	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
+	const resolveRemoteSftpBinary = (): Promise<RemoteSftpBinaryIdentity | undefined> => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }));
+	const remoteSftpCapabilityCache = createRemoteSftpCapabilityCache<RemoteSftpProbe>();
+	const remoteSftpCapabilityProbe = createRemoteSftpCapabilityProbe();
+	const remoteSftpDirectoryReader = createRemoteSftpDirectoryReader({
+		binary: resolveRemoteSftpBinary,
+		cache: remoteSftpCapabilityCache,
+		probe: remoteSftpCapabilityProbe,
+	});
+	registerRemoteProjectTrustIpc({ enabled: remoteFeatureEnabled, trust: () => remoteProjectTrustService });
 	const remoteProjectIpc = registerRemoteProjectIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		userDataDir: app.getPath("userData"),
 		service: remoteHostServiceIfEnabled,
 		factsEvents: remoteFactsEvents,
+		directoryReader: remoteSftpDirectoryReader,
 		// 远端项目登记端口（Phase 3 第二段）：canonical 值已由 IPC 层校验/确认，这里只做持久化
 		// 与按 projectId 取 locator。只暴露 ssh 项目，本机项目不经过这条入口。
 		projects: {
@@ -3787,11 +3823,16 @@ function registerIpc() {
 	remoteProjectFacts = remoteProjectIpc;
 	quitCleanup.register("remote-project-ipc", () => remoteProjectIpc.dispose());
 	const remoteGitReads = registerRemoteGitReadIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		factsEvents: remoteFactsEvents,
-		// P0-1：Git 写成功/结果未知时，主进程目录事实缓存与渲染层文件树一起失效（tree scope）。
-		onTreeInvalidated: (projectId) => remoteProjectIpc.invalidateTree(projectId),
+		// T4：目录与 Git 状态共用同一份工作区事实 owner（缓存实例、generation、失效矩阵都只一份）。
+		// Git 写成功/结果未知 → owner 把该仓库 status 与整树一起标脏，只发一条通知。
+		workspace: {
+			facts: remoteProjectIpc.gitStatusFacts,
+			afterGitWrite: remoteProjectIpc.afterGitWrite,
+			invalidateStatuses: remoteProjectIpc.invalidateStatuses,
+		},
 		trusted: async (target) => (await remoteProjectTrustService?.trustOverride({ hostId: target.hostId, remoteRoot: target.remotePath })) === "approve",
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
@@ -3799,62 +3840,51 @@ function registerIpc() {
 		},
 	});
 	quitCleanup.register("remote-git-reads", remoteGitReads.dispose);
-	registerRemoteProjectFileIpc({
-		enabled: remoteExperimentEnabled,
+	// T6 收尾：目录页的 Git ignore 修饰接在 Git IPC 之后（仓库归因与能力门控都在那边）。
+	remoteProjectIpc.setIgnoreProbe((projectId, paths) => remoteGitReads.probeIgnore(projectId, paths));
+	const remoteProjectTextPort = registerRemoteProjectFileIpc({
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
+		// T4：一次文件写只走一份 owner 的失效矩阵（目录矩阵 + 全部已缓存仓库 status，一条通知）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
-			// P0-2：文件保存/新建/改名/删除/还原也会改变工作树状态：失效该项目所有已缓存仓库的 status。
-			remoteGitReads.invalidateProject(projectId);
 		},
 	});
-	// 本机 ↔ 远端文件传输（上传走 stdin 分块，支持二进制；下载走只读 reader + 保存对话框）。
-	// 与只读项目通道共用同一份 locator 解析，避免「列表看得到、下载找不到」。
-	registerRemoteProjectTransferIpc({
-		enabled: remoteExperimentEnabled,
-		service: remoteHostServiceIfEnabled,
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-	});
-	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
 	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
-		binary: () => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })),
+		binary: resolveRemoteSftpBinary,
+		cache: remoteSftpCapabilityCache,
+		probe: remoteSftpCapabilityProbe,
+		// T4：上传下载完成/结果未知同样走单一 owner（目录 + Git status 一次标脏）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
-			remoteGitReads.invalidateProject(projectId);
 		},
 		afterUnknown: (projectId) => {
 			remoteProjectIpc.invalidateTree(projectId);
-			remoteGitReads.invalidateProject(projectId);
 		},
 	});
 	quitCleanup.register("remote-project-transfer-jobs", remoteProjectTransfers.dispose);
 	// 文件管理（Phase 5 文件面）：8 条 new/rename/delete/trash 通道 + 独立 entry 令牌表 + sender 写单飞。
 	// 与文本保存 IPC 各自持有令牌表；窗口销毁时两个模块各自撤销自己的表（冻结语义：两类令牌都不可再用）。
 	const remoteProjectEntries = registerRemoteProjectEntryIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
-		// 写成功后只标脏目录事实（W3）：一次写不产生任何远端往返，下一次读自然重新装载。
+		// 写成功后只标脏目录事实与 Git status（T4 单一 owner）：一次写不产生任何远端往返。
 		afterWrite: (projectId, paths) => {
 			remoteProjectIpc.afterWrite(projectId, paths);
-			// P0-2：文件面写同样让 Git status 失效（与文本保存同一条出口）。
-			remoteGitReads.invalidateProject(projectId);
 		},
 	});
 	quitCleanup.register("remote-project-entries", remoteProjectEntries.dispose);
@@ -3878,7 +3908,7 @@ function registerIpc() {
 
 	// 远端 Session 只读发现与登记（Phase 3 第三段）。通道名由装配注入（与 contentStoreIpc 的 ChannelGroup 同一先例）。
 	registerRemoteSessionIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		// R1a：扫描 / 根解析 / register / title 走一次性 pinned SSH 短命令（与读/写/归档同一条通道），
 		// 不再借 helper 会话 —— 否则每次刷新会话列表都会把用户项目的活动 root 切走再连回来。
@@ -3905,7 +3935,7 @@ function registerIpc() {
 		findLiveAgentId: (projectIds) => agentManager?.findLiveRemoteAgentId(projectIds),
 		getAvailableModels: (agentId) => agentManager.getAvailableModels(agentId),
 	});
-	registerRemotePiModelIpc({ enabled: remoteExperimentEnabled, probe: remotePiModelProbe });
+	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, probe: remotePiModelProbe });
 	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
 	registerUsageStatsIpc(ipcMain, usageStatsService);
 	// 供应商认证（/login）：同样只做校验/适配，进程与协议在 PiAuthService
@@ -4532,7 +4562,7 @@ function registerIpc() {
 	 * pi 的 user-level `settings.json` 可以把会话根换掉，这里再拼一次 `<home>/.pi/agent/sessions` 就会在
 	 * 那些机器上读错文件。
 	 */
-	const readRemoteSessionHistoryPage = remoteExperimentEnabled
+	const readRemoteSessionHistoryPage = remoteFeatureEnabled
 		? async (input: { hostId: string; locator: SshSessionLocator; before?: number }) => {
 				const reader = createRemoteSessionHistoryReader({
 					transport: { readRemoteWindow: runPinnedRemoteCommand },
@@ -4551,7 +4581,7 @@ function registerIpc() {
 	 * 而且目录会随 runtime 重启/空闲回收一起消失。这里就是「远端算好、传回来、缓存住」：
 	 * 同一条 pinned SSH 短命令跑一次 `pi --list-models`，本机同一个纯函数解析，按主机缓存。
 	 */
-	const remotePiModelCatalog = remoteExperimentEnabled
+	const remotePiModelCatalog = remoteFeatureEnabled
 		? createRemoteModelCatalog({
 				resolveFacts: async (hostId: string) => {
 					const port = await remoteHostServiceIfEnabled();
@@ -4631,7 +4661,7 @@ function registerIpc() {
 	 * `REMOTE_SESSION_ARCHIVE_UNAVAILABLE`，而不是落回本机路径分支。
 	 * 本机侧的归档索引与 catalog 记录由 sessionIpc 的远端分支负责（这里只管远端文件）。
 	 */
-	const remoteSessionArchive = remoteExperimentEnabled
+	const remoteSessionArchive = remoteFeatureEnabled
 		? createRemoteSessionArchive({
 				transport: { runRemoteCommand: runPinnedRemoteCommand },
 				resolveSessionRoot: resolveRemoteSessionRoot,
@@ -4644,7 +4674,7 @@ function registerIpc() {
 	 * 写入守卫同源（remotePiRuntimeFacts），不新增 helper op；实验开关关掉时不装配 ⇒ 请求得到
 	 * REMOTE_SESSION_DELETE_UNAVAILABLE（fail closed，绝不落回本机路径）。
 	 */
-	const remoteSessionDelete = remoteExperimentEnabled
+	const remoteSessionDelete = remoteFeatureEnabled
 		? createRemoteSessionDelete({
 				transport: { runRemoteCommand: runPinnedRemoteCommand },
 				resolveNodePath: async (hostId) => {
@@ -4664,7 +4694,7 @@ function registerIpc() {
 	 * `REMOTE_SESSION_HISTORY_WRITER_UNAVAILABLE`，而**不会**落回本机路径分支（本机路径入口对 ssh
 	 * locator 抛稳定码，落回只会得到“本地文件缺失”这种错误原因）。
 	 */
-	remoteSessionMessageMutation = remoteExperimentEnabled
+	remoteSessionMessageMutation = remoteFeatureEnabled
 		? createRemoteSessionHistoryWriter({
 				transport: { runRemoteCommand: runPinnedRemoteCommand },
 				resolveSessionRoot: resolveRemoteSessionRoot,
@@ -5219,7 +5249,7 @@ function registerIpc() {
 	 * fails closed with HOST_NOT_READY instead of reading anything local. Batch B adds the renderer selector; this
 	 * batch only routes and validates.
 	 */
-	const remotePiConfig = remoteExperimentEnabled
+	const remotePiConfig = remoteFeatureEnabled
 		? createRemotePiConfigBackend({
 				request: async (hostId, method, params) => {
 					const pending = remoteHostServiceIfEnabled();
@@ -5542,15 +5572,35 @@ function registerIpc() {
 		appLogger,
 		openExternalUrl,
 		wslHelperPool,
+		// 本机目录页的 Git ignore 修饰（T6 收尾）：与远端 probeIgnore 同一份契约（只加修饰、失败即不填）。
+		checkIgnore: (cwd, relativePaths) => gitService.checkIgnore(cwd, relativePaths),
+		// 位置分派收口第二片：files:create / files:rename 的 ssh 分支复用 entry 写面（令牌留在 main）。
+		remoteEntries: {
+			create: (sender, projectId, parent, name, type) => remoteProjectEntries.create(sender, projectId, parent, name, type),
+			rename: (sender, projectId, source, targetPath) => remoteProjectEntries.rename(sender, projectId, source, targetPath),
+			move: (sender, projectId, source, targetDir) => remoteProjectEntries.move(sender, projectId, source, targetDir),
+			moveTo: (sender, projectId, source, targetPath) => remoteProjectEntries.moveTo(sender, projectId, source, targetPath),
+			delete: (sender, projectId, relativePath) => remoteProjectEntries.delete(sender, projectId, relativePath),
+		},
 		// 公共文件读（T6）：ssh 项目的目录页与批量 stat 走只读 fs 面，不经过 entry 令牌。
 		remoteFiles: {
+			// 中央编辑器读写远端文件：与抽屉编辑器共用同一份远端文本服务与令牌表。
+			...remoteProjectTextPort,
 			directoryPage: (projectId, path, force) => remoteProjectIpc.directoryPage(projectId, path, force),
+			// 位置分派收口第一片：`files:search-page` 的 ssh 分支走项目域同一份搜索实现。
+			searchProject: (projectId, path, query) => remoteProjectIpc.searchProject(projectId, path, query),
 			pathsExist: (projectId, paths) => remoteProjectIpc.pathsExist(projectId, paths),
 			// 远端内容搜索按 hello capabilities 门控：旧 helper 返回 null（渲染层回退“仅文件名”），不发无效请求。
 			searchContent: (projectId, query) => remoteProjectIpc.searchContent(projectId, query),
 		},
 	});
 	registerClipboardIpc({ appLogger });
+	// 云同步：主进程业务在 CloudSyncManager，handler 薄层只校验入参/适配返回值
+	registerCloudSyncIpc({
+		manager: cloudSyncManager,
+		notifyStateChanged: () => broadcastCloudSyncStateChanged(),
+		listProjects: () => projectStore.list(),
+	});
 	// 资源管理器右键菜单（HKCU）：菜单显示名跟随主进程 locale（可能随设置语言切换）
 	registerShellMenuIpc({
 		appLogger,
@@ -7160,6 +7210,51 @@ app
 			if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.sessionGroupsChanged, null);
 		});
 		await Promise.all([sessionCatalog.load(), automationStorePreload, agentProfileStorePreload, favoritesStorePreload, sessionGroupStorePreload]);
+		// 云同步编排：主进程唯一持有密码/派生 key/Provider 凭据；扫描与恢复都走主进程。
+		cloudSyncManager = new CloudSyncManager({
+			userDataDir: app.getPath("userData"),
+			homeDir: app.getPath("home"),
+			// DSH 会话同步：DSH_HOME 与 DshHost 同一套解析（设置覆盖 > ~/.dsh > 应用私有目录）。
+			dshHomeDir: resolveDshHomeDir(settingsStore.get().dshHomeDir ?? "", app.getPath("userData")),
+			deviceName: hostname(),
+			appVersion: app.getVersion(),
+			listProjects: () => projectStore.list(),
+			listSessionRecords: () =>
+				sessionCatalog
+					.listEntries()
+					.map((entry) => sessionCatalog.getRecord(entry.id))
+					.filter((record): record is SessionRecord => Boolean(record)),
+			getDesktopSettings: () => settingsStore.get(),
+			// filterSyncableDesktopSettings 已把未知 key 过滤掉，这里收窄为 AppSettings 字段。
+			updateDesktopSettings: async (patch) => {
+				await settingsStore.update(patch as Partial<AppSettings>);
+			},
+			// M5：包扩展安装走 ExtensionManager（pi install）；失败只记录缺失，不阻断同步。
+			installExtension: async (source) => {
+				try {
+					await extensionManager.install(source);
+					return { ok: true };
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : String(error) };
+				}
+			},
+			listExtensions: async () => {
+				try {
+					const result = await extensionManager.list(false);
+					return result.extensions.map((summary) => ({
+						source: summary.source,
+						scope: summary.scope,
+					}));
+				} catch {
+					return [];
+				}
+			},
+			onStateChanged: () => broadcastCloudSyncStateChanged(),
+			log: (domain, message, details) => void appLogger.info(domain, message, details),
+		});
+		await cloudSyncManager.initialize();
+		// C12：退出清理登记（before-quit 统一 runAll；cloud-sync 定时器与适配器随进程结束回收）
+		quitCleanup.register("cloud-sync", () => cloudSyncManager?.dispose());
 		// 智能体一次性调用（划词工具 / 市场面板）：复用提示词增强侧车协议，但**独立实例**。
 		// 侧车进程常驻、首次调用才拉起（EnhancePromptService 的现有语义），启动期只做装配。
 		agentInvokeCompletionService = createCompletionHelperService("agent-invoke");
@@ -7917,6 +8012,8 @@ app
 		void projectStoreReady.then(() => sendTelemetryHeartbeat());
 		void projectStoreLoadPromise
 			.then(async () => {
+				// 启动时自动收敛一次残留 rebind（设计 Q8）：两个 store 都已 load，失败只留横幅。
+				void remoteHostRebindIpc?.resumePendingAtStartup();
 				// load() 已丢掉 e2e 临时项目；对应 catalog 映射一并清掉，侧栏会话不会再挂回来。
 				const knownProjectIds = new Set(projectStore.list().map((project) => project.id));
 				const orphanProjectIds = new Set(
