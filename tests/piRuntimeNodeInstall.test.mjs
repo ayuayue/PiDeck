@@ -252,6 +252,18 @@ test("probeNodeVersion：不可执行路径返回 undefined 而不是抛错", as
 	assert.equal(result, undefined);
 });
 
+test("probeNodeVersion：按传入 env.PATH 查找 node（Dock 启动时进程 PATH 不含 nvm 目录）", { skip: process.platform === "win32" }, async () => {
+	const binDir = await mkdtemp(join(tmpdir(), "pideck-node-path-"));
+	try {
+		const fakeNode = join(binDir, "node");
+		await writeFile(fakeNode, "#!/bin/sh\necho v99.0.0\n", { mode: 0o755 });
+		assert.equal(await probeNodeVersion("node", 8_000, { PATH: `${binDir}:/usr/bin:/bin` }), "v99.0.0");
+		assert.equal(await probeNodeVersion("node", 8_000, { PATH: "/nonexistent-pideck-dir" }), undefined);
+	} finally {
+		await rm(binDir, { recursive: true, force: true });
+	}
+});
+
 test("detectPiRuntimeNode：无副本时 installed=false 且透传系统 node 状态", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pideck-runtime-node-"));
 	try {

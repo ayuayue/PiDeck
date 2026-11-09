@@ -279,10 +279,10 @@ export function copyDirEntryVerbatim(from: string, to: string): void {
 	cpSync(from, to, { recursive: true, verbatimSymlinks: true });
 }
 
-/** 执行 `node -v`；不可执行/超时返回 undefined（不抛错，调用方按「不可用」处理）。 */
-export async function probeNodeVersion(nodePath: string, timeoutMs = 8_000): Promise<string | undefined> {
+/** 执行 `node -v`；不可执行/超时返回 undefined（不抛错，调用方按「不可用」处理）。传 env 时按 env.PATH 查找命令。 */
+export async function probeNodeVersion(nodePath: string, timeoutMs = 8_000, env?: NodeJS.ProcessEnv): Promise<string | undefined> {
 	try {
-		const { stdout } = await execFileAsync(nodePath, ["-v"], { timeout: timeoutMs, windowsHide: true });
+		const { stdout } = await execFileAsync(nodePath, ["-v"], { env, timeout: timeoutMs, windowsHide: true });
 		const version = stdout.trim();
 		return /^v\d+\.\d+\.\d+$/.test(version) ? version : undefined;
 	} catch {

@@ -349,7 +349,7 @@ async function probeSystemNodeVersion(piLocator: PiLocator): Promise<string | un
 			const version = stdout.trim();
 			return /^v\d+\.\d+\.\d+$/.test(version) ? version : undefined;
 		}
-		return await probeNodeVersion("node");
+		return await probeNodeVersion("node", 10_000, piLocator.createProcessEnv());
 	} catch {
 		return undefined;
 	}
