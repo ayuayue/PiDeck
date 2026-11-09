@@ -166,15 +166,7 @@ export function RebindPanel(props: { hosts: RemoteHostListItem[]; onChanged?: ()
 			{pending !== null && !pending.present && pending.tx === "busy" ? <p className="text-caption text-muted-foreground">{txLabel("busy")}</p> : null}
 			{pending !== null && !pending.present && pending.tx === "lock-unreadable" ? <p className="text-caption text-destructive">{txLabel("lock-unreadable")}</p> : null}
 
-			{adding ? (
-				<AddHostDialog
-					onClose={() => setAdding(false)}
-					onSubmitted={() => {
-						setAdding(false);
-						props.onChanged?.();
-					}}
-				/>
-			) : null}
+			{adding ? <AddHostDialog onClose={() => setAdding(false)} onChanged={() => props.onChanged?.()} /> : null}
 
 			<Dialog
 				open={open}

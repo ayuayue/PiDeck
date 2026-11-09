@@ -181,8 +181,9 @@ test.describe("远端主机功能级验收（真机）", () => {
 				const candidate = window.getByRole("button", { name: new RegExp(creds.user + "@" + creds.host.replace(/\./g, "\\.")) });
 				await expect(candidate.first(), "ssh config 里需要至少一条 " + creds.user + "@" + creds.host + " 候选").toBeVisible({ timeout: 30_000 });
 				await candidate.first().click();
+				// 提交入口现在是「保存并检测」：测试通过后就地保存主机、建会话并探测远端 pi（不再另开进度弹窗）。
 				await addDialog
-					.getByRole("button", { name: /^(保存|添加并连接)$/ })
+					.getByRole("button", { name: /^(保存并检测|保存并重新检测|保存|添加并连接)$/ })
 					.first()
 					.click();
 				// 指纹：产品自 74682ad72 起在主进程内完成首次信任（TOFU），不再弹「确认主机指纹」；验收要证的仍是
@@ -196,13 +197,20 @@ test.describe("远端主机功能级验收（真机）", () => {
 				expect(matchesRemoteFingerprint(creds.fingerprint, pinned === undefined ? [] : [pinned]), "落盘 pin 的主机指纹必须命中 " + REMOTE_ACCEPTANCE_ENV.fingerprint + "（期望 " + creds.fingerprint + "，实到 " + String(pinned) + "）").toBe(true);
 			});
 
-			await test.step('连接到达 "ready"：保存后产品自动连接，行状态是「已连接」，开关翻成「断开」', async () => {
-				// 保存后产品直接开始连接并弹进度框（阶段轨）+ 连接就绪后标题变「{host} 已连接」。
-				// 先把进度框关掉，否则它是模态的，设置页的行与开关不可交互。旧构建无此弹框，容忍两种形态。
-				const progress = window.getByRole("dialog", { name: /已连接$/ });
-				await expect(progress, "连接就绪后的进度框必须出现").toBeVisible({ timeout: timeouts.helperMs });
-				const done = progress.getByRole("button", { name: /^(完成|关闭)$/ }).first();
-				if ((await done.count()) > 0) await done.click();
+			await test.step('连接到达 "ready"：保存并检测完成后行状态是「已连接」，开关翻成「断开」', async () => {
+				// 2026-10 起整条检测内联在添加对话框里（测试 → 保存 → 建会话 → 探测 pi），不再有独立进度弹窗：
+				// 远端 pi 探测通过后对话框给出「完成」，点掉它才回到设置页。
+				const addDialog = window.getByRole("dialog", { name: /^(新建连接|添加 SSH 连接)$/ });
+				await expect(addDialog.getByText("测试 SSH 连接"), "对话框里应展示四步检测轨").toBeVisible({ timeout: 30_000 });
+				const complete = addDialog.getByRole("button", { name: /^完成$/ });
+				const completeVisible = await complete
+					.waitFor({ state: "visible", timeout: timeouts.helperMs })
+					.then(() => true)
+					.catch(() => false);
+				// 探测失败时表单里会写原因：带着它报错，而不是干等超时后只说「按钮必须出现」。
+				if (!completeVisible) throw new Error("添加对话框未完成远端 pi 探测：" + ((await addDialog.textContent().catch(() => null)) ?? "").trim());
+				await complete.click();
+				await expect(addDialog).toHaveCount(0);
 				await expect(window.getByText("已连接").first()).toBeVisible({ timeout: timeouts.helperMs });
 				await expect(window.getByRole("button", { name: "断开", exact: true }).first()).toBeVisible();
 				await window.locator(".settings-modal").getByRole("button", { name: "关闭" }).first().click();

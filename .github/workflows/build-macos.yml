@@ -31,6 +31,10 @@ jobs:
       matrix:
         arch: ${{ fromJSON(inputs.arch == 'both' && '["arm64", "x64"]' || format('["{0}"]', inputs.arch)) }}
 
+    # npm ci and electron-builder both use the Electron mirror.
+    env:
+      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

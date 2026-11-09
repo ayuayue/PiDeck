@@ -160,7 +160,11 @@ export function RemoteProjectEnrollDialog(props: { onEnrolled: (projectId: strin
 								<SelectContent>
 									{state.hosts.map((host) => (
 										<SelectItem key={host.id} value={host.id}>
-											{host.label}
+											<span className="flex min-w-0 items-center gap-1.5">
+												<span className="min-w-0 truncate">{host.label}</span>
+												{/* 主机类型标记：远端登记只能选 SSH 主机，标出类型避免与 WSL 档案混淆。 */}
+												<span className="shrink-0 rounded border border-border-subtle px-1 text-micro text-muted-foreground">{t("settings.connections.ssh.badge")}</span>
+											</span>
 										</SelectItem>
 									))}
 								</SelectContent>

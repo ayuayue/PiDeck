@@ -142,6 +142,30 @@ test("官方安装被标为 managed，包管理器全局那份被标为 package-
 	}
 });
 
+test("多个 nvm 版本都装了 pi：GUI 启动按 nvm default 选，而不是目录名字母序最前的旧版本", async () => {
+	// 每个场景用独立 harness：installationListCache 是模块级缓存。
+	for (const [defaultAlias, expectedVersion] of [
+		[undefined, "v24.21.0"],
+		["22", "v22.22.1"],
+	]) {
+		const harness = createHarness({});
+		try {
+			const nvmRoot = join(harness.home, ".nvm");
+			for (const version of ["v20.1.0", "v24.21.0", "v22.22.1"]) writeEntry(join(nvmRoot, "versions", "node", version, "bin", "pi"));
+			if (defaultAlias) {
+				mkdirSync(join(nvmRoot, "alias"), { recursive: true });
+				writeFileSync(join(nvmRoot, "alias", "default"), `${defaultAlias}\n`, "utf8");
+			}
+			const { PiLocator } = harness.locatorModule;
+			const installations = await new PiLocator().listInstallations("", false, "", "");
+			assert.equal(installations.length, 3);
+			assert.equal(installations.find((item) => item.isActive)?.path, join(nvmRoot, "versions", "node", expectedVersion, "bin", "pi"), `default=${defaultAlias ?? "(无)"}`);
+		} finally {
+			harness.cleanup();
+		}
+	}
+});
+
 test("managed-install.json 带 UTF-8 BOM 时仍归为 managed（PowerShell 5.1 重写标记文件）", async () => {
 	const harness = createHarness({});
 	try {

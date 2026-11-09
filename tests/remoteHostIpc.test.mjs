@@ -230,7 +230,7 @@ test("diagnostics history is capped per request", async () => {
 
 /** 用桩替换 store/pin，并记录调用：本用例只验 IPC 边界的校验与 senderId 绑定，不碰文件系统。 */
 function addFlowHandlers(options = {}) {
-	const calls = { createDraft: [], offerPin: [], confirmPin: [], sent: [], discarded: [] };
+	const calls = { createDraft: [], offerPin: [], confirmPin: [], sent: [], discarded: [], probe: [] };
 	const handlers = new Map();
 	// `~/.ssh/...` 的展开目标是**本机** home（F4）；注入固定值，测试不依赖运行机器的真实 HOME。
 	const home = options.home ?? (process.platform === "win32" ? "C:\\Users\\tester" : "/home/tester");
@@ -282,6 +282,12 @@ function addFlowHandlers(options = {}) {
 			"../remote/SshHostPinStore": {
 				SshHostPinStore: class {
 					dispose() {}
+					/** 「测试连接」只走握手：记录 route，成功时按真实 verifier 的形状返回候选。 */
+					async probe(route) {
+						calls.probe.push(route);
+						if (options.probeFails !== undefined) throw new Error(options.probeFails);
+						return { hostName: "10.81.2.15", user: "deploy", port: 22, pinAlias: "pideck-probe-x", routeDigest: "digest", knownHostsBase64: "", knownHostsSha256: "sha", hostKeyFingerprints: ["SHA256:abc"] };
+					}
 				},
 			},
 		},
@@ -353,6 +359,49 @@ test("add refuses identity-file forms it cannot normalize with a dedicated stabl
 	assert.equal("identityFile" in calls.createDraft[0].draft, false);
 });
 
+test("test connection probes the draft route without touching the store", async () => {
+	// 回归（用户报「本地 ssh -i 能连，PiDeck 添加失败」）：探针必须带上表单里的私钥路径，
+	// 否则首次握手只能拿默认钥/agent 试，非默认密钥名的机器必然认证失败。
+	const { handlers, calls, sender, home } = addFlowHandlers();
+	const keyPath = join(home, ".ssh", "aliyun.pem");
+	const result = await handlers.get("remote:test")({ sender }, { label: "serve", hostName: "10.81.2.15", user: "deploy", identityFile: keyPath });
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, fingerprint: "SHA256:abc", hostName: "10.81.2.15", user: "deploy", port: 22 });
+	assert.equal(calls.probe.length, 1, "the probe must run exactly once");
+	assert.equal(calls.probe[0].identityFile, keyPath, "the identity file must reach the probe route");
+	assert.equal(calls.createDraft.length + calls.offerPin.length + calls.confirmPin.length, 0, "testing must never write the host store");
+});
+
+test("test connection reports the classified failure code", async () => {
+	// 私钥被拒 / 私钥读不了 / 网络不通必须能区分：UI 靠这些码给出不同的下一步建议。
+	for (const [probeFails, expected] of [
+		["SSH_AUTH_KEY_REJECTED", "SSH_AUTH_KEY_REJECTED"],
+		["SSH_AUTH_PASSPHRASE_REQUIRED", "SSH_AUTH_PASSPHRASE_REQUIRED"],
+		["SSH_HOST_UNREACHABLE", "SSH_HOST_UNREACHABLE"],
+		["SOMETHING_ELSE", "SOMETHING_ELSE"],
+	]) {
+		const { handlers, sender } = addFlowHandlers({ probeFails });
+		const result = await handlers.get("remote:test")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+		assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: expected });
+	}
+});
+
+test("test connection refuses password auth instead of pretending to verify it", async () => {
+	// 探针固定 BatchMode=yes，没有可用的非交互密码；假装成功会让用户以为密码是对的。
+	const { handlers, calls, sender } = addFlowHandlers();
+	const result = await handlers.get("remote:test")({ sender }, { label: "serve", hostName: "10.81.2.15", authMethod: "password" });
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "REMOTE_HOST_TEST_PASSWORD_UNSUPPORTED" });
+	assert.equal(calls.probe.length, 0);
+});
+
+test("test connection validates input and honours the feature gate", async () => {
+	const { handlers, sender } = addFlowHandlers();
+	const bad = await handlers.get("remote:test")({ sender }, { label: "", hostName: "" });
+	assert.deepEqual(JSON.parse(JSON.stringify(bad)), { ok: false, code: "REMOTE_HOST_ADD_INVALID" });
+	const disabled = handlersFor({ enabled: false, list: async () => ({ snapshot: { status: "ready", profiles: [] }, findings: [] }) });
+	const gated = await disabled.get("remote:test")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	assert.deepEqual(JSON.parse(JSON.stringify(gated)), { ok: false, code: "REMOTE_FEATURE_DISABLED" });
+});
+
 test("add binds the pin offer to the calling webContents, not a renderer-supplied id", async () => {
 	// 自动信任（TOFU）仍然把 offer/answer 绑在 window 上：broker 只认签发它的那个 webContents，
 	// 渲染层自报的 senderId 一律不采纳。这条防线不随「去掉弹框」而消失。
@@ -382,13 +431,14 @@ test("add performs first-use trust in one step: no fingerprint prompt is pushed"
 test("add reports a stable code when the offer fails, and sends nothing", async () => {
 	const { handlers, calls, sender } = addFlowHandlers({ offerFails: true });
 	const result = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
-	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "REMOTE_HOST_PIN_INVALID" });
+	// 失败也会带上 saved + hostId：草稿保留，用户不必重填（见下一个用例）。
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "REMOTE_HOST_PIN_INVALID", saved: true, hostId: HOST_ID });
 	assert.equal(calls.sent.length, 0, "a failed offer must not push a confirmation dialog");
 });
 
 test("scan and add honour the feature gate", async () => {
 	const { handlers } = addFlowHandlers({ register: { enabled: false } });
-	for (const channel of ["remote:scan-config", "remote:add"]) {
+	for (const channel of ["remote:scan-config", "remote:add", "remote:test"]) {
 		const result = await handlers.get(channel)({ sender: { id: 42, isDestroyed: () => false } }, { label: "x", hostName: "y" }, HOST_ID, "approve");
 		assert.equal(result.ok, false, `${channel} must be gated`);
 		assert.equal(result.code, "REMOTE_FEATURE_DISABLED");
@@ -474,16 +524,14 @@ test("an async service factory is awaited and used", async () => {
 	assert.deepEqual(calls.connect, [HOST_ID]);
 });
 
-test("a failed offer rolls the draft back instead of leaving an unremovable row", async () => {
-	// 实跑回归（2026-09）：offer 失败时 draft 已经写进 store 了，于是每失败一次就多一条
-	// 点不动的「未验证」主机（用户实测 4 次点击 = 4 条垃圾，且界面没有删除入口）。
+test("a failed offer keeps the draft so the user can edit it instead of retyping", async () => {
+	// 产品变更（2026-11 用户反馈）：握手失败时把草稿丢掉，用户下次还得把主机名/用户/私钥全填一遍。
+	// 现在保留成「未验证连接」：列表里那行可以点「编辑」改错的那一项再重试，也可以移除
+	// （remove 走 disable→retire，未验证行同样删得掉）。
 	const { handlers, calls, sender } = addFlowHandlers({ offerFails: true });
 	const result = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
-	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "REMOTE_HOST_PIN_INVALID" });
-	// 回滚必须发生在 offer 之后，且用的是 offer 当时的 revision。
-	assert.equal(calls.discarded.length, 1);
-	assert.equal(calls.discarded[0].hostId, HOST_ID);
-	assert.equal(calls.discarded[0].expected, 8, "the rollback runs against the revision the draft committed");
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "REMOTE_HOST_PIN_INVALID", saved: true, hostId: HOST_ID });
+	assert.equal(calls.discarded.length, 0, "the draft must survive a failed handshake");
 });
 
 test("a successful add never rolls anything back", async () => {
@@ -492,11 +540,13 @@ test("a successful add never rolls anything back", async () => {
 	assert.equal(calls.discarded.length, 0, "a pending confirmation must keep its draft");
 });
 
-test("a failed rollback does not mask the original offer failure", async () => {
-	// 回滚是尽力而为：它自己失败时不能让用户看到「清理失败」而看不到「为什么添加失败」。
-	const { handlers, sender } = addFlowHandlers({ offerFails: true, discardFails: true });
+test("a failed add reports the handshake failure, not a cleanup failure", async () => {
+	// 保留草稿后没有回滚这一步；用户看到的必须始终是「为什么握手失败」。
+	const { handlers, sender } = addFlowHandlers({ offerFails: true });
 	const result = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
-	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "REMOTE_HOST_PIN_INVALID" });
+	assert.equal(result.ok, false);
+	assert.equal(result.code, "REMOTE_HOST_PIN_INVALID");
+	assert.equal(result.saved, true);
 });
 
 test("the connect button is only enabled for a verified, enabled host", () => {

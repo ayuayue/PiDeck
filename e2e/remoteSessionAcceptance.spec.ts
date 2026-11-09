@@ -245,9 +245,9 @@ async function addVerifiedRemoteHostAndConnect(window: Page, credentials: Remote
 	if ((await importToggle.count()) > 0 && (await importToggle.getAttribute("aria-expanded")) !== "true") await importToggle.click();
 	await expect(candidate.first(), "ssh config 里需要至少一条 " + credentials.user + "@" + credentials.host + " 候选").toBeVisible({ timeout: 30_000 });
 	await candidate.first().click();
-	// 提交入口在 1dd8ceb7e 的面板改造里从「保存」改成「添加并连接」（两者都容忍，便于跨版本回归）。
+	// 提交入口现在是「保存并检测」：测试 → 保存 → 建会话 → 探测 pi，全部内联在对话框里。
 	await addDialog
-		.getByRole("button", { name: /^(保存|添加并连接)$/ })
+		.getByRole("button", { name: /^(保存并检测|保存并重新检测|保存|添加并连接)$/ })
 		.first()
 		.click();
 	// 指纹：等产品落盘后再比对。等待有界（预算=helperMs，覆盖 add 里那次真实 SSH 握手），
@@ -257,23 +257,17 @@ async function addVerifiedRemoteHostAndConnect(window: Page, credentials: Remote
 		matchesRemoteFingerprint(credentials.fingerprint, pinned.value === undefined ? [] : [pinned.value]),
 		"落盘 pin 的主机指纹必须命中 " + REMOTE_ACCEPTANCE_ENV.fingerprint + "（期望 " + credentials.fingerprint + "，实到 " + String(pinned.value) + (pinned.addFailure === null ? "" : "；加主机对话框已报：" + pinned.addFailure) + "）",
 	).toBe(true);
-	// 保存后产品直接开始连接：就绪时进度框标题变成「{host} 已连接」。`toBeVisible({ timeout })`
-	// 本身就是有界轮询（失败会一直重试到 helperMs），不是一次性读取。
-	// 先关掉进度框（模态会遮住设置页），再确认行状态与开关；旧构建无此弹框的路径也容忍。
-	const progress = window.getByRole("dialog", { name: /已连接$/ });
-	// 连接失败时标题是「连接失败」，/已连接$/ 永不匹配：只等成功框会把产品错误码一起吞掉，
-	// 干满预算才报一句「进度框必须出现」。这里改成成功/失败二选一，失败立刻带着文案报错。
-	const connectFailed = window.getByRole("dialog", { name: /连接失败$/ });
-	await expect(progress.or(connectFailed), "连接就绪后的进度框必须出现").toBeVisible({ timeout: limits.helperMs });
-	if (await connectFailed.isVisible().catch(() => false)) {
-		throw new Error("远端主机连接失败：" + ((await connectFailed.textContent().catch(() => null)) ?? "").trim());
-	}
-	// 页脚按钮这里原本是一次 `count()` 采样：采样早于渲染时，「按钮还没画出来」与「旧构建没有按钮」
-	// 在代码里分不开，前者会让我们跳过点击、把模态留在屏幕上，随后点设置页「关闭」被遮住（真机在这
-	// 一步超时过）。改成先有界等它可见，再决定点不点——两种形态都不靠运气。
-	const done = progress.getByRole("button", { name: /^(完成|关闭)$/ }).first();
-	await done.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
-	if ((await done.count()) > 0) await done.click();
+	// 保存并检测：四步检测内联在对话框里，pi 探测通过后给出「完成」。
+	// `waitFor` 本身就是有界轮询（失败会一直重试到 helperMs），不是一次性读取。
+	const complete = addDialog.getByRole("button", { name: /^完成$/ });
+	const completeVisible = await complete
+		.waitFor({ state: "visible", timeout: limits.helperMs })
+		.then(() => true)
+		.catch(() => false);
+	// 连接/探测失败时表单里会写原因：带着它报错，而不是干等超时。
+	if (!completeVisible) throw new Error("添加对话框未完成远端 pi 探测：" + ((await addDialog.textContent().catch(() => null)) ?? "").trim());
+	await complete.click();
+	await expect(addDialog).toHaveCount(0);
 	await expect(window.getByText("已连接").first()).toBeVisible({ timeout: limits.helperMs });
 	await expect(window.getByRole("button", { name: "断开", exact: true }).first()).toBeVisible();
 	await window.locator(".settings-modal").getByRole("button", { name: "关闭" }).first().click();

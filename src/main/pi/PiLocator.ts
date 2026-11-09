@@ -8,6 +8,7 @@ import { compareVersions } from "../utils/versionCompare";
 // 只依赖纯路径模块（零 Electron / 零副作用）：PiLocator 会在裸 Node 沙箱里被加载，
 // 引入便携 Node 安装器会把 DSH 运行时依赖一并拖进来，把检测链路弄重。
 import { piRuntimeNodeBinDir, piRuntimePiBinDir } from "./piRuntimePaths";
+import { nvmNodeVersionDirs } from "./nvmNodeVersions";
 import { WSL_PI_NEGATIVE_CACHE_TTL_MS, WSL_PI_PROBE_TIMEOUT_MS, buildWslCommandMarker, buildWslPiExecArgs, buildWslPiProbeScript, isWslInteropPath, parseWslCommandMarker, parseWslPiProbeOutput, type WslPiProbeResult } from "../wsl/wslPiProbe";
 import { decodeWslOutput } from "../wsl/wslExe";
 import { buildPiProxyEnvPatch, PIDECK_PI_PROXY_SCOPE } from "../sessions/sessionProxyPolicy";
@@ -377,7 +378,7 @@ export class PiLocator {
 			plain(join(home, ".local", "bin")),
 			pkg(join(home, ".npm-global", "bin")),
 			pkg(join(home, ".nvm", "current", "bin")),
-			...this.listChildDirs(join(home, ".nvm", "versions", "node")).map((dir) => pkg(join(dir, "bin"))),
+			...nvmNodeVersionDirs(join(home, ".nvm")).map((dir) => pkg(join(dir, "bin"))),
 			...fnmEntries,
 			pkg(join(home, ".asdf", "shims")),
 			pkg(join(home, ".volta", "bin")),

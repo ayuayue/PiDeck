@@ -451,11 +451,13 @@ test("sidebar uses one persisted project accordion without duplicating current p
 	// 已启动的会话行复用 Tab 栏蓝/黄/红状态点，而不是回退到项目头像。
 	assert.doesNotMatch(sessionTree, /\?\? \"bg-muted-foreground\/50\"/);
 	assert.doesNotMatch(sessionTree, /\?\? \"bg-border\"/);
-	assert.match(sessionTree, /function renderRuntimeStatusDot/);
-	assert.match(sessionTree, /if \(!dotClass\) return null/);
-	assert.match(sessionTree, /sessionStatusDotClass\(status\)/);
-	assert.match(sessionTree, /renderRuntimeStatusDot\(child\.agent\.status\)/);
-	assert.match(sessionTree, /renderRuntimeStatusDot\(runtimeSnapshot\?\.status\)/);
+	// 状态点实现提取到 SidebarStatusDot（项目树 / 分组树共用一套 label/脉动），调用点绑定具体 Agent/会话。
+	const statusDot = readFileSync("src/renderer/src/components/sidebar/SidebarStatusDot.tsx", "utf8");
+	assert.match(statusDot, /function SessionRuntimeStatusDot/);
+	assert.match(statusDot, /if \(!dotClass\) return null/);
+	assert.match(statusDot, /sessionStatusDotClass\(props\.status\)/);
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{child\.agent\.status\} \/>/);
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{runtimeSnapshot\?\.status\} \/>/);
 	assert.match(sessionTree, /display\.visibleChildren\.map\(renderChild\)/);
 	assert.match(sessionTree, /renderSubagents\(groupKey, child\.codexSubagents, child\.piSubagents\)/);
 });
@@ -471,8 +473,8 @@ test("sidebar splits Chats/Projects by navTab without duplicating list logic", (
 	assert.match(content, /value="chats"/);
 	assert.match(content, /value="projects"/);
 	// ProjectTree 按 navTab 分流：active 渲染活动 Agent 页，chats 渲染 Chat 区，projects 渲染项目区。
-	// active / chats 两支都会先挂 groupsSection（会话分组区），所以不再要求 ActiveSessionsTree 紧跟问号，
-	// 而是按「分支切片」断言：切出 active / chats / projects 三段，逐个校验内容落在自己那段里。
+	// 分组只出现在「聊天 / 项目」两个栏目，且各自只列本栏目范围的会话（活动栏目不挂分组）。
+	// 所以按「分支切片」断言：切出 active / chats / projects 三段，逐个校验内容落在自己那段里。
 	const activeAt = projectTree.indexOf('navTab === "active" ? (');
 	const chatsAt = projectTree.indexOf('navTab === "chats" ? (');
 	const projectsAt = projectTree.search(/\)\s*:\s*\(\s*\n\s*projectsSection/);
@@ -481,11 +483,17 @@ test("sidebar splits Chats/Projects by navTab without duplicating list logic", (
 	const chatsBranch = projectTree.slice(chatsAt, projectsAt);
 	const projectsBranch = projectTree.slice(projectsAt);
 	assert.match(activeBranch, /<ActiveSessionsTree[^>]*currentSessionId=\{props\.currentSessionId\}/, "active 分支应渲染活动会话树");
-	assert.match(activeBranch, /\{groupsSection\}/, "active 分支应挂会话分组区");
+	assert.doesNotMatch(activeBranch, /groupsSection/, "活动栏目不挂分组（活动/最近会话本就是跨项目的实时视图）");
+	assert.match(chatsBranch, /\{chatGroupsSection\}/, "chats 分支应挂聊天范围的分组区");
 	assert.match(chatsBranch, /\{chatSection\}/, "chats 分支应渲染 Chat 区");
 	assert.doesNotMatch(chatsBranch, /<ActiveSessionsTree/, "chats 分支不得重复渲染活动会话树");
 	assert.match(projectsBranch, /projectsSection/, "projects 分支应渲染项目区");
 	assert.doesNotMatch(projectsBranch, /<ActiveSessionsTree|\{chatSection\}/, "projects 分支不得夹带活动树 / Chat 区");
+	// 两份节点用同一份数据按栏目裁剪：聊天只取 Chat 项目，项目只取工作区项目。
+	assert.match(projectTree, /buildSessionGroupNodes\(sessionGroups, sessionRecords, projectsById, "chat"\)/);
+	assert.match(projectTree, /buildSessionGroupNodes\(sessionGroups, sessionRecords, projectsById, "project"\)/);
+	assert.match(projectTree, /<SessionGroupsSection nodes=\{chatSessionGroupNodes\}/);
+	assert.match(projectTree, /<SessionGroupsSection nodes=\{projectSessionGroupNodes\}/);
 	assert.match(projectTree, /const chatSection = chatProjects\.map/);
 	assert.match(projectTree, /const projectsSection = \(/);
 	// 两区都不复制列表逻辑：会话树/项目行只出现一份
@@ -493,6 +501,22 @@ test("sidebar splits Chats/Projects by navTab without duplicating list logic", (
 	// controller 暴露 navTab + setNavTab
 	assert.match(controller, /navTab: SidebarNavTab;/);
 	assert.match(controller, /setNavTab: \(tab: SidebarNavTab\) => void/);
+});
+
+test("分组隐藏覆盖运行时 agent 行，分组行展示运行状态", () => {
+	const sessionTree = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
+	const groups = readFileSync("src/renderer/src/components/sidebar/SessionGroupsSection.tsx", "utf8");
+	const statusDot = readFileSync("src/renderer/src/components/sidebar/SidebarStatusDot.tsx", "utf8");
+
+	// 运行中的会话在项目列表里是 agent 行：已入组时与历史行同口径隐藏，
+	// 否则任务跑起来后项目列表会再冒出一条同名行，看起来像分组没生效。
+	assert.match(sessionTree, /\.filter\(\(agent\) => !shouldHideGroupedSession\(agent\.deckSessionId, props\.groupedSessionIds, search\)\)/);
+	// 状态点只有一套实现（项目树 / 分组树共用），不在 SessionTree 内重复。
+	assert.equal((sessionTree.match(/renderRuntimeStatusDot/g) ?? []).length, 0, "状态点实现应已提取到 SidebarStatusDot");
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{dotStatus\} \/>/);
+	assert.match(statusDot, /export function SessionRuntimeStatusDot/);
+	// agent 行被隐藏后，分组行就是该会话唯一的运行态入口。
+	assert.match(groups, /<SessionRuntimeStatusDot status=\{props\.controller\.catalog\.runtimeBySessionId\[session\.id\]\?\.status\} \/>/);
 });
 
 test("sidebar nav rail stretches its tabs across the full width", () => {

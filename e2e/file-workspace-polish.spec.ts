@@ -17,10 +17,11 @@ for (const theme of ["light", "dark"] as const) {
 			await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 			await app.evaluate(({ ipcMain }, projectPath) => {
 				let attempts = 0;
-				ipcMain.removeHandler("files:search");
-				ipcMain.handle("files:search", () => {
-					if (attempts++ === 0) throw new Error("PROJECT_FILE_SEARCH_FAILED");
-					return [{ name: "alpha.ts", path: `${projectPath}/alpha.ts`, relativePath: "alpha.ts", type: "file" }];
+				// 文件名搜索已收口到公共 `files:search-page`（位置分派），结果统一 Op 信封。
+				ipcMain.removeHandler("files:search-page");
+				ipcMain.handle("files:search-page", () => {
+					if (attempts++ === 0) return { ok: false, code: "PROJECT_FILE_SEARCH_FAILED", outcome: "rejected" };
+					return { ok: true, value: { results: [{ name: "alpha.ts", path: `${projectPath}/alpha.ts`, relativePath: "alpha.ts", type: "file" }] } };
 				});
 				ipcMain.removeHandler("files:search-content");
 				ipcMain.handle("files:search-content", () => ({ hits: [], matchedFiles: 0, scannedFiles: 1, scannedBytes: 27, truncated: false }));

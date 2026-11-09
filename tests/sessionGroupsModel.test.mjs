@@ -44,6 +44,44 @@ test("项目缺失（已移除）与 noSession 虚拟会话都不进树", () => 
 	assert.equal(label.path, undefined);
 });
 
+test("分组按栏目拆：聊天只列 Chat 会话、项目只列工作区会话，裁剪后空组不出现", () => {
+	const groups = [
+		{ id: "mixed", name: "混合", color: "blue", createdAt: 1, sessionIds: ["sChat", "sProj"], dirs: [] },
+		{ id: "chatOnly", name: "只有聊天", color: "green", createdAt: 2, sessionIds: ["sChat"], dirs: [] },
+	];
+	const records = { sChat: RECORD("sChat", "pc", 10), sProj: RECORD("sProj", "p1", 20) };
+	const projects = { pc: { ...PROJECT("pc", "Chat", "chat://"), kind: "chat" }, p1: PROJECT("p1", "P", "D:\\p") };
+
+	const chat = buildSessionGroupNodes(groups, records, projects, "chat");
+	// 组顺序仍按用户拖拽顺序，只换会话集合。
+	assert.deepEqual(
+		chat.map((node) => node.group.id),
+		["mixed", "chatOnly"],
+	);
+	assert.deepEqual(ids(chat[0].sessions), ["sChat"]);
+	assert.equal(chat[0].total, 1);
+	// 聊天栏目恒为单项目：行内不再重复标「Chat」项目名。
+	assert.equal(chat[0].projectCount, 1);
+
+	const proj = buildSessionGroupNodes(groups, records, projects, "project");
+	// chatOnly 在项目栏目一个会话都不剩 → 整组不出现（不留「组内没有可用会话」）。
+	assert.deepEqual(
+		proj.map((node) => node.group.id),
+		["mixed"],
+	);
+	assert.deepEqual(ids(proj[0].sessions), ["sProj"]);
+	assert.equal(proj[0].projectCount, 1);
+
+	// 不传 scope 维持全量（简洁壳侧栏 / 旧调用）：两组都在，会话与跨项目计数不变。
+	const all = buildSessionGroupNodes(groups, records, projects);
+	assert.deepEqual(
+		all.map((node) => node.group.id),
+		["mixed", "chatOnly"],
+	);
+	assert.deepEqual(ids(all[0].sessions), ["sProj", "sChat"]);
+	assert.equal(all[0].projectCount, 2);
+});
+
 test("collectGroupedSessionIds：只收解析后仍存活的会话（未加载项目的会话不得隐藏）", () => {
 	const nodes = buildSessionGroupNodes(
 		[{ id: "g", name: "G", color: "blue", createdAt: 1, sessionIds: ["s1", "unloaded"], dirs: [] }],
@@ -66,6 +104,8 @@ test("shouldHideGroupedSession：未入组不隐藏；搜索词非空时两边�
 	assert.equal(shouldHideGroupedSession("s2", grouped, ""), false);
 	// 插件未启用 / 没有分组时 groupedSessionIds 为 undefined：什么都不隐藏。
 	assert.equal(shouldHideGroupedSession("s1", undefined, ""), false);
+	// 未绑定 catalog 会话的运行时 agent（无 deckSessionId）不隐藏。
+	assert.equal(shouldHideGroupedSession(undefined, grouped, ""), false);
 });
 
 test("分组插件未启用时侧栏不展示分组的会话", () => {

@@ -434,6 +434,23 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		return (await RemoteHostStore.open(options.userDataDir)).getSnapshot().revision;
 	}
 
+	/**
+	 * 这台主机档案里手填的远端 pi 路径（缺省 = 自动探测）。
+	 *
+	 * 读不到 store / 档案不在时返回 undefined：此时探测自己会报 `SSH_HOST_NOT_READY`，不应该让
+	 * 一个读失败先变成一个看起来「用户没配」的事实。
+	 */
+	async function readPiCommand(hostId: string): Promise<string | undefined> {
+		try {
+			const snapshot = (await RemoteHostStore.open(options.userDataDir)).getSnapshot();
+			if (snapshot.status !== "ready") return undefined;
+			const command = snapshot.profiles.find((item) => item.id === hostId)?.remotePiCommand;
+			return typeof command === "string" && command.length > 0 ? command : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
 	/** The revision and the pin-confirmed route digest of one host, read together so they cannot disagree. */
 	async function readVerifiedRoute(hostId: string): Promise<{ revision: number; routeDigest: string } | null> {
 		const snapshot = (await RemoteHostStore.open(options.userDataDir)).getSnapshot();
@@ -1495,7 +1512,9 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 					cached !== undefined && cached.revision === held.revision && cached.generation === held.generation
 						? cached
 						: await (async (): Promise<PiProbeFacts> => {
-								const observation = await ports.resolvePi({ userDataDir: options.userDataDir, hostId, client: hostClient(hostId), sentinel: ports.createSentinel(), nodePath: held.session.nodePath });
+								// 手填路径优先：用户已经明确说了 pi 在哪，不再扫登录 shell 的 PATH。
+								const piPath = await readPiCommand(hostId);
+								const observation = await ports.resolvePi({ userDataDir: options.userDataDir, hostId, client: hostClient(hostId), sentinel: ports.createSentinel(), nodePath: held.session.nodePath, ...(piPath === undefined ? {} : { piPath }) });
 								const facts: PiProbeFacts = { revision: held.revision, generation: held.generation, piPath: observation.piPath, version: observation.version, ...(observation.warning === undefined ? {} : { warning: observation.warning }) };
 								entry.piProbe = facts;
 								return facts;
@@ -1508,6 +1527,27 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 					runnerPath: deployedRunnerPath({ bundleSha256: held.session.bundleSha256, deployRoot: held.session.deployRoot, active: `./bundles/${held.session.bundleSha256}` }),
 					deployRoot: held.session.deployRoot,
 				};
+			});
+		},
+		/**
+		 * 记住（或清除）这台主机手填的远端 pi 路径，并作废本代 held session 上缓存的探测结果。
+		 *
+		 * 只写 profile 的一个字段：不碰端点、不碰 pin、不换 generation（换一条 pi 路径不影响连接本身）。
+		 * 缓存必须在这里清：缓存键是 held 的 `revision + generation`，而写库不会自动改这两个值——
+		 * 不清就会让下一次探测拿旧路径的答案当新路径的事实。
+		 *
+		 * 形状校验在 IPC 边界与 store 各做一次：这里只负责写库与失效，不把业务规则再写一份。
+		 */
+		async setRemotePiCommand(hostId: string, command: string | undefined): Promise<void> {
+			if (typeof hostId !== "string" || !HOST_ID.test(hostId)) throw new Error("SSH_HOST_ID_INVALID");
+			return operationLock.run(hostId, async () => {
+				const store = await RemoteHostStore.open(options.userDataDir);
+				const snapshot = store.getSnapshot();
+				if (snapshot.status !== "ready") throw new Error("REMOTE_HOST_STORE_NEEDS_REPAIR");
+				if (!snapshot.profiles.some((profile) => profile.id === hostId)) throw new Error("REMOTE_HOST_NOT_FOUND");
+				await store.updateProfile(hostId, { remotePiCommand: command }, snapshot.revision);
+				const entry = hosts.get(hostId);
+				if (entry !== undefined) entry.piProbe = undefined;
 			});
 		},
 		/**

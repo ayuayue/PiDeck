@@ -73,6 +73,24 @@ export function assertNoForwardedEnvironment(stdout: string): void {
 	if (stdout.split(/\r?\n/).some((line) => /^(?:sendenv|setenv)(?:[ \t]|$)/.test(line))) throw new Error("SSH_HOST_ENV_UNVERIFIED");
 }
 
+/**
+ * 把 OpenSSH 探针的 stderr 归纳成稳定失败码（不把 stderr 原文跨 IPC 传）。
+ *
+ * “添加连接”失败时用户只能看到 SSH_HOST_AUTHENTICATION_FAILED，分不清是钥被拒、
+ * 私钥路径错了、钥有口令，还是根本连不到主机；这几类的修复动作完全不同。
+ * 分类依据是 OpenSSH 的固定输出句式（不同语言环境下 stderr 仍为英文）。
+ */
+export function classifySshProbeFailure(stderr: string | undefined, exitCode: number): string {
+	const text = typeof stderr === "string" ? stderr.toLowerCase() : "";
+	// 口令相关的必须先于 permission denied 判断：有口令的钥在 BatchMode 下报的也是 Permission denied。
+	if (/(enter passphrase|incorrect passphrase|bad passphrase|passphrase required|loaded 0 keys)/.test(text)) return "SSH_AUTH_PASSPHRASE_REQUIRED";
+	if (/(load key|no such identity|identity file .*not accessible|no such file or directory|invalid format|bad permissions|permissions .* are too open|permission denied \(.*\.ssh)/.test(text)) return "SSH_AUTH_KEY_UNREADABLE";
+	if (/(connection timed out|connection refused|no route to host|network is unreachable|could not resolve hostname|could not resolve host|operation timed out)/.test(text)) return "SSH_HOST_UNREACHABLE";
+	if (/permission denied|no more authentication methods|publickey,password|authentication failed|too many authentication failures/.test(text)) return "SSH_AUTH_KEY_REJECTED";
+	if (exitCode === 255 && text.trim().length === 0) return "SSH_HOST_UNREACHABLE";
+	return "SSH_HOST_AUTHENTICATION_FAILED";
+}
+
 function draftProbeArgs(routeArgs: string[], pinAlias: string, knownHostsFile: string, preverified: boolean): string[] {
 	if (/[\x00-\x1f\x7f]/.test(knownHostsFile)) throw new Error("SSH_HOST_TEMP_PATH_INVALID");
 	const globalHostsFile = process.platform === "win32" ? "NUL" : "/dev/null";
@@ -164,7 +182,7 @@ export async function verifyDraftSshHost(route: SshDraftRoute, pinAlias: string,
 		// key exchange - before authentication starts. So a failed auth still leaves the exact bytes to pin;
 		// anything on stdout is still refused (it means the probe was not a quiet handshake).
 		if (auth.stdout !== "") throw new Error("SSH_HOST_AUTHENTICATION_FAILED");
-		if (auth.exitCode !== 0 && options.allowUnauthenticatedHostKey !== true) throw new Error("SSH_HOST_AUTHENTICATION_FAILED");
+		if (auth.exitCode !== 0 && options.allowUnauthenticatedHostKey !== true) throw new Error(classifySshProbeFailure(auth.stderr, auth.exitCode));
 		const knownHostsBytes = await readBoundedHostKey(knownHostsFile);
 		if (trustedBytes !== undefined && !knownHostsBytes.equals(trustedBytes)) throw new Error("SSH_HOST_KEY_MISMATCH");
 		const fingerprint = fingerprintSshHostKey(knownHostsBytes, pinAlias);

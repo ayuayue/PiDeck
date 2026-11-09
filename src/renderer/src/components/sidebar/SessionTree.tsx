@@ -3,7 +3,7 @@ import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
 import { ChevronDown, ChevronUp, CornerDownRight, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
 import { useAtomValue } from "jotai";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
-import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, isActiveSessionStatus, sessionStatusDotClass, type ProjectChildItem } from "../../agentListDisplay";
+import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, type ProjectChildItem } from "../../agentListDisplay";
 import { compareSessionsForSortMode } from "../../sessionSortModes";
 import { sessionRecordToSummary } from "../../atoms";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
@@ -16,6 +16,7 @@ import { filterSidebarSessions, getBoundSidebarRuntimeAgent, type SidebarControl
 import { Button } from "../ui-shadcn/button";
 import type { SidebarActions } from "./SidebarContent";
 import { PendingAskBadge } from "./PendingAskBadge";
+import { SessionRuntimeStatusDot } from "./SidebarStatusDot";
 import { AcpBackendMark, SessionBackendMark, SessionChannelMark, SessionSourceBadge, SideTaskMark } from "../session/SessionSourceBadge";
 import { SessionActivityIndicator } from "../session/SessionActivityIndicator";
 import { SessionHoverCard } from "./SessionHoverCard";
@@ -96,19 +97,6 @@ function formatPiSubagentName(session: SessionSummary) {
 	return session.name || t("app.piSubagent");
 }
 
-/**
- * 复用 Tab 栏的状态点语义，并把点绑定到具体 Agent/历史会话行。
- * 没有 runtime 的历史记录传入 undefined，因此纯打开记录不会被误标成已启动。
- */
-function renderRuntimeStatusDot(status?: string | null) {
-	const dotClass = sessionStatusDotClass(status);
-	if (!dotClass) return null;
-	const active = isActiveSessionStatus(status);
-	const label = status === "idle" ? t("app.statusIdle") : status === "error" ? t("app.statusError") : active ? t("app.statusRunning") : undefined;
-	// 只有活跃状态才脉动（#483）：空闲会话也挂 animate-pulse 会让侧栏常驻合成，空闲也烧 CPU。
-	return <span className={cn("size-1.5 shrink-0 rounded-full", dotClass, active && "animate-pulse")} aria-label={label} title={label} />;
-}
-
 export function SessionTree(props: {
 	project: Project;
 	sessions: readonly SessionRecord[];
@@ -146,7 +134,12 @@ export function SessionTree(props: {
 	// 搜索是「按名字找回会话」的入口，命中时两边都给，否则越搜越找不到。
 	const groupedHiddenSummaries = summaries.filter((session) => shouldHideGroupedSession(session.id, props.groupedSessionIds, search));
 	const visibleSummaries = summaries.filter((session) => !shouldHideGroupedSession(session.id, props.groupedSessionIds, search));
-	const projectAgents = props.agents.filter((agent) => agent.projectId === props.project.id);
+	const projectAgents = props.agents
+		.filter((agent) => agent.projectId === props.project.id)
+		// 已入组的会话连运行时 agent 行一起隐藏：历史行已被 shouldHideGroupedSession 收走，
+		// agent 行若不跟着收，任务跑起来后项目列表会再冒出一条同名行，看起来像分组没生效。
+		// 运行状态改由分组行展示（SessionGroupsSection 的 SessionRuntimeStatusDot）。
+		.filter((agent) => !shouldHideGroupedSession(agent.deckSessionId, props.groupedSessionIds, search));
 	const displayAgents = filterAgentsForSidebarDisplay({
 		agents: linkedChildIds.size > 0 ? projectAgents.filter((agent) => !agent.deckSessionId || !linkedChildIds.has(agent.deckSessionId)) : projectAgents,
 		allSessions: allSummaries,
@@ -305,7 +298,7 @@ export function SessionTree(props: {
 						{...sessionDragProps(record.id)}
 					>
 						<CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />
-						{renderRuntimeStatusDot(dotStatus)}
+						<SessionRuntimeStatusDot status={dotStatus} />
 						<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 							<div className="conversation-title flex min-w-0 items-center gap-1.5">
 								<TitleScrollText text={title} className={cn(liveStatus ? "font-medium" : "font-normal text-muted-foreground/90")} />
@@ -410,7 +403,7 @@ export function SessionTree(props: {
 								}
 								{...(agentSession ? sessionDragProps(agentSession.id) : {})}
 							>
-								{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={child.agent.status} sessionId={agentSession?.id} /> : renderRuntimeStatusDot(child.agent.status)}
+								{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={child.agent.status} sessionId={agentSession?.id} /> : <SessionRuntimeStatusDot status={child.agent.status} />}
 								<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 									<div className="conversation-title flex min-w-0 items-center gap-1.5">
 										{/* 后端身份标放标题左侧（与顶部 Tab 一致）。 */}
@@ -473,7 +466,7 @@ export function SessionTree(props: {
 							onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(child.session.id, "permanent")}
 							{...sessionDragProps(child.session.id)}
 						>
-							{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtimeSnapshot?.status} sessionId={child.session.id} /> : renderRuntimeStatusDot(runtimeSnapshot?.status)}
+							{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtimeSnapshot?.status} sessionId={child.session.id} /> : <SessionRuntimeStatusDot status={runtimeSnapshot?.status} />}
 							{pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
 							<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 								<div className="conversation-title flex min-w-0 items-center gap-1.5">
@@ -560,7 +553,7 @@ export function SessionTree(props: {
 									>
 										<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 											<div className="conversation-title flex min-w-0 items-center gap-1.5">
-												{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtime?.status} sessionId={session.id} /> : renderRuntimeStatusDot(runtime?.status)}
+												{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtime?.status} sessionId={session.id} /> : <SessionRuntimeStatusDot status={runtime?.status} />}
 												{/* 后端身份标放标题左侧（与顶部 Tab 一致）。 */}
 												{session.backend === "acp" ? <AcpBackendMark acpToolId={session.acpToolId} /> : <SessionBackendMark backend={session.backend} />}
 												{/* 草稿会话：选中背景仍保留，聚焦行也允许 hover 查看完整标题 */}

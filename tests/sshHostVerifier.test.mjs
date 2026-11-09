@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { assertNoForwardedEnvironment, verifyDraftSshHost } = loadTsCommonJs("src/main/remote/SshHostVerifier.ts");
+const { assertNoForwardedEnvironment, classifySshProbeFailure, verifyDraftSshHost } = loadTsCommonJs("src/main/remote/SshHostVerifier.ts");
 const pinAlias = "pideck-host-a";
 const route = { sshHost: "work", user: "alice", port: 2222 };
 const config = `host work\nuser alice\nhostname example.invalid\nport 2222\ncanonicalizehostname false\nhostkeyalias ${pinAlias}\n`;
@@ -149,10 +149,52 @@ test("does not accept a key written before user authentication fails", async () 
 		if (args[0] === "-G") return { exitCode: 0, stdout: config };
 		probeFile = pinFile(args);
 		await writeFile(probeFile, validLine, "utf8");
-		return { exitCode: 255, stdout: "" };
+		return { exitCode: 255, stdout: "", stderr: "ubuntu@10.0.0.7: Permission denied (publickey).\n" };
 	};
-	await assert.rejects(verifyDraftSshHost(route, pinAlias, { client: clientFor(run) }), /SSH_HOST_AUTHENTICATION_FAILED/);
+	// 2026-11 用户报「本地 ssh -i 能连，PiDeck 添加失败」：失败原因必须能分辨，不能一律
+	// SSH_HOST_AUTHENTICATION_FAILED。
+	await assert.rejects(verifyDraftSshHost(route, pinAlias, { client: clientFor(run) }), /SSH_AUTH_KEY_REJECTED/);
 	await assertRemoved(probeFile);
+});
+
+test("probe argv carries the configured identity file", async () => {
+	// 回归（用户报「本地 ssh -i 能连，PiDeck 说认证失败」）：草稿路由原先没有 identityFile，
+	// 首次握手只能拿默认钥/agent 去试，用户用非默认密钥名的机器必然失败。
+	const keyPath = process.platform === "win32" ? "C:\\Users\\tester\\.ssh\\aliyun.pem" : "/home/tester/.ssh/aliyun.pem";
+	let probeArgs;
+	const run = async (_executable, args) => {
+		if (args[0] === "-G") {
+			// -G 查询同样要带上 -i，否则解析出的 identityfile 会与实际握手不一致。
+			// 跨 realm 加载的模块产出的数组原型不同，先在本 realm 重建再比。
+			assert.deepEqual([...args.slice(-5)], ["-i", keyPath, "-o", "IdentitiesOnly=yes", "work"]);
+			return { exitCode: 0, stdout: config };
+		}
+		probeArgs = args;
+		await writeFile(pinFile(args), validLine, "utf8");
+		return { exitCode: 0, stdout: "" };
+	};
+	await verifyDraftSshHost({ ...route, identityFile: keyPath }, pinAlias, { client: clientFor(run) });
+	assert.ok(probeArgs.includes("-i"), "probe must pass -i");
+	assert.equal(probeArgs[probeArgs.indexOf("-i") + 1], keyPath);
+	assert.ok(probeArgs.includes("IdentitiesOnly=yes"), "an explicit key must not fall back to agent/default keys");
+});
+
+test("classifies probe failures into actionable stable codes", () => {
+	const cases = [
+		["Permission denied (publickey).", "SSH_AUTH_KEY_REJECTED"],
+		["ubuntu@host: Permission denied (publickey,password).", "SSH_AUTH_KEY_REJECTED"],
+		['Load key "/home/u/.ssh/bad": invalid format', "SSH_AUTH_KEY_UNREADABLE"],
+		["Warning: Identity file /x not accessible: No such file or directory.", "SSH_AUTH_KEY_UNREADABLE"],
+		["Permissions 0644 for '/home/u/.ssh/id_rsa' are too open.", "SSH_AUTH_KEY_UNREADABLE"],
+		["Enter passphrase for key '/home/u/.ssh/id_ed25519':", "SSH_AUTH_PASSPHRASE_REQUIRED"],
+		['Load key "/x": incorrect passphrase supplied to decrypt private key', "SSH_AUTH_PASSPHRASE_REQUIRED"],
+		["ssh: connect to host 10.0.0.7 port 22: Connection timed out", "SSH_HOST_UNREACHABLE"],
+		["ssh: connect to host h port 22: Connection refused", "SSH_HOST_UNREACHABLE"],
+		["ssh: Could not resolve hostname nope: Name or service not known", "SSH_HOST_UNREACHABLE"],
+		["something else entirely", "SSH_HOST_AUTHENTICATION_FAILED"],
+	];
+	for (const [stderr, expected] of cases) assert.equal(classifySshProbeFailure(stderr, 255), expected, stderr);
+	assert.equal(classifySshProbeFailure(undefined, 255), "SSH_HOST_UNREACHABLE", "empty stderr on exit 255 is a transport failure");
 });
 
 test("rejects probe stdout pollution and runner failures while removing the temporary pin", async () => {

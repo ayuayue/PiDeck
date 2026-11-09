@@ -50,11 +50,14 @@ test("password mode is offered, and the secret is never part of the persisted in
 	assert.match(dialog, /const \[showPassword, setShowPassword\] = useState\(false\)/);
 	assert.match(dialog, /type=\{showPassword \? "text" : "password"\}/);
 	assert.match(dialog, /form\.auth === "password" && password\.length === 0/);
-	// 提交给主进程的只有 authMethod；密码走 onSubmitted 的第三个参数，不进 add 的输入对象。
+	// 提交给主进程的只有 authMethod；密码只作为 connect 的第二个参数（本次连接内存），不进 add/update 输入。
 	assert.match(dialog, /form\.auth === "password" \? \{ authMethod: "password" as const \} : \{\}/);
 	// 密钥口令与登录密码走同一条「只进内存」的通道，但只有非空时才传。
-	assert.match(dialog, /const secret = form\.auth === "password" \? form\.password : form\.auth === "key" \? form\.passphrase : ""/);
-	assert.match(dialog, /props\.onSubmitted\(result\.hostId, input\.label, secret\.length > 0 \? secret : undefined\)/);
+	assert.match(dialog, /const currentSecret = useCallback\(\(\) => \(form\.auth === "password" \? form\.password : form\.auth === "key" \? form\.passphrase : ""\), \[form\]\)/);
+	assert.match(dialog, /desktopApi\.remoteHosts\.connect\(hostId, secret\.length > 0 \? secret : undefined\)/);
+	assert.match(dialog, /secret\.length > 0 \? \{ secret \} : \{\}/);
+	// 对话框不再把口令回传给宿主（宿主也不自己发起连接）。
+	assert.doesNotMatch(dialog, /props\.onSubmitted/);
 	assert.doesNotMatch(dialog, /authMethod: "password", password/);
 	// 旧的不支持提示已随能力一起移除。
 	assert.doesNotMatch(dialog, /auth\.passwordUnsupported/);

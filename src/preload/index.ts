@@ -420,6 +420,11 @@ const api = {
 		scanConfig: () => ipcRenderer.invoke(ipcChannels.remoteHostScanConfig) as Promise<import("../shared/types/remoteHost").RemoteHostConfigScanResult>,
 		/** 添加主机：建立 draft、完成首次 host key 信任（TOFU）并落盘 pin；成功即 verified，可直接连接。 */
 		add: (input: import("../shared/types/remoteHost").RemoteHostAddInput) => ipcRenderer.invoke(ipcChannels.remoteHostAdd, input) as Promise<import("../shared/types/remoteHost").RemoteHostAddResult>,
+		test: (input: import("../shared/types/remoteHost").RemoteHostAddInput) => ipcRenderer.invoke(ipcChannels.remoteHostTest, input) as Promise<import("../shared/types/remoteHost").RemoteHostTestResult>,
+		/** 探测远端 pi：必要时建立会话并读登录 shell 的 PATH；只读，不改任何配置。 */
+		probePi: (hostId: string) => ipcRenderer.invoke(ipcChannels.remoteHostPiProbe, hostId) as Promise<import("../shared/types/remoteHost").RemoteHostPiProbeResult>,
+		/** 记住远端 pi 的绝对路径（null = 回到自动探测），并立刻重新探测。 */
+		setPiPath: (hostId: string, path: string | null) => ipcRenderer.invoke(ipcChannels.remoteHostPiPath, hostId, path) as Promise<import("../shared/types/remoteHost").RemoteHostPiProbeResult>,
 		/** 移除连接：主进程先断开再退役 profile/pin；仍被项目引用时拒绝。 */
 		remove: (hostId: string) => ipcRenderer.invoke(ipcChannels.remoteHostRemove, hostId) as Promise<import("../shared/types/remoteHost").RemoteHostRemoveResult>,
 		/** 只读列目录：path 缺省从远端 home 开始；只返回目录名。 */

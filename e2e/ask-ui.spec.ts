@@ -230,9 +230,15 @@ test("ask 取消: 点 X 关闭后回传 cancelled", async ({ window }) => {
 test("ask 多 pending: 渲染最新到达的请求而不是第一个", async ({ app, window }) => {
 	test.setTimeout(120_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	// 全新隔离 profile 启动时没有会话 Tab（Tab 不跨进程持久化）；该用例靠注入事件而非发送，
+	// 所以必须先经 Tab 栏「+」建一条真实会话，侧栏「新建会话」只打开引导页、不建会话。
+	await window.getByRole("button", { name: "新建会话", exact: true }).last().click();
+	await window.getByRole("menuitem", { name: "聊天" }).click();
+	const activeTab = window.locator('.session-tab[aria-selected="true"]').first();
+	await expect(activeTab).toBeVisible({ timeout: 30_000 });
 
 	// 1. 从当前激活 Tab 读真实 currentSessionId（渲染层不会把会话 id 暴露到别处）
-	const focusedSessionId = await window.locator('.session-tab[aria-selected="true"]').getAttribute("data-session-id");
+	const focusedSessionId = await activeTab.getAttribute("data-session-id");
 	expect(focusedSessionId).toBeTruthy();
 
 	const inject = (event: unknown) =>

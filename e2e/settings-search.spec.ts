@@ -41,7 +41,8 @@ test("settings navigation names its groups without adding keyboard stops", async
 	const sidebar = modal.locator(".settings-tabs");
 	const labels = ["基础设置", "扩展与集成", "开发工具", "维护与诊断"];
 	await expect(sidebar.locator("span.text-micro")).toHaveText(labels);
-	await expect(sidebar.getByRole("tab")).toHaveCount(23);
+	// 侧栏 tab 总数 = SETTINGS_TAB_LAYOUT 条目数（cloudsync / videogen / acp / hostplugins 等随功能增补）
+	await expect(sidebar.getByRole("tab")).toHaveCount(24);
 	for (const label of labels) await expect(sidebar.getByRole("tab", { name: label, exact: true })).toHaveCount(0);
 	await sidebar.getByRole("tab", { name: "外观设置", exact: true }).click();
 	await expect(sidebar.getByRole("tab", { name: "外观设置", exact: true })).toHaveAttribute("aria-selected", "true");

@@ -45,9 +45,10 @@ test("preview tab becomes permanent after send", async ({ window }) => {
 	await window.locator('.session-tabs-bar [role="tab"]').first().locator('[role="tab-close"]').click();
 	await expect(window.locator('.session-tabs-bar [role="tab"]')).toHaveCount(0, { timeout: 10_000 });
 
-	// 关闭 Tab 后 agent 仍在运行：侧栏显示为 agent 行（状态点 + 会话标题，标题已更新为首条消息内容，
-	// 不再是 draft 时的「项目名 agent」），点击同样走 preview 模式
-	const row = window.locator(".agent-row", { hasText: "预览会话一号" }).first();
+	// 关闭 Tab 后 agent 仍在运行：侧栏显示为 agent 行（状态点 + 标题），点击同样走 preview 模式。
+	// 标题仍是 draft 的「项目名 agent」：mock 的 get_state 固定返回 sessionName "Mock Agent"，
+	// 首条消息自动命名会因「标题已非占位名」而跳过；真实 pi 的自动命名由单测覆盖，这里只断言本功能的 Tab 行为。
+	const row = window.locator(".agent-row", { hasText: "PreviewE2E agent" }).first();
 	await row.click();
 	const previewTab = window.locator('.session-tabs-bar [role="tab"]').first();
 	await expect(previewTab).toBeVisible({ timeout: 10_000 });

@@ -1,6 +1,8 @@
-import { ipcMain } from "electron";
+import { ipcMain, BrowserWindow, dialog } from "electron";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
-import type { RemoteHostEditDraftResult, RemoteHostUpdateResult } from "../../shared/types/remoteHost";
+import type { RemoteHostEditDraftResult, RemoteHostPickIdentityFileResult, RemoteHostUpdateResult } from "../../shared/types/remoteHost";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import { normalizeRemoteHostIdentityFile, REMOTE_HOST_IDENTITY_FILE_INVALID } from "../remote/RemoteHostIdentityFile";
 import type { RemoteHostStore } from "../remote/RemoteHostStore";
@@ -63,6 +65,25 @@ export function registerRemoteHostEditIpc(input: { enabled: boolean; openStores:
 	}
 
 	/**
+	 * 原生文件选择器（挑私钥）。只有本机绝对路径会回到渲染层：这里不读文件、不涉及口令，
+	 * 取消就是普通的 `ok: false`。
+	 *
+	 * 放在编辑域而不是 `remoteHostIpc`：它是「填/改私钥」这条路的一部分，与连接开关、修复、诊断无关；
+	 * 而 `remoteHostIpc` 有体量红线（<600 行），两个域的 handler 不该挤在同一个文件里。
+	 */
+	ipcMain.handle(ipcChannels.remoteHostPickIdentityFile, async (event): Promise<RemoteHostPickIdentityFileResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		const window = BrowserWindow.fromWebContents(event.sender);
+		const options = { title: "SSH 私钥", defaultPath: join(homedir(), ".ssh"), properties: ["openFile" as const] };
+		const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+		const picked = result.filePaths[0];
+		if (result.canceled || picked === undefined) return { ok: false, code: "REMOTE_HOST_IDENTITY_FILE_CANCELLED" };
+		// store 只接受本机绝对路径；边界处就先拒掉别的形状。
+		if (!isAbsolute(picked) || /[\x00-\x1f\x7f]/.test(picked)) return { ok: false, code: "REMOTE_HOST_IDENTITY_FILE_INVALID" };
+		return { ok: true, path: picked };
+	});
+
+	/**
 	 * 编辑一台已添加的主机：同一个 hostId 原位更新，项目和会话引用保持有效。
 	 *
 	 * 端点（host/user/port/proxyJump）变化时旧的 pin 与 verifiedEndpoint 描述的是另一台机器，store 会在
@@ -89,7 +110,9 @@ export function registerRemoteHostEditIpc(input: { enabled: boolean; openStores:
 			const code = typeof error === "object" && error !== null && "message" in error ? (error as { message?: unknown }).message : undefined;
 			return { ok: false, hostId, code: typeof code === "string" && /^REMOTE_HOST_[A-Z0-9_]{1,64}$/.test(code) ? code : "REMOTE_HOST_EDIT_INVALID" };
 		}
-		if (updated.endpointChanged) {
+		// 未验证的连接（上次握手失败被保留下来的草稿）同样要重跑一次探针：
+		// 用户点编辑改的就是那把钥/那个口令，改完必须能真正变成可连接，而不是停在一行「未验证」。
+		if (updated.endpointChanged || updated.profile.verifiedEndpoint === undefined) {
 			try {
 				const offer = await store.offerPin(hostId, senderId, store.getSnapshot().revision);
 				await store.confirmPin({ requestId: offer.requestId, hostId, senderId, choice: "approve" }, store.getSnapshot().revision);
@@ -143,6 +166,7 @@ export function registerRemoteHostEditIpc(input: { enabled: boolean; openStores:
 				...(profile.port === undefined ? {} : { port: profile.port }),
 				...(profile.identityFile === undefined ? {} : { identityFile: profile.identityFile }),
 				...(profile.authMethod === undefined ? {} : { authMethod: profile.authMethod }),
+				...(profile.remotePiCommand === undefined ? {} : { remotePiCommand: profile.remotePiCommand }),
 			},
 			secret: secret ?? null,
 		};

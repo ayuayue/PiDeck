@@ -6,7 +6,9 @@
  * 「项目列表里隐藏已入组会话」），本组件只负责渲染。
  * 点击会话走侧栏同一条打开链路（选中 + 按设置登记 Tab）；右键复用项目树的会话菜单
  * （Agent 菜单 / 会话菜单同一判定，见 openSessionRowMenu）；增删改管理仍在插件页（v1 约定）。
- * 没有分组（插件未启用 / 全部失效）时整块不渲染：不留一个永远空着的区。
+ * 没有分组（插件未启用 / 全部失效 / 本栏目裁剪后没有会话）时整块不渲染：不留一个永远空着的区。
+ * 渲染范围由调用方传入的 nodes 决定：聊天栏目只给 Chat 会话节点，项目栏目只给工作区会话节点
+ * （见 sessionGroupsModel.buildSessionGroupNodes 的 scope），活动栏目不挂本区。
  */
 import { ChevronRight, Ellipsis } from "lucide-react";
 import { useState } from "react";
@@ -20,6 +22,7 @@ import { Button } from "../ui-shadcn/button";
 import type { SidebarActions } from "./SidebarContent";
 import { projectDirectoryLabel, type SessionGroupNode } from "./sessionGroupsModel";
 import { openSessionRowMenu } from "./sessionRowMenu";
+import { SessionRuntimeStatusDot } from "./SidebarStatusDot";
 import { ROW_CONTAINER_CLASS, ROW_MORE_ACTIONS_CLASS, SESSION_ROW_CLASS, SESSION_ROW_SELECTED_CLASS } from "./sidebarRowStyles";
 
 /** 分组身份色（与插件页色点同值；内联样式避免 Tailwind 按名字 purge）。 */
@@ -110,6 +113,8 @@ export function SessionGroupsSection(props: { nodes: readonly SessionGroupNode[]
 													>
 														<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 															<div className="conversation-title flex min-w-0 items-center gap-1.5">
+																{/* 运行状态：入组后项目列表的 agent 行会被隐藏，这里是该会话唯一的运行态入口（与项目树同一套色点/脉动）。 */}
+																<SessionRuntimeStatusDot status={props.controller.catalog.runtimeBySessionId[session.id]?.status} />
 																<span className="min-w-0 flex-1 truncate">{session.title}</span>
 																{projectCount > 1 && <span className="max-w-24 shrink-0 truncate text-micro text-muted-foreground/70">{projectLabel.name}</span>}
 																{/* 时间 hover 时让位给「⋯」：与项目树会话行同一策略，避免瞬时消失导致行尾跳动。 */}

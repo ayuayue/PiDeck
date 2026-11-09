@@ -122,6 +122,19 @@ export class SshHostPinStore {
 		return (route, pinAlias, preverifiedHostKey, options) => verifyDraftSshHost(route, pinAlias, { client, ...(preverifiedHostKey === undefined ? {} : { preverifiedHostKey }), ...(options?.allowUnauthenticatedHostKey === true ? { allowUnauthenticatedHostKey: true } : {}) });
 	}
 
+	/**
+	 * 「测试连接」：用一次性 pin alias 跑一遍真实握手（可达性 + 认证 + 主机密钥），不写 pin。
+	 *
+	 * 走与 offer 完全相同的 verifier，所以测试通过 == 添加时的握手能过；临时 known_hosts 由
+	 * verifyDraftSshHost 建在临时目录里并在 finally 删除，主机的信任状态一点没变。
+	 */
+	async probe(route: SshDraftRoute): Promise<SshDraftHostCandidate> {
+		if (this.closed) throw new Error("CONFIRMATION_CLOSED");
+		buildSshConfigQueryArgs(route);
+		const alias = `pideck-probe-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+		return (await this.verifierFor())(route, alias);
+	}
+
 	/** Reauthenticate a route against its published key before a repair may restore activation. */
 	async reverifyRoute(route: SshDraftRoute, pinAlias: string): Promise<SshDraftHostCandidate> {
 		if (this.closed) throw new Error("CONFIRMATION_CLOSED");
@@ -145,7 +158,13 @@ export class SshHostPinStore {
 		this.checkHostId(input.hostId);
 		if (!Number.isSafeInteger(input.senderId) || input.senderId < 1) throw new Error("CONFIRMATION_INVALID");
 		const epoch = this.senderEpoch.get(input.senderId) ?? 0;
-		const route: SshDraftRoute = { sshHost: input.route?.sshHost, ...(input.route?.user !== undefined ? { user: input.route.user } : {}), ...(input.route?.port !== undefined ? { port: input.route.port } : {}), ...(input.route?.proxyJump !== undefined ? { proxyJump: input.route.proxyJump } : {}) };
+		const route: SshDraftRoute = {
+			sshHost: input.route?.sshHost,
+			...(input.route?.user !== undefined ? { user: input.route.user } : {}),
+			...(input.route?.port !== undefined ? { port: input.route.port } : {}),
+			...(input.route?.proxyJump !== undefined ? { proxyJump: input.route.proxyJump } : {}),
+			...(input.route?.identityFile !== undefined ? { identityFile: input.route.identityFile } : {}),
+		};
 		buildSshConfigQueryArgs(route);
 		const filePath = this.pathFor(input.hostId);
 		const trusted = input.preverifiedHostKey;

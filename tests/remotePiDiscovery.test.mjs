@@ -50,7 +50,7 @@ function loadPure() {
 	});
 }
 
-const { listPiCandidatesFromPath, buildRemotePiVersionCommand, parsePiVersionOutput, comparePiVersions, classifyRemotePiVersion, PI_CANDIDATE_NAMES, MAX_PI_CANDIDATES, REMOTE_PI_MIN_SUPPORTED, REMOTE_PI_VERIFIED_CEILING } = loadPure();
+const { listPiCandidatesFromPath, buildRemotePiVersionCommand, normalizeRemotePiPath, parsePiVersionOutput, comparePiVersions, classifyRemotePiVersion, PI_CANDIDATE_NAMES, MAX_PI_CANDIDATES, REMOTE_PI_MIN_SUPPORTED, REMOTE_PI_VERIFIED_CEILING } = loadPure();
 
 test("the exported matrix constants are the contract, not incidental values", () => {
 	// 候选名必须与本地 PiLocator 同源（pi + 三种 JS 源文件别名），顺序即优先级。
@@ -109,7 +109,9 @@ test("the version command runs the resolved node as interpreter and quotes both 
 	// 反引号与分号同样只是字面量：引号包里没有裸引号，也没有引号外的尾巴。
 	assert.match(buildRemotePiVersionCommand("/opt/`whoami`;rm -rf/pi", NODE_PATH), /^'[^']*' '[^']*' '--version'$/, "metacharacters must sit inside the quotes, with no unquoted tail");
 	// 任一非法路径都抛既有 REMOTE_PI_PATH_INVALID，不能进入命令（pi 与 node 两个位置都查）。
-	const badPiPaths = ["", "pi", "bin/pi", "/usr/bin/node", "/usr/../bin/pi", "/usr//pi", "/usr/bin/pi/", "/usr/bin/pi\n", "/usr/bin/pi; rm -rf /", `/usr/bin/${"p".repeat(4090)}/pi`, null, 42];
+	// 注：pi 路径**不**要求末段是候选名——候选名只约束按 PATH 自动发现（见 listPiCandidatesFromPath），
+	// 用户手填的路径（主机档案的 remotePiCommand）可以是任意可执行名。
+	const badPiPaths = ["", "pi", "bin/pi", "/usr/../bin/pi", "/usr//pi", "/usr/bin/pi/", "/usr/bin/pi\n", "/usr/bin/pi; rm -rf /", `/usr/bin/${"p".repeat(4090)}/pi`, null, 42];
 	const badNodePaths = ["", "node", "bin/node", "/usr/../bin/node", "/usr//node", "/usr/bin/node/", "/usr/bin/node\n", "/usr/bin/node; rm -rf /", null, 42];
 	for (const bad of badPiPaths) assert.throws(() => buildRemotePiVersionCommand(bad, NODE_PATH), /REMOTE_PI_PATH_INVALID/, `must reject pi path ${String(bad)}`);
 	for (const bad of badNodePaths) assert.throws(() => buildRemotePiVersionCommand("/usr/local/bin/pi", bad), /REMOTE_PI_PATH_INVALID/, `must reject node path ${String(bad)}`);
@@ -409,4 +411,57 @@ test("a version command longer than the ssh remote-command frame is refused at c
 	assert.throws(() => buildRemotePiVersionCommand(pi, node), /REMOTE_PI_PATH_INVALID/);
 	// 同样的两段路径但短到帧内：必须能构造（否则上面那条只是「总是拒绝」）。
 	assert.ok(buildRemotePiVersionCommand("/usr/bin/pi", NODE_PATH).length < 8192);
+});
+
+/**
+ * 用户手填的 pi 路径（主机档案的 `remotePiCommand`）：给了一个就不扫登录 shell 的 PATH，
+ * 只对这条路径跑同一条版本命令、走同一道版本门。手填是用户对「我的 pi 装在哪」的明确声明，
+ * 重新扫 PATH 只会拿别人目录里的 pi 去掩盖它。
+ */
+test("an explicit pi path skips the PATH scan and only runs the version gate", async () => {
+	const explicit = "/home/me/bin/pi-coding-agent";
+	const { resolveRemotePiExecutable, client, probed } = loadWithRemote("/usr/bin", { [explicit]: "0.85.1\n" });
+	const observation = await resolveRemotePiExecutable({ userDataDir: "/ignored", hostId: HOST_ID, client, sentinel: SENTINEL, nodePath: NODE_PATH, piPath: explicit });
+	assert.equal(observation.piPath, explicit);
+	assert.equal(observation.version, "0.85.1");
+	assert.equal(observation.probed, 1);
+	assert.deepEqual(
+		probed.map((entry) => entry.kind),
+		["version"],
+		"no login-shell PATH frame is spent when the path is explicit",
+	);
+	assert.equal(versionProbes(probed)[0].node, NODE_PATH, "the explicit path still runs through the resolved node");
+});
+
+test("an explicit pi path that fails its version check reports the code instead of scanning PATH", async () => {
+	const explicit = "/home/me/bin/pi";
+	const missing = loadWithRemote("/usr/bin", { "/usr/bin/pi": "0.85.1\n" });
+	await assert.rejects(missing.resolveRemotePiExecutable({ userDataDir: "/ignored", hostId: HOST_ID, client: missing.client, sentinel: SENTINEL, nodePath: NODE_PATH, piPath: explicit }), /REMOTE_PI_VERSION_UNREADABLE/);
+	assert.deepEqual(
+		missing.probed.map((entry) => entry.kind),
+		["version"],
+		"a broken explicit path must not fall back to PATH discovery",
+	);
+
+	// 可读但低于下限：明确结论（该升级），不是「换个候选再试」。
+	const tooOld = loadWithRemote("/usr/bin", { [explicit]: "0.84.9\n" });
+	await assert.rejects(tooOld.resolveRemotePiExecutable({ userDataDir: "/ignored", hostId: HOST_ID, client: tooOld.client, sentinel: SENTINEL, nodePath: NODE_PATH, piPath: explicit }), /REMOTE_PI_TOO_OLD/);
+	assert.equal(versionProbes(tooOld.probed).length, 1);
+});
+
+test("an invalid explicit pi path never reaches the wire", async () => {
+	for (const bad of ["", "pi", "bin/pi", "/usr/../bin/pi", "/usr//pi", "/usr/bin/pi/", "/usr/bin/pi\n", "/usr/bin/pi; rm -rf /", null, 42]) {
+		const { resolveRemotePiExecutable, client, probed } = loadWithRemote("/usr/bin", {});
+		await assert.rejects(resolveRemotePiExecutable({ userDataDir: "/ignored", hostId: HOST_ID, client, sentinel: SENTINEL, nodePath: NODE_PATH, piPath: bad }), /REMOTE_PI_PATH_INVALID/, `must reject ${String(bad)}`);
+		assert.equal(probed.length, 0, "no frame may be sent for a path that cannot be quoted");
+	}
+});
+
+test("the persisted pi path is limited to the host-profile token charset", () => {
+	// 手填路径会写进主机档案，而档案 codec 对 remotePiCommand 用的是 `[A-Za-z0-9._/-]` 规则；
+	// 放宽这里等于写出一份「本机能存、下次读不出来」的档案（读取校验整份快照）。
+	assert.equal(normalizeRemotePiPath("/home/me/.nvm/versions/node/v22.11.0/bin/pi"), "/home/me/.nvm/versions/node/v22.11.0/bin/pi");
+	for (const bad of ["/home/me/bin dir/pi", "/home/用户/bin/pi", "~/bin/pi", "pi", "/usr/bin/pi~", "/usr/bin/pi\n", "", null, 42]) {
+		assert.throws(() => normalizeRemotePiPath(bad), /REMOTE_PI_PATH_INVALID/, `must reject ${String(bad)}`);
+	}
 });

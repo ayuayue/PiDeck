@@ -64,7 +64,7 @@ export function isRemoteHostStoreCode(code: string): code is RemoteHostStoreCode
 
 /** Editable fields of a never-verified draft; absent keys keep their current value. */
 export type RemoteHostDraftPatch = Partial<Pick<RemoteHostProfile, "label" | "sshHost" | "user" | "port" | "proxyJump" | "identityFile" | "connectTimeoutMs">>;
-export type RemoteHostProfilePatch = RemoteHostDraftPatch & Partial<Pick<RemoteHostProfile, "authMethod">>;
+export type RemoteHostProfilePatch = RemoteHostDraftPatch & Partial<Pick<RemoteHostProfile, "authMethod" | "remotePiCommand">>;
 type DraftInput = Pick<RemoteHostProfile, "label" | "sshHost" | "connectTimeoutMs"> & Partial<Pick<RemoteHostProfile, "user" | "port" | "proxyJump" | "identityFile" | "authMethod" | "remotePiCommand" | "remoteNodeCommand">>;
 const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
 
@@ -377,18 +377,35 @@ export class RemoteHostStore {
 				const identityFile = pick("identityFile", profile.identityFile);
 				const connectTimeoutMs = pick("connectTimeoutMs", profile.connectTimeoutMs);
 				const authMethod = pick("authMethod", profile.authMethod);
+				// 手填的远端 pi 路径：`undefined` 表示「回到自动探测」（与 authMethod 同一种"显式写入 undefined"语义）。
+				const remotePiCommand = pick("remotePiCommand", profile.remotePiCommand);
 				if (typeof label !== "string" || !label.trim() || label.length > 128 || /[ -]/.test(label)) throw new Error("REMOTE_HOST_EDIT_INVALID");
 				if (typeof sshHost !== "string" || !sshHost.trim() || /[ -]/.test(sshHost)) throw new Error("REMOTE_HOST_EDIT_INVALID");
 				if (identityFile !== undefined && (typeof identityFile !== "string" || !isAbsolute(identityFile) || /[ -]/.test(identityFile))) throw new Error("REMOTE_HOST_EDIT_INVALID");
 				if (typeof connectTimeoutMs !== "number" || !Number.isSafeInteger(connectTimeoutMs) || connectTimeoutMs < 1000 || connectTimeoutMs > 120_000) throw new Error("REMOTE_HOST_EDIT_INVALID");
 				if (authMethod !== undefined && authMethod !== "password") throw new Error("REMOTE_HOST_EDIT_INVALID");
+				if (
+					remotePiCommand !== undefined &&
+					(typeof remotePiCommand !== "string" ||
+						remotePiCommand.length === 0 ||
+						remotePiCommand.length > 4096 ||
+						!remotePiCommand.startsWith("/") ||
+						remotePiCommand.endsWith("/") ||
+						!/^\/[A-Za-z0-9._/-]+$/.test(remotePiCommand) ||
+						remotePiCommand
+							.slice(1)
+							.split("/")
+							.some((segment) => segment === "" || segment === "." || segment === "..") ||
+						/[\x00-\x1f\x7f]/.test(remotePiCommand))
+				)
+					throw new Error("REMOTE_HOST_EDIT_INVALID");
 				try {
 					buildSshConfigQueryArgs({ sshHost, ...(user !== undefined ? { user } : {}), ...(port !== undefined ? { port } : {}), ...(proxyJump !== undefined ? { proxyJump } : {}) });
 				} catch {
 					throw new Error("REMOTE_HOST_EDIT_INVALID");
 				}
 				changed = sshHost !== profile.sshHost || user !== profile.user || port !== profile.port || proxyJump !== profile.proxyJump;
-				const { user: _user, port: _port, proxyJump: _proxyJump, identityFile: _identityFile, authMethod: _authMethod, verifiedEndpoint: _verifiedEndpoint, verifiedAt: _verifiedAt, ...rest } = profile;
+				const { user: _user, port: _port, proxyJump: _proxyJump, identityFile: _identityFile, authMethod: _authMethod, remotePiCommand: _remotePiCommand, verifiedEndpoint: _verifiedEndpoint, verifiedAt: _verifiedAt, ...rest } = profile;
 				const next: RemoteHostProfile = {
 					...rest,
 					label,
@@ -400,6 +417,7 @@ export class RemoteHostStore {
 					...(proxyJump !== undefined ? { proxyJump } : {}),
 					...(identityFile !== undefined ? { identityFile } : {}),
 					...(authMethod !== undefined ? { authMethod } : {}),
+					...(remotePiCommand !== undefined ? { remotePiCommand } : {}),
 					// Keeping the anchor is only correct while the endpoint identity is unchanged.
 					...(!changed && profile.verifiedEndpoint !== undefined ? { verifiedEndpoint: profile.verifiedEndpoint } : {}),
 					...(!changed && profile.verifiedAt !== undefined ? { verifiedAt: profile.verifiedAt } : {}),
@@ -536,7 +554,14 @@ export class RemoteHostStore {
 		return this.pinStore.offer({
 			hostId,
 			senderId,
-			route: { sshHost: profile.sshHost, ...(profile.user !== undefined ? { user: profile.user } : {}), ...(profile.port !== undefined ? { port: profile.port } : {}), ...(profile.proxyJump !== undefined ? { proxyJump: profile.proxyJump } : {}) },
+			// identityFile 必须一起带上：探针握手用的就是这把钥，缺了它用户用非默认密钥名的主机必失败。
+			route: {
+				sshHost: profile.sshHost,
+				...(profile.user !== undefined ? { user: profile.user } : {}),
+				...(profile.port !== undefined ? { port: profile.port } : {}),
+				...(profile.proxyJump !== undefined ? { proxyJump: profile.proxyJump } : {}),
+				...(profile.identityFile !== undefined ? { identityFile: profile.identityFile } : {}),
+			},
 			...(preverifiedHostKey === undefined ? {} : { preverifiedHostKey }),
 			// A password host has no credential at enrollment time by design: the key is pinned first, the
 			// secret is only ever sent to a host whose key is already on disk.

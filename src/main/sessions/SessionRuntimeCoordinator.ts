@@ -2547,9 +2547,9 @@ export class SessionRuntimeCoordinator {
 		const model = this.extractModelFromNotFound(message);
 		const editorCode = this.sessionFileEditorErrorCode(error);
 		const code: SessionCommandErrorCode =
-			// 会话文件超编辑上限：SessionFileEditor 的整读护栏拒绝（编辑需完整文档，无法流式）。
-			// 必须单独成一类——否则用户只看到泛化的「会话操作失败」，既不知道原因也不知道
-			// 「这个会话大到不能改」（比起重试，正确动作是换个会话 / 导出归档）。
+			// 会话文件超编辑上限：大文件已改走流式路径，这条只剩「流式分流不可用」的兜底。
+			// 仍单独成一类——一旦发生，用户看到的就是「这个会话现在改不了」，而不是泛化的
+			// 「会话操作失败，请重试」（文案里的两个体积占位符需要真实值）。
 			editorCode === "SESSION_FILE_TOO_LARGE"
 				? "SESSION_FILE_TOO_LARGE"
 				: // SessionFileEditor 的 SESSION_ENTRY_NOT_FOUND 包括「不在活动分支」/

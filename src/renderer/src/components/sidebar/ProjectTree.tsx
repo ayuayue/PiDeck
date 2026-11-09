@@ -108,8 +108,12 @@ export function ProjectTree(props: {
 	const projectsById = useAtomValue(projectInventoryByIdAtom);
 	const sessionRecords = useAtomValue(sessionRecordsAtom);
 	const sessionGroups = useSessionGroups();
-	const sessionGroupNodes = useMemo(() => buildSessionGroupNodes(sessionGroups, sessionRecords, projectsById), [sessionGroups, sessionRecords, projectsById]);
-	const groupedSessionIds = useMemo(() => collectGroupedSessionIds(sessionGroupNodes), [sessionGroupNodes]);
+	// 分组按栏目拆两份：聊天栏目只列 Chat 项目的会话，项目栏目只列工作区项目的会话。
+	// 活动栏目不挂分组——活动/最近会话本就是跨项目的实时视图，再叠一份分组只是重复。
+	// 隐藏判定用两份合并（= 全量会话集）：一个会话只会出现在它所属栏目的分组里。
+	const chatSessionGroupNodes = useMemo(() => buildSessionGroupNodes(sessionGroups, sessionRecords, projectsById, "chat"), [sessionGroups, sessionRecords, projectsById]);
+	const projectSessionGroupNodes = useMemo(() => buildSessionGroupNodes(sessionGroups, sessionRecords, projectsById, "project"), [sessionGroups, sessionRecords, projectsById]);
+	const groupedSessionIds = useMemo(() => collectGroupedSessionIds([...chatSessionGroupNodes, ...projectSessionGroupNodes]), [chatSessionGroupNodes, projectSessionGroupNodes]);
 	// 冻结标题只在常规模式生效：simple 壳侧栏背景是 --simple-shell-surface，
 	// 遮底用的 bg-sidebar 会在该模式下露出色差，直接不启用。
 	const stickyHeader = !props.simple && props.stickyGroupHeaders === true;
@@ -240,6 +244,12 @@ export function ProjectTree(props: {
 									<strong className={`min-w-0 truncate font-medium${project.missing ? " text-muted-foreground" : ""}`}>{projectDirectoryName}</strong>
 									{/* 置顶标记：与 SessionTree 的 Pin 图标同规格；Chat 恒置顶不重复展示 */}
 									{project.kind !== "chat" && project.pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
+									{/* WSL 标记：本地目录与 WSL 发行版目录在侧栏里长得很像，加一个类型标记才能一眼区分。 */}
+									{!isRemoteProject(project) && project.environment === "wsl" ? (
+										<span title={t("sidebar.projectWslTagHint")} className="shrink-0 rounded border border-border-subtle px-1 text-micro leading-4 text-muted-foreground">
+											{t("sidebar.projectWslTag")}
+										</span>
+									) : null}
 									{/* 待确认徽章：当项目下有会话等待用户输入/确认时醒目展示 */}
 									<PendingAskBadge count={pendingAskCount} />
 									{/* 简洁模式汇总实际计算中状态（含worktree）；空闲进程不转。 */}
@@ -478,10 +488,14 @@ export function ProjectTree(props: {
 		);
 	});
 
+	// 聊天栏目的分组区：只列内置 Chat 项目的会话（项目栏目的分组在 projectsSection 内）。
+	const chatGroupsSection = <SessionGroupsSection nodes={chatSessionGroupNodes} projectsById={projectsById} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />;
+
 	const projectsSection = (
 		<section aria-label={t("app.sidebarProjects")} role="tree">
-			{/* 会话分组树（只读浏览，数据在宿主 store，写入方是分组插件页）：置于普通项目之上 */}
-			<SessionGroupsSection nodes={sessionGroupNodes} projectsById={projectsById} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />
+			{/* 会话分组树（只读浏览，数据在宿主 store，写入方是分组插件页）：只列工作区项目的会话；
+			   聊天栏目的分组在 chatSection 上方单独渲染。置于普通项目之上 */}
+			<SessionGroupsSection nodes={projectSessionGroupNodes} projectsById={projectsById} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />
 			{/* 分组标题栏：左侧「项目」标题，右侧 = 「+ 添加项目」+ 全部折叠/展开（高频操作外露）
             + 「⋯ 更多操作」。目录存在性重扫属于低频维护动作，收进菜单避免挤占窄侧栏。
             开启冻结时给这层纯逻辑包裹加 display:contents：它不生成盒子，里面的标题栏
@@ -571,21 +585,19 @@ export function ProjectTree(props: {
 		return (
 			<>
 				{projectsSection}
+				{/* 简洁壳侧栏不分区切换：项目区的分组挂在项目上方，聊天分组挂在 Chat 区上方，各自只列本范围会话。 */}
+				{chatGroupsSection}
 				{chatSection}
 				<ActiveSessionsTree controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} recentOnly />
 			</>
 		);
-	const groupsSection = <SessionGroupsSection nodes={sessionGroupNodes} projectsById={projectsById} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />;
 	return (
 		<>
 			{props.controller.navTab === "active" ? (
-				<>
-					{groupsSection}
-					<ActiveSessionsTree controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />
-				</>
+				<ActiveSessionsTree controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />
 			) : props.controller.navTab === "chats" ? (
 				<>
-					{groupsSection}
+					{chatGroupsSection}
 					{chatSection}
 				</>
 			) : (
