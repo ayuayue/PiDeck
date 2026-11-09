@@ -37,6 +37,20 @@ export function hasTurnOutput(messages: ChatMessage[], seededIndex: number): boo
 }
 
 /**
+ * 本回合是否为「CLI 原生命令」派发（行首 `/`，见 composerBehavior 的「斜线命令原样发送」）。
+ *
+ * 判定只看写法、不看命令语义：ACP CLI 的斜杠命令（CodeBuddy 的 `/clear`、Claude 的
+ * `/compact` …）由 CLI 自己执行，不出 assistant/tool 正文。它们和「事件流丢失」的空白
+ * 回合在消息层面完全同形，只能靠派发内容区分（#512）。
+ *
+ * 放宽仅限于**零输出**回合——有正文的命令仍按普通回合走，不丢任何提示。
+ */
+export function isNativeCommandPrompt(input: SendPromptInput): boolean {
+	const text = input.message?.trim() ?? "";
+	return text.startsWith("/") && !input.images?.length;
+}
+
+/**
  * 空白回合的诊断串（进 debugDetails）：按「最可能是根因」排序——渲染层 toast 只截前
  * 140 字符，CLI 自己的报错（限流/登录失败，通常只打在 stderr）必须排在最前面。
  */

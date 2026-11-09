@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { describeEmptyTurn, emptyTurnRejection, promptResultSnippet, stalledTurnRejection } = loadTsCommonJs("src/main/acp/acpTurnSettlement.ts");
+const { describeEmptyTurn, emptyTurnRejection, isNativeCommandPrompt, promptResultSnippet, stalledTurnRejection } = loadTsCommonJs("src/main/acp/acpTurnSettlement.ts");
 
 test("describeEmptyTurn 把 stderr 排在最前,并带上 stopReason/update 统计/通知/响应原文", () => {
 	const details = describeEmptyTurn({
@@ -49,4 +49,14 @@ test("stalledTurnRejection:被看门狗掐断的回合按失败收口(#500)", ()
 	assert.equal(result.debugDetails, "updates=agent_message_chunkx1");
 	assert.match(result.error, /CodeBuddy/);
 	assert.equal(stalledTurnRejection("CodeBuddy").debugDetails, undefined);
+});
+
+test("isNativeCommandPrompt:行首斜杠视为 CLI 原生命令,带图片的按普通 prompt 走(#512)", () => {
+	// 与 composerBehavior「斜线命令原样发送」同一判定口径
+	assert.equal(isNativeCommandPrompt({ agentId: "a", message: "/clear" }), true);
+	assert.equal(isNativeCommandPrompt({ agentId: "a", message: "  /compact  " }), true);
+	assert.equal(isNativeCommandPrompt({ agentId: "a", message: "hi" }), false);
+	assert.equal(isNativeCommandPrompt({ agentId: "a", message: "" }), false);
+	// 命令 + 图片无法确定 CLI 语义(图片块会走普通 prompt 能力门控),不当作命令豁免
+	assert.equal(isNativeCommandPrompt({ agentId: "a", message: "/clear", images: [{ type: "image", mimeType: "image/png", data: "x" }] }), false);
 });

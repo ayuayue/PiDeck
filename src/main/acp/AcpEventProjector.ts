@@ -476,6 +476,30 @@ export function upsertAcpRetryStatus(state: AcpProjectionState, input: { agentId
 }
 
 /**
+ * 原生命令零输出回合的完成回执（#512）。
+ *
+ * `/clear` 这类命令由 CLI 自己执行，本来就只回一个空的 `session/prompt` 结果；
+ * 没有这张卡的话 PiDeck 要么谎报发送失败（旧行为：回滚用户条目 + toast），
+ * 要么什么都不显示，用户无法判断命令到底跑没跑。中性系统卡只陈述「已执行、无输出」，
+ * 不假装成功也不编命令语义。
+ *
+ * 命令单行、超长截断：回执卡一行可读即可，不需要完整 prompt 正文。
+ */
+export function appendAcpCommandReceipt(state: AcpProjectionState, input: { agentId: string; tool: string; command: string }): AcpProjectionState {
+	const raw = input.command.trim().replace(/\s+/g, " ");
+	const command = raw.length > 120 ? `${raw.slice(0, 117)}…` : raw;
+	const message: ChatMessage = {
+		id: nextMessageId(),
+		agentId: input.agentId,
+		role: "system",
+		text: `「${input.tool}」已执行原生命令 ${command}（本回合没有返回内容）`,
+		timestamp: Date.now(),
+		meta: { i18nKey: "acp.commandReceiptNoOutput", i18nParams: { tool: input.tool, command } },
+	};
+	return { ...state, messages: [...state.messages, message], activeAssistantIndex: undefined, lastTouched: [state.messages.length] };
+}
+
+/**
  * 把用户发出的 prompt 写进投影（本地回显）+ 首条提示兜底标题。
  *
  * 为什么主进程要自己写：ACP 的 `user_message_chunk` 是 agent 的**可选**回显

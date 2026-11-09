@@ -1599,6 +1599,51 @@ test("sendPrompt:agent 成功结算但全程无输出时不得谎报成功或留
 	assert.equal(events.messages.at(-1).messages.length, 0, "空白回合必须撤回孤立用户消息，便于草稿回填重试");
 });
 
+/**
+ * #512：CLI 原生命令（CodeBuddy `/clear` 等）由 CLI 自己执行，只回一个空的
+ * session/prompt 结果。它与「事件流丢失」在消息层面同形，旧逻辑一律按发送失败
+ * 回滚 + toast；实际命令已经执行过，这是谎报失败。
+ */
+test("sendPrompt:CLI 原生命令零输出按已执行收口并留回执(#512)", async (t) => {
+	const { manager, events, createAgent } = harness(t, {
+		handler: (frame) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+			if (frame.method === "session/new") return { sessionId: "sess-native-cmd" };
+			if (frame.method === "session/prompt") return { stopReason: "end_turn" }; // /clear 不回正文
+			return {};
+		},
+	});
+	const tab = await createAgent();
+	const result = await manager.sendPrompt({ agentId: tab.id, message: "/clear" });
+	assert.equal(result.accepted, true, "原生命令已由 CLI 执行，不能谎报发送失败");
+	assert.equal(result.i18nKey, undefined);
+
+	const messages = events.messages.at(-1).messages;
+	assert.equal(messages.find((entry) => entry.role === "user")?.text, "/clear", "用户条目必须保留，不能回滚");
+	const receipt = messages.find((entry) => entry.meta?.i18nKey === "acp.commandReceiptNoOutput");
+	assert.ok(receipt, "零输出命令要落一张中性回执卡");
+	assert.equal(receipt.role, "system");
+	assert.match(receipt.text, /Gemini CLI/);
+	assert.match(receipt.text, /\/clear/);
+});
+
+test("sendPrompt:普通 prompt 零输出仍按空回合拒绝(不收宽 #512 的豁免)", async (t) => {
+	const { manager, events, createAgent } = harness(t, {
+		handler: (frame) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+			if (frame.method === "session/new") return { sessionId: "sess-blank-regular" };
+			if (frame.method === "session/prompt") return { stopReason: "end_turn" };
+			return {};
+		},
+	});
+	const tab = await createAgent();
+	// 放宽只对「行首斜杠」形态生效：普通 prompt 的零输出仍是事件流丢失的典型形态
+	const result = await manager.sendPrompt({ agentId: tab.id, message: "这个路径下的构建挂了" });
+	assert.equal(result.accepted, false);
+	assert.equal(result.i18nKey, "acp.emptyTurn");
+	assert.equal(events.messages.at(-1).messages.find((entry) => entry.role === "user"), undefined);
+});
+
 test("空白回合:debugDetails 带出 CLI stderr / 非标准通知 / update 统计(限流等根因可见)", async (t) => {
 	const { manager, createAgent, lastProc } = harness(t, {
 		handler: (frame, { writeFromCli }) => {
