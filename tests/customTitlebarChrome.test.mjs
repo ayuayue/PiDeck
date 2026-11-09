@@ -53,11 +53,17 @@ test("pin button syncs initial always-on-top state from main process", () => {
 	assert.match(header, /setWindowAlwaysOnTop\(value\)/);
 });
 
-test("focusMainWindow preserves the user's pin on Windows", () => {
+test("窗口前置保留用户置顶状态（临时置顶 hack 只在未置顶时执行）", () => {
 	const mainIndex = readFileSync("src/main/index.ts", "utf8");
+	// 代码已从 focusMainWindow 收口到 revealMainWindow：断言要跟着实现走，并限定在该函数体内，
+	// 避免全文件搜到别处同形代码而变相失效。
+	const start = mainIndex.search(/function revealMainWindow\(/);
+	const end = mainIndex.indexOf("\n}", start);
+	assert.ok(start > 0 && end > start, "revealMainWindow 定义存在");
+	const body = mainIndex.slice(start, end);
 	// 临时置顶 hack 不能无条件 true/false：会把用户已置顶的窗口取消置顶
-	assert.match(mainIndex, /const wasAlwaysOnTop = mainWindow\.isAlwaysOnTop\(\)/);
-	assert.match(mainIndex, /if \(!wasAlwaysOnTop\)/);
+	assert.match(body, /const wasAlwaysOnTop = window\.isAlwaysOnTop\(\)/, "先读真实置顶态");
+	assert.match(body, /if \(!wasAlwaysOnTop\)/, "已置顶时不得重复 hack");
 });
 
 test("maximize button tracks window state with restore icon", () => {

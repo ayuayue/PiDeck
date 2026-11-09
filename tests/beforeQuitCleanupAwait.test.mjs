@@ -42,7 +42,8 @@ test("activate：销毁守卫 + 正常 show/focus + 降级重建", () => {
 	const block = src.match(/app\.on\("activate",\s*\(\)\s*=>\s*\{[\s\S]*?\n\t\t\}\);/)?.[0] ?? "";
 	assert.ok(block, "activate 监听存在");
 	assert.match(block, /mainWindow && !mainWindow\.isDestroyed\(\)/, "必须先判销毁再 show");
-	assert.match(block, /mainWindow\.show\(\)/);
+	// 正常路径已收口到 revealMainWindow（show/focus + 还原最小化/最大化/全屏）：只断言激活分支调到它。
+	assert.match(block, /revealMainWindow\(mainWindow\)/, "正常路径必须走 revealMainWindow");
 	assert.match(block, /void createWindow\(\)/, "销毁/无窗口时降级重建");
 });
 
