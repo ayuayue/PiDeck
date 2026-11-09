@@ -104,11 +104,21 @@ function renderComposer(run, options = {}) {
 const completedRun = {
 	kind: "agent-run",
 	id: "run-a",
-	items: [{ kind: "message", message: { id: "answer-a", agentId: "agent-a", role: "assistant", text: "修改已完成，可以提交这些改动。", stopReason: "stop", timestamp: 2 } }],
+	items: [
+		// 提交/推送类动作带 fileEdits 前置条件（ca75e993f）：没有成功写盘的工具调用就不建议提交。
+		{ kind: "message", message: { id: "tool-a", agentId: "agent-a", role: "tool", text: "", meta: { toolName: "write", args: { file_path: "src/example.ts" }, status: "done" }, timestamp: 1.5 } },
+		{ kind: "message", message: { id: "answer-a", agentId: "agent-a", role: "assistant", text: "修改已完成，可以提交这些改动。", stopReason: "stop", timestamp: 2 } },
+	],
 	startedAt: 1,
 	endedAt: 2,
 	askWaitMs: 0,
 	askPending: false,
+};
+
+/** 同一个回复，但本轮没有任何成功写盘的工具调用（fileEdits 不成立）。 */
+const completedRunWithoutFileEdits = {
+	...completedRun,
+	items: completedRun.items.filter((item) => item.message?.role !== "tool"),
 };
 
 test("快捷操作只投到本会话的消息末尾，不再位于输入栏或待办卡列", () => {
@@ -147,6 +157,13 @@ test("流式、投递中、投递未知和生图模式不提供快捷动作", ()
 	for (const composer of [{ isBusy: true }, { isStarting: true }, { sendState: { status: "sending" } }, { sendState: { status: "unknown" } }, { mode: "imagegen" }, { backend: "imagegen" }]) {
 		assert.equal(renderComposer(completedRun, { composer }).actionsHtml, "");
 	}
+});
+
+test("没有成功写盘的工具调用时不给提交/推送建议（fileEdits 前置条件）", () => {
+	const { actionsHtml } = renderComposer(completedRunWithoutFileEdits);
+	// 纯问答回复里出现「完成」不该建议提交：只有 onStop 类动作保留。
+	assert.ok(actionsHtml.includes("继续"));
+	for (const text of ["提交", "提交并推送"]) assert.ok(!actionsHtml.includes(`title="${text}"`), `${text} 在没有文件改动时不得展示`);
 });
 
 test("会话切换时不能把新会话操作投到上一栏的末尾", () => {
