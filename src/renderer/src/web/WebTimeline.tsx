@@ -829,7 +829,9 @@ export function WebTimeline(props: {
 
 	return (
 		<section className="message-timeline relative h-full min-h-0 flex-1 overflow-y-auto" ref={timelineRef} onScroll={updateScrollState}>
-			<div className="message-list flex flex-col gap-4 p-4 pb-6 sm:px-6">
+			{/* 直接子节点的 16px 间距由共享 .message-list > * + * 规则提供；不要再叠 flex gap，
+			    否则 flex gap + margin 会在手机上把每段内容之间撑成 32px。 */}
+			<div className="message-list flex flex-col p-3 pb-4 sm:p-4 sm:px-6 sm:pb-6">
 				{/* 分页加载更多：历史向上前插，入口必须在消息流顶部——往上滚到顶才碰得到；
 					放底部语义反了（底部是最新消息）。前插后靠浏览器原生 scroll anchoring 稳住视口。 */}
 				{hasMoreHistory && (

@@ -337,7 +337,7 @@ export function createPiDeckMcpServer(deps: PiDeckMcpToolDeps): McpServer {
 		);
 		tool(
 			"agents_bind_session",
-			"Bind (or unbind with agentId:null) a saved session to an agent preset, the same as the UI's \"Use\" action: later messages in that session get the agent's role prompt prepended, while the timeline keeps showing only the user's text. The session must belong to an authorized project; role prompts are never returned.",
+			"Bind (or unbind with agentId:null) a saved draft session to an agent preset, the same as the UI's \"Use\" action: the session's first send gets the agent's role prompt prepended and later turns reuse that context, while the timeline keeps showing only the user's text (except DSH's visible fallback). Binding an already-active session does not retroactively inject the role prompt. The session must belong to an authorized project; role prompts are never returned.",
 			{ projectId: id, sessionId: id, agentId: id.nullable() },
 			async ({ projectId, sessionId, agentId }) => {
 				assertAgentWrite();

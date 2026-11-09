@@ -51,6 +51,19 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
 		}
 	}, [open]);
 
+	// 设置页头部右上角是「保存/关闭」主操作，而全局 toast 固定右上角——两者在 1600px 窗口下
+	// 正好重叠，toast 会拦住点击（e2e 里表现为关闭按钮被 Notifications 区域拒绝）。
+	// 激活设置页时把通知整体下移一个页头高度（header 为 py-3 + text-base 行高 = 48px），
+	// 失活或卸载立即复位，其他页面保持原位置。
+	useEffect(() => {
+		const root = document.documentElement;
+		if (active) root.style.setProperty("--notice-top-shift", "48px");
+		else root.style.removeProperty("--notice-top-shift");
+		return () => {
+			root.style.removeProperty("--notice-top-shift");
+		};
+	}, [active]);
+
 	// 全局快捷键（macOS Cmd+, / Windows·Linux Ctrl+Alt+S）由主进程 before-input-event
 	// 捕获后经 app:open-settings 广播（覆盖 webview 焦点与托盘隐藏唤起场景）；
 	// 这里只负责打开弹窗——快捷键入口没有深链聚焦目标，无需动 settingsFocusAtom。

@@ -10,7 +10,7 @@ function createBatch(options = {}) {
 		{ id: "last", type: options.lastType ?? "input", question: "Last", options: ["A", "B"] },
 	];
 	const key = "session:agent:1:request";
-	let draft = { key, batch: { answers: options.answers ?? {}, labels: {}, customAnswerIds: [], inputValues: { last: options.text ?? "last answer" }, currentTab: options.currentTab ?? questions.length - 1, expanded: true } };
+	let draft = { key, batch: { answers: options.answers ?? {}, labels: {}, customAnswerIds: [], skippedIds: options.skippedIds ?? [], inputValues: options.inputValues ?? { last: options.text ?? "last answer" }, currentTab: options.currentTab ?? questions.length - 1, expanded: true } };
 	const responses = [];
 	const family = Object.assign((value) => value, { remove() {} });
 	const stubs = {
@@ -165,4 +165,156 @@ test("empty batches do not render a submit path", () => {
 	const batch = createBatch({ questions: [] });
 	assert.equal(batch.render(), null);
 	assert.equal(batch.responses.length, 0);
+});
+
+function card(batch) {
+	const node = findElement(batch.render(), (element) => element.type === "approval-card");
+	assert.ok(node, "the batch must render inside its approval card");
+	return node.props;
+}
+
+function submitted(batch) {
+	assert.equal(batch.responses.length, 1);
+	assert.equal(batch.responses[0].cancelled, undefined);
+	return JSON.parse(batch.responses[0].value);
+}
+
+test("skipping a middle question advances and marks it settled without an answer", () => {
+	const batch = createBatch({ currentTab: 1, answers: { first: "A" } });
+	question(batch).onSkip();
+	assert.equal(batch.responses.length, 0);
+	assert.equal(batch.draft.currentTab, 2);
+	assert.deepEqual([...batch.draft.skippedIds], ["second"]);
+	assert.equal(batch.draft.answers.second, undefined);
+});
+
+test("skipping the last question submits once every question is answered or skipped", () => {
+	const batch = createBatch({ answers: { first: "A" }, skippedIds: ["second"], inputValues: {} });
+	question(batch).onSkip();
+	const result = submitted(batch);
+	assert.equal(result.cancelled, undefined);
+	assert.deepEqual(
+		result.answers.map((answer) => [answer.id, answer.value, answer.skipped === true]),
+		[
+			["first", "A", false],
+			["second", null, true],
+			["last", null, true],
+		],
+	);
+});
+
+test("an untouched question still blocks submission even when others are skipped", () => {
+	const batch = createBatch({ skippedIds: ["second"], inputValues: {} });
+	question(batch).onSkip();
+	assert.equal(batch.responses.length, 0);
+	assert.equal(batch.draft.currentTab, 0);
+});
+
+test("answering a skipped question takes it out of the skipped set", () => {
+	const batch = createBatch({ currentTab: 0, skippedIds: ["first"] });
+	question(batch).onAnswer("B");
+	assert.equal(batch.draft.answers.first, "B");
+	assert.deepEqual([...batch.draft.skippedIds], []);
+});
+
+test("typed text that was never confirmed is kept when the final submit is pressed", () => {
+	const batch = createBatch({ answers: { first: "A", second: true }, text: "typed but not submitted" });
+	const current = question(batch);
+	assert.equal(current.nextDisabled, false, "visible text counts as an answer");
+	current.onNext();
+	assert.equal(submitted(batch).answers[2].value, "typed but not submitted");
+});
+
+test("an edited editor prefill counts as the answer", () => {
+	const batch = createBatch({
+		questions: [
+			{ id: "first", type: "select", question: "First", options: ["A"] },
+			{ id: "goal", type: "editor", question: "Goal", prefill: "keep this" },
+		],
+		answers: { first: "A" },
+		inputValues: { goal: "keep this\n  indented" },
+	});
+	question(batch).onNext();
+	assert.equal(submitted(batch).answers[1].value, "keep this\n  indented");
+});
+
+function prefillBatch(type, inputValue) {
+	return createBatch({
+		questions: [
+			{ id: "first", type: "select", question: "First", options: ["A"] },
+			{ id: "note", type, question: "Note", prefill: "预填的默认备注" },
+		],
+		answers: { first: "A" },
+		inputValues: { note: inputValue ?? "预填的默认备注" },
+	});
+}
+
+for (const type of ["editor", "input"]) {
+	test(`an untouched ${type} prefill is a suggestion, not the user's answer`, () => {
+		const batch = prefillBatch(type);
+		const current = question(batch);
+		assert.equal(current.nextDisabled, true, "the card stays blocked until the user decides about the prefill");
+		current.onNext();
+		assert.equal(batch.responses.length, 0, "submitting must not send the model's own prefill back as the answer");
+		assert.equal(batch.draft.currentTab, 1);
+	});
+
+	test(`"use prefill" on a ${type} question adopts the suggestion as the answer`, () => {
+		const batch = prefillBatch(type);
+		const current = question(batch);
+		assert.equal(typeof current.onAdoptPrefill, "function");
+		current.onAdoptPrefill();
+		assert.equal(batch.draft.answers.note, "预填的默认备注");
+		if (batch.responses.length === 0) question(batch).onNext();
+		const note = submitted(batch).answers[1];
+		assert.equal(note.value, "预填的默认备注");
+		assert.equal(note.skipped, undefined);
+	});
+
+	test(`an edited ${type} prefill no longer offers "use prefill"`, () => {
+		const batch = prefillBatch(type, "用户改过的备注");
+		assert.equal(question(batch).onAdoptPrefill, undefined);
+	});
+}
+
+test("skipping a prefilled question returns it as skipped, not as the prefill", () => {
+	const batch = prefillBatch("editor");
+	question(batch).onSkip();
+	const note = submitted(batch).answers[1];
+	assert.equal(note.value, null);
+	assert.equal(note.skipped, true);
+});
+
+test("closing a card leaves an untouched prefill unanswered", () => {
+	const batch = prefillBatch("editor");
+	card(batch).onCancel();
+	const result = submitted(batch);
+	assert.equal(result.cancelled, true);
+	assert.equal(result.answers[0].value, "A");
+	assert.equal(result.answers[1].value, null);
+});
+
+test("custom select text that was never confirmed is submitted as a custom answer", () => {
+	const batch = createBatch({ lastType: "select", answers: { first: "A", second: false }, text: "my own option" });
+	question(batch).onNext();
+	const last = submitted(batch).answers[2];
+	assert.equal(last.value, "my own option");
+	assert.equal(last.wasCustom, true);
+});
+
+test("closing a partly answered card returns the answers instead of cancelling", () => {
+	const batch = createBatch({ answers: { first: "B" }, inputValues: {} });
+	card(batch).onCancel();
+	const result = submitted(batch);
+	assert.equal(result.cancelled, true, "the envelope tells the extension the card was closed early");
+	assert.equal(result.answers[0].value, "B");
+	assert.equal(result.answers[1].value, null);
+});
+
+test("closing a card with nothing answered is still a plain cancel", () => {
+	const batch = createBatch({ skippedIds: ["first"], inputValues: {} });
+	card(batch).onCancel();
+	assert.equal(batch.responses.length, 1);
+	assert.equal(batch.responses[0].cancelled, true);
+	assert.equal(batch.responses[0].value, undefined);
 });

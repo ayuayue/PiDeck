@@ -63,6 +63,7 @@ PiDeck 是 Electron 桌面应用：在多个项目目录间管理和运行 AI Ag
 | Go sidecar、商店、搜索、会话存储、插件、公告、发版 | `docs/maintenance-domains.md`（先看顶部速查表） |
 | 大文件域迁移 / 文件拆分 | `docs/main-index-split-plan.md`、`docs/app-tsx-split-plan.md`、`docs/agent-manager-split-plan.md`（方法见 `docs/architecture.md` §长期重构纪律） |
 | pi 发新版 / 上游语义对齐 | `.pi/skills/pideck-pi-version-sync/`、`.pi/skills/pideck-upstream-parity-review/` |
+| 社区 PR 审查 / 合并门禁 / 回归复盘 | `docs/pr-merge-gate.md`（首筛 `node scripts/prGate.mjs --pr <n>`） |
 
 ## 协作
 

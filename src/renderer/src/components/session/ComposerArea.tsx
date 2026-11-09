@@ -83,7 +83,7 @@ type ComposerExtrasProps = {
 	queuePanel?: ReactNode;
 	deliveryNotice: ReactNode;
 	attachmentBar: ReactNode;
-	/** 绑定智能体的会话：输入框上方的角色设定提示条（可展开查看提示词）。 */
+	/** 绑定智能体的会话：角色设定卡（与 todo/goal 同列，随其余 composer widget 滚动）。 */
 	agentBar: ReactNode;
 	composerBox: ReactNode;
 	/** 起始页快捷提示行；只在草稿为空时由 ComposerArea 传入。 */
@@ -116,12 +116,12 @@ function ComposerMeasuredExtras(props: ComposerExtrasProps) {
 				{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 				<div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto overscroll-contain pb-px empty:hidden">
 					{props.widgets}
+					{props.agentBar}
 					{props.queuePanel}
 					{props.deliveryNotice}
 				</div>
 				{hasAttachmentBar ? <div className="shrink-0">{props.attachmentBar}</div> : null}
 				<div className="flex w-full min-w-0 shrink-0 flex-col">
-					{props.agentBar}
 					{props.composerBox}
 					{props.starterRow}
 					{props.statsLine}

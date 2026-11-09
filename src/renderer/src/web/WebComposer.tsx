@@ -136,6 +136,13 @@ export function WebComposer(props: {
 		}
 		setDraft("");
 		setImages([]);
+		// 手机发出消息后结束输入焦点：回合并行时让信息流收回完整高度，而不是留着空的大输入卡和键盘。
+		// 桌面保持原焦点行为；下一次点按或预填草稿仍会重新展开。
+		if (mobileViewport) {
+			textareaRef.current?.blur();
+			setFocused(false);
+			props.onFocusChange?.(false);
+		}
 		if (mode === "plan") setMode("normal");
 	};
 
@@ -162,7 +169,7 @@ export function WebComposer(props: {
 		}, BLUR_COLLAPSE_DELAY_MS);
 	};
 
-	const collapsed = resolveComposerCollapsed({ mobileViewport, draft, imageCount: images.length, streaming: props.streaming, focused, busy, attachError, planMode: mode === "plan" });
+	const collapsed = resolveComposerCollapsed({ mobileViewport, draft, imageCount: images.length, focused, busy, attachError, planMode: mode === "plan" });
 	// 计划模式的隐藏标记只由 pi 内置扩展识别：DSH/ACP 收到 agentMessage 会拒收整条 prompt，
 	// 生图/生视频没有 LLM 模式概念——这些后端不摆一个点了必然失败的按钮。
 	const modeAvailable = (props.backend ?? "pi") === "pi";

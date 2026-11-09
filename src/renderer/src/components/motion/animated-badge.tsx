@@ -71,6 +71,11 @@ const ICON_ROLL_VARIANTS: Variants = {
 		scale: 1,
 		rotate: 0,
 		filter: "blur(0px)",
+		// 入场模糊只是过渡：动画结束后必须把 filter 卸成 none。
+		// 稳态 blur(0px) 仍然是「带滤镜的元素」，子元素的持续旋转（loading 图标）
+		// 每帧都会让父层重做图层处理（issue #510 的 A/B/A trace：PaintArtifactCompositor
+		// 更新 374 次/2.5s → 0 次，Layerize 线程 CPU 978ms → 1.78ms）。
+		transitionEnd: { filter: "none" },
 		transition: {
 			y: { type: "spring", stiffness: 210, damping: 24, mass: 0.85 },
 			scale: { type: "spring", stiffness: 250, damping: 24, mass: 0.75 },
@@ -95,6 +100,8 @@ const TEXT_ROLL_VARIANTS: Variants = {
 		opacity: 1,
 		y: "0%",
 		filter: "blur(0px)",
+		// 同上：文案没有持续动画，但残留的滤镜层仍会被邻居的每帧重绘拖着重新栅格化。
+		transitionEnd: { filter: "none" },
 		transition: {
 			y: { type: "spring", stiffness: 210, damping: 24, mass: 0.85 },
 			opacity: { duration: 0.3, ease: EASE_OUT },
@@ -129,7 +136,12 @@ export function AnimatedBadge({ status = "neutral", size = "md", children, icon,
 			)}
 			{...rest}
 		>
-			{pulse && !reduce ? <motion.span aria-hidden className="absolute inset-0 rounded-full bg-current opacity-10" animate={{ scale: [0.94, 1.08, 0.94], opacity: [0.08, 0.16, 0.08] }} transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }} /> : null}
+			{pulse && !reduce ? (
+				// CSS keyframes 而不是 Motion：这个脉冲在运行态一直转，Motion 会把 scale 每帧
+				// 写回内联 transform（常驻 JS driver）。opacity-10 是基准值：全局减弱动效把
+				// 动画压成 0 长度后，元素退回基准透明度而不是变成实心圆。
+				<span aria-hidden className="absolute inset-0 rounded-full bg-current opacity-10 animate-pideck-pulse" />
+			) : null}
 			{showIcon ? (
 				<span className="relative z-10 inline-flex items-center justify-center overflow-hidden">
 					<AnimatePresence mode="popLayout" initial={false}>

@@ -68,6 +68,7 @@ export default function DocxPreview(props: { bytes: Uint8Array }) {
 		>
 			{/* docx-preview 把生成的页面样式写进这个容器，正文节点写进 body 容器 */}
 			<div ref={styleRef} hidden />
+			{/* scroll-ok: text —— docx-preview 自管内部滚动，正文是渲染后的文档，没有可切分的行列表。 */}
 			<div ref={bodyRef} className="h-full w-full overflow-auto" />
 			{rendering && !error && (
 				<div className="absolute inset-0 grid place-items-center bg-background/60">

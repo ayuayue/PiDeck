@@ -3,11 +3,11 @@ import { join } from "node:path";
 
 /**
  * 主窗口几何记忆（startupWindowMode="last" 的存储层）。
- * 关闭窗口/退出应用时保存 normal bounds（最大化/全屏时取 getNormalBounds）及是否最大化，
+ * 关闭窗口/退出应用时保存 normal bounds（最大化/全屏时取 getNormalBounds）及是否最大化/全屏，
  * 下次启动按记录的位置与尺寸打开；文件放在 userData/last-window-bounds.json，
  * 与用户设置（settings.json）分离——这是运行时状态而非用户显式配置。
  *
- * x/y/maximized 为可选：早期版本只存宽高，旧文件读出来没有位置时回退到主显示器居中，
+ * x/y/maximized/fullscreen 为可选：早期版本只存宽高，旧文件读出来没有位置时回退到主显示器居中，
  * 不要求用户清理记录。
  */
 
@@ -17,6 +17,8 @@ export type LastWindowBounds = {
 	x?: number;
 	y?: number;
 	maximized?: boolean;
+	/** 关闭时处于原生全屏：与 maximized 一起写，启动时先按 normal 几何建窗、maximize 再进全屏。 */
+	fullscreen?: boolean;
 	workArea?: WindowWorkArea;
 };
 
@@ -119,7 +121,7 @@ function resolveAxisPosition(recorded: number | undefined, size: number, areaSta
 
 /**
  * 读取上次窗口几何；文件缺失/损坏/尺寸过小（小于最小窗口 880×640）时返回 null，由调用方顺延默认。
- * x/y 缺失或非有限数时整体丢弃位置（不允许只有一个轴），maximized 非 true 一律按 false。
+ * x/y 缺失或非有限数时整体丢弃位置（不允许只有一个轴），maximized/fullscreen 非 true 一律按 false。
  */
 export function readLastWindowBounds(dir: string): LastWindowBounds | null {
 	try {
@@ -131,6 +133,7 @@ export function readLastWindowBounds(dir: string): LastWindowBounds | null {
 				height: Math.round(data.height),
 				...readPosition(data.x, data.y),
 				...(data.maximized === true ? { maximized: true } : {}),
+				...(data.fullscreen === true ? { fullscreen: true } : {}),
 				...readWorkArea(data.workArea),
 			};
 		}
@@ -149,6 +152,7 @@ export function saveLastWindowBounds(dir: string, bounds: LastWindowBounds): voi
 			height: Math.round(bounds.height),
 			...readPosition(bounds.x, bounds.y),
 			...(bounds.maximized === true ? { maximized: true } : {}),
+			...(bounds.fullscreen === true ? { fullscreen: true } : {}),
 			...readWorkArea(bounds.workArea),
 		};
 		writeFileSync(join(dir, "last-window-bounds.json"), JSON.stringify(payload), "utf8");

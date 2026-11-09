@@ -1,6 +1,6 @@
 # ADR：同主机多项目 root 池化（测量 + 方案）
 
-> Status: **生产默认已开启并通过真实主机验收（2026-11-02；2026-11-03 审计后复验）**。`main/index.ts` 显式装配 `ROOT_POOL_DEFAULT_POLICY`，E2E-only 池化开关已移除；当前结论、实测资源和回滚见 §8。§2–6 的源码行号和测量是历史基线，不能当作本轮验收。
+> Status: **生产默认已开启并通过真实主机验收（2026-11-02；2026-11-03 审计后复验与测试门禁收口）**。`main/index.ts` 显式装配 `ROOT_POOL_DEFAULT_POLICY`，E2E-only 池化开关已移除；当前结论、实测资源、回滚和测试债务状态见 §8。§2–6 的源码行号和测量是历史基线，不能当作本轮验收。
 > 测量脚本为 `tests/remoteRootSwitchProbe.mjs`；并行派工与前置同步见 [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md)。本轮起点 `01b4cf517`，未改写原 `codex/sftp-0` 分支。
 >
 > 相关前置：`docs/archive/remote/remote-functional-optimization-plan.md` F3（切 root 仍重建会话，只复用已验证安装内容）、
@@ -296,7 +296,7 @@ host/root，包括 rootless config helper；不是每个项目各 6 条，也不
 前 8 个竞态用例在原实现上 0/8，通过修复后全部转绿；另补六槽位并发、sweep、迟到结果、重复
 dispose、延迟 watcher 与关闭传输隔离。最终审计又补了“acquire 后、任务启动前取消”的 fencing，以及
 “未发布 root 冷开失败不得把显式 ready 主机降级”和“已发布 root 失败仍更新 host”两条对照回归。
-完整命令、结果和未通过的门禁见验收报告 §12。
+完整命令、结果、测试债务收口和真机未覆盖边界见验收报告 §12。
 
 ### 8.3 诊断与资源口径
 
@@ -348,6 +348,10 @@ RSS（单条 61,576–63,076 KiB、7 线程）；六条 watched root 连续 3 �
 - **回滚**：只改 `src/main/index.ts` 为 `rootPooling: false`，运行 `npm run build:fast`，正常退出后
   下次启动生效。没有设置项、schema 或数据迁移；不热切换在途写，不重放 unknown 结果。若要回退整项
   行为，也可单独 revert `codex/root-pooling-prod` 的最终提交。
+- **测试债务**：2026-11-03 已清零。`AgentIconPicker` 的固定枚举滚动窗按 `bounded` 显式判定；项目添加
+  回归按当前 `Promise<Project | null>` 契约覆盖 null 早退与 DSH 同步顺序；会话内查找测试改用虚拟
+  debounce 时钟，消除真实事件循环相位依赖。最终 `npm test` 为 15,971 / 15,684 pass / 0 fail / 287 skip，
+  exit 0；未通过跳过原有效用例换绿。详见验收报告 §12.4/§12.6。
 - **未覆盖**：真实等待 10 分钟 TTL 到期、长时间网络抖动/单 root 自动重试的 UI 恢复、真实 host
   rebind UI、多 host 争用六槽预算、第七 root 满载的真实等待/超时、重叠目录/Git 写竞争、
   8 GiB/32 文件压力、ProxyJump/askpass、提交后硬断网/崩溃、Linux 原生 Electron 客户端。

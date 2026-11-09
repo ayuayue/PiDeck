@@ -26,12 +26,14 @@ test("right drawer opens on files and the activity rail switches panels", async 
 
 	const drawer = window.locator(".detail-drawer");
 	await expect(drawer).toHaveAttribute("data-open", "true");
-	// 活动栏常驻：files/browser 两个入口
+	// 活动栏常驻：files 默认钉住，browser 需从「添加常驻面板」加入（78df99e38 起可自定义）
 	const filesTab = window.getByTestId("drawer-rail-files");
-	const browserTab = window.getByTestId("drawer-rail-browser");
 	await expect(filesTab).toBeVisible();
-	await expect(browserTab).toBeVisible();
 	await expect(filesTab).toHaveAttribute("aria-selected", "true");
+	await window.getByRole("button", { name: "添加常驻面板" }).click();
+	await window.getByRole("menuitemcheckbox", { name: "内置浏览器" }).click();
+	const browserTab = window.getByTestId("drawer-rail-browser");
+	await expect(browserTab).toBeVisible();
 
 	// 切到浏览器面板
 	await browserTab.click();
@@ -52,7 +54,8 @@ test("right drawer opens on files and the activity rail switches panels", async 
 test("drawer content width stays constant across tab switches (no scrollbar jitter)", async ({ window }) => {
 	// 进入预置项目（有 300 个文件的超高文件树），打开抽屉
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	const projectItem = window.locator(".conversation", { hasText: "pideck-seed-drawere2e-" }).first();
+	await window.getByRole("tab", { name: "项目" }).click();
+	const projectItem = window.locator(".conversation", { hasText: "DrawerE2E" }).first();
 	await expect(projectItem).toBeVisible({ timeout: 20_000 });
 	await projectItem.click();
 	await window.locator(".header-drawer-toggle").first().click();
@@ -70,6 +73,9 @@ test("drawer content width stays constant across tab switches (no scrollbar jitt
 	expect(steady!.hasVScroll).toBe(true);
 
 	// 切到 browser 再切回 files，从点击前开始逐帧采样内容宽度
+	// browser 默认未钉住：先从「添加常驻面板」加入
+	await window.getByRole("button", { name: "添加常驻面板" }).click();
+	await window.getByRole("menuitemcheckbox", { name: "内置浏览器" }).click();
 	const editorTab = window.getByTestId("drawer-rail-browser");
 	await editorTab.click();
 	await expect(editorTab).toHaveAttribute("aria-selected", "true", { timeout: 3000 });

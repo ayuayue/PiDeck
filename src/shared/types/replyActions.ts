@@ -26,11 +26,20 @@ export type ReplyActionTrigger = {
 	patterns?: string[];
 };
 
+/**
+ * trigger 之外的场景前置条件（与 triggers 取 AND；缺省表示无额外条件）。
+ * - fileEdits：本会话出现过成功的文件写入/编辑工具调用——避免纯问答回复「完成」时
+ *   也弹出「提交 / 提交并推送」，把没有改动可提交的会话引向空操作。
+ */
+export type ReplyActionRequirement = "fileEdits";
+
 export type ReplyActionRule = {
 	/** 展示在按钮上的文案（发送给 pi 的就是这段文本，与快捷消息同语义） */
 	text: string;
 	/** 触发条件（可多条，全部满足才展示） */
 	triggers: ReplyActionTrigger[];
+	/** 场景前置条件（可省略） */
+	requires?: ReplyActionRequirement;
 };
 
 export type ReplyActionsSnapshot = {

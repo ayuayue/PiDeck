@@ -347,8 +347,10 @@ test("接线契约：文件行与目录行都叠着色类、查表函数接进�
 	// 断言照旧按出现次数钉住，只是行级断言读新宿主、面板级断言留在原文件。
 	const row = readSource("src/renderer/src/components/session/FileTreeRows.tsx");
 	// 出现次数而不是「有没有」：文件行 + 目录行各一处，删掉任何一种行都会红
-	const coloredRows = row.match(/cn\(\s*"file-node-name"\s*,\s*gitStatusClass\s*\)/g) ?? [];
+	const coloredRows = row.match(/cn\(\s*"file-node-name"\s*,\s*gitStatusClass\s*,[^)]*\)/g) ?? [];
 	assert.equal(coloredRows.length, 2, "文件行与目录行都必须按同一份着色类渲染");
+	// Git ignore 修饰叠在同一个 class 上：两行都要加，只加一行等于半接线。
+	assert.equal((row.match(/node\.ignored === true && "opacity-60"/g) ?? []).length, 2, "ignore 修饰同样是文件行 + 目录行各一处");
 	// 查表函数必须真的接到树上：面板传入 + 行组件递归透传缺一不可（缺后者深层节点全失色）
 	assert.match(surface, /gitStatusOf=\{\s*gitStatus\.statusOf\s*\}/, "面板把查表函数传给树根");
 	assert.match(row, /gitStatusOf=\{\s*props\.gitStatusOf\s*\}/, "目录节点把查表函数透传给子节点");

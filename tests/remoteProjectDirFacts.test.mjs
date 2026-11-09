@@ -44,11 +44,6 @@ function harness(options = {}) {
 			},
 			"../remote/RemoteWorkspaceReader": {
 				createRemoteWorkspaceReader: () => ({
-					async list(_hostId, path) {
-						calls.list.push(path);
-						if (options.listFails) throw new Error("REMOTE_PROJECT_READ_FAILED");
-						return { entries: options.entries ?? [{ name: "src", kind: "directory" }] };
-					},
 					async readFile() {
 						return { content: Buffer.from("x"), bytes: 1, mtimeMs: 1 };
 					},
@@ -60,6 +55,14 @@ function harness(options = {}) {
 	const facts = registerRemoteProjectIpc({
 		enabled: true,
 		userDataDir: "/tmp/unused",
+		directoryReader: {
+			async read({ relative }) {
+				calls.list.push(relative === "" ? "." : relative);
+				if (options.listFails) return { ok: false, code: options.listError ?? "REMOTE_PROJECT_READ_FAILED" };
+				const entries = options.entries ?? [{ name: "src", kind: "directory" }];
+				return { ok: true, value: { entries, scanned: entries.length, truncated: options.truncated ?? false } };
+			},
+		},
 		service: async () => ({
 			withProjectSession: async (_hostId, _root, task) => {
 				// 真实服务在拿到会话时 root 就有活的了；测试里用这个状态区分「root 已退休」与「读会建立会话」。
@@ -127,6 +130,17 @@ test("同一个目录读两次：只装载一次，两次拿到同一个 revisio
 	assert.deepEqual(h.plain(first.value.entries), h.plain(second.value.entries));
 	assert.equal(h.facts.dirLoads(), 1);
 	assert.deepEqual(h.plain([...new Set(h.calls.factLookups.map(([hostId, root]) => hostId + "|" + root))]), [HOST_ID + "|" + PROJECT_ROOT], "缓存围栏按本项目自己的 root 查询");
+});
+
+test("remoteProjectList 与公共目录页共享同一份目录事实，只读一次", async () => {
+	const h = harness();
+	const listed = await h.list("");
+	const page = await h.facts.directoryPage(PROJECT, "", false);
+	assert.equal(listed.ok, true);
+	assert.equal(page.ok, true);
+	assert.equal(h.calls.list.length, 1, "the two public readers must not issue a second SFTP list");
+	assert.equal(page.value.revision, listed.value.revision);
+	assert.deepEqual(h.plain(page.value.entries.map((entry) => entry.relativePath)), ["src"]);
 });
 
 test("不同目录各装载一次：事实按 (项目, 路径) 分开", async () => {

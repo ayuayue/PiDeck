@@ -6,21 +6,24 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 // settingsTabLayout.ts 只含 type-only import（编译期擦除），无运行时依赖，可直接加载。
 const { SETTINGS_TAB_LAYOUT, SETTINGS_TAB_IDS } = loadTsCommonJs("src/renderer/src/components/app/settings/settingsTabLayout.ts");
 
-test("布局覆盖全部 23 个 tab 且不重复", () => {
+test("布局覆盖全部 24 个 tab 且不重复", () => {
 	// loadTsCommonJs 在 vm 里执行，数组原型属于另一 realm，先展开到测试侧再比较
 	const ids = [...SETTINGS_TAB_LAYOUT.map((entry) => entry.id)];
-	assert.equal(ids.length, 23);
+	assert.equal(ids.length, 24);
 	assert.equal(new Set(ids).size, ids.length);
 	// SETTINGS_TAB_IDS 由布局派生，两者必须一致（单一事实来源）
 	assert.deepEqual([...SETTINGS_TAB_IDS], ids);
 });
 
 test("展示顺序按 基础 → 扩展集成 → 开发者工具 → 开发与维护 排列", () => {
-	assert.deepEqual([...SETTINGS_TAB_LAYOUT.map((entry) => entry.id)], ["common", "shortcuts", "notification", "appearance", "terminal", "memory", "proxy", "connections", "im", "pet", "vision", "imagegen", "videogen", "acp", "hostplugins", "web", "editors", "git", "dev", "usage", "process", "storage", "backup"]);
+	assert.deepEqual(
+		[...SETTINGS_TAB_LAYOUT.map((entry) => entry.id)],
+		["common", "shortcuts", "notification", "appearance", "terminal", "memory", "proxy", "connections", "im", "pet", "vision", "imagegen", "cloudsync", "videogen", "acp", "hostplugins", "web", "editors", "git", "dev", "usage", "process", "storage", "backup"],
+	);
 });
 
-test("分割线只出现在三个簇边界前，首项不带分割线", () => {
-	assert.deepEqual([...SETTINGS_TAB_LAYOUT.filter((e) => e.dividerBefore).map((e) => e.id)], ["im", "web", "dev"]);
+test("分割线只出现在簇边界前，首项不带分割线", () => {
+	assert.deepEqual([...SETTINGS_TAB_LAYOUT.filter((e) => e.dividerBefore).map((e) => e.id)], ["im", "cloudsync", "web", "dev"]);
 	assert.equal(SETTINGS_TAB_LAYOUT[0].dividerBefore, undefined);
 });
 
@@ -80,7 +83,7 @@ test("修复面板只提供会执行的动作，并把只读/人工动作显示�
 	// 修复会写 store 或删信任锚，因此只有白名单里的动作可以做成按钮；其余只呈现说明。
 	// 主进程还会再校验一次，界面不是权威——但界面也不该给出点了没用的按钮。
 	const panel = readFileSync("src/renderer/src/components/app/settings/RepairPanel.tsx", "utf8");
-	assert.match(panel, /const EXECUTABLE: ReadonlySet<RemoteHostRepairAction> = new Set\(\["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "forget-trust-anchor"\]\)/);
+	assert.match(panel, /const EXECUTABLE: ReadonlySet<RemoteHostRepairAction> = new Set\(\["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "clear-rebind-lock", "forget-trust-anchor"\]\)/);
 	// 动作文案必须是显式映射：远端回来的字符串拼出的 key 不存在。
 	assert.match(panel, /function actionLabel\(action: RemoteHostRepairAction\): string \{[\s\S]{0,200}?switch \(action\)/);
 	// 确认推送必须订阅且退订。

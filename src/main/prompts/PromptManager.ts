@@ -5,6 +5,7 @@ import { createProjectFileReadBoundary, resolveProjectFileReadPath, resolveProje
 
 /** 模板扫描只读文件头部该字节数：frontmatter 与首行描述都在头部，扫描不得全量读入超大 .md。 */
 const TEMPLATE_META_MAX_BYTES = 64 * 1024;
+const TEMPLATE_CONTENT_MAX_BYTES = 2 * 1024 * 1024;
 import { homedir } from "node:os";
 import { trashPath } from "../fs/trash";
 import { openSystemPath } from "../fs/openPath";
@@ -464,6 +465,27 @@ export class PromptManager {
 	 */
 	async readContent(filePath: string): Promise<string> {
 		return readFile(await this.resolveExistingGlobalPath(filePath), "utf8");
+	}
+
+	/** 元数据可能来自缓存，详情读取须重新核验边界并限制完整内容的大小。 */
+	async readTemplateContent(filePath: string, projectPath?: string): Promise<{ content: string } | { tooLarge: true }> {
+		const safePath = projectPath === undefined ? await this.resolveExistingGlobalPath(filePath) : await this.resolveExistingProjectPath(await this.createProjectBoundary(resolve(this.hostPath(projectPath))), this.hostPath(filePath));
+		const handle = await open(safePath, "r");
+		try {
+			const stat = await handle.stat();
+			if (!stat.isFile()) throw new Error("Template is not a regular file.");
+			if (stat.size > TEMPLATE_CONTENT_MAX_BYTES) return { tooLarge: true };
+			const buffer = Buffer.alloc(TEMPLATE_CONTENT_MAX_BYTES + 1);
+			let size = 0;
+			while (size < buffer.length) {
+				const { bytesRead } = await handle.read(buffer, size, buffer.length - size, size);
+				if (bytesRead === 0) break;
+				size += bytesRead;
+			}
+			return size > TEMPLATE_CONTENT_MAX_BYTES ? { tooLarge: true } : { content: buffer.subarray(0, size).toString("utf8") };
+		} finally {
+			await handle.close();
+		}
 	}
 
 	/**

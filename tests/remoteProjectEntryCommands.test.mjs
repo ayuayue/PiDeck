@@ -381,6 +381,17 @@ test("prune deletes only recoverable states, keeps invalid entries, and enforces
 	assert.equal(existsSync(join(root, TRASH, deepDelete.trashId, "payload")), true);
 });
 
+test("mutable-path guard refuses the project root itself, in any call order", () => {
+	// 根路径不是「条目」：不论调用方有没有先跑 validate，这个断言都必须拒绝它。
+	for (const value of ["", "/", "//", "a/", "/a", "a//b"]) {
+		assert.throws(() => commands.assertRemoteProjectEntryMutablePath(value), /REMOTE_FILE_PROTECTED_PATH/, "mutable-path 必须拒绝 " + JSON.stringify(value));
+		assert.throws(() => commands.validateRemoteProjectEntryPath(value), /REMOTE_FILE_(PATH_INVALID|INPUT_INVALID|PROTECTED_PATH)/, "validate 必须拒绝 " + JSON.stringify(value));
+	}
+	assert.doesNotThrow(() => commands.assertRemoteProjectEntryMutablePath("docs/notes.txt"));
+	assert.throws(() => commands.assertRemoteProjectEntryMutablePath(".pideck-trash/x"), /REMOTE_FILE_PROTECTED_PATH/);
+	assert.throws(() => commands.assertRemoteProjectEntryMutablePath(".git/config"), /REMOTE_FILE_PROTECTED_PATH/);
+});
+
 test("permission denial fails closed without retry or silent fallback", { skip: !POSIX || process.getuid?.() === 0 }, async (t) => {
 	const { root } = await fixture(t);
 	await writeFile(join(root, "keep.txt"), "keep\n");

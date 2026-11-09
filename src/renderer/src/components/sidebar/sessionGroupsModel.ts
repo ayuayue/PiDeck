@@ -1,10 +1,11 @@
 /**
  * 侧栏分组树的装配模型（纯函数，可单测）。
  *
- * 分组存的是会话 id 引用；这里负责把引用解析成「分组 → 目录（项目）→ 会话」三层树：
+ * 分组存的是会话 id 引用；这里负责把引用解析成「分组 → 会话」两层列表：
  * - 失效引用（会话已删除 / 项目已移除）直接丢弃，store 不追删（与插件页同语义）；
  * - 一个会话属于多个分组时会重复出现（分组本就允许多组归属）；
- * - 「目录」= 会话所属项目：名字用项目名，tooltip 给完整路径（远端给远端路径）。
+ * - 不再按项目插一层文件夹：项目信息只作为行内标签（多项目分组才显示），避免三层缩进把
+ *   会话标题挤到窄侧栏放不下。
  */
 import type { Project, SessionGroup, SessionRecord } from "../../../../shared/types";
 import type { HostPluginCatalog } from "../../../../shared/types/hostPlugin";
@@ -20,23 +21,14 @@ export function isSessionGroupsPluginEnabled(catalog: HostPluginCatalog | undefi
 	return catalog?.plugins.some((plugin) => plugin.enabled && plugin.manifest.id === SESSION_GROUPS_PLUGIN_ID) === true;
 }
 
-export type SessionGroupDirNode = {
-	/** 分组内去重键：项目 id。 */
-	key: string;
-	/** 项目名；项目已移除时退回 id（这批会话马上会被丢弃，正常不会露出来）。 */
-	name: string;
-	/** 项目根路径（远端为远端路径），tooltip 用；拿不到为 undefined。 */
-	path: string | undefined;
-	projectId: string;
-	/** 组内该项目下的会话，按 updatedAt 降序（最近在上）。 */
-	sessions: SessionRecord[];
-};
-
 export type SessionGroupNode = {
 	group: SessionGroup;
 	/** 解析后仍存活的会话数（< sessionIds.length 说明有失效引用）。 */
 	total: number;
-	dirs: SessionGroupDirNode[];
+	/** 组内会话覆盖的项目数：>1 时行内标出项目名，单项目组不重复项目名。 */
+	projectCount: number;
+	/** 组内会话，按 updatedAt 降序（最近在上）。 */
+	sessions: SessionRecord[];
 };
 
 export function projectDirectoryLabel(project: Project | undefined, projectId: string): { name: string; path: string | undefined } {
@@ -44,31 +36,42 @@ export function projectDirectoryLabel(project: Project | undefined, projectId: s
 	return { name: project.name, path: "locator" in project && project.locator ? project.locator.remotePath : project.path };
 }
 
-/** 把分组引用解析成树；groups 顺序即用户拖拽出的显示顺序，原样保留。 */
+/** 把分组引用解析成两层列表；groups 顺序即用户拖拽出的显示顺序，原样保留。 */
 export function buildSessionGroupNodes(groups: readonly SessionGroup[], records: Readonly<Record<string, SessionRecord>>, projectsById: Readonly<Record<string, Project>>): SessionGroupNode[] {
 	return groups.map((group) => {
-		const byProject = new Map<string, SessionRecord[]>();
 		const seen = new Set<string>();
+		const sessions: SessionRecord[] = [];
 		for (const sessionId of group.sessionIds) {
 			if (seen.has(sessionId)) continue;
 			seen.add(sessionId);
 			const record = records[sessionId];
 			// 会话已删/项目已移除（含虚拟会话）：引用失效，直接丢弃——点了也打不开。
 			if (!record || record.noSession || !projectsById[record.projectId]) continue;
-			const bucket = byProject.get(record.projectId);
-			if (bucket) bucket.push(record);
-			else byProject.set(record.projectId, [record]);
+			sessions.push(record);
 		}
-		const dirs: SessionGroupDirNode[] = [...byProject.entries()].map(([projectId, sessions]) => {
-			const label = projectDirectoryLabel(projectsById[projectId], projectId);
-			return {
-				key: projectId,
-				name: label.name,
-				path: label.path,
-				projectId,
-				sessions: sessions.sort((a, b) => b.updatedAt - a.updatedAt),
-			};
-		});
-		return { group, total: [...byProject.values()].reduce((sum, bucket) => sum + bucket.length, 0), dirs };
+		sessions.sort((left, right) => right.updatedAt - left.updatedAt);
+		const projectCount = new Set(sessions.map((session) => session.projectId)).size;
+		return { group, total: sessions.length, projectCount, sessions };
 	});
+}
+
+/**
+ * 项目列表要隐藏的会话 id：来自解析后的分组节点，而不是 group.sessionIds。
+ *
+ * 只用节点是因为「分组树里看得见」才是隐藏的前提：未展开项目的 catalog 还没加载，
+ * 那些会话没有记录、也不会出现在分组树里；若照样从项目列表隐藏，它会两边都不出现。
+ */
+export function collectGroupedSessionIds(nodes: readonly SessionGroupNode[]): ReadonlySet<string> {
+	const ids = new Set<string>();
+	for (const node of nodes) for (const session of node.sessions) ids.add(session.id);
+	return ids;
+}
+
+/**
+ * 项目列表是否隐藏某会话：已进入分组、且当前没有搜索词时隐藏。
+ * 搜索是「按名字找回会话」的入口，命中时必须也能在项目列表里看到，否则越搜越找不到。
+ */
+export function shouldHideGroupedSession(sessionId: string, groupedSessionIds: ReadonlySet<string> | undefined, search: string): boolean {
+	if (!groupedSessionIds?.has(sessionId)) return false;
+	return search.trim().length === 0;
 }

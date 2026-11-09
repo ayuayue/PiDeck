@@ -139,6 +139,123 @@ test("迟到内容结果按代次丢弃：先发的慢请求不覆盖后发的�
 	h.host.unmount();
 });
 
+test("防抖窗口内换词：旧名字与内容回包立即作废，不落入新查询", async () => {
+	const h = hookHarness();
+	h.render();
+	h.drive("alpha");
+	h.view().setQuery("beta");
+	h.render();
+	assert.equal(h.nameCalls.length, 1, "新查询仍在防抖中");
+	assert.equal(h.view().isSearching, true, "防抖期间也要给出正在搜索的反馈");
+	h.nameCalls[0].resolve({ results: NAME_RESULT });
+	h.contentCalls[0].resolve(CONTENT_RESULT);
+	await flush();
+	h.render();
+	assert.equal(h.view().results, null, "旧名字结果不能显示在新词下");
+	assert.equal(h.view().contentResults, null, "旧内容片段不能显示在新词下");
+	assert.equal(h.view().isSearching, true, "旧请求收尾不能关闭新查询的 loading");
+	assert.equal(h.view().error, null);
+	h.host.unmount();
+});
+
+test("换词立即清掉旧命中，清空查询立即停止等待并忽略迟到失败", async () => {
+	const h = hookHarness();
+	h.render();
+	h.drive("alpha");
+	h.nameCalls[0].resolve({ results: NAME_RESULT });
+	h.contentCalls[0].resolve(CONTENT_RESULT);
+	await flush();
+	h.render();
+	h.view().setQuery("beta");
+	h.render();
+	assert.equal(h.view().results, null);
+	assert.equal(h.view().contentResults, null);
+	h.view().searchNow("beta");
+	h.render();
+	h.view().clearSearch();
+	h.render();
+	assert.equal(h.view().query, "");
+	assert.equal(h.view().isSearching, false);
+	assert.equal(h.view().isContentSearching, false);
+	h.nameCalls[1].reject(new Error("PROJECT_FILE_SEARCH_FAILED"));
+	h.contentCalls[1].resolve(CONTENT_RESULT);
+	await flush();
+	h.render();
+	assert.equal(h.view().error, null);
+	assert.equal(h.view().results, null);
+	assert.equal(h.view().contentResults, null);
+	h.host.unmount();
+});
+
+test("缩短查询后继续输入：先过滤最近成功的查询，随后采用最新服务结果", async () => {
+	const h = hookHarness({ contentSearch: false });
+	h.render();
+	h.drive("alpha");
+	h.nameCalls[0].resolve({ results: NAME_RESULT });
+	await flush();
+	h.render();
+	h.drive("a");
+	const added = { ...NAME_RESULT[0], name: "alpine.ts", path: "D:/p/alpine.ts", relativePath: "alpine.ts" };
+	h.nameCalls[1].resolve({ results: [...NAME_RESULT, added] });
+	await flush();
+	h.render();
+	assert.deepEqual(
+		h.view().results.map((item) => item.name),
+		["alpha.ts", "alpine.ts"],
+	);
+	h.view().setQuery("al");
+	h.render();
+	assert.deepEqual(
+		h.view().results.map((item) => item.name),
+		["alpha.ts", "alpine.ts"],
+		"防抖期间过滤最近成功的快照",
+	);
+	h.view().searchNow("al");
+	h.nameCalls[2].resolve({ results: [added] });
+	await flush();
+	h.render();
+	assert.deepEqual(
+		h.view().results.map((item) => item.name),
+		["alpine.ts"],
+		"服务回包替换临时过滤结果",
+	);
+	h.host.unmount();
+});
+
+test("名字搜索失败给稳定错误码；原词重试清掉错误并恢复结果", async () => {
+	const h = hookHarness({ contentSearch: false });
+	h.render();
+	h.drive("alpha");
+	h.nameCalls[0].reject({ code: "PROJECT_DISCONNECTED", message: "private transport details" });
+	await flush();
+	h.render();
+	assert.equal(h.view().error, "PROJECT_DISCONNECTED");
+	assert.equal(h.view().isSearching, false);
+	assert.equal(h.view().results, null);
+	h.view().searchNow(h.view().query);
+	h.render();
+	assert.equal(h.view().error, null);
+	assert.equal(h.view().isSearching, true);
+	h.nameCalls[1].resolve({ results: NAME_RESULT });
+	await flush();
+	h.render();
+	assert.equal(h.view().error, null);
+	assert.equal(h.view().isSearching, false);
+	assert.equal(h.view().results[0].name, "alpha.ts");
+	h.host.unmount();
+});
+
+test("非稳定异常只显示通用搜索错误码，不泄露底层错误内容", async () => {
+	const h = hookHarness({ contentSearch: false });
+	h.render();
+	h.drive("alpha");
+	h.nameCalls[0].reject(new Error("private transport details"));
+	await flush();
+	h.render();
+	assert.equal(h.view().error, "PROJECT_FILE_SEARCH_FAILED");
+	h.host.unmount();
+});
+
 test("空查询：名字与内容两态一起清空（退出搜索不留残留）", async () => {
 	const h = hookHarness();
 	h.render();

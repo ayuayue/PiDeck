@@ -527,6 +527,18 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 					dirtyLabel={t("settings.sidebarStickyGroupHeaders")}
 					onChange={(checked) => updateDraft({ sidebarStickyGroupHeaders: checked })}
 				/>
+				{/* 会话内代码块换行：默认关闭 = 长行横滚（历史观感）；开启后长行在块内折行 */}
+				<SettingSwitchRow
+					anchor="appearance-code-block-wrap"
+					title={t("settings.codeBlockWordWrap")}
+					description={t("settings.codeBlockWordWrapDesc")}
+					checked={draft.codeBlockWordWrap === true}
+					dirty={isDirty("codeBlockWordWrap")}
+					dirtyLabel={t("settings.codeBlockWordWrap")}
+					onChange={(checked) => updateDraft({ codeBlockWordWrap: checked })}
+				/>
+				{/* 减弱动效：应用内开关，不依赖系统偏好上报（Electron 在部分平台不会把 macOS「减弱动态效果」传给 renderer） */}
+				<SettingSwitchRow anchor="appearance-reduce-motion" title={t("settings.reduceMotion")} description={t("settings.reduceMotionDesc")} checked={draft.reduceMotion === true} dirty={isDirty("reduceMotion")} dirtyLabel={t("settings.reduceMotion")} onChange={(checked) => updateDraft({ reduceMotion: checked })} />
 			</SettingsSection>
 
 			{/* 窗口样式 */}

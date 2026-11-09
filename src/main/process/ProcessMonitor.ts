@@ -1,20 +1,23 @@
 /**
- * 进程内存监控：生成 pi agent 子进程的内存快照。
+ * 进程监控：pi agent 子进程 + 共享 DSH host 的内存与 CPU 快照。
  *
- * 数据源说明：
- * - 监控 pi agent 子进程 + 共享的 DSH host utilityProcess（按 pid 采样，不区分来源）；
- *   Electron 自身进程的内存不再采集，用户自行在系统任务管理器/活动监视器中查看。
- * - agent 子进程内存按 pid 调系统命令采样：Windows 用 PowerShell
- *   PrivateMemorySize64（tasklist 的 Mem Usage 是工作集，含共享页，多进程合计会重复计数），
- *   Linux/macOS 用 `ps -o rss= -p N`。命令参数一律数组形式（禁止字符串拼接，见安全规范）。
- * - 采样失败（进程刚好退出/命令缺失）返回 undefined，快照仍可用，非致命。
+ * 一次快照 = 同一条命令采两遍（间隔 CPU_WINDOW_MS）：内存取第二遍的最新值，
+ * CPU 用两遍的累计 CPU 秒数差分算占用率。批量采样而不是逐 pid 起进程，
+ * 因为 Windows 每个 PowerShell 冷启动 100~300ms，N 个 agent 会拖成 N 倍。
+ *
+ * 解析全在 processTableParsers（纯函数 + 单测），这里只负责执行与容错：
+ * 单个 pid 刚好退出时该行缺失是正常情况，不让整张表失败。
  */
 import { spawn } from "node:child_process";
-import { parsePrivateMemoryBytes, parsePsRssKb, parseTasklistMemoryKb } from "./pidMemoryParsers";
 import type { AgentProcessMetric, ProcessMetricsSnapshot } from "../../shared/types";
+import { sampleProcessCpu, type CpuBaseline } from "./processCpuSampler";
+import { parsePsProcessTable, parseWindowsProcessTable, type ProcessTable } from "./processTableParsers";
 
-const TASKLIST_TIMEOUT_MS = 2000;
-const PS_TIMEOUT_MS = 2000;
+const PROCESS_SAMPLE_TIMEOUT_MS = 2000;
+/** CPU 是两次采样的差值：窗口太短噪声大，太长则手动刷新感知卡顿。 */
+const CPU_WINDOW_MS = 600;
+
+export { formatBytes } from "../../shared/formatBytes";
 
 /** 采集超时后 kill 子进程，避免监控调用挂死 IPC。 */
 function runCollect(args: string[], timeoutMs: number): Promise<string> {
@@ -43,54 +46,58 @@ function runCollect(args: string[], timeoutMs: number): Promise<string> {
 	});
 }
 
-export { formatBytes } from "../../shared/formatBytes";
+/** CPU 用整数毫秒而不是 `$_.CPU` 的浮点秒：小数逗号 locale 下 `0,5` 会被读成 NaN。 */
+function buildWindowsCommand(pids: number[]): string[] {
+	const ids = pids.join(",");
+	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", `Get-Process -Id ${ids} -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id);$($_.PrivateMemorySize64);$([long]($_.CPU*1000))" }`];
+}
 
-/** 按 pid 采样单个进程专用内存（字节）；失败返回 undefined。
- * 口径对齐任务管理器"内存"列（专用工作集，不含共享页）：
- * - Windows：PowerShell PrivateMemorySize64（tasklist 的 Mem Usage 是工作集，含共享页，
- *   多进程合计会把共享页重复计数——之前"内置监控 700MB vs 任务管理器 400MB"的根因）
- * - Linux/macOS：ps -o rss（无专用/共享分离，接受 RSS 口径） */
-export async function sampleProcessMemoryBytes(pid: number): Promise<number | undefined> {
+function buildPosixCommand(pids: number[]): string[] {
+	return ["ps", "-o", "pid=,rss=,time=", "-p", pids.join(",")];
+}
+
+async function sampleProcessTable(pids: number[]): Promise<ProcessTable> {
+	const isWindows = process.platform === "win32";
 	try {
-		if (process.platform === "win32") {
-			const out = await runCollect(["powershell", "-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).PrivateMemorySize64`], TASKLIST_TIMEOUT_MS);
-			const bytes = parsePrivateMemoryBytes(out);
-			return bytes ?? undefined;
-		}
-		const out = await runCollect(["ps", "-o", "rss=", "-p", String(pid)], PS_TIMEOUT_MS);
-		const kb = parsePsRssKb(out);
-		return kb == null ? undefined : kb * 1024;
+		const output = await runCollect(isWindows ? buildWindowsCommand(pids) : buildPosixCommand(pids), PROCESS_SAMPLE_TIMEOUT_MS);
+		return isWindows ? parseWindowsProcessTable(output) : parsePsProcessTable(output);
 	} catch {
-		// 进程恰好退出/命令缺失都算采样失败，快照继续可用
-		return undefined;
+		// 命令缺失 / 全部进程已退出：返回空表，快照照常返回（内存与 CPU 显示为 "-"）
+		return new Map();
 	}
 }
 
-/**
- * 组装完整快照：并发采样所有 agent 子进程 + 内存汇总。
- * agent 内存采样失败项不计入汇总，避免"查不到就少一块"造成总和误导。
- */
-export async function getProcessSnapshot(
-	agents: Array<{
-		agentId: string;
-		pid: number;
-		kind?: AgentProcessMetric["kind"];
-		sessionId?: string;
-		sessionTitle?: string;
-		sessionTitles?: string[];
-	}>,
-): Promise<ProcessMetricsSnapshot> {
-	const sampled = await Promise.all(
-		agents.map(async (agent) => {
-			const memoryBytes = await sampleProcessMemoryBytes(agent.pid);
-			// 展开保留会话身份字段（sessionId/sessionTitle/sessionTitles），供监控表展示
-			return { ...agent, memoryBytes } as AgentProcessMetric;
-		}),
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function getProcessSnapshot(agents: readonly Omit<AgentProcessMetric, "memoryBytes" | "cpuPct" | "error">[]): Promise<ProcessMetricsSnapshot> {
+	const pids = [...new Set(agents.map((agent) => agent.pid).filter((pid) => Number.isInteger(pid) && pid > 0))];
+	if (pids.length === 0) {
+		return { agents: agents.map((agent) => ({ ...agent })), totalAgentBytes: 0, sampledAt: Date.now() };
+	}
+
+	const first = await sampleProcessTable(pids);
+	const firstAt = Date.now();
+	await delay(CPU_WINDOW_MS);
+	const second = await sampleProcessTable(pids);
+	const secondAt = Date.now();
+
+	const baseline: CpuBaseline = new Map();
+	for (const [pid, entry] of first) {
+		baseline.set(pid, { cpuSeconds: entry.cpuSeconds, at: firstAt });
+	}
+	const { rows } = sampleProcessCpu(
+		[...second].map(([pid, entry]) => ({ pid, type: "agent", cumulativeCpuSeconds: entry.cpuSeconds })),
+		baseline,
+		secondAt,
 	);
+	const cpuPctByPid = new Map(rows.map((row) => [row.pid, row.cpuPct]));
+
+	const sampled: AgentProcessMetric[] = agents.map((agent) => {
+		const latest = second.get(agent.pid) ?? first.get(agent.pid);
+		return { ...agent, memoryBytes: latest?.memoryBytes, cpuPct: cpuPctByPid.get(agent.pid) };
+	});
 	const totalAgentBytes = sampled.reduce((sum, item) => sum + (item.memoryBytes ?? 0), 0);
-	return {
-		agents: sampled,
-		totalAgentBytes,
-		sampledAt: Date.now(),
-	};
+	return { agents: sampled, totalAgentBytes, sampledAt: secondAt };
 }

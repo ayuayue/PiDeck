@@ -99,6 +99,11 @@ export type FileTreeNode = {
 	 * 而不是静默表现为空目录。重新拉取成功后由 mergeFileTreeChildren 覆盖（新节点无此字段）。
 	 */
 	loadError?: string;
+	/**
+	 * Git ignore 修饰（由公共目录页带出）：只用于把行**置灰**，不是过滤条件。
+	 * 字段缺失 = 没判定过（未知），不能当成“未被忽略”。
+	 */
+	ignored?: boolean;
 	/** 文件元数据（文件树排序用；缺失时回退按名称）。目录 size 无意义恒为 0。 */
 	mtimeMs?: number;
 	ctimeMs?: number;

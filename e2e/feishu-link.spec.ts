@@ -29,7 +29,8 @@ test("composer shows Feishu logo entry in project session; menu lists bot", asyn
 	// 侧栏分段(56469f95)后默认停在「聊天」分段，项目行渲染在「项目」分段下，先切换
 	await window.getByRole("tab", { name: "项目" }).click();
 	// 项目行 → 项目内「新建 Agent」→ 会话视图（composer 可用）
-	const projectRow = window.locator(".conversation", { hasText: "pideck-seed-feishu-proj" }).first();
+	// 侧栏项目行展示 project.name（未重命名时才是目录名），此处显式用种子名定位。
+	const projectRow = window.locator(".conversation", { hasText: "FeishuE2E" }).first();
 	await projectRow.click();
 	await projectRow.getByTitle("普通会话").first().click();
 	await expect(window.locator(".composer .rich-input")).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });

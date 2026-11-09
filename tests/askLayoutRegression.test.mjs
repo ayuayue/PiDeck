@@ -116,7 +116,7 @@ test("Batch question tabs stay on one scrolling line, and single-choice answers 
 	assert.equal(advances.length, 3, "confirm 是/否 + 批量单选 三条单值选择路径都要走 answer()");
 	// 末题必须带上刚写入的答案提交，不能读同一事件里尚未提交的草稿（写盘是异步应用的）。
 	assert.match(overlay, /submitAnswers\(committed\)/);
-	assert.match(overlay, /const committed: AskBatchDraft = \{/);
+	assert.match(overlay, /const committed = commitBatchAnswer\(batch, /);
 	// multi_select 不得自动前进（需多次勾选）：它仍然直连 props.onAnswer，不走 answer() 包装。
 	assert.match(overlay, /props\.onAnswer\(next, next\.join\("、"\)\);/);
 	assert.doesNotMatch(overlay, /answer\(next,/);
@@ -234,17 +234,27 @@ test("Ask option clicks skip submit while text is selected", () => {
  * 编辑器的最小高度互相挤压。回归契约从两方面锁定这个边界：composer 不再接收 runtimeUi，
  * timeline 负责承载它；Ask 内容也不再创建第二个纵向滚动 owner。
  */
-test("ask owns a pinned slot between the timeline stage and the composer", () => {
+test("ask floats over the timeline instead of taking the column bottom", () => {
 	assert.doesNotMatch(composerArea, /runtimeUi/);
 	// Ask 不再进时间线滚动内容（issue #230：看历史时提问卡在视口外）。
 	assert.doesNotMatch(sessionView, /<SessionSurfaceStage[\s\S]*runtimeUi,/);
-	// 底栏本身是唯一新增的 Ask 滚动层；高度就是「列高 - 对话区保底」，不设固定像素。
-	assert.match(sessionView, /session-v-ask min-h-0 shrink-0 overflow-y-auto overscroll-contain \[scrollbar-gutter:stable\]/);
-	assert.match(sessionView, /\{runtimeUi && askPanelVisible \? \(/);
-	assert.match(sessionView, /const askMaxHeight = `calc\(100% - var\(--session-timeline-min, \$\{TIMELINE_MIN_HEIGHT\}px\)\)`/);
-	// 不设固定像素上限（用户反馈：别限卡片高度）；超长才由内滚兜底。
-	assert.doesNotMatch(sessionView, /ASK_PANEL_MAX_HEIGHT/);
-	// Ask 与 composer 互斥分高（issue #230 定案 B：弹卡时卡片独占列底，输入框坍缩到零高）。
+	// 浮层而非列底槽位：时间线保持整列高度，用户能先读完回复再作答（可折叠、可拖动）。
+	assert.match(sessionView, /\{runtimeUi && askPanelVisible \? <FloatingAskLayer>\{runtimeUi\}<\/FloatingAskLayer> : null\}/);
+	assert.doesNotMatch(sessionView, /askMaxHeight/);
+	assert.match(sessionView, /className="session-v-timeline relative flex min-h-0 flex-col"/);
+	const floating = readFileSync("src/renderer/src/components/session/FloatingAskLayer.tsx", "utf8");
+	assert.match(floating, /session-v-ask session-v-ask--floating absolute z-30/);
+	assert.match(floating, /--ask-float-reserve/);
+	// 不吃掉时间线自带控件：抬「回到底部」按钮、让开刻度轴并把刻度抬到卡片之上、自带不透明底。
+	assert.match(floating, /--ask-float-scroll-lift/);
+	assert.match(floating, /parent\.dataset\.askFloating = ""/);
+	const stage = readFileSync("src/renderer/src/components/session/SessionSurfaceStage.tsx", "utf8");
+	assert.match(stage, /bottom: "calc\(0\.375rem \+ var\(--ask-float-scroll-lift, 0px\)\)"/);
+	const timelineCss = readFileSync("src/renderer/src/styles/timeline.css", "utf8");
+	assert.match(timelineCss, /\.session-v-timeline\[data-ask-floating\] \.outline-hover\.session-outline-pane \{\s*z-index: 31;/);
+	assert.match(timelineCss, /\.session-v-ask--floating \{\s*background-color: var\(--color-bg-panel\);/);
+	assert.match(timelineCss, /:root\[data-bg-image="on"\] \.session-v-ask--floating \{[^}]*backdrop-filter: blur\(18px\)/);
+	// 浮层期间 composer 仍坍缩让位（输入框坍缩到零高，整列留给时间线）。
 	// 不卸载——粘贴转文件的删盘动作在 composer 卸载路径上会丢（orphan 临时文件）。
 	assert.match(sessionView, /const composerMaxHeight = askPanelVisible \? "0px" : `min\(\$\{COMPOSER_MAX_HEIGHT\}px, calc\(100% - var\(--session-timeline-min, \$\{TIMELINE_MIN_HEIGHT\}px\)\)\)`/);
 	assert.match(sessionView, /maxHeight: composerMaxHeight/);
@@ -259,11 +269,10 @@ test("ask owns a pinned slot between the timeline stage and the composer", () =>
 	const injector = readFileSync("src/renderer/src/components/session/SessionRuntimeInjector.tsx", "utf8");
 	assert.match(injector, /const askPanelVisible = React\.useMemo\(\(\) => Boolean\(resolveActiveAskRequest\(currentSessionRuntime, currentSessionRuntimeUi\)\)/);
 	assert.match(injector, /askPanelVisible=\{askPanelVisible\}/);
-	// 宽度基准与消息列/输入框同源，不另开一套宽度。
-	assert.match(sessionView, /<div className="pb-2" style=\{chatContentWidthStyle\}>[\s\S]*?\{runtimeUi\}/);
 	assert.match(timeline, /className="session-runtime-ui mx-auto w-full/);
 	assert.doesNotMatch(timeline, /session-runtime-ui sticky bottom-0/);
-	// 内容宽度：消息区/输入框 inline width，Ask 随时间线同宽。
+	// 内容宽度：消息区/输入框 inline width；浮动 Ask 量同一列的实际矩形（见 FloatingAskLayer），
+	// 默认与消息列/输入卡同宽居中，不再自带上限与右下角锚点。
 	// 时间线侧挂在 MessageScroller 的 contentProps（内层 [role=log]）上，
 	// 视口铺满面板、滚动条贴面板最右，内容列仍与 composer 同宽居中。
 	// 空态例外：showSurfaceEmptyState 时去掉约束（起始页自控宽度，与引导页一致）。
@@ -296,4 +305,69 @@ test("composer panel reserves the same scrollbar gutter as the timeline", () => 
 	// 空态例外：showSurfaceEmptyState 时去掉约束（起始页自控宽度，与引导页一致）。
 	assert.match(timeline, /contentProps=\{showSurfaceEmptyState \? undefined : \{ style: chatContentWidthStyle \}\}/);
 	assert.match(chatContentWidth, /scrollbar-gutter:stable/);
+});
+
+function loadFloating() {
+	return import("./helpers/loadTsCommonJs.mjs").then(({ loadTsCommonJs }) =>
+		loadTsCommonJs("src/renderer/src/components/session/FloatingAskLayer.tsx", {
+			stubs: { react: {}, "lucide-react": { GripHorizontal: "grip" }, "../../i18n": { t: (key) => key } },
+		}),
+	);
+}
+
+test("floating ask defaults to the message/composer column and stays inside it", async () => {
+	const { clampAskFloatOffset, askFloatFrame, ASK_FLOAT_MARGIN } = await loadFloating();
+	const bounds = { parentWidth: 1000, parentHeight: 800, cardWidth: 760, cardHeight: 300, columnLeft: 120, columnWidth: 760 };
+	// 默认框与消息列/输入框同宽同左缘（正常内容宽度下就是同一列）
+	assert.deepEqual({ ...askFloatFrame(bounds) }, { left: 120, width: 760 });
+	// 拖出左上界被收回：左边贴列留边 12px，顶部不出列
+	assert.deepEqual({ ...clampAskFloatOffset({ x: -5000, y: -5000 }, bounds) }, { x: ASK_FLOAT_MARGIN - 120, y: -(800 - 300 - 2 * ASK_FLOAT_MARGIN) });
+	// 往右拖也受限：卡片右缘停在列留边内（不再只能往左拖）
+	assert.deepEqual({ ...clampAskFloatOffset({ x: 5000, y: 50 }, bounds) }, { x: 1000 - ASK_FLOAT_MARGIN - (120 + 760), y: 0 });
+	// 右缘让开刻度轴后，右拖空间随之缩小
+	assert.deepEqual({ ...clampAskFloatOffset({ x: 5000, y: 0 }, { ...bounds, rightInset: 48 }) }, { x: 1000 - 48 - (120 + 760), y: 0 });
+	// 内容宽度拉到 100%：默认框按刻度让位收窄并左移，仍不压刻度
+	const wide = askFloatFrame({ ...bounds, columnLeft: 24, columnWidth: 952, rightInset: 48 });
+	assert.equal(wide.width, 1000 - 48 - ASK_FLOAT_MARGIN);
+	assert.equal(wide.left + wide.width, 1000 - 48);
+	// 0 尺寸测量（未布局、隐藏）不能把记住的位置夹成 {0,0}
+	assert.deepEqual({ ...clampAskFloatOffset({ x: -120, y: -300 }, { parentWidth: 0, parentHeight: 0, cardWidth: 0, cardHeight: 0, columnLeft: 0, columnWidth: 0 }) }, { x: -120, y: -300 });
+	// 列临时变矮只影响渲染位置：preferred 不变，列恢复后夹紧结果回到原位
+	const preferred = { x: 0, y: -400 };
+	assert.equal(clampAskFloatOffset(preferred, { ...bounds, parentHeight: 400 }).y, -(400 - 300 - 2 * ASK_FLOAT_MARGIN));
+	assert.equal(clampAskFloatOffset(preferred, bounds).y, -400);
+});
+
+test("floating ask measures the same column as messages and composer", () => {
+	// 宽度/居中必须来自聊天内容契约，而不是自己拍一个宽度上限。
+	const floating = readFileSync("src/renderer/src/components/session/FloatingAskLayer.tsx", "utf8");
+	assert.match(floating, /\.message-timeline > \[role="log"\]/);
+	assert.match(floating, /--chat-content-pct-set/);
+	assert.doesNotMatch(floating, /min\(640px/);
+});
+
+test("floating ask reserves the timeline tail whenever the card sits on the bottom, however tall", async () => {
+	const { askFloatReserve, ASK_FLOAT_MARGIN, ASK_FLOAT_TAIL_CLEARANCE } = await loadFloating();
+	const at = (cardHeight, y = 0) => askFloatReserve({ x: 0, y }, { parentWidth: 1000, parentHeight: 760, cardWidth: 760, cardHeight, columnLeft: 120, columnWidth: 760 });
+	// 维护者给的边界：368 与 369 高的卡片不能一个 388、一个 0
+	assert.equal(at(368), 368 + ASK_FLOAT_MARGIN + 8);
+	assert.equal(at(369), 369 + ASK_FLOAT_MARGIN + 8);
+	for (const height of [420, 500, 600, 736]) assert.equal(at(height), height + ASK_FLOAT_MARGIN + 8);
+	// 拖离底部、下面留出足够的缝：尾部内容能从卡片下方滚出来，不再留余量
+	assert.equal(at(300, -ASK_FLOAT_TAIL_CLEARANCE), 0);
+	assert.ok(at(300, -(ASK_FLOAT_TAIL_CLEARANCE - ASK_FLOAT_MARGIN - 1)) > 0);
+	assert.equal(askFloatReserve({ x: 0, y: 0 }, { parentWidth: 0, parentHeight: 0, cardWidth: 0, cardHeight: 0, columnLeft: 0, columnWidth: 0 }), 0);
+});
+
+test("floating ask lifts the scroll-to-bottom button only when the card covers it", async () => {
+	const { askFloatScrollButtonLift, ASK_FLOAT_MARGIN } = await loadFloating();
+	const bounds = { parentWidth: 1200, parentHeight: 760, cardWidth: 960, cardHeight: 300, columnLeft: 120, columnWidth: 960 };
+	// 与输入框同宽的居中卡片贴着列底时必然压住居中的「回到底部」按钮
+	assert.equal(askFloatScrollButtonLift({ x: 0, y: 0 }, bounds), 300 + ASK_FLOAT_MARGIN + 8);
+	// 卡片拖离底部：按钮不被盖住，不抬
+	assert.equal(askFloatScrollButtonLift({ x: 0, y: -300 }, bounds), 0);
+	// 拖到侧边、让开列中线：不抬
+	assert.equal(askFloatScrollButtonLift({ x: -600, y: 0 }, bounds), 0);
+	// 几乎占满整列的卡片：按钮最多抬到列顶附近，不出列
+	assert.equal(askFloatScrollButtonLift({ x: 0, y: 0 }, { ...bounds, cardHeight: 736 }), 760 - 48);
 });

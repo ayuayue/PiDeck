@@ -330,6 +330,7 @@ export class ProjectStore implements HostRebindStorePort {
 				name: basename(normalizedPath) || normalizedPath,
 				path: normalizedPath,
 				lastOpenedAt: Date.now(),
+				createdAt: Date.now(),
 				sortOrder: this.nextSortOrder(),
 				// 兼容旧数据：environment 缺省视为 windows
 				environment: environment || "windows",
@@ -347,14 +348,9 @@ export class ProjectStore implements HostRebindStorePort {
 	}
 
 	/**
-	 * 把一个已确认的远端目录登记为项目（Phase 3 第二段）。
-	 *
-	 * 只接受 `{ hostId, canonicalRemotePath }`：canonical 值必须由主进程在已 pin 的连接上解析并
-	 * 经用户确认（见 enrollment service），本方法不做任何远端 I/O，也不接受 renderer 提交的
-	 * 未验证字符串。`remotePath` 已由 codec 在同值域内校验。
-	 *
-	 * 去重键为 `hostId + NUL + remotePath`（同一主机同一目录 → 同一项目）；不同主机上的同一
-	 * 路径是两个不同项目。重复登记只刷新 `lastOpenedAt`，保持 id 稳定（catalog 引用不失效）。
+	 * 登记已由主进程在 pin 连接上解析并经用户确认的远端目录，不做远端 I/O。
+	 * 不接受 renderer 的未验证路径；locator 与 codec 共用判据。
+	 * 按 hostId + NUL + remotePath 去重；重复登记只刷新 lastOpenedAt，保留 id 和 createdAt。
 	 */
 	async addRemote(input: { hostId: string; canonicalRemotePath: string; name?: string }): Promise<Project> {
 		this.assertWritable();
@@ -381,6 +377,7 @@ export class ProjectStore implements HostRebindStorePort {
 				name: input.name && input.name.trim() ? input.name.trim() : basename(locator.remotePath) || locator.remotePath,
 				locator,
 				lastOpenedAt: Date.now(),
+				createdAt: Date.now(),
 				sortOrder: this.nextSortOrder(),
 			};
 			this.projects.push(project);
@@ -591,6 +588,7 @@ export class ProjectStore implements HostRebindStorePort {
 				name,
 				path: join(app.getPath("userData"), "external-sessions"),
 				lastOpenedAt: Date.now(),
+				createdAt: Date.now(),
 				pinned: true,
 				sortOrder: this.nextSortOrder(),
 			};

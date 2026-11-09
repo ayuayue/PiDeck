@@ -121,6 +121,24 @@ test("windowState: position and maximized flag round-trip through save/read", ()
 	}
 });
 
+// ===== 全屏记忆：全屏不持久化会让「关窗即退出」的会话重启后只剩最大化 =====
+
+test("windowState: fullscreen flag round-trips and keeps maximized for the normal-bounds restore", () => {
+	const dir = mkdtempSync(join(tmpdir(), "pideck-ws-"));
+	try {
+		saveLastWindowBounds(dir, { x: 263, y: 144, width: 1522, height: 857, maximized: true, fullscreen: true });
+		assert.deepEqual(readLastWindowBounds(dir), { x: 263, y: 144, width: 1522, height: 857, maximized: true, fullscreen: true });
+		// fullscreen=false 不落盘（与旧文件格式、「非全屏」记录保持同形）
+		saveLastWindowBounds(dir, { x: 10, y: 20, width: 1360, height: 800, maximized: true, fullscreen: false });
+		assert.deepEqual(readLastWindowBounds(dir), { x: 10, y: 20, width: 1360, height: 800, maximized: true });
+		// 只有全屏没有 maximized 的手写文件也认（两个标记独立校验）
+		writeFileSync(join(dir, "last-window-bounds.json"), '{"width":1251,"height":965,"fullscreen":true}', "utf8");
+		assert.deepEqual(readLastWindowBounds(dir), { width: 1251, height: 965, fullscreen: true });
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("windowState: legacy size-only record still reads (no position, not maximized)", () => {
 	const dir = mkdtempSync(join(tmpdir(), "pideck-ws-"));
 	try {

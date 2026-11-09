@@ -266,7 +266,7 @@ export function readRemoteGitRepos(value: unknown): { repos: RemoteGitRepo[]; tr
 	return { repos, truncated: value.truncated };
 }
 /** Validate the complete machine format before feeding the existing SCM parser, which tolerates local legacy data. */
-export function readRemoteGitStatus(value: unknown, projectId: string): RemoteGitReadSnapshot {
+export function readRemoteGitStatus(value: unknown, projectId: string, repoPath = ""): RemoteGitReadSnapshot {
 	if (!record(value) || typeof value.status !== "string" || value.status.length > 4 * Math.ceil(REMOTE_GIT_STATUS_MAX_BYTES / 3) || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.status)) throw new Error("GIT_RESULT_INVALID");
 	const bytes = Buffer.from(value.status, "base64");
 	if (bytes.length > REMOTE_GIT_STATUS_MAX_BYTES || bytes.toString("base64") !== value.status) throw new Error("GIT_RESULT_INVALID");
@@ -298,9 +298,13 @@ export function readRemoteGitStatus(value: unknown, projectId: string): RemoteGi
 	// The existing SCM parser reads the same normalized records; the raw bytes are never shown to the renderer.
 	const normalizedRaw = records.length > 0 ? records.join("\0") + "\0" : "";
 	const groups: GitResourceGroups = { merge: [], index: [], workingTree: [], untracked: [] };
+	// 公共 target 是**项目相对**的（与文件树/公共 Git 通道一致）：helper 的仓库内路径只在这一层出现一次。
+	const repo = validateRemoteGitRepoPath(repoPath);
+	const projectPath = (path: string): string => projectFilePath(repo, path);
 	for (const parsed of parsePorcelainStatus(normalizedRaw)) {
-		const target: ProjectFileTarget = { projectId, relativePath: parsed.path };
-		const resource: GitResource = { ...parsed, target, displayPath: parsed.path, ...(parsed.oldPath ? { oldTarget: { projectId, relativePath: parsed.oldPath } } : {}) };
+		const relativePath = projectPath(parsed.path);
+		const target: ProjectFileTarget = { projectId, relativePath };
+		const resource: GitResource = { ...parsed, path: relativePath, target, displayPath: relativePath, ...(parsed.oldPath ? { oldPath: projectPath(parsed.oldPath), oldTarget: { projectId, relativePath: projectPath(parsed.oldPath) } } : {}) };
 		if (resource.status === GitStatus.UNTRACKED) groups.untracked.push(resource);
 		else if ([GitStatus.INDEX_MODIFIED, GitStatus.INDEX_ADDED, GitStatus.INDEX_DELETED, GitStatus.INDEX_RENAMED, GitStatus.INDEX_COPIED, GitStatus.INDEX_TYPE_CHANGED].includes(resource.status)) groups.index.push(resource);
 		else if ([GitStatus.ADDED_BY_US, GitStatus.ADDED_BY_THEM, GitStatus.DELETED_BY_US, GitStatus.DELETED_BY_THEM, GitStatus.BOTH_ADDED, GitStatus.BOTH_DELETED, GitStatus.BOTH_MODIFIED].includes(resource.status)) groups.merge.push(resource);
@@ -308,7 +312,8 @@ export function readRemoteGitStatus(value: unknown, projectId: string): RemoteGi
 	}
 	// The local legacy parser omits Y=A (intent-to-add); remote reads must not lose that resource.
 	for (const path of intentPaths) {
-		groups.workingTree.push({ path, displayPath: path, target: { projectId, relativePath: path }, status: GitStatus.INTENT_TO_ADD, letter: "A" });
+		const relativePath = projectPath(path);
+		groups.workingTree.push({ path: relativePath, displayPath: relativePath, target: { projectId, relativePath }, status: GitStatus.INTENT_TO_ADD, letter: "A" });
 	}
 	return { groups, head: value.head, branch: value.branch };
 }
@@ -383,7 +388,7 @@ export function readRemoteGitLog(value: unknown): RemoteGitLogPage {
 	};
 }
 /** One commit's byte-exact detail plus its changed files against the first parent. */
-export function readRemoteGitCommitDetail(value: unknown): RemoteGitCommitDetail {
+export function readRemoteGitCommitDetail(value: unknown, repoPath = ""): RemoteGitCommitDetail {
 	if (!record(value) || Object.keys(value).length !== 11 || !Array.isArray(value.files) || value.files.length > REMOTE_GIT_COMMIT_MAX_FILES) throw new Error("GIT_RESULT_INVALID");
 	return {
 		oid: remoteGitOid(value.oid),
@@ -402,8 +407,9 @@ export function readRemoteGitCommitDetail(value: unknown): RemoteGitCommitDetail
 			const renamed = keys.includes("oldPath");
 			if (!keys.includes("path") || !keys.includes("status") || (renamed ? keys.length !== 3 : keys.length !== 2)) throw new Error("GIT_RESULT_INVALID");
 			if (typeof file.status !== "string" || !REMOTE_GIT_FILE_STATUS_PATTERN.test(file.status)) throw new Error("GIT_RESULT_INVALID");
-			const path = validateRemoteGitPath(file.path);
-			return renamed ? { status: file.status, path, oldPath: validateRemoteGitPath(file.oldPath) } : { status: file.status, path };
+			// 公共输出是项目相对路径（helper 的仓库内路径在本层归一）。
+			const path = projectFilePath(validateRemoteGitRepoPath(repoPath), validateRemoteGitPath(file.path));
+			return renamed ? { status: file.status, path, oldPath: projectFilePath(validateRemoteGitRepoPath(repoPath), validateRemoteGitPath(file.oldPath)) } : { status: file.status, path };
 		}),
 	};
 }
@@ -434,7 +440,7 @@ export function readRemoteGitRefs(value: unknown): RemoteGitRefs {
  * the requested names, so a remote answer can never redirect the panel to a different pair; each file is
  * re-validated with the same rules as a commit detail's file list.
  */
-export function readRemoteGitCompare(value: unknown, base: string, head: string): RemoteGitCompare {
+export function readRemoteGitCompare(value: unknown, base: string, head: string, repoPath = ""): RemoteGitCompare {
 	if (!record(value) || Object.keys(value).length !== 3 || !record(value.base) || !record(value.head) || !Array.isArray(value.files) || value.files.length > REMOTE_GIT_COMPARE_MAX_FILES) throw new Error("GIT_RESULT_INVALID");
 	const side = (raw: Record<string, unknown>, expected: string): RemoteGitCompare["base"] => {
 		if (Object.keys(raw).length !== 2 || raw.ref !== expected) throw new Error("GIT_RESULT_INVALID");
@@ -450,8 +456,9 @@ export function readRemoteGitCompare(value: unknown, base: string, head: string)
 			// Rename/copy records carry the old path; every other status must not pretend to have one.
 			const renamed = file.status.startsWith("R") || file.status.startsWith("C");
 			if (keys.includes("oldPath") !== renamed || !keys.includes("path") || keys.length !== (renamed ? 3 : 2)) throw new Error("GIT_RESULT_INVALID");
-			const path = validateRemoteGitPath(file.path);
-			return renamed ? { status: file.status, path, oldPath: validateRemoteGitPath(file.oldPath) } : { status: file.status, path };
+			// 公共输出是项目相对路径（与 status/历史一致）。
+			const path = projectFilePath(validateRemoteGitRepoPath(repoPath), validateRemoteGitPath(file.path));
+			return renamed ? { status: file.status, path, oldPath: projectFilePath(validateRemoteGitRepoPath(repoPath), validateRemoteGitPath(file.oldPath)) } : { status: file.status, path };
 		}),
 	};
 }
@@ -586,7 +593,7 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 				{},
 				signal,
 				(value, session, capabilities) => {
-					const snapshot = readRemoteGitStatus(value, projectId);
+					const snapshot = readRemoteGitStatus(value, projectId, repoPath);
 					// Every confirmed scope hands out grants bound to itself (G5e): a nested snapshot authorizes nested writes
 					// only, and the token layer refuses a grant used against another repository.
 					if (record(value) && value.revision !== undefined) {
@@ -614,10 +621,12 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 		/** The expectation is issued by main; renderer data never becomes a host/revision authority. */
 		mutate(projectId: string, operation: "stage" | "unstage", group: GitResourceGroupType, file: ProjectFileTarget, expected: RemoteGitWriteExpectation, repoPath: string, signal?: AbortSignal): Promise<void> {
 			if (file.projectId !== projectId || (operation === "unstage" ? group !== "index" : !["workingTree", "untracked"].includes(group))) throw new Error("GIT_RESULT_INVALID");
+			// 公共 target 是项目相对；helper 只认仓库内路径（唯一的转换点）。
+			const path = repoRelativeFilePath(projectId, repoPath, file);
 			return run(
 				projectId,
 				operation === "stage" ? "git.stage" : "git.unstage",
-				{ path: validateRemoteGitPath(file.relativePath), group, expectedRevision: expected.revision },
+				{ path, group, expectedRevision: expected.revision },
 				signal,
 				(value) => {
 					if (!record(value) || value.applied !== true || Object.keys(value).length !== 1) throw new Error("GIT_RESULT_INVALID");
@@ -646,8 +655,10 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 		},
 		workspaceDiff(projectId: string, group: GitResourceGroupType, file: ProjectFileTarget, repo: string | undefined, signal?: AbortSignal): Promise<GitWorkspaceFileDiff> {
 			if (file.projectId !== projectId || !["merge", "index", "workingTree", "untracked"].includes(group)) throw new Error("GIT_RESULT_INVALID");
-			const path = validateRemoteGitPath(file.relativePath),
-				repoPath = validateRemoteGitRepoPath(repo);
+			const repoPath = validateRemoteGitRepoPath(repo);
+			// 公共输入是项目相对 target；helper 只认仓库内路径（唯一的转换点）。
+			const path = repoRelativeFilePath(projectId, repoPath, file);
+			const projectPath = projectFilePath(repoPath, path);
 			return run(
 				projectId,
 				"git.workspaceDiff",
@@ -656,7 +667,7 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 				(value) => {
 					if (!record(value) || typeof value.originalContent !== "string" || typeof value.modifiedContent !== "string") throw new Error("GIT_RESULT_INVALID");
 					for (const text of [value.originalContent, value.modifiedContent]) if (text.includes("\0") || Buffer.byteLength(text, "utf8") > REMOTE_GIT_TEXT_MAX_BYTES || Buffer.from(text, "utf8").toString("utf8") !== text) throw new Error("GIT_RESULT_INVALID");
-					return { path, target: { projectId, relativePath: path }, displayPath: path, originalContent: value.originalContent, modifiedContent: value.modifiedContent };
+					return { path: projectPath, target: { projectId, relativePath: projectPath }, displayPath: projectPath, originalContent: value.originalContent, modifiedContent: value.modifiedContent };
 				},
 				undefined,
 				repoPath,
@@ -681,18 +692,19 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 		},
 		commitDetail(projectId: string, oid: unknown, repo: string | undefined, signal?: AbortSignal): Promise<RemoteGitCommitDetail> {
 			const value = remoteGitOid(oid);
+			const repoPath = validateRemoteGitRepoPath(repo);
 			return run(
 				projectId,
 				"git.commitDetail",
 				{ oid: value },
 				signal,
 				(raw) => {
-					const detail = readRemoteGitCommitDetail(raw);
+					const detail = readRemoteGitCommitDetail(raw, repoPath);
 					if (detail.oid !== value) throw new Error("GIT_RESULT_INVALID");
 					return detail;
 				},
 				undefined,
-				validateRemoteGitRepoPath(repo),
+				repoPath,
 			);
 		},
 		/**
@@ -726,7 +738,8 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 		compare(projectId: string, base: unknown, head: unknown, repo: string | undefined, signal?: AbortSignal): Promise<RemoteGitCompare> {
 			const baseRef = validateRemoteGitRefFullName(base);
 			const headRef = validateRemoteGitRefFullName(head);
-			return run(projectId, "git.compare", { base: baseRef, head: headRef }, signal, (value) => readRemoteGitCompare(value, baseRef, headRef), undefined, validateRemoteGitRepoPath(repo));
+			const repoPath = validateRemoteGitRepoPath(repo);
+			return run(projectId, "git.compare", { base: baseRef, head: headRef }, signal, (value) => readRemoteGitCompare(value, baseRef, headRef, repoPath), undefined, repoPath);
 		},
 		/**
 		 * The explicit write that creates the repository at the project root. There is no main-owned token because there
@@ -783,7 +796,8 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 		discard(projectId: string, group: unknown, file: ProjectFileTarget, expected: RemoteGitWriteExpectation, repoPath: string, signal?: AbortSignal): Promise<{ recoveryRef: string | null }> {
 			if (expected.kind !== "discard") throw new Error("GIT_RESULT_INVALID");
 			if (file.projectId !== projectId || (group !== "workingTree" && group !== "untracked")) throw new Error("GIT_RESULT_INVALID");
-			const path = validateRemoteGitPath(file.relativePath);
+			// 公共输入是项目相对 target；helper 只认仓库内路径（唯一的转换点）。
+			const path = repoRelativeFilePath(projectId, repoPath, file);
 			return run(
 				projectId,
 				"git.discard",
@@ -803,6 +817,7 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 		},
 		/** Read-only listing of the recovery namespace; nothing here needs a grant or touches the repository. */
 		recoveryList(projectId: string, repo: string | undefined, signal?: AbortSignal): Promise<{ entries: RemoteGitRecoveryEntryView[]; truncated: boolean }> {
+			const repoPath = validateRemoteGitRepoPath(repo);
 			return run(
 				projectId,
 				"git.recoveryList",
@@ -816,12 +831,13 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 						if (typeof entry.ref !== "string" || !/^refs\/pideck\/recovery\/[A-Za-z0-9._-]+$/.test(entry.ref)) throw new Error("GIT_RESULT_INVALID");
 						const bytes = remoteGitCount(entry.bytes);
 						const at = remoteGitCount(entry.at);
-						return { ref: entry.ref, oid: remoteGitOid(entry.oid), path: validateRemoteGitPath(entry.path), bytes, at };
+						// 公共输出是项目相对路径（与 status/历史一致，可直接回传给 restore）。
+						return { ref: entry.ref, oid: remoteGitOid(entry.oid), path: projectFilePath(repoPath, validateRemoteGitPath(entry.path)), bytes, at };
 					});
 					return { entries, truncated: value.truncated };
 				},
 				undefined,
-				validateRemoteGitRepoPath(repo),
+				repoPath,
 			);
 		},
 		/** One snapshot's raw bytes go back to its path, and only where the worktree still matches the index. */
@@ -829,7 +845,9 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 			if (expected.kind !== "restore") throw new Error("GIT_RESULT_INVALID");
 			const target = remoteGitRecoveryRef(ref);
 			const commit = remoteGitOid(oid);
-			const relative = validateRemoteGitPath(path);
+			// 公共输入是项目相对路径；helper 只认仓库内路径。
+			const relative = repoRelativeFilePath(projectId, repoPath, { projectId, relativePath: validateRemoteGitPath(path) });
+			const projectPath = projectFilePath(repoPath, relative);
 			return run(
 				projectId,
 				"git.recoveryRestore",
@@ -837,7 +855,7 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 				signal,
 				(value) => {
 					if (!record(value) || value.applied !== true || Object.keys(value).length !== 3 || value.path !== relative) throw new Error("GIT_RESULT_INVALID");
-					return { path: relative, bytes: remoteGitCount(value.bytes) };
+					return { path: projectPath, bytes: remoteGitCount(value.bytes) };
 				},
 				expected,
 				repoPath,
@@ -940,7 +958,10 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 		/** `base: null` names the side that does not exist; both sides missing is a refusal, not an empty diff. */
 		refFileDiff(projectId: string, base: unknown, head: unknown, file: ProjectFileTarget, repo: string | undefined, signal?: AbortSignal): Promise<RemoteGitRefFileDiff> {
 			if (file.projectId !== projectId) throw new Error("GIT_RESULT_INVALID");
-			const path = validateRemoteGitPath(file.relativePath);
+			const repoPath = validateRemoteGitRepoPath(repo);
+			// 公共输入是项目相对 target；helper 只认仓库内路径（唯一的转换点）。
+			const path = repoRelativeFilePath(projectId, repoPath, file);
+			const projectPath = projectFilePath(repoPath, path);
 			const headOid = remoteGitOid(head);
 			const baseOid = base === null ? null : remoteGitOid(base);
 			return run(
@@ -951,10 +972,10 @@ export function createRemoteGitService(ports: { locator(projectId: string): Remo
 				(raw) => {
 					if (!record(raw) || Object.keys(raw).length !== 2 || typeof raw.originalContent !== "string" || typeof raw.modifiedContent !== "string") throw new Error("GIT_RESULT_INVALID");
 					for (const text of [raw.originalContent, raw.modifiedContent]) if (text.includes("\0") || Buffer.byteLength(text, "utf8") > REMOTE_GIT_TEXT_MAX_BYTES) throw new Error("GIT_RESULT_INVALID");
-					return { path, target: { projectId, relativePath: path }, displayPath: path, base: baseOid, head: headOid, originalContent: raw.originalContent, modifiedContent: raw.modifiedContent };
+					return { path: projectPath, target: { projectId, relativePath: projectPath }, displayPath: projectPath, base: baseOid, head: headOid, originalContent: raw.originalContent, modifiedContent: raw.modifiedContent };
 				},
 				undefined,
-				validateRemoteGitRepoPath(repo),
+				repoPath,
 			);
 		},
 	};

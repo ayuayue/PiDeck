@@ -34,12 +34,17 @@ test("agent flow: prompt -> streaming -> done -> prompt -> abort", async ({ wind
 	// 完整收尾
 	await expect(timeline).toContainText("流式渲染验证完成", { timeout: 15_000 });
 
+	// 纯问答没有文件改动：只建议「继续」，不应诱导提交/推送（提交建议以真实文件修改为前提）
+	const replyActions = window.getByTestId("session-reply-action-strip");
+	await expect(replyActions).toContainText("继续", { timeout: 10_000 });
+	await expect(replyActions).not.toContainText("提交");
+
 	// 4. 第二条消息（慢速流），中途点击「停止」
 	await composer.click();
 	await window.keyboard.type("SLOW 第二段");
 	await window.keyboard.press("Enter");
 
-	const stopButton = window.getByRole("button", { name: "停止" });
+	const stopButton = window.getByRole("button", { name: "停止回答" });
 	await expect(stopButton).toBeVisible({ timeout: 10_000 });
 	// 等到第二段开始流式输出再停止，覆盖"流式中中止"路径
 	await expect(timeline).toContainText("Mock 回复：「SLOW 第二段」", { timeout: 10_000 });
@@ -101,21 +106,21 @@ test("agent flow: model picker and thinking level switch apply", async ({ window
 	const modelButton = window.locator(".composer-bar-btn.model-thinking");
 	await expect(modelButton).toContainText("Mock Model", { timeout: 10_000 });
 
-	// 打开模型选择器，切到 Mock Model Pro（popover 里 drill-in 按钮的可用名以「模型 」开头）
+	// 打开模型选择器（UI 2.0 后模型按钮直接打开完整选择器，不再先弹 drill-in 菜单）
 	await modelButton.click();
-	await window.getByRole("button", { name: /^模型 / }).click();
 	const modelPalette = window.locator("[data-slot='dialog-content'].model-picker");
 	await expect(modelPalette).toBeVisible({ timeout: 5000 });
-	await modelPalette.locator("[data-slot='command-item']", { hasText: "mock-model-pro" }).click();
+	// 行文案是「provider/名称」，模型 id 只在 tooltip 与 data-picker-value 上，按后者定位
+	await modelPalette.locator('[data-picker-value="mock/mock-model-pro"]').click();
 	await expect(modelButton).toContainText("Mock Model Pro", { timeout: 10_000 });
 
 	// thinking 级别切换：初始值取决于会话配置（可能来自 ~/.pi/agent/settings.json），
-	// 不断言具体档位，切到 low 后验证生效（popover 里 drill-in 按钮的可用名以「思考 」开头）
-	await modelButton.click();
-	await window.getByRole("button", { name: /^思考 / }).click();
-	const thinkingPalette = window.locator("[data-slot='dialog-content'].thinking-picker");
-	await expect(thinkingPalette).toBeVisible({ timeout: 5000 });
-	await thinkingPalette.locator("[data-slot='command-item']", { hasText: "low" }).first().click();
+	// 不断言具体档位。UI 2.0 后是模型芯片右侧的独立弹层：点档位只改预览，关闭弹层才提交。
+	await window.getByRole("button", { name: "选择思考级别" }).click();
+	const thinkingPopover = window.locator("[data-slot='popover-content']");
+	await expect(thinkingPopover).toBeVisible({ timeout: 5000 });
+	await thinkingPopover.locator('[data-tick-value="low"]').click();
+	await window.keyboard.press("Escape");
 	await expect(modelButton).toContainText("low", { timeout: 10_000 });
 });
 
@@ -149,16 +154,23 @@ test("agent flow: compact meter button compacts and reports done", async ({ wind
 	await compactButton.click();
 
 	await expect(window.getByText("上下文压缩完成")).toBeVisible({ timeout: 15_000 });
-	await expect(compactButton).toBeDisabled({ timeout: 15_000 });
-	await expect(compactButton).toContainText("暂无需压缩");
+	// 手动压缩不再设占用门槛：完成后按钮回到可点态（文案是「压缩上下文」），
+	// 是否 nothing-to-do 由 pi 自己裁决。
+	await expect(compactButton).toBeEnabled({ timeout: 15_000 });
+	await expect(compactButton).toContainText("压缩上下文");
 	await expect(window.locator(".composer-send-primary")).toHaveAttribute("aria-label", "发送", { timeout: 10_000 });
 
-	// 占用已降至门槛以下：/compact 不再打 RPC，直接提示暂无需压缩。
-	// 点发送按钮而不是 Enter——斜杠补全打开时 Enter 会选中建议，草稿不会发出。
+	// 压缩后圆环弹层仍开着（且悬在输入区上方），先关掉再继续输入。
+	await window.keyboard.press("Escape");
+	await expect(window.locator("[role='dialog'][aria-label^='上下文已用']")).toHaveCount(0, { timeout: 5_000 });
+
+	// 低占用下 /compact 仍会打 RPC（前端不再预判「暂无需压缩」），等上一条 toast 消失后
+	// 再发一次，确认第二次压缩也正常完成、锁已释放。
+	await expect(window.getByText("上下文压缩完成")).toHaveCount(0, { timeout: 8_000 });
 	await composer.click();
 	await window.keyboard.type("/compact");
 	await window.locator(".composer-send-primary").click();
-	await expect(window.getByText("会话内容过少，暂无需压缩")).toBeVisible({ timeout: 10_000 });
+	await expect(window.getByText("上下文压缩完成")).toBeVisible({ timeout: 15_000 });
 
 	await composer.click();
 	await window.keyboard.type("压缩后继续");
@@ -277,9 +289,12 @@ test("agent flow: restart agent keeps session usable", async ({ window }) => {
 	await window.keyboard.press("Enter");
 	await expect(timeline).toContainText("Mock 回复：「重启前」流式渲染验证完成", { timeout: 20_000 });
 
-	// 当前会话 Tab 的下拉按钮 → 重启（运行控制已从会话头部 combo 迁入 Tab 下拉）
-	await window.locator('.session-tab[aria-selected="true"] [role="tab-menu"]').click();
-	await window.getByRole("menuitem", { name: "重启", exact: true }).click();
+	// 运行控制已收进会话头部的动作钮：空闲时主控就是「重启」（不再是 Tab 下拉菜单）。
+	await window.getByRole("button", { name: "重启", exact: true }).click();
+	// 运行中重启会中断当前回答，先弹确认（会话记录与历史消息保留）。
+	const restartConfirm = window.getByRole("alertdialog", { name: "重启会话进程" });
+	await expect(restartConfirm).toBeVisible({ timeout: 5_000 });
+	await restartConfirm.getByRole("button", { name: "重启", exact: true }).click();
 
 	// 等重启真正完成：完成 toast 是唯一可靠的完成信号；
 	// 过早发送会撞上 replacement reservation，被 coordinator 拒发（delivery:rejected）。

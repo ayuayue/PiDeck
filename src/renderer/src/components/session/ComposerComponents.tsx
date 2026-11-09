@@ -644,13 +644,16 @@ export function ComposerBottomBar(props: {
 		welcomeModel: effectiveWelcomeModel,
 		defaultModel: props.defaultModel,
 	});
-	// 模型优先取会话记录或引导页默认。DSH 例外：记录缺 model 时用 host 会话投影的
-	// 当前选择兜底（runtime.state 的 provider/modelId 来自 host modelSelection 投影）——
-	// 否则会显示全局部署默认，看起来像「别的会话的模型也改了」。pi 不接 runtime：
-	// 运行时状态是执行态，不能覆盖用户保存的选择。
+	// 模型优先取会话记录或引导页默认。记录缺 model 时用运行时状态兜底：
+	// - DSH 的 runtime.state 是 host 的会话级选择投影，缺记录时必须用它，否则会显示
+	//   全局部署默认，看起来像「别的会话的模型也改了」。
+	// - pi 的 runtime.state 是 get_state 执行态，只在**没有已保存选择**时兜底（新建会话、
+	//   历史目录缺 model），把「正在跑的模型」显示出来而不是裸「模型: -」。
+	// 有记录时必须仍然以记录为准：运行时状态不能覆盖用户保存的选择。
+	const runtimeModel = props.state ? { provider: props.state.provider, modelId: props.state.modelId, modelName: props.state.modelName } : undefined;
 	const liveModel = resolveComposerLiveModel({
 		record: props.record?.model,
-		runtime: isDsh && props.state ? { provider: props.state.provider, modelId: props.state.modelId, modelName: props.state.modelName } : undefined,
+		runtime: isDsh || !props.record?.model ? runtimeModel : undefined,
 		fallback: guideDefaultModel,
 	});
 	// 用量查询链路随会话后端：DSH 会话走 dsh（$DSH_HOME 配置 + 凭据库），其余走 pi。

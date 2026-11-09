@@ -47,6 +47,15 @@ function resolve(facts, methods) {
 	return resolveProjectServiceCapabilities(facts, methods);
 }
 
+test("helper 能力未知 ≠ helper 缺方法：两种事实、两种原因码", () => {
+	// 还没有 root 会话（握手未完）时能力未知；空清单才是「这个 helper 明确不支持」。
+	const unknown = resolve(remoteFacts({ helperCapabilities: undefined }), REMOTE_PROJECT_SERVICE_METHODS);
+	assert.equal(unknown.git.read, false, "未知时入口仍然关闭，不假装可用");
+	assert.equal(unknown.blocked["git.read"], PROJECT_SERVICE_CAPABILITY_REASONS.helperCapabilityUnknown);
+	const empty = resolve(remoteFacts({ helperCapabilities: [] }), REMOTE_PROJECT_SERVICE_METHODS);
+	assert.equal(empty.blocked["git.read"], PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing);
+});
+
 test("本机项目：读写/Git 全开，但回收站、恢复与同步事实不假装存在", () => {
 	const capabilities = resolve(localFacts(), LOCAL_PROJECT_SERVICE_METHODS);
 	assert.deepEqual(plain(capabilities.files), { read: true, search: true, write: true, upload: false, download: false, trash: false, textVersion: "none", contentSearch: true, systemOpen: true, watch: "full" });

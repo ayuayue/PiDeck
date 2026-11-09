@@ -77,6 +77,9 @@ export function isRemoteProjectTrashPath(relative: string): boolean {
 
 /** rename/delete 的源路径边界（§4.3）：根不能改/删；回收站（任意层级）、根级 .git/.pi（含后代）受保护。 */
 export function assertRemoteProjectEntryMutablePath(relative: string): void {
+	// 根自身不可改名/删除：不能只靠调用方先跑 validateRemoteProjectEntryPath —— 新入口一旦把顺序
+	// 写反，「根」就会作为操作数落到这里被放行（审计发现该断言对 "" 完全不拦）。
+	if (relative === "" || relative.split("/").includes("")) throw new Error("REMOTE_FILE_PROTECTED_PATH");
 	const segments = relative.split("/");
 	if (segments.includes(REMOTE_PROJECT_TRASH_DIR)) throw new Error("REMOTE_FILE_PROTECTED_PATH");
 	if (segments[0] === ".git" || segments[0] === ".pi") throw new Error("REMOTE_FILE_PROTECTED_PATH");

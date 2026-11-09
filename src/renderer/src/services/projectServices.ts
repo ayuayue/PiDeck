@@ -1,6 +1,6 @@
 import type { Project } from "../../../shared/types";
 import { isRemoteProject } from "../../../shared/projectLocation";
-import { createLocalProjectFileService, createRemoteProjectFileService } from "./projectFileService";
+import { createProjectFileService, localProjectFilePorts, remoteProjectFilePorts } from "./projectFileService";
 import { createLocalProjectGitService, createRemoteProjectGitService } from "./projectGitService";
 import { LOCAL_PROJECT_SERVICE_METHODS, REMOTE_PROJECT_SERVICE_METHODS, resolveProjectServiceCapabilities } from "./projectServiceCapabilities";
 import { PROJECT_SERVICE_CODES, ProjectServiceError, isProjectServiceCurrent, type ProjectServiceFacts, type ProjectServiceFence, type ProjectServiceFenceSlot, type ProjectServices, type ProjectServicesApi } from "./projectServiceContracts";
@@ -61,7 +61,8 @@ export function createProjectServices(project: Project, api: ProjectServicesApi,
 	const fence: ProjectServiceFence = { generation: facts.generation, slot };
 	const methods = remote ? REMOTE_PROJECT_SERVICE_METHODS : LOCAL_PROJECT_SERVICE_METHODS;
 	const capabilities = resolveProjectServiceCapabilities(facts, methods);
-	const files = remote ? createRemoteProjectFileService(project.id, api, fence) : createLocalProjectFileService(project.id, api, fence);
+	// 位置无关 provider：位置差异只体现在注入的文本/传输端口上（不再二选一）。
+	const files = createProjectFileService(project.id, api, fence, remote ? remoteProjectFilePorts(project.id, api) : localProjectFilePorts(project.id, api));
 	const git = remote ? createRemoteProjectGitService(project.id, api, fence) : createLocalProjectGitService(project.id, api, fence);
 	return {
 		projectId: project.id,

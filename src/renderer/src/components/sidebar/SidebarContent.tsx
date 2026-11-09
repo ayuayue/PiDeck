@@ -213,6 +213,7 @@ export function SidebarContent(props: SidebarContentProps) {
 	const menuAgentCanRpcLog = menuAgent !== undefined && getBoundSidebarRuntimeAgentByAgentId(controller.catalog, menuAgent.id) !== undefined;
 	// 顶部「搜索」菜单项控制 MorphingSearch 命令面板的展开状态。
 	const [searchOpen, setSearchOpen] = useState(false);
+	const searchTriggerRef = useRef<HTMLButtonElement>(null);
 	// 低频入口（定时任务 / 智能体 / 收藏）收进「更多」：新建与搜索是每次会话都要用的，
 	// 这三个是偶发入口，平铺在列表上方会把会话列表挤下去。展开态只在本会话内保持。
 	const [moreActionsOpen, setMoreActionsOpen] = useState(false);
@@ -355,6 +356,7 @@ export function SidebarContent(props: SidebarContentProps) {
 				id: `session:${session.id}`,
 				title: sessionTitle,
 				description: session.preview,
+				context: { label: projectTitle, title: isLocalProject(project) ? project.path : project.locator.remotePath },
 				pinyin: pinyinKeys(sessionTitle),
 				icon: MessageSquare,
 				onSelect: () => {
@@ -387,7 +389,7 @@ export function SidebarContent(props: SidebarContentProps) {
                 键位跟随设置页自定义（useShortcutBindings） */}
 						<kbd className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md px-1 text-micro text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">{newSessionKbd}</kbd>
 					</button>
-					<button type="button" className="group flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-body text-foreground transition-colors hover:bg-bg-hover" aria-label={t("app.searchSessions")} title={t("app.searchSessions")} onClick={() => setSearchOpen(true)}>
+					<button ref={searchTriggerRef} type="button" className="group flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-body text-foreground transition-colors hover:bg-bg-hover" aria-label={t("app.searchSessions")} title={t("app.searchSessions")} onClick={() => setSearchOpen(true)}>
 						<Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 						<span className="min-w-0 flex-1 truncate font-medium">{t("app.searchSessions")}</span>
 						{/* 快捷键默认隐藏，行 hover 时才淡入；键位跟随设置页自定义（useShortcutBindings） */}
@@ -426,6 +428,9 @@ export function SidebarContent(props: SidebarContentProps) {
 						open={searchOpen}
 						onOpenChange={setSearchOpen}
 						emptyMessage={t("app.searchNoResults")}
+						resultsLabel={t("app.searchResults")}
+						closeLabel={t("app.closeSearch")}
+						returnFocusRef={searchTriggerRef}
 						className="pointer-events-none h-12 w-full opacity-0"
 						onQueryChange={(query) => controller.setSearch(query)}
 					/>

@@ -42,7 +42,7 @@ export function RemoteProjectTrustPanel() {
 		<SettingsSection title={t("settings.remoteTrust.title")} description={t("settings.remoteTrust.hint")}>
 			<div className="flex flex-col gap-2">
 				{listState.status === "error" ? (
-					// 门禁关闭是正常状态（正式包默认关闭），不是错误；其余都按「读不出来」如实说。
+					// 能力下线是稳定状态，不是错误；其余都按「读不出来」如实说。
 					<p className="px-1 text-body text-muted-foreground">{listState.code === "REMOTE_FEATURE_DISABLED" ? t("settings.remoteTrust.disabled") : t("settings.remoteTrust.listUnavailable")}</p>
 				) : null}
 				{listState.status !== "error" && entries.length === 0 ? <p className="px-1 py-3 text-body text-muted-foreground">{t("settings.remoteTrust.empty")}</p> : null}

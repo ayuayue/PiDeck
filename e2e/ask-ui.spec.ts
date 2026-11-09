@@ -144,22 +144,71 @@ test("ask batch: 多题 Tab 流程提交后回传序列化答案", async ({ wind
 	// 3 个问题 Tab
 	await expect(bar.locator(".ask-batch-tab")).toHaveCount(3);
 
-	// Q1: select 选 React
+	// Q1: select 选 React（单值选择选完自动前进）
 	await bar.locator(".ask-inline-bar-option", { hasText: "React" }).click();
-	// Q2: confirm 点 true
-	await bar.locator(".ask-batch-nav-btn.primary").click();
-	await bar.locator(".ask-inline-bar-option", { hasText: "是" }).click();
-	// Q3: input 填项目名并提交（提交后才算已回答，最后一题导航按钮才会启用）
-	await bar.locator(".ask-batch-nav-btn.primary").click();
+	// Q2: confirm 点「是」，同样自动前进
+	await bar.locator(".ask-inline-bar-option-yes").click();
+	// Q3: input 填项目名并提交；末题且全部已答 → 直接提交整卡
 	const q3Body = bar.locator(".ask-batch-question-body");
 	await q3Body.locator("input").fill("my-app");
 	await q3Body.getByRole("button", { name: "提交" }).click();
-	// 最后一题导航按钮 = 确认提交（batch 专用文案，避免与「提交」子串匹配冲突）
-	await bar.getByRole("button", { name: "确认提交" }).click();
 
 	// 序列化答案回传：会话出现 React / 是 / my-app
 	await expect(timeline(window)).toContainText("my-app", { timeout: 15_000 });
 	await expect(timeline(window)).toContainText("React");
+});
+
+test("ask batch 跳过: 单题可跳过，输入框里未点提交的文字也算答案", async ({ window }) => {
+	test.setTimeout(120_000);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	await startAgent(window);
+	await sendAndWaitAsk(window, "ASK_BATCH 跳过");
+
+	const bar = askBar(window);
+	await bar.locator(".ask-inline-bar-option", { hasText: "React" }).click();
+	// Q2 不答，直接跳过：自动进入下一题，题签标为已跳过
+	await bar.getByRole("button", { name: "跳过此题" }).click();
+	await expect(bar.locator(".ask-batch-tab.skipped")).toHaveCount(1);
+	// Q3 只填不点自己的「提交」，直接点卡片底部的「提交」
+	await bar.locator(".ask-batch-question-body input").fill("typed-only");
+	// 末题有两个「提交」：输入框旁的（只提交本题）与底部导航的（提交整卡），后者在 DOM 末尾
+	await bar.getByRole("button", { name: "提交", exact: true }).last().click();
+
+	await expect(timeline(window)).toContainText("typed-only", { timeout: 15_000 });
+	await expect(timeline(window)).toContainText('"skipped":true');
+	await expect(timeline(window)).toContainText("React");
+});
+
+test("ask batch 预填: 原样不动的预填不算作答，点「采用预填」才交回", async ({ window }) => {
+	test.setTimeout(120_000);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	await startAgent(window);
+	await sendAndWaitAsk(window, "ASK_BATCH_PREFILL 预填");
+
+	const bar = askBar(window);
+	await bar.locator(".ask-inline-bar-option", { hasText: "React" }).click();
+	await expect(bar.locator(".ask-batch-question-body textarea")).toHaveValue("预填的默认备注");
+	// 预填没确认前整卡不能提交
+	await expect(bar.getByRole("button", { name: "提交", exact: true }).last()).toBeDisabled();
+	await bar.getByRole("button", { name: "采用预填" }).click();
+	await expect(bar.getByRole("button", { name: "采用预填" })).toHaveCount(0);
+	await bar.getByRole("button", { name: "提交", exact: true }).last().click();
+	await expect(timeline(window)).toContainText("预填的默认备注", { timeout: 15_000 });
+	await expect(timeline(window)).toContainText("React");
+});
+
+test("ask batch 关闭: 已答部分随关闭交回，不整单丢弃", async ({ window }) => {
+	test.setTimeout(120_000);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	await startAgent(window);
+	await sendAndWaitAsk(window, "ASK_BATCH 关闭");
+
+	const bar = askBar(window);
+	await bar.locator(".ask-inline-bar-option", { hasText: "Vue" }).click();
+	await bar.getByRole("button", { name: "关闭" }).click();
+	await expect(timeline(window)).toContainText("Vue", { timeout: 15_000 });
+	await expect(timeline(window)).toContainText('"cancelled":true');
+	await expect(timeline(window)).not.toContainText("[取消]");
 });
 
 test("ask 取消: 点 X 关闭后回传 cancelled", async ({ window }) => {

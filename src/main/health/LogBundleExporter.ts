@@ -47,13 +47,13 @@ export class LogBundleExporter {
 
 	/** 把 Markdown 报告存成 .md 文件。 */
 	async exportReport(input: HealthExportInput | { markdown: string; reportJson?: string }): Promise<HealthExportResult> {
-		const markdown = this.validateMarkdown(input.markdown);
-		const { canceled, filePath } = await dialog.showSaveDialog({
-			defaultPath: `pideck-diagnostics-${stamp()}.md`,
-			filters: [{ name: "Markdown", extensions: ["md"] }],
-		});
-		if (canceled || !filePath) return { ok: false, canceled: true };
 		try {
+			const markdown = this.validateMarkdown(input.markdown);
+			const { canceled, filePath } = await dialog.showSaveDialog({
+				defaultPath: `pideck-diagnostics-${stamp()}.md`,
+				filters: [{ name: "Markdown", extensions: ["md"] }],
+			});
+			if (canceled || !filePath) return { ok: false, canceled: true };
 			await writeFile(filePath, markdown, "utf8");
 			// 诊断产物写到应用目录之外，属数据出域动作，留痕便于事后确认外发了什么
 			void this.deps.appLogger.info("diagnostics", "Diagnostics report exported", { path: filePath, bytes: markdown.length });
@@ -65,14 +65,14 @@ export class LogBundleExporter {
 
 	/** 打包完整日志 + 报告 + 环境 JSON 为 zip。 */
 	async exportBundle(input: HealthExportInput): Promise<HealthExportResult> {
-		const markdown = this.validateMarkdown(input.markdown);
-		const reportJson = this.validateJson(input.reportJson);
-		const { canceled, filePath } = await dialog.showSaveDialog({
-			defaultPath: `pideck-diagnostics-${stamp()}.zip`,
-			filters: [{ name: "ZIP", extensions: ["zip"] }],
-		});
-		if (canceled || !filePath) return { ok: false, canceled: true };
 		try {
+			const markdown = this.validateMarkdown(input.markdown);
+			const reportJson = this.validateJson(input.reportJson);
+			const { canceled, filePath } = await dialog.showSaveDialog({
+				defaultPath: `pideck-diagnostics-${stamp()}.zip`,
+				filters: [{ name: "ZIP", extensions: ["zip"] }],
+			});
+			if (canceled || !filePath) return { ok: false, canceled: true };
 			const entries: ZipEntry[] = [
 				{ name: "diagnostics/report.md", data: Buffer.from(markdown, "utf8"), modifiedAt: new Date() },
 				{ name: "diagnostics/environment.json", data: Buffer.from(reportJson, "utf8"), modifiedAt: new Date() },

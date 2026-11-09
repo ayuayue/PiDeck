@@ -1,0 +1,784 @@
+import { createHash } from "node:crypto";
+import { lstat, readdir } from "node:fs/promises";
+import { basename, join, relative, resolve } from "node:path";
+import type { Project, SessionRecord } from "../../shared/types.ts";
+import { isLocalProject, localProjectPath } from "../../shared/projectLocation.ts";
+import type { CloudSyncCustomPath, CloudSyncProjectSelectionNode, CloudSyncResourceCandidate, CloudSyncResourceCategory, CloudSyncScanRootStatus, CloudSyncSelectionPreferences, CloudSyncSelectionTree, CloudSyncSessionCandidate } from "../../shared/types/cloudSync.ts";
+import { scanDshSessionHeaders } from "../dsh/dshForeignSessionScan.ts";
+import { readSessionProjectionTitles } from "../dsh/dshProjectionCache.ts";
+import { workspaceDirFor } from "../dsh/dshSessionPath.ts";
+import { GLOBAL_SYNC_PROJECT_ID, DSH_SYNC_PROJECT_ID } from "./payload.ts";
+
+const SESSION_ROOT_RELATIVE = join(".pi", "agent", "sessions");
+const MAX_FILES_PER_ROOT = 5_000;
+const MAX_RESOURCE_BYTES = 10 * 1024 * 1024;
+const MAX_SESSION_BYTES = 512 * 1024 * 1024;
+const SKIPPED_DIRECTORIES = new Set([".pideck-archive", ".trash", "subagent-artifacts", "node_modules"]);
+
+/**
+ * 内置扫描排除模式（M9，§12.4）：后缀/文件名/目录名匹配。
+ * 与用户黑名单（glob）合并后统一应用；`*` 匹配任意字符。
+ */
+export const DEFAULT_SCAN_EXCLUSIONS = ["*.bak*", "*.log", "*-events.jsonl", "node_modules", ".trash", ".pideck-archive", "subagent-artifacts"] as const;
+
+/** 全局「配置」类别白名单：只留机器相关的散落文件。auth.json/models.json 由分类开关（pi 认证/pi 模型）对象级管理，settings.json 归「设置」类别，均不进此清单。 */
+export const GLOBAL_CONFIG_FILE_WHITELIST = ["models-store.json"] as const;
+
+export type CloudSyncInternalSession = {
+	candidate: CloudSyncSessionCandidate;
+	filePath: string;
+	rootPath: string;
+};
+
+export type CloudSyncInternalResource = {
+	candidate: CloudSyncResourceCandidate;
+	filePath: string;
+	rootPath: string;
+};
+
+export type CloudSyncScanSnapshot = {
+	tree: CloudSyncSelectionTree;
+	sessions: Map<string, CloudSyncInternalSession>;
+	resources: Map<string, CloudSyncInternalResource>;
+	recordsBySessionId: Map<string, SessionRecord>;
+};
+
+type RootScanResult<T> = {
+	items: T[];
+	status: CloudSyncScanRootStatus;
+};
+
+type FileEntry = {
+	filePath: string;
+	relativePath: string;
+	size: number;
+	mtimeMs: number;
+};
+
+export interface CloudSyncScannerOptions {
+	homeDir: string;
+	/** $DSH_HOME（可选）：提供时扫描 DSH 会话（$DSH_HOME/sessions）。 */
+	dshHomeDir?: string;
+	listProjects: () => Project[];
+	listSessionRecords: () => SessionRecord[];
+}
+
+/** scan() 的可选输入（M9）：用户黑名单 glob + 自选同步路径。 */
+export interface CloudSyncScanOptions {
+	/** 用户黑名单（glob），与内置排除合并。 */
+	exclusions?: string[];
+	/** 用户自选同步路径（点「添加」选中的文件/文件夹）。 */
+	customPaths?: CloudSyncCustomPath[];
+}
+
+function normalizePath(value: string): string {
+	const result = resolve(value);
+	return process.platform === "win32" ? result.toLowerCase() : result;
+}
+
+function normalizeRelativePath(value: string): string {
+	return value.split("\\").join("/");
+}
+
+function isMissingError(error: unknown): boolean {
+	return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ENOENT");
+}
+
+function isPermissionError(error: unknown): boolean {
+	return Boolean(error && typeof error === "object" && "code" in error && ((error as { code?: unknown }).code === "EACCES" || (error as { code?: unknown }).code === "EPERM"));
+}
+
+function stableOrphanSessionId(scope: "global" | "project" | "dsh", projectId: string, relativePath: string): string {
+	const digest = createHash("sha256").update(`${scope}\0${projectId}\0${relativePath}`, "utf8").digest("hex").slice(0, 32);
+	return `orphan-${digest}`;
+}
+
+function selectionId(scope: "global" | "project" | "dsh", projectId: string, sessionId: string): string {
+	return `session:${scope}:${projectId}:${sessionId}`;
+}
+
+function resourceSelectionId(projectId: string, category: CloudSyncResourceCategory, relativePath: string): string {
+	return `resource:${projectId}:${category}:${relativePath}`;
+}
+
+function recordByPath(records: SessionRecord[]): Map<string, SessionRecord> {
+	const result = new Map<string, SessionRecord>();
+	for (const record of records) {
+		if (!record.filePath) continue;
+		result.set(normalizePath(record.filePath), record);
+	}
+	return result;
+}
+
+function safeRootRelativePath(rootPath: string, filePath: string): string {
+	const value = normalizeRelativePath(relative(rootPath, filePath));
+	if (!value || value === ".." || value.startsWith("../") || value.includes("\0")) {
+		throw new Error("Cloud sync scanner produced an unsafe relative path");
+	}
+	return value;
+}
+
+// ── DSH 会话按项目归组 / 真实标题（对齐侧栏：cwd → 项目路径匹配，标题取 host 投影/日志） ──
+
+/** 规范化路径用于项目匹配：Windows 上 resolve 会折叠分隔符；WSL 路径保持原样（与 ProjectStore 同策略）。 */
+function normalizeDshMatchPath(value: string): string {
+	const trimmed = value.trim();
+	if (process.platform === "win32" && trimmed.startsWith("/")) {
+		return trimmed.replace(/[\\/]+$/, "");
+	}
+	return resolve(trimmed).replace(/[\\/]+$/, "");
+}
+
+/** 项目路径与 DSH 会话 cwd 是否同目录（Windows 忽略大小写；WSL 区分大小写）。 */
+function dshProjectPathMatches(projectPath: string, cwd: string): boolean {
+	const left = normalizeDshMatchPath(projectPath);
+	const right = normalizeDshMatchPath(cwd);
+	return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+/** cwd 的末段目录名（侧栏/合成节点可读名）。 */
+function dshCwdFolderName(cwd: string | undefined): string | undefined {
+	if (!cwd) return undefined;
+	const trimmed = cwd.replace(/[\\/]+$/, "").trim();
+	if (!trimmed) return undefined;
+	const last = trimmed.split(/[\\/]/).pop()?.trim();
+	return last || undefined;
+}
+
+/**
+ * 占位标题判定（与 dshForeignSync.isPlaceholderForeignTitle 对齐）：
+ * i18n 兑底（DSH 会话 / DSH Session）、cwd 末段目录名、会话目录名都算占位，
+ * 不作为「真实会话名」使用。
+ */
+function isPlaceholderDshTitle(title: string | undefined, cwd: string | undefined, sessionDir: string): boolean {
+	const normalized = typeof title === "string" ? title.trim() : "";
+	if (!normalized) return true;
+	if (normalized === "DSH 会话" || normalized === "DSH Session") return true;
+	const folder = dshCwdFolderName(cwd);
+	if (folder && normalized === folder) return true;
+	return normalized === sessionDir;
+}
+
+/**
+ * DSH 会话真实名解析顺序：
+ * host 投影缓存（session_projcache）→ 日志折叠标题（session/title last-wins，缺省首条真人提示回退）
+ * → catalog 记录标题（非占位）→ cwd 末段 → 工作区目录 → 会话目录。
+ * 与 dshForeignSessionScan.listForeignSessionsFromDisk 同源，保证侧栏与同步树名字一致。
+ */
+function resolveDshSessionTitle(projectionTitle: string | undefined, loggedTitle: string | undefined, recordTitle: string | undefined, cwd: string | undefined, workspaceDir: string, sessionDir: string): string {
+	const projection = projectionTitle?.trim();
+	if (projection) return projection;
+	const logged = loggedTitle?.trim();
+	if (logged) return logged;
+	const record = recordTitle?.trim();
+	if (record && !isPlaceholderDshTitle(record, cwd, sessionDir)) return record;
+	return dshCwdFolderName(cwd) || workspaceDir || sessionDir;
+}
+
+/**
+ * 把排除 pattern 编译为正则：双星斜杠 → 零层或多层目录，单星 → 段内任意字符，其余按字面量。
+ * 仅用于匹配文件名/目录名与扫描相对路径，不做 shell 语义。
+ */
+function compileExclusionPattern(pattern: string): RegExp {
+	let body = "";
+	for (let index = 0; index < pattern.length; index++) {
+		const char = pattern[index];
+		if (char === "*") {
+			if (pattern[index + 1] === "*") {
+				if (pattern[index + 2] === "/") {
+					body += "(?:.*/)?";
+					index += 2;
+				} else {
+					body += ".*";
+					index += 1;
+				}
+			} else {
+				body += "[^/]*";
+			}
+			continue;
+		}
+		body += SPECIAL_EXCLUSION_CHARS.has(char) ? `\\${char}` : char;
+	}
+	return new RegExp(`^(?:${body})$`);
+}
+
+/** 正则元字符集合（glob 编译转义用）。 */
+const SPECIAL_EXCLUSION_CHARS = new Set([...".*+?^${}()|[]\\"]);
+
+/**
+ * Main-process scanner for the cloud sync selection tree.
+ * It deliberately does not reuse the renderer project/session list: scan errors
+ * are retained as root status, symlinks are skipped, and absolute paths stay
+ * inside the internal snapshot only.
+ */
+export class CloudSyncScanner {
+	private readonly options: CloudSyncScannerOptions;
+	/** 合并后的排除正则（内置默认 + 用户黑名单）。 */
+	private exclusionRegexps: RegExp[] = [];
+
+	constructor(options: CloudSyncScannerOptions) {
+		this.options = options;
+	}
+
+	async scan(preferences: CloudSyncSelectionPreferences, scanOptions: CloudSyncScanOptions = {}): Promise<CloudSyncScanSnapshot> {
+		this.exclusionRegexps = [...DEFAULT_SCAN_EXCLUSIONS, ...(scanOptions.exclusions ?? [])].map(compileExclusionPattern);
+		const customPaths = scanOptions.customPaths ?? [];
+		const projects = this.options.listProjects();
+		const records = this.options.listSessionRecords();
+		const recordsByPath = recordByPath(records);
+		const recordsBySessionId = new Map(records.map((record) => [record.id, record]));
+		// DSH 会话 → catalog 记录（侧栏归属/真实标题的兜底来源）。
+		const recordsByDshSessionId = new Map<string, SessionRecord>();
+		for (const record of records) {
+			if (record.dshSessionId) recordsByDshSessionId.set(record.dshSessionId, record);
+		}
+		const sessions = new Map<string, CloudSyncInternalSession>();
+		const resources = new Map<string, CloudSyncInternalResource>();
+		const roots: CloudSyncScanRootStatus[] = [];
+		const projectNodes = new Map<string, CloudSyncProjectSelectionNode>();
+		const globalNode: CloudSyncProjectSelectionNode = {
+			projectId: GLOBAL_SYNC_PROJECT_ID,
+			name: "Global",
+			sessions: [],
+			resources: [],
+		};
+		projectNodes.set(GLOBAL_SYNC_PROJECT_ID, globalNode);
+		for (const project of projects) {
+			projectNodes.set(project.id, {
+				projectId: project.id,
+				name: project.name,
+				kind: project.kind === "chat" ? "chat" : "normal",
+				environment: project.environment === "wsl" ? "wsl" : "windows",
+				pathHint: localProjectPath(project),
+				missing: project.missing,
+				sessions: [],
+				resources: [],
+			});
+		}
+		// Catalog 归属但本机未注册的项目：合成节点，会话选择仍可见、可恢复（落待映射区）。
+		const syntheticProjectIds: string[] = [];
+		for (const record of records) {
+			if (record.projectId === GLOBAL_SYNC_PROJECT_ID || projectNodes.has(record.projectId)) continue;
+			projectNodes.set(record.projectId, {
+				projectId: record.projectId,
+				name: record.projectId,
+				kind: "normal",
+				missing: true,
+				sessions: [],
+				resources: [],
+			});
+			syntheticProjectIds.push(record.projectId);
+		}
+
+		const globalSessionsRoot = join(this.options.homeDir, SESSION_ROOT_RELATIVE);
+		const globalSessions = await this.scanSessionRoot(globalSessionsRoot, "global-sessions", "Global sessions", undefined, recordsByPath, preferences);
+		roots.push(globalSessions.status);
+		for (const item of globalSessions.items) {
+			const groupId = item.candidate.projectId === GLOBAL_SYNC_PROJECT_ID ? GLOBAL_SYNC_PROJECT_ID : item.candidate.projectId;
+			const node = projectNodes.get(groupId) ?? globalNode;
+			node.sessions.push(item.candidate);
+			sessions.set(item.candidate.selectionId, item);
+		}
+
+		const globalResources = await this.scanResourceRoots(this.globalResourceRoots(), GLOBAL_SYNC_PROJECT_ID, preferences);
+		roots.push(...globalResources.statuses);
+		for (const item of globalResources.items) {
+			globalNode.resources.push(item.candidate);
+			resources.set(item.candidate.selectionId, item);
+		}
+
+		for (const project of projects) {
+			const node = projectNodes.get(project.id);
+			if (!node) continue;
+			const projectPath = localProjectPath(project);
+			if (!projectPath) {
+				for (const kind of ["project-sessions", "project-resources"] as const) {
+					roots.push({
+						id: `${kind}:${project.id}`,
+						label: `${project.name} ${kind === "project-sessions" ? "sessions" : "resources"}`,
+						kind,
+						projectId: project.id,
+						ok: false,
+						count: 0,
+						error: "Remote project scanning is unavailable until the remote scanner bridge is configured",
+					});
+				}
+				continue;
+			}
+			if (project.environment === "wsl" || projectPath.startsWith("/")) {
+				roots.push({
+					id: `project-sessions:${project.id}`,
+					label: `${project.name} sessions`,
+					kind: "project-sessions",
+					projectId: project.id,
+					ok: false,
+					count: 0,
+					error: "WSL project scanning is unavailable until the WSL scanner bridge is configured",
+				});
+				roots.push({
+					id: `project-resources:${project.id}`,
+					label: `${project.name} resources`,
+					kind: "project-resources",
+					projectId: project.id,
+					ok: false,
+					count: 0,
+					error: "WSL project scanning is unavailable until the WSL scanner bridge is configured",
+				});
+				continue;
+			}
+			const sessionRoot = join(projectPath, ".pi", "sessions");
+			const projectSessions = await this.scanSessionRoot(sessionRoot, "project-sessions", `${project.name} sessions`, project.id, recordsByPath, preferences);
+			roots.push(projectSessions.status);
+			for (const item of projectSessions.items) {
+				node.sessions.push(item.candidate);
+				sessions.set(item.candidate.selectionId, item);
+			}
+			const projectResources = await this.scanResourceRoots(this.projectResourceRoots(projectPath), project.id, preferences);
+			roots.push(...projectResources.statuses);
+			for (const item of projectResources.items) {
+				node.resources.push(item.candidate);
+				resources.set(item.candidate.selectionId, item);
+			}
+		}
+
+		// M9：自选同步路径（文件/文件夹）加入对应节点（category=config，供「自选」展示）。
+		for (const customPath of customPaths) {
+			const item = await this.scanCustomPath(customPath, preferences);
+			if (!item) continue;
+			const node = projectNodes.get(item.candidate.projectId) ?? globalNode;
+			node.resources.push(item.candidate);
+			resources.set(item.candidate.selectionId, item);
+		}
+
+		// DSH 会话（$DSH_HOME/sessions）：不单列「DSH 会话」标签，按会话 cwd/所属项目归入
+		// 对应项目节点（与 PiDeck 侧栏一致：PI/DSH 会话都以项目组织）；无匹配项目时按工作区
+		// 目录生成合成节点。标题取 host 投影缓存/日志折叠的真实会话名，不用目录名占位。
+		let dshWorkspaceNodeIds: string[] = [];
+		if (this.options.dshHomeDir) {
+			const dshResult = await this.scanDshSessions(this.options.dshHomeDir, preferences, projectNodes, recordsByDshSessionId);
+			roots.push(dshResult.status);
+			dshWorkspaceNodeIds = dshResult.workspaceNodeIds;
+			for (const item of dshResult.items) {
+				sessions.set(item.candidate.selectionId, item);
+			}
+		}
+
+		for (const node of projectNodes.values()) {
+			node.sessions.sort((left, right) => right.mtimeMs - left.mtimeMs);
+			node.resources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+		}
+		const orderedProjects = [
+			globalNode,
+			...projects.map((project) => projectNodes.get(project.id)).filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
+			...dshWorkspaceNodeIds.map((id) => projectNodes.get(id)).filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
+			...syntheticProjectIds.map((id) => projectNodes.get(id)).filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
+		];
+		const tree: CloudSyncSelectionTree = {
+			scannedAt: Date.now(),
+			projects: orderedProjects,
+			roots,
+			totalSessions: orderedProjects.reduce((sum, project) => sum + project.sessions.length, 0),
+			selectedSessions: orderedProjects.reduce((sum, project) => sum + project.sessions.filter((item) => item.selected).length, 0),
+			totalResources: orderedProjects.reduce((sum, project) => sum + project.resources.length, 0),
+			selectedResources: orderedProjects.reduce((sum, project) => sum + project.resources.filter((item) => item.selected).length, 0),
+			content: { ...preferences.content },
+		};
+		return { tree, sessions, resources, recordsBySessionId };
+	}
+
+	private globalResourceRoots(): Array<{ category: CloudSyncResourceCategory; rootPath: string; relativeBase: string }> {
+		const agentRoot = join(this.options.homeDir, ".pi", "agent");
+		const configRoots = GLOBAL_CONFIG_FILE_WHITELIST.map((name) => ({
+			category: "config" as const,
+			rootPath: join(agentRoot, name),
+			relativeBase: name,
+		}));
+		return [
+			{ category: "settings", rootPath: join(agentRoot, "settings.json"), relativeBase: "" },
+			{ category: "prompts", rootPath: join(agentRoot, "prompts"), relativeBase: "prompts" },
+			{ category: "skills", rootPath: join(agentRoot, "skills"), relativeBase: "skills" },
+			{ category: "extensions", rootPath: join(agentRoot, "extensions"), relativeBase: "extensions" },
+			...configRoots,
+		];
+	}
+
+	private projectResourceRoots(projectPath: string): Array<{ category: CloudSyncResourceCategory; rootPath: string; relativeBase: string }> {
+		return [
+			{ category: "settings", rootPath: join(projectPath, ".pi", "settings.json"), relativeBase: ".pi" },
+			{ category: "prompts", rootPath: join(projectPath, ".pi", "prompts"), relativeBase: ".pi/prompts" },
+			{ category: "skills", rootPath: join(projectPath, ".pi", "skills"), relativeBase: ".pi/skills" },
+			{ category: "skills", rootPath: join(projectPath, ".agents", "skills"), relativeBase: ".agents/skills" },
+			{ category: "extensions", rootPath: join(projectPath, ".pi", "extensions"), relativeBase: ".pi/extensions" },
+		];
+	}
+
+	private async scanSessionRoot(rootPath: string, kind: "global-sessions" | "project-sessions", label: string, projectId: string | undefined, recordsByPath: Map<string, SessionRecord>, preferences: CloudSyncSelectionPreferences): Promise<RootScanResult<CloudSyncInternalSession>> {
+		const files = await this.listFiles(rootPath, ".jsonl");
+		const items: CloudSyncInternalSession[] = [];
+		for (const file of files.items) {
+			const record = recordsByPath.get(normalizePath(file.filePath));
+			const groupId = projectId ?? record?.projectId ?? GLOBAL_SYNC_PROJECT_ID;
+			const scope = projectId ? "project" : "global";
+			const sessionId = record?.id ?? stableOrphanSessionId(scope, groupId, file.relativePath);
+			const candidate: CloudSyncSessionCandidate = {
+				selectionId: selectionId(scope, groupId, sessionId),
+				sessionId,
+				title: record?.title || basename(file.filePath, ".jsonl") || "Untitled",
+				projectId: groupId,
+				scope,
+				relativePath: file.relativePath,
+				size: file.size,
+				mtimeMs: file.mtimeMs,
+				source: record?.source ?? "pi",
+				environment: projectId ? "native" : record?.environment === "wsl" ? "wsl" : "native",
+				selected: preferences.selectedSessionIds.includes(selectionId(scope, groupId, sessionId)),
+				status: file.size > MAX_SESSION_BYTES ? "unavailable" : "available",
+				...(file.size > MAX_SESSION_BYTES ? { reason: `Session exceeds ${MAX_SESSION_BYTES} byte limit` } : {}),
+			};
+			items.push({ candidate, filePath: file.filePath, rootPath });
+		}
+		return {
+			items,
+			status: {
+				id: `${kind}:${projectId ?? GLOBAL_SYNC_PROJECT_ID}`,
+				label,
+				kind,
+				...(projectId ? { projectId } : {}),
+				ok: files.status.ok,
+				count: items.length,
+				...(files.status.error ? { error: files.status.error } : {}),
+			},
+		};
+	}
+
+	/**
+	 * 扫描 DSH 会话：`$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session.jsonl[.zstd]`。
+	 * 会话粒度 = 目录粒度（sessionId = 目录名）；内容统一按解压后文本同步（见 manager 上传路径）。
+	 *
+	 * 归组（与侧栏一致）：cwd 路径匹配已注册项目 → 该目录编码（workspaceDirFor）精确匹配 →
+	 * catalog 记录归属项目 → 按工作区目录生成合成节点（missing=false，恢复仍走 $DSH_HOME）。
+	 * 标题：host 投影缓存 → 日志折叠 → catalog 记录标题（非占位）→ cwd 末段 → 工作区目录。
+	 */
+	private async scanDshSessions(dshHome: string, preferences: CloudSyncSelectionPreferences, projectNodes: Map<string, CloudSyncProjectSelectionNode>, recordsByDshSessionId: Map<string, SessionRecord>): Promise<RootScanResult<CloudSyncInternalSession> & { workspaceNodeIds: string[] }> {
+		const sessionsRoot = join(dshHome, "sessions");
+		const items: CloudSyncInternalSession[] = [];
+		const workspaceNodeIds: string[] = [];
+		let ok = true;
+		let error: string | undefined;
+		// 只读 host 数据源：投影缓存标题 + 磁盘 header（cwd / 日志折叠标题），不启动 host、不写缓存。
+		const projectionTitles = readSessionProjectionTitles(dshHome);
+		// 折叠开关按 dev 语义收口：投影缓存已覆盖的会话不再读日志折叠（读日志是冷会话兜底），
+		// 与 dshForeignSessionScan.listForeignSessionsFromDisk 的清单场景一致，保证两处标题同源。
+		const headersById = new Map(scanDshSessionHeaders(dshHome, { foldTitle: (sessionId) => !projectionTitles.has(sessionId) }).map((header) => [header.id, header]));
+		// 工作区目录 → 合成节点（同一 workspace 的未匹配会话归到同一节点）。
+		const workspaceNodes = new Map<string, CloudSyncProjectSelectionNode>();
+		// 工作区显示名：取该工作区内首个带 cwd 的会话的目录末段（readdir 顺序无关紧要，同 workspace 通常同一目录）。
+		const workspaceCwdFolders = new Map<string, string>();
+		try {
+			let workspaceDirs: string[];
+			try {
+				workspaceDirs = (await readdir(sessionsRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+			} catch (caught) {
+				// 尚无 sessions 目录 = 0 个会话，不是失败（全新 $DSH_HOME 常见）。
+				if (isMissingError(caught)) {
+					return { items, status: { id: "dsh-sessions", label: "DSH sessions", kind: "dsh-sessions", ok: true, count: 0 }, workspaceNodeIds };
+				}
+				throw caught;
+			}
+			for (const workspaceDir of workspaceDirs) {
+				const workspacePath = join(sessionsRoot, workspaceDir);
+				const sessionDirs = (await readdir(workspacePath, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+				for (const sessionDir of sessionDirs) {
+					const sessionPath = join(workspacePath, sessionDir);
+					const logFile = await this.findDshLogFile(sessionPath);
+					if (!logFile) continue;
+					const stat = await lstat(logFile);
+					if (!stat.isFile()) continue;
+					if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(sessionDir)) continue;
+					const header = headersById.get(sessionDir);
+					const cwd = header?.cwd;
+					if (cwd && !workspaceCwdFolders.has(workspaceDir)) {
+						const folder = dshCwdFolderName(cwd);
+						if (folder) workspaceCwdFolders.set(workspaceDir, folder);
+					}
+					const record = recordsByDshSessionId.get(sessionDir);
+					const projectId = this.resolveDshProjectId(cwd, workspaceDir, record, projectNodes, workspaceNodes, workspaceNodeIds);
+					const relativePath = `${workspaceDir}/${sessionDir}/${basename(logFile)}`;
+					const title = resolveDshSessionTitle(projectionTitles.get(sessionDir), header?.loggedTitle, record?.title, cwd, workspaceDir, sessionDir);
+					const candidate: CloudSyncSessionCandidate = {
+						selectionId: selectionId("dsh", DSH_SYNC_PROJECT_ID, sessionDir),
+						sessionId: sessionDir,
+						title,
+						projectId,
+						scope: "dsh",
+						relativePath,
+						size: stat.size,
+						mtimeMs: stat.mtimeMs,
+						source: "dsh",
+						environment: "native",
+						selected: preferences.selectedSessionIds.includes(selectionId("dsh", DSH_SYNC_PROJECT_ID, sessionDir)),
+						status: stat.size > MAX_SESSION_BYTES ? "unavailable" : "available",
+						...(stat.size > MAX_SESSION_BYTES ? { reason: `Session exceeds ${MAX_SESSION_BYTES} byte limit` } : {}),
+					};
+					items.push({ candidate, filePath: logFile, rootPath: sessionsRoot });
+				}
+			}
+		} catch (caught) {
+			ok = false;
+			error = caught instanceof Error ? caught.message : String(caught);
+		}
+		// 把候选挂到各自项目节点（含工作区合成节点；归入真实项目的会话随项目节点一起展示）。
+		for (const item of items) {
+			const node = projectNodes.get(item.candidate.projectId);
+			if (node) node.sessions.push(item.candidate);
+		}
+		// 工作区合成节点显示名：优先用该工作区内真实目录末段，避免退化成 DSH 内部目录名。
+		for (const [workspaceDir, node] of workspaceNodes) {
+			const folder = workspaceCwdFolders.get(workspaceDir);
+			if (folder) node.name = folder;
+		}
+		return {
+			items,
+			status: {
+				id: "dsh-sessions",
+				label: "DSH sessions",
+				kind: "dsh-sessions",
+				ok,
+				count: items.length,
+				...(error ? { error } : {}),
+			},
+			workspaceNodeIds,
+		};
+	}
+
+	/** 决定 DSH 会话归属的项目 id（见 scanDshSessions 注释的匹配顺序）。 */
+	private resolveDshProjectId(cwd: string | undefined, workspaceDir: string, record: SessionRecord | undefined, projectNodes: Map<string, CloudSyncProjectSelectionNode>, workspaceNodes: Map<string, CloudSyncProjectSelectionNode>, workspaceNodeIds: string[]): string {
+		if (cwd) {
+			const matched = this.options
+				.listProjects()
+				.filter(isLocalProject)
+				.find((project) => dshProjectPathMatches(project.path, cwd));
+			if (matched) return matched.id;
+		}
+		// header 缺失/cwd 对不上时：会话目录名 = workspaceDirFor(项目路径) 精确匹配（编码一致才成立）。
+		const encodedMatch = this.options
+			.listProjects()
+			.filter(isLocalProject)
+			.find((project) => workspaceDirFor(project.path) === workspaceDir);
+		if (encodedMatch) return encodedMatch.id;
+		// catalog 记录归属（侧栏同源；项目已删时落到既有合成「待映射」节点）。
+		if (record?.projectId && record.projectId !== GLOBAL_SYNC_PROJECT_ID) {
+			return record.projectId;
+		}
+		// 未匹配任何项目：按工作区目录生成合成节点（同 workspace 会话归到同一节点）。
+		const existing = workspaceNodes.get(workspaceDir);
+		if (existing) return existing.projectId;
+		const digest = createHash("sha256").update(`dsh-workspace\0${workspaceDir}`, "utf8").digest("hex").slice(0, 24);
+		const projectId = `dsh-ws-${digest}`;
+		const node: CloudSyncProjectSelectionNode = {
+			projectId,
+			name: dshCwdFolderName(cwd) ?? workspaceDir,
+			kind: "normal",
+			environment: "windows",
+			sessions: [],
+			resources: [],
+		};
+		workspaceNodes.set(workspaceDir, node);
+		projectNodes.set(projectId, node);
+		workspaceNodeIds.push(projectId);
+		return projectId;
+	}
+
+	/** 会话目录内的日志文件：优先 .zstd，回退 .jsonl。 */
+	private async findDshLogFile(sessionPath: string): Promise<string | null> {
+		for (const name of ["session.jsonl.zstd", "session.jsonl"]) {
+			const candidate = join(sessionPath, name);
+			try {
+				const stat = await lstat(candidate);
+				if (stat.isFile()) return candidate;
+			} catch {
+				// 继续尝试下一个。
+			}
+		}
+		return null;
+	}
+
+	private async scanResourceRoots(roots: Array<{ category: CloudSyncResourceCategory; rootPath: string; relativeBase: string }>, projectId: string, preferences: CloudSyncSelectionPreferences): Promise<{ items: CloudSyncInternalResource[]; statuses: CloudSyncScanRootStatus[] }> {
+		const items: CloudSyncInternalResource[] = [];
+		const statuses: CloudSyncScanRootStatus[] = [];
+		for (const root of roots) {
+			const isSingleFile = root.category === "settings" || root.category === "config";
+			const files = isSingleFile ? await this.listSingleFile(root.rootPath, root.relativeBase) : await this.listFiles(root.rootPath);
+			for (const file of files.items) {
+				const relativePath = root.category === "settings" ? (projectId === GLOBAL_SYNC_PROJECT_ID ? "settings.json" : ".pi/settings.json") : root.category === "config" ? file.relativePath : normalizeRelativePath(join(root.relativeBase, file.relativePath));
+				const id = resourceSelectionId(projectId, root.category, relativePath);
+				const unavailable = file.size > MAX_RESOURCE_BYTES;
+				const candidate: CloudSyncResourceCandidate = {
+					selectionId: id,
+					projectId,
+					category: root.category,
+					relativePath,
+					size: file.size,
+					mtimeMs: file.mtimeMs,
+					selected: preferences.selectedResourceIds.includes(id),
+					status: unavailable ? "unavailable" : "available",
+					...(unavailable ? { reason: `Resource exceeds ${MAX_RESOURCE_BYTES} byte limit` } : {}),
+				};
+				items.push({ candidate, filePath: file.filePath, rootPath: isSingleFile ? root.rootPath : root.rootPath });
+			}
+			statuses.push({
+				id: `${projectId}:${root.category}:${root.category === "config" ? root.relativeBase : root.relativeBase || "settings"}`,
+				label: `${projectId === GLOBAL_SYNC_PROJECT_ID ? "Global" : projectId} ${root.category}${root.category === "config" ? `/${root.relativeBase}` : ""}`,
+				kind: projectId === GLOBAL_SYNC_PROJECT_ID ? "global-resources" : "project-resources",
+				...(projectId === GLOBAL_SYNC_PROJECT_ID ? {} : { projectId }),
+				ok: files.status.ok,
+				count: files.items.length,
+				...(files.status.error ? { error: files.status.error } : {}),
+			});
+		}
+		return { items, statuses };
+	}
+
+	/** 命中任一排除模式（内置默认 + 用户黑名单）。 */
+	private isExcluded(nameOrRelativePath: string): boolean {
+		for (const regexp of this.exclusionRegexps) {
+			if (regexp.test(nameOrRelativePath)) return true;
+		}
+		return false;
+	}
+
+	/** 校验并扫描一个自选同步路径；不存在/超限/符号链接时静默跳过。 */
+	private async scanCustomPath(customPath: CloudSyncCustomPath, preferences: CloudSyncSelectionPreferences): Promise<CloudSyncInternalResource | null> {
+		let info;
+		try {
+			info = await lstat(customPath.filePath);
+		} catch {
+			return null; // 不存在/无权限：跳过，不抛异常
+		}
+		if (info.isSymbolicLink() || (!info.isFile() && !info.isDirectory())) return null;
+		if (info.size > MAX_RESOURCE_BYTES) return null;
+		const rawRelative = normalizeRelativePath(customPath.relativePath);
+		if (!rawRelative) return null;
+		// 自选路径相对化：项目内 → 项目相对（随项目恢复）；home 内 → `~/` 前缀（恢复写回用户 home，
+		// 不是 agent 根目录）；都无法相对 → 仅本机（machine-only key 承载内容，原始路径放 label 展示）。
+		let relativePath: string;
+		let label: string | undefined;
+		if (rawRelative.startsWith("/") || /^[A-Za-z]:/.test(rawRelative)) {
+			const digest = createHash("sha256").update(rawRelative, "utf8").digest("hex").slice(0, 16);
+			relativePath = `machine-only/${digest}-${basename(rawRelative)}`;
+			label = customPath.label || customPath.filePath;
+		} else if (customPath.relativeTo === "home") {
+			relativePath = `~/${rawRelative}`;
+		} else {
+			relativePath = rawRelative;
+		}
+		if (this.isExcluded(relativePath) || this.isExcluded(basename(relativePath))) return null;
+		const projectId = customPath.projectId ?? GLOBAL_SYNC_PROJECT_ID;
+		const id = resourceSelectionId(projectId, "config", relativePath);
+		const candidate: CloudSyncResourceCandidate = {
+			selectionId: id,
+			projectId,
+			category: "config",
+			relativePath,
+			...(label ? { label } : {}),
+			...(customPath.id ? { customPathId: customPath.id } : {}),
+			size: info.size,
+			mtimeMs: info.mtimeMs,
+			selected: preferences.selectedResourceIds.includes(id),
+			status: "available",
+		};
+		return { candidate, filePath: customPath.filePath, rootPath: customPath.filePath };
+	}
+
+	private async listSingleFile(filePath: string, relativeBase: string): Promise<RootScanResult<FileEntry>> {
+		try {
+			const info = await lstat(filePath);
+			if (!info.isFile() || this.isExcluded(basename(filePath))) {
+				return { items: [], status: { id: filePath, label: relativeBase || "settings", kind: "global-resources", ok: true, count: 0 } };
+			}
+			return {
+				items: [{ filePath, relativePath: basename(filePath), size: info.size, mtimeMs: info.mtimeMs }],
+				status: { id: filePath, label: relativeBase || "settings", kind: "global-resources", ok: true, count: 1 },
+			};
+		} catch (error) {
+			if (isMissingError(error)) {
+				return { items: [], status: { id: filePath, label: relativeBase || "settings", kind: "global-resources", ok: true, count: 0 } };
+			}
+			return {
+				items: [],
+				status: {
+					id: filePath,
+					label: relativeBase || "settings",
+					kind: "global-resources",
+					ok: false,
+					count: 0,
+					error: isPermissionError(error) ? "Permission denied" : "Unable to scan resource",
+				},
+			};
+		}
+	}
+
+	private async listFiles(rootPath: string, extension?: string): Promise<RootScanResult<FileEntry>> {
+		const items: FileEntry[] = [];
+		try {
+			const info = await lstat(rootPath);
+			if (!info.isDirectory()) {
+				return { items: [], status: { id: rootPath, label: rootPath, kind: "project-resources", ok: true, count: 0 } };
+			}
+			await this.walk(rootPath, rootPath, extension, items);
+			return { items, status: { id: rootPath, label: rootPath, kind: "project-resources", ok: true, count: items.length } };
+		} catch (error) {
+			if (isMissingError(error)) {
+				return { items: [], status: { id: rootPath, label: rootPath, kind: "project-resources", ok: true, count: 0 } };
+			}
+			return {
+				items,
+				status: {
+					id: rootPath,
+					label: rootPath,
+					kind: "project-resources",
+					ok: false,
+					count: items.length,
+					error: isPermissionError(error) ? "Permission denied" : "Unable to scan directory",
+				},
+			};
+		}
+	}
+
+	private async walk(rootPath: string, currentPath: string, extension: string | undefined, items: FileEntry[]): Promise<void> {
+		if (items.length >= MAX_FILES_PER_ROOT) throw new Error("Cloud sync scan file limit exceeded");
+		const entries = await readdir(currentPath, { withFileTypes: true });
+		for (const entry of entries) {
+			if (items.length >= MAX_FILES_PER_ROOT) throw new Error("Cloud sync scan file limit exceeded");
+			if (entry.name.startsWith(".") && entry.name !== ".pi" && entry.name !== ".agents") continue;
+			// M9：内置默认 + 用户黑名单按文件名/目录名排除（命中即不递归、不入候选）。
+			if (this.isExcluded(entry.name)) continue;
+			if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
+			const path = join(currentPath, entry.name);
+			const info = await lstat(path);
+			if (info.isSymbolicLink()) continue;
+			if (info.isDirectory()) {
+				// 目录的相对路径也过一遍排除（支持 `**/secret*` 这类跨目录模式）。
+				if (this.isExcluded(safeRootRelativePath(rootPath, path))) continue;
+				await this.walk(rootPath, path, extension, items);
+				continue;
+			}
+			if (!info.isFile() || (extension && !entry.name.toLowerCase().endsWith(extension))) continue;
+			const relativePath = safeRootRelativePath(rootPath, path);
+			// 相对路径再匹配一遍，支持 `**/secret*` 这类跨目录黑名单。
+			if (this.isExcluded(relativePath)) continue;
+			items.push({
+				filePath: path,
+				relativePath,
+				size: info.size,
+				mtimeMs: info.mtimeMs,
+			});
+		}
+	}
+}
+
+export const CLOUD_SYNC_SCANNER_LIMITS = {
+	maxFilesPerRoot: MAX_FILES_PER_ROOT,
+	maxResourceBytes: MAX_RESOURCE_BYTES,
+	maxSessionBytes: MAX_SESSION_BYTES,
+};

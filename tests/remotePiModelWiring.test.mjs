@@ -52,7 +52,7 @@ test("assembly resolves host -> ProjectStore remote projects -> narrow live-agen
 	assert.match(main, /projectIdsForHost:\s*\(hostId\)\s*=>[\s\S]{0,400}?isRemoteProject\(project\) && project\.locator\.hostId === hostId/);
 	assert.match(main, /findLiveAgentId:\s*\(projectIds\)\s*=>[\s\S]{0,120}?findLiveRemoteAgentId\(projectIds\)/);
 	assert.match(main, /getAvailableModels:\s*\(agentId\)\s*=>\s*agentManager\.getAvailableModels\(agentId\)/);
-	assert.match(main, /registerRemotePiModelIpc\(\{ enabled: remoteExperimentEnabled, probe: remotePiModelProbe \}\)/);
+	assert.match(main, /registerRemotePiModelIpc\(\{ enabled: remoteFeatureEnabled, probe: remotePiModelProbe \}\)/);
 });
 
 test("the AgentManager finder is narrow: live remote runtime -> agentId only", () => {

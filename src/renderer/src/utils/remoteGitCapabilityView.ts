@@ -71,6 +71,7 @@ export function gitCapabilityReasonKey(code: string | undefined): TranslationKey
 	if (code === undefined) return undefined;
 	if (code === "PROJECT_SERVICE_CAPABILITY_TRUST_REQUIRED" || code === "PROJECT_SERVICE_CAPABILITY_TRUST_STALE" || code === "PROJECT_SERVICE_CAPABILITY_TRUST_UNKNOWN") return "remoteGit.trustRequired";
 	if (code === "PROJECT_CAPABILITY_HOST_NOT_READY" || code === "PROJECT_CAPABILITY_WRITE_NEEDS_READY_HOST" || code.startsWith("SSH_")) return "remoteGit.connection";
+	if (code === "PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN") return "remoteGit.capabilityDetecting";
 	if (code === "PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING" || code === "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" || code.startsWith("UNSUPPORTED")) return "remoteGit.unsupported";
 	if (code === "PROJECT_SERVICE_CAPABILITY_ROOT_NEEDS_ATTENTION") return "remoteGit.capabilityRootNeedsAttention";
 	return undefined;

@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../../../shared/types";
 import type { ReplyActionRule, ReplyActionTrigger } from "../../../shared/types/replyActions";
+import { getToolFilePath } from "../../../shared/fileChanges";
 import { stripThinkingTags } from "../components/session/TimelineFormat";
 
 /**
@@ -85,14 +86,44 @@ function compilePatterns(patterns: readonly string[]): RegExp[] {
 	return compiled;
 }
 
-/** 信号 × 规则 → 建议文案列表（保持规则文件里的顺序；全部命中 triggers 才展示）。 */
-export function replyActionsForSignals(rules: readonly ReplyActionRule[], signals: ReplySignals | null): string[] {
+/** triggers 之外的场景信号；缺省由调用方显式给出，避免忘记传参时静默放开受限规则。 */
+export type ReplyActionContext = {
+	/** 本会话出现过成功的文件写入/编辑工具调用 */
+	fileEdits: boolean;
+};
+
+const FILE_EDIT_TOOL_NAME = /write|edit|create|patch/i;
+
+/**
+ * 会话里是否出现过成功的文件写入工具调用（提交/推送建议的前置条件）。
+ * 与右侧「修改文件」清单同源：只认 write/edit/create/patch 且能解析出文件路径的调用，
+ * 失败的工具调用没有落盘，不算改动。
+ */
+export function sessionHasFileEdits(messages: readonly ChatMessage[]): boolean {
+	for (const message of messages) {
+		if (message.role !== "tool") continue;
+		if (String(message.meta?.status ?? "done") === "error") continue;
+		if (!FILE_EDIT_TOOL_NAME.test(String(message.meta?.toolName ?? ""))) continue;
+		if (getToolFilePath(message.meta?.args) !== undefined) return true;
+	}
+	return false;
+}
+
+function requirementMet(rule: ReplyActionRule, context: ReplyActionContext): boolean {
+	if (!rule.requires) return true;
+	if (rule.requires === "fileEdits") return context.fileEdits;
+	return false;
+}
+
+/** 信号 × 规则 → 建议文案列表（保持规则文件里的顺序；全部命中 triggers 与前置条件才展示）。 */
+export function replyActionsForSignals(rules: readonly ReplyActionRule[], signals: ReplySignals | null, context: ReplyActionContext = { fileEdits: false }): string[] {
 	if (!signals) return [];
 	const prose = stripCode(signals.finalText);
 	const texts: string[] = [];
 	const seen = new Set<string>();
 	for (const rule of rules) {
 		if (seen.has(rule.text)) continue;
+		if (!requirementMet(rule, context)) continue;
 		if (!rule.triggers.every((trigger) => triggerMatches(trigger, signals, prose))) continue;
 		seen.add(rule.text);
 		texts.push(rule.text);
@@ -115,5 +146,5 @@ export function mergeReplyActionRules(current: readonly ReplyActionRule[], defau
 
 /** 便捷入口：消息 → 建议文案（SessionReplyActions 直接用）。 */
 export function replyActionTextsForMessages(rules: readonly ReplyActionRule[], messages: readonly ChatMessage[]): string[] {
-	return replyActionsForSignals(rules, replySignalsForMessages(messages));
+	return replyActionsForSignals(rules, replySignalsForMessages(messages), { fileEdits: sessionHasFileEdits(messages) });
 }

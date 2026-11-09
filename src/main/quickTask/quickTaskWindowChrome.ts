@@ -42,16 +42,19 @@ export class QuickTaskWindowChrome {
 	 * 否则会把小窗口尺寸写进 lastWindowBounds（下次启动直接变窄）。
 	 * 最大化/全屏时存 normal bounds（还原后的几何），maximized 标记让下次启动先按 normal
 	 * 几何建窗再 maximize——用户从最大化还原时回到原来的位置，而不是屏幕中央。
-	 * 全屏不单独持久化：全屏是临时观看态，按最大化恢复即可。
+	 * 全屏单独记 fullscreen：全屏是用户选定的呈现态，而关窗即退出进程（closeToTray=false）
+	 * 或窗口重建后只剩最大化时，用户看到的就是「全屏没了、窗口变小」，所以要和最大化一起持久化。
 	 */
 	saveWorkbenchBoundsOnClose(window: BrowserWindow): void {
 		if (window.isDestroyed()) return;
 		const workbench = this.controller.getWorkbenchBounds();
-		const maximized = workbench ? this.controller.wasWorkbenchMaximized() : window.isMaximized() || window.isFullScreen();
+		// 紧凑模式期间窗口是 720×760 的小窗，全屏标记只能取进入前的工作台状态（控制器未记全屏＝false）。
+		const fullscreen = workbench ? false : window.isFullScreen();
+		const maximized = workbench ? this.controller.wasWorkbenchMaximized() : window.isMaximized() || fullscreen;
 		// 最小化时 getBounds 可能是系统的离屏占位坐标，不能作为上次工作台位置。
 		const normal = workbench ?? (maximized || window.isMinimized() ? window.getNormalBounds() : window.getBounds());
 		const workArea = screen.getDisplayMatching(normal).workArea;
-		this.deps.saveWorkbenchBounds({ x: normal.x, y: normal.y, width: normal.width, height: normal.height, maximized, workArea });
+		this.deps.saveWorkbenchBounds({ x: normal.x, y: normal.y, width: normal.width, height: normal.height, maximized, ...(fullscreen ? { fullscreen: true } : {}), workArea });
 	}
 
 	/**

@@ -41,6 +41,17 @@ function normalizeEolForDiff(content: string): string {
 	return content.replace(/\r\n/g, "\n");
 }
 
+/**
+ * `git check-ignore -z` 的输出 → 与 `paths` 逐位对应的布尔数组。
+ *
+ * 输出只含**命中**的路径（NUL 分隔）；exit 1（没有任何命中）时 stdout 为空，就是全 `false`。
+ * 只做纯解析：调用方负责判定 `undefined`（无法判定）与 `false`（判定为未忽略）的区别。
+ */
+export function readCheckIgnoreFlags(stdout: string, paths: readonly string[]): boolean[] {
+	const ignored = new Set(stdout.split("\0").filter((path) => path.length > 0));
+	return paths.map((path) => ignored.has(path));
+}
+
 export class GitService {
 	/**
 	 * 统一的 git 子进程入口（spawn 语义：进程树 kill + 超时兜底 + stdin）。
@@ -49,6 +60,22 @@ export class GitService {
 	 */
 	private git(args: string[], options: RunGitOptions) {
 		return runGitCommand(args, options);
+	}
+
+	/**
+	 * 本机目录页的 Git ignore 判定（只读、零授权）：返回与 `relativePaths` 逐位对应的布尔数组。
+	 *
+	 * 不是仓库 / git 不可用 / 输入非法一律返回 `undefined`：那是「没判定」，调用方不得当「未忽略」。
+	 * `git check-ignore` 的 exit 1 是「没有任何路径被忽略」，按正常结果处理（不是失败）。
+	 */
+	async checkIgnore(cwd: string, relativePaths: readonly string[]): Promise<boolean[] | undefined> {
+		if (relativePaths.length === 0) return [];
+		try {
+			const { stdout } = await this.git(["check-ignore", "--no-index", "-z", "--stdin"], { cwd, input: relativePaths.join("\0") + "\0", timeoutMs: 5_000, allowExitCodes: [1] });
+			return readCheckIgnoreFlags(stdout, relativePaths);
+		} catch {
+			return undefined;
+		}
 	}
 
 	/** 只缓存轻量 commit 元数据/文件清单；正文永不缓存，且 LRU 总预算不超过 2MB。 */

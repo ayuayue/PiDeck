@@ -22,6 +22,18 @@ function timelineHarness() {
 		useMemo: (factory, deps) => host.react.useCallback(factory, deps)(),
 		// SingleLinePreview 等新拉入的真实组件用到 memo：转发函数即可满足 harness 语义。
 		memo: (fn) => fn,
+		// VirtualRunList 现在用 class 组件持有布局快照：沙箱 stub 必须给出可继承的 Component，
+		// 否则 `class X extends Component` 在 vm 里抛「Class extends value undefined」。
+		Component: class {
+			constructor(props) {
+				this.props = props;
+			}
+			setState() {}
+			forceUpdate() {}
+			render() {
+				return null;
+			}
+		},
 	};
 	const atomKey = (name) => name;
 	const jsx = (type, props) => ({ type, props });

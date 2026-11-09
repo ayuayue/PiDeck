@@ -80,7 +80,7 @@ async function scanPersistedSessions(filePath: string): Promise<RemoteHostRefere
 	const snapshot: unknown = JSON.parse(text);
 	if (!isRecord(snapshot) || (snapshot.version !== undefined && snapshot.version !== 1) || !Array.isArray(snapshot.sessions)) throw new Error("REMOTE_HOST_REFERENCE_SCAN_INVALID");
 	const referencedHostIds = new Set<string>();
-	const hits: { source: RemoteHostReferenceSource; recordId: string }[] = [];
+	const hits: { source: RemoteHostReferenceSource; recordId: string; hostId: string }[] = [];
 	for (const entry of snapshot.sessions) {
 		if (!isRecord(entry) || typeof entry.id !== "string" || typeof entry.projectId !== "string" || typeof entry.title !== "string" || (entry.environment !== "native" && entry.environment !== "wsl") || (entry.status !== "draft" && entry.status !== "active")) throw new Error("REMOTE_HOST_REFERENCE_SCAN_INVALID");
 		if (entry.locator === undefined) continue;
@@ -90,7 +90,7 @@ async function scanPersistedSessions(filePath: string): Promise<RemoteHostRefere
 		// 正则，否则同一记录又会出现「catalog 放行、扫描抛错」。catalog 读不出来的记录一律让整个
 		// sessions 源 incomplete，而不是当作「没有引用」。
 		referencedHostIds.add(entry.locator.hostId);
-		hits.push({ source: "sessions", recordId: entry.id });
+		hits.push({ source: "sessions", recordId: entry.id, hostId: entry.locator.hostId });
 	}
 	return { referencedHostIds, hits, complete: true, unavailable: [] };
 }
@@ -120,7 +120,7 @@ async function scanPersistedProjects(filePath: string): Promise<RemoteHostRefere
 	if (text === undefined) return { referencedHostIds: new Set(), hits: [], complete: true, unavailable: [] };
 	const snapshot: unknown = JSON.parse(text);
 	const referencedHostIds = new Set<string>();
-	const hits: { source: RemoteHostReferenceSource; recordId: string }[] = [];
+	const hits: { source: RemoteHostReferenceSource; recordId: string; hostId: string }[] = [];
 	if (Array.isArray(snapshot)) {
 		for (const entry of snapshot) {
 			if (!isRecord(entry) || typeof entry.id !== "string" || entry.id.length === 0 || typeof entry.path !== "string" || entry.path.trim().length === 0) throw new Error("REMOTE_HOST_REFERENCE_SCAN_INVALID");
@@ -136,7 +136,7 @@ async function scanPersistedProjects(filePath: string): Promise<RemoteHostRefere
 		if (locator === undefined) throw new Error("REMOTE_HOST_REFERENCE_SCAN_INVALID");
 		if (locator.kind !== "ssh") continue;
 		referencedHostIds.add(locator.hostId);
-		hits.push({ source: "projects", recordId: entry.id });
+		hits.push({ source: "projects", recordId: entry.id, hostId: locator.hostId });
 	}
 	return { referencedHostIds, hits, complete: true, unavailable: [] };
 }

@@ -62,15 +62,6 @@ function harness(options = {}) {
 			},
 			"../remote/RemoteWorkspaceReader": {
 				createRemoteWorkspaceReader: () => ({
-					async list(_hostId, path) {
-						calls.list.push(path);
-						if (gate !== undefined) {
-							const pending = gate;
-							gate = undefined;
-							await pending.promise;
-						}
-						return { entries: options.entries ?? [{ name: "src", kind: "directory" }] };
-					},
 					async readFile() {
 						return { content: Buffer.from("x"), bytes: 1, mtimeMs: 1 };
 					},
@@ -167,6 +158,18 @@ function harness(options = {}) {
 			return service;
 		},
 		factsEvents,
+		directoryReader: {
+			async read({ relative }) {
+				calls.list.push(relative === "" ? "." : relative);
+				if (gate !== undefined) {
+					const pending = gate;
+					gate = undefined;
+					await pending.promise;
+				}
+				const entries = options.entries ?? [{ name: "src", kind: "directory" }];
+				return { ok: true, value: { entries, scanned: entries.length, truncated: false } };
+			},
+		},
 		projects: {
 			enroll: async () => ({ projectId: PROJECT_A }),
 			locator: (projectId) => (projectId === PROJECT_A ? { kind: "ssh", hostId: HOST, remotePath: ROOT_A } : projectId === PROJECT_B ? { kind: "ssh", hostId: HOST, remotePath: ROOT_B } : undefined),

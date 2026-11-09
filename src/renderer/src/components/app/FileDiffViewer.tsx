@@ -2,7 +2,7 @@ import type { ProjectFileAccessScope, ProjectFileTarget } from "../../../../shar
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { t } from "../../i18n";
-import { ArrowLeft, Maximize, Minimize2, RefreshCw, Rows2, SquareSplitHorizontal, X, Eye, FileCode, Loader2, TriangleAlert, WrapText } from "lucide-react";
+import { ArrowLeft, Maximize, Minimize2, RefreshCw, Rows2, SquareSplitHorizontal, X, Eye, FileCode, Loader2, TriangleAlert, WrapText, ExternalLink } from "lucide-react";
 import { Button } from "../ui-shadcn/button";
 import { cn } from "../../lib/utils";
 import { MarkdownStream } from "../session/MarkdownStream";
@@ -15,6 +15,8 @@ import { imageMimeOrBinary } from "../../utils/imageMime";
 import { base64ToBytes } from "../../utils/base64Bytes";
 import { getBinaryPreviewKind, getMediaMimeForPath } from "../../utils/binaryPreview";
 import { BinaryFilePreview } from "./preview/BinaryFilePreview";
+import CsvPreview from "./preview/CsvPreview";
+import MediaPreview from "./preview/MediaPreview";
 // CodeMirrorEditor 静态链上挂着整个 CodeMirror 6 全家桶（view/state/commands/
 // autocomplete/search/lint/lang-json），经 WorkbenchContent 静态 import 进主 chunk，
 // App 启动即解析。与 CodeDiffView 同款懒加载：首次打开编辑器才拉 chunk。
@@ -32,6 +34,12 @@ import { isBinaryExtension, isImageFile, isPdfFile } from "../../utils/isTextFil
 import { updateInstallPreflightTasksAtom } from "../../atoms/update-install-preflight";
 import { encodeHtmlPreviewUrl } from "../../../../shared/htmlPreview";
 import { fileLoadErrorMessage } from "./fileLoadErrorMessage";
+
+/** 内容指纹（与主进程 localTextRevision 同一算法）：保存时带上它做乐观锁。 */
+async function contentRevision(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+	return "sha256:" + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 type ViewMode = "view" | "diff";
 
@@ -78,7 +86,7 @@ export function FileDiffViewer(props: {
 	modifiedContent?: string;
 	/** 读取文件的 Git HEAD 原始内容，供差异模式左侧基准列使用。 */
 	readOriginalContent?: (target?: ProjectFileTarget) => Promise<string>;
-	saveContent?: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
+	saveContent?: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope, expectedRevision?: string) => Promise<void>;
 	/**
 	 * 只读 tab 的显式解锁：点击头部「转为可编辑」并二次确认后调用，宿主把该 tab
 	 * 的 allowSave 翻成 true，之后才挂自动保存与 Ctrl+S。
@@ -167,6 +175,8 @@ export function FileDiffViewer(props: {
 	const isHtml = ext === "html" || ext === "htm";
 	// SVG 是文本（可编辑），预览时用内容渲染为 data URL 图片（CSP img-src 已允许 data:）
 	const isSvg = ext === "svg";
+	// CSV/TSV 是文本（可编辑），但预览默认走表格：打开 csv 的人要看内容，不是看逗号。
+	const isCsv = ext === "csv" || ext === "tsv";
 	// 图片/PDF 走内置预览（view 模式）：二进制内容不可文本读取，跳过编辑器直接渲染。
 	const isImage = isImageFile(props.filePath);
 	const isPdf = isPdfFile(props.filePath);
@@ -177,10 +187,16 @@ export function FileDiffViewer(props: {
 	const officePreviewKind = binaryPreviewKind === "docx" || binaryPreviewKind === "spreadsheet" || binaryPreviewKind === "archive" ? binaryPreviewKind : null;
 	const isAudio = binaryPreviewKind === "audio";
 	const isVideo = binaryPreviewKind === "video";
-	// 默认预览模式：markdown/html/svg 打开直接渲染预览（干净阅读），
+	// 默认预览模式：markdown/html/svg/csv 打开直接渲染预览（干净阅读），
 	// 点「源码」切换按钮才进入源码模式；源码模式即编辑模式，不再需要独立的编辑按钮。
-	const defaultPreview = !isDiffMode && (isMarkdown || isHtml || isSvg);
+	const defaultPreview = !isDiffMode && (isMarkdown || isHtml || isSvg || isCsv);
 	const [preview, setPreview] = useState(defaultPreview);
+	// 有专属预览时正文不再挂编辑器：图片/PDF/音视频/Office/压缩包读出来是空串，
+	// csv 切到表格后也不需要把原始文本垫在下面（空编辑器还会和预览抢高度）。
+	const dedicatedPreview = !isDiffMode && (isImage || isPdf || isAudio || isVideo || officePreviewKind !== null || (isCsv && preview));
+	// docx/xlsx 只能在 Word/WPS 里编辑：预览本身是只读渲染，把入口做成带文字的按钮
+	// （其余文件只给图标，不抢顶栏宽度）。
+	const officeEditHint = officePreviewKind === "docx" || officePreviewKind === "spreadsheet";
 
 	useEffect(() => {
 		// 每个 tab 重置编辑状态：view 可编辑（源码即编辑），diff 只读对比无编辑态。
@@ -248,6 +264,9 @@ export function FileDiffViewer(props: {
 					setContent(result);
 					// 自动保存基准快照：加载完成即视为「已落盘」状态，避免打开后无改动就触发写盘
 					lastSavedRef.current = result;
+					void contentRevision(result).then((revision) => {
+						if (!cancelled) baselineRevisionRef.current = revision;
+					});
 					setOriginal(originalResult);
 					// 空内容二次校验（仅绝对路径 + 查看/编辑模式）：主进程 readContent 对
 					// ENOENT 返回 ""（为「新建文件」流程保留的语义），死链直接渲染就是
@@ -334,6 +353,8 @@ export function FileDiffViewer(props: {
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// 最近一次落盘内容快照：内容未变时跳过保存，避免重复写盘
 	const lastSavedRef = useRef("");
+	// 落盘基准指纹（sha256）：保存时带上它，盘上已被外部改过就拒绝，而不是静默覆盖。
+	const baselineRevisionRef = useRef<string | undefined>(undefined);
 	// FileDiffViewer 在切换 Tab 时复用实例；用代数阻止旧文件的异步保存结果污染新 Tab。
 	const saveGenerationRef = useRef(0);
 	const saveReadyRef = useRef(false);
@@ -362,14 +383,16 @@ export function FileDiffViewer(props: {
 						setSaveError(null);
 						return true;
 					}
-					await saveContent(savePath, latest, props.fileAccessScope);
+					await saveContent(savePath, latest, props.fileAccessScope, baselineRevisionRef.current);
 					if (saveGeneration !== saveGenerationRef.current) return false;
+					baselineRevisionRef.current = await contentRevision(latest);
 					lastSavedRef.current = latest;
 				}
 				return false;
 			} catch (e) {
 				// 失败不清 dirty/缓冲；旧文件请求不能污染新 Tab。
-				if (saveGeneration === saveGenerationRef.current) setSaveError(fileLoadErrorMessage(e));
+				const conflict = e instanceof Error && e.message.includes("PROJECT_FILE_CHANGED");
+				if (saveGeneration === saveGenerationRef.current) setSaveError(conflict ? t("editor.fileChangedOnDisk") : fileLoadErrorMessage(e));
 				return false;
 			} finally {
 				if (saveGeneration === saveGenerationRef.current) setSaving(false);
@@ -458,6 +481,19 @@ export function FileDiffViewer(props: {
 		},
 		[scheduleAutoSave, props.onDirty, readOnlyView],
 	);
+
+	// 用系统默认程序打开（docx→Word/WPS、xlsx→Excel…）：二进制文件在 PiDeck 内只能展示，
+	// 真正的编辑交给本机装的 Office；主进程 files:open 已经走受保护的 openSystemPath。
+	const handleOpenWithSystem = useCallback(() => {
+		const open = window.piDesktop?.files?.open;
+		if (!open) {
+			showNotice(t("editor.openWithSystemUnavailable"));
+			return;
+		}
+		void open(fileAccessPath, props.fileAccessScope).catch((e: unknown) => {
+			showNotice(e instanceof Error ? e.message : t("editor.openWithSystemUnavailable"));
+		});
+	}, [fileAccessPath, props.fileAccessScope]);
 
 	// 编辑器选中文本 → 右键「引用选中内容」：以 pi 的 read 语法 @path:start-end 派发到输入框。
 	// 与文件树右键 onAttach 共用同一追加语义（composer-attach-refs 由 App 监听后插入 draft）。
@@ -560,7 +596,7 @@ export function FileDiffViewer(props: {
 							<RefreshCw size={15} className={loading ? "animate-pideck-spin" : undefined} />
 						</Button>
 					)}
-					{(isMarkdown || isHtml || isSvg) && !isDiffMode && !loading && !error && (
+					{(isMarkdown || isHtml || isSvg || isCsv) && !isDiffMode && !loading && !error && (
 						<Button
 							variant="ghost"
 							size="icon-sm"
@@ -576,11 +612,23 @@ export function FileDiffViewer(props: {
 							{preview ? <FileCode size={15} /> : <Eye size={15} />}
 						</Button>
 					)}
-					{!loading && !error && !binaryPreviewKind && (
+					{!loading && !error && !dedicatedPreview && (
 						<Button variant="ghost" size="icon-sm" title={wordWrap ? t("editor.wordWrapOff") : t("editor.wordWrapOn")} aria-label={t("editor.wordWrap")} aria-pressed={wordWrap} className={cn(wordWrap && "text-foreground")} onClick={toggleWordWrap}>
 							<WrapText size={15} />
 						</Button>
 					)}
+					{/* 打开失败（格式不支/文件损坏）时恰恰最需要这个入口，所以只避开加载中。 */}
+					{!loading &&
+						(officeEditHint ? (
+							<Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 rounded-md px-2 text-caption" title={t("editor.openWithSystemHint")} onClick={handleOpenWithSystem}>
+								<ExternalLink size={14} aria-hidden="true" />
+								{t("editor.editInOfficeApp")}
+							</Button>
+						) : (
+							<Button variant="ghost" size="icon-sm" title={t("editor.openWithSystem")} aria-label={t("editor.openWithSystem")} onClick={handleOpenWithSystem}>
+								<ExternalLink size={15} />
+							</Button>
+						))}
 					{isDiffMode && !loading && !error && displayMode !== "drawer" && (
 						<Button variant="ghost" size="icon-sm" title={sideBySide ? t("app.showSingle") : t("app.showSplit")} onClick={() => setSideBySide(!sideBySide)}>
 							{/* 图标随模式变化：分栏时显示「单栏」图标（点击合并），单栏时显示「分栏」图标（点击分栏），
@@ -658,17 +706,16 @@ export function FileDiffViewer(props: {
 						)}
 						{/* PDF 预览：Blob URL + Chromium 内置 PDF viewer */}
 						{!isDiffMode && isPdf && mediaUrl && <iframe className="file-diff-pdf-preview" src={mediaUrl} title={t("editor.pdfPreview")} referrerPolicy="no-referrer" />}
-						{/* 音视频：与图片/PDF 同一条 Blob URL 链路（CSP media-src 已允许 blob:） */}
+						{/* 音视频：与图片/PDF 同一条 Blob URL 链路（CSP media-src 已允许 blob:）；
+						   视频由 MediaPreview 负责「元素收缩到画面尺寸 + 常显播放按钮」 */}
 						{!isDiffMode && isAudio && mediaUrl && (
 							<div className="flex h-full w-full items-center justify-center p-6">
 								<audio controls src={mediaUrl} className="w-full max-w-xl" onError={() => setError(t("editor.mediaUnsupported"))} />
 							</div>
 						)}
-						{!isDiffMode && isVideo && mediaUrl && (
-							<div className="flex h-full w-full items-center justify-center bg-black/90">
-								<video controls src={mediaUrl} className="h-full w-full object-contain" onError={() => setError(t("editor.mediaUnsupported"))} />
-							</div>
-						)}
+						{!isDiffMode && isVideo && mediaUrl && <MediaPreview url={mediaUrl} fileName={fileName} onError={() => setError(t("editor.mediaUnsupported"))} />}
+						{/* CSV/TSV：解析成二维表格（引号感知，行/列上限内截断） */}
+						{!isDiffMode && preview && isCsv && <CsvPreview key={`${props.filePath}:${reloadNonce}`} content={content} onChange={readOnlyView ? undefined : handleEditorChange} />}
 						{/* Office/压缩包：自带读盘 + lazy 解析器，父层不再读第二遍 */}
 						{!isDiffMode && officePreviewKind && <BinaryFilePreview key={`${props.filePath}:${reloadNonce}`} kind={officePreviewKind} filePath={fileAccessPath} fileAccessScope={props.fileAccessScope} />}
 						{/* SVG 预览：文本内容直接编码为 data URL（无 Blob 生命周期管理） */}
@@ -687,8 +734,8 @@ export function FileDiffViewer(props: {
 							</div>
 						)}
 						{!isDiffMode && preview && isHtml && <HtmlPreview content={content} />}
-						{/* view 模式、非预览：常规编辑器（CodeMirror 6） */}
-						{!isDiffMode && !preview && (
+						{/* view 模式、非预览：常规编辑器（CodeMirror 6）；有专属预览的二进制/表格文件不挂编辑器 */}
+						{!isDiffMode && !preview && !dedicatedPreview && (
 							<div style={{ height: "100%", flexDirection: "column" }}>
 								{/* lazy 边界：首次打开编辑器才拉取 CodeMirror chunk，期间轻量占位 */}
 								<Suspense

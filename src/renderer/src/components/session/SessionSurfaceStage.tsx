@@ -154,7 +154,9 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 							// 稳定 DOM 锚点：e2e 用它守卫组内滚轮不会幽灵解锁外层；
 							// 按钮仍须暴露给辅助技术，不得把父层标成 aria-hidden。
 							data-scroll-to-bottom=""
-							className="pointer-events-auto absolute left-1/2 bottom-1.5 size-8 -translate-x-1/2 border border-border-strong bg-bg-panel text-text-secondary shadow-md backdrop-blur-sm transition-[background-color,color,border-color,box-shadow] hover:border-accent hover:bg-bg-hover hover:text-foreground"
+							// 浮动提问卡压住列底中线时由 FloatingAskLayer 下发抬高量，按钮停在卡片上方而不是被盖住。
+							style={{ bottom: "calc(0.375rem + var(--ask-float-scroll-lift, 0px))" }}
+							className="pointer-events-auto absolute left-1/2 size-8 -translate-x-1/2 border border-border-strong bg-bg-panel text-text-secondary shadow-md backdrop-blur-sm transition-[background-color,color,border-color,box-shadow] hover:border-accent hover:bg-bg-hover hover:text-foreground"
 							onClick={sessionTimeline.scrollToBottom}
 							title={t("app.scrollToBottom")}
 							aria-label={t("app.scrollToBottom")}
@@ -164,9 +166,11 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 					</div>
 				</div>
 			)}
-			{/* 重启 / 历史改写遮罩：opacity 过渡 + loader 旋转走合成器，始终挂载以便淡出。 */}
+			{/* 重启 / 历史改写遮罩：opacity 过渡 + loader 旋转走合成器，始终挂载以便淡出。
+			   旋转类只在可见时挂上——隐藏态 opacity:0 不能代表动画停下，一直在转的
+			   loader 仍会每帧参与合成（issue #510：DOM 里那个透明 overlay 的 spinner）。 */}
 			<div className={`absolute inset-0 z-30 flex flex-col items-center justify-center gap-2.5 bg-bg-panel/70 transition-opacity duration-base ${overlayVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`} role={overlayVisible ? "status" : undefined} aria-hidden={!overlayVisible}>
-				<div className="loader animate-pideck-spin" />
+				<div className={`loader${overlayVisible ? " animate-pideck-spin" : ""}`} />
 				<span className="text-body text-text-secondary">{overlayLabel}</span>
 			</div>
 		</div>

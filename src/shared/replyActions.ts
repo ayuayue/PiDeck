@@ -6,15 +6,16 @@
  * - 清空后的文件（items: []）必须能被识别，否则重启会「复活」出厂规则；
  * - 结构不可识别返回 null，由调用方备份后按出厂规则重建。
  */
-import type { ReplyActionRule, ReplyActionTrigger, ReplyActionTriggerKind } from "./types/replyActions";
+import type { ReplyActionRequirement, ReplyActionRule, ReplyActionTrigger, ReplyActionTriggerKind } from "./types/replyActions";
 
 /** 当前规则文件版本；后续结构演进时递增并做读取兼容 */
-export const REPLY_ACTIONS_FILE_VERSION = 1;
+export const REPLY_ACTIONS_FILE_VERSION = 2;
 
 /** 单文件规则条数上限：建议条一次最多展示几条，超配只会稀释注意力 */
 export const MAX_REPLY_ACTION_RULES = 64;
 
 const TRIGGER_KINDS: readonly ReplyActionTriggerKind[] = ["onFailure", "onStop", "always", "textMatch"];
+const REQUIREMENTS: readonly ReplyActionRequirement[] = ["fileEdits"];
 
 // v1 出厂规则曾把这些关键词压成一个组合正则；读取旧的 userData 时拆回普通关键词，
 // 这样升级后设置页不会继续显示一整串用户无法理解的正则。其它自定义正则保持原样。
@@ -23,6 +24,10 @@ const LEGACY_COMPLETION_PATTERNS = ["完成", "搞定", "实现", "已实现", "
 
 function isReplyActionTriggerKind(value: unknown): value is ReplyActionTriggerKind {
 	return typeof value === "string" && (TRIGGER_KINDS as readonly string[]).includes(value);
+}
+
+function isReplyActionRequirement(value: unknown): value is ReplyActionRequirement {
+	return typeof value === "string" && (REQUIREMENTS as readonly string[]).includes(value);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -71,7 +76,8 @@ export function sanitizeReplyActionRule(value: unknown): ReplyActionRule | null 
 		triggers.push(trigger);
 	}
 	if (triggers.length === 0) return null;
-	return { text: trimmed, triggers };
+	const requires = isReplyActionRequirement(value.requires) ? value.requires : undefined;
+	return requires ? { text: trimmed, triggers, requires } : { text: trimmed, triggers };
 }
 
 /** 清洗整个规则数组：去空白、去重（按 text）、截断到上限 */
@@ -88,6 +94,23 @@ export function sanitizeReplyActionRuleList(value: unknown): ReplyActionRule[] {
 		if (rules.length >= MAX_REPLY_ACTION_RULES) break;
 	}
 	return rules;
+}
+
+/**
+ * v1→v2：内置的提交/推送规则补上 fileEdits 前置条件。
+ * 按文案对齐内置默认规则，只补缺失的 requires，不覆盖用户自定义的 triggers 与文案；
+ * 迁移写回后用户再删除 requires 也不会被反复补回（version 已升到 2）。
+ */
+export function upgradeReplyActionRules(items: readonly ReplyActionRule[], defaults: readonly ReplyActionRule[]): ReplyActionRule[] {
+	const requirements = new Map<string, ReplyActionRequirement>();
+	for (const rule of defaults) {
+		if (rule.requires) requirements.set(rule.text, rule.requires);
+	}
+	return items.map((rule) => {
+		if (rule.requires) return rule;
+		const requires = requirements.get(rule.text);
+		return requires ? { ...rule, requires } : rule;
+	});
 }
 
 /**

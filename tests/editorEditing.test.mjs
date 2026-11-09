@@ -18,8 +18,8 @@ test("FileDiffViewer: view mode is editable, diff mode is read-only render", () 
 	assert.doesNotMatch(viewer, /Edit3/);
 	assert.doesNotMatch(viewer, /PencilOff/);
 	assert.doesNotMatch(viewer, /setReadOnly/);
-	// markdown/html/svg 打开默认预览模式，点「源码」切换才进入编辑态；tab 切换同样重置为默认预览
-	assert.match(viewer, /const defaultPreview = !isDiffMode && \(isMarkdown \|\| isHtml \|\| isSvg\)/);
+	// markdown/html/svg/csv 打开默认预览模式，点「源码」切换才进入编辑态；tab 切换同样重置为默认预览
+	assert.match(viewer, /const defaultPreview = !isDiffMode && \(isMarkdown \|\| isHtml \|\| isSvg \|\| isCsv\)/);
 	assert.match(viewer, /useState\(defaultPreview\)/);
 	assert.match(viewer, /setPreview\(defaultPreview\)/);
 });
@@ -76,8 +76,10 @@ test("FileDiffViewer: auto-save reads the latest edit and never reapplies a stal
 	assert.match(viewer, /const latest = contentRef\.current;/);
 	assert.match(viewer, /contentRef\.current = value;\n\s*setContent\(value\)/);
 	// 保存完成后若用户已继续输入，不得用保存开始时的快照覆盖当前编辑内容。
-	// 循环先把 latest 落盘并记为基准，下一轮只有 ref 仍等于它时才清脏。
-	assert.match(viewer, /await saveContent\(savePath, latest, props\.fileAccessScope\);\n\s*if \(saveGeneration !== saveGenerationRef\.current\) return false;\n\s*lastSavedRef\.current = latest;/);
+	// 循环先把 latest 连同它的基准指纹落盘，再用新内容的指纹推进基准；下一轮只有 ref 仍等于它时才清脏。
+	assert.match(viewer, /await saveContent\(savePath, latest, props\.fileAccessScope, baselineRevisionRef\.current\);\n\s*if \(saveGeneration !== saveGenerationRef\.current\) return false;\n\s*baselineRevisionRef\.current = await contentRevision\(latest\);\n\s*lastSavedRef\.current = latest;/);
+	// 载入完成即建立基准指纹（sha256）：保存时带上它，盘上被外部改过就拒绝而不是静默覆盖。
+	assert.match(viewer, /baselineRevisionRef\.current = revision/);
 	assert.doesNotMatch(viewer, /setContent\(latest\)/);
 });
 
@@ -137,7 +139,7 @@ test("FileDiffViewer: SVG preview via content data URL, media fills the pane", (
 	const css = readFileSync("src/renderer/src/styles/surfaces.css", "utf8");
 	// SVG 是文本（可编辑），预览按钮与 md/html 同待遇；预览渲染为 data URL 图片
 	assert.match(viewer, /const isSvg = ext === "svg"/);
-	assert.match(viewer, /\(isMarkdown \|\| isHtml \|\| isSvg\) && !isDiffMode/);
+	assert.match(viewer, /\(isMarkdown \|\| isHtml \|\| isSvg \|\| isCsv\) && !isDiffMode/);
 	assert.match(viewer, /data:image\/svg\+xml;charset=utf-8/);
 	assert.match(viewer, /encodeURIComponent\(content\)/);
 	// 图片占满预览区：width/height 100% + contain（小图放大、大图缩小、不变形）

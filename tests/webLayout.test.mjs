@@ -124,11 +124,11 @@ test("Web timeline groups assistant messages into collapsible execution folds", 
 	assert.match(webCss, /\.web-app \.execution-fold-details\s*\{[\s\S]*?border-left:/);
 });
 
-// 回归：头部运行态用紧凑「小圆点+文字」（self-start 防 stretch 拉横条），不用带边框底色的
-// agent-status-indicator 大 pill——它在头部占两行高度、与标题/DSH 徽标挤在一起视觉过重。
-test("Web header status pill stays compact inside the flex-col title block", () => {
+// 回归：头部运行态用紧凑「小圆点+文字」，手机与标题同排且禁止状态文字换行，
+// 宽屏恢复标题/状态上下两行。
+test("Web header status stays compact and aligned with the mobile title", () => {
 	assert.doesNotMatch(webHeader, /"agent-status-indicator/);
-	assert.match(webHeader, /self-start text-micro text-muted-foreground/);
+	assert.match(webHeader, /whitespace-nowrap text-micro text-muted-foreground sm:self-start/);
 	assert.match(webHeader, /size-1\.5 shrink-0 rounded-full/);
 	assert.match(webHeader, /animate-pulse bg-\[var\(--color-accent\)\]/);
 });
@@ -350,7 +350,7 @@ test("Web interactive elements keep a visible focus ring", () => {
 
 // 回归（Web 走查 #15）：整页此前没有任何 h1/h2/h3，屏幕阅读器无法定位主区。
 test("Web header exposes the session title as the page heading", () => {
-	assert.match(webHeader, /<h1 className="flex min-w-0 items-center gap-1\.5 truncate/);
+	assert.match(webHeader, /<h1 className="flex min-w-0 flex-1 items-center gap-1\.5 truncate/);
 	assert.match(webHeader, /<\/h1>/);
 });
 

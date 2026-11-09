@@ -1,22 +1,16 @@
 /**
  * Go file-index sidecar 的宿主侧客户端（工作区文件索引：名字模糊检索 + 有界内容检索）。
  *
- * 为什么存在：主进程的文件名搜索（src/main/fs/FileSystemService.ts::searchNames）是
- * 实时 BFS——8s 超时、200 条上限、单目录 >5000 项跳过、只匹配条目名本身、无内容检索。
- * 本服务拉起 Go sidecar（native/file-index，内存索引 + 多核扫描）把名字检索做成毫秒级
- * 带评分排序，并补上「在工作区文件内容里搜词」的能力。
- *
- * 失败语义（调用方依赖降级）：任何失败以 `{ ok: false, reason }` 返回、绝不抛异常——
- * sidecar 缺失/崩溃/超时一律回退现有 BFS（fail-open，与 SessionIndexService 同哲学）。
+ * 为什么存在：主进程实时 BFS 有 8s 超时、200 条上限和扫描预算，不支持内容检索。
+ * Go sidecar 提供内存文件名索引与有界内容检索；缺失、启动失败或超时时，
+ * 任何失败以 `{ ok: false, reason }` 返回，调用方回退实时 BFS。
  *
  * 生命周期纪律（传输/超时/请求配对统一由 GoSidecarClient 负责）：
  * - roots 签名变化（切换项目）→ 杀旧进程按新 roots 重拉（索引在内存里，重扫由 Go 完成）；
  * - boot 超时 / 进程退出 / stdin 管道错误 → 结算 pending 并标记 dead，下次调用重试；
- * - dispose → 结算 + 杀进程（quitCleanup 登记）；
- * - 就绪态用同步三元态暴露（isReady），交互路径据此降级而不是等 boot 结束。
- *
- * 已知取舍：单进程单 roots（切项目重建索引，Go 侧毫秒级~秒级）。首查未就绪时回退 BFS
- * 并后台预热，下一次输入即走索引。
+ * - dispose → 结算 + 杀进程（quitCleanup 登记）。
+ * - ready 前 Go 已完成首次 Index，因此预热只等待就绪，不再额外 refresh。
+ * - 名字/内容搜索前有界检查过期并合并刷新，避免逐键全量扫描。
  *
  * 本模块不 import electron（路径解析由装配层注入），tests 可用 PassThrough 假子进程直接驱动。
  */
@@ -26,29 +20,23 @@ import { GoSidecarClient, type GoSidecarCallResult, type GoSidecarFailureReason,
 
 /** 与 native/file-index/main.go 的 ProtocolVersion 对应；不匹配即拒用（回退 BFS）。 */
 export const FILE_INDEX_PROTOCOL_VERSION = 1;
-
 /** boot 上限：内存索引一次目录树扫描（大仓库秒级），20s 已是慢盘/杀毒的极端形态。 */
 const DEFAULT_BOOT_TIMEOUT_MS = 20_000;
-/** 单次检索上限：名字检索毫秒级；内容检索受全局字节预算约束，15s 只是进程卡死保险。 */
+/** 请求超时只是进程卡死的保险，查询自身的扫描预算必须保证有界。 */
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
-/** stdout 单行上限：结果规模（200 条名字 / 50 条内容命中）远小于此，防异常帧撑爆内存。 */
+/** 同一快照内合并高频查询；过期全量刷新只允许一个在途请求。 */
+const INDEX_REFRESH_AGE_MS = 5_000;
+/** stdout 单行上限：防止异常帧撑爆主进程。 */
 export const MAX_FILE_INDEX_LINE_CHARS = 4 * 1024 * 1024;
-
-/** 名字检索结果上限：与 FILE_SEARCH_MAX_RESULTS（共享契约）对齐，渲染层已有 200 条的心理预期。 */
+/** 与 FILE_SEARCH_MAX_RESULTS / 检索面板的有界结果预算对齐。 */
 const DEFAULT_NAME_LIMIT = 200;
-/** 内容检索结果上限：面板只展示摘要条，再多用户会继续输入缩小范围。 */
 const DEFAULT_CONTENT_LIMIT = 50;
-/** 内容检索单文件上限：超过即跳过（大二进制/日志文件对「搜代码」没有价值却吃满预算）。 */
 const DEFAULT_MAX_FILE_BYTES = 1024 * 1024;
-/** 内容检索全局扫描字节预算：一次查询最多读这么多字节，防止大仓库把磁盘打满。 */
 const DEFAULT_MAX_SCANNED_BYTES = 64 * 1024 * 1024;
 
 export type FileIndexLogger = GoSidecarLogger;
-
 export type FileIndexFailureReason = GoSidecarFailureReason;
-
 export type FileIndexCallResult<T> = GoSidecarCallResult<T>;
-
 export type FileIndexStats = {
 	rootCount: number;
 	fileCount: number;
@@ -56,10 +44,8 @@ export type FileIndexStats = {
 	indexMs: number;
 	truncated: boolean;
 };
-
-/** 名字命中：shared 的 FileSearchResult 加上 Go 侧评分（渲染层不需要评分，IPC 边界会剥掉）。 */
+/** 名字命中：shared 的 FileSearchResult 加上 Go 侧评分（IPC 边界剥掉评分）。 */
 export type FileIndexNameHit = FileSearchResult & { score: number };
-
 export type FileIndexNameResult = {
 	hits: FileIndexNameHit[];
 	indexed: number;
@@ -73,9 +59,15 @@ export type FileIndexServiceOptions = {
 	/** 单测注入假子进程用；生产默认 node:child_process。 */
 	spawnFn?: GoSidecarSpawnFn;
 	timeouts?: { boot?: number; request?: number };
+	/** 单测注入时钟，用确定性边界覆盖快照刷新与并发合并。 */
+	now?: () => number;
 };
 
 export class FileIndexService extends GoSidecarClient {
+	private readonly now: () => number;
+	private indexFreshness: { rootKey: string; indexedAt: number } | undefined;
+	private searchRefresh: { rootKey: string; promise: Promise<FileIndexCallResult<FileIndexStats>> } | undefined;
+
 	constructor(options: FileIndexServiceOptions) {
 		super({
 			name: "file-index",
@@ -110,46 +102,70 @@ export class FileIndexService extends GoSidecarClient {
 				options.logger?.info(`file-index ready：${String(ready.fileCount ?? "?")} 文件 / ${String(ready.dirCount ?? "?")} 目录，索引 ${String(ready.indexMs ?? "?")}ms${ready.truncated ? "（已截断）" : ""}`);
 			},
 		});
+		this.now = options.now ?? Date.now;
 	}
 
-	/**
-	 * 就绪探测：同步返回「现在发请求不会卡在 boot 上」。不拉进程、不等待。
-	 * 交互路径（文件名搜索）先用它判断——未就绪直接回退 BFS，后台预热继续，
-	 * 索引就绪后下一次输入自然走索引。
-	 */
+	/** 就绪探测：同步返回是否可以直接请求；不拉进程、不等待。 */
 	isReady(roots: string[]): boolean {
 		return this.isReadyForKey(roots.join("\0"));
 	}
 
-	/**
-	 * 后台预热：fire-and-forget 建索引，失败静默（调用方已有 BFS 兜底）。
-	 * 未就绪时每次搜索都会调它，因此必须防重入（booting/ready 且 roots 未变则直接返回）。
-	 */
+	/** 后台预热：boot ready 已经包含一次完整建索引，不再重复 refresh。 */
 	warmup(roots: string[]): void {
 		if (this.disposed || roots.length === 0) return;
-		if (this.isActiveForKey(roots.join("\0"))) return;
-		void this.refresh(roots).catch(() => {});
+		const rootKey = roots.join("\0");
+		if (this.isActiveForKey(rootKey)) return;
+		this.indexFreshness = { rootKey, indexedAt: this.now() };
+		void this.ensureChild(roots).catch(() => {});
 	}
 
 	/** 名字模糊检索（评分排序）。未就绪时会等 boot 结束，交互路径应先 isReady 判断。 */
 	async searchNames(roots: string[], query: string, limit = DEFAULT_NAME_LIMIT): Promise<FileIndexCallResult<FileIndexNameResult>> {
-		const boot = await this.ensureChild(roots);
+		const boot = await this.prepareSearch(roots);
 		if (!boot.ok) return boot;
 		return this.request<FileIndexNameResult>({ cmd: "search-name", query, limit });
 	}
 
 	/** 内容检索（有界实时扫描）。同样应先 isReady 再调用。 */
 	async searchContent(roots: string[], query: string, limit = DEFAULT_CONTENT_LIMIT, maxFileBytes = DEFAULT_MAX_FILE_BYTES, maxScannedBytes = DEFAULT_MAX_SCANNED_BYTES): Promise<FileIndexCallResult<FileContentSearchResult & { hits: FileContentSearchHit[] }>> {
-		const boot = await this.ensureChild(roots);
+		const boot = await this.prepareSearch(roots);
 		if (!boot.ok) return boot;
 		return this.request<FileContentSearchResult & { hits: FileContentSearchHit[] }>({ cmd: "search-content", query, limit, maxFileBytes, maxScannedBytes });
 	}
 
-	/** 重建索引（预热与手动刷新用）。 */
+	/** 显式刷新。只有成功才更新时间戳，刷新失败保留失败语义。 */
 	async refresh(roots: string[]): Promise<FileIndexCallResult<FileIndexStats>> {
 		const boot = await this.ensureChild(roots);
 		if (!boot.ok) return boot;
-		return this.request<FileIndexStats>({ cmd: "refresh" });
+		return this.refreshReadyIndex(roots.join("\0"));
+	}
+
+	/** 刷新过期快照；同根目录并发查询复用一个在途全量刷新。 */
+	private async prepareSearch(roots: string[]): Promise<FileIndexCallResult<true>> {
+		const rootKey = roots.join("\0");
+		const boot = await this.ensureChild(roots);
+		if (!boot.ok) return boot;
+		if (this.indexFreshness?.rootKey !== rootKey) this.indexFreshness = { rootKey, indexedAt: this.now() };
+		if (this.now() - this.indexFreshness.indexedAt < INDEX_REFRESH_AGE_MS) return boot;
+		const existing = this.searchRefresh?.rootKey === rootKey ? this.searchRefresh.promise : undefined;
+		if (existing) {
+			await existing;
+			return boot;
+		}
+		const promise = this.refreshReadyIndex(rootKey);
+		this.searchRefresh = { rootKey, promise };
+		try {
+			await promise;
+			return boot;
+		} finally {
+			if (this.searchRefresh?.promise === promise) this.searchRefresh = undefined;
+		}
+	}
+
+	private async refreshReadyIndex(rootKey: string): Promise<FileIndexCallResult<FileIndexStats>> {
+		const result = await this.request<FileIndexStats>({ cmd: "refresh" });
+		if (result.ok) this.indexFreshness = { rootKey, indexedAt: this.now() };
+		return result;
 	}
 
 	/** 校验 roots 并把 spawn 参数收敛到一个入口（索引进程只服务一组 roots）。 */

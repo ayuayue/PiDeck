@@ -1,12 +1,14 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
-import { ChevronDown, ChevronUp, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, CornerDownRight, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
 import { useAtomValue } from "jotai";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
 import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, isActiveSessionStatus, sessionStatusDotClass, type ProjectChildItem } from "../../agentListDisplay";
 import { compareSessionsForSortMode } from "../../sessionSortModes";
 import { sessionRecordToSummary } from "../../atoms";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { linkedSessionLinkByChildIdAtom } from "../../atoms/linked-session-atoms";
+import type { LinkedSessionLink, LinkedSessionState } from "../../../../shared/types/linkedSessions";
 import { t } from "../../i18n";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { hasPendingAskForSession } from "../../utils/askUi";
@@ -19,7 +21,9 @@ import { SessionActivityIndicator } from "../session/SessionActivityIndicator";
 import { SessionHoverCard } from "./SessionHoverCard";
 import { TitleScrollText } from "./TitleScrollText";
 import { SESSION_ROW_CLASS, SESSION_ROW_SELECTED_CLASS, ROW_MORE_ACTIONS_CLASS, ROW_CONTAINER_CLASS } from "./sidebarRowStyles";
-import { resolveBoundSession } from "./activitySessionsModel";
+import { LINKED_NEST_MAX_DEPTH, groupLinkedChildren, resolveBoundSession } from "./activitySessionsModel";
+import { shouldHideGroupedSession } from "./sessionGroupsModel";
+import { openSessionRowMenu } from "./sessionRowMenu";
 import { cn } from "../../lib/utils";
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 import { useSessionActivityAt } from "../../hooks/sidebar/useSessionActivityClock";
@@ -59,6 +63,35 @@ function formatCodexSubagentName(session: SessionSummary) {
 	return [session.codexAgentNickname, session.codexAgentRole].filter(Boolean).join(" · ") || session.name || t("app.codexSubagent");
 }
 
+/** 关联子会话的展示状态 → 状态点语义（与 Tab 栏同一套颜色）；有活着的运行时时以运行时为准。 */
+const LINKED_STATE_DOT: Record<LinkedSessionState, string | undefined> = {
+	starting: "starting",
+	running: "running",
+	idle: "idle",
+	failed: "error",
+	stopped: undefined,
+};
+
+function linkedStateLabel(state: LinkedSessionState): string {
+	switch (state) {
+		case "starting":
+			return t("linkedSessions.state.starting");
+		case "running":
+			return t("linkedSessions.state.running");
+		case "idle":
+			return t("linkedSessions.state.idle");
+		case "failed":
+			return t("linkedSessions.state.failed");
+		case "stopped":
+			return t("linkedSessions.state.stopped");
+	}
+}
+
+function linkedChildTooltip(link: LinkedSessionLink): string {
+	const head = `${linkedStateLabel(link.state)} · ${t("linkedSessions.turns", { count: link.turnCount })}`;
+	return link.lastReport ? `${head}\n${t("linkedSessions.lastReport")}：${link.lastReport}` : head;
+}
+
 function formatPiSubagentName(session: SessionSummary) {
 	return session.name || t("app.piSubagent");
 }
@@ -88,6 +121,8 @@ export function SessionTree(props: {
 	onShowMore?: () => void;
 	/** 无行可渲染时的空态（仅聊天分组传入）：空列表必须有可见反馈，不能静默 return null。 */
 	emptyState?: ReactNode;
+	/** 已进入会话分组的会话 id：这些行已在上方分组区出现，项目列表不再重复显示（搜索时不隐藏）。 */
+	groupedSessionIds?: ReadonlySet<string>;
 }) {
 	const filter = props.controller.sourceFilterFor(props.project.id);
 	const search = props.controller.search.trim();
@@ -96,34 +131,47 @@ export function SessionTree(props: {
 	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
 	// 相对时间的基准：live 计时点（本轮开始/上一轮结束）优先，历史会话回落会话更新时间。
 	const activityAt = useSessionActivityAt();
+	const linkByChildId = useAtomValue(linkedSessionLinkByChildIdAtom);
+	// 关联子会话（子对话）：父会话在本项目里时从主列表拿掉、挂到父会话行下面；父会话不在（被删 / 跨项目）就按普通会话显示。
+	// 可多层（A > B > C）：孙会话挂在子会话行下面，由 renderLinkedChild 递归。
+	const { childrenByParent: linkedChildrenByParent, childIds: linkedChildIds } = linkByChildId.size > 0 ? groupLinkedChildren(props.sessions, (id) => linkByChildId.get(id)) : { childrenByParent: new Map<string, SessionRecord[]>(), childIds: new Set<string>() };
 	const allSummaries = props.sessions.flatMap((session) => {
 		const summary = sessionRecordToSummary(session);
 		return summary ? [summary] : [];
 	});
-	const summaries = filterSidebarSessions(allSummaries, filter).filter((session) => matchesSearch(`${session.name ?? ""}${session.preview}${session.filePath}`, search));
+	const summaries = filterSidebarSessions(allSummaries, filter)
+		.filter((session) => !linkedChildIds.has(session.id))
+		.filter((session) => matchesSearch(`${session.name ?? ""}${session.preview}${session.filePath}`, search));
+	// 已加入分组的会话不在项目列表重复出现（分组区已经在上面展示了它）。
+	// 搜索是「按名字找回会话」的入口，命中时两边都给，否则越搜越找不到。
+	const groupedHiddenSummaries = summaries.filter((session) => shouldHideGroupedSession(session.id, props.groupedSessionIds, search));
+	const visibleSummaries = summaries.filter((session) => !shouldHideGroupedSession(session.id, props.groupedSessionIds, search));
 	const projectAgents = props.agents.filter((agent) => agent.projectId === props.project.id);
 	const displayAgents = filterAgentsForSidebarDisplay({
-		agents: projectAgents,
+		agents: linkedChildIds.size > 0 ? projectAgents.filter((agent) => !agent.deckSessionId || !linkedChildIds.has(agent.deckSessionId)) : projectAgents,
 		allSessions: allSummaries,
-		visibleSessions: summaries,
+		visibleSessions: visibleSummaries,
 		sources: filter,
 	});
 	const display = getProjectAgentSessionDisplay({
 		agents: displayAgents,
-		sessions: summaries,
+		sessions: visibleSummaries,
 		visibleChildCount: props.visibleChildCount ?? (props.nested ? Number.MAX_SAFE_INTEGER : props.controller.visibleChildCountFor(props.project.id)),
 		pinnedSessionIds: props.controller.pinnedSessionIds,
 		sortMode: props.controller.sessionSortMode,
 	});
 	const displayedSessionIds = collectDisplayedSessionIds(display.visibleChildren, (agent) => {
-		const linked = resolveBoundSession(agent, props.sessions, props.controller.catalog.runtimeBySessionId) ?? (agent.sessionPath ? summaries.find((session) => session.filePath === agent.sessionPath) : undefined);
+		const linked = resolveBoundSession(agent, props.sessions, props.controller.catalog.runtimeBySessionId) ?? (agent.sessionPath ? visibleSummaries.find((session) => session.filePath === agent.sessionPath) : undefined);
 		return linked?.id;
 	});
 	const draftSessions = props.sessions
 		.filter((session) => session.status === "draft")
 		.filter((session) => !displayedSessionIds.has(session.id))
+		.filter((session) => !linkedChildIds.has(session.id))
 		.filter((session) => matchesSearch(session.title, search))
 		.filter((session) => filter === null || filter.has(session.source))
+		// 草稿不参与分组隐藏：草稿行的删除入口只在项目列表的草稿行/草稿菜单里，
+		// 分组行只会弹普通会话菜单（没有「删除草稿」）。
 		.sort((left, right) => compareSessionsForSortMode(left, right, props.controller.sessionSortMode));
 	const catalogLoading = props.controller.catalog.catalogLoadStateByProject[props.project.id]?.status === "loading";
 	const canCollapseChildren = props.controller.hasExpandedChildren(props.project.id);
@@ -141,7 +189,18 @@ export function SessionTree(props: {
 	}, [hasRows]);
 	// 最后一条也必须留到退场结束；空树在调用方未提供空态时仍不占 session-card 的空间。
 	// 聊天分组提供 emptyState：展开且为空时显示「还没有聊天记录」，与「分组被折叠」区分开（#387）。
-	if (!hasRows && !retainingExit) return props.emptyState ? <>{props.emptyState}</> : null;
+	// 全被分组收走时先给一句提示（不等退场结束）：否则用户看到的是空壳或「还没有聊天记录」，
+	// 会以为会话丢了；搜索词非空时不隐藏，所以这里也不必考虑搜索结果。
+	const onlyInGroups = groupedHiddenSummaries.length > 0;
+	if (!hasRows) {
+		if (onlyInGroups)
+			return (
+				<div className="px-2 py-1 text-caption text-muted-foreground/70" data-testid="sessions-in-groups-only">
+					{t("sidebar.sessionsOnlyInGroups")}
+				</div>
+			);
+		if (!retainingExit) return props.emptyState ? <>{props.emptyState}</> : null;
+	}
 
 	/** 单击走设置默认模式（App 层读 sessionTabOpenMode）；双击显式常驻。
 	 *  不设本地默认值：undefined 透传后由 App 的 sessions.open 用设置值兜底 */
@@ -164,9 +223,8 @@ export function SessionTree(props: {
 	});
 
 	const openContext = (event: React.MouseEvent, session: SessionSummary, pinnable = true) => {
-		event.preventDefault();
-		const runtime = getBoundSidebarRuntimeAgent(props.controller.catalog, session.id);
-		void props.controller.openMenu(runtime ? { kind: "agent", agentId: runtime.id, pinnable, x: event.clientX, y: event.clientY } : { kind: "session", projectId: props.project.id, sessionId: session.id, pinnable, x: event.clientX, y: event.clientY });
+		// 菜单判定收敛到 openSessionRowMenu：分组树的行也用同一入口，避免同一会话在两处弹不同菜单。
+		openSessionRowMenu(props.controller, event, props.project.id, session.id, pinnable);
 	};
 	const openDraftContext = (event: React.MouseEvent, session: SessionRecord) => {
 		event.preventDefault();
@@ -227,6 +285,62 @@ export function SessionTree(props: {
 			</div>
 		);
 	};
+	const renderLinkedChild = (record: SessionRecord, depth: number) => {
+		const link = linkByChildId.get(record.id);
+		if (!link) return null;
+		const summary = sessionRecordToSummary(record);
+		const liveStatus = props.controller.catalog.runtimeBySessionId[record.id]?.status;
+		const dotStatus = link.state === "failed" ? "error" : (liveStatus ?? LINKED_STATE_DOT[link.state]);
+		const title = record.title || t("common.untitled");
+		return (
+			<Fragment key={record.id}>
+				<div className={rowContainerClass} onContextMenu={summary ? (event) => openContext(event, summary, false) : undefined}>
+					<button
+						type="button"
+						className={cn(sessionRowClass, "session-row linked-session-sidebar-row pl-2", record.id === props.currentSessionId && selectedRowClass)}
+						title={`${title}\n${linkedChildTooltip(link)}`}
+						data-linked-state={link.state}
+						onClick={() => openSession(record.id)}
+						onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(record.id, "permanent")}
+						{...sessionDragProps(record.id)}
+					>
+						<CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />
+						{renderRuntimeStatusDot(dotStatus)}
+						<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
+							<div className="conversation-title flex min-w-0 items-center gap-1.5">
+								<TitleScrollText text={title} className={cn(liveStatus ? "font-medium" : "font-normal text-muted-foreground/90")} />
+								{hasPendingAskForSession(record.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}
+								<span className="w-max shrink-0 overflow-hidden whitespace-nowrap text-micro text-muted-foreground transition-[width,opacity] [interpolate-size:allow-keywords] group-hover/row:w-0 group-hover/row:opacity-0 group-focus-within/row:w-0 group-focus-within/row:opacity-0">{linkedStateLabel(link.state)}</span>
+							</div>
+						</div>
+					</button>
+					{summary && (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							className={rowMoreMenuActiveClass(props.controller.menu?.kind === "session" && props.controller.menu.sessionId === record.id)}
+							aria-label={t("sidebar.moreActions")}
+							title={t("sidebar.moreActions")}
+							onClick={(event) => {
+								event.stopPropagation();
+								openContext(event, summary, false);
+							}}
+						>
+							<Ellipsis size={14} aria-hidden="true" />
+						</Button>
+					)}
+				</div>
+				{renderLinkedChildren(record.id, depth + 1)}
+			</Fragment>
+		);
+	};
+	const renderLinkedChildren = (parentSessionId: string | undefined, depth = 1) => {
+		const children = parentSessionId ? linkedChildrenByParent.get(parentSessionId) : undefined;
+		if (!children?.length) return null;
+		// 缩进随层数累加，到 LINKED_NEST_MAX_DEPTH 为止（侧栏宽度有限）；关系成环的行在 groupLinkedChildren 里已摘出。
+		return <div className={cn("linked-session-sidebar-group", depth <= LINKED_NEST_MAX_DEPTH && (depth > 1 || !props.nested) && "ml-3")}>{children.map((child) => renderLinkedChild(child, depth))}</div>;
+	};
 	const renderSubagents = (parentKey: string, codex: SessionSummary[], pi: SessionSummary[]) => {
 		if (codex.length + pi.length === 0 || !props.controller.expandedSubagentGroups.has(parentKey)) return null;
 		// 主侧栏子会话组缩进走 tailwind utility（ml-3），避免 legacy 层 v3-braun 规则覆盖；
@@ -238,27 +352,27 @@ export function SessionTree(props: {
 			</div>
 		);
 	};
-	/** 子会话折叠胶囊：紧贴右侧邻居左缘，自身不预留空白——留白归属由「谁在它右边」决定：
-	 *  - 历史会话行后面跟着相对时间戳 → margin 0，胶囊贴住时间戳（用户要求把标签右移，别再空 28px）；
-	 *  - 运行中 Agent 行没有时间戳，胶囊是行内最后一个元素 → `last:mr-7` 自己预留 28px（= size-6
-	 *    「⋯」按钮 + right-1），否则 hover 让位 padding 长出前的 150ms 里它会正压在「⋯」上。
-	 *   实例代价：两种行非 hover 态的胶囊右缘相差 18px（会话行多让出时间戳宽度 + 间距），
-	 *   但落点都由本行右侧邻居决定，视觉上一致。 */
-	const renderToggle = (key: string, count: number) =>
-		count > 0 ? (
-			<span
-				className="subagent-inline-toggle px-1 py-0.5 last:mr-7"
-				title={t("app.piSubagentCount", { count })}
-				onClick={(event) => {
-					event.stopPropagation();
-					props.controller.toggleSubagentGroup(key);
-				}}
-			>
-				<ChevronDown size={8} className={props.controller.expandedSubagentGroups.has(key) ? "expanded" : ""} />
-				{/* 子 Agent 数量：统一 pill 样式（与项目行会话数徽标同尺寸同圆角），紧凑档 */}
+	/** 父行是 button，行内占位保留标题/时间戳布局；同行独立按钮锚定占位位置，供键盘操作。 */
+	const renderToggle = (key: string, count: number, slot = false) => {
+		if (count === 0) return null;
+		const label = t("app.piSubagentCount", { count });
+		const expanded = props.controller.expandedSubagentGroups.has(key);
+		const content = (
+			<>
+				<ChevronDown size={8} className={expanded ? "expanded" : ""} aria-hidden="true" />
 				<span className="subagent-inline-count inline-flex h-3.5 shrink-0 items-center rounded-full px-1 text-micro font-medium tabular-nums">{count}</span>
+			</>
+		);
+		return slot ? (
+			<span className="subagent-inline-toggle px-1 py-0.5 last:mr-7 subagent-toggle-slot" aria-hidden="true">
+				{content}
 			</span>
-		) : null;
+		) : (
+			<button type="button" className="subagent-inline-toggle subagent-toggle-button px-1 py-0.5 focus-visible:ring-1 focus-visible:ring-ring" aria-label={label} aria-expanded={expanded} title={label} onClick={() => props.controller.toggleSubagentGroup(key)}>
+				{content}
+			</button>
+		);
+	};
 
 	// main 语义：项目下直接展示统一列表（drafts + 会话/Agent 按时间混排），不分组标题；
 	// Tab 栏同款状态点跟随具体 Agent/历史会话行；没有 runtime 的纯历史记录保持无点。
@@ -274,7 +388,7 @@ export function SessionTree(props: {
 				<SidebarRemovalRow key={child.key} itemId={agentSession?.id ?? child.agent.id}>
 					{/* 运行中 Agent 行：标题常被 truncate（如 "JZSSC40..."），悬浮展示完整标题 */}
 					<div
-						className={rowContainerClass}
+						className={cn(rowContainerClass, childCount > 0 && "session-toggle-row")}
 						onContextMenu={(event) => {
 							event.preventDefault();
 							void props.controller.openMenu({ kind: "agent", agentId: child.agent.id, x: event.clientX, y: event.clientY });
@@ -312,11 +426,12 @@ export function SessionTree(props: {
 												<HatGlasses size={11} aria-hidden="true" />
 											</span>
 										)}
-										{renderToggle(groupKey, childCount)}
+										{renderToggle(groupKey, childCount, true)}
 									</div>
 								</div>
 							</button>
 						</SessionHoverCard>
+						{renderToggle(groupKey, childCount)}
 						<Button
 							type="button"
 							variant="ghost"
@@ -334,6 +449,7 @@ export function SessionTree(props: {
 						</Button>
 					</div>
 					{renderSubagents(groupKey, child.codexSubagents, child.piSubagents)}
+					{renderLinkedChildren(agentSession?.id)}
 				</SidebarRemovalRow>
 			);
 		}
@@ -342,7 +458,7 @@ export function SessionTree(props: {
 		const pinned = props.controller.isSessionPinned(child.session.id);
 		return (
 			<SidebarRemovalRow key={child.session.id} itemId={child.session.id}>
-				<div className={rowContainerClass} onContextMenu={(event) => openContext(event, child.session)}>
+				<div className={cn(rowContainerClass, childCount > 0 && "session-toggle-row")} onContextMenu={(event) => openContext(event, child.session)}>
 					<SessionHoverCard session={child.session} title={child.session.name} projectName={props.project.name} status={runtimeSnapshot?.status} disabled={Boolean(props.controller.menu)}>
 						<button
 							type="button"
@@ -377,7 +493,7 @@ export function SessionTree(props: {
 									{child.session.backend !== "imagegen" && child.session.hasImageGen && <ImageIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
 									{child.session.channel && <SessionChannelMark channel={child.session.channel} />}
 									{child.session.sideTask && <SideTaskMark />}
-									{renderToggle(groupKey, childCount)}
+									{renderToggle(groupKey, childCount, true)}
 									{/* 相对时间常显：多久前用过一目了然；hover 行时让位给右侧「⋯」按钮。
                   基准是「计时点」而不是文件 mtime（见 hooks/sidebar/useSessionActivityClock）：
                   本轮开始（用户输入）与 turn 结束各算一次，流式期间不会一直被重置成「刚刚」。
@@ -399,6 +515,7 @@ export function SessionTree(props: {
 							</div>
 						</button>
 					</SessionHoverCard>
+					{renderToggle(groupKey, childCount)}
 					<Button
 						type="button"
 						variant="ghost"
@@ -415,6 +532,7 @@ export function SessionTree(props: {
 					</Button>
 				</div>
 				{renderSubagents(groupKey, child.codexSubagents, child.piSubagents)}
+				{renderLinkedChildren(child.session.id)}
 			</SidebarRemovalRow>
 		);
 	};

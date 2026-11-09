@@ -86,7 +86,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "d45b4f862d095ee17db1c4aa744c2675067075ce565a382d71d13545eaddc8de";
+const FROZEN_SHA256 = "d246378fe3e1c0c03f9d3da269b833a9b4085f248d74ce014376e57bb75316e1";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -550,7 +550,7 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 helperTest("the exported entry identity matches the frozen source", () => {
 	assert.equal(REMOTE_HELPER_ENTRY_FILE_NAME, "helper.mjs");
 	assert.match(REMOTE_HELPER_ENTRY_VERSION, /^\d+\.\d+\.\d+$/);
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.26.0", "fs.uploadPrepare/Commit are helper 1.26.0");
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.26.1", "fs.uploadPrepare/Commit 从 1.26.0 起提供；1.26.1 修 dispatch 漏发 git.checkIgnore");
 	// The frozen source cannot import the contract, so its literals are checked against it here.
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(`"${REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report REMOTE_HELPER_ENTRY_VERSION");
 	for (const token of [REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_STAT_MANY, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) {
@@ -1815,4 +1815,33 @@ helperTest("fs.uploadCommit never clobbers and rejects mismatched or linked stag
 		"FILE_UPLOAD_PATH_INVALID",
 	);
 	assert.equal(existsSync(join(fixture.deployRoot, "pwn.txt")), false);
+});
+
+test("every declared capability is actually dispatched by the helper method table", () => {
+	// 回归（2026-11-07）：CAPABILITIES 里声明了 git.checkIgnore，但 dispatch 的分发表漏了它，
+	// 于是 helper 对已声明的方法回 METHOD_NOT_FOUND——能力声明与分发表必须同一个集合。
+	// 2026-11-07 加固：按函数体括号配对整段取 dispatch，不再用固定字符窗口（窗口一超就假绿/假红）；
+	// 覆盖全部能力（fs.* / config.* / terminal.*），不只 git.*。
+	const source = REMOTE_HELPER_INLINE_SOURCE;
+	const capabilities = JSON.parse(/const CAPABILITIES = (\[[^\]]*\]);/.exec(source)[1]);
+	const start = source.indexOf("function dispatch(frame, parsed)");
+	assert.ok(start > 0, "the helper method table must be findable");
+	let depth = 0;
+	let end = -1;
+	for (let index = source.indexOf("{", start); index >= 0 && index < source.length; index += 1) {
+		if (source[index] === "{") depth += 1;
+		else if (source[index] === "}") {
+			depth -= 1;
+			if (depth === 0) {
+				end = index + 1;
+				break;
+			}
+		}
+	}
+	assert.ok(end > start, "the dispatch body must be brace-balanced");
+	const body = source.slice(start, end);
+	assert.ok(body.includes('refuse(identity, "METHOD_NOT_FOUND")'), "the capture must reach the fallthrough, not a truncated prefix");
+	const dispatched = new Set(Array.from(body.matchAll(/frame\.method === "([A-Za-z.]+)"/g), (match) => match[1]));
+	const missing = capabilities.filter((capability) => !dispatched.has(capability));
+	assert.deepEqual(missing, [], "every declared capability must reach a handler (otherwise METHOD_NOT_FOUND)");
 });

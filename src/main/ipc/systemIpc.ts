@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { ipcChannels } from "../../shared/ipc";
 import { resolveBuildOrigin } from "../buildIdentity";
 import { isDevChannelBuild, resolveUpdateChannel } from "../update/channelIdentity";
+import { REMOTE_FEATURE_AVAILABLE } from "../remote/remoteFeaturePolicy";
 import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/releaseRepo";
 import { probeAllMirrors, type MirrorHealthResult } from "../update/mirrorHealth";
 import { ChangelogService, type ChangelogLanguage } from "../update/ChangelogService";
@@ -34,6 +35,7 @@ import { invalidatePiInstallationCache, type PiLocator } from "../pi/PiLocator";
 import { validateInstallCommand } from "../pi/installCommandPolicy";
 import { resolvePiInstallGuard } from "../pi/piInstallGuard";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
+import { hasWslSettingsChanged } from "../wsl/WslProjectEnvironment";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { RemotePiConfigBackend } from "../config/RemotePiConfigBackend";
@@ -1336,8 +1338,10 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.appGetChannel, () => ({
 		channel: resolveUpdateChannel(),
 		currentVersion: app.getVersion(),
-		// 构建身份：未打包 dev 或 dev 通道包为 true，stable 安装包恒 false（不作为功能入口门控）。
+		// 构建身份：未打包 dev 或 dev 通道包为 true，stable 安装包恒 false（仅表示构建身份）。
 		devBuild: isDevChannelBuild(),
+		// 远端能力与更新通道正交；渲染层只读这一项决定是否展示入口。
+		remoteAvailable: REMOTE_FEATURE_AVAILABLE,
 		// 来源与通道正交：本地打包的 stable 包在更新界面上与官方发布包同形，靠这个字段区分。
 		buildOrigin: resolveBuildOrigin(),
 	}));
@@ -1386,8 +1390,10 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				},
 				eventLoopLagMs: 0,
 				eventLoopLagMaxMs: 0,
+				processCpu: [],
 				memoryProfilePath: null,
 				timingsPath: null,
+				cpuPath: null,
 				recentTimings: [],
 			}
 		);
@@ -1911,7 +1917,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		// WSL 来源/发行版/用户：目标是另一套 HOME，技能/提示词/扩展/配置目录必须整体重绑，
 		// 否则设置页改完只有「检测环境」生效，资源页仍是旧用户（/root 的 0700 家目录还会 EPERM）。
 		// 只在三元组真的变化时重放：普通设置保存不额外拉起 wsl.exe 探测。
-		const wslSettingsChanged = prevSettings.wslEnabled !== settings.wslEnabled || prevSettings.wslDistro !== settings.wslDistro || prevSettings.wslUser !== settings.wslUser;
+		const wslSettingsChanged = hasWslSettingsChanged(prevSettings, settings);
 		if (wslSettingsChanged && deps.applyWslSettings) {
 			try {
 				await deps.applyWslSettings();

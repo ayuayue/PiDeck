@@ -84,7 +84,7 @@ import type { RemoteSessionRegistration } from "../sessions/SessionCatalog";
 import { SessionFileEditor, type SessionEntryTarget, type SessionFileRef } from "./SessionFileEditor";
 import { SessionHistoryReader, applySessionContextEdits, boundTurnWindowStart } from "./SessionHistoryReader";
 import { createTrajectoryFactsReader, type TrajectoryFactsReader } from "../sessions/trajectoryFactsReader";
-import { scanJsonlLines } from "../sessions/jsonlLineStream";
+import { createJsonlScanLines } from "../sessions/jsonlLineStream";
 import { estimateMessagesPayloadBytes } from "./messagePayloadSize";
 import { bindRemoteUserMessageTimestamp } from "./remoteMessageTimestamp";
 import { StoppedMessageIdentityCache } from "./stoppedMessageIdentity";
@@ -699,6 +699,8 @@ export class AgentManager {
 			// 模型快照端点：注册本 agent 的会话，拿到注入用的 URL/token。
 			// 端点未就绪时返回 undefined → 不注入 → 扩展静默不工作（fail-safe）。
 			modelTraceEnv: agentId ? this.registerModelTraceSession(agentId) : undefined,
+			// 关联会话端点（例外九）：同一套「每 agent 一份 token」生命周期，随模型快照一起注销。
+			linkedSessionsEnv: agentId ? this.linkedSessionsHost?.registerAgent(agentId) : undefined,
 			// 扩展解析器与模型能力缓存共用（piProcessExtensionResolvers）：
 			// 保证「选择器能看到扩展贡献的模型」与「运行时实际加载的扩展」同源。
 			// PiDeck 自带扩展用 -e 注入；普通资源的启停已交给 pi 原生 settings.json 过滤规则。
@@ -781,6 +783,18 @@ export class AgentManager {
 		} catch {
 			// 注销失败无副作用（token 会随端点关闭一起清掉）
 		}
+		try {
+			this.linkedSessionsHost?.unregisterAgent(agentId);
+		} catch {
+			// 同上
+		}
+	}
+
+	/** 关联会话端点（例外九）；index.ts 在端点就绪后注入，缺省时不给 pi 注入 env。 */
+	private linkedSessionsHost?: { registerAgent(agentId: string): Record<string, string> | undefined; unregisterAgent(agentId: string): void };
+
+	setLinkedSessionsHost(host: { registerAgent(agentId: string): Record<string, string> | undefined; unregisterAgent(agentId: string): void }): void {
+		this.linkedSessionsHost = host;
 	}
 
 	/**
@@ -1131,6 +1145,13 @@ export class AgentManager {
 	}
 
 	/**
+	 * 已记过的「相对 sessionDir 归一化」警告（按 pi 上报的原路径去重）。
+	 * get_state 每次轮询都会重报同一个相对路径，不去重时一条无害配置一分钟能刷出几十条
+	 * 同文案 warn（用户诊断报告里 790 条 warn 里绝大部分是它），真问题会被淹没。
+	 */
+	private readonly loggedRelativeSessionPaths = new Set<string>();
+
+	/**
 	 * 归一化 pi 上报/传入的会话路径为绝对路径（含日志）。
 	 * pi 的 sessionDir 配置为相对路径（如 ".pi/sessions"）时，get_state 返回的
 	 * sessionFile 是相对 cwd 的；若原样写入 catalog，会与扫描器发现的绝对路径
@@ -1139,7 +1160,8 @@ export class AgentManager {
 	private normalizeSessionPathFromPi(sessionPath: string | undefined, projectPath: string, environment: SessionEnvironment): string | undefined {
 		if (!sessionPath) return undefined;
 		const resolved = toAbsoluteSessionPath(sessionPath, projectPath, environment);
-		if (resolved !== sessionPath) {
+		if (resolved !== sessionPath && !this.loggedRelativeSessionPaths.has(sessionPath)) {
+			this.loggedRelativeSessionPaths.add(sessionPath);
 			void this.appLogger?.warn("agent", "Session file path was relative; resolved to absolute", {
 				sessionPath,
 				resolved,
@@ -3524,11 +3546,9 @@ export class AgentManager {
 	 * V8 直接 abort 整个主进程（用户看到「大会话闪退」，连堆栈都记不下来）。
 	 */
 	private readonly cacheHitStatsReader: CacheHitStatsReader = createCacheHitStatsReader({
-		// scanJsonlLines 的 visitor 是 (line, context) 两参，读取器需要一个投影函数：
-		// 只额外传递 offset/byteLength/complete（增量续算靠它确定行边界）。
-		scanLines: async (filePath, visitor) => {
-			await scanJsonlLines(filePath, visitor);
-		},
+		// 适配器必须把读取器算出的增量起点 `{ start }` 透传给 scanJsonlLines：
+		// 漏传时底层从字节 0 重扫、上层却复用旧累加器，样本会被重复累计（#511）。
+		scanLines: createJsonlScanLines(),
 		stat,
 	});
 

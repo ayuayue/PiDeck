@@ -375,6 +375,8 @@ export interface UpdateChannelInfo {
 	currentVersion: string;
 	/** 开发构建（未打包 npm run dev 或 dev 通道安装包）：仅用于呈现当前构建身份，不再作为功能入口门控。 */
 	devBuild: boolean;
+	/** 远端能力是否可用：与更新通道正交，主进程装配和渲染入口共用同一策略位。 */
+	remoteAvailable: boolean;
 	/**
 	 * 构建来源：release = CI 发布流水线产物；local-package = 本机打包（pack:dev / pack / dist:* 直跑）；
 	 * dev-run = 未打包运行。渲染层据此给「本地构建」徽章与版本号说明——本机包的版本号抄

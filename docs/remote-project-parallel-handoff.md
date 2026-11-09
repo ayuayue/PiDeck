@@ -402,6 +402,7 @@ node F:\PiDeck\scripts\panel-baseline.mjs sync --to F:\PiDeck-f
 - **门禁**：`typecheck` / `check:ipc-wiring`（795 通道）/ `check:test-shape` / `check:format` 均 0；全量 `npm test` **15475 tests / 15190 pass / 0 fail / 285 skip**。
 - **E2E**：`git-panel`、`file-viewer`、`file-tree-dom-budget` 通过；`file-tree-sticky` 行距断言在 I0 基线同样失败（既有环境/布局问题，已用临时 baseline worktree 复核并清理）。
 - **未完成/限制**：真实 SSH、远端 E2E、Linux CI、T 的文本保存真机验收；回收站/上传下载/图片预览仍是远端薄壳；`files.stat` 的 `missing` 与 `capabilities.files.watch` UI 仍待集成者。
+- **后续状态（2026-11 核对）**：真实 SSH / 远端 E2E / 文本保存已由 `e2e/remoteSessionAcceptance.spec.ts`（含 `remote-file-editing.ts`）与远端 Git/文件全组覆盖；回收站有 `remote-trash-row` 用例，图片预览有 `RemoteImagePreview.tsx`，`capabilities.files.watch` 已在 `projectServiceCapabilities.ts` 接线。真实缺口只剩：Linux CI 环境（远端链路仍靠本机真机跑）；上传/下载按能力差异设计走传输通道。
 
 ## 11. 生产 root pooling 交接（2026-11-02 初次真机通过；2026-11-03 审计后复验；未提交）
 

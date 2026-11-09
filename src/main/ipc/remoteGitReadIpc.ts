@@ -13,15 +13,12 @@ import type {
 	GitRepositoryListResult,
 	RemoteGitBranchMutationResult,
 	RemoteGitCommitDetailResult,
-	RemoteGitCompareResult,
 	RemoteGitDiscardResult,
-	RemoteGitLogResult,
 	RemoteGitRecoveryDropResult,
 	RemoteGitRecoveryListResult,
 	RemoteGitRecoveryRestoreResult,
 	RemoteGitRefFileDiffResult,
 	RemoteGitRefsResult,
-	RemoteGitReposResult,
 	RemoteGitFetchOutcomeResult,
 	RemoteGitInitResult,
 	RemoteGitPullOutcomeResult,
@@ -33,8 +30,22 @@ import type { RemoteProjectFactsScope } from "../../shared/types/remoteHost";
 import { opFailFromCode, opOk } from "../../shared/op";
 import { createRemoteGitService, remoteGitFailureCode, remoteGitRepoScope, validateRemoteGitPath, validateRemoteGitRepoPath, type RemoteGitLocator, type RemoteGitReadSnapshot } from "../git/RemoteGitService";
 import { createRemoteGitMutationTokens } from "../git/RemoteGitMutationTokens";
-import { createSnapshotFactsCache } from "../git/RemoteGitSnapshotFacts";
+import { createSnapshotFactsCache, type SnapshotFactsCache } from "../git/RemoteGitSnapshotFacts";
 import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
+import { DIRECTORY_IGNORE_BATCH_SIZE, DIRECTORY_IGNORE_MAX_PATHS, DIRECTORY_IGNORE_REPOS_TTL_MS, repoRelativePathOf, repoScopeOfPath } from "../files/DirectoryIgnore";
+
+/**
+ * 工作区事实 owner 的 Git 侧接口（T4）：由 `remoteProjectIpc` 的 handle 提供。
+ *
+ * 这里只声明 Git IPC 真正需要的三件事：读哪份缓存、写后怎么标脏。目录族（dir/repos/订阅）不在这里暴露。
+ */
+export type RemoteWorkspaceFactsPort = {
+	facts: SnapshotFactsCache<RemoteGitReadSnapshot>;
+	/** Git 写成功/结果未知：该仓库 status + 整树标脏，只发一条通知。 */
+	afterGitWrite(projectId: string, repoPath: string): void;
+	/** 文件写：该项目全部已缓存仓库的 status 标脏（由 owner 发通知）。 */
+	invalidateStatuses(projectId: string): void;
+};
 import { REMOTE_GIT_COMMIT_MESSAGE_MAX_BYTES } from "../remote/RemoteHelperContract";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 
@@ -61,10 +72,15 @@ export function registerRemoteGitReadIpc(input: {
 	/** 事实变化通知出口（与目录共用同一个 hub）；缺省时不发通知。 */
 	factsEvents?: RemoteFactsHub;
 	/**
-	 * 整树失效的主进程侧入口（装配层注入 remoteProjectIpc.invalidateTree）。
+	 * 工作区事实 owner（T4）：**单一**目录/status 缓存与失效矩阵都由它持有。
 	 *
-	 * 写成功/结果未知都可能让工作树的条目整块变化（切分支、discard、恢复快照、init），目录事实缓存
-	 * 必须与 Git 事实一起标脏；否则下一次打开抽屉仍会命中旧目录。缺省时不标脏（旧装配/测试端口）。
+	 * 生产装配注入 `remoteProjectIpc` 的 handle；缺省时本模块自持一份缓存与通知（旧装配/单测），
+	 * 那是兼容路径，不是第二份事实源：一个进程只会走其中一条。
+	 */
+	workspace?: RemoteWorkspaceFactsPort;
+	/**
+	 * 整树失效的主进程侧入口（旧装配兼容；新装配走 `workspace.afterGitWrite`）。
+	 * 写成功/结果未知都可能让工作树的条目整块变化（切分支/discard/恢复快照/init）。
 	 */
 	onTreeInvalidated?: (projectId: string) => void;
 }) {
@@ -98,7 +114,16 @@ export function registerRemoteGitReadIpc(input: {
 	 * 事实旧了不会让写穿过去：每个写动词都带 `expectedRevision`，revision 不符时远端自己拒绝
 	 * （见 `RemoteGitSnapshotFacts` 的模块头）。令牌仍然每次现签，缓存的只是事实。
 	 */
-	const facts = createSnapshotFactsCache<RemoteGitReadSnapshot>();
+	const facts = input.workspace?.facts ?? createSnapshotFactsCache<RemoteGitReadSnapshot>();
+	/**
+	 * 仓库列表（目录页 ignore 归因用）：只在目录页装载时用，按项目缓 60s。
+	 * 写成功/unknown 写会清这份缓存（仓库可能新建/删除），不把它当第二份仓库事实源。
+	 */
+	// scope = hostId + root + 项目连接代：断连/重绑立即 miss，不会在 60s 内按旧仓库前缀归因。
+	const directoryIgnoreRepos = new Map<string, { repos: readonly string[]; at: number; scope: string }>();
+	const clearDirectoryIgnoreRepos = (projectId: string): void => {
+		directoryIgnoreRepos.delete(projectId);
+	};
 	/** 公共仓库列表的单调版本：一次成功列表就是一份新事实（truncated 也属这份事实）。 */
 	let repositoryListingRevision = 0;
 
@@ -145,10 +170,41 @@ export function registerRemoteGitReadIpc(input: {
 	}
 
 	/**
-	 * 一次 Git 写造成的跨域失效：主进程目录事实先由装配层注入的入口标脏，再发布 status + tree。
-	 *
-	 * 标脏不是事务的一部分：入口缺失/抛错都不能把一个已经成功的写说成失败。
+	 * 目录页 ignore 归因用的仓库列表（TTL 缓存）：能力缺失时不发仓库发现帧。
+	 * 它不是第二份仓库事实源：只给修饰用，写成功 / 项目关闭就清。
 	 */
+	async function directoryIgnoreReposOf(projectId: string): Promise<readonly string[]> {
+		const locator = input.locator(projectId);
+		if (locator === undefined) return [];
+		const scope = `${locator.hostId} ${locator.remotePath} ${await generationFor(projectId)}`;
+		const cached = directoryIgnoreRepos.get(projectId);
+		const now = Date.now();
+		if (cached !== undefined && cached.scope === scope && now - cached.at < DIRECTORY_IGNORE_REPOS_TTL_MS) return cached.repos;
+		const service = await input.service();
+		const capabilities = service?.projectHelperCapabilities?.(locator.hostId, locator.remotePath);
+		if (capabilities !== undefined && !capabilities.includes("git.checkIgnore")) return [];
+		const listing = await git.listRepositories(projectId);
+		const repos = listing.repos.map((repository) => repository.path);
+		directoryIgnoreRepos.set(projectId, { repos, at: now, scope });
+		return repos;
+	}
+
+	/**
+	 * 一次 Git 写（成功或结果未知）的跨域失效：
+	 * - 单一 owner 装配：`workspace.afterGitWrite` 同时标脏该仓库 status 与整树，并只发一条通知；
+	 * - 旧装配/单测：自持缓存标脏 + 旧的三件事（标树、发 status+tree 通知）。
+	 */
+	function invalidateAfterGitWrite(projectId: string, repoPath: string): void {
+		clearDirectoryIgnoreRepos(projectId);
+		if (input.workspace !== undefined) {
+			input.workspace.afterGitWrite(projectId, repoPath);
+			return;
+		}
+		facts.invalidate(projectId, repoPath);
+		publishTreeInvalidation(projectId, repoPath);
+	}
+
+	/** 旧装配用的发布路径（没有单一 owner 时）：目录标脏 + 一条 status/tree 通知。 */
 	function publishTreeInvalidation(projectId: string, repoPath: string): void {
 		try {
 			input.onTreeInvalidated?.(projectId);
@@ -166,17 +222,11 @@ export function registerRemoteGitReadIpc(input: {
 			const value = await task(guard.projectId, guard.controller.signal);
 			if (guard.controller.signal.aborted || guard.sender.isDestroyed()) throw new Error(mutating ? "GIT_WRITE_RESULT_UNCONFIRMED" : "REQUEST_CANCELLED");
 			// 写成功 ⇒ 这一仓的事实过时了：只标脏，下一次读重新装载（不在这里主动再读一次）。
-			if (mutating) {
-				facts.invalidate(guard.projectId, repoPath);
-				publishTreeInvalidation(guard.projectId, repoPath);
-			}
+			if (mutating) invalidateAfterGitWrite(guard.projectId, repoPath);
 			return value;
 		} catch (error) {
 			// 写已发出但结果未知（超时/断连/答复畸形）：事实可能已经变了，标脏但不自动读、不重放。
-			if (mutating && remoteGitFailureCode(error) === "GIT_WRITE_RESULT_UNCONFIRMED") {
-				facts.invalidate(guard.projectId, repoPath);
-				publishTreeInvalidation(guard.projectId, repoPath);
-			}
+			if (mutating && remoteGitFailureCode(error) === "GIT_WRITE_RESULT_UNCONFIRMED") invalidateAfterGitWrite(guard.projectId, repoPath);
 			throw error;
 		} finally {
 			guard.finish();
@@ -322,15 +372,6 @@ export function registerRemoteGitReadIpc(input: {
 			return { ok: false, code: remoteGitFailureCode(error) };
 		}
 	});
-	/** G5d: one read-only, bounded discovery of the repositories under the project root; no token, no write. */
-	ipcMain.handle(ipcChannels.gitRemoteRepos, async (event, projectId: unknown): Promise<RemoteGitReposResult> => {
-		try {
-			const listing = await read(event, projectId, "", (id, signal) => git.listRepositories(id, signal));
-			return { ok: true, repos: listing.repos, truncated: listing.truncated };
-		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
-		}
-	});
 	ipcMain.handle(ipcChannels.gitRemoteMutateIndex, async (event, projectId: unknown, operation: unknown, group: unknown, value: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<GitIndexMutationResult> => {
 		try {
 			// The trailing scope is validated before any host work; undefined/'' keeps the project-root repository.
@@ -470,16 +511,6 @@ export function registerRemoteGitReadIpc(input: {
 			return { ok: false, code: remoteGitFailureCode(error) };
 		}
 	});
-	/* Read-only history (G3a): same sender/project/pressure boundaries as status; never a token. */
-	ipcMain.handle(ipcChannels.gitRemoteLog, async (event, projectId: unknown, options: unknown, repo: unknown): Promise<RemoteGitLogResult> => {
-		try {
-			const repoPath = validateRemoteGitRepoPath(repo);
-			const page = await read(event, projectId, repoPath, (id, signal) => git.log(id, options, repoPath, signal));
-			return { ok: true, page };
-		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
-		}
-	});
 	ipcMain.handle(ipcChannels.gitRemoteCommitDetail, async (event, projectId: unknown, oid: unknown, repo: unknown): Promise<RemoteGitCommitDetailResult> => {
 		try {
 			const repoPath = validateRemoteGitRepoPath(repo);
@@ -494,15 +525,6 @@ export function registerRemoteGitReadIpc(input: {
 			const repoPath = validateRemoteGitRepoPath(repo);
 			const refs = await read(event, projectId, repoPath, (id, signal) => git.refs(id, repoPath, signal));
 			return { ok: true, refs };
-		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
-		}
-	});
-	/* G5b refs compare: same read boundary as history, no token; both refs are full local ref names. */
-	ipcMain.handle(ipcChannels.gitRemoteCompare, async (event, projectId: unknown, base: unknown, head: unknown, repo: unknown): Promise<RemoteGitCompareResult> => {
-		try {
-			const repoPath = validateRemoteGitRepoPath(repo);
-			return { ok: true, compare: await read(event, projectId, repoPath, (id, signal) => git.compare(id, base, head, repoPath, signal)) };
 		} catch (error) {
 			return { ok: false, code: remoteGitFailureCode(error) };
 		}
@@ -622,22 +644,87 @@ export function registerRemoteGitReadIpc(input: {
 				return opFailFromCode(remoteGitFailureCode(error));
 			}
 		},
-		/** 忽略判定（只读、零授权）：结果与请求逐位对应。 */
+		/**
+		 * 忽略判定（只读、零授权）：结果与请求逐位对应。
+		 *
+		 * 目录页的修饰走同一条能力（见 `probeIgnore`：最长仓库前缀归因、64 路径/批）；
+		 * 这条 IPC 方法保留给未来需要显式判定的调用方，形状与 helper 契约一致。
+		 */
 		async checkIgnore(event: IpcMainInvokeEvent, projectId: unknown, repo: unknown, paths: unknown): Promise<boolean[]> {
 			const repoPath = compatRepo(typeof projectId === "string" ? projectId : "", repo);
 			if (!Array.isArray(paths) || paths.length === 0 || paths.length > 64 || paths.some((path) => typeof path !== "string")) throw new Error("GIT_RESULT_INVALID");
 			return read(event, projectId, repoPath, (id, signal) => git.checkIgnore(id, repoPath, paths as string[], signal));
 		},
 		/**
-		 * 文件写成功后（`remoteProjectIpc.afterWrite` 的对侧）：该项目**全部已缓存仓库**的事实过时了。
+		 * 文件写成功后（`remoteProjectIpc.afterWrite` 的对侧，兼容入口）：该项目**全部已缓存仓库**的事实过时了。
 		 *
-		 * 只标脏 + 逐仓发 status：不装载、不重放写，活跃面板按自己的 repoPath 精确匹配后重读。没有暖事实
-		 * 的项目不发通知（不制造空事件）。目录失效仍由文件写自己的 afterWrite 负责，所以这里不发 tree。
+		 * 单一 owner 装配下文件写的 status 失效已由 `afterWrite` 一并完成，这里只在旧装配（自持缓存）里使用；
+		 * 保留它是为了让装配层仍能显式表达“一次文件写影响 Git 事实”，而不是把语义藏在目录模块里。
 		 */
 		invalidateProject(projectId: string): void {
+			clearDirectoryIgnoreRepos(projectId);
+			if (input.workspace !== undefined) {
+				input.workspace.invalidateStatuses(projectId);
+				return;
+			}
 			const repos = facts.reposOf(projectId);
 			facts.invalidateProject(projectId);
 			for (const repoPath of repos) publishFacts(projectId, repoPath);
+		},
+		/**
+		 * 目录页的 Git ignore 修饰（只读、零授权）：返回与 `paths` 逐位对应的布尔数组，
+		 * 无法判定时返回 `undefined`（调用方不填 `ignored`，不冒充“都没被忽略”）。
+		 *
+		 * 仓库归因只有一条规则：仓库列表的最长目录前缀（严格边界）；helper 只看到仓库内路径。
+		 * 超过目录页上限、无能力、无仓库、全部批次都失败时整页放弃修饰；单批失败只丢该批
+		 * （修饰不是目录页的前置条件，不该被一个怪异路径连坐）。
+		 */
+		async probeIgnore(projectId: string, paths: readonly string[]): Promise<readonly boolean[] | undefined> {
+			if (!input.enabled || disposed) return undefined;
+			if (!Array.isArray(paths) || paths.length === 0 || paths.length > DIRECTORY_IGNORE_MAX_PATHS) return undefined;
+			if (paths.some((path) => typeof path !== "string" || path.length === 0)) return undefined;
+			// `.git` 是 git 保留名（从不是用户文件，渲染层也永不显示）：不送进 check-ignore。
+			// 某些 git/环境组合会对它直接失败，那会把整页修饰一起吞掉；跳过的条目保持 false
+			// （目录页只落 true，所以等价于“没判定”）。
+			const candidates = paths.map((path, index) => ({ path, index })).filter((entry) => !entry.path.split("/").some((part: string) => part === ".git"));
+			const flags = new Array<boolean>(paths.length).fill(false);
+			if (candidates.length === 0) return flags;
+			try {
+				const repos = await directoryIgnoreReposOf(projectId);
+				if (repos.length === 0) return undefined;
+				// 先归因：有一条无法归到仓库就整页不修饰（部分置灰比不置灰更容易让人误读）。
+				const groups = new Map<string, { indexes: number[]; relative: string[] }>();
+				for (const { path, index } of candidates) {
+					const repo = repoScopeOfPath(repos, path);
+					if (repo === undefined) return undefined;
+					const group = groups.get(repo) ?? { indexes: [], relative: [] };
+					group.indexes.push(index);
+					group.relative.push(repoRelativePathOf(repo, path));
+					groups.set(repo, group);
+				}
+				// 有没有任何一批真正被判定过：全都失败时返回 undefined（“没判定”），
+				// 而不是一串 false 让调用方误以为“查过了、都没被忽略”。
+				let answered = 0;
+				for (const [repo, group] of groups) {
+					for (let at = 0; at < group.relative.length; at += DIRECTORY_IGNORE_BATCH_SIZE) {
+						const batch = group.relative.slice(at, at + DIRECTORY_IGNORE_BATCH_SIZE);
+						// 单批失败只丢这一批：修饰不是读的前置条件，也不该被一个怪异路径连坐。
+						let answer: readonly boolean[] | undefined;
+						try {
+							answer = await git.checkIgnore(projectId, repo, batch);
+						} catch {
+							answer = undefined;
+						}
+						if (answer === undefined || answer.length !== batch.length) continue;
+						answered += batch.length;
+						for (let offset = 0; offset < batch.length; offset += 1) flags[group.indexes[at + offset]] = answer[offset];
+					}
+				}
+				return answered === 0 ? undefined : flags;
+			} catch {
+				// 判定不是读的前置条件：任何失败都只是“没修饰”，不是目录页失败。
+				return undefined;
+			}
 		},
 		/** Pair with quit cleanup; sender destruction separately cancels only that window's pending reads. */
 		dispose() {

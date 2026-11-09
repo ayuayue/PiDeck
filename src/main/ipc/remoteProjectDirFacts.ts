@@ -1,38 +1,66 @@
 /**
- * 远端项目目录事实与深层订阅（从 remoteProjectIpc.ts 拆出，行为保持）。
+ * 远端工作区事实的**唯一 owner**（T4 收口；目录族与 Git 状态族同一份缓存主人）。
  *
- * 这里拥有四件事，避免项目域写面文件承载目录缓存细节、再次越过 400 行红线：
+ * 这里拥有五件事，避免项目域写面文件承载目录缓存细节、再次越过 400 行红线：
  * 1. 目录事实缓存（按 projectId + 相对目录键，一次装载只发一次远端请求）；
- * 2. 项目 generation / host / root 归属，以及关闭项目、root 退休、主机断连时的清理；
- * 3. 深层目录订阅（期望路径集 + 合并窗口 + 预算/失败降级）；
- * 4. helper 事件 → 只标脏与通知，不装载。
+ * 2. Git 状态事实缓存（`SnapshotFactsCache`）：`remoteGitReadIpc` 只读写这份实例，不再自建第二份；
+ * 3. 项目 generation / host / root 归属，以及关闭项目、root 退休、主机断连时的清理；
+ * 4. 深层目录订阅（期望路径集 + 合并窗口 + 预算/失败降级）；
+ * 5. helper 事件 / 写成功 / 结果未知 / 断连换代 / 项目关闭 → 只标脏与通知，不装载。
+ *
+ * 失效语义只有一份（五条路径都走这里，一次事件一条通知）：
+ * - `afterWrite`（文件写成功或结果未知）：目录矩阵 + 本项目全部已缓存仓库的 status；
+ * - `invalidateTree`（结果未知的整树）：全部目录 + 全部 status；
+ * - `afterGitWrite`（Git 写成功或结果未知）：该仓库 status + 整树；
+ * - `onHelperEvent`：只标脏事件覆盖的目录；
+ * - `onHostDisconnected` / `onRootRetired` / `closeProject`：目录与 status 一起作废。
  *
  * IPC 层只负责登记与转发；读仍由活跃的消费者决定，一次写不产生远端往返。
  */
 import { codeOf, opFailFromCode, opOk } from "../../shared/op";
 import type { ProjectDirectoryPageResult } from "../../shared/types/projectFiles";
-import type { RemoteWorkspaceEntry } from "../../shared/types/remoteHost";
+import type { RemoteProjectFactsScope, RemoteWorkspaceEntry } from "../../shared/types/remoteHost";
+import { createSnapshotFactsCache, type SnapshotFactsCache } from "../git/RemoteGitSnapshotFacts";
+import type { RemoteGitReadSnapshot } from "../git/RemoteGitService";
 import { createFactCache, type FactCache } from "../remote/RemoteFactCache";
+import type { DirectoryIgnoreProbe } from "../files/DirectoryIgnore";
 import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
 import { createDeepDirWatch, type DeepDirWatchStatus } from "../remote/RemoteDeepDirWatch";
 import { dirKeysAfterWrite, dirPathsAfterWrite } from "../remote/RemoteDirWatchRegistry";
 import { REMOTE_PROJECT_TRASH_DIR } from "../remote/RemoteProjectEntryCommands";
-import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectFileUpload";
-import { createRemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
+import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectUploadNames";
+import type { RemoteSftpDirectoryPort } from "../remote/RemoteSftpDirectoryReader";
 import { projectDirectoryPage, projectDirectoryWatchDegradation } from "./remoteProjectDirectoryReads";
-import { readerPath, sessionPort, type RemoteProjectDirSnapshot } from "./remoteProjectReadIpc";
+import type { RemoteProjectDirSnapshot } from "./remoteProjectReadIpc";
 import type { RemoteProjectTargetResolver } from "./remoteProjectTarget";
 import { createProjectWatchKeepAlive } from "./remoteProjectWatchKeepAlive";
 
 export type ProjectDirFacts = {
-	/** 失效矩阵：写到的路径 ⇒ 所在目录 + 其父目录（目录自身的元数据也变了）。 */
+	/**
+	 * 写面失效矩阵（写成功与结果未知共用）：写到的路径 ⇒ 所在目录 + 其父目录，加上本项目**全部已缓存
+	 * 仓库的 status**；一次写只发一条通知（目录 scope 与 status scope 同一条）。
+	 */
 	afterWrite(projectId: string, paths: readonly string[]): void;
-	/** 整树失效（远端 Git 写成功/结果未知）：只标脏、不装载。 */
+	/** 整树失效（结果未知的写）：全部目录 + 全部 status，只标脏、不装载。 */
 	invalidateTree(projectId: string): void;
+	/** Git 写成功/结果未知：该仓库 status + 整树一起标脏，只发一条通知（status + tree）。 */
+	afterGitWrite(projectId: string, repoPath: string): void;
+	/** 文件写后的 Git status 失效（兼容入口：`afterWrite` 已覆盖，单独调用不会重发目录事件）。 */
+	invalidateStatuses(projectId: string): void;
+	/**
+	 * Git 状态事实族（同一 owner）：`remoteGitReadIpc` 的 snapshot/status 读的就是这份实例的现值。
+	 * 读入口仍由 Git IPC 暴露，这里只提供缓存实例本身（不在别处再建第二份）。
+	 */
+	gitStatusFacts: SnapshotFactsCache<RemoteGitReadSnapshot>;
 	/** 公共目录页：与远端 list 共用同一份事实缓存，带 truncated/revision/generation。 */
 	directoryPage(projectId: string, path: string, force?: boolean): Promise<ProjectDirectoryPageResult>;
 	/** 目录事实读（list 与公共目录页共用）。 */
 	readDirSnapshot(projectId: string, relative: string, force: boolean): Promise<RemoteProjectDirSnapshot>;
+	/**
+	 * 目录页的 Git ignore 修饰端口（晚绑定：Git IPC 在本模块之后注册）。
+	 * 未装配 / 判定失败都只是「没有修饰」，不影响目录页本身。
+	 */
+	setIgnoreProbe(probe: DirectoryIgnoreProbe | undefined): void;
 	/** helper 变更事件：把 watchId 换回「哪个项目的哪些目录」，只标脏。 */
 	onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[]; sessionKey: string }): void;
 	/** 断连：helper 的 watcher 已随会话一起死，登记直接丢弃（不再发退订）。 */
@@ -50,8 +78,15 @@ export type ProjectDirFacts = {
 	dispose(): Promise<void>;
 };
 
-export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub }): ProjectDirFacts {
+export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub; directoryReader?: RemoteSftpDirectoryPort; ignoreProbe?: DirectoryIgnoreProbe }): ProjectDirFacts {
 	const factsEvents = input.factsEvents;
+	/**
+	 * 目录页 ignore 修饰的判定端口（T6 收尾）：由装配层在 Git IPC 建好后接到这里。
+	 * 保持 `undefined` = 旧装配/无 Git：目录页不带 `ignored`，不猜。
+	 */
+	let ignoreProbe: DirectoryIgnoreProbe | undefined = input.ignoreProbe;
+	// ignore 判定的暖缓存：目录页 revision/连接代进 key；任何写/目录事件/断连都清空（保守）。
+	const ignoreResults = new Map<string, { readonly value: readonly boolean[]; readonly at: number }>();
 	const projectWatches = createProjectWatchKeepAlive();
 	const watchRegistry = projectWatches.registry;
 	const dirWatch = createDeepDirWatch({ registry: watchRegistry });
@@ -72,6 +107,26 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 	const projectEpochs = new Map<string, number>();
 	let disconnectedGeneration = 0;
 	const generationOf = (projectId: string): string => projectGenerations.get(projectId) ?? "";
+	/**
+	 * Git 状态事实族：与目录族同一个 owner、同一张连接代表（`projectGenerations`）。
+	 * `remoteGitReadIpc` 通过 handle 拿这份实例，不再自建缓存——否则一次写要失效两处、发两条通知。
+	 */
+	const gitStatusFacts: SnapshotFactsCache<RemoteGitReadSnapshot> = createSnapshotFactsCache<RemoteGitReadSnapshot>();
+	/** 本项目**已缓存事实**的仓库路径（只有占位标脏、没有现值的键不算：不发空事件）。 */
+	const statusScopesOf = (projectId: string): RemoteProjectFactsScope[] => gitStatusFacts.reposOf(projectId).map((repoPath) => ({ kind: "status" as const, repoPath }));
+	/** 本项目的 status 标脏；返回被标脏的 scope（通知用）。 */
+	const invalidateStatuses = (projectId: string): RemoteProjectFactsScope[] => {
+		const scopes = statusScopesOf(projectId);
+		gitStatusFacts.invalidateProject(projectId);
+		return scopes;
+	};
+	/** 本项目全部目录键（含在途、尚无现值的那些）。 */
+	const invalidateAllDirs = (projectId: string): void => dirs.invalidateWhere((key) => key.startsWith(projectId + "\u0000"));
+	/** 一次失效一条通知：同一份 owner 不按 scope 拆成多条事件。 */
+	const publish = (projectId: string, scopes: readonly RemoteProjectFactsScope[]): void => {
+		if (scopes.length === 0) return;
+		factsEvents.publish({ projectId, generation: generationOf(projectId), scopes: [...scopes] });
+	};
 	const epochOf = (projectId: string): number => projectEpochs.get(projectId) ?? 0;
 	const bumpEpoch = (projectId: string): void => {
 		projectEpochs.set(projectId, epochOf(projectId) + 1);
@@ -88,7 +143,8 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 		dirs.clearWhere((key) => key.startsWith(projectId + "\u0000"));
 	};
 
-	const dirs: FactCache<RemoteWorkspaceEntry[]> = createFactCache<RemoteWorkspaceEntry[]>(async (key) => {
+	type DirectoryFact = { entries: RemoteWorkspaceEntry[]; truncated: boolean; scanned: number };
+	const dirs: FactCache<DirectoryFact> = createFactCache<DirectoryFact>(async (key) => {
 		const separator = key.indexOf("\u0000");
 		const projectId = key.slice(0, separator);
 		const relative = key.slice(separator + 1);
@@ -107,20 +163,26 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 				projectWatches.noteSession(session.connectionId, { service: target.service, hostId: target.hostId, root: target.remotePath });
 				projectHosts.set(projectId, target.hostId);
 				projectRoots.set(projectId, target.remotePath);
-				const reader = createRemoteWorkspaceReader({ port: sessionPort(session, target.hostId) });
-				const listed = await reader.list(target.hostId, readerPath(relative));
+				// Ordinary directory reads are SFTP-only. The helper remains responsible for watch
+				// registration below, but its fs.list path must never be a silent fallback.
+				if (input.directoryReader === undefined) throw new Error("REMOTE_SFTP_DIRECTORY_READ_FAILED");
+				const listed = await input.directoryReader.read({ session, canonicalRoot: target.remotePath, relative });
+				if (!listed.ok) throw new Error(listed.code);
 				// 读期间项目被关闭/root 退休：这份结果不属于任何还活着的项目，不能再登记 watcher。
 				if (!stillCurrent()) throw new Error("REQUEST_CANCELLED");
 				// 读成功后登记订阅：根目录立即 ensure，深层目录进合并窗口；之后 helper 的变更事件才能把
 				// 这个项目的事实标脏。订阅不是读的前置条件（失败只降级到只读刷新）。
 				await dirWatch.record(projectId, target.hostId, relative, session);
-				return listed;
+				return {
+					entries: listed.value.entries.filter((entry) => (relative !== "" || entry.name !== REMOTE_PROJECT_TRASH_DIR) && !REMOTE_UPLOAD_TEMP_NAME.test(entry.name)).map((entry) => ({ name: entry.name, kind: entry.kind, ...(entry.kind === "file" && entry.bytes !== undefined ? { bytes: entry.bytes } : {}) })),
+					truncated: listed.value.truncated,
+					scanned: listed.value.scanned,
+				};
 			});
 			if (!outcome.ok) return opFailFromCode(outcome.code);
 			// 结果 settle 与关闭可能交错：缓存发布前再核对一次，避免旧代写回。
 			if (!stillCurrent()) return opFailFromCode("REQUEST_CANCELLED");
-			// 两类条目不属于用户数据：回收站命名空间（只在根目录隐藏）与本通道自己的上传临时文件。
-			return opOk(outcome.value.entries.filter((entry) => (relative !== "" || entry.name !== REMOTE_PROJECT_TRASH_DIR) && !REMOTE_UPLOAD_TEMP_NAME.test(entry.name)).map((entry) => ({ name: entry.name, kind: entry.kind, ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }) })));
+			return opOk(outcome.value);
 		} catch (error) {
 			return opFailFromCode(codeOf(error, "REMOTE_PROJECT_READ_FAILED"));
 		}
@@ -147,23 +209,55 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 		// 新会话都进不来。stale 值放行一次装载：仍然不会把旧事实当现状返回，只是把拒绝/重载交给装载层。
 		if (existing !== undefined && existing.ok === true && existing.stale === false && (connection === undefined || connection.state !== "ready")) return { ok: false, code: "SSH_HOST_NOT_READY" };
 		const snapshot = await dirs.read(key, { ...(connection === undefined ? {} : { generation: connection.connectionId }), force });
-		return snapshot.ok ? { ok: true, snapshot } : { ok: false, code: snapshot.code };
+		return snapshot.ok
+			? {
+					ok: true,
+					snapshot: {
+						value: snapshot.value.entries,
+						revision: snapshot.revision,
+						truncated: snapshot.value.truncated,
+						scanned: snapshot.value.scanned,
+					},
+				}
+			: { ok: false, code: snapshot.code };
 	}
 
 	return {
+		gitStatusFacts,
 		afterWrite(projectId, paths) {
-			// 没有活着的项目代 = 写面在关闭之后才回来：不得为已清理的项目重新制造缓存条目/通知。
+			const scopes: RemoteProjectFactsScope[] = [];
+			// 写可能改了 .gitignore：ignore 判定结果一律作废（低频，按项目全清）。
+			ignoreResults.clear();
+			// 没有活着的项目代 = 写面在关闭之后才回来：不得为已清理的项目重新制造目录事实/通知。
 			// 首次目录读尚未落地时也没有代，但那时同样没有可失效的目录事实。
-			if (!projectGenerations.has(projectId)) return;
-			const touched = dirPathsAfterWrite(paths);
-			for (const key of dirKeysAfterWrite(projectId, paths)) dirs.invalidate(key);
+			if (projectGenerations.has(projectId)) {
+				for (const path of dirPathsAfterWrite(paths)) scopes.push({ kind: "dir", path });
+				for (const key of dirKeysAfterWrite(projectId, paths)) dirs.invalidate(key);
+			}
+			// 写也会改变工作树状态：本项目已缓存仓库的 status 与目录一起标脏（同一条通知）。
 			// 只标脏 + 通知：读仍由活跃的消费者决定（一次写不产生远端往返）。
-			factsEvents.publish({ projectId, generation: generationOf(projectId), scopes: touched.map((path) => ({ kind: "dir" as const, path })) });
+			scopes.push(...invalidateStatuses(projectId));
+			publish(projectId, scopes);
 		},
 		invalidateTree(projectId) {
-			if (!projectGenerations.has(projectId)) return;
+			ignoreResults.clear();
 			// 前缀匹配 = 本项目全部目录键（项目 id 后紧跟真实的 NUL 分隔符，不会误命中同前缀的其它项目）。
-			dirs.invalidateWhere((key) => key.startsWith(projectId + "\u0000"));
+			if (projectGenerations.has(projectId)) invalidateAllDirs(projectId);
+			// 与改动前的组合语义一致：目录静默标脏，status 发通知（不装载）。
+			publish(projectId, invalidateStatuses(projectId));
+		},
+		afterGitWrite(projectId, repoPath) {
+			ignoreResults.clear();
+			gitStatusFacts.invalidate(projectId, repoPath);
+			// 写可能让工作树的条目整块变化（切分支/discard/恢复）：整树一起标脏，但这不是根目录事件。
+			if (projectGenerations.has(projectId)) invalidateAllDirs(projectId);
+			publish(projectId, [{ kind: "status", repoPath }, { kind: "tree" }]);
+		},
+		invalidateStatuses(projectId) {
+			publish(projectId, invalidateStatuses(projectId));
+		},
+		setIgnoreProbe(probe) {
+			ignoreProbe = probe;
 		},
 		directoryPage: (projectId, path, force = false) =>
 			projectDirectoryPage({
@@ -171,12 +265,15 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 				path,
 				force,
 				readDirSnapshot,
+				...(ignoreProbe === undefined ? {} : { ignoreProbe }),
+				ignoreResultCache: ignoreResults,
 				generationOf,
 				// 监听降级是项目级事实：每个目录页都顺手带出去，渲染层不必再开一条诊断通道。
 				dirWatch: (id) => projectDirectoryWatchDegradation(dirWatch.status(id)),
 			}),
 		readDirSnapshot,
 		onHelperEvent(entry) {
+			ignoreResults.clear();
 			const changed = watchRegistry.scopesForEvent(entry.hostId, entry.sessionKey, entry.watchId) ?? [];
 			// 先发通知再标脏：两者都是同步的，读仍由活跃的消费者决定（事件不装载）。
 			for (const scope of changed) factsEvents.publish({ projectId: scope.projectId, generation: generationOf(scope.projectId), scopes: scope.paths.map((path) => ({ kind: "dir" as const, path })) });
@@ -196,7 +293,9 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 				// 断连时在途的目录读可能在之后才 settle：推进代数并退休在途装载，
 				// 否则它会用旧 helper 的事实覆盖刚写下的“已断开”代。
 				bumpEpoch(projectId);
-				dirs.invalidateWhere((key) => key.startsWith(projectId + "\u0000"));
+				invalidateAllDirs(projectId);
+				// Git 状态与目录同代：断开后它们都不能再代表现状（下一次读重新装载）。
+				gitStatusFacts.invalidateProject(projectId);
 			}
 		},
 		onRootRetired(entry) {
@@ -210,6 +309,8 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 				if (projectRoots.get(projectId) !== entry.root) continue;
 				dirWatch.forgetProject(projectId);
 				forgetProjectFacts(projectId);
+				// 这条 root 的 helper 已经不在了：Git 状态事实同样作废（下一次读重新装载）。
+				gitStatusFacts.invalidateProject(projectId);
 			}
 		},
 		closeProject(projectId) {
@@ -217,13 +318,16 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 			// 清缓存同时退休在途装载：关闭之后才回来的读不得把 generation/host/目录缓存写回。
 			dirWatch.forgetProject(projectId);
 			forgetProjectFacts(projectId);
+			gitStatusFacts.invalidateProject(projectId);
 			return watchRegistry.closeProject(projectId);
 		},
 		flushDirWatch: () => dirWatch.flush(),
 		dirWatchStatus: (projectId) => dirWatch.status(projectId),
 		dirLoads: () => dirs.stats().loads,
 		dispose() {
+			ignoreResults.clear();
 			dirWatch.dispose();
+			gitStatusFacts.clear();
 			return watchRegistry.releaseAll();
 		},
 	};

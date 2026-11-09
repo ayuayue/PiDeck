@@ -1,5 +1,5 @@
 import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, Pin, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useState, type DragEvent } from "react";
+import { useMemo, useState, type DragEvent } from "react";
 import { BatchRemoveProjectsDialog } from "./BatchRemoveProjectsDialog";
 import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
 import { useAtomValue } from "jotai";
@@ -24,13 +24,21 @@ import { WorktreeTree } from "./WorktreeTree";
 import { SessionActivityIndicator } from "../session/SessionActivityIndicator";
 import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { displayProjectDirectoryName, isChatProject } from "../../rendererUtils";
-import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { sessionRecordsAtom, sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { projectInventoryByIdAtom } from "../../atoms/project-atoms";
+import { useSessionGroups } from "../../hooks/sidebar/useSessionGroups";
+import { buildSessionGroupNodes, collectGroupedSessionIds } from "./sessionGroupsModel";
 import { countPendingAsksForSessions, findFirstPendingAskSessionId, hasPendingAskForSession } from "../../utils/askUi";
 import type { AskRequestEntry } from "../../utils/askUi";
 import { PendingAskBadge } from "./PendingAskBadge";
 import { Button } from "../ui-shadcn/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { cn } from "../../lib/utils";
+import { ProjectSortMenu } from "./ProjectSortMenu";
+import { sortSidebarProjects } from "../../projectSortModes";
+import { sessionActivityAnchorByIdAtom } from "../../atoms/sessionActivityAtoms";
+import { useCachedProjectActivity } from "../../hooks/sidebar/useCachedProjectActivity";
+import { showNotice } from "../../utils/notice";
 
 /** 项目行只做容器：hover 浅灰，永不挂选中底。
  * 选中态只给叶子会话（对标 dsh-web：.sessionRow.selected = hover 灰，项目行无 selected）。 */
@@ -95,6 +103,13 @@ export function ProjectTree(props: {
 	stickyGroupHeaders?: boolean;
 }) {
 	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
+	// 分组数据在这里取一次：分组树要渲染它，「项目列表隐藏已入组会话」也要用同一份节点解析结果。
+	// 只用解析后的节点做隐藏（见 collectGroupedSessionIds），未加载项目的会话不会两边都消失。
+	const projectsById = useAtomValue(projectInventoryByIdAtom);
+	const sessionRecords = useAtomValue(sessionRecordsAtom);
+	const sessionGroups = useSessionGroups();
+	const sessionGroupNodes = useMemo(() => buildSessionGroupNodes(sessionGroups, sessionRecords, projectsById), [sessionGroups, sessionRecords, projectsById]);
+	const groupedSessionIds = useMemo(() => collectGroupedSessionIds(sessionGroupNodes), [sessionGroupNodes]);
 	// 冻结标题只在常规模式生效：simple 壳侧栏背景是 --simple-shell-surface，
 	// 遮底用的 bg-sidebar 会在该模式下露出色差，直接不启用。
 	const stickyHeader = !props.simple && props.stickyGroupHeaders === true;
@@ -105,12 +120,17 @@ export function ProjectTree(props: {
 	useRemoteProjectRootStatuses(desktopApi, props.controller.catalog.projects);
 	// 主机名与连接状态：目录一次只读拉取 + main 推送，行内只读 atom（见 useRemoteHostIdentityIndex）。
 	useRemoteHostIdentityIndex(desktopApi, props.controller.catalog.projects);
-	const rootProjects = props.controller.catalog.projects.filter((project) => !project.worktreeParentId && matchesProject(project, props.controller.search.trim(), props.controller));
+	const activityAnchors = useAtomValue(sessionActivityAnchorByIdAtom);
+	const { projects, sessionsByProject } = props.controller.catalog;
+	const cachedActivity = useCachedProjectActivity(projects, props.controller.projectSortMode === "updatedAt", desktopApi.sessions.listCatalog, (error) => showNotice(t("app.projectActivityLoadFailed", { error: error instanceof Error ? error.message : String(error) }), undefined, "error"));
+	const sortedProjects = useMemo(() => sortSidebarProjects(projects, sessionsByProject, props.controller.projectSortMode, activityAnchors, cachedActivity), [projects, sessionsByProject, props.controller.projectSortMode, activityAnchors, cachedActivity]);
+	const rootProjects = sortedProjects.filter((project) => matchesProject(project, props.controller.search.trim(), props.controller));
+	const canDragProjects = props.controller.projectSortMode === "manual" && !props.controller.search.trim();
 	// 项目拖拽不再要求静止长按：原生 HTML5 拖拽自带 ~4px 启动阈值，天然区分点按与拖动
 	//（2027-03 用户反馈「拖动行为不好用」：旧逻辑要先静止长按 350ms 才变 draggable，
 	// 按下即移动会取消 arming，自然拖动手势永远拖不起来）。
 	const dragStart = (event: DragEvent<HTMLButtonElement>, projectId: string) => {
-		if (props.controller.search.trim()) {
+		if (!canDragProjects) {
 			event.preventDefault();
 			return;
 		}
@@ -128,7 +148,7 @@ export function ProjectTree(props: {
 		event.preventDefault();
 		const source = event.dataTransfer.getData("text/plain") || props.controller.drag.sourceProjectId;
 		props.controller.finishProjectDrag();
-		if (props.controller.search.trim()) return;
+		if (!canDragProjects) return;
 		if (source && source !== projectId) void props.actions.projects.reorder(source, projectId, position);
 	};
 	const renderProject = (project: Project) => {
@@ -180,11 +200,11 @@ export function ProjectTree(props: {
 					</button>
 					<button
 						type="button"
-						className="flex min-w-0 flex-1 cursor-grab select-none items-center gap-1 py-0 pr-1 text-left active:cursor-grabbing"
-						draggable={!props.controller.search.trim()}
+						className={cn("flex min-w-0 flex-1 select-none items-center gap-1 py-0 pr-1 text-left", canDragProjects && "cursor-grab active:cursor-grabbing")}
+						draggable={canDragProjects}
 						onDragStart={(event) => dragStart(event, project.id)}
 						onDragOver={(event) => {
-							if (props.controller.drag.sourceProjectId && props.controller.drag.sourceProjectId !== project.id) {
+							if (canDragProjects && props.controller.drag.sourceProjectId && props.controller.drag.sourceProjectId !== project.id) {
 								event.preventDefault();
 								props.controller.setProjectDropTarget(project.id, dropPositionFor(event));
 							}
@@ -304,11 +324,11 @@ export function ProjectTree(props: {
 						) : isRemoteProject(project) ? (
 							<>
 								{/* 已导入本地的远端会话仍在 SessionTree 里；下面这块是远端侧的「发现」列表（只读扫描 + 导入）。 */}
-								<SessionTree project={project} sessions={rootProjectSessions} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />
+								<SessionTree project={project} sessions={rootProjectSessions} groupedSessionIds={groupedSessionIds} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />
 								<RemoteSessionsSection hostId={project.locator.hostId} importedRemoteSessionIds={collectRegisteredRemoteSessionIds(rootProjectSessions, project.locator.hostId)} onImported={(result) => props.actions.sessions.importRemoteSession(project.id, result.sessionId)} />
 							</>
 						) : (
-							<SessionTree project={project} sessions={rootProjectSessions} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />
+							<SessionTree project={project} sessions={rootProjectSessions} groupedSessionIds={groupedSessionIds} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />
 						)}
 					</div>
 				)}
@@ -438,6 +458,7 @@ export function ProjectTree(props: {
 						<SessionTree
 							project={project}
 							sessions={sessions}
+							groupedSessionIds={groupedSessionIds}
 							agents={props.controller.catalog.agents}
 							currentSessionId={props.currentSessionId}
 							controller={props.controller}
@@ -460,7 +481,7 @@ export function ProjectTree(props: {
 	const projectsSection = (
 		<section aria-label={t("app.sidebarProjects")} role="tree">
 			{/* 会话分组树（只读浏览，数据在宿主 store，写入方是分组插件页）：置于普通项目之上 */}
-			<SessionGroupsSection actions={props.actions} currentSessionId={props.currentSessionId} />
+			<SessionGroupsSection nodes={sessionGroupNodes} projectsById={projectsById} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />
 			{/* 分组标题栏：左侧「项目」标题，右侧 = 「+ 添加项目」+ 全部折叠/展开（高频操作外露）
             + 「⋯ 更多操作」。目录存在性重扫属于低频维护动作，收进菜单避免挤占窄侧栏。
             开启冻结时给这层纯逻辑包裹加 display:contents：它不生成盒子，里面的标题栏
@@ -493,6 +514,7 @@ export function ProjectTree(props: {
 									</Button>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end" sideOffset={4} className="min-w-36">
+									<ProjectSortMenu mode={props.controller.projectSortMode} onChange={props.controller.setProjectSortMode} />
 									<DropdownMenuItem onSelect={() => void props.actions.projects.refreshAll()}>
 										<RefreshCw className="size-3.5" aria-hidden="true" />
 										{t("app.projectRefreshAll")}
@@ -509,10 +531,8 @@ export function ProjectTree(props: {
 					</div>
 				</div>
 			)}
-			{/* 项目顺序是用户拖拽决定的（唯一语义来源），因此开启 orderSensitive：
-			    拖拽重排与新增项目时，其余行播 0.16s 位移而不是瞬跳。会话列表不开启——
-			    它按 updatedAt 实时排序，顺序变化不是用户动作。 */}
-			<SidebarRemovalList orderSensitive remainingIds={props.controller.catalog.projects.map((project) => project.id)}>
+			{/* 手动重排播放位移动画，实时活动排序直接更新位置。 */}
+			<SidebarRemovalList orderSensitive={props.controller.projectSortMode === "manual"} remainingIds={props.controller.catalog.projects.map((project) => project.id)}>
 				{workspaceProjects.map(renderProject)}
 			</SidebarRemovalList>
 			{/* 无任何工作区项目（新用户只有内置 Chat）：显式渲染空态引导。
@@ -555,7 +575,7 @@ export function ProjectTree(props: {
 				<ActiveSessionsTree controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} recentOnly />
 			</>
 		);
-	const groupsSection = <SessionGroupsSection actions={props.actions} currentSessionId={props.currentSessionId} />;
+	const groupsSection = <SessionGroupsSection nodes={sessionGroupNodes} projectsById={projectsById} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />;
 	return (
 		<>
 			{props.controller.navTab === "active" ? (

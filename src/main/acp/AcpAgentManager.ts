@@ -24,7 +24,7 @@ import type { PiLocator } from "../pi/PiLocator";
 import { ACP_PROTOCOL_VERSION, type AcpConfigOption, type AcpContentBlock, type AcpMcpServer, type AcpRpcNotification, type AcpSessionPromptResult, type AcpStopReason } from "./acpProtocol";
 import { AcpTimeoutError } from "./AcpConnection";
 import { AcpPermissionRequests } from "./AcpPermissionRequests";
-import { acpPromptBlocks, appendAcpUserPrompt, initialAcpProjection, rollbackAcpUserPrompt, settleAcpTurn, upsertAcpRetryStatus, type AcpProjectionState } from "./AcpEventProjector";
+import { acpPromptBlocks, appendAcpCommandReceipt, appendAcpUserPrompt, initialAcpProjection, rollbackAcpUserPrompt, settleAcpTurn, upsertAcpRetryStatus, type AcpProjectionState } from "./AcpEventProjector";
 import { authRequiredDescriptor, localizeCreateFailure, promptTurnTimeoutDescriptor } from "./acpFailureDescriptors";
 import { buildAgentRuntimeState, type AcpAgentRuntime } from "./acpAgentRuntime";
 import { findAcpBypassModeValue, findAcpModeOption, isAcpBypassModeValue, isRememberedAcpConfigOption, planAcpConfigReplay } from "./acpToolConfig";
@@ -36,7 +36,7 @@ import { killAcpProcessTree, shutdownAcpProcess, spawnAcpProcess } from "./AcpPr
 import type { AcpProxyEnvSettings } from "../sessions/sessionProxyPolicy";
 import { performAcpHandshake } from "./AcpHandshake";
 import { AcpUpdatePipeline } from "./AcpUpdatePipeline";
-import { describeEmptyTurn, emptyTurnRejection, escalatedStopRejection, hasTurnOutput, promptResultSnippet, resolvePromptDispatch, stalledTurnRejection } from "./acpTurnSettlement";
+import { describeEmptyTurn, emptyTurnRejection, escalatedStopRejection, hasTurnOutput, isNativeCommandPrompt, promptResultSnippet, resolvePromptDispatch, stalledTurnRejection } from "./acpTurnSettlement";
 import { decideAcpTurnRetry, resolveAcpTurnRetrySettings, type AcpTurnRetrySettings } from "./acpTurnRetry";
 import { failureMessage } from "../../shared/retry/transientFailure";
 
@@ -950,6 +950,25 @@ export class AcpAgentManager implements SessionAgentGateway {
 		// abort,正常收口;看门狗 stall 代发的 cancel 不豁免——那就是本守卫要抓的异常形态
 		//（已有可见产出的 stall 已在上面按失败收口，走到这里只剩零产出形态）。
 		if (!hasOutput && runtime.cancelReason !== "user_stop") {
+			// CLI 原生命令（`/clear` 等）由 CLI 自己执行，本来就不产出 assistant/tool 正文：
+			// 它与「事件流丢失」在消息层面同形（#512）。此时回滚用户条目 + 报 emptyTurn 是谎报
+			// 发送失败（命令其实已执行），改为落一张中性回执卡收口；诊断仍写日志供排查。
+			if (isNativeCommandPrompt(input)) {
+				const commandText = input.message?.trim() ?? "";
+				runtime.projection = appendAcpCommandReceipt(runtime.projection, { agentId: runtime.tab.id, tool: runtime.tool.name, command: commandText });
+				this.updates.flushMessages(runtime, true);
+				this.deps.logger?.warn("acp", "native command turn produced no output", {
+					tool: runtime.tool.name,
+					sessionId: runtime.acpSessionId,
+					command: commandText.slice(0, 120),
+					stopReason: settledStopReason,
+					updateKinds: Object.fromEntries(runtime.turnUpdateKinds),
+					stderrTail: runtime.stderrTail,
+					foreignNotification: runtime.turnForeignNotification,
+				});
+				await this.persistArchive(runtime);
+				return { accepted: true };
+			}
 			// 重试过但仍是空白回合：卡片按失败收口（报 retrySucceeded 会与「什么都没产出」矛盾），
 			// 且必须在 rollback 之前落，rollback 只在尾巴上挂着重试卡时才保留它。
 			if (retryAttempts > 0) {

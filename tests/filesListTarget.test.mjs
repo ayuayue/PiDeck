@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,11 +9,18 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
 
+/** 公共写面返回 Op（P1-1）：成功取 value，失败抛出稳定码。 */
+function unwrap(op) {
+	if (typeof op !== "object" || op === null || !("ok" in op)) return op;
+	if (op.ok) return op.value;
+	throw new Error(op.code);
+}
+
 function projectFixture(root, overrides = {}) {
 	return { id: "project-1", name: "Project", path: root, lastOpenedAt: 0, ...overrides };
 }
 
-function createFilesIpc(root, projectOverride) {
+function createFilesIpc(root, projectOverride, remoteFiles) {
 	const listHandlers = new Map();
 	const listCalls = [];
 	const mutationCalls = [];
@@ -61,11 +69,11 @@ function createFilesIpc(root, projectOverride) {
 		appLogger: { info: async () => undefined, error: async () => undefined },
 		getMainWindow: () => null,
 		openExternalUrl: async () => undefined,
+		remoteFiles,
 	});
 	return {
 		listHandler: listHandlers.get(ipcChannels.filesList),
 		directoryPageHandler: listHandlers.get(ipcChannels.filesDirectoryPage),
-		searchHandler: listHandlers.get(ipcChannels.filesSearch),
 		readContentHandler: listHandlers.get(ipcChannels.filesReadContent),
 		writeContentHandler: listHandlers.get(ipcChannels.filesWriteContent),
 		pathsExistHandler: listHandlers.get(ipcChannels.filesPathsExist),
@@ -76,6 +84,7 @@ function createFilesIpc(root, projectOverride) {
 		renameHandler: listHandlers.get(ipcChannels.filesRename),
 		copyHandler: listHandlers.get(ipcChannels.filesCopy),
 		moveHandler: listHandlers.get(ipcChannels.filesMove),
+		moveToHandler: listHandlers.get(ipcChannels.filesMoveTo),
 		openedPaths,
 		listCalls,
 		mutationCalls,
@@ -218,16 +227,53 @@ test("files:read, write, stat, open, and pathsExist resolve a project target loc
 		const existence = await api.pathsExistHandler({}, [target]);
 		assert.equal(existence[0], true);
 		const stat = await api.statHandler({}, target);
+		assert.equal(stat.availability, "present");
 		assert.equal(stat.exists, true);
 		assert.equal(stat.isDirectory, false);
 		const missing = await api.statHandler({}, { projectId: "project-1", relativePath: "src/missing.ts" });
+		assert.equal(missing.availability, "missing");
 		assert.equal(missing.exists, false);
 		assert.equal(missing.isDirectory, false);
+		assert.equal(missing.code, "ENOENT");
 		await api.openHandler({}, target);
 		assert.equal(api.openedPaths[0], await realpath(filePath));
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}
+});
+
+test("files:stat remote results distinguish present, missing, and unavailable", async () => {
+	const project = projectFixture("/unused", { locator: { kind: "ssh", hostId: "host-1", remotePath: "/srv/project" } });
+	let answer = { ok: true, value: [{ exists: true, isDirectory: true }] };
+	const api = createFilesIpc("/unused", project, {
+		async pathsExist() {
+			return answer;
+		},
+	});
+	const target = { projectId: project.id, relativePath: "src" };
+	const present = await api.statHandler({}, target);
+	assert.equal(present.availability, "present");
+	assert.equal(present.exists, true);
+	assert.equal(present.isDirectory, true);
+
+	answer = { ok: true, value: [{ exists: false, isDirectory: false }] };
+	const missing = await api.statHandler({}, target);
+	assert.equal(missing.availability, "missing");
+	assert.equal(missing.exists, false);
+	assert.equal(missing.isDirectory, false);
+	assert.equal(missing.code, "PATH_NOT_FOUND");
+
+	answer = { ok: false, code: "SFTP_PERMISSION_DENIED", outcome: "rejected" };
+	const unavailable = await api.statHandler({}, target);
+	assert.equal(unavailable.availability, "unavailable");
+	assert.equal(unavailable.exists, false);
+	assert.equal(unavailable.isDirectory, false);
+	assert.equal(unavailable.code, "SFTP_PERMISSION_DENIED");
+
+	const noRemote = createFilesIpc("/unused", project);
+	const absent = await noRemote.statHandler({}, target);
+	assert.equal(absent.availability, "unavailable");
+	assert.equal(absent.code, "REMOTE_FILES_UNAVAILABLE");
 });
 
 test("文件读写双入口：拒绝非文本且原字节不变，普通打开不改文件", async () => {
@@ -267,9 +313,9 @@ test("file mutation handlers resolve project targets beneath the registered root
 		const api = createFilesIpc(root);
 		const directoryTarget = { projectId: "project-1", relativePath: "src" };
 		const fileTarget = { projectId: "project-1", relativePath: "src/main.ts" };
-		const created = await api.createHandler({}, directoryTarget, "new.ts", "file");
-		await api.deleteHandler({}, fileTarget, true);
-		const renamed = await api.renameHandler({}, fileTarget, "renamed.ts");
+		const created = unwrap(await api.createHandler({}, directoryTarget, "new.ts", "file"));
+		unwrap(await api.deleteHandler({}, fileTarget, true));
+		const renamed = unwrap(await api.renameHandler({}, fileTarget, "renamed.ts"));
 		assert.equal(created.projectId, "project-1");
 		assert.equal(created.relativePath, "src/new.ts");
 		assert.equal("path" in created, false);
@@ -302,7 +348,7 @@ test("files:copy and move resolve target sources and destination", async () => {
 		assert.equal(copied[0].projectId, "project-1");
 		assert.equal(copied[0].relativePath, "dst/copy.txt");
 		assert.equal(readFileSync(join(dstDir, "copy.txt"), "utf8"), "copy me");
-		const moved = await api.moveHandler({}, [{ projectId: "project-1", relativePath: "src/move.txt" }], { projectId: "project-1", relativePath: "dst" });
+		const moved = unwrap(await api.moveHandler({}, [{ projectId: "project-1", relativePath: "src/move.txt" }], { projectId: "project-1", relativePath: "dst" }));
 		assert.equal(moved[0].projectId, "project-1");
 		assert.equal(moved[0].relativePath, "dst/move.txt");
 		assert.equal(readFileSync(join(dstDir, "move.txt"), "utf8"), "move me");
@@ -328,23 +374,9 @@ test("files:copy and move keep local clipboard paths compatible with target dire
 		const destination = { projectId: "project-1", relativePath: "dst" };
 		const copied = await api.copyHandler({}, [copyPath], destination);
 		assert.equal(copied[0], join(await realpath(dstDir), "copy.txt"));
-		const moved = await api.moveHandler({}, [movePath], destination);
+		const moved = unwrap(await api.moveHandler({}, [movePath], destination));
 		assert.equal(moved[0], join(await realpath(dstDir), "move.txt"));
 		assert.equal(existsSync(movePath), false);
-	} finally {
-		rmSync(fixture, { recursive: true, force: true });
-	}
-});
-
-test("files:search attaches project-relative targets", async () => {
-	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-search-target-"));
-	const root = join(fixture, "project");
-	mkdirSync(root);
-	try {
-		const { searchHandler } = createFilesIpc(root);
-		const results = await searchHandler({}, "project-1", "main");
-		assert.equal(results[0].target.projectId, "project-1");
-		assert.equal(results[0].target.relativePath, "src/main.ts");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}
@@ -361,6 +393,69 @@ test("files:list preserves the existing local absolute-directory adapter", async
 		assert.equal(listCalls[0].directory, await realpath(directory));
 		assert.equal(nodes[0].target.projectId, "project-1");
 		assert.equal(nodes[0].target.relativePath, "src");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("远端项目的正文读/写走远端文本端口，而不是「不支持」", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-remote-text-"));
+	const root = join(fixture, "remote-project");
+	mkdirSync(root);
+	const calls = [];
+	const remoteFiles = {
+		openText: async (senderId, projectId, path) => {
+			calls.push({ kind: "open", senderId, projectId, path });
+			return { content: "remote body", version: "0123456789abcdef0123456789abcdef" };
+		},
+		saveText: async (senderId, projectId, path, content, version) => {
+			calls.push({ kind: "save", senderId, projectId, path, content, version });
+		},
+	};
+	const remote = projectFixture(root, { locator: { kind: "ssh", hostId: "host-1", remotePath: "/home/u/project" } });
+	const { readContentHandler, writeContentHandler } = createFilesIpc(root, remote, remoteFiles);
+	const target = { projectId: "project-1", relativePath: "src/main.ts" };
+	try {
+		assert.equal(await readContentHandler({ sender: { id: 7 } }, target), "remote body");
+		// 不带版本：先读一次拿到远端令牌，再按该令牌写——绝不无版本硬写。
+		await writeContentHandler({ sender: { id: 7 } }, target, "next");
+		assert.deepEqual(
+			calls.map((call) => call.kind),
+			["open", "open", "save"],
+		);
+		assert.equal(calls[2].version, "0123456789abcdef0123456789abcdef");
+		// 带版本：直接写，不再多读一次。
+		calls.length = 0;
+		await writeContentHandler({ sender: { id: 7 } }, target, "again", undefined, "fedcba9876543210fedcba9876543210");
+		assert.deepEqual(
+			calls.map((call) => call.kind),
+			["save"],
+		);
+		assert.equal(calls[0].version, "fedcba9876543210fedcba9876543210");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("写入带修订指纹：盘上已被改过就拒绝，绝不静默覆盖外部修改", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-revision-"));
+	const root = join(fixture, "local-project");
+	mkdirSync(root);
+	const file = join(root, "canary.txt");
+	writeFileSync(file, "first");
+	const { writeContentHandler } = createFilesIpc(root);
+	const target = { projectId: "project-1", relativePath: "canary.txt" };
+	const revisionOfFirst = "sha256:" + createHash("sha256").update("first").digest("hex");
+	try {
+		await writeContentHandler({}, target, "second", undefined, revisionOfFirst);
+		assert.equal(readFileSync(file, "utf8"), "second", "指纹对得上就正常写");
+		// 外部（另一个编辑器 / git checkout / agent）改了文件，编辑器的旧指纹必须被拒绝。
+		writeFileSync(file, "third");
+		await assert.rejects(() => writeContentHandler({}, target, "overwritten", undefined, revisionOfFirst), /PROJECT_FILE_CHANGED/);
+		assert.equal(readFileSync(file, "utf8"), "third", "拒绝时磁盘一个字节都不能变");
+		// 不传指纹保持旧行为（显式覆盖），不把可选参数变成强制。
+		await writeContentHandler({}, target, "allowed", undefined, undefined);
+		assert.equal(readFileSync(file, "utf8"), "allowed");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}
@@ -384,6 +479,25 @@ test("files:directory-page treats a vanished subdirectory as empty, only a missi
 		const rootResult = await gone.directoryPageHandler({}, { projectId: "project-1", relativePath: "" });
 		assert.equal(rootResult.ok, false);
 		assert.equal(rootResult.code, "PROJECT_DIRECTORY_MISSING");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("files:move-to：本机一次写把文件移动到目标全路径（跨目录改名）", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-target-move-to-"));
+	const root = join(fixture, "project");
+	const srcDir = join(root, "src");
+	const dstDir = join(root, "dst");
+	mkdirSync(srcDir, { recursive: true });
+	mkdirSync(dstDir, { recursive: true });
+	writeFileSync(join(srcDir, "a.txt"), "a");
+	try {
+		const api = createFilesIpc(root);
+		const moved = unwrap(await api.moveToHandler({}, { projectId: "project-1", relativePath: "src/a.txt" }, { projectId: "project-1", relativePath: "dst/b.txt" }));
+		assert.deepEqual(JSON.parse(JSON.stringify(moved)), { projectId: "project-1", relativePath: "dst/b.txt" });
+		assert.equal(readFileSync(join(dstDir, "b.txt"), "utf8"), "a");
+		assert.equal(existsSync(join(srcDir, "a.txt")), false, "源文件已在同一次写里移走");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}

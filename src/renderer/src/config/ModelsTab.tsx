@@ -306,18 +306,20 @@ export function ModelsTab(props: {
 						<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
 							{!batchMode && (
 								<>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() => {
-											// 新供应商名不一定命中当前关键词，留着会「加完看不见」。
-											setQuery("");
-											props.onStartAddProvider();
-										}}
-										disabled={saving}
-									>
-										{t("config.addProvider")}
-									</Button>
+									{providerNames.length > 0 && (
+										<Button
+											size="sm"
+											variant="outline"
+											onClick={() => {
+												// 新供应商名不一定命中当前关键词，留着会「加完看不见」。
+												setQuery("");
+												props.onStartAddProvider();
+											}}
+											disabled={saving}
+										>
+											{t("config.addProvider")}
+										</Button>
+									)}
 									<Button size="sm" variant="outline" onClick={() => setTransferView({ kind: "import" })} disabled={saving}>
 										{t("config.models.transfer.importButton")}
 									</Button>
@@ -842,7 +844,15 @@ export function ModelsTab(props: {
 								)}
 							</div>
 						)}
-						{providerNames.length === 0 && <div className="py-12 text-center text-control text-text-tertiary">{t("config.emptyProviders")}</div>}
+						{providerNames.length === 0 && (
+							<div className="config-provider-empty mx-auto flex max-w-sm flex-col items-center gap-2.5 py-16 text-center">
+								<strong className="text-control font-medium text-text-primary">{t("config.emptyProviders")}</strong>
+								<p className="text-xs leading-relaxed text-text-tertiary">{t("config.emptyProvidersHint")}</p>
+								<Button size="sm" onClick={props.onStartAddProvider} disabled={saving}>
+									{t("config.addProvider")}
+								</Button>
+							</div>
+						)}
 					</div>
 				</>
 			)}

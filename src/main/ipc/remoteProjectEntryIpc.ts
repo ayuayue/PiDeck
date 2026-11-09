@@ -1,9 +1,11 @@
+import { posix } from "node:path";
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { codeOf, opError, opFail, opFailFromCode, opOk, type Op } from "../../shared/op";
 import type { RemoteEntryCreateResult, RemoteEntryDeleteResult, RemoteEntryRenameResult, RemoteEntryStatResult, RemoteTrashListResult, RemoteTrashPruneResult, RemoteTrashRestoreResult } from "../../shared/types/remoteFiles";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import { createRemoteProjectEntryService, REMOTE_FILE_ENTRY_CODES } from "../remote/RemoteProjectEntryService";
+import { assertRemoteProjectEntryMove, validateRemoteProjectEntryName } from "../remote/RemoteProjectEntryCommands";
 import { isUncertainWrite } from "../remote/RemoteProjectWriteFacts";
 
 const VERSION = /^[a-f0-9]{32}$/;
@@ -97,80 +99,6 @@ export function registerRemoteProjectEntryIpc(input: {
 	}
 
 	ipcMain.handle(
-		ipcChannels.remoteProjectEntryStat,
-		async (event, projectId: unknown, relative: unknown): Promise<RemoteEntryStatResult> =>
-			wrap(async () => {
-				if (!PROJECT_ID(projectId) || typeof relative !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
-				const sender = watchSender(event.sender);
-				return await entry.stat(sender, projectId, relative);
-			}),
-	);
-
-	ipcMain.handle(
-		ipcChannels.remoteProjectFileCreate,
-		async (event, projectId: unknown, parent: unknown, name: unknown): Promise<RemoteEntryCreateResult> =>
-			wrap(async () => {
-				if (!PROJECT_ID(projectId) || typeof parent !== "string" || typeof name !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
-				const sender = watchSender(event.sender);
-				return await writeWithFacts(
-					projectId,
-					[requestedEntryPath(parent, name)],
-					(created) => [created.relativePath],
-					() => entry.createFile(sender, projectId, parent, name),
-				);
-			}),
-	);
-
-	ipcMain.handle(
-		ipcChannels.remoteProjectDirectoryCreate,
-		async (event, projectId: unknown, parent: unknown, name: unknown): Promise<RemoteEntryCreateResult> =>
-			wrap(async () => {
-				if (!PROJECT_ID(projectId) || typeof parent !== "string" || typeof name !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
-				const sender = watchSender(event.sender);
-				return await writeWithFacts(
-					projectId,
-					[requestedEntryPath(parent, name)],
-					(created) => [created.relativePath],
-					() => entry.createDirectory(sender, projectId, parent, name),
-				);
-			}),
-	);
-
-	ipcMain.handle(
-		ipcChannels.remoteProjectEntryRename,
-		async (event, projectId: unknown, source: unknown, target: unknown, version: unknown): Promise<RemoteEntryRenameResult> =>
-			wrap(async () => {
-				if (!PROJECT_ID(projectId) || typeof source !== "string" || typeof target !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
-				// 令牌格式不合法不烧令牌：形状校验在打开 SSH 之前。
-				if (typeof version !== "string" || !VERSION.test(version)) throw new Error("REMOTE_FILE_INPUT_INVALID");
-				const sender = watchSender(event.sender);
-				// 改名要连源路径一起标脏：它所在的目录也少了一项。
-				return await writeWithFacts(
-					projectId,
-					[source, target],
-					(renamed) => [source, renamed.relativePath],
-					() => entry.rename(sender, projectId, source, target, version),
-				);
-			}),
-	);
-
-	ipcMain.handle(
-		ipcChannels.remoteProjectEntryDelete,
-		async (event, projectId: unknown, relative: unknown, version: unknown): Promise<RemoteEntryDeleteResult> =>
-			wrap(async () => {
-				if (!PROJECT_ID(projectId) || typeof relative !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
-				if (typeof version !== "string" || !VERSION.test(version)) throw new Error("REMOTE_FILE_INPUT_INVALID");
-				const sender = watchSender(event.sender);
-				return await writeWithFacts(
-					projectId,
-					[relative],
-					() => [relative],
-					() => entry.deleteEntry(sender, projectId, relative, version),
-				);
-			}),
-	);
-
-	ipcMain.handle(
 		ipcChannels.remoteProjectTrashList,
 		async (event, projectId: unknown): Promise<RemoteTrashListResult> =>
 			wrap(async () => {
@@ -213,7 +141,99 @@ export function registerRemoteProjectEntryIpc(input: {
 			}),
 	);
 
+	/** stat→rename 的共用体：rename 与 moveTo 只有「目标是否同父目录」这一条差别。 */
+	async function renameEntry(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetPath: string): Promise<{ relativePath: string }> {
+		const senderId = watchSender(sender);
+		// 乐观锁的凭据是 stat 签发的一次性令牌：这里现读现用，绝不跨调用复用。
+		const { version } = await entry.stat(senderId, projectId, source);
+		return await writeWithFacts(
+			projectId,
+			[source, targetPath],
+			(renamed) => [source, renamed.relativePath],
+			() => entry.rename(senderId, projectId, source, targetPath, version),
+		);
+	}
+
 	return {
+		/**
+		 * 供 `files:create` / `files:rename` 在 main 内按位置分派时复用（位置分派收口第二片）：
+		 * 与既有 `remote:project-entry-*` 通道共用同一套服务、令牌表、事实失效与错误码。
+		 * 令牌不离开 main：rename 先 stat 取得一次性令牌，立刻用它提交。
+		 */
+		create(sender: IpcMainInvokeEvent["sender"], projectId: string, parent: string, name: string, type: "file" | "directory"): Promise<{ relativePath: string; kind: "file" | "directory" | "other" }> {
+			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
+			if (!PROJECT_ID(projectId) || typeof parent !== "string" || typeof name !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			const senderId = watchSender(sender);
+			return writeWithFacts(
+				projectId,
+				[requestedEntryPath(parent, name)],
+				(created) => [created.relativePath],
+				() => (type === "file" ? entry.createFile(senderId, projectId, parent, name) : entry.createDirectory(senderId, projectId, parent, name)),
+			);
+		},
+		rename(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetPath: string): Promise<{ relativePath: string }> {
+			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
+			if (!PROJECT_ID(projectId) || typeof source !== "string" || typeof targetPath !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			// 改名不是移动：目标必须与原路径同父目录，最后一段必须是单段名字（不含 `/`、不是临时后缀/保留名）。
+			// 本机 FileSystemService.rename 有同一 P0 判据；这里守在服务边界，任何新入口都绕不过去。
+			if (posix.dirname(targetPath) !== posix.dirname(source)) throw new Error("REMOTE_FILE_INPUT_INVALID");
+			validateRemoteProjectEntryName(posix.basename(targetPath));
+			return renameEntry(sender, projectId, source, targetPath);
+		},
+		/**
+		 * 一次写移动到目标全路径（P1-2）：跨目录改名与同目录改名共用同一次 stat→rename，
+		 * 不再由 renderer 做「先 move 到目录、再 rename 改名」两步（第二步失败会留下残局）。
+		 */
+		moveTo(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetPath: string): Promise<{ relativePath: string }> {
+			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
+			if (!PROJECT_ID(projectId) || typeof source !== "string" || typeof targetPath !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			if (source === "") throw new Error("REMOTE_FILE_PROTECTED_PATH");
+			return (async () => {
+				const senderId = watchSender(sender);
+				// 自嵌套只有目录才可能；读一次 stat 就知道 kind，同时拿到这次写要用的令牌。
+				const { version, stat } = await entry.stat(senderId, projectId, source);
+				assertRemoteProjectEntryMove(source, targetPath, stat.kind);
+				return await writeWithFacts(
+					projectId,
+					[source, targetPath],
+					(moved) => [source, moved.relativePath],
+					() => entry.rename(senderId, projectId, source, targetPath, version),
+				);
+			})();
+		},
+		move(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetDir: string): Promise<{ relativePath: string }> {
+			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
+			if (!PROJECT_ID(projectId) || typeof source !== "string" || typeof targetDir !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			const senderId = watchSender(sender);
+			const name = source.slice(source.lastIndexOf("/") + 1);
+			const targetPath = targetDir === "" ? name : `${targetDir}/${name}`;
+			// 移到同一个目录 = 无操作：不签令牌、不发帧（与本地 backend 的“同名移动”语义一致）。
+			if (targetPath === source) return Promise.resolve({ relativePath: source });
+			return (async () => {
+				const { version } = await entry.stat(senderId, projectId, source);
+				return await writeWithFacts(
+					projectId,
+					[source, targetPath],
+					(renamed) => [source, renamed.relativePath],
+					() => entry.rename(senderId, projectId, source, targetPath, version),
+				);
+			})();
+		},
+		delete(sender: IpcMainInvokeEvent["sender"], projectId: string, relativePath: string): Promise<{ trashId: string }> {
+			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
+			if (!PROJECT_ID(projectId) || typeof relativePath !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			const senderId = watchSender(sender);
+			return (async () => {
+				// 删除不可恢复（进回收站）：乐观锁凭据同样现读现用，不跨调用复用。
+				const { version } = await entry.stat(senderId, projectId, relativePath);
+				return await writeWithFacts(
+					projectId,
+					[relativePath],
+					() => [relativePath],
+					() => entry.deleteEntry(senderId, projectId, relativePath, version),
+				);
+			})();
+		},
 		/** 退出清理：撤销全部 sender 令牌并解除窗口监听（与文本保存 IPC 各管各的表）。 */
 		dispose(): void {
 			for (const { sender, destroy } of senders.values()) sender.removeListener("destroyed", destroy);

@@ -155,7 +155,7 @@ test("the existing config IPC/preload contract now routes an optional target wit
 	// Assembly: the backend is built only behind the remote experiment switch and passed as a dependency.
 	assert.match(mainIndex, /createRemotePiConfigBackend\(\{/);
 	assert.match(mainIndex, /remotePiConfig,/);
-	assert.match(mainIndex, /remoteExperimentEnabled[\s\S]{0,200}?createRemotePiConfigBackend/);
+	assert.match(mainIndex, /remoteFeatureEnabled[\s\S]{0,200}?createRemotePiConfigBackend/);
 	// Batch B (after the A1/A2/A4 security fix) extends the four existing methods with optional options; no new channel.
 	assert.match(preload, /getModels: \(options\?: [\s\S]{0,160}?\) =>\s*ipcRenderer\.invoke\(ipcChannels\.configGetModels, options\)/);
 	assert.match(preload, /getSettings: \(options\?: [\s\S]{0,160}?\) =>\s*ipcRenderer\.invoke\(ipcChannels\.configGetSettings, options\)/);

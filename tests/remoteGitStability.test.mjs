@@ -158,8 +158,8 @@ function harness(t) {
 			cancelRemoteReads: (project) => handlers.get(ipcChannels.gitRemoteCancelReads)(event, project),
 		};
 		const services = createProjectServices(remoteProject, { files: {}, remoteHosts: {}, remoteTrust: {}, git: gitApi }, { facts });
-		// Three frozen-contract gaps still use the existing preload channels; here they are the same registered handlers.
-		const api = createRemoteGitPanelApi(services, { git: gitApi });
+		// The provider owns all three former panel-private entry points; here they reach the same registered handlers.
+		const api = createRemoteGitPanelApi(services);
 		const controller = createRemoteGitViewController(projectId, "owned-identity", api, (state) => states.push(state), "", services.capabilities.git);
 		t.after(() => {
 			controller.dispose();

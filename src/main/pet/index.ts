@@ -27,6 +27,8 @@ export type PetSystemDeps = {
 	getMainWindow: () => BrowserWindow | null;
 	resolveSessionId: (agentId: string) => string | undefined;
 	recreateMainWindow?: () => Promise<BrowserWindow>;
+	/** 唤回主窗口（含最小化恢复与最大化/全屏回填）；缺省时退化为 show()+focus()。 */
+	revealMainWindow?: (window: BrowserWindow) => void;
 	translate?: (key: PetCopyKey, params?: Record<string, string | number>) => string;
 };
 
@@ -192,7 +194,7 @@ export class PetSystem {
 		if (this.registered) return;
 		this.registered = true;
 
-		const { settingsStore, agentSource, getMainWindow, recreateMainWindow } = this.deps;
+		const { settingsStore, agentSource, getMainWindow, recreateMainWindow, revealMainWindow } = this.deps;
 		const C = ipcChannels;
 
 		ipcMain.handle(C.petList, () => this.packageManager.list());
@@ -229,8 +231,12 @@ export class PetSystem {
 			let main = getMainWindow();
 			if ((!main || main.isDestroyed()) && recreateMainWindow) main = await recreateMainWindow();
 			if (!main) return;
-			if (!main.isVisible()) main.show();
-			main.focus();
+			// 必须走主进程的统一唤起口：直接 show() 不会把最小化的窗口恢复回最大化/全屏。
+			if (revealMainWindow) revealMainWindow(main);
+			else {
+				if (!main.isVisible()) main.show();
+				main.focus();
+			}
 			const agentId = this.bridge.currentState?.activeAgentId;
 			const sessionId = agentId ? this.deps.resolveSessionId(agentId) : undefined;
 			if (sessionId) main.webContents.send(C.petFocusAgentTarget, { sessionId });

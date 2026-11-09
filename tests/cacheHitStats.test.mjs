@@ -274,9 +274,62 @@ test("createCacheHitStatsReader: 源文件不含 readFile 整读（大会话闪�
 
 	// 生产接线在 AgentManager：必须注入流式扫描（scanJsonlLines），不得注入 readFile。
 	// 这是本修复的关键回归点——旧接线就是 `readFile: (path) => readFile(path, "utf8")`。
+	// 且必须走 createJsonlScanLines：内联适配器曾少写第三个参数（#511），
+	// 使读取器的增量起点丢失、同一批样本被重复累计。
 	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-	assert.match(agentManager, /scanLines:\s*async/, "AgentManager 必须向命中率读取器注入流式扫描");
-	assert.match(agentManager, /scanJsonlLines\(filePath, visitor\)/, "注入的扫描必须是 scanJsonlLines");
+	assert.match(agentManager, /scanLines:\s*createJsonlScanLines\(\)/, "AgentManager 必须注入 createJsonlScanLines（流式 + 透传增量起点）");
+});
+
+test("createJsonlScanLines: 生产适配器把增量起点透传给 scanJsonlLines（#511）", async () => {
+	// 直接覆盖生产适配器本身：它曾经就是 AgentManager 内联的那段 `async (filePath, visitor)`，
+	// 少接一个 options 参数时 TS 不报错、读取器看不到，只有真盘上「起点是否生效」能测出来。
+	const { createJsonlScanLines } = loadTsCommonJs("src/main/sessions/jsonlLineStream.ts");
+	const scanLines = createJsonlScanLines();
+
+	const dir = await mkdtemp(join(tmpdir(), "pideck-jsonlscan-"));
+	const file = join(dir, "s.jsonl");
+	try {
+		const head = assistantLine({ id: 1 });
+		const tail = assistantLine({ id: 2 });
+		await writeFile(file, `${head}\n${tail}\n`);
+
+		const seen = [];
+		await scanLines(file, (line, context) => seen.push({ line, offset: context.offset }), { start: Buffer.byteLength(head, "utf8") + 1 });
+		assert.equal(seen.length, 1, "从增量起点续扫只应读到尾部那一行");
+		assert.equal(seen[0].line, tail);
+		assert.equal(seen[0].offset, Buffer.byteLength(head, "utf8") + 1, "首行 offset 必须等于传入的 start");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("createCacheHitStatsReader: 生产适配器接线后增量结果等于冷启动全扫（#511 重复累计回归）", async () => {
+	// #511 的实机后果：追加后 sampleCount 2 → 5、average 15 → 30，
+	// 因为旧累加器被复用、底层却从 0 重扫。这里用生产适配器 + 真盘复现该场景。
+	const { createCacheHitStatsReader } = loadCacheHitStats();
+	const { createJsonlScanLines } = loadTsCommonJs("src/main/sessions/jsonlLineStream.ts");
+	const reader = createCacheHitStatsReader({ scanLines: createJsonlScanLines(), stat });
+
+	const dir = await mkdtemp(join(tmpdir(), "pideck-cachehit-incremental-"));
+	const file = join(dir, "s.jsonl");
+	try {
+		await writeFile(file, `${assistantLine({ id: 1, usage: { input: 100, cacheRead: 10, cacheWrite: 90 } })}\n${assistantLine({ id: 2, usage: { input: 100, cacheRead: 20, cacheWrite: 80 } })}\n`);
+		const first = await reader(file);
+		assert.equal(first.sampleCount, 2);
+		assert.equal(first.average, 7.5, "两条样本 5% 与 10% 的平均");
+
+		await appendFile(file, `${assistantLine({ id: 3, usage: { input: 100, cacheRead: 90, cacheWrite: 10 } })}\n`);
+		const appended = await reader(file);
+		assert.equal(appended.sampleCount, 3, "追加一条只能多一个样本（重复累计会变成 5）");
+		assert.equal(appended.average, 20, "增量平均需与冷启动全扫一致（(5+10+45)/3）");
+		assert.equal(appended.latest, 45);
+
+		// 同一最终文件冷启动重扫作对照：增量口径必须与全扫完全一致
+		const cold = await createCacheHitStatsReader({ scanLines: createJsonlScanLines(), stat })(file);
+		assert.deepEqual(appended, cold, "增量续算结果与冷启动全扫必须一致");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 });
 
 test("createCacheHitStatsReader: 文件未变化时零扫描（高频轮询主路径）", async () => {
@@ -511,8 +564,10 @@ test("AgentManager getRuntimeState 返回平均命中率，且接线到流式扫
 	assert.match(source, /cacheHitSampleCount: fileHitStats\.sampleCount/);
 	// 旧的「只读最后一条」实现已移除
 	assert.doesNotMatch(source, /getLatestCacheMessageHitRate/);
-	// 关键回归守卫：命中率读取器不得再整读会话文件（1GB 会话会 abort 主进程）
-	assert.match(source, /scanLines:\s*async/);
+	// 关键回归守卫：命中率读取器不得再整读会话文件（1GB 会话会 abort 主进程），
+	// 且必须经 createJsonlScanLines 透传增量起点（#511 曾因内联适配器丢 start 而重复累计）
+	assert.match(source, /scanLines:\s*createJsonlScanLines\(\)/);
+	assert.doesNotMatch(source, /scanLines:\s*async/);
 	assert.doesNotMatch(source, /readFile:\s*\(path\)\s*=>\s*readFile\(path, "utf8"\)/);
 });
 

@@ -109,10 +109,6 @@ function harness(options = {}) {
 			},
 			"../remote/RemoteWorkspaceReader": {
 				createRemoteWorkspaceReader: () => ({
-					async list(_hostId, path) {
-						calls.list += 1;
-						return { entries: [{ name: "src", kind: "directory", path }] };
-					},
 					async readFile() {
 						return { content: Buffer.from("x"), bytes: 1, mtimeMs: 1 };
 					},
@@ -152,6 +148,13 @@ function harness(options = {}) {
 		userDataDir: "/tmp/unused",
 		service: async () => service,
 		factsEvents: hub,
+		directoryReader: {
+			async read() {
+				calls.list += 1;
+				const entries = [{ name: "src", kind: "directory" }];
+				return { ok: true, value: { entries, scanned: entries.length, truncated: false } };
+			},
+		},
 		projects: {
 			enroll: async () => ({ projectId: PROJECT }),
 			locator: (id) => (id === PROJECT ? { kind: "ssh", hostId: HOST, remotePath: "/srv/app" } : undefined),

@@ -94,6 +94,20 @@ function defaultYield(): Promise<void> {
 }
 
 /**
+ * 命中率读取器（cacheHitStats）要求的流式扫描适配器：把增量起点透传给 `scanJsonlLines`。
+ *
+ * 单独导出而不是在调用点内联，是为了让单测能直接覆盖**生产接线**（#511）：
+ * `AgentManager` 原先内联的适配器少写了第三个参数，读取器按续算起点调用、底层却从 0 重扫，
+ * 复用的旧累加器把同一批样本又累计一遍（sampleCount 2+3=5、average 15→30）。
+ * 回调少接参数 TypeScript 不报错，只能靠「起点必须被透传」的行为用例兜住。
+ */
+export function createJsonlScanLines(): (filePath: string, visitor: (line: string, context: JsonlLineContext) => void, options: { start: number }) => Promise<void> {
+	return async (filePath, visitor, options) => {
+		await scanJsonlLines(filePath, visitor, options);
+	};
+}
+
+/**
  * 逐行扫描 JSONL 文件（流式）。visitor 抛错会终止扫描并向上抛出；
  * 返回 `"stop"` 表示调用方已收够数据，扫描立即收尾（不再读盘）。
  */

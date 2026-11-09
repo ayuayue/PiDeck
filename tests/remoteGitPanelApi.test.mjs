@@ -8,11 +8,25 @@ const projectId = "project";
 const target = { projectId, relativePath: "one.txt" };
 const groups = { merge: [], index: [], workingTree: [], untracked: [] };
 const nestedScope = { projectId, relativePath: "packages/nested" };
+const detail = {
+	oid: "e".repeat(40),
+	parents: [],
+	authorName: "A",
+	authorEmail: "a@e",
+	authorTimeSec: 1,
+	committerName: "A",
+	committerEmail: "a@e",
+	committerTimeSec: 1,
+	subject: "s",
+	message: "s\n",
+	files: [],
+};
+const refDiff = { path: target.relativePath, target, displayPath: target.relativePath, base: null, head: detail.oid, originalContent: "old", modifiedContent: "new" };
 
 /**
- * G4a bridge: the panel's only data entry is the project-bound service. These tests pin three things:
- * delegation (the service method and its repository scope), failure normalization (`unknown` stays unknown), and the
- * three frozen-contract gaps, which may only reach the preload API while the service generation is current.
+ * G4a bridge: the panel's only data entry is the project-bound service. These tests pin
+ * delegation (including commit detail, revision diff and cancellation), repository scope,
+ * and failure normalization (`unknown` stays unknown). The bridge never receives preload.
  */
 
 function capabilities(overrides = {}) {
@@ -59,6 +73,9 @@ function fakeServices(git = {}, serviceOverrides = {}) {
 		repos: record("repos", async () => ({ repos: [], truncated: false, revision: 1, generation: "g" })),
 		refs: record("refs", async () => []),
 		compare: record("compare", async () => ({ mode: "trees", base: { ref: "refs/heads/main", oid: "a".repeat(40) }, head: { ref: "refs/heads/topic", oid: "b".repeat(40) }, files: [] })),
+		commitDetail: record("commitDetail", async () => detail),
+		refFileDiff: record("refFileDiff", async () => refDiff),
+		cancelRemoteReads: record("cancelRemoteReads", async () => undefined),
 		workspaceDiff: record("workspaceDiff", async () => ({ path: target.relativePath, target, displayPath: target.relativePath, originalContent: "old", modifiedContent: "new" })),
 		createBranch: record("createBranch", async () => undefined),
 		checkout: record("checkout", async () => ({ current: "topic", branches: ["main", "topic"] })),
@@ -91,29 +108,9 @@ function fakeServices(git = {}, serviceOverrides = {}) {
 	return { services, calls, setCurrent: (value) => (current = value) };
 }
 
-function fakeApi() {
-	const calls = [];
-	const api = {
-		git: {
-			cancelRemoteReads: async (...args) => {
-				calls.push(["cancelRemoteReads", ...args]);
-			},
-			remoteCommitDetail: async (...args) => {
-				calls.push(["remoteCommitDetail", ...args]);
-				return { ok: true, detail: { oid: args[1], parents: [], authorName: "A", authorEmail: "a@e", authorTimeSec: 1, committerName: "A", committerEmail: "a@e", committerTimeSec: 1, subject: "s", message: "s\n", files: [] } };
-			},
-			remoteRefFileDiff: async (...args) => {
-				calls.push(["remoteRefFileDiff", ...args]);
-				return { ok: true, diff: { path: args[3].relativePath, target: args[3], displayPath: args[3].relativePath, base: args[1], head: args[2], originalContent: "old", modifiedContent: "new" } };
-			},
-		},
-	};
-	return { api, calls };
-}
-
 test("status/refresh delegate to the project-bound service and name the repository scope", async () => {
 	const { services, calls } = fakeServices();
-	const api = createRemoteGitPanelApi(services, fakeApi().api);
+	const api = createRemoteGitPanelApi(services);
 	const root = await api.status();
 	assert.deepEqual(plain(root), { ok: true, snapshot: { groups, head: null, branch: "main" } });
 	assert.deepEqual(plain(calls[0]), ["status", null], "the fact read comes first; the root scope passes no repo target");
@@ -135,14 +132,14 @@ test("a branch read failure keeps the facts and reports the branch as unknown", 
 			throw Object.assign(new Error("branch read failed"), { code: "GIT_REF_NOT_FOUND", outcome: "rejected" });
 		},
 	});
-	const api = createRemoteGitPanelApi(services, fakeApi().api);
+	const api = createRemoteGitPanelApi(services);
 	const result = await api.status();
 	assert.equal(result.ok, true, "the groups read succeeded: it must not be replaced by the branch failure");
 	assert.deepEqual(plain(result.snapshot.groups), groups);
 	assert.equal(result.snapshot.branch, null);
 	// The capability says branchRead is closed: zero branch calls, still a successful fact read.
 	const closed = fakeServices({}, { capabilities: { projectId, locationKind: "ssh", generation: "g", trust: "approved", files: {}, git: capabilities({ branchRead: false }), blocked: {} } });
-	const closedApi = createRemoteGitPanelApi(closed.services, fakeApi().api);
+	const closedApi = createRemoteGitPanelApi(closed.services);
 	await closedApi.status();
 	assert.deepEqual(
 		closed.calls.map((call) => call[0]),
@@ -157,7 +154,7 @@ test("service failures keep their stable code, and an unknown write stays unknow
 			throw Object.assign(new Error("Trust required"), { code: "GIT_TRUST_REQUIRED", outcome: "rejected" });
 		},
 	});
-	const api = createRemoteGitPanelApi(refused.services, fakeApi().api);
+	const api = createRemoteGitPanelApi(refused.services);
 	const rejected = await api.commit("subject");
 	assert.equal(rejected.ok, false);
 	assert.equal(rejected.code, "GIT_TRUST_REQUIRED");
@@ -170,7 +167,7 @@ test("service failures keep their stable code, and an unknown write stays unknow
 			throw Object.assign(new Error("socket closed"), { code: "GIT_WRITE_RESULT_UNCONFIRMED", outcome: "unknown" });
 		},
 	});
-	const unknownApi = createRemoteGitPanelApi(unknown.services, fakeApi().api);
+	const unknownApi = createRemoteGitPanelApi(unknown.services);
 	const unconfirmed = await unknownApi.commit("subject");
 	assert.equal(unconfirmed.ok, false);
 	assert.equal(unconfirmed.code, "GIT_WRITE_RESULT_UNCONFIRMED", "an unknown outcome never degrades to a definite failure");
@@ -184,7 +181,7 @@ test("raw non-service failures reduce to the bounded code regex (no invoke wrapp
 			throw new Error("Error invoking remote method 'git:status': Error: GIT_NOT_REPOSITORY");
 		},
 	});
-	const rawApi = createRemoteGitPanelApi(raw.services, fakeApi().api);
+	const rawApi = createRemoteGitPanelApi(raw.services);
 	const result = await rawApi.status();
 	assert.deepEqual(plain({ ok: result.ok, code: result.code }), { ok: false, code: "GIT_NOT_REPOSITORY" });
 
@@ -193,7 +190,7 @@ test("raw non-service failures reduce to the bounded code regex (no invoke wrapp
 			throw new Error("GIT_WRITE_RESULT_UNCONFIRMED");
 		},
 	});
-	const unknownApi = createRemoteGitPanelApi(unknownMessage.services, fakeApi().api);
+	const unknownApi = createRemoteGitPanelApi(unknownMessage.services);
 	const unknownResult = await unknownApi.status();
 	assert.equal(unknownResult.code, "GIT_WRITE_RESULT_UNCONFIRMED");
 	assert.equal(unknownResult.outcome, "unknown", "the closed unknown-code set decides the outcome");
@@ -203,13 +200,13 @@ test("raw non-service failures reduce to the bounded code regex (no invoke wrapp
 			throw new Error("socket closed");
 		},
 	});
-	const opaqueApi = createRemoteGitPanelApi(opaque.services, fakeApi().api);
+	const opaqueApi = createRemoteGitPanelApi(opaque.services);
 	assert.equal((await opaqueApi.status()).code, "GIT_COMMAND_FAILED", "a neutral fallback, not remote failure prose");
 });
 
 test("stage/unstage/commit/discard delegate the exact target list and repository scope", async () => {
 	const { services, calls } = fakeServices();
-	const api = createRemoteGitPanelApi(services, fakeApi().api);
+	const api = createRemoteGitPanelApi(services);
 	assert.deepEqual(plain(await api.mutateIndex("stage", "workingTree", target, "packages/nested")), { ok: true });
 	assert.deepEqual(plain(calls.at(-1)), ["stage", [target], nestedScope]);
 	assert.deepEqual(plain(await api.mutateIndex("unstage", "index", target)), { ok: true });
@@ -223,18 +220,18 @@ test("stage/unstage/commit/discard delegate the exact target list and repository
 test("a discard keeps the recovery ref the provider returned", async () => {
 	const ref = "refs/pideck/recovery/20261016120000-ab12cd34";
 	const { services } = fakeServices({ discard: async () => ({ recoveryRef: ref }) });
-	const api = createRemoteGitPanelApi(services, fakeApi().api);
+	const api = createRemoteGitPanelApi(services);
 	assert.deepEqual(plain(await api.discard("untracked", target)), { ok: true, recoveryRef: ref });
 });
 
 test("branch creation mode comes from the capability table and switch uses checkout", async () => {
 	const remote = fakeServices();
-	const remoteApi = createRemoteGitPanelApi(remote.services, fakeApi().api);
+	const remoteApi = createRemoteGitPanelApi(remote.services);
 	await remoteApi.createBranch("feature/one");
 	assert.deepEqual(plain(remote.calls.at(-1)), ["createBranch", "feature/one", "create", null], "a remote create never silently checks out");
 
 	const local = fakeServices({}, { capabilities: { projectId, kind: "local", generation: "local", trust: "none", files: {}, git: capabilities({ branchCreateMode: "create-and-checkout" }), blocked: {} } });
-	const localApi = createRemoteGitPanelApi(local.services, fakeApi().api);
+	const localApi = createRemoteGitPanelApi(local.services);
 	await localApi.createBranch("feature/one");
 	assert.deepEqual(plain(local.calls.at(-1)), ["createBranch", "feature/one", "create-and-checkout", null], "the local provider only supports create-and-checkout");
 
@@ -251,7 +248,7 @@ test("refs map GitRef{hash,type} onto the panel's RemoteGitRef{oid,kind}", async
 			{ name: "v1.0", fullName: "refs/tags/v1.0", hash, type: "tag" },
 		],
 	});
-	const api = createRemoteGitPanelApi(services, fakeApi().api);
+	const api = createRemoteGitPanelApi(services);
 	const result = await api.refs();
 	assert.deepEqual(plain(result), {
 		ok: true,
@@ -269,7 +266,7 @@ test("refs map GitRef{hash,type} onto the panel's RemoteGitRef{oid,kind}", async
 
 test("compare/history/syncFacts/recovery/init/repos are wrapped in the existing envelopes", async () => {
 	const { services, calls } = fakeServices();
-	const api = createRemoteGitPanelApi(services, fakeApi().api);
+	const api = createRemoteGitPanelApi(services);
 	const compare = await api.compareRefs("refs/heads/main", "refs/heads/topic", "packages/nested");
 	assert.equal(compare.ok, true);
 	assert.equal(compare.value.mode, "trees");
@@ -298,7 +295,7 @@ test("compare/history/syncFacts/recovery/init/repos are wrapped in the existing 
 
 test("workspaceFileDiff returns the service diff and throws the stable code on failure", async () => {
 	const { services } = fakeServices();
-	const api = createRemoteGitPanelApi(services, fakeApi().api);
+	const api = createRemoteGitPanelApi(services);
 	const diff = await api.workspaceFileDiff("workingTree", target);
 	assert.equal(diff.originalContent, "old");
 	const failing = fakeServices({
@@ -306,13 +303,13 @@ test("workspaceFileDiff returns the service diff and throws the stable code on f
 			throw Object.assign(new Error("hidden"), { code: "GIT_NOT_TEXT", outcome: "rejected" });
 		},
 	});
-	const failingApi = createRemoteGitPanelApi(failing.services, fakeApi().api);
+	const failingApi = createRemoteGitPanelApi(failing.services);
 	await assert.rejects(failingApi.workspaceFileDiff("workingTree", target), (error) => error.message === "GIT_NOT_TEXT");
 });
 
 test("explicit sync re-checks the facts and refuses a remote/branch it does not have", async () => {
 	const { services, calls } = fakeServices();
-	const api = createRemoteGitPanelApi(services, fakeApi().api);
+	const api = createRemoteGitPanelApi(services);
 	assert.deepEqual(plain(await api.fetch("origin", "packages/nested")), { ok: true });
 	assert.deepEqual(plain(calls.at(-1)), ["fetch", nestedScope], "only the provider verb is called after the check");
 
@@ -330,44 +327,44 @@ test("explicit sync re-checks the facts and refuses a remote/branch it does not 
 	assert.deepEqual(plain(calls.at(-1)), ["pull", null]);
 });
 
-test("the three contract gaps go straight to the preload API and stay inside the service generation", async () => {
-	const { services, setCurrent } = fakeServices();
-	const { api: desktop, calls } = fakeApi();
-	const api = createRemoteGitPanelApi(services, desktop);
+test("commit detail, revision file diff and read cancellation now delegate only to ProjectGitService", async () => {
+	const { services, calls } = fakeServices();
+	const api = createRemoteGitPanelApi(services);
 	const oid = "e".repeat(40);
-	const detail = await api.commitDetail(oid, "packages/nested");
-	assert.equal(detail.ok, true);
-	assert.deepEqual(plain(calls.at(-1)), ["remoteCommitDetail", projectId, oid, "packages/nested"]);
+	const detailResult = await api.commitDetail(oid, "packages/nested");
+	assert.equal(detailResult.ok, true);
+	assert.deepEqual(plain(calls.at(-1)), ["commitDetail", oid, nestedScope]);
 
-	const diff = await api.refFileDiff(null, oid, target);
-	assert.equal(diff.ok, true);
-	assert.deepEqual(plain(calls.at(-1)), ["remoteRefFileDiff", projectId, null, oid, target, null]);
+	const diffResult = await api.refFileDiff(null, oid, target);
+	assert.equal(diffResult.ok, true);
+	assert.deepEqual(plain(calls.at(-1)), ["refFileDiff", null, oid, target, null]);
 
 	await api.cancelRemoteReads();
-	assert.deepEqual(calls.at(-1), ["cancelRemoteReads", projectId]);
-
-	// Before the call: a retired service generation must not touch the preload channel at all.
-	setCurrent(false);
-	calls.length = 0;
-	const stale = await api.commitDetail(oid);
-	assert.equal(stale.ok, false);
-	assert.equal(stale.code, "PROJECT_SERVICE_GENERATION_STALE");
-	assert.deepEqual(calls, [], "a stale bridge makes zero preload calls");
-	assert.equal((await api.refFileDiff(null, oid, target)).code, "PROJECT_SERVICE_GENERATION_STALE");
-	await api.cancelRemoteReads();
-	assert.deepEqual(calls, [], "cancel is skipped for a retired generation too");
+	assert.deepEqual(calls.at(-1), ["cancelRemoteReads"]);
 });
 
-test("a generation that changes while a contract-gap read is in flight discards its answer", async () => {
-	const { services, setCurrent } = fakeServices();
-	const { api: desktop } = fakeApi();
-	let release;
-	const slow = { ...desktop, git: { ...desktop.git, remoteCommitDetail: () => new Promise((accept) => (release = accept)) } };
-	const api = createRemoteGitPanelApi(services, slow);
-	const pending = api.commitDetail("f".repeat(40));
-	setCurrent(false);
-	release({ ok: true, detail: { oid: "f".repeat(40) } });
-	const result = await pending;
-	assert.equal(result.ok, false);
-	assert.equal(result.code, "PROJECT_SERVICE_GENERATION_STALE", "a late answer of the retired generation is never published");
+test("the bridge preserves a stale service generation as a rejected result and cancel remains best-effort", async () => {
+	const stale = Object.assign(new Error("stale"), { code: "PROJECT_SERVICE_GENERATION_STALE", outcome: "rejected" });
+	const calls = [];
+	const { services } = fakeServices({
+		commitDetail: async () => {
+			calls.push("commitDetail");
+			throw stale;
+		},
+		refFileDiff: async () => {
+			calls.push("refFileDiff");
+			throw stale;
+		},
+		cancelRemoteReads: async () => {
+			calls.push("cancelRemoteReads");
+			throw stale;
+		},
+	});
+	const api = createRemoteGitPanelApi(services);
+	const detail = await api.commitDetail("f".repeat(40));
+	assert.equal(detail.ok, false);
+	assert.equal(detail.code, "PROJECT_SERVICE_GENERATION_STALE");
+	assert.equal((await api.refFileDiff(null, "f".repeat(40), target)).code, "PROJECT_SERVICE_GENERATION_STALE");
+	await api.cancelRemoteReads();
+	assert.deepEqual(calls, ["commitDetail", "refFileDiff", "cancelRemoteReads"], "cancel is attempted only through the service and its failure is intentionally swallowed");
 });

@@ -1,8 +1,12 @@
 # 远程文件管理与 SFTP 接入调研
 
-> 状态：SFTP-0 原生执行器原型已落地，**尚未接生产 IPC/UI**。2026-11-02。
-> 代码核对基线：`dev` 的 `4db671223` + 本分支 SFTP-0 改动；真实 SSH/Electron 验收尚未完成。
+> 状态：迁移前 SFTP-0 调研快照。2026-11-02。
+> 当时代码核对基线：`dev` 的 `4db671223` + SFTP-0 改动；当时尚未完成真实 SSH/Electron 验收。
 > 本轮用户重新提出采用 SFTP，因此此前“本期暂不上 SFTP”不再作为后续方案的前提。
+>
+> 2026-11-03 后续：SFTP-1 的新事务式上传/下载已通过真实 SSH + Electron 验收；SFTP-2
+> 普通目录读取的代码迁移已在 `codex/sftp-cleanup-sftp2` 完成，待最终集成 Agent 验收。
+> 本文 1.1、2 节保留迁移前快照，用于对照旧直连路径，不再描述当前生产接线。
 
 ## 1. 结论
 
@@ -37,7 +41,7 @@
 - **取消的进程树语义仍待真机证明。** POSIX 下执行器位于独立进程组并捕获终止信号，通过 `CommandContext` 结束 ssh；Windows 用 `taskkill /T /F` 清树并回退单进程 kill。实现已覆盖，但真实 Windows ssh/ProxyJump/超时取消仍须纳入验收。
 - 真实吞吐、峰值内存、SFTP 扩展差异和大目录行为尚未测量；IPC、capability、renderer 与真实项目服务接线均未开始。
 
-## 2. 当前实际使用的方式
+## 2. 迁移前实际使用的方式
 
 | 用户操作                         | 当前实现                                                                                 | 已核实的限制/语义                                                     |
 | -------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -57,11 +61,13 @@
 
 代码依据：
 
-- `src/main/ipc/remoteProjectDirFacts.ts`：目录事实加载调用 `reader.list`。
+- `src/main/ipc/remoteProjectDirFacts.ts`：目录事实加载调用显式注入的
+  `RemoteSftpDirectoryReader`；SFTP 不可用时直接失败，不回退 helper `fs.list`。
 - `src/main/remote/RemoteWorkspaceReader.ts`：16 MiB 上限、完整 Buffer、分块读取与前后属性检查。
-- `src/main/ipc/remoteProjectTransferIpc.ts`：上传整文件读取、下载先收齐再选择落点。
+- `src/main/ipc/remoteProjectTransferJobIpc.ts`：事务式上传/下载任务、进度、取消与事件收口。
 - `src/renderer/src/components/session/RemoteProjectPanel.tsx`、`src/renderer/src/hooks/useRemoteProjectTransfer.ts`：上传、拖入和下载的现有 UI 接线。
-- `src/main/remote/RemoteProjectFileUpload.ts`：stdin/base64、大小与摘要校验、临时文件提交。
+- `src/main/remote/RemoteProjectUploadJob.ts`、`RemoteProjectTransferRegistry.ts`：SFTP 暂存、
+  摘要校验、版本化 helper 提交与任务生命周期。
 - `src/main/remote/RemoteProjectFileCommands.ts`、`RemoteProjectFileService.ts`：文本预算、version 与写入边界。
 - `src/main/remote/RemoteProjectEntryService.ts`：条目与回收站的领域操作。
 - `src/main/remote/RemoteBootstrapUpload.ts`：scp 的 SFTP/legacy 模式选择。

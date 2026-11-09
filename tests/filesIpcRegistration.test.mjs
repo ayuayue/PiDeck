@@ -7,6 +7,7 @@ const filesIpc = readFileSync("src/main/ipc/filesIpc.ts", "utf8");
 const filesSystemIpc = readFileSync("src/main/ipc/filesSystemIpc.ts", "utf8");
 const localFileBackend = readFileSync("src/main/files/LocalProjectFileBackend.ts", "utf8");
 const preload = readFileSync("src/preload/index.ts", "utf8");
+const projectFileService = readFileSync("src/renderer/src/services/projectFileService.ts", "utf8");
 
 /**
  * 回归（30b6954b）：新增 files:copy/files:move 时误删了 filesShowInFolder
@@ -102,4 +103,26 @@ test("filesReadBase64 enforces a main-process default cap when the renderer omit
 	assert.match(block[0], /const effectiveMaxBytes\s*=/);
 	assert.match(block[0], /const fileStat = await stat\(readablePath\)/);
 	assert.match(block[0], /FILE_TOO_LARGE:\$\{fileStat\.size\}:\$\{Math\.floor\(effectiveMaxBytes\)\}/);
+});
+
+test("files:create / files:rename route ssh projects through the main-owned entry port", () => {
+	// 位置分派收口第二片：ssh 项目在 main 内复用 entry 写面（令牌留在 main），本机仍走 local backend。
+	assert.match(filesIpc, /if \(remoteEntries === undefined\) throw new Error\("UNSUPPORTED_PROJECT_LOCATION"\)/);
+	assert.match(filesIpc, /remoteEntries\.create\(event\.sender, parentInput\.projectId, parentInput\.relativePath, name, type\)/);
+	assert.match(filesIpc, /remoteEntries\.rename\(event\.sender, pathInput\.projectId, pathInput\.relativePath, targetPath\)/);
+	assert.match(filesIpc, /remoteEntries\.move\(event\.sender, source\.projectId, source\.relativePath, targetDirInput\.relativePath\)/);
+	assert.match(filesIpc, /remoteEntries\.delete\(event\.sender, pathInput\.projectId, pathInput\.relativePath\)/);
+	assert.match(filesIpc, /const owner = projectStore\.get\(parentInput\.projectId\);/);
+	assert.match(filesIpc, /const owner = projectStore\.get\(pathInput\.projectId\);/);
+	// renderer 不再自己选远端写通道：create/rename/move/delete 的 write 面全走公共 files:*。
+	assert.doesNotMatch(projectFileService, /remoteHosts\.createProject(File|Directory)\(/);
+	assert.doesNotMatch(projectFileService, /remoteHosts\.renameProjectEntry\(/);
+	assert.doesNotMatch(projectFileService, /remoteHosts\.deleteProjectEntry\(/);
+	assert.doesNotMatch(projectFileService, /remoteHosts\.statProjectEntry\(/);
+	assert.match(projectFileService, /api\.files\.moveTo\(target, \{ projectId, relativePath: destinationRelativePath \}\)/, "moveEntry 一次移动到目标全路径");
+	assert.doesNotMatch(projectFileService, /api\.files\.move\(\[target\]/, "跨目录改名不再拆成 move + rename 两步");
+	assert.match(projectFileService, /api\.files\.delete\(target\)/, "deleteEntry 走公共 files.delete");
+	// 搜索同理：provider 只调公共 files:searchPage。
+	assert.match(projectFileService, /api\.files\.searchPage\(projectId, query\)/);
+	assert.doesNotMatch(projectFileService, /remoteHosts\.searchProject\(/);
 });

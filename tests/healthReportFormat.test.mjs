@@ -80,6 +80,19 @@ test("formatMarkdown includes description, checks, environment and logs", () => 
 	assert.ok(out.startsWith("# PiDeck Diagnostic Report"), "should start with title");
 });
 
+test("formatMarkdown keeps a valid report with an empty issue description", () => {
+	const out = formatMarkdown(makeReport(), {
+		...CONTEXT,
+		description: "",
+		steps: "",
+	});
+	assert.ok(out.startsWith("# PiDeck Diagnostic Report"));
+	assert.equal((out.match(/_（empty）_/g) ?? []).length, 1);
+	assert.ok(!out.includes("### Repro steps"));
+	assert.ok(out.includes("## Environment"));
+	assert.ok(out.includes("## Health checks"));
+});
+
 test("formatMarkdown surfaces today's error/warn counts and collection totals", () => {
 	const out = formatMarkdown(makeReport(), CONTEXT);
 	assert.match(out, /today 2 errors \/ 1 warns/, "should show today's counts");

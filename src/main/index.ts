@@ -1,9 +1,9 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell, Tray, Notification, webContents } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { hostname, release as osRelease } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { renderDshSessionHtml as renderSessionHtmlForExport, sanitizeExportFileName } from "./dsh/dshSessionHtmlExport";
-import { release as osRelease } from "node:os";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
@@ -21,6 +21,10 @@ import { AutomationStore } from "./automation/AutomationStore";
 import { AgentProfileStore } from "./agents/AgentProfileStore";
 import { FavoritesStore } from "./favorites/FavoritesStore";
 import { SessionGroupStore } from "./sessionGroups/sessionGroupStore";
+import { LinkedSessionServer } from "./linkedSessions/LinkedSessionServer";
+import { LinkedSessionService, lastAssistantTextSince } from "./linkedSessions/LinkedSessionService";
+import { LinkedSessionStore } from "./linkedSessions/LinkedSessionStore";
+import { registerLinkedSessionsIpc } from "./ipc/linkedSessionsIpc";
 import { AgentInvokeService } from "./agents/AgentInvokeService";
 import { AutomationScheduler } from "./automation/AutomationScheduler";
 import { AutomationRunCoordinator } from "./automation/AutomationRunCoordinator";
@@ -65,7 +69,7 @@ import { readDataEnvDecision, validateStartupDataEnv, writeDataEnvDecision } fro
 import { registerDataEnvIpc } from "./ipc/dataEnvIpc";
 import { ChannelSwitchService } from "./update/ChannelSwitchService";
 import { registerChannelSwitchIpc } from "./ipc/channelSwitchIpc";
-import { isDevChannelBuild, resolveUpdateChannel } from "./update/channelIdentity";
+import { resolveUpdateChannel } from "./update/channelIdentity";
 import { resolveBuildOrigin } from "./buildIdentity";
 import { APP_DEEP_LINK_SCHEME } from "./utils/deepLinkScheme";
 import { APP_DISPLAY_NAME, initializeAppBrand } from "./utils/appBrand";
@@ -211,10 +215,13 @@ if (process.platform === "win32") {
 // 唤起实例的 argv 携带 pideck://session/<id> URL，主进程据此跳转对应会话。
 // 仅 packaged 应用注册：dev 模式跑的是 electron 二进制，注册会把协议关联劫持到 electron.exe，
 // 覆盖已安装正式版的关联；dev 模式下通知点击依赖 Electron 原生 click 事件聚焦即可。
+// E2E 实例（同为打包态）也默认跳过同一原因：#513 注册表按 scheme 全局唯一，跑一次用例
+// 就会把真实安装版的 pideck:// 改写成临时 userData 的测试实例；需要验证深链的用例用
+// PIDECK_E2E_REGISTER_PROTOCOL=1 显式 opt-in。
 // 安装包内 electron-builder 的 protocols 配置也会在安装时写入注册表，此处是运行时兜底。
 // dev 通道构建注册 pideck-dev://（安装清单同 scheme）：注册表按 scheme 为键，
 // 两通道同 scheme 会互相抢占关联，点击通知会唤起错误的通道。
-if (app.isPackaged) {
+if (shouldRegisterDeepLinkProtocol({ isPackaged: app.isPackaged, isE2E, optIn: process.env.PIDECK_E2E_REGISTER_PROTOCOL === "1" })) {
 	app.setAsDefaultProtocolClient(APP_DEEP_LINK_SCHEME);
 }
 
@@ -438,6 +445,7 @@ import { ResourceImportManager } from "./resourceImport/ResourceImportManager";
 import { toWslLinuxPath, toWindowsHostPath } from "./wsl/WslPaths";
 import { registerProjectsIpc } from "./ipc/projectsIpc";
 import { registerRemoteHostIpc } from "./ipc/remoteHostIpc";
+import { registerRemoteHostRebindIpc } from "./ipc/remoteHostRebindIpc";
 import { registerWslHostIpc } from "./ipc/wslHostIpc";
 import { createWslHostReferenceRegistry } from "./wsl/WslHostReferences";
 import { createWslHostStore } from "./wsl/WslHostStore";
@@ -445,8 +453,8 @@ import { resolveProjectWslIdentity } from "./wsl/WslProjectEnvironment";
 import { createWslHelperSessionPool } from "./wsl/WslHelperSession";
 import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
+import { REMOTE_FEATURE_AVAILABLE } from "./remote/remoteFeaturePolicy";
 import { registerRemoteProjectFileIpc } from "./ipc/remoteProjectFileIpc";
-import { registerRemoteProjectTransferIpc } from "./ipc/remoteProjectTransferIpc";
 import { registerRemoteProjectTransferJobIpc } from "./ipc/remoteProjectTransferJobIpc";
 import { registerRemoteProjectEntryIpc } from "./ipc/remoteProjectEntryIpc";
 import { registerRemoteProjectTrustIpc } from "./ipc/remoteProjectTrustIpc";
@@ -459,6 +467,10 @@ import { createRemoteModelCatalog, REMOTE_MODEL_CATALOG_CODES } from "./remote/R
 import { createSshClientRuntime, resolvePosixSshClient, type SshClientRuntime } from "./remote/SshClientRuntime";
 import { buildPinnedSshInvocation } from "./remote/SshVerifiedConnection";
 import { loadRemoteSftpBinaryIdentity, type RemoteSftpBinaryIdentity } from "./remote/RemoteSftpBinary";
+import { createRemoteSftpCapabilityCache } from "./remote/RemoteSftpCapabilityCache";
+import { createRemoteSftpCapabilityProbe } from "./remote/RemoteSftpCapabilityProbe";
+import { createRemoteSftpDirectoryReader } from "./remote/RemoteSftpDirectoryReader";
+import type { RemoteSftpProbe } from "./remote/RemoteSftpAdapter";
 import { createRemoteSessionHistoryReader } from "./remote/RemoteSessionHistoryReader";
 import { createRemoteSessionArchive } from "./remote/RemoteSessionArchive";
 import { createRemoteSessionDelete } from "./remote/RemoteSessionDelete";
@@ -475,7 +487,9 @@ import { createRemoteReferenceWriteGuard } from "./remote/RemoteReferenceWriteGu
 import { registerUsageStatsIpc } from "./ipc/usageStatsIpc";
 import { UsageStatsService } from "./usageStats/UsageStatsService";
 import { constrainWindowBoundsToWorkArea, type LastWindowBounds, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, readLastWindowBounds, saveLastWindowBounds } from "./windowState";
+import { type MainWindowVisualEvent, type MainWindowVisualIntent, type MainWindowVisualState, nextMainWindowVisualIntent, planMainWindowReveal } from "./windowReveal";
 import { applyE2EWindowPlacement, E2E_RENDERING_SWITCHES, resolveE2EWindowPlacement } from "./e2eWindowMode";
+import { shouldRegisterDeepLinkProtocol } from "./e2eProtocolRegistration";
 import { applyChromiumFeatureFlags } from "./chromiumFeatureFlags";
 import { createRendererCrashRecoveryGuard } from "./window/rendererCrashRecovery";
 import { registerBackgroundImageProtocol, registerBackgroundsIpc } from "./ipc/backgroundsIpc";
@@ -501,6 +515,8 @@ import { registerPasteFilesIpc } from "./ipc/pasteFilesIpc";
 import { registerSecurityIpc } from "./ipc/securityIpc";
 import { registerVisionIpc } from "./ipc/visionIpc";
 import { registerImageGenIpc } from "./ipc/imagegenIpc";
+import { registerCloudSyncIpc } from "./ipc/cloudSyncIpc";
+import { CloudSyncManager } from "./cloudSync/CloudSyncManager";
 import { ImageGenService } from "./imagegen/ImageGenService";
 import { ImageSessionStore } from "./imagegen/ImageSessionStore";
 import { ImageBlobStore } from "./imagegen/ImageBlobStore";
@@ -589,6 +605,12 @@ import { UpdateService } from "./update/UpdateService";
 import type { AppManualUpdateRelease } from "../shared/types/app";
 
 let mainWindow: BrowserWindow | null = null;
+/**
+ * 主窗口最后一次的呈现态（用户手动最大化/还原/全屏的结果）。
+ * 唤起窗口时按它重新施加：Windows 上从最小化/隐藏唤回的窗口不保证仍是最大化，
+ * 见 revealMainWindow 与 windowReveal.ts。
+ */
+let mainWindowVisualIntent: MainWindowVisualIntent = "normal";
 /** 主窗口实际挂载的会话（当前 + 分屏）：live 流只发这些会话，见 visibleSessionRegistry.ts。 */
 const visibleSessions = new VisibleSessionRegistry();
 /**
@@ -643,6 +665,8 @@ let isQuitting = false;
  *  非正常崩溃自动 reload 恢复，崩溃风暴（60s 内超 2 次）放弃。 */
 const rendererCrashGuard = createRendererCrashRecoveryGuard();
 let projectStore: ProjectStore;
+/** rebind IPC 的启动收敛入口（Q8）；注册发生在 whenReady 前半段，调用发生在两个 store load 之后。 */
+let remoteHostRebindIpc: { resumePendingAtStartup: () => Promise<void> } | undefined;
 let fileSystemService: FileSystemService;
 /**
  * 跨会话正文搜索的项目来源：当前环境可见的项目（WSL 项目不进——宿主 Go 进程读 UNC
@@ -847,6 +871,9 @@ let agentProfileStore: AgentProfileStore | null = null;
 let favoritesStore: FavoritesStore | null = null;
 /** 会话分组存储（<userData>/session-groups.json）；null = 尚未初始化。侧栏与插件经它共用一份数据。 */
 let sessionGroupStore: SessionGroupStore | null = null;
+/** 关联会话（子对话，docs/host-boundaries.md 例外九）：关系表 + 编排 + 回环端点。 */
+let linkedSessionStore: LinkedSessionStore | null = null;
+let linkedSessionService: LinkedSessionService | null = null;
 /** 智能体一次性调用服务（划词工具 / 市场面板）：业务在 service，侧车进程在下面的 completion。 */
 let agentInvokeService: AgentInvokeService | null = null;
 /**
@@ -954,6 +981,7 @@ function syncSelectionToolShortcut(): void {
 }
 /** 粘贴文件启动清理（registerIpc 阶段赋值；whenReady 后 fire-and-forget 执行） */
 let cleanupPasteFiles: (() => Promise<number>) | undefined;
+let cloudSyncManager: CloudSyncManager;
 
 /** 退出清理登记表（C12）：常驻资源创建处登记，before-quit 统一顺序执行。 */
 const quitCleanup = new QuitCleanupRegistry();
@@ -1039,6 +1067,13 @@ function broadcastVisibleProjects(): void {
 	window.webContents.send(ipcChannels.projectsChanged, visible);
 	// 项目集变化同步重建托盘菜单（最近项目区），否则增删项目后菜单滞后。
 	refreshTrayContextMenu();
+}
+
+/** 云同步状态变化 → 渲染层（设置页/全局状态订阅共用）。 */
+function broadcastCloudSyncStateChanged(): void {
+	const window = mainWindow;
+	if (!window || window.isDestroyed() || !cloudSyncManager) return;
+	window.webContents.send(ipcChannels.cloudSyncStateChanged, cloudSyncManager.getStateSnapshot());
 }
 
 /**
@@ -1197,6 +1232,91 @@ function emitAgentsNotice(payload: { message: string; i18nKey: string; i18nParam
  * 「compositeAgentGateway.onOutput 拆包后」的所有分支。
  */
 const runtimeEventListeners = new Set<(event: SessionRuntimeEvent) => void>();
+
+/**
+ * 关联会话装配（docs/host-boundaries.md 例外九）。端点起不来只是工具不出现，不影响启动。
+ * 与模型快照端点一样是 fire-and-forget：端点就绪前 spawn 的 agent 拿不到 env，下次 spawn 生效。
+ */
+function setupLinkedSessions(): void {
+	const store = new LinkedSessionStore(join(app.getPath("userData"), "linked-sessions.json"));
+	linkedSessionStore = store;
+	const runtimeMessages = (sessionId: string) => sessionRuntimeCoordinator.getRuntimeMessages(sessionId)?.value ?? [];
+	const service = new LinkedSessionService({
+		store,
+		getSessionIdForAgent: (agentId) => sessionRuntimeCoordinator.getSessionId(agentId),
+		getSession: (sessionId) => {
+			const entry = sessionCatalog.get(sessionId);
+			if (!entry) return undefined;
+			return {
+				id: entry.id,
+				projectId: entry.projectId,
+				title: entry.title,
+				backend: entry.backend ?? "pi",
+				environment: entry.environment,
+				...(entry.wslDistro ? { wslDistro: entry.wslDistro } : {}),
+				...(entry.wslUser ? { wslUser: entry.wslUser } : {}),
+			};
+		},
+		createDraft: async ({ parent, title }) => {
+			const draft = await sessionCatalog.createDraft({
+				projectId: parent.projectId,
+				title,
+				environment: parent.environment,
+				...(parent.wslDistro ? { wslDistro: parent.wslDistro } : {}),
+				...(parent.wslUser ? { wslUser: parent.wslUser } : {}),
+				source: "pi",
+				// 标题是开会话的 agent 起的终态名，不让自动标题覆盖（子会话靠标题在侧栏里被认出来）。
+				titleOrigin: "manual",
+				backend: "pi",
+			});
+			notifyCatalogRefreshed([parent.projectId]);
+			return { id: draft.id };
+		},
+		send: async (input) => {
+			const result = await sessionRuntimeCoordinator.send({
+				sessionId: input.sessionId,
+				requestId: LinkedSessionService.newRequestId(),
+				message: input.message,
+				...(input.agentMessage ? { agentMessage: input.agentMessage } : {}),
+				...(input.description ? { description: input.description } : {}),
+				...(input.streamingBehavior ? { streamingBehavior: input.streamingBehavior } : {}),
+			});
+			return result.accepted ? { accepted: true } : { accepted: false, error: result.error };
+		},
+		hasLiveRuntime: (sessionId) => Boolean(sessionRuntimeCoordinator.getTarget(sessionId)),
+		getMessageCount: (sessionId) => runtimeMessages(sessionId).length,
+		getAssistantTextSince: (sessionId, fromIndex) => lastAssistantTextSince(runtimeMessages(sessionId), fromIndex),
+		discardDraft: async (sessionId) => {
+			const projectId = sessionCatalog.get(sessionId)?.projectId;
+			await sessionCatalog.remove(sessionId);
+			if (projectId) notifyCatalogRefreshed([projectId]);
+		},
+		log: (level, message, data) => void appLogger?.[level]("linked-sessions", message, data),
+	});
+	linkedSessionService = service;
+	store.onChanged(() => {
+		const win = mainWindow;
+		if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.linkedSessionsChanged, null);
+	});
+	void store.load().then(() => {
+		const win = mainWindow;
+		if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.linkedSessionsChanged, null);
+	});
+	runtimeEventListeners.add((event) => service.observeRuntimeEvent(event));
+	// 两个集中点，覆盖所有入口：消息提交（清零自动续跑额度）与会话行消失（清理关系）。
+	sessionRuntimeCoordinator.onPromptSubmitted((input) => service.noteOutgoingPrompt(input));
+	sessionCatalog.onRowsRemoved((sessionIds) => void service.noteSessionsRemoved(sessionIds));
+	const server = new LinkedSessionServer((agentId, request) => service.handle(agentId, request));
+	agentManager.setLinkedSessionsHost({
+		registerAgent: (agentId) => server.registerAgent(agentId),
+		unregisterAgent: (agentId) => server.unregisterAgent(agentId),
+	});
+	void server.start();
+	quitCleanup.register("linked-sessions", () => {
+		service.dispose();
+		server.stop();
+	});
+}
 
 function emitSessionRuntimeEvent(agentId: string, sourceChannel: string, payload: unknown): boolean {
 	const runtimeBinding = sessionRuntimeCoordinator.getRuntimeBinding(agentId);
@@ -2227,28 +2347,62 @@ function notifyFromTray(title: string, body: string): void {
 	notification.show();
 }
 
-/** 从托盘/任务栏/二次启动唤起主窗口：处理最小化、隐藏到托盘两种状态。 */
-function focusMainWindow() {
-	if (!mainWindow || mainWindow.isDestroyed()) return;
-	if (mainWindow.isMinimized()) mainWindow.restore();
-	if (typeof mainWindow.setSkipTaskbar === "function") {
-		mainWindow.setSkipTaskbar(false);
+/**
+ * 记录用户对主窗口呈现态的选择，供唤起时重新施加。
+ * 逻辑走 windowReveal 的纯函数：全屏期间 Windows 会连带发 maximize/unmaximize，不能被改写成最大化。
+ */
+function trackMainWindowVisualIntent(window: BrowserWindow): void {
+	const readState = (): MainWindowVisualState => ({ minimized: window.isMinimized(), maximized: window.isMaximized(), fullscreen: window.isFullScreen() });
+	// 逐个注册而非循环：BrowserWindow.on 的事件名是重载字面量，联合类型无法安定到具体重载。
+	const track = (event: MainWindowVisualEvent) => () => {
+		mainWindowVisualIntent = nextMainWindowVisualIntent(mainWindowVisualIntent, readState(), event);
+	};
+	window.on("maximize", track("maximize"));
+	window.on("unmaximize", track("unmaximize"));
+	window.on("enter-full-screen", track("enter-full-screen"));
+	window.on("leave-full-screen", track("leave-full-screen"));
+}
+
+/**
+ * 把主窗口带回前台，并重新施加用户最后一次的呈现态（最大化/全屏）。
+ *
+ * 为何不直接 show()：Electron 不保证从最小化/隐藏唤回的窗口还是最大化。
+ * 实测 win32 + Electron 43：「最大化 → minimize() → 只 show()+focus()」得到
+ * isMaximized()===false，几何仍是 -7,-7 2064×1120（铺满屏但系统视为普通窗口），
+ * 下一次还原/拖动就掉回 1522×857 的正常尺寸——用户看到的就是「点通知/点宠物打开后窗口变小」。
+ * 全屏同理：全屏若没进 last-window-bounds，关窗即退出（closeToTray=false）后只剩最大化。
+ * 具体做哪几步由 planMainWindowReveal 决定（见 windowReveal.ts）。
+ */
+function revealMainWindow(window: BrowserWindow): void {
+	if (window.isDestroyed()) return;
+	const plan = planMainWindowReveal(mainWindowVisualIntent, { minimized: window.isMinimized(), maximized: window.isMaximized(), fullscreen: window.isFullScreen() }, { e2e: isE2E });
+	if (plan.restore) window.restore();
+	if (typeof window.setSkipTaskbar === "function") {
+		window.setSkipTaskbar(false);
 	}
-	mainWindow.show();
-	mainWindow.focus();
-	// 主窗口回来时默认关闭极简浮窗（避免两个窗口并存）；
-	// 「固定在最上方」开启（含未显式设置的默认 true）时浮窗常驻，只响应手动隐藏/收起。
-	if (settingsStore.get().floatingBallAlwaysOnTop === false) miniOverlayWindow?.hide();
+	if (plan.maximizeBeforeShow) window.maximize();
+	window.show();
+	if (plan.fullscreenAfterShow) window.setFullScreen(true);
+	window.focus();
 	if (process.platform === "win32") {
 		// Windows 前置窗口用「临时置顶再取消」hack 抢前台（直接 focus 可能被前台锁拦截）。
 		// 必须原样还原用户置顶状态，否则会把用户手动置顶的窗口取消置顶；
 		// 已置顶的窗口本身就在最前，无需重复 hack。
-		const wasAlwaysOnTop = mainWindow.isAlwaysOnTop();
+		const wasAlwaysOnTop = window.isAlwaysOnTop();
 		if (!wasAlwaysOnTop) {
-			mainWindow.setAlwaysOnTop(true);
-			mainWindow.setAlwaysOnTop(false);
+			window.setAlwaysOnTop(true);
+			window.setAlwaysOnTop(false);
 		}
 	}
+}
+
+/** 从托盘/任务栏/二次启动唤起主窗口：处理最小化、隐藏到托盘两种状态，并回到原呈现态。 */
+function focusMainWindow() {
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+	revealMainWindow(mainWindow);
+	// 主窗口回来时默认关闭极简浮窗（避免两个窗口并存）；
+	// 「固定在最上方」开启（含未显式设置的默认 true）时浮窗常驻，只响应手动隐藏/收起。
+	if (settingsStore.get().floatingBallAlwaysOnTop === false) miniOverlayWindow?.hide();
 }
 
 /**
@@ -2347,12 +2501,9 @@ function setupTray() {
 	const createTrayInstance = (): Tray => {
 		const instance = new Tray(icon.resize({ width: 16, height: 16 }));
 		instance.setToolTip("PiDeck");
-		// 双击托盘图标恢复窗口（Windows 常见交互）
+		// 双击托盘图标恢复窗口（Windows 常见交互）；走统一唤起口，最小化时也会回到原呈现态
 		instance.on("double-click", () => {
-			if (mainWindow && !mainWindow.isDestroyed()) {
-				mainWindow.show();
-				mainWindow.focus();
-			}
+			if (mainWindow && !mainWindow.isDestroyed()) revealMainWindow(mainWindow);
 		});
 		return instance;
 	};
@@ -2694,7 +2845,9 @@ async function createWindow() {
 		const last = readLastWindowBounds(app.getPath("userData"));
 		if (last) {
 			startupBounds = last;
-			if (last.maximized) effectiveStartupMode = "maximized";
+			// 全屏优先于最大化：两条记录同时存在时（全屏必然也是最大化）要回到全屏。
+			if (last.fullscreen) effectiveStartupMode = "fullscreen";
+			else if (last.maximized) effectiveStartupMode = "maximized";
 		} else {
 			effectiveStartupMode = "maximized";
 			startupBounds = resolveStartupWindowBounds("maximized");
@@ -2766,6 +2919,9 @@ async function createWindow() {
 	// 窗口保持隐藏时先按启动预设调整（maximize/fullscreen），再加载页面；
 	// 避免 ready-to-show 后再调整造成首帧布局跳变。
 	applyStartupWindowMode(mainWindow, effectiveStartupMode, showMainWindowImmediately);
+	// 记住本窗口的呈现态：唤起（托盘/通知/宠物）时由 revealMainWindow 重新施加。
+	mainWindowVisualIntent = effectiveStartupMode === "fullscreen" ? "fullscreen" : effectiveStartupMode === "maximized" ? "maximized" : "normal";
+	trackMainWindowVisualIntent(createdWindow);
 
 	// 所有 target="_blank" 或 window.open 的链接统一经同一入口处理，遵守用户设置的打开方式。
 	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -3502,15 +3658,10 @@ async function syncWslConfig(): Promise<void> {
 }
 
 function registerIpc() {
-	// 通道策略（2026-10-27）：远端能力**只在 dev 通道提供**，正式包不启用、界面也不暴露入口。
-	// 判据复用 isDevChannelBuild()（未打包运行 / dev 通道安装包为 true，release 产物为 false），
-	// 与更新通道同源，不再另外维护第二份打包/环境变量表达式（历史上这里是
-	// `!app.isPackaged && env === "1"`，后来一度写死 true 便于集成分支验收）。
-	// 关掉时开关只是策略位：远端 IPC 本就统一返回 REMOTE_FEATURE_DISABLED；
-	// 渲染层按同一判据（app:get-channel 的 devBuild）连入口都不渲染。
-	// pack:dev 的 dev 渠道标记由 pack-dev.js 注入 PIDECK_DEV_BUILD=1 保证——缺了它打包验收包会以稳定渠道
-	// 运行、远端静默关闭（真机验收表现为「功能没启用」且难排查）。
-	const remoteExperimentEnabled = isDevChannelBuild();
+	// 远端能力与更新通道正交：正式包和 dev 包都装配；同一策略位由
+	// update:get-channel 的 remoteAvailable 下发给渲染层，避免主/渲染判据漂移。
+	// 各远端 IPC 仍保留 enabled=false 的 fail-closed 分支，供测试和后续下线策略使用。
+	const remoteFeatureEnabled = REMOTE_FEATURE_AVAILABLE;
 	let remoteHostService: import("./remote/RemoteHostConnectionService").RemoteHostConnectionService | undefined;
 	/**
 	 * 已解析的 OpenSSH 客户端（SSH 路由校验与每个 ssh/scp 子进程共用同一份）。
@@ -3529,7 +3680,7 @@ function registerIpc() {
 	/** Discover the verified client once; failed construction can be retried. */
 	let remoteHostServicePending: Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
 	const remoteHostServiceIfEnabled = (): Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined => {
-		if (!remoteExperimentEnabled) return undefined;
+		if (!remoteFeatureEnabled) return undefined;
 		remoteHostServicePending ??= (async () => {
 			// Windows resolves its client internally; elsewhere the client must be discovered and proven
 			// capable before we let it answer route checks. Failing here is a stable code, not a crash.
@@ -3586,8 +3737,8 @@ function registerIpc() {
 	// 远端会话的 trust 解析发生在 AgentManager 的端口里（它比本函数先构造），所以实例挂在模块级变量上：
 	// 那里的 `resolveTrust` 闭包在**真正 spawn 时**才求值，不会拿到一个当时还不存在的对象。
 	remoteProjectTrustService = remoteProjectTrust;
-	registerRemoteHostIpc({
-		enabled: remoteExperimentEnabled,
+	const remoteHostIpc = registerRemoteHostIpc({
+		enabled: remoteFeatureEnabled,
 		userDataDir: app.getPath("userData"),
 		// 主机退役时同时清掉它的 trust 决策（与 pin 清理同一位置、同一重试语义）。
 		list: () => openRemoteHostCatalogView(app.getPath("userData"), { onHostRetired: (hostId) => remoteProjectTrustService?.forgetHost(hostId) ?? Promise.resolve() }),
@@ -3598,6 +3749,20 @@ function registerIpc() {
 		// lifetime is the process, not a call. Registering disposal here keeps the broker's timers from
 		// outliving the app.
 		registerCleanup: (cleanup) => quitCleanup.register("remote-host-stores", cleanup),
+	});
+	// 重新绑定（rebind）：与 remoteHostIpc 共用同一对 store/pin 实例；通道没有消费者之前不建。
+	remoteHostRebindIpc = registerRemoteHostRebindIpc({
+		enabled: remoteFeatureEnabled,
+		userDataDir: app.getPath("userData"),
+		openStores: remoteHostIpc.openStores,
+		projectStore: () => projectStore,
+		sessionCatalog: () => sessionCatalog,
+		// §5.5：执行前断开来源；失败直接上报（此时 tx 还没写任何东西）。
+		disconnect: async (hostId) => {
+			const service = await remoteHostServiceIfEnabled();
+			await service?.disconnect(hostId, "shutdown");
+		},
+		registerCleanup: (cleanup) => quitCleanup.register("remote-host-rebind", cleanup),
 	});
 	// 远端项目域（登记/回答/列表/读取/搜索）与 hosts 域分开注册：同一个连接服务端口，不同域的 handler。
 	// 远端 trust 域（决策表的清单/写入/撤销）同样分开：它不动 SSH，只读写桌面配置 + 已确认的 pin 事实。
@@ -3626,12 +3791,22 @@ function registerIpc() {
 		| undefined;
 	/** 目录与 Git 共用的事实变化通知出口（T4）：订阅按 sender + project，事件只标脏。 */
 	const remoteFactsEvents = createRemoteFactsHub(ipcChannels.remoteProjectFactsChanged);
-	registerRemoteProjectTrustIpc({ enabled: remoteExperimentEnabled, trust: () => remoteProjectTrustService });
+	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
+	const resolveRemoteSftpBinary = (): Promise<RemoteSftpBinaryIdentity | undefined> => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }));
+	const remoteSftpCapabilityCache = createRemoteSftpCapabilityCache<RemoteSftpProbe>();
+	const remoteSftpCapabilityProbe = createRemoteSftpCapabilityProbe();
+	const remoteSftpDirectoryReader = createRemoteSftpDirectoryReader({
+		binary: resolveRemoteSftpBinary,
+		cache: remoteSftpCapabilityCache,
+		probe: remoteSftpCapabilityProbe,
+	});
+	registerRemoteProjectTrustIpc({ enabled: remoteFeatureEnabled, trust: () => remoteProjectTrustService });
 	const remoteProjectIpc = registerRemoteProjectIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		userDataDir: app.getPath("userData"),
 		service: remoteHostServiceIfEnabled,
 		factsEvents: remoteFactsEvents,
+		directoryReader: remoteSftpDirectoryReader,
 		// 远端项目登记端口（Phase 3 第二段）：canonical 值已由 IPC 层校验/确认，这里只做持久化
 		// 与按 projectId 取 locator。只暴露 ssh 项目，本机项目不经过这条入口。
 		projects: {
@@ -3648,11 +3823,16 @@ function registerIpc() {
 	remoteProjectFacts = remoteProjectIpc;
 	quitCleanup.register("remote-project-ipc", () => remoteProjectIpc.dispose());
 	const remoteGitReads = registerRemoteGitReadIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		factsEvents: remoteFactsEvents,
-		// P0-1：Git 写成功/结果未知时，主进程目录事实缓存与渲染层文件树一起失效（tree scope）。
-		onTreeInvalidated: (projectId) => remoteProjectIpc.invalidateTree(projectId),
+		// T4：目录与 Git 状态共用同一份工作区事实 owner（缓存实例、generation、失效矩阵都只一份）。
+		// Git 写成功/结果未知 → owner 把该仓库 status 与整树一起标脏，只发一条通知。
+		workspace: {
+			facts: remoteProjectIpc.gitStatusFacts,
+			afterGitWrite: remoteProjectIpc.afterGitWrite,
+			invalidateStatuses: remoteProjectIpc.invalidateStatuses,
+		},
 		trusted: async (target) => (await remoteProjectTrustService?.trustOverride({ hostId: target.hostId, remoteRoot: target.remotePath })) === "approve",
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
@@ -3660,62 +3840,51 @@ function registerIpc() {
 		},
 	});
 	quitCleanup.register("remote-git-reads", remoteGitReads.dispose);
-	registerRemoteProjectFileIpc({
-		enabled: remoteExperimentEnabled,
+	// T6 收尾：目录页的 Git ignore 修饰接在 Git IPC 之后（仓库归因与能力门控都在那边）。
+	remoteProjectIpc.setIgnoreProbe((projectId, paths) => remoteGitReads.probeIgnore(projectId, paths));
+	const remoteProjectTextPort = registerRemoteProjectFileIpc({
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
+		// T4：一次文件写只走一份 owner 的失效矩阵（目录矩阵 + 全部已缓存仓库 status，一条通知）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
-			// P0-2：文件保存/新建/改名/删除/还原也会改变工作树状态：失效该项目所有已缓存仓库的 status。
-			remoteGitReads.invalidateProject(projectId);
 		},
 	});
-	// 本机 ↔ 远端文件传输（上传走 stdin 分块，支持二进制；下载走只读 reader + 保存对话框）。
-	// 与只读项目通道共用同一份 locator 解析，避免「列表看得到、下载找不到」。
-	registerRemoteProjectTransferIpc({
-		enabled: remoteExperimentEnabled,
-		service: remoteHostServiceIfEnabled,
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-	});
-	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
 	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
-		binary: () => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })),
+		binary: resolveRemoteSftpBinary,
+		cache: remoteSftpCapabilityCache,
+		probe: remoteSftpCapabilityProbe,
+		// T4：上传下载完成/结果未知同样走单一 owner（目录 + Git status 一次标脏）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
-			remoteGitReads.invalidateProject(projectId);
 		},
 		afterUnknown: (projectId) => {
 			remoteProjectIpc.invalidateTree(projectId);
-			remoteGitReads.invalidateProject(projectId);
 		},
 	});
 	quitCleanup.register("remote-project-transfer-jobs", remoteProjectTransfers.dispose);
 	// 文件管理（Phase 5 文件面）：8 条 new/rename/delete/trash 通道 + 独立 entry 令牌表 + sender 写单飞。
 	// 与文本保存 IPC 各自持有令牌表；窗口销毁时两个模块各自撤销自己的表（冻结语义：两类令牌都不可再用）。
 	const remoteProjectEntries = registerRemoteProjectEntryIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
-		// 写成功后只标脏目录事实（W3）：一次写不产生任何远端往返，下一次读自然重新装载。
+		// 写成功后只标脏目录事实与 Git status（T4 单一 owner）：一次写不产生任何远端往返。
 		afterWrite: (projectId, paths) => {
 			remoteProjectIpc.afterWrite(projectId, paths);
-			// P0-2：文件面写同样让 Git status 失效（与文本保存同一条出口）。
-			remoteGitReads.invalidateProject(projectId);
 		},
 	});
 	quitCleanup.register("remote-project-entries", remoteProjectEntries.dispose);
@@ -3739,7 +3908,7 @@ function registerIpc() {
 
 	// 远端 Session 只读发现与登记（Phase 3 第三段）。通道名由装配注入（与 contentStoreIpc 的 ChannelGroup 同一先例）。
 	registerRemoteSessionIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		// R1a：扫描 / 根解析 / register / title 走一次性 pinned SSH 短命令（与读/写/归档同一条通道），
 		// 不再借 helper 会话 —— 否则每次刷新会话列表都会把用户项目的活动 root 切走再连回来。
@@ -3766,7 +3935,7 @@ function registerIpc() {
 		findLiveAgentId: (projectIds) => agentManager?.findLiveRemoteAgentId(projectIds),
 		getAvailableModels: (agentId) => agentManager.getAvailableModels(agentId),
 	});
-	registerRemotePiModelIpc({ enabled: remoteExperimentEnabled, probe: remotePiModelProbe });
+	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, probe: remotePiModelProbe });
 	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
 	registerUsageStatsIpc(ipcMain, usageStatsService);
 	// 供应商认证（/login）：同样只做校验/适配，进程与协议在 PiAuthService
@@ -3796,6 +3965,7 @@ function registerIpc() {
 	if (favoritesStore) registerFavoritesIpc({ store: favoritesStore, appLogger });
 	// 会话分组：侧栏只读消费 + 插件页写入，同一份 store（userData/session-groups.json）。
 	if (sessionGroupStore) registerSessionGroupsIpc({ store: sessionGroupStore, appLogger });
+	if (linkedSessionStore && linkedSessionService) registerLinkedSessionsIpc({ store: linkedSessionStore, service: linkedSessionService, appLogger });
 	registerAgentInvokeIpc(ipcMain, agentInvokeService);
 	// 系统级划词浮窗：状态/隐藏/「发送到 PiDeck」（文本插入主窗口当前会话输入框）。
 	registerSelectionToolIpc({
@@ -4392,7 +4562,7 @@ function registerIpc() {
 	 * pi 的 user-level `settings.json` 可以把会话根换掉，这里再拼一次 `<home>/.pi/agent/sessions` 就会在
 	 * 那些机器上读错文件。
 	 */
-	const readRemoteSessionHistoryPage = remoteExperimentEnabled
+	const readRemoteSessionHistoryPage = remoteFeatureEnabled
 		? async (input: { hostId: string; locator: SshSessionLocator; before?: number }) => {
 				const reader = createRemoteSessionHistoryReader({
 					transport: { readRemoteWindow: runPinnedRemoteCommand },
@@ -4411,7 +4581,7 @@ function registerIpc() {
 	 * 而且目录会随 runtime 重启/空闲回收一起消失。这里就是「远端算好、传回来、缓存住」：
 	 * 同一条 pinned SSH 短命令跑一次 `pi --list-models`，本机同一个纯函数解析，按主机缓存。
 	 */
-	const remotePiModelCatalog = remoteExperimentEnabled
+	const remotePiModelCatalog = remoteFeatureEnabled
 		? createRemoteModelCatalog({
 				resolveFacts: async (hostId: string) => {
 					const port = await remoteHostServiceIfEnabled();
@@ -4491,7 +4661,7 @@ function registerIpc() {
 	 * `REMOTE_SESSION_ARCHIVE_UNAVAILABLE`，而不是落回本机路径分支。
 	 * 本机侧的归档索引与 catalog 记录由 sessionIpc 的远端分支负责（这里只管远端文件）。
 	 */
-	const remoteSessionArchive = remoteExperimentEnabled
+	const remoteSessionArchive = remoteFeatureEnabled
 		? createRemoteSessionArchive({
 				transport: { runRemoteCommand: runPinnedRemoteCommand },
 				resolveSessionRoot: resolveRemoteSessionRoot,
@@ -4504,7 +4674,7 @@ function registerIpc() {
 	 * 写入守卫同源（remotePiRuntimeFacts），不新增 helper op；实验开关关掉时不装配 ⇒ 请求得到
 	 * REMOTE_SESSION_DELETE_UNAVAILABLE（fail closed，绝不落回本机路径）。
 	 */
-	const remoteSessionDelete = remoteExperimentEnabled
+	const remoteSessionDelete = remoteFeatureEnabled
 		? createRemoteSessionDelete({
 				transport: { runRemoteCommand: runPinnedRemoteCommand },
 				resolveNodePath: async (hostId) => {
@@ -4524,7 +4694,7 @@ function registerIpc() {
 	 * `REMOTE_SESSION_HISTORY_WRITER_UNAVAILABLE`，而**不会**落回本机路径分支（本机路径入口对 ssh
 	 * locator 抛稳定码，落回只会得到“本地文件缺失”这种错误原因）。
 	 */
-	remoteSessionMessageMutation = remoteExperimentEnabled
+	remoteSessionMessageMutation = remoteFeatureEnabled
 		? createRemoteSessionHistoryWriter({
 				transport: { runRemoteCommand: runPinnedRemoteCommand },
 				resolveSessionRoot: resolveRemoteSessionRoot,
@@ -5079,7 +5249,7 @@ function registerIpc() {
 	 * fails closed with HOST_NOT_READY instead of reading anything local. Batch B adds the renderer selector; this
 	 * batch only routes and validates.
 	 */
-	const remotePiConfig = remoteExperimentEnabled
+	const remotePiConfig = remoteFeatureEnabled
 		? createRemotePiConfigBackend({
 				request: async (hostId, method, params) => {
 					const pending = remoteHostServiceIfEnabled();
@@ -5402,15 +5572,35 @@ function registerIpc() {
 		appLogger,
 		openExternalUrl,
 		wslHelperPool,
+		// 本机目录页的 Git ignore 修饰（T6 收尾）：与远端 probeIgnore 同一份契约（只加修饰、失败即不填）。
+		checkIgnore: (cwd, relativePaths) => gitService.checkIgnore(cwd, relativePaths),
+		// 位置分派收口第二片：files:create / files:rename 的 ssh 分支复用 entry 写面（令牌留在 main）。
+		remoteEntries: {
+			create: (sender, projectId, parent, name, type) => remoteProjectEntries.create(sender, projectId, parent, name, type),
+			rename: (sender, projectId, source, targetPath) => remoteProjectEntries.rename(sender, projectId, source, targetPath),
+			move: (sender, projectId, source, targetDir) => remoteProjectEntries.move(sender, projectId, source, targetDir),
+			moveTo: (sender, projectId, source, targetPath) => remoteProjectEntries.moveTo(sender, projectId, source, targetPath),
+			delete: (sender, projectId, relativePath) => remoteProjectEntries.delete(sender, projectId, relativePath),
+		},
 		// 公共文件读（T6）：ssh 项目的目录页与批量 stat 走只读 fs 面，不经过 entry 令牌。
 		remoteFiles: {
+			// 中央编辑器读写远端文件：与抽屉编辑器共用同一份远端文本服务与令牌表。
+			...remoteProjectTextPort,
 			directoryPage: (projectId, path, force) => remoteProjectIpc.directoryPage(projectId, path, force),
+			// 位置分派收口第一片：`files:search-page` 的 ssh 分支走项目域同一份搜索实现。
+			searchProject: (projectId, path, query) => remoteProjectIpc.searchProject(projectId, path, query),
 			pathsExist: (projectId, paths) => remoteProjectIpc.pathsExist(projectId, paths),
 			// 远端内容搜索按 hello capabilities 门控：旧 helper 返回 null（渲染层回退“仅文件名”），不发无效请求。
 			searchContent: (projectId, query) => remoteProjectIpc.searchContent(projectId, query),
 		},
 	});
 	registerClipboardIpc({ appLogger });
+	// 云同步：主进程业务在 CloudSyncManager，handler 薄层只校验入参/适配返回值
+	registerCloudSyncIpc({
+		manager: cloudSyncManager,
+		notifyStateChanged: () => broadcastCloudSyncStateChanged(),
+		listProjects: () => projectStore.list(),
+	});
 	// 资源管理器右键菜单（HKCU）：菜单显示名跟随主进程 locale（可能随设置语言切换）
 	registerShellMenuIpc({
 		appLogger,
@@ -6836,9 +7026,9 @@ app
 				return agentManager.readSessionTodo(entry.filePath);
 			},
 		});
-		// P1-P3 工作区路由（git/files/prompts）：只读能力注入，未装配的服务自动 503
 		webServiceManager.workspaceRoutes = new WebWorkspaceRoutes({
 			listProjects: () => projectStore.list(),
+			promptTemplates: promptManager,
 			git: {
 				isGitRepo: (cwd) => gitService.isGitRepo(cwd),
 				getBranches: (cwd) => gitService.getBranches(cwd),
@@ -7020,6 +7210,51 @@ app
 			if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.sessionGroupsChanged, null);
 		});
 		await Promise.all([sessionCatalog.load(), automationStorePreload, agentProfileStorePreload, favoritesStorePreload, sessionGroupStorePreload]);
+		// 云同步编排：主进程唯一持有密码/派生 key/Provider 凭据；扫描与恢复都走主进程。
+		cloudSyncManager = new CloudSyncManager({
+			userDataDir: app.getPath("userData"),
+			homeDir: app.getPath("home"),
+			// DSH 会话同步：DSH_HOME 与 DshHost 同一套解析（设置覆盖 > ~/.dsh > 应用私有目录）。
+			dshHomeDir: resolveDshHomeDir(settingsStore.get().dshHomeDir ?? "", app.getPath("userData")),
+			deviceName: hostname(),
+			appVersion: app.getVersion(),
+			listProjects: () => projectStore.list(),
+			listSessionRecords: () =>
+				sessionCatalog
+					.listEntries()
+					.map((entry) => sessionCatalog.getRecord(entry.id))
+					.filter((record): record is SessionRecord => Boolean(record)),
+			getDesktopSettings: () => settingsStore.get(),
+			// filterSyncableDesktopSettings 已把未知 key 过滤掉，这里收窄为 AppSettings 字段。
+			updateDesktopSettings: async (patch) => {
+				await settingsStore.update(patch as Partial<AppSettings>);
+			},
+			// M5：包扩展安装走 ExtensionManager（pi install）；失败只记录缺失，不阻断同步。
+			installExtension: async (source) => {
+				try {
+					await extensionManager.install(source);
+					return { ok: true };
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : String(error) };
+				}
+			},
+			listExtensions: async () => {
+				try {
+					const result = await extensionManager.list(false);
+					return result.extensions.map((summary) => ({
+						source: summary.source,
+						scope: summary.scope,
+					}));
+				} catch {
+					return [];
+				}
+			},
+			onStateChanged: () => broadcastCloudSyncStateChanged(),
+			log: (domain, message, details) => void appLogger.info(domain, message, details),
+		});
+		await cloudSyncManager.initialize();
+		// C12：退出清理登记（before-quit 统一 runAll；cloud-sync 定时器与适配器随进程结束回收）
+		quitCleanup.register("cloud-sync", () => cloudSyncManager?.dispose());
 		// 智能体一次性调用（划词工具 / 市场面板）：复用提示词增强侧车协议，但**独立实例**。
 		// 侧车进程常驻、首次调用才拉起（EnhancePromptService 的现有语义），启动期只做装配。
 		agentInvokeCompletionService = createCompletionHelperService("agent-invoke");
@@ -7430,6 +7665,7 @@ app
 			automationScheduler = null;
 			automationRunCoordinator = null;
 		});
+		setupLinkedSessions();
 		// 闲置 agent 自动释放（内存优化）：轮询 agents.list() 自记 idle 时长，释放走
 		// coordinator.stopAgentById（解绑 + agents.stop + agents:state 推送，会话状态自动同步）。
 		// 设置项（开关/保留数/闲置时长）每次扫描时读取，改设置后下一轮自动生效。
@@ -7776,6 +8012,8 @@ app
 		void projectStoreReady.then(() => sendTelemetryHeartbeat());
 		void projectStoreLoadPromise
 			.then(async () => {
+				// 启动时自动收敛一次残留 rebind（设计 Q8）：两个 store 都已 load，失败只留横幅。
+				void remoteHostRebindIpc?.resumePendingAtStartup();
 				// load() 已丢掉 e2e 临时项目；对应 catalog 映射一并清掉，侧栏会话不会再挂回来。
 				const knownProjectIds = new Set(projectStore.list().map((project) => project.id));
 				const orphanProjectIds = new Set(
@@ -7833,6 +8071,8 @@ app
 			getMainWindow: () => mainWindow,
 			resolveSessionId: (agentId) => sessionRuntimeCoordinator.getSessionId(agentId),
 			translate: (key, params) => mainCopy(key, params),
+			// 宠物唤回主窗口：与托盘/通知共用同一条唤起路径，保留最大化/全屏
+			revealMainWindow: (window) => revealMainWindow(window),
 			recreateMainWindow: async () => {
 				await createWindow();
 				return mainWindow!;
@@ -7950,8 +8190,7 @@ app
 			// 窗口销毁后 mainWindow 不会置 null（closed 只满空一次），销毁实例上调
 			// show() 会抛 "Object has been destroyed"——降级到重建窗口。
 			if (mainWindow && !mainWindow.isDestroyed()) {
-				mainWindow.show();
-				mainWindow.focus();
+				revealMainWindow(mainWindow);
 			} else {
 				void createWindow().catch((error) => {
 					void appLogger.error("app", "Failed to create window on activate", error);

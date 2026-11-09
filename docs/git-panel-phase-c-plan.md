@@ -1,6 +1,6 @@
 # 任务 G：Phase C —— Git provider / 面板接入 ProjectGitService
 
-Status: **历史检查点（`2d703f830`，2026-10-31）**；后续 09aca4203、55dd5b702 已推进，HEAD 以 `git log` 为准；技术结论保留。基线：`dev`（I0 集成提交组，`git log --oneline 24529c394..dev`）。
+Status: **历史检查点（`2d703f830`，2026-10-31）**；后续 09aca4203、55dd5b702 已推进，HEAD 以 `git log` 为准；技术结论保留。2026-11-03 的组件收口状态与逐项证据见 [git-panel-component-parity.md](git-panel-component-parity.md)。基线：`dev`（I0 集成提交组，`git log --oneline 24529c394..dev`）。
 S 契约已冻结（[remote-project-parallel-handoff.md](remote-project-parallel-handoff.md) §8.2），`services/projectGitService.ts` 已移交 G。
 本文件只记录 G 的能力 parity、实施分片、验证与待接线项；不改变任何公共契约语义。
 
@@ -57,7 +57,7 @@ G4-panel             （banner + RemoteGitPanel + GitPanel：消费 transport �
 
 - **唯一能力来源**：`useProjectServices(project).capabilities.git`（S 冻结，S/I 单写判定逻辑）；面板/状态机不新增第二套「主机 ready ⇒ 可用」。
 - **唯一数据入口**：`ProjectServices.git`；`utils/remoteGitPanelApi.ts` 把服务结果标准化为既有 `{ok,code}` 信封供 controller 使用，**不再向渲染层暴露授权令牌**。
-- **契约缺口**（不自行扩通道，登记给集成者）：`remoteCommitDetail`、`remoteRefFileDiff`、`cancelRemoteReads` 三个只读/取消入口在冻结契约中没有对应方法；过渡期由 `remoteGitPanelApi.ts` 直接走既有 preload 通道并做代数围栏，等集成者扩契约后删除。
+- **契约缺口已关闭（2026-11-03）**：`ProjectGitService` 已提供 `commitDetail`、`refFileDiff`、`cancelRemoteReads`；`remoteGitPanelApi.ts` 只委托 `ProjectServices.git`，不再直接持有 preload。底层仍复用既有 `remoteCommitDetail`、`remoteRefFileDiff`、`cancelRemoteReads` 通道。
 - **代数围栏**：hook 的 controller key 含 `services.generation`；换代即重建控制器，旧实例的迟到结果不发布。
 - **事实订阅**：不再直订 `onProjectFactsChanged` / `onStateChange`（互相退订风险，见交接 §8.8 第 4 条）；统一由 services runtime 重建 services，hook 按新实例重读。
 - **副作用闸门**：status 轮询 = `statusPoll`；refs 轮询 = `refsWatch`；**没有任何自动 fetch**（`autoFetch` 远端恒 false）。
@@ -175,7 +175,7 @@ const result = factsOnly
 ## 5. 未完成 / 交回项
 
 - 真实远端、Electron、E2E 未跑（本任务未授权）。
-- `GitPanel` 与 `RemoteGitPanel` 的**组件合并**（ADR Phase C 第 1 步）未在本批完成：本批先把能力/数据入口/门禁接到共用 provider，合并留待能力 parity 全绿后单独开片；不得据本文件宣称合并已完成。
+- 2026-11-03：`GitPanel` 与 `RemoteGitPanel` 已完成纯展示与单一入口收口（`ProjectGitDrawer`、共享错误展示），但仍保留两个后端专用实现；不能宣称完整组件合并。逐项状态见 parity 文档。
 ## 6. 本任务内的 ownership 记录
 
 - 2026-10-31（G 实施期，协调者决定）：能力位翻转必然使两个 S ownership 测试的 Phase A 阶段性预期失效，临时移交 G 修改**仅相关断言**：`tests/projectServiceSeam.test.mjs` 的「远端 Git 写与纯事实强刷：显式 unsupported」用例、`tests/projectServiceCapabilities.test.mjs` 的「远端 ready + trust approved + 完整 helper」用例。约束：同文件其它用例不动；worktree*/deleteFiles/本地 syncFacts·recovery 仍 unsupported、授权拒绝路径仍关闭，均须保留断言。
@@ -218,11 +218,11 @@ skip 构成：25 个 Linux-only helper 用例（`remoteGitDiscard` 16 / `remoteG
 1. ~~DrawerSurface 接线~~ **已完成（`163d5aaf0`）**：远端继续挂 `RemoteGitPanel`；`DrawerSurface.tsx` 经 `LocalGitDrawerHost` 从 `useProjectServices(project)` 取 `capabilities.git` 透传给共用 `GitDrawerHost`。`remoteGitDrawer` 测试补了 hook 替身。
 2. ~~i18n~~ **已完成**：15 个能力 key + 3 条同步完成文案已加入 zh-CN / en-US 并重跑 `node scripts/genZhTwCopy.mjs`；能力条改为**双态**（全可用时给出可用入口清单，有阻塞时逐条列出原因），同步完成改用无参完成文案（不虚构 up-to-date / 快进 / 合并）。
 3. ~~三层同步~~ **已完成（见 §4.6）**：facts-only 强刷已按三层接全，`capabilities.git.forceRefresh` 现在名副其实；未覆盖真实远端验收。
-4. **冻结契约缺口（3 个只读/取消入口）**：`commitDetail` / `refFileDiff` / `cancelRemoteReads` 仍由 `utils/remoteGitPanelApi.ts` 直连既有 preload 并做代数围栏；扩契约后删除该段（建议扩 `ProjectGitService` 或明确这些仍属面板私有面）。
+4. ~~冻结契约缺口（3 个只读/取消入口）~~ **已关闭（2026-11-03）**：`commitDetail` / `refFileDiff` / `cancelRemoteReads` 已收进 `ProjectGitService`；桥只消费服务，代数围栏仍在 service/provider 边界。
 5. **同步结果语义变窄**：`ProjectGitService` 的 fetch/pull/push 返回 void，面板不再显示 "updated:N / fast-forward / new"（服务层只回完成）。若需恢复，扩契约让动词返回既有 outcome 形状。
 6. **每次刷新多一次 branches 读（已优化）**：静默 5s 轮询现在只读事实（`{ branch: false }`），分支沿用上次确认值；显式刷新仍读 facts + branch 两跳（展示需要），契约若能给 facts+branch 同帧可再合并。
 7. **`utils/remoteGitFactsSubscription.ts` 已无生产消费者**（仅其单测引用）：建议 owner 决定删除或标注；本批不删以免影响其它并行线。
-8. **面板组件合并（ADR Phase C 第 1 步）未做**：本批把数据入口/能力/门禁统一到 provider，组件合并留待单独开片。
+8. **面板组件合并不完整**：已统一 Git 抽屉生产入口并共享错误展示；本地/远端状态机、确认、调度与专属区块仍分离，见 [git-panel-component-parity.md](git-panel-component-parity.md)。
 9. **验证覆盖**：全量 `npm test`、离线 E2E（git-panel/file-viewer/file-tree-dom-budget）已跑；仍未跑真实远端、远端 E2E、Linux CI。
 
 ## 7.4 集成检查点（2026-10-31）

@@ -177,6 +177,13 @@ async function harness(run) {
 			enabled: true,
 			userDataDir,
 			service: () => service,
+			directoryReader: {
+				async read({ canonicalRoot }) {
+					const files = Object.values(CONTENT).reduce((found, roots) => found ?? roots[canonicalRoot], undefined) ?? {};
+					const entries = Object.keys(files).map((name) => ({ name, kind: "file", bytes: 1 }));
+					return { ok: true, value: { entries, scanned: entries.length, truncated: false } };
+				},
+			},
 			projects: { enroll: async () => ({ projectId: "project-a" }), locator: (projectId) => PROJECTS[projectId] },
 		});
 
@@ -211,7 +218,6 @@ function answerFor(hostId, root, method, params) {
 		const slice = Buffer.from(text, "utf8").subarray(offset, offset + Number(params?.bytes ?? 0));
 		return { chunk: slice.toString("base64"), bytes: slice.length, eof: offset + slice.length >= Buffer.byteLength(text) };
 	}
-	if (method === "fs.list") return { entries: Object.keys(files).map((name) => ({ name, kind: "file", bytes: Buffer.byteLength(files[name]) })) };
 	throw new Error("PROTOCOL_INVALID");
 }
 

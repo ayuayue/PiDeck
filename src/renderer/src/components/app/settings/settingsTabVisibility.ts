@@ -21,19 +21,20 @@ export function isSettingsTabHidden(hiddenModules: readonly string[], tab: Setti
 }
 
 /**
- * 计算侧栏实际渲染的条目：过滤隐藏 tab，并修正分组分割线。
- *
- * 分割线规则：簇首项被隐藏时分割线顺延到该簇下一个可见项（否则整簇视觉上并进上一簇）；
- * 首个可见项永远不带分割线（顶部悬空一条线）。
+ * 过滤隐藏 tab，簇首项隐藏时把标题与分隔线顺延到该簇的下一可见项。
+ * 若整个簇隐藏，下一簇的标题取代待展示的标题；首项不显示悬空分隔线。
  */
 export function resolveVisibleSettingsTabs(hiddenModules: readonly string[], revealedTabs: ReadonlySet<SettingsTabId>, layout: readonly SettingsTabLayoutEntry[] = SETTINGS_TAB_LAYOUT): SettingsTabLayoutEntry[] {
 	const visible: SettingsTabLayoutEntry[] = [];
 	let pendingDivider = false;
+	let pendingGroupLabel: SettingsTabLayoutEntry["groupLabel"];
 	for (const entry of layout) {
 		if (entry.dividerBefore) pendingDivider = true;
+		if (entry.groupLabel) pendingGroupLabel = entry.groupLabel;
 		if (isSettingsTabHidden(hiddenModules, entry.id) && !revealedTabs.has(entry.id)) continue;
-		visible.push(pendingDivider && visible.length > 0 ? { id: entry.id, dividerBefore: true } : { id: entry.id });
+		visible.push({ id: entry.id, ...(pendingDivider && visible.length > 0 ? { dividerBefore: true } : {}), ...(pendingGroupLabel ? { groupLabel: pendingGroupLabel } : {}) });
 		pendingDivider = false;
+		pendingGroupLabel = undefined;
 	}
 	return visible;
 }

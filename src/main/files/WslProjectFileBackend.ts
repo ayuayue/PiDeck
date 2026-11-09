@@ -18,9 +18,10 @@
  */
 
 import { isUtf8 } from "node:buffer";
+import { applyDirectoryIgnore } from "./DirectoryIgnore";
 import { codeOf } from "../../shared/op";
 import type { FileSearchResult, FileTreeNode, ProjectFileTarget } from "../../shared/types";
-import type { ProjectDirectoryEntry } from "../../shared/types/projectFiles";
+import type { ProjectDirectoryEntry, ProjectFileStatResult } from "../../shared/types/projectFiles";
 import { createRemoteSearchReader } from "../remote/RemoteSearchReader";
 import { createRemoteWorkspaceReader, type RemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
 import { looksNonText, MAX_TRUSTED_STAT_BYTES } from "./textFileRead";
@@ -214,10 +215,26 @@ export class WslProjectFileBackend implements ProjectFileBackend {
 							hasChildren: type === "directory" ? ("unknown" as const) : false,
 						};
 					});
-				return { entries: entries.slice(0, limit), truncated: entries.length > limit };
+				// P1-5：helper 链路也要修饰；判定失败只是「没有修饰」，不影响目录页。
+				const ignored = await this.checkIgnore(
+					target,
+					entries.map((entry) => entry.relativePath),
+				);
+				return { entries: applyDirectoryIgnore(entries.slice(0, limit), ignored?.slice(0, limit)), truncated: entries.length > limit };
 			},
 			async () => await this.deps.fallback.directoryPage(target, limit),
 		);
+	}
+
+	async checkIgnore(target: ProjectFileTarget, relativePaths: readonly string[]): Promise<readonly boolean[] | undefined> {
+		// WSL 路径的 ignore 规则由 fallback 用同一份 git 判据完成（UNC 路径）；失败即不修饰。
+		if (typeof this.deps.fallback.checkIgnore !== "function") return undefined;
+		try {
+			return await this.deps.fallback.checkIgnore(target, relativePaths);
+		} catch {
+			// 修饰不是目录页的前置条件：任何失败都只是「没判定」。
+			return undefined;
+		}
 	}
 
 	async search(rawTarget: ProjectFileTarget, query: string): Promise<FileSearchResult[]> {
@@ -329,17 +346,23 @@ export class WslProjectFileBackend implements ProjectFileBackend {
 		}
 	}
 
-	async stat(rawTarget: ProjectFileTarget): Promise<{ exists: boolean; isDirectory: boolean }> {
+	async stat(rawTarget: ProjectFileTarget): Promise<ProjectFileStatResult> {
 		const target = parseProjectFileTarget(rawTarget);
 		return await this.readThrough(
 			target,
 			async (reader) => {
 				try {
 					const described = await reader.stat(WSL_READER_HOST_ID, target.relativePath === "" ? "." : target.relativePath);
-					return { exists: described.kind === "file" || described.kind === "directory", isDirectory: described.kind === "directory" };
+					if (described.kind === "file" || described.kind === "directory") {
+						return { availability: "present", exists: true, isDirectory: described.kind === "directory" };
+					}
+					return { availability: "unavailable", exists: false, isDirectory: false, code: "NOT_A_FILE" };
 				} catch (error) {
-					if (codeOf(error, "PROJECT_FILE_READ_FAILED") === "PATH_NOT_FOUND") return { exists: false, isDirectory: false };
-					throw error;
+					const code = codeOf(error, "PROJECT_FILE_READ_FAILED");
+					if (code === "PATH_NOT_FOUND") return { availability: "missing", exists: false, isDirectory: false, code };
+					// Transient helper failures still need to reach readThrough so the UNC fallback can run.
+					if (isHelperChainUnavailable(code)) throw error;
+					return { availability: "unavailable", exists: false, isDirectory: false, code };
 				}
 			},
 			async () => await this.deps.fallback.stat(target),
@@ -348,8 +371,8 @@ export class WslProjectFileBackend implements ProjectFileBackend {
 
 	// ---- 写面：Wave 1b 才搬进 helper（发行版内原子替换）；本轮保持今天的 UNC 本机行为。 ----
 
-	async writeContent(target: ProjectFileTarget, content: string): Promise<void> {
-		await this.deps.fallback.writeContent(target, content);
+	async writeContent(target: ProjectFileTarget, content: string, expectedRevision?: string): Promise<void> {
+		await this.deps.fallback.writeContent(target, content, expectedRevision);
 	}
 
 	async create(parent: ProjectFileTarget, name: string, type: "file" | "directory"): Promise<ProjectFileTarget> {
@@ -370,6 +393,12 @@ export class WslProjectFileBackend implements ProjectFileBackend {
 
 	async move(sources: ProjectFileTarget[], targetDir: ProjectFileTarget): Promise<ProjectFileTarget[]> {
 		return await this.deps.fallback.move(sources, targetDir);
+	}
+
+	async moveTo(source: ProjectFileTarget, target: ProjectFileTarget): Promise<ProjectFileTarget> {
+		// 与 move 同一件事：WSL 路径由 fallback 在 helper 或 UNC 上用同一判据处理。
+		if (typeof this.deps.fallback.moveTo !== "function") throw new Error("UNSUPPORTED_CAPABILITY");
+		return await this.deps.fallback.moveTo(source, target);
 	}
 
 	private assertTrustedSize(size: number, maxBytes?: number): void {

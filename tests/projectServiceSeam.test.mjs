@@ -80,6 +80,10 @@ function makeApi(options = {}) {
 				record("files.search", [projectId, query]);
 				return [];
 			},
+			searchPage: async (projectId, query) => {
+				record("files.searchPage", [projectId, query]);
+				return options.searchPage === undefined ? { ok: true, value: { results: [] } } : options.searchPage(projectId);
+			},
 			searchContent: async (projectId, query) => {
 				record("files.searchContent", [projectId, query]);
 				return null;
@@ -97,19 +101,32 @@ function makeApi(options = {}) {
 			},
 			create: async (parent, name, type) => {
 				record("files.create", [parent, name, type]);
-				return { projectId: parent.projectId, relativePath: parent.relativePath ? parent.relativePath + "/" + name : name };
+				return { ok: true, value: { projectId: parent.projectId, relativePath: parent.relativePath ? parent.relativePath + "/" + name : name } };
 			},
 			rename: async (target, newName) => {
 				record("files.rename", [target, newName]);
 				const index = target.relativePath.lastIndexOf("/");
-				return { projectId: target.projectId, relativePath: (index < 0 ? "" : target.relativePath.slice(0, index + 1)) + newName };
+				return { ok: true, value: { projectId: target.projectId, relativePath: (index < 0 ? "" : target.relativePath.slice(0, index + 1)) + newName } };
+			},
+			moveTo: async (source, destination) => {
+				record("files.moveTo", [source, destination]);
+				return { ok: true, value: destination };
 			},
 			move: async (sources, targetDir) => {
 				record("files.move", [sources, targetDir]);
-				return sources;
+				// 公共 files:move 返回移动后的 target（目标目录 + 源文件名），与 local backend 同形。
+				return {
+					ok: true,
+					value: sources.map((source) => {
+						const name = source.relativePath.slice(source.relativePath.lastIndexOf("/") + 1);
+						return { projectId: source.projectId, relativePath: targetDir.relativePath === "" ? name : `${targetDir.relativePath}/${name}` };
+					}),
+				};
 			},
 			delete: async (target) => {
 				record("files.delete", [target]);
+				// 远端删除进回收站会带收据；本机没有（undefined）。
+				return { ok: true, value: options.deleteReceipt };
 			},
 			open: async (target) => {
 				record("files.open", [target]);
@@ -333,18 +350,6 @@ function makeApi(options = {}) {
 				record("remoteHosts.deleteProjectEntry", [projectId, path, version]);
 				return { ok: true, value: { trashId: "trash-1" } };
 			},
-			uploadProjectFiles: async (projectId, directory) => {
-				record("remoteHosts.uploadProjectFiles", [projectId, directory]);
-				return { ok: true, value: { canceled: true } };
-			},
-			uploadProjectFilesFromPaths: async (projectId, directory, paths) => {
-				record("remoteHosts.uploadProjectFilesFromPaths", [projectId, directory, paths]);
-				return { ok: true, value: { uploaded: [{ name: "a.bin", bytes: 3 }], failed: [] } };
-			},
-			downloadProjectFile: async (projectId, path) => {
-				record("remoteHosts.downloadProjectFile", [projectId, path]);
-				return { ok: true, value: { path: "C:/downloads/a.bin", bytes: 3 } };
-			},
 		},
 		remoteTrust: { list: async () => ({ ok: true, value: { entries: [] } }) },
 		remoteTransfers: {
@@ -379,7 +384,18 @@ test("目录页与搜索：本地/远端同通道，truncated/revision/generatio
 		[localProject, undefined],
 		[remoteProject, remoteFacts()],
 	]) {
-		const { api, calls } = makeApi();
+		// 收口后两端都走公共 files:search-page：位置差异只体现在 main 的路由，provider 不再分叉。
+		const { api, calls } = makeApi({
+			searchPage: () => ({
+				ok: true,
+				value: {
+					results: [{ name: "a.ts", relativePath: "src/a.ts", displayPath: "src/a.ts", target: { projectId: "p2", relativePath: "src/a.ts" }, type: "file" }],
+					truncated: true,
+					scanned: 1,
+					entries: [{ path: "src/a.ts", name: "a.ts", kind: "file", bytes: 1 }],
+				},
+			}),
+		});
 		const services = createProjectServices(project, api, facts ? { facts } : {});
 		const target = { projectId: project.id, relativePath: "" };
 		const page = await services.files.listDirectory(target, { force: true });
@@ -387,19 +403,14 @@ test("目录页与搜索：本地/远端同通道，truncated/revision/generatio
 		assert.equal(page.entries[0].hasChildren, "unknown");
 		const search = await services.files.searchFiles("calc");
 		await services.files.searchContent("验收");
-		if (project.id === "p1") {
-			assert.deepEqual(plain(search), { results: [] });
-			assert.deepEqual(names(calls), ["files.directoryPage", "files.search", "files.searchContent"]);
-		} else {
-			assert.deepEqual(plain(search), {
-				results: [{ name: "a.ts", relativePath: "src/a.ts", displayPath: "src/a.ts", target: { projectId: "p2", relativePath: "src/a.ts" }, type: "file" }],
-				truncated: true,
-				scanned: 1,
-				entries: [{ path: "src/a.ts", name: "a.ts", kind: "file", bytes: 1 }],
-			});
-			assert.deepEqual(names(calls), ["files.directoryPage", "remoteHosts.searchProject", "files.searchContent"]);
-			assert.deepEqual(calls[1].args, ["p2", "", "calc"]);
-		}
+		assert.deepEqual(plain(search), {
+			results: [{ name: "a.ts", relativePath: "src/a.ts", displayPath: "src/a.ts", target: { projectId: "p2", relativePath: "src/a.ts" }, type: "file" }],
+			truncated: true,
+			scanned: 1,
+			entries: [{ path: "src/a.ts", name: "a.ts", kind: "file", bytes: 1 }],
+		});
+		assert.deepEqual(names(calls), ["files.directoryPage", "files.searchPage", "files.searchContent"]);
+		assert.deepEqual(calls[1].args, [project.id, "calc"]);
 	}
 });
 
@@ -415,12 +426,12 @@ test("本机文件写面：读正文/保存/新建/改名/删除返回收据，�
 	assert.deepEqual(plain(renamed.target), { projectId: "p1", relativePath: "src/c.ts" });
 	const deleted = await services.files.deleteEntry(target);
 	assert.deepEqual(plain(deleted), { target });
-	// 跨目录移动：先 files.move 到目标父目录；目标名不同再 rename。
+	// 一次写移动到目标全路径（P1-2）：不再拆成 move + rename 两步。
 	const moved = await services.files.moveEntry(target, "src/c.ts");
 	assert.deepEqual(plain(moved.target), { projectId: "p1", relativePath: "src/c.ts" });
 	await services.files.openInEditor(target);
 	await services.files.showInFolder(target);
-	assert.deepEqual(names(calls), ["files.readContent", "files.writeContent", "files.create", "files.rename", "files.delete", "files.move", "files.rename", "files.open", "files.showInFolder"]);
+	assert.deepEqual(names(calls), ["files.readContent", "files.writeContent", "files.create", "files.rename", "files.delete", "files.moveTo", "files.open", "files.showInFolder"]);
 	assert.equal(services.capabilities.files.textVersion, "none");
 });
 
@@ -456,8 +467,8 @@ test("本机文本保存没有 version 通道：传入远端令牌显式拒绝�
 	assert.deepEqual(calls, []);
 });
 
-test("远端文件管理：新建按类型分流，改名/删除复用 entry 令牌并返回收据", async () => {
-	const { api, calls } = makeApi();
+test("远端文件管理：新建按类型分流，改名/删除/移动都走公共 files:* 并返回收据", async () => {
+	const { api, calls } = makeApi({ deleteReceipt: { trashId: "trash-1" } });
 	const services = createProjectServices(remoteProject, api, { facts: remoteFacts() });
 	const parent = { projectId: "p2", relativePath: "src" };
 	const file = await services.files.createEntry(parent, "b.ts", "file");
@@ -470,10 +481,14 @@ test("远端文件管理：新建按类型分流，改名/删除复用 entry 令
 	assert.deepEqual(plain(deleted), { target: { projectId: "p2", relativePath: "src/c.ts" }, trashId: "trash-1" });
 	const moved = await services.files.moveEntry({ projectId: "p2", relativePath: "src/a.ts" }, "lib/a.ts");
 	assert.deepEqual(plain(moved.target), { projectId: "p2", relativePath: "lib/a.ts" });
-	assert.deepEqual(names(calls), ["remoteHosts.createProjectFile", "remoteHosts.createProjectDirectory", "remoteHosts.statProjectEntry", "remoteHosts.renameProjectEntry", "remoteHosts.statProjectEntry", "remoteHosts.deleteProjectEntry", "remoteHosts.statProjectEntry", "remoteHosts.renameProjectEntry"]);
-	assert.deepEqual(calls[3].args, ["p2", "src/b.ts", "src/c.ts", "entry-v1"]);
-	assert.deepEqual(calls[5].args, ["p2", "src/c.ts", "entry-v1"]);
-	assert.deepEqual(calls[7].args, ["p2", "src/a.ts", "lib/a.ts", "entry-v1"]);
+	// 新建/改名/删除/移动全部收口到公共 files:*（main 内按位置路由；令牌不离开 main）。
+	assert.deepEqual(names(calls), ["files.create", "files.create", "files.rename", "files.delete", "files.moveTo"]);
+	assert.deepEqual(plain(calls[2].args), [{ projectId: "p2", relativePath: "src/b.ts" }, "c.ts"]);
+	assert.deepEqual(plain(calls[3].args), [{ projectId: "p2", relativePath: "src/c.ts" }]);
+	assert.deepEqual(plain(calls[4].args), [
+		{ projectId: "p2", relativePath: "src/a.ts" },
+		{ projectId: "p2", relativePath: "lib/a.ts" },
+	]);
 });
 
 test("文件传输经 ProjectFileService：远端 picker/拖放/下载共用项目身份，本机显式 unsupported", async () => {
@@ -721,6 +736,23 @@ test("本机 Git：syncFacts/recovery 仍显式 unsupported（本机没有这些
 		await assert.rejects(action, (error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported);
 	}
 	assert.deepEqual(calls, []);
+});
+
+test("本机 Git：commit detail/revision diff 保持原 GitDrawerApi owner，远端 read cancel 为 no-op", async () => {
+	const { api, calls } = makeApi();
+	const services = createProjectServices(localProject, api);
+	const repo = { projectId: "p1", relativePath: "" };
+	const target = { projectId: "p1", relativePath: "a.ts" };
+	await assert.rejects(
+		() => services.git.commitDetail(OID, repo),
+		(error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported,
+	);
+	await assert.rejects(
+		() => services.git.refFileDiff(null, OID, target, repo),
+		(error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported,
+	);
+	await services.git.cancelRemoteReads();
+	assert.deepEqual(calls, [], "the local panel path must not be duplicated through remote or local service calls");
 });
 
 test("本机 Git 写：委派既有通道；只创建分支的显式模式不被暗中追加成创建并切换", async () => {

@@ -106,6 +106,7 @@ test("接线：项目列表开启 orderSensitive，会话列表保持默认", ()
 	const projectTree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
 	const sessionTree = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
 	// 空白容忍：属性可能被格式化换行
-	assert.match(projectTree, /<SidebarRemovalList\s+orderSensitive\s+remainingIds=/, "项目列表顺序由拖拽决定，必须开启");
+	// 远端 #505 起顺序由 projectSortMode 决定：manual 时必须开启（条件表达式也算开启）。
+	assert.match(projectTree, /<SidebarRemovalList\s+orderSensitive(?:=\{[^}]*\})?\s+remainingIds=/, "项目列表顺序由拖拽决定，必须开启");
 	assert.doesNotMatch(sessionTree, /orderSensitive/, "会话列表按 updatedAt 实时排序，不得开启");
 });

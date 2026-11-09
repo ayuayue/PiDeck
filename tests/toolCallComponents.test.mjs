@@ -111,7 +111,8 @@ test("edit/write diff cards expose an accessible open-file action", () => {
 	// 授权随 editor tab 固化，异步加载不能改用后来聚焦的项目。
 	assert.match(fileEditor, /fileAccessScope\?: ProjectFileAccessScope/);
 	assert.match(fileEditor, /readFileContent\(path, maxBytes, scope\)/);
-	assert.match(fileEditor, /writeFileContent\(path, content, scope\)/);
+	// 保存现在带第 4 个参数（内容指纹，用于本机乐观锁）。
+	assert.match(fileEditor, /writeFileContent\(path, content, scope, expectedRevision\)/);
 });
 
 test("thinking and tool logos keep a distinct color even on the default zinc theme", () => {

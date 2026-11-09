@@ -117,7 +117,7 @@
 
 | 功能 | 说明 |
 |---|---|
-| **多项目工作区** | 添加、搜索、拖动排序和切换本地项目目录，同时运行多个 pi Agent，项目间完全隔离。 |
+| **多项目工作区** | 添加、搜索和切换本地项目目录，同时运行多个 pi Agent，项目间完全隔离。项目分组的「⋯ → 项目排序」可选手动拖拽、最近活动、创建时间或标题，记住所选方式并始终优先展示置顶项目；没有创建时间记录的旧项目排在已记录项目之后，保留原有相对顺序。 |
 | **内置 Chat** | 项目列表顶部固定 Chat 入口，写入应用用户目录，适合无需绑定代码项目的通用对话。 |
 | **会话引导页** | 新建会话时预选模型与思考档位，支持 `@` 文件引用，开箱即聊。 |
 | **信任确认系统** | 桌面端拦截 pi 的信任确认；不信任的项目仍可打开，有 Agent 运行时禁止删除项目。 |
@@ -283,6 +283,8 @@ npm run dist:linux:dev # Linux（AppImage + deb + tar.gz）
 |---|---|
 | [qgx1992/pideck-mobile](https://github.com/qgx1992/pideck-mobile) | 协议核心 + Capacitor 手机客户端：扫码 / 手填链接配对、流式会话、通知与工作区，可自行打包 APK。 |
 | [xrbbm/PocketDeck](https://github.com/xrbbm/PocketDeck) | 原生 Android（Kotlin + Jetpack Compose）客户端：扫码直达最近会话、审批卡片、Git / 文件工作区，Releases 可直接下载 APK。 |
+
+移动端读取桌面端 pi 文件模板时，使用独立的 [Prompt Templates 只读 API](docs/web-prompt-templates.md)；原 `/api/prompts` 仍用于云端提示词库。
 
 ---
 

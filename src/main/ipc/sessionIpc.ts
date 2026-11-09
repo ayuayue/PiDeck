@@ -75,7 +75,7 @@ import type { RemoteArchivedSessionDeleteAnswerResult, RemoteArchivedSessionDele
 import { createRemoteArchivedSessionDelete } from "../sessions/RemoteArchivedSessionDelete";
 import { registerSessionImageMutationIpc } from "./sessionImageMutationIpc";
 import { acpMessagePage } from "../acp/acpMessagePage";
-import { composeAgentInstruction } from "../agents/agentPersonaInstruction";
+import { composeAgentInstruction, shouldInjectAgentPersona } from "../agents/agentPersonaInstruction";
 
 function isDshModelDiscoveryInput(input: unknown): input is DshModelDiscoveryInput {
 	if (!isRecord(input) || typeof input.settingsNs !== "string" || !input.settingsNs.trim()) return false;
@@ -510,7 +510,7 @@ export type SessionIpcDeps = {
 	readVideoSessionMessages?: (sessionId: string) => Promise<import("../../shared/types").ChatMessage[]>;
 	/**
 	 * 会话绑定的智能体角色设定（「使用」智能体时写入 AgentProfileStore.sessionAgentBindings）：
-	 * 返回非空字符串时，sessionsSendPrompt 会把角色设定拼进本轮 prompt
+	 * 返回非空字符串时，sessionsSendPrompt 会在会话首轮把角色设定拼进 prompt
 	 * （pi/acp 走隐藏 agentMessage，dsh 退化为可见前缀，见 composeAgentInstruction）。
 	 * 未装配（单测 / 旧宿主）时不做任何注入，发送行为与此前完全一致。
 	 */
@@ -614,6 +614,11 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		isRuntimeBound: (sessionId) => Boolean(sessionRuntimeCoordinator.getTarget(sessionId) || sessionRuntimeCoordinator.isActivating(sessionId)),
 		deleteRemote: deleteArchivedRemoteSession,
 	});
+	/**
+	 * 已成功注入角色设定的会话（本进程内）：catalog 的 draft→active 是首条 prompt 被接受后
+	 * 异步回写，这一小段窗口里再发一条不能重复注入；发送失败不记账，重试仍可补上。
+	 */
+	const personaInjectedSessions = new Set<string>();
 	const watchedDeleteSenders = new Set<number>();
 	function watchDeleteConfirmationSender(sender: WebContents | undefined): number | undefined {
 		const senderId = sender?.id;
@@ -2193,22 +2198,30 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			imageCount: input.images?.length ?? 0,
 		});
 		try {
-			// 绑定了智能体的会话：注入角色设定。注入点是「发送前」的唯一收口，
+			// 绑定了智能体的会话：只在首轮注入角色设定。首条消息被接受后，角色设定已经
+			// 随用户消息留在会话历史里，之后再拼会让模型上下文重复；绑定只经新会话「使用」
+			// 流程建立，因此 draft = 还没成功发过首条消息。注入点是「发送前」的唯一收口，
 			// 所有来源（桌面输入框/排队投递/Web）都经过这里，渲染层无需每个入口各拼一次。
 			// 只改本轮载荷，不写会话文件：pi 的 agentMessage 对时间线不可见，dsh 退化为可见前缀。
 			const persona = resolveSessionAgentInstruction?.(input.sessionId);
 			const boundRecord = persona ? sessionCatalog.get(input.sessionId) : undefined;
+			const injectPersona = Boolean(persona && boundRecord && shouldInjectAgentPersona({ sessionStatus: boundRecord.status, alreadyInjected: personaInjectedSessions.has(input.sessionId) }));
 			let promptInput: SendSessionPromptInput = input;
-			if (persona && boundRecord) {
+			if (persona && boundRecord && injectPersona) {
 				const composed = composeAgentInstruction({ persona, message: input.message, existingAgentMessage: input.agentMessage, backend: boundRecord.backend });
 				promptInput = { ...input, message: composed.message };
-				// dsh 分支没有隐藏载荷：必须删掉原有 agentMessage，否则 host 拒收整条 prompt。
-				if (composed.agentMessage === undefined) delete promptInput.agentMessage;
-				else promptInput.agentMessage = composed.agentMessage;
+				if (composed.agentMessage !== undefined) promptInput.agentMessage = composed.agentMessage;
 				// 只记 id/后端/长度，角色设定是用户内容，不进日志。
 				void appLogger.debug("session", "Bound agent persona injected", { sessionId: input.sessionId, backend: boundRecord.backend ?? "pi", personaChars: persona.length });
 			}
+			// dsh 分支没有隐藏载荷：首轮和后续轮次都要删掉调用方带的 agentMessage，否则 host 拒收整条 prompt。
+			if (persona && boundRecord?.backend === "dsh") {
+				if (promptInput === input) promptInput = { ...input };
+				delete promptInput.agentMessage;
+			}
 			const result = await sessionRuntimeCoordinator.send(promptInput);
+			// 只有被接受才算首轮已带上角色设定；失败/拒绝时下一次发送仍可补上。
+			if (result.accepted && injectPersona) personaInjectedSessions.add(input.sessionId);
 			if (result.agentId) {
 				const tab = agentManager.list().find((candidate) => candidate.id === result.agentId);
 				if (tab) emitSessionRuntimeEvent(tab.id, agentEventTags.agentsState, tab);

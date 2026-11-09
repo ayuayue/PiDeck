@@ -2,28 +2,19 @@ import type { SettingsTabId } from "../../../atoms";
 import type { TranslationKey } from "../../../i18n";
 
 /**
- * 设置页侧栏展示布局：tab 顺序 + 分组分割线位置。
- * 只影响视觉呈现，不改变 SettingsTabId 本身——深链（settingsFocusAtom）、
- * localStorage 记忆位置、脏标记黄点都仍按 tab id 工作。
- *
- * 14 个 tab 平铺不易扫读，按「基础 → 扩展集成 → 开发者工具 → 开发与维护」四个簇
- * 重排并在簇边界渲染一条分割线：
- * - 基础：常用 / 快捷键 / 通知 / 外观 / 记忆 / 代理（打开应用必看的全局项）
- * - 扩展集成：外部连接（飞书/微信）/ 桌面宠物 / 视觉桥 / 生图（外部能力与增值功能）
- * - 开发者工具：局域网 Web 服务 / 外部编辑器 / Git
- * - 开发与维护：开发设置 / 用量统计 / 进程监控 / 缓存与日志 / 配置备份
- *
- * 局域网 Web 服务、外部编辑器与 Git 设置原为其它 tab 内的区块，因用户频繁使用
- * 单独抽为 tab，集中为「开发者工具」；缓存与日志放在开发设置同一组，便于低频维护项集中。
+ * 设置页侧栏展示布局：tab 顺序 + 分组标题。仅影响导航呈现，不改变
+ * SettingsTabId：深链、记忆位置与脏标记仍按 tab id 工作。
  */
 export type SettingsTabLayoutEntry = {
 	id: SettingsTabId;
-	/** 渲染此 tab 前是否先插入分组分割线；纯视觉标记，首项必须缺省 */
+	/** 簇首项的标题；隐藏该项时由可见性过滤顺延给下一项。 */
+	groupLabel?: TranslationKey;
+	/** 簇首项之前的分隔线；窄窗口横排导航也用它分组。 */
 	dividerBefore?: boolean;
 };
 
 export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
-	{ id: "common" },
+	{ id: "common", groupLabel: "settings.group.basic" },
 	{ id: "shortcuts" },
 	{ id: "notification" },
 	{ id: "appearance" },
@@ -31,17 +22,18 @@ export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
 	{ id: "memory" },
 	{ id: "proxy" },
 	{ id: "connections" },
-	{ id: "im", dividerBefore: true },
+	{ id: "im", dividerBefore: true, groupLabel: "settings.group.integrations" },
 	{ id: "pet" },
 	{ id: "vision" },
 	{ id: "imagegen" },
+	{ id: "cloudsync", dividerBefore: true },
 	{ id: "videogen" },
 	{ id: "acp" },
 	{ id: "hostplugins" },
-	{ id: "web", dividerBefore: true },
+	{ id: "web", dividerBefore: true, groupLabel: "settings.group.developer" },
 	{ id: "editors" },
 	{ id: "git" },
-	{ id: "dev", dividerBefore: true },
+	{ id: "dev", dividerBefore: true, groupLabel: "settings.group.maintenance" },
 	{ id: "usage" },
 	{ id: "process" },
 	{ id: "storage" },
@@ -79,6 +71,7 @@ export const SETTINGS_TAB_LABEL_KEYS: Record<SettingsTabId, TranslationKey> = {
 	process: "settings.tabs.process",
 	vision: "settings.tabs.vision",
 	imagegen: "settings.tabs.imagegen",
+	cloudsync: "settings.tabs.cloudsync",
 	videogen: "settings.tabs.videogen",
 	acp: "settings.tabs.acp",
 	hostplugins: "settings.tabs.hostplugins",
@@ -109,6 +102,7 @@ export const SETTINGS_TAB_KEYWORDS: Record<SettingsTabId, readonly string[]> = {
 	process: ["进程", "监控", "内存", "process", "monitor"],
 	vision: ["视觉", "图片识别", "视觉桥", "vision", "multimodal"],
 	imagegen: ["生图", "画图", "图片生成", "imagegen", "image"],
+	cloudsync: ["云同步", "同步", "云盘", "备份", "网盘", "webdav", "s3", "github", "onedrive", "google drive", "cloud sync"],
 	videogen: ["生视频", "视频生成", "videogen", "video"],
 	acp: ["acp", "agent", "cli", "工具", "外部 agent", "gemini", "kimi", "claude code", "opencode"],
 	hostplugins: ["插件", "宿主插件", "工作台插件", "plugin", "host plugin", "扩展安装", "pideck 插件"],

@@ -33,7 +33,7 @@ export type HostProfileSummary = { readonly id: string; readonly label: string; 
 
 export type HostRepairClassification = "orphan-pin" | "anchor-invalid" | "lock" | "snapshot" | "write-uncertain" | "unknown";
 
-export type HostRepairAction = "complete-activation-from-pin" | "discard-orphan-pin" | "clear-stale-lock" | "rebuild-target-and-rebind" | "forget-trust-anchor" | "inspect-snapshot-pair" | "refresh-then-recheck" | "fix-filesystem-permissions" | "human-review";
+export type HostRepairAction = "complete-activation-from-pin" | "discard-orphan-pin" | "clear-stale-lock" | "clear-rebind-lock" | "rebuild-target-and-rebind" | "forget-trust-anchor" | "inspect-snapshot-pair" | "refresh-then-recheck" | "fix-filesystem-permissions" | "human-review";
 
 /** Diagnosis output: reason → classification → the actions that are legal for it. Never writes. */
 export type HostRepairFinding = { readonly reason: string; readonly classification: HostRepairClassification; readonly hostIds: readonly string[]; readonly actions: readonly HostRepairAction[] };
@@ -63,7 +63,7 @@ export type RemoteHostRepairOptions = {
 	store: HostRepairStorePort;
 	pins: HostRepairPinPort;
 	/** Path overrides; defaults mirror `SshHostPinStore` (`<userDataDir>/ssh-host-keys`) and `RemoteHostStore` (`<userDataDir>/remote-hosts.json.lock`). */
-	paths?: { readonly pinRoot?: string; readonly hostLockFile?: string };
+	paths?: { readonly pinRoot?: string; readonly hostLockFile?: string; readonly rebindJournalLockFile?: string };
 	/** A lock file without owner metadata may only be cleared once it is at least this old. */
 	lockAgeMs?: number;
 	now?: () => number;
@@ -174,6 +174,7 @@ export class RemoteHostRepair {
 	private readonly pins: HostRepairPinPort;
 	private readonly pinRoot: string;
 	private readonly lockPath: string;
+	private readonly rebindLockPath: string;
 	private readonly userDataDir: string;
 	private readonly lockAgeMs: number;
 	private readonly now: () => number;
@@ -187,6 +188,7 @@ export class RemoteHostRepair {
 		this.userDataDir = options.userDataDir;
 		this.pinRoot = options.paths?.pinRoot ?? join(options.userDataDir, "ssh-host-keys");
 		this.lockPath = options.paths?.hostLockFile ?? join(options.userDataDir, "remote-hosts.json.lock");
+		this.rebindLockPath = options.paths?.rebindJournalLockFile ?? join(options.userDataDir, "remote-host-rebind.lock");
 		this.store = options.store;
 		this.pins = options.pins;
 		this.lockAgeMs = options.lockAgeMs ?? DEFAULT_LOCK_AGE_MS;
@@ -231,7 +233,21 @@ export class RemoteHostRepair {
 					findings.push({ reason, classification: "unknown", hostIds: [], actions: ["human-review"] });
 			}
 		}
+		// The rebind journal lock is outside the host store's reasons: a leftover lock with no journal
+		// still pins every SSH call (SshVerifiedConnection refuses while a tx lock exists). Give the
+		// user an action that is authorised by that fact alone.
+		if (await this.rebindLockPresent()) findings.push({ reason: "REMOTE_HOST_REBIND_LOCK_PRESENT", classification: "lock", hostIds: [], actions: ["clear-rebind-lock"] });
 		return findings;
+	}
+
+	/** A leftover rebind tx lock: presence is the whole diagnosis (no host is implicated). */
+	private async rebindLockPresent(): Promise<boolean> {
+		try {
+			await lstat(this.rebindLockPath);
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	/**
@@ -297,27 +313,40 @@ export class RemoteHostRepair {
 	 * refused, because deleting a lock under an active writer creates two writers.
 	 */
 	async clearStaleHostLock(observerPid: number, confirmation: RepairConfirmation): Promise<void> {
+		return this.clearStaleLockAt(this.lockPath, observerPid, confirmation, true);
+	}
+
+	/**
+	 * §5.4 P1: clear a leftover rebind transaction lock. Same owner rule as the host store lock (only a
+	 * provably dead owner, or an old unowned lock with no active write), but there is no store write
+	 * temp to consult, so the age fallback is the only extra signal.
+	 */
+	async clearStaleRebindLock(observerPid: number, confirmation: RepairConfirmation): Promise<void> {
+		return this.clearStaleLockAt(this.rebindLockPath, observerPid, confirmation, false);
+	}
+
+	private async clearStaleLockAt(lockPath: string, observerPid: number, confirmation: RepairConfirmation, checkHostTemp: boolean): Promise<void> {
 		assertObserverPid(observerPid);
 		assertConfirmation(confirmation);
 		let stats: Awaited<ReturnType<typeof lstat>>;
 		try {
-			stats = await lstat(this.lockPath);
+			stats = await lstat(lockPath);
 		} catch (error) {
 			if (errorCode(error) === "ENOENT") throw new Error("HOST_REPAIR_NOT_APPLICABLE");
 			throw new Error("HOST_REPAIR_LOCK_UNREADABLE");
 		}
-		const owner = await this.readLockOwner();
+		const owner = await this.readLockOwner(lockPath);
 		if (owner !== undefined) {
 			// Our own process obviously still runs; and an owner from this boot that is alive still holds it.
 			if (owner.pid === observerPid) throw new Error("HOST_REPAIR_LOCK_HELD");
 			if (owner.bootId === this.bootId && this.isProcessAlive(owner.pid)) throw new Error("HOST_REPAIR_LOCK_HELD");
 		} else {
 			// No owner metadata: fall back to age plus "is somebody writing right now" signals.
-			if (await this.hasActiveWriteTemp()) throw new Error("HOST_REPAIR_LOCK_HELD");
+			if (checkHostTemp && (await this.hasActiveWriteTemp())) throw new Error("HOST_REPAIR_LOCK_HELD");
 			if (this.now() - stats.mtimeMs < this.lockAgeMs) throw new Error("HOST_REPAIR_LOCK_HELD");
 		}
 		try {
-			await unlink(this.lockPath);
+			await unlink(lockPath);
 		} catch (error) {
 			if (errorCode(error) !== "ENOENT") throw new Error("HOST_REPAIR_WRITE_FAILED");
 		}
@@ -419,12 +448,12 @@ export class RemoteHostRepair {
 		}
 	}
 
-	private async readLockOwner(): Promise<{ pid: number; bootId: string } | undefined> {
+	private async readLockOwner(lockPath: string = this.lockPath): Promise<{ pid: number; bootId: string } | undefined> {
 		let raw: string;
 		try {
-			const stats = await lstat(this.lockPath);
+			const stats = await lstat(lockPath);
 			if (!stats.isFile() || stats.isSymbolicLink() || stats.size === 0 || stats.size > 4096) return undefined;
-			raw = await readFile(this.lockPath, "utf8");
+			raw = await readFile(lockPath, "utf8");
 		} catch {
 			return undefined;
 		}

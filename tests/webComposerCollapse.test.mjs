@@ -5,7 +5,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { resolveComposerCollapsed } = loadTsCommonJs("src/renderer/src/web/composerCollapse.ts");
 
-const idle = { mobileViewport: true, draft: "", imageCount: 0, streaming: false, focused: false, busy: false, attachError: false, planMode: false };
+const idle = { mobileViewport: true, draft: "", imageCount: 0, focused: false, busy: false, attachError: false, planMode: false };
 
 test("窄屏空闲输入区折叠", () => {
 	assert.equal(resolveComposerCollapsed(idle), true);
@@ -15,11 +15,16 @@ test("桌面宽度永不折叠（Web 桌面端视觉零变化）", () => {
 	assert.equal(resolveComposerCollapsed({ ...idle, mobileViewport: false }), false);
 });
 
+test("窄屏运行中的空草稿保持折叠，聚焦或输入后继续展开", () => {
+	assert.equal(resolveComposerCollapsed({ ...idle, streaming: true }), true);
+	assert.equal(resolveComposerCollapsed({ ...idle, streaming: true, focused: true }), false);
+	assert.equal(resolveComposerCollapsed({ ...idle, streaming: true, draft: "follow up" }), false);
+});
+
 test("任一「需要看工具行」的条件成立就不折叠", () => {
 	assert.equal(resolveComposerCollapsed({ ...idle, draft: "hi" }), false);
 	assert.equal(resolveComposerCollapsed({ ...idle, draft: " " }), false);
 	assert.equal(resolveComposerCollapsed({ ...idle, imageCount: 1 }), false);
-	assert.equal(resolveComposerCollapsed({ ...idle, streaming: true }), false);
 	assert.equal(resolveComposerCollapsed({ ...idle, focused: true }), false);
 	assert.equal(resolveComposerCollapsed({ ...idle, busy: true }), false);
 	assert.equal(resolveComposerCollapsed({ ...idle, attachError: true }), false);

@@ -16,10 +16,14 @@ export type LegacyProjectLocationFields = {
 	wslDistro?: string;
 };
 
+export type ProjectSortModeId = "manual" | "updatedAt" | "createdAt" | "title";
+
 export type ProjectMetadata = {
 	id: string;
 	name: string;
 	lastOpenedAt: number;
+	/** 首次登记时间；旧项目未记录，不从最近打开时间推断。 */
+	createdAt?: number;
 	pinned?: boolean;
 	sortOrder?: number;
 	/** 项目目录在磁盘上不存在（被删除/移动/未挂载）。列表保留记录并标记。 */

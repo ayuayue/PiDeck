@@ -20,7 +20,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const { SessionHistoryReader } = loadTsCommonJs("src/main/pi/SessionHistoryReader.ts");
 
 const T0 = "2026-08-02T11:46:21.399Z";
-test("readDerivedSubagentEntries：(size,mtime) 结果缓存——文件未变不重扫，追加后失效（2027-02 性能治理）", async (t) => {
+test("readDerivedSubagentEntries：(size,mtime) 缓存——文件未变复用，追加后增量更新", async (t) => {
 	const dir = mkdtempSync(join(tmpdir(), "pideck-derived-cache-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const filePath = join(dir, "session.jsonl");
@@ -43,7 +43,7 @@ test("readDerivedSubagentEntries：(size,mtime) 结果缓存——文件未变�
 	const second = await reader.readDerivedSubagentEntries(filePath);
 	assert.ok(second === first, "size/mtime 未变必须返回缓存的原数组引用（不重扫）");
 
-	// 追加一条新派发：文件变化（size/mtime 变）→ 失效重扫，结果更新
+	// 追加新派发：发现文件变化后只读新增尾部，与之前缓存的派发输入一起推导两个子代理。
 	await new Promise((resolve) => setTimeout(resolve, 20));
 	writeSession(filePath, `${subagentCall("c1", "researcher")}\n${subagentCall("c2", "coder")}\n`);
 	const third = await reader.readDerivedSubagentEntries(filePath);

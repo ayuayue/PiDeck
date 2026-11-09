@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -62,7 +63,7 @@ type remoteWriteFile interface {
 type remoteClient interface {
 	RealPath(string) (string, error)
 	Lstat(string) (os.FileInfo, error)
-	ReadDir(string) ([]os.FileInfo, error)
+	ReadDirBounded(string, int) ([]os.FileInfo, bool, int, error)
 	OpenRead(string) (io.ReadCloser, error)
 	OpenExclusive(string, os.FileMode) (remoteWriteFile, error)
 	Rename(string, string) error
@@ -72,13 +73,29 @@ type remoteClient interface {
 }
 
 type sftpRemoteClient struct {
-	client *sftp.Client
+	client  *sftp.Client
+	bounded *boundedPacketReader
 }
 
 func (c *sftpRemoteClient) RealPath(value string) (string, error)   { return c.client.RealPath(value) }
 func (c *sftpRemoteClient) Lstat(value string) (os.FileInfo, error) { return c.client.Lstat(value) }
-func (c *sftpRemoteClient) ReadDir(value string) ([]os.FileInfo, error) {
-	return c.client.ReadDir(value)
+func (c *sftpRemoteClient) ReadDirBounded(value string, maxEntries int) ([]os.FileInfo, bool, int, error) {
+	if c.bounded == nil {
+		return nil, false, 0, fail("SFTP_LIST_UNAVAILABLE", nil)
+	}
+	c.bounded.begin(maxEntries)
+	items, err := c.client.ReadDirContext(context.Background(), value)
+	observed, truncated, terminal := c.bounded.end()
+	if terminal != nil {
+		if truncated && errors.Is(terminal, errBoundedDirectory) {
+			return items, true, observed, nil
+		}
+		return nil, false, observed, terminal
+	}
+	if err != nil {
+		return nil, false, observed, err
+	}
+	return items, truncated || len(items) > maxEntries, observed, nil
 }
 func (c *sftpRemoteClient) OpenRead(value string) (io.ReadCloser, error) { return c.client.Open(value) }
 func (c *sftpRemoteClient) Rename(oldPath, newPath string) error {
@@ -175,17 +192,13 @@ func listRemote(client remoteClient, value request) (listResult, error) {
 	if !info.IsDir() {
 		return listResult{}, fail("SFTP_NOT_A_DIRECTORY", nil)
 	}
-	// pkg/sftp's public ReadDir API materializes the server's directory response.
-	// The output is capped here; SFTP-2 must replace this with a bounded reader
-	// before this method becomes the production directory backend.
-	items, err := client.ReadDir(target)
+	items, truncated, scanned, err := client.ReadDirBounded(target, value.MaxEntries)
 	if err != nil {
 		return listResult{}, mapRemoteError(err)
 	}
 	sort.Slice(items, func(left, right int) bool { return items[left].Name() < items[right].Name() })
-	scanned := len(items)
-	truncated := scanned > value.MaxEntries
-	if truncated {
+	truncated = truncated || len(items) > value.MaxEntries
+	if len(items) > value.MaxEntries {
 		items = items[:value.MaxEntries]
 	}
 	entries := make([]remoteEntry, 0, len(items))

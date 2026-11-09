@@ -57,6 +57,7 @@ import {
 	promptSuggestionModelAtom,
 	dshRuntimeStatusAtom,
 	openSettingsAtom,
+	settingsOpenAtom,
 	openAutomationPageAtom,
 	agentProfilesAtom,
 	pendingAgentBindingAtom,
@@ -311,6 +312,8 @@ export function App() {
 	const modifiedFiles = useAtomValue(modifiedFilesAtom);
 	const projects = useAtomValue(projectInventoryAtom);
 	const agents = useAtomValue(agentInventoryAtom);
+	// 设置页是整列页面 Tab：它会盖住欢迎页/会话列，首次引导不能叠在它上面。
+	const settingsPageActive = useAtomValue(settingsOpenAtom);
 	const setCurrentSessionId = useSetAtom(currentSessionIdAtom);
 	const replaceProjectSessions = useSetAtom(replaceProjectSessionsAtom);
 	const openAutomationPage = useSetAtom(openAutomationPageAtom);
@@ -1535,7 +1538,7 @@ export function App() {
 	 *
 	 * 目录由新会话页输入框上方的项目选择器决定，用户在那里换项目；待绑定智能体记在
 	 * pendingAgentBindingAtom 里，首次发送时由 ensureSessionForSend 建会话并落绑定。
-	 * 角色设定不预填、不显示：主进程在绑定会话的每次发送时把 systemPrompt 拼进 agentMessage
+	 * 角色设定不预填：主进程在绑定会话的首次发送时把 systemPrompt 拼进 agentMessage
 	 * （对 UI 隐藏，见 src/main/ipc/sessionIpc.ts 的 resolveSessionAgentInstruction）。
 	 * 留在市场页（返回 false）只有一种情形：一个项目都没有，无处可去。
 	 */
@@ -1655,7 +1658,7 @@ export function App() {
 			}
 			const promotion = (async () => {
 				// 「使用」带来的人：首次发送建会话时落地绑定。必须在选中会话之前完成——
-				// 主进程按绑定在每次发送时拼角色设定，晚一步首条消息就不带人设。
+				// 主进程按绑定在首次发送时拼角色设定，晚一步首条消息就不带人设。
 				const pendingAgentId = store.get(pendingAgentBindingAtom);
 				const pendingAgent = pendingAgentId ? store.get(agentProfilesAtom).find((profile) => profile.id === pendingAgentId) : undefined;
 				// 引导页 picker 无 record 分支把显式选择存进 localStorage；创建时将模型交给
@@ -2620,8 +2623,7 @@ export function App() {
 			creatingWorktree={worktreeCreating}
 			removingWorktreeProjectIds={removingWorktreeProjectIds}
 			isLanWeb={isLanWeb}
-			// 「新建会话」：清空当前会话并选中活动项目 → 落到初始引导页（居中输入框 + 项目下拉切换），
-			// 用户选择项目后可直接输入对话（首次发送才创建真实会话）。无项目时保持引导页「添加项目」空态。
+			// 新建会话先打开引导页；首次发送再创建真实会话，无项目时显示添加项目空态。
 			onOpenNewSession={() => {
 				if (activeProjectId) selectProjectCommand(activeProjectId);
 			}}
@@ -2630,6 +2632,7 @@ export function App() {
 			settingsNavTab={settings.sidebarNavTab}
 			settingsPinnedSessionIds={settings.pinnedSessionIds}
 			settingsSessionSortMode={settings.sessionSortMode}
+			settingsProjectSortMode={settings.projectSortMode}
 			stickyGroupHeaders={settings.sidebarStickyGroupHeaders === true}
 			settingsLoaded={settingsLoaded}
 			onExpandedProjectsReady={() => setExpandedProjectsReady(true)}
@@ -3141,7 +3144,15 @@ export function App() {
 					<ResizablePanel id="empty-main" minSize={200} className="flex min-h-0 flex-col">
 						{/* 无会话空态：引导页 = 新建页面形态（居中 ComposerArea + 虚拟会话），
                 不登记 Tab；首次发送才由 ensureSessionForSend 创建真实会话并落 Tab */}
-						<ProjectEmptyState activeProject={activeProject} projects={projects} onAddProject={() => void addProject()} onSelectProject={selectProjectCommand} onOpenTerminal={!isLanWeb && terminalTarget ? () => setTerminalOpenForOwner(true) : undefined} onCreateSession={createSessionDraftWithTab} />
+						<ProjectEmptyState
+							activeProject={activeProject}
+							projects={projects}
+							onAddProject={() => void addProject()}
+							onSelectProject={selectProjectCommand}
+							onOpenTerminal={!isLanWeb && terminalTarget ? () => setTerminalOpenForOwner(true) : undefined}
+							onOpenFile={(target) => viewFilePath(target)}
+							onCreateSession={createSessionDraftWithTab}
+						/>
 					</ResizablePanel>
 					{!isLanWeb && terminalDockVisible && terminalTarget && (
 						<TerminalDockPanel
@@ -3784,7 +3795,10 @@ export function App() {
 									onConfirm: async () => {
 										overlays.clearConfirm();
 										try {
-											await api.files.delete(target, true);
+											// 公共写面返回 Op：失败必须显式抛出，才能沿用下面的错误提示；
+											// unknown 也走同一条提示（不自动重放）。
+											const deleted = await api.files.delete(target, true);
+											if (!deleted.ok) throw new Error(deleted.code);
 											void refreshVisibleFiles();
 											showToast(t("app.fileDeleted"), 2000);
 										} catch (error) {
@@ -4036,7 +4050,7 @@ export function App() {
 				{/* 命令面板首次引导：它是纯键盘入口，没有任何可点的 affordance，
         不主动提示就等于不存在。看完即写 localStorage，只弹一次。
         空状态（没项目）不弹——那时面板本身也没什么可搜的。 */}
-				{!quickTask.active && <CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !activeProjectHasBusyAgent && !commandPaletteOpen} onTryNow={openCommandPalette} />}
+				{!quickTask.active && <CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !activeProjectHasBusyAgent && !commandPaletteOpen && !settingsPageActive} onTryNow={openCommandPalette} />}
 
 				{/* 数据环境弹窗族：首启数据模式选择（内含导入向导）与目录标记警告，事件/atom 驱动 */}
 				<DataModeChoiceDialog />

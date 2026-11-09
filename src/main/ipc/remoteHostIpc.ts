@@ -36,6 +36,7 @@ import type { RemoteHostConnectionService } from "../remote/RemoteHostConnection
 import { parseSshConfig } from "../remote/SshConfigCandidates";
 import { normalizeRemoteHostIdentityFile, REMOTE_HOST_IDENTITY_FILE_INVALID } from "../remote/RemoteHostIdentityFile";
 import { RemoteHostStore } from "../remote/RemoteHostStore";
+import { createRemoteHostReferenceRegistry } from "../remote/RemoteHostReferenceSources";
 import { SshHostPinStore } from "../remote/SshHostPinStore";
 
 const REPAIR_REASON = /^REMOTE_HOST_[A-Z0-9_]{1,64}$/;
@@ -49,7 +50,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 /** Bounded per request: a host with a long history must not turn one IPC call into an unbounded payload. */
 const MAX_DIAGNOSTIC_ENTRIES = 200;
 /** Repair actions the UI may request. Anything else is refused before it can reach the repair module. */
-const REPAIR_ACTIONS: ReadonlySet<string> = new Set(["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "forget-trust-anchor"]);
+const REPAIR_ACTIONS: ReadonlySet<string> = new Set(["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "clear-rebind-lock", "forget-trust-anchor"]);
 
 /** Expose only stable codes and valid ids; no repair commands, pin paths or trust metadata cross IPC. */
 function repairSummary(view: RemoteHostCatalogView): RemoteHostRepairSummary[] {
@@ -136,7 +137,7 @@ export function registerRemoteHostIpc(input: {
 	userDataDir: string;
 	registerCleanup?: (cleanup: () => Promise<void>) => void;
 	onHostRetired?: (hostId: string) => Promise<void>;
-}): void {
+}): { openStores: () => Promise<{ store: Awaited<ReturnType<typeof RemoteHostStore.open>>; pinStore: SshHostPinStore }> } {
 	const guard = <T>(fallback: () => T): T | undefined => (input.enabled ? undefined : fallback());
 
 	/**
@@ -152,7 +153,10 @@ export function registerRemoteHostIpc(input: {
 	const openStores = () => {
 		stores ??= (async () => {
 			const pinStore = new SshHostPinStore(input.userDataDir);
-			const store = await RemoteHostStore.open(input.userDataDir, { pinStore });
+			// retire/updateDraft 需要引用检查；缺了 references 时 retire 会直接
+			// REMOTE_HOST_REFERENCES_UNAVAILABLE（rebind 的真实装配就踩过这一条）。
+			const references = createRemoteHostReferenceRegistry(join(input.userDataDir, "session-catalog.json"), join(input.userDataDir, "projects.json")).asStoreReferences();
+			const store = await RemoteHostStore.open(input.userDataDir, { pinStore, references });
 			return { store, pinStore };
 		})();
 		// A failed open must not be cached: a store stuck in needs-repair can be fixed by hand, and the
@@ -469,9 +473,9 @@ export function registerRemoteHostIpc(input: {
 		const disabled = guard<RemoteHostRepairDiagnosisResult>(() => ({ ok: false, code: "REMOTE_FEATURE_DISABLED" }));
 		if (disabled !== undefined) return disabled;
 		try {
-			const { repair, store } = await openRepair();
-			// A healthy store has nothing to diagnose: report an empty list rather than an error.
-			if (store.getSnapshot().status === "ready") return { ok: true, findings: [] };
+			const { repair } = await openRepair();
+			// Always diagnose: a healthy host store can still have a leftover rebind tx lock, and that lock
+			// alone pins every SSH call. Returning [] for "status ready" would hide the only way out.
 			const findings = await repair.diagnose();
 			return { ok: true, findings: findings.map(findingFrom) };
 		} catch (error) {
@@ -488,7 +492,7 @@ export function registerRemoteHostIpc(input: {
 		if (typeof action !== "string" || !REPAIR_ACTIONS.has(action)) return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
 		// Lock repair is host-independent by nature; every other action names exactly one host.
 		let hostId: string | undefined;
-		if (action !== "clear-stale-lock") {
+		if (action !== "clear-stale-lock" && action !== "clear-rebind-lock") {
 			if (typeof hostIdValue !== "string" || !HOST_ID.test(hostIdValue)) return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
 			hostId = hostIdValue;
 		}
@@ -499,7 +503,7 @@ export function registerRemoteHostIpc(input: {
 			const snapshot = store.getSnapshot();
 			// Only actions the diagnosis actually authorised may be requested: the UI must not be able to
 			// invent one, and a stale button must not run something the current state no longer allows.
-			const findings = snapshot.status === "ready" ? [] : await repair.diagnose();
+			const findings = await repair.diagnose();
 			const allowed = findings.some((finding) => finding.actions.includes(action as HostRepairAction) && (hostId === undefined || finding.hostIds.length === 0 || finding.hostIds.includes(hostId)));
 			if (!allowed) return { ok: false, code: "HOST_REPAIR_NOT_APPLICABLE" };
 			const requested = action as HostRepairAction;
@@ -549,6 +553,9 @@ export function registerRemoteHostIpc(input: {
 				case "clear-stale-lock":
 					await repair.clearStaleHostLock(process.pid, confirmation);
 					break;
+				case "clear-rebind-lock":
+					await repair.clearStaleRebindLock(process.pid, confirmation);
+					break;
 				default:
 					return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
 			}
@@ -557,6 +564,7 @@ export function registerRemoteHostIpc(input: {
 			return { ok: false, code: codeOf(error, "REMOTE_HOST_REPAIR_FAILED") };
 		}
 	});
+	return { openStores };
 }
 
 /** Project a diagnosis finding onto the renderer contract, dropping anything not on the allowlist. */

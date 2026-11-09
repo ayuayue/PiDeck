@@ -107,9 +107,9 @@ export function WebHeader(props: {
 	const themeToggleLabel = t(props.resolvedTheme === "dark" ? "web.themeSwitchToLight" : "web.themeSwitchToDark");
 	// 2026-10 评审：会话动作与全局入口原是两个相邻溢出菜单（横…/竖⋮），触屏没有 tooltip，
 	// 「重命名在哪个菜单里」全靠背。合并为一个 ⋮ 菜单，内部用标签分「会话/应用」两组。
-	const hasSessionMenuActions = Boolean(actions && (actions.onRename || actions.onRestart || actions.onCompact || actions.onClone || actions.onCopyMarkdown || actions.onExportHtml || actions.onDuplicate || actions.onDelete || actions.onRefreshMessages));
+	const hasSessionMenuActions = Boolean(actions && (actions.onRename || actions.onRestart || actions.onCompact || actions.onClone || actions.onCopyMarkdown || actions.onExportHtml || actions.onDuplicate || actions.onDelete || actions.onRefreshMessages || actions.onOpenWorkspace));
 	const hasGlobalMenuEntries = Boolean(onOpenSearch || onCycleTheme || (canInstall && onInstall) || onOpenAssets);
-	// 头部固定单行：标题+状态占左侧，右侧动作收敛后窄屏不再换行错位（全局入口收进溢出菜单）。
+	// 手机标题与状态同排；较宽屏幕恢复上下两行。低频动作在窄屏收进溢出菜单。
 	return (
 		<>
 			<div className={cn("grid shrink-0 transition-[grid-template-rows] duration-[240ms] ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none", props.headerHidden ? "grid-rows-[0fr]" : "grid-rows-[1fr]")}>
@@ -118,9 +118,9 @@ export function WebHeader(props: {
 						<Button type="button" variant="ghost" size="icon" className="mobile-sidebar-toggle size-8 shrink-0 pointer-coarse:size-9" onClick={onOpenSidebar} aria-label={t("web.openProjects")} title={t("web.openProjects")}>
 							<Menu className="size-4" aria-hidden="true" />
 						</Button>
-						<div className="web-title-block flex min-w-0 flex-1 flex-col gap-0.5">
+						<div className="web-title-block flex min-w-0 flex-1 flex-row items-center gap-2 sm:flex-col sm:items-start sm:gap-0.5">
 							{/* 语义标题：整页唯一的 h1（会话名/空态文案），屏幕阅读器靠它定位主区 */}
-							<h1 className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold tracking-tight text-foreground" title={title}>
+							<h1 className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-semibold tracking-tight text-foreground sm:flex-none sm:self-stretch" title={title}>
 								{/* 后端标记（WebBackendMark）：dsh 鲸鱼 / acp 品牌图标 / imagegen 图标，pi 不署名 */}
 								{backend && <WebBackendMark backend={backend} acpToolId={acpToolId} acpTools={acpTools} className="size-4 shrink-0" />}
 								<span className="min-w-0 truncate">{title}</span>
@@ -128,7 +128,7 @@ export function WebHeader(props: {
 							{/* 运行态：紧凑小圆点+文字，不用带边框底色的大 pill（旧 agent-status-indicator
 						在头部占两行高度且视觉过重；侧栏列表仍沿用该样式，此处不动它）。
 						role=status：读屏播报 空闲/运行中 翻转，不依赖视觉圆点。 */}
-							<span className="flex items-center gap-1 self-start text-micro text-muted-foreground" role="status">
+							<span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-micro text-muted-foreground sm:self-start" role="status">
 								<span
 									className={cn("size-1.5 shrink-0 rounded-full", status === "running" && "animate-pulse bg-[var(--color-accent)]", status === "starting" && "animate-pulse bg-[var(--color-warning)]", status === "error" && "bg-[var(--color-danger)]", status === "idle" && "bg-[var(--color-info)]")}
 									aria-hidden="true"
@@ -170,14 +170,23 @@ export function WebHeader(props: {
 							) : null}
 							{/* P3：工作区抽屉（Git / 文件）入口 */}
 							{actions?.onOpenWorkspace ? (
-								<Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground pointer-coarse:size-9" onClick={actions.onOpenWorkspace} aria-label={t("web.workspaceDrawer")} title={t("web.workspaceDrawer")}>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground max-[480px]:hidden pointer-coarse:size-9"
+									onClick={actions.onOpenWorkspace}
+									aria-label={t("web.workspaceDrawer")}
+									title={t("web.workspaceDrawer")}
+									data-testid="web-header-workspace"
+								>
 									<PanelRight className="size-4" aria-hidden="true" />
 								</Button>
 							) : null}
 							{/* 一键明暗：桌面端在底栏 dock，Web 原来只有 ⋮ 菜单里的三态循环，触屏用户基本找不到。
 							    图标反映当前实际状态（同 VitePress），点击直接翻转；「跟随系统」仍留在 ⋮ 菜单。 */}
 							{props.onToggleTheme ? (
-								<Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground pointer-coarse:size-9" onClick={props.onToggleTheme} aria-label={themeToggleLabel} title={themeToggleLabel}>
+								<Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground max-[480px]:hidden pointer-coarse:size-9" onClick={props.onToggleTheme} aria-label={themeToggleLabel} title={themeToggleLabel} data-testid="web-header-theme-toggle">
 									{props.resolvedTheme === "dark" ? <Moon className="size-4" aria-hidden="true" /> : <Sun className="size-4" aria-hidden="true" />}
 								</Button>
 							) : null}
@@ -192,9 +201,15 @@ export function WebHeader(props: {
 									</DropdownMenuTrigger>
 									<DropdownMenuContent align="end" className="w-52">
 										{/* 内联条件保留 actions 的类型收窄（布尔值收窄不了 undefined） */}
-										{actions && (actions.onRename || actions.onRestart || actions.onCompact || actions.onClone || actions.onCopyMarkdown || actions.onExportHtml || actions.onDuplicate || actions.onDelete || actions.onRefreshMessages) ? (
+										{actions && (actions.onRename || actions.onRestart || actions.onCompact || actions.onClone || actions.onCopyMarkdown || actions.onExportHtml || actions.onDuplicate || actions.onDelete || actions.onRefreshMessages || actions.onOpenWorkspace) ? (
 											<>
 												<DropdownMenuLabel className="text-micro font-medium text-muted-foreground">{t("web.sessionMenu")}</DropdownMenuLabel>
+												{actions.onOpenWorkspace ? (
+													<DropdownMenuItem className="hidden max-[480px]:flex" onClick={actions.onOpenWorkspace} data-testid="web-menu-workspace">
+														<PanelRight className="size-4" aria-hidden="true" />
+														{t("web.workspaceDrawer")}
+													</DropdownMenuItem>
+												) : null}
 												{actions.onRename ? (
 													<DropdownMenuItem onClick={actions.onRename}>
 														<Pencil className="size-4" aria-hidden="true" />

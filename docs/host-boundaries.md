@@ -43,7 +43,7 @@
   - 输入预测：第三个实例（logger / 退出清理名 `prompt-suggestion`）。入口 `suggest:run` / `suggest:cancel` / `suggest:event`；`systemPrompt` / `userText` 由主进程常量（`src/main/pi/enhance/promptSuggestion.ts`）注入，渲染层禁传，并带 `purpose: "suggest"`。
 - 三者的边界：一次性、无工具、不碰会话文件；事件按 runId 配对，终态恰好一次；fail-safe 与 pi-auth 一致（sidecar 起不来只是按钮置灰/toast，不影响 pi 会话）。禁止扩展成通用模型 API 桥，禁止把 `agent-profiles:invoke` 做成任意 systemPrompt 直通。
 - 输入预测的展示：ghost 文案是绝对定位视觉层，**不得写进 ProseMirror 文档**（不参与撤销/发送判定）；Tab / → 采纳时整体回填草稿，Esc 忽略，失败静默。开关 `settings.promptSuggestionEnabled`（缺省开，只有字面 false 能关）。
-- 智能体本身是 PiDeck 层预设：会话绑定存 `AgentMarketSettings.sessionAgentBindings`（只能经 `agent-profiles:bind-session` 改）；发送时 `sessionIpc` 用 `composeAgentInstruction` 把角色设定拼进 `SendPromptInput.agentMessage`（DSH 拒绝该通道，退化为可见前缀）。PiDeck 不替 pi 写系统提示。
+- 智能体本身是 PiDeck 层预设：会话绑定存 `AgentMarketSettings.sessionAgentBindings`（只能经 `agent-profiles:bind-session` 改）；会话**首次**发送时 `sessionIpc` 用 `composeAgentInstruction` 把角色设定拼进 `SendPromptInput.agentMessage`（DSH 拒绝该通道，退化为可见前缀）。角色设定随第一条用户消息留在历史里，之后轮次不重复注入。PiDeck 不替 pi 写系统提示。
 
 ## 例外五：运行时控制扩展（`pi-deck-runtime.ts`，只允许 `/reload`）
 
@@ -76,6 +76,17 @@
 - 写入必须过注入扫描（不可见字符 / 指令覆盖句式 / 疑似凭据），命中即拒绝；项目作用域缺 `projectId` 时拒绝而不是静默写全局。
 - 禁止扩成通用宿主控制通道：不得暴露会话控制、设置读写、任意 JS/FS/shell。会话来源只能由宿主通过 `PIDECK_AGENT_MEMORY_SOURCES` 注入，服务器不得自行扫描用户目录。
 - 注册失败不影响启动（记忆是增强项）；`mcp.json` 形状不对时跳过写入而不是覆盖用户配置。详见 `docs/agent-memory.md`；守卫测试 `tests/agentMemoryMounts.test.mjs`、`tests/agentMemoryServer.test.mjs`。
+
+## 例外九：关联会话端点（`pi-deck-linked-sessions`，只允许关联会话的开、发、列）
+
+- 用途：让一个 pi 会话的 agent 开出**完整的**子会话（用户能在侧栏点开、直接对话、停掉），给关联会话追发消息、列出子会话状态；子会话每轮结束由宿主把回报送回父会话。对标 Claude Code 桌面版的子对话管理。
+- 链路：随包扩展 `resources/extensions/pi-deck-linked-sessions.ts`（`-e` 注入，用户可在设置里移除）注册 `start_session` / `send_to_session` / `list_linked_sessions` 三个工具，POST 给主进程回环端点 `src/main/linkedSessions/LinkedSessionServer.ts`（只绑 `127.0.0.1`，路径 `/linked/<token>`，强校验头 `x-pideck-linked-token`）。token 每 agent 一份，spawn 时注入 `PIDECK_LINKED_SESSIONS_URL` / `PIDECK_LINKED_SESSIONS_TOKEN`，与模型快照同一套生命周期（`AgentManager` 注册/注销）。**调用方身份只认 token → agentId → 会话绑定**，不信请求体里的任何会话 id 作为调用方。
+- 宿主侧 `LinkedSessionService` 只做三件事：建草稿并发首条 prompt（`SessionCatalog.createDraft` → `SessionRuntimeCoordinator.send`，与自动化同链路）、向关联会话发消息（同一 `send`，忙时 `followUp`）、读 `agents:state` / `agents:runtime-state` 判子会话回合结束并把回报以 `followUp` 发给父会话。关联关系存 `<userData>/linked-sessions.json`（原子落盘），键是 `SessionRecord.id`。
+- 发起方式：`user_asked` 立即开；`offer` 在父会话时间线出卡片，工具调用挂起到用户点「新会话 / 在此做」或 10 分钟超时；`own_initiative` 只登记提议卡片（7 天过期），用户点开才建会话。卡片按钮走 `linked-sessions:*` IPC。
+- 会话生命周期：子会话就是普通会话，删除 / 归档走侧栏原有菜单。清理挂在 `SessionCatalog.onRowsRemoved` 这一个集中点上（`remove` / `removeWithDescendants` / `removeByProjectId` / `mergeScanned` 的外部删除清理都会触发），不在 IPC 里逐条打补丁：会话行一消失就清掉它的全部关系和它作父会话挂着的提议，另一端回到普通会话。归档后恢复出来是新 id 的普通会话，所以归档与删除同样处理，不留孤儿。
+- 防空转：父会话被回报自动续跑的连续轮数有上限（`MAX_AUTO_CONTINUE`）；被父会话拒绝的投递不占额度；清零挂在 `SessionRuntimeCoordinator.onPromptSubmitted`（所有入口的消息都经 `send`，requestId 带 `linked-` 前缀的是本服务自己的回报 / 转发，其余都算用户侧输入）。超限后回报只记在关联表里（`list_linked_sessions` 可读），不再自动续跑。父会话没有活着的运行时也不会被回报拉起。
+- 禁止项：只能对**与调用方直接关联**的会话（自己的子会话或自己的父会话）发消息；不暴露删除会话、改设置、读任意会话正文、跨项目建会话；不用于 DSH / ACP / 远端 SSH 会话（远端快照标 `local-only`，端点未就绪或 env 缺失时扩展不注册任何工具）。回报文本是不可信数据，原样转交、不解析成指令。
+- 守卫测试：`tests/linkedSessionsExtension.test.mjs`（env 缺失不注册、帧字段与共享类型对齐）、`tests/linkedSessionStore.test.mjs`（提议状态机、防空转计数、落盘可重入）、`tests/linkedSessionReview.test.mjs`（回合文本基线、额度退还、每回合只报一次、回滚）、`tests/sessionCatalogRowsRemoved.test.mjs`（会话行移除的集中通知）。
 
 ## 侧车通用规则
 

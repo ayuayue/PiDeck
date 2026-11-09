@@ -37,13 +37,12 @@ test("SVG 与无扩展名文件的判定：SVG 是文本，无扩展名按文本
 });
 
 test("上传链路真的用了有界等待（纯函数行为另见 remoteEntryDrag.test.mjs）", () => {
-	const source = readFileSync("src/main/ipc/remoteProjectTransferIpc.ts", "utf8");
-	assert.match(source, /withLocalIoTimeout\(stat\(localPath\)/);
-	assert.match(source, /withLocalIoTimeout\(readFile\(localPath\)/);
+	const source = readFileSync("src/main/ipc/remoteProjectTransferJobIpc.ts", "utf8");
+	assert.match(source, /withLocalIoTimeout\(stat\(path\)/);
 	// 批级预算：第一条超时后剩余项直接失败，不再各等一个单条上限。
 	assert.match(source, /createLocalIoBudget\(\)/);
 	assert.match(source, /budget\.exhausted\(\)/);
-	assert.match(source, /LOCAL_IO_TIMEOUT_CODE/);
+	assert.match(source, /LOCAL_FILE_IO_TIMEOUT_MS/);
 });
 
 test("拖放路径解析不因超时逻辑而放宽（仍然只收本机绝对路径）", () => {

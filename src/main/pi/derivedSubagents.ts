@@ -36,6 +36,13 @@ import type { PiSubagentEntry, PiSubagentStatus } from "../../shared/types";
 const ACP_DELEGATE_TOOL = "acp_delegate";
 const ACP_CANCEL_TOOL = "acp_delegate_cancel";
 const SUBAGENT_TOOL = "subagent";
+const SUBAGENT_TOOL_NAMES = new Set([ACP_DELEGATE_TOOL, ACP_CANCEL_TOOL, SUBAGENT_TOOL]);
+
+type SubagentDerivationInput = {
+	type: "message";
+	timestamp?: unknown;
+	message: Record<string, unknown>;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -54,6 +61,23 @@ export function extractEntryText(content: unknown): string {
 		}
 	}
 	return out;
+}
+
+/** 增量扫描只保留能参与两种推导的消息，避免按会话文件大小保留聊天正文。 */
+export function isSubagentDerivationInput(raw: unknown): raw is SubagentDerivationInput {
+	if (!isRecord(raw) || raw.type !== "message" || !isRecord(raw.message)) return false;
+	const message = raw.message;
+	if (message.role === "assistant") {
+		return Array.isArray(message.content) && message.content.some((item) => isRecord(item) && item.type === "toolCall" && typeof item.name === "string" && SUBAGENT_TOOL_NAMES.has(item.name));
+	}
+	if (message.role === "toolResult") {
+		return (message.toolName === ACP_DELEGATE_TOOL || message.toolName === SUBAGENT_TOOL) && typeof message.toolCallId === "string";
+	}
+	if (message.role === "user") {
+		const text = extractEntryText(message.content);
+		return text.startsWith("[acp_delegate completed]") || text.startsWith("[acp_delegate FAILED");
+	}
+	return false;
 }
 
 /**
@@ -100,7 +124,7 @@ export function deriveAcpDelegateEntries(rawEntries: readonly unknown[]): PiSuba
 	const entryIdByRunId = new Map<string, string>();
 
 	for (const raw of rawEntries) {
-		if (!isRecord(raw) || raw.type !== "message" || !isRecord(raw.message)) continue;
+		if (!isSubagentDerivationInput(raw)) continue;
 		const message = raw.message;
 		const timestampMs = typeof raw.timestamp === "string" ? Date.parse(raw.timestamp) : NaN;
 		const role = typeof message.role === "string" ? message.role : "";
@@ -184,7 +208,7 @@ export function deriveSubagentToolEntries(rawEntries: readonly unknown[]): PiSub
 	const byToolCallId = new Map<string, PiSubagentEntry>();
 
 	for (const raw of rawEntries) {
-		if (!isRecord(raw) || raw.type !== "message" || !isRecord(raw.message)) continue;
+		if (!isSubagentDerivationInput(raw)) continue;
 		const message = raw.message;
 		const timestampMs = typeof raw.timestamp === "string" ? Date.parse(raw.timestamp) : NaN;
 		const role = typeof message.role === "string" ? message.role : "";

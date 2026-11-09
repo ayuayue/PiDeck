@@ -15,7 +15,7 @@ const gitService = readFileSync("src/main/git/GitService.ts", "utf8");
 
 // 文件名保留，确保从旧切换器实现迁移时仍会运行这组多仓契约测试。
 test("Git drawer renders every discovered repository instead of selecting one active repository", () => {
-	assert.match(drawer, /<GitDrawerHost/);
+	assert.match(drawer, /<ProjectGitDrawer/);
 	assert.doesNotMatch(drawer, /<GitPanel/);
 	assert.match(host, /useGitRepoScope/);
 	assert.match(host, /scope\.repos\.map\(\(repo\)/);
