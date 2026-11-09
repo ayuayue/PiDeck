@@ -19,6 +19,36 @@ function TooltipTrigger({ ...props }: React.ComponentProps<typeof TooltipPrimiti
 	return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
 }
 
+/**
+ * 只跟随鼠标悬停的 Tooltip 开关：把返回的 open/onOpenChange 交给 <Tooltip>，
+ * hoverProps 展开到触发元素上。
+ *
+ * Radix 默认在触发元素获得 focus 时也弹气泡；而切走窗口再切回来时，浏览器会把焦点
+ * 还给上次聚焦的元素，「回来就自动展开 Tab 的项目与路径」就是这么来的（用户反馈）。
+ * 用受控 open + 悬停标记只放行指针悬停的开启请求：Radix 的 delayDuration 计时照旧，
+ * 键盘聚焦不再自动弹泡（Tab 标题本来就可见，aria-label 仍给读屏完整信息）。
+ */
+function useHoverOnlyTooltip() {
+	const [open, setOpen] = React.useState(false);
+	const hoveredRef = React.useRef(false);
+	const onOpenChange = React.useCallback((next: boolean) => {
+		if (!next) {
+			setOpen(false);
+			return;
+		}
+		if (hoveredRef.current) setOpen(true);
+	}, []);
+	const hoverProps = {
+		onPointerEnter: () => {
+			hoveredRef.current = true;
+		},
+		onPointerLeave: () => {
+			hoveredRef.current = false;
+		},
+	};
+	return { open, onOpenChange, hoverProps };
+}
+
 function TooltipContent({
 	className,
 	arrowClassName,
@@ -47,4 +77,4 @@ function TooltipContent({
 	);
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, useHoverOnlyTooltip };
