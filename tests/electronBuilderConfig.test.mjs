@@ -128,6 +128,14 @@ test("接线：所有直接调用 electron-builder 的 mac 打包命令都带 --
 	}
 });
 
+test("build-macos.yml 默认构建当前触发分支（留空用 github.ref_name，不能写死 main）", () => {
+	const text = read("../.github/workflows/build-macos.yml");
+	// workflow_dispatch 的 default 不支持表达式；写死 main 会让「从 dev 触发」变成
+	// 用 dev 的 workflow 文件构建 main 的代码（#515 合入前曾因此 ENOENT）。
+	assert.match(text, /ref: \$\{\{ inputs\.ref \|\| github\.ref_name \}\}/);
+	assert.doesNotMatch(text, /^\s+default: main\s*$/m);
+});
+
 test("接线：mac 打包 job 注入 Developer ID / 公证 secrets，且与门禁脚本看到同一组变量", () => {
 	for (const file of ["release.yml", "build-dev.yml", "build-macos.yml", "mac-test-build.yml"]) {
 		const text = read(`../.github/workflows/${file}`);
