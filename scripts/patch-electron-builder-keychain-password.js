@@ -55,10 +55,7 @@ function patchMacCodeSignKeychainPassword(content) {
 		}
 	}
 	return content
-		.replace(
-			IMPORT_CERTS_CALL,
-			`    // ${PATCH_MARKER} —— set-key-partition-list 的 -k 需要临时 keychain 自己的密码（上游 #10066）\n    return await importCerts(keychainFile, certPaths, cscPasswords, keychainPassword);`,
-		)
+		.replace(IMPORT_CERTS_CALL, `    // ${PATCH_MARKER} —— set-key-partition-list 的 -k 需要临时 keychain 自己的密码（上游 #10066）\n    return await importCerts(keychainFile, certPaths, cscPasswords, keychainPassword);`)
 		.replace(IMPORT_CERTS_SIGNATURE, "async function importCerts(keychainFile, paths, keyPasswords, keychainPassword) {")
 		.replace(PARTITION_LIST_CALL, '["set-key-partition-list", "-S", "apple-tool:,apple:", "-s", "-k", keychainPassword, keychainFile]');
 }
