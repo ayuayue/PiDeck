@@ -106,6 +106,23 @@ test("未激活紧凑模式时按最大化/全屏语义取 normal bounds，并�
 	assertJsonEqual(saved.at(-1), { x: 200, y: 100, width: 1280, height: 900, maximized: true, workArea: WORK_AREA });
 });
 
+test("全屏关窗时额外记 fullscreen：否则重启后只剩最大化，用户看到的是「全屏没了、窗口变小」", () => {
+	const win = windowStub({ maximized: true, fullscreen: true });
+	const { chrome, saved } = createChrome(win);
+	chrome.saveWorkbenchBoundsOnClose(win);
+	// 全屏时仍是 normal bounds + maximized，才能下次启动先建 normal 窗再进全屏
+	assertJsonEqual(saved.at(-1), { x: 200, y: 100, width: 1280, height: 900, maximized: true, fullscreen: true, workArea: WORK_AREA });
+});
+
+test("紧凑模式关窗时不写 fullscreen（小窗口本身不是全屏）", async () => {
+	const win = windowStub({ maximized: true, fullscreen: true });
+	const { chrome, saved } = createChrome(win);
+	await chrome.applyLaunchTarget({ quickTaskPath: process.cwd() });
+	assert.equal(win.isFullScreen(), false, "进入紧凑模式应已退出全屏");
+	chrome.saveWorkbenchBoundsOnClose(win);
+	assertJsonEqual(saved.at(-1), { x: 200, y: 100, width: 1280, height: 900, maximized: true, workArea: WORK_AREA });
+});
+
 test("普通窗口关窗时保存当前位置与尺寸", () => {
 	const win = windowStub({ normal: { x: 640, y: 80, width: 1251, height: 965 } });
 	const { chrome, saved } = createChrome(win);

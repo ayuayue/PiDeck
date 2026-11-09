@@ -28,6 +28,8 @@
 - webview 安全（`configureBrowserPanelWebviewHost`，只在主窗口注册一次）：专属 `partition` 强制 `sandbox: true` / `nodeIntegration: false` / `webSecurity: true`；删除外部传入的 `preload` / `allowpopups`；`did-attach-webview` 校验 partition，不符立即 close。
 - 导航白名单三层都要过：`will-frame-navigate` / `will-redirect` / `setWindowOpenHandler`（只拦一层会被重定向绕过）。内置浏览器的 URL 判定统一走 `isAllowedBrowserPanelUrl`（`src/main/browser/browserSecurity.ts`）。
 - 自定义标题栏改动要验证三平台控制按钮、拖拽区、双击最大化。
+- 窗口**呈现态**（normal / maximized / fullscreen）由 `src/main/index.ts` 的 `mainWindowVisualIntent` 跟踪（`trackMainWindowVisualIntent` 监听 maximize / unmaximize / enter-full-screen / leave-full-screen）。所有唤回路径（托盘双击、`app.activate`、桌面宠物、通知/协议深链唤起）一律走 `revealMainWindow`，禁止直接 `show() + focus()`：Windows 上「最小化 → show()」不会恢复最大化，窗口会停在伪全屏几何，下次还原就掉回正常尺寸。恢复策略集中在纯模块 `src/main/windowReveal.ts`（`planMainWindowReveal` 纯函数，`tests/windowRevealState.test.mjs` 固定矩阵）：全屏意图先 `maximize()` 再 `setFullScreen(true)`，退出全屏才能回到最大化。
+- `last-window-bounds.json` 同时记 `maximized` 与 `fullscreen`，启动时全屏优先于最大化（以前只记最大化，关窗即退出的机器重启后就会丢全屏）。新增窗口状态字段时同步 `src/main/windowState.ts` 的读写与 `quickTaskWindowChrome.saveWorkbenchBoundsOnClose`。
 
 ## E2E 测试窗口（不打扰模式）
 

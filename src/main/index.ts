@@ -482,6 +482,7 @@ import { createRemoteReferenceWriteGuard } from "./remote/RemoteReferenceWriteGu
 import { registerUsageStatsIpc } from "./ipc/usageStatsIpc";
 import { UsageStatsService } from "./usageStats/UsageStatsService";
 import { constrainWindowBoundsToWorkArea, type LastWindowBounds, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, readLastWindowBounds, saveLastWindowBounds } from "./windowState";
+import { type MainWindowVisualEvent, type MainWindowVisualIntent, type MainWindowVisualState, nextMainWindowVisualIntent, planMainWindowReveal } from "./windowReveal";
 import { applyE2EWindowPlacement, E2E_RENDERING_SWITCHES, resolveE2EWindowPlacement } from "./e2eWindowMode";
 import { shouldRegisterDeepLinkProtocol } from "./e2eProtocolRegistration";
 import { applyChromiumFeatureFlags } from "./chromiumFeatureFlags";
@@ -597,6 +598,12 @@ import { UpdateService } from "./update/UpdateService";
 import type { AppManualUpdateRelease } from "../shared/types/app";
 
 let mainWindow: BrowserWindow | null = null;
+/**
+ * 主窗口最后一次的呈现态（用户手动最大化/还原/全屏的结果）。
+ * 唤起窗口时按它重新施加：Windows 上从最小化/隐藏唤回的窗口不保证仍是最大化，
+ * 见 revealMainWindow 与 windowReveal.ts。
+ */
+let mainWindowVisualIntent: MainWindowVisualIntent = "normal";
 /** 主窗口实际挂载的会话（当前 + 分屏）：live 流只发这些会话，见 visibleSessionRegistry.ts。 */
 const visibleSessions = new VisibleSessionRegistry();
 /**
@@ -2323,28 +2330,62 @@ function notifyFromTray(title: string, body: string): void {
 	notification.show();
 }
 
-/** 从托盘/任务栏/二次启动唤起主窗口：处理最小化、隐藏到托盘两种状态。 */
-function focusMainWindow() {
-	if (!mainWindow || mainWindow.isDestroyed()) return;
-	if (mainWindow.isMinimized()) mainWindow.restore();
-	if (typeof mainWindow.setSkipTaskbar === "function") {
-		mainWindow.setSkipTaskbar(false);
+/**
+ * 记录用户对主窗口呈现态的选择，供唤起时重新施加。
+ * 逻辑走 windowReveal 的纯函数：全屏期间 Windows 会连带发 maximize/unmaximize，不能被改写成最大化。
+ */
+function trackMainWindowVisualIntent(window: BrowserWindow): void {
+	const readState = (): MainWindowVisualState => ({ minimized: window.isMinimized(), maximized: window.isMaximized(), fullscreen: window.isFullScreen() });
+	// 逐个注册而非循环：BrowserWindow.on 的事件名是重载字面量，联合类型无法安定到具体重载。
+	const track = (event: MainWindowVisualEvent) => () => {
+		mainWindowVisualIntent = nextMainWindowVisualIntent(mainWindowVisualIntent, readState(), event);
+	};
+	window.on("maximize", track("maximize"));
+	window.on("unmaximize", track("unmaximize"));
+	window.on("enter-full-screen", track("enter-full-screen"));
+	window.on("leave-full-screen", track("leave-full-screen"));
+}
+
+/**
+ * 把主窗口带回前台，并重新施加用户最后一次的呈现态（最大化/全屏）。
+ *
+ * 为何不直接 show()：Electron 不保证从最小化/隐藏唤回的窗口还是最大化。
+ * 实测 win32 + Electron 43：「最大化 → minimize() → 只 show()+focus()」得到
+ * isMaximized()===false，几何仍是 -7,-7 2064×1120（铺满屏但系统视为普通窗口），
+ * 下一次还原/拖动就掉回 1522×857 的正常尺寸——用户看到的就是「点通知/点宠物打开后窗口变小」。
+ * 全屏同理：全屏若没进 last-window-bounds，关窗即退出（closeToTray=false）后只剩最大化。
+ * 具体做哪几步由 planMainWindowReveal 决定（见 windowReveal.ts）。
+ */
+function revealMainWindow(window: BrowserWindow): void {
+	if (window.isDestroyed()) return;
+	const plan = planMainWindowReveal(mainWindowVisualIntent, { minimized: window.isMinimized(), maximized: window.isMaximized(), fullscreen: window.isFullScreen() }, { e2e: isE2E });
+	if (plan.restore) window.restore();
+	if (typeof window.setSkipTaskbar === "function") {
+		window.setSkipTaskbar(false);
 	}
-	mainWindow.show();
-	mainWindow.focus();
-	// 主窗口回来时默认关闭极简浮窗（避免两个窗口并存）；
-	// 「固定在最上方」开启（含未显式设置的默认 true）时浮窗常驻，只响应手动隐藏/收起。
-	if (settingsStore.get().floatingBallAlwaysOnTop === false) miniOverlayWindow?.hide();
+	if (plan.maximizeBeforeShow) window.maximize();
+	window.show();
+	if (plan.fullscreenAfterShow) window.setFullScreen(true);
+	window.focus();
 	if (process.platform === "win32") {
 		// Windows 前置窗口用「临时置顶再取消」hack 抢前台（直接 focus 可能被前台锁拦截）。
 		// 必须原样还原用户置顶状态，否则会把用户手动置顶的窗口取消置顶；
 		// 已置顶的窗口本身就在最前，无需重复 hack。
-		const wasAlwaysOnTop = mainWindow.isAlwaysOnTop();
+		const wasAlwaysOnTop = window.isAlwaysOnTop();
 		if (!wasAlwaysOnTop) {
-			mainWindow.setAlwaysOnTop(true);
-			mainWindow.setAlwaysOnTop(false);
+			window.setAlwaysOnTop(true);
+			window.setAlwaysOnTop(false);
 		}
 	}
+}
+
+/** 从托盘/任务栏/二次启动唤起主窗口：处理最小化、隐藏到托盘两种状态，并回到原呈现态。 */
+function focusMainWindow() {
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+	revealMainWindow(mainWindow);
+	// 主窗口回来时默认关闭极简浮窗（避免两个窗口并存）；
+	// 「固定在最上方」开启（含未显式设置的默认 true）时浮窗常驻，只响应手动隐藏/收起。
+	if (settingsStore.get().floatingBallAlwaysOnTop === false) miniOverlayWindow?.hide();
 }
 
 /**
@@ -2443,12 +2484,9 @@ function setupTray() {
 	const createTrayInstance = (): Tray => {
 		const instance = new Tray(icon.resize({ width: 16, height: 16 }));
 		instance.setToolTip("PiDeck");
-		// 双击托盘图标恢复窗口（Windows 常见交互）
+		// 双击托盘图标恢复窗口（Windows 常见交互）；走统一唤起口，最小化时也会回到原呈现态
 		instance.on("double-click", () => {
-			if (mainWindow && !mainWindow.isDestroyed()) {
-				mainWindow.show();
-				mainWindow.focus();
-			}
+			if (mainWindow && !mainWindow.isDestroyed()) revealMainWindow(mainWindow);
 		});
 		return instance;
 	};
@@ -2790,7 +2828,9 @@ async function createWindow() {
 		const last = readLastWindowBounds(app.getPath("userData"));
 		if (last) {
 			startupBounds = last;
-			if (last.maximized) effectiveStartupMode = "maximized";
+			// 全屏优先于最大化：两条记录同时存在时（全屏必然也是最大化）要回到全屏。
+			if (last.fullscreen) effectiveStartupMode = "fullscreen";
+			else if (last.maximized) effectiveStartupMode = "maximized";
 		} else {
 			effectiveStartupMode = "maximized";
 			startupBounds = resolveStartupWindowBounds("maximized");
@@ -2862,6 +2902,9 @@ async function createWindow() {
 	// 窗口保持隐藏时先按启动预设调整（maximize/fullscreen），再加载页面；
 	// 避免 ready-to-show 后再调整造成首帧布局跳变。
 	applyStartupWindowMode(mainWindow, effectiveStartupMode, showMainWindowImmediately);
+	// 记住本窗口的呈现态：唤起（托盘/通知/宠物）时由 revealMainWindow 重新施加。
+	mainWindowVisualIntent = effectiveStartupMode === "fullscreen" ? "fullscreen" : effectiveStartupMode === "maximized" ? "maximized" : "normal";
+	trackMainWindowVisualIntent(createdWindow);
 
 	// 所有 target="_blank" 或 window.open 的链接统一经同一入口处理，遵守用户设置的打开方式。
 	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -7931,6 +7974,8 @@ app
 			getMainWindow: () => mainWindow,
 			resolveSessionId: (agentId) => sessionRuntimeCoordinator.getSessionId(agentId),
 			translate: (key, params) => mainCopy(key, params),
+			// 宠物唤回主窗口：与托盘/通知共用同一条唤起路径，保留最大化/全屏
+			revealMainWindow: (window) => revealMainWindow(window),
 			recreateMainWindow: async () => {
 				await createWindow();
 				return mainWindow!;
@@ -8048,8 +8093,7 @@ app
 			// 窗口销毁后 mainWindow 不会置 null（closed 只满空一次），销毁实例上调
 			// show() 会抛 "Object has been destroyed"——降级到重建窗口。
 			if (mainWindow && !mainWindow.isDestroyed()) {
-				mainWindow.show();
-				mainWindow.focus();
+				revealMainWindow(mainWindow);
 			} else {
 				void createWindow().catch((error) => {
 					void appLogger.error("app", "Failed to create window on activate", error);
