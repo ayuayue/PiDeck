@@ -105,11 +105,13 @@ test("resolveComposerLiveModel: host 选择也没有时仍回退部署默认", (
 	);
 });
 
-test("契约: DSH 底栏/选择器把 host 会话投影作为记录缺失时的兜底，pi 不接 runtime", () => {
+test("契约: 记录缺 model 时用 runtime 兜底（pi/DSH），有记录时以记录为准", () => {
 	const components = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
 	const state = readFileSync("src/renderer/src/hooks/useSessionPreferenceState.ts", "utf8");
-	// 只在 DSH 后端接 runtime；pi 仍保持「只认会话记录」（f1d7b7b37 的展示契约）。
-	assert.match(components, /runtime:\s*isDsh\s*&&\s*props\.state\s*\?/);
+	// pi 的 runtime.state 是执行态，不能覆盖用户保存的选择；但新建会话/历史目录缺 model 时
+	// 必须拿它兜底，否则底栏永远显示裸「模型: -」（agent-flow e2e 的初始模型断言）。
+	assert.match(components, /const runtimeModel = props\.state\s*\?\s*\{ provider: props\.state\.provider/);
+	assert.match(components, /runtime:\s*isDsh\s*\|\|\s*!props\.record\?\.model\s*\?\s*runtimeModel\s*:\s*undefined/);
 	assert.match(state, /runtime:\s*isDshSession\s*&&\s*runtime\?\.state\s*\?/);
 	// 思考档位同源：记录缺档位时 DSH 用 host 投影档位，而不是部署默认档位。
 	assert.match(state, /record:\s*record\?\.thinkingLevel\s*\?\?\s*\(isDshSession\s*\?\s*runtime\?\.state\?\.thinkingLevel\s*:\s*undefined\)/);

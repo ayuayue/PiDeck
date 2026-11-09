@@ -56,13 +56,13 @@ export type ComposerLiveModelSource = {
  * 底栏/选择器当前模型：会话保存的用户选择优先。
  *
  * 已有会话取 `SessionRecord.model`，尚未创建会话的引导页取 `fallback`。pi 的运行时
- * 状态是执行态（get_state），不能参与名称或当前选择的决策；这样 Agent 启动前后都展示
- * 同一份本地名称快照。
+ * 状态是执行态（get_state），**只在记录缺 model 时**作兜底展示（新建会话或历史目录
+ * 未写 model），不能覆盖用户保存的选择；这样 Agent 启动前后名称不会因 set_model 抖动。
  *
  * DSH 例外：`runtime` 是 host 会话投影 `modelSelection.next ?? lastUsed`（宿主持久化的
  * 会话级选择，不是执行态）。历史/外部 DSH 会话的 catalog 可能从未写过 model，此时若直接
  * 落到部署默认（全局单值），会把「别的会话的选择」显示成本会话的模型。因此 DSH 调用方
- * 在 record 缺 model 时传 runtime 兜底；pi 调用方不得传。
+ * 在 record 缺 model 时传 runtime 兜底；pi 调用方仅在 record 缺 model 时同样可传。
  */
 export function resolveComposerLiveModel(input: { record?: { provider?: string; modelId?: string; modelName?: string }; runtime?: ComposerLiveModelSource; fallback?: ComposerLiveModelSource }): ModelPendingRef {
 	const record = input.record?.provider && input.record.modelId ? input.record : undefined;
