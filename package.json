@@ -102,7 +102,7 @@
     "dist:linux:dev": "node scripts/dist-dev.js --linux AppImage deb tar.gz --x64",
     "dist:linux:dev:arm64": "node scripts/dist-dev.js --linux AppImage deb tar.gz --arm64",
     "dist:fast": "node scripts/dist-fast.js",
-    "dist:mac": "npm run build && electron-builder --mac dmg zip",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip --config scripts/electron-builder.config.js",
     "dist:linux": "npm run build && electron-builder --linux AppImage deb tar.gz",
     "dist:linux:arm64": "npm run build && electron-builder --linux AppImage deb tar.gz --arm64",
     "preview": "electron-vite preview",

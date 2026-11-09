@@ -429,10 +429,10 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 					onDownloadUpdate={props.onDownloadUpdate}
 					onInstallUpdate={props.onInstallUpdate}
 				/>
-				{props.appInfo.platform === "darwin" ? (
-					<p className="px-0.5 text-caption text-muted-foreground">{t("settings.macManualUpdateDesc")}</p>
-				) : updateStatus?.deliveryMode === "manual" ? (
-					<p className="px-0.5 text-caption text-muted-foreground">{t(updateStatus.deliveryReason === "linux-arm64" ? "settings.linuxArm64ManualUpdateDesc" : props.appInfo.platform === "linux" ? "settings.linuxPackageManualUpdateDesc" : "settings.manualUpdateDesc")}</p>
+				{updateStatus?.deliveryMode === "manual" ? (
+					<p className="px-0.5 text-caption text-muted-foreground">
+						{t(updateStatus.deliveryReason === "mac-unsigned" ? "settings.macManualUpdateDesc" : updateStatus.deliveryReason === "linux-arm64" ? "settings.linuxArm64ManualUpdateDesc" : props.appInfo.platform === "linux" ? "settings.linuxPackageManualUpdateDesc" : "settings.manualUpdateDesc")}
+					</p>
 				) : (
 					<SettingSwitchRow anchor="dev-auto-download-updates" title={t("settings.autoDownloadUpdates")} description={t("settings.autoDownloadUpdatesDesc")} checked={draft.autoDownloadUpdates !== false} onChange={(checked) => updateDraft({ autoDownloadUpdates: checked })} />
 				)}

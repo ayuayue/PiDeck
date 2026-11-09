@@ -11,10 +11,11 @@
  * userData 与 stable **共用** PiDeck（主进程 index.ts 的刻意决策），
  * 双包切换不丢配置；并行运行依赖按版本互斥的单实例锁。
  *
- * 配置策略：只维护与 package.json build 字段的**差异项**，运行时读取主配置
- * 浅合并后写临时配置文件传给 electron-builder（--config 外部文件是完整配置、
- * 不与 package.json 合并）。不做全量复制——主配置改 asar/extraResources 时
- * dev 包自动跟随，避免两份配置漂移。
+ * 配置策略：只维护与 package.json build 字段的**差异项**，运行时经
+ * electronBuilderConfig.createElectronBuilderConfig 叠加到主配置上（mac 签名/公证按环境
+ * 变量裁决，与 stable 同一套逻辑），再写临时配置文件传给 electron-builder（--config 外部
+ * 文件是完整配置、不与 package.json 合并）。不做全量复制——主配置改 asar/extraResources
+ * 时 dev 包自动跟随，避免两份配置漂移。
  *
  * 用法（剩余参数原样透传给 electron-builder）：
  *   node scripts/dist-dev.js --win nsis portable zip
@@ -26,6 +27,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const { electronBuilderEnv } = require("./electronBuilderEnv.js");
+const { createElectronBuilderConfig } = require("./electronBuilderConfig.js");
 
 const root = path.resolve(__dirname, "..");
 
@@ -47,14 +49,8 @@ const DEV_OVERRIDES = {
 	extraMetadata: { productName: "PiDeck Dev" },
 };
 
-function buildDevConfig() {
-	const baseConfig = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).build;
-	const devConfig = { ...baseConfig };
-	for (const [key, value] of Object.entries(DEV_OVERRIDES)) {
-		const isPlainObject = typeof value === "object" && value !== null && !Array.isArray(value);
-		devConfig[key] = isPlainObject ? { ...(baseConfig[key] ?? {}), ...value } : value;
-	}
-	return devConfig;
+function buildDevConfig(env = process.env) {
+	return createElectronBuilderConfig({ env, overrides: DEV_OVERRIDES });
 }
 
 function run(args) {

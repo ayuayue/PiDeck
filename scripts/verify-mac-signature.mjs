@@ -34,6 +34,7 @@ import { readdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { resolveMacSigning } from "./electronBuilderConfig.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -73,6 +74,20 @@ async function defaultRunCodesign(args) {
 	}
 }
 
+/** Public distribution additionally requires a stapled ticket and Gatekeeper acceptance. */
+function createRunner(command) {
+	return async (args) => {
+		try {
+			const { stdout, stderr } = await execFileAsync(command, args, { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+			return { code: 0, output: `${stdout}${stderr}` };
+		} catch (error) {
+			return { code: typeof error?.code === "number" ? error.code : 1, output: `${error?.stdout ?? ""}${error?.stderr ?? ""}${error?.message ?? ""}` };
+		}
+	};
+}
+const defaultRunSpctl = createRunner("spctl");
+const defaultRunStapler = (args) => createRunner("xcrun")(["stapler", ...args]);
+
 /** 默认 Info.plist 读取器：macOS 自带的 plutil 转 JSON（Info.plist 可能是二进制）。 */
 async function defaultReadInfoPlist(plistPath) {
 	const { stdout } = await execFileAsync("plutil", ["-convert", "json", "-o", "-", plistPath], { maxBuffer: 4 * 1024 * 1024 });
@@ -98,8 +113,17 @@ export function parseCodeSignDisplay(output) {
 		sealedResources: pick("Sealed Resources") ?? /^Sealed Resources (version=.*)$/m.exec(text)?.[1]?.trim() ?? null,
 		signature: pick("Signature"),
 		teamIdentifier: pick("TeamIdentifier"),
+		flags: /^CodeDirectory .*?flags=(\S+)/m.exec(text)?.[1] ?? null,
 		authorities: [...text.matchAll(/^Authority=(.*)$/gm)].map((match) => match[1].trim()),
 	};
+}
+
+/** Developer ID metadata and hardened-runtime flag checks complement certificate trust checks. */
+export function isDeveloperIdSigned(parsed) {
+	return Boolean(Array.isArray(parsed?.authorities) && parsed.authorities[0]?.startsWith("Developer ID Application:"));
+}
+export function hasHardenedRuntime(parsed) {
+	return typeof parsed?.flags === "string" && /\(.*\bruntime\b.*\)/.test(parsed.flags);
 }
 
 /** Info.plist 的封印判据：`Info.plist entries=N` 才算封印，`Info.plist=not bound` 判失败。 */
@@ -187,7 +211,7 @@ async function inspectDeveloperId({ appPath, label, parsed, expectedTeamId, runC
  * 校验单个 bundle（主 .app 或嵌套 Helper.app）。
  * `deepVerify` 只在主 .app 上跑：--deep 一次就把 Frameworks 下的二进制全查了。
  */
-async function inspectBundle({ appPath, label, deepVerify, runCodesign, readInfoPlist, errors, warnings, requireDeveloperId, expectedTeamId }) {
+async function inspectBundle({ appPath, label, deepVerify, runCodesign, readInfoPlist, errors, warnings, requireDeveloperId, expectedTeamId, signing, runSpctl, runStapler }) {
 	const sealPath = join(appPath, RESOURCE_SEAL);
 	const sealed = await isNonEmptyFile(sealPath);
 	if (!sealed && deepVerify) errors.push(`缺少资源封印 ${sealPath}：bundle 未做代码签名（签名被跳过时就是这个状态）`);
@@ -235,8 +259,21 @@ async function inspectBundle({ appPath, label, deepVerify, runCodesign, readInfo
 	if (deepVerify && !hasSealedResources(parsed.sealedResources)) errors.push(`${label} 的资源未封印（codesign 报告 Sealed Resources=${parsed.sealedResources ?? "缺失"}）`);
 
 	let designatedRequirement = null;
-	if (requireDeveloperId) designatedRequirement = await inspectDeveloperId({ appPath, label, parsed, expectedTeamId, runCodesign, errors });
-	else if (deepVerify && parsed.signature === "adhoc") warnings.push(`${label} 使用 ad-hoc 签名：TCC 权限按二进制 cdhash 记账，更新或本地重签后可能需要重新授权；保留授权需持续使用同一 Developer ID 身份。`);
+	if (requireDeveloperId) {
+		designatedRequirement = await inspectDeveloperId({ appPath, label, parsed, expectedTeamId, runCodesign, errors });
+		if (!hasHardenedRuntime(parsed)) errors.push(`${label} 未启用 hardened runtime（CodeDirectory flags=${parsed.flags ?? "?"}）`);
+	} else if (deepVerify && parsed.signature === "adhoc") warnings.push(`${label} 使用 ad-hoc 签名：TCC 权限按二进制 cdhash 记账，更新或本地重签后可能需要重新授权；保留授权需持续使用同一 Developer ID 身份。`);
+	if (deepVerify && requireDeveloperId) {
+		if (signing.notarize) {
+			const staple = await runStapler(["validate", appPath]);
+			if (staple.code !== 0) errors.push(`${label} 没有装订公证票据（stapler validate rc=${staple.code}）：${tail(staple.output)}`);
+			const assess = await runSpctl(["--assess", "--type", "execute", "--verbose=4", appPath]);
+			if (assess.code !== 0) errors.push(`${label} 未通过 Gatekeeper 评估（spctl rc=${assess.code}）：${tail(assess.output)}`);
+		} else {
+			warnings.push(`${label} 已用 Developer ID 签名但未公证；公开分发需要完整 APPLE_* 公证凭据`);
+		}
+	}
+
 	return { path: appPath, label, resourceSeal: deepVerify ? sealPath : null, sealed, codesignExitCode, ...parsed, designatedRequirement, expectedIdentifier, displayExitCode: display.code };
 }
 
@@ -244,33 +281,43 @@ async function inspectBundle({ appPath, label, deepVerify, runCodesign, readInfo
  * 校验 release 目录下每个 mac 产物的代码签名。
  * `platform`/`runCodesign`/`readInfoPlist` 可注入，测试因此在 Linux/Windows 上也能覆盖全部判定分支。
  */
-export async function verifyMacSignature({ releaseDir = join(process.cwd(), "release"), platform = process.platform, runCodesign = defaultRunCodesign, readInfoPlist = defaultReadInfoPlist, requireDeveloperId = false, expectedTeamId = null } = {}) {
+export async function verifyMacSignature({
+	releaseDir = join(process.cwd(), "release"),
+	platform = process.platform,
+	runCodesign = defaultRunCodesign,
+	readInfoPlist = defaultReadInfoPlist,
+	requireDeveloperId = false,
+	expectedTeamId = null,
+	signing = resolveMacSigning(process.env),
+	runSpctl = defaultRunSpctl,
+	runStapler = defaultRunStapler,
+} = {}) {
 	const root = resolve(releaseDir);
 	const errors = [];
 	const warnings = [];
 	const apps = [];
-	requireDeveloperId ||= Boolean(expectedTeamId);
-	if (expectedTeamId !== null && !/^[A-Z0-9]{10}$/.test(expectedTeamId)) return { ok: false, releaseDir: root, apps, warnings, errors: ["expectedTeamId 必须是 10 位大写字母或数字"] };
+	requireDeveloperId ||= Boolean(expectedTeamId) || signing.mode === "developer-id";
+	if (expectedTeamId !== null && !/^[A-Z0-9]{10}$/.test(expectedTeamId)) return { ok: false, releaseDir: root, signing: signing.mode, apps, warnings, errors: ["expectedTeamId 必须是 10 位大写字母或数字"] };
 
 	if (platform !== "darwin") {
-		return { ok: false, releaseDir: root, apps, warnings, errors: [`macOS 签名门禁需要 codesign，只能在 macOS 上运行（当前宿主：${platform}）`] };
+		return { ok: false, releaseDir: root, signing: signing.mode, apps, warnings, errors: [`macOS 签名门禁需要 codesign，只能在 macOS 上运行（当前宿主：${platform}）`] };
 	}
 
 	const appPaths = await findMacApps(root);
 	if (appPaths.length === 0) {
-		return { ok: false, releaseDir: root, apps, warnings, errors: [`在 ${root} 下没找到任何 .app（期望 release/mac*/*.app），无法验证签名`] };
+		return { ok: false, releaseDir: root, signing: signing.mode, apps, warnings, errors: [`在 ${root} 下没找到任何 .app（期望 release/mac*/*.app），无法验证签名`] };
 	}
 
 	for (const appPath of appPaths) {
-		const main = await inspectBundle({ appPath, label: relative(root, appPath), deepVerify: true, runCodesign, readInfoPlist, errors, warnings, requireDeveloperId, expectedTeamId });
+		const main = await inspectBundle({ appPath, label: relative(root, appPath), deepVerify: true, runCodesign, readInfoPlist, errors, warnings, requireDeveloperId, expectedTeamId, signing, runSpctl, runStapler });
 		const nested = [];
 		for (const nestedPath of await findNestedApps(appPath)) {
-			nested.push(await inspectBundle({ appPath: nestedPath, label: relative(root, nestedPath), deepVerify: false, runCodesign, readInfoPlist, errors, warnings, requireDeveloperId, expectedTeamId: expectedTeamId ?? main.teamIdentifier }));
+			nested.push(await inspectBundle({ appPath: nestedPath, label: relative(root, nestedPath), deepVerify: false, runCodesign, readInfoPlist, errors, warnings, requireDeveloperId, expectedTeamId: expectedTeamId ?? main.teamIdentifier, signing, runSpctl, runStapler }));
 		}
 		apps.push({ ...main, nested });
 	}
 
-	return { ok: errors.length === 0, releaseDir: root, apps, errors, warnings };
+	return { ok: errors.length === 0, releaseDir: root, signing: signing.mode, apps, errors, warnings };
 }
 
 function parseArgs(argv) {

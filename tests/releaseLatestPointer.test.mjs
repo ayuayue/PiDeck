@@ -8,9 +8,9 @@
  * v0.9.9 就是这样漏出去的，靠手工 PATCH 才补回来。
  *
  * 无法在单测里真跑一遍发布流水线，这里守接线语义：
- *   - release.yml 必须有收尾作业显式 PATCH `make_latest=true`（不依赖 action 默认值）；
+ *   - release.yml 必须有收尾作业显式设置 `--latest`（不依赖 action 默认值）；
  *   - 该作业必须排在全部资产上传之后（needs 含 build-release 与 pack-dsh-runtime）；
- *   - 只对正式发布执行（prerelease 时跳过，dev 通道不得抢 latest）；
+ *   - 正式发布显式提升 latest，dev 通道完成草稿发布但不得抢 latest；
  *   - 必须断言 /releases/latest 已指向本 tag，否则门禁形同虚设。
  * 另外守 scripts/probe-update-check.mjs 引用的生产模块必须存在（v0.7.4 删掉
  * githubFeed/appUpdateCheck 后该自检脚本烂了一年没人发现，正是这次回归没被拦住的原因）。
@@ -36,15 +36,17 @@ test("release.yml 有收尾作业把本次 tag 显式设为 latest", () => {
 
 	// 顺序：必须等全部资产（build 矩阵 + DSH runtime 矩阵）上传完成。
 	const needs = block.match(/^ {4}needs:\s*(.+)$/m)?.[1] ?? "";
-	for (const dependency of ["build-release", "pack-dsh-runtime"]) {
+	for (const dependency of ["build-release", "pack-dsh-runtime", "merge-mac-update-manifest"]) {
 		assert.match(needs, new RegExp(dependency), `finalize-release 必须 needs ${dependency}，否则可能在资产没传完时就把 latest 指过来`);
 	}
 
 	// dev 通道恒 prerelease：不得抢占 latest，否则 dev 包会被推给所有稳定用户。
-	assert.match(block, /prerelease != 'true'/, "finalize-release 必须跳过 prerelease（dev 通道）发布");
+	assert.match(block, /if \[ "\$PRERELEASE" = "true" \]/, "dev 草稿也要完成发布，但必须走不提升 latest 的分支");
+	assert.match(block, /--prerelease=true --latest=false[\s\S]*?exit 0/, "dev 发布后必须退出，不能继续提升 stable latest");
+	assert.doesNotMatch(block, /-X PATCH[^\n]*releases\/tags\//, "tag REST 路径不支持 PATCH，使用 gh release edit 处理草稿与 release ID");
 
-	// 修复动作 + 断言动作都必须在：只有 PATCH 没有断言 = 修了也不知道有没有生效。
-	assert.match(block, /make_latest=true/, "finalize-release 必须显式 PATCH make_latest=true（不依赖 softprops/action-gh-release 的默认值）");
+	// 修复动作 + 断言动作都必须在，设置后需读回确认。
+	assert.match(block, /gh release edit[^\n]*--prerelease=false --latest(?:\s|$)/, "finalize-release 必须显式标记最新正式版（不依赖 softprops 默认值）");
 	assert.match(block, /releases\/latest/, "finalize-release 必须读回 /releases/latest 断言已指向本 tag");
 });
 
