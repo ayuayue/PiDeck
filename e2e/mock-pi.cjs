@@ -151,9 +151,30 @@ const pendingPrompts = []; // { text, streamingBehavior }
 // mock 旧行为是 pendingPrompts 串行排队（每轮独立 agent_end+settled），与真实语义
 // 差异即「steer 打断轮无 settled/无 run 边界」——steer 相关用例需要它。
 
-// ── Ask 模拟（E2E：ask-ui.spec.ts）──
+// ── Ask 模拟（E2E：ask-ui.spec.ts / ask-skip-matrix.spec.ts）──
 // prompt 含 ASK_* 标记时，先发 extension_ui_request（桌面端渲染提问卡片），
 // 挂起等待 extension_ui_response 后再流式回复（回复包含用户答案，供断言结果正确）。
+
+/** 批量问答卡信封：桌面端 extensionUiGate.tryParseBatchAskEnvelope 按 __piDeckBatchAsk 解析 */
+function batchMarker(questions, options = {}) {
+	return {
+		method: "input",
+		title: JSON.stringify({
+			__piDeckBatchAsk: 1,
+			questions,
+			...(options.review ? { review: true } : {}),
+		}),
+	};
+}
+
+const MIX5_QUESTIONS = [
+	{ id: "m1", type: "select", question: "选择框架", options: ["React", "Vue"], allowOther: false },
+	{ id: "m2", type: "multi_select", question: "选择要启用的特性", options: ["日志", "缓存", "测试"] },
+	{ id: "m3", type: "confirm", question: "使用 TypeScript？" },
+	{ id: "m4", type: "input", question: "项目名", placeholder: "my-app" },
+	{ id: "m5", type: "editor", question: "备注", placeholder: "多行内容" },
+];
+
 const ASK_MARKERS = {
 	ASK_SELECT: { method: "select", title: "请选择操作", options: ["选项A", "选项B"], allowOther: false },
 	ASK_SELECT_CUSTOM: { method: "select", title: "请选择或输入", options: ["选项A", "选项B"], allowOther: true },
@@ -182,6 +203,31 @@ const ASK_MARKERS = {
 			],
 		}),
 	},
+	// ── 跳过矩阵用（ask-skip-matrix.spec.ts）：覆盖 5 种题型 × 单题/多题 × 跳过/作答/审阅 ──
+	/** 五题型混合，5 题；非审阅（末题即提交） */
+	ASK_BATCH_MIX5: batchMarker(MIX5_QUESTIONS),
+	/** 五题型混合 + 审阅页 */
+	ASK_BATCH_MIX5_REVIEW: batchMarker(MIX5_QUESTIONS, { review: true }),
+	/** 单题批次：skip 一个就等于整卡 skip，专门验证 total===1 的边界 */
+	ASK_BATCH_ONE_SELECT: batchMarker([{ id: "o1", type: "select", question: "单选一题", options: ["甲", "乙"], allowOther: true }]),
+	ASK_BATCH_ONE_MULTI: batchMarker([{ id: "o2", type: "multi_select", question: "多选一题", options: ["A", "B", "C"] }]),
+	ASK_BATCH_ONE_CONFIRM: batchMarker([{ id: "o3", type: "confirm", question: "确认一题？" }]),
+	ASK_BATCH_ONE_INPUT: batchMarker([{ id: "o4", type: "input", question: "输入一题", placeholder: "在此输入" }]),
+	ASK_BATCH_ONE_EDITOR: batchMarker([{ id: "o5", type: "editor", question: "编辑一题" }]),
+	/** 两题：前一题跳过、后一题作答（以及反向） */
+	ASK_BATCH_TWO: batchMarker([
+		{ id: "t1", type: "select", question: "先选题", options: ["一", "二"] },
+		{ id: "t2", type: "input", question: "再输入", placeholder: "文本" },
+	]),
+	/** 三题审阅：跳过后审阅页应显示已跳过，未答完不能提交 */
+	ASK_BATCH_REVIEW: batchMarker(
+		[
+			{ id: "r1", type: "select", question: "审阅单选", options: ["甲", "乙"] },
+			{ id: "r2", type: "multi_select", question: "审阅多选", options: ["A", "B"] },
+			{ id: "r3", type: "editor", question: "审阅备注" },
+		],
+		{ review: true },
+	),
 };
 let pendingAsk = null; // { requestId, method, title, marker }
 let askAnswerLog = []; // 记录每次 ask 的答案，供 E2E 主进程侧断言
