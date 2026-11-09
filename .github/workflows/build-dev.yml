@@ -76,7 +76,7 @@ jobs:
             mac_arch: x64
             command: node scripts/dist-dev.js --mac dmg zip --x64 --publish never
             verify_globs: "PiDeck-Dev-*-x64.dmg PiDeck-Dev-*-x64.zip latest-mac.yml"
-            electron_mirror: ""
+            electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: ""
             skip_yml: true
           - platform: macos
@@ -85,7 +85,7 @@ jobs:
             mac_arch: arm64
             command: node scripts/dist-dev.js --mac dmg zip --arm64 --publish never
             verify_globs: "PiDeck-Dev-*-arm64.dmg PiDeck-Dev-*-arm64.zip latest-mac.yml"
-            electron_mirror: ""
+            electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: ""
             skip_yml: true
           - platform: linux
@@ -107,6 +107,8 @@ jobs:
             skip_yml: true
 
     runs-on: ${{ matrix.os }}
+    env:
+      ELECTRON_MIRROR: ${{ matrix.electron_mirror }}
 
     steps:
       - name: Checkout repository

@@ -11,6 +11,10 @@ jobs:
     name: Build macOS arm64 test artifact
     runs-on: macos-latest
 
+    # npm ci and electron-builder both use the Electron mirror.
+    env:
+      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

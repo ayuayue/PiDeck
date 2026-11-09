@@ -126,6 +126,7 @@ GitHub 的 choice 只能写死静态列表，无法动态读 tag，所以每发�
 - `build.mac.extendInfo.NSLocalNetworkUsageDescription` 是 macOS「本地网络」权限弹窗的说明文案，缺了它系统不会弹窗、本地网络访问可能被默默拒绝；发版时不要删（只影响 Info.plist，不影响签名）。用户从 0.9.0 升级后，系统设置 → 隐私与安全性 → 本地网络里可能残留旧的 `Electron` 条目，发布说明要提示删掉后重新允许 PiDeck。
 - mac 人工 smoke 除「能启动」外必须覆盖本地网络：在 PiDeck 终端里 `ssh`/`nc` 一台局域网主机、用局域网地址的模型服务各跑一次，然后重启应用重复一次。这两个场景是签名 identifier 退化时唯一会暴露的用户可见回归（启动正常、局域网 EHOSTUNREACH / No route to host），CI 无法代跑（需要真实局域网与 TCC 授权）。
 - Intel 包使用 `macos-15-intel` 原生 runner，ARM 包使用 Apple Silicon runner，避免 npm 安装的 koffi / sharp 等可选原生依赖与目标架构不一致。
+- mac CI 在 job 级设置 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`，同时覆盖 `npm ci` 安装 Electron 与 electron-builder 打包时的 ZIP / SHASUMS256 下载，避免直接访问 GitHub 下载端点的 HTTP 504。Electron 下载仍执行 SHA256 校验；mac 的 `ELECTRON_BUILDER_BINARIES_MIRROR` 保持空值，DMG 所需的 dmgbuild 等工具仍用上游源，避免镜像缺包。
 - 从历史 ad-hoc 版本首次迁移到 Developer ID 版本时，旧版仍走手动下载 DMG；安装一次正式签名版后，再验证签名版本之间的一键重启更新。
 - 首次启用 Developer ID 后的人工 smoke 追加：从 Release 下载 dmg 在一台没装过 PiDeck 的 mac 上双击安装，必须**不出现**「无法验证开发者 / 已损坏」弹窗（不能靠 `xattr -cr` 绕）；装上上一个签名版后在设置页「检查更新 → 下载 → 重启并安装」走完一次应用内替换。
 

@@ -204,7 +204,7 @@ jobs:
             mac_arch: x64
             command: npm run build && npx electron-builder --mac dmg zip --x64 --publish never --config scripts/electron-builder.config.js
             command_dev: npm run dist:mac:dev -- --x64 --publish never
-            electron_mirror: ""
+            electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: ""
             skip_yml: true
           - platform: macos
@@ -213,7 +213,7 @@ jobs:
             mac_arch: arm64
             command: npm run build && npx electron-builder --mac dmg zip --arm64 --publish never --config scripts/electron-builder.config.js
             command_dev: npm run dist:mac:dev -- --arm64 --publish never
-            electron_mirror: ""
+            electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: ""
             skip_yml: true
           - platform: linux
@@ -244,6 +244,8 @@ jobs:
             skip_yml: true
 
     runs-on: ${{ matrix.os }}
+    env:
+      ELECTRON_MIRROR: ${{ matrix.electron_mirror }}
 
     steps:
       - name: Checkout repository
@@ -301,7 +303,7 @@ jobs:
           # GitHub Releases occasionally returns 504 for Electron/electron-builder binaries;
           # use a stable mirror for CI downloads while keeping publishing on GitHub Releases.
           # macOS DMG packaging needs dmgbuild bundles that can be missing from npmmirror,
-          # so the matrix intentionally leaves Electron/builder mirrors empty for macOS.
+          # so only the builder-tools mirror remains empty for macOS.
           ELECTRON_MIRROR: ${{ matrix.electron_mirror }}
           ELECTRON_BUILDER_BINARIES_MIRROR: ${{ matrix.electron_builder_binaries_mirror }}
           # 正式 mac 发布必须具备 Developer ID 和完整公证凭据；缺失时打包前失败。
