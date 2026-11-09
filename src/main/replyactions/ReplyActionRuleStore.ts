@@ -11,7 +11,7 @@
  */
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { REPLY_ACTIONS_FILE_VERSION, sanitizeReplyActionRuleList, sanitizeReplyActionsFile, type ReplyActionsFilePayload } from "../../shared/replyActions";
+import { REPLY_ACTIONS_FILE_VERSION, sanitizeReplyActionRuleList, sanitizeReplyActionsFile, upgradeReplyActionRules, type ReplyActionsFilePayload } from "../../shared/replyActions";
 import type { ReplyActionsSaveResult, ReplyActionsSnapshot } from "../../shared/types/replyActions";
 import { renameWithRetry } from "../utils/fsRetry";
 
@@ -57,6 +57,20 @@ export class ReplyActionRuleStore {
 			const file = parsed === null ? null : sanitizeReplyActionsFile(parsed);
 			if (file) {
 				items = file.items;
+				if (file.version < REPLY_ACTIONS_FILE_VERSION) {
+					const upgraded = upgradeReplyActionRules(file.items, defaults.items);
+					const changed = upgraded.some((rule, index) => rule !== file.items[index]);
+					if (changed) {
+						items = upgraded;
+						// 迁移与读取同一次完成：写回失败只告警，本次快照仍用升级后的规则。
+						try {
+							await this.writeFile(filePath, upgraded);
+							this.deps.log("reply-actions", "config migrated", { from: file.version, to: REPLY_ACTIONS_FILE_VERSION });
+						} catch (error) {
+							this.deps.log("reply-actions", "config migration write failed", { error: error instanceof Error ? error.message : String(error) });
+						}
+					}
+				}
 			} else {
 				// 结构不对（缺 items / triggers 写错等）：先备份原文件，避免静默吞掉用户内容。
 				seeded = true;

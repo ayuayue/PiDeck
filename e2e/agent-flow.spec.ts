@@ -34,12 +34,17 @@ test("agent flow: prompt -> streaming -> done -> prompt -> abort", async ({ wind
 	// 完整收尾
 	await expect(timeline).toContainText("流式渲染验证完成", { timeout: 15_000 });
 
+	// 纯问答没有文件改动：只建议「继续」，不应诱导提交/推送（提交建议以真实文件修改为前提）
+	const replyActions = window.getByTestId("session-reply-action-strip");
+	await expect(replyActions).toContainText("继续", { timeout: 10_000 });
+	await expect(replyActions).not.toContainText("提交");
+
 	// 4. 第二条消息（慢速流），中途点击「停止」
 	await composer.click();
 	await window.keyboard.type("SLOW 第二段");
 	await window.keyboard.press("Enter");
 
-	const stopButton = window.getByRole("button", { name: "停止" });
+	const stopButton = window.getByRole("button", { name: "停止回答" });
 	await expect(stopButton).toBeVisible({ timeout: 10_000 });
 	// 等到第二段开始流式输出再停止，覆盖"流式中中止"路径
 	await expect(timeline).toContainText("Mock 回复：「SLOW 第二段」", { timeout: 10_000 });

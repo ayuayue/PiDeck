@@ -98,3 +98,25 @@ test("store：save 拒绝结构但保留文件——非法输入不落盘", asyn
 	assert.equal(result.ok, true, "清洗层把非数组输入当空清单处理，仍是合法保存");
 	assert.deepEqual(plain(readConfig(configPath).items), [], "清洗结果为空数组会覆盖原文件——渲染层必须传规则数组");
 });
+
+test("store：v1 文件读取时补齐提交规则的 fileEdits 前置条件并写回 v2", async () => {
+	const legacy = {
+		version: 1,
+		items: [
+			{ text: "提交", triggers: [{ kind: "onStop" }, { kind: "textMatch", patterns: ["完成"] }] },
+			{ text: "继续", triggers: [{ kind: "onStop" }] },
+		],
+	};
+	const { store, configPath, logs } = makeStore({ fileContent: JSON.stringify(legacy) });
+	const snapshot = await store.getSnapshot();
+	assert.deepEqual(plain(snapshot.items), [
+		{ text: "提交", triggers: legacy.items[0].triggers, requires: "fileEdits" },
+		{ text: "继续", triggers: [{ kind: "onStop" }] },
+	]);
+	assert.equal(snapshot.seeded, false);
+	assert.equal(readConfig(configPath).version, REPLY_ACTIONS_FILE_VERSION, "迁移后写回当前版本，避免每次读取重复迁移");
+	assert.equal(logs.some((entry) => entry.message === "config migrated"), true);
+	// 用户迁移后显式删掉 requires：再次读取不得补回
+	await store.save([{ text: "提交", triggers: legacy.items[0].triggers }]);
+	assert.deepEqual(plain((await store.getSnapshot()).items), [{ text: "提交", triggers: legacy.items[0].triggers }]);
+});

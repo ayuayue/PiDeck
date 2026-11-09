@@ -5,14 +5,16 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 // 声明式规则求值与清洗的回归测试：信号归约 × 规则匹配 × 文件清洗三层都要钉住。
 // loadTsCommonJs 在独立 VM realm 执行，跨 realm 数组 deepEqual 会报
 // “same structure but not reference-equal”，统一用 plain()（JSON 往返）比较。
-const { replySignalsForMessages, replyActionTextsForMessages, mergeReplyActionRules } = loadTsCommonJs("src/renderer/src/utils/replyActionRules.ts");
-const { sanitizeReplyActionRuleList, sanitizeReplyActionsFile } = loadTsCommonJs("src/shared/replyActions.ts");
+const { replySignalsForMessages, replyActionTextsForMessages, mergeReplyActionRules, sessionHasFileEdits } = loadTsCommonJs("src/renderer/src/utils/replyActionRules.ts");
+const { sanitizeReplyActionRuleList, sanitizeReplyActionsFile, upgradeReplyActionRules } = loadTsCommonJs("src/shared/replyActions.ts");
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const message = (role, text, extra = {}) => ({ id: `${role}-${text}`, agentId: "agent-a", role, text, timestamp: 1, ...extra });
 const user = message("user", "修复问题");
 const answer = (text = "已完成。", stopReason = "stop") => message("assistant", text, { stopReason });
 const diagnostic = (i18nKey) => message("error", "", { meta: { i18nKey } });
+// 文件写入工具消息：requires:"fileEdits" 的判定依据（toolName 与可解析路径都要有）
+const editTool = (filePath = "src/a.ts", status = "done") => message("tool", "", { meta: { toolName: "edit", status, args: { filePath } } });
 const texts = (rules, messages) => plain(replyActionTextsForMessages(rules, messages));
 const stopRule = { text: "继续", triggers: [{ kind: "onStop" }] };
 const failRule = { text: "重试", triggers: [{ kind: "onFailure" }] };
@@ -95,6 +97,35 @@ test("清洗：去空白、按 text 去重、坏 trigger 与空文案丢弃、�
 	assert.equal(sanitizeReplyActionRuleList(overflow).length, 64, "规则条数要截断到 MAX_REPLY_ACTION_RULES");
 });
 
+test("清洗：合法 requires 保留，未知前置条件丢弃", () => {
+	assert.deepEqual(plain(sanitizeReplyActionRuleList([{ text: "提交", triggers: [{ kind: "onStop" }], requires: "fileEdits" }])), [{ text: "提交", triggers: [{ kind: "onStop" }], requires: "fileEdits" }]);
+	assert.deepEqual(plain(sanitizeReplyActionRuleList([{ text: "提交", triggers: [{ kind: "onStop" }], requires: "nope" }])), [{ text: "提交", triggers: [{ kind: "onStop" }] }]);
+});
+
+test("v1→v2 迁移：按文案补 fileEdits 前置条件，不覆盖已有 requires 与自定义触发器", () => {
+	const defaults = [
+		{ text: "提交", requires: "fileEdits", triggers: [{ kind: "onStop" }, { kind: "textMatch", patterns: ["完成"] }] },
+		{ text: "继续", triggers: [{ kind: "onStop" }] },
+	];
+	assert.deepEqual(
+		plain(
+			upgradeReplyActionRules(
+				[
+					{ text: "提交", triggers: [{ kind: "onStop" }] },
+					{ text: "继续", triggers: [{ kind: "always" }] },
+					{ text: "自定义", triggers: [{ kind: "onStop" }] },
+				],
+				defaults,
+			),
+		),
+		[
+			{ text: "提交", triggers: [{ kind: "onStop" }], requires: "fileEdits" },
+			{ text: "继续", triggers: [{ kind: "always" }] },
+			{ text: "自定义", triggers: [{ kind: "onStop" }] },
+		],
+	);
+});
+
 test("清洗文件：裸数组与 {items} 都接受，items: [] 是合法清空，结构坏返回 null", () => {
 	assert.deepEqual(plain(sanitizeReplyActionsFile([{ text: "继续", triggers: [{ kind: "onStop" }] }]).items), [{ text: "继续", triggers: [{ kind: "onStop" }] }]);
 	assert.deepEqual(plain(sanitizeReplyActionsFile({ items: [] }).items), []);
@@ -125,9 +156,24 @@ test("出厂规则：普通成功回复只出「继续」，不相关建议不�
 	assert.deepEqual(texts(factoryRules, [user, answer("我看了下这个模块的结构，主要由三部分组成。")]), ["继续"]);
 });
 
-test("出厂规则：回复提到完成/测试时才出现提交与测试建议", () => {
-	assert.deepEqual(texts(factoryRules, [user, answer("修复完成，针对性测试全部通过。")]), ["继续", "提交", "提交并推送", "运行测试看看结果"]);
-	assert.deepEqual(texts(factoryRules, [user, answer("改动已实现，待提交。")]), ["继续", "提交", "提交并推送"]);
+test("出厂规则：纯问答提到完成只出「继续/运行测试」，不诱导提交", () => {
+	// 2026-11 回归：mock 回复「流式渲染验证完成」在无项目会话里也弹出提交/推送
+	assert.deepEqual(texts(factoryRules, [user, answer("修复完成，针对性测试全部通过。")]), ["继续", "运行测试看看结果"]);
+	assert.deepEqual(texts(factoryRules, [user, answer("改动已实现，待提交。")]), ["继续"]);
+});
+
+test("出厂规则：本轮改过文件才出提交与推送建议", () => {
+	assert.deepEqual(texts(factoryRules, [user, editTool(), answer("修复完成，针对性测试全部通过。")]), ["继续", "提交", "提交并推送", "运行测试看看结果"]);
+	assert.deepEqual(texts(factoryRules, [user, editTool(), answer("改动已实现，待提交。")]), ["继续", "提交", "提交并推送"]);
+	// 失败的工具调用没有落盘，不算改动
+	assert.deepEqual(texts(factoryRules, [user, editTool("src/a.ts", "error"), answer("修复完成。")]), ["继续"]);
+});
+
+test("sessionHasFileEdits 只认文件写入类工具且要求路径可解析", () => {
+	assert.equal(sessionHasFileEdits([user, editTool()]), true);
+	assert.equal(sessionHasFileEdits([user, message("tool", "", { meta: { toolName: "read", args: { filePath: "src/a.ts" } } })]), false);
+	assert.equal(sessionHasFileEdits([user, message("tool", "", { meta: { toolName: "write", args: {} } })]), false);
+	assert.equal(sessionHasFileEdits([user, message("tool", "", { meta: { toolName: "write", status: "error", args: { filePath: "src/a.ts" } } })]), false);
 });
 
 test("出厂规则：回复带确认语气才出「再确认一下」", () => {
