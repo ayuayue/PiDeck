@@ -18,6 +18,9 @@ async function openBrowserPanel(window: import("@playwright/test").Page) {
 	await toggle.click();
 	const drawer = window.locator(".detail-drawer");
 	await expect(drawer).toHaveAttribute("data-open", "true");
+	// browser 默认未钉住：先从「添加常驻面板」加入
+	await window.getByRole("button", { name: "添加常驻面板" }).click();
+	await window.getByRole("menuitemcheckbox", { name: "内置浏览器" }).click();
 	// 切到浏览器面板
 	await window.getByTestId("drawer-rail-browser").click();
 	await expect(window.getByTestId("drawer-rail-browser")).toHaveAttribute("aria-selected", "true");
