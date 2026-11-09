@@ -18,8 +18,8 @@ test("FileDiffViewer: view mode is editable, diff mode is read-only render", () 
 	assert.doesNotMatch(viewer, /Edit3/);
 	assert.doesNotMatch(viewer, /PencilOff/);
 	assert.doesNotMatch(viewer, /setReadOnly/);
-	// markdown/html/svg 打开默认预览模式，点「源码」切换才进入编辑态；tab 切换同样重置为默认预览
-	assert.match(viewer, /const defaultPreview = !isDiffMode && \(isMarkdown \|\| isHtml \|\| isSvg\)/);
+	// markdown/html/svg/csv 打开默认预览模式，点「源码」切换才进入编辑态；tab 切换同样重置为默认预览
+	assert.match(viewer, /const defaultPreview = !isDiffMode && \(isMarkdown \|\| isHtml \|\| isSvg \|\| isCsv\)/);
 	assert.match(viewer, /useState\(defaultPreview\)/);
 	assert.match(viewer, /setPreview\(defaultPreview\)/);
 });
@@ -139,7 +139,7 @@ test("FileDiffViewer: SVG preview via content data URL, media fills the pane", (
 	const css = readFileSync("src/renderer/src/styles/surfaces.css", "utf8");
 	// SVG 是文本（可编辑），预览按钮与 md/html 同待遇；预览渲染为 data URL 图片
 	assert.match(viewer, /const isSvg = ext === "svg"/);
-	assert.match(viewer, /\(isMarkdown \|\| isHtml \|\| isSvg\) && !isDiffMode/);
+	assert.match(viewer, /\(isMarkdown \|\| isHtml \|\| isSvg \|\| isCsv\) && !isDiffMode/);
 	assert.match(viewer, /data:image\/svg\+xml;charset=utf-8/);
 	assert.match(viewer, /encodeURIComponent\(content\)/);
 	// 图片占满预览区：width/height 100% + contain（小图放大、大图缩小、不变形）

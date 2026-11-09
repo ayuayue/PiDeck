@@ -15,6 +15,8 @@ import { imageMimeOrBinary } from "../../utils/imageMime";
 import { base64ToBytes } from "../../utils/base64Bytes";
 import { getBinaryPreviewKind, getMediaMimeForPath } from "../../utils/binaryPreview";
 import { BinaryFilePreview } from "./preview/BinaryFilePreview";
+import CsvPreview from "./preview/CsvPreview";
+import MediaPreview from "./preview/MediaPreview";
 // CodeMirrorEditor 静态链上挂着整个 CodeMirror 6 全家桶（view/state/commands/
 // autocomplete/search/lint/lang-json），经 WorkbenchContent 静态 import 进主 chunk，
 // App 启动即解析。与 CodeDiffView 同款懒加载：首次打开编辑器才拉 chunk。
@@ -173,6 +175,8 @@ export function FileDiffViewer(props: {
 	const isHtml = ext === "html" || ext === "htm";
 	// SVG 是文本（可编辑），预览时用内容渲染为 data URL 图片（CSP img-src 已允许 data:）
 	const isSvg = ext === "svg";
+	// CSV/TSV 是文本（可编辑），但预览默认走表格：打开 csv 的人要看内容，不是看逗号。
+	const isCsv = ext === "csv" || ext === "tsv";
 	// 图片/PDF 走内置预览（view 模式）：二进制内容不可文本读取，跳过编辑器直接渲染。
 	const isImage = isImageFile(props.filePath);
 	const isPdf = isPdfFile(props.filePath);
@@ -183,10 +187,13 @@ export function FileDiffViewer(props: {
 	const officePreviewKind = binaryPreviewKind === "docx" || binaryPreviewKind === "spreadsheet" || binaryPreviewKind === "archive" ? binaryPreviewKind : null;
 	const isAudio = binaryPreviewKind === "audio";
 	const isVideo = binaryPreviewKind === "video";
-	// 默认预览模式：markdown/html/svg 打开直接渲染预览（干净阅读），
+	// 默认预览模式：markdown/html/svg/csv 打开直接渲染预览（干净阅读），
 	// 点「源码」切换按钮才进入源码模式；源码模式即编辑模式，不再需要独立的编辑按钮。
-	const defaultPreview = !isDiffMode && (isMarkdown || isHtml || isSvg);
+	const defaultPreview = !isDiffMode && (isMarkdown || isHtml || isSvg || isCsv);
 	const [preview, setPreview] = useState(defaultPreview);
+	// 有专属预览时正文不再挂编辑器：图片/PDF/音视频/Office/压缩包读出来是空串，
+	// csv 切到表格后也不需要把原始文本垫在下面（空编辑器还会和预览抢高度）。
+	const dedicatedPreview = !isDiffMode && (isImage || isPdf || isAudio || isVideo || officePreviewKind !== null || (isCsv && preview));
 
 	useEffect(() => {
 		// 每个 tab 重置编辑状态：view 可编辑（源码即编辑），diff 只读对比无编辑态。
@@ -573,7 +580,7 @@ export function FileDiffViewer(props: {
 							<RefreshCw size={15} className={loading ? "animate-pideck-spin" : undefined} />
 						</Button>
 					)}
-					{(isMarkdown || isHtml || isSvg) && !isDiffMode && !loading && !error && (
+					{(isMarkdown || isHtml || isSvg || isCsv) && !isDiffMode && !loading && !error && (
 						<Button
 							variant="ghost"
 							size="icon-sm"
@@ -589,7 +596,7 @@ export function FileDiffViewer(props: {
 							{preview ? <FileCode size={15} /> : <Eye size={15} />}
 						</Button>
 					)}
-					{!loading && !error && !binaryPreviewKind && (
+					{!loading && !error && !dedicatedPreview && (
 						<Button variant="ghost" size="icon-sm" title={wordWrap ? t("editor.wordWrapOff") : t("editor.wordWrapOn")} aria-label={t("editor.wordWrap")} aria-pressed={wordWrap} className={cn(wordWrap && "text-foreground")} onClick={toggleWordWrap}>
 							<WrapText size={15} />
 						</Button>
@@ -671,17 +678,16 @@ export function FileDiffViewer(props: {
 						)}
 						{/* PDF 预览：Blob URL + Chromium 内置 PDF viewer */}
 						{!isDiffMode && isPdf && mediaUrl && <iframe className="file-diff-pdf-preview" src={mediaUrl} title={t("editor.pdfPreview")} referrerPolicy="no-referrer" />}
-						{/* 音视频：与图片/PDF 同一条 Blob URL 链路（CSP media-src 已允许 blob:） */}
+						{/* 音视频：与图片/PDF 同一条 Blob URL 链路（CSP media-src 已允许 blob:）；
+						   视频由 MediaPreview 负责「元素收缩到画面尺寸 + 常显播放按钮」 */}
 						{!isDiffMode && isAudio && mediaUrl && (
 							<div className="flex h-full w-full items-center justify-center p-6">
 								<audio controls src={mediaUrl} className="w-full max-w-xl" onError={() => setError(t("editor.mediaUnsupported"))} />
 							</div>
 						)}
-						{!isDiffMode && isVideo && mediaUrl && (
-							<div className="flex h-full w-full items-center justify-center bg-black/90">
-								<video controls src={mediaUrl} className="h-full w-full object-contain" onError={() => setError(t("editor.mediaUnsupported"))} />
-							</div>
-						)}
+						{!isDiffMode && isVideo && mediaUrl && <MediaPreview url={mediaUrl} fileName={fileName} onError={() => setError(t("editor.mediaUnsupported"))} />}
+						{/* CSV/TSV：解析成二维表格（引号感知，行/列上限内截断） */}
+						{!isDiffMode && preview && isCsv && <CsvPreview key={`${props.filePath}:${reloadNonce}`} content={content} />}
 						{/* Office/压缩包：自带读盘 + lazy 解析器，父层不再读第二遍 */}
 						{!isDiffMode && officePreviewKind && <BinaryFilePreview key={`${props.filePath}:${reloadNonce}`} kind={officePreviewKind} filePath={fileAccessPath} fileAccessScope={props.fileAccessScope} />}
 						{/* SVG 预览：文本内容直接编码为 data URL（无 Blob 生命周期管理） */}
@@ -700,8 +706,8 @@ export function FileDiffViewer(props: {
 							</div>
 						)}
 						{!isDiffMode && preview && isHtml && <HtmlPreview content={content} />}
-						{/* view 模式、非预览：常规编辑器（CodeMirror 6） */}
-						{!isDiffMode && !preview && (
+						{/* view 模式、非预览：常规编辑器（CodeMirror 6）；有专属预览的二进制/表格文件不挂编辑器 */}
+						{!isDiffMode && !preview && !dedicatedPreview && (
 							<div style={{ height: "100%", flexDirection: "column" }}>
 								{/* lazy 边界：首次打开编辑器才拉取 CodeMirror chunk，期间轻量占位 */}
 								<Suspense

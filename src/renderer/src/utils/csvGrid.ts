@@ -1,0 +1,147 @@
+/**
+ * CSV/TSV 预览解析：把纯文本切成「预览窗口」内的二维单元格。
+ *
+ * 为什么不复用 SheetJS：SheetJS 吃的是工作簿二进制，CSV 是纯文本，为看一眼内容
+ * 把这份解析器拉进渲染路径不划算。这里只实现 CSV 里真实存在的必要语义
+ * （引号包裹、`""` 转义、CRLF/BOM、分隔符嗅探），够覆盖 Excel/导出工具产出的文件。
+ *
+ * 截断在解析阶段就做：命中行上限后停止扫描，5MB 的文件不会先展开成几十万行再裁掉。
+ */
+
+export const CSV_PREVIEW_MAX_ROWS = 200;
+export const CSV_PREVIEW_MAX_COLS = 40;
+
+/** 候选分隔符：逗号（欧美）、制表符（TSV）、分号（欧洲 Excel）、竖线（部分导出工具）。 */
+const CANDIDATE_DELIMITERS = [",", "\t", ";", "|"] as const;
+
+export type CsvGrid = {
+	/** 表头（文件首行）；空文件为 [] */
+	header: string[];
+	/** 数据行（不含表头），最多 CSV_PREVIEW_MAX_ROWS 行 */
+	rows: string[][];
+	/** 数据行数（不含表头） */
+	rowCount: number;
+	/** 展示列数（表头与数据行的最大宽度，最多 CSV_PREVIEW_MAX_COLS） */
+	colCount: number;
+	/** 文件还有更多行被丢弃 */
+	truncatedRows: boolean;
+	/** 有行超过 CSV_PREVIEW_MAX_COLS 列被丢弃 */
+	truncatedCols: boolean;
+	/** 实际使用的分隔符 */
+	delimiter: string;
+};
+
+/**
+ * 按首行猜分隔符：统计引号外各候选符号的出现次数，取最多的一个。
+ * 一个都没有时退回逗号（单列文件反正不会有影响）。
+ */
+export function sniffCsvDelimiter(text: string): string {
+	const counts = new Map<string, number>(CANDIDATE_DELIMITERS.map((candidate) => [candidate, 0]));
+	let inQuotes = false;
+	// 只看首行：多行样本会把「正文里的逗号比表头的制表符多」误判成分隔符。
+	for (let i = 0; i < text.length; i += 1) {
+		const ch = text[i];
+		if (ch === '"') {
+			if (inQuotes && text[i + 1] === '"') i += 1;
+			else inQuotes = !inQuotes;
+			continue;
+		}
+		if (!inQuotes && (ch === "\n" || ch === "\r")) break;
+		if (!inQuotes && counts.has(ch)) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+	}
+	let best = ",";
+	let bestCount = 0;
+	for (const candidate of CANDIDATE_DELIMITERS) {
+		const count = counts.get(candidate) ?? 0;
+		if (count > bestCount) {
+			best = candidate;
+			bestCount = count;
+		}
+	}
+	return best;
+}
+
+/** 解析 CSV/TSV 文本为预览网格：引号感知、CRLF/BOM 兼容、按行列上限截断。 */
+export function parseCsvGrid(text: string, options: { delimiter?: string; maxRows?: number; maxCols?: number } = {}): CsvGrid {
+	const maxRows = Math.max(1, options.maxRows ?? CSV_PREVIEW_MAX_ROWS);
+	const maxCols = Math.max(1, options.maxCols ?? CSV_PREVIEW_MAX_COLS);
+	const source = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+	const delimiter = options.delimiter ?? sniffCsvDelimiter(source);
+
+	const allRows: string[][] = [];
+	let row: string[] = [];
+	let field = "";
+	let inQuotes = false;
+	let truncatedRows = false;
+	let truncatedCols = false;
+	// 需要保留的首行数 = 表头 + maxRows 数据行；多出第一行就说明被截断了。
+	const rowBudget = maxRows + 1;
+
+	const pushField = (): void => {
+		if (row.length < maxCols) row.push(field);
+		else truncatedCols = true;
+		field = "";
+	};
+
+	/** 收一行；返回 true 表示行数已超预算，调用方应立即停止扫描。 */
+	const endRow = (): boolean => {
+		const cells = row;
+		row = [];
+		// 空行（含末尾换行产生的幽灵行）不计入表格，也不占行预算。
+		if (cells.every((cell) => cell === "")) return false;
+		allRows.push(cells);
+		if (allRows.length <= rowBudget) return false;
+		truncatedRows = true;
+		return true;
+	};
+
+	for (let i = 0; i < source.length; i += 1) {
+		const ch = source[i];
+		if (inQuotes) {
+			if (ch === '"') {
+				if (source[i + 1] === '"') {
+					field += '"';
+					i += 1;
+				} else {
+					inQuotes = false;
+				}
+			} else {
+				field += ch;
+			}
+			continue;
+		}
+		if (ch === '"') {
+			inQuotes = true;
+			continue;
+		}
+		if (ch === delimiter) {
+			pushField();
+			continue;
+		}
+		if (ch === "\r" || ch === "\n") {
+			if (ch === "\r" && source[i + 1] === "\n") i += 1;
+			pushField();
+			if (endRow()) break;
+			continue;
+		}
+		field += ch;
+	}
+	// 文件末尾没有换行时补上最后一行
+	if (!truncatedRows && (field !== "" || row.length > 0)) {
+		pushField();
+		endRow();
+	}
+
+	const header = allRows[0] ?? [];
+	const rows = allRows.slice(1, rowBudget);
+	const colCount = rows.reduce((max, current) => Math.max(max, current.length), header.length);
+	return {
+		header: header.slice(0, maxCols),
+		rows,
+		rowCount: rows.length,
+		colCount: Math.min(colCount, maxCols),
+		truncatedRows,
+		truncatedCols,
+		delimiter,
+	};
+}

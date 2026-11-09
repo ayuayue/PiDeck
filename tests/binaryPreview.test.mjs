@@ -46,7 +46,10 @@ test("FileDiffViewer: office/archive/media previews are dispatched lazily instea
 	assert.match(viewer, /getMediaMimeForPath\(props\.filePath\)/);
 	assert.match(viewer, /<BinaryFilePreview\s/);
 	assert.match(viewer, /<audio\s/);
-	assert.match(viewer, /<video\s/);
+	// video 标签只在 MediaPreview 内：元素必须收缩到画面尺寸，否则控制条被撑到面板底部、还被 overflow 裁掉
+	const media = readFileSync("src/renderer/src/components/app/preview/MediaPreview.tsx", "utf8");
+	assert.match(media, /<video\s/);
+	assert.match(media, /max-h-full max-w-full/);
 	// 预览器必须按类型懒加载，不能把 docx/xlsx 解析库拖进首屏 chunk
 	const host = readFileSync("src/renderer/src/components/app/preview/BinaryFilePreview.tsx", "utf8");
 	assert.match(host, /lazy\(\(\) => import\("\.\/DocxPreview"\)\)/);

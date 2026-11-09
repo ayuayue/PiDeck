@@ -6,8 +6,24 @@ const source = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx"
 
 test("HTML files have an in-place preview without widening BrowserPanel access", () => {
 	assert.match(source, /const isHtml = ext === "html" \|\| ext === "htm"/);
-	assert.match(source, /\(isMarkdown \|\| isHtml \|\| isSvg\) && !isDiffMode/);
+	assert.match(source, /\(isMarkdown \|\| isHtml \|\| isSvg \|\| isCsv\) && !isDiffMode/);
 	assert.match(source, /<HtmlPreview content=\{content\} \/>/);
+});
+
+test("CSV 默认表格预览，且预览下不挂空编辑器", () => {
+	// csv/tsv 是文本但默认走表格：打开就渲染，不要求用户先点「预览」。
+	assert.match(source, /const isCsv = ext === "csv" \|\| ext === "tsv"/);
+	assert.match(source, /const defaultPreview = !isDiffMode && \(isMarkdown \|\| isHtml \|\| isSvg \|\| isCsv\)/);
+	// 专属预览同时排除图片/PDF/音视频/Office/压缩包与表格：二进制读成空串，
+	// 挂编辑器只会和预览抢高度（媒体预览控制条被裁的直接原因）。
+	assert.match(source, /const dedicatedPreview = !isDiffMode && \(isImage \|\| isPdf \|\| isAudio \|\| isVideo \|\| officePreviewKind !== null \|\| \(isCsv && preview\)\)/);
+	assert.match(source, /\{!isDiffMode && preview && isCsv && <CsvPreview/);
+	assert.match(source, /\{!isDiffMode && !preview && !dedicatedPreview && \(/);
+});
+
+test("视频预览不复用满高 video 元素（控制条会被撑到面板底部并裁掉）", () => {
+	assert.match(source, /<MediaPreview url=\{mediaUrl\} fileName=\{fileName\}/);
+	assert.doesNotMatch(source, /<video controls src=\{mediaUrl\}/, "video 标签应只在 MediaPreview 内");
 });
 
 test("HTML preview remains isolated from the renderer origin and popup capability", () => {

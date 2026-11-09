@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: ff1fadf3db25878090a261575e63d3402a587da9a355253437a1852686063189（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: c847893698473ef601a123e0c03c9e4a98e98b120ca76c21f4aee5e1303ae1df（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3453,11 +3453,14 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.dirtyCloseMessage": "{file} 有未儲存的更改，關閉後將丟失。仍要關閉嗎？",
 	"editor.saveFailedBanner": "儲存失敗：{error}",
 	"editor.pdfPreview": "PDF 預覽",
+	"editor.playVideo": "播放",
 	"editor.mediaUnsupported": "無法內建播放此格式，請用系統程式開啟",
 	"editor.previewFailed": "預覽失敗：{error}",
 	"editor.previewUnavailable": "內建預覽不可用",
 	"editor.sheetEmpty": "工作簿沒有可顯示的內容",
 	"editor.sheetTruncated": "僅顯示前 {rows} 行 × {cols} 列（共 {totalRows} 行 × {totalCols} 列）",
+	"editor.csvEmpty": "檔案沒有可顯示的內容",
+	"editor.csvTruncated": "僅顯示前 {rows} 行 × {cols} 列（檔案還有更多內容）",
 	"editors.clear": "清除",
 	"editors.browse": "瀏覽",
 	"editors.detectedFrom": "來源：{source}",
