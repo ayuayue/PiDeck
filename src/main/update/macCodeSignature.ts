@@ -11,7 +11,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { posix } from "node:path";
 
 /** 从 `codesign -dv --verbose=2` 输出判断是否 Developer ID Application 叶子证书签名。 */
 export function parseDeveloperIdSignature(output: string): boolean {
@@ -20,7 +20,9 @@ export function parseDeveloperIdSignature(output: string): boolean {
 
 /** `/Applications/PiDeck.app/Contents/MacOS/PiDeck` → `/Applications/PiDeck.app`。不是 bundle 布局时返回 null。 */
 export function resolveAppBundlePath(execPath: string): string | null {
-	const bundle = resolve(execPath, "..", "..", "..");
+	// bundle 布局是 macOS 的 POSIX 路径；固定用 posix 实现，跨平台单测才能得到与产线一致的结论
+	// （默认 path.resolve 在 Windows 上会把 /Applications 改写成当前盘符 + 反斜杠）。
+	const bundle = posix.resolve(execPath, "..", "..", "..");
 	return bundle.endsWith(".app") ? bundle : null;
 }
 

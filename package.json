@@ -114,7 +114,7 @@
     "docs:dev": "node docs-site/.vitepress/sync-shared.mjs && vitepress dev docs-site",
     "docs:build": "node docs-site/.vitepress/sync-shared.mjs && vitepress build docs-site",
     "docs:preview": "vitepress preview docs-site",
-    "postinstall": "node scripts/fix-pty-permissions.js && node scripts/patch-electron-builder-rename-retry.js",
+    "postinstall": "node scripts/fix-pty-permissions.js && node scripts/patch-electron-builder-rename-retry.js && node scripts/patch-electron-builder-keychain-password.js",
     "prepare": "node scripts/install-git-hooks.mjs",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "sync:main": "node scripts/sync-main.mjs",
