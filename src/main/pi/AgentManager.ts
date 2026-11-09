@@ -1145,6 +1145,13 @@ export class AgentManager {
 	}
 
 	/**
+	 * 已记过的「相对 sessionDir 归一化」警告（按 pi 上报的原路径去重）。
+	 * get_state 每次轮询都会重报同一个相对路径，不去重时一条无害配置一分钟能刷出几十条
+	 * 同文案 warn（用户诊断报告里 790 条 warn 里绝大部分是它），真问题会被淹没。
+	 */
+	private readonly loggedRelativeSessionPaths = new Set<string>();
+
+	/**
 	 * 归一化 pi 上报/传入的会话路径为绝对路径（含日志）。
 	 * pi 的 sessionDir 配置为相对路径（如 ".pi/sessions"）时，get_state 返回的
 	 * sessionFile 是相对 cwd 的；若原样写入 catalog，会与扫描器发现的绝对路径
@@ -1153,7 +1160,8 @@ export class AgentManager {
 	private normalizeSessionPathFromPi(sessionPath: string | undefined, projectPath: string, environment: SessionEnvironment): string | undefined {
 		if (!sessionPath) return undefined;
 		const resolved = toAbsoluteSessionPath(sessionPath, projectPath, environment);
-		if (resolved !== sessionPath) {
+		if (resolved !== sessionPath && !this.loggedRelativeSessionPaths.has(sessionPath)) {
+			this.loggedRelativeSessionPaths.add(sessionPath);
 			void this.appLogger?.warn("agent", "Session file path was relative; resolved to absolute", {
 				sessionPath,
 				resolved,
