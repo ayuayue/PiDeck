@@ -119,6 +119,10 @@ export function AddHostDialog(props: {
 	const [testing, setTesting] = useState(false);
 	const [testResult, setTestResult] = useState<{ ok: true; fingerprint: string } | { ok: false; reason: string } | null>(null);
 	const [wslError, setWslError] = useState<string | null>(null);
+	// WSL 发行版自动检测：切到 WSL 页即拉一次本机发行版列表，列表可选、输入框仍可手填（设置页同通道）。
+	const [wslDistros, setWslDistros] = useState<string[]>([]);
+	const [wslDistrosLoading, setWslDistrosLoading] = useState(false);
+	const [wslDistrosAttempted, setWslDistrosAttempted] = useState(false);
 	// 内联环境检测：四步状态 + pi 结果。所有结论只来自主进程的稳定码。
 	const [steps, setSteps] = useState<Record<SetupStepKey, SetupStepStatus>>(EMPTY_STEPS);
 	const [piOutcome, setPiOutcome] = useState<PiProbeOutcome | null>(null);
@@ -423,6 +427,31 @@ export function AddHostDialog(props: {
 	// WSL 只有 Windows 宿主才有：其它平台不渲染这一页（与 ZCode buildAvailableKinds 同判据）。
 	const wslSupported = detectRendererPlatform() === "win32";
 
+	// 切到 WSL 页自动检测一次本机发行版（仅 Windows）：检出且输入框为空时预填第一个，检测不到也不拦手填。
+	useEffect(() => {
+		if (kind !== "wsl" || !wslSupported || wslDistrosAttempted || wslDistrosLoading) return;
+		let cancelled = false;
+		setWslDistrosLoading(true);
+		void desktopApi.wsl
+			.listDistros()
+			.then((list) => {
+				if (cancelled) return;
+				setWslDistros(list);
+				if (list.length > 0) setWsl((current) => (current.distro.trim().length === 0 ? { ...current, distro: list[0] } : current));
+			})
+			.catch(() => {
+				if (!cancelled) setWslDistros([]);
+			})
+			.finally(() => {
+				if (cancelled) return;
+				setWslDistrosAttempted(true);
+				setWslDistrosLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [kind, wslSupported, wslDistrosAttempted, wslDistrosLoading]);
+
 	/** 创建 WSL 档案：主进程只写本机清单，不启动 wsl.exe；引用保护在移除时生效。 */
 	const submitWsl = useCallback(async () => {
 		const label = wsl.label.trim();
@@ -560,13 +589,28 @@ export function AddHostDialog(props: {
 						<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
 							<div className="flex min-w-0 flex-col gap-1">
 								<Label htmlFor="wsl-host-distro">{t("settings.connections.add.wsl.distro")}</Label>
-								<Input id="wsl-host-distro" placeholder="Ubuntu" value={wsl.distro} onChange={(event) => setWsl((current) => ({ ...current, distro: event.target.value }))} />
+								<Input id="wsl-host-distro" list="wsl-distro-options" placeholder="Ubuntu" value={wsl.distro} onChange={(event) => setWsl((current) => ({ ...current, distro: event.target.value }))} />
+								{wslDistros.length > 0 ? (
+									<datalist id="wsl-distro-options">
+										{wslDistros.map((distro) => (
+											<option key={distro} value={distro} />
+									))}
+									</datalist>
+								) : null}
 							</div>
 							<div className="flex min-w-0 flex-col gap-1">
 								<Label htmlFor="wsl-host-user">{t("settings.connections.add.wsl.user")}</Label>
 								<Input id="wsl-host-user" autoComplete="off" spellCheck={false} placeholder="dev" value={wsl.user} onChange={(event) => setWsl((current) => ({ ...current, user: event.target.value }))} />
 							</div>
 						</div>
+						{wslDistrosLoading ? (
+							<p className="flex items-center gap-1.5 text-label text-muted-foreground">
+								<LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+								{t("settings.connections.add.wsl.detecting")}
+							</p>
+						) : wslDistrosAttempted ? (
+							<p className="text-label text-muted-foreground">{wslDistros.length > 0 ? t("settings.connections.add.wsl.detected", { count: String(wslDistros.length) }) : t("settings.connections.add.wsl.noneDetected")}</p>
+						) : null}
 						{wslError !== null ? <p className="text-label text-destructive">{wslError}</p> : null}
 					</div>
 				) : (

@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 01a86196e966e264fe9dfe3df8780b7f3acb6167632d7d744ff163b627ed98be（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 18942c30d7c297b4dc03be10bcf9f17a10e9bc5321fae6ab881a7c2a4062bfd1（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4636,6 +4636,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.connections.add.wsl.submit": "新增並儲存",
 	"settings.connections.add.wsl.steps": "在「設定 → 開發 → WSL」啟用發行版與使用者後，用「新增專案」選擇 WSL 目錄。",
 	"settings.connections.add.wsl.openSettings": "開啟 WSL 設定",
+	"settings.connections.add.wsl.detecting": "正在檢測本機 WSL 發行版…",
+	"settings.connections.add.wsl.detected": "已檢測到本機 {count} 個發行版：可從列表選擇，也可手動輸入。",
+	"settings.connections.add.wsl.noneDetected": "未檢測到本機 WSL 發行版 — 請手動輸入發行版名（請確認已安裝 WSL）。",
 	"settings.connections.add.import": "從 SSH config 匯入",
 	"settings.connections.add.importSearch": "搜尋別名、地址或使用者",
 	"settings.connections.add.importEmpty": "沒有匹配的主機",

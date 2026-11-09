@@ -31,6 +31,14 @@ test("WSL profiles are created from the add dialog, not the dev settings", () =>
 	assert.match(dialog, /id="wsl-host-distro"/);
 	assert.match(dialog, /id="wsl-host-user"/);
 	assert.match(dialog, /addWslHost\(\{ label, distro, user \}\)/);
+	// 新建 WSL 连接直接检测本机发行版：切到 WSL 页拉一次列表，检出的可选、可手填。
+	assert.match(dialog, /desktopApi\.wsl[\s\S]{0,40}\.listDistros\(\)/);
+	assert.match(dialog, /<datalist id="wsl-distro-options">/);
+	assert.match(dialog, /settings\.connections\.add\.wsl\.detecting/);
+	assert.match(dialog, /settings\.connections\.add\.wsl\.detected/);
+	assert.match(dialog, /settings\.connections\.add\.wsl\.noneDetected/);
+	// 检出后只在输入为空时预填第一个发行版，不覆盖用户已填的内容。
+	assert.match(dialog, /current\.distro\.trim\(\)\.length === 0/);
 	// 不再深链到「设置 → 开发」。
 	assert.doesNotMatch(dialog, /openSettings\(\{ tab: "dev" \}\)/);
 });
