@@ -8,10 +8,21 @@ const dialog = readFileSync("src/renderer/src/components/app/settings/AddHostDia
 
 test("connections page lists WSL profiles on Windows only", () => {
 	assert.match(tab, /const wslSupported = detectRendererPlatform\(\) === "win32"/);
-	assert.match(tab, /\{wslSupported \? \(/);
 	assert.match(tab, /listWslHosts\(\)/);
 	assert.match(tab, /settings\.connections\.wsl\.badge/);
 	assert.match(tab, /host\.distro\} · \{host\.user/);
+	// 空态按平台给不同的下一步：只有 Windows 才提 WSL 发行版。
+	assert.match(tab, /\{wslSupported \? t\("settings\.connections\.emptyHintWsl"\) : t\("settings\.connections\.emptyHint"\)\}/);
+});
+
+test("one new-connection entry covers both SSH and WSL", () => {
+	// 唯一入口：顶部「新建连接」打开带 SSH/WSL 类型切换的弹窗，页面里不再有第二个新建按钮。
+	assert.equal((tab.match(/setAdding\(true\)/g) ?? []).length, 1);
+	assert.doesNotMatch(tab, /settings\.connections\.wsl\.add"/);
+	assert.doesNotMatch(tab, /initialKind="wsl"/);
+	// 两类连接同列一张表：同一个 divide-y 容器里先后渲染，不再各开一段。
+	assert.match(tab, /divide-y divide-border-subtle overflow-hidden rounded-xl border border-border-subtle">[\s\S]{0,60}\{hosts\.map/);
+	assert.match(tab, /\{wslHosts\.map\(\(host\) => \(/);
 });
 
 test("WSL profiles are created from the add dialog, not the dev settings", () => {

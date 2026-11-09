@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 9aa299030245c28b3401504e73de224e45117762c50d2a6b6fdec5b63440b01f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: b1a82abace984007c893cd9083d31e00ac46175f64f5a2057358b8f1c6dc7ab8（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4783,18 +4783,15 @@ export const zhTW: Record<TranslationKey, string> = {
 	"project.remote.searchUnwired": "搜尋通道尚未接線：請更新應用後再試。",
 	"settings.connections.overview": "管理 SSH 主機和 WSL 連線。",
 	"settings.connections.new": "新建連線",
-	"settings.connections.devices": "裝置 {count}",
+	"settings.connections.devices": "連線 {count}",
 	"settings.connections.title": "遠端主機",
 	"settings.connections.hint": "通過 SSH 連線遠端主機。主機狀態與 Agent 執行狀態是兩回事：主機連通不代表每個會話都能執行。",
 	"settings.connections.empty": "還沒有已登記的主機。",
-	"settings.connections.emptyTitle": "還沒有 SSH 連線",
-	"settings.connections.emptyHint": "新增主機後即可登記遠端專案並在遠端執行 pi；WSL 專案請在開發設定啟用後用「新增專案」加入。",
-	"settings.connections.wsl.title": "WSL",
-	"settings.connections.wsl.hint": "本機 WSL 環境；這裡管理發行版/使用者檔案，專案目錄在「新增專案」時選擇。",
+	"settings.connections.emptyTitle": "還沒有連線",
+	"settings.connections.emptyHint": "點右上角「新建連線」新增 SSH 主機；連上後即可登記遠端專案，並在遠端執行 pi。",
+	"settings.connections.emptyHintWsl": "點右上角「新建連線」選擇 SSH 主機或本機 WSL 發行版；連上後即可登記專案，SSH 主機還能在遠端執行 pi。",
 	"settings.connections.wsl.addProject": "新增專案",
-	"settings.connections.wsl.add": "新增 WSL",
 	"settings.connections.wsl.added": "已儲存 WSL 連線：{host}",
-	"settings.connections.wsl.empty": "還沒有 WSL 連線。",
 	"settings.connections.wsl.badge": "WSL",
 	"settings.connections.wsl.remove": "移除 WSL 連線",
 	"settings.connections.wsl.remove.title": "移除「{host}」？",
