@@ -63,15 +63,21 @@ test("空名/畸形条目忽略，不产生垃圾保留项", () => {
 	assert.deepEqual(plain(collectReservedCommandNames([{ name: "" }, { name: "ok", source: "dsh" }])), ["ok"]);
 });
 
-test("需要补拉模板表的三种判定", () => {
-	const templates = [{ name: "commit" }];
+test("需要补拉模板表的判定（含已知但正文为空的缓存）", () => {
+	const templates = [
+		{ name: "commit", content: "---\ndescription: 提交\n---\n\n提交暂存的更改" },
+		// #518：设置页新建模板只写 frontmatter，正文稍后补；会话缓存可能仍停在空壳态。
+		{ name: "shell", content: "---\ndescription: 空壳\n---\n" },
+	];
 	const reserved = new Set(["permission"]);
-	// 已知模板：不用补拉
+	// 已知且有正文：不用补拉
 	assert.equal(needsTemplateRefetch("commit", templates, reserved), false);
 	// 后端命令：补拉也没用（否则每次 /permission 都白跑三趟 IPC）
 	assert.equal(needsTemplateRefetch("permission", templates, reserved), false);
 	// 未知模板：需要补拉（可能是包带模板）
 	assert.equal(needsTemplateRefetch("parallel-review", templates, reserved), true);
+	// 已知但缓存正文为空：也需要补拉（编辑后的正文在文件里，缓存不会自动回灌）
+	assert.equal(needsTemplateRefetch("shell", templates, reserved), true);
 	// 非命令形态
 	assert.equal(needsTemplateRefetch(undefined, templates, reserved), false);
 	assert.equal(needsTemplateRefetch("", templates, reserved), false);

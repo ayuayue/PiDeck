@@ -23,7 +23,15 @@ export function ConfirmDialog(props: { title: string; message: string; onConfirm
 		<AlertDialog
 			open
 			onOpenChange={(open) => {
-				if (!open && !confirmedRef.current) props.onCancel();
+				if (open) return;
+				// 确认路径刚设置过标记，不走 onCancel（父组件的取消回调可能比 setState 多做事情）。
+				// 同时在此复位标记：父组件若忘了在 onConfirm 里卸载（#518 的删除弹框），
+				// 下一次取消/Esc/遮罩仍能正常关闭，而不是永久失活。
+				if (confirmedRef.current) {
+					confirmedRef.current = false;
+					return;
+				}
+				props.onCancel();
 			}}
 		>
 			<AlertDialogContent className={layerClassName} overlayClassName={layerClassName}>

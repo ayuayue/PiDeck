@@ -1139,11 +1139,13 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	}, [sessionId]);
 
 	/**
-	 * 发送前补齐模板表：`/名称` 命中未知模板时补拉一次。
+	 * 发送前补齐模板表：`/名称` 命中未知模板、或命中的缓存正文为空时补拉一次。
 	 *
-	 * 兜两类时机：runtime 刚绑定（模板表还没拉回来），以及**草稿会话的第一条消息**
-	 * （此刻还没有 runtime target，但项目的 standby 池能给出同一份清单）。
-	 * 两处都没有时保持原样，交给 pi 兜底展开。
+	 * 兜三类时机：runtime 刚绑定（模板表还没拉回来）、**草稿会话的第一条消息**
+	 * （此刻还没有 runtime target，但项目的 standby 池能给出同一份清单），
+	 * 以及**在设置页新建/编辑模板后**（模板表是会话级缓存，不会自动回灌；
+	 * 旧缓存里正文还是空的，不补拉就会误报“模板正文为空”，#518）。
+	 * 补充失败保持原样，交给 pi 兜底展开。
 	 */
 	const ensureTemplatesForMessage = useCallback(
 		async (message: string) => {
@@ -1153,14 +1155,12 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			// 后端接管的命令（DSH host / pi 扩展 / 技能）永远不在模板表里：补拉只会白跑三趟
 			// IPC，而且它本来就不该被展开。
 			if (!needsTemplateRefetch(name, templatesRef.current, reservedCommandNamesRef.current)) return;
-			// 两条来源都在 loadTemplates 里：有 runtime 走运行时清单，草稿会话走 standby 预览。
-			// 两个都没有（无项目、池关闭）时重拉也没有意义。
-			const hasRuntime = Boolean(toSessionRuntimeTarget(sessionId, store.get(sessionRuntimeBySessionIdAtomFamily(sessionId))));
-			if (!hasRuntime && !record?.projectId) return;
+			// 来源 A（prompts:list）不依赖 runtime/项目，因此不再按这两者早退：
+			// 否则不给项目开池的会话里新加/新改的全局模板永远补不进来。
 			// 补齐失败不影响发送本身（loadTemplates 内部各来源已各自兜错，这里再兜一层）
 			await loadTemplates().catch(() => undefined);
 		},
-		[loadTemplates, record?.projectId, sessionId, store],
+		[loadTemplates],
 	);
 
 	const resolveSessionReferences = useCallback(

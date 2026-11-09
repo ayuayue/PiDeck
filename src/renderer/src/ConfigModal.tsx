@@ -1887,6 +1887,9 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	/** 确认删除 prompt template */
 	const confirmDeletePrompt = async (target: PiPromptTemplateSummary) => {
 		if (blockResourceMutation("prompts:delete")) return;
+		// 先关弹框再干活（与 confirmDeleteSkill 同款）：ConfirmDialog 是受控的，
+		// 不在这里清状态，删完弹框会一直挂在页面上，而且取消也会变得无反应（#518）。
+		setDeletePromptConfirm(null);
 		setError(null);
 		if (resourceScope === "project" && !isProjectPrompt(target)) return;
 		if (target.userCreated) {
