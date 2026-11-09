@@ -2,7 +2,7 @@ import type { ProjectFileAccessScope, ProjectFileTarget } from "../../../../shar
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { t } from "../../i18n";
-import { ArrowLeft, Maximize, Minimize2, RefreshCw, Rows2, SquareSplitHorizontal, X, Eye, FileCode, Loader2, TriangleAlert, WrapText } from "lucide-react";
+import { ArrowLeft, Maximize, Minimize2, RefreshCw, Rows2, SquareSplitHorizontal, X, Eye, FileCode, Loader2, TriangleAlert, WrapText, ExternalLink } from "lucide-react";
 import { Button } from "../ui-shadcn/button";
 import { cn } from "../../lib/utils";
 import { MarkdownStream } from "../session/MarkdownStream";
@@ -194,6 +194,9 @@ export function FileDiffViewer(props: {
 	// 有专属预览时正文不再挂编辑器：图片/PDF/音视频/Office/压缩包读出来是空串，
 	// csv 切到表格后也不需要把原始文本垫在下面（空编辑器还会和预览抢高度）。
 	const dedicatedPreview = !isDiffMode && (isImage || isPdf || isAudio || isVideo || officePreviewKind !== null || (isCsv && preview));
+	// docx/xlsx 只能在 Word/WPS 里编辑：预览本身是只读渲染，把入口做成带文字的按钮
+	// （其余文件只给图标，不抢顶栏宽度）。
+	const officeEditHint = officePreviewKind === "docx" || officePreviewKind === "spreadsheet";
 
 	useEffect(() => {
 		// 每个 tab 重置编辑状态：view 可编辑（源码即编辑），diff 只读对比无编辑态。
@@ -479,6 +482,19 @@ export function FileDiffViewer(props: {
 		[scheduleAutoSave, props.onDirty, readOnlyView],
 	);
 
+	// 用系统默认程序打开（docx→Word/WPS、xlsx→Excel…）：二进制文件在 PiDeck 内只能展示，
+	// 真正的编辑交给本机装的 Office；主进程 files:open 已经走受保护的 openSystemPath。
+	const handleOpenWithSystem = useCallback(() => {
+		const open = window.piDesktop?.files?.open;
+		if (!open) {
+			showNotice(t("editor.openWithSystemUnavailable"));
+			return;
+		}
+		void open(fileAccessPath, props.fileAccessScope).catch((e: unknown) => {
+			showNotice(e instanceof Error ? e.message : t("editor.openWithSystemUnavailable"));
+		});
+	}, [fileAccessPath, props.fileAccessScope]);
+
 	// 编辑器选中文本 → 右键「引用选中内容」：以 pi 的 read 语法 @path:start-end 派发到输入框。
 	// 与文件树右键 onAttach 共用同一追加语义（composer-attach-refs 由 App 监听后插入 draft）。
 	const handleAttachSelection = useCallback(
@@ -601,6 +617,18 @@ export function FileDiffViewer(props: {
 							<WrapText size={15} />
 						</Button>
 					)}
+					{/* 打开失败（格式不支/文件损坏）时恰恰最需要这个入口，所以只避开加载中。 */}
+					{!loading &&
+						(officeEditHint ? (
+							<Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 rounded-md px-2 text-caption" title={t("editor.openWithSystemHint")} onClick={handleOpenWithSystem}>
+								<ExternalLink size={14} aria-hidden="true" />
+								{t("editor.editInOfficeApp")}
+							</Button>
+						) : (
+							<Button variant="ghost" size="icon-sm" title={t("editor.openWithSystem")} aria-label={t("editor.openWithSystem")} onClick={handleOpenWithSystem}>
+								<ExternalLink size={15} />
+							</Button>
+						))}
 					{isDiffMode && !loading && !error && displayMode !== "drawer" && (
 						<Button variant="ghost" size="icon-sm" title={sideBySide ? t("app.showSingle") : t("app.showSplit")} onClick={() => setSideBySide(!sideBySide)}>
 							{/* 图标随模式变化：分栏时显示「单栏」图标（点击合并），单栏时显示「分栏」图标（点击分栏），
@@ -687,7 +715,7 @@ export function FileDiffViewer(props: {
 						)}
 						{!isDiffMode && isVideo && mediaUrl && <MediaPreview url={mediaUrl} fileName={fileName} onError={() => setError(t("editor.mediaUnsupported"))} />}
 						{/* CSV/TSV：解析成二维表格（引号感知，行/列上限内截断） */}
-						{!isDiffMode && preview && isCsv && <CsvPreview key={`${props.filePath}:${reloadNonce}`} content={content} />}
+						{!isDiffMode && preview && isCsv && <CsvPreview key={`${props.filePath}:${reloadNonce}`} content={content} onChange={readOnlyView ? undefined : handleEditorChange} />}
 						{/* Office/压缩包：自带读盘 + lazy 解析器，父层不再读第二遍 */}
 						{!isDiffMode && officePreviewKind && <BinaryFilePreview key={`${props.filePath}:${reloadNonce}`} kind={officePreviewKind} filePath={fileAccessPath} fileAccessScope={props.fileAccessScope} />}
 						{/* SVG 预览：文本内容直接编码为 data URL（无 Blob 生命周期管理） */}

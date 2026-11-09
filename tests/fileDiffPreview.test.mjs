@@ -10,8 +10,7 @@ test("HTML files have an in-place preview without widening BrowserPanel access",
 	assert.match(source, /<HtmlPreview content=\{content\} \/>/);
 });
 
-test("CSV 默认表格预览，且预览下不挂空编辑器", () => {
-	// csv/tsv 是文本但默认走表格：打开就渲染，不要求用户先点「预览」。
+test("CSV 默认表格预览，且预览下不挂空编辑器", () => {	// csv/tsv 是文本但默认走表格：打开就渲染，不要求用户先点「预览」。
 	assert.match(source, /const isCsv = ext === "csv" \|\| ext === "tsv"/);
 	assert.match(source, /const defaultPreview = !isDiffMode && \(isMarkdown \|\| isHtml \|\| isSvg \|\| isCsv\)/);
 	// 专属预览同时排除图片/PDF/音视频/Office/压缩包与表格：二进制读成空串，
@@ -49,4 +48,21 @@ test("CodeMirror 编辑器保持懒加载：主 chunk 不得静态拉进 CodeMir
 	assert.ok(usage > 0, "CodeMirrorEditor 用法应可被发现");
 	const before = source.slice(Math.max(0, usage - 800), usage);
 	assert.match(before, /<Suspense/, "用法必须包在 Suspense 内");
+});
+
+test("CSV 单元格编辑只在可保存的文件上开放，且走统一的脏/自动保存链路", () => {
+	// 只读 tab（项目外文件）不能改单元格：传 undefined 让表格不渲染编辑入口，
+	// 而不是渲染出来点了没反应。
+	assert.match(source, /<CsvPreview[^>]*onChange=\{readOnlyView \? undefined : handleEditorChange\}/);
+	// 单元格提交必须走 handleEditorChange（dirty 上报 + 500ms 防抖落盘 + Ctrl+S 前置），
+	// 不能自己 setContent，否则保存链路与编辑器不一致。
+	assert.match(source, /contentRef\.current = value;\n\t\t\tsetContent\(value\);\n\t\t\tsetDirty\(true\);/);
+});
+
+test("docx/xlsx 提供「用系统程序编辑」入口（预览本身只读）", () => {
+	// 这两个格式 PiDeck 内无法回写，只能交给本机 Office/WPS：入口必须真实调起主进程 files:open。
+	assert.match(source, /const officeEditHint = officePreviewKind === "docx" \|\| officePreviewKind === "spreadsheet"/);
+	assert.match(source, /window\.piDesktop\?\.files\?\.open/);
+	assert.match(source, /t\("editor\.editInOfficeApp"\)/);
+	assert.match(source, /t\("editor\.openWithSystemHint"\)/);
 });

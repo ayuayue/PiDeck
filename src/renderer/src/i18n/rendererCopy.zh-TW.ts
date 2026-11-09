@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: c847893698473ef601a123e0c03c9e4a98e98b120ca76c21f4aee5e1303ae1df（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 9aa299030245c28b3401504e73de224e45117762c50d2a6b6fdec5b63440b01f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3454,6 +3454,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.saveFailedBanner": "儲存失敗：{error}",
 	"editor.pdfPreview": "PDF 預覽",
 	"editor.playVideo": "播放",
+	"editor.openWithSystem": "用系統程式開啟",
+	"editor.openWithSystemHint": "在本機的 Word / WPS / Excel 裡開啟並編輯這個檔案（PiDeck 內的預覽是隻讀的）",
+	"editor.openWithSystemUnavailable": "當前環境無法調起系統程式，請手動開啟檔案",
+	"editor.editInOfficeApp": "用 Office/WPS 編輯",
 	"editor.mediaUnsupported": "無法內建播放此格式，請用系統程式開啟",
 	"editor.previewFailed": "預覽失敗：{error}",
 	"editor.previewUnavailable": "內建預覽不可用",
@@ -3461,6 +3465,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.sheetTruncated": "僅顯示前 {rows} 行 × {cols} 列（共 {totalRows} 行 × {totalCols} 列）",
 	"editor.csvEmpty": "檔案沒有可顯示的內容",
 	"editor.csvTruncated": "僅顯示前 {rows} 行 × {cols} 列（檔案還有更多內容）",
+	"editor.csvEditHint": "· 雙擊單元格可編輯",
+	"editor.csvCellHint": "雙擊編輯這一格",
 	"editors.clear": "清除",
 	"editors.browse": "瀏覽",
 	"editors.detectedFrom": "來源：{source}",
