@@ -64,4 +64,4 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Verify signing configuration, gates and native macOS identity
-        run: node --test tests/electronBuilderConfig.test.mjs tests/macSigningConfig.test.mjs tests/macSignatureGate.test.mjs tests/macPermissionIdentity.test.mjs tests/releaseConfig.test.mjs tests/appBrandPackaging.test.mjs
+        run: node --test tests/electronBuilderConfig.test.mjs tests/macSigningConfig.test.mjs tests/macSignatureGate.test.mjs tests/macPermissionIdentity.test.mjs tests/macAutoUpdateUi.test.mjs tests/macUpdateChannelCompatibility.test.mjs tests/releaseConfig.test.mjs tests/appBrandPackaging.test.mjs
