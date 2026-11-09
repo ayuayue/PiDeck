@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 20b9011215373d047fbc9aeb27ea346559e544e6e09bfb65fdc8bdadb310167a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: d2efec8c20c6029cf0a4fac04b30fda64a86404589a032ffc99894de3ae5e752（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -6703,7 +6703,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"web.backendImagegen": "生圖",
 	"web.backendImagegenDesc": "輸入提示詞生成圖片",
 	"web.noMessages": "暫無訊息",
-	"web.noSessions": "該專案暫無會話，點 + 新建",
+	"web.noSessions": "暫無會話",
 	"web.moreSessions": "更多會話 ({count})",
 	"web.ungrouped": "未分組",
 	"web.ungroupedHint": "無法匹配到任何專案的會話（可能專案已被移除，或會話未歸屬專案）",

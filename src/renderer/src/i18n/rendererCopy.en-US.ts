@@ -6724,7 +6724,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"web.backendImagegen": "Image",
 	"web.backendImagegenDesc": "Generate images from prompts",
 	"web.noMessages": "No messages",
-	"web.noSessions": "No sessions in this project yet, tap + to create one",
+	"web.noSessions": "No sessions yet",
 	"web.moreSessions": "More sessions ({count})",
 	"web.ungrouped": "Ungrouped",
 	"web.ungroupedHint": "Sessions that don't match any project (the project may have been removed, or the session has no project)",

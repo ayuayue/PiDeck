@@ -6696,7 +6696,7 @@ export const zhCN = {
 	"web.backendImagegen": "生图",
 	"web.backendImagegenDesc": "输入提示词生成图片",
 	"web.noMessages": "暂无消息",
-	"web.noSessions": "该项目暂无会话，点 + 新建",
+	"web.noSessions": "暂无会话",
 	"web.moreSessions": "更多会话 ({count})",
 	"web.ungrouped": "未分组",
 	"web.ungroupedHint": "无法匹配到任何项目的会话（可能项目已被移除，或会话未归属项目）",
