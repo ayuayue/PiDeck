@@ -59,7 +59,11 @@ test("SessionTab 用富 Tooltip 替代原生 title，第二行显示工作区", 
 	assert.match(body, /displayProjectDirectoryName\(tabProject\)/);
 	assert.match(body, /projectByIdAtomFamily\(record\?\.projectId \?\? ""\)/);
 	// Tooltip 两行结构：标题行 + 工作区行（含完整路径兜底）。
-	assert.match(body, /<Tooltip delayDuration=\{500\}>/);
+	// 2026-11 用户反馈「切回窗口就自动展开 Tab 的项目与路径」：Radix 默认 focus 即开，
+	// 窗口重获焦点会把焦点还给上次聚焦的 Tab。改用受控 open，只放行悬停触发的开启。
+	assert.match(body, /<Tooltip delayDuration=\{500\} open=\{tip\.open\} onOpenChange=\{tip\.onOpenChange\}>/);
+	assert.match(body, /const tip = useHoverOnlyTooltip\(\);/);
+	assert.match(body, /\{\.\.\.tip\.hoverProps\}/);
 	assert.match(body, /<TooltipContent side="bottom" align="start"/);
 	// 2026-10-02 回归：重排右键菜单嵌套时误删 TooltipTrigger → Tooltip.Root 失去
 	// trigger，hover 富提示整体失效（用户报「移入的效果没了」）。Trigger 必须在链上。
@@ -73,7 +77,9 @@ test("SessionTab 用富 Tooltip 替代原生 title，第二行显示工作区", 
 test("EditorWorkbenchTab 用富 Tooltip 显示 标题 + 完整路径", () => {
 	const body = editorTabBody;
 	assert.doesNotMatch(body, /\btitle=\{tab\.title \?\? tab\.label\}/);
-	assert.match(body, /<Tooltip delayDuration=\{500\}>/);
+	assert.match(body, /<Tooltip delayDuration=\{500\} open=\{tip\.open\} onOpenChange=\{tip\.onOpenChange\}>/);
+	assert.match(body, /const tip = useHoverOnlyTooltip\(\);/);
+	assert.match(body, /\{\.\.\.tip\.hoverProps\}/);
 	// 第二行是文件完整路径（tab.title 由装配层传 filePath），mono 字体区分路径与标题。
 	assert.match(body, /font-mono text-micro[^"]*"\>\{tab\.title\}/);
 	// title 缺省时不渲染 TooltipContent（退化为无提示，与旧行为一致）。

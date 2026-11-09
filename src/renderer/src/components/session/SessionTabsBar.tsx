@@ -17,7 +17,7 @@ import { Button } from "../ui-shadcn/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "../ui-shadcn/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "../ui-shadcn/popover";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger, useHoverOnlyTooltip } from "../ui-shadcn/tooltip";
 import { cn } from "../../lib/utils";
 import { AcpBackendMark, SessionBackendBadge, SessionChannelMark, SideTaskMark } from "./SessionSourceBadge";
 import { TitleScrollText } from "../sidebar/TitleScrollText";
@@ -798,15 +798,18 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
  */
 function EditorWorkbenchTab(props: { tab: WorkbenchEditorTabItem; onSelect?: (tabId: string) => void; onClose?: (tabId: string) => void; onPromotePreview?: (tabId: string) => void }) {
 	const { tab } = props;
+	// 只跟随悬停：切回窗口时浏览器把焦点还给上次聚焦的 Tab，Radix 默认会因此自动弹泡。
+	const tip = useHoverOnlyTooltip();
 	// 工作台 Tab 富提示：第一行 tab 标题，第二行完整路径（tab.title 由装配层传入 filePath）。
 	// title 缺省时退化为单行，与旧原生 title 行为一致。
 	return (
-		<Tooltip delayDuration={500}>
+		<Tooltip delayDuration={500} open={tip.open} onOpenChange={tip.onOpenChange}>
 			<TooltipTrigger asChild>
 				<div
 					role="tab"
 					aria-selected={Boolean(tab.active)}
 					aria-label={tab.title ?? tab.label}
+					{...tip.hoverProps}
 					className={cn(
 						// 显式标明 length 只设字号、不带行高（行高紧随其后用 leading-(--line-height-tab)）。
 						"session-tab group relative flex h-7 shrink-0 cursor-pointer select-none items-center rounded-md border px-2 text-[length:var(--font-size-tab)] leading-(--line-height-tab) transition-[color,background-color,border-color,box-shadow,transform] duration-base",
@@ -1053,6 +1056,8 @@ function SessionTab(props: {
 	runControl?: SessionRunControlView;
 }) {
 	const { sessionId, active, pinned, preview, dragging } = props;
+	// 只跟随悬停：切回窗口时浏览器把焦点还给上次聚焦的 Tab，Radix 默认会因此自动弹泡。
+	const tip = useHoverOnlyTooltip();
 	const record = useAtomValue(sessionRecordByIdAtomFamily(sessionId));
 	const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(sessionId));
 	// 收藏态与收藏页共用同一 atom；每个 Tab 只读一个 Set，写入走同一条 toggle 链路。
@@ -1090,9 +1095,9 @@ function SessionTab(props: {
 		return (
 			// 简洁模式同样用富 hover 提示（标题 + 工作区），与默认标签模式的 Tab 行为一致；
 			// 不再用原生 title：原生只能显示标题，且会与 TitleScrollText 的滚动提示叠成双气泡。
-			<Tooltip delayDuration={500}>
+			<Tooltip delayDuration={500} open={tip.open} onOpenChange={tip.onOpenChange}>
 				<TooltipTrigger asChild>
-					<div className="simple-session-title flex min-w-0 flex-1 items-center gap-1.5 px-2 text-sm font-medium text-foreground" aria-label={workspaceName ? `${title} — ${workspaceName}` : title}>
+					<div className="simple-session-title flex min-w-0 flex-1 items-center gap-1.5 px-2 text-sm font-medium text-foreground" {...tip.hoverProps} aria-label={workspaceName ? `${title} — ${workspaceName}` : title}>
 						<SessionActivityIndicator status={status} sessionId={sessionId} busy={props.isRestarting || props.isStopping || props.isReloading} />
 						{pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
 						<TitleScrollText text={title} disabled className="truncate font-bold" />
@@ -1141,7 +1146,7 @@ function SessionTab(props: {
 		   TooltipTrigger（Tooltip.Root 失去 trigger）→ hover 富提示（标题+工作区）失效
 		   （用户报「移入的效果没了」）；TooltipTrigger 必须保留在链上（单测/e2e 双契约）。 */
 		<ContextMenu>
-			<Tooltip delayDuration={500}>
+			<Tooltip delayDuration={500} open={tip.open} onOpenChange={tip.onOpenChange}>
 				<TooltipTrigger asChild>
 					<ContextMenuTrigger asChild>
 						<div
@@ -1150,6 +1155,7 @@ function SessionTab(props: {
 							data-session-id={sessionId}
 							aria-label={workspaceName ? `${title} — ${workspaceName}` : title}
 							draggable
+							{...tip.hoverProps}
 							onDragStart={props.onDragStart}
 							onDragEnd={props.onDragEnd}
 							onClick={select}
