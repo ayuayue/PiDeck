@@ -6,7 +6,9 @@
  * 「项目列表里隐藏已入组会话」），本组件只负责渲染。
  * 点击会话走侧栏同一条打开链路（选中 + 按设置登记 Tab）；右键复用项目树的会话菜单
  * （Agent 菜单 / 会话菜单同一判定，见 openSessionRowMenu）；增删改管理仍在插件页（v1 约定）。
- * 没有分组（插件未启用 / 全部失效）时整块不渲染：不留一个永远空着的区。
+ * 没有分组（插件未启用 / 全部失效 / 本栏目裁剪后没有会话）时整块不渲染：不留一个永远空着的区。
+ * 渲染范围由调用方传入的 nodes 决定：聊天栏目只给 Chat 会话节点，项目栏目只给工作区会话节点
+ * （见 sessionGroupsModel.buildSessionGroupNodes 的 scope），活动栏目不挂本区。
  */
 import { ChevronRight, Ellipsis } from "lucide-react";
 import { useState } from "react";
