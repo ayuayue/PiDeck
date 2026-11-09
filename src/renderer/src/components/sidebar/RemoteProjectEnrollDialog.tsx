@@ -1,5 +1,6 @@
 import { useAtom, useSetAtom } from "jotai";
-import { useCallback, useState } from "react";import type { TranslationKey } from "../../i18n/rendererCopy.zh-CN";
+import { useCallback, useState } from "react";
+import type { TranslationKey } from "../../i18n/rendererCopy.zh-CN";
 import { openSettingsAtom } from "../../atoms";
 import { remoteEnrollDialogOpenAtom } from "../../atoms/remote-project-atoms";
 import { desktopApi } from "../../desktopApi";

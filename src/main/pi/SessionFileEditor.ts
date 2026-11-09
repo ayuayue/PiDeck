@@ -1198,14 +1198,7 @@ export class SessionFileEditor {
 	 * 流式版的 mutation 计划：产出「行替换 + 末尾追加」，不重建整个文档。
 	 * 四种操作的语义与整读路径 applyMutation 一一对应（context_edit 追加 / 墓碑 / 图片行改写）。
 	 */
-	private async planStreamingMutation(
-		scan: SessionFileScan,
-		path: string,
-		located: { lineIndex: number; entryId: string },
-		kind: MutationKind,
-		newText?: string,
-		imageTarget?: SessionMessageImageTarget,
-	): Promise<{ plan: SessionStreamRewritePlan; changedEntryIds: string[]; targetEntryId: string }> {
+	private async planStreamingMutation(scan: SessionFileScan, path: string, located: { lineIndex: number; entryId: string }, kind: MutationKind, newText?: string, imageTarget?: SessionMessageImageTarget): Promise<{ plan: SessionStreamRewritePlan; changedEntryIds: string[]; targetEntryId: string }> {
 		const replaceLines = new Map<number, string>();
 		const appendLines: string[] = [];
 		const changedEntryIds: string[] = [];

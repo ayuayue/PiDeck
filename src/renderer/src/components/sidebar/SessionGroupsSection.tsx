@@ -114,8 +114,8 @@ export function SessionGroupsSection(props: { nodes: readonly SessionGroupNode[]
 														<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 															<div className="conversation-title flex min-w-0 items-center gap-1.5">
 																{/* 运行状态：入组后项目列表的 agent 行会被隐藏，这里是该会话唯一的运行态入口（与项目树同一套色点/脉动）。 */}
-														<SessionRuntimeStatusDot status={props.controller.catalog.runtimeBySessionId[session.id]?.status} />
-														<span className="min-w-0 flex-1 truncate">{session.title}</span>
+																<SessionRuntimeStatusDot status={props.controller.catalog.runtimeBySessionId[session.id]?.status} />
+																<span className="min-w-0 flex-1 truncate">{session.title}</span>
 																{projectCount > 1 && <span className="max-w-24 shrink-0 truncate text-micro text-muted-foreground/70">{projectLabel.name}</span>}
 																{/* 时间 hover 时让位给「⋯」：与项目树会话行同一策略，避免瞬时消失导致行尾跳动。 */}
 																<span

@@ -67,9 +67,11 @@ test("a probe returns the renderer-safe facts and nothing else", async () => {
 });
 
 test("a probe carries the verification warning when the version is above the checked window", async () => {
-	const { resolveService } = serviceWith({ async remotePiRuntimeFacts() {
-		return { ...facts, version: "0.86.0", warning: "REMOTE_PI_VERSION_UNVERIFIED" };
-	} });
+	const { resolveService } = serviceWith({
+		async remotePiRuntimeFacts() {
+			return { ...facts, version: "0.86.0", warning: "REMOTE_PI_VERSION_UNVERIFIED" };
+		},
+	});
 	const handler = handlersFor({ enabled: true, resolveService }).get("remote:pi-probe");
 	const result = await handler(null, HOST_ID);
 	assert.equal(result.ok, true);

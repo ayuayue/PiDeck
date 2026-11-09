@@ -106,13 +106,7 @@ test("流式编辑：原文行逐字节保留，context_edit 追加到末尾，m
 });
 
 test("流式删除：assistant 连同过程链（thinking-only / toolResult）一起移出上下文", async () => {
-	const entries = [
-		header(),
-		message("u1", null, "user", "hello"),
-		message("th1", "u1", "assistant", [{ type: "thinking", thinking: "thinking..." }]),
-		message("tr1", "th1", "toolResult", "tool output"),
-		message("a1", "tr1", "assistant", "answer"),
-	];
+	const entries = [header(), message("u1", null, "user", "hello"), message("th1", "u1", "assistant", [{ type: "thinking", thinking: "thinking..." }]), message("tr1", "th1", "toolResult", "tool output"), message("a1", "tr1", "assistant", "answer")];
 	await withSession(encode(entries), async ({ path }) => {
 		await streamingEditor().deleteMessage({ file: fileRef(path), target: target({ activeLeafId: "a1" }), reload: async () => undefined });
 		const parsed = parseLines(await readFile(path, "utf8"));
@@ -145,7 +139,13 @@ test("流式重发截断：后代条目原地墓碑化，目标消息保留", as
 });
 
 test("流式删图：只改写目标行，图片数量/哈希校验失败报 SESSION_ENTRY_NOT_FOUND", async () => {
-	const entries = [header(), message("u1", null, "user", [{ type: "text", text: "hi" }, { type: "image", source: { data: "IMAGE" } }])];
+	const entries = [
+		header(),
+		message("u1", null, "user", [
+			{ type: "text", text: "hi" },
+			{ type: "image", source: { data: "IMAGE" } },
+		]),
+	];
 	await withSession(encode(entries), async ({ path }) => {
 		const imageTarget = { index: 0, expectedImageCount: 1, expectedHash: createHash("sha256").update("IMAGE").digest("hex") };
 		await streamingEditor().removeImage({ file: fileRef(path), target: target({ entryId: "u1", role: "user", activeLeafId: "u1" }), imageTarget, reload: async () => undefined });
@@ -153,10 +153,7 @@ test("流式删图：只改写目标行，图片数量/哈希校验失败报 SES
 		assert.deepEqual(parsed[1].message.content, [{ type: "text", text: "hi" }]);
 
 		await withSession(encode(entries), async ({ path: secondPath }) => {
-			await expectCode(
-				streamingEditor().removeImage({ file: fileRef(secondPath), target: target({ entryId: "u1", role: "user", activeLeafId: "u1" }), imageTarget: { ...imageTarget, expectedHash: "0".repeat(64) }, reload: async () => undefined }),
-				"SESSION_ENTRY_NOT_FOUND",
-			);
+			await expectCode(streamingEditor().removeImage({ file: fileRef(secondPath), target: target({ entryId: "u1", role: "user", activeLeafId: "u1" }), imageTarget: { ...imageTarget, expectedHash: "0".repeat(64) }, reload: async () => undefined }), "SESSION_ENTRY_NOT_FOUND");
 			assert.equal((await readFile(secondPath, "utf8")).includes('"image"'), true, "校验失败不得改写文件");
 		});
 	});
@@ -298,7 +295,14 @@ test("流式读跨 chunk：目标本身是超过读块的超长行（base64 图�
 });
 
 test("流式与整读路径结果等价（编辑 / 删除 / 重发）", async () => {
-	const editEntries = [header(), message("u1", null, "user", [{ type: "text", text: "hello" }, { type: "image", source: { data: "IMG" } }]), message("a1", "u1", "assistant", "answer")];
+	const editEntries = [
+		header(),
+		message("u1", null, "user", [
+			{ type: "text", text: "hello" },
+			{ type: "image", source: { data: "IMG" } },
+		]),
+		message("a1", "u1", "assistant", "answer"),
+	];
 	const deleteEntries = [header(), message("u1", null, "user", "hello"), message("th1", "u1", "assistant", [{ type: "thinking", thinking: "t" }]), message("tr1", "th1", "toolResult", "tool"), message("a1", "tr1", "assistant", "answer")];
 	const resendEntries = [header(), message("u1", null, "user", "hello"), message("a1", "u1", "assistant", "answer"), message("u2", "a1", "user", "again")];
 
