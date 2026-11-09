@@ -7,12 +7,16 @@ name: Build Dev Packages
 #   保证产物名 / latest*.yml 内版本与 Release tag 一致；
 # - 三平台安装包（win x64 / mac x64+arm64 / linux x64+arm64），全部 --publish never
 #   （经 scripts/dist-dev.js，独立 productName/appId/pideck-dev 协议）；
+#   频道为 `--publish never` 是硬要求：electron-builder 在 CI 下默认按 onTagOrDraft 发布，
+#   softprops 先把 Release 建为草稿后，后续 job 的 electron-builder 会直接往该草稿上传产物
+#   （包括各架构 latest-mac.yml），与 softprops / merge-mac-update-manifest 竞争；发布只能有一个写者。
 # - softprops 上传 **prerelease** Release：prerelease 标记保证不抢占 GitHub
 #   /releases/latest（stable 的 macOS 手动更新与 DSH runtime latest 跟随都读它），
 #   且 sync-atomgit.yml 对 prerelease Release 不同步（AtomGit 是 stable 镜像源）；
 # - 不打 DSH runtime / runner-node sidecar：安装包内 runtime 已随 npm run build
 #   打进 extraResources，独立 tgz 资产是 stable 发版链路（release.yml）的职责。
-# 注意：dev 包的自动更新 feed 尚未接入（当前为手动下载安装）。
+# 注意：dev 包的更新交付与 stable 同口径（Windows 安装版 / macOS Developer ID 签名包 /
+#   Linux x64 AppImage 走应用内更新，其余设备走手动下载匹配安装包）。
 
 on:
   workflow_dispatch:
@@ -60,7 +64,7 @@ jobs:
         include:
           - platform: windows
             os: windows-latest
-            command: node scripts/dist-dev.js --win nsis portable zip
+            command: node scripts/dist-dev.js --win nsis portable zip --publish never
             verify_globs: "PiDeck-Dev-*-setup.exe PiDeck-Dev-*-portable.exe PiDeck-Dev-*-win.zip latest*.yml"
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
@@ -70,24 +74,24 @@ jobs:
             name: macOS x64
             os: macos-15-intel
             mac_arch: x64
-            command: node scripts/dist-dev.js --mac dmg zip --x64
+            command: node scripts/dist-dev.js --mac dmg zip --x64 --publish never
             verify_globs: "PiDeck-Dev-*-x64.dmg PiDeck-Dev-*-x64.zip latest-mac.yml"
-            electron_mirror: ""
+            electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: ""
             skip_yml: true
           - platform: macos
             name: macOS arm64
             os: macos-latest
             mac_arch: arm64
-            command: node scripts/dist-dev.js --mac dmg zip --arm64
+            command: node scripts/dist-dev.js --mac dmg zip --arm64 --publish never
             verify_globs: "PiDeck-Dev-*-arm64.dmg PiDeck-Dev-*-arm64.zip latest-mac.yml"
-            electron_mirror: ""
+            electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: ""
             skip_yml: true
           - platform: linux
             name: Linux x64
             os: ubuntu-latest
-            command: node scripts/dist-dev.js --linux AppImage deb tar.gz --x64
+            command: node scripts/dist-dev.js --linux AppImage deb tar.gz --x64 --publish never
             verify_globs: "PiDeck-Dev-*-x64.AppImage PiDeck-Dev-*-x64.deb PiDeck-Dev-*-x64.tar.gz latest*.yml"
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
@@ -96,13 +100,15 @@ jobs:
           - platform: linux
             name: Linux arm64
             os: ubuntu-24.04-arm
-            command: node scripts/dist-dev.js --linux AppImage deb tar.gz --arm64
+            command: node scripts/dist-dev.js --linux AppImage deb tar.gz --arm64 --publish never
             verify_globs: "PiDeck-Dev-*-arm64.AppImage PiDeck-Dev-*-arm64.deb PiDeck-Dev-*-arm64.tar.gz"
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
             skip_yml: true
 
     runs-on: ${{ matrix.os }}
+    env:
+      ELECTRON_MIRROR: ${{ matrix.electron_mirror }}
 
     steps:
       - name: Checkout repository

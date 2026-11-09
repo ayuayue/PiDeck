@@ -107,14 +107,14 @@ GitHub 的 choice 只能写死静态列表，无法动态读 tag，所以每发�
 
 ### macOS 签名（Developer ID + 公证；无证书时 ad-hoc 兜底）
 
-- 打包工具固定为 `electron-builder 26.16.1`：该稳定版修复 `CSC_LINK` 导入时将 `.p12` 密码误用于临时钥匙串 ACL 解锁的问题，详见[上游 #10172](https://github.com/electron-userland/electron-builder/pull/10172)。`tests/macSigningKeychainPassword.test.mjs` 实际执行库的 `createKeychain`，分别检查证书导入密码与随机钥匙串密码的用途；两个密码无需相同，也不应通过放宽访问控制绕过失败。
 - **配置裁决点只有一个**：`scripts/electronBuilderConfig.js`（入口 `scripts/electron-builder.config.js`，dev 通道经 `scripts/dist-dev.js` 复用）。它以 `package.json build` 为基底，按环境变量决定 mac 签名：
   - `CSC_LINK`（base64 .p12，配 `CSC_KEY_PASSWORD`）或 `CSC_NAME`（本机钥匙串已装证书）非空 → 删掉 `identity`，交给 electron-builder 自动发现 Developer ID Application 证书；`APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`（或 `APPLE_API_KEY` 三元组 / `APPLE_KEYCHAIN_PROFILE`）齐全时 `notarize: true`（notarytool 公证 + 装订）；
   - 否则 `identity: "-"` + `notarize: false`（ad-hoc；公证对 ad-hoc 包必失败，所以显式关掉）。GitHub Actions 未配置的 secret 注入为空串，按未配置处理，fork PR 与本地无证书打包自然回退。
 - 身份要求统一由 `scripts/mac-signing-policy.js` 解析；mac 专用 `beforePack` 和产物门禁共同使用。`PIDECK_RELEASE_BUILD=1` 或 `PIDECK_MAC_REQUIRE_NOTARIZATION=1` 强制固定 Team、Developer ID 与公证，可选身份开关设为 false 不能放宽发布要求。缺证书、公证凭据或合法 Team 时打包失败；产物中实际 Team 不符、Helper 身份不符或缺公证票据同样失败。非 mac 打包不执行这些身份要求。
 - 本地/纯构建默认仍允许无证书 ad-hoc；这是验证包用途，不能代替正式公证发行物。固定 Team 的本地测试签名包也必须匹配指定身份。
 - 签名忽略 Electron Framework 下的 `*.lproj/locale.pak` 单独签名：它们是 Chromium 数据，由完整 framework 资源封印保护；不忽略 Mach-O 或原生模块。mac afterPack 使用 electron-builder 的真实 bundle Resources 路径执行 asar 清理和 node-pty 校验。
-- **所有 mac 打包命令必须带 `--config scripts/electron-builder.config.js`**（`npm run dist:mac`、release.yml / build-macos.yml / mac-test-build.yml 已带；dist-dev.js 内置）。裸跑仍由已有 `beforePack` 选择证书，但不会应用这里的公证策略；守卫 `tests/electronBuilderConfig.test.mjs`。
+- **发布/CI 的 mac 打包命令必须带 `--config scripts/electron-builder.config.js`**（`npm run dist:mac`、release.yml / build-macos.yml / mac-test-build.yml 已带；dev 通道经 `scripts/dist-dev.js` 内置）。`npm run dist` / `dist:fast` 这类本地快速命令不在此列。裸跑仍由已有 `beforePack` 选择证书，但不会应用这里的公证策略；守卫 `tests/electronBuilderConfig.test.mjs`。
+- **CSC_LINK 签名的 keychain 密码补丁（临时，随 electron-builder 升级删除）**：固定的 electron-builder 26.15.3 把 `.p12` 导入密码当成临时 keychain 密码传给 `security set-key-partition-list -k`，macOS 26（Darwin 25）runner 会直接拒绝，任何走 `CSC_LINK` 的 mac 签名都在导入证书阶段失败（`SecKeychainUnlock: The user name or passphrase you entered is not correct.`；2026-11-09 Build macOS arm64 即此，x64 的 macos-15 镜像侥幸容忍）。上游 issue electron-userland/electron-builder#10066、修复 PR #10101，**26.17.0 起正式发布修复**；在此之前由 `scripts/patch-electron-builder-keychain-password.js` 在 postinstall 里按同一处修复打补丁（把随机 keychain 密码透传给 `importCerts`，只用于 `-k`；`security import -P` 仍用 `.p12` 密码）。升级到 ≥26.17.0 后删除该脚本与 postinstall 调用，`tests/electronBuilderKeychainPasswordPatch.test.mjs` 会因锚点消失而红灯提醒。
 - CI secrets（仓库 Settings → Secrets）：`MAC_CSC_LINK`（`base64 -i cert.p12`）、`MAC_CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`（appleid.apple.com 生成的 app 专用密码，不是账号密码）、`APPLE_TEAM_ID`。workflow 里只给 mac job 注入 `CSC_LINK`（`matrix.platform == 'macos'` 门控）——CSC_LINK 对 Windows 同样生效，泄到 win job 会拿 mac 证书签 exe 而失败。
 - 沿用可选 `MAC_CSC_NAME` 证书选择器。构建与门禁均将 `vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID` 注入 `PIDECK_MAC_TEAM_ID`：现有五项 Apple Secrets 已包含 Team，无需重复设置变量；也可用 `MAC_TEAM_ID` 显式固定发布身份。固定 Team 与 `APPLE_TEAM_ID` 同时存在时必须一致，防止签名/公证团队配置漂移。API key/keychain profile 方式则需显式提供固定 Team。
 - entitlements 沿用 app-builder-lib 默认模板（allow-jit / allow-unsigned-executable-memory / disable-library-validation），`hardenedRuntime` 默认 true。这三条就是 Electron + 原生模块（koffi / node-pty）+ Go sidecar + DSH runtime 内 node 二进制所需的全部；不开 App Sandbox，所以不需要 network.client/server 等沙箱 entitlement。@electron/osx-sign 会递归签掉 bundle 内所有 Mach-O（含 `Resources/` 下的 sidecar 和 `app.asar.unpacked` 的 `.node`），公证对「所有二进制都签名 + hardened runtime + 时间戳」的要求由它满足。
@@ -126,6 +126,7 @@ GitHub 的 choice 只能写死静态列表，无法动态读 tag，所以每发�
 - `build.mac.extendInfo.NSLocalNetworkUsageDescription` 是 macOS「本地网络」权限弹窗的说明文案，缺了它系统不会弹窗、本地网络访问可能被默默拒绝；发版时不要删（只影响 Info.plist，不影响签名）。用户从 0.9.0 升级后，系统设置 → 隐私与安全性 → 本地网络里可能残留旧的 `Electron` 条目，发布说明要提示删掉后重新允许 PiDeck。
 - mac 人工 smoke 除「能启动」外必须覆盖本地网络：在 PiDeck 终端里 `ssh`/`nc` 一台局域网主机、用局域网地址的模型服务各跑一次，然后重启应用重复一次。这两个场景是签名 identifier 退化时唯一会暴露的用户可见回归（启动正常、局域网 EHOSTUNREACH / No route to host），CI 无法代跑（需要真实局域网与 TCC 授权）。
 - Intel 包使用 `macos-15-intel` 原生 runner，ARM 包使用 Apple Silicon runner，避免 npm 安装的 koffi / sharp 等可选原生依赖与目标架构不一致。
+- mac CI 在 job 级设置 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`，同时覆盖 `npm ci` 安装 Electron 与 electron-builder 打包时的 ZIP / SHASUMS256 下载，避免直接访问 GitHub 下载端点的 HTTP 504。Electron 下载仍执行 SHA256 校验；mac 的 `ELECTRON_BUILDER_BINARIES_MIRROR` 保持空值，DMG 所需的 dmgbuild 等工具仍用上游源，避免镜像缺包。
 - 从历史 ad-hoc 版本首次迁移到 Developer ID 版本时，旧版仍走手动下载 DMG；安装一次正式签名版后，再验证签名版本之间的一键重启更新。
 - 首次启用 Developer ID 后的人工 smoke 追加：从 Release 下载 dmg 在一台没装过 PiDeck 的 mac 上双击安装，必须**不出现**「无法验证开发者 / 已损坏」弹窗（不能靠 `xattr -cr` 绕）；装上上一个签名版后在设置页「检查更新 → 下载 → 重启并安装」走完一次应用内替换。
 

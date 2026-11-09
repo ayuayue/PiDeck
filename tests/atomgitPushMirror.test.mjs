@@ -110,8 +110,8 @@ test("installer wires the hook for other devices", () => {
 test("npm install installs the hook automatically", () => {
 	assert.equal(pkg.scripts.prepare, "node scripts/install-git-hooks.mjs");
 	assert.equal(pkg.scripts["hooks:install"], "node scripts/install-git-hooks.mjs");
-	// postinstall 只做本地依赖修补（node-pty 权限、electron-builder 解压 rename 重试补丁），不承载 git hook 安装
-	assert.equal(pkg.scripts.postinstall, "node scripts/fix-pty-permissions.js");
+	// postinstall 只做本地依赖修补（node-pty 权限、electron-builder 的解压 rename 重试与 mac keychain 密码补丁），不承载 git hook 安装
+	assert.equal(pkg.scripts.postinstall, "node scripts/fix-pty-permissions.js && node scripts/patch-electron-builder-rename-retry.js && node scripts/patch-electron-builder-keychain-password.js");
 });
 
 test("atomgit URL has a single source of truth", () => {

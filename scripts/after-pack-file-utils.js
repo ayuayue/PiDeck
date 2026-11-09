@@ -14,8 +14,8 @@ async function rmDir(dir) {
 
 /**
  * Windows 上刚写盘的文件会被杀软/索引器短暂持有句柄（分享模式不含 DELETE），
- * 此时 rename/unlink 返回 EPERM/EACCES/EBUSY。afterPack 自己的文件替换使用
- * 有界重试等句柄释放，耗尽后抛原始错误；解压目录移动由上游 electron-builder 处理，
+ * 此时 rename/unlink 返回 EPERM/EACCES/EBUSY。与 scripts/patch-electron-builder-rename-retry.js
+ * 注入 electron-builder 的兜底同参数：有界重试等句柄释放，耗尽后抛原始错误，
  * 不把真实失败（路径错误、权限不足的非瞬时码）掩盖成重试成功。
  */
 async function renameWithRetry(from, to, options = {}) {
