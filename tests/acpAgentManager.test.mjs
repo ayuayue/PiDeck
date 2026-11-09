@@ -1641,7 +1641,10 @@ test("sendPrompt:普通 prompt 零输出仍按空回合拒绝(不收宽 #512 的
 	const result = await manager.sendPrompt({ agentId: tab.id, message: "这个路径下的构建挂了" });
 	assert.equal(result.accepted, false);
 	assert.equal(result.i18nKey, "acp.emptyTurn");
-	assert.equal(events.messages.at(-1).messages.find((entry) => entry.role === "user"), undefined);
+	assert.equal(
+		events.messages.at(-1).messages.find((entry) => entry.role === "user"),
+		undefined,
+	);
 });
 
 test("空白回合:debugDetails 带出 CLI stderr / 非标准通知 / update 统计(限流等根因可见)", async (t) => {

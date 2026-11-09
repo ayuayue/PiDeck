@@ -89,9 +89,9 @@ test("replaceCsvCell rewrites exactly one token and keeps the rest byte-identica
 });
 
 test("replaceCsvCell respects a BOM offset and missing spans", () => {
-	const text = '\uFEFFa,b\n1,2\n';
+	const text = "\uFEFFa,b\n1,2\n";
 	const grid = parseCsvGrid(text);
-	assert.equal(replaceCsvCell(text, grid.rowSpans[0][1], "9", grid.delimiter), '\uFEFFa,b\n1,9\n');
+	assert.equal(replaceCsvCell(text, grid.rowSpans[0][1], "9", grid.delimiter), "\uFEFFa,b\n1,9\n");
 	// 区间缺失（列被截断 / 该行没有这一列）时原样返回
 	assert.equal(replaceCsvCell(text, undefined, "9", grid.delimiter), text);
 	assert.equal(replaceCsvCell(text, null, "9", grid.delimiter), text);

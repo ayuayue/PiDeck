@@ -93,7 +93,10 @@ async function openAsk(window: Page, marker: string) {
 const activeTab = (window: Page) => askBar(window).locator('.ask-batch-tab[aria-selected="true"]');
 const skipButton = (window: Page) => askBar(window).locator(".ask-batch-skip");
 const body = (window: Page) => askBar(window).locator(".ask-batch-question-body");
-const navNext = (window: Page) => askBar(window).locator("button", { hasText: /^(下一题|去审阅)$/ }).last();
+const navNext = (window: Page) =>
+	askBar(window)
+		.locator("button", { hasText: /^(下一题|去审阅)$/ })
+		.last();
 const navPrev = (window: Page) => askBar(window).getByRole("button", { name: "上一题" });
 const submitAll = (window: Page) => askBar(window).getByRole("button", { name: "提交", exact: true }).last();
 

@@ -42,13 +42,7 @@ export default function MediaPreview(props: { url: string; fileName: string; onE
 					}}
 				/>
 				{!playing && !failed && (
-					<button
-						type="button"
-						onClick={start}
-						aria-label={t("editor.playVideo")}
-						title={t("editor.playVideo")}
-						className="absolute inset-0 m-auto flex h-14 w-14 items-center justify-center rounded-full bg-black/55 text-white shadow-lg ring-1 ring-white/30 transition hover:bg-black/70"
-					>
+					<button type="button" onClick={start} aria-label={t("editor.playVideo")} title={t("editor.playVideo")} className="absolute inset-0 m-auto flex h-14 w-14 items-center justify-center rounded-full bg-black/55 text-white shadow-lg ring-1 ring-white/30 transition hover:bg-black/70">
 						<Play size={26} className="translate-x-px" aria-hidden="true" />
 					</button>
 				)}
