@@ -107,6 +107,7 @@ GitHub 的 choice 只能写死静态列表，无法动态读 tag，所以每发�
 
 ### macOS 签名（Developer ID + 公证；无证书时 ad-hoc 兜底）
 
+- 打包工具固定为 `electron-builder 26.16.1`：该稳定版修复 `CSC_LINK` 导入时将 `.p12` 密码误用于临时钥匙串 ACL 解锁的问题，详见[上游 #10172](https://github.com/electron-userland/electron-builder/pull/10172)。`tests/macSigningKeychainPassword.test.mjs` 实际执行库的 `createKeychain`，分别检查证书导入密码与随机钥匙串密码的用途；两个密码无需相同，也不应通过放宽访问控制绕过失败。
 - **配置裁决点只有一个**：`scripts/electronBuilderConfig.js`（入口 `scripts/electron-builder.config.js`，dev 通道经 `scripts/dist-dev.js` 复用）。它以 `package.json build` 为基底，按环境变量决定 mac 签名：
   - `CSC_LINK`（base64 .p12，配 `CSC_KEY_PASSWORD`）或 `CSC_NAME`（本机钥匙串已装证书）非空 → 删掉 `identity`，交给 electron-builder 自动发现 Developer ID Application 证书；`APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`（或 `APPLE_API_KEY` 三元组 / `APPLE_KEYCHAIN_PROFILE`）齐全时 `notarize: true`（notarytool 公证 + 装订）；
   - 否则 `identity: "-"` + `notarize: false`（ad-hoc；公证对 ad-hoc 包必失败，所以显式关掉）。GitHub Actions 未配置的 secret 注入为空串，按未配置处理，fork PR 与本地无证书打包自然回退。

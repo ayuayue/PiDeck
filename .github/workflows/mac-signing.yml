@@ -14,6 +14,7 @@ on:
       - scripts/electronBuilderConfig.js
       - scripts/electron-builder.config.js
       - tests/electronBuilderConfig.test.mjs
+      - tests/electronBuilderArchiveMove.test.mjs
       - scripts/verify-mac-signature.mjs
       - scripts/dist-dev.js
       - tests/mac*test.mjs
@@ -33,6 +34,7 @@ on:
       - scripts/electronBuilderConfig.js
       - scripts/electron-builder.config.js
       - tests/electronBuilderConfig.test.mjs
+      - tests/electronBuilderArchiveMove.test.mjs
       - scripts/verify-mac-signature.mjs
       - scripts/dist-dev.js
       - tests/mac*test.mjs
@@ -64,4 +66,4 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Verify signing configuration, gates and native macOS identity
-        run: node --test tests/electronBuilderConfig.test.mjs tests/macSigningConfig.test.mjs tests/macSignatureGate.test.mjs tests/macPermissionIdentity.test.mjs tests/macAutoUpdateUi.test.mjs tests/macUpdateChannelCompatibility.test.mjs tests/releaseConfig.test.mjs tests/appBrandPackaging.test.mjs
+        run: node --test tests/electronBuilderConfig.test.mjs tests/macSigningConfig.test.mjs tests/macSigningKeychainPassword.test.mjs tests/electronBuilderArchiveMove.test.mjs tests/macSignatureGate.test.mjs tests/macPermissionIdentity.test.mjs tests/macAutoUpdateUi.test.mjs tests/macUpdateChannelCompatibility.test.mjs tests/releaseConfig.test.mjs tests/appBrandPackaging.test.mjs
