@@ -153,6 +153,8 @@ exports.unpackGlobFromFiles = unpackGlobFromFiles;
 
 exports.default = async function (context) {
 	const { appOutDir } = context;
+	// macOS nests resources inside <product>.app/Contents/Resources; use the packager's path.
+	const resourcesDir = context.packager?.getResourcesDir?.(appOutDir) ?? path.join(appOutDir, "resources");
 
 	// 本次打包的目标平台（交叉打包下与构建机不同），供 node-pty prebuild 过滤使用。
 	const CURRENT_PLATFORM = resolveTargetPlatform(context);
@@ -233,7 +235,7 @@ exports.default = async function (context) {
 	//    所以第 4/5/6 节对镜像的清理与 sharp 补丁仍然生效。
 	//    发布正式版必须走完整流程（不设该变量）。
 	// ====================================
-	const asarPath = path.join(appOutDir, "resources", "app.asar");
+	const asarPath = path.join(resourcesDir, "app.asar");
 
 	if (process.env.PI_FAST_PACK === "1") {
 		console.log("[afterPack] PI_FAST_PACK=1：跳过 asar 解包清理/重打包（仅快速验证用，勿对外发布）");
@@ -393,7 +395,7 @@ exports.default = async function (context) {
 	// 4. node-pty 跨平台 prebuild 清理（asar.unpacked）
 	// 在 Windows 打包时只保留 win32-x64，删除其余 3 个平台的预编译二进制。
 	// ====================================
-	const nodePtyDir = path.join(appOutDir, "resources", "app.asar.unpacked", "node_modules", "node-pty", "prebuilds");
+	const nodePtyDir = path.join(resourcesDir, "app.asar.unpacked", "node_modules", "node-pty", "prebuilds");
 	if (fs.existsSync(nodePtyDir)) {
 		try {
 			const entries = await fs.promises.readdir(nodePtyDir, { withFileTypes: true });
@@ -429,7 +431,7 @@ exports.default = async function (context) {
 	//    Windows/macOS 有官方 prebuild，build/ 可删除；node-pty 1.1.0 的 Linux
 	//    没有 prebuild，build/Release/pty.node 是唯一运行时 addon，必须保留。
 	// ====================================
-	const nodePtyUnpacked = path.join(appOutDir, "resources", "app.asar.unpacked", "node_modules", "node-pty");
+	const nodePtyUnpacked = path.join(resourcesDir, "app.asar.unpacked", "node_modules", "node-pty");
 	if (fs.existsSync(nodePtyUnpacked)) {
 		let mapFiles = 0;
 		let mapBytes = 0;
@@ -468,7 +470,7 @@ exports.default = async function (context) {
 	//    与 3b3 同理（asar 内副本在 repack 前已打补丁）；这里对 unpacked 镜像也打一份，
 	//    保证无论 require 解析命中哪份都走真实磁盘路径（幂等，重复打包安全）。
 	// ====================================
-	const sharpImgDir = path.join(appOutDir, "resources", "app.asar.unpacked", "node_modules", "@img", "sharp-win32-x64");
+	const sharpImgDir = path.join(resourcesDir, "app.asar.unpacked", "node_modules", "@img", "sharp-win32-x64");
 	const sharpIndexCjs = path.join(sharpImgDir, "index.cjs");
 	if (fs.existsSync(sharpIndexCjs)) {
 		const original = fs.readFileSync(sharpIndexCjs, "utf8");

@@ -64,20 +64,26 @@ jobs:
             verify_globs: "PiDeck-Dev-*-setup.exe PiDeck-Dev-*-portable.exe PiDeck-Dev-*-win.zip latest*.yml"
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
+          # mac 签名/公证由 dist-dev.js 内置的 electronBuilderConfig 按 secrets 裁决；两个架构的 latest-mac.yml
+          # 不直接上传（skip_yml），由下方 merge-mac-update-manifest 合并（与 release.yml 同款）。
           - platform: macos
             name: macOS x64
-            os: macos-latest
+            os: macos-15-intel
+            mac_arch: x64
             command: node scripts/dist-dev.js --mac dmg zip --x64
-            verify_globs: "PiDeck-Dev-*-x64.dmg PiDeck-Dev-*-x64.zip *-mac.yml"
+            verify_globs: "PiDeck-Dev-*-x64.dmg PiDeck-Dev-*-x64.zip latest-mac.yml"
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
+            skip_yml: true
           - platform: macos
             name: macOS arm64
             os: macos-latest
+            mac_arch: arm64
             command: node scripts/dist-dev.js --mac dmg zip --arm64
-            verify_globs: "PiDeck-Dev-*-arm64.dmg PiDeck-Dev-*-arm64.zip *-mac.yml"
+            verify_globs: "PiDeck-Dev-*-arm64.dmg PiDeck-Dev-*-arm64.zip latest-mac.yml"
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
+            skip_yml: true
           - platform: linux
             name: Linux x64
             os: ubuntu-latest
@@ -132,20 +138,42 @@ jobs:
           CSC_LINK: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
           CSC_NAME: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_NAME || '' }}
+          PIDECK_MAC_TEAM_ID: ${{ matrix.platform == 'macos' && (vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID) || '' }}
           # 发布产物标记（dev 通道同样是正式发布）：注入后构建来源判定 release，
           # 否则 PiDeck Dev 安装包会在设置页显示「本地构建」（见 src/main/buildIdentity.ts）。
           PIDECK_RELEASE_BUILD: "1"
           ELECTRON_MIRROR: ${{ matrix.electron_mirror }}
           ELECTRON_BUILDER_BINARIES_MIRROR: ${{ matrix.electron_builder_binaries_mirror }}
+          # dev 发布与 stable 同样要求 Developer ID + 公证；凭据只给 mac job。
+          APPLE_ID: ${{ matrix.platform == 'macos' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'macos' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'macos' && secrets.APPLE_TEAM_ID || '' }}
+          PIDECK_MAC_REQUIRE_NOTARIZATION: ${{ matrix.platform == 'macos' && '1' || '' }}
 
-      # 打包后门禁：mac 包必须带有效 bundle 签名（dev 通道经 dist-dev.js 浅合并继承
-      # build.mac.identity 的显式 ad-hoc，配置回归时这里必须红，不能静默发坏包，#347）。
+      # 打包后门禁：mac 包必须带有效 bundle 签名（dev 通道经 dist-dev.js 继承同一套签名裁决；
+      # 发布凭据缺失必须失败，且要求 Developer ID + 公证装订，#347）。
       - name: Verify macOS bundle signature
         if: matrix.platform == 'macos'
         run: node scripts/verify-mac-signature.mjs
         env:
-          PIDECK_MAC_REQUIRE_DEVELOPER_ID: ${{ secrets.MAC_CSC_LINK != '' || secrets.MAC_CSC_NAME != '' }}
-          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
+          PIDECK_RELEASE_BUILD: "1"
+          PIDECK_MAC_REQUIRE_DEVELOPER_ID: "true"
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_NAME: ${{ secrets.MAC_CSC_NAME }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PIDECK_MAC_REQUIRE_NOTARIZATION: "1"
+
+      - name: Upload latest-mac.yml for merge
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-mac-yml-${{ matrix.mac_arch }}
+          path: release/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 3
 
       # 上传前断言关键产物存在，防止构建静默失败产出空 Release
       # （electron-builder 偶发部分 target 失败但进程退出码为 0）。
@@ -163,13 +191,12 @@ jobs:
           echo "产物齐全："
           ls release/PiDeck-Dev-* release/latest*.yml 2>/dev/null || true
 
-      - name: Stage macOS update metadata
-        if: matrix.platform == 'macos'
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-update-metadata-${{ matrix.name }}
-          path: release/*-mac.yml
-          if-no-files-found: error
+      - name: Preserve existing release visibility
+        id: release-staging
+        run: node scripts/release-staging.mjs
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -181,6 +208,8 @@ jobs:
           # tag 不存在时指到本次构建 commit；tag 已存在时本字段被忽略
           target_commitish: ${{ github.sha }}
           prerelease: true
+          draft: ${{ steps.release-staging.outputs.draft == 'true' }}
+          make_latest: "false"
           body: |
             PiDeck Dev（开发通道）构建，非正式版。
 
@@ -195,15 +224,56 @@ jobs:
             release/*.deb
             release/*.tar.gz
             release/*.blockmap
-            ${{ matrix.skip_yml != true && matrix.platform != 'macos' && 'release/latest*.yml' || '' }}
+            ${{ matrix.skip_yml != true && 'release/latest*.yml' || '' }}
 
-  publish-mac-update-metadata:
-    name: Publish complete macOS update feeds
+  # mac 自动更新清单合并（与 release.yml 的 merge-mac-update-manifest 同款，原因见
+  # scripts/merge-latest-mac-yml.mjs 头注释）。
+  merge-mac-update-manifest:
+    name: Merge latest-mac.yml
     needs: [resolve-version, build-dev]
-    uses: ./.github/workflows/publish-mac-update-metadata.yml
-    with:
-      version: ${{ needs.resolve-version.outputs.version }}
-      tag: ${{ needs.resolve-version.outputs.tag }}
-      ref: ${{ github.sha }}
-    secrets:
-      RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download per-arch manifests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: latest-mac-yml-*
+          path: mac-manifests
+
+      - name: Merge manifests
+        run: node scripts/merge-latest-mac-yml.mjs --out release/latest-mac.yml mac-manifests/latest-mac-yml-x64/latest-mac.yml mac-manifests/latest-mac-yml-arm64/latest-mac.yml
+
+      - name: Upload merged manifest onto Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            if gh release upload "$TAG" release/latest-mac.yml --clobber --repo "${{ github.repository }}"; then
+              exit 0
+            fi
+            echo "upload failed, retry ${i}/5"
+            sleep $((i * 5))
+          done
+          echo "::error::上传 latest-mac.yml 到 ${TAG} 失败"
+          exit 1
+
+  publish-dev-release:
+    name: Publish complete dev release
+    needs: [resolve-version, build-dev, merge-mac-update-manifest]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish prerelease after all update assets are ready
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$REPO" --draft=false --prerelease=true --latest=false

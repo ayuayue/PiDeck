@@ -13,7 +13,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import test from "node:test";
-import { findMacApps, findNestedApps, parseCodeSignDisplay, verifyMacSignature } from "../scripts/verify-mac-signature.mjs";
+import { findMacApps, findNestedApps, hasHardenedRuntime, isDeveloperIdSigned, parseCodeSignDisplay, verifyMacSignature } from "../scripts/verify-mac-signature.mjs";
+import { resolveMacIdentityPolicy } from "../scripts/mac-signing-policy.js";
+
+// 门禁默认按环境变量推断期望的签名模式（与打包配置同源）；本地开发机若导出过 CSC_* 会把
+// 下面的 ad-hoc 用例全部拉成 developer-id 期望。测试进程内清掉，developer-id 用例显式注入 signing。
+for (const key of ["CSC_LINK", "CSC_NAME", "APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID", "APPLE_API_KEY", "APPLE_KEYCHAIN_PROFILE"]) delete process.env[key];
+const DEVELOPER_ID_NOTARIZED = { mode: "developer-id", notarize: true };
+const DEVELOPER_ID_UNNOTARIZED = { mode: "developer-id", notarize: false };
 
 // 0.9.0 官方 arm64 包上真实复现的 codesign 输出（缺资源封印时的报错原文）。
 const UNSIGNED_OUTPUT = "code has no resources but signature indicates they must be present";
@@ -33,12 +40,17 @@ async function put(path, content = "content") {
 }
 
 /** 构造 codesign -dv 的真实输出形态（封印与否的写法不同）。 */
-function displayOutput({ identifier, infoPlist = "entries=33", sealedResources = "version=2 rules=13 files=417", signature = "adhoc", teamIdentifier = "not set", authorities = [] }) {
+function displayOutput({ identifier, infoPlist = "entries=33", sealedResources = "version=2 rules=13 files=417", signature = "adhoc", teamIdentifier = "not set", authorities = [], developerId = false, hardenedRuntime = developerId || signature !== "adhoc" }) {
+	if (developerId) {
+		signature = null;
+		teamIdentifier = "ABCDE12345";
+		authorities = ["Developer ID Application: Example Co (ABCDE12345)", "Developer ID Certification Authority", "Apple Root CA"];
+	}
 	return [
 		"Executable=/tmp/PiDeck.app/Contents/MacOS/PiDeck",
 		`Identifier=${identifier}`,
 		"Format=app bundle with Mach-O universal (x86_64 arm64)",
-		`CodeDirectory v=20400 size=1 flags=${signature === "adhoc" ? "0x2(adhoc)" : "0x10000(runtime)"} hashes=1+0 location=embedded`,
+		`CodeDirectory v=20400 size=1 flags=${hardenedRuntime ? "0x10000(runtime)" : signature === "adhoc" ? "0x2(adhoc)" : "0x0(none)"} hashes=1+0 location=embedded`,
 		signature === null ? "Signature size=9000" : `Signature=${signature}`,
 		...authorities.map((authority) => `Authority=${authority}`),
 		infoPlist === "not bound" ? "Info.plist=not bound" : `Info.plist ${infoPlist}`,
@@ -46,6 +58,16 @@ function displayOutput({ identifier, infoPlist = "entries=33", sealedResources =
 		`TeamIdentifier=${teamIdentifier}`,
 		"",
 	].join("\n");
+}
+
+/** spctl / stapler 替身：记录调用，按登记的失败返回非 0。 */
+function makeTool(failure = null) {
+	const calls = [];
+	const run = async (args) => {
+		calls.push(args);
+		return failure ? { code: 3, output: failure } : { code: 0, output: "accepted" };
+	};
+	return { run, calls };
 }
 
 /**
@@ -84,7 +106,7 @@ function makeCodesign({ displays, verifyFailures = new Map() }) {
 		}
 		if (args[0] === "-d" && args[1] === "-r-") {
 			const config = displays.get(target);
-			return { code: config?.requirementExitCode ?? 0, output: `designated => ${config?.requirement ?? 'cdhash H"0123456789012345678901234567890123456789"'}` };
+			return { code: config?.requirementExitCode ?? 0, output: `designated => ${config?.requirement ?? (config?.developerId ? `identifier "${config.identifier}" and anchor apple generic and certificate leaf[subject.OU] = ABCDE12345` : 'cdhash H"0123456789012345678901234567890123456789"')}` };
 		}
 		if (args.some((arg) => arg.startsWith("-R=")) && displays.get(target)?.untrustedCertificate) {
 			return { code: 3, output: "test-requirement: code failed to satisfy specified code requirement(s)" };
@@ -134,6 +156,99 @@ test("签名完整（封印 + identifier 对齐 + Helper 一致）的包通过�
 		assert.deepEqual(calls[1], ["-dv", "--verbose=4", main.app]);
 		assert.equal(calls.length, 3);
 	});
+});
+
+test("Developer ID + 公证期望：正式签名、hardened runtime、stapler/spctl 通过时放行，且两条工具都真的跑了", async () => {
+	await withTempRelease(async (release) => {
+		const main = await createApp(release, "mac-arm64", "PiDeck.app", { helpers: [{ name: "PiDeck Helper.app", bundleId: "com.ayuayue.pi-desktop.helper" }] });
+		for (const display of main.displays.values()) display.developerId = true;
+		const { runCodesign, readInfoPlist } = harness([main]);
+		const spctl = makeTool();
+		const stapler = makeTool();
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", runCodesign, readInfoPlist, runSpctl: spctl.run, runStapler: stapler.run, signing: DEVELOPER_ID_NOTARIZED });
+		assert.equal(result.ok, true, result.errors.join("\n"));
+		assert.equal(result.signing, "developer-id");
+		assert.deepEqual(result.warnings, []);
+		assert.deepEqual(stapler.calls, [["validate", main.app]]);
+		assert.deepEqual(spctl.calls, [["--assess", "--type", "execute", "--verbose=4", main.app]]);
+		assert.match(result.apps[0].authorities[0], /^Developer ID Application:/);
+	});
+});
+
+test("配了证书却产出 ad-hoc 包时判红（证书导入失败被 electron-builder 静默跳过的形态）", async () => {
+	await withTempRelease(async (release) => {
+		const main = await createApp(release, "mac-arm64", "PiDeck.app");
+		const { runCodesign, readInfoPlist } = harness([main]);
+		const spctl = makeTool();
+		const stapler = makeTool();
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", runCodesign, readInfoPlist, runSpctl: spctl.run, runStapler: stapler.run, signing: DEVELOPER_ID_NOTARIZED });
+		assert.equal(result.ok, false);
+		assert.ok(
+			result.errors.some((error) => /Developer ID Application/.test(error) && /ad-hoc/.test(error)),
+			result.errors.join("\n"),
+		);
+	});
+});
+
+test("Developer ID 签了但没开 hardened runtime 时判红（公证必挂）", async () => {
+	await withTempRelease(async (release) => {
+		const main = await createApp(release, "mac-arm64", "PiDeck.app");
+		main.displays.set(main.app, { identifier: "com.ayuayue.pi-desktop", developerId: true, hardenedRuntime: false });
+		const { runCodesign, readInfoPlist } = harness([main]);
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", runCodesign, readInfoPlist, runSpctl: makeTool().run, runStapler: makeTool().run, signing: DEVELOPER_ID_UNNOTARIZED });
+		assert.equal(result.ok, false);
+		assert.ok(
+			result.errors.some((error) => /hardened runtime/.test(error)),
+			result.errors.join("\n"),
+		);
+	});
+});
+
+test("公证凭据缺失：Developer ID 签名合格即放行，但给出未公证警告，不调 stapler/spctl", async () => {
+	await withTempRelease(async (release) => {
+		const main = await createApp(release, "mac-arm64", "PiDeck.app");
+		main.displays.set(main.app, { identifier: "com.ayuayue.pi-desktop", developerId: true });
+		const { runCodesign, readInfoPlist } = harness([main]);
+		const spctl = makeTool();
+		const stapler = makeTool();
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", runCodesign, readInfoPlist, runSpctl: spctl.run, runStapler: stapler.run, signing: DEVELOPER_ID_UNNOTARIZED });
+		assert.equal(result.ok, true, result.errors.join("\n"));
+		assert.equal(result.warnings.length, 1);
+		assert.match(result.warnings[0], /未公证/);
+		assert.equal(spctl.calls.length, 0);
+		assert.equal(stapler.calls.length, 0);
+	});
+});
+
+test("公证期望下 stapler 或 spctl 任一失败即判红", async () => {
+	await withTempRelease(async (release) => {
+		const main = await createApp(release, "mac-arm64", "PiDeck.app");
+		main.displays.set(main.app, { identifier: "com.ayuayue.pi-desktop", developerId: true });
+		const { runCodesign, readInfoPlist } = harness([main]);
+		const stapleFailed = await verifyMacSignature({ releaseDir: release, platform: "darwin", runCodesign, readInfoPlist, runSpctl: makeTool().run, runStapler: makeTool("does not have a ticket stapled").run, signing: DEVELOPER_ID_NOTARIZED });
+		assert.equal(stapleFailed.ok, false);
+		assert.ok(
+			stapleFailed.errors.some((error) => /stapler validate/.test(error)),
+			stapleFailed.errors.join("\n"),
+		);
+		const assessFailed = await verifyMacSignature({ releaseDir: release, platform: "darwin", runCodesign, readInfoPlist, runSpctl: makeTool("rejected (Unnotarized Developer ID)").run, runStapler: makeTool().run, signing: DEVELOPER_ID_NOTARIZED });
+		assert.equal(assessFailed.ok, false);
+		assert.ok(
+			assessFailed.errors.some((error) => /Gatekeeper/.test(error)),
+			assessFailed.errors.join("\n"),
+		);
+	});
+});
+
+test("parseCodeSignDisplay 提取 Authority 链与 runtime 标志；ad-hoc 输出两者都判否", () => {
+	const signed = parseCodeSignDisplay(displayOutput({ identifier: "com.ayuayue.pi-desktop", developerId: true }));
+	assert.equal(signed.authorities.length, 3);
+	assert.equal(isDeveloperIdSigned(signed), true);
+	assert.equal(hasHardenedRuntime(signed), true);
+	const adhoc = parseCodeSignDisplay(displayOutput({ identifier: "com.ayuayue.pi-desktop" }));
+	assert.deepEqual(adhoc.authorities, []);
+	assert.equal(isDeveloperIdSigned(adhoc), false);
+	assert.equal(hasHardenedRuntime(adhoc), false);
 });
 
 test("0.9.0 那种包被判红：缺封印 + codesign 失败 + identifier 退化成 Electron", async () => {
@@ -318,6 +433,38 @@ function useDeveloperId(app) {
 		});
 	}
 }
+
+test("release verification requires a fixed Team even for a valid Developer ID signature", async () => {
+	await withTempRelease(async (release) => {
+		const app = await createApp(release, "mac", "PiDeck.app");
+		useDeveloperId(app);
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...harness([app]), identityPolicy: resolveMacIdentityPolicy({ PIDECK_RELEASE_BUILD: "1", PIDECK_MAC_REQUIRE_DEVELOPER_ID: "false" }) });
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join("\n"), /TEAM_ID/);
+	});
+});
+
+test("stable/dev release verification pins the Team and forces notarization despite optional overrides", async () => {
+	await withTempRelease(async (release) => {
+		const stable = await createApp(release, "mac", "PiDeck.app");
+		const dev = await createApp(release, "mac-arm64", "PiDeck Dev.app", { bundleId: "com.ayuayue.pi-desktop-dev", helpers: [{ name: "Helper.app", bundleId: "com.ayuayue.pi-desktop-dev.helper" }] });
+		for (const app of [stable, dev]) useDeveloperId(app);
+		const identityPolicy = resolveMacIdentityPolicy({ PIDECK_RELEASE_BUILD: "1", PIDECK_MAC_TEAM_ID: "A1B2C3D4E5", PIDECK_MAC_REQUIRE_DEVELOPER_ID: "false" });
+		const spctl = makeTool(),
+			stapler = makeTool();
+		const options = { releaseDir: release, platform: "darwin", ...harness([stable, dev]), identityPolicy, requireDeveloperId: false, signing: { mode: "adhoc", notarize: false }, runSpctl: spctl.run, runStapler: stapler.run };
+		const result = await verifyMacSignature(options);
+		assert.equal(result.ok, true, result.errors.join("\n"));
+		assert.equal(stapler.calls.length, 2);
+		assert.equal(spctl.calls.length, 2);
+		const wrongTeam = await verifyMacSignature({ ...options, identityPolicy: resolveMacIdentityPolicy({ PIDECK_RELEASE_BUILD: "1", PIDECK_MAC_TEAM_ID: "OTHERTEAM1" }) });
+		assert.equal(wrongTeam.ok, false);
+		assert.match(wrongTeam.errors.join("\n"), /TeamIdentifier/);
+		const override = await verifyMacSignature({ ...options, expectedTeamId: "OTHERTEAM1" });
+		assert.equal(override.ok, false);
+		assert.match(override.errors.join("\n"), /不能覆盖/);
+	});
+});
 
 test("valid ad-hoc bundles warn that TCC grants cannot be retained across updates", async () => {
 	await withTempRelease(async (release) => {

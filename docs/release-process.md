@@ -41,11 +41,11 @@
 
 ## latest 指针（release.yml 的 finalize-release 作业）
 
-所有资产上传完成后，`finalize-release` 作业先 `GET .../releases/tags/<tag>` 取 release id，再 `gh api -X PATCH .../releases/<id> -f name=<tag> -F make_latest=true`（Update a release 只接受 id，`/releases/tags/<tag>` 仅支持 GET，直接 PATCH 恒 404），并把 `/releases/latest` 指向本 tag 作为门禁断言（60s 内未生效即发版失败）。
+新版本先作为 draft 上传资产，`scripts/release-staging.mjs` 在重跑既有版本时保留原可见性，不把已发布版本重新隐藏。安装包、DSH runtime 与合并后的 `latest-mac.yml` 全部上传后，`finalize-release` 才通过 `gh release edit --draft=false` 公开版本；stable 同时显式 `--latest` 并读回 `/releases/latest` 验证，dev 使用 `--prerelease=true --latest=false`。独立 `build-dev.yml` 同样等待 mac 清单后才公开预发布草稿。
 
 为什么不能只靠 `softprops/action-gh-release`：Release 若是先建成 draft/预发布暂存、之后由 build 矩阵补资产并把 `prerelease` 翻成 false，GitHub **不会**把已存在的 release 提升为 latest，latest 会静默停在上一版——存量客户端（Windows electron-updater、macOS/Linux 手动更新都读 `/releases/latest`）就完全收不到这次更新，而 CI 全绿。2026-10-31 的 v0.9.9 正是这样漏出去的。
 
-手工补修（历史 tag 已发但 latest 没跟上）：先 `gh api repos/ayuayue/PiDeck/releases/tags/<tag> --jq .id` 取 id，再 `gh api -X PATCH repos/ayuayue/PiDeck/releases/<id> -f name=<tag> -F make_latest=true`，随后 `curl -sI https://github.com/ayuayue/PiDeck/releases/latest` 确认 302 到该 tag；AtomGit 侧 latest 标记由 `sync-atomgit` 按 GitHub latest 校正，补修后重跑一次 `gh workflow run sync-atomgit.yml -f tags=<tag>` 即可。
+手工补修（历史 tag 已发但 latest 没跟上）：`gh release edit <tag> --repo ayuayue/PiDeck --title <tag> --latest`，再 `curl -sI https://github.com/ayuayue/PiDeck/releases/latest` 确认 302 到该 tag；AtomGit 侧 latest 标记由 `sync-atomgit` 按 GitHub latest 校正，补修后重跑一次 `gh workflow run sync-atomgit.yml -f tags=<tag>` 即可。
 
 发版后复核：`node scripts/probe-update-check.mjs`（联网，不属于单测）——校验仓库坐标一致、`/releases/latest` 的 tag 与 latest.yml 版本对齐、latest.yml 声明的安装包真实可下载且字节数一致、AtomGit 的 latest 与 latest.yml 同步，并打印「哪些存量客户端会被提示」的判定矩阵；任一条不成立退出码 1。
 
@@ -105,26 +105,30 @@ GitHub 的 choice 只能写死静态列表，无法动态读 tag，所以每发�
 `src/main/buildIdentity.ts`）。漏标的表现是发布包也显示「本地构建」，守卫测试
 `tests/releaseWorkflowBuildOrigin.test.mjs` 会按「会发 Release 的 workflow」逐一拦下。
 
-### macOS 自动更新能力与双架构清单
+### macOS 签名（Developer ID + 公证；无证书时 ad-hoc 兜底）
 
-运行时检查当前安装的 Developer ID 签名后决定交付方式：有效身份走现有 electron-updater 下载与用户确认后的重启安装；ad-hoc、源码运行或探测失败保留手动 DMG 交付。首次从 ad-hoc 过渡到 Developer ID 仍需手动安装，后续更新必须保持 Team 与 Bundle ID 一致，详见 [macOS 自动更新恢复](macos-auto-update.md)。
+- **配置裁决点只有一个**：`scripts/electronBuilderConfig.js`（入口 `scripts/electron-builder.config.js`，dev 通道经 `scripts/dist-dev.js` 复用）。它以 `package.json build` 为基底，按环境变量决定 mac 签名：
+  - `CSC_LINK`（base64 .p12，配 `CSC_KEY_PASSWORD`）或 `CSC_NAME`（本机钥匙串已装证书）非空 → 删掉 `identity`，交给 electron-builder 自动发现 Developer ID Application 证书；`APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`（或 `APPLE_API_KEY` 三元组 / `APPLE_KEYCHAIN_PROFILE`）齐全时 `notarize: true`（notarytool 公证 + 装订）；
+  - 否则 `identity: "-"` + `notarize: false`（ad-hoc；公证对 ad-hoc 包必失败，所以显式关掉）。GitHub Actions 未配置的 secret 注入为空串，按未配置处理，fork PR 与本地无证书打包自然回退。
+- 身份要求统一由 `scripts/mac-signing-policy.js` 解析；mac 专用 `beforePack` 和产物门禁共同使用。`PIDECK_RELEASE_BUILD=1` 或 `PIDECK_MAC_REQUIRE_NOTARIZATION=1` 强制固定 Team、Developer ID 与公证，可选身份开关设为 false 不能放宽发布要求。缺证书、公证凭据或合法 Team 时打包失败；产物中实际 Team 不符、Helper 身份不符或缺公证票据同样失败。非 mac 打包不执行这些身份要求。
+- 本地/纯构建默认仍允许无证书 ad-hoc；这是验证包用途，不能代替正式公证发行物。固定 Team 的本地测试签名包也必须匹配指定身份。
+- 签名忽略 Electron Framework 下的 `*.lproj/locale.pak` 单独签名：它们是 Chromium 数据，由完整 framework 资源封印保护；不忽略 Mach-O 或原生模块。mac afterPack 使用 electron-builder 的真实 bundle Resources 路径执行 asar 清理和 node-pty 校验。
+- **所有 mac 打包命令必须带 `--config scripts/electron-builder.config.js`**（`npm run dist:mac`、release.yml / build-macos.yml / mac-test-build.yml 已带；dist-dev.js 内置）。裸跑仍由已有 `beforePack` 选择证书，但不会应用这里的公证策略；守卫 `tests/electronBuilderConfig.test.mjs`。
+- CI secrets（仓库 Settings → Secrets）：`MAC_CSC_LINK`（`base64 -i cert.p12`）、`MAC_CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`（appleid.apple.com 生成的 app 专用密码，不是账号密码）、`APPLE_TEAM_ID`。workflow 里只给 mac job 注入 `CSC_LINK`（`matrix.platform == 'macos'` 门控）——CSC_LINK 对 Windows 同样生效，泄到 win job 会拿 mac 证书签 exe 而失败。
+- 沿用可选 `MAC_CSC_NAME` 证书选择器。构建与门禁均将 `vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID` 注入 `PIDECK_MAC_TEAM_ID`：现有五项 Apple Secrets 已包含 Team，无需重复设置变量；也可用 `MAC_TEAM_ID` 显式固定发布身份。固定 Team 与 `APPLE_TEAM_ID` 同时存在时必须一致，防止签名/公证团队配置漂移。API key/keychain profile 方式则需显式提供固定 Team。
+- entitlements 沿用 app-builder-lib 默认模板（allow-jit / allow-unsigned-executable-memory / disable-library-validation），`hardenedRuntime` 默认 true。这三条就是 Electron + 原生模块（koffi / node-pty）+ Go sidecar + DSH runtime 内 node 二进制所需的全部；不开 App Sandbox，所以不需要 network.client/server 等沙箱 entitlement。@electron/osx-sign 会递归签掉 bundle 内所有 Mach-O（含 `Resources/` 下的 sidecar 和 `app.asar.unpacked` 的 `.node`），公证对「所有二进制都签名 + hardened runtime + 时间戳」的要求由它满足。
+- **mac 自动更新**：运行时 `src/main/update/macCodeSignature.ts` 用 `codesign -dv` 探测当前 .app 是否 Developer ID 签名，是则 `deliveryPlan` 走 automatic（electron-updater MacUpdater，读 `latest-mac.yml` + zip），否则仍是 manual（推荐 dmg 一键下载）。x64 / arm64 两个 job 的 `latest-mac.yml` 各含一半文件，直接上传会互相覆盖（x64 用户报 ZIP file not provided / arm64 用户装到 x64 包），所以 mac job `skip_yml` + 上传 artifact，由 `merge-mac-update-manifest` job 跑 `scripts/merge-latest-mac-yml.mjs` 合并后 `gh release upload --clobber`（release.yml 与 build-dev.yml 同款）。合并失败阻止新草稿公开及 latest 提升，避免客户端拿到缺失的清单。
+- 本地打签名包：证书装进登录钥匙串后 `CSC_NAME="<证书名不含 Developer ID Application: 前缀>" APPLE_ID=... APPLE_APP_SPECIFIC_PASSWORD=... APPLE_TEAM_ID=... npm run dist:mac`，然后 `node scripts/verify-mac-signature.mjs`（同一组环境变量下跑，它才知道要按 Developer ID 判）。
+- 历史背景（仍有效）：`package.json` 的 `build.mac.identity: "-"` 是裸跑 electron-builder 时的安全底线。**不要删这一行**：electron-builder 26.15 起找不到证书时不再回退 ad-hoc（26.8.1 的 `fallBackToAdhoc` 已删除，`scheme.json` 的 identity 说明也写明 "no automatic ad-hoc fallback"），省略它只会得到「签名静默跳过、CI 全绿」的假绿包——0.9.0 的 arm64 包就是这样：没有 `Contents/_CodeSignature`、`Info.plist` 未封印（CodeDirectory identifier 仍是 Electron），Apple Silicon 上停在 `_dyld_start` 打不开（#347）。
+- ad-hoc + 默认 `hardenedRuntime: true` 需要 `com.apple.security.cs.disable-library-validation` entitlement，该键已在 app-builder-lib 默认模板里；不要另加一份缺它的 `build/entitlements.mac.plist`（会连累 node-pty 等原生模块加载）。
+- 每个 mac 打包 job 在 `Build packages` 之后跑 `node scripts/verify-mac-signature.mjs`（本地打了 mac 包也可手动跑，`--release-dir` 指目录、`--json` 出报告）。门禁用与打包配置同一组环境变量推断期望：有 `CSC_LINK`/`CSC_NAME` 时要求主 .app 的 `Authority=Developer ID Application:`、`CodeDirectory flags` 含 `runtime`，公证凭据齐全时还要 `xcrun stapler validate` 与 `spctl --assess --type execute` 通过（配了证书却产出 `Signature=adhoc` 即红：那是证书导入失败被静默跳过）；签了但没公证只警告。ad-hoc 模式的判据：`release/mac*/*.app` 存在 + `<app>/Contents/_CodeSignature/CodeResources` 非空 + `codesign --verify --deep --strict` 退出码 0 + （`codesign -dv --verbose=4`）签名 `Identifier` 等于 `Contents/Info.plist` 的 `CFBundleIdentifier`、`Info.plist entries=` 已封印、`Sealed Resources version=` 不是 `none` + `Contents/Frameworks/*.app`（Helper）的签名标识等于各自的 Bundle ID（官方 0.8.0 arm64 全过、0.9.0 arm64 全挂）。后三条是 #347 后续评论补的：0.9.0 的 `Identifier=Electron`、`Info.plist=not bound`、`Sealed Resources=none`、Helper 用通用 `Electron Helper` 标识，这些不会被纯 `--verify` 判红，但会让 macOS 把本地网络授权记在 `Electron` 名下，表现为局域网模型服务连不上、PiDeck 终端 `ssh` 报 `No route to host`。门禁红灯时该 job 会停在上传之前——宁可 Release 缺 mac 资产（红 job 可见、重跑补齐），也不发一个装上去打不开或局域网不可用的包。
+- `build.mac.extendInfo.NSLocalNetworkUsageDescription` 是 macOS「本地网络」权限弹窗的说明文案，缺了它系统不会弹窗、本地网络访问可能被默默拒绝；发版时不要删（只影响 Info.plist，不影响签名）。用户从 0.9.0 升级后，系统设置 → 隐私与安全性 → 本地网络里可能残留旧的 `Electron` 条目，发布说明要提示删掉后重新允许 PiDeck。
+- mac 人工 smoke 除「能启动」外必须覆盖本地网络：在 PiDeck 终端里 `ssh`/`nc` 一台局域网主机、用局域网地址的模型服务各跑一次，然后重启应用重复一次。这两个场景是签名 identifier 退化时唯一会暴露的用户可见回归（启动正常、局域网 EHOSTUNREACH / No route to host），CI 无法代跑（需要真实局域网与 TCC 授权）。
+- Intel 包使用 `macos-15-intel` 原生 runner，ARM 包使用 Apple Silicon runner，避免 npm 安装的 koffi / sharp 等可选原生依赖与目标架构不一致。
+- 从历史 ad-hoc 版本首次迁移到 Developer ID 版本时，旧版仍走手动下载 DMG；安装一次正式签名版后，再验证签名版本之间的一键重启更新。
+- 首次启用 Developer ID 后的人工 smoke 追加：从 Release 下载 dmg 在一台没装过 PiDeck 的 mac 上双击安装，必须**不出现**「无法验证开发者 / 已损坏」弹窗（不能靠 `xattr -cr` 绕）；装上上一个签名版后在设置页「检查更新 → 下载 → 重启并安装」走完一次应用内替换。
 
-`release.yml` / `build-dev.yml` 的 macOS 构建任务只上传安装包并暂存各架构的 `*-mac.yml`。共用 `publish-mac-update-metadata.yml` 在两个架构任务完成后调用 `scripts/merge-mac-update-metadata.mjs` 合并并验证，再单独上传完整通道文件；不要恢复两个任务直接上传同名清单的行为，否则后完成的架构会覆盖另一架构。stable 的 latest 收尾与后续 runtime 资产完成检测依赖完整清单已发布。验收时同时检查 x64 / arm64 ZIP 与 `latest-mac.yml`、适用时 `beta-mac.yml` 的 `files`，不要只检查 DMG。
+#### 更新后的权限保留
 
-### macOS 签名与更新后的权限保留
-
-- `build.mac.identity: "-"` 继续作为**无证书构建的兜底**，不要直接删除：electron-builder 26.15+ 已移除自动 ad-hoc 回退，省略身份且没有证书会再次产出未封印的坏包（#347）。`beforePack` 的 `scripts/configure-mac-signing.js` 在配置 `CSC_LINK` / `CSC_NAME` 或显式证书身份时解除 `"-"` 的覆盖，选择 distribution 证书并强制签名；证书缺失或导入失败必须停止构建，不能静默降级。
 - **签名有效不等于权限可跨版本保留。** 默认 ad-hoc 的 designated requirement 是 `cdhash H"…"`；二进制、Info.plist、图标等封印资源变化并重签后，哈希会改变。TCC 仍可显示文件夹已允许，但旧授权要求已无法匹配新应用。持续使用同一 Developer ID / Team 与 Bundle ID 是系统识别更新的前提；只固定 Bundle ID 或重复 ad-hoc 重签不能解决这个问题。
-- 四个 mac 构建 workflow（`release.yml`、`build-dev.yml`、`build-macos.yml`、`mac-test-build.yml`）已接入可选签名配置。维护者在仓库 Actions secrets 配置 `MAC_CSC_LINK`（导出的 Developer ID Application `.p12`，按 electron-builder 的 `CSC_LINK` 约定）、`MAC_CSC_KEY_PASSWORD`，可选 `MAC_CSC_NAME`（证书名称选择器，不含 `Developer ID Application:` 前缀）。建议另设 Actions variable `MAC_TEAM_ID`，固定预期的 10 位 Team ID。私钥及密码只放 secrets，不提交到仓库。无证书时仍能构建，但应明确告知用户可能需要重新授权。
-- 配置证书后，上传前门禁要求主应用与 Helper 均为 Apple 证书链认可的 Developer ID Application 签名，Team ID 一致（设置 `MAC_TEAM_ID` 时还必须匹配预期值），并拒绝绑定 `cdhash` 或缺少 Apple / Team 约束的 designated requirement。未配置证书时，门禁保留 ad-hoc 兼容并输出 TCC 权限保留警告。公证凭据仍按 electron-builder 的 `APPLE_*` 约定另配；Developer ID 签名与公证是两项不同步骤。
-- 原有产物级门禁继续保留：`release/mac*/*.app` 存在、资源封印非空、`codesign --verify --deep --strict` 通过、主应用及 Helper 的签名 `Identifier` 与各自 `CFBundleIdentifier` 一致、Info.plist 已封印。可运行 `node scripts/verify-mac-signature.mjs --require-developer-id --team-id "$MAC_TEAM_ID" --json` 独立核对证书模式；`--release-dir` 指定产物目录。不要用仅含 identifier 的自定义签名要求绕过检查，也不要修改用户的 TCC 数据库。
-- ad-hoc + 默认 `hardenedRuntime: true` 仍依赖 app-builder-lib 默认 entitlement 中的 `com.apple.security.cs.disable-library-validation`；不要用缺少该项的自有 entitlements 文件覆盖它，否则会阻断 node-pty 等原生模块加载。`build.mac.extendInfo.NSLocalNetworkUsageDescription` 也必须保留。
-
-macOS 发布验收在独立测试账号下覆盖以下场景，CI 的签名校验不能替代真实系统授权回归：
-
-1. 安装旧版并允许文稿、桌面、下载目录访问；记录 `codesign -d -r-` 与 Team ID。仅测试用户已明确允许的目录，不扩大授权范围。
-2. 用**同一 Developer ID / Team 和 Bundle ID**构建新版本，覆盖安装与应用内更新分别验证；完全退出重开后，已允许目录仍可访问，不反复要求授权。stable / dev 的 Bundle ID 各自稳定，不合并两个通道的授权身份。
-3. 在 PiDeck 终端及 pi 子进程中分别访问授权目录、连接一台局域网主机，并使用局域网模型服务；重启应用后重复。辅助功能、屏幕录制等已有授权也应按实际功能逐项验收，不能由文件夹结果推断全部权限均已继承。
-4. 从 ad-hoc 切换到证书签名、换 Team 或本地重签名都可能需要重新授权一次；已有 cdhash 绑定授权不能安全地由应用迁移。发布说明写清这条边界，并分别验证升级前后的权限；不运行全局 `tccutil reset`，不自动申请全磁盘访问。
-
-参考：Apple [TN2206 — Code Designated Requirement](https://developer.apple.com/library/archive/technotes/tn2206/_index.html) 说明系统如何通过 DR 识别更新；Apple [TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy) 说明本地网络的 responsible code 与构建身份注意事项。
+- 公开发布时，主应用与 Helper 均须为 Apple 证书链认可的 Developer ID Application 签名，匹配固定 Team，并拒绝绑定 `cdhash` 或缺少 Apple / Team 约束的 designated requirement。仅本地/纯测试构建保留 ad-hoc 兼容和 TCC 权限保留警告。Developer ID 签名、公证和真实权限继承仍是分别验证的事项；本机升级演练未申请真实目录、自动化等 TCC 授权。

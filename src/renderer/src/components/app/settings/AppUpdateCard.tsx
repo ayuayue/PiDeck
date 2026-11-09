@@ -70,7 +70,8 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 	const download = app?.download ?? null;
 	const phase = download?.phase ?? "idle";
 	const autoDownload = updateStatus?.autoDownload !== false;
-	const isManualDelivery = updateStatus ? updateStatus.deliveryMode === "manual" : props.platform === "darwin";
+	// 交付模式完全听主进程（macOS 签名包已能走 electron-updater，不再按平台硬编码 manual）。
+	const isManualDelivery = updateStatus?.deliveryMode === "manual";
 	const recommended = app?.recommendedDownload ?? null;
 	const recommendedTarget = recommended ? manualUpdateTargetLabel(recommended) : null;
 	const recommendedTargetText = recommendedTarget ? t(recommendedTarget.key, recommendedTarget.params) : "";

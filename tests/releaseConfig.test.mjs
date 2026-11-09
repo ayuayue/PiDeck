@@ -27,6 +27,8 @@ test("build.nsis 不得包含 allowDowngrade（electron-builder 26.x 无此键�
 // （本仓库未提供自有 entitlements 文件，别为了「自定义」把它覆盖成缺这条的版本，否则原生模块加载会被拦下）。
 // 配置证书后由 beforePack 动态解除 ad-hoc 覆盖（tests/macSigningConfig.test.mjs 验证）；
 // 这里仍守住无证书构建的默认值，避免修复权限保留时重新引入 #347 的未签名启动故障。
+// Developer ID 证书不在这里配：package.json 的 "-" 是「裸跑 electron-builder」的安全底线，有证书时由
+// scripts/electron-builder.config.js 按 CSC_LINK/CSC_NAME 删掉这一键（守卫见 tests/electronBuilderConfig.test.mjs）。
 test('build.mac.identity 必须显式 "-"：无证书时 electron-builder 26.15+ 不再自动回退 ad-hoc（#347）', () => {
 	const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 	assert.equal(pkg.build?.mac?.identity, "-", "无 Apple 证书时必须显式 ad-hoc：省略该键会产出没有任何 bundle 签名的 mac 包（Apple Silicon 启动即失败），而 CI 不会报错");

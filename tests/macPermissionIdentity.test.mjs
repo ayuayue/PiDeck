@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { load as loadYaml } from "js-yaml";
 
 const verifier = fileURLToPath(new URL("../scripts/verify-mac-signature.mjs", import.meta.url));
 
@@ -13,7 +14,7 @@ function verify(release, args = [], env = {}) {
 	const result = spawnSync(process.execPath, [verifier, "--release-dir", release, "--json", ...args], {
 		encoding: "utf8",
 		timeout: 30_000,
-		env: { ...process.env, PIDECK_MAC_REQUIRE_DEVELOPER_ID: "", PIDECK_MAC_TEAM_ID: "", ...env },
+		env: { ...process.env, PIDECK_RELEASE_BUILD: "", PIDECK_MAC_REQUIRE_NOTARIZATION: "", PIDECK_MAC_REQUIRE_DEVELOPER_ID: "", PIDECK_MAC_TEAM_ID: "", CSC_LINK: "", CSC_NAME: "", APPLE_ID: "", APPLE_TEAM_ID: "", APPLE_APP_SPECIFIC_PASSWORD: "", APPLE_KEYCHAIN_PROFILE: "", ...env },
 	});
 	if (result.error) throw result.error;
 	return { status: result.status, report: JSON.parse(result.stdout) };
@@ -65,6 +66,26 @@ test("native macOS signing exposes hash-bound ad-hoc identity and rejects it in 
 			const { status, report } = verify(release, args, env);
 			assert.equal(status, 1);
 			assert.match(report.errors.join("\n"), /Developer ID/);
+		}
+	});
+
+	await t.test("release markers force a pinned team despite a false optional identity flag", () => {
+		const { status, report } = verify(release, [], { PIDECK_RELEASE_BUILD: "1", PIDECK_MAC_REQUIRE_DEVELOPER_ID: "false" });
+		assert.equal(status, 1);
+		assert.match(report.errors.join("\n"), /Team|TEAM_ID/);
+	});
+
+	await t.test("actual stable/dev workflow verification cannot accept an ad-hoc artifact without secrets", async () => {
+		for (const [file, job] of [
+			["release.yml", "build-release"],
+			["build-dev.yml", "build-dev"],
+		]) {
+			const workflow = loadYaml(await readFile(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8"));
+			const step = workflow.jobs[job].steps.find((step) => step.name === "Verify macOS bundle signature");
+			const env = Object.fromEntries(Object.entries(step.env).map(([key, value]) => [key, String(value).includes("${{") ? "" : String(value)]));
+			const { status, report } = verify(release, [], env);
+			assert.equal(status, 1, `${file}: release verification accepted real ad-hoc signing`);
+			assert.match(report.errors.join("\n"), /Team|TEAM_ID|Developer ID/);
 		}
 	});
 });

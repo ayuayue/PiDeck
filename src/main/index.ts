@@ -598,7 +598,8 @@ import type { FeishuChatBinding } from "../shared/types";
 import { createRealAutoUpdater } from "./update/createAutoUpdater";
 import { installAtomgitNoCacheBypass, UPDATER_PARTITION_NAME } from "./update/atomgitNoCacheBypass";
 import { createManualUpdateChecker } from "./update/macManualUpdate";
-import { resolveInstalledAppUpdateDeliveryPlan } from "./update/installedAppDelivery";
+import { resolveAppUpdateDeliveryPlan } from "./update/deliveryPlan";
+import { detectMacDeveloperIdSignature } from "./update/macCodeSignature";
 import { resolveManualUpdateTarget } from "./update/manualUpdateSelection";
 import { downloadInstallerAsset, type InstallerDownloadProgress } from "./update/installerDownload";
 import { UpdateService } from "./update/UpdateService";
@@ -3657,7 +3658,7 @@ async function syncWslConfig(): Promise<void> {
 	await Promise.all([refreshSkillProjection(), refreshPromptProjection(), refreshExtensionProjection()]);
 }
 
-async function registerIpc() {
+function registerIpc() {
 	// 远端能力与更新通道正交：正式包和 dev 包都装配；同一策略位由
 	// update:get-channel 的 remoteAvailable 下发给渲染层，避免主/渲染判据漂移。
 	// 各远端 IPC 仍保留 enabled=false 的 fail-closed 分支，供测试和后续下线策略使用。
@@ -5114,8 +5115,9 @@ async function registerIpc() {
 	});
 	// 旧覆盖层（没有 vendored 依赖的版本写的）启动自愈，不能要求用户先点一次「更新」
 	builtInExtensionsUpdater.ensureOverlayVendorDependencies();
-	// 后台更新按发行物能力选择交付方式；macOS 验证当前签名后才启用应用内安装。
-	// 两条路径共用 UpdateService 快照，设置页直接遵循主进程的能力判定。
+	// 后台更新检查：Windows / 支持自动升级的发行物走 electron-updater；
+	// macOS 当前未签 Developer ID，不能承诺稳定的替换/重启，因此只检测 Release 并交给用户手动安装。
+	// 两条路径都由同一个 UpdateService 快照推送渲染层，设置页能明确表达能力边界。
 	// AtomGit 镜像源对 query string 返回 404，而 electron-updater 检查必带 noCache 参数：
 	// 在 updater 首次发起请求前注册 webRequest 剥除器（幂等）。注意必须挂在
 	// electron-updater 的独立 partition session（"electron-updater"）上，而不是 defaultSession
@@ -5145,8 +5147,15 @@ async function registerIpc() {
 	};
 	// quitAndInstall 会调用 app.quit；该标记让 closeToTray 放行真正的退出。
 	let updateInstallSetQuitting = false;
-	// macOS 证书与 Linux 安装格式共同决定是否支持应用内更新。
-	const appUpdateDelivery = await resolveInstalledAppUpdateDeliveryPlan({ platform: process.platform, arch: process.arch, isAppImage: Boolean(process.env.APPIMAGE), isPackaged: app.isPackaged, execPath: process.execPath });
+	// 交付模式按设备能力判定：Linux arm64 / deb / tar.gz 没有可靠的应用内替换链路，
+	// 与 macOS 无签名发行物一样走 manual（检查更新 + 一键下载设备匹配安装包）；
+	// macOS Developer ID 签名包由运行时 codesign 探测识别，走 electron-updater 自动替换。
+	const appUpdateDelivery = resolveAppUpdateDeliveryPlan({
+		platform: process.platform,
+		arch: process.arch,
+		isAppImage: Boolean(process.env.APPIMAGE),
+		macDeveloperIdSigned: detectMacDeveloperIdSignature({ isPackaged: app.isPackaged }),
+	});
 	const manualUpdateTarget = resolveManualUpdateTarget({
 		platform: process.platform,
 		arch: process.arch,
@@ -7806,7 +7815,7 @@ app
 			.catch((error: unknown) => {
 				void appLogger?.warn("app", "Model trace endpoint startup failed", error);
 			});
-		await registerIpc();
+		registerIpc();
 		// 系统级划词浮窗预热：功能隐藏期间连窗口都不加载，避免白占一个渲染进程。
 		if (SYSTEM_SELECTION_TOOL_ENABLED) void selectionToolWindow?.warmUp().catch(() => undefined);
 		// 统一接口聚合层：注册全部域与导入器并冻结（deps 缺省在 domainAssembly.ts 收集，FIND-5）

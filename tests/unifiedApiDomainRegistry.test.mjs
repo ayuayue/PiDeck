@@ -161,7 +161,7 @@ test("F4-7 装配点形状：registerAllDomains() 恰一次（排除 import 行�
 	assert.equal(nonImportCalls.length, 1, `registerAllDomains( 调用应恰一次，实际 ${nonImportCalls.length} 次`);
 	const callIndex = nonImportCalls[0];
 	assert.match(lines[callIndex], /^[\t ]*registerAllDomains\s*\(\s*\)\s*;[\t ]*$/, "调用语句应是无参裸调用");
-	const registerIpcIndex = lines.findIndex((line) => /^[\t ]*(?:await\s+)?registerIpc\s*\(\s*\)\s*;[\t ]*$/.test(line));
+	const registerIpcIndex = lines.findIndex((line) => /^[\t ]*registerIpc\s*\(\s*\)\s*;[\t ]*$/.test(line));
 	assert.ok(registerIpcIndex >= 0, "registerIpc() 调用行应存在");
 	assert.ok(callIndex > registerIpcIndex, "装配调用应位于 registerIpc() 之后");
 	assert.equal(lines[callIndex].match(/^[\t ]*/)[0], lines[registerIpcIndex].match(/^[\t ]*/)[0], "与 registerIpc() 同层缩进（未被 if/switch/try/for 包裹）");
