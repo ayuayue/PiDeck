@@ -333,7 +333,7 @@ test("refs watch / autoFetch 能力关闭时不再注册对应副作用（与既
 	assert.equal(autoRefresh.at(-1).capabilities.statusPoll, true);
 });
 
-test("传入能力且确有不可用项时顶部渲染同一条能力条（worktree 用整句说明）", () => {
+test("传入能力且确有不可用项时顶部渲染同一条能力条", () => {
 	const { html } = render({
 		gitCapabilities: { write: false, sync: false, worktree: false },
 	});
@@ -341,11 +341,14 @@ test("传入能力且确有不可用项时顶部渲染同一条能力条（workt
 	assert.ok(html.includes("remoteGit.capabilityWrite"));
 	assert.ok(html.includes("remoteGit.capabilitySync"));
 	assert.ok(html.includes("remoteGit.capabilityBlocked"));
-	assert.ok(html.includes("remoteGit.worktreeUnsupported"));
+	// worktree 在远端是「永远不提供」而不是「暂时不可用」：入口已隐藏，能力条不再多一行解释。
+	assert.ok(!html.includes("remoteGit.worktreeUnsupported"));
 	// 未传入能力（缺省）或传入且全可用时都不渲染能力条；只有确有不可用项时才出现。
 	assert.ok(!render({}).html.includes("remote-git-capabilities"), "without the prop there is no capability banner");
 	const allOpen = render({ gitCapabilities: {} }).html;
 	assert.ok(!allOpen.includes("remote-git-capabilities"), "all-available must not render the banner");
+	const worktreeOnly = render({ gitCapabilities: { worktree: false } }).html;
+	assert.ok(!worktreeOnly.includes("remote-git-capabilities"), "仅 worktree 不可用时不出能力条");
 });
 
 test("面板源码契约：每个门禁点都读 gitCapabilities，能力条只在传入时渲染", () => {

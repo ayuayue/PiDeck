@@ -29,7 +29,6 @@ import { useFileTreeGitStatus } from "../../hooks/files/useFileTreeGitStatus";
 import { fileTreeNodeKey, projectFileKey } from "../../utils/fileTreeLazy";
 import type { RemoteSearchEntryView } from "./remoteProjectSearchState";
 import { RemoteProjectSearchBar } from "./RemoteProjectSearchBar";
-import { RemoteUploadLimitsHint } from "./RemoteUploadLimitsHint";
 import { RemoteProjectTransferStatus } from "./RemoteProjectTransferStatus";
 
 /**
@@ -253,7 +252,18 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-mkdir" aria-label={t("remoteFileEntry.newFolder")} title={t("remoteFileEntry.newFolder")} disabled={files.busy || busy || !canWrite} onClick={() => setEntryDialog({ kind: "new", entryKind: "directory", parent: tree.currentDir })}>
 							<FolderPlus className="size-4" />
 						</Button>
-						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-upload" aria-label={t("remoteFileEntry.uploadAction")} title={t("remoteFileEntry.uploadAction")} disabled={files.busy || busy || !canWrite || !services.capabilities.files.upload} onClick={transfer.uploadFiles}>
+						{/* 上传硬限制（8 GiB / 单批 32 个 / 不支持文件夹）跟着上传按钮走：强制边界在主进程，
+						   常驻一段说明会把目录树整体下挤，用户每次打开文件栏都要先读一遍规则。 */}
+						<Button
+							type="button"
+							size="icon-sm"
+							variant="ghost"
+							data-testid="remote-file-upload"
+							aria-label={t("remoteFileEntry.uploadAction")}
+							title={`${t("remoteFileEntry.uploadAction")}\n${t("project.remote.uploadLimitHint")}`}
+							disabled={files.busy || busy || !canWrite || !services.capabilities.files.upload}
+							onClick={transfer.uploadFiles}
+						>
 							<Upload className="size-4" />
 						</Button>
 						<Button
@@ -304,8 +314,6 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 					}}
 				/>
 			) : null}
-			{/* 能力边界前置说明：单文件 8 GiB、文件夹不支持（强制在主进程，这里只提前告知）。 */}
-			{!searching && !searchOpen ? <RemoteUploadLimitsHint /> : null}
 			<RemoteProjectTransferStatus items={transfer.transfers} onCancel={transfer.cancelTransfer} onDismiss={transfer.dismissTransfer} />
 			{/* 写操作结果/未知提示：固定单行高度，避免布局抖动；读失败只影响目录列表，不覆盖这条回执。 */}
 			<p data-testid="remote-file-outcome" aria-live="polite" className="h-5 truncate text-label text-muted-foreground">

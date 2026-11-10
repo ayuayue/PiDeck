@@ -152,6 +152,8 @@ test("静默刷新只换 snapshot/errorCode：不置 loading、不清 diff/histo
 	let branch = "main";
 	const fetches = [];
 	const f = fixture({
+		// 分支随事实读一起回来（面板桥把 `git.status` 的分支填进快照），所以显式刷新会带回新分支。
+		status: async () => ({ ok: true, snapshot: { ...baseSnapshot, branch } }),
 		refresh: async () => ({ ok: true, snapshot: { ...baseSnapshot, branch } }),
 		branches: async () => ({ ok: true, info: { current: branch, branches: [branch] } }),
 		fetch: async (...args) => {
@@ -287,11 +289,11 @@ test("静默 tick 只读事实：不再多开分支读，分支沿用已确认�
 	const f = fixture({
 		status: async (repo, options) => {
 			calls.push(["status", repo ?? null, options ?? null]);
-			return { ok: true, snapshot: baseSnapshot };
+			return { ok: true, snapshot: { ...baseSnapshot, branch: "feature" } };
 		},
 		refresh: async (repo, options) => {
 			calls.push(["refresh", repo ?? null, options ?? null]);
-			return { ok: true, snapshot: baseSnapshot };
+			return { ok: true, snapshot: { ...baseSnapshot, branch: "feature" } };
 		},
 		branches: async () => {
 			calls.push(["branches"]);
@@ -301,8 +303,8 @@ test("静默 tick 只读事实：不再多开分支读，分支沿用已确认�
 	await f.reads.refresh();
 	assert.deepEqual(
 		calls.map((entry) => entry[0]),
-		["status", "branches"],
-		"显式刷新仍然读分支",
+		["status"],
+		"显式刷新只发一次事实读，分支就在答案里",
 	);
 	assert.equal(f.current().snapshot.branch, "feature");
 	calls.length = 0;

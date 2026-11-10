@@ -7,9 +7,8 @@
  * - 远端会话的后端锁定原因必须是「远端只支持 pi」，不能复用「已发送消息后锁定」。
  */
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
-import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
 
@@ -92,13 +91,17 @@ test("后端锁定文案：远端固定 pi 与「会话已开始」使用不同 
 	assert.match(zhCN["session.backendRemotePiOnlyNotice"], /远端项目/);
 });
 
-test("上传提示组件渲染 8 GiB / 32 files / 文件夹限制", () => {
-	const { RemoteUploadLimitsHint } = loadTsCommonJs("src/renderer/src/components/session/RemoteUploadLimitsHint.tsx", { stubs: { react: React } });
-	const html = renderToStaticMarkup(React.createElement(RemoteUploadLimitsHint));
-	assert.match(html, /data-testid="remote-upload-limits-hint"/);
-	assert.match(html, /8 GiB/);
-	assert.match(html, /32/);
-	assert.match(html, /文件夹/);
+test("上传限制只挂在上传按钮的 title 上，文件栏不再常驻说明段落", () => {
+	// 常驻说明把目录树整体下挤，每次打开文件栏都要先读一遍规则；限制改为按钮悬浮提示，
+	// 强制边界仍在主进程（本节其余用例锁定那些失败路径）。
+	const panel = readFileSync("src/renderer/src/components/session/RemoteProjectPanel.tsx", "utf8");
+	assert.match(panel, /data-testid="remote-file-upload"/);
+	assert.match(panel, /title=\{\`\$\{t\("remoteFileEntry\.uploadAction"\)\}\\n\$\{t\("project\.remote\.uploadLimitHint"\)\}\`\}/);
+	assert.doesNotMatch(panel, /RemoteUploadLimitsHint/, "常驻限制段落已移除");
+	assert.equal(existsSync("src/renderer/src/components/session/RemoteUploadLimitsHint.tsx"), false);
+	for (const dictionary of [zhCN, enUS]) {
+		assert.match(dictionary["project.remote.uploadLimitHint"], /8 GiB/);
+	}
 });
 
 function transferHarness(results) {

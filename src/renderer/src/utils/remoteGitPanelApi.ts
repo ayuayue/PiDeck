@@ -103,13 +103,6 @@ export function createRemoteGitPanelApi(services: ProjectServices): RemoteGitVie
 		},
 		status: (repoPath, options) => readSnapshot(repoPath, false, options),
 		refresh: (repoPath, options) => readSnapshot(repoPath, true, options),
-		async branches(repoPath) {
-			try {
-				return { ok: true, info: await services.git.branches(repo(repoPath)) };
-			} catch (error) {
-				return failureOf(error);
-			}
-		},
 		async commitDetail(oid, repoPath) {
 			try {
 				return { ok: true, detail: await services.git.commitDetail(oid, repo(repoPath)) };

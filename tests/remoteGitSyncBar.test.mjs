@@ -25,10 +25,11 @@ test("the sync bar keeps a constant height and never reloads its facts from an e
 		const body = effect.split("\n\t},")[0];
 		assert.ok(!body.includes("loadSync"), `an effect must not load the sync facts (found in: ${body.split("\n")[1]?.trim() ?? ""})`);
 	}
-	// One facts load per project identity, sequenced after the first repository read and only when read is available.
+	// One facts load per project identity, started together with the first repository read (and only when read is
+	// available) — the refresh carries the answer instead of dropping it, so the second load is never a second wait.
 	const hook = readFileSync(HOOK, "utf8");
 	assert.match(hook, /if \(!capabilities\.read\) reads\.setUnavailable\(blocked\["git\.read"\]/, "the initial read is a capability decision");
-	assert.match(hook, /void reads\.refresh\(\)\.then\(\(\) => reads\.loadSync\(\)\)/, "the facts are read once, after the first read");
+	assert.match(hook, /void reads\.refresh\(\);\s*reads\.loadSync\(\);/, "the facts are read once, in parallel with the first read");
 	assert.equal(hook.split("reads.loadSync()").length - 1, 1, "the hook must not load the facts from anywhere else");
 });
 test("同步完成文案只陈述服务层确认的事实（不虚构 up-to-date / 快进 / 合并 / 引用计数）", () => {
@@ -37,4 +38,14 @@ test("同步完成文案只陈述服务层确认的事实（不虚构 up-to-date
 	assert.match(source, /remoteGit\.syncPushedDone/);
 	assert.match(source, /remoteGit\.syncPulledDone/);
 	assert.doesNotMatch(source, /"up-to-date"|fast-forward|updated:/, "the panel must not invent sync details the service does not report");
+});
+
+test("非仓库时同步条整块不渲染：同一句仓库错误不重复，也不留一排永远 disabled 的同步按钮", () => {
+	const panel = readFileSync(PANEL, "utf8");
+	// 真机：项目根确认不是仓库后，仓库级错误在上方说明一次，同步条又把同一句 remoteGit.notRepository
+	// 说第二遍，旁边还有 获取/推送/拉取；用户读到的是「还在检测却已经给出初始化」。
+	assert.match(panel, /const repositoryMissing = snapshot === undefined && state\.errorCode === "GIT_NOT_REPOSITORY"/, "判据只认已确认的非仓库状态");
+	assert.match(panel, /\{repositoryMissing \? null : \(\s*<div data-testid="remote-git-sync"/, "同步条整块不渲染");
+	// 同步条里的错误行也不复述仓库级错误码（两道防线，任一处漏掉都会重现重复文案）。
+	assert.match(panel, /state\.syncErrorCode && state\.syncErrorCode !== state\.errorCode/);
 });
