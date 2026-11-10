@@ -26,7 +26,7 @@ export function ResourceTargetBar(props: { target: PiResourceTarget; hosts: WslC
 				}}
 			/>
 			{props.readOnly ? (
-				<span className="px-3 pb-1 text-micro text-muted-foreground" data-testid="resource-target-readonly-hint">
+				<span className="pb-1 text-micro text-muted-foreground" data-testid="resource-target-readonly-hint">
 					{t("config.resourceTarget.readOnlyHint")}
 				</span>
 			) : null}

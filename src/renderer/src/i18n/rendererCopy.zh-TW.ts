@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: ca19dbd949e083b0ffbac5a1604401e929c3a45c9f7f2781ab67f9d99a94f7d0（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 4400ded4b5944bafff6f1e8024f6ce883e75b6a62f083a1070f97fc8778bce9e（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7799,7 +7799,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.target.discardConfirm": "丟棄並關閉",
 	"config.target.remoteSaveHint": "遠端目標請用面板內的「應用 patch」按鈕儲存",
 	"config.target.groupSsh": "SSH 主機",
+	"config.target.connecting": "正在連線 {host}…",
+	"config.target.retryConnect": "重試連線",
 	"config.target.wsl": "WSL 發行版",
+	"config.target.wslEmpty": "暫無 WSL 環境：在「設定 → 連線」裡新增一個發行版後即可在這裡選擇。",
 	"config.target.wslHint": "讀寫均落在該發行版的 HOME（.pi/agent），不回退本機",
 	"config.target.wslSource": "當前編輯：{label} 的發行版 HOME（.pi/agent）",
 	"config.target.wslProviderOps": "連線測試 / 拉取模型 / 用量查詢僅對本機目標可用",
@@ -7837,13 +7840,16 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteConfig.saving": "應用中…",
 	"remoteConfig.dirty": "有未應用 patch",
 	"remoteConfig.loading": "正在從遠端讀取配置…",
+	"remoteConfig.connecting": "正在連線遠端主機…",
+	"remoteConfig.connectFailed": "無法連線遠端主機：本次讀取未執行。",
+	"remoteConfig.reconnect": "重新連線",
 	"remoteConfig.conflictTitle": "版本衝突：遠端配置已被其他寫入改變",
 	"remoteConfig.conflictBody": "你的 patch 仍保留。請重新讀取最新版本後再提交，或先核對內容。",
 	"remoteConfig.unconfirmedTitle": "寫入結果未確認",
 	"remoteConfig.unconfirmedBody": "遠端可能已經寫入，但回執不可信；不會自動重試。請重新讀取確認實際內容。",
 	"remoteConfig.failedTitle": "遠端配置操作失敗",
 	"remoteConfig.errorTargetInvalid": "配置目標無效。",
-	"remoteConfig.errorHostNotReady": "SSH 主機尚未連線或未就緒，請先在遠端主機列表連線。",
+	"remoteConfig.errorHostNotReady": "SSH 連線未就緒（可能剛斷開）。切換目標或點「重新連線」會自動重連。",
 	"remoteConfig.errorUnavailable": "遠端配置能力不可用（實驗開關或後端未啟用）。",
 	"remoteConfig.errorUnsupported": "當前遠端 helper 不支援此配置能力，請更新 helper 後重試。",
 	"remoteConfig.errorFileInvalid": "遠端配置檔案無效，或 helper 回覆未通過校驗。",
