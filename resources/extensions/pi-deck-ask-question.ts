@@ -173,7 +173,7 @@ function echoModelValue(value: unknown, maxLength = 120): string {
 /** 键名 / type 取值 / 意图键取值里明确表达单选（`singleChoice`、`exclusivePick`、`"single choice"`）：本来就会渲染成
  *  select，没有降级风险，不能因为多写一个这样的冗余键把整批提问打掉；取值空间靠它把 `type: "singleChoice"` 交回
  *  形状推断，意图键取值靠它把 `multiple: "single choice"` 判成「没表达多选意图」——两个空间共用同一份词表。 */
-const SINGLE_LIKE_KEY = /^(?:only)?(?:single|exclusive|one)[_\- ]?(?:choice|select|pick|option)s?(?:only)?$/i;
+const SINGLE_LIKE_KEY = /^(?:only|just)?(?:single|exclusive|one|1)[_\- ]?(?:choice|select(?:ion)?|pick|option|answer|item)s?(?:only)?$/i;
 
 /** 明确的否定取值（先经 `normalizeTypeToken` 归一）：`"False"` / `"no"` / `"n/a"` 都不该被当成「表达了意图」。
  *  中文 / 口语否定同样入表：`{multiple: "否"}` 走的是 fail-open 分支（除否定词外一律算「已表达意图」），
@@ -193,8 +193,11 @@ const OFF_PREFIXES = ["single", ...OFF_WORDS];
 /** 短否定词根：只有「自成一段（分隔符 / camelCase 边界）+ 后面还有内容」才算否定短语。 */
 const SHORT_OFF_ROOTS = new Set(["not", "no", "non", "n/a", "na", "n", "off", "nah", "nor", "否", "不", "非", "无", "没", "未"]);
 
-/** 「不是单选」= 明确要多选（`not single` / `no limit` / `non-exclusive` / `not one option`）；孤立的 `no one` / `no, only one` 是明确否定，不是双重否定。 */
-const NEGATED_SINGLE = /^(?:single|limit|exclusive|restrict)|^(?:one|only)\b.*\b(?:option|choice|select|pick)/;
+/** 「不是单选」= 明确要多选（`not single` / `no limit` / `non-exclusive` / `not one option`）；孤立的 `no one` / `no, only one` 是明确否定，不是双重否定。
+ *  `not only one` / `not just one` 也算「不是只要一个」：它们后面没有名词，下面的 `one|only` 支要求
+ *  ！接 option/choice 才命中，不收一句就会出现「带名词的判多选、不带名词的判单选」——两个说法只差一个词。
+ *  带分句标点的（`no, only one`）不进本判据（见 `isOffToken` 的 `clauseAfterNegation`），仍是明确否定。 */
+const NEGATED_SINGLE = /^(?:single|limit|exclusive|restrict)|^(?:one|only)\b.*\b(?:option|choice|select|pick)|^(?:only|just) one\b/;
 
 /** 中文同义的双重否定（`不是单选` / `非单选` / `不是单行` / `不限制` / `非互斥`）：中文连写没有分隔符可切，
  *  `parts` 只有一段，英文那道 `NEGATED_SINGLE` 判据到不了，只能在这里收口，否则中文否定字的前缀会把它判成「关掉」。
@@ -273,13 +276,37 @@ function isOffToken(value: string): boolean {
  *  反序语序（`"select one"` / `"pick one"`）记在词表里——取值侧同样不能「词序改变结论」。 */
 const SINGLE_WORDS = new Set(["single", "singlechoice", "单选", "单项", "单一", "互斥", "排他", "唯一", "一个", "限制", "one", "only", "onlyone", "exclusive", "selectone", "pickone", "chooseone"]);
 
-/** 取值本身写着「单选」：整串词表与词根正则都要对两种归一各查一遍——`normalizeTypeToken` 保留标点，
- *  `"single."` / `"单选。"` 在 `SINGLE_WORDS` 里查不到，而 `isOffToken` 用的是去标点的归一；两边不共用
- *  这份判据就会「加一个句号把单选意图翻成多选卡」。type 取值与意图键取值共用本函数。 */
+/** 「只能选一个」族：**串首**写着数量上限是 1 的短语（`exactly one` / `just one` / `at most one` /
+ *  `one of the following` / `只能选一个` / `只能选择一个` / `单选（只能选一个）`）。`SINGLE_WORDS` 是整串精确匹配，
+ *  带前缀或后缀说明的写法进不去，只能在这里按**串首**收口。
+ *
+ *  中文支写成结构式（`只能/只可/仅可… + 选/挑(+择/中/取) + 一/1 + 个项条`）而不是逐串列：`只能选一个` /
+ *  `只能选择一个` / `只能选一项` / `只允许选一个` / `仅可选一个` 是同一个句子只差一个词，列不完（本分支就
+ *  曾在同一处漏过一整族）。英文支同理只认「数量上限 + one」。
+ *
+ *  串首锚定是刻意的：`not only one option` / `not only one` / `不是单选` / `no one` 的否定词在开头，
+ *  压根不进这条判据（双重否定由 `isOffToken` 的 `NEGATED_SINGLE` / `NEGATED_SINGLE_ZH` 处理）——
+ *  否则「不是单选」会被这里的 `单选` 前缀判成单选，方向正好反过来。
+ *  判据输入已把分隔符归一成空格：`exactly_one` / `at-most one` 与空格版同判，否则同一个意思只差一个
+ *  下划线就得出相反结论（与本模块其它地方的归一判据同一个坑）。 */
+const SINGLE_LIMIT_PHRASE = /^(?:only|just|exactly|at ?most|max(?:imum)?|limited to) (?:one|1)\b|^(?:one|1) of\b|^(?:单选|单项|只能一)|^(?:只能|只可|只允许|只准|只|仅可|仅允许|仅) *(?:选|挑|有)(?:择|中|取)? *(?:一|1) *[个项条]?|^仅一|^只一|^只要一/;
+
+/** 取值本身写着「单选」：整串词表、词根正则与串首短语三种判据都要对两种归一各查一遍——`normalizeTypeToken`
+ *  保留标点，`"single."` / `"单选。"` 在 `SINGLE_WORDS` 里查不到，而 `isOffToken` 用的是去标点的归一；两边不共用
+ *  这份判据就会「加一个句号把单选意图翻成多选卡」。type 取值与意图键取值共用本函数。
+ *  短语判据用原值（不用归一值）：它靠空白切词（`exactly one`），归一后连写会漏。 */
 function isSingleLikeValue(value: string): boolean {
 	const token = normalizeTypeToken(value);
 	const stripped = normalizeOffToken(value);
-	return SINGLE_WORDS.has(token) || SINGLE_WORDS.has(stripped) || SINGLE_LIKE_KEY.test(token) || SINGLE_LIKE_KEY.test(stripped);
+	// 短语判据走「分隔符归一成空格」的形态：`exactly_one` / `at-most one` 与 `exactly one` 同判。
+	const phrase = value.trim().toLowerCase().replace(/[_\-\s]+/g, " ");
+	return (
+		SINGLE_WORDS.has(token) ||
+		SINGLE_WORDS.has(stripped) ||
+		SINGLE_LIKE_KEY.test(token) ||
+		SINGLE_LIKE_KEY.test(stripped) ||
+		SINGLE_LIMIT_PHRASE.test(phrase)
+	);
 }
 
 /**

@@ -2283,7 +2283,6 @@ test("分句判据不许误伤没有分句标点的双重否定（not single / n
 	}
 });
 
-
 /** 以给定的桌面端回包跑一次三题批量，返回工具结果。 */
 async function runWithReply(reply) {
 	const tool = registerTool();
@@ -2354,5 +2353,61 @@ test("一题没答就关闭（含旧版桌面端的空回包）仍是取消", as
 		const result = await runWithReply(reply);
 		assert.equal(result.details.cancelled, true);
 		assert.equal(result.content[0].text, "用户取消了提问");
+	}
+});
+
+test("写着「只能选一个」的取值是单选，不是多选意图（已知键 / 未知键 / type 取值三处同判）", async () => {
+	// 取值侧的 fail-open（除否定词与单选词外一律算「已表达多选意图」）只认整串词表与「单/多选词根」，
+	// 于是同一语义的**短语**写法漏在外面：`multiple: "只能选一个"` / `"exactly one"` / `"one answer"`
+	// 被判成多选意图 → 静默升级成勾选卡（用户明明写的是单选，方向与本分支要消灭的那类正好相反），
+	// 写在未知键上（`allowMultiple: "只能选一个"`）还会整批硬报错。三种写法走同一份判据，所以三处一起钉。
+	const tool = registerTool();
+	const phrases = [
+		"只能选一个",
+		"只能选择一个",
+		"只能选一项",
+		"只能选 1 个",
+		"只能挑一个",
+		"只选一个",
+		"只允许选一个",
+		"仅可选一个",
+		"单选（只能选一个）",
+		"exactly one",
+		"exactly_one",
+		"just one",
+		"just_one",
+		"at most one",
+		"one answer",
+		"one selection",
+		"1 option",
+		"one of the following",
+		"one_of_the_following",
+	];
+	for (const value of phrases) {
+		const known = await captureWarnings(() => {
+			const { promise, envelope } = runBatch(tool, { questions: [{ id: "q1", question: "选哪个？", options: ["A", "B"], multiple: value }] });
+			return promise.then(() => envelope().questions[0]);
+		});
+		assert.equal(known.result.type, "select", `multiple: ${JSON.stringify(value)} 应留在 select`);
+		assert.equal(known.result.allowOther, true, `multiple: ${JSON.stringify(value)} 的自定义输入框不许消失`);
+		// 同一取值写在未知键上：只留一条「忽略未知字段」，不许把整批提问打回。
+		const unknown = await captureWarnings(() => {
+			const { promise, envelope } = runBatch(tool, { questions: [{ id: "q1", question: "选哪个？", options: ["A", "B"], allowMultiple: value }] });
+			return promise.then(() => envelope().questions[0].type);
+		});
+		assert.equal(unknown.result, "select", `allowMultiple: ${JSON.stringify(value)} 不该整批抛错`);
+		assert.match(unknown.warnings.join("\n"), /忽略未知字段 "allowMultiple"/);
+		// 同一拼写作为 type 取值交回形状推断（两处不许给出相反判决）。
+		assert.equal(await resolvedType(tool, { questions: [{ id: "q1", question: "选哪个？", options: ["A", "B"], type: value }] }), "select", `type: ${JSON.stringify(value)} 应与键空间同判`);
+	}
+
+	// 反向护栏：短语判据锚定串首，否定词开头的仍是「不是单选」的双重否定（按多选，`not only one`
+	// 这种不带名词的写法也算——它后面没接 option/choice，别只认带名词的那支），词根写的多选值
+	// 也不许被这条短语判据顺手吃掉。
+	const stillMulti = ["not only one", "not just one", "not only one option", "不是单选", "非互斥", "more than one option", "multiple selections", "many"];
+	for (const value of stillMulti) {
+		const { promise, envelope } = runBatch(tool, { questions: [{ id: "q1", question: "选哪些？", options: ["A", "B"], multiple: value }] });
+		await promise;
+		assert.equal(envelope().questions[0].type, "multi_select", `multiple: ${JSON.stringify(value)} 应仍是 multi_select`);
 	}
 });
