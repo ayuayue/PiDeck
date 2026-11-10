@@ -192,6 +192,8 @@ export class EnhancePromptService {
 	private stderrTail: string[] = [];
 	/** 受理路径互斥：同一时刻只有一次 enhance() 在走 settle→boot→write 序列。 */
 	private acceptChain: Promise<unknown> = Promise.resolve();
+	/** cancel 也要作废尚未登记 activeRun 的排队/boot 请求，避免切会话后晚发模型调用。 */
+	private cancelGeneration = 0;
 
 	constructor(options: EnhancePromptServiceOptions) {
 		this.resolveLaunch = options.resolveLaunch;
@@ -207,9 +209,10 @@ export class EnhancePromptService {
 	 */
 	enhance(input: EnhanceServiceRunInput, callbacks: EnhanceRunCallbacks): Promise<EnhanceAcceptResult> {
 		if (this.disposed) return Promise.resolve({ ok: false, errorKind: "sdk-unavailable", message: "提示词增强服务已停止" });
+		const cancelGeneration = this.cancelGeneration;
 		const accepted = this.acceptChain.then(
-			() => this.acceptInternal(input, callbacks),
-			() => this.acceptInternal(input, callbacks),
+			() => this.acceptInternal(input, callbacks, cancelGeneration),
+			() => this.acceptInternal(input, callbacks, cancelGeneration),
 		);
 		this.acceptChain = accepted.then(
 			() => undefined,
@@ -219,11 +222,13 @@ export class EnhancePromptService {
 	}
 
 	/** 串行化的受理实现：打断旧的 → 确保 helper 进程 ready → 登记 run → 下发。 */
-	private async acceptInternal(input: EnhanceServiceRunInput, callbacks: EnhanceRunCallbacks): Promise<EnhanceAcceptResult> {
-		// 先停掉助手侧旧模型流，再本地结算；只清 UI 会让旧请求继续消耗额度。
-		// 旧 id 的迟到记录被丢弃，不等待助手确认，也不会二次回调。
-		this.cancel();
+	private async acceptInternal(input: EnhanceServiceRunInput, callbacks: EnhanceRunCallbacks, cancelGeneration: number): Promise<EnhanceAcceptResult> {
+		if (cancelGeneration !== this.cancelGeneration) return { ok: false, errorKind: "aborted", message: "增强请求已取消" };
+		// 先停掉助手侧旧模型流，再本地结算；替换活动 run 不作废其它已排队的受理请求。
+		this.cancelActiveRun();
 		const boot = await this.ensureChild({ provider: input.provider, modelId: input.modelId });
+		// 冷启动可等待数秒；期间的取消必须在产生模型请求前生效，不能等 runId 返回后撤回。
+		if (cancelGeneration !== this.cancelGeneration) return { ok: false, errorKind: "aborted", message: "增强请求已取消" };
 		if (boot !== "ready") {
 			return { ok: false, errorKind: "sdk-unavailable", message: "增强助手启动失败，请重试" };
 		}
@@ -259,8 +264,14 @@ export class EnhancePromptService {
 		return { ok: true, runId };
 	}
 
-	/** 取消当前 run（渲染层停止按钮）。没有进行中的 run 时静默。 */
+	/** 取消活动 run 以及已经提交、尚在排队或等待 boot 的请求。 */
 	cancel(): void {
+		this.cancelGeneration += 1;
+		this.cancelActiveRun();
+	}
+
+	/** 只结算活动 run；内部请求替换不能推进外部取消代数。 */
+	private cancelActiveRun(): void {
 		const run = this.activeRun;
 		if (!run) return;
 		this.sendToHelper({ cmd: "cancel", id: run.id });
@@ -270,6 +281,7 @@ export class EnhancePromptService {
 	/** 应用退出时由装配层调用；结算一切并停掉助手进程。 */
 	dispose(): void {
 		this.disposed = true;
+		this.cancelGeneration += 1;
 		this.settleActive("aborted");
 		this.killChild("dispose");
 	}

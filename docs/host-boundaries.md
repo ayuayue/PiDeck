@@ -34,7 +34,7 @@
 只允许「一次性单条补全请求」：提示词增强 + 智能体一次性调用 + 输入预测。
 
 - 主进程经常驻单进程 sidecar：`resources/pi-enhance-host.mjs`（stdout 只放 NDJSON，载入 `PIDECK_PI_SDK_ENTRY` 指向的 pi `dist/index.js` 建 `ModelRuntime`）。宿主收口 `src/main/pi/enhance/EnhancePromptService.ts`，启动参数定位复用 `piAuthHostLaunch` 的 `resolvePiAuthHostLaunch`；必须列进 `extraResources`。
-- 常驻单进程多 run：新 run 打断旧 run、显式 cancel、boot/run 超时、进程意外退出都在服务层结算（每 run 回调恰好一次）；渲染层按 scopeKey 隔离，切会话作废进行中的 run，结果只回填发起方输入框。入口 `enhance:run` / `enhance:cancel` / `enhance:on-event`（`src/main/ipc/enhanceIpc.ts`；provider/modelId 只挡空白/控制字符/超长，`builtin:`、`https://`、`a/b` 形态必须放行）。
+- 常驻单进程多 run：新 run 打断旧 run、显式 cancel、boot/run 超时、进程意外退出都在服务层结算（每 run 回调恰好一次）；显式 cancel 还须作废已经排队或正在等 boot 的请求，在下发 `complete` 前核对取消代数，不能等受理返回后才补取消。渲染层按 scopeKey 隔离，切会话作废进行中的 run，结果只回填发起方输入框。入口 `enhance:run` / `enhance:cancel` / `enhance:on-event`（`src/main/ipc/enhanceIpc.ts`；provider/modelId 只挡空白/控制字符/超长，`builtin:`、`https://`、`a/b` 形态必须放行）。
 - 常驻进程的启动指纹（node / 助手脚本 / SDK 入口 / 代理 env）在**每次受理时**重新求值，任一变化即重建进程：env 在 spawn 时定格，不重建会让用户「改了代理设置却还是旧出口」。代理按 `proxyModel` 走与 pi 会话同一套名单语义（`applyPiProxyModeWithProvider` + `computeGenProxyKey`），因此名单模式下换模型会在「走代理」和「直连」之间切换进程；未传模型时跟随全局开关（pi-auth 侧车即此情形）。
 - 目标模型优先级见 `src/shared/enhanceModelPreference.ts`：设置固定模型（`settings.enhanceModel`）> 会话记录 > 引导页点选 > 部署/主进程默认；默认跟随会话模型。
 - **三个消费者必须各用独立实例**（服务的单飞语义是「新 run 打断旧 run」，共用会互相打断）：
@@ -42,6 +42,7 @@
   - 智能体一次性调用：`src/main/agents/AgentInvokeService.ts` 注入另一个实例（logger / 退出清理名 `agent-invoke`）。入口 `agent-profiles:invoke` / `invoke-cancel` / `invoke-event`。`systemPrompt` 只能由主进程按 `agentId` 从 `AgentProfileStore`（`<userData>/agent-profiles.json`）解析，**渲染层不得传**（只传短 instruction、目标语言与 provider/modelId）。
   - 输入预测：第三个实例（logger / 退出清理名 `prompt-suggestion`）。入口 `suggest:run` / `suggest:cancel` / `suggest:event`；`systemPrompt` / `userText` 由主进程常量（`src/main/pi/enhance/promptSuggestion.ts`）注入，渲染层禁传，并带 `purpose: "suggest"`。
 - 三者的边界：一次性、无工具、不碰会话文件；事件按 runId 配对，终态恰好一次；fail-safe 与 pi-auth 一致（sidecar 起不来只是按钮置灰/toast，不影响 pi 会话）。禁止扩展成通用模型 API 桥，禁止把 `agent-profiles:invoke` 做成任意 systemPrompt 直通。
+- 输入预测只消费已完成的问答：当前会话存在用户消息，且末条为非空、`stopReason: "stop"` 的助手回复；新会话首发前、流式中、工具中间回复、失败/中断/截断或结束态未知均不调用，首轮正常回复完成后允许预测。不能把预热/激活的 `starting → idle` 当作回答完成；守卫 `tests/usePromptSuggestion.test.mjs`。
 - 输入预测的展示：ghost 文案是绝对定位视觉层，**不得写进 ProseMirror 文档**（不参与撤销/发送判定）；Tab / → 采纳时整体回填草稿，Esc 忽略，失败静默。开关 `settings.promptSuggestionEnabled`（缺省开，只有字面 false 能关）。
 - 智能体本身是 PiDeck 层预设：会话绑定存 `AgentMarketSettings.sessionAgentBindings`（只能经 `agent-profiles:bind-session` 改）；会话**首次**发送时 `sessionIpc` 用 `composeAgentInstruction` 把角色设定拼进 `SendPromptInput.agentMessage`（DSH 拒绝该通道，退化为可见前缀）。角色设定随第一条用户消息留在历史里，之后轮次不重复注入。PiDeck 不替 pi 写系统提示。
 
