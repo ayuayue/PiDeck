@@ -1,6 +1,6 @@
 # Electron 实战手册
 
-> **Status: Current（2026-10-31 核对；以代码与测试为准）**
+> **Status: Current（2026-11-10 核对；以代码与测试为准）**
 
 
 > 改 `main/index.ts`、窗口创建、preload、webview、打包配置、原生模块或跨平台路径前读本文。每条都是踩坑结论。
@@ -30,6 +30,12 @@
 - 自定义标题栏改动要验证三平台控制按钮、拖拽区、双击最大化。
 - 窗口**呈现态**（normal / maximized / fullscreen）由 `src/main/index.ts` 的 `mainWindowVisualIntent` 跟踪（`trackMainWindowVisualIntent` 监听 maximize / unmaximize / enter-full-screen / leave-full-screen）。所有唤回路径（托盘双击、`app.activate`、桌面宠物、通知/协议深链唤起）一律走 `revealMainWindow`，禁止直接 `show() + focus()`：Windows 上「最小化 → show()」不会恢复最大化，窗口会停在伪全屏几何，下次还原就掉回正常尺寸。恢复策略集中在纯模块 `src/main/windowReveal.ts`（`planMainWindowReveal` 纯函数，`tests/windowRevealState.test.mjs` 固定矩阵）：全屏意图先 `maximize()` 再 `setFullScreen(true)`，退出全屏才能回到最大化。
 - `last-window-bounds.json` 同时记 `maximized` 与 `fullscreen`，启动时全屏优先于最大化（以前只记最大化，关窗即退出的机器重启后就会丢全屏）。新增窗口状态字段时同步 `src/main/windowState.ts` 的读写与 `quickTaskWindowChrome.saveWorkbenchBoundsOnClose`。
+
+## Linux 托盘（StatusNotifierItem）
+
+- **Electron 43.3.0–43.4.1 的托盘在 GNOME / xapp 宿主上必丢（issue #521）**：Chromium `StatusIconLinuxDbus::Multiplexer` 用一块共享的 `/StatusNotifierItem` 按 **destination（well-known 名）** 查图标，而 GDBus 宿主（`gnome-shell-extension-appindicator`、`xapp-sn-watcher`）先 `GetNameOwner` 再问 unique name（`:1.N`），查不到即返回 `org.freedesktop.DBus.Error.Failed: error occurred in Get/GetAll`，宿主随即丢弃该图标。Electron 43.5.0（[electron#53215](https://github.com/electron/electron/pull/53215)）恢复 per-icon 导出后两种地址都能读。**升级 Electron 时不要停在 43.4.x。**
+- 判定方法（不依赖桌面环境）：起一个 `org.kde.StatusNotifierWatcher` stub → 应用创建 `Tray` → 对 `/StatusNotifierItem` 的 `Properties.GetAll` 分别用 well-known 名与 `GetNameOwner` 解析出的 unique name 各调一次。两者都成功才算正常；只有 well-known 成功即是上述回归（43.4.0 实测复现，43.8.7 实测通过）。
+- 托盘注册验收（`startTrayRegistrationVerify`，启动 6s 后查一次 watcher 的 `RegisteredStatusNotifierItems`）只记日志、不重建 Tray —— 换名重建实测无效，宿主的读法不变。
 
 ## E2E 测试窗口（不打扰模式）
 

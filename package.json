@@ -491,7 +491,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "dsh-bill": "^0.14.0",
-    "electron": "^43.4.0",
+    "electron": "^43.8.7",
     "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.0",
     "eslint": "^10.6.0",

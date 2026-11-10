@@ -2499,14 +2499,15 @@ function setupTray() {
 		tray = null;
 	});
 
-	// Linux/GNOME 托盘注册诊断（见 tray/trayRegistrationVerify.ts）：旧版 appindicator 扩展
-	// (< v66) 读不到 SNI 属性会永久放弃图标且不再重试（closeToTray 默认开启时，
-	// 用户点 X 隐藏后就再无唤回入口）。根因与修复见 docs/archive/plans/linux-tray-icon.md。
-	// 这里只验收并记日志，不做重建 —— 重建换名并不能改变扩展的读法，实测无效。
+	// Linux/GNOME 托盘注册诊断（见 tray/trayRegistrationVerify.ts）：Electron 43.3.0–43.4.1 的 SNI
+	// multiplexer 只认 well-known destination，宿主按 unique name 读属性必失败并永久放弃图标
+	// （closeToTray 默认开启时，用户点 X 隐藏后就再无唤回入口）。Electron ≥ 43.5.0 已修复
+	// （issue #521 / electron#53215，见 docs/electron-playbook.md §Linux 托盘）。
+	// 这里只验收并记日志，不做重建 —— 重建换名并不能改变宿主的读法，实测无效。
 	if (process.platform === "linux") {
 		trayRegistrationVerify = startTrayRegistrationVerify({
 			onUnregistered: (detail) => {
-				void appLogger?.warn("app", "tray verify: unregistered (likely appindicator extension < v66), see docs/archive/plans/linux-tray-icon.md", detail);
+				void appLogger?.warn("app", "tray verify: unregistered, see docs/electron-playbook.md §Linux 托盘", detail);
 			},
 			onLog: (message, detail) => void appLogger?.info("app", message, detail),
 		});

@@ -5,7 +5,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 /**
  * Linux 托盘注册验收（见 src/main/tray/trayRegistrationVerify.ts）：
  * 纯诊断 —— 以 watcher 的 RegisteredStatusNotifierItems 里有没有自己的 SNI 名字为准，
- * 只记日志不做修复动作（重建换名实测无效，见 docs/archive/plans/linux-tray-icon.md）。
+ * 只记日志不做修复动作（重建换名实测无效，见 docs/electron-playbook.md §Linux 托盘）。
  */
 const { parseRegisteredTrayItems, pidHasTrayItem, startTrayRegistrationVerify } = loadTsCommonJs("src/main/tray/trayRegistrationVerify.ts");
 
