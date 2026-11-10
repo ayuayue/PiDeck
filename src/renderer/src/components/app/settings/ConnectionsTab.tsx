@@ -302,8 +302,13 @@ export function ConnectionsTab() {
 							// 「已连接」只有一个判据（shared/projectCapabilities）：与远端面板共用同一份，避免两个答案。
 							const connected = isLiveHostState(state);
 							const pending = busy[host.id] === true;
-							// 未验证的主机没有信任锚，连接必然在路由校验处失败（SSH_HOST_NOT_READY）。
-							const connectable = host.verified && !host.disabled;
+							// 未验证的主机没有信任锚，直连必然在路由校验处失败（SSH_HOST_NOT_READY）：按钮不禁用，
+							// 点它走「编辑」重新验证（草稿保留，不会丢已填内容）。禁用只留给已禁用的档案。
+							const connectable = !host.disabled;
+							const handleConnectClick = () => {
+								if (!host.verified) void openEditor(host.id);
+								else void toggle(host.id, !connected, host.label);
+							};
 							const dotClass = tone === "connecting" ? undefined : REMOTE_HOST_TONE_DOT_CLASS[tone];
 							return (
 								<div key={host.id} className="flex flex-col gap-2 bg-bg-panel px-3 py-2.5">
@@ -335,7 +340,16 @@ export function ConnectionsTab() {
 											{tone === "connecting" ? <LoaderCircle className="size-2.5 shrink-0 animate-pideck-spin motion-reduce:animate-none" aria-hidden="true" /> : <span className={cn("size-1.5 shrink-0 rounded-full", dotClass)} aria-hidden="true" />}
 											{t(`settings.connections.state.${state}`)}
 										</span>
-										<Button variant={connected ? "ghost" : "secondary"} size="sm" className="shrink-0" disabled={pending || !connectable} onClick={() => void toggle(host.id, !connected, host.label)} aria-label={connected ? t("settings.connections.disconnect") : t("settings.connections.connect")}>
+										<Button
+											variant={connected ? "ghost" : "secondary"}
+											size="sm"
+											className="shrink-0"
+											disabled={pending || !connectable}
+											onClick={handleConnectClick}
+											title={host.verified ? undefined : t("settings.connections.unverifiedTag")}
+											aria-label={connected ? t("settings.connections.disconnect") : t("settings.connections.connect")}
+										>
+											{pending || tone === "connecting" ? <LoaderCircle className="size-3 animate-spin" aria-hidden="true" /> : null}
 											{connected ? t("settings.connections.disconnect") : t("settings.connections.connect")}
 										</Button>
 										<Button type="button" variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground hover:text-foreground" title={t("settings.connections.edit.title")} aria-label={t("settings.connections.edit.title")} disabled={pending || editLoading === host.id} onClick={() => void openEditor(host.id)}>
@@ -360,7 +374,8 @@ export function ConnectionsTab() {
 									{failures[host.id] !== undefined ? (
 										<div className="flex items-center gap-2 pl-12 text-label text-warning">
 											<span className="min-w-0 truncate">{t("settings.connections.lastFailure", { code: failures[host.id] })}</span>
-											<Button variant="ghost" size="sm" className="shrink-0" disabled={pending || !connectable} onClick={() => void toggle(host.id, true, host.label)}>
+											<Button variant="ghost" size="sm" className="shrink-0" disabled={pending || !connectable} onClick={() => (host.verified ? void toggle(host.id, true, host.label) : void openEditor(host.id))}>
+												{pending ? <LoaderCircle className="size-3 animate-spin" aria-hidden="true" /> : null}
 												{t("common.retry")}
 											</Button>
 										</div>
