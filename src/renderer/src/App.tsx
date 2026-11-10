@@ -110,6 +110,7 @@ import { useImportFlow } from "./hooks/useImportFlow";
 import { useDirectoryImport } from "./hooks/useDirectoryImport";
 import { useQueuedPrompt } from "./hooks/useQueuedPrompt";
 import { useComposerStateSessionPrune } from "./hooks/useComposerStateSessionPrune";
+import { useStoppedSessionCacheTrim } from "./hooks/useStoppedSessionCacheTrim";
 import { activeAgentIdAtom } from "./hooks/useSessionRuntimeController";
 import { useSessionHistoryMutations } from "./hooks/useSessionHistoryMutations";
 import { useUserMessageEditReplay } from "./hooks/useUserMessageEditReplay";
@@ -1040,6 +1041,8 @@ export function App() {
 	// composer 域 per-session 状态（草稿/引用全文仓/发送态等）的外部删除清理，
 	// 与 queue 同一所有权模式：records+runtime 双双消失才回收，引导页虚拟会话豁免。
 	useComposerStateSessionPrune(store);
+	// 运行时已停止的会话离开视野（切走 / 关 Tab）后立刻回收消息缓存（#519）。
+	useStoppedSessionCacheTrim(store);
 	useSessionRuntimeBridge({
 		// 「停止响应较慢」→ 重启会话：会杀掉当前 pi 进程重建（丢正在跑的那一轮），
 		// 因此走 overlays 确认框，和 Tab ⋯ 菜单的「重启进程」同一份文案与判定。
