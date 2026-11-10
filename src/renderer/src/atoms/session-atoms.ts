@@ -152,14 +152,7 @@ export function selectSessionCacheProtectedIds(input: { tabIds: readonly string[
  * 与写入路径的裁剪同语义，供运行时停止 / 会话切换 / 关 Tab 这些**非写入**时机复用
  *（此前淘汰只在写入路径触发，关闭后停在原地的会话会一直驻留）。
  */
-export function planSessionCacheTrim(input: {
-	lruIds: readonly string[];
-	cacheIds: readonly string[];
-	protectedIds: ReadonlySet<string>;
-	limit: number;
-	bytesById: ReadonlyMap<string, number>;
-	closedByteBudget: number;
-}): { retained: string[]; evicted: string[] } {
+export function planSessionCacheTrim(input: { lruIds: readonly string[]; cacheIds: readonly string[]; protectedIds: ReadonlySet<string>; limit: number; bytesById: ReadonlyMap<string, number>; closedByteBudget: number }): { retained: string[]; evicted: string[] } {
 	const cacheIds = new Set(input.cacheIds);
 	// 缺 LRU 记录的条目（历史写入路径 / 旧缓存）按最旧处理：顺序表漏项不能让条目永久驻留。
 	const ordered = [...input.lruIds.filter((id) => cacheIds.has(id)), ...input.cacheIds.filter((id) => !input.lruIds.includes(id))];
