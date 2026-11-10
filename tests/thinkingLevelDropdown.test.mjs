@@ -34,11 +34,16 @@ function createHarness() {
 		captured.popover = props;
 		return createElement("div", { "data-slot": "popover" }, props.children);
 	};
+	// 内容壳：捕获 className（弹层宽度策略决定 7 个档位标签能否装下），children 保留供 SSR 断言。
+	const popoverContent = (props) => {
+		captured.popoverContent = props;
+		return createElement("div", { "data-slot": "popover-content" }, props.children);
+	};
 	const { ModelThinkingChip, ThinkingLevelDropdown } = loadTsCommonJs("src/renderer/src/components/session/ModelThinkingChip.tsx", {
 		stubs: {
 			"../../i18n": { t: (key) => key },
 			"../ui-shadcn/button": { Button: button },
-			"../ui-shadcn/popover": { Popover: popover, PopoverTrigger: passthrough, PopoverContent: passthrough },
+			"../ui-shadcn/popover": { Popover: popover, PopoverTrigger: passthrough, PopoverContent: popoverContent },
 			"../ui-shadcn/slider": { Slider: slider },
 			"../ui-shadcn/tooltip": { Tooltip: passthrough, TooltipTrigger: passthrough, TooltipContent: tooltipContent },
 			"../../hooks/useShortcutBindings": { useShortcutBindings: () => ({ bindings: { cycleThinking: "Control+T" }, platform: "win32" }) },
@@ -61,6 +66,25 @@ test("思考强度条直接呈现（Popover 壳 + 渐变滑条），无单选菜
 	// 快捷键提示跟随生效绑定（hook 桩返回 Control+T）
 	assert.ok(html.includes("Ctrl+T"));
 	assert.doesNotMatch(html, /role="menuitemradio"|common\.confirm|<input/);
+});
+
+test("档位标签行按内容定宽且不裁字（回归：大字档下首尾标签挤出弹层、字头被切）", () => {
+	const { captured, ThinkingLevelDropdown } = createHarness();
+	const html = renderToStaticMarkup(createElement(ThinkingLevelDropdown, { ...BASE, current: "high" }));
+	// 弹层宽度跟随标签内容：固定 w-72 在 fontSize=large（标签 13px）下与标签行零余量
+	assert.match(captured.popoverContent.className, /(?:^|\s)w-auto(?:\s|$)/);
+	assert.doesNotMatch(captured.popoverContent.className, /(?:^|\s)w-72(?:\s|$)/);
+	// 标签按钮不得挂 truncate / 固定行高：16px（leading-4）行盒装不下 13~14px 标签，
+	// overflow:hidden 会把行盒顶部切掉，字头看起来「被盖住」。
+	const ticks = captured.buttons.filter((b) => b["data-tick-value"]);
+	assert.equal(ticks.length, 7);
+	for (const tick of ticks) {
+		assert.doesNotMatch(tick.className, /(?:^|\s)truncate(?:\s|$)/, `${tick["data-tick-value"]} 不得截断`);
+		assert.doesNotMatch(tick.className, /(?:^|\s)leading-\d/, `${tick["data-tick-value"]} 行高需跟随 text-micro`);
+		assert.match(tick.className, /(?:^|\s)whitespace-nowrap(?:\s|$)/, `${tick["data-tick-value"]} 不得换行`);
+	}
+	// 标签行内缩：首尾标签不再贴着弹层内容盒边缘
+	assert.match(html, /justify-between gap-1 px-2/, "标签行需留出首尾边距");
 });
 
 test("轨道上每个档位都有刻度点，且填充段/未选段分色（不能挂在 Slider children 里）", () => {
