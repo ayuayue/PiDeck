@@ -64,7 +64,13 @@ export function RemoteConfigPanel(props: { file: PiConfigFileKey; hostId: string
 			</div>
 
 			{snapshot === undefined && (connecting || loading) ? (
-				<div role="status" aria-live="polite" className="flex items-center justify-center gap-2.5 rounded-md border border-border-subtle bg-bg-panel px-3 py-8 text-control text-muted-foreground" data-testid={connecting ? "remote-config-connecting" : "remote-config-loading"} data-tone={connecting ? "connecting" : "loading"}>
+				<div
+					role="status"
+					aria-live="polite"
+					className="flex items-center justify-center gap-2.5 rounded-md border border-border-subtle bg-bg-panel px-3 py-8 text-control text-muted-foreground"
+					data-testid={connecting ? "remote-config-connecting" : "remote-config-loading"}
+					data-tone={connecting ? "connecting" : "loading"}
+				>
 					<LoaderCircle className={connecting ? "size-4 shrink-0 animate-pideck-spin text-warning" : "size-4 shrink-0 animate-pideck-spin"} aria-hidden="true" />
 					<span className="animate-pulse">{connecting ? t("remoteConfig.connecting") : t("remoteConfig.loading")}</span>
 					{props.hostLabel ? <span className="truncate font-mono text-micro text-muted-foreground">{props.hostLabel}</span> : null}
@@ -87,7 +93,11 @@ export function RemoteConfigPanel(props: { file: PiConfigFileKey; hostId: string
 							{t("remoteConfig.reconnect")}
 						</Button>
 						{state.code ? <code className="font-mono text-micro text-muted-foreground">{t("remoteConfig.errorCode", { code: state.code })}</code> : null}
-						{connectCode !== undefined ? <code className="font-mono text-micro text-muted-foreground" data-testid="remote-config-connect-code">{connectCode}</code> : null}
+						{connectCode !== undefined ? (
+							<code className="font-mono text-micro text-muted-foreground" data-testid="remote-config-connect-code">
+								{connectCode}
+							</code>
+						) : null}
 					</div>
 				</div>
 			) : null}

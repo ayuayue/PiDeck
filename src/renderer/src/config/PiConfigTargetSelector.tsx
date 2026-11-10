@@ -39,7 +39,13 @@ function ConnectionStatus(props: { tone: RemoteHostConnectionTone; errorCode?: s
 	return (
 		<span role="status" aria-live="polite" className="flex min-w-0 items-center gap-1.5 text-micro text-muted-foreground" data-testid="config-target-remote-hint" data-tone={props.tone} title={t("config.target.remoteHint")}>
 			<ConnectionGlyph tone={props.tone} />
-			{props.tone === "error" ? <span className="truncate text-danger">{t("settings.connections.connectFailed", { code: props.errorCode ?? "REMOTE_CONNECTION_FAILED" })}</span> : props.tone === "online" ? <span className="truncate">{t("sidebar.remoteProject.connection.online")}</span> : <span className="truncate">{t("sidebar.remoteProject.connection.offline")}</span>}
+			{props.tone === "error" ? (
+				<span className="truncate text-danger">{t("settings.connections.connectFailed", { code: props.errorCode ?? "REMOTE_CONNECTION_FAILED" })}</span>
+			) : props.tone === "online" ? (
+				<span className="truncate">{t("sidebar.remoteProject.connection.online")}</span>
+			) : (
+				<span className="truncate">{t("sidebar.remoteProject.connection.offline")}</span>
+			)}
 			{props.tone === "online" ? null : (
 				<Button type="button" variant="ghost" size="sm" className="h-6 shrink-0 gap-1 px-1.5 text-micro" data-testid="config-target-reconnect" onClick={props.onRetry}>
 					<RefreshCw className="size-3" aria-hidden="true" />
