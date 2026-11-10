@@ -1,6 +1,6 @@
 {
-	"capturedAt": "2026-11-09",
-	"total": 1995,
+	"capturedAt": "2026-11-10",
+	"total": 2011,
 	"sourceOnly": [
 		"tests/abortSlowRecoveryNotice.test.mjs",
 		"tests/abortStreamRegression.test.mjs",
@@ -8,6 +8,7 @@
 		"tests/acpFirstSendFailurePrune.test.mjs",
 		"tests/activationWindowEvents.test.mjs",
 		"tests/addHostDialogCredentials.test.mjs",
+		"tests/addHostTestConnection.test.mjs",
 		"tests/agentCreateTimeout.test.mjs",
 		"tests/agentLoadNotice.test.mjs",
 		"tests/agentManagerRuntimeEventTriple.test.mjs",
@@ -263,7 +264,6 @@
 		"tests/scratchPadMotion.test.mjs",
 		"tests/scrollHistoryPolicy.test.mjs",
 		"tests/securityLevelRuntimeSwitch.test.mjs",
-		"tests/sessionActions.test.mjs",
 		"tests/sessionCatalogCommand.test.mjs",
 		"tests/sessionCatalogSelectors.test.mjs",
 		"tests/sessionDeleteIdempotency.test.mjs",
