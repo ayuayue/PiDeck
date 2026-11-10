@@ -30,7 +30,15 @@ ResizeObserver + 每帧行集合计算）比直接渲染几个 div 更贵。
 | 纯估值（`estimateSize` 常数） | 方差小；方差 > 2 倍必然错位 |
 | 实测（`measureElement` + ResizeObserver） | 任意分布 |
 
-**红线只有一条：虚拟化必须配 `measureElement`。** `VirtualStack` 的默认行为就是实测。
+**红线只有一条：接 `<VirtualStack>` 的容器必须配 `measureElement`。** `VirtualStack` 的默认行为就是实测。
+
+自持 `useVirtualizer` 的实现（`VirtualRunList`、`SessionOutlinePanel`）不在红线的作用域内，
+但必须满足「行高固定」：行高随内容变化却不实测，等于用估值冒充实测，是同一类错位
+（上表第二行）。`SessionOutlinePanel` 用 `ROW_HEIGHT_PX = 68` + `line-clamp-2` 把行高钉死（最多两行标题），符合；
+`VirtualRunList` 的行高从几百 px 到数万 px，所以它自己调 `measureElement` 并回写宽度分桶缓存。
+
+判据不是「文件里有没有 `measureElement`」，而是「这行的高度会不会随内容变」。
+会变就必须实测；不变才可以估值，且要在注释里写明「行高固定」的依据。
 
 所以「含可展开块的列表不能虚拟化」这句话是错的——折叠区（组头 32px / 展开组 352px /
 中间回复几百 px）就是靠实测接进去的。
