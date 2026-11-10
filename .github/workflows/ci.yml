@@ -26,14 +26,24 @@ jobs:
           node-version: 24.13.0
           cache: npm
 
-      - name: Setup Go (remote-sftp executor)
+      - name: Setup Go (native modules)
         uses: actions/setup-go@v5
         with:
           go-version: "1.26"
-          cache-dependency-path: native/remote-sftp/go.sum
+          cache-dependency-path: |
+            native/file-index/go.sum
+            native/session-index/go.sum
+            native/session-store/go.sum
+            native/xue-index/go.sum
+            native/remote-sftp/go.sum
 
-      - name: Go unit tests (remote-sftp executor)
-        run: go -C native/remote-sftp test ./...
+      - name: Go unit tests (native modules)
+        run: |
+          go -C native/file-index test ./...
+          go -C native/session-index test ./...
+          go -C native/session-store test ./...
+          go -C native/xue-index test ./...
+          go -C native/remote-sftp test ./...
 
       - name: Install dependencies
         run: npm ci
@@ -162,14 +172,24 @@ jobs:
           node-version: 24.13.0
           cache: npm
 
-      - name: Setup Go (remote-sftp executor)
+      - name: Setup Go (native modules)
         uses: actions/setup-go@v5
         with:
           go-version: "1.26"
-          cache-dependency-path: native/remote-sftp/go.sum
+          cache-dependency-path: |
+            native/file-index/go.sum
+            native/session-index/go.sum
+            native/session-store/go.sum
+            native/xue-index/go.sum
+            native/remote-sftp/go.sum
 
-      - name: Go unit tests (remote-sftp executor, Linux)
-        run: go -C native/remote-sftp test ./...
+      - name: Go unit tests (native modules, Linux)
+        run: |
+          go -C native/file-index test ./...
+          go -C native/session-index test ./...
+          go -C native/session-store test ./...
+          go -C native/xue-index test ./...
+          go -C native/remote-sftp test ./...
 
       - name: Install dependencies
         run: npm ci
