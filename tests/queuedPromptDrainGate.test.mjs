@@ -63,3 +63,16 @@ test("门禁到期自己叫醒队列，不依赖外部事件", async () => {
 	harness.fireTimers(2000);
 	assert.equal(harness.submissions.length, 2, "到期必须自己续排");
 });
+
+test("卸载后门禁定时器不得再发送", async () => {
+	const harness = queuedPromptHarness();
+	harness.addSession("A", "idle");
+	harness.queue.setSessionQueuedPrompts("A", () => [queuedPrompt("q1"), queuedPrompt("q2")]);
+
+	await harness.queue.flushNextQueuedPrompt("A");
+	assert.equal(harness.submissions.length, 1);
+
+	harness.unmount();
+	harness.fireTimers(2000);
+	assert.equal(harness.submissions.length, 1, "卸载后到期唤醒必须被取消");
+});
