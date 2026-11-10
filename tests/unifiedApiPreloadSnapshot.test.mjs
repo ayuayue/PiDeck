@@ -69,7 +69,8 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const NS_LIST_SHA256 = "4cf4ab783889f7e6b721914066df72c7fe191a48d772d71f87efa827fce58ada";
-const FULL_METHODS_SHA256 = "f9e5651ffd19bf5769dd8c04f5f51f7c8cc6de0b7840378d23e272d7fdb6d21b";
+// #520：sessions 新增安全分享 prepare/save/release 三个方法，其他命名空间不变。
+const FULL_METHODS_SHA256 = "9b423f414936f8a5fff438f0077fae538fdf9f5040199ab1891a814ceb29a9e9";
 const NAMESPACE_COUNT = 84;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
@@ -122,8 +123,8 @@ test("F8-2 每命名空间排序方法清单摘要零漂移", () => {
 	assert.equal(sha256(methodLines.join(";")), FULL_METHODS_SHA256, "方法清单摘要漂移：任一命名空间的方法暴露面发生变化（A10 红线）");
 });
 
-test("F8-3 数量锚点：sessions 117 / config 53 / git 61 / app 32", () => {
-	assert.equal(Object.keys(api.sessions).length, 117, "sessions 方法数漂移");
+test("F8-3 数量锚点：sessions 120 / config 53 / git 61 / app 32", () => {
+	assert.equal(Object.keys(api.sessions).length, 120, "sessions 方法数漂移");
 	assert.equal(Object.keys(api.config).length, 53, "config 方法数漂移");
 	assert.equal(Object.keys(api.git).length, 61, "git 方法数漂移");
 	assert.equal(Object.keys(api.app).length, 32, "app 方法数漂移");

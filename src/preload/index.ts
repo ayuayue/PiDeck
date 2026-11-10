@@ -46,6 +46,7 @@ import type { AddFavoriteInput, FavoriteEntry } from "../shared/types/favorites"
 import type { SessionGroup } from "../shared/types/sessionGroups";
 import type { AnswerLinkedSessionProposalInput, AnswerLinkedSessionProposalResult, LinkedSessionsSnapshot } from "../shared/types/linkedSessions";
 import type { NoticeHistoryFileEntry, NoticeHistoryRecordInput } from "../shared/types/noticeHistory";
+import type { SessionSharePrepareInput, SessionSharePreview, SessionShareResult } from "../shared/types/sessionExport";
 import type { ReplyActionRule, ReplyActionsSaveResult, ReplyActionsSnapshot } from "../shared/types/replyActions";
 import type {
 	YaoPromptListResult,
@@ -876,12 +877,11 @@ const api = {
 				cancelled?: boolean;
 				targetSessionId?: string;
 			}>,
-		exportRecordHtml: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogExportHtml, sessionId) as Promise<{
-				path: string;
-				/** 远端导出命中上限（页数/消息数/字节）：导出的是**部分**历史，UI 必须如实告知 */
-				truncated?: boolean;
-			}>,
+		/** truncated=true 表示只导出了部分历史，UI 必须如实告知。 */
+		exportRecordHtml: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogExportHtml, sessionId) as Promise<{ path: string; truncated?: boolean }>,
+		prepareShareExport: (input: SessionSharePrepareInput) => ipcRenderer.invoke(ipcChannels.sessionsSharePrepare, input) as Promise<SessionShareResult<SessionSharePreview>>,
+		saveShareExport: (previewId: string) => ipcRenderer.invoke(ipcChannels.sessionsShareSave, previewId) as Promise<SessionShareResult<{ path: string }>>,
+		releaseShareExport: (previewId: string) => ipcRenderer.invoke(ipcChannels.sessionsShareRelease, previewId) as Promise<void>,
 		/** DSH 会话文件路径推导（右键「复制会话文件路径」；非 DSH/不可推导返回 undefined）。 */
 		getDshSessionPath: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsGetDshSessionPath, sessionId) as Promise<string | undefined>,
 		/** DSH 会话内容搜索（侧栏搜索框全文搜索；结果含 dshSessionId + snippet）。 */

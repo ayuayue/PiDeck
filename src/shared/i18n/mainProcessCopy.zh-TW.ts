@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: c5c0ef222015e06a3f102771d5473a0563008e842b4532bb068bc0d18c9e50ca（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 3ffeb3b05a0faf58b37f9cfcbadcf14307fbd8838f84546c9eaafc98b34a5f58（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import type { MainProcessTranslationKey } from "./mainProcessCopy";
 
@@ -117,6 +117,9 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"session.fileNotFound": "會話檔案不存在，請重新整理會話列表後重試。",
 	"session.copyDshUnsupported": "DSH 歷史會話暫不支援直接複製，請開啟會話後使用執行中 Agent 的「複製會話」。",
 	"session.exportFailed": "會話匯出失敗，請重試。",
+	"sessionShare.footer": "由 PiDeck 匯出（安全分享投影檢視）",
+	"sessionShare.partialNotice": "這是部分歷史：本次匯出已達到讀取上限，更早的訊息未包含。",
+	"sessionShare.warning": "自動脫敏規則可能遺漏敏感內容。分享前請人工檢查；未發現匹配項不代表沒有敏感資訊。",
 	// 远端会话导出（只读远端 + 本机写文件）：页脚与「上限命中」提示都由装配注入，模块内不硬编码文案。
 	"session.exportRemoteFooter": "由 PiDeck 匯出（SSH 遠端會話，歷史按視窗分頁讀取）",
 	"session.exportRemotePartialNotice": "這是部分歷史：遠端會話按 128 KiB 視窗分頁讀取，本次匯出已達上限（最多 {pages} 頁 / {messages} 條訊息），更早的訊息未包含。需要完整歷史請在該遠端主機上匯出。",

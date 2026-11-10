@@ -2,6 +2,7 @@ import type { ComponentProps } from "react";
 import { ConfirmDialog } from "./OverlayParts";
 import { TrustConfirmModal } from "../app/TrustConfirmModal";
 import { ProviderLoginModal } from "../app/ProviderLoginModal";
+import { SessionExportDialogHost } from "../session/SessionExportDialog";
 import { FeedbackDialog, type FeedbackDialogProps } from "../../features/feedback/FeedbackDialog";
 
 export type FeedbackOverlayProps = FeedbackDialogProps;
@@ -29,6 +30,7 @@ export function SessionActionOverlays({ feedback, confirm, trust }: SessionActio
 			{trust?.open && <TrustConfirmModal cwd={trust.cwd} projectName={trust.projectName} onChoose={trust.onChoose} />}
 			{/* 供应商登录：无 props——弹框自己订阅 providerLoginRequestAtom（`/login` 触发） */}
 			<ProviderLoginModal />
+			<SessionExportDialogHost />
 		</>
 	);
 }

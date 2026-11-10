@@ -32,6 +32,8 @@ import type { DshEnvelope, DshHistoryEntry, DshHistoryPage } from "./dshRemoteCl
 import type { SessionAgentGateway } from "../sessions/SessionRuntimeCoordinator";
 import type { DshHost } from "./DshHost";
 import { renderDshSessionHtml, sanitizeExportFileName } from "./dshSessionHtmlExport";
+import { collectDshExportMessages, DSH_EXPORT_MESSAGES_CODES, DshExportMessagesError, type DshExportMessagesCollection } from "./dshExportMessages";
+import { defaultToolDetailTranslate, type ToolDetailTranslate } from "../../shared/formatToolDetail";
 import { projectDshEvent, parseDshTodoList, parseDshInboxProjection, type DshProjection } from "./dshEventProjector";
 import { projectDshSubagentTranscriptPage, type DshSubagentTranscriptPage } from "./dshSubagentTranscript";
 import {
@@ -162,9 +164,7 @@ export class DshAgentManager implements SessionAgentGateway {
 	private readonly pendingTimers = new Map<string, NodeJS.Timeout>();
 	/** pending 审批/提问的超时时长（10 分钟：Ask 弹窗常驻等待太久无意义）。 */
 	private static readonly PENDING_RESPONSE_TIMEOUT_MS = 10 * 60_000;
-	/** 历史导出分页大小与页数上限（防超大会话导出失控；单页 500 事件 ≈ 数十轮对话）。 */
-	private static readonly EXPORT_HISTORY_PAGE_SIZE = 500;
-	private static readonly EXPORT_MAX_HISTORY_PAGES = 100;
+
 	/** 会话内查找历史快照的复用窗口：连续输入命中缓存，超过窗口不复用（下次检索重建，进程内最多一份）。 */
 	private static readonly SESSION_FIND_CACHE_TTL_MS = 60_000;
 	/**
@@ -197,6 +197,8 @@ export class DshAgentManager implements SessionAgentGateway {
 		 * 返回是否真的弹出：false 时不占用「每轮只提醒一次」的去重位。缺省静默。
 		 */
 		private readonly notify?: { askPending?: (input: { agentId: string; sessionId: string; sessionTitle: string; question: string }) => boolean },
+		/** 导出上限提示由装配传入当前 mainCopy；未装配时沿用主进程词典兜底。 */
+		private readonly translate: ToolDetailTranslate = defaultToolDetailTranslate,
 	) {
 		// E4：host 崩溃自动重启完成后恢复所有 runtime（host 内存已丢失：流式/工具/
 		// 压缩状态停在崩溃前，mux 重连后新 host 没有已订阅会话，事件不会再推）。
@@ -1347,77 +1349,49 @@ export class DshAgentManager implements SessionAgentGateway {
 
 	// ── 会话 HTML 导出（G10：投影式导出，DSH wire 无 export_html）─────────────
 
-	/**
-	 * 活跃会话导出：直接用 runtime 内存消息渲染（含流式最新内容），
-	 * 与 pi 的 export_html 同协议（返回导出文件路径）。
-	 */
-	async exportHtml(agentId: string): Promise<{ path: string }> {
+	/** 活跃会话也从持久化历史分页读取，不能把运行时尾部窗口当成完整历史。 */
+	async exportHtml(agentId: string): Promise<{ path: string; truncated: boolean }> {
 		const runtime = this.runtime(agentId);
-		const messages = runtime.messages;
-		return this.writeSessionHtmlExport(messages, {
-			title: runtime.tab.title,
-			cwd: runtime.cwd,
-			dshSessionId: String(runtime.sessionId),
+		const dshSessionId = String(runtime.sessionId);
+		const collection = await this.readSessionExportMessages(dshSessionId, { includeImages: true });
+		return this.writeSessionHtmlExport(collection, { title: runtime.tab.title, cwd: runtime.cwd, dshSessionId });
+	}
+
+	/** 历史完整导出与安全分享共用只读来源；完整导出默认回填图片。 */
+	async exportSessionHtml(dshSessionId: string, title: string, cwd?: string): Promise<{ path: string; truncated: boolean }> {
+		const collection = await this.readSessionExportMessages(dshSessionId, { includeImages: true });
+		return this.writeSessionHtmlExport(collection, { title, cwd, dshSessionId });
+	}
+
+	/** 只读导出源：全段单次投影保留工具全文，不做白名单过滤或脱敏。 */
+	public async readSessionExportMessages(dshSessionId: string, options: { includeImages: boolean }): Promise<{ messages: ChatMessage[]; truncated: boolean }> {
+		const client = await this.ensureClient().catch(() => {
+			throw new DshExportMessagesError(DSH_EXPORT_MESSAGES_CODES.readFailed);
 		});
+		const collection = await collectDshExportMessages({
+			agentId: `dsh:${dshSessionId}`,
+			historyPage: (beforeSeq, maxMessages) => this.historyPage(dshSessionId, { beforeSeq, maxMessages }),
+		});
+		return options.includeImages ? { ...collection, messages: await this.hydrateDshImageRefs(client, dshSessionId as SessionId, collection.messages) } : collection;
 	}
 
-	/**
-	 * 历史会话导出（无活跃 runtime）：分页拉全量事件后单次投影渲染。
-	 * 分页上限防失控（超大会话截断并提示，不静默失败）。
-	 */
-	async exportSessionHtml(dshSessionId: string, title: string, cwd?: string): Promise<{ path: string }> {
-		const messages = await this.collectAllDshMessages(dshSessionId);
-		return this.writeSessionHtmlExport(messages, { title, cwd, dshSessionId });
-	}
-
-	/** 历史全量消息（导出用）：投影 + 图片引用回填。 */
-	private async collectAllDshMessages(dshSessionId: string): Promise<ChatMessage[]> {
-		const messages = await this.collectAllDshSessionMessages(dshSessionId);
-		const client = this.requireClient();
-		return this.hydrateDshImageRefs(client, dshSessionId as SessionId, messages);
-	}
-
-	/**
-	 * 历史全量消息收集：从最新往前分页（beforeSeq 为排除边界，页间不重叠）。
-	 * 不回填图片附件（导出与会话内查找都不需要附件传输），回填由调用方按需追加：
-	 * 会话内查找每敲一个字就会走一次，逐张拉附件只会拖慢输入。
-	 */
+	/** 会话查找复用同一收集器，不回填图片，保持搜索签名与附件传输开销不变。 */
 	private async collectAllDshSessionMessages(dshSessionId: string): Promise<ChatMessage[]> {
-		await this.ensureClient();
-		const entries: Array<{ event: Record<string, unknown>; view: unknown }> = [];
-		let beforeSeq: number | undefined;
-		for (let page = 0; page < DshAgentManager.EXPORT_MAX_HISTORY_PAGES; page += 1) {
-			const pageResult = await this.historyPage(String(dshSessionId), {
-				beforeSeq,
-				maxMessages: DshAgentManager.EXPORT_HISTORY_PAGE_SIZE,
-			});
-			if (!pageResult.result.ok) break;
-			const pageEntries = (pageResult.result.value.events ?? []).map((entry) => ({ event: entry.event, view: entry.view })).filter((item): item is { event: NonNullable<typeof item.event>; view: typeof item.view } => Boolean(item.event));
-			if (pageEntries.length === 0) break;
-			entries.push(...pageEntries);
-			const oldestSeq = pageEntries[0].event.seq;
-			if (pageResult.result.value.hasMore !== true || typeof oldestSeq !== "number") break;
-			beforeSeq = oldestSeq;
-		}
-		entries.sort((left: { event: { seq?: number } }, right: { event: { seq?: number } }) => (left.event.seq ?? 0) - (right.event.seq ?? 0));
-		const agentId = `dsh:${dshSessionId}`;
-		let projection = projectDshEvent(undefined, undefined, agentId);
-		for (const { event, view } of entries) {
-			projection = projectDshEvent(projection, event, agentId, view);
-		}
-		return projection.messages;
+		return (await this.readSessionExportMessages(dshSessionId, { includeImages: false })).messages;
 	}
 
-	/** 渲染 + 落盘（导出目录由装配层注入，写入前确保目录存在）。 */
-	private async writeSessionHtmlExport(messages: ChatMessage[], meta: { title: string; cwd?: string; dshSessionId: string }): Promise<{ path: string }> {
+	/** 渲染 + 落盘；预算截断必须同时保留返回标志和 HTML 可见提示。 */
+	private async writeSessionHtmlExport(collection: DshExportMessagesCollection, meta: { title: string; cwd?: string; dshSessionId: string }): Promise<{ path: string; truncated: boolean }> {
 		const dir = this.getExportDir();
 		if (!dir) throw new Error("session export is not configured");
-		const html = renderDshSessionHtml(messages, meta);
+		const partialNotice = collection.truncated ? this.translate("sessionShare.partialNotice") : undefined;
+		if (collection.truncated && !partialNotice?.trim()) throw new Error("DSH_EXPORT_PARTIAL_NOTICE_UNAVAILABLE");
+		const html = renderDshSessionHtml(collection.messages, { ...meta, ...(partialNotice ? { partialNotice } : {}) });
 		await mkdir(dir, { recursive: true });
 		const fileName = sanitizeExportFileName(meta.title, meta.dshSessionId);
 		const filePath = join(dir, fileName);
 		await writeFile(filePath, html, "utf8");
-		return { path: filePath };
+		return { path: filePath, truncated: collection.truncated };
 	}
 
 	async prepareResendFromMessage(agentId: string, messageId: string): Promise<{ text: string; images?: ImageContent[] }> {

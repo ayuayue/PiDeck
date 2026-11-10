@@ -3,7 +3,11 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { hostname, release as osRelease } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { renderDshSessionHtml as renderSessionHtmlForExport, sanitizeExportFileName } from "./dsh/dshSessionHtmlExport";
+import { exportCatalogSessionHtmlWithPorts } from "./sessions/catalogSessionHtmlExport";
+import { registerSessionShareExportIpc } from "./ipc/sessionShareExportIpc";
+import { SessionShareExportService } from "./sessions/SessionShareExportService";
+import { createSessionShareSourceLoader } from "./sessions/sessionShareSource";
+import { createPiSessionShareReader } from "./pi/piSessionShareReader";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
@@ -1748,37 +1752,8 @@ function resolveVideoGenStorageRoots(): { sessions: string; blobs: string; jobs:
 	return { sessions: join(root, "sessions"), blobs: join(root, "blobs"), jobs: join(root, "jobs.json") };
 }
 
-async function exportCatalogSessionHtml(sessionId: string): Promise<{ path: string }> {
-	const entry = sessionCatalog.get(sessionId);
-	// G10：DSH 会话投影式导出（无活跃 runtime 时从 host 分页拉全量渲染），
-	// 与 pi 的 export_html 同协议返回导出文件路径。
-	if (entry?.backend === "dsh") {
-		if (!entry.dshSessionId) throw new Error(mainCopy("session.fileNotFound"));
-		const project = projectStore.get(entry.projectId);
-		return dshAgentManager.exportSessionHtml(entry.dshSessionId, entry.title, project?.path);
-	}
-	const filePath = sessionCatalog.getLocalFilePath(sessionId);
-	if (!entry || !filePath) throw new Error(mainCopy("session.fileNotFound"));
-	const result = await agentManager.exportSessionHtml(entry.projectId, filePath);
-	if (!result || typeof result !== "object" || !("path" in result) || typeof result.path !== "string") {
-		throw new Error(mainCopy("session.exportFailed"));
-	}
-	// pi 临时会话的 export_html 可能返回相对文件名（pi-session-*.html，落在 pi cwd=项目根）：
-	// 打包态主进程 cwd 是 exe 目录，消费端（Web 下载 / 桌面打开）直接用相对路径必然 ENOENT。
-	const rawPath = result.path;
-	const projectRoot = projectStore.get(entry.projectId)?.path ?? "";
-	const absolutePath = isAbsolute(rawPath) ? rawPath : join(projectRoot, rawPath);
-	if (existsSync(absolutePath)) return { path: absolutePath };
-	// pi 声明的导出文件不存在（部分 pi 版本在临时会话上不落盘，2026-10 Web 走查实测）：
-	// 回退 host 侧投影导出——复用 DSH 的自包含 HTML 渲染器（无外部依赖、离线可读），
-	// 落盘 userData/exports/，保证「导出 HTML」在任何 pi 行为下都成功。
-	const loadWindow = await agentManager.readSessionLoadWindow(filePath, sessionId, { projectId: entry.projectId });
-	const html = renderSessionHtmlForExport(loadWindow.messages, { title: entry.title, cwd: projectRoot, exportedAt: Date.now() });
-	const exportDir = join(app.getPath("userData"), "exports");
-	await mkdir(exportDir, { recursive: true });
-	const outPath = join(exportDir, sanitizeExportFileName(entry.title || sessionId, sessionId));
-	await writeFile(outPath, html, "utf8");
-	return { path: outPath };
+function exportCatalogSessionHtml(sessionId: string): Promise<{ path: string; truncated?: boolean }> {
+	return exportCatalogSessionHtmlWithPorts({ catalog: sessionCatalog, projects: projectStore, pi: agentManager, dsh: dshAgentManager, exportDir: resolveSessionExportDir, copy: mainCopy }, sessionId);
 }
 
 type AgentSessionReplacementResult = {
@@ -4774,6 +4749,15 @@ function registerIpc() {
 	// 重启恢复：24h 窗口内未终态的任务继续轮询（终态立即结清旧任务）
 	void videoJobRunner.resume();
 
+	registerSessionShareExportIpc(
+		ipcMain,
+		new SessionShareExportService({
+			load: createSessionShareSourceLoader({ catalog: sessionCatalog, projects: projectStore, pi: createPiSessionShareReader(mainCopy), dsh: dshAgentManager }),
+			resolveExportDir: resolveSessionExportDir,
+			home: () => app.getPath("home"),
+			copy: () => ({ footer: mainCopy("sessionShare.footer"), partialNotice: mainCopy("sessionShare.partialNotice"), warning: mainCopy("sessionShare.warning") }),
+		}),
+	);
 	registerSessionIpc({
 		projectStore,
 		settingsStore,
@@ -6666,6 +6650,7 @@ app
 			rpcLogLiveBroadcaster,
 			// Ask 通知：DSH 没有 AgentManager 的通道，由装配层注入统一门控/toast。
 			{ askPending: (input) => notifyAgentAskPending(agentToastDeps(), input) },
+			mainCopy,
 		);
 		// C12/E15：DSH 退出清理——先停全部活跃会话（清 mux/订阅/pending）再 dispose host，
 		// 顺序保证避免 host 先被杀导致会话清理路径访问已死 transport。

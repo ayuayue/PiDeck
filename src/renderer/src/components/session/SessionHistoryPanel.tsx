@@ -164,9 +164,8 @@ export function SessionsPanel(props: {
 											{sessionActionLoading?.filePath === session.filePath && sessionActionLoading.action === "copy" && <span className="mini-loader animate-pideck-spin" />}
 											<span>{sessionActionLoading?.filePath === session.filePath && sessionActionLoading.action === "copy" ? t("menu.copying") : t("common.copy")}</span>
 										</Button>
-										<Button variant="ghost" className="session-rename-button" title={t("menu.exportHtml")} disabled={Boolean(sessionActionLoading)} onClick={() => void runSessionAction(session, "export", () => props.onExport(session), t("drawer.sessionExported"))}>
-											{sessionActionLoading?.filePath === session.filePath && sessionActionLoading.action === "export" && <span className="mini-loader animate-pideck-spin" />}
-											<span>{sessionActionLoading?.filePath === session.filePath && sessionActionLoading.action === "export" ? t("menu.exporting") : t("common.export")}</span>
+										<Button variant="ghost" className="session-rename-button" title={t("menu.exportHtml")} disabled={Boolean(sessionActionLoading) || (Boolean(session.backend) && session.backend !== "pi" && session.backend !== "dsh")} onClick={() => void props.onExport(session)}>
+											<span>{t("common.export")}</span>
 										</Button>
 										<Button variant="ghost" className="session-rename-button" title={t("common.rename")} onClick={() => startRename(session)}>
 											<span>{t("common.rename")}</span>

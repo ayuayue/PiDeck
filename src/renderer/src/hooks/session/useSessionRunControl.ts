@@ -4,6 +4,7 @@ import { applySessionRuntimeEventAtom, cacheSessionMessagesAtom, sessionHistoryM
 import { sessionIdByRuntimeAgentIdAtomFamily, sessionRuntimeBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { dshRuntimeStatusAtom } from "../../atoms/dsh-atoms";
 import { openSettingsAtom } from "../../atoms/app-ui-atoms";
+import { sessionExportRequestAtom } from "../../atoms/session-export-atoms";
 import { sessionCommandsAtomFamily, sessionCommandsRefreshTickAtom, sessionReloadingByIdAtom } from "../../atoms/session-commands-atoms";
 import { canRunSessionAction, isLiveRuntimeStatus, requireSessionCommand, resolveSessionRunState, sessionCommandFailureToast, sessionRunCapabilities, SessionCommandFailure, toSessionRuntimeTarget, type SessionRunCapabilities, type SessionRunAction } from "../../utils/sessionCommands";
 import { sessionHistoryUnavailableState } from "../../utils/sessionHistoryAvailability";
@@ -543,16 +544,8 @@ export function useSessionRunControl({
 
 	async function exportAgentHtml(agentId: string) {
 		if (isPendingAgentId(agentId)) return;
-		try {
-			const target = getRuntimeTargetForAgent(agentId);
-			if (!target) return;
-			const result = requireSessionCommand(await api.sessions.exportRuntimeHtml(target)).value as {
-				path: string;
-			};
-			showToast(t("app.exportedPath", { path: result.path }), 3500);
-		} catch (err) {
-			showToast(err instanceof Error ? err.message : String(err), 5000);
-		}
+		const target = getRuntimeTargetForAgent(agentId);
+		if (target) store.set(sessionExportRequestAtom, { sessionId: target.sessionId });
 	}
 
 	/**

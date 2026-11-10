@@ -1,4 +1,6 @@
 import type { MutableRefObject } from "react";
+import { useSetAtom } from "jotai";
+import { sessionExportRequestAtom } from "../atoms/session-export-atoms";
 import type { AgentBackend, ArchivedPiSession, CreateAnonymousSessionResult, Project, SessionRecord, SessionLaunchPreferences, SessionSummary } from "../../../shared/types";
 import { collectSessionSubtreeIds, getSessionEnvironment } from "../../../shared/sessionIdentity";
 import { isSameSessionPath } from "../agentListDisplay";
@@ -66,6 +68,7 @@ export interface UseSessionActionsOptions {
  * 那是 workspace chrome 的事，由 App / 侧栏在边界组合。
  */
 export function useSessionActions(options: UseSessionActionsOptions) {
+	const requestExport = useSetAtom(sessionExportRequestAtom);
 	const { openSessionRequestRef, creatingSessionDraftRef, activeProjectId, sessionsProjectId, projects, setActiveProjectId, setCurrentSessionId, getSessionRecord, getProjectSessionRecords, upsertSession, removeSessionState, removeSessionComposerState, closeTabs, refreshProjectSessions, api, showToast } = options;
 
 	function commitSessionSelection(projectId: string, sessionId: string | undefined, scrollToEnd: boolean) {
@@ -96,8 +99,7 @@ export function useSessionActions(options: UseSessionActionsOptions) {
 	}
 
 	async function exportHistorySession(session: SessionSummary) {
-		const result = await api.sessions.exportRecordHtml(session.id);
-		showToast(t("app.exportedPath", { path: result.path }), 3500);
+		requestExport({ sessionId: session.id });
 	}
 
 	/**
@@ -234,8 +236,7 @@ export function useSessionActions(options: UseSessionActionsOptions) {
 	}
 
 	async function exportSidebarSession(_projectId: string, session: SessionSummary) {
-		const result = await api.sessions.exportRecordHtml(session.id);
-		showToast(t("app.exportedPath", { path: result.path }), 3500);
+		requestExport({ sessionId: session.id });
 	}
 
 	async function createSessionDraft(

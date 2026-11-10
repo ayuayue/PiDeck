@@ -70,15 +70,17 @@
  *   提交 483a52dfe 漏刷快照）→ 816，agent-memory 前缀已存在，前缀数仍 93。
  * 2026-11-08 刷新（+4）：关联会话（子对话，host-boundaries 例外九）linked-sessions:snapshot/answer/archive/changed
  *   → 820，新增 linked-sessions 前缀，前缀数 93→94。
+ * #520 安全分享：HEAD b5d559fd1 的实际基线已是 847（旧快照 844 滞后）；新增
+ *   sessions:share-prepare / share-save / share-release 三条 → 850，前缀仍 95。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 844;
+const CHANNEL_TOTAL = 850;
 const PREFIX_COUNT = 95;
-const CHANNEL_DIGEST = "af428f15e872d8cea881f09fb85b465a6893fe4807bdaafb80f76041d4ca918a";
+const CHANNEL_DIGEST = "f5255143ed97642e5396d24912700e35df0c6f3972ba72302946591eeca7f1ca";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -97,11 +99,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 844", () => {
+test("F3-1 通道常量总数 === 850", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 844（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 850（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 

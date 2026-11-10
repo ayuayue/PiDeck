@@ -2717,8 +2717,7 @@ export function App() {
 	// —— Tab 栏会话操作组（重命名 / 复制会话 / 导出 HTML / 复制路径 / 打开文件）——
 	// 与侧栏会话右键菜单同源同语义，参数化到任意 sessionId：⋯ 菜单喂当前会话，
 	// Tab 右键菜单（SessionTabsBar contextSessionActions）喂被右键的 Tab——后台 Tab
-	// 同样可操作。live 会话复制走 clone 分流（Agent 换绑新会话，DSH 亦可），历史/
-	// 未启动会话走 copyRecord；DSH 历史会话无宿主文件，隐藏复制/导出组（与侧栏一致）。
+	// 同样可操作。live 复制走 clone；历史走 copyRecord。导出由统一对话框区分完整/安全分享。
 	// record/runtime 用 store 现查（右键目标不在 current* 闭包里）；agent 列表闭包自
 	// 当次渲染（SessionTabsBar 的 renderTab 每渲染重建，无过期问题）。
 	const buildTabsSessionActions = (sessionId: string): SessionTabsBarProps["sessionActions"] => {
@@ -2734,7 +2733,7 @@ export function App() {
 		const canRename = record.status !== "draft";
 		return {
 			canCopySession: canRename && record.backend !== "acp" && (isLive || record.backend !== "dsh"),
-			canExportHtml: canRename && record.backend !== "dsh" && record.backend !== "acp",
+			canExportHtml: canRename && (!record.backend || record.backend === "pi" || record.backend === "dsh"),
 			hasFilePath: Boolean(record.filePath),
 			// 侧边任务：目标会话的项目与后端原样带过去；不登记主区常驻 Tab、不改当前会话焦点。
 			onCreateSideTask: () => void sideTasks.create({ projectId: record.projectId, backend: record.backend }),
@@ -2772,17 +2771,7 @@ export function App() {
 						});
 					}
 				: undefined,
-			onExportSessionHtml: () => {
-				// live 会话走 runtime 导出（与侧栏 agent 导出同源）；历史会话读文件导出
-				if (isLive && agentId) {
-					void exportAgentHtml(agentId);
-					return;
-				}
-				api.sessions
-					.exportRecordHtml(sessionId)
-					.then((result) => showToast(result.truncated ? t("app.exportedPathTruncated", { path: result.path }) : t("app.exportedPath", { path: result.path }), 3500))
-					.catch((error) => showToast(error instanceof Error ? error.message : String(error), 5000));
-			},
+			onExportSessionHtml: () => void runExportSidebarSession(record.projectId, { ...record, name: record.title, filePath: record.filePath ?? "" }),
 			onRename: canRename
 				? () => {
 						// live 会话用 agent 重命名（与侧栏 AgentContextMenu 同源，改名同步运行时标题）；

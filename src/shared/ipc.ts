@@ -271,6 +271,10 @@ export const ipcChannels = {
 	sessionsCatalogReadMessageFullText: "sessions:catalog-read-message-full-text",
 	sessionsCatalogCopy: "sessions:catalog-copy",
 	sessionsCatalogExportHtml: "sessions:catalog-export-html",
+	/** 本地 pi / DSH 投影视图安全分享：只保存已预览的产物，不重读原会话。 */
+	sessionsSharePrepare: "sessions:share-prepare",
+	sessionsShareSave: "sessions:share-save",
+	sessionsShareRelease: "sessions:share-release",
 	/** 无 runtime 时直接改 pi JSONL（编辑消息）。运行中必须先停 Agent。 */
 	sessionsCatalogEditMessage: "sessions:catalog-edit-message",
 	/** 只移除 user 消息中的选中图片；运行中必须先停 Agent。 */

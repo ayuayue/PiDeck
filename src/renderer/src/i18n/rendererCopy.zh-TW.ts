@@ -2,12 +2,40 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 9e1a8453fccff1032a2d5e972ce4f9b88100f888bee46f3549cbe3a818b5c6ab（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 995488397f558688cf30aa77f35f2bdd71d8494d01b78c6559d4f1d2b73a642a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
 
 export const zhTW: Record<TranslationKey, string> = {
+	"sessionShare.title": "匯出會話",
+	"sessionShare.description": "完整匯出保留原有內容；安全分享生成可預覽的獨立 HTML 副本，不修改原會話。",
+	"sessionShare.contents": "安全分享 · 內容選擇",
+	"sessionShare.excludeThinking": "排除思考內容",
+	"sessionShare.excludeToolArguments": "排除工具引數",
+	"sessionShare.excludeToolResults": "排除工具結果",
+	"sessionShare.excludeImages": "排除圖片",
+	"sessionShare.excludeSystemMessages": "排除系統/錯誤訊息",
+	"sessionShare.excludeWorkspace": "移除工作區路徑",
+	"sessionShare.redactSecrets": "脫敏常見憑據和 URL token",
+	"sessionShare.redactPaths": "脫敏使用者目錄與工作區路徑",
+	"sessionShare.coverage": "僅本地 Pi / DSH 的已儲存活動分支投影檢視；不含完整系統提示、模型請求快照或隱藏後設資料。Pi 官方完整匯出不變。",
+	"sessionShare.imageWarning": "保留的圖片不會做 OCR 或畫素脫敏，請逐張檢查。",
+	"sessionShare.processing": "處理中…",
+	"sessionShare.preview": "生成脫敏預覽",
+	"sessionShare.previewTitle": "最終 HTML 預覽",
+	"sessionShare.previewEmpty": "先生成預覽，檢查將要寫入檔案的實際內容。",
+	"sessionShare.summary": "{backend} · {messages} 條源訊息 · {fields} 個欄位被規則替換",
+	"sessionShare.confirm": "我已檢查預覽，確認這份副本可以分享。",
+	"sessionShare.complete": "完整匯出（未脫敏）",
+	"sessionShare.save": "儲存已預覽的 HTML",
+	"sessionShare.unsupported": "安全分享目前僅支援桌面端本地 Pi / DSH。此路徑未做安全處理，仍可使用原有完整匯出。",
+	"sessionShare.tooLarge": "內容超過安全預覽大小上限，請縮小會話後重試；未生成分享檔案。",
+	"sessionShare.changed": "讀取期間會話發生變化，請等當前回覆結束後重新生成預覽。",
+	"sessionShare.readFailed": "生成預覽失敗，請確認會話歷史可讀取後重試；未生成分享檔案。",
+	"sessionShare.expired": "預覽已過期，請重新生成並檢查後儲存。",
+	"sessionShare.writeFailed": "儲存失敗，請檢查匯出目錄是否可寫後重試。",
+	"sessionShare.fullFailed": "完整匯出失敗，請稍後重試。",
 	"hostPlugins.title": "PiDeck 外掛",
 	"hostPlugins.description": "獨立於 pi 程序的工作臺外掛。只加載本地靜態頁面，無 Node 或命令執行能力；讀取當前專案會話、請求指定 HTTPS 介面或本地服務均需單獨授權。",
 	"hostPlugins.rescan": "重新掃描",
