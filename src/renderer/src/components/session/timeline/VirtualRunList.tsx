@@ -412,7 +412,14 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 			const cached = measureRefs.get(id);
 			if (cached) return cached;
 			const callback = (node: HTMLDivElement | null) => {
-				if (!node) return;
+				if (!node) {
+					// 与 VirtualStack 同口径：null 是 virtual-core 里 elementsCache / ResizeObserver 的
+					// 唯一清理入口；只 return 会让已卸载的行留在缓存里。同时淘汰闭包缓存，
+					// 否则键数随「曾经挂载过的轮数」增长（长会话可达数千轮）。
+					virtualizer.measureElement(null);
+					measureRefs.delete(id);
+					return;
+				}
 				// 只有虚拟行带 data-index：solid 行没有，交给库的 indexFromElement 会拿到 -1 并警告。
 				if (node.hasAttribute("data-index")) virtualizer.measureElement(node);
 				if (!id) return;

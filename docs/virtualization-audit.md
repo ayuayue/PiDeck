@@ -87,6 +87,11 @@ node tests/scrollContainerGuard.mjs --seed   # 重新生成基线
   不是 bug。需要保住的展开态必须提到组件 state（按 id 记），不能放在行内 `useState`。
 - **键盘导航/焦点**：离屏行没有 DOM，`querySelector` 与 `.focus()` 会静默变成 no-op。
   用 `virtualizerRef.scrollToIndex` 先把行拉进视口再操作（见 `SessionFindOverlay`、分支树）。
+- **测量缓存的清理**：卸载时 `ref` 回调必须把 `null` 交给 `virtualizer.measureElement`，那是
+  virtual-core 里 `elementsCache` / `ResizeObserver` 的唯一清理入口；同时要淘汰按 key 存的闭包缓存，
+  否则键数随「曾经挂载过的行数」增长。`VirtualStack` 与 `VirtualRunList` 各持一套实现，这条口径
+  两边必须一致（2026-11 修：VirtualRunList 当时还是旧写法，只 `return` 不清缓存）。
+  这条没有渲染测试覆盖——仓库没有 jsdom / testing-library，`tests/` 只能跑纯函数，判据是代码对照。
 - **`role="list"` / `role="tree"`**：虚拟化会插入一层内容盒，`listitem` 的 owner 变了。
   两种写法都合法，选哪种看短列表路径：
   1. `containerProps={{ role: "list" }}` —— role 落在内容盒上（轨迹视图、子代理条、会话内查找、分支树用这个）；
