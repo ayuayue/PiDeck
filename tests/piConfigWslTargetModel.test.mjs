@@ -84,3 +84,25 @@ test("WSL 目标新增的词典键在中英文两侧齐备且占位符一致", (
 	assert.ok(zh["config.target.wslSource"].includes("{label}"));
 	assert.ok(zh["config.windowsOnly.body"].includes("{page}"));
 });
+
+test("打开配置管理的默认目标：远端项目落在它那台主机，本机项目与未知主机不被改写", () => {
+	/** vm 沙箱返回的对象来自另一个 realm：逐字段摊平后再比较（本文件其它用例同做法）。 */
+	const plain = (value) => JSON.parse(JSON.stringify(value));
+	const local = { kind: "local" };
+	const other = { kind: "ssh", id: OTHER, label: "other", sshHost: "dev@10.0.0.6" };
+	const remoteProject = { id: "p1", name: "app", lastOpenedAt: 1, locator: { kind: "ssh", hostId: HOST, remotePath: "/srv/app" } };
+	const localProject = { id: "p2", name: "local app", lastOpenedAt: 1, path: "/home/dev/app" };
+	// 远端项目 + 该主机在可选目标里 ⇒ 默认落在服务器：打开「模型配置 / Pi 设置」就是在那台机器上编辑。
+	assert.deepEqual(plain(model.preferredConfigTargetForProject(remoteProject, [SSH_HOST, WSL_HOST], local)), { kind: "ssh", hostId: HOST });
+	// 主机不在清单里（未验证/被禁用/清单还没到）：保持本机，不指向一个读不到的机器。
+	assert.deepEqual(plain(model.preferredConfigTargetForProject(remoteProject, [WSL_HOST], local)), { kind: "local" });
+	assert.deepEqual(plain(model.preferredConfigTargetForProject(remoteProject, [], local)), { kind: "local" });
+	// 只有同 id 的 WSL 档案不算「同一个远端主机」。
+	assert.deepEqual(plain(model.preferredConfigTargetForProject(remoteProject, [WSL_HOST], local)), { kind: "local" });
+	// 本机项目不参与「默认远端」；没有项目时保持原值。
+	assert.deepEqual(plain(model.preferredConfigTargetForProject(localProject, [SSH_HOST], local)), { kind: "local" });
+	assert.deepEqual(plain(model.preferredConfigTargetForProject(undefined, [SSH_HOST], local)), { kind: "local" });
+	// 用户已主动选过目标（另一台主机 / WSL）时不被打开动作改写。
+	assert.deepEqual(plain(model.preferredConfigTargetForProject(remoteProject, [SSH_HOST, other], { kind: "ssh", hostId: OTHER })), { kind: "ssh", hostId: OTHER });
+	assert.deepEqual(plain(model.preferredConfigTargetForProject(remoteProject, [SSH_HOST], { kind: "wsl", hostId: HOST })), { kind: "wsl", hostId: HOST });
+});

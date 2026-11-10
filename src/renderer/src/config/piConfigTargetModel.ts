@@ -1,4 +1,6 @@
 import type { PiConfigTarget } from "../../../shared/piConfig";
+import { isRemoteProject } from "../../../shared/projectLocation";
+import type { Project } from "../../../shared/types";
 import type { RemoteHostListItem } from "../../../shared/types/remoteHost";
 import type { WslHostListItem } from "../../../shared/types/wslHost";
 
@@ -58,6 +60,22 @@ export function hasUnsavedConfigDrafts(keys: Iterable<string>): boolean {
 export function samePiConfigTarget(left: PiConfigTarget, right: PiConfigTarget): boolean {
 	if (left.kind === "local" || right.kind === "local") return left.kind === right.kind;
 	return left.kind === right.kind && left.hostId === right.hostId;
+}
+
+/**
+ * 打开配置管理时的默认目标：当前项目是 SSH 项目、且那台主机在可选目标里 ⇒ 落在该主机。
+ *
+ * 为什么默认而不是要求用户自己切：「模型配置 / Pi 设置」展示的是**当前环境**的 pi 配置。
+ * 在远端项目里默认展示本机配置，用户改完才发现改错了机器（甚至以为远端配置根本不可编辑）。
+ * 只改写「当前是本机」的情形：用户已主动选过远端目标时不被打开动作改写；
+ * 主机不在可选清单里（未验证/被禁用/清单未到）时保持原值，不指向一个读不到的机器。
+ */
+export function preferredConfigTargetForProject(project: Project | undefined, hosts: readonly PiConfigTargetHost[], current: PiConfigTarget): PiConfigTarget {
+	if (current.kind !== "local") return current;
+	if (project === undefined || !isRemoteProject(project)) return current;
+	const hostId = project.locator.hostId;
+	if (!hosts.some((host) => host.kind === "ssh" && host.id === hostId)) return current;
+	return { kind: "ssh", hostId };
 }
 
 /**

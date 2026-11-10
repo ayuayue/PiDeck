@@ -1,6 +1,6 @@
 import { useAtomValue } from "jotai";
 import { ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { sessionRemoteTrustStateAtomFamily, type SessionRemoteTrustState } from "../../atoms/remote-trust-atoms";
 import { useRemoteProjectTrust } from "../../hooks/useRemoteProjectTrust";
 import { t, type TranslationKey } from "../../i18n";
@@ -21,22 +21,35 @@ import { Button } from "../ui-shadcn/button";
  * - 决策只影响**下一次 spawn**：已经跑着的远端 pi 不会因此改变（提示里写明「下次启动生效」），
  *   撤销同理（`remoteRuntimePort.prepare` 每轮现读决策）。
  *
- * 常驻 inline 条（不是一次性 toast），与 SessionBranchBar 同一层级挂在会话头下方。
+ * 已作出决定的两种状态（已信任 / 已拒绝）只是回执，`REMOTE_TRUST_DECIDED_NOTICE_MS` 后自动消失：
+ * 常驻一行的代价是会话头永远多一条与当前操作无关的通知。未决策（需要人点）与作废（需重新决定）仍常驻，
+ * 因为那两条本身就是待办。决定可随时在设置页的远端信任清单重新查看/撤销，所以收起不等于丢失控制权。
  */
+export const REMOTE_TRUST_DECIDED_NOTICE_MS = 8_000;
+
 export function RemoteSessionTrustNotice(props: { sessionId: string }) {
 	const state = useAtomValue(sessionRemoteTrustStateAtomFamily(props.sessionId));
 	// 标记缺失（本地/WSL 会话，或旧 main 的旧 payload）时整体不渲染——不显示，也不报错。
 	// 判定留在这一层，也让非远端会话完全不进下面那条「读决策表 / 写决策」的链路。
 	if (state === undefined) return null;
-	return <RemoteSessionTrustNoticeBody state={state} />;
+	return <RemoteSessionTrustNoticeBody sessionId={props.sessionId} state={state} />;
 }
 
 /** 决策条正文：需要读清单 + 写决策，所以单开一层（非远端会话不会挂载它）。 */
-function RemoteSessionTrustNoticeBody(props: { state: SessionRemoteTrustState }) {
+function RemoteSessionTrustNoticeBody(props: { sessionId: string; state: SessionRemoteTrustState }) {
 	const { state } = props;
 	const trust = useRemoteProjectTrust();
 	const [busy, setBusy] = useState(false);
 	const [errorCode, setErrorCode] = useState<string | null>(null);
+	// 已决定的状态只做回执，到点自动收起；换会话或换态必须从头计时（不能把上一会话的“已收起”带过来）。
+	const [dismissed, setDismissed] = useState(false);
+	const decided = state.kind === "approved" || state.kind === "denied";
+	useEffect(() => {
+		setDismissed(false);
+		if (!decided) return;
+		const timer = window.setTimeout(() => setDismissed(true), REMOTE_TRUST_DECIDED_NOTICE_MS);
+		return () => window.clearTimeout(timer);
+	}, [decided, props.sessionId]);
 
 	const target = state.kind === "undecided" ? state.target : { hostId: state.entry.hostId, remoteRoot: state.entry.canonicalRoot };
 	const copy = COPY[state.kind];
@@ -47,6 +60,9 @@ function RemoteSessionTrustNoticeBody(props: { state: SessionRemoteTrustState })
 		if (!result.ok) setErrorCode(result.code);
 		setBusy(false);
 	};
+
+	// 收起后连“撤销”按钮也一起消失：改主意时去设置页的远端信任清单（那里有完整列表与撤销）。
+	if (dismissed) return null;
 
 	return (
 		<div role="status" data-testid="remote-session-trust-notice" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border-subtle bg-bg-panel px-3 py-1.5 text-caption">

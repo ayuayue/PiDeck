@@ -207,3 +207,16 @@ test("authored e2e covers remote read + one non-secret patch without adding a te
 	assert.match(helper, /finally 必须把远端 models\.json 还原成测试前的字节/);
 	assert.match(helper, /REMOTE_CONFIG_UNSUPPORTED/);
 });
+
+test("远端项目打开配置管理时默认落在它那台主机，但不经手一次静默写", () => {
+	// 用户反馈：远端项目里打开「模型配置 / Pi 设置」看到的是本机配置，想编辑服务器上的 pi 配置得先自己找下拉。
+	assert.match(modal, /preferredConfigTargetForProject\(activeProjectForTarget, remoteConfigHosts, configTarget\)/);
+	assert.match(modal, /const activeProjectForTarget = useAtomValue\(projectByIdAtomFamily\(props\.projectId \?\? ""\)\)/);
+	// ref 闩：只在本次打开的第一个决定生效，用户随后切回本机不会被打开动作改写。
+	assert.match(modal, /if \(autoConfigTargetAppliedRef\.current\) return;/);
+	assert.match(modal, /if \(!configSurfaceOpen\) \{\s*autoConfigTargetAppliedRef\.current = false;/);
+	// 用户已有一份未保存草稿时不打断（不静默丢弃，也不替用户决定）。
+	assert.match(modal, /if \(hasUnsavedConfigDrafts\(dirtyTabsRef\.current\) \|\| remoteConfigDirty\) return;/);
+	// 自动落下只换目标，不写盘：默认目标本身不是一次保存动作。
+	assert.doesNotMatch(modal, /preferredConfigTargetForProject[\s\S]{0,200}saveModels/);
+});

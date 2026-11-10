@@ -16,7 +16,7 @@ import type { PiDesktopApi } from "../../preload";
 import { AuthTab } from "./config/AuthTab";
 import { OAuthTab } from "./config/OAuthTab";
 import { PiConfigTargetSelector } from "./config/PiConfigTargetSelector";
-import { hasUnsavedConfigDrafts, samePiConfigTarget, toSshTargetHosts, toWslTargetHosts, type PiConfigTargetHost } from "./config/piConfigTargetModel";
+import { hasUnsavedConfigDrafts, preferredConfigTargetForProject, samePiConfigTarget, toSshTargetHosts, toWslTargetHosts, type PiConfigTargetHost } from "./config/piConfigTargetModel";
 import { RemoteConfigPanel } from "./config/RemoteConfigPanel";
 import { REMOTE_CONFIG_UNSUPPORTED_TAB_COPY, RemoteConfigUnsupportedNotice } from "./config/RemoteConfigUnsupportedNotice";
 import { ConfigDiagnosticCard } from "./config/ConfigDiagnosticCard";
@@ -67,7 +67,7 @@ import { DirtyMarker } from "./components/app/settings/SettingRows";
 import { isValidProviderName } from "../../shared/providerName";
 import { mergeProviderDraft, type AddProviderDraft } from "./config/addProviderDraft";
 import { useAtomValue } from "jotai";
-import { dshModuleHiddenAtom, dshRuntimeStatusAtom } from "./atoms";
+import { dshModuleHiddenAtom, dshRuntimeStatusAtom, projectByIdAtomFamily } from "./atoms";
 import { dshUiVisibilityFor } from "../../shared/types/dshRuntime";
 
 const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi }).piDesktop;
@@ -2549,6 +2549,32 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			setPendingTargetSwitch(null);
 		}
 	};
+	/**
+	 * 打开配置管理时默认落在当前远端项目所在主机：「模型配置 / Pi 设置」展示的是当前环境的 pi 配置，
+	 * 远端项目里默认展示本机配置等于把用户引到错误的机器上写盘。
+	 *
+	 * 只在本次打开的第一个决定生效（ref 闩）：用户随后主动切回本机的情况不能被打开动作改写。
+	 * 主机清单未到齐时不决定（否则会先渲染本机再自己跳一次）；有未保存草稿时不打断用户。
+	 */
+	const activeProjectForTarget = useAtomValue(projectByIdAtomFamily(props.projectId ?? ""));
+	const configSurfaceOpen = open || embedded === true;
+	const autoConfigTargetAppliedRef = useRef(false);
+	useEffect(() => {
+		if (!configSurfaceOpen) {
+			autoConfigTargetAppliedRef.current = false;
+			return;
+		}
+		// 项目资源管理器（resourceOnly）只渲染技能/提示词/扩展，与配置目标无关：不改写那边的状态。
+		if (resourceOnly) return;
+		if (autoConfigTargetAppliedRef.current) return;
+		if (remoteConfigHosts.length === 0) return;
+		autoConfigTargetAppliedRef.current = true;
+		const next = preferredConfigTargetForProject(activeProjectForTarget, remoteConfigHosts, configTarget);
+		if (samePiConfigTarget(next, configTarget)) return;
+		if (hasUnsavedConfigDrafts(dirtyTabsRef.current) || remoteConfigDirty) return;
+		setConfigTarget(next);
+		setRemoteConfigDirty(false);
+	}, [configSurfaceOpen, resourceOnly, activeProjectForTarget, remoteConfigHosts, configTarget, remoteConfigDirty]);
 	/** 关闭弹框：有未保存修改时先弹保存确认（借鉴设置页），无修改直接关闭。 */
 	const handleClose = () => {
 		if (dirtyTabs.size > 0) {
