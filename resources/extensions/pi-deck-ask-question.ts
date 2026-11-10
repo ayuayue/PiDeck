@@ -290,22 +290,22 @@ function isOffToken(value: string): boolean {
 /** 取值本身就写着「单选」（`multiple: "single"` / `"one"` / `"exclusive"`）：那不是多选意图，否则同一个词在
  *  已知键与未知键两个空间判决相反。带选择语义词的拼写（`"single choice"` / `"one option"`）归一后交给 `SINGLE_LIKE_KEY`；
  *  反序语序（`"select one"` / `"pick one"`）记在词表里——取值侧同样不能「词序改变结论」。 */
-const SINGLE_WORDS = new Set(["single", "singlechoice", "单选", "单项", "单一", "互斥", "排他", "唯一", "一个", "限制", "one", "only", "onlyone", "exclusive", "selectone", "pickone", "chooseone"]);
+const SINGLE_WORDS = new Set(["single", "singlechoice", "单选", "单项", "单一", "互斥", "排他", "唯一", "一个", "限制", "one", "only", "onlyone", "oneonly", "singleonly", "exclusive", "selectone", "pickone", "chooseone"]);
 
 /** 「只能选一个」族：**串首**写着数量上限是 1 的短语（`exactly one` / `just one` / `at most one` /
  *  `one of the following` / `只能选一个` / `只能选择一个` / `单选（只能选一个）`）。`SINGLE_WORDS` 是整串精确匹配，
  *  带前缀或后缀说明的写法进不去，只能在这里按**串首**收口。
  *
- *  中文支写成结构式（`只能/只可/仅可… + 选/挑(+择/中/取) + 一/1 + 个项条`）而不是逐串列：`只能选一个` /
- *  `只能选择一个` / `只能选一项` / `只允许选一个` / `仅可选一个` 是同一个句子只差一个词，列不完（本分支就
+ *  中文支写成结构式（`只/仅/至多/最多` + 能愿动词 + 选/挑/有(+择/中/取/选) + 一/1 + 个项条）而不是逐串列：`只能选一个` /
+ *  `只能选择一个` / `只允许选一个` / `只许选一个` / `只要选一个` / `至多选一个` / `最多只能选一个` 是同一个句子只差一个词，列不完（本分支就
  *  曾在同一处漏过一整族）。英文支同理只认「数量上限 + one」。
  *
  *  串首锚定是刻意的：`not only one option` / `not only one` / `不是单选` / `no one` 的否定词在开头，
  *  压根不进这条判据（双重否定由 `isOffToken` 的 `NEGATED_SINGLE` / `NEGATED_SINGLE_ZH` 处理）——
  *  否则「不是单选」会被这里的 `单选` 前缀判成单选，方向正好反过来。
  *  判据输入已把分隔符归一成空格：`exactly_one` / `at-most one` 与空格版同判，否则同一个意思只差一个
- *  下划线就得出相反结论（与本模块其它地方的归一判据同一个坑）。 */
-const SINGLE_LIMIT_PHRASE = /^(?:only|just|exactly|at ?most|max(?:imum)?|limited to) (?:one|1)\b|^(?:one|1) of\b|^(?:单选|单项|只能一)|^(?:只能|只可|只允许|只准|只|仅可|仅允许|仅) *(?:选|挑|有)(?:择|中|取)? *(?:一|1) *[个项条]?|^仅一|^只一|^只要一/;
+ *  下划线就得出相反结论（与本模块其它地方的归一判据同一个坑）。数量段后面写着「以上 / 或更多」时是「可多选」，中文各支用尾界排除。 */
+const SINGLE_LIMIT_PHRASE = /^(?:only|just|exactly|at ?most|max(?:imum)?|limited to|up to) (?:a |an )?(?:single|one|1)\b|^maximum of (?:one|1)\b|^(?:one|1) of\b|^(?:单选|单项)|^(?:只|仅|至多|最多)(?:[能可许准要得让]|允许|准许|能够|可以|只|仅){0,3} *(?:选|挑|有)(?:择|中|取|选)? *(?:一|1)(?! *[个项条]? *(?:以上|或以上|或更多|及以上)) *[个项条]?|^(?:只|仅)(?:[能可许准要得让]|允许|准许)? *(?:一|1)(?! *[个项条]? *(?:以上|或以上|或更多|及以上)) *[个项条]?|^(?:只|仅)(?:[能可许准要得让]|允许|准许)? *(?:单选|单项)/;
 
 /** 取值本身写着「单选」：整串词表、词根正则与串首短语三种判据都要对两种归一各查一遍——`normalizeTypeToken`
  *  保留标点，`"single."` / `"单选。"` 在 `SINGLE_WORDS` 里查不到，而 `isOffToken` 用的是去标点的归一；两边不共用
@@ -316,8 +316,8 @@ function isSingleLikeValue(value: string): boolean {
 	// 按单选给卡却会让他根本选不了两项。中文多选词根只在这里认，不进 `MULTI_ROOT`——那个谓词还判键名，
 	// `多选: true` 会因此变成「拼错键」硬报错，那是另一个决定，别在取值侧顺手改了键空间的判决。
 	// 取值里带否定字时一律让路（`单选，不要多选` / `非多选` / `不限量多选`）：那几条的语义由 `isOffToken`
-	// 收口，这里只看「有没有多选词根」就会把明确的否定翻成勾选卡。
-	if (/多选|多项|复选/.test(value) && !/[不非无没未否别勿禁]/.test(value)) return false;
+	// 收口，这里只看「有没有多选词根」就会把明确的否定翻成勾选卡；「至多选一个 / 最多选一个」里的「多选」是数量词的一部分，不算。
+	if (/(?<!至|最)(?:多选|多项|复选)/.test(value) && !/[不非无没未否别勿禁]/.test(value)) return false;
 	const token = normalizeTypeToken(value);
 	const stripped = normalizeOffToken(value);
 	// 短语判据走「分隔符归一成空格」的形态：`exactly_one` / `at-most one` 与 `exactly one` 同判。
@@ -382,7 +382,7 @@ const CHOICE_ROOT = /choice/i;
 /** 取值自己写着多选（`{ choiceMode: "multiple" }` / `"checkbox"`）：键名只有 choice 词根时靠它补判，
  *  否则「键名说选择、取值说多选」的写法会落成单选（点一下选项即交卷）。布尔/数字取值没有词根，不参与补判。 */
 function isMultiValueWord(value: unknown): boolean {
-	return typeof value === "string" && hasMultiRoot(normalizeTypeToken(value));
+	return typeof value === "string" && hasMultiRoot(normalizeTypeToken(value)) && !isLineLikeKey(value);
 }
 
 /** 键名 / type 取值的「多选样拼写」：**必须带多选语义词根**（`multiSelect` / `multiple` / `checkbox` / `checklist`）。

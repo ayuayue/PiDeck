@@ -423,3 +423,11 @@ test("Web strips above the composer share the composer reading width", () => {
 	assert.match(webSessionStrips, /className="composer-above\b/, "子代理/任务清单条必须挂 composer-above，否则会再次铺满 chat-pane");
 	assert.match(webChatApp, /className="composer-above\b/, "错误/待答横幅与输入框同宽，否则会在输入卡上方横穿整屏");
 });
+
+test("Web batch ask reads answers by own id, never through Object.prototype", () => {
+	// 桌面端已经用 batchValueOf 堵住原型链 id；Web 的批量答卡是同一份信封的另一条渲染路径，
+	// 两处裸下标会把 constructor / toString 这类 id 上的函数当成「已作答」。
+	assert.match(webTimeline, /batchValueOf\(batchAnswers, currentQ\.id\)/);
+	assert.match(webTimeline, /batchValueOf\(batchAnswers, q\.id\)/);
+	assert.doesNotMatch(webTimeline, /batchAnswers\[(?:currentQ|q)\.id\]/);
+});

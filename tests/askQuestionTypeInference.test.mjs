@@ -2495,3 +2495,96 @@ test("分句否定的后半句写着多选词根时按多选：`no, multiple` �
 		cases.map(([, expected]) => expected),
 	);
 });
+
+test("choice 词根键 + 多行文本取值不许整批硬报错，也不许翻成多选卡", async () => {
+	// MULTI_ROOT 含 `multi...line`，`isMultiValueWord` 原来只查词根：choiceMode: "multiline" 被判成
+	// 「多选拼错的键」，整批抛错并让模型改写成 type: "multi_select"（正确写法其实是 editor / 形状推断）。
+	const tool = registerTool();
+	for (const written of ["multiline", "multiLine", "multipleLines", "multiple lines"]) {
+		const { result, warnings } = await captureWarnings(() => {
+			const { promise, envelope } = runBatch(tool, {
+				questions: [{ id: "q1", question: "补充说明", options: ["A", "B"], choiceMode: written }],
+			});
+			return promise.then(() => envelope().questions[0].type);
+		});
+		assert.equal(result, "select", `choiceMode: ${JSON.stringify(written)} 不该被当成多选拼错`);
+		const joined = warnings.join("\n");
+		assert.match(joined, /忽略未知字段 "choiceMode"/);
+		assert.doesNotMatch(joined, /多选必须写 type: "multi_select"/);
+	}
+});
+
+test("「只许/只要/至多/最多…选一个」族短语仍是单选（已知键 / 未知键 / type 取值三处同判）", async () => {
+	// SINGLE_LIMIT_PHRASE 的中文支原来把前缀逐串列（只能/只可/只允许/只准/只/仅可/仅允许/仅），
+	// 同族的「只许 / 只要 / 只得 / 只让 / 至多 / 最多 + 能愿动词」整片漏在外面：已知键升级成勾选卡，
+	// 未知键还会整批硬报错。改成结构式后三个入口一起钉。
+	const tool = registerTool();
+	const phrases = [
+		"只许选一个",
+		"只要选一个",
+		"只得选一个",
+		"只让选一个",
+		"仅许选一个",
+		"仅准选一个",
+		"仅要选一个",
+		"只许选一项",
+		"只允许挑选一个",
+		"只准挑选一个",
+		"只许一",
+		"只准一",
+		"仅一",
+		"只一",
+		"只要一",
+		"只能一",
+		"至多选一个",
+		"最多选一个",
+		"最多只能选一个",
+		"只能单选",
+		"one only",
+		"single only",
+		"only a single one",
+		"only a single answer",
+		"up to one",
+		"maximum of one",
+	];
+	await captureWarnings(async () => {
+		for (const value of phrases) {
+			assert.equal(await resolvedType(tool, { questions: [{ question: "选哪个？", options: ["A", "B"], multiple: value }] }), "select", `multiple: ${JSON.stringify(value)}`);
+			assert.equal(await resolvedType(tool, { questions: [{ question: "选哪个？", options: ["A", "B"], allowMultiple: value }] }), "select", `allowMultiple: ${JSON.stringify(value)}`);
+			assert.equal(await resolvedType(tool, { questions: [{ question: "选哪个？", options: ["A", "B"], type: value }] }), "select", `type: ${JSON.stringify(value)}`);
+		}
+	});
+});
+
+test("单选短语判据不许吃掉「可多选」「一个以上」与「选两个」的取值", async () => {
+	const tool = registerTool();
+	const stillMulti = ["只能选两个", "只能选俩", "只要选一个以上", "至多选一个以上", "只许选一个以上", "只要选 1 个以上", "只能选 1 个以上", "只能选 1 项以上", "只要选一个以上，不限数量", "not only one option", "不是单选", "more than one option", "multiple selections", "many"];
+	await captureWarnings(async () => {
+		for (const value of stillMulti) {
+			assert.equal(await resolvedType(tool, { questions: [{ question: "选哪些？", options: ["A", "B"], multiple: value }] }), "multi_select", `multiple: ${JSON.stringify(value)}`);
+		}
+	});
+});
+
+test("「多个 + 名词」只是描述选项数量，不许把单选短语翻成多选或整批报错", async () => {
+	const tool = registerTool();
+	const phrases = ["单选，多个选项", "只能选一个（有多个选项）", "单选，多个候选答案", "单选，多个备选项", "只能选一个（有多个备选）", "单选，多个可选项", "单选，多个 选项", "只能选一个，一个以上会被拒"];
+	await captureWarnings(async () => {
+		for (const value of phrases) {
+			assert.equal(await resolvedType(tool, { questions: [{ question: "选哪个？", options: ["A", "B"], multiple: value }] }), "select", `multiple: ${JSON.stringify(value)}`);
+			assert.equal(await resolvedType(tool, { questions: [{ question: "选哪个？", options: ["A", "B"], allowMultiple: value }] }), "select", `allowMultiple: ${JSON.stringify(value)}`);
+			assert.equal(await resolvedType(tool, { questions: [{ question: "选哪个？", options: ["A", "B"], type: value }] }), "select", `type: ${JSON.stringify(value)}`);
+		}
+	});
+});
+
+test("type 取值侧的短语判据有判别力（含多选词根时不会被静默升级成 multi_select）", async () => {
+	// 纯中文 / 纯英文短语作为 type 取值一律交回形状推断，那条断言即使判据全失效也是绿；
+	// 只有同时含 MULTI_ROOT 词根的取值才能区分「已按单选短语收口」与「被当成多选别名」。
+	const tool = registerTool();
+	await captureWarnings(async () => {
+		for (const value of ["only a single multiple", "up to one multiple", "maximum of one multiple"]) {
+			assert.equal(await resolvedType(tool, { questions: [{ question: "选哪个？", options: ["A", "B"], type: value }] }), "select", `type: ${JSON.stringify(value)}`);
+		}
+	});
+});
