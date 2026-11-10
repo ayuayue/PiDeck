@@ -39,7 +39,7 @@
 
 **适合谁用：** 希望在桌面端同时管理多个本地项目的 AI 编程助手会话、需要统一查看会话历史与 Git 状态、并希望以图形化方式管理 pi 配置的开发者。
 
-`PiDeck` **不是** pi 的分支。它是一个轻量 Electron 外壳，通过启动多个 `pi --mode rpc` 进程，将项目管理、会话管理、对话界面、配置管理和工具编排整合到一个原生桌面应用中——所有 Agent 能力由 pi 原生提供，会话文件也由 pi 原生读写，PiDeck 不复刻、不劫持。除 pi 外，PiDeck 还深融合了 **DSH（DeepSeek Harness）** 后端，详见 [DSH 后端](#-dsh-后端)。
+`PiDeck` **不是** pi 的分支。它是一个轻量 Electron 外壳，通过启动多个 `pi --mode rpc` 进程，将项目管理、会话管理、对话界面、配置管理和工具编排整合到一个原生桌面应用中——所有 Agent 能力由 pi 原生提供，会话文件也由 pi 原生读写，PiDeck 不复刻、不劫持。除 pi 外，PiDeck 还深融合了 **DSH（DeepSeek Harness）** 后端（详见 [DSH 后端](#-dsh-后端)），并作为通用 **ACP（Agent Client Protocol）客户端**接入各家编码 Agent CLI（详见 [ACP 后端](#-acp-后端)）。
 
 ---
 
@@ -70,6 +70,7 @@
     - [扩展与生态](#扩展与生态)
     - [桌面与系统集成](#桌面与系统集成)
   - [🐳 DSH 后端](#-dsh-后端)
+  - [🔗 ACP 后端](#-acp-后端)
   - [🏗️ 工作原理](#-工作原理)
   - [📦 下载安装](#-下载安装)
   - [📱 移动端客户端](#-移动端客户端)
@@ -90,7 +91,7 @@
 ## ✨ 核心亮点
 
 - 🖥️ **多项目多会话并行** —— 一个窗口管理多个本地项目的全部 Agent 会话，项目间完全隔离。
-- 🔌 **三种会话后端** —— pi、DSH（DeepSeek Harness）、生图模式并存，同一项目下自由切换。
+- 🔌 **四种会话后端** —— pi、DSH（DeepSeek Harness）、ACP（通用客户端，内置 15 个外部 CLI 预设）、生图 / 生视频并存，同一项目下自由切换。
 - 🧠 **上下文感知输入** —— `@` 文件引用、`/` 斜线命令、`!` Shell 执行，全部在同一个输入框。
 - 🗂️ **会话资产化** —— 历史浏览与恢复、Codex / Claude 会话导入、一键导出 HTML。
 - 🛠️ **配置可视化** —— pi 的 `models.json` / `auth.json` / `settings.json` 免手写 JSON，连接测试一键直达。
@@ -126,7 +127,7 @@
 
 | 功能 | 说明 |
 |---|---|
-| **双 Agent 后端（pi / DSH）** | 同一项目下可创建 pi 或 DSH 会话并自由切换浏览，详见下方 [DSH 后端](#-dsh-后端)。 |
+| **三种 Agent 后端（pi / DSH / ACP）** | 同一项目下可创建 pi、DSH 或 ACP 会话并自由切换浏览，详见下方 [DSH 后端](#-dsh-后端) 与 [ACP 后端](#-acp-后端)。 |
 | **生图模式** | 独立生图后端（OpenAI 兼容 /images/generations，支持 OpenAI / 火山方舟 / SiliconFlow 等），在会话中一键切换生图。 |
 | **计划模式 (Plan Mode)** | Composer 工具栏切换计划模式，Agent 先生成计划，逐条确认后执行，取消后返回选单。 |
 | **Ask 并行问询** | 在后台创建独立问询会话并行提问，可携带主会话上下文，答案一键引用回主输入框。 |
@@ -180,7 +181,7 @@
 | **通知** | 全局通知升级为卡片 toast，Ask 并行问询有独立系统通知开关，后台问题可保持静默；可开启「仅失焦时提醒」，窗口在前台时不弹通知、不响铃。 |
 | **主动更新** | 应用更新始终后台检查，`autoDownloadUpdates` 默认开启；下载完成后由用户在设置页确认「重启并安装」。Windows 安装版 / macOS Developer ID 签名版 / Linux x64 AppImage 使用包内 updater；macOS 无签名构建、Linux arm64 与 deb/tar.gz 会在检查后按设备推荐匹配的安装包并支持一键下载，不再要求用户去 Release 列表里自己挑；Pi CLI 检查独立运行。 |
 | **飞书机器人** | 会话可绑定飞书机器人，在飞书群里同步消息与状态。 |
-| **局域网 Web 服务** | 设置中启动本机 Web 服务，局域网设备通过 IP + 端口访问网页版，支持双后端会话浏览与 DSH 工具面板。 |
+| **局域网 Web 服务** | 设置中启动本机 Web 服务，局域网设备通过 IP + 端口访问网页版，支持 pi / DSH / ACP 会话浏览与 DSH 工具面板。 |
 | **进程监控 / 日志管理** | 设置页内置进程监控与缓存日志管理，排查问题不用翻目录。 |
 
 ---
@@ -200,6 +201,23 @@
 
 ---
 
+## 🔗 ACP 后端
+
+除内置的 pi 与 DSH，PiDeck 同时是一个通用的 **ACP（Agent Client Protocol）客户端**：把各家编码 Agent CLI 接进同一个会话界面，换 Agent 只是换一个选项。
+
+- **内置 15 个预设** —— Gemini CLI、Claude Agent、Codex CLI、Kimi CLI、Qwen Code、OpenCode、Cursor Agent、CodeBuddy、MiniMax Code、MiMo Code、Copilot CLI、Kilo Code、Cline、Qoder CLI（国际版 / 中国版）；也可自登记任意命令、参数与环境变量。
+- **一键检测与安装** —— 预设自带 npm 安装元数据，设置页可检测安装状态并一键安装 / 卸载；安装命令只来自预设表枚举，不接受任意命令串。
+- **同一套会话体验** —— `initialize → session/new`（重开走 `session/load`）握手，外部 CLI 的 `session/update` 流被投影成同一条时间线：思考折叠块、工具调用卡片、待办清单、流式回答；侧栏与头部用品牌徽标区分是哪个 CLI 在干活。
+- **审批回到桌面** —— CLI 的权限请求桥接成桌面审批弹窗（`allow_once` / `allow_always` / `reject_once` / `reject_always` 四档，超时按取消结算），可选手握后切到该 CLI 自带的 bypass 权限档。
+- **历史双保险** —— 主来源是 CLI 侧 `session/load` 重放，PiDeck 另在 `userData/acp-sessions` 存一份投影归档（单会话 2000 条 / 8 MiB 双上限、原子写、损坏降级为空），CLI 存档缺失时仍能读回最近历史。
+- **协议差异在适配层消化** —— 各家 CLI 对用量通知、可用命令、标题键、plan 条目的字段位形多代并存，宽容层只做只读兼容：读不出按缺省处理，不改出站协议。
+- **卡死兜底** —— 回合内长时间无任何输出先补发 `session/cancel`，宽限内仍不结算则强杀进程并定向结算；阈值可在 设置 → ACP 工具 → 超时保护 调整。
+- **模型倍率徽章** —— ACP 线格式没有价格字段，PiDeck 给模型项补 credits 倍率徽章（数据源可缺省，缺失时退化为原样列表）。
+
+**启用方式：** 设置 → ACP 工具 里从预设一键添加或自登记外部 CLI，新建会话时选择 ACP 后端与对应工具即可。ACP 只做协议适配与会话投影，Agent 行为与模型调用仍由该 CLI 原生负责。
+
+---
+
 ## 🏗️ 工作原理
 
 ```txt
@@ -208,6 +226,7 @@ PiDeck
 │  ├─ 管理项目记录
 │  ├─ 启动 pi --mode rpc 进程（每个会话一个独立进程）
 │  ├─ 内嵌 DSH host（utilityProcess，无端口、无后台 HTTP）
+│  ├─ 驱动外部 ACP CLI（stdio NDJSON JSON-RPC，每个会话一个子进程）
 │  ├─ 管理 Agent 绑定的本地 pty 终端
 │  ├─ 桥接文件、会话、Git 操作
 │  ├─ 检查应用与 Pi CLI 更新
@@ -230,7 +249,7 @@ PiDeck
    └─ 使用 pi 原生会话 / 工具 / 模型 / 上下文
 ```
 
-核心设计原则：**一个 Agent 会话 = 一个 pi RPC 进程**，确保会话隔离，让 pi 继续负责其原生能力；PiDeck 与 pi 之间只通过 stdio JSON-RPC 通信。DSH 后端以 utilityProcess 内嵌引导，同样不引入额外网络端口。
+核心设计原则：**一个 Agent 会话 = 一个 pi RPC 进程**，确保会话隔离，让 pi 继续负责其原生能力；PiDeck 与 pi 之间只通过 stdio JSON-RPC 通信。DSH 后端以 utilityProcess 内嵌引导，同样不引入额外网络端口；ACP 后端则以 stdio NDJSON JSON-RPC 连接用户登记的外部 CLI，PiDeck 只做协议适配与会话投影。
 
 ---
 
@@ -319,6 +338,10 @@ A：模型能力完全由 pi 的配置决定。PiDeck 提供可视化编辑器�
 **Q：DSH 是什么？怎么启用？**
 
 A：DSH（DeepSeek Harness）是 DeepSeek 官方的 Agent Harness，PiDeck 对其做了深融合，能力清单见上文 [DSH 后端](#-dsh-后端)专节。在设置页的 DSH 分页完成配置后，新建会话时选择 DSH 后端即可。
+
+**Q：PiDeck 只能跑 pi 吗？我平时用 Claude Code / Codex / Gemini？**
+
+A：不只。除了 pi 与 DSH，PiDeck 还是通用的 ACP 客户端：设置 → ACP 工具 里可从 15 个预设一键添加（Claude Agent、Codex CLI、Gemini CLI、Kimi、Qwen Code、OpenCode、Cursor Agent、CodeBuddy 等），或自登记任意 CLI 的命令与参数；新建会话时选择 ACP 后端与对应工具即可。会话时间线、审批弹窗、历史归档都由 PiDeck 统一提供，Agent 行为仍由该 CLI 原生负责，能力清单见上文 [ACP 后端](#-acp-后端)。
 
 **Q：会收集我的数据吗？**
 
