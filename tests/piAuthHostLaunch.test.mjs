@@ -9,11 +9,11 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { PI_PACKAGE_NAME, resolvePiAuthHostPath, resolvePiAuthHostLaunch, resolvePiSdkEntry, resolveMiseShimSdkEntry } = loadTsCommonJs("src/main/pi/auth/piAuthHostLaunch.ts");
+const { PI_PACKAGE_NAME, resolvePiAuthHostPath, resolvePiAuthHostLaunch, resolvePiSdkEntry, resolveMiseShimSdkEntry, resolveBunShimSdkEntry } = loadTsCommonJs("src/main/pi/auth/piAuthHostLaunch.ts");
 const { buildPiProxyEnvPatch } = loadTsCommonJs("src/main/sessions/sessionProxyPolicy.ts");
 
 /** 造一个 pi 包目录；`withDist: false` 用来模拟「包在但入口缺失」的半损坏安装。 */
@@ -242,6 +242,132 @@ test("resolvePiAuthHostLaunch: mise 垫片不再报 no-pi-entry，改用真实�
 			assert.equal(launch.env.PIDECK_PI_SDK_ENTRY, launch.sdkEntry);
 		}),
 	);
+});
+
+/** 按平台写一个「运行时可执行文件」：只验证路径选择，不关心文件内容。 */
+function writeRuntimeFile(dir, programName) {
+	mkdirSync(dir, { recursive: true });
+	const file = join(dir, `${programName}${process.platform === "win32" ? ".exe" : ""}`);
+	writeFileSync(file, "");
+	return file;
+}
+
+/** 便携 node 的可执行文件（层级与 piRuntimePaths 一致：POSIX 多一层 bin/）。 */
+function writePortableNode(userDataPath) {
+	const binDir = process.platform === "win32" ? join(userDataPath, "pi-runtime", "node") : join(userDataPath, "pi-runtime", "node", "bin");
+	return writeRuntimeFile(binDir, "node");
+}
+
+/**
+ * 造一个 bun 全局安装布局：`<root>/bin/pi[.exe]` 垫片 + `<root>/install/global/node_modules/<pkg>`。
+ * Windows 的垫片是 bun.exe 的副本（旁边还有私有格式的 `pi.exe.bunx`），POSIX 是软链；
+ * 这里造「存在且不是 JS」的最小形态即可。
+ */
+function writeBunLayout(rootDir, { withPackage = true } = {}) {
+	mkdirSync(join(rootDir, "bin"), { recursive: true });
+	const shim = join(rootDir, "bin", process.platform === "win32" ? "pi.exe" : "pi");
+	writeFileSync(shim, "");
+	if (withPackage) writePiPackage(join(rootDir, "install", "global", "node_modules", "@earendil-works", "pi-coding-agent"));
+	return shim;
+}
+
+test("resolveBunShimSdkEntry 从 bun 全局垫片去 install/global/node_modules 取包", () => {
+	withTempDir((dir) => {
+		const shim = writeBunLayout(join(dir, "bun"));
+		assert.equal(resolveBunShimSdkEntry(shim), join(dir, "bun", "install", "global", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "index.js"));
+		// 非 bun 布局（普通 bin 目录）不在这里猜。
+		assert.equal(resolveBunShimSdkEntry(join(dir, "npm-prefix", "pi.exe")), undefined);
+	});
+});
+
+test("resolvePiAuthHostLaunch: bun 全局安装（c:\\Users\\x\\.bun\\bin\\pi.exe）不再报 no-pi-entry", () => {
+	withTempDir((dir) => {
+		const appPath = writeAppDir(dir);
+		const shim = writeBunLayout(join(dir, ".bun"));
+		const launch = resolvePiAuthHostLaunch({
+			settings: BASE_SETTINGS,
+			locator: fakeLocator({ command: shim, windowsLaunch: { channel: "cmd-shim" } }),
+			userDataPath: join(dir, "userData"),
+			appPath,
+			resourcesPath: join(dir, "unused"),
+			isPackaged: false,
+		});
+		// 修复前：垫片不是 .cmd（没得还原）+ 向上找不到 node_modules → no-pi-entry，
+		// 输入预测 / 提示词增强 / 登录全部不可用。
+		assert.equal(launch.ok, true, `bun 全局安装应能解析出 SDK 入口：${launch.detail}`);
+		assert.equal(launch.sdkEntry, join(dir, ".bun", "install", "global", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "index.js"));
+		assert.equal(launch.env.PIDECK_PI_SDK_ENTRY, launch.sdkEntry);
+	});
+});
+
+test("resolvePiAuthHostLaunch: bun 垫片在但 install/global 里没有包时仍报 no-pi-entry", () => {
+	withTempDir((dir) => {
+		const appPath = writeAppDir(dir);
+		const shim = writeBunLayout(join(dir, ".bun"), { withPackage: false });
+		const launch = resolvePiAuthHostLaunch({
+			settings: BASE_SETTINGS,
+			locator: fakeLocator({ command: shim, windowsLaunch: { channel: "cmd-shim" } }),
+			userDataPath: join(dir, "userData"),
+			appPath,
+			resourcesPath: join(dir, "unused"),
+			isPackaged: false,
+		});
+		assert.equal(launch.ok, false);
+		assert.equal(launch.reason, "no-pi-entry");
+		// 诊断细节保留垫片路径，便于看出装的是什么形态的 pi。
+		assert.equal(launch.detail, shim);
+	});
+});
+
+test("助手运行时：用户 node > 用户 bun > 便携 node（便携目录即使进了 PATH 也排最后）", () => {
+	withTempDir((dir) => {
+		const appPath = writeAppDir(dir);
+		// 非 bun 布局的 pi（npm 全局垫片形态），让运行时选择独立于 SDK 入口解析。
+		const prefix = join(dir, "npm-prefix");
+		writePiPackage(join(prefix, "node_modules", "@earendil-works", "pi-coding-agent"));
+		writeFileSync(join(prefix, "pi.cmd"), "@echo off\n");
+		const userDataPath = join(dir, "userData");
+		const portableNode = writePortableNode(userDataPath);
+		const userNode = writeRuntimeFile(join(dir, "user-bin"), "node");
+		const userBun = writeRuntimeFile(join(dir, "bun-bin"), "bun");
+		const launchWithPath = (dirs, userData = userDataPath) =>
+			resolvePiAuthHostLaunch({
+				settings: BASE_SETTINGS,
+				locator: fakeLocator({ command: join(prefix, "pi.cmd"), windowsLaunch: { channel: "cmd-shim" }, env: { PATH: dirs.join(delimiter) } }),
+				userDataPath: userData,
+				appPath,
+				resourcesPath: join(dir, "unused"),
+				isPackaged: false,
+			});
+
+		// 1) 用户的 node 最优先（修复前便携 node 抢在前面）。
+		assert.equal(launchWithPath([join(dir, "user-bin"), join(dir, "bun-bin"), portableNode]).nodeExe, userNode);
+		// 2) 没有 node：用户自己的 bun 也优先于 PiDeck 便携 node。
+		assert.equal(launchWithPath([join(dir, "bun-bin"), portableNode]).nodeExe, userBun);
+		// 3) 只有便携 node 时仍然用它兼容—跳过便携目录不能让「本来能用」变成裸命令名。
+		assert.equal(launchWithPath([portableNode]).nodeExe, portableNode);
+		// 4) 什么都没有（连便携 node 也没装）：交回裸命令名，让 spawn 报 ENOENT，错误仍然可诊断。
+		assert.equal(launchWithPath([join(dir, "empty-bin")], join(dir, "no-portable")).nodeExe, process.platform === "win32" ? "node.exe" : "node");
+	});
+});
+
+test("助手运行时：pi 是 bun 全局安装时用同一份安装的 bun（PATH 上既没 node 也没 bun）", () => {
+	withTempDir((dir) => {
+		const appPath = writeAppDir(dir);
+		const shim = writeBunLayout(join(dir, ".bun"));
+		const bunExe = writeRuntimeFile(join(dir, ".bun", "bin"), "bun");
+		const launch = resolvePiAuthHostLaunch({
+			settings: BASE_SETTINGS,
+			locator: fakeLocator({ command: shim, windowsLaunch: { channel: "cmd-shim" }, env: { PATH: join(dir, "empty-bin") } }),
+			userDataPath: join(dir, "userData"),
+			appPath,
+			resourcesPath: join(dir, "unused"),
+			isPackaged: false,
+		});
+		// bun 装了 pi 的机器上常常没有 node（连 PiDeck 便携 node 也没装）：pi 自己跑的 bun 就是最合适的运行时。
+		assert.equal(launch.ok, true, `bun 全局安装应能解析出 SDK 入口：${launch.detail}`);
+		assert.equal(launch.nodeExe, bunExe);
+	});
 });
 
 test("resolvePiAuthHostLaunch: node-direct 通道直接用垫片还原出的入口与同一 node", () => {
