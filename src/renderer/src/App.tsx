@@ -2668,14 +2668,18 @@ export function App() {
 
 	// 后台 Ask 通知「前往会话」：跳转的同时登记常驻 Tab——agent 开多时被询问的会话
 	// 可能根本没开 Tab（后台并行 ask 等），只切焦点的话回答完切换出去就找不到了。
+	// 必须在选会话之前让出页面式工作区（设置/定时任务/智能体）：它们盖在会话列上，
+	// 而「失活页面」只由 scope 变化触发——被询问的会话已经是 currentSessionId 时
+	// （在会话里触发 ask → 切到设置页 → 点「前往会话」）scope 不变，不清就毫无反应。
 	const jumpToAskSession = useCallback(
 		(sessionId: string) => {
 			const record = store.get(sessionRecordByIdAtomFamily(sessionId));
 			if (!record) return;
+			deactivateWorkspacePage();
 			workspaceChrome.registerOpenSession(sessionId, "permanent");
 			selectSessionCommand(record.projectId, sessionId, true);
 		},
-		[selectSessionCommand, store, workspaceChrome],
+		[deactivateWorkspacePage, selectSessionCommand, store, workspaceChrome],
 	);
 
 	// M7：后台 Ask 巡检全应用单点挂载（原寄生在每栏 runtime 控制器，全局订阅拖垮分屏）
