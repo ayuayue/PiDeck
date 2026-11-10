@@ -205,3 +205,15 @@ test("四步流程不会因为一次没回来的 IPC 永久卡在「进行中」
 	assert.match(body, /const live = \(\): boolean => aliveRef\.current && setupRunRef\.current === token/);
 	assert.ok(!/await[^\n]*\n\s*if \(!aliveRef\.current\) return;/.test(body), "await 之后必须用 live() 而不是裸 aliveRef 判断");
 });
+
+test("StrictMode 双挂载后 aliveRef 必须重新为真，否则四步流程会静默停摆", () => {
+	// 实机根因（2026-11）：React StrictMode（dev）mount → unmount → mount。cleanup 里置 false、
+	// 挂载时不置回 true，第二次挂载后 aliveRef 永远是 false ⇒ 每个 await 回来都在
+	// `if (!aliveRef.current) return;` 静静返回，步骤永远停在「进行中」，而主进程日志显示
+	// `Host test finished ok`。同文件的 mountedRef/aliveRef 兄弟组件都在 effect 里置 true。
+	const body = dialog.slice(dialog.indexOf("const aliveRef = useRef(true);"), dialog.indexOf("const setupRunning ="));
+	assert.match(body, /aliveRef\.current = true;/, "effect 里必须把 aliveRef 置回 true");
+	assert.match(body, /return \(\) => \{\s*aliveRef\.current = false;\s*\};/);
+	// 顺序也重要：true 必须在 cleanup 之前（同一个 effect 内）。
+	assert.ok(body.indexOf("aliveRef.current = true;") < body.indexOf("aliveRef.current = false;"));
+});

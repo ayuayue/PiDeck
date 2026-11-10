@@ -162,12 +162,22 @@ export function AddHostDialog(props: {
 	const hostIdRef = useRef<string | null>(editing?.hostId ?? null);
 	/** 对话框关闭后仍可能在飞的请求不得再回写状态或改动记录。 */
 	const aliveRef = useRef(true);
-	useEffect(
-		() => () => {
+	useEffect(() => {
+		// 必须在 effect 里**重新置 true**：React StrictMode（dev）会 mount → unmount → mount，
+		// 只在卸载时置 false 会让第二次挂载后的实例永远是「已死」——每一次 await 回来都在
+		// `if (!aliveRef.current) return;` 静静返回，步骤永远停在「进行中」，而主进程日志里
+		// 那次调用明明成功了（2026-11 实机：Host test finished ok，界面卡在测试 SSH 连接）。
+		// 同一文件里的其他 mountedRef/aliveRef 也都按这个写法。
+		aliveRef.current = true;
+		return () => {
 			aliveRef.current = false;
-		},
-		[],
-	);
+		};
+	}, []);
+	/** 表单滚动容器：切换 SSH / WSL 后回到顶部，否则会停在上一个表单的滚动位置。 */
+	const bodyRef = useRef<HTMLDivElement | null>(null);
+	useEffect(() => {
+		bodyRef.current?.scrollTo({ top: 0 });
+	}, [kind]);
 	const setupRunning = SETUP_STEPS.some((key) => steps[key] === "active");
 	const setupStarted = SETUP_STEPS.some((key) => steps[key] !== "pending");
 	const setupSettled = setupStarted && !setupRunning;
@@ -529,15 +539,15 @@ export function AddHostDialog(props: {
 				if (!open) close();
 			}}
 		>
-			{/* scroll-ok: bounded 表单对话框整页滚动，字段数量固定且由 max-h 收束 */}
-			<DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto p-6 sm:max-w-3xl sm:p-8">
-				<DialogHeader className="pr-8">
+			{/* 头/尾固定、只让表单滚动：内容再长，底部按钮也始终在视口里（整页滚动会把按钮推出屏幕）。 */}
+			<DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+				<DialogHeader className="shrink-0 gap-1 border-b border-border-subtle px-6 pt-5 pr-14 pb-4">
 					<DialogTitle className="text-lg font-medium">{editing === undefined ? t("settings.connections.add.title") : t("settings.connections.edit.title")}</DialogTitle>
 					<DialogDescription className={cn("break-all font-mono text-label", kind === "ssh" && previewHost.length > 0 ? "text-foreground" : "text-muted-foreground")}>{preview}</DialogDescription>
 				</DialogHeader>
 
 				{/* 类型切换：SSH 建远端主机，WSL 建本机档案；Docker 还没有后端。 */}
-				<div className={cn("flex flex-wrap items-center justify-between gap-2", editing !== undefined && "hidden")}>
+				<div className={cn("flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border-subtle bg-bg-panel/50 px-6 py-2", editing !== undefined && "hidden")}>
 					<div role="group" aria-label={t("settings.connections.add.typeLabel")} className="flex w-fit overflow-hidden rounded-lg border border-input">
 						<button type="button" aria-pressed={kind === "ssh"} className={cn("inline-flex min-h-8 items-center gap-1.5 px-3 text-body", kind === "ssh" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-bg-hover")} onClick={() => setKind("ssh")}>
 							<Server className="size-3.5" aria-hidden="true" />
@@ -606,323 +616,332 @@ export function AddHostDialog(props: {
 										)}
 									</div>
 									{/* 被跳过的条目要说明原因：静默少一项会让用户以为自己的配置丢了。 */}
-									{skipped.length > 0 || scanNote !== null ? (
-										<div className="border-t border-border-subtle/70 px-3 py-1.5">
-											{skipped.length > 0 ? (
-												<details className="text-label text-muted-foreground">
-													<summary className="cursor-pointer select-none py-0.5">{t("settings.connections.add.skipped", { count: String(skipped.length) })}</summary>
-													<ul className="flex flex-col gap-0.5 pb-1">
-														{skipped.map((entry) => (
-															<li key={`${entry.alias}-${entry.reason}`}>
-																{entry.alias} — {skipReasonLabel(entry.reason)}
-															</li>
-														))}
-													</ul>
-												</details>
-											) : null}
-											{scanNote !== null ? <p className="py-0.5 text-label text-muted-foreground">{scanNote}</p> : null}
-										</div>
-									) : null}
+									<div className="border-t border-border-subtle/70 px-3 py-1.5">
+										{skipped.length > 0 ? (
+											<details className="text-label text-muted-foreground">
+												<summary className="cursor-pointer select-none py-0.5">{t("settings.connections.add.skipped", { count: String(skipped.length) })}</summary>
+												<ul className="flex flex-col gap-0.5 pb-1">
+													{skipped.map((entry) => (
+														<li key={`${entry.alias}-${entry.reason}`}>
+															{entry.alias} — {skipReasonLabel(entry.reason)}
+														</li>
+													))}
+												</ul>
+											</details>
+										) : null}
+										{scanNote !== null ? <p className="py-0.5 text-label text-muted-foreground">{scanNote}</p> : null}
+										<p className="py-0.5 text-label text-muted-foreground">{t("settings.connections.add.importHint")}</p>
+									</div>
 								</div>
 							</PopoverContent>
 						</Popover>
 					) : null}
 				</div>
 
-				{kind === "wsl" ? (
-					<div className="flex flex-col gap-3">
-						<p className="text-label text-muted-foreground">{t("settings.connections.add.wsl.hint")}</p>
-						<div className="flex flex-col gap-1">
-							<Label htmlFor="wsl-host-label">{t("settings.connections.add.wsl.label")}</Label>
-							<Input id="wsl-host-label" value={wsl.label} onChange={(event) => setWsl((current) => ({ ...current, label: event.target.value }))} />
-						</div>
-						<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-							<div className="flex min-w-0 flex-col gap-1">
-								<Label htmlFor="wsl-host-distro">{t("settings.connections.add.wsl.distro")}</Label>
-								<Input id="wsl-host-distro" list="wsl-distro-options" placeholder="Ubuntu" value={wsl.distro} onChange={(event) => setWsl((current) => ({ ...current, distro: event.target.value }))} />
-								{wslDistros.length > 0 ? (
-									<datalist id="wsl-distro-options">
-										{wslDistros.map((distro) => (
-											<option key={distro} value={distro} />
-										))}
-									</datalist>
-								) : null}
+				{/* scroll-ok: 表单本体独立滚动，字段数量固定且由对话框 max-h 收束 */}
+				<div ref={bodyRef} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
+					{kind === "wsl" ? (
+						<div className="flex flex-col gap-3">
+							<p className="text-label text-muted-foreground">{t("settings.connections.add.wsl.hint")}</p>
+							<div className="flex flex-col gap-1">
+								<Label htmlFor="wsl-host-label">{t("settings.connections.add.wsl.label")}</Label>
+								<Input id="wsl-host-label" value={wsl.label} onChange={(event) => setWsl((current) => ({ ...current, label: event.target.value }))} />
 							</div>
-							<div className="flex min-w-0 flex-col gap-1">
-								<Label htmlFor="wsl-host-user">{t("settings.connections.add.wsl.user")}</Label>
-								<Input id="wsl-host-user" autoComplete="off" spellCheck={false} placeholder="dev" value={wsl.user} onChange={(event) => setWsl((current) => ({ ...current, user: event.target.value }))} />
-							</div>
-						</div>
-						{wslDistrosLoading ? (
-							<p className="flex items-center gap-1.5 text-label text-muted-foreground">
-								<LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-								{t("settings.connections.add.wsl.detecting")}
-							</p>
-						) : wslDistrosAttempted ? (
-							<p className="text-label text-muted-foreground">{wslDistros.length > 0 ? t("settings.connections.add.wsl.detected", { count: String(wslDistros.length) }) : t("settings.connections.add.wsl.noneDetected")}</p>
-						) : null}
-						{wslError !== null ? <p className="text-label text-destructive">{wslError}</p> : null}
-					</div>
-				) : (
-					<>
-						{/* 保存成功后锁住字段：这条记录已经落库，再改字段就不再是它了（要改请在列表里编辑）。 */}
-						<fieldset disabled={formLocked} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
-							<div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
 								<div className="flex min-w-0 flex-col gap-1">
-									<Label htmlFor="remote-host-name">{t("settings.connections.add.hostName")}</Label>
-									<Input id="remote-host-name" placeholder="host.com" value={form.hostName} onChange={(event) => setForm((current) => ({ ...current, hostName: event.target.value }))} />
+									<Label htmlFor="wsl-host-distro">{t("settings.connections.add.wsl.distro")}</Label>
+									<Input id="wsl-host-distro" list="wsl-distro-options" placeholder="Ubuntu" value={wsl.distro} onChange={(event) => setWsl((current) => ({ ...current, distro: event.target.value }))} />
+									{wslDistros.length > 0 ? (
+										<datalist id="wsl-distro-options">
+											{wslDistros.map((distro) => (
+												<option key={distro} value={distro} />
+											))}
+										</datalist>
+									) : null}
 								</div>
 								<div className="flex min-w-0 flex-col gap-1">
-									<Label htmlFor="remote-host-port">{t("settings.connections.add.port")}</Label>
-									<Input id="remote-host-port" inputMode="numeric" placeholder="22" value={form.port} onChange={(event) => setForm((current) => ({ ...current, port: event.target.value }))} />
+									<Label htmlFor="wsl-host-user">{t("settings.connections.add.wsl.user")}</Label>
+									<Input id="wsl-host-user" autoComplete="off" spellCheck={false} placeholder="dev" value={wsl.user} onChange={(event) => setWsl((current) => ({ ...current, user: event.target.value }))} />
 								</div>
 							</div>
-							<div className="flex flex-col gap-1">
-								<Label htmlFor="remote-host-user">{t("settings.connections.add.user")}</Label>
-								<Input id="remote-host-user" autoComplete="off" spellCheck={false} placeholder={t("settings.connections.add.userPlaceholder")} value={form.user} onChange={(event) => setForm((current) => ({ ...current, user: event.target.value }))} />
-							</div>
-							<div className="flex flex-col gap-1">
-								<Label htmlFor="remote-host-label">{t("settings.connections.add.label")}</Label>
-								<Input id="remote-host-label" value={form.label} onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))} />
-							</div>
-							<div className="flex flex-wrap items-center gap-3">
-								<span className="text-label text-muted-foreground">{t("settings.connections.add.authLabel")}</span>
-								<div role="group" aria-label={t("settings.connections.add.authLabel")} className="flex w-fit overflow-hidden rounded-lg border border-input">
-									<button
-										type="button"
-										aria-pressed={form.auth === "agent"}
-										className={cn("inline-flex min-h-8 items-center px-3 text-body", form.auth === "agent" ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-bg-hover")}
-										onClick={() => setForm((current) => ({ ...current, auth: "agent", identityFile: "" }))}
-									>
-										{t("settings.connections.add.auth.agent")}
-									</button>
-									<button
-										type="button"
-										aria-pressed={form.auth === "key"}
-										className={cn("inline-flex min-h-8 items-center border-l border-input px-3 text-body", form.auth === "key" ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-bg-hover")}
-										onClick={() => setForm((current) => ({ ...current, auth: "key" }))}
-									>
-										{t("settings.connections.add.auth.key")}
-									</button>
-									<button
-										type="button"
-										aria-pressed={form.auth === "password"}
-										className={cn("inline-flex min-h-8 items-center border-l border-input px-3 text-body", form.auth === "password" ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-bg-hover")}
-										onClick={() => setForm((current) => ({ ...current, auth: "password", identityFile: "" }))}
-									>
-										{t("settings.connections.add.auth.password")}
-									</button>
+							{wslDistrosLoading ? (
+								<p className="flex items-center gap-1.5 text-label text-muted-foreground">
+									<LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+									{t("settings.connections.add.wsl.detecting")}
+								</p>
+							) : wslDistrosAttempted ? (
+								<p className="text-label text-muted-foreground">{wslDistros.length > 0 ? t("settings.connections.add.wsl.detected", { count: String(wslDistros.length) }) : t("settings.connections.add.wsl.noneDetected")}</p>
+							) : null}
+							{wslError !== null ? <p className="text-label text-destructive">{wslError}</p> : null}
+						</div>
+					) : (
+						<>
+							{/* 保存成功后锁住字段：这条记录已经落库，再改字段就不再是它了（要改请在列表里编辑）。 */}
+							<fieldset disabled={formLocked} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
+								<div className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-3">
+									<div className="flex min-w-0 flex-col gap-1">
+										<Label htmlFor="remote-host-name">{t("settings.connections.add.hostName")}</Label>
+										<Input id="remote-host-name" placeholder="host.com" value={form.hostName} onChange={(event) => setForm((current) => ({ ...current, hostName: event.target.value }))} />
+									</div>
+									<div className="flex min-w-0 flex-col gap-1">
+										<Label htmlFor="remote-host-port">{t("settings.connections.add.port")}</Label>
+										<Input id="remote-host-port" inputMode="numeric" placeholder="22" value={form.port} onChange={(event) => setForm((current) => ({ ...current, port: event.target.value }))} />
+									</div>
 								</div>
-							</div>
-							{form.auth === "password" ? (
-								<div className="flex flex-col gap-1">
-									<Label htmlFor="remote-host-password">{t("settings.connections.add.password")}</Label>
-									<div className="relative">
-										<Input id="remote-host-password" type={showPassword ? "text" : "password"} autoComplete="off" spellCheck={false} className="pr-10" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+								{/* 用户名与显示名称并排：两个短字段各占一行会把表单拉得比对话框还高。 */}
+								<div className="grid grid-cols-2 gap-3">
+									<div className="flex min-w-0 flex-col gap-1">
+										<Label htmlFor="remote-host-user">{t("settings.connections.add.user")}</Label>
+										<Input id="remote-host-user" autoComplete="off" spellCheck={false} placeholder={t("settings.connections.add.userPlaceholder")} value={form.user} onChange={(event) => setForm((current) => ({ ...current, user: event.target.value }))} />
+									</div>
+									<div className="flex min-w-0 flex-col gap-1">
+										<Label htmlFor="remote-host-label">{t("settings.connections.add.label")}</Label>
+										<Input id="remote-host-label" value={form.label} onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))} />
+									</div>
+								</div>
+								<div className="flex flex-wrap items-center gap-3">
+									<span className="text-label text-muted-foreground">{t("settings.connections.add.authLabel")}</span>
+									<div role="group" aria-label={t("settings.connections.add.authLabel")} className="flex w-fit overflow-hidden rounded-lg border border-input">
 										<button
 											type="button"
-											aria-label={t(showPassword ? "settings.connections.add.hidePassword" : "settings.connections.add.showPassword")}
-											aria-pressed={showPassword}
-											className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
-											onClick={() => setShowPassword((current) => !current)}
+											aria-pressed={form.auth === "agent"}
+											className={cn("inline-flex min-h-8 items-center px-3 text-body", form.auth === "agent" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-bg-hover")}
+											onClick={() => setForm((current) => ({ ...current, auth: "agent", identityFile: "" }))}
 										>
-											{showPassword ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+											{t("settings.connections.add.auth.agent")}
+										</button>
+										<button
+											type="button"
+											aria-pressed={form.auth === "key"}
+											className={cn("inline-flex min-h-8 items-center border-l border-input px-3 text-body", form.auth === "key" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-bg-hover")}
+											onClick={() => setForm((current) => ({ ...current, auth: "key" }))}
+										>
+											{t("settings.connections.add.auth.key")}
+										</button>
+										<button
+											type="button"
+											aria-pressed={form.auth === "password"}
+											className={cn("inline-flex min-h-8 items-center border-l border-input px-3 text-body", form.auth === "password" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-bg-hover")}
+											onClick={() => setForm((current) => ({ ...current, auth: "password", identityFile: "" }))}
+										>
+											{t("settings.connections.add.auth.password")}
 										</button>
 									</div>
 								</div>
-							) : null}
-							{form.auth === "key" ? (
-								<div className="flex flex-col gap-3">
+								{form.auth === "password" ? (
 									<div className="flex flex-col gap-1">
-										<Label htmlFor="remote-host-identity">{t("settings.connections.add.identityFile")}</Label>
-										<Popover open={identityOpen} onOpenChange={setIdentityOpen}>
-											<PopoverAnchor asChild>
-												<div className="relative">
-													<Input
-														id="remote-host-identity"
-														autoComplete="off"
-														spellCheck={false}
-														placeholder={t("settings.connections.add.identityFilePlaceholder")}
-														className="pr-16"
-														value={form.identityFile}
-														onChange={(event) => setForm((current) => ({ ...current, identityFile: event.target.value }))}
-														onClick={() => {
-															if (identitySuggestions.length > 0) setIdentityOpen(true);
-														}}
-													/>
-													{identitySuggestions.length > 0 ? (
-														<button
-															type="button"
-															aria-label={t("settings.connections.add.identitySuggestions")}
-															aria-expanded={identityOpen}
-															className="absolute right-8 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
-															onClick={() => setIdentityOpen((current) => !current)}
-														>
-															<ChevronDown className={cn("size-4 transition-transform", identityOpen && "rotate-180")} aria-hidden="true" />
-														</button>
-													) : null}
-													<button
-														type="button"
-														aria-label={t("settings.connections.add.identityBrowse")}
-														title={t("settings.connections.add.identityBrowse")}
-														className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
-														onClick={() => {
-															void (async () => {
-																const picked = await desktopApi.remoteHosts.pickIdentityFile();
-																if (picked.ok) setForm((current) => ({ ...current, identityFile: picked.path }));
-															})();
-														}}
-													>
-														<FolderOpen className="size-4" aria-hidden="true" />
-													</button>
-												</div>
-											</PopoverAnchor>
-											{/* 扫描到的私钥放进下拉里：默认不占版面，点开才出现。 */}
-											<PopoverContent align="start" sideOffset={4} className="w-[26rem] max-w-[var(--radix-popover-content-available-width)] p-1">
-												{/* scroll-ok: bounded 私钥候选，条目有限且由 max-h 收束 */}
-												<ul className="flex max-h-56 flex-col gap-0.5 overflow-y-auto">
-													{identitySuggestions.map((path) => (
-														<li key={path}>
-															<button
-																type="button"
-																className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left font-mono text-label text-muted-foreground outline-none transition-colors hover:bg-bg-hover hover:text-foreground focus-visible:bg-bg-hover", form.identityFile === path && "bg-bg-hover text-foreground")}
-																title={path}
-																onClick={() => {
-																	setForm((current) => ({ ...current, identityFile: path }));
-																	setIdentityOpen(false);
-																}}
-															>
-																<FileCode className="size-3.5 shrink-0" aria-hidden="true" />
-																<span className="truncate">{path}</span>
-															</button>
-														</li>
-													))}
-												</ul>
-											</PopoverContent>
-										</Popover>
-									</div>
-									<div className="flex flex-col gap-1">
-										<Label htmlFor="remote-host-passphrase">{t("settings.connections.add.passphrase")}</Label>
+										<Label htmlFor="remote-host-password">{t("settings.connections.add.password")}</Label>
 										<div className="relative">
-											<Input
-												id="remote-host-passphrase"
-												type={showSecret ? "text" : "password"}
-												autoComplete="off"
-												spellCheck={false}
-												placeholder={t("settings.connections.add.passphrasePlaceholder")}
-												className="pr-10"
-												value={form.passphrase}
-												onChange={(event) => setForm((current) => ({ ...current, passphrase: event.target.value }))}
-											/>
+											<Input id="remote-host-password" type={showPassword ? "text" : "password"} autoComplete="off" spellCheck={false} className="pr-10" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
 											<button
 												type="button"
-												aria-label={t(showSecret ? "settings.connections.add.hideSecret" : "settings.connections.add.showSecret")}
-												aria-pressed={showSecret}
+												aria-label={t(showPassword ? "settings.connections.add.hidePassword" : "settings.connections.add.showPassword")}
+												aria-pressed={showPassword}
 												className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
-												onClick={() => setShowSecret((current) => !current)}
+												onClick={() => setShowPassword((current) => !current)}
 											>
-												{showSecret ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+												{showPassword ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
 											</button>
 										</div>
 									</div>
+								) : null}
+								{form.auth === "key" ? (
+									<div className="flex flex-col gap-3">
+										<div className="flex flex-col gap-1">
+											<Label htmlFor="remote-host-identity">{t("settings.connections.add.identityFile")}</Label>
+											<Popover open={identityOpen} onOpenChange={setIdentityOpen}>
+												<PopoverAnchor asChild>
+													<div className="relative">
+														<Input
+															id="remote-host-identity"
+															autoComplete="off"
+															spellCheck={false}
+															placeholder={t("settings.connections.add.identityFilePlaceholder")}
+															className="pr-16"
+															value={form.identityFile}
+															onChange={(event) => setForm((current) => ({ ...current, identityFile: event.target.value }))}
+															onClick={() => {
+																if (identitySuggestions.length > 0) setIdentityOpen(true);
+															}}
+														/>
+														{identitySuggestions.length > 0 ? (
+															<button
+																type="button"
+																aria-label={t("settings.connections.add.identitySuggestions")}
+																aria-expanded={identityOpen}
+																className="absolute right-8 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
+																onClick={() => setIdentityOpen((current) => !current)}
+															>
+																<ChevronDown className={cn("size-4 transition-transform", identityOpen && "rotate-180")} aria-hidden="true" />
+															</button>
+														) : null}
+														<button
+															type="button"
+															aria-label={t("settings.connections.add.identityBrowse")}
+															title={t("settings.connections.add.identityBrowse")}
+															className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
+															onClick={() => {
+																void (async () => {
+																	const picked = await desktopApi.remoteHosts.pickIdentityFile();
+																	if (picked.ok) setForm((current) => ({ ...current, identityFile: picked.path }));
+																})();
+															}}
+														>
+															<FolderOpen className="size-4" aria-hidden="true" />
+														</button>
+													</div>
+												</PopoverAnchor>
+												{/* 扫描到的私钥放进下拉里：默认不占版面，点开才出现。 */}
+												<PopoverContent align="start" sideOffset={4} className="w-[26rem] max-w-[var(--radix-popover-content-available-width)] p-1">
+													{/* scroll-ok: bounded 私钥候选，条目有限且由 max-h 收束 */}
+													<ul className="flex max-h-56 flex-col gap-0.5 overflow-y-auto">
+														{identitySuggestions.map((path) => (
+															<li key={path}>
+																<button
+																	type="button"
+																	className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left font-mono text-label text-muted-foreground outline-none transition-colors hover:bg-bg-hover hover:text-foreground focus-visible:bg-bg-hover", form.identityFile === path && "bg-bg-hover text-foreground")}
+																	title={path}
+																	onClick={() => {
+																		setForm((current) => ({ ...current, identityFile: path }));
+																		setIdentityOpen(false);
+																	}}
+																>
+																	<FileCode className="size-3.5 shrink-0" aria-hidden="true" />
+																	<span className="truncate">{path}</span>
+																</button>
+															</li>
+														))}
+													</ul>
+												</PopoverContent>
+											</Popover>
+										</div>
+										<div className="flex flex-col gap-1">
+											<Label htmlFor="remote-host-passphrase">{t("settings.connections.add.passphrase")}</Label>
+											<div className="relative">
+												<Input
+													id="remote-host-passphrase"
+													type={showSecret ? "text" : "password"}
+													autoComplete="off"
+													spellCheck={false}
+													placeholder={t("settings.connections.add.passphrasePlaceholder")}
+													className="pr-10"
+													value={form.passphrase}
+													onChange={(event) => setForm((current) => ({ ...current, passphrase: event.target.value }))}
+												/>
+												<button
+													type="button"
+													aria-label={t(showSecret ? "settings.connections.add.hideSecret" : "settings.connections.add.showSecret")}
+													aria-pressed={showSecret}
+													className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
+													onClick={() => setShowSecret((current) => !current)}
+												>
+													{showSecret ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+												</button>
+											</div>
+										</div>
+									</div>
+								) : null}
+								<p className="text-label text-muted-foreground">{t("settings.connections.add.credentialsHint")}</p>
+							</fieldset>
+
+							{/* 内联环境检测：四步状态 + pi 结论。整个过程就在这张表单里，不再弹独立进度框。 */}
+							{setupStarted ? (
+								<div className="flex flex-col gap-2.5 rounded-lg border border-border-subtle bg-bg-panel/50 p-3">
+									<ol aria-live="polite" className="flex flex-col gap-1">
+										{SETUP_STEPS.map((key) => {
+											const status = steps[key];
+											const Icon = SETUP_STEP_ICON[status];
+											return (
+												<li key={key} aria-current={status === "active" ? "step" : undefined} className="flex min-w-0 items-center gap-2 text-body">
+													<Icon className={cn("size-3.5 shrink-0", SETUP_STEP_TONE[status], status === "active" && "animate-pideck-spin motion-reduce:animate-none")} aria-hidden="true" />
+													<span className={cn("min-w-0 truncate", status === "pending" ? "text-muted-foreground" : "text-foreground")}>{t(SETUP_STEP_LABEL[key])}</span>
+													<span className="ml-auto shrink-0 text-label text-muted-foreground">{status === "active" ? t("settings.connections.add.stepState.running") : status === "done" ? t("settings.connections.add.stepState.done") : status === "failed" ? t("settings.connections.add.stepState.failed") : null}</span>
+												</li>
+											);
+										})}
+									</ol>
+
+									{piOutcome?.state === "found" ? (
+										<div className="flex flex-col gap-0.5 border-t border-border-subtle/70 pt-2">
+											<p role="status" className="flex items-start gap-1.5 text-label text-[var(--color-success)]">
+												<CircleCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+												<span className="min-w-0">{t("settings.connections.add.piFound", { version: piOutcome.version })}</span>
+											</p>
+											<p className="break-all pl-5 font-mono text-label text-muted-foreground">{piOutcome.piPath}</p>
+											{piOutcome.warning === undefined ? null : <p className="pl-5 text-label text-warning">{t("settings.connections.add.piWarning")}</p>}
+										</div>
+									) : null}
+
+									{piOutcome?.state === "failed" ? (
+										<div className="flex flex-col gap-2 border-t border-border-subtle/70 pt-2">
+											<p role="status" className="flex items-start gap-1.5 text-label text-destructive">
+												<TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+												<span className="min-w-0">{remotePiProbeReason(piOutcome.code)}</span>
+											</p>
+											{piOutcome.code === "REMOTE_PI_NOT_FOUND" ? (
+												<div className="flex flex-col gap-1.5 rounded-md bg-bg-panel p-2">
+													<span className="text-label text-muted-foreground">{t("settings.connections.add.piInstallHint")}</span>
+													<div className="flex flex-wrap items-center gap-2">
+														<code className="min-w-0 flex-1 select-all break-all rounded bg-muted px-2 py-1 font-mono text-label">{PI_INSTALL_COMMAND}</code>
+														<Button type="button" variant="outline" size="sm" onClick={() => void copyInstallCommand()}>
+															<Copy className="size-3.5" aria-hidden="true" />
+															{copiedInstall ? t("settings.connections.add.piCopied") : t("settings.connections.add.piCopy")}
+														</Button>
+													</div>
+												</div>
+											) : null}
+										</div>
+									) : null}
+
+									{/* 手填路径：探测失败时的出路，探测成功时也能改成另一个 pi。 */}
+									{steps.pi === "failed" || steps.pi === "done" ? (
+										<div className="flex flex-col gap-1.5 border-t border-border-subtle/70 pt-2">
+											<Label htmlFor="remote-pi-path">{t("settings.connections.add.piPathLabel")}</Label>
+											<div className="flex flex-wrap items-center gap-2">
+												<Input
+													id="remote-pi-path"
+													autoComplete="off"
+													spellCheck={false}
+													className="min-w-0 flex-1 font-mono"
+													placeholder={t("settings.connections.add.piPathPlaceholder")}
+													value={piPathDraft}
+													disabled={savingPiPath || setupRunning}
+													onChange={(event) => {
+														setPiPathDraft(event.target.value);
+														setPiPathError(null);
+													}}
+												/>
+												<Button type="button" variant="outline" disabled={savingPiPath || setupRunning} onClick={() => void savePiPath()}>
+													{savingPiPath ? t("settings.connections.add.piPathSaving") : t("settings.connections.add.piPathSave")}
+												</Button>
+											</div>
+											<p className="text-label text-muted-foreground">{t("settings.connections.add.piPathHint")}</p>
+											{piPathError === null ? null : <p className="text-label text-destructive">{piPathError}</p>}
+										</div>
+									) : null}
 								</div>
 							) : null}
-							<p className="text-label text-muted-foreground">{t("settings.connections.add.credentialsHint")}</p>
-						</fieldset>
 
-						{/* 内联环境检测：四步状态 + pi 结论。整个过程就在这张表单里，不再弹独立进度框。 */}
-						{setupStarted ? (
-							<div className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-bg-input/40 p-3">
-								<ol aria-live="polite" className="flex flex-col gap-1.5">
-									{SETUP_STEPS.map((key) => {
-										const status = steps[key];
-										const Icon = SETUP_STEP_ICON[status];
-										return (
-											<li key={key} aria-current={status === "active" ? "step" : undefined} className="flex min-w-0 items-center gap-2 text-body">
-												<Icon className={cn("size-3.5 shrink-0", SETUP_STEP_TONE[status], status === "active" && "animate-pideck-spin motion-reduce:animate-none")} aria-hidden="true" />
-												<span className={cn("min-w-0 truncate", status === "pending" ? "text-muted-foreground" : "text-foreground")}>{t(SETUP_STEP_LABEL[key])}</span>
-												<span className="ml-auto shrink-0 text-label text-muted-foreground">{status === "active" ? t("settings.connections.add.stepState.running") : status === "done" ? t("settings.connections.add.stepState.done") : status === "failed" ? t("settings.connections.add.stepState.failed") : null}</span>
-											</li>
-										);
-									})}
-								</ol>
+							{testResult !== null ? (
+								<div role="status" className={cn("flex flex-col gap-1 rounded-lg border border-border-subtle bg-bg-panel/50 px-3 py-2 text-label", testResult.ok ? "text-[var(--color-success)]" : "text-destructive")}>
+									<p className="flex items-start gap-1.5">
+										{testResult.ok ? <CircleCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /> : <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />}
+										<span className="min-w-0 break-all">{testResult.ok ? t("settings.connections.add.testOk", { fingerprint: testResult.fingerprint }) : t("settings.connections.add.testFailed", { reason: testResult.reason })}</span>
+									</p>
+									{testResult.ok ? <p className="pl-5 text-label text-muted-foreground">{t("settings.connections.add.testOkHint")}</p> : null}
+								</div>
+							) : null}
+							{error !== null ? (
+								<div role="alert" className="flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-label text-destructive">
+									<TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+									<span className="min-w-0 break-words">{error}</span>
+								</div>
+							) : null}
+						</>
+					)}
+				</div>
 
-								{piOutcome?.state === "found" ? (
-									<div className="flex flex-col gap-0.5 border-t border-border-subtle/70 pt-2">
-										<p role="status" className="flex items-start gap-1.5 text-label text-[var(--color-success)]">
-											<CircleCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-											<span className="min-w-0">{t("settings.connections.add.piFound", { version: piOutcome.version })}</span>
-										</p>
-										<p className="break-all pl-5 font-mono text-label text-muted-foreground">{piOutcome.piPath}</p>
-										{piOutcome.warning === undefined ? null : <p className="pl-5 text-label text-warning">{t("settings.connections.add.piWarning")}</p>}
-									</div>
-								) : null}
-
-								{piOutcome?.state === "failed" ? (
-									<div className="flex flex-col gap-2 border-t border-border-subtle/70 pt-2">
-										<p role="status" className="flex items-start gap-1.5 text-label text-destructive">
-											<TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-											<span className="min-w-0">{remotePiProbeReason(piOutcome.code)}</span>
-										</p>
-										{piOutcome.code === "REMOTE_PI_NOT_FOUND" ? (
-											<div className="flex flex-col gap-1.5 rounded-md bg-bg-panel p-2">
-												<span className="text-label text-muted-foreground">{t("settings.connections.add.piInstallHint")}</span>
-												<div className="flex flex-wrap items-center gap-2">
-													<code className="min-w-0 flex-1 select-all break-all rounded bg-muted px-2 py-1 font-mono text-label">{PI_INSTALL_COMMAND}</code>
-													<Button type="button" variant="outline" size="sm" onClick={() => void copyInstallCommand()}>
-														<Copy className="size-3.5" aria-hidden="true" />
-														{copiedInstall ? t("settings.connections.add.piCopied") : t("settings.connections.add.piCopy")}
-													</Button>
-												</div>
-											</div>
-										) : null}
-									</div>
-								) : null}
-
-								{/* 手填路径：探测失败时的出路，探测成功时也能改成另一个 pi。 */}
-								{steps.pi === "failed" || steps.pi === "done" ? (
-									<div className="flex flex-col gap-1.5 border-t border-border-subtle/70 pt-2">
-										<Label htmlFor="remote-pi-path">{t("settings.connections.add.piPathLabel")}</Label>
-										<div className="flex flex-wrap items-center gap-2">
-											<Input
-												id="remote-pi-path"
-												autoComplete="off"
-												spellCheck={false}
-												className="min-w-0 flex-1 font-mono"
-												placeholder={t("settings.connections.add.piPathPlaceholder")}
-												value={piPathDraft}
-												disabled={savingPiPath || setupRunning}
-												onChange={(event) => {
-													setPiPathDraft(event.target.value);
-													setPiPathError(null);
-												}}
-											/>
-											<Button type="button" variant="outline" disabled={savingPiPath || setupRunning} onClick={() => void savePiPath()}>
-												{savingPiPath ? t("settings.connections.add.piPathSaving") : t("settings.connections.add.piPathSave")}
-											</Button>
-										</div>
-										<p className="text-label text-muted-foreground">{t("settings.connections.add.piPathHint")}</p>
-										{piPathError === null ? null : <p className="text-label text-destructive">{piPathError}</p>}
-									</div>
-								) : null}
-							</div>
-						) : null}
-
-						{testResult !== null ? (
-							<div role="status" className={cn("flex flex-col gap-1 text-label", testResult.ok ? "text-[var(--color-success)]" : "text-destructive")}>
-								<p className="flex items-start gap-1.5">
-									{testResult.ok ? <CircleCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /> : <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />}
-									<span className="min-w-0">{testResult.ok ? t("settings.connections.add.testOk", { fingerprint: testResult.fingerprint }) : t("settings.connections.add.testFailed", { reason: testResult.reason })}</span>
-								</p>
-								{testResult.ok ? <p className="pl-5 text-label text-muted-foreground">{t("settings.connections.add.testOkHint")}</p> : null}
-							</div>
-						) : null}
-						{error !== null ? <p className="text-label text-destructive">{error}</p> : null}
-					</>
-				)}
-
-				<DialogFooter className="flex-row items-center justify-between gap-2 border-t border-border-subtle pt-4 sm:justify-between">
-					<span className="min-w-0 truncate text-label text-muted-foreground">{kind === "ssh" && importing ? t("settings.connections.add.importHint") : null}</span>
+				<DialogFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t border-border-subtle bg-bg-panel/50 px-6 py-3 sm:justify-end">
 					<div className="flex items-center gap-2">
 						<Button variant="ghost" onClick={close}>
 							{t("common.cancel")}
