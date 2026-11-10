@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 995488397f558688cf30aa77f35f2bdd71d8494d01b78c6559d4f1d2b73a642a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: ca19dbd949e083b0ffbac5a1604401e929c3a45c9f7f2781ab67f9d99a94f7d0（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4704,6 +4704,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.connections.add.step.save": "儲存連線",
 	"settings.connections.add.step.connect": "建立會話並部署 helper",
 	"settings.connections.add.step.pi": "檢測遠端 pi",
+	"settings.connections.add.stepStalled": "「{step}」長時間沒有返回結果：請求卡在主程序裡了。關掉這個對話方塊重試；若反覆出現，請重啟應用（主程序改動只有重啟後生效）並檢視連線診斷。",
+	"settings.connections.add.stepFailed": "這一步沒有返回結果就出錯了（{code}）。可以直接重試；若反覆出現，請看應用日誌（設定 → 通用 → 開啟日誌目錄）。",
 	"settings.connections.add.stepState.running": "進行中",
 	"settings.connections.add.stepState.done": "完成",
 	"settings.connections.add.stepState.failed": "失敗",

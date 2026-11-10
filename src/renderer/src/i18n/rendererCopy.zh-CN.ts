@@ -4697,6 +4697,8 @@ export const zhCN = {
 	"settings.connections.add.step.save": "保存连接",
 	"settings.connections.add.step.connect": "建立会话并部署 helper",
 	"settings.connections.add.step.pi": "检测远端 pi",
+	"settings.connections.add.stepStalled": "「{step}」长时间没有返回结果：请求卡在主进程里了。关掉这个对话框重试；若反复出现，请重启应用（主进程改动只有重启后生效）并查看连接诊断。",
+	"settings.connections.add.stepFailed": "这一步没有返回结果就出错了（{code}）。可以直接重试；若反复出现，请看应用日志（设置 → 通用 → 打开日志目录）。",
 	"settings.connections.add.stepState.running": "进行中",
 	"settings.connections.add.stepState.done": "完成",
 	"settings.connections.add.stepState.failed": "失败",

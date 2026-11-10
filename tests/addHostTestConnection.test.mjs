@@ -146,10 +146,10 @@ test("握手失败保留下来的草稿：对话框内联说明，不再由宿�
 	// 否则重试会再 add 一次，每失败一次就多一条同名记录。
 	assert.match(dialog, /if \(added\.saved === true && added\.hostId !== undefined\) hostIdRef\.current = added\.hostId;/);
 	// 预检（测试连接）失败也要落库：否则用户关掉对话框就只剩重填一条路。
-	assert.match(dialog, /const persisted = await desktopApi\.remoteHosts\.add\(input\);/);
+	assert.match(dialog, /const persisted = await withSetupTimeout\(desktopApi\.remoteHosts\.add\(input\), SETUP_STEP_TIMEOUT_MS\.save\);/);
 	assert.match(dialog, /if \(!persisted\.ok && persisted\.saved === true && persisted\.hostId !== undefined\) \{/);
 	assert.match(dialog, /settings\.connections\.add\.savedUnverified/);
-	assert.match(dialog, /const existingHostId = hostIdRef\.current;\n\t\t\t\tif \(existingHostId !== null\) \{/);
+	assert.match(dialog, /const existingHostId = hostIdRef\.current;\s+if \(existingHostId !== null\) \{/);
 	// 宿主不再接收「已保存但未验证」的回调，也不再自己发起连接。
 	assert.doesNotMatch(tab, /onSavedUnverified/);
 	assert.doesNotMatch(tab, /onSubmitted/);
@@ -179,4 +179,29 @@ test("编辑未验证连接会重新握手，改完才可能变成可连接", ()
 	assert.match(edit, /updated\.endpointChanged \|\| updated\.profile\.verifiedEndpoint === undefined/);
 	assert.match(edit, /await store\.offerPin\(hostId, senderId/);
 	assert.match(edit, /remotePiCommand: profile\.remotePiCommand/);
+});
+
+test("四步流程不会因为一次没回来的 IPC 永久卡在「进行中」", () => {
+	// 实机反馈（2026-11）：点「保存并检测」后第一步一直显示进行中，整张表单被锁住。
+	// 判据：每个远端调用都有上限，异常一律收尾成「失败」，且失败后旧链路不得再回写状态。
+	const body = dialog.slice(dialog.indexOf("const runSetup = useCallback("), dialog.indexOf("const savePiPath = useCallback("));
+	for (const call of ["remoteHosts.test(input)", "remoteHosts.add(input)", "remoteHosts.connect(hostId", "probePi(hostId)"]) {
+		assert.ok(body.includes(call), `runSetup 必须真的调用 ${call}`);
+	}
+	// 每一步都经 withSetupTimeout 包一层（4 步 = 至少 5 次：add 在失败分支还会再调一次）。
+	assert.ok((body.match(/withSetupTimeout\(/g) ?? []).length >= 5, "每个 IPC 都要有单步上限");
+	assert.match(dialog, /const SETUP_STEP_TIMEOUT_MS: Record<SetupStepKey, number> = \{ test: 90_000, save: 90_000, connect: 300_000, pi: 150_000 \}/);
+	// 异常必须收尾：把当前 active 的那一步翻成 failed，并给出稳定说法。
+	assert.match(body, /catch \(error\) \{/);
+	assert.match(body, /\[step\]: "failed"/);
+	assert.match(dialog, /settings\.connections\.add\.stepStalled/);
+	assert.match(dialog, /settings\.connections\.add\.stepFailed/);
+	for (const key of ["stepStalled", "stepFailed"]) {
+		assert.ok(zh.includes(`"settings.connections.add.${key}":`), `zh-CN 缺 ${key}`);
+		assert.ok(en.includes(`"settings.connections.add.${key}":`), `en-US 缺 ${key}`);
+	}
+	// 令牌：超时后旧链路（可能还挂着）不得再改 steps/testResult。
+	assert.match(dialog, /const setupRunRef = useRef\(0\)/);
+	assert.match(body, /const live = \(\): boolean => aliveRef\.current && setupRunRef\.current === token/);
+	assert.ok(!/await[^\n]*\n\s*if \(!aliveRef\.current\) return;/.test(body), "await 之后必须用 live() 而不是裸 aliveRef 判断");
 });

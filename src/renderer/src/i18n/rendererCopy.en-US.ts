@@ -4716,6 +4716,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.connections.add.step.save": "Save connection",
 	"settings.connections.add.step.connect": "Open session and deploy helper",
 	"settings.connections.add.step.pi": "Check remote pi",
+	"settings.connections.add.stepStalled": '"{step}" did not answer in time — the request is stuck somewhere in the main process. Close this dialog and retry; if it repeats, restart the app (a main-process change only takes effect after a restart) and check the diagnostics list.',
+	"settings.connections.add.stepFailed": "This step ended in an error before returning a result ({code}). Retry; if it repeats, check the app log under Settings → General → Open log folder.",
 	"settings.connections.add.stepState.running": "Running",
 	"settings.connections.add.stepState.done": "Done",
 	"settings.connections.add.stepState.failed": "Failed",

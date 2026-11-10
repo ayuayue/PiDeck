@@ -45,6 +45,31 @@ const SETUP_STEP_ICON: Record<SetupStepStatus, typeof Circle> = { pending: Circl
 const SETUP_STEP_TONE: Record<SetupStepStatus, string> = { pending: "text-muted-foreground/50", active: "text-warning", done: "text-success", failed: "text-destructive" };
 /** 远端 pi 探测：成功只回版本/路径，失败只回稳定码（与主进程的脱敏结果同形）。 */
 type PiProbeOutcome = { state: "found"; version: string; piPath: string; warning?: string } | { state: "failed"; code: string };
+
+/**
+ * 单步上限：主进程侧每个 ssh 子进程都有自己的超时（客户端 30s、引导 ready 30s、上传/收尾各 120s），
+ * 这里只保证**界面**不会因为一次没回来的 IPC（主进程忙、处理器未抛错也没返回、通道未注册）永久锁住。
+ */
+const SETUP_STEP_TIMEOUT_MS: Record<SetupStepKey, number> = { test: 90_000, save: 90_000, connect: 300_000, pi: 150_000 };
+/** 超时专用错误：与 IPC 抛出的错误分开，文案才能说「没等到结果」而不是「失败」+ 稳定码。 */
+class SetupStepTimeout extends Error {}
+
+/** 把一次 IPC 变成有上限的等待；超时不取消主进程的工作，只让界面能继续（重试/关闭）。 */
+function withSetupTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(() => reject(new SetupStepTimeout("SETUP_STEP_TIMEOUT")), ms);
+	});
+	return Promise.race([work, deadline]).finally(() => {
+		if (timer !== undefined) clearTimeout(timer);
+	});
+}
+
+/** 把一次 IPC 的失败折成稳定码（与主进程同一套判据：消息即码）。 */
+function setupErrorCode(error: unknown): string {
+	const message = typeof error === "object" && error !== null && "message" in error ? (error as { message?: unknown }).message : undefined;
+	return typeof message === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(message) ? message : "IPC_CALL_FAILED";
+}
 /** 远端安装 pi 的命令：只给用户复制，不在远端替用户执行安装（远端副作用必须由用户自己按）。 */
 const PI_INSTALL_COMMAND = "npm i -g @earendil-works/pi-coding-agent";
 
@@ -131,6 +156,8 @@ export function AddHostDialog(props: {
 	const [piPathError, setPiPathError] = useState<string | null>(null);
 	const [savingPiPath, setSavingPiPath] = useState(false);
 	const [copiedInstall, setCopiedInstall] = useState(false);
+	/** 本次 runSetup 的令牌：超时/失败后旧链路不得再回写状态。 */
+	const setupRunRef = useRef(0);
 	/** 本对话框对应/新建的主机 id（重试和手填路径都用它，不重复 add）。 */
 	const hostIdRef = useRef<string | null>(editing?.hostId ?? null);
 	/** 对话框关闭后仍可能在飞的请求不得再回写状态或改动记录。 */
@@ -205,9 +232,11 @@ export function AddHostDialog(props: {
 	/** 只探测 pi（会话已经在时成本是两次远端往返）。 */
 	const probePi = useCallback(
 		async (hostId: string) => {
+			// 本次运行令牌：超时/重试后旧探针不得再回写（它可能在一次没回来的 IPC 上挂很久）。
+			const token = setupRunRef.current;
 			setSteps((current) => ({ ...current, pi: "active" }));
 			const result = await desktopApi.remoteHosts.probePi(hostId);
-			if (!aliveRef.current) return;
+			if (!aliveRef.current || setupRunRef.current !== token) return;
 			applyPiOutcome(result);
 		},
 		[applyPiOutcome],
@@ -218,6 +247,9 @@ export function AddHostDialog(props: {
 	 *
 	 * `reconnect` 跳过测试与保存，只重做「建立会话 + 探测」：连接抖动失败后重试不该再写一次库。
 	 * 所有中断点都用稳定码回到表单，不抛异常，也不关框——失败要停在让它失败的那一步。
+	 *
+	 * 外层必须接住**异常**：IPC 可能 reject（处理器抛错/主进程忙/通道未注册），不接住的话 await 之后
+	 * 再也不会执行，步骤永远停在「active」，表单与按钮全部被锁——用户只能关框（2026-11 实机反馈）。
 	 */
 	const runSetup = useCallback(
 		async (mode: "full" | "reconnect") => {
@@ -236,80 +268,98 @@ export function AddHostDialog(props: {
 			const skipTest = form.auth === "password";
 			setSteps((current) => (mode === "full" ? { test: skipTest ? "done" : "active", save: skipTest ? "active" : "pending", connect: "pending", pi: "pending" } : { ...current, connect: "active", pi: "pending" }));
 			const secret = currentSecret();
-			if (mode === "full") {
-				const tested = skipTest ? null : await desktopApi.remoteHosts.test(input);
-				if (!aliveRef.current) return;
-				if (tested !== null && !tested.ok) {
-					setSteps((current) => ({ ...current, test: "failed" }));
-					// 失败也要把草稿留下（用户反馈：失败了就丢，下次还得把主机名/用户/私钥全填一遍）。
-					// add 会再握手一次，失败时返回 saved + hostId；拿到 id 后就是一条「未验证连接」，
-					// 用户可以关掉对话框，在列表里点编辑改错的那一项再重试。
-					const persisted = await desktopApi.remoteHosts.add(input);
-					if (!aliveRef.current) return;
-					if (!persisted.ok && persisted.saved === true && persisted.hostId !== undefined) {
-						hostIdRef.current = persisted.hostId;
-						setError(t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(tested.code) }));
-					} else {
-						setError(t("settings.connections.add.testFailed", { reason: remoteHostFailureReason(tested.code) }));
+			// 本次运行的令牌：超时/失败后旧的那条链不得再回写状态（它可能还在等一个永远不会来的 IPC）。
+			const token = ++setupRunRef.current;
+			const live = (): boolean => aliveRef.current && setupRunRef.current === token;
+			const currentStep = (): SetupStepKey => (mode === "reconnect" ? "connect" : (SETUP_STEPS.find((key) => steps[key] === "active") ?? "test"));
+			try {
+				if (mode === "full") {
+					const tested = skipTest ? null : await withSetupTimeout(desktopApi.remoteHosts.test(input), SETUP_STEP_TIMEOUT_MS.test);
+					if (!live()) return;
+					if (tested !== null && !tested.ok) {
+						setSteps((current) => ({ ...current, test: "failed" }));
+						// 失败也要把草稿留下（用户反馈：失败了就丢，下次还得把主机名/用户/私钥全填一遍）。
+						// add 会再握手一次，失败时返回 saved + hostId；拿到 id 后就是一条「未验证连接」，
+						// 用户可以关掉对话框，在列表里点编辑改错的那一项再重试。
+						const persisted = await withSetupTimeout(desktopApi.remoteHosts.add(input), SETUP_STEP_TIMEOUT_MS.save);
+						if (!live()) return;
+						if (!persisted.ok && persisted.saved === true && persisted.hostId !== undefined) {
+							hostIdRef.current = persisted.hostId;
+							setError(t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(tested.code) }));
+						} else {
+							setError(t("settings.connections.add.testFailed", { reason: remoteHostFailureReason(tested.code) }));
+						}
+						return;
 					}
+					if (tested !== null) setTestResult({ ok: true, fingerprint: tested.fingerprint });
+					setSteps((current) => ({ ...current, test: "done", save: "active" }));
+					// 重试时不能重复 add：已经有一条记录（新建成功或握手失败留下来的草稿）就原地修改。
+					const existingHostId = hostIdRef.current;
+					if (existingHostId !== null) {
+						const updated = await withSetupTimeout(
+							desktopApi.remoteHosts.update({
+								hostId: existingHostId,
+								patch: {
+									label: input.label,
+									hostName: input.hostName,
+									user: input.user ?? "",
+									port: typeof input.port === "number" ? input.port : undefined,
+									identityFile: input.identityFile ?? "",
+									// 显式写入 undefined：从密码切回密钥/agent 时必须清掉旧的 authMethod。
+									authMethod: input.authMethod === "password" ? ("password" as const) : undefined,
+								},
+								// 空口令 = 不覆盖；用户显式输入了才更新存储。
+								...(secret.length > 0 ? { secret } : {}),
+							}),
+							SETUP_STEP_TIMEOUT_MS.save,
+						);
+						if (!live()) return;
+						if (!updated.ok) {
+							setSteps((current) => ({ ...current, save: "failed" }));
+							setError(updated.saved === true ? t("settings.connections.edit.savedUnverifiedReason", { reason: remoteHostFailureReason(updated.code) }) : remoteHostFailureReason(updated.code));
+							return;
+						}
+						hostIdRef.current = existingHostId;
+						props.onChanged?.();
+					} else {
+						const added = await withSetupTimeout(desktopApi.remoteHosts.add(input), SETUP_STEP_TIMEOUT_MS.save);
+						// 对话框已经关了：记录照样保留（用户可在列表里查看/编辑/删除），只是不再回写界面。
+						if (!live()) return;
+						if (!added.ok) {
+							// 草稿已保存：记下 id，重试时原地 update（否则每失败一次就多一条同名记录）。
+							if (added.saved === true && added.hostId !== undefined) hostIdRef.current = added.hostId;
+							setSteps((current) => ({ ...current, save: "failed" }));
+							setError(added.saved === true ? t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(added.code) }) : remoteHostFailureReason(added.code));
+							return;
+						}
+						hostIdRef.current = added.hostId;
+						props.onChanged?.();
+					}
+					setSteps((current) => ({ ...current, save: "done", connect: "active" }));
+				}
+				const hostId = hostIdRef.current;
+				if (hostId === null) return;
+				const connected = await withSetupTimeout(desktopApi.remoteHosts.connect(hostId, secret.length > 0 ? secret : undefined), SETUP_STEP_TIMEOUT_MS.connect);
+				if (!live()) return;
+				if (!connected.ok) {
+					setSteps((current) => ({ ...current, connect: "failed" }));
+					setError(t("settings.connections.add.connectFailed", { reason: remoteHostFailureReason(connected.code) }));
 					return;
 				}
-				if (tested !== null) setTestResult({ ok: true, fingerprint: tested.fingerprint });
-				setSteps((current) => ({ ...current, test: "done", save: "active" }));
-				// 重试时不能重复 add：已经有一条记录（新建成功或握手失败留下来的草稿）就原地修改。
-				const existingHostId = hostIdRef.current;
-				if (existingHostId !== null) {
-					const updated = await desktopApi.remoteHosts.update({
-						hostId: existingHostId,
-						patch: {
-							label: input.label,
-							hostName: input.hostName,
-							user: input.user ?? "",
-							port: typeof input.port === "number" ? input.port : undefined,
-							identityFile: input.identityFile ?? "",
-							// 显式写入 undefined：从密码切回密钥/agent 时必须清掉旧的 authMethod。
-							authMethod: input.authMethod === "password" ? ("password" as const) : undefined,
-						},
-						// 空口令 = 不覆盖；用户显式输入了才更新存储。
-						...(secret.length > 0 ? { secret } : {}),
-					});
-					if (!aliveRef.current) return;
-					if (!updated.ok) {
-						setSteps((current) => ({ ...current, save: "failed" }));
-						setError(updated.saved === true ? t("settings.connections.edit.savedUnverifiedReason", { reason: remoteHostFailureReason(updated.code) }) : remoteHostFailureReason(updated.code));
-						return;
-					}
-					hostIdRef.current = existingHostId;
-					props.onChanged?.();
-				} else {
-					const added = await desktopApi.remoteHosts.add(input);
-					// 对话框已经关了：记录照样保留（用户可在列表里查看/编辑/删除），只是不再回写界面。
-					if (!aliveRef.current) return;
-					if (!added.ok) {
-						// 草稿已保存：记下 id，重试时原地 update（否则每失败一次就多一条同名记录）。
-						if (added.saved === true && added.hostId !== undefined) hostIdRef.current = added.hostId;
-						setSteps((current) => ({ ...current, save: "failed" }));
-						setError(added.saved === true ? t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(added.code) }) : remoteHostFailureReason(added.code));
-						return;
-					}
-					hostIdRef.current = added.hostId;
-					props.onChanged?.();
-				}
-				setSteps((current) => ({ ...current, save: "done", connect: "active" }));
+				setSteps((current) => ({ ...current, connect: "done", pi: "active" }));
+				await withSetupTimeout(probePi(hostId), SETUP_STEP_TIMEOUT_MS.pi);
+			} catch (error) {
+				if (!live()) return;
+				// 任何异常（IPC reject、超时）都必须把「进行中」收尾成失败：留着 active 会让整张表单向死锁。
+				const step = currentStep();
+				// 作废本次令牌：超时后仍挂在 IPC 上的那条链（如 probePi）不得再回写状态。
+				setupRunRef.current += 1;
+				setSteps((current) => ({ ...current, [step]: "failed" }));
+				if (error instanceof SetupStepTimeout) setError(t("settings.connections.add.stepStalled", { step: t(`settings.connections.add.step.${step}`) }));
+				else setError(t("settings.connections.add.stepFailed", { code: setupErrorCode(error) }));
 			}
-			const hostId = hostIdRef.current;
-			if (hostId === null) return;
-			const connected = await desktopApi.remoteHosts.connect(hostId, secret.length > 0 ? secret : undefined);
-			if (!aliveRef.current) return;
-			if (!connected.ok) {
-				setSteps((current) => ({ ...current, connect: "failed" }));
-				setError(t("settings.connections.add.connectFailed", { reason: remoteHostFailureReason(connected.code) }));
-				return;
-			}
-			setSteps((current) => ({ ...current, connect: "done", pi: "active" }));
-			await probePi(hostId);
 		},
-		[currentSecret, form.auth, probePi, props, setupRunning, validate],
+		[currentSecret, form.auth, probePi, props, setupRunning, validate, steps],
 	);
 
 	/** 手填路径：写进主机档案并立刻重探（null/空串 = 回到自动探测）。 */
