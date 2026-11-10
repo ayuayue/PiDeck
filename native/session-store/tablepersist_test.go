@@ -412,3 +412,50 @@ func TestPrunePersistedTablesKeepsNewestAndCurrent(t *testing.T) {
 		t.Fatalf("最新的文件不应被删除: %v", err)
 	}
 }
+
+func TestPrunePersistedTablesRemovesOrphans(t *testing.T) {
+	fixture := newFixture(t)
+	alive := fixture.path("sessions/alive.jsonl")
+	fixture.write("sessions/alive.jsonl", persistedFixtureBody)
+	gone := fixture.path("sessions/gone.jsonl")
+	dir := filepath.Join(fixture.root, "tables")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("建表目录失败: %v", err)
+	}
+	writeHeader := func(sessionPath string) string {
+		t.Helper()
+		path := tableFilePath(dir, sessionPath)
+		header := fmt.Sprintf("{\"version\":%d,\"path\":%q,\"size\":1,\"mtimeMs\":0}\n", tableFileVersion, sessionPath)
+		if err := os.WriteFile(path, []byte(header), 0o644); err != nil {
+			t.Fatalf("写表失败: %v", err)
+		}
+		return path
+	}
+	aliveTable := writeHeader(alive)
+	orphanTable := writeHeader(gone)
+	keepOrphan := writeHeader(gone + ".keep")
+
+	prunePersistedTables(dir, keepOrphan)
+
+	if _, err := os.Stat(aliveTable); err != nil {
+		t.Fatalf("源文件仍在，条目表不应被删: %v", err)
+	}
+	if _, err := os.Stat(orphanTable); err == nil {
+		t.Fatalf("源文件已不存在，孤儿表应被删除")
+	}
+	if _, err := os.Stat(keepOrphan); err != nil {
+		t.Fatalf("keepPath 指向的表不应被删: %v", err)
+	}
+}
+
+func TestPrunePersistedTablesKeepsTablesWithoutPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty"+tableFileSuffix)
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("写表失败: %v", err)
+	}
+	prunePersistedTables(dir, "")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("空 Path 的表无法判定，应保留: %v", err)
+	}
+}
