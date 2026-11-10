@@ -84,7 +84,6 @@ export function SupportPiDeckDialog(props: SupportPiDeckDialogProps) {
 		}
 		cancelledRef.current = false;
 		setError(null);
-		setQrDataUrl("");
 		setPolling(false);
 		setPaid(false);
 		baselineRef.current = null;
@@ -97,8 +96,11 @@ export function SupportPiDeckDialog(props: SupportPiDeckDialogProps) {
 	}, [props.open, load]);
 
 	// 二维码内容 = 当次购买链接，本地渲染，不加载平台图片（CSP 不放行支付宝图片域名）。
+	// 依赖必须带 open：关闭时清空，重开时即使链接没变也要重画。快照缓存 5 分钟，同一次
+	// 打开窗口里重复打开弹窗拿到的是同一张票，只盯 purchaseUrl 的话 effect 不重跑，
+	// 框里会一直是空的（「第一次能扫，之后再打开空白」）。
 	useEffect(() => {
-		const url = snapshot?.purchaseUrl;
+		const url = props.open ? snapshot?.purchaseUrl : undefined;
 		if (!url) {
 			setQrDataUrl("");
 			return;
@@ -114,7 +116,7 @@ export function SupportPiDeckDialog(props: SupportPiDeckDialogProps) {
 		return () => {
 			cancelled = true;
 		};
-	}, [snapshot?.purchaseUrl]);
+	}, [props.open, snapshot?.purchaseUrl]);
 
 	// 轮询到账：只在弹窗打开且已发起支付后跑。
 	useEffect(() => {
