@@ -355,10 +355,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 	};
 	// 助手回复编辑/删除的即时反馈：本轮即 pending 目标时动作栏转 spinner（重发/fork 目标是
 	// 用户消息，不点亮这一行——气泡自有 spinner）。
-	const pendingAssistantKind =
-		props.pendingHistoryMutation && (props.pendingHistoryMutation.kind === "edit" || props.pendingHistoryMutation.kind === "delete") && runContainsMessage(run, props.pendingHistoryMutation.messageId)
-			? props.pendingHistoryMutation.kind
-			: null;
+	const pendingAssistantKind = props.pendingHistoryMutation && (props.pendingHistoryMutation.kind === "edit" || props.pendingHistoryMutation.kind === "delete") && runContainsMessage(run, props.pendingHistoryMutation.messageId) ? props.pendingHistoryMutation.kind : null;
 
 	return (
 		<article ref={rowRef} className={`turn-row mb-6 w-full min-w-0 max-w-full ${props.agentRunning && !isComplete ? "turn-row--running" : isComplete ? "turn-row--complete" : "turn-row--pending"} ${props.fresh ? "turn-row--fresh" : ""} ${props.topFresh ? "turn-row--top-fresh" : ""}`} data-message-id={run.id}>
