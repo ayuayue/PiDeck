@@ -14,7 +14,7 @@
 |------|------|------|
 | README/官网共用图片 | 唯一数据源 `docs/images/`，不复制到 docs-site | 本文「README 与官网共用图片」 |
 | 公告 | 只编辑 `announcements-md/*.md`，json 由脚本生成，禁止手写 | 本文「公告维护与发布」 |
-| 提示词库 xueprompts.db | db 远程拉取双源成套（sha256 + db 同源）；检索走 xue-index Go sidecar，缺失降级 sql.js（应用层 gunzip，SQL LIKE 中文恒不命中）；改 db 走 publish 脚本 + Release 资产 | 本文「商店提示词库维护」 |
+| 提示词库 xueprompts.db | db 远程拉取双源成套（sha256 + db 同源）；**每次发版由 release.yml 自动上传**（漏传＝全员商店 404，finalize 断言资产齐全）；检索走 xue-index Go sidecar，缺失降级 sql.js（应用层 gunzip，SQL LIKE 中文恒不命中）；改 db 走 publish 脚本 | 本文「商店提示词库维护」 |
 | 跨会话正文搜索 | session-index Go sidecar（纯标准库）；语料+快照落 `<userData>/session-index/`；roots = 全局 + 全局 sessionDir + **各项目项目级 sessionDir**（WSL 不支持）；查询多词 AND（每词必中）；任何失败 IPC 返回 null 降级标题过滤；**会话内查找绑定 Ctrl/Cmd+Shift+F（Ctrl+F 仍是「搜索会话」）**：IPC 入参是 SessionRecord.id，主进程按 catalog 后端分派——pi 走同 sidecar 的 `search-session`，DSH 走 host 历史投影（`DshAgentManager.searchSessionMessages`）；`SESSION_INDEX_OS/ARCH` 必须进三平台 workflow | 本文「跨会话正文搜索」 |
 | 文件抽屉搜索 | 名字走 file-index Go sidecar（不可用回退 `FileSystemService.searchNames` 扫盘）；**拼音检索只存在于 sidecar 通道**：纯字母查询（2–24）按 首字母整名 > 首字母前缀 > 全拼 > 跳字 计分（含异读首字母：`cq`/`zq` 都能命中「重庆」），全拼不覆盖异读、内容检索不参与；正文搜索 `files:search-content` 失败/未就绪/WSL 返回 null、UI 隐藏内容分区；内容扫描有扩展名白名单/忽略目录/单文件 1MiB/总 64MiB 预算；`FILE_INDEX_OS/ARCH` 必须进三平台 workflow，`native/file-index/go.sum` 必须入库 | 本文「工作区文件搜索」 |
 | 远程 SFTP（SFTP-0） | 系统 OpenSSH + 一次性 Go 执行器；只到 native/adapter/build 层，**未接 IPC/UI**；helper 继续负责 watch/search/Git/versioned write/trash；上传写入在提交语义冻结前不得接线 | `docs/remote-sftp-evaluation.md` §1.1 + 本文「远程 SFTP 执行器」 |
@@ -65,7 +65,7 @@
 
 ## 商店提示词库维护（resources/xueprompts.db 远程拉取 + xue-index Go sidecar）
 
-- **db 不再打进安装包**（#2 远程化）：客户端首次使用时从 Release 资产拉取双源（AtomGit 主 + GitHub raw 兑底，`XuePromptDbStore`），sha256 版本文件与 db 必须同源成套（跨源指纹不匹配整体作废），缓存落 `<userData>/xue/xueprompts-<sha16>.db`，1h TTL 后台重查。db 有更新：跑 `node scripts/publish-xueprompts.mjs` → 两文件成套上传 Release 资产（`gh release upload <tag> resources/xueprompts.db resources/xueprompts.db.sha256`；AtomGit 侧由 sync-atomgit workflow 同步）。
+- **db 不再打进安装包**（#2 远程化）：客户端首次使用时从 Release 资产拉取双源（AtomGit 主 + GitHub latest 兜底，`XuePromptDbStore`），sha256 版本文件与 db 必须同源成套（跨源指纹不匹配整体作废），缓存落 `<userData>/xue/xueprompts-<sha16>.db`，1h TTL 后台重查。**每次发版自动上传这两份资产**（`release.yml` 的 windows job；`finalize-release` 在指 latest 前断言齐全）——资产不跨版本继承，漏传＝全员商店 404。db 内容有更新：跑 `node scripts/publish-xueprompts.mjs` 重生成指纹，两文件一起提交；`check:xueprompts` 挡指纹与内容不一致。
 - dev 模式优先读仓库副本 `resources/xueprompts.db`（`repoResourceDir()`），打包后无副本强制远程。
 - **检索走 Go sidecar**（`native/xue-index`，modernc.org/sqlite 纯 Go）：常驻进程预解压建索引，中文搜索可用；宿主客户端 `XueIndexService`，协议 NDJSON stdio（`SESSIONS/XUE_INDEX_PROTOCOL_VERSION` 不匹配即弃用）。二进制缺失/失败自动降级 sql.js 路径（应用层逐行 gunzip，慢但可用），商店永不因 sidecar 缺席而坏。
 - 构建链：`npm run build:xue-index`（fail-open，无 Go 只告警）；`scripts/dev.js` 自动构建；三平台 workflow 经 `XUE_INDEX_OS/ARCH` env + setup-go 1.26 交叉编译（modernc.org/sqlite 要求 go 1.26，漏钉版本会静默跳过=包里没 sidecar）。

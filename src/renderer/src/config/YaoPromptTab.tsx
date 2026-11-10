@@ -274,6 +274,9 @@ export function YaoPromptTab(props: { onImported?: () => void; projectId?: strin
 					{dbSnapshot.state === "failed" ? (
 						<>
 							<span>{t("config.yaoDbFailed")}</span>
+							{/* 具体原因（HTTP 404 = Release 缺资产；超时/连接失败 = 网络）：只显示一句「下载失败」时
+							    用户和维护者都分不清这两类根因，会把发版漏传资产误当成用户网络问题。 */}
+							<code className="max-w-2xl break-all text-center text-micro text-text-tertiary">{dbSnapshot.message}</code>
 							<Button size="sm" variant="outline" onClick={() => void handleDbRetry()}>
 								<RotateCcw size={14} strokeWidth={1.8} aria-hidden="true" />
 								{t("config.yaoDbRetry")}
