@@ -249,7 +249,8 @@ function isOffToken(value: string): boolean {
 	const clauseAfterNegation = /^(?:不|非|无|没|未|否|not|no|non|off|never|without|none|nah|nor|false|nope|neither)(?:是)?\s*[，,。;；!?.]/.test(offPhrase);
 	if (!clauseAfterNegation && NOT_OFF_PREFIXES.some((word) => offToken.startsWith(word))) return false;
 	if (!clauseAfterNegation && NEGATED_SINGLE_ZH.test(offToken)) return false;
-	if (NEGATED_INTENT_ROOT.test(offToken)) return true;
+	// 分句否定（`no, multiple`）不走这条：后半句可能正是在说多选，由下面「分句」那一支判。
+	if (!clauseAfterNegation && NEGATED_INTENT_ROOT.test(offToken)) return true;
 	if (OFF_WORDS.has(token)) return true;
 	if (OFF_WORDS.has(offToken)) return true;
 	const parts = value
@@ -263,7 +264,22 @@ function isOffToken(value: string): boolean {
 	// 只认「首位否定词」时，"definitely not single" / "yes, not single" 同样明确写了「不是单选」，
 	// 却会落到下一行被判成关掉意图、静默降级成 select（点一下即交卷）；editor 侧同理退成单行框。
 	if (!clauseAfterNegation && parts.length > 1 && offIndex >= 0 && NEGATED_SINGLE.test(parts.slice(offIndex + 1).join(" "))) return false;
-	if (parts.length > 1 && offIndex >= 0) return true;
+	// 分句否定后写的是多选词根（`no, multiple`）时按「明确要多选」处理：分句里的否定是自己一句回答
+	// （`no, single` = 单选、`no, multiple` = 多选），与上面 `clauseAfterNegation` 的口径同一套。
+	// 不分句的直接连写（`notmultiple`）仍由 `NEGATED_INTENT_ROOT` 在函数开头判成否定，不在这里翻。
+	// 词根只认 `MULTI_ROOT` 里的英文写法（multiple / multi* / checkbox / checklist）：中文「否，多选」
+	// 因此仍按否定落成 select（改前也是 select，不是回归）；要给中文补词根得先决定键空间里
+	// `多选: true` 算不算拼错键，别只改这一处。
+	if (parts.length > 1 && offIndex >= 0) {
+		const tail = parts.slice(offIndex + 1).join(" ");
+		// 后半句自己是**否定值**（`no, not multiple`）时仍是「不是多选」，与不分句的 `not multiple` 同判，
+		// 别只因为出现多选词根就翻成多选。后半句是**多行文本样**词根（`no, multiple lines`）也让它走否定：
+		// `MULTI_ROOT` 会命中 `multiple`，但同一拼写作为 type 取值是 editor（`isLineLikeKey`），
+		// 在这里翻成勾选卡就是「同一个词两个空间相反判决」。
+		const tailToken = normalizeTypeToken(tail);
+		if (clauseAfterNegation && !isOffToken(tail) && hasMultiRoot(tailToken) && !isLineLikeKey(tailToken)) return false;
+		return true;
+	}
 	return OFF_PREFIXES.some((prefix) => {
 		const root = normalizeOffToken(prefix);
 		if (!offToken.startsWith(root) || offToken.length <= root.length) return false;
@@ -296,6 +312,12 @@ const SINGLE_LIMIT_PHRASE = /^(?:only|just|exactly|at ?most|max(?:imum)?|limited
  *  这份判据就会「加一个句号把单选意图翻成多选卡」。type 取值与意图键取值共用本函数。
  *  短语判据用原值（不用归一值）：它靠空白切词（`exactly one`），归一后连写会漏。 */
 function isSingleLikeValue(value: string): boolean {
+	// 「单选或多选都行」这类取值同时写着多选：多选是单选的上界，按多选给卡不会把用户锁死，
+	// 按单选给卡却会让他根本选不了两项。中文多选词根只在这里认，不进 `MULTI_ROOT`——那个谓词还判键名，
+	// `多选: true` 会因此变成「拼错键」硬报错，那是另一个决定，别在取值侧顺手改了键空间的判决。
+	// 取值里带否定字时一律让路（`单选，不要多选` / `非多选` / `不限量多选`）：那几条的语义由 `isOffToken`
+	// 收口，这里只看「有没有多选词根」就会把明确的否定翻成勾选卡。
+	if (/多选|多项|复选/.test(value) && !/[不非无没未否别勿禁]/.test(value)) return false;
 	const token = normalizeTypeToken(value);
 	const stripped = normalizeOffToken(value);
 	// 短语判据走「分隔符归一成空格」的形态：`exactly_one` / `at-most one` 与 `exactly one` 同判。
@@ -454,6 +476,18 @@ function rejectedByOptionsGuard(type: NormalizedQuestion["type"], raw: Record<st
  *  各写一遍就会漂成「一张卡都不显示」「会被打回」等不同说法，排查时按日志搜不全同一个现象。 */
 const OPTIONS_GUARD_NOTE = "会被 execute 的「必须提供 options」护栏打回、一张卡都不渲染";
 
+/**
+ * 诊断日志里的动词：这一步之后**真的会出卡**吗。
+ *
+ * 飞书与 headless 在 execute 里直接返回文案——一张卡都不渲染，也走不到 options 护栏（见 execute 开头两处
+ * 早退）。这两类会话里写「已按 X 渲染」「会撞护栏打回」全是指向不存在结果的假线索：排查时会按日志去找一张
+ * 根本不会出现的卡。动词与护栏提示必须由同一个判据（`renderable`）决定，分开写就会像上一轮那样——多行意图
+ * 那处过了 options 护栏，却没过飞书 / headless 短路。
+ */
+function renderVerb(renderable: boolean): string {
+	return renderable ? "渲染" : "处理";
+}
+
 /** 未知键里「像多选拼错且取了肯定值」的那一类。同一谓词服务两处：
  *  题级忽略它就会静默变单选，所以报错；工具参数外层没法报错（不能连坐整批），所以折成默认 type。
  *  只有 `choice` 词根的键也不算（见 `isMultiLikeToken`）：`allowCustomChoice` / `showChoices` 说的是
@@ -493,10 +527,10 @@ function lineLikeIntentKeys(raw: Record<string, unknown>): string[] {
  *  两句互相矛盾（排查时按日志去找一张根本不存在的单选卡）。括号里的「规范写法」同理只能是最终 type：
  *  写回别名会变成同一轮两条日志推荐两个不同的 `type` 取值，模型照哪条改都有一半是错的。
  *  只有字符串才是「模型写了 type 但写错」；null / 数字是字段用错，替它编一条 type 日志只会误导排查。 */
-function warnNonCanonicalType(raw: Record<string, unknown>, type: NormalizedQuestion["type"], where: string): void {
+function warnNonCanonicalType(raw: Record<string, unknown>, type: NormalizedQuestion["type"], where: string, renderable = true): void {
 	if (typeof raw.type !== "string" || CANONICAL_TYPES.includes(raw.type)) return;
 	const alias = canonicalTypeOf(raw.type);
-	const guard = rejectedByOptionsGuard(type, raw) ? `，但本题没有 options，${OPTIONS_GUARD_NOTE}` : "";
+	const guard = renderable && rejectedByOptionsGuard(type, raw) ? `，但本题没有 options，${OPTIONS_GUARD_NOTE}` : "";
 	// 模型写的 type 取值走 echoModelText：换行会把这句话拆成两条日志（详见该函数 docblock）。
 	const written = echoModelText(raw.type);
 	console.warn(
@@ -535,7 +569,8 @@ function warnNonCanonicalType(raw: Record<string, unknown>, type: NormalizedQues
  * `type: "editor"` 同档，按声明压掉 options。两侧都必须留一条日志（键侧见下面 `hasOptions` 那支，取值侧见
  * `explicit` 那支），否则「选项整组没了」在诊断日志里搜不到。
  */
-function inferType(raw: Record<string, unknown>, fallbackType?: NormalizedQuestion["type"], where = "顶层字段"): NormalizedQuestion["type"] {
+function inferType(raw: Record<string, unknown>, fallbackType?: NormalizedQuestion["type"], where = "顶层字段", renderable = true): NormalizedQuestion["type"] {
+	const verb = renderVerb(renderable);
 	const explicit = explicitTypeOf(raw);
 	if (explicit) {
 		// 只算一次：下面「与多选意图键冲突」与「editor 压掉 options」两条 warn 必须互斥，否则
@@ -547,7 +582,7 @@ function inferType(raw: Record<string, unknown>, fallbackType?: NormalizedQuesti
 		if (explicit === "multi_select" && canonicalTypeOf(raw.type) === "select") {
 			// 升级后的形态同样是选择题式：没有 options 时 execute 会把整批打回，日志不能只说「已按 multi_select 处理」。
 			console.warn(
-				rejectedByOptionsGuard(explicit, raw)
+				renderable && rejectedByOptionsGuard(explicit, raw)
 					? `[ask_question] ${where}的 type "select" 旁边写了多选意图键，已按 multi_select 处理，但本题没有 options，${OPTIONS_GUARD_NOTE}（多选请写 type: "multi_select" 并带上 options）`
 					: `[ask_question] ${where}的 type "select" 旁边写了多选意图键，已按 multi_select 处理（多选请只写 type: "multi_select"）`,
 			);
@@ -559,8 +594,8 @@ function inferType(raw: Record<string, unknown>, fallbackType?: NormalizedQuesti
 			// type 声明了别的题型（那份 options 也确实不会渲染），把「没有 options 撞栏杆」抄进日志就成了假线索。
 			console.warn(
 				hasPickableOptions(raw)
-					? `[ask_question] ${where}的 type "${explicit}" 与多选意图键冲突，已按 ${explicit} 渲染（本题的 options 不会渲染；多选请只写 type: "multi_select"）`
-					: `[ask_question] ${where}的多选意图键被忽略（本题按 ${explicit} 渲染：没有 options，折成多选会撞 execute 的「必须提供 options」护栏）；需要多选请写 type: "multi_select" 并带上 options`,
+					? `[ask_question] ${where}的 type "${explicit}" 与多选意图键冲突，已按 ${explicit} ${verb}（本题的 options 不会渲染；多选请只写 type: "multi_select"）`
+					: `[ask_question] ${where}的多选意图键被忽略（本题按 ${explicit} ${verb}：${renderable ? "没有 options，折成多选会撞 execute 的「必须提供 options」护栏" : "没有 options，本会话也没有卡片可渲染"}）；需要多选请写 type: "multi_select" 并带上 options`,
 			);
 		}
 		// 多行文本意图键落到不是 editor 的题型上同样不许静默：`multiline` 在改前是未知字段，至少留一条「忽略未知字段」；
@@ -569,9 +604,9 @@ function inferType(raw: Record<string, unknown>, fallbackType?: NormalizedQuesti
 		// 这时候说「已按 X 渲染」又是指向不存在的渲染结果——按会不会真出卡分叉。
 		if (explicit !== "editor" && EDITOR_INTENT_KEYS.some((key) => isIntentOn(raw[key]))) {
 			console.warn(
-				rejectedByOptionsGuard(explicit, raw)
+				renderable && rejectedByOptionsGuard(explicit, raw)
 					? `[ask_question] ${where}写了多行文本意图键，本题声明的 ${explicit} 没有 options，${OPTIONS_GUARD_NOTE}（多行内容请只写 type: "editor"）`
-					: `[ask_question] ${where}写了多行文本意图键，已按 ${explicit} 渲染（多行内容请只写 type: "editor"）`,
+					: `[ask_question] ${where}写了多行文本意图键，已按 ${explicit} ${verb}（多行内容请只写 type: "editor"）`,
 			);
 		}
 		// 多行文本样的 `type` 拼写（`type: "multiline"` / `"multipleLines"`）与规范 `type: "editor"` 在取值侧
@@ -582,7 +617,7 @@ function inferType(raw: Record<string, unknown>, fallbackType?: NormalizedQuesti
 		// 再叠一条指向 `type:"select"` 的 warn 就是同一轮两条互相矛盾的改正建议。
 		if (explicit === "editor" && hasPickableOptions(raw) && !hasMultiIntentKey) {
 			console.warn(
-				`[ask_question] ${where}的 type "${echoModelText(raw.type)}" 已按 editor 渲染，但本题带了 options，选项不会渲染（要选项请写 type: "select"；要多行文本请只写 type: "editor" 且不要给 options）`,
+				`[ask_question] ${where}的 type "${echoModelText(raw.type)}" 已按 editor ${verb}，但本题带了 options，选项不会渲染（要选项请写 type: "select"；要多行文本请只写 type: "editor" 且不要给 options）`,
 			);
 		}
 		return explicit;
@@ -594,17 +629,20 @@ function inferType(raw: Record<string, unknown>, fallbackType?: NormalizedQuesti
 	// 落实了就要留一条排查线索：`checkQuestionKeys` 会把这个键从「已忽略」名单里摘掉，不在这里说明
 	// 「按 editor 渲染」，事后翻日志只会看到它凭空消失（或反过来以为它被丢了）。
 	if (!hasOptions && lineLikeIntentKeys(raw).length > 0) {
-		console.warn(`[ask_question] ${where}写了多行文本样字段，已按 editor 渲染（多行内容请只写 type: "editor"）`);
+		console.warn(`[ask_question] ${where}写了多行文本样字段，已按 editor ${verb}（多行内容请只写 type: "editor"）`);
 		return "editor";
 	}
 	// 形状与外层意图一致时才折叠（选择题式 ↔ 有 options），冲突时按形状走。
-	const resolved = fallbackType && isPickType(fallbackType) === hasOptions ? fallbackType : hasOptions ? "select" : "input";
+	// `confirm` 不参与折叠：它不是「纯文本式」而是二值卡，折到无 options 的题上会把「你的名字？」渲染成
+	// 「是/否」卡（改前是 input 文本档）；写在外层的 confirm 只对本题自己也声明 confirm 的情形生效。
+	const foldsOuter = fallbackType !== undefined && fallbackType !== "confirm" && isPickType(fallbackType) === hasOptions;
+	const resolved: NormalizedQuestion["type"] = foldsOuter && fallbackType ? fallbackType : hasOptions ? "select" : "input";
 	// 题上写了多行文本意图键（`multiline: true`）但本题带 options：与上面同一条取舍，按形状/外层意图走
 	// （`declaredTypeOf` 已不再让意图键吞选项）。日志不能缺席：不报就会成了「静默吞选项」那类问题。
 	// 日志里的类型必须是**最终**形态：外层意图（`multi_select: true`）与本题 options 一致时这题渲染成
 	// multi_select，硬写「已按 select 渲染」就是撒谎——排查时按日志去找一张根本不存在的单选卡。
 	if (hasOptions && EDITOR_INTENT_KEYS.some((key) => isIntentOn(raw[key]))) {
-		console.warn(`[ask_question] ${where}写了多行文本意图键，但本题带 options，已按 ${resolved} 渲染（多行内容请写 type: "editor" 且不要给 options）`);
+		console.warn(`[ask_question] ${where}写了多行文本意图键，但本题带 options，已按 ${resolved} ${verb}（多行内容请写 type: "editor" 且不要给 options）`);
 	}
 	return resolved;
 }
@@ -787,7 +825,7 @@ function assignQuestionIds(rawQuestions: readonly unknown[]): string[] {
  * 把工具参数归一化为统一问题列表。
  * 批量模式用 questions 数组；否则回退到单问题顶层字段，保持向后兼容。
  */
-function toQuestions(params: Record<string, unknown>, throwOnMisreadMulti = true): NormalizedQuestion[] {
+function toQuestions(params: Record<string, unknown>, throwOnMisreadMulti = true, renderable = true): NormalizedQuestion[] {
 	const rawQuestions = params.questions;
 	if (Array.isArray(rawQuestions) && rawQuestions.length > 0) {
 		// 题级字段写在了工具参数外层：识别得出的意图（type / 别名 / 多选·多行意图键）当作各题的默认 type
@@ -820,17 +858,23 @@ function toQuestions(params: Record<string, unknown>, throwOnMisreadMulti = true
 		const strayTopLevelKeys = Object.keys(params).filter((key) => QUESTION_KEYS.has(key) || outerIntentKeys.includes(key));
 		if (strayTopLevelKeys.length > 0) {
 			const stray = strayTopLevelKeys.map((key) => echoModelText(key)).join(" / ");
+			// 日志得跟着**实际折叠规则**说：`confirm` 不参与折叠（二值卡，不是纯文本档），
+			// 写「已当作各题默认 type（confirm…）」会让排查时去找一批根本没改成「是/否」的题。
+			const foldNote =
+				outerType === "confirm"
+					? "其中 type 写在外层时只对本题自己也声明 confirm 的题生效（confirm 不折叠到别的题型）"
+					: `其中 type / 意图键已当作各题默认 type（${outerType}，只补本题没写 type / 意图键的题，且形状要一致：选择题式要带 options，纯文本式要没有 options）`;
 			console.warn(
 				outerType
-					? `[ask_question] 顶层字段的 ${stray} 不属于工具参数级：其中 type / 意图键已当作各题默认 type（${outerType}，只补本题没写 type / 意图键的题，且形状要一致：选择题式要带 options，纯文本式要没有 options），options / placeholder 等逐题字段已忽略；逐题写法请放进 questions[i]`
+					? `[ask_question] 顶层字段的 ${stray} 不属于工具参数级：${foldNote}，options / placeholder 等逐题字段已忽略；逐题写法请放进 questions[i]`
 					: `[ask_question] 顶层字段的 ${stray} 不属于工具参数级，而且没有可识别的 type / 意图键，options / placeholder 等逐题字段已忽略；逐题写法请放进 questions[i]`,
 			);
 		}
 		return rawQuestions.map((q, i) => {
 			const r = (q ?? {}) as Record<string, unknown>;
 			checkQuestionKeys(r, `questions[${i}]`, { throwOnMisreadMulti, outerType });
-			const type = inferType(r, outerType, `questions[${i}]`);
-			warnNonCanonicalType(r, type, `questions[${i}]`);
+			const type = inferType(r, outerType, `questions[${i}]`, renderable);
+			warnNonCanonicalType(r, type, `questions[${i}]`, renderable);
 			const isPickList = isPickType(type);
 			return {
 				id: ids[i],
@@ -847,8 +891,8 @@ function toQuestions(params: Record<string, unknown>, throwOnMisreadMulti = true
 	}
 	// 单问题模式：顶层字段
 	checkQuestionKeys(params, "顶层字段", { extraKnown: TOP_LEVEL_KEYS, throwOnMisreadMulti });
-	const type = inferType(params);
-	warnNonCanonicalType(params, type, "顶层字段");
+	const type = inferType(params, undefined, "顶层字段", renderable);
+	warnNonCanonicalType(params, type, "顶层字段", renderable);
 	const isPickList = isPickType(type);
 	return [
 		{
@@ -974,7 +1018,8 @@ export default function (pi: ExtensionAPI) {
 			// 飞书 / headless 分支只返回一段文案，未知键抛错会把模型引向「再调一次工具」，与那两个分支的意图相反。
 			// ctx 整个缺失时也走同一条返回路径，不能在读 hasUI 时抛 TypeError。
 			const hasUI = Boolean(!feishuLinked && ctx?.hasUI);
-			const questions = toQuestions(record, hasUI);
+			// 第三个参数是「这张卡真的会出吗」：飞书 / headless 会在下面两处早退，直接返回文案。
+			const questions = toQuestions(record, hasUI, hasUI);
 
 			// 飞书绑定会话：不弹交互卡片，直接返回指引（agent 会把问题写进回复转述给用户）
 			if (feishuLinked) {

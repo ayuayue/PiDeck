@@ -318,3 +318,50 @@ test("closing a card with nothing answered is still a plain cancel", () => {
 	assert.equal(batch.responses[0].cancelled, true);
 	assert.equal(batch.responses[0].value, undefined);
 });
+
+test("原型链名字当题目 id 时不许伪造「已作答」（关闭未作答的卡仍是普通取消）", () => {
+	// 桌面端按 `answers[question.id]` 存答案，而那是普通对象：id 写 `constructor` / `toString` 时下标会取到
+	// Object.prototype 上的函数（非 null、非数组），`isBatchAnswered` 于是把没答的题判成已答，
+	// 关闭卡片时被当成「答了一部分」提交上去，序列化时函数又被 JSON.stringify 丢掉。
+	// 扩展侧已把这类 id 改名（assignQuestionIds），读取侧不能再只靠上游那一道。
+	const questions = [
+		{ id: "constructor", type: "input", question: "名字？" },
+		{ id: "toString", type: "input", question: "备注？" },
+	];
+	const batch = createBatch({ questions, answers: {}, inputValues: {} });
+	card(batch).onCancel();
+	assert.equal(batch.responses.length, 1);
+	assert.equal(batch.responses[0].cancelled, true);
+	assert.equal(batch.responses[0].value, undefined, "一题都没答，必须是普通取消而不是「部分作答」信封");
+});
+
+test("按题 id 读答案映射只认自有属性", () => {
+	const { batchValueOf, serializeBatchAnswers } = loadTsCommonJs("src/renderer/src/utils/askUi.ts");
+	assert.equal(batchValueOf({}, "constructor"), undefined);
+	assert.equal(batchValueOf({}, "toString"), undefined);
+	assert.equal(batchValueOf({}, "__proto__"), undefined);
+	assert.equal(batchValueOf({ constructor: "自行输入" }, "constructor"), "自行输入", "自有属性照读");
+	// 序列化同样不许把继承来的函数当成答案（旧实现里 JSON.stringify 会把 `value` 整个丢掉）。
+	const parsed = JSON.parse(serializeBatchAnswers([{ id: "constructor", type: "input" }], {}));
+	assert.equal(parsed.answers[0].value, null);
+});
+
+test("原型链 id 不会被当成卡片已有的答案（tab 勾选与选中态同判）", () => {
+	// 同一帧里 `settledCount` 走 `isBatchSettled`（已按自有属性判），tab 勾选与卡片选中态却直接
+	// `effectiveAnswers[question.id]`：id 是 `valueOf` / `constructor` 这类名字时取到原型链上的函数，
+	// 于是「进度条说没答、tab 说答了」，选中态也永远对不上。
+	const batch = createBatch({ questions: [{ id: "valueOf", type: "confirm", question: "确认？" }], answers: {}, inputValues: {} });
+	const holders = [];
+	const walk = (node) => {
+		if (Array.isArray(node)) {
+			for (const child of node) walk(child);
+			return;
+		}
+		if (!node || typeof node !== "object") return;
+		if (node.props && Object.hasOwn(node.props, "answer")) holders.push(node);
+		walk(node.props?.children);
+	};
+	walk(batch.render());
+	assert.ok(holders.length > 0, "应当渲染出题目卡片（带 answer 入参）");
+	for (const node of holders) assert.equal(node.props.answer, undefined, "没有自有答案时不许把原型链上的函数当成 answer 传进卡片");
+});

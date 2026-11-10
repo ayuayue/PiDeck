@@ -710,8 +710,14 @@ test("外层选择题意图只折叠到带 options 的题：无 options 的题�
 test("外层纯文本式 type 不吞掉带 options 的题：形状优先，选项原样进入信封", async () => {
 	// 反向护栏：外层 type: "input" 若无条件折叠到带 options 的题，模型给的选项会被整组丢掉
 	// （用户从「点选项」退回「手打」），比改动前的形状推断（select）更糟。
+	// `confirm` 另有单独一行：它不是「纯文本式」而是二值卡，折到无 options 的题上会把「你的名字？」
+	// 渲染成「是/否」（改前是 input 文本档），所以它只在本题自己也声明 confirm 时生效。
 	const tool = registerTool();
-	for (const outer of ["input", "confirm", "editor"]) {
+	for (const [outer, noOptionsType] of [
+		["input", "input"],
+		["editor", "editor"],
+		["confirm", "input"],
+	]) {
 		const { result, warnings } = await captureWarnings(() => {
 			const { promise, envelope } = runBatch(tool, {
 				questions: [
@@ -722,7 +728,7 @@ test("外层纯文本式 type 不吞掉带 options 的题：形状优先，选�
 			});
 			return promise.then(() => envelope().questions);
 		});
-		assert.deepEqual(JSON.parse(JSON.stringify(result.map((q) => q.type))), ["select", outer], `外层 ${outer}`);
+		assert.deepEqual(JSON.parse(JSON.stringify(result.map((q) => q.type))), ["select", noOptionsType], `外层 ${outer}`);
 		assert.deepEqual(JSON.parse(JSON.stringify(result[0].options.map((o) => o.label))), ["A", "B"], `外层 ${outer}`);
 		assert.equal(warnings.length, 1, `外层 ${outer}`);
 	}
@@ -2362,27 +2368,7 @@ test("写着「只能选一个」的取值是单选，不是多选意图（已�
 	// 被判成多选意图 → 静默升级成勾选卡（用户明明写的是单选，方向与本分支要消灭的那类正好相反），
 	// 写在未知键上（`allowMultiple: "只能选一个"`）还会整批硬报错。三种写法走同一份判据，所以三处一起钉。
 	const tool = registerTool();
-	const phrases = [
-		"只能选一个",
-		"只能选择一个",
-		"只能选一项",
-		"只能选 1 个",
-		"只能挑一个",
-		"只选一个",
-		"只允许选一个",
-		"仅可选一个",
-		"单选（只能选一个）",
-		"exactly one",
-		"exactly_one",
-		"just one",
-		"just_one",
-		"at most one",
-		"one answer",
-		"one selection",
-		"1 option",
-		"one of the following",
-		"one_of_the_following",
-	];
+	const phrases = ["只能选一个", "只能选择一个", "只能选一项", "只能选 1 个", "只能挑一个", "只选一个", "只允许选一个", "仅可选一个", "单选（只能选一个）", "exactly one", "exactly_one", "just one", "just_one", "at most one", "one answer", "one selection", "1 option", "one of the following", "one_of_the_following"];
 	for (const value of phrases) {
 		const known = await captureWarnings(() => {
 			const { promise, envelope } = runBatch(tool, { questions: [{ id: "q1", question: "选哪个？", options: ["A", "B"], multiple: value }] });
@@ -2410,4 +2396,102 @@ test("写着「只能选一个」的取值是单选，不是多选意图（已�
 		await promise;
 		assert.equal(envelope().questions[0].type, "multi_select", `multiple: ${JSON.stringify(value)} 应仍是 multi_select`);
 	}
+});
+
+test('外层 `type: "confirm"` 不折叠到无 options 的题：那是二值卡，不是文本档', async () => {
+	// 折叠判据原来是「外层意图与本题形状同类」，把 confirm 也当成了纯文本式：模型把 type 写到外层时，
+	// 「你的名字？」这种自由文本题会渲染成「是/否」卡（改前是 input 文本档），用户只能答是或否。
+	// 会真出卡的会话里照旧写「渲染」，所以这里同时按两种会话各钉一遍。
+	const tool = registerTool();
+	const { result, warnings } = await captureWarnings(() => {
+		const { promise, envelope } = runBatch(tool, {
+			questions: [
+				{ id: "a", question: "你的名字？" },
+				{ id: "b", question: "确认删除？", type: "confirm" },
+			],
+			type: "confirm",
+		});
+		return promise.then(() => envelope().questions.map((q) => q.type));
+	});
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), ["input", "confirm"], "外层 confirm 只该对本题自己声明的 confirm 生效");
+	// 日志必须跟着实际规则说：不能声称外层 confirm 已当作各题默认 type（否则排查时去找一批没被改成是/否的题）。
+	const joined = warnings.join("\n");
+	assert.match(joined, /只对本题自己也声明 confirm 的题生效/);
+	assert.doesNotMatch(joined, /已当作各题默认 type（confirm/);
+});
+
+test("飞书 / headless 里日志不假装「已渲染」：这两个分支一张卡都不出，也走不到 options 护栏", async () => {
+	// 这两处早退（execute 开头飞书与 !hasUI 各一条）之后没有任何卡片，也没有护栏可撞。
+	// 日志若照抄「已按 X 渲染」「会被护栏打回」，排查时会按它去找一张根本不存在的卡。
+	const probes = ["headless", "headless 的 ctx 缺失", "飞书会话"];
+	for (const label of probes) {
+		const previous = process.env.PIDECK_FEISHU_LINKED;
+		const feishu = label === "飞书会话";
+		if (feishu) process.env.PIDECK_FEISHU_LINKED = "1";
+		try {
+			let tool;
+			registerAskQuestion({
+				registerTool: (t) => {
+					tool = t;
+				},
+			});
+			const ctx = feishu ? { hasUI: true, ui: { input: async () => "" } } : label === "headless" ? { hasUI: false, ui: { input: async () => "" } } : undefined;
+			const { warnings } = await captureWarnings(async () => {
+				// 1) 多行意图键被 options 压掉（inferType 的「已按 X 渲染」那一支）
+				await tool.execute("c1", { questions: [{ id: "q1", question: "选哪些？", options: ["A"], multiline: true }] }, undefined, undefined, ctx);
+				// 2) 顶层 type 别名 + 没有 options（warnNonCanonicalType 的护栏后缀那一支）
+				await tool.execute("c2", { type: "multipleChoice", question: "选哪些？" }, undefined, undefined, ctx);
+				// 3) 多选意图键被忽略那一支：显式 input + 没有 options（这句原来也照抄「渲染 + 撞护栏」）
+				await tool.execute("c3", { type: "input", question: "名字？", multiple: true }, undefined, undefined, ctx);
+			});
+			const joined = warnings.join("\n");
+			assert.match(joined, /已按 select 处理/, `${label}: 仍要留最终形态的线索`);
+			assert.match(joined, /已按 multi_select 处理/, `${label}: 别名同样要收口到最终 type`);
+			assert.match(joined, /本题按 input 处理/, `${label}: 被忽略的多选意图键同样要收口到最终 type`);
+			assert.doesNotMatch(joined, /已按 select 渲染|已按 multi_select 渲染|按 input 渲染/, `${label}: 不许声称渲染`);
+			assert.doesNotMatch(joined, /护栏打回|撞 execute 的「必须提供 options」护栏/, `${label}: 这两个分支走不到护栏，别声称会被打回`);
+		} finally {
+			if (previous === undefined) delete process.env.PIDECK_FEISHU_LINKED;
+			else process.env.PIDECK_FEISHU_LINKED = previous;
+		}
+	}
+	// 对照：有卡的会话说法不变（日志按「渲染」搜得到，护栏提示也照旧）。
+	const tool = registerTool();
+	const { warnings } = await captureWarnings(async () => {
+		await runBatch(tool, { questions: [{ id: "q1", question: "选哪些？", options: ["A"], multiline: true }] }).promise;
+		await runBatch(tool, { type: "input", question: "名字？", multiple: true }).promise;
+	});
+	const joined = warnings.join("\n");
+	assert.match(joined, /已按 select 渲染/);
+	assert.match(joined, /本题按 input 渲染：没有 options，折成多选会撞 execute 的「必须提供 options」护栏/);
+});
+
+test("分句否定的后半句写着多选词根时按多选：`no, multiple` 与 `no, single` 同一套口径", async () => {
+	// 分句里的否定是自己一句回答（`no, single` = 单选）。后半句写的是多选词根时同一个口径就该判多选，
+	// 否则 `no, multiple` 被判成否定 → select，与「分句否定」这条规则本身相反。
+	// 不分句的直接连写（`notmultiple`）、以及后半句没写多选的（`no, thanks`）仍按否定处理。
+	const tool = registerTool();
+	const cases = [
+		["no, multiple", "multi_select"],
+		["否，multiple", "multi_select"],
+		["no, checkbox", "multi_select"],
+		["no, single", "select"],
+		["off, single", "select"],
+		["no, thanks", "select"],
+		["no, not multiple", "select"],
+		["否，not multiple", "select"],
+		["单选或多选都行", "multi_select"],
+		["单选，不要多选", "select"],
+		["no, multiple lines", "select"],
+		["否，multiline", "select"],
+		["notmultiple", "select"],
+	];
+	const { promise, envelope } = runBatch(tool, {
+		questions: cases.map(([value], index) => ({ id: `c${index}`, question: "选哪些？", options: ["A", "B"], multiple: value })),
+	});
+	await promise;
+	assert.deepEqual(
+		envelope().questions.map((q) => q.type),
+		cases.map(([, expected]) => expected),
+	);
 });
