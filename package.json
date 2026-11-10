@@ -92,6 +92,7 @@
     "check:dsh-wire": "node scripts/check-dsh-wire-payloads.mjs",
     "check:ipc-wiring": "node scripts/check-ipc-wiring.mjs",
     "check:test-shape": "node scripts/check-test-shape.mjs",
+		"check:scroll-containers": "node tests/scrollContainerGuard.mjs",
     "find:dead-code": "node scripts/find-dead-code.mjs",
     "pack:dev": "node scripts/pack-dev.js",
     "pack": "npm run build && electron-builder --dir",

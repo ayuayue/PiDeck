@@ -69,7 +69,7 @@ jobs:
         #   agentEventTags 只能出现在主进程（铁律「新 IPC 三处同步」的机器版）；
         # - check:test-shape：禁止新增「只读源码字符串、零运行时验证」的测试，
         #   防止重构成本继续累加（基线在 scripts/testShapeBaseline.json）。
-        run: npm run check:ipc-wiring && npm run check:test-shape
+        run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:scroll-containers
 
       - name: Test
         # 串行执行：并发模式（--test-concurrency=4）下测试文件共享进程全局状态，

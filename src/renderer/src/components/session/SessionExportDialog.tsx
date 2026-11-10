@@ -54,6 +54,7 @@ function SessionExportDialog({ sessionId, onClose }: { sessionId: string; onClos
 					<DialogTitle>{t("sessionShare.title")}</DialogTitle>
 					<DialogDescription>{t("sessionShare.description")}</DialogDescription>
 				</DialogHeader>
+				{/* scroll-ok: transient —— 导出对话框的选项与预览两栏，字段固定、随弹窗关闭即销毁，行数不随会话增长。 */}
 				{supported ? (
 					<div className="grid min-h-0 flex-1 gap-5 overflow-y-auto sm:grid-cols-[260px_minmax(0,1fr)]">
 						<div className="flex flex-col gap-3">
