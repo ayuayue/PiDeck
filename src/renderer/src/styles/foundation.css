@@ -1641,6 +1641,9 @@ select:focus-visible {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
+/* 只为标题栏内的控件排除拖拽，不能按 button/input 等标签全局声明 no-drag：
+   Blink 上报 app-region 时不裁掉滚动容器外的矩形，时间线中已滚出视口的按钮
+   仍会覆盖顶部拖拽区；打开文件改变聊天列宽后，这块不可见死区还会跟着横移。 */
 .custom-titlebar-enabled .list-toolbar button,
 .custom-titlebar-enabled .toolbar-actions,
 .custom-titlebar-enabled .app-badge,
@@ -1651,11 +1654,7 @@ select:focus-visible {
 .custom-titlebar-enabled .session-tabs-bar a,
 .custom-titlebar-enabled .file-diff-header,
 .custom-titlebar-enabled .file-diff-header button,
-.custom-titlebar-enabled .composer,
-.custom-titlebar-enabled input,
-.custom-titlebar-enabled textarea,
-.custom-titlebar-enabled select,
-.custom-titlebar-enabled button {
+.custom-titlebar-enabled .composer {
   -webkit-app-region: no-drag;
 }
 /* Radix 浮层（菜单 / 下拉 / 弹出框 / 提示框）portal 到 body，不在 .custom-titlebar-enabled
