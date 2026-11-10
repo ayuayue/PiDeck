@@ -35,7 +35,7 @@
 
 import { quotePosixArgument } from "./RemoteBootstrapContract";
 import { REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH } from "./RemoteHelperContract";
-import { buildLoginShellPathCommand, listToolCandidatesFromPath, parseLoginShellPathWithCode } from "./RemoteNodeDiscovery";
+import { buildLoginShellPathCommands, listToolCandidatesFromPath, parseLoginShellPathWithCode } from "./RemoteNodeDiscovery";
 import type { SshClientRuntime, SshCommandResult } from "./SshClientRuntime";
 import { buildPinnedSshInvocation } from "./SshVerifiedConnection";
 
@@ -53,11 +53,9 @@ export const PI_CANDIDATE_NAMES = ["pi", "pi.js", "pi.mjs", "pi.cjs"] as const;
 /**
  * 最多探测几个候选。与 `RemoteBootstrapSession` 的 `MAX_NODE_CANDIDATES` 同量级、同理：
  * PATH 里可能并排多个 pi 安装，每次探测都是一次真实往返，不设上限就等于让一条 PATH 决定
- * 我们要发多少条远端命令。登录 shell 把用户自己的 pi 排在前面（nvm 会 prepend 自己的 bin），
- * 所以答案基本永远是第一个候选。
- *
- * 计数单位是**候选**（不是 PATH 目录）：一个目录最多贡献 4 个候选名，所以现实中这个上限
- * 基本只覆盖 PATH 最前面的那个目录——这正是「用登录 shell 里第一个 pi」的意思。
+ * 我们要发多少条远端命令。上限是按**候选**计的硬约束，所以候选按 name-major 排序（见
+ * `listPiCandidatesFromPath`）：一个目录优先只贡献一个候选，前三个候选就是前三个 PATH 目录里的
+ * 标准 `pi` shim，正是用户交互时会跑的那个。
  */
 export const MAX_PI_CANDIDATES = 3;
 
@@ -113,11 +111,16 @@ function fail(code: string): never {
  * 在登录 shell 的 PATH 中列出 pi 候选绝对路径。
  *
  * 目录判定收口在 `listToolCandidatesFromPath`（node 探测同一份）：只取 `<绝对目录>/<候选名>`、丢弃
- * 相对/空条目与含 `.`/`..` 的目录、去重、有长度上限。调用方仍按 PATH 顺序拿到全部候选后自行决定
- * 探测到什么程度；本函数不做文件系统访问，所以能离线单测。
+ * 相对/空条目与含 `.`/`..` 的目录、去重、有长度上限。本函数不做文件系统访问，所以能离线单测。
+ *
+ * 排序是 **name-major**（所有目录的 `pi` 先扫完，再轮到 `pi.js`），因为探测上限按**候选**计：
+ * dir-major 会让 PATH 第一个没有 pi 的目录（真机上是 `/usr/local/go/bin`）用完四个名额，
+ * 真正装着 pi 的 nvm 目录轮不到（2026-10 实机：`REMOTE_PI_VERSION_UNREADABLE` 且 piPath 报的是
+ * `/usr/local/go/bin/pi`）。name-major 下前三个候选就是「前三个 PATH 目录里的标准 `pi` shim」，
+ * 也就是用户交互时真正会跑的那个。
  */
 export function listPiCandidatesFromPath(pathValue: unknown): string[] {
-	return listToolCandidatesFromPath(pathValue, PI_CANDIDATE_NAMES);
+	return listToolCandidatesFromPath(pathValue, PI_CANDIDATE_NAMES, "name-major");
 }
 
 /**
@@ -318,9 +321,11 @@ async function probeExplicitPi(input: { userDataDir: string; hostId: string; cli
  *
  * 0. `nodePath` 形状不合法 ⇒ `REMOTE_PI_NODE_PATH_INVALID`，**在发任何帧之前**（解释器不合法时后面
  *    每一步都会是错的，没必要花一次往返去发现）。
- * 1. 跑 `buildLoginShellPathCommand` 读登录 shell 的 PATH（哨兵由调用方给本地随机值）。命令本身
- *    发不出去、退出非 0，或哨兵读不出来 ⇒ `REMOTE_PI_SHELL_PATH_UNREADABLE`：这一阶段我们连
- *    「用户在哪个 PATH 里」都不知道，任何猜测都等于退回非交互语义。
+ * 1. 跑 `buildLoginShellPathCommands` 依次读各 shell 方言的登录 PATH（bash → zsh → sh，理由见
+ *    `RemoteNodeDiscovery`；nvm 写在 `~/.bashrc`、Homebrew 写在 `~/.zprofile`）。**第一个能给出
+ *    候选的方言就是答案来源**：它与 node 侧的「第一个合格候选就是答案」同一个立场，不把多个方言的
+ *    候选拼成一张表。命令本身发不出去、退出非 0，或哨兵读不出来 ⇒ 换下一个方言；全部方言都拿不到
+ *    可信 PATH ⇒ `REMOTE_PI_SHELL_PATH_UNREADABLE`。
  * 2. 按 PATH 顺序列出候选；一个都没有 ⇒ `REMOTE_PI_NOT_FOUND`。
  * 3. 逐候选跑 `pi --version`（命令只由 `buildRemotePiVersionCommand` 构造，每个候选都用同一个
  *    `nodePath` 当解释器）。执行失败或退出非 0 或输出不可解析 ⇒ 试下一个；**可读但低于下限**例外：
@@ -337,19 +342,35 @@ async function probeExplicitPi(input: { userDataDir: string; hostId: string; cli
 export async function resolveRemotePiExecutable(input: { userDataDir: string; hostId: string; client: SshClientRuntime; sentinel: string; nodePath: string; piPath?: string }): Promise<RemotePiObservation> {
 	const nodePath = requireNodeInterpreter(input?.nodePath, REMOTE_PI_NODE_PATH_INVALID);
 	if (input.piPath !== undefined) return probeExplicitPi({ userDataDir: input.userDataDir, hostId: input.hostId, client: input.client, nodePath, piPath: input.piPath });
-	const pathInvocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand: buildLoginShellPathCommand(input.sentinel) });
-	let pathResult: SshCommandResult;
-	try {
-		pathResult = await input.client.run(pathInvocation.executable, pathInvocation.args);
-	} catch {
-		fail(REMOTE_PI_SHELL_PATH_UNREADABLE);
+	// 与 node 侧同口径：每个 shell 方言都是一份独立的 PATH 答案，按序探测（交互登录 bash 能读到
+	// nvm/conda 写在 `~/.bashrc` 里的 PATH，`/bin/sh -lc` 读不到）。全部方言都拿不到可信 PATH 才报错。
+	let candidates: string[] | undefined;
+	// 至少一个方言给过可解析的 PATH：那就不是「读不到」，而是「这份 PATH 里没有 pi」。
+	let sawParsedPath = false;
+	for (const remoteCommand of buildLoginShellPathCommands(input.sentinel)) {
+		const pathInvocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand });
+		let pathResult: SshCommandResult;
+		try {
+			pathResult = await input.client.run(pathInvocation.executable, pathInvocation.args);
+		} catch {
+			continue;
+		}
+		// 退出非 0 与哨兵缺失归入同一个结果：两者都意味着「这个方言拿不到可信 PATH」。
+		if (pathResult.exitCode !== 0) continue;
+		// 解析失败同样失败关闭，绝不退回非交互 PATH。错误码由这里指定，解析规则与 node 侧共用一份。
+		try {
+			const parsed = listPiCandidatesFromPath(parseLoginShellPathWithCode(pathResult.stdout, input.sentinel, REMOTE_PI_SHELL_PATH_UNREADABLE, REMOTE_PI_SHELL_PATH_UNREADABLE));
+			sawParsedPath = true;
+			if (parsed.length > 0) {
+				candidates = parsed;
+				break;
+			}
+		} catch {
+			continue;
+		}
 	}
-	// 退出非 0 与哨兵缺失归入同一个码：两者都意味着「拿不到可信 PATH」，而这一阶段的可用码集
-	// 是本模块对外契约的一部分（不再为传输层单独开码）。
-	if (pathResult.exitCode !== 0) fail(REMOTE_PI_SHELL_PATH_UNREADABLE);
-	// 解析失败同样失败关闭，绝不退回非交互 PATH。错误码由这里指定，解析规则与 node 侧共用一份。
-	const candidates = listPiCandidatesFromPath(parseLoginShellPathWithCode(pathResult.stdout, input.sentinel, REMOTE_PI_SHELL_PATH_UNREADABLE, REMOTE_PI_SHELL_PATH_UNREADABLE));
-	if (candidates.length === 0) fail(REMOTE_PI_NOT_FOUND);
+	// 一份可信 PATH 都没拿到：这一阶段我们连「用户在哪个 PATH 里」都不知道，任何猜测都等于退回非交互语义。
+	if (candidates === undefined) fail(sawParsedPath ? REMOTE_PI_NOT_FOUND : REMOTE_PI_SHELL_PATH_UNREADABLE);
 	let probed = 0;
 	let lastVersion = "";
 	for (const candidate of candidates.slice(0, MAX_PI_CANDIDATES)) {

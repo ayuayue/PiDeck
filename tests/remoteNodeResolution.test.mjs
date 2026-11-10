@@ -18,6 +18,8 @@ const HOST_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const SENTINEL = "a1b2c3d4e5f6a7b8";
 /** 远端命令以最后一个 argv 元素下发；这里取出来做「脚本化远端」的分派依据。 */
 const remoteCommandOf = (args) => String(args.at(-1));
+/** 探测命令 → shell 方言（与 `buildLoginShellPathCommands` 的顺序绑定）。 */
+const flavourOf = (command) => (command.startsWith("/bin/bash -lic") ? "bash" : command.startsWith("/bin/zsh -lic") ? "zsh" : "sh");
 const pathAnswer = (value) => `PIDECK_PATH_BEGIN_${SENTINEL}${value}_PIDECK_PATH_END`;
 
 /** 用给定的 PATH 与「路径 → 版本输出」映射加载被测模块。 */
@@ -43,7 +45,13 @@ function loadWithRemote(remotePath, versions, options = {}) {
 			const command = remoteCommandOf(args);
 			// 登录 shell PATH 探测：以哨兵命令区分，返回脚本化的 PATH（可注入噪声）。
 			if (command.includes("PIDECK_PATH_BEGIN_")) {
-				probed.push({ kind: "path" });
+				probed.push({ kind: "path", flavour: flavourOf(command) });
+				// perFlavour：每个 shell 方言给一份不同 PATH（nvm 只在交互 bash、Homebrew 只在 zsh 里可见的真实形态）。
+				if (options.perFlavour !== undefined) {
+					const answer = options.perFlavour[flavourOf(command)];
+					if (answer === undefined) return { exitCode: 127, stdout: "" };
+					return answer === null ? { exitCode: 0, stdout: "no sentinel here" } : { exitCode: 0, stdout: pathAnswer(answer) };
+				}
 				if (options.pathExitCode !== undefined && options.pathExitCode !== 0) return { exitCode: options.pathExitCode, stdout: options.pathStdout ?? "" };
 				const body = typeof options.pathStdout === "string" ? options.pathStdout : pathAnswer(remotePath);
 				return { exitCode: 0, stdout: options.noise ? `${options.noise}\n${body}\n${options.noise}\n` : body };
@@ -100,7 +108,8 @@ test("an unusable first candidate is skipped and the next supported one is used"
 test("the candidate walk is bounded, so a hostile PATH cannot drive unlimited probes", async () => {
 	// 上限为 3：全部不合格时必须停止，并报告最后观察到的版本（可执行、不空洞）。
 	const loginPath = "/a/bin:/b/bin:/c/bin:/d/bin:/e/bin:/f/bin";
-	const { promise, probed } = run(loginPath, { "/a/bin/node": "v10.0.0\n", "/b/bin/node": "v11.0.0\n", "/c/bin/node": "v12.0.0\n", "/d/bin/node": "v24.0.0\n" });
+	// 只让 bash 方言回答：预算按方言各算，其他方言不回答就不能把总数抬到 9。
+	const { promise, probed } = run(loginPath, { "/a/bin/node": "v10.0.0\n", "/b/bin/node": "v11.0.0\n", "/c/bin/node": "v12.0.0\n", "/d/bin/node": "v24.0.0\n" }, { perFlavour: { bash: loginPath, zsh: null, sh: null } });
 	await assert.rejects(promise, (error) => {
 		// 稳定码必须是**完整消息**：diagnosticCodeFromError 只承认「消息即码」，把路径与版本拼进
 		// 消息会让这个最高频的失败退化成笼统的 SSH_CONNECTION_FAILED。
@@ -110,7 +119,7 @@ test("the candidate walk is bounded, so a hostile PATH cannot drive unlimited pr
 		assert.equal(error.nodePath, "/a/bin/node");
 		return true;
 	});
-	assert.equal(probed.filter((entry) => entry.kind === "version").length, 3, "at most 3 candidates may be probed");
+	assert.equal(probed.filter((entry) => entry.kind === "version").length, 3, "at most 3 candidates may be probed per shell flavour");
 	// /d/bin/node 是合格的，但超出上限因此不该被探到——有界优先于「尽力找到」。
 	assert.ok(
 		probed.every((entry) => entry.candidate !== "/d/bin/node"),
@@ -130,6 +139,52 @@ test("an unreadable shell PATH fails closed instead of falling back", async () =
 	// 哨兵缺失（例如 shell 初始化把输出吞了）时不得退回非交互 PATH——那正是旧 node 溜进来的路径。
 	const { promise } = run("/usr/bin", {}, { pathStdout: "no sentinel here" });
 	await assert.rejects(promise, /REMOTE_NODE_SHELL_PATH_UNREADABLE/);
+});
+
+test("a PATH that only the interactive login bash exposes is still found", async () => {
+	// 实机事故（2026-10）：远端 `node -v` 是 v24.18.0，但 nvm 的 PATH 初始化写在 `~/.bashrc` 里，
+	// `/bin/sh -lc`（dash）根本不读它 → 只看得到系统旧 node → REMOTE_NODE_VERSION_UNSUPPORTED。
+	// 交互登录 bash 必须排在前面，且两个方言给出不同 PATH 时采用前者。
+	const nvmBin = "/home/ubuntu/.nvm/versions/node/v24.18.0/bin";
+	const { promise, probed } = run("/usr/bin", { [`${nvmBin}/node`]: "v24.18.0\n", "/usr/bin/node": "v12.22.9\n" }, { perFlavour: { bash: nvmBin, sh: "/usr/bin" } });
+	const resolved = await promise;
+	assert.equal(resolved.nodePath, `${nvmBin}/node`, "the interactive login bash PATH is the one the user actually has");
+	assert.deepEqual(
+		probed.filter((entry) => entry.kind === "path").map((entry) => entry.flavour),
+		["bash"],
+		"the sh fallback must not be spent once bash answers",
+	);
+});
+
+test("the sh fallback still answers when the interactive bash cannot", async () => {
+	// 没有 bash/zsh 的发行版（Alpine 等）：前面的方言退出非 0 时不得把整次定位判死。
+	const { promise } = run(
+		"/usr/bin",
+		{
+			"/usr/bin/node": "v24.0.0\n",
+		},
+		{ perFlavour: { bash: null, zsh: undefined, sh: "/usr/bin" } },
+	);
+	const resolved = await promise;
+	assert.equal(resolved.nodePath, "/usr/bin/node");
+});
+
+test("a wrong shell flavour does not eat the next flavour's probe budget", async () => {
+	// macOS 真实形态：bash 侧 PATH 里没有 node（候选全 127），zsh 侧才有 Homebrew 的 node。
+	// 预算必须按方言各算，否则 bash 侧那些不存在的候选会把名额用完，zsh 的合格 node 永远轮不到。
+	const brewBin = "/opt/homebrew/bin";
+	const { promise, probed } = run("/usr/bin:/bin", { [`${brewBin}/node`]: "v24.0.0\n" }, { perFlavour: { bash: "/usr/bin:/bin", zsh: brewBin, sh: "/usr/bin:/bin" } });
+	const resolved = await promise;
+	assert.equal(resolved.nodePath, `${brewBin}/node`);
+	assert.deepEqual(
+		probed
+			.filter((entry) => entry.kind === "version")
+			.map((entry) => entry.candidate)
+			.slice(-1),
+		[`${brewBin}/node`],
+		"the zsh flavour must still be probed after the bash flavour's dead candidates",
+	);
+	assert.ok(probed.filter((entry) => entry.kind === "path").length >= 2, "both flavours must be consulted");
 });
 
 test("a failed PATH probe is reported distinctly from an unsupported version", async () => {

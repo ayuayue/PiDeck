@@ -4,7 +4,7 @@ import { maintainDeployedBundles, type RemoteBundleMaintenanceOutcome } from "./
 import { getAppLogger } from "../logging/sharedLogger";
 import { decodeBootstrapResult, type BootstrapReadyFrame, type BootstrapSession } from "./RemoteBootstrapTransfer";
 import { assertSupportedRemoteNodeVersion, buildRemoteNodeVersionCommand, REMOTE_BOOTSTRAP_ENTRY_ERROR_CODES, type RemoteBootstrapTarget } from "./RemoteBootstrapContract";
-import { buildLoginShellPathCommand, listNodeCandidatesFromPath, parseLoginShellPath } from "./RemoteNodeDiscovery";
+import { buildLoginShellPathCommands, listNodeCandidatesFromPath, parseLoginShellPath } from "./RemoteNodeDiscovery";
 import { REMOTE_BOOTSTRAP_PROTOCOL_VERSION } from "./RemoteHelperContract";
 import type { SshLauncherHandle, SshProcessExit, SshProcessLauncher } from "./RemoteHostConnectionTypes";
 import type { SshClientRuntime, SshCommandResult } from "./SshClientRuntime";
@@ -175,6 +175,11 @@ export async function runPreparedBootstrap(input: PreparedBootstrapInput): Promi
 	}
 }
 
+function stableCodeOf(error: unknown, fallback: string): string {
+	const message = typeof error === "object" && error !== null && "message" in error ? (error as { message?: unknown }).message : undefined;
+	return typeof message === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(message) ? message : fallback;
+}
+
 /**
  * Resolve the remote node the host's own user can run, the way that user's login shell would find it.
  *
@@ -187,59 +192,89 @@ export async function runPreparedBootstrap(input: PreparedBootstrapInput): Promi
  * Reads PATH rather than delegating the choice to the shell, so the decision stays here: candidates are
  * probed in PATH order and the first one that satisfies the contract's version gate wins. `sentinel` is
  * supplied by the caller (a local random value) so the answer can be told apart from shell init output.
+ *
+ * 每种 shell 方言（`buildLoginShellPathCommands`：bash → zsh → sh）都是一份独立的 PATH 答案，因此
+ * 按序探测：nvm 装在 `~/.bashrc` 的主机只有交互 bash 看得到，Homebrew 装在 `~/.zprofile` 的 macOS
+ * 只有 zsh 看得到；一个方言读不到或读到的候选全不合格时，下一个方言仍可能给出合格 node。全部方言
+ * 耗尽才报错，且错误码取**第一个**方言的失败类别，避免多条命令的失败互相掩珉。
  */
 export async function resolveRemoteNodeExecutable(input: { userDataDir: string; hostId: string; client: SshClientRuntime; sentinel: string; signal?: AbortSignal }): Promise<{ nodePath: string; version: string; probed: number }> {
-	throwIfAborted(input.signal);
-	const pathInvocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand: buildLoginShellPathCommand(input.sentinel) });
-	throwIfAborted(input.signal);
-	let pathResult: SshCommandResult;
-	try {
-		pathResult = await input.client.run(pathInvocation.executable, pathInvocation.args, { signal: input.signal });
-	} catch (error) {
-		throwIfAborted(input.signal);
-		throw new Error("REMOTE_NODE_SHELL_PROBE_FAILED");
-	}
-	throwIfAborted(input.signal);
-	if (pathResult.exitCode !== 0) throw new Error("REMOTE_NODE_SHELL_PROBE_FAILED");
-	// Throws REMOTE_NODE_SHELL_PATH_UNREADABLE when the sentinel is missing or duplicated. It must not
-	// fall back to the non-interactive PATH: that fallback is exactly how an unusable node got admitted.
-	const candidates = listNodeCandidatesFromPath(parseLoginShellPath(pathResult.stdout, input.sentinel));
-	if (candidates.length === 0) throw new Error("REMOTE_NODE_NOT_FOUND");
 	let probed = 0;
 	let lastVersion = "";
-	for (const candidate of candidates.slice(0, MAX_NODE_CANDIDATES)) {
-		// Every candidate is another round trip, so a cancel has to be honoured between probes and never
-		// spent on the remaining PATH candidates.
+	let firstCandidate: string | undefined;
+	let sawCandidates = false;
+	// 每个方言的失败码，按方言顺序；探测结束时有候选就报版本门，没候选就报首个方言的失败码。
+	const failureCodes: string[] = [];
+	for (const remoteCommand of buildLoginShellPathCommands(input.sentinel)) {
 		throwIfAborted(input.signal);
-		const versionCommand = buildRemoteNodeVersionCommand(candidate);
-		const invocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand: versionCommand });
+		const pathInvocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand });
 		throwIfAborted(input.signal);
-		let result: SshCommandResult;
-		probed += 1;
+		let pathResult: SshCommandResult;
 		try {
-			result = await input.client.run(invocation.executable, invocation.args, { signal: input.signal });
-		} catch {
+			pathResult = await input.client.run(pathInvocation.executable, pathInvocation.args, { signal: input.signal });
+		} catch (error) {
 			throwIfAborted(input.signal);
-			continue; // A candidate that cannot even be executed is not the answer; try the next one.
-		}
-		throwIfAborted(input.signal);
-		if (result.exitCode !== 0) continue;
-		try {
-			assertSupportedRemoteNodeVersion(result.stdout);
-		} catch {
-			lastVersion = typeof result.stdout === "string" ? result.stdout.trim().slice(0, 32) : "";
+			failureCodes.push("REMOTE_NODE_SHELL_PROBE_FAILED");
 			continue;
 		}
-		return { nodePath: candidate, version: String(result.stdout).trim(), probed };
+		throwIfAborted(input.signal);
+		if (pathResult.exitCode !== 0) {
+			failureCodes.push("REMOTE_NODE_SHELL_PROBE_FAILED");
+			continue;
+		}
+		let candidates: string[];
+		try {
+			// Throws REMOTE_NODE_SHELL_PATH_UNREADABLE / _EMPTY when the sentinel or the value is missing or
+			// duplicated. It must not fall back to the non-interactive PATH: that fallback is exactly how an
+			// unusable node got admitted.
+			candidates = listNodeCandidatesFromPath(parseLoginShellPath(pathResult.stdout, input.sentinel));
+		} catch (error) {
+			// 保留解析层给的具体码（空 PATH ≠ 哨兵缺失），首个方言的失败类别就是对外结论。
+			failureCodes.push(stableCodeOf(error, "REMOTE_NODE_SHELL_PATH_UNREADABLE"));
+			continue;
+		}
+		if (candidates.length === 0) continue;
+		sawCandidates = true;
+		firstCandidate ??= candidates[0];
+		// 预算按方言各算：每种壳是一份**不同的** PATH 答案，一个方言里那些根本不存在、全 127 的
+		// 候选不能吃掉下一个方言的名额（macOS 真实形态：bash 侧无 node，zsh 侧才有 brew 的 node）。
+		// 最坏情况 3 方言 × 3 候选 = 9 次版本探测，仍与 PATH 长度无关。
+		for (const candidate of candidates.slice(0, MAX_NODE_CANDIDATES)) {
+			// Every candidate is another round trip, so a cancel has to be honoured between probes and never
+			// spent on the remaining PATH candidates.
+			throwIfAborted(input.signal);
+			const versionCommand = buildRemoteNodeVersionCommand(candidate);
+			const invocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand: versionCommand });
+			throwIfAborted(input.signal);
+			let result: SshCommandResult;
+			probed += 1;
+			try {
+				result = await input.client.run(invocation.executable, invocation.args, { signal: input.signal });
+			} catch {
+				throwIfAborted(input.signal);
+				continue; // A candidate that cannot even be executed is not the answer; try the next one.
+			}
+			throwIfAborted(input.signal);
+			if (result.exitCode !== 0) continue;
+			try {
+				assertSupportedRemoteNodeVersion(result.stdout);
+			} catch {
+				lastVersion = typeof result.stdout === "string" ? result.stdout.trim().slice(0, 32) : "";
+				continue;
+			}
+			return { nodePath: candidate, version: String(result.stdout).trim(), probed };
+		}
 	}
-	// Every candidate (or the cap) was exhausted without a supported version. The diagnostic code must be
-	// the bare constant: `diagnosticCodeFromError` only recognises a message that *is* the code, so
-	// appending the path and version would degrade this — the case users hit most — to the generic
-	// SSH_CONNECTION_FAILED. The detail rides on the error instead of in its message.
-	const unsupported = new Error("REMOTE_NODE_VERSION_UNSUPPORTED") as Error & { nodePath?: string; observedVersion?: string };
-	unsupported.nodePath = candidates[0];
-	unsupported.observedVersion = lastVersion || "unprobed";
-	throw unsupported;
+	// 有候选但全不合格：这才是「版本太旧」。诊断码必须是裸常量（`diagnosticCodeFromError` 只承认
+	// 「消息即码」），路径与版本拼进消息会把这个最常被用户撞到的失败退化成笼统的 SSH_CONNECTION_FAILED。
+	if (sawCandidates) {
+		const unsupported = new Error("REMOTE_NODE_VERSION_UNSUPPORTED") as Error & { nodePath?: string; observedVersion?: string };
+		unsupported.nodePath = firstCandidate;
+		unsupported.observedVersion = lastVersion || "unprobed";
+		throw unsupported;
+	}
+	// 一份可信 PATH 都没拿到：报告第一个方言的失败类别；两个方言都读到了 PATH 却没候选则是「没装 node」。
+	throw new Error(failureCodes[0] ?? "REMOTE_NODE_NOT_FOUND");
 }
 
 /**

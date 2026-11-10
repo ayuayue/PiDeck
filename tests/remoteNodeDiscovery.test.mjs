@@ -13,7 +13,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * 这些用例锁定「按登录 shell 语义取 PATH」以及「shell 噪声不得被当成答案」。
  */
 
-const { extractSentinelValue, buildLoginShellPathCommand, listNodeCandidatesFromPath, parseLoginShellPath, createPathSentinel } = loadTsCommonJs("src/main/remote/RemoteNodeDiscovery.ts");
+const { extractSentinelValue, buildLoginShellPathCommand, buildLoginShellPathCommands, listNodeCandidatesFromPath, parseLoginShellPath, createPathSentinel } = loadTsCommonJs("src/main/remote/RemoteNodeDiscovery.ts");
 
 /** 跨沙箱返回的数组原型与测试 realm 不同，深比较前先归一为普通数组。 */
 const plain = (value) => Array.from(value);
@@ -79,15 +79,23 @@ test("the nvm layout is recognised, because that is the real acceptance case", (
 });
 
 test("the sentinel command is fixed apart from the validated sentinel, and is POSIX-quoted", () => {
-	const command = buildLoginShellPathCommand(SENTINEL);
-	// 只读 PATH：不执行用户命令，因此远端 shell 没有执行任意内容的余地。
-	assert.match(command, /\/bin\/sh -lc/);
-	assert.match(command, /printf %s "\$PATH"/);
-	// 整段命令由单引号包夹，哨兵在双引号内展开——命令里没有用户可控文本。
-	assert.ok(command.startsWith("/bin/sh -lc '"), "the -lc payload must be single-quoted as one word");
-	assert.ok(command.endsWith("'"));
+	const commands = buildLoginShellPathCommands(SENTINEL);
+	// 交互登录 bash 排第一：nvm/conda 的 PATH 只写在 ~/.bashrc，非交互 `/bin/sh` 读不到——
+	// 一台 `node -v` 是 v24 的主机因此被报成 REMOTE_NODE_VERSION_UNSUPPORTED（实机事故）。
+	assert.equal(commands.length, 3, "one answering dialect per shell flavour, nothing else");
+	// 优先级：Linux 服务器默认的 bash → macOS 默认的 zsh → 兵底 sh。
+	assert.ok(commands[0].startsWith("/bin/bash -lic '"), "the interactive login bash runs first");
+	assert.ok(commands[1].startsWith("/bin/zsh -lic '"), "zsh is next: it is the macOS default login shell");
+	assert.ok(commands[2].startsWith("/bin/sh -lc '"), "POSIX sh stays as the fallback for hosts without bash/zsh");
+	for (const command of commands) {
+		// 只读 PATH：不执行用户命令，因此远端 shell 没有执行任意内容的余地。
+		assert.match(command, /printf %s "\$PATH"/);
+		// 整段命令由单引号包夹，哨兵在双引号内展开——命令里没有用户可控文本。
+		assert.ok(command.endsWith("' </dev/null"), "stdin must be closed so an rc-file read cannot hang the probe");
+	}
 	// 非法哨兵必须被拒绝，不能进入命令。
 	for (const bad of ["", "short", "has space", "has'quote", "has;semi", "../etc", "a".repeat(65)]) {
+		assert.throws(() => buildLoginShellPathCommands(bad), /REMOTE_NODE_SENTINEL_INVALID/);
 		assert.throws(() => buildLoginShellPathCommand(bad), /REMOTE_NODE_SENTINEL_INVALID/);
 	}
 	// createPathSentinel 只接受合法随机串，且不会把非法值放行。
