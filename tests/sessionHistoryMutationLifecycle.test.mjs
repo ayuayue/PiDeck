@@ -154,8 +154,16 @@ for (const kind of ["resend", "edit"]) {
 			h.calls.find(([operation]) => operation === "send"),
 			["send", "fork-source-a", kind === "edit" ? "edited text" : message.text, message.images, { requireAppliedModel: true }],
 		);
-		// 热会话不再挂全屏遮罩：只剩 finally 的清空调用（冷会话的 activating 另有覆盖）。
-		assert.deepEqual(h.overlays, [{ sessionId: "source-a", kind: null }]);
+		// 热会话立即挂重发/编辑遮罩 → 切会话前接给目标会话 → 两边都清空（平滑转场）。
+		const overlayKind = kind === "resend" ? "resending" : "editing";
+		assert.deepEqual(h.overlays, [
+			{ sessionId: "source-a", kind: overlayKind },
+			{ sessionId: "source-a", kind: overlayKind },
+			{ sessionId: "fork-source-a", kind: overlayKind },
+			{ sessionId: "source-a", kind: null },
+			{ sessionId: "fork-source-a", kind: null },
+			{ sessionId: "source-a", kind: null },
+		]);
 		assert.equal(h.toasts.length, 0);
 	});
 }
@@ -288,8 +296,8 @@ for (const phase of ["activate", "anchor"]) {
 			["open", "project-source-a", "fork-source-a"],
 		);
 		assert.equal(h.calls.filter(([operation]) => operation === "activate").length, phase === "activate" ? 1 : 0);
-		assert.ok(h.overlays.every(({ sessionId }) => sessionId === "source-a"));
-		assert.deepEqual(h.overlays.at(-1), { sessionId: "source-a", kind: null });
+		assert.ok(h.overlays.every(({ sessionId }) => sessionId === "source-a" || sessionId === "fork-source-a"));
+		assert.deepEqual(h.overlays.at(-1), { sessionId: "fork-source-a", kind: null });
 		assert.equal(
 			h.calls.some(([operation]) => operation === "send"),
 			false,

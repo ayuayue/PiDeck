@@ -2,7 +2,7 @@ import React from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { resolvePaneTerminal, terminalOwnerKey, shouldMountPaneTerminalDock } from "../../terminalDockState";
 import { settingsOpenAtom } from "../../atoms";
-import { claimSessionRuntimeUiResponseAtom, rollbackSessionRuntimeUiResponseAtom } from "../../atoms/session-atoms";
+import { claimSessionRuntimeUiResponseAtom, rollbackSessionRuntimeUiResponseAtom, setSessionHistoryMutationOverlayAtom } from "../../atoms/session-atoms";
 import { recordAskEchoAtom } from "../../atoms/ask-echo-atoms";
 import { sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily, sessionRuntimeUiBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { projectByIdAtomFamily } from "../../atoms/project-atoms";
@@ -55,6 +55,7 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 	const currentSessionRuntimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(currentSessionId));
 	const claimSessionUiResponse = useSetAtom(claimSessionRuntimeUiResponseAtom);
 	const rollbackSessionUiResponse = useSetAtom(rollbackSessionRuntimeUiResponseAtom);
+	const setHistoryMutationOverlay = useSetAtom(setSessionHistoryMutationOverlayAtom);
 	const setRecordAskEcho = useSetAtom(recordAskEchoAtom);
 	const runtimeRef = React.useRef(currentSessionRuntime);
 	runtimeRef.current = currentSessionRuntime;
@@ -244,6 +245,8 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 		const target = toSessionRuntimeTarget(currentSessionId, currentSessionRuntime);
 		if (!target) return;
 		setRewinding(true);
+		// 确认后即时反馈：文件回退可能上秒级，遮罩盖在时间线上（此前只在恢复完 toast，干等）。
+		setHistoryMutationOverlay({ sessionId: currentSessionId, kind: "rewinding" });
 		try {
 			await requireSessionCommand(await desktopApi.sessions.restoreRewindCheckpoint(target, rewindConfirm.id, "files"));
 			services.showToast(t("rewind.restoreDone", { id: rewindConfirm.id }));
@@ -253,10 +256,11 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 				4000,
 			);
 		} finally {
+			setHistoryMutationOverlay({ sessionId: currentSessionId, kind: null });
 			setRewinding(false);
 			setRewindConfirm(null);
 		}
-	}, [currentSessionId, currentSessionRuntime, rewindConfirm, services]);
+	}, [currentSessionId, currentSessionRuntime, rewindConfirm, services, setHistoryMutationOverlay]);
 
 	return (
 		<FileLinkBaseProvider baseDir={paneFileContext.baseDir} projectId={paneFileContext.projectId} projectRoot={paneFileContext.projectRoot} sessionId={currentSessionId}>
@@ -293,7 +297,7 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 					onRemoveMessageImage={!services.isLanWeb && (!sessionRecord?.backend || sessionRecord.backend === "pi") && sessionRecord?.filePath && services.removeMessageImage ? (message, index) => services.removeMessageImage?.(currentSessionId, message, index) : undefined}
 					onForkMessage={isAcpBackend ? undefined : services.forkFromUserMessage}
 					onRewindToMessage={isDshBackend || isAcpBackend ? undefined : handleRewindToMessage}
-					forkingMessageId={services.forkingMessageId}
+					pendingHistoryMutation={services.pendingHistoryMutation}
 					onToast={(message: string) => services.showToast(message)}
 					onQuickPrompt={(message) => services.insertQuickPrompt(currentSessionId, message)}
 					canMutateActiveMessages={canMutateActiveMessages}

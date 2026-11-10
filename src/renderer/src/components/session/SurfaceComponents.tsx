@@ -695,6 +695,8 @@ export const UserBubble = memo(function UserBubble(props: {
 	agentRunning?: boolean;
 	/** fork 进行中：仅当前消息禁用按钮，避免连点重复 fork */
 	forking?: boolean;
+	/** 历史进行中种类（重发/编辑/删除/fork）：动作行整组替换为 spinner + 文案（与 Web pending 同口径）。 */
+	pendingKind?: import("../../atoms/session-atoms").PendingHistoryMutationKind | null;
 	/** 打开多选分享弹框 */
 	onEnterMultiSelect?: () => void;
 	/**
@@ -1076,6 +1078,12 @@ export const UserBubble = memo(function UserBubble(props: {
 			<div className="mt-1 inline-flex items-center gap-2 text-micro tabular-nums text-text-tertiary">
 				<time>{formatTime(message.timestamp)}</time>
 			</div>
+			{props.pendingKind ? (
+				<div className="user-turn-actions flex min-h-6 items-center gap-1.5 text-xs text-text-secondary" role="status">
+					<Loader2 size={14} className="animate-pideck-spin" aria-hidden="true" />
+					<span>{props.pendingKind === "resend" ? t("web.msgResending") : props.pendingKind === "delete" ? t("web.msgDeleting") : props.pendingKind === "fork" ? t("message.historyOverlay.forking") : t("web.msgSaving")}</span>
+				</div>
+			) : (
 			<div className="user-turn-actions flex min-h-6 items-center gap-0.5 opacity-0 transition-opacity group-hover/user:opacity-100 focus-within:opacity-100">
 				<CopyMenu resolveText={resolvePlain} resolveMarkdown={resolveMarkdown} targetRef={rowRef} />
 				<Button type="button" variant="ghost" size="icon-sm" className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={props.onEnterMultiSelect} title={t("app.multiSelectEnter")}>
@@ -1144,6 +1152,7 @@ export const UserBubble = memo(function UserBubble(props: {
 					</>
 				)}
 			</div>
+			)}
 			{/* 文件 chip 右键菜单：默认方式打开 / 在文件夹中显示 / 复制路径。粘贴转文件落
 			    在 userData、项目外路径无 scope，主进程不设边界直接交给系统；菜单形态与
 			    文件抽屉右键菜单（ComposerOverlayContextMenu）保持一致。 */}

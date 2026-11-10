@@ -2385,6 +2385,36 @@
   }
 }
 
+/* ── 历史消息改写遮罩（重发/编辑/删除/fork/回退）──
+ * 目的：点击即时反馈 + 切会话平滑过渡（此前热会话 fork 无遮罩，重发/编辑表现为「点了没反应、过一会儿会话自己换了」）。
+ * 遮罩只动 opacity（背景用 bg-panel/75 + backdrop-blur），不改布局尺寸、不遮 scroll 容器本身，
+ * 故不会引起高度抖动或滚动跳变；淡出与 timeline-content-enter 的 160ms 同曲线衔接。 */
+@keyframes history-overlay-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes history-overlay-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.history-overlay-enter {
+  animation: history-overlay-enter 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.history-overlay-exit {
+  animation: history-overlay-exit 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* fork 切走后新会话侧的引用计数退场面板：只淡出，不拦截交互（pointer-events:none 挂在用法处）。 */
+.history-switch-overlay {
+  animation: history-overlay-exit 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .history-overlay-enter,
+  .history-overlay-exit,
+  .history-switch-overlay {
+    animation: none !important;
+  }
+}
+
 /* ── 会话内容就绪淡入（Task：切会话过渡）──
  * 切会话历史加载完成、骨架屏消失瞬间，消息列表整体淡入一次，
  * 避免整块内容“砸”出来；与骨架屏淡出衔接。只动 opacity，

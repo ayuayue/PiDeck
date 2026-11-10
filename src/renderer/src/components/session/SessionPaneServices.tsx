@@ -7,6 +7,7 @@ import type { SessionRunAction, SessionRunCapabilities } from "../../utils/sessi
 import type { NewSessionBackendTarget } from "../../utils/chatSessionBootstrap";
 import type { SessionMenuModel } from "./SessionActionsMenu";
 import type { TerminalDockStateByOwner } from "../../terminalDockState";
+import type { PendingHistoryMutation } from "../../atoms/session-atoms";
 import type { TerminalDockSettings } from "../terminal/TerminalDock";
 
 /** 打开会话文件时由栏级 injector 绑定的解析与授权上下文。 */
@@ -67,7 +68,8 @@ export type SessionPaneServices = {
 	/** 所属 pane 明确传身份；不能使用聚焦会话替非聚焦栏删除图片。 */
 	removeMessageImage?: (sessionId: string, message: ChatMessage, index: number) => void;
 	forkFromUserMessage?: (message: ChatMessage) => void;
-	forkingMessageId?: string | null;
+	/** 历史消息进行中（重发/编辑/删除/fork）：消息按钮 spinner + 遮罩的 UI 依据。 */
+	pendingHistoryMutation?: PendingHistoryMutation | null;
 	openSidebarSessionById?: (projectId: string, sessionId: string) => Promise<void>;
 	/** 后台 Ask toast「前往会话」：按 sessionId 聚焦目标会话并登记常驻 Tab（App 级实现） */
 	focusAskSessionById?: (sessionId: string) => void;

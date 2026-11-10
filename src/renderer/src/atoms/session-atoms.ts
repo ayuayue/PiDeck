@@ -282,8 +282,12 @@ function allocateSessionMessageOutlineRevision(): number {
 	return nextSessionMessageOutlineRevision;
 }
 
-/** 时间线改写过程遮罩：停 Agent / 写 JSONL / 重载 / 激活 / fork，按 sessionId 隔离。 */
-export type SessionHistoryMutationOverlayKind = "stopping" | "mutating" | "reloading" | "activating" | "forking";
+/** 时间线改写过程遮罩：停 Agent / 写 JSONL / 重载 / 激活 / fork / 重发 / 编辑 / 删除 / 回退，按 sessionId 隔离。 */
+export type SessionHistoryMutationOverlayKind = "stopping" | "mutating" | "reloading" | "activating" | "forking" | "resending" | "editing" | "deleting" | "rewinding";
+
+/** 历史消息即时反馈：正在进行的重发/编辑/删除/fork 所指向的消息（按钮 spinner 与失效依据）。 */
+export type PendingHistoryMutationKind = "resend" | "edit" | "delete" | "fork";
+export type PendingHistoryMutation = { sessionId: string; messageId: string; kind: PendingHistoryMutationKind };
 
 export const sessionHistoryMutationOverlayByIdAtom = atom<Record<string, SessionHistoryMutationOverlayKind>>({});
 

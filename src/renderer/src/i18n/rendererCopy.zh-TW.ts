@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 28c55b3d0541bf484ad7923c682b93bbf2a30a1e790cd1829b4c21fbb02f35b5（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 9e1a8453fccff1032a2d5e972ce4f9b88100f888bee46f3549cbe3a818b5c6ab（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -6599,6 +6599,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"message.historyOverlay.reloadingResources": "正在重載擴充套件與技能…",
 	"message.historyOverlay.activating": "正在啟動會話…",
 	"message.historyOverlay.forking": "正在 fork 會話…",
+	"message.historyOverlay.resending": "正在重發訊息…",
+	"message.historyOverlay.editing": "正在更新訊息…",
+	"message.historyOverlay.deleting": "正在刪除訊息…",
+	"message.historyOverlay.rewinding": "正在回退到檢查點…",
 	"message.busyStreaming": "Agent 正在生成回答，請等待完成後重試",
 	"message.busyTool": "Agent 正在執行工具，請等待完成後重試",
 	"message.busyGeneric": "Agent 當前忙碌，請稍後重試",

@@ -4,7 +4,7 @@ import { ChevronUp } from "lucide-react";
 import { atom, useAtomValue, useSetAtom } from "jotai";
 import { selectAtom } from "jotai/utils";
 import type { AgentBackend, ChatMessage, ImageContent } from "../../../../../shared/types";
-import { liveTextActiveBySessionAtom, newTurnCollapseTickBySessionIdAtomFamily, runStepsVisibleMemoryBySessionIdAtomFamily, sendPinAnimatingBySessionIdAtomFamily, type RunStepsVisibleMemoryEntry } from "../../../atoms/session-atoms";
+import { liveTextActiveBySessionAtom, newTurnCollapseTickBySessionIdAtomFamily, runStepsVisibleMemoryBySessionIdAtomFamily, sendPinAnimatingBySessionIdAtomFamily, type PendingHistoryMutation, type RunStepsVisibleMemoryEntry } from "../../../atoms/session-atoms";
 import { timelineRevealRequestsAtom, type TimelineRevealRequest } from "../../../atoms/timeline-reveal-atoms";
 import { turnFlowSettingsAtom } from "../../../atoms/app-ui-atoms";
 import { t } from "../../../i18n";
@@ -99,6 +99,8 @@ export type TurnRowProps = {
 	onFavoriteReply?: (text: string, messageId: string | null) => void;
 	/** 已收藏的「会话::消息」键集合：星标据此显示实心（已收藏）状态。 */
 	favoritedMessageKeys?: ReadonlySet<string>;
+	/** 历史进行中（本轮回复编辑/删除时，动作栏替换为 spinner；重发/fork 归用户气泡）。 */
+	pendingHistoryMutation?: PendingHistoryMutation | null;
 };
 
 export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
@@ -351,6 +353,12 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 		const targetId = assistantMessages.at(-1)?.message.id;
 		if (targetId) props.onDeleteMessage?.(targetId, messageEntryId(assistantMessages.at(-1)?.message));
 	};
+	// 助手回复编辑/删除的即时反馈：本轮即 pending 目标时动作栏转 spinner（重发/fork 目标是
+	// 用户消息，不点亮这一行——气泡自有 spinner）。
+	const pendingAssistantKind =
+		props.pendingHistoryMutation && (props.pendingHistoryMutation.kind === "edit" || props.pendingHistoryMutation.kind === "delete") && runContainsMessage(run, props.pendingHistoryMutation.messageId)
+			? props.pendingHistoryMutation.kind
+			: null;
 
 	return (
 		<article ref={rowRef} className={`turn-row mb-6 w-full min-w-0 max-w-full ${props.agentRunning && !isComplete ? "turn-row--running" : isComplete ? "turn-row--complete" : "turn-row--pending"} ${props.fresh ? "turn-row--fresh" : ""} ${props.topFresh ? "turn-row--top-fresh" : ""}`} data-message-id={run.id}>
@@ -483,6 +491,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 					duration={duration}
 					showTurnModel={showTurnModel}
 					turnModel={turnModel}
+					pendingKind={pendingAssistantKind}
 				/>
 			</div>
 		</article>
@@ -517,6 +526,8 @@ function turnRowPropsEqual(prev: TurnRowProps, next: TurnRowProps): boolean {
 		prev.autoCollapseAt === next.autoCollapseAt &&
 		// 收藏表变化才换引用（时间线 useMemo）：已收藏态变了星标要重绘，未变时保持记忆化。
 		prev.favoritedMessageKeys === next.favoritedMessageKeys &&
+		// pending 翻转必须重渲染：否则 spinner 永不出现（pending 是唯一会变的对象引用）。
+		prev.pendingHistoryMutation === next.pendingHistoryMutation &&
 		prev.onOpenFile === next.onOpenFile
 	);
 }

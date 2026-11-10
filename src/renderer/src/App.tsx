@@ -2185,7 +2185,7 @@ export function App() {
 	 * pi 历史消息改写：无 runtime 直接改 JSONL；有 runtime 先确认停止再改文件。
 	 * DSH 入口在 Injector 按 backend 隐藏。下次发送才重新激活 Agent。
 	 */
-	const { editMessage, deleteMessage, removeMessageImage, resendUserMessage, forkFromUserMessage, forkAtEntry, forkingMessageId } = useSessionHistoryMutations({
+	const { editMessage, deleteMessage, removeMessageImage, resendUserMessage, forkFromUserMessage, forkAtEntry, pendingHistoryMutation } = useSessionHistoryMutations({
 		currentSessionId,
 		getRuntimeTargetForSession,
 		getRuntimeTargetForAgent,
@@ -3020,7 +3020,7 @@ export function App() {
 			deleteMessage,
 			removeMessageImage,
 			forkFromUserMessage,
-			forkingMessageId,
+			pendingHistoryMutation,
 			openSidebarSessionById: async (projectId: string, sessionId: string) => {
 				await openSidebarSessionByIdWithTab(projectId, sessionId, "permanent");
 			},
@@ -3075,7 +3075,7 @@ export function App() {
 			ensureSessionForSend,
 			environmentDialog,
 			forkFromUserMessage,
-			forkingMessageId,
+			pendingHistoryMutation,
 			handleOpenLinkedFile,
 			insertQuickPrompt,
 			isLanWeb,
