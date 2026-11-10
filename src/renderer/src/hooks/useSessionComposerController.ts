@@ -2473,6 +2473,9 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		sessionId,
 		record,
 		runtime,
+		/** 模型目录路由用的项目：有 record 用 record.projectId，引导页/草稿用选中项目。
+		 *  远端项目靠它把 `sessions:list-models` 路由到那台主机上的 pi（不是本机目录）。 */
+		catalogProjectId: effectiveProjectId,
 		// 引导页优先回显本页手动切换，否则就是设置默认后端（不沿用上次选择）；
 		// 真实会话以 record 为准。
 		backend: isRemoteProjectSession ? "pi" : (record?.backend ?? (isGuideBootstrapSession ? guideBackend : undefined) ?? "pi"),

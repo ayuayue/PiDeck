@@ -33,6 +33,27 @@ test("start surface and file panel expose the two-way switch", () => {
 	assert.match(panel, /data-testid="remote-project-back"/);
 });
 
+test("远端项目的草稿期模型目录按项目路由：引导页/新建会话页展示服务器上的模型", () => {
+	// 真机：SSH 项目的新建会话页显示本机模型，发第一条消息后列表才变成服务器上的模型。
+	// 原因是 `sessions:list-models` 只看 sessionId（草稿没有会话），projectId 也是空的；
+	// 主进程于是回答本机目录。草稿已经有选中项目，目录必须按它路由。
+	const area = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
+	const picker = readFileSync("src/renderer/src/components/session/ComposerPickerHost.tsx", "utf8");
+	const preference = readFileSync("src/renderer/src/hooks/useSessionPreferenceState.ts", "utf8");
+	const bottomBar = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
+	// controller 暴露目录归属项目（record.projectId ?? bootstrapProjectId）。
+	assert.match(controller, /catalogProjectId: effectiveProjectId/);
+	// 选择器与底栏用同一个项目：两处展示不能各看一套目录。
+	assert.match(area, /fallbackProjectId=\{composer\.catalogProjectId\}/);
+	assert.match(area, /catalogProjectId=\{composer\.catalogProjectId\}/);
+	assert.match(picker, /fallbackProjectId: props\.fallbackProjectId/);
+	assert.match(preference, /projectId: record\?\.projectId \?\? options\.fallbackProjectId/);
+	assert.match(bottomBar, /projectId: props\.catalogProjectId/);
+	// 项目范围目录不得拿来判死全局 welcome 偏好（否则切到 SSH 项目会清掉本机或在别的主机上有效的选择）。
+	assert.match(preference, /catalogIsGlobal: catalogProjectId === undefined/);
+	assert.match(bottomBar, /catalogIsGlobal: props\.catalogProjectId === undefined/);
+});
+
 test("remote projects are locked to pi on both the composer and first send", () => {
 	// 输入页：强制 pi、隐藏后端切换器（changeBackend undefined）。
 	assert.match(controller, /const isRemoteProjectSession = composerProject !== undefined && isRemoteProject\(composerProject\)/);

@@ -102,6 +102,8 @@ export function useSessionPreferenceController(options: {
 	defaultThinkingLevel?: string;
 	/** pi settings.modelThinkingLevels 快照：引导页按当前模型反查每模型默认档位用。 */
 	modelThinkingLevels?: Record<string, string>;
+	/** 无 record 时目录归属的项目（引导页/草稿）：远端项目据此展示服务器上的模型目录。 */
+	fallbackProjectId?: string;
 	/** 应用成功后关闭选择器（选择器点击路径需要；快捷键路径幂等） */
 	onApplied: () => void;
 }): SessionPreferenceController {
@@ -123,6 +125,7 @@ export function useSessionPreferenceController(options: {
 		defaultModel: options.defaultModel,
 		defaultThinkingLevel: options.defaultThinkingLevel,
 		modelThinkingLevels: options.modelThinkingLevels,
+		fallbackProjectId: options.fallbackProjectId,
 	});
 	const { record, runtime, isDshSession, models, favoriteModels, favoritesLoaded, hiddenProviders, hiddenModels, modelPending, currentModel: resolvedLiveModel, thinkingLevels, currentThinkingLevel } = state;
 	// 与 Tab 栏「重启」共用 App.restartActiveAgent：置 restartingAgentId，
