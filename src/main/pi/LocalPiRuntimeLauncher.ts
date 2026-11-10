@@ -20,7 +20,9 @@ import { EventEmitter } from "node:events";
 import { killProcessTree } from "../git/gitProcess";
 import type { LocalPiRuntimeLaunchPlan, PiRuntimeExit, PiRuntimeLauncher, PiSpawnHandle } from "./PiSpawnHandle";
 
-/** Unix 上给进程组补 SIGKILL 的延迟：与抽取前 `PiProcess.stop()` 的 3s 逐字一致。 */
+/** Unix 上给进程组补 SIGKILL 的延迟：与抽取前 `PiProcess.stop()` 的 3s 逐字一致。
+ *  仍够用：实测 pi 有序退出（含 2s 扩展清理）约 2.1s，且它只清理退出后残留的组成员，
+ *  不参与 `stop()` 的等待，所以不需要跟着 Windows 宽限一起抬。 */
 export const LOCAL_PI_GROUP_KILL_DELAY_MS = 3_000;
 
 /**
@@ -28,8 +30,17 @@ export const LOCAL_PI_GROUP_KILL_DELAY_MS = 3_000;
  *
  * 必须短于删除会话前的 3s 退出等待（issue #364）：宽限到点就整树强杀，pi 在这之后
  * 立刻退出，删除流程仍能在预算内拿到写句柄。
+ *
+ * 为什么是 2500ms（2026-11 实测，pi 1.5.0/1.5.1 各三次）：
+ *  - 空闲会话关闭 stdin → 退出 10ms（两版同），日常停止完全不受影响；
+ *  - 挂一个 sleep 2s 的 `session_shutdown` 处理器 → 1.5.0 = 2054ms、1.5.1 = 2092ms，
+ *    即 pi 一直会 await 扩展清理，1.5.1 又加了 `settleCredentialWrites()`
+ *    （在途 OAuth token 刷新必须先落盘，否则下次 invalid_grant 强制重登，issue #11692）。
+ *    PiDeck 自己的 `pi-deck-subagents` 也有 session_shutdown 清理，旧值 1500ms
+ *    会在这种场景下把它半途强杀（留孤儿 venv/子进程）；2500ms 能盖住实测的 ~2.1s，
+ *    同时给 3s 预算留 500ms 做 taskkill + 进程退出的确认。
  */
-export const WINDOWS_PI_GRACEFUL_EXIT_MS = 1_500;
+export const WINDOWS_PI_GRACEFUL_EXIT_MS = 2_500;
 
 export type LocalPiRuntimeLauncherOptions = {
 	/** 可注入（测试）：默认 `node:child_process.spawn`。 */

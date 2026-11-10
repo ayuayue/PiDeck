@@ -26,8 +26,15 @@ const PI_PACKAGE = "@earendil-works/pi-coding-agent";
 /** 降级「在浏览器查看」的固定地址（GitHub blob 页，人读友好）。 */
 const PI_CHANGELOG_PAGE_URL = "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md";
 const FETCH_TIMEOUT_MS = 10_000;
-/** 拉取字节上限：正常 1.0.x 的 changelog 约 160KB，超过按异常处理（防内存与解析失控）。 */
-const MAX_FETCH_CHARS = 800_000;
+/**
+ * 拉取字符上限：超过按异常处理（防内存与解析失控），三个源会被逐个跳过，最终降级成「在浏览器查看」。
+ *
+ * 这个值是**增长型**门槛，不能按「当时的文件大小 + 一点余量」定：上游 changelog 只增不减，
+ * 每个 minor 约 +30KB（实测 1.5.0 = 682k、1.5.1 = 713k 字符）。旧值是 800k（注释写「约 160KB」，
+ * 早已失效），1.5.1 时只剩 11% 余量，两三个版本后会让「更新详情」对所有人静默失效。
+ * 2M 约等于当前规模的三倍、够跑几十个版本；真正送给渲染层的正文另由 MAX_RANGE_CHARS 截断。
+ */
+const MAX_FETCH_CHARS = 2_000_000;
 /** 交给渲染层的区间正文上限：区间可能横跨几十个大版本，截断在版本边界。 */
 const MAX_RANGE_CHARS = 60_000;
 /** 区间版本数上限（currentVersion 缺失时的兜底条数也用更小的值）。 */

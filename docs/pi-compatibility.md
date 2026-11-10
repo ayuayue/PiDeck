@@ -61,6 +61,25 @@
 - `pi mcp list` 对 `auth.provider` server（如 Radius）带 provider token 连接：MCP 页状态不再误报 `needs-auth`；
 - `cacheWarming: "idle"` 默认下空闲期保温行为（PiDeck 不经手，观察用量统计是否受影响）。
 
+### 1.5.1 本机实测与跟进（2026-11-09，pi 1.5.0 / 1.5.1 各三次）
+
+上面的矩阵是静态契约核对；这一节是**跑起来测到的数**以及据此做的改动。探针：`pi --mode rpc --no-session --no-extensions --no-tools`，隔离 `PI_CODING_AGENT_DIR` + `PI_OFFLINE=1`，发一次 `get_state` 后分别关 stdin / 发 SIGTERM，计到进程退出。
+
+| 场景 | 1.5.0 | 1.5.1 |
+|---|---|---|
+| 空闲会话 stdin EOF → 退出 | 10–13ms | 9–11ms |
+| 空闲会话 SIGTERM → 退出 | 8–10ms | 8–10ms |
+| 挂一个 sleep 2s 的 `session_shutdown` 处理器 → EOF → 退出 | **2054ms** | **2092ms** |
+
+由此得到的结论（都已落成代码改动）：
+
+- **「shutdown 等待 pending work」不是 1.5.1 才有的**：`AgentSessionRuntime.dispose()` 在 1.5.0 就 `await emitSessionShutdownEvent(...)`，1.5.1 只是追加 `await settleCredentialWrites()`（在途 OAuth token 必须先落盘，`invalid_grant` 修复的前提）。PiDeck 的 `WINDOWS_PI_GRACEFUL_EXIT_MS` 因此从 1500ms 提到 **2500ms**：旧值会让自带 `session_shutdown` 清理的 `pi-deck-subagents` 在半途被 `taskkill`，新值盖住实测 ~2.1s 并给删除会话前的 3s 预算（`stopAndWaitForExit`）留 500ms。Unix 的组 SIGKILL 仍为 3s（同一份实测装得下，且它只清理退出后残留的组成员，不参与 `stop()` 等待）。
+- **关闭语义的真实会话回归仍未做**：本节测的是 pi 进程自身；PiDeck 端到端（停止按钮 / 重启 pi / 删除会话）仍留在上面的待回归清单里。
+- **`cache_warm` 用量条目**：`type:"usage"` 在 1.5.0 就有，PiDeck 的 `sessionProcessEvents` 已把它当过程事件（带 `usageKind`），`cacheHitStats` 只统计 assistant 消息 → 空闲保温只影响费用总量，不影响缓存命中率口径，无需改代码。
+- **`pi mcp list` 的 `authProvider`**：PiDeck 渲染层（`McpResourceViews`/`McpTab`）本来就照实渲染 `needs-auth`（黄点 + 详情行），唯一被抑制的是「MCP OAuth 登录按钮」——那是 `auth.provider ≠ MCP OAuth` 的永久语义，不是版本兼容垫子。所以 1.5.1 之后少报 `needs-auth` 完全由 pi 侧数据生效，PiDeck 不需要版本门控（`piMcpCli.ts` 里 0.99.2 时代的降级注记已同步改写）。
+- **上游 `CHANGELOG.md` 只增不减（增长型门槛的教训）**：实测 1.5.0 = 682,079 字符、1.5.1 = 712,870（每 minor 约 +30k）。`PiChangelogService.MaxFetchChars` 原值 800k（注释写「约 160KB」，早已失效）只剩 11% 余量，再过两三个版本会让「更新详情」对所有人静默降级成「在浏览器查看」。已改为 2M 并加回归用例（用旧上限必红的尺寸）。**不要按「当时文件大小 + 一点余量」定这类阈值。**
+- **做运行时探针不要用 `npm pack` 解包目录**：包里没有 `node_modules`，加载 `.ts` 扩展会报 `Cannot find module 'jiti'` 并直接退出；要 `npm install --prefix <临时目录> @earendil-works/pi-coding-agent@<版本>`。
+
 ## 1.5.0 审计矩阵（2026-11-02 发布；npm 包完整 dist 与 1.4.0 逐文件 diff）
 
 核对方式：`npm pack @earendil-works/pi-coding-agent@1.4.0` 与 `@1.5.0`，解包后对契约面逐个 `cmp`（排除 `bundle/` 的 chunk 哈希噪声），有差异的再读源码确认语义。

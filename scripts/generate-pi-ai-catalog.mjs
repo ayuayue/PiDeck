@@ -2,7 +2,7 @@
 /**
  * 从开发期 @earendil-works/pi-ai 的 provider JSON 提取 PiDeck 所需模型目录。
  *
- * 运行时 PiDeck 只消费模型规格，不能为读取约 648KB catalog 而携带整套 pi-ai
+ * 运行时 PiDeck 只消费模型规格，不能为读取约 970KB catalog（pi-ai 1.5.1，2026-11）而携带整套 pi-ai
  * SDK 及其 HTTP/provider 依赖。该脚本在构建前生成可随应用分发的静态 artifact：
  *
  *   resources/pi-ai-catalog.json

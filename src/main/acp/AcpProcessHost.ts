@@ -62,8 +62,11 @@ export function spawnAcpProcess(tool: AcpToolConfig, cwd: string, deps: AcpProce
 }
 
 /**
- * 有序停止的宽限（issue #475）：与 pi 侧 `WINDOWS_PI_GRACEFUL_EXIT_MS` 同值。
- * 关 stdin 后 CLI 需要时间跑自己的 SessionEnd 钩子/清理，宽限到点仍未退出才整树强杀。
+ * 有序停止的宽限（issue #475）：关 stdin 后 CLI 需要时间跑自己的 SessionEnd 钩子/清理，
+ * 宽限到点仍未退出才整树强杀。
+ *
+ * 曾与 pi 侧 `WINDOWS_PI_GRACEFUL_EXIT_MS` 同值；pi 侧 2026-11 实测后提到 2500ms
+ * （pi 会 await 扩展 session_shutdown 与在途凭据写入），ACP CLI 没有对应实测，维持 1500ms。
  */
 export const ACP_GRACEFUL_EXIT_MS = 1_500;
 

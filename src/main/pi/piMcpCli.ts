@@ -11,6 +11,10 @@
  *   （不弹 toast、不代开浏览器）。stdout 按行增量解析，避免累积半截文本重复命中。
  * - 0.99.2 的 CLI 连接路径没有 providerToken 回调：`auth.provider` 服务器的认证
  *   结论不代表会话内结果，调用方需据此降级（见 7.4）。
+ *   **pi 1.5.1 起已修**（`pi mcp list` 会带上 provider 的 /login token，必要时自动刷新；
+ *   `pi mcp login/logout` 也改成指向 `/login`）。因此 UI 只保留一条与版本无关的语义判断：
+ *   `auth.provider` 服务器的登录入口不是 MCP OAuth（不显示 OAuth 登录按钮），状态照实渲染——
+ *   旧 pi 误报的 needs-auth 会自己显成黄点，不需要 PiDeck 再猜一遍。
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
