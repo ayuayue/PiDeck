@@ -2,7 +2,7 @@
  * 提示词模板的参数解析与占位替换——**逐条照搬 pi 的实现**。
  *
  * 来源：`@earendil-works/pi-coding-agent/dist/core/prompt-templates.js` 的
- * `parseCommandArgs` / `substituteArgs`。为什么不自己发明一套：模板作者写 `$1` `$@`
+ * `parseCommandArgs` / `substituteArgs`（引号规则对齐 pi 1.5.1，#11861）。为什么不自己发明一套：模板作者写 `$1` `$@`
  * 时用的是 pi 的语义，PiDeck 本地展开（为了保住模板名 → chip）必须产出**一样的正文**，
  * 否则同一个模板在「PiDeck 展开」和「pi 展开」两条路上给出不同 prompt。
  *
@@ -19,35 +19,51 @@
  * 2. 位置越界取空串，不抛错。
  */
 
-/** bash 风格切词：支持单/双引号，引号内的空格不切；`""` 这种空引号算一个空参数。 */
+/** bash 风格切词：支持单/双引号，引号内的空格不切；`""` 这种空引号算一个空参数。
+ * 引号规则对齐 pi 1.5.1（#11861）：引号只在参数开头开启（词中擇号如 `doesn't` 保持字面）；
+ * 闭合引号内 `\"` / `\'` 产出字面引号；未闭合引号把引号字符回读为文本后重解析。 */
 export function parseCommandArgs(argsString: string): string[] {
 	const args: string[] = [];
 	let current = "";
 	// 记录「已经开始的 token」：`""` 这种引号空串也要产出一个参数
 	let hasToken = false;
 	let inQuote: string | null = null;
+	// 开引号起点：未闭合时从这里把引号当文本回读（引号只在参数开头开启，开启时 current 必为空）
+	let quoteStart = 0;
 	for (let i = 0; i < argsString.length; i += 1) {
 		const char = argsString[i] as string;
 		if (inQuote) {
-			if (char === inQuote) inQuote = null;
-			else current += char;
-			continue;
-		}
-		if (char === '"' || char === "'") {
+			if (char === "\\" && argsString[i + 1] === inQuote) {
+				// 开引号字符前的反斜杠让它成为字面文本："say \"hi\"" → say "hi"
+				current += inQuote;
+				i += 1;
+			} else if (char === inQuote) {
+				inQuote = null;
+			} else {
+				current += char;
+			}
+		} else if ((char === '"' || char === "'") && !hasToken) {
+			// 引号只在参数开头开启，词中擇号（doesn't）保持字面
 			inQuote = char;
+			quoteStart = i;
 			hasToken = true;
-			continue;
-		}
-		if (/\s/.test(char)) {
+		} else if (/\s/.test(char)) {
 			if (hasToken) {
 				args.push(current);
 				current = "";
 				hasToken = false;
 			}
-			continue;
+		} else {
+			current += char;
+			hasToken = true;
 		}
-		current += char;
-		hasToken = true;
+		// 注意：上面各分支不能用 continue 提前退出——未闭合引号的回读检查必须每轮都跑。
+		if (inQuote && i === argsString.length - 1) {
+			// 未闭合引号：引号字符当文本，从引号后按普通规则重解析
+			inQuote = null;
+			current = argsString[quoteStart] as string;
+			i = quoteStart;
+		}
 	}
 	if (hasToken) args.push(current);
 	return args;

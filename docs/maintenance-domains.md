@@ -256,7 +256,7 @@
 `，旧正则直接匹配失败，`---
 description: …
 ---` 就漏进消息（2026-10 实测）。「一键插入全文」走 `stripMarkdownFrontmatter`，保留文件原换行风格（CRLF 还是 CRLF），只额外容忍 BOM 与结束标记尾空格。
-- **模板参数替换照抄 pi**：`utils/templateArgs.ts` 逐条移植 pi 的 `parseCommandArgs` / `substituteArgs`（`$1` `$@` `$ARGUMENTS` `${N:-默认}` `${@:-默认}` `${@:N}` `${@:N:L}`；bash 切词支持引号；只替换模板串、参数内容不二次展开）。pi 的语义是「参数只进占位符，模板没占位符就丢弃用户输入」，PiDeck 保留一层兜底：**模板没有占位符时把用户输入追加在块后**（绝不丢字），有占位符时按 pi 把参数放进正文且不再追加。参数区间以「下一个命令 / 引用块起点 / 消息末尾」为界，不会吞掉相邻命令或引用块。
+- **模板参数替换照抄 pi**：`utils/templateArgs.ts` 逐条移植 pi 的 `parseCommandArgs` / `substituteArgs`（`$1` `$@` `$ARGUMENTS` `${N:-默认}` `${@:-默认}` `${@:N}` `${@:N:L}`；bash 切词支持引号；只替换模板串、参数内容不二次展开。引号语义随 pi 1.5.1（#11861）：引号只在参数开头开启、词中擇号字面、闭合引号内 `\"`/`\'` 转义、未闭合引号回读重解析——升级 pi 后必须重跑对拍）。pi 的语义是「参数只进占位符，模板没占位符就丢弃用户输入」，PiDeck 保留一层兜底：**模板没有占位符时把用户输入追加在块后**（绝不丢字），有占位符时按 pi 把参数放进正文且不再追加。参数区间以「下一个命令 / 引用块起点 / 消息末尾」为界，不会吞掉相邻命令或引用块。
 - **两个后端的斜杠语义不同，展开责任也不同**（2026-10-20 调研确认）：
   - **pi**：`prompt()` 里 `_tryExecuteExtensionCommand`（扩展命令）→ `_expandSkillCommand`（`/skill:名`）→ `expandPromptTemplate`（`/模板名`，要求消息以 `/` 开头）。pi **会自己展开模板**，但只存正文、不留名字。
   - **DSH**：只有一条 slash 桥（`src/main/dsh/hostEntry.ts` 生成的 `pideck-slash-bridge.js`，挂 `agent/pre-step`）：消息以 `/` 开头 → `ctx.commands.execute`；命中命令则 reject（消息不进模型），未命中则原样当普通消息。**DSH 没有任何模板展开，也没有命令元数据字段**（用户消息只有 content 文本块 + `source.kind`）。所以 DSH 上 `/模板名` 的展开**只能由 PiDeck 做**——否则命令要么被 host 执行、要么以字面量喂给模型。
