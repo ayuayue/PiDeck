@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "version": "1.0.3",
-  "bundleSha256": "cc452427286c492bd81c353db3859cf8c6a2de2679a66af8676799a994c0cf0b",
+  "version": "1.0.16",
+  "bundleSha256": "e833b0f38e9808fd198fba78affaf5db78f0d7463ebfe0656b9529dd25af6cbf",
   "fileCount": 17,
   "files": [
     {
       "name": "pi-deck-ask-question.ts",
-      "sha256": "20bd2db30fbea3efeb13a31d4a5f57ce901c9f37db113953a31a8d2e50578e44",
-      "bytes": 15141
+      "sha256": "d386cd2752f680879fb14862aef596cda82f48f8ec9589eb7fdf533b1e80f406",
+      "bytes": 69774
     },
     {
       "name": "pi-deck-goal-mode.ts",
