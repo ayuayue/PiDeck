@@ -16,6 +16,18 @@ const CRLF_DEFAULT = "<template>one</template>\r\n<template>two</template>\r\n";
 const sha256Revision = (text) => "sha256:" + createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex");
 const digestStub = { subtle: { digest: async (_algorithm, bytes) => createHash("sha256").update(Buffer.from(bytes)).digest() } };
 
+/**
+ * 渲染层入口在模块顶层就要问宿主：desktopApi 读 `window.piDesktop` / `location.protocol`，
+ * browserApi 再读 `location.search` 与 `localStorage`。这里只验证编辑器保存语义，给一个
+ * 「非 Web、非 Electron」的最小页面即可（protocol 不是 http、userAgent 不含 `Electron/`，
+ * 于是 isLanWeb 与 isElectronRuntime 都为 false，不会掉进 missingElectronPreload）。
+ */
+const HOST_PAGE = {
+	location: { protocol: "file:", search: "" },
+	localStorage: { getItem: () => null, setItem() {} },
+};
+const HOST_NAVIGATOR = { userAgent: "pideck-test" };
+
 /** 执行真实编辑器的 effects/listener，以真实 CM state 处理文本，不依赖浏览器布局。 */
 function editorHarness(initialProps) {
 	const host = quickMessageHookHost();
@@ -40,6 +52,10 @@ function editorHarness(initialProps) {
 		destroy() {}
 	}
 	const { CodeMirrorEditor } = loadTsCommonJs("src/renderer/src/components/app/CodeMirrorEditor.tsx", {
+		globals: {
+			window: { ...HOST_PAGE, addEventListener() {}, removeEventListener() {} },
+			navigator: HOST_NAVIGATOR,
+		},
 		stubs: {
 			react: { ...host.react, memo: (component) => component },
 			"@codemirror/view": { ...cmView, EditorView },
@@ -99,7 +115,9 @@ function viewerHarness(initialProps = {}) {
 				removeEventListener: (type, callback) => {
 					if (listeners.get(type) === callback) listeners.delete(type);
 				},
+				...HOST_PAGE,
 			},
+			navigator: HOST_NAVIGATOR,
 			setTimeout: (callback) => {
 				const id = ++timerId;
 				timers.set(id, callback);
