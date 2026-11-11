@@ -2,9 +2,9 @@
  * RemotePiConfigBackend (plan §6.4.1, Batch A): the only main-side code that talks to the helper config scope.
  *
  * What it promises:
- * - one allowlisted file per call (models/settings/trust/mcp; never auth), addressed only by a verified host id. The renderer never
- *   supplies a path, and this module never touches the local ConfigManager, so a remote failure cannot fall
- *   back to local files or local credentials;
+ * - one allowlisted file per call (models/settings/trust/mcp) plus a derived, value-free auth view (`readAuth`),
+ *   addressed only by a verified host id. The renderer never supplies a path, and this module never touches the local
+ *   ConfigManager, so a remote failure cannot fall back to local files or local credentials;
  * - every helper reply is re-validated here as untrusted data: version/sha256 shape, bounded data, a recursive
  *   secret scan proving that no plaintext sits at a secret position, and a secrets list recomputed from the
  *   sanitized data. A reply that fails re-validation is REMOTE_CONFIG_FILE_INVALID, never passed through;
@@ -17,8 +17,8 @@
  * inject a fake port; no method in this module starts a process or reads a file.
  */
 
-import { REMOTE_CONFIG_CODES, isPiConfigFileKey, type PiConfigFileKey, type RemotePiConfigSecretEntry, type RemotePiConfigSnapshot, type RemotePiConfigWriteReceipt } from "../../shared/piConfig";
-import { REMOTE_CONFIG_MAX_DEPTH, REMOTE_CONFIG_MAX_FILE_BYTES, REMOTE_CONFIG_MAX_NODES, REMOTE_CONFIG_SECRET_KEY_PATTERN } from "../remote/RemoteHelperContract";
+import { REMOTE_CONFIG_CODES, isPiConfigFileKey, type PiConfigFileKey, type RemotePiAuthProvider, type RemotePiAuthSnapshot, type RemotePiConfigSecretEntry, type RemotePiConfigSnapshot, type RemotePiConfigWriteReceipt } from "../../shared/piConfig";
+import { REMOTE_CONFIG_AUTH_PROVIDER_PATTERN, REMOTE_CONFIG_MAX_AUTH_PROVIDERS, REMOTE_CONFIG_MAX_DEPTH, REMOTE_CONFIG_MAX_FILE_BYTES, REMOTE_CONFIG_MAX_NODES, REMOTE_CONFIG_SECRET_KEY_PATTERN } from "../remote/RemoteHelperContract";
 import { PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
 
 export type RemotePiConfigTransportPort = {
@@ -28,10 +28,13 @@ export type RemotePiConfigTransportPort = {
 
 export type RemotePiConfigBackend = {
 	read(input: { hostId: string; file: PiConfigFileKey }): Promise<RemotePiConfigSnapshot>;
+	/** Derived, value-free view of the host's auth.json (never a document and never a credential). */
+	readAuth(input: { hostId: string }): Promise<RemotePiAuthSnapshot>;
 	patch(input: { hostId: string; file: PiConfigFileKey; expectedVersion: string; patch: Record<string, unknown> }): Promise<RemotePiConfigWriteReceipt>;
 };
 
 const HELPER_METHOD_READ = "config.read";
+const HELPER_METHOD_READ_AUTH = "config.readAuth";
 const HELPER_METHOD_PATCH = "config.patch";
 const HEX64 = /^[0-9a-f]{64}$/;
 
@@ -135,6 +138,38 @@ function validateSnapshot(file: PiConfigFileKey, hostId: string, result: unknown
 
 const MAX_PATCH_NODES = REMOTE_CONFIG_MAX_NODES;
 
+/** Credential types the helper may report; anything else is a reply this layer will not interpret. */
+const AUTH_TYPES: ReadonlySet<string> = new Set(["api_key", "oauth", "unsupported"]);
+
+/**
+ * Re-validate a helper auth answer as untrusted input: bounded list, known types, provider ids matching the shared
+ * pattern, unique names, and exactly the three documented fields per entry. An entry carrying anything else (a
+ * value, a path, extra metadata) is a reply that fails here rather than reaching the renderer — the shape itself is
+ * the promise that no credential can travel.
+ */
+function validateAuthSnapshot(hostId: string, result: unknown): RemotePiAuthSnapshot {
+	if (!isRecord(result)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+	const version = result.version;
+	const sha256 = result.sha256;
+	if (typeof version !== "string" || !HEX64.test(version) || typeof sha256 !== "string" || !HEX64.test(sha256) || version !== sha256) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+	const supplied = result.providers;
+	if (!Array.isArray(supplied) || supplied.length > REMOTE_CONFIG_MAX_AUTH_PROVIDERS) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+	const providers: RemotePiAuthProvider[] = [];
+	const seen = new Set<string>();
+	for (const entry of supplied) {
+		if (!isRecord(entry) || Object.keys(entry).length !== 3) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+		const provider = entry.provider;
+		const type = entry.type;
+		const configured = entry.configured;
+		if (typeof provider !== "string" || !REMOTE_CONFIG_AUTH_PROVIDER_PATTERN.test(provider) || seen.has(provider)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+		if (typeof type !== "string" || !AUTH_TYPES.has(type)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+		if (typeof configured !== "boolean") throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+		seen.add(provider);
+		providers.push({ provider, type: type as RemotePiAuthProvider["type"], configured });
+	}
+	return { kind: "remote-auth", hostId, version, sha256, providers };
+}
+
 /** Main-side patch bounds checked before the request; the helper repeats them as its own literal set. */
 function validatePatch(patch: Record<string, unknown>): void {
 	let nodes = 0;
@@ -175,6 +210,9 @@ export function createRemotePiConfigBackend(transport: RemotePiConfigTransportPo
 		async read(input) {
 			if (!isPiConfigFileKey(input.file)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
 			return validateSnapshot(input.file, input.hostId, await call(input.hostId, HELPER_METHOD_READ, { file: input.file }));
+		},
+		async readAuth(input) {
+			return validateAuthSnapshot(input.hostId, await call(input.hostId, HELPER_METHOD_READ_AUTH, {}));
 		},
 		async patch(input) {
 			if (!isPiConfigFileKey(input.file)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);

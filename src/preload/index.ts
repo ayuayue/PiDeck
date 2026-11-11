@@ -1568,12 +1568,14 @@ const api = {
 				error?: string;
 				remote?: import("../shared/piConfig").RemotePiConfigWriteReceipt;
 			}>,
-		/** 源文件页统一读取：缺省 options = 本机；wsl 回原文（+ 诊断），ssh 只回脱敏快照。 */
+		/** 源文件页统一读取：缺省 options = 本机；wsl 回原文（+ 诊断），ssh 只回脱敏快照；auth.json 的 ssh 分支回派生视图（raw 为空）。 */
 		getRaw: (fileName: string, options?: import("../shared/piConfig").PiConfigReadOptions) =>
 			ipcRenderer.invoke(ipcChannels.configGetRaw, fileName, options) as Promise<{
 				raw: string;
 				diagnostic?: ConfigFileDiagnostic;
 				remote?: import("../shared/piConfig").RemotePiConfigSnapshot;
+				/* 仅 ssh + auth.json：provider / 凭据类型 / 已配置，没有任何凭据值或原文 */
+				remoteAuth?: import("../shared/piConfig").RemotePiAuthSnapshot;
 			}>,
 		/** 源文件级保存：本机/WSL 整文件原文；ssh 只认 expectedVersion+patch（body 被忽略）。 */
 		saveRaw: (fileName: string, rawJson: string, options?: import("../shared/piConfig").PiConfigWriteOptions) =>

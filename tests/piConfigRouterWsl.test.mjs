@@ -61,6 +61,10 @@ function harness(options = {}) {
 			remoteCalls.push(["read", input]);
 			return { kind: "remote", hostId: input.hostId, file: input.file, version: VERSION, sha256: VERSION, data: { providers: {} }, secrets: [] };
 		},
+		readAuth: async (input) => {
+			remoteCalls.push(["read-auth", input]);
+			return { kind: "remote-auth", hostId: input.hostId, version: VERSION, sha256: VERSION, providers: [{ provider: "openai", type: "api_key", configured: true }] };
+		},
 		patch: async (input) => {
 			remoteCalls.push(["patch", input]);
 			return { kind: "remote", hostId: input.hostId, file: input.file, version: VERSION, sha256: VERSION };
@@ -175,8 +179,11 @@ test("源文件级读写按 target 路由：本机回原文、wsl 落发行版�
 	await ssh.router.writeRaw("mcp", "ignored body", { target: { kind: "ssh", hostId: HOST }, expectedVersion: VERSION, patch: { mcpServers: {} } });
 	assert.deepEqual(JSON.parse(JSON.stringify(ssh.remoteCalls[1])), ["patch", { hostId: HOST, file: "mcp", expectedVersion: VERSION, patch: { mcpServers: {} } }]);
 	assert.equal(await rejectionCode(() => ssh.router.writeRaw("mcp", "{}", { target: { kind: "ssh", hostId: HOST } })), shared.REMOTE_CONFIG_CODES.versionConflict);
-	// auth.json 是 ssh 结构性不可达的文件：连传输层都不该被触达。
-	assert.equal(await rejectionCode(() => ssh.router.readRaw("auth", { target: { kind: "ssh", hostId: HOST } })), shared.REMOTE_CONFIG_CODES.targetInvalid);
+	// ssh 的 auth.json 只能读派生视图；写入依旧被拒（patch 白名单不含 auth）。
+	const sshAuth = await ssh.router.readRaw("auth", { target: { kind: "ssh", hostId: HOST } });
+	assert.equal(sshAuth.kind, "remote-auth");
+	assert.deepEqual(JSON.parse(JSON.stringify(ssh.remoteCalls[2])), ["read-auth", { hostId: HOST }]);
+	assert.equal(await rejectionCode(() => ssh.router.writeRaw("auth", "{}", { target: { kind: "ssh", hostId: HOST }, expectedVersion: VERSION, patch: {} })), shared.REMOTE_CONFIG_CODES.targetInvalid);
 	assert.deepEqual(ssh.localCalls, []);
 });
 

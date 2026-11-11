@@ -502,8 +502,12 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	});
 	// 非本机目标的回程 DTO：local 原样返回；wsl 带来源（档案/发行版/用户），ssh 带脱敏快照（不含明文密钥）。
 	const configReadDto = (routed: PiConfigReadRoute<unknown>) => (routed.kind === "local" ? routed.value : routed.kind === "wsl" ? { raw: routed.raw, parsed: routed.data, wsl: routed } : { raw: JSON.stringify(routed.data, null, 2), parsed: routed.data, remote: routed });
-	/** 源文件级读取的回程：本机/wsl 直接给原文（+ 诊断），ssh 只有脱敏快照。 */
-	const configRawReadDto = (routed: PiConfigRawReadRoute) => (routed.kind === "remote" ? { raw: JSON.stringify(routed.data, null, 2), remote: routed } : routed.value);
+	/** 源文件级读取的回程：本机/wsl 直接给原文（+ 诊断），ssh 给脱敏快照；auth.json 的 ssh 分支只有派生视图（无 raw）。 */
+	const configRawReadDto = (routed: PiConfigRawReadRoute) => {
+		if (routed.kind === "remote-auth") return { raw: "", remoteAuth: routed };
+		if (routed.kind === "remote") return { raw: JSON.stringify(routed.data, null, 2), remote: routed };
+		return routed.value;
+	};
 	/** 非本机写回执：ssh 只带 version，wsl 只带档案 id；都只回「写成功」，本机缓存由调用方决定是否失效。 */
 	const configWriteDto = (routed: PiConfigWriteRoute, file: string) => {
 		if (routed.kind === "local") return routed.value;
@@ -2059,7 +2063,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	// ── 配置管理 ─────────────────────────────────────────────────────
 
 	ipcMain.handle(ipcChannels.configGetModels, async (_event, options?: unknown) => configReadDto(await piConfigRouter.readModels(options)));
-	// 源文件页的统一读取（本机/ WSL 原文 + 诊断；ssh 只回脱敏快照）：fileName 只认五个 pi 配置文件名。
+	// 源文件页的统一读取（本机/ WSL 原文 + 诊断；ssh 脱敏快照，auth.json 只回派生视图）：fileName 只认五个 pi 配置文件名。
 	ipcMain.handle(ipcChannels.configGetRaw, async (_event, fileName: unknown, options?: unknown) => {
 		const file = piConfigFileKeyFromName(fileName);
 		if (!file) return { raw: "", diagnostic: undefined, unsupported: true };

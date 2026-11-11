@@ -24,6 +24,14 @@ export type PiConfigFileKey = (typeof PI_CONFIG_FILES)[number];
 export const WSL_PI_CONFIG_FILES = ["models", "settings", "trust", "mcp", "auth"] as const;
 export type WslPiConfigFileKey = (typeof WSL_PI_CONFIG_FILES)[number];
 
+/**
+ * The ssh helper's **read** allowlist. auth.json only appears here: the helper answers a derived provider list
+ * (name / credential type / configured) and never a value or the raw document, so the credential itself stays on
+ * the host. `PI_CONFIG_FILES` remains the patch allowlist and stays at four files.
+ */
+export const SSH_PI_CONFIG_READ_FILES = ["models", "settings", "trust", "mcp", "auth"] as const;
+export type SshPiConfigReadFileKey = (typeof SSH_PI_CONFIG_READ_FILES)[number];
+
 /** File key → the file name pi actually reads in `~/.pi/agent`. One table for the renderer source-file page. */
 export const PI_CONFIG_FILE_NAMES: Record<WslPiConfigFileKey, string> = {
 	models: "models.json",
@@ -61,11 +69,19 @@ export function piConfigFileKeyFromName(name: unknown): WslPiConfigFileKey | und
 export type PiConfigTarget = { kind: "local" } | { kind: "ssh"; hostId: string } | { kind: "wsl"; hostId: string };
 
 /**
- * Which files a target can manage. The ssh helper's allowlist excludes auth.json; local and WSL read the real
- * directory (Windows HOME / distribution HOME) and therefore cover every file pi reads.
+ * Which files a target can **write**. The ssh helper's patch allowlist excludes auth.json; local and WSL write
+ * the real directory (Windows HOME / distribution HOME) and therefore cover every file pi reads.
  */
 export function piConfigFilesForTarget(target: PiConfigTarget): readonly WslPiConfigFileKey[] {
 	return target.kind === "ssh" ? PI_CONFIG_FILES : WSL_PI_CONFIG_FILES;
+}
+
+/**
+ * Which files a target can **read**. ssh additionally answers auth.json, but only as a derived, value-free view
+ * ({@link RemotePiAuthSnapshot}): the credential file is never returned, patched or addressed by path.
+ */
+export function piConfigReadFilesForTarget(target: PiConfigTarget): readonly WslPiConfigFileKey[] {
+	return target.kind === "ssh" ? SSH_PI_CONFIG_READ_FILES : WSL_PI_CONFIG_FILES;
 }
 
 /**
@@ -176,6 +192,26 @@ export function isRemotePiConfigSnapshot(value: unknown): value is RemotePiConfi
 /** true only for a remote write receipt (main returns {valid:true, remote:<receipt>}). */
 export function isRemotePiConfigWriteReceipt(value: unknown): value is RemotePiConfigWriteReceipt {
 	return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "remote" && typeof (value as { version?: unknown }).version === "string";
+}
+
+/**
+ * One provider in a remote auth view. `type` is the credential type pi stored (an unknown type is reported as
+ * `unsupported` rather than guessed); `configured` is the only thing said about the secret itself — there is no
+ * field that could carry its value, and none ever crosses the boundary.
+ */
+export type RemotePiAuthProvider = { provider: string; type: "api_key" | "oauth" | "unsupported"; configured: boolean };
+
+/**
+ * Read-only view of one host's auth.json. This is deliberately not a {@link RemotePiConfigSnapshot}: there is no
+ * `data`, no secret positions and no version to patch against, because the credential file itself is unreachable
+ * over the helper. The version/sha256 still identify the bytes the list was derived from, so the UI can say "this
+ * is what the host has right now" and refresh honestly.
+ */
+export type RemotePiAuthSnapshot = { kind: "remote-auth"; hostId: string; version: string; sha256: string; providers: readonly RemotePiAuthProvider[] };
+
+/** true only for the derived remote auth view (never inferred from a config snapshot or local auth data). */
+export function isRemotePiAuthSnapshot(value: unknown): value is RemotePiAuthSnapshot {
+	return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "remote-auth" && Array.isArray((value as { providers?: unknown }).providers);
 }
 
 /** Extract the stable REMOTE_CONFIG_* code from a rejected IPC call (Electron prefixes its message). */
