@@ -227,7 +227,6 @@ const RECOVERABLE_SIGNAL = /overload(?:ed)?|server_is_overloaded|servers? (?:are
 
 test("真实会话语料：扩展改写的内容在两个运行时都必须可重试", () => {
 	const errors = [...new Set([...CORPUS_FIXTURE, ...readSessionErrors()])];
-	if (errors.length === 0) return; // fixture 缺失时退回「无本机语料即跳过」
 	let rewrittenCount = 0;
 	const missed = [];
 	for (const raw of errors) {
