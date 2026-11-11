@@ -61,7 +61,7 @@ test("streamdown chat prose density overrides official space-y-4 / heading scale
 	// 2026 排版优化（beui 流式观感）：段距 0.55em→0.7em、行高 1.5→1.6、列表/标题留白微增。
 	assert.match(streamdownChrome, /margin-block-end:\s*0\.7em/);
 	assert.match(streamdownChrome, /\.markdown-body :is\(\.space-y-4\) > \[data-streamdown\^="heading-"\]/);
-	// 标题刻度压平（ZCode：h1 只 +4/h2 只 +2，h3 起同字号靠字重分层，2026-10 Phase 7）
+	// 标题刻度压平（h1 只 +4/h2 只 +2，h3 起同字号靠字重分层，2026-10 Phase 7）
 	assert.match(streamdownChrome, /\[data-streamdown="heading-1"\][\s\S]*?font-size:\s*1\.3em/);
 	assert.match(streamdownChrome, /\[data-streamdown="heading-2"\][\s\S]*?font-size:\s*1\.15em/);
 	assert.match(streamdownChrome, /list-style-position:\s*outside/);

@@ -366,7 +366,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 
 				{/* 执行过程折叠栏：中间内容（思考/工具/中间回答）统一收进容器，
 				    由 stepsVisible 整体控制显隐；最终回答在容器外常驻。
-				    学 Proma ProcessBlockGroup：CollapsibleContent 自带高度过渡动画，
+				    CollapsibleContent 自带高度过渡动画（scrollHeight 渐变），
 				    折叠/展开是 scrollHeight 高度渐变而非 display:none 突变。 */}
 				{showProcessToggle && (
 					<Collapsible
@@ -467,7 +467,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 				))}
 
 				{/* 本轮产物：修改的文件 chip 行（左缩进对齐正文列，虚线分隔）。
-				    位置对齐 Proma：正文之后、操作栏之前——「改了哪些文件」属于本轮结论，
+				    位置：正文之后、操作栏之前——「改了哪些文件」属于本轮结论，
 				    而非下一轮的输入（旧实现在 composer 上方的常驻卡片里，与轮次脱节）。
 				    流式中不渲染：文件列表还在长，逐条冒出来会让正文区持续抖动。 */}
 				<TurnFileChanges run={run} streaming={isRunLive || Boolean(props.isStreaming)} onOpenFile={props.onOpenFile} onDiffFile={props.onDiffFile} />

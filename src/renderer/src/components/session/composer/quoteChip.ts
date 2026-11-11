@@ -147,7 +147,7 @@ export function expandQuoteTokens(text: string, resolve: (id: string) => QuoteSn
 }
 
 /**
- * 快照文本 → 自包含引用块（发送/存储形态，对齐 Proma `<quoted_context>` 方案）：
+ * 快照文本 → 自包含引用块（发送/存储形态）：
  *
  *   <quoted_context label="…" message_id="…">\n引用全文\n</quoted_context>
  *

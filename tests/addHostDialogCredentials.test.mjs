@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-// 远程配置面板（参照 ZCode 的结构）：类型切换 + 实时预览 + 表单 + SSH config 导入。
+// 远程配置面板：类型切换 + 实时预览 + 表单 + SSH config 导入。
 // 关键契约不变：只提供底层真能执行的选项。密码在 OpenSSH 下有 askpass 通道，因此现在可选，
 // 但密钥/口令之外的东西一律不落盘：表单只把 authMethod 交给主进程，密码随本次连接进入内存。
 

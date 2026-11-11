@@ -1,7 +1,7 @@
 /**
  * Provider 用量展示纯函数（无 React）：圆球面板与模型选择器展开区共用的
- * 格式化、状态档位与相对时间。视觉规则学自 cc-switch UsageFooter/TierBadge：
- * - 百分比档位：≥90% 红、≥70% 橙、其余绿（utilizationColor 同款阈值）；
+ * 格式化、状态档位与相对时间。视觉规则：
+ * - 百分比档位：≥90% 红、≥70% 橙、其余绿；
  * - 余额/剩余量：≤0 红、不足总额 10% 橙、其余绿；
  * - 查询失败/无可用数值 → null（所有消费端统一「不渲染」，避免报错噪音）。
  */
@@ -9,10 +9,10 @@ import type { TranslationKey } from "../i18n";
 import type { I18nParams } from "../../../shared/types";
 import type { ProviderUsageResult } from "../../../shared/types/providerUsage";
 
-/** 用量状态档位（cc-switch utilizationColor 语义）。 */
+/** 用量状态档位（ok / low / empty / neutral）。 */
 export type UsageTone = "ok" | "low" | "empty" | "neutral";
 
-/** tone → 文字色（cc-switch text-success/orange-500/red-500 同款，含暗色变体）。 */
+/** tone → 文字色（success/warning/danger 语义色，含暗色变体）。 */
 export const USAGE_TONE_TEXT_CLASS: Record<UsageTone, string> = {
 	ok: "text-success",
 	low: "text-warning dark:text-orange-400",
@@ -101,7 +101,7 @@ export function usagePercent(result: ProviderUsageResult): number | null {
 }
 
 /**
- * 展示档位（cc-switch 语义）：
+ * 展示档位：
  * - 百分比可得 → ≥90 empty（红）/ ≥70 low（橙）/ 其余 ok（绿）；
  * - balance → 余额 ≤0 empty；credits 剩余 ≤0 empty、不足总额 10% low、其余 ok；
  * - 无任何可判定数值 → neutral（灰）。
@@ -308,7 +308,7 @@ export function usageBadgePrimarySegment(result: ProviderUsageResult, translate:
 }
 
 /**
- * 相对更新时间（cc-switch inline 的 Clock 行）：刚刚 / n 分钟前 / n 小时前 / n 天前。
+ * 相对更新时间（inline 行的 Clock 文案）：刚刚 / n 分钟前 / n 小时前 / n 天前。
  * 超过 30 天或时钟异常回退短日期（避免出现「9999 天前」这类荒谬值）。
  */
 export function formatRelativeTime(timestamp: number, now: number = Date.now()): string {

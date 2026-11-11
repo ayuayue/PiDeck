@@ -453,7 +453,7 @@ test("保存到被文件占用的 configDir 返回结构化错误而非抛异常
 	}
 });
 
-// ── 声明式模板构建（general / newapi，学 cc-switch 预设模板） ─────────────
+// ── 声明式模板构建（general / newapi，预设模板） ────────────────────────
 
 test("通用模板：默认复用供应商端点与密钥，覆盖字段优先生效", () => {
 	const endpoint = { baseUrl: "https://api.deepseek.com/v1", apiKey: "sk-provider" };

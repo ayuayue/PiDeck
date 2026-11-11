@@ -1,10 +1,10 @@
 /**
- * 用量查询配置弹窗（学 cc-switch UsageScriptModal：per-provider 开关 + 预设模板 + 最少字段）。
+ * 用量查询配置弹窗（per-provider 开关 + 预设模板 + 最少字段）。
  *
- * 版式对齐 cc-switch：
+ * 版式：
  * - 顶部「启用用量查询」开关（命中内置模板默认开，否则默认关）；
  * - 「预设模板」pills：识别到内置模板时只显示该类别（已内置 xxx）＋ 通用模板 ＋ New API；
- *   未识别时只显示 通用模板 ＋ New API（不照抄 cc-switch 全量五类——用户只需要相关的）；
+ *   未识别时只显示 通用模板 ＋ New API（不做全量五类——用户只需要相关的）；
  * - 模板表单区：内置/套餐/官方订阅 = 一行说明，无字段；通用模板 = API Key/请求地址（可选，
  *   留空自动用供应商配置）；New API = 请求地址 + 访问令牌 + 用户 ID；
  * - 超时（秒，默认 10）与自动查询间隔（分钟，默认 5，0 = 不自动）两列；
@@ -71,7 +71,7 @@ const DECLARATIVE_TEMPLATE_CATEGORY: Record<string, UsageProbeTemplateCategory> 
 /** 「无模板」哨兵：供应商既不适用通用也不适用 New API 时，明确不选任何预设模板。 */
 const NONE_TEMPLATE = "none";
 
-/** cc-switch pill 同款样式：选中实心、未选描边灰字。
+/** pill 样式：选中实心、未选描边灰字。
  * 文字色必须用 --color-text-inverse（亮色白/暗色黑），不能写死 text-white：
  * 暗色模式 accent 反转为浅色（默认 #fafafa、blue/amber 等均为亮色），
  * 白字会直接盖在浅底上看不见（与 ComposerPanels 发送按钮同一规则）。 */
@@ -317,7 +317,7 @@ export function UsageProbeConfigDialog(props: {
 			setTestResult(result);
 			setTestState(result.success ? "success" : "error");
 			if (result.success) {
-				// 测试成功直接写缓存（等价 cc-switch 的 queryClient.setQueryData），
+				// 测试成功直接写缓存（等价一次本地数据回填），
 				// 圆环/卡片/选择器三处立刻显示这次测试到的真实数值。
 				resolveUsage(cacheKey, result);
 				const summary = formatUsageBadgeText(result);
@@ -488,7 +488,7 @@ export function UsageProbeConfigDialog(props: {
 								</div>
 							)}
 
-							{/* 启用开关（cc-switch 同款：整行右侧 Switch） */}
+							{/* 启用开关（整行右侧 Switch） */}
 							<div className="flex items-center justify-between rounded-lg border border-border px-3.5 py-2.5">
 								<span className="text-sm font-medium text-foreground">{t("config.usageProbe.enable")}</span>
 								<Switch checked={enabled} onCheckedChange={setEnabled} data-testid="usage-probe-enable" />
@@ -532,7 +532,7 @@ export function UsageProbeConfigDialog(props: {
 									   因此用水平 flex + shrink-0，徽标保持内容宽，说明文字在剩余空间内换行 */
 									<div className="flex items-center gap-2 px-0.5">
 										{recognized && template === recognized.templateId && (
-											/* 已识别供应商徽标（学 cc-switch DeepSeek 蓝标）：明确「预制的是你」，
+											/* 已识别供应商徽标（品牌色小标签）：明确「预制的是你」，
 											   让「内置模板」与「需要填字段的模板」一眼区分开 */
 											<span className="inline-flex shrink-0 items-center rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-1.5 py-0.5 font-mono text-micro leading-none tracking-wide text-[var(--color-accent)]" data-testid="usage-probe-recognized-badge">
 												{props.provider}
@@ -640,13 +640,13 @@ export function UsageProbeConfigDialog(props: {
 									<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
 								</section>
 							)}
-							{/* 超时 / 自动查询间隔（cc-switch 同款两列） */}
+							{/* 超时 / 自动查询间隔（两列并排） */}
 							<div className="grid grid-cols-2 gap-3">
 								<NumberField label={t("config.usageProbe.timeout")} value={timeoutSecs} onChange={setTimeoutSecs} min={1} max={300} />
 								<NumberField label={t("config.usageProbe.interval")} value={intervalMinutes} onChange={setIntervalMinutes} min={0} max={1440} />
 							</div>
 
-							{/* 测试（cc-switch 测试按钮 + 内联结果）：成功即写缓存热更三处 */}
+							{/* 测试（按钮 + 内联结果）：成功即写缓存热更三处 */}
 							<section className="space-y-2 border-t border-border pt-3">
 								<div className="flex items-center gap-2.5">
 									<StatefulButton
@@ -656,7 +656,7 @@ export function UsageProbeConfigDialog(props: {
 										loadingText={t("config.usageProbe.testing")}
 										successText={t("config.usageProbe.testSuccess")}
 										errorText={t("config.usageProbe.testFailed")}
-										// motion 按钮默认 rounded-full 胶囊：配置表单调成圆角矩形（对齐 cc-switch 输入框观感）
+										// motion 按钮默认 rounded-full 胶囊：配置表单调成圆角矩形（与输入框观感一致）
 										className="h-8 rounded-md px-3 text-xs"
 									>
 										{t("config.usageProbe.test")}

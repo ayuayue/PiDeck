@@ -111,7 +111,7 @@ test("fileChangeToDiffLines: write yields all-added lines, edit yields removed+a
 
 test("file changes render as a per-turn chip row at the end of each turn", () => {
 	// 2027-02 位置迁移：文件修改从 composer 上方的常驻卡片（SessionFilesStrip）改为每轮末尾的
-	// chip 行（turn/TurnFileChanges，形态参考 Proma TurnFileChangesSummary）。
+	// chip 行（turn/TurnFileChanges，虚线分隔 + chip 横排）。
 	// 旧卡片本身已删除，因此断言改为「轮末 chip 行存在 + 旧卡片不存在」。
 	const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
 	assert.ok(!timeline.includes("TurnFileChanges"), "timeline should not own the file strip");
@@ -126,16 +126,16 @@ test("file changes render as a per-turn chip row at the end of each turn", () =>
 	// 断言语义不变（chip 行在操作栏之前），只是不再依赖那段被搬走的内联条件表达式。
 	assert.ok(turnRow.indexOf("<TurnFileChanges") < turnRow.indexOf("<TurnRowActions"), "chip row must render before the action bar");
 
-	// 组件本体：Proma 形态（虚线分隔 + chip 横排），但左对齐要按 PiDeck 自己的基准
+	// 组件本体：虚线分隔 + chip 横排，但左对齐要按 PiDeck 自己的基准
 	const chip = readFileSync("src/renderer/src/components/session/turn/TurnFileChanges.tsx", "utf8");
 	assert.match(chip, /data-testid="turn-file-changes"/);
-	// 2027-02 观感 bug：Proma 的 pl-[46px] 是因为它的正文缩进在头像右侧，
+	// 2027-02 观感 bug：46px 左内缩源自「正文缩进在头像右侧」的版式，
 	// 而 PiDeck 的 TurnRow 正文/操作栏从 0 开始——照搬会凭空多缩进 46px。
 	// 只检查 JSX className（注释里会提到这个旧取值的来历，不该被当成代码命中）。
 	const classNameAttrs = chip.match(/className="[^"]*"/g) ?? [];
 	assert.ok(classNameAttrs.length > 0, "chip row 必须能定位到 className");
 	for (const attr of classNameAttrs) {
-		assert.doesNotMatch(attr, /pl-\[46px\]/, "chip row must not indent past the answer column (PiDeck body starts at 0, unlike Proma)");
+		assert.doesNotMatch(attr, /pl-\[46px\]/, "chip row must not indent past the answer column (PiDeck body starts at 0)");
 	}
 	assert.match(chip, /<div className="mt-3" data-testid="turn-file-changes">/, "chip row aligns with body/action bar (no extra left padding)");
 	assert.match(chip, /border-t-2 border-dashed/, "chip row uses a dashed divider instead of a card frame");

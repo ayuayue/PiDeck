@@ -1,5 +1,5 @@
 /**
- * Provider 用量徽章（学 cc-switch UsageFooter inline / TierBadge）。
+ * Provider 用量徽章（inline 数值 + TierBadge）。
  *
  * 两种形态：
  * - variant="row"：模型选择器分组行内的单段彩色数值（取档位最严重的一段示警）；

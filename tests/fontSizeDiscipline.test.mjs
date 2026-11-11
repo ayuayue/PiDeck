@@ -4,7 +4,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * 字号纪律守卫（ZCode 反哺 Phase 4，docs/archive/research/zcode-design-analysis.md §六）
+ * 字号纪律守卫（Phase 4）
  *
  * 规则：渲染层自研组件禁止任意字号 text-[Npx]，必须用语义字号类
  * （text-micro/caption/control/body/title/brand…，随「界面字号」设置缩放）。

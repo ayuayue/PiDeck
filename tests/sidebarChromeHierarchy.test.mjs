@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 /**
- * 主次分明守卫（2026-10 对齐 ZCode 排版）：左右两侧 chrome 与正文面板必须有底色层次。
+ * 主次分明守卫（2026-10 排版收口）：左右两侧 chrome 与正文面板必须有底色层次。
  *
  * - 经典浅色：sidebar 极浅灰退一档，正文面板保持纯白（白卡浮在 chrome 上）。
  * - 经典暗色：方向相反，sidebar 更暗、正文面板更亮。
@@ -53,7 +53,7 @@ test("right drawer shares the sidebar chrome tone", () => {
 	assert.match(rule, /background:\s*var\(--color-bg-sidebar\)/, ".detail-drawer 底色必须走 --color-bg-sidebar（与左栏同档 chrome）");
 });
 
-/* ===== 暗色浮层阶梯守卫（2026-10 对齐 ZCode 深度阶梯） ===== */
+/* ===== 暗色浮层阶梯守卫（2026-10 深度阶梯） ===== */
 
 function hexToRgb(hex) {
 	let h = hex.slice(1);
@@ -103,7 +103,7 @@ function skinDarkBlock(skin) {
 }
 
 test("dark popovers float one step above panels in every palette", () => {
-	// 浮层阶梯（ZCode：panel #202020 → menu/card #2b2b2b）：菜单/弹窗必须比内容面亮一档，
+	// 浮层阶梯（panel #202020 → menu/card #2b2b2b）：菜单/弹窗必须比内容面亮一档，
 	// 否则暗色下菜单像「暗洞」。graphite/sea-blue/warm-beige 不覆盖 popover/input，
 	// 继承经典暗色块的 color-mix 相对派生——本测试同时校验继承链解析结果。skin 列表与
 	// foundation.css 的 data-appearance 面板一一对应，新增皮肤会自动纳入。

@@ -40,10 +40,9 @@ export const VOLCENGINE_REGION = "cn-beijing";
  *
  * 1. `ark.<region>.volcengineapi.com`：方舟文档（82379/2479847 等）与「数据面/管控面
  *    Base URL 及鉴权」文档为 GetAFPUsage 等控制面 Action 指定的入口，按账号地域拼 host；
- * 2. `open.volcengineapi.com`：OpenAPI 统一网关，Region 走 query（cc-switch 的实现即用
- *    这个入口，同样实测可通）。
+ * 2. `open.volcengineapi.com`：OpenAPI 统一网关，Region 走 query（实测同样可通）。
  *
- * 为什么要两条：我们手里没有真实 AK/SK 可以联调，而两种入口都有第三方实现背书。
+ * 为什么要两条：我们手里没有真实 AK/SK 可以联调，两个入口都有官方文档与实测背书。
  * 按「文档优先」把 ark 专属 host 放前面，统一网关作为兜底候选——某个入口对特定账号
  * 不可用时探测会自动落到下一条（见 usageProbeTemplates 的四候选构造）。
  */

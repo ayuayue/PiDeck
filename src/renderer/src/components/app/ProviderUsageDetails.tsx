@@ -1,8 +1,8 @@
 /**
- * Provider 用量/余额详情块（cc-switch 展开模式 TierBar 语言）：
+ * Provider 用量/余额详情块（展开态 TierBar 版式）：
  * 模型选择器展开分组与 SessionContextMeter 圆球面板共用的唯一渲染；供应商配置页不再挂载。
  *
- * 版式学自 cc-switch SubscriptionQuotaFooter/UsageFooter：
+ * 版式：
  * - 头部：标题 + Clock 相对更新时间 + 刷新按钮（右对齐）；
  * - 百分比窗口（智谱 5h/周/MCP、xAI 套餐/按需、opencode 三档）：label + 圆角进度条
  *   （绿/橙/红按 70/90 阈值）+ 彩色粗体百分比 + 剩余小字；
@@ -19,7 +19,7 @@ import type { ProviderUsageResult, UsageProbeBackend } from "../../../../shared/
 import { useProviderUsageEntry, useProviderUsageRefresh, useProviderUsageState } from "../../hooks/useProviderUsage";
 import { formatAmount, formatBalance, relativeTimeParts, USAGE_TONE_BAR_CLASS, USAGE_TONE_TEXT_CLASS, usageToneForPercent, usageWindowLabelText, usageWindowPercent, type UsageTone } from "../../utils/providerUsageDisplay";
 
-/** cc-switch TierBar 行：label + 圆角进度条 + 彩色粗体百分比 + 右侧小字。 */
+/** TierBar 行：label + 圆角进度条 + 彩色粗体百分比 + 右侧小字。 */
 function UsageBarRow(props: {
 	label: string;
 	percent: number | null;
@@ -73,7 +73,7 @@ function BoosterBlock(props: { booster: NonNullable<ProviderUsageResult["booster
 	);
 }
 
-/** 行标签统一样式（灰标签 + 右侧数值，cc-switch UsageFooter 同款对齐）。 */
+/** 行标签统一样式（灰标签 + 右侧数值同一基线）。 */
 const LABEL_CLASS = "shrink-0 text-caption leading-5 text-text-secondary";
 
 export function ProviderUsageDetails(props: {
@@ -133,7 +133,7 @@ export function ProviderUsageDetails(props: {
 			) : null}
 			{windows.length > 0 ? (
 				<div className="space-y-1">
-					{/* 多窗口并列限额（cc-switch TierBar）：逐窗口 label + 进度条 + 百分比 + 剩余小字；
+					{/* 多窗口并列限额（TierBar）：逐窗口 label + 进度条 + 百分比 + 剩余小字；
 					   主值不重复渲染，避免数字冗余。 */}
 					{windows.map((window) => {
 						const total = window.total;
@@ -143,7 +143,7 @@ export function ProviderUsageDetails(props: {
 						// （自建网关的余额接口常只给「剩余 + 总额」，没有 used 字段）。total 缺失时不显示百分比。
 						const windowPercent = usageWindowPercent(window);
 						const pct = windowPercent == null ? null : Math.round(windowPercent);
-						// 用量≥90% 红、≥70% 橙、其余绿（cc-switch utilizationColor 阈值）
+						// 用量≥90% 红、≥70% 橙、其余绿（阈值定义在 usageToneForPercent）
 						const urgent = pct != null && pct >= 90;
 						// 窗口名与 inline 行共用 providerUsageDisplay 的统一映射（未知 key 原样展示）。
 						const label = usageWindowLabelText(window.key, t);
@@ -202,7 +202,7 @@ export function ProviderUsageDetails(props: {
 					)}
 				</div>
 			) : failed ? (
-				// 失败态只占一行（cc-switch 同款极简）：红字提示；「去配置」是行内小链接，
+				// 失败态只占一行（极简）：红字提示；「去配置」是行内小链接，
 				// 不再渲染全宽大按钮；重试统一走头部的刷新按钮（只保留一个刷新入口）。
 				// 结构性「未开启」给专属引导文案（用量查询未开启 → 去配置），其余失败给通用文案。
 				<div className="flex items-center gap-1.5 px-0.5 text-caption leading-5 text-danger" title={result?.error ?? undefined}>

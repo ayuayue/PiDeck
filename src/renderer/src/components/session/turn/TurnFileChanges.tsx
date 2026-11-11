@@ -39,16 +39,16 @@ function attachMeasured(node: HTMLDivElement | null, nodeRef: { current: HTMLDiv
 }
 
 /**
- * 轮末「修改的文件」chip 行（形态参考同级项目 Proma 的 TurnFileChangesSummary）。
+ * 轮末「修改的文件」chip 行（2px 虚线分隔 + chip 横排）。
  *
  * 为什么在这个位置：一轮的产物（改了哪些文件）属于该轮结论，而不是下一轮的输入。
  * 旧实现把它做成 composer 上方的常驻卡片，位置和轮次脱节、还和待办/子代理条抢空间。
- * 这里贴在正文之后、操作栏之前（= Proma 的 MessageActions 上方），用 2px 虚线分隔
+ * 这里贴在正文之后、操作栏之前，用 2px 虚线分隔
  * 把「执行过程 / 结论 / 产物」三段切开——无边框、无折叠头、无卡片。
  *
- * 左对齐：**不加左内缩**。Proma 的 `pl-[46px]` 是因为它的正文本身缩进在头像右侧；
- * PiDeck 的 TurnRow 里正文与操作栏都从 0 开始，直接照搬会凭空多缩进 46px、
- * 让 chip 行比正文和操作栏都往右偏（2027-02 实际观感 bug）。
+ * 左对齐：**不加左内缩**。TurnRow 里正文与操作栏都从 0 开始，若按「正文缩进在
+ * 头像右侧」的版式凭空加 46px，chip 行会比正文和操作栏都往右偏
+ * （2027-02 实际观感 bug）。
  *
  * 单行折叠（与用户确认的方案）：一轮可能改几十个文件，全铺开会把轮末撑成一坨。
  * 规则是「只显示一行，放不下的收进 +N，点 +N 就地展开成多行」。
@@ -136,7 +136,7 @@ export const TurnFileChanges = memo(function TurnFileChanges(props: {
 
 	return (
 		<div className="mt-3" data-testid="turn-file-changes">
-			{/* 虚线分隔：Proma 的 border-t-2 border-dashed。用 2px 是为了在 1px 边框体系里
+			{/* 虚线分隔：2px dashed 上边框。用 2px 是为了在 1px 边框体系里
 			    一眼看出「这是分隔，不是卡片边界」。 */}
 			<div className="border-t-2 border-dashed border-border-subtle pt-3">
 				<div ref={attachRow} className={expanded ? ROW_EXPANDED : ROW_COLLAPSED}>

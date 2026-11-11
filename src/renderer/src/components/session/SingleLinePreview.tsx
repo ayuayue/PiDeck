@@ -5,7 +5,7 @@ import { firstLine, latestLine } from "../../utils/thinkingSummary";
 /**
  * 单行折叠预览：折叠态思考文本的单行摘要（ThinkingBlock / WebThinkingBlock 共用）。
  *
- * 参考 deepseek-ai/deepseek-harness ReasoningRow 的模式：
+ * 形态约定：
  * - 文字不滚动（横向跑马灯实测太晃、看不清，且思考结束后动画仍继续、与状态脱节，已弃用）：
  *   流式中显示最新一行（latestLine，终端 tail -f 语义，容器 scrollLeft 跟随尾部），
  *   结束后显示第一行（firstLine，从头部读摘要）+ 尾部省略号

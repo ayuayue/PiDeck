@@ -69,6 +69,6 @@ test("file rows animate their hover highlight like sidebar rows", () => {
 	// 行必须是块级 flex：inline-flex 会在 block 容器里多出 5px 行盒空隙（行距 33px），
 	// 相邻行的引导线会裂成一段一段，所以这里连 display 一起锁死。
 	// hover 钉 bg-muted 轻档（2026-10 用户裁决：抽屉白面板上灰底别太深，
-	// 见 docs/archive/research/zcode-design-analysis.md §八——chrome 档实验已回退）。
+	// chrome 档实验已回退）。
 	assert.match(surface, /file-node-row flex h-\[28px\][\s\S]*?transition-\[background-color,border-color,box-shadow\] duration-base[\s\S]*?hover:bg-muted/);
 });

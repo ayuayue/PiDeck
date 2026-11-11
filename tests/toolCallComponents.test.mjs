@@ -137,7 +137,7 @@ test("thinking and tool logos keep a distinct color even on the default zinc the
 	assert.doesNotMatch(toolCalls, /className="tool-card-icon[^"\n]*text-text-tertiary/);
 });
 
-// 状态徽章（2026-10 对齐 ZCode 静默完成态）：running/stopped/error 保留 pill 一眼可辨；
+// 状态徽章（2026-10 静默完成态）：running/stopped/error 保留 pill 一眼可辨；
 // 普通完成不再渲染徽章——「无状态即成功」，完成行回归安静的一行灰（此前常驻绿色
 // 「完成」徽章让整屏过程行比正文还吵）。ask_question 已回答保留低强调绿色 pill。
 test("tool card keeps status pills only for non-default states; done rows go silent", () => {
@@ -177,12 +177,12 @@ test("ACP title-like tool names never repeat the argument on the tool row", () =
 	assert.match(toolCalls, /const title = getToolName\(message\);\s*return title\.includes\(value\) \? "" : value;/);
 });
 
-// 2026-10 对齐 ZCode 过程行排版：主标签 = 语义动词，作用对象进等宽 chip 单行截断，
+// 2026-10 过程行排版：主标签 = 语义动词，作用对象进等宽 chip 单行截断，
 // 原始工具名/完整参数/完成耗时撤到行 tooltip——行内只留扫读锚点，细节 hover 可达。
 test("tool trigger shows verb label with mono object chip; details move to row tooltip", () => {
 	// 主标签走 toolPhrase 的动词（不再直接渲染原始工具名）
 	assert.match(toolCalls, /isAskCard \? t\("ask\.toolName"\) : phrase\.verb/);
-	// 作用对象：裸等宽暗字（2026-10 去灰底——每轮命令 chip 的成片灰底把时间线切碎，ZCode 同款裸字），单行截断
+	// 作用对象：裸等宽暗字（2026-10 去灰底——每轮命令 chip 的成片灰底把时间线切碎），单行截断
 	assert.match(toolCalls, /min-w-0 flex-\[0_1_auto\] truncate font-mono text-chat-detail text-text-faint/);
 	assert.doesNotMatch(toolCalls, /bg-\[color:color-mix\(in_srgb,var\(--color-text-primary\)_5%,transparent\)\]/);
 	assert.match(toolCalls, /title=\{phrase\.object \|\| subtitle\}/);

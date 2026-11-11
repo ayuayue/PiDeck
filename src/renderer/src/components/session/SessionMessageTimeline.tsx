@@ -1165,7 +1165,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 
 			{/* 长会话渲染治理：
           - 不再使用 content-visibility 估算高度（展开工具会抖）。
-          - 学 Proma：总折叠压缩单行 DOM；另在贴底时只挂尾部 N 个 agent-run
+          - 总折叠压缩单行 DOM；另在贴底时只挂尾部 N 个 agent-run
             （见 turnRenderWindow），上滚放开。分页仍做数据窗口治理。 */}
 			{hasActiveConversation && !isConversationLoading && paginatedMessages.length > 0 && (
 				<div className="message-list min-w-0 w-full mx-auto transition-opacity duration-fast" onContextMenu={messageContextMenu.handleContextMenu}>

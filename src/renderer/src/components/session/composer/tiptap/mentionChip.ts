@@ -69,9 +69,9 @@ export const MentionChip = Node.create({
 		const kind: ComposerChip["kind"] = rawKind === "skill" || rawKind === "session" || rawKind === "quote" ? rawKind : "file";
 		const raw = String(node.attrs.raw ?? "");
 		const label = String(node.attrs.label ?? raw);
-		// 目录引用用文件夹图标（Proma `.directory-mention-chip` 同款区分）。
+		// 目录引用用文件夹图标（与技能/会话/引用块区分）。
 		const isDirectoryRef = isDirectoryFileChip(raw);
-		// chip 外观（2026-09 对齐 Proma）：类型色浅底 + 同色文字 + 12px currentColor 图标，
+		// chip 外观：类型色浅底 + 同色文字 + 12px currentColor 图标，
 		// 无边框。保留 data-raw/data-type 与 contenteditable=false——点击定位
 		// （closest [data-raw]）与内容再解析都依赖它们。
 		// 单行截断由 timeline.css 的共用骨架统一管理，不在节点上写内联样式，

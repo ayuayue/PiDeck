@@ -1292,7 +1292,7 @@ function renderChipText(text: string, onOpenFile?: (path: string) => void, valid
 			nodes.push(text.slice(cursor, chip.start));
 		}
 		const clickable = onOpenFile && chip.kind === "file";
-		// 目录引用换成文件夹图标（对齐 Proma 的目录 chip）；title 给完整路径便于悬浮确认。
+		// 目录引用换成文件夹图标（与文件引用区分）；title 给完整路径便于悬浮确认。
 		const isDirectory = chip.kind === "file" && isDirectoryFileChip(chip.raw);
 		const Icon = isDirectory ? Folder : (CHIP_ICONS[chip.kind] ?? FileText);
 		const title = chip.kind === "file" ? unwrapFileChipPath(chip.raw) : chip.raw;

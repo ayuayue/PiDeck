@@ -49,7 +49,7 @@ export function ModelThinkingChip(props: { modelLabel: string; modelTitle?: stri
 	);
 }
 
-/** 档位刻度点：轨道上每个档位一个点（ZCode 同款），填充段内亮点 / 未选段暗点。
+/** 档位刻度点：轨道上每个档位一个点，填充段内亮点 / 未选段暗点。
  *  坐标与 Radix thumb 中心同源：thumb 是 size-4（16px），getThumbInBoundsOffset 把
  *  中心压在 [8, 轨道宽-8] 区间，所以点层也内缩同量，首尾点才不贴到圆角外。
  *  注意：点必须放在 <Slider> 外层的相对容器里——Radix Slider.Root 会丢弃 children
@@ -90,7 +90,7 @@ function ThinkingWheelZone(props: { disabled?: boolean; levels: ThinkingPickerLe
 }
 
 /**
- * 思考强度选择：ZCode 同款渐变强度条（beUI 口径：shadcn Slider 原语 + 语义 token）。
+ * 思考强度选择：渐变强度条（beUI 口径：shadcn Slider 原语 + 语义 token）。
  * 离散档位吸附（step=1）而非连续值——模型只认 off…max 的枚举；刻度标签行兼作点击入口，
  * 方向键在滑条上原生平移档位。壳从 DropdownMenu 换成 Popover：Radix Menu 会劫持
  * 方向键（typeahead/导航），滑条键盘操作会被吞；Popover 不拦截，滑条键盘可达。

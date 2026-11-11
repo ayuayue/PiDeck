@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
- * 思考强度滑条契约（ZCode 渐变强度条同构）。
+ * 思考强度滑条契约（渐变强度条）。
  * 组件含 hooks（useShortcutBindings/useMemo），不能当普通函数调用拿元素树——
  * 统一走 renderToStaticMarkup（SSR 支持 hooks），交互节点由桩渲染时捕获 props。
  */

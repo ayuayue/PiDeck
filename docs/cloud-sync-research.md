@@ -307,7 +307,7 @@ PIDECKBACKUP 容器
 
 **导入导出 / 本地同步参考：**
 
-- [Cherry Studio 数据设置：WebDAV 备份（同类型 Electron AI 桌面应用）](https://docs.cherryai.com.cn/pre-basic/settings/data-settings/webdav)
+- [同类 Electron AI 桌面应用的数据设置：WebDAV 备份](https://docs.cherryai.com.cn/pre-basic/settings/data-settings/webdav)
 - [Obsidian 免费同步怎么选：Nutstore Sync（segmentfault）](https://segmentfault.com/a/1190000047902948)
 - [Obsidian 七种主流多端同步方式（少数派）](https://sspai.com/post/104619#1)
 - [Syncthing：开源文件同步神器（P2P 方案参考）](https://osp.io/archives/10111)

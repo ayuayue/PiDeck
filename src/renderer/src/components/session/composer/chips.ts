@@ -27,7 +27,7 @@ export const CHIP_PREFIX: Record<ComposerChip["kind"], string> = {
 /**
  * chip 的展示文本。
  *
- * 对齐 Proma：只有文件引用保留 `@`（用户敲进去的引用语法），`/`、`&`、`❝` 一律交给图标
+ * 只有文件引用保留 `@`（用户敲进去的引用语法），`/`、`&`、`❝` 一律交给图标
  * 表达，避免图标与字符双前缀；pi 的 `/skill:名称` 是 wire 细节，展示层只留技能名。
  */
 export function formatChipDisplayLabel(kind: ComposerChip["kind"], label: string): string {
@@ -50,7 +50,7 @@ export function stripChipDisplayPrefix(kind: ComposerChip["kind"], text: string)
 }
 
 /**
- * 文件 chip 的展示文本：只显示文件名（对齐 Proma FilePathChip 的 `truncate max-w-[240px]`
+ * 文件 chip 的展示文本：只显示文件名（`truncate max-w-[240px]`
  * + tooltip 全路径），完整路径仍保留在 raw 里用于打开文件与悬浮查看。
  *
  * 目录引用的尾斜杠必须保留：chip 自带 4px 右内边距，剥掉斜杠后标签直接贴住边缘，
@@ -227,7 +227,7 @@ export function parseRichInputChips(text: string, validCommandNames?: Set<string
 			if (!isAbsPath && validFilePaths && !validFilePaths.has(pathKey)) continue;
 			const baseLabel = pathKey || normalized || seg;
 			const fullLabel = isDirectoryRef ? `${baseLabel.replace(/[/\\]+$/, "")}/` : baseLabel;
-			// 只展示文件名（Proma 同款），全路径仍在 raw 里，不影响偏移、打开或发送内容。
+			// 只展示文件名，全路径仍在 raw 里，不影响偏移、打开或发送内容。
 			const label = formatFileChipLabel(fullLabel);
 			// 保留用户实际输入的 raw，不在解析阶段改写成 @"…"：原始 token 的
 			// 字符区间必须与 ProseMirror 的纯文本偏移一致，否则 atom 节点长度

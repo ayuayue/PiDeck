@@ -77,7 +77,7 @@ type FormState = typeof EMPTY_FORM;
 /**
  * 「新建连接」面板。
  *
- * 结构照 ZCode 的远程配置面板：**类型切换 + 实时目标预览 + 表单 + 从 SSH config 导入**。
+ * 结构：**类型切换 + 实时目标预览 + 表单 + 从 SSH config 导入**。
  * SSH 与 WSL 都在这里创建：SSH 建远端主机（pin/TOFU），WSL 建本机档案（distro/user）。
  * 两者信任模型不同，但入口与表单骨架共用；Docker 没有后端，保持 disabled 并说明。
  *
@@ -188,7 +188,7 @@ export function AddHostDialog(props: {
 		};
 	}, []);
 
-	/** 表单唯一的校验点（与 ZCode 的 collectRemoteFormFieldErrors 同一思路：先报第一个错，不发请求）。 */
+	/** 表单唯一的校验点（先报第一个错，不发请求）。 */
 	const validate = useCallback((): RemoteHostAddInput | string => {
 		const label = form.label.trim();
 		const hostName = form.hostName.trim();

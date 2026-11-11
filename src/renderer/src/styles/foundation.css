@@ -94,8 +94,7 @@
    */
   /* 默认浅色外观以纯白为基底；灰色只用于控件表面、hover 和选中层级。 */
   --color-bg-app: #ffffff;
-  /* 主次分明（对齐 ZCode 排版，docs/archive/research/zcode-design-analysis.md）：chrome 退一档——
-     侧栏 #f0f0f0（ZCode sidebar 同值），正文面板保持纯白，
+  /* 主次分明：chrome 退一档——侧栏 #f0f0f0，正文面板保持纯白，
      内容浮在 chrome 之上，焦点自然落在会话区。
      右抽屉曾试过同步退 chrome 档，用户裁决回退白面板（2026-10，docs §八）：
      抽屉是内容型工具面，白底 + 轻灰 pill 更符合预期，灰底别太深。
@@ -115,18 +114,18 @@
   /* 浮层与普通面板分离：壁纸模式下普通面板可透图，但菜单必须保持稳定的不透明底。 */
   --color-bg-popover: #ffffff;
   --color-bg-input: #ffffff;
-  /* 控件表面/hover/选中层：全部纯中性灰（R=G=B，无色相）——ZCode 质感的关键
-     是灰阶零色相噪声，色相只留给语义色与身份色（见 docs/archive/research/zcode-design-analysis.md）。
-     交互阶梯对齐 ZCode 的「纸感」：侧栏 #f0f0f0 上 hover Δ6（#eaeaea）、选中 Δ12
-     （#e4e4e4，≈ZCode 选中墨量 4.7%）——选中感靠小步长，不靠深底；白面板上两档
-     相应为 Δ21/Δ27，仍清晰可辨。暗色阶梯保持更大步长不动（ZCode 暗色同理）。
+  /* 控件表面/hover/选中层：全部纯中性灰（R=G=B，无色相）——纸感靠灰阶零色相噪声，
+     色相只留给语义色与身份色。
+     交互阶梯：侧栏 #f0f0f0 上 hover Δ6（#eaeaea）、选中 Δ12（#e4e4e4，≈4.7% 墨量）
+     ——选中感靠小步长，不靠深底；白面板上两档相应为 Δ21/Δ27，仍清晰可辨。
+     暗色阶梯保持更大步长不动。
      注意：侧栏上的行/按钮 hover 必须用 bg-bg-hover；bg-muted 比 sidebar 还亮一档，
      罩上去是反向变亮、视觉不可见（守卫见 tests/lightNeutralBackground.test.mjs）。 */
   --color-bg-muted: #f4f4f4;
   --color-bg-hover: #eaeaea;
   --color-bg-active: #e4e4e4;
   --color-text-primary: #202124;
-  /* 中性墨水（ZCode 同法）：secondary/tertiary 全纯灰零色相，去 slate 蓝调；
+  /* 中性墨水：secondary/tertiary 全纯灰零色相，去 slate 蓝调；
      深度保持可读——secondary 8.9:1 / tertiary 5.7:1（muted 弱底 5.2:1），均达 WCAG AA。 */
   --color-text-secondary: #4a4a4a;
   --color-text-tertiary: #666666;
@@ -206,7 +205,7 @@
   --color-thinking: #6366f1;
   /* 输入框/消息引用 chip 身份色（file/skill/session）：不随 data-accent 洗白，
      否则默认 neutral 主题下三类引用糊成灰阶、无法区分。
-     2026-09 对齐 Proma 后底色与文字同源（color-mix 同 token 派生），文字即身份色，
+     底色与文字同源（color-mix 同 token 派生），文字即身份色，
      因此浅色档必须够深才能过 WCAG AA：实测 #2563eb 仅 4.37:1、#16a34a 仅 2.82:1，
      已换成 #1d4ed8（5.57:1）与 #166534（5.73:1）；skill 紫 4.53:1 达标保持。 */
   --color-chip-file: #1d4ed8;
@@ -376,10 +375,9 @@
  * 状态色与身份色解耦的约定见上方 --color-tool 注释。
  */
 :root[data-accent="green"] {
-  /* 森系绿（参考同目录 Proma 的 theme-forest-light 森息晨光）：
-     鼠尾草绿主色 #4a7854（hsl 134 24% 38%），不用荧光绿；深部 #36593d。
-     accent-soft 用 Proma 的 --accent（hsl 76 20% 84% = #dadece）——微暖黄绿强调，
-     他们刻意用它做悬停/选中以「减少单一绿调」。 */
+  /* 森系绿（浅色）：鼠尾草绿主色 #4a7854（hsl 134 24% 38%），不用荧光绿；深部 #36593d。
+     accent-soft 取微暖黄绿 hsl(76 20% 84% = #dadece)：
+     悬停/选中刻意用它，避免整屏砸在单一绿调上。 */
   --color-accent: #4a7854;
   --color-accent-strong: #3f6347;
   --color-accent-soft: #dadece;
@@ -589,7 +587,7 @@
   color-scheme: dark;
   /* 暗色黑灰基底 + 中性灰默认主题；data-accent 可切换到彩色主题。 */
   --color-bg-app: #121212;
-  /* 主次分明（对齐 ZCode 排版，docs/archive/research/zcode-design-analysis.md）：暗色方向反过来——
+  /* 主次分明：暗色方向反过来——
      chrome 更暗（#141414），正文面板 #1a1a1a 更亮，
      深度序列 chrome < content < sticky（bg-app #121212），与浅色的白卡浮层同构。 */
   --color-bg-sidebar: #141414;
@@ -711,8 +709,8 @@
 /* 暗色主题色预设（data-accent），亮色系保证可读性；
    同样不覆盖状态语义色（--color-info 等），状态灯跨主题恒定。 */
 :root[data-theme="dark"][data-accent="green"] {
-  /* 森系绿暗色（参考 Proma theme-forest-dark 森息夜语）：雾绿灰主色 hsl(145,25%,42%)；
-     accent-soft 用其 --accent（hsl 150 12% 22% = #313f38）作悬停/选中暖调。 */
+  /* 森系绿暗色：雾绿灰主色 hsl(145,25%,42%)；
+     accent-soft 用 hsl(150 12% 22% = #313f38) 作悬停/选中暖调。 */
   --color-accent: #55906c;
   --color-accent-strong: #66a380;
   --color-accent-soft: #313f38;
@@ -775,8 +773,7 @@
  *   的 APP_PALETTE_IDS，保证 id 集合一致。
  * 注意：这些是纯自定义属性定义，不包 @layer（契约见 tests/cssCascadeLayers.test.mjs）。
  */
-/* fresh-green 表面色板（参考同目录 Proma theme-forest-light / theme-forest-dark）：
-   浅色=森息晨光（纸感浅绿 hsl 84-80 系），暗色=森息夜语（深林泥土 + 雾绿灰主色）。 */
+/* fresh-green 表面色板：浅色=纸感浅绿（hsl 84-80 系），暗色=深林泥土 + 雾绿灰主色。 */
 :root[data-palette="fresh-green"] {
   --color-bg-app: #f6f7f2;
   --color-bg-sidebar: #ecefe6;
@@ -784,7 +781,7 @@
   --color-bg-popover: #f8f9f5;
   --color-bg-input: #e7ebe0;
   --color-bg-muted: #e2e6db;
-  /* hover/active 采用 Proma 的暖调黄绿加深（--accent 76 20 84 / 82 16 78） */
+  /* hover/active 用暖调黄绿加深（hsl 76 20 84 → 82 16 78） */
   --color-bg-hover: #dadece;
   --color-bg-active: #c9d0be;
   --color-text-primary: #273529;

@@ -2596,7 +2596,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		});
 		return { ...result, provider };
 	});
-	// ── 用量查询配置（usage-probes.json；学 cc-switch：per-provider 开关 + 模板） ──
+	// ── 用量查询配置（usage-probes.json：per-provider 开关 + 模板） ──
 	// 读取：该 provider 已保存配置 + 内置模板自动识别（弹窗打开时拉取）。
 	ipcMain.handle(ipcChannels.configGetUsageProbes, async (_event, payload: unknown) => {
 		const raw = payload && typeof payload === "object" ? (payload as { provider?: unknown; backend?: unknown }) : {};

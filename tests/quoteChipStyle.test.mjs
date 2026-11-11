@@ -7,11 +7,11 @@ const mentionChip = readFileSync("src/renderer/src/components/session/composer/t
 const surfaceComponents = readFileSync("src/renderer/src/components/session/SurfaceComponents.tsx", "utf8");
 
 /**
- * chip 视觉契约（2026-09 对齐 Proma rich-text-input.tsx 的内联 <style>）：
+ * chip 视觉契约（2026-09 定稿）：
  * 类型色浅底 + 同色文字 + 12px currentColor 图标，无边框、4px 圆角、13px/500、
  * gap 2px、baseline 对齐。改动这套骨架等于改动全站引用 chip 的长相。
  */
-test("inline chips follow the Proma skeleton (tinted, borderless, compact)", () => {
+test("inline chips follow the shared skeleton (tinted, borderless, compact)", () => {
 	const baseRule = timelineCss.match(/\.composer \.input-chip,\s*\.user-turn-text \.input-chip\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 	for (const prop of [
 		"display: inline-flex",
@@ -34,7 +34,7 @@ test("inline chips follow the Proma skeleton (tinted, borderless, compact)", () 
 	for (const prop of ["display: inline-block", "width: 12px", "height: 12px"]) {
 		assert.ok(iconRule.includes(prop), `chip icon rule must contain "${prop}"`);
 	}
-	// 四类引用各自「底色 + 文字色同源」（Proma bg-primary/10 text-primary 的做法）
+	// 四类引用各自「底色 + 文字色同源」（同一 token 派生浅底）
 	for (const kind of ["file", "skill", "session", "quote"]) {
 		const twoScope = timelineCss.match(new RegExp(`\\.composer \\.input-chip--${kind},\\s*\\.user-turn-text \\.input-chip--${kind}\\s*\\{([\\s\\S]*?)\\}`))?.[1];
 		const quoteScope = timelineCss.match(new RegExp(`\\.composer \\.input-chip\\.input-chip--${kind}[\\s\\S]*?\\{([\\s\\S]*?)\\}`))?.[1];
@@ -53,7 +53,7 @@ test("inline chips follow the Proma skeleton (tinted, borderless, compact)", () 
 
 /**
  * 气泡顺序契约（回归）：引用 chip 必须按原文顺序与各自描述相邻渲染。
- * 曾按 Proma 把引用全部提到正文上方，导致「引用A 描述A 引用B 描述B」被打乱成
+ * 曾把引用全部提到正文上方，导致「引用A 描述A 引用B 描述B」被打乱成
  * 「引用A 引用B 描述A 描述B」（发送给模型的文本顺序其实是对的，只有展示层错乱）。
  */
 test("bubble renders chips in original order, never lifted above the text", () => {

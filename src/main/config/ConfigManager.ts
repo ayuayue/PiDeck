@@ -66,10 +66,10 @@ type Sub2ApiPanelContext = {
 const MODEL_LIST_TIMEOUT_MS = 10_000;
 // 模型列表响应体上界：正常 listing 远小于此值，超限按异常响应处理而不是整段进内存。
 const MODEL_LIST_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
-// 用量查询默认超时（学 cc-switch：10 秒；可被 per-provider 配置覆盖）。
+// 用量查询默认超时（10 秒；可被 per-provider 配置覆盖）。
 const USAGE_PROBE_DEFAULT_TIMEOUT_MS = 10_000;
 
-// 用量查询默认自动间隔（学 cc-switch：5 分钟；可被 per-provider 配置覆盖，0 = 不自动）。
+// 用量查询默认自动间隔（5 分钟；可被 per-provider 配置覆盖，0 = 不自动）。
 const USAGE_PROBE_DEFAULT_INTERVAL_MINUTES = 5;
 
 // Provider 用量探针响应体上限：用量接口返回 JSON，正常远小于此值；超限截断
@@ -1016,12 +1016,12 @@ export class ConfigManager {
 	}
 
 	/**
-	 * 查询 provider 用量/余额（学 cc-switch 的三层模型，全部按 provider 名路由）：
+	 * 查询 provider 用量/余额（三层模型，全部按 provider 名路由）：
 	 * 1. 门控：providers[name].enabled === false → 不查（返回「未启用」结构化结果，
 	 *    UI 据此显示小按钮引导配置）；
 	 * 2. 模板路由：配置了声明式模板（general/newapi）→ 用模板构建候选（覆盖字段生效）；
 	 *    未配置 → 内置候选表 + 旧 probes 数组按 baseUrl/apiType 自动匹配（内置默认开）；
-	 * 3. 超时：per-provider timeoutSecs（默认 10s，学 cc-switch）。
+	 * 3. 超时：per-provider timeoutSecs（默认 10s）。
 	 * backend="dsh" 时配置/凭据走 DSH 链路（$DSH_HOME）：DSH 侧已配置则该配置为准；
 	 * 未配置时回退 Pi 侧同 provider 配置（display parity，见 loadUsageSettingsWithFallback）。
 	 * 全部失败时返回结构化错误，并对响应做密钥脱敏，避免把 token 回传给渲染层。

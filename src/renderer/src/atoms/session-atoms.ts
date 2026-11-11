@@ -405,7 +405,7 @@ export const saveSessionScrollAnchorAtom = atom(null, (get, set, input: { sessio
 	});
 });
 /**
- * 会话级独立流式正文（阶段1：学 Proma 独立存储）。
+ * 会话级独立流式正文（阶段1：独立存储）。
  * key: sessionId，value: { content, streaming }。
  * 流式期间 content 由 agents:text-stream 通道实时更新；
  * message_end 后由历史消息（sessionMessagesCacheAtom）接管，此处清空。

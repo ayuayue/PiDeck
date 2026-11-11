@@ -4,7 +4,7 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
-// 工具语义短语（学 Proma tool-phrase.ts）：折叠态显示可读中文短语，
+// 工具语义短语：折叠态显示可读中文短语，
 // 替代完整命令行，让工具行更轻、更易扫读。
 // 纯函数用 ts 编译 + vm 加载，避免模块路径解析负担。
 const rawSource = readFileSync("src/renderer/src/components/session/timeline/toolPhrase.ts", "utf8");
@@ -54,7 +54,7 @@ test("unknown/extension tool falls back to name + arg summary", () => {
 	assert.match(phrase.label, /get_search_content shadcn/);
 });
 
-// 2026-10 对齐 ZCode 过程行排版：短语拆成「动词 + 对象」两段——动词做工具行主标签
+// 2026-10 过程行排版：短语拆成「动词 + 对象」两段——动词做工具行主标签
 // （界面字体），对象进等宽 chip 单行截断；label/loadingLabel 拼接格式保持不变。
 test("phrase splits into verb and object for the silent tool row", () => {
 	const read = loadPhrase("Read", { file_path: "src/main.ts" });

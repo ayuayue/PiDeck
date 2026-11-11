@@ -167,7 +167,7 @@ test("生成的引用文本可解析为 file chip", () => {
 	const fileChips = parseRichInputChips("看下 @src/utils/a.ts", undefined, validFilePaths);
 	assert.equal(fileChips.length, 1);
 	assert.equal(fileChips[0].kind, "file");
-	// 展示只给文件名（对齐 Proma），完整路径留在 raw
+	// 展示只给文件名，完整路径留在 raw
 	assert.equal(fileChips[0].raw, "@src/utils/a.ts");
 	assert.equal(fileChips[0].label, "a.ts");
 

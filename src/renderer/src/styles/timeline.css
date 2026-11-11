@@ -1509,10 +1509,9 @@
   display: none;
 }
 /* ============ 行内引用 chip（输入框 + 消息气泡通用） ============
-   2026-09 视觉对齐 Proma（F:/Proma apps/electron/src/renderer/components/ai-elements/
-   rich-text-input.tsx 内联 <style>）：无边框、4px 圆角、13px/500、gap 2px、
-   baseline 对齐，且底色与文字、图标同源（类型色浅底 + 同色文字），
-   图标用 currentColor 跟随文字色——这是 Proma chip 最核心的观感。
+   2026-09 定稿外观：无边框、4px 圆角、13px/500、gap 2px、baseline 对齐，
+   且底色与文字、图标同源（类型色浅底 + 同色文字），
+   图标用 currentColor 跟随文字色——这是 chip 观感的核心。
    颜色仍走 foundation.css 的 --color-chip-* 语义 token（不随 data-accent 洗白），
    底色由同一 token 用 color-mix 派生，暗色主题自动跟随。
    长标签不折行：统一最大 280px 省略，完整值留在 raw/title。 */
@@ -1537,7 +1536,7 @@
     background-color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
     color 0.12s cubic-bezier(0.16, 1, 0.3, 1);
 }
-/* 图标 12px + currentColor（Proma 规格）：不再单独染色，与文字同色 */
+/* 图标 12px + currentColor：不再单独染色，与文字同色 */
 .composer .input-chip__icon,
 .user-turn-text .input-chip__icon {
   display: inline-block;
@@ -1552,7 +1551,7 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* 类型色：底色与文字同源（Proma `bg-primary/10 text-primary` 的做法） */
+/* 类型色：底色与文字同源（同一 token 派生浅底） */
 .composer .input-chip--file,
 .user-turn-text .input-chip--file {
   background: color-mix(in srgb, var(--color-chip-file) 12%, transparent);
@@ -1576,7 +1575,7 @@
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   color: var(--color-accent);
 }
-/* hover：同色加深一档（Proma 0.16~0.20 的观感） */
+/* hover：同色加深一档（12% → 20% 浅底，加深不换色） */
 .composer .input-chip--file:hover,
 .user-turn-text .input-chip--file.clickable:hover {
   background: color-mix(in srgb, var(--color-chip-file) 20%, transparent);

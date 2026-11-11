@@ -16,7 +16,7 @@ import type { ComposerChip } from "./chips";
 import type { DOMOutputSpec } from "prosemirror-model";
 
 /** lucide 图标 path 的 d 数据（FileText / Sparkles / MessageSquare / Quote / Folder）。
- * folder 是目录引用专用（对齐 Proma 的 `.directory-mention-chip`）。 */
+ * folder 是目录引用专用。 */
 export const CHIP_ICON_PATHS: Record<ComposerChip["kind"] | "folder", string[]> = {
 	// lucide FileText
 	file: ["M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z", "M14 2v5a1 1 0 0 0 1 1h5", "M10 9H8", "M16 13H8", "M16 17H8"],
@@ -32,7 +32,7 @@ export const CHIP_ICON_PATHS: Record<ComposerChip["kind"] | "folder", string[]> 
 
 /**
  * 拼出 ProseMirror renderHTML 的 DOM 规范：行内 svg 图标（含全部 path 子元素）。
- * 尺寸固定 12px（Proma 规格），颜色继承文字色（currentColor）。
+ * 尺寸固定 12px，颜色继承文字色（currentColor）。
  * options.isDirectory：文件引用指向目录时换成文件夹图标。
  *
  * tagName 必须写成 `"<命名空间 URI> svg"`：ProseMirror 的 renderSpec 只在 tag 含空格时

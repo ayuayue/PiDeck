@@ -13,7 +13,7 @@ function block(selector) {
 }
 
 test("fixed light chat/table colors are tokenized for dark mode", () => {
-	// 白卡模型（ZCode page #f8f8f8 + 白卡）：浅色会话卡一律纯白，靠浮在画布上分层；
+	// 白卡模型（画布 #f8f8f8 + 白卡）：浅色会话卡一律纯白，靠浮在画布上分层；
 	// 暗色对齐暖黑系保持原有阶梯（card=panel 档、muted 提亮一档）。
 	assert.match(block(":root"), /--color-chat-card-bg:\s*#ffffff;/i);
 	assert.match(block(":root"), /--color-chat-muted-bg:\s*#ffffff;/i);

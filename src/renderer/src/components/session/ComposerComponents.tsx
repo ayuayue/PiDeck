@@ -1155,7 +1155,7 @@ export function ModelPicker(props: {
 		loading: props.loading,
 	});
 
-	// 供应商用量行（cc-switch inline）：打开选择器时批量 TTL 去重查询，供应商标题行右侧
+	// 供应商用量行（inline 数值）：打开选择器时批量 TTL 去重查询，供应商标题行右侧
 	// 显示彩色剩余/百分比；查不到（未启用/不支持/失败/查询中）的分组保持干净不渲染。
 	// backend 按会话后端透传（DSH 目录的 provider 是 route 名，配置/凭据在 dsh 链路）。
 	const batchRefreshUsage = useProviderUsageBatchRefresh();

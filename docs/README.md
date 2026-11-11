@@ -69,7 +69,7 @@
 
 ## 4. 代码/测试引用与归档
 
-本轮归档已把 `src/`、`tests/`、`scripts/`、`e2e/` 里指向历史文档的路径同步改到 `docs/archive/`，并在移动后校验了所有站内 Markdown 链接（仅余 3 条外部仓库链接：ZCode / deepseek-harness，不在本仓库）。
+本轮归档已把 `src/`、`tests/`、`scripts/`、`e2e/` 里指向历史文档的路径同步改到 `docs/archive/`，并在移动后校验了所有站内 Markdown 链接（仅余 3 条外部仓库链接，均不在本仓库）。
 
 **两份保留在根的历史文档**（测试硬编码了路径，移动会破坏测试；已标 Historical）：
 
