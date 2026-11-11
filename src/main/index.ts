@@ -4407,7 +4407,7 @@ function registerIpc() {
 	registerLocalImageProtocol(canonicalLocalImageRoots);
 	// 保存/复制要在渲染层拿字节：fetch(pideck-file://) 在该 scheme 上会被拦（corsEnabled: false），
 	// 所以字节走 IPC，白名单与体积判定跟协议同一份实现。
-	registerLocalImageIpc({ resolveRoots: canonicalLocalImageRoots });
+	registerLocalImageIpc({ resolveRoots: canonicalLocalImageRoots, appLogger });
 	registerImageGenIpc({
 		imageGen: new ImageGenService({
 			getProviderCredentials: async (provider) => {
