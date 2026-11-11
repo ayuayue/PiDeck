@@ -1811,8 +1811,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	};
 
 	const handleSaveAuth = async (): Promise<boolean> => {
-		const save = () =>
-			configTargetOption ? api.config.saveRaw("auth.json", JSON.stringify(authData, null, 2), configTargetOption) : api.config.saveAuth(authData);
+		const save = () => (configTargetOption ? api.config.saveRaw("auth.json", JSON.stringify(authData, null, 2), configTargetOption) : api.config.saveAuth(authData));
 		const ok = await saveAndReload(save, undefined, "config:auth");
 		await loadConfig("auth", { force: true });
 		return ok;
@@ -2909,20 +2908,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			{/* 顶层分页：Pi 配置管理（带环境下拉，默认在左）/ DSH 配置管理（在右）。
 			    环境下拉挂在 Pi 分页上：整个 Pi 面板按所选环境加载，页内不再有第二个选择器。 */}
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-				{!resourceOnly && !dshPaneHidden && (
-					<ConfigBackendSwitch
-						pane={backendPane}
-						showDsh
-						embedded={embedded}
-						piDirty={hasPiDirty}
-						dshDirty={hasDshDirty}
-						target={configTarget}
-						hosts={remoteConfigHosts}
-						disabled={saving}
-						onSelectPane={(next) => selectBackendPane(next)}
-						onSelectTarget={handleConfigTargetChange}
-					/>
-				)}
+				{!resourceOnly && !dshPaneHidden && <ConfigBackendSwitch pane={backendPane} showDsh embedded={embedded} piDirty={hasPiDirty} dshDirty={hasDshDirty} target={configTarget} hosts={remoteConfigHosts} disabled={saving} onSelectPane={(next) => selectBackendPane(next)} onSelectTarget={handleConfigTargetChange} />}
 				{/* 两个后端页都保持挂载（hidden 切换），切换后端不会丢草稿。 */}
 				<div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", backendPane === "dsh" ? "" : "hidden")}>
 					{/* runtime 安装态不再整页替换：概览页内嵌 DshRuntimeSection 状态自适应区块，
@@ -2979,47 +2965,47 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								<div className="config-sidebar-group grid gap-0.5">
 									<span className="px-2 pb-1 text-micro font-semibold text-muted-foreground">{t("config.group.agent")}</span>
 									{!resourceOnly && showSecurityPage && (
-									<TabsTrigger value="security" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-										<span className="config-nav-icon">
-											<Shield size={14} aria-hidden="true" />
-										</span>
-										{t("config.nav.security")}
-									</TabsTrigger>
-								)}
-								{showResourcePages && (
-									<TabsTrigger value="extensions" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-										<span className="config-nav-icon">
-											<Puzzle size={14} aria-hidden="true" />
-										</span>
-										{t("config.nav.extensions")}
-									</TabsTrigger>
-								)}
-								{/* MCP 在配置管理弹窗里由「配置文件」组的 config:mcp 承担（全局作用域 + 导入扫描源）；
+										<TabsTrigger value="security" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+											<span className="config-nav-icon">
+												<Shield size={14} aria-hidden="true" />
+											</span>
+											{t("config.nav.security")}
+										</TabsTrigger>
+									)}
+									{showResourcePages && (
+										<TabsTrigger value="extensions" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+											<span className="config-nav-icon">
+												<Puzzle size={14} aria-hidden="true" />
+											</span>
+											{t("config.nav.extensions")}
+										</TabsTrigger>
+									)}
+									{/* MCP 在配置管理弹窗里由「配置文件」组的 config:mcp 承担（全局作用域 + 导入扫描源）；
 								    这里只在项目资源管理器（resourceOnly）提供项目作用域入口，避免同名双入口用户无法选择。 */}
-								{resourceOnly && (
-									<TabsTrigger value="mcp" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-										<span className="config-nav-icon">
-											<PlugZap size={14} aria-hidden="true" />
-										</span>
-										{t("config.nav.mcp")}
-									</TabsTrigger>
-								)}
-								{showResourcePages && (
-									<>
-										<TabsTrigger value="skills" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+									{resourceOnly && (
+										<TabsTrigger value="mcp" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
 											<span className="config-nav-icon">
-												<Sparkles size={14} aria-hidden="true" />
+												<PlugZap size={14} aria-hidden="true" />
 											</span>
-											{t("config.nav.skills")}
+											{t("config.nav.mcp")}
 										</TabsTrigger>
-										<TabsTrigger value="prompts" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-											<span className="config-nav-icon">
-												<FileText size={14} aria-hidden="true" />
-											</span>
-											{t("config.nav.prompts")}
-										</TabsTrigger>
-									</>
-								)}
+									)}
+									{showResourcePages && (
+										<>
+											<TabsTrigger value="skills" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+												<span className="config-nav-icon">
+													<Sparkles size={14} aria-hidden="true" />
+												</span>
+												{t("config.nav.skills")}
+											</TabsTrigger>
+											<TabsTrigger value="prompts" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+												<span className="config-nav-icon">
+													<FileText size={14} aria-hidden="true" />
+												</span>
+												{t("config.nav.prompts")}
+											</TabsTrigger>
+										</>
+									)}
 								</div>
 							) : null}
 						</TabsList>
@@ -3126,34 +3112,34 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								{configDiagnosticBlock}
 								{!loading && (
 									<AuthTab
-												data={authData}
-												expandedAuth={expandedAuth}
-												addingAuth={addingAuth}
-												newAuthName={newAuthName}
-												saving={saving}
-												modelsData={modelsData}
-												hiddenAuthProviders={hiddenAuthProviders}
-												providerOrder={providerOrder}
-												providerOrderScope={providerOrderScope}
-												onReorderProviders={handleReorderProviders}
-												onResetProviders={handleResetProviderOrder}
-												onToggleHiddenAuthProvider={handleToggleHiddenAuthProvider}
-												onToggleAuth={(name) => setExpandedAuth(expandedAuth === name ? null : name)}
-												onStartAddAuth={() => {
-													setAddingAuth(true);
-													setNewAuthName("");
-												}}
-												onCancelAddAuth={() => setAddingAuth(false)}
-												onChangeNewAuthName={setNewAuthName}
-												onConfirmAddAuth={(name, key) => handleAddAuth(name, key)}
-												onDuplicateAuth={handleDuplicateAuth}
-												onDeleteAuths={handleDeleteAuths}
-												onDeleteAuth={handleDeleteAuth}
-												onUpdate={handleUpdateAuth}
-												onSave={handleSaveAuth}
-											onOpenUsageProbeDialog={(provider) => guardProviderOp(() => openUsageProbeDialogFor(provider, "pi"))}
-										/>
-									)}
+										data={authData}
+										expandedAuth={expandedAuth}
+										addingAuth={addingAuth}
+										newAuthName={newAuthName}
+										saving={saving}
+										modelsData={modelsData}
+										hiddenAuthProviders={hiddenAuthProviders}
+										providerOrder={providerOrder}
+										providerOrderScope={providerOrderScope}
+										onReorderProviders={handleReorderProviders}
+										onResetProviders={handleResetProviderOrder}
+										onToggleHiddenAuthProvider={handleToggleHiddenAuthProvider}
+										onToggleAuth={(name) => setExpandedAuth(expandedAuth === name ? null : name)}
+										onStartAddAuth={() => {
+											setAddingAuth(true);
+											setNewAuthName("");
+										}}
+										onCancelAddAuth={() => setAddingAuth(false)}
+										onChangeNewAuthName={setNewAuthName}
+										onConfirmAddAuth={(name, key) => handleAddAuth(name, key)}
+										onDuplicateAuth={handleDuplicateAuth}
+										onDeleteAuths={handleDeleteAuths}
+										onDeleteAuth={handleDeleteAuth}
+										onUpdate={handleUpdateAuth}
+										onSave={handleSaveAuth}
+										onOpenUsageProbeDialog={(provider) => guardProviderOp(() => openUsageProbeDialogFor(provider, "pi"))}
+									/>
+								)}
 							</div>
 						</TabsContent>
 						<TabsContent value="config:oauth" className="config-main min-w-0">
@@ -3541,9 +3527,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 					<AlertDialogContent data-testid="config-env-switch-confirm">
 						<AlertDialogHeader>
 							<AlertDialogTitle>{t("config.env.switchDirtyTitle")}</AlertDialogTitle>
-							<AlertDialogDescription>
-								{pendingEnvSwitch.dirtyKeys.every((key) => key.startsWith("remote:")) ? t("config.env.switchDirtyRemote") : t("config.env.switchDirtyMessage", { count: pendingEnvSwitch.dirtyKeys.length })}
-							</AlertDialogDescription>
+							<AlertDialogDescription>{pendingEnvSwitch.dirtyKeys.every((key) => key.startsWith("remote:")) ? t("config.env.switchDirtyRemote") : t("config.env.switchDirtyMessage", { count: pendingEnvSwitch.dirtyKeys.length })}</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>
 							<AlertDialogCancel>{t("config.env.switchCancel")}</AlertDialogCancel>

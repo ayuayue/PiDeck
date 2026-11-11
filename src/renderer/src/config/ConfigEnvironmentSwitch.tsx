@@ -44,7 +44,13 @@ function ConnectionStatus(props: { tone: RemoteHostConnectionTone; errorCode?: s
 	return (
 		<span role="status" aria-live="polite" className="flex min-w-0 items-center gap-1.5 text-micro text-muted-foreground" data-testid="config-target-remote-hint" data-tone={props.tone} title={t("config.target.remoteHint")}>
 			<ConnectionGlyph tone={props.tone} />
-			{props.tone === "error" ? <span className="truncate text-danger">{t("settings.connections.connectFailed", { code: props.errorCode ?? "REMOTE_CONNECTION_FAILED" })}</span> : props.tone === "online" ? <span className="truncate">{t("sidebar.remoteProject.connection.online")}</span> : <span className="truncate">{t("sidebar.remoteProject.connection.offline")}</span>}
+			{props.tone === "error" ? (
+				<span className="truncate text-danger">{t("settings.connections.connectFailed", { code: props.errorCode ?? "REMOTE_CONNECTION_FAILED" })}</span>
+			) : props.tone === "online" ? (
+				<span className="truncate">{t("sidebar.remoteProject.connection.online")}</span>
+			) : (
+				<span className="truncate">{t("sidebar.remoteProject.connection.offline")}</span>
+			)}
 			{props.tone === "online" ? null : (
 				<Button type="button" variant="ghost" size="sm" className="h-6 shrink-0 gap-1 px-1.5 text-micro" data-testid="config-target-reconnect" onClick={props.onRetry}>
 					<RefreshCw className="size-3" aria-hidden="true" />
@@ -70,18 +76,7 @@ function EnvironmentIcon(props: { target: PiConfigTarget; tone?: RemoteHostConne
  * 会把下拉点击变成切换分页）。这里用显式的 role=tablist/tab + aria-selected 保持同一语义，
  * 内容区仍由调用方按 pane 挂载（两页都常驻，切换不丢草稿，与旧 forceMount 语义一致）。
  */
-export function ConfigBackendSwitch(props: {
-	pane: "pi" | "dsh";
-	showDsh: boolean;
-	embedded?: boolean;
-	piDirty: boolean;
-	dshDirty: boolean;
-	target: PiConfigTarget;
-	hosts: readonly PiConfigTargetHost[];
-	disabled?: boolean;
-	onSelectPane: (pane: "pi" | "dsh") => void;
-	onSelectTarget: (target: PiConfigTarget) => void;
-}) {
+export function ConfigBackendSwitch(props: { pane: "pi" | "dsh"; showDsh: boolean; embedded?: boolean; piDirty: boolean; dshDirty: boolean; target: PiConfigTarget; hosts: readonly PiConfigTargetHost[]; disabled?: boolean; onSelectPane: (pane: "pi" | "dsh") => void; onSelectTarget: (target: PiConfigTarget) => void }) {
 	const { snapshot } = useRemoteHostConnection();
 	const target = props.target;
 	const sshTargetId = target.kind === "ssh" ? target.hostId : "";
@@ -113,12 +108,7 @@ export function ConfigBackendSwitch(props: {
 	};
 
 	return (
-		<div
-			role="tablist"
-			aria-label={t("config.title")}
-			onKeyDown={onTablistKeyDown}
-			className={cn("config-backend-switch flex h-9 shrink-0 items-center gap-1 border-b border-border/60 px-3", props.embedded && "h-auto justify-start border-0 px-0")}
-		>
+		<div role="tablist" aria-label={t("config.title")} onKeyDown={onTablistKeyDown} className={cn("config-backend-switch flex h-9 shrink-0 items-center gap-1 border-b border-border/60 px-3", props.embedded && "h-auto justify-start border-0 px-0")}>
 			{/* Pi 分页 = 分页按钮 + 环境下拉（split control）：左边切分页，右边选环境。 */}
 			<div
 				className={cn(
@@ -137,10 +127,7 @@ export function ConfigBackendSwitch(props: {
 					tabIndex={piActive ? 0 : -1}
 					data-testid="config-backend-pi"
 					onClick={() => props.onSelectPane("pi")}
-					className={cn(
-						"flex h-8 min-w-0 items-center gap-1.5 rounded-l-md px-2.5 text-control font-medium transition-colors",
-						piActive ? "text-foreground" : "text-text-secondary hover:text-foreground",
-					)}
+					className={cn("flex h-8 min-w-0 items-center gap-1.5 rounded-l-md px-2.5 text-control font-medium transition-colors", piActive ? "text-foreground" : "text-text-secondary hover:text-foreground")}
 				>
 					<PiLogo className="size-3.5 shrink-0" />
 					<span className="truncate">{t("config.backend.pi")}</span>
@@ -160,10 +147,7 @@ export function ConfigBackendSwitch(props: {
 							data-kind={target.kind}
 							data-tone={target.kind === "ssh" ? tone : undefined}
 							disabled={props.disabled}
-							className={cn(
-								"flex h-8 shrink-0 items-center justify-center rounded-r-md px-1 text-text-secondary transition-colors hover:text-foreground disabled:opacity-50",
-								piActive && !props.embedded && "border-l border-border-subtle",
-							)}
+							className={cn("flex h-8 shrink-0 items-center justify-center rounded-r-md px-1 text-text-secondary transition-colors hover:text-foreground disabled:opacity-50", piActive && !props.embedded && "border-l border-border-subtle")}
 						>
 							<ChevronDown className="size-3.5" aria-hidden="true" />
 						</button>
@@ -304,13 +288,7 @@ export function ConfigEnvironmentStatus(props: { target: PiConfigTarget; hosts: 
 	const sshError = target.kind === "ssh" ? snapshot.errors[target.hostId] : undefined;
 
 	return (
-		<div
-			className="config-env-status flex min-w-0 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/60 bg-bg-panel px-4 py-1.5"
-			data-testid="config-environment-status"
-			data-kind={target.kind}
-			data-target={configTargetKey(target)}
-			data-tone={target.kind === "ssh" ? sshTone : undefined}
-		>
+		<div className="config-env-status flex min-w-0 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/60 bg-bg-panel px-4 py-1.5" data-testid="config-environment-status" data-kind={target.kind} data-target={configTargetKey(target)} data-tone={target.kind === "ssh" ? sshTone : undefined}>
 			<span className="flex min-w-0 items-center gap-1.5">
 				<span className="shrink-0 text-micro text-muted-foreground">{t("config.env.current")}</span>
 				<span className="flex min-w-0 items-center gap-1 text-control font-medium">
