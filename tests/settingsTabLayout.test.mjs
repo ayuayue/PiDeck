@@ -4,26 +4,26 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 // settingsTabLayout.ts 只含 type-only import（编译期擦除），无运行时依赖，可直接加载。
-const { SETTINGS_TAB_LAYOUT, SETTINGS_TAB_IDS } = loadTsCommonJs("src/renderer/src/components/app/settings/settingsTabLayout.ts");
+const { SETTINGS_TAB_LAYOUT, SETTINGS_TAB_IDS, HIDDEN_SETTINGS_TAB_IDS } = loadTsCommonJs("src/renderer/src/components/app/settings/settingsTabLayout.ts");
 
-test("布局覆盖全部 24 个 tab 且不重复", () => {
+test("布局覆盖全部 23 个可见 tab 且不重复", () => {
 	// loadTsCommonJs 在 vm 里执行，数组原型属于另一 realm，先展开到测试侧再比较
 	const ids = [...SETTINGS_TAB_LAYOUT.map((entry) => entry.id)];
-	assert.equal(ids.length, 24);
+	assert.equal(ids.length, 23);
 	assert.equal(new Set(ids).size, ids.length);
 	// SETTINGS_TAB_IDS 由布局派生，两者必须一致（单一事实来源）
 	assert.deepEqual([...SETTINGS_TAB_IDS], ids);
+	// 下架功能不得从任何入口漏回：侧栏与命令面板都消费 SETTINGS_TAB_IDS
+	assert.deepEqual([...HIDDEN_SETTINGS_TAB_IDS], ["cloudsync"]);
+	for (const id of HIDDEN_SETTINGS_TAB_IDS) assert.equal(ids.includes(id), false, `${id} 已下架，不应出现在设置布局里`);
 });
 
 test("展示顺序按 基础 → 扩展集成 → 开发者工具 → 开发与维护 排列", () => {
-	assert.deepEqual(
-		[...SETTINGS_TAB_LAYOUT.map((entry) => entry.id)],
-		["common", "shortcuts", "notification", "appearance", "terminal", "memory", "proxy", "connections", "im", "pet", "vision", "imagegen", "cloudsync", "videogen", "acp", "hostplugins", "web", "editors", "git", "dev", "usage", "process", "storage", "backup"],
-	);
+	assert.deepEqual([...SETTINGS_TAB_LAYOUT.map((entry) => entry.id)], ["common", "shortcuts", "notification", "appearance", "terminal", "memory", "proxy", "connections", "im", "pet", "vision", "imagegen", "videogen", "acp", "hostplugins", "web", "editors", "git", "dev", "usage", "process", "storage", "backup"]);
 });
 
 test("分割线只出现在簇边界前，首项不带分割线", () => {
-	assert.deepEqual([...SETTINGS_TAB_LAYOUT.filter((e) => e.dividerBefore).map((e) => e.id)], ["im", "cloudsync", "web", "dev"]);
+	assert.deepEqual([...SETTINGS_TAB_LAYOUT.filter((e) => e.dividerBefore).map((e) => e.id)], ["im", "web", "dev"]);
 	assert.equal(SETTINGS_TAB_LAYOUT[0].dividerBefore, undefined);
 });
 
@@ -39,8 +39,9 @@ test("每个 tab 的中英标题都在两份词典里存在", () => {
 		assert.ok(typeof key === "string" && key.length > 0, `${id} 在 SETTINGS_TAB_LABEL_KEYS 里没有标题映射`);
 		assert.match(key, /^settings\.tabs\./, `${id} 的标题键必须以 settings.tabs. 开头`);
 	}
-	// 反向也不能多：映射里有布局不认识的 id 同样说明两边漂移了。
-	assert.deepEqual([...Object.keys(SETTINGS_TAB_LABEL_KEYS)].sort(), [...layoutIds].sort());
+	// 反向也不能多：映射允许保留已下架 tab（标题仍被模块清单/旧记忆值引用），
+	// 其余多出来的 id 同样说明两边漂移了。
+	assert.deepEqual([...Object.keys(SETTINGS_TAB_LABEL_KEYS)].sort(), [...layoutIds, ...HIDDEN_SETTINGS_TAB_IDS].sort());
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 	for (const id of layoutIds) {

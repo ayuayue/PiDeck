@@ -25,7 +25,6 @@ const MODULE_LABEL_KEYS: Record<HideableModuleId, TranslationKey> = {
 	pet: SETTINGS_TAB_LABEL_KEYS.pet,
 	vision: SETTINGS_TAB_LABEL_KEYS.vision,
 	imagegen: SETTINGS_TAB_LABEL_KEYS.imagegen,
-	cloudsync: SETTINGS_TAB_LABEL_KEYS.cloudsync,
 	videogen: SETTINGS_TAB_LABEL_KEYS.videogen,
 	acp: SETTINGS_TAB_LABEL_KEYS.acp,
 	hostplugins: SETTINGS_TAB_LABEL_KEYS.hostplugins,
@@ -47,7 +46,6 @@ const MODULE_DESC_KEYS: Record<HideableModuleId, TranslationKey> = {
 	pet: "settings.modules.petDesc",
 	vision: "settings.modules.visionDesc",
 	imagegen: "settings.modules.imagegenDesc",
-	cloudsync: "settings.modules.cloudsyncDesc",
 	videogen: "settings.modules.videogenDesc",
 	acp: "settings.modules.acpDesc",
 	hostplugins: "settings.modules.hostpluginsDesc",
@@ -117,7 +115,6 @@ export const ModuleVisibilitySection = memo(function ModuleVisibilitySection(pro
 			case "process":
 			case "acp":
 			case "hostplugins":
-			case "cloudsync":
 			case "respondingTips":
 			case "agents":
 			case "favorites":

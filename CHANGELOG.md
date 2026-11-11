@@ -1,9 +1,8 @@
 ## v0.12.0 (2026-11-11)
 
-This release connects PiDeck across machines: encrypted cloud sync, remote workspaces available in stable builds, parent/child sessions and a floating question card — plus long-due file, editor and sidebar work.
+This release connects PiDeck across machines: remote workspaces available in stable builds, parent/child sessions and a floating question card — plus long-due file, editor and sidebar work.
 
 ### 🚀 New Features
-- **Cloud sync: one configuration across machines** — end-to-end encryption from a master password, so the provider only ever stores ciphertext; six backends (GitHub Gist with zero-config device flow, OneDrive / Google Drive via browser authorization, WebDAV, S3-compatible storage, and a locally synced folder) and selectable content (desktop settings, pi models and credentials, image-generation config, loose config files, prompts / skills / extensions); changes merge three-way, conflicts keep whichever side you pick per entry, automatic sync and strategy are configurable, and you can export / import a `.pideckbackup` or restore extensions from the cloud. DSH sessions sync grouped by project.
 - **Remote workspaces become a product capability** — remote is no longer gated by the update channel: stable and dev register the same SSH capabilities, with identical entry points, IPC, trust and host-key pin semantics.
 - **Linked sessions (parent / child conversations)** — a session can open child sessions, nested in the sidebar, and every finished turn posts its report back to the parent; the Activity view nests children under their parent too, and relationships can be cleaned up.
 - **The question card floats above the timeline** — the ask card is no longer inlined in the message flow: it collapses, drags and remembers its position, and starts centred at the message-column / composer width; batch questions can be skipped one by one, and closing or unconfirmed input no longer swallows the answers already given.

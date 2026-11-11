@@ -86,7 +86,6 @@
 > **Latest: v0.12.0** (2026-11-11)
 
 ### v0.12.0 Release Highlights
-- 🚀 **Cloud sync: one configuration across machines**
 - 🚀 **Remote workspaces become a product capability**
 - 🚀 **Linked sessions (parent / child conversations)**
 - 🚀 **The question card floats above the timeline**

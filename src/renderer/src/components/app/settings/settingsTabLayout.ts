@@ -26,7 +26,6 @@ export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
 	{ id: "pet" },
 	{ id: "vision" },
 	{ id: "imagegen" },
-	{ id: "cloudsync", dividerBefore: true },
 	{ id: "videogen" },
 	{ id: "acp" },
 	{ id: "hostplugins" },
@@ -42,6 +41,13 @@ export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
 
 /** 全部合法 tab id（顺序即展示顺序）：校验 localStorage 记忆值、防止旧版本残留值导致无高亮。 */
 export const SETTINGS_TAB_IDS: readonly SettingsTabId[] = SETTINGS_TAB_LAYOUT.map((entry) => entry.id);
+
+/**
+ * 已下架的 tab：云同步功能尚未验证，先不暴露侧栏 / 命令面板 / 功能模块开关。
+ * 代码、i18n 与深链类型保留，验证通过后把 id 放回 SETTINGS_TAB_LAYOUT 与
+ * HIDEABLE_SETTINGS_TAB_IDS 即可；标题映射因此允许比布局多出这些 id。
+ */
+export const HIDDEN_SETTINGS_TAB_IDS: readonly SettingsTabId[] = ["cloudsync"];
 
 /**
  * 各 tab 的标题 i18n key。
