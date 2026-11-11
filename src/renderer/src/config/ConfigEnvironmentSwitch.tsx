@@ -11,7 +11,7 @@ import { cn } from "../lib/utils";
 import { REMOTE_HOST_TONE_DOT_CLASS, type RemoteHostConnectionTone } from "../utils/remoteHostIdentity";
 import { DshLogo, PiLogo } from "../components/session/SessionSourceBadge";
 import { configTargetKey, environmentScopeHintKey } from "./configEnvironmentModel";
-import { configTargetHostLabel, samePiConfigTarget, wslTargetHostOf, type PiConfigTargetHost } from "./piConfigTargetModel";
+import { configTargetHostLabel, samePiConfigTarget, wslTargetHostOf, type PiConfigTargetHost, type SshConfigTargetHost } from "./piConfigTargetModel";
 import { remoteHostTone, type RemoteHostConnectionOutcome } from "./remoteHostConnectionModel";
 import { useRemoteHostConnection } from "./useRemoteHostConnection";
 
@@ -22,7 +22,7 @@ import { useRemoteHostConnection } from "./useRemoteHostConnection";
  * - 环境是整页的作用域，不是一个 tab 内的表单字段：下拉挂在 Pi 分页上，选择后整个 Pi 面板按该环境重载；
  * - 每页不再各自渲染目标选择器（原先 models/settings/资源三页各一份），避免「这页切了、那页没切」；
  * - 连接状态与密码补录只在 Pi 面板内的状态条里画（见 ConfigEnvironmentStatus），下拉只负责选择；
- * - 下拉项只来自已校验未禁用的 SSH 主机与全部 WSL 档案，两边失败时仍保留「本机」回退。
+ * - 下拉项只来自已校验未禁用的 SSH 主机与开发设置里的那个 WSL 环境，两边都不可用时仍保留「本机」回退。
  */
 
 /** 菜单/触发器里的连接状态点：连接中用转圈（黄点是会话「Agent 在跑」的既有语义），其余复用侧栏配色。 */
@@ -83,7 +83,7 @@ export function ConfigBackendSwitch(props: { pane: "pi" | "dsh"; showDsh: boolea
 	const tone = sshTargetId.length > 0 ? remoteHostTone(snapshot, sshTargetId) : "offline";
 	const label = configTargetHostLabel(target, props.hosts, t("config.target.local"), t("config.target.unknownHost"));
 	const sshHosts = props.hosts.filter((host) => host.kind === "ssh");
-	const wslHosts = props.hosts.filter((host) => host.kind === "wsl");
+	const wslHost = props.hosts.find((host) => host.kind === "wsl");
 	const piActive = props.pane === "pi";
 	const piTabRef = useRef<HTMLButtonElement | null>(null);
 	const dshTabRef = useRef<HTMLButtonElement | null>(null);
@@ -179,25 +179,20 @@ export function ConfigBackendSwitch(props: { pane: "pi" | "dsh"; showDsh: boolea
 								})}
 							</>
 						) : null}
-						{wslHosts.length > 0 ? (
+						{wslHost !== undefined ? (
 							<>
 								<DropdownMenuSeparator />
 								<DropdownMenuLabel className="text-micro font-normal text-muted-foreground">{t("config.target.wsl")}</DropdownMenuLabel>
-								{wslHosts.map((host) => {
-									const active = target.kind === "wsl" && target.hostId === host.id;
-									return (
-										<DropdownMenuItem key={"wsl:" + host.id} onSelect={() => selectTarget({ kind: "wsl", hostId: host.id })} data-testid={"config-env-wsl-" + host.id} data-active={active ? "true" : undefined} className="gap-2">
-											<SquareTerminal className="size-3.5 shrink-0" aria-hidden="true" />
-											<span className="truncate">{host.label}</span>
-											<span className="truncate font-mono text-micro text-muted-foreground">
-												{host.distro} · {host.user}
-											</span>
-										</DropdownMenuItem>
-									);
-								})}
+								<DropdownMenuItem onSelect={() => selectTarget({ kind: "wsl" })} data-testid="config-env-wsl" data-active={target.kind === "wsl" ? "true" : undefined} className="gap-2">
+									<SquareTerminal className="size-3.5 shrink-0" aria-hidden="true" />
+									<span className="truncate">{wslHost.label}</span>
+									<span className="truncate font-mono text-micro text-muted-foreground">
+										{wslHost.distro} · {wslHost.user}
+									</span>
+								</DropdownMenuItem>
 							</>
 						) : null}
-						{sshHosts.length === 0 && wslHosts.length === 0 ? (
+						{sshHosts.length === 0 && wslHost === undefined ? (
 							<>
 								<DropdownMenuSeparator />
 								<DropdownMenuItem disabled className="text-micro leading-relaxed text-muted-foreground">
@@ -205,8 +200,8 @@ export function ConfigBackendSwitch(props: { pane: "pi" | "dsh"; showDsh: boolea
 								</DropdownMenuItem>
 							</>
 						) : null}
-						{/* WSL 档案一条都没有：在菜单里说明去哪里加，避免用户以为「下拉里没有=不支持」 */}
-						{wslHosts.length === 0 && sshHosts.length > 0 ? (
+						{/* WSL 环境不可用（开发设置没开或没选发行版）：在菜单里说明去哪里开，避免用户以为「下拉里没有=不支持」 */}
+						{wslHost === undefined && sshHosts.length > 0 ? (
 							<>
 								<DropdownMenuSeparator />
 								<DropdownMenuItem disabled className="text-micro leading-relaxed text-muted-foreground" data-testid="config-target-wsl-empty">
@@ -275,7 +270,7 @@ export function ConfigEnvironmentStatus(props: { target: PiConfigTarget; hosts: 
 	// disabled（正在保存）时不动连接，避免一次 SSH 往返打断保存。
 	useEffect(() => {
 		if (props.disabled === true || targetHostId.length === 0) return;
-		const host = props.hosts.find((candidate) => candidate.kind === "ssh" && candidate.id === targetHostId);
+		const host = props.hosts.find((candidate): candidate is SshConfigTargetHost => candidate.kind === "ssh" && candidate.id === targetHostId);
 		if (host === undefined) return;
 		void ensureConnected(host.id).then((outcome: RemoteHostConnectionOutcome) => {
 			if (!outcome.ok && outcome.code === "SSH_PASSWORD_REQUIRED") setPasswordFor({ hostId: host.id, label: host.label });

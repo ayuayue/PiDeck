@@ -2,7 +2,6 @@ import type { PiConfigTarget } from "../../../shared/piConfig";
 import { isRemoteProject } from "../../../shared/projectLocation";
 import type { Project } from "../../../shared/types";
 import type { RemoteHostListItem } from "../../../shared/types/remoteHost";
-import type { WslHostListItem } from "../../../shared/types/wslHost";
 
 /**
  * 配置目标（P1-1 UI 侧）的纯规则：选择器可选项、目标比较、本地编辑器是否带 target、
@@ -10,25 +9,28 @@ import type { WslHostListItem } from "../../../shared/types/wslHost";
  * 会直接影响写盘作用域的判断。
  */
 
-/** 目标选择器的一项：已校验且未禁用的 ssh 主机，或一条 WSL 连接档案。 */
-export type PiConfigTargetHost = { kind: "ssh"; id: string; label: string; sshHost: string } | { kind: "wsl"; id: string; label: string; distro: string; user: string };
+/** 目标选择器的一项：已校验且未禁用的 ssh 主机，或应用唯一的 WSL 环境。 */
+export type PiConfigTargetHost = { kind: "ssh"; id: string; label: string; sshHost: string } | { kind: "wsl"; label: string; distro: string; user: string };
 
-/** WSL 档案项（来源提示、未接入页说明都只认这一种）。 */
+/** WSL 项（来源提示、未接入页说明都只认这一种）。 */
 export type WslConfigTargetHost = Extract<PiConfigTargetHost, { kind: "wsl" }>;
+
+/** SSH 项（连接状态只对它有语义，因此派生与取用都需要这个窄化类型）。 */
+export type SshConfigTargetHost = Extract<PiConfigTargetHost, { kind: "ssh" }>;
 
 /** 已验证的 ssh 主机 → 选择器项（过滤条件由调用方先做，这里只做形状转换）。 */
 export function toSshTargetHosts(hosts: readonly RemoteHostListItem[]): PiConfigTargetHost[] {
 	return hosts.map((host) => ({ kind: "ssh", id: host.id, label: host.label, sshHost: host.sshHost }));
 }
 
-/** WSL 档案 → 选择器项：label/distro/user 是档案里唯一的展示信息（没有路径、没有凭据）。 */
-export function toWslTargetHosts(hosts: readonly WslHostListItem[]): PiConfigTargetHost[] {
-	return hosts.map((host) => ({ kind: "wsl", id: host.id, label: host.label, distro: host.distro, user: host.user }));
-}
-
-/** 是否存在 WSL 档案：决定「技能/提示词/扩展页仅编辑 Windows 配置」的标注要不要出现。 */
-export function hasWslConfigProfile(hosts: readonly PiConfigTargetHost[]): boolean {
-	return hosts.some((host) => host.kind === "wsl");
+/**
+ * 应用唯一的 WSL 环境 → 选择器项（0 或 1 项）。
+ *
+ * WSL 不是一台可以用 id 选中的连接：它的 distro/user 就是开发设置里那一份，关掉开关即不存在。
+ * 因此这里只做「有没有 + 展示信息」，不提供枚举。
+ */
+export function toWslTargetHosts(identity: { distro: string; user: string } | undefined): PiConfigTargetHost[] {
+	return identity === undefined ? [] : [{ kind: "wsl", label: "WSL", distro: identity.distro, user: identity.user }];
 }
 
 /**
@@ -37,7 +39,7 @@ export function hasWslConfigProfile(hosts: readonly PiConfigTargetHost[]): boole
  */
 export function configTargetHostLabel(target: PiConfigTarget, hosts: readonly PiConfigTargetHost[], localLabel: string, unknownLabel: string): string {
 	if (target.kind === "local") return localLabel;
-	const host = hosts.find((candidate) => candidate.kind === target.kind && candidate.id === target.hostId);
+	const host = target.kind === "ssh" ? hosts.find((candidate) => candidate.kind === "ssh" && candidate.id === target.hostId) : hosts.find((candidate) => candidate.kind === "wsl");
 	return host?.label ?? unknownLabel;
 }
 
@@ -53,12 +55,13 @@ export function hasUnsavedConfigDrafts(keys: Iterable<string>): boolean {
 }
 
 /**
- * 同一目标判定：同 kind 同 hostId 才算同一个。同一个 id 在 ssh/wsl 两个命名空间里是不同目标，
+ * 同一目标判定：local 对 local；ssh 同 hostId 才算同一个；WSL 只有一个环境，两者都是 wsl 即同一个。
  * 切换时必须重载——否则界面会把上一份目标的草稿当成新目标的数据展示。
  */
 export function samePiConfigTarget(left: PiConfigTarget, right: PiConfigTarget): boolean {
 	if (left.kind === "local" || right.kind === "local") return left.kind === right.kind;
-	return left.kind === right.kind && left.hostId === right.hostId;
+	if (left.kind === "ssh" || right.kind === "ssh") return left.kind === "ssh" && right.kind === "ssh" && left.hostId === right.hostId;
+	return true;
 }
 
 /**
@@ -87,10 +90,10 @@ export function localEditorTargetOption(target: PiConfigTarget): { target: PiCon
 	return target.kind === "wsl" ? { target } : undefined;
 }
 
-/** 按当前目标找 WSL 档案项；本机目标、找不到、或只有同 id 的 ssh 条目都返回 undefined。 */
+/** 按当前目标找 WSL 项；本机目标或当前没有 WSL 环境都返回 undefined。 */
 export function wslTargetHostOf(hosts: readonly PiConfigTargetHost[], target: PiConfigTarget): WslConfigTargetHost | undefined {
 	if (target.kind !== "wsl") return undefined;
-	return hosts.find((host): host is WslConfigTargetHost => host.kind === "wsl" && host.id === target.hostId);
+	return hosts.find((host): host is WslConfigTargetHost => host.kind === "wsl");
 }
 
 /**

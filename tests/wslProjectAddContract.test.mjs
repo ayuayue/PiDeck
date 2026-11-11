@@ -54,9 +54,10 @@ test("global add-project branches to the picker when WSL mode is on", () => {
 	assert.match(app, /<WslProjectPickerDialog/);
 });
 
-test("entry points open the picker: the profile row and the global add", () => {
-	assert.match(tab, /openWslProjectPicker\(\{ hostId: host\.id \}\)/);
-	assert.match(tab, /settings\.connections\.wsl\.addProject/);
+test("entry point: 只有全局「添加项目」打开选择器（连接页不再列 WSL 档案）", () => {
+	// 连接页只列 SSH 主机；WSL 项目从侧栏「+ 添加项目」进来（开发设置决定发行版/用户）。
+	assert.doesNotMatch(tab, /openWslProjectPicker\(/);
+	assert.doesNotMatch(tab, /settings\.connections\.wsl\.addProject/);
 	assert.doesNotMatch(tab, /desktopApi\.projects\.addWsl\(/);
 	assert.match(dialog, /desktopApi\.projects\.listWslDirectory\(next \?\? "", hostId\)/);
 	assert.match(dialog, /desktopApi\.projects\.addWslPath\(path, hostId\)/);

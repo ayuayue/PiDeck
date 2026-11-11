@@ -13,7 +13,7 @@ import type { ResourceScope } from "./resourceScopeModel";
  * 因此这里只做「派生 + 门禁」，不提供 setter。
  */
 export function useResourceTarget(resourceScope: ResourceScope, target: PiConfigTarget) {
-	const resourceTarget = useMemo<PiResourceTarget>(() => (target.kind === "wsl" ? { kind: "wsl", hostId: target.hostId } : { kind: "local" }), [target]);
+	const resourceTarget = useMemo<PiResourceTarget>(() => (target.kind === "wsl" ? { kind: "wsl" } : { kind: "local" }), [target]);
 	const global = resourceScope === "global";
 	const options = useMemo<PiResourceOptions | undefined>(() => (global ? resourceTargetOptions(resourceTarget) : undefined), [global, resourceTarget]);
 	/** true = 该动作在当前目标下已拦下并提示（调用方直接 return）；false = 放行。 */

@@ -35,7 +35,7 @@ import { invalidatePiInstallationCache, type PiLocator } from "../pi/PiLocator";
 import { validateInstallCommand } from "../pi/installCommandPolicy";
 import { resolvePiInstallGuard } from "../pi/piInstallGuard";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
-import { hasWslSettingsChanged } from "../wsl/WslProjectEnvironment";
+import { hasWslSettingsChanged, resolveSettingsWslIdentity } from "../wsl/WslProjectEnvironment";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { RemotePiConfigBackend } from "../config/RemotePiConfigBackend";
@@ -498,9 +498,12 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			saveRawConfig: (file, raw) => configManager.saveRawConfig(PI_CONFIG_FILE_NAMES[file], raw),
 		},
 		remote: remotePiConfig,
-		wsl: createWslPiConfigStoreFor(app.getPath("userData"), { warn: (message, details) => void appLogger.warn("wsl", message, details) }),
+		wsl: createWslPiConfigStoreFor(app.getPath("userData"), {
+			warn: (message, details) => void appLogger.warn("wsl", message, details),
+			readWslIdentity: async () => resolveSettingsWslIdentity(settingsStore.get()),
+		}),
 	});
-	// 非本机目标的回程 DTO：local 原样返回；wsl 带来源（档案/发行版/用户），ssh 带脱敏快照（不含明文密钥）。
+	// 非本机目标的回程 DTO：local 原样返回；wsl 带发行版/用户来源，ssh 带脱敏快照（不含明文密钥）。
 	const configReadDto = (routed: PiConfigReadRoute<unknown>) => (routed.kind === "local" ? routed.value : routed.kind === "wsl" ? { raw: routed.raw, parsed: routed.data, wsl: routed } : { raw: JSON.stringify(routed.data, null, 2), parsed: routed.data, remote: routed });
 	/** 源文件级读取的回程：本机/wsl 直接给原文（+ 诊断），ssh 给脱敏快照；auth.json 的 ssh 分支只有派生视图（无 raw）。 */
 	const configRawReadDto = (routed: PiConfigRawReadRoute) => {
@@ -508,14 +511,14 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		if (routed.kind === "remote") return { raw: JSON.stringify(routed.data, null, 2), remote: routed };
 		return routed.value;
 	};
-	/** 非本机写回执：ssh 只带 version，wsl 只带档案 id；都只回「写成功」，本机缓存由调用方决定是否失效。 */
+	/** 非本机写回执：ssh 只带 version，wsl 只带文件名；都只回「写成功」，本机缓存由调用方决定是否失效。 */
 	const configWriteDto = (routed: PiConfigWriteRoute, file: string) => {
 		if (routed.kind === "local") return routed.value;
 		if (routed.kind === "remote") {
 			void appLogger.info("config", "Remote config patched", { file, hostId: routed.hostId, version: routed.version });
 			return { valid: true, remote: routed };
 		}
-		void appLogger.info("config", "WSL config written", { file, hostId: routed.value.valid ? routed.value.receipt.hostId : undefined });
+		void appLogger.info("config", "WSL config written", { file });
 		return routed.value.valid ? { valid: true, wsl: routed.value.receipt } : routed.value;
 	};
 

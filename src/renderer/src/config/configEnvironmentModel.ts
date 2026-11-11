@@ -2,14 +2,14 @@ import type { PiConfigTarget } from "../../../shared/piConfig";
 import type { ConfigTab } from "./configTypes";
 
 /**
- * 配置管理「环境」能力表（纯规则）：一个环境（本机 / 一台 SSH 主机 / 一个 WSL 发行版）能管理哪些配置页。
+ * 配置管理「环境」能力表（纯规则）：一个环境（本机 / 一台 SSH 主机 / 应用的 WSL 环境）能管理哪些配置页。
  *
  * 为什么把这张表放在纯模块里：切换环境后「这一页还在不在」「切到哪一页」「哪些脏草稿会随着页面消失」
  * 三件事必须同一个判定来源。散在 JSX 里就会出现「导航里没了、tab state 还停在那一页」这类半截状态。
  *
  * 边界来自后端事实，不是 UI 口味：
- * - ssh：只经 helper 的 config.read/config.patch（models/settings/trust/mcp），凭据（auth.json）结构性不可达，
- *   OAuth 登录/源文件字节级编辑/技能等资源都只在本机执行；
+ * - ssh：只经 helper 的 config.read/config.patch（models/settings/trust/mcp），auth.json 只能读**派生视图**
+ *   （provider / 凭据类型 / 已配置），因此认证页存在但只读；OAuth 登录/源文件字节级编辑/技能等资源都只在本机执行；
  * - wsl：本机 UNC 读 + 发行版内原子替换，因此连 auth.json 也能编辑；但 OAuth 登录仍走本机 pi 进程，
  *   安全策略页编辑的是 PiDeck 自己的宿主设置，两者都只在本机。
  */
@@ -19,7 +19,7 @@ export type ConfigNavSection = "config" | "security" | "skills" | "prompts" | "e
 const CONFIG_TABS_BY_TARGET: Record<PiConfigTarget["kind"], readonly ConfigTab[]> = {
 	local: ["models", "auth", "oauth", "settings", "trust", "mcp", "raw"],
 	wsl: ["models", "auth", "settings", "trust", "mcp", "raw"],
-	ssh: ["models", "settings", "trust", "mcp"],
+	ssh: ["models", "auth", "settings", "trust", "mcp"],
 };
 
 /** 该环境可管理的配置页（含顺序）。 */
@@ -53,7 +53,7 @@ export function securityPageSupported(target: PiConfigTarget): boolean {
 
 /** 环境的稳定身份串：切换时用它做 key / 依赖，不含对象身份。 */
 export function configTargetKey(target: PiConfigTarget): string {
-	return target.kind === "local" ? "local" : target.kind + ":" + target.hostId;
+	return target.kind === "ssh" ? `ssh:${target.hostId}` : target.kind;
 }
 
 /**

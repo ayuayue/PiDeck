@@ -7,7 +7,6 @@
  */
 
 import { PI_RESOURCE_CODES, PI_RESOURCE_CODE_SET, type PiResourceOptions, type PiResourceTarget } from "../../shared/piConfig";
-import { PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -26,10 +25,10 @@ export function readPiResourceTarget(value: unknown): PiResourceTarget {
 		return { kind: "local" };
 	}
 	if (value.kind === "wsl") {
-		// Exactly two keys and the authoritative id domain the project/wsl-config surfaces already share:
-		// a crafted id cannot address a directory the WslHostStore could not have issued.
-		if (Object.keys(value).length !== 2 || typeof value.hostId !== "string" || !PROJECT_HOST_ID_PATTERN.test(value.hostId)) throw stable(PI_RESOURCE_CODES.targetInvalid);
-		return { kind: "wsl", hostId: value.hostId };
+		// Exactly one key: the resource target names *the* WSL environment; distro/user are read from the app
+		// settings in the main process, so a crafted renderer payload cannot address another distribution.
+		if (Object.keys(value).length !== 1) throw stable(PI_RESOURCE_CODES.targetInvalid);
+		return { kind: "wsl" };
 	}
 	// ssh is a legal PiConfigTarget but not a PiResourceTarget: name it, do not coerce it to local.
 	if (value.kind === "ssh") throw stable(PI_RESOURCE_CODES.sshUnsupported);

@@ -5,20 +5,19 @@
  * instance state. Reconfiguring a shared instance would make two windows/profiles fight over the same fields
  * (the old global switch). Here the local target always returns the injected singletons (byte-identical to
  * today's behavior), and a WSL target gets fresh instances constructed once from the resolved distribution
- * HOME. Every request re-reads the host store: the cache key embeds hostId/distro/user, so editing a profile's
- * distro/user or removing it evicts the stale instances on the next access (no event wiring required).
+ * HOME. Every request re-reads the WSL identity from settings: the cache key embeds distro/user, so changing the
+ * development setting or leaving WSL mode evicts the stale instances on the next access (no event wiring needed).
  *
  * The only `configureWsl` call allowed is inside the factory, on a freshly constructed instance; there is no
  * code path that switches an already-shared manager to another environment (guarded by tests + review).
  */
 
-import { PI_RESOURCE_CODES } from "../../shared/piConfig";
 import type { ExtensionManager } from "../extensions/ExtensionManager";
 import type { XuePromptManager } from "../prompts/XuePromptManager";
 import type { PromptManager } from "../prompts/PromptManager";
 import type { SkillManager } from "../skills/SkillManager";
 import type { WslEnvironment } from "../wsl/WslPaths";
-import { piResourceStableCodeOf, readPiResourceOptions } from "./piResourceTarget";
+import { readPiResourceOptions } from "./piResourceTarget";
 import type { PiResourceTargetResolver } from "./PiResourceTargetResolver";
 
 export type PiResourceManagerSet = {
@@ -60,15 +59,14 @@ export type PiResourceManagerPool = {
 	prompts(options?: unknown): Promise<PromptManager>;
 	extensions(options?: unknown): Promise<ExtensionManager>;
 	xuePrompts(options?: unknown): Promise<XuePromptManager>;
-	/** Drop cached instances for one profile (or all): called when a profile is removed/edited explicitly. */
-	invalidate(hostId?: string): void;
+	/** Drop every cached scope: called when the WSL identity (settings) or a project's resources change. */
+	invalidate(): void;
 	/** Number of cached WSL scopes (tests + diagnostics). */
 	scopeCount(): number;
 };
 
 type CachedScope = {
 	cacheKey: string;
-	hostId: string;
 	distro: string;
 	user: string;
 	home: string;
@@ -80,7 +78,7 @@ const DEFAULT_MAX_SCOPES = 8;
 
 export function createPiResourceManagerPool(ports: PiResourceManagerPoolPorts): PiResourceManagerPool {
 	const maxScopes = Math.max(1, Math.trunc(ports.maxScopes ?? DEFAULT_MAX_SCOPES));
-	/** hostId -> scope; insertion order is the eviction order (oldest first). */
+	/** cacheKey -> scope; insertion order is the eviction order (oldest first). */
 	const scopes = new Map<string, CachedScope>();
 
 	function evictOverflow(): void {
@@ -93,29 +91,21 @@ export function createPiResourceManagerPool(ports: PiResourceManagerPoolPorts): 
 
 	/**
 	 * Resolve the requested target and return its cached scope (null = local).
-	 * Re-reads the host store on every call: a profile whose distro/user changed maps to a new cacheKey and the
-	 * stale instances are dropped; a removed profile fails closed and its cache entry disappears.
+	 * Re-reads the WSL identity on every call: changed distro/user maps to a new cacheKey and the stale instances
+	 * are dropped; an unconfigured environment fails closed and its cache entry disappears.
 	 */
 	async function scopeFor(options: unknown): Promise<CachedScope | null> {
 		const parsed = readPiResourceOptions(options);
 		const target = parsed.target;
 		if (target === undefined || target.kind === "local") return null;
 
-		let resolution;
-		try {
-			resolution = await ports.resolver.resolve(target);
-		} catch (error) {
-			if (piResourceStableCodeOf(error) === PI_RESOURCE_CODES.hostNotFound) scopes.delete(target.hostId);
-			throw error;
-		}
+		const resolution = await ports.resolver.resolve(target);
 		if (resolution.kind !== "wsl") return null;
 
-		const existing = scopes.get(resolution.hostId);
-		if (existing !== undefined && existing.cacheKey !== resolution.cacheKey) scopes.delete(resolution.hostId);
-		if (existing === undefined || existing.cacheKey !== resolution.cacheKey) {
-			scopes.set(resolution.hostId, {
+		const existing = scopes.get(resolution.cacheKey);
+		if (existing === undefined) {
+			scopes.set(resolution.cacheKey, {
 				cacheKey: resolution.cacheKey,
-				hostId: resolution.hostId,
 				distro: resolution.distro,
 				user: resolution.user,
 				home: resolution.home,
@@ -124,7 +114,7 @@ export function createPiResourceManagerPool(ports: PiResourceManagerPoolPorts): 
 			});
 			evictOverflow();
 		}
-		return scopes.get(resolution.hostId) ?? null;
+		return scopes.get(resolution.cacheKey) ?? null;
 	}
 
 	return {
@@ -152,12 +142,8 @@ export function createPiResourceManagerPool(ports: PiResourceManagerPoolPorts): 
 			scope.managers.xuePrompts ??= ports.create.xuePrompts({ home: scope.home, environment: scope.environment });
 			return scope.managers.xuePrompts;
 		},
-		invalidate(hostId?: string): void {
-			if (hostId === undefined) {
-				scopes.clear();
-				return;
-			}
-			scopes.delete(hostId);
+		invalidate(): void {
+			scopes.clear();
 		},
 		scopeCount(): number {
 			return scopes.size;

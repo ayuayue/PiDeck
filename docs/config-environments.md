@@ -1,6 +1,6 @@
 # Pi 配置管理：环境（本机 / SSH / WSL）
 
-> **Status: Current（2026-11-10，首次落地；以代码与测试为准）**
+> **Status: Current（2026-11-11；WSL 环境改为跟随开发设置里的那一份身份）**
 >
 > 读者：改「配置管理」弹窗、`config:*` IPC、远端 helper 配置域的人。
 > 相关：`docs/architecture.md`（分层）、`docs/maintenance-domains.md`（改到哪读哪）、`docs/unified-api.md`（IPC 快照）。
@@ -14,6 +14,9 @@
 | 本机 | Windows `~/.pi/agent` | 本机文件（ConfigManager） | 本机文件（文件锁 + 原子替换） |
 | SSH 主机 | 该主机 `$HOME/.pi/agent` | 远端 helper `config.read`（**脱敏**） | helper `config.patch`（RFC 7396 merge patch + `expectedVersion`） |
 | WSL 发行版 | `\\wsl.localhost\<distro>\home\<user>\.pi\agent` | 本机 UNC | 发行版内 `sh` 原子替换（不经 UNC 写） |
+
+WSL 只有一个环境：发行版与 Linux 用户来自**开发设置**（`wslEnabled/wslDistro/wslUser`），
+不在「设置 → 连接」里登记、也没有可枚举的档案列表（设置 → 连接只列 SSH 主机）。
 
 整个 Pi 面板（配置组 + 资源组）**只服务一个环境**。环境不是页内字段，而是页面的作用域：
 切环境 = 整页按新环境重载。页内不再有第二、第三个目标选择器。
@@ -52,7 +55,8 @@ provider 探针（连接测试 / 拉取模型 / 用量查询）**只从本机网
 ## 4. 契约与代码落点
 
 - 目标类型与文件表：`src/shared/piConfig.ts`
-  - `PiConfigTarget = local | ssh{hostId} | wsl{hostId}`
+  - `PiConfigTarget = local | ssh{hostId} | wsl`（wsl 不带 hostId：distro/user 由主进程从设置解析，
+    渲染层自报身份一律 `WSL_CONFIG_TARGET_INVALID`；`PiResourceTarget = local | wsl` 同理）
   - `PI_CONFIG_FILES = models/settings/trust/mcp`（ssh helper 白名单，**永不含 auth**）
   - `WSL_PI_CONFIG_FILES = 上述 + auth`；`PI_CONFIG_FILE_NAMES` 是文件名唯一真源。
 - 主进程路由：`src/main/config/PiConfigRouter.ts`（`readModels/readSettings/saveModels/saveSettings/readRaw/writeRaw`）。

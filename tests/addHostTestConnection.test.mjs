@@ -168,7 +168,8 @@ test("独立连接进度弹窗已删除，连接状态改由列表行内呈现",
 
 test("类型标记：SSH 行带 SSH 徽标，添加项目的远端主机项标明 SSH", () => {
 	assert.match(tab, /settings\.connections\.ssh\.badge/);
-	assert.match(tab, /settings\.connections\.wsl\.badge/);
+	// 连接页只列 SSH：WSL 的徽标随着档案区一起退役，不应再出现。
+	assert.doesNotMatch(tab, /settings\.connections\.wsl\.badge/);
 	const enroll = readFileSync("src/renderer/src/components/sidebar/RemoteProjectEnrollDialog.tsx", "utf8");
 	assert.match(enroll, /settings\.connections\.ssh\.badge/);
 	assert.ok(zh.includes('"settings.connections.ssh.badge": "SSH"'));

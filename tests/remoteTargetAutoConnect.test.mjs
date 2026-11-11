@@ -242,7 +242,7 @@ test("环境切换源码：自动连接、连接动画、密码补录与 WSL 空
 	// 三组选项与「本机」入口不因改版丢失。
 	assert.match(source, /data-testid="config-env-local"/);
 	assert.match(source, /data-testid=\{"config-env-ssh-" \+ host\.id\}/);
-	assert.match(source, /data-testid=\{"config-env-wsl-" \+ host\.id\}/);
+	assert.match(source, /data-testid="config-env-wsl"/);
 });
 
 const SSH_HOST = { kind: "ssh", id: HOST, label: "dev-box", sshHost: "root@10.0.0.1" };

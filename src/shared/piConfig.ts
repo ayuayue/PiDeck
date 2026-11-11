@@ -63,10 +63,11 @@ export function piConfigFileKeyFromName(name: unknown): WslPiConfigFileKey | und
 /**
  * Where a config read/write should run. local is the default when the option is absent; ssh is usable only
  * for a host the host store has verified and the connection service has ready (the main backend enforces it);
- * wsl names a WslHostStore profile, whose distro/user resolve the config directory inside that distribution's
- * HOME (never the Windows HOME — a missing environment fails closed with a WSL_CONFIG_* code).
+ * wsl names the application's single WSL environment (settings: wslDistro/wslUser), whose HOME resolves the
+ * config directory inside that distribution (never the Windows HOME — a missing environment fails closed with
+ * a WSL_CONFIG_* code). The renderer carries no distro/user: identity is main-side state only.
  */
-export type PiConfigTarget = { kind: "local" } | { kind: "ssh"; hostId: string } | { kind: "wsl"; hostId: string };
+export type PiConfigTarget = { kind: "local" } | { kind: "ssh"; hostId: string } | { kind: "wsl" };
 
 /**
  * Which files a target can **write**. The ssh helper's patch allowlist excludes auth.json; local and WSL write
@@ -91,7 +92,7 @@ export function piConfigReadFilesForTarget(target: PiConfigTarget): readonly Wsl
  * build, so an ssh target is not expressible here and the main-side validator refuses anything outside this union.
  * Absent target means local, the compatibility default every existing renderer call relies on.
  */
-export type PiResourceTarget = { kind: "local" } | { kind: "wsl"; hostId: string };
+export type PiResourceTarget = { kind: "local" } | { kind: "wsl" };
 export type PiResourceOptions = { target?: PiResourceTarget };
 
 /**
@@ -247,14 +248,12 @@ export type WslConfigCode = (typeof WSL_CONFIG_CODES)[keyof typeof WSL_CONFIG_CO
 export const WSL_CONFIG_CODE_SET: ReadonlySet<string> = new Set(Object.values(WSL_CONFIG_CODES));
 
 /**
- * One wsl config snapshot. label/distro/user are provenance (which profile produced these bytes); the path
- * stays in the main process because configGetDir is the single local directory, not a per-target path.
+ * One wsl config snapshot. distro/user are provenance (which distribution and Linux user produced these bytes);
+ * the path stays in the main process because configGetDir is the single local directory, not a per-target path.
  */
 export type WslPiConfigSnapshot = {
 	kind: "wsl";
-	hostId: string;
 	file: WslPiConfigFileKey;
-	label: string;
 	distro: string;
 	user: string;
 	/** Parsed object exactly as pi would read it (missing file = the canonical empty document). */
@@ -264,11 +263,11 @@ export type WslPiConfigSnapshot = {
 };
 
 /** Successful wsl write receipt: whole-file write under the resolved distribution HOME. */
-export type WslPiConfigWriteReceipt = { kind: "wsl"; hostId: string; file: WslPiConfigFileKey };
+export type WslPiConfigWriteReceipt = { kind: "wsl"; file: WslPiConfigFileKey };
 
 /** true only for a snapshot the wsl store produced (never inferred from local data). */
 export function isWslPiConfigSnapshot(value: unknown): value is WslPiConfigSnapshot {
-	return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "wsl" && typeof (value as { hostId?: unknown }).hostId === "string";
+	return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "wsl" && typeof (value as { distro?: unknown }).distro === "string";
 }
 
 /** Extract the stable WSL_CONFIG_* code from a rejected IPC call (Electron prefixes its message). */

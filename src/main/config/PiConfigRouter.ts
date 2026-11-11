@@ -104,13 +104,13 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 		async readModels(options?: unknown): Promise<PiConfigReadRoute<ConfigFileReadResult<{ providers: Record<string, unknown> }>>> {
 			const target = readTarget(options);
 			if (target.kind === "ssh") return await remoteBackend().read({ hostId: target.hostId, file: "models" });
-			if (target.kind === "wsl") return await wslStore().read({ hostId: target.hostId, file: "models" });
+			if (target.kind === "wsl") return await wslStore().read({ file: "models" });
 			return { kind: "local", value: await ports.local.getModelsConfig() };
 		},
 		async readSettings(options?: unknown): Promise<PiConfigReadRoute<ConfigFileReadResult<Record<string, unknown>>>> {
 			const target = readTarget(options);
 			if (target.kind === "ssh") return await remoteBackend().read({ hostId: target.hostId, file: "settings" });
-			if (target.kind === "wsl") return await wslStore().read({ hostId: target.hostId, file: "settings" });
+			if (target.kind === "wsl") return await wslStore().read({ file: "settings" });
 			return { kind: "local", value: await ports.local.getSettingsConfig() };
 		},
 		async saveModels(data: PiModelsFile, options?: unknown): Promise<PiConfigWriteRoute> {
@@ -119,7 +119,7 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 				const guard = requireSshGuard(parsed);
 				return await remoteBackend().patch({ hostId: parsed.target.hostId, file: "models", ...guard });
 			}
-			if (parsed.target.kind === "wsl") return { kind: "wsl", value: await wslStore().saveModels({ hostId: parsed.target.hostId, data }) };
+			if (parsed.target.kind === "wsl") return { kind: "wsl", value: await wslStore().saveModels({ data }) };
 			return { kind: "local", value: await ports.local.saveModelsConfig(data) };
 		},
 		async saveSettings(data: PiSettings, options?: unknown): Promise<PiConfigWriteRoute> {
@@ -128,7 +128,7 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 				const guard = requireSshGuard(parsed);
 				return await remoteBackend().patch({ hostId: parsed.target.hostId, file: "settings", ...guard });
 			}
-			if (parsed.target.kind === "wsl") return { kind: "wsl", value: await wslStore().saveSettings({ hostId: parsed.target.hostId, settings: data }) };
+			if (parsed.target.kind === "wsl") return { kind: "wsl", value: await wslStore().saveSettings({ settings: data }) };
 			return { kind: "local", value: await ports.local.saveSettingsConfig(data) };
 		},
 		/**
@@ -145,7 +145,7 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 				if (file === "auth") return await remoteBackend().readAuth({ hostId: target.hostId });
 				return await remoteBackend().read({ hostId: target.hostId, file: file as Exclude<WslPiConfigFileKey, "auth"> });
 			}
-			if (target.kind === "wsl") return { kind: "wsl", value: await wslStore().readRaw({ hostId: target.hostId, file }) };
+			if (target.kind === "wsl") return { kind: "wsl", value: await wslStore().readRaw({ file }) };
 			return { kind: "local", value: await ports.local.getRawConfig(file) };
 		},
 		/**
@@ -162,7 +162,7 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 				return await remoteBackend().patch({ hostId: parsed.target.hostId, file: file as Exclude<WslPiConfigFileKey, "auth">, ...guard });
 			}
 			if (typeof body !== "string") throw stable(WSL_CONFIG_CODES.fileInvalid);
-			if (parsed.target.kind === "wsl") return { kind: "wsl", value: await wslStore().saveRaw({ hostId: parsed.target.hostId, file, raw: body }) };
+			if (parsed.target.kind === "wsl") return { kind: "wsl", value: await wslStore().saveRaw({ file, raw: body }) };
 			return { kind: "local", value: await ports.local.saveRawConfig(file, body) };
 		},
 	};

@@ -454,7 +454,7 @@ import { registerRemoteHostRebindIpc } from "./ipc/remoteHostRebindIpc";
 import { registerWslHostIpc } from "./ipc/wslHostIpc";
 import { createWslHostReferenceRegistry } from "./wsl/WslHostReferences";
 import { createWslHostStore } from "./wsl/WslHostStore";
-import { resolveProjectWslIdentity } from "./wsl/WslProjectEnvironment";
+import { resolveProjectWslIdentity, resolveSettingsWslIdentity } from "./wsl/WslProjectEnvironment";
 import { createWslHelperSessionPool } from "./wsl/WslHelperSession";
 import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
@@ -3753,7 +3753,7 @@ function registerIpc() {
 		}),
 		// 档案被改名/换 distro/移除后，资源池里对应实例必须失效；闭包在 registerIpc 执行时取值，
 		// 池在稍后构造（晚绑定），调用发生在用户操作档案时，因此一定能拿到实例。
-		onProfileChanged: (hostId) => piResourcePool?.invalidate(hostId),
+		onProfileChanged: () => piResourcePool?.invalidate(),
 	});
 	/**
 	 * 目录事实层的失效入口（W3）：项目域注册时才创建，文本保存的注册在它之前，因此用晚绑定转发。
@@ -7780,11 +7780,11 @@ app
 		 * 配置/资源页按目标路由：WSL 目标解析发行版 HOME，不回退本机；生产代码里不再有全局
 		 * configureWsl 切换共享单例的路径（W1 起用 PiResourceManagerPool）。
 		 */
-		// 资源作用域池（W1）：本机复用既有四个单例；WSL 目标每次请求重读档案（cache key 含 hostId/distro/user），
-		// 档案改 distro/user 或移除后旧实例自动失效重建，绝不回退本机 HOME。
+		// 资源作用域池（W1）：本机复用既有四个单例；WSL 目标每次请求重读应用设置（cache key 含 distro/user），
+		// 改发行版/用户或退出 WSL 模式后旧实例自动失效重建，绝不回退本机 HOME。
 		piResourcePool = createPiResourceManagerPool({
 			resolver: createPiResourceTargetResolver({
-				listProfiles: async () => (await createWslHostStore(app.getPath("userData"))).list(),
+				readWslIdentity: async () => resolveSettingsWslIdentity(settingsStore.get()),
 				resolveEnvironment: async (distro, user) => {
 					const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
 					return resolveWslEnvironment(distro, user, { warn: (message, details) => void appLogger?.warn("wsl", message, details) });

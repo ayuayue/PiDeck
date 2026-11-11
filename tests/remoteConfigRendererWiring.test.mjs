@@ -35,7 +35,7 @@ test("只有一个环境入口：Pi 分页上的下拉，页内不再渲染目�
 	assert.match(envSwitch, /data-testid="config-env-trigger"/);
 	assert.match(envSwitch, /data-testid="config-env-local"/);
 	assert.match(envSwitch, /data-testid=\{"config-env-ssh-" \+ host\.id\}/);
-	assert.match(envSwitch, /data-testid=\{"config-env-wsl-" \+ host\.id\}/);
+	assert.match(envSwitch, /data-testid="config-env-wsl"/);
 	// 环境名必须显示在分页上：整页作用域不能只靠记忆。
 	assert.match(envSwitch, /data-testid="config-backend-pi-environment"/);
 	assert.match(envSwitch, /data-testid="config-environment-status"/);

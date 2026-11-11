@@ -104,7 +104,9 @@ function loadLastConfigTarget(): PiConfigTarget {
 		const parsed: unknown = JSON.parse(localStorage.getItem(CONFIG_LAST_TARGET_KEY) ?? "null");
 		if (typeof parsed !== "object" || parsed === null) return { kind: "local" };
 		const record = parsed as { kind?: unknown; hostId?: unknown };
-		if ((record.kind === "ssh" || record.kind === "wsl") && typeof record.hostId === "string" && record.hostId.length > 0) return { kind: record.kind, hostId: record.hostId };
+		// 旧值里 WSL 目标带 hostId（档案已退役）：一律归一到“那一个 WSL 环境”。
+		if (record.kind === "wsl") return { kind: "wsl" };
+		if (record.kind === "ssh" && typeof record.hostId === "string" && record.hostId.length > 0) return { kind: "ssh", hostId: record.hostId };
 		return { kind: "local" };
 	} catch {
 		return { kind: "local" };
@@ -1103,14 +1105,21 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 
 	const piConfigDir = usePiConfigDir(open);
 
-	// 配置目标选择器（Batch B + WS2）：ssh 只列已验证且未禁用的主机，WSL 列全部连接档案；两边失败都保留「本机」。
+	// 配置目标选择器（Batch B + WS2）：ssh 只列已验证且未禁用的主机；WSL 项来自开发设置里的那一个环境；
+	// 两边都失败也保留「本机」。
+	// 主机清单会从别处变（设置 → 连接里的新建/编辑/移除）：分区重新可见时重读一次。
+	// 从挂载到关闭只读一次的写法会让下拉漏掉刚添加的主机，只能关掉整个设置重开才能看到（2026-11 实机反馈）。
 	useEffect(() => {
 		if (!open) return;
 		let cancelled = false;
-		void Promise.all([api.remoteHosts.list(), api.remoteHosts.listWslHosts()])
-			.then(([sshResult, wslResult]) => {
+		void Promise.all([api.remoteHosts.list(), api.settings.get()])
+			.then(([sshResult, settings]) => {
 				if (cancelled) return;
-				setRemoteConfigHosts([...toSshTargetHosts(sshResult.ok ? sshResult.hosts.filter((host) => host.verified && !host.disabled) : []), ...toWslTargetHosts(wslResult.ok ? wslResult.hosts : [])]);
+				// WSL 身份只认开发设置：开关打开且 distro/user 都有才出现这一项（主进程同样会 fail closed）。
+				const distro = (settings.wslDistro ?? "").trim();
+				const user = (settings.wslUser ?? "").trim();
+				const wslIdentity = settings.wslEnabled === true && distro.length > 0 && user.length > 0 ? { distro, user } : undefined;
+				setRemoteConfigHosts([...toSshTargetHosts(sshResult.ok ? sshResult.hosts.filter((host) => host.verified && !host.disabled) : []), ...toWslTargetHosts(wslIdentity)]);
 				setRemoteConfigHostsLoaded(true);
 			})
 			.catch(() => {
@@ -2771,7 +2780,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		if (rememberedTargetCheckedRef.current || !remoteConfigHostsLoaded) return;
 		rememberedTargetCheckedRef.current = true;
 		if (configTarget.kind === "local") return;
-		const exists = remoteConfigHosts.some((host) => host.kind === configTarget.kind && host.id === configTarget.hostId);
+		const exists = remoteConfigHosts.some((host) => (configTarget.kind === "ssh" ? host.kind === "ssh" && host.id === configTarget.hostId : host.kind === "wsl"));
 		if (!exists) commitTargetSwitch({ kind: "local" });
 	}, [configSurfaceOpen, resourceOnly, remoteConfigHostsLoaded, remoteConfigHosts, configTarget, commitTargetSwitch]);
 

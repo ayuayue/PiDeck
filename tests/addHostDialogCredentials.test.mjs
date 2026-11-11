@@ -29,17 +29,14 @@ test("SSH config import fills the form instead of submitting silently", () => {
 	assert.match(dialog, /settings\.connections\.add\.skipped/);
 });
 
-test("WSL is created here as a real profile; Docker stays unavailable", () => {
-	// WSL 页现在是真实的档案创建表单（不再深链到开发设置）。
-	assert.match(dialog, /onClick=\{\(\) => setKind\("wsl"\)\}/);
-	// 只有 Windows 才展示 WSL 页。
-	assert.match(dialog, /const wslSupported = detectRendererPlatform\(\) === "win32"/);
-	assert.match(dialog, /\{wslSupported \? \(/);
-	assert.match(dialog, /addWslHost\(\{ label, distro, user \}\)/);
-	assert.match(dialog, /initialKind\?: ConnectionKind/);
-	assert.match(dialog, /add\.wsl\.invalid/);
-	// 只有 Docker 仍然 disabled（没有任何后端）。
-	assert.equal((dialog.match(/aria-pressed="false"\s+disabled/g) ?? []).length, 1);
+test("新建连接只提供 SSH：WSL 的档案表单已随档案层退役一起移除", () => {
+	// WSL 不是连接：它的发行版/用户在开发设置里，项目在「添加项目」时选。
+	assert.doesNotMatch(dialog, /onClick=\{\(\) => setKind\("wsl"\)\}/);
+	assert.doesNotMatch(dialog, /addWslHost\(/);
+	assert.doesNotMatch(dialog, /wsl-host-distro|wsl-host-user/);
+	assert.doesNotMatch(dialog, /initialKind/);
+	// Docker 仍然后端未接入（工具栏里只剩导入 SSH config 一个操作）。
+	assert.doesNotMatch(dialog, /add\.kind\.docker/);
 });
 
 test("password mode is offered, and the secret is never part of the persisted input", () => {

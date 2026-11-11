@@ -14,7 +14,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
@@ -22,7 +22,6 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const storeModule = loadTsCommonJs("src/main/config/WslPiConfigStore.ts");
 const wslPaths = loadTsCommonJs("src/main/wsl/WslPaths.ts");
 
-const HOST_ID = "11111111-1111-4111-8111-111111111111";
 const distro = process.argv[2] ?? "Ubuntu-26.04";
 
 function wslExec(args) {
@@ -51,20 +50,17 @@ try {
 	const configDir = join(uncHome, ".pi", "agent");
 
 	userDataDir = await mkdtemp(join(tmpdir(), "pideck-wsl-smoke-"));
-	const now = new Date().toISOString();
-	const profile = { id: HOST_ID, label: "WSL smoke", distro, user, createdAt: now, updatedAt: now };
-	await writeFile(join(userDataDir, "wsl-hosts.json"), JSON.stringify({ schemaVersion: 1, revision: 1, profiles: [profile], retiredHostIds: [] }, null, 2) + "\n", "utf8");
 
 	const before = {
 		models: await sha256OrAbsent(join(configDir, "models.json")),
 		settings: await sha256OrAbsent(join(configDir, "settings.json")),
 	};
 
-	const store = storeModule.createWslPiConfigStoreFor(userDataDir);
+	const store = storeModule.createWslPiConfigStoreFor(userDataDir, { readWslIdentity: async () => ({ distro, user }) });
 	const reads = {};
 	for (const file of ["models", "settings"]) {
 		try {
-			const snapshot = await store.read({ hostId: HOST_ID, file });
+			const snapshot = await store.read({ file });
 			reads[file] = {
 				ok: true,
 				kind: snapshot.kind,

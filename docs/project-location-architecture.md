@@ -2,6 +2,10 @@
 
 > 状态：Proposed（产品方向已讨论；数据结构、迁移与阶段排期仍待评审）。仅记录决策建议，不表示已经实现。
 >
+> 2026-11-11 补充：WSL 的**连接档案层**（`WslHostStore` / `wslHostId`）已从 UI 与配置目标上收口——
+> “设置 → 连接”只列 SSH 主机，配置管理的 WSL 目标指向开发设置里的那一份 distro/user（`PiConfigTarget.wsl` 无 hostId）。
+> 项目/会话上的旧 `wslHostId` 字段仍保留读侧兼容（写侧不再产生新值），迁移口径不变。
+>
 > 适用工作树：`feat/remote-development`。此文不改变 SSH 远程开发实施计划的 Phase 2-5 安全和发布门禁。
 
 ## 背景与问题

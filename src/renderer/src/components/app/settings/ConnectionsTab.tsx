@@ -1,8 +1,6 @@
-import { useSetAtom } from "jotai";
 import { useCallback, useEffect, useState } from "react";
-import { LoaderCircle, Pencil, Plus, Server, TerminalSquare, Trash2 } from "lucide-react";
+import { LoaderCircle, Pencil, Plus, Server, Trash2 } from "lucide-react";
 import { desktopApi } from "../../../desktopApi";
-import { wslProjectPickerAtom } from "../../../atoms/wsl-project-atoms";
 import { t } from "../../../i18n";
 import { cn } from "../../../lib/utils";
 import { REMOTE_HOST_TONE_DOT_CLASS, resolveRemoteHostConnectionTone } from "../../../utils/remoteHostIdentity";
@@ -16,8 +14,6 @@ import { RepairPanel } from "./RepairPanel";
 import { RebindPanel } from "./RebindPanel";
 import { RemoteProjectTrustPanel } from "./RemoteProjectTrustPanel";
 import type { RemoteHostConnectionState, RemoteHostDiagnosticEntry, RemoteHostListItem } from "../../../../../shared/types/remoteHost";
-import type { WslHostListItem } from "../../../../../shared/types/wslHost";
-import { detectRendererPlatform } from "../../../lib/detectRendererPlatform";
 import { isLiveHostState } from "../../../../../shared/projectCapabilities";
 
 /**
@@ -32,6 +28,9 @@ import { isLiveHostState } from "../../../../../shared/projectCapabilities";
  *
  * 状态语义（设计文档 §10）：这里是**主机连接状态**，与 Agent 的 send state 是两回事，
  * 主机 ready 不代表每个 Agent runtime ready，两者不得混成一个指示灯。
+ *
+ * 只列 SSH 主机：WSL 不是「连接」，而是本机 pi 来源（开发设置里的 enabled/distro/user）。
+ * WSL 项目仍按那份全局身份添加与运行，本页不提供 WSL 档案的增删入口。
  */
 export function ConnectionsTab() {
 	const [hosts, setHosts] = useState<RemoteHostListItem[]>([]);
@@ -49,15 +48,6 @@ export function ConnectionsTab() {
 	const [removing, setRemoving] = useState<RemoteHostListItem | null>(null);
 	const [removingBusy, setRemovingBusy] = useState(false);
 	const [removeError, setRemoveError] = useState<string | null>(null);
-	// WSL 档案：只在 Windows 出现；列表只读写本机清单，不连接发行版。
-	const wslSupported = detectRendererPlatform() === "win32";
-	const [wslHosts, setWslHosts] = useState<WslHostListItem[]>([]);
-	const [wslError, setWslError] = useState<string | null>(null);
-	const [removingWsl, setRemovingWsl] = useState<WslHostListItem | null>(null);
-	const [wslRemoveBusy, setWslRemoveBusy] = useState(false);
-	const [wslRemoveError, setWslRemoveError] = useState<string | null>(null);
-	// 「添加项目」交给 App 挂载的 WSL 目录选择器：这里只递档案 id，不自己开系统对话框。
-	const openWslProjectPicker = useSetAtom(wslProjectPickerAtom);
 
 	/**
 	 * 订阅连接状态推送。
@@ -91,51 +81,6 @@ export function ConnectionsTab() {
 	useEffect(() => {
 		void refresh();
 	}, [refresh]);
-
-	const refreshWsl = useCallback(async () => {
-		if (!wslSupported) return;
-		const result = await desktopApi.remoteHosts.listWslHosts();
-		if (!result.ok) {
-			setWslHosts([]);
-			setWslError(t("settings.connections.wsl.remove.failed", { code: result.code }));
-			return;
-		}
-		setWslError(null);
-		setWslHosts(result.hosts);
-	}, [wslSupported]);
-
-	useEffect(() => {
-		void refreshWsl();
-	}, [refreshWsl]);
-
-	/**
-	 * 用该档案添加项目：打开内置 WSL 目录选择器（App 唯一挂载点），主进程按档案写入 distro/user/hostId。
-	 * 不再走系统「打开文件夹」——它只能按 Windows 身份访问 \\wsl.localhost，发行版内目录会报「无法访问网络资源」。
-	 */
-	const addWslProject = useCallback(
-		(host: WslHostListItem) => {
-			setWslError(null);
-			openWslProjectPicker({ hostId: host.id });
-		},
-		[openWslProjectPicker],
-	);
-
-	const confirmRemoveWsl = useCallback(async () => {
-		if (removingWsl === null) return;
-		setWslRemoveBusy(true);
-		setWslRemoveError(null);
-		try {
-			const result = await desktopApi.remoteHosts.removeWslHost(removingWsl.id);
-			if (!result.ok) {
-				setWslRemoveError(result.code === "WSL_HOST_REFERENCED" ? t("settings.connections.wsl.remove.referenced") : t("settings.connections.wsl.remove.failed", { code: result.code }));
-				return;
-			}
-			setRemovingWsl(null);
-			await refreshWsl();
-		} finally {
-			setWslRemoveBusy(false);
-		}
-	}, [refreshWsl, removingWsl]);
 
 	/** 连接/断开共用一条路径：置忙 → 调用 → 用稳定码或状态回填 → 清忙。 */
 	const [passwordRequest, setPasswordRequest] = useState<{ hostId: string; label: string } | null>(null);
@@ -261,10 +206,10 @@ export function ConnectionsTab() {
 			{/* 放在列表之前：store 进入 needs-repair 时列表读不出来，恢复入口必须先可见。 */}
 			<RepairPanel onRepaired={() => void refresh()} />
 			<RebindPanel hosts={hosts} onChanged={() => void refresh()} />
-			{/* 工具条：说明 + 页面级操作。「新建连接」是唯一入口，SSH / WSL 在弹窗里再选。 */}
+			{/* 工具条：说明 + 页面级操作。「新建连接」是唯一入口（只建 SSH 主机）。 */}
 			<div className="flex flex-wrap items-start justify-between gap-3">
 				<div className="flex min-w-0 flex-col gap-0.5">
-					<h3 className="text-body font-medium">{t("settings.connections.devices", { count: String(hosts.length + wslHosts.length) })}</h3>
+					<h3 className="text-body font-medium">{t("settings.connections.devices", { count: String(hosts.length) })}</h3>
 					<p className="text-label text-muted-foreground">{t("settings.connections.overview")}</p>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
@@ -273,7 +218,6 @@ export function ConnectionsTab() {
 						size="sm"
 						onClick={() => {
 							void refresh();
-							void refreshWsl();
 						}}
 					>
 						{t("settings.connections.refresh")}
@@ -284,14 +228,14 @@ export function ConnectionsTab() {
 					</Button>
 				</div>
 			</div>
-			{/* SSH 主机与 WSL 档案同列一张表：形态只由「能对它做什么」区分，不再各开一段各放一个新建按钮。 */}
+			{/* 一张表只列 SSH 主机：WSL 不是连接，它的身份在开发设置里。 */}
 			<section aria-label={t("settings.connections.title")} className="flex flex-col gap-2">
-				{hosts.length + wslHosts.length === 0 ? (
+				{hosts.length === 0 ? (
 					<div className="flex items-start gap-2 rounded-lg border border-dashed border-border-subtle px-4 py-5">
 						<Server className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 						<div className="flex min-w-0 flex-col gap-1">
 							<span className="text-body text-foreground">{t("settings.connections.emptyTitle")}</span>
-							<span className="text-label text-muted-foreground">{wslSupported ? t("settings.connections.emptyHintWsl") : t("settings.connections.emptyHint")}</span>
+							<span className="text-label text-muted-foreground">{t("settings.connections.emptyHint")}</span>
 						</div>
 					</div>
 				) : (
@@ -396,43 +340,9 @@ export function ConnectionsTab() {
 								</div>
 							);
 						})}
-						{wslHosts.map((host) => (
-							<div key={host.id} className="flex items-center gap-3 bg-bg-panel px-3 py-2.5 transition-colors hover:bg-muted/35">
-								<span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground" aria-hidden="true">
-									<TerminalSquare className="size-4" />
-								</span>
-								<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-									<div className="flex min-w-0 items-center gap-2">
-										<strong className="truncate text-body font-semibold text-foreground">{host.label}</strong>
-										<span className="shrink-0 rounded border border-border-subtle px-1 text-micro text-muted-foreground">{t("settings.connections.wsl.badge")}</span>
-									</div>
-									<span className="truncate font-mono text-label text-muted-foreground">
-										{host.distro} · {host.user}
-									</span>
-								</div>
-								<Button variant="secondary" size="sm" className="shrink-0" onClick={() => addWslProject(host)}>
-									{t("settings.connections.wsl.addProject")}
-								</Button>
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-sm"
-									className="shrink-0 text-muted-foreground hover:text-destructive"
-									title={t("settings.connections.wsl.remove")}
-									aria-label={t("settings.connections.wsl.remove")}
-									onClick={() => {
-										setWslRemoveError(null);
-										setRemovingWsl(host);
-									}}
-								>
-									<Trash2 className="size-3.5" aria-hidden="true" />
-								</Button>
-							</div>
-						))}
 					</div>
 				)}
 				{message !== null ? <p className="text-label text-muted-foreground">{message}</p> : null}
-				{wslError !== null ? <p className="text-label text-muted-foreground">{wslError}</p> : null}
 			</section>
 			{/* 远端信任清单：与主机列表同一页（都是「远端开发」这一域的设置），但状态权威是决策存储而非连接状态。 */}
 			<RemoteProjectTrustPanel />
@@ -494,36 +404,8 @@ export function ConnectionsTab() {
 					onClose={() => setAdding(false)}
 					/* 新增同样自带「测试 → 保存 → 连接 → 探测 pi」；新增/移除都经 onChanged 反映到列表。 */
 					onChanged={() => void refresh()}
-					onWslSubmitted={(host) => {
-						setAdding(false);
-						setMessage(t("settings.connections.wsl.added", { host: host.label }));
-						void refreshWsl();
-					}}
 				/>
 			) : null}
-			{/* WSL 档案移除：只删本机清单，发行版数据不动。 */}
-			<Dialog
-				open={removingWsl !== null}
-				onOpenChange={(open) => {
-					if (!open && !wslRemoveBusy) setRemovingWsl(null);
-				}}
-			>
-				<DialogContent className="max-w-md">
-					<DialogHeader>
-						<DialogTitle>{t("settings.connections.wsl.remove.title", { host: removingWsl?.label ?? "" })}</DialogTitle>
-						<DialogDescription>{t("settings.connections.wsl.remove.body")}</DialogDescription>
-					</DialogHeader>
-					{wslRemoveError !== null ? <p className="text-label text-destructive">{wslRemoveError}</p> : null}
-					<DialogFooter>
-						<Button variant="ghost" disabled={wslRemoveBusy} onClick={() => setRemovingWsl(null)}>
-							{t("common.cancel")}
-						</Button>
-						<Button variant="destructive" disabled={wslRemoveBusy} onClick={() => void confirmRemoveWsl()}>
-							{t("settings.connections.wsl.remove.confirm")}
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
 			{/* 移除确认：删掉的是本机 profile 与 host key pin，远端数据不动。 */}
 			<Dialog
 				open={removing !== null}
