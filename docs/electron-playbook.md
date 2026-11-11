@@ -1,6 +1,6 @@
 # Electron 实战手册
 
-> **Status: Current（2026-11-10 核对；以代码与测试为准）**
+> **Status: Current（2026-11-11 核对；以代码与测试为准）**
 
 
 > 改 `main/index.ts`、窗口创建、preload、webview、打包配置、原生模块或跨平台路径前读本文。每条都是踩坑结论。
@@ -29,6 +29,7 @@
 - 导航白名单三层都要过：`will-frame-navigate` / `will-redirect` / `setWindowOpenHandler`（只拦一层会被重定向绕过）。内置浏览器的 URL 判定统一走 `isAllowedBrowserPanelUrl`（`src/main/browser/browserSecurity.ts`）。
 - 自定义标题栏改动要验证三平台控制按钮、拖拽区、双击最大化。
 - 窗口**呈现态**（normal / maximized / fullscreen）由 `src/main/index.ts` 的 `mainWindowVisualIntent` 跟踪（`trackMainWindowVisualIntent` 监听 maximize / unmaximize / enter-full-screen / leave-full-screen）。所有唤回路径（托盘双击、`app.activate`、桌面宠物、通知/协议深链唤起）一律走 `revealMainWindow`，禁止直接 `show() + focus()`：Windows 上「最小化 → show()」不会恢复最大化，窗口会停在伪全屏几何，下次还原就掉回正常尺寸。恢复策略集中在纯模块 `src/main/windowReveal.ts`（`planMainWindowReveal` 纯函数，`tests/windowRevealState.test.mjs` 固定矩阵）：全屏意图先 `maximize()` 再 `setFullScreen(true)`，退出全屏才能回到最大化。
+- **透明/无边框窗口的 bounds 会被系统放大**（Windows 实测：悬浮球窗口 `224×104` 被放大到 `690×632`）：窗口内可视内容的锚点随窗口尺寸漂移（拖动后自动跑、静止也偏移），放大后的透明区域还会拦截下层页面点击（透明像素同样命中）。规则：高频移动一律走 `moveWindowWithSize`（`src/main/windowGeometry.ts`，强制带设计尺寸），尺寸用 `WindowSizeGuard` 定期拉回（悬浮球 1s、桌宠 5s；窗口销毁自动停表）；新增透明/无边框窗口必须登记守卫。窗口尺寸要贴合可见内容——删掉气泡/标题等 UI 后同步收紧窗口，别留大片透明命中区。
 - `last-window-bounds.json` 同时记 `maximized` 与 `fullscreen`，启动时全屏优先于最大化（以前只记最大化，关窗即退出的机器重启后就会丢全屏）。新增窗口状态字段时同步 `src/main/windowState.ts` 的读写与 `quickTaskWindowChrome.saveWorkbenchBoundsOnClose`。
 
 ## Linux 托盘（StatusNotifierItem）

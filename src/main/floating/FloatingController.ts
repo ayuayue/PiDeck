@@ -9,6 +9,7 @@ import { rendererHeapAdditionalArguments } from "../v8HeapLimits";
 import { readElectronChromiumSandboxPreference } from "../settings/SettingsStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import { getAppLogger } from "../logging/sharedLogger";
+import { moveWindowWithSize, WindowSizeGuard } from "../windowGeometry";
 
 /** 悬浮球尺寸（圆形 64px，与工作台主窗口无关）。 */
 export const FLOATER_SIZE = 64;
@@ -18,6 +19,7 @@ export const FLOATER_SIZE = 64;
  */
 const FLOATER_WINDOW_W = FLOATER_SIZE + 8;
 const FLOATER_WINDOW_H = FLOATER_SIZE + 8;
+const FLOATER_WINDOW_SIZE = { width: FLOATER_WINDOW_W, height: FLOATER_WINDOW_H };
 
 function posPath(): string {
 	return join(app.getPath("userData"), "floater-position.json");
@@ -93,7 +95,11 @@ export class FloatingController {
 	private readonly deps: FloatingControllerDeps;
 	private removeAgentStateListener: (() => void) | null = null;
 	/** 透明无边框窗口在 Windows 上会被系统放大 bounds，用守卫把窗口拉回设计尺寸。 */
-	private sizeGuardTimer: NodeJS.Timeout | null = null;
+	private readonly sizeGuard = new WindowSizeGuard(
+		() => this.win,
+		() => FLOATER_WINDOW_SIZE,
+		1000,
+	);
 	private state: FloatingBallState;
 	private destroyed = false;
 
@@ -173,14 +179,14 @@ export class FloatingController {
 		this.win.setAlwaysOnTop(settings.floatingBallAlwaysOnTop, "screen-saver");
 		this.attachDragHandlers(this.win);
 		this.win.on("closed", () => {
-			this.stopSizeGuard();
+			this.sizeGuard.stop();
 			this.win = null;
 			this.state.visible = false;
 		});
 		this.win.once("ready-to-show", () => {
 			getAppLogger()?.info("floating-ball", "ready-to-show fired");
-			this.ensureWindowSize();
-			this.startSizeGuard();
+			this.sizeGuard.ensure();
+			this.sizeGuard.start();
 			this.win?.show();
 			this.state.visible = true;
 			this.pushState();
@@ -202,7 +208,7 @@ export class FloatingController {
 	}
 
 	hide(): void {
-		this.stopSizeGuard();
+		this.sizeGuard.stop();
 		if (this.win && !this.win.isDestroyed()) {
 			this.win.close();
 		}
@@ -329,7 +335,7 @@ export class FloatingController {
 		ipcMain.handle(ipcChannels.floatingBallDragStart, (event) => {
 			if (event.sender !== win.webContents || win.isDestroyed()) return;
 			// 系统可能已把透明窗口放大：先拉回设计尺寸，否则 dragOffset 会按错误的窗口左上角计算。
-			this.ensureWindowSize();
+			this.sizeGuard.ensure();
 			const [boundsX, boundsY] = win.getPosition();
 			const cursor = screen.getCursorScreenPoint();
 			dragOffset = { x: cursor.x - boundsX, y: cursor.y - boundsY };
@@ -372,30 +378,7 @@ export class FloatingController {
 	private moveWindowTo(x: number, y: number): void {
 		const win = this.win;
 		if (!win || win.isDestroyed()) return;
-		win.setBounds({ x: Math.round(x), y: Math.round(y), width: FLOATER_WINDOW_W, height: FLOATER_WINDOW_H });
-	}
-
-	/** 系统把透明窗口 bounds 放大时拉回设计尺寸（球在窗口内的锚点依赖窗口尺寸）。 */
-	private ensureWindowSize(): void {
-		const win = this.win;
-		if (!win || win.isDestroyed()) return;
-		const [width, height] = win.getSize();
-		if (width === FLOATER_WINDOW_W && height === FLOATER_WINDOW_H) return;
-		const [x, y] = win.getPosition();
-		win.setBounds({ x, y, width: FLOATER_WINDOW_W, height: FLOATER_WINDOW_H });
-	}
-
-	private startSizeGuard(): void {
-		this.stopSizeGuard();
-		this.sizeGuardTimer = setInterval(() => this.ensureWindowSize(), 1000);
-		// 测试/关窗回收不靠定时器保活
-		this.sizeGuardTimer.unref?.();
-	}
-
-	private stopSizeGuard(): void {
-		if (!this.sizeGuardTimer) return;
-		clearInterval(this.sizeGuardTimer);
-		this.sizeGuardTimer = null;
+		moveWindowWithSize(win, x, y, FLOATER_WINDOW_SIZE);
 	}
 
 	/** 按完整窗口尺寸约束到最近显示器；关闭贴边也保留离屏保护。 */
