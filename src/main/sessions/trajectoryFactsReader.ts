@@ -232,6 +232,12 @@ export function createTrajectoryFactsReader(deps: { source: TrajectoryFactsSourc
 		}
 
 		const collector = createSessionProcessCollector();
+		// 位置索引（2026-11）：下面按 readable 回查下标，原先每个元素都做一次
+		// index.entries.indexOf(...)，那是 O(|selected| × |entries|)——5000 行的会话
+		// 进事实面板就是 2500 万次对象比较。readable 与 entries 是同一批对象引用，
+		// 预热一个 Map 就能把查找降到 O(1)，总代价 O(|entries| + |selected|)。
+		const entryPosition = new Map<SessionFactEntry, number>();
+		for (let position = 0; position < index.entries.length; position += 1) entryPosition.set(index.entries[position], position);
 		let readBytes = 0;
 		for (let cursor = 0; cursor < selected.length; cursor += READ_BATCH) {
 			const batch = selected.slice(cursor, cursor + READ_BATCH);
@@ -251,7 +257,7 @@ export function createTrajectoryFactsReader(deps: { source: TrajectoryFactsSourc
 			bodyBytes += readBytes;
 			for (let offset = 0; offset < readable.length; offset += 1) {
 				const line = lines[offset];
-				if (line) collector.push(line, index.entries.indexOf(readable[offset]));
+				if (line) collector.push(line, entryPosition.get(readable[offset]) ?? -1);
 			}
 		}
 
