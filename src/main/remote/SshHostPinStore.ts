@@ -77,6 +77,20 @@ async function syncDirectory(directory: string): Promise<void> {
 	}
 }
 
+/**
+ * route 的形状校验，但不含 identityFile：私钥路径能不能用由真正拼 argv 的地方回答
+ * （INVALID_SSH_LOCAL_PATH）。pin 流程只查主机键，不读那把钥匙，所以它不该在这里拦
+ * —— 拦了就等于「磁盘上留着一条 %h 路径」把整条连接永久判成存储损坏。
+ */
+function routeShape(route: SshDraftRoute): SshDraftRoute {
+	return {
+		sshHost: route.sshHost,
+		...(route.user !== undefined ? { user: route.user } : {}),
+		...(route.port !== undefined ? { port: route.port } : {}),
+		...(route.proxyJump !== undefined ? { proxyJump: route.proxyJump } : {}),
+	};
+}
+
 /** Persist only broker-approved, reverified host pins; the caller must separately save endpoint metadata. */
 export class SshHostPinStore {
 	private readonly root: string;
@@ -130,7 +144,7 @@ export class SshHostPinStore {
 	 */
 	async probe(route: SshDraftRoute): Promise<SshDraftHostCandidate> {
 		if (this.closed) throw new Error("CONFIRMATION_CLOSED");
-		buildSshConfigQueryArgs(route);
+		buildSshConfigQueryArgs(routeShape(route));
 		const alias = `pideck-probe-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 		return (await this.verifierFor())(route, alias);
 	}
@@ -165,7 +179,7 @@ export class SshHostPinStore {
 			...(input.route?.proxyJump !== undefined ? { proxyJump: input.route.proxyJump } : {}),
 			...(input.route?.identityFile !== undefined ? { identityFile: input.route.identityFile } : {}),
 		};
-		buildSshConfigQueryArgs(route);
+		buildSshConfigQueryArgs(routeShape(route));
 		const filePath = this.pathFor(input.hostId);
 		const trusted = input.preverifiedHostKey;
 		const trustedBytes = trusted === undefined ? undefined : Buffer.isBuffer(trusted.knownHostsBytes) ? Buffer.from(trusted.knownHostsBytes) : undefined;

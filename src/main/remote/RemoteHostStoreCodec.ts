@@ -86,8 +86,17 @@ function readProfile(value: unknown): RemoteHostProfile {
 		...(value.proxyJump !== undefined ? { proxyJump: value.proxyJump } : {}),
 		...(value.identityFile !== undefined ? { identityFile: value.identityFile } : {}),
 	};
+	// identityFile 的「能不能用」不在这里判：它是用户选的私钥路径，规则由构造 argv 时的
+	// INVALID_SSH_LOCAL_PATH 回答（"%h" 只是说明这条连接现在不能用，不是存储损坏）。
+	// 其余 route 字段仍在这里严格读盘校验：它们直接进 argv，脏值不该上盘。
+	const routeShape: SshDraftRoute = {
+		sshHost: route.sshHost,
+		...(route.port !== undefined ? { port: route.port } : {}),
+		...(route.user !== undefined ? { user: route.user } : {}),
+		...(route.proxyJump !== undefined ? { proxyJump: route.proxyJump } : {}),
+	};
 	try {
-		buildSshConfigQueryArgs(route);
+		buildSshConfigQueryArgs(routeShape);
 	} catch {
 		invalid();
 	}

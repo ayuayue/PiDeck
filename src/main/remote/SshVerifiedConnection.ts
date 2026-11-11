@@ -161,7 +161,8 @@ export async function buildPinnedSshInvocation(userDataDir: string, hostId: stri
 	if (typeof options?.client?.run !== "function" || typeof options.client.sshPath !== "string") throw new Error("SSH_HOST_CLIENT_CONTEXT_REQUIRED");
 	const client = options.client;
 	await assertNoPendingHostRebind(userDataDir);
-	const { version } = await runSshClientSelfCheck(client);
+	// 本机侧校验全部跑完之前不启用 ssh：identityFile / pinFile 里带 "%h" 这类 token 时，
+	// 用户该看到「这条配置不能用」（INVALID_SSH_LOCAL_PATH），而不是先白跑一次 ssh、再被告知存储损坏。
 	const initial = (await RemoteHostStore.open(userDataDir)).getSnapshot();
 	const profile = activeProfile(initial, hostId);
 	const pinStore = new SshHostPinStore(userDataDir);
@@ -190,6 +191,7 @@ export async function buildPinnedSshInvocation(userDataDir: string, hostId: stri
 	// resolved-config query (that query verifies the route, not the command).
 	const remoteCommand = options.bootstrap === undefined ? readRemoteCommand(options.remoteCommand, kind) : readBootstrapCommand(options.bootstrap, options.remoteCommand, kind);
 	await assertReadableIdentity(target.identityFile);
+	const { version } = await runSshClientSelfCheck(client);
 	const candidate = await cachedCandidateRoute(profile, target.pinAlias, client);
 	assertSavedRoute(candidate.hostName, candidate.user, candidate.port, sshRouteDigest(candidate), profile);
 	// SFTP adds transport-only `-T -s` before the common route flags and a
