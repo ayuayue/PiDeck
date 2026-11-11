@@ -244,8 +244,6 @@ function isOffToken(value: string): boolean {
 	const token = normalizeTypeToken(value);
 	const offToken = normalizeOffToken(value);
 	const offPhrase = value.trim().toLowerCase();
-	// 归一后整串是 `online` 的取值（`online` / `online.` / `on line` / `on-line` / `onLine`）仍按原词表判成关掉；
-	// 只认整串，带后缀的肯定值（`multiple: "online multiple"`）不再被前缀误伤成关掉意图。
 	if (offToken === "online") return true;
 	// 分句标点把「否定」和「单选」拆成两句（`no, single` / `否，single`）：那是明确说单选，
 	// 不是「不是单选」的双重否定。英文与中英混写同样收口，别只认中文否定字起头的分句。
@@ -280,8 +278,6 @@ function isOffToken(value: string): boolean {
 		// `MULTI_ROOT` 会命中 `multiple`，但同一拼写作为 type 取值是 editor（`isLineLikeKey`），
 		// 在这里翻成勾选卡就是「同一个词两个空间相反判决」。
 		const tailToken = normalizeTypeToken(tail);
-		// 分句后半句自己就是「不是单选」（`no, not single` / `不，不是单选`）：那仍在说要多选，
-		// 不能被前半句的否定连坐成 select。只认后半句自带否定词的写法，裸 `no, single` 仍是单选。
 		const tailDoubleNegative =
 			/^(?:not|no|non|definitely not)\s+(?:single|limit|exclusive|restrict|one|only)\b/i.test(tail) || NEGATED_SINGLE_ZH.test(normalizeOffToken(tail));
 		if (clauseAfterNegation && !isOffToken(tail) && (hasMultiRoot(tailToken) || tailDoubleNegative) && !isLineLikeKey(tailToken)) return false;
@@ -319,20 +315,17 @@ const SINGLE_LIMIT_PHRASE = /^(?:only|just|exactly|at ?most|max(?:imum)?|limited
  *  这份判据就会「加一个句号把单选意图翻成多选卡」。type 取值与意图键取值共用本函数。
  *  短语判据用原值（不用归一值）：它靠空白切词（`exactly one`），归一后连写会漏。 */
 function isSingleLikeValue(value: string): boolean {
-	// 短语判据走「分隔符归一成空格」的形态：`exactly_one` / `at-most one` 与 `exactly one` 同判。
-	const phrase = value.trim().toLowerCase().replace(/[_\-\s]+/g, " ");
 	// 「单选或多选都行」这类取值同时写着多选：多选是单选的上界，按多选给卡不会把用户锁死，
 	// 按单选给卡却会让他根本选不了两项。中文多选词根只在这里认，不进 `MULTI_ROOT`——那个谓词还判键名，
 	// `多选: true` 会因此变成「拼错键」硬报错，那是另一个决定，别在取值侧顺手改了键空间的判决。
-	// 串首明确写了「单选 / 只能选一个」、后半句只说明多选不被允许时（「单选，多选会报错」；带否定字的
-	// 「单选，不要多选」由下面第三条件保住），那句「多选」不是可选范围，按单选处理；
-	// 其余含多选词根的写法（「单选或多选都行」/「单选/多选」/「单选，可多选」）仍表示可多选，不能收成单选卡。
 	// 取值里带否定字时一律让路（`单选，不要多选` / `非多选` / `不限量多选`）：那几条的语义由 `isOffToken`
 	// 收口，这里只看「有没有多选词根」就会把明确的否定翻成勾选卡；「至多选一个 / 最多选一个」里的「多选」是数量词的一部分，不算。
-	const multiDeniedAfterSinglePhrase = SINGLE_LIMIT_PHRASE.test(phrase) && /(?:报错|错误|无效|失败)/.test(value);
+	const multiDeniedAfterSinglePhrase = SINGLE_LIMIT_PHRASE.test(value.trim().toLowerCase().replace(/[_\-\s]+/g, " ")) && /(?:报错|错误|无效|失败)/.test(value);
 	if (!multiDeniedAfterSinglePhrase && /(?<!至|最)(?:多选|多项|复选)/.test(value) && !/[不非无没未否别勿禁]/.test(value)) return false;
 	const token = normalizeTypeToken(value);
 	const stripped = normalizeOffToken(value);
+	// 短语判据走「分隔符归一成空格」的形态：`exactly_one` / `at-most one` 与 `exactly one` 同判。
+	const phrase = value.trim().toLowerCase().replace(/[_\-\s]+/g, " ");
 	return (
 		SINGLE_WORDS.has(token) ||
 		SINGLE_WORDS.has(stripped) ||
