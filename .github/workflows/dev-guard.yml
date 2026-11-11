@@ -49,7 +49,7 @@ jobs:
         run: npm run check:format
 
       - name: Check structural invariants
-        run: npm run check:ipc-wiring && npm run check:test-shape
+        run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:scroll-containers
 
       - name: Type-check
         run: npm run typecheck

@@ -638,7 +638,7 @@ export function AddHostDialog(props: {
 					) : null}
 				</div>
 
-				{/* scroll-ok: 表单本体独立滚动，字段数量固定且由对话框 max-h 收束 */}
+				{/* scroll-ok: transient —— 表单本体独立滚动，字段数量固定且由对话框 max-h 收束 */}
 				<div ref={bodyRef} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
 					{kind === "wsl" ? (
 						<div className="flex flex-col gap-3">
