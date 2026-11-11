@@ -1,3 +1,59 @@
+## v0.12.0 (2026-11-11)
+
+This release connects PiDeck across machines: encrypted cloud sync, remote workspaces available in stable builds, parent/child sessions and a floating question card — plus long-due file, editor and sidebar work.
+
+### 🚀 New Features
+- **Cloud sync: one configuration across machines** — end-to-end encryption from a master password, so the provider only ever stores ciphertext; six backends (GitHub Gist with zero-config device flow, OneDrive / Google Drive via browser authorization, WebDAV, S3-compatible storage, and a locally synced folder) and selectable content (desktop settings, pi models and credentials, image-generation config, loose config files, prompts / skills / extensions); changes merge three-way, conflicts keep whichever side you pick per entry, automatic sync and strategy are configurable, and you can export / import a `.pideckbackup` or restore extensions from the cloud. DSH sessions sync grouped by project.
+- **Remote workspaces become a product capability** — remote is no longer gated by the update channel: stable and dev register the same SSH capabilities, with identical entry points, IPC, trust and host-key pin semantics.
+- **Linked sessions (parent / child conversations)** — a session can open child sessions, nested in the sidebar, and every finished turn posts its report back to the parent; the Activity view nests children under their parent too, and relationships can be cleaned up.
+- **The question card floats above the timeline** — the ask card is no longer inlined in the message flow: it collapses, drags and remembers its position, and starts centred at the message-column / composer width; batch questions can be skipped one by one, and closing or unconfirmed input no longer swallows the answers already given.
+- **One environment switch for Pi config** — the whole Pi panel loads one of local / an SSH host / the WSL environment, and the tab strip shows which; the SSH Auth page is a read-only derived view (provider / credential type / configured) where credentials never leave that host (helper 1.28.0).
+- **The WSL target follows Developer settings** — there is exactly one WSL environment: turn it on and pick a distribution / user under Settings → Developer; Settings → Connections now lists SSH hosts only, with no second WSL profile list.
+- **Remote host rebind wizard** — changing machine or address goes through plan → confirm → execute, clearing stale locks and the old trust anchor, and unfinished rebinds converge on startup.
+- **Remote files open in the centre editor** — files in remote projects open in the main editor column, read-only projects no longer pretend to be writable, and remote / local / WSL directory pages share the same Git status colouring and ignore decoration.
+- **Office / WPS editing, spreadsheets and video preview** — docx / xlsx open with Office or WPS, csv opens as a table with double-click cell editing, and mp4 gets a play button.
+- **Real macOS signing and notarization, with in-app updates** — Developer ID signing plus notarytool notarization, in-app check / download / restart-and-install, a fixed keychain authentication failure for arm64 signing, and release gates that stop unsigned or un-notarized builds.
+- **Safe-share export** — export a session as a previewable HTML copy with optional hiding of thinking, tool arguments / results, images and system messages, workspace paths removed and common credentials or URL tokens redacted; the complete export stays byte-for-byte as before.
+- **Sidebar group tree and project sorting** — the group tree becomes two levels that de-duplicate the project list and reuse the session context menu for grouped sessions; session groups show per chat / project scope while the Activity group stays ungrouped, and projects sort by manual order, recent activity, creation time or title.
+
+### ✨ Improvements
+- **Word-wrap toggle for code blocks** — a toolbar switch in the session code block, remembered per machine and never written to `settings.json`.
+- **Agent panel and composer commands on the web** — the browser build can open the agent catalogue and use `/` commands and composer quick actions, and Using an agent lets you choose which project to create the session in.
+- **Instant feedback for resend / edit / delete** — the action enters its working state immediately, and switching long sessions no longer flashes stale content.
+- **Session tab tooltips only follow hover** — returning to the window no longer pops the tooltip open.
+- **Toolbar recall restores maximised / full-screen** — and the full-screen state persists, so tray recall no longer drops back to a small window.
+- **Commit suggestions need real file changes** — no diff, no prompt to commit.
+- **A global “reduce motion” switch in Appearance** — suppresses non-essential animation everywhere.
+- **The process panel shows child-process CPU** — diagnostics attribute CPU per process, so pi, terminals and sidecars are separable.
+- **EasyTier network keys are masked** — with an eye toggle to verify, instead of sitting in plain text.
+- **Better settings search and navigation** — the command palette and the sidebar share one set of titles, so deep settings are easier to find.
+
+### 🔧 Performance
+- **CodeMirror loads lazily** — the remote file editor loads it on open, so sessions start faster.
+- **`@` file completion reuses the Go file index** — completion in large repos no longer rescans every time.
+- **Session fact reads use a position index** — the subscript lookup went from a linear scan to a position index, and virtual rows drop their measurement cache on unmount.
+- **Directory-page ignore checks are cached per revision** — refreshing a directory no longer re-checks every entry.
+
+### 🐛 Fixes
+- **Hand-edited `settings.json` keys are no longer silently deleted** — internal writes only touch the fields they own (#501).
+- **Editing / deleting / resending a large session streams the rewrite** — no more 32 MB full-read limit failures.
+- **The browser drawer and full-screen share one webview host** — switching no longer reloads the page or loses state (#508).
+- **Persistent waiting animations use CSS keyframes** — the filter layer is dropped after the entrance, keeping long sessions scrolling smoothly (#510).
+- **The ask card no longer eats a multi-select as a single choice** — the intent rules were rewritten with single-choice phrases added, so `ask_question`'s “pick exactly one” is not treated as multi-select (#526).
+- **Batch questions can be skipped one at a time** — closing or unconfirmed input no longer swallows the answers already given (#506).
+- **“Go to session” from the settings tab jumps back to the Ask session again.**
+- **Closing an agent releases its message cache** — long multi-agent runs no longer grow without bound (#519).
+- **Electron upgraded to 43.8.7** — fixes the missing tray icon on GNOME (#521).
+- **The prompt-library assets upload with every release** — and the pipeline asserts both assets exist before pointing the tag at latest, so clients cannot get a permanent “download failed”.
+- **Aligned with pi 1.5.1** — template-argument quoting semantics and ordered shutdown match upstream.
+- **A bun-installed pi is found again** — prompt prediction / enhancement / login no longer collapse into sdk-unavailable.
+- **Prompt prediction stops after an unfinished first turn or a cancellation.**
+- **Local file writes take an optimistic lock** — external changes are no longer silently overwritten.
+- **The four-step connection check no longer sticks on “in progress”** — unverified hosts open the editor to continue, and connect / retry spins inside the button.
+- **Remote drafts are flushed before installing an update** — an unwritable draft blocks the install instead of losing remote edits.
+- **Web agent catalogue requests time out and retry** — with a relaxed server keep-alive, so weak networks stop spinning forever.
+- **Queued messages no longer send twice** — fixes the duplicate delivery inside the accepted window (#523).
+
 ## v0.11.3 (2026-11-07)
 
 The preview panel finally has a word-wrap switch: long lines no longer force horizontal dragging, in the diff view and the source view alike.
