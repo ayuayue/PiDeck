@@ -20,6 +20,8 @@ import { isRoleMessageRole, takeActiveEntryId } from "./sessionEntryIds";
 export type AgentMessageProjectorDeps = {
 	translate: (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
 	isAskAborted: (agentId: string) => boolean;
+	/** 安全分享只读视图：思考不混入正文，工具参数/结果不经过 UI 摘要截断。 */
+	purpose?: "share";
 };
 
 export function buildActiveBranchEntryIds(entries: Array<{ id: string; parentId: string | null; type?: string; message?: { role?: string } }>, leafId: string): string[] {
@@ -220,7 +222,7 @@ export class AgentMessageProjector {
 						const detailsRecord = asRecord(typed.details);
 						const piDeckOriginalContent = typeof detailsRecord?._piDeckOriginalContent === "string" ? detailsRecord._piDeckOriginalContent : undefined;
 						const originalContent = piDeckOriginalContent ?? (filePath ? historicalOriginalContentByPath.get(filePath) : undefined);
-						const detailText = this.formatToolDetail(toolName, historicalCall?.args, result, isError ? "error" : "done");
+						const detailText = this.deps.purpose === "share" ? "" : this.formatToolDetail(toolName, historicalCall?.args, result, isError ? "error" : "done");
 						// detailText 整体截断（拼接后可能超单段上限）并标记 truncated/fullLength，
 						// 渲染层据此提供「查看完整输出」按需加载（sessionsCatalogReadMessageFullText）。
 						const detailDelivery = this.truncateDetailWithMeta(detailText);
@@ -274,8 +276,8 @@ export class AgentMessageProjector {
 									toolCallId,
 									...(startedAt !== undefined ? { startedAt } : {}),
 									...(durationMs !== undefined ? { durationMs } : {}),
-									args: this.serializeToolArgs(toolName, historicalCall?.args),
-									result: this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result)),
+									args: this.deps.purpose === "share" ? historicalCall?.args : this.serializeToolArgs(toolName, historicalCall?.args),
+									...(this.deps.purpose === "share" ? { fullText: typeof typed.content === "string" ? typed.content : this.extractToolResultText(result) } : { result: this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result)) }),
 									isError,
 									// pi 侧截断（与 truncated 的展示层截断区分）：历史会话回看时也能拿到完整输出路径
 									...(piTruncation ? { resultTruncation: piTruncation } : {}),
@@ -401,7 +403,8 @@ export class AgentMessageProjector {
 	}
 
 	extractText(content: unknown): string {
-		return extractMessageText(content);
+		const textContent = this.deps.purpose === "share" && Array.isArray(content) ? content.filter((block) => !block || typeof block !== "object" || block.type !== "thinking") : content;
+		return extractMessageText(textContent);
 	}
 
 	/** 从 pi 历史消息 content 中恢复图片附件，用于历史会话重新打开后的图片展示。

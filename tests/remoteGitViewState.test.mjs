@@ -222,10 +222,11 @@ test("a refresh drops history, refs and detail facts without reloading them", as
 test("a silent status refresh updates facts without dropping diff, history, refs or the selection", async () => {
 	// P0-3：5 秒轮询必须走 refreshStatus，而不是 refresh——后者会整体替换 state（loading=true）
 	// 并清掉 history/refs/diff 与选中行，等于每隔 5 秒把用户正在看的东西收走一次。
+	// 分支随事实读一起回来（`git.status` 的答案里就有），不再是单独一次 branches 往返。
 	let branch = "main";
 	const f = fixture({
+		status: async () => ({ ok: true, snapshot: { ...snapshot, branch } }),
 		refresh: async () => ({ ok: true, snapshot: { ...snapshot, branch } }),
-		branches: async () => ({ ok: true, info: { current: branch, branches: [branch] } }),
 		historyPage: async () => ({ ok: true, value: { commits: [historyRow(oid("1"), "first")], hasMore: false } }),
 		refs: async () => ({ ok: true, refs: { head: null, branch: "main", refs: [] } }),
 		commitDetail: async (value) => ({ ok: true, detail: detailFor(value) }),
@@ -741,4 +742,66 @@ test("a sync verb with an unknown remote, the wrong branch or no loaded facts ne
 	await f.reads.fetch("elsewhere");
 	await f.reads.push("origin", "other");
 	assert.deepEqual(calls, [], "only a remote this repository has, and only the checked-out branch, may be synced");
+});
+
+test("同步事实跨 refresh 保留：打开面板时同步链与仓库读并行，不会各等一次往返", async () => {
+	// 真机：同步条与仓库读原来串行（refresh 之后才 loadSync），而且 refresh 会把已到的同步事实清掉，
+	// 面板上就长期停在「正在读取远端 Git…」。事实属于项目身份，不由快照代决定。
+	const order = [];
+	const f = fixture({
+		status: async () => {
+			order.push("status");
+			return { ok: true, snapshot };
+		},
+		syncFacts: async () => {
+			order.push("syncFacts");
+			return { ok: true, facts: syncFacts };
+		},
+	});
+	// 与 hook 的启动顺序同形：两个读同时发起。
+	const refresh = f.reads.refresh();
+	const sync = f.reads.loadSync().then(() => undefined);
+	await Promise.all([refresh, sync]);
+	assert.deepEqual(order, ["status", "syncFacts"]);
+	assert.deepEqual(plain(f.current().sync), syncFacts, "先到的同步事实不被后到的快照覆盖");
+	await f.reads.refresh();
+	assert.deepEqual(plain(f.current().sync), syncFacts, "显式刷新也保留同一份在线同步事实");
+});
+
+test("读失败时同步事实一起作废，不把旧数字挂在错误旁边", async () => {
+	let factsOk = true;
+	const f = fixture({
+		status: async () => (factsOk ? { ok: true, snapshot } : { ok: false, code: "GIT_COMMAND_FAILED" }),
+		syncFacts: async () => ({ ok: true, facts: syncFacts }),
+	});
+	await f.reads.refresh();
+	await f.reads.loadSync();
+	assert.deepEqual(plain(f.current().sync), syncFacts);
+	factsOk = false;
+	await f.reads.refresh();
+	assert.equal(f.current().errorCode, "GIT_COMMAND_FAILED");
+	assert.equal(f.current().sync, undefined, "失败的读不能留下与错误并排的旧同步数字");
+});
+
+test("提交成功后重读同步事实：ahead 数字跟着提交走，不停在旧值", async () => {
+	let head = 0;
+	const reads = [];
+	const f = fixture({
+		status: async () => ({ ok: true, snapshot }),
+		commit: async () => {
+			head += 1;
+			return { ok: true };
+		},
+		syncFacts: async () => {
+			reads.push(head);
+			return { ok: true, facts: { ...syncFacts, ahead: head } };
+		},
+	});
+	await f.reads.refresh();
+	await f.reads.loadSync();
+	assert.equal(f.current().sync.ahead, 0);
+	await f.reads.commit("subject");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(reads, [0, 1], "提交落地后重读一次，并带上新的 ahead");
+	assert.equal(f.current().sync.ahead, 1);
 });

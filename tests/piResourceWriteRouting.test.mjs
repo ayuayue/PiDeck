@@ -10,7 +10,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const shared = loadTsCommonJs("src/shared/piConfig.ts");
 const routing = loadTsCommonJs("src/main/config/piResourceWriteRouting.ts");
 const HOST = "11111111-1111-4111-8111-111111111111";
-const WSL_OPTIONS = () => ({ target: { kind: "wsl", hostId: HOST } });
+const WSL_OPTIONS = () => ({ target: { kind: "wsl" } });
 
 test("路由helper：local 返回原单例且不碰池；wsl 走 pick；池缺失 fail closed", async () => {
 	const local = { name: "local" };
@@ -21,7 +21,7 @@ test("路由helper：local 返回原单例且不碰池；wsl 走 pick；池缺�
 	assert.equal(picked, null);
 
 	const result = await routing.resolvePiResourceWriteManager({ options: WSL_OPTIONS(), pool, local: () => local, pick: async (p, parsed) => await p.prompts(parsed) });
-	assert.deepEqual(JSON.parse(JSON.stringify(result.parsed)), { target: { kind: "wsl", hostId: HOST } });
+	assert.deepEqual(JSON.parse(JSON.stringify(result.parsed)), { target: { kind: "wsl" } });
 
 	await assert.rejects(routing.resolvePiResourceWriteManager({ options: WSL_OPTIONS(), pool: undefined, local: () => local, pick: async () => local }), { message: shared.PI_RESOURCE_CODES.unavailable });
 	await assert.rejects(routing.resolvePiResourceWriteManager({ options: { target: { kind: "ssh", hostId: HOST } }, pool, local: () => local, pick: async () => local }), { message: shared.PI_RESOURCE_CODES.sshUnsupported });

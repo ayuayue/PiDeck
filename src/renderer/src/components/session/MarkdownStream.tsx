@@ -189,7 +189,7 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	const isStreamingNow = Boolean(props.isStreaming);
 	// 流式期间走轻量渲染：跳过代码高亮/mermaid/数学等重插件，只跑 marked 核心解析，
 	// 否则 30fps 逐字渲染会让插件管线（每帧全量树遍历）占满主线程，React concurrent
-	// 把多帧 setState 合并提交 → DOM 一帧蹦多字（学 Proma：流式期间 react-markdown 轻渲染）。
+	// 把多帧 setState 合并提交 → DOM 一帧蹦多字（所以流式期间只跑轻量渲染）。
 	// 流结束 isStreaming 变 false 后，全量渲染（高亮/mermaid/表格/元素树）是一次
 	// 实测 70-100ms 的同步长任务：若发生在用户滚动/交互期间会造成可见卡顿与滚动跳动。
 	// 因此 settle 后先保持流式末帧的轻量渲染，requestIdleCallback 空闲时再切全量
@@ -316,10 +316,10 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	}, [baseDir, props.isStreaming, props.urlTransform]);
 	const pipe: StreamdownPipe = useMemo(
 		() => ({
-			// 学 Proma：流式期间也用 static 模式（同步渲染）。streamdown 的 streaming 模式
+			// 流式期间也用 static 模式（同步渲染）。streamdown 的 streaming 模式
 			// 内部用 useTransition 低优先级更新块，React 会把多帧 transition 合并提交 →
-			// DOM 一帧跳多帧步进（视觉蹦字）；static 模式与 Proma 的 react-markdown 同为
-			// 同步提交，每帧独立渲染，DOM 增量 = useSmoothStream 每帧步进。
+			// DOM 一帧跳多帧步进（视觉蹦字）；static 模式是同步提交，每帧独立渲染，
+			// DOM 增量 = useSmoothStream 每帧步进，不会被 transition 合并成跳帧。
 			isAnimating: props.isStreaming,
 			remarkPlugins: resolvedRemarkPlugins,
 			rehypePlugins: resolvedRehypePlugins,

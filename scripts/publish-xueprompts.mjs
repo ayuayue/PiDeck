@@ -5,8 +5,9 @@
  *
  * 背景：安装包不再内置 xueprompts.db（省 ~3MiB），客户端启动后从 Release 资产
  * 拉取（AtomGit 主 + GitHub latest 兜底，见 src/main/prompts/XuePromptDbStore.ts）。
- * 版本判定 = 本脚本生成的 .sha256 文本与客户端缓存的 db 指纹对比，因此每次更新
- * db 后必须重跑本脚本并把两份资产一起上传，漏一半会导致客户端指纹比对失败。
+ * 版本判定 = 本脚本生成的 .sha256 文本与客户端缓存的 db 指纹对比，因此 db 一变就必须重跑
+ * 本脚本（两个文件一起提交）；指纹与内容不一致会被 check:xueprompts 挡下——发一份过期指纹
+ * 等于全体客户端校验失败。上传已由 release.yml 每次发版自动完成，无需手工传。
  *
  * 步骤：轻量健康检查（能打开、有数据）→ 写 .sha256 → 打印上传指引。
  * 健康检查不替代 check:xueprompts（后者跑在打包流水线里做全量断言）。
@@ -50,12 +51,14 @@ async function main() {
 	console.log(`sha256 = ${sha256}`);
 
 	console.log(`
-发布步骤（两份资产必须同一次 Release 一起上传）:
-  1. GitHub: gh release upload v<版本> resources/xueprompts.db resources/xueprompts.db.sha256 --clobber
-     （或上传到 latest release；客户端走 /releases/latest/download/<asset> 恒取最新）
-  2. AtomGit: 仓库 Release 的 latest tag 下上传同名两份资产
-     https://atomgit.com/ayuayue/PiDeck/-/releases
-  3. 客户端下次启动（缓存超过 TTL 或首次安装）自动对比 sha 并按需更新。`);
+下一步:
+  1. resources/xueprompts.db 与 resources/xueprompts.db.sha256 一起 commit。
+  2. 平时的发版无需手工上传：release.yml 每次发版都会把这两份资产传到该 tag 的 Release
+     （finalize-release 在指 latest 前断言齐全）。
+  3. 只有给「已发布的历史 tag」补资产时才需要手工：
+       gh release upload v<版本> resources/xueprompts.db resources/xueprompts.db.sha256 --clobber
+     然后手动重跑 sync-atomgit.yml 补 AtomGit（追加资产只产生 release: edited，不会自动触发）。
+  4. 客户端下次启动（缓存超过 TTL 或首次安装）自动对比 sha 并按需更新。`);
 }
 
 main().catch((error) => {

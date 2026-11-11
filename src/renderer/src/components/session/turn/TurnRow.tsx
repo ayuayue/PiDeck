@@ -4,7 +4,7 @@ import { ChevronUp } from "lucide-react";
 import { atom, useAtomValue, useSetAtom } from "jotai";
 import { selectAtom } from "jotai/utils";
 import type { AgentBackend, ChatMessage, ImageContent } from "../../../../../shared/types";
-import { liveTextActiveBySessionAtom, newTurnCollapseTickBySessionIdAtomFamily, runStepsVisibleMemoryBySessionIdAtomFamily, sendPinAnimatingBySessionIdAtomFamily, type RunStepsVisibleMemoryEntry } from "../../../atoms/session-atoms";
+import { liveTextActiveBySessionAtom, newTurnCollapseTickBySessionIdAtomFamily, runStepsVisibleMemoryBySessionIdAtomFamily, sendPinAnimatingBySessionIdAtomFamily, type PendingHistoryMutation, type RunStepsVisibleMemoryEntry } from "../../../atoms/session-atoms";
 import { timelineRevealRequestsAtom, type TimelineRevealRequest } from "../../../atoms/timeline-reveal-atoms";
 import { turnFlowSettingsAtom } from "../../../atoms/app-ui-atoms";
 import { t } from "../../../i18n";
@@ -99,6 +99,8 @@ export type TurnRowProps = {
 	onFavoriteReply?: (text: string, messageId: string | null) => void;
 	/** 已收藏的「会话::消息」键集合：星标据此显示实心（已收藏）状态。 */
 	favoritedMessageKeys?: ReadonlySet<string>;
+	/** 历史进行中（本轮回复编辑/删除时，动作栏替换为 spinner；重发/fork 归用户气泡）。 */
+	pendingHistoryMutation?: PendingHistoryMutation | null;
 };
 
 export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
@@ -351,6 +353,9 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 		const targetId = assistantMessages.at(-1)?.message.id;
 		if (targetId) props.onDeleteMessage?.(targetId, messageEntryId(assistantMessages.at(-1)?.message));
 	};
+	// 助手回复编辑/删除的即时反馈：本轮即 pending 目标时动作栏转 spinner（重发/fork 目标是
+	// 用户消息，不点亮这一行——气泡自有 spinner）。
+	const pendingAssistantKind = props.pendingHistoryMutation && (props.pendingHistoryMutation.kind === "edit" || props.pendingHistoryMutation.kind === "delete") && runContainsMessage(run, props.pendingHistoryMutation.messageId) ? props.pendingHistoryMutation.kind : null;
 
 	return (
 		<article ref={rowRef} className={`turn-row mb-6 w-full min-w-0 max-w-full ${props.agentRunning && !isComplete ? "turn-row--running" : isComplete ? "turn-row--complete" : "turn-row--pending"} ${props.fresh ? "turn-row--fresh" : ""} ${props.topFresh ? "turn-row--top-fresh" : ""}`} data-message-id={run.id}>
@@ -361,7 +366,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 
 				{/* 执行过程折叠栏：中间内容（思考/工具/中间回答）统一收进容器，
 				    由 stepsVisible 整体控制显隐；最终回答在容器外常驻。
-				    学 Proma ProcessBlockGroup：CollapsibleContent 自带高度过渡动画，
+				    CollapsibleContent 自带高度过渡动画（scrollHeight 渐变），
 				    折叠/展开是 scrollHeight 高度渐变而非 display:none 突变。 */}
 				{showProcessToggle && (
 					<Collapsible
@@ -462,7 +467,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 				))}
 
 				{/* 本轮产物：修改的文件 chip 行（左缩进对齐正文列，虚线分隔）。
-				    位置对齐 Proma：正文之后、操作栏之前——「改了哪些文件」属于本轮结论，
+				    位置：正文之后、操作栏之前——「改了哪些文件」属于本轮结论，
 				    而非下一轮的输入（旧实现在 composer 上方的常驻卡片里，与轮次脱节）。
 				    流式中不渲染：文件列表还在长，逐条冒出来会让正文区持续抖动。 */}
 				<TurnFileChanges run={run} streaming={isRunLive || Boolean(props.isStreaming)} onOpenFile={props.onOpenFile} onDiffFile={props.onDiffFile} />
@@ -483,6 +488,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 					duration={duration}
 					showTurnModel={showTurnModel}
 					turnModel={turnModel}
+					pendingKind={pendingAssistantKind}
 				/>
 			</div>
 		</article>
@@ -517,6 +523,8 @@ function turnRowPropsEqual(prev: TurnRowProps, next: TurnRowProps): boolean {
 		prev.autoCollapseAt === next.autoCollapseAt &&
 		// 收藏表变化才换引用（时间线 useMemo）：已收藏态变了星标要重绘，未变时保持记忆化。
 		prev.favoritedMessageKeys === next.favoritedMessageKeys &&
+		// pending 翻转必须重渲染：否则 spinner 永不出现（pending 是唯一会变的对象引用）。
+		prev.pendingHistoryMutation === next.pendingHistoryMutation &&
 		prev.onOpenFile === next.onOpenFile
 	);
 }

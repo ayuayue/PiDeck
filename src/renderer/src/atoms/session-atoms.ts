@@ -129,6 +129,39 @@ export function selectByteBudgetEvictions(retainedIds: readonly string[], bytesB
 	return { retained, evicted };
 }
 
+/**
+ * 消息缓存条目的保护集（issue #519：关掉 Agent 不释放内存）。
+ *
+ * 只有「还能被重新激活的打开 Tab」与「当前聚焦会话」值得常驻内存：
+ * 运行时已停止（detach）的会话即使 Tab 还开着，它的全部内容也已在磁盘上，
+ * 切回时会走与淘汰条目相同的重读盘路径（尾部窗口页），不该继续无条件占着堆。
+ * 聚焦会话例外——屏幕上正显示它的消息，清掉只会立刻触发一次重读盘。
+ */
+export function selectSessionCacheProtectedIds(input: { tabIds: readonly string[]; stoppedIds: ReadonlySet<string>; focusedSessionId?: string }): Set<string> {
+	const protectedIds = new Set<string>();
+	for (const id of input.tabIds) {
+		if (!input.stoppedIds.has(id)) protectedIds.add(id);
+	}
+	if (input.focusedSessionId) protectedIds.add(input.focusedSessionId);
+	return protectedIds;
+}
+
+/**
+ * 一次缓存裁剪计划：先把 LRU 顺序与实际驻留键对齐，再套「保护集 → 条数上限 → 已关闭条目字节预算」。
+ *
+ * 与写入路径的裁剪同语义，供运行时停止 / 会话切换 / 关 Tab 这些**非写入**时机复用
+ *（此前淘汰只在写入路径触发，关闭后停在原地的会话会一直驻留）。
+ */
+export function planSessionCacheTrim(input: { lruIds: readonly string[]; cacheIds: readonly string[]; protectedIds: ReadonlySet<string>; limit: number; bytesById: ReadonlyMap<string, number>; closedByteBudget: number }): { retained: string[]; evicted: string[] } {
+	const cacheIds = new Set(input.cacheIds);
+	// 缺 LRU 记录的条目（历史写入路径 / 旧缓存）按最旧处理：顺序表漏项不能让条目永久驻留。
+	const ordered = [...input.lruIds.filter((id) => cacheIds.has(id)), ...input.cacheIds.filter((id) => !input.lruIds.includes(id))];
+	const retainedIds = selectRetainedCacheEntryIds(ordered, input.protectedIds, input.limit);
+	const trimmed = selectByteBudgetEvictions(retainedIds, input.bytesById, input.protectedIds, input.closedByteBudget);
+	const retained = new Set(trimmed.retained);
+	return { retained: trimmed.retained, evicted: ordered.filter((id) => !retained.has(id)) };
+}
+
 export type SessionRuntimeViewState = {
 	agentId?: string;
 	runtimeGeneration: number;
@@ -257,6 +290,11 @@ export const currentSessionIdAtom = atom<string | undefined>(undefined);
 /** 会话 Tab 栏（浏览器式多 Tab）：按打开顺序排列的会话 id 列表。
  *  关闭 Tab 只从列表移除，不 kill Agent；再次打开同一会话时复用已绑定运行时。 */
 export const sessionTabIdsAtom = atom<string[]>([]);
+/**
+ * 运行时已停止（detach）的会话 id：消息缓存不再享受「打开 Tab 无条件保护」。
+ * 重新绑定运行时（懒启动 / 重启 / 发送前绑定）或删除会话时清除。
+ */
+export const stoppedSessionIdsAtom = atom<Set<string>>(new Set<string>());
 export const sessionRuntimeByIdAtom = atom<Record<string, SessionRuntimeViewState>>({});
 export const sidebarRuntimeAtom = selectAtom(sessionRuntimeByIdAtom, (full) => {
 	const slim: Record<string, { agentId?: string; status: string }> = {};
@@ -282,8 +320,12 @@ function allocateSessionMessageOutlineRevision(): number {
 	return nextSessionMessageOutlineRevision;
 }
 
-/** 时间线改写过程遮罩：停 Agent / 写 JSONL / 重载 / 激活 / fork，按 sessionId 隔离。 */
-export type SessionHistoryMutationOverlayKind = "stopping" | "mutating" | "reloading" | "activating" | "forking";
+/** 时间线改写过程遮罩：停 Agent / 写 JSONL / 重载 / 激活 / fork / 重发 / 编辑 / 删除 / 回退，按 sessionId 隔离。 */
+export type SessionHistoryMutationOverlayKind = "stopping" | "mutating" | "reloading" | "activating" | "forking" | "resending" | "editing" | "deleting" | "rewinding";
+
+/** 历史消息即时反馈：正在进行的重发/编辑/删除/fork 所指向的消息（按钮 spinner 与失效依据）。 */
+export type PendingHistoryMutationKind = "resend" | "edit" | "delete" | "fork";
+export type PendingHistoryMutation = { sessionId: string; messageId: string; kind: PendingHistoryMutationKind };
 
 export const sessionHistoryMutationOverlayByIdAtom = atom<Record<string, SessionHistoryMutationOverlayKind>>({});
 
@@ -363,7 +405,7 @@ export const saveSessionScrollAnchorAtom = atom(null, (get, set, input: { sessio
 	});
 });
 /**
- * 会话级独立流式正文（阶段1：学 Proma 独立存储）。
+ * 会话级独立流式正文（阶段1：独立存储）。
  * key: sessionId，value: { content, streaming }。
  * 流式期间 content 由 agents:text-stream 通道实时更新；
  * message_end 后由历史消息（sessionMessagesCacheAtom）接管，此处清空。
@@ -871,6 +913,43 @@ export const touchSessionMessagesAtom = atom(null, (get, set, sessionId: string)
 });
 
 /**
+ * 非写入时机的缓存裁剪（issue #519）：运行时停止、切走会话、关 Tab 时立刻按保护集回收，
+ * 不必等下一次缓存写入。运行中会话的打开 Tab 仍受无条件保护（语义不变）。
+ * 返回是否真的淘汰了条目，便于调用方/测试断言。
+ */
+export const trimSessionMessageCacheAtom = atom(null, (get, set) => {
+	const cache = get(sessionMessagesCacheAtom);
+	const cacheIds = Object.keys(cache);
+	if (cacheIds.length === 0) return false;
+	const bytesById = new Map<string, number>();
+	for (const id of cacheIds) {
+		const entry = cache[id];
+		bytesById.set(id, entry.bytes ?? estimateSessionCacheEntryBytes(entry.messages, entry.history?.messages));
+	}
+	const plan = planSessionCacheTrim({
+		lruIds: get(sessionMessageLruAtom),
+		cacheIds,
+		protectedIds: selectSessionCacheProtectedIds({
+			tabIds: get(sessionTabIdsAtom),
+			stoppedIds: get(stoppedSessionIdsAtom),
+			focusedSessionId: get(currentSessionIdAtom),
+		}),
+		limit: SESSION_MESSAGE_CACHE_LIMIT,
+		bytesById,
+		closedByteBudget: SESSION_CACHE_CLOSED_ENTRY_BYTE_BUDGET,
+	});
+	if (plan.evicted.length === 0) return false;
+	const nextCache = { ...cache };
+	for (const sessionId of plan.evicted) {
+		delete nextCache[sessionId];
+		releaseSessionOutlineProjection(sessionId);
+	}
+	set(sessionMessagesCacheAtom, nextCache);
+	set(sessionMessageLruAtom, plan.retained);
+	return true;
+});
+
+/**
  * 引导页虚拟会话首次发送：把乐观写入虚拟会话的用户气泡搬到刚创建的真实会话。
  * 必须是「搬」而不是「拷」——虚拟会话 ID 是 renderer 常量，永不经 removeSessionStateAtom
  * 清理，残留的缓存会在下一次引导页发送时被当作 previousMessages 追加，导致每个新会话
@@ -1228,6 +1307,15 @@ function toAgentUiRequest(payload: Record<string, unknown>, agentId: string): Ag
 	};
 }
 
+/** 运行时重新绑定后清掉「已停止」标记：缓存条目恢复打开 Tab 保护（否则活会话会被误淘汰）。 */
+function clearStoppedSessionFlag(get: Getter, set: Setter, sessionId: string): void {
+	const stopped = get(stoppedSessionIdsAtom);
+	if (!stopped.has(sessionId)) return;
+	const next = new Set(stopped);
+	next.delete(sessionId);
+	set(stoppedSessionIdsAtom, next);
+}
+
 /** 清除某会话的 live 思考通道（换绑 / 卸载 / detach）。 */
 function clearSessionLiveThinking(get: Getter, set: Setter, sessionId: string) {
 	const liveId = get(liveThinkingIdBySessionAtom)[sessionId];
@@ -1459,6 +1547,14 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 				updatedAt: Date.now(),
 			},
 		});
+		// 进程已经结束，渲染层只剩这份消息副本：降级为可淘汰并立刻裁剪一次
+		//（#519：此前只有「删除会话」才释放，任务做完关掉 Agent 的缓存会一直驻留）。
+		if (!get(stoppedSessionIdsAtom).has(event.sessionId)) {
+			const stopped = new Set(get(stoppedSessionIdsAtom));
+			stopped.add(event.sessionId);
+			set(stoppedSessionIdsAtom, stopped);
+		}
+		set(trimSessionMessageCacheAtom);
 		return;
 	}
 	if (event.runtimeGeneration < currentRuntime.runtimeGeneration) return;
@@ -1466,6 +1562,8 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 		return;
 	}
 	const bindingChanged = event.runtimeGeneration > currentRuntime.runtimeGeneration || currentRuntime.agentId !== event.agentId;
+	// 运行时重新绑定（懒启动 / 重启）：该会话不再是「只剩磁盘副本」，恢复打开 Tab 保护。
+	clearStoppedSessionFlag(get, set, event.sessionId);
 
 	// 2026-08 治理：agents:event 是 pi 原始事件流（每 token 100+/s），桌面 UI
 	// 无任何消费者（web SSE 走主进程内部订阅）。此前它落入下方兜底路径无条件
@@ -1908,6 +2006,8 @@ export const bindSessionRuntimeAtom = atom(
 			return;
 		}
 		const bindingChanged = Boolean(current?.agentId && current.agentId !== input.agentId);
+		// 发送路径的绑定同样代表运行时已恢复（此前可能因闲置释放被标记为已停止）。
+		clearStoppedSessionFlag(get, set, input.sessionId);
 		const record = get(sessionRecordsAtom)[input.sessionId];
 		if (record && !record.noSession && (input.status === "running" || current?.agentId !== input.agentId)) {
 			set(touchRecentSessionAtom, { sessionId: record.id, projectId: record.projectId });
@@ -1969,6 +2069,11 @@ export const removeSessionStateAtom = atom(null, (get, set, sessionId: string) =
 	const cacheStats = { ...get(sessionCacheStatsAtom) };
 	delete cacheStats[sessionId];
 	set(sessionCacheStatsAtom, cacheStats);
+	if (get(stoppedSessionIdsAtom).has(sessionId)) {
+		const stopped = new Set(get(stoppedSessionIdsAtom));
+		stopped.delete(sessionId);
+		set(stoppedSessionIdsAtom, stopped);
+	}
 	const cache = { ...get(sessionMessagesCacheAtom) };
 	releaseSessionOutlineProjection(sessionId);
 	delete cache[sessionId];

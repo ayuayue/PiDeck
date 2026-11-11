@@ -57,6 +57,10 @@ async function withSendTimeout(promise: Promise<void>, signal: AbortSignal, time
 	}
 }
 
+/** drain 之后到「回合真的开始」之间的门禁（判据见 canFlushQueuedPrompt）。
+ *  超时只是兜底：后端事件若没到，宁可慢发也不能在 accepted 窗口里连发。 */
+const QUEUE_DRAIN_GATE_TIMEOUT_MS = 2_000;
+
 /** 一次 drain 的所有权；运行时只约束后续投递，不抹掉已收到的接受结果。 */
 type QueueFlush = { target: SessionRuntimeTarget; controller: AbortController };
 
@@ -71,6 +75,9 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 	const editFramesRef = useRef(new Map<number, string>());
 	/** 「停止响应」抑制：会话 → 是否已观测到空闲（用于判定用户重新发起回合）。 */
 	const suppressedRef = useRef(new Map<string, { sawIdle: boolean }>());
+	/** 会话 → 最近一次成功 drain 的门禁：把「accepted」和「回合已开始」分开，见 canFlushQueuedPrompt。
+	 *  timer 是到期唤醒：门禁必须自己叫人，不能指望下一条外部事件。 */
+	const drainGatesRef = useRef(new Map<string, { at: number; generation?: number; timer?: number }>());
 
 	/** 只释放本 hook 拥有的锁；旧请求的 finally 不得解开同 ID 新会话的锁。 */
 	function cancelSessionWork(sessionId: string) {
@@ -88,6 +95,7 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 			editFramesRef.current.delete(frame);
 		}
 		if (suppressedRef.current.delete(sessionId)) syncDrainSuppressedAtom(sessionId);
+		clearDrainGate(sessionId);
 	}
 
 	useEffect(() => {
@@ -114,6 +122,12 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 						syncDrainSuppressedAtom(sessionId);
 					}
 				}
+			}
+			// drain 门禁解除：状态投影里出现 starting/running 即「回合真的开始了」。这里订阅的是
+			// runtime 原子本身，不依赖调用方恰好在忙的时候来问；解除后要等它回到 idle 才放行下一条。
+			for (const sessionId of drainGatesRef.current.keys()) {
+				const gateRuntime = runtimes[sessionId];
+				if (gateRuntime?.status === "starting" || gateRuntime?.status === "running" || gateRuntime?.state?.isStreaming || gateRuntime?.state?.isExecutingTool) clearDrainGate(sessionId);
 			}
 			const ownedIds = new Set([...Object.keys(queuedPromptsRef.current), ...flushesRef.current.keys(), ...idleTimersRef.current.keys(), ...editFramesRef.current.values(), ...suppressedRef.current.keys()]);
 			for (const sessionId of ownedIds) {
@@ -249,9 +263,40 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 		return store.get(sessionRecordsAtom)[sessionId]?.backend !== "acp" && store.get(sessionRuntimeByIdAtom)[sessionId]?.backend !== "acp";
 	}
 
+	/** 门禁到期必须自己叫醒队列：后端事件丢了、或回合根本没有下一个「开始」事件时，
+	 *  只靠外部 effect 会永久停摆。 */
+	function armDrainGate(sessionId: string) {
+		clearDrainGate(sessionId);
+		const timer = window.setTimeout(() => {
+			const gate = drainGatesRef.current.get(sessionId);
+			if (!gate || gate.timer !== timer) return;
+			drainGatesRef.current.delete(sessionId);
+			if (canFlushQueuedPrompt(sessionId)) void flushNextQueuedPrompt(sessionId);
+		}, QUEUE_DRAIN_GATE_TIMEOUT_MS);
+		drainGatesRef.current.set(sessionId, { at: Date.now(), generation: store.get(sessionRuntimeByIdAtom)[sessionId]?.runtimeGeneration, timer });
+	}
+
+	function clearDrainGate(sessionId: string) {
+		const gate = drainGatesRef.current.get(sessionId);
+		if (gate === undefined) return;
+		window.clearTimeout(gate.timer);
+		drainGatesRef.current.delete(sessionId);
+	}
+
 	function canFlushQueuedPrompt(sessionId: string) {
 		const runtime = store.get(sessionRuntimeByIdAtom)[sessionId];
 		const record = store.get(sessionRecordsAtom)[sessionId];
+		// drain 门禁：accepted 只代表后端收下了消息（pi/dsh 入队即回），回合未必已经开始。
+		// 这段窗口里 runtime 仍是 idle，任何再次触发（队列 state 变化、状态投影、续排 timer）
+		// 都会把下一条也发出去 —— 表现就是「排队的消息连发两条」。解除只有两条：真的观测到
+		// 忙起来，或超时兜底（事件丢了也不能让队列永久卡住）。
+		const gate = drainGatesRef.current.get(sessionId);
+		if (gate !== undefined) {
+			// 换代（重启/换 agent）意味着旧回合的去向已经无关：门禁必须立刻作废，否则新运行时
+			// 上第一次 drain 会被旧回合的等待挡住。
+			if (gate.generation !== runtime?.runtimeGeneration || isSessionRuntimeBusy(sessionId) || Date.now() - gate.at > QUEUE_DRAIN_GATE_TIMEOUT_MS) clearDrainGate(sessionId);
+			else return false;
+		}
 		// 与 isSessionRuntimeBusy 同口径：ACP 回合已结算时，即使 status 仍是 running 也允许 drain。
 		const acpTurnIdle = (record?.backend === "acp" || runtime?.backend === "acp") && runtime?.state?.isTurnActive === false;
 		return Boolean(liveTarget(sessionId)) && (runtime?.status === "idle" || acpTurnIdle) && !isSessionRuntimeBusy(sessionId) && !suppressedRef.current.has(sessionId);
@@ -362,7 +407,12 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 		if (!flush) return;
 		updateQueuedPrompts(() => claimed.queues);
 		try {
-			await dispatchClaimedPrompt(sessionId, claimed.prompt, flush);
+			// 投递被接受就落门禁：下一条必须等本回合真的忙起来（或超时）才允许发。
+			if (await dispatchClaimedPrompt(sessionId, claimed.prompt, flush)) {
+				// ACP 的 accepted 就是回合结算，不存在「已收下但还没开始」的窗口；
+				// 对它设门禁只会让下一条空等超时（此刻已经没有后续的回合事件了）。
+				if (!acksAtTurnEnd(sessionId)) armDrainGate(sessionId);
+			}
 		} finally {
 			if (finishFlush(sessionId, flush) && canContinueFlush(sessionId, flush)) {
 				const timer = window.setTimeout(() => {

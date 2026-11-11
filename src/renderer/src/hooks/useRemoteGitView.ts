@@ -69,10 +69,12 @@ export function useRemoteGitView(project: RemoteProject, repoPath = "") {
 			// （真机 G1 的「显式重连不重放读」）。
 			if (autoReadIdentity.current !== identityKey) {
 				autoReadIdentity.current = identityKey;
-				// The sync facts belong to the project identity, not to a snapshot generation: they are read once after
-				// the first repository read, and afterwards only when the user acts (refresh or a sync verb). No effect
-				// watches the snapshot, so a refresh can never trigger a second, self-feeding load that moves the rows.
-				void reads.refresh().then(() => reads.loadSync());
+				// The sync facts belong to the project identity, not to a snapshot generation: they are read once per
+				// identity and afterwards only when the user acts (refresh or a sync verb). Both reads start together —
+				// the sync chain does not need the snapshot, and `refresh` carries the answer instead of dropping it — so
+				// opening the panel costs one round trip instead of two sequential ones.
+				void reads.refresh();
+				reads.loadSync();
 			}
 		}
 		return () => {

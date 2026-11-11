@@ -9,12 +9,17 @@ import { rendererHeapAdditionalArguments } from "../v8HeapLimits";
 import { readElectronChromiumSandboxPreference } from "../settings/SettingsStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import { getAppLogger } from "../logging/sharedLogger";
+import { moveWindowWithSize, WindowSizeGuard } from "../windowGeometry";
 
 /** 悬浮球尺寸（圆形 64px，与工作台主窗口无关）。 */
 export const FLOATER_SIZE = 64;
-/** 文字气泡与圆环都必须落在透明窗口内，不能只按圆形 Logo 的宽度建窗。 */
-const FLOATER_WINDOW_W = 224;
-const FLOATER_WINDOW_H = 104;
+/**
+ * 窗口只留球体 + 角标 / 悬停缩放的必要余量。
+ * 透明区域同样会拦截鼠标：窗口越大，球旁边越容易被当成「页面点不动」。
+ */
+const FLOATER_WINDOW_W = FLOATER_SIZE + 8;
+const FLOATER_WINDOW_H = FLOATER_SIZE + 8;
+const FLOATER_WINDOW_SIZE = { width: FLOATER_WINDOW_W, height: FLOATER_WINDOW_H };
 
 function posPath(): string {
 	return join(app.getPath("userData"), "floater-position.json");
@@ -89,6 +94,12 @@ export class FloatingController {
 	private win: BrowserWindow | null = null;
 	private readonly deps: FloatingControllerDeps;
 	private removeAgentStateListener: (() => void) | null = null;
+	/** 透明无边框窗口在 Windows 上会被系统放大 bounds，用守卫把窗口拉回设计尺寸。 */
+	private readonly sizeGuard = new WindowSizeGuard(
+		() => this.win,
+		() => FLOATER_WINDOW_SIZE,
+		1000,
+	);
 	private state: FloatingBallState;
 	private destroyed = false;
 
@@ -168,11 +179,14 @@ export class FloatingController {
 		this.win.setAlwaysOnTop(settings.floatingBallAlwaysOnTop, "screen-saver");
 		this.attachDragHandlers(this.win);
 		this.win.on("closed", () => {
+			this.sizeGuard.stop();
 			this.win = null;
 			this.state.visible = false;
 		});
 		this.win.once("ready-to-show", () => {
 			getAppLogger()?.info("floating-ball", "ready-to-show fired");
+			this.sizeGuard.ensure();
+			this.sizeGuard.start();
 			this.win?.show();
 			this.state.visible = true;
 			this.pushState();
@@ -194,6 +208,7 @@ export class FloatingController {
 	}
 
 	hide(): void {
+		this.sizeGuard.stop();
 		if (this.win && !this.win.isDestroyed()) {
 			this.win.close();
 		}
@@ -314,11 +329,13 @@ export class FloatingController {
 			if (!dragOffset || !dragStart) return;
 			const cursor = screen.getCursorScreenPoint();
 			if (Math.abs(cursor.x - dragStart.x) > 2 || Math.abs(cursor.y - dragStart.y) > 2) moved = true;
-			win.setPosition(Math.round(cursor.x - dragOffset.x), Math.round(cursor.y - dragOffset.y));
+			this.moveWindowTo(cursor.x - dragOffset.x, cursor.y - dragOffset.y);
 		};
 		ipcMain.removeHandler(ipcChannels.floatingBallDragStart);
 		ipcMain.handle(ipcChannels.floatingBallDragStart, (event) => {
 			if (event.sender !== win.webContents || win.isDestroyed()) return;
+			// 系统可能已把透明窗口放大：先拉回设计尺寸，否则 dragOffset 会按错误的窗口左上角计算。
+			this.sizeGuard.ensure();
 			const [boundsX, boundsY] = win.getPosition();
 			const cursor = screen.getCursorScreenPoint();
 			dragOffset = { x: cursor.x - boundsX, y: cursor.y - boundsY };
@@ -342,10 +359,11 @@ export class FloatingController {
 				this.handleClick();
 				return;
 			}
-			const bounds = win.getBounds();
+			const [boundsX, boundsY] = win.getPosition();
 			const snap = this.deps.settingsStore.get().floatingBallSnapToEdge;
-			const finalPos = this.constrainPosition(bounds.x, bounds.y, bounds.width, bounds.height, snap);
-			win.setPosition(finalPos.x, finalPos.y);
+			// 用设计尺寸而不是 getBounds() 的宽高：系统放大过的窗口会把贴边算到错误位置。
+			const finalPos = this.constrainPosition(boundsX, boundsY, FLOATER_WINDOW_W, FLOATER_WINDOW_H, snap);
+			this.moveWindowTo(finalPos.x, finalPos.y);
 			void savePos(finalPos);
 		});
 		ipcMain.removeHandler(ipcChannels.floatingBallContextMenu);
@@ -353,6 +371,14 @@ export class FloatingController {
 			if (event.sender !== win.webContents) return;
 			this.showContextMenu();
 		});
+	}
+
+	/** 移动窗口时始终带上目标尺寸：透明无边框窗口被系统放大后，
+	 *  setPosition 只改位置，会把球推出可视锚点并让后续拖动整体偏移。 */
+	private moveWindowTo(x: number, y: number): void {
+		const win = this.win;
+		if (!win || win.isDestroyed()) return;
+		moveWindowWithSize(win, x, y, FLOATER_WINDOW_SIZE);
 	}
 
 	/** 按完整窗口尺寸约束到最近显示器；关闭贴边也保留离屏保护。 */

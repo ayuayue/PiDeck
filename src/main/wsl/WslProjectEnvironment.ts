@@ -31,3 +31,17 @@ export function resolveProjectWslIdentity(project: WslProjectLike | undefined, s
 	if (distro.length === 0 || user.length === 0) return undefined;
 	return { distro, user, ...(project.wslHostId !== undefined ? { hostId: project.wslHostId } : {}) };
 }
+
+/**
+ * 应用唯一的 WSL 身份（开发设置里的 enabled/distro/user）。
+ *
+ * 配置/资源页的 WSL 目标就指这一个环境：关掉开关、缺 distro 或 user 一律返回 undefined，
+ * 调用方 fail closed（不退回本机目录），而不是按某个项目或「上次选中的档案」猜。
+ */
+export function resolveSettingsWslIdentity(settings: WslSettingsLike): { distro: string; user: string } | undefined {
+	if (settings.wslEnabled !== true) return undefined;
+	const distro = (settings.wslDistro ?? "").trim();
+	const user = (settings.wslUser ?? "").trim();
+	if (distro.length === 0 || user.length === 0) return undefined;
+	return { distro, user };
+}

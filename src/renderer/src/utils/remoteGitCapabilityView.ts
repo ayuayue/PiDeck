@@ -7,6 +7,9 @@ import type { ProjectGitCapabilities, ProjectServiceCapabilityKey, ProjectServic
  * 输入是 S 冻结的两份事实——`ProjectGitCapabilities`（哪些入口可用）与 `blocked`（每个被关闭
  * 能力的第一条稳定原因码）。输出只解释「哪些入口不可用、为什么」：可用能力不出现，也绝不生成
  * 按钮、成功分支或假装可用的入口。原因码只映射到既有词典 key；未知码不猜文案（宁可不写，也不编）。
+ *
+ * worktree 不在这里：远端项目永远没有本机 Git 目录，也就不提供这个入口（侧栏菜单已经隐藏），
+ * 把“永远不可能”写成常驻一行只会被当成故障。
  */
 
 /** 能力条的一行：一组不可用入口 + 它们共同的第一条稳定原因（同原因的入口合并成一行）。 */
@@ -22,7 +25,7 @@ export type GitCapabilityBannerLine = {
 };
 
 /** 能力条覆盖的入口 id（与面板门禁一一对应）。 */
-export type GitCapabilityBannerItemId = "write" | "branchWrite" | "sync" | "recovery" | "history" | "refs" | "compare" | "forceRefresh" | "init" | "worktree";
+export type GitCapabilityBannerItemId = "write" | "branchWrite" | "sync" | "recovery" | "history" | "refs" | "compare" | "forceRefresh" | "init";
 
 type BannerEntry = {
 	id: GitCapabilityBannerItemId;
@@ -31,8 +34,6 @@ type BannerEntry = {
 	/** blocked 里的键（`git.*`），用来取第一条稳定原因。 */
 	blockedKey: ProjectServiceCapabilityKey;
 	labels: readonly TranslationKey[];
-	/** 整句说明型入口（worktree 不提供）：单独一行，不与其它入口合并。 */
-	standalone?: boolean;
 };
 
 const BANNER_ENTRIES: readonly BannerEntry[] = [
@@ -45,7 +46,6 @@ const BANNER_ENTRIES: readonly BannerEntry[] = [
 	{ id: "compare", capability: "compare", blockedKey: "git.compare", labels: ["remoteGit.capabilityCompare"] },
 	{ id: "forceRefresh", capability: "forceRefresh", blockedKey: "git.forceRefresh", labels: ["remoteGit.capabilityForceRefresh"] },
 	{ id: "init", capability: "init", blockedKey: "git.init", labels: ["remoteGit.capabilityInit"] },
-	{ id: "worktree", capability: "worktree", blockedKey: "git.worktree", labels: ["remoteGit.worktreeUnsupported"], standalone: true },
 ];
 
 /** 远端面板的全集：每个入口都有对应的区块/按钮/effect。 */
@@ -55,7 +55,7 @@ export const REMOTE_GIT_BANNER_ITEM_IDS: readonly GitCapabilityBannerItemId[] = 
  * 共用 GitPanel 真正门禁的入口子集：恢复/历史/引用/分支写不在这个面板里，
  * 传全集会把「本机没有恢复存储」这类正常的关闭渲染成永久告警。
  */
-export const SHARED_GIT_BANNER_ITEM_IDS: readonly GitCapabilityBannerItemId[] = ["write", "sync", "forceRefresh", "init", "worktree", "compare"];
+export const SHARED_GIT_BANNER_ITEM_IDS: readonly GitCapabilityBannerItemId[] = ["write", "sync", "forceRefresh", "init", "compare"];
 
 /**
  * 稳定原因码 → 既有文案 key。
@@ -87,20 +87,14 @@ export function gitCapabilityReasonKey(code: string | undefined): TranslationKey
 export function describeGitCapabilityBanner(git: ProjectGitCapabilities, blocked: ProjectServiceCapabilityReasons = {}, items: readonly GitCapabilityBannerItemId[] = REMOTE_GIT_BANNER_ITEM_IDS): GitCapabilityBannerLine[] {
 	const wanted = new Set(items);
 	const lines: GitCapabilityBannerLine[] = [];
-	const standaloneLines = new Set<string>();
 	for (const entry of BANNER_ENTRIES) {
 		if (!wanted.has(entry.id)) continue;
 		if (git[entry.capability] !== false) continue;
-		if (entry.standalone === true) {
-			lines.push({ id: entry.id, labels: [...entry.labels] });
-			standaloneLines.add(entry.id);
-			continue;
-		}
 		// read 关闭时上游会把每个能力位短路掉，blocked 只留 git.read：项目级原因就是整行的原因。
 		const reason = blocked[entry.blockedKey] ?? blocked["git.read"];
 		const reasonKey = gitCapabilityReasonKey(reason);
 		const previous = lines.at(-1);
-		if (previous !== undefined && !standaloneLines.has(previous.id) && previous.reason === reason && previous.reasonKey === reasonKey) {
+		if (previous !== undefined && previous.reason === reason && previous.reasonKey === reasonKey) {
 			previous.labels.push(...entry.labels);
 			continue;
 		}

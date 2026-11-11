@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.11.3-blue)
+![Version](https://img.shields.io/badge/version-0.12.0-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -31,7 +31,7 @@
 
 **Who it's for:** Developers who want to manage multiple local-project AI coding assistant sessions from a desktop app, review session history and Git status in one place, and configure pi through visual editors instead of raw JSON files.
 
-`PiDeck` is **not** a fork of pi. It is a lightweight Electron shell that orchestrates multiple `pi --mode rpc` processes, providing a native desktop UI for projects, sessions, conversations, configuration, and tool orchestration — all powered by pi's native agent capabilities, with session files read and written natively by pi. Beyond pi, PiDeck also deeply integrates the **DSH (DeepSeek Harness)** backend — see [DSH Backend](#-dsh-backend).
+`PiDeck` is **not** a fork of pi. It is a lightweight Electron shell that orchestrates multiple `pi --mode rpc` processes, providing a native desktop UI for projects, sessions, conversations, configuration, and tool orchestration — all powered by pi's native agent capabilities, with session files read and written natively by pi. Beyond pi, PiDeck also deeply integrates the **DSH (DeepSeek Harness)** backend (see [DSH Backend](#-dsh-backend)) and acts as a general **ACP (Agent Client Protocol) client** for third-party coding-agent CLIs (see [ACP Backend](#-acp-backend)).
 
 ---
 
@@ -51,6 +51,7 @@
     - [Extensions & Ecosystem](#extensions--ecosystem)
     - [Desktop & System Integration](#desktop--system-integration)
   - [🐳 DSH Backend](#-dsh-backend)
+  - [🔗 ACP Backend](#-acp-backend)
   - [🏗️ How It Works](#-how-it-works)
   - [📦 Download](#-download)
   - [📱 Mobile Clients](#-mobile-clients)
@@ -70,7 +71,7 @@
 ## ✨ Highlights
 
 - 🖥️ **Multi-project, multi-session in parallel** — manage every agent session across your local projects from one window, fully isolated per project.
-- 🔌 **Three session backends** — pi, DSH (DeepSeek Harness), and Image Generation side by side, freely switchable within the same project.
+- 🔌 **Four session backends** — pi, DSH (DeepSeek Harness), ACP (a general client with 15 built-in external CLI presets), and Image / Video Generation side by side, freely switchable within the same project.
 - 🧠 **Context-aware composer** — `@` file references, `/` slash commands, and `!` shell execution, all in one input box.
 - 🗂️ **Sessions as assets** — browse and restore history, import Codex / Claude sessions, one-click HTML export.
 - 🛠️ **Visual configuration** — edit pi's `models.json` / `auth.json` / `settings.json` without hand-writing JSON, with one-click connection tests.
@@ -82,10 +83,24 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.11.3** (2026-11-07)
+> **Latest: v0.12.0** (2026-11-11)
 
-### v0.11.3 Release Highlights
-- ✨ **Word wrap toggle for previews and diffs**
+### v0.12.0 Release Highlights
+- 🚀 **Remote workspaces become a product capability**
+- 🚀 **Linked sessions (parent / child conversations)**
+- 🚀 **The question card floats above the timeline**
+- 🚀 **One environment switch for Pi config**
+- 🚀 **The WSL target follows Developer settings**
+- 🚀 **Remote host rebind wizard**
+- 🚀 **Remote files open in the centre editor**
+- 🚀 **Office / WPS editing, spreadsheets and video preview**
+- 🚀 **Real macOS signing and notarization, with in-app updates**
+- 🚀 **Safe-share export**
+- 🚀 **Sidebar group tree and project sorting**
+- ✨ **Word-wrap toggle for code blocks**
+- ✨ **Agent panel and composer commands on the web**
+- ✨ **Instant feedback for resend / edit / delete**
+- ✨ **Session tab tooltips only follow hover**
 
 [View Full Changelog →](CHANGELOG.md)
 
@@ -106,7 +121,7 @@
 
 | Feature | Description |
 |---|---|
-| **Dual Agent Backends (pi / DSH)** | Create pi or DSH sessions under the same project and switch between them freely — see [DSH Backend](#-dsh-backend) below. |
+| **Three Agent Backends (pi / DSH / ACP)** | Create pi, DSH or ACP sessions under the same project and switch between them freely — see [DSH Backend](#-dsh-backend) and [ACP Backend](#-acp-backend) below. |
 | **Image Generation Mode** | A standalone image-generation backend (OpenAI-compatible `/images/generations`; OpenAI / Volcengine / SiliconFlow, etc.), switchable inside a session. |
 | **Plan Mode** | Switch to Plan Mode from the composer toolbar — the agent generates a plan, executes step by step with confirmation, and returns to the menu on cancel. |
 | **Ask Parallel Queries** | Spin up standalone background query sessions that run in parallel, optionally carrying the main-session context, with one-click quoting back into the main composer. |
@@ -159,7 +174,7 @@
 | **Notifications** | Global notifications as card toasts; a dedicated Ask system-notification toggle keeps background queries silent, and "notify only when unfocused" stays quiet while the window is in front. |
 | **Application Updates** | App-update checks always run in the background and `autoDownloadUpdates` defaults to enabled; after download, the user confirms **Restart and install** in Settings. Windows installers / Developer ID-signed macOS builds / Linux x64 AppImage use the bundled updater; unsigned macOS builds, Linux arm64, and deb/tar.gz installs recommend a matching installer for one-click download instead of sending users to pick one from the Release list; Pi CLI checks run independently. |
 | **Feishu Bot** | Bind a session to a Feishu bot to sync messages and status into a Feishu group. |
-| **LAN Web Service** | Start a local web service from Settings and open the web edition from any device on the LAN, with dual-backend session browsing and the DSH tool panel. |
+| **LAN Web Service** | Start a local web service from Settings and open the web edition from any device on the LAN, with pi / DSH / ACP session browsing and the DSH tool panel. |
 | **Process Monitor / Log Management** | Built-in process monitoring and cache/log management in Settings — no more digging through directories. |
 
 ---
@@ -179,6 +194,23 @@ Beyond pi, PiDeck deeply integrates **DSH (DeepSeek Harness, DeepSeek's official
 
 ---
 
+## 🔗 ACP Backend
+
+On top of the built-in pi and DSH backends, PiDeck is also a general **ACP (Agent Client Protocol) client**: it plugs third-party coding-agent CLIs into the same session UI, so switching agents is just switching an option.
+
+- **15 built-in presets** — Gemini CLI, Claude Agent, Codex CLI, Kimi CLI, Qwen Code, OpenCode, Cursor Agent, CodeBuddy, MiniMax Code, MiMo Code, Copilot CLI, Kilo Code, Cline, and Qoder CLI (international / China edition); you can also register any command, arguments and environment variables yourself.
+- **One-click detection & install** — presets carry npm install metadata, so Settings can detect install state and install / uninstall in one click; install commands come only from the preset table enum, never from arbitrary strings.
+- **The same session experience** — after an `initialize → session/new` handshake (`session/load` when reopening), the CLI's `session/update` stream is projected onto the same timeline: collapsible thinking blocks, tool-call cards, todo lists, streaming answers, with brand badges on session rows and headers showing which CLI is working.
+- **Approvals return to the desktop** — CLI permission requests are bridged into a desktop approval dialog (`allow_once` / `allow_always` / `reject_once` / `reject_always`, with unanswered requests settling as cancelled); you can optionally switch to the CLI's own bypass permission mode after the handshake.
+- **History with a backup** — the primary source is the CLI's `session/load` replay; PiDeck also keeps a projected archive in `userData/acp-sessions` (2000 messages / 8 MiB caps, atomic writes, corrupted files degrade to empty), so recent history is still readable when the CLI's own store is gone.
+- **Protocol drift absorbed in the adapter** — CLIs ship several generations of field shapes for usage notifications, available commands, title keys and plan entries; the tolerance layer only reads defensively — missing fields fall back to defaults and outbound protocol is never rewritten.
+- **Wedged turns have a backstop** — a turn with no output first gets an extra `session/cancel`, and if it still does not settle within the grace window the process is force-killed and the turn settled explicitly; thresholds live in Settings → ACP Tools → timeout protection.
+- **Model rate badges** — ACP's wire format carries no pricing, so PiDeck attaches credits rate badges to model entries (the data source is optional and falls back to the plain list).
+
+**To enable:** add an external CLI from a preset (or register your own) in Settings → ACP Tools, then choose the ACP backend and that tool when creating a session. ACP only does protocol adaptation and session projection — agent behavior and model calls stay native to that CLI.
+
+---
+
 ## 🏗️ How It Works
 
 ```txt
@@ -187,6 +219,7 @@ PiDeck
 │  ├─ Manages project records
 │  ├─ Spawns one pi --mode rpc process per agent session
 │  ├─ Embeds the DSH host (utilityProcess — no ports, no background HTTP)
+│  ├─ Drives external ACP CLIs (stdio NDJSON JSON-RPC, one child process per session)
 │  ├─ Manages agent-scoped local pty terminals
 │  ├─ Bridges file / session / git operations
 │  ├─ Checks for app and Pi CLI updates
@@ -209,7 +242,7 @@ PiDeck
    └─ Native pi sessions / tools / models / context
 ```
 
-Core design principle: **one agent session = one pi RPC process**, keeping sessions isolated and letting pi own its native behavior; PiDeck and pi communicate only over stdio JSON-RPC. The DSH backend runs embedded in a utilityProcess and likewise introduces no extra network ports.
+Core design principle: **one agent session = one pi RPC process**, keeping sessions isolated and letting pi own its native behavior; PiDeck and pi communicate only over stdio JSON-RPC. The DSH backend runs embedded in a utilityProcess and likewise introduces no extra network ports; the ACP backend talks to user-registered external CLIs over stdio NDJSON JSON-RPC, with PiDeck doing only protocol adaptation and session projection.
 
 ---
 
@@ -296,6 +329,10 @@ A: Model capabilities are entirely determined by pi's configuration. PiDeck ship
 **Q: What is DSH? How do I enable it?**
 
 A: DSH (DeepSeek Harness) is DeepSeek's official Agent Harness, deeply integrated by PiDeck — see the [DSH Backend](#-dsh-backend) section for the capability list. Finish configuration in the DSH tab of Settings, then choose the DSH backend when creating a session.
+
+**Q: Is PiDeck limited to pi? I mostly use Claude Code / Codex / Gemini.**
+
+A: No. Besides pi and DSH, PiDeck is a general ACP client: in Settings → ACP Tools you can add one of 15 presets in a click (Claude Agent, Codex CLI, Gemini CLI, Kimi, Qwen Code, OpenCode, Cursor Agent, CodeBuddy, and more) or register any CLI with its own command and arguments, then choose the ACP backend and that tool when creating a session. The session timeline, approval dialogs and history archive stay unified in PiDeck, while agent behavior remains native to that CLI — see the [ACP Backend](#-acp-backend) section above.
 
 **Q: Does it collect my data?**
 

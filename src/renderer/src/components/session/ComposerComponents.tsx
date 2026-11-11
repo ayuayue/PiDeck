@@ -516,6 +516,11 @@ function ComposerBranchSwitcher(props: { gitInfo: GitBranchInfo; disabled?: bool
 
 export function ComposerBottomBar(props: {
 	sessionId: string;
+	/**
+	 * 底栏目录归属的项目（有 record 用 record.projectId，引导页/草稿用选中项目）。
+	 * 远端项目必须传：否则引导页的模型目录是本机的，与远端实际可用模型不一致。
+	 */
+	catalogProjectId?: string;
 	state?: AgentRuntimeState;
 	disabled?: boolean;
 	/** 思考入口由本栏偏好 owner 注入，与模型弹框和快捷键共用档位/保存链路。 */
@@ -612,6 +617,10 @@ export function ComposerBottomBar(props: {
 	const { models: welcomeCatalogModels, report: welcomeCatalogReport } = useBackendModelCatalog({
 		sessionId: props.sessionId,
 		backend: isDsh ? "dsh" : "pi",
+		// 目录按项目路由：远端项目的引导页/草稿拿到的是那台服务器上的模型，
+		// 否则用户选到的模型在远端不存在，首条消息后又“变成”服务器上的列表。
+		// 与 ComposerPickerHost 同一份作用域（两处展示必须同一个目录）。
+		projectId: props.catalogProjectId,
 		enabled: needsWelcomeCatalog,
 	});
 	// 引导页点选按后端读各自的存储（issue #253）：DSH 的模型是 host route 名，
@@ -619,12 +628,12 @@ export function ComposerBottomBar(props: {
 	const welcomeModel = needsWelcomeCatalog ? (isDsh ? readWelcomeDshModelPreference()?.model : readWelcomeModelPreference()?.model) : undefined;
 	const welcomeModelLost = isWelcomeModelLost(welcomeModel, welcomeCatalogModels);
 	// 删除不可逆，走保守判定：只有「一次成功的完整加载」才具备判死资格。
-	// 本组件不传 projectId → 目录恒为全局范围，与全局偏好的作用域一致。
+	// 目录是按项目取的时候就是项目范围目录，不能拿它判死全局偏好的存在性。
 	const clearWelcomePreference = shouldClearWelcomePreference({
 		welcomeModel,
 		models: welcomeCatalogModels,
 		catalogLoaded: welcomeCatalogReport?.ok === true,
-		catalogIsGlobal: true,
+		catalogIsGlobal: props.catalogProjectId === undefined,
 	});
 	useEffect(() => {
 		// 失效偏好只清一次：下次引导页不再默认已删除的模型（创建时主进程也会兜底丢弃）。
@@ -1146,7 +1155,7 @@ export function ModelPicker(props: {
 		loading: props.loading,
 	});
 
-	// 供应商用量行（cc-switch inline）：打开选择器时批量 TTL 去重查询，供应商标题行右侧
+	// 供应商用量行（inline 数值）：打开选择器时批量 TTL 去重查询，供应商标题行右侧
 	// 显示彩色剩余/百分比；查不到（未启用/不支持/失败/查询中）的分组保持干净不渲染。
 	// backend 按会话后端透传（DSH 目录的 provider 是 route 名，配置/凭据在 dsh 链路）。
 	const batchRefreshUsage = useProviderUsageBatchRefresh();

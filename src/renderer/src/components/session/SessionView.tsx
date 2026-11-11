@@ -25,7 +25,7 @@ import { TerminalDockPanel, TERMINAL_PANEL_COLLAPSED_SIZE, TERMINAL_PANEL_MIN_SI
 import type { TerminalDockSettings } from "../terminal/TerminalDock";
 import { useSessionPaneServices } from "./SessionPaneServices";
 import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, TIMELINE_MIN_HEIGHT, displayProjectDirectoryName, redistributeTerminalAgainstTimeline, shouldMountBottomComposer, sessionResizableGroupKey, sessionGroupDefaultLayout } from "../../rendererUtils";
-import { projectByIdAtomFamily, sessionRecordByIdAtomFamily, sessionStatusInSidebarAtom } from "../../atoms";
+import { projectByIdAtomFamily, sessionRecordByIdAtomFamily, sessionStatusInSidebarAtom, type PendingHistoryMutation } from "../../atoms";
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { countUserTurns } from "./timeline/turnRenderWindow";
 import { useSessionOutlineDirectory } from "../../hooks/useSessionOutlineDirectory";
@@ -80,7 +80,7 @@ export type SessionViewProps = {
 	onRemoveMessageImage?: (message: ChatMessage, index: number) => void;
 	onForkMessage?: (message: ChatMessage) => void;
 	onRewindToMessage?: (message: ChatMessage) => void;
-	forkingMessageId?: string | null;
+	pendingHistoryMutation?: PendingHistoryMutation | null;
 	onToast: (message: string) => void;
 	onQuickPrompt?: (prompt: string) => void;
 	canMutateActiveMessages: boolean;
@@ -162,7 +162,7 @@ export function SessionView({
 	onRemoveMessageImage,
 	onForkMessage,
 	onRewindToMessage,
-	forkingMessageId,
+	pendingHistoryMutation,
 	onToast,
 	onQuickPrompt,
 	canMutateActiveMessages: _canMutateActiveMessages,
@@ -268,7 +268,7 @@ export function SessionView({
 			onRemoveMessageImage,
 			onForkMessage,
 			onRewindToMessage,
-			forkingMessageId,
+			pendingHistoryMutation,
 			onToast,
 			onQuickPrompt,
 			replyActionsRef: setReplyActionsTarget,
@@ -290,7 +290,7 @@ export function SessionView({
 			onRemoveMessageImage,
 			onForkMessage,
 			onRewindToMessage,
-			forkingMessageId,
+			pendingHistoryMutation,
 			onToast,
 			onQuickPrompt,
 		],

@@ -12,14 +12,6 @@ export const REMOTE_CONFIG_DEFERRED_PROVIDER_ENTRIES: ReadonlyArray<{ labelKey: 
 	{ labelKey: "remoteConfig.disabled.usage", code: REMOTE_CONFIG_CODES.providerOperationUnsupported },
 ];
 
-/** auth/trust/mcp/raw editing is outside the helper's two-file allowlist, so the whole page is deferred. */
-export const REMOTE_CONFIG_UNSUPPORTED_TAB_COPY: Record<"auth" | "trust" | "mcp" | "raw", { bodyKey: TranslationKey; code: string }> = {
-	auth: { bodyKey: "remoteConfig.unsupported.auth", code: REMOTE_CONFIG_CODES.unsupported },
-	trust: { bodyKey: "remoteConfig.unsupported.trust", code: REMOTE_CONFIG_CODES.unsupported },
-	mcp: { bodyKey: "remoteConfig.unsupported.mcp", code: REMOTE_CONFIG_CODES.unsupported },
-	raw: { bodyKey: "remoteConfig.unsupported.raw", code: REMOTE_CONFIG_CODES.unsupported },
-};
-
 /**
  * One inline notice for a remote-disabled page/entry. It never renders fake data and never offers the local
  * editor by accident: the copy names the stable code and tells the user to switch the target back to local.

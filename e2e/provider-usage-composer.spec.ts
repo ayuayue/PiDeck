@@ -2,7 +2,7 @@ import { test, expect } from "./mock-pi-fixture";
 
 /**
  * 会话内用量链路 E2E（mock pi，真实 spawn + stdio JSON-RPC）：
- * - 模型选择器分组行尾 inline 用量（cc-switch 单行彩色数值）；
+ * - 模型选择器分组行尾 inline 用量（单行彩色数值）；
  * - 圆球面板（SessionContextMeter）内 ProviderUsageDetails 余额行。
  *
  * 主进程 config:fetch-usage 重注册为确定性 stub（按 provider 返回固定余额），
@@ -58,6 +58,6 @@ test("usage: picker group row and context meter panel show provider usage", asyn
 	await expect(details).toBeVisible();
 	await expect(details).toContainText("剩余额度");
 	await expect(details).toContainText("$88.5", { timeout: 15_000 });
-	// 相对更新时间 + 刷新按钮（cc-switch 详情头部同款）
+	// 相对更新时间 + 刷新按钮（详情头部）
 	await expect(details.locator('[data-testid="provider-usage-refresh"]')).toBeVisible();
 });

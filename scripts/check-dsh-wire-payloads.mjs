@@ -21,7 +21,15 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
-const zod = require("zod");
+let zod;
+try {
+	zod = require("zod");
+} catch {
+	// 2026-11-11：缺依赖时此前直接抛 MODULE_NOT_FOUND 栈，读者看不出是「没装依赖」还是
+	// 「判据发现真问题」。与 bin/sync-verify 的 SKIP 语义一致：不是通过，判据没执行。
+	console.error("[check-dsh-wire] 跳过：缺依赖 zod（先跑 npm ci）。这不是通过——判据没有执行。");
+	process.exit(0);
+}
 // 0.2.1 起 typert 描述符会 import `createTypertRemoteInfo` 生成 $remote（TYPERT 只
 // 暴露 invocations getter）；旧版没有这个模块（描述符里也不引用），取不到时留空实现。
 let createTypertRemoteInfo = () => ({

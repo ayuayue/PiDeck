@@ -1,5 +1,4 @@
-import type { PiConfigFileKey, RemotePiConfigSnapshot, RemotePiConfigWriteReceipt } from "../../../shared/piConfig";
-import { REMOTE_CONFIG_CODES } from "../../../shared/piConfig";
+import { REMOTE_CONFIG_CODES, isPiConfigFileKey, type PiConfigFileKey, type RemotePiConfigSnapshot, type RemotePiConfigWriteReceipt } from "../../../shared/piConfig";
 
 /**
  * Batch B pure model for the remote Pi config panel: JSON formatting/parsing of the explicit merge patch,
@@ -195,6 +194,6 @@ export function readRemoteConfigWriteReceipt(response: unknown): RemotePiConfigW
 	if (remote === undefined) return "unsupported";
 	if (typeof remote !== "object" || remote === null) return "invalid";
 	const receipt = remote as Partial<RemotePiConfigWriteReceipt>;
-	if (receipt.kind !== "remote" || typeof receipt.version !== "string" || typeof receipt.sha256 !== "string" || typeof receipt.hostId !== "string" || (receipt.file !== "models" && receipt.file !== "settings")) return "invalid";
+	if (receipt.kind !== "remote" || typeof receipt.version !== "string" || typeof receipt.sha256 !== "string" || typeof receipt.hostId !== "string" || !isPiConfigFileKey(receipt.file)) return "invalid";
 	return receipt as RemotePiConfigWriteReceipt;
 }

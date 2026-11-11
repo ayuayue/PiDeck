@@ -104,6 +104,10 @@ export function loadTsCommonJs(filePath, options = {}) {
 				// Node 自带的标准全局，vm 沙箱不会自动继承；shared/htmlPreview.ts 的 base64url 需要
 				btoa: globalThis.btoa,
 				atob: globalThis.atob,
+				// Node 17+ 的深拷贝标准 API：同样是宿主全局，vm 沙箱不继承。不加这行，
+				// 任何用 structuredClone 的生产模块在测试里直接 ReferenceError——而它正是
+				// JSON.parse(JSON.stringify()) 的正确替代（保留 Date/Map/Set/undefined）。
+				structuredClone: globalThis.structuredClone,
 				// 构建期 define（electron.vite.config.ts）在沙箱里同样是编译期常量：
 				// 不给默认值，任何 import 到 deepLinkScheme / channelIdentity / buildIdentity 的生产模块
 				// 都会在求值时整片 ReferenceError。默认 stable 通道 + 非发布构建；测 dev 通道 /

@@ -25,10 +25,10 @@ export function readPiConfigTarget(value: unknown): PiConfigTarget {
 		return { kind: "local" };
 	}
 	if (value.kind === "wsl") {
-		// Exactly two keys and the same authoritative id domain the project domain uses: a wsl target can only
-		// name a profile the WslHostStore could have issued, so a crafted id cannot address another directory.
-		if (Object.keys(value).length !== 2 || typeof value.hostId !== "string" || !PROJECT_HOST_ID_PATTERN.test(value.hostId)) throw stable(WSL_CONFIG_CODES.targetInvalid);
-		return { kind: "wsl", hostId: value.hostId };
+		// Exactly one key: the target names *the* WSL environment, whose distro/user come from the app settings
+		// on the main side. The renderer never supplies an identity, so it cannot address another distribution.
+		if (Object.keys(value).length !== 1) throw stable(WSL_CONFIG_CODES.targetInvalid);
+		return { kind: "wsl" };
 	}
 	if (value.kind !== "ssh") throw stable(REMOTE_CONFIG_CODES.targetInvalid);
 	if (Object.keys(value).length !== 2 || typeof value.hostId !== "string" || !PROJECT_HOST_ID_PATTERN.test(value.hostId)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);

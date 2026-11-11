@@ -219,7 +219,7 @@ test("applyProxyEnvPatch: 先剥离后注入，顺序固定", () => {
 });
 // ── buildPiProxyEnvPatch：pi 子进程代理 env（★2026-09 故障回归） ──────────────
 // 真实故障：用户报告 anyrouter.top / agentrouter.org 在 PiDeck 里「拉不到模型 +
-// 手填模型也用不了」，但 cc-switch 正常。根因之一是 pi 子进程只注入了 HTTPS_PROXY
+// 手填模型也用不了」，但同一代理在别的客户端里正常。根因之一是 pi 子进程只注入了 HTTPS_PROXY
 // 等 URL，漏了 NODE_USE_ENV_PROXY —— pi 的 LLM 调用走 undici，默认不读这些 env，
 // 于是「配了代理 = 没配代理」，请求仍直连而失败。
 

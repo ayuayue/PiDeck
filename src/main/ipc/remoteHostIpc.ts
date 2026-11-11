@@ -33,6 +33,7 @@ import { openRemoteHostStoreForRetire, type RemoteHostCatalogView } from "../rem
 import { listRemoteDirectories } from "../remote/RemoteDirectoryListing";
 import { RemoteHostRepair, type HostRepairAction } from "../remote/RemoteHostRepair";
 import { PendingConfirmationBroker } from "../security/PendingConfirmationBroker";
+import { getAppLogger } from "../logging/sharedLogger";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import { parseSshConfig } from "../remote/SshConfigCandidates";
 import { normalizeRemoteHostIdentityFile, REMOTE_HOST_IDENTITY_FILE_INVALID } from "../remote/RemoteHostIdentityFile";
@@ -312,14 +313,18 @@ export function registerRemoteHostIpc(input: {
 		if (password !== undefined && (typeof password !== "string" || password.length === 0 || password.length > 4096 || password.includes(String.fromCharCode(0)))) return { ok: false, hostId, code: "SSH_PASSWORD_INVALID" };
 		const resolved = await resolveService();
 		if ("code" in resolved) return { ok: false, hostId, code: resolved.code };
+		// 一段耗时日志：界面卡在「建立会话」时，只能靠它区分「主进程还在跑」与「请求根本没到」。
+		const startedAt = Date.now();
 		try {
 			// The service already converts every failure into a stable code; it never throws here.
 			const result = await resolved.service.connect(hostId, password === undefined ? undefined : { password });
+			getAppLogger()?.info("remote", "Host connect finished", { hostId, durationMs: Date.now() - startedAt, ok: result.ok, ...(result.ok ? { state: result.state.state } : { code: result.code }) });
 			// Reduce the machine snapshot to the state the UI actually renders: generation, attempts and the
 			// latched flag are main-internal and would invite the renderer to reason about fencing it cannot
 			// observe. Diagnostics carry the detail the UI is allowed to show.
 			return result.ok ? { ok: true, hostId: result.hostId, state: result.state.state } : { ok: false, hostId: result.hostId, code: result.code };
 		} catch {
+			getAppLogger()?.warn("remote", "Host connect failed", { hostId, durationMs: Date.now() - startedAt, code: "REMOTE_CONNECTION_FAILED" });
 			return { ok: false, hostId, code: "REMOTE_CONNECTION_FAILED" };
 		}
 	});
@@ -367,6 +372,8 @@ export function registerRemoteHostIpc(input: {
 		if (!parsed.ok) return parsed;
 		const add = parsed.input;
 		if (add.authMethod === "password") return { ok: false, code: "REMOTE_HOST_TEST_PASSWORD_UNSUPPORTED" };
+		// 与 connect 同款耗时日志：界面卡在「测试 SSH 连接」时，这条是区分「主进程在跑」与「没收到请求」的唯一证据。
+		const startedAt = Date.now();
 		try {
 			const { pinStore } = await openStores();
 			const candidate = await pinStore.probe({
@@ -375,9 +382,12 @@ export function registerRemoteHostIpc(input: {
 				...(add.port === undefined ? {} : { port: add.port }),
 				...(add.identityFile === undefined ? {} : { identityFile: add.identityFile }),
 			});
+			getAppLogger()?.info("remote", "Host test finished", { durationMs: Date.now() - startedAt, ok: true });
 			return { ok: true, fingerprint: candidate.hostKeyFingerprints[0] ?? "", hostName: candidate.hostName, user: candidate.user, port: candidate.port };
 		} catch (error) {
-			return { ok: false, code: codeOf(error, "REMOTE_HOST_TEST_FAILED") };
+			const code = codeOf(error, "REMOTE_HOST_TEST_FAILED");
+			getAppLogger()?.warn("remote", "Host test failed", { durationMs: Date.now() - startedAt, code });
+			return { ok: false, code };
 		}
 	});
 

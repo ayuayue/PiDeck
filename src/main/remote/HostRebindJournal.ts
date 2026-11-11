@@ -259,7 +259,7 @@ export function decodeRebindJournal(value: unknown): RebindJournal {
 
 function encodeRebindJournal(journal: RebindJournal): RebindJournal {
 	// Round-trip through the decoder so a journal can never be persisted in a shape we cannot read back.
-	return decodeRebindJournal(JSON.parse(JSON.stringify(journal)));
+	return decodeRebindJournal(structuredClone(journal));
 }
 
 /**

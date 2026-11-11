@@ -1014,9 +1014,7 @@ export function AgentContextMenu(props: {
 					{t("menu.createSideTask")}
 				</DropdownMenuItem>
 			)}
-			{/* DSH 运行中会话的复制走 clone 分流（fork 无锚点完整副本），保留入口；
-			    导出 HTML 无 DSH 实现（G10 待决策），对 dsh agent 隐藏；
-			    ACP 两者皆无实现（无 clone 协议、无宿主文件），同样隐藏（审计发现 H） */}
+			{/* DSH 复制走 clone、导出走 host 投影；ACP 没有对应能力，入口仍隐藏。 */}
 			{props.menu.agent.backend !== "acp" && (
 				<DropdownMenuItem disabled={busy} onSelect={props.onCopySession}>
 					{props.actionLoading === "copy" && <span className="mini-loader animate-pideck-spin" />}
@@ -1024,7 +1022,7 @@ export function AgentContextMenu(props: {
 					{props.actionLoading === "copy" ? t("menu.copying") : t("menu.copySession")}
 				</DropdownMenuItem>
 			)}
-			{props.menu.agent.backend !== "dsh" && props.menu.agent.backend !== "acp" && (
+			{(!props.menu.agent.backend || props.menu.agent.backend === "pi" || props.menu.agent.backend === "dsh") && (
 				<DropdownMenuItem disabled={busy} onSelect={props.onExport}>
 					{props.actionLoading === "export" && <span className="mini-loader animate-pideck-spin" />}
 					<FileDown className="size-3.5" aria-hidden="true" />
@@ -1193,8 +1191,7 @@ export function SessionContextMenu(props: {
 			)}
 			{/* 运行控制：全状态可用（历史会话未启动时主控项即「启动 Agent」） */}
 			{props.runControl && <SidebarRunControlItems runControl={props.runControl} />}
-			{/* DSH 历史会话无宿主文件可复制/导出（主进程显式拒绝，A8/A9）；ACP 无文件也无 clone 协议
-			    （live 走 pi clone 会报 unknown agent，审计发现 H）：同款隐藏入口 */}
+			{/* DSH 历史不提供文件复制，但导出可以从 host 读取投影；ACP 仍无导出能力。 */}
 			{/* 会话代理：同 agent 菜单；ACP 子进程不消费会话代理，隐藏（审计发现 H） */}
 			{props.onOpenProxySetting && props.menu.session.backend !== "acp" && (
 				<DropdownMenuItem disabled={busy} onSelect={props.onOpenProxySetting}>
@@ -1209,7 +1206,7 @@ export function SessionContextMenu(props: {
 					{props.actionLoading === "copy" ? t("menu.copying") : t("menu.copySession")}
 				</DropdownMenuItem>
 			)}
-			{props.menu.session.backend !== "dsh" && props.menu.session.backend !== "acp" && (
+			{(!props.menu.session.backend || props.menu.session.backend === "pi" || props.menu.session.backend === "dsh") && (
 				<DropdownMenuItem disabled={busy} onSelect={props.onExport}>
 					{props.actionLoading === "export" && <span className="mini-loader animate-pideck-spin" />}
 					<FileDown className="size-3.5" aria-hidden="true" />

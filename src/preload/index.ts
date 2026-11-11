@@ -46,6 +46,7 @@ import type { AddFavoriteInput, FavoriteEntry } from "../shared/types/favorites"
 import type { SessionGroup } from "../shared/types/sessionGroups";
 import type { AnswerLinkedSessionProposalInput, AnswerLinkedSessionProposalResult, LinkedSessionsSnapshot } from "../shared/types/linkedSessions";
 import type { NoticeHistoryFileEntry, NoticeHistoryRecordInput } from "../shared/types/noticeHistory";
+import type { SessionSharePrepareInput, SessionSharePreview, SessionShareResult } from "../shared/types/sessionExport";
 import type { ReplyActionRule, ReplyActionsSaveResult, ReplyActionsSnapshot } from "../shared/types/replyActions";
 import type {
 	YaoPromptListResult,
@@ -876,12 +877,11 @@ const api = {
 				cancelled?: boolean;
 				targetSessionId?: string;
 			}>,
-		exportRecordHtml: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogExportHtml, sessionId) as Promise<{
-				path: string;
-				/** 远端导出命中上限（页数/消息数/字节）：导出的是**部分**历史，UI 必须如实告知 */
-				truncated?: boolean;
-			}>,
+		/** truncated=true 表示只导出了部分历史，UI 必须如实告知。 */
+		exportRecordHtml: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogExportHtml, sessionId) as Promise<{ path: string; truncated?: boolean }>,
+		prepareShareExport: (input: SessionSharePrepareInput) => ipcRenderer.invoke(ipcChannels.sessionsSharePrepare, input) as Promise<SessionShareResult<SessionSharePreview>>,
+		saveShareExport: (previewId: string) => ipcRenderer.invoke(ipcChannels.sessionsShareSave, previewId) as Promise<SessionShareResult<{ path: string }>>,
+		releaseShareExport: (previewId: string) => ipcRenderer.invoke(ipcChannels.sessionsShareRelease, previewId) as Promise<void>,
 		/** DSH 会话文件路径推导（右键「复制会话文件路径」；非 DSH/不可推导返回 undefined）。 */
 		getDshSessionPath: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsGetDshSessionPath, sessionId) as Promise<string | undefined>,
 		/** DSH 会话内容搜索（侧栏搜索框全文搜索；结果含 dshSessionId + snippet）。 */
@@ -1568,7 +1568,23 @@ const api = {
 				error?: string;
 				remote?: import("../shared/piConfig").RemotePiConfigWriteReceipt;
 			}>,
-		saveRaw: (fileName: string, rawJson: string) => ipcRenderer.invoke(ipcChannels.configSaveRaw, fileName, rawJson) as Promise<{ valid: boolean; error?: string }>,
+		/** 源文件页统一读取：缺省 options = 本机；wsl 回原文（+ 诊断），ssh 只回脱敏快照；auth.json 的 ssh 分支回派生视图（raw 为空）。 */
+		getRaw: (fileName: string, options?: import("../shared/piConfig").PiConfigReadOptions) =>
+			ipcRenderer.invoke(ipcChannels.configGetRaw, fileName, options) as Promise<{
+				raw: string;
+				diagnostic?: ConfigFileDiagnostic;
+				remote?: import("../shared/piConfig").RemotePiConfigSnapshot;
+				/* 仅 ssh + auth.json：provider / 凭据类型 / 已配置，没有任何凭据值或原文 */
+				remoteAuth?: import("../shared/piConfig").RemotePiAuthSnapshot;
+			}>,
+		/** 源文件级保存：本机/WSL 整文件原文；ssh 只认 expectedVersion+patch（body 被忽略）。 */
+		saveRaw: (fileName: string, rawJson: string, options?: import("../shared/piConfig").PiConfigWriteOptions) =>
+			ipcRenderer.invoke(ipcChannels.configSaveRaw, fileName, rawJson, options) as Promise<{
+				valid: boolean;
+				error?: string;
+				remote?: import("../shared/piConfig").RemotePiConfigWriteReceipt;
+				wsl?: import("../shared/piConfig").WslPiConfigWriteReceipt;
+			}>,
 		export: () => ipcRenderer.invoke(ipcChannels.configExport) as Promise<string>,
 		import: (packageJson: string) => ipcRenderer.invoke(ipcChannels.configImport, packageJson) as Promise<{ valid: boolean; error?: string }>,
 		/** 只读扫描本机其他 agent（Claude Code/Codex/OpenCode/Gemini CLI）的供应商配置；API key 只以掩码返回 */

@@ -5,8 +5,9 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 /**
  * WSL 配置目标（P1-1）输入校验与稳定码闭集。
  *
- * 渲染层传进来的 target 一律不可信：wsl 目标必须恰好两个 key、hostId 走与项目域共用的
- * PROJECT_HOST_ID_PATTERN。不合格的目标必须在任何端口被调用前失败，且只回闭集里的码。
+ * 渲染层传进来的 target 一律不可信：wsl 目标只允许 `{ kind: "wsl" }` 一个键。发行版与
+ * Linux 用户在**主进程**从应用设置解析（开发设置里那一份），渲染层自报身份一律拒绝——
+ * 否则一个构造出来的 payload 就能把配置写到另一个发行版的 HOME。
  */
 
 const target = loadTsCommonJs("src/main/config/piConfigTarget.ts");
@@ -22,17 +23,24 @@ function codeOf(run) {
 	}
 }
 
-test("wsl 目标是合法目标：恰好两个 key、hostId 形状正确", () => {
-	const parsed = target.readPiConfigTarget({ kind: "wsl", hostId: HOST });
-	assert.deepEqual(JSON.parse(JSON.stringify(parsed)), { kind: "wsl", hostId: HOST });
-	assert.deepEqual(JSON.parse(JSON.stringify(target.readPiConfigReadOptions({ target: { kind: "wsl", hostId: HOST } }))), { target: { kind: "wsl", hostId: HOST } });
+test("wsl 目标只有 kind：身份由主进程从设置解析", () => {
+	const parsed = target.readPiConfigTarget({ kind: "wsl" });
+	assert.deepEqual(JSON.parse(JSON.stringify(parsed)), { kind: "wsl" });
+	assert.deepEqual(JSON.parse(JSON.stringify(target.readPiConfigReadOptions({ target: { kind: "wsl" } }))), { target: { kind: "wsl" } });
 	// 本地/ssh 语义不变（兼容旧调用）。
 	assert.deepEqual(JSON.parse(JSON.stringify(target.readPiConfigTarget(undefined))), { kind: "local" });
 	assert.deepEqual(JSON.parse(JSON.stringify(target.readPiConfigTarget({ kind: "ssh", hostId: HOST }))), { kind: "ssh", hostId: HOST });
 });
 
-test("不合格的 wsl 目标回 WSL_CONFIG_TARGET_INVALID，不落到本机", () => {
-	const invalid = [{ kind: "wsl" }, { kind: "wsl", hostId: "" }, { kind: "wsl", hostId: "not-a-host" }, { kind: "wsl", hostId: HOST, extra: 1 }, { kind: "wsl", hostId: HOST, label: "x" }, { kind: "wsl", hostId: 42 }];
+test("渲染层自报 wsl 身份（hostId/label/distro 等）一律回 WSL_CONFIG_TARGET_INVALID", () => {
+	const invalid = [
+		{ kind: "wsl", hostId: HOST },
+		{ kind: "wsl", hostId: "" },
+		{ kind: "wsl", distro: "Ubuntu" },
+		{ kind: "wsl", label: "x" },
+		{ kind: "wsl", kind2: 1 },
+		{ kind: "wsl", user: "dev" },
+	];
 	for (const value of invalid) {
 		assert.equal(
 			codeOf(() => target.readPiConfigTarget(value)),
@@ -48,11 +56,11 @@ test("不合格的 wsl 目标回 WSL_CONFIG_TARGET_INVALID，不落到本机", (
 });
 
 test("wsl 保存与本地同语义：整文件写入，不接受 expectedVersion/patch", () => {
-	const saved = target.readPiConfigWriteOptions({ target: { kind: "wsl", hostId: HOST } });
-	assert.deepEqual(JSON.parse(JSON.stringify(saved)), { target: { kind: "wsl", hostId: HOST } });
+	const saved = target.readPiConfigWriteOptions({ target: { kind: "wsl" } });
+	assert.deepEqual(JSON.parse(JSON.stringify(saved)), { target: { kind: "wsl" } });
 	for (const extra of [{ expectedVersion: "c".repeat(64) }, { patch: {} }, { expectedVersion: "c".repeat(64), patch: {} }]) {
 		assert.equal(
-			codeOf(() => target.readPiConfigWriteOptions({ target: { kind: "wsl", hostId: HOST }, ...extra })),
+			codeOf(() => target.readPiConfigWriteOptions({ target: { kind: "wsl" }, ...extra })),
 			shared.WSL_CONFIG_CODES.targetInvalid,
 			JSON.stringify(extra),
 		);
@@ -72,8 +80,9 @@ test("WSL 稳定码是闭集，且与共享契约逐条对齐", () => {
 	const error = new Error("Error invoking remote method 'config:get-models': Error: WSL_CONFIG_HOST_NOT_FOUND");
 	assert.equal(shared.wslPiConfigCodeFromError(error), "WSL_CONFIG_HOST_NOT_FOUND");
 	assert.equal(shared.wslPiConfigCodeFromError(new Error("REMOTE_CONFIG_TARGET_INVALID")), undefined);
-	// 快照判别只看主进程写下的 kind，不从本地数据推断。
-	assert.equal(shared.isWslPiConfigSnapshot({ kind: "wsl", hostId: HOST }), true);
-	assert.equal(shared.isWslPiConfigSnapshot({ kind: "remote", hostId: HOST }), false);
+	// 快照判别只看主进程写下的 kind + 来源字段，不从本地数据推断。
+	assert.equal(shared.isWslPiConfigSnapshot({ kind: "wsl", distro: "Ubuntu", user: "dev" }), true);
+	assert.equal(shared.isWslPiConfigSnapshot({ kind: "wsl" }), false);
+	assert.equal(shared.isWslPiConfigSnapshot({ kind: "remote", distro: "Ubuntu" }), false);
 	assert.equal(shared.isWslPiConfigSnapshot(undefined), false);
 });

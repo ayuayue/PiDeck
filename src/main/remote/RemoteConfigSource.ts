@@ -6,8 +6,11 @@
  * change reviewable on its own file and keeps the entry's command-line/artifact audit surface stable.
  *
  * Security model (each item is a one-line invariant in the frozen body):
- * - only two files exist for this scope: $HOME/.pi/agent/models.json and $HOME/.pi/agent/settings.json. No path
- *   parameter exists at all, so auth.json (or any other file under the agent dir) is structurally unreachable;
+ * - four files are writable for this scope: $HOME/.pi/agent/models.json, settings.json, trust.json and mcp.json, via
+ *   RFC 7396 patches. A fifth file, auth.json, is readable **only** through `readAuth`, which answers a derived
+ *   provider list (name / credential type / configured) and never a value, a secret position or the document;
+ *   no path parameter exists at all, so any other file under the agent dir is structurally unreachable. trust/mcp
+ *   carry no extra privilege: they go through the same sanitize/patch rules as models/settings;
  * - HOME comes from the handshake (absolute POSIX, bounded, no control byte). .pi and .pi/agent may be created
  *   with mode 0700 when missing; an existing symlink or non-directory there is refused before any read/write;
  * - the target file is opened with O_NOFOLLOW and must be a regular file; bytes are bounded at 1 MiB; malformed
@@ -24,9 +27,13 @@
 
 export const REMOTE_CONFIG_SOURCE = String.raw`"use strict";
 export function createConfigScope(home, fs, path, crypto) {
-	const FILES = { models: "models.json", settings: "settings.json" };
-	const DEFAULTS = { models: "{\"providers\":{}}", settings: "{}" };
-	const MAX_BYTES = 1048576, MAX_NODES = 20000, MAX_DEPTH = 32;
+	const FILES = { models: "models.json", settings: "settings.json", trust: "trust.json", mcp: "mcp.json" };
+	/* auth.json is deliberately absent from FILES: it is only reachable through readAuth, which returns a derived view. */
+	const READ_AUTH = "auth.json";
+	const DEFAULTS = { models: "{\"providers\":{}}", settings: "{}", trust: "{}", mcp: "{}", auth: "{}" };
+	const MAX_BYTES = 1048576, MAX_NODES = 20000, MAX_DEPTH = 32, MAX_AUTH_PROVIDERS = 200;
+	/* Provider names in auth.json are keyed by pi provider id; anything else is a file this scope will not describe. */
+	const AUTH_PROVIDER = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}$/;
 	/* Whole-name matching: maxTokens/tokenizer must NOT be treated as secrets (they are real, patchable model fields), while camelCase compound names (clientSecret/openaiApiKey) still match. */
 	const SECRET_KEY = /^(?:[a-z0-9]+[-_])*(?:[a-z0-9]+)?(?:api[-_]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|token|secret|password|passwd|authorization|cookie|credential|private[-_]?key)$/i;
 	const RESERVED = /^(?:__proto__|constructor|prototype)$/;
@@ -107,6 +114,15 @@ export function createConfigScope(home, fs, path, crypto) {
 	function modelsFile(data) {
 		if (isRecord(data.providers) === false) throw failure("CONFIG_FILE_INVALID");
 	}
+	/* mcpServers must stay an object when present: an array/string here makes pi reject the whole file. */
+	function mcpFile(data) {
+		if (data.mcpServers !== undefined && isRecord(data.mcpServers) === false) throw failure("CONFIG_FILE_INVALID");
+	}
+	/* One per-file shape rule; a file without one only has to be a JSON object. */
+	function validateFile(file, data) {
+		if (file === "models") modelsFile(data);
+		if (file === "mcp") mcpFile(data);
+	}
 	function collectSecrets(data) {
 		const secrets = [];
 		const budget = { nodes: 0 };
@@ -141,7 +157,7 @@ export function createConfigScope(home, fs, path, crypto) {
 	}
 	function snapshot(file, buffer) {
 		const data = parseData(buffer);
-		if (file === "models") modelsFile(data);
+		validateFile(file, data);
 		const secrets = collectSecrets(data);
 		const digest = sha256(buffer);
 		return { version: digest, sha256: digest, data: data, secrets: secrets };
@@ -151,7 +167,7 @@ export function createConfigScope(home, fs, path, crypto) {
 		if (patch === null) return { deleted: true };
 		budget.nodes += 1;
 		if (budget.nodes > MAX_NODES) throw failure("CONFIG_FILE_INVALID");
-		if (Array.isArray(patch)) return { value: JSON.parse(JSON.stringify(patch)) };
+		if (Array.isArray(patch)) return { value: structuredClone(patch) };
 		if (isRecord(patch) === false) return { value: patch };
 		const target = isRecord(base) ? base : {};
 		for (const key of Object.keys(patch)) {
@@ -200,6 +216,30 @@ export function createConfigScope(home, fs, path, crypto) {
 		const current = readBytes(target);
 		return snapshot(file, current === null ? defaultBytes(file) : current);
 	}
+	/*
+	 * Read-only credential view. The answer is derived, never the document: a credential value is only compared to
+	 * decide configured/missing, so no code path can put a key or an OAuth token into a frame. auth.json stays out
+	 * of FILES, therefore config.patch cannot address it.
+	 */
+	function readAuth() {
+		const target = agentDirectory() + "/" + READ_AUTH;
+		const current = readBytes(target);
+		const buffer = current === null ? defaultBytes("auth") : current;
+		const data = parseData(buffer);
+		const names = Object.keys(data);
+		if (names.length > MAX_AUTH_PROVIDERS) throw failure("CONFIG_FILE_TOO_LARGE");
+		const providers = [];
+		for (const name of names.sort()) {
+			if (RESERVED.test(name) || AUTH_PROVIDER.test(name) === false) throw failure("CONFIG_FILE_INVALID");
+			const credential = data[name];
+			if (isRecord(credential) === false) throw failure("CONFIG_FILE_INVALID");
+			const kind = credential.type === "api_key" ? "api_key" : credential.type === "oauth" ? "oauth" : "unsupported";
+			const configured = kind === "api_key" ? typeof credential.key === "string" && credential.key.length > 0 : kind === "oauth" ? typeof credential.access === "string" && credential.access.length > 0 && typeof credential.refresh === "string" && credential.refresh.length > 0 : false;
+			providers.push({ provider: name, type: kind, configured: configured });
+		}
+		const digest = sha256(buffer);
+		return { version: digest, sha256: digest, providers: providers };
+	}
 	/** Reject reserved keys anywhere in the patch (including array elements) before any merge walk. */
 	function validatePatch(value, depth, budget) {
 		if (depth > MAX_DEPTH) throw failure("CONFIG_FILE_INVALID");
@@ -223,11 +263,11 @@ export function createConfigScope(home, fs, path, crypto) {
 		const before = current === null ? defaultBytes(params.file) : current;
 		if (sha256(before) !== params.expectedVersion) throw failure("CONFIG_VERSION_CONFLICT");
 		const data = parseData(before);
-		if (params.file === "models") modelsFile(data);
+		validateFile(params.file, data);
 		const merged = mergeInto(data, params.patch, 0, { nodes: 0 });
 		const next = merged.deleted === true ? null : merged.value;
 		if (isRecord(next) === false) throw failure("CONFIG_FILE_INVALID");
-		if (params.file === "models") modelsFile(next);
+		validateFile(params.file, next);
 		const bytes = Buffer.from(encode(next), "utf8");
 		writeAtomic(target, bytes);
 		let written = null;
@@ -235,9 +275,9 @@ export function createConfigScope(home, fs, path, crypto) {
 		if (written === null || sha256(written) !== sha256(bytes)) throw failure("CONFIG_RESULT_UNCONFIRMED");
 		return snapshot(params.file, written);
 	}
-	return { read: read, patch: patch };
+	return { read: read, patch: patch, readAuth: readAuth };
 }
 `.replace(/\r?\n[\t ]*/g, "");
 
 /** sha256 of REMOTE_CONFIG_SOURCE as UTF-8 bytes; pinned here and re-checked by the helper contract tests. */
-export const REMOTE_HELPER_CONFIG_SHA256 = "0006235d9cdef7211c9e33f0734b2c50462511e96983fbf88cb6858e6a7d13f9";
+export const REMOTE_HELPER_CONFIG_SHA256 = "d5ffb3c91285f8168d35873c8e5fc5a328ad07c08d0d213c31bcaa31b5ac1b5e";

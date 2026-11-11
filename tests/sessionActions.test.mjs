@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const source = readFileSync("src/renderer/src/hooks/useSessionActions.ts", "utf8");
 const drawerSource = readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8");
@@ -168,17 +169,36 @@ test("archive toast points users at the restore location by backend", () => {
 	assert.doesNotMatch(archive, /t\("app\.sessionArchived"\)/);
 });
 
-test("copy and export address the Catalog by stable Session ID", () => {
-	const copy = functionBlock("copySession", "exportHistorySession");
-	const historyExport = functionBlock("exportHistorySession", "deleteHistorySession");
-	const sidebarCopy = functionBlock("copySidebarSession", "exportSidebarSession");
-	const sidebarExport = functionBlock("exportSidebarSession", "createSessionDraft");
-	assert.match(copy, /api\.sessions\.copyRecord\(sessionId\)/);
-	assert.match(historyExport, /api\.sessions\.exportRecordHtml\(session\.id\)/);
-	assert.match(sidebarCopy, /copySession\(session\.id, projectId\)/);
-	assert.match(sidebarExport, /api\.sessions\.exportRecordHtml\(session\.id\)/);
-	assert.doesNotMatch(source, /api\.sessions\.(?:copy|exportHtml|readMessages)\(/);
-	assert.doesNotMatch(source, /resolveSessionRefs/);
+test("copy uses the Catalog while export requests the shared dialog by stable Session ID", async () => {
+	const copied = [];
+	const requested = [];
+	const { useSessionActions } = loadTsCommonJs("src/renderer/src/hooks/useSessionActions.ts", { stubs: { jotai: { useSetAtom: () => (value) => requested.push(value) }, "../atoms/session-export-atoms": { sessionExportRequestAtom: {} }, "../i18n": { t: (key) => key } } });
+	const actions = useSessionActions({
+		activeProjectId: "p",
+		refreshProjectSessions: async () => [],
+		api: {
+			sessions: {
+				copyRecord: async (id) => {
+					copied.push(id);
+					return {};
+				},
+			},
+		},
+		showToast: () => {},
+	});
+	const session = { id: "stable-session", filePath: "must-not-be-used.jsonl" };
+	await actions.copySidebarSession("p", session);
+	await actions.exportHistorySession(session);
+	await actions.exportSidebarSession("p", session);
+	assert.deepEqual(copied, ["stable-session"]);
+	assert.deepEqual(
+		requested.map((item) => item.sessionId),
+		["stable-session", "stable-session"],
+	);
+	assert.deepEqual(
+		requested.map((item) => Object.keys(item)),
+		[["sessionId"], ["sessionId"]],
+	);
 });
 
 test("history drawer copies the Catalog record by stable Session ID", () => {

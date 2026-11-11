@@ -226,6 +226,8 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 		<ComposerPickerHost
 			sessionId={props.sessionId}
 			backend={composer.backend}
+			// 引导页/草稿没有 record：目录按选中项目路由，远端项目才拿到服务器上的模型列表。
+			fallbackProjectId={composer.catalogProjectId}
 			picker={composer.picker}
 			templates={composer.templates}
 			onClose={composer.pickers.close}
@@ -361,6 +363,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 									    分支切换会动工作区文件，用 branchDisabled 单独保留 busy 锁。 */}
 											<ComposerBottomBar
 												sessionId={props.sessionId}
+												catalogProjectId={composer.catalogProjectId}
 												state={composer.runtime?.state}
 												disabled={composer.isStarting}
 												branchDisabled={composer.isBusy || composer.isStarting}

@@ -14,7 +14,7 @@ const shared = loadTsCommonJs("src/shared/piConfig.ts");
 const target = loadTsCommonJs("src/main/config/piResourceTarget.ts");
 const HOST = "11111111-1111-4111-8111-111111111111";
 
-const WSL_OPTIONS = () => ({ target: { kind: "wsl", hostId: HOST } });
+const WSL_OPTIONS = () => ({ target: { kind: "wsl" } });
 const SSH_OPTIONS = () => ({ target: { kind: "ssh", hostId: HOST } });
 
 function createHarness() {

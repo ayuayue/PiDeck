@@ -14,7 +14,7 @@
  * - prefill：重发（prepare-resend）/提示词插入时由父级填充文本，nonce 变化触发
  * - 无会话时禁用；流式期间提交按钮转为停止
  */
-import { useEffect, useRef, useState, type FocusEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, useMemo, type FocusEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowUp, ClipboardList, CornerDownLeft, ImagePlus, ListEnd, X } from "lucide-react";
 import { Button } from "@/components/ui-shadcn/button";
 import { t } from "@/i18n";
@@ -26,6 +26,8 @@ import { WebModelSelector } from "./WebModelSheet";
 import { WebBackendSelector } from "./WebBackendSelector";
 import { WebThinkingSelector } from "./WebThinkingSelector";
 import { WebPromptPicker } from "./WebPromptPicker";
+import { WebSlashMenu } from "./WebSlashMenu";
+import { applyWebSlashItem, detectWebSlashToken, filterWebSlashItems, type WebSlashItem } from "./webSlashCommands";
 import { useCoarsePointer, useIsMobileViewport } from "./useIsMobileViewport";
 import { resolveComposerCollapsed } from "./composerCollapse";
 
@@ -76,6 +78,8 @@ export function WebComposer(props: {
 	onResumeQueue?: () => void;
 	/** 父级驱动的预填充（重发 / 提示词插入）；nonce 变化才生效，避免重复触发。 */
 	prefill?: { text: string; nonce: number };
+	/** `/` 菜单候选（父级按会话 runtime / 项目资源注入；空数组 = 不提供菜单）。 */
+	slashItems?: WebSlashItem[];
 	onFocusChange?: (focused: boolean) => void;
 	onEngagedChange?: (engaged: boolean) => void;
 	hidden?: boolean;
@@ -96,6 +100,18 @@ export function WebComposer(props: {
 	const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const lastPrefillNonce = useRef<number>(-1);
+
+	// `/` 命令菜单：只由「草稿 + 光标位置」决定开不开，不抢焦点。
+	// dismissed 记 token 签名（起点 + 关键字）：Esc 关掉后继续打字（签名变）会重新打开。
+	const [caret, setCaret] = useState(0);
+	const [slashDismissed, setSlashDismissed] = useState<string | null>(null);
+	const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+	const slashToken = useMemo(() => (props.disabled ? null : detectWebSlashToken(draft, caret)), [draft, caret, props.disabled]);
+	const slashSignature = slashToken ? `${slashToken.start}:${slashToken.query}` : null;
+	const slashFiltered = useMemo(() => (slashToken ? filterWebSlashItems(props.slashItems ?? [], slashToken.query) : []), [slashToken, props.slashItems]);
+	const slashOpen = Boolean(focused && slashToken && slashSignature !== slashDismissed);
+	// 关键字变化 = 候选换了：高亮回到第一条。
+	useEffect(() => setSlashActiveIndex(0), [slashSignature]);
 
 	useEffect(() => {
 		const prefill = props.prefill;
@@ -144,6 +160,26 @@ export function WebComposer(props: {
 			props.onFocusChange?.(false);
 		}
 		if (mode === "plan") setMode("normal");
+	};
+
+	// 选中一条命令：替换 token 为 `/名称 `，光标落在名称后（用户可继续补参数）。
+	// 用 rAF 等 React 写入新 value 后再设选区，否则 setSelectionRange 会被旧值拽回去。
+	const pickSlashItem = (item: WebSlashItem) => {
+		const next = applyWebSlashItem(draft, caret, item.name);
+		setDraft(next.text);
+		setCaret(next.caret);
+		setSlashDismissed(null);
+		requestAnimationFrame(() => {
+			const element = textareaRef.current;
+			if (!element) return;
+			element.focus();
+			element.setSelectionRange(next.caret, next.caret);
+		});
+	};
+	const moveSlashActive = (delta: number) => {
+		const count = slashFiltered.length;
+		if (count === 0) return;
+		setSlashActiveIndex((current) => (current + delta + count) % count);
 	};
 
 	const clearBlurTimer = () => {
@@ -274,6 +310,7 @@ export function WebComposer(props: {
 						onBlur={handleComposerBlur}
 						className={cn("composer-box relative flex min-w-0 flex-col overflow-visible rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-[border-color,box-shadow,background-color]", collapsed ? "min-h-14" : "min-h-[7rem]")}
 					>
+						{slashOpen ? <WebSlashMenu items={slashFiltered} activeIndex={Math.min(slashActiveIndex, Math.max(0, slashFiltered.length - 1))} onPick={pickSlashItem} onHover={setSlashActiveIndex} /> : null}
 						{images.length > 0 ? (
 							<div className="flex flex-wrap gap-2 px-3 pt-3">
 								{images.map((src, index) => (
@@ -297,7 +334,13 @@ export function WebComposer(props: {
 							/* legacy .composer textarea 带 height:100%（桌面横向布局遗留）：web 端纵列布局下会把工具行挤出，utilities 层覆盖为随内容自适应 */
 							className={cn("h-auto max-h-[40dvh] min-h-14 pb-1", collapsedBackendPicker && "pr-28")}
 							value={draft}
-							onChange={(event) => setDraft(event.target.value)}
+							onChange={(event) => {
+								setDraft(event.target.value);
+								setCaret(event.target.selectionStart ?? event.target.value.length);
+							}}
+							/* 光标移动/点选都要重算 `/` token：否则点回行首的 `/` 不会开菜单，Esc 后也会滞在旧签名。 */
+							onSelect={() => setCaret(textareaRef.current?.selectionStart ?? 0)}
+							onClick={() => setCaret(textareaRef.current?.selectionStart ?? 0)}
 							onPaste={(event) => {
 								const pasted = imagesFromPasteEvent(event.nativeEvent as ClipboardEvent);
 								if (pasted.length > 0) {
@@ -313,6 +356,27 @@ export function WebComposer(props: {
 							    虚拟键盘回车键直接标注行为（enter=换行 / send=发送）。 */
 							enterKeyHint={coarsePointer ? "enter" : "send"}
 							onKeyDown={(event) => {
+								// `/` 菜单优先于发送与换行：键盘导航不能把草稿发出去（触屏也同样生效）。
+								if (slashOpen) {
+									if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+										event.preventDefault();
+										moveSlashActive(event.key === "ArrowDown" ? 1 : -1);
+										return;
+									}
+									if (event.key === "Enter" || event.key === "Tab") {
+										const item = slashFiltered[Math.min(slashActiveIndex, slashFiltered.length - 1)];
+										if (item) {
+											event.preventDefault();
+											pickSlashItem(item);
+											return;
+										}
+									}
+									if (event.key === "Escape") {
+										event.preventDefault();
+										setSlashDismissed(slashSignature);
+										return;
+									}
+								}
 								if (coarsePointer) return;
 								if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
 									event.preventDefault();
@@ -320,6 +384,9 @@ export function WebComposer(props: {
 								}
 							}}
 							aria-label={placeholder}
+							/* `/` 菜单是组合框语义：读屏能听出「候选已展开」。 */
+							aria-autocomplete="list"
+							aria-expanded={slashOpen}
 						/>
 						{attachError ? <div className="px-3 text-micro text-danger">{t("web.imageAttachFailed")}</div> : null}
 						{collapsed ? (

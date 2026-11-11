@@ -104,7 +104,8 @@ function renderToolMessage(message: ChatMessage): string {
 	const durationMs = typeof meta?.durationMs === "number" ? meta.durationMs : undefined;
 	const args = meta?.args;
 	const argsHtml = args !== undefined ? `<details class="tool-args"><summary>arguments</summary><pre>${escapeHtml(typeof args === "string" ? args : JSON.stringify(args, null, 2))}</pre></details>` : "";
-	const resultText = message.text.includes(": ") ? message.text.slice(message.text.indexOf(": ") + 2) : "";
+	// 安全分享的结果槽位与工具参数分离；空字符串表示明确排除，不能回退到旧摘要。
+	const resultText = typeof meta?.exportResult === "string" ? meta.exportResult : message.text.includes(": ") ? message.text.slice(message.text.indexOf(": ") + 2) : message.text;
 	return `<div class="tool-card ${status}">
   <div class="tool-header">
     <span class="tool-name">${escapeHtml(toolName)}</span>
@@ -112,7 +113,7 @@ function renderToolMessage(message: ChatMessage): string {
     ${durationMs !== undefined ? `<span class="tool-duration">${durationMs}ms</span>` : ""}
   </div>
   ${argsHtml}
-  <div class="tool-result">${renderExportText(resultText || message.text)}</div>
+  <div class="tool-result">${renderExportText(resultText)}</div>
 </div>`;
 }
 
@@ -127,12 +128,12 @@ function renderMessage(message: ChatMessage): string {
   <div class="msg-body">${renderExportText(message.text)}${images}</div>
 </div>`;
 		case "tool":
-			return `<div class="msg tool"><div class="msg-meta"><span class="role-badge tool">tool</span><span class="time">${escapeHtml(time)}</span></div><div class="msg-body">${renderToolMessage(message)}</div></div>`;
+			return `<div class="msg tool"><div class="msg-meta"><span class="role-badge tool">tool</span><span class="time">${escapeHtml(time)}</span></div><div class="msg-body">${renderToolMessage(message)}${images}</div></div>`;
 		case "assistant":
 			return `<div class="msg assistant">
   <div class="msg-meta"><span class="role-badge assistant">assistant</span><span class="time">${escapeHtml(time)}</span></div>
   ${message.thinking ? `<details class="thinking"><summary>thinking</summary><div class="thinking-body">${renderExportText(message.thinking)}</div></details>` : ""}
-  <div class="msg-body">${renderExportText(message.text)}</div>
+  <div class="msg-body">${renderExportText(message.text)}${images}</div>
 </div>`;
 		default:
 			// system/error：低调展示原文（错误消息保留排查价值）
@@ -224,6 +225,7 @@ export function renderDshSessionHtml(messages: ChatMessage[], meta: DshSessionEx
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(meta.title)}</title>
 <style>${EXPORT_CSS}</style>

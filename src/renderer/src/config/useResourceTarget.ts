@@ -1,24 +1,21 @@
-import { useCallback, useMemo, useState } from "react";
-import type { PiResourceOptions, PiResourceTarget } from "../../../shared/piConfig";
+import { useCallback, useMemo } from "react";
+import type { PiConfigTarget, PiResourceOptions, PiResourceTarget } from "../../../shared/piConfig";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
-import type { PiConfigTargetHost } from "./piConfigTargetModel";
-import { resourceTargetOptions, resourceWriteAllowed, toResourceTargetHosts, type PiResourceWriteAction } from "./piResourceTargetModel";
+import { resourceTargetOptions, resourceWriteAllowed, type PiResourceWriteAction } from "./piResourceTargetModel";
 import type { ResourceScope } from "./resourceScopeModel";
 
 /**
- * 资源三页（技能/提示词/扩展）的目标状态与门禁。
+ * 资源三页（技能/提示词/扩展）的目标视图与门禁。
  *
- * 放 hook 而不是 ConfigModal 内联：选择器只在全局作用域出现（项目作用域是项目目录，与档案无关）；
- * IPC options 只在 wsl 目标带上；本轮未路由的写操作统一在这里拦住，避免三页各写一套判断。
+ * 目标不再是本页自己的 state：它跟随顶层的 Pi 环境（本机 / WSL 发行版；ssh 环境不提供资源页）。
+ * 双选择器是上一版的真实问题——配置页选了 A 发行版、资源页还停在 B，两个写作用域同时存在。
+ * 因此这里只做「派生 + 门禁」，不提供 setter。
  */
-export function useResourceTarget(hosts: readonly PiConfigTargetHost[], resourceScope: ResourceScope) {
-	const [resourceTarget, setResourceTarget] = useState<PiResourceTarget>({ kind: "local" });
-	const targetHosts = useMemo(() => toResourceTargetHosts(hosts), [hosts]);
+export function useResourceTarget(resourceScope: ResourceScope, target: PiConfigTarget) {
+	const resourceTarget = useMemo<PiResourceTarget>(() => (target.kind === "wsl" ? { kind: "wsl" } : { kind: "local" }), [target]);
 	const global = resourceScope === "global";
 	const options = useMemo<PiResourceOptions | undefined>(() => (global ? resourceTargetOptions(resourceTarget) : undefined), [global, resourceTarget]);
-	/** 非本机目标：提示条显示「部分动作只支持本机」，真正拦不拦由 blockMutation(action) 判定。 */
-	const readOnly = global && resourceTarget.kind !== "local";
 	/** true = 该动作在当前目标下已拦下并提示（调用方直接 return）；false = 放行。 */
 	const blockMutation = useCallback(
 		(action: PiResourceWriteAction) => {
@@ -29,7 +26,7 @@ export function useResourceTarget(hosts: readonly PiConfigTargetHost[], resource
 		},
 		[global, resourceTarget],
 	);
-	return { resourceTarget, setResourceTarget, targetHosts, options, readOnly, blockMutation };
+	return { resourceTarget, options, blockMutation };
 }
 
 export type ResourceTargetView = ReturnType<typeof useResourceTarget>;

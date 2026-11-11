@@ -196,6 +196,10 @@ test("无任何本地副本且全源失败：进入 failed；retry 成功后恢�
 	const failed = await store.ensureReady();
 	assert.equal(failed.state, "failed");
 	assert.equal(states.at(-1).state, "failed");
+	// 失败信息按源聚合：两源全挂时必须同时看到两个源与状态码，否则线上只剩一句「下载失败」，
+	// 分不清「资产不存在（404）」与「网络不通」（v0.11.3 漏传资产就是这么被误诊的）。
+	assert.match(failed.message, /atomgit: .*HTTP 404/, "atomgit 源失败原因必须进失败信息");
+	assert.match(failed.message, /github: .*HTTP 404/, "github 源失败原因必须进失败信息");
 
 	upstreamOk = true;
 	const recovered = await store.retry();

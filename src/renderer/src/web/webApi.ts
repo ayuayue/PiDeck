@@ -9,10 +9,10 @@
  */
 import type { UIMessage } from "ai";
 import type { AvailableModel, AgentBackend, ChatMessage, SessionCommandResult, SessionLaunchPreferences, SessionMessagePage, SessionRuntimeInfo, SessionRuntimeTarget, SessionSearchResult, SessionTargetedValue, SessionTodoSnapshot, UpdateSessionRecordInput } from "../../../shared/types";
-import type { CommitEntry, GitBranchInfo, GitResourceGroups, ImageContent, PiExtensionSummary, PiSkillLocation, PiSkillSummary, PiSubagentEntry, YaoPromptCategory, ProviderUsageResult, UsageProbeBackend } from "../../../shared/types";
+import type { CommitEntry, GitBranchInfo, GitResourceGroups, ImageContent, PiCommand, PiExtensionSummary, PiSkillLocation, PiSkillSummary, PiSubagentEntry, YaoPromptCategory, ProviderUsageResult, UsageProbeBackend } from "../../../shared/types";
 import type { AgentUiResponse } from "../../../shared/types";
 import type { WebSecurityState } from "../../../shared/types";
-import type { WebContextUsage, WebFileNodeLite, WebState } from "./webTypes";
+import type { WebAgentProfile, WebContextUsage, WebFileNodeLite, WebState } from "./webTypes";
 
 // Web 服务令牌：与 browserApi 同型（同一 localStorage key），从二维码/分享链接的 ?token= 读取一次并持久化。
 // 之后所有请求统一带 Authorization: Bearer；环回绑定服务端不校验，无令牌时照常工作。
@@ -54,6 +54,37 @@ function apiFetch(input: string, init?: RequestInit): Promise<Response> {
 		}
 		return res;
 	});
+}
+
+/**
+ * 弱网兜底：只读 GET 的超时 + 一次重试。
+ *
+ * Web 端最常见的失败不是 4xx/5xx，而是「请求发出去没有回音」：手机经 EasyTier/NAT 连桌面端时，
+ * 浏览器会复用一条已被中间设备丢弃的半死连接（或 6 条 HTTP/1.1 连接被占满），请求一路挂到
+ * 浏览器自己超时才失败——用户看到的就是面板一直转圈后报「读取失败」。这里给 10s 超时并重试
+ * 一次：超时 abort 掉半死请求，重试通常落到新连接上；两次都失败才把错误交给 UI。
+ *
+ * 只用于小载荷的幂等 GET：/api/state 这类大载荷/流式接口不能套固定超时。
+ */
+export const WEB_GET_TIMEOUT_MS = 10_000;
+
+async function apiGet(path: string, init?: Omit<RequestInit, "signal">): Promise<Response> {
+	let attempt = 0;
+	for (;;) {
+		attempt += 1;
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), WEB_GET_TIMEOUT_MS);
+		try {
+			const res = await apiFetch(path, { ...init, signal: controller.signal });
+			// 5xx 多为服务端瞬时故障：重试一次；4xx 是契约错误，原样交回调用方。
+			if (res.status >= 500 && attempt === 1) continue;
+			return res;
+		} catch (error) {
+			if (attempt >= 2) throw error;
+		} finally {
+			clearTimeout(timer);
+		}
+	}
 }
 
 /**
@@ -693,4 +724,54 @@ export async function toggleWebExtension(source: string, enabled: boolean, scope
 		body: JSON.stringify({ source, enabled, scope }),
 	});
 	if (!res.ok) throw new Error(`extension toggle ${res.status}`);
+}
+
+/* ── 智能体（Agent Market 只读 + 使用） ─────────────────────────────── */
+
+/** 智能体目录：与桌面「智能体」页同一份 AgentProfileStore（角色设定随详情展示）。 */
+export async function fetchAgents(): Promise<WebAgentProfile[]> {
+	const res = await apiGet("/api/agents");
+	if (!res.ok) throw new Error(`agents ${res.status}`);
+	const payload = (await res.json()) as { agents?: WebAgentProfile[] };
+	return payload.agents ?? [];
+}
+
+/**
+ * 「使用」智能体：服务端建一条绑定该智能体的草稿会话（标题/后端/模型取智能体配置），
+ * 返回新会话记录；后续首轮发送由主进程把角色设定拼进隐藏载荷。
+ */
+export async function useAgentSession(agentId: string, projectId: string): Promise<{ session: { id: string }; agent: WebAgentProfile }> {
+	const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/use`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ projectId }),
+	});
+	if (!res.ok) throw new Error(`agent use ${res.status}`);
+	const payload = (await res.json()) as { session?: { id?: string }; agent?: WebAgentProfile };
+	if (!payload.session?.id || !payload.agent) throw new Error("agent use returned no session");
+	return { session: { id: payload.session.id }, agent: payload.agent };
+}
+
+/* ── 输入框斜杠命令（/ 菜单） ─────────────────────────────────────── */
+
+/**
+ * 会话内权威命令表（pi 的 get_commands / DSH host 注册表）：扩展命令、提示词模板、技能都在这里。
+ * 需要活跃 runtime —— 草稿会话由调用方回退到本地发现的模板/技能。
+ */
+export async function fetchRuntimeCommands(sessionId: string, target: SessionRuntimeTarget): Promise<PiCommand[]> {
+	return callRuntimeCommand<PiCommand[]>(sessionId, target, "commands");
+}
+
+/** pi 提示词模板（只读；项目作用域优先），草稿会话的 `/` 菜单数据源之一。 */
+export async function fetchPromptTemplates(projectId?: string): Promise<Array<{ name: string; description: string; scope: "global" | "project"; enabled: boolean }>> {
+	const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+	const res = await apiFetch(`/api/prompt-templates${query}`);
+	if (!res.ok) throw new Error(`prompt templates ${res.status}`);
+	const payload = (await res.json()) as { templates?: Array<{ name: string; description: string; scope?: "global" | "project"; enabled?: boolean }> };
+	return (payload.templates ?? []).map((template) => ({
+		name: template.name,
+		description: template.description,
+		scope: template.scope ?? "global",
+		enabled: template.enabled !== false,
+	}));
 }

@@ -1,7 +1,7 @@
 /**
  * 用量查询模板目录（主进程，纯函数可单测）。
  *
- * 学 cc-switch 的「预设模板」分层，但收敛为四类声明式模板（用户可选）：
+ * 「预设模板」分层，收敛为四类声明式模板（用户可选）：
  * - general：通用 OpenAI 兼容 /usage（{ balance, unit }），端点/密钥可用供应商配置或显式覆盖；
  * - newapi：New API / OneAPI 中转站 /api/user/self（访问令牌 + 用户 ID，积分 /500000 → USD）；
  * - cookie：自研网关网页后台接口（如 /api/wallet/summary），用登录态 Cookie 而非 apiKey

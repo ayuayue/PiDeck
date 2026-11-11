@@ -89,8 +89,8 @@ function createHarness(options = {}) {
 	return { handlers, ipcChannels, calls, poolCalls };
 }
 
-const wslOptions = () => ({ target: { kind: "wsl", hostId: HOST } });
-const parsedWsl = () => ({ target: { kind: "wsl", hostId: HOST } });
+const wslOptions = () => ({ target: { kind: "wsl" } });
+const parsedWsl = () => ({ target: { kind: "wsl" } });
 
 test("缺省 options 保持旧行为：本机单例、池不参与", async () => {
 	const { handlers, ipcChannels, calls, poolCalls } = createHarness();

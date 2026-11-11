@@ -3,11 +3,11 @@ import type { Page } from "@playwright/test";
 import { openFirstSession } from "./open-session";
 
 /**
- * 打字机感回归（学 Proma 的 50ms 合并节奏）：
+ * 打字机感回归（50ms 合并节奏）：
  * - SLOW：慢速流（220ms/chunk）必须逐字（maxDelta ≤ 3），帧间隔跟随数据节奏
  * - BURST：真实 LLM 突发输出（前慢后密）不得蹦字（maxDelta ≤ 3）
  * 根因：16ms 高频推送让 streamdown 解析压满主线程 → rAF 帧率降 → queue 积压 → 一帧蹦 10+；
- * 对齐 Proma PI_PARTIAL_UPDATE_INTERVAL_MS=50 后，渲染层 20fps 更新，queue 平滑逐字。
+ * 主进程 50ms 合并分片后，渲染层 20fps 更新，queue 平滑逐字。
  */
 
 /** 打开第一个会话并使合成器可用（UI 2.0 起欢迎页已无「启动 Agent」按钮）。 */

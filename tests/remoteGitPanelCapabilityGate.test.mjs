@@ -41,7 +41,7 @@ test("干净态与本机同一套文案与图标，不再各写一句", () => {
 test("分支选择在顶栏：branchRead 门禁，refs 关闭也有入口，打开下拉才加载列表", () => {
 	// 原来切换按钮只长在「引用」折叠区里：refs 能力一关，即使 branchWrite 开着也没有切分支入口。
 	assert.match(panel, /data-testid="remote-git-branch-select"/);
-	assert.match(panel, /capabilities\.branchRead \? \(/, "顶栏分支选择按 branchRead 渲染");
+	assert.match(panel, /capabilities\.branchRead && !repositoryMissing \? \(/, "顶栏分支选择按 branchRead 渲染（非仓库状态不摆一个空下拉）");
 	assert.match(panel, /disabled=\{!capabilities\.branchWrite \|\| busy \|\| branches\.length <= 1\}/, "没有可切目标时禁用，而不是假装能给选项");
 	// 列表按需加载：打开下拉才发 refs 请求（面板打开时不额外打主机）。
 	assert.match(panel, /onOpenChange=\{\(open\) => \{[\s\S]{0,240}loadRefs\(\)/, "打开下拉才加载分支列表");
@@ -117,12 +117,12 @@ test("恢复/历史/引用/对比/强刷/初始化逐项覆盖到既有 key", ()
 	}
 });
 
-test("worktree 不提供时用整句说明，且单独一行不合并", () => {
-	const lines = describeGitCapabilityBanner({ ...allOpen, worktree: false, write: false }, { "git.worktree": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" });
-	assert.deepEqual(plain(lines.map((line) => line.id)), ["write", "worktree"]);
-	assert.deepEqual(plain(lines[1].labels), ["remoteGit.worktreeUnsupported"]);
-	assert.equal(lines[1].reason, undefined, "the sentence already explains why; no second copy");
-	assert.equal(typeof zhCN["remoteGit.worktreeUnsupported"], "string");
+test("worktree 不进能力条：远端永远没有本机 Git 目录，不把不可能写成告警", () => {
+	// 侧栏菜单入口已经按 shouldShowWorktreeMenuEntry 隐藏；能力条再列一行只会被当成故障。
+	assert.deepEqual(plain(describeGitCapabilityBanner({ ...allOpen, worktree: false }, { "git.worktree": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" })), []);
+	assert.ok(!REMOTE_GIT_BANNER_ITEM_IDS.includes("worktree"));
+	assert.ok(!SHARED_GIT_BANNER_ITEM_IDS.includes("worktree"));
+	assert.equal(renderBanner({ ...allOpen, worktree: false }), "", "worktree 关闭不是能力条的理由");
 });
 
 test("原因码映射：trust / 连接 / 不支持 / 已变化；未知码不猜文案", () => {
@@ -143,12 +143,11 @@ test("原因码映射：trust / 连接 / 不支持 / 已变化；未知码不猜
 
 test("read 关闭时用 git.read 的项目级原因解释全部入口", () => {
 	const lines = describeGitCapabilityBanner(closed, { "git.read": "PROJECT_CAPABILITY_HOST_NOT_READY" });
-	assert.equal(lines.length, 2, "one merged line for every gated entry plus the standalone worktree note");
+	assert.equal(lines.length, 1, "同一原因的入口全部合并成一行");
 	assert.equal(lines[0].id, "write");
 	assert.equal(lines[0].labels.length, 9, "write + branchWrite + sync + recovery/history/refs/compare/forceRefresh/init（每个入口一条短标签）");
 	assert.equal(lines[0].reason, "PROJECT_CAPABILITY_HOST_NOT_READY");
 	assert.equal(lines[0].reasonKey, "remoteGit.connection");
-	assert.equal(lines[1].id, "worktree");
 });
 
 test("共用面板只解释它真正门禁的入口（不把恢复渲染成永久告警）", () => {
@@ -179,8 +178,7 @@ test("能力条只渲染文本，不渲染任何按钮或假入口", () => {
 	assert.doesNotMatch(html, /role="button"/);
 	assert.doesNotMatch(html, /onClick/);
 	const worktree = renderBanner({ ...allOpen, worktree: false });
-	assert.match(worktree, new RegExp(zhCN["remoteGit.worktreeUnsupported"].slice(0, 12)));
-	assert.doesNotMatch(worktree, /<button/i);
+	assert.equal(worktree, "", "worktree 关闭不渲染能力条（入口本来就不提供）");
 });
 
 /** The panel source contract: every entry and every on-demand load is gated by the capability table. */

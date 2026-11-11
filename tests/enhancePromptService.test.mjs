@@ -165,6 +165,64 @@ test("cancel：下发 cancel 指令并本地结算为 aborted", async () => {
 	assert.deepEqual(recorder.events, [{ kind: "aborted" }]);
 });
 
+test("受理队列尚未启动时取消：不 spawn、不下发模型请求", async (t) => {
+	const { service, spawnCalls } = createService();
+	t.after(() => service.dispose());
+	const recorder = createRecorder();
+	const pending = service.enhance({ provider: "p", modelId: "m", userText: "预测下一句", purpose: "suggest" }, recorder.callbacks);
+	service.cancel();
+	const result = await pending;
+	assert.equal(result.ok, false);
+	assert.equal(result.errorKind, "aborted");
+	assert.deepEqual(spawnCalls, []);
+	assert.deepEqual(recorder.events, [], "未受理请求只返回取消结果，不再发终态回调");
+});
+
+test("预测冷启动期间取消：ready 后不能晚发 complete，新请求仍可复用助手", async (t) => {
+	const { service, latest, spawnCalls } = createService();
+	t.after(() => service.dispose());
+	const recorder = createRecorder();
+	const pending = service.enhance({ provider: "p", modelId: "m", userText: "预测下一句", purpose: "suggest" }, recorder.callbacks);
+	await new Promise((resolve) => setImmediate(resolve));
+	service.cancel();
+	latest().emitLine({ type: "ready", protocolVersion: 1 });
+	const result = await pending;
+	assert.equal(result.ok, false);
+	assert.equal(result.errorKind, "aborted");
+	assert.deepEqual(latest().commands(), [], "取消后不允许向模型下发旧预测");
+	assert.deepEqual(recorder.events, []);
+
+	const next = await acceptRun(service, latest);
+	assert.equal(next.result.ok, true);
+	assert.equal(spawnCalls.length, 1, "取消调用不必销毁已就绪的常驻助手");
+	assert.equal(latest().commands().length, 1);
+	assert.equal(latest().commands()[0].cmd, "complete");
+});
+
+test("冷启动期间取消同时作废已排队的请求，不影响取消后新提交的请求", async (t) => {
+	const { service, latest } = createService();
+	t.after(() => service.dispose());
+	const input = { provider: "p", modelId: "m", userText: "预测下一句", purpose: "suggest" };
+	const first = service.enhance(input, createRecorder().callbacks);
+	const queued = service.enhance(input, createRecorder().callbacks);
+	await new Promise((resolve) => setImmediate(resolve));
+	service.cancel();
+	const current = service.enhance(input, createRecorder().callbacks);
+	latest().emitLine({ type: "ready", protocolVersion: 1 });
+	for (const pending of [first, queued]) {
+		const result = await pending;
+		assert.equal(result.ok, false);
+		assert.equal(result.errorKind, "aborted");
+	}
+	assert.equal((await current).ok, true);
+	assert.equal(
+		latest()
+			.commands()
+			.filter(({ cmd }) => cmd === "complete").length,
+		1,
+	);
+});
+
 test("run 超时：下发 cancel 并结算为 timeout", async () => {
 	const { service, latest } = createService({ runTimeout: 40 });
 	const { recorder, result } = await acceptRun(service, latest);

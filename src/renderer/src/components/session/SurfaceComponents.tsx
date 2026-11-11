@@ -695,6 +695,8 @@ export const UserBubble = memo(function UserBubble(props: {
 	agentRunning?: boolean;
 	/** fork 进行中：仅当前消息禁用按钮，避免连点重复 fork */
 	forking?: boolean;
+	/** 历史进行中种类（重发/编辑/删除/fork）：动作行整组替换为 spinner + 文案（与 Web pending 同口径）。 */
+	pendingKind?: import("../../atoms/session-atoms").PendingHistoryMutationKind | null;
 	/** 打开多选分享弹框 */
 	onEnterMultiSelect?: () => void;
 	/**
@@ -1076,74 +1078,81 @@ export const UserBubble = memo(function UserBubble(props: {
 			<div className="mt-1 inline-flex items-center gap-2 text-micro tabular-nums text-text-tertiary">
 				<time>{formatTime(message.timestamp)}</time>
 			</div>
-			<div className="user-turn-actions flex min-h-6 items-center gap-0.5 opacity-0 transition-opacity group-hover/user:opacity-100 focus-within:opacity-100">
-				<CopyMenu resolveText={resolvePlain} resolveMarkdown={resolveMarkdown} targetRef={rowRef} />
-				<Button type="button" variant="ghost" size="icon-sm" className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={props.onEnterMultiSelect} title={t("app.multiSelectEnter")}>
-					<Share size={14} />
-				</Button>
-				{/* fork 忙碌时也不隐藏、仅禁用：入口稳定可见，避免用户误以为「时有时无」 */}
-				{!editing && canFork && (
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-						disabled={props.agentRunning || props.forking}
-						onClick={() => props.onForkMessage?.(message)}
-						title={props.agentRunning ? t("app.forkBusyTitle") : t("app.forkFromMessageTitle")}
-						aria-label={t("app.forkFromMessage")}
-					>
-						<GitFork size={14} strokeWidth={1.8} aria-hidden="true" />
+			{props.pendingKind ? (
+				<div className="user-turn-actions flex min-h-6 items-center gap-1.5 text-xs text-text-secondary" role="status">
+					<Loader2 size={14} className="animate-pideck-spin" aria-hidden="true" />
+					<span>{props.pendingKind === "resend" ? t("web.msgResending") : props.pendingKind === "delete" ? t("web.msgDeleting") : props.pendingKind === "fork" ? t("message.historyOverlay.forking") : t("web.msgSaving")}</span>
+				</div>
+			) : (
+				<div className="user-turn-actions flex min-h-6 items-center gap-0.5 opacity-0 transition-opacity group-hover/user:opacity-100 focus-within:opacity-100">
+					<CopyMenu resolveText={resolvePlain} resolveMarkdown={resolveMarkdown} targetRef={rowRef} />
+					<Button type="button" variant="ghost" size="icon-sm" className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={props.onEnterMultiSelect} title={t("app.multiSelectEnter")}>
+						<Share size={14} />
 					</Button>
-				)}
-				{/* 回退到此消息：把工作区文件恢复到该消息时刻前最近的检查点（见 injector 的最近点解析） */}
-				{!editing && props.onRewindToMessage && (
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-						disabled={props.agentRunning}
-						onClick={() => props.onRewindToMessage?.(message)}
-						title={props.agentRunning ? t("app.forkBusyTitle") : t("rewind.restoreTitle")}
-						aria-label={t("rewind.restore")}
-					>
-						<Undo2 size={14} strokeWidth={1.8} aria-hidden="true" />
-					</Button>
-				)}
-				{!editing && !props.agentRunning && (
-					<>
-						{props.onEditMessage && (
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-sm"
-								className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-								onClick={() => {
-									setEditText(cleanText);
-									setEditing(true);
-								}}
-								title={t("common.edit")}
-							>
-								<SquarePen size={14} />
-							</Button>
-						)}
-						<Button type="button" variant="ghost" size="icon-sm" className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={handleEditAndResend} title={t("app.editAndResendTitle")}>
-							<UserPen size={14} />
+					{/* fork 忙碌时也不隐藏、仅禁用：入口稳定可见，避免用户误以为「时有时无」 */}
+					{!editing && canFork && (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+							disabled={props.agentRunning || props.forking}
+							onClick={() => props.onForkMessage?.(message)}
+							title={props.agentRunning ? t("app.forkBusyTitle") : t("app.forkFromMessageTitle")}
+							aria-label={t("app.forkFromMessage")}
+						>
+							<GitFork size={14} strokeWidth={1.8} aria-hidden="true" />
 						</Button>
-						{props.onDeleteMessage && (
-							<Button type="button" variant="ghost" size="icon-sm" className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => props.onDeleteMessage?.(message.id, messageEntryId(message))} title={t("common.delete")}>
-								<Trash size={14} />
+					)}
+					{/* 回退到此消息：把工作区文件恢复到该消息时刻前最近的检查点（见 injector 的最近点解析） */}
+					{!editing && props.onRewindToMessage && (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+							disabled={props.agentRunning}
+							onClick={() => props.onRewindToMessage?.(message)}
+							title={props.agentRunning ? t("app.forkBusyTitle") : t("rewind.restoreTitle")}
+							aria-label={t("rewind.restore")}
+						>
+							<Undo2 size={14} strokeWidth={1.8} aria-hidden="true" />
+						</Button>
+					)}
+					{!editing && !props.agentRunning && (
+						<>
+							{props.onEditMessage && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-sm"
+									className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+									onClick={() => {
+										setEditText(cleanText);
+										setEditing(true);
+									}}
+									title={t("common.edit")}
+								>
+									<SquarePen size={14} />
+								</Button>
+							)}
+							<Button type="button" variant="ghost" size="icon-sm" className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={handleEditAndResend} title={t("app.editAndResendTitle")}>
+								<UserPen size={14} />
 							</Button>
-						)}
-						{(props.isLastUserMessage || props.showResendButton) && props.onResendUserMessage && (
-							<Button type="button" variant="ghost" size="icon-sm" className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => props.onResendUserMessage?.(message)} title={t("app.resendTitle")}>
-								<Send size={14} />
-							</Button>
-						)}
-					</>
-				)}
-			</div>
+							{props.onDeleteMessage && (
+								<Button type="button" variant="ghost" size="icon-sm" className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => props.onDeleteMessage?.(message.id, messageEntryId(message))} title={t("common.delete")}>
+									<Trash size={14} />
+								</Button>
+							)}
+							{(props.isLastUserMessage || props.showResendButton) && props.onResendUserMessage && (
+								<Button type="button" variant="ghost" size="icon-sm" className="user-turn-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => props.onResendUserMessage?.(message)} title={t("app.resendTitle")}>
+									<Send size={14} />
+								</Button>
+							)}
+						</>
+					)}
+				</div>
+			)}
 			{/* 文件 chip 右键菜单：默认方式打开 / 在文件夹中显示 / 复制路径。粘贴转文件落
 			    在 userData、项目外路径无 scope，主进程不设边界直接交给系统；菜单形态与
 			    文件抽屉右键菜单（ComposerOverlayContextMenu）保持一致。 */}
@@ -1283,7 +1292,7 @@ function renderChipText(text: string, onOpenFile?: (path: string) => void, valid
 			nodes.push(text.slice(cursor, chip.start));
 		}
 		const clickable = onOpenFile && chip.kind === "file";
-		// 目录引用换成文件夹图标（对齐 Proma 的目录 chip）；title 给完整路径便于悬浮确认。
+		// 目录引用换成文件夹图标（与文件引用区分）；title 给完整路径便于悬浮确认。
 		const isDirectory = chip.kind === "file" && isDirectoryFileChip(chip.raw);
 		const Icon = isDirectory ? Folder : (CHIP_ICONS[chip.kind] ?? FileText);
 		const title = chip.kind === "file" ? unwrapFileChipPath(chip.raw) : chip.raw;

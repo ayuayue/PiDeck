@@ -6,6 +6,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const { summarizeConfigUnsavedChanges, formatConfigUnsavedMessage } = loadTsCommonJs("src/renderer/src/config/configUnsavedChangesSummary.ts");
 const i18n = loadTsCommonJs("src/renderer/src/i18n.ts");
 const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+const configEnvironmentSwitch = readFileSync("src/renderer/src/config/ConfigEnvironmentSwitch.tsx", "utf8");
 const dshTab = readFileSync("src/renderer/src/config/DshConfigTab.tsx", "utf8");
 
 test("dsh:<nav> 归并到 DSH 后端 + 对应导航名；config:* 归 Pi 侧（完整列表）", () => {
@@ -50,7 +51,10 @@ test("装配契约：关闭确认用点名列表，DSH 导航与顶层分页有�
 	assert.match(configModal, /configUnsavedSummary\?\.items\.map/);
 	assert.match(configModal, /config\.unsavedListIntro/);
 	assert.match(configModal, /dirtyNavIds=\{dshDirtyNavIds\}/);
-	assert.match(configModal, /hasDshDirty \? <span className="size-1\.5 rounded-full bg-warning"/);
+	// 顶层分页黄点：Pi/DSH 分页条已抽到 ConfigEnvironmentSwitch（环境下拉宿主），黄点由 piDirty/dshDirty 驱动。
+	assert.match(configEnvironmentSwitch, /dshDirty \? <span className="size-1\.5 shrink-0 rounded-full bg-warning"/);
+	assert.match(configModal, /dshDirty=\{hasDshDirty\}/);
+	assert.match(configModal, /piDirty=\{hasPiDirty\}/);
 	assert.match(dshTab, /dirtyNavIds\?\.has\(`dsh:\$\{item\.id\}`\)/);
 });
 

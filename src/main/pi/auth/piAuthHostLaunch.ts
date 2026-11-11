@@ -16,7 +16,7 @@ import type { AppSettings } from "../../../shared/types/settings";
 import type { PiCommandInvocation, PiLocator } from "../PiLocator";
 import { stripBom } from "../../config/piConfigFileStore";
 import { applyPiProxyModeWithProvider, computeGenProxyKey } from "../../sessions/sessionProxyPolicy";
-import { piRuntimeNodeExePath } from "../runtimeNodeInstall";
+import { piRuntimeNodeBinDir, piRuntimeNodeExePath } from "../runtimeNodeInstall";
 
 /** pi 包的 npm 包名；用于确认「往上找到的包根」确实是 pi 而不是同名目录。 */
 export const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
@@ -225,6 +225,35 @@ export function resolveMiseShimSdkEntry(commandPath: string): string | undefined
 	return best?.entry;
 }
 
+/** bun 全局安装的包目录层级：`<BUN_INSTALL>/install/global/node_modules`。 */
+const BUN_GLOBAL_NODE_MODULES = ["install", "global", "node_modules"] as const;
+
+/**
+ * 解析 bun 全局安装（`bun install -g @earendil-works/pi-coding-agent`）背后的 pi 包。
+ *
+ * Windows 的 bun 全局命令是 `<BUN_INSTALL>\bin\pi.exe`：bun 把 bun.exe 复制成同名的
+ * 启动器垫片，真实入口写在旁边的 `pi.exe.bunx`（bun 私有二进制格式，不可解析），
+ * 因此它既不是 npm 的 .cmd 垫片、realpath 也还原不出 JS 入口，向上找 node_modules 更
+ * 不可能（`<BUN_INSTALL>\bin` 的上一层只有 `install\`）。结果是增强/认证侧车解析不到
+ * SDK 入口，表现为「输入预测/提示词增强/登录全部 sdk-unavailable」
+ * （线上案例：`C:\Users\<user>\.bun\bin\pi.exe` → no-pi-entry，2026-12）。
+ *
+ * bun 的全局包目录固定是 `<root>/install/global/node_modules`，而垫片目录固定是
+ * `<root>/bin`，所以 `<root>` 由垫片路径反推即可（默认 `~/.bun`、自定义 `BUN_INSTALL`、
+ * Homebrew/scoop 装的 bun 本体在别处都成立——它们的 shim 仍写在 `<root>/bin`）。
+ * POSIX 的 `~/.bun/bin/pi` 是软链，已被 resolvePiSdkEntry 覆盖，这里对它是无害的空转。
+ */
+export function resolveBunShimSdkEntry(commandPath: string): string | undefined {
+	const realCommand = tryRealpath(commandPath) ?? commandPath;
+	// realpath 后仍是同一个 exe（Windows 垫片是副本），两种情况都试一次以兼容软链形态。
+	for (const command of new Set([commandPath, realCommand])) {
+		const root = dirname(dirname(resolve(command)));
+		const entry = piSdkEntryIn(join(root, ...BUN_GLOBAL_NODE_MODULES, PI_PACKAGE_NAME));
+		if (entry) return entry;
+	}
+	return undefined;
+}
+
 function releaseVersionNumbers(name: string): [number, number, number] | undefined {
 	const [major, minor, patch] = name.split(".");
 	// 目录名不一定三段（mise 的 node 目录里可能有 lts/别名）；缺段直接判为不可比。
@@ -275,14 +304,60 @@ function pickPiEntryCandidate(invocation: PiCommandInvocation, piCommand: string
 }
 
 /**
- * 选 node：node-direct 通道下 pi 已经用某个 node 在跑，直接用同一个最稳；
- * 否则退回 PiDeck 便携 node（机器上没有 node 时 pi 正是靠它启动），最后才是 PATH 上的 node。
+ * 选助手运行时：优先用户自己的那套，PiDeck 便携 node 只作最后兜底。
+ *
+ * 助手只要求「能加载 pi SDK 的 node 兼容运行时」，所以顺序按「离用户实际环境多近」排：
+ * 1. node-direct 通道：pi 就是被这个 node 拉起的，等价于用户在终端里的行为，最稳；
+ * 2. pi 是 bun 全局安装：pi 本身就跑在这个 bun 上（Windows 的 `pi.exe` 就是 bun.exe 的副本），
+ *    同一运行时是「这份 SDK 能加载」的最强证据，也是用户自己的环境——`bun install -g` 的机器
+ *    上常常压根没有 node（2026-12 线上：`.bun/bin/pi.exe` 的机器侧车全不可用）；
+ * 3. PATH 上的 node：跳过 PiDeck 便携目录，否则下一档永远轮不到（便携目录也在 PATH 尾部）；
+ * 4. PATH 上的 bun：非 bun 布局但只有 bun、没有 node 的机器；
+ * 5. PiDeck 便携 node：既没 node 也没 bun 时的兜底（引导安装自带的那份）；
+ * 6. 裸命令名：交给 spawn 报 ENOENT，错误信息仍可诊断。
  */
-function resolveNodeExe(invocation: PiCommandInvocation, userDataPath: string): string {
+function resolveHelperRuntimeExe(invocation: PiCommandInvocation, input: { piCommand: string; userDataPath: string; pathValue: string | undefined; bunInstalled: boolean }): string {
 	if (invocation.windowsLaunch?.channel === "node-direct" && !isBareCommand(invocation.command)) return invocation.command;
-	const portableNode = piRuntimeNodeExePath(userDataPath);
+	if (input.bunInstalled) {
+		// 同目录的 bun 与 pi 是同一份安装；PATH 上的 bun 兜底 scoop/Homebrew 把本体装到别处的机器。
+		const bun = findPiBunExe(input.piCommand) ?? findRuntimeOnPath("bun", input.pathValue);
+		if (bun) return bun;
+	}
+	const userNode = findRuntimeOnPath("node", input.pathValue, piRuntimeNodeBinDir(input.userDataPath));
+	if (userNode) return userNode;
+	const bun = findRuntimeOnPath("bun", input.pathValue);
+	if (bun) return bun;
+	const portableNode = piRuntimeNodeExePath(input.userDataPath);
 	if (existsSync(portableNode)) return portableNode;
 	return process.platform === "win32" ? "node.exe" : "node";
+}
+
+/** 运行时可执行名后缀：spawn 不经 shell，Windows 不会展开 PATHEXT（`node.cmd` 本来也启动不了）。 */
+const RUNTIME_EXE_SUFFIX = process.platform === "win32" ? ".exe" : "";
+
+/**
+ * 按 PATH 找运行时可执行文件（返回绝对路径）；`skipDir` 用于跳过 PiDeck 便携目录。
+ * 返回绝对路径而不是裸名：日志里好直接看出助手实际跑在哪个 node/bun 上。
+ */
+function findRuntimeOnPath(programName: string, pathValue: string | undefined, skipDir?: string): string | undefined {
+	if (!pathValue) return undefined;
+	const fileName = `${programName}${RUNTIME_EXE_SUFFIX}`;
+	// Windows 路径不区分大小写；逐项比较前统一小写，避免同一个目录因盘符写法不同被当成两个。
+	const skip = skipDir ? resolve(skipDir).toLowerCase() : undefined;
+	for (const dir of pathValue.split(delimiter)) {
+		if (!dir) continue;
+		const normalizedDir = resolve(dir);
+		if (skip && normalizedDir.toLowerCase() === skip) continue;
+		const candidate = join(normalizedDir, fileName);
+		if (existsSync(candidate)) return candidate;
+	}
+	return undefined;
+}
+
+/** bun 全局安装时 pi 自己的 bun 本体：与垫片同目录（`<root>/bin/bun[.exe]`）。 */
+function findPiBunExe(piCommand: string): string | undefined {
+	const candidate = join(dirname(dirname(resolve(piCommand))), "bin", `bun${RUNTIME_EXE_SUFFIX}`);
+	return existsSync(candidate) ? candidate : undefined;
 }
 
 /**
@@ -321,7 +396,9 @@ export function resolvePiAuthHostLaunch(input: {
 	// managed 安装：pi.cmd/pi 只是转发到 pi-launcher.js 的小垫片，垫片还原与向上找包根都到不了
 	// node_modules，此时按 install/current-version → releases/<ver> 直取包根（issue #335）。
 	// mise 垫片同理：垫片是编译产物，真实包在 installs/node/<ver>/node_modules 下。
-	const sdkEntry = (candidate ? resolvePiSdkEntry(candidate) : undefined) ?? resolveManagedPiSdkEntry(piCommand) ?? resolveMiseShimSdkEntry(piCommand);
+	// bun 全局安装同理：Windows 垫片是 bun.exe 的副本，真实包在 <root>/install/global/node_modules 下。
+	const bunSdkEntry = resolveBunShimSdkEntry(piCommand);
+	const sdkEntry = (candidate ? resolvePiSdkEntry(candidate) : undefined) ?? resolveManagedPiSdkEntry(piCommand) ?? resolveMiseShimSdkEntry(piCommand) ?? bunSdkEntry;
 	if (!sdkEntry) {
 		// cmd-shim 回退原因（垫片形态不符/入口缺失）一并带出，便于排查装的是什么形态的 pi。
 		return { ok: false, reason: "no-pi-entry", detail: invocation.windowsLaunch?.reason ?? candidate ?? piCommand };
@@ -331,12 +408,16 @@ export function resolvePiAuthHostLaunch(input: {
 	// 名单外强制直连（只改 enabled 位），名单未启用时跟随全局开关。
 	const effectiveSettings = applyPiProxyModeWithProvider(input.settings, undefined, input.proxyModel?.provider, input.proxyModel?.modelId);
 
+	// env 先算：它的 PATH 顺序就是助手 spawn 时看到的顺序，运行时也必须从同一份 PATH 里挑，
+	// 否则日志里写的 node 与实际执行的可能不是同一个。
+	const env = buildChildEnv(input.locator.createProcessEnv(effectiveSettings, invocation.pathPrefix, invocation.wsl), sdkEntry);
+
 	return {
 		ok: true,
-		nodeExe: resolveNodeExe(invocation, input.userDataPath),
+		nodeExe: resolveHelperRuntimeExe(invocation, { piCommand, userDataPath: input.userDataPath, pathValue: env.PATH ?? env.Path, bunInstalled: Boolean(bunSdkEntry) }),
 		helperPath,
 		sdkEntry,
-		env: buildChildEnv(input.locator.createProcessEnv(effectiveSettings, invocation.pathPrefix, invocation.wsl), sdkEntry),
+		env,
 		// 指纹与 git 摘要等其它常驻进程共用同一实现（settings + 名单 → 实际生效的代理状态），
 		// 两处各写一份会在名单语义调整后静默漂移。
 		proxyKey: computeGenProxyKey(input.settings, input.proxyModel?.provider, input.proxyModel?.modelId),

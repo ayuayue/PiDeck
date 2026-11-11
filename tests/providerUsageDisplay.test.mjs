@@ -1,5 +1,5 @@
 /**
- * Provider 用量展示纯函数：usageTone 档位（cc-switch utilizationColor 语义）、
+ * Provider 用量展示纯函数：usageTone 档位（≥90 红 / ≥70 橙 / 其余绿）、
  * usagePercent 推导、徽标主值文本、余额格式化与相对时间。三处消费
  * （圆球/模型卡片/选择器行）共用，视觉阈值（≥90 红 / ≥70 橙 / 其余绿；剩余 <10% 橙、≤0 红）在此锁定。
  */
@@ -26,7 +26,7 @@ function creditsResult(credits) {
 	return { success: true, kind: "credits", credits };
 }
 
-test("usageTone：百分比档位对齐 cc-switch utilizationColor（≥90 红 / ≥70 橙 / 其余绿）", () => {
+test("usageTone：百分比档位（≥90 红 / ≥70 橙 / 其余绿）", () => {
 	assert.equal(display.usageTone(periodsResult({ rolling: 30, weekly: 80, monthly: 10 })), "low");
 	assert.equal(display.usageTone(periodsResult({ rolling: 95 })), "empty");
 	assert.equal(display.usageTone(periodsResult({ rolling: 69.4 })), "ok");
@@ -294,7 +294,7 @@ test("Command Code 三窗口段：5小时/周/本月独立百分比，月度带�
 	assert.equal(degradedSegments[2].tone, "neutral");
 });
 
-test("relativeTimeParts：刚刚/分钟/小时/天/过期 五档（cc-switch Clock 行语义）", () => {
+test("relativeTimeParts：刚刚/分钟/小时/天/过期 五档", () => {
 	const now = 1_000_000_000_000;
 	const json = (value) => JSON.stringify(value);
 	assert.equal(display.relativeTimeParts(now - 5_000, now).key, "config.usage.timeJustNow");

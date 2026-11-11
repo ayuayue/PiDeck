@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from "@playwright/test";
 import { openSettings } from "./open-session";
 
 /**
- * 供应商用量链路 E2E（cc-switch 风格统一显示）：
+ * 供应商用量链路 E2E（统一显示）：
  * - 设置模型卡片 inline 用量 + 展开详情（TierBar/余额行）
  * - 探针配置弹窗闭环：per-provider 开关 + 模板 pill → 测试（成功即写缓存，三处立显）→ 保存 → 回显
  * - 失败态：inline 不渲染、详情出「用量暂时不可用 + 去配置」
@@ -109,7 +109,7 @@ const seedRecognized = {
 	or: { templateId: "openrouter-credits", category: "balance" },
 };
 
-test("usage: provider card shows cc-switch inline usage and details rows", async ({ app, window }) => {
+test("usage: provider card shows inline usage and details rows", async ({ app, window }) => {
 	test.setTimeout(90_000);
 	await stubUsageIpc(app, {
 		modelsResult: seedModels,
@@ -141,7 +141,7 @@ test("usage: provider card shows cc-switch inline usage and details rows", async
 	await expect(window.locator('[data-testid="provider-usage-row"][data-provider="ds"]')).toBeVisible();
 	const orInline = window.locator('[data-testid="provider-usage-inline"][data-provider="or"]');
 	await expect(orInline).toContainText("92%");
-	// inline 带相对更新时间 + 刷新按钮（cc-switch 卡头同款）
+	// inline 带相对更新时间 + 刷新按钮（卡头）
 	await expect(orInline.locator('[data-testid="provider-usage-inline-refresh"]')).toBeVisible();
 
 	// 展开卡片：详情 = TierBar 行（label + 进度条 + 彩色百分比 + 剩余小字）
@@ -181,7 +181,7 @@ test("usage: probe dialog closes the loop (New API template -> test writes cache
 	await dialog.getByPlaceholder("在 New API 网站「个人设置 → 安全」里生成").fill("sk-e2e-newapi-token");
 	await dialog.getByPlaceholder("例如 114514").fill("114514");
 
-	// 测试：成功 → 内联摘要 + toast + 写缓存（卡头 inline 立即变成 $42，等价 cc-switch setQueryData）
+	// 测试：成功 → 内联摘要 + toast + 写缓存（卡头 inline 立即变成 $42，等价一次本地数据回填）
 	await dialog.getByRole("button", { name: "测试", exact: true }).click();
 	await expect(dialog).toContainText("$42", { timeout: 10_000 });
 	await expect(window.locator('[data-testid="provider-usage-inline"][data-provider="ds"]')).toContainText("$42", { timeout: 10_000 });
@@ -241,7 +241,7 @@ test("usage: builtin template shows as recognized pill with zero fields", async 
 
 	// 识别命中：只显示「已内置：官方余额」+ 通用模板 + New API（不全量摆 5 类）。
 	await expect(dialog.getByText("已内置：官方余额")).toBeVisible();
-	// 预制模板差异化：显示已识别供应商徽标（cc-switch DeepSeek 蓝标同款）。
+	// 预制模板差异化：显示已识别供应商徽标（品牌色小标签）。
 	await expect(dialog.getByTestId("usage-probe-recognized-badge")).toContainText("ds");
 	// 无字段（无 API Key/请求地址输入框），开关默认开。
 	await expect(dialog.getByTestId("usage-probe-enable")).toBeChecked();

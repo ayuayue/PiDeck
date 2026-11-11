@@ -1509,10 +1509,9 @@
   display: none;
 }
 /* ============ 行内引用 chip（输入框 + 消息气泡通用） ============
-   2026-09 视觉对齐 Proma（F:/Proma apps/electron/src/renderer/components/ai-elements/
-   rich-text-input.tsx 内联 <style>）：无边框、4px 圆角、13px/500、gap 2px、
-   baseline 对齐，且底色与文字、图标同源（类型色浅底 + 同色文字），
-   图标用 currentColor 跟随文字色——这是 Proma chip 最核心的观感。
+   2026-09 定稿外观：无边框、4px 圆角、13px/500、gap 2px、baseline 对齐，
+   且底色与文字、图标同源（类型色浅底 + 同色文字），
+   图标用 currentColor 跟随文字色——这是 chip 观感的核心。
    颜色仍走 foundation.css 的 --color-chip-* 语义 token（不随 data-accent 洗白），
    底色由同一 token 用 color-mix 派生，暗色主题自动跟随。
    长标签不折行：统一最大 280px 省略，完整值留在 raw/title。 */
@@ -1537,7 +1536,7 @@
     background-color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
     color 0.12s cubic-bezier(0.16, 1, 0.3, 1);
 }
-/* 图标 12px + currentColor（Proma 规格）：不再单独染色，与文字同色 */
+/* 图标 12px + currentColor：不再单独染色，与文字同色 */
 .composer .input-chip__icon,
 .user-turn-text .input-chip__icon {
   display: inline-block;
@@ -1552,7 +1551,7 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* 类型色：底色与文字同源（Proma `bg-primary/10 text-primary` 的做法） */
+/* 类型色：底色与文字同源（同一 token 派生浅底） */
 .composer .input-chip--file,
 .user-turn-text .input-chip--file {
   background: color-mix(in srgb, var(--color-chip-file) 12%, transparent);
@@ -1576,7 +1575,7 @@
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   color: var(--color-accent);
 }
-/* hover：同色加深一档（Proma 0.16~0.20 的观感） */
+/* hover：同色加深一档（12% → 20% 浅底，加深不换色） */
 .composer .input-chip--file:hover,
 .user-turn-text .input-chip--file.clickable:hover {
   background: color-mix(in srgb, var(--color-chip-file) 20%, transparent);
@@ -2381,6 +2380,36 @@
 @media (prefers-reduced-motion: reduce) {
   .turn-row--top-fresh,
   .user-turn--top-fresh {
+    animation: none !important;
+  }
+}
+
+/* ── 历史消息改写遮罩（重发/编辑/删除/fork/回退）──
+ * 目的：点击即时反馈 + 切会话平滑过渡（此前热会话 fork 无遮罩，重发/编辑表现为「点了没反应、过一会儿会话自己换了」）。
+ * 遮罩只动 opacity（背景用 bg-panel/75 + backdrop-blur），不改布局尺寸、不遮 scroll 容器本身，
+ * 故不会引起高度抖动或滚动跳变；淡出与 timeline-content-enter 的 160ms 同曲线衔接。 */
+@keyframes history-overlay-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes history-overlay-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.history-overlay-enter {
+  animation: history-overlay-enter 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.history-overlay-exit {
+  animation: history-overlay-exit 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* fork 切走后新会话侧的引用计数退场面板：只淡出，不拦截交互（pointer-events:none 挂在用法处）。 */
+.history-switch-overlay {
+  animation: history-overlay-exit 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .history-overlay-enter,
+  .history-overlay-exit,
+  .history-switch-overlay {
     animation: none !important;
   }
 }

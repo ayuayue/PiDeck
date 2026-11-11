@@ -349,5 +349,5 @@ function pruneAgentBindings(bindings: Record<string, string>, agentId: string): 
 
 /** 深拷贝返回值：IPC 快照与渲染层共享结构，调用方改字段不会污染内存态。 */
 function cloneSerializable<T>(value: T): T {
-	return JSON.parse(JSON.stringify(value)) as T;
+	return structuredClone(value) as T;
 }

@@ -1,3 +1,64 @@
+## v0.12.0 (2026-11-11)
+
+This release connects PiDeck across machines: remote workspaces available in stable builds, parent/child sessions and a floating question card — plus long-due file, editor and sidebar work.
+
+### 🚀 New Features
+- **Remote workspaces become a product capability** — remote is no longer gated by the update channel: stable and dev register the same SSH capabilities, with identical entry points, IPC, trust and host-key pin semantics.
+- **Linked sessions (parent / child conversations)** — a session can open child sessions, nested in the sidebar, and every finished turn posts its report back to the parent; the Activity view nests children under their parent too, and relationships can be cleaned up.
+- **The question card floats above the timeline** — the ask card is no longer inlined in the message flow: it collapses, drags and remembers its position, and starts centred at the message-column / composer width; batch questions can be skipped one by one, and closing or unconfirmed input no longer swallows the answers already given.
+- **One environment switch for Pi config** — the whole Pi panel loads one of local / an SSH host / the WSL environment, and the tab strip shows which; the SSH Auth page is a read-only derived view (provider / credential type / configured) where credentials never leave that host (helper 1.28.0).
+- **The WSL target follows Developer settings** — there is exactly one WSL environment: turn it on and pick a distribution / user under Settings → Developer; Settings → Connections now lists SSH hosts only, with no second WSL profile list.
+- **Remote host rebind wizard** — changing machine or address goes through plan → confirm → execute, clearing stale locks and the old trust anchor, and unfinished rebinds converge on startup.
+- **Remote files open in the centre editor** — files in remote projects open in the main editor column, read-only projects no longer pretend to be writable, and remote / local / WSL directory pages share the same Git status colouring and ignore decoration.
+- **Office / WPS editing, spreadsheets and video preview** — docx / xlsx open with Office or WPS, csv opens as a table with double-click cell editing, and mp4 gets a play button.
+- **Real macOS signing and notarization, with in-app updates** — Developer ID signing plus notarytool notarization, in-app check / download / restart-and-install, a fixed keychain authentication failure for arm64 signing, and release gates that stop unsigned or un-notarized builds.
+- **Safe-share export** — export a session as a previewable HTML copy with optional hiding of thinking, tool arguments / results, images and system messages, workspace paths removed and common credentials or URL tokens redacted; the complete export stays byte-for-byte as before.
+- **Sidebar group tree and project sorting** — the group tree becomes two levels that de-duplicate the project list and reuse the session context menu for grouped sessions; session groups show per chat / project scope while the Activity group stays ungrouped, and projects sort by manual order, recent activity, creation time or title.
+
+### ✨ Improvements
+- **Word-wrap toggle for code blocks** — a toolbar switch in the session code block, remembered per machine and never written to `settings.json`.
+- **Agent panel and composer commands on the web** — the browser build can open the agent catalogue and use `/` commands and composer quick actions, and Using an agent lets you choose which project to create the session in.
+- **Instant feedback for resend / edit / delete** — the action enters its working state immediately, and switching long sessions no longer flashes stale content.
+- **Session tab tooltips only follow hover** — returning to the window no longer pops the tooltip open.
+- **Toolbar recall restores maximised / full-screen** — and the full-screen state persists, so tray recall no longer drops back to a small window.
+- **Commit suggestions need real file changes** — no diff, no prompt to commit.
+- **A global “reduce motion” switch in Appearance** — suppresses non-essential animation everywhere.
+- **The process panel shows child-process CPU** — diagnostics attribute CPU per process, so pi, terminals and sidecars are separable.
+- **EasyTier network keys are masked** — with an eye toggle to verify, instead of sitting in plain text.
+- **Better settings search and navigation** — the command palette and the sidebar share one set of titles, so deep settings are easier to find.
+
+### 🔧 Performance
+- **CodeMirror loads lazily** — the remote file editor loads it on open, so sessions start faster.
+- **`@` file completion reuses the Go file index** — completion in large repos no longer rescans every time.
+- **Session fact reads use a position index** — the subscript lookup went from a linear scan to a position index, and virtual rows drop their measurement cache on unmount.
+- **Directory-page ignore checks are cached per revision** — refreshing a directory no longer re-checks every entry.
+
+### 🐛 Fixes
+- **Hand-edited `settings.json` keys are no longer silently deleted** — internal writes only touch the fields they own (#501).
+- **Editing / deleting / resending a large session streams the rewrite** — no more 32 MB full-read limit failures.
+- **The browser drawer and full-screen share one webview host** — switching no longer reloads the page or loses state (#508).
+- **Persistent waiting animations use CSS keyframes** — the filter layer is dropped after the entrance, keeping long sessions scrolling smoothly (#510).
+- **The ask card no longer eats a multi-select as a single choice** — the intent rules were rewritten with single-choice phrases added, so `ask_question`'s “pick exactly one” is not treated as multi-select (#526).
+- **Batch questions can be skipped one at a time** — closing or unconfirmed input no longer swallows the answers already given (#506).
+- **“Go to session” from the settings tab jumps back to the Ask session again.**
+- **Closing an agent releases its message cache** — long multi-agent runs no longer grow without bound (#519).
+- **Electron upgraded to 43.8.7** — fixes the missing tray icon on GNOME (#521).
+- **The prompt-library assets upload with every release** — and the pipeline asserts both assets exist before pointing the tag at latest, so clients cannot get a permanent “download failed”.
+- **Aligned with pi 1.5.1** — template-argument quoting semantics and ordered shutdown match upstream.
+- **A bun-installed pi is found again** — prompt prediction / enhancement / login no longer collapse into sdk-unavailable.
+- **Prompt prediction stops after an unfinished first turn or a cancellation.**
+- **Local file writes take an optimistic lock** — external changes are no longer silently overwritten.
+- **The four-step connection check no longer sticks on “in progress”** — unverified hosts open the editor to continue, and connect / retry spins inside the button.
+- **Remote drafts are flushed before installing an update** — an unwritable draft blocks the install instead of losing remote edits.
+- **Web agent catalogue requests time out and retry** — with a relaxed server keep-alive, so weak networks stop spinning forever.
+- **Queued messages no longer send twice** — fixes the duplicate delivery inside the accepted window (#523).
+
+### 🙏 Thanks
+
+Thanks to **incredible404-rgb** for linked parent / child sessions with sidebar nesting and per-turn reports (#509), the ask card floating above the timeline (#507) and per-question skipping for batch questions (#506); to **future0923** for Developer ID signing and notarization, in-app updates and release gates (#515), plus the Electron download mirror for install and packaging (#517); to **KingLingo** for the Spotlight icon corruption fix (#497), the permission-identity check after a stable-signed update (#498) and the signing / update and dev-channel regression coverage (#516); to **op15066212** for fixing queued messages sending twice (#523), clearing orphan session entries left by deleted sources (#525) and silently dropped unimplemented UI methods (#531), wiring the virtualization guard into CI (#524), moving session fact reads to a position index (#528), and continuing to close out the dev guard (#527) and the remote helper's `config.mjs` contract (#530); to **san-ren** for fixing blank default-provider / model dropdowns (#502), normalizing plugin-market version tags (#503) and the multi-select intent being read as single-select (#526); and to **bfzha** for turning remote workspaces into a product capability (rebind wizard, remote files in the centre editor, Git ignore colouring, draft flushing before an update and optimistic file-write locks), along with the pi 1.5.1 alignment, the local / remote file-provider merge and the IPC clean-up.
+
+Special thanks to **罪**, **橙子** and **微时** for the model services that power this project 🎉
+
 ## v0.11.3 (2026-11-07)
 
 The preview panel finally has a word-wrap switch: long lines no longer force horizontal dragging, in the diff view and the source view alike.
@@ -199,15 +260,15 @@ Special thanks to **罪**, **橙子** and **微时** for providing the model ser
 
 ## v0.9.7 (2026-10-26)
 
-The through-line of this release is a visual consolidation aligned with ZCode: the session page settles into a three-layer surface model with typography, shadows and control backgrounds aligned item by item; the thinking-intensity picker is rebuilt as a gradient intensity bar; and the Web gains explicit sidebar paging plus conditional requests, keeping large workspaces light.
+The through-line of this release is a visual consolidation: the session page settles into a three-layer surface model with typography, shadows and control backgrounds tightened item by item; the thinking-intensity picker is rebuilt as a gradient intensity bar; and the Web gains explicit sidebar paging plus conditional requests, keeping large workspaces light.
 
 ### 🚀 New Features
-- **Thinking-intensity picker rebuilt: ZCode-style gradient intensity bar** — Intensity levels move from discrete buttons to a gradient intensity bar: the slider snaps to discrete levels, the popover stays open while adjusting so you can try levels back to back, and the tap/drag accidentally dismissing the popover is fixed along the way.
+- **Thinking-intensity picker rebuilt: gradient intensity bar** — Intensity levels move from discrete buttons to a gradient intensity bar: the slider snaps to discrete levels, the popover stays open while adjusting so you can try levels back to back, and the tap/drag accidentally dismissing the popover is fixed along the way.
 - **Sidebar sticky group headers switch** — When the sidebar session list scrolls, group headers can stay pinned at the top instead of scrolling away, so you always know which group you are in on long lists; on by default and can be turned off in Settings (#408).
 - **Web: explicit paging for the sidebar session list** — First page of 10 + "show more (N left)" at 20 per page + collapse, matching the desktop behavior; the scroll sentinel that kept fetching more pages on first layout is gone — previously expanding one big project could instantly stack 57 rows.
 
 ### ✨ Improvements
-- **A visual pass aligning the UI with ZCode** — The session page settles into a three-layer surface model (canvas tier + white card + ink tint), collapsing six scattered light-theme grays into one canvas, one card and one tint; Markdown headings flatten (h1 1.5→1.3em etc.), inline code steps down a size, and default button heights align with ZCode; the process layer drops its shadows, the right drawer returns to a white panel, and the three white mixes of the top bar (tab strip / drawer spacer / window controls) converge to one canvas tier; gray-background chips across the process layer — tool-row commands, model badges and stat chips — all strip to bare text, and the sidebar's segmented-tab indicator and "show more" row return to the selected/bare-row discipline; the Git panel's AI summary button joins the "commit" primary button as one group (outline white card, equal 32px height) and the branch filter trigger loses its white background back to a bare trigger; the composer stop button switches to danger red so interrupting reads as interruptible; and the session outline rail's ticks thicken from 1px to 2px.
+- **A visual pass tightening the UI** — The session page settles into a three-layer surface model (canvas tier + white card + ink tint), collapsing six scattered light-theme grays into one canvas, one card and one tint; Markdown headings flatten (h1 1.5→1.3em etc.), inline code steps down a size, and default button heights tighten one step; the process layer drops its shadows, the right drawer returns to a white panel, and the three white mixes of the top bar (tab strip / drawer spacer / window controls) converge to one canvas tier; gray-background chips across the process layer — tool-row commands, model badges and stat chips — all strip to bare text, and the sidebar's segmented-tab indicator and "show more" row return to the selected/bare-row discipline; the Git panel's AI summary button joins the "commit" primary button as one group (outline white card, equal 32px height) and the branch filter trigger loses its white background back to a bare trigger; the composer stop button switches to danger red so interrupting reads as interruptible; and the session outline rail's ticks thicken from 1px to 2px.
 - **Web: conditional requests for /api/state** — The server attaches an ETag to session state and returns 304 when the directory is unchanged, so the client no longer re-downloads the 94KB gzipped full session projection or rebuilds the array that would trigger downstream re-computation.
 
 ### 🐛 Fixes
@@ -247,7 +308,7 @@ The through-line of this release is lightness and steadiness: timeline virtualiz
 - **Streaming and RPC hot paths** — ANSI stripping for streaming deltas moves to the emit site, removing O(N²) accumulated copies; the RPC line pump switches to chunked buffers, so huge frame responses (tens-of-MB session snapshots) stop being flattened whole twice (pi/ACP and the Go sidecars share one implementation); state pushes gain a 250ms throttle and a version-key gate, so tool-dense turns no longer clone and ship the full state dozens of times per second.
 - **Faster prompt library and skill store** — The store's first open fetches only the category bar (no more pulling all 4,012 entries with BLOBs just to render categories); paging uses a light projection with descriptions filled on demand; the sql.js instance is reused by (size, mtime) instead of re-reading 4.34MB every time; template and skill lists cache for 1.5 seconds with explicit invalidation on writes; and offline remote checks move to the background so the list never stalls.
 - **Main process de-blocking** — Taskbar icon scanning leaves the window-creation critical path; DSH disk scanning yields the event loop slice by slice so external session listings stop freezing the main process; settings writes get trailing merges so high-frequency changes stop rewriting the file at triple volume; agent invocation counts merge into a 1-second flush; checkpoint bookkeeping goes async; and Git refs watching is exempted from UNC polling on WSL projects.
-- **Look & feel and motion, consolidated (ZCode feedback)** — Zero-hue grays, inky borders, nested-radius decay, shadow step-down and type-size discipline land in phases; tool-call rows follow process-line typography (silent when done, verb labels + monospace object chips, localized keyword dictionary); dozens of collapsible panels share one folding primitive with animated height; closing session / terminal tabs, deleting sidebar activity rows, agents and favorites all fade and collapse with motion; and mermaid colors follow theme switches without going stale.
+- **Look & feel and motion, consolidated** — Zero-hue grays, inky borders, nested-radius decay, shadow step-down and type-size discipline land in phases; tool-call rows follow process-line typography (silent when done, verb labels + monospace object chips, localized keyword dictionary); dozens of collapsible panels share one folding primitive with animated height; closing session / terminal tabs, deleting sidebar activity rows, agents and favorites all fade and collapse with motion; and mermaid colors follow theme switches without going stale.
 - **Git panel and end-of-turn files** — Git actions are grouped by function with sync actions promoted to the top repository bar; the end-of-turn "modified files" chip opens the diff on left-click, with the preview moved to the context menu; auto-scroll after sending can be turned off under feature modules.
 
 ### 🐛 Fixes
@@ -895,7 +956,7 @@ Thanks to everyone who filed issues and feature requests on GitHub! 🙏
 ## v0.7.5 - 2026-09-12
 
 ### 🚀 New Features
-- **Inline reference chips aligned with Proma and self-contained persistence** - Composer and bubble reference chips now share the Proma skeleton (tinted background, same-hue text and icon, no border, baseline aligned); file chips show only the file name, directory references use a folder icon, and only the `@` prefix remains since the icon conveys the type. Bubble reference chips render back at their original position so multiple references are no longer reordered. Reference / session / skill / prompt-template blocks persist self-containedly: switching sessions or restarting still restores chips, and edit-resend or fork replay no longer leaks raw XML. The file-tree context menu "add to conversation reference" now supports directories (`@dir/`, the trailing slash distinguishing a directory from a mention) and reuses the same reference format as drag-and-drop and the editor context menu.
+- **Inline reference chips and self-contained persistence** - Composer and bubble reference chips now share one skeleton (tinted background, same-hue text and icon, no border, baseline aligned); file chips show only the file name, directory references use a folder icon, and only the `@` prefix remains since the icon conveys the type. Bubble reference chips render back at their original position so multiple references are no longer reordered. Reference / session / skill / prompt-template blocks persist self-containedly: switching sessions or restarting still restores chips, and edit-resend or fork replay no longer leaks raw XML. The file-tree context menu "add to conversation reference" now supports directories (`@dir/`, the trailing slash distinguishing a directory from a mention) and reuses the same reference format as drag-and-drop and the editor context menu.
 - **Sidebar session hover preview card** - Hovering a sidebar session row for 1.5s opens a preview card (debounced against races), so you can confirm a session's content without opening it first.
 - **Configurable Git executable path with detection** - A new `gitExecutablePath` setting: empty means auto-resolve (PATH → common install locations), and a configured value applies to every Git operation (GitService / WorktreeService / checkpoint / git init). The Git tab gains a path input with detect / browse / reset buttons showing source, version and path; saving applies immediately without a restart.
 - **Built-in prompt templates restored and AtomGit mirror added** - Built-in prompt templates are back in the prompt store; the README and docs-site link to the AtomGit mirror.
@@ -1097,7 +1158,7 @@ Thanks to all group members who submitted suggestions and bug reports! 🙏
 ## v0.7.2 - 2026-08-30
 
 ### 🚀 New Features
-- **Usage query rebuild (aligned with cc-switch)** - Unified usage display across Models / Auth / DSH (amount or percentage at the bottom-right of the card + bar-chart icon entry in the header); per-provider enable switch + built-in template auto-detection + generic / New API declarative templates + timeout / auto-query interval (default 5 min, 0 = manual only); no automatic probing when disabled or unsupported.
+- **Usage query rebuild** - Unified usage display across Models / Auth / DSH (amount or percentage at the bottom-right of the card + bar-chart icon entry in the header); per-provider enable switch + built-in template auto-detection + generic / New API declarative templates + timeout / auto-query interval (default 5 min, 0 = manual only); no automatic probing when disabled or unsupported.
 - **Multi-segment usage badges** - Usage now renders multi-window segments (5h / weekly / MCP, three-tier percentages): cards show all segments dot-separated, model-selector rows show the most severe segment for alerting; segment labels share one table with the detail panel, and custom probe window names are shown as-is.
 - **DSH usage query pipeline** - Same usage display and probe configuration on the DSH model config page: config stored at `$DSH_HOME/.pideck/usage-probes.json`, credentials read from the DSH credential store (`.credentials.yaml`); identical to the pi side and fully isolated.
 - **Usage query AI assist** - The usage dialog gains an AI-assist button that drops a prepared prompt (driving the usage-probe skill) into the main session composer to look up unsupported providers; without an active session it copies the prompt to the clipboard instead.
@@ -1592,7 +1653,7 @@ community testing environment 🎉
   cards + request details); configurable timeout (default 30s → 120s);
   "unlimited" max_tokens option; saves unified through the settings dialog
   header.
-- **Collapsible thinking line (deepseek-harness mode)** - Thinking is
+- **Collapsible thinking line** - Thinking is
   collapsed to a single line by default: while streaming it shows the latest
   line with a sweep animation, then switches to the first line and stops (the
   earlier marquee approach was removed); clicking the title row expands the

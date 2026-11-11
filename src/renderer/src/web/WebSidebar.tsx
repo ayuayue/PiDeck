@@ -18,6 +18,7 @@ import { WebBrandLockup } from "./WebBrandLockup";
 import { WebBottomSheet } from "./WebBottomSheet";
 import { WEB_SIDEBAR_INITIAL_VISIBLE, growSidebarWindow, resolveSidebarWindow } from "./webSidebarPaging";
 import { groupWebSessionsByParent } from "./webSidebarSessions";
+import { displayProjectName } from "./webProjectLabel";
 import { cn } from "@/lib/utils";
 import { isActiveSessionStatus, sessionStatusDotClass } from "@/agentListDisplay";
 import { WebBackendMark } from "./WebBackendMark";
@@ -37,16 +38,6 @@ const fieldInputClass = "h-full min-w-0 flex-1 border-0 bg-transparent px-0 py-0
 
 /** 与桌面 SessionTree 一致：只有当前会话灰底，父项目行不加选中态。 */
 const selectedRowClass = "active bg-bg-active text-foreground";
-
-/** 与桌面 ProjectTree 相同的项目目录名展示：chat 项目显示「聊天」，
- *  其余取路径末段；用户重命名过（name 与目录名不同）时优先展示自定义别名。 */
-function displayProjectName(project: WebProject): string {
-	if (project.kind === "chat") return t("app.chatProject");
-	const normalized = project.path.replace(/\\/g, "/").replace(/\/+$/, "");
-	const dirName = normalized.split("/").pop() || "";
-	if (!dirName) return project.name || project.path;
-	return project.name && project.name !== dirName ? project.name : dirName;
-}
 
 function matchesSearch(value: string, search: string): boolean {
 	return !search || value.toLowerCase().includes(search.toLowerCase());
@@ -336,23 +327,25 @@ export function WebSidebar(props: {
 				</div>
 				<div className="sidebar-body flex min-h-0 flex-1 flex-col gap-2 px-3 pt-2 pb-0">
 					{/* 高频动作独立于项目树：与首页直发同取内置 chat 项目，进入后直接聚焦输入；
-					    项目行右侧的 + 仍负责「在指定项目新建」。36px 实心主色与发送钮同一套按钮语言。 */}
+					    项目行右侧的 + 仍负责「在指定项目新建」。
+					    2026-11 走查：实心主色整块与下方搜索框各说一套（一个填充块 + 一个描边框），
+					    改成与桌面侧栏「新建会话 / 搜索」同一种扁平行动作行——同 36px 高、同 10px 圆角、
+					    同图标缩进，主次靠字重与图标色区分，不再用一大块品牌色压住列表。 */}
 					{newSessionProject ? (
-						<Button
+						<button
 							type="button"
-							size="default"
-							className="h-9 w-full shrink-0 justify-center gap-1.5 rounded-lg bg-[var(--color-accent)] text-control font-medium text-[var(--color-text-inverse)] shadow-none hover:bg-[var(--color-accent-strong)] hover:text-[var(--color-text-inverse)]"
+							className="flex h-9 w-full shrink-0 items-center gap-2 rounded-lg px-2 text-left text-control font-medium text-foreground transition-colors hover:bg-muted/60 disabled:opacity-60"
 							disabled={Boolean(creatingProjectId)}
 							onClick={() => props.onCreateSession(newSessionProject.id)}
 							title={t("app.newSession")}
 						>
-							{creatingProjectId === newSessionProject.id ? <span className="size-3.5 animate-pideck-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" /> : <CirclePlus className="size-4" aria-hidden="true" />}
-							{t("app.newSession")}
-						</Button>
+							{creatingProjectId === newSessionProject.id ? <span className="size-4 shrink-0 animate-pideck-spin rounded-full border-2 border-current border-t-transparent text-muted-foreground" aria-hidden="true" /> : <CirclePlus className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+							<span className="min-w-0 flex-1 truncate">{t("app.newSession")}</span>
+						</button>
 					) : null}
-					{/* 搜索行：字段 + 新建项目钮同高同圆角，一个复合控件而非两个浮元素 */}
+					{/* 搜索行：输入框与「新建项目」同 36px / 同 10px 圆角 / 同描边语言，读作一对控件。 */}
 					<div className="search-row flex shrink-0 items-center gap-1.5">
-						<div className={cn(fieldChromeClass, "search-box min-w-0 flex-1 gap-1 pr-1 pl-2.5")}>
+						<div className={cn(fieldChromeClass, "search-box min-w-0 flex-1 gap-1 pr-1 pl-2")}>
 							<Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 							<Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("app.search")} aria-label={t("app.search")} type="text" inputMode="search" enterKeyHint="search" autoComplete="off" spellCheck={false} className={fieldInputClass} />
 							{search ? (
@@ -361,16 +354,7 @@ export function WebSidebar(props: {
 								</button>
 							) : null}
 						</div>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							className={cn("shrink-0 rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground", addingProject && "bg-muted text-foreground")}
-							onClick={() => setAddingProject((value) => !value)}
-							aria-label={t("web.newProject")}
-							aria-expanded={addingProject}
-							title={t("web.newProject")}
-						>
+						<Button type="button" variant="outline" size="icon" className={cn("size-9 shrink-0 rounded-lg text-muted-foreground", addingProject && "bg-muted text-foreground")} onClick={() => setAddingProject((value) => !value)} aria-label={t("web.newProject")} aria-expanded={addingProject} title={t("web.newProject")}>
 							<FolderPlus className="size-4" aria-hidden="true" />
 						</Button>
 					</div>

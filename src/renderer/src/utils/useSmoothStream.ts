@@ -4,7 +4,7 @@ import { classifySmoothStreamChange, pushGraphemes } from "./smoothStreamContent
 /**
  * useSmoothStream —— 把「后端一次性到达的一大段文本」摊成逐字显示。
  *
- * 设计思路沿用 Cherry Studio 的打字机。
+ * 打字机式的逐字显示：grapheme 队列 + rAF 步进，而不是固定定时器。
  *
  * 四步：
  * 1. 变更分类：用 startsWith 判断是追加 / 回退 / 替换，追加部分按 Intl.Segmenter 切字符

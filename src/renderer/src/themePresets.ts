@@ -24,7 +24,7 @@ export const ACCENT_PRESETS: readonly AccentPreset[] = [
 	// 出厂默认使用黑白灰；绿色保留为显式可选主题，避免默认界面被高饱和色占据。
 	// preview 与 foundation.css 的默认 --color-accent 保持一致（浅色 zinc-900 近黑）。
 	{ id: "default", labelKey: "settings.accent.default", preview: "#18181b" },
-	// 绿色预览与 foundation.css 的森系绿主色保持一致（#4a7854，参考 Proma 森息配色）。
+	// 绿色预览与 foundation.css 的森系绿主色保持一致（#4a7854）。
 	{ id: "green", labelKey: "settings.accent.green", preview: "#4a7854" },
 	{ id: "blue", labelKey: "settings.accent.blue", preview: "#2563eb" },
 	{ id: "purple", labelKey: "settings.accent.purple", preview: "#7c3aed" },
@@ -111,7 +111,7 @@ export const PALETTE_PRESETS: readonly PalettePreset[] = [
 		id: "fresh-green",
 		labelKey: "settings.palette.freshGreen",
 		descKey: "settings.palette.freshGreenDesc",
-		// 全屏森系绿：纸感浅绿表面 + 鼠尾草绿主色（参考 Proma theme-forest-light），
+		// 全屏森系绿：纸感浅绿表面 + 鼠尾草绿主色，
 		// 主色 = data-accent="green"（#4a7854）。
 		accent: "green",
 		preview: "#f6f7f2",

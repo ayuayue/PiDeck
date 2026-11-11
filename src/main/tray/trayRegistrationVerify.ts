@@ -1,11 +1,14 @@
 /**
  * Linux 托盘注册验收 —— 纯诊断（不动作）。
  *
- * 背景（详见 docs/archive/plans/linux-tray-icon.md）：GNOME 的 appindicator 扩展 < v66 初始化时逐个
- * `Get` SNI 属性，而 Chromium/Electron 对这类请求一律返回 `Failed`，扩展随即 `destroy()`
- * 该图标且**不再重试** —— 托盘图标永久缺席。v66 改用 `GetAll` 读法后握手正常。
+ * 背景（详见 docs/electron-playbook.md §Linux 托盘）：Electron 43.3.0–43.4.1 的 Chromium
+ * `StatusIconLinuxDbus::Multiplexer` 用一块共享的 `/StatusNotifierItem` 按 destination（well-known 名）
+ * 查图标；GNOME appindicator、xapp-sn-watcher 这类 GDBus 宿主先 `GetNameOwner` 再问 unique name
+ * (`:1.N`)，查不到就一律报 `org.freedesktop.DBus.Error.Failed: error occurred in Get/GetAll`，
+ * 宿主随即 `destroy()` 该图标且**不再重试** —— 托盘图标永久缺席（issue #521）。
+ * Electron 43.5.0（electron#53215）恢复 per-icon 导出后两种地址都能读。
  *
- * 重建 Tray（换 SNI 名字）实测无效：扩展用同样的读法重来，结果不变。
+ * 重建 Tray（换 SNI 名字）实测无效：宿主用同样的读法重来，结果不变。
  * 因此本模块只做一件事：Tray 创建后延迟查一次 watcher 的 `RegisteredStatusNotifierItems`，
  * 把「注册成功 / 未注册 / 环境不可判」写进日志，给用户排障与上游诊断留凭据。
  */

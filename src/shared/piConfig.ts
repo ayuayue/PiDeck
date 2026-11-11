@@ -6,17 +6,84 @@
  * these types: a remote snapshot carries secret positions as configured/missing plus a path list.
  */
 
-/** Which allowlisted agent file a request names. Never a path, never auth.json. */
-export const PI_CONFIG_FILES = ["models", "settings"] as const;
+/**
+ * Which allowlisted agent file a request names. Never a path, never auth.json.
+ *
+ * trust.json 与 mcp.json 与 models/settings 走**同一条** sanitize/patch 通道：秘密键仍只回
+ * configured/missing，补丁可以写入新值、但删不掉秘密键。auth.json 结构性不可达（凭据永不跨机回传），
+ * 因此不在这张表里，也不该被渲染层当成「ssh 可编辑」的文件。
+ */
+export const PI_CONFIG_FILES = ["models", "settings", "trust", "mcp"] as const;
 export type PiConfigFileKey = (typeof PI_CONFIG_FILES)[number];
+
+/**
+ * The WSL scope reads through the distribution's UNC path and writes inside the distribution, so the credential
+ * file is editable there too (same trust level as the Windows HOME). The extra key exists only for this scope;
+ * `PI_CONFIG_FILES` stays the ssh allowlist so `auth` can never be addressed over the helper.
+ */
+export const WSL_PI_CONFIG_FILES = ["models", "settings", "trust", "mcp", "auth"] as const;
+export type WslPiConfigFileKey = (typeof WSL_PI_CONFIG_FILES)[number];
+
+/**
+ * The ssh helper's **read** allowlist. auth.json only appears here: the helper answers a derived provider list
+ * (name / credential type / configured) and never a value or the raw document, so the credential itself stays on
+ * the host. `PI_CONFIG_FILES` remains the patch allowlist and stays at four files.
+ */
+export const SSH_PI_CONFIG_READ_FILES = ["models", "settings", "trust", "mcp", "auth"] as const;
+export type SshPiConfigReadFileKey = (typeof SSH_PI_CONFIG_READ_FILES)[number];
+
+/** File key → the file name pi actually reads in `~/.pi/agent`. One table for the renderer source-file page. */
+export const PI_CONFIG_FILE_NAMES: Record<WslPiConfigFileKey, string> = {
+	models: "models.json",
+	settings: "settings.json",
+	trust: "trust.json",
+	mcp: "mcp.json",
+	auth: "auth.json",
+};
+
+/** true only for a file key the ssh helper may address (never auth). */
+export function isPiConfigFileKey(value: unknown): value is PiConfigFileKey {
+	return typeof value === "string" && (PI_CONFIG_FILES as readonly string[]).includes(value);
+}
+
+/** true only for a file key the WSL scope may address (includes auth). */
+export function isWslPiConfigFileKey(value: unknown): value is WslPiConfigFileKey {
+	return typeof value === "string" && (WSL_PI_CONFIG_FILES as readonly string[]).includes(value);
+}
+
+/** `models.json` → `models`; unknown names return undefined (never inferred). */
+export function piConfigFileKeyFromName(name: unknown): WslPiConfigFileKey | undefined {
+	if (typeof name !== "string") return undefined;
+	for (const key of WSL_PI_CONFIG_FILES) {
+		if (PI_CONFIG_FILE_NAMES[key] === name) return key;
+	}
+	return undefined;
+}
 
 /**
  * Where a config read/write should run. local is the default when the option is absent; ssh is usable only
  * for a host the host store has verified and the connection service has ready (the main backend enforces it);
- * wsl names a WslHostStore profile, whose distro/user resolve the config directory inside that distribution's
- * HOME (never the Windows HOME — a missing environment fails closed with a WSL_CONFIG_* code).
+ * wsl names the application's single WSL environment (settings: wslDistro/wslUser), whose HOME resolves the
+ * config directory inside that distribution (never the Windows HOME — a missing environment fails closed with
+ * a WSL_CONFIG_* code). The renderer carries no distro/user: identity is main-side state only.
  */
-export type PiConfigTarget = { kind: "local" } | { kind: "ssh"; hostId: string } | { kind: "wsl"; hostId: string };
+export type PiConfigTarget = { kind: "local" } | { kind: "ssh"; hostId: string } | { kind: "wsl" };
+
+/**
+ * Which files a target can **write**. The ssh helper's patch allowlist excludes auth.json; local and WSL write
+ * the real directory (Windows HOME / distribution HOME) and therefore cover every file pi reads.
+ */
+export function piConfigFilesForTarget(target: PiConfigTarget): readonly WslPiConfigFileKey[] {
+	return target.kind === "ssh" ? PI_CONFIG_FILES : WSL_PI_CONFIG_FILES;
+}
+
+/**
+ * Which files a target can **read**. ssh additionally answers auth.json, but only as a derived, value-free view
+ * ({@link RemotePiAuthSnapshot}): the credential file is never returned, patched or addressed by path.
+ */
+export function piConfigReadFilesForTarget(target: PiConfigTarget): readonly WslPiConfigFileKey[] {
+	return target.kind === "ssh" ? SSH_PI_CONFIG_READ_FILES : WSL_PI_CONFIG_FILES;
+}
 
 /**
  * Which environment a **resource** surface (skills / prompts / extensions) reads and writes.
@@ -25,7 +92,7 @@ export type PiConfigTarget = { kind: "local" } | { kind: "ssh"; hostId: string }
  * build, so an ssh target is not expressible here and the main-side validator refuses anything outside this union.
  * Absent target means local, the compatibility default every existing renderer call relies on.
  */
-export type PiResourceTarget = { kind: "local" } | { kind: "wsl"; hostId: string };
+export type PiResourceTarget = { kind: "local" } | { kind: "wsl" };
 export type PiResourceOptions = { target?: PiResourceTarget };
 
 /**
@@ -128,6 +195,26 @@ export function isRemotePiConfigWriteReceipt(value: unknown): value is RemotePiC
 	return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "remote" && typeof (value as { version?: unknown }).version === "string";
 }
 
+/**
+ * One provider in a remote auth view. `type` is the credential type pi stored (an unknown type is reported as
+ * `unsupported` rather than guessed); `configured` is the only thing said about the secret itself — there is no
+ * field that could carry its value, and none ever crosses the boundary.
+ */
+export type RemotePiAuthProvider = { provider: string; type: "api_key" | "oauth" | "unsupported"; configured: boolean };
+
+/**
+ * Read-only view of one host's auth.json. This is deliberately not a {@link RemotePiConfigSnapshot}: there is no
+ * `data`, no secret positions and no version to patch against, because the credential file itself is unreachable
+ * over the helper. The version/sha256 still identify the bytes the list was derived from, so the UI can say "this
+ * is what the host has right now" and refresh honestly.
+ */
+export type RemotePiAuthSnapshot = { kind: "remote-auth"; hostId: string; version: string; sha256: string; providers: readonly RemotePiAuthProvider[] };
+
+/** true only for the derived remote auth view (never inferred from a config snapshot or local auth data). */
+export function isRemotePiAuthSnapshot(value: unknown): value is RemotePiAuthSnapshot {
+	return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "remote-auth" && Array.isArray((value as { providers?: unknown }).providers);
+}
+
 /** Extract the stable REMOTE_CONFIG_* code from a rejected IPC call (Electron prefixes its message). */
 export function remotePiConfigCodeFromError(error: unknown): string | undefined {
 	const message = typeof error === "object" && error !== null && "message" in error ? String((error as { message?: unknown }).message ?? "") : String(error ?? "");
@@ -151,7 +238,7 @@ export const WSL_CONFIG_CODES = {
 	pathUnreadable: "WSL_CONFIG_PATH_UNREADABLE",
 	/** models.json/settings.json exists but is not a JSON object (never silently treated as empty). */
 	fileInvalid: "WSL_CONFIG_FILE_INVALID",
-	/** the page/file is outside the wsl scope (auth/trust/mcp/raw are deferred, like the ssh helper). */
+	/** the key is a valid config file but not one this target can address (auth over ssh; unknown names). */
 	unsupported: "WSL_CONFIG_UNSUPPORTED",
 	/** the wsl config store was not assembled for this build. */
 	unavailable: "WSL_CONFIG_UNAVAILABLE",
@@ -161,25 +248,26 @@ export type WslConfigCode = (typeof WSL_CONFIG_CODES)[keyof typeof WSL_CONFIG_CO
 export const WSL_CONFIG_CODE_SET: ReadonlySet<string> = new Set(Object.values(WSL_CONFIG_CODES));
 
 /**
- * One wsl config snapshot. label/distro/user are provenance (which profile produced these bytes); the path
- * stays in the main process because configGetDir is the single local directory, not a per-target path.
+ * One wsl config snapshot. distro/user are provenance (which distribution and Linux user produced these bytes);
+ * the path stays in the main process because configGetDir is the single local directory, not a per-target path.
  */
 export type WslPiConfigSnapshot = {
 	kind: "wsl";
-	hostId: string;
-	file: PiConfigFileKey;
-	label: string;
+	file: WslPiConfigFileKey;
 	distro: string;
 	user: string;
+	/** Parsed object exactly as pi would read it (missing file = the canonical empty document). */
 	data: Record<string, unknown>;
+	/** Source text of the file (missing file = the canonical empty document's text); the raw page edits this. */
+	raw: string;
 };
 
 /** Successful wsl write receipt: whole-file write under the resolved distribution HOME. */
-export type WslPiConfigWriteReceipt = { kind: "wsl"; hostId: string; file: PiConfigFileKey };
+export type WslPiConfigWriteReceipt = { kind: "wsl"; file: WslPiConfigFileKey };
 
 /** true only for a snapshot the wsl store produced (never inferred from local data). */
 export function isWslPiConfigSnapshot(value: unknown): value is WslPiConfigSnapshot {
-	return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "wsl" && typeof (value as { hostId?: unknown }).hostId === "string";
+	return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "wsl" && typeof (value as { distro?: unknown }).distro === "string";
 }
 
 /** Extract the stable WSL_CONFIG_* code from a rejected IPC call (Electron prefixes its message). */

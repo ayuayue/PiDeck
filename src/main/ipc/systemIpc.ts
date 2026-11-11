@@ -22,7 +22,7 @@ import { promisify } from "node:util";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { PiMcpCli } from "../pi/piMcpCli";
 import { piChangelogService } from "../pi/PiChangelogService";
-import { validateMcpConfigFile } from "../config/mcpConfig";
+import { mcpDocsUrl, validateMcpConfigFile } from "../config/mcpConfig";
 import { discoverExternalAgentProviders, resolveExternalAgentKey } from "../config/externalAgentDiscovery";
 import { PiResourceConfigService } from "../config/PiResourceConfigService";
 import { PiResourceStateStore } from "../config/PiResourceStateStore";
@@ -35,11 +35,12 @@ import { invalidatePiInstallationCache, type PiLocator } from "../pi/PiLocator";
 import { validateInstallCommand } from "../pi/installCommandPolicy";
 import { resolvePiInstallGuard } from "../pi/piInstallGuard";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
-import { hasWslSettingsChanged } from "../wsl/WslProjectEnvironment";
+import { hasWslSettingsChanged, resolveSettingsWslIdentity } from "../wsl/WslProjectEnvironment";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { RemotePiConfigBackend } from "../config/RemotePiConfigBackend";
-import { createPiConfigRouter, rejectRemotePiConfigTarget, type PiConfigReadRoute, type PiConfigWriteRoute } from "../config/PiConfigRouter";
+import { createPiConfigRouter, rejectRemotePiConfigTarget, type PiConfigRawReadRoute, type PiConfigReadRoute, type PiConfigWriteRoute } from "../config/PiConfigRouter";
+import { PI_CONFIG_FILE_NAMES, piConfigFileKeyFromName } from "../../shared/piConfig";
 import type { PiResourceManagerPool } from "../config/PiResourceManagerPool";
 import { readPiResourceOptions } from "../config/piResourceTarget";
 import { resolvePiResourceWriteManager } from "../config/piResourceWriteRouting";
@@ -477,26 +478,47 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	 * distribution HOME on every call (never configureWsl, so two targets cannot pollute each other's configDir).
 	 * Provider test/fetch/usage stay local-only and refuse any non-local target before any request.
 	 */
+	/** ConfigFileReadResult → 源文件页要的形状（raw + 可选诊断）。 */
+	const pickRaw = <T>(result: { raw: string; diagnostic?: import("../../shared/types").ConfigFileDiagnostic }): { raw: string; diagnostic?: import("../../shared/types").ConfigFileDiagnostic } => ({ raw: result.raw, diagnostic: result.diagnostic });
 	const piConfigRouter = createPiConfigRouter({
 		local: {
 			getModelsConfig: () => configManager.getModelsConfig(),
 			getSettingsConfig: () => configManager.getSettingsConfig(),
 			saveModelsConfig: (data) => configManager.saveModelsConfig(data),
 			saveSettingsConfig: (settings) => configManager.saveSettingsConfig(settings),
+			/** 源文件页的统一读取：models/settings/auth/trust 走各自的 ConfigManager 读取器，mcp 取可写层原文。 */
+			getRawConfig: async (file) => {
+				if (file === "models") return pickRaw(await configManager.getModelsConfig());
+				if (file === "settings") return pickRaw(await configManager.getSettingsConfig());
+				if (file === "auth") return pickRaw(await configManager.getAuthConfig());
+				if (file === "trust") return pickRaw(await configManager.getTrustConfig());
+				const snapshot = await configManager.getMcpConfig();
+				return { raw: snapshot.writableRaw, diagnostic: snapshot.writableError ? { fileName: "mcp.json", message: snapshot.writableError, docsUrl: mcpDocsUrl() } : undefined };
+			},
+			saveRawConfig: (file, raw) => configManager.saveRawConfig(PI_CONFIG_FILE_NAMES[file], raw),
 		},
 		remote: remotePiConfig,
-		wsl: createWslPiConfigStoreFor(app.getPath("userData"), { warn: (message, details) => void appLogger.warn("wsl", message, details) }),
+		wsl: createWslPiConfigStoreFor(app.getPath("userData"), {
+			warn: (message, details) => void appLogger.warn("wsl", message, details),
+			readWslIdentity: async () => resolveSettingsWslIdentity(settingsStore.get()),
+		}),
 	});
-	// 非本机目标的回程 DTO：local 原样返回；wsl 带来源（档案/发行版/用户），ssh 带脱敏快照（不含明文密钥）。
-	const configReadDto = (routed: PiConfigReadRoute<unknown>) => (routed.kind === "local" ? routed.value : routed.kind === "wsl" ? { raw: JSON.stringify(routed.data, null, 2), parsed: routed.data, wsl: routed } : { raw: JSON.stringify(routed.data, null, 2), parsed: routed.data, remote: routed });
-	/** 非本机写回执：ssh 只带 version，wsl 只带档案 id；都只回「写成功」，本机缓存由调用方决定是否失效。 */
+	// 非本机目标的回程 DTO：local 原样返回；wsl 带发行版/用户来源，ssh 带脱敏快照（不含明文密钥）。
+	const configReadDto = (routed: PiConfigReadRoute<unknown>) => (routed.kind === "local" ? routed.value : routed.kind === "wsl" ? { raw: routed.raw, parsed: routed.data, wsl: routed } : { raw: JSON.stringify(routed.data, null, 2), parsed: routed.data, remote: routed });
+	/** 源文件级读取的回程：本机/wsl 直接给原文（+ 诊断），ssh 给脱敏快照；auth.json 的 ssh 分支只有派生视图（无 raw）。 */
+	const configRawReadDto = (routed: PiConfigRawReadRoute) => {
+		if (routed.kind === "remote-auth") return { raw: "", remoteAuth: routed };
+		if (routed.kind === "remote") return { raw: JSON.stringify(routed.data, null, 2), remote: routed };
+		return routed.value;
+	};
+	/** 非本机写回执：ssh 只带 version，wsl 只带文件名；都只回「写成功」，本机缓存由调用方决定是否失效。 */
 	const configWriteDto = (routed: PiConfigWriteRoute, file: string) => {
 		if (routed.kind === "local") return routed.value;
 		if (routed.kind === "remote") {
 			void appLogger.info("config", "Remote config patched", { file, hostId: routed.hostId, version: routed.version });
 			return { valid: true, remote: routed };
 		}
-		void appLogger.info("config", "WSL config written", { file, hostId: routed.value.valid ? routed.value.receipt.hostId : undefined });
+		void appLogger.info("config", "WSL config written", { file });
 		return routed.value.valid ? { valid: true, wsl: routed.value.receipt } : routed.value;
 	};
 
@@ -2044,6 +2066,12 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	// ── 配置管理 ─────────────────────────────────────────────────────
 
 	ipcMain.handle(ipcChannels.configGetModels, async (_event, options?: unknown) => configReadDto(await piConfigRouter.readModels(options)));
+	// 源文件页的统一读取（本机/ WSL 原文 + 诊断；ssh 脱敏快照，auth.json 只回派生视图）：fileName 只认五个 pi 配置文件名。
+	ipcMain.handle(ipcChannels.configGetRaw, async (_event, fileName: unknown, options?: unknown) => {
+		const file = piConfigFileKeyFromName(fileName);
+		if (!file) return { raw: "", diagnostic: undefined, unsupported: true };
+		return configRawReadDto(await piConfigRouter.readRaw(file, options));
+	});
 	// 预览/执行单供应商互迁：方向必须是枚举，供应商名在服务层再校验。
 	ipcMain.handle(ipcChannels.configPreviewProviderMigration, async (_event, direction: unknown) => {
 		if (direction !== "pi-to-dsh" && direction !== "dsh-to-pi") {
@@ -2246,14 +2274,27 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		void appLogger.info("config", "Pi settings config saved", { keys: Object.keys(settings ?? {}) });
 		return result;
 	});
-	ipcMain.handle(ipcChannels.configSaveRaw, async (_event, fileName, rawJson) => {
-		const result = await configManager.saveRawConfig(fileName, rawJson);
+	/**
+	 * 源文件级保存（本机 / WSL 整文件原文；ssh 只接受 merge-patch 守卫，body 在 ssh 路由被忽略）。
+	 * 未知文件名仍走 ConfigManager，保持旧调用的 "fileNotEditable" 文案不变。
+	 */
+	ipcMain.handle(ipcChannels.configSaveRaw, async (_event, fileName: unknown, rawJson: unknown, options?: unknown) => {
+		const file = piConfigFileKeyFromName(fileName);
+		if (!file) return await configManager.saveRawConfig(String(fileName), String(rawJson));
+		if (typeof rawJson !== "string") return { valid: false, error: "raw content must be a string" };
+		const routed = await piConfigRouter.writeRaw(file, rawJson, options);
+		if (routed.kind !== "local") {
+			const dto = configWriteDto(routed, PI_CONFIG_FILE_NAMES[file]);
+			void appLogger.info("config", "Raw config saved", { file, bytes: Buffer.byteLength(rawJson, "utf8"), target: routed.kind });
+			return dto;
+		}
+		const result = routed.value;
 		if (result.valid) {
-			if (fileName === "models.json" || fileName === "auth.json") {
+			if (file === "models" || file === "auth") {
 				void refreshPiModelCatalogs().catch(() => undefined);
 			}
 		}
-		void appLogger.info("config", "Raw config saved", { fileName, bytes: Buffer.byteLength(rawJson, "utf8") });
+		void appLogger.info("config", "Raw config saved", { file, bytes: Buffer.byteLength(rawJson, "utf8") });
 		return result;
 	});
 	ipcMain.handle(ipcChannels.configExport, () => configManager.exportConfig());
@@ -2555,7 +2596,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		});
 		return { ...result, provider };
 	});
-	// ── 用量查询配置（usage-probes.json；学 cc-switch：per-provider 开关 + 模板） ──
+	// ── 用量查询配置（usage-probes.json：per-provider 开关 + 模板） ──
 	// 读取：该 provider 已保存配置 + 内置模板自动识别（弹窗打开时拉取）。
 	ipcMain.handle(ipcChannels.configGetUsageProbes, async (_event, payload: unknown) => {
 		const raw = payload && typeof payload === "object" ? (payload as { provider?: unknown; backend?: unknown }) : {};

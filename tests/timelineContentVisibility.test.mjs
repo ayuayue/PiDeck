@@ -5,7 +5,7 @@ import test from "node:test";
 // 长会话渲染治理契约（2026-08 调整）：
 // 移除 content-visibility 估算高度（旧方案对屏外行用 240px 估算，展开/折叠工具卡
 // 或思考卡时浏览器按估算修正滚动位置，产生屏幕抖动）。
-// 替代方案（学 Proma）：靠「总折叠 + 各自折叠」压缩单行 DOM 体积，
+// 替代方案：靠「总折叠 + 各自折叠」压缩单行 DOM 体积，
 // 分页（useMessagePagination / disk 轮次页）继续做窗口治理。
 
 const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
@@ -28,7 +28,7 @@ test("long-session window governance stays via turn-based history loading", () =
 });
 
 test("single-turn DOM stays light via default-collapsed process group", () => {
-	// 学 Proma：执行过程总折叠默认收起（历史 run 不弹开），单 turn DOM 体积小
+	// 执行过程总折叠默认收起（历史 run 不弹开），单 turn DOM 体积小
 	const turnExecution = readFileSync("src/renderer/src/components/session/turn/useTurnExecution.ts", "utf8");
 	// 非 live（只看历史/会话空闲）的轮一律折叠：已完成轮只留最终回答，
 	// 无最终回答的中断轮（stop/steer 打断）同样收起（旧实现把设置①误用于静止历史，

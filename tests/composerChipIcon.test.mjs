@@ -13,7 +13,7 @@ const CHIP_KINDS = ["file", "skill", "session", "quote"];
  * （见 prosemirror-model renderSpec：`tagName.indexOf(" ")` → xmlNS）。
  * 旧 spec 写成 ["svg", …] 会 `createElement("svg")` 建出 HTML 命名空间的伪 svg，
  * 其 path 子节点同样不在 SVG 命名空间 → 图标完全不渲染。
- * 旧版靠 @ / & ❝ 文字前缀掩盖了这个 bug；对齐 Proma 去掉前缀后彻底暴露。
+ * 旧版靠 @ / & ❝ 文字前缀掩盖了这个 bug；去掉字符前缀后彻底暴露。
  */
 test("chip icon DOM spec declares the SVG namespace on the tag", () => {
 	for (const kind of CHIP_KINDS) {

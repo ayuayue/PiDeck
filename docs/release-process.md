@@ -89,9 +89,11 @@ GitHub 的 choice 只能写死静态列表，无法动态读 tag，所以每发�
 
 安装包不内置 `resources/xueprompts.db`（省 ~4.3MB，且库可独立于发版更新）：打包后的应用首次打开提示词商店时从 Release 资产下载缓存到 userData，版本判定用同目录的 `.sha256` 文件。
 
-- db 内容有更新时：跑 `node scripts/publish-xueprompts.mjs`（先做 sql.js 健康检查再生成 `resources/xueprompts.db.sha256`，两个文件一起提交），再把这两个文件上传到对应平台的 Release 资产（GitHub `gh release upload <tag> resources/xueprompts.db resources/xueprompts.db.sha256`，AtomGit 侧由 sync-atomgit 同步）；上传到既有 tag 后客户端在 1h 检查 TTL 后自然更新。
+- **每次发版自动上传，不用手工补**：`release.yml` 在 windows job 构建完后把 `resources/xueprompts.db` + `.sha256` 传到该 tag 的 Release（`gh release upload --clobber`，缺文件直接让 job 红）；`finalize-release` 在把 tag 指成 `/releases/latest` 之前再断言两份资产都在，缺失就拒绝发布。原因是客户端只认 `/releases/latest/download/<asset>`，**资产不跨版本继承**——新 Release 不带这两份文件就连不上（2026-11 v0.11.3 事故：改成远程拉取后流水线从未上传过，两源 404，用户侧固定「下载失败」）。
+- db 内容有更新时：跑 `node scripts/publish-xueprompts.mjs`（sql.js 健康检查 + 重生成 `resources/xueprompts.db.sha256`），两个文件一起提交；`npm run check:xueprompts`（build 链 + 发布前置）会挡住「指纹与库内容不一致」——过期指纹等于全员校验失败。
+- 给**已发布的历史版本**单独补资产（不重发版）：`gh release upload <tag> resources/xueprompts.db resources/xueprompts.db.sha256 --clobber`，然后手动重跑 `sync-atomgit.yml`（追加资产只产生 `release: edited` 事件，不会自动触发监听 `published` 的同步）。
 - 两份资产必须同源成套上传（客户端按源配对拉取 sha+db 并校验，跨源指纹不匹配会整体作废）。
-- 平时发版无需重新上传：客户端按 sha 判断未变更则免下载。仓库内的 `resources/xueprompts.db` 仅作为源码运行（dev）副本与发布脚本的健康检查输入。
+- 平时发版无需重新生成：db 内容没变时重复上传同一份 blob 无副作用，客户端按 sha 判断未变更则免下载。
 
 ## 打包验证
 

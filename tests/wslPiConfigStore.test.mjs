@@ -3,27 +3,27 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
- * WslPiConfigStore（P1-1 + W3）：hostId → WslHostStore 档案 → resolveWslEnvironment → 发行版 HOME 的
- * .pi/agent，读 models.json / settings.json。
+ * WslPiConfigStore（P1-1 + W3）：应用设置里的 WSL 身份（distro/user）→ resolveWslEnvironment →
+ * 发行版 HOME 的 .pi/agent，读 models.json / settings.json。
  *
  * 关键契约（都是行为断言，不是源码形状）：
- * - 只认档案：档案缺失/发行版不可用/路径不可读在**读文件之前**就回稳定码，绝不回退 Windows HOME；
+ * - 只认设置：WSL 未配置/发行版不可用/路径不可读在**读文件之前**就回稳定码，绝不回退 Windows HOME；
  * - 解析全程有截止：15s 内没解析完就是 WSL_CONFIG_DISTRO_UNAVAILABLE，不能把页面永远挂在加载态；
  * - 读仍走 UNC；写必须走发行版内 exec 端口（wsl.exe + /bin/sh 原子替换），不再把 JSON 写回 UNC 路径；
  * - 非 Windows / wsl.exe 缺失 = WSL_CONFIG_UNAVAILABLE（不假装能读能写）；
- * - models.json 保存沿用本地校验规则，settings.json 保存沿用本地「资源键以磁盘为准」的合并规则。
+ * - models.json 保存沿用本地校验规则，settings.json 保存沿用本地「资源键以磁盘为准」的合并规则；
+ * - trust/mcp/auth 与源文件页走 saveRaw：整文件原文写入，校验 JSON 合法 + mcp 形状。
  */
 
 const storeModule = loadTsCommonJs("src/main/config/WslPiConfigStore.ts");
 const shared = loadTsCommonJs("src/shared/piConfig.ts");
 const wslPaths = loadTsCommonJs("src/main/wsl/WslPaths.ts");
 
-const HOST = "11111111-1111-4111-8111-111111111111";
 const DISTRO = "Ubuntu-26.04";
 const USER = "dev";
+const IDENTITY = { distro: DISTRO, user: USER };
 const LINUX_HOME = "/home/dev";
 const LINUX_CONFIG_DIR = "/home/dev/.pi/agent";
-const PROFILE = { id: HOST, label: "Ubuntu dev", distro: DISTRO, user: USER };
 const DISTRO_ROOT = wslPaths.linuxPathToWslUnc("/", DISTRO);
 const WINDOWS_HOME = wslPaths.linuxPathToWslUnc(LINUX_HOME, DISTRO);
 const CONFIG_DIR = wslPaths.linuxPathToWslUnc(LINUX_CONFIG_DIR, DISTRO);
@@ -73,8 +73,10 @@ function createFakeExec(options = {}) {
 
 function createStore(fsPort, options = {}) {
 	const execInDistro = options.execInDistro ?? options.exec ?? createFakeExec().exec;
+	// `identity: undefined` 是「WSL 未配置」的有效用例，所以用 in 判断而不是 ??。
+	const identity = "identity" in options ? options.identity : IDENTITY;
 	return storeModule.createWslPiConfigStore({
-		listProfiles: async () => options.profiles ?? [PROFILE],
+		readWslIdentity: async () => identity,
 		resolveEnvironment: async (distro, user) => options.environment ?? { distro, user, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME },
 		fs: fsPort,
 		execInDistro,
@@ -89,17 +91,16 @@ function plainExecCalls(calls) {
 	return JSON.parse(JSON.stringify(calls));
 }
 
-test("读取路径只来自档案环境：发行版 HOME 下的 .pi/agent（UNC 拼接）", async () => {
+test("读取路径只来自设置的 WSL 身份：发行版 HOME 下的 .pi/agent（UNC 拼接）", async () => {
 	const { fs, calls } = createFakeFs({ files: { [CONFIG_DIR + "\\models.json"]: '{"providers":{"openai":{"models":[]}}}' } });
-	const snapshot = await createStore(fs).read({ hostId: HOST, file: "models" });
+	const snapshot = await createStore(fs).read({ file: "models" });
 	assert.deepEqual(JSON.parse(JSON.stringify(snapshot)), {
 		kind: "wsl",
-		hostId: HOST,
 		file: "models",
-		label: "Ubuntu dev",
 		distro: DISTRO,
 		user: USER,
 		data: { providers: { openai: { models: [] } } },
+		raw: '{"providers":{"openai":{"models":[]}}}',
 	});
 	// 先判定发行版根与 HOME（在读文件之前），再读 allowlist 里的单个文件。
 	assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
@@ -112,33 +113,80 @@ test("读取路径只来自档案环境：发行版 HOME 下的 .pi/agent（UNC 
 
 test("文件缺失按新安装返回空配置，不报错也不回退本机", async () => {
 	const { fs } = createFakeFs();
-	const models = await createStore(fs).read({ hostId: HOST, file: "models" });
+	const models = await createStore(fs).read({ file: "models" });
 	assert.deepEqual(JSON.parse(JSON.stringify(models.data)), { providers: {} });
-	const settings = await createStore(fs).read({ hostId: HOST, file: "settings" });
+	assert.equal(models.raw, JSON.stringify({ providers: {} }, null, 2));
+	const settings = await createStore(fs).read({ file: "settings" });
 	assert.deepEqual(JSON.parse(JSON.stringify(settings.data)), {});
+	assert.equal(settings.raw, "{}");
 });
 
-test("档案缺失/发行版未启动/HOME 不可读：读文件之前给稳定码", async () => {
-	const missingProfile = createFakeFs();
-	assert.equal(await rejectionCode(() => createStore(missingProfile.fs, { profiles: [] }).read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.hostNotFound);
-	assert.equal(missingProfile.calls.length, 0, "档案缺失时不得触碰文件系统");
+test("trust/mcp/auth 与源文件页同域：读原文、写原文，auth 不再被排除在 WSL 作用域外", async () => {
+	const trustPath = CONFIG_DIR + "\\trust.json";
+	const authPath = CONFIG_DIR + "\\auth.json";
+	const { fs } = createFakeFs({ files: { [trustPath]: '{"C:\\\\work":true}', [authPath]: '{"openai":{"key":"sk-x"}}' } });
+	const store = createStore(fs);
+	const trust = await store.read({ file: "trust" });
+	assert.deepEqual(JSON.parse(JSON.stringify(trust.data)), { "C:\\work": true });
+	assert.equal(trust.raw, '{"C:\\\\work":true}');
+	const auth = await store.readRaw({ file: "auth" });
+	assert.equal(auth.raw, '{"openai":{"key":"sk-x"}}');
+});
+
+test("源文件页能打开损坏的文件（返回原文 + 诊断），结构化读取仍 fail closed", async () => {
+	const modelsPath = CONFIG_DIR + "\\models.json";
+	const broken = '{ "providers": }';
+	const { fs } = createFakeFs({ files: { [modelsPath]: broken } });
+	const raw = await createStore(fs).readRaw({ file: "models" });
+	assert.equal(raw.raw, broken);
+	assert.equal(raw.diagnostic.fileName, "models.json");
+	assert.match(raw.diagnostic.message, /JSON/i);
+	assert.equal(await rejectionCode(() => createStore(fs).read({ file: "models" })), shared.WSL_CONFIG_CODES.fileInvalid);
+});
+
+test("saveRaw 校验后原文落盘：mcp 形状不合格拒绝，合法内容不重新格式化", async () => {
+	const exec = createFakeExec();
+	const store = createStore(createFakeFs().fs, { exec: exec.exec });
+	const invalidMcp = await store.saveRaw({ file: "mcp", raw: '{"mcpServers":[]}' });
+	assert.equal(invalidMcp.valid, false);
+	assert.deepEqual(exec.calls, [], "校验失败不得执行写命令");
+	const invalidJson = await store.saveRaw({ file: "trust", raw: "{ oops" });
+	assert.equal(invalidJson.valid, false);
+
+	const formatted = '{\n  "mcpServers": {"docs": {"url": "https://example.com/mcp"}}\n}';
+	const saved = await store.saveRaw({ file: "mcp", raw: formatted });
+	assert.equal(saved.valid, true);
+	assert.deepEqual(JSON.parse(JSON.stringify(saved.receipt)), { kind: "wsl", file: "mcp" });
+	assert.equal(exec.calls[0].fileName, "mcp.json");
+	assert.equal(exec.calls[0].content, formatted + "\n", "原文写入，只补一个结尾换行");
+
+	const auth = await store.saveRaw({ file: "auth", raw: '{"openai":{"key":"sk-y"}}\n' });
+	assert.equal(auth.valid, true);
+	assert.equal(exec.calls[1].fileName, "auth.json");
+	assert.equal(exec.calls[1].content, '{"openai":{"key":"sk-y"}}\n', "已有结尾换行不重复追加");
+});
+
+test("WSL 未配置/发行版未启动/HOME 不可读：读文件之前给稳定码", async () => {
+	const notConfigured = createFakeFs();
+	assert.equal(await rejectionCode(() => createStore(notConfigured.fs, { identity: undefined }).read({ file: "models" })), shared.WSL_CONFIG_CODES.hostNotFound);
+	assert.equal(notConfigured.calls.length, 0, "WSL 未配置时不得触碰文件系统");
+	const partial = createFakeFs();
+	assert.equal(await rejectionCode(() => createStore(partial.fs, { identity: { distro: "", user: "" } }).read({ file: "models" })), shared.WSL_CONFIG_CODES.hostNotFound);
+	assert.equal(partial.calls.length, 0, "身份不完整时不得触碰文件系统");
 
 	const stopped = createFakeFs({ dirs: [] });
-	assert.equal(await rejectionCode(() => createStore(stopped.fs).read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.distroUnavailable);
+	assert.equal(await rejectionCode(() => createStore(stopped.fs).read({ file: "models" })), shared.WSL_CONFIG_CODES.distroUnavailable);
 	assert.deepEqual(JSON.parse(JSON.stringify(stopped.calls)), [["stat", DISTRO_ROOT]]);
 
 	const missingHome = createFakeFs({ dirs: [DISTRO_ROOT] });
-	assert.equal(await rejectionCode(() => createStore(missingHome.fs).read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.pathUnreadable);
+	assert.equal(await rejectionCode(() => createStore(missingHome.fs).read({ file: "models" })), shared.WSL_CONFIG_CODES.pathUnreadable);
 	assert.deepEqual(JSON.parse(JSON.stringify(missingHome.calls)), [
 		["stat", DISTRO_ROOT],
 		["stat", WINDOWS_HOME],
 	]);
 
 	const unreadable = createFakeFs({ readError: CONFIG_DIR + "\\models.json" });
-	assert.equal(await rejectionCode(() => createStore(unreadable.fs).read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.pathUnreadable);
-
-	const badHost = createFakeFs();
-	assert.equal(await rejectionCode(() => createStore(badHost.fs).read({ hostId: "nope", file: "models" })), shared.WSL_CONFIG_CODES.targetInvalid);
+	assert.equal(await rejectionCode(() => createStore(unreadable.fs).read({ file: "models" })), shared.WSL_CONFIG_CODES.pathUnreadable);
 });
 
 test("resolve 全程 15s 截止：超时回 WSL_CONFIG_DISTRO_UNAVAILABLE，成功则清除定时器", async () => {
@@ -153,11 +201,11 @@ test("resolve 全程 15s 截止：超时回 WSL_CONFIG_DISTRO_UNAVAILABLE，成�
 			if (handle) handle.cleared = true;
 		},
 	};
-	let releaseProfiles;
+	let releaseIdentity;
 	const stuck = storeModule.createWslPiConfigStore({
-		listProfiles: () =>
+		readWslIdentity: () =>
 			new Promise((resolve) => {
-				releaseProfiles = resolve;
+				releaseIdentity = resolve;
 			}),
 		resolveEnvironment: async (distro, user) => ({ distro, user, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME }),
 		fs: createFakeFs().fs,
@@ -165,7 +213,7 @@ test("resolve 全程 15s 截止：超时回 WSL_CONFIG_DISTRO_UNAVAILABLE，成�
 		platform: "win32",
 		timer,
 	});
-	const deadline = stuck.read({ hostId: HOST, file: "models" });
+	const deadline = stuck.read({ file: "models" });
 	const outcome = deadline.then(
 		() => "resolved",
 		(error) => error.message,
@@ -175,13 +223,13 @@ test("resolve 全程 15s 截止：超时回 WSL_CONFIG_DISTRO_UNAVAILABLE，成�
 	pending[0].callback();
 	assert.equal(await outcome, shared.WSL_CONFIG_CODES.distroUnavailable);
 	// 迟到的端口结果不得让已超时的请求复活。
-	releaseProfiles([PROFILE]);
+	releaseIdentity(IDENTITY);
 	await new Promise((resolve) => setImmediate(resolve));
 
 	const { fs } = createFakeFs();
 	const setTimeoutCalls = [];
 	const fastStore = storeModule.createWslPiConfigStore({
-		listProfiles: async () => [PROFILE],
+		readWslIdentity: async () => IDENTITY,
 		resolveEnvironment: async () => ({ distro: DISTRO, user: USER, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME }),
 		fs,
 		execInDistro: createFakeExec().exec,
@@ -197,18 +245,18 @@ test("resolve 全程 15s 截止：超时回 WSL_CONFIG_DISTRO_UNAVAILABLE，成�
 			},
 		},
 	});
-	await fastStore.read({ hostId: HOST, file: "models" });
+	await fastStore.read({ file: "models" });
 	assert.equal(setTimeoutCalls[0].cleared, true, "解析成功后必须清掉截止定时器");
 });
 
-test("非 Windows 一律 WSL_CONFIG_UNAVAILABLE：不查档案、不碰 fs、不执行 wsl.exe", async () => {
-	let listCalls = 0;
+test("非 Windows 一律 WSL_CONFIG_UNAVAILABLE：不读设置、不碰 fs、不执行 wsl.exe", async () => {
+	let identityCalls = 0;
 	const { fs, calls } = createFakeFs();
 	const exec = createFakeExec();
 	const store = storeModule.createWslPiConfigStore({
-		listProfiles: async () => {
-			listCalls += 1;
-			return [PROFILE];
+		readWslIdentity: async () => {
+			identityCalls += 1;
+			return IDENTITY;
 		},
 		resolveEnvironment: async () => ({ distro: DISTRO, user: USER, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME }),
 		fs,
@@ -216,23 +264,23 @@ test("非 Windows 一律 WSL_CONFIG_UNAVAILABLE：不查档案、不碰 fs、不
 		platform: "darwin",
 		translate: (key) => key,
 	});
-	assert.equal(await rejectionCode(() => store.read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.unavailable);
-	assert.equal(await rejectionCode(() => store.saveModels({ hostId: HOST, data: { providers: {} } })), shared.WSL_CONFIG_CODES.unavailable);
-	assert.equal(listCalls, 0);
+	assert.equal(await rejectionCode(() => store.read({ file: "models" })), shared.WSL_CONFIG_CODES.unavailable);
+	assert.equal(await rejectionCode(() => store.saveModels({ data: { providers: {} } })), shared.WSL_CONFIG_CODES.unavailable);
+	assert.equal(identityCalls, 0);
 	assert.deepEqual(calls, []);
 	assert.deepEqual(exec.calls, []);
 });
 
 test("JSON 损坏给 WSL_CONFIG_FILE_INVALID（不把坏文件当空配置展示）", async () => {
 	const { fs } = createFakeFs({ files: { [CONFIG_DIR + "\\models.json"]: "{ providers: " } });
-	assert.equal(await rejectionCode(() => createStore(fs).read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.fileInvalid);
+	assert.equal(await rejectionCode(() => createStore(fs).read({ file: "models" })), shared.WSL_CONFIG_CODES.fileInvalid);
 
 	const nonObject = createFakeFs({ files: { [CONFIG_DIR + "\\settings.json"]: "[1,2,3]" } });
-	assert.equal(await rejectionCode(() => createStore(nonObject.fs).read({ hostId: HOST, file: "settings" })), shared.WSL_CONFIG_CODES.fileInvalid);
+	assert.equal(await rejectionCode(() => createStore(nonObject.fs).read({ file: "settings" })), shared.WSL_CONFIG_CODES.fileInvalid);
 
 	// UTF-8 BOM（Windows 手写文件）必须兼容。
 	const bom = createFakeFs({ files: { [CONFIG_DIR + "\\settings.json"]: '\uFEFF{"theme":"dark"}' } });
-	const snapshot = await createStore(bom.fs).read({ hostId: HOST, file: "settings" });
+	const snapshot = await createStore(bom.fs).read({ file: "settings" });
 	assert.deepEqual(JSON.parse(JSON.stringify(snapshot.data)), { theme: "dark" });
 });
 
@@ -240,16 +288,16 @@ test("models.json 保存沿用本地校验：不合格内容不落盘", async ()
 	const { fs, calls } = createFakeFs();
 	const exec = createFakeExec();
 	const store = createStore(fs, { exec: exec.exec });
-	const badName = await store.saveModels({ hostId: HOST, data: { providers: { "../evil": { models: [] } } } });
+	const badName = await store.saveModels({ data: { providers: { "../evil": { models: [] } } } });
 	assert.equal(badName.valid, false);
 	assert.match(badName.error, /providerNameInvalid/);
-	const badModel = await store.saveModels({ hostId: HOST, data: { providers: { openai: { models: [{ id: "x".repeat(300) }] } } } });
+	const badModel = await store.saveModels({ data: { providers: { openai: { models: [{ id: "x".repeat(300) }] } } } });
 	assert.equal(badModel.valid, false);
 	assert.match(badModel.error, /modelIdInvalid/);
-	const noModels = await store.saveModels({ hostId: HOST, data: { providers: { openai: {} } } });
+	const noModels = await store.saveModels({ data: { providers: { openai: {} } } });
 	assert.equal(noModels.valid, false);
 	assert.match(noModels.error, /providerModelsRequired/);
-	const missingApi = await store.saveModels({ hostId: HOST, data: { providers: { custom: { baseUrl: "https://api.example.com/v1", models: [{ id: "m1" }] } } } });
+	const missingApi = await store.saveModels({ data: { providers: { custom: { baseUrl: "https://api.example.com/v1", models: [{ id: "m1" }] } } } });
 	assert.equal(missingApi.valid, false);
 	assert.match(missingApi.error, /modelApiRequired/);
 	assert.deepEqual(exec.calls, [], "校验失败不得执行写命令");
@@ -260,9 +308,9 @@ test("models.json 保存沿用本地校验：不合格内容不落盘", async ()
 	);
 
 	const data = { providers: { openai: { baseUrl: "https://api.example.com/v1", models: [{ id: "gpt-4o" }] } } };
-	const saved = await store.saveModels({ hostId: HOST, data });
+	const saved = await store.saveModels({ data });
 	assert.equal(saved.valid, true);
-	assert.deepEqual(JSON.parse(JSON.stringify(saved.receipt)), { kind: "wsl", hostId: HOST, file: "models" });
+	assert.deepEqual(JSON.parse(JSON.stringify(saved.receipt)), { kind: "wsl", file: "models" });
 	assert.deepEqual(plainExecCalls(exec.calls), [
 		{
 			distro: DISTRO,
@@ -283,7 +331,7 @@ test("写盘 stdin 是完整 JSON 字节：多字节内容不丢、带结尾换�
 	const exec = createFakeExec();
 	const store = createStore(createFakeFs().fs, { exec: exec.exec });
 	const data = { providers: { openai: { baseUrl: "https://api.example.com/v1?note=配置", models: [{ id: "gpt-4o" }] } } };
-	const saved = await store.saveModels({ hostId: HOST, data });
+	const saved = await store.saveModels({ data });
 	assert.equal(saved.valid, true);
 	const expected = JSON.stringify(data, null, 2) + "\n";
 	assert.equal(exec.calls[0].content, expected);
@@ -295,7 +343,7 @@ test("settings.json 保存沿用本地合并规则：资源键以磁盘为准", 
 	const settingsPath = CONFIG_DIR + "\\settings.json";
 	const { fs, calls } = createFakeFs({ files: { [settingsPath]: JSON.stringify({ packages: ["npm:pi-x"], theme: "light" }) } });
 	const exec = createFakeExec();
-	const saved = await createStore(fs, { exec: exec.exec }).saveSettings({ hostId: HOST, settings: { theme: "dark" } });
+	const saved = await createStore(fs, { exec: exec.exec }).saveSettings({ settings: { theme: "dark" } });
 	assert.equal(saved.valid, true);
 	assert.equal(exec.calls.length, 1);
 	assert.equal(exec.calls[0].fileName, "settings.json");
@@ -310,7 +358,7 @@ test("settings.json 保存沿用本地合并规则：资源键以磁盘为准", 
 	// 磁盘上的 settings.json 损坏时拒绝覆盖（否则用户手写内容会被静默写没）。
 	const corrupt = createFakeFs({ files: { [settingsPath]: "{ oops" } });
 	const corruptExec = createFakeExec();
-	assert.equal(await rejectionCode(() => createStore(corrupt.fs, { exec: corruptExec.exec }).saveSettings({ hostId: HOST, settings: { theme: "dark" } })), shared.WSL_CONFIG_CODES.fileInvalid);
+	assert.equal(await rejectionCode(() => createStore(corrupt.fs, { exec: corruptExec.exec }).saveSettings({ settings: { theme: "dark" } })), shared.WSL_CONFIG_CODES.fileInvalid);
 	assert.deepEqual(corruptExec.calls, []);
 });
 
@@ -318,14 +366,14 @@ test("写命令失败（非零退出/超时）→ WSL_CONFIG_PATH_UNREADABLE，�
 	const execError = Object.assign(new Error("Command failed"), { code: 1 });
 	const exec = createFakeExec({ error: execError });
 	const store = createStore(createFakeFs().fs, { exec: exec.exec });
-	assert.equal(await rejectionCode(() => store.saveModels({ hostId: HOST, data: { providers: {} } })), shared.WSL_CONFIG_CODES.pathUnreadable);
-	assert.equal(await rejectionCode(() => store.saveSettings({ hostId: HOST, settings: {} })), shared.WSL_CONFIG_CODES.pathUnreadable);
+	assert.equal(await rejectionCode(() => store.saveModels({ data: { providers: {} } })), shared.WSL_CONFIG_CODES.pathUnreadable);
+	assert.equal(await rejectionCode(() => store.saveSettings({ settings: {} })), shared.WSL_CONFIG_CODES.pathUnreadable);
 });
 
-test("保存路径也要先判定环境：档案/发行版/路径不可用时回稳定码且不写", async () => {
+test("保存路径也要先判定环境：设置/发行版/路径不可用时回稳定码且不写", async () => {
 	const exec = createFakeExec();
 	const { fs, calls } = createFakeFs({ dirs: [] });
-	assert.equal(await rejectionCode(() => createStore(fs, { exec: exec.exec }).saveModels({ hostId: HOST, data: { providers: {} } })), shared.WSL_CONFIG_CODES.distroUnavailable);
+	assert.equal(await rejectionCode(() => createStore(fs, { exec: exec.exec }).saveModels({ data: { providers: {} } })), shared.WSL_CONFIG_CODES.distroUnavailable);
 	assert.deepEqual(
 		calls.filter((call) => call[0] === "read" || call[0] === "write"),
 		[],
@@ -333,12 +381,12 @@ test("保存路径也要先判定环境：档案/发行版/路径不可用时回
 	);
 	assert.deepEqual(exec.calls, []);
 
-	const gone = createFakeFs();
-	assert.equal(await rejectionCode(() => createStore(gone.fs, { profiles: [] }).saveSettings({ hostId: HOST, settings: {} })), shared.WSL_CONFIG_CODES.hostNotFound);
-	assert.deepEqual(gone.calls, []);
+	const notConfigured = createFakeFs();
+	assert.equal(await rejectionCode(() => createStore(notConfigured.fs, { identity: undefined }).saveSettings({ settings: {} })), shared.WSL_CONFIG_CODES.hostNotFound);
+	assert.deepEqual(notConfigured.calls, []);
 });
 
-test("两个目标实例互不污染：解析出的目录只属于各自档案", async () => {
+test("两个实例互不污染：解析出的目录只属于各自的 WSL 身份", async () => {
 	const homeA = wslPaths.linuxPathToWslUnc("/home/dev", DISTRO);
 	const homeB = wslPaths.linuxPathToWslUnc("/root", "Ubuntu-24.04");
 	const callsA = [];
@@ -363,32 +411,32 @@ test("两个目标实例互不污染：解析出的目录只属于各自档案",
 	};
 	const storeA = createStore(fsA, { environment: { distro: DISTRO, user: "dev", linuxHome: "/home/dev", windowsHome: homeA } });
 	const storeB = storeModule.createWslPiConfigStore({
-		listProfiles: async () => [{ id: "22222222-2222-4222-8222-222222222222", label: "root", distro: "Ubuntu-24.04", user: "root" }],
+		readWslIdentity: async () => ({ distro: "Ubuntu-24.04", user: "root" }),
 		resolveEnvironment: async () => ({ distro: "Ubuntu-24.04", user: "root", linuxHome: "/root", windowsHome: homeB }),
 		fs: fsB,
 		platform: "win32",
 		translate: (key) => key,
 	});
-	await storeA.read({ hostId: HOST, file: "models" });
-	await storeB.read({ hostId: "22222222-2222-4222-8222-222222222222", file: "settings" });
+	await storeA.read({ file: "models" });
+	await storeB.read({ file: "settings" });
 	assert.ok(callsA.includes(homeA), "A 只碰自己的 HOME");
 	assert.ok(!callsA.includes(homeB), "A 不得读 B 的 HOME");
 	assert.ok(callsB.includes(homeB), "B 只碰自己的 HOME");
 	// 没有共享单例目录：再读一次 A 仍落在 A。
-	await storeA.read({ hostId: HOST, file: "settings" });
+	await storeA.read({ file: "settings" });
 	assert.equal(callsA.filter((path) => path === homeB).length, 0);
 });
 
 test("exec 端口未装配时 fail closed：WSL_CONFIG_UNAVAILABLE，不回退 UNC 写", async () => {
 	const { fs, calls } = createFakeFs();
 	const store = storeModule.createWslPiConfigStore({
-		listProfiles: async () => [PROFILE],
+		readWslIdentity: async () => IDENTITY,
 		resolveEnvironment: async () => ({ distro: DISTRO, user: USER, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME }),
 		fs,
 		platform: "win32",
 		translate: (key) => key,
 	});
-	assert.equal(await rejectionCode(() => store.saveModels({ hostId: HOST, data: { providers: {} } })), shared.WSL_CONFIG_CODES.unavailable);
+	assert.equal(await rejectionCode(() => store.saveModels({ data: { providers: {} } })), shared.WSL_CONFIG_CODES.unavailable);
 	assert.deepEqual(
 		calls.filter((call) => call[0] === "write"),
 		[],
@@ -400,13 +448,13 @@ test("exec 端口未装配时 fail closed：WSL_CONFIG_UNAVAILABLE，不回退 U
  * 就是纯重复开销（50+ 模型的供应商点开卡一下的来源）。读复用，保存必须重解析。
  */
 test("TTL 内重复读只解析一次，文件仍各读各的", async () => {
-	let listCalls = 0;
+	let identityCalls = 0;
 	let envCalls = 0;
 	const { fs, calls } = createFakeFs();
 	const store = storeModule.createWslPiConfigStore({
-		listProfiles: async () => {
-			listCalls += 1;
-			return [PROFILE];
+		readWslIdentity: async () => {
+			identityCalls += 1;
+			return IDENTITY;
 		},
 		resolveEnvironment: async () => {
 			envCalls += 1;
@@ -417,10 +465,10 @@ test("TTL 内重复读只解析一次，文件仍各读各的", async () => {
 		translate: (key) => key,
 	});
 	// 并发：设置页同时请求两份配置。
-	const [models, settings] = await Promise.all([store.read({ hostId: HOST, file: "models" }), store.read({ hostId: HOST, file: "settings" })]);
+	const [models, settings] = await Promise.all([store.read({ file: "models" }), store.read({ file: "settings" })]);
 	assert.equal(models.kind, "wsl");
 	assert.equal(settings.file, "settings");
-	assert.equal(listCalls, 1, "并发读只能解析一次档案");
+	assert.equal(identityCalls, 1, "并发读只能解析一次身份");
 	assert.equal(envCalls, 1, "并发读只能探测一次 HOME");
 	assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
 		["stat", DISTRO_ROOT],
@@ -429,39 +477,39 @@ test("TTL 内重复读只解析一次，文件仍各读各的", async () => {
 		["read", CONFIG_DIR + "\\settings.json"],
 	]);
 	// 顺序读同样命中缓存。
-	await store.read({ hostId: HOST, file: "models" });
+	await store.read({ file: "models" });
 	assert.equal(envCalls, 1);
 });
 
 test("解析失败不进缓存：下一次读重新探测", async () => {
-	let listCalls = 0;
+	let identityCalls = 0;
 	const { fs } = createFakeFs({ dirs: [] });
 	const store = storeModule.createWslPiConfigStore({
-		listProfiles: async () => {
-			listCalls += 1;
-			return [PROFILE];
+		readWslIdentity: async () => {
+			identityCalls += 1;
+			return IDENTITY;
 		},
 		resolveEnvironment: async () => ({ distro: DISTRO, user: USER, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME }),
 		fs,
 		platform: "win32",
 		translate: (key) => key,
 	});
-	assert.equal(await rejectionCode(() => store.read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.distroUnavailable);
-	assert.equal(await rejectionCode(() => store.read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.distroUnavailable);
-	assert.equal(listCalls, 2, "发行版不可用不能被缓存成 5s 内的假失败");
+	assert.equal(await rejectionCode(() => store.read({ file: "models" })), shared.WSL_CONFIG_CODES.distroUnavailable);
+	assert.equal(await rejectionCode(() => store.read({ file: "models" })), shared.WSL_CONFIG_CODES.distroUnavailable);
+	assert.equal(identityCalls, 2, "发行版不可用不能被缓存成 5s 内的假失败");
 });
 
-test("保存绕过缓存：档案改动后写不会落到过期目录", async () => {
-	let listCalls = 0;
+test("保存绕过缓存：设置改动后写不会落到过期目录", async () => {
+	let identityCalls = 0;
 	const targets = [];
 	const exec = async (input) => {
 		targets.push(input.configDir);
 	};
 	const { fs } = createFakeFs();
 	const store = storeModule.createWslPiConfigStore({
-		listProfiles: async () => {
-			listCalls += 1;
-			return [PROFILE];
+		readWslIdentity: async () => {
+			identityCalls += 1;
+			return IDENTITY;
 		},
 		resolveEnvironment: async () => ({ distro: DISTRO, user: USER, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME }),
 		fs,
@@ -469,9 +517,9 @@ test("保存绕过缓存：档案改动后写不会落到过期目录", async ()
 		platform: "win32",
 		translate: (key) => key,
 	});
-	await store.read({ hostId: HOST, file: "models" });
-	const saved = await store.saveModels({ hostId: HOST, data: { providers: { openai: { models: [{ id: "gpt-4o" }] } } } });
+	await store.read({ file: "models" });
+	const saved = await store.saveModels({ data: { providers: { openai: { models: [{ id: "gpt-4o" }] } } } });
 	assert.equal(saved.valid, true);
-	assert.equal(listCalls, 2, "保存必须重新解析，不能复用读路径的缓存");
+	assert.equal(identityCalls, 2, "保存必须重新解析，不能复用读路径的缓存");
 	assert.deepEqual(targets, [LINUX_CONFIG_DIR]);
 });

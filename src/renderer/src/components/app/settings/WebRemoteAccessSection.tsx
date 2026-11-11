@@ -15,6 +15,7 @@ import { Input } from "../../ui-shadcn/input";
 import { Label } from "../../ui-shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { SettingsSection } from "./SettingsStorageTab";
+import { SecretValueInput } from "./SecretValueInput";
 import { SettingRow } from "./SettingRows";
 import { appendTokenToUrl, bracketIpv6Host } from "./webAccessUrl";
 import { useQrDataUrl } from "./useQrDataUrl";
@@ -397,13 +398,19 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 							</div>
 							<div className="grid items-center gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
 								<Label className="text-xs font-bold text-text-tertiary">{t("settings.remote.et.networkSecretLabel")}</Label>
-								<Input
-									type="password"
-									className="h-8 w-full font-mono text-xs"
-									placeholder={t("settings.remote.et.networkSecretPlaceholder")}
+								{/* 网络密钥默认掩码，点眼睛才摊开：它必须与手机端逐字一致，看不见就没法核对 */}
+								<SecretValueInput
+									label={t("settings.remote.et.networkSecretLabel")}
 									value={props.draft.webRemoteEasyTierNetworkSecret ?? ""}
-									onChange={(event) => props.updateDraft({ webRemoteEasyTierNetworkSecret: event.target.value })}
-									onBlur={(event) => props.updateDraft({ webRemoteEasyTierNetworkSecret: event.target.value.trim() })}
+									hintText={null}
+									onChange={(value) => props.updateDraft({ webRemoteEasyTierNetworkSecret: value })}
+									inputProps={{
+										size: "sm",
+										className: "font-mono text-xs",
+										placeholder: t("settings.remote.et.networkSecretPlaceholder"),
+										// 与同框其他字段一致：离开即 trim，尾随空格是密钥类输入最常见的静默错法
+										onBlur: (event) => props.updateDraft({ webRemoteEasyTierNetworkSecret: event.target.value.trim() }),
+									}}
 								/>
 							</div>
 							<div className="grid gap-1">

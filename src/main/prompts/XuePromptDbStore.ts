@@ -12,6 +12,9 @@
  *
  * 失败语义：ensureReady 永不抛异常——已有缓存时远程检查/下载失败继续用旧缓存
  * （不降级、不空态）；无任何本地副本且下载失败才进入 failed（渲染层显示重试）。
+ * failed 的 message 按源聚合（`atomgit: HTTP 404 … | github: …`）：两源全挂时唯一能区分
+ * 「Release 缺资产」与「网络不通」的证据，渲染层原样展示（v0.11.3 漏发资产事故之前
+ * 只保留最后一条错误，UI 一句「下载失败」让人误判成用户网络问题）。
  * 下载完整性：db 下载后重算 sha256 与 .sha256 资产比对，不匹配即丢弃（防中间人
  * 篡改/截断），且 sha 与 db 取自同一源，避免跨源指纹错配。
  */
@@ -272,7 +275,10 @@ export class XuePromptDbStore {
 	 * 返回 {path,sha16}=新缓存已落盘；null=远程与缓存同版本；抛错=全源失败。
 	 */
 	private async downloadIfChanged(): Promise<{ path: string; sha16: string } | null> {
-		let lastError: unknown;
+		// 逐源记录失败原因：两源全挂时，失败信息必须能一眼区分「资产不存在（HTTP 404）」与
+		// 「网络不通/超时」。只留最后一条的话线上只剩一句「下载失败」，定位不到「发版漏传资产」
+		// 这类问题（v0.11.3 事故就是这么被当成用户网络问题的）。
+		const failures: string[] = [];
 		for (const source of buildSourceUrls()) {
 			try {
 				const remoteSha = await this.fetchRemoteSha(source.shaUrl);
@@ -284,10 +290,10 @@ export class XuePromptDbStore {
 				const installed = await this.fetchAndInstallDb(source.dbUrl, remoteSha);
 				return installed;
 			} catch (error) {
-				lastError = error;
+				failures.push(`${source.label}: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
-		throw lastError ?? new Error("no db sources");
+		throw new Error(failures.length > 0 ? failures.join(" | ") : "no db sources");
 	}
 
 	private async fetchRemoteSha(shaUrl: string): Promise<string | null> {

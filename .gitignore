@@ -143,3 +143,7 @@ resources/remote-sftp/bin/*
 *.log
 # 官网「宿主插件开发指南」页：由 .vitepress/sharedGuideDocs.ts 从 docs/host-plugin-dev-guide.md 生成（构建产物，勿手改）
 docs-site/guide/host-plugins.md
+
+# impeccable（设计审阅工具）的产物：critique 里是本机绝对路径与用户名，design.json 是生成快照
+.impeccable/critique/
+.impeccable/design.json

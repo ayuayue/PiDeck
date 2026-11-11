@@ -8,16 +8,22 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  */
 const { HIDEABLE_MODULE_IDS, HIDEABLE_SETTINGS_TAB_IDS, MAX_HIDDEN_MODULES, normalizeHiddenModules, isModuleHidden, toggleHiddenModule } = loadTsCommonJs("src/shared/hiddenModules.ts");
 const { isSettingsTabHidden, resolveVisibleSettingsTabs, resolveInitialSettingsTab } = loadTsCommonJs("src/renderer/src/components/app/settings/settingsTabVisibility.ts");
-const { SETTINGS_TAB_LAYOUT, SETTINGS_TAB_IDS } = loadTsCommonJs("src/renderer/src/components/app/settings/settingsTabLayout.ts");
+const { SETTINGS_TAB_LAYOUT, SETTINGS_TAB_IDS, HIDDEN_SETTINGS_TAB_IDS } = loadTsCommonJs("src/renderer/src/components/app/settings/settingsTabLayout.ts");
 
 /** vm realm 的数组原型与宿主不同，deepEqual 前转成普通数组。 */
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 // ── shared/hiddenModules.ts ─────────────────────────────────────────────
 
-test("可隐藏 tab 都是真实存在的设置 tab；dsh / respondingTips 是非 tab 模块", () => {
+test("可隐藏 tab 都是真实存在的设置 tab；下架 tab 不得出现在任何清单里", () => {
 	for (const id of HIDEABLE_SETTINGS_TAB_IDS) {
 		assert.ok(SETTINGS_TAB_IDS.includes(id), `${id} 不是 SETTINGS_TAB_IDS 里的 tab`);
+	}
+	// 云同步尚未验证：侧栏、命令面板与功能模块开关都不得暴露入口（代码与 i18n 保留）。
+	assert.deepEqual(plain(HIDDEN_SETTINGS_TAB_IDS), ["cloudsync"]);
+	for (const id of HIDDEN_SETTINGS_TAB_IDS) {
+		assert.equal(SETTINGS_TAB_IDS.includes(id), false, `${id} 已下架，不应出现在设置布局里`);
+		assert.equal(HIDEABLE_SETTINGS_TAB_IDS.includes(id), false, `${id} 已下架，不应出现在功能模块开关里`);
 	}
 	// automation / agents 是会话 Tab 栏里的页面式工作区（不是设置 tab），同属「只收起入口」语义
 	assert.deepEqual(plain(HIDEABLE_MODULE_IDS), [...plain(HIDEABLE_SETTINGS_TAB_IDS), "dsh", "respondingTips", "automation", "agents", "favorites"]);
@@ -75,7 +81,8 @@ test("分组标题随被隐藏的簇首项顺延，整簇隐藏后不借给下�
 		["dev", "settings.group.maintenance"],
 	]);
 	const withoutIntegration = resolveVisibleSettingsTabs(["im", "pet", "vision", "imagegen", "videogen", "acp", "hostplugins"], new Set());
-	assert.deepEqual(plain(withoutIntegration.filter((entry) => entry.groupLabel).map((entry) => entry.groupLabel)), ["settings.group.basic", "settings.group.integrations", "settings.group.developer", "settings.group.maintenance"]);
+	// 下架 cloudsync 后「扩展集成」簇除 im 外成员全在此列表 → 整簇隐藏，组标题不借给下一组
+	assert.deepEqual(plain(withoutIntegration.filter((entry) => entry.groupLabel).map((entry) => entry.groupLabel)), ["settings.group.basic", "settings.group.developer", "settings.group.maintenance"]);
 });
 
 test("隐藏簇首项时分割线顺延到该簇下一个可见项", () => {
@@ -85,11 +92,11 @@ test("隐藏簇首项时分割线顺延到该簇下一个可见项", () => {
 	assert.equal(ids.includes("im"), false);
 	assert.equal(visible.find((e) => e.id === "pet").dividerBefore, true);
 	// 其余分割线位置不受影响
-	assert.deepEqual(plain(visible.filter((e) => e.dividerBefore).map((e) => e.id)), ["pet", "cloudsync", "web", "dev"]);
+	assert.deepEqual(plain(visible.filter((e) => e.dividerBefore).map((e) => e.id)), ["pet", "web", "dev"]);
 });
 
 test("整簇隐藏时该簇分割线消失，不留连续两条线", () => {
-	const visible = resolveVisibleSettingsTabs(["im", "pet", "vision", "imagegen", "cloudsync", "videogen", "acp", "hostplugins"], new Set());
+	const visible = resolveVisibleSettingsTabs(["im", "pet", "vision", "imagegen", "videogen", "acp", "hostplugins"], new Set());
 	// 全簇隐藏后不残留分割线；仅隐部分成员时，分割线顺延到簇内下一个可见项（上一条测试）
 	assert.deepEqual(plain(visible.filter((e) => e.dividerBefore).map((e) => e.id)), ["web", "dev"]);
 });

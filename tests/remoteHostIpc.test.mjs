@@ -549,12 +549,13 @@ test("a failed add reports the handshake failure, not a cleanup failure", async 
 	assert.equal(result.saved, true);
 });
 
-test("the connect button is only enabled for a verified, enabled host", () => {
-	// 界面已经知道主机未验证（列表里显示「未验证」），就不该让用户点了才拿到
-	// SSH_HOST_NOT_READY——那是把用户引到一条注定失败的路上。
+test("the connect button stays clickable for an unverified host", () => {
+	// 界面已经知道主机未验证（列表里显示「未验证」）：按钮**不禁用**（禁用等于不给路），
+	// 点它转到「编辑」重新验证——草稿保留，改完即可连。仅已禁用的档案禁用。
 	const tab = readFileSync("src/renderer/src/components/app/settings/ConnectionsTab.tsx", "utf8");
-	assert.match(tab, /const connectable = host\.verified && !host\.disabled/);
+	assert.match(tab, /const connectable = !host\.disabled/);
 	assert.match(tab, /disabled=\{pending \|\| !connectable\}/);
+	assert.match(tab, /if \(!host\.verified\) void openEditor\(host\.id\);/);
 });
 
 test("add approves the offer on the same pin store that issued it", async () => {

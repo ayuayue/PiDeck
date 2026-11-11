@@ -14,7 +14,7 @@
 |------|------|------|
 | README/官网共用图片 | 唯一数据源 `docs/images/`，不复制到 docs-site | 本文「README 与官网共用图片」 |
 | 公告 | 只编辑 `announcements-md/*.md`，json 由脚本生成，禁止手写 | 本文「公告维护与发布」 |
-| 提示词库 xueprompts.db | db 远程拉取双源成套（sha256 + db 同源）；检索走 xue-index Go sidecar，缺失降级 sql.js（应用层 gunzip，SQL LIKE 中文恒不命中）；改 db 走 publish 脚本 + Release 资产 | 本文「商店提示词库维护」 |
+| 提示词库 xueprompts.db | db 远程拉取双源成套（sha256 + db 同源）；**每次发版由 release.yml 自动上传**（漏传＝全员商店 404，finalize 断言资产齐全）；检索走 xue-index Go sidecar，缺失降级 sql.js（应用层 gunzip，SQL LIKE 中文恒不命中）；改 db 走 publish 脚本 | 本文「商店提示词库维护」 |
 | 跨会话正文搜索 | session-index Go sidecar（纯标准库）；语料+快照落 `<userData>/session-index/`；roots = 全局 + 全局 sessionDir + **各项目项目级 sessionDir**（WSL 不支持）；查询多词 AND（每词必中）；任何失败 IPC 返回 null 降级标题过滤；**会话内查找绑定 Ctrl/Cmd+Shift+F（Ctrl+F 仍是「搜索会话」）**：IPC 入参是 SessionRecord.id，主进程按 catalog 后端分派——pi 走同 sidecar 的 `search-session`，DSH 走 host 历史投影（`DshAgentManager.searchSessionMessages`）；`SESSION_INDEX_OS/ARCH` 必须进三平台 workflow | 本文「跨会话正文搜索」 |
 | 文件抽屉搜索 | 名字走 file-index Go sidecar（不可用回退 `FileSystemService.searchNames` 扫盘）；**拼音检索只存在于 sidecar 通道**：纯字母查询（2–24）按 首字母整名 > 首字母前缀 > 全拼 > 跳字 计分（含异读首字母：`cq`/`zq` 都能命中「重庆」），全拼不覆盖异读、内容检索不参与；正文搜索 `files:search-content` 失败/未就绪/WSL 返回 null、UI 隐藏内容分区；内容扫描有扩展名白名单/忽略目录/单文件 1MiB/总 64MiB 预算；`FILE_INDEX_OS/ARCH` 必须进三平台 workflow，`native/file-index/go.sum` 必须入库 | 本文「工作区文件搜索」 |
 | 远程 SFTP（SFTP-0） | 系统 OpenSSH + 一次性 Go 执行器；只到 native/adapter/build 层，**未接 IPC/UI**；helper 继续负责 watch/search/Git/versioned write/trash；上传写入在提交语义冻结前不得接线 | `docs/remote-sftp-evaluation.md` §1.1 + 本文「远程 SFTP 执行器」 |
@@ -32,11 +32,13 @@
 | 会话消息编辑/删除/重发 | 编辑/删除写 pi 原生 `context_edit`（原文不改写、费用不回退；被移出的条目界面直接不显示，原始文件仍保留）；重发仍用 `deleted` 墓碑截断分支；追加条目的 parentId 必须取当前 leaf，pi 活着禁改会话文件，三道闸不许放宽 | 本文「会话消息编辑/删除/重发」 |
 | Markdown 渲染 | 唯一引擎 MarkdownStream，禁止再引 marked/react-markdown；流式与 settle 是两条路径，**复现要看最终态**；HTML 一律过 `markdownSanitize.ts`（raw→摘毒→sanitize，不开 harden），模型回复里的 `<style>` 会污染整页图标（#397） | 本文「会话 Markdown 渲染管线」 |
 | 宿主插件 | 与 pi 扩展是两套系统（`src/main/plugins/`，不依赖 pi 进程）；授权按内容 sha256 指纹不按版本，指纹变即重新授权；历史读取 64MiB/10 万条硬预算；改 API/权限面必须同步 `src/preload/hostPlugin.ts` + `docs/host-plugin-dev-guide.md` + 脚手架；`service.local` 只给「点名权」（id 白名单 `src/shared/localServices.ts`）；插件不随包（示例在 `docs/examples/host-plugins/`，从文件夹安装）；卸载 = 删目录 + 清授权 + 清私有 storage；`.pideck-plugin` NDJSON 归档逐文件 sha256；GitHub 安装走 `codeload.github.com` 的 tar.gz + 自写 tar 解析，AtomGit 安装走 API v5 `file_list` + `raw` 逐文件取（先收敛包根），两条选包/预算共用 `hostPluginPackage.ts`，四条安装路径共用 `HostPluginManager.installFiles` 同一套预算与信任判定；插件市场（`hostPluginMarket.ts`）只产出「可交给 `downloadGitHubPlugin` / `downloadAtomGitPlugin` 的链接」不产出字节，官方索引 GitHub raw 失败自动回退 AtomGit API raw，官方条目可声明 `atomgitRepo` 供 UI 切下载源，社区源仍只有 GitHub topic 双源、单源失败不阻断、按 topic 拉一次再本地过滤（GitHub search 未认证 10 次/分钟） | 本文「宿主插件」 |
+| Web 端智能体 / 斜杠命令 | 「智能体」只读 + 使用（`/api/agents` 投影含角色设定，`/api/agents/:id/use` = 建草稿 + 落绑定，绑定失败删草稿）；绑定会话的角色设定由 **Web 的 sendSessionPrompt 依赖**在首轮注入（与桌面 IPC 同走 `applyBoundAgentPersona` 纯语义）；`/` 菜单数据源优先级 runtime 命令表 > 草稿本地发现 > Web 接管 builtin，选中只替换 token 不发送；`/new`、`/compact` 由 Web 接管，其余桌面专属命令明确拒绝；侧栏「新建会话行 / 搜索框 / 新建项目钮」统一 36px + 10px 圆角 | 本文「Web 端智能体与斜杠命令」 |
 | Web 端流式链路 | 流式事件源必须按后端分别注入 `WebEventStreamRouter`：pi 走 `subscribePiEvents`，DSH 走 `subscribeAgentChannelEvents`（`DshChannelToPiEvents`），ACP 走 `subscribeAcpChannelEvents`（`AcpChannelToPiEvents`，投影快照差分）；漏挂的后端在 Web 端退化成「轮询 + 磁盘重拉」；DSH 回合边界只认 `turnEnded: true`，ACP 只认 `agents:runtime-state` 的 `isStreaming` 翻 false | 本文「Web 端流式链路」 |
 | i18n 文案 | 改任何 zh-CN 词典（rendererCopy / mainProcessCopy / WebI18n / FeishuI18n）后必须重跑 `node scripts/genZhTwCopy.mjs`；四份 `*.zh-TW.ts` 是生成物禁止手改（漏跑：先 typecheck 报 TS2739，改值不加键则由 `source-sha256` 指纹门禁拦下） | 本文「繁体中文」 |
 | AI 协助（issue/PR） | 只评论不合并；未配 `ANTHROPIC_API_KEY` 静默跳过；**禁止 `pull_request_target`**（fork PR 会拿走写权限 token + secrets）；`@claude` 只认 OWNER/MEMBER/COLLABORATOR | `docs/ai-assist.md` |
 | 发版 | CHANGELOG 中英一致 → sync-release-notes → sync-workflow-choices → 打包人工 smoke | `docs/release-process.md` |
 | 宿主通道 / 侧车 / MCP | 六条例外各只允许一种用途，禁止扩成通用桥；新增工具先改文档再改代码 | `docs/host-boundaries.md` |
+| Pi 配置管理（环境） | 整个 Pi 面板只服务一个环境（本机/SSH 主机/WSL 发行版），唯一切换点 = Pi 分页上的环境下拉；ssh 只经 helper 的脱敏快照 + merge patch（patch 永不含 auth.json，认证页只有 `config.readAuth` 的只读派生视图），wsl 走 UNC 读 + 发行版内原子写；改 helper 配置域必须同步 bump `RemoteHelperEntry`/`RemoteConfigSource` 版本与 sha256 摘要 | `docs/config-environments.md` |
 
 ## 应用命名与历史数据目录迁移
 
@@ -65,7 +67,7 @@
 
 ## 商店提示词库维护（resources/xueprompts.db 远程拉取 + xue-index Go sidecar）
 
-- **db 不再打进安装包**（#2 远程化）：客户端首次使用时从 Release 资产拉取双源（AtomGit 主 + GitHub raw 兑底，`XuePromptDbStore`），sha256 版本文件与 db 必须同源成套（跨源指纹不匹配整体作废），缓存落 `<userData>/xue/xueprompts-<sha16>.db`，1h TTL 后台重查。db 有更新：跑 `node scripts/publish-xueprompts.mjs` → 两文件成套上传 Release 资产（`gh release upload <tag> resources/xueprompts.db resources/xueprompts.db.sha256`；AtomGit 侧由 sync-atomgit workflow 同步）。
+- **db 不再打进安装包**（#2 远程化）：客户端首次使用时从 Release 资产拉取双源（AtomGit 主 + GitHub latest 兜底，`XuePromptDbStore`），sha256 版本文件与 db 必须同源成套（跨源指纹不匹配整体作废），缓存落 `<userData>/xue/xueprompts-<sha16>.db`，1h TTL 后台重查。**每次发版自动上传这两份资产**（`release.yml` 的 windows job；`finalize-release` 在指 latest 前断言齐全）——资产不跨版本继承，漏传＝全员商店 404。db 内容有更新：跑 `node scripts/publish-xueprompts.mjs` 重生成指纹，两文件一起提交；`check:xueprompts` 挡指纹与内容不一致。
 - dev 模式优先读仓库副本 `resources/xueprompts.db`（`repoResourceDir()`），打包后无副本强制远程。
 - **检索走 Go sidecar**（`native/xue-index`，modernc.org/sqlite 纯 Go）：常驻进程预解压建索引，中文搜索可用；宿主客户端 `XueIndexService`，协议 NDJSON stdio（`SESSIONS/XUE_INDEX_PROTOCOL_VERSION` 不匹配即弃用）。二进制缺失/失败自动降级 sql.js 路径（应用层逐行 gunzip，慢但可用），商店永不因 sidecar 缺席而坏。
 - 构建链：`npm run build:xue-index`（fail-open，无 Go 只告警）；`scripts/dev.js` 自动构建；三平台 workflow 经 `XUE_INDEX_OS/ARCH` env + setup-go 1.26 交叉编译（modernc.org/sqlite 要求 go 1.26，漏钉版本会静默跳过=包里没 sidecar）。
@@ -256,7 +258,7 @@
 `，旧正则直接匹配失败，`---
 description: …
 ---` 就漏进消息（2026-10 实测）。「一键插入全文」走 `stripMarkdownFrontmatter`，保留文件原换行风格（CRLF 还是 CRLF），只额外容忍 BOM 与结束标记尾空格。
-- **模板参数替换照抄 pi**：`utils/templateArgs.ts` 逐条移植 pi 的 `parseCommandArgs` / `substituteArgs`（`$1` `$@` `$ARGUMENTS` `${N:-默认}` `${@:-默认}` `${@:N}` `${@:N:L}`；bash 切词支持引号；只替换模板串、参数内容不二次展开）。pi 的语义是「参数只进占位符，模板没占位符就丢弃用户输入」，PiDeck 保留一层兜底：**模板没有占位符时把用户输入追加在块后**（绝不丢字），有占位符时按 pi 把参数放进正文且不再追加。参数区间以「下一个命令 / 引用块起点 / 消息末尾」为界，不会吞掉相邻命令或引用块。
+- **模板参数替换照抄 pi**：`utils/templateArgs.ts` 逐条移植 pi 的 `parseCommandArgs` / `substituteArgs`（`$1` `$@` `$ARGUMENTS` `${N:-默认}` `${@:-默认}` `${@:N}` `${@:N:L}`；bash 切词支持引号；只替换模板串、参数内容不二次展开。引号语义随 pi 1.5.1（#11861）：引号只在参数开头开启、词中擇号字面、闭合引号内 `\"`/`\'` 转义、未闭合引号回读重解析——升级 pi 后必须重跑对拍）。pi 的语义是「参数只进占位符，模板没占位符就丢弃用户输入」，PiDeck 保留一层兜底：**模板没有占位符时把用户输入追加在块后**（绝不丢字），有占位符时按 pi 把参数放进正文且不再追加。参数区间以「下一个命令 / 引用块起点 / 消息末尾」为界，不会吞掉相邻命令或引用块。
 - **两个后端的斜杠语义不同，展开责任也不同**（2026-10-20 调研确认）：
   - **pi**：`prompt()` 里 `_tryExecuteExtensionCommand`（扩展命令）→ `_expandSkillCommand`（`/skill:名`）→ `expandPromptTemplate`（`/模板名`，要求消息以 `/` 开头）。pi **会自己展开模板**，但只存正文、不留名字。
   - **DSH**：只有一条 slash 桥（`src/main/dsh/hostEntry.ts` 生成的 `pideck-slash-bridge.js`，挂 `agent/pre-step`）：消息以 `/` 开头 → `ctx.commands.execute`；命中命令则 reject（消息不进模型），未命中则原样当普通消息。**DSH 没有任何模板展开，也没有命令元数据字段**（用户消息只有 content 文本块 + `source.kind`）。所以 DSH 上 `/模板名` 的展开**只能由 PiDeck 做**——否则命令要么被 host 执行、要么以字面量喂给模型。
@@ -378,6 +380,16 @@ description: …
 - **激活可作废（草稿期换后端 / 换 ACP 工具）**：ACP 激活是一次完整握手（spawn + `session/new`，秒级），"把 catalog 改完交给激活自己发现"不够——旧闸门用 `sessionRuntimeCoordinator.getTarget()` 当后端锁定守卫，而 bind 在 `applyLatestPreferences` 之后，握手窗口里 target 恒为空，于是记录已切走、旧激活随后又把旧后端进程和 `acpSessionId` 绑回来（用户表现为「切了后端还要等旧后端启动完」）。现在的契约：`sessionsCatalogUpdate` 在非 active 会话上的 `backend`/`acpToolId` 变更先 `await cancelActivation(sessionId)`（标取消 + 立刻停 `status==="starting"` 的进程 + 等激活收敛 + 清迟到绑定），`activate()` 在 `bind()` 前重读 catalog 并查取消集，身份不符就停掉刚建的 tab 并抛 `Session activation cancelled`。IPC 失败分支用 `isActivationCancelled` 区分「被切换作废」（发 detach 抵消合成 starting）与真失败（发合成 error）。渲染层 `isAcpInitializing` 只是指示态，**不得再接进 `canSend`/`promoteAndSend`**（那会让 Enter 静默无效）。回归：`tests/sessionRuntimeCoordinator.test.mjs`（cancel 两例）+ `tests/acpComposerInitializing.test.mjs`。
 - 已知未做（勿宣称完整支持）：**跨会话（全局）正文搜索索引**——session-index Go sidecar 只索引 pi 会话 JSONL，ACP 归档不参与（当前只有会话内 Ctrl/Cmd+Shift+F）；归档没有 GC/删除语义（单会话有界，但删会话不清归档）；冷历史自动激活（历史本身已由归档保留，打开历史会话仍需手动激活 runtime）；Web 端 ACP 不显示 ACP `configOptions`（模型/模式改由桌面端或 agent CLI 自身配置，Web 只能选工具）；Web 端 ACP 无编辑/重发/fork 入口（ACP 运行时没有 fork 命令，后端选择器把 ACP 会话当作只读历史）；工具卡图片渲染；真实 CLI smoke（`scripts/acpLiveSmoke.mjs` 需真实 agent，不进 CI）；`authenticate` RPC（AUTH_REQUIRED 目前只引导用户去终端登录，未拉起 agent 声明的 `authMethods`）。
 
+## Web 端智能体与斜杠命令
+
+- **智能体只读 + 使用**：`GET /api/agents` 投影 AgentProfileStore（含 `systemPrompt`，供详情面板展示；能读到会话正文的令牌已是同一信任级），创建/编辑/删除/复制留在桌面端。`POST /api/agents/:id/use` = `createSessionDraft`（标题取 `buildAgentSessionTitle`，dsh 后端透传、pi 带偏好模型）+ `bindSessionAgent`；**绑定失败必须删掉刚建的草稿**，否则留下「看起来用了智能体却没人设」的会话。
+- **角色设定注入有两个发送入口**：桌面 IPC（`sessionIpc`）与 Web 的 `sendSessionPrompt` 依赖（`src/main/index.ts`）。两边共用 `src/main/agents/agentPersonaInstruction.ts` 的 `applyBoundAgentPersona` 纯语义（首轮注入、dsh 每一轮都删 `agentMessage`），各自持有一个「已注入会话」集合。只改桌面一侧的症状：Web 建的绑定会话首轮发给模型的载荷里没有人设，但会话页提示条照常显示。
+- **绑定投影**：`/api/state` 的 `sessionAgentBindings` 是 sessionId → agentId 映射（不含人设正文），Web 会话页据此显示只读角色设定提示条（`WebAgentBar`）；agent 目录由 `/api/agents` 按需拉。
+- **`/` 菜单数据源优先级**：会话有 runtime → `/api/sessions/:id/runtime/commands`（pi `get_commands` / DSH host 注册表 / ACP available_commands，唯一权威）→ 草稿（pi）→ `/api/prompt-templates?projectId=` + `/api/skills` 的本地发现（模板按名、技能加 `skill:` 前缀）→ 只剩 Web 接管的 builtin。运行时命令表到手就整体替换本地发现，不合并（同名描述可能不一致）。
+- **菜单只插入、不发送**：选中候选把 `/名称 ` 写回草稿并把光标放到名称后；菜单打开时 Enter/Tab 是选中候选（不是发送），Esc 收起（同 token 签名不再自动弹出，继续输入会重新打开）。未知 `/命令` 仍按普通文本发给 pi（与桌面一致，由 pi 决定是否展开）。
+- **Web 接管的 builtin**：`/new`（建草稿，不落用户气泡）、`/compact [提示词]`（需要活跃 runtime 且本轮已结束，走 `compact` 命令）；`/login`、`/hotkeys`、`/reload` 在 Web 没有等价入口，明确提示「需要在桌面端执行」而不是发下去让模型回答。新增 builtin 前先确认 RPC 是否真的执行它（pi 的 builtin 只被交互式 TUI 处理）。
+- **侧栏控件几何**：`新建会话` 是扁平动作行（与桌面 SidebarContent 同语言）、搜索框与 `新建项目` 方钮同 36px / 同 10px 圆角 / 同描边，三者左右缘对齐；回归由 `e2e/web-agents-slash.spec.ts` 守卫。
+
 ## Web 端后端选择（pi / DSH / ACP / 生图）
 
 > 硬边界：浏览器不能直接读设置，ACP 工具清单由主进程门控后随 `/api/state` 下发；**只下发 `{id, name}`**，`command`/`args`/`env` 可能含凭据与本地路径，一律不外发。
@@ -400,6 +412,9 @@ description: …
 - **停止的重复收口**：abort 先收一次，host 随后补发的 turn/end 会带同一份全文再收一次；翻译器用 `closedRunText` 忽略第二次，避免保活连接上重复上屏一条回复。
 - **回合边界（ACP）只看 `agents:runtime-state`**：`isStreaming`/`isTurnActive` 翻 false 才是收口（发 `agent_settled` → `finish`），翻 true 就立刻补 `start`（发送后马上进运行态，空白回合也有可收口气泡）。`settleAcpTurn`（`src/main/acp/AcpEventProjector.ts`）在无 active 段的工具-only 回合**什么都不写**，而「无 pending 段 + 无 running 工具」在「工具已完成、下一段正文未到」时是合法中间态——拿它当收口会把回合切断。
 - **状态推送**：通道事件同样触发 `scheduleStatePush()`（400ms 去抖），运行时忙闲翻转即时可达；5s tick 只兜不住事件流里的目录变更。
+- **历史快照不得回退本地时间线**（用户报障：历史会话里发消息后，刚发出的消息与回复都看不见、刷新才恢复）：活跃会话的历史是异步拉的，慢网/大会话时可能在发送前取回、发送完成后才落地。落地护栏集中在 `webHistoryLoad.decideHistorySnapshotApplication`：① 本地发送代际（`WebChatApp.localSendEpochRef`，在每个 `sendMessage` 之前递增）变了 → 丢弃（请求可能是发送前取的）；② 请求在流式期间发起 → 丢弃（流式窗口不含收尾内容，多工具回合甚至条数更多）；③ 本地已翻过更早分页 → 丢弃（否则旧页与滚动位置丢失）；④ 快照比本地短且本地有快照外的消息（乐观用户消息/流式回复）→ 丢弃。`force`/`authoritative`（编辑/删除/压缩后的显式重载、ACP 激活后的权威重拉）才按磁盘落地。取舍：远端删除/裁剪（别的设备删消息）不会在后台刷新时静默生效，要显式操作或整页刷新——宁可保留也不误删。
+- 刷新去重按「会话 + 发送代际」：发送前发起的历史请求不能被发送后的收尾重拉复用（否则重拉骑在旧快照上、被护栏丢弃，这一轮永远不会对齐磁盘）；回合结束（本端流 true→false 且仍是同一活跃会话）固定做一次收尾重拉，补回「发送早于首屏历史返回」时被丢弃的那份历史。
+- 回归集：`tests/webHistoryLoad.test.mjs`（快照落地护栏）、`e2e/web-history-send.spec.ts`（真实 `/api/chat`：延迟首屏历史请求到本轮结束后、发送早于历史返回、排队补发三种场景都必须渲染本轮并最终收敛到磁盘）。
 - 回归集：`tests/webDshChannelStream.test.mjs`（翻译器 + 路由 + 契约）、`tests/webServiceDshStream.test.mjs`（真实 WebServiceManager + 真实 HTTP：帧序列 / 保活 / 状态推送）、`tests/webEventStream.test.mjs`、`tests/webExternalReplyMerger.test.mjs`、`tests/webAcpChannelStream.test.mjs`（ACP 翻译器 + 路由 + 接线契约）、`tests/webAcpRealtimePipeline.test.mjs`（真 `AcpAgentManager` + 真传输 → SSE 帧：回合未结算前就要有 text-delta、工具卡实时、结算才有 finish）。
 
 ## 会话定位轴（消息区刻度条 / outline rail）
@@ -411,8 +426,8 @@ description: …
 **条数上限是 30，且是「滑动窗口」不是采样**（2026-10 用户反馈「旁边横条太多」）：
 
 - `windowRailItems(items, activeIndex)` 取以当前阅读位置为中心、最多 `RAIL_TICK_LIMIT = 30` 条的窗口。停在底部 = 「最新的 30 条」；往上翻窗口跟着上移。
-- **不要改回均匀采样**。三个真实实现调研过：Proma `scroll-minimap.tsx` 用 20 根**不可点的桶**（`MAX_BARS`，每桶 = `items.length/20` 条）纯粹当位置图；dsh `TurnNavigator.tsx` 与 vivid-layer Chat Minimap 都是「全部条目 + 内部滚动」。**没有一家把稀疏采样出来的条当成跳转按钮**——刻度可点就必须点得动，采样会留下点不动的假按钮。
-- 已知副作用：条数超 30 后，刻度的**纵向位置不再代表整段会话的进度**（当前刻度永远落在窗口中段）。要恢复「进度感」只能改成 Proma 的桶方案（条不可点 + 悬浮列表里跳转），这是产品取舍，不要单方面改回去。
+- **不要改回均匀采样**。见过的实现只走两条路：位置图用约 20 根**不可点的桶**（每桶 ≈ `items.length/20` 条），或导航器走「全部条目 + 内部滚动」。**没有一家把稀疏采样出来的条当成跳转按钮**——刻度可点就必须点得动，采样会留下点不动的假按钮。
+- 已知副作用：条数超 30 后，刻度的**纵向位置不再代表整段会话的进度**（当前刻度永远落在窗口中段）。要恢复「进度感」只能改成桶方案（条不可点 + 悬浮列表里跳转），这是产品取舍，不要单方面改回去。
 
 **间距**：`RAIL_TICK_MAX_SIZE = 14` / `RAIL_TICK_MIN_SIZE = 6`，按可用高度收缩到下限，**不做内部滚动**。30 × 6 = 180px 已覆盖「小窗口 + 终端坞 + 高缩放」，所以 2026-10 重构把早前那套滚动/两端渐隐/自动跟随/`railMaxHeight`/`onWheelFallback` 一并删了（上限 30 之后它只在极端窄高下才可能触发，纯属屎山）。**滚轮仍要转发**：导轨是时间线滚动视口的兄弟节点（绝对定位），不转发的话指针在刻度上滚动时间线不动——用容器上的原生非 passive 监听（React 的 `onWheel` 是 passive，`preventDefault` 会被忽略）。
 

@@ -1,5 +1,6 @@
 /**
- * WslPiConfigStore（P1-1 + W3）：一个 WSL 连接档案的 pi 配置目录，按发行版 HOME 读写 models.json / settings.json。
+ * WslPiConfigStore（P1-1 + W3 + W4）：一个 WSL 连接档案的 pi 配置目录，按发行版 HOME 读写
+ * models.json / settings.json / trust.json / mcp.json / auth.json。
  *
  * 为什么单独一个存储，而不是复用 ConfigManager / RemotePiConfigBackend：
  * - 绝不复用全局 `configManager.configureWsl`：那会改所有窗口的单例 configDir，两个 WSL 目标并发就串环境。
@@ -19,8 +20,11 @@
  *
  * 其它语义与本地保持一致：
  * - 读：文件不存在 = 新安装（返回空对象）；JSON 损坏 = WSL_CONFIG_FILE_INVALID（不当作空配置）；
+ *   唯一例外是 `readRaw`：源文件页要能打开损坏的文件修复它，那里返回原文 + 诊断；
  * - 写 models.json：整文件写入，写前跑与本地相同的校验规则；
  * - 写 settings.json：锁外重读磁盘后按 settingsFormPayload 的合并规则落盘（资源类键以磁盘为准）；
+ * - 写其它文件（trust/mcp/auth 与源文件页）：`saveRaw` 整文件原文写入，写前只做「JSON 合法 + mcp 形状」
+ *   校验（与本地 saveRawConfig 同一条规则），不重新格式化。
  * - resolve() 全程有 15s 截止：档案查询/HOME 解析/UNC stat 任一挂住都回 WSL_CONFIG_DISTRO_UNAVAILABLE，
  *   不能让设置页永远转圈；非 Windows 或 wsl.exe 缺失一律 WSL_CONFIG_UNAVAILABLE。
  *
@@ -33,12 +37,11 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, posix } from "node:path";
-import { WSL_CONFIG_CODES, WSL_CONFIG_CODE_SET, type PiConfigFileKey, type WslPiConfigSnapshot, type WslPiConfigWriteReceipt } from "../../shared/piConfig";
-import { PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
+import { WSL_CONFIG_CODES, WSL_CONFIG_CODE_SET, isWslPiConfigFileKey, type WslPiConfigFileKey, type WslPiConfigSnapshot, type WslPiConfigWriteReceipt } from "../../shared/piConfig";
+import type { ConfigFileDiagnostic } from "../../shared/types";
+import { validateMcpConfigFile } from "./mcpConfig";
 import { mainProcessT, type MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
-import type { WslHostListItem } from "../../shared/types/wslHost";
 import { linuxPathToWslUnc, parseWslUncPath, type WslEnvironment } from "../wsl/WslPaths";
-import { createWslHostStore } from "../wsl/WslHostStore";
 import { resolveWslEnvironment } from "../wsl/WslEnvironment";
 import { getWslExe } from "../wsl/wslExe";
 import { getPiAiCatalogIndex, lookupPiAiCatalogProviderApi } from "../pi/piAiBuiltinCatalog";
@@ -87,7 +90,7 @@ export type WslPiConfigExecInput = {
 	user: string;
 	/** 发行版内配置目录（Linux 绝对路径），不是 UNC。 */
 	configDir: string;
-	fileName: `${PiConfigFileKey}.json`;
+	fileName: `${WslPiConfigFileKey}.json`;
 	/** 完整 JSON 文本；原样写入 stdin，不经过 shell。 */
 	content: string;
 };
@@ -113,8 +116,8 @@ export type WslPiConfigTimer = {
 };
 
 export type WslPiConfigStorePorts = {
-	/** WslHostStore.list()：每次调用都重新读档案，用户改名/换 distro 后不需要重启。 */
-	listProfiles: () => Promise<readonly WslHostListItem[]>;
+	/** 应用唯一的 WSL 身份（设置页 wslEnabled/wslDistro/wslUser）；缺省 = 未配置，写读一律 fail closed。 */
+	readWslIdentity: () => Promise<{ distro: string; user: string } | undefined>;
 	/** resolveWslEnvironment(distro, user)：失败时它会静默回退 /home/<user>，所以下面还会用 stat 验证 HOME 真的存在。 */
 	resolveEnvironment: (distro: string, user: string) => Promise<WslEnvironment>;
 	fs?: WslPiConfigFileSystem;
@@ -133,9 +136,17 @@ export type WslPiConfigStorePorts = {
 export type WslPiConfigSaveResult = { valid: true; receipt: WslPiConfigWriteReceipt } | { valid: false; error: string };
 
 export type WslPiConfigStore = {
-	read(input: { hostId: string; file: PiConfigFileKey }): Promise<WslPiConfigSnapshot>;
-	saveModels(input: { hostId: string; data: unknown }): Promise<WslPiConfigSaveResult>;
-	saveSettings(input: { hostId: string; settings: Record<string, unknown> }): Promise<WslPiConfigSaveResult>;
+	/** Parsed snapshot for the structured editors; a broken file fails closed (never shown as an empty config). */
+	read(input: { file: WslPiConfigFileKey }): Promise<WslPiConfigSnapshot>;
+	/**
+	 * Source text for the raw page. Unlike {@link WslPiConfigStore.read} this returns the bytes even when the JSON is
+	 * broken (with a diagnostic), because the raw page exists to repair exactly that file.
+	 */
+	readRaw(input: { file: WslPiConfigFileKey }): Promise<{ raw: string; diagnostic?: ConfigFileDiagnostic }>;
+	saveModels(input: { data: unknown }): Promise<WslPiConfigSaveResult>;
+	saveSettings(input: { settings: Record<string, unknown> }): Promise<WslPiConfigSaveResult>;
+	/** Whole-file write of any scoped file (raw page / file-level editors); validates JSON before replacing. */
+	saveRaw(input: { file: WslPiConfigFileKey; raw: string }): Promise<WslPiConfigSaveResult>;
 };
 
 function stable(code: string): Error {
@@ -266,9 +277,14 @@ function defaultTimer(): WslPiConfigTimer {
 	};
 }
 
-function fileKeyOf(file: unknown): PiConfigFileKey {
-	if (file === "models" || file === "settings") return file;
+function fileKeyOf(file: unknown): WslPiConfigFileKey {
+	if (isWslPiConfigFileKey(file)) return file;
 	throw stable(WSL_CONFIG_CODES.targetInvalid);
+}
+
+/** Missing file = the canonical empty document, exactly like the local ConfigManager fallback. */
+function emptyDocument(file: WslPiConfigFileKey): Record<string, unknown> {
+	return file === "models" ? { providers: {} } : {};
 }
 
 export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfigStore {
@@ -280,7 +296,7 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 	const resolveTimeoutMs = ports.resolveTimeoutMs ?? RESOLVE_TIMEOUT_MS;
 	const resolveCacheTtlMs = ports.resolveCacheTtlMs ?? RESOLVE_CACHE_TTL_MS;
 
-	type Resolved = { configDir: string; linuxConfigDir: string; profile: WslHostListItem };
+	type Resolved = { configDir: string; linuxConfigDir: string; distro: string; user: string; cacheKey: string };
 
 	/** 非 Windows 没有 WSL：读也不能假装 UNC 可读，直接回稳定码。 */
 	function requireSupportedPlatform(): void {
@@ -288,26 +304,24 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 	}
 
 	/**
-	 * 解析一步都不许「乐观成功」：档案 → 发行版 HOME → 目录可访问，全部判定通过才允许读/写文件。
+	 * 解析一步都不许「乐观成功」：设置里的 distro/user → 发行版 HOME → 目录可访问，全部判定通过才允许读/写文件。
 	 * 发行版根用 \\wsl.localhost\<distro> 判定：发行版被注销/9P 不可达时 stat 直接失败，
 	 * 而不是等 wsl.exe 超时后把 /home/<user> 当成真的 HOME 去读写。
 	 */
-	async function resolveInner(hostId: unknown): Promise<Resolved> {
-		if (typeof hostId !== "string" || !PROJECT_HOST_ID_PATTERN.test(hostId)) throw stable(WSL_CONFIG_CODES.targetInvalid);
-		let profiles: readonly WslHostListItem[];
+	async function resolveInner(): Promise<Resolved> {
+		let identity: { distro: string; user: string } | undefined;
 		try {
-			profiles = await ports.listProfiles();
+			identity = await ports.readWslIdentity();
 		} catch {
 			throw stable(WSL_CONFIG_CODES.unavailable);
 		}
-		const profile = profiles.find((item) => item.id === hostId);
-		if (!profile) throw stable(WSL_CONFIG_CODES.hostNotFound);
+		if (identity === undefined || identity.distro === "" || identity.user === "") throw stable(WSL_CONFIG_CODES.hostNotFound);
 
 		let environment: WslEnvironment;
 		try {
-			environment = await ports.resolveEnvironment(profile.distro, profile.user);
+			environment = await ports.resolveEnvironment(identity.distro, identity.user);
 		} catch (error) {
-			// 端口自己给出的稳定码原样透出（装配层用它表达「解析出的环境与档案对不上」）；
+			// 端口自己给出的稳定码原样透出（装配层用它表达「解析出的环境与发行版对不上」）；
 			// 端口意外失败按发行版不可用处理——绝不当成本机目录继续读写。
 			throw stable(stableCodeOf(error) ?? WSL_CONFIG_CODES.distroUnavailable);
 		}
@@ -315,17 +329,19 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 		// linuxHome 是脚本在发行版内的目标目录：必须绝对，否则 posix.join 会落到错误位置。
 		if (!environment.linuxHome.startsWith("/")) throw stable(WSL_CONFIG_CODES.unavailable);
 
-		await requireDirectory(linuxPathToWslUnc("/", profile.distro), WSL_CONFIG_CODES.distroUnavailable);
+		await requireDirectory(linuxPathToWslUnc("/", identity.distro), WSL_CONFIG_CODES.distroUnavailable);
 		await requireDirectory(environment.windowsHome, WSL_CONFIG_CODES.pathUnreadable);
 		return {
 			configDir: join(environment.windowsHome, ".pi", "agent"),
 			linuxConfigDir: posix.join(environment.linuxHome, ".pi", "agent"),
-			profile,
+			distro: identity.distro,
+			user: identity.user,
+			cacheKey: `wsl:${identity.distro}:${identity.user}`,
 		};
 	}
 
 	/** 整个解析流程共用一个截止；超时不取消端口调用，但迟到的结果不会再被采用。 */
-	function resolve(hostId: unknown): Promise<Resolved> {
+	function resolve(): Promise<Resolved> {
 		return new Promise<Resolved>((resolvePromise, reject) => {
 			let settled = false;
 			const handle = timer.set(() => {
@@ -333,7 +349,7 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 				settled = true;
 				reject(stable(WSL_CONFIG_CODES.distroUnavailable));
 			}, resolveTimeoutMs);
-			resolveInner(hostId).then(
+			resolveInner().then(
 				(value) => {
 					if (settled) return;
 					settled = true;
@@ -351,30 +367,27 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 	}
 
 	/**
-	 * 带缓存的解析：同一 hostId 在 TTL 内复用结果，并发请求共享同一个在途 promise。
-	 * 只缓存成功——失败（发行版刚被关掉、档案刚改）必须让下一次读取重新探测。
+	 * 带缓存的解析：只有一套 WSL 身份，所以只缓存一条；distro/user 变了 cacheKey 就变，旧条目自然作废。
+	 * 只缓存成功——失败（发行版刚被关掉、设置刚改）必须让下一次读取重新探测。
 	 */
-	const resolvedCache = new Map<string, { expiresAt: number; value: Resolved }>();
-	const inFlight = new Map<string, Promise<Resolved>>();
+	let cachedResolved: { expiresAt: number; value: Resolved } | undefined;
+	let inFlightResolve: Promise<Resolved> | undefined;
 
-	function resolveCached(hostId: unknown): Promise<Resolved> {
-		const key = typeof hostId === "string" ? hostId : "";
-		const hit = resolvedCache.get(key);
-		if (hit && hit.expiresAt > Date.now()) return Promise.resolve(hit.value);
-		const pending = inFlight.get(key);
-		if (pending) return pending;
-		const task = resolve(hostId).then(
+	function resolveCached(): Promise<Resolved> {
+		if (cachedResolved !== undefined && cachedResolved.expiresAt > Date.now()) return Promise.resolve(cachedResolved.value);
+		if (inFlightResolve !== undefined) return inFlightResolve;
+		const task = resolve().then(
 			(value) => {
-				inFlight.delete(key);
-				resolvedCache.set(key, { expiresAt: Date.now() + resolveCacheTtlMs, value });
+				inFlightResolve = undefined;
+				cachedResolved = { expiresAt: Date.now() + resolveCacheTtlMs, value };
 				return value;
 			},
 			(error) => {
-				inFlight.delete(key);
+				inFlightResolve = undefined;
 				throw error;
 			},
 		);
-		inFlight.set(key, task);
+		inFlightResolve = task;
 		return task;
 	}
 
@@ -388,37 +401,38 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 		if (!stats?.isDirectory) throw stable(code);
 	}
 
-	async function readFileData(path: string, file: PiConfigFileKey): Promise<Record<string, unknown>> {
-		let raw: string | null;
+	async function readFileData(path: string, file: WslPiConfigFileKey): Promise<{ data: Record<string, unknown>; raw: string }> {
+		let text: string | null;
 		try {
-			raw = await fs.readTextFile(path);
+			text = await fs.readTextFile(path);
 		} catch {
 			throw stable(WSL_CONFIG_CODES.pathUnreadable);
 		}
-		if (raw === null) return file === "models" ? { providers: {} } : {};
+		if (text === null) return { data: emptyDocument(file), raw: JSON.stringify(emptyDocument(file), null, 2) };
 		let parsed: unknown;
 		try {
-			parsed = JSON.parse(stripBom(raw));
+			parsed = JSON.parse(stripBom(text));
 		} catch {
 			throw stable(WSL_CONFIG_CODES.fileInvalid);
 		}
 		if (!isRecord(parsed)) throw stable(WSL_CONFIG_CODES.fileInvalid);
-		return parsed;
+		return { data: parsed, raw: text };
 	}
 
-	function snapshotOf(profile: WslHostListItem, file: PiConfigFileKey, data: Record<string, unknown>): WslPiConfigSnapshot {
-		return { kind: "wsl", hostId: profile.id, file, label: profile.label, distro: profile.distro, user: profile.user, data };
+	function snapshotOf(resolved: Pick<Resolved, "distro" | "user">, file: WslPiConfigFileKey, document: { data: Record<string, unknown>; raw: string }): WslPiConfigSnapshot {
+		return { kind: "wsl", file, distro: resolved.distro, user: resolved.user, data: document.data, raw: document.raw };
 	}
 
-	async function writeConfigFile(target: Resolved, file: PiConfigFileKey, data: Record<string, unknown>): Promise<void> {
+	/** 写盘文本由调用方决定（结构化编辑器序列化 / 源文件页原文），这里只负责发行版内原子替换。 */
+	async function writeConfigFile(target: Resolved, file: WslPiConfigFileKey, content: string): Promise<void> {
 		if (execInDistro === undefined) throw stable(WSL_CONFIG_CODES.unavailable);
 		try {
 			await execInDistro({
-				distro: target.profile.distro,
-				user: target.profile.user,
+				distro: target.distro,
+				user: target.user,
 				configDir: target.linuxConfigDir,
 				fileName: `${file}.json`,
-				content: `${JSON.stringify(data, null, 2)}\n`,
+				content,
 			});
 		} catch (error) {
 			// 执行端口自己的稳定码原样透出（非 Windows / wsl.exe 缺失 = UNAVAILABLE）；
@@ -427,47 +441,114 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 		}
 	}
 
-	function receiptOf(profile: WslHostListItem, file: PiConfigFileKey): WslPiConfigWriteReceipt {
-		return { kind: "wsl", hostId: profile.id, file };
+	function receiptOf(file: WslPiConfigFileKey): WslPiConfigWriteReceipt {
+		return { kind: "wsl", file };
+	}
+
+	/** Same parse/diagnostic contract as the local ConfigManager: raw bytes survive a broken file. */
+	function diagnosticOf(file: WslPiConfigFileKey, raw: string, error: unknown): ConfigFileDiagnostic {
+		const message = error instanceof Error ? error.message : String(error);
+		const positionMatch = message.match(/position\s+(\d+)/i);
+		const position = positionMatch ? Number(positionMatch[1]) : undefined;
+		const diagnostic: ConfigFileDiagnostic = { fileName: `${file}.json`, message, docsUrl: "https://pi.dev/docs/latest/settings" };
+		if (Number.isFinite(position)) {
+			const lines = raw.slice(0, position).split(/\r?\n/);
+			diagnostic.line = lines.length;
+			diagnostic.column = lines[lines.length - 1].length + 1;
+			const rawLines = raw.split(/\r?\n/);
+			const start = Math.max(0, lines.length - 2);
+			const end = Math.min(rawLines.length, lines.length + 1);
+			diagnostic.snippet = rawLines
+				.slice(start, end)
+				.map((text, index) => `${start + index + 1}: ${text}`)
+				.join("\n");
+		}
+		return diagnostic;
+	}
+
+	/** 文件级保存的校验：与本地 saveRawConfig 同一条规则（JSON 合法 + mcp.json 过 adapter 校验）。 */
+	function validateRawForSave(file: WslPiConfigFileKey, raw: string): { ok: true } | { ok: false; error: string } {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(stripBom(raw));
+		} catch {
+			return { ok: false, error: translate("mainConfig.invalidJson") };
+		}
+		if (!isRecord(parsed)) return { ok: false, error: translate("mainConfig.invalidJson") };
+		if (file === "mcp") {
+			const mcpError = validateMcpConfigFile(parsed as Parameters<typeof validateMcpConfigFile>[0]);
+			if (mcpError) return { ok: false, error: mcpError };
+		}
+		return { ok: true };
 	}
 
 	return {
 		async read(input) {
 			requireSupportedPlatform();
 			const file = fileKeyOf(input.file);
-			const { configDir, profile } = await resolveCached(input.hostId);
-			return snapshotOf(profile, file, await readFileData(join(configDir, `${file}.json`), file));
+			const resolved = await resolveCached();
+			return snapshotOf(resolved, file, await readFileData(join(resolved.configDir, `${file}.json`), file));
+		},
+		async readRaw(input) {
+			requireSupportedPlatform();
+			const file = fileKeyOf(input.file);
+			const { configDir } = await resolveCached();
+			let raw: string | null;
+			try {
+				raw = await fs.readTextFile(join(configDir, `${file}.json`));
+			} catch {
+				throw stable(WSL_CONFIG_CODES.pathUnreadable);
+			}
+			if (raw === null) return { raw: JSON.stringify(emptyDocument(file), null, 2) };
+			try {
+				JSON.parse(stripBom(raw));
+				return { raw };
+			} catch (error) {
+				// 损坏的文件仍要能在源文件页里修复：返回原文 + 诊断，而不是「读不了」。
+				return { raw, diagnostic: diagnosticOf(file, raw, error) };
+			}
 		},
 		async saveModels(input) {
 			requireSupportedPlatform();
-			const resolved = await resolve(input.hostId);
+			const resolved = await resolve();
 			const validation = validateModelsForSave(input.data, translate);
 			if (!validation.ok) return { valid: false, error: validation.error };
-			await writeConfigFile(resolved, "models", input.data as Record<string, unknown>);
-			return { valid: true, receipt: receiptOf(resolved.profile, "models") };
+			await writeConfigFile(resolved, "models", `${JSON.stringify(input.data, null, 2)}\n`);
+			return { valid: true, receipt: receiptOf("models") };
 		},
 		async saveSettings(input) {
 			requireSupportedPlatform();
 			if (!isRecord(input.settings)) throw stable(WSL_CONFIG_CODES.fileInvalid);
-			const resolved = await resolve(input.hostId);
+			const resolved = await resolve();
 			const path = join(resolved.configDir, "settings.json");
 			// 锁外重读 + 合并：与本地 saveSettingsConfig 一样，资源类键以磁盘为准，
 			// 页面的整份快照不能把别处刚写入的 packages/extensions 静默回退。
 			const current = await readFileData(path, "settings");
-			await writeConfigFile(resolved, "settings", mergeSettingsFormPayload(current, input.settings));
-			return { valid: true, receipt: receiptOf(resolved.profile, "settings") };
+			await writeConfigFile(resolved, "settings", `${JSON.stringify(mergeSettingsFormPayload(current.data, input.settings), null, 2)}\n`);
+			return { valid: true, receipt: receiptOf("settings") };
+		},
+		async saveRaw(input) {
+			requireSupportedPlatform();
+			const file = fileKeyOf(input.file);
+			if (typeof input.raw !== "string") throw stable(WSL_CONFIG_CODES.fileInvalid);
+			const validation = validateRawForSave(file, input.raw);
+			if (!validation.ok) return { valid: false, error: validation.error };
+			const resolved = await resolve();
+			// 原文写回（不重新格式化）：源文件页是字节级编辑，重新序列化会把用户的排版选择抹掉。
+			await writeConfigFile(resolved, file, input.raw.endsWith("\n") ? input.raw : `${input.raw}\n`);
+			return { valid: true, receipt: receiptOf(file) };
 		},
 	};
 }
 
 /**
- * 装配用默认端口：档案来自 WslHostStore（每次重读），发行版 HOME 走 resolveWslEnvironment，
+ * 装配用默认端口：WSL 身份来自应用设置（每次重读），发行版 HOME 走 resolveWslEnvironment，
  * 写走 createNodeWslPiConfigExec。
  * warn 用于暴露 printenv 失败后的兼容回退——回退仍然会被 stat 校验，不会静默假装成功。
  */
-export function createWslPiConfigStoreFor(userDataDir: string, options: { warn?: (message: string, details: Record<string, unknown>) => void; execInDistro?: WslPiConfigExec } = {}): WslPiConfigStore {
+export function createWslPiConfigStoreFor(userDataDir: string, options: { warn?: (message: string, details: Record<string, unknown>) => void; execInDistro?: WslPiConfigExec; readWslIdentity: () => Promise<{ distro: string; user: string } | undefined> }): WslPiConfigStore {
 	return createWslPiConfigStore({
-		listProfiles: async () => (await createWslHostStore(userDataDir)).list(),
+		readWslIdentity: options.readWslIdentity,
 		resolveEnvironment: async (distro, user) => {
 			const environment = await resolveWslEnvironment(distro, user, options.warn ? { warn: options.warn } : {});
 			// 环境与档案必须自洽：解析回退或发行版改名后，宁可拒绝，也不把配置写到另一个发行版目录。

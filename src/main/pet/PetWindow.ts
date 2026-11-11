@@ -10,6 +10,7 @@ import { preparePreloadPath } from "../preloadPath";
 import { rendererHeapAdditionalArguments } from "../v8HeapLimits";
 import { readElectronChromiumSandboxPreference } from "../settings/SettingsStore";
 import { getAppLogger } from "../logging/sharedLogger";
+import { moveWindowWithSize, WindowSizeGuard } from "../windowGeometry";
 import { PET_WINDOW_PARTITION } from "./petSpriteProtocol";
 
 /** 三端宠物窗能力探测；Linux 只有明确 X11 时启用透明与绝对定位。 */
@@ -81,8 +82,12 @@ export class PetWindow {
 	private win: BrowserWindow | null = null;
 	/** 宠物窗口的业务目标尺寸；移动时不能信任当前 bounds，避免透明窗拖动后尺寸漂移被继续保留。 */
 	private targetSize = { width: PET_BASE_W, height: PET_BASE_H };
-	/** 位置持久化防抖：巡游每 50ms 移动一次，避免高频写盘拖慢主进程 */
-	private sizeGuardTimer: NodeJS.Timeout | null = null;
+	/** 透明无边框窗口会被系统放大 bounds，守卫按设计尺寸定期拉回。 */
+	private readonly sizeGuard = new WindowSizeGuard(
+		() => this.win,
+		() => this.targetSize,
+		5000,
+	);
 	private saveTimer: NodeJS.Timeout | null = null;
 	private pendingPos: { x: number; y: number } | null = null;
 
@@ -234,7 +239,7 @@ export class PetWindow {
 	}
 
 	destroy() {
-		this.stopSizeGuard();
+		this.sizeGuard.stop();
 		if (this.saveTimer) {
 			clearTimeout(this.saveTimer);
 			this.saveTimer = null;
@@ -318,12 +323,7 @@ export class PetWindow {
 		if (!this.exists || !detectPetWindowCaps().freePosition) return;
 		// 透明/无边框窗口在高频移动时，当前 bounds 可能已经被系统拖拽/合成器误放大。
 		// 因此移动时永远使用业务目标尺寸，而不是 this.win.getSize() 读到的漂移尺寸。
-		this.win!.setBounds({
-			x: Math.round(x),
-			y: Math.round(y),
-			width: this.targetSize.width,
-			height: this.targetSize.height,
-		});
+		moveWindowWithSize(this.win!, x, y, this.targetSize);
 		// 持久化统一换算为普通布局位置（通知展示期间拖拽不污染位置文件语义），走防抖路径
 		const [w, h] = this.win!.getSize();
 		this.schedulePersistPosition(this.toNormalPos({ x, y, width: w, height: h }));
@@ -331,38 +331,20 @@ export class PetWindow {
 
 	/** 将当前窗口拉回业务目标尺寸，用于拖拽结束后纠正系统合成器造成的尺寸漂移。 */
 	ensureTargetSize() {
-		if (!this.exists || !detectPetWindowCaps().freePosition) return;
-		const [x, y] = this.win!.getPosition();
-		this.win!.setBounds({
-			x,
-			y,
-			width: this.targetSize.width,
-			height: this.targetSize.height,
-		});
+		// Wayland 等受限平台的位置/尺寸由合成器管理，不能程序化 setBounds。
+		if (!detectPetWindowCaps().freePosition) return;
+		this.sizeGuard.ensure();
 	}
 
-	/** 启动定时校正：每 5 秒检查一次窗口尺寸，偏离目标尺寸时强制纠正，
-	 *  解决某些平台透明窗口拖拽后尺寸漂移问题。 */
+	/** 启动定时校正：每 5 秒检查一次窗口尺寸，偏离目标尺寸时强制纠正。
+	 *  仅自由定位平台需要（Wayland 由合成器管理几何）。 */
 	startSizeGuard() {
-		this.stopSizeGuard();
 		if (!detectPetWindowCaps().freePosition) return;
-		this.sizeGuardTimer = setInterval(() => {
-			if (!this.exists) {
-				this.stopSizeGuard();
-				return;
-			}
-			const [w, h] = this.win!.getSize();
-			if (w !== this.targetSize.width || h !== this.targetSize.height) {
-				this.ensureTargetSize();
-			}
-		}, 5000);
+		this.sizeGuard.start();
 	}
 
 	stopSizeGuard() {
-		if (this.sizeGuardTimer) {
-			clearInterval(this.sizeGuardTimer);
-			this.sizeGuardTimer = null;
-		}
+		this.sizeGuard.stop();
 	}
 
 	setAlwaysOnTop(v: boolean) {

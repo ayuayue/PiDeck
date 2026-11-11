@@ -3,7 +3,7 @@ import { runRemoteCommand, type RemoteAcceptanceCredentials } from "./remote-fix
 
 /**
  * Batch B authored e2e: remote config target selector → sanitized read (version + secret statuses) → one
- * non-secret merge patch → disabled auth page copy.
+ * non-secret merge patch → read-only auth view (the credential file never leaves the host).
  *
  * Safety on a real acceptance host: the remote models.json (or its absence) is backed up before the test and
  * restored byte-for-byte in finally. The patch only adds a unique top-level marker key; it never edits or
@@ -37,14 +37,16 @@ export async function verifyRemoteConfig(input: { window: Page; credentials: Rem
 		await expect(layout).toBeVisible();
 		await layout.getByRole("tab", { name: "模型", exact: true }).click();
 
-		// Target selector: local is the default; pick the verified ssh host added by the acceptance setup.
-		const selector = layout.getByTestId("config-target-selector");
-		await expect(selector).toBeVisible({ timeout: timeoutMs });
-		await selector.click();
-		// The list item accessible name is "<host label> <ssh host>"; the label is user-chosen, so anchor on the address.
-		const hostOption = window.getByRole("option").filter({ hasText: new RegExp(credentials.host.replace(/\./g, "\\.")) });
-		await expect(hostOption.first(), "目标选择器必须列出已连接的主机").toBeVisible({ timeout: 30_000 });
+		// Pi 环境下拉挂在「Pi 配置管理」分页上：本机是默认，选中验收用的那台 SSH 主机后整页按它重载。
+		const envTrigger = layout.getByTestId("config-env-trigger");
+		await expect(envTrigger).toBeVisible({ timeout: timeoutMs });
+		await envTrigger.click();
+		// 菜单项文案是「<主机 label> <user@host>」；label 由用户填写，所以锚定地址。
+		const hostOption = window.getByRole("menuitem").filter({ hasText: new RegExp(credentials.host.replace(/\./g, "\\.")) });
+		await expect(hostOption.first(), "环境下拉必须列出已连接的主机").toBeVisible({ timeout: 30_000 });
 		await hostOption.first().click();
+		const envStatus = layout.getByTestId("config-environment-status");
+		await expect(envStatus).toHaveAttribute("data-kind", "ssh", { timeout: timeoutMs });
 
 		const panel = layout.getByTestId("remote-config-panel");
 		await expect(panel).toHaveAttribute("data-file", "models", { timeout: timeoutMs });
@@ -75,10 +77,17 @@ export async function verifyRemoteConfig(input: { window: Page; credentials: Rem
 		const check = await runRemoteCommand(credentials, "grep -F " + marker + ' "$HOME/.pi/agent/models.json" >/dev/null && echo MARKER_ON_REMOTE', 60_000);
 		expect(check.stdout.trim()).toContain("MARKER_ON_REMOTE");
 
-		// Disabled page copy: 认证 has no remote editor and reports the stable unsupported code.
+		// SSH 环境只给 helper 可达的页：认证页存在但只读（派生视图，没有任何写入控件），源文件页不存在。
 		await layout.getByRole("tab", { name: "认证", exact: true }).click();
-		await expect(layout.getByTestId("remote-config-unsupported-auth")).toBeVisible({ timeout: 30_000 });
-		await expect(layout.getByTestId("remote-config-stable-code").first()).toHaveText("REMOTE_CONFIG_UNSUPPORTED");
+		await expect(layout.getByTestId("remote-auth-panel")).toBeVisible({ timeout: timeoutMs });
+		await expect(layout.getByTestId("remote-auth-readonly")).toBeVisible();
+		// 只读证据：本机 AuthTab 的「添加认证」入口在这里不存在（页面不能看起来能改、其实写不进去）。
+		await expect(layout.getByRole("button", { name: "+ 添加认证", exact: true })).toHaveCount(0);
+		await expect(layout.getByRole("tab", { name: "源文件", exact: true })).toHaveCount(0);
+		await layout.getByRole("tab", { name: "信任", exact: true }).click();
+		await expect(layout.getByTestId("remote-config-panel")).toHaveAttribute("data-file", "trust", { timeout: timeoutMs });
+		await layout.getByRole("tab", { name: "MCP", exact: true }).click();
+		await expect(layout.getByTestId("remote-config-panel")).toHaveAttribute("data-file", "mcp", { timeout: timeoutMs });
 	} finally {
 		const restored = await runRemoteCommand(credentials, restoreCommand, timeoutMs);
 		const restoredText = restored.stdout.trim();

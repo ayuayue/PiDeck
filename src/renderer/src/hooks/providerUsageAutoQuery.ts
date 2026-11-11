@@ -9,7 +9,7 @@
  */
 import type { ProviderUsageEntry } from "../atoms/provider-usage-atoms";
 
-/** 默认自动查询间隔（分钟）：与主进程默认一致（学 cc-switch），0 = 关闭该 provider 的间隔轮询。 */
+/** 默认自动查询间隔（分钟）：与主进程默认一致，0 = 关闭该 provider 的间隔轮询。 */
 export const USAGE_PROBE_DEFAULT_INTERVAL_MINUTES = 5;
 
 /** 自动查询触发来源：挂载卡片、轮询、模型选择器批量、用户点击刷新。 */

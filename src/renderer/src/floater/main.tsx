@@ -114,7 +114,7 @@ function FloaterApp() {
 	if (!state) return null;
 	const text = statusText(state);
 	return (
-		<div className="flex h-full w-full select-none flex-col items-center justify-end gap-1.5 bg-transparent px-2 pb-2 font-sans">
+		<div className="grid h-full w-full select-none place-items-center bg-transparent font-sans">
 			<button
 				type="button"
 				className={`relative grid size-16 shrink-0 place-items-center rounded-full border border-border-strong bg-bg-panel text-foreground shadow-md transition-transform duration-fast focus-visible:outline-2 focus-visible:outline-primary ${dragging ? "scale-95 cursor-grabbing" : "cursor-grab hover:scale-[1.02]"} ${state.runningCount > 0 ? "ring-2 ring-success/50" : ""}`}

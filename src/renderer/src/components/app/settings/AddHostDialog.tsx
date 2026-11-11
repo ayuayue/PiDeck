@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Check, ChevronDown, Circle, CircleCheck, Copy, Eye, EyeOff, FileCode, FolderOpen, LoaderCircle, Search, Server, TerminalSquare, TriangleAlert, X } from "lucide-react";
-import { detectRendererPlatform } from "../../../lib/detectRendererPlatform";
+import { Check, ChevronDown, Circle, CircleCheck, Copy, Eye, EyeOff, FileCode, FolderOpen, LoaderCircle, Search, Server, TriangleAlert, X } from "lucide-react";
 import { desktopApi } from "../../../desktopApi";
 import { t, type TranslationKey } from "../../../i18n";
 import { remoteHostFailureReason, remotePiProbeReason } from "../../../utils/remoteHostFailureCopy";
@@ -11,7 +10,6 @@ import { Input } from "../../ui-shadcn/input";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "../../ui-shadcn/popover";
 import { Label } from "../../ui-shadcn/label";
 import type { RemoteHostAddInput, RemoteHostConfigCandidate } from "../../../../../shared/types/remoteHost";
-import type { WslHostListItem } from "../../../../../shared/types/wslHost";
 
 /** 跳过原因是稳定枚举；这里显式映射而不是拼接 key，否则远端回来的任意字符串会拼出不存在的 key。 */
 function skipReasonLabel(reason: string): string {
@@ -28,7 +26,6 @@ function skipReasonLabel(reason: string): string {
 }
 
 type AuthMode = "agent" | "key" | "password";
-type ConnectionKind = "ssh" | "wsl";
 
 /** 内联环境检测的四步（就是「保存并检测」真正做的事，不再是弹窗里的装饰阶段）。 */
 type SetupStepKey = "test" | "save" | "connect" | "pi";
@@ -45,6 +42,31 @@ const SETUP_STEP_ICON: Record<SetupStepStatus, typeof Circle> = { pending: Circl
 const SETUP_STEP_TONE: Record<SetupStepStatus, string> = { pending: "text-muted-foreground/50", active: "text-warning", done: "text-success", failed: "text-destructive" };
 /** 远端 pi 探测：成功只回版本/路径，失败只回稳定码（与主进程的脱敏结果同形）。 */
 type PiProbeOutcome = { state: "found"; version: string; piPath: string; warning?: string } | { state: "failed"; code: string };
+
+/**
+ * 单步上限：主进程侧每个 ssh 子进程都有自己的超时（客户端 30s、引导 ready 30s、上传/收尾各 120s），
+ * 这里只保证**界面**不会因为一次没回来的 IPC（主进程忙、处理器未抛错也没返回、通道未注册）永久锁住。
+ */
+const SETUP_STEP_TIMEOUT_MS: Record<SetupStepKey, number> = { test: 90_000, save: 90_000, connect: 300_000, pi: 150_000 };
+/** 超时专用错误：与 IPC 抛出的错误分开，文案才能说「没等到结果」而不是「失败」+ 稳定码。 */
+class SetupStepTimeout extends Error {}
+
+/** 把一次 IPC 变成有上限的等待；超时不取消主进程的工作，只让界面能继续（重试/关闭）。 */
+function withSetupTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(() => reject(new SetupStepTimeout("SETUP_STEP_TIMEOUT")), ms);
+	});
+	return Promise.race([work, deadline]).finally(() => {
+		if (timer !== undefined) clearTimeout(timer);
+	});
+}
+
+/** 把一次 IPC 的失败折成稳定码（与主进程同一套判据：消息即码）。 */
+function setupErrorCode(error: unknown): string {
+	const message = typeof error === "object" && error !== null && "message" in error ? (error as { message?: unknown }).message : undefined;
+	return typeof message === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(message) ? message : "IPC_CALL_FAILED";
+}
 /** 远端安装 pi 的命令：只给用户复制，不在远端替用户执行安装（远端副作用必须由用户自己按）。 */
 const PI_INSTALL_COMMAND = "npm i -g @earendil-works/pi-coding-agent";
 
@@ -55,7 +77,7 @@ type FormState = typeof EMPTY_FORM;
 /**
  * 「新建连接」面板。
  *
- * 结构照 ZCode 的远程配置面板：**类型切换 + 实时目标预览 + 表单 + 从 SSH config 导入**。
+ * 结构：**类型切换 + 实时目标预览 + 表单 + 从 SSH config 导入**。
  * SSH 与 WSL 都在这里创建：SSH 建远端主机（pin/TOFU），WSL 建本机档案（distro/user）。
  * 两者信任模型不同，但入口与表单骨架共用；Docker 没有后端，保持 disabled 并说明。
  *
@@ -78,12 +100,9 @@ export function AddHostDialog(props: {
 	onClose: () => void;
 	/** 主机档案变了（新增/编辑/移除）：宿主据此刷新列表。 */
 	onChanged?: () => void;
-	onWslSubmitted?: (host: WslHostListItem) => void;
-	initialKind?: ConnectionKind;
 	edit?: AddHostEditSeed;
 }) {
 	const editing = props.edit;
-	const [kind, setKind] = useState<ConnectionKind>(props.initialKind ?? "ssh");
 	const [candidates, setCandidates] = useState<RemoteHostConfigCandidate[]>([]);
 	const [skipped, setSkipped] = useState<{ alias: string; reason: string }[]>([]);
 	const [identityFiles, setIdentityFiles] = useState<string[]>([]);
@@ -112,13 +131,9 @@ export function AddHostDialog(props: {
 	// 密码与密钥口令是两个独立字段：共用一个可见态会让「看密码」顺手把口令也揭开。
 	const [showPassword, setShowPassword] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	// WSL 档案：只保存显示名/发行版/Linux 用户，目录在「添加项目」时选。
-	const [wsl, setWsl] = useState({ label: "", distro: "", user: "" });
-	const [wslBusy, setWslBusy] = useState(false);
 	// 「测试连接」：只握手不落库。结果分成功（带主机密钥指纹）与失败（已翻译成行动建议）。
 	const [testing, setTesting] = useState(false);
 	const [testResult, setTestResult] = useState<{ ok: true; fingerprint: string } | { ok: false; reason: string } | null>(null);
-	const [wslError, setWslError] = useState<string | null>(null);
 	// 内联环境检测：四步状态 + pi 结果。所有结论只来自主进程的稳定码。
 	const [steps, setSteps] = useState<Record<SetupStepKey, SetupStepStatus>>(EMPTY_STEPS);
 	const [piOutcome, setPiOutcome] = useState<PiProbeOutcome | null>(null);
@@ -127,16 +142,25 @@ export function AddHostDialog(props: {
 	const [piPathError, setPiPathError] = useState<string | null>(null);
 	const [savingPiPath, setSavingPiPath] = useState(false);
 	const [copiedInstall, setCopiedInstall] = useState(false);
+	/** 本次 runSetup 的令牌：超时/失败后旧链路不得再回写状态。 */
+	const setupRunRef = useRef(0);
 	/** 本对话框对应/新建的主机 id（重试和手填路径都用它，不重复 add）。 */
 	const hostIdRef = useRef<string | null>(editing?.hostId ?? null);
 	/** 对话框关闭后仍可能在飞的请求不得再回写状态或改动记录。 */
 	const aliveRef = useRef(true);
-	useEffect(
-		() => () => {
+	useEffect(() => {
+		// 必须在 effect 里**重新置 true**：React StrictMode（dev）会 mount → unmount → mount，
+		// 只在卸载时置 false 会让第二次挂载后的实例永远是「已死」——每一次 await 回来都在
+		// `if (!aliveRef.current) return;` 静静返回，步骤永远停在「进行中」，而主进程日志里
+		// 那次调用明明成功了（2026-11 实机：Host test finished ok，界面卡在测试 SSH 连接）。
+		// 同一文件里的其他 mountedRef/aliveRef 也都按这个写法。
+		aliveRef.current = true;
+		return () => {
 			aliveRef.current = false;
-		},
-		[],
-	);
+		};
+	}, []);
+	/** 表单滚动容器（内容比对话框高时本体独立滚动）。 */
+	const bodyRef = useRef<HTMLDivElement | null>(null);
 	const setupRunning = SETUP_STEPS.some((key) => steps[key] === "active");
 	const setupStarted = SETUP_STEPS.some((key) => steps[key] !== "pending");
 	const setupSettled = setupStarted && !setupRunning;
@@ -164,7 +188,7 @@ export function AddHostDialog(props: {
 		};
 	}, []);
 
-	/** 表单唯一的校验点（与 ZCode 的 collectRemoteFormFieldErrors 同一思路：先报第一个错，不发请求）。 */
+	/** 表单唯一的校验点（先报第一个错，不发请求）。 */
 	const validate = useCallback((): RemoteHostAddInput | string => {
 		const label = form.label.trim();
 		const hostName = form.hostName.trim();
@@ -201,9 +225,11 @@ export function AddHostDialog(props: {
 	/** 只探测 pi（会话已经在时成本是两次远端往返）。 */
 	const probePi = useCallback(
 		async (hostId: string) => {
+			// 本次运行令牌：超时/重试后旧探针不得再回写（它可能在一次没回来的 IPC 上挂很久）。
+			const token = setupRunRef.current;
 			setSteps((current) => ({ ...current, pi: "active" }));
 			const result = await desktopApi.remoteHosts.probePi(hostId);
-			if (!aliveRef.current) return;
+			if (!aliveRef.current || setupRunRef.current !== token) return;
 			applyPiOutcome(result);
 		},
 		[applyPiOutcome],
@@ -214,6 +240,9 @@ export function AddHostDialog(props: {
 	 *
 	 * `reconnect` 跳过测试与保存，只重做「建立会话 + 探测」：连接抖动失败后重试不该再写一次库。
 	 * 所有中断点都用稳定码回到表单，不抛异常，也不关框——失败要停在让它失败的那一步。
+	 *
+	 * 外层必须接住**异常**：IPC 可能 reject（处理器抛错/主进程忙/通道未注册），不接住的话 await 之后
+	 * 再也不会执行，步骤永远停在「active」，表单与按钮全部被锁——用户只能关框（2026-11 实机反馈）。
 	 */
 	const runSetup = useCallback(
 		async (mode: "full" | "reconnect") => {
@@ -232,80 +261,98 @@ export function AddHostDialog(props: {
 			const skipTest = form.auth === "password";
 			setSteps((current) => (mode === "full" ? { test: skipTest ? "done" : "active", save: skipTest ? "active" : "pending", connect: "pending", pi: "pending" } : { ...current, connect: "active", pi: "pending" }));
 			const secret = currentSecret();
-			if (mode === "full") {
-				const tested = skipTest ? null : await desktopApi.remoteHosts.test(input);
-				if (!aliveRef.current) return;
-				if (tested !== null && !tested.ok) {
-					setSteps((current) => ({ ...current, test: "failed" }));
-					// 失败也要把草稿留下（用户反馈：失败了就丢，下次还得把主机名/用户/私钥全填一遍）。
-					// add 会再握手一次，失败时返回 saved + hostId；拿到 id 后就是一条「未验证连接」，
-					// 用户可以关掉对话框，在列表里点编辑改错的那一项再重试。
-					const persisted = await desktopApi.remoteHosts.add(input);
-					if (!aliveRef.current) return;
-					if (!persisted.ok && persisted.saved === true && persisted.hostId !== undefined) {
-						hostIdRef.current = persisted.hostId;
-						setError(t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(tested.code) }));
-					} else {
-						setError(t("settings.connections.add.testFailed", { reason: remoteHostFailureReason(tested.code) }));
+			// 本次运行的令牌：超时/失败后旧的那条链不得再回写状态（它可能还在等一个永远不会来的 IPC）。
+			const token = ++setupRunRef.current;
+			const live = (): boolean => aliveRef.current && setupRunRef.current === token;
+			const currentStep = (): SetupStepKey => (mode === "reconnect" ? "connect" : (SETUP_STEPS.find((key) => steps[key] === "active") ?? "test"));
+			try {
+				if (mode === "full") {
+					const tested = skipTest ? null : await withSetupTimeout(desktopApi.remoteHosts.test(input), SETUP_STEP_TIMEOUT_MS.test);
+					if (!live()) return;
+					if (tested !== null && !tested.ok) {
+						setSteps((current) => ({ ...current, test: "failed" }));
+						// 失败也要把草稿留下（用户反馈：失败了就丢，下次还得把主机名/用户/私钥全填一遍）。
+						// add 会再握手一次，失败时返回 saved + hostId；拿到 id 后就是一条「未验证连接」，
+						// 用户可以关掉对话框，在列表里点编辑改错的那一项再重试。
+						const persisted = await withSetupTimeout(desktopApi.remoteHosts.add(input), SETUP_STEP_TIMEOUT_MS.save);
+						if (!live()) return;
+						if (!persisted.ok && persisted.saved === true && persisted.hostId !== undefined) {
+							hostIdRef.current = persisted.hostId;
+							setError(t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(tested.code) }));
+						} else {
+							setError(t("settings.connections.add.testFailed", { reason: remoteHostFailureReason(tested.code) }));
+						}
+						return;
 					}
+					if (tested !== null) setTestResult({ ok: true, fingerprint: tested.fingerprint });
+					setSteps((current) => ({ ...current, test: "done", save: "active" }));
+					// 重试时不能重复 add：已经有一条记录（新建成功或握手失败留下来的草稿）就原地修改。
+					const existingHostId = hostIdRef.current;
+					if (existingHostId !== null) {
+						const updated = await withSetupTimeout(
+							desktopApi.remoteHosts.update({
+								hostId: existingHostId,
+								patch: {
+									label: input.label,
+									hostName: input.hostName,
+									user: input.user ?? "",
+									port: typeof input.port === "number" ? input.port : undefined,
+									identityFile: input.identityFile ?? "",
+									// 显式写入 undefined：从密码切回密钥/agent 时必须清掉旧的 authMethod。
+									authMethod: input.authMethod === "password" ? ("password" as const) : undefined,
+								},
+								// 空口令 = 不覆盖；用户显式输入了才更新存储。
+								...(secret.length > 0 ? { secret } : {}),
+							}),
+							SETUP_STEP_TIMEOUT_MS.save,
+						);
+						if (!live()) return;
+						if (!updated.ok) {
+							setSteps((current) => ({ ...current, save: "failed" }));
+							setError(updated.saved === true ? t("settings.connections.edit.savedUnverifiedReason", { reason: remoteHostFailureReason(updated.code) }) : remoteHostFailureReason(updated.code));
+							return;
+						}
+						hostIdRef.current = existingHostId;
+						props.onChanged?.();
+					} else {
+						const added = await withSetupTimeout(desktopApi.remoteHosts.add(input), SETUP_STEP_TIMEOUT_MS.save);
+						// 对话框已经关了：记录照样保留（用户可在列表里查看/编辑/删除），只是不再回写界面。
+						if (!live()) return;
+						if (!added.ok) {
+							// 草稿已保存：记下 id，重试时原地 update（否则每失败一次就多一条同名记录）。
+							if (added.saved === true && added.hostId !== undefined) hostIdRef.current = added.hostId;
+							setSteps((current) => ({ ...current, save: "failed" }));
+							setError(added.saved === true ? t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(added.code) }) : remoteHostFailureReason(added.code));
+							return;
+						}
+						hostIdRef.current = added.hostId;
+						props.onChanged?.();
+					}
+					setSteps((current) => ({ ...current, save: "done", connect: "active" }));
+				}
+				const hostId = hostIdRef.current;
+				if (hostId === null) return;
+				const connected = await withSetupTimeout(desktopApi.remoteHosts.connect(hostId, secret.length > 0 ? secret : undefined), SETUP_STEP_TIMEOUT_MS.connect);
+				if (!live()) return;
+				if (!connected.ok) {
+					setSteps((current) => ({ ...current, connect: "failed" }));
+					setError(t("settings.connections.add.connectFailed", { reason: remoteHostFailureReason(connected.code) }));
 					return;
 				}
-				if (tested !== null) setTestResult({ ok: true, fingerprint: tested.fingerprint });
-				setSteps((current) => ({ ...current, test: "done", save: "active" }));
-				// 重试时不能重复 add：已经有一条记录（新建成功或握手失败留下来的草稿）就原地修改。
-				const existingHostId = hostIdRef.current;
-				if (existingHostId !== null) {
-					const updated = await desktopApi.remoteHosts.update({
-						hostId: existingHostId,
-						patch: {
-							label: input.label,
-							hostName: input.hostName,
-							user: input.user ?? "",
-							port: typeof input.port === "number" ? input.port : undefined,
-							identityFile: input.identityFile ?? "",
-							// 显式写入 undefined：从密码切回密钥/agent 时必须清掉旧的 authMethod。
-							authMethod: input.authMethod === "password" ? ("password" as const) : undefined,
-						},
-						// 空口令 = 不覆盖；用户显式输入了才更新存储。
-						...(secret.length > 0 ? { secret } : {}),
-					});
-					if (!aliveRef.current) return;
-					if (!updated.ok) {
-						setSteps((current) => ({ ...current, save: "failed" }));
-						setError(updated.saved === true ? t("settings.connections.edit.savedUnverifiedReason", { reason: remoteHostFailureReason(updated.code) }) : remoteHostFailureReason(updated.code));
-						return;
-					}
-					hostIdRef.current = existingHostId;
-					props.onChanged?.();
-				} else {
-					const added = await desktopApi.remoteHosts.add(input);
-					// 对话框已经关了：记录照样保留（用户可在列表里查看/编辑/删除），只是不再回写界面。
-					if (!aliveRef.current) return;
-					if (!added.ok) {
-						// 草稿已保存：记下 id，重试时原地 update（否则每失败一次就多一条同名记录）。
-						if (added.saved === true && added.hostId !== undefined) hostIdRef.current = added.hostId;
-						setSteps((current) => ({ ...current, save: "failed" }));
-						setError(added.saved === true ? t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(added.code) }) : remoteHostFailureReason(added.code));
-						return;
-					}
-					hostIdRef.current = added.hostId;
-					props.onChanged?.();
-				}
-				setSteps((current) => ({ ...current, save: "done", connect: "active" }));
+				setSteps((current) => ({ ...current, connect: "done", pi: "active" }));
+				await withSetupTimeout(probePi(hostId), SETUP_STEP_TIMEOUT_MS.pi);
+			} catch (error) {
+				if (!live()) return;
+				// 任何异常（IPC reject、超时）都必须把「进行中」收尾成失败：留着 active 会让整张表单向死锁。
+				const step = currentStep();
+				// 作废本次令牌：超时后仍挂在 IPC 上的那条链（如 probePi）不得再回写状态。
+				setupRunRef.current += 1;
+				setSteps((current) => ({ ...current, [step]: "failed" }));
+				if (error instanceof SetupStepTimeout) setError(t("settings.connections.add.stepStalled", { step: t(`settings.connections.add.step.${step}`) }));
+				else setError(t("settings.connections.add.stepFailed", { code: setupErrorCode(error) }));
 			}
-			const hostId = hostIdRef.current;
-			if (hostId === null) return;
-			const connected = await desktopApi.remoteHosts.connect(hostId, secret.length > 0 ? secret : undefined);
-			if (!aliveRef.current) return;
-			if (!connected.ok) {
-				setSteps((current) => ({ ...current, connect: "failed" }));
-				setError(t("settings.connections.add.connectFailed", { reason: remoteHostFailureReason(connected.code) }));
-				return;
-			}
-			setSteps((current) => ({ ...current, connect: "done", pi: "active" }));
-			await probePi(hostId);
 		},
-		[currentSecret, form.auth, probePi, props, setupRunning, validate],
+		[currentSecret, form.auth, probePi, props, setupRunning, validate, steps],
 	);
 
 	/** 手填路径：写进主机档案并立刻重探（null/空串 = 回到自动探测）。 */
@@ -419,29 +466,7 @@ export function AddHostDialog(props: {
 	const previewHost = form.hostName.trim();
 	const previewUser = form.user.trim();
 	const previewPort = form.port.trim() || "22";
-	const preview = kind === "wsl" ? t("settings.connections.add.wsl.preview") : previewHost.length === 0 ? t("settings.connections.add.previewPlaceholder") : `${previewUser.length > 0 ? `${previewUser}@` : ""}${previewHost}:${previewPort}`;
-	// WSL 只有 Windows 宿主才有：其它平台不渲染这一页（与 ZCode buildAvailableKinds 同判据）。
-	const wslSupported = detectRendererPlatform() === "win32";
-
-	/** 创建 WSL 档案：主进程只写本机清单，不启动 wsl.exe；引用保护在移除时生效。 */
-	const submitWsl = useCallback(async () => {
-		const label = wsl.label.trim();
-		const distro = wsl.distro.trim();
-		const user = wsl.user.trim();
-		if (label.length === 0 || !/^[A-Za-z0-9._-]{1,64}$/u.test(distro) || !/^[A-Za-z_][A-Za-z0-9._-]{0,31}$/u.test(user)) {
-			setWslError(t("settings.connections.add.wsl.invalid"));
-			return;
-		}
-		setWslBusy(true);
-		setWslError(null);
-		try {
-			const result = await desktopApi.remoteHosts.addWslHost({ label, distro, user });
-			if (result.ok) props.onWslSubmitted?.(result.host);
-			else setWslError(t("settings.connections.add.wsl.failed", { code: result.code }));
-		} finally {
-			setWslBusy(false);
-		}
-	}, [props, wsl]);
+	const preview = previewHost.length === 0 ? t("settings.connections.add.previewPlaceholder") : `${previewUser.length > 0 ? `${previewUser}@` : ""}${previewHost}:${previewPort}`;
 
 	return (
 		<Dialog
@@ -450,130 +475,86 @@ export function AddHostDialog(props: {
 				if (!open) close();
 			}}
 		>
-			{/* scroll-ok: bounded 表单对话框整页滚动，字段数量固定且由 max-h 收束 */}
-			<DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto p-6 sm:max-w-3xl sm:p-8">
-				<DialogHeader className="pr-8">
+			{/* 头/尾固定、只让表单滚动：内容再长，底部按钮也始终在视口里（整页滚动会把按钮推出屏幕）。 */}
+			<DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+				<DialogHeader className="shrink-0 gap-1 border-b border-border-subtle px-6 pt-5 pr-14 pb-4">
 					<DialogTitle className="text-lg font-medium">{editing === undefined ? t("settings.connections.add.title") : t("settings.connections.edit.title")}</DialogTitle>
-					<DialogDescription className={cn("break-all font-mono text-label", kind === "ssh" && previewHost.length > 0 ? "text-foreground" : "text-muted-foreground")}>{preview}</DialogDescription>
+					<DialogDescription className={cn("break-all font-mono text-label", previewHost.length > 0 ? "text-foreground" : "text-muted-foreground")}>{preview}</DialogDescription>
 				</DialogHeader>
 
-				{/* 类型切换：SSH 建远端主机，WSL 建本机档案；Docker 还没有后端。 */}
-				<div className={cn("flex flex-wrap items-center justify-between gap-2", editing !== undefined && "hidden")}>
-					<div role="group" aria-label={t("settings.connections.add.typeLabel")} className="flex w-fit overflow-hidden rounded-lg border border-input">
-						<button type="button" aria-pressed={kind === "ssh"} className={cn("inline-flex min-h-8 items-center gap-1.5 px-3 text-body", kind === "ssh" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-bg-hover")} onClick={() => setKind("ssh")}>
-							<Server className="size-3.5" aria-hidden="true" />
-							{t("settings.connections.add.kind.ssh")}
-						</button>
-						{wslSupported ? (
-							<button type="button" aria-pressed={kind === "wsl"} className={cn("inline-flex min-h-8 items-center gap-1.5 border-l border-input px-3 text-body", kind === "wsl" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-bg-hover")} onClick={() => setKind("wsl")}>
-								<TerminalSquare className="size-3.5" aria-hidden="true" />
-								{t("settings.connections.add.kind.wsl")}
-							</button>
-						) : null}
-						<button
-							type="button"
-							aria-pressed="false"
-							disabled
-							aria-label={`${t("settings.connections.add.kind.docker")} — ${t("settings.connections.add.kindUnavailable")}`}
-							title={t("settings.connections.add.kindUnavailable")}
-							className="inline-flex min-h-8 cursor-not-allowed items-center gap-1.5 border-l border-input px-3 text-body text-muted-foreground opacity-50"
-						>
-							<Box className="size-3.5" aria-hidden="true" />
-							{t("settings.connections.add.kind.docker")}
-						</button>
-					</div>
-					{kind === "ssh" ? (
-						<Popover open={importing} onOpenChange={setImporting}>
-							<PopoverTrigger asChild>
-								<Button type="button" variant="ghost" size="sm" className={cn("text-muted-foreground", importing && "bg-bg-hover text-foreground")} aria-expanded={importing}>
-									<FileCode className="size-4" aria-hidden="true" />
-									{t("settings.connections.add.import")}
-									<ChevronDown className={cn("size-3.5 transition-transform", importing && "rotate-180")} aria-hidden="true" />
-								</Button>
-							</PopoverTrigger>
-							{/* 小浮层：只覆盖在表单之上，不把下面的字段推下去。 */}
-							<PopoverContent align="end" sideOffset={6} className="w-[21rem] p-0">
-								<div className="overflow-hidden" data-testid="ssh-config-import">
-									<div className="relative border-b border-border-subtle/70 p-1.5">
-										<Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-										<Input autoFocus value={query} placeholder={t("settings.connections.add.importSearch")} aria-label={t("settings.connections.add.importSearch")} onChange={(event) => setQuery(event.target.value)} className="h-8 border-0 bg-transparent pl-7 text-body shadow-none focus-visible:ring-0" />
-									</div>
-									{/* scroll-ok: bounded SSH config 候选，扫描结果由 max-h 收束 */}
-									<div className="max-h-56 overflow-y-auto p-1">
-										{filtered.length === 0 ? (
-											<div className="flex flex-col items-center gap-1.5 px-3 py-7 text-center">
-												<Search className="size-4 text-muted-foreground/60" aria-hidden="true" />
-												<p className="text-body text-muted-foreground">{t("settings.connections.add.importEmpty")}</p>
-											</div>
-										) : (
-											<ul className="flex flex-col gap-0.5">
-												{filtered.map((candidate) => (
-													<li key={candidate.alias}>
-														<button type="button" className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none transition-colors hover:bg-bg-hover focus-visible:bg-bg-hover" onClick={() => applyCandidate(candidate)}>
-															<span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-bg-input text-muted-foreground transition-colors group-hover:text-foreground">
-																<Server className="size-4" aria-hidden="true" />
+				{/* 只有 SSH 一种连接：WSL 不在这里登记（它是本机 pi 来源，见开发设置）。 */}
+				<div className={cn("flex shrink-0 flex-wrap items-center justify-end gap-2 border-b border-border-subtle bg-bg-panel/50 px-6 py-2", editing !== undefined && "hidden")}>
+					<Popover open={importing} onOpenChange={setImporting}>
+						<PopoverTrigger asChild>
+							<Button type="button" variant="ghost" size="sm" className={cn("text-muted-foreground", importing && "bg-bg-hover text-foreground")} aria-expanded={importing}>
+								<FileCode className="size-4" aria-hidden="true" />
+								{t("settings.connections.add.import")}
+								<ChevronDown className={cn("size-3.5 transition-transform", importing && "rotate-180")} aria-hidden="true" />
+							</Button>
+						</PopoverTrigger>
+						{/* 小浮层：只覆盖在表单之上，不把下面的字段推下去。 */}
+						<PopoverContent align="end" sideOffset={6} className="w-[21rem] p-0">
+							<div className="overflow-hidden" data-testid="ssh-config-import">
+								<div className="relative border-b border-border-subtle/70 p-1.5">
+									<Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+									<Input autoFocus value={query} placeholder={t("settings.connections.add.importSearch")} aria-label={t("settings.connections.add.importSearch")} onChange={(event) => setQuery(event.target.value)} className="h-8 border-0 bg-transparent pl-7 text-body shadow-none focus-visible:ring-0" />
+								</div>
+								{/* scroll-ok: bounded SSH config 候选，扫描结果由 max-h 收束 */}
+								<div className="max-h-56 overflow-y-auto p-1">
+									{filtered.length === 0 ? (
+										<div className="flex flex-col items-center gap-1.5 px-3 py-7 text-center">
+											<Search className="size-4 text-muted-foreground/60" aria-hidden="true" />
+											<p className="text-body text-muted-foreground">{t("settings.connections.add.importEmpty")}</p>
+										</div>
+									) : (
+										<ul className="flex flex-col gap-0.5">
+											{filtered.map((candidate) => (
+												<li key={candidate.alias}>
+													<button type="button" className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none transition-colors hover:bg-bg-hover focus-visible:bg-bg-hover" onClick={() => applyCandidate(candidate)}>
+														<span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-bg-input text-muted-foreground transition-colors group-hover:text-foreground">
+															<Server className="size-4" aria-hidden="true" />
+														</span>
+														<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+															<span className="truncate text-body font-medium text-foreground">{candidate.alias}</span>
+															<span className="truncate font-mono text-label text-muted-foreground">
+																{candidate.user.length > 0 ? candidate.user : currentUser}@{candidate.hostName}
+																{candidate.port !== null ? `:${candidate.port}` : ""}
 															</span>
-															<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-																<span className="truncate text-body font-medium text-foreground">{candidate.alias}</span>
-																<span className="truncate font-mono text-label text-muted-foreground">
-																	{candidate.user.length > 0 ? candidate.user : currentUser}@{candidate.hostName}
-																	{candidate.port !== null ? `:${candidate.port}` : ""}
-																</span>
-															</span>
-														</button>
+														</span>
+													</button>
+												</li>
+											))}
+										</ul>
+									)}
+								</div>
+								{/* 被跳过的条目要说明原因：静默少一项会让用户以为自己的配置丢了。 */}
+								<div className="border-t border-border-subtle/70 px-3 py-1.5">
+									{skipped.length > 0 ? (
+										<details className="text-label text-muted-foreground">
+											<summary className="cursor-pointer select-none py-0.5">{t("settings.connections.add.skipped", { count: String(skipped.length) })}</summary>
+											<ul className="flex flex-col gap-0.5 pb-1">
+												{skipped.map((entry) => (
+													<li key={`${entry.alias}-${entry.reason}`}>
+														{entry.alias} — {skipReasonLabel(entry.reason)}
 													</li>
 												))}
 											</ul>
-										)}
-									</div>
-									{/* 被跳过的条目要说明原因：静默少一项会让用户以为自己的配置丢了。 */}
-									{skipped.length > 0 || scanNote !== null ? (
-										<div className="border-t border-border-subtle/70 px-3 py-1.5">
-											{skipped.length > 0 ? (
-												<details className="text-label text-muted-foreground">
-													<summary className="cursor-pointer select-none py-0.5">{t("settings.connections.add.skipped", { count: String(skipped.length) })}</summary>
-													<ul className="flex flex-col gap-0.5 pb-1">
-														{skipped.map((entry) => (
-															<li key={`${entry.alias}-${entry.reason}`}>
-																{entry.alias} — {skipReasonLabel(entry.reason)}
-															</li>
-														))}
-													</ul>
-												</details>
-											) : null}
-											{scanNote !== null ? <p className="py-0.5 text-label text-muted-foreground">{scanNote}</p> : null}
-										</div>
+										</details>
 									) : null}
+									{scanNote !== null ? <p className="py-0.5 text-label text-muted-foreground">{scanNote}</p> : null}
+									<p className="py-0.5 text-label text-muted-foreground">{t("settings.connections.add.importHint")}</p>
 								</div>
-							</PopoverContent>
-						</Popover>
-					) : null}
+							</div>
+						</PopoverContent>
+					</Popover>
 				</div>
 
-				{kind === "wsl" ? (
-					<div className="flex flex-col gap-3">
-						<p className="text-label text-muted-foreground">{t("settings.connections.add.wsl.hint")}</p>
-						<div className="flex flex-col gap-1">
-							<Label htmlFor="wsl-host-label">{t("settings.connections.add.wsl.label")}</Label>
-							<Input id="wsl-host-label" value={wsl.label} onChange={(event) => setWsl((current) => ({ ...current, label: event.target.value }))} />
-						</div>
-						<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-							<div className="flex min-w-0 flex-col gap-1">
-								<Label htmlFor="wsl-host-distro">{t("settings.connections.add.wsl.distro")}</Label>
-								<Input id="wsl-host-distro" placeholder="Ubuntu" value={wsl.distro} onChange={(event) => setWsl((current) => ({ ...current, distro: event.target.value }))} />
-							</div>
-							<div className="flex min-w-0 flex-col gap-1">
-								<Label htmlFor="wsl-host-user">{t("settings.connections.add.wsl.user")}</Label>
-								<Input id="wsl-host-user" autoComplete="off" spellCheck={false} placeholder="dev" value={wsl.user} onChange={(event) => setWsl((current) => ({ ...current, user: event.target.value }))} />
-							</div>
-						</div>
-						{wslError !== null ? <p className="text-label text-destructive">{wslError}</p> : null}
-					</div>
-				) : (
+				{/* scroll-ok: transient —— 表单本体独立滚动，字段数量固定且由对话框 max-h 收束 */}
+				<div ref={bodyRef} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
 					<>
 						{/* 保存成功后锁住字段：这条记录已经落库，再改字段就不再是它了（要改请在列表里编辑）。 */}
 						<fieldset disabled={formLocked} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
-							<div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+							<div className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-3">
 								<div className="flex min-w-0 flex-col gap-1">
 									<Label htmlFor="remote-host-name">{t("settings.connections.add.hostName")}</Label>
 									<Input id="remote-host-name" placeholder="host.com" value={form.hostName} onChange={(event) => setForm((current) => ({ ...current, hostName: event.target.value }))} />
@@ -583,13 +564,16 @@ export function AddHostDialog(props: {
 									<Input id="remote-host-port" inputMode="numeric" placeholder="22" value={form.port} onChange={(event) => setForm((current) => ({ ...current, port: event.target.value }))} />
 								</div>
 							</div>
-							<div className="flex flex-col gap-1">
-								<Label htmlFor="remote-host-user">{t("settings.connections.add.user")}</Label>
-								<Input id="remote-host-user" autoComplete="off" spellCheck={false} placeholder={t("settings.connections.add.userPlaceholder")} value={form.user} onChange={(event) => setForm((current) => ({ ...current, user: event.target.value }))} />
-							</div>
-							<div className="flex flex-col gap-1">
-								<Label htmlFor="remote-host-label">{t("settings.connections.add.label")}</Label>
-								<Input id="remote-host-label" value={form.label} onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))} />
+							{/* 用户名与显示名称并排：两个短字段各占一行会把表单拉得比对话框还高。 */}
+							<div className="grid grid-cols-2 gap-3">
+								<div className="flex min-w-0 flex-col gap-1">
+									<Label htmlFor="remote-host-user">{t("settings.connections.add.user")}</Label>
+									<Input id="remote-host-user" autoComplete="off" spellCheck={false} placeholder={t("settings.connections.add.userPlaceholder")} value={form.user} onChange={(event) => setForm((current) => ({ ...current, user: event.target.value }))} />
+								</div>
+								<div className="flex min-w-0 flex-col gap-1">
+									<Label htmlFor="remote-host-label">{t("settings.connections.add.label")}</Label>
+									<Input id="remote-host-label" value={form.label} onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))} />
+								</div>
 							</div>
 							<div className="flex flex-wrap items-center gap-3">
 								<span className="text-label text-muted-foreground">{t("settings.connections.add.authLabel")}</span>
@@ -597,7 +581,7 @@ export function AddHostDialog(props: {
 									<button
 										type="button"
 										aria-pressed={form.auth === "agent"}
-										className={cn("inline-flex min-h-8 items-center px-3 text-body", form.auth === "agent" ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-bg-hover")}
+										className={cn("inline-flex min-h-8 items-center px-3 text-body", form.auth === "agent" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-bg-hover")}
 										onClick={() => setForm((current) => ({ ...current, auth: "agent", identityFile: "" }))}
 									>
 										{t("settings.connections.add.auth.agent")}
@@ -605,7 +589,7 @@ export function AddHostDialog(props: {
 									<button
 										type="button"
 										aria-pressed={form.auth === "key"}
-										className={cn("inline-flex min-h-8 items-center border-l border-input px-3 text-body", form.auth === "key" ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-bg-hover")}
+										className={cn("inline-flex min-h-8 items-center border-l border-input px-3 text-body", form.auth === "key" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-bg-hover")}
 										onClick={() => setForm((current) => ({ ...current, auth: "key" }))}
 									>
 										{t("settings.connections.add.auth.key")}
@@ -613,7 +597,7 @@ export function AddHostDialog(props: {
 									<button
 										type="button"
 										aria-pressed={form.auth === "password"}
-										className={cn("inline-flex min-h-8 items-center border-l border-input px-3 text-body", form.auth === "password" ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-bg-hover")}
+										className={cn("inline-flex min-h-8 items-center border-l border-input px-3 text-body", form.auth === "password" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-bg-hover")}
 										onClick={() => setForm((current) => ({ ...current, auth: "password", identityFile: "" }))}
 									>
 										{t("settings.connections.add.auth.password")}
@@ -738,8 +722,8 @@ export function AddHostDialog(props: {
 
 						{/* 内联环境检测：四步状态 + pi 结论。整个过程就在这张表单里，不再弹独立进度框。 */}
 						{setupStarted ? (
-							<div className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-bg-input/40 p-3">
-								<ol aria-live="polite" className="flex flex-col gap-1.5">
+							<div className="flex flex-col gap-2.5 rounded-lg border border-border-subtle bg-bg-panel/50 p-3">
+								<ol aria-live="polite" className="flex flex-col gap-1">
 									{SETUP_STEPS.map((key) => {
 										const status = steps[key];
 										const Icon = SETUP_STEP_ICON[status];
@@ -815,46 +799,42 @@ export function AddHostDialog(props: {
 						) : null}
 
 						{testResult !== null ? (
-							<div role="status" className={cn("flex flex-col gap-1 text-label", testResult.ok ? "text-[var(--color-success)]" : "text-destructive")}>
+							<div role="status" className={cn("flex flex-col gap-1 rounded-lg border border-border-subtle bg-bg-panel/50 px-3 py-2 text-label", testResult.ok ? "text-[var(--color-success)]" : "text-destructive")}>
 								<p className="flex items-start gap-1.5">
 									{testResult.ok ? <CircleCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /> : <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />}
-									<span className="min-w-0">{testResult.ok ? t("settings.connections.add.testOk", { fingerprint: testResult.fingerprint }) : t("settings.connections.add.testFailed", { reason: testResult.reason })}</span>
+									<span className="min-w-0 break-all">{testResult.ok ? t("settings.connections.add.testOk", { fingerprint: testResult.fingerprint }) : t("settings.connections.add.testFailed", { reason: testResult.reason })}</span>
 								</p>
 								{testResult.ok ? <p className="pl-5 text-label text-muted-foreground">{t("settings.connections.add.testOkHint")}</p> : null}
 							</div>
 						) : null}
-						{error !== null ? <p className="text-label text-destructive">{error}</p> : null}
+						{error !== null ? (
+							<div role="alert" className="flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-label text-destructive">
+								<TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+								<span className="min-w-0 break-words">{error}</span>
+							</div>
+						) : null}
 					</>
-				)}
+				</div>
 
-				<DialogFooter className="flex-row items-center justify-between gap-2 border-t border-border-subtle pt-4 sm:justify-between">
-					<span className="min-w-0 truncate text-label text-muted-foreground">{kind === "ssh" && importing ? t("settings.connections.add.importHint") : null}</span>
+				<DialogFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t border-border-subtle bg-bg-panel/50 px-6 py-3 sm:justify-end">
 					<div className="flex items-center gap-2">
 						<Button variant="ghost" onClick={close}>
 							{t("common.cancel")}
 						</Button>
-						{kind === "ssh" ? (
-							<>
-								{setupRunning || setupSettled ? null : (
-									<Button variant="outline" disabled={testing || form.auth === "password"} title={form.auth === "password" ? t("settings.connections.add.testPasswordUnsupported") : undefined} onClick={() => void testConnection()}>
-										{testing ? t("settings.connections.add.testing") : t("settings.connections.add.test")}
-									</Button>
-								)}
-								{setupRunning ? null : piFound ? (
-									<Button onClick={complete}>{t("settings.connections.add.doneAction")}</Button>
-								) : setupSettled ? (
-									<Button disabled={savingPiPath} onClick={retrySetup}>
-										{t("settings.connections.add.retry")}
-									</Button>
-								) : (
-									<Button disabled={testing} onClick={() => void runSetup("full")}>
-										{editing === undefined ? t("settings.connections.add.setup") : t("settings.connections.add.setupEdit")}
-									</Button>
-								)}
-							</>
+						{setupRunning || setupSettled ? null : (
+							<Button variant="outline" disabled={testing || form.auth === "password"} title={form.auth === "password" ? t("settings.connections.add.testPasswordUnsupported") : undefined} onClick={() => void testConnection()}>
+								{testing ? t("settings.connections.add.testing") : t("settings.connections.add.test")}
+							</Button>
+						)}
+						{setupRunning ? null : piFound ? (
+							<Button onClick={complete}>{t("settings.connections.add.doneAction")}</Button>
+						) : setupSettled ? (
+							<Button disabled={savingPiPath} onClick={retrySetup}>
+								{t("settings.connections.add.retry")}
+							</Button>
 						) : (
-							<Button disabled={wslBusy} onClick={() => void submitWsl()}>
-								{t("settings.connections.add.wsl.submit")}
+							<Button disabled={testing} onClick={() => void runSetup("full")}>
+								{editing === undefined ? t("settings.connections.add.setup") : t("settings.connections.add.setupEdit")}
 							</Button>
 						)}
 					</div>

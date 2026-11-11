@@ -15,7 +15,7 @@ import { logFromRenderer } from "../utils/rendererLog";
  * 因此这里只有 `text` 与 `visible` 两个对外状态，其余全是内部簿记。
  *
  * 触发条件（缺一不可）：开关开、有可用目标模型、回合刚从 running 落回 idle、
- * 且缓存里最后一条是 assistant 正文。上下文取的是「回合结束后」的消息快照：
+ * 且缓存中有用户消息、末尾是正常结束（stop）的 assistant 正文。上下文取的是「回合结束后」的消息快照：
  * 直接读 atom 而不是闭包里的数组，避免流式收尾那一帧还差最后一段正文。
  */
 
@@ -108,6 +108,12 @@ export function usePromptSuggestion(input: {
 		// 只有「答完」才预测：错误/中断/最后一条还是用户消息时不猜，省一次无意义调用。
 		if (!last || last.role !== "assistant" || !last.text.trim()) {
 			logSuggestion("debug", `未预测：最后一条不是 assistant 正文（role=${last?.role ?? "none"}，本轮可能出错/被中断）`);
+			return;
+		}
+		// starting → idle 也可能只是预热/激活完成；延迟取快照时首轮已开始吐字，
+		// 不能仅凭 assistant 正文就预测。只消费正常答完的问答，未知结束态也不猜。
+		if (last.stopReason !== "stop" || !messages.some((message) => message.role === "user")) {
+			logSuggestion("debug", "未预测：当前会话尚无正常完成的问答");
 			return;
 		}
 		const context = collectPromptEnhanceContext(messages);

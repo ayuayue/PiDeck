@@ -49,7 +49,7 @@ export function ModelThinkingChip(props: { modelLabel: string; modelTitle?: stri
 	);
 }
 
-/** 档位刻度点：轨道上每个档位一个点（ZCode 同款），填充段内亮点 / 未选段暗点。
+/** 档位刻度点：轨道上每个档位一个点，填充段内亮点 / 未选段暗点。
  *  坐标与 Radix thumb 中心同源：thumb 是 size-4（16px），getThumbInBoundsOffset 把
  *  中心压在 [8, 轨道宽-8] 区间，所以点层也内缩同量，首尾点才不贴到圆角外。
  *  注意：点必须放在 <Slider> 外层的相对容器里——Radix Slider.Root 会丢弃 children
@@ -90,7 +90,7 @@ function ThinkingWheelZone(props: { disabled?: boolean; levels: ThinkingPickerLe
 }
 
 /**
- * 思考强度选择：ZCode 同款渐变强度条（beUI 口径：shadcn Slider 原语 + 语义 token）。
+ * 思考强度选择：渐变强度条（beUI 口径：shadcn Slider 原语 + 语义 token）。
  * 离散档位吸附（step=1）而非连续值——模型只认 off…max 的枚举；刻度标签行兼作点击入口，
  * 方向键在滑条上原生平移档位。壳从 DropdownMenu 换成 Popover：Radix Menu 会劫持
  * 方向键（typeahead/导航），滑条键盘操作会被吞；Popover 不拦截，滑条键盘可达。
@@ -156,7 +156,10 @@ export function ThinkingLevelDropdown(props: { current?: string; levels?: Thinki
 					<span className="max-w-[16ch] truncate">{thinkingText}</span>
 				</Button>
 			</PopoverTrigger>
-			<PopoverContent align="end" side="top" className="w-72 min-w-64 max-w-[min(320px,calc(100vw-24px))] p-3" aria-label={t("app.thinkingPickerTitle")}>
+			{/* 宽度交给内容：7 个档位标签的自然宽度即弹层下限，界面字号越大弹层越宽。
+			    写死 w-72 时（fontSize=large，标签 13px）标签行正好 264px，与内容宽零余量——
+			    字体更宽或缩放更高时首尾标签挤出内容盒、贴着卡片边框（实测 scrollWidth 264 > 262）。 */}
+			<PopoverContent align="end" side="top" className="w-auto min-w-72 max-w-[min(24rem,calc(100vw-24px))] p-3" aria-label={t("app.thinkingPickerTitle")}>
 				{levels.length === 0 ? (
 					<div className="px-1 py-2 text-caption text-muted-foreground">{t("app.thinkingPickerUnsupported")}</div>
 				) : (
@@ -211,15 +214,19 @@ export function ThinkingLevelDropdown(props: { current?: string; levels?: Thinki
 									})}
 								</div>
 							</div>
-							{/* 档位标签行：兼作点击入口，点击只改预览（与拖拽同一套 draft），关闭时统一提交 */}
-							<div className="flex min-w-0 items-start justify-between gap-1">
+							{/* 档位标签行：兼作点击入口，点击只改预览（与拖拽同一套 draft），关闭时统一提交。
+							    px-2 把首尾标签退到端点刻度点（点层内缩 8px）之外，不再压着卡片边框。 */}
+							<div className="flex min-w-0 items-start justify-between gap-1 px-2">
 								{levels.map((level, index) => (
 									<Button
 										key={level.value}
 										type="button"
 										variant="ghost"
 										data-tick-value={level.value}
-										className={`h-auto min-w-0 max-w-full truncate rounded-sm px-0.5 py-0 text-micro leading-4 font-normal shadow-none transition-colors hover:bg-transparent ${index === draftIndex ? "font-semibold text-foreground" : "text-muted-foreground"}`}
+										/* 不用 truncate + leading-4：固定 16px 行盒比标签行高（16/18/19/20px 随界面字号档位）
+										   还小，overflow:hidden 会切掉行盒顶部，字头看起来「被盖住」。行高跟随 text-micro，
+										   宽度由上面内容驱动的弹层保证装得下。 */
+										className={`h-auto min-w-0 whitespace-nowrap rounded-sm px-0.5 py-0 text-micro font-normal shadow-none transition-colors hover:bg-transparent ${index === draftIndex ? "font-semibold text-foreground" : "text-muted-foreground"}`}
 										disabled={props.disabled}
 										title={level.descriptionKey ? t(level.descriptionKey) : level.description}
 										onClick={() => setDraftIndex(index)}

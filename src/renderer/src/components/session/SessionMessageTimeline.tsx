@@ -10,7 +10,17 @@ import { replaceExpandedRefBlocksWithLabels } from "./composer/quoteChip";
 import { Button } from "../ui-shadcn/button";
 import { DiagnosticMessageCard, EmptyState, MultiSelectModal, RespondingIndicator, TurnRow, UserBubble, stripMarkdown } from "./SurfaceParts";
 import { getMultiSelectImageCaptureIds, groupToolMessages, reconcileRuns, type RenderMessage } from "../app/AppUtils";
-import { liveThinkingIdBySessionIdAtomFamily, liveTextStreamingBySessionAtom, liveThinkingStreamingBySessionAtom, sessionMessageCacheBySessionIdAtomFamily, sessionMessageLoadStateAtom, sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily, sessionSendStateByIdAtom } from "../../atoms";
+import {
+	liveThinkingIdBySessionIdAtomFamily,
+	liveTextStreamingBySessionAtom,
+	liveThinkingStreamingBySessionAtom,
+	sessionMessageCacheBySessionIdAtomFamily,
+	sessionMessageLoadStateAtom,
+	sessionRecordByIdAtomFamily,
+	sessionRuntimeBySessionIdAtomFamily,
+	sessionSendStateByIdAtom,
+	type PendingHistoryMutation,
+} from "../../atoms";
 import { writeClipboardImage } from "../../utils/clipboard";
 import { useTimelineSelection } from "../../hooks/useTimelineSelection";
 import { useMessageContextMenu } from "../../hooks/useMessageContextMenu";
@@ -102,7 +112,7 @@ type TimelineInteractionProps = {
 	onRemoveMessageImage?: UserBubbleProps["onRemoveMessageImage"];
 	onForkMessage?: UserBubbleProps["onForkMessage"];
 	onRewindToMessage?: UserBubbleProps["onRewindToMessage"];
-	forkingMessageId?: string | null;
+	pendingHistoryMutation?: PendingHistoryMutation | null;
 	onToast: (message: string) => void;
 	/** 新建 Agent 的空时间线快捷操作：只写入 composer，不自动投递。 */
 	onQuickPrompt?: (prompt: string) => void;
@@ -851,6 +861,8 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 		return () => window.removeEventListener(REVEAL_TIMELINE_ENTRY_EVENT, handleReveal);
 	}, [sessionId]);
 
+	// 历史进行中跨会话隔离：遮罩已按 sessionId 接到新会话，消息 spinner 只留在发起会话里。
+	const pendingForSession = props.pendingHistoryMutation?.sessionId === sessionId ? props.pendingHistoryMutation : null;
 	const renderRunItem = (item: RenderMessage): ReactNode => {
 		// 判定与 VirtualRunList 的 entries 同源（virtualTimelinePolicy.isRenderableRunItem）：
 		// 虚拟区只为可渲染条目建包装 div，两边口径必须一致。
@@ -894,6 +906,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 					onEnterMultiSelect={handleEnterMultiSelect}
 					onFavoriteReply={handleFavoriteReply}
 					favoritedMessageKeys={favoritedMessageKeys}
+					pendingHistoryMutation={pendingForSession}
 				/>
 			);
 		}
@@ -914,7 +927,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 					onDeleteMessage={props.onDeleteMessage}
 					onForkMessage={props.onForkMessage}
 					onRewindToMessage={props.onRewindToMessage}
-					forking={props.forkingMessageId === message.id}
+					pendingKind={pendingForSession?.messageId === message.id ? pendingForSession.kind : null}
 					agentRunning={isRuntimeBusy}
 					isLastUserMessage={message.id === lastUserMessageId}
 					showResendButton={resendableMessageIds.has(message.id)}
@@ -1152,7 +1165,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 
 			{/* 长会话渲染治理：
           - 不再使用 content-visibility 估算高度（展开工具会抖）。
-          - 学 Proma：总折叠压缩单行 DOM；另在贴底时只挂尾部 N 个 agent-run
+          - 总折叠压缩单行 DOM；另在贴底时只挂尾部 N 个 agent-run
             （见 turnRenderWindow），上滚放开。分页仍做数据窗口治理。 */}
 			{hasActiveConversation && !isConversationLoading && paginatedMessages.length > 0 && (
 				<div className="message-list min-w-0 w-full mx-auto transition-opacity duration-fast" onContextMenu={messageContextMenu.handleContextMenu}>

@@ -25,6 +25,7 @@
 | 文档 | 用途 |
 |---|---|
 | [architecture.md](architecture.md) | 分层与跨层契约（shared / main / ipc / preload / renderer） |
+| [config-environments.md](config-environments.md) | Pi 配置管理的环境模型（本机/SSH/WSL）、能力矩阵与切换契约 |
 | [host-boundaries.md](host-boundaries.md) | pi ↔ PiDeck 通道边界与例外 |
 | [engineering-standards.md](engineering-standards.md) | 代码/测试/安全/兼容标准 |
 | [electron-playbook.md](electron-playbook.md) | 窗口、preload、打包、原生模块 |
@@ -64,10 +65,11 @@
 | [app-tsx-split-plan.md](app-tsx-split-plan.md) | 同上（App.tsx）：Wave 1–3 已落地，JSX 装配拆分未做 |
 | [agent-manager-split-plan.md](agent-manager-split-plan.md) | 同上（AgentManager.ts）：Wave 1–4 已落地，新增状态机域必须建协作者模块 |
 | [acp-replay-batching-plan.md](acp-replay-batching-plan.md) | ACP 重放卡顿：先测量再改，分「增量尾部 → 窗口化 → 分块投递」三阶段；未实现 |
+| [remote-access-plan.md](remote-access-plan.md) | 远程/多设备访问对标 t3code：A 身份与幂等、B 路由与重连、C 自建 relay；A/B 纯开发，C 需账号 |
 
 ## 4. 代码/测试引用与归档
 
-本轮归档已把 `src/`、`tests/`、`scripts/`、`e2e/` 里指向历史文档的路径同步改到 `docs/archive/`，并在移动后校验了所有站内 Markdown 链接（仅余 3 条外部仓库链接：ZCode / deepseek-harness，不在本仓库）。
+本轮归档已把 `src/`、`tests/`、`scripts/`、`e2e/` 里指向历史文档的路径同步改到 `docs/archive/`，并在移动后校验了所有站内 Markdown 链接（仅余 3 条外部仓库链接，均不在本仓库）。
 
 **两份保留在根的历史文档**（测试硬编码了路径，移动会破坏测试；已标 Historical）：
 

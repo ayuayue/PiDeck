@@ -10,10 +10,16 @@
  * 本脚本负责盯住第 2 类问题：
  *   - db 必须存在，且能解出「编程提示词」分类；
  *   - 内置模板（docs/pi-prompt-templates/*.md 对应的 slug）必须全部落在 db 里；
- *   - 分类表的 count 必须与 xueprompts 实际分组数一致（防增量写入后忘记重算）。
+ *   - 分类表的 count 必须与 xueprompts 实际分组数一致（防增量写入后忘记重算）；
+ *   - `xueprompts.db.sha256` 必须与 db 内容一致。
+ *
+ * sha256 那一项是本脚本 2026-11 新增的：db 不再打进安装包，客户端下载后按 Release 资产里的
+ * `.sha256` 校验指纹，指纹对不上直接丢弃并显示「下载失败」——发一份过期指纹＝全体客户端提示词
+ * 商店不可用（v0.11.3 漏发资产的同类事故）。
  *
  * 退出码非 0 即视为失败，供打包流水线在 electron-builder 之前挡住过期数据。
  */
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { dirname, join } from "node:path";
@@ -23,6 +29,8 @@ import initSqlJs from "sql.js";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const root = join(scriptDir, "..");
 const dbPath = join(root, "resources", "xueprompts.db");
+/** 远程发布资产指纹：与 db 同目录同名 + `.sha256`（与 XuePromptDbStore 的资产名一致）。 */
+const shaPath = `${dbPath}.sha256`;
 const templateDir = join(root, "docs", "pi-prompt-templates");
 
 /** 与 scripts/add-builtin-prompts.mjs 保持一致：test 文件名落库为 test-cases。 */
@@ -34,8 +42,21 @@ const failures = [];
 if (!existsSync(dbPath)) {
 	failures.push(`数据库不存在: ${dbPath}`);
 } else {
+	const dbBytes = readFileSync(dbPath);
+
+	// 0) 远程资产指纹必须与库内容一致（客户端下载 db 后按它校验，过期指纹 = 全员下载失败）
+	if (!existsSync(shaPath)) {
+		failures.push(`缺少指纹文件: ${shaPath}（跑 node scripts/publish-xueprompts.mjs 生成）`);
+	} else {
+		const declared = (readFileSync(shaPath, "utf8").trim().split(/\s+/)[0] ?? "").toLowerCase();
+		const actual = createHash("sha256").update(dbBytes).digest("hex");
+		if (declared !== actual) {
+			failures.push(`.sha256 与 db 内容不一致: 声明 ${declared || "(空)"}，实际 ${actual}（重跑 node scripts/publish-xueprompts.mjs）`);
+		}
+	}
+
 	const SQL = await initSqlJs();
-	const db = new SQL.Database(readFileSync(dbPath));
+	const db = new SQL.Database(dbBytes);
 
 	/** gzip BLOB → 明文；旧数据未压缩时原样返回。 */
 	const blobText = (blob) => {
@@ -97,7 +118,7 @@ if (!existsSync(dbPath)) {
 if (failures.length > 0) {
 	console.error("✗ xueprompts.db 校验未通过：");
 	for (const item of failures) console.error(`  - ${item}`);
-	console.error("\n修复：跑 `node scripts/add-builtin-prompts.mjs` 重新写入内置模板，再重新打包。");
+	console.error("\n修复：db 数据问题跑 `node scripts/add-builtin-prompts.mjs` 重写内置模板；指纹不一致跑 `node scripts/publish-xueprompts.mjs` 重生成 .sha256（两个文件一起提交）。");
 	process.exit(1);
 }
 

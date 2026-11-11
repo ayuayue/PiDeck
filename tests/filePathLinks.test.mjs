@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FILE_PATH_RE, extractFileLinkLocation, isAbsoluteFilePath, isFilePathInsideRoot, matchPlainFilePaths, normalizeFileLinkPath, resolveFileLinkPath } from "../src/renderer/src/utils/filePathLinks.ts";
+import { FILE_PATH_RE, extractFileLinkLocation, isAbsoluteFilePath, isFilePathInsideRoot, matchPlainFilePaths, normalizeFileLinkPath, parentDirectoryOf, resolveFileLinkPath } from "../src/renderer/src/utils/filePathLinks.ts";
 
 // matchPlainFilePaths：markdown 文本 → 纯文本文件路径候选（带区间）。
 // 这是「模型给的路径可能不存在」场景的第一道闸：只负责识别候选，
@@ -201,4 +201,30 @@ test("WSL containment ignores host and distro case but preserves Linux path case
 	const root = "\\\\wsl.localhost\\Ubuntu-24.04\\root\\Repo";
 	assert.equal(isFilePathInsideRoot("//WSL$/ubuntu-24.04/root/Repo/src/a.ts", root), true);
 	assert.equal(isFilePathInsideRoot("//wsl$/ubuntu-24.04/root/repo/src/a.ts", root), false);
+});
+
+// issue #535：文件预览里的相对图片要以「被预览文件所在目录」为基准，而不是会话 cwd。
+// 基准来自 parentDirectoryOf，所以它必须同时认 POSIX / 盘符 / UNC 三种语法，且不能把
+// `C:\a.md` 的父目录算成 `C:`（没有分隔符会被下游当成带 scheme 的目标，整条解析失败）。
+test("parentDirectoryOf keeps the root separator and handles posix, drive and UNC syntax", () => {
+	assert.equal(parentDirectoryOf("/Users/me/docs/2026-11-11/review.md"), "/Users/me/docs/2026-11-11");
+	assert.equal(parentDirectoryOf("/a.md"), "/");
+	assert.equal(parentDirectoryOf("C:\\proj\\docs\\review.md"), "C:\\proj\\docs");
+	assert.equal(parentDirectoryOf("C:\\a.md"), "C:\\");
+	assert.equal(parentDirectoryOf("C:/a.md"), "C:/");
+	assert.equal(parentDirectoryOf("\\\\server\\share\\docs\\a.md"), "\\\\server\\share\\docs");
+	// 尾部斜杠不改变结果；没有分隔符（相对文件名）不猜
+	assert.equal(parentDirectoryOf("/Users/me/docs/"), "/Users/me");
+	assert.equal(parentDirectoryOf("review.md"), undefined);
+	assert.equal(parentDirectoryOf(""), undefined);
+});
+
+test("a markdown file's own directory is the base for its relative image paths", () => {
+	const sourceDir = parentDirectoryOf("/Users/me/docs/2026-11-11/review.md");
+	// 与 MarkdownImage 同一个解析入口：baseDir = 文档目录 → img/a.png 落在文档旁边
+	assert.equal(resolveFileLinkPath("img/a.png", sourceDir), "/Users/me/docs/2026-11-11/img/a.png");
+	// 对照：沿用会话 cwd 会解析到别处（这正是 0.9.8 里图片全挂的原因）
+	assert.equal(resolveFileLinkPath("img/a.png", "/Users/me/work"), "/Users/me/work/img/a.png");
+	// 仍然折叠 `..`，但越出文档目录的路径不会被静默限制（是否可读由主进程白名单把关）
+	assert.equal(resolveFileLinkPath("../shared/a.png", sourceDir), "/Users/me/docs/shared/a.png");
 });

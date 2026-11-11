@@ -291,6 +291,9 @@ func (counter *countingWriter) Write(payload []byte) (int, error) {
 // prunePersistedTables 目录上限：文件数 > maxTableFiles 或总字节 > maxTableDirBytes 时，
 // 按修改时间从旧到新删除（keepPath 永不删）。惰性执行、失败静默。
 func prunePersistedTables(dir string, keepPath string) {
+	// 先清孤儿再按 age 淘汰：孤儿表一样占 maxTableFiles 配额，
+	// 不清会把仍然有效的表挤掉，冷启动又要重扫（issue #392 后续）。
+	pruneOrphanPersistedTables(dir, keepPath)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -333,4 +336,53 @@ func prunePersistedTables(dir string, keepPath string) {
 		total -= item.size
 		remaining--
 	}
+}
+
+// pruneOrphanPersistedTables 删掉「源会话文件已不存在」的条目文件。
+//
+// 条目文件名是源路径的 sha1，归档 / 恢复 / 移动工作目录都会让旧表永久失联；
+// 实测一台开发机 256 个表里 250 个是孤儿（18.4MiB），存活只有 6 个。
+// 只删 header 能解析、Path 非空、且 Path 指向的文件确实不存在的表：
+// 空 Path（旧格式 / 手工构造）与解析失败一律保留，避免误删。
+func pruneOrphanPersistedTables(dir string, keepPath string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), tableFileSuffix) {
+			continue
+		}
+		full := filepath.Join(dir, entry.Name())
+		if full == keepPath {
+			continue
+		}
+		sessionPath, ok := persistedSessionPath(full)
+		if !ok || sessionPath == "" {
+			continue
+		}
+		if _, err := os.Stat(sessionPath); err == nil {
+			continue
+		}
+		_ = os.Remove(full)
+	}
+}
+
+// persistedSessionPath 读条目文件首行 header，返回源会话路径。
+func persistedSessionPath(tablePath string) (string, bool) {
+	file, err := os.Open(tablePath)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+	reader := bufio.NewReaderSize(file, 64*1024)
+	line, err := reader.ReadBytes('\n')
+	if err != nil && len(line) == 0 {
+		return "", false
+	}
+	var header persistedTableHeader
+	if err := json.Unmarshal(line, &header); err != nil {
+		return "", false
+	}
+	return header.Path, true
 }

@@ -46,6 +46,14 @@ export function useSessionPreferenceState(options: {
 	/** pi settings.modelThinkingLevels 快照（sessions.resolve-launch-defaults 回传）：
 	 *  引导页改选模型后按当前模型反查每模型默认档位，与创建时的解析同序。 */
 	modelThinkingLevels?: Record<string, string>;
+	/**
+	 * 无 record（引导页/草稿）时目录归属的项目。
+	 *
+	 * 不传的后果在远端项目上很具体：主进程只能按 sessionId 判位置（草稿没有会话），于是回答本机目录，
+	 * 用户选到的模型在服务器上不存在，发首条消息后列表才“变成”服务器上的模型。草稿已经有项目和
+	 * 项目位置（locator），目录就该按它路由。
+	 */
+	fallbackProjectId?: string;
 }) {
 	const { sessionId } = options;
 	const record = useAtomValue(sessionRecordByIdAtomFamily(sessionId));
@@ -108,7 +116,8 @@ export function useSessionPreferenceState(options: {
 	} = useBackendModelCatalog({
 		sessionId,
 		backend: isDshSession ? "dsh" : "pi",
-		projectId: record?.projectId,
+		// 有 record 时以会话归属为准；引导页/草稿用选中项目，远端项目才能拿到服务器上的目录。
+		projectId: record?.projectId ?? options.fallbackProjectId,
 		enabled: catalogEnabled,
 	});
 	// 引导页点选按后端读各自的存储（issue #253）：DSH 的模型是 host route 名，
@@ -120,14 +129,15 @@ export function useSessionPreferenceState(options: {
 	// 与 ComposerBottomBar 共用 isWelcomeModelLost 判定；目录未加载（models 为空）时不判定，
 	// 避免误清用户仍有效的偏好。
 	const welcomeModelLost = isWelcomeModelLost(welcomeModel, models);
-	// 展示可以宽容忽略，但删除不可逆：本 hook 在有 record 时按 record.projectId 加载
+	// 展示可以宽容忽略，但删除不可逆：只要目录是按项目取的（record 或引导页选中的项目），它就是
 	// 「项目范围」目录，而偏好是全局 localStorage——项目列表合法地不含该模型时不能
-	// 拿它判死全局偏好，否则会把用户在别的项目里仍然有效的点选静默销毁。
+	// 拿它判死全局偏好，否则会把用户在别的项目（或别的远端主机）里仍然有效的点选静默销毁。
+	const catalogProjectId = record?.projectId ?? options.fallbackProjectId;
 	const clearWelcomePreference = shouldClearWelcomePreference({
 		welcomeModel,
 		models,
 		catalogLoaded: report?.ok === true,
-		catalogIsGlobal: !record?.projectId,
+		catalogIsGlobal: catalogProjectId === undefined,
 	});
 	useEffect(() => {
 		// 失效偏好只清一次：下次引导页不再默认已删除的模型（创建时主进程也会兜底丢弃）。

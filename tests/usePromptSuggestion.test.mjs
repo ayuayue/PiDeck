@@ -92,10 +92,10 @@ function hookHarness() {
 	};
 }
 
-const ASSISTANT_LAST = [
-	{ role: "user", text: "帮我改登录页" },
-	{ role: "assistant", text: "改好了，并补了测试" },
-];
+/** Production message shape: a reply becomes prediction context only after a normal stop. */
+const message = (role, text, extra = {}) => ({ id: `${role}-${text}`, agentId: "agent", role, text, timestamp: 1, ...extra });
+const ASSISTANT_LAST = [message("user", "帮我改登录页"), message("assistant", "改好了，并补了测试", { stopReason: "stop" })];
+const CONTEXT = ASSISTANT_LAST.map(({ role, text }) => ({ role, text }));
 
 /** 从「正在跑」落到 idle，等预测受理完成。 */
 async function finishTurn(h, patch = {}) {
@@ -114,7 +114,53 @@ test("回合结束才预测：run 带目标模型与本轮上下文，idle→idl
 
 	await finishTurn(h);
 	assert.equal(h.payloads.length, 1);
-	assert.deepEqual(plain(h.payloads[0]), { provider: "pi", modelId: "m", context: ASSISTANT_LAST });
+	assert.deepEqual(plain(h.payloads[0]), { provider: "pi", modelId: "m", context: CONTEXT });
+});
+
+test("新会话启动回落为空闲后，首条回复仍未完成时不预测", async () => {
+	const h = hookHarness();
+	h.render({ turnRunning: true });
+	h.render({ turnRunning: false });
+	// Startup/prewarm can fall back to idle before the first answer is available.
+	// Text arriving during the snapshot delay is not proof that this turn completed.
+	h.setMessages([message("user", "第一条问题"), message("assistant", "正在生成第一条回复", { stopReason: "pending" })]);
+	await afterPredictDelay();
+	await flushMicrotasks();
+	assert.deepEqual(h.payloads, []);
+
+	h.render({ turnRunning: true });
+	h.setMessages([message("user", "第一条问题"), message("assistant", "首条回复已完成", { stopReason: "stop" })]);
+	h.render({ turnRunning: false });
+	await afterPredictDelay();
+	await flushMicrotasks();
+	assert.equal(h.payloads.length, 1, "首轮正常完成后仍允许一次预测");
+});
+
+test("只有完整问答可预测：中间回复、失败、中断、截断与未知结束态均不发请求", async () => {
+	for (const stopReason of ["pending", "toolUse", "error", "aborted", "length", undefined]) {
+		const h = hookHarness();
+		h.setMessages([message("user", "第一条问题"), message("assistant", "有文字但并未正常答完", { stopReason })]);
+		await finishTurn(h);
+		assert.deepEqual(h.payloads, [], `stopReason=${stopReason ?? "missing"}`);
+	}
+	const h = hookHarness();
+	h.setMessages([message("assistant", "没有用户问题的助手消息", { stopReason: "stop" })]);
+	await finishTurn(h);
+	assert.deepEqual(h.payloads, [], "孤立助手消息不能冒充已有问答");
+});
+
+test("新会话首发与回复过程中不预测，等待快照时开始新回合也不预测", async () => {
+	const h = hookHarness();
+	h.render();
+	h.setMessages([message("user", "第一条问题")]);
+	h.render({ turnRunning: true });
+	await afterPredictDelay();
+	assert.deepEqual(h.payloads, []);
+	h.setMessages(ASSISTANT_LAST);
+	h.render({ turnRunning: false });
+	h.render({ turnRunning: true });
+	await afterPredictDelay();
+	assert.deepEqual(h.payloads, [], "新的活动回合会取消尚未发出的预测");
 });
 
 test("最后一条不是助手正文（错误/中断/用户消息）时不预测", async () => {

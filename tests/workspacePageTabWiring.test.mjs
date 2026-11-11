@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { stripCodeComments } from "./_sourceContract.mjs";
 
 /**
  * 页面式工作区（定时任务 / 智能体）的装配契约：
@@ -87,6 +88,18 @@ test("设置页：会话列页面 Tab，关闭叉先走未保存确认，Esc 只
 	assert.match(modal, /closeRequestRef\.current = handleClose/);
 	assert.match(modal, /if \(!props\.active\) return;/);
 	assert.match(modal, /if \(event\.key !== "Escape" \|\| event\.defaultPrevented\) return;/, "Radix 弹层已 preventDefault 时不得重复关页面");
+});
+
+test("Ask 「前往会话」先让页面失活：目标会话已是 currentSessionId 时 scope 不变", () => {
+	// 用户反馈：停在设置页 Tab 上时点 Ask toast「前往会话」没反应。
+	// 页面盖在会话列上，而页面失活只由「projectId|sessionId」scope 变化触发（App 的兜底 effect）；
+	// 在会话里触发 ask → 切到设置页 → 点「前往会话」，目标会话就是当前会话，scope 压根不变。
+	const code = stripCodeComments(app);
+	const start = code.indexOf("const jumpToAskSession = useCallback(");
+	assert.ok(start > -1, "App 必须有 jumpToAskSession（后台 Ask 通知「前往会话」的唯一入口）");
+	const block = code.slice(start, code.indexOf("\t);", start));
+	assert.match(block, /deactivateWorkspacePage\(\);[\s\S]*?selectSessionCommand\(/, "跳 ask 会话前必须先让页面失活，且要在选会话之前（与点会话 Tab 同约定）");
+	assert.match(block, /\[[^\]]*deactivateWorkspacePage[^\]]*\]/, "useCallback 依赖数组必须带上 deactivateWorkspacePage");
 });
 
 test("页面式插件面板与工作区页面互斥：打开面板时让页面失活（否则面板会被立刻关掉）", () => {

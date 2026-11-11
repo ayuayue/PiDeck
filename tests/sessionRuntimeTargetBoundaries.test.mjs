@@ -67,13 +67,14 @@ test("Session file operations resolve stable Session IDs before touching paths",
 	assert.match(preload, /readReferenceMessages: \(sessionId: string\)/);
 	assert.match(main, /async function copyCatalogSession\(sessionId: string\)/);
 	assert.match(main, /const entry = sessionCatalog\.get\(sessionId\)/);
-	const copyCatalogSession = main.slice(main.indexOf("async function copyCatalogSession"), main.indexOf("async function exportCatalogSessionHtml"));
+	const copyCatalogSession = main.slice(main.indexOf("async function copyCatalogSession"), main.indexOf("function exportCatalogSessionHtml"));
 	// 静止 clone 与运行中 clone/fork 统一为 fork 身份：物理写入标题后缀，再以 forked 注册 catalog。
 	assert.match(copyCatalogSession, /appendSessionForkSuffix\(title, mainCopy\("session\.forkedSuffix"\)\)/);
 	assert.match(copyCatalogSession, /await sessionScanner\.rename\(result\.sessionPath, forkedTitle\)/);
 	assert.match(copyCatalogSession, /filePath: result\.sessionPath,[\s\S]*forked: true/);
 	assert.match(sessionActions, /copyRecord\(sessionId\)/);
-	assert.match(sessionActions, /exportRecordHtml\(session\.id\)/);
+	// 导出先开统一对话框，再由 useSessionShareExport 的行为测试覆盖完整导出/安全预览。
+	assert.match(sessionActions, /requestExport\(\{\s*sessionId:\s*session\.id\s*\}\)/);
 	assert.match(sessionReferenceModal, /props\s*\.?\s*loadMessages\(props\.session\.id\)/);
 	assert.doesNotMatch(ipc, /sessions(?:Rename|Copy|ExportHtml|Delete|ReadMessages|ReadMeta|ReadChatMessages):/);
 	assert.doesNotMatch(sessionsPreload, /(?:rename|copy|exportHtml|delete|readMessages|readSessionMeta|readChatMessages): \(filePath/);

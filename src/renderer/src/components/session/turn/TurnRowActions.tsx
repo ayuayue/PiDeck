@@ -1,6 +1,7 @@
-import { Clock, Share, SquarePen, Star, Trash } from "lucide-react";
+import { Clock, Loader2, Share, SquarePen, Star, Trash } from "lucide-react";
 import type { RefObject } from "react";
 import type { ChatMessage } from "../../../../../shared/types";
+import type { PendingHistoryMutationKind } from "../../../atoms/session-atoms";
 import { t } from "../../../i18n";
 import { Button } from "../../ui-shadcn/button";
 import { CopyMenu } from "../SurfaceComponents";
@@ -27,6 +28,8 @@ export type TurnRowActionsProps = {
 	duration: number;
 	showTurnModel: boolean;
 	turnModel?: ChatMessage["model"];
+	/** 本轮回复正在编辑/删除：按钮整组替换为 spinner 行（与用户气泡 pending 同口径）。 */
+	pendingKind?: PendingHistoryMutationKind | null;
 };
 
 /**
@@ -54,7 +57,15 @@ function ZoneDivider() {
 }
 
 export function TurnRowActions(props: TurnRowActionsProps) {
-	const showActions = Boolean(props.mergedText) && !props.editing;
+	const showActions = Boolean(props.mergedText) && !props.editing && !props.pendingKind;
+	if (props.pendingKind) {
+		return (
+			<div className="flex min-h-6 items-center gap-1.5 text-xs text-text-secondary" role="status">
+				<Loader2 size={14} className="animate-pideck-spin" aria-hidden="true" />
+				<span>{props.pendingKind === "delete" ? t("web.msgDeleting") : t("web.msgSaving")}</span>
+			</div>
+		);
+	}
 	if (!showActions && !props.showDuration && !props.showTurnModel) return null;
 	return (
 		<div className={`flex min-h-6 items-center gap-1${showActions ? " opacity-55 transition-opacity hover:opacity-100 focus-within:opacity-100" : ""}`}>

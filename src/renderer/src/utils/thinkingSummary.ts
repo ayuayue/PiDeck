@@ -1,5 +1,5 @@
 /**
- * 折叠态思考单行摘要的取行策略（纯函数，与 deepseek-harness ReasoningRow 同模式）。
+ * 折叠态思考单行摘要的取行策略（纯函数）。
  *
  * - 流式中（running）：取最新一行（lastIndexOf('\n') 之后），配合容器 scrollLeft
  *   跟随尾部，语义类似终端 tail -f——看到的始终是最新的思考内容
@@ -8,7 +8,7 @@
 export function firstLine(text: string): string {
 	// 思考 delta 裸拼接可能以换行/空白开头（deepseek 模型思考常以 "\n" 起笔，
 	// 主进程仅 stripAnsi 不裁剪）：先裁首部空白，保证结束态摘要显示第一个非空行，
-	// 而不是空行（对齐 deepseek-harness ReasoningRow 的 block.text 规范化语义）。
+	// 而不是空行（思考文本先规范化再取行）。
 	const visible = text.trimStart();
 	const newline = visible.indexOf("\n");
 	return newline === -1 ? visible : visible.slice(0, newline);

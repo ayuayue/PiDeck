@@ -31,6 +31,9 @@ export const SESSIONS_SUBDOMAINS = {
 		"deleteRecord",
 		"editCatalogMessage",
 		"exportRecordHtml",
+		"prepareShareExport",
+		"saveShareExport",
+		"releaseShareExport",
 		"list",
 		"listArchived",
 		"listCatalog",
@@ -142,7 +145,8 @@ export const SESSIONS_SUBDOMAINS = {
 export const CONFIG_SUBSTORES = {
 	models: ["fetchModels", "getModels", "saveModels", "onModelsVerifyResult", "discoverExternalAgents", "resolveExternalAgentKey"],
 	auth: ["getAuth", "saveAuth"],
-	settings: ["getConfigDir", "getSettings", "saveSettings", "saveRaw"],
+	// getRaw/saveRaw 是源文件级读写对（models/settings/trust/mcp/auth 共用一条按 target 路由的通道）。
+	settings: ["getConfigDir", "getSettings", "saveSettings", "getRaw", "saveRaw"],
 	mcp: ["getMcp", "saveMcp", "probeMcp", "installMcpSetupSkill", "mcpListStatus", "mcpLogin", "mcpLogout", "onMcpLoginUrl"],
 	trust: ["getTrust"],
 	tokendance: ["getTokendanceModels", "getTokendancePriceTags", "installTokendance", "tokendanceAuthAwait", "tokendanceAuthCancel", "tokendanceAuthExchange", "tokendanceAuthStart", "tokendanceTopUpCreate", "tokendanceTopUpOpenAlipay", "tokendanceTopUpStatus"],

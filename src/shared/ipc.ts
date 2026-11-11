@@ -271,6 +271,10 @@ export const ipcChannels = {
 	sessionsCatalogReadMessageFullText: "sessions:catalog-read-message-full-text",
 	sessionsCatalogCopy: "sessions:catalog-copy",
 	sessionsCatalogExportHtml: "sessions:catalog-export-html",
+	/** 本地 pi / DSH 投影视图安全分享：只保存已预览的产物，不重读原会话。 */
+	sessionsSharePrepare: "sessions:share-prepare",
+	sessionsShareSave: "sessions:share-save",
+	sessionsShareRelease: "sessions:share-release",
 	/** 无 runtime 时直接改 pi JSONL（编辑消息）。运行中必须先停 Agent。 */
 	sessionsCatalogEditMessage: "sessions:catalog-edit-message",
 	/** 只移除 user 消息中的选中图片；运行中必须先停 Agent。 */
@@ -891,6 +895,8 @@ export const ipcChannels = {
 	configSaveAuth: "config:save-auth",
 	configSaveSettings: "config:save-settings",
 	configSaveRaw: "config:save-raw",
+	/** 源文件页的统一读取（本机/WSL 原文 + 诊断；ssh 脱敏快照），按 target 路由。 */
+	configGetRaw: "config:get-raw",
 	configExport: "config:export",
 	configImport: "config:import",
 	/** 只读扫描本机其他 agent（Claude Code/Codex/OpenCode/Gemini CLI）的供应商配置，返回掩码候选 */

@@ -36,6 +36,7 @@ on:
         default: auto
         options:
           - auto
+          - v0.12.0
           - v0.11.3
           - v0.11.2
           - v0.11.1
@@ -45,7 +46,6 @@ on:
           - v0.9.7
           - v0.9.6
           - v0.9.5
-          - v0.9.1
       tag_custom:
         description: "自定义 tag（填了则覆盖上面的下拉选择；用于列表外的旧版本，如 v0.5.2）"
         required: false
@@ -404,6 +404,38 @@ jobs:
             dist-runtime/dsh-runner-node/*.zip
             dist-runtime/dsh-runner-node/dsh-runner-node-releases.json
 
+      # 提示词库资产：安装包不内置 xueprompts.db，客户端只从
+      # `/releases/latest/download/xueprompts.db(.sha256)` 拉取（XuePromptDbStore，AtomGit 主 +
+      # GitHub 兜底）。`latest` 指向的是「当前这个 Release」，资产不会跨版本继承——所以**每次发版
+      # 都必须重新上传**，漏传的表现是全体客户端提示词商店永久「下载失败」且无本地兜底
+      # （2026-11 v0.11.3 事故：0.11.3 起改成远程拉取，但流水线从未上传过这两份资产，两源 404）。
+      # 只在 windows job 传一次：5 个 job 同时传同名资产会互相覆盖/422。
+      # fail 而非静默跳过：缺文件时宁可让发版红，也不要发出一个商店不可用的版本。
+      - name: Upload prompt-library assets
+        if: matrix.platform == 'windows'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in resources/xueprompts.db resources/xueprompts.db.sha256; do
+            if [ ! -f "$f" ]; then
+              echo "::error::缺少提示词库资产 ${f}（客户端会整体下载失败）"
+              exit 1
+            fi
+          done
+          for i in 1 2 3 4 5; do
+            if gh release upload "$TAG" resources/xueprompts.db resources/xueprompts.db.sha256 --clobber --repo "$REPO"; then
+              exit 0
+            fi
+            echo "upload failed, retry ${i}/5"
+            sleep $((i * 5))
+          done
+          echo "::error::上传提示词库资产到 ${TAG} 失败"
+          exit 1
+
   # mac 自动更新清单：x64 / arm64 两个 job 的 latest-mac.yml 各含一半文件，合并后才能让 electron-updater
   # 按架构选对 zip（脚本头注释有失败模式）。任一 mac job 失败则本 job 不跑，Release 缺 latest-mac.yml：
   # 新版本保持草稿，不提升 latest；重跑补齐后才发布。
@@ -566,6 +598,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # 发布前置门禁：客户端只认 `/releases/latest/download/xueprompts.db(.sha256)`，一旦本
+      # Release 被指成 latest 而资产缺失，所有客户端的提示词商店会永久「下载失败」
+      # （v0.11.3 事故）。所以资产不齐就不发布、不动 latest。
+      - name: Assert prompt-library assets present
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          names="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')"
+          missing=""
+          for want in xueprompts.db xueprompts.db.sha256; do
+            grep -qxF "$want" <<<"$names" || missing="${missing} ${want}"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::${TAG} 缺少提示词库资产:${missing}（客户端会整体下载失败，拒绝发布）"
+            exit 1
+          fi
+          echo "✅ 提示词库资产齐全：xueprompts.db / xueprompts.db.sha256"
+
       - name: Set latest pointer and verify
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}

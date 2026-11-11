@@ -140,7 +140,17 @@ export class ExtensionUiGate {
 
 		// 其他非对话 UI 方法暂不占用桌面 UI 空间。
 		if (method === "setTitle") return;
-		if (!["select", "confirm", "input", "editor"].includes(method)) return;
+		if (!["select", "confirm", "input", "editor"].includes(method)) {
+			// 未实现的 UI method 必须回一个明确的 cancelled，不能静默丢弃：pi 侧没有默认超时
+			// （本文件开头就写着 createDialogPromise 只挂 promise、不设 deadline），静默丢弃等于让
+			// 扩展 await 一个永不 resolve 的 promise——用户看到的是「点了没反应 / 插件卡住」。
+			// pi 的 ctx.ui 有二十多个方法（custom 是整块 TUI 组件，RPC 模式下没有协议承载；
+			// setHeader/setFooter/addAutocompleteProvider 这些也是终端专属），PiDeck 只实现
+			// select/confirm/input/editor 四个对话类，其余全部落到这条分支。
+			this.host.warn("unsupported extension UI method; replying cancelled", { agentId, method });
+			this.sendUIResponse(agentId, requestId, { cancelled: true });
+			return;
+		}
 
 		// Batch ask_question sends its form as an input title envelope. Decode it at
 		// the process boundary so no renderer can mistake the raw JSON for a prompt.

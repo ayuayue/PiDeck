@@ -423,3 +423,9 @@ test("Web strips above the composer share the composer reading width", () => {
 	assert.match(webSessionStrips, /className="composer-above\b/, "子代理/任务清单条必须挂 composer-above，否则会再次铺满 chat-pane");
 	assert.match(webChatApp, /className="composer-above\b/, "错误/待答横幅与输入框同宽，否则会在输入卡上方横穿整屏");
 });
+
+test("Web batch ask reads answers by own id, never through Object.prototype", () => {
+	assert.match(webTimeline, /batchValueOf\(batchAnswers, currentQ\.id\)/);
+	assert.match(webTimeline, /batchValueOf\(batchAnswers, q\.id\)/);
+	assert.doesNotMatch(webTimeline, /batchAnswers\[(?:currentQ|q)\.id\]/);
+});

@@ -22,7 +22,8 @@ test("a failed connect keeps a per-host code and offers inline retry", () => {
 	assert.match(tab, /const \[failures, setFailures\] = useState<Record<string, string>>\(\{\}\)/);
 	assert.match(tab, /setFailures\(\(current\) => \(\{ \.\.\.current, \[hostId\]: result\.code \}\)\)/);
 	assert.match(tab, /settings\.connections\.lastFailure/);
-	assert.match(tab, /toggle\(host\.id, true, host\.label\)\}>/);
+	// 重试：已验证主机直接重连，未验证主机先走编辑重新验证（直连必然失败，不静默置灰）。
+	assert.match(tab, /host\.verified \? void toggle\(host\.id, true, host\.label\) : void openEditor\(host\.id\)/);
 	// 成功或主动断开后清除失败码，避免旧错误挂在已恢复的主机上。
 	assert.equal((tab.match(/delete next\[hostId\]/g) ?? []).length, 5);
 });

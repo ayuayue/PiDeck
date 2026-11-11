@@ -15,7 +15,7 @@ import { Button } from "@/components/ui-shadcn/button";
 import { t } from "@/i18n";
 import { shareWebText } from "./webShare";
 import { cn } from "@/lib/utils";
-import { splitAskOption, formatAskTitle, serializeBatchAnswers } from "../utils/askUi";
+import { batchValueOf, splitAskOption, formatAskTitle, serializeBatchAnswers } from "../utils/askUi";
 import { WebAssistantText } from "./WebAssistantText";
 import type { WebPendingUiRequest } from "./webTypes";
 import { VirtualStack } from "@/components/ui-shadcn/virtual-stack";
@@ -434,7 +434,7 @@ function WebAskCard(props: { request: WebPendingUiRequest; busy: boolean; onResp
 		const currentQ = batchQuestions[batchTab] || batchQuestions[0];
 		const total = batchQuestions.length;
 		const isLast = batchTab === total - 1;
-		const currentAns = batchAnswers[currentQ.id];
+		const currentAns = batchValueOf(batchAnswers, currentQ.id);
 
 		const handleAnswerOne = (val: string | boolean | string[]) => {
 			const updated = { ...batchAnswers, [currentQ.id]: val };
@@ -469,7 +469,7 @@ function WebAskCard(props: { request: WebPendingUiRequest; busy: boolean; onResp
 								<button
 									key={q.id}
 									type="button"
-									className={cn("h-5 w-5 rounded text-xs pointer-coarse:size-8", idx === batchTab ? "bg-primary text-primary-foreground font-semibold" : batchAnswers[q.id] !== undefined ? "bg-muted text-foreground" : "bg-muted/40 text-muted-foreground")}
+									className={cn("h-5 w-5 rounded text-xs pointer-coarse:size-8", idx === batchTab ? "bg-primary text-primary-foreground font-semibold" : batchValueOf(batchAnswers, q.id) !== undefined ? "bg-muted text-foreground" : "bg-muted/40 text-muted-foreground")}
 									onClick={() => {
 										setBatchTab(idx);
 										setBatchInput("");

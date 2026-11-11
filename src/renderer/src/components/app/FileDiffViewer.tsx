@@ -6,6 +6,8 @@ import { ArrowLeft, Maximize, Minimize2, RefreshCw, Rows2, SquareSplitHorizontal
 import { Button } from "../ui-shadcn/button";
 import { cn } from "../../lib/utils";
 import { MarkdownStream } from "../session/MarkdownStream";
+import { FileLinkBaseProvider, useFileLinkContext } from "../session/FileLinkBase";
+import { isAbsoluteFilePath, isFilePathInsideRoot, parentDirectoryOf, resolveFileLinkPath } from "../../utils/filePathLinks";
 import { ConfirmDialog } from "../ui-shadcn/ConfirmDialog";
 import { defaultUrlTransform } from "../session/MarkdownLinkCore";
 import { UNTRUSTED_MARKDOWN_REHYPE_PLUGINS } from "../session/markdownSanitize";
@@ -115,6 +117,20 @@ export function FileDiffViewer(props: {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [sideBySide, setSideBySide] = useState(props.displayMode !== "drawer");
+	// issue #535：Markdown 预览里的相对图片/相对链接要以**被预览文件所在目录**为基准。
+	// 不覆写就是 App 层兜底的「会话 cwd / 项目根」——跨目录读文档时相对图全部 404。
+	// 安全等级不动：文件在项目内且基准也在项目内时仍然带上 projectRoot，越出项目就不再
+	// 用项目根卡路径（否则 ~/docs 这类阅读场景又被封死），真正的读取白名单在主进程。
+	const fileLinkContext = useFileLinkContext();
+	const markdownPreviewBaseDir = useMemo(() => {
+		const projectRoot = fileLinkContext.projectRoot;
+		if (props.fileTarget && projectRoot) {
+			const absoluteTarget = resolveFileLinkPath(props.fileTarget.relativePath, projectRoot);
+			if (absoluteTarget) return parentDirectoryOf(absoluteTarget);
+		}
+		return isAbsoluteFilePath(props.filePath) ? parentDirectoryOf(props.filePath) : undefined;
+	}, [props.filePath, props.fileTarget, fileLinkContext.projectRoot]);
+	const markdownPreviewProjectRoot = markdownPreviewBaseDir !== undefined && fileLinkContext.projectRoot !== undefined && isFilePathInsideRoot(markdownPreviewBaseDir, fileLinkContext.projectRoot) ? fileLinkContext.projectRoot : undefined;
 	// 自动换行偏好（Discussions #423）：只影响本机的预览观感，属渲染层偏好，
 	// 存 localStorage 而不是 settings.json——升级不该改变任何人的默认排版，
 	// 也不需要为此扩设置 schema 与 IPC。null = 没点过开关，按各视图原有默认。
@@ -730,7 +746,9 @@ export function FileDiffViewer(props: {
 						{!isDiffMode && preview && isMarkdown && (
 							// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 							<div className="markdown-body markdown-preview-chrome h-full overflow-y-auto px-6 py-6 text-body text-text-primary font-sans">
-								<MarkdownStream text={content} onOpenExternal={noopOpenExternal} remarkPlugins={FILE_PREVIEW_REMARK_PLUGINS} rehypePlugins={FILE_PREVIEW_REHYPE_PLUGINS} urlTransform={defaultUrlTransform} />
+								<FileLinkBaseProvider baseDir={markdownPreviewBaseDir} projectId={props.fileTarget?.projectId ?? fileLinkContext.scope?.projectId} projectRoot={markdownPreviewProjectRoot} sessionId={fileLinkContext.sessionId}>
+									<MarkdownStream text={content} onOpenExternal={noopOpenExternal} remarkPlugins={FILE_PREVIEW_REMARK_PLUGINS} rehypePlugins={FILE_PREVIEW_REHYPE_PLUGINS} urlTransform={defaultUrlTransform} />
+								</FileLinkBaseProvider>
 							</div>
 						)}
 						{!isDiffMode && preview && isHtml && <HtmlPreview content={content} />}

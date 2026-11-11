@@ -396,6 +396,7 @@ export const REMOTE_HELPER_CAPABILITIES = [
 	"terminal.prepare",
 	"config.read",
 	"config.patch",
+	"config.readAuth",
 ] as const;
 export type RemoteHelperCapability = (typeof REMOTE_HELPER_CAPABILITIES)[number];
 /**
@@ -636,17 +637,22 @@ export type RemoteHelperReadParams = { path: string; offset: number; bytes: numb
  */
 export type RemoteHelperReadResult = { chunk: string; bytes: number; eof: boolean };
 
-// ── Phase 5: remote Pi config scope (models.json / settings.json only) ─────────────────────────
+// ── Phase 5: remote Pi config scope (models / settings / trust / mcp) ─────────────────────────
 
 /**
- * The config scope is deliberately tiny: two allowlisted files under the remote Pi agent directory, no path
- * parameter, no auth.json. Read answers are sanitized (secret values become configured/missing); writes are
- * RFC 7396 merge patches guarded by expectedVersion and an atomic temp+rename+fsync. The frozen config.mjs
- * repeats these literals under test, exactly like the Git worker.
+ * The config scope is deliberately tiny: four patchable files under the remote Pi agent directory, plus a
+ * read-only derived view of auth.json. No path parameter exists, and the credential file is never returned,
+ * patched or addressed by path: `config.readAuth` answers only provider name / credential type / configured.
+ * Reads answer sanitized snapshots (secret values become configured/missing); writes are RFC 7396 merge patches
+ * guarded by expectedVersion and an atomic temp+rename+fsync. The frozen config.mjs repeats these literals under
+ * test, exactly like the Git worker. Adding a file means editing the frozen artifact, bumping the helper build
+ * identity and re-pinning both digests — never a path parameter.
  */
 export const REMOTE_HELPER_METHOD_CONFIG_READ = "config.read";
 export const REMOTE_HELPER_METHOD_CONFIG_PATCH = "config.patch";
-export type RemoteConfigFileKey = "models" | "settings";
+/** Read-only, value-free view of auth.json; never a patch source (auth.json is not in the patch allowlist). */
+export const REMOTE_HELPER_METHOD_CONFIG_READ_AUTH = "config.readAuth";
+export type RemoteConfigFileKey = "models" | "settings" | "trust" | "mcp";
 /** Upper bound for either agent file (raw bytes) and for the serialized patched result. */
 export const REMOTE_CONFIG_MAX_FILE_BYTES = 1024 * 1024;
 /** Bounded patch/merge walk: an answer that would need more than this is refused, never truncated. */
@@ -672,6 +678,18 @@ export type RemoteConfigSnapshot = {
 	secrets: readonly RemoteConfigSecretEntry[];
 };
 export type RemoteConfigPatchParams = { file: RemoteConfigFileKey; expectedVersion: string; patch: Record<string, unknown> };
+
+/**
+ * auth.json view (build 1.28.0). `providers` is derived on the host: the credential itself is only compared to
+ * decide configured/missing, so no plaintext key or OAuth token can appear in a frame even for a credential shape
+ * the secret pattern does not name (oauth access/refresh would not be matched by a key-name rule).
+ */
+export const REMOTE_CONFIG_MAX_AUTH_PROVIDERS = 200;
+/** Provider ids pi keys auth.json by; anything else refuses the read rather than being described. */
+export const REMOTE_CONFIG_AUTH_PROVIDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}$/;
+export type RemoteConfigAuthProviderType = "api_key" | "oauth" | "unsupported";
+export type RemoteConfigAuthProvider = { provider: string; type: RemoteConfigAuthProviderType; configured: boolean };
+export type RemoteConfigAuthSnapshot = { version: string; sha256: string; providers: readonly RemoteConfigAuthProvider[] };
 
 // ── F3: one-shot terminal launch ticket and the fixed terminal runner ─────────────────────────────
 

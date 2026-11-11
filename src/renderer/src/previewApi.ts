@@ -858,6 +858,9 @@ export function createPreviewApi(): PiDesktopApi {
 				targetSessionId: `${sessionId}:copy`,
 			}),
 			exportRecordHtml: async () => ({ path: "preview-session.html" }),
+			prepareShareExport: async () => ({ ok: false as const, error: "SESSION_SHARE_UNSUPPORTED" }),
+			saveShareExport: async () => ({ ok: false as const, error: "SESSION_SHARE_UNSUPPORTED" }),
+			releaseShareExport: async () => undefined,
 			readRecordMessages: async () => [],
 			readRecordMessagePage: async () => ({ messages: [], total: 0, nextBefore: null }),
 			editCatalogMessage: async () => ({ ok: true as const, value: undefined }),
@@ -1794,6 +1797,7 @@ export function createPreviewApi(): PiDesktopApi {
 			getAuth: async () => ({ raw: "{}", parsed: {} }),
 			getSettings: async () => ({ raw: "{}", parsed: {} }),
 			getTrust: async () => ({ raw: "{}", parsed: {} }),
+			getRaw: async () => ({ raw: "{}" }),
 			getMcp: async () => ({
 				writablePath: "",
 				writableFile: { mcpServers: {} },

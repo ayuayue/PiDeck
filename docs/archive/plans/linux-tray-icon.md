@@ -2,6 +2,7 @@
 
 > **Status: Historical（归档于 2026-10-31；内容按归档时代码，不代表现状；现行见 docs/README.md）**
 
+> **后续更正（2026-11-10，issue #521）**：托盘缺失的真因是 Electron 43.3.0–43.4.1 的 Chromium SNI multiplexer 只按 well-known destination 查图标（GDBus 宿主按 unique name 读属性必失败），与扩展版本无关；Electron ≥ 43.5.0 已修复。现行结论与判定方法见 [electron-playbook.md §Linux 托盘](../../electron-playbook.md)。本文「升级扩展到 v66」的结论已被取代。
 
 适用场景：GNOME（Wayland 或 X11）+ AppIndicator 托盘扩展，PiDeck 图标不出现，且每次启动必现（偶发 ≠ 本文档问题）。
 

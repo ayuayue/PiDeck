@@ -15,16 +15,15 @@ import { Component, forwardRef, useRef, useState, useEffect, useCallback, useImp
 import type { PiDesktopApi } from "../../preload";
 import { AuthTab } from "./config/AuthTab";
 import { OAuthTab } from "./config/OAuthTab";
-import { PiConfigTargetSelector } from "./config/PiConfigTargetSelector";
-import { hasUnsavedConfigDrafts, samePiConfigTarget, toSshTargetHosts, toWslTargetHosts, type PiConfigTargetHost } from "./config/piConfigTargetModel";
+import { ConfigBackendSwitch, ConfigEnvironmentStatus } from "./config/ConfigEnvironmentSwitch";
+import { configTabsForTarget, configTargetKey, firstConfigTabForTarget, isConfigTabSupported, resolveConfigTabForTarget, resourcePagesSupported, securityPageSupported } from "./config/configEnvironmentModel";
+import { hasUnsavedConfigDrafts, preferredConfigTargetForProject, samePiConfigTarget, toSshTargetHosts, toWslTargetHosts, type PiConfigTargetHost } from "./config/piConfigTargetModel";
 import { RemoteConfigPanel } from "./config/RemoteConfigPanel";
-import { REMOTE_CONFIG_UNSUPPORTED_TAB_COPY, RemoteConfigUnsupportedNotice } from "./config/RemoteConfigUnsupportedNotice";
+import { RemoteAuthPanel } from "./config/RemoteAuthPanel";
 import { ConfigDiagnosticCard } from "./config/ConfigDiagnosticCard";
-import { WslConfigScopeNotice } from "./config/WslConfigScopeNotice";
 import { WslConfigSourceHint } from "./config/WslConfigSourceHint";
 import { usePiConfigDir } from "./config/usePiConfigDir";
 import { usePiConfigTargetView } from "./config/usePiConfigTargetView";
-import { ResourceTargetBar } from "./config/ResourceTargetBar";
 import { useConfigTransfer } from "./config/useConfigTransfer";
 import { resourceTargetErrorMessage } from "./config/resourceTargetErrorCopy";
 import { useResourceTarget } from "./config/useResourceTarget";
@@ -46,7 +45,6 @@ import type { DiscoveredExtensionItem } from "./config/extensionsTableRows";
 // 桥贡献的「独立配置页」落点：每个 gui:config.page:* 贡献在「Agent 能力」组里占一个导航页。
 // 会话取值 / 落点 id 映射 / 「页消失就回退」都收在 hook 里（PR 评审 §3）。
 import { SecuritySection, type SecuritySectionHandle } from "./components/config/SecuritySection";
-import { DshLogo, PiLogo } from "./components/session/SessionSourceBadge";
 import { DshConfigTab, type DshConfigTabHandle } from "./config/DshConfigTab";
 import { t } from "./i18n";
 import { CodeMirrorEditor } from "./components/app/CodeMirrorEditor";
@@ -67,10 +65,20 @@ import { DirtyMarker } from "./components/app/settings/SettingRows";
 import { isValidProviderName } from "../../shared/providerName";
 import { mergeProviderDraft, type AddProviderDraft } from "./config/addProviderDraft";
 import { useAtomValue } from "jotai";
-import { dshModuleHiddenAtom, dshRuntimeStatusAtom } from "./atoms";
+import { dshModuleHiddenAtom, dshRuntimeStatusAtom, projectByIdAtomFamily } from "./atoms";
 import { dshUiVisibilityFor } from "../../shared/types/dshRuntime";
 
 const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi }).piDesktop;
+
+/** 读取原文后解析成对象；损坏的文件回退空对象（诊断卡负责说明），不让一次 parse 失败挡住整页。 */
+function parseJsonObject<T extends Record<string, unknown>>(raw: string, fallback: T): T {
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as T) : fallback;
+	} catch {
+		return fallback;
+	}
+}
 
 // ── 配置弹窗左侧导航 = shadcn Vertical Tabs ──
 // config 组子页（模型/认证/设置/信任/MCP/原始文件）用 "config:<tab>" 复合值，
@@ -87,6 +95,49 @@ function sectionTabValue(section: ConfigSection, tab: ConfigTab): string {
 
 /** localStorage 键：Pi 管理页上次打开的 tab（重开弹窗时恢复位置，跨应用重启保留）。 */
 const CONFIG_LAST_TAB_KEY = "pideck-config-last-tab";
+
+/** localStorage 键：Pi 环境上次选择（重开弹窗时恢复：用户选过的机器不该每次被打回本机）。 */
+const CONFIG_LAST_TARGET_KEY = "pideck-config-last-target";
+
+/**
+ * 主机清单结构等价：分区重新可见时会重读一次清单，但「内容没变」不应换来一个新数组身份
+ * （状态条按 hosts 变化自动确保连接，身份一变就会重发连接/重弹密码框）。
+ */
+function sameConfigTargetHosts(left: readonly PiConfigTargetHost[], right: readonly PiConfigTargetHost[]): boolean {
+	if (left.length !== right.length) return false;
+	for (let index = 0; index < left.length; index += 1) {
+		const before = left[index];
+		const after = right[index];
+		if (before.kind !== after.kind) return false;
+		if (before.kind === "ssh" && (after.kind !== "ssh" || before.id !== after.id || before.label !== after.label || before.sshHost !== after.sshHost)) return false;
+		if (before.kind === "wsl" && (after.kind !== "wsl" || before.label !== after.label || before.distro !== after.distro || before.user !== after.user)) return false;
+	}
+	return true;
+}
+
+/** 读取上次选定的 Pi 环境；值失效/损坏一律回本机（host 是否仍存在由主机清单回来后判定）。 */
+function loadLastConfigTarget(): PiConfigTarget {
+	try {
+		const parsed: unknown = JSON.parse(localStorage.getItem(CONFIG_LAST_TARGET_KEY) ?? "null");
+		if (typeof parsed !== "object" || parsed === null) return { kind: "local" };
+		const record = parsed as { kind?: unknown; hostId?: unknown };
+		// 旧值里 WSL 目标带 hostId（档案已退役）：一律归一到“那一个 WSL 环境”。
+		if (record.kind === "wsl") return { kind: "wsl" };
+		if (record.kind === "ssh" && typeof record.hostId === "string" && record.hostId.length > 0) return { kind: "ssh", hostId: record.hostId };
+		return { kind: "local" };
+	} catch {
+		return { kind: "local" };
+	}
+}
+
+/** 记住本次选择的 Pi 环境；localStorage 不可用（隐私模式）时只影响下次打开，不影响当前页。 */
+function rememberConfigTarget(target: PiConfigTarget): void {
+	try {
+		localStorage.setItem(CONFIG_LAST_TARGET_KEY, JSON.stringify(target));
+	} catch {
+		/* 静默失败：记忆位置是锦上添花，不能影响切换本身 */
+	}
+}
 
 /** localStorage 键：配置管理顶层后端分页（Pi/DSH）上次选择（重开弹窗时恢复）。 */
 const CONFIG_BACKEND_PANE_KEY = "pideck-config-backend-pane";
@@ -214,6 +265,11 @@ export type ConfigPaneState = {
 export type ConfigPaneProps = {
 	onClose: () => void;
 	onSaved?: () => void;
+	/**
+	 * 宿主分区当前是否可见（设置窗口内嵌分区：切到「连接」等其它分区时为 false）。
+	 * 主机清单（SSH/WSL）只在可见时重读：新增/移除/重命名发生在别的分区，隐藏期间的重读没有意义。
+	 */
+	active?: boolean;
 	/** 当前项目身份：项目资源 IPC 只接受由主进程登记的 projectId。 */
 	projectId?: string;
 	/** PiDeck 当前加载的全部项目（作用域下拉展示；Chat 项目除外）。 */
@@ -246,7 +302,7 @@ export type ConfigPaneProps = {
  * 配置管理嵌入分区：供设置窗口内嵌渲染（共享同一窗口/标题栏，不再各自弹 Dialog）。
  * 不包错误边界——宿主 SettingsModal 的 ErrorBoundary 已兜底整个窗口。
  */
-export const ConfigPane = forwardRef<ConfigPaneHandle, ConfigPaneProps>(function ConfigPane({ onClose, onSaved, projectId, projectKind, projectName, projects, resourceOnly, focusConfigTab, focusProvider, focusBackendPane, onStateChange, onRequestClose }, ref) {
+export const ConfigPane = forwardRef<ConfigPaneHandle, ConfigPaneProps>(function ConfigPane({ onClose, onSaved, projectId, projectKind, projectName, projects, resourceOnly, focusConfigTab, focusProvider, focusBackendPane, active, onStateChange, onRequestClose }, ref) {
 	return (
 		<ConfigModalContent
 			open
@@ -260,6 +316,7 @@ export const ConfigPane = forwardRef<ConfigPaneHandle, ConfigPaneProps>(function
 			focusConfigTab={focusConfigTab}
 			focusProvider={focusProvider}
 			focusBackendPane={focusBackendPane}
+			active={active}
 			embedded
 			paneRef={ref}
 			onPaneStateChange={onStateChange}
@@ -340,6 +397,8 @@ type ConfigModalContentProps = ConfigModalProps & {
 	resourceOnly?: boolean;
 	/** 嵌入模式：不渲染 Dialog 外壳与标题栏按钮（宿主提供窗口），自身仍维护全部状态/保存/关闭确认逻辑 */
 	embedded?: boolean;
+	/** embedded 时宿主分区是否可见；缺省视为可见（独立弹窗 / 资源管理器）。 */
+	active?: boolean;
 	/** embedded 时暴露给宿主标题栏按钮的句柄 */
 	paneRef?: Ref<ConfigPaneHandle> | undefined;
 	/** embedded 时上报标题栏按钮所需状态（保存 disabled / 未保存黄点 / 关闭确认清单） */
@@ -352,7 +411,9 @@ type ConfigModalContentProps = ConfigModalProps & {
 };
 
 function ConfigModalContent(props: ConfigModalContentProps) {
-	const { open, onClose, onSaved, projectId, projectKind, projectName, projects = [], resourceOnly = false, embedded, focusConfigTab, focusProvider, focusBackendPane } = props;
+	const { open, onClose, onSaved, projectId, projectKind, projectName, projects = [], resourceOnly = false, embedded, focusConfigTab, focusProvider, focusBackendPane, active } = props;
+	/** 分区可见性：独立弹窗与资源管理器恒为可见；嵌入时由宿主（设置窗口）逐次告知。 */
+	const paneVisible = active !== false;
 	/**
 	 * 资源作用域是派生值而非可切换 state：
 	 * - 主配置页固定 global（全局安装 + 用户 ~/.pi 自装 + PiDeck 内置）；项目级技能/扩展/提示词
@@ -461,19 +522,41 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const resourceMcpTabRef = useRef<McpTabHandle>(null);
 	/** 关闭弹框时存在未保存修改 → 弹出保存确认（借鉴设置页关闭逻辑） */
 	const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
-	/** 远端目标（Batch B）：缺省本机；切换前若远端有未应用 patch，显式确认丢弃。 */
-	const [configTarget, setConfigTarget] = useState<PiConfigTarget>({ kind: "local" });
+	/**
+	 * Pi 环境（本次重构的唯一作用域开关）：本机 / 一台 SSH 主机 / 一个 WSL 发行版。
+	 * 整页按它加载：配置组、资源组、保存路由、导航可见性都从这里派生，页内不再各自放选择器。
+	 */
+	// 项目资源管理器只管理入口项目的本地资源：不继承「上次的 Pi 环境」，否则资源会被写到某个发行版里。
+	const [configTarget, setConfigTarget] = useState<PiConfigTarget>(() => (resourceOnly ? { kind: "local" } : loadLastConfigTarget()));
 	const [remoteConfigHosts, setRemoteConfigHosts] = useState<PiConfigTargetHost[]>([]);
-	/** 当前远端面板是否有未应用 patch（用于关闭/切换目标时的显式确认）。 */
-	const [remoteConfigDirty, setRemoteConfigDirty] = useState(false);
-	const [pendingTargetSwitch, setPendingTargetSwitch] = useState<PiConfigTarget | null>(null);
+	/** 主机清单是否已回来（用来区分「没加载」与「确实一个都没有」）。 */
+	const [remoteConfigHostsLoaded, setRemoteConfigHostsLoaded] = useState(false);
+	/** SSH 页签的未应用 patch：按文件聚合（多个远端面板可能同时挂载，例如 mcp 的 forceMount 页）。 */
+	const [remoteDirtyFiles, setRemoteDirtyFiles] = useState<Set<string>>(new Set());
+	const remoteConfigDirty = remoteDirtyFiles.size > 0;
+	const markRemoteDirty = useCallback((file: string, dirty: boolean) => {
+		setRemoteDirtyFiles((prev) => {
+			if (prev.has(file) === dirty) return prev;
+			const next = new Set(prev);
+			if (dirty) next.add(file);
+			else next.delete(file);
+			return next;
+		});
+	}, []);
+	const resetRemoteDirty = useCallback(() => setRemoteDirtyFiles(new Set()), []);
+	/** 带草稿切换环境时的确认（保存并切换 / 放弃并切换 / 取消）。 */
+	const [pendingEnvSwitch, setPendingEnvSwitch] = useState<{ next: PiConfigTarget; dirtyKeys: string[] } | null>(null);
 	const [remoteDiscardConfirmOpen, setRemoteDiscardConfirmOpen] = useState(false);
 	const remoteTargetHostId = configTarget.kind === "ssh" ? configTarget.hostId : null;
 	const remoteHostLabel = remoteTargetHostId ? remoteConfigHosts.find((host) => host.kind === "ssh" && host.id === remoteTargetHostId)?.label : undefined;
 	// 目标视图派生：WSL 档案（来源提示/未接入页说明）、本地编辑器 target 选项、provider 探针门禁。
 	const { wslHost: wslTargetHost, option: configTargetOption, guardProviderOp } = usePiConfigTargetView(remoteConfigHosts, configTarget);
+	/** WSL 环境的 mcp.json 文本（该环境的 MCP 页按文件编辑；探测/登录仍只在本机执行）。 */
+	const [wslMcpRaw, setWslMcpRaw] = useState("");
+	const baselineWslMcpRef = useRef("");
 	// 资源三页（技能/提示词/扩展）的目标视图：本机/WSL 档案选择、IPC options、本轮只读门禁（W1）。
-	const { resourceTarget, setResourceTarget, targetHosts: resourceTargetHosts, options: resourceOptions, readOnly: resourceTargetReadOnly, blockMutation: blockResourceMutation } = useResourceTarget(remoteConfigHosts, resourceScope);
+	// 资源三页跟随同一个环境（不再有第二个选择器）：本机 → 本机；WSL → 该发行版；ssh 不提供资源页。
+	const { resourceTarget, options: resourceOptions, blockMutation: blockResourceMutation } = useResourceTarget(resourceScope, configTarget);
 	const hasDirty = dirtyTabs.size > 0;
 	// DSH/Pi 顶层分页与 DSH 左侧导航的黄点来源：dsh:<nav> 归 DSH，其余归 Pi
 	const dshDirtyNavIds = useMemo(() => {
@@ -621,11 +704,13 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		reconcileConfigDirty(next, "config:settings", settingsData, baselineSettingsRef.current);
 		reconcileConfigDirty(next, "config:trust", trustData, baselineTrustRef.current);
 		reconcileConfigDirty(next, "config:raw", { fileName: rawFileName, content: rawContent }, baselineRawRef.current);
+		// WSL 环境的 MCP 页是文本编辑：草稿按文本比较（本机 MCP 页由 McpTab 自己维护同一个 key）。
+		if (configTarget.kind === "wsl") reconcileConfigDirty(next, "config:mcp", wslMcpRaw, baselineWslMcpRef.current);
 		dirtyTabsRef.current = next;
 		// 只有真正增删了 key 才提交 state，避免每次键入都重建相同 Set 触发无关重渲染
 		const changed = next.size !== before.size || [...next].some((key) => !before.has(key));
 		if (changed) setDirtyTabs(next);
-	}, [modelsData, authData, settingsData, trustData, rawContent, rawFileName]);
+	}, [modelsData, authData, settingsData, trustData, rawContent, rawFileName, wslMcpRaw, configTarget.kind]);
 
 	// 展开的 provider / auth 项
 	const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
@@ -828,6 +913,9 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		async (target: ConfigTab, options?: { force?: boolean; silent?: boolean }) => {
 			// OAuth 页的数据来自 pi 认证服务（listProviders）而不是配置文件：不走这条读盘链路。
 			if (target === "oauth") return;
+			// SSH 环境的所有配置页都是自加载的远端面板（脱敏快照 + patch 编辑）：本机读盘链路一次都不走，
+			// 否则会把 Windows HOME 的配置当成那台主机的配置显示出来。
+			if (configTarget.kind === "ssh") return;
 			// silent：测试连接成功后回读磁盘用——不置 loading，避免 ModelsTab 在
 			// `!loading && ...` 条件下被卸载重建、滚动容器内容塔缩后 scrollTop 归零。
 			if (!options?.silent) setLoading(true);
@@ -869,7 +957,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						setConfigDiagnostic(res.diagnostic ?? null);
 					};
 					if (configTargetOption) {
-						// WSL 目标：读该档案的发行版 HOME（只有 models/settings 两个文件，auth/trust 属于 Windows 作用域）。
+						// WSL 目标：读该档案的发行版 HOME（models/settings 走结构化通道；auth/trust/mcp 各自按文件读）。
 						const [res, settingsRes] = await Promise.all([api.config.getModels(configTargetOption), api.config.getSettings(configTargetOption).catch(() => null)]);
 						applyModelsTab(res, settingsRes);
 					} else {
@@ -877,21 +965,28 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						applyModelsTab(res, settingsRes);
 					}
 				} else if (target === "auth") {
-					const res = await api.config.getAuth();
+					// 本机用 ConfigManager 的 parsed 结果；WSL 走该发行版 HOME 的 auth.json 原文（同一份 JSON 形状）。
+					const authRaw = configTargetOption ? await api.config.getRaw("auth.json", configTargetOption) : null;
+					const parsed = configTargetOption && authRaw ? parseJsonObject<AuthFile>(authRaw.raw, {}) : ((await api.config.getAuth()).parsed as AuthFile);
 					if (!skipAuth) {
-						setAuthData(res.parsed as AuthFile);
-						baselineAuthRef.current = deepClone(res.parsed as AuthFile);
+						setAuthData(parsed);
+						baselineAuthRef.current = deepClone(parsed);
 					}
+					const rawText = authRaw?.raw ?? JSON.stringify(parsed, null, 2);
 					if (!skipRaw) {
-						setRawContent(res.raw);
+						setRawContent(rawText);
 						setRawFileName("auth.json");
-						baselineRawRef.current = { fileName: "auth.json", content: res.raw };
+						baselineRawRef.current = { fileName: "auth.json", content: rawText };
 					}
-					setConfigDiagnostic(res.diagnostic ?? null);
+					setConfigDiagnostic(authRaw?.diagnostic ?? null);
 				} else if (target === "settings") {
 					// 同时加载 settings、auth 和 models 数据，确保 defaultProvider / defaultModel 下拉能聚合所有可用信息。
-					// 非本机目标（WSL）只有 models/settings 两个文件：auth 属于 Windows HOME，不能读进来冒充目标环境。
-					const [settingsRes, authRes, modelsRes] = await Promise.all([api.config.getSettings(configTargetOption), configTargetOption ? null : api.config.getAuth(), api.config.getModels(configTargetOption)]);
+					// WSL 的 auth.json 也属于该作用域（本机 UNC 读），但 provider 探针仍只在本机执行——见下面的发现循环门禁。
+					const [settingsRes, authRes, modelsRes] = await Promise.all([
+						api.config.getSettings(configTargetOption),
+						configTargetOption ? api.config.getRaw("auth.json", configTargetOption).then((res) => ({ raw: res.raw, parsed: parseJsonObject<AuthFile>(res.raw, {}) })) : api.config.getAuth(),
+						api.config.getModels(configTargetOption),
+					]);
 					if (!skipSettings) {
 						setSettingsData(settingsRes.parsed as SettingsFile);
 						baselineSettingsRef.current = deepClone(settingsRes.parsed as SettingsFile);
@@ -913,8 +1008,9 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 					}
 					setConfigDiagnostic(settingsRes.diagnostic ?? null);
 
-					// 对于 auth 中有但 models 中没有模型的供应商，自动尝试获取模型列表（非本机目标没有 auth，因此不发探针）
-					const authProviders: AuthFile = authRes ? (authRes.parsed as AuthFile) : {};
+					// 对于 auth 中有但 models 中没有模型的供应商，自动尝试获取模型列表。
+					// provider 探针只从本机网络出口发起：非本机环境即便读到 key 也不发请求（否则会把该环境的 key 用在本机网络上）。
+					const authProviders: AuthFile = configTarget.kind === "local" && authRes ? (authRes.parsed as AuthFile) : {};
 					const modelsProviders = normalizeModelsFile(modelsRes.parsed).providers;
 					const discovered: Record<string, Array<{ id: string; name?: string }>> = {};
 					const fetchPromises: Array<Promise<void>> = [];
@@ -963,41 +1059,49 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						});
 					}
 				} else if (target === "trust") {
-					const res = await api.config.getTrust();
+					const trustRaw = configTargetOption ? await api.config.getRaw("trust.json", configTargetOption) : null;
+					const parsed = configTargetOption && trustRaw ? parseJsonObject<Record<string, boolean>>(trustRaw.raw, {}) : ((await api.config.getTrust()).parsed as Record<string, boolean>);
 					if (!skipTrust) {
-						setTrustData(res.parsed as Record<string, boolean>);
-						baselineTrustRef.current = deepClone(res.parsed as Record<string, boolean>);
+						setTrustData(parsed);
+						baselineTrustRef.current = deepClone(parsed);
 					}
+					const rawText = trustRaw?.raw ?? JSON.stringify(parsed, null, 2);
 					if (!skipRaw) {
-						setRawContent(res.raw);
+						setRawContent(rawText);
 						setRawFileName("trust.json");
-						baselineRawRef.current = { fileName: "trust.json", content: res.raw };
+						baselineRawRef.current = { fileName: "trust.json", content: rawText };
 					}
-					setConfigDiagnostic(res.diagnostic ?? null);
+					setConfigDiagnostic(trustRaw?.diagnostic ?? null);
 				} else if (target === "mcp") {
-					// MCP 页自己拉盘；这里只同步源文件编辑器和 force 重载。
-					if (!skipRaw) {
-						const res = await api.config.getMcp();
-						setRawContent(res.writableRaw);
-						setRawFileName("mcp.json");
-						baselineRawRef.current = { fileName: "mcp.json", content: res.writableRaw };
+					if (configTargetOption) {
+						// WSL：MCP 页是「该发行版 mcp.json 的文本编辑」（探测/登录/模板仍在本机执行）。
+						const res = await api.config.getRaw("mcp.json", configTargetOption);
+						if (!skipMcp) {
+							setWslMcpRaw(res.raw);
+							baselineWslMcpRef.current = res.raw;
+						}
+						if (!skipRaw) {
+							setRawContent(res.raw);
+							setRawFileName("mcp.json");
+							baselineRawRef.current = { fileName: "mcp.json", content: res.raw };
+						}
+						setConfigDiagnostic(res.diagnostic ?? null);
+					} else {
+						// 本机：MCP 页自己拉盘；这里只同步源文件编辑器和 force 重载。
+						if (!skipRaw) {
+							const res = await api.config.getMcp();
+							setRawContent(res.writableRaw);
+							setRawFileName("mcp.json");
+							baselineRawRef.current = { fileName: "mcp.json", content: res.writableRaw };
+						}
+						if (options?.force && !skipMcp) void mcpTabRef.current?.reload();
 					}
-					if (options?.force && !skipMcp) void mcpTabRef.current?.reload();
 				} else if (target === "raw") {
-					// 源文件 tab 复用当前 tab 对应的文件
+					// 源文件 tab 复用当前 tab 对应的文件；读取统一走 config:get-raw（本机/WSL 回原文，mcp 取可写层）。
 					const fileName = tab === "models" ? "models.json" : tab === "auth" ? "auth.json" : tab === "trust" ? "trust.json" : tab === "mcp" ? "mcp.json" : "settings.json";
 					if (!skipRaw) setRawFileName(fileName);
 					// 基准快照随内容一起更新：切文件后新旧草稿都以新文件为比较基准
-					const res =
-						fileName === "models.json"
-							? await api.config.getModels()
-							: fileName === "auth.json"
-								? await api.config.getAuth()
-								: fileName === "trust.json"
-									? await api.config.getTrust()
-									: fileName === "mcp.json"
-										? await api.config.getMcp().then((snapshot) => ({ raw: snapshot.writableRaw, diagnostic: undefined }))
-										: await api.config.getSettings();
+					const res = await api.config.getRaw(fileName, configTargetOption);
 					if (!skipRaw) {
 						setRawContent(res.raw);
 						baselineRawRef.current = { fileName, content: res.raw };
@@ -1028,23 +1132,40 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 
 	const piConfigDir = usePiConfigDir(open);
 
-	// 配置目标选择器（Batch B + WS2）：ssh 只列已验证且未禁用的主机，WSL 列全部连接档案；两边失败都保留「本机」。
+	// 配置目标选择器（Batch B + WS2）：ssh 只列已验证且未禁用的主机；WSL 项来自开发设置里的那一个环境；
+	// 两边都失败也保留「本机」。
+	// 主机清单会从别处变（设置 → 连接里的新建/编辑/移除）：分区重新可见时重读一次。
+	// 从挂载到关闭只读一次的写法会让下拉漏掉刚添加的主机，只能关掉整个设置重开才能看到（2026-11 实机反馈）。
 	useEffect(() => {
-		if (!open) return;
+		if (!open || !paneVisible) return;
 		let cancelled = false;
-		void Promise.all([api.remoteHosts.list(), api.remoteHosts.listWslHosts()])
-			.then(([sshResult, wslResult]) => {
+		void Promise.all([api.remoteHosts.list(), api.settings.get()])
+			.then(([sshResult, settings]) => {
 				if (cancelled) return;
-				setRemoteConfigHosts([...toSshTargetHosts(sshResult.ok ? sshResult.hosts.filter((host) => host.verified && !host.disabled) : []), ...toWslTargetHosts(wslResult.ok ? wslResult.hosts : [])]);
+				// WSL 身份只认开发设置：开关打开且 distro/user 都有才出现这一项（主进程同样会 fail closed）。
+				const distro = (settings.wslDistro ?? "").trim();
+				const user = (settings.wslUser ?? "").trim();
+				const wslIdentity = settings.wslEnabled === true && distro.length > 0 && user.length > 0 ? { distro, user } : undefined;
+				setRemoteConfigHosts((previous) => {
+					const next = [...toSshTargetHosts(sshResult.ok ? sshResult.hosts.filter((host) => host.verified && !host.disabled) : []), ...toWslTargetHosts(wslIdentity)];
+					// 重读没带来变化时保留旧数组：状态条按 hosts 身份变化自动确保连接，不能因一次无变化的刷新
+					// 重新弹密码框/重发连接。真正新增/删除/改名的主机仍会换上新的清单。
+					return sameConfigTargetHosts(previous, next) ? previous : next;
+				});
+				setRemoteConfigHostsLoaded(true);
 			})
 			.catch(() => {
-				if (!cancelled) setRemoteConfigHosts([]);
+				if (cancelled) return;
+				setRemoteConfigHosts([]);
+				setRemoteConfigHostsLoaded(true);
 			});
 		return () => {
 			cancelled = true;
 		};
-	}, [open]);
+	}, [open, paneVisible]);
 
+	/** 环境的稳定身份：切换时用它驱动一次整页重读（local↔ssh 的 target 选项都是 undefined，必须单独判）。 */
+	const configTargetIdentity = configTargetKey(configTarget);
 	// 资源页在进入/scope/project 变化时刷新；generation 变化让在途旧响应失效。
 	useEffect(() => {
 		if (!open) return;
@@ -1064,7 +1185,9 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			return;
 		}
 		void loadConfig(tab);
-	}, [open, section, tab, loadConfig, resourceScope, effectiveProjectId, bumpResourceGeneration]);
+		// 环境切换必须触发一次重读：local↔ssh 时 configTargetOption 都是 undefined，只靠 loadConfig 的
+		// 身份变化不会重新取数（例如在 ssh 上停过信任页，切回本机后 trustData 还是未加载的空对象）。
+	}, [open, section, tab, loadConfig, resourceScope, effectiveProjectId, bumpResourceGeneration, resourceTarget, configTargetIdentity]);
 
 	const showToast = (msg: string) => showNotice(msg, 2500);
 
@@ -1228,7 +1351,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		}
 
 		// 深拷贝 provider 配置，包括 models 数组（含 apiKey）。
-		const duplicatedProvider = JSON.parse(JSON.stringify(sourceProvider));
+		const duplicatedProvider = structuredClone(sourceProvider);
 
 		setModelsData({
 			...modelsData,
@@ -1675,7 +1798,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const handleDuplicateAuth = (provider: string) => {
 		const sourceAuth = authData[provider];
 		if (!sourceAuth) return;
-		const duplicatedAuth = JSON.parse(JSON.stringify(sourceAuth));
+		const duplicatedAuth = structuredClone(sourceAuth);
 		let newName = `${provider} copy`;
 		let counter = 2;
 		while (authData[newName]) {
@@ -1729,7 +1852,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	};
 
 	const handleSaveAuth = async (): Promise<boolean> => {
-		const ok = await saveAndReload(() => api.config.saveAuth(authData), undefined, "config:auth");
+		const save = () => (configTargetOption ? api.config.saveRaw("auth.json", JSON.stringify(authData, null, 2), configTargetOption) : api.config.saveAuth(authData));
+		const ok = await saveAndReload(save, undefined, "config:auth");
 		await loadConfig("auth", { force: true });
 		return ok;
 	};
@@ -1769,8 +1893,16 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// ── Trust 操作 ────────────────────────────────────────
 
 	const handleSaveTrust = async (): Promise<boolean> => {
-		const ok = await saveAndReload(() => api.config.saveRaw("trust.json", JSON.stringify(trustData, null, 2)), undefined, "config:trust");
+		const ok = await saveAndReload(() => api.config.saveRaw("trust.json", JSON.stringify(trustData, null, 2), configTargetOption), undefined, "config:trust");
 		await loadConfig("trust", { force: true });
+		return ok;
+	};
+
+	/** WSL 环境的 MCP 页：整份 mcp.json 文本保存（探测/登录仍只在本机执行）。 */
+	const handleSaveWslMcp = async (): Promise<boolean> => {
+		const ok = await saveAndReload(() => api.config.saveRaw("mcp.json", wslMcpRaw, configTargetOption), undefined, "config:mcp");
+		if (ok) baselineWslMcpRef.current = wslMcpRaw;
+		await loadConfig("mcp", { force: true });
 		return ok;
 	};
 
@@ -1778,8 +1910,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 
 	const handleSaveRaw = async (): Promise<boolean> => {
 		const isModelsFile = rawFileName === "models.json";
-		const ok = await saveAndReload(() => api.config.saveRaw(rawFileName, rawContent), isModelsFile ? t("config.modelsSaved") : undefined, "config:raw");
-		if (isModelsFile) await loadConfig("models", { force: true });
+		const ok = await saveAndReload(() => api.config.saveRaw(rawFileName, rawContent, configTargetOption), isModelsFile ? t("config.modelsSaved") : undefined, "config:raw");
+		if (rawFileName === "models.json") await loadConfig("models", { force: true });
 		else if (rawFileName === "auth.json") await loadConfig("auth", { force: true });
 		else if (rawFileName === "trust.json") await loadConfig("trust", { force: true });
 		else if (rawFileName === "mcp.json") await loadConfig("mcp", { force: true });
@@ -1801,11 +1933,11 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const applyRawFileChange = async (fileName: string) => {
 		setLoading(true);
 		try {
-			const res =
-				fileName === "models.json" ? await api.config.getModels() : fileName === "auth.json" ? await api.config.getAuth() : fileName === "trust.json" ? await api.config.getTrust() : fileName === "mcp.json" ? await api.config.getMcp().then((snapshot) => ({ raw: snapshot.writableRaw })) : await api.config.getSettings();
+			const res = await api.config.getRaw(fileName, configTargetOption);
 			setRawFileName(fileName);
 			setRawContent(res.raw);
 			baselineRawRef.current = { fileName, content: res.raw };
+			setConfigDiagnostic(res.diagnostic ?? null);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {
@@ -2471,6 +2603,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			case "config:trust":
 				return handleSaveTrust();
 			case "config:mcp": {
+				if (configTargetOption) return handleSaveWslMcp();
 				const ok = (await mcpTabRef.current?.save()) ?? false;
 				if (ok) {
 					clearDirty("config:mcp");
@@ -2528,27 +2661,161 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	};
 
 	/** 切换配置目标：同目标忽略；远端有未应用 patch 时先显式确认（丢弃草稿不能静默发生）。 */
+	/**
+	 * 兜底：当前配置页不属于当前环境（深链直接点到「认证」而环境是 SSH 等）时立刻落到该环境第一页。
+	 * 渲染层绝不能出现「内容渲染了、导航里却没有这一页」的半截状态。
+	 */
+	useEffect(() => {
+		if (section !== "config") return;
+		if (isConfigTabSupported(configTarget, tab)) return;
+		setTab(firstConfigTabForTarget(configTarget));
+	}, [section, tab, configTarget]);
+
+	/** 环境切换的落点：当前配置页在新环境里不存在时落到该环境第一页；资源/安全页在 ssh 下消失时回到配置组。 */
+	const settleForTarget = useCallback((next: PiConfigTarget) => {
+		setTab((current) => resolveConfigTabForTarget(next, current));
+		setSection((current) => {
+			if ((current === "skills" || current === "prompts" || current === "extensions" || current === "mcp") && !resourcePagesSupported(next)) return "config";
+			if (current === "security" && !securityPageSupported(next)) return "config";
+			return current;
+		});
+	}, []);
+	/** 环境切换的唯一落点：写 state + 记住选择 + 清远端 patch + 校正当前页。 */
+	const commitTargetSwitch = useCallback(
+		(next: PiConfigTarget) => {
+			setConfigTarget(next);
+			rememberConfigTarget(next);
+			resetRemoteDirty();
+			settleForTarget(next);
+		},
+		[resetRemoteDirty, settleForTarget],
+	);
+	/**
+	 * 切换 Pi 环境。草稿不能静默丢：先弹确认（保存并切换 / 放弃并切换 / 取消）。
+	 * 远端未应用的 patch 同样算草稿——它不在本机保存链路里，切换只能丢弃。
+	 */
+	/**
+	 * 切到 next 环境后会「从此消失」的草稿来源：
+	 * - 所有配置文件草稿（config:* / config:mcp）永远算——它们属于当前环境，不能带到新环境；
+	 * - 资源/安全页草稿只在新环境不再提供那些页时才算（ssh 没有资源页与安全策略页）。
+	 * DSH 的草稿不受环境切换影响，不计入。
+	 */
+	const draftsLostBySwitch = useCallback((next: PiConfigTarget): string[] => {
+		const lost: string[] = [];
+		for (const key of dirtyTabsRef.current) {
+			if (key.startsWith("dsh")) continue;
+			if (key.startsWith("config:") || key === "mcp") {
+				lost.push(key);
+				continue;
+			}
+			if ((key === "skills" || key === "prompts" || key === "extensions") && !resourcePagesSupported(next)) lost.push(key);
+			if (key === "security" && !securityPageSupported(next)) lost.push(key);
+		}
+		return lost;
+	}, []);
 	const handleConfigTargetChange = (next: PiConfigTarget) => {
 		if (samePiConfigTarget(next, configTarget)) return;
-		// 本目标的配置草稿必须先落地或放弃：留着会按新目标保存（作用域错配），直接丢是静默数据丢失。
-		if (hasUnsavedConfigDrafts(dirtyTabsRef.current)) {
-			showNotice(t("config.target.switchDirtyBlocked"), 5000, "warning");
+		const dirtyKeys = draftsLostBySwitch(next);
+		if (dirtyKeys.length > 0) {
+			setPendingEnvSwitch({ next, dirtyKeys });
 			return;
 		}
 		if (remoteConfigDirty) {
-			setPendingTargetSwitch(next);
+			setPendingEnvSwitch({ next, dirtyKeys: [...remoteDirtyFiles].map((file) => "remote:" + file) });
 			return;
 		}
-		setConfigTarget(next);
-		setRemoteConfigDirty(false);
+		commitTargetSwitch(next);
 	};
-	const applyPendingTargetSwitch = () => {
-		if (pendingTargetSwitch) {
-			setConfigTarget(pendingTargetSwitch);
-			setRemoteConfigDirty(false);
-			setPendingTargetSwitch(null);
+	/**
+	 * 确认「放弃草稿并切换」：把内存里的配置数据退回各自基准（否则脏检测会立刻把黄点标回来）、
+	 * 关掉正在编辑的技能/提示词/供应商表单，然后切换。
+	 */
+	const discardDraftsAndSwitch = () => {
+		if (!pendingEnvSwitch) return;
+		for (const key of dirtyTabsRef.current) {
+			if (key.startsWith("dsh")) continue;
+			clearDirty(key);
 		}
+		setModelsData(deepClone(baselineModelsRef.current));
+		setAuthData(deepClone(baselineAuthRef.current));
+		setSettingsData(deepClone(baselineSettingsRef.current));
+		setTrustData(deepClone(baselineTrustRef.current));
+		setRawContent(baselineRawRef.current.content);
+		setRawFileName(baselineRawRef.current.fileName);
+		setWslMcpRaw(baselineWslMcpRef.current);
+		setAddingProvider(false);
+		setEditingProvider(null);
+		setAddingAuth(false);
+		setEditingGlobalSkill(null);
+		setEditGlobalContent("");
+		setEditingPrompt(null);
+		setEditPromptContent("");
+		commitTargetSwitch(pendingEnvSwitch.next);
+		setPendingEnvSwitch(null);
 	};
+	/** 确认「保存并切换」：把本环境会丢的草稿逐个落盘，全部成功后才切换（失败留在原地修）。 */
+	const saveDraftsAndSwitch = async () => {
+		if (!pendingEnvSwitch) return;
+		const next = pendingEnvSwitch.next;
+		const roots = new Set<string>();
+		for (const key of draftsLostBySwitch(next)) {
+			// 「扩展」页没有保存语义（开关即时生效），跳过；其余按 saveByKey 的分发口径归并。
+			if (key === "extensions") continue;
+			roots.add(key === "mcp" ? "config:mcp" : key);
+		}
+		for (const key of orderDirtyKeysForSave(roots)) {
+			const ok = await saveByKey(key);
+			if (!ok) return;
+		}
+		commitTargetSwitch(next);
+		setPendingEnvSwitch(null);
+	};
+	/**
+	 * 打开配置管理时默认落在当前远端项目所在主机：「模型配置 / Pi 设置」展示的是当前环境的 pi 配置，
+	 * 远端项目里默认展示本机配置等于把用户引到错误的机器上写盘。
+	 *
+	 * 只在本次打开的第一个决定生效（ref 闩）：用户随后主动切回本机的情况不能被打开动作改写。
+	 * 主机清单未到齐时不决定（否则会先渲染本机再自己跳一次）；有未保存草稿时不打断用户。
+	 */
+	const activeProjectForTarget = useAtomValue(projectByIdAtomFamily(props.projectId ?? ""));
+	const configSurfaceOpen = open || embedded === true;
+	const autoConfigTargetAppliedRef = useRef(false);
+	useEffect(() => {
+		if (!configSurfaceOpen) {
+			autoConfigTargetAppliedRef.current = false;
+			return;
+		}
+		// 项目资源管理器（resourceOnly）只渲染技能/提示词/扩展，与配置目标无关：不改写那边的状态。
+		if (resourceOnly) return;
+		if (autoConfigTargetAppliedRef.current) return;
+		if (!remoteConfigHostsLoaded) return;
+		autoConfigTargetAppliedRef.current = true;
+		const next = preferredConfigTargetForProject(activeProjectForTarget, remoteConfigHosts, configTarget);
+		if (samePiConfigTarget(next, configTarget)) return;
+		if (hasUnsavedConfigDrafts(dirtyTabsRef.current) || remoteConfigDirty) return;
+		commitTargetSwitch(next);
+	}, [configSurfaceOpen, resourceOnly, activeProjectForTarget, remoteConfigHosts, remoteConfigHostsLoaded, configTarget, remoteConfigDirty, commitTargetSwitch]);
+	/**
+	 * 记住的环境若已不存在（主机被删/被禁用、档案被删），静默回本机：
+	 * 停在一个读不到的机器上，用户看到的是一屏连接错误，而回本机是唯一有意义的安全落点。
+	 */
+	const rememberedTargetCheckedRef = useRef(false);
+	useEffect(() => {
+		if (!configSurfaceOpen) {
+			rememberedTargetCheckedRef.current = false;
+			return;
+		}
+		if (resourceOnly) {
+			rememberedTargetCheckedRef.current = true;
+			return;
+		}
+		if (rememberedTargetCheckedRef.current || !remoteConfigHostsLoaded) return;
+		rememberedTargetCheckedRef.current = true;
+		if (configTarget.kind === "local") return;
+		const exists = remoteConfigHosts.some((host) => (configTarget.kind === "ssh" ? host.kind === "ssh" && host.id === configTarget.hostId : host.kind === "wsl"));
+		if (!exists) commitTargetSwitch({ kind: "local" });
+	}, [configSurfaceOpen, resourceOnly, remoteConfigHostsLoaded, remoteConfigHosts, configTarget, commitTargetSwitch]);
+
 	/** 关闭弹框：有未保存修改时先弹保存确认（借鉴设置页），无修改直接关闭。 */
 	const handleClose = () => {
 		if (dirtyTabs.size > 0) {
@@ -2640,7 +2907,10 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		props.onClose();
 	};
 
-	const configNavItems: Array<{ id: ConfigTab; label: string; icon: ReactNode }> = [
+	// 导航 = 该环境的能力表（configTabsForTarget）：不在表里的页不出现在导航里，
+	// 也就不会出现「点进去显示不支持」的死页。能力边界由状态条一句话说明。
+	const supportedConfigTabs = configTabsForTarget(configTarget);
+	const allConfigNavItems: Array<{ id: ConfigTab; label: string; icon: ReactNode }> = [
 		{ id: "models", label: t("config.nav.models"), icon: <Cpu size={14} aria-hidden="true" /> },
 		{ id: "auth", label: t("config.nav.auth"), icon: <KeyRound size={14} aria-hidden="true" /> },
 		{ id: "oauth", label: t("config.nav.oauth"), icon: <LogIn size={14} aria-hidden="true" /> },
@@ -2649,6 +2919,9 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		{ id: "mcp", label: t("config.nav.mcp"), icon: <PlugZap size={14} aria-hidden="true" /> },
 		{ id: "raw", label: t("config.nav.raw"), icon: <FileCode2 size={14} aria-hidden="true" /> },
 	];
+	const configNavItems = allConfigNavItems.filter((item) => supportedConfigTabs.includes(item.id));
+	const showSecurityPage = securityPageSupported(configTarget);
+	const showResourcePages = resourcePagesSupported(configTarget);
 
 	// 加载态/错误提示：每个 TabsContent 顶部共用（Tabs 会卸载非激活内容，不能只挂一处）。
 	// 同一 JSX element 可在多处渲染，不会造成重复副作用。
@@ -2673,38 +2946,21 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// 唯一的差别是外壳（Dialog/标题栏按钮）由谁提供——embedded 时宿主 SettingsModal 承担。
 	const modalBody = (
 		<>
-			{/* 顶层后端分页：Pi 配置管理（默认，在左）/ DSH 配置管理（在右） */}
-			<Tabs value={backendPane} onValueChange={selectBackendPane} className="flex min-h-0 min-w-0 flex-1 flex-col">
-				{!resourceOnly && !dshPaneHidden && (
-					<TabsList
-						// 嵌入设置窗口时 Pi/DSH 用 shadcn line variant（下划线式）：与顶层「系统设置/配置管理」
-						// 的分段条（default variant）区分层级——上层页面级、下层内容级，避免两条同款 tab 冲突。
-						variant={embedded ? "line" : "default"}
-						className={cn("shrink-0", embedded ? "justify-start gap-1 px-3" : "config-backend-switch h-9 justify-start gap-1 border-b border-border/60 px-3")}
-					>
-						<TabsTrigger variant={embedded ? "line" : "default"} value="pi" className={cn("h-8 gap-1.5 px-3 text-control font-medium", !embedded && "config-backend-tab")}>
-							<PiLogo className="size-3.5 shrink-0" />
-							{t("config.backend.pi")}
-							{hasPiDirty ? <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" /> : null}
-						</TabsTrigger>
-						<TabsTrigger variant={embedded ? "line" : "default"} value="dsh" className={cn("h-8 gap-1.5 px-3 text-control font-medium", !embedded && "config-backend-tab")}>
-							<DshLogo className="size-3.5 shrink-0" />
-							{t("config.backend.dsh")}
-							{/* 后端分页黄点：该后端任意分区有草稿时提醒 */}
-							{hasDshDirty ? <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" /> : null}
-						</TabsTrigger>
-					</TabsList>
-				)}
-				{/* forceMount + inactive hidden：Pi/DSH 两个后端页都保持挂载，切换后端不会丢草稿；
-				    与 config:mcp 同款做法，inactive 必须 hidden 避免叠在另一页上。 */}
-				<TabsContent value="dsh" forceMount className="flex min-h-0 min-w-0 flex-1 data-[state=inactive]:hidden">
+			{/* 顶层分页：Pi 配置管理（带环境下拉，默认在左）/ DSH 配置管理（在右）。
+			    环境下拉挂在 Pi 分页上：整个 Pi 面板按所选环境加载，页内不再有第二个选择器。 */}
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+				{!resourceOnly && !dshPaneHidden && <ConfigBackendSwitch pane={backendPane} showDsh embedded={embedded} piDirty={hasPiDirty} dshDirty={hasDshDirty} target={configTarget} hosts={remoteConfigHosts} disabled={saving} onSelectPane={(next) => selectBackendPane(next)} onSelectTarget={handleConfigTargetChange} />}
+				{/* 两个后端页都保持挂载（hidden 切换），切换后端不会丢草稿。 */}
+				<div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", backendPane === "dsh" ? "" : "hidden")}>
 					{/* runtime 安装态不再整页替换：概览页内嵌 DshRuntimeSection 状态自适应区块，
 					    未装→安装引导，已装→版本/目录/卸载/导入，一个页面操作完。 */}
 					{dshRuntimeStatus.state !== "checking" ? (
 						<DshConfigTab ref={dshConfigRef} onDirtyChange={handleDshDirtyChange} dirtyNavIds={dshDirtyNavIds} onOpenUsageProbeDialog={(provider) => openUsageProbeDialogFor(provider, "dsh")} providerOrder={dshProviderOrder} onReorderProviders={handleReorderDshProviders} onResetProviders={handleResetDshProviderOrder} />
 					) : null}
-				</TabsContent>
-				<TabsContent value="pi" forceMount className="flex min-h-0 min-w-0 flex-1 data-[state=inactive]:hidden">
+				</div>
+				<div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", backendPane === "pi" ? "" : "hidden")}>
+					{/* 环境状态条：当前环境 + 连接状态/重试/密码补录 + 该环境的能力边界（唯一的环境说明位置）。 */}
+					{!resourceOnly ? <ConfigEnvironmentStatus target={configTarget} hosts={remoteConfigHosts} disabled={saving} /> : null}
 					{/* 默认浅色主题整页同底（bg-background），避免顶栏白 / 下方多层灰的割裂感。
 			  左侧导航 = shadcn Vertical Tabs：TabsList 竖排（orientation=vertical），
 			  组标题是非 trigger 的普通 div；窄屏（<820px）回退为横向导航。 */}
@@ -2745,60 +3001,68 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 									))}
 								</div>
 							)}
-							<div className="config-sidebar-group grid gap-0.5">
-								<span className="px-2 pb-1 text-micro font-semibold text-muted-foreground">{t("config.group.agent")}</span>
-								{!resourceOnly && (
-									<TabsTrigger value="security" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-										<span className="config-nav-icon">
-											<Shield size={14} aria-hidden="true" />
-										</span>
-										{t("config.nav.security")}
-									</TabsTrigger>
-								)}
-								<TabsTrigger value="extensions" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-									<span className="config-nav-icon">
-										<Puzzle size={14} aria-hidden="true" />
-									</span>
-									{t("config.nav.extensions")}
-								</TabsTrigger>
-								{/* MCP 在配置管理弹窗里由「配置文件」组的 config:mcp 承担（全局作用域 + 导入扫描源）；
+							{/* ssh 环境没有任何「Agent 能力」页（资源未路由、安全策略只在本机）：整组连标题一起不渲染 */}
+							{showSecurityPage || showResourcePages ? (
+								<div className="config-sidebar-group grid gap-0.5">
+									<span className="px-2 pb-1 text-micro font-semibold text-muted-foreground">{t("config.group.agent")}</span>
+									{!resourceOnly && showSecurityPage && (
+										<TabsTrigger value="security" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+											<span className="config-nav-icon">
+												<Shield size={14} aria-hidden="true" />
+											</span>
+											{t("config.nav.security")}
+										</TabsTrigger>
+									)}
+									{showResourcePages && (
+										<TabsTrigger value="extensions" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+											<span className="config-nav-icon">
+												<Puzzle size={14} aria-hidden="true" />
+											</span>
+											{t("config.nav.extensions")}
+										</TabsTrigger>
+									)}
+									{/* MCP 在配置管理弹窗里由「配置文件」组的 config:mcp 承担（全局作用域 + 导入扫描源）；
 								    这里只在项目资源管理器（resourceOnly）提供项目作用域入口，避免同名双入口用户无法选择。 */}
-								{resourceOnly && (
-									<TabsTrigger value="mcp" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-										<span className="config-nav-icon">
-											<PlugZap size={14} aria-hidden="true" />
-										</span>
-										{t("config.nav.mcp")}
-									</TabsTrigger>
-								)}
-								<TabsTrigger value="skills" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-									<span className="config-nav-icon">
-										<Sparkles size={14} aria-hidden="true" />
-									</span>
-									{t("config.nav.skills")}
-								</TabsTrigger>
-								<TabsTrigger value="prompts" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-									<span className="config-nav-icon">
-										<FileText size={14} aria-hidden="true" />
-									</span>
-									{t("config.nav.prompts")}
-								</TabsTrigger>
-							</div>
+									{resourceOnly && (
+										<TabsTrigger value="mcp" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+											<span className="config-nav-icon">
+												<PlugZap size={14} aria-hidden="true" />
+											</span>
+											{t("config.nav.mcp")}
+										</TabsTrigger>
+									)}
+									{showResourcePages && (
+										<>
+											<TabsTrigger value="skills" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+												<span className="config-nav-icon">
+													<Sparkles size={14} aria-hidden="true" />
+												</span>
+												{t("config.nav.skills")}
+											</TabsTrigger>
+											<TabsTrigger value="prompts" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+												<span className="config-nav-icon">
+													<FileText size={14} aria-hidden="true" />
+												</span>
+												{t("config.nav.prompts")}
+											</TabsTrigger>
+										</>
+									)}
+								</div>
+							) : null}
 						</TabsList>
 						<TabsContent value="config:models" className="config-main min-w-0">
 							<div className="config-content">
-								<PiConfigTargetSelector target={configTarget} hosts={remoteConfigHosts} disabled={saving} onChange={handleConfigTargetChange} />
 								{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="models" /> : null}
 								{remoteTargetHostId ? (
-									<RemoteConfigPanel key={"remote-models-" + remoteTargetHostId} file="models" hostId={remoteTargetHostId} hostLabel={remoteHostLabel} onDirtyChange={setRemoteConfigDirty} />
+									<RemoteConfigPanel key={"remote-models-" + remoteTargetHostId} file="models" hostId={remoteTargetHostId} hostLabel={remoteHostLabel} onDirtyChange={(dirty) => markRemoteDirty("models", dirty)} />
 								) : (
 									<>
 										{statusBlock}
 										{configDiagnosticBlock}
 										{!loading && (
 											<>
-												{/* TokenDance：确认后一键写入配置（pi models.json + DSH 模型目录），不内置注入 */}
-												<TokenDancePanel configured={!!modelsData.providers[TOKENDANCE_PROVIDER]} onInstalled={handleTokendanceInstalled} />
+												{/* TokenDance：安装写的是本机 models.json + DSH 目录，非本机环境不提供该入口 */}
+												{configTarget.kind === "local" ? <TokenDancePanel configured={!!modelsData.providers[TOKENDANCE_PROVIDER]} onInstalled={handleTokendanceInstalled} /> : null}
 												<ModelsTab
 													data={modelsData}
 													expandedProvider={expandedProvider}
@@ -2884,10 +3148,10 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						</TabsContent>
 						<TabsContent value="config:auth" className="config-main min-w-0">
 							<div className="config-content">
+								{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="auth" /> : null}
+								{/* ssh：凭据永不跨机回传，这一页只有派生视图（provider / 类型 / 是否已配置），没有可编辑表单。 */}
 								{remoteTargetHostId ? (
-									<RemoteConfigUnsupportedNotice bodyKey={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.auth.bodyKey} code={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.auth.code} hostLabel={remoteHostLabel} testId="remote-config-unsupported-auth" />
-								) : wslTargetHost ? (
-									<WslConfigScopeNotice file="auth" host={wslTargetHost} />
+									<RemoteAuthPanel key={"remote-auth-" + remoteTargetHostId} hostId={remoteTargetHostId} hostLabel={remoteHostLabel} />
 								) : (
 									<>
 										{statusBlock}
@@ -2919,7 +3183,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 												onDeleteAuth={handleDeleteAuth}
 												onUpdate={handleUpdateAuth}
 												onSave={handleSaveAuth}
-												onOpenUsageProbeDialog={(provider) => openUsageProbeDialogFor(provider, "pi")}
+												onOpenUsageProbeDialog={(provider) => guardProviderOp(() => openUsageProbeDialogFor(provider, "pi"))}
 											/>
 										)}
 									</>
@@ -2928,21 +3192,15 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						</TabsContent>
 						<TabsContent value="config:oauth" className="config-main min-w-0">
 							<div className="config-content">
-								{remoteTargetHostId ? (
-									<RemoteConfigUnsupportedNotice bodyKey={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.auth.bodyKey} code={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.auth.code} hostLabel={remoteHostLabel} testId="remote-config-unsupported-oauth" />
-								) : wslTargetHost ? (
-									<WslConfigScopeNotice file="auth" host={wslTargetHost} />
-								) : (
-									<OAuthTab />
-								)}
+								{/* OAuth 登录跑的是本机 pi 的认证流程：非本机环境不提供该页（导航按能力表过滤） */}
+								<OAuthTab />
 							</div>
 						</TabsContent>
 						<TabsContent value="config:settings" className="config-main min-w-0">
 							<div className="config-content">
-								<PiConfigTargetSelector target={configTarget} hosts={remoteConfigHosts} disabled={saving} onChange={handleConfigTargetChange} />
 								{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="settings" /> : null}
 								{remoteTargetHostId ? (
-									<RemoteConfigPanel key={"remote-settings-" + remoteTargetHostId} file="settings" hostId={remoteTargetHostId} hostLabel={remoteHostLabel} onDirtyChange={setRemoteConfigDirty} />
+									<RemoteConfigPanel key={"remote-settings-" + remoteTargetHostId} file="settings" hostId={remoteTargetHostId} hostLabel={remoteHostLabel} onDirtyChange={(dirty) => markRemoteDirty("settings", dirty)} />
 								) : (
 									<>
 										{statusBlock}
@@ -2974,7 +3232,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						<TabsContent value="skills" className="config-main min-w-0">
 							<div className="config-content">
 								{statusBlock}
-								{resourceScope === "global" ? <ResourceTargetBar target={resourceTarget} hosts={resourceTargetHosts} disabled={saving} readOnly={resourceTargetReadOnly} onChange={setResourceTarget} /> : null}
 								{!loading &&
 									(editingGlobalSkill ? (
 										<div className="prompts-editor-backdrop" onClick={() => setEditingGlobalSkill(null)}>
@@ -3055,7 +3312,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						<TabsContent value="prompts" className="config-main min-w-0">
 							<div className="config-content">
 								{statusBlock}
-								{resourceScope === "global" ? <ResourceTargetBar target={resourceTarget} hosts={resourceTargetHosts} disabled={saving} readOnly={resourceTargetReadOnly} onChange={setResourceTarget} /> : null}
 								{!loading && (
 									<PromptsTab
 										scope={resourceScope}
@@ -3101,7 +3357,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						<TabsContent value="extensions" className="config-main min-w-0">
 							<div className="config-content">
 								{statusBlock}
-								{resourceScope === "global" ? <ResourceTargetBar target={resourceTarget} hosts={resourceTargetHosts} disabled={saving} readOnly={resourceTargetReadOnly} onChange={setResourceTarget} /> : null}
 								<ExtensionsTab
 									scope={resourceScope}
 									projectId={resourceScope === "project" ? effectiveProjectId : undefined}
@@ -3134,9 +3389,32 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						<TabsContent value="config:mcp" forceMount className="config-main min-w-0 data-[state=inactive]:hidden">
 							<div className="config-content flex min-h-0 flex-col">
 								{remoteTargetHostId ? (
-									<RemoteConfigUnsupportedNotice bodyKey={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.mcp.bodyKey} code={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.mcp.code} hostLabel={remoteHostLabel} testId="remote-config-unsupported-mcp" />
+									<RemoteConfigPanel key={"remote-mcp-" + remoteTargetHostId} file="mcp" hostId={remoteTargetHostId} hostLabel={remoteHostLabel} onDirtyChange={(dirty) => markRemoteDirty("mcp", dirty)} />
 								) : wslTargetHost ? (
-									<WslConfigScopeNotice file="mcp" host={wslTargetHost} />
+									<>
+										{/* WSL：探测/登录/模板仍只在本机执行，这里按文件编辑该发行版的 mcp.json */}
+										<WslConfigSourceHint host={wslTargetHost} file="mcp" />
+										<div className="mb-2 flex flex-col gap-0.5">
+											<span className="text-control font-medium">{t("config.env.mcpFileTitle")}</span>
+											<span className="text-micro leading-relaxed text-muted-foreground">{t("config.env.mcpFileHint")}</span>
+										</div>
+										{statusBlock}
+										{configDiagnosticBlock}
+										{!loading && (
+											<RawTab
+												fileName="mcp.json"
+												content={wslMcpRaw}
+												saving={saving}
+												showFileSelector={false}
+												onChangeFileName={() => undefined}
+												onChangeContent={(value) => {
+													setWslMcpRaw(value);
+													markDirty("config:mcp");
+												}}
+												onSave={handleSaveWslMcp}
+											/>
+										)}
+									</>
 								) : (
 									<>
 										{/* 全局作用域：activeProjectId 只作导入扫描的项目来源，配置仍写全局 mcp.json。 */}
@@ -3165,11 +3443,10 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						<TabsContent value="config:trust" className="config-main min-w-0">
 							<div className="config-content">
 								{remoteTargetHostId ? (
-									<RemoteConfigUnsupportedNotice bodyKey={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.trust.bodyKey} code={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.trust.code} hostLabel={remoteHostLabel} testId="remote-config-unsupported-trust" />
-								) : wslTargetHost ? (
-									<WslConfigScopeNotice file="trust" host={wslTargetHost} />
+									<RemoteConfigPanel key={"remote-trust-" + remoteTargetHostId} file="trust" hostId={remoteTargetHostId} hostLabel={remoteHostLabel} onDirtyChange={(dirty) => markRemoteDirty("trust", dirty)} />
 								) : (
 									<>
+										{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="trust" /> : null}
 										{statusBlock}
 										{configDiagnosticBlock}
 										{!loading && (
@@ -3189,35 +3466,28 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						</TabsContent>
 						<TabsContent value="config:raw" className="config-main min-w-0">
 							<div className="config-content flex min-h-0 flex-col">
-								{remoteTargetHostId ? (
-									<RemoteConfigUnsupportedNotice bodyKey={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.raw.bodyKey} code={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.raw.code} hostLabel={remoteHostLabel} testId="remote-config-unsupported-raw" />
-								) : wslTargetHost ? (
-									<WslConfigScopeNotice file="raw" host={wslTargetHost} />
-								) : (
-									<>
-										{statusBlock}
-										{configDiagnosticBlock}
-										{!loading && (
-											<RawTab
-												fileName={rawFileName}
-												content={rawContent}
-												saving={saving}
-												configDir={piConfigDir ?? undefined}
-												onChangeFileName={handleRawFileChange}
-												onChangeContent={(value) => {
-													setRawContent(value);
-													markDirty("config:raw");
-												}}
-												onSave={handleSaveRaw}
-											/>
-										)}
-									</>
+								{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="raw" /> : null}
+								{statusBlock}
+								{configDiagnosticBlock}
+								{!loading && (
+									<RawTab
+										fileName={rawFileName}
+										content={rawContent}
+										saving={saving}
+										configDir={wslTargetHost ? undefined : (piConfigDir ?? undefined)}
+										onChangeFileName={handleRawFileChange}
+										onChangeContent={(value) => {
+											setRawContent(value);
+											markDirty("config:raw");
+										}}
+										onSave={handleSaveRaw}
+									/>
 								)}
 							</div>
 						</TabsContent>
 					</Tabs>
-				</TabsContent>
-			</Tabs>
+				</div>
+			</div>
 
 			{/* 用量查询配置弹窗：模型/认证/DSH 共用入口；provider + backend 决定配置落盘位置。
 			    必须放在所有 Tabs 之外：Radix Tabs 默认卸载非激活内容，若放回 config:models
@@ -3299,8 +3569,29 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 				</AlertDialog>
 			)}
 
-			{/* 目标切换确认：远端有未应用 patch 时，切换会丢弃草稿，必须显式确认 */}
-			{pendingTargetSwitch && <ConfirmDialog title={t("config.target.switchTitle")} message={t("config.target.switchMessage")} confirmLabel={t("config.target.switchConfirm")} danger onConfirm={applyPendingTargetSwitch} onCancel={() => setPendingTargetSwitch(null)} />}
+			{/* 环境切换确认：本环境有配置草稿或远端未应用 patch 时，先让用户选「保存并切换 / 放弃并切换 / 取消」 */}
+			{pendingEnvSwitch && (
+				<AlertDialog open onOpenChange={(open) => (!open ? setPendingEnvSwitch(null) : undefined)}>
+					<AlertDialogContent data-testid="config-env-switch-confirm">
+						<AlertDialogHeader>
+							<AlertDialogTitle>{t("config.env.switchDirtyTitle")}</AlertDialogTitle>
+							<AlertDialogDescription>{pendingEnvSwitch.dirtyKeys.every((key) => key.startsWith("remote:")) ? t("config.env.switchDirtyRemote") : t("config.env.switchDirtyMessage", { count: pendingEnvSwitch.dirtyKeys.length })}</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>{t("config.env.switchCancel")}</AlertDialogCancel>
+							<AlertDialogAction className={buttonVariants({ variant: "destructive" })} onClick={discardDraftsAndSwitch} data-testid="config-env-switch-discard">
+								{t("config.env.switchDiscardAndGo")}
+							</AlertDialogAction>
+							{/* 只有本机保存链路能落盘草稿；纯远端 patch 时不给「保存并切换」（那会假装保存了远端） */}
+							{pendingEnvSwitch.dirtyKeys.every((key) => key.startsWith("remote:")) ? null : (
+								<AlertDialogAction onClick={() => void saveDraftsAndSwitch()} data-testid="config-env-switch-save">
+									{t("config.env.switchSaveAndGo")}
+								</AlertDialogAction>
+							)}
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+			)}
 
 			{/* 源文件切换确认：Raw 编辑器有未保存草稿时，切换下拉会丢弃草稿，必须显式确认 */}
 			{pendingRawFile && (
@@ -3327,7 +3618,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 					danger
 					onConfirm={() => {
 						setRemoteDiscardConfirmOpen(false);
-						setRemoteConfigDirty(false);
+						resetRemoteDirty();
 						props.onClose();
 					}}
 					onCancel={() => setRemoteDiscardConfirmOpen(false)}

@@ -33,7 +33,7 @@ export const DOMAIN_CATALOG = [
 		group: "core",
 		subdomains: ["catalog", "runtime", "import", "rewind"],
 		manager: "SessionCatalog + SessionScanner + SessionRuntimeCoordinator + SessionFileEditor/SessionHistoryReader/RewindCheckpointCoordinator",
-		ipcFile: ["ipc/sessionIpc.ts", "index.ts"],
+		ipcFile: ["ipc/sessionIpc.ts", "ipc/sessionShareExportIpc.ts", "index.ts"],
 		preloadNamespaces: ["sessions"],
 		channelPrefix: ["sessions", "agents"],
 		aggregation: "consolidate",

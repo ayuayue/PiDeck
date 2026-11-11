@@ -47,41 +47,88 @@ export function extractSentinelValue(stdout: unknown, sentinel: string): string 
 }
 
 /**
- * 构造读取登录 shell PATH 的远端命令。
+ * 构造读取登录 shell PATH 的远端命令，按「真实世界里最可能持有用户 PATH 的 shell」排序。
  *
- * `$PATH` 由**远端**在 `-l`（登录 shell）下展开，因此拿到的是用户登录后真实的
- * PATH。命令本身不含任何用户可控文本：哨兵来自本地随机数并按 POSIX 单引号引用，
- * 其余为固定字面量。
+ * 为什么必须是多条命令（2026-10 实机教训）：nvm / conda / asdf 的初始化写在 rc 文件里，而不同
+ * shell 读的是不同文件、同一个 shell 交互与非交互读的也不同——Ubuntu 的 `~/.bashrc` 开头对**非交互**
+ * shell 直接 return，`/bin/sh`（dash）更是不读 `~/.bashrc`。只发 `/bin/sh -lc` 时，一台 `node -v`
+ * 明明是 v24 的主机，探到的仍是系统旧 node，最终报 `REMOTE_NODE_VERSION_UNSUPPORTED`。
+ *
+ * 优先级按实际使用量（坏了哪一条，用户就“检测不到”）：
+ * 1. **bash**——Linux 服务器默认登录 shell，也是 nvm 安装器写初始化的地方；绝大多数 SSH 目标。
+ * 2. **zsh**——macOS 自 10.15 起默认登录 shell，Homebrew 的 `brew shellenv` 写在 `~/.zprofile`；
+ *    Linux 开发者机器上（oh-my-zsh）也很常见。
+ * 3. **sh**——通用兵底（Alpine/busybox 无 bash、或 PATH 只写在 `~/.profile`）。
+ *
+ * fish 不在列内：它的 `$PATH` 是 list，`printf %s "$PATH"` 会以空格而不是冒号拼接，与 POSIX 侧
+ * 的解析共用不了一份命令；远端登录 shell 为 fish 的主机少见，真遇到时用户可在主机档案里手填。
+ *
+ * `$PATH` 由**远端**在登录 shell 下展开，因此拿到的是用户登录后真实的 PATH；命令本身不含任何用户
+ * 可控文本：哨兵来自本地随机数并按 POSIX 单引号引用，其余为固定字面量。交互 shell 的 rc 里一句
+ * `read` 就能把探测挂到超时，因此每条命令都把 stdin 接到 `/dev/null`。
+ */
+export function buildLoginShellPathCommands(sentinel: string): readonly string[] {
+	if (!/^[A-Za-z0-9]{8,64}$/.test(sentinel)) throw new Error("REMOTE_NODE_SENTINEL_INVALID");
+	const payload = `printf %s "${SENTINEL_PREFIX}${sentinel}"; printf %s "$PATH"; printf %s "${SENTINEL_SUFFIX}"`;
+	return [
+		// Linux 服务器默认壳：读 /etc/profile、~/.bash_profile|~/.profile 与 ~/.bashrc（nvm/conda 初始化在这里）。
+		`/bin/bash -lic '${payload}' </dev/null`,
+		// macOS 默认壳（及 Linux 上的 oh-my-zsh）：登录读 ~/.zprofile、交互读 ~/.zshrc（Homebrew shellenv 在这里）。
+		`/bin/zsh -lic '${payload}' </dev/null`,
+		// 兵底：没有 bash/zsh 的发行版（Alpine 等），以及 PATH 写在 ~/.profile 里的主机。
+		`/bin/sh -lc '${payload}' </dev/null`,
+	];
+}
+
+/**
+ * 单个登录 shell PATH 探测命令（`/bin/sh -lc` 那条）。保留导出：调用方与测试按这个符号理解
+ * 「一条登录 shell 探测」的语义，多方言选择由 `buildLoginShellPathCommands` 承担。
  */
 export function buildLoginShellPathCommand(sentinel: string): string {
-	if (!/^[A-Za-z0-9]{8,64}$/.test(sentinel)) throw new Error("REMOTE_NODE_SENTINEL_INVALID");
-	return `/bin/sh -lc 'printf %s "${SENTINEL_PREFIX}${sentinel}"; printf %s "$PATH"; printf %s "${SENTINEL_SUFFIX}"'`;
+	const commands = buildLoginShellPathCommands(sentinel);
+	return commands[commands.length - 1];
 }
 
 /**
  * 在 PATH 中按顺序列出工具候选的绝对路径（`<绝对目录>/<候选名>`）。
  *
- * 返回**全部**候选（PATH 顺序，目录内按 `names` 顺序），由调用方决定探测到什么程度；不做文件系统
- * 访问，因此可离线单测。只有绝对目录会成为候选——这正是 `requireNodeExecutable` 在引导契约里要求的形状。
+ * 返回**全部**候选，由调用方决定探测到什么程度；不做文件系统访问，因此可离线单测。只有绝对目录会成为
+ * 候选——这正是 `requireNodeExecutable` 在引导契约里要求的形状。
+ *
+ * `order` 决定名字与目录谁在外层：
+ * - `dir-major`（默认）：一个目录的四个名字相邻。适合「一个目录只有一个候选名」的 node。
+ * - `name-major`：先扫所有目录里的第一个候选名，再扫第二个。pi 走这条——探测次数是按**候选**计的硬上限，
+ *   dir-major 会让 PATH 里第一个没有 pi 的目录（如 `/usr/local/go/bin`）就用完四个名字的名额，
+ *   真正装着 pi 的 nvm 目录根本轮不到（2026-10 实机：piPath 报的正是 `/usr/local/go/bin/pi`）。
  *
  * 为什么在这里收口：node 探测与 pi 探测共用整套目录判定，两份实现迟早漂移成「同一条 PATH 两条规则」。
  */
-export function listToolCandidatesFromPath(pathValue: unknown, names: readonly string[]): string[] {
+export function listToolCandidatesFromPath(pathValue: unknown, names: readonly string[], order: "dir-major" | "name-major" = "dir-major"): string[] {
 	if (typeof pathValue !== "string" || pathValue.length === 0 || pathValue.length > MAX_PATH_LENGTH) return [];
 	if (!Array.isArray(names) || names.length === 0) return [];
-	const seen = new Set<string>();
-	const candidates: string[] = [];
+	const seenDirs = new Set<string>();
+	const dirs: string[] = [];
 	for (const rawEntry of pathValue.split(":")) {
 		const entry = rawEntry.trim();
 		// 只接受绝对目录；相对或空条目在登录 shell 下的语义依赖 cwd，不可复现。
 		if (!entry.startsWith("/") || entry.endsWith("/")) continue;
 		if (entry.split("/").some((segment) => segment === "." || segment === "..")) continue;
-		for (const name of names) {
-			const candidate = `${entry}/${name}`;
-			if (candidate.length > MAX_TOOL_CANDIDATE_LENGTH || seen.has(candidate)) continue;
-			seen.add(candidate);
-			candidates.push(candidate);
-		}
+		if (seenDirs.has(entry)) continue;
+		seenDirs.add(entry);
+		dirs.push(entry);
+	}
+	const candidates: string[] = [];
+	const seen = new Set<string>();
+	const push = (dir: string, name: string): void => {
+		const candidate = `${dir}/${name}`;
+		if (candidate.length > MAX_TOOL_CANDIDATE_LENGTH || seen.has(candidate)) return;
+		seen.add(candidate);
+		candidates.push(candidate);
+	};
+	if (order === "name-major") {
+		for (const name of names) for (const dir of dirs) push(dir, name);
+	} else {
+		for (const dir of dirs) for (const name of names) push(dir, name);
 	}
 	return candidates;
 }

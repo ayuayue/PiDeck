@@ -12,14 +12,13 @@
  * 用法：node tests/wslConfigLifecycleSmoke.mjs [distro]
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const storeModule = loadTsCommonJs("src/main/config/WslPiConfigStore.ts");
 const distro = process.argv[2] ?? "Ubuntu-26.04";
-const HOST_ID = "22222222-2222-4222-8222-222222222222";
 const READ_DEADLINE_MS = 15_000;
 
 function distroState() {
@@ -43,7 +42,7 @@ async function readWithDeadline(store) {
 	const timer = new Promise((resolve) => setTimeout(() => resolve({ kind: "deadline" }), READ_DEADLINE_MS));
 	const attempt = (async () => {
 		try {
-			const snapshot = await store.read({ hostId: HOST_ID, file: "settings" });
+			const snapshot = await store.read({ file: "settings" });
 			return { kind: "ok", keys: Object.keys(snapshot.data ?? {}).length };
 		} catch (error) {
 			return { kind: "stable-code", code: typeof error?.message === "string" ? error.message.slice(0, 120) : String(error) };
@@ -58,10 +57,7 @@ let userDataDir = "";
 try {
 	const user = execFileSync("wsl.exe", ["-d", distro, "-e", "printenv", "USER"], { encoding: "utf8", timeout: 30_000 }).trim();
 	userDataDir = await mkdtemp(join(tmpdir(), "pideck-wsl-life-"));
-	const now = new Date().toISOString();
-	const profile = { id: HOST_ID, label: "WSL lifecycle smoke", distro, user, createdAt: now, updatedAt: now };
-	await writeFile(join(userDataDir, "wsl-hosts.json"), JSON.stringify({ schemaVersion: 1, revision: 1, profiles: [profile], retiredHostIds: [] }, null, 2) + "\n", "utf8");
-	const store = storeModule.createWslPiConfigStoreFor(userDataDir);
+	const store = storeModule.createWslPiConfigStoreFor(userDataDir, { readWslIdentity: async () => ({ distro, user }) });
 
 	const terminate = () => {
 		const started = Date.now();

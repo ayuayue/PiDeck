@@ -460,6 +460,28 @@ test("a cancelled root establishment cannot cancel the host bootstrap used by B"
 	);
 });
 
+test("a failed pooled connect publishes offline even though no manager was created", async () => {
+	const ports = poolingPorts();
+	ports.bootstrap = async () => {
+		throw new Error("REMOTE_NODE_NOT_FOUND");
+	};
+	await withService(
+		async ({ service, events }) => {
+			const result = await service.connect(HOST);
+			assert.equal(result.ok, false);
+			assert.equal(result.code, "REMOTE_NODE_NOT_FOUND");
+			// 池化 connect 不建 manager：失败只能靠这条推送让其它视图（设置里的连接页、配置目标下拉）知道。
+			assert.deepEqual(
+				events.state.map((entry) => entry.state.state),
+				["offline"],
+				"a pooled connect failure must be pushed, not only stored",
+			);
+			assert.equal(service.states()[HOST], "offline");
+		},
+		{ ports },
+	);
+});
+
 test("a published root failure still updates host state", async () => {
 	await withService(async ({ service, ports, events }) => {
 		await read(service, ROOT_A);

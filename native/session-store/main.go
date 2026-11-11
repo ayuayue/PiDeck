@@ -56,6 +56,12 @@ func main() {
 		tablesDir = os.Args[2]
 	}
 	tables := newTableCache(tablesDir)
+	// 启动时清一次孤儿条目表：表名是源路径的 sha1，归档 / 恢复 / 移动工作目录都会
+	// 让旧表永久失联；不清就会一直占着 maxTableFiles 配额，把仍然有效的表挤掉
+	// （issue #392 后续，实测 256 个表里 250 个是孤儿）。
+	if tablesDir != "" {
+		prunePersistedTables(tablesDir, "")
+	}
 
 	out := bufio.NewWriter(os.Stdout)
 	writeFrame := func(frame any) {

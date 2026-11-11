@@ -32,6 +32,8 @@ const NODE_PATH = "/home/zhadainian/.nvm/versions/node/v24.11.0/bin/node";
 const plain = (value) => Array.from(value);
 /** 远端命令以最后一个 argv 元素下发；这里取出来做「脚本化远端」的分派依据。 */
 const remoteCommandOf = (args) => String(args.at(-1));
+/** 探测命令 → shell 方言（与 `buildLoginShellPathCommands` 的顺序绑定）。 */
+const flavourOf = (command) => (command.startsWith("/bin/bash -lic") ? "bash" : command.startsWith("/bin/zsh -lic") ? "zsh" : "sh");
 const pathAnswer = (value) => `PIDECK_PATH_BEGIN_${SENTINEL}${value}_PIDECK_PATH_END`;
 
 /**
@@ -60,20 +62,22 @@ test("the exported matrix constants are the contract, not incidental values", ()
 	assert.deepEqual({ ...REMOTE_PI_VERIFIED_CEILING }, { major: 0, minor: 85, patch: 999 });
 });
 
-test("candidates follow PATH order, cover the four install shapes, and are deduplicated", () => {
+test("candidates are name-major across PATH dirs, cover the four install shapes, and are deduplicated", () => {
+	// name-major：先扫完所有目录的 `pi`，再轮到 JS 别名。探测上限按候选计，所以这样前三个候选
+	// 就是「前三个 PATH 目录里的标准 pi」——第一个目录没有 pi 时也能看到真正装着 pi 的那个目录。
 	const loginPath = "/home/zhadainian/.nvm/versions/node/v24.11.0/bin:/usr/local/bin:/usr/bin";
 	assert.deepEqual(plain(listPiCandidatesFromPath(loginPath)), [
 		"/home/zhadainian/.nvm/versions/node/v24.11.0/bin/pi",
-		"/home/zhadainian/.nvm/versions/node/v24.11.0/bin/pi.js",
-		"/home/zhadainian/.nvm/versions/node/v24.11.0/bin/pi.mjs",
-		"/home/zhadainian/.nvm/versions/node/v24.11.0/bin/pi.cjs",
 		"/usr/local/bin/pi",
-		"/usr/local/bin/pi.js",
-		"/usr/local/bin/pi.mjs",
-		"/usr/local/bin/pi.cjs",
 		"/usr/bin/pi",
+		"/home/zhadainian/.nvm/versions/node/v24.11.0/bin/pi.js",
+		"/usr/local/bin/pi.js",
 		"/usr/bin/pi.js",
+		"/home/zhadainian/.nvm/versions/node/v24.11.0/bin/pi.mjs",
+		"/usr/local/bin/pi.mjs",
 		"/usr/bin/pi.mjs",
+		"/home/zhadainian/.nvm/versions/node/v24.11.0/bin/pi.cjs",
+		"/usr/local/bin/pi.cjs",
 		"/usr/bin/pi.cjs",
 	]);
 	// 去重：同一目录出现两次只给一遍候选。
@@ -192,7 +196,12 @@ function loadWithRemote(remotePath, versions, options = {}) {
 			const command = remoteCommandOf(args);
 			// 登录 shell PATH 探测：以哨兵命令区分，返回脚本化的 PATH（可注入噪声/坏输出）。
 			if (command.includes("PIDECK_PATH_BEGIN_")) {
-				probed.push({ kind: "path" });
+				probed.push({ kind: "path", flavour: flavourOf(command) });
+				if (options.perFlavour !== undefined) {
+					const answer = options.perFlavour[flavourOf(command)];
+					if (answer === undefined) return { exitCode: 127, stdout: "" };
+					return answer === null ? { exitCode: 0, stdout: "no sentinel here" } : { exitCode: 0, stdout: pathAnswer(answer) };
+				}
 				if (options.pathThrows) throw new Error("SSH_HOST_COMMAND_TIMEOUT");
 				if (options.pathExitCode !== undefined && options.pathExitCode !== 0) return { exitCode: options.pathExitCode, stdout: options.pathStdout ?? "" };
 				const body = typeof options.pathStdout === "string" ? options.pathStdout : pathAnswer(remotePath);
@@ -219,6 +228,19 @@ const run = (remotePath, versions, options = {}) => {
 };
 
 const versionProbes = (probed) => probed.filter((entry) => entry.kind === "version");
+
+test("pi is located through the interactive login bash PATH, like node", async () => {
+	// 与 node 同源：nvm 写在 `~/.bashrc` 里的 PATH 只有交互登录 bash 看得到，`/bin/sh -lc` 看不到。
+	const nvmBin = "/home/ubuntu/.nvm/versions/node/v24.18.0/bin";
+	const { promise, probed } = run(nvmBin, { [`${nvmBin}/pi`]: "0.85.1\n" }, { perFlavour: { bash: nvmBin, sh: "/usr/bin" } });
+	const observation = await promise;
+	assert.equal(observation.piPath, `${nvmBin}/pi`);
+	assert.deepEqual(
+		probed.filter((entry) => entry.kind === "path").map((entry) => entry.flavour),
+		["bash"],
+		"the sh fallback must not be spent once bash answers",
+	);
+});
 
 test("the real host shape resolves: nvm pi 0.85.1 through the nvm node, one probe", async () => {
 	// `serve` 复现：答案是 nvm bin 里的 pi，解释器是同一个 bin 目录里的 node。
@@ -360,9 +382,9 @@ test("every candidate failing reports the version as unreadable, with the probe 
 });
 
 test("the candidate walk is capped, so a hostile PATH cannot drive unlimited probes", async () => {
-	// 上限 3：第 5 个候选（下一个 PATH 目录里的 `pi`）一个帧都不许发，即使它本来会成功。
-	const remotePath = "/a/bin:/d/bin";
-	const { promise, probed } = run(remotePath, { "/a/bin/pi": "1.0", "/a/bin/pi.js": "1.0", "/a/bin/pi.mjs": "1.0", "/d/bin/pi": "0.85.1\n" });
+	// 上限 3：第 4 个候选（第四个 PATH 目录里的 `pi`）一个帧都不许发，即使它本来会成功。
+	const remotePath = "/a/bin:/b/bin:/c/bin:/d/bin";
+	const { promise, probed } = run(remotePath, { "/a/bin/pi": "1.0", "/b/bin/pi": "1.0", "/c/bin/pi": "1.0", "/d/bin/pi": "0.85.1\n" });
 	await assert.rejects(promise, /REMOTE_PI_VERSION_UNREADABLE/);
 	assert.equal(versionProbes(probed).length, 3, "at most MAX_PI_CANDIDATES candidates may be probed");
 	assert.ok(

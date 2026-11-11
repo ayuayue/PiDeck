@@ -140,6 +140,10 @@ export function buildAskResponse(method: string, value: string | boolean | strin
 
 export type BatchAnswerValue = string | boolean | string[] | null | undefined;
 
+export function batchValueOf<T>(map: Readonly<Record<string, T>>, id: string): T | undefined {
+	return Object.hasOwn(map, id) ? map[id] : undefined;
+}
+
 /** 与原有 batchAnswerLabel 一致：布尔转 true/false 文案，数组 join「、」，其余原样 */
 export function batchAnswerLabel(value: BatchAnswerValue): string {
 	if (typeof value === "boolean") return value ? "true" : "false";
@@ -356,10 +360,10 @@ export function formatAskTitle(title: string): string {
  */
 export function serializeBatchAnswers(questions: ReadonlyArray<{ id: string; type: string }>, answers: Readonly<Record<string, BatchAnswerValue>>, meta?: Readonly<Record<string, { label?: string; wasCustom?: boolean; skipped?: boolean }>>, options?: { closed?: boolean }): string {
 	const result = questions.map((question) => {
-		const itemMeta = meta?.[question.id];
+		const itemMeta = meta ? batchValueOf(meta, question.id) : undefined;
 		// 跳过的题一律 value=null，扩展据 skipped 区分「主动跳过」与「没答」
 		const skipped = Boolean(itemMeta?.skipped);
-		const value = skipped ? null : (answers[question.id] ?? null);
+		const value = skipped ? null : (batchValueOf(answers, question.id) ?? null);
 		return {
 			id: question.id,
 			type: question.type,

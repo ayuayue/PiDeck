@@ -354,7 +354,7 @@ test("picker shows usage inline on the provider group row; provider config pages
 	assert.match(dshCards, /config\.dsh\.modelsCount/);
 	assert.doesNotMatch(dshCards, /ProviderUsageRow/);
 	assert.match(dshCards, /UsageQueryEntryButton/);
-	// 旧胶囊徽标组件已删除（cc-switch 风格无胶囊）
+	// 旧胶囊徽标组件已删除（现行样式不用胶囊）
 	assert.equal(existsSync("src/renderer/src/components/app/ProviderUsageBadge.tsx"), false);
 });
 

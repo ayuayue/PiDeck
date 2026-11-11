@@ -16,7 +16,7 @@ const { parseRichInputChips, formatFilePathRef, unwrapFileChipPath, formatFileCh
 
 test("formatChipDisplayLabel keeps only the @ prefix and strips the pi skill wire prefix", () => {
 	assert.equal(formatChipDisplayLabel("file", "a.ts"), "@a.ts");
-	// 对齐 Proma：/ 与 & 由图标表达，不再拼字符前缀；skill 的 skill: 是 wire 细节
+	// / 与 & 由图标表达，不再拼字符前缀；skill 的 skill: 是 wire 细节
 	assert.equal(formatChipDisplayLabel("skill", "skill:review"), "review");
 	assert.equal(formatChipDisplayLabel("skill", "review"), "review");
 	assert.equal(formatChipDisplayLabel("session", "会话A"), "会话A");
@@ -131,7 +131,7 @@ test("unquoted absolute path with spaces is extended into one file chip", () => 
 	const chips = parseRichInputChips(`@${path}`);
 	assert.equal(chips.length, 1);
 	assert.equal(chips[0].kind, "file");
-	// raw 是原始发送/打开路径，不能因视觉截断而改变；展示只给文件名（Proma 同款）
+	// raw 是原始发送/打开路径，不能因视觉截断而改变；展示只给文件名
 	assert.equal(chips[0].raw, `@${path}`);
 	assert.equal(chips[0].label, "455f949b57b937a5491cbb0a6f7bd07a.png");
 });

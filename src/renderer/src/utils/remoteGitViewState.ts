@@ -1,5 +1,4 @@
 import type {
-	GitBranchInfo,
 	GitCommitResult,
 	GitCompareRefsResult,
 	GitHistoryPageResult,
@@ -99,7 +98,6 @@ export type RemoteGitViewApi = {
 	status(repo?: string, options?: { branch?: boolean }): Promise<GitReadSnapshotResult>;
 	/** Pure-fact force refresh: bypasses the completed read cache without touching authorization tokens. */
 	refresh(repo?: string, options?: { branch?: boolean }): Promise<GitReadSnapshotResult>;
-	branches(repo?: string): Promise<{ ok: true; info: GitBranchInfo } | { ok: false; code: string }>;
 	historyPage(options?: { maxCount?: number; skip?: number }, repo?: string): Promise<GitHistoryPageResult>;
 	commitDetail(oid: string, repo?: string): Promise<RemoteGitCommitDetailResult>;
 	refs(repo?: string): Promise<RemoteGitRefsResult>;
@@ -234,24 +232,13 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 		recoveryEpoch += 1;
 	}
 	/**
-	 * One repository read: the fact read (force only when the host grants it) plus the branch current. A branch read
-	 * failure leaves the branch unknown and never replaces the groups a successful fact read just returned.
+	 * One repository read: the single fact read carries the branch too (the `git.status` answer includes it), so the
+	 * panel never spends a second SSH round trip just to learn which branch it is looking at. A branch the answer
+	 * cannot confirm stays null and never replaces the groups a successful fact read just returned.
 	 */
 	async function readRepository(repoScope: string, force: boolean, options?: { branch?: boolean }): Promise<{ facts: GitReadSnapshotResult; branch: string | null }> {
-		// 分支只是展示信息：静默轮询不读它（省一次远端往返），读者只拿事实。
-		const branchRead =
-			cap.branchRead && options?.branch !== false
-				? Promise.resolve()
-						.then(() => api.branches(repoScope))
-						.then(
-							(answer) => answer,
-							() => undefined,
-						)
-				: Promise.resolve(undefined);
-		const factsRead = force && cap.forceRefresh ? api.refresh(repoScope, options) : api.status(repoScope, options);
-		const [facts, branches] = await Promise.all([factsRead, branchRead]);
-		const branch = branches !== undefined && branches.ok ? branches.info.current : null;
-		return { facts, branch };
+		const facts = await (force && cap.forceRefresh ? api.refresh(repoScope, options) : api.status(repoScope, options));
+		return { facts, branch: facts.ok ? facts.snapshot.branch : null };
 	}
 	// 静默 status 刷新（P0-3）：策略/闸门/单飞在 remoteGitStatusPolling，控制器只提供状态、事实代次与读口。
 	// 能力关闭时 isActive() 直接为 false：一次读都不会发起，也不会发布任何静默结果。
@@ -302,7 +289,10 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 			const uncertainWrite = gate.unknownCode() !== undefined;
 			const failureCode = (code: string) => (uncertainWrite ? "GIT_WRITE_RESULT_UNCONFIRMED" : code);
 			// A failed refresh cannot resolve an uncertain write; only fresh repository facts can.
-			update({ projectKey, loading: true, diffLoading: false, ...(uncertainWrite ? { errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" } : {}) });
+			// 同步事实属于项目身份而不是快照代：刷新保留它们，同步链的读才能与仓库读并行（少等一次往返）。
+			// 值必须在发布时现取：并行的同步读可能在本次刷新开始时还没到（到了不能被本次快照冲掉）。
+			const carrySync = (): { sync?: RemoteGitViewState["sync"] } => (state.sync === undefined ? {} : { sync: state.sync });
+			update({ projectKey, loading: true, diffLoading: false, ...carrySync(), ...(uncertainWrite ? { errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" } : {}) });
 			try {
 				// 显式刷新必须重新核对：已完成的旧缓存不能满足一次明确的刷新请求（force 通道在能力允许时使用）。
 				const { facts, branch } = await readRepository(repoPath, force);
@@ -312,7 +302,7 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 					// 它同时也是 unknown 写要求的核对：只有成功的事实读能清掉那条告警。
 					gate.resolveUnknown();
 					statusRefresher.resume();
-					update({ projectKey, loading: false, diffLoading: false, snapshot: { groups: facts.snapshot.groups, branch } });
+					update({ projectKey, loading: false, diffLoading: false, snapshot: { groups: facts.snapshot.groups, branch }, ...carrySync() });
 				} else update({ projectKey, loading: false, diffLoading: false, errorCode: failureCode(facts.code) });
 			} catch (error) {
 				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: failureCode(errorCode(error)) });
@@ -387,6 +377,8 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				}
 				update({ projectKey, loading: false, diffLoading: false, confirmedCommits: (state.confirmedCommits ?? 0) + 1 });
 				await controller.refresh();
+				// 提交会改变 ahead/behind：同步条不能停在旧数字上（不阻塞提交本身的完成）。
+				void controller.loadSync();
 			} catch {
 				// The commit may have happened; never retry it, and say so until the user refreshes.
 				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });
@@ -751,6 +743,8 @@ export function createRemoteGitViewController(projectId: string, projectKey: str
 				}
 				update({ projectKey, loading: false, diffLoading: false });
 				await controller.refresh();
+				// 切分支会整体改变 upstream/ahead/behind：同步事实跟着重读，不让同步条停在旧分支的数字上。
+				void controller.loadSync();
 			} catch {
 				// The checkout may have happened; never replay it, and keep saying the result is unknown.
 				if (active && gate.isCurrent(generation)) update({ projectKey, loading: false, diffLoading: false, errorCode: "GIT_WRITE_RESULT_UNCONFIRMED" });

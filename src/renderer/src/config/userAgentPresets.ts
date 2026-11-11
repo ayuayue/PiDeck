@@ -7,9 +7,9 @@
  * 无条件覆盖用户配置，导致「配了 UA 也无效」。因此配置侧必须提供足够覆盖面
  * 的预设，并让用户能直接手写任意 UA。
  *
- * 预设取值来源：cc-switch 的 `src/config/userAgentPresets.ts`（对 Kimi Coding Plan
- * UA 白名单做 curl 实测得出：`claude-cli/*`、`claude-code/*`、`Kilo-Code/*` 放行），
- * 再补上各官方 SDK / 客户端的真实默认 UA，覆盖「模拟 SDK」这一常见诉求。
+ * 预设取值：对 Kimi Coding Plan 的 UA 白名单做过 curl 实测（`claude-cli/*`、
+ * `claude-code/*`、`Kilo-Code/*` 放行），再补上各官方 SDK / 客户端的真实默认 UA，
+ * 覆盖「模拟 SDK」这一常见诉求。
  */
 
 import { t, type TranslationKey } from "../i18n";
@@ -31,9 +31,9 @@ export type UserAgentPreset = {
 /**
  * 预设清单（顺序即下拉展示顺序）。
  *
- * 取值来源：cc-switch 的 `src/config/userAgentPresets.ts` 实测结果（对按 UA 做
- * 白名单/风控的网关：`claude-cli/*`、`claude-code/*`、`Kilo-Code/*` 放行），
- * 再加上各官方 SDK / 客户端的真实默认 UA，覆盖「模拟官方客户端 / 模拟 SDK」两类诉求。
+ * 取值来源：对按 UA 做白名单/风控的网关实测（`claude-cli/*`、`claude-code/*`、
+ * `Kilo-Code/*` 放行），再加上各官方 SDK / 客户端的真实默认 UA，
+ * 覆盖「模拟官方客户端 / 模拟 SDK」两类诉求。
  * 官方 CLI 放最前：用户报告里能过 anyrouter / agentrouter 这类站的就是 claude-cli。
  */
 export const USER_AGENT_PRESETS: readonly UserAgentPreset[] = [
@@ -99,9 +99,9 @@ export function resolveUserAgentSelection(value: string): string {
 /**
  * 校验自定义 User-Agent 是否可作为请求头写入。
  *
- * 与 cc-switch 的 `parse_custom_user_agent` 同口径：含控制字符（换行符等）会被
- * 静默忽略——请求头注入风险，且静默忽略会让用户以为「配了却不生效」，所以这里
- * 显式拦下并给 UI 提示。空值与首尾空白由调用方 trim 处理。
+ * 含控制字符（换行符等）一律视为非法：除了请求头注入风险，静默忽略还会让用户
+ * 以为「配了却不生效」，所以这里显式拦下并给 UI 提示。空值与首尾空白由调用方
+ * trim 处理。
  */
 export function isValidUserAgent(value: string): boolean {
 	// eslint-disable-next-line no-control-regex

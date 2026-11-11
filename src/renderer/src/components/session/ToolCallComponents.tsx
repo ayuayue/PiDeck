@@ -269,7 +269,7 @@ export const ToolCard = memo(function ToolCard(props: {
 	// 可在工作区打开的目标：edit/write 用 diff 目标文件，其余工具取参数里的路径。
 	// 走与文件 chip 同一个 App 路由：项目外路径仍受安全等级门约束，不能绕过。
 	const openableFilePath = diffTarget?.path ?? getToolFilePath(props.message.meta?.args ?? props.message.meta?.path);
-	// 学 ZCode 过程行：主标签是语义动词（「读取」「执行」），作用对象进等宽 chip 单行截断；
+	// 过程行：主标签是语义动词（「读取」「执行」），作用对象进等宽 chip 单行截断；
 	// 原始工具名退到行 tooltip，不再常驻行内与动词重复占位。
 	const phrase = getToolPhraseFromArgs(toolName, props.message.meta?.args, props.message.meta?.kind);
 	const durationMs = typeof props.message.meta?.durationMs === "number" ? props.message.meta.durationMs : undefined;
@@ -282,7 +282,7 @@ export const ToolCard = memo(function ToolCard(props: {
 	const askCard = props.message.meta?._askCard as AskCardSummary | undefined;
 	const isAskCard = Boolean(askCard?.question) || (toolName.toLowerCase() === "ask_question" && status === "running");
 	// 状态徽章：running / stopped / error（含子代理失败）保留 pill 一眼可辨；
-	// 2026-10 对齐 ZCode 静默完成态——普通完成**不再渲染徽章**，「无状态即成功」，
+	// 2026-10 静默完成态——普通完成**不再渲染徽章**，「无状态即成功」，
 	// 完成行回归安静的一行灰（此前常驻绿色「完成」徽章让整屏过程行比正文还吵）。
 	// ask_question 例外：已回答保留低强调徽章，「等待→已回答」的跃迁对它有信息量。
 	// 2026-11：移除 running 的转圈动画（用户反馈动画具干扰性），只保留「进行中」文字；
@@ -389,7 +389,7 @@ export const ToolCard = memo(function ToolCard(props: {
 									{!isSkillRead && kindLabel && <span className="tool-card-kind self-center">{kindLabel}</span>}
 									{statusBadge && <span className="inline-flex self-center">{statusBadge}</span>}
 									{/* 耗时只对运行中的工具有行内意义（活秒表）；完成后的耗时移入行 tooltip，
-							    与静默完成态一致（学 ZCode：单条耗时撤出常驻行，交给 hover）。 */}
+							    与静默完成态一致（单条耗时撤出常驻行，交给 hover）。 */}
 									{status === "running" && (
 										<span className="shrink-0 text-chat-detail tabular-nums text-text-tertiary" title={isAskCard ? t("ask.waitingHint") : t("tool.durationTitle")}>
 											{isAskCard ? (
@@ -409,7 +409,7 @@ export const ToolCard = memo(function ToolCard(props: {
 											| {askCard.question}
 										</span>
 									) : !isSkillRead && (phrase.object || subtitle) ? (
-										// 作用对象预览（ZCode 工具行同款）：裸等宽暗字，无底色——过程行每轮
+										// 作用对象预览：裸等宽暗字，无底色——过程行每轮
 										// 都有命令/路径，成片的灰底 chip 会把时间线切成碎条（2026-10 去底）。
 										// 长命令/路径的完整内容在行 tooltip 里，文本只做扫读锚点。
 										<span className="min-w-0 flex-[0_1_auto] truncate font-mono text-chat-detail text-text-faint" title={phrase.object || subtitle}>

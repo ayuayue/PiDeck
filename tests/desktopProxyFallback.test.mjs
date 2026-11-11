@@ -2,7 +2,7 @@
  * DesktopProxy.buildDesktopProxyConfig 单测。
  *
  * 背景（真实故障）：用户报告两个第三方中转站（anyrouter.top / agentrouter.org）
- * 在 PiDeck 里既拉不到模型、手填模型也用不了，但在 cc-switch 里正常。
+ * 在 PiDeck 里既拉不到模型、手填模型也用不了，但同一代理在别的客户端里正常。
  * 定位到的一条链路是：PiDeck 关闭「桌面代理」开关时会显式下发 `mode: "direct"`。
  * Chromium 的 `direct` 是「强制绕过一切代理」，会连用户系统/企业代理一并屏蔽；
  * 实测本机直连这两个站分别命中 TLS 被干扰（ERR_SSL_VERSION_OR_CIPHER_MISMATCH）

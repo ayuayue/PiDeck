@@ -7,7 +7,7 @@ import { join } from "node:path";
  * 会话区配色调优巡检（不进常规门禁，手动/调优时跑）：
  * 用 mock pi 铺一条「过程层（思考/工具）+ 富文本」的时间线，
  * 明暗各截一张全页图，输出 test-results/visual-tune/。
- * 用于核对 ZCode 画布档/白卡/墨水罩染阶梯（docs/archive/research/zcode-design-analysis.md Phase 5）。
+ * 用于核对画布档/白卡/墨水罩染阶梯（Phase 5）。
  */
 
 const OUT_DIR = join(__dirname, "..", "test-results", "visual-tune");

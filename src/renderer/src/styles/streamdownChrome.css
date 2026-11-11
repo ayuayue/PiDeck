@@ -33,8 +33,8 @@
 .markdown-body :is(.space-y-4) > [data-streamdown^="heading-"]:first-child {
   margin-top: 0;
 }
-/* 标题刻度压平（ZCode：标题不比正文响——h1 只 +4/h2 只 +2，h3 起同字号靠字重分层）：
-   旧 1.5/1.28/1.12/1.08em 在 16px 正文下 h1 冲到 24px，比 ZCode 的 +4px 比例响一截；
+/* 标题刻度压平（标题不比正文响——h1 只 +4/h2 只 +2，h3 起同字号靠字重分层）：
+   旧 1.5/1.28/1.12/1.08em 在 16px 正文下 h1 冲到 24px，比 +4px 的比例响一截；
    1.3/1.15/1.06/1.03em 对应 +4.8/+2.4/+1/+0.5px，层级感保留、密度与安定感提升。 */
 .markdown-body [data-streamdown="heading-1"] {
   font-size: 1.3em;

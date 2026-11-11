@@ -1,6 +1,6 @@
-import { AlertTriangle, RefreshCw, RotateCcw, Save, ShieldAlert } from "lucide-react";
+import { AlertTriangle, LoaderCircle, RefreshCw, RotateCcw, Save, ShieldAlert } from "lucide-react";
 import { useState } from "react";
-import type { PiConfigFileKey } from "../../../shared/piConfig";
+import { PI_CONFIG_FILE_NAMES, type PiConfigFileKey } from "../../../shared/piConfig";
 import { CodeMirrorEditor } from "../components/app/CodeMirrorEditor";
 import { Button } from "../components/ui-shadcn/button";
 import { t, type TranslationKey } from "../i18n";
@@ -17,10 +17,12 @@ import { useRemotePiConfigPanel } from "./useRemotePiConfigPanel";
  * from this component.
  */
 export function RemoteConfigPanel(props: { file: PiConfigFileKey; hostId: string; hostLabel?: string; onDirtyChange?: (dirty: boolean) => void }) {
-	const { state, dirty, reload, save, setPatchText, resetPatch } = useRemotePiConfigPanel({ hostId: props.hostId, file: props.file, onDirtyChange: props.onDirtyChange });
+	const { state, dirty, reload, save, setPatchText, resetPatch, connectionTone, connectCode } = useRemotePiConfigPanel({ hostId: props.hostId, file: props.file, onDirtyChange: props.onDirtyChange });
 	const [patchSyntaxError, setPatchSyntaxError] = useState<TranslationKey | null>(null);
 	const snapshot = state.snapshot;
 	const loading = state.phase === "loading";
+	// 自动连接的状态优先于「读请求还没回来」：第一屏要回答「正在连哪台主机」，而不是一个泛泛的加载中。
+	const connecting = connectionTone === "connecting";
 	const saving = state.phase === "saving";
 	const unsupported = state.phase === "unsupported";
 	const conflict = state.phase === "conflict";
@@ -31,7 +33,7 @@ export function RemoteConfigPanel(props: { file: PiConfigFileKey; hostId: string
 	const patchReason = parsedPatch.ok ? null : parsedPatch.reason;
 	const patchIsEmpty = state.patchText.trim().length === 0;
 	const canApply = !loading && !saving && !unconfirmed && dirty && parsedPatch.ok;
-	const fileLabel = props.file === "models" ? "models.json" : "settings.json";
+	const fileLabel = PI_CONFIG_FILE_NAMES[props.file];
 	const patchBorder = patchSyntaxError || (dirty && !parsedPatch.ok) ? "border-danger/40" : "border-border-subtle";
 
 	const handlePatchChange = (text: string) => {
@@ -61,22 +63,42 @@ export function RemoteConfigPanel(props: { file: PiConfigFileKey; hostId: string
 				</Button>
 			</div>
 
-			{loading && snapshot === undefined ? (
-				<div className="py-10 text-center text-control text-muted-foreground" data-testid="remote-config-loading">
-					{t("remoteConfig.loading")}
+			{snapshot === undefined && (connecting || loading) ? (
+				<div
+					role="status"
+					aria-live="polite"
+					className="flex items-center justify-center gap-2.5 rounded-md border border-border-subtle bg-bg-panel px-3 py-8 text-control text-muted-foreground"
+					data-testid={connecting ? "remote-config-connecting" : "remote-config-loading"}
+					data-tone={connecting ? "connecting" : "loading"}
+				>
+					<LoaderCircle className={connecting ? "size-4 shrink-0 animate-pideck-spin text-warning" : "size-4 shrink-0 animate-pideck-spin"} aria-hidden="true" />
+					<span className="animate-pulse">{connecting ? t("remoteConfig.connecting") : t("remoteConfig.loading")}</span>
+					{props.hostLabel ? <span className="truncate font-mono text-micro text-muted-foreground">{props.hostLabel}</span> : null}
 				</div>
 			) : null}
 
 			{unsupported ? <RemoteConfigUnsupportedNotice bodyKey="remoteConfig.errorUnsupported" code={state.code ?? "REMOTE_CONFIG_UNSUPPORTED"} hostLabel={props.hostLabel} /> : null}
 
 			{failed && snapshot === undefined ? (
-				<div className="flex flex-col gap-2 rounded-md border border-danger/20 bg-danger-soft px-3.5 py-2.5" data-testid="remote-config-load-error">
+				<div className="flex flex-col gap-2 rounded-md border border-danger/20 bg-danger-soft px-3.5 py-2.5" data-testid="remote-config-load-error" data-tone={connectCode === undefined ? "failed" : "connect-failed"}>
 					<div className="flex items-center gap-2 text-control font-medium text-danger">
 						<AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
 						{t("remoteConfig.failedTitle")}
 					</div>
 					<p className="text-control leading-relaxed text-danger">{errorKey ? t(errorKey) : t("remoteConfig.errorUnavailable")}</p>
-					{state.code ? <code className="w-fit font-mono text-micro text-muted-foreground">{t("remoteConfig.errorCode", { code: state.code })}</code> : null}
+					{connectCode !== undefined ? <p className="text-micro leading-relaxed text-muted-foreground">{t("remoteConfig.connectFailed")}</p> : null}
+					<div className="flex flex-wrap items-center gap-2">
+						<Button type="button" variant="outline" size="sm" className="h-8 w-fit gap-1.5" disabled={connecting || loading} onClick={reload} data-testid="remote-config-reconnect">
+							<RefreshCw className="size-3.5" aria-hidden="true" />
+							{t("remoteConfig.reconnect")}
+						</Button>
+						{state.code ? <code className="font-mono text-micro text-muted-foreground">{t("remoteConfig.errorCode", { code: state.code })}</code> : null}
+						{connectCode !== undefined ? (
+							<code className="font-mono text-micro text-muted-foreground" data-testid="remote-config-connect-code">
+								{connectCode}
+							</code>
+						) : null}
+					</div>
 				</div>
 			) : null}
 
@@ -187,7 +209,7 @@ export function RemoteConfigPanel(props: { file: PiConfigFileKey; hostId: string
 						</div>
 					</div>
 
-					{props.file === "models" ? <RemoteModelCatalogSection hostId={props.hostId} /> : <RemoteConfigDeferredOperations />}
+					{props.file === "models" ? <RemoteModelCatalogSection hostId={props.hostId} /> : props.file === "settings" ? <RemoteConfigDeferredOperations /> : null}
 				</>
 			) : null}
 		</div>

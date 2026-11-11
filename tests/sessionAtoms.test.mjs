@@ -277,6 +277,100 @@ test("closed-tab cache entries over the byte budget are evicted oldest-first; op
 	assert.ok(cache["session-open"], "打开中的条目不受字节预算影响");
 	assert.ok(cache["session-open"].bytes > 64 * 1024 * 1024, "写入条目随重建刷新字节估算");
 });
+
+test("selectSessionCacheProtectedIds drops stopped open tabs, keeps live tabs and the focused session", () => {
+	const atoms = loadAtoms();
+	// 运行时已停止的打开 Tab 不再受无条件保护；还有活跃运行时的 Tab 保持不变。
+	const live = atoms.selectSessionCacheProtectedIds({ tabIds: ["live-a", "stopped-b"], stoppedIds: new Set(["stopped-b"]) });
+	assert.deepEqual([...live].sort(), ["live-a"]);
+	// 聚焦会话即使是停止态也保留：屏幕上正显示它的消息，清掉只会立刻触发重读盘。
+	const focused = atoms.selectSessionCacheProtectedIds({ tabIds: ["live-a", "stopped-b"], stoppedIds: new Set(["stopped-b"]), focusedSessionId: "stopped-b" });
+	assert.deepEqual([...focused].sort(), ["live-a", "stopped-b"]);
+	assert.deepEqual([...atoms.selectSessionCacheProtectedIds({ tabIds: [], stoppedIds: new Set() })], []);
+});
+
+test("planSessionCacheTrim counts stopped open tabs as closed-class and reconciles missing LRU keys", () => {
+	const atoms = loadAtoms();
+	// s1 受保护（仍有运行时 / 聚焦），s2、s3 按已关闭口径只占剩余名额（limit 2 → 1 个）。
+	const plan = atoms.planSessionCacheTrim({
+		lruIds: ["s1", "s2", "s3"],
+		cacheIds: ["s1", "s2", "s3"],
+		protectedIds: new Set(["s1"]),
+		limit: 2,
+		bytesById: new Map(),
+		closedByteBudget: 1024,
+	});
+	assert.deepEqual([...plan.retained], ["s1", "s2"]);
+	assert.deepEqual([...plan.evicted], ["s3"]);
+	// LRU 缺记录的条目按最旧处理：顺序表漏项不能让条目永久驻留。
+	const missing = atoms.planSessionCacheTrim({
+		lruIds: ["s1"],
+		cacheIds: ["s1", "ghost"],
+		protectedIds: new Set(),
+		limit: 1,
+		bytesById: new Map(),
+		closedByteBudget: 1024,
+	});
+	assert.deepEqual([...missing.retained], ["s1"]);
+	assert.deepEqual([...missing.evicted], ["ghost"]);
+});
+
+test("stopping a runtime stops protecting its open tab: over-budget stopped entries are evicted on trim", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	// 单条 20Mi 字符 ≈ 40MiB（估算口径 UTF-16 × 2），两条停掉的会话即击穿 64MiB 已关闭预算
+	const bigText = "x".repeat(20 * 1024 * 1024);
+	store.set(atoms.sessionTabIdsAtom, ["stopped-old", "stopped-new", "live"]);
+	store.set(atoms.stoppedSessionIdsAtom, new Set(["stopped-old", "stopped-new"]));
+	for (const sessionId of ["stopped-old", "stopped-new", "live"]) {
+		store.set(atoms.cacheSessionMessagesAtom, { sessionId, messages: [chatMessage(`m-${sessionId}`, "assistant", bigText)], source: "runtime" });
+	}
+	// 写入路径仍按「打开的 Tab」全保护（既有语义不变），停止态只在裁剪时降级
+	assert.ok(store.get(atoms.sessionMessagesCacheAtom)["stopped-old"]);
+
+	store.set(atoms.trimSessionMessageCacheAtom);
+	const after = store.get(atoms.sessionMessagesCacheAtom);
+	assert.equal(after["stopped-old"], undefined, "停掉且最旧的条目按 64MiB 预算先淘汰");
+	assert.ok(after["stopped-new"], "较新的停止条目仍在预算内");
+	assert.ok(after["live"], "仍有运行时的打开 Tab 无条件保护");
+});
+
+test("trim keeps a stopped session while it is focused", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	const bigText = "x".repeat(20 * 1024 * 1024);
+	store.set(atoms.sessionTabIdsAtom, ["stopped-old", "stopped-new", "live"]);
+	store.set(atoms.stoppedSessionIdsAtom, new Set(["stopped-old", "stopped-new"]));
+	store.set(atoms.currentSessionIdAtom, "stopped-old");
+	for (const sessionId of ["stopped-old", "stopped-new", "live"]) {
+		store.set(atoms.cacheSessionMessagesAtom, { sessionId, messages: [chatMessage(`m-${sessionId}`, "assistant", bigText)], source: "runtime" });
+	}
+	// 聚焦的停止会话受保护，只剩一条停止条目计入预算（40MiB ≤ 64MiB）→ 不淘汰
+	assert.equal(store.set(atoms.trimSessionMessageCacheAtom), false);
+	const after = store.get(atoms.sessionMessagesCacheAtom);
+	assert.ok(after["stopped-old"] && after["stopped-new"] && after["live"]);
+});
+
+test("detach marks the session stopped and a rebind clears the mark", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	const bind = (agentId, runtimeGeneration) =>
+		store.set(atoms.applySessionRuntimeEventAtom, {
+			sessionId: "session-a",
+			agentId,
+			runtimeGeneration,
+			sourceChannel: "agents:state",
+			payload: { id: agentId, status: "running" },
+		});
+
+	bind("agent-a", 1);
+	assert.equal(store.get(atoms.stoppedSessionIdsAtom).has("session-a"), false);
+	store.set(atoms.applySessionRuntimeEventAtom, { kind: "detach", sessionId: "session-a", agentId: "agent-a", runtimeGeneration: 1, sourceChannel: "sessions:runtime-detach", payload: null });
+	assert.equal(store.get(atoms.stoppedSessionIdsAtom).has("session-a"), true, "停进程后标记为已停止，缓存降级为可淘汰");
+	bind("agent-b", 2);
+	assert.equal(store.get(atoms.stoppedSessionIdsAtom).has("session-a"), false, "重新绑定运行时后恢复打开 Tab 保护");
+});
+
 test("does not let a stale disk write clobber a live runtime cache", () => {
 	// A runtime→disk overwrite with fewer messages than currently cached is
 	// treated as stale (e.g. anonymous sessions where disk always returns []).

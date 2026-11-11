@@ -14,19 +14,19 @@ Status: **Active plan（2026-10-31 更新）**。Phase A 已落地，尚未接 U
 
 后果不是“代码多”，而是**同一事实有两个读取点**：这轮修掉的侧栏 rootStatus badge（一个读取点按 Op 信封、一个按扁平）就是这类漂移；每加一个本地面板功能，远端要再实现一遍。
 
-## 2. ZCode 怎么做（静态调研，未运行）
+## 2. 同类实现怎么做（静态调研，未运行）
 
-ZCode 已经把“位置”从 UI 里拿掉了：
+成熟实现的共同做法是把“位置”从 UI 里拿掉：
 
-1. **服务契约层**：`packages/services` 定义 `IFileService` / `IGitService` / `ITerminalService` / `IFileWatcherService` 等接口（[file.ts](F:/ZCode/packages/services/src/file/file.ts)、[git.ts](F:/ZCode/packages/services/src/git/git.ts)），接口方法全部是位置无关的请求/响应。
-2. **本机实现**：`packages/services/src/node.ts` 把 `createGitService()` 等进程内实现注册进服务集合。
-3. **远端实现**：`packages/client/src/remoteServiceAccess.ts` 用 `ProxyChannel.toService<IFileService>(channelClient.getChannel(...))` 生成同一接口的 RPC 代理。
-4. **按 workspace 注入**：`packages/desktop/src/renderer/src/remoteWorkspaceSessionServices.ts` 的 `buildRemoteWorkspaceSessionServices()` 只覆盖必须走远端的服务（file/git/terminal/fileWatcher/skills/provider…），本地专属（高速卡、闲时任务）显式保留本机 provider。
-5. **UI 只依赖接口**：`packages/ui/src/workspace-file-tree/useWorkspaceFileTreeData.ts` 从 `useWorkspaceServices()` 取 `fileService/gitService/fileWatcherService`，没有 `RemoteFileTree` 这种组件。
-6. **契约完整性**：`assertRemoteWorkspaceRpcContract` + 注册表（[remoteWorkspaceServiceCollection.ts](F:/ZCode/packages/desktop/src/host/remoteWorkspaceServiceCollection.ts)）保证“远端注册了哪些服务，renderer 就代理了哪些”，漏一个在启动期报错。
-7. **传输再抽象**：`RemoteTarget = ssh|wsl|docker` + `IRemoteBackend` + `create-backend.ts`，连接/部署/握手/RPC 复用（[remote-target-abstraction.md](F:/ZCode/docs/architecture/remote-target-abstraction.md)）。
+1. **服务契约层**：独立 services 包定义 `IFileService` / `IGitService` / `ITerminalService` / `IFileWatcherService` 等接口，接口方法全部是位置无关的请求/响应。
+2. **本机实现**：一个 `node` 入口把 `createGitService()` 等进程内实现注册进服务集合。
+3. **远端实现**：用 `ProxyChannel.toService<IFileService>(...)` 生成同一接口的 RPC 代理。
+4. **按 workspace 注入**：只覆盖必须走远端的服务（file/git/terminal/fileWatcher/skills/provider…），本地专属（高速卡、闲时任务）显式保留本机 provider。
+5. **UI 只依赖接口**：文件树 hook 从 `useWorkspaceServices()` 取 `fileService/gitService/fileWatcherService`，不存在 `RemoteFileTree` 这种组件。
+6. **契约完整性**：`assertRemoteWorkspaceRpcContract` + 注册表保证“远端注册了哪些服务，renderer 就代理了哪些”，漏一个在启动期报错。
+7. **传输再抽象**：`RemoteTarget = ssh|wsl|docker` + `IRemoteBackend` + `create-backend`，连接/部署/握手/RPC 复用。
 
-**不照抄**：整套 RPC/ChannelServer/服务注册框架（PiDeck 已有 IPC + 冻结 helper 协议）、100+ 服务域与架构策略文件、Source Server daemon 架构。
+**不采纳**：整套 RPC/ChannelServer/服务注册框架（PiDeck 已有 IPC + 冻结 helper 协议）、100+ 服务域与架构策略文件、Source Server daemon 架构。
 
 ## 3. PiDeck 现状：读面已经统一，写面没有
 
@@ -96,7 +96,7 @@ ZCode 已经把“位置”从 UI 里拿掉了：
 3. 门禁：G1–G5e e2e 与 parity 用例验证当前契约；过时预期可同步更新，保留仍有效的行为与安全覆盖，不为消红弱化验证。
 
 **Phase D（契约完整性）**
-- 参照 ZCode 的 `assertRemoteWorkspaceRpcContract`：为 `ProjectFileService/ProjectGitService` 建方法清单，两个 provider 必须实现或显式 unsupported；缺一个单测红。
+- 契约完整性：为 `ProjectFileService/ProjectGitService` 建方法清单，两个 provider 必须实现或显式 unsupported；缺一个单测红。
 - 把 §5 矩阵变成测试数据，防“本地加了功能、远端忘了”。
 - 其中方法/能力一致性与结果语义检查前移到 S、B/C 各片门禁，不能等所有 UI 接完才验证。
 

@@ -119,9 +119,10 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 			void refreshFacts();
 			return;
 		}
-		// The snapshot read rebuilds the view state and drops the sync facts: read them only after it settles, or a
-		// fast facts answer can be wiped by the snapshot and the bar sits on "loading" forever (G5b regression run).
-		void refresh(capabilities.forceRefresh).then(() => loadSync());
+		// 同步事实属于项目身份，refresh 不再丢掉它（G5b 的串行读正是为绕开那次覆盖）：两个读并行发出，
+		// 同步条停在上一份已知数字上直到新答案到达，而不是先空成“正在读取”。
+		void refresh(capabilities.forceRefresh);
+		loadSync();
 		// The explicit refresh gesture is also when a repository that appeared or disappeared natively is re-discovered.
 		void reloadRepos();
 	};
@@ -147,6 +148,10 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 	const busy = state.loading || state.diffLoading || state.mutating;
 	// A nested scope writes its own repository (G5e); only the explicit init remains root-only.
 	const nested = repoPath !== "";
+	// 已确认「项目根不是普通 Git 仓库」：没有远端链可同步，也没有可提交的索引。
+	// 同步条在这个状态只会把同一句仓库错误再说一遍，外加一排永远 disabled 的获取/推送/拉取，
+	// 看上去像“还在检测”。初始化入口是唯一有意义的动作，其余入口不渲染。
+	const repositoryMissing = snapshot === undefined && state.errorCode === "GIT_NOT_REPOSITORY";
 	const rootRepoPresent = repos?.some((repo) => repo.path === "") === true;
 	const showRepoScope = repos !== undefined && (repos.length > 1 || (repos.length > 0 && !rootRepoPresent));
 	const messageBytes = new TextEncoder().encode(message).length;
@@ -200,8 +205,9 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 				) : null}
 				<span className="min-w-0 flex-1 truncate font-medium">{t("git.sourceControl")}</span>
 				{/* G4：分支选择提到顶栏（branchRead 门禁）。原来只在「引用」折叠区里渲染，refs 一关就没有入口；
-				    分支列表按需加载——打开下拉才发 refs 请求，面板打开时不额外打主机。 */}
-				{capabilities.branchRead ? (
+				    分支列表按需加载——打开下拉才发 refs 请求，面板打开时不额外打主机。
+				    非仓库状态没有分支可选：摆一个 disabled 的下拉只会被读成“分离头指针”。 */}
+				{capabilities.branchRead && !repositoryMissing ? (
 					<Select
 						value={snapshot?.branch ?? ""}
 						onValueChange={(next) => {
@@ -255,56 +261,58 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 				</p>
 			) : null}
 			{/* Fixed geometry on purpose: this bar never changes the height of the rows below it. */}
-			<div data-testid="remote-git-sync" className="shrink-0 space-y-1 border-b border-border px-3 py-1 text-xs">
-				<div className="flex h-6 items-center gap-1">
-					<span className="min-w-0 flex-1 truncate text-text-secondary" data-testid="remote-git-sync-facts">
-						{syncFacts === undefined
-							? t("remoteGit.loading")
-							: `${syncFacts.branch ?? t("remoteGit.detached")}${syncFacts.upstream === null ? "" : " → " + syncFacts.upstream}${syncFacts.ahead > 0 ? " · " + t("remoteGit.syncAhead", { n: syncFacts.ahead }) : ""}${syncFacts.behind > 0 ? " · " + t("remoteGit.syncBehind", { n: syncFacts.behind }) : ""}`}
-					</span>
-					<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-fetch" disabled={!canFetch} onClick={() => syncRemote && fetchRemote(syncRemote)}>
-						{t("remoteGit.syncFetch")}
-					</Button>
-					<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-push" disabled={!canPush} onClick={() => setPushConfirm(true)}>
-						{t("remoteGit.syncPush")}
-					</Button>
-					<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-pull" disabled={!canPull} onClick={() => syncRemote && syncBranch && pullRemote(syncRemote, syncBranch)}>
-						{t("remoteGit.syncPull")}
-					</Button>
-				</div>
-				{pushConfirm && syncRemote && syncBranch ? (
-					<div data-testid="remote-git-sync-push-confirm-bar" className="flex h-6 items-center gap-2">
-						<span className="min-w-0 flex-1 truncate">{t("remoteGit.syncPushConfirm", { remote: syncRemote, branch: syncBranch })}</span>
-						<Button
-							type="button"
-							size="sm"
-							data-testid="remote-git-sync-push-confirm"
-							onClick={() => {
-								setPushConfirm(false);
-								pushRemote(syncRemote, syncBranch);
-							}}
-						>
-							{t("remoteGit.syncPushConfirmAction")}
+			{repositoryMissing ? null : (
+				<div data-testid="remote-git-sync" className="shrink-0 space-y-1 border-b border-border px-3 py-1 text-xs">
+					<div className="flex h-6 items-center gap-1">
+						<span className="min-w-0 flex-1 truncate text-text-secondary" data-testid="remote-git-sync-facts">
+							{syncFacts === undefined
+								? t("remoteGit.loading")
+								: `${syncFacts.branch ?? t("remoteGit.detached")}${syncFacts.upstream === null ? "" : " → " + syncFacts.upstream}${syncFacts.ahead > 0 ? " · " + t("remoteGit.syncAhead", { n: syncFacts.ahead }) : ""}${syncFacts.behind > 0 ? " · " + t("remoteGit.syncBehind", { n: syncFacts.behind }) : ""}`}
+						</span>
+						<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-fetch" disabled={!canFetch} onClick={() => syncRemote && fetchRemote(syncRemote)}>
+							{t("remoteGit.syncFetch")}
 						</Button>
-						<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-push-cancel" onClick={() => setPushConfirm(false)}>
-							{t("remoteGit.syncCancel")}
+						<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-push" disabled={!canPush} onClick={() => setPushConfirm(true)}>
+							{t("remoteGit.syncPush")}
+						</Button>
+						<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-pull" disabled={!canPull} onClick={() => syncRemote && syncBranch && pullRemote(syncRemote, syncBranch)}>
+							{t("remoteGit.syncPull")}
 						</Button>
 					</div>
-				) : (
-					/* The message line is reserved whether or not it has something to say. */
-					<p data-testid="remote-git-sync-message" className="h-6 truncate leading-6 text-text-secondary" aria-live="polite">
-						{state.syncErrorCode
-							? remoteGitErrorMessage(state.syncErrorCode)
-							: state.syncNotice
-								? syncNoticeText(state.syncNotice.kind)
-								: syncFacts !== undefined && syncFacts.remotes.length === 0
-									? t("remoteGit.syncNoRemote")
-									: syncFacts !== undefined && syncRemote !== undefined && !syncTracked
-										? t("remoteGit.syncNoUpstream")
-										: ""}
-					</p>
-				)}
-			</div>
+					{pushConfirm && syncRemote && syncBranch ? (
+						<div data-testid="remote-git-sync-push-confirm-bar" className="flex h-6 items-center gap-2">
+							<span className="min-w-0 flex-1 truncate">{t("remoteGit.syncPushConfirm", { remote: syncRemote, branch: syncBranch })}</span>
+							<Button
+								type="button"
+								size="sm"
+								data-testid="remote-git-sync-push-confirm"
+								onClick={() => {
+									setPushConfirm(false);
+									pushRemote(syncRemote, syncBranch);
+								}}
+							>
+								{t("remoteGit.syncPushConfirmAction")}
+							</Button>
+							<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-push-cancel" onClick={() => setPushConfirm(false)}>
+								{t("remoteGit.syncCancel")}
+							</Button>
+						</div>
+					) : (
+						/* The message line is reserved whether or not it has something to say. */
+						<p data-testid="remote-git-sync-message" className="h-6 truncate leading-6 text-text-secondary" aria-live="polite">
+							{state.syncErrorCode && state.syncErrorCode !== state.errorCode
+								? remoteGitErrorMessage(state.syncErrorCode)
+								: state.syncNotice
+									? syncNoticeText(state.syncNotice.kind)
+									: syncFacts !== undefined && syncFacts.remotes.length === 0
+										? t("remoteGit.syncNoRemote")
+										: syncFacts !== undefined && syncRemote !== undefined && !syncTracked
+											? t("remoteGit.syncNoUpstream")
+											: ""}
+						</p>
+					)}
+				</div>
+			)}
 			{snapshot && !viewingDiff ? (
 				<div className="shrink-0 space-y-2 border-b border-border px-3 py-2">
 					<Textarea data-testid="remote-git-commit-message" aria-label={t("remoteGit.commitMessage")} placeholder={t("remoteGit.commitMessage")} value={message} rows={2} disabled={busy || !capabilities.write} onChange={(event) => setMessage(event.target.value)} />

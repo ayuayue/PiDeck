@@ -116,12 +116,14 @@ test("every read path names the selected repository scope", async () => {
 		byName.get(name).push(args);
 	}
 	// The controller is created per scope, so it must name it on every read; a missing one silently reads the root.
-	const scopeIndex = { status: 0, branches: 0, history: 1, detail: 1, refs: 0, compare: 2, recoveryList: 0, syncFacts: 0 };
+	// 分支不再单独读：它随 `status` 的答案一起回来，下发在第一个参数（仓库 scope）。
+	const scopeIndex = { status: 0, history: 1, detail: 1, refs: 0, compare: 2, recoveryList: 0, syncFacts: 0 };
 	for (const [name, index] of Object.entries(scopeIndex)) {
 		assert.ok(byName.has(name), name + " must be read by the driven actions");
 		for (const args of byName.get(name)) assert.equal(args[index], scoped, name + " must carry the repository scope");
 	}
 	// The per-file revision diff names the scope right after the file target.
+	assert.ok(!byName.has("branches"), "分支不另发一轮往返：它跟着 status 一起读");
 	for (const args of byName.get("refFileDiff")) {
 		assert.deepEqual(plain(args[2]), target, "refFileDiff keeps the file target in place");
 		assert.equal(args[3], scoped, "refFileDiff must carry the repository scope");

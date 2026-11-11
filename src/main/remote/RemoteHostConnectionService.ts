@@ -717,7 +717,10 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 				if (disposed) return { ok: false, hostId, code: "REMOTE_CONNECTION_SERVICE_DISPOSED" };
 				if (signal.aborted) return { ok: false, hostId, code: "SSH_HOST_DISCONNECTED" };
 				const code = diagnosticCodeFromError(error);
-				pooledHostStates.set(hostId, { hostId, generation: entry.generation, state: "offline", attempts: 0, latched: false, lastCode: code });
+				// 走 publishPooledState 而不是直接写表：这条路径不建 manager，一次显式 connect 的失败除了返回值
+				// 就只有这个推送能让窗口知道「刚失败、现在离线」。少了它，别处（设置里的连接页）发起的失败在
+				// 另一个视图里永远看不到，状态点会一直停在旧的成功态。
+				publishPooledState({ hostId, state: { hostId, generation: entry.generation, state: "offline", attempts: 0, latched: false, lastCode: code } });
 				return { ok: false, hostId, code };
 			} finally {
 				// 这条路径不建 manager，但 attempt 槽位属于本次调用：不清掉会让下一次 ensureHeldShared 复用一个已结束的 attempt。

@@ -195,14 +195,14 @@ test("write/branchWrite/diff/history/refs/compare/sync/recovery/init 各自关�
 	assert.deepEqual(initClosed.calls, [], "init 关闭时连一次 init 调用都不发");
 });
 
-test("forceRefresh 关闭时显式刷新退回普通事实读；branchRead 关闭时不读分支", async () => {
+test("forceRefresh 关闭时显式刷新退回普通事实读；分支跟着事实读一次拿回，不另发往返", async () => {
 	const plain = await loaded({ forceRefresh: false });
 	await plain.controller.refresh(true);
-	assert.deepEqual(plain.calls, ["status", "branches"], "the force channel is never touched without git.forceRefresh");
+	assert.deepEqual(plain.calls, ["status"], "the force channel is never touched without git.forceRefresh, and no second branch round trip is spent");
 	const noBranch = await loaded({ branchRead: false });
 	await noBranch.controller.refresh();
-	assert.deepEqual(noBranch.calls, ["status"], "branchRead 关闭时只有事实读");
-	assert.equal(noBranch.current().snapshot.branch, null);
+	assert.deepEqual(noBranch.calls, ["status"], "分支不是单独一轮往返");
+	// branchRead 关闭时的 null 由面板桥结出（见 remoteGitPanelApi 用例），控制器不自己猜。
 });
 
 test("能力齐全时，关闭的只是对应动作：读仍可用，静默读也走同一套能力判定", async () => {
@@ -225,7 +225,7 @@ test("hook 源码：status 轮询受 capabilities.statusPoll 约束、refs 轮�
 	assert.match(hook, /capabilities\.refsWatch \? \(?controller\.current\?\.pollRefs\(\)/, "refs polling is gated by refsWatch");
 	// The initial read is a capability decision: closed read never calls refresh, it publishes the stable reason.
 	assert.match(hook, /if \(!capabilities\.read\) reads\.setUnavailable\(blocked\["git\.read"\] \?\? "PROJECT_CAPABILITY_HOST_NOT_READY"\)/, "a closed read does not read and shows the reason");
-	assert.match(hook, /void reads\.refresh\(\)\.then\(\(\) => reads\.loadSync\(\)\)/, "the facts are read once after the first read");
+	assert.match(hook, /void reads\.refresh\(\);\s*reads\.loadSync\(\);/, "the facts are read once, in parallel with the first repository read");
 });
 
 test("hook 源码：不再直订 preload 事实/主机订阅，也不需要令牌", () => {

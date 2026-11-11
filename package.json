@@ -1,6 +1,6 @@
 {
   "name": "pideck",
-  "version": "0.12.0-beta",
+  "version": "0.12.0",
   "dshRuntimeVersion": "0.2.1-rc.5",
   "packageManager": "npm@11.6.2",
   "engines": {
@@ -92,6 +92,7 @@
     "check:dsh-wire": "node scripts/check-dsh-wire-payloads.mjs",
     "check:ipc-wiring": "node scripts/check-ipc-wiring.mjs",
     "check:test-shape": "node scripts/check-test-shape.mjs",
+		"check:scroll-containers": "node tests/scrollContainerGuard.mjs",
     "find:dead-code": "node scripts/find-dead-code.mjs",
     "pack:dev": "node scripts/pack-dev.js",
     "pack": "npm run build && electron-builder --dir",
@@ -461,7 +462,7 @@
     "@deepseek-ai/dsh-web-app": "0.2.1-rc.5",
     "@deepseek-ai/dsh-workflow": "0.2.1-rc.5",
     "@deepseek-ai/dsh-workspace": "0.2.1-rc.5",
-    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-ai": "1.5.1",
     "@fiahfy/icns": "^0.0.7",
     "@lezer/highlight": "^1.2.3",
     "@pierre/diffs": "^1.3.5",
@@ -491,7 +492,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "dsh-bill": "^0.14.0",
-    "electron": "^43.4.0",
+    "electron": "^43.8.7",
     "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.0",
     "eslint": "^10.6.0",

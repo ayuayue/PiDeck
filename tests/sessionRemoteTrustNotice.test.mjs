@@ -14,7 +14,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  *    该标记仍然只是「这条会话是远端会话」的判据——父批明确要求不能改成「只有事件才显示」。
  * 2. **决策表 → 四态**（行为级）：未决策 / 已信任 / 已拒绝 / 因 endpoint 变更作废，全部由 PiDeck 自己的
  *    决策存储（主进程 `remoteProjectTrust` 段经 `remoteTrust:list` 下发）决定，不消费任何 pi 事件。
- * 3. **提示的形态**（源码级，本仓无 DOM 装置）：常驻 inline 条（不是一次性 toast）、四种状态与决策动作的
+ * 3. **提示的形态**（源码级，本仓无 DOM 装置）：inline 条（未决策/作废常驻、已决定自动收起；不是一次性 toast）、四种状态与决策动作的
  *    双语文案 key 齐备、挂载点在会话头下方、设置页有清单入口、渲染层不出现任何 pin 材料
  *    （fingerprint / known_hosts / endpoint 摘要）字样、没有为它新增手写 CSS class。
  */
@@ -138,6 +138,22 @@ test("提示条：常驻 inline + 文案走 i18n + 无标记整体不渲染", ()
 	assert.doesNotMatch(noticeCode, /showNotice|utils\/notice|toast/i);
 	// 会话头下方的挂载点（与分支条同层，时间线/引导页都在它下面）
 	assert.match(viewSource(), /<RemoteSessionTrustNotice sessionId=\{sessionId\} \/>/);
+});
+
+test("已决定的两态自动收起：回执不常驻，待办（未决策/作废）仍常驻", () => {
+	const notice = noticeSource();
+	// 用户反馈：信任成功后那行「已信任远端项目」一直挂在会话头顶，每次看对话都要先读一遍规则。
+	assert.match(notice, /export const REMOTE_TRUST_DECIDED_NOTICE_MS = 8_000;/);
+	// 只有已决定（approved/denied）开始计时；未决策与作废需要人点，不能被定时器收走。
+	assert.match(notice, /const decided = state\.kind === "approved" \|\| state\.kind === "denied";/);
+	assert.match(notice, /if \(!decided\) return;/);
+	assert.match(notice, /window\.setTimeout\(\(\) => setDismissed\(true\), REMOTE_TRUST_DECIDED_NOTICE_MS\)/);
+	// 换会话/换态从头计时：状态里不能把上一会话的“已收起”带过来。
+	assert.match(notice, /\[decided, props\.sessionId\]/);
+	// 收起即整条不渲染（不是留在 DOM 里透明），且改主意有设置页清单兜底。
+	assert.match(notice, /if \(dismissed\) return null;/);
+	const settings = readFileSync("src/renderer/src/components/app/settings/RemoteProjectTrustPanel.tsx", "utf8");
+	assert.match(settings, /trust\.revoke/, "设置页必须保留撤销入口，收起才不等于失去控制权");
 });
 
 test("四态来自决策表：未决策 / 已信任 / 已拒绝 / endpoint 变更作废（真 atom，非事件驱动）", () => {

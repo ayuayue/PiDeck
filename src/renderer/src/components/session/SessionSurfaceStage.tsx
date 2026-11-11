@@ -24,6 +24,10 @@ const HISTORY_OVERLAY_COPY: Record<string, TranslationKey> = {
 	reloading: "message.historyOverlay.reloading",
 	activating: "message.historyOverlay.activating",
 	forking: "message.historyOverlay.forking",
+	resending: "message.historyOverlay.resending",
+	editing: "message.historyOverlay.editing",
+	deleting: "message.historyOverlay.deleting",
+	rewinding: "message.historyOverlay.rewinding",
 };
 
 /**
@@ -135,8 +139,37 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 	const mutationKind = useAtomValue(sessionHistoryMutationOverlayBySessionIdAtomFamily(sessionId));
 	// 热重载（扩展/技能）不重启进程、也不改会话文件，但它会重建扩展运行时；
 	// 只转小按钮时用户看不出会话侧有任何变化，所以同样落一层「正在重载」遮罩。
-	const overlayVisible = isRestarting || isReloading || Boolean(mutationKind);
-	const overlayLabel = isReloading ? t("message.historyOverlay.reloadingResources") : isRestarting ? t("app.restarting") : mutationKind ? t(HISTORY_OVERLAY_COPY[mutationKind] ?? "message.historyOverlay.mutating") : t("app.restarting");
+	const liveOverlayVisible = isRestarting || isReloading || Boolean(mutationKind);
+	const liveOverlayLabel = isReloading ? t("message.historyOverlay.reloadingResources") : isRestarting ? t("app.restarting") : mutationKind ? t(HISTORY_OVERLAY_COPY[mutationKind] ?? "message.historyOverlay.mutating") : t("app.restarting");
+	// 转场衔接：fork 切会话时新会话侧的遮罩在首帧前即挂好（hook 侧先挂目标、再清源），
+	// 这里只需冻结旧文案 60ms 避免淡出瞬间文案跳变，真实淡出走 transition-opacity。
+	const [overlayVisible, setOverlayVisible] = useState(liveOverlayVisible);
+	const [overlayLabel, setOverlayLabel] = useState(liveOverlayLabel);
+	const labelFrozenRef = useRef(false);
+	const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(() => {
+		if (hideTimerRef.current) {
+			clearTimeout(hideTimerRef.current);
+			hideTimerRef.current = null;
+		}
+		if (liveOverlayVisible) {
+			labelFrozenRef.current = false;
+			setOverlayLabel(liveOverlayLabel);
+			setOverlayVisible(true);
+			return;
+		}
+		if (!labelFrozenRef.current) labelFrozenRef.current = true;
+		hideTimerRef.current = setTimeout(() => {
+			labelFrozenRef.current = false;
+			setOverlayVisible(false);
+		}, 60);
+		return () => {
+			if (hideTimerRef.current) {
+				clearTimeout(hideTimerRef.current);
+				hideTimerRef.current = null;
+			}
+		};
+	}, [liveOverlayVisible, liveOverlayLabel]);
 	return (
 		<div className="relative h-full min-h-0">
 			<ConversationOutline className="session-outline-pane" timelineRef={sessionTimeline.timelineRef} onTimelineWheel={sessionTimeline.scrollTimelineBy} items={railItems} onJump={pendingRailJump} />

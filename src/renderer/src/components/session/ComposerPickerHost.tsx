@@ -13,6 +13,11 @@ export type ComposerPickerHostProps = {
 	sessionId: string;
 	/** 当前会话后端（引导页 = 输入框当前选择；有 record 时以 record 为准）。 */
 	backend?: AgentBackend;
+	/**
+	 * 无 record（引导页/草稿）时目录归属的项目：远端项目必须按它路由到那台主机上的 pi，否则
+	 * 选择器展示的是本机模型，发消息后才换成服务器上的列表。
+	 */
+	fallbackProjectId?: string;
 	picker: ComposerPickerKind | null;
 	templates: PromptTemplateInfo[];
 	onClose: () => void;
@@ -50,6 +55,7 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
 		defaultModel: props.defaultModel,
 		defaultThinkingLevel: props.defaultThinkingLevel,
 		modelThinkingLevels: props.modelThinkingLevels,
+		fallbackProjectId: props.fallbackProjectId,
 		// 选择器点选后关闭：快捷键循环走的也是这条路径，此时 picker 本来就是 null，幂等。
 		onApplied: props.onClose,
 	});

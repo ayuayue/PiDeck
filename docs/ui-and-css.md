@@ -15,6 +15,8 @@
 - 文案走 i18n（见 `docs/engineering-standards.md` §i18n）。
 - **顶部 40px 是拖拽热区，不是可用布局区**：frameless 自绘标题栏下 `.window-drag-layer` 是一条 `-webkit-app-region: drag` 的 fixed 透明矩形。拖拽命中**与 z-index 无关**：Electron 把页面报上来的 app-region 矩形按顺序合成一张 SkRegion（drag 并集 / no-drag 差集，后出现的矩形覆盖先出现的，见 `ui/gfx/draggable_region.h`），矩形由 Blink 按布局树（DOM 顺序）收集，所以压在热区上的浮层「画得上去却点不动」，抬 z-index 也没用。两条必做：① portal 到 body 的 Radix 浮层显式 `no-drag`（`foundation.css` 的 `[data-radix-popper-content-wrapper] *`，与 toast 同款；portal 排在 shell 之后，所以能反超热区）；② 靠 Radix 排布的菜单把热区高度算进碰撞边界——`titlebarCollisionPadding()`（`lib/titlebarInset.ts`）返回 `{ top: 热区高度 }`（正好一个热区，不加呼吸间距，否则标题栏按钮的下拉菜单会被推离触发器）。坑：`.custom-titlebar-enabled` 作用域规则对 portal 出来的浮层一律失效；子菜单 `SubContent` 不走 portal 也拿不到该 padding，全靠 ① 兜底；非 Radix 的 `createPortal` 浮层（FeishuLinkIndicator / morphing-search 等）不在 ① 的选择器内，压在热区上需各自声明。守卫：`tests/titlebarFloatingHitTest.test.mjs`（规则/取值）+ `e2e/titlebar-floating-menu.spec.ts`（真实窗口里的菜单几何）。
 
+- **`no-drag` 不全局匹配表单控件**：仅标记真正位于标题栏内的控件及 portal 浮层，不使用 `.custom-titlebar-enabled button/input/textarea/select` 这类全局规则。Blink 上报 app-region 时不裁剪滚动容器外的矩形，聊天区已滚出视口的按钮仍会在标题栏形成不可见死区；文件分屏改变列宽后，死区还会横移。回归：`e2e/session-titlebar-drag.spec.ts` 把真实执行过程按钮滚到标题栏背后，使用 Windows `WM_NCHITTEST` 验证最大化下空白仍是 `HTCAPTION`、可见标签和抽屉按钮仍是 `HTCLIENT`；CDP 合成拖动不能代替原生命中测试。
+
 ## CSS 双轨
 
 旧轨 = 手写语义 class（`styles/{foundation,timeline,surfaces,integrations,workspace}.css`）；新轨 = Tailwind v4 + shadcn（`styles/tailwind.css`、`components/ui-shadcn/`）。

@@ -3,7 +3,11 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { hostname, release as osRelease } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { renderDshSessionHtml as renderSessionHtmlForExport, sanitizeExportFileName } from "./dsh/dshSessionHtmlExport";
+import { exportCatalogSessionHtmlWithPorts } from "./sessions/catalogSessionHtmlExport";
+import { registerSessionShareExportIpc } from "./ipc/sessionShareExportIpc";
+import { SessionShareExportService } from "./sessions/SessionShareExportService";
+import { createSessionShareSourceLoader } from "./sessions/sessionShareSource";
+import { createPiSessionShareReader } from "./pi/piSessionShareReader";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
@@ -26,6 +30,7 @@ import { LinkedSessionService, lastAssistantTextSince } from "./linkedSessions/L
 import { LinkedSessionStore } from "./linkedSessions/LinkedSessionStore";
 import { registerLinkedSessionsIpc } from "./ipc/linkedSessionsIpc";
 import { AgentInvokeService } from "./agents/AgentInvokeService";
+import { applyBoundAgentPersona } from "./agents/agentPersonaInstruction";
 import { AutomationScheduler } from "./automation/AutomationScheduler";
 import { AutomationRunCoordinator } from "./automation/AutomationRunCoordinator";
 import { registerAutomationIpc } from "./ipc/automationIpc";
@@ -449,7 +454,7 @@ import { registerRemoteHostRebindIpc } from "./ipc/remoteHostRebindIpc";
 import { registerWslHostIpc } from "./ipc/wslHostIpc";
 import { createWslHostReferenceRegistry } from "./wsl/WslHostReferences";
 import { createWslHostStore } from "./wsl/WslHostStore";
-import { resolveProjectWslIdentity } from "./wsl/WslProjectEnvironment";
+import { resolveProjectWslIdentity, resolveSettingsWslIdentity } from "./wsl/WslProjectEnvironment";
 import { createWslHelperSessionPool } from "./wsl/WslHelperSession";
 import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
@@ -1748,37 +1753,8 @@ function resolveVideoGenStorageRoots(): { sessions: string; blobs: string; jobs:
 	return { sessions: join(root, "sessions"), blobs: join(root, "blobs"), jobs: join(root, "jobs.json") };
 }
 
-async function exportCatalogSessionHtml(sessionId: string): Promise<{ path: string }> {
-	const entry = sessionCatalog.get(sessionId);
-	// G10：DSH 会话投影式导出（无活跃 runtime 时从 host 分页拉全量渲染），
-	// 与 pi 的 export_html 同协议返回导出文件路径。
-	if (entry?.backend === "dsh") {
-		if (!entry.dshSessionId) throw new Error(mainCopy("session.fileNotFound"));
-		const project = projectStore.get(entry.projectId);
-		return dshAgentManager.exportSessionHtml(entry.dshSessionId, entry.title, project?.path);
-	}
-	const filePath = sessionCatalog.getLocalFilePath(sessionId);
-	if (!entry || !filePath) throw new Error(mainCopy("session.fileNotFound"));
-	const result = await agentManager.exportSessionHtml(entry.projectId, filePath);
-	if (!result || typeof result !== "object" || !("path" in result) || typeof result.path !== "string") {
-		throw new Error(mainCopy("session.exportFailed"));
-	}
-	// pi 临时会话的 export_html 可能返回相对文件名（pi-session-*.html，落在 pi cwd=项目根）：
-	// 打包态主进程 cwd 是 exe 目录，消费端（Web 下载 / 桌面打开）直接用相对路径必然 ENOENT。
-	const rawPath = result.path;
-	const projectRoot = projectStore.get(entry.projectId)?.path ?? "";
-	const absolutePath = isAbsolute(rawPath) ? rawPath : join(projectRoot, rawPath);
-	if (existsSync(absolutePath)) return { path: absolutePath };
-	// pi 声明的导出文件不存在（部分 pi 版本在临时会话上不落盘，2026-10 Web 走查实测）：
-	// 回退 host 侧投影导出——复用 DSH 的自包含 HTML 渲染器（无外部依赖、离线可读），
-	// 落盘 userData/exports/，保证「导出 HTML」在任何 pi 行为下都成功。
-	const loadWindow = await agentManager.readSessionLoadWindow(filePath, sessionId, { projectId: entry.projectId });
-	const html = renderSessionHtmlForExport(loadWindow.messages, { title: entry.title, cwd: projectRoot, exportedAt: Date.now() });
-	const exportDir = join(app.getPath("userData"), "exports");
-	await mkdir(exportDir, { recursive: true });
-	const outPath = join(exportDir, sanitizeExportFileName(entry.title || sessionId, sessionId));
-	await writeFile(outPath, html, "utf8");
-	return { path: outPath };
+function exportCatalogSessionHtml(sessionId: string): Promise<{ path: string; truncated?: boolean }> {
+	return exportCatalogSessionHtmlWithPorts({ catalog: sessionCatalog, projects: projectStore, pi: agentManager, dsh: dshAgentManager, exportDir: resolveSessionExportDir, copy: mainCopy }, sessionId);
 }
 
 type AgentSessionReplacementResult = {
@@ -2524,14 +2500,15 @@ function setupTray() {
 		tray = null;
 	});
 
-	// Linux/GNOME 托盘注册诊断（见 tray/trayRegistrationVerify.ts）：旧版 appindicator 扩展
-	// (< v66) 读不到 SNI 属性会永久放弃图标且不再重试（closeToTray 默认开启时，
-	// 用户点 X 隐藏后就再无唤回入口）。根因与修复见 docs/archive/plans/linux-tray-icon.md。
-	// 这里只验收并记日志，不做重建 —— 重建换名并不能改变扩展的读法，实测无效。
+	// Linux/GNOME 托盘注册诊断（见 tray/trayRegistrationVerify.ts）：Electron 43.3.0–43.4.1 的 SNI
+	// multiplexer 只认 well-known destination，宿主按 unique name 读属性必失败并永久放弃图标
+	// （closeToTray 默认开启时，用户点 X 隐藏后就再无唤回入口）。Electron ≥ 43.5.0 已修复
+	// （issue #521 / electron#53215，见 docs/electron-playbook.md §Linux 托盘）。
+	// 这里只验收并记日志，不做重建 —— 重建换名并不能改变宿主的读法，实测无效。
 	if (process.platform === "linux") {
 		trayRegistrationVerify = startTrayRegistrationVerify({
 			onUnregistered: (detail) => {
-				void appLogger?.warn("app", "tray verify: unregistered (likely appindicator extension < v66), see docs/archive/plans/linux-tray-icon.md", detail);
+				void appLogger?.warn("app", "tray verify: unregistered, see docs/electron-playbook.md §Linux 托盘", detail);
 			},
 			onLog: (message, detail) => void appLogger?.info("app", message, detail),
 		});
@@ -3776,7 +3753,7 @@ function registerIpc() {
 		}),
 		// 档案被改名/换 distro/移除后，资源池里对应实例必须失效；闭包在 registerIpc 执行时取值，
 		// 池在稍后构造（晚绑定），调用发生在用户操作档案时，因此一定能拿到实例。
-		onProfileChanged: (hostId) => piResourcePool?.invalidate(hostId),
+		onProfileChanged: () => piResourcePool?.invalidate(),
 	});
 	/**
 	 * 目录事实层的失效入口（W3）：项目域注册时才创建，文本保存的注册在它之前，因此用晚绑定转发。
@@ -4430,7 +4407,7 @@ function registerIpc() {
 	registerLocalImageProtocol(canonicalLocalImageRoots);
 	// 保存/复制要在渲染层拿字节：fetch(pideck-file://) 在该 scheme 上会被拦（corsEnabled: false），
 	// 所以字节走 IPC，白名单与体积判定跟协议同一份实现。
-	registerLocalImageIpc({ resolveRoots: canonicalLocalImageRoots });
+	registerLocalImageIpc({ resolveRoots: canonicalLocalImageRoots, appLogger });
 	registerImageGenIpc({
 		imageGen: new ImageGenService({
 			getProviderCredentials: async (provider) => {
@@ -4774,6 +4751,15 @@ function registerIpc() {
 	// 重启恢复：24h 窗口内未终态的任务继续轮询（终态立即结清旧任务）
 	void videoJobRunner.resume();
 
+	registerSessionShareExportIpc(
+		ipcMain,
+		new SessionShareExportService({
+			load: createSessionShareSourceLoader({ catalog: sessionCatalog, projects: projectStore, pi: createPiSessionShareReader(mainCopy), dsh: dshAgentManager }),
+			resolveExportDir: resolveSessionExportDir,
+			home: () => app.getPath("home"),
+			copy: () => ({ footer: mainCopy("sessionShare.footer"), partialNotice: mainCopy("sessionShare.partialNotice"), warning: mainCopy("sessionShare.warning") }),
+		}),
+	);
 	registerSessionIpc({
 		projectStore,
 		settingsStore,
@@ -6666,6 +6652,7 @@ app
 			rpcLogLiveBroadcaster,
 			// Ask 通知：DSH 没有 AgentManager 的通道，由装配层注入统一门控/toast。
 			{ askPending: (input) => notifyAgentAskPending(agentToastDeps(), input) },
+			mainCopy,
 		);
 		// C12/E15：DSH 退出清理——先停全部活跃会话（清 mux/订阅/pending）再 dispose host，
 		// 顺序保证避免 host 先被杀导致会话清理路径访问已死 transport。
@@ -6677,6 +6664,9 @@ app
 		});
 		// DSH 外部会话自动导入改到 projectStore.load 之后（见下方 scheduleDshForeignAutoImport）：
 		// 必须走只读磁盘扫描，不能依赖 host-ready——否则会与 dsh-web 抢同一份 DSH_HOME。
+		// Web 端 /api/chat 的「绑定智能体角色设定」已注入记账（与桌面 IPC 的 personaInjectedSessions 同语义）：
+		// 主进程内两个发送入口共用 applyBoundAgentPersona 的纯语义，各自持有本入口的已注入集合。
+		const webPersonaInjectedSessions = new Set<string>();
 		webServiceManager = new WebServiceManager({
 			// 令牌持久化回写：manager 内自动生成/轮换/手动修改后落盘，重启沿用同一令牌。
 			persistToken: (state) => {
@@ -6938,12 +6928,37 @@ app
 			// 供应商额度用量：与桌面圆球面板同一份 ConfigManager 探针（含凭据脱敏与「未开启」门控）。
 			fetchProviderUsage: (provider, backend) => configManager.fetchProviderUsage(provider, backend),
 			sendSessionPrompt: async (input) => {
-				const result = await sessionRuntimeCoordinator.send(input);
+				// 绑定智能体的会话：仅在首轮把角色设定拼进载荷（dsh 退化为可见前缀，其余后端走隐藏通道）。
+				// 桌面 IPC 是另一个发送入口，两边共用 applyBoundAgentPersona 的判定与组合语义；
+				// 注入点必须在 send 之前——会话首条一旦落盘，角色设定就随上下文生效。
+				const persona = agentProfileStore?.getBoundAgent(input.sessionId)?.systemPrompt;
+				const record = persona ? sessionCatalog.get(input.sessionId) : undefined;
+				const applied = applyBoundAgentPersona({
+					prompt: input,
+					persona,
+					sessionStatus: record?.status,
+					backend: record?.backend,
+					alreadyInjected: webPersonaInjectedSessions.has(input.sessionId),
+				});
+				if (applied.injected) {
+					void appLogger.debug("session", "Bound agent persona injected (web)", { sessionId: input.sessionId, backend: record?.backend ?? "pi", personaChars: persona?.length ?? 0 });
+				}
+				const result = await sessionRuntimeCoordinator.send(applied.prompt);
+				if (result.accepted && applied.injected) webPersonaInjectedSessions.add(input.sessionId);
 				if (result.agentId) {
 					const tab = agentManager.list().find((candidate) => candidate.id === result.agentId);
 					if (tab) emitSessionRuntimeEvent(tab.id, agentEventTags.agentsState, tab);
 				}
 				return result;
+			},
+			// 智能体目录（只读投影）：Web 端「智能体」面板与「使用」（建会话 + 落绑定）同源。
+			// store 在启动后段才装配（闭包在请求时求值）：未装配时返回 undefined → 路由回 503，
+			// Web 端不展示一个空面板。
+			listAgentProfiles: () => (agentProfileStore ? agentProfileStore.list() : undefined),
+			getSessionAgentBindings: () => (agentProfileStore ? agentProfileStore.getSnapshot().settings.sessionAgentBindings : undefined),
+			bindSessionAgent: async (sessionId, agentId) => {
+				if (!agentProfileStore) throw new Error("agent profiles are not available");
+				await agentProfileStore.bindSession({ sessionId, agentId });
 			},
 			listSessionRuntimes: () => sessionRuntimeCoordinator.listRuntimes(),
 			listPendingUiRequests: () => sessionRuntimeCoordinator.listPendingUiRequests(),
@@ -7765,11 +7780,11 @@ app
 		 * 配置/资源页按目标路由：WSL 目标解析发行版 HOME，不回退本机；生产代码里不再有全局
 		 * configureWsl 切换共享单例的路径（W1 起用 PiResourceManagerPool）。
 		 */
-		// 资源作用域池（W1）：本机复用既有四个单例；WSL 目标每次请求重读档案（cache key 含 hostId/distro/user），
-		// 档案改 distro/user 或移除后旧实例自动失效重建，绝不回退本机 HOME。
+		// 资源作用域池（W1）：本机复用既有四个单例；WSL 目标每次请求重读应用设置（cache key 含 distro/user），
+		// 改发行版/用户或退出 WSL 模式后旧实例自动失效重建，绝不回退本机 HOME。
 		piResourcePool = createPiResourceManagerPool({
 			resolver: createPiResourceTargetResolver({
-				listProfiles: async () => (await createWslHostStore(app.getPath("userData"))).list(),
+				readWslIdentity: async () => resolveSettingsWslIdentity(settingsStore.get()),
 				resolveEnvironment: async (distro, user) => {
 					const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
 					return resolveWslEnvironment(distro, user, { warn: (message, details) => void appLogger?.warn("wsl", message, details) });

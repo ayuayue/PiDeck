@@ -34,7 +34,7 @@
 - **忽略语义**：`.gitignore` 由 git 权威判定（`check-ignore`），条目带 `ignored` 修饰而非隐藏。非仓库声明无 Git ignore 能力，产品已有的保护性隐藏规则照常保留；不自己重写 gitignore 语义。
 - **远端不堆叠**：令牌是"一窗口×一项目×一动作一份"，`GitDrawerHost` 的多仓并排与之物理冲突。证据 `tests/remoteGitMultiRepoTokenScope.test.mjs`。
 - **远端门禁**：`remoteFeatureEnabled` 来自单一发布策略 `REMOTE_FEATURE_AVAILABLE = true`，正式包与 dev 包都装配；渲染层只读 `update:get-channel.remoteAvailable`。统一 dispatch 必须继续尊重各 IPC 的 `enabled=false` fail-closed 分支。
-- **不做**：抄 ZCode 的绝对路径节点模型、抄它的常驻 host 部署形态、抄 60s 自动刷新补偿。
+- **不做**：绝对路径节点模型、常驻 host 部署形态、60s 自动刷新补偿。
 
 ### 1.2 全生命周期盘点：同样的根病还有三处（R1–R3）
 
@@ -339,7 +339,7 @@ helper 1.23.0 引入、当前 1.24.0 保留该方法，单批最多 64 路径；
 | Git 多仓令牌冲突 | `node --test tests/remoteGitMultiRepoTokenScope.test.mjs`（3 例） |
 | 既有令牌/文案语义 | `node --test tests/remoteGitMutationTokens.test.mjs tests/remoteProjectEntryState.test.mjs` |
 | 远端门禁现状 | `tests/remoteChannelGate.test.mjs`、`tests/remoteHostIpc.test.mjs`（发布策略、能力下发与入口可见性） |
-| 参考实现（只读对照） | `F:/ZCode/packages/ui/src/workspace-file-tree/useWorkspaceFileTreeWatchers.ts`（仅参考订阅生命周期，不作为本仓完成证据） |
+| 订阅生命周期对照 | 见 `src/renderer/src/components/session/FileTreeRows.tsx` 的 watcher 挂载/释放路径（不作为本仓完成证据） |
 | 本仓推送先例 | `src/main/terminal/RemoteTerminalSessionManager.ts`（`emit(senderId, channel, payload)`）、`git:watch-refs` |
 
 ## 10. 小模型执行手册

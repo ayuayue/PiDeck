@@ -89,6 +89,7 @@ import { useSessionRuntimeBridge } from "./hooks/useSessionRuntimeBridge";
 import { useAgentLoadNotice } from "./hooks/useAgentLoadNotice";
 import { useArchMismatchNotice } from "./hooks/useArchMismatchNotice";
 import { useAnnouncementNotifier } from "./hooks/useAnnouncementNotifier";
+import { useStarReminder } from "./hooks/useStarReminder";
 import { useModelsVerifyNotifier } from "./hooks/useModelsVerifyNotifier";
 import { useBackgroundAskPatrol } from "./hooks/useBackgroundAskPatrol";
 import { announcementCenterOpenAtom, announcementNotificationEnabledAtom } from "./atoms/announcement-atoms";
@@ -110,6 +111,7 @@ import { useImportFlow } from "./hooks/useImportFlow";
 import { useDirectoryImport } from "./hooks/useDirectoryImport";
 import { useQueuedPrompt } from "./hooks/useQueuedPrompt";
 import { useComposerStateSessionPrune } from "./hooks/useComposerStateSessionPrune";
+import { useStoppedSessionCacheTrim } from "./hooks/useStoppedSessionCacheTrim";
 import { activeAgentIdAtom } from "./hooks/useSessionRuntimeController";
 import { useSessionHistoryMutations } from "./hooks/useSessionHistoryMutations";
 import { useUserMessageEditReplay } from "./hooks/useUserMessageEditReplay";
@@ -1040,6 +1042,8 @@ export function App() {
 	// composer 域 per-session 状态（草稿/引用全文仓/发送态等）的外部删除清理，
 	// 与 queue 同一所有权模式：records+runtime 双双消失才回收，引导页虚拟会话豁免。
 	useComposerStateSessionPrune(store);
+	// 运行时已停止的会话离开视野（切走 / 关 Tab）后立刻回收消息缓存（#519）。
+	useStoppedSessionCacheTrim(store);
 	useSessionRuntimeBridge({
 		// 「停止响应较慢」→ 重启会话：会杀掉当前 pi 进程重建（丢正在跑的那一轮），
 		// 因此走 overlays 确认框，和 Tab ⋯ 菜单的「重启进程」同一份文案与判定。
@@ -1119,6 +1123,8 @@ export function App() {
 
 	// 公告通知调度（读镜像 atom）：输入/Agent 运行中/模态打开/窗口不活跃时自动延后弹出（不打扰操作，见 hook 注释）
 	useAnnouncementNotifier();
+	// GitHub Star 提醒：用满一天 + 本次运行 15 分钟后才开口，一天最多一次，可「不再提醒」（见 hook 注释）
+	useStarReminder();
 	// toast 展示时长同步给 notice helper（全局统一口径；保存设置即时生效）
 	useEffect(() => {
 		configureNoticeDefaults({ toastDurationMs: settings.toastDurationMs });
@@ -2185,7 +2191,7 @@ export function App() {
 	 * pi 历史消息改写：无 runtime 直接改 JSONL；有 runtime 先确认停止再改文件。
 	 * DSH 入口在 Injector 按 backend 隐藏。下次发送才重新激活 Agent。
 	 */
-	const { editMessage, deleteMessage, removeMessageImage, resendUserMessage, forkFromUserMessage, forkAtEntry, forkingMessageId } = useSessionHistoryMutations({
+	const { editMessage, deleteMessage, removeMessageImage, resendUserMessage, forkFromUserMessage, forkAtEntry, pendingHistoryMutation } = useSessionHistoryMutations({
 		currentSessionId,
 		getRuntimeTargetForSession,
 		getRuntimeTargetForAgent,
@@ -2665,14 +2671,18 @@ export function App() {
 
 	// 后台 Ask 通知「前往会话」：跳转的同时登记常驻 Tab——agent 开多时被询问的会话
 	// 可能根本没开 Tab（后台并行 ask 等），只切焦点的话回答完切换出去就找不到了。
+	// 必须在选会话之前让出页面式工作区（设置/定时任务/智能体）：它们盖在会话列上，
+	// 而「失活页面」只由 scope 变化触发——被询问的会话已经是 currentSessionId 时
+	// （在会话里触发 ask → 切到设置页 → 点「前往会话」）scope 不变，不清就毫无反应。
 	const jumpToAskSession = useCallback(
 		(sessionId: string) => {
 			const record = store.get(sessionRecordByIdAtomFamily(sessionId));
 			if (!record) return;
+			deactivateWorkspacePage();
 			workspaceChrome.registerOpenSession(sessionId, "permanent");
 			selectSessionCommand(record.projectId, sessionId, true);
 		},
-		[selectSessionCommand, store, workspaceChrome],
+		[deactivateWorkspacePage, selectSessionCommand, store, workspaceChrome],
 	);
 
 	// M7：后台 Ask 巡检全应用单点挂载（原寄生在每栏 runtime 控制器，全局订阅拖垮分屏）
@@ -2714,8 +2724,7 @@ export function App() {
 	// —— Tab 栏会话操作组（重命名 / 复制会话 / 导出 HTML / 复制路径 / 打开文件）——
 	// 与侧栏会话右键菜单同源同语义，参数化到任意 sessionId：⋯ 菜单喂当前会话，
 	// Tab 右键菜单（SessionTabsBar contextSessionActions）喂被右键的 Tab——后台 Tab
-	// 同样可操作。live 会话复制走 clone 分流（Agent 换绑新会话，DSH 亦可），历史/
-	// 未启动会话走 copyRecord；DSH 历史会话无宿主文件，隐藏复制/导出组（与侧栏一致）。
+	// 同样可操作。live 复制走 clone；历史走 copyRecord。导出由统一对话框区分完整/安全分享。
 	// record/runtime 用 store 现查（右键目标不在 current* 闭包里）；agent 列表闭包自
 	// 当次渲染（SessionTabsBar 的 renderTab 每渲染重建，无过期问题）。
 	const buildTabsSessionActions = (sessionId: string): SessionTabsBarProps["sessionActions"] => {
@@ -2731,7 +2740,7 @@ export function App() {
 		const canRename = record.status !== "draft";
 		return {
 			canCopySession: canRename && record.backend !== "acp" && (isLive || record.backend !== "dsh"),
-			canExportHtml: canRename && record.backend !== "dsh" && record.backend !== "acp",
+			canExportHtml: canRename && (!record.backend || record.backend === "pi" || record.backend === "dsh"),
 			hasFilePath: Boolean(record.filePath),
 			// 侧边任务：目标会话的项目与后端原样带过去；不登记主区常驻 Tab、不改当前会话焦点。
 			onCreateSideTask: () => void sideTasks.create({ projectId: record.projectId, backend: record.backend }),
@@ -2769,17 +2778,7 @@ export function App() {
 						});
 					}
 				: undefined,
-			onExportSessionHtml: () => {
-				// live 会话走 runtime 导出（与侧栏 agent 导出同源）；历史会话读文件导出
-				if (isLive && agentId) {
-					void exportAgentHtml(agentId);
-					return;
-				}
-				api.sessions
-					.exportRecordHtml(sessionId)
-					.then((result) => showToast(result.truncated ? t("app.exportedPathTruncated", { path: result.path }) : t("app.exportedPath", { path: result.path }), 3500))
-					.catch((error) => showToast(error instanceof Error ? error.message : String(error), 5000));
-			},
+			onExportSessionHtml: () => void runExportSidebarSession(record.projectId, { ...record, name: record.title, filePath: record.filePath ?? "" }),
 			onRename: canRename
 				? () => {
 						// live 会话用 agent 重命名（与侧栏 AgentContextMenu 同源，改名同步运行时标题）；
@@ -3020,7 +3019,7 @@ export function App() {
 			deleteMessage,
 			removeMessageImage,
 			forkFromUserMessage,
-			forkingMessageId,
+			pendingHistoryMutation,
 			openSidebarSessionById: async (projectId: string, sessionId: string) => {
 				await openSidebarSessionByIdWithTab(projectId, sessionId, "permanent");
 			},
@@ -3075,7 +3074,7 @@ export function App() {
 			ensureSessionForSend,
 			environmentDialog,
 			forkFromUserMessage,
-			forkingMessageId,
+			pendingHistoryMutation,
 			handleOpenLinkedFile,
 			insertQuickPrompt,
 			isLanWeb,

@@ -110,13 +110,46 @@ function homeWith(files = {}) {
 	return { home, agent };
 }
 
-configTest("hello advertises the config scope and the frozen helper reports build 1.21.2", async (t) => {
+configTest("hello advertises the config scope and the frozen helper reports the current build", async (t) => {
 	const { home } = homeWith();
 	const session = startHelper(t, home);
 	const hello = plain(await guard(session.client.request("hello"), "hello"));
 	assert.ok(hello.capabilities.includes("config.read"));
 	assert.ok(hello.capabilities.includes("config.patch"));
+	assert.ok(hello.capabilities.includes("config.readAuth"));
 	assert.equal(hello.helperVersion, entry.REMOTE_HELPER_ENTRY_VERSION);
+});
+
+configTest("the derived auth read answers provider facts only and stays out of the patch path", async (t) => {
+	const { home } = homeWith({
+		"auth.json": JSON.stringify({
+			openai: { type: "api_key", key: "sk-live-value" },
+			anthropic: { type: "oauth", access: "access-token-live", refresh: "refresh-token-live", expires: 4102444800000 },
+			broken: { type: "api_key" },
+		}),
+	});
+	const session = startHelper(t, home);
+	const view = plain(await guard(session.client.request("config.readAuth"), "readAuth"));
+	assert.deepEqual(
+		view.providers.map((entry) => [entry.provider, entry.type, entry.configured]),
+		[
+			["anthropic", "oauth", true],
+			["broken", "api_key", false],
+			["openai", "api_key", true],
+		],
+	);
+	const serialized = JSON.stringify(view);
+	for (const secret of ["sk-live-value", "access-token-live", "refresh-token-live"]) assert.equal(serialized.includes(secret), false, "credential value must not cross the boundary: " + secret);
+	// Neither a raw read nor a patch can address the credential file.
+	await expectRefusal(session, "config.read", { file: "auth" }, "CONFIG_PATH_UNSUPPORTED");
+	await expectRefusal(session, "config.patch", { file: "auth", expectedVersion: view.version, patch: { openai: { key: "sk-new" } } }, "CONFIG_PATH_UNSUPPORTED");
+	assert.equal(JSON.parse(readText(join(home, ".pi", "agent", "auth.json"))).openai.key, "sk-live-value", "a refused patch must not touch the file");
+
+	// A missing auth.json is an empty list; a malformed one is a definite refusal.
+	const missing = startHelper(t, homeWith().home);
+	assert.deepEqual(plain(await guard(missing.client.request("config.readAuth"), "readAuth missing")).providers, []);
+	const corrupt = startHelper(t, homeWith({ "auth.json": "{ not json" }).home);
+	await expectRefusal(corrupt, "config.readAuth", {}, "CONFIG_FILE_INVALID");
 });
 
 configTest("read answers canonical defaults for a missing file and sanitizes secrets recursively", async (t) => {
