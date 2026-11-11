@@ -179,3 +179,20 @@ test("a live UI deadline still cancels both protocol ends exactly once", () => {
 	assert.equal(warnings.length, 1);
 	assert.equal(warnings[0].data.explicitTimeout, true);
 });
+
+test("未实现的 UI method 必须回 cancelled，不能静默丢弃（pi 侧没有默认超时）", () => {
+	// 反例：pi 的 ctx.ui 有二十多个方法，RPC 模式下 PiDeck 只实现 select/confirm/input/editor。
+	// 其余方法（custom 的 TUI 组件、setHeader/setFooter/addAutocompleteProvider 等）此前直接 return，
+	// 而 createDialogPromise 只挂 promise、不设 deadline —— 扩展 await 一个永不 resolve 的 promise，
+	// 用户看到的是「插件点了没反应」。这条断言钉住「必须回一个 response」。
+	for (const method of ["progress", "custom", "setHeader"]) {
+		const { gate, responses, warnings } = createHarness();
+		gate.handleUIRequest("agent-a", { id: "ui-" + method, method, title: "Running..." });
+		assert.equal(responses.length, 1, method + " 必须回一个 response");
+		assert.equal(responses[0].payload.type, "extension_ui_response");
+		assert.equal(responses[0].payload.id, "ui-" + method);
+		assert.equal(responses[0].payload.cancelled, true, method + " 必须是 cancelled");
+		assert.equal(warnings.length, 1, method + " 必须留一条 warn 供排查");
+		assert.equal(warnings[0].data.method, method);
+	}
+});
