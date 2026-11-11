@@ -226,7 +226,7 @@ test("面板 hook：读到 host-not-ready 时重连一次再读一次，不无�
 	assert.equal(host.render().state.phase, "ready");
 });
 
-test("环境切换源码：自动连接、连接动画、密码补录与 WSL 空态提示都在", () => {
+test("环境切换源码：自动连接、连接动画、密码补录都在，菜单不再插 WSL 空态文案", () => {
 	const source = readFileSync(SWITCH, "utf8");
 	assert.match(source, /useRemoteHostConnection/);
 	assert.match(source, /ensureConnected/);
@@ -235,8 +235,9 @@ test("环境切换源码：自动连接、连接动画、密码补录与 WSL 空
 	assert.match(source, /data-testid="config-target-reconnect"/);
 	assert.match(source, /SSH_PASSWORD_REQUIRED/);
 	assert.match(source, /settings\.connections\.password\.title/);
-	assert.match(source, /data-testid="config-target-wsl-empty"/);
-	assert.match(source, /config\.target\.wslEmpty/);
+	// WSL 未开启时不再在菜单底部占一行「去设置里打开」：本机 + SSH 主机已经够表达这个下拉，
+	// 开启 WSL 后菜单里会直接出现那一项（条目本身要保留）。
+	assert.doesNotMatch(source, /config-target-wsl-empty|config\.target\.wslEmpty/);
 	// 组件不直接碰 IPC：连接经共享 store 走，读/写只由 owner 决定。
 	assert.doesNotMatch(source, /ipcRenderer|desktopApi/);
 	// 三组选项与「本机」入口不因改版丢失。
@@ -294,7 +295,7 @@ test("面板源码：连接中单独一块 + 失败后给重新连接入口", ()
 test("中英文案成对：新增的自动连接/重试 key 两侧都有", async () => {
 	const { zhCN } = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 	const { enUS } = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.en-US.ts");
-	for (const key of ["config.target.connecting", "config.target.retryConnect", "config.target.wslEmpty", "remoteConfig.connecting", "remoteConfig.connectFailed", "remoteConfig.reconnect"]) {
+	for (const key of ["config.target.connecting", "config.target.retryConnect", "remoteConfig.connecting", "remoteConfig.connectFailed", "remoteConfig.reconnect"]) {
 		assert.ok(typeof zhCN[key] === "string" && zhCN[key].length > 0, "zh-CN " + key);
 		assert.ok(typeof enUS[key] === "string" && enUS[key].length > 0, "en-US " + key);
 	}

@@ -200,15 +200,6 @@ export function ConfigBackendSwitch(props: { pane: "pi" | "dsh"; showDsh: boolea
 								</DropdownMenuItem>
 							</>
 						) : null}
-						{/* WSL 环境不可用（开发设置没开或没选发行版）：在菜单里说明去哪里开，避免用户以为「下拉里没有=不支持」 */}
-						{wslHost === undefined && sshHosts.length > 0 ? (
-							<>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem disabled className="text-micro leading-relaxed text-muted-foreground" data-testid="config-target-wsl-empty">
-									{t("config.target.wslEmpty")}
-								</DropdownMenuItem>
-							</>
-						) : null}
 					</DropdownMenuContent>
 				</DropdownMenu>
 			</div>
