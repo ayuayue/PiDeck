@@ -89,6 +89,7 @@ import { useSessionRuntimeBridge } from "./hooks/useSessionRuntimeBridge";
 import { useAgentLoadNotice } from "./hooks/useAgentLoadNotice";
 import { useArchMismatchNotice } from "./hooks/useArchMismatchNotice";
 import { useAnnouncementNotifier } from "./hooks/useAnnouncementNotifier";
+import { useStarReminder } from "./hooks/useStarReminder";
 import { useModelsVerifyNotifier } from "./hooks/useModelsVerifyNotifier";
 import { useBackgroundAskPatrol } from "./hooks/useBackgroundAskPatrol";
 import { announcementCenterOpenAtom, announcementNotificationEnabledAtom } from "./atoms/announcement-atoms";
@@ -1122,6 +1123,8 @@ export function App() {
 
 	// 公告通知调度（读镜像 atom）：输入/Agent 运行中/模态打开/窗口不活跃时自动延后弹出（不打扰操作，见 hook 注释）
 	useAnnouncementNotifier();
+	// GitHub Star 提醒：用满一天 + 本次运行 15 分钟后才开口，一天最多一次，可「不再提醒」（见 hook 注释）
+	useStarReminder();
 	// toast 展示时长同步给 notice helper（全局统一口径；保存设置即时生效）
 	useEffect(() => {
 		configureNoticeDefaults({ toastDurationMs: settings.toastDurationMs });
