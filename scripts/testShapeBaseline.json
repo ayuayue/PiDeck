@@ -1,6 +1,6 @@
 {
 	"capturedAt": "2026-11-11",
-	"total": 2014,
+	"total": 2015,
 	"sourceOnly": [
 		"tests/abortSlowRecoveryNotice.test.mjs",
 		"tests/abortStreamRegression.test.mjs",
@@ -326,7 +326,6 @@
 		"tests/spinnerUtility.test.mjs",
 		"tests/splitterVisualContract.test.mjs",
 		"tests/standbyPreviewSuggestionLifecycle.test.mjs",
-		"tests/starReminderPolicy.test.mjs",
 		"tests/stickToBottomEscapeTolerance.test.mjs",
 		"tests/stickToBottomUserIntent.test.mjs",
 		"tests/storeSuggestionChipContrast.test.mjs",
@@ -811,6 +810,9 @@
 		"tests/releaseSelectionSharedBoundary.test.mjs → channelSwitch 五通道集中在 shared/ipc.ts，名称符合规格 §4",
 		"tests/remoteChannelGate.test.mjs → 远端域注册开关只有一个来源，且不允许写死",
 		"tests/remoteChannelGate.test.mjs → 浏览器预览的能力位与写面成对，不是野值",
+		"tests/remoteConfigRendererWiring.test.mjs → ssh 认证面板：只读派生视图，没有任何写入/凭据值通道",
+		"tests/remoteConfigRendererWiring.test.mjs → 环境菜单自己会跟：分区重新可见时重读主机清单，连接失败也会推送",
+		"tests/remoteConfigRendererWiring.test.mjs → ssh 认证读取在 IPC 边界只有派生视图（remoteAuth），从不把原文当成 raw",
 		"tests/remoteControlClient.test.mjs → the local cap sits above the helper",
 		"tests/remoteDirectoryListIpc.test.mjs → list-dirs channel is declared, bridged and registered",
 		"tests/remoteDragMove.test.mjs → 上传链路真的用了有界等待（纯函数行为另见 remoteEntryDrag.test.mjs）",
