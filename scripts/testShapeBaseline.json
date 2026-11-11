@@ -1,6 +1,6 @@
 {
-	"capturedAt": "2026-11-10",
-	"total": 2011,
+	"capturedAt": "2026-11-11",
+	"total": 2014,
 	"sourceOnly": [
 		"tests/abortSlowRecoveryNotice.test.mjs",
 		"tests/abortStreamRegression.test.mjs",
@@ -326,6 +326,7 @@
 		"tests/spinnerUtility.test.mjs",
 		"tests/splitterVisualContract.test.mjs",
 		"tests/standbyPreviewSuggestionLifecycle.test.mjs",
+		"tests/starReminderPolicy.test.mjs",
 		"tests/stickToBottomEscapeTolerance.test.mjs",
 		"tests/stickToBottomUserIntent.test.mjs",
 		"tests/storeSuggestionChipContrast.test.mjs",
