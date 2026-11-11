@@ -34,8 +34,17 @@ function createHarness({ snap = true, savedPosition = null, workArea = { x: 0, y
 		getPosition() {
 			return [this.bounds.x, this.bounds.y];
 		}
+		getSize() {
+			return [this.bounds.width, this.bounds.height];
+		}
 		getBounds() {
 			return { ...this.bounds };
+		}
+		setBounds(next) {
+			this.bounds = { ...next };
+		}
+		close() {
+			this.events.get("closed")?.();
 		}
 		setPosition(x, y) {
 			this.bounds.x = x;
@@ -113,6 +122,27 @@ test("缩放屏连续拖动使用宿主 DIP 光标，不累计 renderer screenX 
 		assert.equal(win.bounds.x, h.workArea.width - win.bounds.width);
 	}
 	assert.equal(h.clicks(), 0);
+});
+
+test("系统放大过透明窗 bounds 后拖动，窗口回到设计尺寸且位置不飘", async () => {
+	const h = createHarness();
+	await h.controller.show();
+	const win = h.windows[0];
+	// 模拟 Windows 把透明悬浮窗从 72x72 放大：球在窗口内的锚点随之偏离。
+	win.bounds = { x: 400, y: 300, width: 690, height: 632 };
+	h.setCursor({ x: 400 + 112, y: 300 + 88 });
+	h.invoke("floatingBallDragStart");
+	assert.deepEqual(win.bounds, { x: 400, y: 300, width: 72, height: 72 }, "dragStart 先拉回设计尺寸，offset 才按正确的左上角计算");
+
+	h.setCursor({ x: 800, y: 500 });
+	h.invoke("floatingBallDragMove", 800, 500);
+	assert.deepEqual(win.bounds, { x: 688, y: 412, width: 72, height: 72 }, "拖动按设计尺寸跟随光标，不因系统放大而偏移");
+
+	h.invoke("floatingBallDragEnd");
+	assertVisible(win.bounds, h.workArea);
+	assert.equal(win.bounds.width, 72);
+	assert.equal(win.bounds.height, 72);
+	h.controller.hide();
 });
 
 test("恢复已离屏的位置会钳制回当前工作区", async () => {
