@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { cn } from "../../../lib/utils";
 import { t } from "../../../i18n";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
@@ -26,13 +27,17 @@ export function secretHint(value: string): SecretHint | null {
  * 与语音设置的 SecretFieldInput 的区别：那边明文不出主进程，收起要把未改动的明文退回空草稿；
  * 这边整份配置本来就在草稿里随顶部「保存」整体落盘，所以只做呈现层切换，收起**不清值**——
  * 清值等于把用户没碰过的密钥一起抹掉。
+ *
+ * inputProps 只透传调用方按所在容器决定的展示属性（placeholder / size / className / onBlur）；
+ * value、type、aria-label 由本组件接管，避免出现「第二份明文状态」。
  */
-export function SecretValueInput(props: { value: string; onChange: (value: string) => void; label: string; hintText: string | null }) {
+export function SecretValueInput(props: { value: string; onChange: (value: string) => void; label: string; hintText: string | null; inputProps?: Omit<React.ComponentProps<typeof Input>, "value" | "onChange" | "type"> }) {
 	const [revealed, setRevealed] = useState(false);
+	const { className: inputClassName, ...inputRest } = props.inputProps ?? {};
 	return (
 		<div className="grid gap-1">
 			<div className="flex w-full items-center gap-1.5">
-				<Input type={revealed ? "text" : "password"} value={props.value} aria-label={props.label} autoComplete="off" spellCheck={false} className="min-w-0 flex-1" onChange={(event) => props.onChange(event.target.value)} />
+				<Input {...inputRest} type={revealed ? "text" : "password"} value={props.value} aria-label={props.label} autoComplete="off" spellCheck={false} className={cn("min-w-0 flex-1", inputClassName)} onChange={(event) => props.onChange(event.target.value)} />
 				<Button type="button" variant="ghost" size="icon-sm" className="shrink-0" onMouseDown={(event) => event.preventDefault()} onClick={() => setRevealed((prev) => !prev)} title={t(revealed ? "common.hide" : "common.show")} aria-label={t(revealed ? "common.hide" : "common.show")}>
 					{revealed ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
 				</Button>
