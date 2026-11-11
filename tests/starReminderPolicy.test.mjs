@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 function transpile(filePath) {
 	return ts.transpileModule(readFileSync(filePath, "utf8"), {
@@ -143,18 +144,20 @@ test("useStarReminder：toast 双按钮语义 = 去 Star（系统浏览器 + 永
 });
 
 test("Star 目标地址取 shared 的仓库坐标（改名不会指向旧仓库）", () => {
-	const hook = readFileSync("src/renderer/src/hooks/useStarReminder.ts", "utf8");
-	assert.match(hook, /gitHubReleasesBase\(\)/);
-	const sources = readFileSync("src/shared/updateSources.ts", "utf8");
-	assert.match(sources, /UPDATE_REPO_OWNER = "ayuayue"/);
-	assert.match(sources, /UPDATE_REPO = "PiDeck"/);
+	// 运行时断言：直接调生产函数。旧版读源码正则，只能证明「字符串出现在文件里」，
+	// 证明不了拼出来的地址是对的（协议、owner/repo 对调、多余斜杠都能骗过它）。
+	const { gitHubReleasesBase } = loadTsCommonJs("src/shared/updateSources.ts");
+	assert.equal(gitHubReleasesBase(), "https://github.com/ayuayue/PiDeck");
 });
 
-test("i18n：四个新键在中英词典里都有（zh-TW 由生成器跟随，另见 zhTwCopy.test）", () => {
-	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
-	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
+test("i18n：四个键在中英词典里都有、非空，且不是把 key 当译文（zh-TW 由生成器跟随）", () => {
+	// 运行时断言：旧版正则只证明键名出现在源码里，值为空串、或直接把 key 抄成译文都能通过。
+	const { zhCN } = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
+	const { enUS } = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.en-US.ts");
 	for (const key of ["starReminder.title", "starReminder.desc", "starReminder.action", "starReminder.dismiss"]) {
-		assert.match(zh, new RegExp(`"${key}":`), `zh-CN 缺 ${key}`);
-		assert.match(en, new RegExp(`"${key}":`), `en-US 缺 ${key}`);
+		assert.ok(zhCN[key]?.trim(), `zh-CN 缺或空 ${key}`);
+		assert.ok(enUS[key]?.trim(), `en-US 缺或空 ${key}`);
+		assert.notEqual(zhCN[key], key, `zh-CN 把 key 当译文 ${key}`);
+		assert.notEqual(enUS[key], key, `en-US 把 key 当译文 ${key}`);
 	}
 });
