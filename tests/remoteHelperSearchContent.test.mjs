@@ -262,9 +262,9 @@ searchTest("the content-search artifact is one byte-frozen ASCII line with its o
 	assert.ok(source.length > 1024 && source.length < 96 * 1024, "unexpected artifact size " + source.length);
 });
 
-searchTest("the entry pins the sibling, the bundle list and helper build 1.26.1", () => {
-	assert.equal(entry.REMOTE_HELPER_ENTRY_VERSION, "1.26.1");
-	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"1.26.1"'), "hello must report the new build");
+searchTest("the entry pins the sibling, the bundle list and the frozen build", () => {
+	// 这处原先写死 "1.26.1"，helper 升到 1.28.0 之后一直是红的（没人跑就没人看见）。
+	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes(`"${entry.REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report the declared build");
 	assert.equal(entry.REMOTE_HELPER_ENTRY_SHA256, createHash("sha256").update(entry.REMOTE_HELPER_INLINE_SOURCE, "utf8").digest("hex"));
 	assert.deepEqual(
 		Array.from(entry.REMOTE_HELPER_ARTIFACTS, (artifact) => artifact.name),
