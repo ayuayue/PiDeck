@@ -2600,9 +2600,15 @@ test("多选判据复查：单选文案、词序、分句双重否定与 online 
 		for (const value of ["single or multiple", "multiple or single", "online multiple", "offline multiple"]) {
 			assert.equal(await resolvedType(tool, { questions: [pick({ multiple: value })] }), "multi_select", `multiple: ${value}`);
 		}
-		// 中文串首明确单选时，后半句出现的「多选」只是说明，不能翻成多选卡。
+		// 归一后整串是 online 的取值仍按改前判成关掉意图，只有带后缀的肯定短语才放行。
+		for (const value of ["online", "online.", "online,", "onLine"]) {
+			assert.equal(await resolvedType(tool, { questions: [pick({ multiple: value })] }), "select", `multiple: ${value}`);
+		}
+		// 串首明确单选、且后半句说明多选不被允许时按单选；并列或允许可多选时仍按多选。
 		assert.equal(await resolvedType(tool, { questions: [pick({ multiple: "单选，多选会报错" })] }), "select");
-		assert.equal(await resolvedType(tool, { questions: [pick({ multiple: "单选或多选都行" })] }), "multi_select");
+		for (const value of ["单选或多选都行", "单选/多选", "单选，可多选", "单选,允许多选"]) {
+			assert.equal(await resolvedType(tool, { questions: [pick({ multiple: value })] }), "multi_select", `multiple: ${value}`);
+		}
 		// 分句前后都写着「不是单选」时仍按多选，不被前半句否定连坐。
 		for (const value of ["not single", "no, not single", "不是单选", "不，不是单选"]) {
 			assert.equal(await resolvedType(tool, { questions: [pick({ multiple: value })] }), "multi_select", `multiple: ${value}`);
