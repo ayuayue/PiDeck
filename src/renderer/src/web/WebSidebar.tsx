@@ -18,6 +18,7 @@ import { WebBrandLockup } from "./WebBrandLockup";
 import { WebBottomSheet } from "./WebBottomSheet";
 import { WEB_SIDEBAR_INITIAL_VISIBLE, growSidebarWindow, resolveSidebarWindow } from "./webSidebarPaging";
 import { groupWebSessionsByParent } from "./webSidebarSessions";
+import { displayProjectName } from "./webProjectLabel";
 import { cn } from "@/lib/utils";
 import { isActiveSessionStatus, sessionStatusDotClass } from "@/agentListDisplay";
 import { WebBackendMark } from "./WebBackendMark";
@@ -37,16 +38,6 @@ const fieldInputClass = "h-full min-w-0 flex-1 border-0 bg-transparent px-0 py-0
 
 /** 与桌面 SessionTree 一致：只有当前会话灰底，父项目行不加选中态。 */
 const selectedRowClass = "active bg-bg-active text-foreground";
-
-/** 与桌面 ProjectTree 相同的项目目录名展示：chat 项目显示「聊天」，
- *  其余取路径末段；用户重命名过（name 与目录名不同）时优先展示自定义别名。 */
-function displayProjectName(project: WebProject): string {
-	if (project.kind === "chat") return t("app.chatProject");
-	const normalized = project.path.replace(/\\/g, "/").replace(/\/+$/, "");
-	const dirName = normalized.split("/").pop() || "";
-	if (!dirName) return project.name || project.path;
-	return project.name && project.name !== dirName ? project.name : dirName;
-}
 
 function matchesSearch(value: string, search: string): boolean {
 	return !search || value.toLowerCase().includes(search.toLowerCase());

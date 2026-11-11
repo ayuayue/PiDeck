@@ -51,6 +51,7 @@ import { WebSkillsExtensionsDialog } from "./WebSkillsExtensionsDialog";
 import { WebAgentsDialog } from "./WebAgentsDialog";
 import { WebAgentBar } from "./WebAgentBar";
 import { useWebAgents } from "./useWebAgents";
+import { resolveTargetProjectId } from "./webProjectLabel";
 import { useWebSlashItems } from "./useWebSlashItems";
 import { classifyComposerSlashCommand } from "../utils/composerSlashCommand";
 import { applyWebTheme, nextWebTheme, readStoredWebTheme, resolveWebTheme, storeWebTheme, systemPrefersDark, toggleWebTheme, type ResolvedWebTheme, type WebThemePreference } from "./webTheme";
@@ -972,16 +973,16 @@ export function WebChatApp() {
 	 * 切过去直接开聊。角色设定不由渲染层拼——首轮发送时主进程统一注入（与桌面同一收口），
 	 * 所以这里只负责导航与刷新，不碰发送载荷。
 	 */
-	const handleUseAgent = async (agent: WebAgentProfile) => {
-		const project = activeSession?.projectId ?? homeProject?.id;
-		if (!project) {
+	const handleUseAgent = async (agent: WebAgentProfile, projectId: string) => {
+		// 项目由「智能体」面板选定（默认当前会话所在项目），这里只做兜底校验。
+		if (!projectId) {
 			setCommandError(t("web.sendNoProject"));
 			return;
 		}
-		setCreatingProjectId(project);
+		setCreatingProjectId(projectId);
 		setCommandError(null);
 		try {
-			const created = await useAgentSession(agent.id, project);
+			const created = await useAgentSession(agent.id, projectId);
 			markSessionLoaded(created.session.id, true);
 			setActiveSessionId(created.session.id);
 			setAgentsOpen(false);
@@ -1175,8 +1176,10 @@ export function WebChatApp() {
 	// 绑定写入后 /api/state 才带 sessionAgentBindings，提示条据此只读展示角色设定。
 	const agentDirectory = useWebAgents();
 	const activeBoundAgent = activeSessionId ? agentDirectory.agents.find((agent) => agent.id === (state.sessionAgentBindings ?? {})[activeSessionId]) : undefined;
-	// 首页（无会话）时 `/` 菜单与「使用」按「将要建进哪个项目」取资源：与 sendFromHome 同一选择规则。
+	// 首页（无会话）时 `/` 菜单与「智能体」按「将要建进哪个项目」取资源：与 sendFromHome 同一选择规则。
 	const homeProject = state.projects.find((project) => project.kind === "chat") ?? state.projects[0];
+	// 「智能体」面板的目标项目默认值：当前会话所在项目（没会话时同上）。
+	const agentDefaultProjectId = resolveTargetProjectId(state.projects, activeSession?.projectId ?? homeProject?.id);
 	const slashItems = useWebSlashItems({
 		sessionId: activeSessionId || undefined,
 		agentId: activeRuntime?.agentId,
@@ -1781,7 +1784,7 @@ export function WebChatApp() {
 			{/* 第二批：会话内搜索（Ctrl+K）与技能/扩展面板 */}
 			<WebSearchDialog open={searchOpen} onOpenChange={setSearchOpen} sessionId={activeSessionId} messages={messages} onJump={jumpToSearchHit} />
 			<WebSkillsExtensionsDialog open={assetsOpen} onOpenChange={setAssetsOpen} />
-			<WebAgentsDialog open={agentsOpen} onOpenChange={setAgentsOpen} agents={agentDirectory.agents} phase={agentDirectory.phase} onReload={agentDirectory.reload} useDisabled={Boolean(creatingProjectId)} onUse={handleUseAgent} />
+			<WebAgentsDialog open={agentsOpen} onOpenChange={setAgentsOpen} agents={agentDirectory.agents} phase={agentDirectory.phase} projects={state.projects} defaultProjectId={agentDefaultProjectId} onReload={agentDirectory.reload} useDisabled={Boolean(creatingProjectId)} onUse={handleUseAgent} />
 			{dshToolsOpen && activeSessionId && <WebDshToolsPanel sessionId={activeSessionId} onClose={() => setDshToolsOpen(false)} />}
 			{/* P3：工作区抽屉（Git 状态/diff + 文件浏览，projectId 来自活跃会话） */}
 			{workspaceOpen && activeSession && <WebWorkspaceDrawer projectId={activeSession.projectId} open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} onOpenFile={openFilePreview} />}

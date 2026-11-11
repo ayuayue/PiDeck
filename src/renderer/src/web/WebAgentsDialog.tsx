@@ -15,7 +15,8 @@ import { AgentIcon } from "@/components/agents/AgentIcon";
 import { Button } from "@/components/ui-shadcn/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui-shadcn/dialog";
 import { Input } from "@/components/ui-shadcn/input";
-import type { WebAgentProfile } from "./webTypes";
+import { displayProjectName, resolveTargetProjectId } from "./webProjectLabel";
+import type { WebAgentProfile, WebProject } from "./webTypes";
 
 /** 目录状态由父级持有（头部提示条与弹窗共用一份，避免两处各拉一次）。 */
 export type WebAgentsPhase = "loading" | "ready" | "error";
@@ -35,11 +36,16 @@ function categoryLabel(category: string): string {
 	return key ? t(key) : category;
 }
 
-export function WebAgentsDialog(props: { open: boolean; onOpenChange: (open: boolean) => void; agents: WebAgentProfile[]; phase: WebAgentsPhase; onReload: () => void; onUse: (agent: WebAgentProfile) => Promise<void>; useDisabled?: boolean }) {
+export function WebAgentsDialog(props: { open: boolean; onOpenChange: (open: boolean) => void; agents: WebAgentProfile[]; phase: WebAgentsPhase; projects: WebProject[]; defaultProjectId?: string; onReload: () => void; onUse: (agent: WebAgentProfile, projectId: string) => Promise<void>; useDisabled?: boolean }) {
 	const [search, setSearch] = useState("");
 	const [category, setCategory] = useState<string | null>(null);
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 	const [usingId, setUsingId] = useState<string | null>(null);
+	// 目标项目：「使用」会真的建会话，所以不能只靠调用方推断。默认取当前会话所在项目
+	// （没有会话时取内置对话项目），用户可在这里切到别的目录；记着本次的选择，切会话不重置。
+	const [pickedProjectId, setPickedProjectId] = useState<string | null>(null);
+	const projects = props.projects;
+	const targetProjectId = resolveTargetProjectId(projects, pickedProjectId ?? props.defaultProjectId);
 
 	// 每次打开都重拉一次：角色设定/新增智能体多在桌面端改，Web 面板必须看到最新目录。
 	const { open, onReload } = props;
@@ -63,9 +69,10 @@ export function WebAgentsDialog(props: { open: boolean; onOpenChange: (open: boo
 	}, [agents, category, search]);
 
 	const use = async (agent: WebAgentProfile) => {
+		if (!targetProjectId) return;
 		setUsingId(agent.id);
 		try {
-			await props.onUse(agent);
+			await props.onUse(agent, targetProjectId);
 		} finally {
 			setUsingId(null);
 		}
@@ -98,6 +105,26 @@ export function WebAgentsDialog(props: { open: boolean; onOpenChange: (open: boo
 							))}
 						</div>
 					) : null}
+					{/* 目标项目：「使用」会立即建会话，建到哪个目录必须在这里可见/可切。
+					    用原生 select：移动端弹系统选择器，也不用在 Dialog 里再叠一层 radix 弹层。 */}
+					<label className="flex items-center gap-2">
+						<span className="shrink-0 text-micro text-muted-foreground">{t("web.agentsTargetProject")}</span>
+						<select
+							className="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-micro text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/15 disabled:opacity-60"
+							value={targetProjectId ?? ""}
+							onChange={(event) => setPickedProjectId(event.target.value || null)}
+							disabled={projects.length === 0}
+							aria-label={t("web.agentsTargetProject")}
+							data-testid="web-agents-project"
+						>
+							{targetProjectId ? null : <option value="">{t("web.agentsNoProject")}</option>}
+							{projects.map((project) => (
+								<option key={project.id} value={project.id}>
+									{displayProjectName(project)}
+								</option>
+							))}
+						</select>
+					</label>
 				</div>
 
 				{/* scroll-ok: bounded —— 智能体目录是用户维护的短列表（卡片一行一个），不是无限流。 */}
@@ -151,7 +178,7 @@ export function WebAgentsDialog(props: { open: boolean; onOpenChange: (open: boo
 													<pre className="max-h-52 overflow-y-auto rounded-md bg-bg-muted/40 p-2 font-mono text-micro leading-relaxed break-words whitespace-pre-wrap text-foreground/90">{agent.systemPrompt}</pre>
 												</>
 											) : null}
-											<Button type="button" size="sm" className="h-9 w-full" data-testid="web-agent-use" loading={usingId === agent.id} disabled={props.useDisabled || (usingId !== null && usingId !== agent.id)} onClick={() => void use(agent)}>
+											<Button type="button" size="sm" className="h-9 w-full" data-testid="web-agent-use" loading={usingId === agent.id} disabled={props.useDisabled || !targetProjectId || (usingId !== null && usingId !== agent.id)} onClick={() => void use(agent)}>
 												{t("agentMarket.use")}
 											</Button>
 											<p className="text-micro leading-snug text-muted-foreground">{t("web.agentsUseHint")}</p>

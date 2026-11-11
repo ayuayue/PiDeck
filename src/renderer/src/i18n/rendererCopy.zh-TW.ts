@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: dc1d85292b9a5872aa4208f3217583c5e806150c6937a66932d57cfb0c20efa5（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: e32cb71029e00b21e6aa26d99fe86d1beed1ea94d4c58e5730123023f9be9dbe（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -6871,7 +6871,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"web.branchFamily": "分支",
 	"web.forkedBadge": "fork",
 	"web.agentsSubtitle": "與桌面端同一份智慧體目錄：這裡檢視角色設定並「使用」，建立與編輯請在桌面端進行",
-	"web.agentsUseHint": "立即新建一條繫結該智慧體的會話；角色設定在首輪發送時注入，不顯示在對話正文裡",
+	"web.agentsUseHint": "立即在所選專案裡新建一條繫結該智慧體的會話；角色設定在首輪發送時注入，不顯示在對話正文裡",
+	"web.agentsTargetProject": "目標專案",
+	"web.agentsNoProject": "暫無專案",
 	"web.agentsLoading": "正在讀取智慧體…",
 	"web.agentsLoadFailed": "智慧體目錄讀取失敗",
 	"web.agentBarLabel": "角色設定",
@@ -7791,7 +7793,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.target.connecting": "正在連線 {host}…",
 	"config.target.retryConnect": "重試連線",
 	"config.target.wsl": "WSL 環境（開發設定）",
-	"config.target.wslEmpty": "WSL 環境未啟用：在「設定 → 開發」裡開啟 WSL 並選擇發行版/使用者後，這裡才會出現。",
 	"config.target.wslHint": "讀寫均落在該發行版的 HOME（.pi/agent），不回退本機",
 	"config.target.wslSource": "當前編輯：WSL 發行版的 HOME（.pi/agent）",
 	"config.target.wslProviderOps": "連線測試 / 拉取模型 / 用量查詢僅對本機目標可用",
