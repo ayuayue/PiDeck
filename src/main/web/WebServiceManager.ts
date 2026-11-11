@@ -450,6 +450,11 @@ export class WebServiceManager {
 			}
 		});
 
+		// 移动端/隧道场景：Node 默认 keepAliveTimeout=5s 太短。客户端可能复用一条已被中间设备
+		// （EasyTier/NAT/移动网络）丢弃的半死连接发请求，请求落进黑洞直到浏览器自己超时（Web 端
+		// 表现为「一直加载然后失败」）。放宽到 65s，并让 headersTimeout 略高于它（Node 要求）。
+		server.keepAliveTimeout = 65_000;
+		server.headersTimeout = 66_000;
 		server.on("clientError", (_error, socket) => {
 			socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
 		});

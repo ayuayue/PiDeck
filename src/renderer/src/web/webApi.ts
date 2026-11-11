@@ -57,6 +57,37 @@ function apiFetch(input: string, init?: RequestInit): Promise<Response> {
 }
 
 /**
+ * 弱网兜底：只读 GET 的超时 + 一次重试。
+ *
+ * Web 端最常见的失败不是 4xx/5xx，而是「请求发出去没有回音」：手机经 EasyTier/NAT 连桌面端时，
+ * 浏览器会复用一条已被中间设备丢弃的半死连接（或 6 条 HTTP/1.1 连接被占满），请求一路挂到
+ * 浏览器自己超时才失败——用户看到的就是面板一直转圈后报「读取失败」。这里给 10s 超时并重试
+ * 一次：超时 abort 掉半死请求，重试通常落到新连接上；两次都失败才把错误交给 UI。
+ *
+ * 只用于小载荷的幂等 GET：/api/state 这类大载荷/流式接口不能套固定超时。
+ */
+export const WEB_GET_TIMEOUT_MS = 10_000;
+
+async function apiGet(path: string, init?: Omit<RequestInit, "signal">): Promise<Response> {
+	let attempt = 0;
+	for (;;) {
+		attempt += 1;
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), WEB_GET_TIMEOUT_MS);
+		try {
+			const res = await apiFetch(path, { ...init, signal: controller.signal });
+			// 5xx 多为服务端瞬时故障：重试一次；4xx 是契约错误，原样交回调用方。
+			if (res.status >= 500 && attempt === 1) continue;
+			return res;
+		} catch (error) {
+			if (attempt >= 2) throw error;
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+}
+
+/**
  * 轮询 /api/state 拿项目/会话/运行态（低频兜底，主数据流走 useChat）。
  *
  * 条件请求：服务端给 ETag，未变化时回 304。返回 null 表示「和上次一样」，
@@ -699,7 +730,7 @@ export async function toggleWebExtension(source: string, enabled: boolean, scope
 
 /** 智能体目录：与桌面「智能体」页同一份 AgentProfileStore（角色设定随详情展示）。 */
 export async function fetchAgents(): Promise<WebAgentProfile[]> {
-	const res = await apiFetch("/api/agents");
+	const res = await apiGet("/api/agents");
 	if (!res.ok) throw new Error(`agents ${res.status}`);
 	const payload = (await res.json()) as { agents?: WebAgentProfile[] };
 	return payload.agents ?? [];

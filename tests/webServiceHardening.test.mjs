@@ -125,3 +125,10 @@ test("WebChatApp renders auth-expired banner wired to the broadcast event", () =
 	assert.match(zhCn, /"web\.authExpired"/);
 	assert.match(enUs, /"web\.authExpired"/);
 });
+
+test("web server widens keep-alive timeouts for mobile/tunnel clients", () => {
+	// Node 默认 keepAliveTimeout=5s：手机经 EasyTier/NAT 连过来时，浏览器可能复用已被中间设备
+	// 丢弃的半死连接，请求挂到浏览器自己超时才失败（Web 端表现为「一直加载然后失败」）。
+	assert.match(managerSource, /server\.keepAliveTimeout = 65_000;/);
+	assert.match(managerSource, /server\.headersTimeout = 66_000;/, "headersTimeout must stay above keepAliveTimeout");
+});
