@@ -81,20 +81,33 @@ const sourceOnly = testFiles
 const baseline = existsSync(BASELINE_FILE) ? JSON.parse(readFileSync(BASELINE_FILE, "utf8")) : { sourceOnly: [] };
 const known = new Set(baseline.sourceOnly ?? []);
 
+// 2026-11-11：文件粒度可被一行运行时加载洗白——文件里 99 条源码断言 + 1 条
+// loadTsCommonJs 调用，isSourceOnly 直接返回 false，整文件放行（判据被绕过）。
+// 新增文件改为块级判定：任一个 test(…) 块读源码且该块内没有运行时加载就红。
+const sourceOnlyBlocks = (source) => [...source.matchAll(/\ntest\(\s*["'\x60](.+?)["'\x60][\s\S]*?(?=\ntest\(|$)/g)].filter((m) => isSourceOnly(m[0])).map((m) => m[1]);
+const allBlocks = [];
+for (const file of testFiles) {
+	const rel = relativePath(file);
+	for (const name of sourceOnlyBlocks(readFileSync(file, "utf8"))) allBlocks.push(rel + " → " + name);
+}
+const baselineBlocks = new Set(baseline.sourceOnlyBlocks ?? []);
+
 if (UPDATE) {
-	writeFileSync(BASELINE_FILE, `${JSON.stringify({ capturedAt: new Date().toISOString().slice(0, 10), total: testFiles.length, sourceOnly }, null, "\t")}\n`, "utf8");
-	console.log(`[check-test-shape] 基线已刷新：${sourceOnly.length} / ${testFiles.length} 个测试文件是 sourceOnly`);
+	writeFileSync(BASELINE_FILE, `${JSON.stringify({ capturedAt: new Date().toISOString().slice(0, 10), total: testFiles.length, sourceOnly, sourceOnlyBlocks: allBlocks }, null, "\t")}\n`, "utf8");
+	console.log(`[check-test-shape] 基线已刷新：${sourceOnly.length} / ${testFiles.length} 个测试文件是 sourceOnly，块级存量 ${allBlocks.length}`);
 	process.exit(0);
 }
 
 const added = sourceOnly.filter((file) => !known.has(file));
 const retired = [...known].filter((file) => !sourceOnly.includes(file)).length;
+const newBlocks = allBlocks.filter((key) => !baselineBlocks.has(key));
 
-if (added.length > 0) {
-	console.error(`[check-test-shape] 新增了 ${added.length} 个「只读源码」的测试：`);
+if (added.length > 0 || newBlocks.length > 0) {
+	console.error(`[check-test-shape] 新增了 ${added.length} 个「只读源码」的测试文件、${newBlocks.length} 个只读源码的 test 块：`);
 	for (const file of added) console.error(`  - ${file}`);
+	for (const row of newBlocks) console.error(`  - 块级：${row}`);
 	console.error("\n这类测试对行为零验证，却会在搬迁/改名/换实现时红掉。改成运行时断言：\n" + "  - 直接加载生产模块：tests/helpers/loadTsCommonJs.mjs\n" + "  - 需要 stub 依赖：tests/helpers/createTsSandbox.mjs\n" + "若确实无法运行时验证（例如只校验构建产物结构），用 --update 更新基线并在 PR 说明理由。");
 	process.exit(1);
 }
 
-console.log(`[check-test-shape] ok：sourceOnly ${sourceOnly.length} / ${testFiles.length} 个测试文件（基线 ${known.size}，新增 0${retired > 0 ? `，存量已减 ${retired}` : ""}）`);
+console.log(`[check-test-shape] ok：sourceOnly ${sourceOnly.length} / ${testFiles.length} 个测试文件，块级存量 ${allBlocks.length} / 基线 ${baselineBlocks.size}（新增 0${retired > 0 ? `，存量文件已减 ${retired}` : ""}）`);

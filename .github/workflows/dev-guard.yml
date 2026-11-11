@@ -48,8 +48,12 @@ jobs:
       - name: Check formatting
         run: npm run check:format
 
+      # 2026-11-11：三面各自独立跑完。此前 format 一红，后两步直接 skipped——
+      # dev 上 test-shape 的真实违规因此连续 4 次提交不可见（a26f173 的 Dev Guard 红）。
       - name: Check structural invariants
+        if: always()
         run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:scroll-containers
 
       - name: Type-check
+        if: always()
         run: npm run typecheck
