@@ -6931,7 +6931,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"web.slashEmpty": "No matching commands",
 	"web.slashBusy": "This turn is still running — compact the context once it finishes",
 	"web.slashNoRuntime": "This session has not started yet, so the context cannot be compacted",
-	"web.slashDesktopOnly": "\"{command}\" must be run on the desktop",
+	"web.slashDesktopOnly": '"{command}" must be run on the desktop',
 	"session.view.chat": "Chat",
 	"session.view.trajectory": "Trajectory",
 	"session.branchTree.title": "Branches",

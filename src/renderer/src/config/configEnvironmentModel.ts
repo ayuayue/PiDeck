@@ -65,4 +65,3 @@ export function environmentScopeHintKey(target: PiConfigTarget): "config.env.sco
 	if (target.kind === "wsl") return "config.env.scopeWsl";
 	return "config.env.scopeLocal";
 }
-

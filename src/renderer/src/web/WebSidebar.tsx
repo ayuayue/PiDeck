@@ -363,16 +363,7 @@ export function WebSidebar(props: {
 								</button>
 							) : null}
 						</div>
-						<Button
-							type="button"
-							variant="outline"
-							size="icon"
-							className={cn("size-9 shrink-0 rounded-lg text-muted-foreground", addingProject && "bg-muted text-foreground")}
-							onClick={() => setAddingProject((value) => !value)}
-							aria-label={t("web.newProject")}
-							aria-expanded={addingProject}
-							title={t("web.newProject")}
-						>
+						<Button type="button" variant="outline" size="icon" className={cn("size-9 shrink-0 rounded-lg text-muted-foreground", addingProject && "bg-muted text-foreground")} onClick={() => setAddingProject((value) => !value)} aria-label={t("web.newProject")} aria-expanded={addingProject} title={t("web.newProject")}>
 							<FolderPlus className="size-4" aria-hidden="true" />
 						</Button>
 					</div>
