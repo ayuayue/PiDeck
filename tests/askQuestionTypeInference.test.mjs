@@ -2588,3 +2588,26 @@ test("type 取值侧的短语判据有判别力（含多选词根时不会被静
 		}
 	});
 });
+
+test("多选判据复查：单选文案、词序、分句双重否定与 online 前缀不许翻转题型", async () => {
+	const tool = registerTool();
+	const pick = (extra) => ({ question: "选哪些？", options: ["A", "B"], ...extra });
+	await captureWarnings(async () => {
+		// 描述性键 + 明确单选文案：既不能整批抛错，也不能把 type:"select" 翻成勾选卡。
+		assert.equal(await resolvedType(tool, { questions: [pick({ checkboxLabel: "Select one option" })] }), "select");
+		assert.equal(await resolvedType(tool, { questions: [pick({ type: "select", checkboxLabel: "Select one option" })] }), "select");
+		// 同一语义换词序 / 换前缀不许得出相反结论。
+		for (const value of ["single or multiple", "multiple or single", "online multiple", "offline multiple"]) {
+			assert.equal(await resolvedType(tool, { questions: [pick({ multiple: value })] }), "multi_select", `multiple: ${value}`);
+		}
+		// 中文串首明确单选时，后半句出现的「多选」只是说明，不能翻成多选卡。
+		assert.equal(await resolvedType(tool, { questions: [pick({ multiple: "单选，多选会报错" })] }), "select");
+		assert.equal(await resolvedType(tool, { questions: [pick({ multiple: "单选或多选都行" })] }), "multi_select");
+		// 分句前后都写着「不是单选」时仍按多选，不被前半句否定连坐。
+		for (const value of ["not single", "no, not single", "不是单选", "不，不是单选"]) {
+			assert.equal(await resolvedType(tool, { questions: [pick({ multiple: value })] }), "multi_select", `multiple: ${value}`);
+		}
+		// 反向护栏：明确的多选文案仍按原策略报错，单选短语补丁不能把 fail-open 收成封闭词表。
+		assert.equal(await resolvedType(tool, { questions: [pick({ checkboxLabel: "选中多个" })] }), "THROW");
+	});
+});

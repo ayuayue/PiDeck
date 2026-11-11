@@ -182,13 +182,13 @@ const SINGLE_LIKE_KEY = /^(?:only|just)?(?:single|exclusive|one|1)[_\- ]?(?:choi
  *  `{multiple: "disabled"}` 漏进来就是勾选框，`{multiline: "single line"}` 漏进来就是多行框（方向相反，同样零纠正）。
  *  短语否定（`not multiple` / `single line only` / `非多选`）由 `OFF_PREFIXES` 收口：完整词只能挡住
  *  一模一样的取值，带后缀的否定短语照样翻形态，未知键还会把整批提问硬报错。 */
-const OFF_WORDS = new Set(["false", "no", "off", "none", "null", "n/a", "na", "n", "not", "non", "negative", "without", "0", "", "否", "不", "非", "无", "没", "未", "不是", "不要", "关闭", "禁用", "禁止", "单行", "nope", "never", "disabled", "disable", "singleline", "oneline", "online", "nah", "neither", "nor", "don't", "doesn't", "dont", "doesnt"]);
+const OFF_WORDS = new Set(["false", "no", "off", "none", "null", "n/a", "na", "n", "not", "non", "negative", "without", "0", "", "否", "不", "非", "无", "没", "未", "不是", "不要", "关闭", "禁用", "禁止", "单行", "nope", "never", "disabled", "disable", "singleline", "oneline", "nah", "neither", "nor", "don't", "doesn't", "dont", "doesnt"]);
 
 /** 否定短语的归一前缀：完整词进 `OFF_WORDS`，后面跟内容的写法（`not multiple` → `notmultiple`）在这里收口。
  *  `OFF_WORDS` 里的否定词根（含中文单字）都要能带后缀，否则「明确写了关掉 + 补一句说明」又会被 fail-open 当肯定。
  *  短词根（`no` / `not` / `off`…）必须真是独立的否定词，见 `isOffToken` 的词边界判据：裸 `startsWith`
  *  会把 `normal` / `note` / `official` 误判成否定、静默降级成单选，正是本分支要消灭的那一类。 */
-const OFF_PREFIXES = ["single", ...OFF_WORDS];
+const OFF_PREFIXES = [...OFF_WORDS];
 
 /** 短否定词根：只有「自成一段（分隔符 / camelCase 边界）+ 后面还有内容」才算否定短语。 */
 const SHORT_OFF_ROOTS = new Set(["not", "no", "non", "n/a", "na", "n", "off", "nah", "nor", "否", "不", "非", "无", "没", "未"]);
@@ -244,6 +244,10 @@ function isOffToken(value: string): boolean {
 	const token = normalizeTypeToken(value);
 	const offToken = normalizeOffToken(value);
 	const offPhrase = value.trim().toLowerCase();
+	// `on line` / `on-line` / `one line` 是「单行」的口语写法；归一后的 `online` 不能再当否定词前缀，
+	// 否则 `multiple: "online multiple"` 这种肯定值会被整条判成关掉意图，与 `offline multiple` 结论相反。
+	// 单独的 `online` 仍按原词表判成关掉（精确匹配），只不再让它带后缀或进切词分支误伤肯定短语。
+	if (offPhrase === "online" || /^(?:on|one)[-_\s]line\b/i.test(value.trim())) return true;
 	// 分句标点把「否定」和「单选」拆成两句（`no, single` / `否，single`）：那是明确说单选，
 	// 不是「不是单选」的双重否定。英文与中英混写同样收口，别只认中文否定字起头的分句。
 	const clauseAfterNegation = /^(?:不|非|无|没|未|否|not|no|non|off|never|without|none|nah|nor|false|nope|neither)(?:是)?\s*[，,。;；!?.]/.test(offPhrase);
@@ -277,7 +281,11 @@ function isOffToken(value: string): boolean {
 		// `MULTI_ROOT` 会命中 `multiple`，但同一拼写作为 type 取值是 editor（`isLineLikeKey`），
 		// 在这里翻成勾选卡就是「同一个词两个空间相反判决」。
 		const tailToken = normalizeTypeToken(tail);
-		if (clauseAfterNegation && !isOffToken(tail) && hasMultiRoot(tailToken) && !isLineLikeKey(tailToken)) return false;
+		// 分句后半句自己就是「不是单选」（`no, not single` / `不，不是单选`）：那仍在说要多选，
+		// 不能被前半句的否定连坐成 select。只认后半句自带否定词的写法，裸 `no, single` 仍是单选。
+		const tailDoubleNegative =
+			/^(?:not|no|non|definitely not|yes, not)\s+(?:single|limit|exclusive|restrict|one|only)\b/i.test(tail) || NEGATED_SINGLE_ZH.test(normalizeOffToken(tail));
+		if (clauseAfterNegation && !isOffToken(tail) && (hasMultiRoot(tailToken) || tailDoubleNegative) && !isLineLikeKey(tailToken)) return false;
 		return true;
 	}
 	return OFF_PREFIXES.some((prefix) => {
@@ -305,23 +313,25 @@ const SINGLE_WORDS = new Set(["single", "singlechoice", "单选", "单项", "单
  *  否则「不是单选」会被这里的 `单选` 前缀判成单选，方向正好反过来。
  *  判据输入已把分隔符归一成空格：`exactly_one` / `at-most one` 与空格版同判，否则同一个意思只差一个
  *  下划线就得出相反结论（与本模块其它地方的归一判据同一个坑）。数量段后面写着「以上 / 或更多」时是「可多选」，中文各支用尾界排除。 */
-const SINGLE_LIMIT_PHRASE = /^(?:only|just|exactly|at ?most|max(?:imum)?|limited to|up to) (?:a |an )?(?:single|one|1)\b|^maximum of (?:one|1)\b|^(?:one|1) of\b|^(?:单选|单项)|^(?:只|仅|至多|最多)(?:[能可许准要得让]|允许|准许|能够|可以|只|仅){0,3} *(?:选|挑|有)(?:择|中|取|选)? *(?:一|1)(?! *[个项条]? *(?:以上|或以上|或更多|及以上)) *[个项条]?|^(?:只|仅)(?:[能可许准要得让]|允许|准许)? *(?:一|1)(?! *[个项条]? *(?:以上|或以上|或更多|及以上)) *[个项条]?|^(?:只|仅)(?:[能可许准要得让]|允许|准许)? *(?:单选|单项)/;
+const SINGLE_LIMIT_PHRASE = /^(?:only|just|exactly|at ?most|max(?:imum)?|limited to|up to) (?:a |an )?(?:single|one|1)\b|^maximum of (?:one|1)\b|^(?:one|1) of\b|^(?:select|pick|choose) (?:only )?(?:one|1)\b(?! *or\b)|^(?:单选|单项)(?!或(?:多选|多项|复选|多个))|^(?:只|仅|至多|最多)(?:[能可许准要得让]|允许|准许|能够|可以|只|仅){0,3} *(?:选|挑|有)(?:择|中|取|选)? *(?:一|1)(?! *[个项条]? *(?:以上|或以上|或更多|及以上)) *[个项条]?|^(?:只|仅)(?:[能可许准要得让]|允许|准许)? *(?:一|1)(?! *[个项条]? *(?:以上|或以上|或更多|及以上)) *[个项条]?|^(?:只|仅)(?:[能可许准要得让]|允许|准许)? *(?:单选|单项)/;
 
 /** 取值本身写着「单选」：整串词表、词根正则与串首短语三种判据都要对两种归一各查一遍——`normalizeTypeToken`
  *  保留标点，`"single."` / `"单选。"` 在 `SINGLE_WORDS` 里查不到，而 `isOffToken` 用的是去标点的归一；两边不共用
  *  这份判据就会「加一个句号把单选意图翻成多选卡」。type 取值与意图键取值共用本函数。
  *  短语判据用原值（不用归一值）：它靠空白切词（`exactly one`），归一后连写会漏。 */
 function isSingleLikeValue(value: string): boolean {
+	// 短语判据走「分隔符归一成空格」的形态：`exactly_one` / `at-most one` 与 `exactly one` 同判。
+	const phrase = value.trim().toLowerCase().replace(/[_\-\s]+/g, " ");
 	// 「单选或多选都行」这类取值同时写着多选：多选是单选的上界，按多选给卡不会把用户锁死，
 	// 按单选给卡却会让他根本选不了两项。中文多选词根只在这里认，不进 `MULTI_ROOT`——那个谓词还判键名，
 	// `多选: true` 会因此变成「拼错键」硬报错，那是另一个决定，别在取值侧顺手改了键空间的判决。
+	// 但串首已经明确写了「单选 / 只能选一个」时，后半句的「多选」只是补充说明（「单选，多选会报错」），
+	// 不能提前按「取值里有多选词根」放行；否则一句明确的单选要求会被翻成勾选卡。
 	// 取值里带否定字时一律让路（`单选，不要多选` / `非多选` / `不限量多选`）：那几条的语义由 `isOffToken`
 	// 收口，这里只看「有没有多选词根」就会把明确的否定翻成勾选卡；「至多选一个 / 最多选一个」里的「多选」是数量词的一部分，不算。
-	if (/(?<!至|最)(?:多选|多项|复选)/.test(value) && !/[不非无没未否别勿禁]/.test(value)) return false;
+	if (!SINGLE_LIMIT_PHRASE.test(phrase) && /(?<!至|最)(?:多选|多项|复选)/.test(value) && !/[不非无没未否别勿禁]/.test(value)) return false;
 	const token = normalizeTypeToken(value);
 	const stripped = normalizeOffToken(value);
-	// 短语判据走「分隔符归一成空格」的形态：`exactly_one` / `at-most one` 与 `exactly one` 同判。
-	const phrase = value.trim().toLowerCase().replace(/[_\-\s]+/g, " ");
 	return (
 		SINGLE_WORDS.has(token) ||
 		SINGLE_WORDS.has(stripped) ||
