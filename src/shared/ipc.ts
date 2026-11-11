@@ -895,6 +895,8 @@ export const ipcChannels = {
 	configSaveAuth: "config:save-auth",
 	configSaveSettings: "config:save-settings",
 	configSaveRaw: "config:save-raw",
+	/** 源文件页的统一读取（本机/WSL 原文 + 诊断；ssh 脱敏快照），按 target 路由。 */
+	configGetRaw: "config:get-raw",
 	configExport: "config:export",
 	configImport: "config:import",
 	/** 只读扫描本机其他 agent（Claude Code/Codex/OpenCode/Gemini CLI）的供应商配置，返回掩码候选 */

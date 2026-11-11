@@ -1568,7 +1568,21 @@ const api = {
 				error?: string;
 				remote?: import("../shared/piConfig").RemotePiConfigWriteReceipt;
 			}>,
-		saveRaw: (fileName: string, rawJson: string) => ipcRenderer.invoke(ipcChannels.configSaveRaw, fileName, rawJson) as Promise<{ valid: boolean; error?: string }>,
+		/** 源文件页统一读取：缺省 options = 本机；wsl 回原文（+ 诊断），ssh 只回脱敏快照。 */
+		getRaw: (fileName: string, options?: import("../shared/piConfig").PiConfigReadOptions) =>
+			ipcRenderer.invoke(ipcChannels.configGetRaw, fileName, options) as Promise<{
+				raw: string;
+				diagnostic?: ConfigFileDiagnostic;
+				remote?: import("../shared/piConfig").RemotePiConfigSnapshot;
+			}>,
+		/** 源文件级保存：本机/WSL 整文件原文；ssh 只认 expectedVersion+patch（body 被忽略）。 */
+		saveRaw: (fileName: string, rawJson: string, options?: import("../shared/piConfig").PiConfigWriteOptions) =>
+			ipcRenderer.invoke(ipcChannels.configSaveRaw, fileName, rawJson, options) as Promise<{
+				valid: boolean;
+				error?: string;
+				remote?: import("../shared/piConfig").RemotePiConfigWriteReceipt;
+				wsl?: import("../shared/piConfig").WslPiConfigWriteReceipt;
+			}>,
 		export: () => ipcRenderer.invoke(ipcChannels.configExport) as Promise<string>,
 		import: (packageJson: string) => ipcRenderer.invoke(ipcChannels.configImport, packageJson) as Promise<{ valid: boolean; error?: string }>,
 		/** 只读扫描本机其他 agent（Claude Code/Codex/OpenCode/Gemini CLI）的供应商配置；API key 只以掩码返回 */

@@ -16,6 +16,8 @@ export function RawTab(props: {
 	fileName: string;
 	content: string;
 	saving: boolean;
+	/** 固定文件的编辑页（如 WSL 环境的 mcp.json）不显示源文件下拉，避免出现只有一项的选择器。 */
+	showFileSelector?: boolean;
 	/** pi 全局配置目录（主进程 config:get-dir 返回），用于标注实际编辑位置；缺省时不显示路径行。 */
 	configDir?: string;
 	onChangeFileName: (name: string) => void;
@@ -26,9 +28,11 @@ export function RawTab(props: {
 	const rawFilePath = props.configDir ? `${props.configDir.replace(/[\\/]+$/, "")}/${props.fileName}` : "";
 	return (
 		<div className="config-raw-tab flex min-h-0 flex-1 flex-col gap-3">
-			<div className="flex shrink-0 items-center justify-between gap-3">
-				<ConfigSelect value={props.fileName} options={RAW_FILE_OPTIONS} onChange={props.onChangeFileName} />
-			</div>
+			{props.showFileSelector === false ? null : (
+				<div className="flex shrink-0 items-center justify-between gap-3">
+					<ConfigSelect value={props.fileName} options={RAW_FILE_OPTIONS} onChange={props.onChangeFileName} />
+				</div>
+			)}
 			{/* 源文件都是 JSON：CodeMirror 提供语法高亮/折叠/括号匹配，JSON 语法错误即时提示（lint）。 */}
 			<CodeMirrorEditor value={props.content} language="json" height="100%" onChange={props.onChangeContent} />
 			{/* 编辑位置说明：标注当前文件在 pi 配置目录里的实际路径（随下拉切换），保存后由 pi 读取 */}

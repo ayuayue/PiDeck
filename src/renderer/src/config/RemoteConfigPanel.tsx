@@ -1,6 +1,6 @@
 import { AlertTriangle, LoaderCircle, RefreshCw, RotateCcw, Save, ShieldAlert } from "lucide-react";
 import { useState } from "react";
-import type { PiConfigFileKey } from "../../../shared/piConfig";
+import { PI_CONFIG_FILE_NAMES, type PiConfigFileKey } from "../../../shared/piConfig";
 import { CodeMirrorEditor } from "../components/app/CodeMirrorEditor";
 import { Button } from "../components/ui-shadcn/button";
 import { t, type TranslationKey } from "../i18n";
@@ -33,7 +33,7 @@ export function RemoteConfigPanel(props: { file: PiConfigFileKey; hostId: string
 	const patchReason = parsedPatch.ok ? null : parsedPatch.reason;
 	const patchIsEmpty = state.patchText.trim().length === 0;
 	const canApply = !loading && !saving && !unconfirmed && dirty && parsedPatch.ok;
-	const fileLabel = props.file === "models" ? "models.json" : "settings.json";
+	const fileLabel = PI_CONFIG_FILE_NAMES[props.file];
 	const patchBorder = patchSyntaxError || (dirty && !parsedPatch.ok) ? "border-danger/40" : "border-border-subtle";
 
 	const handlePatchChange = (text: string) => {
@@ -199,7 +199,7 @@ export function RemoteConfigPanel(props: { file: PiConfigFileKey; hostId: string
 						</div>
 					</div>
 
-					{props.file === "models" ? <RemoteModelCatalogSection hostId={props.hostId} /> : <RemoteConfigDeferredOperations />}
+					{props.file === "models" ? <RemoteModelCatalogSection hostId={props.hostId} /> : props.file === "settings" ? <RemoteConfigDeferredOperations /> : null}
 				</>
 			) : null}
 		</div>

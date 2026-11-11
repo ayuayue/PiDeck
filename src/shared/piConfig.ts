@@ -6,9 +6,51 @@
  * these types: a remote snapshot carries secret positions as configured/missing plus a path list.
  */
 
-/** Which allowlisted agent file a request names. Never a path, never auth.json. */
-export const PI_CONFIG_FILES = ["models", "settings"] as const;
+/**
+ * Which allowlisted agent file a request names. Never a path, never auth.json.
+ *
+ * trust.json 与 mcp.json 与 models/settings 走**同一条** sanitize/patch 通道：秘密键仍只回
+ * configured/missing，补丁可以写入新值、但删不掉秘密键。auth.json 结构性不可达（凭据永不跨机回传），
+ * 因此不在这张表里，也不该被渲染层当成「ssh 可编辑」的文件。
+ */
+export const PI_CONFIG_FILES = ["models", "settings", "trust", "mcp"] as const;
 export type PiConfigFileKey = (typeof PI_CONFIG_FILES)[number];
+
+/**
+ * The WSL scope reads through the distribution's UNC path and writes inside the distribution, so the credential
+ * file is editable there too (same trust level as the Windows HOME). The extra key exists only for this scope;
+ * `PI_CONFIG_FILES` stays the ssh allowlist so `auth` can never be addressed over the helper.
+ */
+export const WSL_PI_CONFIG_FILES = ["models", "settings", "trust", "mcp", "auth"] as const;
+export type WslPiConfigFileKey = (typeof WSL_PI_CONFIG_FILES)[number];
+
+/** File key → the file name pi actually reads in `~/.pi/agent`. One table for the renderer source-file page. */
+export const PI_CONFIG_FILE_NAMES: Record<WslPiConfigFileKey, string> = {
+	models: "models.json",
+	settings: "settings.json",
+	trust: "trust.json",
+	mcp: "mcp.json",
+	auth: "auth.json",
+};
+
+/** true only for a file key the ssh helper may address (never auth). */
+export function isPiConfigFileKey(value: unknown): value is PiConfigFileKey {
+	return typeof value === "string" && (PI_CONFIG_FILES as readonly string[]).includes(value);
+}
+
+/** true only for a file key the WSL scope may address (includes auth). */
+export function isWslPiConfigFileKey(value: unknown): value is WslPiConfigFileKey {
+	return typeof value === "string" && (WSL_PI_CONFIG_FILES as readonly string[]).includes(value);
+}
+
+/** `models.json` → `models`; unknown names return undefined (never inferred). */
+export function piConfigFileKeyFromName(name: unknown): WslPiConfigFileKey | undefined {
+	if (typeof name !== "string") return undefined;
+	for (const key of WSL_PI_CONFIG_FILES) {
+		if (PI_CONFIG_FILE_NAMES[key] === name) return key;
+	}
+	return undefined;
+}
 
 /**
  * Where a config read/write should run. local is the default when the option is absent; ssh is usable only
@@ -17,6 +59,14 @@ export type PiConfigFileKey = (typeof PI_CONFIG_FILES)[number];
  * HOME (never the Windows HOME — a missing environment fails closed with a WSL_CONFIG_* code).
  */
 export type PiConfigTarget = { kind: "local" } | { kind: "ssh"; hostId: string } | { kind: "wsl"; hostId: string };
+
+/**
+ * Which files a target can manage. The ssh helper's allowlist excludes auth.json; local and WSL read the real
+ * directory (Windows HOME / distribution HOME) and therefore cover every file pi reads.
+ */
+export function piConfigFilesForTarget(target: PiConfigTarget): readonly WslPiConfigFileKey[] {
+	return target.kind === "ssh" ? PI_CONFIG_FILES : WSL_PI_CONFIG_FILES;
+}
 
 /**
  * Which environment a **resource** surface (skills / prompts / extensions) reads and writes.
@@ -151,7 +201,7 @@ export const WSL_CONFIG_CODES = {
 	pathUnreadable: "WSL_CONFIG_PATH_UNREADABLE",
 	/** models.json/settings.json exists but is not a JSON object (never silently treated as empty). */
 	fileInvalid: "WSL_CONFIG_FILE_INVALID",
-	/** the page/file is outside the wsl scope (auth/trust/mcp/raw are deferred, like the ssh helper). */
+	/** the key is a valid config file but not one this target can address (auth over ssh; unknown names). */
 	unsupported: "WSL_CONFIG_UNSUPPORTED",
 	/** the wsl config store was not assembled for this build. */
 	unavailable: "WSL_CONFIG_UNAVAILABLE",
@@ -167,15 +217,18 @@ export const WSL_CONFIG_CODE_SET: ReadonlySet<string> = new Set(Object.values(WS
 export type WslPiConfigSnapshot = {
 	kind: "wsl";
 	hostId: string;
-	file: PiConfigFileKey;
+	file: WslPiConfigFileKey;
 	label: string;
 	distro: string;
 	user: string;
+	/** Parsed object exactly as pi would read it (missing file = the canonical empty document). */
 	data: Record<string, unknown>;
+	/** Source text of the file (missing file = the canonical empty document's text); the raw page edits this. */
+	raw: string;
 };
 
 /** Successful wsl write receipt: whole-file write under the resolved distribution HOME. */
-export type WslPiConfigWriteReceipt = { kind: "wsl"; hostId: string; file: PiConfigFileKey };
+export type WslPiConfigWriteReceipt = { kind: "wsl"; hostId: string; file: WslPiConfigFileKey };
 
 /** true only for a snapshot the wsl store produced (never inferred from local data). */
 export function isWslPiConfigSnapshot(value: unknown): value is WslPiConfigSnapshot {

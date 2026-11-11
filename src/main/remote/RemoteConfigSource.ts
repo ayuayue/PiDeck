@@ -6,8 +6,9 @@
  * change reviewable on its own file and keeps the entry's command-line/artifact audit surface stable.
  *
  * Security model (each item is a one-line invariant in the frozen body):
- * - only two files exist for this scope: $HOME/.pi/agent/models.json and $HOME/.pi/agent/settings.json. No path
- *   parameter exists at all, so auth.json (or any other file under the agent dir) is structurally unreachable;
+ * - only four files exist for this scope: $HOME/.pi/agent/models.json, settings.json, trust.json and mcp.json. No
+ *   path parameter exists at all, so auth.json (or any other file under the agent dir) is structurally unreachable;
+ *   trust/mcp carry no extra privilege: they go through the same sanitize/patch rules as models/settings;
  * - HOME comes from the handshake (absolute POSIX, bounded, no control byte). .pi and .pi/agent may be created
  *   with mode 0700 when missing; an existing symlink or non-directory there is refused before any read/write;
  * - the target file is opened with O_NOFOLLOW and must be a regular file; bytes are bounded at 1 MiB; malformed
@@ -24,8 +25,8 @@
 
 export const REMOTE_CONFIG_SOURCE = String.raw`"use strict";
 export function createConfigScope(home, fs, path, crypto) {
-	const FILES = { models: "models.json", settings: "settings.json" };
-	const DEFAULTS = { models: "{\"providers\":{}}", settings: "{}" };
+	const FILES = { models: "models.json", settings: "settings.json", trust: "trust.json", mcp: "mcp.json" };
+	const DEFAULTS = { models: "{\"providers\":{}}", settings: "{}", trust: "{}", mcp: "{}" };
 	const MAX_BYTES = 1048576, MAX_NODES = 20000, MAX_DEPTH = 32;
 	/* Whole-name matching: maxTokens/tokenizer must NOT be treated as secrets (they are real, patchable model fields), while camelCase compound names (clientSecret/openaiApiKey) still match. */
 	const SECRET_KEY = /^(?:[a-z0-9]+[-_])*(?:[a-z0-9]+)?(?:api[-_]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|token|secret|password|passwd|authorization|cookie|credential|private[-_]?key)$/i;
@@ -107,6 +108,15 @@ export function createConfigScope(home, fs, path, crypto) {
 	function modelsFile(data) {
 		if (isRecord(data.providers) === false) throw failure("CONFIG_FILE_INVALID");
 	}
+	/* mcpServers must stay an object when present: an array/string here makes pi reject the whole file. */
+	function mcpFile(data) {
+		if (data.mcpServers !== undefined && isRecord(data.mcpServers) === false) throw failure("CONFIG_FILE_INVALID");
+	}
+	/* One per-file shape rule; a file without one only has to be a JSON object. */
+	function validateFile(file, data) {
+		if (file === "models") modelsFile(data);
+		if (file === "mcp") mcpFile(data);
+	}
 	function collectSecrets(data) {
 		const secrets = [];
 		const budget = { nodes: 0 };
@@ -141,7 +151,7 @@ export function createConfigScope(home, fs, path, crypto) {
 	}
 	function snapshot(file, buffer) {
 		const data = parseData(buffer);
-		if (file === "models") modelsFile(data);
+		validateFile(file, data);
 		const secrets = collectSecrets(data);
 		const digest = sha256(buffer);
 		return { version: digest, sha256: digest, data: data, secrets: secrets };
@@ -223,11 +233,11 @@ export function createConfigScope(home, fs, path, crypto) {
 		const before = current === null ? defaultBytes(params.file) : current;
 		if (sha256(before) !== params.expectedVersion) throw failure("CONFIG_VERSION_CONFLICT");
 		const data = parseData(before);
-		if (params.file === "models") modelsFile(data);
+		validateFile(params.file, data);
 		const merged = mergeInto(data, params.patch, 0, { nodes: 0 });
 		const next = merged.deleted === true ? null : merged.value;
 		if (isRecord(next) === false) throw failure("CONFIG_FILE_INVALID");
-		if (params.file === "models") modelsFile(next);
+		validateFile(params.file, next);
 		const bytes = Buffer.from(encode(next), "utf8");
 		writeAtomic(target, bytes);
 		let written = null;
@@ -240,4 +250,4 @@ export function createConfigScope(home, fs, path, crypto) {
 `.replace(/\r?\n[\t ]*/g, "");
 
 /** sha256 of REMOTE_CONFIG_SOURCE as UTF-8 bytes; pinned here and re-checked by the helper contract tests. */
-export const REMOTE_HELPER_CONFIG_SHA256 = "0006235d9cdef7211c9e33f0734b2c50462511e96983fbf88cb6858e6a7d13f9";
+export const REMOTE_HELPER_CONFIG_SHA256 = "830b83c490bce88a4e792d66458c281c6c857761e4b387dae2a76ba7507c2c35";

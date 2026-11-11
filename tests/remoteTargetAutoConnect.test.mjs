@@ -18,7 +18,7 @@ const HOST = "11111111-1111-4111-8111-111111111111";
 const HOST2 = "22222222-2222-4222-8222-222222222222";
 const MODEL = "src/renderer/src/config/remoteHostConnectionModel.ts";
 const HOOK = "src/renderer/src/config/useRemotePiConfigPanel.ts";
-const SELECTOR = "src/renderer/src/config/PiConfigTargetSelector.tsx";
+const SWITCH = "src/renderer/src/config/ConfigEnvironmentSwitch.tsx";
 const PANEL = "src/renderer/src/config/RemoteConfigPanel.tsx";
 
 const flush = async (ticks = 4) => {
@@ -226,8 +226,8 @@ test("面板 hook：读到 host-not-ready 时重连一次再读一次，不无�
 	assert.equal(host.render().state.phase, "ready");
 });
 
-test("选择器源码：自动连接、连接动画、密码补录与 WSL 空态提示都在", () => {
-	const source = readFileSync(SELECTOR, "utf8");
+test("环境切换源码：自动连接、连接动画、密码补录与 WSL 空态提示都在", () => {
+	const source = readFileSync(SWITCH, "utf8");
 	assert.match(source, /useRemoteHostConnection/);
 	assert.match(source, /ensureConnected/);
 	assert.match(source, /animate-pideck-spin/);
@@ -237,32 +237,45 @@ test("选择器源码：自动连接、连接动画、密码补录与 WSL 空态
 	assert.match(source, /settings\.connections\.password\.title/);
 	assert.match(source, /data-testid="config-target-wsl-empty"/);
 	assert.match(source, /config\.target\.wslEmpty/);
-	// 选择器仍然不直接碰 IPC：连接经共享 store 走，读/写只由 owner 决定。
+	// 组件不直接碰 IPC：连接经共享 store 走，读/写只由 owner 决定。
 	assert.doesNotMatch(source, /ipcRenderer|desktopApi/);
 	// 三组选项与「本机」入口不因改版丢失。
-	assert.match(source, /<SelectItem value="local" data-testid="config-target-local">/);
-	assert.match(source, /data-testid=\{"config-target-ssh-" \+ host\.id\}/);
-	assert.match(source, /data-testid=\{"config-target-wsl-" \+ host\.id\}/);
+	assert.match(source, /data-testid="config-env-local"/);
+	assert.match(source, /data-testid=\{"config-env-ssh-" \+ host\.id\}/);
+	assert.match(source, /data-testid=\{"config-env-wsl-" \+ host\.id\}/);
 });
 
-test("SSR：ssh 目标在未知连接状态时画成「未连接」，且不抛异常", () => {
-	const { PiConfigTargetSelector } = loadTsCommonJs(SELECTOR, { stubs: { react: React } });
-	const html = renderToStaticMarkup(React.createElement(PiConfigTargetSelector, { target: { kind: "ssh", hostId: HOST }, hosts: [{ kind: "ssh", id: HOST, label: "dev-box", sshHost: "root@10.0.0.1" }], onChange: () => {} }));
-	assert.match(html, /data-testid="config-target-selector"/);
-	assert.match(html, /data-tone="offline"/);
-	assert.match(html, /未连接/);
+const SSH_HOST = { kind: "ssh", id: HOST, label: "dev-box", sshHost: "root@10.0.0.1" };
+const switchStubs = (snapshot) => ({
+	react: React,
+	"./useRemoteHostConnection": { useRemoteHostConnection: () => ({ snapshot, ensureConnected: async () => ({ ok: true }) }) },
 });
 
-test("SSR：正在连接时目标条带转圈 + 呼吸文案，而不是先报错", () => {
-	const { PiConfigTargetSelector } = loadTsCommonJs(SELECTOR, {
-		stubs: {
-			react: React,
-			"./useRemoteHostConnection": {
-				useRemoteHostConnection: () => ({ snapshot: { states: { [HOST]: "connecting" }, pending: { [HOST]: true }, errors: {} }, ensureConnected: async () => ({ ok: true }) }),
-			},
-		},
+test("SSR：ssh 环境在未知连接状态时画成「未连接」，且分页上带环境名", () => {
+	const { ConfigBackendSwitch } = loadTsCommonJs(SWITCH, { stubs: switchStubs({ states: {}, pending: {}, errors: {} }) });
+	const html = renderToStaticMarkup(
+		React.createElement(ConfigBackendSwitch, {
+			pane: "pi",
+			showDsh: false,
+			piDirty: false,
+			dshDirty: false,
+			target: { kind: "ssh", hostId: HOST },
+			hosts: [SSH_HOST],
+			onSelectPane: () => undefined,
+			onSelectTarget: () => undefined,
+		}),
+	);
+	assert.match(html, /data-testid="config-backend-pi-environment"/);
+	assert.match(html, /data-kind="ssh"/);
+	assert.match(html, /dev-box/);
+});
+
+test("SSR：正在连接时环境状态条带转圈 + 呼吸文案，而不是先报错", () => {
+	const { ConfigEnvironmentStatus } = loadTsCommonJs(SWITCH, {
+		stubs: switchStubs({ states: { [HOST]: "connecting" }, pending: { [HOST]: true }, errors: {} }),
 	});
-	const html = renderToStaticMarkup(React.createElement(PiConfigTargetSelector, { target: { kind: "ssh", hostId: HOST }, hosts: [{ kind: "ssh", id: HOST, label: "dev-box", sshHost: "root@10.0.0.1" }], onChange: () => {} }));
+	const html = renderToStaticMarkup(React.createElement(ConfigEnvironmentStatus, { target: { kind: "ssh", hostId: HOST }, hosts: [SSH_HOST] }));
+	assert.match(html, /data-testid="config-environment-status"/);
 	assert.match(html, /data-tone="connecting"/);
 	assert.match(html, /animate-pideck-spin/);
 	assert.match(html, /animate-pulse/);

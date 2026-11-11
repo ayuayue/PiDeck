@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import { REMOTE_CONFIG_CODES, remotePiConfigCodeFromError, type PiConfigFileKey } from "../../../shared/piConfig";
+import { PI_CONFIG_FILE_NAMES, REMOTE_CONFIG_CODES, remotePiConfigCodeFromError, type PiConfigFileKey } from "../../../shared/piConfig";
 import { desktopApi } from "../desktopApi";
 import { initialRemoteConfigPanelState, parseMergePatchText, readRemoteConfigSnapshot, readRemoteConfigWriteReceipt, reduceRemoteConfigPanel, remoteConfigCanSave, remoteConfigPatchDirty } from "./remoteConfigModel";
 import { remoteHostTone } from "./remoteHostConnectionModel";
@@ -25,18 +25,19 @@ export type RemoteConfigPanelPorts = {
 	save: (input: { hostId: string; file: PiConfigFileKey; expectedVersion: string; patch: Record<string, unknown> }) => Promise<unknown>;
 };
 
-/** Production ports: the four existing config methods, now accepting the shared target options (no new channels). */
+/**
+ * Production ports: one file-level channel pair for every remote file (models/settings/trust/mcp).
+ *
+ * 为什么不再按文件挑通道：`config:get-raw` / `config:save-raw` 已经按 target 路由到同一个
+ * RemotePiConfigBackend，四个文件不再各写一条映射——新增信任/MCP 时不需要再往这里加分支。
+ * 保存的 body 参数在 ssh 路由被忽略（主进程先按 target 路由再决定是否碰 ConfigManager），
+ * 传空串是刻意的：万一远端路由缺失，主进程会 fail closed，而不是把这段 body 写进本机文件。
+ */
 export const remoteConfigDesktopPorts: RemoteConfigPanelPorts = {
-	read: ({ hostId, file }) => {
-		const target = { kind: "ssh" as const, hostId };
-		return file === "models" ? desktopApi.config.getModels({ target }) : desktopApi.config.getSettings({ target });
-	},
+	read: ({ hostId, file }) => desktopApi.config.getRaw(PI_CONFIG_FILE_NAMES[file], { target: { kind: "ssh" as const, hostId } }),
 	save: ({ hostId, file, expectedVersion, patch }) => {
 		const options = { target: { kind: "ssh" as const, hostId }, expectedVersion, patch };
-		// The legacy body argument is ignored on the ssh route (main routes before ConfigManager); it exists only
-		// because Batch A kept the four channel signatures. Sending an empty artifact shape is deliberate: if the
-		// remote route were ever absent, main fails closed instead of writing this body to the local file.
-		return file === "models" ? desktopApi.config.saveModels({ providers: {} }, options) : desktopApi.config.saveSettings({}, options);
+		return desktopApi.config.saveRaw(PI_CONFIG_FILE_NAMES[file], "", options);
 	},
 };
 

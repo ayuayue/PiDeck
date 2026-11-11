@@ -636,17 +636,18 @@ export type RemoteHelperReadParams = { path: string; offset: number; bytes: numb
  */
 export type RemoteHelperReadResult = { chunk: string; bytes: number; eof: boolean };
 
-// ── Phase 5: remote Pi config scope (models.json / settings.json only) ─────────────────────────
+// ── Phase 5: remote Pi config scope (models / settings / trust / mcp only) ─────────────────────
 
 /**
- * The config scope is deliberately tiny: two allowlisted files under the remote Pi agent directory, no path
+ * The config scope is deliberately tiny: four allowlisted files under the remote Pi agent directory, no path
  * parameter, no auth.json. Read answers are sanitized (secret values become configured/missing); writes are
  * RFC 7396 merge patches guarded by expectedVersion and an atomic temp+rename+fsync. The frozen config.mjs
- * repeats these literals under test, exactly like the Git worker.
+ * repeats these literals under test, exactly like the Git worker. Adding a file means editing the frozen
+ * artifact, bumping the helper build identity and re-pinning both digests — never a path parameter.
  */
 export const REMOTE_HELPER_METHOD_CONFIG_READ = "config.read";
 export const REMOTE_HELPER_METHOD_CONFIG_PATCH = "config.patch";
-export type RemoteConfigFileKey = "models" | "settings";
+export type RemoteConfigFileKey = "models" | "settings" | "trust" | "mcp";
 /** Upper bound for either agent file (raw bytes) and for the serialized patched result. */
 export const REMOTE_CONFIG_MAX_FILE_BYTES = 1024 * 1024;
 /** Bounded patch/merge walk: an answer that would need more than this is refused, never truncated. */

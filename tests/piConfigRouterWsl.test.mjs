@@ -47,6 +47,14 @@ function harness(options = {}) {
 			localCalls.push("save-settings");
 			return { valid: true };
 		},
+		getRawConfig: async (file) => {
+			localCalls.push(["raw-read", file]);
+			return { raw: "{}" };
+		},
+		saveRawConfig: async (file, raw) => {
+			localCalls.push(["raw-save", file, raw]);
+			return { valid: true };
+		},
 	};
 	const remote = {
 		read: async (input) => {
@@ -70,6 +78,14 @@ function harness(options = {}) {
 		saveSettings: async (input) => {
 			wslCalls.push(["save-settings", input]);
 			return { valid: true, receipt: { kind: "wsl", hostId: input.hostId, file: "settings" } };
+		},
+		readRaw: async (input) => {
+			wslCalls.push(["raw-read", input]);
+			return { raw: "{}" };
+		},
+		saveRaw: async (input) => {
+			wslCalls.push(["raw-save", input]);
+			return { valid: true, receipt: { kind: "wsl", hostId: input.hostId, file: input.file } };
 		},
 	};
 	const router = routerModule.createPiConfigRouter({ local, remote: options.remote === false ? undefined : remote, wsl: options.wsl === false ? undefined : wsl });
@@ -129,6 +145,45 @@ test("wsl 目标 fail closed：未装配存储回 WSL_CONFIG_UNAVAILABLE，坏 h
 	// wsl 不接受 ssh 的版本守卫字段（整文件写入语义）。
 	assert.equal(await rejectionCode(() => h.router.saveModels({ providers: {} }, { target: { kind: "wsl", hostId: HOST }, expectedVersion: VERSION, patch: {} })), shared.WSL_CONFIG_CODES.targetInvalid);
 	assert.deepEqual(h.wslCalls, []);
+	assert.deepEqual(h.localCalls, []);
+});
+
+test("源文件级读写按 target 路由：本机回原文、wsl 落发行版目录、ssh 只发脱敏帧", async () => {
+	const local = harness();
+	const localRaw = await local.router.readRaw("trust", undefined);
+	assert.equal(localRaw.kind, "local");
+	assert.deepEqual(JSON.parse(JSON.stringify(local.localCalls)), [["raw-read", "trust"]]);
+	const rawText = JSON.stringify({ "/srv": true }, null, 2);
+	await local.router.writeRaw("trust", rawText, undefined);
+	assert.deepEqual(JSON.parse(JSON.stringify(local.localCalls[1])), ["raw-save", "trust", rawText]);
+
+	const wsl = harness();
+	const wslRead = await wsl.router.readRaw("auth", { target: { kind: "wsl", hostId: HOST } });
+	assert.equal(wslRead.kind, "wsl");
+	assert.deepEqual(JSON.parse(JSON.stringify(wsl.wslCalls[0])), ["raw-read", { hostId: HOST, file: "auth" }]);
+	const wslSave = await wsl.router.writeRaw("auth", '{"openai":{"key":"sk-x"}}', { target: { kind: "wsl", hostId: HOST } });
+	assert.equal(wslSave.kind, "wsl");
+	assert.deepEqual(JSON.parse(JSON.stringify(wsl.wslCalls[1])), ["raw-save", { hostId: HOST, file: "auth", raw: '{"openai":{"key":"sk-x"}}' }]);
+	assert.deepEqual(wsl.localCalls, [], "wsl 目标不得碰本机读取器");
+	assert.deepEqual(wsl.remoteCalls, []);
+
+	const ssh = harness();
+	const sshRead = await ssh.router.readRaw("mcp", { target: { kind: "ssh", hostId: HOST } });
+	assert.equal(sshRead.kind, "remote");
+	assert.deepEqual(JSON.parse(JSON.stringify(ssh.remoteCalls[0])), ["read", { hostId: HOST, file: "mcp" }]);
+	// ssh 写只接受 patch 守卫；body 在 ssh 路由被忽略。
+	await ssh.router.writeRaw("mcp", "ignored body", { target: { kind: "ssh", hostId: HOST }, expectedVersion: VERSION, patch: { mcpServers: {} } });
+	assert.deepEqual(JSON.parse(JSON.stringify(ssh.remoteCalls[1])), ["patch", { hostId: HOST, file: "mcp", expectedVersion: VERSION, patch: { mcpServers: {} } }]);
+	assert.equal(await rejectionCode(() => ssh.router.writeRaw("mcp", "{}", { target: { kind: "ssh", hostId: HOST } })), shared.REMOTE_CONFIG_CODES.versionConflict);
+	// auth.json 是 ssh 结构性不可达的文件：连传输层都不该被触达。
+	assert.equal(await rejectionCode(() => ssh.router.readRaw("auth", { target: { kind: "ssh", hostId: HOST } })), shared.REMOTE_CONFIG_CODES.targetInvalid);
+	assert.deepEqual(ssh.localCalls, []);
+});
+
+test("未知文件名一律拒绝，不做「按文件名猜文件」的兜底", async () => {
+	const h = harness();
+	assert.equal(await rejectionCode(() => h.router.readRaw("secrets", undefined)), shared.WSL_CONFIG_CODES.targetInvalid);
+	assert.equal(await rejectionCode(() => h.router.writeRaw("../auth", "{}", undefined)), shared.WSL_CONFIG_CODES.targetInvalid);
 	assert.deepEqual(h.localCalls, []);
 });
 

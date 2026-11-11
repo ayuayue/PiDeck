@@ -32,14 +32,13 @@ export function hasWslConfigProfile(hosts: readonly PiConfigTargetHost[]): boole
 }
 
 /**
- * 目标条是否值得渲染。只有本机一个可选目标时整条不渲染：
- * 「配置目标：本机 + 暂无已验证的 SSH 主机」占掉页首一行，却没有可选择的东西——
- * 提示语说的是「去别处加主机」，不是本页可做的操作。
- *
- * 当前目标停在已消失的远端主机上时仍然渲染：否则用户没有回到本机的入口（下拉里恒有「本机」）。
+ * 目标 → 展示名。已消失的主机（档案被删/被禁用）回退到「未知主机」而不是空串：
+ * 用户看到的必须是「我停在一个读不到的目标上」，而不是一个没有名字的空白。
  */
-export function configTargetBarVisible(target: PiConfigTarget, hosts: readonly PiConfigTargetHost[]): boolean {
-	return target.kind !== "local" || hosts.length > 0;
+export function configTargetHostLabel(target: PiConfigTarget, hosts: readonly PiConfigTargetHost[], localLabel: string, unknownLabel: string): string {
+	if (target.kind === "local") return localLabel;
+	const host = hosts.find((candidate) => candidate.kind === target.kind && candidate.id === target.hostId);
+	return host?.label ?? unknownLabel;
 }
 
 /**

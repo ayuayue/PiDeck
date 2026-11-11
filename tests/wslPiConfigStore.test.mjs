@@ -11,7 +11,8 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * - 解析全程有截止：15s 内没解析完就是 WSL_CONFIG_DISTRO_UNAVAILABLE，不能把页面永远挂在加载态；
  * - 读仍走 UNC；写必须走发行版内 exec 端口（wsl.exe + /bin/sh 原子替换），不再把 JSON 写回 UNC 路径；
  * - 非 Windows / wsl.exe 缺失 = WSL_CONFIG_UNAVAILABLE（不假装能读能写）；
- * - models.json 保存沿用本地校验规则，settings.json 保存沿用本地「资源键以磁盘为准」的合并规则。
+ * - models.json 保存沿用本地校验规则，settings.json 保存沿用本地「资源键以磁盘为准」的合并规则；
+ * - trust/mcp/auth 与源文件页走 saveRaw：整文件原文写入，校验 JSON 合法 + mcp 形状。
  */
 
 const storeModule = loadTsCommonJs("src/main/config/WslPiConfigStore.ts");
@@ -100,6 +101,7 @@ test("读取路径只来自档案环境：发行版 HOME 下的 .pi/agent（UNC 
 		distro: DISTRO,
 		user: USER,
 		data: { providers: { openai: { models: [] } } },
+		raw: '{"providers":{"openai":{"models":[]}}}',
 	});
 	// 先判定发行版根与 HOME（在读文件之前），再读 allowlist 里的单个文件。
 	assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
@@ -114,8 +116,55 @@ test("文件缺失按新安装返回空配置，不报错也不回退本机", as
 	const { fs } = createFakeFs();
 	const models = await createStore(fs).read({ hostId: HOST, file: "models" });
 	assert.deepEqual(JSON.parse(JSON.stringify(models.data)), { providers: {} });
+	assert.equal(models.raw, JSON.stringify({ providers: {} }, null, 2));
 	const settings = await createStore(fs).read({ hostId: HOST, file: "settings" });
 	assert.deepEqual(JSON.parse(JSON.stringify(settings.data)), {});
+	assert.equal(settings.raw, "{}");
+});
+
+test("trust/mcp/auth 与源文件页同域：读原文、写原文，auth 不再被排除在 WSL 作用域外", async () => {
+	const trustPath = CONFIG_DIR + "\\trust.json";
+	const authPath = CONFIG_DIR + "\\auth.json";
+	const { fs } = createFakeFs({ files: { [trustPath]: '{"C:\\\\work":true}', [authPath]: '{"openai":{"key":"sk-x"}}' } });
+	const store = createStore(fs);
+	const trust = await store.read({ hostId: HOST, file: "trust" });
+	assert.deepEqual(JSON.parse(JSON.stringify(trust.data)), { "C:\\work": true });
+	assert.equal(trust.raw, '{"C:\\\\work":true}');
+	const auth = await store.readRaw({ hostId: HOST, file: "auth" });
+	assert.equal(auth.raw, '{"openai":{"key":"sk-x"}}');
+});
+
+test("源文件页能打开损坏的文件（返回原文 + 诊断），结构化读取仍 fail closed", async () => {
+	const modelsPath = CONFIG_DIR + "\\models.json";
+	const broken = '{ "providers": }';
+	const { fs } = createFakeFs({ files: { [modelsPath]: broken } });
+	const raw = await createStore(fs).readRaw({ hostId: HOST, file: "models" });
+	assert.equal(raw.raw, broken);
+	assert.equal(raw.diagnostic.fileName, "models.json");
+	assert.match(raw.diagnostic.message, /JSON/i);
+	assert.equal(await rejectionCode(() => createStore(fs).read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.fileInvalid);
+});
+
+test("saveRaw 校验后原文落盘：mcp 形状不合格拒绝，合法内容不重新格式化", async () => {
+	const exec = createFakeExec();
+	const store = createStore(createFakeFs().fs, { exec: exec.exec });
+	const invalidMcp = await store.saveRaw({ hostId: HOST, file: "mcp", raw: '{"mcpServers":[]}' });
+	assert.equal(invalidMcp.valid, false);
+	assert.deepEqual(exec.calls, [], "校验失败不得执行写命令");
+	const invalidJson = await store.saveRaw({ hostId: HOST, file: "trust", raw: "{ oops" });
+	assert.equal(invalidJson.valid, false);
+
+	const formatted = '{\n  "mcpServers": {"docs": {"url": "https://example.com/mcp"}}\n}';
+	const saved = await store.saveRaw({ hostId: HOST, file: "mcp", raw: formatted });
+	assert.equal(saved.valid, true);
+	assert.deepEqual(JSON.parse(JSON.stringify(saved.receipt)), { kind: "wsl", hostId: HOST, file: "mcp" });
+	assert.equal(exec.calls[0].fileName, "mcp.json");
+	assert.equal(exec.calls[0].content, formatted + "\n", "原文写入，只补一个结尾换行");
+
+	const auth = await store.saveRaw({ hostId: HOST, file: "auth", raw: '{"openai":{"key":"sk-y"}}\n' });
+	assert.equal(auth.valid, true);
+	assert.equal(exec.calls[1].fileName, "auth.json");
+	assert.equal(exec.calls[1].content, '{"openai":{"key":"sk-y"}}\n', "已有结尾换行不重复追加");
 });
 
 test("档案缺失/发行版未启动/HOME 不可读：读文件之前给稳定码", async () => {

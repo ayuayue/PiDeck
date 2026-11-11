@@ -2,7 +2,7 @@
  * RemotePiConfigBackend (plan §6.4.1, Batch A): the only main-side code that talks to the helper config scope.
  *
  * What it promises:
- * - one allowlisted file per call (models/settings), addressed only by a verified host id. The renderer never
+ * - one allowlisted file per call (models/settings/trust/mcp; never auth), addressed only by a verified host id. The renderer never
  *   supplies a path, and this module never touches the local ConfigManager, so a remote failure cannot fall
  *   back to local files or local credentials;
  * - every helper reply is re-validated here as untrusted data: version/sha256 shape, bounded data, a recursive
@@ -17,7 +17,7 @@
  * inject a fake port; no method in this module starts a process or reads a file.
  */
 
-import { REMOTE_CONFIG_CODES, type PiConfigFileKey, type RemotePiConfigSecretEntry, type RemotePiConfigSnapshot, type RemotePiConfigWriteReceipt } from "../../shared/piConfig";
+import { REMOTE_CONFIG_CODES, isPiConfigFileKey, type PiConfigFileKey, type RemotePiConfigSecretEntry, type RemotePiConfigSnapshot, type RemotePiConfigWriteReceipt } from "../../shared/piConfig";
 import { REMOTE_CONFIG_MAX_DEPTH, REMOTE_CONFIG_MAX_FILE_BYTES, REMOTE_CONFIG_MAX_NODES, REMOTE_CONFIG_SECRET_KEY_PATTERN } from "../remote/RemoteHelperContract";
 import { PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
 
@@ -120,6 +120,8 @@ function validateSnapshot(file: PiConfigFileKey, hostId: string, result: unknown
 	const serialized = JSON.stringify(data);
 	if (typeof serialized !== "string" || Buffer.byteLength(serialized, "utf8") > REMOTE_CONFIG_MAX_FILE_BYTES) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
 	if (file === "models" && !isRecord(data.providers)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+	// Same shape rule the frozen scope enforces before it activates a write: an array/string mcpServers breaks pi.
+	if (file === "mcp" && data.mcpServers !== undefined && !isRecord(data.mcpServers)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
 	const secrets = collectSecrets(data);
 	const supplied = result.secrets;
 	if (!Array.isArray(supplied)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
@@ -171,11 +173,11 @@ export function createRemotePiConfigBackend(transport: RemotePiConfigTransportPo
 
 	return {
 		async read(input) {
-			if (input.file !== "models" && input.file !== "settings") throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+			if (!isPiConfigFileKey(input.file)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
 			return validateSnapshot(input.file, input.hostId, await call(input.hostId, HELPER_METHOD_READ, { file: input.file }));
 		},
 		async patch(input) {
-			if (input.file !== "models" && input.file !== "settings") throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+			if (!isPiConfigFileKey(input.file)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
 			if (typeof input.expectedVersion !== "string" || !HEX64.test(input.expectedVersion)) throw stable(REMOTE_CONFIG_CODES.versionConflict);
 			if (!isRecord(input.patch)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
 			validatePatch(input.patch);

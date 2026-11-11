@@ -34,7 +34,7 @@ const FACADE_SOURCE = readFileSync("src/shared/api/facadeTypes.ts", "utf8");
  */
 // #520：安全分享三个方法归 catalog，117 → 120。
 const SESSIONS_METHOD_TOTAL = 120;
-const CONFIG_METHOD_TOTAL = 53;
+const CONFIG_METHOD_TOTAL = 54;
 const SESSIONS_GROUP_KEYS = ["catalog", "import", "rewind", "runtime"];
 const CONFIG_GROUP_KEYS = ["auth", "maintenance", "mcp", "models", "resources", "settings", "support", "tokendance", "trust", "usageProbes", "vision"];
 
@@ -269,7 +269,7 @@ test("F5-7 DSH 方法归属按 PLAN.md S5 裁定（查询→runtime、importDsh*
 	assert.deepEqual(problems, [], "DSH 归属与 S5 裁定不符——映射数据待返工，证据见消息");
 });
 
-test("F5-8 CONFIG_SUBSTORES 十一组并集 ≡ config 命名空间 53 方法全集 + 方法族口径（FIND-4）", () => {
+test("F5-8 CONFIG_SUBSTORES 十一组并集 ≡ config 命名空间 54 方法全集 + 方法族口径（FIND-4）", () => {
 	assert.equal(configNames.length, CONFIG_METHOD_TOTAL, `源码解析得 ${configNames.length} 个方法`);
 	assert.deepEqual(Object.keys(CONFIG).sort(), CONFIG_GROUP_KEYS);
 	assert.deepEqual(validateGroupingStructure(CONFIG, CONFIG_GROUP_KEYS), []);

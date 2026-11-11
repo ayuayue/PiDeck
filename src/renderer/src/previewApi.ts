@@ -1797,6 +1797,7 @@ export function createPreviewApi(): PiDesktopApi {
 			getAuth: async () => ({ raw: "{}", parsed: {} }),
 			getSettings: async () => ({ raw: "{}", parsed: {} }),
 			getTrust: async () => ({ raw: "{}", parsed: {} }),
+			getRaw: async () => ({ raw: "{}" }),
 			getMcp: async () => ({
 				writablePath: "",
 				writableFile: { mcpServers: {} },

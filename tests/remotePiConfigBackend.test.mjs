@@ -101,6 +101,28 @@ test("helper and connection codes collapse into the shared closed set without le
 	assert.equal(await rejectionCode(() => h.backend.read({ hostId: HOST, file: "settings" })), shared.REMOTE_CONFIG_CODES.unavailable);
 });
 
+test("trust/mcp 与 models/settings 同一条白名单通道；auth 始终被拒", async () => {
+	// 每个允许的文件都真实发出同一种 config.read/config.patch 帧（不新增方法，不新增能力位）。
+	for (const file of ["trust", "mcp"]) {
+		const h = harness(({ method }) => (file === "mcp" ? snapshot({ data: { mcpServers: {} }, secrets: [] }) : snapshot({ data: { "/srv/work": true }, secrets: [] })));
+		const read = await h.backend.read({ hostId: HOST, file });
+		assert.equal(read.file, file);
+		assert.deepEqual(JSON.parse(JSON.stringify(h.calls[0])), { hostId: HOST, method: "config.read", params: { file } });
+		const patch = file === "mcp" ? { mcpServers: { docs: { url: "https://example.test/mcp" } } } : { "/srv/work": false };
+		const receipt = await h.backend.patch({ hostId: HOST, file, expectedVersion: VERSION, patch });
+		assert.equal(receipt.file, file);
+		assert.deepEqual(JSON.parse(JSON.stringify(h.calls[1])), { hostId: HOST, method: "config.patch", params: { file, expectedVersion: VERSION, patch } });
+	}
+	// mcpServers 必须是对象：数组/字符串会让 pi 拒绝整份文件，主进程在发出请求前就拦住。
+	const badShape = harness(() => snapshot({ data: { mcpServers: [] }, secrets: [] }));
+	assert.equal(await rejectionCode(() => badShape.backend.read({ hostId: HOST, file: "mcp" })), shared.REMOTE_CONFIG_CODES.fileInvalid);
+	assert.deepEqual(badShape.calls.length, 1, "畸形回包是读之后才发现：只发一次读，不发写");
+	// auth 结构性不可达：config 白名单里没有它，连传输层都不该被触达。
+	const auth = harness();
+	assert.equal(await rejectionCode(() => auth.backend.read({ hostId: HOST, file: "auth" })), shared.REMOTE_CONFIG_CODES.targetInvalid);
+	assert.deepEqual(auth.calls, []);
+});
+
 test("invalid inputs are refused before the transport is called", async () => {
 	const h = harness();
 	for (const hostId of ["not-a-host", "", "11111111-1111-4111-8111-11111111111Z"]) {

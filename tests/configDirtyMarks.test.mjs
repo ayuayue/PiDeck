@@ -147,7 +147,7 @@ test("模型页保存顺带落盘 settings 草稿，且不整页重载（避免�
 	assert.match(modal, /baselineSettingsRef\.current = deepClone\(pruned\)/);
 	// 两条「保存全部」路径都要用排好序的键列表（settings 最后）。
 	const orderedUses = modal.match(/for \(const key of orderDirtyKeysForSave\(roots\)\)/g) ?? [];
-	assert.equal(orderedUses.length, 2, "saveAllDirty 与保存并关闭都必须按 orderDirtyKeysForSave 顺序保存");
+	assert.equal(orderedUses.length, 3, "saveAllDirty、保存并关闭、切换环境前的保存都必须按 orderDirtyKeysForSave 顺序保存");
 });
 
 test("models 页加载 settings 失败时不渲染编辑入口（settingsLoaded 门控）", () => {

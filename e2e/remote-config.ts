@@ -37,14 +37,16 @@ export async function verifyRemoteConfig(input: { window: Page; credentials: Rem
 		await expect(layout).toBeVisible();
 		await layout.getByRole("tab", { name: "模型", exact: true }).click();
 
-		// Target selector: local is the default; pick the verified ssh host added by the acceptance setup.
-		const selector = layout.getByTestId("config-target-selector");
-		await expect(selector).toBeVisible({ timeout: timeoutMs });
-		await selector.click();
-		// The list item accessible name is "<host label> <ssh host>"; the label is user-chosen, so anchor on the address.
-		const hostOption = window.getByRole("option").filter({ hasText: new RegExp(credentials.host.replace(/\./g, "\\.")) });
-		await expect(hostOption.first(), "目标选择器必须列出已连接的主机").toBeVisible({ timeout: 30_000 });
+		// Pi 环境下拉挂在「Pi 配置管理」分页上：本机是默认，选中验收用的那台 SSH 主机后整页按它重载。
+		const envTrigger = layout.getByTestId("config-env-trigger");
+		await expect(envTrigger).toBeVisible({ timeout: timeoutMs });
+		await envTrigger.click();
+		// 菜单项文案是「<主机 label> <user@host>」；label 由用户填写，所以锚定地址。
+		const hostOption = window.getByRole("menuitem").filter({ hasText: new RegExp(credentials.host.replace(/\./g, "\\.")) });
+		await expect(hostOption.first(), "环境下拉必须列出已连接的主机").toBeVisible({ timeout: 30_000 });
 		await hostOption.first().click();
+		const envStatus = layout.getByTestId("config-environment-status");
+		await expect(envStatus).toHaveAttribute("data-kind", "ssh", { timeout: timeoutMs });
 
 		const panel = layout.getByTestId("remote-config-panel");
 		await expect(panel).toHaveAttribute("data-file", "models", { timeout: timeoutMs });
@@ -75,10 +77,13 @@ export async function verifyRemoteConfig(input: { window: Page; credentials: Rem
 		const check = await runRemoteCommand(credentials, "grep -F " + marker + ' "$HOME/.pi/agent/models.json" >/dev/null && echo MARKER_ON_REMOTE', 60_000);
 		expect(check.stdout.trim()).toContain("MARKER_ON_REMOTE");
 
-		// Disabled page copy: 认证 has no remote editor and reports the stable unsupported code.
-		await layout.getByRole("tab", { name: "认证", exact: true }).click();
-		await expect(layout.getByTestId("remote-config-unsupported-auth")).toBeVisible({ timeout: 30_000 });
-		await expect(layout.getByTestId("remote-config-stable-code").first()).toHaveText("REMOTE_CONFIG_UNSUPPORTED");
+		// SSH 环境只给 helper 白名单里的页：凭据页不存在（不是点进去报错），信任/MCP 走同一套脱敏 patch 面板。
+		await expect(layout.getByRole("tab", { name: "认证", exact: true })).toHaveCount(0);
+		await expect(layout.getByRole("tab", { name: "源文件", exact: true })).toHaveCount(0);
+		await layout.getByRole("tab", { name: "信任", exact: true }).click();
+		await expect(layout.getByTestId("remote-config-panel")).toHaveAttribute("data-file", "trust", { timeout: timeoutMs });
+		await layout.getByRole("tab", { name: "MCP", exact: true }).click();
+		await expect(layout.getByTestId("remote-config-panel")).toHaveAttribute("data-file", "mcp", { timeout: timeoutMs });
 	} finally {
 		const restored = await runRemoteCommand(credentials, restoreCommand, timeoutMs);
 		const restoredText = restored.stdout.trim();

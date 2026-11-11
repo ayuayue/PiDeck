@@ -1,5 +1,6 @@
 /**
- * WslPiConfigStore（P1-1 + W3）：一个 WSL 连接档案的 pi 配置目录，按发行版 HOME 读写 models.json / settings.json。
+ * WslPiConfigStore（P1-1 + W3 + W4）：一个 WSL 连接档案的 pi 配置目录，按发行版 HOME 读写
+ * models.json / settings.json / trust.json / mcp.json / auth.json。
  *
  * 为什么单独一个存储，而不是复用 ConfigManager / RemotePiConfigBackend：
  * - 绝不复用全局 `configManager.configureWsl`：那会改所有窗口的单例 configDir，两个 WSL 目标并发就串环境。
@@ -19,8 +20,11 @@
  *
  * 其它语义与本地保持一致：
  * - 读：文件不存在 = 新安装（返回空对象）；JSON 损坏 = WSL_CONFIG_FILE_INVALID（不当作空配置）；
+ *   唯一例外是 `readRaw`：源文件页要能打开损坏的文件修复它，那里返回原文 + 诊断；
  * - 写 models.json：整文件写入，写前跑与本地相同的校验规则；
  * - 写 settings.json：锁外重读磁盘后按 settingsFormPayload 的合并规则落盘（资源类键以磁盘为准）；
+ * - 写其它文件（trust/mcp/auth 与源文件页）：`saveRaw` 整文件原文写入，写前只做「JSON 合法 + mcp 形状」
+ *   校验（与本地 saveRawConfig 同一条规则），不重新格式化。
  * - resolve() 全程有 15s 截止：档案查询/HOME 解析/UNC stat 任一挂住都回 WSL_CONFIG_DISTRO_UNAVAILABLE，
  *   不能让设置页永远转圈；非 Windows 或 wsl.exe 缺失一律 WSL_CONFIG_UNAVAILABLE。
  *
@@ -33,7 +37,9 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, posix } from "node:path";
-import { WSL_CONFIG_CODES, WSL_CONFIG_CODE_SET, type PiConfigFileKey, type WslPiConfigSnapshot, type WslPiConfigWriteReceipt } from "../../shared/piConfig";
+import { WSL_CONFIG_CODES, WSL_CONFIG_CODE_SET, isWslPiConfigFileKey, type WslPiConfigFileKey, type WslPiConfigSnapshot, type WslPiConfigWriteReceipt } from "../../shared/piConfig";
+import type { ConfigFileDiagnostic } from "../../shared/types";
+import { validateMcpConfigFile } from "./mcpConfig";
 import { PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
 import { mainProcessT, type MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import type { WslHostListItem } from "../../shared/types/wslHost";
@@ -87,7 +93,7 @@ export type WslPiConfigExecInput = {
 	user: string;
 	/** 发行版内配置目录（Linux 绝对路径），不是 UNC。 */
 	configDir: string;
-	fileName: `${PiConfigFileKey}.json`;
+	fileName: `${WslPiConfigFileKey}.json`;
 	/** 完整 JSON 文本；原样写入 stdin，不经过 shell。 */
 	content: string;
 };
@@ -133,9 +139,17 @@ export type WslPiConfigStorePorts = {
 export type WslPiConfigSaveResult = { valid: true; receipt: WslPiConfigWriteReceipt } | { valid: false; error: string };
 
 export type WslPiConfigStore = {
-	read(input: { hostId: string; file: PiConfigFileKey }): Promise<WslPiConfigSnapshot>;
+	/** Parsed snapshot for the structured editors; a broken file fails closed (never shown as an empty config). */
+	read(input: { hostId: string; file: WslPiConfigFileKey }): Promise<WslPiConfigSnapshot>;
+	/**
+	 * Source text for the raw page. Unlike {@link WslPiConfigStore.read} this returns the bytes even when the JSON is
+	 * broken (with a diagnostic), because the raw page exists to repair exactly that file.
+	 */
+	readRaw(input: { hostId: string; file: WslPiConfigFileKey }): Promise<{ raw: string; diagnostic?: ConfigFileDiagnostic }>;
 	saveModels(input: { hostId: string; data: unknown }): Promise<WslPiConfigSaveResult>;
 	saveSettings(input: { hostId: string; settings: Record<string, unknown> }): Promise<WslPiConfigSaveResult>;
+	/** Whole-file write of any scoped file (raw page / file-level editors); validates JSON before replacing. */
+	saveRaw(input: { hostId: string; file: WslPiConfigFileKey; raw: string }): Promise<WslPiConfigSaveResult>;
 };
 
 function stable(code: string): Error {
@@ -266,9 +280,14 @@ function defaultTimer(): WslPiConfigTimer {
 	};
 }
 
-function fileKeyOf(file: unknown): PiConfigFileKey {
-	if (file === "models" || file === "settings") return file;
+function fileKeyOf(file: unknown): WslPiConfigFileKey {
+	if (isWslPiConfigFileKey(file)) return file;
 	throw stable(WSL_CONFIG_CODES.targetInvalid);
+}
+
+/** Missing file = the canonical empty document, exactly like the local ConfigManager fallback. */
+function emptyDocument(file: WslPiConfigFileKey): Record<string, unknown> {
+	return file === "models" ? { providers: {} } : {};
 }
 
 export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfigStore {
@@ -388,29 +407,30 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 		if (!stats?.isDirectory) throw stable(code);
 	}
 
-	async function readFileData(path: string, file: PiConfigFileKey): Promise<Record<string, unknown>> {
-		let raw: string | null;
+	async function readFileData(path: string, file: WslPiConfigFileKey): Promise<{ data: Record<string, unknown>; raw: string }> {
+		let text: string | null;
 		try {
-			raw = await fs.readTextFile(path);
+			text = await fs.readTextFile(path);
 		} catch {
 			throw stable(WSL_CONFIG_CODES.pathUnreadable);
 		}
-		if (raw === null) return file === "models" ? { providers: {} } : {};
+		if (text === null) return { data: emptyDocument(file), raw: JSON.stringify(emptyDocument(file), null, 2) };
 		let parsed: unknown;
 		try {
-			parsed = JSON.parse(stripBom(raw));
+			parsed = JSON.parse(stripBom(text));
 		} catch {
 			throw stable(WSL_CONFIG_CODES.fileInvalid);
 		}
 		if (!isRecord(parsed)) throw stable(WSL_CONFIG_CODES.fileInvalid);
-		return parsed;
+		return { data: parsed, raw: text };
 	}
 
-	function snapshotOf(profile: WslHostListItem, file: PiConfigFileKey, data: Record<string, unknown>): WslPiConfigSnapshot {
-		return { kind: "wsl", hostId: profile.id, file, label: profile.label, distro: profile.distro, user: profile.user, data };
+	function snapshotOf(profile: WslHostListItem, file: WslPiConfigFileKey, document: { data: Record<string, unknown>; raw: string }): WslPiConfigSnapshot {
+		return { kind: "wsl", hostId: profile.id, file, label: profile.label, distro: profile.distro, user: profile.user, data: document.data, raw: document.raw };
 	}
 
-	async function writeConfigFile(target: Resolved, file: PiConfigFileKey, data: Record<string, unknown>): Promise<void> {
+	/** 写盘文本由调用方决定（结构化编辑器序列化 / 源文件页原文），这里只负责发行版内原子替换。 */
+	async function writeConfigFile(target: Resolved, file: WslPiConfigFileKey, content: string): Promise<void> {
 		if (execInDistro === undefined) throw stable(WSL_CONFIG_CODES.unavailable);
 		try {
 			await execInDistro({
@@ -418,7 +438,7 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 				user: target.profile.user,
 				configDir: target.linuxConfigDir,
 				fileName: `${file}.json`,
-				content: `${JSON.stringify(data, null, 2)}\n`,
+				content,
 			});
 		} catch (error) {
 			// 执行端口自己的稳定码原样透出（非 Windows / wsl.exe 缺失 = UNAVAILABLE）；
@@ -427,8 +447,45 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 		}
 	}
 
-	function receiptOf(profile: WslHostListItem, file: PiConfigFileKey): WslPiConfigWriteReceipt {
+	function receiptOf(profile: WslHostListItem, file: WslPiConfigFileKey): WslPiConfigWriteReceipt {
 		return { kind: "wsl", hostId: profile.id, file };
+	}
+
+	/** Same parse/diagnostic contract as the local ConfigManager: raw bytes survive a broken file. */
+	function diagnosticOf(file: WslPiConfigFileKey, raw: string, error: unknown): ConfigFileDiagnostic {
+		const message = error instanceof Error ? error.message : String(error);
+		const positionMatch = message.match(/position\s+(\d+)/i);
+		const position = positionMatch ? Number(positionMatch[1]) : undefined;
+		const diagnostic: ConfigFileDiagnostic = { fileName: `${file}.json`, message, docsUrl: "https://pi.dev/docs/latest/settings" };
+		if (Number.isFinite(position)) {
+			const lines = raw.slice(0, position).split(/\r?\n/);
+			diagnostic.line = lines.length;
+			diagnostic.column = lines[lines.length - 1].length + 1;
+			const rawLines = raw.split(/\r?\n/);
+			const start = Math.max(0, lines.length - 2);
+			const end = Math.min(rawLines.length, lines.length + 1);
+			diagnostic.snippet = rawLines
+				.slice(start, end)
+				.map((text, index) => `${start + index + 1}: ${text}`)
+				.join("\n");
+		}
+		return diagnostic;
+	}
+
+	/** 文件级保存的校验：与本地 saveRawConfig 同一条规则（JSON 合法 + mcp.json 过 adapter 校验）。 */
+	function validateRawForSave(file: WslPiConfigFileKey, raw: string): { ok: true } | { ok: false; error: string } {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(stripBom(raw));
+		} catch {
+			return { ok: false, error: translate("mainConfig.invalidJson") };
+		}
+		if (!isRecord(parsed)) return { ok: false, error: translate("mainConfig.invalidJson") };
+		if (file === "mcp") {
+			const mcpError = validateMcpConfigFile(parsed as Parameters<typeof validateMcpConfigFile>[0]);
+			if (mcpError) return { ok: false, error: mcpError };
+		}
+		return { ok: true };
 	}
 
 	return {
@@ -438,12 +495,31 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 			const { configDir, profile } = await resolveCached(input.hostId);
 			return snapshotOf(profile, file, await readFileData(join(configDir, `${file}.json`), file));
 		},
+		async readRaw(input) {
+			requireSupportedPlatform();
+			const file = fileKeyOf(input.file);
+			const { configDir } = await resolveCached(input.hostId);
+			let raw: string | null;
+			try {
+				raw = await fs.readTextFile(join(configDir, `${file}.json`));
+			} catch {
+				throw stable(WSL_CONFIG_CODES.pathUnreadable);
+			}
+			if (raw === null) return { raw: JSON.stringify(emptyDocument(file), null, 2) };
+			try {
+				JSON.parse(stripBom(raw));
+				return { raw };
+			} catch (error) {
+				// 损坏的文件仍要能在源文件页里修复：返回原文 + 诊断，而不是「读不了」。
+				return { raw, diagnostic: diagnosticOf(file, raw, error) };
+			}
+		},
 		async saveModels(input) {
 			requireSupportedPlatform();
 			const resolved = await resolve(input.hostId);
 			const validation = validateModelsForSave(input.data, translate);
 			if (!validation.ok) return { valid: false, error: validation.error };
-			await writeConfigFile(resolved, "models", input.data as Record<string, unknown>);
+			await writeConfigFile(resolved, "models", `${JSON.stringify(input.data, null, 2)}\n`);
 			return { valid: true, receipt: receiptOf(resolved.profile, "models") };
 		},
 		async saveSettings(input) {
@@ -454,8 +530,19 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 			// 锁外重读 + 合并：与本地 saveSettingsConfig 一样，资源类键以磁盘为准，
 			// 页面的整份快照不能把别处刚写入的 packages/extensions 静默回退。
 			const current = await readFileData(path, "settings");
-			await writeConfigFile(resolved, "settings", mergeSettingsFormPayload(current, input.settings));
+			await writeConfigFile(resolved, "settings", `${JSON.stringify(mergeSettingsFormPayload(current.data, input.settings), null, 2)}\n`);
 			return { valid: true, receipt: receiptOf(resolved.profile, "settings") };
+		},
+		async saveRaw(input) {
+			requireSupportedPlatform();
+			const file = fileKeyOf(input.file);
+			if (typeof input.raw !== "string") throw stable(WSL_CONFIG_CODES.fileInvalid);
+			const validation = validateRawForSave(file, input.raw);
+			if (!validation.ok) return { valid: false, error: validation.error };
+			const resolved = await resolve(input.hostId);
+			// 原文写回（不重新格式化）：源文件页是字节级编辑，重新序列化会把用户的排版选择抹掉。
+			await writeConfigFile(resolved, file, input.raw.endsWith("\n") ? input.raw : `${input.raw}\n`);
+			return { valid: true, receipt: receiptOf(resolved.profile, file) };
 		},
 	};
 }

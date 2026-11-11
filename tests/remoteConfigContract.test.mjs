@@ -39,9 +39,11 @@ test("the secret-key pattern and the public bounds are one source of truth", () 
 	assert.ok(source.includes(String(contract.REMOTE_CONFIG_MAX_FILE_BYTES)), "frozen config.mjs repeats the file byte bound");
 	assert.ok(source.includes(String(contract.REMOTE_CONFIG_MAX_NODES)), "frozen config.mjs repeats the node bound");
 	assert.ok(source.includes(String(contract.REMOTE_CONFIG_MAX_DEPTH)), "frozen config.mjs repeats the depth bound");
-	// Only the two allowlisted file keys exist; no generic path parameter.
+	// Only the allowlisted file keys exist; no generic path parameter.
 	assert.ok(source.includes('models: "models.json"'));
 	assert.ok(source.includes('settings: "settings.json"'));
+	assert.ok(source.includes('trust: "trust.json"'));
+	assert.ok(source.includes('mcp: "mcp.json"'));
 	assert.ok(!source.includes("auth.json"), "auth.json is structurally unreachable from the config scope");
 	assert.ok(!source.includes("params.path"), "no generic path parameter exists in the config scope");
 	// Prototype-pollution and UTF-8 hardening are part of the same frozen artifact.
@@ -66,9 +68,9 @@ test("the packed config artifact is one byte-frozen ASCII line with its own pin"
 	assert.ok(source.length > 1024 && source.length < 96 * 1024, "unexpected artifact size " + source.length);
 });
 
-test("the entry re-pins the new artifact and reports helper 1.26.1", () => {
-	assert.equal(entry.REMOTE_HELPER_ENTRY_VERSION, "1.26.1");
-	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"1.26.1"'), "hello must report the new build");
+test("the entry re-pins the new artifact and reports helper 1.27.0", () => {
+	assert.equal(entry.REMOTE_HELPER_ENTRY_VERSION, "1.27.0");
+	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"1.27.0"'), "hello must report the new build");
 	const artifacts = Array.from(entry.REMOTE_HELPER_ARTIFACTS, (artifact) => artifact.name);
 	assert.deepEqual(artifacts, ["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "search-content.mjs", "upload-commit.mjs", "terminal-runner.mjs"]);
 	const packed = entry.REMOTE_HELPER_ARTIFACTS.find((artifact) => artifact.name === "config.mjs");
@@ -81,5 +83,7 @@ test("shared remote config codes are the closed set the main backend returns", (
 	const expected = ["REMOTE_CONFIG_TARGET_INVALID", "REMOTE_CONFIG_HOST_NOT_READY", "REMOTE_CONFIG_UNAVAILABLE", "REMOTE_CONFIG_UNSUPPORTED", "REMOTE_CONFIG_FILE_INVALID", "REMOTE_CONFIG_VERSION_CONFLICT", "REMOTE_CONFIG_RESULT_UNCONFIRMED", "REMOTE_CONFIG_PROVIDER_OPERATION_UNSUPPORTED"];
 	assert.deepEqual(Object.values(shared.REMOTE_CONFIG_CODES).sort(), [...expected].sort());
 	for (const code of expected) assert.ok(shared.REMOTE_CONFIG_CODE_SET.has(code), code);
-	assert.deepEqual([...shared.PI_CONFIG_FILES], ["models", "settings"]);
+	assert.deepEqual([...shared.PI_CONFIG_FILES], ["models", "settings", "trust", "mcp"]);
+	assert.deepEqual([...shared.WSL_PI_CONFIG_FILES], ["models", "settings", "trust", "mcp", "auth"]);
+	assert.equal(shared.piConfigFilesForTarget({ kind: "ssh", hostId: "h" }).includes("auth"), false, "ssh must never address auth.json");
 });

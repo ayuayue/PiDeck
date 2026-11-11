@@ -25,6 +25,7 @@
 | 文档 | 用途 |
 |---|---|
 | [architecture.md](architecture.md) | 分层与跨层契约（shared / main / ipc / preload / renderer） |
+| [config-environments.md](config-environments.md) | Pi 配置管理的环境模型（本机/SSH/WSL）、能力矩阵与切换契约 |
 | [host-boundaries.md](host-boundaries.md) | pi ↔ PiDeck 通道边界与例外 |
 | [engineering-standards.md](engineering-standards.md) | 代码/测试/安全/兼容标准 |
 | [electron-playbook.md](electron-playbook.md) | 窗口、preload、打包、原生模块 |
