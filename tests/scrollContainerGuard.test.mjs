@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import { EXEMPT_CATEGORIES, loadBaseline, runCheck, scan } from "./scrollContainerGuard.mjs";
+import { EXEMPT_CATEGORIES, loadBaseline, runCheck, scan, virtualMeasureProblems } from "./scrollContainerGuard.mjs";
 
 /**
  * 滚动容器虚拟化守卫。
@@ -203,4 +203,28 @@ test("反例：只有声明、没有元素引用时不算容器（声明行本�
 		"DeclOnly.tsx": ["const DeclOnly = () => {", '  const listClass = "m-0 max-h-64 overflow-y-auto";', "  return null;", "};"].join("\n"),
 	});
 	assert.equal(items.length, 0, "没人用的类名常量不该变成滚动容器");
+});
+
+// ── 虚拟化测量的卸载清理口径（同一域的第二条判据，见 docs/virtualization-audit.md 六）──
+// 为什么留在这里而不是 tests/*.test.mjs：这条判据的输入是源码文本、没有渲染环境可跑，属「lint」
+// 而非「行为测试」——与滚动容器守卫同形，由 npm run check:scroll-containers 在 CI 上跑。
+test("测量清理反例：只 return 不交 null → 红", () => {
+	const bad = "const r = (node) => { if (!node) return; virtualizer.measureElement(node); };";
+	assert.deepEqual(virtualMeasureProblems(bad), ["调了 measureElement(node) 却没有 measureElement(null)：卸载的行会留在 elementsCache 里"]);
+});
+
+test("测量清理反例：交了 null 但没淘汰按 key 存的闭包缓存 → 红", () => {
+	const bad = ["const measureRefs = useMemo(() => new Map<string, (n) => void>(), [virtualizer]);", "const cb = (node) => { if (!node) { virtualizer.measureElement(null); return; } virtualizer.measureElement(node); };", "measureRefs.set(id, cb);"].join("\n");
+	const problems = virtualMeasureProblems(bad);
+	assert.equal(problems.length, 1);
+	assert.match(problems[0], /闭包缓存没有 delete/);
+});
+
+test("测量清理合格样本：交 null + 淘汰缓存 → 绿", () => {
+	const good = ["const measureRefs = useMemo(() => new Map<string, (n) => void>(), [virtualizer]);", "const cb = (node) => { if (!node) { virtualizer.measureElement(null); measureRefs.delete(id); return; } virtualizer.measureElement(node); };"].join("\n");
+	assert.deepEqual(virtualMeasureProblems(good), []);
+});
+
+test("测量清理：没调 measureElement 的文件不被这条判据管", () => {
+	assert.deepEqual(virtualMeasureProblems("const estimateHeight = 20; export const X = () => null;"), []);
 });

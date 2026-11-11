@@ -93,6 +93,42 @@ function stripBlockComments(text) {
 	return text.replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "));
 }
 
+/**
+ * 虚拟化测量的清理口径（2026-11 从 tests/virtualMeasureCleanup.test.mjs 并入）。
+ *
+ * 调了 `virtualizer.measureElement(node)` 的组件，卸载时**必须**把 null 交回去：那是
+ * virtual-core 里 elementsCache / ResizeObserver 的唯一清理入口，只 `return` 会让已卸载的行
+ * 留在缓存里（VirtualRunList 在 2026-11 之前就是这种写法）。若还持有按 key 存的 ref 回调缓存
+ * （`useMemo(() => new Map… )`），卸载分支必须淘汰它，否则键数随「曾经挂载过的行数」增长。
+ *
+ * 返回违规说明数组（空 = 合规）。只看真正调用 measureElement 的文件：stub、测试替身、纯注释不管。
+ */
+export function virtualMeasureProblems(source) {
+	const problems = [];
+	if (!/virtualizer\.measureElement\(\s*[A-Za-z_$]/.test(source)) return problems;
+	if (!/measureElement\(\s*null\s*\)/.test(source)) problems.push("调了 measureElement(node) 却没有 measureElement(null)：卸载的行会留在 elementsCache 里");
+	const cacheDecl = source.match(/const\s+([A-Za-z_$][\w$]*)\s*=\s*useMemo\(\s*\(\)\s*=>\s*new Map</);
+	if (cacheDecl) {
+		const name = cacheDecl[1];
+		if (!new RegExp("\\b" + name + "\\.delete\\(").test(source)) problems.push(name + " 里的闭包缓存没有 delete：键数随「曾经挂载过的行数」增长");
+	}
+	return problems;
+}
+
+/** 扫 src 下所有 tsx/ts，返回破坏测量清理口径的文件清单。 */
+export function scanVirtualMeasureCleanup(options = {}) {
+	const root = options.root ?? ROOT;
+	const offenders = [];
+	// 测试用临时目录造反例样本时不带 src/：缺目录等于「没有组件」，不是错误。
+	const dir = join(root, "src");
+	if (!existsSync(dir)) return offenders;
+	for (const file of walk(dir, [])) {
+		const problems = virtualMeasureProblems(readFileSync(file, "utf8"));
+		if (problems.length > 0) offenders.push({ file: relative(root, file).replace(/\\/g, "/"), problems });
+	}
+	return offenders;
+}
+
 function scan(options = {}) {
 	// root / dir 可注入：测试要拿临时目录造反例样本（「只挨着 VirtualStack 但没接线」必须红），
 	// 直接扫实盘的话，反例样本会变成仓库里一个额外的滚动容器。
@@ -227,6 +263,15 @@ function main() {
 function runCheck(options = {}) {
 	const args = options.args ?? [];
 	const items = scan(options);
+	// 同一域的第二条判据：虚拟化测量的卸载清理（见 virtualMeasureProblems）。
+	// 放在 --seed 之前：口径被破坏时不许写基线。
+	const measureOffenders = scanVirtualMeasureCleanup(options);
+	if (measureOffenders.length > 0) {
+		console.error("\n以下组件破坏了虚拟化测量的卸载清理口径：");
+		for (const item of measureOffenders) console.error("  " + item.file + " → " + item.problems.join("；"));
+		console.error("\n修法：卸载分支把 null 交给 virtualizer.measureElement（elementsCache / ResizeObserver 的唯一清理入口），并淘汰按 key 存的 ref 回调缓存。见 docs/virtualization-audit.md「六、已知限制」。");
+		return 1;
+	}
 	if (args.includes("--seed")) {
 		// 只收「还没判定过」的项：已虚拟化和已豁免的不进基线。
 		// 否则把某处的 <VirtualStack> 拆掉也不会变红——基线会替它兜底。

@@ -99,7 +99,10 @@ node tests/scrollContainerGuard.mjs --seed   # 重新生成基线
   virtual-core 里 `elementsCache` / `ResizeObserver` 的唯一清理入口；同时要淘汰按 key 存的闭包缓存，
   否则键数随「曾经挂载过的行数」增长。`VirtualStack` 与 `VirtualRunList` 各持一套实现，这条口径
   两边必须一致（2026-11 修：VirtualRunList 当时还是旧写法，只 `return` 不清缓存）。
-  这条没有渲染测试覆盖——仓库没有 jsdom / testing-library，`tests/` 只能跑纯函数，判据是代码对照。
+  这条仍没有渲染测试覆盖（仓库没有 jsdom / testing-library），但已从「人读代码」变成机器判据：
+  `npm run check:scroll-containers` 会扫 `src/**/*.tsx`，同时校验「调了 measureElement 就必须交 null」
+  与「按 key 存的 ref 回调缓存必须在卸载分支 delete」（实现在 `tests/scrollContainerGuard.mjs`，
+  样本用例在 `tests/scrollContainerGuard.test.mjs`）。
 - **`role="list"` / `role="tree"`**：虚拟化会插入一层内容盒，`listitem` 的 owner 变了。
   两种写法都合法，选哪种看短列表路径：
   1. `containerProps={{ role: "list" }}` —— role 落在内容盒上（轨迹视图、子代理条、会话内查找、分支树用这个）；
