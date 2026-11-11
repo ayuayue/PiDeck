@@ -10,7 +10,17 @@ import { replaceExpandedRefBlocksWithLabels } from "./composer/quoteChip";
 import { Button } from "../ui-shadcn/button";
 import { DiagnosticMessageCard, EmptyState, MultiSelectModal, RespondingIndicator, TurnRow, UserBubble, stripMarkdown } from "./SurfaceParts";
 import { getMultiSelectImageCaptureIds, groupToolMessages, reconcileRuns, type RenderMessage } from "../app/AppUtils";
-import { liveThinkingIdBySessionIdAtomFamily, liveTextStreamingBySessionAtom, liveThinkingStreamingBySessionAtom, sessionMessageCacheBySessionIdAtomFamily, sessionMessageLoadStateAtom, sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily, sessionSendStateByIdAtom, type PendingHistoryMutation } from "../../atoms";
+import {
+	liveThinkingIdBySessionIdAtomFamily,
+	liveTextStreamingBySessionAtom,
+	liveThinkingStreamingBySessionAtom,
+	sessionMessageCacheBySessionIdAtomFamily,
+	sessionMessageLoadStateAtom,
+	sessionRecordByIdAtomFamily,
+	sessionRuntimeBySessionIdAtomFamily,
+	sessionSendStateByIdAtom,
+	type PendingHistoryMutation,
+} from "../../atoms";
 import { writeClipboardImage } from "../../utils/clipboard";
 import { useTimelineSelection } from "../../hooks/useTimelineSelection";
 import { useMessageContextMenu } from "../../hooks/useMessageContextMenu";
