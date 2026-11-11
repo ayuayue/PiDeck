@@ -10,7 +10,7 @@
 - **magic2066** ([@magic2066](https://github.com/magic2066)) — 修复 Codex 子代理会话导入展示、修复 Linux 桌面宠物拖拽和 dev 启动 (#40, #41)
 - **pangolinknight** ([@pangolinknight](https://github.com/pangolinknight)) — 主进程流式消息节流合并与工具结果截断，修复大会话渲染进程白屏 (#33)
 - **me9rez** ([@me9rez](https://github.com/me9rez)) — 清理依赖、SkillManager 软连接扫描与循环检测、TypeScript 增量编译产物整理 (#97, #86, #69)
-- **bfzha** ([@bfzha](https://github.com/bfzha)) — VS Code 风格 Git 面板与复杂工作流支持、会话内存瘦身与流式渲染优化、时间线查看位置保持、技能/提示词/扩展启停开关、资源作用域与 pi 0.85 解析器对齐 (#68, #145, #144, #143, #142, #141)、运行控制「停止回答 / 关闭 Agent」语义拆分、内置 Web 服务默认绑环回并强制令牌鉴权、shell 操作符不再渲染成会话 chip、状态图标防裁切与 Ask 等待提示档位、提问卡钉列底 + 整行选项重做 (#230)、pi 0.86 system 条目导致的 entryId 错位修复、重试成功卡改瞬态卡、文件树按 Git 状态着色（直接父目录实色、更深祖先淡出）、历史目录旧身份键导致的重复记录与标题错乱归并 (#354)、重启后历史骨架屏永驻 (#350)、Ctrl+Tab 按标签栏显示顺序切换 (#346)、macOS Dock 启动 tailscale 的 GUI 兜底 (#351)、列表排序收敛为拖拽 + 键盘微调、技能商店搜索入参契约对齐、轨迹检查器整体重做（真实系统提示词快照、索引化有界读取、导轨目录与合并索引、账本渲染窗口与概览像素聚合、事件驱动刷新、轮次摘要折叠）、对话内 Markdown 图片渲染（`pideck-file://` 只读协议、640×360 与 96px 多图布局、复制与保存）、提示词模板参数替换与同名模板合并、轮末「修改的文件」chip 化并修掉 `meta.args` 截断导致的文件丢失（5.0% → 0.69%）
+- **bfzha** ([@bfzha](https://github.com/bfzha)) — VS Code 风格 Git 面板与复杂工作流支持、会话内存瘦身与流式渲染优化、时间线查看位置保持、技能/提示词/扩展启停开关、资源作用域与 pi 0.85 解析器对齐 (#68, #145, #144, #143, #142, #141)、运行控制「停止回答 / 关闭 Agent」语义拆分、内置 Web 服务默认绑环回并强制令牌鉴权、shell 操作符不再渲染成会话 chip、状态图标防裁切与 Ask 等待提示档位、提问卡钉列底 + 整行选项重做 (#230)、pi 0.86 system 条目导致的 entryId 错位修复、重试成功卡改瞬态卡、文件树按 Git 状态着色（直接父目录实色、更深祖先淡出）、历史目录旧身份键导致的重复记录与标题错乱归并 (#354)、重启后历史骨架屏永驻 (#350)、Ctrl+Tab 按标签栏显示顺序切换 (#346)、macOS Dock 启动 tailscale 的 GUI 兜底 (#351)、列表排序收敛为拖拽 + 键盘微调、技能商店搜索入参契约对齐、轨迹检查器整体重做（真实系统提示词快照、索引化有界读取、导轨目录与合并索引、账本渲染窗口与概览像素聚合、事件驱动刷新、轮次摘要折叠）、对话内 Markdown 图片渲染（`pideck-file://` 只读协议、640×360 与 96px 多图布局、复制与保存）、提示词模板参数替换与同名模板合并、轮末「修改的文件」chip 化并修掉 `meta.args` 截断导致的文件丢失（5.0% → 0.69%）；远端工作区产品化（重绑向导、远端文件进中央编辑器、Git ignore 着色、安装更新前落盘草稿、文件写入乐观锁）、本机 / 远端文件 provider 合并与 IPC 收口、pi 1.5.1 对齐
 - **Lopution** ([@Lopution](https://github.com/Lopution)) — 跨桌面边界 WSL 路径处理 (#84)
 - **buaassp** ([@buaassp](https://github.com/buaassp)) — 隐藏内部 pi-subagent 会话 (#57)
 - **octo-patch** ([@octo-patch](https://github.com/octo-patch)) — MiniMax 端点认证专属模型发现 (#112)
@@ -28,11 +28,14 @@
 
 - **EEEEEEEEdison** ([@EEEEEEEEdison](https://github.com/EEEEEEEEdison)) — 右侧边栏上下分区与常驻会话状态面板 (#334)、TPS 测量模式（流式 / 端到端）(#327)
 - **fengxinzi1814** ([@fengxinzi1814](https://github.com/fengxinzi1814)) — 选择题点击即提交，不再需要二次点提交 (#344)
-- **san-ren** ([@san-ren](https://github.com/san-ren)) — Web 移动端可视区优化：顶栏随滚动收起、输入区空闲折叠与滚动隐藏，收起状态机抽成纯函数并补齐 e2e
+- **san-ren** ([@san-ren](https://github.com/san-ren)) — Web 移动端可视区优化：顶栏随滚动收起、输入区空闲折叠与滚动隐藏，收起状态机抽成纯函数并补齐 e2e；设置页默认供应商 / 模型下拉框空白修复 (#502)、市场插件版本 tag 归一化与安装态文案 (#503)、ask 多选意图不再被吃成单选 (#526)
 - **GME** ([@EEEEEEEEdison](https://github.com/EEEEEEEEdison)) — 会话级平均 TPS（时间区间并集消解派生任务并发重叠）、思考强度超限时按模型支持档位自动 clamp
 - **TanCan1998** ([@TanCan1998](https://github.com/TanCan1998)) — 用量详情在探针只报总额与剩余时反推已用百分比、诊断包保留脱敏后的 detail、HTML 预览改走 `pideck-html://` 协议解除 CSP 限制、DSH runtime 未安装时给出可解释的错误、rewind checkpoint 改用临时 index 并补齐 WSL 与空树快照边界 (#380, #382, #383, #384, #386)
-- **op15066212** ([@op15066212](https://github.com/op15066212)) — 时间线翻页与刻度导航重做（贴底翻页、按条跳转、历史预算与死循环）、恢复会话后「加载更多对话」不出现与点不动的续页锚点修复、镜像 push 改为禁止交互并在凭据缺失时立即失败 (#473, #469, #467, #465)
+- **op15066212** ([@op15066212](https://github.com/op15066212)) — 时间线翻页与刻度导航重做（贴底翻页、按条跳转、历史预算与死循环）、恢复会话后「加载更多对话」不出现与点不动的续页锚点修复、镜像 push 改为禁止交互并在凭据缺失时立即失败 (#473, #469, #467, #465)；排队消息在 accepted 窗口连发两条修复 (#523)、虚拟化守卫接进 CI 与两处实现漂移 (#524)、启动时清理源文件已不存在的孤儿条目 (#525)、dev 门禁连续红灯与测试形状判据收口 (#527)、会话事实读取改位置索引 (#528)、远端 helper 的 `config.mjs` 与产物脱钩及未实现 UI method 回 cancelled (#530, #531)
 - **xiaofeilovecoding** ([@xiaofeilovecoding](https://github.com/xiaofeilovecoding)) — 修复批量回答未完成就被提交 (#456)
+- **KingLingo** ([@KingLingo](https://github.com/KingLingo)) — 修复 Spotlight 搜索中的应用图标花屏、稳定签名下更新后的权限身份校验，补齐签名更新界面与开发通道清单的回归测试 (#497, #498, #516)
+- **incredible404-rgb** ([@incredible404-rgb](https://github.com/incredible404-rgb)) — 关联会话（父 / 子对话，侧栏嵌套与每轮回报父会话）、浮在时间线之上的提问卡（折叠 / 拖动 / 记住位置）、批量提问可单题跳过 (#509, #507, #506)
+- **future0923** ([@future0923](https://github.com/future0923)) — macOS Developer ID 签名与 notarytool 公证、应用内更新与发布门禁、安装与打包的 Electron 下载镜像 (#515, #517)
 
 以及所有提交 Issue、反馈建议和帮助推广的用户。
 

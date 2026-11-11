@@ -53,6 +53,12 @@ This release connects PiDeck across machines: remote workspaces available in sta
 - **Web agent catalogue requests time out and retry** — with a relaxed server keep-alive, so weak networks stop spinning forever.
 - **Queued messages no longer send twice** — fixes the duplicate delivery inside the accepted window (#523).
 
+### 🙏 Thanks
+
+Thanks to **incredible404-rgb** for linked parent / child sessions with sidebar nesting and per-turn reports (#509), the ask card floating above the timeline (#507) and per-question skipping for batch questions (#506); to **future0923** for Developer ID signing and notarization, in-app updates and release gates (#515), plus the Electron download mirror for install and packaging (#517); to **KingLingo** for the Spotlight icon corruption fix (#497), the permission-identity check after a stable-signed update (#498) and the signing / update and dev-channel regression coverage (#516); to **op15066212** for fixing queued messages sending twice (#523), clearing orphan session entries left by deleted sources (#525) and silently dropped unimplemented UI methods (#531), wiring the virtualization guard into CI (#524), moving session fact reads to a position index (#528), and continuing to close out the dev guard (#527) and the remote helper's `config.mjs` contract (#530); to **san-ren** for fixing blank default-provider / model dropdowns (#502), normalizing plugin-market version tags (#503) and the multi-select intent being read as single-select (#526); and to **bfzha** for turning remote workspaces into a product capability (rebind wizard, remote files in the centre editor, Git ignore colouring, draft flushing before an update and optimistic file-write locks), along with the pi 1.5.1 alignment, the local / remote file-provider merge and the IPC clean-up.
+
+Special thanks to **罪**, **橙子** and **微时** for the model services that power this project 🎉
+
 ## v0.11.3 (2026-11-07)
 
 The preview panel finally has a word-wrap switch: long lines no longer force horizontal dragging, in the diff view and the source view alike.
