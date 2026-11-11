@@ -193,6 +193,16 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 
 	const dialogErrorText = files.outcome?.kind === "failed" && remoteFileEntryKeepsInput(files.outcome.code) ? files.outcome.text : null;
 	const trashOutcomeText = files.outcome !== null && (files.outcome.operation === "restore" || files.outcome.operation === "prune") ? files.outcome : null;
+	/** 搜索开关：关闭时一并清掉名字搜索、内容搜索与输入框，避免下次打开看到残留。 */
+	const toggleSearch = () => {
+		if (searchOpen) {
+			resetSearch();
+			contentSearch.reset();
+			setQuery("");
+		}
+		setSearchOpen(!searchOpen);
+	};
+
 	const fileOutcomeText = files.outcome !== null && files.outcome.operation !== "restore" && files.outcome.operation !== "prune" ? files.outcome.text : "";
 
 	return (
@@ -266,25 +276,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 						>
 							<Upload className="size-4" />
 						</Button>
-						<Button
-							type="button"
-							size="icon-sm"
-							variant="ghost"
-							aria-label={t("project.remote.searchPlaceholder")}
-							title={t("project.remote.searchPlaceholder")}
-							aria-pressed={searchOpen}
-							disabled={busy}
-							onClick={() => {
-								setSearchOpen((open) => {
-									if (open) {
-										resetSearch();
-										contentSearch.reset();
-										setQuery("");
-									}
-									return !open;
-								});
-							}}
-						>
+						<Button type="button" size="icon-sm" variant="ghost" aria-label={t("project.remote.searchPlaceholder")} title={t("project.remote.searchPlaceholder")} aria-pressed={searchOpen} disabled={busy} onClick={toggleSearch}>
 							<Search className="size-4" />
 						</Button>
 						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-trash-toggle" aria-label={t("remoteTrash.title")} title={t("remoteTrash.title")} aria-expanded={trashOpen} disabled={files.busy || !canTrash} onClick={() => setTrashOpen((open) => !open)}>

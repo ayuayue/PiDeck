@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { ipcMain, type WebContents } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { codeOf, HOST_ID, HOST_NAME, MAX_LABEL, SAFE_USER, senderIdOf } from "./remoteHostInputValidation";
+import { findingFrom, REPAIR_ACTIONS, repairSummary } from "./remoteHostRepairView";
 import { registerRemoteHostEditIpc } from "./remoteHostEditIpc";
 import { registerRemoteHostPiIpc } from "./remoteHostPiIpc";
 import { registerRemoteHostScanIpc } from "./remoteHostScanIpc";
@@ -20,14 +21,12 @@ import type {
 	RemoteHostListResult,
 	RemoteHostRepairAnswerResult,
 	RemoteHostRepairDiagnosisResult,
-	RemoteHostRepairFinding,
 	RemoteHostRepairRequest,
 	RemoteHostRepairRunResult,
 	RemoteDirectoryListResult,
 	RemoteHostRemoveResult,
 	RemoteHostEditDraftResult,
 	RemoteHostUpdateResult,
-	RemoteHostRepairSummary,
 } from "../../shared/types/remoteHost";
 import { openRemoteHostStoreForRetire, type RemoteHostCatalogView } from "../remote/RemoteHostCatalogView";
 import { listRemoteDirectories } from "../remote/RemoteDirectoryListing";
@@ -41,8 +40,6 @@ import { RemoteHostStore } from "../remote/RemoteHostStore";
 import { createRemoteHostReferenceRegistry } from "../remote/RemoteHostReferenceSources";
 import { SshHostPinStore } from "../remote/SshHostPinStore";
 
-const REPAIR_REASON = /^REMOTE_HOST_[A-Z0-9_]{1,64}$/;
-const REPAIR_CLASSIFICATIONS: ReadonlySet<string> = new Set(["orphan-pin", "anchor-invalid", "lock", "snapshot", "write-uncertain", "unknown"]);
 // Diagnostics are re-validated at this boundary rather than trusted: the service already builds them
 // from enumerable values, but the renderer must never be the place a path or command could appear.
 const DIAGNOSTIC_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
@@ -52,16 +49,6 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 /** Bounded per request: a host with a long history must not turn one IPC call into an unbounded payload. */
 const MAX_DIAGNOSTIC_ENTRIES = 200;
 /** Repair actions the UI may request. Anything else is refused before it can reach the repair module. */
-const REPAIR_ACTIONS: ReadonlySet<string> = new Set(["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "clear-rebind-lock", "forget-trust-anchor"]);
-
-/** Expose only stable codes and valid ids; no repair commands, pin paths or trust metadata cross IPC. */
-function repairSummary(view: RemoteHostCatalogView): RemoteHostRepairSummary[] {
-	return view.findings.map((finding) => ({
-		reason: REPAIR_REASON.test(finding.reason) ? finding.reason : "REMOTE_HOST_DIAGNOSTIC_UNKNOWN",
-		classification: REPAIR_CLASSIFICATIONS.has(finding.classification) ? finding.classification : "unknown",
-		hostIds: finding.hostIds.filter((id) => HOST_ID.test(id)).slice(0, 2000),
-	}));
-}
 
 /** Re-validate a service diagnostic before it reaches the renderer; anything unreadable is dropped. */
 function diagnosticEntry(value: unknown): RemoteHostDiagnosticEntry | null {
@@ -587,15 +574,3 @@ export function registerRemoteHostIpc(input: {
 	});
 	return { openStores };
 }
-
-/** Project a diagnosis finding onto the renderer contract, dropping anything not on the allowlist. */
-function findingFrom(finding: { reason: string; classification: string; hostIds: readonly string[]; actions: readonly string[] }): RemoteHostRepairFinding {
-	return {
-		reason: REPAIR_REASON.test(finding.reason) ? finding.reason : "REMOTE_HOST_DIAGNOSTIC_UNKNOWN",
-		classification: REPAIR_CLASSIFICATIONS.has(finding.classification) ? (finding.classification as RemoteHostRepairFinding["classification"]) : "unknown",
-		hostIds: finding.hostIds.filter((id) => HOST_ID.test(id)).slice(0, 2000),
-		actions: finding.actions.filter((action) => REPAIR_ACTIONS.has(action)) as RemoteHostRepairFinding["actions"],
-	};
-}
-
-/** The broker keys on a positive integer sender; `webContents.id` is exactly that. */
