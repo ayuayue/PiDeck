@@ -271,6 +271,37 @@ test("SSR：ssh 环境在未知连接状态时画成「未连接」，且分页�
 	assert.match(html, /dev-box/);
 });
 
+test("SSR：嵌入模式下 Pi / DSH 两个分页的下划线挂在各自的按钮上（同一基线，不错位）", () => {
+	const { ConfigBackendSwitch } = loadTsCommonJs(SWITCH, { stubs: switchStubs({ states: {}, pending: {}, errors: {} }) });
+	const render = (pane) =>
+		renderToStaticMarkup(
+			React.createElement(ConfigBackendSwitch, {
+				pane,
+				showDsh: true,
+				embedded: true,
+				piDirty: false,
+				dshDirty: false,
+				target: { kind: "ssh", hostId: HOST },
+				hosts: [SSH_HOST],
+				onSelectPane: () => undefined,
+				onSelectTarget: () => undefined,
+			}),
+		);
+	const tag = (html, testId) => html.match(new RegExp('<(?:button|div)[^>]*data-testid="' + testId + '"[^>]*>'))?.[0] ?? "";
+	const pi = render("pi");
+	// 下划线（border-b-2）只能在按钮上：挂在分页组容器上会让 h-8 变成 34px，激活线比 DSH 低 2px。
+	assert.match(tag(pi, "config-backend-pi"), /border-b-2/, "Pi 主按钮自带下划线");
+	assert.match(tag(pi, "config-env-trigger"), /border-b-2/, "环境 caret 与主按钮同一条下划线");
+	assert.match(tag(pi, "config-backend-dsh"), /border-b-2/, "DSH 与 Pi 同一盒模型");
+	assert.doesNotMatch(tag(pi, "config-backend-pi-group"), /border-b-2|border-primary/, "分页组容器不再承担下划线");
+	assert.match(tag(pi, "config-backend-pi"), /border-primary/);
+	assert.match(tag(pi, "config-backend-dsh"), /border-transparent/);
+	const dsh = render("dsh");
+	assert.match(tag(dsh, "config-backend-pi"), /border-transparent/, "切到 DSH 后 Pi 的下划线必须转成透明，而不是留下一段色块");
+	assert.match(tag(dsh, "config-env-trigger"), /border-transparent/);
+	assert.match(tag(dsh, "config-backend-dsh"), /border-primary/);
+});
+
 test("SSR：正在连接时环境状态条带转圈 + 呼吸文案，而不是先报错", () => {
 	const { ConfigEnvironmentStatus } = loadTsCommonJs(SWITCH, {
 		stubs: switchStubs({ states: { [HOST]: "connecting" }, pending: { [HOST]: true }, errors: {} }),

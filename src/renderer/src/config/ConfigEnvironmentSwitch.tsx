@@ -113,9 +113,9 @@ export function ConfigBackendSwitch(props: { pane: "pi" | "dsh"; showDsh: boolea
 			<div
 				className={cn(
 					"config-backend-tab-group flex min-w-0 items-center",
-					// 嵌入设置窗口：与 DSH 分页同款下划线（组整体承担，caret 也落在下划线里）；
+					// 嵌入设置窗口：下划线挂在两个分页按钮自己身上（与 DSH 同一盒模型，激活线才在同一基线上）；
 					// 独立弹窗：分段条里的白底药丸。
-					props.embedded ? cn("border-b-2", piActive ? "border-primary" : "border-transparent") : cn("rounded-md border", piActive ? "border-border-subtle bg-bg-panel shadow-sm" : "border-transparent"),
+					props.embedded ? undefined : cn("rounded-md border", piActive ? "border-border-subtle bg-bg-panel shadow-sm" : "border-transparent"),
 				)}
 				data-testid="config-backend-pi-group"
 			>
@@ -127,7 +127,7 @@ export function ConfigBackendSwitch(props: { pane: "pi" | "dsh"; showDsh: boolea
 					tabIndex={piActive ? 0 : -1}
 					data-testid="config-backend-pi"
 					onClick={() => props.onSelectPane("pi")}
-					className={cn("flex h-8 min-w-0 items-center gap-1.5 rounded-l-md px-2.5 text-control font-medium transition-colors", piActive ? "text-foreground" : "text-text-secondary hover:text-foreground")}
+					className={cn("flex h-8 min-w-0 items-center gap-1.5 px-2.5 text-control font-medium transition-colors", props.embedded ? cn("border-b-2", piActive ? "border-primary" : "border-transparent") : "rounded-l-md", piActive ? "text-foreground" : "text-text-secondary hover:text-foreground")}
 				>
 					<PiLogo className="size-3.5 shrink-0" />
 					<span className="truncate">{t("config.backend.pi")}</span>
@@ -147,7 +147,7 @@ export function ConfigBackendSwitch(props: { pane: "pi" | "dsh"; showDsh: boolea
 							data-kind={target.kind}
 							data-tone={target.kind === "ssh" ? tone : undefined}
 							disabled={props.disabled}
-							className={cn("flex h-8 shrink-0 items-center justify-center rounded-r-md px-1 text-text-secondary transition-colors hover:text-foreground disabled:opacity-50", piActive && !props.embedded && "border-l border-border-subtle")}
+							className={cn("flex h-8 shrink-0 items-center justify-center px-1 text-text-secondary transition-colors hover:text-foreground disabled:opacity-50", props.embedded ? cn("border-b-2", piActive ? "border-primary" : "border-transparent") : cn("rounded-r-md", piActive && "border-l border-border-subtle"))}
 						>
 							<ChevronDown className="size-3.5" aria-hidden="true" />
 						</button>
@@ -214,9 +214,10 @@ export function ConfigBackendSwitch(props: { pane: "pi" | "dsh"; showDsh: boolea
 					data-testid="config-backend-dsh"
 					onClick={() => props.onSelectPane("dsh")}
 					className={cn(
-						"flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-control font-medium transition-colors",
+						"flex h-8 shrink-0 items-center gap-1.5 px-2.5 text-control font-medium transition-colors",
 						props.pane === "dsh" ? "text-foreground" : "text-text-secondary hover:text-foreground",
-						props.embedded ? (props.pane === "dsh" ? "border-b-2 border-primary" : "border-b-2 border-transparent") : props.pane === "dsh" ? "border border-border-subtle bg-bg-panel shadow-sm" : "border border-transparent",
+						// 嵌入时与 Pi 分页同一种下划线：无圆角（圆角会把 2px 下划线的两端往上拉，看起来比对面短一截）。
+						props.embedded ? cn("border-b-2", props.pane === "dsh" ? "border-primary" : "border-transparent") : cn("rounded-md", props.pane === "dsh" ? "border border-border-subtle bg-bg-panel shadow-sm" : "border border-transparent"),
 					)}
 				>
 					<DshLogo className="size-3.5 shrink-0" />
