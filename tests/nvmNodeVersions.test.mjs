@@ -48,10 +48,17 @@ test("default 为版本前缀或完整版本时，该版本排第一，其余仍
 	});
 });
 
-test("default 沿别名链解析（自定义别名、lts/*）", () => {
+test("default 沿别名链解析（自定义别名、lts/*）", (t) => {
 	withNvm({ versions: INSTALLED, aliases: { default: "work", work: "v20.1.0" } }, (order) => {
 		assert.equal(order()[0], "v20.1.0");
 	});
+	// 带 "/" 的别名在 Windows 上也是合法文件名，这一档在两边都跑：证明别名链能穿过目录层级。
+	withNvm({ versions: INSTALLED, aliases: { default: "lts/jod", "lts/jod": "v22.22.1" } }, (order) => {
+		assert.equal(order()[0], "v22.22.1");
+	});
+	// `*` 不能做 Windows 文件名（alias/lts/* 建不出来）。这是 withNvm 的移植性限制，不是这条用例
+	// 不成立：POSIX 上照跑同一档，Windows 上显式 skip，让跳过在输出里可见而不是静默走过。
+	if (process.platform === "win32") return t.skip("alias 名里的 `*` 无法做 Windows 文件名");
 	withNvm({ versions: INSTALLED, aliases: { default: "lts/*", "lts/*": "lts/jod", "lts/jod": "v22.22.1" } }, (order) => {
 		assert.equal(order()[0], "v22.22.1");
 	});

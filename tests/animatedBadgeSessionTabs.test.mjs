@@ -81,8 +81,13 @@ test("session tab active background is instant (no shared-layout slide between t
 });
 
 test("sidebar SessionTree still uses its own status dot (unchanged)", () => {
+	// 这条原先是快照式的「SessionTree 还自己实现状态点（unchanged）」。
+	// 状态点后来提取成了 SidebarStatusDot 组件，快照过期；现在钉住的是委派关系本身。
 	const source = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
-	assert.match(source, /sessionStatusDotClass/);
+	const dot = readFileSync("src/renderer/src/components/sidebar/SidebarStatusDot.tsx", "utf8");
+	assert.match(source, /import \{ SessionRuntimeStatusDot \} from "\.\/SidebarStatusDot"/);
+	assert.doesNotMatch(source, /sessionStatusDotClass/);
+	assert.match(dot, /sessionStatusDotClass/);
 });
 
 test("session menu (moved out of the tab bar) keeps state-based disable with visible gray", () => {

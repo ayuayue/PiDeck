@@ -87,10 +87,12 @@ test("session status indicators stay on the concrete session row", () => {
 	assert.match(agentListDisplay, /if \(!status \|\| status === "detached"\) return undefined/);
 	// SessionTree 不再渲染带文本的状态徽标；无 runtime 的历史记录不显示状态点。
 	assert.doesNotMatch(sessionTree, /\/agent-status-indicator/);
-	assert.match(sessionTree, /function renderRuntimeStatusDot/);
-	assert.match(sessionTree, /sessionStatusDotClass\(status\)/);
-	assert.match(sessionTree, /renderRuntimeStatusDot\(child\.agent\.status\)/);
-	assert.match(sessionTree, /renderRuntimeStatusDot\(runtimeSnapshot\?\.status\)/);
+	// 状态点已提取成 SidebarStatusDot 组件（sessionSidebar.test.mjs 已钉住「SessionTree 里
+	// 不许再出现 renderRuntimeStatusDot」）。这里原先还在断言旧实现，两条测试互相矛盾。
+	assert.doesNotMatch(sessionTree, /function renderRuntimeStatusDot/);
+	assert.match(sessionTree, /import \{ SessionRuntimeStatusDot \} from "\.\/SidebarStatusDot"/);
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{child\.agent\.status\} \/>/);
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{runtimeSnapshot\?\.status\} \/>/);
 	// Tab 同样未启动不显示徽章，已启动按状态映射渲染（beui AnimatedBadge 替换裸圆点）。
 	assert.match(tabBar, /import \{ sessionStatusBadge \} from "\.\.\/\.\.\/utils\/sessionStatusBadge"/);
 	assert.match(tabBar, /const badge = sessionStatusBadge\(status, \{/);

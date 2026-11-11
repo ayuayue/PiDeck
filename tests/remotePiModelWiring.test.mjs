@@ -84,7 +84,8 @@ test("the probe service is the only place that validates the host and does one b
 
 test("the renderer models panel exposes the real catalog action and keeps settings on the disabled note", () => {
 	const panel = read(PANEL);
-	assert.match(panel, /props\.file === "models" \? <RemoteModelCatalogSection hostId=\{props\.hostId\} \/> : <RemoteConfigDeferredOperations \/>/);
+	// settings 分支后来也接进来了：models -> 目录；settings -> 延后操作占位；其余 null。
+	assert.match(panel, /props\.file === "models" \? <RemoteModelCatalogSection hostId=\{props\.hostId\} \/> : props\.file === "settings" \? <RemoteConfigDeferredOperations \/> : null/);
 	const section = read(SECTION);
 	assert.match(section, /desktopApi\.probeRemoteModels\(props\.hostId\)/);
 	assert.match(section, /data-testid="remote-model-probe"/);

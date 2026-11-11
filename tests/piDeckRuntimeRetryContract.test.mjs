@@ -174,6 +174,16 @@ test("幂等：同一消息重复进 message_end 不会叠加标注", () => {
 const SESSION_ROOT = join(homedir(), ".pi", "agent", "sessions");
 const MAX_FILES = 120;
 
+/**
+ * 固化语料：真实会话里出现过的错误文案 + 两条本就该被救的样本。
+ * 本机语料只作补充——它决定不了门禁颜色（换台机器就变），fixture 才是那条
+ * 「至少救回一条」的确定性来源，也顺手钉住「不该救的别乱改」。
+ */
+const CORPUS_FIXTURE = readUtf8(new URL("./fixtures/piDeckRuntimeRetryCorpus.jsonl", import.meta.url))
+	.split("\n")
+	.filter((line) => line.trim())
+	.map((line) => JSON.parse(line).errorMessage);
+
 function readSessionErrors() {
 	if (!existsSync(SESSION_ROOT)) return [];
 	const seen = new Set();
@@ -208,10 +218,18 @@ function readSessionErrors() {
 	return [...seen];
 }
 
+/**
+ * 「这条文案本来就该被救」的独立判据：与扩展里的 RETRYABLE_SERVER_STATUS_PATTERN 同源，
+ * 但故意在这里另写一份——直接 import 扩展内部函数会让断言变成同义反复（它不改写，
+ * 判据也跟着说不该改写，永远绿）。这里要回答的是「语料里有没有本来就该救的样本」。
+ */
+const RECOVERABLE_SIGNAL = /overload(?:ed)?|server_is_overloaded|servers? (?:are|is) (?:currently )?(?:busy|overloaded)|currently experiencing high demand|model is at capacity/i;
+
 test("真实会话语料：扩展改写的内容在两个运行时都必须可重试", () => {
-	const errors = readSessionErrors();
-	if (errors.length === 0) return; // 无本机会话（CI）时跳过
+	const errors = [...new Set([...CORPUS_FIXTURE, ...readSessionErrors()])];
+	if (errors.length === 0) return; // fixture 缺失时退回「无本机语料即跳过」
 	let rewrittenCount = 0;
+	const missed = [];
 	for (const raw of errors) {
 		const rewritten = applyExtension({
 			role: "assistant",
@@ -219,11 +237,17 @@ test("真实会话语料：扩展改写的内容在两个运行时都必须可�
 			api: "openai-completions",
 			errorMessage: raw,
 		});
-		if (!rewritten) continue;
+		if (!rewritten) {
+			if (RECOVERABLE_SIGNAL.test(raw)) missed.push(raw);
+			continue;
+		}
 		rewrittenCount += 1;
 		assert.equal(dshRetries(rewritten), true, `桌面端改写后不可重试: ${raw} → ${rewritten}`);
 		assert.equal(piRetries(rewritten), true, `pi 改写后不可重试: ${raw} → ${rewritten}`);
 	}
-	// 语料存在时至少应救回一条，否则说明语料/解析变了
+	// 语料里必须至少有一条被救回。fixture 固定提供两条「该救」样本，所以这条不再看本机
+	// 会话的脸色，但仍然能抓住「扩展整体不再改写」这种回归。
 	assert.ok(rewrittenCount > 0, `扫描 ${errors.length} 条错误文案，却没有一条被改写`);
+	// 逐条漏救判据：命中了可救信号却没被改写 → 红（比数条数更严）。
+	assert.deepEqual(missed, [], `这些文案带可救信号却没被改写: ${missed.join(" | ")}`);
 });

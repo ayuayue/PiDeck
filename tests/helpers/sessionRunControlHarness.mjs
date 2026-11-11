@@ -149,6 +149,10 @@ export function harness(options = {}) {
 				},
 			},
 			jotai: {
+				// atom 也必须给：下面只 stub 了 hook，但被加载的真实 .ts 文件里
+				// `import { atom } from "jotai"` 会拿到 undefined，一调用就
+				// "(0, jotai_1.atom) is not a function"（2026-11-11 dev 上 71 条红的主因）。
+				atom: (init) => ({ init }),
 				useStore: () => store,
 				useSetAtom: (atom) => (event) => {
 					if (atom === atoms.applySessionRuntimeEventAtom) runtimeEvents.push(plain(event));

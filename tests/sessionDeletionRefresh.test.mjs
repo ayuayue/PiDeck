@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
-const { useSessionActions } = createTsSandbox({ stubs: { "../i18n": { t: (key) => key } } })("src/renderer/src/hooks/useSessionActions.ts");
+// jotai 必须一并 stub：不 stub 就会 require 到真实的 jotai/react，
+// 而 node:test 里没有 React dispatcher，一调 useStore 就
+// "Cannot read properties of null (reading 'useContext')"（dev 上这两条红的主因）。
+// 这里关心的是删除后的 reconcile 行为，不需要真正的 atom 存储。
+const jotaiStub = { useSetAtom: () => () => undefined, useAtomValue: () => undefined, useStore: () => ({ get: () => undefined, set: () => undefined }), atom: (init) => ({ init }) };
+const { useSessionActions } = createTsSandbox({ stubs: { "../i18n": { t: (key) => key }, jotai: jotaiStub } })("src/renderer/src/hooks/useSessionActions.ts");
 
 function setup(deleteRecord = async () => true) {
 	const events = [];
