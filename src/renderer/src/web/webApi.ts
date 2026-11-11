@@ -9,10 +9,10 @@
  */
 import type { UIMessage } from "ai";
 import type { AvailableModel, AgentBackend, ChatMessage, SessionCommandResult, SessionLaunchPreferences, SessionMessagePage, SessionRuntimeInfo, SessionRuntimeTarget, SessionSearchResult, SessionTargetedValue, SessionTodoSnapshot, UpdateSessionRecordInput } from "../../../shared/types";
-import type { CommitEntry, GitBranchInfo, GitResourceGroups, ImageContent, PiExtensionSummary, PiSkillLocation, PiSkillSummary, PiSubagentEntry, YaoPromptCategory, ProviderUsageResult, UsageProbeBackend } from "../../../shared/types";
+import type { CommitEntry, GitBranchInfo, GitResourceGroups, ImageContent, PiCommand, PiExtensionSummary, PiSkillLocation, PiSkillSummary, PiSubagentEntry, YaoPromptCategory, ProviderUsageResult, UsageProbeBackend } from "../../../shared/types";
 import type { AgentUiResponse } from "../../../shared/types";
 import type { WebSecurityState } from "../../../shared/types";
-import type { WebContextUsage, WebFileNodeLite, WebState } from "./webTypes";
+import type { WebAgentProfile, WebContextUsage, WebFileNodeLite, WebState } from "./webTypes";
 
 // Web 服务令牌：与 browserApi 同型（同一 localStorage key），从二维码/分享链接的 ?token= 读取一次并持久化。
 // 之后所有请求统一带 Authorization: Bearer；环回绑定服务端不校验，无令牌时照常工作。
@@ -693,4 +693,54 @@ export async function toggleWebExtension(source: string, enabled: boolean, scope
 		body: JSON.stringify({ source, enabled, scope }),
 	});
 	if (!res.ok) throw new Error(`extension toggle ${res.status}`);
+}
+
+/* ── 智能体（Agent Market 只读 + 使用） ─────────────────────────────── */
+
+/** 智能体目录：与桌面「智能体」页同一份 AgentProfileStore（角色设定随详情展示）。 */
+export async function fetchAgents(): Promise<WebAgentProfile[]> {
+	const res = await apiFetch("/api/agents");
+	if (!res.ok) throw new Error(`agents ${res.status}`);
+	const payload = (await res.json()) as { agents?: WebAgentProfile[] };
+	return payload.agents ?? [];
+}
+
+/**
+ * 「使用」智能体：服务端建一条绑定该智能体的草稿会话（标题/后端/模型取智能体配置），
+ * 返回新会话记录；后续首轮发送由主进程把角色设定拼进隐藏载荷。
+ */
+export async function useAgentSession(agentId: string, projectId: string): Promise<{ session: { id: string }; agent: WebAgentProfile }> {
+	const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/use`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ projectId }),
+	});
+	if (!res.ok) throw new Error(`agent use ${res.status}`);
+	const payload = (await res.json()) as { session?: { id?: string }; agent?: WebAgentProfile };
+	if (!payload.session?.id || !payload.agent) throw new Error("agent use returned no session");
+	return { session: { id: payload.session.id }, agent: payload.agent };
+}
+
+/* ── 输入框斜杠命令（/ 菜单） ─────────────────────────────────────── */
+
+/**
+ * 会话内权威命令表（pi 的 get_commands / DSH host 注册表）：扩展命令、提示词模板、技能都在这里。
+ * 需要活跃 runtime —— 草稿会话由调用方回退到本地发现的模板/技能。
+ */
+export async function fetchRuntimeCommands(sessionId: string, target: SessionRuntimeTarget): Promise<PiCommand[]> {
+	return callRuntimeCommand<PiCommand[]>(sessionId, target, "commands");
+}
+
+/** pi 提示词模板（只读；项目作用域优先），草稿会话的 `/` 菜单数据源之一。 */
+export async function fetchPromptTemplates(projectId?: string): Promise<Array<{ name: string; description: string; scope: "global" | "project"; enabled: boolean }>> {
+	const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+	const res = await apiFetch(`/api/prompt-templates${query}`);
+	if (!res.ok) throw new Error(`prompt templates ${res.status}`);
+	const payload = (await res.json()) as { templates?: Array<{ name: string; description: string; scope?: "global" | "project"; enabled?: boolean }> };
+	return (payload.templates ?? []).map((template) => ({
+		name: template.name,
+		description: template.description,
+		scope: template.scope ?? "global",
+		enabled: template.enabled !== false,
+	}));
 }

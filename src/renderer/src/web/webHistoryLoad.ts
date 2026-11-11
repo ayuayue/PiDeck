@@ -54,3 +54,49 @@ export function isStaleAgainstLiveStream(input: { localStreamLive: boolean; next
 export function shouldActivateAcpHistory(input: { backend?: AgentBackend; hasRuntime: boolean; attempted: boolean }): boolean {
 	return input.backend === "acp" && !input.hasRuntime && !input.attempted;
 }
+
+/**
+ * 历史快照落地判定（缓存 + 时间线共用）。返回 "skip" 时调用方**不得**写缓存、不得注入。
+ *
+ * 背景（用户报障：历史会话里发消息后，刚发出的消息与回复都看不见，刷新才恢复）：
+ * 快照是异步请求，内容只代表「请求那一刻」的磁盘窗口。以下四种情况套用它都会丢内容：
+ *
+ * 1. 请求是在本轮流式期间发起的——窗口不含收尾内容（工具多的回合甚至条数更多）；
+ * 2. 本端流还活着（submitted/streaming）而快照比本地短——pi 落盘滞后于在途帧；
+ * 3. 快照比本地短，且本地存在快照里没有的消息——那是发送前取回的旧窗口（慢网/大会话），
+ *    或刚刚乐观添加的用户消息 / 正在流式的回复；覆盖它等于把本轮凭空删掉；
+ * 4. 本地已经向前翻过更早的分页，而快照是最新窗口——覆盖会丢掉已加载的旧页（滚动跳回）。
+ *
+ * `authoritative`（显式重载 / ACP 激活完成后的权威重拉）跳过以上护栏：这些调用方
+ * 已经知道内容变了（编辑/删除/压缩），必须以磁盘为准。本地发送代际（epoch）护栏
+ * 由调用方另行把关——那一条与 force 无关，发送期间的任何快照都不可信。
+ */
+export function decideHistorySnapshotApplication(input: {
+	localMessages: ReadonlyArray<{ id: string }>;
+	incomingMessages: ReadonlyArray<{ id: string }>;
+	/** 本端 SSE 是否还在收帧（submitted / streaming）。 */
+	localStreamLive: boolean;
+	/**
+	 * 这份快照的请求是否在本轮流式期间发起。流式期间取的磁盘窗口不含收尾内容
+	 * （工具多的回合里甚至可能比本地 UI 消息更多，条数护栏拦不住），一律不落地，
+	 * 交给回合结束后由「收尾重拉」取一份新的。
+	 */
+	requestStartedWhileStreaming: boolean;
+	/** 本地是否已翻过更早一页（nextBefore 比最新窗口更靠前）。 */
+	hasOlderPagesLoaded: boolean;
+	/** 显式重载 / 权威快照：内容已变，按磁盘落地。 */
+	authoritative: boolean;
+}): "apply" | "skip" {
+	if (input.authoritative) return "apply";
+	if (input.requestStartedWhileStreaming) return "skip";
+	if (input.hasOlderPagesLoaded) return "skip";
+	const previousCount = input.localMessages.length;
+	const incomingCount = input.incomingMessages.length;
+	if (isStaleAgainstLiveStream({ localStreamLive: input.localStreamLive, nextCount: incomingCount, previousCount })) return "skip";
+	if (incomingCount < previousCount) {
+		const incomingIds = new Set(input.incomingMessages.map((message) => message.id));
+		// 本地有快照里不存在的消息 = 快照比本地旧（乐观/流式尾巴、发送前取回的旧窗口）。
+		if (input.localMessages.some((message) => !incomingIds.has(message.id))) return "skip";
+	}
+	return "apply";
+}

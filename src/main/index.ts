@@ -30,6 +30,7 @@ import { LinkedSessionService, lastAssistantTextSince } from "./linkedSessions/L
 import { LinkedSessionStore } from "./linkedSessions/LinkedSessionStore";
 import { registerLinkedSessionsIpc } from "./ipc/linkedSessionsIpc";
 import { AgentInvokeService } from "./agents/AgentInvokeService";
+import { applyBoundAgentPersona } from "./agents/agentPersonaInstruction";
 import { AutomationScheduler } from "./automation/AutomationScheduler";
 import { AutomationRunCoordinator } from "./automation/AutomationRunCoordinator";
 import { registerAutomationIpc } from "./ipc/automationIpc";
@@ -6663,6 +6664,9 @@ app
 		});
 		// DSH 外部会话自动导入改到 projectStore.load 之后（见下方 scheduleDshForeignAutoImport）：
 		// 必须走只读磁盘扫描，不能依赖 host-ready——否则会与 dsh-web 抢同一份 DSH_HOME。
+		// Web 端 /api/chat 的「绑定智能体角色设定」已注入记账（与桌面 IPC 的 personaInjectedSessions 同语义）：
+		// 主进程内两个发送入口共用 applyBoundAgentPersona 的纯语义，各自持有本入口的已注入集合。
+		const webPersonaInjectedSessions = new Set<string>();
 		webServiceManager = new WebServiceManager({
 			// 令牌持久化回写：manager 内自动生成/轮换/手动修改后落盘，重启沿用同一令牌。
 			persistToken: (state) => {
@@ -6924,12 +6928,37 @@ app
 			// 供应商额度用量：与桌面圆球面板同一份 ConfigManager 探针（含凭据脱敏与「未开启」门控）。
 			fetchProviderUsage: (provider, backend) => configManager.fetchProviderUsage(provider, backend),
 			sendSessionPrompt: async (input) => {
-				const result = await sessionRuntimeCoordinator.send(input);
+				// 绑定智能体的会话：仅在首轮把角色设定拼进载荷（dsh 退化为可见前缀，其余后端走隐藏通道）。
+				// 桌面 IPC 是另一个发送入口，两边共用 applyBoundAgentPersona 的判定与组合语义；
+				// 注入点必须在 send 之前——会话首条一旦落盘，角色设定就随上下文生效。
+				const persona = agentProfileStore?.getBoundAgent(input.sessionId)?.systemPrompt;
+				const record = persona ? sessionCatalog.get(input.sessionId) : undefined;
+				const applied = applyBoundAgentPersona({
+					prompt: input,
+					persona,
+					sessionStatus: record?.status,
+					backend: record?.backend,
+					alreadyInjected: webPersonaInjectedSessions.has(input.sessionId),
+				});
+				if (applied.injected) {
+					void appLogger.debug("session", "Bound agent persona injected (web)", { sessionId: input.sessionId, backend: record?.backend ?? "pi", personaChars: persona?.length ?? 0 });
+				}
+				const result = await sessionRuntimeCoordinator.send(applied.prompt);
+				if (result.accepted && applied.injected) webPersonaInjectedSessions.add(input.sessionId);
 				if (result.agentId) {
 					const tab = agentManager.list().find((candidate) => candidate.id === result.agentId);
 					if (tab) emitSessionRuntimeEvent(tab.id, agentEventTags.agentsState, tab);
 				}
 				return result;
+			},
+			// 智能体目录（只读投影）：Web 端「智能体」面板与「使用」（建会话 + 落绑定）同源。
+			// store 在启动后段才装配（闭包在请求时求值）：未装配时返回 undefined → 路由回 503，
+			// Web 端不展示一个空面板。
+			listAgentProfiles: () => (agentProfileStore ? agentProfileStore.list() : undefined),
+			getSessionAgentBindings: () => (agentProfileStore ? agentProfileStore.getSnapshot().settings.sessionAgentBindings : undefined),
+			bindSessionAgent: async (sessionId, agentId) => {
+				if (!agentProfileStore) throw new Error("agent profiles are not available");
+				await agentProfileStore.bindSession({ sessionId, agentId });
 			},
 			listSessionRuntimes: () => sessionRuntimeCoordinator.listRuntimes(),
 			listPendingUiRequests: () => sessionRuntimeCoordinator.listPendingUiRequests(),

@@ -7,6 +7,7 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AgentRuntimeState, CreateAnonymousSessionInput, CreateSessionDraftInput, ImageContent, SendSessionPromptInput, SessionRuntimeTarget, SessionUiResponseInput, UpdateSessionRecordInput } from "../../shared/types";
+import { buildAgentSessionTitle, type AgentProfile } from "../../shared/types/agentProfile";
 import { readBoundedFile, WEB_CORS_HEADERS } from "./WebHttpResponders";
 import { ifNoneMatchHits, stateEtag } from "./WebStateEtag";
 import { toWebSecurityState } from "./WebSecurityProjection";
@@ -14,6 +15,26 @@ import type { WebServiceDependencies } from "./WebServiceManager";
 
 const CHAT_IMAGE_MAX_COUNT = 4;
 const CHAT_IMAGE_MAX_BASE64_BYTES = 2 * 1024 * 1024;
+
+/**
+ * 智能体对 Web 端的投影：桌面「智能体」页的字段子集——详情面板要展示角色设定，
+ * 会话页提示条只需要名字/图标。`createdAt` 这类内部记账字段没有消费方，不下发。
+ */
+function toWebAgentProjection(agent: AgentProfile) {
+	return {
+		id: agent.id,
+		name: agent.name,
+		description: agent.description,
+		icon: agent.icon,
+		category: agent.category,
+		builtin: agent.builtin === true,
+		...(agent.backend ? { backend: agent.backend } : {}),
+		...(agent.model ? { model: agent.model } : {}),
+		...(agent.systemPrompt ? { systemPrompt: agent.systemPrompt } : {}),
+		usageCount: agent.usageCount,
+		updatedAt: agent.updatedAt,
+	};
+}
 
 /**
  * 从 useChat 提交的 user 消息 parts 里提取图片（type=file）转 ImageContent。
@@ -150,6 +171,57 @@ export class WebApiRoutes {
 			// force=1：目标端 UI 点刷新时绕过模型列表缓存，重新 fork pi --list-models。
 			const force = url.searchParams.get("force") === "1";
 			this.sendJson(response, { models: await this.deps.listModels(force) });
+			return true;
+		}
+		// 智能体目录：与桌面「智能体」页同一份 AgentProfileStore。只读（创建/编辑留在桌面端），
+		// 角色设定一并下发——桌面详情面板同样展示它，且能读会话正文的令牌已是同一信任级。
+		if (url.pathname === "/api/agents" && request.method === "GET") {
+			// 目录未装配（启动早期 / 测试注入缺省）时回 503：Web 端展示错误态而不是空面板。
+			const agents = this.deps.listAgentProfiles?.();
+			if (!agents) {
+				this.sendError(response, 503, "webError.agentsUnavailable", "agent profiles are not available");
+				return true;
+			}
+			this.sendJson(response, { agents: agents.map(toWebAgentProjection) });
+			return true;
+		}
+		// 「使用」智能体：先建草稿（复用 createSessionDraft 的 standby 预热/广播链路），再写会话绑定。
+		// 绑定失败时把刚建的草稿删掉——不留下“看起来用了智能体却没人设”的会话。
+		const agentUseMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/use$/);
+		if (agentUseMatch && request.method === "POST") {
+			const agentId = decodeURIComponent(agentUseMatch[1]);
+			const body = await this.readJson<{ projectId?: string }>(request);
+			const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+			const agents = this.deps.listAgentProfiles?.();
+			const bind = this.deps.bindSessionAgent;
+			if (!agents || !bind) {
+				this.sendError(response, 503, "webError.agentsUnavailable", "agent profiles are not available");
+				return true;
+			}
+			if (!projectId) {
+				this.sendError(response, 400, "webError.projectIdRequired", "projectId is required");
+				return true;
+			}
+			const agent = agents.find((candidate) => candidate.id === agentId);
+			if (!agent) {
+				this.sendError(response, 404, "webError.agentNotFound", "agent not found");
+				return true;
+			}
+			const session = await this.deps.createSessionDraft({
+				projectId,
+				title: buildAgentSessionTitle(agent),
+				...(agent.backend === "dsh" ? { backend: "dsh" as const } : {}),
+				// 智能体偏好模型只在 pi 后端带入：DSH 的模型是 host route，塞 pi 的 provider/modelId 会写成无效值。
+				...(agent.backend !== "dsh" && agent.model ? { model: agent.model } : {}),
+			});
+			try {
+				await bind(session.id, agent.id);
+			} catch (error) {
+				await this.deps.deleteSessionRecord(session.id).catch(() => false);
+				this.sendError(response, 400, "webError.agentBindFailed", error instanceof Error ? error.message : "agent bind failed");
+				return true;
+			}
+			this.sendJson(response, { session, agent: toWebAgentProjection(agent) });
 			return true;
 		}
 		if (url.pathname === "/api/projects" && request.method === "POST") {

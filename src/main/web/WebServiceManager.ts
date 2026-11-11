@@ -147,6 +147,22 @@ export type WebServiceDependencies = {
 	 * 渲染层据此不渲染额度区块；抛异常由路由层兜底成 disabled 结果，不向浏览器暴露内部错误。
 	 */
 	fetchProviderUsage?: (provider: string, backend: UsageProbeBackend) => Promise<ProviderUsageResult>;
+	/**
+	 * 智能体目录（AgentProfileStore 投影，与桌面「智能体」页同源）。
+	 * 未装配时不提供 Web 端「智能体」入口（避免出现能点却点不开的空面板）。
+	 */
+	listAgentProfiles?: () => import("../../shared/types/agentProfile").AgentProfile[] | undefined;
+	/**
+	 * 会话 → 智能体绑定（只读投影，随 /api/state 下发，Web 会话页据此显示已绑定角色设定）。
+	 * 目录未装配时返回 undefined：状态投影省掉该字段，Web 端也就不渲染提示条。
+	 */
+	getSessionAgentBindings?: () => Record<string, string> | undefined;
+	/**
+	 * 会话 ↔ 智能体绑定（写）：Web 端「使用」建好草稿后落绑定，之后该会话首轮发送
+	 * 由主进程把角色设定拼进隐藏载荷（与桌面 sessions:bindAgentSession 同一份存储）。
+	 * agentId=null 表示解绑。
+	 */
+	bindSessionAgent?: (sessionId: string, agentId: string | null) => Promise<void>;
 	sendSessionPrompt: (input: SendSessionPromptInput) => Promise<SendSessionPromptResult>;
 	listSessionRuntimes: () => SessionRuntimeInfo[];
 	listSessionRuntimeModels: (target: SessionRuntimeTarget) => Promise<SessionCommandResult<SessionTargetedValue<AvailableModel[]>>>;
@@ -594,6 +610,9 @@ export class WebServiceManager {
 			...(this.deps.getSecurityConfig ? { security: toWebSecurityState(this.deps.getSecurityConfig()) } : {}),
 			// 宿主版本号：侧栏底栏展示用（常量，进 ETag 不影响命中）。
 			...(this.deps.getAppVersion ? { version: this.deps.getAppVersion() } : {}),
+			// 会话 → 智能体绑定：Web 端在会话页展示已绑定的角色设定（与桌面同一份存储）。
+			// 只下发 sessionId → agentId 映射，角色设定本身走 /api/agents（按需拉，不占轮询带宽）。
+			...(this.deps.getSessionAgentBindings ? { sessionAgentBindings: this.deps.getSessionAgentBindings() } : {}),
 		};
 	}
 

@@ -32,6 +32,7 @@
 | 会话消息编辑/删除/重发 | 编辑/删除写 pi 原生 `context_edit`（原文不改写、费用不回退；被移出的条目界面直接不显示，原始文件仍保留）；重发仍用 `deleted` 墓碑截断分支；追加条目的 parentId 必须取当前 leaf，pi 活着禁改会话文件，三道闸不许放宽 | 本文「会话消息编辑/删除/重发」 |
 | Markdown 渲染 | 唯一引擎 MarkdownStream，禁止再引 marked/react-markdown；流式与 settle 是两条路径，**复现要看最终态**；HTML 一律过 `markdownSanitize.ts`（raw→摘毒→sanitize，不开 harden），模型回复里的 `<style>` 会污染整页图标（#397） | 本文「会话 Markdown 渲染管线」 |
 | 宿主插件 | 与 pi 扩展是两套系统（`src/main/plugins/`，不依赖 pi 进程）；授权按内容 sha256 指纹不按版本，指纹变即重新授权；历史读取 64MiB/10 万条硬预算；改 API/权限面必须同步 `src/preload/hostPlugin.ts` + `docs/host-plugin-dev-guide.md` + 脚手架；`service.local` 只给「点名权」（id 白名单 `src/shared/localServices.ts`）；插件不随包（示例在 `docs/examples/host-plugins/`，从文件夹安装）；卸载 = 删目录 + 清授权 + 清私有 storage；`.pideck-plugin` NDJSON 归档逐文件 sha256；GitHub 安装走 `codeload.github.com` 的 tar.gz + 自写 tar 解析，AtomGit 安装走 API v5 `file_list` + `raw` 逐文件取（先收敛包根），两条选包/预算共用 `hostPluginPackage.ts`，四条安装路径共用 `HostPluginManager.installFiles` 同一套预算与信任判定；插件市场（`hostPluginMarket.ts`）只产出「可交给 `downloadGitHubPlugin` / `downloadAtomGitPlugin` 的链接」不产出字节，官方索引 GitHub raw 失败自动回退 AtomGit API raw，官方条目可声明 `atomgitRepo` 供 UI 切下载源，社区源仍只有 GitHub topic 双源、单源失败不阻断、按 topic 拉一次再本地过滤（GitHub search 未认证 10 次/分钟） | 本文「宿主插件」 |
+| Web 端智能体 / 斜杠命令 | 「智能体」只读 + 使用（`/api/agents` 投影含角色设定，`/api/agents/:id/use` = 建草稿 + 落绑定，绑定失败删草稿）；绑定会话的角色设定由 **Web 的 sendSessionPrompt 依赖**在首轮注入（与桌面 IPC 同走 `applyBoundAgentPersona` 纯语义）；`/` 菜单数据源优先级 runtime 命令表 > 草稿本地发现 > Web 接管 builtin，选中只替换 token 不发送；`/new`、`/compact` 由 Web 接管，其余桌面专属命令明确拒绝；侧栏「新建会话行 / 搜索框 / 新建项目钮」统一 36px + 10px 圆角 | 本文「Web 端智能体与斜杠命令」 |
 | Web 端流式链路 | 流式事件源必须按后端分别注入 `WebEventStreamRouter`：pi 走 `subscribePiEvents`，DSH 走 `subscribeAgentChannelEvents`（`DshChannelToPiEvents`），ACP 走 `subscribeAcpChannelEvents`（`AcpChannelToPiEvents`，投影快照差分）；漏挂的后端在 Web 端退化成「轮询 + 磁盘重拉」；DSH 回合边界只认 `turnEnded: true`，ACP 只认 `agents:runtime-state` 的 `isStreaming` 翻 false | 本文「Web 端流式链路」 |
 | i18n 文案 | 改任何 zh-CN 词典（rendererCopy / mainProcessCopy / WebI18n / FeishuI18n）后必须重跑 `node scripts/genZhTwCopy.mjs`；四份 `*.zh-TW.ts` 是生成物禁止手改（漏跑：先 typecheck 报 TS2739，改值不加键则由 `source-sha256` 指纹门禁拦下） | 本文「繁体中文」 |
 | AI 协助（issue/PR） | 只评论不合并；未配 `ANTHROPIC_API_KEY` 静默跳过；**禁止 `pull_request_target`**（fork PR 会拿走写权限 token + secrets）；`@claude` 只认 OWNER/MEMBER/COLLABORATOR | `docs/ai-assist.md` |
@@ -379,6 +380,16 @@ description: …
 - **激活可作废（草稿期换后端 / 换 ACP 工具）**：ACP 激活是一次完整握手（spawn + `session/new`，秒级），"把 catalog 改完交给激活自己发现"不够——旧闸门用 `sessionRuntimeCoordinator.getTarget()` 当后端锁定守卫，而 bind 在 `applyLatestPreferences` 之后，握手窗口里 target 恒为空，于是记录已切走、旧激活随后又把旧后端进程和 `acpSessionId` 绑回来（用户表现为「切了后端还要等旧后端启动完」）。现在的契约：`sessionsCatalogUpdate` 在非 active 会话上的 `backend`/`acpToolId` 变更先 `await cancelActivation(sessionId)`（标取消 + 立刻停 `status==="starting"` 的进程 + 等激活收敛 + 清迟到绑定），`activate()` 在 `bind()` 前重读 catalog 并查取消集，身份不符就停掉刚建的 tab 并抛 `Session activation cancelled`。IPC 失败分支用 `isActivationCancelled` 区分「被切换作废」（发 detach 抵消合成 starting）与真失败（发合成 error）。渲染层 `isAcpInitializing` 只是指示态，**不得再接进 `canSend`/`promoteAndSend`**（那会让 Enter 静默无效）。回归：`tests/sessionRuntimeCoordinator.test.mjs`（cancel 两例）+ `tests/acpComposerInitializing.test.mjs`。
 - 已知未做（勿宣称完整支持）：**跨会话（全局）正文搜索索引**——session-index Go sidecar 只索引 pi 会话 JSONL，ACP 归档不参与（当前只有会话内 Ctrl/Cmd+Shift+F）；归档没有 GC/删除语义（单会话有界，但删会话不清归档）；冷历史自动激活（历史本身已由归档保留，打开历史会话仍需手动激活 runtime）；Web 端 ACP 不显示 ACP `configOptions`（模型/模式改由桌面端或 agent CLI 自身配置，Web 只能选工具）；Web 端 ACP 无编辑/重发/fork 入口（ACP 运行时没有 fork 命令，后端选择器把 ACP 会话当作只读历史）；工具卡图片渲染；真实 CLI smoke（`scripts/acpLiveSmoke.mjs` 需真实 agent，不进 CI）；`authenticate` RPC（AUTH_REQUIRED 目前只引导用户去终端登录，未拉起 agent 声明的 `authMethods`）。
 
+## Web 端智能体与斜杠命令
+
+- **智能体只读 + 使用**：`GET /api/agents` 投影 AgentProfileStore（含 `systemPrompt`，供详情面板展示；能读到会话正文的令牌已是同一信任级），创建/编辑/删除/复制留在桌面端。`POST /api/agents/:id/use` = `createSessionDraft`（标题取 `buildAgentSessionTitle`，dsh 后端透传、pi 带偏好模型）+ `bindSessionAgent`；**绑定失败必须删掉刚建的草稿**，否则留下「看起来用了智能体却没人设」的会话。
+- **角色设定注入有两个发送入口**：桌面 IPC（`sessionIpc`）与 Web 的 `sendSessionPrompt` 依赖（`src/main/index.ts`）。两边共用 `src/main/agents/agentPersonaInstruction.ts` 的 `applyBoundAgentPersona` 纯语义（首轮注入、dsh 每一轮都删 `agentMessage`），各自持有一个「已注入会话」集合。只改桌面一侧的症状：Web 建的绑定会话首轮发给模型的载荷里没有人设，但会话页提示条照常显示。
+- **绑定投影**：`/api/state` 的 `sessionAgentBindings` 是 sessionId → agentId 映射（不含人设正文），Web 会话页据此显示只读角色设定提示条（`WebAgentBar`）；agent 目录由 `/api/agents` 按需拉。
+- **`/` 菜单数据源优先级**：会话有 runtime → `/api/sessions/:id/runtime/commands`（pi `get_commands` / DSH host 注册表 / ACP available_commands，唯一权威）→ 草稿（pi）→ `/api/prompt-templates?projectId=` + `/api/skills` 的本地发现（模板按名、技能加 `skill:` 前缀）→ 只剩 Web 接管的 builtin。运行时命令表到手就整体替换本地发现，不合并（同名描述可能不一致）。
+- **菜单只插入、不发送**：选中候选把 `/名称 ` 写回草稿并把光标放到名称后；菜单打开时 Enter/Tab 是选中候选（不是发送），Esc 收起（同 token 签名不再自动弹出，继续输入会重新打开）。未知 `/命令` 仍按普通文本发给 pi（与桌面一致，由 pi 决定是否展开）。
+- **Web 接管的 builtin**：`/new`（建草稿，不落用户气泡）、`/compact [提示词]`（需要活跃 runtime 且本轮已结束，走 `compact` 命令）；`/login`、`/hotkeys`、`/reload` 在 Web 没有等价入口，明确提示「需要在桌面端执行」而不是发下去让模型回答。新增 builtin 前先确认 RPC 是否真的执行它（pi 的 builtin 只被交互式 TUI 处理）。
+- **侧栏控件几何**：`新建会话` 是扁平动作行（与桌面 SidebarContent 同语言）、搜索框与 `新建项目` 方钮同 36px / 同 10px 圆角 / 同描边，三者左右缘对齐；回归由 `e2e/web-agents-slash.spec.ts` 守卫。
+
 ## Web 端后端选择（pi / DSH / ACP / 生图）
 
 > 硬边界：浏览器不能直接读设置，ACP 工具清单由主进程门控后随 `/api/state` 下发；**只下发 `{id, name}`**，`command`/`args`/`env` 可能含凭据与本地路径，一律不外发。
@@ -401,6 +412,9 @@ description: …
 - **停止的重复收口**：abort 先收一次，host 随后补发的 turn/end 会带同一份全文再收一次；翻译器用 `closedRunText` 忽略第二次，避免保活连接上重复上屏一条回复。
 - **回合边界（ACP）只看 `agents:runtime-state`**：`isStreaming`/`isTurnActive` 翻 false 才是收口（发 `agent_settled` → `finish`），翻 true 就立刻补 `start`（发送后马上进运行态，空白回合也有可收口气泡）。`settleAcpTurn`（`src/main/acp/AcpEventProjector.ts`）在无 active 段的工具-only 回合**什么都不写**，而「无 pending 段 + 无 running 工具」在「工具已完成、下一段正文未到」时是合法中间态——拿它当收口会把回合切断。
 - **状态推送**：通道事件同样触发 `scheduleStatePush()`（400ms 去抖），运行时忙闲翻转即时可达；5s tick 只兜不住事件流里的目录变更。
+- **历史快照不得回退本地时间线**（用户报障：历史会话里发消息后，刚发出的消息与回复都看不见、刷新才恢复）：活跃会话的历史是异步拉的，慢网/大会话时可能在发送前取回、发送完成后才落地。落地护栏集中在 `webHistoryLoad.decideHistorySnapshotApplication`：① 本地发送代际（`WebChatApp.localSendEpochRef`，在每个 `sendMessage` 之前递增）变了 → 丢弃（请求可能是发送前取的）；② 请求在流式期间发起 → 丢弃（流式窗口不含收尾内容，多工具回合甚至条数更多）；③ 本地已翻过更早分页 → 丢弃（否则旧页与滚动位置丢失）；④ 快照比本地短且本地有快照外的消息（乐观用户消息/流式回复）→ 丢弃。`force`/`authoritative`（编辑/删除/压缩后的显式重载、ACP 激活后的权威重拉）才按磁盘落地。取舍：远端删除/裁剪（别的设备删消息）不会在后台刷新时静默生效，要显式操作或整页刷新——宁可保留也不误删。
+- 刷新去重按「会话 + 发送代际」：发送前发起的历史请求不能被发送后的收尾重拉复用（否则重拉骑在旧快照上、被护栏丢弃，这一轮永远不会对齐磁盘）；回合结束（本端流 true→false 且仍是同一活跃会话）固定做一次收尾重拉，补回「发送早于首屏历史返回」时被丢弃的那份历史。
+- 回归集：`tests/webHistoryLoad.test.mjs`（快照落地护栏）、`e2e/web-history-send.spec.ts`（真实 `/api/chat`：延迟首屏历史请求到本轮结束后、发送早于历史返回、排队补发三种场景都必须渲染本轮并最终收敛到磁盘）。
 - 回归集：`tests/webDshChannelStream.test.mjs`（翻译器 + 路由 + 契约）、`tests/webServiceDshStream.test.mjs`（真实 WebServiceManager + 真实 HTTP：帧序列 / 保活 / 状态推送）、`tests/webEventStream.test.mjs`、`tests/webExternalReplyMerger.test.mjs`、`tests/webAcpChannelStream.test.mjs`（ACP 翻译器 + 路由 + 接线契约）、`tests/webAcpRealtimePipeline.test.mjs`（真 `AcpAgentManager` + 真传输 → SSE 帧：回合未结算前就要有 text-delta、工具卡实时、结算才有 finish）。
 
 ## 会话定位轴（消息区刻度条 / outline rail）

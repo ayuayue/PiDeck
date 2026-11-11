@@ -159,3 +159,16 @@ export type AgentInvokeResult = { ok: true; runId: string } | { ok: false; error
 export function isBuiltinAgent(profile: AgentProfile): boolean {
 	return profile.builtin === true;
 }
+
+/**
+ * 「使用」新建会话时的标题：只有 emoji 能进标题（侧栏一眼识别）；组件图标
+ * （`lucide:<id>`）没有文本形态，直接省略。
+ *
+ * 放在 shared 而不是渲染层：桌面渲染层与主进程的 Web「使用」路由都要建会话，
+ * 标题口径必须一致（桌面侧 agentIconCodec 转出本函数，避免两份实现漂移）。
+ */
+export function buildAgentSessionTitle(agent: { name: string; icon?: string | null }): string {
+	const icon = agent.icon?.trim() ?? "";
+	const isComponentIcon = icon.toLowerCase().startsWith(AGENT_ICON_LUCIDE_PREFIX);
+	return `${icon && !isComponentIcon ? `${icon} ` : ""}${agent.name}`.trim();
+}

@@ -64,3 +64,47 @@ export function composeAgentInstruction(input: ComposeAgentInstructionInput): Co
 	// 两者都要生效；AgentManager 会把 message 整体换成这份载荷。
 	return { message: input.message, agentMessage: `${persona}\n\n${input.existingAgentMessage ?? input.message}` };
 }
+
+export type ApplyBoundAgentPersonaInput<T extends { message: string; agentMessage?: string }> = {
+	/** 本轮待发送载荷（渲染层原文 + 可能的隐藏标记）。 */
+	prompt: T;
+	/** 会话绑定的智能体角色设定；未绑定 / 空白 = 不做任何事。 */
+	persona: string | undefined;
+	/** catalog 记录状态：draft = 还没成功发过首条消息。 */
+	sessionStatus: "draft" | "active" | undefined;
+	/** 会话后端（SessionRecord.backend）；缺省按 pi。 */
+	backend: string | undefined;
+	/** 本进程已在本会话成功注入过角色设定。 */
+	alreadyInjected: boolean;
+};
+
+export type ApplyBoundAgentPersonaResult<T extends { message: string; agentMessage?: string }> = {
+	/** 组合后的载荷；未绑定/未到注入时机时原样返回入参。 */
+	prompt: T;
+	/** 本次是否真的拼进了角色设定（调用方据此在发送被接受后记账）。 */
+	injected: boolean;
+};
+
+/**
+ * 发送前的「绑定智能体会话」收口（纯函数）：桌面 IPC 与 Web 服务两个发送入口共用同一份
+ * 判定与组合语义，只在外面各自持有一个「已注入会话」集合。
+ *
+ * - 角色设定只在首轮注入（`shouldInjectAgentPersona`）；
+ * - DSH 没有隐藏通道，首轮和后续轮次都必须丢掉 agentMessage（host 见到就拒收整条）；
+ * - 其余后端沿用 composeAgentInstruction 的隐藏通道语义。
+ */
+export function applyBoundAgentPersona<T extends { message: string; agentMessage?: string }>(input: ApplyBoundAgentPersonaInput<T>): ApplyBoundAgentPersonaResult<T> {
+	const persona = input.persona?.trim();
+	if (!persona) return { prompt: input.prompt, injected: false };
+	const injected = shouldInjectAgentPersona({ sessionStatus: input.sessionStatus, alreadyInjected: input.alreadyInjected });
+	let prompt: T = input.prompt;
+	if (injected) {
+		const composed = composeAgentInstruction({ persona, message: prompt.message, existingAgentMessage: prompt.agentMessage, backend: input.backend });
+		prompt = { ...prompt, message: composed.message, ...(composed.agentMessage !== undefined ? { agentMessage: composed.agentMessage } : {}) };
+	}
+	if (input.backend === "dsh" && prompt.agentMessage !== undefined) {
+		const { agentMessage: _dropped, ...rest } = prompt;
+		prompt = rest as T;
+	}
+	return { prompt, injected };
+}

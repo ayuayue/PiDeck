@@ -78,6 +78,26 @@ export type WebState = {
 	security?: WebSecurityState;
 	/** 宿主应用版本号（侧栏底栏展示）；缺失=服务端未下发，不渲染版本位 */
 	version?: string;
+	/** 会话 → 智能体绑定（sessionId → agentId）；缺失=服务端未装配智能体目录 */
+	sessionAgentBindings?: Record<string, string>;
+};
+
+/**
+ * 智能体投影（/api/agents）：与桌面「智能体」页同一份 AgentProfileStore。
+ * Web 端只读 + 「使用」（建会话并落绑定）；创建/编辑/删除留在桌面端。
+ */
+export type WebAgentProfile = {
+	id: string;
+	name: string;
+	description: string;
+	icon: string;
+	category: string;
+	builtin: boolean;
+	backend?: "pi" | "dsh";
+	model?: { provider: string; modelId: string };
+	systemPrompt?: string;
+	usageCount: number;
+	updatedAt: number;
 };
 
 /** /api/state 下发的 ACP 工具条目（command/args/env 不外发）。 */

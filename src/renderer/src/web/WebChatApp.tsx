@@ -34,7 +34,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Button } from "@/components/ui-shadcn/button";
 import { Input } from "@/components/ui-shadcn/input";
 import { webChatFetch } from "./webChatFetch";
-import { chatMessagesToUiMessages, createProject, createSession, deleteProject, fetchMessagePage, fetchModels, fetchState, getWebAuthHeaders, respondToUi, setRuntimeModel, setRuntimeThinking, updateSessionRecord } from "./webApi";
+import { chatMessagesToUiMessages, createProject, createSession, deleteProject, fetchMessagePage, fetchModels, fetchState, getWebAuthHeaders, respondToUi, setRuntimeModel, setRuntimeThinking, updateSessionRecord, useAgentSession } from "./webApi";
 import { abortRuntime, cloneRuntime, compactRuntime, copySession, deleteSession, downloadSessionHtml, editRuntimeMessage, deleteRuntimeMessage, prepareResend, renameSession, restartRuntime, activateRuntime, forkRuntimeSession, getForkMessages } from "./webApi";
 import { fetchRuntimeContextUsage, setRuntimePermission, setSessionSecurityLevel } from "./webApi";
 import { dataUrlToFilePart } from "./webMessageParts";
@@ -48,6 +48,11 @@ const MAX_SEARCH_JUMP_PAGES = 5;
 import { WebFilePreview, type WebFilePreviewTarget } from "./WebFilePreview";
 import { WebSearchDialog } from "./WebSearchDialog";
 import { WebSkillsExtensionsDialog } from "./WebSkillsExtensionsDialog";
+import { WebAgentsDialog } from "./WebAgentsDialog";
+import { WebAgentBar } from "./WebAgentBar";
+import { useWebAgents } from "./useWebAgents";
+import { useWebSlashItems } from "./useWebSlashItems";
+import { classifyComposerSlashCommand } from "../utils/composerSlashCommand";
 import { applyWebTheme, nextWebTheme, readStoredWebTheme, resolveWebTheme, storeWebTheme, systemPrefersDark, toggleWebTheme, type ResolvedWebTheme, type WebThemePreference } from "./webTheme";
 import { registerWebServiceWorker, usePwaInstall } from "./webPwa";
 import { decideStreamRecovery } from "./webStreamRecovery";
@@ -56,9 +61,9 @@ import { resolveComposerHidden } from "./composerCollapse";
 import { useIsMobileViewport } from "./useIsMobileViewport";
 import { useExternalSessionStream } from "./webExternalStream";
 import { useWebStateEvents } from "./webStateEvents";
-import { isStaleAgainstLiveStream, shouldActivateAcpHistory, shouldApplyHistorySnapshot, type WebHistoryPhase } from "./webHistoryLoad";
+import { decideHistorySnapshotApplication, shouldActivateAcpHistory, shouldApplyHistorySnapshot, type WebHistoryPhase } from "./webHistoryLoad";
 import type { AgentUiResponse } from "../../../shared/types";
-import type { WebProject, WebRuntime, WebState, WebContextUsage } from "./webTypes";
+import type { WebAgentProfile, WebProject, WebRuntime, WebState, WebContextUsage } from "./webTypes";
 
 /** 分页元数据：已加载消息总数 + 更早一页的游标。 */
 type HistoryMeta = {
@@ -147,10 +152,19 @@ export function WebChatApp() {
 	// 本页「新建」的零消息草稿：后端切换仅对这类会话开放（复制/克隆/fork 与历史会话自带
 	// 消息记录，后端不可切——消息归属创建时的后端，切了会让历史错位）。
 	const webDraftSessionsRef = useRef<Set<string>>(new Set());
-	// 会话消息刷新去重：同会话在途只发一次（切换 SWR / busy 收尾 / 手动刷新共用入口）。
+	// 会话消息刷新去重：同会话、同一「发送代际」的在途请求只发一次（切换 SWR / busy 收尾 / 手动刷新共用入口）。
 	// 存 Promise 而不是布尔集合：后到的调用（如 ACP 激活完成后的重拉）能等到同一份结果，
 	// 而不是被静默吞掉——那正是「加载一直不结束」的另一条路径。
-	const refreshingSessionsRef = useRef<Map<string, Promise<void>>>(new Map());
+	// 带 epoch：发送会推进代际，旧代际的在途请求不再被复用（否则收尾重拉会骑在发送前
+	// 取回的那份旧快照上，快照套用后被代际护栏丢弃，等于这一轮永远不会对齐磁盘）。
+	const refreshingSessionsRef = useRef<Map<string, { epoch: number; startedWhileStreaming: boolean; promise: Promise<void> }>>(new Map());
+	// 本地发送代际（每会话自增）：在 sendMessage 之前递增。历史快照异步返回后只要发现代际
+	// 变了，就说明它可能是在发送前取回的——一律丢弃，绝不覆盖刚发出的这一轮。
+	const localSendEpochRef = useRef<Record<string, number>>({});
+	const markLocalSend = (sessionId: string) => {
+		loadedSessionsRef.current.add(sessionId);
+		localSendEpochRef.current[sessionId] = (localSendEpochRef.current[sessionId] ?? 0) + 1;
+	};
 	// 状态快照：refreshSessionMessages 在 await 之后仍要判断调用发起时的后端/runtime 状态，
 	// 闭包里的 state 会过期。
 	const stateRef = useRef<WebState>({ projects: [], sessions: [], runtimes: [] });
@@ -183,6 +197,8 @@ export function WebChatApp() {
 	const resolvedTheme: ResolvedWebTheme = resolveWebTheme(themePreference, systemDark);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [assetsOpen, setAssetsOpen] = useState(false);
+	// 智能体面板（只读 + 使用）：与「技能与扩展」同层弹窗，入口在头部 ⋮ 菜单。
+	const [agentsOpen, setAgentsOpen] = useState(false);
 	const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
 	// 令牌失效兑底：服务端轮换 token 后所有请求 401，轮询层只会默默 setConnected(false)，
 	// 用户看到的是「一直断线」；这里显式提示需从桌面端重新扫码/打开新链接。
@@ -267,20 +283,31 @@ export function WebChatApp() {
 	const recoverFromDisk = async (notify: boolean) => {
 		const sessionId = activeSessionIdRef.current;
 		if (!sessionId) return;
+		const epochAtStart = localSendEpochRef.current[sessionId] ?? 0;
 		try {
 			const snapshot = stateRef.current;
 			const backend = snapshot.sessions.find((session) => session.id === sessionId)?.backend;
 			const runtimeStatus = snapshot.runtimes.find((runtime) => runtime.sessionId === sessionId)?.status;
 			const acpRuntimePending = backend === "acp" && (runtimeStatus === undefined || runtimeStatus === "starting");
 			const page = await fetchMessagePage(sessionId);
+			// 抓取期间本地发起了新一轮：这份快照可能取于发送前，不能覆盖刚发出的消息/回复。
+			if ((localSendEpochRef.current[sessionId] ?? 0) !== epochAtStart) return;
 			const history = chatMessagesToUiMessages(page.messages);
 			// 与 refreshSessionMessages 同规：ACP runtime 未就绪的空投影不能覆盖已有历史。
 			const previous = messagesBySessionRef.current[sessionId] ?? [];
 			if (!shouldApplyHistorySnapshot({ backend, nextCount: history.length, previousCount: previous.length, acpRuntimePending })) return;
-			// 本端 SSE 还在收帧时，磁盘窗口往往比本地短（pi 落盘滞后）：这种快照是「落后的」，
-			// 套用会把正在出的回复抹掉。本地流已死（ready/error）则磁盘才是权威。
-			const localStreamLive = statusRef.current === "submitted" || statusRef.current === "streaming";
-			if (isStaleAgainstLiveStream({ localStreamLive, nextCount: history.length, previousCount: previous.length })) return;
+			// 与 refreshSessionMessages 同一套落地护栏：流式在途的短快照、发送前取回的旧窗口、
+			// 已翻过的更早分页都不得覆盖本地时间线（断流恢复也不能拿更旧的内容顶替）。
+			const decision = decideHistorySnapshotApplication({
+				localMessages: previous,
+				incomingMessages: history,
+				localStreamLive: statusRef.current === "submitted" || statusRef.current === "streaming",
+				// 恢复路径本身就是为「看着在流、实际已死的响应」设计的落盘追赶，不按发起时刻拦。
+				requestStartedWhileStreaming: false,
+				hasOlderPagesLoaded: isOlderPageLoaded(sessionId, page.nextBefore),
+				authoritative: false,
+			});
+			if (decision === "skip") return;
 			messagesBySessionRef.current[sessionId] = history;
 			historyMetaRef.current[sessionId] = { total: page.total, nextBefore: page.nextBefore };
 			if (activeSessionIdRef.current === sessionId) setMessages(history);
@@ -446,7 +473,7 @@ export function WebChatApp() {
 		setFilePreview({ kind: "file", projectId: project.id, projectRoot: project.root, path, line });
 	}, []);
 
-	const overlayOpen = mobileSidebarOpen || searchOpen || assetsOpen || dshToolsOpen || workspaceOpen || filePreview != null || renameDraft != null || deleteConfirmId != null;
+	const overlayOpen = mobileSidebarOpen || searchOpen || assetsOpen || agentsOpen || dshToolsOpen || workspaceOpen || filePreview != null || renameDraft != null || deleteConfirmId != null;
 	useEffect(() => {
 		overlayOpenRef.current = overlayOpen;
 		if (overlayOpen) revealHeader();
@@ -553,6 +580,29 @@ export function WebChatApp() {
 		loadedSessionsRef.current.add(activeSessionId);
 	}, [messages, activeSessionId, streaming]);
 
+	// 回合结束（本端流 true→false）后用磁盘快照对齐一次：把乐观消息 id 收敛成历史 id，
+	// 也补回「发送早于首屏历史返回」时被丢弃的那份历史。快照若比本地短（落盘滞后），
+	// decideHistorySnapshotApplication 会跳过，不会反向丢内容。
+	// 只对「本轮流所属的会话且仍然活跃」生效：中途切到别的会话会让 status 归 ready，
+	// 那不是本轮收尾（切回来时由会话切换/外部流路径收敛）。
+	const streamingSessionRef = useRef<string | null>(null);
+	const prevStreamingRef = useRef(false);
+	useEffect(() => {
+		if (streaming) {
+			streamingSessionRef.current = activeSessionIdRef.current || null;
+			prevStreamingRef.current = true;
+			return;
+		}
+		const endedSession = streamingSessionRef.current;
+		const wasStreaming = prevStreamingRef.current;
+		streamingSessionRef.current = null;
+		prevStreamingRef.current = false;
+		if (!wasStreaming || !endedSession || activeSessionIdRef.current !== endedSession) return;
+		void refreshSessionMessages(endedSession);
+		// refreshSessionMessages 只依赖 refs；由流式状态边沿驱动，避免每帧重拉。
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [streaming]);
+
 	// 首页直发：useChat 随 activeSessionId 切换在渲染期重建实例（@ai-sdk/react 在 render 中
 	// 直接替换 chatRef.current），因此本 effect 里拿到的 sendMessage 已属于新会话；
 	// 用 sessionId 校验防止用户在创建期间切到其他会话后串台。
@@ -561,6 +611,8 @@ export function WebChatApp() {
 		if (!pending || pending.sessionId !== activeSessionId) return;
 		if (streaming) return; // 新实例就绪（空闲）后才投递
 		pendingSendRef.current = null;
+		// 先推进发送代际：新会话的历史请求若与本轮并发，返回时会被代际护栏丢弃。
+		markLocalSend(pending.sessionId);
 		void sendMessage({ text: pending.text, files: pending.images?.map(dataUrlToFilePart) ?? [] }, { body: { ...(pending.agentMessage ? { agentMessage: pending.agentMessage } : {}) } });
 	}, [activeSessionId, streaming, sendMessage]);
 
@@ -670,6 +722,45 @@ export function WebChatApp() {
 		};
 	}, [streaming, activeRuntime?.status, stateEventsConnected]);
 
+	/**
+	 * 斜杠命令的「Web 接管」分支（与桌面 composerSlashCommand 同一份分类器）。
+	 *
+	 * pi 的 builtin 命令在 RPC 下不执行（只被交互式 TUI 处理），原样发给模型只会得到
+	 * 「模型把命令当问题回答」。桌面接管的 /new、/compact 这里也接管：
+	 * - /new → 在当前项目新建一条草稿（与侧栏「+」同源）；
+	 * - /compact [提示词] → 走运行时的压缩命令（需要活跃 runtime 且本轮已结束）；
+	 * - 其余桌面专属命令（/login、/hotkeys、/reload）Web 没有等价入口，明确提示而不是发下去。
+	 */
+	const runComposerSlashCommand = (command: NonNullable<ReturnType<typeof classifyComposerSlashCommand>>, raw: string): boolean => {
+		if (command.kind === "text") return false;
+		if (command.kind === "new") {
+			const project = activeSession?.projectId ?? homeProject?.id;
+			if (!project) {
+				setCommandError(t("web.sendNoProject"));
+				return true;
+			}
+			setCommandError(null);
+			void handleCreateSession(project);
+			return true;
+		}
+		if (command.kind === "compact") {
+			if (streaming) {
+				setCommandError(t("web.slashBusy"));
+				return true;
+			}
+			if (!activeSessionId || !activeTarget) {
+				setCommandError(t("web.slashNoRuntime"));
+				return true;
+			}
+			setCommandError(null);
+			void compactRuntime(activeSessionId, activeTarget, command.prompt || undefined).catch((error: unknown) => setCommandError(error instanceof Error ? error.message : String(error)));
+			return true;
+		}
+		// login / hotkeys / reload：桌面端才有对应入口（凭证弹框、快捷键页、资源热重载）。
+		setCommandError(t("web.slashDesktopOnly", { command: raw.trim().split(/\s+/)[0] }));
+		return true;
+	};
+
 	// P0：停止 = 客户端断流 + 尽力打断 pi runtime（有 agent 时）。两者都发：
 	// stop() 只断 SSE，pi 会继续跑完；abortRuntime 才是真正的打断命令。
 	const handleStop = () => {
@@ -695,12 +786,16 @@ export function WebChatApp() {
 	// 乐观气泡也不渲染缩略图（uiMessageImages 只认 file parts）。两处一并修正。
 	const handleSend = (text: string, images: string[], agentMessage?: string) => {
 		if (!text.trim() && images.length === 0) return;
+		// 接管命令不落用户气泡（诚实地说：它不是发给模型的消息）。
+		if (runComposerSlashCommand(classifyComposerSlashCommand(text), text)) return;
 		// 用户主动发新消息 = 恢复自动投递（覆盖「停止后暂停」）
 		queuePausedRef.current = false;
 		if (!activeSessionId) {
 			void sendFromHome(text, images, agentMessage);
 			return;
 		}
+		// 推进发送代际：任何在途历史快照返回后都不得覆盖这一轮。
+		markLocalSend(activeSessionId);
 		// agentMessage：计划模式等隐藏指令（复用桌面 composer 通道），随 body 透传后端
 		void sendMessage({ text, files: images.map(dataUrlToFilePart) }, { body: { ...(agentMessage ? { agentMessage } : {}) } });
 	};
@@ -722,6 +817,9 @@ export function WebChatApp() {
 		const sessionId = activeSessionIdRef.current;
 		if (!sessionId) return;
 		if (!text.trim() && images.length === 0) return;
+		// 回合进行中提交接管命令：/compact 本轮不可用（给出提示），/new 照常新建；
+		// 排队后会以纯文本投递，所以必须在入队前分流。
+		if (runComposerSlashCommand(classifyComposerSlashCommand(text), text)) return;
 		queueSeqRef.current += 1;
 		const item: WebQueuedPrompt = { id: `q-${Date.now()}-${queueSeqRef.current}`, text, images, agentMessage };
 		setQueuedBySession((current) => ({ ...current, [sessionId]: [...(current[sessionId] ?? []), item] }));
@@ -760,6 +858,7 @@ export function WebChatApp() {
 		if (!next) return;
 		queueFlushingRef.current = true;
 		setQueuedBySession((current) => ({ ...current, [sessionId]: (current[sessionId] ?? []).slice(1) }));
+		markLocalSend(sessionId);
 		void sendMessage({ text: next.text, files: next.images.map(dataUrlToFilePart) }, { body: { ...(next.agentMessage ? { agentMessage: next.agentMessage } : {}) } }).then(
 			() => {
 				queueFlushingRef.current = false;
@@ -804,7 +903,7 @@ export function WebChatApp() {
 	// 首页直发流程：优先内置 chat 项目（未配置项目时的兜底），否则取第一个项目；
 	// 创建期间复用 creatingProjectId 短暂禁用输入，防止重复提交。
 	const sendFromHome = async (text: string, images: string[], agentMessage?: string) => {
-		const project = state.projects.find((candidate) => candidate.kind === "chat") ?? state.projects[0];
+		const project = homeProject;
 		if (!project) {
 			setCommandError(t("web.sendNoProject"));
 			return;
@@ -863,6 +962,35 @@ export function WebChatApp() {
 		} catch (error) {
 			setCommandError(error instanceof Error ? error.message : String(error));
 			setConnected(false);
+		} finally {
+			setCreatingProjectId("");
+		}
+	};
+
+	/**
+	 * 「使用」智能体：服务端建一条绑定该智能体的草稿会话（标题/后端/模型取智能体配置），
+	 * 切过去直接开聊。角色设定不由渲染层拼——首轮发送时主进程统一注入（与桌面同一收口），
+	 * 所以这里只负责导航与刷新，不碰发送载荷。
+	 */
+	const handleUseAgent = async (agent: WebAgentProfile) => {
+		const project = activeSession?.projectId ?? homeProject?.id;
+		if (!project) {
+			setCommandError(t("web.sendNoProject"));
+			return;
+		}
+		setCreatingProjectId(project);
+		setCommandError(null);
+		try {
+			const created = await useAgentSession(agent.id, project);
+			markSessionLoaded(created.session.id, true);
+			setActiveSessionId(created.session.id);
+			setAgentsOpen(false);
+			setMobileSidebarOpen(false);
+			// 绑定写进 agent-profiles.json，不在会话记录里：重拉 state 才会有 sessionAgentBindings。
+			await refreshNow();
+			agentDirectory.reload();
+		} catch (error) {
+			setCommandError(error instanceof Error ? error.message : String(error));
 		} finally {
 			setCreatingProjectId("");
 		}
@@ -1043,19 +1171,42 @@ export function WebChatApp() {
 			}
 		: undefined;
 
+	// 智能体目录（只读 + 使用）：目录与会话绑定都来自桌面同一份 AgentProfileStore。
+	// 绑定写入后 /api/state 才带 sessionAgentBindings，提示条据此只读展示角色设定。
+	const agentDirectory = useWebAgents();
+	const activeBoundAgent = activeSessionId ? agentDirectory.agents.find((agent) => agent.id === (state.sessionAgentBindings ?? {})[activeSessionId]) : undefined;
+	// 首页（无会话）时 `/` 菜单与「使用」按「将要建进哪个项目」取资源：与 sendFromHome 同一选择规则。
+	const homeProject = state.projects.find((project) => project.kind === "chat") ?? state.projects[0];
+	const slashItems = useWebSlashItems({
+		sessionId: activeSessionId || undefined,
+		agentId: activeRuntime?.agentId,
+		runtimeGeneration: activeRuntime?.runtimeGeneration,
+		projectId: activeSession?.projectId ?? homeProject?.id,
+		backend: activeSession?.backend ?? pendingBackend ?? "pi",
+	});
+
 	/**
 	 * 从磁盘重拉指定会话历史写缓存；活跃且 useChat 空闲时同步注入（streaming 中只更新缓存，不打断打字机）。
 	 *
-	 * force：跳过同会话在途去重。ACP 激活完成后的重拉必须拿到激活后的投影，不能复用
-	 * 激活前那次（可能返回空投影、且已按 pending 规则放弃应用）的 Promise。
+	 * force：跳过同会话在途去重，并跳过竞态护栏（显式重载以磁盘为准）。ACP 激活完成后的
+	 * 重拉不能用激活前那次（可能返回空投影、且已按 pending 规则放弃应用）的 Promise。
 	 * authoritative：调用方已确认 runtime 就绪（activate 返回后），本次空结果就是权威历史，
 	 * 不受客户端 state 尚未收到新 runtime 的滞后影响。
 	 */
 	const refreshSessionMessages = (sessionId: string, options?: { force?: boolean; authoritative?: boolean }): Promise<void> => {
 		if (!sessionId) return Promise.resolve();
+		// 代际在发起时冻结：返回时代际变了 = 期间发起了本地发送，这份快照可能早于本轮。
+		const epochAtStart = localSendEpochRef.current[sessionId] ?? 0;
+		// 流式期间取回的磁盘窗口不含收尾内容（工具多的回合甚至条数更多）：这类快照一律不落地，
+		// 由回合结束后的收尾重拉取一份新的。
+		const startedWhileStreaming = sessionId === activeSessionIdRef.current && (statusRef.current === "submitted" || statusRef.current === "streaming");
+		// 显式重载（编辑/删除/压缩后）与 ACP 权威重拉跳过竞态护栏：内容确实变了，以磁盘为准。
+		const authoritative = options?.authoritative === true || options?.force === true;
 		if (!options?.force) {
 			const inFlight = refreshingSessionsRef.current.get(sessionId);
-			if (inFlight) return inFlight;
+			// 只复用同一代际的请求：发送前的旧快照请求不能被发送后的收尾重拉复用。
+			// 流式中发起的请求会被丢弃；收尾重拉必须自己再拉一份，不能复用它。
+			if (inFlight && inFlight.epoch === epochAtStart && !(inFlight.startedWhileStreaming && !startedWhileStreaming)) return inFlight.promise;
 		}
 		const run = (async () => {
 			try {
@@ -1065,11 +1216,31 @@ export function WebChatApp() {
 				const runtimeStatus = snapshot.runtimes.find((runtime) => runtime.sessionId === sessionId)?.status;
 				const acpRuntimePending = !options?.authoritative && backend === "acp" && (runtimeStatus === undefined || runtimeStatus === "starting");
 				const page = await fetchMessagePage(sessionId);
+				// 期间本地发起了新一轮：这份响应可能是在发送前取回的旧窗口，套用会把刚发出的
+				// 消息与回复整段抹掉（用户报障的根因）。丢弃，等收尾时的新代际请求。
+				if ((localSendEpochRef.current[sessionId] ?? 0) !== epochAtStart) {
+					clearLoadingPhaseIfHasLocal(sessionId, messagesBySessionRef.current[sessionId] ?? []);
+					return;
+				}
 				const history = chatMessagesToUiMessages(page.messages);
 				const previous = messagesBySessionRef.current[sessionId] ?? [];
 				// ACP 的空结果不是权威（历史在 agent 侧，runtime 未就绪/重连窗口只有空投影）：
 				// 应用它会把已显示的历史抹成空白，并让首屏误判「加载完成」。
 				if (!shouldApplyHistorySnapshot({ backend, nextCount: history.length, previousCount: previous.length, acpRuntimePending })) return;
+				// 统一落地护栏：本地还有快照里没有的消息（发送前旧窗口 / 乐观消息 / 流式回复），
+				// 或本地已翻过更早分页时，短快照不得覆盖缓存与时间线。
+				const decision = decideHistorySnapshotApplication({
+					localMessages: previous,
+					incomingMessages: history,
+					localStreamLive: statusRef.current === "submitted" || statusRef.current === "streaming",
+					requestStartedWhileStreaming: startedWhileStreaming,
+					hasOlderPagesLoaded: isOlderPageLoaded(sessionId, page.nextBefore),
+					authoritative,
+				});
+				if (decision === "skip") {
+					clearLoadingPhaseIfHasLocal(sessionId, previous);
+					return;
+				}
 				messagesBySessionRef.current[sessionId] = history;
 				historyMetaRef.current[sessionId] = { total: page.total, nextBefore: page.nextBefore };
 				loadedSessionsRef.current.add(sessionId);
@@ -1085,16 +1256,36 @@ export function WebChatApp() {
 			}
 		})();
 		const tracked = run.finally(() => {
-			refreshingSessionsRef.current.delete(sessionId);
+			// 只清理自己那一格：后发起的同会话请求会覆盖 map，不能让旧请求把它删掉。
+			if (refreshingSessionsRef.current.get(sessionId)?.promise === tracked) refreshingSessionsRef.current.delete(sessionId);
 		});
-		refreshingSessionsRef.current.set(sessionId, tracked);
+		refreshingSessionsRef.current.set(sessionId, { epoch: epochAtStart, startedWhileStreaming, promise: tracked });
 		return tracked;
 	};
 
-	/** 重新拉取活跃会话历史（编辑/删除/压缩后刷新时间线）。 */
+	/**
+	 * 跳过一份历史快照时收掉首屏 skeleton：跳过的是「用快照覆盖缓存」，不代表本地没内容。
+	 * 只有本地确实没有消息时才保留 loading（等下一份可用的快照）。
+	 */
+	const clearLoadingPhaseIfHasLocal = (sessionId: string, localMessages: ReadonlyArray<unknown>) => {
+		if (localMessages.length === 0) return;
+		setHistoryPhase((current) => (current?.sessionId === sessionId ? null : current));
+	};
+
+	/**
+	 * 本地是否已加载过更早的分页：游标比最新窗口更靠前时，用最新窗口覆盖会丢掉旧页。
+	 * 没有更早历史（nextBefore=null）或首次加载（无元数据）都视为未翻页。
+	 */
+	const isOlderPageLoaded = (sessionId: string, incomingNextBefore: number | null): boolean => {
+		const meta = historyMetaRef.current[sessionId];
+		if (!meta || meta.nextBefore == null || incomingNextBefore == null) return false;
+		return meta.nextBefore < incomingNextBefore;
+	};
+
+	/** 重新拉取活跃会话历史（编辑/删除/压缩后刷新时间线）：显式动作以磁盘为准。 */
 	const reloadActiveHistory = async () => {
 		if (!activeSessionId) return;
-		await refreshSessionMessages(activeSessionId);
+		await refreshSessionMessages(activeSessionId, { force: true });
 	};
 
 	/** 乐观更新本地时间线：改 per-session 缓存，目标仍是活跃会话时同步注入 useChat。 */
@@ -1480,6 +1671,7 @@ export function WebChatApp() {
 					canInstall={canInstall}
 					onInstall={() => void install()}
 					onOpenAssets={() => setAssetsOpen(true)}
+					onOpenAgents={() => setAgentsOpen(true)}
 				/>
 				{/* P3：fork 家族分支导航（家族只有一条会话时自渲染为 null） */}
 				<WebBranchBar sessions={state.sessions} activeSessionId={activeSessionId} onSelect={(sessionId) => setActiveSessionId(sessionId)} />
@@ -1525,6 +1717,7 @@ export function WebChatApp() {
 					onOpenFile={openFilePreview}
 					jumpApiRef={timelineJumpRef}
 				/>
+				<WebAgentBar key={activeBoundAgent?.id ?? "no-agent"} agent={activeBoundAgent} />
 				<WebSessionStrips sessionId={activeSessionId} />
 				{/* 2026-10 评审 P1：错误/待答原本只出现在时间线列表尾，用户回读历史时完全不可见
 				    （composer 又可能已隐藏）。在 composer 上方放常驻横幅兜底，滚多远都在视口内。 */}
@@ -1553,6 +1746,7 @@ export function WebChatApp() {
 					</div>
 				) : null}
 				<WebComposer
+					slashItems={slashItems}
 					hasSession={Boolean(activeSessionId)}
 					disabled={Boolean(creatingProjectId)}
 					streaming={composerTurnBusy}
@@ -1587,6 +1781,7 @@ export function WebChatApp() {
 			{/* 第二批：会话内搜索（Ctrl+K）与技能/扩展面板 */}
 			<WebSearchDialog open={searchOpen} onOpenChange={setSearchOpen} sessionId={activeSessionId} messages={messages} onJump={jumpToSearchHit} />
 			<WebSkillsExtensionsDialog open={assetsOpen} onOpenChange={setAssetsOpen} />
+			<WebAgentsDialog open={agentsOpen} onOpenChange={setAgentsOpen} agents={agentDirectory.agents} phase={agentDirectory.phase} onReload={agentDirectory.reload} useDisabled={Boolean(creatingProjectId)} onUse={handleUseAgent} />
 			{dshToolsOpen && activeSessionId && <WebDshToolsPanel sessionId={activeSessionId} onClose={() => setDshToolsOpen(false)} />}
 			{/* P3：工作区抽屉（Git 状态/diff + 文件浏览，projectId 来自活跃会话） */}
 			{workspaceOpen && activeSession && <WebWorkspaceDrawer projectId={activeSession.projectId} open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} onOpenFile={openFilePreview} />}
