@@ -268,6 +268,25 @@ export function isAbsoluteFilePath(path: string): boolean {
 	return /^[A-Za-z]:[\\/]/.test(path) || /^[\\/]{2}[^\\/]/.test(path) || path.startsWith("/") || isTildePath(path);
 }
 
+/**
+ * 取父目录（用于「相对路径以文件自身所在目录为基准」，见 issue #535）。
+ *
+ * 渲染层不能依赖 node:path，且这里同时要处理 `/a/b.md`、`C:\\a\\b.md`、`\\\\srv\\share\\b.md`
+ * 三种语法，所以按最后一个分隔符切，保留根（`/`、`C:\`）与 UNC 前缀。
+ * 没有分隔符（相对文件名）时返回 undefined —— 调用方据此不做「猜基准」的事。
+ */
+export function parentDirectoryOf(filePath: string): string | undefined {
+	const trimmed = filePath.replace(/[\\/]+$/, "");
+	if (trimmed === "") return undefined;
+	const index = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+	if (index < 0) return undefined;
+	// `/a.md` → `/`：根分隔符必须保留
+	if (index === 0) return trimmed.slice(0, 1);
+	const head = trimmed.slice(0, index);
+	// `C:\a.md` → `C:\`：盘符后面必须留分隔符，否则 `C:` 会被当成带 scheme 的目标
+	return /^[A-Za-z]:$/.test(head) ? head + trimmed.charAt(index) : head;
+}
+
 function usesWindowsPathSyntax(path: string): boolean {
 	return /^[A-Za-z]:[\\/]/.test(path) || /^[\\/]{2}[^\\/]/.test(path);
 }

@@ -104,6 +104,9 @@ test("FileDiffViewer: markdown preview reuses .markdown-body + markdown-preview-
 	assert.doesNotMatch(surfaces, /\.file-diff-preview/);
 	// HTML 预览 iframe 改用 Tailwind 类，不再依赖 legacy 类
 	assert.doesNotMatch(viewer, /className="file-diff-preview"/);
+	// issue #535：相对图片/相对链接以「被预览 md 所在目录」为基准，不再沿用会话 cwd
+	assert.match(viewer, /parentDirectoryOf\(props\.filePath\)/);
+	assert.match(viewer, /<FileLinkBaseProvider baseDir=\{markdownPreviewBaseDir\}[\s\S]{0,400}?<MarkdownStream/);
 });
 
 test("FileDiffViewer: image/PDF get inline preview via base64 Blob URL", () => {
