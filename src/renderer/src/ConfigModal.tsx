@@ -1351,7 +1351,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		}
 
 		// 深拷贝 provider 配置，包括 models 数组（含 apiKey）。
-		const duplicatedProvider = JSON.parse(JSON.stringify(sourceProvider));
+		const duplicatedProvider = structuredClone(sourceProvider);
 
 		setModelsData({
 			...modelsData,
@@ -1798,7 +1798,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const handleDuplicateAuth = (provider: string) => {
 		const sourceAuth = authData[provider];
 		if (!sourceAuth) return;
-		const duplicatedAuth = JSON.parse(JSON.stringify(sourceAuth));
+		const duplicatedAuth = structuredClone(sourceAuth);
 		let newName = `${provider} copy`;
 		let counter = 2;
 		while (authData[newName]) {

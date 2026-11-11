@@ -167,7 +167,7 @@ export function createConfigScope(home, fs, path, crypto) {
 		if (patch === null) return { deleted: true };
 		budget.nodes += 1;
 		if (budget.nodes > MAX_NODES) throw failure("CONFIG_FILE_INVALID");
-		if (Array.isArray(patch)) return { value: JSON.parse(JSON.stringify(patch)) };
+		if (Array.isArray(patch)) return { value: structuredClone(patch) };
 		if (isRecord(patch) === false) return { value: patch };
 		const target = isRecord(base) ? base : {};
 		for (const key of Object.keys(patch)) {
@@ -280,4 +280,4 @@ export function createConfigScope(home, fs, path, crypto) {
 `.replace(/\r?\n[\t ]*/g, "");
 
 /** sha256 of REMOTE_CONFIG_SOURCE as UTF-8 bytes; pinned here and re-checked by the helper contract tests. */
-export const REMOTE_HELPER_CONFIG_SHA256 = "906823cf4144f40497cd9459041c6bda7de23445ece7d22efa8c7f54523be216";
+export const REMOTE_HELPER_CONFIG_SHA256 = "d5ffb3c91285f8168d35873c8e5fc5a328ad07c08d0d213c31bcaa31b5ac1b5e";

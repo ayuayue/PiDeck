@@ -612,5 +612,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function cloneSerializable<T>(value: T): T {
-	return JSON.parse(JSON.stringify(value)) as T;
+	return structuredClone(value) as T;
 }
