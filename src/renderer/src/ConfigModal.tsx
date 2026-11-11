@@ -19,6 +19,7 @@ import { ConfigBackendSwitch, ConfigEnvironmentStatus } from "./config/ConfigEnv
 import { configTabsForTarget, configTargetKey, firstConfigTabForTarget, isConfigTabSupported, resolveConfigTabForTarget, resourcePagesSupported, securityPageSupported } from "./config/configEnvironmentModel";
 import { hasUnsavedConfigDrafts, preferredConfigTargetForProject, samePiConfigTarget, toSshTargetHosts, toWslTargetHosts, type PiConfigTargetHost } from "./config/piConfigTargetModel";
 import { RemoteConfigPanel } from "./config/RemoteConfigPanel";
+import { RemoteAuthPanel } from "./config/RemoteAuthPanel";
 import { ConfigDiagnosticCard } from "./config/ConfigDiagnosticCard";
 import { WslConfigSourceHint } from "./config/WslConfigSourceHint";
 import { usePiConfigDir } from "./config/usePiConfigDir";
@@ -97,6 +98,22 @@ const CONFIG_LAST_TAB_KEY = "pideck-config-last-tab";
 
 /** localStorage 键：Pi 环境上次选择（重开弹窗时恢复：用户选过的机器不该每次被打回本机）。 */
 const CONFIG_LAST_TARGET_KEY = "pideck-config-last-target";
+
+/**
+ * 主机清单结构等价：分区重新可见时会重读一次清单，但「内容没变」不应换来一个新数组身份
+ * （状态条按 hosts 变化自动确保连接，身份一变就会重发连接/重弹密码框）。
+ */
+function sameConfigTargetHosts(left: readonly PiConfigTargetHost[], right: readonly PiConfigTargetHost[]): boolean {
+	if (left.length !== right.length) return false;
+	for (let index = 0; index < left.length; index += 1) {
+		const before = left[index];
+		const after = right[index];
+		if (before.kind !== after.kind) return false;
+		if (before.kind === "ssh" && (after.kind !== "ssh" || before.id !== after.id || before.label !== after.label || before.sshHost !== after.sshHost)) return false;
+		if (before.kind === "wsl" && (after.kind !== "wsl" || before.label !== after.label || before.distro !== after.distro || before.user !== after.user)) return false;
+	}
+	return true;
+}
 
 /** 读取上次选定的 Pi 环境；值失效/损坏一律回本机（host 是否仍存在由主机清单回来后判定）。 */
 function loadLastConfigTarget(): PiConfigTarget {
@@ -248,6 +265,11 @@ export type ConfigPaneState = {
 export type ConfigPaneProps = {
 	onClose: () => void;
 	onSaved?: () => void;
+	/**
+	 * 宿主分区当前是否可见（设置窗口内嵌分区：切到「连接」等其它分区时为 false）。
+	 * 主机清单（SSH/WSL）只在可见时重读：新增/移除/重命名发生在别的分区，隐藏期间的重读没有意义。
+	 */
+	active?: boolean;
 	/** 当前项目身份：项目资源 IPC 只接受由主进程登记的 projectId。 */
 	projectId?: string;
 	/** PiDeck 当前加载的全部项目（作用域下拉展示；Chat 项目除外）。 */
@@ -280,7 +302,7 @@ export type ConfigPaneProps = {
  * 配置管理嵌入分区：供设置窗口内嵌渲染（共享同一窗口/标题栏，不再各自弹 Dialog）。
  * 不包错误边界——宿主 SettingsModal 的 ErrorBoundary 已兜底整个窗口。
  */
-export const ConfigPane = forwardRef<ConfigPaneHandle, ConfigPaneProps>(function ConfigPane({ onClose, onSaved, projectId, projectKind, projectName, projects, resourceOnly, focusConfigTab, focusProvider, focusBackendPane, onStateChange, onRequestClose }, ref) {
+export const ConfigPane = forwardRef<ConfigPaneHandle, ConfigPaneProps>(function ConfigPane({ onClose, onSaved, projectId, projectKind, projectName, projects, resourceOnly, focusConfigTab, focusProvider, focusBackendPane, active, onStateChange, onRequestClose }, ref) {
 	return (
 		<ConfigModalContent
 			open
@@ -294,6 +316,7 @@ export const ConfigPane = forwardRef<ConfigPaneHandle, ConfigPaneProps>(function
 			focusConfigTab={focusConfigTab}
 			focusProvider={focusProvider}
 			focusBackendPane={focusBackendPane}
+			active={active}
 			embedded
 			paneRef={ref}
 			onPaneStateChange={onStateChange}
@@ -374,6 +397,8 @@ type ConfigModalContentProps = ConfigModalProps & {
 	resourceOnly?: boolean;
 	/** 嵌入模式：不渲染 Dialog 外壳与标题栏按钮（宿主提供窗口），自身仍维护全部状态/保存/关闭确认逻辑 */
 	embedded?: boolean;
+	/** embedded 时宿主分区是否可见；缺省视为可见（独立弹窗 / 资源管理器）。 */
+	active?: boolean;
 	/** embedded 时暴露给宿主标题栏按钮的句柄 */
 	paneRef?: Ref<ConfigPaneHandle> | undefined;
 	/** embedded 时上报标题栏按钮所需状态（保存 disabled / 未保存黄点 / 关闭确认清单） */
@@ -386,7 +411,9 @@ type ConfigModalContentProps = ConfigModalProps & {
 };
 
 function ConfigModalContent(props: ConfigModalContentProps) {
-	const { open, onClose, onSaved, projectId, projectKind, projectName, projects = [], resourceOnly = false, embedded, focusConfigTab, focusProvider, focusBackendPane } = props;
+	const { open, onClose, onSaved, projectId, projectKind, projectName, projects = [], resourceOnly = false, embedded, focusConfigTab, focusProvider, focusBackendPane, active } = props;
+	/** 分区可见性：独立弹窗与资源管理器恒为可见；嵌入时由宿主（设置窗口）逐次告知。 */
+	const paneVisible = active !== false;
 	/**
 	 * 资源作用域是派生值而非可切换 state：
 	 * - 主配置页固定 global（全局安装 + 用户 ~/.pi 自装 + PiDeck 内置）；项目级技能/扩展/提示词
@@ -1110,7 +1137,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// 主机清单会从别处变（设置 → 连接里的新建/编辑/移除）：分区重新可见时重读一次。
 	// 从挂载到关闭只读一次的写法会让下拉漏掉刚添加的主机，只能关掉整个设置重开才能看到（2026-11 实机反馈）。
 	useEffect(() => {
-		if (!open) return;
+		if (!open || !paneVisible) return;
 		let cancelled = false;
 		void Promise.all([api.remoteHosts.list(), api.settings.get()])
 			.then(([sshResult, settings]) => {
@@ -1119,7 +1146,12 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 				const distro = (settings.wslDistro ?? "").trim();
 				const user = (settings.wslUser ?? "").trim();
 				const wslIdentity = settings.wslEnabled === true && distro.length > 0 && user.length > 0 ? { distro, user } : undefined;
-				setRemoteConfigHosts([...toSshTargetHosts(sshResult.ok ? sshResult.hosts.filter((host) => host.verified && !host.disabled) : []), ...toWslTargetHosts(wslIdentity)]);
+				setRemoteConfigHosts((previous) => {
+					const next = [...toSshTargetHosts(sshResult.ok ? sshResult.hosts.filter((host) => host.verified && !host.disabled) : []), ...toWslTargetHosts(wslIdentity)];
+					// 重读没带来变化时保留旧数组：状态条按 hosts 身份变化自动确保连接，不能因一次无变化的刷新
+					// 重新弹密码框/重发连接。真正新增/删除/改名的主机仍会换上新的清单。
+					return sameConfigTargetHosts(previous, next) ? previous : next;
+				});
 				setRemoteConfigHostsLoaded(true);
 			})
 			.catch(() => {
@@ -1130,7 +1162,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		return () => {
 			cancelled = true;
 		};
-	}, [open]);
+	}, [open, paneVisible]);
 
 	/** 环境的稳定身份：切换时用它驱动一次整页重读（local↔ssh 的 target 选项都是 undefined，必须单独判）。 */
 	const configTargetIdentity = configTargetKey(configTarget);
@@ -3117,37 +3149,44 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						<TabsContent value="config:auth" className="config-main min-w-0">
 							<div className="config-content">
 								{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="auth" /> : null}
-								{statusBlock}
-								{configDiagnosticBlock}
-								{!loading && (
-									<AuthTab
-										data={authData}
-										expandedAuth={expandedAuth}
-										addingAuth={addingAuth}
-										newAuthName={newAuthName}
-										saving={saving}
-										modelsData={modelsData}
-										hiddenAuthProviders={hiddenAuthProviders}
-										providerOrder={providerOrder}
-										providerOrderScope={providerOrderScope}
-										onReorderProviders={handleReorderProviders}
-										onResetProviders={handleResetProviderOrder}
-										onToggleHiddenAuthProvider={handleToggleHiddenAuthProvider}
-										onToggleAuth={(name) => setExpandedAuth(expandedAuth === name ? null : name)}
-										onStartAddAuth={() => {
-											setAddingAuth(true);
-											setNewAuthName("");
-										}}
-										onCancelAddAuth={() => setAddingAuth(false)}
-										onChangeNewAuthName={setNewAuthName}
-										onConfirmAddAuth={(name, key) => handleAddAuth(name, key)}
-										onDuplicateAuth={handleDuplicateAuth}
-										onDeleteAuths={handleDeleteAuths}
-										onDeleteAuth={handleDeleteAuth}
-										onUpdate={handleUpdateAuth}
-										onSave={handleSaveAuth}
-										onOpenUsageProbeDialog={(provider) => guardProviderOp(() => openUsageProbeDialogFor(provider, "pi"))}
-									/>
+								{/* ssh：凭据永不跨机回传，这一页只有派生视图（provider / 类型 / 是否已配置），没有可编辑表单。 */}
+								{remoteTargetHostId ? (
+									<RemoteAuthPanel key={"remote-auth-" + remoteTargetHostId} hostId={remoteTargetHostId} hostLabel={remoteHostLabel} />
+								) : (
+									<>
+										{statusBlock}
+										{configDiagnosticBlock}
+										{!loading && (
+											<AuthTab
+												data={authData}
+												expandedAuth={expandedAuth}
+												addingAuth={addingAuth}
+												newAuthName={newAuthName}
+												saving={saving}
+												modelsData={modelsData}
+												hiddenAuthProviders={hiddenAuthProviders}
+												providerOrder={providerOrder}
+												providerOrderScope={providerOrderScope}
+												onReorderProviders={handleReorderProviders}
+												onResetProviders={handleResetProviderOrder}
+												onToggleHiddenAuthProvider={handleToggleHiddenAuthProvider}
+												onToggleAuth={(name) => setExpandedAuth(expandedAuth === name ? null : name)}
+												onStartAddAuth={() => {
+													setAddingAuth(true);
+													setNewAuthName("");
+												}}
+												onCancelAddAuth={() => setAddingAuth(false)}
+												onChangeNewAuthName={setNewAuthName}
+												onConfirmAddAuth={(name, key) => handleAddAuth(name, key)}
+												onDuplicateAuth={handleDuplicateAuth}
+												onDeleteAuths={handleDeleteAuths}
+												onDeleteAuth={handleDeleteAuth}
+												onUpdate={handleUpdateAuth}
+												onSave={handleSaveAuth}
+												onOpenUsageProbeDialog={(provider) => guardProviderOp(() => openUsageProbeDialogFor(provider, "pi"))}
+											/>
+										)}
+									</>
 								)}
 							</div>
 						</TabsContent>

@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 61423451cab08c2c691a5cbc29d7f6cd60497aa5b2aded168991d1e37653ebca（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: dc1d85292b9a5872aa4208f3217583c5e806150c6937a66932d57cfb0c20efa5（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7870,6 +7870,17 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteConfig.disabled.fetchModels": "拉取模型列表",
 	"remoteConfig.disabled.usage": "用量查詢",
 	// ── 远端认证（ssh 的只读派生视图） ──
+	"remoteAuth.title": "遠端認證",
+	"remoteAuth.readOnly": "只讀",
+	"remoteAuth.scope": "憑據只留在這臺主機上",
+	"remoteAuth.loginHint": "這一頁只顯示該主機 auth.json 裡有哪些供應商、是否已配置，不讀取也不回傳任何 key 或 token；要登入或更換憑據，請在那臺主機的終端裡執行 pi /login（或直接編輯 ~/.pi/agent/auth.json）。",
+	"remoteAuth.loading": "正在讀取遠端認證狀態…",
+	"remoteAuth.failedTitle": "無法讀取遠端認證",
+	"remoteAuth.empty": "遠端 auth.json 裡還沒有任何供應商憑據",
+	"remoteAuth.count": "{count} 個供應商",
+	"remoteAuth.type.apiKey": "API Key",
+	"remoteAuth.type.oauth": "OAuth",
+	"remoteAuth.type.unsupported": "未知型別",
 
 	// ── 智能体 / 划词工具（Agents & Selection Tool） ──
 	"agentMarket.title": "智慧體",

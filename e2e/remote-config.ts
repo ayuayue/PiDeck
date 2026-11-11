@@ -3,7 +3,7 @@ import { runRemoteCommand, type RemoteAcceptanceCredentials } from "./remote-fix
 
 /**
  * Batch B authored e2e: remote config target selector → sanitized read (version + secret statuses) → one
- * non-secret merge patch → disabled auth page copy.
+ * non-secret merge patch → read-only auth view (the credential file never leaves the host).
  *
  * Safety on a real acceptance host: the remote models.json (or its absence) is backed up before the test and
  * restored byte-for-byte in finally. The patch only adds a unique top-level marker key; it never edits or
@@ -77,8 +77,12 @@ export async function verifyRemoteConfig(input: { window: Page; credentials: Rem
 		const check = await runRemoteCommand(credentials, "grep -F " + marker + ' "$HOME/.pi/agent/models.json" >/dev/null && echo MARKER_ON_REMOTE', 60_000);
 		expect(check.stdout.trim()).toContain("MARKER_ON_REMOTE");
 
-		// SSH 环境只给 helper 白名单里的页：凭据页不存在（不是点进去报错），信任/MCP 走同一套脱敏 patch 面板。
-		await expect(layout.getByRole("tab", { name: "认证", exact: true })).toHaveCount(0);
+		// SSH 环境只给 helper 可达的页：认证页存在但只读（派生视图，没有任何写入控件），源文件页不存在。
+		await layout.getByRole("tab", { name: "认证", exact: true }).click();
+		await expect(layout.getByTestId("remote-auth-panel")).toBeVisible({ timeout: timeoutMs });
+		await expect(layout.getByTestId("remote-auth-readonly")).toBeVisible();
+		// 只读证据：本机 AuthTab 的「添加认证」入口在这里不存在（页面不能看起来能改、其实写不进去）。
+		await expect(layout.getByRole("button", { name: "+ 添加认证", exact: true })).toHaveCount(0);
 		await expect(layout.getByRole("tab", { name: "源文件", exact: true })).toHaveCount(0);
 		await layout.getByRole("tab", { name: "信任", exact: true }).click();
 		await expect(layout.getByTestId("remote-config-panel")).toHaveAttribute("data-file", "trust", { timeout: timeoutMs });

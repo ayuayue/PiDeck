@@ -7863,6 +7863,17 @@ export const zhCN = {
 	"remoteConfig.disabled.fetchModels": "拉取模型列表",
 	"remoteConfig.disabled.usage": "用量查询",
 	// ── 远端认证（ssh 的只读派生视图） ──
+	"remoteAuth.title": "远端认证",
+	"remoteAuth.readOnly": "只读",
+	"remoteAuth.scope": "凭据只留在这台主机上",
+	"remoteAuth.loginHint": "这一页只显示该主机 auth.json 里有哪些供应商、是否已配置，不读取也不回传任何 key 或 token；要登录或更换凭据，请在那台主机的终端里执行 pi /login（或直接编辑 ~/.pi/agent/auth.json）。",
+	"remoteAuth.loading": "正在读取远端认证状态…",
+	"remoteAuth.failedTitle": "无法读取远端认证",
+	"remoteAuth.empty": "远端 auth.json 里还没有任何供应商凭据",
+	"remoteAuth.count": "{count} 个供应商",
+	"remoteAuth.type.apiKey": "API Key",
+	"remoteAuth.type.oauth": "OAuth",
+	"remoteAuth.type.unsupported": "未知类型",
 
 	// ── 智能体 / 划词工具（Agents & Selection Tool） ──
 	"agentMarket.title": "智能体",

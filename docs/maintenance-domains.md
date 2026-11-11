@@ -38,7 +38,7 @@
 | AI 协助（issue/PR） | 只评论不合并；未配 `ANTHROPIC_API_KEY` 静默跳过；**禁止 `pull_request_target`**（fork PR 会拿走写权限 token + secrets）；`@claude` 只认 OWNER/MEMBER/COLLABORATOR | `docs/ai-assist.md` |
 | 发版 | CHANGELOG 中英一致 → sync-release-notes → sync-workflow-choices → 打包人工 smoke | `docs/release-process.md` |
 | 宿主通道 / 侧车 / MCP | 六条例外各只允许一种用途，禁止扩成通用桥；新增工具先改文档再改代码 | `docs/host-boundaries.md` |
-| Pi 配置管理（环境） | 整个 Pi 面板只服务一个环境（本机/SSH 主机/WSL 发行版），唯一切换点 = Pi 分页上的环境下拉；ssh 只经 helper 的脱敏快照 + merge patch（**永不含 auth.json**），wsl 走 UNC 读 + 发行版内原子写；改 helper 配置域必须同步 bump `RemoteHelperEntry`/`RemoteConfigSource` 版本与 sha256 摘要 | `docs/config-environments.md` |
+| Pi 配置管理（环境） | 整个 Pi 面板只服务一个环境（本机/SSH 主机/WSL 发行版），唯一切换点 = Pi 分页上的环境下拉；ssh 只经 helper 的脱敏快照 + merge patch（patch 永不含 auth.json，认证页只有 `config.readAuth` 的只读派生视图），wsl 走 UNC 读 + 发行版内原子写；改 helper 配置域必须同步 bump `RemoteHelperEntry`/`RemoteConfigSource` 版本与 sha256 摘要 | `docs/config-environments.md` |
 
 ## 应用命名与历史数据目录迁移
 

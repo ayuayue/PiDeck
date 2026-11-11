@@ -41,7 +41,7 @@ test("只有一个环境入口：Pi 分页上的下拉，页内不再渲染目�
 	assert.match(envSwitch, /data-testid="config-environment-status"/);
 });
 
-test("导航按环境能力表过滤：ssh 只剩四个文件页，资源/安全页不给死入口", () => {
+test("导航按环境能力表过滤：ssh 只剩文件页（含只读认证），资源/安全页不给死入口", () => {
 	assert.match(modal, /const supportedConfigTabs = configTabsForTarget\(configTarget\)/);
 	assert.match(modal, /allConfigNavItems\.filter\(\(item\) => supportedConfigTabs\.includes\(item\.id\)\)/);
 	assert.match(modal, /const showSecurityPage = securityPageSupported\(configTarget\)/);
@@ -57,8 +57,10 @@ test("每个配置页按环境取内容：ssh 面板 ×4，wsl 走该发行版�
 	for (const file of ["models", "settings", "trust", "mcp"]) {
 		assert.match(modal, new RegExp('file="' + file + '" hostId=\\{remoteTargetHostId\\}'), file);
 	}
-	// ssh 没有源文件/凭据页：raw 分支不再有 remoteTargetHostId 的禁用副本。
-	assert.doesNotMatch(modal, /remote-config-unsupported-raw|remote-config-unsupported-auth|remote-config-unsupported-trust|remote-config-unsupported-mcp/);
+	// ssh 没有源文件页：raw 分支不再有 remoteTargetHostId 的禁用副本。
+	assert.doesNotMatch(modal, /remote-config-unsupported-raw|remote-config-unsupported-trust|remote-config-unsupported-mcp/);
+	// ssh 的认证页存在但只读：派生视图面板，不是本机 AuthTab（否则会把本机凭据当成那台主机的）。
+	assert.match(modal, /<RemoteAuthPanel key=\{"remote-auth-" \+ remoteTargetHostId\} hostId=\{remoteTargetHostId\} hostLabel=\{remoteHostLabel\} \/>/);
 	// wsl：auth/trust 读该发行版原文，mcp 是文件编辑，raw 覆盖五个文件。
 	assert.match(modal, /api\.config\.getRaw\("auth\.json", configTargetOption\)/);
 	assert.match(modal, /api\.config\.getRaw\("trust\.json", configTargetOption\)/);
@@ -72,6 +74,32 @@ test("每个配置页按环境取内容：ssh 面板 ×4，wsl 走该发行版�
 	// 环境切换必须驱动一次整页重读：local↔ssh 的 target 选项都是 undefined，只靠 loadConfig 身份变化不够。
 	assert.match(modal, /const configTargetIdentity = configTargetKey\(configTarget\)/);
 	assert.match(modal, /bumpResourceGeneration, resourceTarget, configTargetIdentity\]\)/);
+});
+
+test("ssh 认证面板：只读派生视图，没有任何写入/凭据值通道", () => {
+	const authPanel = readFileSync("src/renderer/src/config/RemoteAuthPanel.tsx", "utf8");
+	assert.match(authPanel, /data-testid="remote-auth-panel"/);
+	assert.match(authPanel, /data-testid="remote-auth-readonly"/);
+	assert.match(authPanel, /data-testid="remote-auth-provider"/);
+	// 只走源文件级的按目标读取，不碰本机认证链路，也不发任何写入。
+	assert.match(authPanel, /desktopApi\.config\.getRaw\("auth\.json", \{ target: \{ kind: "ssh" as const, hostId \} \}\)/);
+	assert.doesNotMatch(authPanel, /saveRaw|saveAuth|saveModels|saveSettings|expectedVersion|markDirty/);
+	// 凭据值没有任何展示位（只有 configured/missing 与类型）。
+	assert.doesNotMatch(authPanel, /secret\.value|provider\.key|provider\.access/);
+	// 主机连接与「先确保在线再读」与其它远端面板同一条路径。
+	assert.match(authPanel, /const ready = await ensureConnected\(props\.hostId\)/);
+	assert.match(authPanel, /request !== generation\.current/);
+});
+
+test("环境菜单自己会跟：分区重新可见时重读主机清单，连接失败也会推送", () => {
+	// 下拉不再「从挂载到关闭只读一次」：嵌入分区隐藏时不动，每次重新可见都重读（新增主机后不用关设置重开）。
+	assert.match(modal, /if \(!open \|\| !paneVisible\) return;/);
+	assert.match(modal, /\}, \[open, paneVisible\]\);/);
+	const settings = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
+	assert.match(settings, /active=\{pane === "config"\}/, "宿主必须告知分区可见性");
+	// 连接失败的推送在池化路径也要发（不建 manager 的那条分支）：否则另一视图停在旧的成功态。
+	const service = readFileSync("src/main/remote/RemoteHostConnectionService.ts", "utf8");
+	assert.match(service, /publishPooledState\(\{ hostId, state: \{ hostId, generation: entry\.generation, state: "offline"/);
 });
 
 test("切环境有显式确认：保存并切换 / 放弃并切换 / 取消，远端 patch 不给假保存", () => {
@@ -147,7 +175,7 @@ test("disabled provider operations carry the shared closed code", () => {
 test("zh-CN and en-US carry the same environment keys with matching placeholders", () => {
 	const zh = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts").zhCN;
 	const en = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.en-US.ts").enUS;
-	const keys = Object.keys(zh).filter((key) => key.startsWith("remoteConfig.") || key.startsWith("config.target.") || key.startsWith("config.env."));
+	const keys = Object.keys(zh).filter((key) => key.startsWith("remoteConfig.") || key.startsWith("remoteAuth.") || key.startsWith("config.target.") || key.startsWith("config.env."));
 	assert.ok(keys.length >= 50, "unexpected environment key count " + keys.length);
 	for (const key of keys) {
 		assert.ok(Object.prototype.hasOwnProperty.call(en, key), "en-US missing " + key);
@@ -169,6 +197,12 @@ test("preload forwards the file-level channel with target options and keeps the 
 	assert.match(preload, /getSettings: \(options\?: [\s\S]{0,160}?\) =>\s*ipcRenderer\.invoke\(ipcChannels\.configGetSettings, options\)/);
 	assert.match(preload, /saveModels: \(data: unknown, options\?: [\s\S]{0,160}?\) =>\s*ipcRenderer\.invoke\(ipcChannels\.configSaveModels, data, options\)/);
 	assert.match(preload, /saveSettings: \(settings: Record<string, unknown>, options\?: [\s\S]{0,160}?\) =>\s*ipcRenderer\.invoke\(ipcChannels\.configSaveSettings, settings, options\)/);
+});
+
+test("ssh 认证读取在 IPC 边界只有派生视图（remoteAuth），从不把原文当成 raw", () => {
+	const ipc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	assert.match(ipc, /routed\.kind === "remote-auth"\) return \{ raw: "", remoteAuth: routed \}/);
+	assert.match(preload, /remoteAuth\?: import\("\.\.\/shared\/piConfig"\)\.RemotePiAuthSnapshot/);
 });
 
 test("A1 reserved-key refusal is aligned across renderer, main and the frozen helper", () => {

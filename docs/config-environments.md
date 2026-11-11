@@ -38,7 +38,7 @@ WSL 只有一个环境：发行版与 Linux 用户来自**开发设置**（`wslE
 | 页 | 本机 | SSH | WSL |
 |---|---|---|---|
 | 模型 models.json | 富编辑器 | 脱敏快照 + patch | 富编辑器（`target` 路由） |
-| 认证 auth.json | 富编辑器 | ✗（凭据结构性不可达） | 富编辑器（UNC 读 + 发行版内写） |
+| 认证 auth.json | 富编辑器 | 只读派生视图（provider / 凭据类型 / 是否已配置） | 富编辑器（UNC 读 + 发行版内写） |
 | OAuth | ✓（跑本机 pi 登录） | ✗ | ✗（同上，只在本机） |
 | 设置 settings.json | 富编辑器 | 脱敏快照 + patch | 富编辑器（资源键以磁盘为准） |
 | 信任 trust.json | 富编辑器 | 脱敏快照 + patch | 富编辑器 |
@@ -57,19 +57,23 @@ provider 探针（连接测试 / 拉取模型 / 用量查询）**只从本机网
 - 目标类型与文件表：`src/shared/piConfig.ts`
   - `PiConfigTarget = local | ssh{hostId} | wsl`（wsl 不带 hostId：distro/user 由主进程从设置解析，
     渲染层自报身份一律 `WSL_CONFIG_TARGET_INVALID`；`PiResourceTarget = local | wsl` 同理）
-  - `PI_CONFIG_FILES = models/settings/trust/mcp`（ssh helper 白名单，**永不含 auth**）
+  - `PI_CONFIG_FILES = models/settings/trust/mcp`（ssh helper 的 **patch** 白名单，**永不含 auth**）
+  - `SSH_PI_CONFIG_READ_FILES = 上述 + auth`（ssh 的 **read** 白名单：auth 只有派生视图 `RemotePiAuthSnapshot`）
   - `WSL_PI_CONFIG_FILES = 上述 + auth`；`PI_CONFIG_FILE_NAMES` 是文件名唯一真源。
 - 主进程路由：`src/main/config/PiConfigRouter.ts`（`readModels/readSettings/saveModels/saveSettings/readRaw/writeRaw`）。
   本机 → `ConfigManager`；ssh → `RemotePiConfigBackend`；wsl → `WslPiConfigStore`。绝不互相回退。
+  ssh 的 `readRaw("auth")` 走 `RemotePiConfigBackend.readAuth`（`config.readAuth`），`writeRaw("auth")` 依旧被拒。
 - 远端 helper 配置域：`src/main/remote/RemoteConfigSource.ts`（冻结源码 + sha256 钉死）+
-  `RemoteHelperEntry.ts`（**当前 build 1.27.0**）。新增文件必须同时改这两处的版本/摘要与
+  `RemoteHelperEntry.ts`（**当前 build 1.28.0**）。新增文件必须同时改这两处的版本/摘要与
   `tests/remoteConfigContract.test.mjs`。
-- IPC：`config:get-raw`（新增，源文件页统一读取）、`config:save-raw`（加 `options`，wsl 整文件原文 /
-  ssh 只接受 `expectedVersion`+`patch`）、`config:get|save-models|settings`（既有，已带 `options`）。
+- IPC：`config:get-raw`（新增，源文件页统一读取；ssh + auth.json 回 `remoteAuth` 派生视图且 `raw` 为空）、
+  `config:save-raw`（加 `options`，wsl 整文件原文 / ssh 只接受 `expectedVersion`+`patch`且不含 auth）、
+  `config:get|save-models|settings`（既有，已带 `options`）。
   三处同步：`src/shared/ipc.ts` → `src/main/ipc/systemIpc.ts` → `src/preload/index.ts`。
 - 渲染层：`src/renderer/src/ConfigModal.tsx`（环境 state、切换守卫、按环境取数）、
   `config/ConfigEnvironmentSwitch.tsx`（分页 + 下拉 + 状态条）、`config/configEnvironmentModel.ts`（能力表）、
-  `config/useRemotePiConfigPanel.ts`（ssh 面板一个文件级通道对覆盖四个文件）。
+  `config/useRemotePiConfigPanel.ts`（ssh 面板一个文件级通道对覆盖四个文件）、
+  `config/RemoteAuthPanel.tsx`（ssh 认证页：只读派生视图，无输入/无保存）。
 
 ## 5. 部署与兼容
 
@@ -85,7 +89,7 @@ provider 探针（连接测试 / 拉取模型 / 用量查询）**只从本机网
 |---|---|
 | 能力表纯规则 | `node --test tests/configEnvironmentModel.test.mjs` |
 | 远端面板/切换/文案装配 | `node --test tests/remoteConfigRendererWiring.test.mjs tests/remoteTargetAutoConnect.test.mjs` |
-| helper 冻结契约 | `node --test tests/remoteConfigContract.test.mjs` |
+| helper 冻结契约 | `node --test tests/remoteConfigContract.test.mjs tests/remoteConfigAuthRead.test.mjs` |
 | 主进程路由（ssh/wsl/本机） | `node --test tests/remotePiConfigBackend.test.mjs tests/piConfigRouterWsl.test.mjs tests/wslPiConfigStore.test.mjs` |
 | IPC/preload 快照 | `node --test tests/unifiedApi*.test.mjs`；`npm run check:ipc-wiring` |
 | 类型/格式 | `npm run typecheck`；`npm run check:format` |
@@ -95,8 +99,9 @@ WSL 的 `tests/wslConfig*Smoke.mjs` 需要本机 WSL 发行版处于可用状态
 
 ## 7. 已知边界（有意为之）
 
-1. **ssh 不提供 auth.json 与源文件页**：helper 的秘密脱敏是「只回 configured/missing」，字节级回传会破坏这条边界。
-   远端凭据请在远端终端用 `pi /login` 或直接编辑该主机文件。
+1. **ssh 的认证页只读**：helper 只回答 `config.readAuth` 的派生事实（provider / 凭据类型 / configured），
+   连 OAuth 的 access/refresh 也不会进帧；auth.json 不在 patch 白名单里，所以没有「远端存 key」的入口。
+   远端凭据请在远端终端用 `pi /login` 或直接编辑该主机文件。源文件页同样不对 ssh 开放。
 2. **MCP 页在 WSL 是文件编辑**：`McpTab` 的探测、OAuth 登录、模板要跑本机 `pi mcp`，不能假装在那台发行版里执行；
    文件本身（`mcpServers`）已可读写。
 3. **OAuth 与安全策略永远只在本机**：前者绑定本机 pi 进程，后者是 PiDeck 宿主策略（`SecurityStore`），都不属于某个 pi 目录。

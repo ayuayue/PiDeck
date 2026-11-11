@@ -7898,6 +7898,17 @@ export const enUS: Record<TranslationKey, string> = {
 	"remoteConfig.disabled.fetchModels": "Fetch model catalog",
 	"remoteConfig.disabled.usage": "Usage query",
 	// ── Remote auth (ssh read-only derived view) ──
+	"remoteAuth.title": "Remote auth",
+	"remoteAuth.readOnly": "Read-only",
+	"remoteAuth.scope": "Credentials stay on that host",
+	"remoteAuth.loginHint": "This page only shows which providers exist in that host's auth.json and whether they are configured. No key or token is read or sent back; to log in or rotate a credential, run pi /login in a terminal on that host (or edit ~/.pi/agent/auth.json there).",
+	"remoteAuth.loading": "Reading remote auth state…",
+	"remoteAuth.failedTitle": "Could not read remote auth",
+	"remoteAuth.empty": "That host's auth.json has no provider credentials yet",
+	"remoteAuth.count": "{count} providers",
+	"remoteAuth.type.apiKey": "API Key",
+	"remoteAuth.type.oauth": "OAuth",
+	"remoteAuth.type.unsupported": "Unknown type",
 
 	// ── Agents & selection tool ──
 	"agentMarket.title": "Agents",
