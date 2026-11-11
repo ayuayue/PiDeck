@@ -1,5 +1,5 @@
 import type { AgentUiBatchQuestion } from "../../../shared/types";
-import type { AskBatchDraft, BatchAnswerValue } from "./askUi";
+import { batchValueOf, type AskBatchDraft, type BatchAnswerValue } from "./askUi";
 
 /** Preserve the card's answer semantics: false is valid, an empty multi-select is not. */
 export function isBatchAnswered(value: BatchAnswerValue): boolean {
@@ -8,7 +8,7 @@ export function isBatchAnswered(value: BatchAnswerValue): boolean {
 
 /** A question is settled once it is answered or the user explicitly skipped it. */
 export function isBatchSettled(questionId: string, answers: Record<string, BatchAnswerValue>, skippedIds: ReadonlyArray<string> | undefined): boolean {
-	return isBatchAnswered(answers[questionId]) || Boolean(skippedIds?.includes(questionId));
+	return isBatchAnswered(batchValueOf(answers, questionId)) || Boolean(skippedIds?.includes(questionId));
 }
 
 /**
@@ -44,9 +44,9 @@ export function withPendingTextAnswers(questions: ReadonlyArray<AgentUiBatchQues
 	let labels = draft.labels;
 	let customAnswerIds = draft.customAnswerIds;
 	for (const question of questions) {
-		if (isBatchAnswered(answers[question.id]) || skipped.includes(question.id)) continue;
+		if (isBatchAnswered(batchValueOf(answers, question.id)) || skipped.includes(question.id)) continue;
 		if (question.type !== "input" && question.type !== "editor" && question.type !== "select") continue;
-		const raw = draft.inputValues[question.id] ?? "";
+		const raw = batchValueOf(draft.inputValues, question.id) ?? "";
 		if (!raw.trim() || isUntouchedPrefill(question, raw)) continue;
 		// editor keeps its line breaks and indentation; single-line fields are trimmed like their submit buttons do.
 		const value = question.type === "editor" ? raw : raw.trim();

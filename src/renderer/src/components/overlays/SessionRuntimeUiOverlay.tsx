@@ -12,6 +12,7 @@ import { inspectBatchAnswers, isBatchAnswered, isBatchSettled, isUntouchedPrefil
 import {
 	type AskBatchDraft,
 	type BatchAnswerValue,
+	batchValueOf,
 	buildAskResponse,
 	commitBatchAnswer,
 	emptyAskBatchDraft,
@@ -201,7 +202,7 @@ function BatchAskInlineBar(props: {
 
 	/** 自定义输入（select 的「其他」）与纯输入题的提交：写入答案并按策略自动前进。 */
 	function submitText(question: AgentUiBatchQuestion): boolean {
-		const value = inputValues[question.id]?.trim();
+		const value = batchValueOf(inputValues, question.id)?.trim();
 		if (!value) return false;
 		return answerAndAdvance(question, value, value, question.type === "select");
 	}
@@ -214,7 +215,7 @@ function BatchAskInlineBar(props: {
 				questions.map((question) => [
 					question.id,
 					{
-						label: draft.labels[question.id],
+						label: batchValueOf(draft.labels, question.id),
 						wasCustom: draft.customAnswerIds.includes(question.id),
 						skipped: draft.skippedIds?.includes(question.id) ?? false,
 					},
@@ -241,7 +242,7 @@ function BatchAskInlineBar(props: {
 	 */
 	function closeCard() {
 		const effective = withPendingTextAnswers(questions, batch);
-		const hasAnswer = questions.some((question) => isBatchAnswered(effective.answers[question.id]) && !effective.skippedIds?.includes(question.id));
+		const hasAnswer = questions.some((question) => isBatchAnswered(batchValueOf(effective.answers, question.id)) && !effective.skippedIds?.includes(question.id));
 		if (!hasAnswer) {
 			props.onCancel();
 			return;
@@ -321,7 +322,7 @@ function BatchAskInlineBar(props: {
 			    标签只做「序号 + 短标题」，宽度封顶后横向滚动；条高固定一行，不再抢正文高度。 */}
 			<div className="mb-1 flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border-subtle pb-1" role="tablist">
 				{questions.map((question, index) => {
-					const answered = isBatchAnswered(effectiveAnswers[question.id]);
+					const answered = isBatchAnswered(batchValueOf(effectiveAnswers, question.id));
 					const skipped = skippedIds.includes(question.id);
 					const active = index === currentTab;
 					return (
@@ -379,14 +380,16 @@ function BatchAskInlineBar(props: {
 						<div className="text-caption text-text-tertiary">{t("ask.batchReviewHint")}</div>
 						<div className="flex flex-col gap-1 rounded-sm bg-bg-muted p-2">
 							{questions.map((question, index) => {
-								const value = effectiveAnswers[question.id];
+								const value = batchValueOf(effectiveAnswers, question.id);
 								const answered = isBatchAnswered(value);
 								const skipped = skippedIds.includes(question.id);
 								return (
 									<div key={question.id} className="grid grid-cols-[20px_minmax(0,1fr)_minmax(0,30ch)] items-start gap-2 text-caption leading-[1.6] text-text-primary">
 										<span className="font-mono font-semibold">{index + 1}</span>
 										<span className="min-w-0 [overflow-wrap:anywhere]">{question.question}</span>
-										<span className={`min-w-0 text-right font-mono font-medium [overflow-wrap:anywhere]${answered ? " answered" : skipped ? " skipped text-text-tertiary" : " unanswered"}`}>{answered ? (effectiveDraft.labels[question.id] ?? batchAnswerLabel(value)) : skipped ? t("ask.batchSkipped") : "-"}</span>
+										<span className={`min-w-0 text-right font-mono font-medium [overflow-wrap:anywhere]${answered ? " answered" : skipped ? " skipped text-text-tertiary" : " unanswered"}`}>
+											{answered ? (batchValueOf(effectiveDraft.labels, question.id) ?? batchAnswerLabel(value)) : skipped ? t("ask.batchSkipped") : "-"}
+										</span>
 									</div>
 								);
 							})}
@@ -402,14 +405,16 @@ function BatchAskInlineBar(props: {
 							question={currentQuestion}
 							questionIndex={currentTab}
 							total={total}
-							answer={effectiveAnswers[currentQuestion.id]}
+							answer={batchValueOf(effectiveAnswers, currentQuestion.id)}
 							skipped={skippedIds.includes(currentQuestion.id)}
-							inputValue={inputValues[currentQuestion.id] ?? ""}
+							inputValue={batchValueOf(inputValues, currentQuestion.id) ?? ""}
 							responding={props.responding}
 							onAnswer={(value, label, wasCustom) => answerAndAdvance(currentQuestion, value, label, wasCustom)}
 							onSkip={() => skipAndAdvance(currentQuestion)}
 							onAdoptPrefill={
-								(currentQuestion.type === "input" || currentQuestion.type === "editor") && !isBatchAnswered(effectiveAnswers[currentQuestion.id]) && !skippedIds.includes(currentQuestion.id) && isUntouchedPrefill(currentQuestion, inputValues[currentQuestion.id] ?? "") ? () => adoptPrefill(currentQuestion) : undefined
+								(currentQuestion.type === "input" || currentQuestion.type === "editor") && !isBatchAnswered(batchValueOf(effectiveAnswers, currentQuestion.id)) && !skippedIds.includes(currentQuestion.id) && isUntouchedPrefill(currentQuestion, batchValueOf(inputValues, currentQuestion.id) ?? "")
+									? () => adoptPrefill(currentQuestion)
+									: undefined
 							}
 							onInputChange={(value) => changeBatch((current) => ({ ...current, inputValues: { ...current.inputValues, [currentQuestion.id]: value } }))}
 							onSubmitInput={() => submitText(currentQuestion)}
