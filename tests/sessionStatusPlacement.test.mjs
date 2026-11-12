@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
 
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
 
 const placementModule = loadTsCommonJs("src/shared/sessionStatusPlacement.ts");
 const { DEFAULT_SESSION_STATUS_PLACEMENT, parseSessionStatusPlacement, placementShowsSidebarPanel } = placementModule;
@@ -50,7 +51,7 @@ describe("设置链路契约", () => {
 
 	test("渲染层默认值与主进程一致", () => {
 		assert.match(readFileSync("src/shared/types/settings.ts", "utf8"), /sessionStatusPlacement: "composer",/);
-		assert.match(readFileSync("src/renderer/src/previewApi.ts", "utf8"), /sessionStatusPlacement: "composer",/);
+		assert.match(previewApiSource, /sessionStatusPlacement: "composer",/);
 	});
 
 	test("设置页：外观页二选一（无 both），可搜索，纳入未保存提示", () => {

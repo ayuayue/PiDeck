@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "../helpers/loadTsCommonJs.mjs";
+import { previewApiSource } from "../helpers/previewApiSources.mjs";
 
 const { createDefaultAppSettings } = loadTsCommonJs("src/shared/types/settings.ts");
 
@@ -74,7 +75,7 @@ test("an explicit opt-out survives loading, saving, and reloading", async (t) =>
 });
 
 test("preview and the settings switch use the same enabled auto-approval default", () => {
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const preview = previewApiSource;
 	assert.match(preview, /cuaAutoApprove\s*:\s*true\b/);
 	assert.match(preview, /cuaEnabled\s*:\s*false\b/);
 	const commonTab = readFileSync("src/renderer/src/components/app/settings/CommonTab.tsx", "utf8");

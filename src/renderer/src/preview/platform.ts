@@ -1,0 +1,228 @@
+import type { PiDesktopApi } from "../../../preload";
+import { now, noop } from "./fixtures";
+
+/**
+ * 预览/浏览器模式的桌面独占桩：MCP、宿主插件、剪贴板、悬浮窗、系统菜单与桌面宠物。
+ */
+export function createPlatformPreview(): Pick<PiDesktopApi, "piDeckMcp" | "hostPlugins" | "clipboard" | "quickTask" | "floatingBall" | "miniOverlay" | "piAuth" | "dataEnv" | "channelSwitch" | "agentMemory" | "shellMenu" | "system" | "pet"> {
+	const clipboardStub: PiDesktopApi["clipboard"] = {
+		// preview 模式无真实剪贴板；浏览器下 navigator.clipboard 为异步 API，
+		// 与同步接口不匹配，因此返回空串，右键粘贴菜单静默无操作
+		readText: () => "",
+		readHtml: () => "",
+		readImage: () => "",
+		writeImage: async () => false,
+		writeText: async () => false,
+	};
+	return {
+		piDeckMcp: {
+			getState: async () => ({ ok: false, code: "desktop-only" }),
+			setAccess: async () => ({ ok: false, code: "desktop-only" }),
+			connection: async () => ({ ok: false, code: "desktop-only" }),
+		},
+		hostPlugins: {
+			list: async () => ({ ok: false, code: "desktop-only" }),
+			rescan: async () => ({ ok: false, code: "desktop-only" }),
+			setEnabled: async () => ({ ok: false, code: "desktop-only" }),
+			openDirectory: async () => ({ ok: false, code: "desktop-only" }),
+			install: async () => ({ ok: false, code: "desktop-only" }),
+			installDirectory: async () => ({ ok: false, code: "desktop-only" }),
+			installGitHub: async () => ({ ok: false, code: "desktop-only" }),
+			searchMarket: async () => ({ ok: false, code: "desktop-only" }),
+			scaffold: async () => ({ ok: false, code: "desktop-only" }),
+			mount: async () => ({ ok: false, code: "desktop-only" }),
+			update: async () => ({ ok: false, code: "desktop-only" }),
+			unmount: async () => ({ ok: false, code: "desktop-only" }),
+			remove: async () => ({ ok: false, code: "desktop-only" }),
+			onChanged: () => () => undefined,
+			onNavigate: () => () => undefined,
+			onOpenBrowser: () => () => undefined,
+		},
+		clipboard: clipboardStub,
+		// 资源管理器右键菜单预览桩：预览环境无注册表操作，一律报不支持
+		quickTask: { getState: async () => ({ active: false, requestId: 0 }), onChanged: () => () => undefined, exit: async () => undefined, switchToMiniOverlay: async () => undefined },
+		floatingBall: {
+			getState: async () => ({ visible: false, alwaysOnTop: true, snapToEdge: true, expandTarget: "mini" as const, showRunningBadge: true, activeCount: 0, runningCount: 0, recentTitles: [], locale: "zh-CN" as const }),
+			onStateChanged: () => () => undefined,
+			enter: async () => undefined,
+			exit: async () => undefined,
+			setEnabled: async () => undefined,
+			setExpandTarget: async () => undefined,
+			dragStart: async () => undefined,
+			dragMove: async () => undefined,
+			dragEnd: async () => undefined,
+			contextMenu: async () => undefined,
+		},
+		miniOverlay: {
+			getState: async () => null,
+			onStateChanged: () => () => undefined,
+			jumpToSession: async () => undefined,
+			quickPrompt: async () => ({ ok: false, message: "preview mode" }),
+			close: async () => undefined,
+			collapse: async () => undefined,
+			switchToQuickTask: async () => undefined,
+		},
+		// 预览模式没有真实 pi 认证宿主；提供与 preload 同形状的安全空实现，
+		// 避免新增认证能力让静态预览整站无法通过类型检查或初始化。
+		piAuth: {
+			listProviders: async () => ({ ok: false as const, errorKind: "sdk-unavailable" as const, error: "Pi auth is unavailable in preview mode." }),
+			login: async ({ providerId }: { providerId: string }) => ({ ok: false, cancelled: false, providerId, errorKind: "sdk-unavailable" as const, error: "Pi auth is unavailable in preview mode." }),
+			answerPrompt: async () => false,
+			cancel: async () => false,
+			logout: async (providerId: string) => ({ ok: false, providerId, error: "Pi auth is unavailable in preview mode." }),
+			onFlowUpdate: () => () => undefined,
+		},
+		// 数据环境预览桩：预览模式无真实数据目录，按 stable 通道未决策返回；导入同步不可用
+		dataEnv: {
+			getInfo: async () => ({ channel: "stable" as const, decided: false, dataMode: null, activeDirectory: "shared" as const }),
+			chooseMode: async () => ({ ok: false as const, error: "invalid-mode" as const }),
+			restart: async () => undefined,
+			confirmMismatch: async () => undefined,
+			onDecisionRequired: () => () => undefined,
+			onMismatchDetected: () => () => undefined,
+			getImportPreview: async () => ({ ok: false as const, error: "unavailable" as const }),
+			importStart: async () => ({ ok: false as const, error: "unavailable" as const }),
+			importCancel: async () => undefined,
+			onImportProgress: () => () => undefined,
+		},
+		// 频道切换预览桩：预览模式不接真实更新源，查询/下载均不可用，状态恒 idle。
+		channelSwitch: {
+			query: async () => ({ ok: false as const, error: "preview-unavailable" as const }),
+			download: async () => ({ ok: false as const, error: "preview-unavailable" as const }),
+			launch: async () => ({ ok: false as const, error: "preview-unavailable" as const }),
+			getStatus: async () => ({ phase: "idle" as const }),
+			onStateChanged: () => () => undefined,
+		},
+		// 智能体记忆预览桩：预览模式没有主进程，给一份空快照让设置页照常渲染。
+		agentMemory: {
+			status: async () => ({
+				ok: true as const,
+				value: {
+					root: "preview/memory",
+					totalBytes: 0,
+					indexBytes: 0,
+					files: [],
+					device: { id: "preview", name: "preview" },
+					index: null,
+					indexError: "preview-unavailable",
+					learn: { sessions: 0, lastAt: null },
+				},
+			}),
+			clearIndex: async () => ({ ok: true as const, value: { removed: 0 } }),
+			exportBundle: async () => ({ ok: true as const, value: { canceled: true } }),
+			previewBundle: async () => ({ ok: true as const, value: { canceled: true } }),
+			importBundle: async () => ({ ok: true as const, value: { canceled: true, added: 0, duplicate: 0, tombstoned: 0, rejected: 0, removed: 0, replaced: 0, scopes: [], device: "" } }),
+			list: async () => ({ ok: true as const, value: { root: "preview/memory", total: 0, groups: [] } }),
+			deleteEntry: async () => ({ ok: true as const, value: { removed: 0 } }),
+			deleteEntries: async () => ({ ok: true as const, value: { removed: 0, missing: 0 } }),
+			restoreEntry: async () => ({ ok: true as const, value: { restored: true } }),
+			revealRoot: async () => ({ ok: true as const, value: null }),
+			standingRead: async () => ({ ok: true as const, value: "" }),
+			standingWrite: async () => ({ ok: true as const, value: { chars: 0 } }),
+			renameDevice: async () => ({ ok: true as const, value: { id: "preview-device", name: "preview-device" } }),
+		},
+		shellMenu: {
+			getQuickTaskState: async () => ({ supported: false, registered: false }),
+			setQuickTaskEnabled: async () => ({ supported: false, registered: false }),
+			getState: async () => ({ supported: false, registered: false }),
+			setEnabled: async () => ({ supported: false, registered: false }),
+		},
+		// 进程监控预览桩：返回空快照，仅供预览模式不崩溃
+		system: {
+			getProcessMetrics: async () => ({
+				agents: [],
+				totalAgentBytes: 0,
+				sampledAt: Date.now(),
+			}),
+			stopAgent: async () => undefined,
+			// 架构检测预览桩：恒报「未在转译层」，预览模式不触发换包提示
+			getArchStatus: async () => ({
+				platform: "",
+				processArch: "",
+				runningUnderArm64Translation: false,
+			}),
+			getDiagnosticsSnapshot: async () => ({
+				enabled: false,
+				sampledAt: Date.now(),
+				main: {
+					rssBytes: 0,
+					heapUsedBytes: 0,
+					heapTotalBytes: 0,
+					externalBytes: 0,
+					arrayBuffersBytes: 0,
+				},
+				eventLoopLagMs: 0,
+				eventLoopLagMaxMs: 0,
+				processCpu: [],
+				memoryProfilePath: null,
+				timingsPath: null,
+				cpuPath: null,
+				recentTimings: [],
+			}),
+			openDiagnosticsFolder: async () => undefined,
+			// 环境体检预览桩：返回空报告，仅供预览模式不崩溃
+			healthCheck: async () => ({
+				generatedAt: Date.now(),
+				environment: {
+					appVersion: "preview",
+					platform: "win32",
+					arch: "",
+					osVersion: "",
+					locale: "",
+					timezone: "",
+					electronVersion: "",
+					chromeVersion: "",
+					nodeVersion: "",
+					installMode: "dev",
+					userDataDir: "",
+					logsDir: "",
+					appRssBytes: 0,
+					appHeapUsedBytes: 0,
+					systemTotalMemoryBytes: 0,
+					systemFreeMemoryBytes: 0,
+					dataDirFreeBytes: 0,
+					flags: {
+						wslEnabled: false,
+						wslDistro: "",
+						piProxyEnabled: false,
+						desktopProxyEnabled: false,
+						piProxyConfigured: false,
+						chromiumSandbox: false,
+						developerDiagnostics: false,
+						webServiceEnabled: false,
+						customPiPathConfigured: false,
+					},
+					pi: { installed: false, searchedDirs: [] },
+				},
+				checks: [],
+				logSummary: { total: 0, error: 0, warn: 0, todayError: 0, todayWarn: 0, recent: [] },
+				logFiles: [],
+			}),
+			healthExportReport: async () => ({ ok: true, canceled: false, path: "preview" }),
+			healthExportBundle: async () => ({ ok: true, canceled: false, path: "preview" }),
+		},
+
+		pet: {
+			onState: noop,
+			list: async () => [{ id: "clawd", displayName: "Clawd", source: "builtin", spritesheetUrl: "" }],
+			setEnabled: async () => undefined,
+			setId: async () => undefined,
+			moveWindow: async () => undefined,
+			moveBy: async () => undefined,
+			ready: () => undefined,
+			contextMenu: async () => undefined,
+			focusAgent: async () => undefined,
+			onFocusTarget: noop,
+			getPendingFocusTarget: async () => null,
+			onSprite: noop,
+			onNotify: noop,
+			setPreviewMode: async () => undefined,
+			onPreviewMode: noop,
+			onCaps: noop,
+			testNotify: async () => undefined,
+			tease: async () => undefined,
+			setDragging: async () => undefined,
+			getCurrent: async () => ({ id: "clawd", displayName: "Clawd", source: "builtin", spritesheetUrl: "" }),
+		},
+	};
+}

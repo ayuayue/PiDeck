@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
 
 const turnExecution = readFileSync("src/renderer/src/components/session/turn/useTurnExecution.ts", "utf8");
 // dispatchPromptSnapshot 已迁入 useSessionPromptDispatch（App 只保留接线）。
@@ -51,7 +52,7 @@ test("new-turn collapse is unconditional: the switch is gone from every layer", 
 		["CommonTab", readFileSync("src/renderer/src/components/app/settings/CommonTab.tsx", "utf8")],
 		["unsavedChangesSummary", readFileSync("src/renderer/src/components/app/settings/unsavedChangesSummary.ts", "utf8")],
 		["settingsFieldAnchors", readFileSync("src/renderer/src/utils/settingsFieldAnchors.ts", "utf8")],
-		["previewApi", readFileSync("src/renderer/src/previewApi.ts", "utf8")],
+		["previewApi", previewApiSource],
 		["i18n zh-CN", readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8")],
 		["i18n en-US", readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8")],
 	];
