@@ -1,15 +1,18 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 // 文本驻留契约：工具结果截断下发 + 「查看完整输出」按需读取链路
 const projector = readFileSync("src/main/pi/AgentMessageProjector.ts", "utf8");
 const formatToolDetail = readFileSync("src/shared/formatToolDetail.ts", "utf8");
 const agentUtils = readFileSync("src/main/pi/agentUtils.ts", "utf8");
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const agentManager = agentManagerSource;
 const reader = readFileSync("src/main/pi/SessionHistoryReader.ts", "utf8");
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 const toolCard = readFileSync("src/renderer/src/components/session/ToolCallComponents.tsx", "utf8");
 
 test("tool detail is delivered with truncated/fullLength markers", () => {
@@ -58,13 +61,13 @@ test("full text read falls back to session file with LRU cache", () => {
 
 test("IPC channel, handler and preload surface are wired", () => {
 	assert.match(ipc, /sessionsCatalogReadMessageFullText: "sessions:catalog-read-message-full-text"/);
-	assert.match(readFileSync("src/main/ipc/sessionIpc.ts", "utf8"), /ipcChannels\.sessionsCatalogReadMessageFullText,/);
+	assert.match(sessionIpcSource, /ipcChannels\.sessionsCatalogReadMessageFullText,/);
 	// 四参签名：sessionId 用于运行期绑定不可用时的历史会话文件回退（_viewer 投影）
 	// 形参可能被格式化到同一行：用 \s* 容忍。
 	assert.match(preload, /readMessageFullText: \(\s*sessionId: string \| undefined,\s*agentId: string,\s*messageId: string,\s*entryId\?: string,?\s*\)/);
 	// handler 侧：运行期路径失败时，sessionId 经 catalog locator 定位本地文件回退
-	assert.match(readFileSync("src/main/ipc/sessionIpc.ts", "utf8"), /const requestedSessionPath = requestedSessionId \? localSessionFilePath\(requestedSessionId\) : undefined;/);
-	assert.match(readFileSync("src/main/ipc/sessionIpc.ts", "utf8"), /readMessageFullTextFromFile\(requestedSessionPath, messageId, messageEntryId\)/);
+	assert.match(sessionIpcSource, /const requestedSessionPath = requestedSessionId \? localSessionFilePath\(requestedSessionId\) : undefined;/);
+	assert.match(sessionIpcSource, /readMessageFullTextFromFile\(requestedSessionPath, messageId, messageEntryId\)/);
 });
 
 test("ToolCard shows on-demand full-output entry with loading/error states", () => {

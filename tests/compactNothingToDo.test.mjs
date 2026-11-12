@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -9,7 +10,7 @@ import test from "node:test";
  * 3) /compact 与 chip 共用同一映射
  */
 
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const agentManager = agentManagerSource;
 const composer = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
 const mockPi = readFileSync("e2e/mock-pi.cjs", "utf8");
 

@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -7,7 +8,7 @@ import test from "node:test";
  * 对齐 textStreamChannel.test.mjs 风格。
  */
 
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const agentManager = agentManagerSource;
 // 双通道状态机（thinking/正文缓冲、节流发射、增量基准、思考段生命周期）已随
 // Live 流域迁入 LiveStreamChannel（AgentManager 拆分 Wave 3）；装配/终态写入仍在 AgentManager。
 const liveStream = readFileSync("src/main/pi/liveStreamChannel.ts", "utf8");

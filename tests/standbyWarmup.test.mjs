@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * standby 预热状态机（standbyWarmup.ts）+ AgentManager 接入契约。
  *
@@ -19,7 +20,6 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { STANDBY_CLAIM_WAIT_MS, StandbyWarmupTracker } = loadTsCommonJs("src/main/pi/standbyWarmup.ts");
 const { AgentManager } = loadTsCommonJs("src/main/pi/AgentManager.ts");
-const agentManagerSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
 const standbyWarmupSource = readFileSync("src/main/pi/standbyWarmup.ts", "utf8");
 
 /** 等到「微任务 + 下一轮事件循环」都跑完（预热 settle → 唤醒等待者 → 接力都在微任务里推进）。 */

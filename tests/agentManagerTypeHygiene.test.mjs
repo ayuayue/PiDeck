@@ -1,8 +1,9 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const source = agentManagerSource;
 
 test("AgentManager 不再使用 Record<string, any> 收窄（全表 8 处）", () => {
 	// 全文件级断言：4865/5472/5971/6291/6295/6449/6822/7180 共 8 处全部收窄

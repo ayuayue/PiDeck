@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * 现场故障回归（2026-09）：项目工作目录不存在时，pi 的 spawn 失败被 libuv 报成
  * "spawn C:\Windows\system32\cmd.exe ENOENT"，而桌面端既没把它当失败、也没还原原因：
@@ -281,7 +282,7 @@ test("PiProcess 诊断里带上 Windows 启动通道与 cmd.exe 回退原因", a
 });
 
 test("AgentManager 把 spawn 失败判据和启动握手超时接进启动链路", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	// 启动握手不吃用户给长任务的 rpcTimeout（默认 600s），否则「进程活着但不就绪」静默等 10 分钟。
 	assert.match(source, /client\.request\(\{ type: "get_state" \}, this\.startupHandshakeTimeoutMs\)/);
 	assert.match(source, /STARTUP_HANDSHAKE_TIMEOUT_MS = 90_000/);

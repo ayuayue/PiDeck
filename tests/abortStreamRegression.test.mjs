@@ -1,6 +1,8 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 回归护栏：手动停止后不应再把“系统状态”写进时间线，
@@ -8,9 +10,9 @@ import test from "node:test";
  * 这类问题修过又回归过多次，用源码契约测试锁定关键路径。
  */
 test("abort feedback is toast-only and seals stream generation", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	const streamGate = readFileSync("src/main/pi/streamGate.ts", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 
 	// 1) 停止反馈不得再 addMessage 系统卡片
@@ -48,10 +50,10 @@ test("abort feedback is toast-only and seals stream generation", () => {
 });
 
 test("abort failures surface to the user and escalate when pi keeps running", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	const controller = readFileSync("src/main/pi/abortStreamGateController.ts", "utf8");
 	const composer = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	// 运行控制（abort/stop 的 toast 与 runtimeUnavailable 提示）已迁入 useSessionRunControl。
 	const runControl = readFileSync("src/renderer/src/hooks/session/useSessionRunControl.ts", "utf8");
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
@@ -85,7 +87,7 @@ test("abort failures surface to the user and escalate when pi keeps running", ()
  * pi 的 SDK 原文拒收 toast（同一 agent 会被连拒多次）。
  */
 test("a stuck run is not reported idle: pi-authoritative signals reach the send path", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	const controller = readFileSync("src/main/pi/abortStreamGateController.ts", "utf8");
 
 	// 1) 发送前的忙碌判定必须并入 pi 侧权威信号，不能只看本地 tab.status

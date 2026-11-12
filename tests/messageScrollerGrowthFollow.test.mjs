@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
@@ -206,7 +207,7 @@ test("TurnRow liveInterimId requires an active text stream", () => {
 // stopReason 协议信号：主进程两处提取（live upsert + 历史回放），渲染层按
 // stop/toolUse 精确区分中间回复与最终回复（message_end 即确定，永不反复）。
 test("stopReason flows from RPC message_end into ChatMessage", () => {
-	const agentSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentSource = agentManagerSource;
 	// live 路径：message_end 更新真实 stopReason，骨架阶段不覆盖旧值；
 	// pending 是骨架占位值，必须被排除（否则 message_end 缺字段时消息永远停 in pending，
 	// 渲染层回退启发式失效——reviewer 指出删掉该守卫测试照样绿的漏洞，故显式断言）。

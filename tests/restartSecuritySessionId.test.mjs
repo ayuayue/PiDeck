@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -11,7 +12,7 @@ import test from "node:test";
  * reattachProcess（compact 自动重连/崩溃自动重启）复用原 tab，路径正确，此处一并锁定。
  */
 test("restart carries deckSessionId so per-session security level survives restart", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 
 	// 1) restart 方法块内解构必须带 deckSessionId
 	const restartBlock = agentManager.match(/\tasync restart\(agentId: string\)[^\{]*\{[\s\S]*?\n\t\}/)?.[0] ?? "";

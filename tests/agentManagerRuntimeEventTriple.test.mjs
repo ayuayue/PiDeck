@@ -1,8 +1,9 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const source = agentManagerSource;
 
 test("agentsLog/agentsTextStream 全部发射点携带 runtime triple", () => {
 	const spreads = source.match(/\.\.\.this\.streamRuntimeTriple\(agentId\)/g) ?? [];

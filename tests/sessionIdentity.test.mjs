@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -185,7 +186,6 @@ test("AgentManager keys preserve WSL case and identity at the process boundary",
 	assert.notEqual(upper, lower);
 	assert.notEqual(upper, otherDistro);
 
-	const agentManagerSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
 	assert.match(agentManagerSource, /buildAgentSessionKey\(input/);
 	assert.doesNotMatch(agentManagerSource, /normalizeSessionPathForCompare/);
 });

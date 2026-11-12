@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 // 会话全周期 + 配置 + 敏感操作审计契约（静态断言）：
 // 用户「日志埋点必须覆盖会话全周期、配置变更、敏感操作」的回归保障。
 // - 会话 runtime 全周期（激活/停止/重启/改名/模型/思考级别）必须留痕
@@ -8,13 +9,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 
 const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
 const coordinator = read("main/sessions/SessionRuntimeCoordinator.ts");
-const agentManager = read("main/pi/AgentManager.ts");
+const agentManager = agentManagerSource;
 const settingsStore = read("main/settings/SettingsStore.ts");
-const systemIpc = read("main/ipc/systemIpc.ts");
-const sessionIpc = read("main/ipc/sessionIpc.ts");
+const systemIpc = systemIpcSource;
+const sessionIpc = sessionIpcSource;
 const appLogger = read("main/logging/AppLogger.ts");
 const piProcess = read("main/pi/PiProcess.ts");
 const backgroundsIpc = read("main/ipc/backgroundsIpc.ts");

@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -308,7 +309,7 @@ function createHarness(editor, options = {}) {
 }
 
 test("edit/delete/resend leaf lookup uses the session file, not get_entries", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	const start = source.indexOf("private async getActiveSessionLeafId(");
 	const end = source.indexOf("private createSessionEntryTarget(");
 	assert.ok(start >= 0 && end > start, "getActiveSessionLeafId slice must be non-empty");
@@ -650,7 +651,7 @@ test("restoreCheckpoint refuses conversation scope when no fork anchor exists (n
 	// resolveForkEntryBeforeCheckpoint 返回 undefined，旧实现静默跳过 fork，
 	// UI 报「回退成功」但什么都没发生。行为级验证需要完整 runtime fixture
 	//（fork RPC/ref 解析），这里用源码断言钉住「无锚点必须拒绝」分支（空白容忍）。
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	assert.match(source, /if \(wantConversation && !forkEntryId\) \{\s*throw new Error\("Cannot locate a conversation anchor before this checkpoint/);
 	// 拒绝必须发生在 applyCheckpointRestore 之前（否则文件已回退却报错，半成功态）
 	const throwPos = source.indexOf("Cannot locate a conversation anchor");

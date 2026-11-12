@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { appendFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
@@ -276,7 +277,7 @@ test("createCacheHitStatsReader: 源文件不含 readFile 整读（大会话闪�
 	// 这是本修复的关键回归点——旧接线就是 `readFile: (path) => readFile(path, "utf8")`。
 	// 且必须走 createJsonlScanLines：内联适配器曾少写第三个参数（#511），
 	// 使读取器的增量起点丢失、同一批样本被重复累计。
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	assert.match(agentManager, /scanLines:\s*createJsonlScanLines\(\)/, "AgentManager 必须注入 createJsonlScanLines（流式 + 透传增量起点）");
 });
 
@@ -558,7 +559,7 @@ test("AgentRuntimeState 携带平均命中率与样本数字段", () => {
 });
 
 test("AgentManager getRuntimeState 返回平均命中率，且接线到流式扫描", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	assert.match(source, /getSessionCacheHitStats/);
 	assert.match(source, /cacheHitAveragePercent/);
 	assert.match(source, /cacheHitSampleCount: fileHitStats\.sampleCount/);

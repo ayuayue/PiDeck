@@ -1,10 +1,11 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
 // 第 12 步 Wave 2：WSL 会话 spawn 时用档案里的 distro/user，而不是固定全局环境。
 // 缺字段仍回退全局（兼容旧项目）；远端会话不参与 WSL 身份。
-const manager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const manager = agentManagerSource;
 
 test("spawn settings override carries the session WSL identity", () => {
 	assert.match(manager, /settingsOverride\?: Partial<Pick<AppSettings, [^>]*"wslEnabled" \| "wslDistro" \| "wslUser"/);

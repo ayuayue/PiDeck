@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -177,7 +178,7 @@ function loadAgentManagerModule() {
 		},
 		{ filename: "SessionHistoryReader.ts" },
 	);
-	const output = ts.transpileModule(readFileSync("src/main/pi/AgentManager.ts", "utf8"), {
+	const output = ts.transpileModule(agentManagerSource, {
 		compilerOptions: {
 			module: ts.ModuleKind.CommonJS,
 			target: ts.ScriptTarget.ES2022,

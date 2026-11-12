@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -5,7 +6,7 @@ import test from "node:test";
 const read = (path) => readFileSync(path, "utf8");
 
 test("third-party takeover notice uses runtime /mcp command source when available", () => {
-	const agentManager = read("src/main/pi/AgentManager.ts");
+	const agentManager = agentManagerSource;
 	// 运行时事实：get_commands 的 sourceInfo.path 区分 builtin:mcp 与第三方来源
 	assert.match(agentManager, /resolveMcpCommandOwner/);
 	assert.match(agentManager, /listRegisteredCommands/);
@@ -18,7 +19,7 @@ test("third-party takeover notice uses runtime /mcp command source when availabl
 });
 
 test("third-party takeover notice is delivered even after the first run has started", () => {
-	const agentManager = read("src/main/pi/AgentManager.ts");
+	const agentManager = agentManagerSource;
 	// 异步检测可能晚于首个 agent_start：此时直接落时间线，不能永远留在 pending
 	const methodStart = agentManager.indexOf("notifyMcpThirdPartyTakeover");
 	const methodStart2 = agentManager.indexOf("private async notifyMcpThirdPartyTakeover");
@@ -28,7 +29,7 @@ test("third-party takeover notice is delivered even after the first run has star
 });
 
 test("third-party takeover notice carries interpolation params and a working action", () => {
-	const agentManager = read("src/main/pi/AgentManager.ts");
+	const agentManager = agentManagerSource;
 	const bridge = read("src/renderer/src/hooks/useSessionRuntimeBridge.ts");
 	// i18n 参数随 toast 下发（renderer t() 支持 {source}/{command}）
 	assert.match(agentManager, /i18nParams: \{ source: hit\.source/);
@@ -54,7 +55,7 @@ test("MCP page 'go to extensions' navigates within the same scope instead of a f
 test("third-party banner copy does not claim every configured server is dead", () => {
 	const zh = read("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 	const en = read("src/renderer/src/i18n/rendererCopy.en-US.ts");
-	const agentManager = read("src/main/pi/AgentManager.ts");
+	const agentManager = agentManagerSource;
 	// 断言仍可保留“推荐卸载”，但不能保证第三方不读同一份 mcp.json
 	assert.match(zh, /config\.mcp\.thirdParty\.desc/);
 	assert.doesNotMatch(agentManager, /一定不会工作/);

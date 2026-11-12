@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -5,10 +6,11 @@ import { readRendererStyles } from "./helpers/rendererStyles.mjs";
 
 import { mergeAgentRuntimeState } from "../src/renderer/src/utils/agentRuntimeState.ts";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { ensureI18nLocale, setI18nLocale, t } = loadTsCommonJs("src/renderer/src/i18n.ts");
 
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 const sessionViewSource = readFileSync("src/renderer/src/components/session/SessionView.tsx", "utf8");
 const sessionRuntimeInjectorSource = readFileSync("src/renderer/src/components/session/SessionRuntimeInjector.tsx", "utf8");
 const bootstrapSource = readFileSync("src/renderer/src/components/app/AppBootstrap.tsx", "utf8");
@@ -19,7 +21,6 @@ const i18nSource = [readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", 
 const runtimeStateSource = readFileSync("src/renderer/src/utils/agentRuntimeState.ts", "utf8");
 const queueStateSource = readFileSync("src/renderer/src/utils/queuedPromptQueue.ts", "utf8");
 const toolRuntimeStateSource = readFileSync("src/shared/toolRuntimeState.ts", "utf8");
-const agentManagerSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
 const webServiceSource = readFileSync("src/main/web/WebServiceManager.ts", "utf8");
 const webApiRoutesSource = readFileSync("src/main/web/WebApiRoutes.ts", "utf8");
 const sharedTypesSource = [readFileSync("src/shared/types.ts", "utf8"), readFileSync("src/shared/types/session.ts", "utf8")].join("\n");

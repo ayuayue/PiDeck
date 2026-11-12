@@ -40,8 +40,7 @@ import { agentEventTags, ipcChannels } from "../../shared/ipc";
 import { isLocalProject, isRemoteProject } from "../../shared/projectLocation";
 import { collectSessionFileChanges } from "../../shared/fileChanges";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
-import { extractPiToolTruncation } from "../../shared/formatToolDetail";
-import { COMPACT_CANCELLED_BY_OWNER, COMPACT_CANCELLED_BY_USER_ABORT, COMPACT_HOOK_REJECT_MAX_MS, COMPACT_OBSERVATION_MAX_AGE_MS, COMPACT_ROUTED_TO_OWNER, COMPACT_USER_ABORT_WINDOW_MS, COMPACT_WAIT_TIMEOUT } from "../../shared/compactFeedback";
+import { COMPACT_CANCELLED_BY_OWNER, COMPACT_CANCELLED_BY_USER_ABORT, COMPACT_HOOK_REJECT_MAX_MS, COMPACT_OBSERVATION_MAX_AGE_MS, COMPACT_USER_ABORT_WINDOW_MS } from "../../shared/compactFeedback";
 import { SessionLocatorRouter } from "../sessions/SessionLocatorRouter";
 import { PiProcess, type WhitelistSkip } from "./PiProcess";
 import { resolveWhitelistSkipCopy } from "./whitelistSkipNotice";
@@ -49,8 +48,8 @@ import { APP_DISPLAY_NAME } from "../utils/appBrand";
 import { isMainWindowFocused, shouldAlertNow } from "../notifications/alertFocusGate";
 import { resolveNotificationLogoUri } from "../notifications/notificationToast";
 import { showAgentToast, type AgentToastDeps } from "../notifications/agentToast";
-import { createCompactRpcRequest } from "./compactRpc";
-import { readPiCompactionOwnership, type PiCompactionOwnership } from "./compactionOwner";
+import type { PiCompactionOwnership } from "./compactionOwner";
+import { CompactionRunner } from "./compactionRunner";
 import { mergeSubagentSources } from "./derivedSubagents";
 import { parseAvailableThinkingLevelsResponse } from "./thinkingLevels";
 import { listActiveBuiltInExtensionPaths } from "../extensions/builtInExtensions";
@@ -94,17 +93,18 @@ import { estimateMessagesPayloadBytes } from "./messagePayloadSize";
 import { bindRemoteUserMessageTimestamp } from "./remoteMessageTimestamp";
 import { StoppedMessageIdentityCache } from "./stoppedMessageIdentity";
 import { currentIndexTree, diffCheckpoints, loadAllCheckpoints, loadCheckpointFromRef, MUTATING_TOOLS, restoreCheckpoint as applyCheckpointRestore, toCheckpointSummary } from "../rewind/index.ts";
-import { AgentMessageProjector, buildActiveBranchEntryIds as buildActiveBranchEntryIdsForDisplay, hasPiToolCallBlock, normalizePiStopReason } from "./AgentMessageProjector";
+import { AgentMessageProjector, buildActiveBranchEntryIds as buildActiveBranchEntryIdsForDisplay } from "./AgentMessageProjector";
 import { RewindCheckpointCoordinator } from "./RewindCheckpointCoordinator";
 import { LiveStreamChannel } from "./liveStreamChannel";
 import { resolveNotificationSessionId } from "./agentUtils";
-import { chatUsageFromPiUsage } from "./messageUsage";
 import { isRoleMessageRole } from "./sessionEntryIds";
 import { createStreamGateState, isStreamGateSealed, noteAbortSettled, openStreamGateForNewRun, sealStreamGate, type StreamGateState } from "./streamGate";
 import { RpcLiveLogTap } from "./rpcLiveLogTap";
 import { MessagePerfTracker } from "./messagePerfTracker";
 import { AbortStreamGateController } from "./abortStreamGateController";
 import { MessageEmitBatcher } from "./messageEmitBatcher";
+import { ToolMessageAssembler } from "./toolMessageAssembler";
+import { RuntimeHistoryLoader } from "./runtimeHistoryLoader";
 import { createCacheHitStatsReader, type CacheHitStats, type CacheHitStatsReader } from "./cacheHitStats";
 import {
 	stripAnsi,
@@ -141,12 +141,6 @@ export type { ProjectTrustChoice };
 import { emitAgentMessageMeasured } from "../perf/messageFlushMeter";
 import { isContextOverflowError } from "../../shared/contextOverflow";
 import { reasoningText } from "../../shared/reasoningText";
-
-/** 从 RPC 返回的未知 ask 记录中安全读取字段，避免批量答案转换扩散 any 强转。 */
-function readAskField(input: unknown, key: string): unknown {
-	if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
-	return Reflect.get(input, key);
-}
 
 /**
  * prompt / steer / follow_up 响应的 disposition 取值（pi CHANGELOG 0.99.0 #9098）。
@@ -196,12 +190,6 @@ export class AgentManager {
 	readonly capabilities: ReadonlySet<AgentGatewayCapability> = new Set(["compact", "fork", "getForkMessages", "editMessage", "deleteMessage", "getCommands", "reloadResources", "exportHtml"]);
 	private readonly agents = new Map<string, AgentRuntime>();
 	private readonly messages = new Map<string, ChatMessage[]>();
-	/** 工具完整结果 LRU 缓存：截断下发后完整文本仅存于此（运行期「查看完整输出」走内存，
-	 *  历史会话回退读会话文件）。键为 pi message id，agent 停止时随 clearAgentState 释放。 */
-	private readonly toolFullTextByMessageId = new Map<string, string>();
-	/** 已驻留完整文本的总字节数（字节预算 LRU 淘汰用）。 */
-	private toolFullTextBytes = 0;
-
 	/** 当前正在流式更新文本的 agent（message_start/text_delta/thinking_delta 置位，
 	 *  message_end/done/error/agent_end/agent_settled/abort 清除）。
 	 *  isStreaming 不再只依赖 pi get_state 轮询：轮询在 text_delta 期间不触发，
@@ -239,15 +227,15 @@ export class AgentManager {
 	 * public：行为测试注入窗口起点/读取待发滑出（agentManagerRuntimeCache H2/M2）。
 	 */
 	public readonly messageEmit: MessageEmitBatcher;
+	/** 工具/assistant 消息装配域（工具卡 upsert + 工具完整文本 LRU + 流式回答块 identity）；
+	 *  本类只保留 messages 列表所有权与生命周期清理入口。 */
+	private readonly toolMessages: ToolMessageAssembler;
+	/** 历史窗口加载域（loadMessages / 缓存优先翻页 / 压缩后单飞重载）；本类只保留生命周期与编排。 */
+	private readonly historyLoader: RuntimeHistoryLoader;
+	/** 手动压缩域（compact 请求编排 / 接管者改写 / 失败重连）；本类只保留同名薄包装与压缩过程状态。 */
+	private readonly compaction: CompactionRunner;
 	/** catalog 改写发生在 stop 之后：保留受限身份摘要，而不是保留整个已停 runtime。 */
 	private readonly stoppedMessageIdentities = new StoppedMessageIdentityCache();
-	/**
-	 * 压缩成功后的在途重载集合（单飞锁）。
-	 * compaction_end 可能连续到达（自动重试/多段压缩/压缩与用户发消息几乎同时完成），
-	 * 每次 loadMessages 都要把整段 12 轮窗口重新读盘 + 投影 + 全量下发；叠加多份在途重载
-	 * 会把内存峰值翻倍（#213）。同一 agent 压缩重载只保留一次在途，其后到达的合并到本次。
-	 */
-	private readonly compactionReloadInFlight = new Set<string>();
 	/**
 	 * 运行期消息缓存头部在会话文件消息下标空间中的偏移（entryId 缺失时的数值游标换算）。
 	 * loadMessages / trimRuntimeCache 维护；-1 表示未知（匿名会话等无文件场景）。
@@ -285,13 +273,6 @@ export class AgentManager {
 	 * 文件直接读取仅解析近尾部少量消息，避免大会话加载导致的界面冻结。
 	 */
 	private static readonly MAX_AUTO_HISTORY_LOAD_BYTES = 5 * 1024 * 1024;
-	/** 工具完整结果 LRU 上限（见 toolFullTextByMessageId）。 */
-	private static readonly TOOL_FULL_TEXT_LRU_LIMIT = 200;
-	/**
-	 * 工具完整结果总字节预算（2026 内存排查）：单条可达数百 KB，
-	 * 200 条全是大结果时仍可驻留数十 MB；超预算时按最旧先淘汰。
-	 */
-	private static readonly TOOL_FULL_TEXT_MAX_BYTES = 32 * 1024 * 1024;
 	/**
 	 * 大会话直接从文件尾部读取时，最多保留的最近消息轮次（每条 user 消息算一轮）。
 	 * 12 轮 = 4 次 3 轮翻页，覆盖绝大多数回看需求；更早历史走磁盘轮次分页。
@@ -622,6 +603,77 @@ export class AgentManager {
 			// Wave 2：会话历史索引优先问 session-store sidecar。这里刻意用「延迟读字段」的
 			// 闭包：AgentManager 构造早于 sidecar 服务创建，装配期再 setSessionStoreIndexReader。
 			readIndexTable: (hostPath, version) => this.sessionStoreIndexReader?.(hostPath, version) ?? Promise.resolve(null),
+		});
+		this.toolMessages = new ToolMessageAssembler({
+			messages: this.messages,
+			toolMessageIds: this.toolMessageIds,
+			messageProjector: this.messageProjector,
+			findSameMessageIndex: (list, role, text, toolCallId) => this.findSamePiMessageIndex(list, role, text, toolCallId),
+			markMessagesDirtyFrom: (agentId, index) => this.markMessagesDirtyFrom(agentId, index),
+			scheduleMessageEmit: (agentId, immediate) => this.scheduleMessageEmit(agentId, immediate),
+			activeAssistantMessageId: (agentId) => this.activeAssistantMessageIds.get(agentId),
+			setActiveAssistantMessageId: (agentId, messageId) => {
+				this.activeAssistantMessageIds.set(agentId, messageId);
+			},
+			consumeAskWaitMs: (agentId) => this.uiGate.consumeAskWaitMs(agentId),
+			isAbortedDuringAsk: (agentId) => this.abortedDuringAsk.has(agentId),
+			runtimeProjectId: (agentId) => this.agents.get(agentId)?.tab.projectId,
+			isRemoteRuntime: (projectId) => this.isRemoteRuntime(projectId),
+		});
+		this.historyLoader = new RuntimeHistoryLoader({
+			requireRuntime: (agentId) => this.requireRuntime(agentId),
+			agents: this.agents,
+			isRemoteRuntime: (projectId) => this.isRemoteRuntime(projectId),
+			messages: this.messages,
+			sessionHistoryReader: () => this.sessionHistoryReader,
+			stoppedMessageIdentities: this.stoppedMessageIdentities,
+			messageHeadOffsetByAgent: this.messageHeadOffsetByAgent,
+			sessionFileVersionByAgent: this.sessionFileVersionByAgent,
+			rpcTimeoutMs: this.rpcTimeoutMs,
+			maxHistoryLoadTurns: AgentManager.MAX_HISTORY_LOAD_TURNS,
+			appLogger: this.appLogger,
+			translate: this.translate,
+			readRecentMessagesFromSessionFile: (sessionPath, maxTurns) => this.readRecentMessagesFromSessionFile(sessionPath, maxTurns),
+			scanCompactions: (sessionPath) => this.scanCompactions(sessionPath),
+			buildActiveBranchEntryIds: (entries, leafId) => this.buildActiveBranchEntryIds(entries, leafId),
+			convertAgentMessages: (agentId, rawMessages, activeEntryIds) => this.convertAgentMessages(agentId, rawMessages, activeEntryIds),
+			computeDisplayWindowStart: (messages) => this.computeDisplayWindowStart(messages),
+			rebindInFlightMessages: (agentId, nextMessages, projectedMessages) => this.rebindInFlightMessages(agentId, nextMessages, projectedMessages),
+			setMessageEmitWindowStart: (agentId, start) => this.messageEmit.setWindowStart(agentId, start),
+			scheduleMessageEmit: (agentId, immediate) => this.scheduleMessageEmit(agentId, immediate),
+			refreshAutoTitle: (agentId) => this.refreshAutoTitle(agentId),
+			emitState: () => this.emitState(),
+			recordTiming: (name, startedAt, detail) => this.recordTiming(name, startedAt, detail),
+			toSessionHostPath: (sessionPath) => this.toSessionHostPath(sessionPath),
+			clearAbortedDuringAsk: (agentId) => {
+				this.abortedDuringAsk.delete(agentId);
+			},
+		});
+		// 手动压缩域（拆分第七刀）：压缩过程集合由本类持有（事件/状态查询/清理都直接读写），
+		// 这里按引用注入；发布与读取入口全部走既有方法，协作者不新增状态。
+		this.compaction = new CompactionRunner({
+			requireRuntime: (agentId) => this.requireRuntime(agentId),
+			agents: this.agents,
+			appLogger: this.appLogger,
+			settingsStore: this.settingsStore,
+			rpcTimeout: () => this.rpcTimeoutMs,
+			pendingCompactProcesses: this.pendingCompactProcesses,
+			compactingAgents: this.compactingAgents,
+			compactTimedOutAgents: this.compactTimedOutAgents,
+			rpcCompactingAgents: this.rpcCompactingAgents,
+			contextOverflowByAgent: this.contextOverflowByAgent,
+			getProject: (id) => this.getProject(id),
+			emitRuntimeState: (agentId) => this.emitRuntimeState(agentId),
+			emitContextOverflowState: (agentId, contextOverflow) => this.emitContextOverflowState(agentId, contextOverflow),
+			emitState: () => this.emitState(),
+			getRuntimeState: (agentId) => this.getRuntimeState(agentId),
+			loadMessages: (agentId, skipEntries, earlyMessagesPromise, options) => this.loadMessages(agentId, skipEntries, earlyMessagesPromise, options),
+			reattachProcess: (agentId, sessionPath) => this.reattachProcess(agentId, sessionPath),
+			addLocalizedMessage: (agentId, role, i18nKey, fallbackText, options) => this.addLocalizedMessage(agentId, role, i18nKey, fallbackText, options),
+			listRegisteredCommands: (runtime) => this.listRegisteredCommands(runtime),
+			resolveSessionCompactionOwnership: (runtime) => this.resolveSessionCompactionOwnership(runtime),
+			resolveCompactCancelMessage: (agentId, errorMessage) => this.resolveCompactCancelMessage(agentId, errorMessage),
+			compactionCancelEvidence: (agentId) => this.compactionCancelEvidence(agentId),
 		});
 	}
 
@@ -1507,11 +1559,11 @@ export class AgentManager {
 
 	/**
 	 * 按需读取消息完整文本（「查看完整输出」）：优先运行期工具结果缓存
-	 * （toolFullTextByMessageId，仅截断下发后的完整文本），回退会话文件定位读取
+	 * （ToolMessageAssembler 内的 full text LRU，仅截断下发后的完整文本），回退会话文件定位读取
 	 * （SessionHistoryReader 内部有 LRU）。找不到或读取失败抛错，由 IPC 层转结构化错误。
 	 */
 	async readMessageFullText(agentId: string, messageId: string, entryId?: string): Promise<{ text: string }> {
-		const cached = this.toolFullTextByMessageId.get(messageId);
+		const cached = this.toolMessages.readFullText(messageId);
 		if (cached !== undefined) return { text: cached };
 		const runtime = this.agents.get(agentId);
 		const sessionPath = runtime?.tab.sessionPath;
@@ -1598,103 +1650,9 @@ export class AgentManager {
 		return this.sessionHistoryReader.readBranchTree(sessionPath);
 	}
 
-	/**
-	 * 缓存优先的历史翻页：运行中会话的「加载更早对话」先在主进程内存缓存（最近 12 轮）里切片，
-	 * 命中则零文件 IO；未命中返回 null，调用方回退 SessionHistoryReader 读文件。
-	 *
-	 * 游标：beforeEntryId 优先（跨下标空间稳定）；before 为文件绝对下标时先解析成 entryId 再查缓存。
-	 * 命中边界：锚点条目必须在缓存中且不是缓存第一条（第一条之前没有缓存内容，交给文件路径）。
-	 * 返回页的 nextBefore/nextBeforeEntryId 统一换算回文件下标空间，渲染层续页协议不变。
-	 */
+	/** 缓存优先的历史翻页收口在 RuntimeHistoryLoader（游标/锚点规则随域迁出）；薄包装保持调用点不变。 */
 	async tryReadRuntimeTurnPage(sessionPath: string, agentId: string, options: { beforeEntryId?: string; before?: number; turnCount?: number }): Promise<SessionMessagePage | null> {
-		const runtime = this.agents.get(agentId);
-		const list = this.messages.get(agentId);
-		if (!runtime || !list || list.length === 0) return null;
-		// 防御：运行时已切到别的会话（替换/重绑）时禁止用其缓存应答本会话的翻页，
-		// 交给文件路径（调用方以稳定 sessionId 经 coordinator 解析，此处兜底双保险）。
-		if (runtime.tab.sessionPath && this.toSessionHostPath(runtime.tab.sessionPath) !== this.toSessionHostPath(sessionPath)) {
-			return null;
-		}
-
-		let pos = -1;
-		if (options.beforeEntryId) {
-			pos = list.findIndex((m) => m.meta?.entryId === options.beforeEntryId);
-		} else if (options.before !== undefined) {
-			const entryId = await this.sessionHistoryReader.resolveEntryIdAtPosition(sessionPath, options.before);
-			if (!entryId) return null;
-			pos = list.findIndex((m) => m.meta?.entryId === entryId);
-			// 锚点是缓存最旧条目：缓存里没有比它更早的内容，交给文件路径
-			if (pos === 0) return null;
-		}
-		if (pos < 0) return null;
-
-		const turnCount = Math.min(Math.max(1, Math.floor(options.turnCount ?? 3)), SessionHistoryReader.maxTurnPageSize());
-		const roles = list.map((m) => ({ role: m.role, byteLength: 0 }));
-		const start = boundTurnWindowStart(roles, pos, turnCount, SessionHistoryReader.maxPageWindowEntries());
-		if (start >= pos) return null;
-		const page = list.slice(start, pos);
-		// 窗口首条常常不是用户/助手消息，而是压缩摘要卡片或工具结果：这两类在会话文件里没有
-		// 对应 entry（摘要卡片无条目、工具结果并入上一轮），拿它的 entryId 必然为空，
-		// 于是 nextBefore 与 nextBeforeEntryId 双双缺席——渲染层据此判定「已到文件头」，
-		// 「加载更多对话」不显示、上滚也不翻页（2026-10 反馈：恢复会话后只剩 9 轮）。
-		// 这里向后扫描取第一条带 entryId 的消息当续页锚点：下一页会多回几条与窗口重叠的
-		// 消息，渲染层 prefix 合并按 entryId 去重，不会重复渲染（见 prependSessionMessagePageAtom）。
-		const pickAnchorEntryId = (items: typeof list): string | undefined => {
-			for (const item of items) {
-				const id = item?.meta?.entryId;
-				if (typeof id === "string" && id) return id;
-			}
-			return undefined;
-		};
-		// 回退锚点只能在 page **之前**找，且取离 page 最近的（倒序扫）：
-		// 若回退到整个 list，一旦窗口首条无 entryId，锚点必然落到请求锚点自身（list[pos]），
-		// nextBefore 原地踏步——每次点「加载更多对话」都返回同一页，界面毫无变化
-		// （2026-10 反馈：按钮出现了但点了没反应；关掉 runtime 走文件路径就正常）。
-		const pickAnchorEntryIdBefore = (end: number): string | undefined => {
-			for (let i = end - 1; i >= 0; i -= 1) {
-				const id = list[i]?.meta?.entryId;
-				if (typeof id === "string" && id) return id;
-			}
-			return undefined;
-		};
-		// 窗口已经贴到缓存最旧条目（start === 0）时**不必**在这里拦：下面 pickAnchorEntryId(page)
-		// 取到的是 page 首条的 entryId，它对应文件里的真实位置，nextBefore 因此严格小于本次
-		// 锚点，下一次请求会以 pos === 0 再进来、page 为空、落到下面的 !oldestEntryId 分支交回
-		// 文件路径——推进不会原地踏步。此前这里直接 return null，把「缓存里还有一整页可用」
-		// 的请求也推给磁盘，续页白读一次文件（2026-11 真机：点刻度定位慢）。
-		const oldestEntryId = pickAnchorEntryId(page) ?? pickAnchorEntryIdBefore(start);
-		// 缓存里没有能当锚点的更早条目：缓存这条线索到此为止，交给文件路径按数值 before 继续翻。
-		if (!oldestEntryId) return null;
-		// 文件位置 0 = 锚点就在文件头，即「没有更早历史」：必须给 null，与文件路径
-		// readTurnPageCore 的 `nextBefore: start > 0 ? start : null` 同一口径。
-		// 给 0 的话渲染层按 `nextBefore !== null` 判定还有更早历史，于是「加载更多对话」
-		// 永远挂在第一条消息上方，点一次只换来一页空数据、界面毫无变化（2026-12 真机）。
-		const anchorPosition = await this.sessionHistoryReader.resolveEntryPosition(sessionPath, oldestEntryId);
-		const hasEarlier = typeof anchorPosition === "number" && anchorPosition > 0;
-		const nextBefore = hasEarlier ? anchorPosition : null;
-		const total = await this.sessionHistoryReader.getActiveEntryCount(sessionPath);
-		// 与文件路径同口径的会话文件版本：渲染层据此检测压缩/外部改写并丢弃已缓存的历史前缀
-		// （indexVersion 缺失会让 cache 页沿用旧版本，压缩后前缀失效不可见）。
-		const indexVersion = await this.sessionHistoryReader.getSessionIndexVersion(sessionPath);
-		void this.appLogger?.info("agent", "Runtime history cache hit", {
-			agentId,
-			start,
-			pos,
-			pageCount: page.length,
-			// 续页锚点打出来：「加载更多对话」不出现时，先看这两位是不是都空。
-			nextBeforeEntryId: hasEarlier ? oldestEntryId : null,
-			nextBefore,
-		});
-		return {
-			// 与文件路径/全量 flush 同口径瘦身：缓存页也必须剥离 meta.result，
-			// 否则一次缓存命中会把主进程保留的完整工具结果带回渲染层，
-			// 历史前缀的内存会随翻页快速膨胀。
-			messages: stripToolResultForDelivery(page),
-			total,
-			nextBefore,
-			...(hasEarlier ? { nextBeforeEntryId: oldestEntryId } : {}),
-			indexVersion,
-		};
+		return this.historyLoader.tryReadRuntimeTurnPage(sessionPath, agentId, options);
 	}
 
 	recordHostExchange(agentId: string, userText: string, assistantText: string) {
@@ -1714,257 +1672,11 @@ export class AgentManager {
 		return runtime.tab.cwd;
 	}
 
+	/** 历史窗口加载收口在 RuntimeHistoryLoader（读盘/裁剪/投影/entryId 对齐随域迁出）。 */
 	async loadMessages(agentId: string, skipEntries = false, earlyMessagesPromise?: Promise<RpcResponse>, options?: { preserveMessagesAfter?: number }) {
-		const t0 = Date.now();
-		const runtime = this.requireRuntime(agentId);
-		// 远端会话的会话文件在远端：**本地历史读取不参与**。本机 reader 要么读到本机同名路径、
-		// 要么 ENOENT 后把会话标成加载失败（用户看到一张凭空的错误卡）。
-		// 也不用 `get_messages` 顶替：它会把整段历史打成单行 JSON，PiRpcClient 在 stdout 回调里
-		// 同步 JSON.parse 会冻住主进程（见下一条注释），远端历史窗口读取属下一批。
-		if (this.isRemoteRuntime(runtime.tab.projectId)) {
-			return this.messages.get(agentId) ?? [];
-		}
-
-		const process = runtime.process;
-		const { deckSessionId, sessionPath } = runtime.tab;
-		// create() 起步的后台历史加载先于协调器 bind 启动：捕获到的 runtimeGeneration 是
-		// undefined，随后首次 bind 才写入具体代际。「未绑定 → 首次绑定」是同一运行时的绑定
-		// 动作，不是「换了运行时」——按值比较会把新 runtime 的首次历史加载全部误取消，
-		// 窗口永远为空（Issue #350：重启后历史加载被取消 → 渲染层只拿到未初始化的空窗口）。
-		// 因此首次观察到具体代际时记下它，之后仍严格比较：重新绑定后的迟到结果照常取消。
-		let expectedGeneration = runtime.tab.runtimeGeneration;
-		const assertCurrentRuntime = () => {
-			// 历史读取跨多个 await；发布消息、分页游标和压缩计数前必须仍属于原运行时。
-			if (this.agents.get(agentId) !== runtime || runtime.process !== process || runtime.tab.deckSessionId !== deckSessionId || runtime.tab.sessionPath !== sessionPath) throw new Error("History load cancelled: runtime changed");
-			if (expectedGeneration === undefined) expectedGeneration = runtime.tab.runtimeGeneration;
-			else if (runtime.tab.runtimeGeneration !== expectedGeneration) throw new Error("History load cancelled: runtime changed");
-		};
-
-		// 有会话文件时禁止再发 get_messages：pi 会把整段历史打成单行 JSON，
-		// PiRpcClient 在 stdout data 回调里同步 JSON.parse，主进程事件循环被堵住，
-		// 窗口关闭/最小化/设置都点不了。earlyPromise / JSONL 尾部读取才是安全路径。
-		const messagesPromise = earlyMessagesPromise ?? (sessionPath ? this.readRecentMessagesFromSessionFile(sessionPath, AgentManager.MAX_HISTORY_LOAD_TURNS) : process.client.request({ type: "get_messages" }, this.rpcTimeoutMs));
-
-		// 有会话文件时禁止 get_entries：pi 把整棵 entry 树打成单行 JSON，
-		// PiRpcClient 同步 JSON.parse 会再冻一次窗口。entryId 从 JSONL 索引取，
-		// 与尾部窗口消息一一对应。skipEntries 仍保留给无文件/显式跳过路径。
-		let entriesPromise: Promise<{ data?: unknown } | undefined> | undefined;
-		const useFileEntryIds = Boolean(sessionPath);
-		if (!skipEntries && !useFileEntryIds) {
-			entriesPromise = process.client
-				.request(
-					{
-						type: "get_entries",
-					},
-					15_000,
-				)
-				.catch(() => {
-					// get_entries 失败时不阻塞消息加载；编辑/删除走 fallback（_piDeckMsgSeq 计数）
-					void this.appLogger?.warn("agent", "Failed to get_entries for entryId mapping", { agentId });
-					return undefined;
-				});
-		}
-
-		const [response, entriesResult] = await Promise.all([messagesPromise, entriesPromise ?? Promise.resolve(undefined)]);
-		assertCurrentRuntime();
-		const t1 = Date.now();
-
-		const rawMessages = (response.data as { messages?: unknown[] } | undefined)?.messages ?? [];
-
-		// 解析 entryId 列表（需要先于 convertAgentMessages，用于把消息关联到 pi 的会话分支）。
-		let activeEntryIds: string[] | undefined;
-		if (useFileEntryIds && sessionPath) {
-			// 只数消费 entryId 槽位的角色消息：getRecentActiveEntryIds 按同一规则过滤
-			// （pi 0.86 的 role:"system" 条目不算槽位，见 sessionEntryIds.isRoleMessageRole）。
-			const roleCount = rawMessages.reduce<number>((count, message) => {
-				const role = (message as { role?: unknown } | undefined)?.role;
-				return count + (isRoleMessageRole(role) ? 1 : 0);
-			}, 0);
-			activeEntryIds = await this.sessionHistoryReader.getRecentActiveEntryIds(sessionPath, roleCount).catch(() => undefined);
-			assertCurrentRuntime();
-		} else if (entriesResult) {
-			const entriesData = entriesResult.data as { entries?: Array<{ id: string; parentId: string | null; type?: string; message?: { role?: string } }>; leafId?: string } | undefined;
-			if (entriesData?.entries && entriesData?.leafId) {
-				activeEntryIds = this.buildActiveBranchEntryIds(entriesData.entries, entriesData.leafId);
-			}
-		}
-
-		// 按对话轮次截断（保留最近若干轮 user 消息）。压缩摘要不是 user 消息，会被此逻辑保留在尾部，
-		// 因此下方会单独把它插到最前面，确保不被按 user 轮次切掉。
-		const trimmed = trimHistoryMessages(rawMessages);
-		const trimmedStart = turnTrimStartIndex(rawMessages);
-
-		// 身份向量必须与保留消息同步裁剪：activeEntryIds 按「消费槽位的角色消息」与 rawMessages
-		// 一一对应，trim 丢弃头部整轮后，若仍把完整 activeEntryIds 交给 projector，保留消息会被
-		// 绑定到会话最早的 entry——编辑/删除/重发将落到错误轮次（曾因 15 轮裁剪复现 q4→u1）。
-		// compactionSummary/branchSummary 不消费槽位，prepend 到最前不影响对齐。
-		let droppedRoleCount = 0;
-		if (activeEntryIds && trimmedStart > 0) {
-			droppedRoleCount = countRoleMessagesBefore(rawMessages, trimmedStart);
-			activeEntryIds = activeEntryIds.slice(droppedRoleCount);
-		}
-		// 记录缓存头部在文件消息下标空间中的位置：无 entryId 的窗口（skipEntries 大历史路径）
-		// 需要用它作为首次补历史的数值游标（渲染层 before=windowStartFilePos）。
-		// 窗口条数必须用「message 条目数」而不是角色消息数：readRecordMessagePage 的数值 before
-		// 是 activeMessageEntries 下标空间，而 0.86 起窗口里会夹 role:"system" 的 prompt/tool
-		// 更新条目，少算会让「加载更多」锚点前移。（trimmedStart 之前的条目已滑出窗口）
-		const windowEntryCount = Math.max(0, rawMessages.length - trimmedStart);
-		let headOffset: number;
-		if (useFileEntryIds && sessionPath && activeEntryIds) {
-			// 文件 entryId 已是尾部窗口，不是全量分支：headOffset 必须用
-			// 文件总数 - 窗口条数，否则「加载更多」会以为已经在文件头。
-			const activeFileCount = await this.sessionHistoryReader.getActiveEntryCount(sessionPath).catch(() => activeEntryIds.length);
-			assertCurrentRuntime();
-			headOffset = Math.max(0, activeFileCount - windowEntryCount);
-		} else if (activeEntryIds) {
-			headOffset = droppedRoleCount;
-		} else if (sessionPath) {
-			// get_entries 失败/未启用（skipEntries）时同样尽力提供数值游标：
-			// 否则渲染层「加载更多对话」因 entryId 锚点与 windowStartFilePos 双缺失而静默放弃，
-			// 表现为点击无反应（2026-02 修复，此前仅 skipEntries 路径走此兑底）。
-			// 最佳努力：文件活动消息数 - 窗口条数 ≈ 被裁头部长度（entryId 锚点仍是首选路径）。
-			const activeFileCount = await this.sessionHistoryReader.getActiveEntryCount(sessionPath).catch(() => 0);
-			assertCurrentRuntime();
-			headOffset = Math.max(0, activeFileCount - windowEntryCount);
-		} else {
-			headOffset = -1; // 未知：不提供 windowStartFilePos，渲染层回退 entryId 锚点
-		}
-
-		// 删除/编辑只向文件追加 context_edit，原文行仍留在尾部窗口里。运行态窗口必须
-		// 应用与停止态同一份投影过滤，否则启动 Agent 后被删消息「复活」、编辑回退原文
-		// （issue #482）。只过滤投影后的消息，rawMessages / activeEntryIds /
-		// windowStartFilePos 仍按原始条数计算（getRecentActiveEntryIds 槽位对齐依赖它）。
-		const contextEdits = useFileEntryIds && sessionPath ? await this.sessionHistoryReader.getSessionContextEdits(sessionPath).catch(() => undefined) : undefined;
-		assertCurrentRuntime();
-
-		// 解析会话文件里的压缩记录：拿到所有压缩段摘要 + 归档消息。
-		// pi 的 get_messages 对压缩会话只返回压缩后的消息，通常不带压缩摘要；
-		// 这里从原始会话文件补回：压缩摘要卡片 + 归档消息（支持展开查看压缩前内容）。
-		// 若 RPC 已经返回了压缩/分支摘要，则不再重复补，避免时间线出现两张摘要卡片。
-		let compactionSummaryRaw: unknown | null = null;
-		let compactionCount: number | undefined;
-		const rpcAlreadyHasSummary = rawMessages.some((m) => (m as { role?: unknown })?.role === "compactionSummary" || (m as { role?: unknown })?.role === "branchSummary");
-		void this.appLogger?.info("agent", "Compaction check", {
-			agentId,
-			hasSessionPath: !!runtime.tab.sessionPath,
-			rpcAlreadyHasSummary,
-			rawMessageCount: rawMessages.length,
-		});
-		if (sessionPath) {
-			const archiveData = await this.scanCompactions(sessionPath).catch((err) => {
-				void this.appLogger?.warn("agent", "Failed to parse session archives", {
-					agentId,
-					sessionPath: runtime.tab.sessionPath,
-					error: err instanceof Error ? err.message : String(err),
-				});
-				return null;
-			});
-			assertCurrentRuntime();
-			if (archiveData && archiveData.compactions.length > 0) {
-				void this.appLogger?.info("agent", "Session archives parsed", {
-					agentId,
-					compactionCount: archiveData.compactions.length,
-					rpcAlreadyHasSummary,
-				});
-
-				const last = archiveData.compactions[archiveData.compactions.length - 1];
-
-				if (!rpcAlreadyHasSummary) {
-					// RPC 未返回摘要 → 我们自己创建压缩卡片（只带元信息，归档消息按需读取）
-					compactionSummaryRaw = {
-						role: "compactionSummary",
-						summary: last.summary || this.translate("session.summaryPlaceholder"),
-						timestamp: last.timestamp ? Date.parse(last.timestamp) : Date.now(),
-						meta: {
-							compactionId: last.id || null,
-							compactionCount: archiveData.compactions.length,
-							firstKeptEntryId: last.firstKeptEntryId,
-							tokensBefore: last.tokensBefore,
-						},
-					};
-				}
-				compactionCount = archiveData.compactions.length;
-			}
-		}
-
-		// 将压缩摘要插到消息最前面（在 trim 之后，避免被按 user 轮次切掉）。
-		const finalRaw = compactionSummaryRaw ? [compactionSummaryRaw, ...trimmed] : trimmed;
-		// 文件版本与投影作为同一快照发布；stat 之后不再 await，避免读盘期间清理的状态被补回。
-		let fileVersion: string | undefined;
-		if (sessionPath) {
-			try {
-				const version = await stat(this.toSessionHostPath(sessionPath));
-				fileVersion = `${version.mtimeMs}:${version.size}`;
-			} catch {
-				// 缺失文件仍可发布已读取的历史，但不能沿用旧版本。
-			}
-			assertCurrentRuntime();
-		}
-		this.messageHeadOffsetByAgent.set(agentId, headOffset);
-		// 把压缩次数写回 tab，供前端（会话头/标签）展示"已压缩 N 次"。
-		if (compactionCount !== undefined && runtime.tab.compactionCount !== compactionCount) {
-			runtime.tab.compactionCount = compactionCount;
-			this.emitState();
-		}
-
-		const projected = this.convertAgentMessages(agentId, finalRaw, activeEntryIds);
-		// 投影之后按 meta.entryId 过滤/替换（与停止态、历史页同一个函数）：只有带 entryId 的
-		// 消息参与，压缩摘要卡与实时消息原样保留。
-		const messages = contextEdits ? applySessionContextEdits(projected, contextEdits) : projected;
-		const t2 = Date.now();
-		this.recordTiming("session.history.load", t0, {
-			agentId,
-			skipEntries,
-			rawMessages: rawMessages.length,
-		});
-		void this.appLogger?.info("agent", "Agent messages loaded", {
-			agentId,
-			skipEntries,
-			rawMessages: rawMessages.length,
-			trimmedMessages: trimmed.length,
-			// 下发体量（近似字节）：判断「渲染进程为何崩」的关键字段（#213）
-			payloadBytes: estimateMessagesPayloadBytes(messages),
-			requestMs: t1 - t0,
-			convertMs: t2 - t1,
-			totalMs: t2 - t0,
-		});
-		// abort 时 ask_question 的 answer 已被覆写为 null，不再需要跟踪
-		this.abortedDuringAsk.delete(agentId);
-		const nextMessages = stabilizeProjectedIdsFromIdentities(
-			// 会话级身份延续：新 agent 首次投影时本地缓存为空，把 id 还原成 UI 手里的旧 id
-			//（restart/崩溃重连后窗口重下发必须复用旧 key，否则渲染层整窗 remount、动画重放）。
-			// list 是捕获先后的完整快照，这里只读不消费——同一会话后续 runtime 仍可继续对齐。
-			this.stoppedMessageIdentities.list(runtime.tab.sessionPath ? this.toSessionHostPath(runtime.tab.sessionPath) : ""),
-			stabilizeReloadedMessageIds(this.messages.get(agentId) ?? [], mergeHistoryWithPreservedMessages(messages, this.messages.get(agentId) ?? [], options?.preserveMessagesAfter)),
-		);
-		// 重载后把进行中的消息身份（activeAssistantMessageIds/toolMessageIds）从
-		// 运行期副本重定向到投影版：后续事件继续更新投影版（位置正确、单份），
-		// 避免「投影 partial + 运行期完整版」双份或事件 append 到错误轮次。
-		this.rebindInFlightMessages(agentId, nextMessages, messages);
-		this.messages.set(agentId, nextMessages);
-		// 显示窗口 = 尾部 9 轮（DOM 3 / atom 9 / main 12 模型；轮次起点对齐 user 消息，
-		// 与 disk 轮次分页同一约定；单轮再大也整轮显示，折叠完整性优先），
-		// 但叠了条目预算：极端会话下窗口缩轮也不切半轮（#213）。
-		this.messageEmit.setWindowStart(agentId, this.computeDisplayWindowStart(nextMessages));
-		// 文件版本随本次加载快照：压缩/外部改写会改变 mtime:size，渲染层据此丢弃 disk 前缀
-		if (sessionPath) {
-			if (fileVersion !== undefined) this.sessionFileVersionByAgent.set(agentId, fileVersion);
-			else this.sessionFileVersionByAgent.delete(agentId);
-		}
-		this.refreshAutoTitle(agentId);
-		this.scheduleMessageEmit(agentId, true);
-		return nextMessages;
+		return this.historyLoader.loadMessages(agentId, skipEntries, earlyMessagesPromise, options);
 	}
 
-	/**
-	 * 压缩成功后的消息重载（单飞）。
-	 *
-	 * 为什么需要单飞：一次重载 = 读盘整段窗口 + 投影 + 全量下发，是内存峰值最高的路径。
-	 * compaction_end 是 RPC 事件，可能在同一时间窗内连发（自动重试的多次压缩、压缩与
-	 * 用户发消息、与 agent_settled 后的 trimRuntimeCache 重叠），叠加在途重载会把峰值
-	 * 翻好几倍（#213）。这里同一 agent 只保留一次在途：重载本身总在读文件，
-	 * 期间到达的后续请求不需要再排一次（晚到的更新由下一次事件或本次读到的尾部覆盖）。
-	 */
 	/**
 	 * 计算激活显示窗口起点：尾部 DISPLAY_WINDOW_TURNS 轮，且总条目数不超 MAX_DISPLAY_WINDOW_ENTRIES。
 	 *
@@ -1981,14 +1693,9 @@ export class AgentManager {
 		);
 	}
 
+	/** 压缩后重载的单飞锁随域迁入 RuntimeHistoryLoader。 */
 	private reloadMessagesAfterCompaction(agentId: string) {
-		if (this.compactionReloadInFlight.has(agentId)) return;
-		this.compactionReloadInFlight.add(agentId);
-		void this.loadMessages(agentId)
-			.catch(() => undefined)
-			.finally(() => {
-				this.compactionReloadInFlight.delete(agentId);
-			});
+		this.historyLoader.reloadMessagesAfterCompaction(agentId);
 	}
 
 	async create(rawInput: CreateAgentInput) {
@@ -3030,181 +2737,11 @@ export class AgentManager {
 	 * 手动触发上下文压缩。pi 会将历史消息摘要化以释放 context 空间，
 	 * 适用于长时间对话后 context 占比过高、但不想丢失关键信息的场景。
 	 *
-	 * 注意：pi 在压缩完成后可能会自动重启进程（尤其早期版本），此时 RPC 请求会因
-	 * "pi exited" 错误而失败。本方法检测到进程退出后会自动重连同一会话并加载消息，
-	 * 因此调用方不应把 RPC 失败等同于压缩失败。
+	 * 实现与失败语义（含「等待超时≠压缩失败」与进程退出自动重连）在 pi/compactionRunner.ts；
+	 * 这里只保留同名包装，调用方签名与返回契约不变。
 	 */
-	async compact(agentId: string, prompt?: string) {
-		const runtime = this.requireRuntime(agentId);
-		const compactProcess = runtime.process;
-		const { deckSessionId, runtimeGeneration, sessionPath } = runtime.tab;
-		let expectedProcess = compactProcess;
-		const assertCurrentRuntime = () => {
-			if (this.agents.get(agentId) !== runtime || runtime.process !== expectedProcess || runtime.tab.deckSessionId !== deckSessionId || runtime.tab.runtimeGeneration !== runtimeGeneration || runtime.tab.sessionPath !== sessionPath) throw new Error("Compaction cancelled: runtime changed");
-		};
-		let keepCompacting = false;
-		const trimmedPrompt = prompt?.trim();
-		const startTime = Date.now();
-
-		void this.appLogger?.info("agent", "Compact requested", {
-			agentId,
-			prompt: trimmedPrompt,
-			hasSessionPath: !!runtime.tab.sessionPath,
-		});
-
-		// 已有压缩在进行（手动请求未返回 / pi 自动压缩中）：拒绝重复请求。
-		// 渲染层按钮在 isCompacting 时禁用，这里是双保险。旧实现 return 成功状态，
-		// 用户连点会当成「压缩完成」或完全没反应；改为明确错误，UI 映射 inProgress。
-		if (this.pendingCompactProcesses.has(agentId) || this.compactingAgents.has(agentId) || this.rpcCompactingAgents.has(agentId)) {
-			void this.appLogger?.info("agent", "Compact skipped: already compacting", {
-				agentId,
-			});
-			throw new Error("already compacting");
-		}
-
-		// 探测也属于这次请求；占位先于任何 await，原生压缩标记仍只在实际发送 RPC 时设置。
-		this.pendingCompactProcesses.set(agentId, compactProcess);
-		void this.emitRuntimeState(agentId);
-		try {
-			// 接管者改写：会话的上下文窗口可能已被扩展独占（它用 session_before_compact
-			// 钩子取消 pi 的压缩）。这时发 compact RPC 注定拿到 Compaction cancelled，
-			// 必须改成它自己的入口（如 Magic Context 的 /ctx-wrapup），否则用户只看到「没反应」。
-			const ownership = await this.resolveSessionCompactionOwnership(runtime);
-			assertCurrentRuntime();
-			if (ownership && ownership.owners.length > 0) {
-				return await this.routeCompactToOwner(runtime, ownership);
-			}
-
-			// 标记压缩中，退出处理器据此区分压缩重启与异常崩溃
-			this.compactingAgents.add(agentId);
-			// 立即推送 isCompacting=true（getRuntimeState 合并 compactingAgents 集合）：
-			// 让圆环按钮进入禁用/进度态，避免用户重复点击触发第二个 compact。
-			// 此前 add 后无推送，isCompacting 要等 pi 的 compaction_start 事件才到渲染层。
-			void this.emitRuntimeState(agentId);
-
-			try {
-				// 等待上限吃 rpcTimeout 设置（默认 600s）：压缩要过一遍 LLM 摘要，大上下文
-				// （真实案例 tokensBefore≈209k）轻松超过两分钟——写死 120s 时后台 149.4s 完成
-				// 却被提前报「压缩失败」，而 rpcTimeout 调大也无效（#303）。超时≠失败：进程
-				// 仍活着时压缩大概率还在后台跑，见下方超时分支。
-				const response = await compactProcess.client.request(createCompactRpcRequest(trimmedPrompt), this.rpcTimeoutMs);
-				assertCurrentRuntime();
-				void this.appLogger?.info("agent", "Compact RPC response received", {
-					agentId,
-					elapsedMs: Date.now() - startTime,
-					rpcSuccess: response.success,
-					rpcError: response.error,
-				});
-
-				// success:false 必须抛给上层：渲染层靠错误文案映射 nothing-to-do / too-small
-				// 友好 toast。之前只 warn 不抛，导致「暂无可压缩内容」永远到不了 UI（#113 3.2-7）。
-				if (!response.success) {
-					const rpcError = response.error?.trim() || "compact failed";
-					void this.appLogger?.warn("agent", "Compact RPC returned failure", {
-						agentId,
-						error: rpcError,
-					});
-					this.compactingAgents.delete(agentId);
-					throw new Error(rpcError);
-				}
-
-				this.compactingAgents.delete(agentId);
-				// 上下文超限恢复入口成功后清除失败标记；否则下一次打开圆环仍会误显示「先压缩」。
-				this.contextOverflowByAgent.delete(agentId);
-				this.emitContextOverflowState(agentId, false);
-				// 压缩成功且进程未退出，直接加载消息（压缩期间乐观/流式消息不能丢：保护到重载完成）
-				await this.loadMessages(agentId, false, undefined, { preserveMessagesAfter: Date.now() }).catch(() => undefined);
-				assertCurrentRuntime();
-				void this.appLogger?.info("agent", "Compact completed successfully", {
-					agentId,
-					totalElapsedMs: Date.now() - startTime,
-				});
-			} catch (error) {
-				// 关闭/替换后的旧请求不能恢复进程、清掉新上下文或把旧错误归给新进程。
-				assertCurrentRuntime();
-				const errorMsg = error instanceof Error ? error.message : String(error);
-				const processAlive = compactProcess.isRunning();
-				// 等待超时≠压缩失败：进程仍活着时 pi 大概率还在后台压（#303 真实案例：
-				// 120s 超时报错，149.4s 后台实际成功并写入会话文件）。超时单独分支处理。
-				const waitTimedOut = processAlive && /RPC command timed out [^:]*: compact/.test(errorMsg);
-				// 取消来源判定必须在这里做（compact 完成后观测就会被下一次压缩覆盖）：
-				// 只有它能让「点了压缩没反应」变成可解释的提示 + 可排查的日志。
-				const cancelSource = processAlive && !waitTimedOut ? this.resolveCompactCancelMessage(agentId, errorMsg) : undefined;
-				if (waitTimedOut) {
-					// 超时是「没等到响应」不是「压缩失败」，日志用 warn 避免告警噪音误导排查
-					void this.appLogger?.warn("agent", "Compact wait timed out; still running in background", {
-						agentId,
-						elapsedMs: Date.now() - startTime,
-						error: errorMsg,
-						hasSessionPath: !!runtime.tab.sessionPath,
-					});
-				} else {
-					void this.appLogger?.error("agent", "Compact failed", {
-						agentId,
-						elapsedMs: Date.now() - startTime,
-						error: errorMsg,
-						processAlive,
-						hasSessionPath: !!runtime.tab.sessionPath,
-						...(cancelSource ? { cancelSource } : {}),
-						...this.compactionCancelEvidence(agentId),
-					});
-					this.compactingAgents.delete(agentId);
-				}
-
-				// 如果进程在压缩期间退出（pi 压缩后自动重启进程的行为），
-				// RPC 请求会因连接断开而失败，但压缩实际已完成。
-				// 尝试重连同一会话，不从 compact() 层面抛出错误。
-				if (!processAlive && runtime.tab.sessionPath) {
-					void this.appLogger?.info("agent", "Compact: process exited, reattaching", {
-						agentId,
-					});
-					await this.reattachProcess(agentId, runtime.tab.sessionPath);
-					// 这是本次压缩主动重连的新进程；只有同一 runtime 仍在时才接纳它。
-					if (this.agents.get(agentId) !== runtime) throw new Error("Compaction cancelled: runtime changed");
-					expectedProcess = runtime.process;
-					runtime.tab.status = "idle";
-					await this.loadMessages(agentId, false, undefined, { preserveMessagesAfter: Date.now() }).catch(() => undefined);
-					assertCurrentRuntime();
-					this.addLocalizedMessage(agentId, "system", "diagnostic.compactDone", "会话压缩完成");
-					this.emitState();
-					void this.appLogger?.info("agent", "Compact: reattach succeeded", {
-						agentId,
-						totalElapsedMs: Date.now() - startTime,
-					});
-				} else if (waitTimedOut) {
-					// 不清 compactingAgents：isCompacting 保持 true，圆环按钮继续禁用，
-					// 防止用户在后台压缩期间重复触发；状态由 compaction_end 事件负责收尾
-					// （compaction_end 处理器里同步 delete）。标记本 agent 超时过，
-					// 后台最终成功时补发「压缩完成」系统消息（RPC 已 reject，正常 toast 链
-					// 不会再走）。
-					this.compactTimedOutAgents.add(agentId);
-					keepCompacting = true;
-					throw new Error(COMPACT_WAIT_TIMEOUT);
-				} else if (cancelSource) {
-					// 抛带来源的稳定文案：渲染层据此给出「扩展接管 / 被自己打断」的可操作
-					// 提示，而不是原来那条被归成静默的 pi 原文（用户只看到「没反应」）。
-					void this.appLogger?.warn("agent", "Compact cancelled", {
-						agentId,
-						cancelSource,
-						piError: errorMsg,
-						sessionId: runtime.tab.deckSessionId,
-					});
-					throw new Error(cancelSource);
-				} else {
-					// 非退出相关的 RPC 错误，正常抛出
-					throw error;
-				}
-			}
-		} finally {
-			// 只释放本次请求占位，迟到 finally 不得清理后来启动的新进程请求。
-			if (this.pendingCompactProcesses.get(agentId) === compactProcess) {
-				this.pendingCompactProcesses.delete(agentId);
-				if (!keepCompacting) this.compactingAgents.delete(agentId);
-				if (this.agents.get(agentId) === runtime) void this.emitRuntimeState(agentId);
-			}
-		}
-
-		return this.getRuntimeState(agentId);
+	async compact(agentId: string, prompt?: string): Promise<AgentRuntimeState> {
+		return this.compaction.compact(agentId, prompt);
 	}
 
 	/**
@@ -3284,60 +2821,11 @@ export class AgentManager {
 	}
 
 	/**
-	 * 探测「这个会话的上下文窗口由谁管」（见 pi/compactionOwner.ts 的背景说明）。
-	 *
-	 * 两层证据：
-	 * 1. 「装了且启用」：用与 spawn 同源的加载查询（`resolveLoadableExtensionPaths`，原生过滤 + 旧禁用记录）——
-	 *    PiDeck 扩展管理里禁用的扩展不会出现在路径集合里，不能按磁盘 packages 判接管；
-	 * 2. 「命令本次可用」：`get_commands` 确认 /ctx-wrapup 已注册（compaction-off 模式 /
-	 *    子会话下 MC 不注册它）。
-	 * 接管开关只能读磁盘配置（pi 没有「列出已加载扩展钩子」的 RPC）。
-	 * 探测本身绝不抛：探测失败按「没有接管者」处理，退回原来的 compact RPC，
-	 * 失败时由 cancel 来源判定兜底提示。
+	 * 接管探测的宿主编排点（实现见 pi/compactionRunner.ts）：保留同名方法，
+	 * 压缩链路经宿主回调调用它，因此实例可替换（装配与测试都按此形态注入）。
 	 */
 	private async resolveSessionCompactionOwnership(runtime: AgentRuntime): Promise<PiCompactionOwnership | undefined> {
-		try {
-			const project = runtime.tab.projectId ? this.getProject(runtime.tab.projectId) : undefined;
-			const projectCwd = project?.path;
-			const sessionCommandNames = await this.listRegisteredCommandNames(runtime);
-			// 与 spawn 同源的白名单解析；拿不到项目 cwd 时传 undefined（退回磁盘 packages 推导）
-			// 与运行时同源的「会加载哪些扩展」查询（原生过滤 + 旧禁用记录）。
-			const loadedExtensionPaths = projectCwd
-				? resolveLoadableExtensionPaths({
-						cwd: projectCwd,
-						includeProjectResources: true,
-						disabled: this.settingsStore.get().disabledExtensions ?? [],
-						removedBuiltInExtensions: this.settingsStore.get().removedBuiltInExtensions ?? [],
-						builtInRoots: {
-							appPath: app.getAppPath(),
-							resourcesPath: process.resourcesPath,
-							isDev: !app.isPackaged,
-							overlayDir: resolveBuiltInExtensionsOverlayDir(app.getPath("userData")),
-						},
-					})
-				: undefined;
-			return readPiCompactionOwnership({
-				projectCwd,
-				sessionCommandNames,
-				loadedExtensionPaths,
-			});
-		} catch (error) {
-			void this.appLogger?.warn("agent", "Compaction ownership probe failed", {
-				agentId: runtime.tab.id,
-				error: error instanceof Error ? error.message : String(error),
-			});
-			return undefined;
-		}
-	}
-
-	/**
-	 * 列出 pi 已注册的命令名；探测失败返回 undefined（=「不确定」，不是「没有」）。
-	 * 不区分 extension/prompt/skill 来源：`/ctx-wrapup` 这类接管者命令只可能来自扩展。
-	 */
-	private async listRegisteredCommandNames(runtime: AgentRuntime): Promise<string[] | undefined> {
-		const commands = await this.listRegisteredCommands(runtime);
-		if (!commands) return undefined;
-		return commands.map((command) => command.name).filter((name) => name.length > 0);
+		return this.compaction.probeSessionCompactionOwnership(runtime);
 	}
 
 	/** `get_commands` 原始条目（带 source/sourceInfo）；失败返回 undefined。 */
@@ -3370,54 +2858,6 @@ export class AgentManager {
 		if (!mcp) return null;
 		const path = mcp.sourcePath ?? "";
 		return { builtin: path === "builtin:mcp", ...(path ? { sourcePath: path } : {}) };
-	}
-
-	/**
-	 * 上下文窗口被扩展独占时的压缩改写 / 拒绝。
-	 *
-	 * 为什么用 throw 表达「已改写」：compact() 的返回契约是 runtime state，没有
-	 * 「我改用了别的命令」这种位；渲染层本来就把错误文案当分类通道（见
-	 * shared/compactFeedback 的稳定标记），所以这里抛标记而不是伪造成功状态——
-	 * 渲染层因此不会误报「压缩完成」（真正的结果由接管者自己的状态提示给出）。
-	 */
-	private async routeCompactToOwner(runtime: AgentRuntime, ownership: PiCompactionOwnership): Promise<AgentRuntimeState> {
-		const agentId = runtime.tab.id;
-		const process = runtime.process;
-		const { deckSessionId, runtimeGeneration, sessionPath } = runtime.tab;
-		const command = ownership.manualCommand;
-		void this.appLogger?.warn("agent", "Compact handled by context owner", {
-			agentId,
-			owners: ownership.owners,
-			conflicted: ownership.conflicted,
-			manualCommand: command,
-			ownerReady: ownership.ownerReady,
-			piAutoCompactionEnabled: ownership.piAutoCompactionEnabled,
-			notes: ownership.notes,
-		});
-
-		if (!command || !ownership.ownerReady) {
-			// 接管者没有自己的手动入口（billion-context）或还没配好（MC 未配 historian 模型）：
-			// 说清原因比静默失败重要——这正是「pi 压不了、它自己也压不了」的状态。
-			throw new Error(`${COMPACT_CANCELLED_BY_OWNER}: ${ownership.notes.join("；") || "该扩展取消了 pi 的压缩"}`);
-		}
-
-		const startedAt = Date.now();
-		const response = await process.client.request({ type: "prompt", message: command }, this.settingsStore.get().rpcTimeout).catch((error) => ({
-			success: false,
-			error: error instanceof Error ? error.message : String(error),
-		}));
-		if (this.agents.get(agentId) !== runtime || runtime.process !== process || runtime.tab.deckSessionId !== deckSessionId || runtime.tab.runtimeGeneration !== runtimeGeneration || runtime.tab.sessionPath !== sessionPath) throw new Error("Compaction cancelled: runtime changed");
-		void this.appLogger?.info("agent", "Compact owner command dispatched", {
-			agentId,
-			command,
-			elapsedMs: Date.now() - startedAt,
-			success: response.success,
-			error: response.success ? undefined : response.error,
-		});
-		if (!response.success) {
-			throw new Error(`${COMPACT_CANCELLED_BY_OWNER}: ${response.error ?? command}`);
-		}
-		throw new Error(`${COMPACT_ROUTED_TO_OWNER}: ${command}`);
 	}
 
 	/**
@@ -4402,8 +3842,7 @@ export class AgentManager {
 		// rewind 打点域（回合计数/节流状态/悬挂 timer）统一清理
 		this.rewindCheckpoints.clearAgent(agentId);
 		// 工具完整结果缓存是运行期性能优化（回退读文件等价），agent 停止时整体释放
-		this.toolFullTextByMessageId.clear();
-		this.toolFullTextBytes = 0;
+		this.toolMessages.clearFullTextCache();
 	}
 
 	/**
@@ -6198,105 +5637,9 @@ export class AgentManager {
 		this.messages.set(agentId, list);
 	}
 
+	/** assistant 消息装配收口在 ToolMessageAssembler；薄包装保持调用点与事件顺序不变。 */
 	private upsertAssistantMessage(agentId: string, partialMessage?: unknown, fallbackDelta = "", options?: { allowEmpty?: boolean }) {
-		const list = this.messages.get(agentId) ?? [];
-		let messageId = this.activeAssistantMessageIds.get(agentId);
-		if (!messageId) {
-			messageId = randomUUID();
-			this.activeAssistantMessageIds.set(agentId, messageId);
-		}
-
-		let existingIndex = list.findIndex((message) => message.id === messageId);
-		// 重载后事件迟到：activeAssistantMessageIds 指向的运行期 id 在列表里已不存在
-		// （loadMessages 替换为投影身份）。此时不能盲目 append——列表里可能已有同一条
-		// pi 消息的投影版，append 会造出双份（同内容消息被用户消息切分到两个 run）。
-		// 按内容指纹匹配既有消息：命中则更新它并把身份映射重定向到它，保持单份。
-		if (existingIndex < 0) {
-			const extractedTextForMatch = partialMessage && typeof partialMessage === "object" ? this.messageProjector.extractText(asRecord(partialMessage)?.content) : "";
-			const rebindIndex = this.findSamePiMessageIndex(list, "assistant", extractedTextForMatch || fallbackDelta);
-			if (rebindIndex >= 0) {
-				existingIndex = rebindIndex;
-				messageId = list[rebindIndex].id;
-				this.activeAssistantMessageIds.set(agentId, messageId);
-			}
-		}
-		const existing = existingIndex >= 0 ? list[existingIndex] : undefined;
-		const extractedText = partialMessage && typeof partialMessage === "object" ? this.messageProjector.extractText(asRecord(partialMessage)?.content) : "";
-		// stopReason（provider 归一化）：message_start 骨架为 pending，message_end 更新为
-		// 真实值（stop/toolUse/aborted/error/length）。渲染层据此精确区分中间/最终回复。
-		// pending 是骨架占位值：不持久化（new 分支）也不覆盖既有值（existing 分支），
-		// 否则 message_end 缺 stopReason 时消息永远停 in pending，渲染层回退启发式失效。
-		const extractedStopReason = partialMessage && typeof partialMessage === "object" ? (nonEmptyString(asRecord(partialMessage)?.stopReason) ?? "") : "";
-		// 与历史投影同源归一：被打断的纯文本回复 pi 记 toolUse 但无 toolCall 块，按最终回复处理
-		// （否则渲染层把它当中间回复折进「执行过程」，整段回复在空闲后仍不可见）。
-		const finalStopReason = normalizePiStopReason(extractedStopReason && extractedStopReason !== "pending" ? extractedStopReason : undefined, hasPiToolCallBlock(partialMessage && typeof partialMessage === "object" ? asRecord(partialMessage)?.content : undefined));
-		// 本条消息用的模型：message_end 的完整消息带 provider/model（message_start 骨架也有）。
-		// 缺省不覆盖旧值——delta 路径的消息对象可能不带这两个字段。
-		const messageRecord = partialMessage && typeof partialMessage === "object" ? asRecord(partialMessage) : undefined;
-		const modelProvider = nonEmptyString(messageRecord?.provider);
-		const modelId = nonEmptyString(messageRecord?.model);
-		const extractedModel = modelProvider && modelId ? { provider: modelProvider, modelId } : undefined;
-		// 用量/实测耗时：message_end 的完整消息带 usage 与 durationMs（timestamp = 请求开始）。
-		// 轨迹账本的 token 列与真实区间依赖它们；缺失则不写（不补 0：未上报与 0 要可区分）。
-		const extractedUsage = chatUsageFromPiUsage(messageRecord?.usage);
-		const measuredDurationMs = typeof messageRecord?.durationMs === "number" && Number.isFinite(messageRecord.durationMs) ? messageRecord.durationMs : undefined;
-		const startedAtMs = typeof messageRecord?.timestamp === "number" && messageRecord.timestamp > 0 ? messageRecord.timestamp : undefined;
-		// 冻结耗时（轮末固定「回复耗时」）需要消息真正写完的时刻：pi 的 timestamp 是请求
-		// 开始，结束后 run.endedAt 会与 startedAt 相等 → 轮末耗时恒为 0。优先用
-		// 「请求开始 + 实测耗时」；模拟/远端后端没上报 durationMs 时，终态事件即写盘时刻。
-		const endedAtMs = finalStopReason ? (startedAtMs !== undefined && measuredDurationMs !== undefined ? startedAtMs + measuredDurationMs : Date.now()) : undefined;
-		const usageMeta = {
-			...(extractedUsage ? { usage: extractedUsage } : {}),
-			...(measuredDurationMs !== undefined ? { durationMs: measuredDurationMs } : {}),
-			...(startedAtMs !== undefined && measuredDurationMs !== undefined ? { startedAt: startedAtMs } : {}),
-			...(endedAtMs !== undefined ? { endedAt: endedAtMs } : {}),
-		};
-
-		if (existing) {
-			// 已有骨架：有抽出文本才覆盖；fallbackDelta 仅作追加兜底（终态路径）。
-			// thinking 不在此写入——仅 finalizeThinkingIntoMessage 在终态写一次。
-			if (extractedText || fallbackDelta) {
-				existing.text = extractedText || `${existing.text}${fallbackDelta}`;
-			}
-			// 终态（message_end）带真实 stopReason 时更新；骨架占位值（pending）不覆盖旧值。
-			if (finalStopReason) {
-				existing.stopReason = finalStopReason;
-			}
-			if (extractedModel) {
-				existing.model = extractedModel;
-			}
-			if (Object.keys(usageMeta).length > 0) {
-				existing.meta = { ...existing.meta, ...usageMeta };
-			}
-			// 保留原始时间戳，不随 delta 刷新。
-			this.markMessagesDirtyFrom(agentId, existingIndex);
-		} else {
-			const text = extractedText || fallbackDelta;
-			// 默认拒绝空消息；message_start 传 allowEmpty 以建立 Live 挂载点。
-			if (!text && !options?.allowEmpty) return;
-			list.push({
-				id: messageId,
-				agentId,
-				role: "assistant",
-				text: text || "",
-				timestamp: Date.now(),
-				...(finalStopReason ? { stopReason: finalStopReason } : {}),
-				...(extractedModel ? { model: extractedModel } : {}),
-				...(Object.keys(usageMeta).length > 0 ? { meta: usageMeta } : {}),
-			});
-			this.markMessagesDirtyFrom(agentId, list.length - 1);
-		}
-
-		this.messages.set(agentId, list);
-		// 远端事件时间与远端 JSONL 同源，保留作停止后的身份核对；不能拿本机时间跨时钟匹配。
-		const runtime = this.agents.get(agentId);
-		if (runtime && this.isRemoteRuntime(runtime.tab.projectId) && isRecord(partialMessage) && typeof partialMessage.timestamp === "number" && Number.isFinite(partialMessage.timestamp)) {
-			const message = list.find((candidate) => candidate.id === messageId);
-			if (message) message.meta = { ...message.meta, persistedTimestamp: partialMessage.timestamp };
-		}
-		// upsertAssistantMessage 被 text_start/end 等路径调用，走节流合并；
-		// message_end 等终态调用方会在调用后显式 flush，保证最终状态及时。
-		this.scheduleMessageEmit(agentId);
+		this.toolMessages.upsertAssistantMessage(agentId, partialMessage, fallbackDelta, options);
 	}
 
 	/**
@@ -6379,221 +5722,9 @@ export class AgentManager {
 		}
 	}
 
+	/** 工具消息装配收口在 ToolMessageAssembler（含工具完整文本 LRU）；薄包装保持调用点与事件顺序不变。 */
 	private upsertToolMessage(agentId: string, event: Record<string, unknown>, status: "running" | "done" | "error") {
-		const eventToolName = typeof event.toolName === "string" ? event.toolName : undefined;
-		const toolCallId = String(event.toolCallId ?? `${eventToolName ?? "tool"}-${Date.now()}`);
-		let agentTools = this.toolMessageIds.get(agentId);
-		if (!agentTools) {
-			agentTools = new Map<string, string>();
-			this.toolMessageIds.set(agentId, agentTools);
-		}
-
-		let messageId = agentTools.get(toolCallId);
-		if (!messageId) {
-			messageId = randomUUID();
-			agentTools.set(toolCallId, messageId);
-		}
-
-		const list = this.messages.get(agentId) ?? [];
-		let existingToolIndex = list.findIndex((message) => message.id === messageId);
-		// 重载后事件迟到：运行期工具 id 已不在列表（被投影身份替换）。按 toolCallId
-		// （两通道同源）匹配既有工具消息，更新它并重定向身份，避免 append 双份。
-		if (existingToolIndex < 0) {
-			const rebindIndex = this.findSamePiMessageIndex(list, "tool", "", toolCallId);
-			if (rebindIndex >= 0) {
-				existingToolIndex = rebindIndex;
-				messageId = list[rebindIndex].id;
-				agentTools.set(toolCallId, messageId);
-			}
-		}
-		const existing = existingToolIndex >= 0 ? list[existingToolIndex] : undefined;
-		// end/update 常只带 toolCallId；继承 start 的身份，避免完成态把 bash/read 降级成 tool。
-		const toolName = eventToolName ?? (typeof existing?.meta?.toolName === "string" ? existing.meta.toolName : "tool");
-		const isError = status === "error" || event.isError === true;
-		const args = event.args ?? existing?.meta?.args;
-		const startedAt = typeof existing?.meta?.startedAt === "number" ? existing.meta.startedAt : Date.now();
-		// 工具耗时只能由 start/end 两个事件推导；start 时先保存 startedAt，end 时再写入 durationMs，
-		// 避免使用消息 timestamp（会在 update/end 时刷新）导致历史恢复后耗时不可还原。
-		// ask_question 工具耗时需扣除用户等待时长（exclude_wait）：等待期由 settleAskWait 累计在
-		// askWaitMsByAgent，工具结束时减掉并清零，让 durationMs 只反映 agent 实际处理时间。
-		// 注意扣除不只适用于 ask_question 自身：tool_execution_start 已清空累计值，因此任何工具
-		// end 时残留的等待量只可能是「本工具运行期间结算的等待」——子代理委托工具（Agent /
-		// acp_delegate 等）运行中，子代理转发的提问被回答时正是这种情况，若只对 ask_question
-		// 扣除，该等待会在下一个工具 start 时被无痕清掉，委托工具卡时长仍虚高（用户反馈
-		// 「代理的时间也有问题」）。
-		let durationMs = status === "running" ? undefined : Math.max(0, Date.now() - startedAt);
-		if (durationMs !== undefined) {
-			const askWaitMs = this.uiGate.consumeAskWaitMs(agentId);
-			if (askWaitMs > 0) {
-				durationMs = Math.max(0, durationMs - askWaitMs);
-			}
-		}
-		const result = event.result ?? event.partialResult ?? event.output ?? existing?.meta?.result;
-		// 工具结果可能带 image content（生图类扩展把生成图直接放进结果）：实时事件同样
-		// 提取出来挂到消息上，否则只有文本会进时间线。无新图时保留上一轮的图。
-		const resultContent = result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>).content : undefined;
-		const resultImages = this.messageProjector.extractImages(resultContent);
-		const images = resultImages.length > 0 ? resultImages : existing?.images;
-		// pi 侧截断（bash/powershell >1 MiB）：存在时才写 meta.resultTruncation，
-		// 普通结果的 details 无 truncation 字段 → 不下发多余 meta。
-		const piTruncation = extractPiToolTruncation(result);
-		const detailText = this.messageProjector.formatToolDetail(toolName, args, result, status);
-		// detailText 整体截断（拼接后可能超单段上限）并标记 truncated/fullLength；
-		// 完整结果文本缓存在 toolFullTextByMessageId（LRU），供「查看完整输出」按需读取。
-		const detailDelivery = this.messageProjector.truncateDetailWithMeta(detailText);
-		if (detailDelivery.truncated) {
-			const fullText = this.messageProjector.extractToolResultText(result) || this.messageProjector.safeJson(result);
-			if (fullText) {
-				// 字节 + 条数双预算：单条工具结果可达数百 KB，仅按条数封顶时
-				// 200 条大结果仍可驻留数十 MB（2026 内存排查）。
-				this.toolFullTextBytes += fullText.length;
-				while (this.toolFullTextBytes > AgentManager.TOOL_FULL_TEXT_MAX_BYTES && this.toolFullTextByMessageId.size > 0) {
-					const oldest = this.toolFullTextByMessageId.keys().next().value;
-					if (oldest === undefined) break;
-					const removed = this.toolFullTextByMessageId.get(oldest);
-					if (removed !== undefined) this.toolFullTextBytes -= removed.length;
-					this.toolFullTextByMessageId.delete(oldest);
-				}
-				this.toolFullTextByMessageId.set(messageId, fullText);
-				if (this.toolFullTextByMessageId.size > AgentManager.TOOL_FULL_TEXT_LRU_LIMIT) {
-					// LRU 淘汰最旧（Map 迭代序 = 插入序）
-					const oldest = this.toolFullTextByMessageId.keys().next().value;
-					if (oldest !== undefined) {
-						const removed = this.toolFullTextByMessageId.get(oldest);
-						if (removed !== undefined) this.toolFullTextBytes -= removed.length;
-						this.toolFullTextByMessageId.delete(oldest);
-					}
-				}
-			}
-		}
-		const icon = status === "running" ? "▶" : isError ? "✗" : "✓";
-		const text = status === "running" ? `${icon} ${toolName}` : `${icon} ${toolName}`;
-		// args 可能来自 event.args（对象）或 existing.meta.args（已序列化的 JSON 字符串）。
-		// 如果是后者（如 tool_execution_end 不带 args），直接复用已有字符串避免 double encoding。
-		// 文件类工具（write/edit/create/patch）不适用 8000 截断：它们的参数里带着被写文件内容，
-		// 截断会把「已省略 N 字符」插进 JSON 字符串中间 → 不可解析 → 该文件从「修改的文件」清单
-		// 及重开后的历史视图里静默消失（见 serializeToolArgsForDelivery）。
-		const argsMeta = typeof args === "string" ? args : this.messageProjector.serializeToolArgs(toolName, args);
-		// 提取 ask_question 详情用于渲染提问卡片；支持批量（questions 数组）和单问题两种格式。
-		// pi RPC 返回格式可能为 result.details 嵌套 或 result 顶层（无 details 包装）
-		const askDetails: AskDetailsLike | undefined = (() => {
-			if (toolName !== "ask_question" || !result || typeof result !== "object") return undefined;
-			const resultRecord = asRecord(result);
-			const details = asRecord(resultRecord?.details);
-			// 格式 1: result.details.question 或 result.details.answers（批量）
-			if (details?.question || Array.isArray(details?.answers)) {
-				return details;
-			}
-			// 格式 2: result.question（无 details 包装）
-			if (resultRecord?.question) {
-				return resultRecord;
-			}
-			// 格式 3: 从 args 回退读取提问内容（当 result 仅为简单值如选中项字符串时）
-			let parsedArgs: unknown = args;
-			if (typeof args === "string") {
-				try {
-					parsedArgs = JSON.parse(args);
-				} catch {
-					parsedArgs = undefined;
-				}
-			}
-			const parsedRecord = asRecord(parsedArgs);
-			if (parsedRecord?.question) {
-				const answerValue = typeof result === "string" ? result : (resultRecord?.value ?? resultRecord?.answer);
-				return {
-					question: parsedRecord.question,
-					options: parsedRecord.options,
-					answer: answerValue,
-					answered: true,
-					answerLabel: answerValue,
-				};
-			}
-			return undefined;
-		})();
-		const askCard = (() => {
-			if (!askDetails) return undefined;
-			// abort 时覆写 answer 为 null、answered 为 false，确保卡片显示"已取消"
-			const aborted = this.abortedDuringAsk.has(agentId);
-			// 单问题格式：details.question (string), details.answer
-			if (askDetails.question) {
-				return {
-					question: askDetails.question,
-					type: askDetails.type,
-					answered: aborted ? false : askDetails.answered,
-					answer: aborted ? null : askDetails.answer,
-					answerLabel: aborted ? undefined : askDetails.answerLabel,
-					options: askDetails.options,
-				};
-			}
-			// 批量格式：保留完整问答列表，历史卡片才能同时展示每个问题与对应答案，
-			// 不再只取第一题导致用户无法回看其余回答。
-			if (Array.isArray(askDetails.answers) && askDetails.answers.length > 0) {
-				const questions = Array.isArray(askDetails.questions) ? askDetails.questions : [];
-				const batchQuestions = askDetails.answers.map((rawAnswer: unknown, index: number) => {
-					const rawQuestion = questions[index];
-					const questionText = typeof readAskField(rawQuestion, "question") === "string" ? String(readAskField(rawQuestion, "question")) : String(readAskField(rawAnswer, "id") ?? "");
-					const rawType = readAskField(rawAnswer, "type") ?? readAskField(rawQuestion, "type");
-					const rawOptions = readAskField(rawQuestion, "options");
-					return {
-						question: questionText,
-						type: typeof rawType === "string" ? rawType : "input",
-						answered: !askDetails.cancelled && readAskField(rawAnswer, "value") !== null,
-						answer: readAskField(rawAnswer, "value"),
-						answerLabel: typeof readAskField(rawAnswer, "label") === "string" ? String(readAskField(rawAnswer, "label")) : undefined,
-						options: Array.isArray(rawOptions) ? rawOptions : undefined,
-					};
-				});
-				const firstQuestion = batchQuestions[0];
-				return {
-					...firstQuestion,
-					questions: batchQuestions,
-				};
-			}
-			return undefined;
-		})();
-		const meta = {
-			status,
-			toolName,
-			toolCallId,
-			startedAt,
-			...(durationMs !== undefined ? { durationMs } : {}),
-			args: argsMeta,
-			result: this.messageProjector.truncateForDetail(this.messageProjector.extractToolResultText(result) || this.messageProjector.safeJson(result)),
-			isError,
-			// pi 0.99 起 bash/powershell 结果 >1 MiB 时 truncated/details.fullOutputPath 单独下发，
-			// 渲染层据此给出完整输出路径（不同于本文件上方的 truncated 展示层截断标记）。
-			...(piTruncation ? { resultTruncation: piTruncation } : {}),
-			detailText: detailDelivery.text,
-			...(detailDelivery.truncated ? { truncated: true, fullLength: detailDelivery.fullLength } : {}),
-			// originalContent 不再存储到消息中（full file 会使会话元数据体积过大）。
-			// diff 使用工具参数（oldText/newText 等）展示变动区域，无需完整文件快照。
-
-			...(askCard ? { _askCard: askCard } : {}),
-		};
-
-		if (existing) {
-			existing.text = text;
-			existing.timestamp = Date.now();
-			if (images && images.length > 0) existing.images = images;
-			// 合并而非替换：重定向到投影版时保留其身份字段（entryId/_piDeckMsgSeq），
-			// 否则渲染层接缝去重与编辑/删除/重发定位会因 entryId 丢失而失效。
-			existing.meta = { ...(existing.meta ?? {}), ...meta };
-			this.markMessagesDirtyFrom(agentId, existingToolIndex);
-		} else {
-			list.push({
-				id: messageId,
-				agentId,
-				role: "tool",
-				text,
-				timestamp: Date.now(),
-				meta,
-				...(images && images.length > 0 ? { images } : {}),
-			});
-			this.markMessagesDirtyFrom(agentId, list.length - 1);
-		}
-
-		this.messages.set(agentId, list);
-		this.scheduleMessageEmit(agentId);
+		this.toolMessages.upsertToolMessage(agentId, event, status);
 	}
 
 	private addMessage(agentId: string, role: ChatMessage["role"], text: string, meta?: Record<string, unknown>, images?: ImageContent[]) {
@@ -7247,19 +6378,6 @@ interface AgentEndMessage {
 	stopReason?: string;
 	errorMessage?: string;
 	content?: Array<{ type?: string; text?: unknown; message?: unknown }>;
-}
-
-/** ask_question 结果（result.details 嵌套或 result 顶层）的最小结构，仅声明渲染卡片消费的字段。 */
-interface AskDetailsLike {
-	question?: unknown;
-	type?: unknown;
-	options?: unknown[];
-	answers?: unknown[];
-	questions?: unknown[];
-	answer?: unknown;
-	answerLabel?: unknown;
-	answered?: boolean;
-	cancelled?: boolean;
 }
 
 type AgentRuntime = {

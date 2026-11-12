@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -109,7 +110,7 @@ test("owner takeover is classified as routed / owned-with-reason, never silent",
 });
 
 test("pi compact path consults the context owner before sending the RPC", () => {
-	const pi = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const pi = agentManagerSource;
 	const owner = readFileSync("src/main/pi/compactionOwner.ts", "utf8");
 	// 探测 + 改写/拒绝必须在发 compact RPC 之前
 	assert.match(pi, /private async resolveSessionCompactionOwnership\(/);
@@ -172,7 +173,7 @@ test("composer compact path toasts done and maps inProgress", () => {
 });
 
 test("pi compact failure resolves the cancel source instead of swallowing it", () => {
-	const pi = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const pi = agentManagerSource;
 	// 来源判定必须用真实证据：compaction_start→end 耗时 + 我们自己的 abort 时间
 	assert.match(pi, /COMPACT_CANCELLED_BY_OWNER/);
 	assert.match(pi, /COMPACT_CANCELLED_BY_USER_ABORT/);
@@ -189,7 +190,7 @@ test("pi compact failure resolves the cancel source instead of swallowing it", (
 });
 
 test("context overflow is carried through the main and DSH runtime paths", () => {
-	const pi = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const pi = agentManagerSource;
 	const dsh = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
 	assert.match(pi, /isContextOverflowError\(errorMsg\)/);
 	assert.match(pi, /contextOverflowByAgent/);
@@ -198,7 +199,7 @@ test("context overflow is carried through the main and DSH runtime paths", () =>
 });
 
 test("pi and dsh compact throw already compacting instead of returning success", () => {
-	const pi = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const pi = agentManagerSource;
 	assert.match(pi, /throw new Error\("already compacting"\)/);
 	assert.doesNotMatch(pi, /Compact skipped: already compacting[\s\S]{0,120}return this\.getRuntimeState\(agentId\)/);
 	const dsh = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");

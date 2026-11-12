@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * 远端 trust 的解析与传递（P4.4b）：四态 → 参数。
  *
@@ -170,7 +171,7 @@ test("本机 trust 行为不变的回归守卫：本地分支依旧按决策传 
 	// 本机映射仍是「approve ⇒ --approve；no-approve ⇒ --no-approve」，且带版本能力判定。
 	assert.match(piProcess, /finalPiArgs\.push\(trustOverride === "approve" \? "--approve" : "--no-approve"\)/);
 	assert.match(piProcess, /trustOverride === "no-approve" && !supportsTrustFlags/);
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	// dev 把信任闸抽成 ProjectTrustGate（Wave 4C）：调用点变成 this.projectTrust.ensureProjectTrust，
 	// 判定语义不变（本机会话仍在 spawn 前预检 trust）。
 	assert.match(agentManager, /const trustOverride = await this\.projectTrust\.ensureProjectTrust\(project\)/, "本机会话仍由 ensureProjectTrust 预检 trust（经 projectTrust 网关）");

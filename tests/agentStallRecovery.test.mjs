@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -13,7 +14,7 @@ import test from "node:test";
  * 这两处修复都依赖 pi 的协议事实，无法用行为测试覆盖（需要真 pi 进程），
  * 因此按仓库既有惯例用空白容忍的源码契约锁定关键修复点。
  */
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const agentManager = agentManagerSource;
 // 扩展 UI 请求闸已迁入 extensionUiGate.ts（AgentManager 拆分 Wave 4B）
 const uiGateModule = readFileSync("src/main/pi/extensionUiGate.ts", "utf8");
 

@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -14,7 +15,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  */
 
 const { COMPACT_WAIT_TIMEOUT, classifyCompactError } = loadTsCommonJs("src/shared/compactFeedback.ts");
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const agentManager = agentManagerSource;
 const composer = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
