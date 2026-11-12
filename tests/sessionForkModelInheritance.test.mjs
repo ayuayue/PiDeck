@@ -86,21 +86,34 @@ test("重发/编辑 fork 与静态复制都向 ensureRuntimeTarget 传递源会�
 });
 
 /**
- * 源码契约：fork 化重发/编辑不得再挂全屏遮罩。
+ * 源码契约：重发/编辑点击后立即反馈，fork 切会话时遮罩接力。
  *
- * 2027-03 用户反馈：热会话 fork 只要约 0.3s，却先糊一层「正在编辑消息…」，看起来像在重启
- * 应用。fork 全程不停进程、不改原文件，这层遮罩没有保护任何东西，反而制造误解。
- * 冷会话的 activating 遮罩保留（那段确实在拉起进程）。
+ * 75d53a919（v0.12.0）：热会话 fork 约 0.3s，旧实现不挂遮罩也不给按钮进行中状态，
+ * 用户看到的是「点下去毫无反应、随后会话突然换掉」。现在第一个 await 前同步挂专属
+ * 遮罩并标记 pending；fork 成功切会话前把遮罩交给目标会话再清源会话，新会话首帧
+ * 即有覆盖（早期 388975aee 曾删除该遮罩，因该反馈问题恢复）。
  */
-test("fork 化重发/编辑不再显示全屏遮罩，fork 术语只留给显式 fork 动作", () => {
+test("重发/编辑在第一个 await 前挂遮罩，切会话时把遮罩接力给目标会话", () => {
 	const mutations = readFileSync("src/renderer/src/hooks/useSessionHistoryMutations.ts", "utf8");
-	assert.doesNotMatch(mutations, /showOverlay\(sessionId, kind === "edit"/, "runForkMutation 不得再按 edit/resend 挂遮罩");
-	assert.doesNotMatch(mutations, /"editing"|"resending"/, "editing/resending 遮罩类型已删除，不得复活");
-	// 冷会话激活仍要反馈
+	const forkStart = mutations.indexOf("const runForkMutation");
+	assert.ok(forkStart > 0, "runForkMutation 应存在");
+	assert.match(mutations, /const overlayKind: SessionHistoryMutationOverlayKind = kind === "resend" \? "resending" : "editing";/);
+	const overlayIndex = mutations.indexOf("showOverlay(sessionId, overlayKind);", forkStart);
+	const pendingIndex = mutations.indexOf("beginPending(sessionId, message.id, kind);", forkStart);
+	const firstAwaitIndex = mutations.indexOf("await api.sessions.activateRuntime(sessionId)", forkStart);
+	assert.ok(overlayIndex > forkStart && overlayIndex < pendingIndex, "遮罩必须在 beginPending 之前同步挂上");
+	assert.ok(pendingIndex < firstAwaitIndex, "点击反馈必须在第一个 await 之前");
+	// fork 成功切会话前把遮罩交给目标会话，再清源会话（新会话首帧即有覆盖）。
+	assert.match(mutations, /showOverlay\(targetSessionId, overlayKind\);/);
+	const transferStart = mutations.indexOf("showOverlay(targetSessionId, overlayKind);");
+	const transferEnd = mutations.indexOf("hideOverlay(sessionId);", transferStart);
+	assert.ok(transferStart > 0 && transferEnd > transferStart && transferEnd - transferStart < 200, "切会话后应清源会话遮罩");
+	// 冷会话激活仍有独立反馈。
 	assert.match(mutations, /showOverlay\(sessionId, "activating"\);/);
-	const forkingCalls = mutations.match(/showOverlay\(sessionId, "forking"\);/g) ?? [];
-	assert.equal(forkingCalls.length, 1, "runForkMutation 不得再用 forking 文案，只保留 forkFromUserMessage 一处");
+	// 显式 fork 的 forking 文案只属于 fork 动作，runForkMutation 不占用该术语（只看其开头段落）。
+	const forkSegment = mutations.slice(forkStart, forkStart + 1200);
+	assert.doesNotMatch(forkSegment, /"forking"/);
 
 	const stage = readFileSync("src/renderer/src/components/session/SessionSurfaceStage.tsx", "utf8");
-	assert.doesNotMatch(stage, /message\.historyOverlay\.(editing|resending)/);
+	assert.match(stage, /message\.historyOverlay\.(editing|resending)/);
 });

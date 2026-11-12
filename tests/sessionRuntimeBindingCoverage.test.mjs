@@ -55,7 +55,7 @@ test("session UI requests remain generation-bound and render in the timeline foo
 
 test("Web wiring is Session-first and exposes no Agent compatibility creation", () => {
 	assert.match(main, /createSessionDraft: async \(input\)[\s\S]*sessionCatalog\.createDraft/);
-	assert.match(main, /sendSessionPrompt: async \(input\)[\s\S]*sessionRuntimeCoordinator\.send\(input\)/);
+	assert.match(main, /sendSessionPrompt: async \(input\)[\s\S]*sessionRuntimeCoordinator\.send\(applied\.prompt\)/);
 	// stopSessionRuntime is now a shared helper called from both IPC and the web deps.
 	assert.match(main, /async function stopSessionRuntime\(target[^)]*\)[\s\S]*sessionRuntimeCoordinator\.stopRuntime\(target\)/);
 	assert.doesNotMatch(main, /createAgent:/);

@@ -397,7 +397,9 @@ test("usage probe dialog lives outside all TabsContent (tab switch must not unmo
 	// 回归契约：弹窗曾放在 config:models TabsContent 内，Radix Tabs 默认卸载非激活内容，
 	// 导致切到认证 tab / DSH 页时弹窗被卸载、点击柱状图按钮「没反应」。
 	const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
-	assert.match(configModal, /<\/TabsContent>\s*<\/Tabs>\s*\{\/\* 用量查询配置弹窗[\s\S]*?<UsageProbeConfigDialog/, "用量查询弹窗必须挂在最外层 Tabs（Pi/DSH 分页）之外");
+	const tabsClose = configModal.lastIndexOf("</Tabs>");
+	const dialog = configModal.indexOf("<UsageProbeConfigDialog");
+	assert.ok(tabsClose > 0 && dialog > tabsClose, "用量查询弹窗必须挂在最外层 Tabs（Pi/DSH 分页）之外");
 });
 
 test("ProviderUsageDetails renders each usage window as a labeled progress row", () => {

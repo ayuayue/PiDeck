@@ -87,10 +87,10 @@ test("session status indicators stay on the concrete session row", () => {
 	assert.match(agentListDisplay, /if \(!status \|\| status === "detached"\) return undefined/);
 	// SessionTree 不再渲染带文本的状态徽标；无 runtime 的历史记录不显示状态点。
 	assert.doesNotMatch(sessionTree, /\/agent-status-indicator/);
-	assert.match(sessionTree, /function renderRuntimeStatusDot/);
-	assert.match(sessionTree, /sessionStatusDotClass\(status\)/);
-	assert.match(sessionTree, /renderRuntimeStatusDot\(child\.agent\.status\)/);
-	assert.match(sessionTree, /renderRuntimeStatusDot\(runtimeSnapshot\?\.status\)/);
+	// 状态点已收口到共享组件 SessionRuntimeStatusDot（Tab 与侧栏同一套颜色映射）。
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{dotStatus\} \/>/);
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{child\.agent\.status\} \/>/);
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{runtimeSnapshot\?\.status\} \/>/);
 	// Tab 同样未启动不显示徽章，已启动按状态映射渲染（beui AnimatedBadge 替换裸圆点）。
 	assert.match(tabBar, /import \{ sessionStatusBadge \} from "\.\.\/\.\.\/utils\/sessionStatusBadge"/);
 	assert.match(tabBar, /const badge = sessionStatusBadge\(status, \{/);

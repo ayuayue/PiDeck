@@ -91,7 +91,7 @@ test("hot reload paints a reloading overlay on the session surface", () => {
 	// 只转小按钮时会话侧没有任何变化，用户无法确认重载是否生效：时间线同样要有「正在重载…」遮罩。
 	assert.match(view, /isReloading=\{Boolean\(runControl\?\.isReloading\)\}/);
 	assert.match(stage, /isReloading\?\s*:\s*boolean/);
-	assert.match(stage, /overlayVisible\s*=\s*isRestarting\s*\|\|\s*isReloading\s*\|\|/);
+	assert.match(stage, /liveOverlayVisible\s*=\s*isRestarting\s*\|\|\s*isReloading\s*\|\|\s*Boolean\(mutationKind\)/);
 	assert.match(stage, /t\("message\.historyOverlay\.reloadingResources"\)/);
 	assert.match(copyZh, /"message\.historyOverlay\.reloadingResources":/);
 	assert.match(copyEn, /"message\.historyOverlay\.reloadingResources":/);
