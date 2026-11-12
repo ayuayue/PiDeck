@@ -398,3 +398,16 @@ test("password mode allows exactly one askpass prompt and never claims batch mod
 		false,
 	);
 });
+
+// 旧版本会把 `~/.ssh/config` 里 `IdentityFile` 的原样值（含 OpenSSH token）写进 store。
+// 这类数据只该让**这一条连接**不可用，不该把整份 host store 判成损坏。
+test("已保存的 profile 里 identityFile 带 %h：读盘不算损坏，连接时按本机路径拒绝", async (t) => {
+	const { directory, profile } = await fixture(t);
+	const hostFile = join(directory, "remote-hosts.json");
+	const snapshot = JSON.parse(await readFile(hostFile, "utf8"));
+	snapshot.profiles.find((entry) => entry.id === profile.id).identityFile = join(tmpdir(), "id%h");
+	await writeFile(hostFile, JSON.stringify(snapshot));
+	const { client, calls } = configRunner(profile.id);
+	await assert.rejects(buildBatch(directory, profile.id, { client }), /INVALID_SSH_LOCAL_PATH/);
+	assert.equal(calls.length, 0, "拒绝必须发生在发起任何配置查询之前");
+});
