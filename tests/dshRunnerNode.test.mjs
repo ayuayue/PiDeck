@@ -203,7 +203,8 @@ test("跳过 PATH 垫片，改用 mise 安装目录里的真 node", async (t) =>
 		assert.equal(info.resolvedPath, real);
 		assert.equal(await resolveDshRunnerNodePath({ platform: "win32", env, pathHits: [shim] }), real);
 	} finally {
-		await rm(root, { recursive: true, force: true });
+		// Windows 上 resolve 会短暂持有 node.exe 句柄，立即递归删除可能 EBUSY；交给 rm 自带重试。
+		await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 	}
 });
 
@@ -220,6 +221,7 @@ test("用户手选垫片路径时判不兼容，并回退到自动探测的真 n
 		assert.match(info.error ?? "", /垫片/);
 		assert.equal(await resolveDshRunnerNodePath({ platform: "win32", env, configuredPath: shim, pathHits: [shim] }), real);
 	} finally {
-		await rm(root, { recursive: true, force: true });
+		// Windows 上 resolve 会短暂持有 node.exe 句柄，立即递归删除可能 EBUSY；交给 rm 自带重试。
+		await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 	}
 });
