@@ -1,0 +1,11 @@
+# Build output
+/dist/
+/pideck-lite.exe
+*.syso
+
+# NSGo test and dev artifacts
+/.nsgo/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,279 @@
+package main
+
+// End-to-end checks that drive a real pi process through the app.
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/nsgotest"
+)
+
+// startApp opens the app on a temp data directory and adds dir as the
+// workspace through the folder browser.
+func startApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App {
+	t.Helper()
+	if os.Getenv("PIDECK_LITE_HOME") == "" {
+		t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	}
+	return openApp(t, dir, width, height)
+}
+
+// openApp opens the app on whatever data directory the test set, with the
+// system's folder picker answering dir.
+func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App {
+	t.Helper()
+	t.Cleanup(closeAllPi)
+	app := nsgotest.Start(t, Root, nsgotest.Size(width, height))
+	// The app's own browser works the same on every platform, so the
+	// end-to-end tests drive it; the system picker has a test of its own.
+	app.Press("id:rail-palette")
+	app.Press("text:浏览文件夹添加工作区")
+	app.WaitFor("text:选择这个文件夹", 5*time.Second)
+	app.Clear("label:文件夹路径")
+	app.Type("label:文件夹路径", dir)
+	app.Submit("label:文件夹路径")
+	app.WaitFor("text:note.txt", 5*time.Second)
+	app.Press("text:选择这个文件夹")
+	app.WaitFor("text:打开一个会话，或者新建一个。", 5*time.Second)
+	// With a project in place the welcome's main action opens a session.
+	app.Press("id:welcome-primary")
+	app.WaitFor("id:composer", 10*time.Second)
+	return app
+}
+
+// waitApp waits for what another goroutine posts: on a platform a frame
+// alone does not run every posted callback, so this settles with real
+// pauses between tries.
+func waitApp(app *nsgotest.App, selector string, d time.Duration) {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		app.Settle()
+		if len(app.Query(selector)) > 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	app.WaitFor(selector, time.Second)
+}
+
+// waitQuiet reports whether a selector matched within d, without failing
+// the test: a press that lands on a moving row can be tried again.
+func waitQuiet(app *nsgotest.App, selector string, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		app.Settle()
+		if len(app.Query(selector)) == 1 {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
+}
+
+// shot captures a screenshot on a platform, where the pixels exist.
+func shot(app *nsgotest.App, name string) {
+	if nsgotest.Target() != "" {
+		app.Screenshot(name)
+	}
+}
+
+// workspaceWith makes a temp project with a small file pi can read.
+func workspaceWith(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello tool"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// TestChatTurn sends a prompt to the real pi and waits for the answer.
+func TestChatTurn(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.Type("id:composer", "只输出这个标记，不要别的：PONG-7431")
+	app.Press("role:button 发送")
+	waitApp(app, `text:"PONG-7431"`, 180*time.Second)
+	app.Advance(300 * time.Millisecond)
+	shot(app, "10-chat")
+}
+
+// TestToolTurn asks for a tool call, then opens the tool row to read its
+// output.
+func TestToolTurn(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.Type("id:composer", "用 read 工具读一下 note.txt，然后用一句话说文件里有什么")
+	app.Press("role:button 发送")
+	// The finished turn folds its work behind a summary row; open it, then
+	// the tool row, to read what the tool returned.
+	waitApp(app, "text:个工具调用", 180*time.Second)
+	app.Press("text:个工具调用")
+	app.Advance(200 * time.Millisecond)
+	app.WaitFor("role:button 读取", 5*time.Second)
+	// The row is its own button; the output is inside it once open.
+	output := `role:button 读取 >> text:"hello tool"`
+	app.Press("role:button 读取")
+	if !waitQuiet(app, output, 3*time.Second) {
+		app.Press("role:button 读取")
+	}
+	app.WaitFor(output, 10*time.Second)
+	app.Advance(300 * time.Millisecond)
+	shot(app, "11-tools")
+}
+
+// TestStopAborts starts a long answer and stops it.
+func TestStopAborts(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.Type("id:composer", "写一篇一千字的散文，主题是雨。不要用工具，直接写。")
+	app.Press("role:button 发送")
+	app.WaitFor("role:button 停止", 30*time.Second)
+	app.Press("role:button 停止")
+	waitApp(app, "text:/已停止/", 90*time.Second)
+	app.WaitFor("role:button 发送", 10*time.Second)
+}
+
+// TestDraftSurvives ticks the clock while typing and checks the field keeps
+// its text: a rebuild of the composer must not reset it.
+func TestDraftSurvives(t *testing.T) {
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.Type("id:composer", "第一行")
+	app.Advance(1500 * time.Millisecond)
+	app.Type("id:composer", "\n第二行")
+	app.Advance(1500 * time.Millisecond)
+	if got := app.Find("id:composer").Text; !strings.Contains(got, "第二行") || !strings.Contains(got, "第一行") {
+		t.Fatalf("composer lost its draft: %q", got)
+	}
+	shot(app, "12-draft")
+}
+
+// TestRestore reopens the app on the same data directory and finds the
+// conversation where it was left.
+func TestRestore(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir := workspaceWith(t)
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Cleanup(closeAllPi)
+	app := openApp(t, dir, 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.Type("id:composer", "只输出这个标记，不要别的：RESTORE-9182")
+	app.Press("role:button 发送")
+	waitApp(app, `text:"RESTORE-9182"`, 180*time.Second)
+	app.Settle()
+	// A second window on the same data, as the next launch would be.
+	closeAllPi()
+	app2 := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
+	app2.Settle()
+	waitApp(app2, `text:"RESTORE-9182"`, 60*time.Second)
+	shot(app2, "13-restore")
+}
+
+// TestLook captures the app in dark mode and while an answer streams.
+func TestLook(t *testing.T) {
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.Press("label:会话面板")
+	app.Advance(300 * time.Millisecond)
+	shot(app, "20-drawer")
+	app.Press("label:切换外观")
+	app.Press("label:切换外观")
+	app.Advance(300 * time.Millisecond)
+	shot(app, "21-dark")
+	app.Type("id:composer", "写一篇六百字左右的说明文，主题是本机编码助手，不要用工具，也不要列清单。")
+	app.Press("role:button 发送")
+	// Let a few hundred characters arrive, then look at the live state.
+	app.Advance(2 * time.Second)
+	shot(app, "21-streaming")
+	waitApp(app, "role:button 复制回复", 180*time.Second)
+	app.Advance(300 * time.Millisecond)
+	shot(app, "22-answer")
+}
+
+// TestImport copies a session file into the app and opens it.
+func TestImport(t *testing.T) {
+	dir := workspaceWith(t)
+	src := filepath.Join(dir, "old-session.jsonl")
+	body := `{"type":"session","version":3,"id":"11111111-2222-4333-8444-555555555555","timestamp":"2026-01-02T03:04:05.000Z","cwd":"` + filepath.ToSlash(dir) + `"}
+{"type":"message","id":"a1","parentId":null,"timestamp":"2026-01-02T03:04:06.000Z","message":{"role":"user","content":"旧的提问","timestamp":1767323046000}}
+{"type":"message","id":"a2","parentId":"a1","timestamp":"2026-01-02T03:04:07.000Z","message":{"role":"assistant","content":[{"type":"text","text":"旧的回答"}],"api":"x","provider":"x","model":"x","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1767323047000}}
+`
+	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Cleanup(closeAllPi)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
+	app.Press("text:导入 pi 会话")
+	app.WaitFor("id:picker-choose", 5*time.Second)
+	app.Clear("label:文件夹路径")
+	app.Type("label:文件夹路径", dir)
+	app.Submit("label:文件夹路径")
+	app.WaitFor("text:old-session.jsonl", 5*time.Second)
+	app.Press("text:old-session.jsonl")
+	app.Press("id:picker-choose")
+	app.WaitUntil(30*time.Second, func() bool { return len(app.Query("text:旧的提问")) > 0 })
+	shot(app, "30-import")
+}
+
+// TestModelSearch types into the model menu and checks the list filters.
+func TestModelSearch(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.Press("id:model-picker")
+	app.WaitFor("id:model-search", 5*time.Second)
+	before := len(app.Query("role:option"))
+	if before == 0 {
+		t.Fatal("the menu listed no models")
+	}
+	app.Type("id:model-search", "zzzz")
+	if got := app.Find("id:model-search").Text; got != "zzzz" {
+		t.Fatalf("search field holds %q, want zzzz", got)
+	}
+	app.WaitFor("text:没有匹配的模型", 5*time.Second)
+	app.Clear("id:model-search")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		app.Settle()
+		if len(app.Query("role:option")) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := len(app.Query("role:option")); got != before {
+		t.Fatalf("after clearing the search %d models show, want %d", got, before)
+	}
+}
+
+// TestThinkingMenu switches the reasoning level from the composer.
+func TestThinkingMenu(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:effort-picker", 90*time.Second)
+	app.Press("id:effort-picker")
+	app.WaitFor("role:option 低", 5*time.Second)
+	app.Press("role:option 低")
+	waitApp(app, "label:思考等级 · 低", 15*time.Second)
+}
