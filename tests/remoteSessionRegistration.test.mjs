@@ -235,10 +235,10 @@ test("登记：先在远端确认文件存在，再写 catalog（标题是 stem�
 	const { catalog, ensured } = fakeCatalog();
 	const scanner = createRemoteSessionScanner({ port, catalog, projectIdForHost: () => "p-1" });
 	const result = await scanner.register({ hostId: HOST, remoteSessionId: "ws/a.jsonl" });
-	assert.deepEqual(plain(result), { ok: true, sessionId: "stable-1", created: true, remoteSessionId: "ws/a.jsonl", remotePath: "ws/a.jsonl" });
+	assert.deepEqual(plain(result), { ok: true, sessionId: "stable-1", created: true, remoteSessionId: "ws/a.jsonl", remotePath: "/home/dev/.pi/agent/sessions/ws/a.jsonl" });
 	assert.deepEqual(calls.sessions, [{ hostId: HOST, root: "/home/dev/.pi/agent/sessions" }]);
 	assert.deepEqual(calls.stat, ["ws/a.jsonl"]);
-	assert.deepEqual(plain(ensured), [{ projectId: "p-1", hostId: HOST, remoteSessionId: "ws/a.jsonl", remotePath: "ws/a.jsonl", title: "a", updatedAt: 42 }]);
+	assert.deepEqual(plain(ensured), [{ projectId: "p-1", hostId: HOST, remoteSessionId: "ws/a.jsonl", remotePath: "/home/dev/.pi/agent/sessions/ws/a.jsonl", title: "a", updatedAt: 42 }]);
 });
 
 test("登记：远端不存在的 id 转述 PATH_NOT_FOUND，且不写 catalog", async () => {

@@ -1745,8 +1745,12 @@ export class SessionRuntimeCoordinator {
 		}
 		if (tab.status === "starting") tab = await this.waitUntilReady(tab);
 		if (isTerminalAgent(tab)) {
+			// 启动错误卡必须**先读后停**：`stop()` 会删掉该 agent 的 messages，先停会让下面的
+			// startupFailure() 取不到带 debugDetails 的错误卡，只能回落到「(error)」这种零信息文案
+			// （用户报的「远端会话失败但看不到原因」就是这条顺序造成的）。
+			const failure = this.startupFailure(tab);
 			if (created) await this.agents.stop(tab.id).catch(() => undefined);
-			throw this.startupFailure(tab);
+			throw failure;
 		}
 
 		try {

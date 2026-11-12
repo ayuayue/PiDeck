@@ -351,9 +351,10 @@ test("IPC：登记把远端 id 与装配给的项目归属交给 catalog，返�
 	};
 	const handlers = ipcFor({ enabled: true, service: () => port, catalog: () => catalog, projectIdForHost: () => "project-1", channels: CHANNELS });
 	const id = "2026-02-03T10-00-00_abc.jsonl";
-	assert.deepEqual(plain(await handlers.get(CHANNELS.register)({}, HOST, id)), { ok: true, value: { sessionId: "stable-1", created: true, remoteSessionId: id, remotePath: id } });
-	assert.deepEqual(plain(await handlers.get(CHANNELS.register)({}, HOST, id)), { ok: true, value: { sessionId: "stable-1", created: false, remoteSessionId: id, remotePath: id } });
-	assert.deepEqual(plain(ensured[0]), { projectId: "project-1", hostId: HOST, remoteSessionId: id, remotePath: id, title: "2026-02-03T10-00-00_abc", updatedAt: 999 });
+	const absolute = "/home/dev/.pi/agent/sessions/" + id;
+	assert.deepEqual(plain(await handlers.get(CHANNELS.register)({}, HOST, id)), { ok: true, value: { sessionId: "stable-1", created: true, remoteSessionId: id, remotePath: absolute } });
+	assert.deepEqual(plain(await handlers.get(CHANNELS.register)({}, HOST, id)), { ok: true, value: { sessionId: "stable-1", created: false, remoteSessionId: id, remotePath: absolute } });
+	assert.deepEqual(plain(ensured[0]), { projectId: "project-1", hostId: HOST, remoteSessionId: id, remotePath: absolute, title: "2026-02-03T10-00-00_abc", updatedAt: 999 });
 	// 两次登记各自都在远端确认了一次这条 id 现在是文件。
 	assert.deepEqual(calls.stat, [id, id]);
 });

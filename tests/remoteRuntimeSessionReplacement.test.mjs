@@ -212,7 +212,7 @@ for (const operation of ["fork", "clone"]) {
 		assert.deepEqual(plain(h.catalog.get(h.origin.record.id)), h.oldEntry);
 		assert.equal(h.catalog.listEntries().length, 2);
 		assert.deepEqual(h.forbidden, []);
-		assert.deepEqual(h.registrations, [{ hostId: HOST, projectId: PROJECT.id, remotePath: NEW }]);
+		assert.deepEqual(h.registrations, [{ hostId: HOST, projectId: PROJECT.id, projectRemotePath: PROJECT.locator.remotePath, remotePath: NEW }]);
 		assert.deepEqual(
 			h.events.map((event) => event.kind),
 			["detach", "attach"],

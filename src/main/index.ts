@@ -3886,6 +3886,8 @@ function registerIpc() {
 	remoteCommandTransport = { runRemoteCommand: runPinnedRemoteCommand };
 
 	// 远端 Session 只读发现与登记（Phase 3 第三段）。通道名由装配注入（与 contentStoreIpc 的 ChannelGroup 同一先例）。
+	// 该主机上的 ssh 项目清单（id + 远端根）：项目归属与项目级扫描根**同一个来源**，只收窄一次。
+	const remoteProjectCandidates = (hostId: string) => projectStore.list().flatMap((project) => (isRemoteProject(project) && project.locator.hostId === hostId ? [{ id: project.id, remotePath: project.locator.remotePath }] : []));
 	registerRemoteSessionIpc({
 		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
@@ -3897,14 +3899,9 @@ function registerIpc() {
 		// 判不出来（多候选且都没命中）⇒ undefined，由 scanner 以既有稳定码 REMOTE_SESSION_PROJECT_UNRESOLVED
 		// fail-closed —— 绝不猜。曾经的写法取「该主机上第一个 ssh 项目」，同主机两个项目时会把会话登记到
 		// 错误项目名下。列表刷新与侧栏投影另由 catalog IPC 和 sessionRecordToSummary 负责。
-		projectIdForHost: (hostId, remoteSessionId) =>
-			matchRemoteSessionProject(
-				projectStore
-					.list()
-					// 在同一回调里收窄（filter 的类型收窄不会传到 map）：只取该主机的 ssh 项目。
-					.flatMap((project) => (isRemoteProject(project) && project.locator.hostId === hostId ? [{ id: project.id, remotePath: project.locator.remotePath }] : [])),
-				remoteSessionId,
-			),
+		projectIdForHost: (hostId, remoteSessionId) => matchRemoteSessionProject(remoteProjectCandidates(hostId), remoteSessionId),
+		// 项目级扫描根（项目自己的 `.pi/settings.json` 里的 sessionDir）与 `project:` 身份也用这份清单。
+		projectCandidates: remoteProjectCandidates,
 		channels: { scan: ipcChannels.remoteSessionScan, register: ipcChannels.remoteSessionRegister, title: ipcChannels.remoteSessionTitle },
 	});
 	// 远端 Pi 模型目录（Phase 5 row 819）：host → ProjectStore 远端项目 → 窄 AgentManager 查找 live remote

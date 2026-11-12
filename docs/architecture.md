@@ -18,6 +18,24 @@
 | `imagegen` / `videogen` | PiDeck 自有生成链路 + 供应商 API | 产物落 `userData/imagegen`，见 `docs/maintenance-domains.md` §生图 |
 
 - **会话是唯一一等公民**：`SessionRecord.id` 跨重启稳定；`agentId` 只表示当前子进程；runtime 命令与事件必须带 `sessionId + agentId + runtimeGeneration`，旧 generation 的迟到结果一律拒绝（`SessionRuntimeCoordinator`）。
+
+### 远端（SSH）会话的发现与身份
+
+- **发现是项目级**：`remoteSessions.scan(hostId, projectId)` 只列该项目的会话。默认根只看它自己的
+  encoded-cwd 目录；项目自己的 `.pi/settings.json` 写了 `sessionDir` 时额外扫那个目录（相对值按项目根解析，
+  与 pi 的 cwd 语义一致）。不带 `projectId` 的主机级扫描只留给诊断探针。
+- **身份是 `(hostId, remoteSessionId)`**：默认根之下沿用旧相对 id（`<encoded-cwd>/<file>.jsonl`）；
+  项目级 `sessionDir` 之下用 `project:<encoded-cwd>/<file>.jsonl` 命名空间（两个项目各自 `.pi/sessions/x.jsonl`
+  不能撞同一个 id）。扫描登记与运行时登记（`RemoteRuntimePort.registerRemoteSession`）只允许一份推导：
+  `RemoteSessionScanner.identityForPath`。
+- **catalog 写绝对 `remotePath`**：远端读/写/归档本来就优先用绝对路径，不再依赖会话根；旧记录（相对
+  `remotePath`）仍按默认根解析兼容。
+- **pi 上报的相对 `sessionFile` 必须先归一化**：`sessionDir` 是相对值时 pi 会报相对 cwd 的路径，直接用会让
+  `--session` 重启、换绑比较与身份推导全部失配；归一化入口只有 `src/main/pi/remoteSessionPath.ts`。
+- **失败必须可见**：启动失败的错误卡要在 `stop()` 清 messages **之前**读出（`SessionRuntimeCoordinator`），
+  否则界面只能显示 `(error)`；身份类稳定码经 `remoteSessionCopy.ts` 给可读文案。
+- **未知进程环境仍不可知**：`PI_CODING_AGENT_SESSION_DIR` / `--session-dir` 指走的会话文件会被如实拒绝
+  （`REMOTE_SESSION_LOCATOR_UNRESOLVED`），不猜、也不静默当成默认根下的会话。
 - 新增后端不是加一个 `if`：先实现 `SessionRuntimeCoordinator` 的窄接口（capabilities 声明能做什么），再在 `CompositeAgentGateway` 注册；不支持的能力（如 DSH/ACP 的 `reloadResources`）必须显式缺席，让 UI 自然不渲染入口。
 
 ## 目录与依赖方向

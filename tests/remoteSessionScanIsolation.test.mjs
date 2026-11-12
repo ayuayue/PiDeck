@@ -516,7 +516,7 @@ test("scanning twice writes nothing and registering twice keeps one stable id", 
 	assert.equal(second.sessionId, first.sessionId, "the stable id must not move");
 	assert.equal(catalog.listEntries().length, 1, "exactly one record exists after two registrations");
 	const locator = catalog.getLocator(first.sessionId);
-	assert.deepEqual(plain(locator), { kind: "ssh", hostId: HOST_ID, remoteSessionId: "ws/a.jsonl", remotePath: "ws/a.jsonl" });
+	assert.deepEqual(plain(locator), { kind: "ssh", hostId: HOST_ID, remoteSessionId: "ws/a.jsonl", remotePath: SESSION_ROOT + "/ws/a.jsonl" });
 	assert.equal(catalog.get(first.sessionId).title, "a");
 });
 

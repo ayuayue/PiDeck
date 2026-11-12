@@ -76,8 +76,13 @@ import type { RpcResponse } from "./PiRpcClient";
 import { formatBashToolMessage } from "./bashResult";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import { remotePiDiscoveryCopyKey } from "../remote/remotePiDiscoveryCopy";
+// 会话身份稳定码的可读文案：与探测码同一套路，避免用户只看到一个裸码。
+import { remoteSessionCodeCopyKey } from "../remote/remoteSessionCopy";
 import { mergeHistoryWithPreservedMessages, stabilizeProjectedIdsFromIdentities, stabilizeReloadedMessageIds } from "./historyMessages";
-import { buildAgentSessionKey, toAbsoluteSessionPath, type AgentSessionIdentityDefaults } from "./agentSessionIdentity";
+import { buildAgentSessionKey, type AgentSessionIdentityDefaults } from "./agentSessionIdentity";
+// 远端 pi 的会话文件可能是相对 cwd 的（项目级 `sessionDir`）：归一化只允许这一份实现。
+import { isAbsoluteRemoteSessionPath, resolveRemoteReportedSessionPath } from "./remoteSessionPath";
+import { ReportedSessionPathResolver } from "./agentReportedSessionPath";
 import type { PiRuntimeLauncher, RemoteSshPiRuntimeLaunchPlan } from "./PiSpawnHandle";
 import { REMOTE_RUNTIME_CODES, type RemoteRuntimePort } from "./remoteRuntimePort";
 import type { RemoteSessionRegistration } from "../sessions/SessionCatalog";
@@ -1128,47 +1133,29 @@ export class AgentManager {
 	private async registerRemoteSessionIdentity(project: RemoteProject, remotePath: string): Promise<RemoteSessionRegistration> {
 		const port = this.remoteRuntime;
 		if (!port || typeof port.registerRemoteSession !== "function") throw new Error(REMOTE_RUNTIME_CODES.catalogIdentityUnsupported);
-		return port.registerRemoteSession({ hostId: project.locator.hostId, projectId: project.id, remotePath });
+		// 防御性归一化：所有调用点都该给绝对路径（见 reportSessionPathFromPi），但这里绝不允许
+		// 「相对路径进了端口」——端口把路径折成身份时只认绝对 POSIX 形状，相对值会以
+		// REMOTE_SESSION_LOCATOR_UNRESOLVED 失败，而那个码看不出真正原因是「少了一次归一化」。
+		const absolute = isAbsoluteRemoteSessionPath(remotePath) ? remotePath : (resolveRemoteReportedSessionPath(remotePath, project.locator.remotePath) ?? remotePath);
+		return port.registerRemoteSession({ hostId: project.locator.hostId, projectId: project.id, projectRemotePath: project.locator.remotePath, remotePath: absolute });
 	}
 
-	/**
-	 * pi 上报的会话文件路径 → 写入 tab 的值。
-	 *
-	 * 远端会话的会话文件在远端，**不得**用本机规则归一化：`toAbsoluteSessionPath` 在 Windows 上
-	 * 不把 `/home/u/…` 当绝对路径，会把它拼到盘符后面再改成分隔符（远端只剩一条正确形状：
-	 * pi 报回来的那条）。
-	 */
+	/** pi 上报的会话文件路径 → 写入 tab 的值（策略见 `agentReportedSessionPath.ts`）。 */
 	private reportSessionPathFromPi(reported: string | undefined, projectId: string, environment: SessionEnvironment, fallbackBase: string): string | undefined {
-		if (reported === undefined) return undefined;
-		if (this.isRemoteRuntime(projectId)) return reported;
-		return this.normalizeSessionPathFromPi(reported, fallbackBase, environment);
+		const project = this.getProject(projectId);
+		const remote = this.isRemoteRuntime(projectId);
+		return this.reportedSessionPaths.resolve({
+			reported,
+			remote,
+			environment,
+			projectPath: fallbackBase,
+			// 远端：pi 的相对 sessionDir 按**它自己的 cwd** 解析，而 PiDeck 以项目根为 cwd 拉远端 pi。
+			remoteCwd: remote && project !== undefined && isRemoteProject(project) ? project.locator.remotePath : fallbackBase,
+		});
 	}
 
-	/**
-	 * 已记过的「相对 sessionDir 归一化」警告（按 pi 上报的原路径去重）。
-	 * get_state 每次轮询都会重报同一个相对路径，不去重时一条无害配置一分钟能刷出几十条
-	 * 同文案 warn（用户诊断报告里 790 条 warn 里绝大部分是它），真问题会被淹没。
-	 */
-	private readonly loggedRelativeSessionPaths = new Set<string>();
-
-	/**
-	 * 归一化 pi 上报/传入的会话路径为绝对路径（含日志）。
-	 * pi 的 sessionDir 配置为相对路径（如 ".pi/sessions"）时，get_state 返回的
-	 * sessionFile 是相对 cwd 的；若原样写入 catalog，会与扫描器发现的绝对路径
-	 * 构成同文件双记录（侧栏重复显示），且文件操作会落到错误位置。
-	 */
-	private normalizeSessionPathFromPi(sessionPath: string | undefined, projectPath: string, environment: SessionEnvironment): string | undefined {
-		if (!sessionPath) return undefined;
-		const resolved = toAbsoluteSessionPath(sessionPath, projectPath, environment);
-		if (resolved !== sessionPath && !this.loggedRelativeSessionPaths.has(sessionPath)) {
-			this.loggedRelativeSessionPaths.add(sessionPath);
-			void this.appLogger?.warn("agent", "Session file path was relative; resolved to absolute", {
-				sessionPath,
-				resolved,
-			});
-		}
-		return resolved;
-	}
+	/** 相对 session 路径的归一化 + 日志去重（构造时固定 logger 的 warn 通道）。 */
+	private readonly reportedSessionPaths = new ReportedSessionPathResolver((message, detail) => void this.appLogger?.warn("agent", message, detail));
 
 	list() {
 		// standby 池化进程对一切 list 消费者不可见（UI 状态、IdleAgentReleaser 等），
@@ -2205,7 +2192,7 @@ export class AgentManager {
 			this.agents.set(id, { tab, process: new PiProcess(remoteCwd, this.settingsStore.get()) });
 			this.messages.set(id, []);
 			// 远端环境没准备好（pi/node/shell PATH 三类）时说清具体原因与下一步，而不是只丢一个稳定码。
-			const discoveryKey = remotePiDiscoveryCopyKey(rawMessage);
+			const discoveryKey = remotePiDiscoveryCopyKey(rawMessage) ?? remoteSessionCodeCopyKey(rawMessage);
 			this.addLocalizedMessage(id, "error", discoveryKey ?? "diagnostic.agentStartFailed", discoveryKey ? this.translate(discoveryKey) : "Pi RPC 启动失败。", {
 				debugDetails: this.buildStartupFailureMessage(rawMessage, null),
 			});
@@ -2284,9 +2271,10 @@ export class AgentManager {
 			});
 			const data = state.data as { sessionId?: string; sessionFile?: string; sessionName?: string } | undefined;
 			tab.sessionId = data?.sessionId;
-			// pi 报回来的会话文件在远端：**原样采用**（不得用本机规则归一化），它唯一的用途是
-			// 下一次 spawn（restart）用 `--session <远端路径>` 重开同一会话。
-			tab.sessionPath = data?.sessionFile ?? input.sessionPath;
+			// pi 报回来的会话文件在远端：只做 POSIX 归一化（相对 sessionDir 会被 pi 报成相对 cwd），
+			// 绝不用本机规则。它既是下一次 spawn（restart）的 `--session <远端路径>`，也是 catalog
+			// 身份的 remotePath —— 两种用途都要求绝对形状。
+			tab.sessionPath = this.reportSessionPathFromPi(data?.sessionFile ?? input.sessionPath, tab.projectId, sessionEnvironment, remoteCwd);
 			// catalog 身份登记（P4.2 收口）：会话文件是 pi 自己选好并在握手 `get_state` 里上报的，
 			// PiDeck 创建之前根本不知道它叫什么 —— 所以登记必然晚于 runtime 起来，**这是与本地流程的
 			// 本质差别**（本地会话身份在创建之前就由 catalog 定好）。
@@ -2327,7 +2315,10 @@ export class AgentManager {
 				sessionPath: input.sessionPath,
 				error: rawMessage,
 			});
-			this.addLocalizedMessage(id, "error", "diagnostic.agentStartFailed", "Pi RPC 启动失败。", {
+			// 身份登记失败（REMOTE_SESSION_LOCATOR_UNRESOLVED 等）也是「远端起不来」：给可读文案，
+			// 否则用户只能看到稳定码，根本不知道是远端 pi 的会话目录配置问题。
+			const createKey = remoteSessionCodeCopyKey(rawMessage);
+			this.addLocalizedMessage(id, "error", createKey ?? "diagnostic.agentStartFailed", createKey ? this.translate(createKey) : "Pi RPC 启动失败。", {
 				debugDetails: this.buildStartupFailureMessage(rawMessage, failedProcess?.getDiagnostics() ?? null),
 			});
 		}
@@ -2467,7 +2458,7 @@ export class AgentManager {
 			});
 			const data = state.data as { sessionId?: string; sessionFile?: string; sessionName?: string } | undefined;
 			tab.sessionId = data?.sessionId;
-			tab.sessionPath = this.normalizeSessionPathFromPi(data?.sessionFile ?? input.sessionPath, project.path, sessionEnvironment);
+			tab.sessionPath = this.reportSessionPathFromPi(data?.sessionFile ?? input.sessionPath, project.id, sessionEnvironment, project.path);
 			const piSessionName = data?.sessionName && !looksLikePiSessionFileStem(data.sessionName) ? data.sessionName : undefined;
 			tab.title = input.title || piSessionName || (input.sessionPath ? this.translate("session.historyTitle", { project: project.name }) : `${project.name} agent`);
 			tab.status = "idle";
@@ -3502,9 +3493,9 @@ export class AgentManager {
 			const stateResponse = handshake.state;
 			const data = stateResponse.data as { sessionId?: string; sessionFile?: string; sessionName?: string } | undefined;
 			runtime.tab.sessionId = data?.sessionId ?? runtime.tab.sessionId;
-			// 远端：pi 报回来的会话文件是**远端路径**，原样采用（create 路径同样如此）——用本机规则归一化
-			// 会把它改成本机风格路径，下一次 spawn 的 `--session` 就找不到文件了。
-			runtime.tab.sessionPath = isRemote ? (data?.sessionFile ?? sessionPath) : this.normalizeSessionPathFromPi(data?.sessionFile ?? sessionPath, project.path, runtime.tab.sessionEnvironment ?? "native");
+			// 远端与本地走同一个归一化入口：远端只做 POSIX 归一化（相对 sessionDir 会报相对路径），
+			// 本地走平台规则。原样采用远端值会让下一次 spawn 的 `--session` 与 catalog 身份对不上。
+			runtime.tab.sessionPath = this.reportSessionPathFromPi(data?.sessionFile ?? sessionPath, runtime.tab.projectId, runtime.tab.sessionEnvironment ?? "native", runtime.tab.cwd);
 			runtime.tab.status = "idle";
 			// 进程退出型压缩可能来不及发 compaction_end；重连成功即表示 Pi 已可继续接收消息。
 			this.rpcCompactingAgents.delete(agentId);
@@ -4523,7 +4514,7 @@ export class AgentManager {
 			const state = await process.client.request({ type: "get_state" }, this.rpcTimeoutMs);
 			return {
 				...((response.data as object | undefined) ?? {}),
-				sessionPath: this.normalizeSessionPathFromPi((state.data as { sessionFile?: string } | undefined)?.sessionFile, project?.path ?? "", environment),
+				sessionPath: this.reportSessionPathFromPi((state.data as { sessionFile?: string } | undefined)?.sessionFile, projectId, environment, project?.path ?? ""),
 			};
 		});
 	}
@@ -4598,7 +4589,7 @@ export class AgentManager {
 				const fresh = await runtime.process.client.request({ type: "get_state" }, this.rpcTimeoutMs).catch(() => undefined);
 				const state: unknown = fresh?.data;
 				if (state && typeof state === "object" && "sessionFile" in state && typeof state.sessionFile === "string") {
-					runtime.tab.sessionPath = state.sessionFile;
+					runtime.tab.sessionPath = this.reportSessionPathFromPi(state.sessionFile, runtime.tab.projectId, runtime.tab.sessionEnvironment ?? "native", runtime.tab.cwd);
 					if ("sessionId" in state && typeof state.sessionId === "string") runtime.tab.sessionId = state.sessionId;
 				}
 				if (runtime.tab.sessionPath !== originPath) this.clearReplacedMessageWindow(agentId);
@@ -4657,13 +4648,16 @@ export class AgentManager {
 			const response = await runtime.process.client.request({ type: "get_state" }, this.rpcTimeoutMs);
 			const state: unknown = response.data;
 			if (!state || typeof state !== "object" || !("sessionFile" in state) || typeof state.sessionFile !== "string" || !state.sessionFile) throw new Error(REMOTE_RUNTIME_CODES.locatorUnresolved);
-			runtime.tab.sessionPath = state.sessionFile;
-			if ("sessionId" in state && typeof state.sessionId === "string") runtime.tab.sessionId = state.sessionId;
 			const project = this.getProject(runtime.tab.projectId);
 			if (!project || !isRemoteProject(project)) throw new Error(REMOTE_RUNTIME_CODES.locatorUnresolved);
-			const registration = await this.registerRemoteSessionIdentity(project, state.sessionFile);
+			// 换绑比较与登记都只认绝对形状：pi 对相对 sessionDir 会回相对路径，原样比较必然失配。
+			const remotePath = this.reportSessionPathFromPi(state.sessionFile, runtime.tab.projectId, runtime.tab.sessionEnvironment ?? "native", project.locator.remotePath);
+			if (remotePath === undefined) throw new Error(REMOTE_RUNTIME_CODES.locatorUnresolved);
+			runtime.tab.sessionPath = remotePath;
+			if ("sessionId" in state && typeof state.sessionId === "string") runtime.tab.sessionId = state.sessionId;
+			const registration = await this.registerRemoteSessionIdentity(project, remotePath);
 			const locator = registration.record.locator;
-			if (locator?.kind !== "ssh" || locator.hostId !== project.locator.hostId || locator.remotePath !== state.sessionFile) throw new Error(REMOTE_RUNTIME_CODES.locatorUnresolved);
+			if (locator?.kind !== "ssh" || locator.hostId !== project.locator.hostId || locator.remotePath !== remotePath) throw new Error(REMOTE_RUNTIME_CODES.locatorUnresolved);
 			// Remote history is read by the existing bounded reader, never local fs or
 			// unbounded get_messages. Do not relabel origin's runtime tail as the fork.
 			this.emitState();

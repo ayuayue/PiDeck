@@ -277,7 +277,7 @@ test("登记走一次性命令：仍先确认文件存在，失败码与 helper 
 	const scanner = createRemoteSessionScanner({ port: helper.port, transport: command.transport, catalog, projectIdForHost: () => "p-1" });
 	const registered = await scanner.register({ hostId: HOST, remoteSessionId: "importme.jsonl" });
 	assert.equal(registered.ok, true, JSON.stringify(registered));
-	assert.deepEqual(plain(ensured[0]), { projectId: "p-1", hostId: HOST, remoteSessionId: "importme.jsonl", remotePath: "importme.jsonl", title: "importme", updatedAt: 1_700_000_500_000 });
+	assert.deepEqual(plain(ensured[0]), { projectId: "p-1", hostId: HOST, remoteSessionId: "importme.jsonl", remotePath: "/home/dev/.pi/agent/sessions/importme.jsonl", title: "importme", updatedAt: 1_700_000_500_000 });
 	assert.equal(helper.calls.withProjectSession, 0, "登记不得再借 helper 会话");
 
 	// 路径已消失 ⇒ PATH_NOT_FOUND；存在的非普通文件 ⇒ NOT_A_FILE（与 helper 通道同一词汇）。

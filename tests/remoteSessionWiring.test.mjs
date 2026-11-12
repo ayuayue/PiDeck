@@ -34,7 +34,7 @@ test("the project-level root status channel is declared and bridged (design (i))
 
 test("preload bridges both channels and the preview facade stubs them", () => {
 	assert.match(preload, /remoteSessions:\s*\{/);
-	assert.match(preload, /scan:\s*\(hostId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteSessionScan/);
+	assert.match(preload, /scan:\s*\(hostId: string, projectId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteSessionScan/);
 	assert.match(preload, /register:\s*\(hostId: string, remoteSessionId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteSessionRegister/);
 	// 预览/降级面必须同样暴露这两个方法，否则渲染层在非 Electron 预览下会取到 undefined。
 	assert.match(previewApi, /remoteSessions:\s*\{[\s\S]{0,300}?scan: async/);

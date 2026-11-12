@@ -524,7 +524,7 @@ const api = {
 	},
 	/** 远端会话只读发现与登记（Phase 3 第三段）；本批无侧栏 UI，通道先按 IPC 契约收口。 */
 	remoteSessions: {
-		scan: (hostId: string) => ipcRenderer.invoke(ipcChannels.remoteSessionScan, hostId) as Promise<import("../shared/types/remoteHost").RemoteSessionScanIpcResult>,
+		scan: (hostId: string, projectId: string) => ipcRenderer.invoke(ipcChannels.remoteSessionScan, hostId, projectId) as Promise<import("../shared/types/remoteHost").RemoteSessionScanIpcResult>,
 		register: (hostId: string, remoteSessionId: string) => ipcRenderer.invoke(ipcChannels.remoteSessionRegister, hostId, remoteSessionId) as Promise<import("../shared/types/remoteHost").RemoteSessionRegisterIpcResult>,
 		/** 按需解析标题（有界头读；头内没有权威名时再补一次有界尾读）；`titleOrigin` 三档：authoritative（名字字段）/ inferred（首条消息弱兜底）/ fallback（文件名 stem）。 */
 		title: (hostId: string, remoteSessionId: string) => ipcRenderer.invoke(ipcChannels.remoteSessionTitle, hostId, remoteSessionId) as Promise<import("../shared/types/remoteHost").RemoteSessionTitleIpcResult>,
