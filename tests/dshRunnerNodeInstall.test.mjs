@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const { DSH_RUNNER_NODE_SIDECAR_VERSION, dshRunnerNodeSidecarArch, dshRunnerNodeZipInnerDir, installDshRunnerNodeSidecar, resolveDshRunnerNodeIndexUrl, resolveDshRunnerNodeReleaseUrl } = loadTsCommonJs("src/main/dsh/dshRunnerNodeInstall.ts");
 const { dshRunnerNodeUserDataSidecar } = loadTsCommonJs("src/main/dsh/dshRunnerNodeSidecar.ts");
@@ -32,8 +34,8 @@ function sampleIndex(over = {}) {
 
 test("IPC / preload 三处同步注册一键下载通道", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const systemIpc = systemIpcSource;
+	const preload = preloadSource;
 	assert.match(ipc, /dshInstallRunnerNode:\s*"dsh:install-runner-node"/);
 	assert.match(systemIpc, /ipcChannels\.dshInstallRunnerNode/);
 	assert.match(systemIpc, /fetchDshRunnerNodeIndex/);

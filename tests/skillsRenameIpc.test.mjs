@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const systemIpc = systemIpcSource;
+const preload = preloadSource;
 const sharedIpc = readFileSync("src/shared/ipc.ts", "utf8");
 
 test("skills:rename channel is defined, invoked and handled in all three layers", () => {

@@ -24,8 +24,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+const systemIpc = systemIpcSource;
 const modelListCache = readFileSync("src/main/pi/modelListCache.ts", "utf8");
 const devTab = readFileSync("src/renderer/src/components/app/settings/DevTab.tsx", "utf8");
 const settingsModal = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");

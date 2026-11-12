@@ -6,10 +6,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+const preload = preloadSource;
+const systemIpc = systemIpcSource;
 const appTypes = readFileSync("src/shared/types/app.ts", "utf8");
 const devTab = readFileSync("src/renderer/src/components/app/settings/DevTab.tsx", "utf8");
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");

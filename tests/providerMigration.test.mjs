@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const mapping = loadTsCommonJs("src/main/config/providerMigration.ts");
 const service = loadTsCommonJs("src/main/config/providerMigrationService.ts");
@@ -735,8 +737,8 @@ test("apply dsh-to-pi migrates the built-in DeepSeek credential without a settin
 
 test("source contracts keep IPC / preload / UI wired", async () => {
 	const ipc = await readFile(join(process.cwd(), "src/shared/ipc.ts"), "utf8");
-	const preload = await readFile(join(process.cwd(), "src/preload/index.ts"), "utf8");
-	const systemIpc = await readFile(join(process.cwd(), "src/main/ipc/systemIpc.ts"), "utf8");
+	const preload = await preloadSource;
+	const systemIpc = systemIpcSource;
 	const modelsTab = await readFile(join(process.cwd(), "src/renderer/src/config/ModelsTab.tsx"), "utf8");
 	const authTab = await readFile(join(process.cwd(), "src/renderer/src/config/AuthTab.tsx"), "utf8");
 	const dshCards = await readFile(join(process.cwd(), "src/renderer/src/config/DshProviderCards.tsx"), "utf8");

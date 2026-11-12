@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 
 const { createRemoteModelCatalog, REMOTE_MODEL_CATALOG_CODES, REMOTE_MODEL_CATALOG_TTL_MS } = loadTsCommonJs("src/main/remote/RemotePiModelCatalog.ts");
 const { buildRemotePiListModelsCommand, REMOTE_PI_MODEL_LIST_ARGS } = loadTsCommonJs("src/main/remote/RemotePiDiscovery.ts");
@@ -227,7 +228,7 @@ test("远端路由：没有任何来源时给 remote-inactive，且任何分支�
 });
 
 test("sessions:list-models 只在「既非远端会话也没有远端 runtime」时才走本机目录", () => {
-	const source = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const source = systemIpcSource;
 	const start = source.indexOf("ipcMain.handle(ipcChannels.sessionsListModels");
 	assert.ok(start > 0, "未找到 sessions:list-models handler");
 	const end = source.indexOf("\n\t});", start);

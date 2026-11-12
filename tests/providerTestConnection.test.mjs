@@ -16,10 +16,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const ipcSource = readFileSync("src/shared/ipc.ts", "utf8");
-const systemIpcSource = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-const preloadSource = readFileSync("src/preload/index.ts", "utf8");
 const configModalSource = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
 const dialogSource = readFileSync("src/renderer/src/config/AddProviderDialog.tsx", "utf8");
 const proberSource = readFileSync("src/main/pi/PiModelProber.ts", "utf8");

@@ -12,10 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+const preload = preloadSource;
+const systemIpc = systemIpcSource;
 const sharedTypes = readFileSync("src/shared/types/providerUsage.ts", "utf8");
 
 const { ConfigManager } = loadTsCommonJs("src/main/config/ConfigManager.ts", {

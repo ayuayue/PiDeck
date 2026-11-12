@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 
 /**
  * 环境切换的渲染层契约（本次重构后）：
@@ -18,14 +20,13 @@ const SWITCH = "src/renderer/src/config/ConfigEnvironmentSwitch.tsx";
 const PANEL = "src/renderer/src/config/RemoteConfigPanel.tsx";
 const HOOK = "src/renderer/src/config/useRemotePiConfigPanel.ts";
 const MODEL = "src/renderer/src/config/remoteConfigModel.ts";
-const PRELOAD = "src/preload/index.ts";
 
 const modal = readFileSync(CONFIG_MODAL, "utf8");
 const envSwitch = readFileSync(SWITCH, "utf8");
 const panel = readFileSync(PANEL, "utf8");
 const hook = readFileSync(HOOK, "utf8");
 const model = readFileSync(MODEL, "utf8");
-const preload = readFileSync(PRELOAD, "utf8");
+const preload = preloadSource;
 
 test("只有一个环境入口：Pi 分页上的下拉，页内不再渲染目标选择器", () => {
 	assert.match(modal, /import \{ ConfigBackendSwitch, ConfigEnvironmentStatus \} from "\.\/config\/ConfigEnvironmentSwitch"/);
@@ -200,7 +201,7 @@ test("preload forwards the file-level channel with target options and keeps the 
 });
 
 test("ssh 认证读取在 IPC 边界只有派生视图（remoteAuth），从不把原文当成 raw", () => {
-	const ipc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const ipc = systemIpcSource;
 	assert.match(ipc, /routed\.kind === "remote-auth"\) return \{ raw: "", remoteAuth: routed \}/);
 	assert.match(preload, /remoteAuth\?: import\("\.\.\/shared\/piConfig"\)\.RemotePiAuthSnapshot/);
 });

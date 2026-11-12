@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 test("ConfigModal wires an MCP tab without bloating loadConfig into MCP CRUD", () => {
 	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
@@ -66,8 +68,8 @@ test("MCP service catalog stays separate from configured status; auth.provider i
 	const templateForm = readFileSync("src/renderer/src/config/McpServiceTemplateForm.tsx", "utf8");
 	const smartAdd = readFileSync("src/renderer/src/config/McpSmartAdd.tsx", "utf8");
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const preload = preloadSource;
+	const systemIpc = systemIpcSource;
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 	const advancedStart = tab.indexOf('t("config.mcp.section.advanced")');
@@ -129,9 +131,9 @@ test("dirty-mark helpers include config:mcp", () => {
 
 test("IPC, preload, and ConfigManager expose get/save/probe MCP channels", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	const manager = readFileSync("src/main/config/ConfigManager.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemIpc = systemIpcSource;
 	assert.match(ipc, /configGetMcp: "config:get-mcp"/);
 	assert.match(ipc, /configSaveMcp: "config:save-mcp"/);
 	assert.match(ipc, /configProbeMcp: "config:probe-mcp"/);
@@ -176,7 +178,7 @@ test("MCP 表单切到 pi 0.99 内置 MCP schema：exposure/timeout/enabled 替�
 	const tab = readFileSync("src/renderer/src/config/McpTab.tsx", "utf8");
 	const resourceViews = readFileSync("src/renderer/src/config/McpResourceViews.tsx", "utf8");
 	const shared = readFileSync("src/shared/types/mcp.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemIpc = systemIpcSource;
 	// pi 0.99 不再识别 lifecycle/directTools：表单停止写入这些死字段
 	assert.doesNotMatch(tab, /LIFECYCLE_OPTIONS/);
 	assert.doesNotMatch(tab, /config\.mcp\.field\.lifecycle/);
