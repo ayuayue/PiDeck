@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
  * 顺序：宿主在前（编排/生命周期/agents map），其后是已落地的域协作者（新增协作者追加到末尾）。
  */
 const entryPath = "src/main/pi/AgentManager.ts";
-const collaboratorPaths = ["src/main/pi/toolMessageAssembler.ts", "src/main/pi/runtimeHistoryLoader.ts", "src/main/pi/compactionRunner.ts"];
+const collaboratorPaths = ["src/main/pi/toolMessageAssembler.ts", "src/main/pi/runtimeHistoryLoader.ts", "src/main/pi/compactionRunner.ts", "src/main/pi/runtimeStateReader.ts"];
 
 export const agentManagerSources = [entryPath, ...collaboratorPaths].map((path) => ({ path, source: readFileSync(path, "utf8") }));
 
