@@ -36,7 +36,7 @@ async function writeSparse(path, bytes) {
 async function fixture(t) {
 	// 白名单根按生产口径已是真实路径（CanonicalRootsProvider）；Windows 的 8.3 短名（RUNNER~1）在此展开，
 	// 否则 readLocalImageBytes 的 realpath 结果与根字符串不一致，根内图片会被误判 outside-roots。
-	const base = realpathSync(mkdtempSync(join(tmpdir(), "pideck-local-image-reasons-")));
+	const base = realpathSync.native(mkdtempSync(join(tmpdir(), "pideck-local-image-reasons-")));
 	const root = join(base, "project");
 	const outside = join(base, "outside");
 	mkdirSync(join(root, "dir.png"), { recursive: true });
