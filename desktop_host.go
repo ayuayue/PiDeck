@@ -77,8 +77,8 @@ func (a *app) window() *core.Window {
 // trayMenu is what the tray icon's menu shows.
 func (a *app) trayMenu() []desktop.MenuItem {
 	items := []desktop.MenuItem{
-		{Label: "显示 PiDeck Lite", OnSelect: a.showMainWindow},
-		{Label: "新建会话", OnSelect: func() {
+		{Label: T("显示 PiDeck Lite"), OnSelect: a.showMainWindow},
+		{Label: T("新建会话"), OnSelect: func() {
 			a.showMainWindow()
 			a.newSession(a.activeWS.GetUntracked())
 		}},
@@ -89,15 +89,15 @@ func (a *app) trayMenu() []desktop.MenuItem {
 		for _, s := range running {
 			s := s
 			items = append(items, desktop.MenuItem{
-				Label:    "运行中 · " + s.title.GetUntracked(),
+				Label:    T("运行中 · %s", s.title.GetUntracked()),
 				OnSelect: func() { a.showMainWindow(); a.selectSession(s) },
 			})
 		}
 	}
 	items = append(items,
 		desktop.MenuItem{Separator: true},
-		desktop.MenuItem{Label: "设置…", OnSelect: func() { a.showMainWindow(); a.settings.Set(true) }},
-		desktop.MenuItem{Label: "退出", OnSelect: a.quitApp},
+		desktop.MenuItem{Label: T("设置…"), OnSelect: func() { a.showMainWindow(); a.settings.Set(true) }},
+		desktop.MenuItem{Label: T("退出"), OnSelect: a.quitApp},
 	)
 	return items
 }

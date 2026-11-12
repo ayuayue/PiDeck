@@ -224,12 +224,12 @@ func (a *app) commandItems() []base.CommandItem {
 		if icon == nil {
 			icon = lucide.Command
 		}
-		out = append(out, base.CommandItem{ID: c.ID, Label: c.Label, Description: c.Description,
-			Group: c.Group, Shortcut: c.Shortcut, Icon: icon()})
+		out = append(out, base.CommandItem{ID: c.ID, Label: T(c.Label), Description: T(c.Description),
+			Group: T(c.Group), Shortcut: c.Shortcut, Icon: icon()})
 	}
 	if a.themes != nil {
 		for _, th := range a.themes.GetUntracked() {
-			out = append(out, base.CommandItem{ID: "theme:" + th.ID, Label: "配色 · " + th.Name, Group: "外观",
+			out = append(out, base.CommandItem{ID: "theme:" + th.ID, Label: T("配色") + " · " + th.Name, Group: T("外观"),
 				Icon: lucide.Palette()})
 		}
 	}

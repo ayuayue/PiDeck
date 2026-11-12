@@ -83,6 +83,9 @@ type config struct {
 	CloseToTray      bool `json:"closeToTray"`
 	NotifyOnDone     bool `json:"notifyOnDone"`
 	NotifyOnlyHidden bool `json:"notifyOnlyHidden"`
+	// Language is the interface's language: "" follows the system, else
+	// zh-CN, zh-TW or en-US.
+	Language string `json:"language,omitempty"`
 }
 
 // store holds the config file and the session directory.

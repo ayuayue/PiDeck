@@ -50,42 +50,46 @@ func (a *app) settingsDialog() core.Node {
 	for _, sec := range settingsSections() {
 		s := sec
 		on := func() bool { return a.settingsTab.Get() == s.ID }
-		nav = append(nav, core.View{
-			OnPress: func(core.PressEvent) {
-				a.settingsTab.Set(s.ID)
-				if s.ID == "remote" && a.remote != nil {
-					a.remote.refresh()
-				}
-				if s.ID == "usage" {
-					a.loadUsage(false)
-				}
-			},
-			Role: core.RoleTab, Label: s.Label, TestID: "settings-tab-" + s.ID,
-			StyleFunc: func() core.Style {
-				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
-					Padding: core.Symmetric(0, 9), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()}}
-				if on() {
-					st.Background = colors.Pressed()
-				}
-				return st
-			},
-			Children: []core.Node{
-				ui.IconOf(s.Icon, 13.5, func() core.Color {
-					if on() {
-						return colors.Text()
+		nav = append(nav, core.Dynamic(func(cx *core.Scope) core.Node {
+			_ = a.langRev.Get()
+			colors := ui.ColorsOf(cx)
+			return core.View{
+				OnPress: func(core.PressEvent) {
+					a.settingsTab.Set(s.ID)
+					if s.ID == "remote" && a.remote != nil {
+						a.remote.refresh()
 					}
-					return colors.Muted()
-				}),
-				core.Text{Content: s.Label, Style: core.Style{FontSize: 12.5},
-					StyleFunc: func() core.Style {
-						w := ui.Regular
+					if s.ID == "usage" {
+						a.loadUsage(false)
+					}
+				},
+				Role: core.RoleTab, Label: T(s.Label), TestID: "settings-tab-" + s.ID,
+				StyleFunc: func() core.Style {
+					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
+						Padding: core.Symmetric(0, 9), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()}}
+					if on() {
+						st.Background = colors.Pressed()
+					}
+					return st
+				},
+				Children: []core.Node{
+					ui.IconOf(s.Icon, 13.5, func() core.Color {
 						if on() {
-							w = ui.Semibold
+							return colors.Text()
 						}
-						return core.Style{Color: colors.Text(), FontWeight: w}
-					}},
-			},
-		})
+						return colors.Muted()
+					}),
+					core.Text{Content: T(s.Label), Style: core.Style{FontSize: 12.5},
+						StyleFunc: func() core.Style {
+							w := ui.Regular
+							if on() {
+								w = ui.Semibold
+							}
+							return core.Style{Color: colors.Text(), FontWeight: w}
+						}},
+				},
+			}
+		}))
 	}
 	return ui.Dialog{
 		Open:         a.settings.Get,
@@ -106,6 +110,7 @@ func (a *app) settingsDialog() core.Node {
 			// content
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), Direction: core.Column}, Children: []core.Node{
 				core.Dynamic(func(cx *core.Scope) core.Node {
+					_ = a.langRev.Get()
 					sec := settingsSections()[0]
 					for _, s := range settingsSections() {
 						if s.ID == a.settingsTab.Get() {
@@ -113,8 +118,8 @@ func (a *app) settingsDialog() core.Node {
 						}
 					}
 					return core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Top: 16, Right: 20, Bottom: 8, Left: 20}}, Children: []core.Node{
-						ui.Text(sec.Title, 15, ui.Semibold, colors.Text),
-						core.Text{Content: sec.Summary, Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
+						ui.Text(T(sec.Title), 15, ui.Semibold, colors.Text),
+						core.Text{Content: T(sec.Summary), Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
 					}}
 				}),
 				core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
@@ -136,6 +141,8 @@ func (a *app) settingsDialog() core.Node {
 // settingsContent picks the section's body.
 func (a *app) settingsContent() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// The language revision makes every page rebuild after a switch.
+		_ = a.langRev.Get()
 		switch a.settingsTab.Get() {
 		case "models":
 			return a.settingsModels()
@@ -165,7 +172,7 @@ func setGroup(title string, rows ...core.Node) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Gap: 6, Margin: core.Edges{Bottom: 14}}, Children: []core.Node{
-			core.Text{Content: title, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.6},
+			core.Text{Content: T(title), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.6},
 				StyleFunc: ui.Colored(colors.Faint)},
 			core.View{StyleFunc: func() core.Style {
 				return core.Style{Gap: 2, Padding: core.Symmetric(4, 10), CornerRadius: 9,
@@ -180,10 +187,10 @@ func setRow(label, help string, control core.Node) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		texts := []core.Node{
-			core.Text{Content: label, Style: core.Style{FontSize: 12.5, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
+			core.Text{Content: T(label), Style: core.Style{FontSize: 12.5, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
 		}
 		if help != "" {
-			texts = append(texts, core.Text{Content: help, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+			texts = append(texts, core.Text{Content: T(help), MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)})
 		}
 		children := []core.Node{core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: texts}}
@@ -285,6 +292,12 @@ func (a *app) settingsGeneral() core.Node {
 		}
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
+				setGroup("界面",
+					setRow("语言", "界面文案；切换后立即生效，未翻译的条目保留中文。",
+						choiceChips([]choice[string]{
+							{langSystem, "跟随系统"}, {langZhCN, "简体中文"}, {langZhTW, "繁體中文"}, {langEnUS, "English"},
+						}, func() string { return a.cfg.Language }, a.setLanguage)),
+				),
 				setGroup("新会话默认模型", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
 					Children: modelChips}),
 				setGroup("新会话默认思考等级", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
@@ -488,7 +501,7 @@ func (a *app) settingsKeys() core.Node {
 		cmds := a.keybindingCommands()
 		for i, c := range cmds {
 			cmd := c
-			desc := cmd.Group
+			desc := T(cmd.Group)
 			if src := a.bindingSource(cmd.ID); src != "" && src != "默认" {
 				desc += " · " + src
 			}

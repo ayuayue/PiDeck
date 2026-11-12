@@ -164,6 +164,10 @@ type app struct {
 	providerTest   *core.Signal[string]
 	providerModels []modelConfig
 
+	// langRev changes when the interface language does, so pages that
+	// hold static text rebuild.
+	langRev *core.Signal[int]
+
 	workspaces *core.Signal[[]*workspace]
 	activeWS   *core.Signal[string]
 	tabs       *core.Signal[[]string]
@@ -290,6 +294,7 @@ func newApp(cx *core.Scope) *app {
 		providers:        core.NewSignalFunc(cx, []providerInfo(nil), nil),
 		usage:            core.NewSignalFunc(cx, usageReport{}, nil),
 		usageLoading:     core.NewSignal(cx, false),
+		langRev:          core.NewSignal(cx, 0),
 		providerOpen:     core.NewSignal(cx, false),
 		providerID:       core.NewSignal(cx, ""),
 		providerAPI:      core.NewSignal(cx, ""),
@@ -338,6 +343,7 @@ func newApp(cx *core.Scope) *app {
 	a.term.open.Set(a.cfg.TerminalOpen)
 	a.defaultModel = a.cfg.Model
 	a.defaultThinking = a.cfg.Thinking
+	a.applyLanguage()
 	a.applyTheme()
 
 	a.pinned.Set(a.cfg.Pinned)
