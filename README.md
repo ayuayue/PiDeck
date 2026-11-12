@@ -136,6 +136,8 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区
 - 扩展：插件列表与命令、打开插件目录、重新加载
 - 数据：应用/会话/pi 会话目录、会话数量
+- 用量：从本地会话文件统计累计 tokens 与费用、最近 12 周热力图、模型与项目分布；
+  只在本机计算，可手动重新统计
 - 关于：版本、运行方式、项目链接
 
 **外观与扩展（可写文件，不跑代码）**
@@ -171,6 +173,8 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 | `ui_git.go` | Git 抽屉：分支菜单、改动列表、提交框、历史、补丁与新建分支对话框 |
 | `term.go` | 终端会话：Ghostty 终端、本机/WSL/SSH shell、标签生命周期与搜索 |
 | `ui_term.go` | 底部终端面板：标签栏、搜索栏、右键菜单、可调高度 |
+| `usage.go` | 本地用量统计：读会话文件、按天/模型/项目归并、热力图分级 |
+| `ui_usage.go` | 设置里的用量页：累计卡片、12 周热力图、模型与项目榜 |
 | `desktop_host.go` | 系统托盘、关闭到托盘、完成通知与各平台通知命令 |
 | `remote.go` | 手机 HTTP 服务、令牌、快照/历史接口，局域网/Tailscale/EasyTier 地址探测 |
 | `remote_client.go` | 手机端 HTTP 客户端与连接串解析 |
@@ -288,6 +292,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - Git 的凭据提示走不了 GUI：HTTPS/SSH 需要先在终端里登录或配好密钥
 - 供应商连接测试是轻量探测（`/models` 或一次最小 chat 请求），不等于完整模型可用性验证
 - 系统通知是尽力而为：macOS 用 `osascript`、Linux 用 `notify-send`、Windows 用 PowerShell 的 WinRT 通知；系统关掉通知权限时不会补发
+- 用量统计最多读最近 3000 个会话文件，按会话 ID 去重；导入副本与移动过的文件可能让统计略有偏差
 - 手机远程当前只读：可查看项目和会话历史，不能新建会话或发送消息；只列本机项目
 - 局域网连接走 HTTP + 令牌，Tailscale/EasyTier 的链路本身加密
 - 草稿与附件不跨重启保存；单窗口

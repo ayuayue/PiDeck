@@ -32,6 +32,7 @@ func settingsSections() []settingsSection {
 	return []settingsSection{
 		{"general", "通用", lucide.Settings2, "通用", "新会话的默认值，以及侧栏读什么。"},
 		{"models", "模型与认证", lucide.Cpu, "模型与认证", "pi 认识哪些供应商、各自有多少模型、凭据是否可用。"},
+		{"usage", "用量", lucide.ChartColumn, "用量", "从本地会话文件统计 token、费用、模型与项目分布。"},
 		{"keys", "键位", lucide.Keyboard, "键位", "每个命令的快捷键；留空则不绑定，改坏了可以恢复默认。"},
 		{"look", "外观", lucide.Palette, "外观", "配色与主题文件。"},
 		{"remote", "远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。"},
@@ -54,6 +55,9 @@ func (a *app) settingsDialog() core.Node {
 				a.settingsTab.Set(s.ID)
 				if s.ID == "remote" && a.remote != nil {
 					a.remote.refresh()
+				}
+				if s.ID == "usage" {
+					a.loadUsage(false)
 				}
 			},
 			Role: core.RoleTab, Label: s.Label, TestID: "settings-tab-" + s.ID,
@@ -135,6 +139,8 @@ func (a *app) settingsContent() core.Node {
 		switch a.settingsTab.Get() {
 		case "models":
 			return a.settingsModels()
+		case "usage":
+			return a.settingsUsage()
 		case "keys":
 			return a.settingsKeys()
 		case "look":

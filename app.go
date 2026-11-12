@@ -148,6 +148,11 @@ type app struct {
 	themes    *core.Signal[[]themeSpec]
 	plugins   *core.Signal[[]plugin]
 	providers *core.Signal[[]providerInfo]
+	// usage is the local statistics report, read from the session files
+	// the first time the usage page opens.
+	usage        *core.Signal[usageReport]
+	usageLoading *core.Signal[bool]
+	usageLoaded  bool
 
 	// The provider editor: which provider, its fields, and the result of
 	// a connection test.
@@ -283,6 +288,8 @@ func newApp(cx *core.Scope) *app {
 		themes:           core.NewSignalFunc(cx, []themeSpec(nil), nil),
 		plugins:          core.NewSignalFunc(cx, []plugin(nil), nil),
 		providers:        core.NewSignalFunc(cx, []providerInfo(nil), nil),
+		usage:            core.NewSignalFunc(cx, usageReport{}, nil),
+		usageLoading:     core.NewSignal(cx, false),
 		providerOpen:     core.NewSignal(cx, false),
 		providerID:       core.NewSignal(cx, ""),
 		providerAPI:      core.NewSignal(cx, ""),
