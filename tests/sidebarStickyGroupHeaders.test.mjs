@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 侧栏「聊天」「项目」分组标题栏冻结开关（外观设置 → 聊天排版）。
@@ -86,7 +87,7 @@ it("契约字段与三处默认值/接线齐全（防半截实现）", () => {
 	// （2026-10 实测：聊天区冻结、项目区不冻结）。
 	assert.match(projectTree, /<div className=\{cn\(stickyHeader && "contents"\)\}>/, "项目区包裹层开启冻结时须 display:contents（sticky 包含块必须是滚动容器方向上的祖先）");
 
-	const app = read("src/renderer/src/App.tsx");
+	const app = rendererAppSource;
 	assert.match(app, /stickyGroupHeaders=\{settings\.sidebarStickyGroupHeaders\s*===\s*true\}/, "App 按 === true 收窄传递（缺省 = 关闭）");
 
 	const appearance = read("src/renderer/src/components/app/settings/AppearanceTab.tsx");

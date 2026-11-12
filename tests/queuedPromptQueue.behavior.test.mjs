@@ -22,6 +22,7 @@ import {
 	visibleQueuedPrompts,
 } from "../src/renderer/src/utils/queuedPromptQueue.ts";
 import { updateActiveToolCalls } from "../src/shared/toolRuntimeState.ts";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 function prompt(id, behavior = "followUp", status = "pending") {
 	return {
@@ -289,7 +290,7 @@ test("browser prompt returns the received SendPromptResult before background sta
 });
 
 test("layout budget uses compact queue chrome and terminal still yields first", () => {
-	const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const appSource = rendererAppSource;
 	const layoutSource = readFileSync("src/renderer/src/hooks/useSessionLayout.ts", "utf8");
 	const queueStateSource = readFileSync("src/renderer/src/utils/queuedPromptQueue.ts", "utf8");
 	// ResizeObserver now lives in useSessionLayout.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // settingsTabLayout.ts 只含 type-only import（编译期擦除），无运行时依赖，可直接加载。
 const { SETTINGS_TAB_LAYOUT, SETTINGS_TAB_IDS, HIDDEN_SETTINGS_TAB_IDS } = loadTsCommonJs("src/renderer/src/components/app/settings/settingsTabLayout.ts");
@@ -104,7 +105,7 @@ test("远端工作区的临时设置页面板已删除：设置页只管理设�
 test("侧栏「+」提供本地与远端两个真实入口，登记弹框全应用只挂一处", () => {
 	const projectTree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
 	const menu = readFileSync("src/renderer/src/components/sidebar/AddProjectMenu.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const hook = readFileSync("src/renderer/src/hooks/useRemoteProjectEnroll.ts", "utf8");
 	// 侧栏两处「添加项目」（分组标题栏 + 空态）共用同一个菜单组件，本地行为保持不变。
 	assert.equal([...projectTree.matchAll(/<AddProjectMenu /g)].length, 2);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * Batch 2A: Lazy Session activation invariants.
@@ -17,7 +18,7 @@ import test from "node:test";
 
 const sessionSendSource = readFileSync("src/renderer/src/hooks/useSessionSend.ts", "utf8");
 const sessionActionsSource = readFileSync("src/renderer/src/hooks/useSessionActions.ts", "utf8");
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 
 // ── helpers ──
 

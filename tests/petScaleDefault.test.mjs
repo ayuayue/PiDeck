@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
 const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
-const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+const app = rendererAppSource;
+const preview = previewApiSource;
 const petTab = readFileSync("src/renderer/src/components/app/settings/PetTab.tsx", "utf8");
 const petIndex = readFileSync("src/main/pet/index.ts", "utf8");
 const petMain = readFileSync("src/renderer/src/pet/main.tsx", "utf8");

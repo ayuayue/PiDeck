@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { promotePrompt } from "../src/renderer/src/utils/queuedPromptQueue.ts";
 import { queuedPrompt, queuedPromptHarness } from "./helpers/queuedPromptHarness.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // ---------------------------------------------------------------------------
 // promotePrompt
@@ -113,7 +114,7 @@ test("the row stops the turn before handing the prompt to send-now", () => {
 
 test("services and App expose the send-now path", () => {
 	const services = readFileSync("src/renderer/src/components/session/SessionPaneServices.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(services, /queueSendNow: \(sessionId: string, promptId: string\) => void;/);
 	assert.match(services, /queueStopTurn\?: \(sessionId: string\) => void;/);
 	assert.match(app, /queueSendNow: queue\.sendQueuedPromptNow,/);

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const edgeSrc = readFileSync("src/renderer/src/utils/sessionSplitEdge.ts", "utf8");
 const stage = readFileSync("src/renderer/src/components/session/SessionSplitStage.tsx", "utf8");
 const tabs = readFileSync("src/renderer/src/components/session/SessionTabsBar.tsx", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 const surfaces = readFileSync("src/renderer/src/styles/surfaces.css", "utf8");

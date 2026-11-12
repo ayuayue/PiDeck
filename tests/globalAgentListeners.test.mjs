@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const source = readFileSync("src/renderer/src/hooks/useGlobalAgentListeners.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const bootstrap = readFileSync("src/renderer/src/components/app/AppBootstrap.tsx", "utf8");
 const runtimeBridge = readFileSync("src/renderer/src/hooks/useSessionRuntimeBridge.ts", "utf8");
 const updateWatch = readFileSync("src/renderer/src/hooks/useBackgroundUpdateWatch.ts", "utf8");

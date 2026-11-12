@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // 用户反馈：定时任务入口藏在左下角 Dock 不明显，应放在「新建会话 / 搜索会话」下方。
 const sidebar = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
@@ -24,7 +25,7 @@ test("dock no longer hosts the automation entry", () => {
 });
 
 test("automation management is a workspace page tab, not a modal", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const sessionActions = readFileSync("src/renderer/src/hooks/useSessionActions.ts", "utf8");
 	const page = readFileSync("src/renderer/src/components/automation/AutomationPage.tsx", "utf8");
 
@@ -43,7 +44,7 @@ test("automation management is a workspace page tab, not a modal", () => {
 
 test("automation dock button keeps active-run indicator and opens the page tab", () => {
 	const source = readFileSync("src/renderer/src/components/automation/AutomationDockButton.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(source, /openAutomationPageAtom/);
 	assert.doesNotMatch(source, /openAutomationModalAtom/);
 	assert.doesNotMatch(source, /openAutomationWorkspaceAtom/);

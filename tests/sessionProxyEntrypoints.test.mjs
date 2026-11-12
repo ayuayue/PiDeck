@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // ===== 会话代理入口：Tab 栏 ⋯ 菜单与侧栏共用同一宿主 =====
 //
@@ -11,7 +12,6 @@ import test from "node:test";
 const TABS_BAR = "src/renderer/src/components/session/SessionTabsBar.tsx";
 // ⋯ 菜单本体已拆到 SessionActionsMenu（2026-10 轨迹/运行控制条改造）；Tab 栏只负责传参。
 const ACTIONS_MENU = "src/renderer/src/components/session/SessionActionsMenu.tsx";
-const APP = "src/renderer/src/App.tsx";
 const SIDEBAR_CONTENT = "src/renderer/src/components/sidebar/SidebarContent.tsx";
 const SIDEBAR_COMPONENTS = "src/renderer/src/components/sidebar/SidebarComponents.tsx";
 
@@ -36,7 +36,7 @@ test("Agent 右键菜单提供会话代理入口（此前缺失，用户报障�
 });
 
 test("App 层是代理弹窗的唯一宿主（Tab 栏与侧栏共用）", () => {
-	const app = readFileSync(APP, "utf8");
+	const app = rendererAppSource;
 	// 单一 state + 单一挂载点
 	assert.match(app, /const \[proxyDialogSessionId, setProxyDialogSessionId\] = useState<string \| null>\(null\)/);
 	assert.match(app, /<SessionProxyDialog[\s\S]*?sessionId=\{proxyDialogSessionId\}[\s\S]*?onClose=\{\(\) => setProxyDialogSessionId\(null\)\}/);

@@ -18,6 +18,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, readFileSync } from "node:fs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // 行组件域已从面板文件整块迁出（WorkspaceSurface > 600 行红线）：分批预算常量与行 memo 在新模块，
 // 根层窗口与面板接线仍在 WorkspaceSurface。两个文件合起来看才等价于拆分前的单文件断言。
@@ -26,7 +27,7 @@ const rows = readFileSync("src/renderer/src/components/session/FileTreeRows.tsx"
 // 分批预算常量后来从行组件再搬到 utils：组件模块只能导出组件/hook（Fast Refresh），
 // 面板与行组件都从这里 import。
 const renderBudget = readFileSync("src/renderer/src/utils/fileTreeRenderBudget.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const outlineAtoms = readFileSync("src/renderer/src/atoms/session-outline-atoms.ts", "utf8");
 const gitResourceTree = readFileSync("src/renderer/src/components/app/git/GitResourceTree.tsx", "utf8");
 const gitPanel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");

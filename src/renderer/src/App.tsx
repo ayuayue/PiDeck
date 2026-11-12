@@ -1,20 +1,13 @@
 import { Button } from "./components/ui-shadcn/button";
-import { NoticeHistoryDialog } from "./components/ui-shadcn/notice-history-dialog";
 import { WorkbenchFileTabs } from "./components/workspace/WorkbenchFileTabs";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useAtomValue, useSetAtom, useStore } from "jotai";
 import { toggleThemeMode } from "./themeAppearance";
 import { DURATION_SLOW_MS, EASE_OUT_QUINT_CSS } from "./lib/motionTokens";
 import {
 	Code,
-	Activity,
-	FolderOpen,
-	Globe,
-	History,
 	Pencil,
 	Terminal,
-	GitBranch,
-	ListTree,
 	// 命令面板（Ctrl/Cmd+P）操作项图标
 	SquarePen,
 	Settings2,
@@ -22,10 +15,6 @@ import {
 	CircleStop,
 	RefreshCw,
 	Fingerprint,
-	// 抽屉 RPC 日志 Tab 图标
-	ScrollText,
-	// 抽屉侧边任务 Tab 图标：不用 PanelRight——那是会话头部抽屉开关的图形，并排会认错
-	Rocket,
 	// 会话 Tab 栏里的页面式工作区 Tab 图标（设置 / 定时任务 / 智能体 / 收藏）
 	Clock,
 	Bot,
@@ -34,10 +23,7 @@ import {
 } from "lucide-react";
 import { configureNoticeDefaults, showNotice, type NoticeKind } from "./utils/notice";
 import { copyTextWithCopiedNotice } from "./utils/clipboardNotice";
-import { DSH_INSTALL_SETTINGS_TARGET } from "./utils/dshRuntimeHint";
 import { buildSettingsCommands, type PaletteCommand } from "./utils/commandPaletteCommands";
-import { CommandPalette } from "./components/overlays/CommandPalette";
-import { CommandPaletteOnboarding, markCommandPaletteOnboardingSeen } from "./components/overlays/CommandPaletteOnboarding";
 import { desktopApi as api, isLanWeb, missingElectronPreload } from "./desktopApi";
 import {
 	turnFlowSettingsAtom,
@@ -74,7 +60,6 @@ import {
 import { type SidebarActions } from "./components/sidebar/SidebarContent";
 import { removeProjectsSequentially, type BatchProjectRemovalOutcome } from "./utils/batchProjectRemoval";
 import { AppSidebar } from "./components/sidebar/AppSidebar";
-import { AppBootstrap } from "./components/app/AppBootstrap";
 import { SettingsFeatureRoot } from "./components/app/SettingsFeatureRoot";
 import { hostPluginCatalogAtom, hostPluginPanelAtom, isHostPluginPagePanel } from "./atoms/host-plugin-atoms";
 import { AutomationPage } from "./components/automation/AutomationPage";
@@ -82,7 +67,6 @@ import { AgentMarketPage } from "./components/agents/AgentMarketPage";
 import { buildAgentSessionTitle } from "./components/agents/agentIconCodec";
 import { FavoritesPage } from "./components/favorites/FavoritesPage";
 import { sortWorkspacePageIds, type WorkspacePageId } from "./utils/workspacePageTabs";
-import { SelectionToolHost } from "./components/selectionTool/SelectionToolHost";
 import { useRename } from "./hooks/useRename";
 import { useProjectRuntimeCapabilities } from "./hooks/useRuntimeCapabilities";
 import { useSessionRuntimeBridge } from "./hooks/useSessionRuntimeBridge";
@@ -139,8 +123,6 @@ import { useProviderUsageStartupWarmup } from "./hooks/useProviderUsage";
 import { useBackgroundUpdateWatch } from "./hooks/useBackgroundUpdateWatch";
 import { useChannelSwitchWatch } from "./hooks/useChannelSwitchWatch";
 import { useDataEnvWatch } from "./hooks/useDataEnvWatch";
-import { DataModeChoiceDialog } from "./components/app/DataModeChoiceDialog";
-import { DataEnvMismatchDialog } from "./components/app/DataEnvMismatchDialog";
 import { useProjectSync } from "./hooks/useProjectSync";
 import {
 	agentInventoryAtom,
@@ -183,9 +165,7 @@ import { isSameSessionPath } from "./agentListDisplay";
 import { t, type TranslationKey } from "./i18n";
 import { isChatProject, loadSessionSourceFilter, saveSessionSourceFilter, isReplacementForPendingAgent, isPendingAgentId, migrateAgentRecord, stampIdleSessionDuration, type PendingAgentTab } from "./rendererUtils";
 import { isLocalProject, isRemoteProject } from "../../shared/projectLocation";
-import { fileTreeNodeDisplayPath } from "./utils/fileTreeLazy";
 import { reorderProjectList } from "./utils/projectOrder";
-import { MiniOverlaySurface } from "./components/mini-overlay/MiniOverlaySurface";
 import type { SessionFilterPill } from "./sessionFilterPills";
 import { useResize } from "./hooks/useResize";
 import { ARCHIVED_SESSION_TOAST_MS, archivedSessionToastMessage, useSessionActions } from "./hooks/useSessionActions";
@@ -198,44 +178,29 @@ import { useWorktreeActions } from "./hooks/useWorktreeActions";
 import { ChatSessionPane } from "./components/session/ChatSessionPane";
 import { SessionSplitStage } from "./components/session/SessionSplitStage";
 import { splitLayoutSessionIds } from "./utils/sessionSplitEdge";
+import { flattenFiles } from "./components/app/AppUtils";
 import { SessionTabsBar, type SessionTabsBarProps, type SessionToolAction, type WorkspacePageTabItem } from "./components/session/SessionTabsBar";
 import { SessionPaneServicesProvider, type SessionFileOpenContext } from "./components/session/SessionPaneServices";
-import { SessionStatusPanel } from "./components/session/statusPanel/SessionStatusPanel";
 import { ProjectEmptyState } from "./components/session/ProjectEmptyState";
-import { RemoteProjectEnrollDialog } from "./components/sidebar/RemoteProjectEnrollDialog";
-import { WslProjectPickerDialog } from "./components/sidebar/WslProjectPickerDialog";
-import { FileLinkBaseProvider } from "./components/session/FileLinkBase";
 import { useSessionWorkspaceChrome } from "./hooks/useSessionWorkspaceChrome";
 import { useSessionIdAliasMigration } from "./hooks/useSessionIdAliasMigration";
 import { useQuickTask } from "./hooks/useQuickTask";
 import { useSideTasks } from "./hooks/useSideTasks";
-import { QuickTaskSurface } from "./components/app/QuickTaskSurface";
-import { AskPanelOverlay } from "./components/overlays/AskPanelOverlay";
-import { HostPluginPanelHost } from "./components/plugins/HostPluginPanelHost";
 import { HostPluginPageOverlay } from "./components/plugins/HostPluginPageOverlay";
 import { useHostPluginPageTab } from "./hooks/useHostPluginPageTab";
 import { useHostPluginNavigation } from "./hooks/plugins/useHostPluginNavigation";
 import { TerminalDockPanel } from "./components/terminal/TerminalDockPanel";
 import { ResizablePanel, ResizablePanelGroup } from "./components/ui-shadcn/resizable";
-import { AppShell } from "./components/app/AppShell";
-import { WorkspaceDrawerRail } from "./components/workspace/WorkspaceDrawerRail";
-import { DrawerSurface } from "./components/workspace/DrawerSurface";
 import { WorkbenchStage } from "./components/workspace/WorkbenchStage";
 import { WorkbenchContent } from "./components/workspace/WorkbenchContent";
-import { RenameModals } from "./components/RenameModals";
-import { SessionActionOverlays } from "./components/overlays/SessionActionOverlays";
-import { SessionProxyDialog } from "./components/session/SessionProxyDialog";
-import { CuaApprovalDialog, useCuaApproval } from "./components/overlays/CuaApprovalDialog";
+import { useCuaApproval } from "./components/overlays/CuaApprovalDialog";
+import { WorkbenchAppOverlays } from "./components/workbench/WorkbenchAppOverlays";
+import { WorkbenchDialogs } from "./components/workbench/WorkbenchDialogs";
+import { WorkbenchFileOverlays } from "./components/workbench/WorkbenchFileOverlays";
+import { WorkbenchShell } from "./components/workbench/WorkbenchShell";
 
-import { ImportOverlayHost } from "./components/overlays/ImportOverlayHost";
-import { EnvironmentOverlay } from "./components/overlays/EnvironmentOverlay";
 import { usePiEnvironmentGuide } from "./hooks/usePiEnvironmentGuide";
-import { EnvironmentDialog, FileContextMenu, ImagePreviewModal } from "./components/app/AppParts";
-import { ExternalEditorOverlay } from "./components/workspace/ExternalEditorOverlay";
 import { navigateTo } from "./components/app/BrowserPanel";
-import { flattenFiles, fileNodeDragPayloadToRef, mergeCommands } from "./components/app/AppUtils";
-// ProjectResourcesModal 仅在打开资源弹层时加载
-const ProjectResourcesModal = lazy(() => import("./components/app/ProjectResourcesModal").then((m) => ({ default: m.ProjectResourcesModal })));
 import { createDefaultAppSettings } from "../../shared/types";
 import { hydrateImageContents } from "../../shared/imageContentSrc";
 import { parseSessionStatusPlacement, placementShowsSidebarPanel } from "../../shared/sessionStatusPlacement";
@@ -264,7 +229,6 @@ import type {
 	ScratchPadScope,
 } from "../../shared/types";
 import type { TerminalDockSettings } from "./components/terminal/TerminalDock";
-import { WallpaperVideoLayer } from "./components/app/wallpaper/WallpaperVideoLayer";
 
 /**
  * 页面 Tab 的标题与图标（静态元数据，标题在渲染时经 t() 取当前语言）。
@@ -619,52 +583,7 @@ export function App() {
 	);
 
 	// === import flow hook ===
-	const {
-		codexImportProject,
-		setCodexImportProject,
-		claudeImportProject,
-		setClaudeImportProject,
-		qoderImportProject,
-		setQoderImportProject,
-		openCodeImportProject,
-		setOpenCodeImportProject,
-		zcodeImportProject,
-		setZcodeImportProject,
-		workbuddyImportProject,
-		setWorkbuddyImportProject,
-		codebuddyImportProject,
-		setCodebuddyImportProject,
-		cursorImportProject,
-		setCursorImportProject,
-		kimiImportProject,
-		setKimiImportProject,
-		kimiWorkImportProject,
-		setKimiWorkImportProject,
-		minimaxImportProject,
-		setMinimaxImportProject,
-		codexImportController,
-		claudeImportController,
-		qoderImportController,
-		openCodeImportController,
-		zcodeImportController,
-		workbuddyImportController,
-		codebuddyImportController,
-		cursorImportController,
-		kimiImportController,
-		kimiWorkImportController,
-		minimaxImportController,
-		openCodexImport,
-		openClaudeImport,
-		openQoderImport,
-		openOpenCodeImport,
-		openZCodeImport,
-		openWorkBuddyImport,
-		openCodeBuddyImport,
-		openCursorImport,
-		openKimiImport,
-		openKimiWorkImport,
-		openMinimaxImport,
-	} = useImportFlow({
+	const importFlow = useImportFlow({
 		setProjectMenu: () => undefined,
 		refreshProjectSessions,
 		showToast,
@@ -695,18 +614,17 @@ export function App() {
 		updateSettings: api.settings.update,
 		t,
 	});
+	// 这里只取侧栏/空态要用的打开命令；弹窗本身挂在 AppOverlays，直接吃 importFlow 整组。
+	const { openCodexImport, openClaudeImport, openQoderImport, openOpenCodeImport, openZCodeImport, openWorkBuddyImport, openCodeBuddyImport, openCursorImport, openKimiImport, openKimiWorkImport, openMinimaxImport } = importFlow;
 
 	// === 外置目录会话导入（目录移动/改名后找回历史）===
-	const {
-		project: directoryImportProject,
-		setProject: setDirectoryImportProject,
-		controller: directoryImportController,
-		open: openDirectoryImport,
-	} = useDirectoryImport({
+	const directoryImport = useDirectoryImport({
 		setProjectMenu: () => undefined,
 		refreshProjectSessions,
 		showToast,
 	});
+	// 只取入口命令；弹窗与项目/controller 整组下沉到 AppOverlays。
+	const { open: openDirectoryImport } = directoryImport;
 
 	const rename = useRename({
 		renameAgent: async (id, name) => {
@@ -3498,567 +3416,45 @@ export function App() {
 	});
 
 	return (
-		// 非会话静态区域使用当前焦点作为兜底；每个 SessionRuntimeInjector 会用本栏 cwd/project 覆盖。
-		<FileLinkBaseProvider baseDir={activeAgent?.cwd ?? activeProject?.path} projectId={activeProject?.id} projectRoot={activeProject?.path} sessionId={currentSessionId}>
-			<>
-				<WallpaperVideoLayer settings={settings} />
-				<AppBootstrap {...bootstrapProps} />
-				<AppShell
-					simpleShell={simpleMode}
-					compactContent={
-						// 极简浮窗模式：渲染当前活跃会话（不是 quickTask）
-						new URLSearchParams(window.location.search).get("mini-overlay") === "1" ? (
-							<MiniOverlaySurface
-								activeProjectId={activeProjectId}
-								onCreateSession={createSessionDraftWithTab}
-								onOpenSession={openSidebarSessionByIdWithTab}
-								onSwitchToQuickTask={() => {
-									const projectPath = currentSession ? projects.find((item) => item.id === currentSession.projectId)?.path : undefined;
-									void api.miniOverlay.switchToQuickTask(projectPath).catch(() => showToast(t("miniOverlay.windowActionFailed"), 4000, "error"));
-								}}
-							>
-								{currentSession ? (
-									<SessionPaneServicesProvider value={sessionPaneServices}>
-										<ChatSessionPane sessionId={currentSession.id} focused onFocusPane={() => focusSessionPane(currentSession.id)} splitPane={false} />
-									</SessionPaneServicesProvider>
-								) : null}
-							</MiniOverlaySurface>
-						) : quickTask.active ? (
-							<QuickTaskSurface task={quickTask}>
-								<SessionPaneServicesProvider value={sessionPaneServices}>{quickTask.session && <ChatSessionPane sessionId={quickTask.session.id} focused onFocusPane={() => focusSessionPane(quickTask.session!.id)} splitPane={false} />}</SessionPaneServicesProvider>
-							</QuickTaskSurface>
-						) : undefined
-					}
-					listCollapsed={listCollapsed}
-					listWidth={listWidth}
-					drawer={drawer}
-					drawerCollapsed={drawerCollapsed}
-					drawerWidth={drawerWidth}
-					useNativeTitleBar={settings.useNativeTitleBar}
-					platform={appInfo.platform}
-					chatPaneRef={chatPaneRef}
-					terminalRowHeight={terminalRowHeight}
-					chatContentWidthPct={settings.chatContentWidthPct}
-					outlineContentOffset={workbenchContentWidth}
-					sidebarContent={sidebarContentNode}
-					chatPaneContent={chatPaneContentNode}
-					drawerRail={
-						<WorkspaceDrawerRail
-							addLabel={t("drawer.addPanel")}
-							onClose={toggleRightDrawer}
-							actions={[
-								{
-									id: "files",
-									label: t("app.files"),
-									icon: <FolderOpen size={16} />,
-									active: drawer === "files",
-									pinned: true,
-									onClick: () => handleToolDrawerAction("files"),
-								},
-								// 编辑器入口已迁到分屏（SessionTabsBar），右侧抽屉不再提供 editor 面板
-								// Git 面板受设置开关与项目上下文双重门控，与 outline 入口保持一致
-								...(settings.enableGitManagement && activeProjectId
-									? [
-											{
-												id: "git",
-												label: t("drawer.sourceControl"),
-												icon: <GitBranch size={16} />,
-												active: drawer === "git",
-												pinned: true,
-												onClick: () => handleToolDrawerAction("git"),
-											},
-										]
-									: []),
-								// 轨迹固定在内置浏览器前面：有 Git 时是第 3 个（files / git / trajectory / browser）。
-								{
-									id: "trajectory",
-									label: t("session.view.trajectory"),
-									icon: <Activity size={16} />,
-									active: drawer === "trajectory",
-									pinned: workspace.pinnedPanels.includes("trajectory"),
-									canRemove: true,
-									onTogglePinned: () => workspace.toggleDrawerPanelPinned("trajectory"),
-									onClick: () => handleToolDrawerAction("trajectory"),
-								},
-								// 分支树面板：与检查点同口径仅 pi 后端展示；条目树是 pi 会话文件的概念。
-								...(rewindSupported
-									? [
-											{
-												id: "branchTree" as const,
-												label: t("session.branchTree.title"),
-												// 图标用 ListTree 而不是 GitFork：活动栏里 Git 面板已经是 GitBranch，两个 git 系图标并排会认错「分支」入口。
-												icon: <ListTree size={16} />,
-												active: drawer === "branchTree",
-												pinned: workspace.pinnedPanels.includes("branchTree"),
-												canRemove: true,
-												onTogglePinned: () => workspace.toggleDrawerPanelPinned("branchTree"),
-												onClick: () => handleToolDrawerAction("branchTree"),
-											},
-										]
-									: []),
-								// 检查点面板：仅当前会话为 pi 后端时展示（rewind 能力；dsh 暂不声明）。
-								...(rewindSupported
-									? [
-											{
-												id: "rewind" as const,
-												label: t("rewind.title"),
-												icon: <History size={16} />,
-												active: drawer === "rewind",
-												pinned: workspace.pinnedPanels.includes("rewind"),
-												canRemove: true,
-												onTogglePinned: () => workspace.toggleDrawerPanelPinned("rewind"),
-												onClick: () => handleToolDrawerAction("rewind"),
-											},
-										]
-									: []),
-								{
-									id: "browser",
-									label: t("app.browser"),
-									icon: <Globe size={16} />,
-									active: drawer === "browser",
-									pinned: workspace.pinnedPanels.includes("browser"),
-									canRemove: true,
-									onTogglePinned: () => workspace.toggleDrawerPanelPinned("browser"),
-									onClick: () => handleToolDrawerAction("browser"),
-								},
-								// 侧边任务 Tab：点了「新建侧边任务」才出现（面板正打开时也保留，
-								// 否则空态面板会挂在没有归属 tab 的内容上）。
-								...(sideTasks.ids.length > 0 || drawer === "sideTask"
-									? [
-											{
-												id: "sideTask",
-												label: t("sideTask.title"),
-												icon: <Rocket size={16} />,
-												active: drawer === "sideTask",
-												onClick: () => handleToolDrawerAction("sideTask"),
-											},
-										]
-									: []),
-								{
-									id: "scratchPad",
-									label: t("scratchPad.title"),
-									icon: <Pencil size={16} />,
-									active: scratchPad.isOpen,
-									onClick: scratchPad.toggle,
-								},
-								// RPC 日志专属 Tab：默认隐藏，任一存活的 agent 开启记录后才出现
-								//（门控与目标 agent 计算见 rpcLogTabTargetAgentId）。
-								...(rpcLogTabTargetAgentId
-									? [
-											{
-												id: "rpcLog",
-												label: t("drawer.rpcLog"),
-												icon: <ScrollText size={16} />,
-												active: drawer === "rpcLog",
-												onClick: () => {
-													// rpcLog 面板必须绑定 agentId（无 id 的 openDrawer("rpcLog") 会渲染空面板）：
-													// 已展开则点击关闭走还原语义（回到日志打开前的面板），否则切到目标 agent 的日志。
-													if (workspace.drawer === "rpcLog" && !workspace.drawerCollapsed) workspace.closeRpcLogPanel();
-													else workspace.openRpcLogPanel(rpcLogTabTargetAgentId);
-												},
-											},
-										]
-									: []),
-							]}
-						/>
-					}
-					drawerFooter={
-						placementShowsSidebarPanel(sessionStatusPlacement) ? (
-							<SessionPaneServicesProvider value={sessionPaneServices}>
-								<SessionStatusPanel sessionId={currentSessionId} />
-							</SessionPaneServicesProvider>
-						) : undefined
-					}
-					drawerContent={(visibleDrawerPanel) => (
-						<DrawerSurface
-							drawer={visibleDrawerPanel}
-							drawerCollapsed={drawerCollapsed}
-							git={drawerPorts.git}
-							chrome={drawerPorts.chrome}
-							browser={drawerPorts.browser}
-							files={drawerPorts.files}
-							rpcLog={drawerPorts.rpcLog}
-							scratchPad={scratchPad}
-							sideTask={{ controller: sideTasks, paneServices: sessionPaneServices }}
-							branchTree={{ forkAtEntry: (entryId, fallbackText) => void forkAtEntry(entryId, fallbackText, `branch:${entryId}`) }}
-						/>
-					)}
-					setListCollapsed={setListCollapsed}
-					setListWidth={setListWidth}
-					setDrawerCollapsed={setDrawerCollapsed}
-					setDrawerWidth={setDrawerWidth}
-					onToggleListCollapsed={toggleListCollapsed}
-					drawerPinned={workspace.drawerPinned}
-					onDrawerCollapse={workspace.collapseDrawer}
-					onDrawerClose={workspace.closeDrawer}
-					onDrawerRestore={() => workspace.expandDrawer()}
-					onToggleDrawerPin={workspace.toggleDrawerPinned}
-					toggleAlwaysOnTop={api.app.toggleAlwaysOnTopWindow}
-					isWindowAlwaysOnTop={api.app.isWindowAlwaysOnTop}
-					minimizeWindow={api.app.minimizeWindow}
-					toggleMaximizeWindow={api.app.toggleMaximizeWindow}
-					isWindowMaximized={api.app.isWindowMaximized}
-					onWindowMaximizedChange={api.app.onWindowMaximizedChange}
-					closeWindow={api.app.closeWindow}
-				>
-					{fileMenu && (
-						<FileContextMenu
-							menu={fileMenu}
-							hasClipboardFiles={hasClipboardFiles}
-							onPaste={(targetDir) => {
-								// 右键菜单「粘贴文件到此处」：读剪贴板路径复制到目标目录
-								try {
-									const paths = api.files.getClipboardPaths();
-									if (paths.length > 0) {
-										void api.files
-											.copy(paths, targetDir)
-											.then(() => {
-												void refreshVisibleFiles();
-												showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
-											})
-											.catch((error) => {
-												showToast(t("app.filePasteFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
-											});
-									}
-								} catch {
-									/* 剪贴板不可用 */
-								}
-								setFileMenu(null);
-							}}
-							onClose={() => setFileMenu(null)}
-							onOpen={() => {
-								const target = fileMenu.node.target ?? fileMenu.node.path;
-								if (target) {
-									void api.files.open(target).catch((error) => {
-										showToast(t("app.openFileFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
-									});
-								}
-								setFileMenu(null);
-							}}
-							onReveal={() => {
-								const target = fileMenu.node.target ?? fileMenu.node.path;
-								if (target) {
-									void api.files.showInFolder(target).catch((error) => {
-										showToast(t("app.openFileFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
-									});
-								}
-								setFileMenu(null);
-							}}
-							onAttach={() => {
-								// 与文件树拖拽共用同一引用格式：目录补尾斜杠（@dir/），含空格路径自动加引号。
-								// 走 composer-attach-refs 事件插入，避免这里再维护一份 @path 拼接逻辑
-								// （裸 @dir 过不了 chip 路径规则，模型也容易当成 mention）。
-								window.dispatchEvent(
-									new CustomEvent("composer-attach-refs", {
-										detail: {
-											refs: [
-												fileNodeDragPayloadToRef({
-													path: fileTreeNodeDisplayPath(fileMenu.node),
-													relativePath: fileMenu.node.relativePath,
-													type: fileMenu.node.type,
-												}),
-											],
-										},
-									}),
-								);
-								setFileMenu(null);
-							}}
-							onCopyPath={() => {
-								void navigator.clipboard.writeText(fileTreeNodeDisplayPath(fileMenu.node));
-								setFileMenu(null);
-								showToast(t("app.pathCopied"), 1200);
-							}}
-							onRename={() => {
-								const node = fileMenu.node;
-								if (node.target || node.path) {
-									setRenamingFile({ path: fileTreeNodeDisplayPath(node), target: node.target, name: node.name });
-									setRenamingFileInput(node.name);
-								}
-								setFileMenu(null);
-							}}
-							onCreate={(target, kind) => {
-								setCreatingFile({ target, kind });
-								setCreatingFileInput("");
-								setFileMenu(null);
-							}}
-							onDelete={() => {
-								const node = fileMenu.node;
-								const target = node.target ?? node.path;
-								setFileMenu(null);
-								if (!target) return;
-								overlays.showConfirm({
-									title: node.type === "directory" ? t("drawer.deleteFolderTitle") : t("drawer.deleteFileTitle"),
-									message: node.type === "directory" ? t("drawer.deleteFolderConfirm", { name: node.name }) : t("drawer.deleteFileConfirm", { name: node.name }),
-									danger: true,
-									confirmLabel: t("common.delete"),
-									onConfirm: async () => {
-										overlays.clearConfirm();
-										try {
-											// 公共写面返回 Op：失败必须显式抛出，才能沿用下面的错误提示；
-											// unknown 也走同一条提示（不自动重放）。
-											const deleted = await api.files.delete(target, true);
-											if (!deleted.ok) throw new Error(deleted.code);
-											void refreshVisibleFiles();
-											showToast(t("app.fileDeleted"), 2000);
-										} catch (error) {
-											// 回收站不可用、权限不足或文件已被外部移走时，必须把主进程错误呈现给用户；
-											// 仅写控制台会让确认框关闭后看起来像“点击无效”。
-											showToast(
-												t("app.fileDeleteFailed", {
-													error: String(error instanceof Error ? error.message : error).replace(/^Error:\s*/, ""),
-												}),
-												5000,
-												"error",
-											);
-										}
-									},
-								});
-							}}
-						/>
-					)}
-
-					{projectResourcesProject && (
-						<Suspense fallback={null}>
-							<ProjectResourcesModal project={projectResourcesProject} onClose={() => setProjectResourcesProject(null)} />
-						</Suspense>
-					)}
-					<RenameModals
-						rename={rename.renameModalsProps.rename}
-						fileCreate={
-							creatingFile
-								? {
-										targetLabel: typeof creatingFile.target === "string" ? creatingFile.target : creatingFile.target.relativePath || "/",
-										kind: creatingFile.kind,
-										inputValue: creatingFileInput,
-										onInputChange: setCreatingFileInput,
-										onClose: () => setCreatingFile(null),
-										onConfirm: (name) => {
-											void api.files
-												.create(creatingFile.target, name, creatingFile.kind)
-												.then(() => {
-													// 静默刷新：下面已经有了针对本次操作的具体提示，别再叠一层「已刷新」
-													void refreshVisibleFiles(undefined, true);
-													setCreatingFile(null);
-													showToast(t(creatingFile.kind === "directory" ? "app.folderCreated" : "app.fileCreated"), 2000);
-												})
-												.catch((error) => {
-													setCreatingFile(null);
-													showToast(t("app.fileCreateFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
-												});
-										},
-									}
-								: undefined
-						}
-						fileRename={
-							renamingFile
-								? {
-										path: renamingFile.path,
-										name: renamingFile.name,
-										inputValue: renamingFileInput,
-										onInputChange: setRenamingFileInput,
-										onClose: () => setRenamingFile(null),
-										onConfirm: (path, newName) => {
-											void api.files
-												.rename(renamingFile.target ?? path, newName)
-												.then(() => {
-													void refreshVisibleFiles();
-													setRenamingFile(null);
-													showToast(t("app.fileRenamed"), 2000);
-												})
-												.catch((err) => console.error("[File] rename failed:", err));
-										},
-									}
-								: undefined
-						}
-					/>
-
-					{/* old conditional wrapping — replaced by EnvironmentOverlay open prop below */}
-					<EnvironmentOverlay open={environmentDialog}>
-						<EnvironmentDialog
-							status={piStatus}
-							checking={piChecking}
-							guide={piGuide}
-							setupPreview={piUpdate.environmentSetupPreview}
-							dsh={{
-								state: dshRuntimeStatus.state,
-								runtimeVersion: dshRuntimeStatus.runtimeVersion,
-								isDefault: settings.defaultAgentBackend === "dsh",
-								onOpenInstall: () => {
-									// 安装/修复入口就是配置管理 → DSH 分页（未装时那页即安装引导），关窗避免两层弹层叠压
-									setEnvironmentDialog(false);
-									store.set(openSettingsAtom, DSH_INSTALL_SETTINGS_TARGET);
-								},
-								onUseAsDefault: () => {
-									void (async () => {
-										// 手动选择：置 manual 后自动选择不再改写；同时标记 pi 环境已确认，
-										// 否则只装 DSH 的用户每次启动都会被打一次「没有 pi」。
-										const next = await api.settings.update({ defaultAgentBackend: "dsh", defaultAgentBackendManual: true, piEnvironmentChecked: true });
-										setSettings(next);
-										setEnvironmentDialog(false);
-										showToast(t("environment.dshSwitched"));
-									})();
-								},
-							}}
-							onClose={() => {
-								setEnvironmentDialog(false);
-								// 预览标记只在本次打开有效：下次（含启动检测）回到真实检测结果
-								piUpdate.setEnvironmentSetupPreview(false);
-								piUpdate.setCustomPathResult(null);
-								// 关闭时重置安装状态
-								piUpdate.setInstallResult(null);
-								piUpdate.setInstallCompleted(false);
-								piUpdate.setNpmAvailable(null);
-								// 引导面板的一次性状态同样重置，下次打开重新检测
-								piGuide.resetGuide();
-							}}
-							onRecheck={() => {
-								piUpdate.setCustomPathResult(null);
-								piUpdate.setNpmAvailable(null);
-								piUpdate.setNpmVersion(undefined);
-								piUpdate.setInstallResult(null);
-								piUpdate.setInstallCompleted(false);
-								// 引导面板上的 Node/npm 状态同步刷新（一键安装可能刚补上便携 Node）；WSL 模式下不展示也不探测宿主机环境
-								if (settings.wslEnabled !== true) {
-									void piGuide.checkNode();
-									void piGuide.checkNpmForGuide();
-								}
-								piUpdate.checkPiInstall("manual");
-							}}
-							onOpenInstallDocs={() => api.app.openExternal("https://pi.dev/docs/latest/quickstart#install")}
-							// WSL 模式下 pi 在发行版里，引导面板要换成 WSL 内的安装指令（宿主机一键安装对它无效）。
-							wsl={{ enabled: settings.wslEnabled === true, distro: settings.wslDistro, user: settings.wslUser }}
-							installations={piUpdate.piInstallations ?? []}
-							applyingInstallationPath={piUpdate.applyingInstallationPath}
-							onChooseInstallation={(path) => void piUpdate.choosePiInstallation(path)}
-							onShellProbeInstallations={() => void piUpdate.loadPiInstallations({ forceShellProbe: true })}
-							shellProbingInstallations={piUpdate.piInstallationsProbing}
-							onBrowsePiPath={() => void piUpdate.browsePiPath()}
-							browsingPiPath={piUpdate.browsingPiPath}
-							customPath={piUpdate.customPiPath}
-							customPathValidating={piUpdate.customPathValidating}
-							customPathResult={piUpdate.customPathResult}
-							onCustomPathChange={(path) => {
-								piUpdate.setCustomPiPath(path);
-								piUpdate.setCustomPathResult(null);
-							}}
-							onValidateCustomPath={() => piUpdate.validateCustomPiPath({ closeDialogOnSuccess: true })}
-							installCommand={piUpdate.installCommand}
-							installExecuting={piUpdate.installExecuting}
-							installResult={piUpdate.installResult}
-							installCompleted={piUpdate.installCompleted}
-							onInstallCommandChange={(cmd) => {
-								piUpdate.setInstallCommand(cmd);
-								piUpdate.setInstallResult(null);
-								piUpdate.setInstallCompleted(false);
-							}}
-							onExecInstall={piUpdate.execInstallCommand}
-							onRestartApp={() => api.app.restart()}
-							onClearCheckFlag={async () => {
-								await api.settings.update({ piEnvironmentChecked: false });
-								showToast(t("environment.checkFlagCleared"));
-							}}
-						/>
-					</EnvironmentOverlay>
-					{/* 远端项目登记：全应用唯一挂载点（侧栏「+」/空态只写开关 atom）。成功后先刷新清单再选中新项目，不创建本地会话。 */}
-					<RemoteProjectEnrollDialog
-						onEnrolled={(projectId) => {
-							void refreshProjects()
-								.then(() => selectProjectCommand(projectId))
-								.then(() => {
-									// 弹窗成功页已说过「已添加」，这里只补侧栏揭示，不再叠一条重复 toast。
-									requestSidebarRevealProject(projectId);
-								})
-								.catch(() => undefined);
-						}}
-					/>
-					{/* WSL 目录选择器：同上，唯一挂载点；WSL 侧没有「外部会话按 cwd 归位」的问题，登记后直接选中新项目。 */}
-					<WslProjectPickerDialog
-						onAdded={(projectId) => {
-							void syncDshForeignSessionsIfEnabled()
-								.then(() => refreshProjects())
-								.then((next) => {
-									selectProjectCommand(projectId);
-									const added = next.find((project) => project.id === projectId);
-									if (added) announceProjectAdded(added);
-								})
-								.catch(() => undefined);
-						}}
-					/>
-					{/*
-					 * 问题反馈弹窗的「新建会话分析」依赖 App 级会话创建能力（createSessionDraftWithTab），
-					 * 在装配层组合：useOverlayActions 只持开关状态，会话创建与预填在此处注入。
-					 */}
-					<SessionActionOverlays
-						{...overlays.overlayProps}
-						feedback={
-							overlays.overlayProps.feedback
-								? {
-										...overlays.overlayProps.feedback,
-										props: {
-											...overlays.overlayProps.feedback.props,
-											onCreateSessionWithPrompt: handleFeedbackCreateSession,
-										},
-									}
-								: undefined
-						}
-					/>
-					{previewImage && <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />}
-					{/* 项目外文件链接二次确认（安全等级：敏感文件 / 限定目录 / 配置不可读时才弹） */}
-					{externalPathOpenDialog}
-					{/* 会话代理设置：侧栏菜单与 Tab 栏 ⋯ 菜单共用的宿主（同一弹框实例） */}
-					{proxyDialogSessionId && <SessionProxyDialog sessionId={proxyDialogSessionId} onClose={() => setProxyDialogSessionId(null)} />}
-					{codexImportProject && <ImportOverlayHost kind="codex" project={codexImportProject} controller={codexImportController} onClose={() => setCodexImportProject(null)} />}
-					{claudeImportProject && <ImportOverlayHost kind="claude" project={claudeImportProject} controller={claudeImportController} onClose={() => setClaudeImportProject(null)} />}
-					{qoderImportProject && <ImportOverlayHost kind="qoder" project={qoderImportProject} controller={qoderImportController} onClose={() => setQoderImportProject(null)} />}
-					{openCodeImportProject && <ImportOverlayHost kind="opencode" project={openCodeImportProject} controller={openCodeImportController} onClose={() => setOpenCodeImportProject(null)} />}
-					{zcodeImportProject && <ImportOverlayHost kind="zcode" project={zcodeImportProject} controller={zcodeImportController} onClose={() => setZcodeImportProject(null)} />}
-					{workbuddyImportProject && <ImportOverlayHost kind="workbuddy" project={workbuddyImportProject} controller={workbuddyImportController} onClose={() => setWorkbuddyImportProject(null)} />}
-					{codebuddyImportProject && <ImportOverlayHost kind="codebuddy" project={codebuddyImportProject} controller={codebuddyImportController} onClose={() => setCodebuddyImportProject(null)} />}
-					{cursorImportProject && <ImportOverlayHost kind="cursor" project={cursorImportProject} controller={cursorImportController} onClose={() => setCursorImportProject(null)} />}
-					{kimiImportProject && <ImportOverlayHost kind="kimi" project={kimiImportProject} controller={kimiImportController} onClose={() => setKimiImportProject(null)} />}
-					{kimiWorkImportProject && <ImportOverlayHost kind="kimiwork" project={kimiWorkImportProject} controller={kimiWorkImportController} onClose={() => setKimiWorkImportProject(null)} />}
-					{minimaxImportProject && <ImportOverlayHost kind="minimax" project={minimaxImportProject} controller={minimaxImportController} onClose={() => setMinimaxImportProject(null)} />}
-					{directoryImportProject && <ImportOverlayHost kind="directory" project={directoryImportProject} controller={directoryImportController} onClose={() => setDirectoryImportProject(null)} />}
-
-					{/* 划词工具：全局唯一挂载点（划选浮出按钮 + 原地工具栏） */}
-					<SelectionToolHost onSendToSession={handleAgentSendToSession} />
-
-					{/* 并行问询结果弹框（AskPanel）：独立匿名会话的结果展示，根级渲染 */}
-					<AskPanelOverlay />
-					<HostPluginPanelHost projectId={activeProject?.id} sessionId={currentSessionId} />
-
-					{/* toast 通知历史：全渲染层唯一一份（设置页/详情弹窗两个入口共用，
-					    模块级 opener 注册式打开，见 utils/noticeHistory + ui-shadcn/notice-history-dialog） */}
-					<NoticeHistoryDialog />
-
-					{/* 外部编辑器选择气泡 */}
-					<ExternalEditorOverlay
-						open={editorsOpen}
-						editors={externalEditors}
-						anchor={editorsAnchor}
-						projectPath={editorsTargetPath}
-						onClose={() => workspace.closeExternalEditorChooser()}
-						onOpenProject={(editor, path) => workspace.openProjectInExternalEditor(editor)}
-						onError={(error) => showToast(t("app.openEditorFailed", { error: String(error) }), 3000)}
-					/>
-				</AppShell>
-
-				{/* 命令面板（Ctrl/Cmd+P）：模糊搜索设置项并跳转 + 执行操作，根级渲染 */}
-				<CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} commands={commandPaletteCommands} placeholder={t("command.placeholder")} emptyMessage={t("command.empty")} />
-
-				{/* 命令面板首次引导：它是纯键盘入口，没有任何可点的 affordance，
-        不主动提示就等于不存在。看完即写 localStorage，只弹一次。
-        空状态（没项目）不弹——那时面板本身也没什么可搜的。 */}
-				{!quickTask.active && <CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !activeProjectHasBusyAgent && !commandPaletteOpen && !settingsPageActive} onTryNow={openCommandPalette} />}
-
-				{/* 数据环境弹窗族：首启数据模式选择（内含导入向导）与目录标记警告，事件/atom 驱动 */}
-				<DataModeChoiceDialog />
-				<DataEnvMismatchDialog />
-
-				{/* CUA 操作审批弹框：pi Agent 注入鼠标/键盘前的用户确认（事件驱动，根级渲染） */}
-				<CuaApprovalDialog request={cuaApproval.request} pendingCount={cuaApproval.pendingCount} responding={cuaApproval.responding} open={cuaApproval.open} onOpenChange={cuaApproval.setOpen} onRespond={(allowed) => void cuaApproval.respond(allowed)} onCancel={cuaApproval.cancel} />
-			</>
-		</FileLinkBaseProvider>
+		<WorkbenchShell
+			identity={{ activeAgent, activeProject, activeProjectId, currentSession, currentSessionId, projects, settings, appInfo }}
+			chrome={{
+				simpleMode,
+				listCollapsed,
+				listWidth,
+				drawer: { workspace, drawer, drawerCollapsed, drawerWidth, drawerPorts, scratchPad, sideTasks, forkAtEntry },
+				panes: { bootstrapProps, quickTask, sessionPaneServices, chatPaneRef, terminalRowHeight, workbenchContentWidth, sidebarContentNode, chatPaneContentNode, sessionStatusPlacement },
+				rewindSupported,
+				rpcLogTabTargetAgentId,
+			}}
+			events={{
+				showToast,
+				setListCollapsed,
+				setListWidth,
+				setDrawerCollapsed,
+				setDrawerWidth,
+				toggleListCollapsed,
+				toggleRightDrawer,
+				handleToolDrawerAction,
+				focusSessionPane,
+				createSessionDraftWithTab,
+				openSidebarSessionByIdWithTab,
+			}}
+			rootDialogs={<WorkbenchDialogs palette={{ commandPaletteOpen, setCommandPaletteOpen, commandPaletteCommands, openCommandPalette, activeProjectId, activeProjectHasBusyAgent, settingsPageActive, quickTaskActive: quickTask.active }} cuaApproval={cuaApproval} />}
+		>
+			<WorkbenchFileOverlays
+				menu={{ fileMenu, hasClipboardFiles }}
+				editing={{ creatingFile, creatingFileInput, renamingFile, renamingFileInput, rename }}
+				resources={{ projectResourcesProject }}
+				events={{ setFileMenu, setCreatingFile, setCreatingFileInput, setRenamingFile, setRenamingFileInput, setProjectResourcesProject, refreshVisibleFiles, showToast, overlays }}
+			/>
+			<WorkbenchAppOverlays
+				environment={{ environmentDialog, setEnvironmentDialog, piStatus, piChecking, piGuide, piUpdate, dshRuntimeStatus, settings, store, setSettings }}
+				enrollment={{ refreshProjects, selectProjectCommand, requestSidebarRevealProject, syncDshForeignSessionsIfEnabled, announceProjectAdded, importFlow, directoryImport }}
+				session={{ overlays, handleFeedbackCreateSession, previewImage, setPreviewImage, externalPathOpenDialog, proxyDialogSessionId, setProxyDialogSessionId, activeProject, currentSessionId, handleAgentSendToSession, editorsOpen, externalEditors, editorsAnchor, editorsTargetPath, workspace }}
+				events={{ showToast }}
+			/>
+		</WorkbenchShell>
 	);
 }
 

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 function transpile(filePath) {
 	return ts.transpileModule(readFileSync(filePath, "utf8"), {
@@ -99,7 +100,7 @@ test("useAgentLoadNotice lets the user snooze reminders for the current launch",
 test("reminder toggles are default-enabled and wired through App + SettingsStore", () => {
 	const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
 	const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const notificationTab = readFileSync("src/renderer/src/components/app/settings/NotificationTab.tsx", "utf8");
 	// 类型、主进程默认值、渲染层首屏默认值三处同步为开启
 	assert.match(settingsType, /agentCountReminderEnabled: boolean/);

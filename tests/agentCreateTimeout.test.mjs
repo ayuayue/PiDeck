@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const source = readFileSync("src/renderer/src/hooks/useSessionActions.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 
 test("new conversation creates a metadata-only Session draft", () => {
 	// 块边界不能假设两空格缩进（formatter 统一为 tab）：用「行首 } / return {」锚点。

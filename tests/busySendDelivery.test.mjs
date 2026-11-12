@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
 
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { parseBusySendDelivery, resolveBusySendDelivery } = loadTsCommonJs("src/shared/busySendDelivery.ts");
 
@@ -71,7 +72,7 @@ describe("resolveBusySendDelivery", () => {
  */
 describe("busy send delivery decision points", () => {
 	const composer = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
-	const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const appSource = rendererAppSource;
 	const promptDispatchSource = readFileSync("src/renderer/src/hooks/session/useSessionPromptDispatch.ts", "utf8");
 	const historyMutationsSource = readFileSync("src/renderer/src/hooks/useSessionHistoryMutations.ts", "utf8");
 

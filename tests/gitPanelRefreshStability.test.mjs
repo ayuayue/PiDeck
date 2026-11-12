@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const graph = readFileSync("src/renderer/src/components/app/git/GitGraph.tsx", "utf8");
 
 test("Git drawer branch callbacks remain stable across unrelated App renders", () => {

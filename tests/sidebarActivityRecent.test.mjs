@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 侧栏「活动」页「最近会话」区：模型纯函数 + 组件契约。
@@ -20,7 +21,7 @@ const sessionTree = readFileSync(`${sidebarDir}SessionTree.tsx`, "utf8");
 const foundationStyles = readFileSync("src/renderer/src/styles/foundation.css", "utf8");
 const workspaceStyles = readFileSync("src/renderer/src/styles/workspace.css", "utf8");
 const sidebarContent = readFileSync(`${sidebarDir}SidebarContent.tsx`, "utf8");
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 const zhCopy = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const enCopy = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 

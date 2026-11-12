@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 test("FileDiffViewer: view mode is editable, diff mode is read-only render", () => {
 	const viewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
@@ -28,7 +29,7 @@ test("FileDiffViewer: read-only tab can only be unlocked through an explicit con
 	const viewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
 	const hook = readFileSync("src/renderer/src/hooks/useFileEditor.ts", "utf8");
 	const workbench = readFileSync("src/renderer/src/components/workspace/WorkbenchContent.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 
 	// 只读 tab 的解锁入口只在「真的只读且宿主提供了解锁能力」时渲染
 	assert.match(viewer, /onRequestEditable\?:\s*\(\)\s*=>\s*void/);

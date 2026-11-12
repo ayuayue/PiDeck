@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // Wave 0（docs/wsl-project-in-distro-io-plan.md）：WSL 添加项目不再经系统「打开文件夹」——
 // \\wsl.localhost 按发行版默认用户鉴权，root 档案的 /root 递进去即报错。
 // 目录由内置选择器在发行版内列出并校验，档案身份仍写入项目（distro/user/hostId）。
 const shared = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 const ipc = readFileSync("src/main/ipc/projectsIpc.ts", "utf8");
 const store = readFileSync("src/main/projects/ProjectStore.ts", "utf8");
 const tab = readFileSync("src/renderer/src/components/app/settings/ConnectionsTab.tsx", "utf8");
@@ -49,7 +51,7 @@ test("the system folder dialog is no longer handed a WSL path", () => {
 });
 
 test("global add-project branches to the picker when WSL mode is on", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /if \(settings\.wslEnabled === true\) \{\s*setWslProjectPicker\(\{\}\);\s*return;\s*\}/);
 	assert.match(app, /<WslProjectPickerDialog/);
 });

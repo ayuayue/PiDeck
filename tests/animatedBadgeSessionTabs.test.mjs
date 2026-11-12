@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // ===== beui AnimatedBadge 组件拷贝 =====
 
@@ -130,7 +131,7 @@ test("session menu (moved out of the tab bar) keeps state-based disable with vis
 	assert.match(source, /ContextMenuTrigger asChild/);
 	assert.doesNotMatch(source, /role="tab-menu"/);
 	// App 侧不再用 isLiveRuntimeStatus 挡状态：能力和动作都收敛到 runControl 对象
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /runControl: currentSessionId\n\s*\? \{/);
 	assert.match(app, /getSessionRunCapabilities\(currentSessionId\)/);
 	assert.match(app, /onAction: \(action: SessionRunAction\) => void runSessionControl\(currentSessionId, action\)/);

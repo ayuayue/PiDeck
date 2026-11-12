@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const drawerSurface = readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8");
 const drawerPorts = readFileSync("src/renderer/src/hooks/useDrawerPorts.ts", "utf8");
 const fileEditorHook = readFileSync("src/renderer/src/hooks/useFileEditor.ts", "utf8");

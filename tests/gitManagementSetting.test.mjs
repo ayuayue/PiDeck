@@ -2,15 +2,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import { readRendererStyles } from "./helpers/rendererStyles.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
-const app = [readFileSync("src/renderer/src/App.tsx", "utf8"), readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8"), readFileSync("src/renderer/src/hooks/useWorkspacePanels.ts", "utf8")].join("\n");
+const app = [rendererAppSource, readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8"), readFileSync("src/renderer/src/hooks/useWorkspacePanels.ts", "utf8")].join("\n");
 const appParts = readFileSync("src/renderer/src/components/session/SurfaceComponents.tsx", "utf8");
 const settingsModal = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
 const commonTab = readFileSync("src/renderer/src/components/app/settings/CommonTab.tsx", "utf8");
 const gitTab = readFileSync("src/renderer/src/components/app/settings/GitTab.tsx", "utf8");
 const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 const sharedTypes = [readFileSync("src/shared/types.ts", "utf8"), readFileSync("src/shared/types/settings.ts", "utf8")].join("\n");
-const previewApi = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+const previewApi = previewApiSource;
 const i18n = [readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8"), readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8")].join("\n");
 const styles = readRendererStyles();
 

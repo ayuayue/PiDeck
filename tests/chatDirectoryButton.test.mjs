@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // 内置对话区（Chat）「切换聊天记录保存目录」入口：侧栏父项目行 → App 层 changeChatPath
 // （弹目录选择器 → 主进程写 chat-path.json → 重扫会话 → toast）。IPC 链路（choose-chat-path
@@ -14,7 +15,7 @@ test("SessionView keeps directory settings out of the header actions slot", () =
 });
 
 test("App extracts changeChatPath once and injects it into the sidebar action", () => {
-	const source = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const source = rendererAppSource;
 	// 独立函数（含注释说明两处共用，避免逻辑漂移）
 	assert.match(source, /async function changeChatPath\(project: Project\)/);
 	// 侧边栏 projects action 引用同一实现

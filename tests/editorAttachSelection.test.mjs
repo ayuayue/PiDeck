@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 test("App: attach refs read the authoritative Session draft atom (no stale previous)", () => {
 	// setPromptForAgent（previous 权威源）已迁入 useSessionPromptDispatch。
@@ -14,7 +15,7 @@ test("App: attach refs read the authoritative Session draft atom (no stale previ
 });
 
 test("App: listens to composer-attach-refs and appends refs with spacer", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /window\.addEventListener\("composer-attach-refs"/);
 	assert.match(app, /refs\.join\(" "\)/);
 	// 与文件树右键 onAttach 相同的尾部追加 + 补空格语义

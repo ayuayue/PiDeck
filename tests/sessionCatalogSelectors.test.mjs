@@ -5,9 +5,10 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 import { createStore } from "jotai/vanilla";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 
 function compileModule(filePath, imports = {}) {
 	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {

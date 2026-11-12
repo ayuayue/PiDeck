@@ -13,6 +13,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
@@ -29,10 +31,10 @@ test("设置契约里不再有 providerUsageAutoQueryEnabled", () => {
 	const summary = read("src/renderer/src/components/app/settings/unsavedChangesSummary.ts");
 	assert.doesNotMatch(summary, /providerUsageAutoQuery/);
 
-	const app = read("src/renderer/src/App.tsx");
+	const app = rendererAppSource;
 	assert.doesNotMatch(app, /providerUsageAutoQuery/);
 
-	const preview = read("src/renderer/src/previewApi.ts");
+	const preview = previewApiSource;
 	assert.doesNotMatch(preview, /providerUsageAutoQuery/);
 
 	const atoms = read("src/renderer/src/atoms/provider-usage-atoms.ts");
@@ -74,7 +76,7 @@ test("启动预热只查已开启的 provider，且串行错峰", () => {
 	const hook = read("src/renderer/src/hooks/useProviderUsage.ts");
 	assert.match(hook, /export function useProviderUsageStartupWarmup\(\): void/);
 	// 装配层调用一次（App.tsx），不在子组件里重复挂。
-	const app = read("src/renderer/src/App.tsx");
+	const app = rendererAppSource;
 	assert.match(app, /useProviderUsageStartupWarmup\(\);/);
 });
 

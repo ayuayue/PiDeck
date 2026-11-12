@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 const sessionRunControlSource = readFileSync("src/renderer/src/hooks/session/useSessionRunControl.ts", "utf8");
 const sessionViewSource = readFileSync("src/renderer/src/components/session/SessionView.tsx", "utf8");
 const sessionSurfaceSource = readFileSync("src/renderer/src/components/session/SessionSurfaceStage.tsx", "utf8");

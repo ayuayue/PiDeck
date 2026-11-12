@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * Wave 5 文件域契约：dirty tab 关闭保护 + 保存失败可见化。
@@ -16,7 +17,7 @@ import test from "node:test";
 
 const fileDiffViewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
 const useFileEditor = readFileSync("src/renderer/src/hooks/useFileEditor.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const workbenchContent = readFileSync("src/renderer/src/components/workspace/WorkbenchContent.tsx", "utf8");
 const zhCopy = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 

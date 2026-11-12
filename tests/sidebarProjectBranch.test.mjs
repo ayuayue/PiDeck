@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const read = (p) => readFileSync(p, "utf8");
 
@@ -56,7 +57,7 @@ test("useProjectSync keeps worktree branch lookup but drops per-project branch f
 });
 
 test("App.tsx synchronizes branch changes to branchByProject", () => {
-	const src = read("src/renderer/src/App.tsx");
+	const src = rendererAppSource;
 	// 解构 setBranchByProject
 	assert.match(src, /const\s*\{[^}]*setBranchByProject[^}]*\}\s*=\s*useProjectSync/);
 	// handleProjectGitChanged 回写 setBranchByProject

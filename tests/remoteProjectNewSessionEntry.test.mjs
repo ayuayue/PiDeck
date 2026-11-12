@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // 远端项目没有会话时，空态原本只给文件管理：用户要先回侧栏找 hover 的「+」才能开始对话。
 // 这里锁定空态上的「新建会话」主入口，并确保它走与项目行「+」同一条 createDraft 链路，
@@ -8,7 +9,7 @@ import test from "node:test";
 
 const panel = readFileSync("src/renderer/src/components/session/RemoteProjectPanel.tsx", "utf8");
 const emptyState = readFileSync("src/renderer/src/components/session/ProjectEmptyState.tsx", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 
 test("remote project panel offers a real new-session entry", () => {
 	assert.match(panel, /onCreateSession\?: \(\) => void/);

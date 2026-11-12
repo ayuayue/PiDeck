@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const readSource = (path) => readFileSync(path, "utf8");
 
@@ -194,7 +195,7 @@ test("「使用」直达新会话页：只记待绑定 id + 回引导页，目�
 		assert.ok(!/AgentUseTargetMenu/.test(readSource(path)), path + " 的「使用」不得再弹目录菜单");
 		assert.match(readSource(path), /onClick=\{\(\) => onUse\(agent\)\}/, path + " 的「使用」必须直接带智能体跳转");
 	}
-	const app = readSource("src/renderer/src/App.tsx");
+	const app = rendererAppSource;
 	// 宿主：只 arm 待绑定 id + 切到该项目的引导页，不发请求、不建草稿。
 	assert.match(app, /handleAgentUseAgent = useCallback\(\s*async \(agent: AgentProfile\): Promise<boolean>/, "宿主不得再要求选定目录（目录来自新会话页）");
 	assert.match(app, /store\.set\(pendingAgentBindingAtom, agent\.id\)/, "「使用」只记待绑定智能体 id");

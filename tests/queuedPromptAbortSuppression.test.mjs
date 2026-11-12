@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { queuedPrompt, queuedPromptHarness } from "./helpers/queuedPromptHarness.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 「停止响应」与排队消息的交互（对齐 pi TUI 的打断语义：interrupt 把队列还给用户）。
@@ -106,7 +107,7 @@ test("abort entry points are wired to queue suppression", () => {
 	const composerSource = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
 	assert.match(composerSource, /suppressQueuedDrain\?\.\(sessionId\);\s*\n[\s\S]*?desktopApi\.sessions\.abortRuntime\(target\)/);
 
-	const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const appSource = rendererAppSource;
 	assert.match(appSource, /suppressQueueAutoDrain:\s*queue\.suppressSessionQueueAutoDrain/);
 	assert.match(appSource, /queueSuppressAutoDrain:\s*queue\.suppressSessionQueueAutoDrain/);
 

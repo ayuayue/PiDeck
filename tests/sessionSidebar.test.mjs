@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 function loadTsModule(path, fileName, requireStub) {
 	const output = ts.transpileModule(readFileSync(path, "utf8"), {
@@ -204,7 +206,7 @@ test("session context menu exposes archive and restores refresh the manager proj
 	const content = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
 	// 归档/删除族已从 App.tsx 迁至 hooks/sidebar/useSidebarArchiveActions.ts（域 owner）；App 只保留 sidebarActions 接线
 	const app = readFileSync("src/renderer/src/hooks/sidebar/useSidebarArchiveActions.ts", "utf8");
-	const appWiring = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const appWiring = rendererAppSource;
 
 	assert.match(components, /onArchiveSession: \(\) => void/);
 	assert.match(components, /onSelect=\{props\.onArchiveSession\}/);
@@ -235,11 +237,11 @@ function appFunctionBlock(source, name, nextName) {
 // 侧栏归档/删除与历史抽屉同一契约：先关 Tab 再清状态，并带走子 agent 树。
 // 只 removeSessionState(session.id) 会在 currentSessionId 被清空后留下空态 Composer。
 test("sidebar archive and delete dismiss nested subagent chats instead of leaving a composer", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	// 归档/删除族已迁至 hooks/sidebar/useSidebarArchiveActions.ts；App 只保留 chrome 接线
 	const archiveHook = readFileSync("src/renderer/src/hooks/sidebar/useSidebarArchiveActions.ts", "utf8");
 	const chrome = readFileSync("src/renderer/src/hooks/useSessionWorkspaceChrome.ts", "utf8");
-	const ipc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const ipc = sessionIpcSource;
 
 	assert.match(chrome, /const closeTabs = useCallback\(\s*\(sessionIds: string\[\]\)/);
 	assert.match(chrome, /closeTab = useCallback\(\s*\(sessionId: string\) => \{\s*closeTabs\(\[sessionId\]\)/);
@@ -296,7 +298,7 @@ test("Sidebar leaf remains independent from App and keeps RPC logging query loca
 });
 
 test("AppSidebar owns the controller while App keeps business actions as ports", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const root = readFileSync("src/renderer/src/components/sidebar/AppSidebar.tsx", "utf8");
 	const controller = readFileSync("src/renderer/src/hooks/useSidebarController.ts", "utf8");
 	const projectTree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
@@ -359,7 +361,7 @@ test("Chat section keeps an independent collapse control after the parent projec
 test("Projects section header provides batch collapse and refresh-all actions", () => {
 	const projectTree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
 	const sidebarContent = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const controller = readFileSync("src/renderer/src/hooks/useSidebarController.ts", "utf8");
 
 	// 标题栏全部折叠/展开按钮外露，调用 controller 的批量切换，并给出折叠/展开文案。

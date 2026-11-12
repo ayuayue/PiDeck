@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /** 页面式插件覆盖层的源码契约：切换会话/项目必须自动收起（回归：插件页盖住新选会话，2025-11 用户报告）。 */
 const source = readFileSync("src/renderer/src/components/plugins/HostPluginPageOverlay.tsx", "utf8");
@@ -18,7 +19,7 @@ test("page overlay stays above session column only", () => {
 
 /** tab 模式下插件页伪 Tab 的接线契约（回归：插件页只在 tab 栏下方铺开、不占 tab 位，2025-11 用户报告）。 */
 const tabsBarSource = readFileSync("src/renderer/src/components/session/SessionTabsBar.tsx", "utf8");
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 
 test("session tabs bar renders plugin pseudo-tab when provided", () => {
 	assert.match(tabsBarSource, /pluginTab\?\s*:\s*\{/, "SessionTabsBar 必须声明 pluginTab prop");

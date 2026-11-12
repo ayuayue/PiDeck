@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * issue #253：引导页切 DSH 后模型选不了——点选被静默丢弃，底栏显示 pi 模型。
@@ -106,7 +107,7 @@ test("resolveGuideDisplayModel：pi 点选不得泄漏到 DSH（后端隔离）"
 // ── 3. 首次发送必须把 DSH 偏好作为显式模型带入 ────────────────────────────────
 
 test("首次发送：DSH 会话把引导页点选作为显式 model 传给 createDraft", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const body = app.slice(app.indexOf("const ensureSessionForSend = useCallback("), app.indexOf("// 把用户消息搬进真实会话缓存"));
 	// 后端为 dsh 时必须读 DSH 偏好（pi 偏好在 DSH 会话下语义不适用）。
 	assert.match(body, /readWelcomeDshModelPreference\(\)/, "首次发送没有读取 DSH 引导页偏好 → host 只能用部署默认（issue #253 症状 3）");

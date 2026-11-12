@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const injector = readFileSync("src/renderer/src/components/session/SessionRuntimeInjector.tsx", "utf8");
 const services = readFileSync("src/renderer/src/components/session/SessionPaneServices.tsx", "utf8");
@@ -29,7 +30,7 @@ describe("session pane git project scope", () => {
 		assert.doesNotMatch(services, /gitInfo:\s*GitBranchInfo/);
 		assert.doesNotMatch(services, /onSwitchBranch:\s*\(branch:\s*string\)/);
 		// App 侧不再把全局 gitInfo / switchBranch 注入 pane 服务。
-		const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+		const app = rendererAppSource;
 		assert.doesNotMatch(app, /sessionPaneServices[\s\S]{0,400}?gitInfo,/, "App 不得把全局 gitInfo 包进 sessionPaneServices");
 		assert.doesNotMatch(app, /onSwitchBranch:\s*switchBranch/, "App 不得把全局 switchBranch 包进 sessionPaneServices");
 	});

@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -328,7 +329,7 @@ test("Phase B 接线守卫：面板与 F hooks 不再直连被服务接管的读
 	assert.match(localTree, /active\.files\.listDirectory\(/);
 	assert.doesNotMatch(localTree, /api\.files\.list\(/);
 
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /useProjectServices\(localFileTreeProject\)/);
 	assert.match(app, /services: localFileTreeServices/);
 

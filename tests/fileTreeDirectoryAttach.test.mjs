@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const menuSource = readFileSync("src/renderer/src/components/session/ComposerOverlayComponents.tsx", "utf8");
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 const appUtils = loadTsCommonJs("src/renderer/src/components/app/AppUtils.ts");
 const chips = loadTsCommonJs("src/renderer/src/components/session/composer/chips.ts");
 

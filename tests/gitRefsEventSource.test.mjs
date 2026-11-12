@@ -14,9 +14,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const hookSource = readFileSync("src/renderer/src/hooks/usePaneGitInfo.ts", "utf8");
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 const controllerSource = readFileSync("src/renderer/src/hooks/files/useProjectFileTreeController.ts", "utf8");
 
 test("usePaneGitInfo 不再盲轮询，分支信息由 refs 事件驱动", () => {

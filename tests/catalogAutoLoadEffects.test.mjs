@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * catalog 自动加载 effect 的依赖稳定性。
@@ -10,7 +11,7 @@ import test from "node:test";
  * effect 重跑 → 再刷新，形成无限扫描（Chat 引导页 / 展开项目预加载 / 活动项目补加载）。
  * 三处都必须经 refreshProjectSessionsRef 取最新实现，且 deps 不含该函数。
  */
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 
 const AUTO_LOAD_EFFECT_MARKERS = ["const action = resolveChatSessionBootstrap({", "settings.json 覆盖首屏 localStorage 后", "切换项目时按 catalog load state 判断"];
 

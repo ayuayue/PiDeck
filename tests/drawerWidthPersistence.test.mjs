@@ -6,12 +6,13 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const require = createRequire(import.meta.url);
 const typescript = require("typescript");
 
 const hook = readFileSync("src/renderer/src/hooks/useWorkspacePanels.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const appShell = readFileSync("src/renderer/src/components/app/AppShell.tsx", "utf8");
 const settingsTypes = readFileSync("src/shared/types/settings.ts", "utf8");
 
