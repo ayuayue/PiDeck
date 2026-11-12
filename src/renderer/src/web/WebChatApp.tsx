@@ -982,6 +982,7 @@ export function WebChatApp() {
 		setCreatingProjectId(projectId);
 		setCommandError(null);
 		try {
+			// biome-ignore lint/correctness/useHookAtTopLevel: useAgentSession 是 webApi 的普通异步函数，不是 React hook。
 			const created = await useAgentSession(agent.id, projectId);
 			markSessionLoaded(created.session.id, true);
 			setActiveSessionId(created.session.id);
