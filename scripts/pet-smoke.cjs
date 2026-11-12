@@ -37,8 +37,13 @@ const loadPureTsModule = (sourcePath) => {
 		{
 			module: mod,
 			exports: mod.exports,
-			// 纯模块的函数默认参数可能取 process.env（如 v8HeapLimits），透传真实 process
+			// 纯模块的函数默认参数可能取 process.env（如 v8HeapLimits），透传真实 process；
+			// windowGeometry 的 WindowSizeGuard 还会用计时器，沙箱需与真实全局一致。
 			process,
+			setTimeout,
+			clearTimeout,
+			setInterval,
+			clearInterval,
 			require: (id) => {
 				throw new Error(`pure module ${path.basename(sourcePath)} must not require(${id})`);
 			},
