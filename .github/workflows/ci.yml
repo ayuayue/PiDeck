@@ -74,12 +74,15 @@ jobs:
         run: npm run check:format && npm run check:hooks
 
       - name: Check structural invariants
-        # 两条机械不变式（各 ~1s，不联网）：
+        # 三条机械不变式（各 ~1s，不联网）：
         # - check:ipc-wiring：ipcChannels 的每个通道必须主进程注册 + preload 转发，
         #   agentEventTags 只能出现在主进程（铁律「新 IPC 三处同步」的机器版）；
         # - check:test-shape：禁止新增「只读源码字符串、零运行时验证」的测试，
-        #   防止重构成本继续累加（基线在 scripts/testShapeBaseline.json）。
-        run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:scroll-containers
+        #   防止重构成本继续累加（基线在 scripts/testShapeBaseline.json）；
+        # - check:file-size：存量巨文件行数只准降不准升，新文件 >600 行必须配拆分计划
+        #   （基线在 scripts/fileSizeBaseline.json，拆分方案见 docs/mega-file-split-plan.md）。
+        #   没有这条守卫，前三次拆分（index.ts / App.tsx / AgentManager）都在几周内回涨。
+        run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:file-size && npm run check:scroll-containers
 
       - name: Test
         # 串行执行：并发模式（--test-concurrency=4）下测试文件共享进程全局状态，

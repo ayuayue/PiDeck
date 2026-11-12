@@ -1,5 +1,7 @@
 # AgentManager 拆分计划
 
+> **已被 `docs/mega-file-split-plan.md` 接管**：本文保留拆分纪律与 Wave 1–4 记录（协作者清单仍是权威的域切分依据），新波次见那份的 W9。
+
 > 状态：**主体完成（Wave 1–4 全部落地）**。基线 commit `ef049e045`，AgentManager.ts 6756 → 5543 行。2026-10-26 核对：已回涨到 **6439 行**；后续按 `docs/architecture.md`「存量巨文件不得净增长」执行，新增状态机域必须直接建协作者模块。
 > 长期目标：AgentManager 只保留「编排 + agents map 所有权」，各状态机域收口为协作者模块。
 

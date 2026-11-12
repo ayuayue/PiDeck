@@ -1,5 +1,7 @@
 # main/index.ts 拆分计划
 
+> **已被 `docs/mega-file-split-plan.md` 接管**：本文只作历史勘界图（域地图与 Wave 1 记录），新的波次排期、目标行数与门禁都在那份。
+
 > 状态：**进行中**（Wave 1 已落地）。2026-10-26 核对：`src/main/index.ts` 已回涨到 **6724 行**（Wave 1 后 4556）——新增域逻辑仍在回流。后续按 `docs/architecture.md`「存量巨文件不得净增长」执行：本节改动不得再抬高行数。目标：`src/main/index.ts` 只增装配不增业务。
 > 方法沿用 `docs/agent-manager-split-plan.md` / `docs/app-tsx-split-plan.md` 的薄包装迁移纪律：零行为变化、契约测试同步改读新模块、每步 typecheck + 针对性回归。
 

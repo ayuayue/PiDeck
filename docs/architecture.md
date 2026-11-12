@@ -101,7 +101,8 @@ src/
 - **存量巨文件不得净增长**：改动前 `wc -l` 记基线，改动后不得更高；新逻辑放新模块（hook / 协作者 / `main/<domain>/`）。
 - `main/index.ts`、`App.tsx` 只准更薄；`sessionIpc.ts`、`systemIpc.ts`、`ConfigModal.tsx`、`DshAgentManager.ts` 同理。
 - 例外：i18n 词典与生成物（`rendererCopy.*`、`*.zh-TW.ts`、manifest）不受行数约束。
-- 拆分方法与当前行数基线：`docs/main-index-split-plan.md`、`docs/app-tsx-split-plan.md`、`docs/agent-manager-split-plan.md`。
+- 机械执行点：`npm run check:file-size`（CI `Check structural invariants`）。基线在 `scripts/fileSizeBaseline.json`；拆完一波跑 `node scripts/check-file-size.mjs --update` 把额度收紧到新值，回涨立刻红。
+- 拆分方法、波次排期与当前行数基线：`docs/mega-file-split-plan.md`（前三份 `main-index/app-tsx/agent-manager-split-plan.md` 已转历史勘界图）。
 
 ## 模块内聚（功能能跑 ≠ 结构合格）
 
