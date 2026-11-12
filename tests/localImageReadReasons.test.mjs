@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +34,9 @@ async function writeSparse(path, bytes) {
 
 /** 一处白名单根 + 一处根外目录；用例共用，只读不写。 */
 async function fixture(t) {
-	const base = mkdtempSync(join(tmpdir(), "pideck-local-image-reasons-"));
+	// 白名单根按生产口径已是真实路径（CanonicalRootsProvider）；Windows 的 8.3 短名（RUNNER~1）在此展开，
+	// 否则 readLocalImageBytes 的 realpath 结果与根字符串不一致，根内图片会被误判 outside-roots。
+	const base = realpathSync(mkdtempSync(join(tmpdir(), "pideck-local-image-reasons-")));
 	const root = join(base, "project");
 	const outside = join(base, "outside");
 	mkdirSync(join(root, "dir.png"), { recursive: true });
