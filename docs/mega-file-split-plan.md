@@ -195,11 +195,29 @@
 | W1 | `renderer/src/previewApi.ts` | 2409 | ≤400 | ✅ 38 行 |
 | W2 | `preload/index.ts` | 2157 | ≤400 | ✅ 56 行 |
 | W3 | `main/index.ts` 启动装配 | 8307 | ≤5800 | ⏳ 8288（只搬了 resourceStores；装配体需先做 accessor 化） |
-| W4 | `main/index.ts` registerIpc | — | ≤3900 | ⏳ 6 个 stack 已外移（1877 行） |
+| W4 | `main/index.ts` registerIpc | — | ≤3900 | ⏳ 10 个 stack 已外移，index 6711 |
 | W5 | `main/index.ts` 窗口/生命周期 | — | ≤2800 | ⏳ `window/tray.ts` 178 行，index 7308→7199 |
 | W6 | `main/index.ts` 收尾 | — | ≤1500 | 未开工 |
 | W7 | `renderer/src/App.tsx` JSX | 4065 | ≤3600 | ✅ 3461 行（4 个 workbench 组件） |
-| W8 | `renderer/src/App.tsx` 剩余域 | — | ≤1600 | 未开工 |
-| W9 | `pi/AgentManager.ts` | 7268 | ≤4500 | ⏳ 6386（3 个协作者：toolMessageAssembler 392 / runtimeHistoryLoader 420 / compactionRunner 382） |
+| W8 | `renderer/src/App.tsx` 剩余域 | — | ≤1600 | ⏳ 3106（2 个 hook 域已抽） |
+| W9 | `pi/AgentManager.ts` | 7268 | ≤6000（改） | ⏳ 6208（4 个协作者：toolMessageAssembler 392 / runtimeHistoryLoader 420 / compactionRunner 382 / runtimeStateReader 400） |
 | W10 | `ipc/sessionIpc.ts` | 1885 | ≤400/文件 | ✅ 563 行（12 个域文件） |
 | W11 | `ipc/systemIpc.ts` | 1234 | ≤400/文件 | ✅ 达标 |
+
+## 第二轮并行波次（2026-11-12 晚，5 个子代理）
+
+| 波次 | 目标文件 | 前 | 后 | 落地形态 | 备注 |
+|---|---|---:|---:|---|---|
+| W4b | `main/index.ts` | 7199 | **6711** | 新增 `ipcStacks/{sessionsStack 383, remoteStack 373, gitStack 33, contentStack 57}` + `startup/sessionCatalogPrewarm.ts 79` | 启动后续会被替换的绑定走 getter；`remoteHostServiceResolver` / `remoteProjectTrustService` / `remoteHostRebindIpc` 三个模块级写点由 stack 回填 setter |
+| W8a | `renderer/src/App.tsx` | 3461 | **3106** | `hooks/app/useAppProjectActions 278` + `useSessionTabsAssembly 286` | 项目记录动作（10 个函数块）与会话 Tab 栏装配各成一个域；窄接口，不用扁平 props 袋 |
+| W9d | `pi/AgentManager.ts` | 6386 | **6208** | `pi/runtimeStateReader.ts 400` | `hasActiveStreaming` / `getRuntimeState` / 缓存命中率 / 工具调用状态合成 / 运行态发布；过程集合留在宿主按引用注入 |
+| 新 | `main/sessions/SessionCatalog.ts` | 2972 | **1778** | `sessions/catalog/` 6 个协作者（titleOwnership 289 / entryProjection 241 / fileStore 293 / storeCodes 7 / loadMigration 107 / scannedMerge 299）+ `catalogDraftCreate 141` | 宿主独占 entries / 墓碑 Set / 归档 Map / revision / writeQueue；协作者只拿窄端口 |
+| 新 | `renderer/src/ConfigModal.tsx` | 3690 | **3491** | `config/configModal/useConfigPromptsEditing.ts 306` + 契约面 `tests/helpers/configModalSources.mjs`（27 个测试改读聚合） | **未达标**：只拆了提示词模板页，其余 Tab 仍在宿主；契约面已铺好，后续拆 Tab 不用再动测试 |
+
+### 本轮得到的操作教训（写给下一次）
+
+- **不要用脚本自动抽取 JSX/TS 块**：ConfigModal 那个子代理前 20 分钟全烧在写 `$TMP/extractPrompts.mjs` 上（脚本自身读写路径错、连挂 3 次），手工 `read` + `edit` 十几分钟就完成了同样的搬迁。
+- **禁止管道**：`grep … | head` / `| cat` / `ls | head` 在此环境（rtk 包装）下会挂死，本轮又踩了两次。统一用 `grep -n/-c/-rl` 直出或 `node -e`。
+- **子代理自验的 typecheck 不可信**：它有 41 个错误来自他人的在飞文件，于是漏报了自己引入的 6 个「调用私有方法」错误（`runtimeStateReader` 的 6 个方法需公开）。→ **父代理必须自己跑一次全量 typecheck**，不能采信「我的文件 0 error」。
+- **契约断言随访问器形态演进**：`dshRuntimeIpc` 断言 `getDshRuntimeStatus: () => dshRuntimeStatus.getStatus()`，迁到 stack 后成了 `() => getDshRuntimeStatus().getStatus()`；断言改成「锁注入了哪个服务方法、不绑访问器写法」。
+
