@@ -132,6 +132,21 @@ var messages = map[string]map[string]string{
 		"会话与配置在磁盘上的位置。":             "Where sessions and config live on disk.",
 		"版本、许可与来源。":                 "Version, licence and source.",
 
+		"插件": "Plugins",
+		"插件给命令面板加命令，给外观加主题。": "Plugins add commands to the palette and themes to the look.",
+		"资源": "Resources",
+		"pi 的技能与扩展：看它们做什么，打开或停用。": "pi's skills and extensions: what they do, and how to open or turn one off.",
+		"技能":     "Skills",
+		"打开技能目录": "Open skills folder",
+		"打开扩展目录": "Open extensions folder",
+		"重新读取":   "Reload",
+		"自动加载":   "Loaded automatically",
+		"内置":     "Built-in",
+		"本地文件":   "Local file",
+		"没有读到技能；技能放在 pi 配置目录的 skills 下。": "No skills found; they live under skills in pi's config folder.",
+		"没有读到扩展。":    "No extensions found.",
+		"正在读取技能与扩展…": "Reading skills and extensions…",
+
 		// General settings.
 		"界面": "Interface",
 		"语言": "Language",
@@ -263,6 +278,21 @@ var messages = map[string]map[string]string{
 		"插件给命令面板加提示词，给外观加主题。":       "外掛為指令面板加入指令，為外觀加入主題。",
 		"会话与配置在磁盘上的位置。":             "工作階段與設定在磁碟上的位置。",
 		"版本、许可与来源。":                 "版本、授權與來源。",
+
+		"插件": "外掛",
+		"插件给命令面板加命令，给外观加主题。": "外掛為指令面板加入指令，為外觀加入主題。",
+		"资源": "資源",
+		"pi 的技能与扩展：看它们做什么，打开或停用。": "pi 的技能與擴充：看它們做什麼，開啟或停用。",
+		"技能":     "技能",
+		"打开技能目录": "開啟技能目錄",
+		"打开扩展目录": "開啟擴充目錄",
+		"重新读取":   "重新讀取",
+		"自动加载":   "自動載入",
+		"内置":     "內建",
+		"本地文件":   "本機檔案",
+		"没有读到技能；技能放在 pi 配置目录的 skills 下。": "沒有讀到技能；技能放在 pi 設定目錄的 skills 下。",
+		"没有读到扩展。":    "沒有讀到擴充。",
+		"正在读取技能与扩展…": "正在讀取技能與擴充…",
 
 		// General settings.
 		"界面": "介面",

@@ -37,7 +37,8 @@ func settingsSections() []settingsSection {
 		{"look", "外观", lucide.Palette, "外观", "配色与主题文件。"},
 		{"remote", "远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。"},
 		{"env", "环境", lucide.Terminal, "环境", "pi 在哪里、能不能用；WSL 与 SSH 目标。"},
-		{"addons", "扩展", lucide.Puzzle, "扩展", "插件给命令面板加提示词，给外观加主题。"},
+		{"addons", "插件", lucide.Puzzle, "插件", "插件给命令面板加命令，给外观加主题。"},
+		{"resources", "资源", lucide.Package, "资源", "pi 的技能与扩展：看它们做什么，打开或停用。"},
 		{"data", "数据", lucide.HardDrive, "数据", "会话与配置在磁盘上的位置。"},
 		{"about", "关于", lucide.Info, "关于", "版本、许可与来源。"},
 	}
@@ -61,6 +62,9 @@ func (a *app) settingsDialog() core.Node {
 					}
 					if s.ID == "usage" {
 						a.loadUsage(false)
+					}
+					if s.ID == "resources" {
+						a.loadResources(false)
 					}
 				},
 				Role: core.RoleTab, Label: T(s.Label), TestID: "settings-tab-" + s.ID,
@@ -158,6 +162,8 @@ func (a *app) settingsContent() core.Node {
 			return a.settingsEnv()
 		case "addons":
 			return a.settingsAddons()
+		case "resources":
+			return a.settingsResources()
 		case "data":
 			return a.settingsData()
 		case "about":

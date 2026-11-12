@@ -136,12 +136,15 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 - 外观：配色（跟随系统/纸白/炭黑/用户主题）、打开主题目录
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区
 - 扩展：插件列表与命令、打开插件目录、重新加载
+- 资源：pi 的技能（读 `SKILL.md` 的 name/description，点开在编辑器里看）与扩展
+  （内置 / npm / 本地 `.ts`），可启停；打开技能/扩展目录、重新读取
 - 数据：应用/会话/pi 会话目录、会话数量
 - 用量：从本地会话文件统计累计 tokens 与费用、最近 12 周热力图、模型与项目分布；
   只在本机计算，可手动重新统计
 - 关于：版本、运行方式、项目链接
 
 **外观与扩展（可写文件，不跑代码）**
+- 资源页：pi 的 skills 与 extensions；技能点开看 `SKILL.md`，扩展可开关（写 `settings.json`）
 - 主题：内置跟随系统 / 纸白 / 炭黑；用户主题放 `themes/*.json|*.yaml`，按调色板角色覆盖，
   可带 `tokens`（字体、圆角）与 `appearance`（仅浅色/仅深色）；也读 shadcn/ui 主题文件
 - 插件：`plugins/*.json`（或 `plugins/<名字>/plugin.json`），`contributes.commands` 加命令面板命令，
@@ -174,6 +177,8 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 | `ui_git.go` | Git 抽屉：分支菜单、改动列表、提交框、历史、补丁与新建分支对话框 |
 | `term.go` | 终端会话：Ghostty 终端、本机/WSL/SSH shell、标签生命周期与搜索 |
 | `ui_term.go` | 底部终端面板：标签栏、搜索栏、右键菜单、可调高度 |
+| `pi_resources.go` | pi 的技能与扩展：读 SKILL.md、settings.json 的扩展列表与启停 |
+| `ui_resources.go` | 设置里的资源页：技能列表、扩展开关、目录入口 |
 | `i18n.go` | 界面语言：系统语言匹配、源文本查表、设置与命令面板的翻译目录 |
 | `usage.go` | 本地用量统计：读会话文件、按天/模型/项目归并、热力图分级 |
 | `ui_usage.go` | 设置里的用量页：累计卡片、12 周热力图、模型与项目榜 |
@@ -303,6 +308,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - Git 的凭据提示走不了 GUI：HTTPS/SSH 需要先在终端里登录或配好密钥
 - 供应商连接测试是轻量探测（`/models` 或一次最小 chat 请求），不等于完整模型可用性验证
 - 系统通知是尽力而为：macOS 用 `osascript`、Linux 用 `notify-send`、Windows 用 PowerShell 的 WinRT 通知；系统关掉通知权限时不会补发
+- 资源页的扩展开关只改 `settings.json`，重启 Agent 后生效；本地 `.ts` 扩展自动加载，不能在此停用
 - 翻译目前覆盖设置页、命令面板、托盘与键位页；其余界面仍显示中文，按 `i18n.go` 的目录逐步补
 - 用量统计最多读最近 3000 个会话文件，按会话 ID 去重；导入副本与移动过的文件可能让统计略有偏差
 - 手机远程当前只读：可查看项目和会话历史，不能新建会话或发送消息；只列本机项目

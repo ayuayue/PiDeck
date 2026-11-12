@@ -153,6 +153,10 @@ type app struct {
 	usage        *core.Signal[usageReport]
 	usageLoading *core.Signal[bool]
 	usageLoaded  bool
+	// resources are pi's skills and extensions, read when the page opens.
+	resources        *core.Signal[resourceReport]
+	resourcesLoading *core.Signal[bool]
+	resourcesLoaded  bool
 
 	// The provider editor: which provider, its fields, and the result of
 	// a connection test.
@@ -294,6 +298,8 @@ func newApp(cx *core.Scope) *app {
 		providers:        core.NewSignalFunc(cx, []providerInfo(nil), nil),
 		usage:            core.NewSignalFunc(cx, usageReport{}, nil),
 		usageLoading:     core.NewSignal(cx, false),
+		resources:        core.NewSignalFunc(cx, resourceReport{}, nil),
+		resourcesLoading: core.NewSignal(cx, false),
 		langRev:          core.NewSignal(cx, 0),
 		providerOpen:     core.NewSignal(cx, false),
 		providerID:       core.NewSignal(cx, ""),

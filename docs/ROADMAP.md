@@ -78,7 +78,7 @@
 
 | 功能 | 状态 | 计划 |
 | --- | --- | --- |
-| Skills / Extensions 管理 | 🟡 | 只有 JSON 插件 |
+| Skills / Extensions 管理 | ✅ | 技能列表与 SKILL.md、扩展启停（写 settings.json）、目录入口 |
 | Prompt / Skill 商店 | ⬜ | 在线索引 + 一键安装 |
 | 内置智能体 | ⬜ | 预设提示词与会话绑定 |
 | 中文提示词库 | ⬜ | 内置分类与搜索 |
