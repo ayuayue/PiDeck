@@ -46,6 +46,12 @@ test("session manager archive keeps the dialog open and archives under the ownin
 
 	// 用户主动关闭仍然要接在这一个 prop 上（X / Esc / 遮罩）
 	assert.match(manager, /onClose=\{controller\.closeSessionManager\}/);
+
+	// 归档后弹窗保持打开 ⇒ 归档视图不能复用上一次的列表缓存（#538）。
+	// 曾经用「archivedRows === null 才拉」做缓存：首次看过归档后归档一条，再切回「已归档」
+	// 仍显示旧列表（普通列表已移除该会话，用户看到的是「归档后消失」）。
+	assert.doesNotMatch(components, /archivedRows === null\)\s*loadArchivedRows\(\)/, "不得再用「缓存为 null 才加载」的判据");
+	assert.match(components, /setArchivedRows\(null\);\s*\n\s*loadArchivedRows\(\);\s*\n\s*setShowArchived\(true\);/, "进入归档视图必须清空缓存并重新拉取");
 });
 
 test("session manager archive clears the finished selection without closing", () => {

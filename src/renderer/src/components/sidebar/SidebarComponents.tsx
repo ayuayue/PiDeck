@@ -212,8 +212,9 @@ export function SessionManagerModal(props: {
 		props.onDelete(toDelete);
 	};
 
-	// 归档视图数据：pi（文件归档）+ DSH（host 目录归档）按家族归属过滤后合并，恢复后重新拉取。
+	// 归档视图数据：pi（文件归档）+ DSH（host 目录归档）按家族归属过滤后合并。
 	// 弹窗按项目上下文（整个 worktree 家族）展示归档，不再全量跨项目。
+	// 调用点只有三类：进入归档视图（每次都拉）、恢复/永久删除之后（重新拉）、远端删除回执。
 	const loadArchivedRows = () => {
 		void Promise.all([props.listArchived(), props.listArchivedDsh()])
 			.then(([piSessions, dshItems]) => {
@@ -336,8 +337,11 @@ export function SessionManagerModal(props: {
 										setArchivedSelected(new Set());
 										setArchivedSelectAll(false);
 									} else {
-										// 打开归档视图时懒加载归档列表（pi 文件归档 + DSH host 目录归档）
-										if (archivedRows === null) loadArchivedRows();
+										// 每次进入都重新拉取归档列表（pi 文件归档 + DSH host 目录归档）。
+										// 不缓存：归档/恢复/永久删除都会同时改动两侧列表，上一次的缓存必然过期，
+										// 复用它的表现是「刚归档的会话在已归档里看不到」（#538）。代价只是一次 IPC。
+										setArchivedRows(null);
+										loadArchivedRows();
 										setShowArchived(true);
 									}
 								}}
