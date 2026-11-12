@@ -24,15 +24,27 @@ type appCommand struct {
 	Icon        func() *core.SVG
 	// When hides the command when it does not apply; nil always shows.
 	When func(*app) bool
-	Run  func(*app)
+	// Hidden keeps a command out of the palette while a key still runs
+	// it: closing a tab, cycling tabs, opening the palette itself.
+	Hidden bool
+	Run    func(*app)
 }
 
 // builtinCommands is the app's own list. Groups read as the palette's
 // sections.
 func builtinCommands() []appCommand {
 	return []appCommand{
+		{ID: "palette", Label: "打开命令面板", Group: "应用", Shortcut: "mod+k", Icon: lucide.Command, Hidden: true,
+			Run: func(a *app) { a.palette.Set(true) }},
 		{ID: "new-session", Label: "新建会话", Group: "会话", Shortcut: "mod+n", Icon: lucide.SquarePen,
 			Run: func(a *app) { a.newSession(a.activeWS.Get()) }},
+		{ID: "close-tab", Label: "关闭当前标签", Group: "会话", Shortcut: "mod+w", Icon: lucide.X, Hidden: true,
+			When: func(a *app) bool { return a.activeID.GetUntracked() != "" },
+			Run:  func(a *app) { a.closeTab(a.activeID.GetUntracked()) }},
+		{ID: "next-tab", Label: "下一个标签", Group: "会话", Shortcut: "ctrl+tab", Icon: lucide.ChevronRight, Hidden: true,
+			Run: func(a *app) { a.cycleTab(1) }},
+		{ID: "prev-tab", Label: "上一个标签", Group: "会话", Shortcut: "ctrl+shift+tab", Icon: lucide.ChevronLeft, Hidden: true,
+			Run: func(a *app) { a.cycleTab(-1) }},
 		{ID: "rename", Label: "重命名会话", Group: "会话", Icon: lucide.Pencil,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.askRename(a.active()) }},
@@ -45,6 +57,26 @@ func builtinCommands() []appCommand {
 		{ID: "stop", Label: "停止当前运行", Group: "会话", Icon: lucide.Square,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.stop(a.active()) }},
+		{ID: "restart-agent", Label: "重启 Agent", Group: "会话", Icon: lucide.RefreshCw,
+			When: func(a *app) bool { return a.active() != nil },
+			Run: func(a *app) {
+				s := a.active()
+				if s.busyNow() {
+					a.askConfirm("重启 Agent", "这一轮还在运行，重启会中断它。", "重启", func() { a.restartAgent(s) })
+					return
+				}
+				a.restartAgent(s)
+			}},
+		{ID: "close-agent", Label: "关闭 Agent", Group: "会话", Icon: lucide.Power,
+			When: func(a *app) bool { return a.active() != nil },
+			Run: func(a *app) {
+				s := a.active()
+				if s.busyNow() {
+					a.askConfirm("关闭 Agent", "这一轮还在运行，关闭会中断它；记录和标签会保留。", "关闭", func() { a.closeAgent(s) })
+					return
+				}
+				a.closeAgent(s)
+			}},
 		{ID: "copy-last", Label: "复制最后回复", Group: "会话", Icon: lucide.Copy,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.copyLastReply() }},
@@ -121,6 +153,9 @@ func builtinCommands() []appCommand {
 // commandList is the app's commands followed by the enabled plugins'.
 func (a *app) commandList() []appCommand {
 	out := builtinCommands()
+	if a.plugins == nil {
+		return out
+	}
 	for _, p := range a.plugins.GetUntracked() {
 		if p.Disabled || p.Error != "" {
 			continue
@@ -144,6 +179,9 @@ func (a *app) commandList() []appCommand {
 func (a *app) commandItems() []base.CommandItem {
 	var out []base.CommandItem
 	for _, c := range a.commandList() {
+		if c.Hidden {
+			continue
+		}
 		if c.When != nil && !c.When(a) {
 			continue
 		}
@@ -154,9 +192,11 @@ func (a *app) commandItems() []base.CommandItem {
 		out = append(out, base.CommandItem{ID: c.ID, Label: c.Label, Description: c.Description,
 			Group: c.Group, Shortcut: c.Shortcut, Icon: icon()})
 	}
-	for _, th := range a.themes.GetUntracked() {
-		out = append(out, base.CommandItem{ID: "theme:" + th.ID, Label: "配色 · " + th.Name, Group: "外观",
-			Icon: lucide.Palette()})
+	if a.themes != nil {
+		for _, th := range a.themes.GetUntracked() {
+			out = append(out, base.CommandItem{ID: "theme:" + th.ID, Label: "配色 · " + th.Name, Group: "外观",
+				Icon: lucide.Palette()})
+		}
 	}
 	return out
 }

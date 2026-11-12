@@ -73,6 +73,9 @@ type config struct {
 	// DisabledPlugins are the plugin ids the user turned off; everything
 	// else under plugins/ runs.
 	DisabledPlugins []string `json:"disabledPlugins,omitempty"`
+	// Keybindings replaces a command's default key, by command id. An
+	// empty key removes the binding.
+	Keybindings map[string]string `json:"keybindings,omitempty"`
 }
 
 // store holds the config file and the session directory.
@@ -123,6 +126,10 @@ func (s *store) config() config {
 	c.FavModels = append([]string(nil), s.c.FavModels...)
 	c.ProviderOrder = append([]string(nil), s.c.ProviderOrder...)
 	c.DisabledPlugins = append([]string(nil), s.c.DisabledPlugins...)
+	c.Keybindings = make(map[string]string, len(s.c.Keybindings))
+	for k, v := range s.c.Keybindings {
+		c.Keybindings[k] = v
+	}
 	c.Titles = make(map[string]string, len(s.c.Titles))
 	for k, v := range s.c.Titles {
 		c.Titles[k] = v

@@ -648,6 +648,7 @@ func (a *app) reloadFrameworks() {
 			a.themes.Set(themes)
 			a.providers.Set(providers)
 			a.applyTheme()
+			a.applyKeybindings()
 			a.reopenSavedTabs()
 			a.rescanPi()
 		})
@@ -670,6 +671,7 @@ func (a *app) reloadAddons() {
 			a.plugins.Set(plugins)
 			a.themes.Set(themes)
 			a.applyTheme()
+			a.applyKeybindings()
 		})
 	}()
 }

@@ -110,7 +110,10 @@ type session struct {
 
 	engine   *piClient
 	starting bool
-	waiters  []func()
+	// restarting makes the exit handler start pi again instead of
+	// reporting the process as gone.
+	restarting bool
+	waiters    []func()
 
 	mu         sync.Mutex
 	liveText   strings.Builder // deltas not yet published
@@ -200,6 +203,13 @@ type app struct {
 	defaultModel    modelChoice
 	defaultThinking string
 	notes           int
+
+	// keymap is key → command at this moment; boundKeys are the keys the
+	// platform already knows about, so a rebuild only binds new ones.
+	keymap       map[string]string
+	boundKeys    map[string]bool
+	keybindings  []keyBinding
+	keyConflicts []string
 }
 
 // newApp builds the state from the config and the session store.
@@ -1305,6 +1315,29 @@ func (a *app) ensureEngine(s *session, then func()) {
 	go a.startEngine(s)
 }
 
+// restartAgent stops a session's pi and starts it again: the way to pick
+// up a changed model list or a stuck process without losing the tab.
+func (a *app) restartAgent(s *session) {
+	if s == nil {
+		return
+	}
+	if s.engine == nil {
+		a.ensureEngine(s, nil)
+		return
+	}
+	s.restarting = true
+	s.engine.stop()
+}
+
+// closeAgent stops a session's pi and keeps the transcript and tab; the
+// next message starts it again.
+func (a *app) closeAgent(s *session) {
+	if s == nil || s.engine == nil {
+		return
+	}
+	s.engine.stop()
+}
+
 // startEngine spawns pi and reads its state, off the UI thread.
 func (a *app) startEngine(s *session) {
 	sessionFile := ""
@@ -1435,6 +1468,16 @@ func (a *app) failSession(s *session, why string) {
 // onPiExit handles a process that ended; nil means it was asked to stop.
 func (a *app) onPiExit(s *session, err error) {
 	a.cx.Post(func() {
+		if s.restarting {
+			s.restarting = false
+			s.engine = nil
+			s.starting = false
+			s.readySig.Set(false)
+			s.waiters = nil
+			s.status.Set(statusIdle)
+			a.ensureEngine(s, nil)
+			return
+		}
 		if s.engine == nil {
 			return
 		}
@@ -2726,22 +2769,5 @@ func (a *app) revealSession(s *session) {
 	a.revealProject(a.workspaceFor(s.Target, s.WS))
 }
 
-// bindKeys gives the app its shortcuts.
-func (a *app) bindKeys() {
-	a.cx.OnKey("mod+n", func() { a.newSession(a.activeWS.Get()) })
-	a.cx.OnKey("mod+k", func() { a.palette.Set(true) })
-	a.cx.OnKey("mod+w", func() { a.closeTab(a.activeID.GetUntracked()) })
-	a.cx.OnKey("ctrl+tab", func() { a.cycleTab(1) })
-	a.cx.OnKey("ctrl+shift+tab", func() { a.cycleTab(-1) })
-	a.cx.OnKey("mod+b", func() {
-		a.sidebar.Update(func(v bool) bool { return !v })
-		a.remember()
-	})
-	a.cx.OnKey("mod+j", func() {
-		a.drawer.Update(func(v bool) bool { return !v })
-		a.remember()
-	})
-	a.cx.OnKey("mod+shift+g", func() { a.openGit() })
-	a.cx.OnKey("ctrl+shift+t", func() { a.toggleTerminal() })
-	a.cx.OnKey("mod+,", func() { a.settings.Set(true) })
-}
+// bindKeys is in keybindings.go: it binds each key to a router so a
+// binding can change without leaving a stale handler behind.

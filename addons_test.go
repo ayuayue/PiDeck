@@ -302,6 +302,8 @@ func TestSettingsTabs(t *testing.T) {
 	app.WaitFor("id:settings-tab-env", 5*time.Second)
 	app.Press("id:settings-tab-models")
 	app.WaitFor("text:供应商与认证", 5*time.Second)
+	app.Press("id:settings-tab-keys")
+	app.WaitFor("text:全部恢复默认", 5*time.Second)
 	app.Press("id:settings-tab-look")
 	app.WaitFor(`text:"配色"`, 5*time.Second)
 	app.Press("id:settings-tab-addons")

@@ -32,6 +32,7 @@ func settingsSections() []settingsSection {
 	return []settingsSection{
 		{"general", "通用", lucide.Settings2, "通用", "新会话的默认值，以及侧栏读什么。"},
 		{"models", "模型与认证", lucide.Cpu, "模型与认证", "pi 认识哪些供应商、各自有多少模型、凭据是否可用。"},
+		{"keys", "键位", lucide.Keyboard, "键位", "每个命令的快捷键；留空则不绑定，改坏了可以恢复默认。"},
 		{"look", "外观", lucide.Palette, "外观", "配色与主题文件。"},
 		{"remote", "远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。"},
 		{"env", "环境", lucide.Terminal, "环境", "pi 在哪里、能不能用；WSL 与 SSH 目标。"},
@@ -134,6 +135,8 @@ func (a *app) settingsContent() core.Node {
 		switch a.settingsTab.Get() {
 		case "models":
 			return a.settingsModels()
+		case "keys":
+			return a.settingsKeys()
 		case "look":
 			return a.settingsLook()
 		case "remote":
@@ -427,6 +430,73 @@ func (a *app) settingsModels() core.Node {
 				setGroup("供应商与认证", rows...),
 				core.Text{Content: "凭据由 pi 管理（~/.pi/agent/auth.json）。在终端里执行登录命令后，点下方的「重新检测」。",
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
+			}},
+		}}
+	})
+}
+
+// settingsKeys edits each command's shortcut. A field commits on Enter;
+// an empty field unbinds, and "默认" puts the default back.
+func (a *app) settingsKeys() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		var rows []core.Node
+		cmds := a.keybindingCommands()
+		for i, c := range cmds {
+			cmd := c
+			desc := cmd.Group
+			if src := a.bindingSource(cmd.ID); src != "" && src != "默认" {
+				desc += " · " + src
+			}
+			field := core.Input{
+				Value:       func() string { return a.effectiveKey(cmd.ID) },
+				Placeholder: "如 mod+shift+r",
+				Label:       cmd.Label + " 的键位",
+				TestID:      "key-" + cmd.ID,
+				OnSubmit: func(v string) {
+					if !a.setKeybinding(cmd.ID, v) {
+						return
+					}
+					if strings.TrimSpace(v) == "" {
+						a.toast(ui.ToastInfo, "已取消绑定", cmd.Label)
+					}
+				},
+				Style: core.Style{Width: core.Pt(150), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
+					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
+			}
+			reset := ui.Button{Text: "默认", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				Disabled: func() bool {
+					if a.cfg.Keybindings == nil {
+						return true
+					}
+					_, set := a.cfg.Keybindings[cmd.ID]
+					return !set
+				},
+				OnPress: func() { a.resetKeybinding(cmd.ID) }}
+			control := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
+				Children: []core.Node{field, reset}}
+			rows = append(rows, setRow(cmd.Label, desc, control))
+			if i < len(cmds)-1 {
+				rows = append(rows, setDivider())
+			}
+		}
+		var conflicts []core.Node
+		for _, c := range a.keyConflicts {
+			conflicts = append(conflicts, core.Text{Content: "· " + c, Style: core.Style{FontSize: 10.5, LineHeight: 16},
+				StyleFunc: ui.Colored(colors.Warn)})
+		}
+		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 6}, Children: []core.Node{
+				setGroup("命令", rows...),
+				core.Text{Content: "写法：mod（Mac 的 Command / 其他平台的 Ctrl）、ctrl、alt、shift、meta 加键名，例如 mod+shift+g、ctrl+tab、f5。回车保存，留空取消绑定。",
+					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Show{When: func() bool { return len(conflicts) > 0 }, Then: func(*core.Scope) core.Node {
+					return setGroup("冲突", conflicts...)
+				}},
+				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 2}}, Children: []core.Node{
+					ui.Button{Text: "全部恢复默认", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.resetKeybindings},
+				}},
 			}},
 		}}
 	})
