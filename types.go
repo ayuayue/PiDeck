@@ -253,6 +253,131 @@ type extensionAsk struct {
 	Timeout time.Duration
 }
 
+// todoItem is one line of the agent's task list, as its todo tool reports
+// it. The bar above the composer shows these; the statuses are the ones
+// the tools use, normalized.
+type todoItem struct {
+	Text   string
+	Status string // pending, in_progress, completed or cancelled
+}
+
+// todoCounts is how a task list stands.
+func todoCounts(items []todoItem) (done, total int) {
+	for _, it := range items {
+		if it.Status == "cancelled" {
+			continue
+		}
+		total++
+		if it.Status == "completed" {
+			done++
+		}
+	}
+	return done, total
+}
+
+// isTodoTool reports whether a tool call carries the task list.
+func isTodoTool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "todo", "todos", "todowrite", "todo_write", "update_todo", "write_todo", "task_list":
+		return true
+	}
+	return false
+}
+
+// parseTodoArgs reads a todo tool call's arguments. Tools name the list
+// and its fields differently, so it looks for the common shapes rather
+// than one schema.
+func parseTodoArgs(raw json.RawMessage) ([]todoItem, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	var list []json.RawMessage
+	if json.Unmarshal(raw, &list) != nil || len(list) == 0 {
+		var args map[string]json.RawMessage
+		if json.Unmarshal(raw, &args) != nil {
+			return nil, false
+		}
+		for _, k := range []string{"todos", "items", "tasks", "list", "plan", "steps"} {
+			v, ok := args[k]
+			if !ok {
+				continue
+			}
+			if json.Unmarshal(v, &list) == nil && len(list) > 0 {
+				break
+			}
+			list = nil
+		}
+	}
+	if len(list) == 0 {
+		return nil, false
+	}
+	var out []todoItem
+	for _, rawItem := range list {
+		var obj map[string]any
+		if json.Unmarshal(rawItem, &obj) != nil {
+			// A list of plain strings is a list of pending tasks.
+			var text string
+			if json.Unmarshal(rawItem, &text) == nil && strings.TrimSpace(text) != "" {
+				out = append(out, todoItem{Text: strings.TrimSpace(text), Status: "pending"})
+			}
+			continue
+		}
+		text := ""
+		for _, k := range []string{"content", "text", "title", "task", "description", "name", "label", "step"} {
+			if s, ok := obj[k].(string); ok && strings.TrimSpace(s) != "" {
+				text = strings.TrimSpace(s)
+				break
+			}
+		}
+		if text == "" {
+			continue
+		}
+		status := "pending"
+		if s, ok := obj["status"].(string); ok {
+			status = normalizeTodoStatus(s)
+		} else if done, ok := obj["done"].(bool); ok && done {
+			status = "completed"
+		}
+		out = append(out, todoItem{Text: text, Status: status})
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
+}
+
+// normalizeTodoStatus folds the words tools use for a task's state.
+func normalizeTodoStatus(s string) string {
+	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), "-", "_")) {
+	case "completed", "complete", "done", "finished", "closed":
+		return "completed"
+	case "in_progress", "inprogress", "doing", "running", "active", "started":
+		return "in_progress"
+	case "cancelled", "canceled", "skipped", "abandoned":
+		return "cancelled"
+	}
+	return "pending"
+}
+
+// todosFromMessages finds the newest task list pi's history carries.
+func todosFromMessages(msgs []piMessage) []todoItem {
+	var last []todoItem
+	for _, m := range msgs {
+		if m.Role != "assistant" {
+			continue
+		}
+		for _, b := range m.blocks() {
+			if b.Type != "toolCall" || !isTodoTool(b.Name) {
+				continue
+			}
+			if items, ok := parseTodoArgs(b.Arguments); ok {
+				last = items
+			}
+		}
+	}
+	return last
+}
+
 // toolAnswer builds a short label from a tool call's arguments.
 func toolSummary(name string, raw json.RawMessage) (string, string) {
 	var args map[string]any

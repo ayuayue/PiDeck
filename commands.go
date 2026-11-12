@@ -97,12 +97,30 @@ func builtinCommands() []appCommand {
 		{ID: "copy-last", Label: "复制最后回复", Group: "会话", Icon: lucide.Copy,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.copyLastReply() }},
+		{ID: "copy-prompt", Label: "复制上一条提问", Group: "会话", Icon: lucide.Quote,
+			When: func(a *app) bool { return a.active() != nil },
+			Run: func(a *app) {
+				if text, ok := a.lastPrompt(); ok {
+					a.copyText(text, "提问")
+				}
+			}},
+		{ID: "edit-prompt", Label: "把上一条提问放回输入框", Group: "会话", Icon: lucide.PencilLine,
+			When: func(a *app) bool { return a.active() != nil },
+			Run: func(a *app) {
+				if text, ok := a.lastPrompt(); ok {
+					a.active().draft.Set(text)
+					a.toast(ui.ToastInfo, "提问已放回输入框", "可以改完再发。")
+				}
+			}},
 		{ID: "copy-id", Label: "复制会话 ID", Group: "会话", Icon: lucide.IdCard,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.copySessionID() }},
 		{ID: "reveal-session", Label: "在文件管理器中显示会话", Group: "会话", Icon: lucide.FolderOpen,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.revealSession(a.active()) }},
+		{ID: "duplicate-session", Label: "复制会话", Group: "会话", Icon: lucide.CopyPlus,
+			When: func(a *app) bool { return a.active() != nil },
+			Run:  func(a *app) { a.duplicateSession(a.active()) }},
 		{ID: "delete", Label: "删除会话", Group: "会话", Icon: lucide.Trash,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.deleteSession(a.active()) }},
@@ -359,6 +377,21 @@ func (a *app) copyLastReply() {
 		}
 	}
 	a.toast(ui.ToastInfo, "没有可复制的回复", "")
+}
+
+// lastPrompt is the newest user prompt in the active session.
+func (a *app) lastPrompt() (string, bool) {
+	s := a.active()
+	if s == nil {
+		return "", false
+	}
+	ts := s.turns.Get()
+	for i := len(ts) - 1; i >= 0; i-- {
+		if ts[i].Prompt != "" {
+			return ts[i].Prompt, true
+		}
+	}
+	return "", false
 }
 
 // copySessionID copies the active session's id.

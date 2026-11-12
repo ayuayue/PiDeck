@@ -326,6 +326,60 @@ func (s *store) importSession(src string) (sessionMeta, error) {
 	return m, nil
 }
 
+// duplicateSession copies a session file under a new id, so the copy can
+// be resumed without sharing a file with the original.
+func (s *store) duplicateSession(src, id, title string) (sessionMeta, error) {
+	if src == "" || id == "" {
+		return sessionMeta{}, fmt.Errorf("没有可复制的会话文件")
+	}
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return sessionMeta{}, err
+	}
+	nl := bytes.IndexByte(raw, '\n')
+	if nl < 0 {
+		return sessionMeta{}, fmt.Errorf("不是有效的 pi 会话文件")
+	}
+	var head map[string]any
+	if json.Unmarshal(raw[:nl], &head) != nil || head["type"] != "session" {
+		return sessionMeta{}, fmt.Errorf("不是有效的 pi 会话文件")
+	}
+	cwd, _ := head["cwd"].(string)
+	now := time.Now().UTC()
+	head["id"] = id
+	head["timestamp"] = now.Format(time.RFC3339Nano)
+	headRaw, err := json.Marshal(head)
+	if err != nil {
+		return sessionMeta{}, err
+	}
+	var out bytes.Buffer
+	out.Write(headRaw)
+	out.WriteByte('\n')
+	out.Write(raw[nl+1:])
+	if title != "" {
+		info, _ := json.Marshal(map[string]any{
+			"type":      "session_info",
+			"name":      title,
+			"timestamp": now.Format(time.RFC3339Nano),
+		})
+		out.Write(info)
+		out.WriteByte('\n')
+	}
+	dir := filepath.Join(s.sessions, encodeCwd(filepath.Clean(cwd)))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return sessionMeta{}, err
+	}
+	dst := filepath.Join(dir, now.Format("2006-01-02T15-04-05-000Z")+"_"+id+".jsonl")
+	if err := os.WriteFile(dst, out.Bytes(), 0o644); err != nil {
+		return sessionMeta{}, err
+	}
+	m, ok := readSessionMeta(dst, nil)
+	if !ok {
+		return sessionMeta{}, fmt.Errorf("复制后无法读取该会话")
+	}
+	return m, nil
+}
+
 // deleteSession moves a session file out of the way rather than erasing
 // it. A process that just closed can hold the file a moment longer, so the
 // move is retried before it is reported as failed.

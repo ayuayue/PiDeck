@@ -33,7 +33,7 @@ func (a *app) chatPane() core.Node {
 					JumpLabel: "跳到最新消息",
 					TestID:    "transcript",
 					Children:  []core.Node{a.transcript(s)},
-					Composer:  []core.Node{a.composer(s)},
+					Composer:  []core.Node{a.todoBar(s), a.composer(s)},
 				},
 				core.Show{When: func() bool {
 					return len(s.turns.Get()) == 0 && !s.loaded.Get() && s.status.Get() != statusFailed
@@ -171,6 +171,13 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			Actions: func(cx *core.Scope) core.Node {
 				tt := t()
 				return core.Group{
+					chat.IconAction{Label: "复制提问", Icon: lucide.Quote, Disabled: func() bool { return tt.Prompt == "" },
+						OnPress: func() { a.copyText(tt.Prompt, "提问") }},
+					chat.IconAction{Label: "把提问放回输入框", Icon: lucide.PencilLine, Disabled: func() bool { return tt.Prompt == "" },
+						OnPress: func() {
+							s.draft.Set(tt.Prompt)
+							a.toast(ui.ToastInfo, "提问已放回输入框", "可以改完再发。")
+						}},
 					chat.IconAction{Label: "复制回复", Icon: lucide.Copy, OnPress: func() {
 						text := tt.Final
 						if text == "" {
@@ -885,6 +892,118 @@ func duration(d time.Duration) string {
 
 // keep base imported for menu items built here as the UI grows.
 var _ = base.ReasonSelect
+
+// todoBar is the agent's task list above the composer: a progress line
+// that opens to the items. It stays out of the way when there is no list.
+func (a *app) todoBar(s *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		items := s.todos.Get()
+		if len(items) == 0 {
+			return nil
+		}
+		done, total := todoCounts(items)
+		open := s.todoOpen.Get()
+		current := ""
+		for _, it := range items {
+			if it.Status == "in_progress" {
+				current = it.Text
+				break
+			}
+		}
+		if current == "" && done < total {
+			for _, it := range items {
+				if it.Status == "pending" {
+					current = it.Text
+					break
+				}
+			}
+		}
+		head := core.View{
+			OnPress: func(core.PressEvent) { s.todoOpen.Update(func(v bool) bool { return !v }) },
+			Role:    core.RoleButton, Label: "任务列表", TestID: "todo-bar",
+			StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32),
+					Padding: core.Symmetric(0, 10), CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Border(),
+					Background: colors.Surface(), Hover: &core.Style{Background: colors.Hover()},
+					Transition: pressMotion}
+			},
+			Children: []core.Node{
+				ui.Icon(lucide.ListChecks, 13, colors.Muted),
+				core.Text{ContentFunc: func() string {
+					d, t := todoCounts(s.todos.Get())
+					return fmt.Sprintf("任务 %d/%d", d, t)
+				}, Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
+				core.View{Style: core.Style{Width: core.Pt(84), Height: core.Pt(4), CornerRadius: 2, Background: colors.Track()}, Children: []core.Node{
+					core.View{StyleFunc: func() core.Style {
+						d, t := todoCounts(s.todos.Get())
+						p := float32(0)
+						if t > 0 {
+							p = float32(d) / float32(t)
+						}
+						return core.Style{Width: core.Pct(p * 100), Height: core.Pt(4), CornerRadius: 2, Background: colors.Up()}
+					}},
+				}},
+				core.Text{ContentFunc: func() string {
+					if current == "" {
+						return "全部完成"
+					}
+					return shorten(current, 54)
+				}, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Muted)},
+				ui.IconOf(func() *core.SVG {
+					if open {
+						return lucide.ChevronDown()
+					}
+					return lucide.ChevronUp()
+				}, 12, colors.Faint),
+				core.View{OnPress: func(core.PressEvent) { s.todos.Set(nil) }, Role: core.RoleButton, Label: "清除任务列表",
+					StyleFunc: func() core.Style {
+						return core.Style{Width: core.Pt(20), Height: core.Pt(20), CornerRadius: 5, AlignItems: core.AlignCenter,
+							JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
+					}, Children: []core.Node{ui.Icon(lucide.X, 11, colors.Faint)}},
+			},
+		}
+		if !open {
+			return core.View{Style: core.Style{Padding: core.Edges{Left: 12, Right: 12, Bottom: 6}}, Children: []core.Node{head}}
+		}
+		var rows []core.Node
+		for _, it := range items {
+			item := it
+			icon := lucide.Circle
+			tint := colors.Faint
+			weight := ui.Regular
+			switch item.Status {
+			case "completed":
+				icon, tint = lucide.CircleCheck, colors.Up
+			case "in_progress":
+				icon, tint, weight = lucide.Loader, colors.Accent, ui.Medium
+			case "cancelled":
+				icon, tint = lucide.CircleX, colors.Faint
+			}
+			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7,
+				MinHeight: core.Pt(24), Padding: core.Edges{Left: 10, Right: 8}}, Children: []core.Node{
+				ui.Icon(icon, 12, tint),
+				core.Text{Content: item.Text, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5, LineHeight: 16},
+					StyleFunc: func() core.Style {
+						color := colors.Text()
+						if item.Status == "completed" || item.Status == "cancelled" {
+							color = colors.Faint()
+						}
+						return core.Style{Color: color, FontWeight: weight}
+					}},
+			}})
+		}
+		return core.View{Style: core.Style{Padding: core.Edges{Left: 12, Right: 12, Bottom: 6}, Gap: 3}, Children: []core.Node{
+			head,
+			core.View{Style: core.Style{Direction: core.Column, Gap: 1, MaxHeight: core.Pt(168)},
+				Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(168)}, Children: []core.Node{
+					core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows},
+				}}}},
+		}}
+	})
+}
 
 // streamCaret is the block that pulses at the end of a growing answer.
 func streamCaret(cx *core.Scope) core.Node {

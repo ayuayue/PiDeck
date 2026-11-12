@@ -545,6 +545,7 @@ func (a *app) sessionMenuItems(sess func() *session) []core.Node {
 		a.menuRow(a.cx, lucide.Star, pinLabel(a, sess), "", false, func() { a.togglePin(sess()) }),
 		a.menuRow(a.cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(sess()) }),
 		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(sess().ID, "会话 ID") }),
+		a.menuRow(a.cx, lucide.CopyPlus, "复制会话", "", false, func() { a.duplicateSession(sess()) }),
 		a.menuRow(a.cx, lucide.FileDown, "导出 HTML", "", false, func() { a.exportHTML(sess()) }),
 		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中显示", "", false, func() { a.revealSession(sess()) }),
 		a.menuRow(a.cx, lucide.Copy, "复制工作目录", "", false, func() { a.copyText(sess().WS, "路径") }),

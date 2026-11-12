@@ -90,6 +90,10 @@ type session struct {
 	queued   *core.Signal[int]
 	ask      *core.Signal[*extensionAsk]
 	window   *core.Signal[int]
+	// todos is the agent's task list, and todoOpen whether the bar above
+	// the composer shows all of it.
+	todos    *core.Signal[[]todoItem]
+	todoOpen *core.Signal[bool]
 	// runningSig is whether a turn is in flight. It changes twice a turn,
 	// so the composer's controls are not rebuilt by every streamed delta.
 	runningSig *core.Signal[bool]
@@ -406,6 +410,8 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		queued:         core.NewSignal(a.cx, 0),
 		ask:            core.NewSignalFunc(a.cx, (*extensionAsk)(nil), nil),
 		window:         core.NewSignal(a.cx, 24),
+		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
+		todoOpen:       core.NewSignal(a.cx, false),
 		runningSig:     core.NewSignal(a.cx, false),
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
@@ -992,6 +998,8 @@ func (a *app) newSession(path string) *session {
 		queued:         core.NewSignal(a.cx, 0),
 		ask:            core.NewSignalFunc(a.cx, (*extensionAsk)(nil), nil),
 		window:         core.NewSignal(a.cx, 24),
+		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
+		todoOpen:       core.NewSignal(a.cx, false),
 		runningSig:     core.NewSignal(a.cx, false),
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
@@ -1204,6 +1212,36 @@ func (a *app) importSession(path string) {
 }
 
 // deleteSession moves a session out of the store.
+// duplicateSession copies a session's file under a new id and opens the
+// copy, so an experiment does not touch the original's history.
+func (a *app) duplicateSession(s *session) {
+	if s == nil || a.st == nil {
+		return
+	}
+	if s.File == "" {
+		a.toast(ui.ToastInfo, "这个会话还没有文件", "发一条消息后就能复制。")
+		return
+	}
+	id := newSessionID()
+	title := s.title.GetUntracked() + " 副本"
+	src, st := s.File, a.st
+	go func() {
+		meta, err := st.duplicateSession(src, id, title)
+		a.cx.Post(func() {
+			if err != nil {
+				a.toast(ui.ToastError, "复制会话失败", err.Error())
+				return
+			}
+			ns := a.makeSession(meta, s.Target)
+			if ws := a.workspaceOf(meta.Cwd); ws != nil {
+				ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{ns}, ss...) })
+			}
+			a.selectSession(ns)
+			a.toast(ui.ToastSuccess, "已复制会话", title)
+		})
+	}()
+}
+
 func (a *app) deleteSession(s *session) {
 	if s == nil {
 		return
@@ -1443,6 +1481,9 @@ func (a *app) historyReady(s *session, msgs []piMessage) {
 	}
 	if len(msgs) > 0 && len(s.turns.GetUntracked()) == 0 {
 		s.turns.Set(turnsFromMessages(msgs))
+		if items := todosFromMessages(msgs); len(items) > 0 {
+			s.todos.Set(items)
+		}
 	}
 	s.loaded.Set(true)
 	waiters := s.waiters
@@ -2259,8 +2300,19 @@ func (a *app) commitAssistant(s *session, msg piMessage) {
 	})
 }
 
+// updateTodos takes the task list a todo tool call carries.
+func (a *app) updateTodos(s *session, toolName string, args json.RawMessage) {
+	if s == nil || !isTodoTool(toolName) {
+		return
+	}
+	if items, ok := parseTodoArgs(args); ok {
+		s.todos.Set(items)
+	}
+}
+
 // toolStarted records a tool the moment it runs.
 func (a *app) toolStarted(s *session, ev piEvent) {
+	a.updateTodos(s, ev.ToolName, ev.Args)
 	action, detail := toolSummary(ev.ToolName, ev.Args)
 	run := toolRun{CallID: ev.ToolCallID, Name: ev.ToolName, Action: action, Detail: detail, Status: chat.Running, Start: a.cx.Now()}
 	if !a.updateTool(s, run) {
