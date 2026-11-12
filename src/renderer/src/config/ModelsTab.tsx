@@ -105,6 +105,11 @@ export function ModelsTab(props: {
 	testModelIdByProvider: Record<string, string>;
 	/** 每个 provider 的测试/拉取代理选择：follow=跟随全局，pi/desktop=强制走对应代理，off=强制直连。 */
 	testProxyModeByProvider: Record<string, ConfigProxyMode>;
+	/**
+	 * 每个供应商在 pi `auth.json` 里已有 api_key 凭据时的掩码摘要（#537）。
+	 * models.json 的 `apiKey` 只是覆盖层：空着不代表没配。不传/缺项 = 无凭据。
+	 */
+	authKeyHints?: Record<string, { length: number; tail: string }>;
 	saving: boolean;
 	onToggleProvider: (name: string) => void;
 	onStartAddProvider: () => void;
@@ -610,6 +615,7 @@ export function ModelsTab(props: {
 													onClearTestResult={props.onClearTestResult}
 													testProxyMode={props.testProxyModeByProvider[name] ?? "follow"}
 													onChangeTestProxyMode={(mode) => props.onChangeTestProxyMode(name, mode)}
+													authKeyHint={props.authKeyHints?.[name] ?? null}
 													testResult={props.testResult && props.testResult.providerName === name ? props.testResult : null}
 													testHint={t((props.fetchedModels[name]?.length ?? 0) > 0 ? "config.testFailedButModelsFetched" : "config.testConnectionHint")}
 													advancedHint={

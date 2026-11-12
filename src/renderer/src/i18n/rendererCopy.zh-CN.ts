@@ -3698,6 +3698,7 @@ export const zhCN = {
 	"config.fetchingModels": "获取中…",
 	"config.field.apiKey": "API Key",
 	"config.field.apiKeyEmptyHint": "pi 只列出能解析凭据的供应商：留空且未登录时，该供应商的模型不会出现在会话模型选择器和代理名单里。",
+	"config.field.apiKeyFromAuth": "该供应商的凭据已在 pi 的 auth.json 中（末 {tail}，长度 {length}）：此处留空即沿用，不需要再填一遍。填了会以 models.json 的值覆盖它。",
 	"config.field.apiType": "API 类型",
 	"config.field.baseUrl": "Base URL",
 	"config.field.type": "类型",

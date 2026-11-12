@@ -45,6 +45,7 @@ import type { DiscoveredExtensionItem } from "./config/extensionsTableRows";
 // 桥贡献的「独立配置页」落点：每个 gui:config.page:* 贡献在「Agent 能力」组里占一个导航页。
 // 会话取值 / 落点 id 映射 / 「页消失就回退」都收在 hook 里（PR 评审 §3）。
 import { SecuritySection, type SecuritySectionHandle } from "./components/config/SecuritySection";
+import { secretHint } from "./components/app/settings/SecretValueInput";
 import { DshConfigTab, type DshConfigTabHandle } from "./config/DshConfigTab";
 import { t } from "./i18n";
 import { CodeMirrorEditor } from "./components/app/CodeMirrorEditor";
@@ -610,6 +611,19 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// 各 tab 的数据
 	const [modelsData, setModelsData] = useState<ModelsFile>({ providers: {} });
 	const [authData, setAuthData] = useState<AuthFile>({});
+	/**
+	 * 供应商页的 API Key 空框不等于没配：`models.json` 的 `apiKey` 只是覆盖层，pi 会从
+	 * `auth.json` 解析凭据（#537）。这里把已在 `auth.json` 的 api_key 做成掩码摘要交给模型页，
+	 * 只传长度与末几位，明文不因此多一条渲染层通道。
+	 */
+	const authKeyHints = useMemo(() => {
+		const hints: Record<string, { length: number; tail: string }> = {};
+		for (const [provider, entry] of Object.entries(authData)) {
+			const hint = secretHint(typeof entry?.key === "string" ? entry.key : "");
+			if (hint) hints[provider] = { length: hint.length, tail: hint.tail };
+		}
+		return hints;
+	}, [authData]);
 	const [settingsData, setSettingsData] = useState<SettingsFile>({});
 	/**
 	 * settings.json 是否已真实读入内存。模型页也要读写 settings（每模型默认思考档位），
@@ -3085,6 +3099,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 													testResult={testResult}
 													testModelIdByProvider={testModelIdByProvider}
 													testProxyModeByProvider={testProxyModeByProvider}
+													authKeyHints={authKeyHints}
 													saving={saving}
 													onToggleProvider={(name) => setExpandedProvider(expandedProvider === name ? null : name)}
 													onStartAddProvider={() => {

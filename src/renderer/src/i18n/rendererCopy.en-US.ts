@@ -3719,6 +3719,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.fetchingModels": "Fetching…",
 	"config.field.apiKey": "API Key",
 	"config.field.apiKeyEmptyHint": "pi only lists providers whose credentials it can resolve: while this stays empty and you are not signed in, its models stay out of the session model picker and the proxy list.",
+	"config.field.apiKeyFromAuth": "This provider already has a credential in pi's auth.json (ends {tail}, length {length}). Leaving the field empty keeps using it; a value here overrides it in models.json.",
 	"config.field.apiType": "API type",
 	"config.field.baseUrl": "Base URL",
 	"config.field.type": "Type",

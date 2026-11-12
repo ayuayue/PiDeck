@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: e32cb71029e00b21e6aa26d99fe86d1beed1ea94d4c58e5730123023f9be9dbe（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 4400ef8295fb44fedf0c68e47f6c74a267729555445a2c0258ce1fa181885de2（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3705,6 +3705,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.fetchingModels": "獲取中…",
 	"config.field.apiKey": "API Key",
 	"config.field.apiKeyEmptyHint": "pi 只列出能解析憑據的供應商：留空且未登入時，該供應商的模型不會出現在會話模型選擇器和代理名單裡。",
+	"config.field.apiKeyFromAuth": "該供應商的憑據已在 pi 的 auth.json 中（末 {tail}，長度 {length}）：此處留空即沿用，不需要再填一遍。填了會以 models.json 的值覆蓋它。",
 	"config.field.apiType": "API 型別",
 	"config.field.baseUrl": "Base URL",
 	"config.field.type": "型別",
