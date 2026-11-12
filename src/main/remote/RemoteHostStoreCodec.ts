@@ -84,7 +84,6 @@ function readProfile(value: unknown): RemoteHostProfile {
 		...(value.port !== undefined ? { port: value.port } : {}),
 		...(value.user !== undefined ? { user: value.user } : {}),
 		...(value.proxyJump !== undefined ? { proxyJump: value.proxyJump } : {}),
-		...(value.identityFile !== undefined ? { identityFile: value.identityFile } : {}),
 	};
 	try {
 		buildSshConfigQueryArgs(route);

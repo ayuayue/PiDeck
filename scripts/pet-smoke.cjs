@@ -90,6 +90,9 @@ app.whenReady().then(async () => {
 				if (id === "../../shared/rendererNoise") {
 					return loadPureTsModule(path.join(__dirname, "../src/shared/rendererNoise.ts"));
 				}
+				if (id === "../windowGeometry") {
+					return loadPureTsModule(path.join(__dirname, "../src/main/windowGeometry.ts"));
+				}
 				if (id === "../logging/sharedLogger") return { getAppLogger: () => undefined };
 				if (id === "./petSpriteProtocol") return { PET_WINDOW_PARTITION: "persist:pet" };
 				throw new Error(`pet-smoke: unexpected require(${id})`);

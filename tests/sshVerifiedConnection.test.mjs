@@ -298,10 +298,9 @@ test("rejects effective strict-setting drift and percent-token local paths", asy
 		await assert.rejects(buildBatch(directory, profile.id, { client: runner.client }));
 		assert.equal(runner.calls.length, 2);
 	}
-	const { directory: identityDirectory, profile: identityProfile } = await fixture(t, { identityFile: join(tmpdir(), "id%h") });
-	const identityRunner = configRunner(identityProfile.id);
-	await assert.rejects(buildBatch(identityDirectory, identityProfile.id, { client: identityRunner.client }), /INVALID_SSH_LOCAL_PATH/);
-	assert.equal(identityRunner.calls.length, 0);
+	// identityFile 含 ssh token（如 %h）会在首次握手（offerPin）就被拒绝：私钥路径会原样交给 ssh，
+	// 不能等到建连时才校验。
+	await assert.rejects(fixture(t, { identityFile: join(tmpdir(), "id%h") }), /INVALID_SSH_LOCAL_PATH/);
 	const { directory: tokenDirectory, profile: tokenProfile } = await fixture(t, {}, "pideck pin%h-");
 	const tokenRunner = configRunner(tokenProfile.id);
 	await assert.rejects(buildBatch(tokenDirectory, tokenProfile.id, { client: tokenRunner.client }), /INVALID_SSH_LOCAL_PATH/);
