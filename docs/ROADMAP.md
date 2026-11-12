@@ -67,8 +67,8 @@
 
 | 功能 | 状态 | 计划 |
 | --- | --- | --- |
-| models.json / auth.json / settings.json 可视化 | ⬜ | schema 驱动表单 |
-| 连接测试 | ⬜ | 供应商探针 |
+| models.json / auth.json / settings.json 可视化 | 🟡 | 供应商三字段可视化 + 原始 JSON 编辑器；schema 表单待做 |
+| 连接测试 | ✅ | `/models` 优先，失败退到最小 chat 请求；显示状态码与耗时 |
 | 模型能力自适应 | 🟡 | 读 models.json，缺动态刷新 |
 | 供应商余额/额度查询 | ⬜ | OpenRouter / Moonshot / 通用模板 |
 | 用量统计（热力图/日/模型/项目） | ⬜ | 本地会话聚合 |

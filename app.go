@@ -149,6 +149,16 @@ type app struct {
 	plugins   *core.Signal[[]plugin]
 	providers *core.Signal[[]providerInfo]
 
+	// The provider editor: which provider, its fields, and the result of
+	// a connection test.
+	providerOpen   *core.Signal[bool]
+	providerID     *core.Signal[string]
+	providerAPI    *core.Signal[string]
+	providerBase   *core.Signal[string]
+	providerKeySig *core.Signal[string]
+	providerTest   *core.Signal[string]
+	providerModels []modelConfig
+
 	workspaces *core.Signal[[]*workspace]
 	activeWS   *core.Signal[string]
 	tabs       *core.Signal[[]string]
@@ -263,6 +273,12 @@ func newApp(cx *core.Scope) *app {
 		themes:           core.NewSignalFunc(cx, []themeSpec(nil), nil),
 		plugins:          core.NewSignalFunc(cx, []plugin(nil), nil),
 		providers:        core.NewSignalFunc(cx, []providerInfo(nil), nil),
+		providerOpen:     core.NewSignal(cx, false),
+		providerID:       core.NewSignal(cx, ""),
+		providerAPI:      core.NewSignal(cx, ""),
+		providerBase:     core.NewSignal(cx, ""),
+		providerKeySig:   core.NewSignal(cx, ""),
+		providerTest:     core.NewSignal(cx, ""),
 	}
 	a.toaster = ui.NewToaster(cx)
 	a.files = newFileTree(cx)

@@ -375,6 +375,8 @@ func (a *app) settingsModels() core.Node {
 					}},
 				}},
 				badge(),
+				ui.IconButton{Icon: lucide.Settings2, Label: "配置 " + prov.ID, Size: 26, IconSize: 13,
+					TestID: "provider-configure-" + prov.ID, OnPress: func() { a.openProviderDialog(prov.ID) }},
 				arrowButton(lucide.ArrowUpToLine, "置顶供应商", func() { a.pinProvider(prov.ID) }),
 				arrowButton(lucide.ChevronUp, "上移供应商", func() { a.moveProvider(prov.ID, -1) }),
 				arrowButton(lucide.ChevronDown, "下移供应商", func() { a.moveProvider(prov.ID, 1) }),
@@ -430,6 +432,15 @@ func (a *app) settingsModels() core.Node {
 				setGroup("供应商与认证", rows...),
 				core.Text{Content: "凭据由 pi 管理（~/.pi/agent/auth.json）。在终端里执行登录命令后，点下方的「重新检测」。",
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
+				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{
+					ui.Button{Text: "编辑 models.json", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						OnPress: func() { a.openPiConfigFile("models.json") }},
+					ui.Button{Text: "编辑 settings.json", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						OnPress: func() { a.openPiConfigFile("settings.json") }},
+					ui.Button{Text: "编辑 auth.json", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						OnPress: func() { a.openPiConfigFile("auth.json") }},
+					ui.Button{Text: "重新检测", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.refreshProviders},
+				}},
 			}},
 		}}
 	})
@@ -587,6 +598,12 @@ func (a *app) settingsEnv() core.Node {
 			setRow("pi 会话目录", info.SessionsDir, ui.Button{Text: "打开", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 				if info.SessionsDir != "" {
 					a.cx.OpenURL(fileURL(info.SessionsDir), nil)
+				}
+			}}),
+			setDivider(),
+			setRow("pi 配置目录", piConfigDir(), ui.Button{Text: "打开", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+				if dir := piConfigDir(); dir != "" {
+					a.cx.OpenURL(fileURL(dir), nil)
 				}
 			}}),
 		)

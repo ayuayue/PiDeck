@@ -129,6 +129,9 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 - 通用：新会话默认模型/思考等级、项目下是否列 pi 本地会话、是否扫描所有项目
 - 模型与认证：供应商列表（模型数、API、BaseURL）、`pi auth check` 的就绪状态、
   复制登录命令、常用模型（收藏）管理
+- 供应商配置：点供应商右侧的设置按钮改 `api` / `baseUrl` / `apiKey`（只写这三个字段，
+  其余保持原样），可一键测试连接（先探 `/models`，再退到一次最小 chat 请求）
+- 原始配置：直接在内置编辑器里打开 `models.json` / `settings.json` / `auth.json`
 - 外观：配色（跟随系统/纸白/炭黑/用户主题）、打开主题目录
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区
 - 扩展：插件列表与命令、打开插件目录、重新加载
@@ -173,7 +176,8 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 | `ui.go` | 侧栏、标签、抽屉、命令面板、目标/重命名/确认/扩展对话框 |
 | `ui_menu.go` | 统一的菜单卡片、会话/项目右键菜单、模型/用量/项目弹层 |
 | `ui_settings.go` | 设置窗口：左栏分类 + 分节行（通用/模型与认证/外观/环境/扩展/数据/关于） |
-| `providers.go` | 读 pi 的 models.json，用 `pi auth check` 探认证状态 |
+| `providers.go` | 读 pi 的 models.json、编辑供应商字段、`pi auth check` 探认证、连接测试 |
+| `ui_provider.go` | 供应商配置对话框：字段、模型列表、连接测试、原始 JSON 入口 |
 | `ui_chat.go` | 对话：轮次、思考行、工具行（diff/嵌套调用）、Markdown、输入区、空状态 |
 | `theme.go` | PiDeck 配色的 NSGo 主题，用户主题在其上覆盖 |
 | `*_test.go` | 无头 UI 测试、端到端（真 pi）、目标命令/主题/插件单测 |
@@ -279,6 +283,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 远端目标（WSL/SSH）不列远端历史会话，只按标签恢复；文件抽屉与编辑器只处理本机文件
 - 编辑器不写远端文件；超过 4 MB 或二进制文件只提示，不打开
 - Git 的凭据提示走不了 GUI：HTTPS/SSH 需要先在终端里登录或配好密钥
+- 供应商连接测试是轻量探测（`/models` 或一次最小 chat 请求），不等于完整模型可用性验证
 - 手机远程当前只读：可查看项目和会话历史，不能新建会话或发送消息；只列本机项目
 - 局域网连接走 HTTP + 令牌，Tailscale/EasyTier 的链路本身加密
 - 草稿与附件不跨重启保存；单窗口

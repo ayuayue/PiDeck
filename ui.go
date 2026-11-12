@@ -29,6 +29,7 @@ func (a *app) view() core.Node {
 		a.askDialog(),
 		a.gitDiffDialog(),
 		a.gitNewBranchDialog(),
+		a.providerDialog(),
 		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: "关闭", TestID: "toasts"},
 	}}
 }

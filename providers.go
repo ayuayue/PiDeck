@@ -5,9 +5,12 @@ package main
 // with them right now.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,8 +42,12 @@ type modelsFile struct {
 	} `json:"providers"`
 }
 
-// piConfigDir is pi's own configuration folder.
+// piConfigDir is pi's own configuration folder. PIDECK_LITE_PI_CONFIG
+// points it elsewhere, for a test or a portable install.
 func piConfigDir() string {
+	if dir := strings.TrimSpace(os.Getenv("PIDECK_LITE_PI_CONFIG")); dir != "" {
+		return dir
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -121,4 +128,245 @@ func authLabel(p providerInfo) string {
 // loginCommand is what the user runs in a terminal to sign in.
 func loginCommand(p providerInfo) string {
 	return fmt.Sprintf("pi auth login %s", p.ID)
+}
+
+// providerConfig is one provider's editable settings, read from
+// models.json. Unknown fields are left where they are when it is saved.
+type providerConfig struct {
+	ID      string
+	API     string
+	BaseURL string
+	APIKey  string
+	Models  []modelConfig
+}
+
+// modelConfig is one model's line in a provider.
+type modelConfig struct {
+	ID            string
+	Name          string
+	ContextWindow int
+	MaxTokens     int
+	Reasoning     bool
+}
+
+// modelsJSONPath is pi's model file.
+func modelsJSONPath() string {
+	dir := piConfigDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "models.json")
+}
+
+// readProviderConfigs reads the providers with their editable fields.
+func readProviderConfigs() []providerConfig {
+	path := modelsJSONPath()
+	if path == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var root map[string]any
+	if json.Unmarshal(raw, &root) != nil {
+		return nil
+	}
+	providers, _ := root["providers"].(map[string]any)
+	out := make([]providerConfig, 0, len(providers))
+	for id, v := range providers {
+		p, _ := v.(map[string]any)
+		if p == nil {
+			continue
+		}
+		cfg := providerConfig{ID: id}
+		cfg.API, _ = p["api"].(string)
+		cfg.BaseURL, _ = p["baseUrl"].(string)
+		cfg.APIKey, _ = p["apiKey"].(string)
+		if list, ok := p["models"].([]any); ok {
+			for _, rawModel := range list {
+				m, _ := rawModel.(map[string]any)
+				if m == nil {
+					continue
+				}
+				mc := modelConfig{}
+				mc.ID, _ = m["id"].(string)
+				mc.Name, _ = m["name"].(string)
+				mc.ContextWindow = intField(m["contextWindow"])
+				mc.MaxTokens = intField(m["maxTokens"])
+				mc.Reasoning, _ = m["reasoning"].(bool)
+				cfg.Models = append(cfg.Models, mc)
+			}
+		}
+		out = append(out, cfg)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// intField reads a JSON number as an int.
+func intField(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	}
+	return 0
+}
+
+// saveProviderConfig writes a provider's fields back to models.json,
+// keeping every other field and provider as it was.
+func saveProviderConfig(id, api, baseURL, apiKey string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("供应商 ID 不能为空")
+	}
+	path := modelsJSONPath()
+	if path == "" {
+		return fmt.Errorf("找不到 pi 的配置目录")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return fmt.Errorf("models.json 不是有效的 JSON：%w", err)
+	}
+	if root == nil {
+		root = map[string]any{}
+	}
+	providers, _ := root["providers"].(map[string]any)
+	if providers == nil {
+		providers = map[string]any{}
+		root["providers"] = providers
+	}
+	p, _ := providers[id].(map[string]any)
+	if p == nil {
+		p = map[string]any{"models": []any{}}
+		providers[id] = p
+	}
+	setOrDelete(p, "api", strings.TrimSpace(api))
+	setOrDelete(p, "baseUrl", strings.TrimSpace(baseURL))
+	setOrDelete(p, "apiKey", strings.TrimSpace(apiKey))
+	data, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, append(data, '\n'), 0o600)
+}
+
+// setOrDelete sets a string field, or removes it when blank.
+func setOrDelete(m map[string]any, key, value string) {
+	if value == "" {
+		delete(m, key)
+		return
+	}
+	m[key] = value
+}
+
+// writeFileAtomic replaces a file in one step, so a crash cannot leave
+// half a config behind.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	tmp := path + ".pideck.tmp"
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// providerKey resolves the key a request to a provider uses: the field
+// itself, a $VARIABLE it names, or a variable named after the provider.
+func providerKey(cfg providerConfig) string {
+	key := strings.TrimSpace(cfg.APIKey)
+	if key != "" {
+		if ref, ok := strings.CutPrefix(key, "${"); ok {
+			return strings.TrimSpace(os.Getenv(strings.TrimSuffix(ref, "}")))
+		}
+		if ref, ok := strings.CutPrefix(key, "$"); ok {
+			return strings.TrimSpace(os.Getenv(ref))
+		}
+		return key
+	}
+	id := strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(cfg.ID))
+	for _, name := range []string{id + "_API_KEY", id + "_KEY", "OPENAI_API_KEY"} {
+		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// testProviderConnection asks a provider whether it answers: its model
+// list first, then one-token chat when the list is not served.
+func testProviderConnection(cfg providerConfig) (string, error) {
+	base := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	if base == "" {
+		return "", fmt.Errorf("没有 Base URL")
+	}
+	key := providerKey(cfg)
+	start := time.Now()
+	status, body, err := providerRequest("GET", base+"/models", key, nil)
+	elapsed := time.Since(start).Milliseconds()
+	if err == nil && status >= 200 && status < 300 {
+		return fmt.Sprintf("连接正常 · HTTP %d · %dms", status, elapsed), nil
+	}
+	if len(cfg.Models) > 0 {
+		payload := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"ping"}],"max_tokens":1}`,
+			cfg.Models[0].ID)
+		start = time.Now()
+		st, text, err2 := providerRequest("POST", base+"/chat/completions", key, []byte(payload))
+		elapsed = time.Since(start).Milliseconds()
+		if err2 == nil {
+			switch {
+			case st >= 200 && st < 300:
+				return fmt.Sprintf("连接正常 · HTTP %d · %dms", st, elapsed), nil
+			case st == 400 || st == 422:
+				return fmt.Sprintf("服务可达 · HTTP %d（请求被拒绝，检查模型名或参数）", st), nil
+			case st == 401 || st == 403:
+				return "", fmt.Errorf("认证失败 · HTTP %d：%s", st, shorten(string(text), 160))
+			default:
+				return "", fmt.Errorf("HTTP %d：%s", st, shorten(string(text), 160))
+			}
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	if status == 401 || status == 403 {
+		return "", fmt.Errorf("认证失败 · HTTP %d：%s", status, shorten(string(body), 160))
+	}
+	return "", fmt.Errorf("HTTP %d：%s", status, shorten(string(body), 160))
+}
+
+// providerRequest sends one small request to a provider.
+func providerRequest(method, url, key string, body []byte) (int, []byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, reader)
+	if err != nil {
+		return 0, nil, err
+	}
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("x-api-key", key)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := (&http.Client{Timeout: 12 * time.Second}).Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return resp.StatusCode, data, nil
 }
