@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { readSessionCatalogSources } from "./helpers/sessionCatalogSources.mjs";
 
 const indexSource = mainIpcSource;
 /** 取函数体：默认从 marker 后第一个 "{" 配平；类型体需显式传 signatureEnd 跳过参数表。 */
@@ -124,7 +125,7 @@ test("fork/copy 注册必须把命令层标题授权传给 catalog（titleAuthor
 	const forkBody = functionBody(indexSource, "resolveTargetSessionId: async");
 	assert.match(forkBody, /titleAuthority:\s*"command"/, "fork/clone 换绑路径必须授权命令层标题");
 
-	const catalogSource = readFileSync("src/main/sessions/SessionCatalog.ts", "utf8");
+	const catalogSource = readSessionCatalogSources();
 	assert.match(catalogSource, /titleAuthority === "command"/, "ensureRuntimeTarget 必须实现命令层覆盖规则");
 	// 覆盖范围：只允许改写未确认（undefined）与内容派生（fallback）的标题，manual/auto/legacy 不动。
 	assert.match(catalogSource, /currentOrigin === undefined \|\| currentOrigin === "fallback"/);

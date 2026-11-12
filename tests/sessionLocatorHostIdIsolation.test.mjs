@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { readSessionCatalogSources } from "./helpers/sessionCatalogSources.mjs";
 
 /*
  * F4 independent verification of the sessions-domain hostId convergence (task-24, I2).
@@ -185,7 +186,7 @@ test("the hostId judgement has exactly one shared source and is audited", async 
 	assert.ok(crossStore.includes("src/shared/projectLocation.ts"), "the shared judgement file must stay audited");
 
 	// The sessions domain must reuse it instead of growing a second regex.
-	const sessionsCodec = await readFile("src/main/sessions/SessionCatalog.ts", "utf8");
+	const sessionsCodec = readSessionCatalogSources();
 	assert.ok(!/\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}/.test(sessionsCodec), "the sessions codec must not declare its own UUID pattern");
 	assert.ok(sessionsCodec.includes("shared/projectLocation"), "the sessions codec must import the shared hostId judgement");
 });

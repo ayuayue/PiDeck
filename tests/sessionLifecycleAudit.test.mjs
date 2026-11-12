@@ -9,6 +9,7 @@ import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { readSessionCatalogSources } from "./helpers/sessionCatalogSources.mjs";
 import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 
@@ -89,7 +90,7 @@ test("sensitive operations leave audit traces", () => {
 test("second-wave audit: proxy, single-instance, catalog, clone/fork", () => {
 	const desktopProxy = read("main/settings/DesktopProxy.ts");
 	const singleInstance = read("main/singleInstance.ts");
-	const sessionCatalog = read("main/sessions/SessionCatalog.ts");
+	const sessionCatalog = readSessionCatalogSources();
 	const sessionScanner = read("main/sessions/SessionScanner.ts");
 	const visionConfig = read("main/settings/visionBridgeConfig.ts");
 	const gitIpc = read("main/ipc/gitIpc.ts");
