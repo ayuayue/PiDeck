@@ -304,7 +304,7 @@ linkSearchTest("searchContent matches lines case-insensitively, skips binary/UTF
 	const fixture = createContentFixture(t);
 	const session = startHelper(t, { root: fixture.root });
 	const hello = plain(await guard(session.client.request("hello"), "hello"));
-	assert.equal(hello.helperVersion, "1.26.1");
+	assert.equal(hello.helperVersion, entry.REMOTE_HELPER_ENTRY_VERSION);
 	assert.ok(hello.capabilities.includes(REMOTE_HELPER_METHOD_FS_SEARCH_CONTENT), "hello must advertise the content search");
 
 	const answer = await searchContent(session, { path: ".", query: "needle" });
