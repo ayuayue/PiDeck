@@ -84,11 +84,20 @@ func (a *app) workArea() core.Node {
 		HandleThumbStyle:     ui.HandleThumb(a.cx),
 		HandleThumbStyleFunc: ui.HandleThumbColor(a.cx),
 		Panels: []base.ResizablePanel{
-			{MinSize: 220, Children: []core.Node{a.chatPane()}},
+			{MinSize: 220, Children: []core.Node{a.mainPane()}},
 			{Visible: a.term.open.Get, Size: func() core.Points { return core.Points(a.term.height.Get()) },
 				MinSize: 110, MaxSize: 640, OnResize: a.terminalResized, TestID: "terminal-panel",
 				Children: []core.Node{a.terminalPanel()}},
 		},
+	}
+}
+
+// mainPane is the editor when a file is open, the chat otherwise.
+func (a *app) mainPane() core.Node {
+	return core.Show{
+		When: func() bool { return a.editor.open.Get() },
+		Then: func(*core.Scope) core.Node { return a.editorPane() },
+		Else: func(*core.Scope) core.Node { return a.chatPane() },
 	}
 }
 
@@ -899,24 +908,16 @@ func (a *app) drawerFiles() core.Node {
 		}
 		list := core.Each(a.files.nodes.Get, func(n fileNode) string { return n.Path }, func(cx *core.Scope, n func() fileNode, _ func() int) core.Node {
 			node := n()
-			return core.View{
+			row := core.View{
 				OnPress: func(core.PressEvent) {
 					if node.Dir {
 						a.animateNextLayout()
 						a.files.toggle(node.Path)
 						return
 					}
-					if s == nil {
-						return
-					}
-					mention := "@" + a.files.relative(node.Path) + " "
-					draft := s.draft.GetUntracked()
-					if draft != "" && !strings.HasSuffix(draft, " ") && !strings.HasSuffix(draft, "\n") {
-						draft += " "
-					}
-					s.draft.Set(draft + mention)
+					a.openEditorFile(root, node.Path)
 				},
-				Role: core.RoleButton, Label: node.Name,
+				Role: core.RoleButton, Label: node.Name, TestID: "file-row",
 				StyleFunc: func() core.Style {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(25),
 						Padding: core.Edges{Left: core.Points(4 + node.Depth*13), Right: 6}, CornerRadius: 6,
@@ -953,11 +954,17 @@ func (a *app) drawerFiles() core.Node {
 						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
 				},
 			}
+			return base.ContextMenu{
+				Trigger:        row,
+				Children:       a.fileMenuItems(root, node),
+				PopupStyle:     core.Style{MinWidth: core.Pt(200)},
+				PopupStyleFunc: func() core.Style { return a.menuCard(a.cx) },
+			}
 		})
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Top: 2, Bottom: 20, Right: 2, Left: 2}}, Children: []core.Node{
 				head,
-				core.Text{Content: "点文件插入 @ 路径给 pi，点目录展开。", Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: "点文件在编辑器里打开，点目录展开；右键可插入 @ 路径。", Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
 				core.Show{When: func() bool { return len(a.files.nodes.Get()) == 0 }, Then: func(*core.Scope) core.Node { return empty() }},
 				list,
 			}},

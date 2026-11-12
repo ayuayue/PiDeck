@@ -182,6 +182,7 @@ type app struct {
 	askSeq  *core.Signal[int]
 
 	files  *fileTree
+	editor *editorHost
 	git    *gitRepo
 	term   *terminalHost
 	remote *remoteHost
@@ -261,6 +262,14 @@ func newApp(cx *core.Scope) *app {
 	}
 	a.toaster = ui.NewToaster(cx)
 	a.files = newFileTree(cx)
+	a.editor = newEditorHost(cx)
+	a.editor.onResult = func(title string, err error) {
+		if err != nil {
+			a.toast(ui.ToastError, title, err.Error())
+			return
+		}
+		a.toast(ui.ToastSuccess, title, "")
+	}
 	a.git = newGitRepo(cx)
 	a.term = newTerminalHost(cx)
 	a.term.height.Set(defaultTerminalHeight)
@@ -866,6 +875,9 @@ func (a *app) remember() {
 func (a *app) selectSession(s *session) {
 	if s == nil {
 		return
+	}
+	if a.editor != nil {
+		a.editor.open.Set(false)
 	}
 	a.activeID.Set(s.ID)
 	a.activeWS.Set(s.WS)

@@ -39,8 +39,25 @@ func builtinCommands() []appCommand {
 		{ID: "new-session", Label: "新建会话", Group: "会话", Shortcut: "mod+n", Icon: lucide.SquarePen,
 			Run: func(a *app) { a.newSession(a.activeWS.Get()) }},
 		{ID: "close-tab", Label: "关闭当前标签", Group: "会话", Shortcut: "mod+w", Icon: lucide.X, Hidden: true,
-			When: func(a *app) bool { return a.activeID.GetUntracked() != "" },
-			Run:  func(a *app) { a.closeTab(a.activeID.GetUntracked()) }},
+			When: func(a *app) bool { return a.editorOpen() || a.activeID.GetUntracked() != "" },
+			Run: func(a *app) {
+				if a.editorOpen() {
+					a.closeEditorPane()
+					return
+				}
+				a.closeTab(a.activeID.GetUntracked())
+			}},
+		{ID: "save-file", Label: "保存文件", Group: "文件", Shortcut: "mod+s", Icon: lucide.Save,
+			When: func(a *app) bool {
+				return a.editorOpen() && a.editor.activeFile() != nil && a.editor.activeFile().Dirty.GetUntracked()
+			},
+			Run: func(a *app) { a.saveActiveFile() }},
+		{ID: "reload-file", Label: "重新读取文件", Group: "文件", Icon: lucide.RotateCcw, Hidden: true,
+			When: func(a *app) bool { return a.editorOpen() && a.editor.activeFile() != nil },
+			Run:  func(a *app) { a.reloadActiveFile() }},
+		{ID: "close-file", Label: "关闭文件", Group: "文件", Icon: lucide.X, Hidden: true,
+			When: func(a *app) bool { return a.editorOpen() && a.editor.activeFile() != nil },
+			Run:  func(a *app) { a.closeEditorFile(a.editor.activeFile()) }},
 		{ID: "next-tab", Label: "下一个标签", Group: "会话", Shortcut: "ctrl+tab", Icon: lucide.ChevronRight, Hidden: true,
 			Run: func(a *app) { a.cycleTab(1) }},
 		{ID: "prev-tab", Label: "上一个标签", Group: "会话", Shortcut: "ctrl+shift+tab", Icon: lucide.ChevronLeft, Hidden: true,
