@@ -1,6 +1,6 @@
 {
-	"capturedAt": "2026-11-11",
-	"total": 2015,
+	"capturedAt": "2026-11-12",
+	"total": 2019,
 	"sourceOnly": [
 		"tests/abortSlowRecoveryNotice.test.mjs",
 		"tests/abortStreamRegression.test.mjs",
@@ -936,7 +936,7 @@
 		"tests/sessionFindInSession.test.mjs → 会话内查找浮层按会话隔离：单栏 pane 复用换会话时必须重挂，上一个会话的关键词不会跟过去",
 		"tests/sessionFindInSession.test.mjs → 浮层用 useDismiss 收窗：window 级 Esc + 外部 pointerdown，层级走 --z-popover",
 		"tests/sessionForkModelInheritance.test.mjs → 重发/编辑 fork 与静态复制都向 ensureRuntimeTarget 传递源会话模型",
-		"tests/sessionForkModelInheritance.test.mjs → fork 化重发/编辑不再显示全屏遮罩，fork 术语只留给显式 fork 动作",
+		"tests/sessionForkModelInheritance.test.mjs → 重发/编辑在第一个 await 前挂遮罩，切会话时把遮罩接力给目标会话",
 		"tests/sessionForkRenameFailureNotSilent.test.mjs → 通知文案存在于主进程 i18n（渲染层经 ...mainProcess 展开，不得重复声明）",
 		"tests/sessionForkRenameFailureNotSilent.test.mjs → fork/copy 注册必须把命令层标题授权传给 catalog（titleAuthority）",
 		"tests/sessionHeaderLayout.test.mjs → model-picker restart must light the SessionView overlay via restartActiveAgent",
