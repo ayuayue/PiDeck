@@ -440,13 +440,17 @@ import { ExtensionManager } from "./extensions/ExtensionManager";
 import { BuiltInExtensionsUpdater } from "./extensions/builtInExtensionsUpdater";
 import { readEffectiveBuiltInExtensionsVersion, resolveBuiltInExtensionsDir, resolveBuiltInExtensionsOverlayDir, resolveVendorNodeModulesDir, type BuiltInExtensionPathRoots } from "./extensions/builtInExtensions";
 import { createPiProcessExtensionResolvers } from "./extensions/piProcessExtensionResolvers";
-import { registerBuiltInExtensionIpc } from "./ipc/builtInExtensionIpc";
 import { startResourceStores } from "./startup/resourceStores";
 import { registerAgentsStack } from "./startup/ipcStacks/agentsStack";
+import { registerContentStack } from "./startup/ipcStacks/contentStack";
+import { registerGitStack } from "./startup/ipcStacks/gitStack";
 import { registerHostServicesStack } from "./startup/ipcStacks/hostServicesStack";
 import { registerMediaSessionStack } from "./startup/ipcStacks/mediaSessionStack";
 import { registerMediaStack } from "./startup/ipcStacks/mediaStack";
 import { registerPlatformStack } from "./startup/ipcStacks/platformStack";
+import { registerRemoteStack } from "./startup/ipcStacks/remoteStack";
+import { registerSessionsStack } from "./startup/ipcStacks/sessionsStack";
+import { startPrewarm } from "./startup/sessionCatalogPrewarm";
 import { registerSystemStack } from "./startup/ipcStacks/systemStack";
 import { ProjectResourceManager } from "./projects/ProjectResourceManager";
 import { ResourceImportManager } from "./resourceImport/ResourceImportManager";
@@ -514,7 +518,6 @@ import { LocalServiceRegistry } from "./localServices/LocalServiceRegistry";
 import { createLocalServiceCli, killLocalServiceProcess } from "./localServices/localServiceCli";
 import { HOST_PLUGIN_SCHEME } from "./plugins/hostPluginPolicy";
 import { hostPluginPartitionId, hostPluginWebviewBridge } from "./plugins/hostPluginWebviewPolicy";
-import { registerGitIpc } from "./ipc/gitIpc";
 import { registerRemoteGitReadIpc } from "./ipc/remoteGitReadIpc";
 import { registerStoreIpc } from "./ipc/storeIpc";
 import { registerTerminalIpc } from "./ipc/terminalIpc";
@@ -550,20 +553,14 @@ import { getWhisperModelDef } from "../shared/types/whisperRuntime";
 import { WhisperTranscriber } from "./voice/WhisperTranscriber";
 import { WhisperServerPool } from "./voice/WhisperServerPool";
 import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
-import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
+import { scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerWebRemoteAccessIpc } from "./ipc/webRemoteAccessIpc";
 import { RemoteAccessManager } from "./web/remoteAccess/RemoteAccessManager";
 import { registerSystemIpc } from "./ipc/systemIpc";
 import { registerResourceImportIpc } from "./ipc/resourceImportIpc";
 import { registerBackupIpc } from "./ipc/backupIpc";
-import { registerCatalogIpc } from "./ipc/catalogIpc";
-import { registerQuickMessagesIpc } from "./ipc/quickMessagesIpc";
 import { registerNoticeHistoryIpc } from "./ipc/noticeHistoryIpc";
 import { NoticeHistoryStore } from "./notices/NoticeHistoryStore";
-import { registerReplyActionsIpc } from "./ipc/replyActionsIpc";
-import { QuickMessageStore } from "./quickmessages/QuickMessageStore";
-import { ReplyActionRuleStore } from "./replyactions/ReplyActionRuleStore";
-import { QUICK_MESSAGES_DEFAULT_RESOURCE_NAME, QUICK_MESSAGES_FILE_NAME, REPLY_ACTIONS_DEFAULT_RESOURCE_NAME, REPLY_ACTIONS_FILE_NAME } from "../shared/quickMessages";
 import { getPiAiCatalogIndex, lookupPiAiCatalogEntry, setPiAiCatalogUserDataDir } from "./pi/piAiBuiltinCatalog";
 import { PiAiCatalogUpdater } from "./pi/PiAiCatalogUpdater";
 import { fetchModelList, refreshModelCatalogIfStale, refreshModelList, getCachedModelList } from "./pi/modelListCache";
@@ -3535,278 +3532,30 @@ function registerIpc() {
 	// 远端能力与更新通道正交：正式包和 dev 包都装配；同一策略位由
 	// update:get-channel 的 remoteAvailable 下发给渲染层，避免主/渲染判据漂移。
 	// 各远端 IPC 仍保留 enabled=false 的 fail-closed 分支，供测试和后续下线策略使用。
-	const remoteFeatureEnabled = REMOTE_FEATURE_AVAILABLE;
-	let remoteHostService: import("./remote/RemoteHostConnectionService").RemoteHostConnectionService | undefined;
-	/**
-	 * 已解析的 OpenSSH 客户端（SSH 路由校验与每个 ssh/scp 子进程共用同一份）。
-	 *
-	 * 懒且单实例：`ssh -G` 形状自检把「我们用的是哪个客户端」当成整条连接的信锚，
-	 * 两处各自发现一次就有可能与实际启动的进程不是同一个客户端。失败不缓存（用户可能刚装好客户端）。
-	 */
-	let remoteSshClientPending: Promise<SshClientRuntime> | undefined;
-	const remoteSshClientIfEnabled = (): Promise<SshClientRuntime> => {
-		remoteSshClientPending ??= process.platform === "win32" ? Promise.resolve(createSshClientRuntime()) : resolvePosixSshClient();
-		remoteSshClientPending.catch(() => {
-			remoteSshClientPending = undefined;
-		});
-		return remoteSshClientPending;
-	};
-	/** Discover the verified client once; failed construction can be retried. */
-	let remoteHostServicePending: Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
-	const remoteHostServiceIfEnabled = (): Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined => {
-		if (!remoteFeatureEnabled) return undefined;
-		remoteHostServicePending ??= (async () => {
-			// Windows resolves its client internally; elsewhere the client must be discovered and proven
-			// capable before we let it answer route checks. Failing here is a stable code, not a crash.
-			const client = await remoteSshClientIfEnabled();
-			// The service resolves the host's own node itself (login shell), so no nodePath is pinned here.
-			const service = createRemoteHostConnectionService({
-				userDataDir: app.getPath("userData"),
-				client,
-				rootPooling: ROOT_POOL_DEFAULT_POLICY,
-				// 内置扩展快照的来源：与本地 `-e` 注入同一份「当前生效」字节（覆盖层优先，整份校验）。
-				builtInExtensionRoots: resolveBuiltInExtensionRoots(),
-				onDisconnect: (hostId) => {
-					remoteTerminalManager?.closeHost(hostId);
-					// helper 的 watcher 已随会话一起死：丢掉登记，不把旧 watchId 当有效。
-					remoteProjectFacts?.onHostDisconnected(hostId);
-				},
-				// Push every transition to the window: `connect()` only returns the state it reached, so
-				// anything afterwards (degradation, reconnect, the shutdown after ready) is invisible without
-				// this, and the UI ends up showing a stale state.
-				onStateChange: ({ hostId, state }) => {
-					if (!mainWindow || mainWindow.isDestroyed()) return;
-					mainWindow.webContents.send(ipcChannels.remoteHostStateChanged, { hostId, state: state.state });
-				},
-				// helper 1.24.0 的变更事件：只标脏事实，不触发装载（重读仍由读的人决定）。
-				onHelperEvent: (entry) => remoteProjectFacts?.onHelperEvent(entry),
-				// root 会话退休（TTL/LRU/latched/显式）与主机断开是两件事：只清这个 root 的登记，不关终端。
-				onRootRetired: (entry) => remoteProjectFacts?.onRootRetired(entry),
-			});
-			remoteHostService = service;
-			quitCleanup.register("remote-host", () => remoteHostService?.dispose());
-			return service;
-		})();
-		// A failed build must not be cached forever: let the next attempt re-probe (the user may have just
-		// installed a client). The pending promise is dropped on failure only.
-		remoteHostServicePending.catch(() => {
-			remoteHostServicePending = undefined;
-		});
-		return remoteHostServicePending;
-	};
-	// AgentManager 比 registerIpc 更早装配（它在下面的 whenReady 里构造），拿到的远端运行时端口只能
-	// 按需回调这个解析器：门禁表达式与连接服务单例都只允许有一份（见 remoteRuntimePort 的注释）。
-	// 未登记（本函数还没跑到）/门禁关闭时，端口一律 REMOTE_FEATURE_DISABLED，绝不回退本机。
-	remoteHostServiceResolver = remoteHostServiceIfEnabled;
-	// 远端项目 trust 决策表（P4.4b）：持久化段指向 SettingsStore（随配置备份），主机事实指向已确认 pin 的
-	// 只读目录入口（不新增 SSH 通道、不复制路径归一化）。装配处只此一份：远端运行时端口与 trust 域共用它。
-	const remoteProjectTrust = createRemoteProjectTrustService({
-		settings: {
-			read: () => settingsStore.get().remoteProjectTrust,
-			// 专用写入入口：决策不得经通用 `settings:update` 通道（那会让渲染层构造的记录替换整张表）。
-			write: (records) => settingsStore.replaceRemoteProjectTrust(records),
+	const { getRemoteHostService, remoteFeatureEnabled, remoteGitReads, remoteHostServiceIfEnabled, remoteProjectEntries, remoteProjectIpc, remoteProjectTextPort, remoteProjectTransfers, runPinnedRemoteCommand } = registerRemoteStack({
+		agentManager,
+		getMainWindow: () => mainWindow,
+		getPiResourcePool: () => piResourcePool,
+		getRemoteCommandTransport: () => remoteCommandTransport,
+		getRemoteTerminalManager: () => remoteTerminalManager,
+		projectStore,
+		quitCleanup,
+		resolveBuiltInExtensionRoots,
+		sessionCatalog,
+		setRemoteCommandTransport: (value) => {
+			remoteCommandTransport = value;
 		},
-		hostFacts: createRemoteProjectTrustHostFacts({ userDataDir: app.getPath("userData") }),
-	});
-	// 远端会话的 trust 解析发生在 AgentManager 的端口里（它比本函数先构造），所以实例挂在模块级变量上：
-	// 那里的 `resolveTrust` 闭包在**真正 spawn 时**才求值，不会拿到一个当时还不存在的对象。
-	remoteProjectTrustService = remoteProjectTrust;
-	const remoteHostIpc = registerRemoteHostIpc({
-		enabled: remoteFeatureEnabled,
-		userDataDir: app.getPath("userData"),
-		// 主机退役时同时清掉它的 trust 决策（与 pin 清理同一位置、同一重试语义）。
-		list: () => openRemoteHostCatalogView(app.getPath("userData"), { onHostRetired: (hostId) => remoteProjectTrustService?.forgetHost(hostId) ?? Promise.resolve() }),
-		service: remoteHostServiceIfEnabled,
-		// 移除连接与列表共用同一组退役清理：pin 删除后 trust 决策也要跟着清。
-		onHostRetired: (hostId) => remoteProjectTrustService?.forgetHost(hostId) ?? Promise.resolve(),
-		// The add-host flow holds a pin store across two IPC calls (offer, then the user's answer), so its
-		// lifetime is the process, not a call. Registering disposal here keeps the broker's timers from
-		// outliving the app.
-		registerCleanup: (cleanup) => quitCleanup.register("remote-host-stores", cleanup),
-	});
-	// 重新绑定（rebind）：与 remoteHostIpc 共用同一对 store/pin 实例；通道没有消费者之前不建。
-	remoteHostRebindIpc = registerRemoteHostRebindIpc({
-		enabled: remoteFeatureEnabled,
-		userDataDir: app.getPath("userData"),
-		openStores: remoteHostIpc.openStores,
-		projectStore: () => projectStore,
-		sessionCatalog: () => sessionCatalog,
-		// §5.5：执行前断开来源；失败直接上报（此时 tx 还没写任何东西）。
-		disconnect: async (hostId) => {
-			const service = await remoteHostServiceIfEnabled();
-			await service?.disconnect(hostId, "shutdown");
+		setRemoteHostRebindIpc: (value) => {
+			remoteHostRebindIpc = value;
 		},
-		registerCleanup: (cleanup) => quitCleanup.register("remote-host-rebind", cleanup),
-	});
-	// 远端项目域（登记/回答/列表/读取/搜索）与 hosts 域分开注册：同一个连接服务端口，不同域的 handler。
-	// 远端 trust 域（决策表的清单/写入/撤销）同样分开：它不动 SSH，只读写桌面配置 + 已确认的 pin 事实。
-	// WSL 连接档案：只读写本机清单；移除前扫描项目/会话的 wslHostId 引用（字段在第 11/12 步接入）。
-	registerWslHostIpc({
-		userDataDir: app.getPath("userData"),
-		references: createWslHostReferenceRegistry({
-			projectsFile: join(app.getPath("userData"), "projects.json"),
-			sessionCatalogFile: join(app.getPath("userData"), "session-catalog.json"),
-		}),
-		// 档案被改名/换 distro/移除后，资源池里对应实例必须失效；闭包在 registerIpc 执行时取值，
-		// 池在稍后构造（晚绑定），调用发生在用户操作档案时，因此一定能拿到实例。
-		onProfileChanged: () => piResourcePool?.invalidate(),
-	});
-	/**
-	 * 目录事实层的失效入口（W3）：项目域注册时才创建，文本保存的注册在它之前，因此用晚绑定转发。
-	 * 只标脏、不装载——一次保存不会额外产生任何远端往返。
-	 */
-	let remoteProjectFacts:
-		| {
-				afterWrite(projectId: string, paths: readonly string[]): void;
-				onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[]; sessionKey: string }): void;
-				onHostDisconnected(hostId: string): void;
-				onRootRetired(entry: { hostId: string; root: string; sessionKey: string }): void;
-		  }
-		| undefined;
-	/** 目录与 Git 共用的事实变化通知出口（T4）：订阅按 sender + project，事件只标脏。 */
-	const remoteFactsEvents = createRemoteFactsHub(ipcChannels.remoteProjectFactsChanged);
-	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
-	const resolveRemoteSftpBinary = (): Promise<RemoteSftpBinaryIdentity | undefined> => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }));
-	const remoteSftpCapabilityCache = createRemoteSftpCapabilityCache<RemoteSftpProbe>();
-	const remoteSftpCapabilityProbe = createRemoteSftpCapabilityProbe();
-	const remoteSftpDirectoryReader = createRemoteSftpDirectoryReader({
-		binary: resolveRemoteSftpBinary,
-		cache: remoteSftpCapabilityCache,
-		probe: remoteSftpCapabilityProbe,
-	});
-	registerRemoteProjectTrustIpc({ enabled: remoteFeatureEnabled, trust: () => remoteProjectTrustService });
-	const remoteProjectIpc = registerRemoteProjectIpc({
-		enabled: remoteFeatureEnabled,
-		userDataDir: app.getPath("userData"),
-		service: remoteHostServiceIfEnabled,
-		factsEvents: remoteFactsEvents,
-		directoryReader: remoteSftpDirectoryReader,
-		// 远端项目登记端口（Phase 3 第二段）：canonical 值已由 IPC 层校验/确认，这里只做持久化
-		// 与按 projectId 取 locator。只暴露 ssh 项目，本机项目不经过这条入口。
-		projects: {
-			enroll: async ({ hostId, canonicalRemotePath }) => {
-				const project = await projectStore.addRemote({ hostId, canonicalRemotePath });
-				return { projectId: project.id };
-			},
-			locator: (projectId) => {
-				const project = projectStore.get(projectId);
-				return project && isRemoteProject(project) ? project.locator : undefined;
-			},
+		setRemoteHostServiceResolver: (value) => {
+			remoteHostServiceResolver = value;
 		},
+		setRemoteProjectTrustService: (value) => {
+			remoteProjectTrustService = value;
+		},
+		settingsStore,
 	});
-	remoteProjectFacts = remoteProjectIpc;
-	quitCleanup.register("remote-project-ipc", () => remoteProjectIpc.dispose());
-	const remoteGitReads = registerRemoteGitReadIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		factsEvents: remoteFactsEvents,
-		// T4：目录与 Git 状态共用同一份工作区事实 owner（缓存实例、generation、失效矩阵都只一份）。
-		// Git 写成功/结果未知 → owner 把该仓库 status 与整树一起标脏，只发一条通知。
-		workspace: {
-			facts: remoteProjectIpc.gitStatusFacts,
-			afterGitWrite: remoteProjectIpc.afterGitWrite,
-			invalidateStatuses: remoteProjectIpc.invalidateStatuses,
-		},
-		trusted: async (target) => (await remoteProjectTrustService?.trustOverride({ hostId: target.hostId, remoteRoot: target.remotePath })) === "approve",
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-	});
-	quitCleanup.register("remote-git-reads", remoteGitReads.dispose);
-	// T6 收尾：目录页的 Git ignore 修饰接在 Git IPC 之后（仓库归因与能力门控都在那边）。
-	remoteProjectIpc.setIgnoreProbe((projectId, paths) => remoteGitReads.probeIgnore(projectId, paths));
-	const remoteProjectTextPort = registerRemoteProjectFileIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-		// T4：一次文件写只走一份 owner 的失效矩阵（目录矩阵 + 全部已缓存仓库 status，一条通知）。
-		afterWrite: (projectId, paths) => {
-			remoteProjectFacts?.afterWrite(projectId, paths);
-		},
-	});
-	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-		binary: resolveRemoteSftpBinary,
-		cache: remoteSftpCapabilityCache,
-		probe: remoteSftpCapabilityProbe,
-		// T4：上传下载完成/结果未知同样走单一 owner（目录 + Git status 一次标脏）。
-		afterWrite: (projectId, paths) => {
-			remoteProjectFacts?.afterWrite(projectId, paths);
-		},
-		afterUnknown: (projectId) => {
-			remoteProjectIpc.invalidateTree(projectId);
-		},
-	});
-	quitCleanup.register("remote-project-transfer-jobs", remoteProjectTransfers.dispose);
-	// 文件管理（Phase 5 文件面）：8 条 new/rename/delete/trash 通道 + 独立 entry 令牌表 + sender 写单飞。
-	// 与文本保存 IPC 各自持有令牌表；窗口销毁时两个模块各自撤销自己的表（冻结语义：两类令牌都不可再用）。
-	const remoteProjectEntries = registerRemoteProjectEntryIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-		// 写成功后只标脏目录事实与 Git status（T4 单一 owner）：一次写不产生任何远端往返。
-		afterWrite: (projectId, paths) => {
-			remoteProjectIpc.afterWrite(projectId, paths);
-		},
-	});
-	quitCleanup.register("remote-project-entries", remoteProjectEntries.dispose);
-	/**
-	 * 远端短命令的统一执行入口（会话读取/写入/归档/扫描四条链共用）：每次重新过 `buildPinnedSshInvocation`
-	 * （pin 文件/指纹、路由摘要、严格配置复查）。超时归传输层：`SshClientRuntime.run` 的 execFile 自带
-	 * 30 s 上限与 256 KiB 输出上限（远端历史窗口上界 128 KiB 就是为后者留的余量）。
-	 *
-	 * 定义在装配点之前（而不是就地定义）：会话扫描/登记也走它（R1a），而它们的装配代码在下面靠前的位置。
-	 */
-	const runPinnedRemoteCommand = async ({ hostId, remoteCommand }: { hostId: string; remoteCommand: string }) => {
-		const client = await remoteSshClientIfEnabled();
-		const invocation = await buildPinnedSshInvocation(app.getPath("userData"), hostId, "ssh-batch", { client, remoteCommand });
-		const result = await client.run(invocation.executable, invocation.args);
-		// stderr 也要回传：pi 对未知旗标的抱怨随版本在 stdout 或 stderr（模型目录的降级判据要用它），
-		// 丢掉就等于把「不认这个旗标」误判成「远端没有模型」。
-		return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr ?? "" };
-	};
-	/** 同一入口的端口形状：远端会话扫描/根解析/登记用它换掉 helper 会话（不切 host 的活动 root）。 */
-	remoteCommandTransport = { runRemoteCommand: runPinnedRemoteCommand };
-
-	// 远端 Session 只读发现与登记（Phase 3 第三段）。通道名由装配注入（与 contentStoreIpc 的 ChannelGroup 同一先例）。
-	// 该主机上的 ssh 项目清单（id + 远端根）：项目归属与项目级扫描根**同一个来源**，只收窄一次。
-	const remoteProjectCandidates = (hostId: string) => projectStore.list().flatMap((project) => (isRemoteProject(project) && project.locator.hostId === hostId ? [{ id: project.id, remotePath: project.locator.remotePath }] : []));
-	registerRemoteSessionIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		// R1a：扫描 / 根解析 / register / title 走一次性 pinned SSH 短命令（与读/写/归档同一条通道），
-		// 不再借 helper 会话 —— 否则每次刷新会话列表都会把用户项目的活动 root 切走再连回来。
-		transport: () => remoteCommandTransport,
-		catalog: () => sessionCatalog,
-		// 归属必须按**会话所在目录**判定：取该主机上的 ssh 项目作候选，用 pi 的目录编码与会话路径第一段比对。
-		// 判不出来（多候选且都没命中）⇒ undefined，由 scanner 以既有稳定码 REMOTE_SESSION_PROJECT_UNRESOLVED
-		// fail-closed —— 绝不猜。曾经的写法取「该主机上第一个 ssh 项目」，同主机两个项目时会把会话登记到
-		// 错误项目名下。列表刷新与侧栏投影另由 catalog IPC 和 sessionRecordToSummary 负责。
-		projectIdForHost: (hostId, remoteSessionId) => matchRemoteSessionProject(remoteProjectCandidates(hostId), remoteSessionId),
-		// 项目级扫描根（项目自己的 `.pi/settings.json` 里的 sessionDir）与 `project:` 身份也用这份清单。
-		projectCandidates: remoteProjectCandidates,
-		channels: { scan: ipcChannels.remoteSessionScan, register: ipcChannels.remoteSessionRegister, title: ipcChannels.remoteSessionTitle },
-	});
-	// 远端 Pi 模型目录（Phase 5 row 819）：host → ProjectStore 远端项目 → 窄 AgentManager 查找 live remote
-	// agentId → 已有 getAvailableModels RPC 一次有界请求。渲染层只能传 hostId；门禁与其它 remote 域同源。
-	const remotePiModelProbe = createRemotePiModelProbe({
-		projectIdsForHost: (hostId) => projectStore.list().flatMap((project) => (isRemoteProject(project) && project.locator.hostId === hostId ? [project.id] : [])),
-		findLiveAgentId: (projectIds) => agentManager?.findLiveRemoteAgentId(projectIds),
-		getAvailableModels: (agentId) => agentManager.getAvailableModels(agentId),
-	});
-	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, probe: remotePiModelProbe });
 	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
 	registerAgentsStack({
 		acpAgentManager,
@@ -3871,7 +3620,7 @@ function registerIpc() {
 		sessionRuntimeCoordinator,
 		settingsStore,
 		worktreeService,
-		remoteHostService,
+		remoteHostService: getRemoteHostService(),
 		remoteProjectIpc,
 		remoteProjectTransfers,
 	});
@@ -3911,308 +3660,88 @@ function registerIpc() {
 		remoteHostServiceIfEnabled,
 		runPinnedRemoteCommand,
 	});
-	registerSessionIpc({
-		projectStore,
-		settingsStore,
-		sessionScanner,
-		resolveWslSessionScanner: (identity) => wslSessionScannerFor(identity),
-		sessionCatalog,
+	registerSessionsStack({
 		// 会话 ↔ 智能体绑定：绑定的会话每次发送注入角色设定（pi/acp 隐藏 agentMessage，
 		// dsh 退化为可见前缀，由 sessionIpc 的 composeAgentInstruction 统一组合）。
-		resolveSessionAgentInstruction: (sessionId) => agentProfileStore?.getBoundAgent(sessionId)?.systemPrompt,
-		sessionRuntimeCoordinator,
+		acpAgentManager,
 		agentManager,
-		configManager,
-		codexSessionImporter,
-		claudeSessionImporter,
-		qoderSessionImporter,
-		openCodeSessionImporter,
-		zcodeSessionImporter,
-		workbuddySessionImporter,
-		codebuddySessionImporter,
-		cursorSessionImporter,
-		kimiSessionImporter,
-		kimiWorkSessionImporter,
-		minimaxSessionImporter,
-		directorySessionImporter,
+		agentProfileStore,
 		appLogger,
-		terminalManager,
-		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
-		getMainWindow: () => mainWindow,
-		visibleSessions,
-		// live 补帧按 agentId 路由：pi 与 DSH 各有自己的流式缓冲，未知 id 各自 no-op。
-		emitLiveSnapshot: (agentId) => {
-			agentManager.emitLiveSnapshot(agentId);
-			dshAgentManager.emitLiveSnapshot(agentId);
-		},
-		emitSessionRuntimeEvent,
-		emitSessionRuntimeDetach,
-		emitSessionActivating,
-		emitSessionActivationFailed,
-		emitSessionActivationCancelled,
-		createAnonymousSession,
-		stopSessionRuntime,
-		emitReplacementState,
-		readCatalogSessionReferenceMessages,
-		// 无 pi 会话文件（纯生图草稿）历史读取回退：ImageSession 独立存储
-		readImageSessionMessages: (sessionId) => imageSessionStore.readMessages(sessionId),
-		readRemoteSessionHistoryPage,
-		// videogen 后端会话历史回退：VideoSession 独立存储（同生图策略）
-		readVideoSessionMessages: (sessionId) => videoSessionStore.readMessages(sessionId),
+		codebuddySessionImporter,
+		claudeSessionImporter,
+		codexSessionImporter,
+		configManager,
 		copyCatalogSession,
+		createAnonymousSession,
+		cursorSessionImporter,
+		directorySessionImporter,
+		dshAgentManager,
+		dshHost,
+		dshRuntimeErrorCopy,
+		emitReplacementState,
+		emitSessionActivating,
+		emitSessionActivationCancelled,
+		emitSessionActivationFailed,
+		emitSessionRuntimeDetach,
+		emitSessionRuntimeEvent,
 		exportCatalogSessionHtml,
 		exportRemoteCatalogSessionHtml,
-		archiveRemoteSession: remoteSessionArchive ? (input: { hostId: string; locator: SshSessionLocator }) => remoteSessionArchive.moveIntoArchive(input) : undefined,
-		unarchiveRemoteSession: remoteSessionArchive
-			? async (input: { hostId: string; originalPath: string; archivedPath: string }) => {
-					await remoteSessionArchive.moveBack(input);
-				}
-			: undefined,
-		deleteArchivedRemoteSession: remoteSessionDelete ? (input: { hostId: string; archivedPath: string }) => remoteSessionDelete.deleteArchived(input) : undefined,
+		foreignSyncDeps,
+		getDshPluginInstallService: () => dshPluginInstallService,
+		getDshRuntimeInstaller: () => dshRuntimeInstaller,
+		getDshRuntimeStatus: () => dshRuntimeStatus,
+		getDshSessionSkillLoader,
+		getMainWindow: () => mainWindow,
+		getSessionIndexService: () => sessionIndexService,
+		imageSessionStore,
+		kimiSessionImporter,
+		kimiWorkSessionImporter,
+		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
+		minimaxSessionImporter,
+		notifyCatalogRefreshed,
+		openCodeSessionImporter,
+		projectPathsForContentSearch,
+		projectStore,
+		qoderSessionImporter,
+		readCatalogSessionReferenceMessages,
+		readRemoteSessionHistoryPage,
+		remoteSessionArchive,
+		remoteSessionDelete,
 		replaceAgentSession,
-		// 模型存在性校验数据源：与模型选择器同源（capability 快照 ∪ CLI 缓存），否则
-		// auth 渠道模型被判为不存在并静默换成配置默认模型（issue #340）。
-		validationCatalogModels,
-		// fork/clone 统一命令层：重发/编辑 fork 化（mutationFork/branchMode）与 Web HTTP 同源
+		resolveWslSessionScanner: (identity) => wslSessionScannerFor(identity),
+		resolveSessionAgentInstruction: (sessionId) => agentProfileStore?.getBoundAgent(sessionId)?.systemPrompt,
+		runDshForeignSync,
+		sessionCatalog,
 		sessionForkCommands,
-		// 跨会话正文搜索适配闭包：roots 解析（全局根 + 全局 settings sessionDir + 各项目
-		// 项目级 sessionDir）+ sidecar 调用；搜索前先增量 refresh（stat 全目录毫秒级）保证
-		// 新会话可搜；任何失败返回 null，渲染层回退标题过滤，搜索入口永不报错。未就绪
-		// （冷启动首建索引/预热中）直接降级，不把渲染层请求挂到 boot 结束（首建可达数十秒）；
-		// refresh 失败但进程仍活着时继续用现有索引搜一次（transient 失败不该让本次搜索静默无内容）。
-		sessionContentSearch: async (query) => {
-			if (!sessionIndexService) return null;
-			const roots = await sessionScanner.resolveContentSearchRoots(projectPathsForContentSearch());
-			if (roots.length === 0) return null;
-			if (!sessionIndexService.isReady(roots)) {
-				// 本次降级标题过滤，但后台必须有人建索引：首次安装/roots 刚变更时
-				// 没有别处会预热，否则内容搜索会一直空着（就绪后下一次输入自然生效）
-				sessionIndexService.warmup(roots);
-				return null;
-			}
-			const refreshed = await sessionIndexService.refresh(roots);
-			if (!refreshed.ok && !sessionIndexService.isReady(roots)) return null;
-			const result = await sessionIndexService.search(roots, query);
-			return result.ok ? result.value : null;
-		},
-		// 会话内查找（Ctrl+Shift+F / 会话头部放大镜）：只扫一个会话文件、命中按时间线
-		// 返回。降级口径收口在 sessionMessageSearchInFile（与 Web 搜索弹层共用）。
-		sessionMessageSearch: async (sessionPath, query) => {
-			return sessionMessageSearchInFile(sessionPath, query);
-		},
-		// C1：DSH 后端专用 IPC 依赖按后端分组（注册表化铺路；未来新增后端各自提供一份）
-		dshBackend: {
-			listDshModels: () => dshHost.listModels(),
-			discoverDshModels: (input) => dshHost.discoverModels(input),
-			listDshProviders: () => dshHost.listProviders(),
-			listDshAgentPresets: () => dshHost.listAgentPresets(),
-			getDshDefaultModel: () => Promise.resolve(dshHost.getDefaultModelSelection()),
-			getDshStatus: () => dshHost.getStatus(),
-			// AgentRuntimeProvider 阶段 1：runtime 安装态门控（未安装时 UI 走安装引导、
-			// 新建 dsh 会话在 sessionIpc 边界被拒）。
-			getDshRuntimeStatus: () => dshRuntimeStatus.getStatus(),
-			canCreateDshSession: () => dshRuntimeStatus.canCreateDshSession(),
-			// 安装/导入/卸载后必须重探测并广播：否则 UI 还停在旧状态，
-			// 用户会看到「刚装完但仍提示未安装」。
-			installDshRuntime: async () => {
-				// 同版本重装时 host 可能仍持有 runtime 内 .node 原生模块的 DLL 句柄，
-				// 落位 rm 必报 EPERM：与卸载同一套路，先停会话 + dispose host 释放锁。
-				const wasRunning = await stopDshHostForRuntimeDiskOperation();
-				const result = await dshRuntimeInstaller.installFromIndex();
-				dshRuntimeStatus.refresh();
-				if (result.ok) await startDshHostAfterRuntimeDiskOperation(wasRunning);
-				// 与手动导入同一套文案映射：在线安装的失败原因（尤其是「发布源没有
-				// 配套版本」）必须可读，否则用户只会看到「点了安装没反应」。
-				if (!result.ok) return { ok: false, error: dshRuntimeErrorCopy(result.error) };
-				return result;
-			},
-			importDshRuntime: async (filePath: string) => {
-				const wasRunning = await stopDshHostForRuntimeDiskOperation();
-				const result = await dshRuntimeInstaller.installFromLocalFile(filePath);
-				dshRuntimeStatus.refresh();
-				if (result.ok) await startDshHostAfterRuntimeDiskOperation(wasRunning);
-				// 失败时把内部错误码映射为用户可读文案（配置页直接展示 error 字段）。
-				// 只映射已知校验码；未知错误（如磁盘满、权限）保留原始信息以便排查。
-				if (!result.ok) return { ok: false, error: dshRuntimeErrorCopy(result.error) };
-				return result;
-			},
-			uninstallDshRuntime: async () => {
-				// 卸载会删掉 host 正在用的 runtime 目录：Windows 上 host 的 .node 原生模块
-				// 已映射成 DLL 句柄，进程存活时删目录必报 EPERM（文件被占用）。所以先停
-				// 活跃会话、杀掉 host 释放文件锁，再删；删完若原本在用 DSH 就把 host 拉回
-				// 来（删失败时旧目录还在，重启 fork 仍走旧 runtime，用户可稍后重试卸载）。
-				const wasRunning = await stopDshHostForRuntimeDiskOperation();
-				const result = await dshRuntimeInstaller.uninstall();
-				dshRuntimeStatus.refresh();
-				await startDshHostAfterRuntimeDiskOperation(wasRunning);
-				return result;
-			},
-			describeDshSettings: () => dshHost.describeSettings(),
-			updateDshSettings: (ns, patch, expectedRevision) => dshHost.updateSettings(ns, patch, expectedRevision),
-			mutateDshSettings: (ns, ops, expectedRevision) => dshHost.mutateSettings(ns, ops, expectedRevision),
-			describeDshCredentials: (refs) => dshHost.describeCredentials(refs),
-			setDshCredential: (ref, value) => dshHost.setCredential(ref, value),
-			unsetDshCredential: (ref) => dshHost.unsetCredential(ref),
-			readDshCredential: (ref) => dshHost.readCredentialValue(ref),
-			openDshDocument: () => dshHost.openDocument(),
-			stopDshHost: () => stopDshHostManually(),
-			startDshHost: () => startDshHostManually(),
-			restartDshHost: async () => {
-				// 切换 DSH_HOME 前先停掉全部活跃 DSH 会话（host 侧会话仍在 $DSH_HOME
-				// 持久化，catalog 保留 dshSessionId，重新打开会话时 attach 恢复），
-				// 避免旧目录的 mux 悬挂在已 dispose 的 transport 上；再重启 host。
-				// D16：restart 后校验 host 真正拉起（boot 完成），失败返回 false 而非恒 true。
-				await dshAgentManager.stopAll();
-				await dshHost.restart();
-				try {
-					await dshHost.ensureStarted();
-					return dshHost.isHostProcessRunning() && dshHost.isHostReady();
-				} catch {
-					return false;
-				}
-			},
-			readDshHistoryPage: (dshSessionId, beforeSeq, options) => dshAgentManager.readHistoryPage(dshSessionId, beforeSeq, options),
-			// 打开 DSH 历史会话时补录 catalog 模型（host 投影冷读，不激活）：catalog 缺 model
-			// 时底栏会回退全局部署默认，看起来像「别的会话的模型也被改了」。
-			readDshSessionModel: (dshSessionId) => dshAgentManager.readSessionModelSelection(dshSessionId),
-			// ACP 异步读口：runtime 投影 → 内存快照 → 磁盘归档逐级回退（sessionIpc 的
-			// readAcpMessages 依赖已按 Promise 契约声明）。归档读失败内部降级空数组。
-			readAcpMessages: (acpSessionId) => acpAgentManager.readMessagesWithArchive(acpSessionId),
-			readDshProcessEvents: (agentId, dshSessionId) => dshAgentManager.readProcessEvents(agentId, dshSessionId),
-			readSessionFacts: (sessionPath) => agentManager.readSessionFacts(sessionPath),
-			readSessionOutline: (sessionPath, limit) => agentManager.readSessionOutline(sessionPath, limit),
-			readDshMessageFullText: (agentId, messageId) => dshAgentManager.readMessageFullText(agentId, messageId),
-			resolveDshSessionFilePath: async (sessionId) => {
-				// F5：DSH 会话没有 pi 会话文件，「复制会话文件路径」按 catalog 的
-				// dshSessionId + 项目 cwd 推导 host 持久化路径。
-				const entry = sessionCatalog.get(sessionId);
-				if (!entry?.dshSessionId) return undefined;
-				const project = projectStore.get(entry.projectId);
-				if (!project?.path) return undefined;
-				return dshAgentManager.resolveSessionFilePath(project.path, entry.dshSessionId);
-			},
-			searchDshSessions: (query) => dshHost.searchSessions(query),
-			// 会话内查找（Ctrl/Cmd+Shift+F）的 DSH 分支：DSH 会话没有 pi JSONL，
-			// 由 DshAgentManager 把 host 历史投影成消息后做词元匹配（与 pi 的 Go sidecar 同语义）。
-			searchDshSessionMessages: (dshSessionId, query) => dshAgentManager.searchSessionMessages(dshSessionId, query),
-			createDshGoal: (agentId, objective, maxGoalRounds) => dshAgentManager.createGoal(agentId, objective, maxGoalRounds),
-			runDshGoalAction: (agentId, action) => dshAgentManager.goalAction(agentId, action),
-			cancelDshQueuedMessage: (agentId, itemId) => dshAgentManager.cancelQueuedMessage(agentId, itemId),
-			listDshSubagents: (agentId) => dshAgentManager.listSubagents(agentId),
-			listDshSkills: (agentId) => dshAgentManager.listSkills(agentId),
-			// 草稿 DSH 会话：会话启动前读技能目录（懒建/复用 host 会话，不启动 agent）。
-			listDshSessionSkills: (sessionId) => getDshSessionSkillLoader()(sessionId),
-			readDshSubagentHistory: (agentId, childSessionId, beforeSeq, maxMessages) => dshAgentManager.readSubagentHistory(agentId, childSessionId, beforeSeq, maxMessages),
-			listDshOrphans: async () => {
-				// G3/D11：host 持久化会话中，catalog 无 dshSessionId 映射的视为孤儿
-				// （被删除映射的记录、匿名会话残留等）。wire 无删除 API，仅用于提示。
-				const hostIds = await dshHost.listSessionIds();
-				const known = new Set(
-					sessionCatalog
-						.listEntries()
-						.map((entry) => entry.dshSessionId)
-						.filter((id): id is string => Boolean(id)),
-				);
-				return hostIds.filter((id) => !known.has(id));
-			},
-			// 跨工具兼容（2026-12）：dsh-web 等其他工具创建的 host 根会话（含标题/cwd）；
-			// 已映射进 catalog 的在 IPC 层（sessionIpc）过滤，配置页只显示「待导入」。
-			listDshForeignSessions: () => dshHost.listForeignSessions(),
-			// 外部会话导入：把 host 会话映射进 catalog（status=active，侧栏可见可加载）。
-			// 幂等：同 dshSessionId 重复导入被 SessionCatalog.createDraft 吸收（只更新标题/归属）。
-			importDshForeignSession: async (dshSessionId) => {
-				const record = await importForeignSession(foreignSyncDeps, dshSessionId);
-				notifyCatalogRefreshed([record.projectId]);
-				void appLogger.info("session", "Foreign DSH session imported", {
-					dshSessionId,
-					projectId: record.projectId,
-					title: record.title,
-				});
-				return record;
-			},
-			// 外部会话全量同步：catalog 未映射的磁盘根会话全部导入（不启动 host）。
-			// 配置页「全部导入」与启动自动同步共用此入口。
-			syncDshForeignSessions: () => runDshForeignSync(),
-			// G14：DSH 归档/恢复（目录移动 + manifest，与 pi 归档同语义，不销毁数据）
-			archiveDshSession: (dshSessionId, cwd, title) => dshHost.archiveSession(dshSessionId, cwd, title),
-			unarchiveDshSession: (dshSessionId) => dshHost.unarchiveSession(dshSessionId),
-			listArchivedDshSessions: () => dshHost.listArchivedSessions(),
-			deleteArchivedDshSession: (dshSessionId) => dshHost.deleteArchivedSession(dshSessionId),
-			// G13 深化：动态 Cordis 插件管理（进程内临时扩展，define/run/stop/undefine）
-			listDshDynamicPlugins: () => dshHost.listDynamicPlugins(),
-			listDshStaticPlugins: () => dshHost.listStaticPlugins(),
-			uninstallDshUserPlugin: (input) => dshHost.uninstallUserPlugin(input),
-			// 用户插件市场搜索/安装/清单（安装服务视角；host 侧无此能力，主进程直连 npm 与市场 API）
-			searchDshPluginMarket: (keyword) => {
-				if (!dshPluginInstallService) throw new Error("DSH plugin install service is not available");
-				return dshPluginInstallService.searchPlugins(keyword);
-			},
-			installDshUserPlugin: (spec) => {
-				if (!dshPluginInstallService) throw new Error("DSH plugin install service is not available");
-				return dshPluginInstallService.installUserPlugin(spec);
-			},
-			listDshUserPlugins: () => {
-				if (!dshPluginInstallService) return Promise.resolve([]);
-				return dshPluginInstallService.listUserPlugins();
-			},
-			installDshPlugin: (input) => dshHost.installDynamicPlugin(input),
-			runDshPlugin: (input) => dshHost.runDynamicPlugin(input),
-			stopDshPlugin: (input) => dshHost.stopDynamicPlugin(input),
-			uninstallDshPlugin: (input) => dshHost.uninstallDynamicPlugin(input),
-			isDshAgent: (agentId) => dshAgentManager?.list().some((tab) => tab.id === agentId) === true,
-			// fork/clone 已收口 sessionForkCommands（桌面/Web 共用），这里不再单独提供
-		},
+		sessionMessageSearchInFile,
+		sessionRuntimeCoordinator,
+		sessionScanner,
+		settingsStore,
+		startDshHostAfterRuntimeDiskOperation,
+		startDshHostManually,
+		stopDshHostForRuntimeDiskOperation,
+		stopDshHostManually,
+		stopSessionRuntime,
+		terminalManager,
+		validationCatalogModels,
+		videoSessionStore,
+		visibleSessions,
+		workbuddySessionImporter,
+		wslSessionScannerFor,
+		zcodeSessionImporter,
 	});
 
-	// ── 启动预扫描（2026-08 展开项目卡顿优化）──
-	// 延迟 3s 启动、项目间错开 1.5s 逐个调度后台扫描：预热 catalog 缓存，
-	// 用户首次展开项目时直接命中缓存回显，不再同步全量扫描卡 UI。
-	// 错开 + 协调器去重/冷却（sessionIpc 内）保证不与用户触发的扫描并发重扫。
-	const prewarmTimer = setTimeout(() => {
-		const projects = projectStore.list();
-		projects.forEach((project, index) => {
-			const timer = setTimeout(() => {
-				scheduleCatalogBackgroundScan(project.id, async () => {
-					// 本机 scanner 不能扫远端项目（远端会话扫描属 Phase 4）。
-					if (!isLocalProject(project)) return;
-					try {
-						const settings = settingsStore.get();
-						const wsl = resolveProjectWslIdentity(project, settings);
-						let projectPath = project.path;
-						if (wsl !== undefined) {
-							projectPath = projectPath.replace(/^([A-Za-z]):\\/, (_: string, drive: string) => `/mnt/${drive.toLowerCase()}/`).replace(/\\/g, "/");
-						}
-						const scanner = wsl !== undefined ? await wslSessionScannerFor(wsl) : sessionScanner;
-						const summaries = await scanner.list(projectPath);
-						await sessionCatalog.mergeScanned(project.id, summaries, wsl !== undefined ? { wslDistro: wsl.distro, wslUser: wsl.user } : {});
-					} catch (error) {
-						void appLogger.warn("session", "Catalog prewarm scan failed", {
-							projectId: project.id,
-							error: error instanceof Error ? error.message : String(error),
-						});
-					}
-				});
-			}, index * 1500);
-			timer.unref?.();
-		});
-		// 扩展页关键路径预热：提前探测 pi 版本（--no-approve 判定依赖该缓存），把
-		// `pi --version` 子进程移出首次 extensions:list。尽力而为——warmPiVersionProbe
-		// 内部已吞错记日志，此处再兜一层同步异常，失败绝不会影响启动与 catalog 预热。
-		try {
-			void extensionManager?.warmPiVersionProbe();
-			// 扩展列表预热：把首次 `pi list` 子进程与磁盘扫描移出用户打开扩展页的关键路径。
-			// 与版本探测一样尽力而为（失败只记日志，不影响启动）；列表缓存自身的 in-flight
-			// 去重保证用户随后真正发起的 extensions:list 不会重复起进程。
-			void extensionManager?.list(false).catch((error) => {
-				void appLogger.warn("extension", "extension list prewarm failed", { error: error instanceof Error ? error.message : String(error) });
-			});
-		} catch (error) {
-			void appLogger.warn("extension", "pi version prewarm failed", { error: error instanceof Error ? error.message : String(error) });
-		}
-	}, 3000);
-	prewarmTimer.unref?.();
+	startPrewarm({
+		appLogger,
+		getExtensionManager: () => extensionManager,
+		getSessionScanner: () => sessionScanner,
+		projectStore,
+		sessionCatalog,
+		settingsStore,
+		wslSessionScannerFor,
+	});
 
-	registerGitIpc({
+	registerGitStack({
 		appLogger,
 		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
 		gitService,
@@ -4348,30 +3877,13 @@ function registerIpc() {
 		});
 	}
 	updateService.start();
-	registerCatalogIpc(catalogUpdater, {
-		// 设置页手动更新/还原后立刻用同一条链路重取结论：否则「有新版本」提示与侧栏红点
-		// 要等到下一轮定时检查（默认 2h）才消失，用户看到的是「更新成功了但状态没变」。
-		onCatalogChanged: () => void updateService?.refreshCatalogSnapshot(),
+	registerContentStack({
+		appLogger,
+		builtInExtensionsUpdater,
+		catalogUpdater,
+		getUpdateService: () => updateService,
+		settingsStore,
 	});
-	// 快捷消息：唯一数据源是用户配置文件（可手工编辑），出厂清单来自随包资源文件。
-	// 两个路径只在此处解析，避免“读 A 写 B”的漂移（与 extensions 覆盖层同源的教训）。
-	const quickMessageStore = new QuickMessageStore({
-		getConfigPath: () => join(app.getPath("userData"), QUICK_MESSAGES_FILE_NAME),
-		getDefaultConfigPath: () => (app.isPackaged ? join(process.resourcesPath, QUICK_MESSAGES_DEFAULT_RESOURCE_NAME) : join(app.getAppPath(), "resources", QUICK_MESSAGES_DEFAULT_RESOURCE_NAME)),
-		// 旧版本把清单存在 settings.json：仅作首次种子化来源，升级后用户的已改条目不能丢。
-		getLegacyItems: () => settingsStore.get().quickMessages,
-		log: (scope, message, detail) => void appLogger.info(scope, message, detail),
-	});
-	registerQuickMessagesIpc(quickMessageStore, (scope, message, detail) => void appLogger.info(scope, message, detail));
-	// 回复快捷操作：最新回复尾部的建议条，规则可由用户编辑（userData/reply-actions.json），
-	// 出厂规则来自随包资源 reply-actions.default.json（提交/推送/重试/继续等常用工程操作）。
-	const replyActionRuleStore = new ReplyActionRuleStore({
-		getConfigPath: () => join(app.getPath("userData"), REPLY_ACTIONS_FILE_NAME),
-		getDefaultConfigPath: () => (app.isPackaged ? join(process.resourcesPath, REPLY_ACTIONS_DEFAULT_RESOURCE_NAME) : join(app.getAppPath(), "resources", REPLY_ACTIONS_DEFAULT_RESOURCE_NAME)),
-		log: (scope, message, detail) => void appLogger.info(scope, message, detail),
-	});
-	registerReplyActionsIpc(replyActionRuleStore, (scope, message, detail) => void appLogger.info(scope, message, detail));
-	registerBuiltInExtensionIpc(builtInExtensionsUpdater);
 	// TokenDance 目录 store 是共享实例：渲染层目录展示与一键安装（写入配置）读同一份缓存。
 	const tokendanceCatalogStore = new TokendanceCatalogStore({
 		getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),

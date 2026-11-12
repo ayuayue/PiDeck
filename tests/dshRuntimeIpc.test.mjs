@@ -48,8 +48,10 @@ test("runtime 状态服务与主进程装配不再按 dev 隐藏远程安装", (
 });
 
 test("main entry 把 runtime 状态服务注入 sessionIpc", () => {
-	assert.match(mainEntry, /getDshRuntimeStatus: \(\) => dshRuntimeStatus\.getStatus\(\)/);
-	assert.match(mainEntry, /canCreateDshSession: \(\) => dshRuntimeStatus\.canCreateDshSession\(\)/);
+	// deps 字面量已随 sessionsStack 外移，runtime 状态服务改为经 ctx 访问器读取：
+	// 断言只锁「注入了哪个服务方法」，不绑访问器写法。
+	assert.match(mainEntry, /getDshRuntimeStatus: \(\) => (?:dshRuntimeStatus|getDshRuntimeStatus\(\))[^;]*\.?getStatus\(\)/);
+	assert.match(mainEntry, /canCreateDshSession: \(\) => (?:dshRuntimeStatus|getDshRuntimeStatus\(\))[^;]*\.?canCreateDshSession\(\)/);
 	// runtime 不可用时不要白预热 host（约 200MB 的 utilityProcess）。
 	// 预热门控收敛到 dshWarmupEnabled()：只要 runtime 可用且用户没手动停过就预热；
 	// 刻意不再要求 defaultAgentBackend === "dsh"（装了 runtime 就是用户要用 DSH 的信号）。
