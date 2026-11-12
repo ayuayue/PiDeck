@@ -230,6 +230,9 @@ func TestImport(t *testing.T) {
 	app.Press("text:old-session.jsonl")
 	app.Press("id:picker-choose")
 	app.WaitUntil(30*time.Second, func() bool { return len(app.Query("text:旧的提问")) > 0 })
+	// Let the imported session's pi start, so closing it at the end of the
+	// test is what frees the temp folder.
+	waitApp(app, "id:pi-ready", 40*time.Second)
 	shot(app, "30-import")
 }
 
@@ -281,5 +284,44 @@ func TestThinkingMenu(t *testing.T) {
 	app.Advance(300 * time.Millisecond)
 	if got := len(app.Query("text:低")); got != 1 {
 		t.Fatalf("after choosing 低 the chip shows %d level labels, want 1", got)
+	}
+}
+
+// TestDeleteSessionFromMenu deletes an imported session through its
+// right-click menu and the confirmation.
+func TestDeleteSessionFromMenu(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir := workspaceWith(t)
+	src := filepath.Join(dir, "gone.jsonl")
+	cwd := filepath.ToSlash(dir)
+	body := `{"type":"session","version":3,"id":"cccccccc-2222-4333-8444-555555555555","timestamp":"2026-01-02T03:04:05.000Z","cwd":"` + cwd + `"}
+{"type":"message","id":"a1","parentId":null,"timestamp":"2026-01-02T03:04:06.000Z","message":{"role":"user","content":"待删除的会话","timestamp":1767323046000}}
+`
+	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Cleanup(closeAllPi)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
+	app.Press("text:导入 pi 会话")
+	app.WaitFor("id:picker-choose", 5*time.Second)
+	app.Clear("label:文件夹路径")
+	app.Type("label:文件夹路径", dir)
+	app.Submit("label:文件夹路径")
+	app.WaitFor("text:gone.jsonl", 5*time.Second)
+	app.Press("text:gone.jsonl")
+	app.Press("id:picker-choose")
+	waitApp(app, "text:待删除的会话", 30*time.Second)
+	waitApp(app, "id:pi-ready", 40*time.Second)
+
+	app.RightClick("id:session-cccccccc-2222-4333-8444-555555555555")
+	app.WaitFor("text:删除会话", 5*time.Second)
+	app.Press("text:删除会话")
+	app.WaitFor("id:confirm-ok", 5*time.Second)
+	app.Press("id:confirm-ok")
+	if got := len(app.Query(`text:"待删除的会话"`)); got != 0 {
+		t.Fatalf("the session is still listed after deleting it")
 	}
 }

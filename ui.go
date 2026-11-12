@@ -125,6 +125,12 @@ func (a *app) rail() core.Node {
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{ContentFunc: func() string { return fmt.Sprint(len(a.workspaces.Get())) },
 						Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+					core.View{OnPress: func(core.PressEvent) { a.pickNative("workspace") }, Role: core.RoleButton, Label: "添加项目",
+						TestID: "add-project",
+						StyleFunc: func() core.Style {
+							return core.Style{Direction: core.Row, Padding: core.Symmetric(1, 4), CornerRadius: 4,
+								Hover: &core.Style{Background: colors.Hover()}}
+						}, Children: []core.Node{ui.Icon(lucide.Plus, 11, colors.Muted)}},
 					core.View{OnPress: func(core.PressEvent) { a.openTargetDialog(targetWSL) }, Role: core.RoleButton, Label: "添加 WSL 工作区",
 						StyleFunc: func() core.Style {
 							return core.Style{Direction: core.Row, Padding: core.Symmetric(1, 4), CornerRadius: 4,
@@ -310,8 +316,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 							ui.Text(w().Target.shortLabel(), 8.5, ui.Medium, colors.Muted),
 						}}
 					}},
-					core.Text{ContentFunc: func() string { return fmt.Sprint(len(w().Sessions.Get())) },
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+					a.projectCount(w()),
 				}},
 			Children:   a.projectMenuItems(w),
 			PopupStyle: core.Style{MinWidth: core.Pt(196)},
@@ -350,21 +355,121 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 				if p := keep(pinned); len(p) > 0 {
 					children = append(children, a.groupLabel("置顶"), core.View{Style: core.Style{Gap: 1}, Children: rows(p)})
 				}
-				for _, g := range sessionBuckets(keep(rest), a.cx.Now()) {
+				rest = keep(rest)
+				shown := len(rest)
+				if filter == "" {
+					shown = min(shown, projectVisibleCount(ws))
+				}
+				for _, g := range sessionBuckets(rest[:shown], a.cx.Now()) {
 					children = append(children, a.groupLabel(g.Label), core.View{Style: core.Style{Gap: 1}, Children: rows(g.Rows)})
 				}
-				if len(children) == 0 {
+				loading := ws.PiLoading.Get()
+				if loading {
+					children = append(children, a.projectLoadingRows()...)
+				} else if len(children) == 0 {
 					children = append(children, core.Text{Content: "还没有会话", Style: core.Style{FontSize: 11, Padding: core.Edges{Left: 8, Top: 4}},
 						StyleFunc: ui.Colored(ui.ColorsOf(cx).Faint)})
 				}
-				if ws.PiMore > 0 {
-					children = append(children, core.Text{Content: "只显示最近的 60 条 pi 本地会话",
-						Style: core.Style{FontSize: 9.5, Padding: core.Edges{Left: 10, Top: 2}}, StyleFunc: ui.Colored(ui.ColorsOf(cx).Faint)})
+				hidden := len(rest) - shown
+				if filter == "" && !loading && (hidden > 0 || ws.Visible.Get() > 0) {
+					children = append(children, a.projectMoreRow(ws, hidden))
 				}
 				return core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Left: 11}}, Children: children}
 			})
 		}},
 	}}
+}
+
+// projectVisibleCount is how many of a project's sessions the rail shows:
+// the first page until the user asks for more.
+func projectVisibleCount(ws *workspace) int {
+	n := ws.Visible.Get()
+	if n <= 0 {
+		return projectSessionPage
+	}
+	return n
+}
+
+// projectSessionTotal counts a project's sessions, pi's own included and
+// duplicates by id once.
+func projectSessionTotal(ws *workspace) int {
+	seen := map[string]struct{}{}
+	for _, list := range []*core.Signal[[]*session]{ws.Sessions, ws.Pi} {
+		for _, s := range list.Get() {
+			if s != nil {
+				seen[s.ID] = struct{}{}
+			}
+		}
+	}
+	return len(seen)
+}
+
+// projectCount is a project's session count, pulsing while pi's history is
+// still being read.
+func (a *app) projectCount(ws *workspace) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		if ws.PiLoading.Get() {
+			return core.View{TestID: "project-count-loading", Accessible: true, Label: "正在读取会话数量",
+				Style:    core.Style{Width: core.Pt(13), Height: core.Pt(8), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+				Children: []core.Node{ui.SkeletonBlock{Width: core.Pt(13), Height: core.Pt(8)}}}
+		}
+		return core.View{TestID: "project-count", Children: []core.Node{
+			core.Text{Content: fmt.Sprint(projectSessionTotal(ws)), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+				StyleFunc: ui.Colored(colors.Faint)}}}
+	})
+}
+
+// projectLoadingRows stand in for a project's history while it is read.
+func (a *app) projectLoadingRows() []core.Node {
+	rows := make([]core.Node, 0, 3)
+	for i := 0; i < 3; i++ {
+		rows = append(rows, core.View{TestID: "project-loading-row", Accessible: true, Label: "正在读取历史会话",
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(28), Padding: core.Symmetric(0, 8)},
+			Children: []core.Node{
+				ui.SkeletonBlock{Width: core.Pt(6), Height: core.Pt(6), Round: true, Index: i * 3},
+				core.View{Style: core.Style{FlexGrow: 1, Gap: 4}, Children: []core.Node{
+					ui.SkeletonBlock{Width: core.Pct(64), Height: core.Pt(6), Index: i*3 + 1},
+					ui.SkeletonBlock{Width: core.Pct(36), Height: core.Pt(5), Index: i*3 + 2},
+				}},
+			}})
+	}
+	return rows
+}
+
+// projectMoreRow shows the next page of a project's sessions and the way
+// back to the first one.
+func (a *app) projectMoreRow(ws *workspace, hidden int) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	action := func(label string, icon func() *core.SVG, testID string, press func()) core.View {
+		return core.View{OnPress: func(core.PressEvent) { press() }, Role: core.RoleButton, Label: label, TestID: testID,
+			StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Height: core.Pt(24),
+					Padding: core.Symmetric(0, 6), CornerRadius: 5, Transition: pressMotion,
+					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+			},
+			Children: []core.Node{ui.Icon(icon, 11, colors.Faint), ui.Text(label, 10.5, ui.Medium, colors.Muted)}}
+	}
+	var children []core.Node
+	if hidden > 0 {
+		more := action("更多", lucide.ChevronDown, "project-more", func() {
+			a.animateNextLayout()
+			n := ws.Visible.GetUntracked()
+			if n <= 0 {
+				n = projectSessionPage
+			}
+			ws.Visible.Set(n + projectSessionStep)
+		})
+		more.Children = append(more.Children, ui.Text(fmt.Sprintf("(%d)", hidden), 9, ui.Regular, colors.Faint))
+		children = append(children, more)
+	}
+	if ws.Visible.GetUntracked() > 0 {
+		children = append(children, action("收起", lucide.ChevronUp, "project-collapse", func() {
+			a.animateNextLayout()
+			ws.Visible.Set(0)
+		}))
+	}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2, Padding: core.Edges{Left: 4}}, Children: children}
 }
 
 // sessionRowOf is one session in the rail, given its value.
@@ -379,7 +484,7 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 	return base.ContextMenu{
 		Trigger: core.View{
 			OnPress: func(core.PressEvent) { a.selectSession(s()) },
-			Role:    core.RoleButton, LabelFunc: func() string { return s().title.Get() },
+			Role:    core.RoleButton, LabelFunc: func() string { return s().title.Get() }, TestID: "session-" + s().ID,
 			StyleFunc: func() core.Style {
 				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(28), Padding: core.Symmetric(0, 8),
 					CornerRadius: 7, Transition: pressMotion,
@@ -1351,17 +1456,42 @@ func (a *app) renameDialog() core.Node {
 
 // confirmDialog asks before something permanent.
 func (a *app) confirmDialog() core.Node {
-	return ui.AlertDialog{
-		Open:         a.confirmOpen.Get,
-		OnOpenChange: func(open bool, _ base.Reason) { a.confirmOpen.Set(open) },
-		Title:        a.confirmHead.Get(),
-		Description:  a.confirmBody.Get(),
-		Actions: []ui.AlertAction{
-			{Text: "取消", Variant: ui.ButtonGhost},
-			{Text: a.confirmWhy.Get(), Variant: ui.ButtonPrimary, OnPress: func() { a.confirm() }},
-		},
-		TestID: "confirm",
-	}
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		return ui.Dialog{
+			Open:         a.confirmOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) { a.confirmOpen.Set(open) },
+			TestID:       "confirm",
+			Style:        core.Style{Width: core.Pt(380)},
+			Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
+					core.View{StyleFunc: func() core.Style {
+						return core.Style{Width: core.Pt(30), Height: core.Pt(30), CornerRadius: 8, FlexShrink: 0,
+							Background: ui.Alpha(colors.Danger(), 0.10), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter}
+					}, Children: []core.Node{ui.Icon(lucide.TriangleAlert, 15, colors.Danger)}},
+					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
+						core.Text{ContentFunc: func() string { return a.confirmHead.Get() },
+							Style: core.Style{FontSize: 14, FontWeight: ui.Semibold, LineHeight: 20}, StyleFunc: ui.Colored(colors.Text)},
+						core.Text{ContentFunc: func() string { return a.confirmWhy.Get() + "后无法撤销" },
+							Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
+					}},
+				}},
+				core.View{StyleFunc: func() core.Style {
+					return core.Style{Padding: core.Symmetric(10, 12), CornerRadius: 8, Background: colors.Inset(),
+						BorderWidth: 1, BorderColor: colors.Now().Line}
+				}, Children: []core.Node{
+					core.Text{ContentFunc: func() string { return a.confirmBody.Get() },
+						Style: core.Style{FontSize: 12.5, LineHeight: 19}, StyleFunc: ui.Colored(colors.Text)},
+				}},
+			},
+			Footer: []core.Node{
+				ui.Button{Text: "取消", Variant: ui.ButtonGhost, TestID: "confirm-cancel", OnPress: func() { a.confirmOpen.Set(false) }},
+				ui.Button{Text: a.confirmWhy.Get(), Variant: ui.ButtonPrimary, TestID: "confirm-ok",
+					Color:   func() core.Color { return colors.Danger() },
+					OnPress: func() { a.confirm() }},
+			},
+		}
+	})
 }
 
 // askDialog answers an extension's confirm, select, input or editor.

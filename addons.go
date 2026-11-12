@@ -295,7 +295,7 @@ func (a *app) scanProject(ws *workspace) {
 	if ws == nil || a.st == nil || ws.Target.remote() || !a.cfg.ScanPi {
 		return
 	}
-	if ws.piLoaded || ws.piLoading {
+	if ws.piLoaded || ws.PiLoading.GetUntracked() {
 		return
 	}
 	root := a.env.GetUntracked().SessionsDir
@@ -305,22 +305,21 @@ func (a *app) scanProject(ws *workspace) {
 	if root == "" {
 		return
 	}
-	ws.piLoading = true
+	ws.PiLoading.Set(true)
 	cwd := filepath.Clean(ws.Path)
 	titles := a.cfg.Titles
-	limit := 60
 	go func() {
-		metas := a.st.scanPiSessions(root, titles, func(c string) bool { return filepath.Clean(c) == cwd }, limit)
+		metas := a.st.scanPiSessions(root, titles, func(c string) bool { return filepath.Clean(c) == cwd }, 0)
 		a.cx.Post(func() {
-			ws.piLoading = false
 			ws.piLoaded = true
 			list := make([]*session, 0, len(metas))
 			for _, m := range metas {
 				list = append(list, a.makeSession(m, ws.Target))
 			}
-			if len(metas) >= limit {
-				ws.PiMore = 1
+			if ws.PiLoading.GetUntracked() || len(ws.Pi.GetUntracked()) != len(list) {
+				a.animateNextLayout()
 			}
+			ws.PiLoading.Set(false)
 			ws.Pi.Set(list)
 		})
 	}()
@@ -335,6 +334,7 @@ func (a *app) rescanPi() {
 	if !a.cfg.ScanPi {
 		for _, ws := range a.workspaces.GetUntracked() {
 			ws.Pi.Set(nil)
+			ws.PiLoading.Set(false)
 		}
 		return
 	}
@@ -343,7 +343,17 @@ func (a *app) rescanPi() {
 		info.SessionsDir = piSessionsDir()
 	}
 	if info.SessionsDir == "" {
+		for _, ws := range a.workspaces.GetUntracked() {
+			ws.PiLoading.Set(false)
+		}
 		return
+	}
+	// Projects not read yet pulse while the scan runs, so a count that is
+	// still unknown does not read as zero.
+	for _, ws := range a.workspaces.GetUntracked() {
+		if !ws.Target.remote() && !ws.piLoaded {
+			ws.PiLoading.Set(true)
+		}
 	}
 	allowed := map[string]bool{}
 	for _, ws := range a.workspaces.GetUntracked() {
@@ -373,22 +383,34 @@ func (a *app) rescanPi() {
 
 // setPiSessions puts pi's own sessions under the projects that own them.
 func (a *app) setPiSessions(byCwd map[string][]sessionMeta) {
+	type update struct {
+		ws   *workspace
+		list []*session
+	}
+	var updates []update
+	changed := false
 	for _, ws := range a.workspaces.GetUntracked() {
 		if ws.Target.remote() {
 			continue
 		}
 		metas := byCwd[filepath.Clean(ws.Path)]
-		const limit = 30
-		list := make([]*session, 0, min(len(metas), limit))
-		for i, m := range metas {
-			if i >= limit {
-				ws.PiMore = len(metas) - limit
-				break
-			}
+		list := make([]*session, 0, len(metas))
+		for _, m := range metas {
 			list = append(list, a.makeSession(m, ws.Target))
 		}
-		ws.Pi.Set(list)
-		ws.piLoaded = true
+		differs := !ws.piLoaded || ws.PiLoading.GetUntracked() || len(ws.Pi.GetUntracked()) != len(list)
+		if differs {
+			changed = true
+		}
+		updates = append(updates, update{ws: ws, list: list})
+	}
+	if changed {
+		a.animateNextLayout()
+	}
+	for _, u := range updates {
+		u.ws.Pi.Set(u.list)
+		u.ws.piLoaded = true
+		u.ws.PiLoading.Set(false)
 	}
 }
 

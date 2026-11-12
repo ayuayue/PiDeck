@@ -35,9 +35,12 @@ func (a *app) chatPane() core.Node {
 					Children:  []core.Node{a.transcript(s)},
 					Composer:  []core.Node{a.composer(s)},
 				},
-				core.Show{When: func() bool { return len(s.turns.Get()) == 0 }, Then: func(cx *core.Scope) core.Node {
-					return a.emptyChat(s)
-				}},
+				core.Show{When: func() bool {
+					return len(s.turns.Get()) == 0 && !s.loaded.Get() && s.status.Get() != statusFailed
+				}, Then: func(cx *core.Scope) core.Node { return a.historySkeleton(s) }},
+				core.Show{When: func() bool {
+					return len(s.turns.Get()) == 0 && (s.loaded.Get() || s.status.Get() == statusFailed)
+				}, Then: func(cx *core.Scope) core.Node { return a.emptyChat(s) }},
 			}}
 		}),
 	}}
@@ -721,6 +724,35 @@ func (a *app) attachments(s *session) chat.View {
 			})
 		}
 		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: children}
+	}
+}
+
+// historySkeleton stands in for a session's transcript while pi reads
+// its file, so an opening history does not look empty.
+func (a *app) historySkeleton(s *session) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	block := func(i int) core.Node {
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 12}, Children: []core.Node{
+			ui.SkeletonBlock{Width: core.Pt(24), Height: core.Pt(24), Round: true, Index: i * 4},
+			core.View{Style: core.Style{FlexGrow: 1, Gap: 8}, Children: []core.Node{
+				ui.SkeletonBlock{Width: core.Pct(42), Height: core.Pt(9), Index: i*4 + 1},
+				ui.SkeletonBlock{Width: core.Pct(92), Height: core.Pt(8), Index: i*4 + 2},
+				ui.SkeletonBlock{Width: core.Pct(68), Height: core.Pt(8), Index: i*4 + 3},
+			}},
+		}}
+	}
+	return core.View{TestID: "history-skeleton", Accessible: true, Label: "正在读取历史会话",
+		Style: core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0),
+			AlignItems: core.AlignCenter, PointerEvents: core.PointerEventsBoxNone},
+		StyleFunc: func() core.Style { return core.Style{Bottom: core.Pt(s.conversation.ComposerHeight())} },
+		Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, Width: core.Pct(100), MaxWidth: core.Pt(720), MinHeight: core.Pt(0),
+			JustifyContent: core.JustifyCenter, Padding: core.Symmetric(32, 24), Gap: 22}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
+				ui.Spinner{Size: 11, Label: "正在读取历史会话"},
+				ui.Text("正在读取历史会话…", 10.5, ui.Regular, colors.Faint),
+			}},
+			block(0), block(1), block(2),
+		}}},
 	}
 }
 

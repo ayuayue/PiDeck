@@ -467,6 +467,11 @@ func (c *piClient) stop() {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		_ = c.cmd.Process.Kill()
+		// Wait for the process to be gone, so its files are free again.
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
 	}
 }
 

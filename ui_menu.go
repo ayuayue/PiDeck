@@ -204,8 +204,8 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 					},
 					Role: core.RoleOption, Label: m.label(),
 					StyleFunc: func() core.Style {
-						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
-							Padding: core.Symmetric(0, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(38),
+							Padding: core.Symmetric(3, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
 					},
 					Children: []core.Node{
 						core.View{Style: core.Style{Width: core.Pt(14), AlignItems: core.AlignCenter}, Children: []core.Node{
@@ -216,13 +216,14 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 								return nil
 							}),
 						}},
-						core.Text{Content: modelLabel(m), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, LineHeight: 17},
-							StyleFunc: ui.Colored(colors.Text)},
-						// The supplier rides on every row, so a row read on
-						// its own says where the model comes from.
-						core.Text{Content: m.Provider, MaxLines: 1, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, FlexShrink: 0},
-							StyleFunc: ui.Colored(colors.Faint)},
+						// The name over the path it comes by: supplier and the
+						// model id, which carries the routing group too.
+						core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+							core.Text{Content: modelLabel(m), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+								Style: core.Style{FontSize: 12.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)},
+							core.Text{Content: modelPath(m), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+								Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LineHeight: 13}, StyleFunc: ui.Colored(colors.Faint)},
+						}},
 						core.Text{Content: tokens(m.ContextWindow), Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexShrink: 0},
 							StyleFunc: ui.Colored(colors.Faint)},
 						core.View{OnPress: func(core.PressEvent) { a.toggleFavModel(m) }, Role: core.RoleButton, Label: "收藏模型",
@@ -339,6 +340,15 @@ func (a *app) orderModels(models []modelInfo) {
 		}
 		return strings.ToLower(modelLabel(models[i])) < strings.ToLower(modelLabel(models[j]))
 	})
+}
+
+// modelPath is where a model comes from: its supplier and the id pi
+// knows it by, which carries the routing group ("magpie · zui/…").
+func modelPath(m modelInfo) string {
+	if m.Provider == "" {
+		return m.ID
+	}
+	return m.Provider + " · " + m.ID
 }
 
 // modelLabel is a model's name without the routing suffix pi appends.
@@ -536,8 +546,8 @@ func (a *app) sessionMenuItems(sess func() *session) []core.Node {
 		a.menuRow(a.cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(sess()) }),
 		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(sess().ID, "会话 ID") }),
 		a.menuRow(a.cx, lucide.FileDown, "导出 HTML", "", false, func() { a.exportHTML(sess()) }),
-		a.menuRow(a.cx, lucide.FolderOpen, "打开所在目录", "", false, func() { a.openWorkspaceFolder(sess().WS) }),
-		a.menuSeparator(a.cx),
+		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中显示", "", false, func() { a.revealSession(sess()) }),
+		a.menuRow(a.cx, lucide.Copy, "复制工作目录", "", false, func() { a.copyText(sess().WS, "路径") }),
 		a.menuRow(a.cx, lucide.Trash, "删除会话", "", true, func() { a.deleteSession(sess()) }),
 	}
 }

@@ -309,7 +309,9 @@ func (s *store) importSession(src string) (sessionMeta, error) {
 	return m, nil
 }
 
-// deleteSession moves a session file out of the way rather than erasing it.
+// deleteSession moves a session file out of the way rather than erasing
+// it. A process that just closed can hold the file a moment longer, so the
+// move is retried before it is reported as failed.
 func (s *store) deleteSession(file, id string) error {
 	if file == "" {
 		return nil
@@ -318,11 +320,20 @@ func (s *store) deleteSession(file, id string) error {
 	if err := os.MkdirAll(trash, 0o755); err != nil {
 		return err
 	}
-	dst := filepath.Join(trash, time.Now().Format("20060102-150405")+"-"+id+".jsonl")
-	if err := os.Rename(file, dst); err != nil {
-		return err
+	stamp := time.Now().Format("20060102-150405")
+	dst := filepath.Join(trash, stamp+"-"+id+".jsonl")
+	var err error
+	for i := 0; i < 12; i++ {
+		if err = os.Rename(file, dst); err == nil {
+			return nil
+		}
+		if _, statErr := os.Stat(file); statErr != nil {
+			return nil // already gone
+		}
+		dst = filepath.Join(trash, fmt.Sprintf("%s-%s-%d.jsonl", stamp, id, i+1))
+		time.Sleep(time.Duration(60*(i+1)) * time.Millisecond)
 	}
-	return nil
+	return fmt.Errorf("文件被占用，稍后再试：%w", err)
 }
 
 // encodeCwd is pi's session folder name for a working directory: the

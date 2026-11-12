@@ -30,13 +30,23 @@ type workspace struct {
 	// group shows.
 	Pi     *core.Signal[[]*session]
 	PiOpen *core.Signal[bool]
-	PiMore int
-	// piLoaded and piLoading say whether this folder's own pi sessions
-	// have been read, so a project is scanned when it is opened rather
-	// than every project at startup.
-	piLoaded  bool
-	piLoading bool
+	// PiLoading says pi's history for the folder is being read, and
+	// Visible how many of the project's sessions the rail shows, 0 for
+	// the first page.
+	PiLoading *core.Signal[bool]
+	Visible   *core.Signal[int]
+	// piLoaded says this folder's own pi sessions have been read, so a
+	// project is scanned when it is opened rather than every project at
+	// startup.
+	piLoaded bool
 }
+
+// Project sessions show a page at a time: the first page, then another
+// step with each "more".
+const (
+	projectSessionPage = 10
+	projectSessionStep = 40
+)
 
 // key identifies a workspace across machines.
 func (w *workspace) key() string { return w.Target.key() + "|" + w.Path }
@@ -286,10 +296,12 @@ func newApp(cx *core.Scope) *app {
 	for _, wc := range a.cfg.Workspaces {
 		wc.Path = cleanTargetPath(parseTarget(wc.Target), wc.Path)
 		ws := &workspace{Path: wc.Path, Name: wc.Name, Target: parseTarget(wc.Target),
-			Expanded: core.NewSignal(cx, wc.Expanded || len(byKey[parseTarget(wc.Target).key()+"|"+wc.Path]) > 0),
-			Sessions: core.NewSignalFunc(cx, []*session{}, nil),
-			Pi:       core.NewSignalFunc(cx, []*session(nil), nil),
-			PiOpen:   core.NewSignal(cx, false)}
+			Expanded:  core.NewSignal(cx, wc.Expanded || len(byKey[parseTarget(wc.Target).key()+"|"+wc.Path]) > 0),
+			Sessions:  core.NewSignalFunc(cx, []*session{}, nil),
+			Pi:        core.NewSignalFunc(cx, []*session(nil), nil),
+			PiOpen:    core.NewSignal(cx, false),
+			PiLoading: core.NewSignal(cx, false),
+			Visible:   core.NewSignal(cx, 0)}
 		for _, m := range byKey[parseTarget(wc.Target).key()+"|"+wc.Path] {
 			sess := a.makeSession(m, ws.Target)
 			ws.Sessions.Update(func(ss []*session) []*session { return append(ss, sess) })
@@ -1045,9 +1057,11 @@ func (a *app) addWorkspaceFor(t target, path, name string) {
 		return
 	}
 	ws := &workspace{Path: path, Name: name, Target: t, Expanded: core.NewSignal(a.cx, true),
-		Sessions: core.NewSignalFunc(a.cx, []*session{}, nil),
-		Pi:       core.NewSignalFunc(a.cx, []*session(nil), nil),
-		PiOpen:   core.NewSignal(a.cx, true)}
+		Sessions:  core.NewSignalFunc(a.cx, []*session{}, nil),
+		Pi:        core.NewSignalFunc(a.cx, []*session(nil), nil),
+		PiOpen:    core.NewSignal(a.cx, true),
+		PiLoading: core.NewSignal(a.cx, false),
+		Visible:   core.NewSignal(a.cx, 0)}
 	a.workspaces.Update(func(list []*workspace) []*workspace { return append(list, ws) })
 	a.activeWS.Set(path)
 	a.st.edit(func(c *config) {
@@ -1169,7 +1183,15 @@ func (a *app) deleteSession(s *session) {
 	if s == nil {
 		return
 	}
-	a.askConfirm("删除会话", fmt.Sprintf("删除「%s」？文件会移到回收目录，可以手动找回。", s.title.GetUntracked()), "删除", func() {
+	if s.External {
+		a.toast(ui.ToastInfo, "这是 pi 自己的会话", "它的文件在 pi 的目录里，应用不删它；可以在文件管理器里处理。")
+		a.revealSession(s)
+		return
+	}
+	body := fmt.Sprintf("「%s」会从侧栏消失，文件移到数据目录的 trash 里，需要时可以手动找回。", s.title.GetUntracked())
+	a.askConfirm("删除会话", body, "删除", func() {
+		// The process holds the session file on Windows: close it, and let
+		// it go before moving the file.
 		if s.engine != nil {
 			s.engine.stop()
 			s.engine = nil
@@ -1368,6 +1390,9 @@ func (a *app) engineReady(s *session, c *piClient, model *modelInfo, thinking, f
 
 // historyReady fills the transcript from pi, then lets queued actions run.
 func (a *app) historyReady(s *session, msgs []piMessage) {
+	if !s.loaded.GetUntracked() && a.activeID.GetUntracked() == s.ID {
+		a.animateNextLayout()
+	}
 	if len(msgs) > 0 && len(s.turns.GetUntracked()) == 0 {
 		s.turns.Set(turnsFromMessages(msgs))
 	}
@@ -2652,12 +2677,45 @@ func (a *app) setTheme(name string) {
 	a.st.edit(func(c *config) { c.Theme = name })
 }
 
-// openWorkspaceFolder reveals a folder in the file manager.
+// openWorkspaceFolder reveals a folder in the file manager of the machine
+// it is on.
 func (a *app) openWorkspaceFolder(path string) {
 	if path == "" {
 		return
 	}
-	a.cx.OpenURL(fileURL(path), nil)
+	if err := revealFolder(localTarget, path); err != nil {
+		a.toast(ui.ToastError, "打不开文件夹", err.Error())
+	}
+}
+
+// revealProject opens a workspace's folder on its own target.
+func (a *app) revealProject(ws *workspace) {
+	if ws == nil {
+		return
+	}
+	if err := revealFolder(ws.Target, ws.Path); err != nil {
+		a.toast(ui.ToastError, "打不开文件夹", err.Error())
+	}
+}
+
+// revealSession shows a session where it lives: its file in pi's store, or
+// its project's folder for one the app owns.
+func (a *app) revealSession(s *session) {
+	if s == nil {
+		return
+	}
+	if s.External && s.File != "" {
+		if err := revealFile(s.Target, s.File); err != nil {
+			a.toast(ui.ToastError, "打不开位置", err.Error())
+		}
+		return
+	}
+	if s.File != "" {
+		if err := revealFile(s.Target, s.File); err == nil {
+			return
+		}
+	}
+	a.revealProject(a.workspaceFor(s.Target, s.WS))
 }
 
 // bindKeys gives the app its shortcuts.
