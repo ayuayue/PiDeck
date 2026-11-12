@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 function read(path) {
 	return readFileSync(path, "utf8");
@@ -192,7 +193,7 @@ test("copy-as-image clone hides via .multi-select-image-export, not off-viewport
 });
 
 test("native clipboard image write lives in main and preload only invokes IPC", () => {
-	const preload = read("src/preload/index.ts");
+	const preload = preloadSource;
 	const native = read("src/main/clipboard/nativeClipboard.ts");
 	const ipc = read("src/main/ipc/clipboardIpc.ts");
 	const channels = read("src/shared/ipc.ts");
@@ -202,7 +203,8 @@ test("native clipboard image write lives in main and preload only invokes IPC", 
 	assert.match(native, /parseClipboardImageDataUrl/);
 	assert.match(native, /nativeImage\.createFromBuffer/);
 	assert.match(preload, /ipcRenderer\.invoke\(ipcChannels\.clipboardWriteImage/);
-	assert.match(preload, /import \{ contextBridge, ipcRenderer, webUtils \} from "electron"/);
+	// 拆分后 electron 的具名导入按域拆开（contextBridge 在组装口，webUtils 在 workspace 域），只要求 webUtils 仍从 electron 引入。
+	assert.match(preload, /import \{[^}]*\bwebUtils\b[^}]*\} from "electron"/);
 	assert.doesNotMatch(preload, /nativeImage\.createFromBuffer/);
 	assert.doesNotMatch(preload, /clipboard\.readBuffer/);
 });

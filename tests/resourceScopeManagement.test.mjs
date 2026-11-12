@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
@@ -105,7 +106,7 @@ test("project resource file operations retain the registered project scope", () 
 test("inherited override IPC is exposed through shared, main, and preload layers", () => {
 	const channels = read("src/shared/ipc.ts");
 	const main = read("src/main/ipc/projectResourceIpc.ts");
-	const preload = read("src/preload/index.ts");
+	const preload = preloadSource;
 	assert.match(channels, /projectResourcesOpenDirectory: "project-resources:open-directory"/);
 	assert.match(channels, /projectResourcesToggleInherited: "project-resources:toggle-inherited"/);
 	assert.match(main, /ipcChannels\.projectResourcesToggleInherited/);

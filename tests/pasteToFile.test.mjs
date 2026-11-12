@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /**
  * 粘贴大文本 → 自动转文件 的回归测试（输入框大文本卡顿优化的端到端接线）：
@@ -14,7 +15,7 @@ import test from "node:test";
 const rendererUtils = readFileSync("src/renderer/src/rendererUtils.ts", "utf8");
 const controller = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
 const pasteFilesIpc = readFileSync("src/main/ipc/pasteFilesIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 const atoms = readFileSync("src/renderer/src/atoms/composer-atoms.ts", "utf8");
 const panels = readFileSync("src/renderer/src/components/session/ComposerPanels.tsx", "utf8");
 const composerArea = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");

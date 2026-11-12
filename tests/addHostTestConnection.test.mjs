@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /**
  * 「添加连接」的失败可读性 + 内联环境检测（用户反馈两轮）。
@@ -18,7 +19,7 @@ import test from "node:test";
 const dialog = readFileSync("src/renderer/src/components/app/settings/AddHostDialog.tsx", "utf8");
 const tab = readFileSync("src/renderer/src/components/app/settings/ConnectionsTab.tsx", "utf8");
 const piIpc = readFileSync("src/main/ipc/remoteHostPiIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 const shared = readFileSync("src/shared/ipc.ts", "utf8");
 const main = readFileSync("src/main/ipc/remoteHostIpc.ts", "utf8");
 const failureCopy = readFileSync("src/renderer/src/utils/remoteHostFailureCopy.ts", "utf8");

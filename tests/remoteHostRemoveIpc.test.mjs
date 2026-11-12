@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 // 移除连接是三处同步的新通道（shared 常量 / preload / main handler），并且必须：
 // - 在 id 非法或功能关闭时不碰磁盘；
@@ -28,7 +29,7 @@ const base = { userDataDir: "/tmp/pideck-remove-never-used", list: async () => (
 
 test("remove channel is declared, bridged and registered", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	assert.match(shared, /remoteHostRemove:\s*"remote:remove"/);
 	assert.match(preload, /remove:\s*\(hostId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteHostRemove/);
 	assert.ok(handlersFor({ ...base, enabled: true }).get("remote:remove"));

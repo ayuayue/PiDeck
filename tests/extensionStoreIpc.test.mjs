@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /**
  * 扩展商店（pi.dev Package Catalog）IPC 契约测试。
@@ -11,7 +12,7 @@ import test from "node:test";
 
 const ipcSource = readFileSync("src/shared/ipc.ts", "utf8");
 const storeIpc = readFileSync("src/main/ipc/storeIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 
 test("extensionsCatalog 通道名定义为 extensions:catalog", () => {
 	assert.match(ipcSource, /extensionsCatalog: "extensions:catalog"/);

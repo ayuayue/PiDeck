@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const { createRemoteGitViewController } = loadTsCommonJs("src/renderer/src/utils/remoteGitViewState.ts");
 const { remoteGitErrorMessage } = loadTsCommonJs("src/renderer/src/utils/gitErrorPresentation.ts");
@@ -208,7 +210,7 @@ test("the panel and the dictionaries carry the explicit init action without pret
 
 test("the init channel is wired through all four layers", () => {
 	assert.match(readFileSync("src/shared/ipc.ts", "utf8"), /gitRemoteInit:\s*"git:remote-init"/);
-	assert.match(readFileSync("src/preload/index.ts", "utf8"), /initRemote:\s*\(projectId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.gitRemoteInit/);
-	assert.match(readFileSync("src/renderer/src/previewApi.ts", "utf8"), /initRemote:\s*async \(\) => \(\{ ok: false, code: "REMOTE_FEATURE_DISABLED" \}\)/);
+	assert.match(preloadSource, /initRemote:\s*\(projectId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.gitRemoteInit/);
+	assert.match(previewApiSource, /initRemote:\s*async \(\) => \(\{ ok: false, code: "REMOTE_FEATURE_DISABLED" \}\)/);
 	assert.match(readFileSync("src/main/ipc/remoteGitReadIpc.ts", "utf8"), /ipcMain\.handle\(ipcChannels\.gitRemoteInit/);
 });

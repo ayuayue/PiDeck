@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 const { isActionableProjectPackageItem } = loadTsCommonJs("src/renderer/src/config/resourceScopeModel.ts");
@@ -103,7 +104,7 @@ test("版本穿线：resolver → discovery → 共享类型", () => {
 // Use --approve to modify local package config."；安装路径本就带 cwd + projectInstall，卸载必须镜像。
 
 test("项目层卸载与安装走同一信任路径（preload → storeIpc → ExtensionManager）", () => {
-	const preload = read("src/preload/index.ts");
+	const preload = preloadSource;
 	assert.match(preload, /uninstall: \(source: string, scope\?: "user" \| "project" \| "unknown", projectId\?: string\)/, "preload 必须透传 projectId");
 
 	const ipc = read("src/main/ipc/storeIpc.ts");

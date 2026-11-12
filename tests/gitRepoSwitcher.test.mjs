@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const host = readFileSync("src/renderer/src/components/workspace/GitDrawerHost.tsx", "utf8");
 const scope = readFileSync("src/renderer/src/hooks/useGitRepoScope.ts", "utf8");
 const drawer = readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8");
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 const gitIpc = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
 const panel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
 const graph = readFileSync("src/renderer/src/components/app/git/GitGraph.tsx", "utf8");
