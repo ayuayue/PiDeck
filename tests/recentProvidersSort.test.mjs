@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
 const { orderProviderGroups } = loadTsCommonJs("src/renderer/src/components/session/sessionPickerOptions.ts");
 
 const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+const sessionIpc = sessionIpcSource;
 const components = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
 const pickerHost = readFileSync("src/renderer/src/components/session/ComposerPickerHost.tsx", "utf8");
 /** 模型/思考域状态由 state hook + controller 持有（选择器渲染壳只透传）。 */

@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
 const { AgentManager } = loadTsCommonJs("src/main/pi/AgentManager.ts");
 const PROJECT = { id: "project-1", name: "Project", path: "C:/project" };
@@ -60,7 +61,7 @@ test("releaseStandbyAgent: 池空时无事发生（不报错、不重复停）",
 });
 
 test("sessions:catalog:update 在切到非 pi 后端时回收本项目的 standby 进程", () => {
-	const source = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const source = sessionIpcSource;
 	const handler = source.slice(source.indexOf("ipcChannels.sessionsCatalogUpdate"), source.indexOf("ipcChannels.sessionsCatalogRemove"));
 	const release = handler.indexOf('patch.backend !== "pi"');
 	assert.ok(release >= 0, "草稿切到非 pi 后端必须回收 standby 预热进程");

@@ -11,8 +11,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
-const SOURCE = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+const SOURCE = sessionIpcSource;
 
 /** 剥掉注释：注释里也会出现 `localSessionFilePath(sessionId)` 这类字面量，不剥会把「注释在前」误判成代码顺序。 */
 function codeOnly(body) {

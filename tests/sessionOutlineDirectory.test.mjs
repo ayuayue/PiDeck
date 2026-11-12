@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /**
  * 导轨目录数据面（计划 §6 S4）：活动索引派生用户检查点 + 按需标题。
@@ -120,8 +122,8 @@ test("超预算保留首个与最近项，并标记 truncated", async () => {
 
 test("通道、handler、preload 三处同步", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const handler = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const handler = sessionIpcSource;
+	const preload = preloadSource;
 	assert.match(ipc, /sessionsCatalogReadOutline:\s*"sessions:catalog-read-outline"/);
 	assert.match(handler, /ipcMain\.handle\(\s*ipcChannels\.sessionsCatalogReadOutline,/);
 	assert.match(preload, /readOutline:\s*\(/);

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /**
  * 草稿会话 standby 命令预览的渲染层生命周期契约（Issue #316 链路的 UI 半边）。
@@ -49,18 +52,18 @@ test("composer wiring: preview is projected per project and feeds the priority s
 });
 
 test("sessions:draft-commands IPC boundary: input validated before delegation, no business logic in the handler", () => {
-	const source = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const source = sessionIpcSource;
 	assert.match(source, /ipcMain\.handle\(ipcChannels\.sessionsDraftCommands, \(_event, projectId: string\) => \{\s*if \(typeof projectId !== "string" \|\| !projectId\.trim\(\)\) return null;\s*return sessionRuntimeCoordinator\.draftCommands\(projectId\);/);
 });
 
 test("embed stubs (browser/preview) return null so suggestions fall back to local discovery", () => {
 	const browserApi = readFileSync("src/renderer/src/browserApi.ts", "utf8");
 	assert.match(browserApi, /draftCommands: async \(\) => null/);
-	const previewApi = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const previewApi = previewApiSource;
 	assert.match(previewApi, /draftCommands: async \(\) => null/);
 });
 
 test("preload whitelist exposes draftCommands through the single channel constant", () => {
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	assert.match(preload, /draftCommands: \(projectId: string\) => ipcRenderer\.invoke\(ipcChannels\.sessionsDraftCommands, projectId\) as Promise<PiCommand\[\] \| null>/);
 });

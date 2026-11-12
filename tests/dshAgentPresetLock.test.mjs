@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
 const { isDshAgentPresetLocked } = loadTsCommonJs("src/shared/dshAgentPresetLock.ts");
 
@@ -31,7 +32,7 @@ test("非 dsh 后端不参与预设锁定", () => {
 });
 
 test("主进程边界与渲染层胶囊共用同一判据（禁止各自内联锁定条件）", () => {
-	const ipc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const ipc = sessionIpcSource;
 	assert.match(ipc, /isDshAgentPresetLocked\(\{/, "sessions:catalog-update 必须走 shared 判据");
 	const control = readFileSync("src/renderer/src/components/session/DshAgentPresetControl.tsx", "utf8");
 	assert.match(control, /isDshAgentPresetLocked\(\{/, "会话头胶囊必须走同一判据决定只读/可选");

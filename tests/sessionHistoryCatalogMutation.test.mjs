@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const sessionIpc = sessionIpcSource;
+const preload = preloadSource;
 const injector = readFileSync("src/renderer/src/components/session/SessionRuntimeInjector.tsx", "utf8");
 
 test("catalog message mutation IPC is wired in shared, main and preload", () => {

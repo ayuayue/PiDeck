@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
 const { composeAgentInstruction, shouldInjectAgentPersona } = loadTsCommonJs("src/main/agents/agentPersonaInstruction.ts");
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+const sessionIpc = sessionIpcSource;
 
 /** 生产模块在 vm 沙箱里创建的对象原型属于另一个 realm，深度比较前转成本 realm 的普通对象。 */
 function plain(value) {

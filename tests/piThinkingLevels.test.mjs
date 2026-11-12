@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
 const { isUnsupportedThinkingLevelsRpcError, parseAvailableThinkingLevelsResponse } = loadTsCommonJs("src/main/pi/thinkingLevels.ts");
 const { toThinkingPickerLevels, resolveThinkingPickerLevels } = loadTsCommonJs("src/renderer/src/components/session/sessionPickerOptions.ts");
@@ -9,13 +11,11 @@ const { readFile } = await import("node:fs/promises");
 // 思考档位探测与应用逻辑现在分成两半：读侧（目录/档位解析/后台探测）在
 // useSessionPreferenceState，写侧（应用命令/pending）在 useSessionPreferenceController；
 // 二者与 Ctrl+M/Ctrl+T 快捷键共用同一条链路。pickerSource 取两份拼接，组件只验渲染接线。
-const [stateSource, controllerSource, pickerHostSource, ipcSource, sessionIpcSource, preloadSource, componentsSource] = await Promise.all([
+const [stateSource, controllerSource, pickerHostSource, ipcSource, componentsSource] = await Promise.all([
 	readFile("src/renderer/src/hooks/useSessionPreferenceState.ts", "utf8"),
 	readFile("src/renderer/src/hooks/useSessionPreferenceController.ts", "utf8"),
 	readFile("src/renderer/src/components/session/ComposerPickerHost.tsx", "utf8"),
 	readFile("src/shared/ipc.ts", "utf8"),
-	readFile("src/main/ipc/sessionIpc.ts", "utf8"),
-	readFile("src/preload/index.ts", "utf8"),
 	readFile("src/renderer/src/components/session/ComposerComponents.tsx", "utf8"),
 ]);
 const pickerSource = [stateSource, controllerSource].join("\n");

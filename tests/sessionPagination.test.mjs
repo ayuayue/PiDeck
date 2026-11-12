@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
 function compile(filePath, imports = {}) {
 	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
@@ -75,7 +76,7 @@ test("renderer runtime code reads historical messages only through the bounded p
 });
 
 test("Pi desktop history IPC always routes persisted pages through complete-turn reader", () => {
-	const ipc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const ipc = sessionIpcSource;
 	assert.match(ipc, /readSessionDisplayTurnPage/);
 	assert.doesNotMatch(ipc, /readSessionDisplayMessagePage/);
 	assert.doesNotMatch(ipc, /unit\?: "message"/);

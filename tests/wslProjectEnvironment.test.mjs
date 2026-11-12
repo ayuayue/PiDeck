@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
 const { resolveProjectWslIdentity } = loadTsCommonJs("src/main/wsl/WslProjectEnvironment.ts");
 const HOST = "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d";
@@ -25,7 +26,7 @@ test("non-WSL projects and incomplete identities have no WSL environment", () =>
 });
 
 test("session creation and scanning use the resolver instead of raw settings", () => {
-	const source = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const source = sessionIpcSource;
 	assert.match(source, /const projectWsl = resolveProjectWslIdentity\(project, settings\);/);
 	assert.match(source, /mergeScanned\(projectId, summaries, projectWsl !== undefined/);
 	assert.match(source, /environment: projectWsl !== undefined \? "wsl" : "native"/);
