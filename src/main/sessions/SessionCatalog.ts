@@ -1964,7 +1964,37 @@ export class SessionCatalog implements HostRebindStorePort {
 	}
 
 	/**
-	 * 归档/删除父会话时清掉整棵子树。
+	 * 子树解析的单一实现：`listSubtreeEntries`（读）与 `removeWithDescendants`（写）共用，
+	 * 免得“磁盘要处理哪些文件”与“要摘哪些记录”两处判定漂移。
+	 */
+	private subtreeOf(id: string): { entries: SessionCatalogEntry[]; ids: string[] } | undefined {
+		const requestedId = this.resolveSessionId(id);
+		const parent = this.transientEntries.get(requestedId) ?? this.entries.find((entry) => entry.id === requestedId);
+		if (!parent) return undefined;
+		const entries = this.listEntries().filter((entry) => entry.projectId === parent.projectId);
+		return { entries, ids: collectSessionSubtreeIds(entries, parent) };
+	}
+
+	/**
+	 * 子树成员（含自身）的当前 catalog 条目。
+	 *
+	 * 与 `removeWithDescendants` 用同一套判定（`collectSessionSubtreeIds` + projectId 隔离），
+	 * 但只读不写：磁盘侧的归档/删除要在摘记录之前先知道「还有哪些子会话文件也得一起处理」。
+	 * 平铺子代理（与父会话同目录、`parentSessionPath` 指回父文件）不在 `<stem>/` 里，
+	 * `SessionScanner.archive/delete` 覆盖不到它们。
+	 */
+	listSubtreeEntries(id: string): SessionCatalogEntry[] {
+		this.assertLoaded();
+		const subtree = this.subtreeOf(id);
+		if (!subtree) return [];
+		const byId = new Map(subtree.entries.map((entry) => [entry.id, entry] as const));
+		return subtree.ids
+			.map((sessionId) => byId.get(sessionId))
+			.filter((entry): entry is SessionCatalogEntry => entry !== undefined)
+			.map(cloneEntry);
+	}
+
+	/** 归档/删除父会话时清掉整棵子树。
 	 *
 	 * 磁盘侧 `SessionScanner.archive/delete` 会把 sibling `<stem>/` 一并移走，但
 	 * `remove(id)` 只摘一条；`mergeScanned` 只增改不删，列表缓存会把失去父节点的
@@ -1973,11 +2003,9 @@ export class SessionCatalog implements HostRebindStorePort {
 	 */
 	async removeWithDescendants(id: string): Promise<string[]> {
 		this.assertLoaded();
-		const requestedId = this.resolveSessionId(id);
-		const parent = this.transientEntries.get(requestedId) ?? this.entries.find((entry) => entry.id === requestedId);
-		if (!parent) return [];
-		const projectEntries = this.listEntries().filter((entry) => entry.projectId === parent.projectId);
-		const ids = collectSessionSubtreeIds(projectEntries, parent);
+		const subtree = this.subtreeOf(id);
+		if (!subtree) return [];
+		const { ids } = subtree;
 
 		const removed: string[] = [];
 		for (const sessionId of ids) {

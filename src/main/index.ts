@@ -369,6 +369,7 @@ import { resolvePiAuthHostLaunch } from "./pi/auth/piAuthHostLaunch";
 import { EnhancePromptService, PI_ENHANCE_HOST_FILENAME } from "./pi/enhance/EnhancePromptService";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
+import { runForScatteredSubtreeFiles } from "./sessions/sessionSubtreeFiles";
 import { resolveLaunchDefaultOptions, isModelInModelsConfig, resolveImSessionLaunchDefaults } from "./sessions/launchDefaults";
 import { mergeCatalogModels } from "./pi/catalogModelsForValidation";
 import { pickStandbyWarmupProject } from "./pi/standbyWarmupTarget";
@@ -6821,6 +6822,11 @@ app
 				wechatServiceRef.current?.removeBindingsForSession(sessionId);
 				// 用记录上的本机路径：getLocalFilePath 对 ssh locator 会抛 UNSUPPORTED_PROJECT_LOCATION（远端记录没有本机文件可删）。
 				if (entry.filePath) await sessionScanner.delete(entry.filePath);
+				// 平铺子代理（与父会话同目录）不在 `<stem>/` 里：不单独清就会留着失去父节点的会话文件（#539）。
+				if (entry.filePath) {
+					const leftover = await runForScatteredSubtreeFiles({ catalog: sessionCatalog, sessionId, parentFilePath: entry.filePath, environment: entry.environment, run: (filePath) => sessionScanner.delete(filePath) });
+					if (leftover.length > 0) void appLogger.warn("session", "Catalog session delete left scattered subtree files", { sessionId, failures: leftover });
+				}
 				// DSH 没有 session.delete：与 pi 端同语义删除——把 host 会话目录移入系统回收站
 				// （可恢复；trashPath 失败时抛错由 IPC 呈现，拒绝静默硬删；目录已不在=幂等成功）。
 				// cwd 取项目目录（DSH workspace 编码同源）；项目被移除过则扫 sessions 树兑底。

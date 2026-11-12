@@ -13,7 +13,9 @@ import test from "node:test";
 const source = readFileSync("src/main/index.ts", "utf8");
 
 test("deleteSessionRecord 在释放运行时之后清掉微信绑定", () => {
-	const block = source.match(/deleteSessionRecord:[\s\S]{0,1200}?removeWithDescendants/);
+	// 窗口宽度只用于切片：块里还会继续长（#539 在删文件与摘记录之间补了平铺子代理清理），
+	// 断言本身是与顺序无关的三条必需调用，不是行长契约。
+	const block = source.match(/deleteSessionRecord:[\s\S]{0,2400}?removeWithDescendants/);
 	assert.ok(block, "deleteSessionRecord 实现应存在");
 	assert.match(block[0], /await\s+sessionRuntimeCoordinator\.releaseRuntimeForDelete\(\s*sessionId\s*\)/, "删除会话必须先释放运行时");
 	assert.match(block[0], /wechatServiceRef\.current\?\.removeBindingsForSession\(\s*sessionId\s*\)/, "删除会话必须清掉指向它的微信绑定");

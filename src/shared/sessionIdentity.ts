@@ -286,7 +286,7 @@ export type SessionTreeNode = {
  * pi-subagents / Claude 式子会话都落在这个 sibling-dir 里；扫描器归档/删除父文件时
  * 会把整个目录一起搬走，但 catalog.remove(id) 以前只摘父条目，目录里的子条目会变成幽灵行。
  */
-function sessionSiblingDirPrefix(filePath: string, environment: SessionEnvironment): string | undefined {
+export function sessionSiblingDirPrefix(filePath: string, environment: SessionEnvironment): string | undefined {
 	const canonical = canonicalizeSessionPath(filePath, environment);
 	const jsonl = canonical.match(/\.jsonl$/i);
 	if (!jsonl) return undefined;

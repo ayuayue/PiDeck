@@ -12,6 +12,7 @@ import { resolveProjectWslIdentity } from "../wsl/WslProjectEnvironment";
 import { isDshPermissionPreset } from "../../shared/types/agent";
 import { isRewindRestoreScope } from "../../shared/types/rewind";
 import { canonicalizeSessionPath } from "../../shared/sessionIdentity";
+import { runForScatteredSubtreeFiles } from "../sessions/sessionSubtreeFiles";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
 import { modelThinkingLevelOf } from "../../shared/modelThinkingLevels";
 import { readRuntimePromptTemplateBodies } from "../prompts/runtimeTemplateBodies";
@@ -1334,6 +1335,18 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				}
 				await sessionScanner.delete(sessionFilePath);
 			}
+			// 平铺子代理（与父会话同目录）不在 `<stem>/` 里，`scanner.delete` 覆盖不到：
+			// 不单独处理就会「记录拖掉了、文件还在」，下次扫描变孤儿行（#539）。
+			if (sessionFilePath) {
+				const leftover = await runForScatteredSubtreeFiles({
+					catalog: sessionCatalog,
+					sessionId,
+					parentFilePath: sessionFilePath,
+					environment: entry.environment,
+					run: (filePath) => sessionScanner.delete(filePath),
+				});
+				if (leftover.length > 0) void appLogger.warn("session", "Catalog session delete left scattered subtree files", { sessionId, failures: leftover });
+			}
 			// 磁盘会把 sibling `<stem>/` 一并删掉；catalog 必须同步摘掉整棵子树，
 			// 否则 mergeScanned 只增改不删，子会话会孤儿提升成顶层行。
 			await sessionCatalog.removeWithDescendants(sessionId);
@@ -1412,6 +1425,16 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			throw new Error(mainCopy("session.stopBeforeDelete"));
 		}
 		const archivedPath = await sessionScanner.archive(sessionFilePath);
+		// 平铺子代理与父会话同目录、不在 `<stem>/` 里：archive 覆盖不到它们，
+		// 不带上就会「catalog 摘了整棵子树、活动扫描目录里还留着子会话文件」（#539）。
+		const leftover = await runForScatteredSubtreeFiles({
+			catalog: sessionCatalog,
+			sessionId,
+			parentFilePath: sessionFilePath,
+			environment: entry.environment,
+			run: (filePath) => sessionScanner.archive(filePath),
+		});
+		if (leftover.length > 0) void appLogger.warn("session", "Session archive left scattered subtree files", { sessionId, failures: leftover });
 		// scanner.archive 会把 sibling `<stem>/` 一并移走；catalog 同步清子树，避免幽灵子会话。
 		await sessionCatalog.removeWithDescendants(sessionId);
 		void appLogger.info("session", "Session archived", { sessionId, archivedPath });
