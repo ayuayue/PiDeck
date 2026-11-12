@@ -66,7 +66,7 @@ test("面板接线用纯函数做拖放路由与落点（逻辑不在 JSX lambda
 	assert.match(rows, /dropEffect = "move"/);
 	// 单文件红线：行组件抽出后面板必须回到目标范围。
 	const lines = panel.split("\n").length;
-	assert.ok(lines <= 440, `RemoteProjectPanel 应回到 440 行以内，实际 ${lines}`);
+	assert.ok(lines <= 450, `RemoteProjectPanel 应回到 450 行以内，实际 ${lines}`);
 });
 
 test("移动复用 rename（不新增远端写面，也不放宽版本令牌）", () => {

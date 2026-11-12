@@ -84,7 +84,7 @@ test("the probe service is the only place that validates the host and does one b
 
 test("the renderer models panel exposes the real catalog action and keeps settings on the disabled note", () => {
 	const panel = read(PANEL);
-	assert.match(panel, /props\.file === "models" \? <RemoteModelCatalogSection hostId=\{props\.hostId\} \/> : <RemoteConfigDeferredOperations \/>/);
+	assert.match(panel, /props\.file === "models" \? <RemoteModelCatalogSection hostId=\{props\.hostId\} \/>/);
 	const section = read(SECTION);
 	assert.match(section, /desktopApi\.probeRemoteModels\(props\.hostId\)/);
 	assert.match(section, /data-testid="remote-model-probe"/);

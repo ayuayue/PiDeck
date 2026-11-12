@@ -52,9 +52,12 @@ test("default 沿别名链解析（自定义别名、lts/*）", () => {
 	withNvm({ versions: INSTALLED, aliases: { default: "work", work: "v20.1.0" } }, (order) => {
 		assert.equal(order()[0], "v20.1.0");
 	});
-	withNvm({ versions: INSTALLED, aliases: { default: "lts/*", "lts/*": "lts/jod", "lts/jod": "v22.22.1" } }, (order) => {
-		assert.equal(order()[0], "v22.22.1");
-	});
+	// nvm 的 `lts/*` 别名是一个带斜杠的文件名；Windows 无法创建含 `*` 的文件，该分支仅 POSIX 可验。
+	if (process.platform !== "win32") {
+		withNvm({ versions: INSTALLED, aliases: { default: "lts/*", "lts/*": "lts/jod", "lts/jod": "v22.22.1" } }, (order) => {
+			assert.equal(order()[0], "v22.22.1");
+		});
+	}
 });
 
 test("default 指向未安装版本、system、越界路径或循环别名时退回最新版", () => {

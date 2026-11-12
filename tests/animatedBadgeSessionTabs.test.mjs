@@ -82,7 +82,7 @@ test("session tab active background is instant (no shared-layout slide between t
 
 test("sidebar SessionTree still uses its own status dot (unchanged)", () => {
 	const source = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
-	assert.match(source, /sessionStatusDotClass/);
+	assert.match(source, /SessionRuntimeStatusDot/);
 });
 
 test("session menu (moved out of the tab bar) keeps state-based disable with visible gray", () => {

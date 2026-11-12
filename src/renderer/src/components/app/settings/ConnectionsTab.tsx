@@ -293,7 +293,7 @@ export function ConnectionsTab() {
 											title={host.verified ? undefined : t("settings.connections.unverifiedTag")}
 											aria-label={connected ? t("settings.connections.disconnect") : t("settings.connections.connect")}
 										>
-											{pending || tone === "connecting" ? <LoaderCircle className="size-3 animate-spin" aria-hidden="true" /> : null}
+											{pending || tone === "connecting" ? <LoaderCircle className="size-3 animate-pideck-spin" aria-hidden="true" /> : null}
 											{connected ? t("settings.connections.disconnect") : t("settings.connections.connect")}
 										</Button>
 										<Button type="button" variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground hover:text-foreground" title={t("settings.connections.edit.title")} aria-label={t("settings.connections.edit.title")} disabled={pending || editLoading === host.id} onClick={() => void openEditor(host.id)}>
@@ -319,7 +319,7 @@ export function ConnectionsTab() {
 										<div className="flex items-center gap-2 pl-12 text-label text-warning">
 											<span className="min-w-0 truncate">{t("settings.connections.lastFailure", { code: failures[host.id] })}</span>
 											<Button variant="ghost" size="sm" className="shrink-0" disabled={pending || !connectable} onClick={() => (host.verified ? void toggle(host.id, true, host.label) : void openEditor(host.id))}>
-												{pending ? <LoaderCircle className="size-3 animate-spin" aria-hidden="true" /> : null}
+												{pending ? <LoaderCircle className="size-3 animate-pideck-spin" aria-hidden="true" /> : null}
 												{t("common.retry")}
 											</Button>
 										</div>

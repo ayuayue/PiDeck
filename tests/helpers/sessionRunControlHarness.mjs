@@ -149,6 +149,7 @@ export function harness(options = {}) {
 				},
 			},
 			jotai: {
+				atom: (initial) => ({ initial }),
 				useStore: () => store,
 				useSetAtom: (atom) => (event) => {
 					if (atom === atoms.applySessionRuntimeEventAtom) runtimeEvents.push(plain(event));

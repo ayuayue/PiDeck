@@ -40,6 +40,15 @@ function editorHarness(initialProps) {
 		destroy() {}
 	}
 	const { CodeMirrorEditor } = loadTsCommonJs("src/renderer/src/components/app/CodeMirrorEditor.tsx", {
+		globals: {
+			navigator: { userAgent: "node-test" },
+			window: {
+				location: { search: "", protocol: "file:" },
+				localStorage: { getItem: () => null, setItem: () => {} },
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			},
+		},
 		stubs: {
 			react: { ...host.react, memo: (component) => component },
 			"@codemirror/view": { ...cmView, EditorView },
@@ -94,7 +103,10 @@ function viewerHarness(initialProps = {}) {
 	};
 	const { FileDiffViewer } = loadTsCommonJs("src/renderer/src/components/app/FileDiffViewer.tsx", {
 		globals: {
+			navigator: { userAgent: "node-test" },
 			window: {
+				location: { search: "", protocol: "file:" },
+				localStorage: { getItem: () => null, setItem: () => {} },
 				addEventListener: (type, callback) => listeners.set(type, callback),
 				removeEventListener: (type, callback) => {
 					if (listeners.get(type) === callback) listeners.delete(type);

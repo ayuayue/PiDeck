@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
-const { useSessionActions } = createTsSandbox({ stubs: { "../i18n": { t: (key) => key } } })("src/renderer/src/hooks/useSessionActions.ts");
+const { useSessionActions } = createTsSandbox({ stubs: { "../i18n": { t: (key) => key }, jotai: { atom: (initial) => ({ initial }), useSetAtom: () => () => {} } } })("src/renderer/src/hooks/useSessionActions.ts");
 
 function setup(deleteRecord = async () => true) {
 	const events = [];
