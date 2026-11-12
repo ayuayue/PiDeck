@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
-const mainEntry = readFileSync("src/main/index.ts", "utf8");
+const mainEntry = mainIpcSource;
 const settingsModal = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
 const settingsRoot = readFileSync("src/renderer/src/components/app/SettingsFeatureRoot.tsx", "utf8");
 const backgroundWatch = readFileSync("src/renderer/src/hooks/useBackgroundUpdateWatch.ts", "utf8");

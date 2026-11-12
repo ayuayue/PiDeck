@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 // 生产依赖图（含 manualUpdateDelivery）由 helper 递归解析；Math/Date 注入宿主对象，
 // 让「把 Math.random 固定为 0」的抖动测试仍然可控。
 const { UpdateService, DEFAULT_CHECK_INTERVAL_MS, DEFAULT_START_DELAY_MS } = loadTsCommonJs("src/main/update/UpdateService.ts", {
@@ -426,7 +426,7 @@ test("a rejected catalog checker logs a warning and keeps the previous snapshot"
  * 这两处都不在 UpdateService 的行为测试覆盖范围内，漏了会退化成「开关无效但仍然显示已开启」。
  */
 test("catalog auto update is wired end to end", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	const devTab = readFileSync("src/renderer/src/components/app/settings/DevTab.tsx", "utf8");
 	assert.match(main, /updateCatalog: \(\) => catalogUpdater\.update\(\)/);
 	assert.match(devTab, /onAutoUpdateChange=\{\(checked\) => updateDraft\(\{ catalogAutoUpdate: checked \}\)\}/);

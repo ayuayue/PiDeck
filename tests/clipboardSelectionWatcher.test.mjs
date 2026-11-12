@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const mod = loadTsCommonJs("src/main/selection/clipboardSelectionWatcher.ts");
 const { ClipboardSelectionWatcher, CLIPBOARD_SELECTION_MIN_CHARS, normalizeClipboardText, resolveClipboardSelectionCandidate } = mod;
@@ -104,7 +105,7 @@ test("watcher truncates oversized clipboard text and survives read failures", ()
 });
 
 test("main wires copy-trigger to the same selection service and stops with the switch", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	assert.match(main, /new ClipboardSelectionWatcher\(/);
 	assert.match(main, /selectionClipboardWatcher\?\.setEnabled\(systemEnabled\)/);
 	assert.match(main, /suppressClipboardWatcher:/);

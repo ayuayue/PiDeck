@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 会话删除必须同步清掉微信桥的绑定。
  *
@@ -10,8 +10,8 @@ import test from "node:test";
  * main/index.ts 的装配路线不在沙箱可测范围内，只能用空白容忍的源码契约钉住
  *（AGENTS.md：新增源码扫描测试的正则必须空白容忍）。
  */
-const source = readFileSync("src/main/index.ts", "utf8");
 
+const source = mainIpcSource;
 test("deleteSessionRecord 在释放运行时之后清掉微信绑定", () => {
 	// 窗口宽度只用于切片：块里还会继续长（#539 在删文件与摘记录之间补了平铺子代理清理），
 	// 断言本身是与顺序无关的三条必需调用，不是行长契约。

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 // 纯函数模块（零依赖）直接编译加载
 const { extractBodyTextFromContent, inferSessionTitleFromLines, isLegacySessionNameEntry, isLegacySessionNameLine, stripLegacySessionNameLine, tryRestorePathGluedHeader } = loadTsCommonJs("src/main/sessions/sessionNameLine.ts");
 
@@ -214,10 +215,10 @@ test("PiProcess 在 spawn 前调用修复回调，失败不阻塞启动", () => 
 });
 
 test("AgentManager 与 index.ts 完成修复回调装配", () => {
-	const agentSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentSource = agentManagerSource;
 	assert.match(agentSource, /repairSessionFile\?: \(sessionPath: string\) => Promise<boolean>/);
 	assert.match(agentSource, /repairSessionFileBeforeStart: this\.repairSessionFile/);
-	const indexSource = readFileSync("src/main/index.ts", "utf8");
+	const indexSource = mainIpcSource;
 	assert.match(indexSource, /repairCorruptSessionHeader/);
 });
 

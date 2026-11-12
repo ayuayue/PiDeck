@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import { readRendererStyles } from "./helpers/rendererStyles.mjs";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const panel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
 const resourceTree = readFileSync("src/renderer/src/components/app/git/GitResourceTree.tsx", "utf8");
 const graph = readFileSync("src/renderer/src/components/app/git/GitGraph.tsx", "utf8");
@@ -12,15 +17,15 @@ const styles = readRendererStyles();
 const i18n = [readFileSync("src/renderer/src/i18n.ts", "utf8"), readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8"), readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8")].join("\n");
 const app = [
 	readFileSync("src/renderer/src/hooks/useFileEditor.ts", "utf8"),
-	readFileSync("src/renderer/src/App.tsx", "utf8"),
+	rendererAppSource,
 	readFileSync("src/renderer/src/hooks/app/useAppBootstrapInfo.ts", "utf8"),
 	readFileSync("src/renderer/src/components/app/AppShell.tsx", "utf8"),
 	readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8"),
 	readFileSync("src/renderer/src/hooks/workspace/useSessionFileLinks.ts", "utf8"),
 ].join("\n");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const main = readFileSync("src/main/index.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+const preload = preloadSource;
+const main = mainIpcSource;
+const systemIpc = systemIpcSource;
 const gitIpc = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
 const gitService = readFileSync("src/main/git/GitService.ts", "utf8");
 

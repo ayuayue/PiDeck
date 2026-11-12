@@ -2,13 +2,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const foundation = readFileSync("src/renderer/src/styles/foundation.css", "utf8");
 const streamdownChrome = readFileSync("src/renderer/src/styles/streamdownChrome.css", "utf8");
 const stylesEntry = readFileSync("src/renderer/src/styles.css", "utf8");
 const header = readFileSync("src/renderer/src/components/AppHeader.tsx", "utf8");
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const systemIpc = systemIpcSource;
+const preload = preloadSource;
 const brand = readFileSync("src/renderer/src/components/app/AppParts.tsx", "utf8");
 const sidebar = readFileSync("src/renderer/src/components/sidebar/AppSidebar.tsx", "utf8");
 const tabs = readFileSync("src/renderer/src/components/session/SessionTabsBar.tsx", "utf8");
@@ -54,7 +59,7 @@ test("pin button syncs initial always-on-top state from main process", () => {
 });
 
 test("窗口前置保留用户置顶状态（临时置顶 hack 只在未置顶时执行）", () => {
-	const mainIndex = readFileSync("src/main/index.ts", "utf8");
+	const mainIndex = mainIpcSource;
 	// 代码已从 focusMainWindow 收口到 revealMainWindow：断言要跟着实现走，并限定在该函数体内，
 	// 避免全文件搜到别处同形代码而变相失效。
 	const start = mainIndex.search(/function revealMainWindow\(/);
@@ -110,7 +115,7 @@ test("session tabs bar keeps trailing inset for drawer toggle (no px-* override)
 });
 
 test("toggle maximize tracks intent without stale isMaximized reads", () => {
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemIpc = systemIpcSource;
 	assert.match(systemIpc, /const nextMaximized = !readMaximized\(win\)/);
 	assert.match(systemIpc, /emitMaximizedState\(win,\s*nextMaximized\)/);
 	assert.match(systemIpc, /return nextMaximized/);
@@ -139,7 +144,7 @@ test("brand lockup is larger inside the 40px titlebar", () => {
 
 test("mac custom titlebar uses system traffic lights and insets collapsed tabs", () => {
 	const header = readFileSync("src/renderer/src/components/AppHeader.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const appBootstrap = readFileSync("src/renderer/src/hooks/app/useAppBootstrapInfo.ts", "utf8");
 	const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 	// 右侧 Win 控件只在非 darwin 渲染；mac 靠 hiddenInset 红绿灯。

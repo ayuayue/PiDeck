@@ -11,8 +11,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const index = readFileSync("src/main/index.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
+const index = mainIpcSource;
+const systemIpc = systemIpcSource;
 const { hasWslSettingsChanged } = loadTsCommonJs("src/main/wsl/WslProjectEnvironment.ts");
 
 test("WSL 热切换只在三元组真的变化时触发", () => {

@@ -9,12 +9,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const read = (path) => readFileSync(path, "utf8");
 const channels = read("src/shared/ipc.ts");
 const gitIpc = read("src/main/ipc/gitIpc.ts");
-const entry = read("src/main/index.ts");
-const preload = read("src/preload/index.ts");
-const previewApi = read("src/renderer/src/previewApi.ts");
+const entry = mainIpcSource;
+const preload = preloadSource;
+const previewApi = previewApiSource;
 const drawerHost = read("src/renderer/src/components/workspace/GitDrawerHost.tsx");
 const gitPanel = read("src/renderer/src/components/app/GitPanel.tsx");
 const gitAutoRefresh = read("src/renderer/src/hooks/git/useGitAutoRefresh.ts");

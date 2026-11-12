@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * 模型列表实时性 v2（--list-models 加速 + 缓存刷新策略）：
  * 1) parsePiListModels 解析表格输出（provider/model/thinking）
@@ -14,11 +19,11 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  */
 
 const { parsePiListModels, parseTokenSize, modelsFromPiConfig, isUnknownCliOption, classifyModelListFailure, MODEL_LIST_FAST_ARGS, MODEL_LIST_EXT_ARGS, MODEL_LIST_COMPAT_ARGS } = loadTsCommonJs("src/main/pi/modelListCache.ts");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 const cacheSource = readFileSync("src/main/pi/modelListCache.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-const indexSource = readFileSync("src/main/index.ts", "utf8");
+const systemIpc = systemIpcSource;
+const agentManager = agentManagerSource;
+const indexSource = mainIpcSource;
 const pickerHost = readFileSync("src/renderer/src/components/session/ComposerPickerHost.tsx", "utf8");
 /** 模型/思考域逻辑分两半：读侧目录/档位在 state hook，写侧应用与循环在 controller
  * （选择器与 Ctrl+M/Ctrl+T 快捷键共用同一实现）。 */
@@ -257,7 +262,7 @@ test("picker flow loads models on welcome page (no record)", () => {
 test("welcome page explicit model/thinking selections persist and are promoted into the first session", () => {
 	const picker = preferenceController;
 	const components = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const actions = readFileSync("src/renderer/src/hooks/useSessionActions.ts", "utf8");
 	const bootstrap = readFileSync("src/renderer/src/utils/chatSessionBootstrap.ts", "utf8");
 	// 无 record 的引导页仍是一个可交互 composer：用户点选必须覆盖静态默认值，

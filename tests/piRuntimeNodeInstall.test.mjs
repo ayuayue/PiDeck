@@ -7,6 +7,9 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 // runtimeNodeInstall 依赖 DshRuntimeManager（sha256OfFile / IO 类型），后者 import electron
 // 仅用于常量与类型；测试里给最小替身即可加载。
 const { installPiRuntimeNode, detectPiRuntimeNode, piRuntimeNodeExePath, piRuntimeNodeBinDir, piRuntimeRootDir, probeNodeVersion, copyDirEntryVerbatim, repairPortableNodeLinks } = loadTsCommonJs("src/main/pi/runtimeNodeInstall.ts", {
@@ -413,8 +416,8 @@ test("repairPortableNodeLinks：悬空的绝对软链会被改写成可用的相
 
 test("IPC / preload 三处同步注册 pi 环境引导通道", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const systemIpc = systemIpcSource;
+	const preload = preloadSource;
 	// 通道常量 + 主进程 handler + preload 暴露必须三处齐全（漏一处 = 运行时 undefined）
 	assert.match(ipc, /piRuntimeNodeCheck:\s*"pi:runtime-node-check"/);
 	assert.match(ipc, /piRuntimeNodeInstall:\s*"pi:runtime-node-install"/);
@@ -434,7 +437,7 @@ test("IPC / preload 三处同步注册 pi 环境引导通道", () => {
 test("安装器复用 DSH runtime IO，index.ts 装配真实下载/解压实现", () => {
 	const installer = readFileSync("src/main/pi/runtimeNodeInstall.ts", "utf8");
 	assert.match(installer, /from "\.\.\/dsh\/runtime\/DshRuntimeManager"/);
-	const index = readFileSync("src/main/index.ts", "utf8");
+	const index = mainIpcSource;
 	assert.match(index, /piRuntimeNodeInstaller:\s*\{/);
 	assert.match(index, /createNetDownloader/);
 	assert.match(index, /createTarExtractor/);

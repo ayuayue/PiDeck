@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 加载生产模块：统一走 createTsSandbox（相对 import 自动按源文件目录解析）。
  *
@@ -2431,7 +2431,7 @@ test("detach 推送抛错不连带让查询失败（解绑发生在读写盘 IPC
 });
 
 test("main 装配把惰性解绑接成 sessions:runtime-detach 推送", () => {
-	const mainSource = readFileSync("src/main/index.ts", "utf8");
+	const mainSource = mainIpcSource;
 	const coordinatorSource = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
 
 	// 装配层必须注入通知器，且走既有的 detach 信封（渲染层只认这一条协议）

@@ -5,6 +5,9 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const require = createRequire(import.meta.url);
 
 function transpile(filePath) {
@@ -209,8 +212,8 @@ test("offscreen devtools window is repositioned to primary display center on ope
 });
 
 test("main window and webview guest both route devtools shortcuts through the shared module", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const main = mainIpcSource;
+	const systemIpc = systemIpcSource;
 	assert.match(main, /import \{ isDevToolsShortcut, toggleMainWindowDevTools \} from "\.\/devTools"/);
 	// 主窗口 before-input-event 统一走共享匹配（注册表 + 用户覆盖）+ 开关
 	assert.match(main, /mainWindow\.webContents\.on\("before-input-event"/);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * Web SSE 流式化（A1）：pi 事件 → AI SDK v5 UIMessageStream 帧 翻译器。
  * 验证：
@@ -17,8 +17,8 @@ const webServiceSource = readFileSync("src/main/web/WebServiceManager.ts", "utf8
 const webApiRoutesSource = readFileSync("src/main/web/WebApiRoutes.ts", "utf8");
 const webSessionStreamSource = readFileSync("src/main/web/WebSessionStream.ts", "utf8");
 const webPageSource = readFileSync("src/main/web/webPageTemplate.ts", "utf8");
-const indexSource = readFileSync("src/main/index.ts", "utf8");
 
+const indexSource = mainIpcSource;
 const { PiEventToUiMessageStream, WebEventStreamRouter, SSE_DONE, serializeSseFrame } = loadTsCommonJs("src/main/web/WebEventStream.ts");
 
 test("text_delta produces start/delta/end triple with auto text-start", () => {

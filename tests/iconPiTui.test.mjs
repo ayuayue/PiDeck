@@ -5,6 +5,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { fileURLToPath } from "node:url";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainAssemblySource } from "./helpers/mainIpcSources.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -131,7 +132,8 @@ test("tray icon follows logoStyle at creation and on settings change (source sca
 	// 托盘图标曾经硬编码 classic iconPath：切换「Logo 风格」时窗口/Dock 变了、托盘不变。
 	// 两处契约：setupTray 首建按当前设置取图；settingsUpdate 的 logoStyle 分支同时刷托盘。
 	const appWindowLogo = fs.readFileSync(path.join(root, "src", "main", "appWindowLogo.ts"), "utf8");
-	const index = fs.readFileSync(path.join(root, "src", "main", "index.ts"), "utf8");
+	// setupTray 已迁到 src/main/window/tray.ts：读装配聚合面（index + startup + window），断言含义不变。
+	const assembly = mainAssemblySource;
 	const systemIpc = fs.readFileSync(path.join(root, "src", "main", "ipc", "systemIpc.ts"), "utf8");
 
 	// 窗口与托盘共用一条图标解析路径，避免新增风格时漏改其中一处
@@ -140,7 +142,7 @@ test("tray icon follows logoStyle at creation and on settings change (source sca
 	assert.match(appWindowLogo, /tray\.setImage\(image\.resize\(/, "tray must resize before setImage");
 
 	// setupTray 首建读设置值（风格 + 自定义图），资源缺失时降级回 iconPath（托盘必须建得出来）
-	const setupTray = index.slice(index.indexOf("function setupTray()"));
+	const setupTray = assembly.slice(assembly.indexOf("function setupTray("));
 	assert.match(setupTray.slice(0, 600), /resolveLogoImage\(\s*trayLogoSettings\.logoStyle,\s*trayLogoSettings\.logoCustomImage\s*\)/, "setupTray must honor the saved logoStyle and custom logo");
 
 	// custom 风格：只收内联 data:image/*（挡路径/远程 URL），解不开时回落默认位图，不出现「无图标」

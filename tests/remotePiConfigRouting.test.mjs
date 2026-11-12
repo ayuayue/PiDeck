@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * PiConfigRouter + IPC wiring (Batch A): local stays local, ssh goes only to the remote backend, provider
  * test/fetch/usage refuse an ssh target before any I/O, and the existing channels/preload contract do not move.
@@ -132,9 +135,9 @@ test("provider test / model fetch / usage stay local-only and refuse an ssh targ
 });
 
 test("the existing config IPC/preload contract now routes an optional target without adding channels", () => {
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-	const mainIndex = readFileSync("src/main/index.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const systemIpc = systemIpcSource;
+	const mainIndex = mainIpcSource;
+	const preload = preloadSource;
 	const channels = readFileSync("src/shared/ipc.ts", "utf8");
 	// Channel names/values are untouched; the target is an extra OPTION on the same four handlers.
 	assert.match(channels, /configGetModels: "config:get-models"/);

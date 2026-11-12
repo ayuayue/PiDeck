@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const require = createRequire(import.meta.url);
 const { loadTsCommonJs } = require("./helpers/loadTsCommonJs.mjs");
@@ -119,7 +120,7 @@ test("持续刷屏时聚合窗口增长，不把日志重新堆满", () => {
 });
 
 test("main 侧 console-message 镜像跳过良性事件（不与 renderer 双写）", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	assert.match(source, /mainWindow\.webContents\.on\(\s*"console-message"/);
 	// 良性判定后直接 return，良性噪音只由 renderer 的全局处理器写一条
 	assert.match(source, /if \(classifyRendererNoise\(event\.message\)\.benign\) return;/);

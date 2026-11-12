@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 
 const { trimHistoryMessages, turnTrimStartIndex, countRoleMessagesBefore, isDefaultAgentTitle, inferTitleFromMessages, looksLikePiSessionFileStem } = loadTsCommonJs("src/main/pi/agentUtils.ts");
 
@@ -166,8 +168,8 @@ test("inferTitleFromMessages preserves long prompts for the visual sidebar clamp
 test("only PiDeck automatic titles can write runtime names back to the catalog", () => {
 	// The catalog is the display authority. Runtime session_info changes remain transient;
 	// only the bundled extension's marker can claim an unowned placeholder title.
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-	const index = readFileSync("src/main/index.ts", "utf8");
+	const agentManager = agentManagerSource;
+	const index = mainIpcSource;
 	const utils = readFileSync("src/main/pi/agentUtils.ts", "utf8");
 	// auto-title marker 已随扩展 UI 闸迁入 extensionUiGate.ts（Wave 4B）；消费判定仍在 AgentManager。
 	const uiGateModule = readFileSync("src/main/pi/extensionUiGate.ts", "utf8");

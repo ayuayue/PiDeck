@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
-const mainSource = () => readFileSync("src/main/index.ts", "utf8");
+const mainSource = () => mainIpcSource;
 // 飞书 IPC 处理器已随主进程拆分迁入 ipc/feishuIpc.ts（2027-02），契约同步改读新模块。
 const feishuIpcSource = () => readFileSync("src/main/ipc/feishuIpc.ts", "utf8");
 const bridgeSource = () => readFileSync("src/main/feishu/FeishuBridge.ts", "utf8");

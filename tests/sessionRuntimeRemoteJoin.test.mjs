@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 远端会话的**恢复链路**（Phase 4 P4.2 收口第 1、3 项）。
  *
@@ -362,7 +362,7 @@ test("单一记录：新远端会话（draft）激活后同一远端会话恰好
 });
 
 test("装配守卫：main/index.ts 把项目位置解析器注入会话协调器（远端 draft 收敛的判据来源）", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	// 空白容忍的定位（不改格式就把断言语义弄丢）：构造点 → 项目存储读值 → locator → 本地分支判定。
 	assert.match(main, /new SessionRuntimeCoordinator\([\s\S]{0,400}?projectStore\.get\(projectId\)[\s\S]{0,400}?\.locator/);
 	assert.match(main, /new SessionRuntimeCoordinator\([\s\S]{0,400}?isLocalProject\(project\)/);

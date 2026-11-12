@@ -5,6 +5,9 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const require = createRequire(import.meta.url);
 
 function transpile(filePath) {
@@ -99,7 +102,7 @@ test("macOS 默认：Cmd+, 打开设置，F12 开发者工具", () => {
 });
 
 test("主窗口 before-input-event 广播 openQuickMessages（会话定位交给渲染层）", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	// 与 cycleModel/cycleThinking 同模式：主进程只匹配 + 广播，不持有会话上下文
 	assert.match(main, /isShortcutInput\("openQuickMessages", input\)/);
 	assert.match(main, /mainWindow\.webContents\.send\(ipcChannels\.appShortcutTriggered, "openQuickMessages"\)/);
@@ -180,8 +183,8 @@ test("keyUp / char / 输入法组合期（isComposing）事件永不触发", () 
 });
 
 test("主窗口与 webview guest 统一走共享匹配；覆盖表在设置保存/启动时刷新", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const main = mainIpcSource;
+	const systemIpc = systemIpcSource;
 	const settingsRoot = readFileSync("src/renderer/src/components/app/SettingsFeatureRoot.tsx", "utf8");
 	// 主进程统一走 isShortcutInput（含注册表与默认值）与 refreshShortcutBindings
 	assert.match(main, /import \{ isShortcutInput, refreshShortcutBindings \} from "\.\/appShortcuts"/);

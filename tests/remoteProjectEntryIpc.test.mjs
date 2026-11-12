@@ -4,6 +4,10 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 function createSender(id = 1) {
 	const sender = new EventEmitter();
 	sender.id = id;
@@ -98,9 +102,9 @@ test("disabled entry IPC returns REMOTE_FEATURE_DISABLED and registers no sender
 
 test("trash channels are wired; the five legacy entry channels are gone", () => {
 	const channels = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
-	const main = readFileSync("src/main/index.ts", "utf8");
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const preload = preloadSource;
+	const main = mainIpcSource;
+	const preview = previewApiSource;
 	for (const name of ["remoteProjectTrashList", "remoteProjectTrashRestore", "remoteProjectTrashPrune"]) {
 		assert.ok(channels.includes(name + ":"), name + " missing channel");
 		assert.ok(preload.includes("ipcChannels." + name), name + " missing preload invoke");

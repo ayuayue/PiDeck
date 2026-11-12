@@ -11,6 +11,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const read = (path) => readFileSync(new URL(path, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"), "utf8");
 
 test("shared/ipc.ts：通道常量 sessions:search-content 已定义", () => {
@@ -19,7 +24,7 @@ test("shared/ipc.ts：通道常量 sessions:search-content 已定义", () => {
 });
 
 test("sessionIpc.ts：handler 注册 + 边界校验（非字符串/空/超长/catch 一律 null）", () => {
-	const source = read("../src/main/ipc/sessionIpc.ts");
+	const source = sessionIpcSource;
 	assert.match(source, /ipcMain\.handle\(ipcChannels\.sessionsSearchContent/);
 	assert.match(source, /typeof\s+query\s+!==\s*["']string["']\s*\)\s*return\s+null/);
 	assert.match(source, /!trimmed\s*\|\|\s*trimmed\.length\s*>\s*256\s*\)\s*return\s+null/);
@@ -28,13 +33,13 @@ test("sessionIpc.ts：handler 注册 + 边界校验（非字符串/空/超长/ca
 });
 
 test("preload/index.ts：sessions.searchContent 暴露在白名单", () => {
-	const source = read("../src/preload/index.ts");
+	const source = preloadSource;
 	assert.match(source, /searchContent:\s*\(query:\s*string\)/);
 	assert.match(source, /sessionsSearchContent/);
 });
 
 test("main/index.ts：搜索闭包先探测就绪（未就绪降级；refresh 失败但进程活着仍查）", () => {
-	const source = read("../src/main/index.ts");
+	const source = mainIpcSource;
 	assert.match(source, /sessionContentSearch:\s*async\s*\(query\)/);
 	// 未就绪直接返 null（不把渲染层请求挂到 boot，首建可达数十秒），但后台必须
 	// 有人建索引（首次安装/roots 刚变更时没别处预热）
@@ -44,7 +49,7 @@ test("main/index.ts：搜索闭包先探测就绪（未就绪降级；refresh �
 });
 
 test("previewApi.ts：预览模式降级 stub 返回 null", () => {
-	const source = read("../src/renderer/src/previewApi.ts");
+	const source = previewApiSource;
 	assert.match(source, /searchContent:\s*async\s*\(\)\s*=>\s*null/);
 });
 

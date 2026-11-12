@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 远端 Session 通道的三处同步守卫（G5 集成）。
  *
@@ -11,9 +14,9 @@ import test from "node:test";
  */
 
 const shared = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const previewApi = readFileSync("src/renderer/src/previewApi.ts", "utf8");
-const main = readFileSync("src/main/index.ts", "utf8");
+const preload = preloadSource;
+const previewApi = previewApiSource;
+const main = mainIpcSource;
 const scanner = readFileSync("src/main/sessions/RemoteSessionScanner.ts", "utf8");
 const sharedTypes = readFileSync("src/shared/types/remoteHost.ts", "utf8");
 

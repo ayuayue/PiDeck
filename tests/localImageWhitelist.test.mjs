@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import { sep } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { isInsideAnyRoot } = loadTsCommonJs("src/main/media/localImageAccess.ts");
-const mainIndex = readFileSync("src/main/index.ts", "utf8");
+const mainIndex = mainIpcSource;
 const planDoc = readFileSync("docs/markdown-image-rendering-plan.md", "utf8");
 
 /**

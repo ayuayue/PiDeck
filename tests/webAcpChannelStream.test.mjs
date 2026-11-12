@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * Web + ACP 流式链路（回归）：ACP 会话在 Web 端的两个现场症状
  *   1) 正文/工具卡不实时出现（只能靠状态轮询 + 磁盘重拉）；
@@ -17,8 +17,8 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const webServiceSource = readFileSync("src/main/web/WebServiceManager.ts", "utf8");
 const webEventStreamSource = readFileSync("src/main/web/WebEventStream.ts", "utf8");
-const indexSource = readFileSync("src/main/index.ts", "utf8");
 
+const indexSource = mainIpcSource;
 const { AcpChannelToPiEvents } = loadTsCommonJs("src/main/web/AcpChannelToPiEvents.ts");
 const { WebEventStreamRouter, PiEventToUiMessageStream } = loadTsCommonJs("src/main/web/WebEventStream.ts");
 

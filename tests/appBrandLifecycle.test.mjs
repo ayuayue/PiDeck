@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { initializeAppBrand, APP_DISPLAY_NAME } = loadTsCommonJs("src/main/utils/appBrand.ts");
 
@@ -32,7 +33,7 @@ for (const displayName of [APP_DISPLAY_NAME, "PiDeck Dev"]) {
 }
 
 test("品牌初始化在 ready/窗口装配前，Dev 目录迁移在读取决策指针前", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	assert.ok(source.indexOf("initializeAppBrand(app,") < source.indexOf("app.whenReady()"));
 	assert.ok(source.indexOf("const devDirectoryMigration = migrateDevUserData(") < source.indexOf("readDataEnvDecision(channelDevDataDir)"));
 	assert.ok(source.indexOf("const devDirectoryMigration = migrateDevUserData(") < source.indexOf("app.setPath("));

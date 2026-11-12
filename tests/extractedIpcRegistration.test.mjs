@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const entry = readFileSync("src/main/index.ts", "utf8");
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
+const entry = mainIpcSource;
+const sessionIpc = sessionIpcSource;
 const scratchPadIpc = readFileSync("src/main/ipc/scratchPadIpc.ts", "utf8");
 
 test("extracted session and scratch-pad IPC modules remain registered by the main entry", () => {
@@ -18,8 +22,7 @@ test("catalog session loading remains owned by the registered session IPC module
 	assert.match(sessionIpc, /sessionCatalog\.mergeScanned/);
 });
 
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-
+const systemIpc = systemIpcSource;
 test("system IPC registers Pi CLI and snapshot-driven app update channels", () => {
 	// 回归：Phase 3.7 拆分后若漏传 extensionManager，pi:update-check 会静默不注册。
 	assert.match(systemIpc, /ipcChannels\.piUpdateCheck/);

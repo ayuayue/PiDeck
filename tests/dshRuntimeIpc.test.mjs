@@ -4,12 +4,17 @@ import test from "node:test";
 import { createStore } from "jotai";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-const mainEntry = readFileSync("src/main/index.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const sessionIpc = sessionIpcSource;
+const mainEntry = mainIpcSource;
+const preload = preloadSource;
 const browserApi = readFileSync("src/renderer/src/browserApi.ts", "utf8");
-const previewApi = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+const previewApi = previewApiSource;
 const runtimeStatus = readFileSync("src/main/dsh/runtime/DshRuntimeStatus.ts", "utf8");
 
 test("shared/ipc.ts 定义 dsh-runtime 通道（domain:action 命名）", () => {

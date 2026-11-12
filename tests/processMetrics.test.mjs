@@ -7,6 +7,10 @@ import { buildDshHostMonitorRow, DSH_HOST_MONITOR_ROW_ID, isDshHostMonitorId } f
 import { DSH_HOST_MONITOR_ID } from "../src/shared/types/processMetrics.ts";
 import { formatBytes, formatMb } from "../src/shared/formatBytes.ts";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 // ===== 纯函数：批量采样的进程表解析 =====
 
 test("parsePsCpuTime: hh:mm:ss / mm:ss.ss / dd- 三种 TIME 形状", () => {
@@ -120,7 +124,7 @@ test("ProcessMonitor assembles agent snapshot with total", () => {
 });
 
 test("AgentManager exposes listAgentPids filtered to running processes", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	assert.match(source, /listAgentPids\(\): Array<\{ agentId: string; pid: number \}>/);
 	assert.match(source, /runtime\.process\.pid/);
 	assert.match(source, /runtime\.process\.isRunning\(\)/);
@@ -147,8 +151,8 @@ test("DshHostProcess and DshHost expose host pid for process monitor", () => {
 
 test("IPC channel + systemIpc handler + preload exposure", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const systemIpc = systemIpcSource;
+	const preload = preloadSource;
 	assert.match(ipc, /processMetrics: "system:process-metrics"/);
 	assert.match(systemIpc, /ipcMain\.handle\(ipcChannels\.processMetrics/);
 	// handler 先按 agentId 反查会话身份（进程监控表要显示是哪个会话），
@@ -165,10 +169,10 @@ test("IPC channel + systemIpc handler + preload exposure", () => {
 
 test("stop-agent: full session stop chain (coordinator + detach)", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const systemIpc = systemIpcSource;
+	const preload = preloadSource;
 	const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
-	const index = readFileSync("src/main/index.ts", "utf8");
+	const index = mainIpcSource;
 	const tab = readFileSync("src/renderer/src/components/app/settings/ProcessMetricsTab.tsx", "utf8");
 	// 通道 + handler：agentId 输入校验（渲染层数据不可信），走完整会话停止链路
 	assert.match(ipc, /stopAgent: "system:stop-agent"/);

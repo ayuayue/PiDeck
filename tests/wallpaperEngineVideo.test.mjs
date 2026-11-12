@@ -6,6 +6,8 @@ import test from "node:test";
 import { build } from "esbuild";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * Wallpaper Engine 视频壁纸（第一期，仅 type=video）。
  * - project.json 只取 title/type/file/preview，只接受 video，拒绝 scene/web/application 与逃逸路径；
@@ -203,7 +205,7 @@ test("video wallpaper turns on wallpaper mode with the same panel opacity tier a
 });
 
 test("wiring: streaming protocol, CSP, narrow IPC, video layer pauses and releases", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	assert.match(main, /scheme: "pideck-we", privileges: \{[^}]*stream: true/);
 	assert.match(main, /registerWallpaperEngineProtocol\(/);
 	const html = readFileSync("src/renderer/index.html", "utf8");
@@ -215,5 +217,5 @@ test("wiring: streaming protocol, CSP, narrow IPC, video layer pauses and releas
 	assert.match(layer, /addEventListener\("blur"/);
 	assert.match(layer, /addEventListener\("visibilitychange"/);
 	assert.match(layer, /removeAttribute\("src"\);\s*video\.load\(\)/);
-	assert.match(readFileSync("src/renderer/src/App.tsx", "utf8"), /<WallpaperVideoLayer settings=\{settings\} \/>/);
+	assert.match(rendererAppSource, /<WallpaperVideoLayer settings=\{settings\} \/>/);
 });

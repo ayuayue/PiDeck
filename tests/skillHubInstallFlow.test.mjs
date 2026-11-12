@@ -14,6 +14,10 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const progressModule = loadTsCommonJs("src/main/skills/skillHubInstallProgress.ts");
 const proxyModule = loadTsCommonJs("src/main/skills/skillHubInstallProxy.ts");
 const runnerModule = loadTsCommonJs("src/main/skills/skillHubInstallRunner.ts");
@@ -220,9 +224,9 @@ const stripComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, "").replac
 test("契约：安装进度通道三处同步（channel / preload / previewApi）", () => {
 	const ipc = readSource("src/shared/ipc.ts");
 	assert.match(ipc, /skillHubInstallProgress\s*:\s*"skill-hub:install-progress"/);
-	const preload = readSource("src/preload/index.ts");
+	const preload = preloadSource;
 	assert.match(preload, /onInstallProgress:[\s\S]{0,160}ipcChannels\.skillHubInstallProgress/);
-	const preview = readSource("src/renderer/src/previewApi.ts");
+	const preview = previewApiSource;
 	assert.match(preview, /onInstallProgress:\s*\(\)\s*=>\s*\(\)\s*=>\s*\{\}/);
 });
 
@@ -235,7 +239,7 @@ test("契约：主进程侧搜索走 netFetch、安装走 spawn 执行器并推�
 	assert.ok(!storeIpcCode.includes("execFile"), "安装不得使用 execFile（无进度、丢 stdout）");
 	assert.match(storeIpc, /runSkillHubInstall\(\{/);
 	assert.match(storeIpc, /sendSkillHubInstallProgress\(\{/);
-	const index = readSource("src/main/index.ts");
+	const index = mainIpcSource;
 	assert.match(index, /netFetch:\s*\(url,\s*init\)\s*=>\s*net\.fetch\(url,\s*init\)/);
 	assert.match(index, /resolveInstallProxyEnv:/);
 	assert.match(index, /session\.defaultSession\.resolveProxy\(/);

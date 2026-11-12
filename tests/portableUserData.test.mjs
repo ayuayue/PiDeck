@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { PACKAGED_USER_DATA_NAME, PACKAGED_USER_DATA_NAME_NEW, PORTABLE_USER_DATA_DIR_NAME, resolvePackagedUserDataDir, resolveAppUserDataDir, resolveChannelDevDataDir, isPortablePackagedEnv } = loadTsCommonJs("src/main/portableUserData.ts");
 
@@ -54,7 +55,7 @@ test("非 Windows 忽略 PORTABLE_EXECUTABLE_DIR", () => {
 });
 
 test("主进程正式版先跑 userData 更名迁移，再走 resolveAppUserDataDir 判定，启动失败有 catch", () => {
-	const src = readFileSync("src/main/index.ts", "utf8");
+	const src = mainIpcSource;
 	assert.match(src, /from "\.\/portableUserData"/);
 	// 契约：改名必须发生在 setPath 之前，且迁移结果参与共用目录落点
 	assert.match(src, /runUserDataNameMigration\(\{/);

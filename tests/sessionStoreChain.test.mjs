@@ -10,6 +10,8 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"), "utf8");
 
@@ -57,7 +59,7 @@ test("宿主服务：argv 只有 statePath（+可选 tablesDir），roots 逐请
 });
 
 test("装配：二进制定位（dev 走 resources/session-store/bin）+ statePath 落 userData + quitCleanup", () => {
-	const source = read("../src/main/index.ts");
+	const source = mainIpcSource;
 	assert.match(source, /import\s*\{\s*SessionStoreService\s*\}\s*from\s*"\.\/sessions\/SessionStoreService"/);
 	assert.match(source, /new SessionStoreService\(\{/);
 	assert.match(source, /statePath:\s*join\(app\.getPath\("userData"\),\s*"session-store",\s*"state\.bin"\)/);
@@ -137,11 +139,11 @@ test("Wave 2 TS 侧：宿主 getIndex + 读者校验分支 + 装配注入", () =
 	// 末尾无完整行时忽略 sidecar（残行口径不同）
 	assert.match(reader, /table\.endsWithNewline === false\) return null/);
 
-	const manager = read("../src/main/pi/AgentManager.ts");
+	const manager = agentManagerSource;
 	assert.match(manager, /setSessionStoreIndexReader\(/);
 	assert.match(manager, /readIndexTable: \(hostPath, version\) => this\.sessionStoreIndexReader\?\.\(hostPath, version\) \?\? Promise\.resolve\(null\)/);
 
-	const index = read("../src/main/index.ts");
+	const index = mainIpcSource;
 	assert.match(index, /agentManager\.setSessionStoreIndexReader\(async \(hostPath\) => \{/);
 	assert.match(index, /if \(!service \|\| !service\.isReady\(\)\) return null;/);
 	assert.match(index, /const result = await service\.getIndex\(hostPath\)/);
@@ -184,7 +186,7 @@ test("Wave 2b：条目表落盘默认开启（可闸），落盘目录与 extraR
 	const sharedSettings = read("../src/shared/types/settings.ts");
 	assert.match(sharedSettings, /sessionStoreEnabled\?:\s*boolean;/);
 	assert.match(sharedSettings, /sessionStoreEnabled:\s*true/);
-	const index = read("../src/main/index.ts");
+	const index = mainIpcSource;
 	assert.match(index, /if \(!settingsStore\.get\(\)\.sessionStoreEnabled\) return null;/);
 	// 默认开时必须预热，否则「只在已就绪时问」的读者路径永远不会生效
 	assert.match(index, /if \(settingsStore\.get\(\)\.sessionStoreEnabled\) sessionStoreService\.warmup\(\);/);

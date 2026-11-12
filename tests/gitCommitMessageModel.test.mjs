@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const gitIpc = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
-const mainIndex = readFileSync("src/main/index.ts", "utf8");
+const mainIndex = mainIpcSource;
 const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 const settingsTypes = readFileSync("src/shared/types/settings.ts", "utf8");
 const settingsModal = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");

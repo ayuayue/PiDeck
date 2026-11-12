@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 回归 issue #436：通过 Web API 删会话后桌面端列表不刷新——`deleteSessionRecord` 删完没广播
  * `sessions:catalog-refreshed`，渲染进程不是发起方，只能等下次手动刷新才看到幽灵行消失。
@@ -54,8 +54,7 @@ test("broadcastCatalogRefreshed：空 projectId 不发脏事件", () => {
 	);
 });
 
-const indexSource = readFileSync("src/main/index.ts", "utf8");
-
+const indexSource = mainIpcSource;
 test("Web API 四个会话写操作都在落库后广播 catalog 刷新（#436）", () => {
 	// deleteSessionRecord：必须等 removeWithDescendants 成功后再发，早发会把刚删的行重拉回来。
 	assert.match(indexSource, /await sessionCatalog\.removeWithDescendants\(sessionId\);[\s\S]{0,240}?notifyCatalogRefreshed\(\[entry\.projectId\]\);\s*return true;/);

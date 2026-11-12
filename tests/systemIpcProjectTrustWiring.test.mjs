@@ -14,8 +14,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 test("index.ts 必须给 registerSystemIpc 注入 isProjectTrusted", () => {
-	const index = readFileSync("src/main/index.ts", "utf8");
+	const index = mainIpcSource;
 	const call = /registerSystemIpc\(\{([\s\S]*?)\n\t\}\);/.exec(index);
 	assert.ok(call, "未找到 registerSystemIpc 调用");
 	const deps = call[1];
@@ -27,7 +30,7 @@ test("index.ts 必须给 registerSystemIpc 注入 isProjectTrusted", () => {
 });
 
 test("systemIpc 的项目作用域门禁在未装配时按未信任处理（不得默认放行）", () => {
-	const source = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const source = systemIpcSource;
 	assert.match(source, /isProjectTrusted \? await isProjectTrusted\(projectId, root\) : false/);
 	assert.match(source, /if \(!isProjectTrusted\) throw new Error\(mainCopy\("mainProjectResource\.projectNotTrusted"\)\)/);
 });

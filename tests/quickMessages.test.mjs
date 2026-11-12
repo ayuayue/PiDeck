@@ -6,6 +6,9 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { QUICK_MESSAGE_PAGE_SIZE, filterQuickMessages, paginateQuickMessages } from "../src/renderer/src/components/session/quickMessagePickerModel.ts";
 
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const quickMessages = loadTsCommonJs("src/shared/quickMessages.ts");
 const { MAX_QUICK_MESSAGES, MAX_QUICK_MESSAGE_LENGTH, normalizeQuickMessages, sanitizeQuickMessagesFile } = quickMessages;
 const { QuickMessageStore } = loadTsCommonJs("src/main/quickmessages/QuickMessageStore.ts");
@@ -57,12 +60,15 @@ test("内置条目只存在于配置文件，代码里不留硬编码清单（�
 	// 只看具体条目文本，不看「继续」这类词在注释/文案里的正常出现——用出厂清单里最长的两条做探针。
 	const probes = readDefaults().items.filter((item) => item.length >= 8);
 	assert.ok(probes.length > 0, "出厂清单缺少可用于探针的长条目");
-	const sources = ["src/shared/quickMessages.ts", "src/renderer/src/components/session/QuickMessageMenu.tsx", "src/renderer/src/components/app/settings/QuickMessagesSetting.tsx", "src/renderer/src/App.tsx", "src/main/settings/SettingsStore.ts"];
+	const sources = ["src/shared/quickMessages.ts", "src/renderer/src/components/session/QuickMessageMenu.tsx", "src/renderer/src/components/app/settings/QuickMessagesSetting.tsx", "src/main/settings/SettingsStore.ts"];
 	for (const file of sources) {
 		const source = readFileSync(file, "utf8");
 		for (const probe of probes) {
 			assert.ok(!source.includes(probe), `${file} 里仍硬编码出厂条目「${probe}」`);
 		}
+	}
+	for (const probe of probes) {
+		assert.ok(!rendererAppSource.includes(probe), `src/renderer/src/App.tsx 里仍硬编码出厂条目「${probe}」`);
 	}
 });
 
@@ -237,7 +243,7 @@ test("store：ensureFile 让「打开配置文件」在文件还没生成时也�
 // ── 装配与 IPC 边界 ───────────────────────────────────────────────────
 
 test("主进程装配：配置文件来自 userData、出厂清单来自随包 resources（两个磁盘根同源）", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	assert.match(source, /new QuickMessageStore\(\{/);
 	assert.match(source, /QUICK_MESSAGES_FILE_NAME/);
 	assert.match(source, /getLegacyItems:[\s\S]{0,120}?settingsStore\.get\(\)\.quickMessages/, "遗留字段是迁移种子，装配处必须传");
@@ -414,7 +420,7 @@ test("设置页：即时保存配置文件（打字合并 + 结构性操作立�
 });
 
 test("设置页：遗留字段不再被渲染层直接读写（App 也不再往 atom 同步 settings）", () => {
-	const app = readSource("src/renderer/src/App.tsx");
+	const app = rendererAppSource;
 	assert.ok(!/quickMessagesAtom/.test(app), "App 不该再同步 settings.quickMessages");
 	const hook = readSource("src/renderer/src/hooks/useQuickMessages.ts");
 	assert.match(hook, /desktopApi\.quickMessages\s*\.get\(\)/);

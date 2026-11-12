@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const browserPanel = readFileSync("src/renderer/src/components/app/BrowserPanel.tsx", "utf8");
 const rendererTypes = readFileSync("src/renderer/src/types.d.ts", "utf8");
-const main = readFileSync("src/main/index.ts", "utf8");
+const main = mainIpcSource;
 // #115 U4：partition/白名单已收敛到共享模块，webview 管线主进程加固与浏览器安全模块都从它导入
 const browserSecurity = readFileSync("src/main/browser/browserSecurity.ts", "utf8");
 const filesSystemIpc = readFileSync("src/main/ipc/filesSystemIpc.ts", "utf8");

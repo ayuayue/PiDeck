@@ -2,14 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 生图契约：独立 imagegen.json、IPC 三处同步、composer 不读会话 LLM、
  * extraParams 驱动底栏、i18n key 对齐。
  */
 
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const mainIndex = readFileSync("src/main/index.ts", "utf8");
+const preload = preloadSource;
+const mainIndex = mainIpcSource;
 const imagegenIpc = readFileSync("src/main/ipc/imagegenIpc.ts", "utf8");
 const agentTypes = readFileSync("src/shared/types/agent.ts", "utf8");
 const composerComponents = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");

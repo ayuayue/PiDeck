@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * P4.5c（远端消息编辑 / 删除 / 准备重发）的**接线守卫**。
  *
@@ -15,9 +17,8 @@ import test from "node:test";
  * 注释里的自然语言（本仓踩过 indexOf 命中注释的坑）。
  */
 
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
-const main = readFileSync("src/main/index.ts", "utf8");
-
+const app = rendererAppSource;
+const main = mainIpcSource;
 test("the persisted-session predicate counts remote (ssh) identities as file-backed", () => {
 	// 远端分支必须出现，且认的是 locator 里的远端身份（remoteSessionId / remotePath），不是 filePath。
 	const predicate = app.slice(app.indexOf("hasPersistedSessionFile: (sessionId) => {"));

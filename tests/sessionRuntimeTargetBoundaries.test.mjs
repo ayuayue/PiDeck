@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainAssemblySource, mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
-const main = readFileSync("src/main/index.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const main = mainAssemblySource;
+const preload = preloadSource;
 const terminalDock = readFileSync("src/renderer/src/components/terminal/TerminalDock.tsx", "utf8");
 const terminalDockTabs = readFileSync("src/renderer/src/hooks/useTerminalDockTabs.ts", "utf8");
 const pet = readFileSync("src/main/pet/index.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
-const previewApi = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+const app = rendererAppSource;
+const previewApi = previewApiSource;
 const browserApi = readFileSync("src/renderer/src/browserApi.ts", "utf8");
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 const sessionsPreload = preload.slice(preload.indexOf("\tsessions: {"), preload.indexOf("\n\tcodexSessions:", preload.indexOf("\tsessions: {")));

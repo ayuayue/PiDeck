@@ -7,6 +7,10 @@ import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { mainAssemblySource } from "./helpers/mainIpcSources.mjs";
+
 const VISIBILITY_MODULE = "src/renderer/src/hooks/remoteFeatureVisibility.ts";
 
 function devChannelBuild(packaged, devBuild) {
@@ -25,7 +29,7 @@ test("远端发布策略不随更新通道变化", () => {
 });
 
 test("远端域注册开关只有一个来源，且不允许写死", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainAssemblySource;
 	// 策略位只允许在装配层读一次：域内再读一次就会与这个开关漂移。
 	assert.equal([...main.matchAll(/const remoteFeatureEnabled\s*=\s*REMOTE_FEATURE_AVAILABLE;/g)].length, 1, "策略位应只在装配层派生一次");
 	const registrations = [...main.matchAll(/registerRemote\w+Ipc\(\{/g)].length;
@@ -36,7 +40,7 @@ test("远端域注册开关只有一个来源，且不允许写死", () => {
 });
 
 test("浏览器预览的能力位与写面成对，不是野值", () => {
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const preview = previewApiSource;
 	// 预览要能渲染「连接」与远端入口，所以能力位为 true；但它没有主进程/SSH，
 	// 写面必须报稳定码而不是假装成功——这两件事必须同时成立，才是可解释的预览口径。
 	assert.match(preview, /remoteAvailable:\s*true/);
@@ -46,9 +50,9 @@ test("浏览器预览的能力位与写面成对，不是野值", () => {
 
 test("能力契约只在 remoteAvailable=false 时隐藏入口", () => {
 	const type = readFileSync("src/shared/types/app.ts", "utf8");
-	const main = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const main = systemIpcSource;
 	const hook = readFileSync("src/renderer/src/hooks/useRemoteFeatureAvailable.ts", "utf8");
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const preview = previewApiSource;
 	assert.match(type, /remoteAvailable:\s*boolean/);
 	assert.match(main, /remoteAvailable:\s*REMOTE_FEATURE_AVAILABLE/);
 	assert.match(hook, /\?\.remoteAvailable/);

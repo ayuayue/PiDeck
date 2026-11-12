@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
 // 系统级划词暂时隐藏（SYSTEM_SELECTION_TOOL_ENABLED=false），设置页不再展示快捷键冲突警告；
 // 但「登记冲突 -> 去重发通知 -> focus 重试」的管道必须留在原地，恢复开关后即可用。
 test("system selection shortcut conflict plumbing survives while the feature is hidden", () => {
-	const main = read("src/main/index.ts");
+	const main = mainIpcSource;
 	const service = read("src/main/selection/SelectionToolService.ts");
 	const shared = read("src/shared/types/selectionTool.ts");
 	const settings = read("src/renderer/src/components/app/settings/SelectionToolSettingsSection.tsx");

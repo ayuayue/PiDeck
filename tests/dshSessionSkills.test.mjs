@@ -11,6 +11,10 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { preloadSource as PRELOAD_SOURCE } from "./helpers/preloadSources.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 const { createDshSessionSkillLoader, isUnattachedDshSessionError, DshSessionSkillsUnavailableError } = loadTsCommonJs("src/main/dsh/dshSessionSkillLoader.ts");
@@ -186,9 +190,8 @@ test("isUnattachedDshSessionError 只认 host 的 session-not-found", () => {
 	assert.equal(isUnattachedDshSessionError(null), false);
 });
 
-const PROJECT_SOURCE = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
-const SESSION_IPC_SOURCE = readFileSync(new URL("../src/main/ipc/sessionIpc.ts", import.meta.url), "utf8");
-const PRELOAD_SOURCE = readFileSync(new URL("../src/preload/index.ts", import.meta.url), "utf8");
+const PROJECT_SOURCE = mainIpcSource;
+const SESSION_IPC_SOURCE = sessionIpcSource;
 const PICKER_SOURCE = readFileSync(new URL("../src/renderer/src/components/session/ComposerSkillPicker.tsx", import.meta.url), "utf8");
 const PICKER_HOST_SOURCE = readFileSync(new URL("../src/renderer/src/components/session/ComposerPickerHost.tsx", import.meta.url), "utf8");
 const MANAGER_SOURCE = readFileSync(new URL("../src/main/dsh/DshAgentManager.ts", import.meta.url), "utf8");

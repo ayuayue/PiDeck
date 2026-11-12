@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 let builtInExtensionsModule = null;
 
@@ -91,7 +92,7 @@ test("built-in extension removal has a registered IPC handler", () => {
 });
 
 test("AgentManager no longer deploys built-ins via ensurePiDeckExtension", () => {
-	const index = readFileSync("src/main/index.ts", "utf8");
+	const index = mainIpcSource;
 	const storeIpc = readFileSync("src/main/ipc/storeIpc.ts", "utf8");
 	const processSource = readFileSync("src/main/pi/PiProcess.ts", "utf8");
 	assert.doesNotMatch(index, /async function ensurePiDeckExtension/);

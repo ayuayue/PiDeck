@@ -2,13 +2,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+
 const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
-const main = readFileSync("src/main/index.ts", "utf8");
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const main = mainIpcSource;
+const agentManager = agentManagerSource;
 // 扩展 UI 请求闸已迁入 extensionUiGate.ts（AgentManager 拆分 Wave 4B）
 const uiGate = readFileSync("src/main/pi/extensionUiGate.ts", "utf8");
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const sessionIpc = sessionIpcSource;
+const app = rendererAppSource;
 const runtimeInjector = readFileSync("src/renderer/src/components/session/SessionRuntimeInjector.tsx", "utf8");
 const runtimeUi = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
 const composer = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");

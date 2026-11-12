@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-const mainIndex = readFileSync("src/main/index.ts", "utf8");
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
+const sessionIpc = sessionIpcSource;
+const mainIndex = mainIpcSource;
 const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
 const gateway = readFileSync("src/main/agents/CompositeAgentGateway.ts", "utf8");
 

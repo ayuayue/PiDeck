@@ -17,9 +17,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
-const indexSource = readFileSync("src/main/index.ts", "utf8");
-
+const indexSource = mainIpcSource;
 /** 取函数体：默认从 marker 后第一个 "{" 配平；类型体需显式传 signatureEnd 跳过参数表。 */
 function functionBody(source, marker, signatureEnd) {
 	const start = source.indexOf(marker);

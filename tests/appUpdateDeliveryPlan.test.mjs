@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { resolveAppUpdateDeliveryPlan } = loadTsCommonJs("src/main/update/deliveryPlan.ts");
 const { detectMacDeveloperIdSignature, parseDeveloperIdSignature, resolveAppBundlePath } = loadTsCommonJs("src/main/update/macCodeSignature.ts");
@@ -99,7 +100,7 @@ test("未知平台保守走 manual，不承诺应用内替换", () => {
 });
 
 test("main 装配：manual 交付注入设备推荐检查器与一键下载器", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	assert.match(source, /resolveAppUpdateDeliveryPlan\(\s*\{/);
 	// mac 签名探测必须接进判定，且按 app.isPackaged 门控（开发态不跑 codesign）。
 	assert.match(source, /macDeveloperIdSigned:\s*detectMacDeveloperIdSignature\(\s*\{\s*isPackaged:\s*app\.isPackaged\s*\}\s*\)/);

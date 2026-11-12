@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -134,7 +135,7 @@ test("applyAgentTitle on persisted entry: last-wins, manual guard, survives relo
 });
 
 test("index.ts onTitleChanged routes through applyAgentTitle (never update-manual)", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	const start = source.indexOf("onTitleChanged: (deckSessionId, title) => {");
 	assert.ok(start > 0, "index.ts must wire ACP onTitleChanged");
 	const end = source.indexOf("logger: appLogger,", start);

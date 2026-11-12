@@ -5,6 +5,9 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const require = createRequire(import.meta.url);
 
 function transpile(filePath) {
@@ -46,7 +49,7 @@ test("注册表：closeSessionTab 默认键 win32=Ctrl+W / darwin=Cmd+W，可被
 });
 
 test("主进程：主窗口与内置浏览器 webview 两处 before-input-event 都命中并广播 closeSessionTab", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	// 主窗口：isShortcutInput("closeSessionTab", input) → send(..., "closeSessionTab")
 	assert.match(main, /isShortcutInput\("closeSessionTab",\s*input\)/);
 	assert.match(main, /webContents\.send\(ipcChannels\.appShortcutTriggered,\s*"closeSessionTab"\)/);
@@ -74,7 +77,7 @@ test("渲染层 hook：空闲直接关 Tab；回答中先弹确认，确认 = �
 	assert.match(hook, /t\("tabs\.closeRunningConfirm"\)/);
 	assert.match(hook, /abortAgent\(target\.agentId\)/);
 	// App.tsx 已装配（closeTab/abortAgent/overlays 三依赖齐全）
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /useCloseSessionTabShortcut\(\{\s*closeTab:\s*workspaceChrome\.closeTab,\s*abortAgent,\s*overlays\s*\}\)/);
 });
 

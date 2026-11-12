@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -78,7 +79,7 @@ test("不传 model 时行为不变（不凭空造模型偏好）", async () => {
 
 /** 源码契约：fork/复制注册路径必须把源会话的模型偏好传进 ensureRuntimeTarget。 */
 test("重发/编辑 fork 与静态复制都向 ensureRuntimeTarget 传递源会话模型", () => {
-	const indexSource = readFileSync("src/main/index.ts", "utf8");
+	const indexSource = mainIpcSource;
 	// replaceAgentSession（重发/编辑 fork、运行中 clone）
 	assert.match(indexSource, /model:\s*originEntry\?\.model,\s*thinkingLevel:\s*originEntry\?\.thinkingLevel,/);
 	// 静态复制会话

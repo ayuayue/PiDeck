@@ -13,14 +13,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
 const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
-const mainIndex = readFileSync("src/main/index.ts", "utf8");
+const mainIndex = mainIpcSource;
 const dshHost = readFileSync("src/main/dsh/DshHost.ts", "utf8");
 const dshHostProcess = readFileSync("src/main/dsh/DshHostProcess.ts", "utf8");
 const ipcChannels = readFileSync("src/shared/ipc.ts", "utf8");
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const sessionIpc = sessionIpcSource;
+const preload = preloadSource;
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 const sessionTypes = readFileSync("src/shared/types/session.ts", "utf8");

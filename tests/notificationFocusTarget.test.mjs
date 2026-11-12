@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 // 用户反馈 bug：点击系统通知能激活窗口，但不会跳转到对应会话。
 // 根因：notifySessionEnd 用 tab.sessionId（pi 侧会话 id）嵌入 toast launch，
 // renderer 的 sessionRecordByIdAtomFamily 只按 SessionRecord.id 索引，两套 id
@@ -35,13 +36,13 @@ test("resolveNotificationSessionId prefers record id over pi session id", () => 
 
 // 契约断言：notifySessionEnd 必须走 resolveNotificationSessionId（不再直接取 tab.sessionId）
 test("AgentManager notification target uses record id resolver", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	assert.match(source, /resolveNotificationSessionId\(\s*resolveSessionId \? \(\) => resolveSessionId\(agentId\) : undefined,/);
 });
 
 // 冷启动时序：加载期目标必须进 pending 队列，且 renderer 挂载后主动拉取
 test("cold start focus target goes through pending queue", () => {
-	const indexSource = readFileSync("src/main/index.ts", "utf8");
+	const indexSource = mainIpcSource;
 	// 焦点目标为 FocusTargetPayload 联合（sessionId/projectId/projectPath 三形态）
 	assert.match(indexSource, /function queueFocusTarget\(target: \{ sessionId: string \} \| \{ projectId: string \} \| \{ projectPath: string \}\)/);
 	assert.match(indexSource, /pendingFocusTarget = target;/);

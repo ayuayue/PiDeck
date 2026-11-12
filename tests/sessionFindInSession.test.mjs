@@ -12,6 +12,10 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function manualTimers() {
@@ -162,10 +166,10 @@ test("渠道与契约接线：IPC 常量、preload 白名单、主进程 handler
 	const read = (path) => readFileSync(path, "utf8");
 	const ipc = read("src/shared/ipc.ts");
 	assert.match(ipc, /sessionsSearchInSession:\s*"sessions:search-in-session"/);
-	const preload = read("src/preload/index.ts");
+	const preload = preloadSource;
 	// 入参是 SessionRecord.id（不是会话文件路径）：路径/后端身份一律由主进程从 catalog 解析
 	assert.match(preload, /searchInSession:\s*\(\s*sessionId: string,\s*query: string\s*\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.sessionsSearchInSession,\s*sessionId,\s*query\s*\)/);
-	const handler = read("src/main/ipc/sessionIpc.ts");
+	const handler = sessionIpcSource;
 	assert.match(handler, /ipcMain\.handle\(ipcChannels\.sessionsSearchInSession/);
 	// pi 分支：路径从 catalog 取（渲染层传路径不生效），并再兜一道「像会话文件」的校验
 	assert.match(handler, /const\s+entry\s*=\s*sessionCatalog\.get\(sessionId\.trim\(\)\)/);
@@ -178,7 +182,7 @@ test("渠道与契约接线：IPC 常量、preload 白名单、主进程 handler
 	assert.match(handler, /const\s+searcher\s*=\s*deps\.sessionMessageSearch/);
 	// 短路：未装配 / 校验不过一律 null（渲染层据此显示不可用态）
 	assert.match(handler, /!searcher\s*\|\|\s*!entry\.filePath\s*\|\|\s*!isSessionSearchFilePath\(entry\.filePath\)\)\s*return null/);
-	const wiring = read("src/main/index.ts");
+	const wiring = mainIpcSource;
 	// 会话内检索的降级口径已抽成模块级 sessionMessageSearchInFile（桌面 IPC 与 Web 搜索弹层共用）：
 	// 装配点只转发，真正的 sidecar 调用在 helper 里。
 	assert.match(wiring, /sessionMessageSearch: async \(sessionPath, query\) => \{[\s\S]{0,200}?sessionMessageSearchInFile\(sessionPath, query\)/);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * Web + DSH 流式链路（回归）：DSH 会话在 Web 端的两个现场症状
  *   1) 「输出很慢」——SSE 里没有正文帧，只能靠状态轮询 + 磁盘重拉（≥5s 才见字）；
@@ -16,8 +16,8 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const webServiceSource = readFileSync("src/main/web/WebServiceManager.ts", "utf8");
 const webEventStreamSource = readFileSync("src/main/web/WebEventStream.ts", "utf8");
 const dshManagerSource = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
-const indexSource = readFileSync("src/main/index.ts", "utf8");
 
+const indexSource = mainIpcSource;
 const { DshChannelToPiEvents } = loadTsCommonJs("src/main/web/DshChannelToPiEvents.ts");
 const { WebEventStreamRouter, PiEventToUiMessageStream } = loadTsCommonJs("src/main/web/WebEventStream.ts");
 
