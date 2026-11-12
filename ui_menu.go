@@ -448,69 +448,6 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 	}, "usage-menu")
 }
 
-// thinkingMenu picks the reasoning level: a short list with the current
-// one checked, rather than the slider the chat kit draws.
-func (a *app) thinkingMenu(s *session, open *core.Signal[bool]) core.Node {
-	trigger := core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		label := "思考"
-		if lv := s.thinking.Get(); lv != "" {
-			label = levelLabel(lv)
-		}
-		return core.View{OnPress: func(core.PressEvent) { open.Update(func(v bool) bool { return !v }) },
-			Role: core.RoleButton, LabelFunc: func() string { return "思考等级 · " + label }, TestID: "effort-picker",
-			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(26),
-					Padding: core.Symmetric(0, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
-			},
-			Children: []core.Node{
-				ui.Icon(lucide.Brain, 12, colors.Muted),
-				core.Text{Content: label, MaxLines: 1, Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
-				ui.Icon(lucide.ChevronDown, 10, colors.Faint),
-			}}
-	})
-	return a.popoverCard(open, core.PlaceTop, core.AlignStart, 190, trigger, func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		levels := s.levels.Get()
-		if len(levels) == 0 {
-			levels = []string{"off", "low", "medium", "high", "max"}
-		}
-		var rows []core.Node
-		for _, lv := range levels {
-			level := lv
-			sel := func() bool { return s.thinking.Get() == level }
-			rows = append(rows, core.View{
-				OnPress: func(core.PressEvent) {
-					a.applyThinking(s, level, true)
-					open.Set(false)
-				},
-				Role: core.RoleOption, Label: levelLabel(level),
-				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
-						Padding: core.Symmetric(0, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
-				},
-				Children: []core.Node{
-					core.View{Style: core.Style{Width: core.Pt(14), AlignItems: core.AlignCenter}, Children: []core.Node{
-						core.Dynamic(func(*core.Scope) core.Node {
-							if sel() {
-								return ui.Icon(lucide.Check, 12, colors.Text)
-							}
-							return nil
-						}),
-					}},
-					core.Text{Content: levelLabel(level), Style: core.Style{FlexGrow: 1, FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
-					ui.Text(level, 9.5, ui.Regular, colors.Faint),
-				},
-			})
-		}
-		return core.View{Style: core.Style{Width: core.Pt(180), Gap: 1}, Children: []core.Node{
-			core.Text{Content: "思考等级", Style: core.Style{Padding: core.Symmetric(6, 8), FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.5},
-				StyleFunc: ui.Colored(colors.Faint)},
-			core.View{Style: core.Style{Gap: 1}, Children: rows},
-		}}
-	}, "thinking-menu")
-}
-
 // projectMenu switches the session's project from the composer.
 func (a *app) projectMenu(s *session, open *core.Signal[bool]) core.Node {
 	trigger := core.Dynamic(func(cx *core.Scope) core.Node {

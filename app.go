@@ -1753,9 +1753,44 @@ func (a *app) applyModel(s *session, provider, id string, remember bool) {
 				}
 				s.model.Set(m)
 				a.startStats(s)
+				a.refreshModelState(s)
 			})
 		}()
 	})
+}
+
+// refreshModelState reads what the current model accepts again: its
+// levels and its resolved name. Every model has its own levels, so the
+// picker is rebuilt from this.
+func (a *app) refreshModelState(s *session) {
+	c := s.engine
+	if c == nil {
+		return
+	}
+	go func() {
+		var levels struct {
+			Levels []string `json:"levels"`
+		}
+		var state struct {
+			Model         *modelInfo `json:"model"`
+			ThinkingLevel string     `json:"thinkingLevel"`
+		}
+		levelsErr := c.call(map[string]any{"type": "get_available_thinking_levels"}, &levels, 20*time.Second)
+		stateErr := c.call(map[string]any{"type": "get_state"}, &state, 20*time.Second)
+		a.cx.Post(func() {
+			if levelsErr == nil && len(levels.Levels) > 0 {
+				s.levels.Set(levels.Levels)
+			}
+			if stateErr == nil {
+				if state.Model != nil {
+					s.model.Set(*state.Model)
+				}
+				if state.ThinkingLevel != "" {
+					s.thinking.Set(state.ThinkingLevel)
+				}
+			}
+		})
+	}()
 }
 
 // applyThinking sets the reasoning level.

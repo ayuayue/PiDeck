@@ -593,8 +593,41 @@ func (a *app) composer(s *session) core.Node {
 // composerAccessory is the model and thinking controls.
 func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
-		return core.Group{a.modelMenu(s, s.modelOpen), a.thinkingMenu(s, s.thinkingOpen)}
+		return core.Group{a.modelMenu(s, s.modelOpen), a.effortPicker(s)}
 	}
+}
+
+// effortPicker chooses the reasoning level with the chat kit's slider: the
+// levels the current model accepts, dragged or pressed. It is rebuilt when
+// the model changes, because each model has its own levels.
+func (a *app) effortPicker(s *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		levels := s.levels.Get()
+		if len(levels) == 0 {
+			return nil
+		}
+		var options []chat.Option
+		for _, l := range levels {
+			options = append(options, chat.Option{ID: l, Label: levelLabel(l)})
+		}
+		return chat.EffortPicker{
+			Label:  "思考",
+			Icon:   lucide.Brain,
+			Levels: options,
+			Selected: func() string {
+				return s.thinking.Get()
+			},
+			OnChange: func(id string) { a.applyThinking(s, id, true) },
+			Off:      true,
+			Tooltip: func() string {
+				if len(levels) == 1 {
+					return "思考等级 · " + levelLabel(s.thinking.Get()) + "（该模型只有这一档）"
+				}
+				return "思考等级 · " + levelLabel(s.thinking.Get())
+			},
+			TestID: "effort-picker",
+		}
+	})
 }
 
 // composerTrailing is the attach button and context gauge, and the mark
