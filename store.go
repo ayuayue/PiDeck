@@ -70,6 +70,9 @@ type config struct {
 	RemotePort       int    `json:"remotePort,omitempty"`
 	RemoteToken      string `json:"remoteToken,omitempty"`
 	RemoteEasyTierIP string `json:"remoteEasyTierIP,omitempty"`
+	// DisabledPlugins are the plugin ids the user turned off; everything
+	// else under plugins/ runs.
+	DisabledPlugins []string `json:"disabledPlugins,omitempty"`
 }
 
 // store holds the config file and the session directory.
@@ -119,6 +122,7 @@ func (s *store) config() config {
 	c.Pinned = append([]string(nil), s.c.Pinned...)
 	c.FavModels = append([]string(nil), s.c.FavModels...)
 	c.ProviderOrder = append([]string(nil), s.c.ProviderOrder...)
+	c.DisabledPlugins = append([]string(nil), s.c.DisabledPlugins...)
 	c.Titles = make(map[string]string, len(s.c.Titles))
 	for k, v := range s.c.Titles {
 		c.Titles[k] = v

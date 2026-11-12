@@ -1,0 +1,88 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build, without the leading v
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows_x64
+          - os: macos-latest
+            target: macos_arm64
+          - os: ubuntu-latest
+            target: linux_x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          v="${{ github.event.inputs.version }}"
+          if [ -z "$v" ]; then v="${GITHUB_REF_NAME#v}"; fi
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Install NSIS (Windows installer)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y --no-progress
+
+      - name: Install GTK 4 (Linux runtime)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-1 libpango-1.0-0 libcairo2
+
+      - name: Build
+        shell: bash
+        run: go tool nsgo build -target ${{ matrix.target }} -version ${{ steps.version.outputs.value }}
+
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out
+          if [ -d dist/releases ]; then cp -r dist/releases/* out/ 2>/dev/null || true; fi
+          if [ -d "dist/PiDeck Lite-${{ steps.version.outputs.value }}-${{ matrix.target }}" ]; then
+            cp -r "dist/PiDeck Lite-${{ steps.version.outputs.value }}-${{ matrix.target }}"/* out/ 2>/dev/null || true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pideck-lite-${{ matrix.target }}
+          path: out
+          if-no-files-found: warn
+
+  publish:
+    name: publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**
+          generate_release_notes: true

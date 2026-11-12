@@ -437,9 +437,17 @@ func (a *app) settingsLook() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		var rows []core.Node
-		for i, spec := range a.themes.Get() {
+		list := a.themes.Get()
+		for i, spec := range list {
 			s := spec
 			on := func() bool { return a.theme.Get() == s.ID }
+			var note string
+			switch {
+			case s.Error != "":
+				note = "读取失败"
+			case s.Author != "":
+				note = s.Author
+			}
 			rows = append(rows, core.View{
 				OnPress: func(core.PressEvent) { a.setTheme(s.ID) },
 				Role:    core.RoleRadio, Label: s.Name, TestID: "theme-" + s.ID,
@@ -454,27 +462,38 @@ func (a *app) settingsLook() core.Node {
 					}},
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						ui.Text(s.Name, 12.5, ui.Regular, colors.Text),
+						core.Show{When: func() bool { return note != "" }, Then: func(*core.Scope) core.Node {
+							return core.Text{Content: note, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+								Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+						}},
 					}},
+					core.Show{When: func() bool { return s.Appearance == "light" || s.Appearance == "dark" },
+						Then: func(*core.Scope) core.Node {
+							label := "仅浅色"
+							if s.Appearance == "dark" {
+								label = "仅深色"
+							}
+							return ui.Text(label, 9.5, ui.Regular, colors.Faint)
+						}},
 					core.Show{When: on, Then: func(*core.Scope) core.Node { return ui.Icon(lucide.Check, 13, colors.Text) }},
 					core.Show{When: func() bool { return !s.Builtin }, Then: func(*core.Scope) core.Node {
 						return ui.Text("用户主题", 9.5, ui.Regular, colors.Faint)
 					}},
 				},
 			})
-			if i < len(a.themes.Get())-1 {
+			if i < len(list)-1 {
 				rows = append(rows, setDivider())
 			}
 		}
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("配色", rows...),
-				setRow("主题文件", "放在数据目录的 themes 里，JSON 里写 name 与 light/dark 的角色色。",
+				setRow("主题文件", "放在数据目录的 themes 里：JSON 或 YAML，写角色色、tokens、字体与圆角；也读 shadcn/ui 主题文件。",
 					ui.Button{Text: "打开目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
-						a.ensureAddonDirs()
-						if dir := a.themesDir(); dir != "" {
-							a.cx.OpenURL(fileURL(dir), nil)
-						}
+						a.openThemesDir()
 					}}),
+				core.Text{Content: "角色：background surface border text textMuted accent danger warning success selection focus scrollbar inset raised field line faint code info track knob。",
+					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 			}},
 		}}
 	})
@@ -595,14 +614,15 @@ func piVersionLine(info envInfo) string {
 	return "检测中…"
 }
 
-// settingsAddons lists the plugins and where they live.
+// settingsAddons lists the plugins, what each adds, and whether it runs.
 func (a *app) settingsAddons() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		list := a.plugins.Get()
 		var rows []core.Node
 		if len(list) == 0 {
-			rows = append(rows, setRow("还没有插件", "在数据目录的 plugins 里放一个 JSON，就能给命令面板加提示词、给外观加主题。", nil))
+			rows = append(rows, setRow("还没有插件",
+				"在数据目录的 plugins 里放一个 plugin.json，就能给命令面板加命令、给外观加主题。", nil))
 		}
 		for i, p := range list {
 			plug := p
@@ -610,12 +630,52 @@ func (a *app) settingsAddons() core.Node {
 			if plug.Error != "" {
 				desc = "读取失败：" + firstLine(plug.Error, 100)
 			}
-			var lines []core.Node
-			for _, pr := range plug.Prompts {
-				lines = append(lines, core.Text{Content: "· " + pr.Title, Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)})
+			title := plug.Name
+			if plug.Version != "" {
+				title += "  " + plug.Version
 			}
-			rows = append(rows, setRow(plug.Name, desc, ui.Text(fmt.Sprintf("%d 命令 · %d 主题", len(plug.Prompts), len(plug.Themes)),
-				10.5, ui.Regular, colors.Faint)))
+			var control core.Node
+			if plug.Error == "" {
+				control = ui.Switch{
+					Checked: func() bool { return !plug.Disabled },
+					Label:   "启用 " + plug.Name,
+					Size:    ui.SizeSmall,
+					TestID:  "plugin-toggle-" + plug.ID,
+					OnChange: func(on bool) {
+						a.setPluginEnabled(plug.ID, on)
+					},
+				}
+			} else {
+				control = ui.Text("无法读取", 10.5, ui.Regular, colors.Danger)
+			}
+			rows = append(rows, setRow(title, desc, control))
+			var lines []core.Node
+			meta := pluginSummary(plug)
+			if plug.Author != "" {
+				meta += " · " + plug.Author
+			}
+			lines = append(lines, core.Text{Content: meta, Style: core.Style{FontSize: 10.5},
+				StyleFunc: ui.Colored(colors.Faint)})
+			for _, w := range plug.Warnings {
+				lines = append(lines, core.Text{Content: "注意：" + w, Style: core.Style{FontSize: 10.5},
+					StyleFunc: ui.Colored(colors.Warn)})
+			}
+			for _, c := range plug.Commands {
+				label := "· " + c.Title
+				if c.Group != "" {
+					label += "  · " + c.Group
+				}
+				lines = append(lines, core.Text{Content: label, Style: core.Style{FontSize: 10.5},
+					StyleFunc: ui.Colored(colors.Muted)})
+			}
+			for _, th := range plug.ThemeSpecs {
+				lines = append(lines, core.Text{Content: "· 主题 " + th.Name, Style: core.Style{FontSize: 10.5},
+					StyleFunc: ui.Colored(colors.Muted)})
+			}
+			for _, kb := range plug.Contributes.Keybindings {
+				lines = append(lines, core.Text{Content: "· 键位 " + kb.Key + " → " + kb.Command,
+					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)})
+			}
 			if len(lines) > 0 {
 				rows = append(rows, core.View{Style: core.Style{Padding: core.Edges{Left: 4, Bottom: 4}, Gap: 1}, Children: lines})
 			}
@@ -626,14 +686,13 @@ func (a *app) settingsAddons() core.Node {
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("插件", rows...),
+				core.Text{Content: "插件只声明命令与主题，不运行代码：命令的动作是填入提示词、执行内置命令、打开链接或切换主题。",
+					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: "打开插件目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
-						a.ensureAddonDirs()
-						if dir := a.pluginsDir(); dir != "" {
-							a.cx.OpenURL(fileURL(dir), nil)
-						}
+						a.openPluginsDir()
 					}},
-					ui.Button{Text: "重新加载", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.reloadFrameworks},
+					ui.Button{Text: "重新加载", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.reloadAddons},
 				}},
 			}},
 		}}

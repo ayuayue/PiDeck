@@ -2673,8 +2673,13 @@ func imageMime(path string) string {
 	return ""
 }
 
-// applyAppearance lets the settings dialog set the look.
+// applyAppearance lets the settings dialog set the look. A name a theme
+// carries resolves to its id, so a plugin can name a theme rather than
+// know how the app keys it.
 func (a *app) setTheme(name string) {
+	if spec := a.themeSpecByName(name); spec != nil {
+		name = spec.ID
+	}
 	a.theme.Set(name)
 	a.applyTheme()
 	a.st.edit(func(c *config) { c.Theme = name })

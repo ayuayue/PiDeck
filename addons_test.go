@@ -102,19 +102,162 @@ func TestPluginAndThemeFiles(t *testing.T) {
 	}
 	app.st = st
 	plugins := app.loadPlugins()
-	if len(plugins) != 1 || plugins[0].Name != "团队提示词" || len(plugins[0].Prompts) != 1 {
+	if len(plugins) != 1 || plugins[0].Name != "团队提示词" || len(plugins[0].Commands) != 1 {
 		t.Fatalf("plugins = %+v", plugins)
 	}
-	themes := app.loadThemes(plugins)
-	var ids []string
-	for _, th := range themes {
-		ids = append(ids, th.ID)
+	if plugins[0].Commands[0].Action.Type != "prompt" || plugins[0].Commands[0].Action.Prompt == "" {
+		t.Fatalf("legacy prompt did not become a command: %+v", plugins[0].Commands[0])
 	}
-	joined := strings.Join(ids, ",")
-	for _, want := range []string{"system", "light", "dark", "user:雾蓝", "user:插件蓝"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("themes %q lack %q", joined, want)
+	themes := app.loadThemes(plugins)
+	ids := map[string]themeSpec{}
+	for _, th := range themes {
+		ids[th.ID] = th
+	}
+	if _, ok := ids["user:mist"]; !ok {
+		t.Fatalf("theme ids = %v, want user:mist", ids)
+	}
+	if ids["user:mist"].Name != "雾蓝" {
+		t.Fatalf("theme name = %q", ids["user:mist"].Name)
+	}
+	foundPluginTheme := false
+	for _, th := range themes {
+		if th.Name == "插件蓝" {
+			foundPluginTheme = true
 		}
+	}
+	if !foundPluginTheme {
+		t.Fatalf("plugin theme is missing: %+v", themes)
+	}
+}
+
+// TestPluginManifestV2 checks contributes.commands, theme paths and the
+// checks that keep a bad command out.
+func TestPluginManifestV2(t *testing.T) {
+	dir := t.TempDir()
+	plugDir := filepath.Join(dir, "plugins", "team")
+	if err := os.MkdirAll(filepath.Join(plugDir, "themes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{
+  "id": "team",
+  "name": "团队",
+  "version": "1.2.0",
+  "description": "团队命令",
+  "contributes": {
+    "commands": [
+      {"id": "review", "title": "梳理改动", "group": "团队", "icon": "git",
+       "action": {"type": "prompt", "prompt": "看看改动。"}},
+      {"id": "open", "title": "打开文档", "icon": "globe",
+       "action": {"type": "url", "url": "https://example.com/docs"}},
+      {"id": "bad", "title": "坏命令", "action": {"type": "exec", "prompt": "rm -rf"}},
+      {"id": "empty", "title": "空命令", "action": {"type": "prompt"}}
+    ],
+    "themes": ["themes/blue.json", "../escape.json"],
+    "keybindings": [{"command": "review", "key": "mod+shift+r"}]
+  }
+}`
+	if err := os.WriteFile(filepath.Join(plugDir, "plugin.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	theme := `{"name":"团队蓝","appearance":"dark","radius":10,"light":{"accent":"#3366ff"}}`
+	if err := os.WriteFile(filepath.Join(plugDir, "themes", "blue.json"), []byte(theme), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &app{}
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.st = st
+	plugins := app.loadPlugins()
+	if len(plugins) != 1 {
+		t.Fatalf("plugins = %+v", plugins)
+	}
+	p := plugins[0]
+	if p.ID != "team" || p.Version != "1.2.0" {
+		t.Fatalf("metadata = %+v", p)
+	}
+	if len(p.Commands) != 2 {
+		t.Fatalf("commands = %+v, want 2", p.Commands)
+	}
+	if len(p.Warnings) < 2 {
+		t.Fatalf("warnings = %v, want at least 2", p.Warnings)
+	}
+	if len(p.ThemeSpecs) != 1 || p.ThemeSpecs[0].Name != "团队蓝" || p.ThemeSpecs[0].Appearance != "dark" {
+		t.Fatalf("themes = %+v", p.ThemeSpecs)
+	}
+	if p.ThemeSpecs[0].Radius != 10 {
+		t.Fatalf("radius = %v", p.ThemeSpecs[0].Radius)
+	}
+	if len(p.Contributes.Keybindings) != 1 {
+		t.Fatalf("keybindings = %+v", p.Contributes.Keybindings)
+	}
+	themes := app.loadThemes(plugins)
+	found := false
+	for _, th := range themes {
+		if th.ID == "plugin:team:blue" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("plugin theme id missing: %+v", themes)
+	}
+}
+
+// TestPluginDisabled checks that a disabled plugin adds no commands or
+// themes.
+func TestPluginDisabled(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"id":"team","name":"团队","contributes":{"commands":[{"id":"x","title":"X","action":{"type":"prompt","prompt":"x"}}]}}`
+	if err := os.WriteFile(filepath.Join(dir, "plugins", "team.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.edit(func(c *config) { c.DisabledPlugins = []string{"team"} })
+	app := &app{st: st, cfg: st.config()}
+	plugins := app.loadPlugins()
+	if len(plugins) != 1 || !plugins[0].Disabled {
+		t.Fatalf("plugins = %+v", plugins)
+	}
+}
+
+// TestThemeTokens checks a theme's tokens, fonts and radius reach the
+// palette.
+func TestThemeTokens(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "themes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"紧凑","radius":12,"sans":"Inter","mono":"JetBrains Mono","tokens":{"font-sans":"Inter","radius":"12px"},"light":{"accent":"#123456"}}`
+	if err := os.WriteFile(filepath.Join(dir, "themes", "compact.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &app{st: st, cfg: st.config()}
+	themes := app.loadThemes(nil)
+	var got *themeSpec
+	for i := range themes {
+		if themes[i].ID == "user:compact" {
+			got = &themes[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("compact theme missing: %+v", themes)
+	}
+	if got.Radius != 12 || got.Sans != "Inter" || got.Mono != "JetBrains Mono" {
+		t.Fatalf("theme = %+v", got)
+	}
+	if got.Tokens["font-sans"] != "Inter" {
+		t.Fatalf("tokens = %+v", got.Tokens)
 	}
 }
 

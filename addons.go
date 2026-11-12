@@ -1,45 +1,94 @@
 package main
 
-// Looks and add-ons. A theme is a set of palette roles over the app's own
-// palette; a plugin is a folder of JSON that adds palette commands and
+// Looks and add-ons. A theme is a set of palette roles and design tokens
+// over the app's own; a plugin is a folder of JSON that adds commands and
 // themes. Neither runs code, so a broken add-on can only be dull, not
 // dangerous, and both are read again without restarting.
+//
+// A plugin's manifest is its contract:
+//
+//	{
+//	  "id": "team", "name": "团队提示词", "version": "1.0.0",
+//	  "contributes": {
+//	    "commands": [{"id": "review", "title": "梳理改动", "icon": "git",
+//	      "action": {"type": "prompt", "prompt": "看看未提交的改动。"}}],
+//	    "themes": ["themes/team-blue.json"]
+//	  }
+//	}
+//
+// Top-level "prompts" and "themes" are the older shape and still load.
 
 import (
-	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/oneo-me/nsgo/core"
+	"go.yaml.in/yaml/v3"
 )
 
 // themeSpec is one look: the built-in ones, or a file of roles over them.
 type themeSpec struct {
-	ID      string
-	Name    string
-	Builtin bool
+	ID         string
+	Name       string
+	Author     string
+	Appearance string // "", "light", "dark" or "both"
+	Builtin    bool
 	// Light and Dark map palette role names (background, surface, text,
 	// accent, inset…) to CSS colors.
 	Light map[string]string
 	Dark  map[string]string
+	// LightColors and DarkColors carry roles parsed from a shadcn/ui
+	// theme file, whose values may name other variables.
+	LightColors map[string]core.Color
+	DarkColors  map[string]core.Color
+	// Tokens are the design tokens that are not colors ("radius",
+	// "font-sans", "font-mono", and any the app reads by name).
+	Tokens map[string]string
+	Radius float32
+	Sans   string
+	Mono   string
+	Source string
+	Error  string
 }
 
-// themeFile is a theme's JSON: a name and the roles it sets.
+// themeFile is a theme's file: a name and the roles it sets. It reads
+// both the app's own shape and a shadcn/ui theme file, JSON or YAML.
 type themeFile struct {
-	Name  string            `json:"name"`
-	Light map[string]string `json:"light"`
-	Dark  map[string]string `json:"dark"`
+	ID         string            `yaml:"id"`
+	Name       string            `yaml:"name"`
+	Author     string            `yaml:"author"`
+	Appearance string            `yaml:"appearance"`
+	Radius     *float32          `yaml:"radius"`
+	Sans       string            `yaml:"sans"`
+	Mono       string            `yaml:"mono"`
+	Light      map[string]string `yaml:"light"`
+	Dark       map[string]string `yaml:"dark"`
+	Tokens     map[string]string `yaml:"tokens"`
+	CSSVars    struct {
+		Theme map[string]string `yaml:"theme"`
+		Light map[string]string `yaml:"light"`
+		Dark  map[string]string `yaml:"dark"`
+	} `yaml:"cssVars"`
 }
 
 // swatch is the color a theme is shown by in the picker.
 func (t themeSpec) swatch() core.Color {
 	roles := t.Light
-	if t.ID == "dark" {
+	if t.Appearance == "dark" || (t.Appearance != "light" && t.ID == "dark") {
 		roles = t.Dark
 	}
 	for _, name := range []string{"accent", "background", "surface"} {
+		if c, ok := t.DarkColors[name]; ok && roles != nil {
+			return c
+		}
+		if c, ok := t.LightColors[name]; ok {
+			if t.Appearance != "dark" {
+				return c
+			}
+		}
 		if v, ok := roles[name]; ok {
 			if c, err := core.ParseColor(v); err == nil {
 				return c
@@ -57,21 +106,74 @@ func (t themeSpec) swatch() core.Color {
 
 // plugin is a folder of add-ons.
 type plugin struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Prompts     []pluginPrompt `json:"prompts"`
-	Themes      []themeFile    `json:"themes"`
-	Path        string         `json:"-"`
-	Error       string         `json:"-"`
+	ID          string        `yaml:"id" json:"id"`
+	Name        string        `yaml:"name" json:"name"`
+	Version     string        `yaml:"version" json:"version"`
+	Description string        `yaml:"description" json:"description"`
+	Author      string        `yaml:"author" json:"author"`
+	Homepage    string        `yaml:"homepage" json:"homepage"`
+	Contributes pluginContrib `yaml:"contributes" json:"contributes"`
+
+	// Prompts and Themes are the older shape: a list of prompt commands
+	// and inline themes.
+	Prompts []pluginPrompt `yaml:"prompts" json:"prompts"`
+	Themes  []themeFile    `yaml:"themes" json:"themes"`
+
+	// Path is the manifest file, Dir the folder a plugin's relative
+	// paths resolve in.
+	Path string `yaml:"-" json:"-"`
+	Dir  string `yaml:"-" json:"-"`
+
+	// Commands and ThemeSpecs are what the app actually uses: the
+	// manifest normalized, legacy entries folded in, bad ones dropped
+	// with a warning.
+	Commands   []pluginCommand `yaml:"-" json:"-"`
+	ThemeSpecs []themeSpec     `yaml:"-" json:"-"`
+	Warnings   []string        `yaml:"-" json:"-"`
+	// Disabled is the user's choice, kept in the app config.
+	Disabled bool   `yaml:"-" json:"-"`
+	Error    string `yaml:"-" json:"-"`
 }
 
-// pluginPrompt is a palette command a plugin adds: a title and what it
-// puts in the composer.
+// pluginContrib is what a plugin adds to the app.
+type pluginContrib struct {
+	Commands    []pluginCommand    `yaml:"commands" json:"commands"`
+	Themes      []string           `yaml:"themes" json:"themes"`
+	Keybindings []pluginKeybinding `yaml:"keybindings" json:"keybindings"`
+}
+
+// pluginCommand is a palette command a plugin adds.
+type pluginCommand struct {
+	ID          string       `yaml:"id" json:"id"`
+	Title       string       `yaml:"title" json:"title"`
+	Description string       `yaml:"description" json:"description"`
+	Group       string       `yaml:"group" json:"group"`
+	Icon        string       `yaml:"icon" json:"icon"`
+	Action      pluginAction `yaml:"action" json:"action"`
+}
+
+// pluginAction is what a command does. Only these shapes run; a plugin
+// cannot bring its own code.
+type pluginAction struct {
+	Type    string `yaml:"type" json:"type"`
+	Prompt  string `yaml:"prompt" json:"prompt"`
+	Command string `yaml:"command" json:"command"`
+	URL     string `yaml:"url" json:"url"`
+	Theme   string `yaml:"theme" json:"theme"`
+}
+
+// pluginKeybinding binds a key to a command. The app binds it after the
+// plugins load; a key the app already uses is left alone.
+type pluginKeybinding struct {
+	Command string `yaml:"command" json:"command"`
+	Key     string `yaml:"key" json:"key"`
+}
+
+// pluginPrompt is the older shape of a prompt command.
 type pluginPrompt struct {
-	Title  string `json:"title"`
-	Prompt string `json:"prompt"`
-	Group  string `json:"group"`
+	Title  string `yaml:"title" json:"title"`
+	Prompt string `yaml:"prompt" json:"prompt"`
+	Group  string `yaml:"group" json:"group"`
 }
 
 // builtinThemes are the looks the app ships with.
@@ -103,83 +205,283 @@ func (a *app) pluginsDir() string {
 func (a *app) loadThemes(plugins []plugin) []themeSpec {
 	specs := builtinThemes()
 	seen := map[string]bool{"system": true, "light": true, "dark": true}
-	add := func(name string, f themeFile) {
-		id := "user:" + name
-		if seen[id] || strings.TrimSpace(name) == "" {
-			return
-		}
-		seen[id] = true
-		specs = append(specs, themeSpec{ID: id, Name: name, Light: f.Light, Dark: f.Dark})
-	}
 	if dir := a.themesDir(); dir != "" {
 		entries, _ := os.ReadDir(dir)
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
+			if e.IsDir() || !isThemeFile(e.Name()) {
 				continue
 			}
-			raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			path := filepath.Join(dir, e.Name())
+			spec, err := parseThemeFile(path, fileBase(e.Name()))
 			if err != nil {
+				specs = append(specs, themeSpec{ID: "user:" + fileBase(e.Name()), Name: fileBase(e.Name()),
+					Source: path, Error: err.Error()})
 				continue
 			}
-			var f themeFile
-			if json.Unmarshal(raw, &f) != nil {
+			spec.ID = "user:" + firstNonEmpty(spec.ID, fileBase(e.Name()))
+			if seen[spec.ID] {
 				continue
 			}
-			name := f.Name
-			if name == "" {
-				name = strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
-			}
-			add(name, f)
+			seen[spec.ID] = true
+			specs = append(specs, spec)
 		}
 	}
 	for _, p := range plugins {
-		for i, f := range p.Themes {
-			name := f.Name
-			if name == "" {
-				name = p.Name + " " + string(rune('A'+i))
+		if p.Disabled {
+			continue
+		}
+		for _, spec := range p.ThemeSpecs {
+			if seen[spec.ID] {
+				continue
 			}
-			add(name, f)
+			seen[spec.ID] = true
+			specs = append(specs, spec)
 		}
 	}
 	return specs
 }
 
-// loadPlugins reads every plugin JSON under the plugins folder: a file, or
-// a folder with plugin.json.
+// parseThemeFile reads one theme file in either supported shape.
+func parseThemeFile(path, fallbackName string) (themeSpec, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return themeSpec{}, err
+	}
+	var f themeFile
+	if err := yaml.Unmarshal(raw, &f); err != nil {
+		return themeSpec{}, err
+	}
+	spec := themeSpec{
+		ID:         strings.TrimSpace(f.ID),
+		Name:       firstNonEmpty(f.Name, fallbackName),
+		Author:     f.Author,
+		Appearance: normalizeAppearance(f.Appearance),
+		Light:      f.Light,
+		Dark:       f.Dark,
+		Tokens:     map[string]string{},
+		Sans:       f.Sans,
+		Mono:       f.Mono,
+		Source:     path,
+	}
+	if f.Radius != nil {
+		spec.Radius = *f.Radius
+	}
+	for k, v := range f.Tokens {
+		spec.Tokens[k] = v
+	}
+	if len(f.CSSVars.Theme)+len(f.CSSVars.Light)+len(f.CSSVars.Dark) > 0 {
+		parsed, err := core.ParseTheme(raw)
+		if err != nil {
+			return spec, err
+		}
+		keys := map[string]bool{}
+		for _, m := range []map[string]string{f.CSSVars.Theme, f.CSSVars.Light, f.CSSVars.Dark} {
+			for k := range m {
+				keys[k] = true
+			}
+		}
+		spec.LightColors = map[string]core.Color{}
+		spec.DarkColors = map[string]core.Color{}
+		for k := range keys {
+			if c, ok := parsed.Light.Color(k); ok {
+				spec.LightColors[k] = c
+			}
+			if c, ok := parsed.Dark.Color(k); ok {
+				spec.DarkColors[k] = c
+			}
+		}
+		for k, v := range parsed.Tokens {
+			if _, set := spec.Tokens[k]; !set {
+				spec.Tokens[k] = v
+			}
+		}
+		if spec.Radius == 0 && parsed.Radius != 0 {
+			spec.Radius = float32(parsed.Radius)
+		}
+		if spec.Sans == "" {
+			spec.Sans = parsed.Sans
+		}
+		if spec.Mono == "" {
+			spec.Mono = parsed.Mono
+		}
+	}
+	if spec.ID == "" {
+		spec.ID = fallbackName
+	}
+	if spec.Name == "" {
+		spec.Name = fallbackName
+	}
+	return spec, nil
+}
+
+// loadPlugins reads every plugin under the plugins folder: a folder with
+// plugin.json, or a single JSON file. Bad manifests are listed with their
+// error rather than dropped, so the settings page can say what is wrong.
 func (a *app) loadPlugins() []plugin {
 	dir := a.pluginsDir()
 	if dir == "" {
 		return nil
 	}
+	disabled := map[string]bool{}
+	for _, id := range a.cfg.DisabledPlugins {
+		disabled[id] = true
+	}
 	var out []plugin
+	seen := map[string]int{}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		path := filepath.Join(dir, e.Name())
+		path, folder := "", ""
 		if e.IsDir() {
-			path = filepath.Join(path, "plugin.json")
-		} else if !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
+			folder = filepath.Join(dir, e.Name())
+			path = filepath.Join(folder, "plugin.json")
+		} else if isJSONFile(e.Name()) {
+			path = filepath.Join(dir, e.Name())
+		} else {
 			continue
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
+			out = append(out, plugin{Name: e.Name(), Path: path, Error: err.Error()})
 			continue
 		}
 		var p plugin
-		if err := json.Unmarshal(raw, &p); err != nil {
+		if err := yaml.Unmarshal(raw, &p); err != nil {
 			out = append(out, plugin{Name: e.Name(), Path: path, Error: err.Error()})
 			continue
 		}
 		p.Path = path
+		p.Dir = firstNonEmpty(folder, dir)
 		if p.Name == "" {
-			p.Name = strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+			p.Name = fileBase(e.Name())
 		}
 		if p.ID == "" {
 			p.ID = p.Name
 		}
+		if n, dup := seen[p.ID]; dup {
+			seen[p.ID] = n + 1
+			p.ID = fmt.Sprintf("%s-%d", p.ID, n+1)
+		} else {
+			seen[p.ID] = 1
+		}
+		p.Disabled = disabled[p.ID]
+		normalizePlugin(&p)
 		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// normalizePlugin folds the older prompts and inline themes into the
+// contributes shape and checks each command and theme path.
+func normalizePlugin(p *plugin) {
+	for i, pr := range p.Prompts {
+		if strings.TrimSpace(pr.Title) == "" || strings.TrimSpace(pr.Prompt) == "" {
+			continue
+		}
+		p.Commands = append(p.Commands, pluginCommand{
+			ID:          fmt.Sprintf("prompt-%d", i),
+			Title:       pr.Title,
+			Description: firstLine(pr.Prompt, 70),
+			Group:       pr.Group,
+			Icon:        "message",
+			Action:      pluginAction{Type: "prompt", Prompt: pr.Prompt},
+		})
+	}
+	for i, f := range p.Themes {
+		spec := themeSpec{
+			ID:         fmt.Sprintf("plugin:%s:%d", p.ID, i),
+			Name:       firstNonEmpty(f.Name, fmt.Sprintf("%s %d", p.Name, i+1)),
+			Author:     f.Author,
+			Appearance: normalizeAppearance(f.Appearance),
+			Light:      f.Light,
+			Dark:       f.Dark,
+			Tokens:     f.Tokens,
+		}
+		if f.Radius != nil {
+			spec.Radius = *f.Radius
+		}
+		spec.Sans, spec.Mono = f.Sans, f.Mono
+		p.ThemeSpecs = append(p.ThemeSpecs, spec)
+	}
+	ids := map[string]bool{}
+	for _, c := range p.Contributes.Commands {
+		c.ID = strings.TrimSpace(c.ID)
+		c.Title = strings.TrimSpace(c.Title)
+		if c.ID == "" || c.Title == "" {
+			p.Warnings = append(p.Warnings, "跳过一条没有 id 或标题的命令")
+			continue
+		}
+		if ids[c.ID] {
+			p.Warnings = append(p.Warnings, "跳过重复的命令 id："+c.ID)
+			continue
+		}
+		if err := validateAction(c.Action); err != nil {
+			p.Warnings = append(p.Warnings, fmt.Sprintf("命令 %s：%v", c.ID, err))
+			continue
+		}
+		ids[c.ID] = true
+		p.Commands = append(p.Commands, c)
+	}
+	for _, rel := range p.Contributes.Themes {
+		path, ok := resolveInside(p.Dir, rel)
+		if !ok {
+			p.Warnings = append(p.Warnings, "跳过插件目录之外的主题："+rel)
+			continue
+		}
+		spec, err := parseThemeFile(path, fileBase(path))
+		if err != nil {
+			p.Warnings = append(p.Warnings, fmt.Sprintf("主题 %s 读取失败：%v", rel, err))
+			continue
+		}
+		spec.ID = "plugin:" + p.ID + ":" + firstNonEmpty(spec.ID, fileBase(path))
+		if spec.Name == "" {
+			spec.Name = fileBase(path)
+		}
+		p.ThemeSpecs = append(p.ThemeSpecs, spec)
+	}
+}
+
+// validateAction checks a plugin command's action shape.
+func validateAction(a pluginAction) error {
+	switch a.Type {
+	case "", "prompt", "insert":
+		if strings.TrimSpace(a.Prompt) == "" {
+			return fmt.Errorf("action 需要 prompt")
+		}
+	case "send":
+		if strings.TrimSpace(a.Prompt) == "" {
+			return fmt.Errorf("action 需要 prompt")
+		}
+	case "command":
+		if strings.TrimSpace(a.Command) == "" {
+			return fmt.Errorf("action 需要 command")
+		}
+	case "url":
+		if !strings.HasPrefix(a.URL, "https://") && !strings.HasPrefix(a.URL, "http://") {
+			return fmt.Errorf("action.url 只接受 http(s) 链接")
+		}
+	case "theme":
+		if strings.TrimSpace(a.Theme) == "" {
+			return fmt.Errorf("action 需要 theme")
+		}
+	default:
+		return fmt.Errorf("不认识的 action 类型 %q", a.Type)
+	}
+	return nil
+}
+
+// resolveInside joins a relative path and refuses anything that leaves
+// the plugin's own folder.
+func resolveInside(dir, rel string) (string, bool) {
+	if dir == "" || rel == "" || filepath.IsAbs(rel) {
+		return "", false
+	}
+	path := filepath.Clean(filepath.Join(dir, rel))
+	back, err := filepath.Rel(dir, path)
+	if err != nil || back == ".." || strings.HasPrefix(back, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return path, true
 }
 
 // ensureAddonDirs makes the folders the app documents, with an example
@@ -194,6 +496,9 @@ func (a *app) ensureAddonDirs() {
 		if _, err := os.Stat(example); os.IsNotExist(err) {
 			_ = os.WriteFile(example, []byte(`{
   "name": "雾蓝",
+  "author": "你",
+  "appearance": "both",
+  "radius": 10,
   "light": {"background": "#f7f9fc", "inset": "#eef2f8", "border": "rgba(15, 23, 42, 0.12)"},
   "dark":  {"background": "#0f1419", "inset": "#151d24", "accent": "#7aa2f7"}
 }
@@ -205,11 +510,28 @@ func (a *app) ensureAddonDirs() {
 		example := filepath.Join(dir, "example-plugin.json")
 		if _, err := os.Stat(example); os.IsNotExist(err) {
 			_ = os.WriteFile(example, []byte(`{
+  "id": "example",
   "name": "示例插件",
-  "description": "在这里放几条常做的提示词，命令面板里就能直接选用。",
-  "prompts": [
-    {"title": "梳理当前改动", "prompt": "看看工作区里未提交的改动，用要点说明它们做了什么、有没有风险。", "group": "示例插件"}
-  ]
+  "version": "1.0.0",
+  "description": "几条常做的提示词，命令面板里就能直接选用。",
+  "contributes": {
+    "commands": [
+      {
+        "id": "review-changes",
+        "title": "梳理当前改动",
+        "group": "示例插件",
+        "icon": "git",
+        "action": {"type": "prompt", "prompt": "看看工作区里未提交的改动，用要点说明它们做了什么、有没有风险。"}
+      },
+      {
+        "id": "open-readme",
+        "title": "打开 PiDeck Lite 仓库",
+        "group": "示例插件",
+        "icon": "globe",
+        "action": {"type": "url", "url": "https://github.com/ayuayue/PiDeck-Lite"}
+      }
+    ]
+  }
 }
 `), 0o644)
 		}
@@ -217,21 +539,55 @@ func (a *app) ensureAddonDirs() {
 }
 
 // applyTheme gives the window its look: the appearance, then the palette
-// over the app's own.
+// and tokens over the app's own.
 func (a *app) applyTheme() {
 	name := a.theme.GetUntracked()
-	switch name {
-	case "light":
+	spec := a.themeSpec(name)
+	forced := ""
+	if spec != nil {
+		forced = spec.Appearance
+	}
+	switch {
+	case forced == "light" || forced == "dark":
+		if forced == "light" {
+			a.cx.SetAppearance(core.AppearanceLight)
+		} else {
+			a.cx.SetAppearance(core.AppearanceDark)
+		}
+	case name == "light":
 		a.cx.SetAppearance(core.AppearanceLight)
-	case "dark":
+	case name == "dark":
 		a.cx.SetAppearance(core.AppearanceDark)
 	default:
 		a.cx.SetAppearance(core.AppearanceSystem)
 	}
 	base := pideckTheme()
-	if spec := a.themeSpec(name); spec != nil {
+	if spec != nil {
 		applyRoles(&base.Light, spec.Light)
 		applyRoles(&base.Dark, spec.Dark)
+		for k, c := range spec.LightColors {
+			base.Light.SetColor(k, c)
+		}
+		for k, c := range spec.DarkColors {
+			base.Dark.SetColor(k, c)
+		}
+		if len(spec.Tokens) > 0 {
+			if base.Tokens == nil {
+				base.Tokens = map[string]string{}
+			}
+			for k, v := range spec.Tokens {
+				base.Tokens[k] = v
+			}
+		}
+		if spec.Radius > 0 {
+			base.Radius = core.Points(spec.Radius)
+		}
+		if spec.Sans != "" {
+			base.Sans = spec.Sans
+		}
+		if spec.Mono != "" {
+			base.Mono = spec.Mono
+		}
 	}
 	a.cx.SetTheme(base)
 }
@@ -240,6 +596,18 @@ func (a *app) applyTheme() {
 func (a *app) themeSpec(id string) *themeSpec {
 	for _, s := range a.themes.GetUntracked() {
 		if s.ID == id {
+			cp := s
+			return &cp
+		}
+	}
+	return nil
+}
+
+// themeSpecByName finds a look by display name, for plugin actions that
+// name a theme rather than an id.
+func (a *app) themeSpecByName(name string) *themeSpec {
+	for _, s := range a.themes.GetUntracked() {
+		if s.ID == name || s.Name == name {
 			cp := s
 			return &cp
 		}
@@ -287,6 +655,44 @@ func (a *app) reloadFrameworks() {
 		info = probeTargets(info)
 		a.cx.Post(func() { a.env.Set(info) })
 	}()
+}
+
+// reloadAddons reads plugins and themes again without probing machines
+// or sessions: what the settings page needs after a file changes.
+func (a *app) reloadAddons() {
+	if a.st == nil {
+		return
+	}
+	go func() {
+		plugins := a.loadPlugins()
+		themes := a.loadThemes(plugins)
+		a.cx.Post(func() {
+			a.plugins.Set(plugins)
+			a.themes.Set(themes)
+			a.applyTheme()
+		})
+	}()
+}
+
+// setPluginEnabled remembers whether a plugin runs and reloads add-ons.
+func (a *app) setPluginEnabled(id string, enabled bool) {
+	if a.st == nil {
+		return
+	}
+	a.st.edit(func(c *config) {
+		var kept []string
+		for _, v := range c.DisabledPlugins {
+			if v != id {
+				kept = append(kept, v)
+			}
+		}
+		if !enabled {
+			kept = append(kept, id)
+		}
+		c.DisabledPlugins = kept
+	})
+	a.cfg = a.st.config()
+	a.reloadAddons()
 }
 
 // scanProject reads pi's own sessions for one project, the first time it
@@ -443,4 +849,54 @@ func (a *app) piPath() string {
 func (a *app) piReady() bool {
 	info := a.env.GetUntracked()
 	return info.PiPath != "" && info.PiError == ""
+}
+
+// isThemeFile reports whether a name is one the theme loader reads.
+func isThemeFile(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".json", ".yaml", ".yml":
+		return true
+	}
+	return false
+}
+
+// isJSONFile reports whether a name is a single-file plugin manifest.
+func isJSONFile(name string) bool {
+	return strings.EqualFold(filepath.Ext(name), ".json")
+}
+
+// fileBase is a file's name without its extension.
+func fileBase(name string) string {
+	return strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))
+}
+
+// normalizeAppearance keeps the appearance values the app understands.
+func normalizeAppearance(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "light":
+		return "light"
+	case "dark":
+		return "dark"
+	case "both":
+		return "both"
+	}
+	return ""
+}
+
+// pluginSummary is one line about what a plugin adds.
+func pluginSummary(p plugin) string {
+	parts := []string{}
+	if n := len(p.Commands); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个命令", n))
+	}
+	if n := len(p.ThemeSpecs); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个主题", n))
+	}
+	if n := len(p.Contributes.Keybindings); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个键位", n))
+	}
+	if len(parts) == 0 {
+		return "没有可用的命令或主题"
+	}
+	return strings.Join(parts, " · ")
 }

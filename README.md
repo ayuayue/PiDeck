@@ -126,8 +126,11 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 - 关于：版本、运行方式、项目链接
 
 **外观与扩展（可写文件，不跑代码）**
-- 主题：内置跟随系统 / 纸白 / 炭黑；用户主题放 `themes/*.json`，按调色板角色覆盖
-- 插件：`plugins/*.json`（或 `plugins/<名字>/plugin.json`），可加命令面板提示词与主题
+- 主题：内置跟随系统 / 纸白 / 炭黑；用户主题放 `themes/*.json|*.yaml`，按调色板角色覆盖，
+  可带 `tokens`（字体、圆角）与 `appearance`（仅浅色/仅深色）；也读 shadcn/ui 主题文件
+- 插件：`plugins/*.json`（或 `plugins/<名字>/plugin.json`），`contributes.commands` 加命令面板命令，
+  `contributes.themes` 加主题，`contributes.keybindings` 声明键位；可整体启用/禁用
+- 命令动作只支持声明式安全动作：填入提示词、执行内置命令、打开链接、切换主题
 - 打开目录、重新加载都在设置里；每次启动也读一遍
 
 **界面**
@@ -164,11 +167,17 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 
 ## 主题与插件格式
 
-主题 `themes/mist.json`：
+主题 `themes/mist.json`（也接受 `.yaml`）：
 
 ```json
 {
   "name": "雾蓝",
+  "author": "你",
+  "appearance": "both",
+  "radius": 10,
+  "sans": "Inter",
+  "mono": "JetBrains Mono",
+  "tokens": {"font-sans": "Inter", "radius": "10px"},
   "light": {"background": "#f7f9fc", "inset": "#eef2f8", "accent": "#2563eb"},
   "dark":  {"background": "#0f1419", "inset": "#151d24"}
 }
@@ -179,20 +188,47 @@ textMuted accent accentHover accentPressed accentText danger warning success sel
 focus scrollbar inset raised field fieldBorder line faint accentFill light onLight track
 knob code info down`。
 
-插件 `plugins/team.json`：
+`appearance` 为 `light` / `dark` 时，选中该主题会强制对应外观；省略或 `both` 时跟随系统的浅色/深色。
+主题文件也可以直接写 shadcn/ui 的 `cssVars.theme/light/dark`，其中的 `var(--name)` 会解析，
+非颜色变量进 `tokens`。
+
+插件 `plugins/team/plugin.json`：
 
 ```json
 {
-  "name": "团队提示词",
-  "description": "常用检查",
-  "prompts": [
-    {"title": "跑测试并总结失败", "prompt": "跑一遍测试，把失败项按文件列出来。"}
-  ],
-  "themes": [{"name": "团队蓝", "light": {"accent": "#3366ff"}}]
+  "id": "team",
+  "name": "团队命令",
+  "version": "1.0.0",
+  "description": "常用检查与链接",
+  "author": "团队",
+  "contributes": {
+    "commands": [
+      {"id": "review", "title": "跑测试并总结失败", "group": "团队", "icon": "terminal",
+       "action": {"type": "prompt", "prompt": "跑一遍测试，把失败项按文件列出来。"}},
+      {"id": "open-docs", "title": "打开团队文档", "icon": "globe",
+       "action": {"type": "url", "url": "https://example.com/docs"}},
+      {"id": "compact", "title": "压缩上下文", "icon": "zap",
+       "action": {"type": "command", "command": "compact"}}
+    ],
+    "themes": ["themes/team-blue.json"],
+    "keybindings": [{"command": "review", "key": "mod+shift+r"}]
+  }
 }
 ```
 
-插件命令出现在命令面板的“插件”组里，选中后把提示词放进输入框。
+- `action.type`：`prompt` / `insert` 填进输入框，`send` 直接发送，`command` 执行内置命令，
+  `url` 打开 http(s) 链接，`theme` 切换主题（可写 id 或显示名）
+- `contributes.themes` 的路径必须留在插件目录内；越界、坏命令、重复 id 会在设置里显示为警告
+- 旧格式 `{"prompts": [...], "themes": [...]}` 仍然可用，提示词会自动变成 `prompt` 命令
+- 命令 id 在插件内唯一；面板里显示为 `plugin:<插件 id>:<命令 id>`
+- 插件可以在 设置 → 扩展 里整体启用/禁用，禁用后命令、主题、键位都不加载
+
+插件命令出现在命令面板里，选中后按 `action` 执行。插件不运行代码，所以一个坏插件最多是没用的，
+不会碰到项目文件。
+
+## 路线图
+
+原 Electron 版 PiDeck 的功能对照、差距与执行顺序见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 测试
 

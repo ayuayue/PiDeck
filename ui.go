@@ -1009,164 +1009,18 @@ func levelLabel(level string) string {
 
 // paletteDialog is the command palette.
 func (a *app) paletteDialog() core.Node {
-	colors := ui.ColorsOf(a.cx)
-	items := func() []base.CommandItem {
-		s := a.active()
-		var out []base.CommandItem
-		out = append(out, base.CommandItem{ID: "new-session", Label: "新建会话", Group: "会话", Shortcut: "mod+n", Icon: lucide.SquarePen()})
-		if s != nil {
-			out = append(out,
-				base.CommandItem{ID: "rename", Label: "重命名会话", Group: "会话", Icon: lucide.Pencil()},
-				base.CommandItem{ID: "export", Label: "导出会话为 HTML", Group: "会话", Icon: lucide.FileDown()},
-				base.CommandItem{ID: "compact", Label: "压缩上下文", Group: "会话", Icon: lucide.Minimize2()},
-				base.CommandItem{ID: "stop", Label: "停止当前运行", Group: "会话", Icon: lucide.Square()},
-				base.CommandItem{ID: "copy-last", Label: "复制最后回复", Group: "会话", Icon: lucide.Copy()},
-				base.CommandItem{ID: "delete", Label: "删除会话", Group: "会话", Icon: lucide.Trash()},
-			)
-		}
-		for _, p := range a.plugins.GetUntracked() {
-			for i, pr := range p.Prompts {
-				out = append(out, base.CommandItem{ID: fmt.Sprintf("plugin:%s:%d", p.ID, i), Label: pr.Title,
-					Description: firstLine(pr.Prompt, 70), Group: "插件", Icon: lucide.Puzzle()})
-			}
-		}
-		for _, th := range a.themes.GetUntracked() {
-			out = append(out, base.CommandItem{ID: "theme:" + th.ID, Label: "配色 · " + th.Name, Group: "外观", Icon: lucide.Palette()})
-		}
-		out = append(out,
-			base.CommandItem{ID: "add-wsl", Label: "在 WSL 里添加工作区…", Group: "工作区", Icon: lucide.Monitor()},
-			base.CommandItem{ID: "add-ssh", Label: "在 SSH 主机上添加工作区…", Group: "工作区", Icon: lucide.Globe()},
-			base.CommandItem{ID: "add-workspace", Label: "添加工作区（系统选择器）", Group: "工作区", Icon: lucide.FolderPlus()},
-			base.CommandItem{ID: "browse-workspace", Label: "浏览文件夹添加工作区…", Group: "工作区", Icon: lucide.FolderOpen()},
-			base.CommandItem{ID: "import", Label: "导入 pi 会话（系统选择器）…", Group: "工作区", Icon: lucide.FileInput()},
-			base.CommandItem{ID: "browse-import", Label: "浏览文件导入会话…", Group: "工作区", Icon: lucide.FolderOpen()},
-			base.CommandItem{ID: "open-folder", Label: "在文件管理器中打开工作区", Group: "工作区", Icon: lucide.FolderOpen()},
-			base.CommandItem{ID: "terminal", Label: "显示 / 隐藏终端", Group: "工具", Shortcut: "ctrl+shift+t", Icon: lucide.SquareTerminal()},
-			base.CommandItem{ID: "terminal-new", Label: "新建终端", Group: "工具", Icon: lucide.Plus()},
-			base.CommandItem{ID: "git", Label: "显示 Git 面板", Group: "工具", Shortcut: "mod+shift+g", Icon: lucide.GitBranch()},
-			base.CommandItem{ID: "git-refresh", Label: "刷新 Git 状态", Group: "工具", Icon: lucide.RefreshCw()},
-			base.CommandItem{ID: "git-branch", Label: "新建 Git 分支…", Group: "工具", Icon: lucide.GitBranchPlus()},
-			base.CommandItem{ID: "appearance", Label: "切换外观（浅色 / 深色 / 跟随系统）", Group: "应用", Icon: lucide.Sun()},
-			base.CommandItem{ID: "drawer", Label: "显示 / 隐藏会话面板", Group: "应用", Shortcut: "mod+j", Icon: lucide.PanelRight()},
-			base.CommandItem{ID: "data-dir", Label: "打开数据目录", Group: "应用", Icon: lucide.HardDrive()},
-			base.CommandItem{ID: "settings", Label: "设置", Group: "应用", Shortcut: "mod+,", Icon: lucide.Settings()},
-		)
-		_ = colors
-		return out
-	}
 	return ui.CommandDialog{
 		Open:         a.palette.Get,
 		OnOpenChange: func(open bool, _ base.Reason) { a.palette.Set(open) },
 		TestID:       "palette",
 		Command: ui.Command{
-			Items:       items,
+			Items:       a.commandItems,
 			Placeholder: "搜索命令、会话或工作区…",
 			SearchLabel: "命令",
 			Empty:       "没有匹配的命令",
 			OnSelect:    a.runCommand,
 		},
 	}
-}
-
-// runCommand runs a palette item.
-func (a *app) runCommand(id string) {
-	a.palette.Set(false)
-	s := a.active()
-	switch id {
-	case "new-session":
-		a.newSession(a.activeWS.Get())
-	case "rename":
-		a.askRename(s)
-	case "export":
-		a.exportHTML(s)
-	case "compact":
-		a.compact(s)
-	case "stop":
-		a.stop(s)
-	case "copy-last":
-		if s != nil {
-			ts := s.turns.Get()
-			for i := len(ts) - 1; i >= 0; i-- {
-				if ts[i].Final != "" {
-					a.copyText(ts[i].Final, "回复")
-					return
-				}
-			}
-		}
-		a.toast(ui.ToastInfo, "没有可复制的回复", "")
-	case "delete":
-		a.deleteSession(s)
-	case "add-workspace":
-		a.pickNative("workspace")
-	case "browse-workspace":
-		a.openPicker("workspace")
-	case "import":
-		a.pickNative("import")
-	case "browse-import":
-		a.openPicker("import")
-	case "open-folder":
-		if s != nil {
-			a.openWorkspaceFolder(s.WS)
-		}
-	case "terminal":
-		a.toggleTerminal()
-	case "terminal-new":
-		a.newTerminalTab()
-	case "git":
-		a.openGit()
-	case "git-refresh":
-		a.git.refreshAll()
-	case "git-branch":
-		if a.git.state.GetUntracked().IsRepo {
-			a.gitNewBranchName.Set("")
-			a.gitNewBranchOpen.Set(true)
-		}
-	case "appearance":
-		a.cycleTheme()
-	case "drawer":
-		a.drawer.Update(func(v bool) bool { return !v })
-		a.remember()
-	case "data-dir":
-		if a.st != nil {
-			a.cx.OpenURL(fileURL(a.st.dir), nil)
-		}
-	case "settings":
-		a.settings.Set(true)
-	case "add-wsl":
-		a.openTargetDialog(targetWSL)
-	case "add-ssh":
-		a.openTargetDialog(targetSSH)
-	default:
-		if rest, ok := strings.CutPrefix(id, "theme:"); ok {
-			a.setTheme(rest)
-			return
-		}
-		if rest, ok := strings.CutPrefix(id, "plugin:"); ok {
-			name, idx, _ := strings.Cut(rest, ":")
-			if prompt, ok := a.pluginPrompt(name, idx); ok {
-				if s := a.active(); s != nil {
-					s.draft.Set(prompt)
-				} else {
-					a.toast(ui.ToastInfo, "先开一个会话", "插件命令会把提示词放进输入框。")
-				}
-			}
-		}
-	}
-}
-
-// pluginPrompt finds a plugin command's prompt.
-func (a *app) pluginPrompt(name, idx string) (string, bool) {
-	for _, p := range a.plugins.GetUntracked() {
-		if p.ID != name {
-			continue
-		}
-		for i, pr := range p.Prompts {
-			if fmt.Sprint(i) == idx {
-				return pr.Prompt, true
-			}
-		}
-	}
-	return "", false
 }
 
 // pickerDialog is the folder and session file browser.
