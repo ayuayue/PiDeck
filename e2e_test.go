@@ -273,7 +273,13 @@ func TestThinkingMenu(t *testing.T) {
 	app := startApp(t, workspaceWith(t), 1320, 860)
 	waitApp(app, "id:effort-picker", 90*time.Second)
 	app.Press("id:effort-picker")
-	app.WaitFor("role:option 低", 5*time.Second)
-	app.Press("role:option 低")
-	waitApp(app, "label:思考等级 · 低", 15*time.Second)
+	app.WaitFor("text:低", 5*time.Second)
+	app.Press("text:低")
+	app.Advance(300 * time.Millisecond)
+	// Close the panel again and check the chip alone names the level.
+	app.Press("id:effort-picker")
+	app.Advance(300 * time.Millisecond)
+	if got := len(app.Query("text:低")); got != 1 {
+		t.Fatalf("after choosing 低 the chip shows %d level labels, want 1", got)
+	}
 }
