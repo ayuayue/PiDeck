@@ -9,6 +9,7 @@ import ts from "typescript";
 import vm from "node:vm";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -124,7 +125,7 @@ test("安全管理 tab 必须 forceMount：切 tab 不能卸载草稿（allow/as
 	// SecuritySection 的草稿（enabled / defaultLevelId / 各等级 toolActions 等）只存在组件内部 state，
 	// Radix Tabs 默认卸载非激活 TabsContent → 切走再回来草稿归零；
 	// 更隐蔽的是它卸载时会上抛 onDirtyChange(false)，把父级黄点清掉，连关闭时的保存确认也不弹。
-	const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const configModal = configModalSource;
 	const securityTabTag = configModal.match(/<TabsContent value="security"[^>]*>/);
 	assert.ok(securityTabTag, "ConfigModal 必须直接用 TabsContent 承载安全管理页");
 	assert.match(securityTabTag[0], /forceMount/, "安全管理 TabsContent 必须 forceMount 常挂");

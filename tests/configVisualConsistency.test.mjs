@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
-const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+const configModal = configModalSource;
 const skills = readFileSync("src/renderer/src/config/SkillsTab.tsx", "utf8");
 const prompts = readFileSync("src/renderer/src/config/PromptsTab.tsx", "utf8");
 const surfaces = readFileSync("src/renderer/src/styles/surfaces.css", "utf8");

@@ -4,9 +4,10 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 test("ConfigModal wires an MCP tab without bloating loadConfig into MCP CRUD", () => {
-	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const modal = configModalSource;
 	assert.match(modal, /id: "mcp"/);
 	assert.match(modal, /CONFIG_TABS: readonly ConfigTab\[] = \["models", "auth", "oauth", "settings", "trust", "mcp", "raw"\]/);
 	// MCP 页固定全局作用域：父层只传导入扫描的项目来源 + 脏回调，不再下发项目列表/作用域
@@ -18,7 +19,7 @@ test("ConfigModal wires an MCP tab without bloating loadConfig into MCP CRUD", (
 
 test("McpTab 的 load 依赖必须稳定，且同名 MCP 入口只保留一个", () => {
 	const tab = readFileSync("src/renderer/src/config/McpTab.tsx", "utf8");
-	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const modal = configModalSource;
 	// 回归：作用域对象未 memo / 调用方传内联脏回调 → load 身份每次渲染都变 → effect 重跑，
 	// 用磁盘内容覆盖正在编辑的表单（用户实测：输入的内容自己消失）。
 	assert.match(tab, /const scope: McpConfigScope \| undefined = useMemo\(\(\) => \(projectId \? \{ scope: "project", projectId \} : undefined\), \[projectId\]\)/);

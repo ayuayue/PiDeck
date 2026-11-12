@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 test("Pi management navigation follows the settings tab visual rhythm", () => {
 	const styles = readFileSync("src/renderer/src/styles/surfaces.css", "utf8");
-	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const modal = configModalSource;
 	const tabs = readFileSync("src/renderer/src/components/ui-shadcn/tabs.tsx", "utf8");
 
 	// 左侧导航已迁移为 shadcn Vertical Tabs：TabsTrigger 保留 config-nav-btn 基础样式

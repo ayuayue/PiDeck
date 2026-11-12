@@ -4,6 +4,7 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
 import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 /**
  * 环境切换的渲染层契约（本次重构后）：
@@ -15,13 +16,12 @@ import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
  * 源码扫描对空白容错；行为由 remoteConfigModel / configEnvironmentModel 的纯函数测试覆盖。
  */
 
-const CONFIG_MODAL = "src/renderer/src/ConfigModal.tsx";
 const SWITCH = "src/renderer/src/config/ConfigEnvironmentSwitch.tsx";
 const PANEL = "src/renderer/src/config/RemoteConfigPanel.tsx";
 const HOOK = "src/renderer/src/config/useRemotePiConfigPanel.ts";
 const MODEL = "src/renderer/src/config/remoteConfigModel.ts";
 
-const modal = readFileSync(CONFIG_MODAL, "utf8");
+const modal = configModalSource;
 const envSwitch = readFileSync(SWITCH, "utf8");
 const panel = readFileSync(PANEL, "utf8");
 const hook = readFileSync(HOOK, "utf8");

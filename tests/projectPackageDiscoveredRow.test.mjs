@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 const { isActionableProjectPackageItem } = loadTsCommonJs("src/renderer/src/config/resourceScopeModel.ts");
@@ -46,7 +47,7 @@ test("ExtensionsTab：项目包开关走原生 toggle（scope=project、path=und
 });
 
 test("ConfigModal：项目包卸载确认走 api.extensions.uninstall(source, project, projectId)", () => {
-	const source = read("src/renderer/src/ConfigModal.tsx");
+	const source = configModalSource;
 	assert.match(source, /await api\.extensions\.uninstall\(target\.source, "project", effectiveProjectId\)/, "项目包卸载必须带 project scope + 项目 id（后端信任门解析根目录）");
 	assert.match(source, /target\.scope === "project" \? effectiveProjectId : undefined/, "已装行卸载在 project scope 也必须传项目 id");
 	assert.match(source, /onUninstallProjectPackage=\{handleRequestProjectPackageUninstall\}/, "ExtensionsTab 必须拿到卸载确认入口");
@@ -84,7 +85,7 @@ test("ExtensionsTab：发现行接共用 updateOne 与文件夹回调", () => {
 });
 
 test("ConfigModal：发现行打开位置按 physicalScope 决定项目读边界", () => {
-	const source = read("src/renderer/src/ConfigModal.tsx");
+	const source = configModalSource;
 	assert.match(source, /item\.physicalScope === "project" && effectiveProjectId/, "项目层物理路径必须带 projectId 走项目读边界，防越权打开");
 	assert.match(source, /onShowDiscoveredInFolder=\{\(item\) => void handleOpenDiscoveredLocation\(item\)\}/, "ExtensionsTab 必须拿到发现行位置回调");
 });

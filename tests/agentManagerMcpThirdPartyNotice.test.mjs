@@ -2,6 +2,7 @@ import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
@@ -43,7 +44,7 @@ test("third-party takeover notice carries interpolation params and a working act
 
 test("MCP page 'go to extensions' navigates within the same scope instead of a fake route", () => {
 	const tab = read("src/renderer/src/config/McpTab.tsx");
-	const modal = read("src/renderer/src/ConfigModal.tsx");
+	const modal = configModalSource;
 	assert.match(tab, /onGoToExtensions/);
 	assert.match(tab, /config\.mcp\.thirdParty\.goToExtensions/);
 	assert.doesNotMatch(tab, /pideck:\/\//);

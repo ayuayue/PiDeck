@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const { toModelKey, toggleHiddenModel, splitVisibleAndHiddenModels, filterVisibleModels, moveModelItem } = loadTsCommonJs("src/renderer/src/config/modelVisibility.ts");
 
@@ -102,7 +103,7 @@ test("契约完整性：ComposerComponents 与 ComposerPickerHost 支持 hiddenM
 	const preferenceState = readFileSync("src/renderer/src/hooks/useSessionPreferenceState.ts", "utf8");
 	const modelsTab = readFileSync("src/renderer/src/config/ModelsTab.tsx", "utf8");
 	const modelsTable = readFileSync("src/renderer/src/config/ModelsTable.tsx", "utf8");
-	const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const configModal = configModalSource;
 
 	// 选择器传递与处理
 	assert.ok(composer.includes("hiddenModels?: string[];"));

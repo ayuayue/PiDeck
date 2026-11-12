@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 // configDirtyMarks.ts 现引入 deepEqual（运行时依赖），用 loadTsCommonJs 走完整依赖图加载。
 const { dirtyKeysClearedByReload, orderDirtyKeysForSave, ALL_CONFIG_DIRTY_KEYS, reconcileConfigDirty } = loadTsCommonJs("src/renderer/src/config/configDirtyMarks.ts");
@@ -100,7 +101,7 @@ test("保存全部脏来源时 settings 排最后（它的重载会连带刷新 
 // ── 装配契约：ConfigModal 已接入核算规则 ──
 
 test("嵌入配置管理的顶部保存仍复用 models 保存入口", () => {
-	const source = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const source = configModalSource;
 	// 新增/编辑 provider 是 models 页内子页面，不能因为内容切换而丢失顶部保存路由。
 	assert.match(source, /const currentTabKey = backendPane === "dsh" \? "dsh" : sectionTabValue\(section, tab\);/);
 	assert.match(source, /await saveByKey\(currentTabKey\);/);
@@ -108,7 +109,7 @@ test("嵌入配置管理的顶部保存仍复用 models 保存入口", () => {
 });
 
 test("provider 页向外暴露当前草稿，标题栏保存会先提交再触发落盘", () => {
-	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const modal = configModalSource;
 	const modelsTab = readFileSync("src/renderer/src/config/ModelsTab.tsx", "utf8");
 	const dialog = readFileSync("src/renderer/src/config/AddProviderDialog.tsx", "utf8");
 	// 表单 state 只存在 AddProviderDialog；卸载前清理入口，避免下一次打开误提交旧草稿。
@@ -122,7 +123,7 @@ test("provider 页向外暴露当前草稿，标题栏保存会先提交再触�
 });
 
 test("ConfigModal 的 loadConfig 与 handleImport 使用统一核算规则", () => {
-	const source = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const source = configModalSource;
 	// 脏草稿保留：被重载覆盖的 key 若仍是脏的（preserved）则跳过 setState + clearDirty，
 	// 否则切 tab 会丢草稿；保存/导入路径 force:true 时才强制对齐磁盘。
 	assert.match(source, /if \(!preserved\.has\(key\)\) clearDirty\(key\)/);
@@ -139,7 +140,7 @@ test("ConfigModal 的 loadConfig 与 handleImport 使用统一核算规则", () 
 // ── 装配契约：每模型默认档位的 settings 草稿链路 ──
 
 test("模型页保存顺带落盘 settings 草稿，且不整页重载（避免冲掉 auth/raw 草稿）", () => {
-	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const modal = configModalSource;
 	// 保存 models 后若 settings 仍是脏的 → 走「只写不重载」保存。
 	assert.match(modal, /dirtyTabsRef\.current\.has\("config:settings"\)[\s\S]{0,40}?saveSettingsDraftOnly\(\)/);
 	// 「只写不重载」路径必须自己同步基准快照，否则脏检测会把刚清掉的黄点标回来。
@@ -151,7 +152,7 @@ test("模型页保存顺带落盘 settings 草稿，且不整页重载（避免�
 });
 
 test("models 页加载 settings 失败时不渲染编辑入口（settingsLoaded 门控）", () => {
-	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const modal = configModalSource;
 	const modelsTab = readFileSync("src/renderer/src/config/ModelsTab.tsx", "utf8");
 	// models 分支并行读 settings；读失败只降级，settingsLoaded 保持 false。
 	assert.match(modal, /const \[res, settingsRes\] = await Promise\.all\(\[api\.config\.getModels\(\), api\.config\.getSettings\(\)\.catch\(\(\) => null\)\]\)/);

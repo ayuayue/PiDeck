@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 // 弹框（Dialog/Modal/Overlay）内的链接必须强制系统浏览器打开：
 // 内置浏览器面板位于 Dialog 下层不可见，linkOpenMode=internal 时跟随设置打开会被遮挡，
@@ -29,7 +30,7 @@ test("extension recommendation cards force system browser", () => {
 });
 
 test("config diagnostic docs link forces system browser", () => {
-	const src = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const src = configModalSource;
 	assert.match(src, /onOpenDocs=\{\(\) => api\.app\.openExternal\(configDiagnostic\.docsUrl, true\)\}/);
 });
 

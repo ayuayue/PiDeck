@@ -11,6 +11,7 @@ import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 // ===== 纯函数：批量采样的进程表解析 =====
 
 test("parsePsCpuTime: hh:mm:ss / mm:ss.ss / dd- 三种 TIME 形状", () => {
@@ -262,7 +263,7 @@ test("ProcessMetricsTab wires table columns and refresh", () => {
 
 test("SettingsModal registers process tab; ConfigModal no longer hosts it", () => {
 	const settings = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
-	const config = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const config = configModalSource;
 	// 进程监控已从 Pi 管理界面迁入设置：SettingsModal 以 TAB_META 注册 tab
 	//（labelKey 走 i18n）+ lazy ProcessMetricsTab 渲染；ConfigModal 移除。
 	// labelKey 的取值已收敛到 settingsTabLayout.ts 的 SETTINGS_TAB_LABEL_KEYS

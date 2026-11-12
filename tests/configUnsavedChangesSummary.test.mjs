@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const { summarizeConfigUnsavedChanges, formatConfigUnsavedMessage } = loadTsCommonJs("src/renderer/src/config/configUnsavedChangesSummary.ts");
 const i18n = loadTsCommonJs("src/renderer/src/i18n.ts");
-const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+const configModal = configModalSource;
 const configEnvironmentSwitch = readFileSync("src/renderer/src/config/ConfigEnvironmentSwitch.tsx", "utf8");
 const dshTab = readFileSync("src/renderer/src/config/DshConfigTab.tsx", "utf8");
 

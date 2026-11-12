@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const rendererRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "renderer", "src");
 
@@ -19,6 +20,7 @@ const COMPOSER = read("components/session/ComposerComponents.tsx");
 const THEME_SECTION = read("components/app/settings/CustomThemeSection.tsx");
 const WALLPAPER = read("components/app/wallpaper/WallpaperVideoLayer.tsx");
 const TIMELINE_CONTROLLER = read("hooks/useSessionTimelineController.ts");
+const CONFIG_MODAL = configModalSource;
 
 test("PageHeader 壳契约：语义化标题层级 + 统一 header 排版", () => {
 	// h1 语义标题 + truncate，供全部工作区页复用（Wave 2 §3.1）
@@ -52,7 +54,7 @@ test("Workbench Dialog 尺寸常量单源（Wave 2 §5.3）", () => {
 	assert.match(DIALOG_SIZE, /WORKBENCH_DIALOG_SIZE_CLASS/, "常量必须导出");
 	// 设置面板已是**页面内**surface（失活 hidden、不用 Radix Dialog），不再有弹窗尺寸问题；
 	// 单源规则只约束真正的 Workbench Dialog（ConfigModal 等）。
-	assert.match(read("ConfigModal.tsx"), /WORKBENCH_DIALOG_SIZE_CLASS/, "ConfigModal 引用共享尺寸");
+	assert.match(CONFIG_MODAL, /WORKBENCH_DIALOG_SIZE_CLASS/, "ConfigModal 引用共享尺寸");
 	// 设置自 f66a4eec0 起是会话列里的页面 Tab（铺满整列），不再共用弹框尺寸。
 	assert.doesNotMatch(read("components/app/SettingsModal.tsx"), /WORKBENCH_DIALOG_SIZE_CLASS/, "设置页面不应再套弹框尺寸");
 	assert.match(read("components/app/SettingsModal.tsx"), /className="settings-modal flex min-h-0 flex-1 flex-col/, "设置页面铺满会话列");

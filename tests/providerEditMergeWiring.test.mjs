@@ -14,8 +14,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
-const configModalSource = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
 const draftSource = readFileSync("src/renderer/src/config/addProviderDraft.ts", "utf8");
 
 test("编辑页保存以原 provider 为基底合并，不再重建（保留 oauth/自定义 headers 等）", () => {
