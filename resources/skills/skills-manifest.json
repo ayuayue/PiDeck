@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "e13aecfcca0054a70df77def41f061c5b2cb016cd25b3aa2d2524ff2976c8f26",
+  "bundleSha256": "2dfe4a11ee677350bdf8cc239372d0cb7de83682def4704f38706025ce01ae04",
   "fileCount": 4,
   "files": [
     {
@@ -21,8 +21,8 @@
     },
     {
       "name": "usage-probe/SKILL.md",
-      "sha256": "7a09edba8411783f83ba2c5151f2499d77b74b2b149582fd8a4755440266909b",
-      "bytes": 9170
+      "sha256": "65d2668bb3f599868d206c39f956113a685d76bae5e408c311886a3a646b547e",
+      "bytes": 9154
     }
   ]
 }
