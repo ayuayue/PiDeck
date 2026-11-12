@@ -219,6 +219,10 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 						core.Text{Content: modelLabel(m), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, LineHeight: 17},
 							StyleFunc: ui.Colored(colors.Text)},
+						// The supplier rides on every row, so a row read on
+						// its own says where the model comes from.
+						core.Text{Content: m.Provider, MaxLines: 1, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, FlexShrink: 0},
+							StyleFunc: ui.Colored(colors.Faint)},
 						core.Text{Content: tokens(m.ContextWindow), Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexShrink: 0},
 							StyleFunc: ui.Colored(colors.Faint)},
 						core.View{OnPress: func(core.PressEvent) { a.toggleFavModel(m) }, Role: core.RoleButton, Label: "收藏模型",
