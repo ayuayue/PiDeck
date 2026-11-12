@@ -581,7 +581,16 @@ func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 		a.menuRow(a.cx, lucide.SquarePen, "在此新建会话", "", false, func() { a.newSession(w().Path) }),
 		a.menuRow(a.cx, lucide.SquareTerminal, "在此打开终端", "", false, func() { a.openTerminalFor(w()) }),
 		a.menuRow(a.cx, lucide.GitBranch, "查看 Git 变更", "", false, func() { a.openGitFor(w()) }),
-		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() { a.openWorkspaceFolder(w().Path) }),
+		a.menuSeparator(a.cx),
+		a.menuRow(a.cx, lucide.RefreshCw, "刷新会话", "", false, func() {
+			w().piLoaded = false
+			a.scanProject(w())
+		}),
+		a.menuRow(a.cx, lucide.ArrowDownAZ, sortLabel(a), "", false, func() { a.toggleSessionSort() }),
+		a.menuSeparator(a.cx),
+		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() { a.revealProject(w()) }),
+		a.menuRow(a.cx, lucide.Copy, "复制项目路径", "", false, func() { a.copyText(w().Path, "路径") }),
+		a.menuRow(a.cx, lucide.FolderPlus, "添加项目…", "", false, func() { a.pickNative("workspace") }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.FolderMinus, "移除项目", "", true, func() { a.removeWorkspace(w()) }),
 	}

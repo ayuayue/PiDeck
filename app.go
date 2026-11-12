@@ -178,9 +178,10 @@ type app struct {
 	askEdit *core.Signal[string]
 	askSeq  *core.Signal[int]
 
-	files *fileTree
-	git   *gitRepo
-	term  *terminalHost
+	files  *fileTree
+	git    *gitRepo
+	term   *terminalHost
+	remote *remoteHost
 
 	// Git dialogs: the branch menu and new-branch dialog, and the diff or
 	// commit patch in front.
@@ -347,6 +348,8 @@ func newApp(cx *core.Scope) *app {
 	a.pick = newPicker(cx)
 
 	a.ensureAddonDirs()
+	a.remote = newRemoteHost(a)
+	a.remote.init()
 	a.bindKeys()
 	a.tick()
 	// A terminal panel left open comes back with a tab to show.

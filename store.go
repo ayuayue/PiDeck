@@ -64,6 +64,12 @@ type config struct {
 	// TerminalOpen and TerminalHeight restore the bottom terminal panel.
 	TerminalOpen   bool    `json:"terminalOpen,omitempty"`
 	TerminalHeight float64 `json:"terminalHeight,omitempty"`
+	// Remote is the phone server: whether it listens, its port and token,
+	// and the EasyTier address when its CLI cannot be read.
+	RemoteEnabled    bool   `json:"remoteEnabled,omitempty"`
+	RemotePort       int    `json:"remotePort,omitempty"`
+	RemoteToken      string `json:"remoteToken,omitempty"`
+	RemoteEasyTierIP string `json:"remoteEasyTierIP,omitempty"`
 }
 
 // store holds the config file and the session directory.

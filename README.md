@@ -18,6 +18,20 @@ go tool nsgo build -target windows_x64
 
 前置：PATH 里有 `pi`。应用用 `pi --mode rpc` 启动它，会话放在应用自己的目录里。
 
+### 手机端
+
+同一份代码的 Android/iOS 目标会显示连接页，而不是桌面工作台：
+
+```sh
+go tool nsgo doctor                        # 检查 adb / Xcode / 模拟器
+go tool nsgo dev -target android           # 已连接的 Android 手机或模拟器
+go tool nsgo dev -target ios_simulator     # 需要 Mac + Xcode
+go tool nsgo build -target android_arm64   # 生成 APK
+PIDECK_LITE_MOBILE=1 go tool nsgo dev      # 在桌面窗口预览手机页
+```
+
+Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器；iOS 模拟器需要 Mac 和 Xcode。
+
 ## 架构
 
 从下往上，五层，一层只依赖它下面那层：
@@ -77,6 +91,13 @@ go tool nsgo build -target windows_x64
 - 其他：初始化仓库、贮藏全部改动 / 恢复最近贮藏、丢弃全部改动
 - 同一套操作跑在本机、WSL、SSH 目标上；面板每 4 秒自动刷新状态
 
+**远程访问**
+- 设置 → 远程：开启手机服务，设置端口、访问令牌，复制连接链接
+- 三种连接方式：局域网（本机所有非回环 IPv4）、Tailscale（读 `tailscale status` 的 100.x 地址）、
+  EasyTier（读 `easytier-cli` 的虚拟 IP，读不到时可手动填写）
+- 手机端连接后浏览电脑上的项目、会话和会话历史，列表每 2.5 秒刷新
+- 令牌鉴权；链接含令牌；手机端当前只读，不发送消息
+
 **会话与数据**
 - 应用自己的会话目录（pi 原生格式），重启恢复标签与历史
 - **项目下的 pi 本地会话**：只读当前项目的目录，与项目会话合并后按时间分组；
@@ -129,6 +150,10 @@ go tool nsgo build -target windows_x64
 | `ui_git.go` | Git 抽屉：分支菜单、改动列表、提交框、历史、补丁与新建分支对话框 |
 | `term.go` | 终端会话：Ghostty 终端、本机/WSL/SSH shell、标签生命周期与搜索 |
 | `ui_term.go` | 底部终端面板：标签栏、搜索栏、右键菜单、可调高度 |
+| `remote.go` | 手机 HTTP 服务、令牌、快照/历史接口，局域网/Tailscale/EasyTier 地址探测 |
+| `remote_client.go` | 手机端 HTTP 客户端与连接串解析 |
+| `mobile.go` | 手机端连接页、项目/会话列表、只读会话历史 |
+| `ui_remote.go` | 桌面设置里的远程访问面板 |
 | `ui.go` | 侧栏、标签、抽屉、命令面板、目标/重命名/确认/扩展对话框 |
 | `ui_menu.go` | 统一的菜单卡片、会话/项目右键菜单、模型/用量/项目弹层 |
 | `ui_settings.go` | 设置窗口：左栏分类 + 分节行（通用/模型与认证/外观/环境/扩展/数据/关于） |
@@ -188,4 +213,6 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 会话树分支（`/tree`、fork）未做；重试是“把同一条提示再发一次”
 - 远端目标（WSL/SSH）不列远端历史会话，只按标签恢复；文件抽屉只读本机
 - Git 的凭据提示走不了 GUI：HTTPS/SSH 需要先在终端里登录或配好密钥
+- 手机远程当前只读：可查看项目和会话历史，不能新建会话或发送消息；只列本机项目
+- 局域网连接走 HTTP + 令牌，Tailscale/EasyTier 的链路本身加密
 - 草稿与附件不跨重启保存；单窗口

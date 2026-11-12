@@ -316,12 +316,59 @@ func TestDeleteSessionFromMenu(t *testing.T) {
 	waitApp(app, "text:待删除的会话", 30*time.Second)
 	waitApp(app, "id:pi-ready", 40*time.Second)
 
-	app.RightClick("id:session-cccccccc-2222-4333-8444-555555555555")
+	app.RightClick("id:session-row")
 	app.WaitFor("text:删除会话", 5*time.Second)
 	app.Press("text:删除会话")
 	app.WaitFor("id:confirm-ok", 5*time.Second)
 	app.Press("id:confirm-ok")
-	if got := len(app.Query(`text:"待删除的会话"`)); got != 0 {
-		t.Fatalf("the session is still listed after deleting it")
+	app.WaitUntil(5*time.Second, func() bool {
+		return len(app.Query("id:session-row")) == 0
+	})
+}
+
+// TestProjectMenu walks a project's right-click menu: the items exist, the
+// path can be copied, and removing the project asks first.
+func TestProjectMenu(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
 	}
+	dir := workspaceWith(t)
+	app := startApp(t, dir, 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.RightClick("text:" + filepath.Base(dir))
+	for _, item := range []string{"在此新建会话", "刷新会话", "在文件管理器中打开", "复制项目路径", "添加项目…", "移除项目"} {
+		app.WaitFor(`text:"`+item+`"`, 5*time.Second)
+	}
+	app.Press("text:复制项目路径")
+	if app.Clipboard != dir {
+		t.Fatalf("copied %q, want %q", app.Clipboard, dir)
+	}
+}
+
+// TestSessionMenuPinAndRename pins a session and renames it from its menu.
+func TestSessionMenuPinAndRename(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.RightClick("id:session-row")
+	app.WaitFor("text:收藏", 5*time.Second)
+	app.Press("text:收藏")
+	app.WaitFor("text:置顶", 5*time.Second)
+	app.RightClick("id:session-row")
+	app.Press("role:menuitem 重命名")
+	app.WaitFor("id:rename-ok", 5*time.Second)
+	app.Clear("label:会话名称")
+	app.Type("label:会话名称", "改过的名字")
+	app.Press("id:rename-ok")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		app.Settle()
+		if len(app.Query("text:改过的名字")) > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("the new name is not shown")
 }

@@ -15,52 +15,62 @@ import (
 // revealFolder opens a folder in the file manager of the machine it is
 // on. It does not wait for the manager to close.
 func revealFolder(t target, path string) error {
-	if path == "" {
-		return fmt.Errorf("没有路径")
-	}
-	switch t.Kind {
-	case targetWSL:
-		if runtime.GOOS != "windows" {
-			return fmt.Errorf("WSL 只能在 Windows 上打开")
-		}
-		cmd := exec.Command("wsl.exe", "-d", t.Distro, "--", "explorer.exe", windowsPath(path, t.Distro))
-		hideWindow(cmd)
-		return cmd.Start()
-	case targetSSH:
-		return fmt.Errorf("SSH 主机上的目录不能在这里打开")
-	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		// explorer.exe exits with 1 even when it opened the folder, so it
-		// is only started, never waited on.
-		cmd = exec.Command("explorer.exe", filepath.Clean(path))
-	case "darwin":
-		cmd = exec.Command("open", path)
-	default:
-		cmd = exec.Command("xdg-open", path)
+	cmd, err := revealCmd(t, path)
+	if err != nil {
+		return err
 	}
 	hideWindow(cmd)
 	return cmd.Start()
 }
 
-// revealFile shows a file's folder with the file selected, where the
-// platform can: Explorer takes /select, and macOS `open -R`.
-func revealFile(t target, path string) error {
+// revealCmd is the process that opens a folder in its file manager.
+func revealCmd(t target, path string) (*exec.Cmd, error) {
 	if path == "" {
-		return fmt.Errorf("没有路径")
+		return nil, fmt.Errorf("没有路径")
 	}
-	if t.Kind != targetLocal {
-		return revealFolder(t, filepath.Dir(path))
+	switch t.Kind {
+	case targetWSL:
+		if runtime.GOOS != "windows" {
+			return nil, fmt.Errorf("WSL 只能在 Windows 上打开")
+		}
+		return exec.Command("wsl.exe", "-d", t.Distro, "--", "explorer.exe", windowsPath(path, t.Distro)), nil
+	case targetSSH:
+		return nil, fmt.Errorf("SSH 主机上的目录不能在这里打开")
 	}
-	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("explorer.exe", "/select,", filepath.Clean(path))
+		// explorer.exe exits with 1 even when it opened the folder, so it
+		// is only started, never waited on.
+		return exec.Command("explorer.exe", filepath.Clean(path)), nil
 	case "darwin":
-		cmd = exec.Command("open", "-R", path)
-	default:
-		return revealFolder(t, filepath.Dir(path))
+		return exec.Command("open", path), nil
+	}
+	return exec.Command("xdg-open", path), nil
+}
+
+// revealFileCmd is the process that shows a file's folder with the file
+// selected, where the platform can.
+func revealFileCmd(t target, path string) (*exec.Cmd, error) {
+	if path == "" {
+		return nil, fmt.Errorf("没有路径")
+	}
+	if t.Kind != targetLocal {
+		return revealCmd(t, filepath.Dir(path))
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("explorer.exe", "/select,", filepath.Clean(path)), nil
+	case "darwin":
+		return exec.Command("open", "-R", path), nil
+	}
+	return revealCmd(t, filepath.Dir(path))
+}
+
+// revealFile shows a file's folder with the file selected.
+func revealFile(t target, path string) error {
+	cmd, err := revealFileCmd(t, path)
+	if err != nil {
+		return err
 	}
 	hideWindow(cmd)
 	return cmd.Start()

@@ -206,3 +206,33 @@ func TestSessionGroups(t *testing.T) {
 		t.Fatal("the older session is not listed")
 	}
 }
+
+// TestRevealCommands checks the file-manager commands each target builds.
+func TestRevealCommands(t *testing.T) {
+	cmd, err := revealCmd(localTarget, `C:\proj`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmd.Args) == 0 || !strings.Contains(strings.ToLower(cmd.Args[0]), "explorer") {
+		t.Fatalf("local reveal runs %v", cmd.Args)
+	}
+	file, err := revealFileCmd(localTarget, `C:\proj\a.jsonl`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(file.Args, " ")
+	if !strings.Contains(joined, "/select,") || !strings.Contains(joined, "a.jsonl") {
+		t.Fatalf("file reveal runs %q", joined)
+	}
+	wsl, err := revealCmd(target{Kind: targetWSL, Distro: "Ubuntu"}, "/mnt/c/Users/me/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wslJoined := strings.Join(wsl.Args, " ")
+	if !strings.Contains(wslJoined, "Ubuntu") || !strings.Contains(wslJoined, `C:\Users\me\p`) {
+		t.Fatalf("wsl reveal runs %q", wslJoined)
+	}
+	if _, err := revealCmd(target{Kind: targetSSH, Host: "box"}, "/srv"); err == nil {
+		t.Fatal("ssh reveal should refuse")
+	}
+}

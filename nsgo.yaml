@@ -23,6 +23,10 @@ dev:
   # true, the default, rebuilds and restarts on save; false runs once and exits with the app.
   hot_reload: true
 
+apple:
+  info:
+    NSLocalNetworkUsageDescription: "连接同一局域网内电脑上的 PiDeck Lite。"
+
 build:
   output: dist
   # true opens the output directory after building.

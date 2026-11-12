@@ -484,7 +484,7 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 	return base.ContextMenu{
 		Trigger: core.View{
 			OnPress: func(core.PressEvent) { a.selectSession(s()) },
-			Role:    core.RoleButton, LabelFunc: func() string { return s().title.Get() }, TestID: "session-" + s().ID,
+			Role:    core.RoleButton, LabelFunc: func() string { return s().title.Get() }, TestID: "session-row",
 			StyleFunc: func() core.Style {
 				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(28), Padding: core.Symmetric(0, 8),
 					CornerRadius: 7, Transition: pressMotion,
@@ -1448,8 +1448,8 @@ func (a *app) renameDialog() core.Node {
 			},
 		}},
 		Footer: []core.Node{
-			ui.Button{Text: "取消", Variant: ui.ButtonGhost, OnPress: func() { a.renameOpen.Set(false) }},
-			ui.Button{Text: "重命名", Variant: ui.ButtonPrimary, OnPress: func() { a.rename() }},
+			ui.Button{Text: "取消", Variant: ui.ButtonGhost, TestID: "rename-cancel", OnPress: func() { a.renameOpen.Set(false) }},
+			ui.Button{Text: "重命名", Variant: ui.ButtonPrimary, TestID: "rename-ok", OnPress: func() { a.rename() }},
 		},
 	}
 }

@@ -33,6 +33,7 @@ func settingsSections() []settingsSection {
 		{"general", "通用", lucide.Settings2, "通用", "新会话的默认值，以及侧栏读什么。"},
 		{"models", "模型与认证", lucide.Cpu, "模型与认证", "pi 认识哪些供应商、各自有多少模型、凭据是否可用。"},
 		{"look", "外观", lucide.Palette, "外观", "配色与主题文件。"},
+		{"remote", "远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。"},
 		{"env", "环境", lucide.Terminal, "环境", "pi 在哪里、能不能用；WSL 与 SSH 目标。"},
 		{"addons", "扩展", lucide.Puzzle, "扩展", "插件给命令面板加提示词，给外观加主题。"},
 		{"data", "数据", lucide.HardDrive, "数据", "会话与配置在磁盘上的位置。"},
@@ -48,8 +49,13 @@ func (a *app) settingsDialog() core.Node {
 		s := sec
 		on := func() bool { return a.settingsTab.Get() == s.ID }
 		nav = append(nav, core.View{
-			OnPress: func(core.PressEvent) { a.settingsTab.Set(s.ID) },
-			Role:    core.RoleTab, Label: s.Label, TestID: "settings-tab-" + s.ID,
+			OnPress: func(core.PressEvent) {
+				a.settingsTab.Set(s.ID)
+				if s.ID == "remote" && a.remote != nil {
+					a.remote.refresh()
+				}
+			},
+			Role: core.RoleTab, Label: s.Label, TestID: "settings-tab-" + s.ID,
 			StyleFunc: func() core.Style {
 				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
 					Padding: core.Symmetric(0, 9), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()}}
@@ -130,6 +136,8 @@ func (a *app) settingsContent() core.Node {
 			return a.settingsModels()
 		case "look":
 			return a.settingsLook()
+		case "remote":
+			return a.settingsRemote()
 		case "env":
 			return a.settingsEnv()
 		case "addons":
