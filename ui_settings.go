@@ -317,6 +317,33 @@ func (a *app) settingsGeneral() core.Node {
 							a.reloadFrameworks()
 						}}),
 				),
+				setGroup("桌面",
+					setRow("关闭窗口时留在托盘", "关掉窗口不退出应用，Agent 继续跑；从托盘图标恢复窗口。",
+						ui.Switch{Checked: func() bool { return a.cfg.CloseToTray }, Label: "关闭窗口时留在托盘", TestID: "close-to-tray",
+							OnChange: func(on bool) {
+								a.cfg.CloseToTray = on
+								a.st.edit(func(c *config) { c.CloseToTray = on })
+							}}),
+					setDivider(),
+					setRow("一轮完成时通知", "用系统通知告诉你回答好了；运行中的会话也会显示在托盘菜单里。",
+						ui.Switch{Checked: func() bool { return a.cfg.NotifyOnDone }, Label: "一轮完成时通知", TestID: "notify-done",
+							OnChange: func(on bool) {
+								a.cfg.NotifyOnDone = on
+								a.st.edit(func(c *config) { c.NotifyOnDone = on })
+							}}),
+					setDivider(),
+					setRow("只在窗口隐藏时通知", "窗口在前台时不再弹系统通知。",
+						ui.Switch{Checked: func() bool { return a.cfg.NotifyOnlyHidden }, Label: "只在窗口隐藏时通知", TestID: "notify-hidden",
+							OnChange: func(on bool) {
+								a.cfg.NotifyOnlyHidden = on
+								a.st.edit(func(c *config) { c.NotifyOnlyHidden = on })
+							}}),
+					setDivider(),
+					setRow("测试通知", "发一条系统通知，确认这台机器收得到。",
+						ui.Button{Text: "发一条", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+							notifyDesktop("PiDeck Lite", "通知已开启，一轮完成时会这样提醒。")
+						}}),
+				),
 			}},
 		}}
 	})

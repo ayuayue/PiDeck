@@ -225,6 +225,16 @@ type app struct {
 	boundKeys    map[string]bool
 	keybindings  []keyBinding
 	keyConflicts []string
+
+	// Desktop: the main window, the tray icon and whether the app is
+	// really quitting rather than hiding.
+	mainWin    *core.Window
+	tray       *core.Tray
+	quitting   bool
+	trayHinted bool
+	mainHooked bool
+	mainTries  int
+	lastTray   time.Time
 }
 
 // newApp builds the state from the config and the session store.
@@ -395,6 +405,7 @@ func newApp(cx *core.Scope) *app {
 	if a.term.open.GetUntracked() && len(a.term.tabs.GetUntracked()) == 0 {
 		a.newTerminalTab()
 	}
+	a.setupDesktop()
 	return a
 }
 
@@ -830,9 +841,14 @@ func (a *app) tick() {
 	var loop func()
 	loop = func() {
 		beats++
-		a.clock.Set(a.cx.Now())
+		now := a.cx.Now()
+		a.clock.Set(now)
 		if beats%4 == 0 && a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
 			a.git.poll()
+		}
+		if now.Sub(a.lastTray) >= trayIdle {
+			a.lastTray = now
+			a.updateTray()
 		}
 		a.cx.AfterFunc(time.Second, loop)
 	}
@@ -2464,6 +2480,9 @@ func (a *app) settled(s *session, ev piEvent) {
 	s.live = false
 	a.touch(s)
 	a.startStats(s)
+	if !ev.Aborted && s.status.GetUntracked() != statusFailed {
+		a.notifyTurnDone(s)
+	}
 	if a.activeID.GetUntracked() == s.ID && s.conversation.AtLatest() {
 		s.conversation.JumpToLatest()
 	}

@@ -76,6 +76,13 @@ type config struct {
 	// Keybindings replaces a command's default key, by command id. An
 	// empty key removes the binding.
 	Keybindings map[string]string `json:"keybindings,omitempty"`
+	// CloseToTray keeps the app running in the tray when its window is
+	// closed. NotifyOnDone posts a desktop notification when a turn
+	// finishes, and NotifyOnlyHidden keeps it quiet while the window
+	// shows.
+	CloseToTray      bool `json:"closeToTray"`
+	NotifyOnDone     bool `json:"notifyOnDone"`
+	NotifyOnlyHidden bool `json:"notifyOnlyHidden"`
 }
 
 // store holds the config file and the session directory.
@@ -92,7 +99,8 @@ func newStore(dataDir string) (*store, error) {
 		dir:      dataDir,
 		sessions: filepath.Join(dataDir, "sessions"),
 		path:     filepath.Join(dataDir, "config.json"),
-		c:        &config{Version: 1, SidebarOpen: true, Theme: "system", Titles: map[string]string{}, ScanPi: true},
+		c: &config{Version: 1, SidebarOpen: true, Theme: "system", Titles: map[string]string{}, ScanPi: true,
+			CloseToTray: true, NotifyOnDone: true, NotifyOnlyHidden: true},
 	}
 	if err := os.MkdirAll(s.sessions, 0o755); err != nil {
 		return nil, err
@@ -107,6 +115,17 @@ func newStore(dataDir string) (*store, error) {
 			// sessions under their projects: it is the useful default.
 			if !bytes.Contains(raw, []byte(`"scanPi"`)) && !bytes.Contains(raw, []byte(`"scanAll"`)) {
 				c.ScanPi = true
+			}
+			// Older configs did not know the tray or notifications: keep
+			// them on, as a fresh install has them.
+			if !bytes.Contains(raw, []byte(`"closeToTray"`)) {
+				c.CloseToTray = true
+			}
+			if !bytes.Contains(raw, []byte(`"notifyOnDone"`)) {
+				c.NotifyOnDone = true
+			}
+			if !bytes.Contains(raw, []byte(`"notifyOnlyHidden"`)) {
+				c.NotifyOnlyHidden = true
 			}
 			c.Version = 1
 			s.c = &c

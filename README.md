@@ -149,6 +149,8 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 **界面**
 - PiDeck 的配色与 logo；浅色/深色/跟随系统；侧栏 `Ctrl+B`、抽屉 `Ctrl+J`、终端 `Ctrl+Shift+T`、设置 `Ctrl+,`
 - 命令面板 `Ctrl+K`；键位可在 设置 → 键位 里逐条改，留空取消绑定，可一键恢复默认；插件也能声明键位
+- 系统托盘：关闭窗口默认留在托盘，Agent 继续跑；托盘菜单可恢复窗口、新建会话、跳到运行中的会话、打开设置、退出
+- 通知：一轮完成时发系统通知，可设「只在窗口隐藏时提醒」；设置里有测试按钮
 - 空状态给四条起手式；首屏直接引导选项目文件夹
 
 ## 文件
@@ -169,6 +171,7 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 | `ui_git.go` | Git 抽屉：分支菜单、改动列表、提交框、历史、补丁与新建分支对话框 |
 | `term.go` | 终端会话：Ghostty 终端、本机/WSL/SSH shell、标签生命周期与搜索 |
 | `ui_term.go` | 底部终端面板：标签栏、搜索栏、右键菜单、可调高度 |
+| `desktop_host.go` | 系统托盘、关闭到托盘、完成通知与各平台通知命令 |
 | `remote.go` | 手机 HTTP 服务、令牌、快照/历史接口，局域网/Tailscale/EasyTier 地址探测 |
 | `remote_client.go` | 手机端 HTTP 客户端与连接串解析 |
 | `mobile.go` | 手机端连接页、项目/会话列表、只读会话历史 |
@@ -284,6 +287,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 编辑器不写远端文件；超过 4 MB 或二进制文件只提示，不打开
 - Git 的凭据提示走不了 GUI：HTTPS/SSH 需要先在终端里登录或配好密钥
 - 供应商连接测试是轻量探测（`/models` 或一次最小 chat 请求），不等于完整模型可用性验证
+- 系统通知是尽力而为：macOS 用 `osascript`、Linux 用 `notify-send`、Windows 用 PowerShell 的 WinRT 通知；系统关掉通知权限时不会补发
 - 手机远程当前只读：可查看项目和会话历史，不能新建会话或发送消息；只列本机项目
 - 局域网连接走 HTTP + 令牌，Tailscale/EasyTier 的链路本身加密
 - 草稿与附件不跨重启保存；单窗口
