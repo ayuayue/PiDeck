@@ -59,6 +59,8 @@ Thanks to **incredible404-rgb** for linked parent / child sessions with sidebar 
 
 Special thanks to **罪**, **橙子** and **微时** for the model services that power this project 🎉
 
+Special thanks to **聪了个颖🌽** for sponsoring the Apple Developer Program membership that made Developer ID signing and notarization possible 🎉
+
 ## v0.11.3 (2026-11-07)
 
 The preview panel finally has a word-wrap switch: long lines no longer force horizontal dragging, in the diff view and the source view alike.
