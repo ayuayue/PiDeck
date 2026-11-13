@@ -104,15 +104,31 @@ jobs:
         run: npm run build
 
       - name: Smoke e2e (renderer + session wiring)
-        # 三条整链路守卫，单测都抓不到，只有真实 Electron 能发现：
-        # 1) markdown 图片：同段多图 = 96×96 瓷砖、单图 640×360 上限、src 走 pideck-file://、
-        #    点击开预览（hast 的 %5C 编码 / rehype-sanitize 剥属性 / Windows 8.3 短名都在这条链上）。
-        # 2) 启动 → 首发提升为真实会话：占位 Tab 不许残留（草稿、catalog 刷新、Tab 归属）。
-        # 3) 预热历史 + composer 焦点：外部重渲染不得把中段输入的鼠标光标挪到文末
-        #    （2026-11 修过一次：受控同步无条件 setContent + 文末兜底；这条 e2e 是它的守护）。
+        # 冒烟集（11 个 case / 本地实测 ~1.2 分钟）——只放「单测抓不到、只有真实 Electron 能发现」
+        # 的整链路守卫，每条都对应一次真实事故或一次大拆分：
+        # 1) smoke：冷启动到工作台骨架（遮罩消失、三栏在位）。
+        # 2) session-bootstrap-tabs：启动 → 首发提升为真实会话，占位 Tab 不许残留。
+        # 3) session-prewarm-history：预热历史期间焦点/光标不被外部重渲染打散
+        #    （2026-11 修过的受控同步缺陷由它守护）。
+        # 4) markdown-image-layout：同段多图 96×96 瓷砖、单图 640×360 上限、pideck-file://、点击预览
+        #    （hast %5C 编码 / rehype-sanitize 剥属性 / Windows 8.3 短名）。
+        # 5) git-panel：status → diff → stage → commit（GitPanel 已拆成子组件 + 8 个 hook）。
+        # 6) settings：设置弹框打开 + 主题切换（ConfigModal 已拆成子组件）。
+        # 7) drawer：右抽屉切面板 + 内容宽度稳定（无滚动条抖动）。
+        # 8) file-tree-dom-budget：根目录行分批挂载（大目录不许一次性铺满 DOM）。
+        # 环境依赖型 spec（dsh-restart、remote*Acceptance）刻意不进：它们要真实 DSH/SSH 环境。
         # Windows runner 自带桌面会话，不需要 xvfb。
         timeout-minutes: 15
-        run: npx playwright test e2e/markdown-image-layout.spec.ts e2e/session-bootstrap-tabs.spec.ts e2e/session-prewarm-history.spec.ts
+        run: |
+          npx playwright test \
+            e2e/smoke.spec.ts \
+            e2e/session-bootstrap-tabs.spec.ts \
+            e2e/session-prewarm-history.spec.ts \
+            e2e/markdown-image-layout.spec.ts \
+            e2e/git-panel.spec.ts \
+            e2e/settings.spec.ts \
+            e2e/drawer.spec.ts \
+            e2e/file-tree-dom-budget.spec.ts
 
       - name: Verify packaging config
         run: npm run pack

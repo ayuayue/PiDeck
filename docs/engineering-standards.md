@@ -123,6 +123,7 @@
 - 配置在根 `biome.jsonc`，覆盖 `src/`、`tests/`、`scripts/`、`e2e/`；`docs-site/`、`resources/extensions/`、CSS 不参与。
 - 规则：tab 缩进、双引号、分号、尾逗号、LF；`lineWidth` 320 是刻意取上限——只统一缩进/空格/标点，不做实际折行，因为折行会打破大量「源码正则扫描」契约测试。
 - 提交前 `npm run format`；CI 跑 `npm run check:format`，未格式化红灯。
+- 本地 `git commit` 会跑 `.githooks/pre-commit`（实现见 `scripts/preCommitGate.mjs`）：`check:file-size` + `check:test-shape` + **本次暂存文件**的 biome 格式，全仓扫描但只查暂存文件，约 1–2 秒。跳过：`PI_DECK_SKIP_PRECOMMIT=1 git commit …`（CI 仍会再挡一次，且跳过不该成为常态）。
 - **新增源码正则扫描契约测试时，正则必须空白容忍**：用 `\s*` 而非字面空格，定位代码块用 `^[\t ]*` 锚点。否则改一次格式整组断言失败。
 - `linter` 仍为 `enabled: false`；lint 规则按触达面增量启用，不一次性引入存量告警。
 
@@ -137,6 +138,7 @@
 测试在 `tests/*.test.mjs`（node --test）。日常只跑**针对性测试**；全量 `npm test` 仅跨域大改动或合并前最终确认时运行。
 
 1. **必过门禁**：合并前 `npm run typecheck` + 改动涉及的针对性测试全绿，不许「先合再修」。
+   整链路回归由 CI 的**冒烟 e2e 集**守住（8 条 spec / 11 个 case，约 1.2 分钟）：冷启动、会话首发提升、预热历史+光标、markdown 图片、Git 面板、设置弹框、右抽屉、文件树 DOM 预算。环境依赖型 spec（`dsh-restart`、`remote*Acceptance`）刻意不在其中——它们要真实 DSH/SSH 环境，属人工验收。
 2. **何时必须写**：修 bug 先写复现测试（红）再修到绿，持续保留仍有效的回归覆盖（用例可按第 6 条演进）；新增主进程业务逻辑、数据转换/解析/状态机必须有单测；交互状态流转的 hook 应有测试，纯 UI 布局不强求。
 3. **写法**：测行为不测实现（从公开接口/IPC 边界断言）；不依赖执行顺序、真实网络、真实 pi 进程；一个测试验证一件事，命名即意图。
    - **定位代码别用可能出现在注释/文档里的自然语言句子**：这类字符串往往在文件头注释里也有，`indexOf(句子)` 会命中注释 ⇒ 顺序/存在性断言莫名变红或假绿。定位用**代码声明串**（如 `await test.step("…")`、`ipcMain.handle(ipcChannels.X`），或先剥注释再搜（正则扫描契约测试统一如此）。
