@@ -33,5 +33,6 @@ func main() {
 	}
 	nsgo.Run(Root, opts...)
 	closeAllPi()
+	closeAllACP()
 	closeAllTerminals()
 }

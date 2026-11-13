@@ -266,6 +266,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `ui_git.go` | Git 抽屉：分支菜单、改动列表、提交框、历史、补丁与新建分支对话框 |
 | `term.go` | 终端会话：Ghostty 终端、本机/WSL/SSH shell、标签生命周期与搜索 |
 | `ui_term.go` | 底部终端面板：标签栏、搜索栏、右键菜单、可调高度 |
+| `acp.go` | ACP 客户端：stdio NDJSON JSON-RPC、握手、会话、提示与权限请求 |
 | `editor_ext.go` | 外部编辑器：探测常见编辑器、按命令打开文件或项目 |
 | `diag.go` | 诊断：内存日志、滚动文件、进程列表与诊断报告 |
 | `pet.go` | 桌面宠物：会话状态聚合、小浮窗与开关 |
