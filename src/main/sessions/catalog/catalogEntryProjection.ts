@@ -84,7 +84,6 @@ export function setLocalSessionFilePath(entry: SessionCatalogEntry, filePath: st
 		: undefined;
 }
 
-
 /** ssh 分支的 locator 类型；用 Extract 而不是再抄一遍结构，避免与 shared 契约漂移。 */
 /** 写事务入口的入参形状：与宿主 enqueueMutation 的 mutate 逐字同形。 */
 export type CatalogMutation<T> = (entries: SessionCatalogEntry[]) => { value: T; changed: boolean } | Promise<{ value: T; changed: boolean }>;

@@ -6,7 +6,26 @@
 import { ipcRenderer } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { subscribe } from "./ipcHelpers";
-import type { CreatePiPromptTemplateInput, CreatePiSkillInput, PiCliUpdateResult, PiExtensionListResult, PiPromptTemplateListResult, PiPromptTemplateSummary, PiSkillListResult, PiSkillSummary, PromptStoreItem, PromptStoreSearchResult, ResourceImportApplyInput, ResourceImportApplyResponse, ResourceImportScanInput, ResourceImportScanResponse, SkillContentResult, YaoPromptDbSnapshot, YaoPromptDetailResult, YaoPromptListResult } from "../../shared/types";
+import type {
+	CreatePiPromptTemplateInput,
+	CreatePiSkillInput,
+	PiCliUpdateResult,
+	PiExtensionListResult,
+	PiPromptTemplateListResult,
+	PiPromptTemplateSummary,
+	PiSkillListResult,
+	PiSkillSummary,
+	PromptStoreItem,
+	PromptStoreSearchResult,
+	ResourceImportApplyInput,
+	ResourceImportApplyResponse,
+	ResourceImportScanInput,
+	ResourceImportScanResponse,
+	SkillContentResult,
+	YaoPromptDbSnapshot,
+	YaoPromptDetailResult,
+	YaoPromptListResult,
+} from "../../shared/types";
 import type { BuiltinContentCheckResult, BuiltinContentUpdateResult, BuiltinContentUpdateStatus } from "../../shared/types/contentUpdate";
 import type { BuiltInExtensionsCheckResult, BuiltInExtensionsUpdateResult, BuiltInExtensionsUpdateStatus } from "../../shared/types/extensionsUpdate";
 import type { SkillHubSearchOptions } from "../../shared/types/skills";

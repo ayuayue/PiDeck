@@ -27,7 +27,22 @@ import { buildSessionIdAliasMap } from "../../shared/sessionIdAliases";
 import { arbitrateRuntimeMergeTitle, isFileSession, mergeSourceGroupInto } from "./sessionCatalogIdentityRepair";
 import type { SessionTitleFallbackKind } from "./sessionNameLine";
 import { readArchivedRemoteSessionEntry, type CatalogSnapshotState, type CatalogStateRead, persistLoadedNormalization, readCatalogState, remoteDismissalKey, writeCatalogSnapshot } from "./catalog/catalogFileStore";
-import { attachRemoteLocatorEntry, type CatalogMutation, cloneEntry, cloneModelPreference, CONTROL_CHARS_RE, isSessionLocator, equalModel, isRecord, normalizeEntryLocator, recordFromEntry, remoteSessionEntryChanged, type SshSessionLocator, sessionLocatorForEntry, setLocalSessionFilePath } from "./catalog/catalogEntryProjection";
+import {
+	attachRemoteLocatorEntry,
+	type CatalogMutation,
+	cloneEntry,
+	cloneModelPreference,
+	CONTROL_CHARS_RE,
+	isSessionLocator,
+	equalModel,
+	isRecord,
+	normalizeEntryLocator,
+	recordFromEntry,
+	remoteSessionEntryChanged,
+	type SshSessionLocator,
+	sessionLocatorForEntry,
+	setLocalSessionFilePath,
+} from "./catalog/catalogEntryProjection";
 import { createCatalogDraft, type CreateDraftInput } from "./catalog/catalogDraftCreate";
 import { migrateLoadedCatalogEntries } from "./catalog/catalogLoadMigration";
 import { mergeScannedIntoCatalog, type ScannedMergeOptions } from "./catalog/catalogScannedMerge";
@@ -1546,12 +1561,7 @@ export class SessionCatalog implements HostRebindStorePort {
 		});
 	}
 
-	async mergeScanned(
-		projectId: string,
-		summaries: SessionSummary[],
-		context: SessionCatalogContext = this.identityContext,
-		options: ScannedMergeOptions = {},
-	): Promise<SessionRecord[]> {
+	async mergeScanned(projectId: string, summaries: SessionSummary[], context: SessionCatalogContext = this.identityContext, options: ScannedMergeOptions = {}): Promise<SessionRecord[]> {
 		this.assertLoaded();
 		return mergeScannedIntoCatalog(
 			{

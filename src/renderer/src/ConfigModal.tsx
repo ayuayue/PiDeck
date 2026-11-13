@@ -1880,19 +1880,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 
 	// 独立模式：完整 Dialog（标题栏含保存/导出/导入/关闭；内容与嵌入模式完全一致）
 	return (
-		<ConfigModalShell
-			open={open}
-			onRequestClose={handleClose}
-			sizeClass={configModalSizeClass}
-			saving={saving}
-			hasDirty={hasDirty}
-			targetKind={configTarget.kind}
-			backendPane={backendPane}
-			section={section}
-			onSaveCurrent={() => void handleSaveCurrent()}
-			onExport={handleExport}
-			onImport={handleImport}
-		>
+		<ConfigModalShell open={open} onRequestClose={handleClose} sizeClass={configModalSizeClass} saving={saving} hasDirty={hasDirty} targetKind={configTarget.kind} backendPane={backendPane} section={section} onSaveCurrent={() => void handleSaveCurrent()} onExport={handleExport} onImport={handleImport}>
 			{modalBody}
 		</ConfigModalShell>
 	);

@@ -81,7 +81,49 @@ export interface AppSessionPaneServices {
  * 的按栏现算都在这一处，避免 App 与各栏入口各自漂移。
  */
 export function useAppSessionPaneServices(deps: AppSessionPaneServicesDeps): AppSessionPaneServices {
-	const { settings, showToast, showNotice, api, scratchPad, terminalTarget, terminalOpen, setTerminalOpenForOwner, editorsOpen, activeAgent, activeProject, adjustMenuPos, openExternalEditorChooser, workspaceChrome, runControl, history, queue, terminal, getSessionRecord, setProxyDialogSessionId, buildTabsSessionActions, createSessionDraftWithTab, openSidebarSessionByIdWithTab, openProviderLogin, jumpToAskSession, ensureSessionForSend, enqueueSessionPrompt, insertQuickPrompt, displayAgents, queueFlushBySessionRef, sessionDurationByAgent, activeProjectId, handleProjectGitChanged, validFilePaths, environmentDialog, changeChatPath, jumpToMessageRef, paneLayoutRefs, handleOpenLinkedFile, diffFilePath, setPreviewImage } = deps;
+	const {
+		settings,
+		showToast,
+		showNotice,
+		api,
+		scratchPad,
+		terminalTarget,
+		terminalOpen,
+		setTerminalOpenForOwner,
+		editorsOpen,
+		activeAgent,
+		activeProject,
+		adjustMenuPos,
+		openExternalEditorChooser,
+		workspaceChrome,
+		runControl,
+		history,
+		queue,
+		terminal,
+		getSessionRecord,
+		setProxyDialogSessionId,
+		buildTabsSessionActions,
+		createSessionDraftWithTab,
+		openSidebarSessionByIdWithTab,
+		openProviderLogin,
+		jumpToAskSession,
+		ensureSessionForSend,
+		enqueueSessionPrompt,
+		insertQuickPrompt,
+		displayAgents,
+		queueFlushBySessionRef,
+		sessionDurationByAgent,
+		activeProjectId,
+		handleProjectGitChanged,
+		validFilePaths,
+		environmentDialog,
+		changeChatPath,
+		jumpToMessageRef,
+		paneLayoutRefs,
+		handleOpenLinkedFile,
+		diffFilePath,
+		setPreviewImage,
+	} = deps;
 	const { abortAgent, restartActiveAgent, getSessionRunCapabilities, runSessionControl, requestCloseAgentForSession, restartingAgentId, stoppingAgentId, activatingSessionId, reloadingSessionId } = runControl;
 	const { resendUserMessage, editMessage, deleteMessage, removeMessageImage, forkFromUserMessage, pendingHistoryMutation } = history;
 	const { terminalStatesByOwner, activeTerminalOwnerKey, availableTerminalHeight, setTerminalOpenByOwnerKey, setTerminalCollapsedByOwnerKey, setTerminalHeight, terminalSettings, onTerminalThemeChange } = terminal;

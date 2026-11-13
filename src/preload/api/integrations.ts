@@ -7,17 +7,45 @@ import { ipcRenderer } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { subscribe } from "./ipcHelpers";
 import type { LocalImageBytes } from "../../shared/localImage";
-import type { DraftMeta, FeishuBotConfig, FeishuBridgeStatus, FeishuChatBinding, FeishuChatMessage, FeishuConnectInput, FeishuSessionBotResult, FeishuTestResult, ScratchPadData, ScratchPadScope, WeChatBindingView, WeChatBridgeStatus, WeChatIpcResult, WeChatLoginState, WeChatSettings, WeChatSettingsSnapshot } from "../../shared/types";
+import type {
+	DraftMeta,
+	FeishuBotConfig,
+	FeishuBridgeStatus,
+	FeishuChatBinding,
+	FeishuChatMessage,
+	FeishuConnectInput,
+	FeishuSessionBotResult,
+	FeishuTestResult,
+	ScratchPadData,
+	ScratchPadScope,
+	WeChatBindingView,
+	WeChatBridgeStatus,
+	WeChatIpcResult,
+	WeChatLoginState,
+	WeChatSettings,
+	WeChatSettingsSnapshot,
+} from "../../shared/types";
 import type { EnhanceEventPayload, EnhanceRunInput, EnhanceRunResult } from "../../shared/types/enhance";
 import type { ImageBlobPayload, ImageGenConfigFile, ImageGenRequest, ImageGenResult, ImageGenSaveResult } from "../../shared/types/imagegen";
 import type { PromptSuggestionRunInput, PromptSuggestionRunResult } from "../../shared/types/promptSuggestion";
 import type { SelectionToolInsertInput, SelectionToolResizeInput, SelectionToolShowPayload, SelectionToolWindowState } from "../../shared/types/selectionTool";
 import type { VideoGenConfigFile, VideoGenJobSnapshot, VideoGenRequest, VideoGenSaveResult, VideoGenSubmitResult } from "../../shared/types/videogen";
-import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionRequest, VoiceTranscriptionResult, VoiceTranscriptionSaveInput, VoiceTranscriptionSaveResult, VoiceTranscriptionSecretField, VoiceTranscriptionStreamFrame, VoiceTranscriptionStreamPartial, VoiceTranscriptionStreamStartInput, VoiceTranscriptionStreamStartResult, VoiceTranscriptionTestResult } from "../../shared/types/voiceTranscription";
+import type {
+	VoiceTranscriptionPublicConfig,
+	VoiceTranscriptionRequest,
+	VoiceTranscriptionResult,
+	VoiceTranscriptionSaveInput,
+	VoiceTranscriptionSaveResult,
+	VoiceTranscriptionSecretField,
+	VoiceTranscriptionStreamFrame,
+	VoiceTranscriptionStreamPartial,
+	VoiceTranscriptionStreamStartInput,
+	VoiceTranscriptionStreamStartResult,
+	VoiceTranscriptionTestResult,
+} from "../../shared/types/voiceTranscription";
 import type { WhisperInstallProgress, WhisperInstallResult, WhisperRuntimeStatus } from "../../shared/types/whisperRuntime";
 
 export const integrationsApi = {
-
 	// ===== 飞书桥接 =====
 	feishu: {
 		connect: (input: FeishuConnectInput) =>
