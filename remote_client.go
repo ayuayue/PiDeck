@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -183,7 +184,24 @@ func (c *remoteClient) setThinking(id, level string) error {
 }
 
 func (c *remoteClient) prompt(id, text string) error {
-	return c.post("/api/sessions/"+url.PathEscape(id)+"/prompt", map[string]string{"text": text}, nil)
+	return c.promptWithImages(id, text, nil)
+}
+
+// promptWithImages sends a message with pictures attached.
+func (c *remoteClient) promptWithImages(id, text string, images []promptImage) error {
+	type wireImage struct {
+		Mime string `json:"mime"`
+		Data string `json:"data"`
+	}
+	body := map[string]any{"text": text}
+	if len(images) > 0 {
+		list := make([]wireImage, 0, len(images))
+		for _, img := range images {
+			list = append(list, wireImage{Mime: img.MimeType, Data: base64.StdEncoding.EncodeToString(img.Data)})
+		}
+		body["images"] = list
+	}
+	return c.post("/api/sessions/"+url.PathEscape(id)+"/prompt", body, nil)
 }
 
 func (c *remoteClient) stop(id string) error {

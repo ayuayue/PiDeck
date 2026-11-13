@@ -1561,8 +1561,14 @@ func (a *app) historyReady(s *session, msgs []piMessage) {
 	if !s.loaded.GetUntracked() && a.activeID.GetUntracked() == s.ID {
 		a.animateNextLayout()
 	}
-	if len(msgs) > 0 && len(s.turns.GetUntracked()) == 0 {
-		s.turns.Set(turnsFromMessages(msgs))
+	if len(msgs) > 0 && !s.loaded.GetUntracked() {
+		history := turnsFromMessages(msgs)
+		// A message can arrive from the phone before the history is in;
+		// it stays after what the session already had.
+		if pending := s.turns.GetUntracked(); len(pending) > 0 {
+			history = append(history, pending...)
+		}
+		s.turns.Set(history)
 		if items := todosFromMessages(msgs); len(items) > 0 {
 			s.todos.Set(items)
 		}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -62,8 +63,10 @@ type mobileApp struct {
 	findOpen   *core.Signal[bool]
 	findText   *core.Signal[string]
 
-	// draft is the composer's text; sending covers one request in flight.
+	// draft is the composer's text, pending the pictures attached to it;
+	// sending covers one request in flight.
 	draft   *core.Signal[string]
+	pending *core.Signal[[]promptImage]
 	sending *core.Signal[bool]
 	running *core.Signal[bool]
 
@@ -121,6 +124,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		findOpen:       core.NewSignal(cx, false),
 		findText:       core.NewSignal(cx, ""),
 		draft:          core.NewSignal(cx, ""),
+		pending:        core.NewSignalFunc(cx, []promptImage(nil), nil),
 		sending:        core.NewSignal(cx, false),
 		running:        core.NewSignal(cx, false),
 		actionID:       core.NewSignal(cx, ""),
@@ -746,43 +750,107 @@ func (a *mobileApp) findBar(cx *core.Scope) core.Node {
 func (a *mobileApp) composer(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{StyleFunc: func() core.Style {
-		return core.Style{Direction: core.Row, AlignItems: core.AlignEnd, Gap: 8, Padding: core.Symmetric(8, 10),
+		return core.Style{Direction: core.Column, Gap: 6, Padding: core.Symmetric(8, 10),
 			PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard},
 			Background: colors.Surface(), Borders: core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: colors.Line()}}
 	}, Children: []core.Node{
-		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(42)}, Children: []core.Node{
-			core.Input{Value: a.draft.Get, OnChange: a.draft.Set, Placeholder: "发消息给 pi…", Label: "消息", TestID: "mobile-draft",
-				OnSubmit: func(string) { a.sendMessage() },
-				Style: core.Style{Height: core.Pt(42), Padding: core.Symmetric(0, 12), FontSize: 14, Color: colors.Text(),
-					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 12,
-					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
+		a.pendingStrip(cx),
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignEnd, Gap: 8}, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(42)}, Children: []core.Node{
+				core.Input{Value: a.draft.Get, OnChange: a.draft.Set, Placeholder: "发消息给 pi…", Label: "消息", TestID: "mobile-draft",
+					OnSubmit: func(string) { a.sendMessage() },
+					Style: core.Style{Height: core.Pt(42), Padding: core.Symmetric(0, 12), FontSize: 14, Color: colors.Text(),
+						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 12,
+						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
+			}},
+			a.pressIcon(lucide.Image, "添加图片", 38, 16, nil, a.pickImage, "mobile-image"),
+			core.Dynamic(func(*core.Scope) core.Node {
+				empty := func() bool {
+					return strings.TrimSpace(a.draft.Get()) == "" && len(a.pending.Get()) == 0
+				}
+				var actions []core.Node
+				// A running turn can still take another message: pi queues it,
+				// so the stop button sits beside send instead of replacing it.
+				if a.running.Get() {
+					actions = append(actions, a.pressIcon(lucide.Square, "停止这一轮", 38, 14, nil, a.stopTurn, "mobile-stop"))
+				}
+				actions = append(actions, ui.Press{OnPress: a.sendMessage, Disabled: empty, Scale: 0.9, Role: core.RoleButton, Label: "发送", TestID: "mobile-send",
+					StyleFunc: func() core.Style {
+						st := core.Style{Width: core.Pt(40), Height: core.Pt(40), CornerRadius: 20, AlignItems: core.AlignCenter,
+							JustifyContent: core.JustifyCenter, Background: colors.Light(), Transition: pressMotion}
+						if empty() {
+							st.Background = colors.Inset()
+						}
+						return st
+					},
+					Children: []core.Node{ui.Icon(lucide.Send, 16, func() core.Color {
+						if empty() {
+							return colors.Faint()
+						}
+						return colors.OnLight()
+					})}})
+				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: actions}
+			}),
 		}},
-		core.Dynamic(func(*core.Scope) core.Node {
-			empty := func() bool { return strings.TrimSpace(a.draft.Get()) == "" }
-			var actions []core.Node
-			// A running turn can still take another message: pi queues it,
-			// so the stop button sits beside send instead of replacing it.
-			if a.running.Get() {
-				actions = append(actions, a.pressIcon(lucide.Square, "停止这一轮", 38, 14, nil, a.stopTurn, "mobile-stop"))
-			}
-			actions = append(actions, ui.Press{OnPress: a.sendMessage, Disabled: empty, Scale: 0.9, Role: core.RoleButton, Label: "发送", TestID: "mobile-send",
-				StyleFunc: func() core.Style {
-					st := core.Style{Width: core.Pt(40), Height: core.Pt(40), CornerRadius: 20, AlignItems: core.AlignCenter,
-						JustifyContent: core.JustifyCenter, Background: colors.Light(), Transition: pressMotion}
-					if empty() {
-						st.Background = colors.Inset()
-					}
-					return st
-				},
-				Children: []core.Node{ui.Icon(lucide.Send, 16, func() core.Color {
-					if empty() {
-						return colors.Faint()
-					}
-					return colors.OnLight()
-				})}})
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: actions}
-		}),
 	}}
+}
+
+// pendingStrip shows the pictures waiting to be sent; tapping one drops it.
+func (a *mobileApp) pendingStrip(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.Show{When: func() bool { return len(a.pending.Get()) > 0 }, Then: func(*core.Scope) core.Node {
+		images := a.pending.Get()
+		thumbs := make([]core.Node, 0, len(images))
+		for i, img := range images {
+			index := i
+			thumbs = append(thumbs, core.View{OnPress: func(core.PressEvent) {
+				a.pending.Update(func(list []promptImage) []promptImage {
+					out := make([]promptImage, 0, len(list))
+					for j, item := range list {
+						if j != index {
+							out = append(out, item)
+						}
+					}
+					return out
+				})
+			}, Role: core.RoleButton, Label: "移除图片", TestID: "mobile-pending",
+				Style: core.Style{Width: core.Pt(46), Height: core.Pt(46), CornerRadius: 9, Overflow: core.Hidden,
+					BorderWidth: 1, BorderColor: colors.Border()},
+				Children: []core.Node{core.Image{Source: core.ImageSource{Data: img.Data}, ResizeMode: core.Cover,
+					Label: "待发送的图片", Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}}},
+			})
+		}
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: thumbs}
+	}}
+}
+
+// pickImage adds pictures from the phone to the next message.
+func (a *mobileApp) pickImage() {
+	if a.client == nil {
+		return
+	}
+	a.cx.PickFiles(core.PickFilesOptions{Types: []string{"image/*"}, Multiple: true, Limit: 4}, func(files []core.File, err error) {
+		if err != nil {
+			a.flash("选择图片失败")
+			return
+		}
+		for _, file := range files {
+			data, readErr := os.ReadFile(file.Path)
+			if readErr != nil || len(data) == 0 {
+				continue
+			}
+			if len(data) > 6<<20 {
+				a.flash("图片太大（上限 6 MB）")
+				continue
+			}
+			mime := http.DetectContentType(data)
+			if !strings.HasPrefix(mime, "image/") {
+				mime = "image/png"
+			}
+			img := promptImage{Data: data, MimeType: mime, Name: filepath.Base(file.Path)}
+			a.pending.Update(func(list []promptImage) []promptImage { return append(list, img) })
+		}
+	})
 }
 
 // sendMessage hands the composer's text to the desktop.
@@ -790,18 +858,21 @@ func (a *mobileApp) sendMessage() {
 	id := a.active.GetUntracked()
 	text := strings.TrimSpace(a.draft.GetUntracked())
 	client := a.client
-	if id == "" || text == "" || client == nil || a.sending.GetUntracked() {
+	if id == "" || (text == "" && len(a.pending.GetUntracked()) == 0) || client == nil || a.sending.GetUntracked() {
 		return
 	}
+	images := a.pending.GetUntracked()
 	a.sending.Set(true)
 	a.draft.Set("")
+	a.pending.Set(nil)
 	a.transcriptErr.Set("")
 	go func() {
-		err := client.prompt(id, text)
+		err := client.promptWithImages(id, text, images)
 		a.cx.Post(func() {
 			a.sending.Set(false)
 			if err != nil {
 				a.draft.Set(text)
+				a.pending.Set(images)
 				a.transcriptErr.Set(remoteErrorText(err))
 				return
 			}

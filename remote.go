@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -393,7 +394,13 @@ func writeRemoteJSON(w http.ResponseWriter, status int, body any) {
 
 // decodeRemoteBody reads a small JSON request body.
 func decodeRemoteBody(r *http.Request, out any) error {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	return decodeRemoteBodyLimit(r, out, 1<<20)
+}
+
+// decodeRemoteBodyLimit reads a request body up to limit bytes; a prompt
+// carrying images is far bigger than the rest.
+func decodeRemoteBodyLimit(r *http.Request, out any, limit int64) error {
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit))
 	if err != nil {
 		return errors.New("读取请求失败")
 	}
@@ -493,20 +500,44 @@ func (h *remoteHost) handleSessionAction(w http.ResponseWriter, r *http.Request)
 // session was never opened on the desktop.
 func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id string) {
 	var body struct {
-		Text string `json:"text"`
+		Text   string `json:"text"`
+		Images []struct {
+			Mime string `json:"mime"`
+			Data string `json:"data"`
+		} `json:"images"`
 	}
-	if err := decodeRemoteBody(r, &body); err != nil {
+	if err := decodeRemoteBodyLimit(r, &body, 48<<20); err != nil {
 		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	text := strings.TrimSpace(body.Text)
 	switch {
-	case text == "":
+	case text == "" && len(body.Images) == 0:
 		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "消息不能为空"})
 		return
 	case len([]rune(text)) > 20000:
 		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "消息太长了"})
 		return
+	case len(body.Images) > 4:
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "一次最多 4 张图片"})
+		return
+	}
+	var images []promptImage
+	for _, raw := range body.Images {
+		data, err := base64.StdEncoding.DecodeString(raw.Data)
+		if err != nil || len(data) == 0 {
+			writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "图片数据不对"})
+			return
+		}
+		if len(data) > 6<<20 {
+			writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "单张图片不能超过 6 MB"})
+			return
+		}
+		mime := strings.TrimSpace(raw.Mime)
+		if mime == "" {
+			mime = "image/png"
+		}
+		images = append(images, promptImage{Data: data, MimeType: mime, Name: "phone"})
 	}
 	var failure error
 	ok := h.app.withUI(func() {
@@ -515,7 +546,13 @@ func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id st
 			failure = errors.New("找不到这个会话")
 			return
 		}
-		h.app.submit(s, text, nil)
+		// A message for a turn that is still running steers it, as the
+		// desktop's composer does.
+		if s.busyNow() {
+			h.app.steer(s, text, images)
+			return
+		}
+		h.app.submit(s, text, images)
 	})
 	h.finishAction(w, ok, failure, map[string]any{"ok": true})
 }
@@ -947,7 +984,11 @@ func remoteMessages(turns []turn) []remoteWireMessage {
 		size += len(text)
 	}
 	for _, t := range turns {
-		add("user", t.Prompt)
+		prompt := t.Prompt
+		if len(t.Images) > 0 {
+			prompt = strings.TrimSpace(prompt + " ［图片］")
+		}
+		add("user", prompt)
 		for _, step := range t.Steps {
 			add("note", step.Note)
 			add("thinking", step.Thinking)

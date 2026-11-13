@@ -293,6 +293,22 @@ func TestRemoteSessionActions(t *testing.T) {
 		t.Fatalf("empty level = %d: %s", rec.Code, rec.Body.String())
 	}
 
+	// Images ride along with a prompt; broken ones are refused.
+	const pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/prompt",
+		`{"text":"看图","images":[{"mime":"image/png","data":"`+pixel+`"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("prompt with image = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/prompt", `{"images":[{"mime":"image/png","data":"!!"}]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("broken image = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/prompt", `{}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty prompt = %d: %s", rec.Code, rec.Body.String())
+	}
+
 	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/delete", `{}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete = %d: %s", rec.Code, rec.Body.String())
