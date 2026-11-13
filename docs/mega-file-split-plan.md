@@ -311,3 +311,26 @@
 - **两个会话并行、文件域完全不相交时，这条链路很稳**：两轮下来没有一次互相踩文件，也没有一次需要我在中途叫停。
 - **它们会自己发现「哪些东西不能搬」**：Feishu 那轮把 `bridgeLog` 这种宿主与协作者共用的极小工具单独抽出来（18 行），而不是硬塞进某个域；CloudSync 那轮把 provider OAuth 流程整块切走（343 行，接近上限），说明「单文件 ≤400」这个约束被当成了硬边界而不是建议。
 - 仍然成立的纪律：**并行会话期间主会话不写代码**，只做验证与提交；两个会话都 idle 之后才跑全量 tsc / 全量测试。
+
+## 第八轮：index.ts 继续外移（关联子会话，2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `main/index.ts` | 5570 | **4964** | `startup/` 新增 `acpAgents`、`dshAgents`、`dshRuntime`、`cloudSync`、`sessionRuntime`、`selectionTools`、`resourceMigration` + `window/browserPanelHost`（8 个文件，全部 ≤420） |
+
+**累计**：`index.ts` 8307 → **4964**（−40%），从全仓第 1 大降到与 `AgentManager 5859` 互换位置。
+
+### 本轮唯一一次「微调新代码去迁就既有断言」
+
+`tests/rpcLogViewer.test.mjs:426` 把这段钉成字面：
+`mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);`
+
+子会话于是在回调入口写成 `const mainWindow = currentMainWindow();` 再原样接上那句。**行为等价**（同一时机读一次窗口），我保留了它，只把当时写歪的注释改成真实原因。
+
+判断标准写在下面，供后面几轮参考：
+- ✅ **可接受**：加一行本地绑定/别名，让搬走的代码保持原有形态，行为完全不变。
+- ❌ **不可接受**：为迁就正则去改生产结构（拆函数、改参数、加转发层）。那种情况必须**改测试**（断言锁语义不锁形态），而不是改代码。
+
+### 现在的 `index.ts` 还剩什么
+
+4964 行里约一半仍是 `app.whenReady().then(...)` 装配体（`createWindow` 之后的窗口/托盘/桥接/remote-access 已经搬走，剩下的是把各个 `startXxx` 串起来的顺序代码 + `registerIpc` 的 387 行 + 若干顶层 helper：`sessionMessageSearchInFile 220`、`resolveImSessionLaunchPreferences 219`、`replaceAgentSession 201`）。继续拆的收益开始递减——剩下的多是「装配顺序」本身，抽出去只会得到一层薄转发。下一轮更适合转 `AgentManager 5859` / `session-atoms 2213` / `GitPanel 1960`。
