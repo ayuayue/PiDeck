@@ -105,6 +105,10 @@ type session struct {
 	runningSig *core.Signal[bool]
 	// planMode asks the next prompt for a plan instead of edits.
 	planMode *core.Signal[bool]
+	// Step-by-step plan execution.
+	planSteps  []string
+	planIndex  int
+	planActive bool
 	// readySig is whether pi answered for this session.
 	readySig *core.Signal[bool]
 
@@ -287,6 +291,9 @@ type app struct {
 	trustOpen *core.Signal[bool]
 	trustWS   *workspace
 	trustThen func()
+	// The step-by-step plan dialog.
+	planAskOpen    *core.Signal[bool]
+	planAskSession *session
 	// Image generation.
 	imageOpen     *core.Signal[bool]
 	imagePrompt   *core.Signal[string]
@@ -387,6 +394,7 @@ func newApp(cx *core.Scope) *app {
 		fileOpText:       core.NewSignal(cx, ""),
 		exportOpen:       core.NewSignal(cx, false),
 		trustOpen:        core.NewSignal(cx, false),
+		planAskOpen:      core.NewSignal(cx, false),
 		imageOpen:        core.NewSignal(cx, false),
 		imagePrompt:      core.NewSignal(cx, ""),
 		imageModel:       core.NewSignal(cx, ""),
@@ -576,6 +584,7 @@ func newApp(cx *core.Scope) *app {
 
 	a.ensureAddonDirs()
 	a.ensurePromptLibrary()
+	a.on("turn.done", a.onPlanTurn)
 	a.remote = newRemoteHost(a)
 	a.remote.init()
 	a.qrOpen = core.NewSignal(cx, false)

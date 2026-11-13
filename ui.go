@@ -31,6 +31,7 @@ func (a *app) view() core.Node {
 		a.fileOpDialog(),
 		a.exportDialog(),
 		a.trustDialog(),
+		a.planAskDialog(),
 		a.imageDialog(),
 		a.confirmDialog(),
 		a.askDialog(),

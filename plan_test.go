@@ -46,3 +46,48 @@ func TestPlanModeButton(t *testing.T) {
 	app.Press("id:plan-mode")
 	app.WaitFor("id:composer", 5*time.Second)
 }
+
+// TestPlanSteps pulls numbered and bulleted steps out of a plan.
+func TestPlanSteps(t *testing.T) {
+	text := "# 计划\n\n1. 读取配置\n2. **修改 main.go**\n- 跑测试\n\n说明：这些只是步骤。\n"
+	steps := planSteps(text)
+	if len(steps) != 3 {
+		t.Fatalf("steps = %v", steps)
+	}
+	if steps[0] != "读取配置" || steps[1] != "修改 main.go" || steps[2] != "跑测试" {
+		t.Fatalf("steps = %v", steps)
+	}
+	if got := planSteps("只有一句话，没有步骤"); len(got) != 0 {
+		t.Fatalf("plain text = %v", got)
+	}
+}
+
+// TestPlanNext decides between steps from the turn's status.
+func TestPlanNext(t *testing.T) {
+	s := &session{planActive: true, planSteps: []string{"a", "b"}, planIndex: 0}
+	if got := planNext(s, "completed"); got != planGoOn {
+		t.Fatalf("first = %v", got)
+	}
+	s.planIndex = 1
+	if got := planNext(s, "completed"); got != planFinished {
+		t.Fatalf("last = %v", got)
+	}
+	if got := planNext(s, "failed"); got != planStopped {
+		t.Fatalf("failed = %v", got)
+	}
+	if got := planNext(&session{}, "completed"); got != planStopped {
+		t.Fatalf("inactive = %v", got)
+	}
+}
+
+// TestPlanStepPrompt names the step and its place.
+func TestPlanStepPrompt(t *testing.T) {
+	s := &session{planActive: true, planSteps: []string{"a", "b"}, planIndex: 1}
+	got := planStepPrompt(s)
+	if !strings.Contains(got, "2/2") || !strings.Contains(got, "b") {
+		t.Fatalf("prompt = %q", got)
+	}
+	if planStepPrompt(&session{}) != "" {
+		t.Fatal("an empty plan should have no prompt")
+	}
+}
