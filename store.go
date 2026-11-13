@@ -131,7 +131,7 @@ func newStore(dataDir string) (*store, error) {
 		dir:      dataDir,
 		sessions: filepath.Join(dataDir, "sessions"),
 		path:     filepath.Join(dataDir, "config.json"),
-		c: &config{Version: 1, SidebarOpen: true, Theme: "system", Titles: map[string]string{}, ScanPi: true,
+		c: &config{Version: configVersion, SidebarOpen: true, Theme: "system", Titles: map[string]string{}, ScanPi: true,
 			CloseToTray: true, NotifyOnDone: true, NotifyOnlyHidden: true},
 	}
 	if err := os.MkdirAll(s.sessions, 0o755); err != nil {
@@ -143,27 +143,137 @@ func newStore(dataDir string) (*store, error) {
 			if c.Titles == nil {
 				c.Titles = map[string]string{}
 			}
-			// A config written before these fields existed reads pi's own
-			// sessions under their projects: it is the useful default.
-			if !bytes.Contains(raw, []byte(`"scanPi"`)) && !bytes.Contains(raw, []byte(`"scanAll"`)) {
-				c.ScanPi = true
-			}
-			// Older configs did not know the tray or notifications: keep
-			// them on, as a fresh install has them.
-			if !bytes.Contains(raw, []byte(`"closeToTray"`)) {
-				c.CloseToTray = true
-			}
-			if !bytes.Contains(raw, []byte(`"notifyOnDone"`)) {
-				c.NotifyOnDone = true
-			}
-			if !bytes.Contains(raw, []byte(`"notifyOnlyHidden"`)) {
-				c.NotifyOnlyHidden = true
-			}
-			c.Version = 1
+			changed := migrateConfig(&c, raw)
 			s.c = &c
+			if changed {
+				_ = s.save()
+			}
 		}
 	}
 	return s, nil
+}
+
+// configVersion is the shape of config.json this build writes. A file
+// from an older build is migrated on load and written back once.
+const configVersion = 1
+
+// migrateConfig brings an older config up to date and repairs values a
+// hand-edited file may have got wrong. It reports whether anything
+// changed, so the store writes the file back once.
+func migrateConfig(c *config, raw []byte) bool {
+	changed := false
+	if c.Version < configVersion {
+		// A config written before these fields existed reads pi's own
+		// sessions under their projects: it is the useful default.
+		if !bytes.Contains(raw, []byte(`"scanPi"`)) && !bytes.Contains(raw, []byte(`"scanAll"`)) {
+			c.ScanPi = true
+		}
+		// Older configs did not know the tray or notifications: keep
+		// them on, as a fresh install has them.
+		if !bytes.Contains(raw, []byte(`"closeToTray"`)) {
+			c.CloseToTray = true
+		}
+		if !bytes.Contains(raw, []byte(`"notifyOnDone"`)) {
+			c.NotifyOnDone = true
+		}
+		if !bytes.Contains(raw, []byte(`"notifyOnlyHidden"`)) {
+			c.NotifyOnlyHidden = true
+		}
+		c.Version = configVersion
+		changed = true
+	}
+	return normalizeConfig(c) || changed
+}
+
+// normalizeConfig resets values a hand-edited file could have got wrong:
+// unknown choices, out-of-range sizes, and duplicate projects or tabs.
+func normalizeConfig(c *config) bool {
+	changed := false
+	trim := func(s *string) {
+		if v := strings.TrimSpace(*s); v != *s {
+			*s = v
+			changed = true
+		}
+	}
+	trim(&c.SessionSort)
+	trim(&c.ProjectSort)
+	trim(&c.Language)
+	trim(&c.ProxyApp)
+	trim(&c.ProxyAgent)
+	trim(&c.ProxyBypass)
+	switch c.SessionSort {
+	case "", "updated", "name":
+	default:
+		c.SessionSort = ""
+		changed = true
+	}
+	switch c.ProjectSort {
+	case "", "manual", "recent", "created", "title":
+	default:
+		c.ProjectSort = ""
+		changed = true
+	}
+	switch c.Language {
+	case "", langZhCN, langZhTW, langEnUS:
+	default:
+		c.Language = ""
+		changed = true
+	}
+	if c.TerminalHeight != 0 && (c.TerminalHeight < 120 || c.TerminalHeight > 1200) {
+		c.TerminalHeight = 0
+		changed = true
+	}
+	if c.RemotePort != 0 && (c.RemotePort < 1 || c.RemotePort > 65535) {
+		c.RemotePort = 0
+		changed = true
+	}
+	seen := map[string]bool{}
+	var projects []workspaceCfg
+	for _, w := range c.Workspaces {
+		w.Path = strings.TrimSpace(w.Path)
+		w.Target = strings.TrimSpace(w.Target)
+		key := w.Target + "|" + w.Path
+		if w.Path == "" || seen[key] {
+			changed = true
+			continue
+		}
+		seen[key] = true
+		projects = append(projects, w)
+	}
+	if len(projects) != len(c.Workspaces) {
+		c.Workspaces = projects
+	}
+	seenTab := map[string]bool{}
+	var tabs []string
+	for _, id := range c.Tabs {
+		id = strings.TrimSpace(id)
+		if id == "" || seenTab[id] {
+			changed = true
+			continue
+		}
+		seenTab[id] = true
+		tabs = append(tabs, id)
+	}
+	if len(tabs) != len(c.Tabs) {
+		c.Tabs = tabs
+	}
+	return changed
+}
+
+// save writes the config as it is now.
+func (s *store) save() error {
+	s.mu.Lock()
+	raw, err := json.MarshalIndent(s.c, "", "  ")
+	path := s.path
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // config returns a copy safe to read on the UI thread.
@@ -185,6 +295,14 @@ func (s *store) config() config {
 	for k, v := range s.c.Titles {
 		c.Titles[k] = v
 	}
+	c.PluginSettings = make(map[string]string, len(s.c.PluginSettings))
+	for k, v := range s.c.PluginSettings {
+		c.PluginSettings[k] = v
+	}
+	c.SessionPersonas = make(map[string]string, len(s.c.SessionPersonas))
+	for k, v := range s.c.SessionPersonas {
+		c.SessionPersonas[k] = v
+	}
 	return c
 }
 
@@ -192,16 +310,8 @@ func (s *store) config() config {
 func (s *store) edit(fn func(*config)) {
 	s.mu.Lock()
 	fn(s.c)
-	raw, err := json.MarshalIndent(s.c, "", "  ")
-	path := s.path
 	s.mu.Unlock()
-	if err != nil {
-		return
-	}
-	tmp := path + ".tmp"
-	if os.WriteFile(tmp, raw, 0o644) == nil {
-		_ = os.Rename(tmp, path)
-	}
+	_ = s.save()
 }
 
 // sessionMeta is a session as the sidebar and tabs need it before its

@@ -1129,6 +1129,9 @@ func (a *app) settingsData() core.Node {
 					setRow("本应用的会话", fmt.Sprintf("%d 个", count), ui.Text("已打开 "+fmt.Sprint(len(a.tabs.Get())), 10.5, ui.Regular, colors.Faint)),
 					setDivider(),
 					setRow("项目下的 pi 本地会话", fmt.Sprintf("%d 个", piCount), nil),
+					setDivider(),
+					setRow("配置版本", fmt.Sprintf("%d", a.cfg.Version),
+						ui.Text("旧文件读取时自动迁移", 10.5, ui.Regular, colors.Faint)),
 				),
 			}},
 		}}

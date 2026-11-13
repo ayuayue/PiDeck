@@ -78,3 +78,88 @@ func TestDuplicateSessionRefusesGarbage(t *testing.T) {
 		t.Fatal("a non-session file was copied")
 	}
 }
+
+// TestConfigMigration repairs an old, hand-edited config and writes it back.
+func TestConfigMigration(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"sessionSort":"bogus","projectSort":"weird","language":"fr","terminalHeight":10,"remotePort":70000,
+  "workspaces":[{"path":" /a "},{"path":"/a"},{"path":""}],"tabs":["t1","t1",""]}`
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := st.config()
+	if c.Version != configVersion {
+		t.Errorf("version = %d", c.Version)
+	}
+	if c.SessionSort != "" || c.ProjectSort != "" || c.Language != "" {
+		t.Errorf("choices = %q/%q/%q", c.SessionSort, c.ProjectSort, c.Language)
+	}
+	if c.TerminalHeight != 0 || c.RemotePort != 0 {
+		t.Errorf("sizes = %v/%d", c.TerminalHeight, c.RemotePort)
+	}
+	if len(c.Workspaces) != 1 || c.Workspaces[0].Path != "/a" {
+		t.Errorf("workspaces = %+v", c.Workspaces)
+	}
+	if len(c.Tabs) != 1 || c.Tabs[0] != "t1" {
+		t.Errorf("tabs = %v", c.Tabs)
+	}
+	if !c.ScanPi || !c.CloseToTray || !c.NotifyOnDone || !c.NotifyOnlyHidden {
+		t.Errorf("legacy defaults = %+v", c)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"version": 1`) || strings.Contains(string(raw), "bogus") {
+		t.Fatalf("migrated file = %s", raw)
+	}
+}
+
+// TestConfigValidIsNotRewritten keeps a valid file exactly as it was.
+func TestConfigValidIsNotRewritten(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"version":1,"sessionSort":"name","scanPi":false,"scanAll":false,"closeToTray":false,"notifyOnDone":false,"notifyOnlyHidden":false}`
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := st.config(); c.SessionSort != "name" || c.ScanPi {
+		t.Fatalf("config = %+v", c)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != body {
+		t.Fatalf("a valid config was rewritten:\n%s", raw)
+	}
+}
+
+// TestConfigCopyDoesNotAliasMaps keeps edits to a copy out of the store.
+func TestConfigCopyDoesNotAliasMaps(t *testing.T) {
+	dir := t.TempDir()
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.edit(func(c *config) {
+		c.PluginSettings = map[string]string{"p/k": "1"}
+		c.SessionPersonas = map[string]string{"s": "review"}
+	})
+	c := st.config()
+	c.PluginSettings["p/k"] = "2"
+	c.SessionPersonas["s"] = "tests"
+	again := st.config()
+	if again.PluginSettings["p/k"] != "1" || again.SessionPersonas["s"] != "review" {
+		t.Fatalf("copy aliased the store: %+v %+v", again.PluginSettings, again.SessionPersonas)
+	}
+}
