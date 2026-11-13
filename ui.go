@@ -35,6 +35,7 @@ func (a *app) view() core.Node {
 		a.forkTreeDialog(),
 		a.pluginMarketDialog(),
 		a.promptStoreDialog(),
+		a.mcpDialog(),
 		a.imageDialog(),
 		a.confirmDialog(),
 		a.askDialog(),

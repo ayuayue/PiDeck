@@ -39,6 +39,7 @@ func settingsSections() []settingsSection {
 		{"look", "外观", lucide.Palette, "外观", "配色与主题文件。"},
 		{"remote", "远程", lucide.Globe, "远程访问", "让手机连接这台电脑上的项目和会话。"},
 		{"env", "环境", lucide.Terminal, "环境", "pi 在哪里、能不能用；WSL 与 SSH 目标。"},
+		{"mcp", "MCP", lucide.Plug, "MCP 服务器", "给 pi 挂上外部工具服务器；列表与增删走 pi mcp。"},
 		{"addons", "插件", lucide.Puzzle, "插件", "插件给命令面板加命令，给外观加主题。"},
 		{"resources", "资源", lucide.Package, "资源", "pi 的技能与扩展：看它们做什么，打开或停用。"},
 		{"integrations", "集成", lucide.Webhook, "集成", "把一轮完成的消息发到飞书群。"},
@@ -69,6 +70,9 @@ func (a *app) settingsDialog() core.Node {
 					}
 					if s.ID == "resources" {
 						a.loadResources(false)
+					}
+					if s.ID == "mcp" {
+						a.loadMCPServers(true)
 					}
 				},
 				Role: core.RoleTab, Label: T(s.Label), TestID: "settings-tab-" + s.ID,
@@ -164,6 +168,8 @@ func (a *app) settingsContent() core.Node {
 			return a.settingsRemote()
 		case "env":
 			return a.settingsEnv()
+		case "mcp":
+			return a.settingsMCP()
 		case "addons":
 			return a.settingsAddons()
 		case "resources":

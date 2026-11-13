@@ -296,6 +296,19 @@ type app struct {
 	planAskSession *session
 	// The fork tree dialog.
 	forksOpen *core.Signal[bool]
+	// MCP servers, read through pi's CLI.
+	mcpServers *core.Signal[[]mcpServer]
+	mcpBusy    *core.Signal[bool]
+	mcpErr     *core.Signal[string]
+	mcpLoaded  bool
+	mcpAddOpen *core.Signal[bool]
+	mcpAddBusy *core.Signal[bool]
+	mcpAddErr  *core.Signal[string]
+	mcpName    *core.Signal[string]
+	mcpURL     *core.Signal[string]
+	mcpCommand *core.Signal[string]
+	mcpDesc    *core.Signal[string]
+	mcpLocal   *core.Signal[bool]
 	// The prompt store.
 	promptStoreOpen       *core.Signal[bool]
 	promptStoreURL        *core.Signal[string]
@@ -413,6 +426,17 @@ func newApp(cx *core.Scope) *app {
 		trustOpen:             core.NewSignal(cx, false),
 		planAskOpen:           core.NewSignal(cx, false),
 		forksOpen:             core.NewSignal(cx, false),
+		mcpServers:            core.NewSignalFunc(cx, []mcpServer(nil), nil),
+		mcpBusy:               core.NewSignal(cx, false),
+		mcpErr:                core.NewSignal(cx, ""),
+		mcpAddOpen:            core.NewSignal(cx, false),
+		mcpAddBusy:            core.NewSignal(cx, false),
+		mcpAddErr:             core.NewSignal(cx, ""),
+		mcpName:               core.NewSignal(cx, ""),
+		mcpURL:                core.NewSignal(cx, ""),
+		mcpCommand:            core.NewSignal(cx, ""),
+		mcpDesc:               core.NewSignal(cx, ""),
+		mcpLocal:              core.NewSignal(cx, false),
 		promptStoreOpen:       core.NewSignal(cx, false),
 		promptStoreURL:        core.NewSignal(cx, ""),
 		promptStoreBusy:       core.NewSignal(cx, false),

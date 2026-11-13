@@ -250,7 +250,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 原始配置：直接在内置编辑器里打开 `models.json` / `settings.json` / `auth.json`
 - 外观：配色（跟随系统/纸白/炭黑/用户主题）、打开主题目录
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区；网络代理分「应用请求」与「Agent 进程」两栏，另可填直连名单
-- 扩展：插件列表与命令、插件声明式设置（开关/文本/数字/单选）、打开插件目录、重新加载
+- 扩展：插件列表与命令、插件声明式设置（开关/文本/数字/单选）、插件市场、打开插件目录、重新加载
+- MCP：设置 → MCP 列出 pi 的 MCP 服务器（状态、传输、工具数、错误），可添加 HTTP 地址或启动命令、移除；配置由 pi 保存在 `mcp.json`
 - 集成：飞书群自定义机器人；一轮结束把标题、状态与一句摘要发到群里，可填签名密钥并测试
 - 诊断：运行中的 pi/终端进程、goroutine 与堆、最近日志；可复制诊断报告、导出诊断包（zip，含报告/脱敏配置/日志尾部/插件列表）、打开日志目录、清空内存日志
 - 资源：pi 的技能（读 `SKILL.md` 的 name/description，点开在编辑器里看）与扩展
@@ -318,6 +319,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `ui_market.go` | 插件市场对话框：索引链接、条目列表、安装状态 |
 | `prompts_store.go` | 提示词商店：索引读取与整包导入 |
 | `ui_prompts_store.go` | 提示词商店对话框：索引链接、包列表与导入状态 |
+| `mcp.go` | MCP：`pi mcp list/add/remove` 的调用与参数拼装 |
+| `ui_mcp.go` | MCP 设置页：服务器列表、添加对话框与移除确认 |
 | `projects.go` | 项目分组、置顶、排序与顺序持久化 |
 | `ui_projects.go` | 项目分组对话框：名称输入与已有分组建议 |
 | `import_ext.go` | 导入 Codex / Claude 会话：识别格式、提取消息、写成 pi 会话 |
@@ -500,7 +503,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 
 - 工具级权限审批：pi 的工具授权在 RPC 里走扩展 UI，这里实现了
   `confirm/select/input/editor` 对话框，但没有独立的“工具调用批准”面板
-- 子代理/工作流视图、MCP 管理未做
+- 子代理/工作流视图未做；MCP 的 OAuth 登录与原始文件编辑未接
 - 消息不能就地改写或删除（pi 的 RPC 没有这个能力）；提供「把提问放回输入框」与重试
 - 计划模式靠提示词约定，不是 pi 的原生协议；「执行计划」是一条后续消息，「逐步执行」按编号/列表项一条条发并逐条确认
 - ACP 会话的本地归档最多 2000 轮/8 MB；重启时先试 CLI 的 `session/load`，失败则用新 CLI 会话接着聊，归档仍可浏览
