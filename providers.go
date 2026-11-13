@@ -346,7 +346,13 @@ func testProviderConnection(cfg providerConfig) (string, error) {
 
 // providerRequest sends one small request to a provider.
 func providerRequest(method, url, key string, body []byte) (int, []byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	return providerRequestTimeout(method, url, key, body, 12*time.Second)
+}
+
+// providerRequestTimeout is providerRequest with its own deadline, for
+// calls such as image generation that take longer than a probe.
+func providerRequestTimeout(method, url, key string, body []byte, timeout time.Duration) (int, []byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var reader io.Reader
 	if body != nil {
@@ -363,7 +369,11 @@ func providerRequest(method, url, key string, body []byte) (int, []byte, error) 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := appHTTPClient.Do(req)
+	client := appHTTPClient
+	if timeout > appHTTPClient.Timeout {
+		client = appHTTPLongClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, nil, err
 	}

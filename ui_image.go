@@ -1,0 +1,206 @@
+package main
+
+// The image generator's dialog: pick a provider and model, write a
+// prompt, then attach the result to the composer or save it.
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/oneo-me/nsgo/base"
+	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/ui"
+)
+
+// openImageDialog shows the generator with the last choices.
+func (a *app) openImageDialog() {
+	providers := readProviderConfigs()
+	id := a.cfg.ImageProvider
+	if id == "" && len(providers) > 0 {
+		id = providers[0].ID
+	}
+	a.imageProvider.Set(id)
+	a.imageModel.Set(a.cfg.ImageModel)
+	a.imageSize.Set(firstNonEmpty(a.cfg.ImageSize, "1024x1024"))
+	a.imagePrompt.Set("")
+	a.imageErr.Set("")
+	a.imageResult.Set(nil)
+	a.imageType.Set("")
+	a.imageBusy.Set(false)
+	a.imageOpen.Set(true)
+}
+
+// imageProviderConfig finds the chosen provider.
+func (a *app) imageProviderConfig() *providerConfig {
+	id := a.imageProvider.GetUntracked()
+	for _, cfg := range readProviderConfigs() {
+		if cfg.ID == id {
+			cp := cfg
+			return &cp
+		}
+	}
+	return nil
+}
+
+// generateImageNow asks the provider to draw the prompt.
+func (a *app) generateImageNow() {
+	if a.imageBusy.GetUntracked() {
+		return
+	}
+	cfg := a.imageProviderConfig()
+	if cfg == nil {
+		a.imageErr.Set("先选一个供应商；在设置 → 模型与认证里配置。")
+		return
+	}
+	prompt := strings.TrimSpace(a.imagePrompt.GetUntracked())
+	model := strings.TrimSpace(a.imageModel.GetUntracked())
+	size := a.imageSize.GetUntracked()
+	if prompt == "" || model == "" {
+		a.imageErr.Set("画面描述和模型名都要填。")
+		return
+	}
+	a.imageBusy.Set(true)
+	a.imageErr.Set("")
+	a.imageResult.Set(nil)
+	go func() {
+		raw, mime, err := generateImage(*cfg, model, prompt, size)
+		a.cx.Post(func() {
+			a.imageBusy.Set(false)
+			if err != nil {
+				a.imageErr.Set(err.Error())
+				return
+			}
+			a.imageType.Set(mime)
+			a.imageResult.Set(raw)
+			a.cfg.ImageProvider, a.cfg.ImageModel, a.cfg.ImageSize = cfg.ID, model, size
+			if a.st != nil {
+				a.st.edit(func(c *config) {
+					c.ImageProvider, c.ImageModel, c.ImageSize = cfg.ID, model, size
+				})
+			}
+		})
+	}()
+}
+
+// insertGeneratedImage puts the result in the active session's composer.
+func (a *app) insertGeneratedImage() {
+	s := a.active()
+	raw := a.imageResult.GetUntracked()
+	if len(raw) == 0 {
+		return
+	}
+	if s == nil {
+		a.toast(ui.ToastInfo, "先开一个会话", "图片会插到输入框里。")
+		return
+	}
+	a.addImage(s, promptImage{Data: raw, MimeType: a.imageType.GetUntracked(), Name: "generated.png"})
+	a.imageOpen.Set(false)
+	a.toast(ui.ToastSuccess, "已插入输入框", "可以随下一条消息发给 pi。")
+}
+
+// saveGeneratedImage writes the result into the active project.
+func (a *app) saveGeneratedImage() {
+	s := a.active()
+	raw := a.imageResult.GetUntracked()
+	if len(raw) == 0 {
+		return
+	}
+	if s == nil || s.WS == "" {
+		a.toast(ui.ToastInfo, "先打开一个项目", "图片会保存到项目目录。")
+		return
+	}
+	path := filepath.Join(s.WS, "generated-"+time.Now().Format("20060102-150405")+imageExt(a.imageType.GetUntracked()))
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		a.toast(ui.ToastError, "保存图片失败", err.Error())
+		return
+	}
+	a.imageOpen.Set(false)
+	a.toastAction(ui.ToastSuccess, "已保存图片", path, "打开", func() { a.cx.OpenURL(fileURL(path), nil) })
+}
+
+// imageDialog generates an image and offers to attach or save it.
+func (a *app) imageDialog() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		providers := readProviderConfigs()
+		var providerChoices []choice[string]
+		for _, cfg := range providers {
+			providerChoices = append(providerChoices, choice[string]{Value: cfg.ID, Label: cfg.ID})
+		}
+		var sizeChoices []choice[string]
+		for _, s := range []string{"1024x1024", "1024x1536", "1536x1024"} {
+			sizeChoices = append(sizeChoices, choice[string]{Value: s, Label: s})
+		}
+		busy := a.imageBusy.Get()
+		result := a.imageResult.Get()
+		var body []core.Node
+		if len(providerChoices) > 0 {
+			body = append(body, core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
+				ui.Text("供应商", 10.5, ui.Medium, colors.Muted),
+				choiceChips(providerChoices, func() string { return a.imageProvider.Get() }, func(v string) { a.imageProvider.Set(v) }),
+			}})
+		} else {
+			body = append(body, core.Text{Content: "还没有供应商。先在 设置 → 模型与认证 里配置一个支持 /images/generations 的供应商。",
+				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Warn)})
+		}
+		body = append(body,
+			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
+				ui.Text("画面描述", 10.5, ui.Medium, colors.Muted),
+				core.Input{Value: a.imagePrompt.Get, OnChange: a.imagePrompt.Set, Multiline: true, AutoFocus: true,
+					Placeholder: "例如：雨夜的霓虹街道，电影感，广角", Label: "画面描述", TestID: "image-prompt",
+					Style: core.Style{MinHeight: core.Pt(72), MaxHeight: core.Pt(140), Padding: core.Symmetric(8, 10), FontSize: 12.5, Color: colors.Text()},
+					StyleFunc: func() core.Style {
+						return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 8,
+							PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
+					}},
+			}},
+			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
+				ui.Text("图片模型", 10.5, ui.Medium, colors.Muted),
+				core.Input{Value: a.imageModel.Get, OnChange: a.imageModel.Set, Placeholder: "gpt-image-1 / Kwai-Kolors/Kolors",
+					Label: "图片模型", TestID: "image-model",
+					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: ui.Mono, Color: colors.Text(),
+						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
+			}},
+			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
+				ui.Text("尺寸", 10.5, ui.Medium, colors.Muted),
+				choiceChips(sizeChoices, func() string { return a.imageSize.Get() }, func(v string) { a.imageSize.Set(v) }),
+			}},
+		)
+		switch {
+		case busy:
+			body = append(body, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(6, 0)}, Children: []core.Node{
+				ui.Spinner{Size: 14}, ui.Text("正在生成，可能需要一会儿…", 11.5, ui.Regular, colors.Muted)}})
+		case a.imageErr.Get() != "":
+			body = append(body, core.Text{Content: a.imageErr.Get(), MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16},
+				StyleFunc: ui.Colored(colors.Danger)})
+		case len(result) > 0:
+			body = append(body, core.View{Style: core.Style{AlignItems: core.AlignCenter}, Children: []core.Node{
+				core.Image{Source: core.ImageSource{Data: result}, ResizeMode: core.Contain, Label: "生成的图片",
+					Style: core.Style{Width: core.Pt(280), Height: core.Pt(280), CornerRadius: 10, BorderWidth: 1, BorderColor: colors.Border()}},
+			}})
+		}
+		footer := []core.Node{
+			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.imageOpen.Set(false) }},
+		}
+		if len(result) > 0 && !busy {
+			footer = append(footer,
+				ui.Button{Text: "保存到项目", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-save", OnPress: a.saveGeneratedImage},
+				ui.Button{Text: "插入输入框", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "image-insert", OnPress: a.insertGeneratedImage})
+		} else {
+			footer = append(footer, ui.Button{Text: "生成", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "image-generate",
+				Disabled: func() bool { return a.imageBusy.Get() || len(providerChoices) == 0 }, OnPress: a.generateImageNow})
+		}
+		return ui.Dialog{
+			Open:         a.imageOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) { a.imageOpen.Set(open) },
+			Title:        "生成图片",
+			TestID:       "image-dialog",
+			Style:        core.Style{Width: core.Pt(560), MaxHeight: core.Pt(680)},
+			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(540)}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 12}, Children: body}}}},
+			Footer: footer,
+		}
+	})
+}

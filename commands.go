@@ -47,6 +47,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openChat() }},
 		{ID: "agent-session", Label: "用智能体新建会话…", Group: "会话", Icon: lucide.Bot,
 			Run: func(a *app) { a.agentOpen.Set(true) }},
+		{ID: "image-gen", Label: "生成图片…", Group: "工具", Icon: lucide.Image,
+			Run: func(a *app) { a.openImageDialog() }},
 		{ID: "close-tab", Label: "关闭当前标签", Group: "会话", Shortcut: "mod+w", Icon: lucide.X, Hidden: true,
 			When: func(a *app) bool { return a.editorOpen() || a.activeID.GetUntracked() != "" },
 			Run: func(a *app) {

@@ -88,6 +88,11 @@ type config struct {
 	PluginSettings map[string]string `json:"pluginSettings,omitempty"`
 	// SessionPersonas binds a session to an agent by its id.
 	SessionPersonas map[string]string `json:"sessionPersonas,omitempty"`
+	// ImageProvider, ImageModel and ImageSize remember the image
+	// generator's last choices.
+	ImageProvider string `json:"imageProvider,omitempty"`
+	ImageModel    string `json:"imageModel,omitempty"`
+	ImageSize     string `json:"imageSize,omitempty"`
 	// ProxyApp routes the app's own HTTP calls, ProxyAgent the agent
 	// processes it starts, and ProxyBypass is their shared no-proxy list.
 	ProxyApp    string `json:"proxyApp,omitempty"`

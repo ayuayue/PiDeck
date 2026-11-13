@@ -273,13 +273,23 @@ type app struct {
 	fileOpText   *core.Signal[string]
 	fileOpAction func(string)
 	// The export dialog and the session it writes.
-	exportOpen  *core.Signal[bool]
-	exportID    string
-	confirmOpen *core.Signal[bool]
-	confirmHead *core.Signal[string]
-	confirmBody *core.Signal[string]
-	confirmWhy  *core.Signal[string]
-	confirmFn   func()
+	exportOpen *core.Signal[bool]
+	exportID   string
+	// Image generation.
+	imageOpen     *core.Signal[bool]
+	imagePrompt   *core.Signal[string]
+	imageModel    *core.Signal[string]
+	imageSize     *core.Signal[string]
+	imageProvider *core.Signal[string]
+	imageBusy     *core.Signal[bool]
+	imageErr      *core.Signal[string]
+	imageResult   *core.Signal[[]byte]
+	imageType     *core.Signal[string]
+	confirmOpen   *core.Signal[bool]
+	confirmHead   *core.Signal[string]
+	confirmBody   *core.Signal[string]
+	confirmWhy    *core.Signal[string]
+	confirmFn     func()
 
 	pick *pickerState
 
@@ -363,6 +373,15 @@ func newApp(cx *core.Scope) *app {
 		fileOpTitle:      core.NewSignal(cx, ""),
 		fileOpText:       core.NewSignal(cx, ""),
 		exportOpen:       core.NewSignal(cx, false),
+		imageOpen:        core.NewSignal(cx, false),
+		imagePrompt:      core.NewSignal(cx, ""),
+		imageModel:       core.NewSignal(cx, ""),
+		imageSize:        core.NewSignal(cx, "1024x1024"),
+		imageProvider:    core.NewSignal(cx, ""),
+		imageBusy:        core.NewSignal(cx, false),
+		imageErr:         core.NewSignal(cx, ""),
+		imageResult:      core.NewSignalFunc(cx, []byte(nil), nil),
+		imageType:        core.NewSignal(cx, ""),
 		confirmOpen:      core.NewSignal(cx, false),
 		confirmHead:      core.NewSignal(cx, ""),
 		confirmBody:      core.NewSignal(cx, ""),

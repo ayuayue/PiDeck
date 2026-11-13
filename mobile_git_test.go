@@ -112,7 +112,7 @@ func TestMobileGit(t *testing.T) {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		mu.Lock()
-		committed = body.Message
+		committed, staged = body.Message, false
 		mu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
@@ -177,9 +177,16 @@ func TestMobileGit(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Switch branches from the sheet, then fetch.
-	app.Press("id:mobile-git-branches")
-	waitApp(app, "id:mobile-git-branches-sheet", 10*time.Second)
+	// Switch branches from the sheet, then fetch. The sheet rebuilds after
+	// the commit, so the press is retried if it lands mid-layout.
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:已暂存 0")) > 0 })
+	for i := 0; i < 3; i++ {
+		app.Press("id:mobile-git-branches")
+		if waitQuiet(app, "id:mobile-git-branches-sheet", 3*time.Second) {
+			break
+		}
+	}
+	app.WaitFor("id:mobile-git-branches-sheet", 10*time.Second)
 	app.Press("id:mobile-git-branch-1")
 	deadline = time.Now().Add(5 * time.Second)
 	for {

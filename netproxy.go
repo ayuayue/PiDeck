@@ -70,8 +70,13 @@ var (
 	agentProxy proxySettings
 )
 
-// appHTTPClient is the app's client for its own small HTTP calls.
-var appHTTPClient = &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{Proxy: appProxy.proxyFunc}}
+// appHTTPClient is the app's client for its own small HTTP calls, and
+// appHTTPLongClient for the ones that legitimately take a while, such as
+// an image generation.
+var (
+	appHTTPClient     = &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{Proxy: appProxy.proxyFunc}}
+	appHTTPLongClient = &http.Client{Timeout: 180 * time.Second, Transport: &http.Transport{Proxy: appProxy.proxyFunc}}
+)
 
 // applyProxy pushes the config's proxy settings into effect.
 func (a *app) applyProxy() {
