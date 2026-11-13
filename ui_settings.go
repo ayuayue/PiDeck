@@ -918,6 +918,8 @@ func (a *app) settingsAddons() core.Node {
 				core.Text{Content: "插件只声明命令与主题，不运行代码：命令的动作是填入提示词、执行内置命令、打开链接或切换主题。",
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
+					ui.Button{Text: "插件市场…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "plugin-market-open",
+						OnPress: a.openPluginMarket},
 					ui.Button{Text: "打开插件目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 						a.openPluginsDir()
 					}},

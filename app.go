@@ -296,6 +296,13 @@ type app struct {
 	planAskSession *session
 	// The fork tree dialog.
 	forksOpen *core.Signal[bool]
+	// The plugin market.
+	marketOpen       *core.Signal[bool]
+	marketURL        *core.Signal[string]
+	marketBusy       *core.Signal[bool]
+	marketErr        *core.Signal[string]
+	marketList       *core.Signal[[]marketEntry]
+	marketInstalling *core.Signal[string]
 	// Image generation.
 	imageOpen     *core.Signal[bool]
 	imagePrompt   *core.Signal[string]
@@ -398,6 +405,12 @@ func newApp(cx *core.Scope) *app {
 		trustOpen:        core.NewSignal(cx, false),
 		planAskOpen:      core.NewSignal(cx, false),
 		forksOpen:        core.NewSignal(cx, false),
+		marketOpen:       core.NewSignal(cx, false),
+		marketURL:        core.NewSignal(cx, ""),
+		marketBusy:       core.NewSignal(cx, false),
+		marketErr:        core.NewSignal(cx, ""),
+		marketList:       core.NewSignalFunc(cx, []marketEntry(nil), nil),
+		marketInstalling: core.NewSignal(cx, ""),
 		imageOpen:        core.NewSignal(cx, false),
 		imagePrompt:      core.NewSignal(cx, ""),
 		imageModel:       core.NewSignal(cx, ""),

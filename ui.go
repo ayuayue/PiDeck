@@ -33,6 +33,7 @@ func (a *app) view() core.Node {
 		a.trustDialog(),
 		a.planAskDialog(),
 		a.forkTreeDialog(),
+		a.pluginMarketDialog(),
 		a.imageDialog(),
 		a.confirmDialog(),
 		a.askDialog(),
