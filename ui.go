@@ -30,6 +30,7 @@ func (a *app) view() core.Node {
 		a.renameDialog(),
 		a.confirmDialog(),
 		a.askDialog(),
+		a.remoteQRDialog(),
 		a.gitDiffDialog(),
 		a.gitNewBranchDialog(),
 		a.providerDialog(),

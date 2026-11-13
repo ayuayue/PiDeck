@@ -97,6 +97,8 @@ type session struct {
 	// runningSig is whether a turn is in flight. It changes twice a turn,
 	// so the composer's controls are not rebuilt by every streamed delta.
 	runningSig *core.Signal[bool]
+	// planMode asks the next prompt for a plan instead of edits.
+	planMode *core.Signal[bool]
 	// readySig is whether pi answered for this session.
 	readySig *core.Signal[bool]
 
@@ -236,6 +238,11 @@ type app struct {
 	git    *gitRepo
 	term   *terminalHost
 	remote *remoteHost
+
+	// The QR dialog shows a connection link the phone can scan.
+	qrOpen *core.Signal[bool]
+	qrLink *core.Signal[string]
+	qrPNG  []byte
 
 	// Git dialogs: the branch menu and new-branch dialog, and the diff or
 	// commit patch in front.
@@ -462,6 +469,8 @@ func newApp(cx *core.Scope) *app {
 	a.ensurePromptLibrary()
 	a.remote = newRemoteHost(a)
 	a.remote.init()
+	a.qrOpen = core.NewSignal(cx, false)
+	a.qrLink = core.NewSignal(cx, "")
 	a.bindKeys()
 	a.tick()
 	// A terminal panel left open comes back with a tab to show.
@@ -503,6 +512,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
 		todoOpen:       core.NewSignal(a.cx, false),
 		runningSig:     core.NewSignal(a.cx, false),
+		planMode:       core.NewSignal(a.cx, false),
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
 		modelQuery:     core.NewSignal(a.cx, ""),
@@ -1096,6 +1106,7 @@ func (a *app) newSession(path string) *session {
 		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
 		todoOpen:       core.NewSignal(a.cx, false),
 		runningSig:     core.NewSignal(a.cx, false),
+		planMode:       core.NewSignal(a.cx, false),
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
 		modelQuery:     core.NewSignal(a.cx, ""),
@@ -1402,6 +1413,40 @@ func (a *app) forkSession(s *session, turnID string) {
 			a.toast(ui.ToastSuccess, "已分叉会话", "原提问已放回输入框，改完可以直接发。")
 		})
 	}()
+}
+
+// togglePlanMode flips the next turn between planning and doing.
+func (a *app) togglePlanMode(s *session) {
+	if s == nil {
+		return
+	}
+	on := !s.planMode.GetUntracked()
+	s.planMode.Set(on)
+	if on {
+		a.toast(ui.ToastInfo, "计划模式已开启", "下一轮会先给计划，确认后再执行。")
+	}
+}
+
+// executePlan asks pi to carry out the plan it just gave.
+func (a *app) executePlan(s *session, t turn) {
+	if s == nil || t.running() {
+		return
+	}
+	a.submitTurn(s, T("按上面的计划执行。每完成一步，用一句话说明改了什么、怎么验证的。"), nil, false)
+}
+
+// editPlan puts a plan back in the composer for changes.
+func (a *app) editPlan(s *session, t turn) {
+	if s == nil {
+		return
+	}
+	text := t.Final
+	if text == "" {
+		return
+	}
+	s.planMode.Set(false)
+	s.draft.Set(text)
+	a.toast(ui.ToastInfo, "计划已放回输入框", "改完可以直接发。")
 }
 
 // forkLastTurn forks at the newest user prompt.
@@ -1816,8 +1861,26 @@ func (a *app) send() {
 	a.submit(s, text, images)
 }
 
-// submit starts a turn and asks pi to answer it.
+// submit starts a turn and asks pi to answer it, as plan mode says.
 func (a *app) submit(s *session, text string, images []promptImage) {
+	a.submitTurn(s, text, images, s.planMode.GetUntracked())
+}
+
+// planPrompt wraps a request so pi plans before it edits.
+func planPrompt(text string) string {
+	return T("请先不要改任何文件。先给出一个可执行的计划：") + "\n" +
+		T("1. 分步骤说明要改什么、改哪些文件；") + "\n" +
+		T("2. 每步的验证方式；") + "\n" +
+		T("3. 可能的风险与回滚。") + "\n" +
+		T("等我确认后再执行。") + "\n" + "\n" + text
+}
+
+// submitTurn starts a turn, asking for a plan when plan is true.
+func (a *app) submitTurn(s *session, text string, images []promptImage, plan bool) {
+	original := text
+	if plan {
+		text = planPrompt(text)
+	}
 	a.cx.Batch(func() {
 		if s.title.GetUntracked() == "新会话" || s.title.GetUntracked() == "" || s.title.GetUntracked() == "未命名会话" {
 			name := firstLine(text, 28)
@@ -1831,7 +1894,7 @@ func (a *app) submit(s *session, text string, images []promptImage) {
 		}
 		turnID := fmt.Sprintf("t%d", a.cx.Now().UnixNano())
 		s.turns.Update(func(ts []turn) []turn {
-			return append(ts, turn{ID: turnID, Prompt: text, Images: images, Status: chat.Running, Start: a.cx.Now()})
+			return append(ts, turn{ID: turnID, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(), Plan: plan})
 		})
 		s.status.Set(statusStarting)
 		s.runningSig.Set(true)

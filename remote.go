@@ -30,6 +30,8 @@ import (
 	"sync"
 	"time"
 
+	qrcode "github.com/skip2/go-qrcode"
+
 	"github.com/oneo-me/nsgo/core"
 )
 
@@ -561,6 +563,18 @@ func snippetAround(text string, at int, query string) string {
 		cut += "…"
 	}
 	return cut
+}
+
+// qrPNGFor encodes a link as a QR code image.
+func qrPNGFor(link string) []byte {
+	if link == "" {
+		return nil
+	}
+	png, err := qrcode.Encode(link, qrcode.Medium, 480)
+	if err != nil {
+		return nil
+	}
+	return png
 }
 
 // handleProject adds or removes a project folder on the desktop.

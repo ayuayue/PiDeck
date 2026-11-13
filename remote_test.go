@@ -156,13 +156,26 @@ func newTestHTTPServer(t *testing.T, token string, state remoteWireSnapshot, tra
 // TestRemoteSettings shows the desktop's remote section.
 func TestRemoteSettings(t *testing.T) {
 	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
-	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
+	var built *app
+	root := func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		return built.view()
+	}
+	app := nsgotest.Start(t, root, nsgotest.Size(1320, 860))
 	app.Press("label:设置")
 	app.WaitFor("id:settings-tab-remote", 5*time.Second)
 	app.Press("id:settings-tab-remote")
 	app.WaitFor("text:连接方式", 5*time.Second)
 	app.Advance(500 * time.Millisecond)
 	shot(app, "62-remote-settings")
+
+	// The code the phone scans, over the workbench rather than the settings.
+	built.settings.Set(false)
+	app.Advance(300 * time.Millisecond)
+	built.showQR("http://10.0.2.2:8787/?token=demo-token")
+	app.WaitFor("id:remote-qr", 5*time.Second)
+	app.Advance(400 * time.Millisecond)
+	shot(app, "67-remote-qr")
 }
 
 // TestRemoteSessionActions drives the phone's write endpoints against a
@@ -420,5 +433,44 @@ func TestRemoteSearch(t *testing.T) {
 	// One character is not a search.
 	if rec := call("/api/search?q=" + url.QueryEscape("蓝")); rec.Code != http.StatusBadRequest {
 		t.Fatalf("short query = %d", rec.Code)
+	}
+}
+
+// TestQRRoundTrip encodes a connection link and reads it back, the way the
+// desktop shows a code and the phone scans it.
+func TestQRRoundTrip(t *testing.T) {
+	link := "http://10.0.2.2:8787/?token=abc123"
+	png := qrPNGFor(link)
+	if len(png) == 0 {
+		t.Fatal("no QR image")
+	}
+	got, err := decodeQRLink(png)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got != link {
+		t.Fatalf("decoded %q, want %q", got, link)
+	}
+}
+
+// TestRememberConnection keeps the newest server first, once each.
+func TestRememberConnection(t *testing.T) {
+	saved := rememberConnection(nil, mobileRecent{Server: "http://a", Token: "1", Name: "a"})
+	if saved.Server != "http://a" || len(saved.Recent) != 1 {
+		t.Fatalf("first = %+v", saved)
+	}
+	saved = rememberConnection(saved.Recent, mobileRecent{Server: "http://b", Token: "2", Name: "b"})
+	if saved.Server != "http://b" || len(saved.Recent) != 2 || saved.Recent[0].Server != "http://b" {
+		t.Fatalf("second = %+v", saved)
+	}
+	saved = rememberConnection(saved.Recent, mobileRecent{Server: "http://a", Token: "3", Name: "a2"})
+	if len(saved.Recent) != 2 || saved.Recent[0].Name != "a2" {
+		t.Fatalf("moved = %+v", saved)
+	}
+	for i := 0; i < 8; i++ {
+		saved = rememberConnection(saved.Recent, mobileRecent{Server: "http://x" + strconv.Itoa(i), Name: "x"})
+	}
+	if len(saved.Recent) != 5 {
+		t.Fatalf("capped at %d", len(saved.Recent))
 	}
 }

@@ -6,9 +6,13 @@ package main
 // PIDECK_LITE_MOBILE=1 for a preview on a desktop).
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liyue201/goqr"
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
@@ -30,10 +35,19 @@ func mobileMode() bool {
 	return runtime.GOOS == "ios" || runtime.GOOS == "android"
 }
 
-// mobileSaved is the last connection the phone used.
+// mobileSaved is the last connection the phone used, and the ones before
+// it so a second server is one tap away.
 type mobileSaved struct {
+	Server string         `json:"server"`
+	Token  string         `json:"token"`
+	Recent []mobileRecent `json:"recent,omitempty"`
+}
+
+type mobileRecent struct {
 	Server string `json:"server"`
 	Token  string `json:"token"`
+	Name   string `json:"name"`
+	At     int64  `json:"at"`
 }
 
 type mobileApp struct {
@@ -41,6 +55,7 @@ type mobileApp struct {
 
 	server *core.Signal[string]
 	token  *core.Signal[string]
+	recent *core.Signal[[]mobileRecent]
 	busy   *core.Signal[bool]
 	err    *core.Signal[string]
 
@@ -120,6 +135,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	a := &mobileApp{
 		cx:             cx,
 		server:         core.NewSignal(cx, ""),
+		recent:         core.NewSignalFunc(cx, []mobileRecent(nil), nil),
 		token:          core.NewSignal(cx, ""),
 		busy:           core.NewSignal(cx, false),
 		err:            core.NewSignal(cx, ""),
@@ -161,6 +177,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		notice:         core.NewSignal(cx, ""),
 	}
 	if saved := loadMobileSaved(cx); saved.Server != "" {
+		a.recent.Set(saved.Recent)
 		a.server.Set(saved.Server)
 		a.token.Set(saved.Token)
 		a.connect()
@@ -239,6 +256,8 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 			ui.Button{Text: "连接", Variant: ui.ButtonPrimary, Size: ui.SizeLarge, Flex: 1, TestID: "mobile-connect",
 				Disabled: func() bool { return a.busy.Get() }, OnPress: a.connect},
 		}},
+		ui.Button{Text: "扫码连接", Variant: ui.ButtonSecondary, Size: ui.SizeLarge, TestID: "mobile-scan",
+			OnPress: a.scanQR},
 	}}
 	column := core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(480), Gap: 16}, Children: []core.Node{
 		core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
@@ -248,7 +267,8 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 			ui.Text("连接电脑上的会话", 13, ui.Regular, colors.Muted),
 		}},
 		card,
-		core.Text{Content: "在电脑端打开 设置 → 远程，启用后复制连接链接；手机和电脑需要在同一局域网、Tailscale 或 EasyTier 网络里。",
+		a.recentList(),
+		core.Text{Content: "在电脑端打开 设置 → 远程，启用后扫码或复制连接链接；手机和电脑需要在同一局域网、Tailscale 或 EasyTier 网络里。",
 			Style: core.Style{FontSize: 11, LineHeight: 17, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
 	}}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
@@ -257,6 +277,96 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 			core.View{Style: core.Style{FlexGrow: 1, Padding: core.All(24), Gap: 16, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
 				Children: []core.Node{column}},
 		}}}}
+}
+
+// recentList shows the servers this phone has used, newest first.
+func (a *mobileApp) recentList() core.Node {
+	return core.Show{When: func() bool { return len(a.recent.Get()) > 0 }, Then: func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		rows := make([]core.Node, 0, len(a.recent.Get()))
+		for _, item := range a.recent.Get() {
+			r := item
+			host := strings.TrimPrefix(strings.TrimPrefix(r.Server, "http://"), "https://")
+			rows = append(rows, core.View{OnPress: func(core.PressEvent) {
+				a.server.Set(r.Server)
+				a.token.Set(r.Token)
+				a.connect()
+			}, Role: core.RoleButton, Label: r.Name, TestID: "mobile-recent",
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, MinHeight: core.Pt(46),
+						Padding: core.Symmetric(0, 10), CornerRadius: 10, Transition: pressMotion,
+						Background: colors.Surface(), Hover: &core.Style{Background: colors.Hover()},
+						Active: &core.Style{Background: colors.Pressed()}}
+				},
+				Children: []core.Node{
+					ui.Icon(lucide.Laptop, 15, colors.Muted),
+					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+						core.Text{Content: r.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
+						core.Text{Content: host, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+							Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+					}},
+					ui.Icon(lucide.ChevronRight, 13, colors.Faint),
+				}})
+		}
+		return core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(480), Gap: 6}, Children: []core.Node{
+			ui.Text("最近连接", 11, ui.Medium, colors.Faint),
+			core.View{Style: core.Style{Gap: 4}, Children: rows},
+		}}
+	}}
+}
+
+// scanQR reads a connection link from a photo of the desktop's code.
+func (a *mobileApp) scanQR() {
+	if !a.cx.Env().CanTakePhoto() {
+		a.err.Set("这台设备没有可用的相机，用下面的链接和令牌连接吧")
+		return
+	}
+	a.err.Set("")
+	a.cx.TakePhoto(core.PhotoOptions{MaxDimension: 1600}, func(photo *core.PickedFile, err error) {
+		if err != nil {
+			a.err.Set("打开相机失败：" + err.Error())
+			return
+		}
+		if photo == nil || len(photo.Data) == 0 {
+			return
+		}
+		go func(data []byte) {
+			link, derr := decodeQRLink(data)
+			a.cx.Post(func() {
+				if derr != nil || link == "" {
+					a.err.Set("没扫到二维码，靠近一点再试")
+					return
+				}
+				client, token, cerr := newRemoteClient(link, "")
+				if cerr != nil {
+					a.err.Set(cerr.Error())
+					return
+				}
+				a.server.Set(client.base)
+				a.token.Set(token)
+				a.connect()
+			})
+		}(photo.Data)
+	})
+}
+
+// decodeQRLink reads the first QR code in a JPEG or PNG.
+func decodeQRLink(data []byte) (string, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	codes, err := goqr.Recognize(img)
+	if err != nil {
+		return "", err
+	}
+	for _, code := range codes {
+		if len(code.Payload) > 0 {
+			return string(code.Payload), nil
+		}
+	}
+	return "", errors.New("没有二维码")
 }
 
 // connect opens the saved or entered server.
@@ -294,7 +404,9 @@ func (a *mobileApp) connect() {
 			a.state.Set(snap)
 			a.connected.Set(true)
 			a.err.Set("")
-			saveMobileSaved(a.cx, mobileSaved{Server: client.base, Token: token})
+			saveMobileSaved(a.cx, rememberConnection(a.recent.GetUntracked(), mobileRecent{
+				Server: client.base, Token: token, Name: a.serverName.Get(), At: time.Now().UnixMilli(),
+			}))
 			a.startPolling()
 		})
 	}()
@@ -1776,6 +1888,19 @@ func loadMobileSaved(cx *core.Scope) mobileSaved {
 		return mobileSaved{}
 	}
 	return saved
+}
+
+// rememberConnection puts one server first in the list, keeping five.
+func rememberConnection(list []mobileRecent, item mobileRecent) mobileSaved {
+	out := make([]mobileRecent, 0, 5)
+	out = append(out, item)
+	for _, old := range list {
+		if old.Server == item.Server || len(out) >= 5 {
+			continue
+		}
+		out = append(out, old)
+	}
+	return mobileSaved{Server: item.Server, Token: item.Token, Recent: out}
 }
 
 func saveMobileSaved(cx *core.Scope, saved mobileSaved) {

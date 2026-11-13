@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/oneo-me/nsgo/base"
+
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
@@ -44,6 +46,10 @@ func (a *app) settingsRemote() core.Node {
 				Disabled: func() bool { return !st.Running },
 				OnPress:  func() { a.copyText(a.remote.link(ip), "连接链接") }}
 		}
+		qrButton := func(ip string) core.Node {
+			return ui.IconButton{Icon: lucide.QrCode, Label: "显示二维码", Size: 24, IconSize: 13,
+				Disabled: func() bool { return !st.Running }, OnPress: func() { a.showQR(a.remote.link(ip)) }}
+		}
 		addressRow := func(name, detail, ip, testID string) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30)},
 				Children: []core.Node{
@@ -54,6 +60,7 @@ func (a *app) settingsRemote() core.Node {
 							Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 					ui.Text(name, 9.5, ui.Regular, colors.Faint),
+					qrButton(ip),
 					copyLink(testID, ip),
 				}}
 		}
@@ -185,4 +192,36 @@ func (a *app) settingsRemote() core.Node {
 			}},
 		}}
 	})
+}
+
+// showQR opens the dialog with a link's QR code.
+func (a *app) showQR(link string) {
+	a.qrLink.Set(link)
+	a.qrPNG = qrPNGFor(link)
+	a.qrOpen.Set(true)
+}
+
+// remoteQRDialog draws the link as a code the phone can scan.
+func (a *app) remoteQRDialog() core.Node {
+	colors := ui.ColorsOf(a.cx)
+	return ui.Dialog{
+		Open:         a.qrOpen.Get,
+		OnOpenChange: func(open bool, _ base.Reason) { a.qrOpen.Set(open) },
+		Title:        "扫码连接",
+		Description:  "手机端打开 PiDeck Lite，点「扫码连接」对着这里扫。",
+		TestID:       "remote-qr",
+		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			png := a.qrPNG
+			if len(png) == 0 {
+				return ui.Text("这个链接太长，二维码装不下；用「复制链接」吧。", 11.5, ui.Regular, colors.Faint)
+			}
+			return core.View{Style: core.Style{Gap: 10, AlignItems: core.AlignCenter}, Children: []core.Node{
+				core.View{Style: core.Style{Padding: core.All(10), CornerRadius: 10, Background: core.RGBA(0xFFFFFF, 1)},
+					Children: []core.Node{core.Image{Source: core.ImageSource{Data: png}, ResizeMode: core.Contain,
+						Label: "连接二维码", Style: core.Style{Width: core.Pt(240), Height: core.Pt(240)}}}},
+				core.Text{Content: a.qrLink.Get(), MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
+					Style: core.Style{FontFamily: ui.Mono, FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
+			}}
+		})},
+	}
 }
