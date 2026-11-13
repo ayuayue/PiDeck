@@ -105,7 +105,11 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 				case chat.Failed:
 					parts[0] = "出错 · " + parts[0]
 				}
-				return strings.Join(parts, " · ")
+				summary := strings.Join(parts, " · ")
+				if tt.Plan {
+					summary = T("计划") + " · " + summary
+				}
+				return summary
 			},
 			Working: func() string {
 				tt := t()
@@ -170,7 +174,18 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			},
 			Actions: func(cx *core.Scope) core.Node {
 				tt := t()
-				return core.Group{
+				var planActions []core.Node
+				if tt.Plan {
+					planActions = append(planActions,
+						chat.IconAction{Label: "执行计划", Icon: lucide.Play,
+							Disabled: func() bool { return t().running() || t().Final == "" },
+							OnPress:  func() { a.executePlan(s, tt) }},
+						chat.IconAction{Label: "修改计划", Icon: lucide.PencilLine,
+							Disabled: func() bool { return t().Final == "" },
+							OnPress:  func() { a.editPlan(s, tt) }},
+					)
+				}
+				return core.Group(append(planActions, []core.Node{
 					chat.IconAction{Label: "复制提问", Icon: lucide.Quote, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() { a.copyText(tt.Prompt, "提问") }},
 					chat.IconAction{Label: "把提问放回输入框", Icon: lucide.PencilLine, Disabled: func() bool { return tt.Prompt == "" },
@@ -193,7 +208,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					chat.IconAction{Label: "从这里分叉", Icon: lucide.GitBranch, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() { a.forkSession(s, tt.ID) }},
 					chat.IconAction{Label: "重试", Icon: lucide.RefreshCw, OnPress: func() { a.retry(s, tt) }},
-				}
+				}...))
 			},
 			ShowActions: func() bool {
 				tt := t()
@@ -605,7 +620,11 @@ func (a *app) composer(s *session) core.Node {
 // composerAccessory is the model and thinking controls.
 func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
-		return core.Group{a.modelMenu(s, s.modelOpen), a.effortPicker(s)}
+		return core.Group{
+			ui.IconButton{Icon: lucide.ClipboardList, Label: "计划模式", Size: 26, IconSize: 13, TestID: "plan-mode",
+				Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }},
+			a.modelMenu(s, s.modelOpen), a.effortPicker(s),
+		}
 	}
 }
 

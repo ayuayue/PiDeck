@@ -213,6 +213,9 @@ type turn struct {
 	Tools   int
 	Msgs    int    // messages committed, for the next step's ID
 	Noticed string // a live status note, such as a retry
+	// Plan marks a turn that asked for a plan first; its answer is a
+	// plan the user can execute or edit.
+	Plan bool
 }
 
 // running reports whether the turn can still change.
