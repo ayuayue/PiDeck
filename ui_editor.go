@@ -194,6 +194,10 @@ func (a *app) editorStatus() core.Node {
 func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 	if node.Dir {
 		return []core.Node{
+			a.menuRow(a.cx, lucide.FilePlus, "新建文件", "", false, func() { a.newFileIn(node.Path) }),
+			a.menuRow(a.cx, lucide.FolderPlus, "新建文件夹", "", false, func() { a.newFolderIn(node.Path) }),
+			a.menuRow(a.cx, lucide.PencilLine, "重命名", "", false, func() { a.renameFileNode(node.Path) }),
+			a.menuSeparator(a.cx),
 			a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() {
 				if err := revealFolder(localTarget, node.Path); err != nil {
 					a.toast(ui.ToastError, "打不开文件夹", err.Error())
@@ -208,6 +212,8 @@ func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 		a.menuRow(a.cx, lucide.FileCode, "在编辑器中打开", "", false, func() {
 			a.openEditorFile(root, node.Path)
 		}),
+		a.menuRow(a.cx, lucide.PencilLine, "重命名", "", false, func() { a.renameFileNode(node.Path) }),
+		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.AtSign, "插入 @ 路径到输入框", "", false, func() {
 			a.mentionFile(node.Path)
 		}),

@@ -256,6 +256,36 @@ func (a *app) reloadActiveFile() {
 	a.editor.load(f)
 }
 
+// renamePath follows a file or folder renamed on disk: open tabs, their
+// names and languages, and the active tab.
+func (h *editorHost) renamePath(old, next string) {
+	if h == nil || old == "" || old == next {
+		return
+	}
+	sep := string(filepath.Separator)
+	move := func(p string) string {
+		if p == old {
+			return next
+		}
+		if strings.HasPrefix(p, old+sep) {
+			return next + p[len(old):]
+		}
+		return p
+	}
+	for _, f := range h.files.GetUntracked() {
+		updated := move(f.Path)
+		if updated == f.Path {
+			continue
+		}
+		f.Path = updated
+		f.Name = filepath.Base(updated)
+		f.Lang = editorLanguage(updated)
+	}
+	if active := h.active.GetUntracked(); active != "" {
+		h.active.Set(move(active))
+	}
+}
+
 // closeEditorFile closes one file, asking when it is unsaved.
 func (a *app) closeEditorFile(f *editorFile) {
 	if f == nil || a.editor == nil {

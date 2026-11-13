@@ -111,7 +111,13 @@ func TestMobileConnect(t *testing.T) {
 	waitApp(app, "text:电脑项目", 15*time.Second)
 	app.WaitFor("id:mobile-session", 10*time.Second)
 	shot(app, "60-mobile-sessions")
-	app.Press("id:mobile-session")
+	// A press can land while the list is still settling; try again.
+	for i := 0; i < 3; i++ {
+		app.Press("id:mobile-session")
+		if waitQuiet(app, "text:看到了，这是电脑上的会话。", 5*time.Second) {
+			break
+		}
+	}
 	waitApp(app, "text:看到了，这是电脑上的会话。", 15*time.Second)
 	shot(app, "61-mobile-transcript")
 	// Tool calls fold into one row that opens in place.

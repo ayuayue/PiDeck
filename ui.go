@@ -28,6 +28,7 @@ func (a *app) view() core.Node {
 		a.targetDialog(),
 		a.settingsDialog(),
 		a.renameDialog(),
+		a.fileOpDialog(),
 		a.confirmDialog(),
 		a.askDialog(),
 		a.remoteQRDialog(),

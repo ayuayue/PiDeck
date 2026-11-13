@@ -267,11 +267,16 @@ type app struct {
 	renameOpen  *core.Signal[bool]
 	renameText  *core.Signal[string]
 	renameID    string
-	confirmOpen *core.Signal[bool]
-	confirmHead *core.Signal[string]
-	confirmBody *core.Signal[string]
-	confirmWhy  *core.Signal[string]
-	confirmFn   func()
+	// The file name dialog: new file, new folder or rename.
+	fileOpOpen   *core.Signal[bool]
+	fileOpTitle  *core.Signal[string]
+	fileOpText   *core.Signal[string]
+	fileOpAction func(string)
+	confirmOpen  *core.Signal[bool]
+	confirmHead  *core.Signal[string]
+	confirmBody  *core.Signal[string]
+	confirmWhy   *core.Signal[string]
+	confirmFn    func()
 
 	pick *pickerState
 
@@ -351,6 +356,9 @@ func newApp(cx *core.Scope) *app {
 		importOpen:       core.NewSignal(cx, false),
 		renameOpen:       core.NewSignal(cx, false),
 		renameText:       core.NewSignal(cx, ""),
+		fileOpOpen:       core.NewSignal(cx, false),
+		fileOpTitle:      core.NewSignal(cx, ""),
+		fileOpText:       core.NewSignal(cx, ""),
 		confirmOpen:      core.NewSignal(cx, false),
 		confirmHead:      core.NewSignal(cx, ""),
 		confirmBody:      core.NewSignal(cx, ""),
