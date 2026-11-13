@@ -65,7 +65,12 @@ function jsonlSession(turnCount) {
 
 test("attaching a persisted Session never asks pi for get_messages", () => {
 	const source = agentManagerSource;
-	const createUnlocked = source.slice(source.indexOf("private async createUnlocked"), source.indexOf("\n\tasync rename("));
+	// 创建域已迁到 pi/agentFactoryLocal.ts（宿主只留同名薄包装，不再是 async）：
+	// 从实现起点切到下一个文件边界（聚合面用 "// <path>" 分隔），避免把后续文件卷进否定断言。
+	const createStart = source.indexOf("private async createUnlocked");
+	assert.ok(createStart >= 0, "createUnlocked implementation must be in the aggregate");
+	const nextFile = source.indexOf("\n// src/main/pi/", createStart + 10);
+	const createUnlocked = source.slice(createStart, nextFile > createStart ? nextFile : undefined);
 	// 握手后历史必须走 JSONL 尾部；get_messages 单行 JSON.parse 会冻住整个 Electron。
 	assert.match(createUnlocked, /readRecentMessagesFromSessionFile/);
 	assert.doesNotMatch(createUnlocked, /client\.request\(\{\s*type:\s*"get_messages"/);
