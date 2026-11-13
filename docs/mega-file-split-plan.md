@@ -195,11 +195,11 @@
 | W1 | `renderer/src/previewApi.ts` | 2409 | ≤400 | ✅ 38 行 |
 | W2 | `preload/index.ts` | 2157 | ≤400 | ✅ 56 行 |
 | W3 | `main/index.ts` 启动装配 | 8307 | ≤5800 | ⏳ 8288（只搬了 resourceStores；装配体需先做 accessor 化） |
-| W4 | `main/index.ts` registerIpc + 窗口 | — | ≤3900 | ⏳ 10 个 stack + `window/mainWindow.ts`，index 6372 |
+| W4 | `main/index.ts` registerIpc + 窗口 + 启动装配 | — | ≤3900 | ⏳ 10 个 stack + mainWindow + services/sidecars，index 6131 |
 | W5 | `main/index.ts` 窗口/生命周期 | — | ≤2800 | ⏳ `window/tray.ts` 178 行，index 7308→7199 |
 | W6 | `main/index.ts` 收尾 | — | ≤1500 | 未开工 |
 | W7 | `renderer/src/App.tsx` JSX | 4065 | ≤3600 | ✅ 3461 行（4 个 workbench 组件） |
-| W8 | `renderer/src/App.tsx` 剩余域 | — | ≤1600 | ⏳ 2939（4 个 hook 域） |
+| W8 | `renderer/src/App.tsx` 剩余域 | — | ≤1600 | ⏳ 2762（6 个 hook 域） |
 | W9 | `pi/AgentManager.ts` | 7268 | ≤5500 | ⏳ 5854（5 个协作者：toolMessageAssembler 392 / runtimeHistoryLoader 420 / compactionRunner 382 / runtimeStateReader 400 / processReattach 578） |
 | W10 | `ipc/sessionIpc.ts` | 1885 | ≤400/文件 | ✅ 563 行（12 个域文件） |
 | W11 | `ipc/systemIpc.ts` | 1234 | ≤400/文件 | ✅ 达标 |
@@ -241,3 +241,20 @@
 另外两条运维事实：
 - **子代理自验的 typecheck 不可信**：并行期间别人的在飞文件会污染全量 tsc，子代理因此漏报过自己的错误（`runtimeStateReader` 的 6 个 private 方法）。**父代理必须自己跑一次全量 typecheck**。
 - **超时不等于没干活**：ConfigModal 的子代理 30 分钟超时，但落地了 4 个 Tab；反过来，顺利「完成」的子代理也可能带着未达标行数交付（`processReattach` 578 > 400 目标）。行数目标只能当参考，门禁与测试才是判据。
+
+## 第四轮并行波次（2026-11-13，5 个子代理 + 1 次重试）
+
+| 波次 | 目标 | 前 | 后 | 落地形态 |
+|---|---|---:|---:|---|
+| — | `main/index.ts` | 6372 | **6131** | `startup/services.ts 338`（30 个单例经返回值回填，唯一 owner 不变）+ `startup/sidecars.ts 183`（三个 Go sidecar + 提示词库双通道） |
+| — | `renderer/src/ConfigModal.tsx` | 2696 | **2492** | 5 个文件：`ConfigAuthTab 158` / `ConfigSettingsTab 97` / `ConfigTrustTab 61` / `ConfigRawTab 105` / `ConfigEnvSwitch 206` |
+| — | `renderer/src/App.tsx` | 2939 | **2762** | `useAppSessionPaneServices 260` + `useAppFileTreeTransfer 94` |
+| — | `main/pi/SessionHistoryReader.ts` | 2633 | **2106** | `sessionReader/{sessionMessageProjection 221, sessionEntryParsing 231, sessionTurnWindow 149}` |
+| — | `renderer/…/useSessionTimelineController.ts` | 2391 | **1813** | `hooks/session/timeline/{useTimelineScrollAnchor 487, useTimelineHistoryPaging 467}` |
+
+**本轮的四条经验**
+
+1. **「抽 hook」的行数回收率只有 ~1/3**：ConfigModal 搬走 400+ 行，宿主只减 204 行——每个 Tab 的 hook 调用要在父组件占 15–30 行。要真降到 ≤1800，下一波得改抽**子组件**（JSX 整块搬走、props 只留身份），而不是继续抽状态 hook。
+2. **断言边界会反过来约束域边界**：timeline 的 4 个测试把两个域的正则钉死在源码文本上，正确解法是聚合 helper（`sessionTimelineControllerSources`）而不是改断言；若某条正则跨两个函数，就把这两个函数留在同一文件，域边界服从断言边界。
+3. **嵌套引号的 grep 会挂死 bash**（不是管道问题）：`grep -rn "readFileSync(\"x.ts\")\|readFileSync('x.ts')"` 引号没闭合，bash 等续行永不返回。需要匹配带引号的代码时把模式写进 `.tmp/pat.txt` 再 `grep -f`。
+4. **上游 merge 会让门禁「假红」**：`a16b7e704` 合入 origin/dev 后，`WebTimeline 935→990`、`webApi 777→790`、`WebEventStream 694→697` 与 `tests/webLayout` 新增的只读源码块全被门禁抓到。这是基线快照过期，不是本轮改动——已把这三条额度对齐当前值与 `testShapeBaseline` 刷新（在单独 commit 里注明）。
