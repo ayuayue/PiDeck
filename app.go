@@ -245,6 +245,10 @@ type app struct {
 	// langRev changes when the interface language does, so pages that
 	// hold static text rebuild.
 	langRev *core.Signal[int]
+	// events carries app events to subscribers and plugin hooks; inHook
+	// stops a hook's own action from triggering hooks again.
+	events eventBus
+	inHook bool
 
 	workspaces *core.Signal[[]*workspace]
 	activeWS   *core.Signal[string]
@@ -1115,6 +1119,7 @@ func (a *app) selectSession(s *session) {
 		a.git.attach(a.workspaceFor(s.Target, s.WS))
 	}
 	a.remember()
+	a.emit("session.opened", appEvent{Session: s})
 }
 
 // addTab appends a tab once.
@@ -2948,6 +2953,16 @@ func (a *app) settled(s *session, ev piEvent) {
 		a.notifyTurnDone(s)
 		a.notifyFeishu(s, "完成", lastAnswer(s))
 	}
+	status := "completed"
+	switch {
+	case ev.Aborted:
+		status = "cancelled"
+	case s.status.GetUntracked() == statusFailed:
+		status = "failed"
+	}
+	a.emit("turn.done", appEvent{Session: s, Data: map[string]string{
+		"status": status, "answer": lastAnswer(s), "error": s.notice.GetUntracked(),
+	}})
 	if a.activeID.GetUntracked() == s.ID && s.conversation.AtLatest() {
 		s.conversation.JumpToLatest()
 	}
@@ -3305,6 +3320,7 @@ func (a *app) setTheme(name string) {
 	a.theme.Set(name)
 	a.applyTheme()
 	a.st.edit(func(c *config) { c.Theme = name })
+	a.emit("theme.changed", appEvent{Data: map[string]string{"theme": name}})
 }
 
 // openWorkspaceFolder reveals a folder in the file manager of the machine

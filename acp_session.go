@@ -223,6 +223,20 @@ func (a *app) acpFinish(s *session, turnID, stop string, err error) {
 		a.notifyTurnDone(s)
 		a.notifyFeishu(s, "完成", lastAnswer(s))
 	}
+	status := "completed"
+	switch {
+	case err != nil:
+		status = "failed"
+	case stop == "cancelled":
+		status = "cancelled"
+	}
+	detail := ""
+	if err != nil {
+		detail = err.Error()
+	}
+	a.emit("turn.done", appEvent{Session: s, Data: map[string]string{
+		"status": status, "answer": lastAnswer(s), "error": detail,
+	}})
 }
 
 // applyACPUpdate folds one session/update into the running turn.

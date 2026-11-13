@@ -143,6 +143,10 @@ type pluginContrib struct {
 	Themes      []string           `yaml:"themes" json:"themes"`
 	Keybindings []pluginKeybinding `yaml:"keybindings" json:"keybindings"`
 	Settings    []pluginSetting    `yaml:"settings" json:"settings"`
+	// Hooks run an action when an app event happens. Only events and
+	// actions that cannot start another turn are allowed, so a hook
+	// cannot loop.
+	Hooks map[string][]pluginAction `yaml:"hooks" json:"hooks"`
 }
 
 // pluginSetting is one value a plugin asks the user for. Commands read it
@@ -396,6 +400,7 @@ func (a *app) loadPlugins() []plugin {
 // contributes shape and checks each command and theme path.
 func normalizePlugin(p *plugin) {
 	declared := normalizePluginSettings(p)
+	normalizePluginHooks(p)
 	for i, pr := range p.Prompts {
 		if strings.TrimSpace(pr.Title) == "" || strings.TrimSpace(pr.Prompt) == "" {
 			continue
@@ -601,6 +606,47 @@ func (a *app) expandPluginText(p plugin, text string) string {
 	return pluginSettingRef.ReplaceAllStringFunc(text, func(m string) string {
 		return pluginSettingValue(a.cfg.PluginSettings, p, pluginSettingRef.FindStringSubmatch(m)[1])
 	})
+}
+
+// appEvents are the events a plugin hook may listen to.
+var appEvents = map[string]bool{"turn.done": true, "session.opened": true, "theme.changed": true}
+
+// normalizePluginHooks checks a plugin's hooks: a known event, and an
+// action that cannot start another turn.
+func normalizePluginHooks(p *plugin) {
+	if len(p.Contributes.Hooks) == 0 {
+		return
+	}
+	out := map[string][]pluginAction{}
+	for name, actions := range p.Contributes.Hooks {
+		name = strings.TrimSpace(name)
+		if !appEvents[name] {
+			p.Warnings = append(p.Warnings, "跳过不认识的事件："+name)
+			continue
+		}
+		if len(actions) > 20 {
+			p.Warnings = append(p.Warnings, fmt.Sprintf("事件 %s 的动作超过 20 个，只保留前 20 个", name))
+			actions = actions[:20]
+		}
+		var kept []pluginAction
+		for _, a := range actions {
+			switch a.Type {
+			case "url", "command", "theme":
+			default:
+				p.Warnings = append(p.Warnings, fmt.Sprintf("事件 %s 只允许 url / command / theme 动作，跳过 %q", name, a.Type))
+				continue
+			}
+			if err := validateAction(a); err != nil {
+				p.Warnings = append(p.Warnings, fmt.Sprintf("事件 %s：%v", name, err))
+				continue
+			}
+			kept = append(kept, a)
+		}
+		if len(kept) > 0 {
+			out[name] = kept
+		}
+	}
+	p.Contributes.Hooks = out
 }
 
 // validateAction checks a plugin command's action shape.

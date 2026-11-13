@@ -326,25 +326,29 @@ func (a *app) runPluginCommand(pluginID, commandID string) {
 
 // runPluginAction carries out a plugin command's action.
 func (a *app) runPluginAction(p plugin, c pluginCommand) {
+	a.runPluginActionFor(p, c, a.active(), nil)
+}
+
+// runPluginActionFor carries out an action for a command or an event's
+// hook, with the event's data available to ${event:key}.
+func (a *app) runPluginActionFor(p plugin, c pluginCommand, s *session, data map[string]string) {
 	act := c.Action
-	act.Prompt = a.expandPluginText(p, act.Prompt)
-	act.Command = a.expandPluginText(p, act.Command)
-	act.URL = a.expandPluginText(p, act.URL)
-	act.Theme = a.expandPluginText(p, act.Theme)
+	act.Prompt = a.expandPluginTextFor(p, act.Prompt, data)
+	act.Command = a.expandPluginTextFor(p, act.Command, data)
+	act.URL = a.expandPluginTextFor(p, act.URL, data)
+	act.Theme = a.expandPluginTextFor(p, act.Theme, data)
 	switch act.Type {
 	case "prompt", "insert", "":
 		if strings.TrimSpace(act.Prompt) == "" {
 			a.toast(ui.ToastError, "插件命令没有内容", c.Title)
 			return
 		}
-		s := a.active()
 		if s == nil {
 			a.toast(ui.ToastInfo, "先开一个会话", "插件命令会把内容放进输入框。")
 			return
 		}
 		s.draft.Set(act.Prompt)
 	case "send":
-		s := a.active()
 		if s == nil {
 			a.toast(ui.ToastInfo, "先开一个会话", "插件命令要发送到会话。")
 			return

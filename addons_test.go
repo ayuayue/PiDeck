@@ -4,6 +4,7 @@ package main
 // the looks, the add-ons, and pi's own sessions in the rail.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -504,4 +505,92 @@ func TestPluginSettingUI(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// TestPluginHooks checks a manifest's hooks are limited to safe actions
+// and known events.
+func TestPluginHooks(t *testing.T) {
+	p := plugin{ID: "team", Contributes: pluginContrib{Hooks: map[string][]pluginAction{
+		"session.opened": {{Type: "command", Command: "sidebar"}},
+		"turn.done":      {{Type: "url", URL: "https://example.com/?s=${event:session}"}},
+		"theme.changed":  {{Type: "prompt", Prompt: "no"}, {Type: "theme", Theme: "dark"}},
+		"bogus":          {{Type: "url", URL: "https://example.com"}},
+	}}}
+	normalizePlugin(&p)
+	if len(p.Contributes.Hooks["session.opened"]) != 1 || len(p.Contributes.Hooks["turn.done"]) != 1 {
+		t.Fatalf("hooks = %+v", p.Contributes.Hooks)
+	}
+	if len(p.Contributes.Hooks["theme.changed"]) != 1 || p.Contributes.Hooks["theme.changed"][0].Type != "theme" {
+		t.Fatalf("theme hooks = %+v", p.Contributes.Hooks["theme.changed"])
+	}
+	if _, ok := p.Contributes.Hooks["bogus"]; ok {
+		t.Fatal("an unknown event stayed")
+	}
+	if len(p.Warnings) < 2 {
+		t.Fatalf("warnings = %v", p.Warnings)
+	}
+}
+
+// TestEventText checks ${setting:key} and ${event:key} in one text.
+func TestEventText(t *testing.T) {
+	a := &app{cfg: config{PluginSettings: map[string]string{"team/lang": "en"}}}
+	p := plugin{ID: "team", Contributes: pluginContrib{Settings: []pluginSetting{{Key: "lang", Default: "zh"}}}}
+	got := a.expandPluginTextFor(p, "说 ${setting:lang}，会话 ${event:title}", map[string]string{"title": "T"})
+	if got != "说 en，会话 T" {
+		t.Fatalf("text = %q", got)
+	}
+}
+
+// TestEventBus checks subscribers run in order with the event's data.
+func TestEventBus(t *testing.T) {
+	a := &app{}
+	var got []string
+	a.on("x", func(ev appEvent) { got = append(got, ev.Data["v"]) })
+	a.on("x", func(appEvent) { got = append(got, "second") })
+	a.emit("x", appEvent{Data: map[string]string{"v": "1"}})
+	if strings.Join(got, ",") != "1,second" {
+		t.Fatalf("got = %v", got)
+	}
+}
+
+// TestPluginHookCommand runs a plugin hook when a session opens.
+func TestPluginHookCommand(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := editorWorkspace(t)
+	workspace := editorWorkspace(t)
+	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"id":"hook","name":"钩子插件","version":"1.0.0","contributes":{"hooks":{"session.opened":[{"type":"command","command":"sidebar"}]}}}`
+	if err := os.WriteFile(filepath.Join(dir, "hook.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "钩子项目", Expanded: true}},
+		Theme: "system", SidebarOpen: true, ScanPi: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
+	// Plugins load in the background; wait until this one is listed.
+	app.WaitFor("id:welcome-primary", 10*time.Second)
+	app.Press("label:设置")
+	app.Press("id:settings-tab-addons")
+	app.WaitFor("text:钩子插件", 15*time.Second)
+	app.Press("id:settings-done")
+	app.WaitForGone("id:settings-tab-addons", 5*time.Second)
+	// Opening the first session runs the hook, which toggles the sidebar off.
+	app.Press("id:welcome-primary")
+	app.WaitForGone("id:sidebar-panel", 5*time.Second)
+	app.Key("mod+b")
+	app.WaitFor("id:sidebar-panel", 5*time.Second)
 }

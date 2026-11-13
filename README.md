@@ -309,6 +309,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `feishu.go` | 飞书群机器人：签名、发送与一轮完成通知 |
 | `netproxy.go` | 网络代理：应用请求与 Agent 进程分开，HTTP 客户端与进程环境变量 |
 | `agents.go` | 内置/自定义智能体：提示词前缀、选择对话框、会话绑定与持久化 |
+| `events.go` | 应用事件总线：订阅、插件 hooks、`${event:…}` 占位符与防递归 |
 | `projects.go` | 项目分组、置顶、排序与顺序持久化 |
 | `ui_projects.go` | 项目分组对话框：名称输入与已有分组建议 |
 | `import_ext.go` | 导入 Codex / Claude 会话：识别格式、提取消息、写成 pi 会话 |
@@ -419,13 +420,19 @@ knob code info down`。
        "action": {"type": "command", "command": "compact"}}
     ],
     "themes": ["themes/team-blue.json"],
-    "keybindings": [{"command": "review", "key": "mod+shift+r"}]
+    "keybindings": [{"command": "review", "key": "mod+shift+r"}],
+    "hooks": {
+      "turn.done": [{"type": "url", "url": "https://example.com/done?s=${event:session}"}]
+    }
   }
 }
 ```
 
 - `action.type`：`prompt` / `insert` 填进输入框，`send` 直接发送，`command` 执行内置命令，
   `url` 打开 http(s) 链接，`theme` 切换主题（可写 id 或显示名）
+- `contributes.hooks` 让插件在事件上做事：`turn.done` / `session.opened` / `theme.changed`，
+  动作只允许 `url` / `command` / `theme`（不能起新一轮，避免自激）；文本里可用
+  `${event:session}` / `${event:title}` / `${event:project}` / `${event:status}` / `${event:answer}`
 - `contributes.settings` 声明插件设置：`type` 为 `bool` / `string` / `number` / `select`，
   `select` 需要 `options`；设置显示在 设置 → 扩展 的插件条目下，值存 `config.json` 的
   `pluginSettings`（键为 `<插件 id>/<key>`）

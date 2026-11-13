@@ -880,6 +880,15 @@ func (a *app) settingsAddons() core.Node {
 				lines = append(lines, core.Text{Content: "· 键位 " + kb.Key + " → " + kb.Command,
 					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)})
 			}
+			var hooks []string
+			for name := range plug.Contributes.Hooks {
+				hooks = append(hooks, name)
+			}
+			sort.Strings(hooks)
+			for _, name := range hooks {
+				lines = append(lines, core.Text{Content: fmt.Sprintf("· 事件 %s → %d 个动作", name, len(plug.Contributes.Hooks[name])),
+					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)})
+			}
 			if len(lines) > 0 {
 				rows = append(rows, core.View{Style: core.Style{Padding: core.Edges{Left: 4, Bottom: 4}, Gap: 1}, Children: lines})
 			}

@@ -719,7 +719,13 @@ func TestMobileAsk(t *testing.T) {
 	app.Press("id:mobile-connect")
 	waitApp(app, "text:电脑项目", 15*time.Second)
 	app.WaitFor("id:mobile-session", 10*time.Second)
-	app.Press("id:mobile-session")
+	// The press can land while the list settles; try again.
+	for i := 0; i < 3; i++ {
+		app.Press("id:mobile-session")
+		if waitQuiet(app, "id:mobile-ask", 5*time.Second) {
+			break
+		}
+	}
 	waitApp(app, "id:mobile-ask", 15*time.Second)
 	app.Press("id:mobile-ask-allow")
 	deadline := time.Now().Add(10 * time.Second)
