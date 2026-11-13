@@ -86,6 +86,12 @@ type mobileApp struct {
 	toolOpen *core.Signal[string]
 	longOpen *core.Signal[string]
 
+	// scroll is the transcript's scroller; atBottom says it rests at the
+	// end, notice is a short confirmation over the composer.
+	scroll   *core.Ref
+	atBottom *core.Signal[bool]
+	notice   *core.Signal[string]
+
 	stateLoading      bool
 	transcriptLoading bool
 	refreshing        *core.Signal[bool]
@@ -127,6 +133,9 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		optionsOpen:    core.NewSignal(cx, false),
 		toolOpen:       core.NewSignal(cx, ""),
 		longOpen:       core.NewSignal(cx, ""),
+		scroll:         &core.Ref{},
+		atBottom:       core.NewSignal(cx, true),
+		notice:         core.NewSignal(cx, ""),
 	}
 	if saved := loadMobileSaved(cx); saved.Server != "" {
 		a.server.Set(saved.Server)
@@ -371,58 +380,59 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 						StyleFunc: ui.Colored(colors.Danger)},
 				}}
 		}},
-		core.Scroll{Style: ui.FillRest, Children: []core.Node{
-			core.Dynamic(func(cx *core.Scope) core.Node {
-				snap := a.state.Get()
-				query := strings.ToLower(strings.TrimSpace(a.query.Get()))
-				var sections []core.Node
-				for _, project := range snap.Projects {
-					p := project
-					matched := make([]remoteWireSession, 0, len(p.Sessions))
-					for _, session := range p.Sessions {
-						if query == "" || strings.Contains(strings.ToLower(session.Title), query) {
-							matched = append(matched, session)
+		core.Scroll{Style: ui.FillRest, OnRefresh: a.refreshState, Refreshing: a.refreshing.Get,
+			Children: []core.Node{
+				core.Dynamic(func(cx *core.Scope) core.Node {
+					snap := a.state.Get()
+					query := strings.ToLower(strings.TrimSpace(a.query.Get()))
+					var sections []core.Node
+					for _, project := range snap.Projects {
+						p := project
+						matched := make([]remoteWireSession, 0, len(p.Sessions))
+						for _, session := range p.Sessions {
+							if query == "" || strings.Contains(strings.ToLower(session.Title), query) {
+								matched = append(matched, session)
+							}
 						}
+						if len(matched) == 0 {
+							continue
+						}
+						rows := make([]core.Node, 0, len(matched))
+						for _, session := range matched {
+							rows = append(rows, a.mobileSessionRow(cx, session))
+						}
+						sections = append(sections, core.View{Style: core.Style{Gap: 2, Margin: core.Edges{Bottom: 14}}, Children: []core.Node{
+							core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(8, 16)}, Children: []core.Node{
+								ui.Icon(lucide.Folder, 13, colors.Muted),
+								core.Text{Content: p.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+									Style: core.Style{FlexGrow: 1, FontSize: 12, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
+								ui.Text(fmt.Sprint(len(matched)), 10, ui.Regular, colors.Faint),
+							}},
+							core.View{Style: core.Style{Gap: 1}, Children: rows},
+						}})
 					}
-					if len(matched) == 0 {
-						continue
+					switch {
+					case len(sections) > 0:
+					case query != "":
+						sections = append(sections, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+							ui.Icon(lucide.SearchX, 28, colors.Faint),
+							ui.Text("没有匹配的会话", 13, ui.Medium, colors.Muted),
+							ui.Text("换个词试试，或者新建一个会话。", 11.5, ui.Regular, colors.Faint),
+						}})
+					default:
+						sections = append(sections, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+							ui.Icon(lucide.Laptop, 30, colors.Faint),
+							ui.Text("电脑上还没有会话", 13, ui.Medium, colors.Muted),
+							ui.Text("点右上角的新建，直接在手机上开始。", 11.5, ui.Regular, colors.Faint),
+							core.View{Style: core.Style{Margin: core.Edges{Top: 6}}, Children: []core.Node{
+								ui.Button{Text: "新建会话", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-new-empty",
+									OnPress: a.startNewSession},
+							}},
+						}})
 					}
-					rows := make([]core.Node, 0, len(matched))
-					for _, session := range matched {
-						rows = append(rows, a.mobileSessionRow(cx, session))
-					}
-					sections = append(sections, core.View{Style: core.Style{Gap: 2, Margin: core.Edges{Bottom: 14}}, Children: []core.Node{
-						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(8, 16)}, Children: []core.Node{
-							ui.Icon(lucide.Folder, 13, colors.Muted),
-							core.Text{Content: p.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-								Style: core.Style{FlexGrow: 1, FontSize: 12, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
-							ui.Text(fmt.Sprint(len(matched)), 10, ui.Regular, colors.Faint),
-						}},
-						core.View{Style: core.Style{Gap: 1}, Children: rows},
-					}})
-				}
-				switch {
-				case len(sections) > 0:
-				case query != "":
-					sections = append(sections, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-						ui.Icon(lucide.SearchX, 28, colors.Faint),
-						ui.Text("没有匹配的会话", 13, ui.Medium, colors.Muted),
-						ui.Text("换个词试试，或者新建一个会话。", 11.5, ui.Regular, colors.Faint),
-					}})
-				default:
-					sections = append(sections, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-						ui.Icon(lucide.Laptop, 30, colors.Faint),
-						ui.Text("电脑上还没有会话", 13, ui.Medium, colors.Muted),
-						ui.Text("点右上角的新建，直接在手机上开始。", 11.5, ui.Regular, colors.Faint),
-						core.View{Style: core.Style{Margin: core.Edges{Top: 6}}, Children: []core.Node{
-							ui.Button{Text: "新建会话", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-new-empty",
-								OnPress: a.startNewSession},
-						}},
-					}})
-				}
-				return core.View{Style: core.Style{Padding: core.Edges{Top: 10, Bottom: 24, Left: 8, Right: 8}, Gap: 0}, Children: sections}
-			}),
-		}},
+					return core.View{Style: core.Style{Padding: core.Edges{Top: 10, Bottom: 24, Left: 8, Right: 8}, Gap: 0}, Children: sections}
+				}),
+			}},
 	}}
 }
 
@@ -624,58 +634,89 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 						StyleFunc: ui.Colored(colors.Danger)},
 				}}
 		}},
-		core.Scroll{Style: ui.FillRest, Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			msgs := a.messages.Get()
-			if a.transcriptBusy.Get() && len(msgs) == 0 {
-				return core.View{Style: core.Style{Padding: core.All(18), Gap: 14}, Children: []core.Node{
-					ui.Skeleton{Lines: 3, Avatar: true, Label: "正在读取会话"},
-					ui.Skeleton{Lines: 4, Avatar: true, Label: "正在读取会话"},
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Position: core.Relative}, Children: []core.Node{
+			core.Scroll{Ref: a.scroll, Style: ui.FillRest, ScrollEventThrottle: 120 * time.Millisecond,
+				OnScroll: func(e core.ScrollEvent) {
+					at := e.Offset.Y+e.Size.Height >= e.ContentSize.Height-90
+					if a.atBottom.GetUntracked() != at {
+						a.atBottom.Set(at)
+					}
+				}, Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+					msgs := a.messages.Get()
+					if a.transcriptBusy.Get() && len(msgs) == 0 {
+						return core.View{Style: core.Style{Padding: core.All(18), Gap: 14}, Children: []core.Node{
+							ui.Skeleton{Lines: 3, Avatar: true, Label: "正在读取会话"},
+							ui.Skeleton{Lines: 4, Avatar: true, Label: "正在读取会话"},
+						}}
+					}
+					query := strings.ToLower(strings.TrimSpace(a.findText.Get()))
+					matches := 0
+					if query != "" {
+						kept := make([]remoteWireMessage, 0, len(msgs))
+						for _, m := range msgs {
+							if strings.Contains(strings.ToLower(m.Text), query) {
+								kept = append(kept, m)
+							}
+						}
+						matches = len(kept)
+						msgs = kept
+					}
+					var rows []core.Node
+					if query != "" {
+						rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+							ui.Icon(lucide.Search, 12, colors.Faint),
+							ui.Text(fmt.Sprintf("匹配 %d 条", matches), 11, ui.Medium, colors.Faint),
+						}})
+					}
+					for i := 0; i < len(msgs); {
+						if msgs[i].Role == "tool" {
+							j := i
+							for j < len(msgs) && msgs[j].Role == "tool" {
+								j++
+							}
+							rows = append(rows, a.toolBlock(cx, msgs[i:j]))
+							i = j
+							continue
+						}
+						rows = append(rows, a.message(cx, msgs[i]))
+						i++
+					}
+					if len(rows) == 0 || (query != "" && matches == 0) {
+						empty := "这个会话还没有消息"
+						if query != "" {
+							empty = "没有匹配的消息"
+						}
+						rows = append(rows, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+							ui.Icon(lucide.MessageSquare, 26, colors.Faint),
+							ui.Text(empty, 12.5, ui.Regular, colors.Muted),
+						}})
+					}
+					return core.View{Selectable: true, Style: core.Style{Padding: core.Edges{Top: 14, Bottom: 20, Left: 14, Right: 14}, Gap: 12}, Children: rows}
+				})}},
+			core.Show{When: func() bool { return !a.atBottom.Get() && len(a.messages.Get()) > 0 }, Then: func(cx *core.Scope) core.Node {
+				colors := ui.ColorsOf(cx)
+				return core.View{OnPress: func(core.PressEvent) { a.scroll.ScrollToEnd(true) }, Role: core.RoleButton,
+					Label: "回到最新", TestID: "mobile-latest",
+					StyleFunc: func() core.Style {
+						return core.Style{Position: core.Absolute, Right: core.Pt(14), Bottom: core.Pt(12), Direction: core.Row,
+							AlignItems: core.AlignCenter, Gap: 4, Padding: core.Symmetric(6, 10), CornerRadius: 16,
+							Background: colors.Light(), Transition: pressMotion}
+					},
+					Children: []core.Node{
+						ui.Icon(lucide.ChevronDown, 12, colors.OnLight),
+						ui.Text("最新", 11, ui.Medium, colors.OnLight),
+					}}
+			}},
+			core.Show{When: func() bool { return a.notice.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+				colors := ui.ColorsOf(cx)
+				return core.View{Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(64),
+					AlignItems: core.AlignCenter, PointerEvents: core.PointerEventsBoxNone}, Children: []core.Node{
+					core.View{StyleFunc: func() core.Style {
+						return core.Style{Padding: core.Symmetric(6, 14), CornerRadius: 16, Background: colors.Light()}
+					}, Children: []core.Node{ui.Text(a.notice.Get(), 11.5, ui.Medium, colors.OnLight)}},
 				}}
-			}
-			query := strings.ToLower(strings.TrimSpace(a.findText.Get()))
-			matches := 0
-			if query != "" {
-				kept := make([]remoteWireMessage, 0, len(msgs))
-				for _, m := range msgs {
-					if strings.Contains(strings.ToLower(m.Text), query) {
-						kept = append(kept, m)
-					}
-				}
-				matches = len(kept)
-				msgs = kept
-			}
-			var rows []core.Node
-			if query != "" {
-				rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-					ui.Icon(lucide.Search, 12, colors.Faint),
-					ui.Text(fmt.Sprintf("匹配 %d 条", matches), 11, ui.Medium, colors.Faint),
-				}})
-			}
-			for i := 0; i < len(msgs); {
-				if msgs[i].Role == "tool" {
-					j := i
-					for j < len(msgs) && msgs[j].Role == "tool" {
-						j++
-					}
-					rows = append(rows, a.toolBlock(cx, msgs[i:j]))
-					i = j
-					continue
-				}
-				rows = append(rows, a.message(cx, msgs[i]))
-				i++
-			}
-			if len(rows) == 0 || (query != "" && matches == 0) {
-				empty := "这个会话还没有消息"
-				if query != "" {
-					empty = "没有匹配的消息"
-				}
-				rows = append(rows, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-					ui.Icon(lucide.MessageSquare, 26, colors.Faint),
-					ui.Text(empty, 12.5, ui.Regular, colors.Muted),
-				}})
-			}
-			return core.View{Selectable: true, Style: core.Style{Padding: core.Edges{Top: 14, Bottom: 20, Left: 14, Right: 14}, Gap: 12}, Children: rows}
-		})}},
+			}},
+		}},
 		a.sessionBar(cx),
 		a.composer(cx),
 	}}
@@ -830,8 +871,31 @@ func (a *mobileApp) toolBlock(cx *core.Scope, lines []remoteWireMessage) core.No
 	return core.View{Style: core.Style{Gap: 2}, Children: children}
 }
 
-// message draws one line of a remote transcript.
+// message draws one line of a remote transcript; holding it copies its
+// text.
 func (a *mobileApp) message(cx *core.Scope, m remoteWireMessage) core.Node {
+	body := a.messageBody(cx, m)
+	if strings.TrimSpace(m.Text) == "" {
+		return body
+	}
+	return core.View{OnLongPress: func(core.PressEvent) {
+		a.cx.SetClipboard(m.Text)
+		a.flash("已复制")
+	}, Children: []core.Node{body}}
+}
+
+// flash shows a short confirmation over the composer.
+func (a *mobileApp) flash(text string) {
+	a.notice.Set(text)
+	a.cx.AfterFunc(1600*time.Millisecond, func() {
+		if a.notice.GetUntracked() == text {
+			a.notice.Set("")
+		}
+	})
+}
+
+// messageBody draws one line, without the copy gesture.
+func (a *mobileApp) messageBody(cx *core.Scope, m remoteWireMessage) core.Node {
 	colors := ui.ColorsOf(cx)
 	switch m.Role {
 	case "user":
