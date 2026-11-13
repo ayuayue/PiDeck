@@ -23,14 +23,52 @@ go tool nsgo build -target windows_x64
 同一份代码的 Android/iOS 目标会显示连接页，而不是桌面工作台：
 
 ```sh
-go tool nsgo doctor                        # 检查 adb / Xcode / 模拟器
+go tool nsgo doctor                        # 检查 adb / NDK / Xcode / 模拟器
 go tool nsgo dev -target android           # 已连接的 Android 手机或模拟器
 go tool nsgo dev -target ios_simulator     # 需要 Mac + Xcode
-go tool nsgo build -target android_arm64   # 生成 APK
+go tool nsgo build -target android_arm64   # 手机用的 APK
+go tool nsgo build -target android_x64     # x86_64 模拟器用的 APK（需要 NDK）
 PIDECK_LITE_MOBILE=1 go tool nsgo dev      # 在桌面窗口预览手机页
 ```
 
 Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器；iOS 模拟器需要 Mac 和 Xcode。
+
+#### 装 Android 模拟器（Windows，一次性）
+
+```powershell
+winget install Google.AndroidCLI Google.PlatformTools
+android emulator create medium_phone        # 建 AVD，会下载系统镜像（约 2 GB）
+android emulator start medium_phone         # 起模拟器，跑起来后才返回
+```
+
+`android_x64` 目标（模拟器）需要 NDK，`android_arm64`（真机）不需要。装 NDK：
+
+```powershell
+# 下载 NDK r27c 并解压到 SDK 的 ndk/ 下
+curl -L -o $env:TEMP\ndk.zip https://dl.google.com/android/repository/android-ndk-r27c-windows.zip
+Expand-Archive $env:TEMP\ndk.zip -DestinationPath "$env:LOCALAPPDATA\Android\Sdk\ndk" -Force
+Rename-Item "$env:LOCALAPPDATA\Android\Sdk\ndk\android-ndk-r27c" "$env:LOCALAPPDATA\Android\Sdk\ndk\27.2.12479018"
+go tool nsgo doctor                          # 应显示 ✓ Android NDK 与 android_x64 ✓ ✓
+```
+
+#### 让模拟器连上桌面端
+
+模拟器把 `10.0.2.2` 指向宿主机，所以不走局域网也能连，端口就是「设置 → 远程」里的端口。
+
+1. 桌面端打开 `设置 → 远程`，开启「允许手机连接」；这一栏里有「Android 模拟器」一行
+2. 在仓库里运行：
+
+```powershell
+pwsh -File scripts/android.ps1 up      # 起模拟器（已在跑就跳过）
+pwsh -File scripts/android.ps1 app     # 构建 x86_64 包、安装、打开
+pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=…
+```
+
+3. 在模拟器窗口里点「连接地址」输入框，`Ctrl+V` 粘贴，点「连接」
+
+模拟器和宿主机共享剪贴板，所以复制链接后直接粘贴即可；地址里已经带了令牌，令牌框可以留空。
+
+`scripts/android.ps1 status` 会打印 SDK 路径、当前设备、AVD 和桌面端链接状态。
 
 ## 架构
 
@@ -187,6 +225,7 @@ Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器�
 | `remote_client.go` | 手机端 HTTP 客户端与连接串解析 |
 | `mobile.go` | 手机端连接页、项目/会话列表、只读会话历史 |
 | `ui_remote.go` | 桌面设置里的远程访问面板 |
+| `scripts/android.ps1` | 模拟器日常操作：启动、装包、复制连接链接、看状态 |
 | `ui.go` | 侧栏、标签、抽屉、命令面板、目标/重命名/确认/扩展对话框 |
 | `ui_menu.go` | 统一的菜单卡片、会话/项目右键菜单、模型/用量/项目弹层 |
 | `ui_settings.go` | 设置窗口：左栏分类 + 分节行（通用/模型与认证/外观/环境/扩展/数据/关于） |

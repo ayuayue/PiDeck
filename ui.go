@@ -30,6 +30,7 @@ func (a *app) view() core.Node {
 		a.gitDiffDialog(),
 		a.gitNewBranchDialog(),
 		a.providerDialog(),
+		a.promptDialog(),
 		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: "关闭", TestID: "toasts"},
 	}}
 }

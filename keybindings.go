@@ -28,6 +28,7 @@ func defaultKeybindings() []keyBinding {
 		{Command: "drawer", Key: "mod+j"},
 		{Command: "git", Key: "mod+shift+g"},
 		{Command: "terminal", Key: "ctrl+shift+t"},
+		{Command: "prompts", Key: "mod+shift+p"},
 		{Command: "settings", Key: "mod+,"},
 	}
 }

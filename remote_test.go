@@ -9,10 +9,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/nsgotest"
 )
 
@@ -153,4 +155,136 @@ func TestRemoteSettings(t *testing.T) {
 	app.WaitFor("text:连接方式", 5*time.Second)
 	app.Advance(500 * time.Millisecond)
 	shot(app, "62-remote-settings")
+}
+
+// TestRemoteSessionActions drives the phone's write endpoints against a
+// real app: create, rename, pin and delete.
+func TestRemoteSessionActions(t *testing.T) {
+	home := t.TempDir()
+	// The app keeps a watcher on the workspace; its folder is removed by
+	// hand so the test's own cleanup does not race it.
+	workspace, err := os.MkdirTemp("", "pideck-actions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		time.Sleep(200 * time.Millisecond)
+		_ = os.RemoveAll(workspace)
+	})
+	t.Setenv("PIDECK_LITE_HOME", home)
+	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "ActionsProject"}},
+		Theme: "system", SidebarOpen: true, ScanPi: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var built *app
+	root := func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		return built.view()
+	}
+	screen := nsgotest.Start(t, root, nsgotest.Size(1200, 800))
+	if built == nil || built.remote == nil {
+		t.Fatal("the app did not build its remote host")
+	}
+	built.remote.mu.Lock()
+	built.remote.token = "phone-token"
+	built.remote.mu.Unlock()
+	handler := built.remote.handler()
+
+	// The handler waits for the UI thread, so each request runs in its own
+	// goroutine while this one pumps the app.
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		done := make(chan *httptest.ResponseRecorder, 1)
+		go func() {
+			req := httptest.NewRequest(method, path, strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer phone-token")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			done <- rec
+		}()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			select {
+			case rec := <-done:
+				return rec
+			default:
+				if time.Now().After(deadline) {
+					t.Fatal("request timed out")
+				}
+				screen.Settle()
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+	}
+	stateSessions := func() []remoteWireSession {
+		rec := call(http.MethodGet, "/api/state", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("state = %d: %s", rec.Code, rec.Body.String())
+		}
+		var snap remoteWireSnapshot
+		if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+			t.Fatal(err)
+		}
+		var out []remoteWireSession
+		for _, p := range snap.Projects {
+			out = append(out, p.Sessions...)
+		}
+		return out
+	}
+
+	rec := call(http.MethodPost, "/api/sessions", `{"project":`+strconv.Quote(workspace)+`}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || created.ID == "" {
+		t.Fatalf("create body = %s", rec.Body.String())
+	}
+	if got := stateSessions(); len(got) != 1 || got[0].ID != created.ID {
+		t.Fatalf("sessions after create = %+v", got)
+	}
+
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/rename", `{"title":"手机起的名字"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rename = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := stateSessions(); len(got) != 1 || got[0].Title != "手机起的名字" {
+		t.Fatalf("title after rename = %+v", got)
+	}
+
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/pin", `{"pinned":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pin = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := stateSessions(); len(got) != 1 || !got[0].Pinned {
+		t.Fatalf("pinned after pin = %+v", got)
+	}
+
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/delete", `{}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := stateSessions(); len(got) != 0 {
+		t.Fatalf("sessions after delete = %+v", got)
+	}
+
+	// A missing session is a 400 with a readable message, not a panic.
+	rec = call(http.MethodPost, "/api/sessions/nope/rename", `{"title":"x"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown session = %d: %s", rec.Code, rec.Body.String())
+	}
+	// The token still guards every write.
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader("{}"))
+	unauthorized := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorized, req)
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("no token = %d", unauthorized.Code)
+	}
 }

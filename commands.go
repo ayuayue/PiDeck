@@ -156,6 +156,11 @@ func builtinCommands() []appCommand {
 				a.gitNewBranchOpen.Set(true)
 			}},
 
+		{ID: "prompts", Label: "提示词库", Group: "应用", Shortcut: "mod+shift+p", Icon: lucide.Library,
+			Run: func(a *app) { a.openPromptLibrary() }},
+		{ID: "save-prompt", Label: "保存当前草稿为提示词", Group: "会话", Icon: lucide.BookmarkPlus,
+			When: func(a *app) bool { return a.active() != nil },
+			Run:  func(a *app) { a.saveDraftPrompt() }},
 		{ID: "appearance", Label: "切换外观（浅色 / 深色 / 跟随系统）", Group: "应用", Icon: lucide.Sun,
 			Run: func(a *app) { a.cycleTheme() }},
 		{ID: "sidebar", Label: "显示 / 隐藏侧栏", Group: "应用", Shortcut: "mod+b", Icon: lucide.PanelLeft,

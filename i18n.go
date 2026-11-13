@@ -208,6 +208,8 @@ var messages = map[string]map[string]string{
 
 		// Commands.
 		"打开命令面板":               "Open command palette",
+		"提示词库":                 "Prompt library",
+		"保存当前草稿为提示词":           "Save the draft as a prompt",
 		"新建会话":                 "New session",
 		"关闭当前标签":               "Close current tab",
 		"下一个标签":                "Next tab",
@@ -355,6 +357,8 @@ var messages = map[string]map[string]string{
 
 		// Commands.
 		"打开命令面板":               "開啟指令面板",
+		"提示词库":                 "提示詞庫",
+		"保存当前草稿为提示词":           "將目前草稿存為提示詞",
 		"新建会话":                 "新增工作階段",
 		"关闭当前标签":               "關閉目前分頁",
 		"下一个标签":                "下一個分頁",

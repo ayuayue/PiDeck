@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -313,10 +314,12 @@ func (h *remoteHost) handler() http.Handler {
 	mux.HandleFunc("/api/ping", h.handlePing)
 	mux.HandleFunc("/api/state", h.handleState)
 	mux.HandleFunc("/api/session/", h.handleSession)
+	mux.HandleFunc("/api/sessions", h.handleCreateSession)
+	mux.HandleFunc("/api/sessions/", h.handleSessionAction)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -378,6 +381,242 @@ func writeRemoteJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+// decodeRemoteBody reads a small JSON request body.
+func decodeRemoteBody(r *http.Request, out any) error {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		return errors.New("读取请求失败")
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return errors.New("请求格式不对")
+	}
+	return nil
+}
+
+// handleCreateSession starts a session in one of the projects.
+func (h *remoteHost) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Project string `json:"project"`
+		Title   string `json:"title"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	project := strings.TrimSpace(body.Project)
+	var id, title string
+	var failure error
+	ok := h.app.withUI(func() {
+		ws := h.app.workspaceOf(project)
+		if ws == nil {
+			failure = errors.New("找不到这个项目")
+			return
+		}
+		s := h.app.newSession(ws.Path)
+		if s == nil {
+			failure = errors.New("新建会话失败")
+			return
+		}
+		if name := strings.TrimSpace(body.Title); name != "" {
+			s.title.Set(name)
+			if h.app.st != nil {
+				h.app.st.edit(func(c *config) { c.Titles[s.ID] = name })
+			}
+		}
+		id, title = s.ID, s.title.Get()
+	})
+	switch {
+	case !ok:
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+	case failure != nil:
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": failure.Error()})
+	default:
+		writeRemoteJSON(w, http.StatusOK, map[string]string{"id": id, "title": title})
+	}
+}
+
+// handleSessionAction runs one operation on a session.
+func (h *remoteHost) handleSessionAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	parts := strings.SplitN(rest, "/", 2)
+	id, err := url.PathUnescape(parts[0])
+	if err != nil || id == "" {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少会话 ID"})
+		return
+	}
+	action := ""
+	if len(parts) == 2 {
+		action = strings.Trim(parts[1], "/")
+	}
+	switch action {
+	case "prompt":
+		h.sessionPrompt(w, r, id)
+	case "stop":
+		h.sessionStop(w, id)
+	case "rename":
+		h.sessionRename(w, r, id)
+	case "pin":
+		h.sessionPin(w, r, id)
+	case "delete":
+		h.sessionDelete(w, id)
+	default:
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "没有这个操作"})
+	}
+}
+
+// sessionPrompt sends one message into a session, starting pi when the
+// session was never opened on the desktop.
+func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id string) {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	text := strings.TrimSpace(body.Text)
+	switch {
+	case text == "":
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "消息不能为空"})
+		return
+	case len([]rune(text)) > 20000:
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "消息太长了"})
+		return
+	}
+	var failure error
+	ok := h.app.withUI(func() {
+		s := h.app.byID[id]
+		if s == nil {
+			failure = errors.New("找不到这个会话")
+			return
+		}
+		h.app.submit(s, text, nil)
+	})
+	h.finishAction(w, ok, failure, map[string]any{"ok": true})
+}
+
+// sessionStop aborts the running turn.
+func (h *remoteHost) sessionStop(w http.ResponseWriter, id string) {
+	var failure error
+	ok := h.app.withUI(func() {
+		s := h.app.byID[id]
+		if s == nil {
+			failure = errors.New("找不到这个会话")
+			return
+		}
+		if s.busyNow() {
+			h.app.stop(s)
+		}
+	})
+	h.finishAction(w, ok, failure, map[string]any{"ok": true})
+}
+
+// sessionRename sets a session's name, here and in pi.
+func (h *remoteHost) sessionRename(w http.ResponseWriter, r *http.Request, id string) {
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	name := strings.TrimSpace(body.Title)
+	switch {
+	case name == "":
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "名字不能为空"})
+		return
+	case len([]rune(name)) > 80:
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "名字太长了"})
+		return
+	}
+	var failure error
+	ok := h.app.withUI(func() {
+		s := h.app.byID[id]
+		if s == nil {
+			failure = errors.New("找不到这个会话")
+			return
+		}
+		s.title.Set(name)
+		if h.app.st != nil {
+			h.app.st.edit(func(c *config) { c.Titles[s.ID] = name })
+		}
+		if s.engine != nil {
+			go func(c *piClient) {
+				_ = c.call(map[string]any{"type": "set_session_name", "name": name}, nil, 10*time.Second)
+			}(s.engine)
+		}
+	})
+	h.finishAction(w, ok, failure, map[string]any{"ok": true, "title": name})
+}
+
+// sessionPin pins or unpins a session in the rail.
+func (h *remoteHost) sessionPin(w http.ResponseWriter, r *http.Request, id string) {
+	var body struct {
+		Pinned *bool `json:"pinned"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var failure error
+	ok := h.app.withUI(func() {
+		s := h.app.byID[id]
+		if s == nil {
+			failure = errors.New("找不到这个会话")
+			return
+		}
+		want := !h.app.isPinned(id)
+		if body.Pinned != nil {
+			want = *body.Pinned
+		}
+		if h.app.isPinned(id) != want {
+			h.app.togglePin(s)
+		}
+	})
+	h.finishAction(w, ok, failure, map[string]any{"ok": true})
+}
+
+// sessionDelete removes a session and moves its file to the trash.
+func (h *remoteHost) sessionDelete(w http.ResponseWriter, id string) {
+	var failure error
+	ok := h.app.withUI(func() {
+		s := h.app.byID[id]
+		if s == nil {
+			failure = errors.New("找不到这个会话")
+			return
+		}
+		if s.External {
+			failure = errors.New("这是 pi 自己的会话，不能在手机上删除")
+			return
+		}
+		h.app.removeSession(s)
+	})
+	h.finishAction(w, ok, failure, map[string]any{"ok": true})
+}
+
+// finishAction writes the outcome of a UI-thread action.
+func (h *remoteHost) finishAction(w http.ResponseWriter, ok bool, failure error, body map[string]any) {
+	switch {
+	case !ok:
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+	case failure != nil:
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": failure.Error()})
+	default:
+		writeRemoteJSON(w, http.StatusOK, body)
+	}
+}
+
 // remoteAuthorized checks the bearer token, or a GET's token query, in
 // constant time.
 func remoteAuthorized(r *http.Request, token string) bool {
@@ -413,6 +652,8 @@ type remoteWireSession struct {
 	Status   string `json:"status"`
 	Updated  int64  `json:"updated"`
 	External bool   `json:"external"`
+	Pinned   bool   `json:"pinned"`
+	Running  bool   `json:"running"`
 }
 
 type remoteWireSnapshot struct {
@@ -430,6 +671,7 @@ type remoteWireMessage struct {
 type remoteWireTranscript struct {
 	ID       string              `json:"id"`
 	Title    string              `json:"title"`
+	Running  bool                `json:"running"`
 	Messages []remoteWireMessage `json:"messages"`
 	Error    string              `json:"error,omitempty"`
 }
@@ -454,6 +696,7 @@ func (a *app) remoteSnapshot() (remoteWireSnapshot, error) {
 				project.Sessions = append(project.Sessions, remoteWireSession{
 					ID: s.ID, Title: s.title.Get(), Status: remoteStatus(s.status.Get()),
 					Updated: s.updated.Get().UnixMilli(), External: s.External,
+					Pinned: a.isPinned(s.ID), Running: s.busyNow(),
 				})
 			}
 			out.Projects = append(out.Projects, project)
@@ -485,13 +728,16 @@ func (a *app) remoteTranscript(id string) (remoteWireTranscript, error) {
 	var out remoteWireTranscript
 	var title, file string
 	var turns []turn
-	var found, loaded bool
+	var found, loaded, running bool
+	var live, liveThinking string
 	ok := a.withUI(func() {
 		s := a.byID[id]
 		if s == nil {
 			return
 		}
 		found, title, file, loaded = true, s.title.Get(), s.File, s.loaded.GetUntracked()
+		running = s.busyNow()
+		live, liveThinking = s.streamText.GetUntracked(), s.streamThinking.GetUntracked()
 		if loaded {
 			turns = s.turns.GetUntracked()
 		}
@@ -505,7 +751,8 @@ func (a *app) remoteTranscript(id string) (remoteWireTranscript, error) {
 	out.ID, out.Title = id, title
 	if !loaded {
 		if file == "" {
-			out.Error = "这个会话还没有可读取的历史"
+			// A session that never ran has no file yet; that is empty, not
+			// an error.
 			return out, nil
 		}
 		history, err := readSessionTurns(file)
@@ -516,6 +763,21 @@ func (a *app) remoteTranscript(id string) (remoteWireTranscript, error) {
 		turns = history
 	}
 	out.Messages = remoteMessages(turns)
+	out.Running = running
+	// The live buffers are what pi is saying right now; the turns only
+	// carry what it has finished.
+	if running {
+		if thinking := strings.TrimSpace(liveThinking); thinking != "" {
+			out.Messages = append(out.Messages, remoteWireMessage{Role: "thinking", Text: thinking})
+		}
+		if text := strings.TrimSpace(live); text != "" {
+			last := len(out.Messages) > 0 && out.Messages[len(out.Messages)-1].Role == "assistant" &&
+				out.Messages[len(out.Messages)-1].Text == text
+			if !last {
+				out.Messages = append(out.Messages, remoteWireMessage{Role: "assistant", Text: text})
+			}
+		}
+	}
 	return out, nil
 }
 

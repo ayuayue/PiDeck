@@ -161,6 +161,9 @@ func (a *app) settingsRemote() core.Node {
 					core.View{Style: core.Style{Padding: core.Edges{Bottom: 4}}, Children: []core.Node{
 						ui.Text("手机与电脑需能互通；复制链接后粘贴到手机端即可。", 10.5, ui.Regular, colors.Faint)}},
 					channel(lucide.Wifi, "局域网", "同一 Wi-Fi 或路由器下直连。", remoteChannel{Installed: true, Ready: len(st.LAN) > 0}, lanRows...),
+					channel(lucide.Smartphone, "Android 模拟器", "在电脑上的 Android 模拟器里运行时，用 10.0.2.2 指向这台电脑，不依赖局域网。",
+						remoteChannel{Installed: true, Ready: true},
+						addressRow("", "模拟器专用", "10.0.2.2", "remote-emulator")),
 					channel(lucide.Waypoints, "Tailscale", "同一 tailnet 内使用 100.x 虚拟地址直连。", st.Tailscale),
 					channel(lucide.Network, "EasyTier", "同一 EasyTier 网络内使用虚拟地址直连。", st.EasyTier,
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{

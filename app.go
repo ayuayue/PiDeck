@@ -157,6 +157,11 @@ type app struct {
 	resources        *core.Signal[resourceReport]
 	resourcesLoading *core.Signal[bool]
 	resourcesLoaded  bool
+	// The prompt library: its packs, the dialog's query and category.
+	prompts     *core.Signal[[]promptItem]
+	promptOpen  *core.Signal[bool]
+	promptQuery *core.Signal[string]
+	promptCat   *core.Signal[string]
 
 	// The provider editor: which provider, its fields, and the result of
 	// a connection test.
@@ -300,6 +305,10 @@ func newApp(cx *core.Scope) *app {
 		usageLoading:     core.NewSignal(cx, false),
 		resources:        core.NewSignalFunc(cx, resourceReport{}, nil),
 		resourcesLoading: core.NewSignal(cx, false),
+		prompts:          core.NewSignalFunc(cx, []promptItem(nil), nil),
+		promptOpen:       core.NewSignal(cx, false),
+		promptQuery:      core.NewSignal(cx, ""),
+		promptCat:        core.NewSignal(cx, ""),
 		langRev:          core.NewSignal(cx, 0),
 		providerOpen:     core.NewSignal(cx, false),
 		providerID:       core.NewSignal(cx, ""),
@@ -416,6 +425,7 @@ func newApp(cx *core.Scope) *app {
 	a.pick = newPicker(cx)
 
 	a.ensureAddonDirs()
+	a.ensurePromptLibrary()
 	a.remote = newRemoteHost(a)
 	a.remote.init()
 	a.bindKeys()
@@ -1303,42 +1313,49 @@ func (a *app) deleteSession(s *session) {
 		return
 	}
 	body := fmt.Sprintf("「%s」会从侧栏消失，文件移到数据目录的 trash 里，需要时可以手动找回。", s.title.GetUntracked())
-	a.askConfirm("删除会话", body, "删除", func() {
-		// The process holds the session file on Windows: close it, and let
-		// it go before moving the file.
-		if s.engine != nil {
-			s.engine.stop()
-			s.engine = nil
+	a.askConfirm("删除会话", body, "删除", func() { a.removeSession(s) })
+}
+
+// removeSession deletes a session's file and every trace of it, without
+// asking: the phone's delete comes in already confirmed.
+func (a *app) removeSession(s *session) {
+	if s == nil || s.External {
+		return
+	}
+	// The process holds the session file on Windows: close it, and let
+	// it go before moving the file.
+	if s.engine != nil {
+		s.engine.stop()
+		s.engine = nil
+	}
+	if a.st != nil {
+		if err := a.st.deleteSession(s.File, s.ID); err != nil {
+			a.toast(ui.ToastError, "删除失败", err.Error())
+			return
 		}
-		if a.st != nil {
-			if err := a.st.deleteSession(s.File, s.ID); err != nil {
-				a.toast(ui.ToastError, "删除失败", err.Error())
-				return
-			}
-			a.st.edit(func(c *config) { delete(c.Titles, s.ID) })
+		a.st.edit(func(c *config) { delete(c.Titles, s.ID) })
+	}
+	a.closeTab(s.ID)
+	delete(a.byID, s.ID)
+	for i, x := range a.all {
+		if x == s {
+			a.all = append(a.all[:i], a.all[i+1:]...)
+			break
 		}
-		a.closeTab(s.ID)
-		delete(a.byID, s.ID)
-		for i, x := range a.all {
-			if x == s {
-				a.all = append(a.all[:i], a.all[i+1:]...)
-				break
-			}
-		}
-		if ws := a.workspaceOf(s.WS); ws != nil {
-			ws.Sessions.Update(func(ss []*session) []*session {
-				out := ss[:0]
-				for _, x := range ss {
-					if x != s {
-						out = append(out, x)
-					}
+	}
+	if ws := a.workspaceOf(s.WS); ws != nil {
+		ws.Sessions.Update(func(ss []*session) []*session {
+			out := ss[:0]
+			for _, x := range ss {
+				if x != s {
+					out = append(out, x)
 				}
-				return out
-			})
-		}
-		a.toast(ui.ToastSuccess, "已删除会话", "文件在数据目录的 trash 下")
-		a.remember()
-	})
+			}
+			return out
+		})
+	}
+	a.toast(ui.ToastSuccess, "已删除会话", "文件在数据目录的 trash 下")
+	a.remember()
 }
 
 // askRename opens the rename dialog for a session.
