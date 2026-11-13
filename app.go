@@ -272,11 +272,14 @@ type app struct {
 	fileOpTitle  *core.Signal[string]
 	fileOpText   *core.Signal[string]
 	fileOpAction func(string)
-	confirmOpen  *core.Signal[bool]
-	confirmHead  *core.Signal[string]
-	confirmBody  *core.Signal[string]
-	confirmWhy   *core.Signal[string]
-	confirmFn    func()
+	// The export dialog and the session it writes.
+	exportOpen  *core.Signal[bool]
+	exportID    string
+	confirmOpen *core.Signal[bool]
+	confirmHead *core.Signal[string]
+	confirmBody *core.Signal[string]
+	confirmWhy  *core.Signal[string]
+	confirmFn   func()
 
 	pick *pickerState
 
@@ -359,6 +362,7 @@ func newApp(cx *core.Scope) *app {
 		fileOpOpen:       core.NewSignal(cx, false),
 		fileOpTitle:      core.NewSignal(cx, ""),
 		fileOpText:       core.NewSignal(cx, ""),
+		exportOpen:       core.NewSignal(cx, false),
 		confirmOpen:      core.NewSignal(cx, false),
 		confirmHead:      core.NewSignal(cx, ""),
 		confirmBody:      core.NewSignal(cx, ""),

@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oneo-me/nsgo/base"
+	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/oneo-me/nsgo/ui/chat"
 )
@@ -107,6 +110,68 @@ pre{background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;padding:10px;o
 	return b.String()
 }
 
+// openExport shows the export choices for a session.
+func (a *app) openExport(s *session) {
+	if s == nil {
+		return
+	}
+	a.exportID = s.ID
+	a.exportOpen.Set(true)
+}
+
+// exportDialog offers the formats and the clipboard.
+func (a *app) exportDialog() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		row := func(title, desc string, icon func() *core.SVG, testID string, fn func(*session)) core.Node {
+			return core.View{
+				OnPress: func(core.PressEvent) {
+					a.exportOpen.Set(false)
+					if s := a.byID[a.exportID]; s != nil {
+						fn(s)
+					}
+				},
+				Role: core.RoleButton, Label: title, TestID: testID,
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinHeight: core.Pt(46),
+						Padding: core.Symmetric(4, 8), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()}}
+				},
+				Children: []core.Node{
+					ui.Icon(icon, 15, colors.Muted),
+					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+						core.Text{Content: T(title), Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
+						core.Text{Content: T(desc), MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Muted)},
+					}},
+				},
+			}
+		}
+		return ui.Dialog{
+			Open:         a.exportOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) { a.exportOpen.Set(open) },
+			Title:        T("导出会话"),
+			TestID:       "export-dialog",
+			Style:        core.Style{Width: core.Pt(480)},
+			Children: []core.Node{
+				core.Text{Content: T("写到数据目录的 exports/，或直接复制。"),
+					Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
+				core.View{Style: core.Style{Gap: 2, Margin: core.Edges{Top: 4}}, Children: []core.Node{
+					row("HTML 页面", "自包含的单文件，含思考与工具输出。", lucide.FileCode, "export-html",
+						func(s *session) { a.exportHTML(s) }),
+					row("Markdown 文件", "提问、工具摘要与回答，适合贴进文档。", lucide.FileText, "export-markdown",
+						func(s *session) { a.exportMarkdown(s) }),
+					row("复制 Markdown", "把整段对话放进剪贴板。", lucide.Copy, "export-copy",
+						func(s *session) { a.copyText(sessionMarkdown(s), "Markdown") }),
+				}},
+			},
+			Footer: []core.Node{
+				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					OnPress: func() { a.exportOpen.Set(false) }},
+			},
+		}
+	})
+}
+
 // statusLabel names a turn's state for the page.
 func statusLabel(st chat.Status) string {
 	switch st {
@@ -155,4 +220,107 @@ func sanitizeFileName(name string) string {
 	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-", "?", "-",
 		"\"", "-", "<", "-", ">", "-", "|", "-")
 	return repl.Replace(name)
+}
+
+// sessionMarkdown is a session as Markdown: the prompts, each turn's tools
+// and its answer. Answers stay Markdown; prompts go in fences so their
+// own backticks cannot break the page.
+func sessionMarkdown(s *session) string {
+	if s == nil {
+		return ""
+	}
+	return renderSessionMarkdown(exportData{
+		Title: s.title.GetUntracked(), Project: s.WS, Model: s.model.GetUntracked().label(),
+		Turns: s.turns.GetUntracked(), Usage: s.usage.GetUntracked(), When: time.Now(),
+	})
+}
+
+// renderSessionMarkdown writes the document.
+func renderSessionMarkdown(d exportData) string {
+	var b strings.Builder
+	title := d.Title
+	if title == "" {
+		title = "PiDeck Lite 会话"
+	}
+	fmt.Fprintf(&b, "# %s\n\n", title)
+	if d.Project != "" {
+		fmt.Fprintf(&b, "- 项目：`%s`\n", d.Project)
+	}
+	if d.Model != "" {
+		fmt.Fprintf(&b, "- 模型：%s\n", d.Model)
+	}
+	if !d.When.IsZero() {
+		fmt.Fprintf(&b, "- 时间：%s\n", d.When.Format("2006-01-02 15:04"))
+	}
+	if d.Usage.Total > 0 || d.Usage.Cost > 0 {
+		fmt.Fprintf(&b, "- tokens：%s · 费用：%s\n", tokens(d.Usage.Total), credits(d.Usage.Cost))
+	}
+	for i, t := range d.Turns {
+		fmt.Fprintf(&b, "\n---\n\n## 提问 %d\n\n%s\n", i+1, mdFence(t.Prompt))
+		var tools []toolRun
+		for _, st := range t.Steps {
+			tools = append(tools, st.Tools...)
+		}
+		if len(tools) > 0 {
+			b.WriteString("\n### 工具\n\n")
+			for _, tool := range tools {
+				line := "- " + tool.Action + " `" + tool.Detail + "`"
+				if tool.Added > 0 || tool.Removed > 0 {
+					line += fmt.Sprintf(" (+%d −%d)", tool.Added, tool.Removed)
+				}
+				if label := statusLabel(tool.Status); label != "" && tool.Status != chat.Completed {
+					line += " · " + label
+				}
+				b.WriteString(line + "\n")
+			}
+		}
+		answer := t.Final
+		if answer == "" {
+			for j := len(t.Steps) - 1; j >= 0; j-- {
+				if t.Steps[j].Text != "" {
+					answer = t.Steps[j].Text
+					break
+				}
+			}
+		}
+		if answer != "" {
+			fmt.Fprintf(&b, "\n### 回答\n\n%s\n", strings.TrimSpace(answer))
+		}
+		if t.Err != "" {
+			fmt.Fprintf(&b, "\n> 出错：%s\n", t.Err)
+		}
+	}
+	return b.String()
+}
+
+// mdFence wraps text in a code fence longer than any run of backticks in
+// it, so a prompt's own code blocks cannot close it early.
+func mdFence(text string) string {
+	fence := "```"
+	for strings.Contains(text, fence) {
+		fence += "`"
+	}
+	return fence + "\n" + text + "\n" + fence
+}
+
+// exportMarkdown writes a session's Markdown under the data folder.
+func (a *app) exportMarkdown(s *session) {
+	if s == nil || a.st == nil {
+		return
+	}
+	dir := filepath.Join(a.st.dir, "exports")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		a.toast(ui.ToastError, "导出失败", err.Error())
+		return
+	}
+	name := sanitizeFileName(s.title.GetUntracked()) + "-" + time.Now().Format("20060102-150405") + ".md"
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(sessionMarkdown(s)), 0o644); err != nil {
+		a.toast(ui.ToastError, "导出失败", err.Error())
+		return
+	}
+	a.diagf("info", "已导出会话 %s 到 %s", s.ID, path)
+	a.toastAction(ui.ToastSuccess, "已导出 Markdown", path, "打开", func() {
+		a.cx.OpenURL(fileURL(path), nil)
+	})
 }

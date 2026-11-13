@@ -29,6 +29,7 @@ func (a *app) view() core.Node {
 		a.settingsDialog(),
 		a.renameDialog(),
 		a.fileOpDialog(),
+		a.exportDialog(),
 		a.confirmDialog(),
 		a.askDialog(),
 		a.remoteQRDialog(),
@@ -896,7 +897,8 @@ func (a *app) drawerOverview() core.Node {
 				}},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
 					ui.Button{Text: T("压缩上下文"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.compact(s) }},
-					ui.Button{Text: T("导出 HTML"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.exportHTML(s) }},
+					ui.Button{Text: T("导出…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "export-button",
+						OnPress: func() { a.openExport(s) }},
 					ui.Button{Text: T("重命名"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.askRename(s) }},
 					ui.Button{Text: T("文件"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.drawerTab.Set("files") }},
 					ui.Button{Text: "Git", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.openGit() }},

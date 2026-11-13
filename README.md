@@ -101,7 +101,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 会话标签页：新建、关闭（进程继续跑）、`Ctrl+Tab` 轮换、标题栏可重命名
 - 收藏：会话右键收藏后固定在顶部；模型收藏后排在选择器最前
 - 会话侧栏：搜索、状态点（就绪/启动/运行/重试/出错）、最近活动时间
-- 会话右键：收藏、重命名、复制会话、导出 HTML、复制 ID、删除（移到 `trash/`）
+- 会话右键：收藏、重命名、复制会话、导出（HTML / Markdown / 复制 Markdown）、复制 ID、删除（移到 `trash/`）
 - 会话命令：重启 Agent（重新读取模型与配置）、关闭 Agent（释放进程，记录和标签保留）、分叉上一条提问
 - 分叉：复制到该轮之前的历史到新会话，原提问放回输入框；原会话文件不动
 
@@ -124,7 +124,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - ACP 重连：进程退出会标记会话并记录日志，命令面板「重新连接 ACP」可在不关标签的情况下重新拉起
 - ACP 完成时和 pi 一样发系统通知/飞书消息，并在结束时写归档
 - ACP 权限记忆：选择「始终允许/始终拒绝」后，同一工具不再重复询问，并随归档保留到下次启动；命令面板可清除记忆
-- ACP 导出：会话菜单「导出 HTML」会写一份自包含页面到数据目录的 `exports/`，不依赖 CLI 自己导出
+- 导出：概览里的「导出…」可选自包含 HTML、Markdown 文件或复制 Markdown；都写到数据目录的 `exports/`（或剪贴板），不依赖 CLI 自己导出
 - 一轮结束折叠成“用时 X · N 个工具调用”
 - 输入区：Enter 发送 / Shift+Enter 换行；运行中回车变“引导”；空输入时按钮变“停止”
 - 模型菜单：按供应商分组、显示供应商名与上下文大小、每行可星标收藏（收藏置顶）、可搜索
@@ -284,7 +284,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `ui_term.go` | 底部终端面板：标签栏、搜索栏、右键菜单、可调高度 |
 | `acp.go` | ACP 客户端：stdio NDJSON JSON-RPC、握手、会话、提示与权限请求 |
 | `acp_session.go` | ACP 会话：预设选择、事件投影、权限对话框与停止 |
-| `export.go` | 本地 HTML 导出：把轮次、思考、工具与回答写成自包含页面 |
+| `export.go` | 本地导出：HTML 自包含页面与 Markdown（含工具摘要），以及导出选择对话框 |
 | `acp_presets.go` | ACP 预设：内置三个，另读数据目录 `acp/*.json` 的自定义命令 |
 | `acp_archive.go` | ACP 归档：本地投影、2000 轮/8 MB 上限、原子写与恢复 |
 | `editor_ext.go` | 外部编辑器：探测常见编辑器、按命令打开文件或项目 |
@@ -470,7 +470,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - ACP 会话的本地归档最多 2000 轮/8 MB；重启时先试 CLI 的 `session/load`，失败则用新 CLI 会话接着聊，归档仍可浏览
 - 全局搜索对 ACP 归档每个会话只取前 16 KB 文本，和 pi 会话同一口径
 - ACP 用量是文本长度估算（CJK 每字 1 token，其他约 4 字符 1 token），不代表 CLI 的真实计费
-- 本地 HTML 导出按纯文本保留换行，不渲染 Markdown；pi 会话仍优先用 pi 自己的导出
+- 本地 HTML 导出按纯文本保留换行，不渲染 Markdown；Markdown 导出保留回答原文；pi 会话的 HTML 仍优先用 pi 自己的导出
 - ACP 的模型与思考等级由该 CLI 自己管理；预设依赖 `npx` 与网络
 - 自定义 ACP 预设是手写 `acp/*.json`，没有图形化编辑器；格式为 `{"presets":[{"id","name","command","args"}]}` 或顶层数组
 - ACP 权限记忆跟着归档走；删除归档或执行「清除 ACP 权限记忆」后重新询问
