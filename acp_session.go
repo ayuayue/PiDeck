@@ -323,6 +323,15 @@ func (a *app) askACPPermission(s *session, req acpPermission) string {
 	if len(req.Options) == 0 {
 		return ""
 	}
+	key := req.Title
+	if key == "" {
+		key = req.ToolID
+	}
+	if decision := s.acpPermissionFor(key); decision != "" {
+		if id := acpDecisionOption(req, decision); id != "" {
+			return id
+		}
+	}
 	names := make([]string, 0, len(req.Options))
 	for _, o := range req.Options {
 		names = append(names, o.Name)
@@ -342,6 +351,9 @@ func (a *app) askACPPermission(s *session, req acpPermission) string {
 	case name := <-answer:
 		for _, o := range req.Options {
 			if o.Name == name {
+				if decision := acpOptionDecision(o.Kind); decision != "" {
+					s.acpRememberPermission(key, decision)
+				}
 				return o.ID
 			}
 		}
@@ -349,6 +361,69 @@ func (a *app) askACPPermission(s *session, req acpPermission) string {
 	case <-time.After(2 * time.Minute):
 		return ""
 	}
+}
+
+// acpDecisionOption finds the option for a remembered decision.
+func acpDecisionOption(req acpPermission, decision string) string {
+	var kinds []string
+	switch decision {
+	case "allow":
+		kinds = []string{"allow_always", "allow_once"}
+	case "reject":
+		kinds = []string{"reject_always", "reject_once"}
+	}
+	for _, kind := range kinds {
+		for _, o := range req.Options {
+			if o.Kind == kind {
+				return o.ID
+			}
+		}
+	}
+	return ""
+}
+
+// acpOptionDecision is the decision a choice kind remembers, if any.
+func acpOptionDecision(kind string) string {
+	switch kind {
+	case "allow_always":
+		return "allow"
+	case "reject_always":
+		return "reject"
+	}
+	return ""
+}
+
+// acpPermissionFor reads a remembered decision.
+func (s *session) acpPermissionFor(key string) string {
+	if s == nil || key == "" {
+		return ""
+	}
+	s.acpPermMu.Lock()
+	defer s.acpPermMu.Unlock()
+	return s.acpPerm[key]
+}
+
+// acpRememberPermission remembers an always decision.
+func (s *session) acpRememberPermission(key, decision string) {
+	if s == nil || key == "" || decision == "" {
+		return
+	}
+	s.acpPermMu.Lock()
+	defer s.acpPermMu.Unlock()
+	if s.acpPerm == nil {
+		s.acpPerm = map[string]string{}
+	}
+	s.acpPerm[key] = decision
+}
+
+// acpClearPermissions forgets every remembered decision.
+func (s *session) acpClearPermissions() {
+	if s == nil {
+		return
+	}
+	s.acpPermMu.Lock()
+	s.acpPerm = nil
+	s.acpPermMu.Unlock()
 }
 
 // acpOpenDialog shows the preset picker.

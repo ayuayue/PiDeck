@@ -131,7 +131,10 @@ type session struct {
 	acpCommands *core.Signal[[]acpCommand]
 	acpCmdOpen  *core.Signal[bool]
 	acpMode     *core.Signal[string]
-	starting    bool
+	// acpPerm remembers allow-always and reject-always by tool title.
+	acpPerm   map[string]string
+	acpPermMu sync.Mutex
+	starting  bool
 	// restarting makes the exit handler start pi again instead of
 	// reporting the process as gone.
 	restarting bool

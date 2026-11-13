@@ -121,6 +121,14 @@ func builtinCommands() []appCommand {
 		{ID: "reveal-session", Label: "在文件管理器中显示会话", Group: "会话", Icon: lucide.FolderOpen,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.revealSession(a.active()) }},
+		{ID: "clear-acp-perms", Label: "清除 ACP 权限记忆", Group: "会话", Icon: lucide.ShieldOff,
+			When: func(a *app) bool { s := a.active(); return s != nil && s.backend == "acp" },
+			Run: func(a *app) {
+				if s := a.active(); s != nil {
+					s.acpClearPermissions()
+					a.toast(ui.ToastInfo, "已清除权限记忆", "下次工具调用会重新询问。")
+				}
+			}},
 		{ID: "plan-mode", Label: "计划模式", Group: "会话", Icon: lucide.ClipboardList,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.togglePlanMode(a.active()) }},
