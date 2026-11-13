@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -531,4 +532,61 @@ func gitMessage(stderr string, code int) string {
 func isNotGitRepo(msg string) bool {
 	lower := strings.ToLower(msg)
 	return strings.Contains(lower, "not a git repository") || strings.Contains(lower, "not a git repo")
+}
+
+// fileMarks maps every changed file's absolute path to its status, for
+// the file tree. Paths are relative to the repository root, which may be
+// above the workspace.
+func (a *app) fileMarks() map[string]gitFile {
+	if a.git == nil {
+		return nil
+	}
+	st := a.git.state.Get()
+	if !st.IsRepo || st.Root == "" {
+		return nil
+	}
+	out := make(map[string]gitFile, len(st.Files))
+	for _, f := range st.Files {
+		p := filepath.Clean(filepath.Join(st.Root, filepath.FromSlash(f.Path)))
+		out[p] = f
+	}
+	return out
+}
+
+// changedDirs are the folders above a changed file, so a collapsed
+// folder can show that something under it changed.
+func changedDirs(marks map[string]gitFile, root string) map[string]bool {
+	if len(marks) == 0 {
+		return nil
+	}
+	root = filepath.Clean(root)
+	out := map[string]bool{}
+	for path := range marks {
+		dir := filepath.Dir(path)
+		for {
+			out[dir] = true
+			if dir == root {
+				break
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	return out
+}
+
+// gitMarkColor is a status letter's tone.
+func gitMarkColor(mark string) string {
+	switch mark {
+	case "A":
+		return "up"
+	case "D", "U":
+		return "down"
+	case "M", "R", "C", "T":
+		return "warn"
+	}
+	return "faint"
 }

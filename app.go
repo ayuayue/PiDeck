@@ -387,6 +387,14 @@ func newApp(cx *core.Scope) *app {
 		list = append(list, ws)
 	}
 	a.workspaces.Set(list)
+	// The file drawer can open before any session does: give it the first
+	// local project to show.
+	for _, ws := range list {
+		if !ws.Target.remote() {
+			a.files.watch(ws.Path)
+			break
+		}
+	}
 
 	// pi's own sessions are read in the background, with the rest of the
 	// environment probe.
@@ -1145,6 +1153,9 @@ func (a *app) addWorkspaceFor(t target, path, name string) {
 	if ws := a.workspaceFor(t, path); ws != nil {
 		ws.Expanded.Set(true)
 		a.activeWS.Set(path)
+		if !t.remote() {
+			a.files.watch(path)
+		}
 		if a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
 			a.git.attach(ws)
 		}
@@ -1158,6 +1169,9 @@ func (a *app) addWorkspaceFor(t target, path, name string) {
 		Visible:   core.NewSignal(a.cx, 0)}
 	a.workspaces.Update(func(list []*workspace) []*workspace { return append(list, ws) })
 	a.activeWS.Set(path)
+	if !t.remote() {
+		a.files.watch(path)
+	}
 	a.st.edit(func(c *config) {
 		for _, w := range c.Workspaces {
 			if w.Path == path && w.Target == t.key() {

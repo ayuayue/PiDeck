@@ -48,6 +48,11 @@ func TestGitDrawer(t *testing.T) {
 	app.Press("text:初始化 Git 仓库")
 	waitApp(app, "text:note.txt", 20*time.Second)
 	waitApp(app, "id:git-stage", 20*time.Second)
+	// The file tree marks the untracked file with "?".
+	app.Press("id:drawer-tab-files")
+	waitApp(app, "id:file-git-mark", 10*time.Second)
+	app.Press("id:drawer-tab-git")
+	waitApp(app, "id:git-stage", 10*time.Second)
 	// The row opens the untracked file's patch.
 	app.Press("id:git-file")
 	waitApp(app, "id:git-diff", 20*time.Second)

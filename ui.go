@@ -911,6 +911,19 @@ func (a *app) drawerFiles() core.Node {
 				ui.Text(T("目录为空"), 11.5, ui.Regular, colors.Faint),
 			}}
 		}
+		marks := a.fileMarks()
+		dirs := changedDirs(marks, root)
+		markColor := func(mark string) core.Color {
+			switch gitMarkColor(mark) {
+			case "up":
+				return colors.Up()
+			case "down":
+				return colors.Danger()
+			case "warn":
+				return colors.Warn()
+			}
+			return colors.Faint()
+		}
 		list := core.Each(a.files.nodes.Get, func(n fileNode) string { return n.Path }, func(cx *core.Scope, n func() fileNode, _ func() int) core.Node {
 			node := n()
 			row := core.View{
@@ -957,6 +970,17 @@ func (a *app) drawerFiles() core.Node {
 					}),
 					core.Text{Content: node.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
+					core.Show{When: func() bool { return node.Dir && dirs[node.Path] }, Then: func(*core.Scope) core.Node {
+						return core.View{Style: core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3,
+							Background: colors.Warn(), FlexShrink: 0}}
+					}},
+					core.Show{When: func() bool { _, ok := marks[node.Path]; return !node.Dir && ok }, Then: func(*core.Scope) core.Node {
+						mark := marks[node.Path].mark()
+						return core.View{TestID: "file-git-mark", Accessible: true, Label: mark,
+							Style: core.Style{Width: core.Pt(12), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+							Children: []core.Node{core.Text{Content: mark, Style: core.Style{FontFamily: ui.Mono,
+								FontSize: 9.5, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(func() core.Color { return markColor(mark) })}}}
+					}},
 				},
 			}
 			return base.ContextMenu{

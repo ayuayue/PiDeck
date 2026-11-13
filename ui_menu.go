@@ -497,6 +497,9 @@ func (a *app) projectMenu(s *session, open *core.Signal[bool]) core.Node {
 			rows = append(rows, core.View{
 				OnPress: func(core.PressEvent) {
 					a.activeWS.Set(w.Path)
+					if !w.Target.remote() {
+						a.files.watch(w.Path)
+					}
 					open.Set(false)
 				},
 				Role: core.RoleOption, Label: w.label(),
