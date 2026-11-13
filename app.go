@@ -2235,6 +2235,10 @@ func (a *app) exportHTML(s *session) {
 	if s == nil {
 		return
 	}
+	if s.backend == "acp" {
+		a.exportSession(s)
+		return
+	}
 	a.ensureEngine(s, func() {
 		c := s.engine
 		go func() {

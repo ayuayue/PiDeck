@@ -115,6 +115,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 计划模式：输入区左侧切换；开启后下一轮先出分步计划，答完可「执行计划」或「修改计划」
 - ACP 会话：命令面板「新建 ACP 会话…」选择内置或自定义预设，外部 CLI 的流式回答与工具调用进入同一时间线，权限请求走应用对话框
 - ACP 命令：CLI 上报可用命令后，输入区出现命令菜单，点一条插入 `/name` 到输入框
+- ACP 导出：会话菜单「导出 HTML」会写一份自包含页面到数据目录的 `exports/`，不依赖 CLI 自己导出
 - 一轮结束折叠成“用时 X · N 个工具调用”
 - 输入区：Enter 发送 / Shift+Enter 换行；运行中回车变“引导”；空输入时按钮变“停止”
 - 模型菜单：按供应商分组、显示供应商名与上下文大小、每行可星标收藏（收藏置顶）、可搜索
@@ -270,6 +271,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `ui_term.go` | 底部终端面板：标签栏、搜索栏、右键菜单、可调高度 |
 | `acp.go` | ACP 客户端：stdio NDJSON JSON-RPC、握手、会话、提示与权限请求 |
 | `acp_session.go` | ACP 会话：预设选择、事件投影、权限对话框与停止 |
+| `export.go` | 本地 HTML 导出：把轮次、思考、工具与回答写成自包含页面 |
 | `acp_presets.go` | ACP 预设：内置三个，另读数据目录 `acp/*.json` 的自定义命令 |
 | `acp_archive.go` | ACP 归档：本地投影、2000 轮/8 MB 上限、原子写与恢复 |
 | `editor_ext.go` | 外部编辑器：探测常见编辑器、按命令打开文件或项目 |
@@ -444,6 +446,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 计划模式靠提示词约定，不是 pi 的原生协议；「执行计划」是发一条后续消息，不会自动逐步确认
 - ACP 会话的本地归档最多 2000 轮/8 MB；重启时先试 CLI 的 `session/load`，失败则用新 CLI 会话接着聊，归档仍可浏览
 - 全局搜索对 ACP 归档每个会话只取前 16 KB 文本，和 pi 会话同一口径
+- 本地 HTML 导出按纯文本保留换行，不渲染 Markdown；pi 会话仍优先用 pi 自己的导出
 - ACP 的模型与思考等级由该 CLI 自己管理；预设依赖 `npx` 与网络
 - 自定义 ACP 预设是手写 `acp/*.json`，没有图形化编辑器；格式为 `{"presets":[{"id","name","command","args"}]}` 或顶层数组
 - Codex / Claude 导入只保留用户与助手文本；工具调用、思考与附件会丢掉，能否继续运行取决于 pi 对转换后消息的接受程度
