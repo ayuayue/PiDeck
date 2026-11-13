@@ -9,14 +9,14 @@ import vm from "node:vm";
 // 字节预算只从旧侧整轮丢弃，最新一轮永不拆分。
 
 function loadFindTurnPageStart() {
-	const source = readFileSync("src/main/pi/SessionHistoryReader.ts", "utf8");
+	const source = readFileSync("src/main/pi/sessionReader/sessionTurnWindow.ts", "utf8");
 	const output = ts.transpileModule(source, {
 		compilerOptions: {
 			module: ts.ModuleKind.CommonJS,
 			target: ts.ScriptTarget.ES2022,
 			esModuleInterop: true,
 		},
-		fileName: "SessionHistoryReader.ts",
+		fileName: "sessionTurnWindow.ts",
 	}).outputText;
 	const module = { exports: {} };
 	vm.runInNewContext(
@@ -26,7 +26,7 @@ function loadFindTurnPageStart() {
 			exports: module.exports,
 			require: () => ({}),
 		},
-		{ filename: "SessionHistoryReader.ts" },
+		{ filename: "sessionTurnWindow.ts" },
 	);
 	return module.exports.findTurnPageStart;
 }

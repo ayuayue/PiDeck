@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+import { readSessionHistoryReaderSources } from "./helpers/sessionHistoryReaderSources.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"), "utf8");
 
@@ -130,7 +131,8 @@ test("Wave 2 TS 侧：宿主 getIndex + 读者校验分支 + 装配注入", () =
 	// 条目表可能到几十 MB：单行上限放宽到 32MiB（仍是有界）
 	assert.match(service, /MAX_SESSION_STORE_LINE_CHARS\s*=\s*32\s*\*\s*1024\s*\*\s*1024/);
 
-	const reader = read("../src/main/pi/SessionHistoryReader.ts");
+	// 断言看的是「SessionHistoryReader 这一整片域」：条目表校验/预览口径按域搬进了 sessionReader/ 协作者
+	const reader = readSessionHistoryReaderSources();
 	// 子进程输出不可信：整体校验，形状不符即回退 TS 逐行解析
 	assert.match(reader, /readIndexTable\?:\s*\(hostPath: string, version: \{ size: number; mtimeMs: number \}\) => Promise<unknown>/);
 	assert.match(reader, /function parseIndexTableRows\(value: unknown\)/);

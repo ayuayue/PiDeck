@@ -149,7 +149,10 @@ function loadAgentManager(existsPredicate = () => false) {
 											// 注入同一套 fs 替身——open 按 position 读 host 路径，路径断言依赖它
 											id === "../sessions/boundedEntryPage"
 											? loadTsCommonJs("src/main/sessions/boundedEntryPage.ts", { stubs: { "node:fs/promises": fsPromises } })
-											: require(id),
+											: // 拆分后的协作者（纯解析/分页算术）：真实加载，宿主只做转发
+												id.startsWith("./sessionReader/")
+												? loadTsCommonJs(`src/main/pi/sessionReader/${id.slice("./sessionReader/".length)}.ts`)
+												: require(id),
 		},
 		{ filename: "SessionHistoryReader.ts" },
 	);
