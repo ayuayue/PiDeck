@@ -80,3 +80,20 @@ test("树视图：关系成环（外部文件被改坏）时环上的行按普�
 	assert.deepEqual(result.childIds, ["c"]);
 	assert.deepEqual(group(["s"], { s: link("s") }).childIds, []);
 });
+
+/**
+ * 回归（standby 认领路径实测）：池化进程当时没带 deckSessionId，而 SessionTree 的
+ * 「关联子会话 agent 行隐藏」只认 deckSessionId → 同一子会话在父会话下面挂着一行，
+ * 顶层又冒出一条同名 agent 行。身份可能缺失，绑定关系（runtimeBySessionId）不会。
+ */
+test("项目树：子会话的运行时行即使缺 deckSessionId 也不在顶层重复出现", () => {
+	const { filterLinkedChildAgents } = loadTsCommonJs("src/renderer/src/agentListDisplay.ts");
+	const child = { id: "agent-child", projectId: "p1", cwd: "C:/p1", title: "子会话", status: "running", deckSessionId: undefined, sessionPath: "C:/sessions/child.jsonl", createdAt: 1 };
+	const parent = { ...child, id: "agent-parent", title: "父会话", deckSessionId: "parent" };
+	const ids = (agents) => [...agents].map((agent) => agent.id);
+
+	assert.deepEqual(ids(filterLinkedChildAgents([child], new Set(["child"]), { child: { agentId: "agent-child" } })), [], "缺身份时按 runtime 绑定识别子会话运行时");
+	assert.deepEqual(ids(filterLinkedChildAgents([{ ...child, deckSessionId: "child" }], new Set(["child"]), {})), [], "有 deckSessionId 时同样隐藏");
+	assert.deepEqual(ids(filterLinkedChildAgents([parent, child], new Set(["child"]), { parent: { agentId: "agent-parent" }, child: { agentId: "agent-child" } })), ["agent-parent"], "父会话行不受影响");
+	assert.deepEqual(ids(filterLinkedChildAgents([child], new Set(), {})), ["agent-child"], "没有关联关系时原样保留");
+});

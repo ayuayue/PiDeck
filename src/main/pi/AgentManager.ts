@@ -1395,6 +1395,11 @@ export class AgentManager {
 			return null;
 		}
 		runtime.tab.standby = undefined;
+		// 认领即绑定会话身份：池化进程 spawn 时不带 deckSessionId（见 CreateAgentInput.standby）。
+		// 不补这一步，渲染层拿不到「这条运行时属于哪个 PiDeck 会话」，侧栏会把它的 agent 行
+		// 和会话行画成两条（关联子会话在父会话下面 + 顶层再出现一次）；cancelActivation 也靠
+		// deckSessionId 找正在启动的进程，缺了会漏停。
+		if (input.sessionId) runtime.tab.deckSessionId = input.sessionId;
 		// warmAgeMs = 进程从握手完成到被认领的闲置时长；启动期预热被首个新会话认领时通常最大。
 		void this.appLogger?.info("agent", "Standby agent claimed", { agentId: entry.agentId, projectId: input.projectId, sessionId: input.sessionId, warmAgeMs: Date.now() - entry.createdAt });
 		this.emitState();

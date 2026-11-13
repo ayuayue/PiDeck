@@ -3,7 +3,7 @@ import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
 import { ChevronDown, ChevronUp, CornerDownRight, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
 import { useAtomValue } from "jotai";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
-import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, type ProjectChildItem } from "../../agentListDisplay";
+import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, filterLinkedChildAgents, getProjectAgentSessionDisplay, type ProjectChildItem } from "../../agentListDisplay";
 import { compareSessionsForSortMode } from "../../sessionSortModes";
 import { sessionRecordToSummary } from "../../atoms";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
@@ -141,7 +141,8 @@ export function SessionTree(props: {
 		// 运行状态改由分组行展示（SessionGroupsSection 的 SessionRuntimeStatusDot）。
 		.filter((agent) => !shouldHideGroupedSession(agent.deckSessionId, props.groupedSessionIds, search));
 	const displayAgents = filterAgentsForSidebarDisplay({
-		agents: linkedChildIds.size > 0 ? projectAgents.filter((agent) => !agent.deckSessionId || !linkedChildIds.has(agent.deckSessionId)) : projectAgents,
+		// 子会话自己的运行时行也要一起收走（缺 deckSessionId 时按 runtime 绑定兜底），否则顶层会多出一条同名行。
+		agents: filterLinkedChildAgents(projectAgents, linkedChildIds, props.controller.catalog.runtimeBySessionId),
 		allSessions: allSummaries,
 		visibleSessions: visibleSummaries,
 		sources: filter,
