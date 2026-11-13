@@ -431,6 +431,46 @@ func TestRemoteSessionActions(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty message = %d: %s", rec.Code, rec.Body.String())
 	}
+	if _, stderr, _, err := gitRun(localTarget, workspace, 30*time.Second, "branch", "feature"); err != nil {
+		t.Fatalf("git branch: %v %s", err, stderr)
+	}
+	rec = call(http.MethodGet, "/api/git?project="+url.QueryEscape(workspace), "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &g); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, b := range g.Branches {
+		if b == "feature" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("branches = %v", g.Branches)
+	}
+	rec = call(http.MethodPost, "/api/git/checkout",
+		`{"project":`+strconv.Quote(workspace)+`,"branch":"feature"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("checkout = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodGet, "/api/git?project="+url.QueryEscape(workspace), "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &g); err != nil || g.Branch != "feature" {
+		t.Fatalf("branch after checkout = %q, %v", g.Branch, err)
+	}
+	rec = call(http.MethodPost, "/api/git/checkout",
+		`{"project":`+strconv.Quote(workspace)+`,"branch":"nope"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown branch = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodPost, "/api/git/sync",
+		`{"project":`+strconv.Quote(workspace)+`,"action":"fetch"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("fetch = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodPost, "/api/git/sync",
+		`{"project":`+strconv.Quote(workspace)+`,"action":"bogus"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad sync = %d: %s", rec.Code, rec.Body.String())
+	}
 
 	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/delete", `{}`)
 	if rec.Code != http.StatusOK {

@@ -74,18 +74,19 @@ type mobileApp struct {
 	askSending *core.Signal[bool]
 
 	// git is one project's repository, read-only.
-	gitOpen      *core.Signal[bool]
-	gitProject   *core.Signal[string]
-	gitName      *core.Signal[string]
-	gitState     *core.Signal[remoteWireGit]
-	gitBusy      *core.Signal[bool]
-	gitErr       *core.Signal[string]
-	gitDiffOpen  *core.Signal[bool]
-	gitDiffTitle *core.Signal[string]
-	gitDiffText  *core.Signal[string]
-	gitDiffBusy  *core.Signal[bool]
-	gitMsg       *core.Signal[string]
-	gitSending   *core.Signal[bool]
+	gitOpen         *core.Signal[bool]
+	gitProject      *core.Signal[string]
+	gitName         *core.Signal[string]
+	gitState        *core.Signal[remoteWireGit]
+	gitBusy         *core.Signal[bool]
+	gitErr          *core.Signal[string]
+	gitDiffOpen     *core.Signal[bool]
+	gitDiffTitle    *core.Signal[string]
+	gitDiffText     *core.Signal[string]
+	gitDiffBusy     *core.Signal[bool]
+	gitMsg          *core.Signal[string]
+	gitSending      *core.Signal[bool]
+	gitBranchesOpen *core.Signal[bool]
 
 	client *remoteClient
 	gen    int
@@ -151,63 +152,64 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	cx.SetAppearance(core.AppearanceSystem)
 	cx.SetTheme(pideckTheme())
 	a := &mobileApp{
-		cx:             cx,
-		server:         core.NewSignal(cx, ""),
-		recent:         core.NewSignalFunc(cx, []mobileRecent(nil), nil),
-		token:          core.NewSignal(cx, ""),
-		busy:           core.NewSignal(cx, false),
-		err:            core.NewSignal(cx, ""),
-		connected:      core.NewSignal(cx, false),
-		serverName:     core.NewSignal(cx, "PiDeck Lite"),
-		state:          core.NewSignalFunc(cx, remoteWireSnapshot{}, nil),
-		active:         core.NewSignal(cx, ""),
-		activeTitle:    core.NewSignal(cx, ""),
-		messages:       core.NewSignalFunc(cx, []remoteWireMessage(nil), nil),
-		transcriptErr:  core.NewSignal(cx, ""),
-		transcriptBusy: core.NewSignal(cx, false),
-		ask:            core.NewSignalFunc(cx, (*remoteWireAsk)(nil), nil),
-		askText:        core.NewSignal(cx, ""),
-		askSending:     core.NewSignal(cx, false),
-		gitOpen:        core.NewSignal(cx, false),
-		gitProject:     core.NewSignal(cx, ""),
-		gitName:        core.NewSignal(cx, ""),
-		gitState:       core.NewSignalFunc(cx, remoteWireGit{}, nil),
-		gitBusy:        core.NewSignal(cx, false),
-		gitErr:         core.NewSignal(cx, ""),
-		gitDiffOpen:    core.NewSignal(cx, false),
-		gitDiffTitle:   core.NewSignal(cx, ""),
-		gitDiffText:    core.NewSignal(cx, ""),
-		gitDiffBusy:    core.NewSignal(cx, false),
-		gitMsg:         core.NewSignal(cx, ""),
-		gitSending:     core.NewSignal(cx, false),
-		refreshing:     core.NewSignal(cx, false),
-		query:          core.NewSignal(cx, ""),
-		searchOpen:     core.NewSignal(cx, false),
-		findOpen:       core.NewSignal(cx, false),
-		findText:       core.NewSignal(cx, ""),
-		draft:          core.NewSignal(cx, ""),
-		pending:        core.NewSignalFunc(cx, []promptImage(nil), nil),
-		sending:        core.NewSignal(cx, false),
-		running:        core.NewSignal(cx, false),
-		actionID:       core.NewSignal(cx, ""),
-		deleteID:       core.NewSignal(cx, ""),
-		renameID:       core.NewSignal(cx, ""),
-		renameText:     core.NewSignal(cx, ""),
-		newOpen:        core.NewSignal(cx, false),
-		creating:       core.NewSignal(cx, false),
-		addPath:        core.NewSignal(cx, ""),
-		addOpen:        core.NewSignal(cx, false),
-		removePath:     core.NewSignal(cx, ""),
-		moreOpen:       core.NewSignal(cx, false),
-		options:        core.NewSignalFunc(cx, remoteWireOptions{}, nil),
-		optionsOpen:    core.NewSignal(cx, false),
-		toolOpen:       core.NewSignal(cx, ""),
-		longOpen:       core.NewSignal(cx, ""),
-		hits:           core.NewSignalFunc(cx, []remoteWireHit(nil), nil),
-		hitsBusy:       core.NewSignal(cx, false),
-		scroll:         &core.Ref{},
-		atBottom:       core.NewSignal(cx, true),
-		notice:         core.NewSignal(cx, ""),
+		cx:              cx,
+		server:          core.NewSignal(cx, ""),
+		recent:          core.NewSignalFunc(cx, []mobileRecent(nil), nil),
+		token:           core.NewSignal(cx, ""),
+		busy:            core.NewSignal(cx, false),
+		err:             core.NewSignal(cx, ""),
+		connected:       core.NewSignal(cx, false),
+		serverName:      core.NewSignal(cx, "PiDeck Lite"),
+		state:           core.NewSignalFunc(cx, remoteWireSnapshot{}, nil),
+		active:          core.NewSignal(cx, ""),
+		activeTitle:     core.NewSignal(cx, ""),
+		messages:        core.NewSignalFunc(cx, []remoteWireMessage(nil), nil),
+		transcriptErr:   core.NewSignal(cx, ""),
+		transcriptBusy:  core.NewSignal(cx, false),
+		ask:             core.NewSignalFunc(cx, (*remoteWireAsk)(nil), nil),
+		askText:         core.NewSignal(cx, ""),
+		askSending:      core.NewSignal(cx, false),
+		gitOpen:         core.NewSignal(cx, false),
+		gitProject:      core.NewSignal(cx, ""),
+		gitName:         core.NewSignal(cx, ""),
+		gitState:        core.NewSignalFunc(cx, remoteWireGit{}, nil),
+		gitBusy:         core.NewSignal(cx, false),
+		gitErr:          core.NewSignal(cx, ""),
+		gitDiffOpen:     core.NewSignal(cx, false),
+		gitDiffTitle:    core.NewSignal(cx, ""),
+		gitDiffText:     core.NewSignal(cx, ""),
+		gitDiffBusy:     core.NewSignal(cx, false),
+		gitMsg:          core.NewSignal(cx, ""),
+		gitSending:      core.NewSignal(cx, false),
+		gitBranchesOpen: core.NewSignal(cx, false),
+		refreshing:      core.NewSignal(cx, false),
+		query:           core.NewSignal(cx, ""),
+		searchOpen:      core.NewSignal(cx, false),
+		findOpen:        core.NewSignal(cx, false),
+		findText:        core.NewSignal(cx, ""),
+		draft:           core.NewSignal(cx, ""),
+		pending:         core.NewSignalFunc(cx, []promptImage(nil), nil),
+		sending:         core.NewSignal(cx, false),
+		running:         core.NewSignal(cx, false),
+		actionID:        core.NewSignal(cx, ""),
+		deleteID:        core.NewSignal(cx, ""),
+		renameID:        core.NewSignal(cx, ""),
+		renameText:      core.NewSignal(cx, ""),
+		newOpen:         core.NewSignal(cx, false),
+		creating:        core.NewSignal(cx, false),
+		addPath:         core.NewSignal(cx, ""),
+		addOpen:         core.NewSignal(cx, false),
+		removePath:      core.NewSignal(cx, ""),
+		moreOpen:        core.NewSignal(cx, false),
+		options:         core.NewSignalFunc(cx, remoteWireOptions{}, nil),
+		optionsOpen:     core.NewSignal(cx, false),
+		toolOpen:        core.NewSignal(cx, ""),
+		longOpen:        core.NewSignal(cx, ""),
+		hits:            core.NewSignalFunc(cx, []remoteWireHit(nil), nil),
+		hitsBusy:        core.NewSignal(cx, false),
+		scroll:          &core.Ref{},
+		atBottom:        core.NewSignal(cx, true),
+		notice:          core.NewSignal(cx, ""),
 	}
 	if saved := loadMobileSaved(cx); saved.Server != "" || len(saved.Recent) > 0 {
 		a.recent.Set(saved.Recent)
@@ -249,6 +251,7 @@ func (a *mobileApp) view() core.Node {
 		a.moreSheet(),
 		a.gitSheet(),
 		a.gitDiffSheet(),
+		a.gitBranchesSheet(),
 	}}
 }
 

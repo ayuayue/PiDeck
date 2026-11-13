@@ -24,8 +24,12 @@ func TestMobileGit(t *testing.T) {
 	var mu sync.Mutex
 	staged := false
 	committed := ""
+	branch := "main"
+	checkedOut := ""
+	synced := ""
 	repo := remoteWireGit{IsRepo: true, Branch: "main", Upstream: "origin/main", Ahead: 1,
-		Files: []remoteWireGitFile{{Path: "src/app.ts", Mark: "M"}}}
+		Branches: []string{"main", "feature"},
+		Files:    []remoteWireGitFile{{Path: "src/app.ts", Mark: "M"}}}
 	check := func(w http.ResponseWriter, r *http.Request) bool {
 		if r.Header.Get("Authorization") != "Bearer "+token {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -55,6 +59,7 @@ func TestMobileGit(t *testing.T) {
 			out := repo
 			out.Files = append([]remoteWireGitFile(nil), repo.Files...)
 			out.Files[0].Staged = staged
+			out.Branch = branch
 			mu.Unlock()
 			_ = json.NewEncoder(w).Encode(out)
 		}
@@ -69,6 +74,32 @@ func TestMobileGit(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		mu.Lock()
 		staged = body.Stage
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/git/checkout", func(w http.ResponseWriter, r *http.Request) {
+		if !check(w, r) {
+			return
+		}
+		var body struct {
+			Branch string `json:"branch"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		checkedOut, branch = body.Branch, body.Branch
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/git/sync", func(w http.ResponseWriter, r *http.Request) {
+		if !check(w, r) {
+			return
+		}
+		var body struct {
+			Action string `json:"action"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		synced = body.Action
 		mu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
@@ -141,6 +172,41 @@ func TestMobileGit(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("commit message = %q", got)
+		}
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Switch branches from the sheet, then fetch.
+	app.Press("id:mobile-git-branches")
+	waitApp(app, "id:mobile-git-branches-sheet", 10*time.Second)
+	app.Press("id:mobile-git-branch-1")
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		got := checkedOut
+		mu.Unlock()
+		if got == "feature" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("checkout = %q", got)
+		}
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
+	waitApp(app, "text:feature", 10*time.Second)
+	app.Press("id:mobile-git-fetch")
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		got := synced
+		mu.Unlock()
+		if got == "fetch" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("sync = %q", got)
 		}
 		app.Settle()
 		time.Sleep(50 * time.Millisecond)

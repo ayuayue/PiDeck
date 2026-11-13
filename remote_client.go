@@ -243,6 +243,16 @@ func (c *remoteClient) gitStage(project, path string, stage bool) error {
 	return c.post("/api/git/stage", map[string]any{"project": project, "path": path, "stage": stage}, nil)
 }
 
+// gitCheckout switches to a local branch.
+func (c *remoteClient) gitCheckout(project, branch string) error {
+	return c.post("/api/git/checkout", map[string]any{"project": project, "branch": branch}, nil)
+}
+
+// gitSync fetches, pulls or pushes.
+func (c *remoteClient) gitSync(project, action string) error {
+	return c.post("/api/git/sync", map[string]any{"project": project, "action": action}, nil)
+}
+
 // gitCommit commits what is staged.
 func (c *remoteClient) gitCommit(project, message string) error {
 	return c.post("/api/git/commit", map[string]any{"project": project, "message": message}, nil)

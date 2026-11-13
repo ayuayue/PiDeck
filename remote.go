@@ -326,6 +326,8 @@ func (h *remoteHost) handler() http.Handler {
 	mux.HandleFunc("/api/git/diff", h.handleGitDiff)
 	mux.HandleFunc("/api/git/stage", h.handleGitStage)
 	mux.HandleFunc("/api/git/commit", h.handleGitCommit)
+	mux.HandleFunc("/api/git/checkout", h.handleGitCheckout)
+	mux.HandleFunc("/api/git/sync", h.handleGitSync)
 	mux.HandleFunc("/api/sessions/", h.handleSessionAction)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -437,6 +439,7 @@ type remoteWireGit struct {
 	Upstream string              `json:"upstream,omitempty"`
 	Ahead    int                 `json:"ahead,omitempty"`
 	Behind   int                 `json:"behind,omitempty"`
+	Branches []string            `json:"branches,omitempty"`
 	Files    []remoteWireGitFile `json:"files,omitempty"`
 	Error    string              `json:"error,omitempty"`
 }
@@ -444,7 +447,7 @@ type remoteWireGit struct {
 // remoteGitOf maps the drawer's state to the wire.
 func remoteGitOf(st gitState) remoteWireGit {
 	out := remoteWireGit{IsRepo: st.IsRepo, Branch: st.Branch, Upstream: st.Upstream,
-		Ahead: st.Ahead, Behind: st.Behind, Error: st.Error}
+		Ahead: st.Ahead, Behind: st.Behind, Branches: append([]string(nil), st.Branches...), Error: st.Error}
 	for _, f := range st.Files {
 		out.Files = append(out.Files, remoteWireGitFile{Path: f.Path, Mark: f.mark(), Staged: f.staged()})
 	}
@@ -1000,6 +1003,114 @@ func (h *remoteHost) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, stderr, code, err := gitRun(localTarget, path, 180*time.Second, "commit", "-m", msg)
+	if err != nil {
+		writeRemoteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if code != 0 {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": firstLine(stderr, 240)})
+		return
+	}
+	writeRemoteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleGitCheckout switches to a local branch.
+func (h *remoteHost) handleGitCheckout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Project string `json:"project"`
+		Branch  string `json:"branch"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var path string
+	ok := h.app.withUI(func() {
+		if ws := h.app.workspaceOf(body.Project); ws != nil && !ws.Target.remote() {
+			path = ws.Path
+		}
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	if path == "" {
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个项目"})
+		return
+	}
+	st := readGitState(localTarget, path, 1)
+	known := false
+	for _, b := range st.Branches {
+		if b == body.Branch {
+			known = true
+			break
+		}
+	}
+	if !known {
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "没有这个分支"})
+		return
+	}
+	if st.Branch == body.Branch {
+		writeRemoteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	_, stderr, code, err := gitRun(localTarget, path, 60*time.Second, "checkout", body.Branch)
+	if err != nil {
+		writeRemoteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if code != 0 {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": firstLine(stderr, 240)})
+		return
+	}
+	writeRemoteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleGitSync fetches, pulls or pushes, whichever the phone asked for.
+func (h *remoteHost) handleGitSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Project string `json:"project"`
+		Action  string `json:"action"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var args []string
+	switch body.Action {
+	case "fetch":
+		args = []string{"fetch", "--all", "--prune"}
+	case "pull":
+		args = []string{"pull"}
+	case "push":
+		args = []string{"push"}
+	default:
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "不认识的同步动作"})
+		return
+	}
+	var path string
+	ok := h.app.withUI(func() {
+		if ws := h.app.workspaceOf(body.Project); ws != nil && !ws.Target.remote() {
+			path = ws.Path
+		}
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	if path == "" {
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个项目"})
+		return
+	}
+	_, stderr, code, err := gitRun(localTarget, path, 180*time.Second, args...)
 	if err != nil {
 		writeRemoteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
