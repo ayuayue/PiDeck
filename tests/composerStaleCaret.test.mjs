@@ -38,7 +38,11 @@ test("external content sync restores caret to the end without a pending request"
 	// setContent 会把选区映射到旧文档的任意位置；外部同步（切换会话/草稿回填/
 	// 发送清空）若没有配对光标请求，必须兜底恢复到文末，而不是把光标留在 0。
 	assert.match(editorSource, /needsContentSync = value !== lastEmittedRef\.current;/);
-	assert.match(editorSource, /else if \(needsContentSync\) \{[\s\S]*?setTextSelection\([\s\S]*?value\.length[\s\S]*?\}/);
+	// 契约细化（2026-11）：只在**真的重写内容**时兜底回文末。预热历史接管等外部重渲染会带来
+	// 「语义相同、字符串不同」的 value，照旧 setContent 会把中段输入的光标丢到末尾
+	// （e2e/session-prewarm-history 复现并守护）。
+	assert.match(editorSource, /if \(serializeComposerEditorJson\(editor\.getJSON\(\)\) !== value\) \{/);
+	assert.match(editorSource, /else if \(contentRewritten\) \{[\s\S]*?setTextSelection\([\s\S]*?value\.length[\s\S]*?\}/);
 });
 
 test("controller writes tagged caret requests alongside the draft they belong to", () => {

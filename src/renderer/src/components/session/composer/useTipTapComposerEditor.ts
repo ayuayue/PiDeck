@@ -264,21 +264,29 @@ export function useTipTapComposerEditor(args: UseTipTapComposerEditorArgs): Edit
 		if (!editor || editor.isDestroyed) return;
 		const pending = caretRef?.current;
 		const needsContentSync = value !== lastEmittedRef.current;
+		let contentRewritten = false;
 		if (needsContentSync) {
-			editor.commands.setContent(plainTextToComposerDoc(value, whitelistRef.current), {
-				emitUpdate: false,
-			});
 			lastEmittedRef.current = value;
-			syncEmptyClass(editor);
+			// 只有内容真的不同才写回。预热历史接管等外部重渲染会带来「语义相同、字符串不同」的
+			// value（序列化顺序差异）；照旧 setContent 会触发下面的「文末兜底」，把用户正在
+			// 中段输入的光标丢到末尾（e2e/session-prewarm-history 复现）。
+			if (serializeComposerEditorJson(editor.getJSON()) !== value) {
+				editor.commands.setContent(plainTextToComposerDoc(value, whitelistRef.current), {
+					emitUpdate: false,
+				});
+				syncEmptyClass(editor);
+				contentRewritten = true;
+			}
 		}
 		const caret = pending && pending.forValue === value ? pending.pos : null;
 		if (typeof caret === "number" && caretRef) {
 			// 程序化改动（引用插入/历史回填/运行时 editorText 恢复等）配对消费。
 			editor.commands.setTextSelection(plainOffsetToPos(editor, Math.min(caret, value.length)));
 			caretRef.current = null;
-		} else if (needsContentSync) {
+		} else if (contentRewritten) {
 			// 外部同步（切换会话/草稿回填/发送清空）没有配对光标请求时，
 			// setContent 会把选区映射到旧文档的任意位置；兜底恢复到文末。
+			// 仅在真的重写过内容时兜底：内容未变的重渲染必须保留用户当前光标。
 			editor.commands.setTextSelection(plainOffsetToPos(editor, value.length));
 		}
 		if (pending && caretRef && pending.forValue !== value) {
