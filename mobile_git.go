@@ -136,16 +136,50 @@ func (a *mobileApp) gitSheet() core.Node {
 					row = append(row, core.View{Style: core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, Background: colors.Inset()},
 						Children: []core.Node{ui.Text("已暂存", 9, ui.Medium, colors.Faint)}})
 				}
+				stageIcon, stageLabel := lucide.Plus, "暂存"
+				if file.Staged {
+					stageIcon, stageLabel = lucide.Minus, "取消暂存"
+				}
+				row = append(row,
+					a.pressIcon(stageIcon, stageLabel, 28, 14, func() bool { return a.gitSending.Get() },
+						func() { a.gitStage(file.Path, !file.Staged) }, fmt.Sprintf("mobile-git-stage-%d", i)),
+					a.pressIcon(lucide.ChevronRight, "查看改动", 28, 14, nil, func() { a.openGitDiff(file.Path) },
+						fmt.Sprintf("mobile-git-file-%d", i)))
 				rows = append(rows, core.View{
-					OnPress: func(core.PressEvent) { a.openGitDiff(file.Path) },
-					Role:    core.RoleButton, Label: file.Path, TestID: fmt.Sprintf("mobile-git-file-%d", i),
 					StyleFunc: func() core.Style {
 						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, MinHeight: core.Pt(40),
-							Padding: core.Symmetric(4, 6), CornerRadius: 7, Active: &core.Style{Background: colors.Pressed()}}
+							Padding: core.Symmetric(4, 6), CornerRadius: 7}
 					},
 					Children: row,
 				})
 			}
+		}
+		staged := 0
+		for _, f := range st.Files {
+			if f.Staged {
+				staged++
+			}
+		}
+		commitBox := core.View{Style: core.Style{Gap: 6, Padding: core.Edges{Top: 4}}, Children: []core.Node{
+			core.Input{Value: a.gitMsg.Get, OnChange: a.gitMsg.Set, Multiline: true, Placeholder: "提交说明", Label: "提交说明",
+				TestID: "mobile-git-message",
+				Style:  core.Style{MinHeight: core.Pt(52), MaxHeight: core.Pt(110), Padding: core.Symmetric(7, 9), FontSize: 12.5, Color: colors.Text()},
+				StyleFunc: func() core.Style {
+					return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 8,
+						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
+				}},
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+				ui.Text(fmt.Sprintf("已暂存 %d", staged), 10.5, ui.Regular, colors.Faint),
+				core.View{Style: core.Style{FlexGrow: 1}},
+				ui.Button{Text: "提交", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-git-commit",
+					Disabled: func() bool { return a.gitSending.Get() || strings.TrimSpace(a.gitMsg.Get()) == "" || staged == 0 },
+					OnPress:  a.commitGit},
+			}},
+		}}
+		children := []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)},
+			Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: rows}}}}
+		if st.IsRepo && a.gitErr.Get() == "" {
+			children = append(children, commitBox)
 		}
 		return ui.Dialog{
 			Open:         a.gitOpen.Get,
@@ -153,14 +187,59 @@ func (a *mobileApp) gitSheet() core.Node {
 			Title:        "Git · " + a.gitName.Get(),
 			TestID:       "mobile-git",
 			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520)},
-			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(430)},
-				Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: rows}}}},
+			Children:     []core.Node{core.View{Style: core.Style{Gap: 6}, Children: children}},
 			Footer: []core.Node{
 				ui.Button{Text: "刷新", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadGit},
 				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitOpen.Set(false) }},
 			},
 		}
 	})
+}
+
+// gitStage stages or unstages one path.
+func (a *mobileApp) gitStage(path string, stage bool) {
+	client := a.client
+	project := a.gitProject.GetUntracked()
+	if client == nil || project == "" || a.gitSending.GetUntracked() {
+		return
+	}
+	a.gitSending.Set(true)
+	go func() {
+		err := client.gitStage(project, path, stage)
+		a.cx.Post(func() {
+			a.gitSending.Set(false)
+			if err != nil {
+				a.flash(remoteErrorText(err))
+				return
+			}
+			a.flash("已更新暂存区")
+			a.loadGit()
+		})
+	}()
+}
+
+// commitGit commits what is staged.
+func (a *mobileApp) commitGit() {
+	client := a.client
+	project := a.gitProject.GetUntracked()
+	msg := strings.TrimSpace(a.gitMsg.GetUntracked())
+	if client == nil || project == "" || msg == "" || a.gitSending.GetUntracked() {
+		return
+	}
+	a.gitSending.Set(true)
+	go func() {
+		err := client.gitCommit(project, msg)
+		a.cx.Post(func() {
+			a.gitSending.Set(false)
+			if err != nil {
+				a.flash(remoteErrorText(err))
+				return
+			}
+			a.gitMsg.Set("")
+			a.flash("已提交")
+			a.loadGit()
+		})
+	}()
 }
 
 // gitDiffSheet shows one file's patch.
@@ -184,7 +263,8 @@ func (a *mobileApp) gitDiffSheet() core.Node {
 			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
-				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitDiffOpen.Set(false) }},
+				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-diff-close",
+					OnPress: func() { a.gitDiffOpen.Set(false) }},
 			},
 		}
 	})

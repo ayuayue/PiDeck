@@ -84,6 +84,8 @@ type mobileApp struct {
 	gitDiffTitle *core.Signal[string]
 	gitDiffText  *core.Signal[string]
 	gitDiffBusy  *core.Signal[bool]
+	gitMsg       *core.Signal[string]
+	gitSending   *core.Signal[bool]
 
 	client *remoteClient
 	gen    int
@@ -176,6 +178,8 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		gitDiffTitle:   core.NewSignal(cx, ""),
 		gitDiffText:    core.NewSignal(cx, ""),
 		gitDiffBusy:    core.NewSignal(cx, false),
+		gitMsg:         core.NewSignal(cx, ""),
+		gitSending:     core.NewSignal(cx, false),
 		refreshing:     core.NewSignal(cx, false),
 		query:          core.NewSignal(cx, ""),
 		searchOpen:     core.NewSignal(cx, false),

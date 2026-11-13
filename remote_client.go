@@ -238,6 +238,16 @@ func (c *remoteClient) gitDiff(project, path string) (string, error) {
 	return out.Patch, err
 }
 
+// gitStage stages or unstages one path.
+func (c *remoteClient) gitStage(project, path string, stage bool) error {
+	return c.post("/api/git/stage", map[string]any{"project": project, "path": path, "stage": stage}, nil)
+}
+
+// gitCommit commits what is staged.
+func (c *remoteClient) gitCommit(project, message string) error {
+	return c.post("/api/git/commit", map[string]any{"project": project, "message": message}, nil)
+}
+
 // answer replies to the question a session is waiting on.
 func (c *remoteClient) answer(id string, body map[string]any) error {
 	return c.post("/api/sessions/"+url.PathEscape(id)+"/answer", body, nil)

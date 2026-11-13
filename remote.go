@@ -324,6 +324,8 @@ func (h *remoteHost) handler() http.Handler {
 	mux.HandleFunc("/api/projects", h.handleProject)
 	mux.HandleFunc("/api/git", h.handleGit)
 	mux.HandleFunc("/api/git/diff", h.handleGitDiff)
+	mux.HandleFunc("/api/git/stage", h.handleGitStage)
+	mux.HandleFunc("/api/git/commit", h.handleGitCommit)
 	mux.HandleFunc("/api/sessions/", h.handleSessionAction)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -893,6 +895,120 @@ func (h *remoteHost) handleGitDiff(w http.ResponseWriter, r *http.Request) {
 		out = out[:limit] + "\n… 补丁过长，已截断"
 	}
 	writeRemoteJSON(w, http.StatusOK, map[string]string{"patch": out})
+}
+
+// handleGitStage stages or unstages one changed path.
+func (h *remoteHost) handleGitStage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Project string `json:"project"`
+		Path    string `json:"path"`
+		Stage   bool   `json:"stage"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var path string
+	ok := h.app.withUI(func() {
+		if ws := h.app.workspaceOf(body.Project); ws != nil && !ws.Target.remote() {
+			path = ws.Path
+		}
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	if path == "" {
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个项目"})
+		return
+	}
+	st := readGitState(localTarget, path, 1)
+	known := false
+	for _, f := range st.Files {
+		if f.Path == body.Path {
+			known = true
+			break
+		}
+	}
+	if !known {
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "没有这个改动"})
+		return
+	}
+	var args []string
+	if body.Stage {
+		args = []string{"add", "--", body.Path}
+	} else {
+		args = []string{"restore", "--staged", "--", body.Path}
+	}
+	_, stderr, code, err := gitRun(localTarget, path, 60*time.Second, args...)
+	if err == nil && code != 0 && !body.Stage {
+		// An unborn branch has no HEAD for restore; take it out of the
+		// index instead, as the desktop does.
+		_, stderr, code, err = gitRun(localTarget, path, 60*time.Second, "rm", "--cached", "-r", "-q", "--", body.Path)
+	}
+	if err != nil {
+		writeRemoteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if code != 0 {
+		writeRemoteJSON(w, http.StatusInternalServerError, map[string]string{"error": firstLine(stderr, 200)})
+		return
+	}
+	writeRemoteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleGitCommit commits what is staged. It never discards anything, so
+// it is safe to expose to the phone with the same token as the rest.
+func (h *remoteHost) handleGitCommit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Project string `json:"project"`
+		Message string `json:"message"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	msg := strings.TrimSpace(body.Message)
+	switch {
+	case msg == "":
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "提交说明不能为空"})
+		return
+	case len([]rune(msg)) > 500:
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "提交说明太长了"})
+		return
+	}
+	var path string
+	ok := h.app.withUI(func() {
+		if ws := h.app.workspaceOf(body.Project); ws != nil && !ws.Target.remote() {
+			path = ws.Path
+		}
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	if path == "" {
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个项目"})
+		return
+	}
+	_, stderr, code, err := gitRun(localTarget, path, 180*time.Second, "commit", "-m", msg)
+	if err != nil {
+		writeRemoteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if code != 0 {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": firstLine(stderr, 240)})
+		return
+	}
+	writeRemoteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // sessionAnswer answers the question a session is waiting on, so a turn

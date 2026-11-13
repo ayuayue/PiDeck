@@ -409,6 +409,28 @@ func TestRemoteSessionActions(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("outside path = %d: %s", rec.Code, rec.Body.String())
 	}
+	rec = call(http.MethodPost, "/api/git/stage",
+		`{"project":`+strconv.Quote(workspace)+`,"path":"tracked.txt","stage":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stage = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodGet, "/api/git?project="+url.QueryEscape(workspace), "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &g); err != nil || len(g.Files) != 1 || !g.Files[0].Staged {
+		t.Fatalf("git after stage = %+v, %v", g, err)
+	}
+	rec = call(http.MethodPost, "/api/git/commit",
+		`{"project":`+strconv.Quote(workspace)+`,"message":"phone commit"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("commit = %d: %s", rec.Code, rec.Body.String())
+	}
+	if out, _, _, err := gitRun(localTarget, workspace, 30*time.Second, "log", "-1", "--pretty=%s"); err != nil || !strings.Contains(out, "phone commit") {
+		t.Fatalf("log = %q, %v", out, err)
+	}
+	rec = call(http.MethodPost, "/api/git/commit",
+		`{"project":`+strconv.Quote(workspace)+`,"message":" "}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty message = %d: %s", rec.Code, rec.Body.String())
+	}
 
 	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/delete", `{}`)
 	if rec.Code != http.StatusOK {

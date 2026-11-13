@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,9 @@ func TestMobileGit(t *testing.T) {
 	state := remoteWireSnapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remoteWireProject{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remoteWireSession{{ID: "s1", Title: "电脑上的会话"}},
 	}}}
+	var mu sync.Mutex
+	staged := false
+	committed := ""
 	repo := remoteWireGit{IsRepo: true, Branch: "main", Upstream: "origin/main", Ahead: 1,
 		Files: []remoteWireGitFile{{Path: "src/app.ts", Mark: "M"}}}
 	check := func(w http.ResponseWriter, r *http.Request) bool {
@@ -47,8 +51,39 @@ func TestMobileGit(t *testing.T) {
 	})
 	mux.HandleFunc("/api/git", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
-			_ = json.NewEncoder(w).Encode(repo)
+			mu.Lock()
+			out := repo
+			out.Files = append([]remoteWireGitFile(nil), repo.Files...)
+			out.Files[0].Staged = staged
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(out)
 		}
+	})
+	mux.HandleFunc("/api/git/stage", func(w http.ResponseWriter, r *http.Request) {
+		if !check(w, r) {
+			return
+		}
+		var body struct {
+			Stage bool `json:"stage"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		staged = body.Stage
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/git/commit", func(w http.ResponseWriter, r *http.Request) {
+		if !check(w, r) {
+			return
+		}
+		var body struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		committed = body.Message
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/api/git/diff", func(w http.ResponseWriter, r *http.Request) {
 		if check(w, r) {
@@ -74,4 +109,40 @@ func TestMobileGit(t *testing.T) {
 	app.Press("id:mobile-git-file-0")
 	waitApp(app, "id:mobile-git-diff", 10*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:+new")) > 0 })
+	app.Press("id:mobile-git-diff-close")
+	app.WaitForGone("id:mobile-git-diff", 5*time.Second)
+
+	// Stage the file, then commit it with a message.
+	app.Press("id:mobile-git-stage-0")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		got := staged
+		mu.Unlock()
+		if got {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stage request did not arrive")
+		}
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:已暂存 1")) > 0 })
+	app.Type("id:mobile-git-message", "phone commit")
+	app.Press("id:mobile-git-commit")
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		got := committed
+		mu.Unlock()
+		if got == "phone commit" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("commit message = %q", got)
+		}
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
 }
