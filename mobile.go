@@ -73,6 +73,18 @@ type mobileApp struct {
 	askText    *core.Signal[string]
 	askSending *core.Signal[bool]
 
+	// git is one project's repository, read-only.
+	gitOpen      *core.Signal[bool]
+	gitProject   *core.Signal[string]
+	gitName      *core.Signal[string]
+	gitState     *core.Signal[remoteWireGit]
+	gitBusy      *core.Signal[bool]
+	gitErr       *core.Signal[string]
+	gitDiffOpen  *core.Signal[bool]
+	gitDiffTitle *core.Signal[string]
+	gitDiffText  *core.Signal[string]
+	gitDiffBusy  *core.Signal[bool]
+
 	client *remoteClient
 	gen    int
 
@@ -154,6 +166,16 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		ask:            core.NewSignalFunc(cx, (*remoteWireAsk)(nil), nil),
 		askText:        core.NewSignal(cx, ""),
 		askSending:     core.NewSignal(cx, false),
+		gitOpen:        core.NewSignal(cx, false),
+		gitProject:     core.NewSignal(cx, ""),
+		gitName:        core.NewSignal(cx, ""),
+		gitState:       core.NewSignalFunc(cx, remoteWireGit{}, nil),
+		gitBusy:        core.NewSignal(cx, false),
+		gitErr:         core.NewSignal(cx, ""),
+		gitDiffOpen:    core.NewSignal(cx, false),
+		gitDiffTitle:   core.NewSignal(cx, ""),
+		gitDiffText:    core.NewSignal(cx, ""),
+		gitDiffBusy:    core.NewSignal(cx, false),
 		refreshing:     core.NewSignal(cx, false),
 		query:          core.NewSignal(cx, ""),
 		searchOpen:     core.NewSignal(cx, false),
@@ -221,6 +243,8 @@ func (a *mobileApp) view() core.Node {
 		a.addProjectSheet(),
 		a.removeProjectSheet(),
 		a.moreSheet(),
+		a.gitSheet(),
+		a.gitDiffSheet(),
 	}}
 }
 
@@ -558,7 +582,7 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 					snap := a.state.Get()
 					query := strings.ToLower(strings.TrimSpace(a.query.Get()))
 					var sections []core.Node
-					for _, project := range snap.Projects {
+					for pi, project := range snap.Projects {
 						p := project
 						matched := make([]remoteWireSession, 0, len(p.Sessions))
 						for _, session := range p.Sessions {
@@ -579,6 +603,9 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 								core.Text{Content: p.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 									Style: core.Style{FlexGrow: 1, FontSize: 12, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
 								ui.Text(fmt.Sprint(len(matched)), 10, ui.Regular, colors.Faint),
+								a.pressIcon(lucide.GitBranch, "查看 Git", 30, 14, nil, func() {
+									a.openGit(p.Path, p.Name)
+								}, fmt.Sprintf("mobile-git-%d", pi)),
 							}},
 							core.View{Style: core.Style{Gap: 1}, Children: rows},
 						}})

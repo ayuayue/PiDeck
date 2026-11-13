@@ -322,6 +322,8 @@ func (h *remoteHost) handler() http.Handler {
 	mux.HandleFunc("/api/sessions", h.handleCreateSession)
 	mux.HandleFunc("/api/search", h.handleSearch)
 	mux.HandleFunc("/api/projects", h.handleProject)
+	mux.HandleFunc("/api/git", h.handleGit)
+	mux.HandleFunc("/api/git/diff", h.handleGitDiff)
 	mux.HandleFunc("/api/sessions/", h.handleSessionAction)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -417,6 +419,34 @@ func decodeRemoteBodyLimit(r *http.Request, out any, limit int64) error {
 		return errors.New("请求格式不对")
 	}
 	return nil
+}
+
+// remoteWireGitFile is one changed path.
+type remoteWireGitFile struct {
+	Path   string `json:"path"`
+	Mark   string `json:"mark"`
+	Staged bool   `json:"staged"`
+}
+
+// remoteWireGit is a project's repository as the phone shows it.
+type remoteWireGit struct {
+	IsRepo   bool                `json:"isRepo"`
+	Branch   string              `json:"branch,omitempty"`
+	Upstream string              `json:"upstream,omitempty"`
+	Ahead    int                 `json:"ahead,omitempty"`
+	Behind   int                 `json:"behind,omitempty"`
+	Files    []remoteWireGitFile `json:"files,omitempty"`
+	Error    string              `json:"error,omitempty"`
+}
+
+// remoteGitOf maps the drawer's state to the wire.
+func remoteGitOf(st gitState) remoteWireGit {
+	out := remoteWireGit{IsRepo: st.IsRepo, Branch: st.Branch, Upstream: st.Upstream,
+		Ahead: st.Ahead, Behind: st.Behind, Error: st.Error}
+	for _, f := range st.Files {
+		out.Files = append(out.Files, remoteWireGitFile{Path: f.Path, Mark: f.mark(), Staged: f.staged()})
+	}
+	return out
 }
 
 // remoteWireHit is one message a search matched.
@@ -779,6 +809,90 @@ func (h *remoteHost) sessionStop(w http.ResponseWriter, id string) {
 		}
 	})
 	h.finishAction(w, ok, failure, map[string]any{"ok": true})
+}
+
+// handleGit reads a local project's repository for the phone.
+func (h *remoteHost) handleGit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	project := r.URL.Query().Get("project")
+	var path string
+	ok := h.app.withUI(func() {
+		if ws := h.app.workspaceOf(project); ws != nil && !ws.Target.remote() {
+			path = ws.Path
+		}
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	if path == "" {
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个项目"})
+		return
+	}
+	writeRemoteJSON(w, http.StatusOK, remoteGitOf(readGitState(localTarget, path, 1)))
+}
+
+// handleGitDiff reads one changed file's patch. Only paths the repository
+// reports are accepted, so a request cannot walk outside the project.
+func (h *remoteHost) handleGitDiff(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	project := r.URL.Query().Get("project")
+	rel := r.URL.Query().Get("path")
+	var path string
+	ok := h.app.withUI(func() {
+		if ws := h.app.workspaceOf(project); ws != nil && !ws.Target.remote() {
+			path = ws.Path
+		}
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	if path == "" {
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个项目"})
+		return
+	}
+	st := readGitState(localTarget, path, 1)
+	var file *gitFile
+	for i := range st.Files {
+		if st.Files[i].Path == rel {
+			file = &st.Files[i]
+			break
+		}
+	}
+	if file == nil {
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "没有这个改动"})
+		return
+	}
+	var args []string
+	switch {
+	case file.Untracked:
+		args = []string{"diff", "--no-index", "--no-color", "--", "/dev/null", file.Path}
+	case file.staged():
+		args = []string{"diff", "--cached", "--no-color", "--", file.Path}
+	default:
+		args = []string{"diff", "--no-color", "--", file.Path}
+	}
+	out, stderr, code, err := gitRun(localTarget, path, 40*time.Second, args...)
+	if err != nil {
+		writeRemoteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if code != 0 && strings.TrimSpace(out) == "" {
+		writeRemoteJSON(w, http.StatusInternalServerError, map[string]string{"error": firstLine(stderr, 200)})
+		return
+	}
+	const limit = 512 << 10
+	if len(out) > limit {
+		out = out[:limit] + "\n… 补丁过长，已截断"
+	}
+	writeRemoteJSON(w, http.StatusOK, map[string]string{"patch": out})
 }
 
 // sessionAnswer answers the question a session is waiting on, so a turn

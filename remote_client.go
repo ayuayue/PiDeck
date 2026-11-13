@@ -222,6 +222,22 @@ func (c *remoteClient) promptWithImages(id, text string, images []promptImage) e
 	return c.post("/api/sessions/"+url.PathEscape(id)+"/prompt", body, nil)
 }
 
+// git reads a project's repository.
+func (c *remoteClient) git(project string) (remoteWireGit, error) {
+	var out remoteWireGit
+	err := c.do("/api/git?project="+url.QueryEscape(project), &out)
+	return out, err
+}
+
+// gitDiff reads one changed file's patch.
+func (c *remoteClient) gitDiff(project, path string) (string, error) {
+	var out struct {
+		Patch string `json:"patch"`
+	}
+	err := c.do("/api/git/diff?project="+url.QueryEscape(project)+"&path="+url.QueryEscape(path), &out)
+	return out.Patch, err
+}
+
 // answer replies to the question a session is waiting on.
 func (c *remoteClient) answer(id string, body map[string]any) error {
 	return c.post("/api/sessions/"+url.PathEscape(id)+"/answer", body, nil)

@@ -371,6 +371,45 @@ func TestRemoteSessionActions(t *testing.T) {
 		t.Fatalf("ask after answer = %+v", got)
 	}
 
+	// Git endpoints read the workspace's repository.
+	if _, _, _, err := gitRun(localTarget, workspace, 30*time.Second, "init"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	tracked := filepath.Join(workspace, "tracked.txt")
+	if err := os.WriteFile(tracked, []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"add", "-A"},
+		{"-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-m", "init"},
+	} {
+		if _, stderr, _, err := gitRun(localTarget, workspace, 30*time.Second, args...); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, stderr)
+		}
+	}
+	if err := os.WriteFile(tracked, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec = call(http.MethodGet, "/api/git?project="+url.QueryEscape(workspace), "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("git = %d: %s", rec.Code, rec.Body.String())
+	}
+	var g remoteWireGit
+	if err := json.Unmarshal(rec.Body.Bytes(), &g); err != nil || !g.IsRepo || len(g.Files) == 0 {
+		t.Fatalf("git state = %+v, %v", g, err)
+	}
+	if g.Files[0].Path != "tracked.txt" || g.Files[0].Mark != "M" {
+		t.Fatalf("git files = %+v", g.Files)
+	}
+	rec = call(http.MethodGet, "/api/git/diff?project="+url.QueryEscape(workspace)+"&path=tracked.txt", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "+changed") {
+		t.Fatalf("diff = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodGet, "/api/git/diff?project="+url.QueryEscape(workspace)+"&path=../secret", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("outside path = %d: %s", rec.Code, rec.Body.String())
+	}
+
 	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/delete", `{}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete = %d: %s", rec.Code, rec.Body.String())

@@ -182,6 +182,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
     运行中多一个停止键（不挡输入，pi 会排队），回复按 1.2 秒轮询流式出现
   - 审批：电脑上的 pi/ACP 在等确认或选项时，输入框上方出现提示卡，
     可直接允许/拒绝或选一项，答案回传电脑让那一轮继续
+  - Git（只读）：项目标题右侧的分支按钮打开仓库面板，显示分支、上游、领先/落后与改动文件；
+    点文件看补丁。暂存、提交仍在电脑上做
   - 工具调用折成一行「调用了 N 个工具」，点开原地展开每条命令
   - 图片：输入框右侧的图片按钮从相册/文件里选（最多 4 张、单张 6 MB），
     选完在输入框上方出缩略图，点缩略图移除；可以只发图不写字
@@ -200,6 +202,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | GET | `/api/session/{id}` | 一个会话的消息；运行中带 live 文本，等待回答时带 `ask` |
 | GET | `/api/session/{id}/options` | 模型列表、当前模型、思考等级；pi 没起会顺手拉起 |
 | GET | `/api/search?q=&project=` | 跨会话搜消息正文，返回会话、标题与片段（按文件缓存） |
+| GET | `/api/git?project=` | 项目的分支、上游、领先/落后与改动文件（只读） |
+| GET | `/api/git/diff?project=&path=` | 一个改动文件的补丁；只接受仓库已报告的路径 |
 | POST | `/api/projects` | `{path,remove}` 在电脑上添加/移除项目文件夹 |
 | POST | `/api/sessions` | `{project}` 新建会话，返回 `{id,title}` |
 | POST | `/api/sessions/{id}/prompt` | `{text,images:[{mime,data}]}` 发一条消息；运行中自动改成 steer |
@@ -316,6 +320,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `remote.go` | 手机 HTTP 服务、令牌、快照/历史接口，局域网/Tailscale/EasyTier 地址探测 |
 | `remote_client.go` | 手机端 HTTP 客户端与连接串解析 |
 | `mobile.go` | 手机端连接页、项目/会话列表、会话历史、发消息与审批 |
+| `mobile_git.go` | 手机端只读 Git：分支、改动列表与单文件补丁 |
 | `ui_remote.go` | 桌面设置里的远程访问面板 |
 | `scripts/android.ps1` | 模拟器日常操作：启动、装包、复制连接链接、看状态 |
 | `ui.go` | 侧栏、标签、抽屉、命令面板、目标/重命名/确认/扩展对话框 |
