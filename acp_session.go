@@ -16,17 +16,6 @@ import (
 	"github.com/oneo-me/nsgo/ui/chat"
 )
 
-// acpPresetByID finds a preset.
-func acpPresetByID(id string) *acpPreset {
-	for _, p := range acpPresets() {
-		if p.ID == id {
-			cp := p
-			return &cp
-		}
-	}
-	return nil
-}
-
 // newACPSession starts a session driven by an external ACP agent.
 func (a *app) newACPSession(ws *workspace, preset acpPreset) *session {
 	if ws == nil {
@@ -56,7 +45,7 @@ func (a *app) ensureACPSession(s *session) {
 
 // startACPEngine shakes hands and opens a session.
 func (a *app) startACPEngine(s *session) {
-	preset := acpPresetByID(s.acpPreset)
+	preset := a.acpPresetByID(s.acpPreset)
 	if preset == nil {
 		a.cx.Post(func() { a.failSession(s, "没有这个 ACP 预设") })
 		return
@@ -297,7 +286,7 @@ func (a *app) acpDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		var rows []core.Node
-		for _, p := range acpPresets() {
+		for _, p := range a.acpPresetList() {
 			preset := p
 			rows = append(rows, core.View{
 				OnPress: func(core.PressEvent) {
@@ -330,6 +319,8 @@ func (a *app) acpDialog() core.Node {
 			Style:        core.Style{Width: core.Pt(520)},
 			Children:     []core.Node{core.View{Style: core.Style{Gap: 4}, Children: rows}},
 			Footer: []core.Node{
+				ui.Button{Text: "打开预设目录", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					OnPress: a.openACPDir},
 				ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 					OnPress: func() { a.acpOpen.Set(false) }},
 			},

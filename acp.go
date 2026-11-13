@@ -81,10 +81,10 @@ type acpMessage struct {
 
 // ACP presets are the external CLIs the app can drive.
 type acpPreset struct {
-	ID      string
-	Name    string
-	Command string
-	Args    []string
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
 }
 
 // acpPresets is a small, curated list: any command can be added later.

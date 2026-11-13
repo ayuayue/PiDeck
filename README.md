@@ -269,6 +269,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `ui_term.go` | 底部终端面板：标签栏、搜索栏、右键菜单、可调高度 |
 | `acp.go` | ACP 客户端：stdio NDJSON JSON-RPC、握手、会话、提示与权限请求 |
 | `acp_session.go` | ACP 会话：预设选择、事件投影、权限对话框与停止 |
+| `acp_presets.go` | ACP 预设：内置三个，另读数据目录 `acp/*.json` 的自定义命令 |
 | `acp_archive.go` | ACP 归档：本地投影、2000 轮/8 MB 上限、原子写与恢复 |
 | `editor_ext.go` | 外部编辑器：探测常见编辑器、按命令打开文件或项目 |
 | `diag.go` | 诊断：内存日志、滚动文件、进程列表与诊断报告 |
@@ -443,6 +444,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - ACP 会话的本地归档最多 2000 轮/8 MB；重启时先试 CLI 的 `session/load`，失败则用新 CLI 会话接着聊，归档仍可浏览
 - 全局搜索对 ACP 归档每个会话只取前 16 KB 文本，和 pi 会话同一口径
 - ACP 的模型与思考等级由该 CLI 自己管理；预设依赖 `npx` 与网络
+- 自定义 ACP 预设是手写 `acp/*.json`，没有图形化编辑器；格式为 `{"presets":[{"id","name","command","args"}]}` 或顶层数组
 - Codex / Claude 导入只保留用户与助手文本；工具调用、思考与附件会丢掉，能否继续运行取决于 pi 对转换后消息的接受程度
 - 项目分组暂不支持拖拽；用右键菜单的上移/下移与「移动到分组…」调整
 - Git 历史一次最多读到 500 条；更早的提交需要按条件筛选或到终端查看
