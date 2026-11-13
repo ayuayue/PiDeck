@@ -779,8 +779,9 @@ func (a *mobileApp) composer(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignEnd, Gap: 8}, Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(42)}, Children: []core.Node{
 				core.Input{Value: a.draft.Get, OnChange: a.draft.Set, Placeholder: "发消息给 pi…", Label: "消息", TestID: "mobile-draft",
-					OnSubmit: func(string) { a.sendMessage() },
-					Style: core.Style{Height: core.Pt(42), Padding: core.Symmetric(0, 12), FontSize: 14, Color: colors.Text(),
+					// Return makes a new line; the send button sends.
+					Multiline: true, SubmitBehavior: core.SubmitBehaviorNewline,
+					Style: core.Style{MinHeight: core.Pt(42), MaxHeight: core.Pt(132), Padding: core.Symmetric(10, 12), FontSize: 14, Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 12,
 						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
 			}},
