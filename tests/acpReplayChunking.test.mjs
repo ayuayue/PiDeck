@@ -72,6 +72,8 @@ test("replay is windowed first, then delivered in ordered chunks", async () => {
 	assert.equal(emitted[0].upsertFrom, undefined); // 首块全量，建立 runtime 缓存
 	assert.equal(emitted[0].windowStart, expectedWindowStart);
 	assert.equal(emitted[0].totalLength, expectedWindowStart + Math.min(100, windowed.length));
+	// 重放标记：Web 事件流据此把整份窗口当历史吸收，不能照增量上屏（否则 ACP 文本重复渲染）
+	for (const payload of emitted) assert.equal(payload.replay, true);
 	// 块拼起来 == 窗口段，且顺序不变、无重复
 	const delivered = emitted.flatMap((payload) => payload.messages.map((message) => message.id));
 	assert.equal(delivered.join("|"), windowed.map((message) => message.id).join("|"));
@@ -95,6 +97,7 @@ test("short histories stay a single un-windowed flush", async () => {
 	assert.equal(emitted[0].messages.length, 100);
 	assert.equal(emitted[0].windowStart, undefined);
 	assert.equal(emitted[0].upsertFrom, undefined);
+	assert.equal(emitted[0].replay, true, "整段重放（一次全量）同样要标重放");
 });
 
 test("projection rewritten mid-chunk stops chunking and re-flushes the latest window", async () => {
@@ -113,6 +116,8 @@ test("projection rewritten mid-chunk stops chunking and re-flushes the latest wi
 	assert.equal(last.upsertFrom, undefined); // 校准走全量
 	assert.equal(last.totalLength, nextMessages.length);
 	assert.equal(last.messages.length, nextMessages.length - expectedWindowStart);
+	// 投影被改写后的校准可能含新一轮内容：不能标重放（否则新回合正文被当历史吞掉）
+	assert.equal(last.replay, undefined);
 });
 
 test("a closed runtime stops the remaining chunks", async () => {

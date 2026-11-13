@@ -27,6 +27,10 @@ test("text_delta produces start/delta/end triple with auto text-start", () => {
 	const start = adapter.push({ type: "message_start", message: { role: "assistant", id: "m1" } });
 	assert.equal(start[0].type, "start");
 	assert.equal(start[0].messageId, "m1");
+	// 回复时间：start 帧带 messageMetadata.timestamp，useChat（AI SDK 自动合并）与外部流合并器
+	// 都读它渲染助手行头时间（桌面 TurnAuthorHeader 同款信息）。
+	assert.equal(typeof start[0].messageMetadata.timestamp, "number");
+	assert.ok(start[0].messageMetadata.timestamp > 0);
 
 	const d1 = adapter.push({
 		type: "message_update",
