@@ -166,6 +166,14 @@ type app struct {
 	askBox  *core.Signal[askBox]
 	askText *core.Signal[string]
 
+	// Diagnostics: the in-memory log, its file, and when the app started.
+	diagMu     sync.Mutex
+	diagEvents []diagEvent
+	diagFile   *os.File
+	diagPath   string
+	diagSize   int
+	startedAt  time.Time
+
 	// projectsRev changes when a project is pinned, grouped or moved.
 	projectsRev      *core.Signal[int]
 	projectGroupOpen *core.Signal[bool]
@@ -395,6 +403,7 @@ func newApp(cx *core.Scope) *app {
 		return a
 	}
 	a.st = st
+	a.initDiag()
 	a.cfg = st.config()
 	a.theme.Set(a.cfg.Theme)
 	a.sidebar.Set(a.cfg.SidebarOpen)
@@ -954,6 +963,12 @@ func (a *app) animateNextLayout() {
 
 // toast shows one briefly.
 func (a *app) toast(kind ui.ToastType, title, detail string) {
+	switch kind {
+	case ui.ToastError:
+		a.diagf("error", "%s：%s", title, detail)
+	case ui.ToastWarning:
+		a.diagf("warn", "%s：%s", title, detail)
+	}
 	a.toaster.Show(ui.ToastContent{Type: kind, Title: title, Description: detail, Duration: 4 * time.Second})
 }
 

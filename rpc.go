@@ -475,6 +475,22 @@ func (c *piClient) stop() {
 	}
 }
 
+// pid is the process id, 0 before it starts.
+func (c *piClient) pid() int {
+	if c == nil || c.cmd == nil || c.cmd.Process == nil {
+		return 0
+	}
+	return c.cmd.Process.Pid
+}
+
+// stderrText is the newest stderr, one line.
+func (c *piClient) stderrText() string {
+	if c == nil || c.stderr == nil {
+		return ""
+	}
+	return firstLine(c.stderr.String(), 160)
+}
+
 // lastStderr is what pi logged, for an error message.
 func (c *piClient) lastStderr() string {
 	return strings.TrimSpace(c.stderr.String())

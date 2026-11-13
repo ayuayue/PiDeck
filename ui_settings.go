@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
@@ -41,6 +42,7 @@ func settingsSections() []settingsSection {
 		{"addons", "插件", lucide.Puzzle, "插件", "插件给命令面板加命令，给外观加主题。"},
 		{"resources", "资源", lucide.Package, "资源", "pi 的技能与扩展：看它们做什么，打开或停用。"},
 		{"integrations", "集成", lucide.Webhook, "集成", "把一轮完成的消息发到飞书群。"},
+		{"diagnostics", "诊断", lucide.Stethoscope, "诊断", "运行中的进程、内存与最近的日志。"},
 		{"data", "数据", lucide.HardDrive, "数据", "会话与配置在磁盘上的位置。"},
 		{"about", "关于", lucide.Info, "关于", "版本、许可与来源。"},
 	}
@@ -168,6 +170,8 @@ func (a *app) settingsContent() core.Node {
 			return a.settingsResources()
 		case "integrations":
 			return a.settingsIntegrations()
+		case "diagnostics":
+			return a.settingsDiagnostics()
 		case "data":
 			return a.settingsData()
 		case "about":
@@ -890,6 +894,82 @@ func (a *app) settingsIntegrations() core.Node {
 				),
 				core.Text{Content: "消息只包含会话标题、状态与一句摘要，不发完整对话内容。", Style: core.Style{FontSize: 11, LineHeight: 17},
 					StyleFunc: ui.Colored(colors.Faint)},
+			}},
+		}}
+	})
+}
+
+// settingsDiagnostics shows what is running and what went wrong.
+func (a *app) settingsDiagnostics() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		_ = a.clock.Get()
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		uptime := "—"
+		if !a.startedAt.IsZero() {
+			uptime = duration(time.Since(a.startedAt))
+		}
+		procs := a.processList()
+		var procRows []core.Node
+		for i, p := range procs {
+			proc := p
+			detail := proc.Detail
+			if proc.PID > 0 {
+				detail += " · pid " + fmt.Sprint(proc.PID)
+			}
+			if proc.Stderr != "" {
+				detail += " · " + proc.Stderr
+			}
+			procRows = append(procRows, setRow(proc.Kind+" · "+proc.Name, detail,
+				ui.Text(proc.State, 10.5, ui.Regular, colors.Faint)))
+			if i < len(procs)-1 {
+				procRows = append(procRows, setDivider())
+			}
+		}
+		if len(procRows) == 0 {
+			procRows = append(procRows, setRow("没有运行中的进程", "打开会话或终端后会出现在这里。", nil))
+		}
+		events := a.diagSnapshot()
+		start := max(0, len(events)-60)
+		var logRows []core.Node
+		for _, ev := range events[start:] {
+			color := colors.Muted
+			if ev.Level == "error" {
+				color = colors.Danger
+			} else if ev.Level == "warn" {
+				color = colors.Warn
+			}
+			logRows = append(logRows, core.Text{Content: ev.Time.Format("15:04:05") + "  " + ev.Text, MaxLines: 2,
+				Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(color)})
+		}
+		if len(logRows) == 0 {
+			logRows = append(logRows, core.Text{Content: "还没有日志。", Style: core.Style{FontSize: 10.5},
+				StyleFunc: ui.Colored(colors.Faint)})
+		}
+		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+				setGroup("运行",
+					setRow("版本", fmt.Sprintf("%s · %s/%s · Go %s", appVersion, runtime.GOOS, runtime.GOARCH, runtime.Version()), nil),
+					setDivider(),
+					setRow("内存与协程", T("堆 %.1f MB · %d 个 goroutine · 已运行 %s",
+						float64(mem.HeapAlloc)/(1<<20), runtime.NumGoroutine(), uptime), nil),
+				),
+				setGroup("进程", procRows...),
+				setGroup("最近日志", core.View{Style: core.Style{Gap: 2, Padding: core.Symmetric(4, 2)}, Children: logRows}),
+				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{
+					ui.Button{Text: "复制诊断信息", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "diag-copy",
+						OnPress: func() { a.copyText(a.diagnosticText(), "诊断信息") }},
+					ui.Button{Text: "打开日志目录", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+						if dir := a.diagDir(); dir != "" {
+							a.cx.OpenURL(fileURL(dir), nil)
+						}
+					}},
+					ui.Button{Text: "清空内存日志", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+						a.clearDiag()
+						a.toast(ui.ToastInfo, "内存日志已清空", "日志文件仍在数据目录的 logs 下。")
+					}},
+				}},
 			}},
 		}}
 	})

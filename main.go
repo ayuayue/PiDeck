@@ -7,6 +7,9 @@ import (
 	"github.com/oneo-me/nsgo/core"
 )
 
+// appVersion is the version the about page and diagnostics report.
+const appVersion = "0.2.0"
+
 // logoPNG is PiDeck's mark, drawn in the wordmark and the welcome screen.
 //
 //go:embed assets/logo.png
