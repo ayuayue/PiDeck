@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionComposerControllerSource } from "./helpers/sessionComposerControllerSources.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /**
@@ -13,7 +14,7 @@ import { preloadSource } from "./helpers/preloadSources.mjs";
  */
 
 const rendererUtils = readFileSync("src/renderer/src/rendererUtils.ts", "utf8");
-const controller = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+const controller = sessionComposerControllerSource;
 const pasteFilesIpc = readFileSync("src/main/ipc/pasteFilesIpc.ts", "utf8");
 const preload = preloadSource;
 const atoms = readFileSync("src/renderer/src/atoms/composer-atoms.ts", "utf8");

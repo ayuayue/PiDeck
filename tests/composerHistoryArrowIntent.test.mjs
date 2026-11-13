@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { sessionComposerControllerSource } from "./helpers/sessionComposerControllerSources.mjs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const behavior = loadTsCommonJs("src/renderer/src/composerBehavior.ts");
@@ -9,7 +10,7 @@ const { resolveComposerHistoryIntent } = behavior;
 
 const caretCoordsSource = readFileSync("src/renderer/src/components/session/composer/caretCoords.ts", "utf8");
 const caretBridgeSource = readFileSync("src/renderer/src/components/session/composer/tiptap/caretBridge.ts", "utf8");
-const controllerSource = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+const controllerSource = sessionComposerControllerSource;
 
 /**
  * 用桩替换 caretBridge 载入 caretCoords，只验证适配层契约（不需要真实 DOM/编辑器）。

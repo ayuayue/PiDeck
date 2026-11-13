@@ -77,6 +77,10 @@ import type { ComposerCaretRequest } from "../components/session/composer/types"
 import { getComposerCaretCoords, getComposerCaretOffset, getComposerCaretBlockEdge, getComposerSelectionRange, isComposerAtVisualEdge } from "../components/session/composer/caretCoords";
 import { desktopApi } from "../desktopApi";
 import { useAskPanel } from "./useAskPanel";
+import { useComposerGeneration } from "./session/composer/useComposerGeneration";
+import { useComposerSendInteraction } from "./session/composer/useComposerSendInteraction";
+import { useComposerDraftAssist } from "./session/composer/useComposerDraftAssist";
+import { useComposerPaste } from "./session/composer/useComposerPaste";
 import { formatBytes } from "../../../shared/formatBytes";
 import { t } from "../i18n";
 import { COMPOSER_ATTACHMENT_BUDGET_BYTES, COMPOSER_IMAGE_MAX_BYTES, ComposerImageError, attachmentBytes, base64DataBytes, dataUrlToFile, getClipboardImageFiles, getDroppedImageFiles, imageMimeTypeFromPath, isImageFilePath, processComposerImageFile } from "../utils/composerImages";
@@ -94,9 +98,8 @@ import { isSessionRuntimeBusy, isUserFacingSessionStart } from "./useSessionTime
 import { truncateQuoteLabel } from "../components/session/composer/quoteChip";
 import { useSessionSend, type EnqueuePromptSnapshot } from "./useSessionSend";
 
-/** 粘贴文件折叠进草稿时的单文件读取上限：主进程 stat 预检拦截超大文件，
- * 避免全量读入主进程再经 IPC 传输压垮两侧内存（超限/读失败走既有 catch → 内容不并入）。 */
-const PASTE_FILE_CONTENT_MAX_BYTES = 2 * 1024 * 1024;
+/** 粘贴文件折叠进草稿时的单文件读取上限（主进程 stat 预检拦截超大文件，避免全量读入
+ * 主进程再经 IPC 传输压垮两侧内存）随折叠逻辑一起拆到 `session/composer/useComposerSendInteraction.ts`。 */
 import { useVoiceTranscription } from "./useVoiceTranscription";
 import { usePromptEnhance, type PromptEnhanceRequest } from "./usePromptEnhance";
 import { usePromptSuggestion } from "./usePromptSuggestion";
@@ -284,14 +287,6 @@ function getBangMode(text: string): "none" | "bang" | "bang-bang" {
 	if (text.startsWith("!!")) return "bang-bang";
 	if (text.startsWith("!")) return "bang";
 	return "none";
-}
-
-function composerImageNotice(error: unknown): string {
-	if (error instanceof ComposerImageError) {
-		if (error.code === "too-large") return t("app.imageTooLarge");
-		if (error.code === "unsupported") return t("app.imageUnsupported");
-	}
-	return error instanceof Error ? error.message : String(error);
 }
 
 export function useSessionComposerController(options: UseSessionComposerControllerOptions) {
@@ -496,13 +491,6 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	const [savedDraft, setSavedDraft] = useState("");
 	const [busyDraftLocked, setBusyDraftLocked] = useState(false);
 	const [previewImage, setPreviewImage] = useState<ImageContent | null>(null);
-	// 生图进行中：置 true 时发送按钮禁用（避免并发多次生图），完成后图片进附件栏
-	const [generatingImage, setGeneratingImage] = useState(false);
-	// 生视频「提交中」门禁：submit 受理即复位（异步任务终态由 videogen:event 事件驱动，不占用发送按钮）。
-	const [submittingVideo, setSubmittingVideo] = useState(false);
-	// 成本确认闸（默认开）：首次提交只完起待确认态，ComposerArea 渲染确认弹层，确认后才真正发请求。
-	// 放在 controller 而不是按钮里：Enter/发送按钮/追问入口全部经 submitVideo，只有这里能统一拦住。
-	const [videoConfirmPending, setVideoConfirmPending] = useState(false);
 	// 生图尺寸/水印记在 AppSettings，跨会话复用；非法磁盘值回落到默认。
 	const [imageGenSize, setImageGenSizeState] = useState<string>(DEFAULT_IMAGE_GEN_SIZE);
 	const [imageGenWatermark, setImageGenWatermarkState] = useState(DEFAULT_IMAGE_GEN_WATERMARK);
@@ -817,7 +805,6 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		setSavedDraft("");
 		setBusyDraftLocked(false);
 		setPreviewImage(null);
-		setGeneratingImage(false);
 		setPicker(null);
 		setSessionReference(null);
 		setSessionReferenceSelections({});
@@ -1299,932 +1286,85 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	// 并行发送（拆分菜单「并行发送」）：把当前草稿文本送进独立 Ask 会话后台处理，不打断当前会话。
 	// useAskPanel 内部用全局 atom 管会话/胶囊状态，会话各处共享同一实例，重复调用安全。
 	const askPanel = useAskPanel();
-	// 结果按「消息」语义上屏（与 useSessionSend 乐观提交同一约定：写时间线缓存、source=runtime）：
-	// 提示词作为 user 消息立即上屏；随后追加一条 assistant「生图占位」消息（meta.imageGen=generating），
-	// 生成期间由 FinalAnswer 渲染 beUI ImageGeneration 点阵动画，完成后原地更新为 complete（图片清晰过渡），
-	// 失败原地更新为 error。不调用 send、不进附件栏（无运行中 Agent 也能用）。
-	const persistImageGenSelection = useCallback(
-		(providerId: string, modelId: string) => {
-			const next = {
-				...imageGenConfig,
-				activeProviderId: providerId,
-				activeModel: modelId,
-			};
-			setImageGenConfig(next);
-			void desktopApi.imagegen.saveConfig(next).catch(() => undefined);
-		},
-		[imageGenConfig, setImageGenConfig],
-	);
-
-	const generateImage = useCallback(async () => {
-		const prompt = draft.trim();
-		if (!prompt || generatingImage) return;
-		const provider = findImageGenProvider(imageGenConfig, activeImageGenProviderId);
-		const modelId = provider?.models.includes(activeImageGenModelId) ? activeImageGenModelId : "";
-		if (!provider?.id || !modelId || !provider.baseUrl.trim() || !provider.apiKey.trim()) {
-			showNotice(t("imagegen.error.notConfigured"), 5000);
-			return;
-		}
-		// 参考图前置门禁：供应商未声明带图输入时直接提示，不发无效请求（主进程也会拦截兑底）
-		if (attachments.length > 0 && (provider.referenceMode ?? "none") === "none") {
-			showNotice(t("imagegen.error.referenceUnsupported"), 5000);
-			return;
-		}
-		// 仅「启动即匿名」的会话提示（noSession=true，经匿名开聊创建，pi 以 --no-session 启动）：
-		// 生图不落盘、重启即失。普通新建 draft 会话 filePath 同样为空（生图不启动 agent），
-		// 但用户视角它是正式会话，不弹匿名提示打扰（2026 反馈）。
-		if (record?.noSession === true) {
-			showNotice(t("imagegen.transientHint"), 6000);
-		}
-		setGeneratingImage(true);
-
-		// 把本地生图消息追加进时间线缓存（整体替换 messages 数组，source=runtime 沿用乐观提交约定）。
-		const appendTimelineMessage = (message: ChatMessage) => {
-			const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
-			setCacheMessages({ sessionId, messages: [...previous, message], source: "runtime" });
-		};
-		// 按 id 原地更新已上屏消息（生图占位 → complete/error 复用同一条，避免时间线多出一条）。
-		const updateTimelineMessage = (id: string, patch: (m: ChatMessage) => ChatMessage) => {
-			const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
-			setCacheMessages({
-				sessionId,
-				messages: previous.map((m) => (m.id === id ? patch(m) : m)),
-				source: "runtime",
-			});
-		};
-
-		appendTimelineMessage({
-			id: crypto.randomUUID(),
-			agentId: "",
-			role: "user",
-			text: prompt,
-			timestamp: Date.now(),
-			// 参考图随 user 消息上屏：发送后附件栏清空，图片要留在时间线气泡里回显
-			images: attachments.length > 0 ? attachments : undefined,
-		});
-		const imageMessageId = crypto.randomUUID();
-		appendTimelineMessage({
-			id: imageMessageId,
-			agentId: "",
-			role: "assistant",
-			text: "",
-			stopReason: "stop",
-			timestamp: Date.now(),
-			meta: {
-				imageGen: { status: "generating", prompt, size: imageGenSize } satisfies ImageGenMeta,
-			},
-		});
-		setDraft("");
-		// 乐观清空附件栏：参考图已随 user 消息上屏回显，输入框不再占用
-		// （与普通消息发送同惯例 useSessionSend.clearSnapshot）；
-		// 生成失败时下方失败分支会把附件前插恢复，支持改词重试。
-		if (attachments.length > 0) {
-			setAttachmentsAtom({ sessionId, value: [] });
-		}
-
-		try {
-			const result = await desktopApi.imagegen.generate({
-				provider: provider.id,
-				model: modelId,
-				prompt,
-				size: imageGenSize,
-				watermark: imageGenWatermark,
-				outputFormat: imageGenOutputFormat,
-				// 参考图：附件栏图片作为参考图传给主进程；是否可用由供应商 referenceMode 决定
-				referenceImages: attachments.length > 0 ? attachments : undefined,
-				// 生图记录落盘：主进程成功后把 user+assistant 消息写入当前会话的 pi 文件
-				sessionId,
-			});
-			if (result.ok) {
-				// 参考图发送时已乐观清空，此处只原地更新结果消息
-				updateTimelineMessage(imageMessageId, (m) => ({
-					...m,
-					images: [result.image],
-					meta: {
-						imageGen: { status: "complete", prompt, size: imageGenSize } satisfies ImageGenMeta,
-					},
-				}));
-				showNotice(t("imagegen.done"), 4000);
-			} else {
-				// 失败恢复附件：参考图放回输入框便于改词重试；前插不覆盖期间新粘贴的图
-				if (attachments.length > 0) {
-					setAttachmentsAtom({ sessionId, value: (current) => [...attachments, ...current] });
-				}
-				updateTimelineMessage(imageMessageId, (m) => ({
-					...m,
-					meta: {
-						imageGen: {
-							status: "error",
-							prompt,
-							size: imageGenSize,
-							errorDetail: mapImageGenError(result.error, result.detail),
-						} satisfies ImageGenMeta,
-					},
-				}));
-			}
-		} catch {
-			// 网络/超时类失败同样恢复附件，便于原地重试
-			if (attachments.length > 0) {
-				setAttachmentsAtom({ sessionId, value: (current) => [...attachments, ...current] });
-			}
-			updateTimelineMessage(imageMessageId, (m) => ({
-				...m,
-				meta: {
-					imageGen: {
-						status: "error",
-						prompt,
-						errorDetail: t("imagegen.error.network"),
-					} satisfies ImageGenMeta,
-				},
-			}));
-		} finally {
-			setGeneratingImage(false);
-		}
-	}, [activeImageGenModelId, activeImageGenProviderId, attachments, draft, generatingImage, imageGenConfig, imageGenOutputFormat, imageGenSize, imageGenWatermark, record?.noSession, sessionId, setAttachmentsAtom, setCacheMessages, setDraft, store]);
-
-	// 生视频提交：与生图的同步等待不同，submit 受理即返回，占位消息由 videogen:event
-	// 事件原地推进（useVideoGenEvents 按 messageId 命中）；本地只负责门禁、上屏与受理回填。
-	const submitVideo = useCallback(
-		async (confirmed = false) => {
-			const prompt = draft.trim();
-			if (!prompt || submittingVideo) return;
-			const provider = findVideoGenProvider(videoGenConfig, videoGenConfig.activeProviderId);
-			const modelId = provider?.models.includes(videoGenConfig.activeModel) ? videoGenConfig.activeModel : "";
-			if (!provider?.id || !modelId || !provider.baseUrl.trim() || !provider.apiKey.trim()) {
-				showNotice(t("videogen.error.notConfigured"), 5000);
-				return;
-			}
-			// 一期纯文生视频：附件不支持作为参考素材，显式拦下而不是静默丢弃用户已贴的内容。
-			if (attachments.length > 0) {
-				showNotice(t("videogen.error.attachmentsUnsupported"), 5000);
-				return;
-			}
-			// 成本确认闸：未确认且开关开启时只完起弹层，不发请求；确认后走同一条函数提交。
-			if (videoGenConfig.costConfirm && !confirmed) {
-				setVideoConfirmPending(true);
-				return;
-			}
-			setVideoConfirmPending(false);
-			if (record?.noSession === true) {
-				showNotice(t("videogen.transientHint"), 6000);
-			}
-			setSubmittingVideo(true);
-			const appendTimelineMessage = (message: ChatMessage) => {
-				const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
-				setCacheMessages({ sessionId, messages: [...previous, message], source: "runtime" });
-			};
-			const updateTimelineMessage = (id: string, patch: (m: ChatMessage) => ChatMessage) => {
-				const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
-				setCacheMessages({ sessionId, messages: previous.map((m) => (m.id === id ? patch(m) : m)), source: "runtime" });
-			};
-			const params = videoGenConfig.activeParams;
-			// 参数回退链：用户改过的 activeParams → 供应商 defaults（切供应商时底栏预填）
-			const resolution = params.resolution ?? provider.defaults?.resolution;
-			const duration = params.duration ?? provider.defaults?.duration;
-			const ratio = params.ratio ?? provider.defaults?.ratio;
-			appendTimelineMessage({
-				id: crypto.randomUUID(),
-				agentId: "",
-				role: "user",
-				text: prompt,
-				timestamp: Date.now(),
-			});
-			// 占位 messageId 由本地生成并随请求带给主进程：事件快照沿用同一 id 才能原地命中本条。
-			const videoMessageId = crypto.randomUUID();
-			const placeholderMeta: VideoGenMeta = { status: "queued", prompt, resolution, duration, ratio };
-			appendTimelineMessage({
-				id: videoMessageId,
-				agentId: "",
-				role: "assistant",
-				text: "",
-				stopReason: "stop",
-				timestamp: Date.now(),
-				meta: { videoGen: placeholderMeta },
-			});
-			setDraft("");
-			try {
-				const result = await desktopApi.videogen.submit({
-					provider: provider.id,
-					model: modelId,
-					prompt,
-					sessionId,
-					messageId: videoMessageId,
-					resolution,
-					duration,
-					ratio,
-				});
-				if (result.ok) {
-					// 受理回填 jobId：事件到达前取消入口/按钮态即可用；后续状态由事件原地推进。
-					updateTimelineMessage(videoMessageId, (m) => ({
-						...m,
-						meta: { ...m.meta, videoGen: { ...placeholderMeta, jobId: result.jobId } },
-					}));
-					showNotice(t("videogen.submitted"), 4000);
-				} else {
-					updateTimelineMessage(videoMessageId, (m) => ({
-						...m,
-						meta: { ...m.meta, videoGen: { ...placeholderMeta, status: "error", errorDetail: mapVideoGenError(result.error, result.detail) } },
-					}));
-				}
-			} catch {
-				updateTimelineMessage(videoMessageId, (m) => ({
-					...m,
-					meta: { ...m.meta, videoGen: { ...placeholderMeta, status: "error", errorDetail: t("videogen.error.network") } },
-				}));
-			} finally {
-				setSubmittingVideo(false);
-			}
-		},
-		[attachments.length, draft, record?.noSession, sessionId, setCacheMessages, setDraft, store, submittingVideo, videoGenConfig],
-	);
-	// 确认/取消成本弹层：确认后携 confirmed 直发（绕过闸门）；取消只清待确认态，草稿不动。
-	const confirmVideoGen = useCallback(() => {
-		void submitVideo(true);
-	}, [submitVideo]);
-	const cancelVideoGen = useCallback(() => setVideoConfirmPending(false), []);
-
-	// 统一发送入口：先晋升预览 Tab 再投递（幂等，非预览无副作用）。
-	// 发送按钮 / 追问按钮 / Enter 键 / 无 Agent 时的 /compact 直发都会走这里，
-	// 避免新增发送路径时漏掉 promote 导致预览 Tab 不常驻（曾因此回归）。
-	// 生图模式：所有发送入口统一转生图（不晋升预览 Tab、不发消息），避免各入口分支不一致。
-	const promoteAndSend = useCallback(
-		async (behavior?: "steer" | "followUp", overrideText?: string) => {
-			// ACP 初始化中不再拦发送：冷启动发送本来就允许（useSessionSend 先发布 activating 状态，
-			// 再由 ensureRuntime 等同一条 pending activation）。旧实现除了置灰按钮，还在这里静默 return，
-			// 用户敲完回车毫无反馈，只像「输入框坏了」。
-			if (mode === "imagegen") {
-				void generateImage();
-				return;
-			}
-			// 生视频模式：所有发送入口统一转生视频提交（不晋升预览 Tab、不发普通消息）。
-			if (mode === "videogen") {
-				void submitVideo();
-				return;
-			}
-			// 粘贴文件折叠：把 chip 里的文件引用/内容并进草稿再发送。
-			// 新写入一律在 userData（inProject=false）：折叠原样文本内联，pi 读不到 userData；
-			// 遗留项目内 chip（inProject=true）仍走 @"path" 引用——pi 展开读取。
-			// 快捷消息直发（overrideText 有值）不走这段：那条路径发送的是清单原文，
-			// 把用户的粘贴内容并进去既违背「直发」语义，也会连带清掉他手里的 chip。
-			if (overrideText === undefined && pasteFiles.length) {
-				const refs: string[] = [];
-				for (const file of pasteFiles) {
-					if (file.inProject) {
-						refs.push(formatFilePathRef(file.path));
-					} else {
-						const content = await desktopApi.files.readContent(file.path, PASTE_FILE_CONTENT_MAX_BYTES).catch(() => "");
-						if (content) refs.push(content);
-					}
-				}
-				const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-				const joined = [liveDraft.trim(), refs.join("\n\n")].filter(Boolean).join("\n\n");
-				liveDomDraftRef.current = { sessionId, value: joined };
-				setDraft(joined);
-				// 已折叠进草稿：立即移除 chip（发送成功/失败都会在 clearSnapshot 兜底清空）
-				setPasteFiles([]);
-			}
-			if (!isRendererVirtualSessionId(sessionId)) options.onPromoteSession?.(sessionId);
-			return send(behavior, overrideText);
-		},
-		[draft, mode, generateImage, submitVideo, options.onPromoteSession, pasteFiles, send, sessionId, setDraft, setPasteFiles],
-	);
-
-	const selectSuggestion = useCallback(
-		(item: SuggestionItem) => {
-			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-			const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-			// 目录引用（isDirectory）不带尾随空格：@src/ 之后继续敲路径段时建议框会
-			// 随按键重新打开（onChange → detectTrigger），实现连续的目录下钻引用；
-			// 带空格会让建议框立刻关闭，用户必须回删空格才能继续，容易误以为只能选一层。
-			const result = applySuggestion(liveDraft, liveCursor, item.value, validSessionRefs, {
-				noTrailingSpace: item.isDirectory === true,
-			});
-			liveDomDraftRef.current = { sessionId, value: result.text };
-			setDraft(result.text);
-			setCursor(result.cursor);
-			caretRef.current = { pos: result.cursor, forValue: result.text };
-			setSuggestionsOpen(false);
-			requestAnimationFrame(() => editorRef.current?.focus());
-		},
-		[cursor, draft, sessionId, setDraft, validSessionRefs],
-	);
-
-	const closeSuggestions = useCallback(() => {
-		const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-		const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-		const result = clearSuggestionTrigger(liveDraft, liveCursor, validSessionRefs);
-		liveDomDraftRef.current = { sessionId, value: result.text };
-		setDraft(result.text);
-		setCursor(result.cursor);
-		caretRef.current = { pos: result.cursor, forValue: result.text };
-		setSuggestionsOpen(false);
-		requestAnimationFrame(() => editorRef.current?.focus());
-	}, [cursor, draft, sessionId, setDraft, validSessionRefs]);
-
-	const onChange = useCallback(
-		(value: string, nextCursor: number) => {
-			liveDomDraftRef.current = { sessionId, value };
-			setDraft(value);
-			setCursor(nextCursor);
-			setSuggestionsOpen(detectTrigger(value, nextCursor, validSessionRefs) !== null);
-			if (historyIndex >= 0) {
-				const history = getPromptHistory();
-				if (value !== history[historyIndex]) {
-					setHistoryIndex(-1);
-					setSavedDraft("");
-				}
-			}
-		},
-		[getPromptHistory, historyIndex, sessionId, setDraft, validSessionRefs],
-	);
-
-	// 输入预测的当前快照（声明在 onKeyDown 之前，但在下方预测 hook 之后赋值）：
-	// keydown 只读 ref，避免把「钩子返回值」塞进 useCallback 依赖造成每次渲染重建回调。
-	const suggestionRef = useRef<{ visible: boolean; accept: () => void; dismiss: () => void; acceptKey: (event: React.KeyboardEvent<HTMLDivElement>) => boolean } | null>(null);
-
-	const onKeyDown = useCallback(
-		(event: React.KeyboardEvent<HTMLDivElement>) => {
-			// IME 合成中一律不抢键：↑/↓ 是输入法选词、Esc 是取消合成、Enter 是确认候选。
-			// 放在候选菜单之前，保证菜单分支也走同一判定（TipTap 的 DOM 事件桥接没有
-			// nativeEvent，必须用共享判定口，不能只看 event.nativeEvent?.isComposing）。
-			if (isComposingKeyboardEvent(event)) return;
-
-			// 输入预测（ghost 文案）：Tab / → 采纳，Esc 忽略。只在空草稿可见，因此不会
-			// 与历史回溯、补全菜单、发送键冲突；先于其它分支拦截，避免 Tab 被默认焦点切换吃掉。
-			const ghost = suggestionRef.current;
-			if (ghost?.visible) {
-				if (ghost.acceptKey(event)) {
-					event.preventDefault();
-					ghost.accept();
-					return;
-				}
-				if (event.key === "Escape") {
-					event.preventDefault();
-					ghost.dismiss();
-					return;
-				}
-			}
-
-			if (suggestionsOpen && suggestionItems.length > 0) {
-				if (event.key === "ArrowDown") {
-					event.preventDefault();
-					setSelectedSuggestionIndex((index) => Math.min(index + 1, suggestionItems.length - 1));
-					return;
-				}
-				if (event.key === "ArrowUp") {
-					event.preventDefault();
-					setSelectedSuggestionIndex((index) => Math.max(index - 1, 0));
-					return;
-				}
-				// Tab 与 Enter 同义：采纳菜单高亮项（补全习惯对齐 zcode/codex 等终端交互）。
-				// 修饰键组合不拦：Shift+Tab 等仍走默认焦点切换。
-				if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey)) {
-					// IME 合成中的回车属于输入法确认候选，不能拿去选建议项
-					if (isComposingKeyboardEvent(event)) return;
-					event.preventDefault();
-					const selected = suggestionItems[Math.min(selectedSuggestionIndex, suggestionItems.length - 1)];
-					if (selected) selectSuggestion(selected);
-					return;
-				}
-				if (event.key === "Escape") {
-					event.preventDefault();
-					closeSuggestions();
-					return;
-				}
-			}
-
-			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-			// 一次取选区：from 即光标偏移（折叠时 from === to），同时回答「是否选中了文本」。
-			const liveSelection = editorRef.current ? getComposerSelectionRange(editorRef.current) : { from: cursor, to: cursor };
-			// 块边界取自 ProseMirror state（权威）：不用草稿字符串判「是不是首/末块」，
-			// 因为草稿 atom 在 IME 合成结束后的一帧内可能还没同步上。
-			const blockEdge = getComposerCaretBlockEdge(editorRef.current);
-			const history = getPromptHistory();
-			// 只在方向键上量视觉行盒：endOfTextblock 要遍历段落内的行盒，
-			// 不能让普通输入（每次 keydown 都会走这里）也付这个成本。
-			// 两个方向必须都量：PM 的 endOfTextblock 按 (state, dir) 缓存上一次结果，
-			// 若只量当前方向，窗口缩放/重新换行后同一 state 可能拿到过期的布局结论。
-			const measureEdge = event.key === "ArrowUp" || event.key === "ArrowDown";
-			const atVisualTop = measureEdge && isComposerAtVisualEdge(editorRef.current, "up");
-			const atVisualBottom = measureEdge && isComposerAtVisualEdge(editorRef.current, "down");
-			// 接管判定（含修饰键/选区守卫）全在纯函数里，便于单测。
-			const navIntent = resolveComposerHistoryIntent({
-				key: event.key,
-				atFirstBlock: blockEdge.atFirstBlock,
-				atLastBlock: blockEdge.atLastBlock,
-				atVisualTop,
-				atVisualBottom,
-				historyIndex,
-				historyLength: history.length,
-				modifier: event.shiftKey || event.ctrlKey || event.altKey || event.metaKey,
-				hasSelection: liveSelection.from !== liveSelection.to,
-			});
-
-			if (navIntent === "recall-older") {
-				event.preventDefault();
-				const nextIndex = historyIndex < 0 ? 0 : Math.min(historyIndex + 1, history.length - 1);
-				if (historyIndex < 0) setSavedDraft(liveDraft);
-				setHistoryIndex(nextIndex);
-				liveDomDraftRef.current = { sessionId, value: history[nextIndex] };
-				setDraft(history[nextIndex]);
-				caretRef.current = { pos: history[nextIndex].length, forValue: history[nextIndex] };
-				return;
-			}
-			if (navIntent === "recall-newer") {
-				event.preventDefault();
-				const nextIndex = historyIndex - 1;
-				const nextDraft = nextIndex >= 0 ? history[nextIndex] : savedDraft;
-				setHistoryIndex(nextIndex);
-				if (nextIndex < 0) setSavedDraft("");
-				liveDomDraftRef.current = { sessionId, value: nextDraft };
-				setDraft(nextDraft);
-				caretRef.current = { pos: nextDraft.length, forValue: nextDraft };
-				return;
-			}
-			if (navIntent === "restore-draft") {
-				liveDomDraftRef.current = { sessionId, value: savedDraft };
-				setDraft(savedDraft);
-				setHistoryIndex(-1);
-				setSavedDraft("");
-				return;
-			}
-
-			const intent = mode === "plan" && isPlanModeSendKey(event) ? "send" : getComposerEnterIntent(event, sendShortcut);
-			if (intent === "send") {
-				event.preventDefault();
-				// Enter 发送也晋升预览 Tab（promoteAndSend 内部统一处理）。
-				// 忙碌时按「忙碌时投递行为」设置决定语义；ACP 后端恒收敛 followUp（协议无 steer）。
-				// 空闲直发（undefined）。设置在常用设置→会话，改后即时生效（App 同步 atom）。
-				void promoteAndSend(resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom), isAcpBackend ? "acp" : undefined));
-			}
-		},
-		[closeSuggestions, cursor, draft, getPromptHistory, historyIndex, isBusy, mode, promoteAndSend, savedDraft, selectedSuggestionIndex, selectSuggestion, sendShortcut, sessionId, setDraft, store, suggestionItems, suggestionsOpen],
-	);
-
-	const addImageFiles = useCallback(
-		async (imageFiles: File[]) => {
-			// G2：DSH 图片附件已支持（经 host attachment 服务上传，sendPrompt 带 image 块），
-			// 与 pi 共用附件流程，不再按 backend 拦截。
-			for (const file of imageFiles) {
-				try {
-					const image = await processComposerImageFile(file);
-					// 附件预算（内存优化 2026-12）：单会话 base64 总量封顶，拒绝发生在入口并提示，
-					// 不静默截断；重发恢复/队列回填不经此处，不受影响。逐张判定：小图仍可补进。
-					const currentBytes = attachmentBytes(store.get(sessionAttachmentsBySessionIdAtomFamily(sessionId)));
-					if (currentBytes + base64DataBytes(image.data) > COMPOSER_ATTACHMENT_BUDGET_BYTES) {
-						showNotice(t("app.imageBudgetExceeded", { size: formatBytes(COMPOSER_ATTACHMENT_BUDGET_BYTES) }), 3000);
-						continue;
-					}
-					setAttachments((current) => [...current, image]);
-				} catch (error) {
-					showNotice(composerImageNotice(error), 3000);
-				}
-			}
-		},
-		[sessionId, setAttachments, store],
-	);
-
-	/**
-	 * 把已格式化的引用文本（@path、@"a b/" 等）插入输入框当前光标处。
-	 * 文件树拖拽、OS 文件拖入/粘贴、「加入对话引用」按钮共用同一插入规则：
-	 * 只引用路径，不上传内容；与前字符之间按需补空格。
-	 */
-	const insertRefTexts = useCallback(
-		(refTexts: string[]) => {
-			if (refTexts.length === 0) return;
-			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-			const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-			const refText = refTexts.join(" ");
-			const previous = liveDraft[liveCursor - 1];
-			const spacer = liveCursor > 0 && previous !== " " && previous !== "\n" ? " " : "";
-			const next = liveDraft.slice(0, liveCursor) + spacer + refText + liveDraft.slice(liveCursor);
-			const nextCursor = liveCursor + spacer.length + refText.length;
-			liveDomDraftRef.current = { sessionId, value: next };
-			setDraft(next);
-			setCursor(nextCursor);
-			caretRef.current = { pos: nextCursor, forValue: next };
-			requestAnimationFrame(() => editorRef.current?.focus());
-		},
-		[cursor, draft, sessionId, setDraft],
-	);
-
-	/** 本地路径以 @path 引用插入（OS 文件拖入/粘贴/文件选择器共用）；含空格路径自动加引号 */
-	const insertFilePathRefs = useCallback(
-		(paths: string[]) => {
-			insertRefTexts(paths.map((path) => formatFilePathRef(path, { isDirectory: /[\\/]$/.test(path) })));
-		},
-		[insertRefTexts],
-	);
-
-	/**
-	 * 把纯文本插入输入框当前光标处（不带 @ 引用包装）。
-	 * 与 insertRefTexts 同一套光标/草稿同步协议；仅用于「转文件失败回退原样粘贴」
-	 * 这类需要绕过 TipTap 默认粘贴路径的场景（onPaste 已同步 preventDefault）。
-	 */
-	const insertPlainTextAtCursor = useCallback(
-		(text: string) => {
-			if (!text) return;
-			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-			const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-			const next = liveDraft.slice(0, liveCursor) + text + liveDraft.slice(liveCursor);
-			const nextCursor = liveCursor + text.length;
-			liveDomDraftRef.current = { sessionId, value: next };
-			setDraft(next);
-			setCursor(nextCursor);
-			caretRef.current = { pos: nextCursor, forValue: next };
-			requestAnimationFrame(() => editorRef.current?.focus());
-		},
-		[cursor, draft, sessionId, setDraft],
-	);
-
-	const captureVoiceTarget = useCallback((): VoiceTranscriptionTarget => {
-		const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-		const selection = editorRef.current ? getComposerSelectionRange(editorRef.current) : { from: cursor, to: cursor };
-		return { sessionId, draft: liveDraft, ...selection };
-	}, [cursor, draft, sessionId]);
-
-	const applyVoiceText = useCallback(
-		(target: VoiceTranscriptionTarget, text: string) => {
-			const currentDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : (store.get(sessionDraftByIdAtom)[sessionId] ?? "");
-			const result = resolveVoiceTranscriptionInsertion({
-				target,
-				currentSessionId: sessionId,
-				currentDraft,
-				text,
-			});
-			if (!result.ok) return false;
-			liveDomDraftRef.current = { sessionId, value: result.value };
-			setDraft(result.value);
-			setCursor(result.caret);
-			caretRef.current = { pos: result.caret, forValue: result.value };
-			requestAnimationFrame(() => editorRef.current?.focus());
-			return true;
-		},
-		[sessionId, setDraft, store],
-	);
-
-	const voice = useVoiceTranscription({
-		scopeKey: sessionId,
-		captureTarget: captureVoiceTarget,
-		applyText: applyVoiceText,
+	// 生图 / 生视频提交（占位消息上屏、门禁、结果回填）：独立后端链路，整域搬进子 hook。
+	const { persistImageGenSelection, generateImage, submitVideo, confirmVideoGen, cancelVideoGen, generatingImage, submittingVideo, videoConfirmPending } = useComposerGeneration({
+		sessionId,
+		draft,
+		attachments,
+		record,
+		imageGenSize,
+		imageGenWatermark,
+		imageGenOutputFormat,
+		setDraft,
+		setAttachments,
 	});
 
-	// ===== 提示词增强（✦ 按钮）：当前模型 + 当前草稿 → 一次性改写 → 回填 =====
-	// 目标模型优先级（resolveEnhanceTargetModel）：设置页指定的固定增强模型 >
-	// 会话记录 > 引导页点选 > 部署/主进程默认；引导页的 welcomeModel 存 localStorage，
-	// 这里不走 catalog 存在性校验——模型被删的边缘情况由主进程报 model-not-found，toast 可见。
-	// 增强与输入预测共用同一条优先级链，但各自的「固定模型」是独立设置项（enhanceModel /
-	// promptSuggestionModel）——预测每轮都发一次后台调用，常被单独指定成便宜的小模型。
-	const targetModelChain = {
-		recordModel: record?.model,
-		welcomeModel: (isDshBackend ? readWelcomeDshModelPreference() : readWelcomeModelPreference())?.model,
-		fallback: isDshBackend && dshDefault ? { provider: dshDefault.provider, modelId: dshDefault.model } : bootstrapDefaults?.model,
-	};
-	const enhanceTarget = resolveEnhanceTargetModel({ ...targetModelChain, configured: enhanceModelConfig });
-	const captureEnhanceRequest = useCallback((): PromptEnhanceRequest | null => {
-		if (!enhanceTarget) return null;
-		const draftSnapshot = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-		// 按发起会话读取已加载快照，既不跨分屏取 currentSession，也不为增强额外加载历史。
-		const context = enhanceIncludeContext ? collectPromptEnhanceContext(store.get(sessionMessageCacheBySessionIdAtomFamily(sessionId))?.messages ?? []) : [];
-		return { ...enhanceTarget, draft: draftSnapshot, ...(context.length ? { context } : {}) };
-	}, [draft, enhanceTarget, enhanceIncludeContext, sessionId, store]);
-
-	// 回填 = 整体替换草稿（与语音插入不同：增强是对全文的改写，没有「插入位置」语义）。
-	const applyEnhancedText = useCallback(
-		(text: string) => {
-			liveDomDraftRef.current = { sessionId, value: text };
-			setDraft(text);
-			setCursor(text.length);
-			caretRef.current = { pos: text.length, forValue: text };
-			requestAnimationFrame(() => editorRef.current?.focus());
-		},
-		[sessionId, setDraft],
-	);
-
-	const enhance = usePromptEnhance({
-		scopeKey: sessionId,
-		modelLabel: enhanceTarget ? `${enhanceTarget.provider}/${enhanceTarget.modelId}` : undefined,
-		captureRequest: captureEnhanceRequest,
-		applyText: applyEnhancedText,
+	// 发送入口 + 键盘接管（Enter/历史回溯/@ 补全/ghost 采纳）：谁能触发发送的唯一判定点。
+	const { promoteAndSend, selectSuggestion, closeSuggestions, onChange, suggestionRef, onKeyDown } = useComposerSendInteraction({
+		sessionId,
+		draft,
+		setDraft,
+		cursor,
+		setCursor,
+		editorRef,
+		liveDomDraftRef,
+		caretRef,
+		validSessionRefs,
+		suggestionItems,
+		suggestionsOpen,
+		setSuggestionsOpen,
+		selectedSuggestionIndex,
+		setSelectedSuggestionIndex,
+		historyIndex,
+		setHistoryIndex,
+		savedDraft,
+		setSavedDraft,
+		getPromptHistory,
+		mode,
+		isBusy,
+		isAcpBackend,
+		sendShortcut,
+		pasteFiles,
+		setPasteFiles,
+		send,
+		onPromoteSession: options.onPromoteSession,
+		generateImage,
+		submitVideo,
 	});
 
-	// ===== 输入预测（回合结束后预测下一句输入，空输入框 ghost 展示）=====
-	// 与增强共用同一条优先级链（设置固定模型 > 会话模型 > 默认），但读的是独立的
-	// promptSuggestionModel 设置，并走独立侧车实例；
-	// 回合边界取 runtime 的权威 isTurnActive（agent_end），不用 isBusy（还含 compact 等中间态）。
-	// 采纳回填与增强同一条路径（applyEnhancedText：整体替换草稿 + 光标置尾 + 聚焦）。
-	const promptSuggestionEnabled = useAtomValue(promptSuggestionEnabledAtom);
-	const promptSuggestionModelConfig = useAtomValue(promptSuggestionModelAtom);
-	const suggestionTarget = resolveEnhanceTargetModel({ ...targetModelChain, configured: promptSuggestionModelConfig });
-	const suggestion = usePromptSuggestion({
-		scopeKey: sessionId,
-		enabled: promptSuggestionEnabled,
-		target: suggestionTarget,
-		turnRunning: sessionTurnRunning,
-		// 用 hasContent 而不是 draft.length：纯空白、附件/粘贴文件也属于「有内容」，
-		// 否则预测会盖在已经放好附件的输入框上，Tab 还会把附件留下却把 ghost 当草稿采纳。
-		draftEmpty: !hasContent,
-		applyText: applyEnhancedText,
+	// 草稿写入与辅助生成（光标处插入、图片附件、语音、增强、输入预测）。
+	const { addImageFiles, insertRefTexts, insertFilePathRefs, insertPlainTextAtCursor, voice, enhance, suggestion } = useComposerDraftAssist({
+		sessionId,
+		draft,
+		setDraft,
+		cursor,
+		setCursor,
+		editorRef,
+		liveDomDraftRef,
+		caretRef,
+		suggestionRef,
+		setAttachments,
+		record,
+		isDshBackend,
+		dshDefault,
+		bootstrapDefaults,
+		sessionTurnRunning,
+		hasContent,
 	});
-	suggestionRef.current = suggestion;
 
-	/**
-	 * 大段粘贴文本 → 落盘 userData/paste-files + 附件栏 chip。
-	 * 触发条件：粘贴纯文本达到 PASTE_TO_FILE_MIN_CHARS（复制长日志/代码/文章是主要场景）。
-	 * 新写入一律落应用数据目录（与日志同属），发送时折叠原样文本内联；
-	 * projectPath 仍会传给主进程做已登记项目校验，但不再决定落盘目录。
-	 * 写盘失败（权限/路径异常）回退原样插入，保证粘贴内容不丢。
-	 */
-	const pasteTextToFile = useCallback(
-		async (text: string) => {
-			try {
-				const result = await desktopApi.pasteFiles.write({
-					// 项目根经 projectId 反查项目清单（不依赖可能缺失的 record.projectPath）；
-					// 非空时主进程只做已登记项目校验，新写入一律落 userData/paste-files/。
-					projectPath: composerProject?.path ?? "",
-					content: text,
-				});
-				setPasteFiles((current) => [
-					...current,
-					{
-						id: crypto.randomUUID(),
-						path: result.path,
-						fileName: result.fileName,
-						bytes: result.bytes,
-						inProject: result.inProject,
-					},
-				]);
-				showNotice(t("app.pasteConvertedToFile", { name: result.fileName, size: formatBytes(result.bytes) }), 4000);
-			} catch {
-				showNotice(t("app.pasteConvertFailed"), 3000);
-				insertPlainTextAtCursor(text);
-			}
-		},
-		[composerProject?.path, insertPlainTextAtCursor, setPasteFiles],
-	);
-
-	/** 从 File 列表解析本地路径（Electron 32+ 必须走 webUtils，不能用已移除的 File.path） */
-	const resolveLocalPathsFromFiles = useCallback((files: File[]) => {
-		const getPath = desktopApi.files.getPathForFile;
-		if (!getPath) return [];
-		const paths: string[] = [];
-		for (const file of files) {
-			try {
-				const path = getPath(file);
-				if (path) paths.push(path);
-			} catch {
-				// 非本地文件或路径不可用时跳过
-			}
-		}
-		return paths;
-	}, []);
-
-	/**
-	 * 剪贴板里的图片文件 → 附加为图片预览（对齐微信/QQ 粘贴习惯）。
-	 * 经 files.readBase64 读原文件（比剪贴板位图缩略图清晰），构造 File 走统一附件流程；
-	 * 任一文件读取失败或超出合成器大小上限（主进程 stat 预检拦截）时：
-	 * 先兜底剪贴板位图——截图工具/网页复制常同时写路径+位图，而路径文件可能已被删除
-	 * 或过大，位图仍在（否则粘贴会退化成无用的 @path 引用）；实在没有位图才整体回退
-	 * @path 引用，保证「复制图片」粘贴始终有可用结果。
-	 */
-	const pasteClipboardImages = useCallback(
-		async (paths: string[], dataTransfer: DataTransfer | null) => {
-			try {
-				const files: File[] = [];
-				for (const path of paths) {
-					const dataUrl = await desktopApi.files.readBase64(path, COMPOSER_IMAGE_MAX_BYTES);
-					if (!dataUrl) throw new Error(`Cannot read image: ${path}`);
-					const fileName = path.split(/[\\/]/).pop() || path;
-					files.push(dataUrlToFile(dataUrl, imageMimeTypeFromPath(path), fileName));
-				}
-				await addImageFiles(files);
-			} catch {
-				// 位图兜底：事件粘贴优先取 clipboardData 的 image 项；右键粘贴无事件，走 Electron 剪贴板位图
-				const imageFiles = dataTransfer ? getClipboardImageFiles(dataTransfer) : [];
-				if (imageFiles.length) {
-					await addImageFiles(imageFiles);
-					return;
-				}
-				const imageDataUrl = desktopApi.clipboard.readImage();
-				if (imageDataUrl) {
-					await addImageFiles([dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png")]);
-					return;
-				}
-				insertFilePathRefs(paths);
-			}
-		},
-		[addImageFiles, insertFilePathRefs],
-	);
-
-	/**
-	 * 右键「粘贴」（无 ClipboardEvent）：从 Electron 剪贴板同步读取。
-	 * 优先级同 onPaste：文件路径 → 位图 → 大段文本转文件；纯文本返回 false，交给编辑器本地插入。
-	 */
-	const pasteFromClipboard = useCallback(async (): Promise<boolean> => {
-		const clipboardPaths = desktopApi.files.getClipboardPaths?.() ?? [];
-		if (clipboardPaths.length > 0) {
-			if (clipboardPaths.every(isImageFilePath)) {
-				await pasteClipboardImages(clipboardPaths, null);
-			} else {
-				insertFilePathRefs(clipboardPaths);
-			}
-			return true;
-		}
-		const imageDataUrl = desktopApi.clipboard.readImage();
-		if (imageDataUrl) {
-			await addImageFiles([dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png")]);
-			return true;
-		}
-		// 大段文本（右键粘贴菜单无 ClipboardEvent）：同样转文件，避免塞进 ProseMirror 变卡
-		const text = desktopApi.clipboard.readText();
-		if (text.length >= PASTE_TO_FILE_MIN_CHARS) {
-			void pasteTextToFile(text);
-			return true;
-		}
-		return false;
-	}, [addImageFiles, insertFilePathRefs, pasteClipboardImages, pasteTextToFile]);
-
-	/**
-	 * 粘贴：系统文件路径以 @path 引用插入，位图/截图附加为图片。
-	 * 未处理时不 preventDefault，交给 RichInput 做纯文本粘贴。
-	 * preventDefault 必须在任何 await 之前同步调用，否则浏览器会先插入默认内容。
-	 *
-	 * 顺序说明：资源管理器复制图片文件时，剪贴板常同时带路径 + 缩略图；
-	 * 路径为受支持图片时优先附加预览，否则仍按路径引用处理，避免被误当成截图。
-	 */
-	const onPaste = useCallback(
-		(event: React.ClipboardEvent<HTMLDivElement>) => {
-			// 1) 资源管理器复制/剪切的文件：浏览器 ClipboardEvent 通常没有 kind=file，
-			//    需通过 preload 同步读取 Electron clipboard（FileNameW / CF_HDROP 等）
-			const clipboardPaths = desktopApi.files.getClipboardPaths?.() ?? [];
-			if (clipboardPaths.length > 0) {
-				event.preventDefault();
-				// 复制的全是受支持图片 → 附加预览；混合/其他文件 → 维持 @path 引用
-				if (clipboardPaths.every(isImageFilePath)) {
-					void pasteClipboardImages(clipboardPaths, event.clipboardData);
-				} else {
-					insertFilePathRefs(clipboardPaths);
-				}
-				return;
-			}
-
-			// 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
-			const fileItems = Array.from(event.clipboardData.items).filter((item) => item.kind === "file");
-			if (fileItems.length > 0) {
-				const files = fileItems.map((item) => item.getAsFile()).filter((file): file is File => Boolean(file));
-				const paths = resolveLocalPathsFromFiles(files);
-				if (paths.length > 0) {
-					event.preventDefault();
-					// 与第 1 步同规则：全是图片 → 附加预览（失败位图兜底），混合 → @path
-					if (paths.every(isImageFilePath)) {
-						void pasteClipboardImages(paths, event.clipboardData);
-					} else {
-						insertFilePathRefs(paths);
-					}
-					return;
-				}
-			}
-
-			// 3) 剪贴板位图（截图/微信QQ/网页复制图片）：必须优先于纯文本——
-			//    这类复制常同时写位图 + text 槽（微信写图片缓存路径、网页写图片 URL），
-			//    位图才是用户要的内容；文件路径场景已在前两步处理，这里只剩纯位图。
-			const imageFiles = getClipboardImageFiles(event.clipboardData);
-			if (imageFiles.length) {
-				event.preventDefault();
-				void addImageFiles(imageFiles);
-				return;
-			}
-			// 4) 大段纯文本粘贴（复制日志/代码/长文是主要来源）：直接插入 ProseMirror
-			//    会随文本量级变卡（文档模型 + 逐键建议扫描），改为落盘成文件并在附件栏
-			//    显示文件 chip（与图片粘贴同款形态），发送时自动折叠 @引用/原样文本。
-			const plainText = event.clipboardData.getData("text/plain");
-			if (plainText.length >= PASTE_TO_FILE_MIN_CHARS) {
-				event.preventDefault();
-				void pasteTextToFile(plainText);
-				return;
-			}
-			// 5) 其余纯文本一律交给编辑器原样插入：不做自动路径识别——
-			//    粘贴 /foo/bar、//注释 这类文本时，若自动补 @ 并转成引用 chip，
-			//    文本变成原子节点无法再编辑移动光标（用户反馈的痛点）；
-			//    需要引用文件时走资源管理器复制文件（步骤 1/2）或手动输入 @ 触发补全。
-		},
-		[addImageFiles, insertFilePathRefs, pasteClipboardImages, pasteTextToFile, resolveLocalPathsFromFiles],
-	);
-
-	/**
-	 * 本地图片路径 → 附件栏参考图（生图选图与生图模式拖入共用）。
-	 * 逐张提示：一张读失败不应把同批其它图一起丢掉。
-	 */
-	const addReferenceImagePaths = useCallback(
-		async (paths: string[]) => {
-			const imagePaths = paths.filter(isImageFilePath);
-			// 选择器/拖入都可能带非图片：提示一次即可，不往 prompt 里塞无效的 @path。
-			if (imagePaths.length === 0) {
-				showNotice(t("app.imageUnsupported"), 3000);
-				return;
-			}
-			const files: File[] = [];
-			for (const path of imagePaths) {
-				try {
-					const dataUrl = await desktopApi.files.readBase64(path, COMPOSER_IMAGE_MAX_BYTES);
-					// 主进程对 ENOENT 返回空串（与粘贴同一读取口）：文件被移走时按读取失败提示。
-					if (!dataUrl) throw new Error("image-read-failed");
-					files.push(dataUrlToFile(dataUrl, imageMimeTypeFromPath(path), path.split(/[\\/]/).pop() || path));
-				} catch (error) {
-					showNotice(/FILE_TOO_LARGE/.test(String(error)) ? t("app.imageTooLarge") : t("app.imageReadFailed"), 3000);
-				}
-			}
-			if (files.length > 0) await addImageFiles(files);
-		},
-		[addImageFiles],
-	);
-
-	/**
-	 * 拖拽：
-	 * 1) 文件树节点（含目录）→ 按节点信息生成 @ 引用；
-	 * 2) OS 本地文件/目录 → 以 @path 引用插入（含图片文件，不上传内容）；
-	 * 3) 仅当无法解析本地路径且类型为 image/* 时，才退回附加图片（极少见）。
-	 */
-	const onDrop = useCallback(
-		(event: React.DragEvent<HTMLDivElement>) => {
-			event.preventDefault();
-			const nodePayload = readFileNodeDragPayload(event.dataTransfer);
-			if (nodePayload) {
-				insertRefTexts([fileNodeDragPayloadToRef(nodePayload)]);
-				return;
-			}
-			const files = Array.from(event.dataTransfer.files);
-			if (files.length === 0) return;
-			const paths = resolveLocalPathsFromFiles(files);
-			if (paths.length > 0) {
-				// 生图模式：附件是参考图，@path 不会被解析成图片——与粘贴/选图同一条附件流程。
-				if (imageGenComposer) {
-					void addReferenceImagePaths(paths);
-					return;
-				}
-				insertFilePathRefs(paths);
-				return;
-			}
-			void addImageFiles(getDroppedImageFiles(event.dataTransfer));
-		},
-		[addImageFiles, addReferenceImagePaths, imageGenComposer, insertFilePathRefs, insertRefTexts, resolveLocalPathsFromFiles],
-	);
-
-	/** 「加入对话引用」按钮：系统选择器选中的文件/目录以 @path 插入 */
-	const attachFile = useCallback(async () => {
-		try {
-			const paths = await desktopApi.dialog.pickFiles({ title: t("menu.attachFile") });
-			insertFilePathRefs(paths);
-		} catch {
-			// 用户取消或出错时不作处理
-		}
-	}, [insertFilePathRefs]);
-
-	/**
-	 * 生图模式的「上传参考图」：系统选择器选中的图片走与粘贴/拖入同一条附件流程。
-	 * 生图 prompt 里的 @path 引用没有任何意义（主进程不会把它们解成参考图），所以不能复用 attachFile。
-	 */
-	const attachReferenceImages = useCallback(async () => {
-		let paths: string[];
-		try {
-			paths = await desktopApi.dialog.pickFiles({ title: t("app.composerAddReferenceImage") });
-		} catch {
-			return;
-		}
-		// 取消（空列表）不提示；选择器没有扩展名过滤，选错文件才给一次明确原因。
-		if (paths.length === 0) return;
-		await addReferenceImagePaths(paths);
-	}, [addReferenceImagePaths]);
-
-	/** 移除粘贴文件 chip：同步删除落盘文件（粘贴产物，不留孤儿文件）。 */
-	const removePasteFile = useCallback(
-		(index: number) => {
-			const target = pasteFiles[index];
-			setPasteFiles((current) => current.filter((_, item) => item !== index));
-			if (target) void desktopApi.pasteFiles.delete(target.path).catch(() => undefined);
-		},
-		[pasteFiles, setPasteFiles],
-	);
-
-	/** 清空全部粘贴文件 chip（附件栏「清空」按钮）：逐个删除落盘文件。 */
-	const clearPasteFiles = useCallback(() => {
-		for (const file of pasteFiles) {
-			void desktopApi.pasteFiles.delete(file.path).catch(() => undefined);
-		}
-		setPasteFiles([]);
-	}, [pasteFiles, setPasteFiles]);
-
-	const onChipClick = useCallback(
-		(chip: ComposerChip) => {
-			// 文件引用点击不再打开文件/分屏（用户要求阻止点击打开事件）：
-			// 引用 chip 只是一段文本标记，打开文件走时间线链接或文件树等显式入口。
-			if (chip.kind === "session") {
-				const selected = projectSessions.find((session) => (session.name ?? session.filePath) === chip.label);
-				if (selected) setSessionReference(selected);
-			}
-		},
-		[projectSessions],
-	);
+	// 粘贴 / 拖拽 / 附件栏 chip。
+	const { pasteFromClipboard, onPaste, onDrop, attachFile, attachReferenceImages, removePasteFile, clearPasteFiles, onChipClick } = useComposerPaste({
+		composerProject,
+		pasteFiles,
+		setPasteFiles,
+		imageGenComposer,
+		projectSessions,
+		setSessionReference,
+		addImageFiles,
+		insertRefTexts,
+		insertFilePathRefs,
+		insertPlainTextAtCursor,
+	});
 
 	useEffect(() => {
 		if (!hasContent) {
@@ -2717,51 +1857,3 @@ export function useSessionComposerController(options: UseSessionComposerControll
 }
 
 export type SessionComposerController = ReturnType<typeof useSessionComposerController>;
-
-/** 生图错误码 → 用户可见文案。http/鉴权类错误尽量附上厂商 detail（已脱敏）。 */
-function mapImageGenError(error: string, detail?: string): string {
-	const extra = detail?.trim() ?? "";
-	switch (error) {
-		case "notConfigured":
-			return t("imagegen.error.notConfigured");
-		case "invalidKey":
-			return extra ? t("imagegen.error.invalidKeyDetail", { detail: extra }) : t("imagegen.error.invalidKey");
-		case "badBaseUrl":
-			return extra ? t("imagegen.error.badBaseUrlDetail", { detail: extra }) : t("imagegen.error.badBaseUrl");
-		case "empty":
-			return t("imagegen.error.empty");
-		case "http":
-			return extra ? t("imagegen.error.http", { detail: extra }) : t("imagegen.status.error");
-		case "responseTooLarge":
-			return t("imagegen.error.responseTooLarge");
-		default:
-			return t("imagegen.error.network");
-	}
-}
-
-/** 生视频错误码 → 用户可见文案（与 mapImageGenError 同构，多出轮询/下载/取消三段）。 */
-function mapVideoGenError(error: string, detail?: string): string {
-	const extra = detail?.trim() ?? "";
-	switch (error) {
-		case "notConfigured":
-			return t("videogen.error.notConfigured");
-		case "invalidKey":
-			return extra ? t("videogen.error.invalidKeyDetail", { detail: extra }) : t("videogen.error.invalidKey");
-		case "badBaseUrl":
-			return extra ? t("videogen.error.badBaseUrlDetail", { detail: extra }) : t("videogen.error.badBaseUrl");
-		case "empty":
-			return t("videogen.error.empty");
-		case "timeout":
-			return t("videogen.error.timeout");
-		case "downloadFailed":
-			return t("videogen.error.downloadFailed");
-		case "generationFailed":
-			return extra ? t("videogen.error.generationFailedDetail", { detail: extra }) : t("videogen.error.generationFailed");
-		case "cancelled":
-			return t("videogen.error.cancelled");
-		case "http":
-			return extra ? t("videogen.error.http", { detail: extra }) : t("videogen.status.error");
-		default:
-			return t("videogen.error.network");
-	}
-}

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionComposerControllerSource } from "./helpers/sessionComposerControllerSources.mjs";
 
 import { preloadSource } from "./helpers/preloadSources.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
@@ -16,7 +17,7 @@ const imagegenIpc = readFileSync("src/main/ipc/imagegenIpc.ts", "utf8");
 const agentTypes = readFileSync("src/shared/types/agent.ts", "utf8");
 const composerComponents = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
 const composerModeSelect = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
-const controller = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+const controller = sessionComposerControllerSource;
 const composerPanels = readFileSync("src/renderer/src/components/session/ComposerPanels.tsx", "utf8");
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
