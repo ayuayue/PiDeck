@@ -12,7 +12,15 @@ import { readFileSync } from "node:fs";
  * 需要「把模块编译起来执行」的测试（ts.transpileModule + 桩 require）不适用聚合：
  * 那种测试应直接读规则所在的那个文件（纯函数协作者），否则拼接多文件会导出冲突。
  */
-export const SESSION_HISTORY_READER_SOURCE_FILES = ["src/main/pi/SessionHistoryReader.ts", "src/main/pi/sessionReader/sessionMessageProjection.ts", "src/main/pi/sessionReader/sessionEntryParsing.ts", "src/main/pi/sessionReader/sessionTurnWindow.ts"];
+export const SESSION_HISTORY_READER_SOURCE_FILES = [
+	"src/main/pi/SessionHistoryReader.ts",
+	"src/main/pi/sessionReader/sessionMessageProjection.ts",
+	"src/main/pi/sessionReader/sessionEntryParsing.ts",
+	"src/main/pi/sessionReader/sessionTurnWindow.ts",
+	"src/main/pi/sessionReader/sessionCardProjection.ts",
+	"src/main/pi/sessionReader/sessionDisplayPaging.ts",
+	"src/main/pi/sessionReader/sessionSubagentProjection.ts",
+];
 
 /** 整片域的源码文本（按固定顺序拼接；用于正则/包含判定）。 */
 export function readSessionHistoryReaderSources() {
