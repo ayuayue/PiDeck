@@ -92,6 +92,11 @@ type config struct {
 	// Language is the interface's language: "" follows the system, else
 	// zh-CN, zh-TW or en-US.
 	Language string `json:"language,omitempty"`
+	// Feishu posts a finished turn to a group bot. The webhook is the
+	// bot's URL; Secret is its signing key, when it has one.
+	FeishuEnabled bool   `json:"feishuEnabled,omitempty"`
+	FeishuWebhook string `json:"feishuWebhook,omitempty"`
+	FeishuSecret  string `json:"feishuSecret,omitempty"`
 }
 
 // store holds the config file and the session directory.

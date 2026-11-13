@@ -308,6 +308,8 @@ func TestSettingsTabs(t *testing.T) {
 	app.WaitFor(`text:"配色"`, 5*time.Second)
 	app.Press("id:settings-tab-addons")
 	app.WaitFor("text:打开插件目录", 5*time.Second)
+	app.Press("id:settings-tab-integrations")
+	app.WaitFor("text:飞书机器人", 5*time.Second)
 	app.Press("id:settings-tab-data")
 	app.WaitFor(`text:"数据目录"`, 5*time.Second)
 	shot(app, "41-settings")

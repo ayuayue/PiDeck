@@ -40,6 +40,7 @@ func settingsSections() []settingsSection {
 		{"env", "环境", lucide.Terminal, "环境", "pi 在哪里、能不能用；WSL 与 SSH 目标。"},
 		{"addons", "插件", lucide.Puzzle, "插件", "插件给命令面板加命令，给外观加主题。"},
 		{"resources", "资源", lucide.Package, "资源", "pi 的技能与扩展：看它们做什么，打开或停用。"},
+		{"integrations", "集成", lucide.Webhook, "集成", "把一轮完成的消息发到飞书群。"},
 		{"data", "数据", lucide.HardDrive, "数据", "会话与配置在磁盘上的位置。"},
 		{"about", "关于", lucide.Info, "关于", "版本、许可与来源。"},
 	}
@@ -165,6 +166,8 @@ func (a *app) settingsContent() core.Node {
 			return a.settingsAddons()
 		case "resources":
 			return a.settingsResources()
+		case "integrations":
+			return a.settingsIntegrations()
 		case "data":
 			return a.settingsData()
 		case "about":
@@ -840,6 +843,49 @@ func (a *app) settingsAddons() core.Node {
 					}},
 					ui.Button{Text: "重新加载", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.reloadAddons},
 				}},
+			}},
+		}}
+	})
+}
+
+// settingsIntegrations configures the Feishu group bot.
+func (a *app) settingsIntegrations() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		field := func(value func() string, set func(string), placeholder, label, testID string, masked bool) core.Node {
+			return core.Input{Value: value, OnChange: set, Placeholder: placeholder, Label: label, Masked: masked,
+				TestID: testID,
+				Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
+					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					BorderWidth: 1, BorderColor: colors.FieldBorder()}}
+		}
+		setCfg := func(fn func(*config)) {
+			fn(&a.cfg)
+			a.st.edit(fn)
+		}
+		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+				setGroup("飞书",
+					setRow("飞书机器人", "一轮结束时，把会话标题、状态和一句摘要发到群里的自定义机器人。",
+						ui.Switch{Checked: func() bool { return a.cfg.FeishuEnabled }, Label: "飞书机器人", TestID: "feishu-enabled",
+							OnChange: func(on bool) { setCfg(func(c *config) { c.FeishuEnabled = on }) }}),
+					setDivider(),
+					setRow("Webhook 地址", "飞书群 → 设置 → 群机器人 → 自定义机器人，复制它的 Webhook 地址。",
+						field(func() string { return a.cfg.FeishuWebhook }, func(v string) {
+							setCfg(func(c *config) { c.FeishuWebhook = v })
+						}, "https://open.feishu.cn/open-apis/bot/v2/hook/…", "Webhook 地址", "feishu-webhook", false)),
+					setDivider(),
+					setRow("签名密钥", "机器人开启签名校验时填写；不校验就留空。",
+						field(func() string { return a.cfg.FeishuSecret }, func(v string) {
+							setCfg(func(c *config) { c.FeishuSecret = v })
+						}, "可留空", "签名密钥", "feishu-secret", true)),
+					setDivider(),
+					setRow("测试", "发一条测试消息，确认地址与签名都对。",
+						ui.Button{Text: "发一条", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "feishu-test",
+							OnPress: a.testFeishu}),
+				),
+				core.Text{Content: "消息只包含会话标题、状态与一句摘要，不发完整对话内容。", Style: core.Style{FontSize: 11, LineHeight: 17},
+					StyleFunc: ui.Colored(colors.Faint)},
 			}},
 		}}
 	})

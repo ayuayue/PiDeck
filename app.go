@@ -1429,6 +1429,20 @@ func (a *app) forkSession(s *session, turnID string) {
 	}()
 }
 
+// lastAnswer is the newest final text in a session.
+func lastAnswer(s *session) string {
+	if s == nil {
+		return ""
+	}
+	ts := s.turns.GetUntracked()
+	for i := len(ts) - 1; i >= 0; i-- {
+		if ts[i].Final != "" {
+			return ts[i].Final
+		}
+	}
+	return ""
+}
+
 // togglePlanMode flips the next turn between planning and doing.
 func (a *app) togglePlanMode(s *session) {
 	if s == nil {
@@ -2716,8 +2730,14 @@ func (a *app) settled(s *session, ev piEvent) {
 	s.live = false
 	a.touch(s)
 	a.startStats(s)
-	if !ev.Aborted && s.status.GetUntracked() != statusFailed {
+	switch {
+	case ev.Aborted:
+		a.notifyFeishu(s, "已停止", "")
+	case s.status.GetUntracked() == statusFailed:
+		a.notifyFeishu(s, "失败", s.notice.GetUntracked())
+	default:
 		a.notifyTurnDone(s)
+		a.notifyFeishu(s, "完成", lastAnswer(s))
 	}
 	if a.activeID.GetUntracked() == s.ID && s.conversation.AtLatest() {
 		s.conversation.JumpToLatest()

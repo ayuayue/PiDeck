@@ -164,14 +164,7 @@ func (a *app) notifyTurnDone(s *session) {
 	if !shouldNotify(a.cfg, visible) {
 		return
 	}
-	body := ""
-	ts := s.turns.GetUntracked()
-	for i := len(ts) - 1; i >= 0; i-- {
-		if ts[i].Final != "" {
-			body = firstLine(ts[i].Final, 90)
-			break
-		}
-	}
+	body := firstLine(lastAnswer(s), 90)
 	if body == "" {
 		body = "这一轮已完成。"
 	}
