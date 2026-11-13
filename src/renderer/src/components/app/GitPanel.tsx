@@ -1,17 +1,16 @@
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { VirtualStack } from "../ui-shadcn/virtual-stack";
 import { createPortal } from "react-dom";
 import { useAtom, useSetAtom } from "jotai";
 import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCircle2, ChevronDown, ChevronsDownUp, ChevronsUpDown, ClipboardPaste, FileCode2, FolderGit2, GitBranch, List, ListTree, Loader2, Plus, RefreshCw, RotateCcw, Sparkles, TriangleAlert } from "lucide-react";
 import { Button } from "../ui-shadcn/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../ui-shadcn/alert-dialog";
-import { useAnimationWindow } from "../../hooks/useAnimationWindow";
 import { LOCAL_GIT_AUTO_REFRESH, useGitAutoRefresh, type GitAutoRefreshCapabilities } from "../../hooks/git/useGitAutoRefresh";
 import { createGitOperationGate } from "../../utils/gitOperationGate";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../ui-shadcn/context-menu";
 import { ConfirmDialog } from "./AppParts";
-import { dismissNotice, showNotice, type NoticeId } from "../../utils/notice";
-import { writeClipboard } from "../../utils/clipboard";
+import { showNotice, dismissNotice } from "../../utils/notice";
+import { commitGenNoticeText, commitGenToastId, COMMIT_GEN_TIMEOUT_MS, gitErrorToastId, showCommitGenProgressToast } from "./git/gitPanelToasts";
 import { htmlToPlainText, readClipboardHtmlConsistent, readClipboardText } from "../../utils/clipboard";
 import { deepEqual } from "../../utils/deepEqual";
 import type { BranchDiffResult, CommitDetail, CommitEntry, GitAheadBehind, GitChangedFile, GitDiscardResource, GitResource, GitResourceGroupType, GitResourceGroups, ProjectFileTarget } from "../../../../shared/types";
@@ -20,9 +19,9 @@ import { EMPTY_GIT_COMMIT_COMPOSER, gitCommitComposerByScopeAtom, gitCommitScope
 import { t } from "../../i18n";
 import { fileNameOnly, ChangesGroupsStack, getCollapsibleChangeDirs, ResourceRow, type ChangesGroupSpec } from "./git/GitResourceTree";
 import { collectChangeTreeDirPaths, collectUnstagedResources, type GitChangeViewMode } from "./git/changeTree";
+import { buildChangesGroupSpecs } from "./git/changeGroupSpecs";
 import { GitCompactFilter, PaneHeader } from "./git/GitPanelControls";
 import { SourceControlGraph } from "./git/GitGraph";
-import { getViewportBoundMenuPlacement } from "./git/floatingMenuPosition";
 import { Input } from "../ui-shadcn/input";
 import { Progress } from "../ui-shadcn/progress";
 import { Textarea } from "../ui-shadcn/textarea";
@@ -32,35 +31,19 @@ import { localGitOperationErrorText } from "../../utils/gitErrorPresentation";
 import { normalizeGitCapabilities, SHARED_GIT_BANNER_ITEM_IDS } from "../../utils/remoteGitCapabilityView";
 import { RemoteGitCapabilityBanner } from "../workspace/RemoteGitCapabilityBanner";
 import { GitInlineErrorNotice } from "./git/GitInlineErrorNotice";
-
-/** 与主进程 quickGenerate 60s 上限对齐：面板进度条按此时长爬升，避免用户误以为卡住。 */
-const COMMIT_GEN_TIMEOUT_MS = 60_000;
-
-/** 错误 toast 必须有正文：showNotice 会丢掉空串，失败就会看起来像“没反应”。 */
-function commitGenNoticeText(message: string | undefined, fallback: string) {
-	const text = String(message ?? "").trim();
-	return text || fallback;
-}
-
-/** 首次推送 "no upstream branch" 的识别：此类失败给“设置上游”引导而非裸报错。 */
-const NO_UPSTREAM_RE = /no upstream branch/i;
-
-/** 操作失败 toast 的稳定 id：同仓库同操作连发时顶掉旧条，避免堆一排。 */
-function gitErrorToastId(scopeKey: string, kind: "push" | "pull" | "commit"): NoticeId {
-	return `git-op:${kind}:${scopeKey}`;
-}
+import { BRANCH_BAR_HEIGHT } from "./git/gitPaneLayout";
+import { useGitBranchDropdown } from "./git/useGitBranchDropdown";
+import { useGitStatusRefresh } from "./git/useGitStatusRefresh";
+import { useGitFileActions } from "./git/useGitFileActions";
+import { useGitCommitChoice } from "./git/useGitCommitChoice";
+import { useGitDiscardConfirm } from "./git/useGitDiscardConfirm";
+import { useCommitGenProgress } from "./git/useCommitGenProgress";
+import { useGitPaneState } from "./git/useGitPaneState";
+import { useGitSyncActions } from "./git/useGitSyncActions";
+import { readAheadBehindCache, readChangesViewMode, readSmartCommitPreference, type SmartCommitPreference, writeChangesViewMode } from "./git/gitPanelStorage";
 
 /** 按仓库锁生成：切项目不能清组件 ref，否则旧请求还在飞、新仓库又会被误拦。 */
 const inflightCommitGenScopes = new Set<string>();
-
-function commitGenToastId(scopeKey: string): NoticeId {
-	return `git-commit-gen:${scopeKey}`;
-}
-
-function showCommitGenProgressToast(scopeKey: string) {
-	// 稳定 id：切走再回来是更新同一条，而不是再堆一条；面板卸载后 finish 也能按 id 关掉。
-	showNotice(t("git.generateCommitMessageProgress"), Number.POSITIVE_INFINITY, undefined, undefined, undefined, commitGenToastId(scopeKey));
-}
 
 /** 生成结束：解锁、收进度 toast、把结果写回该仓库的 composer（与当前正在看哪个项目无关）。 */
 function finishCommitGen(scopeKey: string, patch: Partial<GitCommitComposerState> = {}) {
@@ -73,7 +56,7 @@ function finishCommitGen(scopeKey: string, patch: Partial<GitCommitComposerState
 	});
 }
 
-type GitPanelProps = {
+export type GitPanelProps = {
 	projectId: string;
 	/** 项目根目录路径，用于把绝对路径显示成相对路径（远端资源已给出相对 path，可不传） */
 	projectRoot?: string;
@@ -152,297 +135,14 @@ type GitPanelProps = {
 	gitCapabilities?: Partial<ProjectGitCapabilities>;
 };
 
-type PaneId = "changes" | "graph" | "compare";
-type PaneHeights = Record<PaneId, number>;
-type PaneOpenState = Record<PaneId, boolean>;
-type PaneState = { heights: PaneHeights; open: PaneOpenState };
-type SmartCommitPreference = {
-	enableSmartCommit: boolean;
-	suggestSmartCommit: boolean;
-};
-
 const EMPTY_GROUPS: GitResourceGroups = {
 	merge: [],
 	index: [],
 	workingTree: [],
 	untracked: [],
 };
-const PANE_IDS: PaneId[] = ["changes", "graph", "compare"];
-const PANE_MIN_BODY_HEIGHT = 24;
-// 头部实际高度 h-8 = 32px（Tailwind rem 基准 16px）。早期按 26px 预算：
-// 折叠时溢出 6px 被 overflow-hidden 裁掉，折叠按钮视觉偏下且底部被切。
-const PANE_HEADER_HEIGHT = 32;
-/* 分支栏大约高度，用于 fitPaneHeights 中从可用空间预减，避免未计入分支栏高度导致 pane body 溢出 */
-const BRANCH_BAR_HEIGHT = 36;
-const PANE_RESIZE_STEP = 20;
-const PANE_RESIZE_LARGE_STEP = 60;
-
-function visiblePaneIds(open: PaneOpenState, layout: NonNullable<GitPanelProps["layout"]> = "full"): PaneId[] {
-	return PANE_IDS.filter((id) => {
-		if (layout === "historyOnly" && id === "changes") return false;
-		if (layout === "changesOnly" && id !== "changes") return false;
-		return open[id];
-	});
-}
-
-function resizePair(state: PaneState, beforeId: PaneId, afterId: PaneId, beforeHeight: number, afterHeight: number): PaneState {
-	return {
-		...state,
-		heights: {
-			...state.heights,
-			[beforeId]: Math.max(PANE_MIN_BODY_HEIGHT, Math.round(beforeHeight)),
-			[afterId]: Math.max(PANE_MIN_BODY_HEIGHT, Math.round(afterHeight)),
-		},
-	};
-}
-
-/**
- * Allocate every visible body against the real drawer budget. Collapsed panes still
- * consume their header row; the last visible pane receives spare room, matching the
- * way VS Code keeps its view container filled without destroying persisted sizes.
- */
-function fitPaneHeights(state: PaneState, availableHeight: number, chromeHeight = BRANCH_BAR_HEIGHT, layout: NonNullable<GitPanelProps["layout"]> = "full"): PaneHeights {
-	const visible = visiblePaneIds(state.open, layout);
-	const heights = { ...state.heights };
-	if (!visible.length) return heights;
-
-	const bodyBudget = Math.max(PANE_MIN_BODY_HEIGHT * visible.length, availableHeight - PANE_IDS.length * PANE_HEADER_HEIGHT - chromeHeight);
-	const requestedTotal = visible.reduce((sum, id) => sum + heights[id], 0);
-	if (requestedTotal < bodyBudget) {
-		// 仅当只有一个 pane 可见时才把剩余空间灌入该 pane（保持 VS Code SCM 视图行为）；
-		// 多个 pane 同时可见时保持各自请求高度，多余空间由抽屉底部自然留白，
-		// 避免第一个 pane 过度膨胀把后续 pane 挤出可视区。
-		if (visible.length === 1) {
-			heights[visible[0]] += bodyBudget - requestedTotal;
-		}
-		return heights;
-	}
-	if (requestedTotal === bodyBudget) return heights;
-
-	const minimumTotal = PANE_MIN_BODY_HEIGHT * visible.length;
-	const distributable = Math.max(0, bodyBudget - minimumTotal);
-	const requestedAboveMinimum = visible.reduce((sum, id) => sum + Math.max(0, heights[id] - PANE_MIN_BODY_HEIGHT), 0);
-	for (const id of visible) {
-		const requested = Math.max(0, heights[id] - PANE_MIN_BODY_HEIGHT);
-		heights[id] = PANE_MIN_BODY_HEIGHT + (requestedAboveMinimum > 0 ? Math.round((distributable * requested) / requestedAboveMinimum) : 0);
-	}
-	return heights;
-}
-
-function adjacentVisiblePane(open: PaneOpenState, pane: PaneId, direction: -1 | 1): PaneId | null {
-	const start = PANE_IDS.indexOf(pane);
-	for (let index = start + direction; index >= 0 && index < PANE_IDS.length; index += direction) {
-		const candidate = PANE_IDS[index];
-		if (open[candidate]) return candidate;
-	}
-	return null;
-}
-
-function paneStateStorageKey(projectId: string, repoScopeKey: string, layout: NonNullable<GitPanelProps["layout"]> = "full"): string {
-	// 多仓同时挂载时，项目级 key 会让其中一个面板覆盖另一个的折叠和高度偏好。
-	// historyOnly 必须与各仓 changesOnly 隔离，否则共享 Graph 会把某个仓的折叠态写回去。
-	const suffix = layout === "full" ? "v4" : `v4-${layout}`;
-	return `pideck:git-panel:${projectId}:${encodeURIComponent(repoScopeKey)}:pane-state:${suffix}`;
-}
-
-/**
- * push/pull 角标（ahead/behind）持久化 key：按项目 + 仓库隔离。
- *
- * 为什么持久化：角标来自 git fetch 远程 + 对比，属于慢操作（网络往返）。
- * 切会话 tab / 关抽屉再开会让 GitPanel 卸载重挂，若不缓存，每次回来角标都要
- * 从 0 重新等一轮 fetch；缓存后重挂先秒显上次结果，再后台刷新校正。
- */
-function aheadBehindStorageKey(projectId: string, repoScopeKey: string): string {
-	return `pideck:git-panel:${projectId}:${encodeURIComponent(repoScopeKey)}:ahead-behind:v1`;
-}
-
-/** 读取上次缓存的 ahead/behind 角标；无缓存或格式非法返回 null（视为无角标）。 */
-function readAheadBehindCache(projectId: string, repoScopeKey: string): GitAheadBehind | null {
-	try {
-		const raw = localStorage.getItem(aheadBehindStorageKey(projectId, repoScopeKey));
-		if (!raw) return null;
-		const value = JSON.parse(raw) as Partial<GitAheadBehind> | null;
-		// 只信任数字字段：缓存可能被旧版本/手改损坏，非法时按无缓存处理
-		if (value && typeof value.ahead === "number" && Number.isFinite(value.ahead) && typeof value.behind === "number" && Number.isFinite(value.behind)) {
-			return { ahead: value.ahead, behind: value.behind };
-		}
-		return null;
-	} catch {
-		return null;
-	}
-}
-
-/** 写入 ahead/behind 角标缓存；存储不可用时静默跳过（本轮会话仍可用）。 */
-function writeAheadBehindCache(projectId: string, repoScopeKey: string, value: GitAheadBehind | null): void {
-	try {
-		if (value === null) {
-			localStorage.removeItem(aheadBehindStorageKey(projectId, repoScopeKey));
-			return;
-		}
-		localStorage.setItem(aheadBehindStorageKey(projectId, repoScopeKey), JSON.stringify(value));
-	} catch {
-		// 预览/无存储环境不持久化，不影响本轮会话内展示
-	}
-}
-
-function smartCommitStorageKey(projectId: string): string {
-	return `pideck:git-panel:${projectId}:smart-commit:v1`;
-}
-
-function readSmartCommitPreference(projectId: string): SmartCommitPreference {
-	try {
-		const value = JSON.parse(localStorage.getItem(smartCommitStorageKey(projectId)) ?? "null") as Partial<SmartCommitPreference> | null;
-		return {
-			enableSmartCommit: value?.enableSmartCommit === true,
-			// VS Code defaults suggestSmartCommit to true until the user chooses Never.
-			suggestSmartCommit: value?.suggestSmartCommit !== false,
-		};
-	} catch {
-		return { enableSmartCommit: false, suggestSmartCommit: true };
-	}
-}
-
-function writeSmartCommitPreference(projectId: string, value: SmartCommitPreference): void {
-	try {
-		localStorage.setItem(smartCommitStorageKey(projectId), JSON.stringify(value));
-	} catch {
-		// The choice remains valid for this renderer session when storage is unavailable.
-	}
-}
-
-/** 变更列表视图模式：全局偏好（不按项目分），同一台机器上各项目共享同一观感 */
-const GIT_CHANGES_VIEW_MODE_STORAGE_KEY = "pideck:git-panel:changes-view-mode:v1";
-
-/** 读取变更列表视图模式；无缓存/非法值回落平铺（默认不变观感，升级后与旧版一致，树形需用户主动开启） */
-function readChangesViewMode(): GitChangeViewMode {
-	try {
-		return localStorage.getItem(GIT_CHANGES_VIEW_MODE_STORAGE_KEY) === "tree" ? "tree" : "flat";
-	} catch {
-		return "flat";
-	}
-}
-
-/** 写入视图模式；存储不可用时静默跳过（本轮会话仍生效） */
-function writeChangesViewMode(mode: GitChangeViewMode): void {
-	try {
-		localStorage.setItem(GIT_CHANGES_VIEW_MODE_STORAGE_KEY, mode);
-	} catch {
-		// 无存储环境（预览页）只影响持久化
-	}
-}
-
-function defaultPaneState(): PaneState {
-	return {
-		heights: { changes: 100, graph: 200, compare: 160 },
-		open: { changes: true, graph: false, compare: false },
-	};
-}
-
-function readPaneState(projectId: string, repoScopeKey: string, layout: NonNullable<GitPanelProps["layout"]> = "full"): PaneState {
-	const fallback = defaultPaneState();
-	try {
-		const raw = localStorage.getItem(paneStateStorageKey(projectId, repoScopeKey, layout));
-		if (!raw) return fallback;
-		const value = JSON.parse(raw) as Partial<PaneState>;
-		const heights = PANE_IDS.reduce((result, id) => {
-			const height = value.heights?.[id];
-			result[id] = typeof height === "number" && Number.isFinite(height) ? Math.max(PANE_MIN_BODY_HEIGHT, Math.round(height)) : fallback.heights[id];
-			return result;
-		}, {} as PaneHeights);
-		const open = PANE_IDS.reduce((result, id) => {
-			result[id] = typeof value.open?.[id] === "boolean" ? value.open[id] : fallback.open[id];
-			return result;
-		}, {} as PaneOpenState);
-		return { heights, open };
-	} catch {
-		return fallback;
-	}
-}
-
-function PaneSash(props: { before: PaneId; after: PaneId; beforeHeight: number; afterHeight: number; onResize: (beforeHeight: number, afterHeight: number) => void }) {
-	const frameRef = useRef<number | undefined>(undefined);
-	const pendingHeightsRef = useRef<{ before: number; after: number } | null>(null);
-
-	const flushPendingHeights = () => {
-		if (frameRef.current !== undefined) {
-			cancelAnimationFrame(frameRef.current);
-			frameRef.current = undefined;
-		}
-		const pending = pendingHeightsRef.current;
-		pendingHeightsRef.current = null;
-		if (pending) props.onResize(pending.before, pending.after);
-	};
-
-	const scheduleHeights = (before: number, after: number) => {
-		pendingHeightsRef.current = { before, after };
-		if (frameRef.current !== undefined) return;
-		frameRef.current = requestAnimationFrame(() => {
-			frameRef.current = undefined;
-			const pending = pendingHeightsRef.current;
-			pendingHeightsRef.current = null;
-			if (pending) props.onResize(pending.before, pending.after);
-		});
-	};
-
-	const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-		event.preventDefault();
-		const startY = event.clientY;
-		const startBeforeHeight = props.beforeHeight;
-		const startAfterHeight = props.afterHeight;
-		event.currentTarget.setPointerCapture?.(event.pointerId);
-		const onMove = (moveEvent: PointerEvent) => {
-			const requestedBefore = startBeforeHeight + moveEvent.clientY - startY;
-			const before = Math.max(PANE_MIN_BODY_HEIGHT, Math.min(requestedBefore, startBeforeHeight + startAfterHeight - PANE_MIN_BODY_HEIGHT));
-			const after = startBeforeHeight + startAfterHeight - before;
-			scheduleHeights(before, after);
-		};
-		const onEnd = () => {
-			flushPendingHeights();
-			window.removeEventListener("pointermove", onMove);
-			window.removeEventListener("pointerup", onEnd);
-			window.removeEventListener("pointercancel", onEnd);
-			document.body.classList.remove("is-git-pane-resizing");
-		};
-		document.body.classList.add("is-git-pane-resizing");
-		window.addEventListener("pointermove", onMove);
-		window.addEventListener("pointerup", onEnd);
-		window.addEventListener("pointercancel", onEnd);
-	};
-
-	const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-		const step = event.shiftKey ? PANE_RESIZE_LARGE_STEP : PANE_RESIZE_STEP;
-		if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-		event.preventDefault();
-		const direction = event.key === "ArrowUp" ? -1 : 1;
-		const requestedBefore = props.beforeHeight + direction * step;
-		const before = Math.max(PANE_MIN_BODY_HEIGHT, Math.min(requestedBefore, props.beforeHeight + props.afterHeight - PANE_MIN_BODY_HEIGHT));
-		const after = props.beforeHeight + props.afterHeight - before;
-		props.onResize(before, after);
-	};
-
-	return (
-		<div
-			className="git-pane-sash relative z-[1] box-border h-1.5 shrink-0 basis-1.5 -my-[3px] cursor-row-resize touch-none before:absolute before:top-0.5 before:right-0 before:left-0 before:h-px before:bg-[var(--git-panel-border)] before:transition-[background-color,height] before:duration-fast hover:before:h-0.5 hover:before:bg-[var(--color-accent)] focus-visible:before:h-0.5 focus-visible:before:bg-[var(--color-accent)]"
-			role="separator"
-			tabIndex={0}
-			aria-orientation="horizontal"
-			aria-label={t("git.resizePanes")}
-			aria-valuemin={PANE_MIN_BODY_HEIGHT}
-			aria-valuemax={Math.max(PANE_MIN_BODY_HEIGHT, props.beforeHeight + props.afterHeight - PANE_MIN_BODY_HEIGHT)}
-			aria-valuenow={props.beforeHeight}
-			data-before={props.before}
-			data-after={props.after}
-			onPointerDown={startResize}
-			onKeyDown={onKeyDown}
-		/>
-	);
-}
 
 export function GitPanel(props: GitPanelProps) {
-	const [paneAnimSeq, setPaneAnimSeq] = useState(0);
-	// 开合动画窗口：只在 toggle 后 180ms 内给分区挂 height 过渡（挂在 .git-panel[data-pane-animating]），
-	// sash 拖拽改 --git-pane-height 时窗口不在，避免拖拽橡皮筋。定时器收口在 hook（面板源码有 setTimeout 守卫）。
-	const paneAnimating = useAnimationWindow(paneAnimSeq, 180);
 	const panelRef = useRef<HTMLDivElement>(null);
 	// Missing-model guidance opens Common settings directly at the Git summary section.
 	const openSettings = useSetAtom(openSettingsAtom);
@@ -499,7 +199,6 @@ export function GitPanel(props: GitPanelProps) {
 	 */
 	// 组件生命周期内保持同一个闸门（与 refresh 的依赖契约一致：它不随 props 包装器变化）。
 	const [gate] = useState(() => createGitOperationGate({ isWriting: () => mutationRunningRef.current }));
-	const [availableHeight, setAvailableHeight] = useState(720);
 	const [groups, setGroups] = useState<GitResourceGroups>(EMPTY_GROUPS);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -534,16 +233,6 @@ export function GitPanel(props: GitPanelProps) {
 	const [initializing, setInitializing] = useState(false);
 	const [smartCommitPreference, setSmartCommitPreference] = useState<SmartCommitPreference>(() => readSmartCommitPreference(props.projectId));
 	const [showSmartCommitPrompt, setShowSmartCommitPrompt] = useState(false);
-	const [discardTarget, setDiscardTarget] = useState<{
-		group: "workingTree" | "untracked";
-		target: ProjectFileTarget;
-	} | null>(null);
-	const [directoryDiscardTarget, setDirectoryDiscardTarget] = useState<{
-		resources: GitDiscardResource[];
-		label: string;
-	} | null>(null);
-	/** 右键“删除文件”确认目标 */
-	const [deleteTarget, setDeleteTarget] = useState<ProjectFileTarget | null>(null);
 	/** 当前分支相对上游的提交差距：ahead 显示在 push、behind 显示在 pull */
 	const [aheadBehind, setAheadBehind] = useState<GitAheadBehind | null>(null);
 	const [resourceOpen, setResourceOpen] = useState({
@@ -555,32 +244,13 @@ export function GitPanel(props: GitPanelProps) {
 	const [collapsedChangeDirs, setCollapsedChangeDirs] = useState<Set<string>>(() => new Set());
 	/** 变更列表视图模式：树形（默认）/ 平铺，持久化在 localStorage */
 	const [changesViewMode, setChangesViewMode] = useState<GitChangeViewMode>(() => readChangesViewMode());
-	const [paneState, setPaneState] = useState<PaneState>(() => readPaneState(props.projectId, repoScopeKey, layout));
-
-	useEffect(() => {
-		const element = panelRef.current;
-		if (!element) return;
-		const updateHeight = () => setAvailableHeight(Math.max(PANE_MIN_BODY_HEIGHT, Math.round(element.clientHeight)));
-		updateHeight();
-		if (typeof ResizeObserver === "undefined") {
-			window.addEventListener("resize", updateHeight);
-			return () => window.removeEventListener("resize", updateHeight);
-		}
-		const observer = new ResizeObserver(updateHeight);
-		observer.observe(element);
-		return () => observer.disconnect();
-	}, []);
+	const { paneAnimating, paneState, resetPaneState, togglePane, paneStyle, renderSash, visibleSashAfterChanges, visibleSashAfterGraph } = useGitPaneState({ projectId: props.projectId, repoScopeKey, layout, panelChromeHeight, panelRef });
 
 	useEffect(() => {
 		// 项目切换会复用同一个 GitPanel 实例；退休在途读 + 递增 mutation 序号让旧项目的结果失效。
 		gate.retire();
 		mutationRequestRef.current += 1;
-		const next = readPaneState(props.projectId, repoScopeKey, layout);
-		setPaneState({
-			...next,
-			// historyOnly 底部按内容收缩：不能用自身 clientHeight 回填，否则一展开就被反向压扁。
-			heights: layout === "historyOnly" ? next.heights : fitPaneHeights(next, availableHeight, panelChromeHeight, layout),
-		});
+		resetPaneState();
 		setGroups(EMPTY_GROUPS);
 		setError(null);
 		setCommitting(false);
@@ -605,95 +275,7 @@ export function GitPanel(props: GitPanelProps) {
 		setGitNotInstalled(false);
 	}, [layout, panelChromeHeight, props.projectId, repoScopeKey]);
 
-	useEffect(() => {
-		if (layout === "historyOnly") return;
-		setPaneState((current) => ({
-			...current,
-			heights: fitPaneHeights(current, availableHeight, panelChromeHeight, layout),
-		}));
-	}, [availableHeight, layout, panelChromeHeight]);
-
-	useEffect(() => {
-		try {
-			localStorage.setItem(paneStateStorageKey(props.projectId, repoScopeKey, layout), JSON.stringify(paneState));
-		} catch {
-			// Storage can be blocked in preview/web mode; pane interaction must still work for this session.
-		}
-	}, [layout, paneState, props.projectId, repoScopeKey]);
-
-	/**
-	 * 读取 push/pull 角标：只读本地 refs，不 fetch、不走网络。
-	 *
-	 * 为什么单独拆出一支：`HEAD...@{u}` 的差距完全由本地 refs 决定——AI 在终端里
-	 * commit / push / 切分支后本地 refs 立即更新，直接重读就能把角标归零。
-	 * 若只在 fetch 成功后才计数，fetch 慢或失败（离线/需凭据）时角标会长时间停在旧值
-	 * （历史缺陷：AI 推完要等到下一轮 5 分钟 fetch 才消失）。
-	 *
-	 * aheadBehind 经 ref 读取：宿主包装器可能随外层 render 重建，不应因此重排定时器。
-	 */
-	const readAheadBehind = useCallback(async () => {
-		const aheadBehind = aheadBehindRef.current;
-		if (!aheadBehind) return;
-		// 等前一个读落地再读：既怕子进程堆积，也要保证本调用拿到的是 fetch 之后的 refs。
-		const inFlight = aheadBehindInFlightRef.current;
-		if (inFlight) await inFlight;
-		const projectId = props.projectId;
-		const currentRepoScopeKey = repoScopeKey;
-		const task = (async () => {
-			try {
-				const result = await aheadBehind(projectId);
-				if (projectId !== projectIdRef.current || currentRepoScopeKey !== repoScopeKeyRef.current) return;
-				// 数值没变就保留原对象：GitAheadBehind 每次都是新引用，直接 set 等于每 5 秒
-				// 白重渲染一次整个面板（含变更树 / 图谱子树）。
-				setAheadBehind((current) => (deepEqual(current, result) ? current : result));
-				const scopeKey = `${projectId}::${currentRepoScopeKey}`;
-				const persisted = aheadBehindPersistedRef.current;
-				if (persisted?.key === scopeKey && deepEqual(persisted.value, result)) return;
-				// 写缓存：重挂/切 tab 回来能秒显上次角标；null（无上游）时清缓存
-				writeAheadBehindCache(projectId, currentRepoScopeKey, result);
-				aheadBehindPersistedRef.current = { key: scopeKey, value: result };
-			} catch {
-				// 静默失败：非仓库/无上游时角标保持上次已知值，不弹错误
-			}
-		})();
-		aheadBehindInFlightRef.current = task;
-		try {
-			await task;
-		} finally {
-			// 只清自己这一次：等待中的后来者会在它后面重新登记
-			if (aheadBehindInFlightRef.current === task) aheadBehindInFlightRef.current = null;
-		}
-	}, [props.projectId, repoScopeKey]);
-
-	/**
-	 * 刷新 push/pull 角标。
-	 *
-	 * @param fetchRemote - 是否先 `git fetch` 再计数：
-	 *   true  → 手动刷新与 5 分钟定时器（要知道别人推到远程的新提交，behind 才准）；
-	 *   false → 本地事件驱动（外部 commit/push/切分支、窗口重新聚焦），只读本地 refs。
-	 *
-	 * 顺序刻意是「先本地 → 再 fetch → 再本地」：第一步不依赖网络，用户点刷新或 AI
-	 * 在终端 push 完后角标能立即变；fetch 仅用于校正 behind，失败也不阻挡本地计数。
-	 */
-	const refreshAheadBehind = useCallback(
-		async (fetchRemote = true) => {
-			await readAheadBehind();
-			if (!fetchRemote) return;
-			// 刷新手势不是「显式同步」：除了 sync，还必须显式允许自动联网（autoFetch）。
-			// 远端 provider 的 autoFetch 恒 false —— 透传远端能力后，刷新绝不能变成自动 fetch。
-			if (!gitCapabilitiesRef.current.sync || !gitCapabilitiesRef.current.autoFetch) return;
-			const fetch = fetchRef.current;
-			if (!fetch) return;
-			try {
-				await fetch(props.projectId);
-			} catch {
-				// 静默失败：离线/无远程时保留上一次 fetch 的 behind，ahead 已由本地计数更新
-				return;
-			}
-			await readAheadBehind();
-		},
-		[props.projectId, readAheadBehind],
-	);
+	const { readAheadBehind, refreshAheadBehind } = useGitStatusRefresh({ props, repoScopeKey, gitCapabilitiesRef, fetchRef, aheadBehindRef, aheadBehindInFlightRef, aheadBehindPersistedRef, projectIdRef, repoScopeKeyRef, setAheadBehind });
 
 	/**
 	 * 拉取最新 Git 工作区状态。
@@ -821,21 +403,6 @@ export function GitPanel(props: GitPanelProps) {
 		onRefsChanged: props.onRefsChanged,
 	});
 
-	const togglePane = (id: PaneId) => {
-		setPaneAnimSeq((v) => v + 1);
-		setPaneState((current) => {
-			const open = { ...current.open, [id]: !current.open[id] };
-			const next = { ...current, open };
-			return {
-				...next,
-				heights: layout === "historyOnly" ? next.heights : fitPaneHeights(next, availableHeight, panelChromeHeight, layout),
-			};
-		});
-	};
-	const resizePanes = (before: PaneId, after: PaneId, beforeHeight: number, afterHeight: number) => {
-		setPaneState((current) => resizePair(current, before, after, beforeHeight, afterHeight));
-	};
-
 	// 「未暂存的更改」= 工作区侧改动（workingTree + untracked）。已暂存资源只出现在「暂存的更改」组：
 	// 并进本组会让文件暂存后仍留在未暂存列表，点它还按 workingTree 取 diff 而失败（issue #391）。
 	// 暂存后又继续改的文件由 porcelain 同时给出 index + workingTree 两条资源，本组只保留后者。
@@ -891,146 +458,16 @@ export function GitPanel(props: GitPanelProps) {
 		setCollapsedChangeDirs(new Set());
 	}, []);
 
-	const act = async (operation: () => Promise<void>) => {
-		// 写能力关闭：所有行内/批量变更动作共用这一个漏斗，能力关闭时一律不发调用。
-		if (!gitCapabilities.write) return;
-		if (mutationRunningRef.current || committing) return;
-		// 写闸门：一次只允许一个写（与远端面板同一份规则）；写一开始，在途 status 结果即作废。
-		if (gate.beginWrite() === undefined) return;
-		const mutationRequest = ++mutationRequestRef.current;
-		mutationRunningRef.current = true;
-		setMutating(true);
-		const projectId = props.projectId;
-		try {
-			await operation();
-			if (projectId === projectIdRef.current) await refresh();
-		} catch (caught) {
-			if (projectId === projectIdRef.current) {
-				// 变更类操作（放弃更改/重置/拣选等）失败统一走 toast，不再 setError：
-				// 面板错误条会把变更列表顶下去，且错误会在切换后残留；toast 用完即走。
-				showNotice(localGitOperationErrorText(caught) || t("git.operationFailed"), 8000, "error", t("git.operationFailed"));
-			}
-		} finally {
-			if (mutationRequest === mutationRequestRef.current) {
-				mutationRunningRef.current = false;
-				if (projectId === projectIdRef.current) setMutating(false);
-			}
-		}
-	};
-
-	// FileTree 是 memo 组件：commit composer 输入会让 GitPanel 每次按键重渲，
-	// 行内操作回调若每次重建，memo 失效 → 每敲一键都全量重建变更树行。
-	// act 本身每次 render 新建闭包（依赖 committing / mutationRunningRef 等），用 ref 转发保持回调引用稳定。
-	const actRef = useRef(act);
-	actRef.current = act;
-	const stageFile = useCallback(
-		(target: ProjectFileTarget) => {
-			void actRef.current(() => props.stageFiles(props.projectId, [target]));
-		},
-		[props.projectId, props.stageFiles],
-	);
-	const stageFiles = useCallback(
-		(targets: ProjectFileTarget[]) => {
-			void actRef.current(() => props.stageFiles(props.projectId, targets));
-		},
-		[props.projectId, props.stageFiles],
-	);
-	const unstageFile = useCallback(
-		(target: ProjectFileTarget) => {
-			void actRef.current(() => props.unstageFiles(props.projectId, [target]));
-		},
-		[props.projectId, props.unstageFiles],
-	);
-	const discardFile = useCallback((target: ProjectFileTarget, group: "workingTree" | "untracked") => {
-		setDiscardTarget({ group, target });
-	}, []);
-	const discardDir = useCallback((resources: GitDiscardResource[], label: string) => {
-		setDirectoryDiscardTarget({ resources, label });
-	}, []);
-	const deleteFile = useCallback((target: ProjectFileTarget) => {
-		setDeleteTarget(target);
-	}, []);
+	const { act, actRef, stageFile, stageFiles, unstageFile } = useGitFileActions({ props, gitCapabilities, gate, committing, mutationRunningRef, mutationRequestRef, projectIdRef, setMutating, refresh });
+	const { discardTarget, setDiscardTarget, directoryDiscardTarget, setDirectoryDiscardTarget, deleteTarget, setDeleteTarget, discardFile, discardDir, deleteFile, confirmDiscard, confirmDirectoryDiscard, confirmDelete } = useGitDiscardConfirm({ props, act });
 
 	// 变更区三组的规格：合并后交给 ChangesGroupsStack 扁平虚拟化。
 	// 用 useMemo 稳定数组引用 —— ChangesGroupsStack 的 items memo 依赖它，每次
 	// render 新建数组会让虚拟行全量重算；批量动作走 actRef 保持引用稳定。
-	const changeGroupSpecs = useMemo<ChangesGroupSpec[]>(() => {
-		const mutatingNow = mutating || committing;
-		const specs: ChangesGroupSpec[] = [];
-		if (groups.merge.length > 0) {
-			specs.push({
-				key: "merge",
-				groupType: "merge",
-				title: t("git.mergeChanges"),
-				open: resourceOpen.merge,
-				onToggle: () => setResourceOpen((current) => ({ ...current, merge: !current.merge })),
-				resources: groups.merge,
-				readOnly: !gitCapabilities.write,
-			});
-		}
-		if (groups.index.length > 0) {
-			specs.push({
-				key: "staged",
-				groupType: "index",
-				title: t("git.stagedChanges"),
-				open: resourceOpen.staged,
-				onToggle: () =>
-					setResourceOpen((current) => ({
-						...current,
-						staged: !current.staged,
-					})),
-				resources: groups.index,
-				allAction: gitCapabilities.write
-					? () =>
-							actRef.current(() =>
-								props.unstageFiles(
-									props.projectId,
-									groups.index.map((resource) => resource.target),
-								),
-							)
-					: undefined,
-				allLabel: t("git.unstageAll"),
-				allDisabled: mutatingNow,
-				readOnly: !gitCapabilities.write,
-				unstageFile: gitCapabilities.write ? unstageFile : undefined,
-				deleteFile: props.deleteFiles && gitCapabilities.deleteFiles ? deleteFile : undefined,
-				onOpenFile: props.onOpenFile,
-			});
-		}
-		if (workingChanges.length > 0) {
-			specs.push({
-				key: "changes",
-				groupType: "workingTree",
-				title: t("git.unstagedChanges"),
-				open: resourceOpen.changes,
-				onToggle: () =>
-					setResourceOpen((current) => ({
-						...current,
-						changes: !current.changes,
-					})),
-				resources: workingChanges,
-				allAction: gitCapabilities.write
-					? () =>
-							actRef.current(() =>
-								props.stageFiles(
-									props.projectId,
-									workingChanges.map((resource) => resource.target),
-								),
-							)
-					: undefined,
-				allLabel: t("git.stageAll"),
-				allDisabled: mutatingNow,
-				readOnly: !gitCapabilities.write,
-				stageFile: gitCapabilities.write ? stageFile : undefined,
-				discardFile: gitCapabilities.write ? discardFile : undefined,
-				deleteFile: props.deleteFiles && gitCapabilities.deleteFiles ? deleteFile : undefined,
-				onOpenFile: props.onOpenFile,
-				stageDir: gitCapabilities.write ? stageFiles : undefined,
-				discardDir: gitCapabilities.write ? discardDir : undefined,
-			});
-		}
-		return specs;
-	}, [groups, workingChanges, resourceOpen, mutating, committing, gitCapabilities.write, gitCapabilities.deleteFiles, props.projectId, props.unstageFiles, props.stageFiles, props.deleteFiles, props.onOpenFile, unstageFile, deleteFile, stageFile, discardFile, stageFiles, discardDir]);
+	const changeGroupSpecs = useMemo<ChangesGroupSpec[]>(
+		() => buildChangesGroupSpecs({ props, gitCapabilities, groups, workingChanges, resourceOpen, setResourceOpen, mutating, committing, actRef, unstageFile, deleteFile, stageFile, discardFile, stageFiles, discardDir }),
+		[groups, workingChanges, resourceOpen, mutating, committing, gitCapabilities.write, gitCapabilities.deleteFiles, props.projectId, props.unstageFiles, props.stageFiles, props.deleteFiles, props.onOpenFile, unstageFile, deleteFile, stageFile, discardFile, stageFiles, discardDir],
+	);
 	const changesScrollRef = useRef<HTMLDivElement | null>(null);
 
 	const runCommit = async (stageAll: boolean) => {
@@ -1068,59 +505,7 @@ export function GitPanel(props: GitPanelProps) {
 		}
 	};
 
-	const doCommit = async () => {
-		if (!canCommit) return;
-		if (stagedCount > 0) {
-			await runCommit(false);
-			return;
-		}
-		if (smartCommitPreference.enableSmartCommit) {
-			await runCommit(true);
-			return;
-		}
-		if (smartCommitPreference.suggestSmartCommit && workingChanges.length > 0) {
-			setShowSmartCommitPrompt(true);
-		}
-	};
-
-	const chooseSmartCommit = (choice: "yes" | "always" | "never") => {
-		setShowSmartCommitPrompt(false);
-		if (choice === "never") {
-			const next = { ...smartCommitPreference, suggestSmartCommit: false };
-			setSmartCommitPreference(next);
-			writeSmartCommitPreference(props.projectId, next);
-			return;
-		}
-		if (choice === "always") {
-			const next = { enableSmartCommit: true, suggestSmartCommit: true };
-			setSmartCommitPreference(next);
-			writeSmartCommitPreference(props.projectId, next);
-		}
-		void runCommit(true);
-	};
-
-	const confirmDiscard = () => {
-		const target = discardTarget;
-		if (!target) return;
-		setDiscardTarget(null);
-		void act(() => props.discardFile(props.projectId, target.group, target.target));
-	};
-
-	const confirmDirectoryDiscard = () => {
-		const target = directoryDiscardTarget;
-		if (!target) return;
-		setDirectoryDiscardTarget(null);
-		void act(() => props.discardFiles(props.projectId, target.resources));
-	};
-
-	/** 右键菜单“删除文件”确认：移入回收站，可恢复 */
-	const confirmDelete = () => {
-		const target = deleteTarget;
-		const deleteFiles = props.deleteFiles;
-		if (!target || !deleteFiles) return;
-		setDeleteTarget(null);
-		void act(() => deleteFiles(props.projectId, [target]));
-	};
+	const { doCommit, chooseSmartCommit } = useGitCommitChoice({ projectId: props.projectId, canCommit, stagedCount, smartCommitPreference, setSmartCommitPreference, workingChanges, setShowSmartCommitPrompt, runCommit });
 
 	/**
 	 * 生成提交摘要（AI）。
@@ -1190,166 +575,12 @@ export function GitPanel(props: GitPanelProps) {
 		}
 	}, [openSettings, props.generateCommitMessage, props.projectId, repoScopeKey, groups.index.length, refresh]);
 
-	const doPush = async () => {
-		// 同步能力关闭时按钮已置灰；这里再挡一次，防止绕过 UI 的调用变成网络写。
-		if (!props.push || !gitCapabilitiesRef.current.sync || mutationRunningRef.current) return;
-		const projectId = props.projectId;
-		const mutationRequest = ++mutationRequestRef.current;
-		mutationRunningRef.current = true;
-		setPushing(true);
-		setError(null);
-		try {
-			await props.push(projectId);
-			if (projectId !== projectIdRef.current) return;
-			// refresh() 的非 silent 成功路径会先读本地角标再 fetch：push 后本地 refs 已更新，
-			// ahead 立即归零且不依赖 fetch 成败，不必再单独等一轮角标刷新。
-			await refresh();
-		} catch (caught) {
-			if (projectId === projectIdRef.current) {
-				const text = localGitOperationErrorText(caught);
-				if (NO_UPSTREAM_RE.test(text) && props.currentBranch) {
-					// 首次推送新分支：给“建立上游”引导而非裸报错；复制按钮可直接粘到终端执行。
-					const command = `git push --set-upstream origin ${props.currentBranch}`;
-					showNotice(
-						t("git.pushNoUpstreamDesc", {
-							branch: props.currentBranch,
-							command,
-						}),
-						8000,
-						"error",
-						t("git.pushNoUpstreamTitle"),
-						{
-							action: {
-								label: t("common.copy"),
-								onClick: () => {
-									void writeClipboard(command);
-								},
-							},
-						},
-						gitErrorToastId(repoScopeKey, "push"),
-					);
-				} else {
-					showNotice(text || t("git.pushFailed"), 8000, "error", t("git.pushFailed"), undefined, gitErrorToastId(repoScopeKey, "push"));
-				}
-			}
-		} finally {
-			if (mutationRequest === mutationRequestRef.current) {
-				mutationRunningRef.current = false;
-				if (projectId === projectIdRef.current) setPushing(false);
-			}
-		}
-	};
+	const { doPush, doPull } = useGitSyncActions({ props, repoScopeKey, gitCapabilitiesRef, mutationRunningRef, mutationRequestRef, projectIdRef, setPushing, setPulling, setError, refresh });
 
-	const doPull = async () => {
-		if (!props.pull || !gitCapabilitiesRef.current.sync || mutationRunningRef.current) return;
-		const projectId = props.projectId;
-		const mutationRequest = ++mutationRequestRef.current;
-		mutationRunningRef.current = true;
-		setPulling(true);
-		setError(null);
-		try {
-			await props.pull(projectId);
-			if (projectId !== projectIdRef.current) return;
-			// 同 push：pull 后本地 refs 已是最终结果，本地角标计数先给出准确值
-			await refresh();
-		} catch (caught) {
-			if (projectId === projectIdRef.current) {
-				// 拉取失败同样不常驻面板错误区，避免错误条占位挤压变更列表。
-				showNotice(localGitOperationErrorText(caught) || t("git.pullFailed"), 8000, "error", t("git.pullFailed"), undefined, gitErrorToastId(repoScopeKey, "pull"));
-			}
-		} finally {
-			if (mutationRequest === mutationRequestRef.current) {
-				mutationRunningRef.current = false;
-				if (projectId === projectIdRef.current) setPulling(false);
-			}
-		}
-	};
-
-	const visibleOpen: PaneOpenState = layout === "historyOnly" ? { ...paneState.open, changes: false } : paneState.open;
-	const visibleSashAfterChanges = adjacentVisiblePane(visibleOpen, "changes", 1);
-	const visibleSashAfterGraph = adjacentVisiblePane(visibleOpen, "graph", 1);
-	const paneStyle = (id: PaneId): React.CSSProperties =>
-		({
-			"--git-pane-height": `${paneState.heights[id]}px`,
-		}) as React.CSSProperties;
-
-	const renderSash = (before: PaneId, after: PaneId) => <PaneSash before={before} after={after} beforeHeight={paneState.heights[before]} afterHeight={paneState.heights[after]} onResize={(beforeHeight, afterHeight) => resizePanes(before, after, beforeHeight, afterHeight)} />;
-
-	/** 摘要生成进度 0–95：按 atom.startedAt 续跑，切走再回来不会从 0 重开。 */
-	const [commitGenProgress, setCommitGenProgress] = useState(0);
-	useEffect(() => {
-		if (!commitGenLoading) {
-			setCommitGenProgress(0);
-			return;
-		}
-		const startedAt = composer.startedAt ?? Date.now();
-		const tickProgress = () => {
-			const ratio = Math.min(1, (Date.now() - startedAt) / COMMIT_GEN_TIMEOUT_MS);
-			// 封顶 95%，避免还没返回就显示满格；真正结束靠 generating 清零。
-			setCommitGenProgress(Math.max(4, Math.round(ratio * 95)));
-		};
-		tickProgress();
-		const tick = window.setInterval(tickProgress, 200);
-		return () => window.clearInterval(tick);
-	}, [commitGenLoading, composer.startedAt]);
-	useEffect(() => {
-		// 切回仍在生成的仓库：用同一 toast id 续上进度提示（抽屉卸载过也能再挂上）。
-		if (!commitGenLoading) return;
-		showCommitGenProgressToast(composerScopeKey);
-	}, [commitGenLoading, composerScopeKey]);
-	const [branchOpen, setBranchOpen] = useState(false);
+	const commitGenProgress = useCommitGenProgress({ commitGenLoading, startedAt: composer.startedAt, composerScopeKey });
+	const { branchOpen, setBranchOpen, branchCreating, setBranchCreating, newBranchName, setNewBranchName, branchDropdownStyle, branchBarRef, branchTriggerRef, branchDropdownRef, updateBranchDropdownPosition } = useGitBranchDropdown();
 	// 脏工作区切分支的待确认目标（Wave 5）：非空时弹 ConfirmDialog。
 	const [pendingBranchSwitch, setPendingBranchSwitch] = useState<string | null>(null);
-	const [branchCreating, setBranchCreating] = useState(false);
-	const [newBranchName, setNewBranchName] = useState("");
-	const [branchDropdownStyle, setBranchDropdownStyle] = useState<React.CSSProperties>({});
-	const branchBarRef = useRef<HTMLDivElement>(null);
-	const branchTriggerRef = useRef<HTMLButtonElement>(null);
-	const branchDropdownRef = useRef<HTMLDivElement>(null);
-
-	const updateBranchDropdownPosition = useCallback(() => {
-		if (!branchTriggerRef.current) return;
-		const rect = branchTriggerRef.current.getBoundingClientRect();
-		// 菜单宽度跟触发器走（随抽屉自适应），再由 placement 钳进视口；不再写死 240。
-		const preferredWidth = Math.max(Math.ceil(rect.width), 160);
-		const placement = getViewportBoundMenuPlacement(rect, { width: window.innerWidth, height: window.innerHeight }, { preferredWidth, maxHeight: 300, gap: 2 });
-		setBranchDropdownStyle({
-			position: "fixed",
-			left: placement.left,
-			top: placement.top,
-			bottom: placement.bottom,
-			width: placement.width,
-			maxHeight: placement.maxHeight,
-			// z 层级走语义 token（foundation.css）：下拉是 popover 语义，不再写死 9999 旁路（Wave 2 §5）。
-			zIndex: "var(--z-popover)",
-		});
-	}, []);
-
-	// 点击外部关闭分支下拉
-	useEffect(() => {
-		if (!branchOpen) return;
-		updateBranchDropdownPosition();
-		const handler = (event: MouseEvent) => {
-			const target = event.target as Node;
-			// Portal 出来的菜单不再是 branchBar 的后代，二者都属于菜单交互区。
-			if (branchBarRef.current?.contains(target) || branchDropdownRef.current?.contains(target)) {
-				return;
-			}
-			setBranchOpen(false);
-			setBranchCreating(false);
-			setNewBranchName("");
-		};
-		const handleScroll = () => updateBranchDropdownPosition();
-		const handleResize = () => updateBranchDropdownPosition();
-		document.addEventListener("mousedown", handler);
-		window.addEventListener("scroll", handleScroll, true);
-		window.addEventListener("resize", handleResize);
-		return () => {
-			document.removeEventListener("mousedown", handler);
-			window.removeEventListener("scroll", handleScroll, true);
-			window.removeEventListener("resize", handleResize);
-		};
-	}, [branchOpen, updateBranchDropdownPosition]);
 
 	// 面板操作按功能分两组：一列 6 个混排图标（视图切换 / 收起 / 展开 / 刷新 / 推送 / 拉取）看上去就是「一堆按钮」。
 	// - 视图组（树形切换、全部收起/展开）只作用于下方变更列表，留在「更改」标题栏；
