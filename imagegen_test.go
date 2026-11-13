@@ -75,7 +75,9 @@ func TestImageDialog(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
+	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"b64_json": tinyPNG}}})
 	}))
 	defer srv.Close()
@@ -101,7 +103,13 @@ func TestImageDialog(t *testing.T) {
 	app.Type("id:image-model", "img-1")
 	app.Press("id:image-generate")
 	app.WaitFor("id:image-insert", 10*time.Second)
+	app.Press("id:image-regenerate")
+	app.WaitFor("id:image-thumb-1", 10*time.Second)
+	app.Press("id:image-thumb-0")
 	app.Press("id:image-insert")
+	if requests < 2 {
+		t.Fatalf("requests = %d", requests)
+	}
 	app.WaitForGone("id:image-dialog", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:button 移除图片")) > 0 })
 }

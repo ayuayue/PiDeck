@@ -287,7 +287,8 @@ type app struct {
 	imageProvider *core.Signal[string]
 	imageBusy     *core.Signal[bool]
 	imageErr      *core.Signal[string]
-	imageResult   *core.Signal[[]byte]
+	imageResults  *core.Signal[[][]byte]
+	imageSelected *core.Signal[int]
 	imageType     *core.Signal[string]
 	confirmOpen   *core.Signal[bool]
 	confirmHead   *core.Signal[string]
@@ -384,7 +385,8 @@ func newApp(cx *core.Scope) *app {
 		imageProvider:    core.NewSignal(cx, ""),
 		imageBusy:        core.NewSignal(cx, false),
 		imageErr:         core.NewSignal(cx, ""),
-		imageResult:      core.NewSignalFunc(cx, []byte(nil), nil),
+		imageResults:     core.NewSignalFunc(cx, [][]byte(nil), nil),
+		imageSelected:    core.NewSignal(cx, 0),
 		imageType:        core.NewSignal(cx, ""),
 		confirmOpen:      core.NewSignal(cx, false),
 		confirmHead:      core.NewSignal(cx, ""),

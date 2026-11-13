@@ -4,6 +4,7 @@ package main
 // prompt, then attach the result to the composer or save it.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,8 @@ func (a *app) openImageDialog() {
 	a.imageSize.Set(firstNonEmpty(a.cfg.ImageSize, "1024x1024"))
 	a.imagePrompt.Set("")
 	a.imageErr.Set("")
-	a.imageResult.Set(nil)
+	a.imageResults.Set(nil)
+	a.imageSelected.Set(0)
 	a.imageType.Set("")
 	a.imageBusy.Set(false)
 	a.imageOpen.Set(true)
@@ -63,7 +65,6 @@ func (a *app) generateImageNow() {
 	}
 	a.imageBusy.Set(true)
 	a.imageErr.Set("")
-	a.imageResult.Set(nil)
 	go func() {
 		raw, mime, err := generateImage(*cfg, model, prompt, size)
 		a.cx.Post(func() {
@@ -73,7 +74,12 @@ func (a *app) generateImageNow() {
 				return
 			}
 			a.imageType.Set(mime)
-			a.imageResult.Set(raw)
+			n := 0
+			a.imageResults.Update(func(list [][]byte) [][]byte {
+				n = len(list)
+				return append(list, raw)
+			})
+			a.imageSelected.Set(n)
 			a.cfg.ImageProvider, a.cfg.ImageModel, a.cfg.ImageSize = cfg.ID, model, size
 			if a.st != nil {
 				a.st.edit(func(c *config) {
@@ -84,10 +90,20 @@ func (a *app) generateImageNow() {
 	}()
 }
 
+// selectedImage is the result the user picked.
+func (a *app) selectedImage() []byte {
+	results := a.imageResults.GetUntracked()
+	idx := a.imageSelected.GetUntracked()
+	if idx < 0 || idx >= len(results) {
+		return nil
+	}
+	return results[idx]
+}
+
 // insertGeneratedImage puts the result in the active session's composer.
 func (a *app) insertGeneratedImage() {
 	s := a.active()
-	raw := a.imageResult.GetUntracked()
+	raw := a.selectedImage()
 	if len(raw) == 0 {
 		return
 	}
@@ -103,7 +119,7 @@ func (a *app) insertGeneratedImage() {
 // saveGeneratedImage writes the result into the active project.
 func (a *app) saveGeneratedImage() {
 	s := a.active()
-	raw := a.imageResult.GetUntracked()
+	raw := a.selectedImage()
 	if len(raw) == 0 {
 		return
 	}
@@ -134,7 +150,11 @@ func (a *app) imageDialog() core.Node {
 			sizeChoices = append(sizeChoices, choice[string]{Value: s, Label: s})
 		}
 		busy := a.imageBusy.Get()
-		result := a.imageResult.Get()
+		results := a.imageResults.Get()
+		sel := a.imageSelected.Get()
+		if sel >= len(results) {
+			sel = len(results) - 1
+		}
 		var body []core.Node
 		if len(providerChoices) > 0 {
 			body = append(body, core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
@@ -175,17 +195,38 @@ func (a *app) imageDialog() core.Node {
 		case a.imageErr.Get() != "":
 			body = append(body, core.Text{Content: a.imageErr.Get(), MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16},
 				StyleFunc: ui.Colored(colors.Danger)})
-		case len(result) > 0:
-			body = append(body, core.View{Style: core.Style{AlignItems: core.AlignCenter}, Children: []core.Node{
-				core.Image{Source: core.ImageSource{Data: result}, ResizeMode: core.Contain, Label: "生成的图片",
+		case len(results) > 0:
+			thumbs := make([]core.Node, 0, len(results))
+			for i := range results {
+				idx := i
+				selected := i == sel
+				thumbs = append(thumbs, core.View{
+					OnPress: func(core.PressEvent) { a.imageSelected.Set(idx) },
+					Role:    core.RoleButton, Label: "查看图片", TestID: fmt.Sprintf("image-thumb-%d", i),
+					StyleFunc: func() core.Style {
+						border := colors.Border()
+						if selected {
+							border = colors.Accent()
+						}
+						return core.Style{Width: core.Pt(58), Height: core.Pt(58), CornerRadius: 8, Overflow: core.Hidden,
+							BorderWidth: 2, BorderColor: border}
+					},
+					Children: []core.Node{core.Image{Source: core.ImageSource{Data: results[i]}, ResizeMode: core.Cover,
+						Style: core.Style{Width: core.Pt(58), Height: core.Pt(58)}}},
+				})
+			}
+			body = append(body, core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+				core.Image{Source: core.ImageSource{Data: results[sel]}, ResizeMode: core.Contain, Label: "生成的图片",
 					Style: core.Style{Width: core.Pt(280), Height: core.Pt(280), CornerRadius: 10, BorderWidth: 1, BorderColor: colors.Border()}},
+				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, JustifyContent: core.JustifyCenter}, Children: thumbs},
 			}})
 		}
 		footer := []core.Node{
 			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.imageOpen.Set(false) }},
 		}
-		if len(result) > 0 && !busy {
+		if len(results) > 0 && !busy {
 			footer = append(footer,
+				ui.Button{Text: "再生成", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-regenerate", OnPress: a.generateImageNow},
 				ui.Button{Text: "保存到项目", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-save", OnPress: a.saveGeneratedImage},
 				ui.Button{Text: "插入输入框", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "image-insert", OnPress: a.insertGeneratedImage})
 		} else {
