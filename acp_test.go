@@ -37,6 +37,9 @@ func TestFakeACPAgent(t *testing.T) {
 		case "session/prompt":
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
 				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
+					"sessionUpdate": "current_mode_update", "currentModeId": "plan"}}})
+			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
+				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
 					"sessionUpdate":     "available_commands_update",
 					"availableCommands": []map[string]string{{"name": "web", "description": "search"}}}}})
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
@@ -80,11 +83,16 @@ func TestACPClient(t *testing.T) {
 	if err != nil || stop != "end_turn" {
 		t.Fatalf("prompt = %q, %v", stop, err)
 	}
-	var sawCommands, sawText bool
-	for !sawCommands || !sawText {
+	var sawCommands, sawText, sawMode bool
+	for !sawCommands || !sawText || !sawMode {
 		select {
 		case u := <-updates:
 			switch u.Kind {
+			case "current_mode_update":
+				if u.Mode != "plan" {
+					t.Fatalf("mode = %q", u.Mode)
+				}
+				sawMode = true
 			case "available_commands_update":
 				if len(u.Commands) != 1 || u.Commands[0].Name != "web" {
 					t.Fatalf("commands = %+v", u.Commands)

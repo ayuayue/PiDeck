@@ -170,6 +170,8 @@ func (a *app) applyACPUpdate(s *session, u acpUpdate) {
 		if due {
 			a.cx.AfterFunc(40*time.Millisecond, func() { a.flushACP(s) })
 		}
+	case "current_mode_update":
+		s.acpMode.Set(u.Mode)
 	case "available_commands_update":
 		s.acpCommands.Set(u.Commands)
 	case "tool_call":
@@ -241,6 +243,35 @@ func (a *app) flushACP(s *session) {
 			return ts
 		}
 		return ts
+	})
+}
+
+// acpBadge names the ACP preset and its current mode.
+func (a *app) acpBadge(s *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		name := "ACP"
+		if p := a.acpPresetByID(s.acpPreset); p != nil {
+			name = p.Name
+		}
+		label := name
+		if mode := s.acpMode.Get(); mode != "" {
+			label += " · " + mode
+		}
+		dot := colors.Faint
+		if s.status.Get() == statusFailed {
+			dot = colors.Danger
+		} else if s.readySig.Get() {
+			dot = colors.Up
+		}
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
+			Padding: core.Symmetric(0, 7), CornerRadius: 12, Background: colors.Inset()}, Children: []core.Node{
+			core.View{StyleFunc: func() core.Style {
+				return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: dot()}
+			}},
+			core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
+		}}
 	})
 }
 

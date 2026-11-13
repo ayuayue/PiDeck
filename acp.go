@@ -32,6 +32,7 @@ type acpUpdate struct {
 	ToolID    string
 	Title     string
 	Status    string
+	Mode      string
 	Commands  []acpCommand
 	Raw       json.RawMessage
 }
@@ -190,6 +191,7 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 			ToolCallID    string          `json:"toolCallId"`
 			Title         string          `json:"title"`
 			Status        string          `json:"status"`
+			CurrentModeID string          `json:"currentModeId"`
 			Commands      []struct {
 				Name        string `json:"name"`
 				Description string `json:"description"`
@@ -204,7 +206,7 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 	}
 	u := acpUpdate{SessionID: params.SessionID, Kind: params.Update.SessionUpdate,
 		Text: acpContentText(params.Update.Content), ToolID: params.Update.ToolCallID,
-		Title: params.Update.Title, Status: params.Update.Status, Raw: raw}
+		Title: params.Update.Title, Status: params.Update.Status, Mode: params.Update.CurrentModeID, Raw: raw}
 	for _, c := range params.Update.Commands {
 		cmd := acpCommand{Name: c.Name, Description: c.Description}
 		if c.Input != nil {

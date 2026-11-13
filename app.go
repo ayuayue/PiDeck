@@ -130,6 +130,7 @@ type session struct {
 	acpReply    func(string)
 	acpCommands *core.Signal[[]acpCommand]
 	acpCmdOpen  *core.Signal[bool]
+	acpMode     *core.Signal[string]
 	starting    bool
 	// restarting makes the exit handler start pi again instead of
 	// reporting the process as gone.
@@ -569,6 +570,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		uiSeq:          core.NewSignal(a.cx, 0),
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
 		acpCmdOpen:     core.NewSignal(a.cx, false),
+		acpMode:        core.NewSignal(a.cx, ""),
 	}
 	s.conversation = chat.NewConversationState(a.cx)
 	a.byID[s.ID] = s
