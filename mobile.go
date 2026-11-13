@@ -81,8 +81,10 @@ type mobileApp struct {
 	options     *core.Signal[remoteWireOptions]
 	optionsOpen *core.Signal[bool]
 
-	// toolOpen is the key of the tool block the user unfolded.
+	// toolOpen is the key of the tool block the user unfolded, longOpen the
+	// long user message that is fully shown.
 	toolOpen *core.Signal[string]
+	longOpen *core.Signal[string]
 
 	stateLoading      bool
 	transcriptLoading bool
@@ -124,6 +126,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		options:        core.NewSignalFunc(cx, remoteWireOptions{}, nil),
 		optionsOpen:    core.NewSignal(cx, false),
 		toolOpen:       core.NewSignal(cx, ""),
+		longOpen:       core.NewSignal(cx, ""),
 	}
 	if saved := loadMobileSaved(cx); saved.Server != "" {
 		a.server.Set(saved.Server)
@@ -301,7 +304,9 @@ func (a *mobileApp) startPolling() {
 		a.refreshState()
 		if a.active.GetUntracked() != "" {
 			a.refreshTranscript()
-			if a.optionsOpen.GetUntracked() {
+			// The model line fills in once pi is up, without opening the
+			// sheet.
+			if a.optionsOpen.GetUntracked() || a.options.GetUntracked().Model == "" {
 				a.loadOptions(a.active.GetUntracked())
 			}
 		}
@@ -619,7 +624,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 						StyleFunc: ui.Colored(colors.Danger)},
 				}}
 		}},
-		core.Dynamic(func(cx *core.Scope) core.Node {
+		core.Scroll{Style: ui.FillRest, Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			msgs := a.messages.Get()
 			if a.transcriptBusy.Get() && len(msgs) == 0 {
 				return core.View{Style: core.Style{Padding: core.All(18), Gap: 14}, Children: []core.Node{
@@ -656,7 +661,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 					i = j
 					continue
 				}
-				rows = append(rows, mobileMessage(cx, msgs[i]))
+				rows = append(rows, a.message(cx, msgs[i]))
 				i++
 			}
 			if len(rows) == 0 || (query != "" && matches == 0) {
@@ -669,10 +674,8 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 					ui.Text(empty, 12.5, ui.Regular, colors.Muted),
 				}})
 			}
-			return core.Scroll{Style: ui.FillRest, Children: []core.Node{
-				core.View{Selectable: true, Style: core.Style{Padding: core.Edges{Top: 14, Bottom: 20, Left: 14, Right: 14}, Gap: 12}, Children: rows},
-			}}
-		}),
+			return core.View{Selectable: true, Style: core.Style{Padding: core.Edges{Top: 14, Bottom: 20, Left: 14, Right: 14}, Gap: 12}, Children: rows}
+		})}},
 		a.sessionBar(cx),
 		a.composer(cx),
 	}}
@@ -827,11 +830,41 @@ func (a *mobileApp) toolBlock(cx *core.Scope, lines []remoteWireMessage) core.No
 	return core.View{Style: core.Style{Gap: 2}, Children: children}
 }
 
-// mobileMessage draws one line of a remote transcript.
-func mobileMessage(cx *core.Scope, m remoteWireMessage) core.Node {
+// message draws one line of a remote transcript.
+func (a *mobileApp) message(cx *core.Scope, m remoteWireMessage) core.Node {
 	colors := ui.ColorsOf(cx)
 	switch m.Role {
 	case "user":
+		// A pasted attachment or a long system block would fill the screen:
+		// show its head, and open it in place when asked.
+		text := m.Text
+		runes := []rune(text)
+		if len(runes) > 400 {
+			key := string(runes[:64])
+			if a.longOpen.Get() != key {
+				text = string(runes[:400]) + "…"
+			}
+			return core.View{OnPress: func(core.PressEvent) {
+				if a.longOpen.Get() == key {
+					a.longOpen.Set("")
+				} else {
+					a.longOpen.Set(key)
+				}
+			}, Role: core.RoleButton, Label: "长消息", TestID: "mobile-long",
+				Style: core.Style{Direction: core.Row, JustifyContent: core.JustifyEnd}, Children: []core.Node{
+					core.View{Style: core.Style{MaxWidth: core.Pct(86), Padding: core.Symmetric(9, 13), CornerRadius: 15,
+						Background: colors.Light()}, Children: []core.Node{
+						core.Text{Content: text, Style: core.Style{FontSize: 14, LineHeight: 20}, StyleFunc: ui.Colored(colors.OnLight)},
+						core.Text{Content: func() string {
+							if a.longOpen.Get() == key {
+								return "收起"
+							}
+							return fmt.Sprintf("展开全文（%d 字）", len(runes))
+						}(), Style: core.Style{FontSize: 10.5, Padding: core.Edges{Top: 6}},
+							StyleFunc: ui.Colored(func() core.Color { return ui.Alpha(colors.OnLight(), 0.6) })},
+					}},
+				}}
+		}
 		return core.View{Style: core.Style{Direction: core.Row, JustifyContent: core.JustifyEnd}, Children: []core.Node{
 			core.View{Style: core.Style{MaxWidth: core.Pct(86), Padding: core.Symmetric(9, 13), CornerRadius: 15,
 				Background: colors.Light()}, Children: []core.Node{
