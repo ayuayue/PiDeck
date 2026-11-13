@@ -139,3 +139,66 @@ test("端到端：第二轮回复不会被上一轮的游标吞掉（翻译器�
 	const startCount = stream.frames.filter((frame) => frame.type === "start").length;
 	assert.equal(startCount, 2, "每个回合一条 UI 消息");
 });
+
+test("端到端：长会话（>300 条窗口）激活重放不再把历史当实时回复重画", async (t) => {
+	// 一个长回合：1 条 user + 200 组（assistant 段 + 工具卡）≈ 401 条窗口 → 走分块重放。
+	// 修复前：每块都被当增量翻译，历史正文以「新一轮回复」再上一次屏（Web/手机端文本重复）。
+	const RESTORED = "sess-long";
+	const { manager, events, procs } = harness(t, {
+		handler: (frame, { writeFromCli }) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: { loadSession: true } };
+			if (frame.method === "session/load") {
+				sessionUpdate(writeFromCli, RESTORED, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "很长的问题" } });
+				for (let index = 0; index < 200; index += 1) {
+					sessionUpdate(writeFromCli, RESTORED, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `历史片段${index}` } });
+					sessionUpdate(writeFromCli, RESTORED, { sessionUpdate: "tool_call", toolCallId: `call_${index}`, title: "bash", kind: "execute", status: "completed", rawInput: { command: "ls" }, rawOutput: "ok" });
+				}
+				return { sessionId: RESTORED };
+			}
+			if (frame.method === "session/prompt") return undefined;
+			return {};
+		},
+	});
+	// Web 服务在应用启动时就订了 ACP 事件源：翻译器先于会话激活存在（真实链路顺序）
+	const router = new WebEventStreamRouter(() => SESSION_ID);
+	router.bindAcpChannelSource((handler) =>
+		manager.onOutput((channel, payload) => {
+			const agentId = payload && typeof payload === "object" && "agentId" in payload ? payload.agentId : undefined;
+			if (typeof agentId === "string") handler(agentId, channel, payload);
+		}),
+	);
+	t.after(() => router.unbindAcpChannelSource());
+
+	const tab = await manager.create({ projectId: "p1", title: "t", deckSessionId: "deck-1", backend: "acp", agentPreset: "gemini", acpSessionId: RESTORED });
+	t.after(() => manager.stop(tab.id));
+	// 分块重放按帧间 setTimeout 投递（12ms/块）：等到末块收敛再接入手机
+	await waitFor(() => events.messages.at(-1)?.totalLength === manager.readMessages(tab.id).length && events.messages.at(-1)?.messages.length > 0, "replay chunks delivered");
+
+	// 重放投递必须带 replay 标记（Web 事件流据此把整份当历史吸收）
+	const replayPayloads = events.messages.filter((payload) => payload.replay === true);
+	assert.ok(replayPayloads.length > 1, "长窗口应分成多块投递并全部标记重放");
+	assert.ok(
+		replayPayloads.some((payload) => typeof payload.upsertFrom === "number"),
+		"后续块是增量形态，光靠「全量快照」判据认不出重放",
+	);
+
+	// 手机在重放结束后才接入：会话级回放源里不能有历史正文
+	const stream = collector();
+	const close = router.add(SESSION_ID, stream.writeRaw, () => {}, undefined, { keepAlive: true });
+	t.after(() => close());
+	assert.equal(stream.frames.length, 0, "重放历史不能进回放源");
+
+	// 新一轮：只上屏新回复，历史片段不能重画
+	const cli = procs.at(-1);
+	const sent = manager.sendPrompt({ agentId: tab.id, message: "新问题" });
+	await waitFor(() => cli.methodFrames("session/prompt").length > 0, "session/prompt dispatched");
+	sessionUpdate(cli.writeFromCli, RESTORED, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "新回答" } });
+	await waitFor(() => stream.frames.some((frame) => frame.type === "text-delta" && String(frame.delta ?? "").includes("新回答")), "新回合照常实时上屏");
+	const emitted = stream.frames
+		.filter((frame) => frame.type === "text-delta")
+		.map((frame) => String(frame.delta ?? ""))
+		.join("");
+	assert.equal(emitted.includes("历史片段"), false, "重放的历史不能作为本轮正文再上一次屏");
+	cli.writeFromCli({ jsonrpc: "2.0", id: cli.methodFrames("session/prompt")[0].id, result: { stopReason: "end_turn" } });
+	await sent;
+});
