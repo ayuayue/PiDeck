@@ -5,6 +5,7 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 import { createStore } from "jotai/vanilla";
+import { sessionAtomsLoaderImports } from "./helpers/sessionAtomsSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -49,21 +50,28 @@ function loadAtoms() {
 	const sessionActivityAtoms = compileModule("src/renderer/src/atoms/sessionActivityAtoms.ts", {
 		"../utils/sessionActivityClock": sessionActivityClock,
 	});
-	const sessions = compileModule("src/renderer/src/atoms/session-atoms.ts", {
-		"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
-		"./composer-atoms": composerExports,
-		"../utils/agentRuntimeState": compileModule("src/renderer/src/utils/agentRuntimeState.ts"),
-		"../utils/sessionRecordIdentity": compileModule("src/renderer/src/utils/sessionRecordIdentity.ts"),
-		"../utils/liveTextHandoff": compileModule("src/renderer/src/utils/liveTextHandoff.ts"),
-		// session-atoms 现依赖 ./outlineRevision（输出修订），loader 缺此 stub 时
-		// 编译后 require 回落到 nodeRequire 解析 .ts 失败，拖垮整组用例。
-		"./outlineRevision": compileModule("src/renderer/src/atoms/outlineRevision.ts"),
-		"./outlineProjectionCache": compileModule("src/renderer/src/atoms/outlineProjectionCache.ts"),
-		"./sessionActivityAtoms": sessionActivityAtoms,
-		"../utils/sessionActivityClock": sessionActivityClock,
-		// 分段计时探针（perfSpan）：默认关闭时是空函数，stub 掉即可（同 sessionAtoms.test.mjs）。
-		"../utils/perfProbe": { perfSpan: () => () => undefined },
-	});
+	// 域模块（session-atoms 拆出的 session-*.ts）由 helper 惰性编译，其余 specifier 仍走下面的手写桩。
+	const sessions = compileModule(
+		"src/renderer/src/atoms/session-atoms.ts",
+		sessionAtomsLoaderImports({
+			compileModule,
+			imports: {
+				"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
+				"./composer-atoms": composerExports,
+				"../utils/agentRuntimeState": compileModule("src/renderer/src/utils/agentRuntimeState.ts"),
+				"../utils/sessionRecordIdentity": compileModule("src/renderer/src/utils/sessionRecordIdentity.ts"),
+				"../utils/liveTextHandoff": compileModule("src/renderer/src/utils/liveTextHandoff.ts"),
+				// session-atoms 现依赖 ./outlineRevision（输出修订），loader 缺此 stub 时
+				// 编译后 require 回落到 nodeRequire 解析 .ts 失败，拖垮整组用例。
+				"./outlineRevision": compileModule("src/renderer/src/atoms/outlineRevision.ts"),
+				"./outlineProjectionCache": compileModule("src/renderer/src/atoms/outlineProjectionCache.ts"),
+				"./sessionActivityAtoms": sessionActivityAtoms,
+				"../utils/sessionActivityClock": sessionActivityClock,
+				// 分段计时探针（perfSpan）：默认关闭时是空函数，stub 掉即可（同 sessionAtoms.test.mjs）。
+				"../utils/perfProbe": { perfSpan: () => () => undefined },
+			},
+		}),
+	);
 	const composer = compileModule("src/renderer/src/atoms/composer-atoms.ts", {
 		"./session-atoms": sessions,
 	});

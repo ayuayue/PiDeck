@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 
 const turnExecution = readFileSync("src/renderer/src/components/session/turn/useTurnExecution.ts", "utf8");
 // dispatchPromptSnapshot 已迁入 useSessionPromptDispatch（App 只保留接线）。
 const app = readFileSync("src/renderer/src/hooks/session/useSessionPromptDispatch.ts", "utf8");
 const appUiAtoms = readFileSync("src/renderer/src/atoms/app-ui-atoms.ts", "utf8");
 const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
-const sessionAtoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+const sessionAtoms = sessionAtomsSource;
 const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
 
 test("non-live runs mount collapsed even without a final answer (interrupted rounds)", () => {

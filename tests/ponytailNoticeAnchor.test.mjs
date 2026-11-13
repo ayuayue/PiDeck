@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 
 // #115 U5 收尾：通知机制从自研 app-notice 锚点浮层迁移为 sonner 全局 toast。
 // 本测试锁定新契约：notify 请求仍经 showNotice 出口，showNotice 落到 sonner，
 // Toaster 在渲染树根挂载，旧的 app-notice/NoticeCenter 不再回流。
 
-const sessionAtoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+const sessionAtoms = sessionAtomsSource;
 const mainEntry = readFileSync("src/renderer/src/main.tsx", "utf8");
 const notice = readFileSync("src/renderer/src/utils/notice.ts", "utf8");
 const sonner = readFileSync("src/renderer/src/components/ui-shadcn/sonner.tsx", "utf8");

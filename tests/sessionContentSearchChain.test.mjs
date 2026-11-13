@@ -15,6 +15,7 @@ import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 import { previewApiSource } from "./helpers/previewApiSources.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"), "utf8");
 
@@ -68,6 +69,6 @@ test("ChatSessionPane.tsx：pendingMessageJump 聚焦消费（消息未就绪时
 });
 
 test("session-atoms.ts：pendingMessageJumpAtom 存在且初始 null", () => {
-	const source = read("../src/renderer/src/atoms/session-atoms.ts");
+	const source = sessionAtomsSource;
 	assert.match(source, /export\s+const\s+pendingMessageJumpAtom\s*=\s*atom<\{\s*sessionId:\s*string;\s*messageId:\s*string\s*\}\s*\|\s*null>\(null\)/);
 });

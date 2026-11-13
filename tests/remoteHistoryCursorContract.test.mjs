@@ -8,8 +8,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "jotai/vanilla";
-import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 
 const atoms = loadTsCommonJs("src/renderer/src/atoms/index.ts");
 
@@ -51,7 +51,7 @@ test('本机记录不受影响：仍是 source:"disk"', () => {
 });
 
 test("契约守卫：那条游标算术仍只对 disk 生效（远端不会被算）", () => {
-	const src = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+	const src = sessionAtomsSource;
 	// 裁剪前移分支的守卫必须仍是 disk-only：
 	assert.match(src, /current\.source !== "disk"/);
 	// 归约点必须按记录 locator 判定远端：

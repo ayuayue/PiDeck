@@ -1,4 +1,5 @@
 import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -66,7 +67,7 @@ test("main process: message_end pushes final text with done flag", () => {
 });
 
 test("renderer: streamingTextByIdAtom updates from agents:text-stream without runtime bump", () => {
-	const atoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+	const atoms = sessionAtomsSource;
 	assert.match(atoms, /export const streamingTextByIdAtom = atom/);
 	assert.match(atoms, /Record<string, \{ content: string; streaming: boolean; held\?: boolean \}>/);
 	assert.match(atoms, /event\.sourceChannel === "agents:text-stream"/);
