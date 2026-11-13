@@ -1,9 +1,6 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { createServer } from "node:http";
-import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import type { AppSettings, Project, SessionRecord } from "../../shared/types.ts";
 import type {
 	CloudProvider,
@@ -42,34 +39,22 @@ import type {
 } from "../../shared/types/cloudSync.ts";
 import { CLOUD_SYNC_CONSTANTS } from "../../shared/types/cloudSync.ts";
 import { localProjectPath } from "../../shared/projectLocation.ts";
-import { createMasterKeyConfig, changeMasterPassword, decrypt, decryptPayload, deriveKey, encrypt, encryptPayload, generateRandomBytes, isCloudSyncMasterKeyConfig, unlockMasterKey, verifyPassword } from "./EncryptionService.ts";
-import { pollGithubDeviceFlow, startGithubDeviceFlow, type GithubDeviceFlowStart, type GithubDeviceFlowToken } from "./adapters/GithubGistObjectStorage.ts";
-import { CloudSyncScanner, CLOUD_SYNC_SCANNER_LIMITS, type CloudSyncInternalResource, type CloudSyncInternalSession, type CloudSyncScanOptions, type CloudSyncScanSnapshot } from "./CloudSyncScanner.ts";
+import { createMasterKeyConfig, changeMasterPassword, decrypt, decryptPayload, deriveKey, encrypt, encryptPayload, isCloudSyncMasterKeyConfig, unlockMasterKey, verifyPassword } from "./EncryptionService.ts";
+import type { GithubDeviceFlowStart, GithubDeviceFlowToken } from "./adapters/GithubGistObjectStorage.ts";
+import { CloudSyncScanner, type CloudSyncInternalResource, type CloudSyncInternalSession, type CloudSyncScanOptions, type CloudSyncScanSnapshot } from "./CloudSyncScanner.ts";
 import type { PiDeckCloudObjectStorage } from "./objectStorage.ts";
 import { createCloudSyncObjectStorage } from "./adapters/index.ts";
 import { normalizeGithubGistConfig, normalizeGoogleDriveConfig, normalizeLocalFolderConfig, normalizeOneDriveConfig, normalizeS3Config, normalizeWebDAVConfig } from "./providerConfig.ts";
-import { BackupFileReader, BackupFileWriter, parseBackupManifest, type PiDeckBackupManifestV1 } from "./exportImport.ts";
 import { createMountRegistry } from "./cloudSyncMounts.ts";
 import { OAUTH_BUILTIN_CREDENTIALS, type OAuthBuiltinCredentials } from "./oauthCredentials.ts";
-import {
-	buildCatalogSyncEntry,
-	buildCloudSyncProject,
-	buildGlobalCloudSyncProject,
-	buildPiDeckSyncIndex,
-	buildSyntheticCloudSyncProject,
-	createSessionRef,
-	createTextFileBundle,
-	dshSessionObjectKey,
-	extractExtensionSources,
-	filterSyncableDesktopSettings,
-	GLOBAL_SYNC_PROJECT_ID,
-	resolveGlobalSessionPath,
-	resolveProjectSessionPath,
-	sessionObjectKey,
-	toPortableRelativePath,
-	type CloudSyncProjectOptions,
-} from "./payload.ts";
+import { filterSyncableDesktopSettings, GLOBAL_SYNC_PROJECT_ID } from "./payload.ts";
 import { mergeSyncIndexes, type CloudSyncMergeResult } from "./merge.ts";
+import { decodeBase64, decryptObjectWith, encodeBase64, ensureNoSymlinkEscape, writeFileAtomic } from "./manager/objectIo.ts";
+import { CloudSyncGithubDeviceFlow } from "./manager/githubDeviceFlow.ts";
+import { CloudSyncProviderOAuthFlows } from "./manager/providerOAuthFlows.ts";
+import { CloudSyncLocalIndexBuilder } from "./manager/localIndexBuilder.ts";
+import { CloudSyncSessionObjectTransfer } from "./manager/sessionObjectTransfer.ts";
+import { CloudSyncBackupTransfer } from "./manager/backupTransfer.ts";
 
 type PersistedProviderEntry = { configured: true; sealed: string } | null;
 
@@ -153,74 +138,8 @@ function isPermissionError(error: unknown): boolean {
 	return Boolean(error && typeof error === "object" && "code" in error && ((error as { code?: unknown }).code === "EACCES" || (error as { code?: unknown }).code === "EPERM"));
 }
 
-function encodeBase64(value: Uint8Array): string {
-	return Buffer.from(value).toString("base64");
-}
-
-function decodeBase64(value: string): Buffer {
-	if (typeof value !== "string" || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
-		throw new TypeError("Provider sealed payload is not valid base64");
-	}
-	return Buffer.from(value, "base64");
-}
-
 function isSafeSelectionId(value: string): boolean {
 	return typeof value === "string" && value.length > 0 && value.length <= 512 && (value.startsWith("session:") || value.startsWith("resource:"));
-}
-
-/** Stream a file into a SHA-256 hex digest without loading it into memory. */
-async function hashFile(filePath: string): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const hash = createHash("sha256");
-		const stream = createReadStream(filePath);
-		stream.on("data", (chunk) => hash.update(chunk as Buffer));
-		stream.on("error", reject);
-		stream.on("end", () => resolve(hash.digest("hex")));
-	});
-}
-
-async function readTextBounded(filePath: string, maxBytes: number): Promise<string> {
-	const buffer = await readFile(filePath);
-	if (buffer.byteLength > maxBytes) {
-		throw new RangeError(`File exceeds ${maxBytes} byte limit`);
-	}
-	return buffer.toString("utf8");
-}
-
-/**
- * Walk the path chain from the target up to the sync root and reject any
- * intermediate symlink. This blocks a remote relative path from being routed
- * through an attacker-placed junction inside the sync directory.
- */
-async function ensureNoSymlinkEscape(rootPath: string, targetPath: string): Promise<void> {
-	const root = resolve(rootPath);
-	const target = resolve(targetPath);
-	if (target === root) return;
-	let current = target;
-	while (current !== root) {
-		const parent = dirname(current);
-		if (parent === current) break;
-		const info = await lstat(parent).catch(() => null);
-		if (info && info.isSymbolicLink()) {
-			throw new Error(`Cloud sync refuses to write through symlink: ${parent}`);
-		}
-		current = parent;
-	}
-}
-
-async function writeFileAtomic(filePath: string, content: string): Promise<void> {
-	await mkdir(dirname(filePath), { recursive: true });
-	const temporary = `${filePath}.tmp-${randomUUID()}`;
-	await writeFile(temporary, content, "utf8");
-	await rename(temporary, filePath);
-}
-
-/** 二进制原子写（DSH 会话 .zstd 恢复用）。 */
-async function writeFileAtomicBytes(filePath: string, content: Buffer): Promise<void> {
-	await mkdir(dirname(filePath), { recursive: true });
-	const temporary = `${filePath}.tmp-${randomUUID()}`;
-	await writeFile(temporary, content);
-	await rename(temporary, filePath);
 }
 
 export interface CloudSyncManagerOptions {
@@ -289,28 +208,21 @@ export class CloudSyncManager {
 	private tokenPersistQueue: Promise<void> = Promise.resolve();
 	private autoSyncTimer: ReturnType<typeof setInterval> | null = null;
 	private disposed = false;
+	/** 浏览器授权流程（OneDrive/Google PKCE + 回环回调；token 只在主进程流转）。 */
+	private readonly providerOAuth: CloudSyncProviderOAuthFlows;
+	/** 本地索引构建（实现见 manager/localIndexBuilder.ts）。 */
+	private readonly indexBuilder: CloudSyncLocalIndexBuilder;
+	/** 对象传输（上传/下载/落位；实现见 manager/sessionObjectTransfer.ts）。 */
+	private readonly transfer: CloudSyncSessionObjectTransfer;
+	/** 离线备份导入/导出（实现见 manager/backupTransfer.ts）。 */
+	private readonly backupTransfer: CloudSyncBackupTransfer;
+	/** GitHub Device Flow（token 只在主进程流转，永不进 renderer）。 */
+	private readonly githubFlow: CloudSyncGithubDeviceFlow;
 	/** GitHub Device Flow 进行中的上下文（主进程持有，token 永不进 renderer）。
 	 *  retryIntervalMs：当前轮询间隔（毫秒），slow_down 时累加 5s，服务端 interval 为基准。 */
-	private githubDeviceFlow: (GithubDeviceFlowStart & { clientId: string; retryIntervalMs: number }) | null = null;
-	/** OneDrive 浏览器授权进行中的上下文（PKCE codeVerifier 单次有效，回环服务随 dispose 清理）。 */
-	private oneDriveFlow: {
-		clientId: string;
-		codeVerifier: string;
-		state: string;
-		port: number;
-		server: import("node:http").Server;
-		resolved: { code: string } | { error: string } | null;
-	} | null = null;
-	/** Google 浏览器授权进行中的上下文（镜像 OneDrive，额外携带可选 clientSecret 供换码）。 */
-	private googleFlow: {
-		clientId: string;
-		clientSecret?: string;
-		codeVerifier: string;
-		state: string;
-		port: number;
-		server: import("node:http").Server;
-		resolved: { code: string } | { error: string } | null;
-	} | null = null;
+	get githubDeviceFlow(): (GithubDeviceFlowStart & { clientId: string; retryIntervalMs: number }) | null {
+		return this.githubFlow.pendingFlow;
+	}
 	/** M9：云端项目 → 本地目录挂载注册表（全手动策略）。 */
 	private mounts: ReturnType<typeof createMountRegistry> | null = null;
 
@@ -324,6 +236,48 @@ export class CloudSyncManager {
 			listProjects: options.listProjects,
 			listSessionRecords: options.listSessionRecords,
 		});
+		this.githubFlow = new CloudSyncGithubDeviceFlow(this, options, this.oauthBuiltins);
+		this.providerOAuth = new CloudSyncProviderOAuthFlows(this, options, this.oauthBuiltins);
+		this.indexBuilder = new CloudSyncLocalIndexBuilder(
+			{
+				deviceId: () => this.state.deviceId,
+				deviceName: () => this.state.deviceName,
+				selectionContent: () => this.state.selection.content,
+			},
+			options,
+		);
+		this.transfer = new CloudSyncSessionObjectTransfer(
+			{
+				requirePassword: () => this.requirePassword(),
+				deviceId: () => this.state.deviceId,
+				deviceName: () => this.state.deviceName,
+				mountEntry: (remoteProjectId) => this.mounts?.get(remoteProjectId),
+			},
+			options,
+		);
+		this.backupTransfer = new CloudSyncBackupTransfer(
+			{
+				securityState: () => this.securityState(),
+				setupMasterKey: (password) => this.setupMasterKey(password),
+				unlock: (password) => this.unlock(password),
+				masterKeyConfig: () => this.state.masterKeyConfig,
+				deviceId: () => this.state.deviceId,
+				deviceName: () => this.state.deviceName,
+				scan: () => this.scanSelectionSnapshot(),
+				buildLocalIndex: (scan, sessions, resources) => this.buildLocalIndex(scan, sessions, resources),
+				encryptObject: (content) => this.encryptObject(content),
+				decryptObject: (bytes) => this.decryptObject(bytes),
+				decryptObjectWith,
+				checkAndRestoreExtensions: (index) => this.checkAndRestoreExtensions(index),
+				restoreSensitiveContent: (merged, remote) => this.restoreSensitiveContent(merged, remote),
+				resolveSessionTarget: (sessionRef) => this.resolveSessionTarget(sessionRef),
+				sessionTargetRoot: (sessionRef) => this.sessionTargetRoot(sessionRef),
+				readExistingHash: (filePath) => this.readExistingHash(filePath),
+				resolveResourceTarget: (projectId, relativePath) => this.resolveResourceTarget(projectId, relativePath),
+				commitImportedIndex: (index, counts) => this.commitImportedIndex(index, counts),
+			},
+			options,
+		);
 	}
 
 	async initialize(): Promise<void> {
@@ -535,343 +489,38 @@ export class CloudSyncManager {
 	}
 
 	// ── GitHub Device Flow（token 只在主进程流转） ───────────────────
+	// 实现：manager/githubDeviceFlow.ts（宿主只保留公开方法转发）。
 
-	/**
-	 * 启动 GitHub Device Flow。
-	 * clientId：优先使用构建期注入的内置凭据（`VITE_SYNC_GITHUB_CLIENT_ID`，
-	 * 对齐 Netcatty，用户零配置）；未注入时使用用户自备值（BYO）。
-	 */
 	async startGithubDeviceFlow(clientId: string): Promise<GithubDeviceFlowStart> {
-		const resolvedClientId = clientId.trim() || this.oauthBuiltins.githubClientId;
-		if (resolvedClientId.length === 0 || resolvedClientId.length > 128) throw new TypeError("GitHub client id is invalid");
-		const flow = await (this.options.startGithubDeviceFlowImpl ?? startGithubDeviceFlow)(resolvedClientId);
-		// retryIntervalMs 以服务端 device authorization 响应里的 interval 为基准（秒 → 毫秒），下限 5s；
-		// 之后 slow_down 在此基准上每次累加 5s，渲染层据 retryAfterMs 安排下一跳轮询。
-		this.githubDeviceFlow = {
-			...flow,
-			clientId: resolvedClientId,
-			retryIntervalMs: Math.max(5_000, Number.isFinite(flow.interval) ? flow.interval * 1000 : 5_000),
-		};
-		return flow;
+		return this.githubFlow.startGithubDeviceFlow(clientId);
 	}
 
-	/**
-	 * 轮询设备授权（RFC 8628）：
-	 * - authorization_pending → pending，带当前 retryAfterMs；
-	 * - slow_down → 间隔累加 5s，并返回增大后的 retryAfterMs；
-	 * - access token 到手 → 用 token 直接配置 github provider（token 只在主进程，永不进 renderer）；
-	 * - 终态错误（access_denied/expired_token 等）→ 清空 flow 并返回可展示的 error。
-	 */
 	async pollGithubDeviceFlow(): Promise<CloudSyncGithubPollResult> {
-		const flow = this.githubDeviceFlow;
-		if (!flow) return { status: "error", error: "No active device flow" };
-		try {
-			const poll = this.options.pollGithubDeviceFlowImpl ?? pollGithubDeviceFlow;
-			const result = await poll(flow.clientId, flow.deviceCode);
-			if (result.accessToken) {
-				this.githubDeviceFlow = null;
-				await this.configureProvider({ provider: "github", config: { token: result.accessToken, clientId: flow.clientId } });
-				return { status: "ok" };
-			}
-			if (result.error === "slow_down") {
-				flow.retryIntervalMs += 5_000;
-				return { status: "pending", retryAfterMs: flow.retryIntervalMs };
-			}
-			if (result.error === "authorization_pending") {
-				return { status: "pending", retryAfterMs: flow.retryIntervalMs };
-			}
-			this.githubDeviceFlow = null;
-			return { status: "error", error: result.errorDescription ?? result.error ?? "GitHub device flow failed" };
-		} catch (error) {
-			this.githubDeviceFlow = null;
-			return { status: "error", error: error instanceof Error ? error.message : String(error) };
-		}
+		return this.githubFlow.pollGithubDeviceFlow();
 	}
 
 	// ── OneDrive 浏览器授权（PKCE + 回环回调，token 只在主进程流转） ──
+	// 实现：manager/providerOAuthFlows.ts（宿主只保留公开方法转发）。
 
-	/**
-	 * Start the OneDrive authorization-code + PKCE flow.
-	 *
-	 * clientId：优先使用构建期注入的内置凭据（`VITE_SYNC_ONEDRIVE_CLIENT_ID`，
-	 * 对齐 Netcatty，用户零配置）；未注入时使用用户自备值（BYO）。
-	 * 回环 HTTP 服务收回调；渲染层展示 verificationUrl 并轮询 pollOneDriveOAuth()。
-	 */
 	async startOneDriveOAuth(clientId: string): Promise<CloudSyncOneDriveFlowStart> {
-		if (this.securityState() !== "UNLOCKED") throw new Error("Cloud sync must be unlocked");
-		const resolvedClientId = clientId.trim() || this.oauthBuiltins.onedriveClientId;
-		if (resolvedClientId.length === 0 || resolvedClientId.length > 128) throw new TypeError("OneDrive clientId is invalid");
-		// 重启流程：关掉旧回环服务，避免端口/状态残留。
-		this.closeOneDriveFlowServer();
-
-		const codeVerifier = randomBytes(43).toString("base64url");
-		const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
-		const state = randomUUID();
-		const resolved: { code: string } | { error: string } | null = null;
-
-		const server = createServer((request, response) => {
-			const url = new URL(request.url ?? "/", "http://127.0.0.1");
-			const code = url.searchParams.get("code");
-			const error = url.searchParams.get("error");
-			const callbackState = url.searchParams.get("state");
-			if (this.oneDriveFlow && callbackState === this.oneDriveFlow.state && (code || error)) {
-				this.oneDriveFlow.resolved = code ? { code } : { error: error ?? "access_denied" };
-				response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-				response.end('<!doctype html><meta charset="utf-8"><p>授权成功，可以关闭此页面。</p>');
-				// 回调已到达：只关本服务（resolved 留给 poll 处理，绝不能清 flow）。
-				setTimeout(() => {
-					try {
-						server.close();
-					} catch {
-						// 已被 poll/dispose 关闭：忽略。
-					}
-				}, 300);
-				return;
-			}
-			response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-			response.end("Not found");
-		});
-
-		await new Promise<void>((resolveListen, rejectListen) => {
-			server.once("error", rejectListen);
-			server.listen(0, "127.0.0.1", () => {
-				server.removeListener("error", rejectListen);
-				resolveListen();
-			});
-		});
-		const port = (server.address() as { port: number }).port;
-		this.oneDriveFlow = { clientId: resolvedClientId, codeVerifier, state, port, server, resolved };
-
-		const redirectUri = encodeURIComponent(`http://localhost:${port}`);
-		const verificationUrl =
-			"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize" + `?client_id=${encodeURIComponent(resolvedClientId)}` + `&response_type=code&redirect_uri=${redirectUri}` + "&scope=Files.ReadWrite.AppFolder%20offline_access" + `&code_challenge=${codeChallenge}&code_challenge_method=S256&state=${state}`;
-		return { verificationUrl, port };
+		return this.providerOAuth.startOneDriveOAuth(clientId);
 	}
 
 	/** 轮询 OneDrive 授权；拿到 code 后换 token 并完成 provider 配置。 */
 	async pollOneDriveOAuth(): Promise<{ status: "ok" | "pending" | "error"; error?: string }> {
-		const flow = this.oneDriveFlow;
-		if (!flow) return { status: "error", error: "No active OneDrive authorization flow" };
-		if (!flow.resolved) return { status: "pending" };
-		try {
-			if ("error" in flow.resolved) {
-				// 先关服务再清状态：closeOneDriveFlowServer 依赖 flow 引用。
-				this.closeOneDriveFlowServer();
-				this.oneDriveFlow = null;
-				return { status: "error", error: flow.resolved.error };
-			}
-			const redirectUri = `http://localhost:${flow.port}`;
-			const exchange = this.options.exchangeOneDriveCode ?? this.exchangeOneDriveCode;
-			const tokens = await exchange({
-				clientId: flow.clientId,
-				tenant: "consumers",
-				code: flow.resolved.code,
-				codeVerifier: flow.codeVerifier,
-				redirectUri,
-			});
-			this.closeOneDriveFlowServer();
-			this.oneDriveFlow = null;
-			await this.configureProvider({
-				provider: "onedrive",
-				config: {
-					clientId: flow.clientId,
-					accessToken: tokens.accessToken,
-					...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
-					expiresAt: Date.now() + tokens.expiresIn * 1000,
-				},
-			});
-			return { status: "ok" };
-		} catch (error) {
-			this.closeOneDriveFlowServer();
-			this.oneDriveFlow = null;
-			return { status: "error", error: error instanceof Error ? error.message : String(error) };
-		}
-	}
-
-	/** 默认 token 交换：POST Microsoft identity 端点（全局 fetch，无新依赖）。 */
-	private readonly exchangeOneDriveCode = async (input: { clientId: string; tenant: string; code: string; codeVerifier: string; redirectUri: string }): Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }> => {
-		const body = new URLSearchParams({
-			client_id: input.clientId,
-			grant_type: "authorization_code",
-			code: input.code,
-			redirect_uri: input.redirectUri,
-			code_verifier: input.codeVerifier,
-			scope: "Files.ReadWrite.AppFolder offline_access",
-		});
-		const response = await fetch(`https://login.microsoftonline.com/${input.tenant}/oauth2/v2.0/token`, {
-			method: "POST",
-			headers: { "Content-Type": "application/x-www-form-urlencoded" },
-			body,
-		});
-		if (response.status !== 200) {
-			throw new Error(`OneDrive token exchange failed (HTTP ${response.status})`);
-		}
-		const token = (await response.json()) as { access_token?: string; refresh_token?: string; expires_in?: number };
-		if (typeof token.access_token !== "string" || token.access_token.length === 0) {
-			throw new Error("OneDrive token exchange returned no access token");
-		}
-		return {
-			accessToken: token.access_token,
-			...(typeof token.refresh_token === "string" && token.refresh_token.length > 0 ? { refreshToken: token.refresh_token } : {}),
-			expiresIn: typeof token.expires_in === "number" && Number.isFinite(token.expires_in) ? token.expires_in : 3600,
-		};
-	};
-
-	private closeOneDriveFlowServer(): void {
-		const flow = this.oneDriveFlow;
-		if (!flow) return;
-		try {
-			flow.server.close();
-		} catch {
-			// 已关闭/从未监听：忽略。
-		}
+		return this.providerOAuth.pollOneDriveOAuth();
 	}
 
 	// ── Google Drive 浏览器授权（PKCE + 回环回调，镜像 OneDrive 流程） ─────
+	// 实现：manager/providerOAuthFlows.ts（宿主只保留公开方法转发）。
 
-	/**
-	 * Start the Google authorization-code + PKCE flow (desktop app client).
-	 * clientId/clientSecret：优先使用构建期注入的内置凭据（VITE_SYNC_GOOGLE_*，
-	 * 对齐 Netcatty）；未注入时使用用户自备值（BYO）。access_type=offline +
-	 * prompt=consent 保证个人账号有 refresh token。
-	 */
 	async startGoogleOAuth(clientId: string, clientSecret?: string): Promise<CloudSyncGoogleFlowStart> {
-		if (this.securityState() !== "UNLOCKED") throw new Error("Cloud sync must be unlocked");
-		const resolvedClientId = clientId.trim() || this.oauthBuiltins.googleClientId;
-		const resolvedClientSecret = clientSecret?.trim() || this.oauthBuiltins.googleClientSecret || undefined;
-		if (resolvedClientId.length === 0 || resolvedClientId.length > 128) throw new TypeError("Google Drive clientId is invalid");
-		this.closeGoogleFlowServer();
-
-		const codeVerifier = randomBytes(43).toString("base64url");
-		const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
-		const state = randomUUID();
-
-		const server = createServer((request, response) => {
-			const url = new URL(request.url ?? "/", "http://127.0.0.1");
-			const code = url.searchParams.get("code");
-			const error = url.searchParams.get("error");
-			const callbackState = url.searchParams.get("state");
-			if (this.googleFlow && callbackState === this.googleFlow.state && (code || error)) {
-				this.googleFlow.resolved = code ? { code } : { error: error ?? "access_denied" };
-				response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-				response.end('<!doctype html><meta charset="utf-8"><p>授权成功，可以关闭此页面。</p>');
-				// 回调已到达：只关本服务（resolved 留给 poll 处理，绝不能清 flow）。
-				setTimeout(() => {
-					try {
-						server.close();
-					} catch {
-						// 已被 poll/dispose 关闭：忽略。
-					}
-				}, 300);
-				return;
-			}
-			response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-			response.end("Not found");
-		});
-
-		await new Promise<void>((resolveListen, rejectListen) => {
-			server.once("error", rejectListen);
-			server.listen(0, "127.0.0.1", () => {
-				server.removeListener("error", rejectListen);
-				resolveListen();
-			});
-		});
-		const port = (server.address() as { port: number }).port;
-		this.googleFlow = {
-			clientId: resolvedClientId,
-			...(resolvedClientSecret ? { clientSecret: resolvedClientSecret } : {}),
-			codeVerifier,
-			state,
-			port,
-			server,
-			resolved: null,
-		};
-
-		const redirectUri = encodeURIComponent(`http://localhost:${port}`);
-		const scope = encodeURIComponent("https://www.googleapis.com/auth/drive.appfolder");
-		const verificationUrl =
-			"https://accounts.google.com/o/oauth2/v2/auth" + `?client_id=${encodeURIComponent(resolvedClientId)}` + `&redirect_uri=${redirectUri}` + `&response_type=code&scope=${scope}` + `&code_challenge=${codeChallenge}&code_challenge_method=S256&state=${state}` + "&access_type=offline&prompt=consent";
-		return { verificationUrl, port };
+		return this.providerOAuth.startGoogleOAuth(clientId, clientSecret);
 	}
 
 	/** 轮询 Google 授权；拿到 code 后换 token 并完成 provider 配置。 */
 	async pollGoogleOAuth(): Promise<{ status: "ok" | "pending" | "error"; error?: string }> {
-		const flow = this.googleFlow;
-		if (!flow) return { status: "error", error: "No active Google authorization flow" };
-		if (!flow.resolved) return { status: "pending" };
-		try {
-			if ("error" in flow.resolved) {
-				// 先关服务再清状态：closeGoogleFlowServer 依赖 flow 引用。
-				this.closeGoogleFlowServer();
-				this.googleFlow = null;
-				return { status: "error", error: flow.resolved.error };
-			}
-			const redirectUri = `http://localhost:${flow.port}`;
-			const exchange = this.options.exchangeGoogleCode ?? this.exchangeGoogleCode;
-			const tokens = await exchange({
-				clientId: flow.clientId,
-				clientSecret: flow.clientSecret,
-				code: flow.resolved.code,
-				codeVerifier: flow.codeVerifier,
-				redirectUri,
-			});
-			this.closeGoogleFlowServer();
-			this.googleFlow = null;
-			await this.configureProvider({
-				provider: "google",
-				config: {
-					clientId: flow.clientId,
-					...(flow.clientSecret ? { clientSecret: flow.clientSecret } : {}),
-					accessToken: tokens.accessToken,
-					...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
-					expiresAt: Date.now() + tokens.expiresIn * 1000,
-				},
-			});
-			return { status: "ok" };
-		} catch (error) {
-			this.closeGoogleFlowServer();
-			this.googleFlow = null;
-			return { status: "error", error: error instanceof Error ? error.message : String(error) };
-		}
-	}
-
-	/** 默认 token 交换：POST Google token 端点（全局 fetch，无新依赖）。 */
-	private readonly exchangeGoogleCode = async (input: { clientId: string; clientSecret?: string; code: string; codeVerifier: string; redirectUri: string }): Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }> => {
-		const body = new URLSearchParams({
-			client_id: input.clientId,
-			grant_type: "authorization_code",
-			code: input.code,
-			redirect_uri: input.redirectUri,
-			code_verifier: input.codeVerifier,
-		});
-		if (input.clientSecret) body.set("client_secret", input.clientSecret);
-		const response = await fetch("https://oauth2.googleapis.com/token", {
-			method: "POST",
-			headers: { "Content-Type": "application/x-www-form-urlencoded" },
-			body,
-		});
-		if (response.status !== 200) {
-			throw new Error(`Google token exchange failed (HTTP ${response.status})`);
-		}
-		const token = (await response.json()) as { access_token?: string; refresh_token?: string; expires_in?: number };
-		if (typeof token.access_token !== "string" || token.access_token.length === 0) {
-			throw new Error("Google token exchange returned no access token");
-		}
-		return {
-			accessToken: token.access_token,
-			...(typeof token.refresh_token === "string" && token.refresh_token.length > 0 ? { refreshToken: token.refresh_token } : {}),
-			expiresIn: typeof token.expires_in === "number" && Number.isFinite(token.expires_in) ? token.expires_in : 3600,
-		};
-	};
-
-	private closeGoogleFlowServer(): void {
-		const flow = this.googleFlow;
-		if (!flow) return;
-		try {
-			flow.server.close();
-		} catch {
-			// 已关闭/从未监听：忽略。
-		}
+		return this.providerOAuth.pollGoogleOAuth();
 	}
 
 	// ── Selection & scanning ─────────────────────────────────────────
@@ -1363,283 +1012,32 @@ export class CloudSyncManager {
 		return null;
 	}
 
+	// 对象传输：上传/下载、加解密信封、落位路径（实现见 manager/sessionObjectTransfer.ts）。
+
 	private async uploadSessionObject(item: CloudSyncInternalSession, provider: PiDeckCloudObjectStorage): Promise<void> {
-		// DSH 会话：.zstd 先解压成文本再走统一加密管线（contentHash 也是对文本计算）。
-		if (item.candidate.scope === "dsh") {
-			const content = await this.readDshSessionText(item.filePath);
-			const key = dshSessionObjectKey(item.candidate.sessionId);
-			const file = await this.encryptObject(content);
-			await provider.writeObject(key, Buffer.from(JSON.stringify(file), "utf8"));
-			return;
-		}
-		const content = await readTextBounded(item.filePath, CLOUD_SYNC_SCANNER_LIMITS.maxSessionBytes);
-		const key = sessionObjectKey(item.candidate.sessionId);
-		const file = await this.encryptObject(content);
-		await provider.writeObject(key, Buffer.from(JSON.stringify(file), "utf8"));
+		return this.transfer.uploadSessionObject(item, provider);
 	}
 
 	private async uploadResourceObject(item: CloudSyncInternalResource, provider: PiDeckCloudObjectStorage): Promise<void> {
-		const content = await readTextBounded(item.filePath, CLOUD_SYNC_SCANNER_LIMITS.maxResourceBytes);
-		const hash = createHash("sha256").update(content, "utf8").digest("hex");
-		const key = `pideck-files/${hash}.enc`;
-		const file = await this.encryptObject(content);
-		await provider.writeObject(key, Buffer.from(JSON.stringify(file), "utf8"));
+		return this.transfer.uploadResourceObject(item, provider);
 	}
 
 	private async encryptObject(content: string): Promise<SyncedFile> {
-		const salt = generateRandomBytes(CLOUD_SYNC_CONSTANTS.SALT_LENGTH);
-		const key = await deriveKey(this.requirePassword(), salt, CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS);
-		// M8：对象正文先 gzip 再加密，显著压缩 JSONL/base64 图片体积。
-		const compressed = gzipSync(Buffer.from(content, "utf8")).toString("base64");
-		const encrypted = encrypt(compressed, key, salt);
-		return {
-			meta: {
-				version: 1,
-				updatedAt: Date.now(),
-				deviceId: this.state.deviceId,
-				deviceName: this.state.deviceName,
-				appVersion: this.options.appVersion,
-				iv: encodeBase64(encrypted.iv),
-				salt: encodeBase64(encrypted.salt),
-				algorithm: "AES-256-GCM",
-				kdf: "PBKDF2",
-				kdfIterations: encrypted.kdfIterations,
-				compressed: "gzip",
-			},
-			payload: encodeBase64(encrypted.ciphertext),
-		};
+		return this.transfer.encryptObject(content);
 	}
 
 	private async decryptObject(bytes: Uint8Array): Promise<string> {
-		return this.decryptObjectWith(bytes, this.requirePassword());
+		return this.transfer.decryptObject(bytes);
 	}
 
-	/** 用显式密码解密一个对象条目（备份导入用：先于主密码一致性校验）。 */
-	private async decryptObjectWith(bytes: Uint8Array, password: string): Promise<string> {
-		const raw = Buffer.from(bytes).toString("utf8");
-		const file = JSON.parse(raw) as SyncedFile & { meta: { compressed?: string } };
-		const { meta } = file;
-		if (meta.algorithm !== "AES-256-GCM" || meta.kdf !== "PBKDF2") throw new TypeError("Unsupported object format");
-		const iv = decodeBase64(meta.iv);
-		const salt = decodeBase64(meta.salt);
-		const key = await deriveKey(password, salt, meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS);
-		const plain = decrypt({ ciphertext: decodeBase64(file.payload), iv, salt, kdf: "PBKDF2", kdfIterations: meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS }, key);
-		// 旧对象无 compressed 字段：明文即 UTF-8 文本，向后兼容。
-		if (meta.compressed === "gzip") {
-			return gunzipSync(Buffer.from(plain, "base64")).toString("utf8");
-		}
-		return plain;
-	}
-
+	/** 本地索引构建（实现见 manager/localIndexBuilder.ts）。 */
 	private async buildLocalIndex(scan: CloudSyncScanSnapshot, selectedSessions: CloudSyncInternalSession[], selectedResources: CloudSyncInternalResource[]): Promise<PiDeckSyncIndexV1> {
-		const settings = this.options.getDesktopSettings();
-		const content = this.state.selection.content;
-		const sessionsByProject = new Map<string, CloudSyncInternalSession[]>();
-		for (const item of selectedSessions) {
-			// DSH 会话按扫描器解析出的所属项目归组（cwd/catalog 匹配），不再单列 __dsh__ 合成节点。
-			const group = item.candidate.scope === "project" || item.candidate.scope === "dsh" ? item.candidate.projectId : GLOBAL_SYNC_PROJECT_ID;
-			const list = sessionsByProject.get(group) ?? [];
-			list.push(item);
-			sessionsByProject.set(group, list);
-		}
-		const resourcesByProject = new Map<string, CloudSyncInternalResource[]>();
-		for (const item of selectedResources) {
-			const list = resourcesByProject.get(item.candidate.projectId) ?? [];
-			list.push(item);
-			resourcesByProject.set(item.candidate.projectId, list);
-		}
-
-		const projects: PiDeckSyncIndexV1["projects"] = [];
-		const emittedProjectIds = new Set<string>([GLOBAL_SYNC_PROJECT_ID]);
-		for (const project of this.options.listProjects()) {
-			emittedProjectIds.add(project.id);
-			const sessions = sessionsByProject.get(project.id) ?? [];
-			const resources = resourcesByProject.get(project.id) ?? [];
-			const options: CloudSyncProjectOptions = {};
-			const resourceBundles = await this.buildResourceBundles(resources);
-			if (Object.keys(resourceBundles).length > 0 || content.prompts || content.skills || content.extensions) {
-				options.resources = resourceBundles;
-			}
-			if (sessions.length > 0) {
-				options.sessions = await Promise.all(sessions.map((item) => this.buildSessionRef(item)));
-				if (content.catalog) {
-					options.catalogEntries = sessions
-						.map((item) => scan.recordsBySessionId.get(item.candidate.sessionId))
-						.filter((record): record is SessionRecord => Boolean(record))
-						.map((record) => buildCatalogSyncEntry(record, this.relativePathOf(record, project.id)));
-				}
-			}
-			projects.push(buildCloudSyncProject(project, options));
-		}
-		// Global root: resources (global prompts/skills/extensions) + global sessions.
-		const globalSessions = sessionsByProject.get(GLOBAL_SYNC_PROJECT_ID) ?? [];
-		const globalResources = resourcesByProject.get(GLOBAL_SYNC_PROJECT_ID) ?? [];
-		const globalOptions: CloudSyncProjectOptions = {};
-		const globalBundles = await this.buildResourceBundles(globalResources);
-		if (Object.keys(globalBundles).length > 0) globalOptions.resources = globalBundles;
-		if (globalSessions.length > 0) {
-			globalOptions.sessions = await Promise.all(globalSessions.map((item) => this.buildSessionRef(item)));
-			if (content.catalog) {
-				globalOptions.catalogEntries = globalSessions
-					.map((item) => scan.recordsBySessionId.get(item.candidate.sessionId))
-					.filter((record): record is SessionRecord => Boolean(record))
-					.map((record) => buildCatalogSyncEntry(record, this.relativePathOf(record, GLOBAL_SYNC_PROJECT_ID)));
-			}
-		}
-		projects.unshift(buildGlobalCloudSyncProject(globalOptions));
-		// 本机未注册项目的会话（DSH 工作区合成节点等）：按扫描树里的节点名发出，保持「以项目组织」。
-		for (const [projectId, sessions] of sessionsByProject) {
-			if (emittedProjectIds.has(projectId) || sessions.length === 0) continue;
-			const nodeName = scan.tree.projects.find((node) => node.projectId === projectId)?.name ?? projectId;
-			projects.push(
-				buildSyntheticCloudSyncProject(projectId, nodeName, {
-					sessions: await Promise.all(sessions.map((item) => this.buildSessionRef(item))),
-				}),
-			);
-		}
-
-		const pi = await this.buildPiSyncContent(content);
-		const imageGen = await this.buildImageGenContent(content);
-		return buildPiDeckSyncIndex({
-			deviceId: this.state.deviceId,
-			deviceName: this.state.deviceName,
-			appVersion: this.options.appVersion,
-			syncedAt: Date.now(),
-			...(content.desktopSettings ? { settings } : {}),
-			...(pi ? { pi } : {}),
-			...(imageGen ? { imageGen } : {}),
-			projects,
-		});
+		return this.indexBuilder.build(scan, selectedSessions, selectedResources);
 	}
 
-	/** M8：按分类开关收集 pi 模型配置与认证（密钥进加密载荷，默认开）。 */
-	private async buildPiSyncContent(content: CloudSyncSelectionPreferences["content"]): Promise<PiDeckSyncIndexV1["pi"] | undefined> {
-		const pi: PiDeckSyncIndexV1["pi"] = {};
-		const agentDir = join(this.options.homeDir, ".pi", "agent");
-		if (content.piCredentials) {
-			const auth = await this.readJsonFile(join(agentDir, "auth.json"));
-			if (auth) pi.auth = auth as NonNullable<PiDeckSyncIndexV1["pi"]>["auth"];
-		}
-		if (content.piModels) {
-			const models = await this.readJsonFile(join(agentDir, "models.json"));
-			if (models) pi.models = models as NonNullable<PiDeckSyncIndexV1["pi"]>["models"];
-		}
-		return Object.keys(pi).length > 0 ? pi : undefined;
-	}
-
-	/** M8：生图配置（imagegen.json，含 apiKey）随分类开关同步。 */
-	private async buildImageGenContent(content: CloudSyncSelectionPreferences["content"]): Promise<PiDeckSyncIndexV1["imageGen"] | undefined> {
-		if (!content.imageGen) return undefined;
-		const imageGen = await this.readJsonFile(join(this.options.userDataDir, "imagegen.json"));
-		if (!imageGen) return undefined;
-		return imageGen as PiDeckSyncIndexV1["imageGen"];
-	}
-
-	private async readJsonFile(filePath: string): Promise<Record<string, unknown> | null> {
-		try {
-			const raw = await readFile(filePath, "utf8");
-			const parsed = JSON.parse(raw) as unknown;
-			return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
-		} catch {
-			return null;
-		}
-	}
-
-	/** M8：按分类开关恢复 pi auth/models 与 ImageGen 配置（本地优先，缺失取远端）。 */
+	/** M8：按分类开关恢复 pi auth/models 与 ImageGen 配置（实现见 manager/localIndexBuilder.ts）。 */
 	private async restoreSensitiveContent(merged: PiDeckSyncIndexV1, remote: PiDeckSyncIndexV1): Promise<void> {
-		const content = this.state.selection.content;
-		const agentDir = join(this.options.homeDir, ".pi", "agent");
-		if (content.piCredentials) {
-			const auth = merged.pi?.auth ?? remote.pi?.auth;
-			if (auth) await this.writeJsonSafe(join(agentDir, "auth.json"), auth);
-		}
-		if (content.piModels) {
-			const models = merged.pi?.models ?? remote.pi?.models;
-			if (models) await this.writeJsonSafe(join(agentDir, "models.json"), models);
-		}
-		if (content.imageGen) {
-			const imageGen = merged.imageGen ?? remote.imageGen;
-			if (imageGen) await this.writeJsonSafe(join(this.options.userDataDir, "imagegen.json"), imageGen);
-		}
-	}
-
-	private async writeJsonSafe(filePath: string, value: unknown): Promise<void> {
-		await mkdir(dirname(filePath), { recursive: true });
-		await ensureNoSymlinkEscape(dirname(filePath), filePath);
-		await writeFileAtomic(filePath, JSON.stringify(value, null, 2));
-	}
-
-	private async buildSessionRef(item: CloudSyncInternalSession): Promise<import("../../shared/types/cloudSync.ts").CloudSyncSessionRef> {
-		// DSH 会话：hash 基于解压后文本（与上传/恢复一致）。
-		const contentHash = item.candidate.scope === "dsh" ? await this.hashDshSessionText(item.filePath) : await hashFile(item.filePath);
-		return createSessionRef({
-			sessionId: item.candidate.sessionId,
-			scope: item.candidate.scope,
-			...(item.candidate.projectId && (item.candidate.scope === "project" || item.candidate.scope === "dsh") ? { projectId: item.candidate.projectId } : {}),
-			filePath: item.filePath,
-			rootPath: item.rootPath,
-			size: item.candidate.size,
-			mtimeMs: item.candidate.mtimeMs,
-			contentHash,
-		});
-	}
-
-	/** DSH 会话文件的解压文本 SHA-256。 */
-	private async hashDshSessionText(filePath: string): Promise<string> {
-		const text = await this.readDshSessionText(filePath);
-		return createHash("sha256").update(text, "utf8").digest("hex");
-	}
-
-	private async buildResourceBundles(resources: CloudSyncInternalResource[]): Promise<NonNullable<import("../../shared/types/cloudSync.ts").CloudSyncProject["resources"]>> {
-		const result: NonNullable<import("../../shared/types/cloudSync.ts").CloudSyncProject["resources"]> = {};
-		const byCategory = new Map<string, CloudSyncInternalResource[]>();
-		for (const item of resources) {
-			const list = byCategory.get(item.candidate.category) ?? [];
-			list.push(item);
-			byCategory.set(item.candidate.category, list);
-		}
-		const settingsItems = byCategory.get("settings") ?? [];
-		if (settingsItems.length > 0) {
-			const content = await readTextBounded(settingsItems[0].filePath, CLOUD_SYNC_SCANNER_LIMITS.maxResourceBytes);
-			try {
-				const parsed = JSON.parse(content) as Record<string, unknown>;
-				result.piSettings = parsed;
-				// 包扩展声明：结构化为 extensionSources，便于恢复时按声明安装。
-				const sources = extractExtensionSources(parsed, settingsItems[0].candidate.projectId === GLOBAL_SYNC_PROJECT_ID ? "user" : "project");
-				if (sources.length > 0) result.extensionSources = sources;
-			} catch {
-				// A broken local settings.json is skipped rather than crashing the sync.
-			}
-		}
-		for (const [category, items] of byCategory) {
-			if (category === "settings") continue;
-			const bundles = [];
-			for (const item of items) {
-				const content = await readTextBounded(item.filePath, CLOUD_SYNC_SCANNER_LIMITS.maxResourceBytes);
-				bundles.push(createTextFileBundle(item.candidate.relativePath, content));
-			}
-			if (category === "prompts") result.prompts = bundles;
-			else if (category === "skills") result.skills = bundles;
-			else if (category === "extensions") result.localExtensions = bundles;
-			else if (category === "config") result.config = bundles;
-		}
-		return result;
-	}
-
-	private relativePathOf(record: SessionRecord, projectId: string): string | undefined {
-		if (!record.filePath) return undefined;
-		try {
-			if (projectId === GLOBAL_SYNC_PROJECT_ID) {
-				return toPortableRelativePath(join(this.options.homeDir, ".pi", "agent", "sessions"), record.filePath);
-			}
-			const project = this.options.listProjects().find((candidate) => candidate.id === projectId);
-			if (!project) return undefined;
-			const projectPath = localProjectPath(project);
-			if (!projectPath) return undefined;
-			return toPortableRelativePath(join(projectPath, ".pi", "sessions"), record.filePath);
-		} catch {
-			return undefined;
-		}
+		return this.indexBuilder.restoreSensitiveContent(merged, remote);
 	}
 
 	private async pull(remoteIndex: PiDeckSyncIndexV1, scan: CloudSyncScanSnapshot, remoteVersion: number): Promise<void> {
@@ -1699,398 +1097,58 @@ export class CloudSyncManager {
 		this.emitState();
 	}
 
-	/** 下载单个会话对象并写入目标路径（hash 相同则跳过）。 */
+	/** 会话对象下载（实现见 manager/sessionObjectTransfer.ts）。 */
 	private async downloadSessionRef(sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef, provider: PiDeckCloudObjectStorage): Promise<void> {
-		if (sessionRef.scope === "dsh") {
-			await this.downloadDshSession(sessionRef, provider);
-			return;
-		}
-		const target = await this.resolveSessionTarget(sessionRef);
-		const root = this.sessionTargetRoot(sessionRef);
-		if (!target || !root) return;
-		await mkdir(dirname(target), { recursive: true });
-		await ensureNoSymlinkEscape(root, target);
-		const object = await provider.readObject(sessionRef.objectKey);
-		if (!object.found || !object.bytes) return;
-		const existing = await this.readExistingHash(target);
-		if (existing === sessionRef.contentHash) return;
-		const content = await this.decryptObject(object.bytes);
-		await writeFileAtomic(target, content);
+		return this.transfer.downloadSessionRef(sessionRef, provider);
 	}
 
-	/** DSH 会话恢复：解密文本后按原格式写回（.zstd 重新压缩，hash 比较基于解压文本）。 */
-	private async downloadDshSession(sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef, provider: PiDeckCloudObjectStorage): Promise<void> {
-		const target = await this.resolveSessionTarget(sessionRef);
-		const root = this.sessionTargetRoot(sessionRef);
-		if (!target || !root) return;
-		const existingHash = await this.readDshSessionTextHash(target);
-		if (existingHash === sessionRef.contentHash) return;
-		const object = await provider.readObject(sessionRef.objectKey);
-		if (!object.found || !object.bytes) return;
-		const content = await this.decryptObject(object.bytes);
-		await mkdir(dirname(target), { recursive: true });
-		await ensureNoSymlinkEscape(root, target);
-		await this.writeDshSessionContent(target, content);
-	}
-
-	/**
-	 * 资源落位目标（M9 自选路径感知）：
-	 * `~/` 前缀 = home 相对自选路径 → 用户 home（不是 agent 根目录）；machine-only → 全局 agentRoot；
-	 * 否则全局 → agentRoot；本地项目 → 项目路径；否则查挂载映射；无 → null。
-	 */
-	private resolveResourceTarget(projectId: string, relativePath: string): { root: string; relative: string } | null {
-		if (relativePath.startsWith("~/")) {
-			return { root: this.options.homeDir, relative: relativePath.slice(2) };
-		}
-		const root = this.resolveResourceScopeRoot(projectId);
-		if (!root) return null;
-		return { root, relative: relativePath };
-	}
-
-	/** 下载单个资源 bundle 并写入对应作用域目录。 */
 	private async downloadResourceBundle(projectId: string, bundle: import("../../shared/types/cloudSync.ts").CloudSyncFileBundle, provider: PiDeckCloudObjectStorage): Promise<void> {
-		const targetInfo = this.resolveResourceTarget(projectId, bundle.relativePath);
-		if (!targetInfo) return;
-		const content = bundle.content ?? (await this.readObjectText(provider, bundle.objectKey ?? ""));
-		if (content === undefined) return;
-		const target = join(targetInfo.root, targetInfo.relative);
-		await mkdir(dirname(target), { recursive: true });
-		await ensureNoSymlinkEscape(targetInfo.root, target);
-		await writeFileAtomic(target, content);
+		return this.transfer.downloadResourceBundle(projectId, bundle, provider);
 	}
 
-	/** M9：资源落位根目录 —— 全局 → agentRoot；本地项目 → 项目路径；否则查挂载映射；无 → null。 */
-	private resolveResourceScopeRoot(projectId: string): string | undefined {
-		if (projectId === GLOBAL_SYNC_PROJECT_ID) return join(this.options.homeDir, ".pi", "agent");
-		const project = this.options.listProjects().find((candidate) => candidate.id === projectId);
-		const projectPath = project ? localProjectPath(project) : undefined;
-		if (projectPath) return projectPath;
-		return this.mounts?.get(projectId)?.localPath;
+	private resolveResourceTarget(projectId: string, relativePath: string): { root: string; relative: string } | null {
+		return this.transfer.resolveResourceTarget(projectId, relativePath);
 	}
 
 	private async resolveSessionTarget(sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef): Promise<string | null> {
-		if (sessionRef.scope === "global") {
-			return resolveGlobalSessionPath(this.options.homeDir, sessionRef.relativePath);
-		}
-		if (sessionRef.scope === "dsh") {
-			// DSH 会话：$DSH_HOME/sessions/<relativePath>；无 DSH_HOME 则跳过。
-			return this.options.dshHomeDir ? join(this.options.dshHomeDir, "sessions", sessionRef.relativePath) : null;
-		}
-		const project = this.options.listProjects().find((candidate) => candidate.id === sessionRef.projectId);
-		const projectPath = project ? localProjectPath(project) : undefined;
-		if (projectPath) return resolveProjectSessionPath(projectPath, sessionRef.relativePath, ".pi/sessions");
-		// M9：已挂载的云端项目 → 落挂载目录；否则进 pending 待映射区。
-		const mount = this.mounts?.get(sessionRef.projectId ?? "");
-		if (mount) return resolveProjectSessionPath(mount.localPath, sessionRef.relativePath, ".pi/sessions");
-		return join(this.options.userDataDir, "cloud-sync-pending", sessionRef.projectId ?? "unknown", sessionRef.relativePath);
+		return this.transfer.resolveSessionTarget(sessionRef);
 	}
 
 	private sessionTargetRoot(sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef): string | null {
-		if (sessionRef.scope === "global") {
-			return join(this.options.homeDir, ".pi", "agent", "sessions");
-		}
-		if (sessionRef.scope === "dsh") {
-			return this.options.dshHomeDir ? join(this.options.dshHomeDir, "sessions") : null;
-		}
-		const project = this.options.listProjects().find((candidate) => candidate.id === sessionRef.projectId);
-		const projectPath = project ? localProjectPath(project) : undefined;
-		if (projectPath) return join(projectPath, ".pi", "sessions");
-		return this.mounts?.get(sessionRef.projectId ?? "")?.localPath ?? null;
+		return this.transfer.sessionTargetRoot(sessionRef);
 	}
 
 	private async readExistingHash(filePath: string): Promise<string | null> {
-		try {
-			return await hashFile(filePath);
-		} catch {
-			return null;
-		}
-	}
-
-	// ── DSH 会话文本/哈希/写回（内容统一按解压后文本处理） ──────────────
-
-	/** 读 DSH 会话日志为明文文本（.zstd 解压）。 */
-	private async readDshSessionText(filePath: string): Promise<string> {
-		const raw = await readFile(filePath);
-		if (filePath.endsWith(".zstd")) {
-			return zstdDecompressSync(raw).toString("utf8");
-		}
-		return raw.toString("utf8");
-	}
-
-	/** 目标路径 DSH 会话的解压文本哈希（缺失返回 null）。 */
-	private async readDshSessionTextHash(filePath: string): Promise<string | null> {
-		try {
-			const text = await this.readDshSessionText(filePath);
-			return createHash("sha256").update(text, "utf8").digest("hex");
-		} catch {
-			return null;
-		}
-	}
-
-	/** 写回 DSH 会话：原 .zstd 文件重新压缩后二进制写，否则明文写。 */
-	private async writeDshSessionContent(target: string, text: string): Promise<void> {
-		if (target.endsWith(".zstd")) {
-			await writeFileAtomicBytes(target, zstdCompressSync(Buffer.from(text, "utf8")));
-		} else {
-			await writeFileAtomic(target, text);
-		}
-	}
-
-	private async readObjectText(provider: PiDeckCloudObjectStorage, key: string): Promise<string | undefined> {
-		if (!key) return undefined;
-		const result = await provider.readObject(key);
-		if (!result.found || !result.bytes) return undefined;
-		return this.decryptObject(result.bytes);
+		return this.transfer.readExistingHash(filePath);
 	}
 
 	// ── Local one-click import/export（离线备份，无需任何云服务） ──────────
+	// 实现：manager/backupTransfer.ts（宿主只保留公开方法转发与状态推进）。
 
-	/**
-	 * Export the current selection to a single `.pideckbackup` file.
-	 *
-	 * Reuses the exact cloud pipeline: scanner → buildLocalIndex → encryptObject,
-	 * so exported session/resource objects are byte-identical to cloud objects and
-	 * the import path shares one decryption route. Requires UNLOCKED (master key)
-	 * but no connected provider.
-	 */
 	async exportBackup(options?: { outputPath?: string }): Promise<CloudSyncExportResult> {
-		if (this.securityState() !== "UNLOCKED") throw new Error("Cloud sync must be unlocked");
-		const outputPath = options?.outputPath;
-		if (!outputPath) throw new Error("Backup output path is required");
-
-		const scan = await this.scanner.scan(this.getSelectionPreferences(), this.scanOptions());
-		const selectedSessions = [...scan.sessions.values()].filter((item) => item.candidate.selected);
-		const selectedResources = [...scan.resources.values()].filter((item) => item.candidate.selected);
-		const index = await this.buildLocalIndex(scan, selectedSessions, selectedResources);
-
-		const entries: Array<{ name: string; bytes: Uint8Array }> = [];
-		for (const item of selectedSessions) {
-			// DSH 会话：.zstd 解压为文本后打包（与上传路径一致）。
-			const content = item.candidate.scope === "dsh" ? await this.readDshSessionText(item.filePath) : await readTextBounded(item.filePath, CLOUD_SYNC_SCANNER_LIMITS.maxSessionBytes);
-			const file = await this.encryptObject(content);
-			entries.push({
-				name: item.candidate.scope === "dsh" ? dshSessionObjectKey(item.candidate.sessionId) : sessionObjectKey(item.candidate.sessionId),
-				bytes: Buffer.from(JSON.stringify(file), "utf8"),
-			});
-		}
-		for (const item of selectedResources) {
-			const content = await readTextBounded(item.filePath, CLOUD_SYNC_SCANNER_LIMITS.maxResourceBytes);
-			const file = await this.encryptObject(content);
-			const hash = createHash("sha256").update(content, "utf8").digest("hex");
-			entries.push({ name: `pideck-files/${hash}.enc`, bytes: Buffer.from(JSON.stringify(file), "utf8") });
-		}
-
-		const createdAt = Date.now();
-		const manifest: PiDeckBackupManifestV1 = {
-			schemaVersion: 1,
-			createdAt,
-			deviceId: this.state.deviceId,
-			deviceName: this.state.deviceName,
-			appVersion: this.options.appVersion,
-			index,
-			entries: entries.map((entry) => ({
-				name: entry.name,
-				hash: createHash("sha256").update(entry.bytes).digest("hex"),
-				size: entry.bytes.byteLength,
-			})),
-		};
-		const headerFile = await this.encryptObject(JSON.stringify(manifest));
-		const headerBytes = Buffer.from(JSON.stringify(headerFile), "utf8");
-
-		const writer = await BackupFileWriter.create(outputPath);
-		try {
-			await writer.writeHeader(headerBytes);
-			for (const entry of entries) await writer.writeEntry(entry);
-		} finally {
-			await writer.close();
-		}
-
-		return {
-			filePath: outputPath,
-			createdAt,
-			sessionCount: selectedSessions.length,
-			resourceCount: selectedResources.length,
-			entryCount: entries.length,
-			bytes: (await lstat(outputPath)).size,
-		};
+		return this.backupTransfer.exportBackup(options);
 	}
 
-	/**
-	 * Import a `.pideckbackup` file and restore it with cloud-pull semantics
-	 * (path remapping, pending area, extension auto-install, settings apply).
-	 *
-	 * Order matters: the header is decrypted with the typed password FIRST (a
-	 * corrupt file or wrong password fails before any state change), then the
-	 * password is reconciled with the machine's master password: on a fresh
-	 * machine (NO_KEY) it becomes the master password; otherwise it must match.
-	 */
 	async importBackup(input: CloudSyncImportInput): Promise<CloudSyncImportResult> {
-		const reader = await BackupFileReader.open(input.filePath);
-		let manifest: PiDeckBackupManifestV1;
-		let entriesByName: Map<string, Uint8Array>;
-		try {
-			const { headerBytes } = await reader.readHeader();
-			let headerRaw: string;
-			try {
-				headerRaw = await this.decryptObjectWith(headerBytes, input.password);
-			} catch {
-				throw new Error("Backup password is incorrect or the file is corrupted");
-			}
-			manifest = parseBackupManifest(headerRaw);
-			entriesByName = new Map<string, Uint8Array>();
-			for await (const entry of reader.entries()) {
-				entriesByName.set(entry.name, entry.bytes);
-			}
-		} finally {
-			await reader.close();
-		}
-
-		const security = this.securityState();
-		if (security === "NO_KEY") {
-			await this.setupMasterKey(input.password);
-		} else {
-			const config = this.state.masterKeyConfig;
-			const matches = config ? await verifyPassword(input.password, config) : false;
-			if (!matches) throw new Error("Import password does not match the master password");
-			if (security === "LOCKED" && !(await this.unlock(input.password))) {
-				throw new Error("Import password does not match the master password");
-			}
-		}
-
-		return this.applyBackup(input, manifest, entriesByName);
+		return this.backupTransfer.importBackup(input);
 	}
 
-	/** 把备份清单落地：会话/资源按模式写回，配置域与云端 pull 同语义。 */
-	private async applyBackup(input: CloudSyncImportInput, manifest: PiDeckBackupManifestV1, entriesByName: Map<string, Uint8Array>): Promise<CloudSyncImportResult> {
-		const index = manifest.index;
-		const result: CloudSyncImportResult = {
-			filePath: input.filePath,
-			sessionCount: 0,
-			resourceCount: 0,
-			sessionsRestored: 0,
-			resourcesRestored: 0,
-			sessionsSkipped: 0,
-			resourcesSkipped: 0,
-			pendingProjects: [],
-			missingExtensions: [],
-		};
-		const pendingProjects = new Set<string>();
+	/** 按当前选择偏好与排除规则扫描一次（与云端同步同一入口）。 */
+	private scanSelectionSnapshot(): Promise<CloudSyncScanSnapshot> {
+		return this.scanner.scan(this.getSelectionPreferences(), this.scanOptions());
+	}
 
-		for (const project of index.projects ?? []) {
-			for (const sessionRef of project.sessions ?? []) {
-				result.sessionCount += 1;
-				const entryBytes = entriesByName.get(sessionRef.objectKey);
-				if (!entryBytes) {
-					result.sessionsSkipped += 1;
-					continue;
-				}
-				const outcome = await this.restoreBackupSession(sessionRef, entryBytes, input.mode);
-				if (outcome.written) result.sessionsRestored += 1;
-				else result.sessionsSkipped += 1;
-				if (outcome.pending) pendingProjects.add(sessionRef.projectId ?? "unknown");
-			}
-			const resources = project.resources;
-			if (resources) {
-				for (const bundle of [...(resources.prompts ?? []), ...(resources.skills ?? []), ...(resources.localExtensions ?? []), ...(resources.config ?? [])]) {
-					result.resourceCount += 1;
-					const content = bundle.content ?? (await this.decryptBackupEntry(entriesByName.get(bundle.objectKey ?? "")));
-					if (content === undefined) {
-						result.resourcesSkipped += 1;
-						continue;
-					}
-					if (await this.restoreBackupResource(project.projectId, bundle.relativePath, content, input.mode)) {
-						result.resourcesRestored += 1;
-					} else {
-						result.resourcesSkipped += 1;
-					}
-				}
-			}
-		}
-
-		// 配置域：设置白名单应用、密钥本地优先、包扩展按声明自动安装（与云端 pull 一致）。
-		await this.applyImportedConfig(index);
-
+	/** 备份导入落地后的状态推进（与云端 pull 同语义）：base/计数/时间/设备 + 持久化 + 广播。 */
+	private async commitImportedIndex(index: PiDeckSyncIndexV1, counts: { sessions: number; resources: number; deviceId: string }): Promise<CloudSyncMissingExtension[]> {
 		this.state.lastSyncedIndex = index;
-		this.state.lastSyncedSessionCount = result.sessionCount;
-		this.state.lastSyncedResourceCount = result.resourceCount;
+		this.state.lastSyncedSessionCount = counts.sessions;
+		this.state.lastSyncedResourceCount = counts.resources;
 		this.state.lastSyncAt = Date.now();
-		this.state.lastSyncDeviceId = manifest.deviceId;
+		this.state.lastSyncDeviceId = counts.deviceId;
 		this.pendingLocalSync = false;
 		await this.persist();
 		this.emitState();
-
-		result.pendingProjects = [...pendingProjects];
-		result.missingExtensions = [...this.state.missingExtensions];
-		return result;
-	}
-
-	private async restoreBackupSession(sessionRef: CloudSyncSessionRef, entryBytes: Uint8Array, mode: CloudSyncImportMode): Promise<{ written: boolean; pending: boolean }> {
-		// DSH 会话：hash 基于解压文本、写回按原格式（.zstd 重新压缩）。
-		if (sessionRef.scope === "dsh") {
-			return this.restoreDshBackupSession(sessionRef, entryBytes, mode);
-		}
-		const target = await this.resolveSessionTarget(sessionRef);
-		const root = this.sessionTargetRoot(sessionRef);
-		if (!target) return { written: false, pending: false };
-		const existing = await this.readExistingHash(target);
-		if (existing === sessionRef.contentHash) return { written: false, pending: !root };
-		// merge / restoreMissing：本地已有内容则保留本地（备份是快照，本地可能更新）。
-		if (existing && mode !== "overwrite") return { written: false, pending: !root };
-		const content = await this.decryptObject(entryBytes);
-		await mkdir(dirname(target), { recursive: true });
-		if (root) await ensureNoSymlinkEscape(root, target);
-		await writeFileAtomic(target, content);
-		return { written: true, pending: !root };
-	}
-
-	/** 备份导入的 DSH 会话恢复（无项目映射概念，root 恒存在或跳过）。 */
-	private async restoreDshBackupSession(sessionRef: CloudSyncSessionRef, entryBytes: Uint8Array, mode: CloudSyncImportMode): Promise<{ written: boolean; pending: boolean }> {
-		const target = await this.resolveSessionTarget(sessionRef);
-		const root = this.sessionTargetRoot(sessionRef);
-		if (!target || !root) return { written: false, pending: false };
-		const existing = await this.readDshSessionTextHash(target);
-		if (existing === sessionRef.contentHash) return { written: false, pending: false };
-		if (existing !== null && mode !== "overwrite") return { written: false, pending: false };
-		const content = await this.decryptObject(entryBytes);
-		await mkdir(dirname(target), { recursive: true });
-		await ensureNoSymlinkEscape(root, target);
-		await this.writeDshSessionContent(target, content);
-		return { written: true, pending: false };
-	}
-
-	private async restoreBackupResource(projectId: string, relativePath: string, content: string, mode: CloudSyncImportMode): Promise<boolean> {
-		const targetInfo = this.resolveResourceTarget(projectId, relativePath);
-		if (!targetInfo) return false;
-		const target = join(targetInfo.root, targetInfo.relative);
-		const existing = await this.readExistingHash(target);
-		if (existing === createHash("sha256").update(content, "utf8").digest("hex")) return false;
-		if (existing && mode !== "overwrite") return false;
-		await mkdir(dirname(target), { recursive: true });
-		await ensureNoSymlinkEscape(targetInfo.root, target);
-		await writeFileAtomic(target, content);
-		return true;
-	}
-
-	/** 解密备份内一个对象条目；缺失/损坏返回 undefined。 */
-	private async decryptBackupEntry(entryBytes: Uint8Array | undefined): Promise<string | undefined> {
-		if (!entryBytes) return undefined;
-		try {
-			return await this.decryptObject(entryBytes);
-		} catch {
-			return undefined;
-		}
-	}
-
-	/** 导入后应用配置域（与云端 pull 的恢复语义一致）。 */
-	private async applyImportedConfig(index: PiDeckSyncIndexV1): Promise<void> {
-		if (index.settings) {
-			const filtered = filterSyncableDesktopSettings(index.settings);
-			if (Object.keys(filtered).length > 0) {
-				await this.options.updateDesktopSettings(filtered);
-			}
-		}
-		await this.checkAndRestoreExtensions(index);
-		await this.restoreSensitiveContent(index, index);
+		return [...this.state.missingExtensions];
 	}
 
 	// ── Provider / adapter internals ─────────────────────────────────
@@ -2256,10 +1314,7 @@ export class CloudSyncManager {
 			clearInterval(this.autoSyncTimer);
 			this.autoSyncTimer = null;
 		}
-		this.closeOneDriveFlowServer();
-		this.oneDriveFlow = null;
-		this.closeGoogleFlowServer();
-		this.googleFlow = null;
+		this.providerOAuth.dispose();
 		await this.disconnectAllAdapters();
 		this.password = null;
 		this.providerConfigs.clear();
