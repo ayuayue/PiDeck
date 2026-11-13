@@ -12,9 +12,10 @@ import test from "node:test";
 import { readSessionCatalogSources } from "./helpers/sessionCatalogSources.mjs";
 import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 
 const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
-const coordinator = read("main/sessions/SessionRuntimeCoordinator.ts");
+const coordinator = readSessionRuntimeCoordinatorSources();
 const agentManager = agentManagerSource;
 const settingsStore = read("main/settings/SettingsStore.ts");
 const systemIpc = systemIpcSource;

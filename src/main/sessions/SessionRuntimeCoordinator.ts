@@ -40,178 +40,15 @@ import { descriptorFromThrownError } from "../../shared/errorI18n";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
 import { isRewindCheckpointId, isRewindRestoreScope } from "../../shared/types";
 import type { SessionCatalogEntry } from "./SessionCatalog";
-import { REMOTE_SESSION_HISTORY_WRITER_CODES, remoteSessionHistoryWriteFailure, type RemoteSessionMessageMutationPort } from "../remote/RemoteSessionHistoryWriter";
+import { REMOTE_SESSION_HISTORY_WRITER_CODES, remoteSessionHistoryWriteFailure } from "../remote/RemoteSessionHistoryWriter";
 import { StoppedMessageIdentityCache } from "../pi/stoppedMessageIdentity";
 import { sessionFileSizeMb } from "./sessionFileSizeCopy";
+import type { RemoteSessionMessageMutationResolver, SessionAgentGateway, SessionCatalogGateway, SessionProjectLocatorResolver, SessionRuntimeLogger } from "./runtime/sessionRuntimeGateways";
 
-export interface SessionCatalogGateway {
-	get(sessionId: string): SessionCatalogEntry | undefined;
-	getRecord(sessionId: string): SessionRecord | undefined;
-	getLocator(sessionId: string): SessionLocator | undefined;
-	getLocalFilePath(sessionId: string): string | undefined;
-	/**
-	 * #354：把已被身份归并掉的**历史**会话 ID 归一化为现存 ID。
-	 * 可选：测试里的极简网关可以缺它，缺失时按原 ID 处理。
-	 */
-	resolveSessionId?(sessionId: string): string;
-	update(
-		sessionId: string,
-		patch: {
-			title?: string;
-			model?: SessionModelPreference | null;
-			thinkingLevel?: string | null;
-			permissionPreset?: string | null;
-			backend?: AgentBackend;
-			updatedAt?: number;
-		},
-	): Promise<SessionCatalogEntry>;
-	attachRuntime(input: {
-		sessionId: string;
-		filePath?: string;
-		piSessionId?: string;
-		dshSessionId?: string;
-		acpSessionId?: string;
-		agentPreset?: string;
-		promoteToActive?: boolean;
-		/** 远端会话身份（ssh locator）：远端路径只以这个形状回写，绝不进本机 `filePath`（见 buildAttachPatch）。 */
-		remoteLocator?: SshSessionLocator;
-	}): Promise<unknown>;
-}
-
-/**
- * 装配注入：项目位置（远端会话路由的唯一判据来源）。
- *
- * 为什么会话链路需要项目位置：远端会话在**新建阶段还没有 ssh 身份** —— 远端 pi 的会话文件由 pi 自己
- * 选好并在握手时上报（`AgentManager.registerRemoteSessionIdentity`），而 catalog 里的 draft 只有
- * projectId。要把这条 draft 收敛成 ssh locator（远端路径绝不进本机 filePath），就必须知道
- * 「这个项目的 runtime 在哪台机器上」——这也是 `AgentManager` 路由 runtime 的判据（按项目 locator）。
- *
- * 缺省未注入 ⇒ 一律按本机语义处理，本地行为逐字不变。
- */
-export type SessionProjectLocatorResolver = (projectId: string) => ProjectLocator | undefined;
-
-/**
- * 装配注入：远端会话文件改写端口（P4.5c 的编辑 / 删除 / 重发三条链路共用一个写面）。
- *
- * 为什么是「解析器」而不是端口本身：写面依赖 pinned SSH 短命令，而那条通道只在 `registerIpc()` 的
- * 装配期才存在（协调器在更早的启动阶段构造）。解析器在**调用时**取端口，于是「实验开关关闭」与
- * 「端口尚未装配」都自然表示成 undefined ⇒ fail-closed，不需要可变字段或 setter。
- */
-export type RemoteSessionMessageMutationResolver = () => RemoteSessionMessageMutationPort | undefined;
-
-export interface SessionAgentGateway {
-	/** 本网关的运行时后端身份（pi/dsh）；CompositeAgentGateway 按它路由。 */
-	readonly backend: AgentBackend;
-	/** 本网关持有的可选能力；缺失项由 UI 按能力禁用，禁止硬造等价物。 */
-	readonly capabilities: ReadonlySet<AgentGatewayCapability>;
-	list(): AgentTab[];
-	/** 发送提示词到 agent（pi: stdio RPC；dsh: session.prompt）。 */
-	sendPrompt(input: SendPromptInput): Promise<SendPromptResult>;
-	getMessages(agentId: string): ChatMessage[];
-	create(input: CreateAgentInput): Promise<AgentTab>;
-	/** 可选能力：standby 池认领（pi 提供；dsh 无进程池概念不实现）。命中返回已握手 idle tab。 */
-	claimStandbyAgent?(input: { projectId: string; sessionId: string; noSession?: boolean }): Promise<AgentTab | null>;
-	/** 可选能力：standby 池补热（fire-and-forget，幂等）。 */
-	ensureStandbyAgent?(projectId: string): void;
-	/** 可选能力：草稿斜杠命令预览（只读查询 pi standby 进程的 get_commands；不可用返回 null，调用方回退本地发现）。 */
-	draftCommands?(projectId: string): Promise<PiCommand[] | null>;
-	restart(agentId: string): Promise<AgentTab>;
-	stop(agentId: string): Promise<void>;
-	/**
-	 * 可选能力：停止并等待进程退出（返回是否在超时内退出）。
-	 *
-	 * 删除会话必须先等 pi 释放会话文件句柄，否则 Windows 上 shell.trashItem 只会报通用的
-	 * 「Failed to perform delete operation」（issue #364）；未实现该能力的老网关退回只发 stop。
-	 */
-	stopAndWaitForExit?(agentId: string, timeoutMs?: number): Promise<boolean>;
-	rename(agentId: string, name: string): Promise<AgentTab>;
-	abort(agentId: string): Promise<void>;
-	compact(agentId: string, prompt?: string): Promise<AgentRuntimeState>;
-	getRuntimeState(agentId: string): Promise<AgentRuntimeState>;
-	/**
-	 * 可选能力：error 终态但进程仍存活时的原进程复活（error → idle，Issue #218）。
-	 * 回复级错误（API 400/模型报错/投递未知）不会杀死 pi 进程，此前被标成终态后，
-	 * 下一次激活要么抛「启动失败」、要么停掉活进程重建（扩展有问题时还会触发无插件回退）。
-	 * pi 网关实现进程存活探测；dsh 未实现则保持原终态语义。
-	 */
-	reviveIfProcessAlive?(agentId: string): boolean;
-	/** 可选能力：会话内命令列表（pi 经 get_commands RPC；dsh 经 host 命令注册表枚举桥 D15）。 */
-	getCommands?(agentId: string): Promise<unknown[]>;
-	/**
-	 * 可选能力：热重载 pi 的扩展/技能/提示词/主题/上下文文件（内部 `reload` 扩展命令）。
-	 * 只对 live idle 进程开放；返回重载后的命令表，供渲染层刷新 `/` 菜单。
-	 */
-	reloadResources?(agentId: string): Promise<PiCommand[]>;
-	getAvailableModels(agentId: string): Promise<AvailableModel[]>;
-	/** 可选能力：Pi 按当前模型返回可用 thinking levels；旧 Pi 返回 undefined 走 UI 兼容回退。 */
-	getAvailableThinkingLevels?(agentId: string): Promise<string[] | undefined>;
-	/** 可选能力：导出 HTML（pi 经 export_html RPC；dsh 投影式导出 G10）。 */
-	exportHtml?(agentId: string): Promise<unknown>;
-	/** 可选能力：checkpoint 列表（refs/pi-checkpoints；纯 git，pi 提供，dsh 暂缺）。支持分页。 */
-	listCheckpoints?(agentId: string, params?: RewindCheckpointPageParams): Promise<RewindCheckpointPage>;
-	/** 可选能力：checkpoint 与当前 index 树的 diff 摘要（回退预览）。 */
-	getCheckpointDiff?(agentId: string, checkpointId: string): Promise<string>;
-	/** 可选能力：回退到 checkpoint（scope 决定回退范围；当前仅 files 实现）。 */
-	restoreCheckpoint?(agentId: string, checkpointId: string, scope: RewindRestoreScope): Promise<RewindRestoreResult>;
-	/** 可选能力：编辑历史消息（pi 提供；dsh 缺失，capabilities 不含 editMessage）。 */
-	editMessage?(agentId: string, messageId: string, newText: string): Promise<void>;
-	/** 可选能力：删除历史消息（pi 提供；dsh 缺失，capabilities 不含 deleteMessage）。 */
-	deleteMessage?(agentId: string, messageId: string): Promise<void>;
-	/**
-	 * 可选能力：无 runtime 时直接改 pi 会话 JSONL（编辑/删除/重发截断）。
-	 * DSH 无会话文件，不得实现；运行中不得调用（先 stopRuntime）。
-	 */
-	mutatePersistedSessionMessage?(
-		sessionPath: string,
-		messageId: string,
-		operation: "edit" | "delete" | "resend" | "remove-image",
-		options?: {
-			newText?: string;
-			environment?: SessionRecord["environment"];
-			wslDistro?: string;
-			/** 渲染层消息的文件条目 id（meta.entryId），live randomUUID 的文件定位锚点。 */
-			entryId?: string;
-			imageTarget?: SessionMessageImageTarget;
-		},
-	): Promise<{ text: string; images?: ImageContent[] } | undefined>;
-	prepareResendFromMessage(agentId: string, messageId: string): Promise<{ text: string; images?: ImageContent[] }>;
-	getRuntimeModelThinkingState?(agentId: string): Promise<SessionRuntimeModelSelection | undefined>;
-	setModel(agentId: string, provider: string, modelId: string): Promise<unknown>;
-	setThinking(agentId: string, level: string): Promise<unknown>;
-	/** 可选能力：DSH 会话权限预设（/permission 命令）；pi 后端不持有。 */
-	setPermission?(agentId: string, preset: string): Promise<unknown>;
-	/**
-	 * 可选能力：会话内系统提示——catalog 保存的模型偏好已失效（模型被重命名/删除）
-	 * 被跳过，本次沿用 runtime 当前模型。DSH 后端不需要（降级无提示）。
-	 */
-	notifyModelPreferenceIgnored?(agentId: string, provider: string, modelId: string): void;
-	/** 主动推送一次完整 runtime state（get_state）给渲染层：懒启动/重启链路在偏好应用后调用。 */
-	publishRuntimeState(agentId: string): Promise<void>;
-	getForkMessages(agentId: string): Promise<Array<{ entryId: string; text: string }>>;
-	forkSession(agentId: string, entryId: string): Promise<unknown>;
-	sendUIResponse(agentId: string, requestId: string, response: SessionUiResponseInput["response"]): Promise<unknown> | unknown;
-	/** 会话收到 Ask 类 UI 请求时触发桌面通知（由 AgentManager 实现，不再区分会话是否聚焦）
-	 * 参数：agentId（去重/日志）、sessionId（点击跳转目标）、sessionTitle、question（提问内容，可空） */
-	notifyAskPending(agentId: string, sessionId: string, sessionTitle: string, question: string): void;
-	/**
-	 * 可选能力：本轮成功收口（用户停止 / 失败 / 压缩不算）。
-	 * 桌宠完成气泡与 ACP/DSH 的会话完成通知都订阅它；pi 早在 AgentManager 内部实现。
-	 */
-	onAgentSettled?(listener: (info: { agentId: string; title: string }) => void): () => void;
-	/** 统一的事件出口（agents:* 通道推送），主进程桥接进 sessions:runtime-event 用。 */
-	onOutput(listener: (channel: string, payload: unknown) => void): () => void;
-}
-
-/**
- * 会话运行时业务日志接口（AppLogger 满足该签名）。
- * 会话全周期事件（激活/停止/重启/模型切换等）经此留痕，与性能日志（session-perf scope）区分；
- * 无实例时静默跳过（启动早期/测试环境）。
- */
-export interface SessionRuntimeLogger {
-	info(scope: string, message: string, detail?: unknown): unknown;
-	warn(scope: string, message: string, detail?: unknown): unknown;
-	error(scope: string, message: string, detail?: unknown): unknown;
-}
+// 网关契约（catalog / agent / logger）搬进了 `runtime/sessionRuntimeGateways.ts`；
+// 这里只作 re-export，调用方（AgentManager / DSH / ACP / CompositeAgentGateway…）的 import 路径不变。
+export type { RemoteSessionMessageMutationResolver, SessionAgentGateway, SessionCatalogGateway, SessionProjectLocatorResolver, SessionRuntimeLogger };
+import { type AppliedSessionPreferences, SessionRuntimePreferences, snapshotPreferences } from "./runtime/sessionRuntimePreferences";
 
 type DeliveryCacheEntry = {
 	createdAt: number;
@@ -297,32 +134,6 @@ function isInteractiveUiMethod(method: unknown): boolean {
 	return method === "select" || method === "confirm" || method === "input" || method === "editor" || method === "batch_ask";
 }
 
-/** catalog 里会在激活后被用户改写的偏好；lastApplied 用这份快照判断要不要再 setModel。 */
-type AppliedSessionPreferences = {
-	model?: SessionModelPreference;
-	thinkingLevel?: string;
-	permissionPreset?: string;
-};
-
-function snapshotPreferences(entry: SessionCatalogEntry): AppliedSessionPreferences {
-	return {
-		...(entry.model ? { model: createSessionModelPreference(entry.model.provider, entry.model.modelId, entry.model.modelName) } : {}),
-		...(entry.thinkingLevel ? { thinkingLevel: entry.thinkingLevel } : {}),
-		...(entry.permissionPreset ? { permissionPreset: entry.permissionPreset } : {}),
-	};
-}
-
-function sameAppliedPreferences(a: AppliedSessionPreferences | undefined, b: AppliedSessionPreferences): boolean {
-	if (!a) return false;
-	const aModel = a.model;
-	const bModel = b.model;
-	if (Boolean(aModel) !== Boolean(bModel)) return false;
-	if (aModel && bModel && (aModel.provider !== bModel.provider || aModel.modelId !== bModel.modelId)) {
-		return false;
-	}
-	return a.thinkingLevel === b.thinkingLevel && a.permissionPreset === b.permissionPreset;
-}
-
 export class SessionRuntimeCoordinator {
 	private readonly activationBySession = new Map<string, Promise<AgentTab>>();
 	/** SSH live ID 不能在远端文件中直接定位；停止前只留受限摘要（32 会话 × 256 消息），不留正文。 */
@@ -369,6 +180,8 @@ export class SessionRuntimeCoordinator {
 	/** Serializes model/effort changes so a slower earlier get_state cannot overwrite a newer choice. */
 	private readonly preferenceMutationTails = new Map<string, Promise<void>>();
 	private readonly lastRequestedThinkingBySession = new Map<string, { agentId: string; level: string }>();
+	/** 偏好重放/降级（模型 / 思考档 / 权限预设）的协作对象；见 `runtime/sessionRuntimePreferences.ts`。 */
+	private readonly preferences: SessionRuntimePreferences;
 	private detachedNotifier: SessionRuntimeDetachNotifier | undefined;
 
 	constructor(
@@ -378,7 +191,14 @@ export class SessionRuntimeCoordinator {
 		private readonly logger?: SessionRuntimeLogger,
 		private readonly resolveProjectLocator?: SessionProjectLocatorResolver,
 		private readonly resolveRemoteMessageMutation?: RemoteSessionMessageMutationResolver,
-	) {}
+	) {
+		this.preferences = new SessionRuntimePreferences(this.catalog, this.agents, this.logger, (sessionId) => this.isRemoteSession(sessionId), this.lastAppliedBySession, this.lastRequestedThinkingBySession);
+	}
+
+	/** 偏好重放留在宿主：调用点（激活/重启/换绑）只认这个方法名，实现见协作对象。 */
+	private applyLatestPreferences(sessionId: string, agentId: string): Promise<boolean> {
+		return this.preferences.applyLatestPreferences(sessionId, agentId);
+	}
 
 	/** 渲染层在 currentSessionId 变化时汇报聚焦会话（见 sessions:set-focused-session IPC）。 */
 	setFocusedSession(sessionId: string | undefined): void {
@@ -1887,179 +1707,6 @@ export class SessionRuntimeCoordinator {
 					importedSourceId: tab.importedSourceId,
 				}) === target,
 		);
-	}
-
-	/**
-	 * 重读 catalog 再应用偏好。activate 开头的 entry 是 clone，等待期间用户改模型
-	 * 不能再用那份快照。lastApplied 按 agentId+prefs 去重，避免每次 send 都 setModel。
-	 * @returns 是否真正调用了 applyPreferences（绑定路径据此决定要不要再 publish）。
-	 */
-	private async applyLatestPreferences(sessionId: string, agentId: string): Promise<boolean> {
-		const latest = this.catalog.get(sessionId);
-		if (!latest) throw new Error(`Session not found: ${sessionId}`);
-		const preferences = snapshotPreferences(latest);
-		const last = this.lastAppliedBySession.get(sessionId);
-		if (last?.agentId === agentId && sameAppliedPreferences(last.preferences, preferences)) {
-			return false;
-		}
-		await this.applyPreferences(latest, agentId);
-		// 降级路径（远端/DSH 采纳宿主模型）会在 applyPreferences 内部改写 catalog：
-		// 这里必须重读，否则会把「采纳前的旧快照」记成已应用，下次激活又重试同一个必然失败的 set_model。
-		const applied = this.catalog.get(sessionId) ?? latest;
-		this.lastAppliedBySession.set(sessionId, { agentId, preferences: snapshotPreferences(applied) });
-		this.lastRequestedThinkingBySession.delete(sessionId);
-		return true;
-	}
-
-	private async applyPreferences(entry: SessionCatalogEntry, agentId: string): Promise<void> {
-		// DSH 草稿的 entry.model 可能来自 pi 的 models.json（引导页/欢迎页选型在
-		// 创建时不知道后端，或用户切了默认后端）；host 目录没有该 provider/模型时
-		// selectModel 会拒绝。降级为「应用宿主默认模型」并告警，不让整个激活失败
-		// （否则每次重试都新建一个 host 会话 = 孤儿堆积）。pi 保持严格（模型应在 models.json）。
-		const isDsh = entry.backend === "dsh";
-		// 远端会话的偏好可能来自本机目录（引导页默认/旧版本留下的本机选择）——远端 pi 不认识这些模型
-		// 属于预期错配，不是「模型被删」。若按本机 pi 的严格语义抛错，远端会话会直接无法激活；
-		// 若弹「偏好被忽略」，用户会以为自己选错了。统一静默降级 + 把远端真实模型写回 catalog。
-		const isRemote = !isDsh && this.isRemoteSession(entry.id);
-		// DSH 的 session/selectModel 除改会话选择外，还会把选择保存成部署默认模型
-		// （host 侧 agentDefaultModel.saveSelection）。Coordinator 每次激活/重启都会重放
-		// catalog 偏好；不加判断时，「打开/切换 DSH 会话」就会悄悄改写全局默认——新建
-		// DSH 会话（以及 dsh CLI/web）继承最后一次打开会话的模型/档位。这里先读 host
-		// 会话当前选择（投影 next ?? lastUsed），已经一致的字段不再下发；真正变化
-		// （草稿期改选、host 里被外部改过）仍照常应用。pi 不读：set_model/set_thinking
-		// 的持久化与幂等由 AgentManager + lastAppliedBySession 既有链路负责。
-		//
-		// 远端不读这份 runtimeSelection：远端会话每次激活都可能是新主机上的新进程，
-		// 「已应用」由 lastAppliedBySession 与下面的降级分支各自负责，多读一次只增加
-		// 一次跨 ssh RPC 往返；DSH 才有「重放偏好会改全局默认」这个问题。
-		let runtimeSelection: SessionRuntimeModelSelection | undefined;
-		if (isDsh && (entry.model || entry.thinkingLevel)) {
-			try {
-				runtimeSelection = await this.agents.getRuntimeModelThinkingState?.(agentId);
-			} catch {
-				// 读取失败按「未知」处理：宁可照旧应用偏好，也不静默跳过用户选择。
-				runtimeSelection = undefined;
-			}
-		}
-		const modelAlreadyApplied = Boolean(runtimeSelection && entry.model && runtimeSelection.provider === entry.model.provider && runtimeSelection.modelId === entry.model.modelId);
-		const thinkingAlreadyApplied = runtimeSelection?.thinkingLevel !== undefined && runtimeSelection.thinkingLevel === entry.thinkingLevel;
-		if (entry.model && !modelAlreadyApplied) {
-			try {
-				await this.agents.setModel(agentId, entry.model.provider, entry.model.modelId);
-			} catch (error) {
-				if (isRemote) {
-					// 只有「远端确实不认识这个模型」才采纳宿主机当前模型。RPC 超时/远端进程刚退出是
-					// **瞬时故障**：那时拿 get_state 去覆盖 catalog 等于把用户显式选择的偏好静默销毁，
-					// 而用户看不到任何提示。瞬时故障保留偏好、下次激活自然重试。
-					if (/model not found/i.test(errorMessage(error))) {
-						await this.adoptRuntimeModelAfterRejection(entry.id, agentId, error);
-					} else {
-						void this.logger?.warn("session-runtime", "remote model preference deferred: runtime error", {
-							sessionId: entry.id,
-							provider: entry.model.provider,
-							modelId: entry.model.modelId,
-							error: errorMessage(error),
-						});
-					}
-				} else {
-					// pi 后端：模型既不在本地 models.json 也不在 pi 目录（AgentManager 不带
-					// needsRestart 标记地抛 "Model not found"）= 模型已被重命名/删除。与 DSH
-					// 同语义降级：保留 catalog 偏好、沿用 runtime 当前模型并给会话内系统提示，
-					// 不让整个激活/发送失败——否则每次发送都被 "Failed to apply session
-					// preferences" 挡死（2026-09 用户反馈：models.json 重命名模型后旧会话
-					// 无法再发送，报 Model not found: nacho/gpt-5.6-sol）。
-					// 带 needsRestart 的失败（模型存在但运行中 Agent 快照过期）不降级——
-					// 渲染层会引导用户重启 Agent 加载新配置。
-					// 走到这里 isRemote 恒为 false（远端分支在前面就分走了），所以这里只区分 pi / DSH。
-					const modelGoneOnPi = !isDsh && this.isModelGoneError(error);
-					if (!isDsh && !modelGoneOnPi) throw error;
-					void this.logger?.warn("session-runtime", modelGoneOnPi ? "pi model preference ignored: model no longer exists" : "DSH model preference ignored", {
-						sessionId: entry.id,
-						provider: entry.model.provider,
-						modelId: entry.model.modelId,
-						error: errorMessage(error),
-					});
-					// 降级路径两侧行为一致：保留 catalog 偏好、沿用当前模型，并**告知用户**。
-					// DSH 不提示的话，引导页点选（已作为显式 model 带入，issue #253）会在 host
-					// 拒绝时静默失效——底栏显示用户选的模型，实际跑的是部署默认。pi 侧本来就有
-					// 会话内系统消息；DSH 的 gateway 实现走 agentsNotice toast。
-					if (modelGoneOnPi || isDsh) {
-						this.agents.notifyModelPreferenceIgnored?.(agentId, entry.model.provider, entry.model.modelId);
-					}
-				}
-			}
-		}
-		if (entry.thinkingLevel && !thinkingAlreadyApplied) {
-			try {
-				await this.agents.setThinking(agentId, entry.thinkingLevel);
-			} catch (error) {
-				// 远端会话与 DSH 同语义：档位能力由后端裁决，本机偏好带到远端可能整体不适用，
-				// 降级为「沿用 runtime 当前档位」，不阻断激活。
-				if (!isDsh && !isRemote) throw error;
-				const message = errorMessage(error);
-				void this.logger?.warn("session-runtime", isDsh ? "DSH thinking preference ignored" : "remote thinking preference ignored", {
-					sessionId: entry.id,
-					thinkingLevel: entry.thinkingLevel,
-					error: message,
-				});
-				// 后端是档位能力的最终裁决者。即使本次 host 拒绝，也保留用户偏好：
-				// 目录配置、provider 或模型在之后变化时仍可重新应用，不能由 PiDeck
-				// 根据一条当前错误擅自清空用户选择。
-			}
-		}
-		// DSH 权限预设（草稿期预选 / 会话内切换回写）：激活时经 /permission 命令应用
-		if (entry.permissionPreset && this.agents.setPermission) {
-			await this.agents.setPermission(agentId, entry.permissionPreset);
-		}
-	}
-
-	/**
-	 * 远端会话的模型偏好被运行时拒绝后的收尾：不抛错、不提示，把运行时**实际**生效的模型/档位
-	 * 写回 catalog。
-	 *
-	 * 为什么必须回写：Preferences 失败分支不影响 runtime 启动，但底栏/选择器读的是 catalog
-	 * 里的 `model`。不回写就会长期显示一个远端从未用过的模型名（用户报「显示的模型跟实际跑的
-	 * 不是一回事」）。同时要刷新 lastAppliedBySession，否则之后每次激活都会重试同一个必然失败的
-	 * set_model。
-	 */
-	private async adoptRuntimeModelAfterRejection(sessionId: string, agentId: string, error: unknown): Promise<void> {
-		void this.logger?.info("session-runtime", "remote model preference not available on host; keeping host model", {
-			sessionId,
-			agentId,
-			error: errorMessage(error),
-		});
-		try {
-			const runtimeSelection = await this.agents.getRuntimeModelThinkingState?.(agentId);
-			if (!runtimeSelection) return;
-			const model = createSessionModelPreference(runtimeSelection.provider, runtimeSelection.modelId, runtimeSelection.modelName);
-			const updated = await this.catalog.update(sessionId, {
-				model,
-				...(runtimeSelection.thinkingLevel !== undefined ? { thinkingLevel: runtimeSelection.thinkingLevel } : {}),
-				updatedAt: Date.now(),
-			});
-			this.lastAppliedBySession.set(sessionId, { agentId, preferences: snapshotPreferences(updated) });
-			this.lastRequestedThinkingBySession.delete(sessionId);
-		} catch (adoptError) {
-			// 回写失败不能连带激活失败：下次用户在会话内切模型会修正展示。
-			void this.logger?.warn("session-runtime", "failed to adopt remote runtime model", {
-				sessionId,
-				agentId,
-				error: errorMessage(adoptError),
-			});
-		}
-	}
-
-	/**
-	 * set_model 失败是否为「模型已不存在」（被重命名/删除）：AgentManager.setModel
-	 * 只有在本地 models.json 与 pi 模型目录都查不到该模型时才不带 needsRestart
-	 * 标记地抛 "Model not found"。带 needsRestart 的失败（模型存在但运行中 Agent
-	 * 启动快照过期）不算——那应引导重启 Agent 而非降级。
-	 */
-	private isModelGoneError(error: unknown): boolean {
-		if ((error as { needsRestart?: unknown } | null)?.needsRestart === true) {
-			return false;
-		}
-		return /model not found/i.test(errorMessage(error));
 	}
 
 	/**

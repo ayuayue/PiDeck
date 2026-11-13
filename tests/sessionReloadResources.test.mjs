@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
@@ -30,7 +31,7 @@ test("reloadResources IPC is wired through shared channel, main handler, and pre
 	const channel = read("src/shared/ipc.ts");
 	const main = sessionIpcSource;
 	const preload = preloadSource;
-	const coordinator = read("src/main/sessions/SessionRuntimeCoordinator.ts");
+	const coordinator = readSessionRuntimeCoordinatorSources();
 	assert.match(channel, /sessionsRuntimeReloadResources:\s*"sessions:runtime-reload-resources"/);
 	assert.match(main, /ipcChannels\.sessionsRuntimeReloadResources[\s\S]*?sessionRuntimeCoordinator\.reloadResources\s*\(\s*target\s*\)/);
 	assert.match(preload, /reloadResources:\s*\(target:\s*SessionRuntimeTarget\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.sessionsRuntimeReloadResources/);

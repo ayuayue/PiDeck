@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 /**
  * 加载生产模块：统一走 createTsSandbox（相对 import 自动按源文件目录解析）。
  *
@@ -24,14 +25,14 @@ function loadCoordinator() {
 }
 
 test("runtime and catalog message mutations keep gateway this when calling optional methods", () => {
-	const source = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+	const source = readSessionRuntimeCoordinatorSources();
 	assert.doesNotMatch(source, /const (?:editMessage|deleteMessage|exportHtml|getCommands|setPermission|mutate) = this\.agents\./);
 	assert.match(source, /typeof this\.agents\.editMessage !== "function"/);
 	assert.match(source, /typeof this\.agents\.mutatePersistedSessionMessage !== "function"/);
 });
 
 test("session performance instrumentation keeps activation and dispatch phase markers", () => {
-	const source = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+	const source = readSessionRuntimeCoordinatorSources();
 	assert.match(source, /Prompt pipeline started/);
 	assert.match(source, /Runtime activation started/);
 	assert.match(source, /Runtime activation completed/);
@@ -1931,7 +1932,7 @@ test("commandFailure classifies model-not-found as SESSION_MODEL_NOT_FOUND (not 
 	assert.equal(modelMiss.error.params?.model, "grok.weishiair.de/copy");
 	// 注意：vm 沙箱里主 realm 的 Error 不满足 instanceof，needsRestart 分支无法行为级验证，
 	// 用源码断言确认该分支同样提取 model 参数（本地有模型时引导重启而非误报会话不存在）
-	const coordinatorSource = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+	const coordinatorSource = readSessionRuntimeCoordinatorSources();
 	assert.match(coordinatorSource, /needsRestart: true,[\s\S]*?params: \{ model: this\.extractModelFromNotFound\(error\.message\) \?\? error\.message \}/);
 });
 
@@ -2268,7 +2269,7 @@ test("stopRuntime reports SESSION_NOT_FOUND only when neither binding nor catalo
  * 改不了」，重试永远不会成功（正确动作是换会话 / 导出归档）。
  */
 test("SESSION_FILE_TOO_LARGE 被映射为稳定错误码，且带上体积参数", () => {
-	const source = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+	const source = readSessionRuntimeCoordinatorSources();
 	// 必须按 editorCode 识别（而不是靠 message 文本），否则改文案就会静默退回泛化错误
 	assert.match(source, /editorCode === "SESSION_FILE_TOO_LARGE"/);
 	assert.match(source, /SESSION_FILE_TOO_LARGE"\s*\?\s*"SESSION_FILE_TOO_LARGE"/);
@@ -2432,7 +2433,7 @@ test("detach 推送抛错不连带让查询失败（解绑发生在读写盘 IPC
 
 test("main 装配把惰性解绑接成 sessions:runtime-detach 推送", () => {
 	const mainSource = mainIpcSource;
-	const coordinatorSource = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+	const coordinatorSource = readSessionRuntimeCoordinatorSources();
 
 	// 装配层必须注入通知器，且走既有的 detach 信封（渲染层只认这一条协议）
 	assert.match(mainSource, /sessionRuntimeCoordinator\.setDetachedNotifier\(\(binding\)\s*=>\s*emitSessionRuntimeDetach\(binding\)\)/);

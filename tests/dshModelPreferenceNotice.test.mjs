@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 
 /**
  * issue #253 的收尾：DSH 模型偏好被 host 拒绝时必须让用户看得见。
@@ -21,7 +22,7 @@ import test from "node:test";
  */
 
 const dshManager = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
-const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+const coordinator = readSessionRuntimeCoordinatorSources();
 const bridge = readFileSync("src/renderer/src/hooks/useSessionRuntimeBridge.ts", "utf8");
 const zhCopy = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const enCopy = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");

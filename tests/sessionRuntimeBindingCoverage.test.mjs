@@ -6,8 +6,9 @@ import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 
-const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+const coordinator = readSessionRuntimeCoordinatorSources();
 const main = mainIpcSource;
 const agentManager = agentManagerSource;
 // 扩展 UI 请求闸已迁入 extensionUiGate.ts（AgentManager 拆分 Wave 4B）
