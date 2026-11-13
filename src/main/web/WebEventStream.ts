@@ -94,7 +94,10 @@ export class PiEventToUiMessageStream {
 			if (role === "assistant" && !this.finished) {
 				if (!this.currentMessageId) {
 					this.currentMessageId = String((event.message?.id as string | undefined) ?? `msg_${Date.now()}`);
-					frames.push({ type: "start", messageId: this.currentMessageId });
+					// messageMetadata.timestamp：助手消息的墙钟时间。Web 时间线要在回复行头显式「回复时间」
+					// （桌面 TurnAuthorHeader 同源）；AI SDK 会把 start 帧的 metadata 并到 UIMessage.metadata，
+					// 外部流合并器也读同一字段（见 webExternalStream）。
+					frames.push({ type: "start", messageId: this.currentMessageId, messageMetadata: { timestamp: Date.now() } });
 				} else {
 					// 工具循环的下一跳：同一条 UI 消息里开新 step，不要再发 start 拆气泡。
 					frames.push({ type: "start-step" });

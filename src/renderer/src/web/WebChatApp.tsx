@@ -614,7 +614,7 @@ export function WebChatApp() {
 		pendingSendRef.current = null;
 		// 先推进发送代际：新会话的历史请求若与本轮并发，返回时会被代际护栏丢弃。
 		markLocalSend(pending.sessionId);
-		void sendMessage({ text: pending.text, files: pending.images?.map(dataUrlToFilePart) ?? [] }, { body: { ...(pending.agentMessage ? { agentMessage: pending.agentMessage } : {}) } });
+		void sendMessage({ text: pending.text, files: pending.images?.map(dataUrlToFilePart) ?? [], metadata: { timestamp: Date.now() } }, { body: { ...(pending.agentMessage ? { agentMessage: pending.agentMessage } : {}) } });
 	}, [activeSessionId, streaming, sendMessage]);
 
 	// 模型列表是全局 pi 配置，草稿会话也需要先选模型再发送第一条消息。
@@ -798,7 +798,7 @@ export function WebChatApp() {
 		// 推进发送代际：任何在途历史快照返回后都不得覆盖这一轮。
 		markLocalSend(activeSessionId);
 		// agentMessage：计划模式等隐藏指令（复用桌面 composer 通道），随 body 透传后端
-		void sendMessage({ text, files: images.map(dataUrlToFilePart) }, { body: { ...(agentMessage ? { agentMessage } : {}) } });
+		void sendMessage({ text, files: images.map(dataUrlToFilePart), metadata: { timestamp: Date.now() } }, { body: { ...(agentMessage ? { agentMessage } : {}) } });
 	};
 
 	// ── 排队消息（对齐桌面 followUp 队列语义）──────────────────────────────
@@ -860,7 +860,7 @@ export function WebChatApp() {
 		queueFlushingRef.current = true;
 		setQueuedBySession((current) => ({ ...current, [sessionId]: (current[sessionId] ?? []).slice(1) }));
 		markLocalSend(sessionId);
-		void sendMessage({ text: next.text, files: next.images.map(dataUrlToFilePart) }, { body: { ...(next.agentMessage ? { agentMessage: next.agentMessage } : {}) } }).then(
+		void sendMessage({ text: next.text, files: next.images.map(dataUrlToFilePart), metadata: { timestamp: Date.now() } }, { body: { ...(next.agentMessage ? { agentMessage: next.agentMessage } : {}) } }).then(
 			() => {
 				queueFlushingRef.current = false;
 			},

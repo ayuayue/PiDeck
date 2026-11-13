@@ -37,6 +37,8 @@ export type ExternalReplySnapshot = { message: UIMessage; finished: boolean; err
  */
 export class ExternalReplyMerger {
 	private messageId: string | null = null;
+	/** 本轮回复的墙钟时间（第一个 start 帧的 messageMetadata.timestamp）。 */
+	private startedAt = 0;
 	private parts: ExternalReplyPart[] = [];
 	private finished = false;
 	private errorText: string | null = null;
@@ -70,7 +72,9 @@ export class ExternalReplyMerger {
 			}
 		}
 		return {
-			message: { id: this.messageId, role: "assistant", parts },
+			// metadata.timestamp：本轮回复的墙钟时间（时间线行头），与服务端 start 帧的
+			// messageMetadata 同源；useChat 侧由 AI SDK 自动并进 UIMessage.metadata。
+			message: { id: this.messageId, role: "assistant", parts, metadata: { timestamp: this.startedAt } },
 			finished: this.finished,
 			errorText: this.errorText,
 		};
@@ -83,6 +87,9 @@ export class ExternalReplyMerger {
 
 		if (type === "start") {
 			if (this.messageId === null) this.messageId = typeof frame.messageId === "string" && frame.messageId ? frame.messageId : `external_${Date.now()}`;
+			// 服务端在 start 帧带本轮开始时间；缺省（旧服务端/中途接入的旧帧）用到达时刻。
+			const metadata = frame.messageMetadata && typeof frame.messageMetadata === "object" ? (frame.messageMetadata as { timestamp?: unknown }) : undefined;
+			this.startedAt = typeof metadata?.timestamp === "number" && Number.isFinite(metadata.timestamp) ? metadata.timestamp : Date.now();
 			// start-step：同一条消息内的下一跳（工具循环），不再拆消息。
 			return this.snapshot();
 		}
@@ -195,6 +202,7 @@ export class ExternalReplyMerger {
 	/** 重置（新的一轮外部回复）：断线重连且上一轮已结束时由调用方触发。 */
 	reset(): void {
 		this.messageId = null;
+		this.startedAt = 0;
 		this.parts = [];
 		this.finished = false;
 		this.errorText = null;

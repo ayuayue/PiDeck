@@ -6,6 +6,7 @@
  * 提升规则与桌面 buildTurnDisplay 逐条对齐（差异仅在数据形状，语义相同）。
  */
 import type { UIMessage } from "ai";
+import { uiMessageEndedAt, uiMessageModel, uiMessageTimestamp } from "./webMessageParts";
 
 export type WebToolPart = {
 	type: string;
@@ -38,6 +39,17 @@ export interface AssistantTurn {
 	thinkingCount: number;
 	/** 中间回复段数（不含 final） */
 	interimCount: number;
+	/** 回合墙钟时间与模型：数据来自 UIMessage.metadata（见 webApi.chatMessagesToUiMessages），
+	 *  渲染为行头时间与轮尾「耗时 | 模型」（桌面 TurnAuthorHeader / TurnRowActions 同源）。 */
+	/**
+	 * 回合墙钟起点（触发本回合的用户消息时间；窗口内没有用户消息时回退首条 assistant
+	 * 的时间）。与桌面 groupToolMessages 的 startedAt 同口径。
+	 */
+	startedAt?: number;
+	/** 回合墙钟结束点（最后一条消息的 meta.endedAt，缺失回退 timestamp）。 */
+	endedAt?: number;
+	/** 本轮实际使用的模型（最后一条带 model 的 assistant 消息）；缺失不显示。 */
+	model?: { provider: string; modelId: string };
 }
 
 export type TimelineEntry = { kind: "user"; id: string; message: UIMessage } | { kind: "turn"; id: string; turn: AssistantTurn };
@@ -69,6 +81,12 @@ export function groupTimelineEntries(messages: UIMessage[], options: { isStreami
 	let finalId = "";
 	let liveTextId: string | undefined;
 	let turnId = "";
+	/** 回合时间/模型：与桌面 TurnRow 的 startedAt / endedAt / turnModel 同口径。 */
+	let turnStartedAt: number | undefined;
+	let turnEndedAt: number | undefined;
+	let turnModel: AssistantTurn["model"];
+	/** 最近一条用户消息的墙钟时间：下一个回合的起点。 */
+	let lastUserTimestamp: number | undefined;
 	/** 回合收口。complete：用户消息断开（必完整）或末尾回合且已结束（!isStreaming）。 */
 	const flush = (complete: boolean) => {
 		if (!turnId) return;
@@ -98,6 +116,9 @@ export function groupTimelineEntries(messages: UIMessage[], options: { isStreami
 				toolCount: processSegments.filter((segment) => segment.kind === "tool").length,
 				thinkingCount: processSegments.reduce((sum, segment) => sum + (segment.kind === "thinking" ? segment.texts.length : 0), 0),
 				interimCount: processSegments.filter((segment) => segment.kind === "interim").length,
+				...(turnStartedAt !== undefined ? { startedAt: turnStartedAt } : {}),
+				...(turnEndedAt !== undefined ? { endedAt: turnEndedAt } : {}),
+				...(turnModel ? { model: turnModel } : {}),
 			},
 		});
 		messageIds = [];
@@ -106,15 +127,27 @@ export function groupTimelineEntries(messages: UIMessage[], options: { isStreami
 		finalId = "";
 		liveTextId = undefined;
 		turnId = "";
+		turnStartedAt = undefined;
+		turnEndedAt = undefined;
+		turnModel = undefined;
 	};
 	for (const message of messages) {
 		if (message.role !== "assistant") {
 			flush(true);
+			lastUserTimestamp = uiMessageTimestamp(message);
 			entries.push({ kind: "user", id: message.id, message });
 			continue;
 		}
 		if (!turnId) turnId = message.id;
 		messageIds.push(message.id);
+		// 回合时间/模型：起点取触发本轮的用户消息时间（无用户消息时回退首条 assistant），
+		// 终点取最后一条消息的结束点（pi 终态 meta.endedAt 才是真实结束时刻）。
+		const messageTimestamp = uiMessageTimestamp(message);
+		if (turnStartedAt === undefined) turnStartedAt = lastUserTimestamp ?? messageTimestamp;
+		const messageEndedAt = uiMessageEndedAt(message);
+		if (messageEndedAt !== undefined && (turnEndedAt === undefined || messageEndedAt > turnEndedAt)) turnEndedAt = messageEndedAt;
+		const messageModel = uiMessageModel(message);
+		if (messageModel) turnModel = messageModel;
 		for (let index = 0; index < message.parts.length; index += 1) {
 			const part = message.parts[index];
 			if (part.type === "reasoning") {
