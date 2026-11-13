@@ -362,3 +362,19 @@
 2. **Coordinator 只降到 2162（目标 1800，缺口 362）**：两个域搬走后，host 侧要新增薄包装与 host 接口成员，净减被吃掉一部分。剩下的质量集中在 `activate 167` / `sendOnce 131` / `restartSession 61` 这些编排方法上——**它们和 `AgentManager.handlePiEvent` 同性质，继续硬拆只会得到转发层**。建议该文件就停在 2162 这个量级，转而处理 `session-atoms 2213` / `DshAgentManager 2382`。
 
 本轮两个会话都没有改动任何测试文件（只各改了自己的 helper 一行），全量 17384 条测试 0 失败——说明前面九轮铺的聚合 helper 网已经把「拆分就要改测试」这件事基本消掉了。
+
+## 第十一轮：DshAgentManager 拆分 + 冒烟 e2e 的连带收获（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `dsh/DshAgentManager.ts` | 2382 | **1788** | `manager/` 新增 `dshRuntimePumps 256`（控制面泵）、`dshHistoryReads 190`（历史分页/子代理历史/进程事件）、`dshModelControl 157`、`dshImageHydration 84`、`dshRuntimeState`、`dshSessionExport`；与既有 `dshMuxFrames 268` / `dshProjectionFrames 166` / `dshAgentRuntime 86` 并列 |
+
+### 本轮真正的收获不在行数上，而是冒烟 e2e 兑现了价值
+
+「先冒烟一次再继续拆」这个决定直接换来三件事：
+
+1. **发现一个存量一年多的用户可见缺陷**：预热历史接管时，父层会用「语义相同、字符串不同」的草稿 value 重渲染一次，`useTipTapComposerEditor` 的受控同步于是无条件 `setContent` + 光标兜底回文末 —— 用户在输入框中段打字会被追加到末尾。修复见 `665ccbaba`：**只有 editor 当前序列化 JSON 与目标 value 真的不同才重写内容**，文末兜底只在真重写后执行。守护测试是 `e2e/session-prewarm-history`。
+2. **确认它不是重构引入的**：在隔离 worktree 里 checkout 到 `c19bdc678^`（composer 拆分之前）重新 build 跑同一 spec，一样红（而且红得更早）。这一步很关键——没有它就只能靠猜。
+3. **把 CI 的 e2e 覆盖面从 1/133 提到 3 条整链路**（`ab776cf16`）：markdown 图片链路、启动→首发提升、预热历史+光标。本地实测 4 个 case / 26s。
+
+**教训（值得单独记）**：仓库有 133 条 e2e，CI 只跑 1 条 —— 这就是那个光标 bug 红了大半年没人发现的**唯一原因**。拆分再勤，也补不上「整链路没人跑」这个洞。

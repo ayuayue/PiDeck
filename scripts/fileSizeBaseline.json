@@ -9,7 +9,7 @@
 		"src/main/config/mcpConfig.ts": 639,
 		"src/main/config/providerUsageCustom.ts": 602,
 		"src/main/config/providerUsageProbe.ts": 687,
-		"src/main/dsh/DshAgentManager.ts": 2382,
+		"src/main/dsh/DshAgentManager.ts": 1788,
 		"src/main/dsh/dshEventProjector.ts": 993,
 		"src/main/dsh/DshHost.ts": 1212,
 		"src/main/dsh/dshProcessEvents.ts": 614,
