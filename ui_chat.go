@@ -564,15 +564,15 @@ func (a *app) composer(s *session) core.Node {
 			Label:         "消息",
 			PlaceholderFunc: func() string {
 				if s.busyNow() {
-					return "运行中：回车插入引导，或点停止"
+					return T("运行中：回车插入引导，或点停止")
 				}
 				if !s.readySig.Get() {
-					return "正在启动 pi…"
+					return T("正在启动 pi…")
 				}
-				return "给 pi 发消息…"
+				return T("给 pi 发消息…")
 			},
-			SendLabel:   "发送",
-			StopLabel:   "停止",
+			SendLabel:   T("发送"),
+			StopLabel:   T("停止"),
 			Running:     s.busy,
 			OnSend:      a.send,
 			OnStop:      func() { a.stop(s) },
@@ -783,24 +783,24 @@ func (a *app) emptyChat(s *session) core.Node {
 							core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
 								core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
 									Style: core.Style{Width: core.Pt(56), Height: core.Pt(56), CornerRadius: 16}},
-								core.Text{Content: "在 " + name + " 里做点什么", Style: core.Style{FontSize: 20, FontWeight: ui.Semibold, LineHeight: 27},
+								core.Text{Content: T("在 %s 里做点什么", name), Style: core.Style{FontSize: 20, FontWeight: ui.Semibold, LineHeight: 27},
 									StyleFunc: ui.Colored(colors.Text)},
 								core.Text{ContentFunc: func() string {
 									m := s.model.Get()
-									model := "本机 pi"
+									model := T("本机 pi")
 									if m.ID != "" {
 										model = m.shortLabel()
 									}
-									return model + " · 会话保存在应用自己的目录"
+									return T("%s · 会话保存在应用自己的目录", model)
 								}, Style: core.Style{FontSize: 12, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Muted)},
 							}},
 							core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 10}, Children: []core.Node{
-								a.suggestion("看看这个项目", "先看看当前目录里有什么，用一句话概括它是做什么的。"),
-								a.suggestion("跑一遍测试", "找到这个项目的测试命令，跑一遍，把失败项列出来。"),
-								a.suggestion("解释一处代码", "挑这个项目里最关键的一个文件，解释它的结构。"),
-								a.suggestion("修一个小问题", "看看最近的改动，指出最可能出问题的地方并修掉。"),
+								a.suggestion(T("看看这个项目"), T("先看看当前目录里有什么，用一句话概括它是做什么的。")),
+								a.suggestion(T("跑一遍测试"), T("找到这个项目的测试命令，跑一遍，把失败项列出来。")),
+								a.suggestion(T("解释一处代码"), T("挑这个项目里最关键的一个文件，解释它的结构。")),
+								a.suggestion(T("修一个小问题"), T("看看最近的改动，指出最可能出问题的地方并修掉。")),
 							}},
-							core.Text{Content: "Enter 发送 · Shift+Enter 换行 · ⌘K 命令面板",
+							core.Text{Content: T("Enter 发送 · Shift+Enter 换行 · ⌘K 命令面板"),
 								Style: core.Style{FontFamily: ui.Mono, FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
 						}},
 					}},
@@ -839,9 +839,9 @@ func (a *app) welcome() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		hasWorkspace := len(a.workspaces.Get()) > 0
-		sub := "先添加一个项目文件夹，再开会话。"
+		sub := T("先添加一个项目文件夹，再开会话。")
 		if hasWorkspace {
-			sub = "打开一个会话，或者新建一个。"
+			sub = T("打开一个会话，或者新建一个。")
 		}
 		return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Padding: core.All(32)},
 			StyleFunc: func() core.Style { return core.Style{Background: colors.Background()} },
@@ -855,7 +855,7 @@ func (a *app) welcome() core.Node {
 					core.View{Style: core.Style{Direction: core.Row, Gap: 8}, Children: []core.Node{
 						core.Dynamic(func(*core.Scope) core.Node {
 							if hasWorkspace {
-								return ui.Button{Text: "新建会话", Variant: ui.ButtonPrimary, TestID: "welcome-primary", OnPress: func() {
+								return ui.Button{Text: T("新建会话"), Variant: ui.ButtonPrimary, TestID: "welcome-primary", OnPress: func() {
 									path := a.activeWS.Get()
 									if path == "" {
 										if list := a.workspaces.Get(); len(list) > 0 {
@@ -865,11 +865,11 @@ func (a *app) welcome() core.Node {
 									a.newSession(path)
 								}}
 							}
-							return ui.Button{Text: "添加工作区", Variant: ui.ButtonPrimary, TestID: "welcome-primary", OnPress: func() { a.pickNative("workspace") }}
+							return ui.Button{Text: T("添加工作区"), Variant: ui.ButtonPrimary, TestID: "welcome-primary", OnPress: func() { a.pickNative("workspace") }}
 						}),
-						ui.Button{Text: "导入 pi 会话", Variant: ui.ButtonSecondary, TestID: "welcome-secondary", OnPress: func() { a.openPicker("import") }},
+						ui.Button{Text: T("导入 pi 会话"), Variant: ui.ButtonSecondary, TestID: "welcome-secondary", OnPress: func() { a.openPicker("import") }},
 					}},
-					core.Text{Content: "NSGo 原生窗口 · 不是 Electron · 会话由本机 pi 的 RPC 模式驱动",
+					core.Text{Content: T("NSGo 原生窗口 · 不是 Electron · 会话由本机 pi 的 RPC 模式驱动"),
 						Style: core.Style{FontFamily: ui.Mono, FontSize: 10, TextAlign: core.TextAlignCenter, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}}

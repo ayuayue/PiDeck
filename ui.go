@@ -19,7 +19,10 @@ import (
 // view is the whole window.
 func (a *app) view() core.Node {
 	return core.View{Style: ui.FillRest, Children: []core.Node{
-		a.shell(),
+		core.Dynamic(func(*core.Scope) core.Node {
+			_ = a.langRev.Get()
+			return a.shell()
+		}),
 		a.paletteDialog(),
 		a.pickerDialog(),
 		a.targetDialog(),
@@ -131,7 +134,7 @@ func (a *app) rail() core.Node {
 			a.searchField(),
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Edges{Top: 4, Right: 8, Left: 8}},
 				Children: []core.Node{
-					core.Text{Content: "项目", Style: core.Style{FontSize: 10, FontWeight: ui.Semibold, LetterSpacing: 0.6},
+					core.Text{Content: T("项目"), Style: core.Style{FontSize: 10, FontWeight: ui.Semibold, LetterSpacing: 0.6},
 						StyleFunc: ui.Colored(colors.Faint)},
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{ContentFunc: func() string { return fmt.Sprint(len(a.workspaces.Get())) },
@@ -230,7 +233,7 @@ func (a *app) brand() core.Node {
 				}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: ui.Mono, FontSize: 9},
 					StyleFunc: ui.Colored(colors.Faint)}}},
 			}},
-			core.Text{Content: "本机 pi 工作台", Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
+			core.Text{Content: T("本机 pi 工作台"), Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
 		}},
 	}}
 }
@@ -257,7 +260,7 @@ func (a *app) newSessionButton() core.Node {
 		},
 		Children: []core.Node{
 			ui.Icon(lucide.Plus, 14, colors.OnLight),
-			core.Text{Content: "新建会话", Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, FlexGrow: 1}, StyleFunc: ui.Colored(colors.OnLight)},
+			core.Text{Content: T("新建会话"), Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, FlexGrow: 1}, StyleFunc: ui.Colored(colors.OnLight)},
 			core.Text{Content: modKey() + "N", Style: core.Style{FontFamily: ui.Mono, FontSize: 10, Opacity: core.Alpha(0.55)}, StyleFunc: ui.Colored(colors.OnLight)},
 		},
 	}
@@ -272,7 +275,7 @@ func (a *app) searchField() core.Node {
 	}, Children: []core.Node{
 		ui.Icon(lucide.Search, 13, colors.Faint),
 		core.Input{
-			Value: a.filter.Get, OnChange: a.filter.Set, Placeholder: "搜索会话", Label: "搜索会话", TestID: "rail-search",
+			Value: a.filter.Get, OnChange: a.filter.Set, Placeholder: T("搜索会话"), Label: T("搜索会话"), TestID: "rail-search",
 			Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), FontSize: 12.5, LineHeight: 18, Color: colors.Text()},
 			StyleFunc: func() core.Style {
 				return core.Style{PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
@@ -364,7 +367,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 					return out
 				}
 				if p := keep(pinned); len(p) > 0 {
-					children = append(children, a.groupLabel("置顶"), core.View{Style: core.Style{Gap: 1}, Children: rows(p)})
+					children = append(children, a.groupLabel(T("置顶")), core.View{Style: core.Style{Gap: 1}, Children: rows(p)})
 				}
 				rest = keep(rest)
 				shown := len(rest)
@@ -378,7 +381,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 				if loading {
 					children = append(children, a.projectLoadingRows()...)
 				} else if len(children) == 0 {
-					children = append(children, core.Text{Content: "还没有会话", Style: core.Style{FontSize: 11, Padding: core.Edges{Left: 8, Top: 4}},
+					children = append(children, core.Text{Content: T("还没有会话"), Style: core.Style{FontSize: 11, Padding: core.Edges{Left: 8, Top: 4}},
 						StyleFunc: ui.Colored(ui.ColorsOf(cx).Faint)})
 				}
 				hidden := len(rest) - shown
@@ -463,7 +466,7 @@ func (a *app) projectMoreRow(ws *workspace, hidden int) core.Node {
 	}
 	var children []core.Node
 	if hidden > 0 {
-		more := action("更多", lucide.ChevronDown, "project-more", func() {
+		more := action(T("更多"), lucide.ChevronDown, "project-more", func() {
 			a.animateNextLayout()
 			n := ws.Visible.GetUntracked()
 			if n <= 0 {
@@ -475,7 +478,7 @@ func (a *app) projectMoreRow(ws *workspace, hidden int) core.Node {
 		children = append(children, more)
 	}
 	if ws.Visible.GetUntracked() > 0 {
-		children = append(children, action("收起", lucide.ChevronUp, "project-collapse", func() {
+		children = append(children, action(T("收起"), lucide.ChevronUp, "project-collapse", func() {
 			a.animateNextLayout()
 			ws.Visible.Set(0)
 		}))
@@ -711,14 +714,14 @@ func (a *app) drawerPanel() core.Node {
 	}
 	return core.View{Style: core.Style{Padding: core.All(12), Gap: 10, Width: core.Pct(100)}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
-			tab("overview", "概览"),
-			tab("files", "文件"),
+			tab("overview", T("概览")),
+			tab("files", T("文件")),
 			tab("git", "Git"),
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Show{When: func() bool { return a.drawerTab.Get() == "files" }, Then: func(cx *core.Scope) core.Node {
 				return core.View{Style: core.Style{Direction: core.Row, Gap: 2}, Children: []core.Node{
-					ui.IconButton{Icon: lucide.RefreshCw, Label: "刷新文件", Size: 26, IconSize: 12.5, OnPress: func() { a.files.reload() }},
-					ui.IconButton{Icon: lucide.Eye, Label: "显示隐藏文件", Size: 26, IconSize: 12.5, OnPress: func() { a.files.setHidden(!a.files.hidden.Get()) }},
+					ui.IconButton{Icon: lucide.RefreshCw, Label: T("刷新文件"), Size: 26, IconSize: 12.5, OnPress: func() { a.files.reload() }},
+					ui.IconButton{Icon: lucide.Eye, Label: T("显示隐藏文件"), Size: 26, IconSize: 12.5, OnPress: func() { a.files.setHidden(!a.files.hidden.Get()) }},
 				}}
 			}},
 		}},
@@ -741,7 +744,7 @@ func (a *app) drawerOverview() core.Node {
 		s := a.active()
 		if s == nil {
 			return core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
-				ui.Text("没有打开的会话", 12.5, ui.Regular, ui.ColorsOf(cx).Muted),
+				ui.Text(T("没有打开的会话"), 12.5, ui.Regular, ui.ColorsOf(cx).Muted),
 			}}
 		}
 		colors := ui.ColorsOf(cx)
@@ -821,13 +824,13 @@ func (a *app) drawerOverview() core.Node {
 								return ui.Icon(lucide.StarOff, 13, colors.Faint)
 							})}},
 					}},
-					row("思考", func() string {
+					row(T("思考"), func() string {
 						if t := s.thinking.Get(); t != "" {
 							return levelLabel(t)
 						}
 						return "默认"
 					}),
-					row("会话 ID", func() string { return s.ID }),
+					row(T("会话 ID"), func() string { return s.ID }),
 					core.Show{When: func() bool { return s.Target.remote() || s.External }, Then: func(cx *core.Scope) core.Node {
 						label := "本机"
 						if s.Target.remote() {
@@ -844,18 +847,18 @@ func (a *app) drawerOverview() core.Node {
 				}},
 				core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
-						ui.Text("上下文", 12, ui.Regular, colors.Muted),
+						ui.Text(T("上下文"), 12, ui.Regular, colors.Muted),
 						core.View{Style: core.Style{FlexGrow: 1}},
 						core.Text{ContentFunc: contextText, Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 					bar(),
 				}},
 				core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
-					row("输入", func() string { return tokens(s.usage.Get().Input) + " tokens" }),
-					row("输出", func() string { return tokens(s.usage.Get().Output) + " tokens" }),
-					row("缓存读", func() string { return tokens(s.usage.Get().CacheRead) + " tokens" }),
-					row("费用", func() string { return credits(s.usage.Get().Cost) }),
-					row("工具调用", func() string {
+					row(T("输入"), func() string { return tokens(s.usage.Get().Input) + " tokens" }),
+					row(T("输出"), func() string { return tokens(s.usage.Get().Output) + " tokens" }),
+					row(T("缓存读"), func() string { return tokens(s.usage.Get().CacheRead) + " tokens" }),
+					row(T("费用"), func() string { return credits(s.usage.Get().Cost) }),
+					row(T("工具调用"), func() string {
 						st := s.stats.Get()
 						if st.Known {
 							return fmt.Sprint(st.ToolCalls)
@@ -868,12 +871,12 @@ func (a *app) drawerOverview() core.Node {
 					}),
 				}},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
-					ui.Button{Text: "压缩上下文", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.compact(s) }},
-					ui.Button{Text: "导出 HTML", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.exportHTML(s) }},
-					ui.Button{Text: "重命名", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.askRename(s) }},
-					ui.Button{Text: "文件", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.drawerTab.Set("files") }},
+					ui.Button{Text: T("压缩上下文"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.compact(s) }},
+					ui.Button{Text: T("导出 HTML"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.exportHTML(s) }},
+					ui.Button{Text: T("重命名"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.askRename(s) }},
+					ui.Button{Text: T("文件"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.drawerTab.Set("files") }},
 					ui.Button{Text: "Git", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.openGit() }},
-					ui.Button{Text: "终端", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.toggleTerminal() }},
+					ui.Button{Text: T("终端"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.toggleTerminal() }},
 				}},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap}, Children: []core.Node{
 					core.Text{ContentFunc: func() string { return shortPath(s.File, 46) }, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
@@ -895,7 +898,7 @@ func (a *app) drawerFiles() core.Node {
 		}
 		if root == "" {
 			return core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
-				ui.Text("先打开一个工作区", 12.5, ui.Regular, colors.Muted),
+				ui.Text(T("先打开一个工作区"), 12.5, ui.Regular, colors.Muted),
 			}}
 		}
 		head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
@@ -905,7 +908,7 @@ func (a *app) drawerFiles() core.Node {
 		}}
 		empty := func() core.Node {
 			return core.View{Style: core.Style{Padding: core.Symmetric(10, 4)}, Children: []core.Node{
-				ui.Text("目录为空", 11.5, ui.Regular, colors.Faint),
+				ui.Text(T("目录为空"), 11.5, ui.Regular, colors.Faint),
 			}}
 		}
 		list := core.Each(a.files.nodes.Get, func(n fileNode) string { return n.Path }, func(cx *core.Scope, n func() fileNode, _ func() int) core.Node {
@@ -966,7 +969,7 @@ func (a *app) drawerFiles() core.Node {
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Top: 2, Bottom: 20, Right: 2, Left: 2}}, Children: []core.Node{
 				head,
-				core.Text{Content: "点文件在编辑器里打开，点目录展开；右键可插入 @ 路径。", Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: T("点文件在编辑器里打开，点目录展开；右键可插入 @ 路径。"), Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
 				core.Show{When: func() bool { return len(a.files.nodes.Get()) == 0 }, Then: func(*core.Scope) core.Node { return empty() }},
 				list,
 			}},
@@ -1138,7 +1141,7 @@ func (a *app) pickerDialog() core.Node {
 					}},
 					ui.IconButton{Icon: lucide.ArrowUp, Label: "上一级", Size: 28, IconSize: 14, OnPress: p.up},
 					ui.IconButton{Icon: lucide.RefreshCw, Label: "刷新", Size: 28, IconSize: 13, OnPress: func() { p.load(p.path.GetUntracked()) }},
-					ui.IconButton{Icon: lucide.Eye, Label: "显示隐藏文件", Size: 28, IconSize: 13,
+					ui.IconButton{Icon: lucide.Eye, Label: T("显示隐藏文件"), Size: 28, IconSize: 13,
 						Selected: p.hidden.Get, OnPress: func() { p.hidden.Update(func(v bool) bool { return !v }) }},
 				}},
 				core.View{Style: core.Style{Height: core.Pt(300), MinHeight: core.Pt(0), BorderWidth: 1, BorderColor: colors.Border(),
@@ -1312,7 +1315,7 @@ func (a *app) renameDialog() core.Node {
 		}},
 		Footer: []core.Node{
 			ui.Button{Text: "取消", Variant: ui.ButtonGhost, TestID: "rename-cancel", OnPress: func() { a.renameOpen.Set(false) }},
-			ui.Button{Text: "重命名", Variant: ui.ButtonPrimary, TestID: "rename-ok", OnPress: func() { a.rename() }},
+			ui.Button{Text: T("重命名"), Variant: ui.ButtonPrimary, TestID: "rename-ok", OnPress: func() { a.rename() }},
 		},
 	}
 }

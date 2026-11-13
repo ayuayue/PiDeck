@@ -110,3 +110,41 @@ func TestLanguageSwitch(t *testing.T) {
 	app.Press("text:简体中文")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:界面")) > 0 })
 }
+
+// TestMainUILabels checks the rail, welcome and composer strings have
+// both translations.
+func TestMainUILabels(t *testing.T) {
+	labels := []string{
+		"项目", "本机 pi 工作台", "搜索会话", "置顶", "还没有会话", "更多", "收起",
+		"概览", "文件", "没有打开的会话", "刷新文件", "显示隐藏文件",
+		"先打开一个工作区", "目录为空", "模型", "思考", "会话 ID", "上下文",
+		"输入", "输出", "缓存读", "费用", "工具调用", "导出 HTML", "终端",
+		"先添加一个项目文件夹，再开会话。", "打开一个会话，或者新建一个。",
+		"添加工作区", "导入 pi 会话", "运行中：回车插入引导，或点停止",
+		"正在启动 pi…", "给 pi 发消息…", "看看这个项目", "跑一遍测试",
+		"解释一处代码", "修一个小问题", "Enter 发送 · Shift+Enter 换行 · ⌘K 命令面板",
+	}
+	for _, text := range labels {
+		for _, lang := range []string{langEnUS, langZhTW} {
+			if strings.TrimSpace(messages[lang][text]) == "" {
+				t.Errorf("%q has no %s translation", text, lang)
+			}
+		}
+	}
+}
+
+// TestMainLanguageSwitch checks the rail and welcome change language too.
+func TestMainLanguageSwitch(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-general")
+	app.Press("text:English")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Interface")) > 0 })
+	app.Key("escape")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Projects")) > 0 })
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Add workspace")) > 0 })
+}

@@ -136,7 +136,7 @@ func (a *app) settingsDialog() core.Node {
 				}, Children: []core.Node{
 					ui.Button{Text: "重新检测", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.reloadFrameworks},
 					core.View{Style: core.Style{FlexGrow: 1}},
-					ui.Button{Text: "完成", Variant: ui.ButtonPrimary, OnPress: func() { a.settings.Set(false) }},
+					ui.Button{Text: "完成", Variant: ui.ButtonPrimary, TestID: "settings-done", OnPress: func() { a.settings.Set(false) }},
 				}},
 			}},
 		}}},
