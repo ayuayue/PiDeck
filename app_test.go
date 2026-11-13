@@ -27,7 +27,7 @@ func TestWelcome(t *testing.T) {
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Find(`text:"PiDeck Lite"`)
 	app.Find("text:添加工作区")
-	app.Find("text:导入 pi 会话")
+	app.Find("text:导入会话")
 }
 
 // TestWorkspacePicker adds the current folder through the browser and

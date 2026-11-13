@@ -1072,8 +1072,8 @@ func (a *app) pickerDialog() core.Node {
 		title := T("添加工作区")
 		sub := T("选一个项目文件夹；会话会在它的目录里运行。")
 		if importing {
-			title = T("导入 pi 会话")
-			sub = T("选一个 .jsonl 会话文件，复制到本应用自己的会话目录，不改动原文件。")
+			title = T("导入会话")
+			sub = T("选一个 pi、Codex 或 Claude 的 .jsonl 会话文件；会转换并复制到本应用自己的会话目录，不改动原文件。")
 		}
 		row := func(e pickEntry) core.Node {
 			selected := func() bool { return p.selected.Get() == e.Path }

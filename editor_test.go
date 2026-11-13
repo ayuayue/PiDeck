@@ -66,6 +66,8 @@ func TestFileEditorOpenSaveClose(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
+	// Wait for the save to reach the UI, or closing asks about a dirty file.
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:已保存 note.txt")) > 0 })
 	app.Key("mod+w")
 	app.WaitFor("id:composer", 5*time.Second)
 	if len(app.Query("id:editor")) != 0 {

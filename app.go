@@ -1314,7 +1314,7 @@ func (a *app) importSession(path string) {
 	if a.st == nil {
 		return
 	}
-	meta, err := a.st.importSession(path)
+	meta, err := a.st.importAnySession(path)
 	if err != nil {
 		a.toast(ui.ToastError, "导入失败", err.Error())
 		return

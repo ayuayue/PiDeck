@@ -144,7 +144,7 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openTargetDialog(targetWSL) }},
 		{ID: "add-ssh", Label: "在 SSH 主机上添加工作区…", Group: "工作区", Icon: lucide.Globe,
 			Run: func(a *app) { a.openTargetDialog(targetSSH) }},
-		{ID: "import", Label: "导入 pi 会话（系统选择器）…", Group: "工作区", Icon: lucide.FileInput,
+		{ID: "import", Label: "导入会话（pi / Codex / Claude）…", Group: "工作区", Icon: lucide.FileInput,
 			Run: func(a *app) { a.pickNative("import") }},
 		{ID: "browse-import", Label: "浏览文件导入会话…", Group: "工作区", Icon: lucide.FolderOpen,
 			Run: func(a *app) { a.openPicker("import") }},
