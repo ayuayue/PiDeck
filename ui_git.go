@@ -748,41 +748,74 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 // gitHistory lists the latest commits.
 func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 	colors := ui.ColorsOf(cx)
-	var rows []core.Node
-	for _, c := range st.Commits {
-		commit := c
-		rows = append(rows, core.View{
-			OnPress: func(core.PressEvent) { a.gitShowCommit(commit) },
-			Role:    core.RoleButton, Label: commit.Subject, TestID: "git-commit-row",
-			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(36),
-					Padding: core.Edges{Left: 4, Right: 2}, CornerRadius: 6, Transition: pressMotion,
-					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
-			},
-			Children: []core.Node{
-				ui.Icon(lucide.GitCommitHorizontal, 12, colors.Faint),
-				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 0}, Children: []core.Node{
-					core.Text{Content: commit.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FontSize: 11.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)},
-					core.Text{Content: commitLine(commit), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
-				}},
-				ui.Icon(lucide.ChevronRight, 10, colors.Faint),
-			},
-		})
-	}
-	if len(rows) == 0 {
-		rows = append(rows, core.Text{Content: T("还没有提交"), Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
-			StyleFunc: ui.Colored(colors.Faint)})
-	}
-	return core.View{Style: core.Style{Gap: 3}, Children: append([]core.Node{
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			core.Text{Content: T("历史"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.5}, StyleFunc: ui.Colored(colors.Faint)},
-			core.Text{Content: fmt.Sprint(len(st.Commits)), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
-			core.View{Style: core.Style{FlexGrow: 1}},
-			a.pressIcon(lucide.RefreshCw, T("刷新历史"), 21, 11, nil, func() { a.git.refreshAll() }, ""),
-		}},
-	}, rows...)}
+	search := core.Input{Value: a.git.logQuery.Get, OnChange: a.git.logQuery.Set,
+		Placeholder: T("搜索提交（标题、作者或哈希）…"), Label: T("搜索提交"), TestID: "git-log-search",
+		Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), CornerRadius: 6,
+			Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
+			Color: colors.Text(), FontSize: 10.5}}
+	list := core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		query := strings.ToLower(strings.TrimSpace(a.git.logQuery.Get()))
+		var rows []core.Node
+		shown := 0
+		for _, c := range st.Commits {
+			commit := c
+			if query != "" {
+				hay := strings.ToLower(commit.Subject + " " + commit.Author + " " + commit.Short + " " + commit.Hash)
+				if !strings.Contains(hay, query) {
+					continue
+				}
+			}
+			shown++
+			rows = append(rows, core.View{
+				OnPress: func(core.PressEvent) { a.gitShowCommit(commit) },
+				Role:    core.RoleButton, Label: commit.Subject, TestID: "git-commit-row",
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(36),
+						Padding: core.Edges{Left: 4, Right: 2}, CornerRadius: 6, Transition: pressMotion,
+						Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+				},
+				Children: []core.Node{
+					ui.Icon(lucide.GitCommitHorizontal, 12, colors.Faint),
+					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 0}, Children: []core.Node{
+						core.Text{Content: commit.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FontSize: 11.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)},
+						core.Text{Content: commitLine(commit), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
+					}},
+					ui.Icon(lucide.ChevronRight, 10, colors.Faint),
+				},
+			})
+		}
+		if len(rows) == 0 {
+			msg := T("还没有提交")
+			if query != "" {
+				msg = T("没有匹配的提交")
+			}
+			rows = append(rows, core.Text{Content: msg, Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
+				StyleFunc: ui.Colored(colors.Faint)})
+		}
+		if query == "" && st.LogLimit > 0 && len(st.Commits) >= st.LogLimit && st.LogLimit < 500 {
+			rows = append(rows, core.View{OnPress: func(core.PressEvent) { a.git.loadMore() },
+				Role: core.RoleButton, Label: T("加载更多提交"), TestID: "git-log-more",
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+						Height: core.Pt(26), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
+				}, Children: []core.Node{ui.Text(T("加载更多提交"), 10.5, ui.Regular, colors.Muted)}})
+		}
+		return core.View{Style: core.Style{Gap: 3}, Children: append([]core.Node{
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+				core.Text{Content: T("历史"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.5}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: fmt.Sprint(shown), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+				core.View{Style: core.Style{FlexGrow: 1}},
+				a.pressIcon(lucide.RefreshCw, T("刷新历史"), 21, 11, nil, func() { a.git.refreshAll() }, ""),
+			}},
+		}, rows...)}
+	})
+	return core.View{Style: core.Style{Gap: 3}, Children: []core.Node{
+		search,
+		list,
+	}}
 }
 
 // commitLine is a commit's short hash, author and day.

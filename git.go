@@ -89,6 +89,8 @@ type gitState struct {
 	Files    []gitFile
 	Commits  []gitCommit
 	Branches []string
+	// LogLimit is how many commits were asked for.
+	LogLimit int
 	Error    string
 }
 
@@ -121,14 +123,18 @@ type gitRepo struct {
 	path   string
 	target target
 
-	state *core.Signal[gitState]
-	msg   *core.Signal[string]
-	amend *core.Signal[bool]
-	busy  *core.Signal[string]
-	err   *core.Signal[string]
+	state    *core.Signal[gitState]
+	logQuery *core.Signal[string]
+	msg      *core.Signal[string]
+	amend    *core.Signal[bool]
+	busy     *core.Signal[string]
+	err      *core.Signal[string]
 
 	// onResult lets the app toast an action's outcome.
 	onResult func(label string, err error)
+
+	// logLimit grows as the history's "more" is pressed.
+	logLimit int
 
 	seq     int
 	working bool
@@ -139,12 +145,14 @@ type gitRepo struct {
 // newGitRepo builds the panel's state.
 func newGitRepo(cx *core.Scope) *gitRepo {
 	return &gitRepo{
-		cx:    cx,
-		state: core.NewSignalFunc(cx, gitState{Checked: true}, nil),
-		msg:   core.NewSignal(cx, ""),
-		amend: core.NewSignal(cx, false),
-		busy:  core.NewSignal(cx, ""),
-		err:   core.NewSignal(cx, ""),
+		cx:       cx,
+		state:    core.NewSignalFunc(cx, gitState{Checked: true}, nil),
+		logQuery: core.NewSignal(cx, ""),
+		logLimit: 50,
+		msg:      core.NewSignal(cx, ""),
+		amend:    core.NewSignal(cx, false),
+		busy:     core.NewSignal(cx, ""),
+		err:      core.NewSignal(cx, ""),
 	}
 }
 
@@ -173,6 +181,8 @@ func (r *gitRepo) attach(ws *workspace) bool {
 	}
 	r.seq++
 	r.working, r.running, r.pending = false, false, false
+	r.logLimit = 50
+	r.logQuery.Set("")
 	r.err.Set("")
 	r.busy.Set("")
 	r.msg.Set("")
@@ -200,7 +210,7 @@ func (r *gitRepo) refreshAll() {
 	r.state.Update(func(s gitState) gitState { s.Loading = true; return s })
 	seq := r.seq
 	go func() {
-		st := readGitState(t, path)
+		st := readGitState(t, path, r.logLimit)
 		r.cx.Post(func() {
 			if seq != r.seq {
 				return
@@ -215,6 +225,15 @@ func (r *gitRepo) refreshAll() {
 			}
 		})
 	}()
+}
+
+// loadMore asks for another page of history.
+func (r *gitRepo) loadMore() {
+	if r.logLimit >= 500 {
+		return
+	}
+	r.logLimit += 50
+	r.refreshAll()
 }
 
 // poll reads the status alone, for the drawer's periodic refresh.
@@ -327,7 +346,10 @@ func (r *gitRepo) run(label string, fn func(g gitRunner) error, done func(error)
 }
 
 // readGitState reads a repository's status, root, history and branches.
-func readGitState(t target, dir string) gitState {
+func readGitState(t target, dir string, logLimit int) gitState {
+	if logLimit <= 0 {
+		logLimit = 50
+	}
 	st, err := readGitStatus(t, dir)
 	if err != nil {
 		return gitState{Checked: true, Error: err.Error()}
@@ -338,9 +360,10 @@ func readGitState(t target, dir string) gitState {
 	if out, _, code, err := gitRun(t, dir, 20*time.Second, "rev-parse", "--show-toplevel"); err == nil && code == 0 {
 		st.Root = strings.TrimSpace(out)
 	}
-	if out, _, code, err := gitRun(t, dir, 30*time.Second, "--no-pager", "log", "-n", "50", "--date=iso-strict",
+	if out, _, code, err := gitRun(t, dir, 30*time.Second, "--no-pager", "log", "-n", fmt.Sprint(logLimit), "--date=iso-strict",
 		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e"); err == nil && code == 0 {
 		st.Commits = parseGitLog(out)
+		st.LogLimit = logLimit
 	}
 	if out, _, code, err := gitRun(t, dir, 20*time.Second, "branch", "--list", "--format=%(refname:short)"); err == nil && code == 0 {
 		st.Branches = parseGitBranches(out)

@@ -386,6 +386,10 @@ var messages = map[string]map[string]string{
 		"未分组":  "Ungrouped",
 		"项目排序": "Project order",
 		"侧栏项目按手动顺序、最近活动、创建时间或名称排列；置顶项目总在最前。": "Projects sort by manual order, recent activity, creation time or name; pinned ones stay first.",
+		"搜索提交（标题、作者或哈希）…":                    "Search commits (subject, author or hash)…",
+		"搜索提交":    "Search commits",
+		"没有匹配的提交": "No matching commits",
+		"加载更多提交":  "Load more commits",
 		// General settings.
 		"界面": "Interface",
 		"语言": "Language",
@@ -774,6 +778,10 @@ var messages = map[string]map[string]string{
 		"未分组":  "未分組",
 		"项目排序": "專案排序",
 		"侧栏项目按手动顺序、最近活动、创建时间或名称排列；置顶项目总在最前。": "側欄專案依手動順序、最近活動、建立時間或名稱排列；置頂專案總在最前。",
+		"搜索提交（标题、作者或哈希）…":                    "搜尋提交（標題、作者或雜湊）…",
+		"搜索提交":    "搜尋提交",
+		"没有匹配的提交": "沒有符合的提交",
+		"加载更多提交":  "載入更多提交",
 		// General settings.
 		"界面": "介面",
 		"语言": "語言",

@@ -72,6 +72,14 @@ func TestGitDrawer(t *testing.T) {
 	app.Advance(300 * time.Millisecond)
 	shot(app, "40-git")
 
+	// The history filter keeps only matching commits.
+	app.Type("id:git-log-search", "第一次")
+	waitApp(app, "id:git-commit-row", 10*time.Second)
+	app.Type("id:git-log-search", "不存在")
+	waitApp(app, "text:没有匹配的提交", 10*time.Second)
+	app.Clear("id:git-log-search")
+	waitApp(app, "id:git-commit-row", 10*time.Second)
+
 	// Outside changes show up on their own: one staged, one in the
 	// worktree.
 	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello git again"), 0o644); err != nil {
