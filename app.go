@@ -157,6 +157,10 @@ type app struct {
 	resources        *core.Signal[resourceReport]
 	resourcesLoading *core.Signal[bool]
 	resourcesLoaded  bool
+	// Parallel inquiry: the question, its answer and the session it ran in.
+	askBox  *core.Signal[askBox]
+	askText *core.Signal[string]
+
 	// The prompt library: its packs, the dialog's query and category.
 	prompts     *core.Signal[[]promptItem]
 	promptOpen  *core.Signal[bool]
@@ -305,6 +309,8 @@ func newApp(cx *core.Scope) *app {
 		usageLoading:     core.NewSignal(cx, false),
 		resources:        core.NewSignalFunc(cx, resourceReport{}, nil),
 		resourcesLoading: core.NewSignal(cx, false),
+		askBox:           core.NewSignal(cx, askBox{}),
+		askText:          core.NewSignal(cx, ""),
 		prompts:          core.NewSignalFunc(cx, []promptItem(nil), nil),
 		promptOpen:       core.NewSignal(cx, false),
 		promptQuery:      core.NewSignal(cx, ""),
@@ -1218,6 +1224,17 @@ func (a *app) removeWorkspace(ws *workspace) {
 		return
 	}
 	a.askConfirm("移除工作区", fmt.Sprintf("从侧栏移除「%s」？会话文件仍保留在磁盘上。", ws.label()), "移除", func() {
+		a.removeWorkspaceNow(ws)
+	})
+}
+
+// removeWorkspaceNow takes a folder off the rail, without asking: the
+// phone's removal comes in already confirmed.
+func (a *app) removeWorkspaceNow(ws *workspace) {
+	if ws == nil {
+		return
+	}
+	{
 		for _, s := range ws.Sessions.GetUntracked() {
 			a.closeTab(s.ID)
 			delete(a.byID, s.ID)
@@ -1258,7 +1275,7 @@ func (a *app) removeWorkspace(ws *workspace) {
 			a.git.attach(nil)
 		}
 		a.remember()
-	})
+	}
 }
 
 // importSession copies a session file into the app's store and opens it.

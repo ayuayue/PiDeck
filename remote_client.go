@@ -166,6 +166,11 @@ func (c *remoteClient) createSession(project string) (string, string, error) {
 	return out.ID, out.Title, nil
 }
 
+// addProject puts a folder on the desktop's rail; remove takes one off.
+func (c *remoteClient) addProject(path string, remove bool) error {
+	return c.post("/api/projects", map[string]any{"path": path, "remove": remove}, nil)
+}
+
 // search looks for a word in every session's messages.
 func (c *remoteClient) search(query, project string) ([]remoteWireHit, error) {
 	path := "/api/search?q=" + url.QueryEscape(query)

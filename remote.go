@@ -319,6 +319,7 @@ func (h *remoteHost) handler() http.Handler {
 	mux.HandleFunc("/api/session/", h.handleSession)
 	mux.HandleFunc("/api/sessions", h.handleCreateSession)
 	mux.HandleFunc("/api/search", h.handleSearch)
+	mux.HandleFunc("/api/projects", h.handleProject)
 	mux.HandleFunc("/api/sessions/", h.handleSessionAction)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -560,6 +561,48 @@ func snippetAround(text string, at int, query string) string {
 		cut += "…"
 	}
 	return cut
+}
+
+// handleProject adds or removes a project folder on the desktop.
+func (h *remoteHost) handleProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Path   string `json:"path"`
+		Remove bool   `json:"remove"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	path := strings.TrimSpace(body.Path)
+	if path == "" {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少文件夹路径"})
+		return
+	}
+	if body.Remove {
+		var failure error
+		ok := h.app.withUI(func() {
+			ws := h.app.workspaceOf(path)
+			if ws == nil {
+				failure = errors.New("找不到这个项目")
+				return
+			}
+			h.app.removeWorkspaceNow(ws)
+		})
+		h.finishAction(w, ok, failure, map[string]any{"ok": true})
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "电脑上找不到这个文件夹"})
+		return
+	}
+	var failure error
+	ok := h.app.withUI(func() { h.app.addWorkspace(path) })
+	h.finishAction(w, ok, failure, map[string]any{"ok": true, "name": filepath.Base(path)})
 }
 
 // handleCreateSession starts a session in one of the projects.

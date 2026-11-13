@@ -78,6 +78,11 @@ type mobileApp struct {
 	renameText *core.Signal[string]
 	newOpen    *core.Signal[bool]
 	creating   *core.Signal[bool]
+	// addPath is the folder being added, removePath the project being
+	// taken off the desktop.
+	addPath    *core.Signal[string]
+	addOpen    *core.Signal[bool]
+	removePath *core.Signal[string]
 
 	// options are the open session's models and thinking levels, shown in
 	// the sheet over optionsOpen.
@@ -140,6 +145,9 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		renameText:     core.NewSignal(cx, ""),
 		newOpen:        core.NewSignal(cx, false),
 		creating:       core.NewSignal(cx, false),
+		addPath:        core.NewSignal(cx, ""),
+		addOpen:        core.NewSignal(cx, false),
+		removePath:     core.NewSignal(cx, ""),
 		options:        core.NewSignalFunc(cx, remoteWireOptions{}, nil),
 		optionsOpen:    core.NewSignal(cx, false),
 		toolOpen:       core.NewSignal(cx, ""),
@@ -181,6 +189,8 @@ func (a *mobileApp) view() core.Node {
 		a.renameSheet(),
 		a.newSessionSheet(),
 		a.optionsSheet(),
+		a.addProjectSheet(),
+		a.removeProjectSheet(),
 	}}
 }
 
@@ -1200,12 +1210,102 @@ func (a *mobileApp) newSessionSheet() core.Node {
 				}, "mobile-new-project"))
 			}
 			if len(rows) == 0 {
-				rows = append(rows, core.Text{Content: "电脑上还没有项目", Style: core.Style{FontSize: 12, Padding: core.Symmetric(8, 6)},
+				rows = append(rows, core.Text{Content: "电脑上还没有项目，先添加一个文件夹。", Style: core.Style{FontSize: 12, Padding: core.Symmetric(8, 6)},
 					StyleFunc: ui.Colored(colors.Faint)})
 			}
+			rows = append(rows, core.View{Style: core.Style{Margin: core.Edges{Top: 6}}, Children: []core.Node{
+				a.sheetRow(lucide.FolderPlus, "添加项目…", colors.Accent, func() {
+					a.newOpen.Set(false)
+					a.addPath.Set("")
+					a.addOpen.Set(true)
+				}, "mobile-add-project"),
+			}})
 			return core.View{Style: core.Style{Gap: 2}, Children: rows}
 		})},
 	}
+}
+
+// addProjectSheet asks for a folder to put on the desktop's rail.
+func (a *mobileApp) addProjectSheet() core.Node {
+	return ui.Dialog{
+		Open: func() bool { return a.addOpen.Get() },
+		OnOpenChange: func(open bool, _ base.Reason) {
+			if !open {
+				a.addOpen.Set(false)
+			}
+		},
+		Title:       "添加项目",
+		Description: "填电脑上的文件夹路径，和电脑端「添加工作区」是同一件事。",
+		TestID:      "mobile-add-project-sheet",
+		Style:       core.Style{Width: core.Pt(360)},
+		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			return core.Input{Value: a.addPath.Get, OnChange: a.addPath.Set, Label: "文件夹路径", TestID: "mobile-add-path",
+				Placeholder: "例如 C:/Users/me/project", OnSubmit: func(string) { a.addProject() },
+				Style: core.Style{Height: core.Pt(42), Padding: core.Symmetric(0, 10), FontSize: 13.5, Color: colors.Text(),
+					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 9,
+					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}}
+		})},
+		Footer: []core.Node{
+			ui.Button{Text: "添加", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-add-yes", OnPress: a.addProject},
+			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.addOpen.Set(false) }},
+		},
+	}
+}
+
+// removeProjectSheet confirms taking a project off the desktop's rail.
+func (a *mobileApp) removeProjectSheet() core.Node {
+	return ui.Dialog{
+		Open: func() bool { return a.removePath.Get() != "" },
+		OnOpenChange: func(open bool, _ base.Reason) {
+			if !open {
+				a.removePath.Set("")
+			}
+		},
+		Title:       "移除项目",
+		Description: "只是从电脑端的侧栏移除，会话文件和项目目录都还在。",
+		TestID:      "mobile-remove-project-sheet",
+		Footer: []core.Node{
+			ui.Button{Text: "移除", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-remove-yes",
+				OnPress: func() { a.changeProject(a.removePath.GetUntracked(), true) }},
+			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.removePath.Set("") }},
+		},
+	}
+}
+
+// addProject applies the add sheet.
+func (a *mobileApp) addProject() {
+	path := strings.TrimSpace(a.addPath.GetUntracked())
+	if path == "" {
+		return
+	}
+	a.addOpen.Set(false)
+	a.changeProject(path, false)
+}
+
+// changeProject adds or removes a folder on the desktop.
+func (a *mobileApp) changeProject(path string, remove bool) {
+	client := a.client
+	if client == nil || path == "" {
+		return
+	}
+	a.removePath.Set("")
+	go func() {
+		err := client.addProject(path, remove)
+		a.cx.Post(func() {
+			if err != nil {
+				a.err.Set(remoteErrorText(err))
+				return
+			}
+			a.err.Set("")
+			if remove {
+				a.flash("已移除项目")
+			} else {
+				a.flash("已添加项目")
+			}
+			a.refreshState()
+		})
+	}()
 }
 
 // startNewSession creates a session, asking for the project when there are
