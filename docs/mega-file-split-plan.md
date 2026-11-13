@@ -334,3 +334,17 @@
 ### 现在的 `index.ts` 还剩什么
 
 4964 行里约一半仍是 `app.whenReady().then(...)` 装配体（`createWindow` 之后的窗口/托盘/桥接/remote-access 已经搬走，剩下的是把各个 `startXxx` 串起来的顺序代码 + `registerIpc` 的 387 行 + 若干顶层 helper：`sessionMessageSearchInFile 220`、`resolveImSessionLaunchPreferences 219`、`replaceAgentSession 201`）。继续拆的收益开始递减——剩下的多是「装配顺序」本身，抽出去只会得到一层薄转发。下一轮更适合转 `AgentManager 5859` / `session-atoms 2213` / `GitPanel 1960`。
+
+## 第九轮：AgentManager 创建域 + GitPanel 逻辑层拆分（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `pi/AgentManager.ts` | 5859 | **5259** | `agentFactoryHost 92`（窄接口，32 成员）+ `agentFactoryLocal 334` + `agentFactoryRemote 360` + `promptDispatch`；`createUnlocked` / `createRemoteUnlocked` 的实现搬走，宿主留同名薄包装（测试按实例属性替换它） |
+| `renderer/components/app/GitPanel.tsx` | 1960 | **1191** | `components/app/git/` 新增 14 个文件（≤120 行）：`gitPaneLayout` / `GitPaneSash` / `gitPanelStorage` / `gitPanelToasts` / `changeGroupSpecs` + 8 个 `useGit*` hook |
+
+### 本轮撞到的两道墙（都很典型，记下来）
+
+1. **「真渲染型」契约测试会挡住组件搬迁**：`tests/gitPanelCapabilityGate.test.mjs` 用 `loadTsCommonJs` + `stubs` 真渲染 GitPanel，stub 的 key 是「相对 `components/app/` 的模块说明符」。JSX 一搬进 `app/git/`，说明符变成 `../../ui-shadcn/*`、`../AppParts`，stub 全失配 → vm 里去加载真实模块直接崩（`window is not defined`、TS 转译 `Debug Failure`）。叠加多条顺序敏感切片（分支栏要在 `<section` 之前、三个 toolbar 的先后、PaneHeader 切片要含 `changesViewToolbar`），JSX 层**搬不动**。
+   → 应对：**逻辑层搬迁**——纯模块与 hook 搬走，JSX / DOM / testid / i18n / 依赖数组一字不动。新建的 helper 必须用**显式文件清单**，不能目录扫描整个 `git/`，否则 `GitGraph` / `GitResourceTree` 混进聚合面会打坏 `font-mono` 计数=1 那条断言。
+2. **又一个「切片锚点失效」**：`agentHistoryLoadFreeze` 用 `private async createUnlocked` → `\n\tasync rename(` 切片；搬迁后宿主只剩**非 async** 的薄包装、实现在 `agentFactoryLocal.ts`，`indexOf` 返回 -1，`slice(-1, …)` 得到空串，断言报 `actual: ''`。
+   → 修法：锚**实现**起点，再切到「下一个文件边界」（聚合面用 `// <path>` 分隔）。这类「切到下一个函数名」的断言在拆分语境下天然脆弱，以后一律改成文件边界切片。
