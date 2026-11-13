@@ -11,7 +11,7 @@ import { samePiConfigTarget } from "../piConfigTargetModel";
 type ConfigSection = "config" | "security" | "skills" | "prompts" | "extensions" | "mcp";
 
 /** 待切换环境的确认单：next 目标 + 会因此丢失的草稿 key。 */
-type PendingEnvSwitch = { next: PiConfigTarget; dirtyKeys: string[] };
+export type PendingEnvSwitch = { next: PiConfigTarget; dirtyKeys: string[] };
 
 type ConfigEnvSwitchDeps = {
 	pendingEnvSwitch: PendingEnvSwitch | null;

@@ -69,7 +69,8 @@ test("每个配置页按环境取内容：ssh 面板 ×4，wsl 走该发行版�
 	assert.match(modal, /api\.config\.getRaw\(fileName, configTargetOption\)/);
 	assert.match(modal, /showFileSelector=\{false\}/);
 	// provider 探针只从本机网络出口发起：非本机环境即使读到 key 也不发发现请求。
-	assert.match(modal, /configTarget\.kind === "local" && authRes/);
+	// 读盘链路已迁入 useConfigLoader：同一处判定改用 targetKind（它的值就是 configTarget.kind）
+	assert.match(modal, /targetKind === "local" && authRes/);
 	// ssh 目标下 loadConfig 一次本地读盘都不走。
 	assert.match(modal, /if \(configTarget\.kind === "ssh"\) return;/);
 	// 环境切换必须驱动一次整页重读：local↔ssh 的 target 选项都是 undefined，只靠 loadConfig 身份变化不够。

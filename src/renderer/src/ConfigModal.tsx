@@ -1,8 +1,6 @@
-import { Button, buttonVariants } from "./components/ui-shadcn/button";
+import { Button } from "./components/ui-shadcn/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui-shadcn/tabs";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "./components/ui-shadcn/dialog";
-import { ConfirmDialog } from "./components/ui-shadcn/ConfirmDialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./components/ui-shadcn/alert-dialog";
 import { X, Cpu, FileCode2, FileText, KeyRound, Loader2, LogIn, Puzzle, Settings2, Shield, ShieldCheck, Sparkles, PlugZap, FolderOpen } from "lucide-react";
 import { cn } from "./lib/utils";
 import { WORKBENCH_DIALOG_SIZE_CLASS } from "./components/common/workbenchDialogSize";
@@ -44,8 +42,15 @@ import { SecuritySection, type SecuritySectionHandle } from "./components/config
 import { ConfigAuthTab, useConfigAuthEditing } from "./config/configModal/ConfigAuthTab";
 import { ConfigSettingsTab, useConfigSettingsEditing } from "./config/configModal/ConfigSettingsTab";
 import { ConfigTrustTab, useConfigTrustEditing } from "./config/configModal/ConfigTrustTab";
-import { ConfigRawSwitchConfirm, ConfigRawTab, useConfigRawEditing } from "./config/configModal/ConfigRawTab";
-import { useConfigEnvSwitch } from "./config/configModal/ConfigEnvSwitch";
+import { ConfigRawTab, useConfigRawEditing } from "./config/configModal/ConfigRawTab";
+import { useConfigEnvSwitch, type PendingEnvSwitch } from "./config/configModal/ConfigEnvSwitch";
+import { ConfigModalDialogs, type ConfigDeleteConfirm } from "./config/configModal/ConfigModalDialogs";
+import { loadLastConfigBackendPane, loadLastConfigTab, loadLastConfigTarget, normalizeModelsFile, parseJsonObject, parseSectionTabValue, rememberConfigBackendPane, rememberConfigTab, rememberConfigTarget, sameConfigTargetHosts, sectionTabValue, type ConfigSection } from "./config/configModal/configModalStorage";
+import { ConfigNavSidebar, type ConfigNavItem } from "./config/configModal/ConfigNavSidebar";
+import { useConfigLoader } from "./config/configModal/useConfigLoader";
+import { ConfigSkillsTab } from "./config/configModal/ConfigSkillsTab";
+import { ConfigModalShell } from "./config/configModal/ConfigModalShell";
+import { ConfigMcpTab } from "./config/configModal/ConfigMcpTab";
 import { useConfigPromptsEditing } from "./config/configModal/useConfigPromptsEditing";
 import { useConfigSkillsEditing } from "./config/configModal/useConfigSkillsEditing";
 import { useConfigExtensionsEditing } from "./config/configModal/useConfigExtensionsEditing";
@@ -76,144 +81,6 @@ import { dshModuleHiddenAtom, dshRuntimeStatusAtom, projectByIdAtomFamily } from
 import { dshUiVisibilityFor } from "../../shared/types/dshRuntime";
 
 const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi }).piDesktop;
-
-/** 读取原文后解析成对象；损坏的文件回退空对象（诊断卡负责说明），不让一次 parse 失败挡住整页。 */
-function parseJsonObject<T extends Record<string, unknown>>(raw: string, fallback: T): T {
-	try {
-		const parsed: unknown = JSON.parse(raw);
-		return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as T) : fallback;
-	} catch {
-		return fallback;
-	}
-}
-
-// ── 配置弹窗左侧导航 = shadcn Vertical Tabs ──
-// config 组子页（模型/认证/设置/信任/MCP/原始文件）用 "config:<tab>" 复合值，
-// 其余组直接以 section 名作 value；Tabs 受控 value 由此编码，业务仍走 section/tab 双 state，
-// loadConfig 等既有依赖零改动。
-type ConfigSection = "config" | "security" | "skills" | "prompts" | "extensions" | "mcp";
-
-// 注意：修改 ConfigSection/ConfigTab 枚举时需同步更新 CONFIG_SECTIONS/CONFIG_TABS 校验数组
-
-/** section+tab → Tabs value（config 组子页编码为 "config:<tab>"）。 */
-function sectionTabValue(section: ConfigSection, tab: ConfigTab): string {
-	return section === "config" ? `config:${tab}` : section;
-}
-
-/** localStorage 键：Pi 管理页上次打开的 tab（重开弹窗时恢复位置，跨应用重启保留）。 */
-const CONFIG_LAST_TAB_KEY = "pideck-config-last-tab";
-
-/** localStorage 键：Pi 环境上次选择（重开弹窗时恢复：用户选过的机器不该每次被打回本机）。 */
-const CONFIG_LAST_TARGET_KEY = "pideck-config-last-target";
-
-/**
- * 主机清单结构等价：分区重新可见时会重读一次清单，但「内容没变」不应换来一个新数组身份
- * （状态条按 hosts 变化自动确保连接，身份一变就会重发连接/重弹密码框）。
- */
-function sameConfigTargetHosts(left: readonly PiConfigTargetHost[], right: readonly PiConfigTargetHost[]): boolean {
-	if (left.length !== right.length) return false;
-	for (let index = 0; index < left.length; index += 1) {
-		const before = left[index];
-		const after = right[index];
-		if (before.kind !== after.kind) return false;
-		if (before.kind === "ssh" && (after.kind !== "ssh" || before.id !== after.id || before.label !== after.label || before.sshHost !== after.sshHost)) return false;
-		if (before.kind === "wsl" && (after.kind !== "wsl" || before.label !== after.label || before.distro !== after.distro || before.user !== after.user)) return false;
-	}
-	return true;
-}
-
-/** 读取上次选定的 Pi 环境；值失效/损坏一律回本机（host 是否仍存在由主机清单回来后判定）。 */
-function loadLastConfigTarget(): PiConfigTarget {
-	try {
-		const parsed: unknown = JSON.parse(localStorage.getItem(CONFIG_LAST_TARGET_KEY) ?? "null");
-		if (typeof parsed !== "object" || parsed === null) return { kind: "local" };
-		const record = parsed as { kind?: unknown; hostId?: unknown };
-		// 旧值里 WSL 目标带 hostId（档案已退役）：一律归一到“那一个 WSL 环境”。
-		if (record.kind === "wsl") return { kind: "wsl" };
-		if (record.kind === "ssh" && typeof record.hostId === "string" && record.hostId.length > 0) return { kind: "ssh", hostId: record.hostId };
-		return { kind: "local" };
-	} catch {
-		return { kind: "local" };
-	}
-}
-
-/** 记住本次选择的 Pi 环境；localStorage 不可用（隐私模式）时只影响下次打开，不影响当前页。 */
-function rememberConfigTarget(target: PiConfigTarget): void {
-	try {
-		localStorage.setItem(CONFIG_LAST_TARGET_KEY, JSON.stringify(target));
-	} catch {
-		/* 静默失败：记忆位置是锦上添花，不能影响切换本身 */
-	}
-}
-
-/** localStorage 键：配置管理顶层后端分页（Pi/DSH）上次选择（重开弹窗时恢复）。 */
-const CONFIG_BACKEND_PANE_KEY = "pideck-config-backend-pane";
-
-/** 读取上次选定的配置管理后端分页；无记录/值失效时回退 Pi（默认后端，Pi 标签在左）。 */
-function loadLastConfigBackendPane(): "dsh" | "pi" {
-	try {
-		return localStorage.getItem(CONFIG_BACKEND_PANE_KEY) === "dsh" ? "dsh" : "pi";
-	} catch {
-		return "pi";
-	}
-}
-
-/** 全部合法 section / config 组子 tab，用于校验持久化值（避免版本更新后残留旧值导致无高亮）。 */
-const CONFIG_SECTIONS: readonly ConfigSection[] = ["config", "security", "skills", "prompts", "extensions", "mcp"];
-const CONFIG_TABS: readonly ConfigTab[] = ["models", "auth", "oauth", "settings", "trust", "mcp", "raw"];
-/**
- * 读取上次打开的 tab；localStorage 不可用、无记录或值已失效时返回 null（由调用方回退默认值）。
- * Radix Dialog 关闭会卸载内容，state 在每次打开时重建，因此需要从外部存储恢复。
- */
-function loadLastConfigTab(): { section: ConfigSection; tab?: ConfigTab } | null {
-	try {
-		const raw = localStorage.getItem(CONFIG_LAST_TAB_KEY);
-		if (!raw) return null;
-		const parsed = parseSectionTabValue(raw);
-		if (!CONFIG_SECTIONS.includes(parsed.section)) return null;
-		if (parsed.section === "config" && (!parsed.tab || !CONFIG_TABS.includes(parsed.tab))) return null;
-		return parsed;
-	} catch {
-		return null;
-	}
-}
-
-/** Tabs value → section/tab；非 config 组无子 tab。 */
-function parseSectionTabValue(value: string): {
-	section: ConfigSection;
-	tab?: ConfigTab;
-} {
-	const idx = value.indexOf(":");
-	if (idx > 0) {
-		return {
-			section: value.slice(0, idx) as ConfigSection,
-			tab: value.slice(idx + 1) as ConfigTab,
-		};
-	}
-	return { section: value as ConfigSection };
-}
-
-/**
- * 配置页必须能打开用户手写/旧版本生成的非标准 models.json。
- * pi 自身对配置较宽松，但 UI 会访问 provider.models.length / map；这里先把缺失或异常字段归一化，
- * 避免单个 provider 配置错误导致整个 renderer 白屏。
- */
-function normalizeModelsFile(value: unknown): ModelsFile {
-	const rawProviders = value && typeof value === "object" && !Array.isArray(value) ? (value as { providers?: unknown }).providers : undefined;
-	const providers: ModelsFile["providers"] = {};
-	if (!rawProviders || typeof rawProviders !== "object" || Array.isArray(rawProviders)) {
-		return { providers };
-	}
-	for (const [name, rawProvider] of Object.entries(rawProviders)) {
-		const provider = rawProvider && typeof rawProvider === "object" && !Array.isArray(rawProvider) ? (rawProvider as Record<string, unknown>) : {};
-		const rawModels = provider.models;
-		providers[name] = {
-			...provider,
-			models: Array.isArray(rawModels) ? rawModels.filter((model): model is ModelItem | string => Boolean(model) && ((typeof model === "object" && !Array.isArray(model)) || typeof model === "string")).map((model) => (typeof model === "string" ? { id: model } : model)) : [],
-		};
-	}
-	return { providers };
-}
 
 type ConfigModalProps = {
 	open: boolean;
@@ -493,11 +360,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		// 用量查询弹窗是 per-provider 的：切换 Pi/DSH 页时关闭，
 		// 避免「从认证页点开、切到模型页后弹窗还挂着」的越界出现（用户反馈的闪现 bug）。
 		setUsageProbeDialog(null);
-		try {
-			localStorage.setItem(CONFIG_BACKEND_PANE_KEY, next);
-		} catch {
-			/* localStorage 不可用（隐私模式等）时静默失败，仅本次会话内不记忆 */
-		}
+		rememberConfigBackendPane(next);
 	}, []);
 	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
@@ -543,7 +406,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	}, []);
 	const resetRemoteDirty = useCallback(() => setRemoteDirtyFiles(new Set()), []);
 	/** 带草稿切换环境时的确认（保存并切换 / 放弃并切换 / 取消）。 */
-	const [pendingEnvSwitch, setPendingEnvSwitch] = useState<{ next: PiConfigTarget; dirtyKeys: string[] } | null>(null);
+	const [pendingEnvSwitch, setPendingEnvSwitch] = useState<PendingEnvSwitch | null>(null);
 	const [remoteDiscardConfirmOpen, setRemoteDiscardConfirmOpen] = useState(false);
 	const remoteTargetHostId = configTarget.kind === "ssh" ? configTarget.hostId : null;
 	const remoteHostLabel = remoteTargetHostId ? remoteConfigHosts.find((host) => host.kind === "ssh" && host.id === remoteTargetHostId)?.label : undefined;
@@ -905,38 +768,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// 正在重置为自适应的模型行 key（`${providerName}\u0000${index}`），null 表示无。
 	const [resettingModelKey, setResettingModelKey] = useState<string | null>(null);
 
-	/**
-	 * 根据 API 类型返回对应的获取模型提示。
-	 * 不同服务对 /models 端点的支持不同，提供针对性的指导。
-	 */
-	function getFetchModelsHintByApi(api: string | undefined, baseUrl: string): string {
-		switch (api) {
-			case "openai-completions":
-				return t("config.fetchModelsHintOpenaiCompletions", { baseUrl });
-			case "openai-responses":
-				return t("config.fetchModelsHintOpenai", { baseUrl });
-			case "openai-codex-responses":
-				return t("config.fetchModelsHintOpenaiCodex");
-			case "anthropic-messages":
-				return t("config.fetchModelsHintAnthropic");
-			case "google-generative-ai":
-				return t("config.fetchModelsHintGoogle");
-			case "mistral-conversations":
-				return t("config.fetchModelsHintMistral");
-			case "azure-openai-responses":
-				return t("config.fetchModelsHintAzure");
-			case "google-vertex":
-				return t("config.fetchModelsHintVertex");
-			case "bedrock-converse-stream":
-				return t("config.fetchModelsHintBedrock");
-			case "pi-messages":
-				return t("config.fetchModelsHintPiMessages");
-			default:
-				// 未知 API 类型时使用通用提示
-				return t("config.fetchModelsHint");
-		}
-	}
-
 	// 每个 provider 独立的模型拉取错误状态，避免全局 setError 相互覆盖
 	const [fetchModelsErrorByProvider, setFetchModelsErrorByProvider] = useState<Record<string, string | undefined>>({});
 	// 快速测试连接
@@ -955,12 +786,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// 独立于全局代理开关：有些供应商（如海外网关）只在代理下才通，而全局开关会影响所有会话。
 	const [testProxyModeByProvider, setTestProxyModeByProvider] = useState<Record<string, ConfigProxyMode>>({});
 	// 删除确认对话框
-	const [deleteConfirm, setDeleteConfirm] = useState<{
-		type: "provider" | "model" | "auth" | "batch";
-		title: string;
-		message: string;
-		onConfirm: () => void;
-	} | null>(null);
+	const [deleteConfirm, setDeleteConfirm] = useState<ConfigDeleteConfirm | null>(null);
 
 	/**
 	 * 检测成功且实际走通 /v1（或 /v1beta）时，把表单里的 baseUrl 自动改成带版本路径。
@@ -995,217 +821,35 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		[markDirty],
 	);
 
-	const loadConfig = useCallback(
-		async (target: ConfigTab, options?: { force?: boolean; silent?: boolean }) => {
-			// OAuth 页的数据来自 pi 认证服务（listProviders）而不是配置文件：不走这条读盘链路。
-			if (target === "oauth") return;
-			// SSH 环境的所有配置页都是自加载的远端面板（脱敏快照 + patch 编辑）：本机读盘链路一次都不走，
-			// 否则会把 Windows HOME 的配置当成那台主机的配置显示出来。
-			if (configTarget.kind === "ssh") return;
-			// silent：测试连接成功后回读磁盘用——不置 loading，避免 ModelsTab 在
-			// `!loading && ...` 条件下被卸载重建、滚动容器内容塔缩后 scrollTop 归零。
-			if (!options?.silent) setLoading(true);
-			setError(null);
-			setConfigDiagnostic(null);
-			try {
-				// 切 tab 时不要把仍有草稿的内存冲掉；保存/导入传 force 才整页对齐磁盘。
-				const preserved = options?.force ? new Set<string>() : dirtyKeysPreservedOnReload(target, dirtyTabsRef.current);
-				const skipModels = preserved.has("config:models");
-				const skipAuth = preserved.has("config:auth");
-				const skipSettings = preserved.has("config:settings");
-				const skipTrust = preserved.has("config:trust");
-				const skipMcp = preserved.has("config:mcp");
-				const skipRaw = preserved.has("config:raw");
-				if (target === "models") {
-					// 模型页也要 settingsData：每模型默认思考档位写的就是 settings.json 的
-					// modelThinkingLevels（与全局默认档位同一条写入链路）。
-					// settings 读失败只降级（本页主数据是 models.json），settingsLoaded 保持 false
-					// 让编辑入口不渲染，避免空对象被当成磁盘内容保存。
-					/** models 页数据落内存：本机与 WSL 目标共用同一条路径（settings 读失败只降级，settingsLoaded 保持 false）。 */
-					const applyModelsTab = (res: Awaited<ReturnType<typeof api.config.getModels>>, settingsRes: Awaited<ReturnType<typeof api.config.getSettings>> | null) => {
-						if (!skipModels) {
-							const parsed = normalizeModelsFile(res.parsed);
-							setModelsData(parsed);
-							baselineModelsRef.current = deepClone(parsed);
-						}
-						if (settingsRes) {
-							if (!skipSettings) {
-								setSettingsData(settingsRes.parsed as SettingsFile);
-								baselineSettingsRef.current = deepClone(settingsRes.parsed as SettingsFile);
-							}
-							setSettingsLoaded(true);
-						}
-						if (!skipRaw) {
-							setRawContent(res.raw);
-							setRawFileName("models.json");
-							baselineRawRef.current = { fileName: "models.json", content: res.raw };
-						}
-						setConfigDiagnostic(res.diagnostic ?? null);
-					};
-					if (configTargetOption) {
-						// WSL 目标：读该档案的发行版 HOME（models/settings 走结构化通道；auth/trust/mcp 各自按文件读）。
-						const [res, settingsRes] = await Promise.all([api.config.getModels(configTargetOption), api.config.getSettings(configTargetOption).catch(() => null)]);
-						applyModelsTab(res, settingsRes);
-					} else {
-						const [res, settingsRes] = await Promise.all([api.config.getModels(), api.config.getSettings().catch(() => null)]);
-						applyModelsTab(res, settingsRes);
-					}
-				} else if (target === "auth") {
-					// 本机用 ConfigManager 的 parsed 结果；WSL 走该发行版 HOME 的 auth.json 原文（同一份 JSON 形状）。
-					const authRaw = configTargetOption ? await api.config.getRaw("auth.json", configTargetOption) : null;
-					const parsed = configTargetOption && authRaw ? parseJsonObject<AuthFile>(authRaw.raw, {}) : ((await api.config.getAuth()).parsed as AuthFile);
-					if (!skipAuth) {
-						setAuthData(parsed);
-						baselineAuthRef.current = deepClone(parsed);
-					}
-					const rawText = authRaw?.raw ?? JSON.stringify(parsed, null, 2);
-					if (!skipRaw) {
-						setRawContent(rawText);
-						setRawFileName("auth.json");
-						baselineRawRef.current = { fileName: "auth.json", content: rawText };
-					}
-					setConfigDiagnostic(authRaw?.diagnostic ?? null);
-				} else if (target === "settings") {
-					// 同时加载 settings、auth 和 models 数据，确保 defaultProvider / defaultModel 下拉能聚合所有可用信息。
-					// WSL 的 auth.json 也属于该作用域（本机 UNC 读），但 provider 探针仍只在本机执行——见下面的发现循环门禁。
-					const [settingsRes, authRes, modelsRes] = await Promise.all([
-						api.config.getSettings(configTargetOption),
-						configTargetOption ? api.config.getRaw("auth.json", configTargetOption).then((res) => ({ raw: res.raw, parsed: parseJsonObject<AuthFile>(res.raw, {}) })) : api.config.getAuth(),
-						api.config.getModels(configTargetOption),
-					]);
-					if (!skipSettings) {
-						setSettingsData(settingsRes.parsed as SettingsFile);
-						baselineSettingsRef.current = deepClone(settingsRes.parsed as SettingsFile);
-					}
-					setSettingsLoaded(true);
-					if (!skipAuth && authRes) {
-						setAuthData(authRes.parsed as AuthFile);
-						baselineAuthRef.current = deepClone(authRes.parsed as AuthFile);
-					}
-					if (!skipModels) {
-						const parsed = normalizeModelsFile(modelsRes.parsed);
-						setModelsData(parsed);
-						baselineModelsRef.current = deepClone(parsed);
-					}
-					if (!skipRaw) {
-						setRawContent(settingsRes.raw);
-						setRawFileName("settings.json");
-						baselineRawRef.current = { fileName: "settings.json", content: settingsRes.raw };
-					}
-					setConfigDiagnostic(settingsRes.diagnostic ?? null);
-
-					// 对于 auth 中有但 models 中没有模型的供应商，自动尝试获取模型列表。
-					// provider 探针只从本机网络出口发起：非本机环境即便读到 key 也不发请求（否则会把该环境的 key 用在本机网络上）。
-					const authProviders: AuthFile = configTarget.kind === "local" && authRes ? (authRes.parsed as AuthFile) : {};
-					const modelsProviders = normalizeModelsFile(modelsRes.parsed).providers;
-					const discovered: Record<string, Array<{ id: string; name?: string }>> = {};
-					const fetchPromises: Array<Promise<void>> = [];
-
-					for (const [providerName, authEntry] of Object.entries(authProviders)) {
-						// 跳过已有模型的供应商
-						if (modelsProviders[providerName]?.models?.length) continue;
-						const apiKey = typeof authEntry.key === "string" ? authEntry.key : "";
-						if (!apiKey) continue;
-
-						// 情况1：从 KNOWN_PROVIDER_ENDPOINTS 获知该供应商的 API 端点
-						const knownEndpoint = KNOWN_PROVIDER_ENDPOINTS[providerName];
-						// 情况2：从 models.json 中该供应商的配置获知 baseUrl
-						const modelsProvider = modelsProviders[providerName];
-						const modelsBaseUrl = modelsProvider && typeof modelsProvider.baseUrl === "string" ? modelsProvider.baseUrl : undefined;
-						const baseUrl = knownEndpoint?.baseUrl ?? modelsBaseUrl;
-						if (!baseUrl) continue;
-
-						const apiType = knownEndpoint?.apiType ?? (typeof modelsProvider?.api === "string" ? modelsProvider.api : undefined);
-
-						fetchPromises.push(
-							api.config
-								.fetchModels(baseUrl, apiKey, apiType, getProviderHeaders(modelsProvider?.headers))
-								.then((result) => {
-									if (result.success && result.models) {
-										discovered[providerName] = result.models;
-										// 后台发现与手动「获取模型」同源：检测走通了 /v1 而 models.json 仍是根路径时
-										// 同步改写表单 baseUrl（仅内存 + markDirty，用户保存才落盘），
-										// 避免「列表拉到了、会话仍 404」。KNOWN_PROVIDER_ENDPOINTS 的
-										// provider 不在 modelsData 里时该调用是 no-op。
-										applySuggestedBaseUrl(providerName, result.suggestedBaseUrl);
-									}
-								})
-								.catch(() => {
-									// 静默失败，不阻塞 UI
-								}),
-						);
-					}
-
-					if (fetchPromises.length > 0) {
-						// 不 await，在后台获取后更新状态即可
-						void Promise.allSettled(fetchPromises).then(() => {
-							if (Object.keys(discovered).length > 0) {
-								setDiscoveredModels(discovered);
-							}
-						});
-					}
-				} else if (target === "trust") {
-					const trustRaw = configTargetOption ? await api.config.getRaw("trust.json", configTargetOption) : null;
-					const parsed = configTargetOption && trustRaw ? parseJsonObject<Record<string, boolean>>(trustRaw.raw, {}) : ((await api.config.getTrust()).parsed as Record<string, boolean>);
-					if (!skipTrust) {
-						setTrustData(parsed);
-						baselineTrustRef.current = deepClone(parsed);
-					}
-					const rawText = trustRaw?.raw ?? JSON.stringify(parsed, null, 2);
-					if (!skipRaw) {
-						setRawContent(rawText);
-						setRawFileName("trust.json");
-						baselineRawRef.current = { fileName: "trust.json", content: rawText };
-					}
-					setConfigDiagnostic(trustRaw?.diagnostic ?? null);
-				} else if (target === "mcp") {
-					if (configTargetOption) {
-						// WSL：MCP 页是「该发行版 mcp.json 的文本编辑」（探测/登录/模板仍在本机执行）。
-						const res = await api.config.getRaw("mcp.json", configTargetOption);
-						if (!skipMcp) {
-							setWslMcpRaw(res.raw);
-							baselineWslMcpRef.current = res.raw;
-						}
-						if (!skipRaw) {
-							setRawContent(res.raw);
-							setRawFileName("mcp.json");
-							baselineRawRef.current = { fileName: "mcp.json", content: res.raw };
-						}
-						setConfigDiagnostic(res.diagnostic ?? null);
-					} else {
-						// 本机：MCP 页自己拉盘；这里只同步源文件编辑器和 force 重载。
-						if (!skipRaw) {
-							const res = await api.config.getMcp();
-							setRawContent(res.writableRaw);
-							setRawFileName("mcp.json");
-							baselineRawRef.current = { fileName: "mcp.json", content: res.writableRaw };
-						}
-						if (options?.force && !skipMcp) void mcpTabRef.current?.reload();
-					}
-				} else if (target === "raw") {
-					// 源文件 tab 复用当前 tab 对应的文件；读取统一走 config:get-raw（本机/WSL 回原文，mcp 取可写层）。
-					const fileName = tab === "models" ? "models.json" : tab === "auth" ? "auth.json" : tab === "trust" ? "trust.json" : tab === "mcp" ? "mcp.json" : "settings.json";
-					if (!skipRaw) setRawFileName(fileName);
-					// 基准快照随内容一起更新：切文件后新旧草稿都以新文件为比较基准
-					const res = await api.config.getRaw(fileName, configTargetOption);
-					if (!skipRaw) {
-						setRawContent(res.raw);
-						baselineRawRef.current = { fileName, content: res.raw };
-					}
-					setConfigDiagnostic(res.diagnostic ?? null);
-				}
-				// 被跳过的脏草稿保持黄点；其余被磁盘覆盖的 key 必须清掉，否则保存后假脏。
-				for (const key of dirtyKeysClearedByReload(target)) {
-					if (!preserved.has(key)) clearDirty(key);
-				}
-			} catch (e) {
-				setError(e instanceof Error ? e.message : String(e));
-			} finally {
-				setLoading(false);
-			}
-		},
-		[tab, clearDirty, applySuggestedBaseUrl, configTargetOption],
-	);
+	// 读盘链路（搬迁到 config/configModal/useConfigLoader，行为不变）。
+	const { loadConfig } = useConfigLoader({
+		api,
+		tab,
+		targetKind: configTarget.kind,
+		configTargetOption,
+		dirtyTabsRef,
+		mcpTabRef,
+		applySuggestedBaseUrl,
+		clearDirty,
+		setLoading,
+		setError,
+		setConfigDiagnostic,
+		setModelsData,
+		setAuthData,
+		setSettingsData,
+		setSettingsLoaded,
+		setTrustData,
+		setRawContent,
+		setRawFileName,
+		setWslMcpRaw,
+		setDiscoveredModels,
+		baselineModelsRef,
+		baselineAuthRef,
+		baselineSettingsRef,
+		baselineTrustRef,
+		baselineRawRef,
+		baselineWslMcpRef,
+	});
 
 	useEffect(() => {
 		if (!open) return;
@@ -1754,7 +1398,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// 导航 = 该环境的能力表（configTabsForTarget）：不在表里的页不出现在导航里，
 	// 也就不会出现「点进去显示不支持」的死页。能力边界由状态条一句话说明。
 	const supportedConfigTabs = configTabsForTarget(configTarget);
-	const allConfigNavItems: Array<{ id: ConfigTab; label: string; icon: ReactNode }> = [
+	const allConfigNavItems: ConfigNavItem[] = [
 		{ id: "models", label: t("config.nav.models"), icon: <Cpu size={14} aria-hidden="true" /> },
 		{ id: "auth", label: t("config.nav.auth"), icon: <KeyRound size={14} aria-hidden="true" /> },
 		{ id: "oauth", label: t("config.nav.oauth"), icon: <LogIn size={14} aria-hidden="true" /> },
@@ -1819,81 +1463,11 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 							// 防止弹窗跨 tab 悬挂被误认为「自动弹出」。
 							setUsageProbeDialog(null);
 							// 记住位置：下次打开 Pi 管理页时回到同一 tab
-							try {
-								localStorage.setItem(CONFIG_LAST_TAB_KEY, value);
-							} catch {
-								/* localStorage 不可用（隐私模式等）时静默失败，仅本次会话内不记忆 */
-							}
+							rememberConfigTab(value);
 						}}
 						className="config-layout grid min-h-0 flex-1 gap-0 bg-transparent"
 					>
-						{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
-						<TabsList
-							className="config-sidebar flex min-h-0 shrink-0 flex-col items-stretch gap-2.5 overflow-auto border-0 border-r border-border rounded-none bg-transparent p-2.5 data-[orientation=vertical]:w-[160px] max-[820px]:flex-row max-[820px]:gap-3 max-[820px]:overflow-x-auto max-[820px]:overflow-y-hidden max-[820px]:border-r-0 max-[820px]:border-b"
-							aria-label={t("config.title")}
-						>
-							{!resourceOnly && (
-								<div className="config-sidebar-group grid gap-0.5">
-									<span className="px-2 pb-1 text-micro font-semibold text-muted-foreground">{t("config.group.config")}</span>
-									{configNavItems.map((item) => (
-										<TabsTrigger key={item.id} value={`config:${item.id}`} className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-											<span className="config-nav-icon">{item.icon}</span>
-											{item.label}
-											{/* 未保存黄点：与 DSH 导航同款 */}
-											{dirtyTabs.has(`config:${item.id}`) || dirtyTabs.has(item.id) ? <span className="ml-auto size-1.5 rounded-full bg-warning" aria-hidden="true" /> : null}
-										</TabsTrigger>
-									))}
-								</div>
-							)}
-							{/* ssh 环境没有任何「Agent 能力」页（资源未路由、安全策略只在本机）：整组连标题一起不渲染 */}
-							{showSecurityPage || showResourcePages ? (
-								<div className="config-sidebar-group grid gap-0.5">
-									<span className="px-2 pb-1 text-micro font-semibold text-muted-foreground">{t("config.group.agent")}</span>
-									{!resourceOnly && showSecurityPage && (
-										<TabsTrigger value="security" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-											<span className="config-nav-icon">
-												<Shield size={14} aria-hidden="true" />
-											</span>
-											{t("config.nav.security")}
-										</TabsTrigger>
-									)}
-									{showResourcePages && (
-										<TabsTrigger value="extensions" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-											<span className="config-nav-icon">
-												<Puzzle size={14} aria-hidden="true" />
-											</span>
-											{t("config.nav.extensions")}
-										</TabsTrigger>
-									)}
-									{/* MCP 在配置管理弹窗里由「配置文件」组的 config:mcp 承担（全局作用域 + 导入扫描源）；
-								    这里只在项目资源管理器（resourceOnly）提供项目作用域入口，避免同名双入口用户无法选择。 */}
-									{resourceOnly && (
-										<TabsTrigger value="mcp" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-											<span className="config-nav-icon">
-												<PlugZap size={14} aria-hidden="true" />
-											</span>
-											{t("config.nav.mcp")}
-										</TabsTrigger>
-									)}
-									{showResourcePages && (
-										<>
-											<TabsTrigger value="skills" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-												<span className="config-nav-icon">
-													<Sparkles size={14} aria-hidden="true" />
-												</span>
-												{t("config.nav.skills")}
-											</TabsTrigger>
-											<TabsTrigger value="prompts" className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
-												<span className="config-nav-icon">
-													<FileText size={14} aria-hidden="true" />
-												</span>
-												{t("config.nav.prompts")}
-											</TabsTrigger>
-										</>
-									)}
-								</div>
-							) : null}
-						</TabsList>
+						<ConfigNavSidebar resourceOnly={resourceOnly} items={configNavItems} dirtyTabs={dirtyTabs} showSecurityPage={showSecurityPage} showResourcePages={showResourcePages} />
 						<TabsContent value="config:models" className="config-main min-w-0">
 							<div className="config-content">
 								{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="models" /> : null}
@@ -2062,84 +1636,43 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 							/>
 						</TabsContent>
 						<TabsContent value="skills" className="config-main min-w-0">
-							<div className="config-content">
-								{statusBlock}
-								{!loading &&
-									(editingGlobalSkill ? (
-										<div className="prompts-editor-backdrop" onClick={() => setEditingGlobalSkill(null)}>
-											<div className="prompts-editor-modal" onClick={(e) => e.stopPropagation()}>
-												<div className="file-diff-header">
-													<span className="file-diff-header-file">{editingGlobalSkill.name} · SKILL.md</span>
-													<div className="file-diff-header-actions">
-														<Button
-															variant="ghost"
-															size="icon"
-															aria-label={t("common.close")}
-															title={t("common.close")}
-															onClick={() => {
-																clearDirty("skills");
-																setEditingGlobalSkill(null);
-															}}
-														>
-															<X size={18} strokeWidth={2.2} aria-hidden="true" />
-														</Button>
-													</div>
-												</div>
-												{editGlobalLoading ? (
-													<div className="flex items-center justify-center gap-2 py-12 text-control text-text-tertiary">
-														<Loader2 size={14} className="animate-pideck-spin" aria-hidden="true" />
-														{t("common.loading")}
-													</div>
-												) : (
-													<div className="prompts-monaco-wrap">
-														<CodeMirrorEditor
-															value={editGlobalContent}
-															onChange={(value) => {
-																setEditGlobalContent(value);
-																markDirty("skills");
-															}}
-														/>
-													</div>
-												)}
-												{editGlobalSaved && <span className="file-diff-hint saved">{t("config.promptSavedHint")}</span>}
-											</div>
-										</div>
-									) : (
-										<SkillsTab
-											scope={resourceScope}
-											projectId={resourceScope === "project" ? effectiveProjectId : undefined}
-											sourceProjectId={projectId}
-											projects={projects}
-											fixedProjectId={resourceOnly ? effectiveProjectId : undefined}
-											scopeSelector={resourceScopeSelector}
-											projectOverrides={projectResourcesData.overrides}
-											discoverySkills={discoveryData.skills}
-											data={skillsData}
-											loading={loading}
-											creating={creatingSkill}
-											newName={newSkillName}
-											newDescription={newSkillDescription}
-											newLocationId={newSkillLocationId}
-											onRefresh={refreshSkills}
-											onOpenRoot={() => {
-												if (resourceScope === "project" && effectiveProjectId) {
-													const kind = newSkillLocationId === "project-agents" ? "project-agents" : "project-pi";
-													void api.projectResources.openDirectory(effectiveProjectId, kind).catch((err) => setError(err instanceof Error ? err.message : String(err)));
-													return;
-												}
-												void api.skills.openFolder(undefined, resourceOptions).catch((err) => setError(err instanceof Error ? err.message : String(err)));
-											}}
-											onChangeNewName={setNewSkillName}
-											onChangeNewDescription={setNewSkillDescription}
-											onChangeNewLocation={setNewSkillLocationId}
-											onCreate={handleCreateSkill}
-											onToggle={handleToggleSkill}
-											onDelete={setDeleteSkillConfirm}
-											onEdit={handleEditGlobalSkill}
-											onRename={handleRenameGlobalSkill}
-										/>
-									))}
-							</div>
+							<ConfigSkillsTab
+								api={api}
+								statusBlock={statusBlock}
+								resourceScope={resourceScope}
+								effectiveProjectId={effectiveProjectId}
+								resourceOnly={resourceOnly}
+								scopeSelector={resourceScopeSelector}
+								resourceOptions={resourceOptions}
+								projects={projects}
+								projectOverrides={projectResourcesData.overrides}
+								discoverySkills={discoveryData.skills}
+								onError={setError}
+								editingSkill={editingGlobalSkill}
+								setEditingSkill={setEditingGlobalSkill}
+								editContent={editGlobalContent}
+								setEditContent={setEditGlobalContent}
+								editLoading={editGlobalLoading}
+								editSaved={editGlobalSaved}
+								markDirty={markDirty}
+								clearDirty={clearDirty}
+								sourceProjectId={projectId}
+								data={skillsData}
+								loading={loading}
+								creating={creatingSkill}
+								newName={newSkillName}
+								newDescription={newSkillDescription}
+								newLocationId={newSkillLocationId}
+								onRefresh={refreshSkills}
+								onChangeNewName={setNewSkillName}
+								onChangeNewDescription={setNewSkillDescription}
+								onChangeNewLocation={setNewSkillLocationId}
+								onCreate={handleCreateSkill}
+								onToggle={handleToggleSkill}
+								onDelete={setDeleteSkillConfirm}
+								onEdit={handleEditGlobalSkill}
+								onRename={handleRenameGlobalSkill}
+							/>
 						</TabsContent>
 						<TabsContent value="prompts" className="config-main min-w-0">
 							<div className="config-content">
@@ -2219,49 +1752,27 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						</TabsContent>
 						{/* forceMount：MCP 页自管草稿，切走再回来不能丢未保存编辑；inactive 必须 hidden，否则叠在别的 tab 上。 */}
 						<TabsContent value="config:mcp" forceMount className="config-main min-w-0 data-[state=inactive]:hidden">
-							<div className="config-content flex min-h-0 flex-col">
-								{remoteTargetHostId ? (
-									<RemoteConfigPanel key={"remote-mcp-" + remoteTargetHostId} file="mcp" hostId={remoteTargetHostId} hostLabel={remoteHostLabel} onDirtyChange={(dirty) => markRemoteDirty("mcp", dirty)} />
-								) : wslTargetHost ? (
-									<>
-										{/* WSL：探测/登录/模板仍只在本机执行，这里按文件编辑该发行版的 mcp.json */}
-										<WslConfigSourceHint host={wslTargetHost} file="mcp" />
-										<div className="mb-2 flex flex-col gap-0.5">
-											<span className="text-control font-medium">{t("config.env.mcpFileTitle")}</span>
-											<span className="text-micro leading-relaxed text-muted-foreground">{t("config.env.mcpFileHint")}</span>
-										</div>
-										{statusBlock}
-										{configDiagnosticBlock}
-										{!loading && (
-											<RawTab
-												fileName="mcp.json"
-												content={wslMcpRaw}
-												saving={saving}
-												showFileSelector={false}
-												onChangeFileName={() => undefined}
-												onChangeContent={(value) => {
-													setWslMcpRaw(value);
-													markDirty("config:mcp");
-												}}
-												onSave={handleSaveWslMcp}
-											/>
-										)}
-									</>
-								) : (
-									<>
-										{/* 全局作用域：activeProjectId 只作导入扫描的项目来源，配置仍写全局 mcp.json。 */}
-										<McpTab
-											ref={mcpTabRef}
-											activeProjectId={projectId}
-											onGoToExtensions={() => {
-												// 同区导航：扩展页与 MCP 页都属于配置区/项目资源区，保留当前作用域。
-												setSection("extensions");
-											}}
-											onDirtyChange={handleMcpDirtyChange}
-										/>
-									</>
-								)}
-							</div>
+							<ConfigMcpTab
+								remoteTargetHostId={remoteTargetHostId}
+								remoteHostLabel={remoteHostLabel}
+								onRemoteDirtyChange={(dirty) => markRemoteDirty("mcp", dirty)}
+								wslTargetHost={wslTargetHost}
+								statusBlock={statusBlock}
+								configDiagnosticBlock={configDiagnosticBlock}
+								loading={loading}
+								saving={saving}
+								wslMcpRaw={wslMcpRaw}
+								setWslMcpRaw={setWslMcpRaw}
+								markDirty={markDirty}
+								onSaveWslMcp={handleSaveWslMcp}
+								projectId={projectId}
+								mcpTabRef={mcpTabRef}
+								onGoToExtensions={() => {
+									// 同区导航：扩展页与 MCP 页都属于配置区/项目资源区，保留当前作用域。
+									setSection("extensions");
+								}}
+								onDirtyChange={handleMcpDirtyChange}
+							/>
 						</TabsContent>
 						{/* 只有项目资源管理器会走到这里（见左侧导航同名开关）；forceMount：面板自管草稿，
 						    切走再回来不能丢未保存编辑，inactive 必须 hidden，否则叠在别的 tab 上。 */}
@@ -2325,125 +1836,39 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 				onCloseHost={props.onRequestHostClose ?? handleClose}
 			/>
 
-			{deleteSkillConfirm && (
-				<ConfirmDialog title={t("config.deleteSkillConfirmTitle")} message={t("config.deleteSkillConfirmBody", { name: deleteSkillConfirm.name }) + "\n" + deleteSkillConfirm.path} confirmLabel={t("common.delete")} danger onConfirm={() => void confirmDeleteSkill()} onCancel={() => setDeleteSkillConfirm(null)} />
-			)}
-
-			{uninstallExtensionConfirm && (
-				<ConfirmDialog
-					title={t("config.deleteExtensionTitle")}
-					message={t("config.deleteExtensionBody", { source: uninstallExtensionConfirm.source }) + (uninstallExtensionConfirm.path ? "\n" + uninstallExtensionConfirm.path : "")}
-					confirmLabel={t("common.delete")}
-					danger
-					onConfirm={confirmUninstallExtension}
-					onCancel={() => setUninstallExtensionConfirm(null)}
-				/>
-			)}
-
-			{uninstallProjectPackageConfirm && (
-				<ConfirmDialog title={t("config.deleteExtensionTitle")} message={t("config.deleteExtensionBody", { source: uninstallProjectPackageConfirm.source })} confirmLabel={t("common.delete")} danger onConfirm={confirmUninstallProjectPackage} onCancel={() => setUninstallProjectPackageConfirm(null)} />
-			)}
-
-			{deletePromptConfirm && (
-				<ConfirmDialog title={t("config.deletePromptConfirmTitle")} message={t("config.deletePromptConfirmBody", { name: deletePromptConfirm.name })} confirmLabel={t("common.delete")} danger onConfirm={() => void confirmDeletePrompt(deletePromptConfirm)} onCancel={() => setDeletePromptConfirm(null)} />
-			)}
-
-			{/* 关闭确认：有未保存修改时弹出，保存并关闭 / 放弃更改 / 取消（借鉴设置页） */}
-			{closeConfirmOpen && (
-				<AlertDialog
-					open
-					onOpenChange={(open) => {
-						if (!open) setCloseConfirmOpen(false);
-					}}
-				>
-					<AlertDialogContent>
-						<AlertDialogHeader>
-							<AlertDialogTitle>{t("config.unsavedTitle")}</AlertDialogTitle>
-							<AlertDialogDescription asChild>
-								{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
-								<div className="grid max-h-56 gap-1.5 overflow-auto text-left">
-									{configUnsavedSummary && configUnsavedSummary.totalCount === 1 ? (
-										/* 单项：沿用带「是否在关闭前保存？」的单行提示，不需要列表 */
-										<p>{configUnsavedMessage}</p>
-									) : (
-										<>
-											{/* 多项：先给总数，再逐条列出变更项（footer 按钮承担保存/放弃语义） */}
-											<p>{t("config.unsavedListIntro", { count: configUnsavedSummary?.totalCount ?? 0 })}</p>
-											<ul className="grid gap-0.5 pl-4 list-disc">
-												{configUnsavedSummary?.items.map((item) => (
-													<li key={`${item.tabKey}\u0000${item.itemKey}`}>
-														{t(item.tabKey)} · {t(item.itemKey)}
-													</li>
-												))}
-											</ul>
-										</>
-									)}
-								</div>
-							</AlertDialogDescription>
-						</AlertDialogHeader>
-						<AlertDialogFooter>
-							<AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-							<AlertDialogAction className={buttonVariants({ variant: "destructive" })} onClick={handleDiscardAndClose}>
-								{t("config.discardChanges")}
-							</AlertDialogAction>
-							<AlertDialogAction onClick={() => void handleSaveAndClose()}>{t("config.saveAndClose")}</AlertDialogAction>
-						</AlertDialogFooter>
-					</AlertDialogContent>
-				</AlertDialog>
-			)}
-
-			{/* 环境切换确认：本环境有配置草稿或远端未应用 patch 时，先让用户选「保存并切换 / 放弃并切换 / 取消」 */}
-			{pendingEnvSwitch && (
-				<AlertDialog open onOpenChange={(open) => (!open ? setPendingEnvSwitch(null) : undefined)}>
-					<AlertDialogContent data-testid="config-env-switch-confirm">
-						<AlertDialogHeader>
-							<AlertDialogTitle>{t("config.env.switchDirtyTitle")}</AlertDialogTitle>
-							<AlertDialogDescription>{pendingEnvSwitch.dirtyKeys.every((key) => key.startsWith("remote:")) ? t("config.env.switchDirtyRemote") : t("config.env.switchDirtyMessage", { count: pendingEnvSwitch.dirtyKeys.length })}</AlertDialogDescription>
-						</AlertDialogHeader>
-						<AlertDialogFooter>
-							<AlertDialogCancel>{t("config.env.switchCancel")}</AlertDialogCancel>
-							<AlertDialogAction className={buttonVariants({ variant: "destructive" })} onClick={discardDraftsAndSwitch} data-testid="config-env-switch-discard">
-								{t("config.env.switchDiscardAndGo")}
-							</AlertDialogAction>
-							{/* 只有本机保存链路能落盘草稿；纯远端 patch 时不给「保存并切换」（那会假装保存了远端） */}
-							{pendingEnvSwitch.dirtyKeys.every((key) => key.startsWith("remote:")) ? null : (
-								<AlertDialogAction onClick={() => void saveDraftsAndSwitch()} data-testid="config-env-switch-save">
-									{t("config.env.switchSaveAndGo")}
-								</AlertDialogAction>
-							)}
-						</AlertDialogFooter>
-					</AlertDialogContent>
-				</AlertDialog>
-			)}
-
-			{/* 源文件切换确认：Raw 编辑器有未保存草稿时，切换下拉会丢弃草稿，必须显式确认 */}
-			<ConfigRawSwitchConfirm
+			<ConfigModalDialogs
+				deleteSkillConfirm={deleteSkillConfirm}
+				confirmDeleteSkill={confirmDeleteSkill}
+				setDeleteSkillConfirm={setDeleteSkillConfirm}
+				uninstallExtensionConfirm={uninstallExtensionConfirm}
+				confirmUninstallExtension={confirmUninstallExtension}
+				setUninstallExtensionConfirm={setUninstallExtensionConfirm}
+				uninstallProjectPackageConfirm={uninstallProjectPackageConfirm}
+				confirmUninstallProjectPackage={confirmUninstallProjectPackage}
+				setUninstallProjectPackageConfirm={setUninstallProjectPackageConfirm}
+				deletePromptConfirm={deletePromptConfirm}
+				confirmDeletePrompt={confirmDeletePrompt}
+				setDeletePromptConfirm={setDeletePromptConfirm}
+				closeConfirmOpen={closeConfirmOpen}
+				setCloseConfirmOpen={setCloseConfirmOpen}
+				configUnsavedSummary={configUnsavedSummary}
+				configUnsavedMessage={configUnsavedMessage}
+				handleSaveAndClose={handleSaveAndClose}
+				handleDiscardAndClose={handleDiscardAndClose}
+				pendingEnvSwitch={pendingEnvSwitch}
+				setPendingEnvSwitch={setPendingEnvSwitch}
+				discardDraftsAndSwitch={discardDraftsAndSwitch}
+				saveDraftsAndSwitch={saveDraftsAndSwitch}
 				pendingRawFile={pendingRawFile}
-				onDiscard={(fileName) => {
-					setPendingRawFile(null);
-					void applyRawFileChange(fileName);
-				}}
-				onCancel={() => setPendingRawFile(null)}
+				setPendingRawFile={setPendingRawFile}
+				applyRawFileChange={applyRawFileChange}
+				remoteDiscardConfirmOpen={remoteDiscardConfirmOpen}
+				setRemoteDiscardConfirmOpen={setRemoteDiscardConfirmOpen}
+				resetRemoteDirty={resetRemoteDirty}
+				onClose={props.onClose}
+				deleteConfirm={deleteConfirm}
+				setDeleteConfirm={setDeleteConfirm}
 			/>
-
-			{/* 远端草稿关闭确认：本机保存链路不会落盘远端 patch，只能显式丢弃或取消 */}
-			{remoteDiscardConfirmOpen && (
-				<ConfirmDialog
-					title={t("config.target.discardTitle")}
-					message={t("config.target.discardMessage")}
-					confirmLabel={t("config.target.discardConfirm")}
-					danger
-					onConfirm={() => {
-						setRemoteDiscardConfirmOpen(false);
-						resetRemoteDirty();
-						props.onClose();
-					}}
-					onCancel={() => setRemoteDiscardConfirmOpen(false)}
-				/>
-			)}
-
-			{/* toast 已改用 sonner */}
-			{deleteConfirm && <ConfirmDialog title={deleteConfirm.title} message={deleteConfirm.message} confirmLabel={t("common.delete")} danger onConfirm={deleteConfirm.onConfirm} onCancel={() => setDeleteConfirm(null)} />}
 		</>
 	);
 
@@ -2455,38 +1880,20 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 
 	// 独立模式：完整 Dialog（标题栏含保存/导出/导入/关闭；内容与嵌入模式完全一致）
 	return (
-		<Dialog open={open} onOpenChange={(next) => !next && handleClose()}>
-			<DialogContent showCloseButton={false} className={cn("flex flex-col gap-0 overflow-hidden p-0", configModalSizeClass, "config-modal")}>
-				{/* 顶栏/侧栏控件与设置弹窗、会话顶栏统一到 sm / text-sm 密度 */}
-				<DialogHeader className="flex-row items-center justify-between px-4 py-2.5">
-					<DialogTitle className="text-sm font-semibold tracking-tight">{t("config.title")}</DialogTitle>
-					<div className="flex items-center gap-1.5">
-						{/* 顶部统一保存：各 tab 内部保存按钮可能被滚动藏住，这里常驻可见；
-						    有未保存修改时按钮带黄点标记；无修改也放开再次保存，不再禁用 */}
-						<Button variant="default" size="sm" onClick={() => void handleSaveCurrent()} disabled={saving || configTarget.kind === "ssh"} title={configTarget.kind === "ssh" ? t("config.target.remoteSaveHint") : hasDirty ? t("config.dirtyTooltip") : undefined}>
-							{hasDirty && <span className="size-2 rounded-full bg-warning" aria-hidden="true" />}
-							{saving ? t("common.saving") : t("common.save")}
-						</Button>
-						{backendPane === "pi" && section === "config" ? (
-							<>
-								<Button variant="outline" size="sm" onClick={handleExport} disabled={configTarget.kind !== "local"} title={configTarget.kind === "local" ? undefined : t("config.target.exportLocalOnly")}>
-									{t("common.export")}
-								</Button>
-								{/* 导入与导出统一 outline 白底描边：与深色「保存」主按钮形成主次层级，避免并排按钮一描边一填充的不一致（对齐 SettingsModal 同款按钮组） */}
-								<Button variant="outline" size="sm" onClick={handleImport} disabled={configTarget.kind !== "local"} title={configTarget.kind === "local" ? undefined : t("config.target.exportLocalOnly")}>
-									{t("common.import")}
-								</Button>
-							</>
-						) : undefined}
-						<DialogClose asChild>
-							<Button variant="ghost" size="icon-sm" className="size-7" aria-label={t("common.close")} title={t("common.close")}>
-								<X size={16} strokeWidth={2.2} aria-hidden="true" />
-							</Button>
-						</DialogClose>
-					</div>
-				</DialogHeader>
-				{modalBody}
-			</DialogContent>
-		</Dialog>
+		<ConfigModalShell
+			open={open}
+			onRequestClose={handleClose}
+			sizeClass={configModalSizeClass}
+			saving={saving}
+			hasDirty={hasDirty}
+			targetKind={configTarget.kind}
+			backendPane={backendPane}
+			section={section}
+			onSaveCurrent={() => void handleSaveCurrent()}
+			onExport={handleExport}
+			onImport={handleImport}
+		>
+			{modalBody}
+		</ConfigModalShell>
 	);
 }

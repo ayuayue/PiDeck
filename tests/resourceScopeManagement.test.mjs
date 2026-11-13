@@ -48,7 +48,9 @@ test("configuration resources share one global/project scope owner", () => {
 	assert.ok(globalMountMatch, "ConfigModal 未挂载全局 McpTab");
 	const globalMount = globalMountMatch[0];
 	assert.match(globalMount, /activeProjectId=\{projectId\}/);
-	assert.match(globalMount, /onDirtyChange=\{handleMcpDirtyChange\}/);
+	// 全局 McpTab 挂在 ConfigMcpTab 里（脏回调透传），父层注入 handleMcpDirtyChange
+	assert.match(globalMount, /onDirtyChange=\{onDirtyChange\}/);
+	assert.match(modal, /<ConfigMcpTab[\s\S]{0,900}?onDirtyChange=\{handleMcpDirtyChange\}/);
 	assert.doesNotMatch(globalMount, /projectId=\{/);
 	assert.doesNotMatch(globalMount, /projects=/);
 	// 项目资源管理器里的 McpTab 固定项目作用域
