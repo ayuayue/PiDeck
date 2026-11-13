@@ -176,11 +176,13 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		atBottom:       core.NewSignal(cx, true),
 		notice:         core.NewSignal(cx, ""),
 	}
-	if saved := loadMobileSaved(cx); saved.Server != "" {
+	if saved := loadMobileSaved(cx); saved.Server != "" || len(saved.Recent) > 0 {
 		a.recent.Set(saved.Recent)
-		a.server.Set(saved.Server)
-		a.token.Set(saved.Token)
-		a.connect()
+		if saved.Server != "" {
+			a.server.Set(saved.Server)
+			a.token.Set(saved.Token)
+			a.connect()
+		}
 	}
 	cx.OnBackPress(func() bool {
 		if a.active.GetUntracked() != "" {
@@ -258,6 +260,8 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 		}},
 		ui.Button{Text: "扫码连接", Variant: ui.ButtonSecondary, Size: ui.SizeLarge, TestID: "mobile-scan",
 			OnPress: a.scanQR},
+		ui.Button{Text: "从相册选二维码", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-scan-library",
+			OnPress: a.scanImage},
 	}}
 	column := core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(480), Gap: 16}, Children: []core.Node{
 		core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
@@ -316,6 +320,43 @@ func (a *mobileApp) recentList() core.Node {
 	}}
 }
 
+// scanImage reads a code from a picture already on the phone.
+func (a *mobileApp) scanImage() {
+	a.err.Set("")
+	a.cx.PickFiles(core.PickFilesOptions{Types: []string{"image/*"}, Limit: 1}, func(files []core.File, err error) {
+		if err != nil || len(files) == 0 {
+			return
+		}
+		data, readErr := os.ReadFile(files[0].Path)
+		if readErr != nil || len(data) == 0 {
+			a.err.Set("读不到这张图片")
+			return
+		}
+		a.useScanned(data)
+	})
+}
+
+// useScanned decodes a picture and connects to what it holds.
+func (a *mobileApp) useScanned(data []byte) {
+	go func() {
+		link, err := decodeQRLink(data)
+		a.cx.Post(func() {
+			if err != nil || link == "" {
+				a.err.Set("这张图里没有二维码")
+				return
+			}
+			client, token, cerr := newRemoteClient(link, "")
+			if cerr != nil {
+				a.err.Set(cerr.Error())
+				return
+			}
+			a.server.Set(client.base)
+			a.token.Set(token)
+			a.connect()
+		})
+	}()
+}
+
 // scanQR reads a connection link from a photo of the desktop's code.
 func (a *mobileApp) scanQR() {
 	if !a.cx.Env().CanTakePhoto() {
@@ -331,23 +372,7 @@ func (a *mobileApp) scanQR() {
 		if photo == nil || len(photo.Data) == 0 {
 			return
 		}
-		go func(data []byte) {
-			link, derr := decodeQRLink(data)
-			a.cx.Post(func() {
-				if derr != nil || link == "" {
-					a.err.Set("没扫到二维码，靠近一点再试")
-					return
-				}
-				client, token, cerr := newRemoteClient(link, "")
-				if cerr != nil {
-					a.err.Set(cerr.Error())
-					return
-				}
-				a.server.Set(client.base)
-				a.token.Set(token)
-				a.connect()
-			})
-		}(photo.Data)
+		a.useScanned(photo.Data)
 	})
 }
 

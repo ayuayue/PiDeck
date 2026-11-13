@@ -440,9 +440,18 @@ func TestRemoteSearch(t *testing.T) {
 // desktop shows a code and the phone scans it.
 func TestQRRoundTrip(t *testing.T) {
 	link := "http://10.0.2.2:8787/?token=abc123"
+	if given := os.Getenv("PIDECK_QR_LINK"); given != "" {
+		link = given
+	}
 	png := qrPNGFor(link)
 	if len(png) == 0 {
 		t.Fatal("no QR image")
+	}
+	// PIDECK_QR_OUT writes the code to a file, for trying it on a device.
+	if out := os.Getenv("PIDECK_QR_OUT"); out != "" {
+		if err := os.WriteFile(out, png, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	got, err := decodeQRLink(png)
 	if err != nil {
@@ -473,4 +482,28 @@ func TestRememberConnection(t *testing.T) {
 	if len(saved.Recent) != 5 {
 		t.Fatalf("capped at %d", len(saved.Recent))
 	}
+}
+
+// TestMobileRecentConnections shows the servers the phone has used.
+func TestMobileRecentConnections(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", home)
+	raw, err := json.Marshal(mobileSaved{Recent: []mobileRecent{
+		{Server: "http://10.0.2.2:8787", Token: "a", Name: "caoayu", At: 2},
+		{Server: "http://100.64.0.8:8787", Token: "b", Name: "笔记本", At: 1},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "remote.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
+	app.WaitFor("text:最近连接", 5*time.Second)
+	if got := len(app.Query("id:mobile-recent")); got != 2 {
+		t.Fatalf("recent rows = %d, want 2", got)
+	}
+	app.Advance(300 * time.Millisecond)
+	shot(app, "68-mobile-recent")
 }
