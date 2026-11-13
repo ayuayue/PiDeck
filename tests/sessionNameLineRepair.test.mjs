@@ -6,6 +6,7 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+import { readSessionScannerSources } from "./helpers/sessionScannerSources.mjs";
 // 纯函数模块（零依赖）直接编译加载
 const { extractBodyTextFromContent, inferSessionTitleFromLines, isLegacySessionNameEntry, isLegacySessionNameLine, stripLegacySessionNameLine, tryRestorePathGluedHeader } = loadTsCommonJs("src/main/sessions/sessionNameLine.ts");
 
@@ -223,7 +224,7 @@ test("AgentManager 与 index.ts 完成修复回调装配", () => {
 });
 
 test("rename 与修复共用同一剔除判定（无重复私有行判定实现）", () => {
-	const scannerSource = readFileSync("src/main/sessions/SessionScanner.ts", "utf8");
+	const scannerSource = readSessionScannerSources();
 	assert.match(scannerSource, /isLegacySessionNameEntry\(parsed\)/);
 	assert.match(scannerSource, /stripLegacySessionNameLine\(raw\)/);
 	// appendSessionInfoLine 中不再残留内联的旧判定

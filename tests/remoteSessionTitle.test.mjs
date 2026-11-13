@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { readSessionScannerSources } from "./helpers/sessionScannerSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 const HOST = "b145de8c-6330-45be-8752-f20e8e270150";
@@ -339,7 +340,7 @@ test("两个判据独立：暂定（origin）与降级（tailDegraded）不得�
 });
 
 test("本地解析只有一份实现：SessionScanner 不再自带副本，远端不自己解析行", () => {
-	const scannerSource = readFileSync("src/main/sessions/SessionScanner.ts", "utf8");
+	const scannerSource = readSessionScannerSources();
 	assert.doesNotMatch(scannerSource, /function inferScanNameFromLines/);
 	assert.doesNotMatch(scannerSource, /function cleanScanTitle/);
 	assert.match(scannerSource, /from "\.\/sessionNameLine"/);
