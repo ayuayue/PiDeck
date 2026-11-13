@@ -226,13 +226,14 @@ type app struct {
 
 	// The provider editor: which provider, its fields, and the result of
 	// a connection test.
-	providerOpen   *core.Signal[bool]
-	providerID     *core.Signal[string]
-	providerAPI    *core.Signal[string]
-	providerBase   *core.Signal[string]
-	providerKeySig *core.Signal[string]
-	providerTest   *core.Signal[string]
-	providerModels []modelConfig
+	providerOpen    *core.Signal[bool]
+	providerID      *core.Signal[string]
+	providerAPI     *core.Signal[string]
+	providerBase    *core.Signal[string]
+	providerKeySig  *core.Signal[string]
+	providerTest    *core.Signal[string]
+	providerBalance *core.Signal[string]
+	providerModels  []modelConfig
 
 	// langRev changes when the interface language does, so pages that
 	// hold static text rebuild.
@@ -396,6 +397,7 @@ func newApp(cx *core.Scope) *app {
 		providerBase:     core.NewSignal(cx, ""),
 		providerKeySig:   core.NewSignal(cx, ""),
 		providerTest:     core.NewSignal(cx, ""),
+		providerBalance:  core.NewSignal(cx, ""),
 	}
 	a.toaster = ui.NewToaster(cx)
 	a.files = newFileTree(cx)

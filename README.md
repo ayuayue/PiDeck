@@ -229,7 +229,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 模型与认证：供应商列表（模型数、API、BaseURL）、`pi auth check` 的就绪状态、
   复制登录命令、常用模型（收藏）管理
 - 供应商配置：点供应商右侧的设置按钮改 `api` / `baseUrl` / `apiKey`（只写这三个字段，
-  其余保持原样），可一键测试连接（先探 `/models`，再退到一次最小 chat 请求）
+  其余保持原样），可一键测试连接（先探 `/models`，再退到一次最小 chat 请求），
+  也可查询余额（OpenRouter / Moonshot / DeepSeek / SiliconFlow，按 BaseURL 或供应商 ID 识别）
 - 原始配置：直接在内置编辑器里打开 `models.json` / `settings.json` / `auth.json`
 - 外观：配色（跟随系统/纸白/炭黑/用户主题）、打开主题目录
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区
@@ -311,8 +312,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `ui.go` | 侧栏、标签、抽屉、命令面板、目标/重命名/确认/扩展对话框 |
 | `ui_menu.go` | 统一的菜单卡片、会话/项目右键菜单、模型/用量/项目弹层 |
 | `ui_settings.go` | 设置窗口：左栏分类 + 分节行（通用/模型与认证/外观/环境/扩展/数据/关于） |
-| `providers.go` | 读 pi 的 models.json、编辑供应商字段、`pi auth check` 探认证、连接测试 |
-| `ui_provider.go` | 供应商配置对话框：字段、模型列表、连接测试、原始 JSON 入口 |
+| `providers.go` | 读 pi 的 models.json、编辑供应商字段、`pi auth check` 探认证、连接测试与余额查询 |
+| `ui_provider.go` | 供应商配置对话框：字段、模型列表、连接测试、余额查询、原始 JSON 入口 |
 | `ui_chat.go` | 对话：轮次、思考行、工具行（diff/嵌套调用）、Markdown、输入区、空状态 |
 | `theme.go` | PiDeck 配色的 NSGo 主题，用户主题在其上覆盖 |
 | `*_test.go` | 无头 UI 测试、端到端（真 pi）、目标命令/主题/插件单测 |

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -369,4 +370,110 @@ func providerRequest(method, url, key string, body []byte) (int, []byte, error) 
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	return resp.StatusCode, data, nil
+}
+
+// balanceEndpoint names the URL that reports a provider's remaining
+// credit, for the providers that have one.
+func balanceEndpoint(cfg providerConfig) (string, string, error) {
+	base := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	if base == "" {
+		return "", "", fmt.Errorf("没有 Base URL")
+	}
+	name := strings.ToLower(cfg.ID + " " + base)
+	switch {
+	case strings.Contains(name, "openrouter"):
+		return base + "/credits", "openrouter", nil
+	case strings.Contains(name, "moonshot") || strings.Contains(name, "kimi"):
+		return base + "/users/me/balance", "moonshot", nil
+	case strings.Contains(name, "deepseek"):
+		return strings.TrimSuffix(base, "/v1") + "/user/balance", "deepseek", nil
+	case strings.Contains(name, "siliconflow"):
+		return base + "/user/info", "siliconflow", nil
+	}
+	return "", "", fmt.Errorf("这个供应商没有已知的余额接口")
+}
+
+// providerBalance asks a provider how much credit is left.
+func providerBalance(cfg providerConfig) (string, error) {
+	url, kind, err := balanceEndpoint(cfg)
+	if err != nil {
+		return "", err
+	}
+	status, body, err := providerRequest("GET", url, providerKey(cfg), nil)
+	if err != nil {
+		return "", err
+	}
+	if status < 200 || status >= 300 {
+		return "", fmt.Errorf("HTTP %d：%s", status, shorten(string(body), 160))
+	}
+	var root map[string]any
+	if json.Unmarshal(body, &root) != nil {
+		return "", fmt.Errorf("返回的不是 JSON")
+	}
+	data, _ := root["data"].(map[string]any)
+	switch kind {
+	case "openrouter":
+		credits, ok := floatField(data["total_credits"])
+		if !ok {
+			return "", fmt.Errorf("返回里没有 total_credits")
+		}
+		used, _ := floatField(data["total_usage"])
+		return fmt.Sprintf("余额 $%.2f · 已用 $%.2f / 总额 $%.2f", credits-used, used, credits), nil
+	case "moonshot":
+		bal, ok := floatField(data["available_balance"])
+		if !ok {
+			return "", fmt.Errorf("返回里没有 available_balance")
+		}
+		return fmt.Sprintf("余额 ¥%.2f", bal), nil
+	case "deepseek":
+		infos, _ := root["balance_infos"].([]any)
+		if len(infos) == 0 {
+			return "", fmt.Errorf("返回里没有 balance_infos")
+		}
+		info, _ := infos[0].(map[string]any)
+		bal, ok := floatField(info["total_balance"])
+		if !ok {
+			return "", fmt.Errorf("返回里没有 total_balance")
+		}
+		return fmt.Sprintf("余额 %s%.2f", currencySymbol(strField(info["currency"])), bal), nil
+	case "siliconflow":
+		bal, ok := floatField(data["balance"])
+		if !ok {
+			return "", fmt.Errorf("返回里没有 balance")
+		}
+		return fmt.Sprintf("余额 ¥%.2f", bal), nil
+	}
+	return "", fmt.Errorf("这个供应商没有已知的余额接口")
+}
+
+// currencySymbol is a currency code's mark, or the code itself.
+func currencySymbol(code string) string {
+	switch strings.ToUpper(code) {
+	case "CNY", "RMB":
+		return "¥"
+	case "USD":
+		return "$"
+	}
+	return code + " "
+}
+
+// floatField reads a JSON number that may be a string.
+func floatField(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		return f, err == nil
+	}
+	return 0, false
+}
+
+// strField reads a JSON string.
+func strField(v any) string {
+	s, _ := v.(string)
+	return s
 }

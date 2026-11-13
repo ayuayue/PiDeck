@@ -27,6 +27,7 @@ func (a *app) openProviderDialog(id string) {
 	a.providerKeySig.Set("")
 	a.providerModels = nil
 	a.providerTest.Set("")
+	a.providerBalance.Set("")
 	for _, cfg := range readProviderConfigs() {
 		if cfg.ID != id {
 			continue
@@ -53,15 +54,20 @@ func (a *app) saveProvider() {
 	a.refreshProviders()
 }
 
-// testProvider checks the dialog's current fields, before saving.
-func (a *app) testProvider() {
-	cfg := providerConfig{
+// providerFromDialog is the provider as the dialog's fields read now.
+func (a *app) providerFromDialog() providerConfig {
+	return providerConfig{
 		ID:      a.providerID.GetUntracked(),
 		API:     a.providerAPI.GetUntracked(),
 		BaseURL: a.providerBase.GetUntracked(),
 		APIKey:  a.providerKeySig.GetUntracked(),
 		Models:  a.providerModels,
 	}
+}
+
+// testProvider checks the dialog's current fields, before saving.
+func (a *app) testProvider() {
+	cfg := a.providerFromDialog()
 	a.providerTest.Set("正在测试…")
 	go func() {
 		msg, err := testProviderConnection(cfg)
@@ -71,6 +77,22 @@ func (a *app) testProvider() {
 				return
 			}
 			a.providerTest.Set(msg)
+		})
+	}()
+}
+
+// queryProviderBalance asks the dialog's provider how much credit is left.
+func (a *app) queryProviderBalance() {
+	cfg := a.providerFromDialog()
+	a.providerBalance.Set("正在查询…")
+	go func() {
+		msg, err := providerBalance(cfg)
+		a.cx.Post(func() {
+			if err != nil {
+				a.providerBalance.Set("失败：" + err.Error())
+				return
+			}
+			a.providerBalance.Set(msg)
 		})
 	}()
 }
@@ -146,6 +168,11 @@ func (a *app) providerDialog() core.Node {
 		if strings.HasPrefix(status, "失败") {
 			statusColor = colors.Danger
 		}
+		balance := a.providerBalance.Get()
+		balanceColor := colors.Up
+		if strings.HasPrefix(balance, "失败") {
+			balanceColor = colors.Danger
+		}
 		return ui.Dialog{
 			Open:         a.providerOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.providerOpen.Set(open) },
@@ -183,6 +210,13 @@ func (a *app) providerDialog() core.Node {
 								Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(statusColor)},
 						}}
 					}},
+					core.Show{When: func() bool { return a.providerBalance.Get() != "" }, Then: func(*core.Scope) core.Node {
+						return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
+							ui.Icon(lucide.Wallet, 12, func() core.Color { return balanceColor() }),
+							core.Text{ContentFunc: func() string { return a.providerBalance.Get() }, MaxLines: 3,
+								Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(balanceColor)},
+						}}
+					}},
 					core.Text{Content: "只写回 api、baseUrl、apiKey 三个字段；models、compat 等保持原样。保存后重启 Agent 生效。",
 						Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
@@ -192,6 +226,8 @@ func (a *app) providerDialog() core.Node {
 					a.openPiConfigFile("models.json")
 				}},
 				core.View{Style: core.Style{FlexGrow: 1}},
+				ui.Button{Text: "查询余额", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "provider-balance",
+					OnPress: func() { a.queryProviderBalance() }},
 				ui.Button{Text: "测试连接", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "provider-test",
 					OnPress: func() { a.testProvider() }},
 				ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall,

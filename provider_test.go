@@ -4,6 +4,7 @@ package main
 // key, and the connection test's answers.
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -171,4 +172,73 @@ func TestProviderDialogSaves(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// TestProviderBalance checks the four known balance endpoints and the
+// provider without one.
+func TestProviderBalance(t *testing.T) {
+	var body, path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	cases := []struct{ id, path, payload, want string }{
+		{"openrouter", "/credits", `{"data":{"total_credits":100,"total_usage":12.5}}`, "余额 $87.50"},
+		{"moonshot", "/users/me/balance", `{"data":{"available_balance":12.34}}`, "余额 ¥12.34"},
+		{"deepseek", "/user/balance", `{"balance_infos":[{"currency":"CNY","total_balance":"9.90"}]}`, "余额 ¥9.90"},
+		{"siliconflow", "/user/info", `{"data":{"balance":"5.00"}}`, "余额 ¥5.00"},
+	}
+	for _, c := range cases {
+		body = c.payload
+		path = ""
+		cfg := providerConfig{ID: c.id, BaseURL: srv.URL, APIKey: "test-key"}
+		got, err := providerBalance(cfg)
+		if err != nil || !strings.Contains(got, c.want) {
+			t.Errorf("%s: %q, %v", c.id, got, err)
+		}
+		if path != c.path {
+			t.Errorf("%s asked %q", c.id, path)
+		}
+	}
+	body = `{}`
+	if _, err := providerBalance(providerConfig{ID: "acme", BaseURL: srv.URL, APIKey: "test-key"}); err == nil {
+		t.Error("a provider without an endpoint should fail")
+	}
+}
+
+// TestProviderDialogBalance checks the dialog's balance button, against a
+// local server standing in for SiliconFlow.
+func TestProviderDialogBalance(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user/info" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"balance":"5.00"}}`))
+	}))
+	defer srv.Close()
+	home := t.TempDir()
+	cfgDir := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	body := fmt.Sprintf(`{"providers":{"siliconflow":{"api":"openai-completions","baseUrl":%q,"apiKey":"test-key","models":[{"id":"m1"}]}}}`, srv.URL)
+	if err := os.WriteFile(filepath.Join(cfgDir, "models.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-models")
+	app.WaitFor("text:siliconflow", 10*time.Second)
+	app.Press("id:provider-configure-siliconflow")
+	app.WaitFor("id:provider-dialog", 5*time.Second)
+	app.Press("id:provider-balance")
+	waitApp(app, "text:余额 ¥5.00", 10*time.Second)
 }
