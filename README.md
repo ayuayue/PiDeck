@@ -234,7 +234,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 原始配置：直接在内置编辑器里打开 `models.json` / `settings.json` / `auth.json`
 - 外观：配色（跟随系统/纸白/炭黑/用户主题）、打开主题目录
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区
-- 扩展：插件列表与命令、打开插件目录、重新加载
+- 扩展：插件列表与命令、插件声明式设置（开关/文本/数字/单选）、打开插件目录、重新加载
 - 集成：飞书群自定义机器人；一轮结束把标题、状态与一句摘要发到群里，可填签名密钥并测试
 - 诊断：运行中的 pi/终端进程、goroutine 与堆、最近日志；可复制诊断报告、打开日志目录、清空内存日志
 - 资源：pi 的技能（读 `SKILL.md` 的 name/description，点开在编辑器里看）与扩展
@@ -384,9 +384,12 @@ knob code info down`。
   "description": "常用检查与链接",
   "author": "团队",
   "contributes": {
+    "settings": [
+      {"key": "lang", "label": "回答语言", "type": "select", "default": "zh", "options": ["zh", "en"]}
+    ],
     "commands": [
       {"id": "review", "title": "跑测试并总结失败", "group": "团队", "icon": "terminal",
-       "action": {"type": "prompt", "prompt": "跑一遍测试，把失败项按文件列出来。"}},
+       "action": {"type": "prompt", "prompt": "用 ${setting:lang} 跑一遍测试，把失败项按文件列出来。"}},
       {"id": "open-docs", "title": "打开团队文档", "icon": "globe",
        "action": {"type": "url", "url": "https://example.com/docs"}},
       {"id": "compact", "title": "压缩上下文", "icon": "zap",
@@ -400,6 +403,11 @@ knob code info down`。
 
 - `action.type`：`prompt` / `insert` 填进输入框，`send` 直接发送，`command` 执行内置命令，
   `url` 打开 http(s) 链接，`theme` 切换主题（可写 id 或显示名）
+- `contributes.settings` 声明插件设置：`type` 为 `bool` / `string` / `number` / `select`，
+  `select` 需要 `options`；设置显示在 设置 → 扩展 的插件条目下，值存 `config.json` 的
+  `pluginSettings`（键为 `<插件 id>/<key>`）
+- 命令的 `prompt` / `command` / `url` / `theme` 里写 `${setting:key}`，执行时替换为当前值或默认值；
+  引用未声明的 key 会在设置里显示警告
 - `contributes.themes` 的路径必须留在插件目录内；越界、坏命令、重复 id 会在设置里显示为警告
 - 旧格式 `{"prompts": [...], "themes": [...]}` 仍然可用，提示词会自动变成 `prompt` 命令
 - 命令 id 在插件内唯一；面板里显示为 `plugin:<插件 id>:<命令 id>`

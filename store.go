@@ -83,6 +83,9 @@ type config struct {
 	// DisabledPlugins are the plugin ids the user turned off; everything
 	// else under plugins/ runs.
 	DisabledPlugins []string `json:"disabledPlugins,omitempty"`
+	// PluginSettings holds the values of settings plugins declare, by
+	// "pluginID/key".
+	PluginSettings map[string]string `json:"pluginSettings,omitempty"`
 	// Keybindings replaces a command's default key, by command id. An
 	// empty key removes the binding.
 	Keybindings map[string]string `json:"keybindings,omitempty"`

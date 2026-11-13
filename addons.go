@@ -22,7 +22,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/oneo-me/nsgo/core"
@@ -140,7 +142,26 @@ type pluginContrib struct {
 	Commands    []pluginCommand    `yaml:"commands" json:"commands"`
 	Themes      []string           `yaml:"themes" json:"themes"`
 	Keybindings []pluginKeybinding `yaml:"keybindings" json:"keybindings"`
+	Settings    []pluginSetting    `yaml:"settings" json:"settings"`
 }
+
+// pluginSetting is one value a plugin asks the user for. Commands read it
+// with ${setting:key}, so a plugin can stay declarative and still be
+// configured without editing its file.
+type pluginSetting struct {
+	Key         string   `yaml:"key" json:"key"`
+	Label       string   `yaml:"label" json:"label"`
+	Description string   `yaml:"description" json:"description"`
+	Type        string   `yaml:"type" json:"type"` // bool, string, number, select
+	Default     any      `yaml:"default" json:"default"`
+	Options     []string `yaml:"options" json:"options"`
+}
+
+// pluginSettingRef matches a setting reference in an action's text.
+var pluginSettingRef = regexp.MustCompile(`\$\{setting:([A-Za-z0-9_.-]+)\}`)
+
+// pluginSettingKey is a valid setting key.
+var pluginSettingKey = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // pluginCommand is a palette command a plugin adds.
 type pluginCommand struct {
@@ -374,6 +395,7 @@ func (a *app) loadPlugins() []plugin {
 // normalizePlugin folds the older prompts and inline themes into the
 // contributes shape and checks each command and theme path.
 func normalizePlugin(p *plugin) {
+	declared := normalizePluginSettings(p)
 	for i, pr := range p.Prompts {
 		if strings.TrimSpace(pr.Title) == "" || strings.TrimSpace(pr.Prompt) == "" {
 			continue
@@ -404,6 +426,7 @@ func normalizePlugin(p *plugin) {
 		p.ThemeSpecs = append(p.ThemeSpecs, spec)
 	}
 	ids := map[string]bool{}
+	refs := map[string]bool{}
 	for _, c := range p.Contributes.Commands {
 		c.ID = strings.TrimSpace(c.ID)
 		c.Title = strings.TrimSpace(c.Title)
@@ -418,6 +441,15 @@ func normalizePlugin(p *plugin) {
 		if err := validateAction(c.Action); err != nil {
 			p.Warnings = append(p.Warnings, fmt.Sprintf("命令 %s：%v", c.ID, err))
 			continue
+		}
+		for _, text := range []string{c.Action.Prompt, c.Action.Command, c.Action.URL, c.Action.Theme} {
+			for _, m := range pluginSettingRef.FindAllStringSubmatch(text, -1) {
+				if declared[m[1]] || refs[c.ID+"/"+m[1]] {
+					continue
+				}
+				refs[c.ID+"/"+m[1]] = true
+				p.Warnings = append(p.Warnings, fmt.Sprintf("命令 %s 引用了未声明的设置 %s", c.ID, m[1]))
+			}
 		}
 		ids[c.ID] = true
 		p.Commands = append(p.Commands, c)
@@ -439,6 +471,136 @@ func normalizePlugin(p *plugin) {
 		}
 		p.ThemeSpecs = append(p.ThemeSpecs, spec)
 	}
+}
+
+// normalizePluginSettings checks a plugin's settings and returns the keys
+// it declared.
+func normalizePluginSettings(p *plugin) map[string]bool {
+	declared := map[string]bool{}
+	var out []pluginSetting
+	for _, s := range p.Contributes.Settings {
+		s.Key = strings.TrimSpace(s.Key)
+		s.Label = strings.TrimSpace(s.Label)
+		s.Type = strings.ToLower(strings.TrimSpace(s.Type))
+		if s.Type == "" {
+			s.Type = "string"
+		}
+		switch {
+		case s.Key == "" || s.Label == "":
+			p.Warnings = append(p.Warnings, "跳过没有 key 或标题的设置")
+			continue
+		case !pluginSettingKey.MatchString(s.Key):
+			p.Warnings = append(p.Warnings, "设置 key 只能用字母、数字、下划线、点和横线："+s.Key)
+			continue
+		case declared[s.Key]:
+			p.Warnings = append(p.Warnings, "跳过重复的设置 key："+s.Key)
+			continue
+		}
+		switch s.Type {
+		case "bool", "string", "number":
+		case "select":
+			if len(s.Options) == 0 {
+				p.Warnings = append(p.Warnings, "设置 "+s.Key+" 是 select，但没有 options")
+				continue
+			}
+			def := settingText(s.Default)
+			if def == "" {
+				s.Default = s.Options[0]
+				def = s.Options[0]
+			}
+			known := false
+			for _, opt := range s.Options {
+				if opt == def {
+					known = true
+				}
+			}
+			if !known {
+				p.Warnings = append(p.Warnings, "设置 "+s.Key+" 的默认值不在 options 里，改用 "+s.Options[0]+"："+def)
+				s.Default = s.Options[0]
+			}
+		default:
+			p.Warnings = append(p.Warnings, fmt.Sprintf("设置 %s 的类型 %q 不认识", s.Key, s.Type))
+			continue
+		}
+		declared[s.Key] = true
+		out = append(out, s)
+	}
+	p.Contributes.Settings = out
+	return declared
+}
+
+// settingText renders a setting's default as the stored form.
+func settingText(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	case string:
+		return x
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	}
+	return fmt.Sprint(v)
+}
+
+// pluginSettingValue is the saved value of one setting, or its default.
+func pluginSettingValue(saved map[string]string, p plugin, key string) string {
+	if saved != nil {
+		if v, ok := saved[p.ID+"/"+key]; ok {
+			return v
+		}
+	}
+	for _, s := range p.Contributes.Settings {
+		if s.Key == key {
+			return settingText(s.Default)
+		}
+	}
+	return ""
+}
+
+// pluginSetting reads one of a plugin's settings.
+func (a *app) pluginSetting(id, key string) string {
+	if a.plugins == nil {
+		return pluginSettingValue(a.cfg.PluginSettings, plugin{ID: id}, key)
+	}
+	for _, p := range a.plugins.GetUntracked() {
+		if p.ID == id {
+			return pluginSettingValue(a.cfg.PluginSettings, p, key)
+		}
+	}
+	return pluginSettingValue(a.cfg.PluginSettings, plugin{ID: id}, key)
+}
+
+// setPluginSetting stores one setting and redraws the settings page.
+func (a *app) setPluginSetting(id, key, value string) {
+	if a.st == nil {
+		return
+	}
+	a.st.edit(func(c *config) {
+		if c.PluginSettings == nil {
+			c.PluginSettings = map[string]string{}
+		}
+		c.PluginSettings[id+"/"+key] = value
+	})
+	a.cfg = a.st.config()
+}
+
+// expandPluginText fills a plugin action's ${setting:key} references.
+func (a *app) expandPluginText(p plugin, text string) string {
+	if !strings.Contains(text, "${setting:") {
+		return text
+	}
+	return pluginSettingRef.ReplaceAllStringFunc(text, func(m string) string {
+		return pluginSettingValue(a.cfg.PluginSettings, p, pluginSettingRef.FindStringSubmatch(m)[1])
+	})
 }
 
 // validateAction checks a plugin command's action shape.
@@ -515,13 +677,16 @@ func (a *app) ensureAddonDirs() {
   "version": "1.0.0",
   "description": "几条常做的提示词，命令面板里就能直接选用。",
   "contributes": {
+    "settings": [
+      {"key": "style", "label": "总结风格", "type": "select", "default": "要点", "options": ["要点", "一段话"]}
+    ],
     "commands": [
       {
         "id": "review-changes",
         "title": "梳理当前改动",
         "group": "示例插件",
         "icon": "git",
-        "action": {"type": "prompt", "prompt": "看看工作区里未提交的改动，用要点说明它们做了什么、有没有风险。"}
+        "action": {"type": "prompt", "prompt": "看看工作区里未提交的改动，用${setting:style}说明它们做了什么、有没有风险。"}
       },
       {
         "id": "open-readme",

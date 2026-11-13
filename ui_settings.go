@@ -848,6 +848,22 @@ func (a *app) settingsAddons() core.Node {
 			if len(lines) > 0 {
 				rows = append(rows, core.View{Style: core.Style{Padding: core.Edges{Left: 4, Bottom: 4}, Gap: 1}, Children: lines})
 			}
+			if len(plug.Contributes.Settings) > 0 {
+				var settingRows []core.Node
+				for _, st := range plug.Contributes.Settings {
+					setting := st
+					settingRows = append(settingRows, setRow(setting.Label, setting.Description,
+						a.pluginSettingControl(plug, setting)))
+				}
+				rows = append(rows, core.View{Style: core.Style{Padding: core.Edges{Left: 4, Bottom: 6}, Gap: 3}, Children: []core.Node{
+					core.Text{Content: "设置", Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LetterSpacing: 0.5},
+						StyleFunc: ui.Colored(colors.Faint)},
+					core.View{StyleFunc: func() core.Style {
+						return core.Style{Gap: 1, Padding: core.Symmetric(3, 8), CornerRadius: 7,
+							Background: colors.Inset(), BorderWidth: 1, BorderColor: colors.Line()}
+					}, Children: settingRows},
+				}})
+			}
 			if i < len(list)-1 {
 				rows = append(rows, setDivider())
 			}
@@ -865,6 +881,39 @@ func (a *app) settingsAddons() core.Node {
 				}},
 			}},
 		}}
+	})
+}
+
+// pluginSettingControl is the control for one plugin setting: a switch,
+// a row of choices, or a field that saves as it changes.
+func (a *app) pluginSettingControl(p plugin, s pluginSetting) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		testID := "plugin-setting-" + p.ID + "-" + s.Key
+		switch s.Type {
+		case "bool":
+			return ui.Switch{Checked: func() bool { return a.pluginSetting(p.ID, s.Key) == "true" },
+				Label: s.Label, Size: ui.SizeSmall, TestID: testID,
+				OnChange: func(on bool) { a.setPluginSetting(p.ID, s.Key, settingText(on)) }}
+		case "select":
+			var radios []core.Node
+			for _, opt := range s.Options {
+				value := opt
+				radios = append(radios, ui.Radio{Text: opt, TestID: testID + "-" + value,
+					Checked:  func() bool { return a.pluginSetting(p.ID, s.Key) == value },
+					OnChange: func(bool) { a.setPluginSetting(p.ID, s.Key, value) }})
+			}
+			return ui.RadioGroup{Horizontal: true, Children: radios, Label: s.Label}
+		default:
+			return core.Input{
+				Value: func() string { return a.pluginSetting(p.ID, s.Key) }, Label: s.Label, TestID: testID,
+				Placeholder: settingText(s.Default),
+				OnChange:    func(v string) { a.setPluginSetting(p.ID, s.Key, v) },
+				Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
+					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					BorderWidth: 1, BorderColor: colors.FieldBorder(), MinWidth: core.Pt(150)},
+			}
+		}
 	})
 }
 

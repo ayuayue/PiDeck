@@ -316,6 +316,10 @@ func (a *app) runPluginCommand(pluginID, commandID string) {
 // runPluginAction carries out a plugin command's action.
 func (a *app) runPluginAction(p plugin, c pluginCommand) {
 	act := c.Action
+	act.Prompt = a.expandPluginText(p, act.Prompt)
+	act.Command = a.expandPluginText(p, act.Command)
+	act.URL = a.expandPluginText(p, act.URL)
+	act.Theme = a.expandPluginText(p, act.Theme)
 	switch act.Type {
 	case "prompt", "insert", "":
 		if strings.TrimSpace(act.Prompt) == "" {

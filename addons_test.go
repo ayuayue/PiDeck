@@ -387,3 +387,121 @@ func TestRevealCommands(t *testing.T) {
 		t.Fatal("ssh reveal should refuse")
 	}
 }
+
+// TestPluginSettings checks a manifest's settings are validated, stored
+// with defaults, and referenced from an action.
+func TestPluginSettings(t *testing.T) {
+	p := plugin{ID: "team", Contributes: pluginContrib{
+		Settings: []pluginSetting{
+			{Key: "lang", Label: "语言", Type: "select", Default: "zh", Options: []string{"zh", "en"}},
+			{Key: "flag", Label: "开关", Type: "bool", Default: true},
+			{Key: "lang", Label: "重复", Type: "string"},
+			{Key: "bad key", Label: "坏", Type: "string"},
+			{Key: "mode", Label: "模式", Type: "select"},
+			{Key: "tone", Label: "语气", Type: "select", Default: "warm", Options: []string{"plain"}},
+		},
+		Commands: []pluginCommand{
+			{ID: "go", Title: "走", Action: pluginAction{Type: "prompt", Prompt: "用 ${setting:lang} 回答，${setting:nope}"}},
+		},
+	}}
+	normalizePlugin(&p)
+	if len(p.Contributes.Settings) != 3 {
+		t.Fatalf("settings = %+v", p.Contributes.Settings)
+	}
+	if got := settingText(p.Contributes.Settings[2].Default); got != "plain" {
+		t.Errorf("select without a default = %q", got)
+	}
+	var badDefault bool
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "warm") {
+			badDefault = true
+		}
+	}
+	if !badDefault {
+		t.Fatalf("no warning for a default outside options: %v", p.Warnings)
+	}
+	if got := settingText(true); got != "true" {
+		t.Errorf("bool = %q", got)
+	}
+	if got := settingText(3.5); got != "3.5" {
+		t.Errorf("float = %q", got)
+	}
+	if got := pluginSettingValue(nil, p, "lang"); got != "zh" {
+		t.Errorf("default = %q", got)
+	}
+	saved := map[string]string{"team/flag": "false", "team/lang": "en"}
+	if got := pluginSettingValue(saved, p, "flag"); got != "false" {
+		t.Errorf("saved = %q", got)
+	}
+	if got := pluginSettingValue(saved, p, "lang"); got != "en" {
+		t.Errorf("saved select = %q", got)
+	}
+	var warned bool
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "nope") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("no warning for an undeclared setting: %v", p.Warnings)
+	}
+	a := &app{cfg: config{PluginSettings: saved}}
+	if got := a.expandPluginText(p, "说 ${setting:lang}"); got != "说 en" {
+		t.Errorf("expand = %q", got)
+	}
+	empty := &app{}
+	if got := empty.expandPluginText(p, "说 ${setting:lang}"); got != "说 zh" {
+		t.Errorf("default expand = %q", got)
+	}
+}
+
+// TestPluginSettingUI flips a plugin's declared switch and runs a command
+// that reads it.
+func TestPluginSettingUI(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := editorWorkspace(t)
+	workspace := editorWorkspace(t)
+	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{
+  "id": "team", "name": "测试插件", "version": "1.0.0",
+  "contributes": {
+    "settings": [{"key": "flag", "label": "开关测试", "type": "bool", "default": false}],
+    "commands": [{"id": "check", "title": "开关检查", "action": {"type": "prompt", "prompt": "flag=${setting:flag}"}}]
+  }
+}`
+	if err := os.WriteFile(filepath.Join(dir, "team.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := openApp(t, workspace, 1280, 860)
+	app.Press("label:设置")
+	app.Press("id:settings-tab-addons")
+	app.WaitFor("text:测试插件", 30*time.Second)
+	app.WaitFor("id:plugin-setting-team-flag", 10*time.Second)
+	app.Press("id:plugin-setting-team-flag")
+	app.Press("id:settings-done")
+	app.WaitForGone("id:settings-tab-addons", 5*time.Second)
+	app.Press("id:rail-palette")
+	app.Type("label:命令", "开关检查")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:开关检查")) > 0 })
+	app.Press("role:option 开关检查")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		app.Settle()
+		if strings.Contains(app.Find("id:composer").Text, "flag=true") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("composer = %q", app.Find("id:composer").Text)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
