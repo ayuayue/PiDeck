@@ -117,8 +117,18 @@ type session struct {
 
 	conversation *chat.ConversationState
 
-	engine   *piClient
-	starting bool
+	engine *piClient
+	// ACP sessions run an external agent CLI instead of pi.
+	backend     string
+	acpPreset   string
+	acp         *acpClient
+	acpSID      string
+	acpTurnID   string
+	acpText     strings.Builder
+	acpThink    strings.Builder
+	acpFlushDue bool
+	acpReply    func(string)
+	starting    bool
 	// restarting makes the exit handler start pi again instead of
 	// reporting the process as gone.
 	restarting bool
@@ -179,6 +189,9 @@ type app struct {
 	projectGroupOpen *core.Signal[bool]
 	projectGroupPath *core.Signal[string]
 	projectGroupText *core.Signal[string]
+
+	// The ACP preset picker.
+	acpOpen *core.Signal[bool]
 
 	// The keyboard cheat sheet.
 	shortcutsOpen  *core.Signal[bool]
@@ -351,6 +364,7 @@ func newApp(cx *core.Scope) *app {
 		askBox:           core.NewSignal(cx, askBox{}),
 		askText:          core.NewSignal(cx, ""),
 		projectsRev:      core.NewSignal(cx, 0),
+		acpOpen:          core.NewSignal(cx, false),
 		projectGroupOpen: core.NewSignal(cx, false),
 		projectGroupPath: core.NewSignal(cx, ""),
 		projectGroupText: core.NewSignal(cx, ""),
@@ -1094,29 +1108,13 @@ func (a *app) cycleTab(delta int) {
 	}
 }
 
-// newSession starts an empty conversation in the active workspace, or in
-// the one at path.
-func (a *app) newSession(path string) *session {
-	ws := a.activeWorkspace()
-	if path != "" {
-		for _, w := range a.workspaces.Get() {
-			if w.Path == path {
-				ws = w
-				break
-			}
-		}
-	}
-	if ws == nil {
-		// No project yet: the folder picker is the next step, not an error.
-		a.toast(ui.ToastInfo, "先选一个项目", "选好文件夹就开始第一次对话。")
-		a.pickNative("workspace")
-		return nil
-	}
+// blankSession builds a session's signals and registers it.
+func (a *app) blankSession(id string, ws *workspace, title string) *session {
 	s := &session{
-		ID:             newSessionID(),
+		ID:             id,
 		WS:             ws.Path,
 		Target:         ws.Target,
-		title:          core.NewSignal(a.cx, "新会话"),
+		title:          core.NewSignal(a.cx, title),
 		status:         core.NewSignal(a.cx, statusIdle),
 		turns:          core.NewSignalFunc(a.cx, []turn{}, nil),
 		draft:          core.NewSignal(a.cx, ""),
@@ -1153,6 +1151,28 @@ func (a *app) newSession(path string) *session {
 	s.conversation = chat.NewConversationState(a.cx)
 	a.byID[s.ID] = s
 	a.all = append(a.all, s)
+	return s
+}
+
+// newSession starts an empty conversation in the active workspace, or in
+// the one at path.
+func (a *app) newSession(path string) *session {
+	ws := a.activeWorkspace()
+	if path != "" {
+		for _, w := range a.workspaces.Get() {
+			if w.Path == path {
+				ws = w
+				break
+			}
+		}
+	}
+	if ws == nil {
+		// No project yet: the folder picker is the next step, not an error.
+		a.toast(ui.ToastInfo, "先选一个项目", "选好文件夹就开始第一次对话。")
+		a.pickNative("workspace")
+		return nil
+	}
+	s := a.blankSession(newSessionID(), ws, "新会话")
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	a.selectSession(s)
 	return s
@@ -1618,6 +1638,19 @@ func (a *app) ensureEngine(s *session, then func()) {
 	if s == nil {
 		return
 	}
+	if s.backend == "acp" {
+		if s.acp != nil {
+			if then != nil {
+				then()
+			}
+			return
+		}
+		if then != nil {
+			s.waiters = append(s.waiters, then)
+		}
+		a.ensureACPSession(s)
+		return
+	}
 	if s.engine != nil {
 		if then != nil {
 			then()
@@ -1645,6 +1678,17 @@ func (a *app) restartAgent(s *session) {
 	if s == nil {
 		return
 	}
+	if s.backend == "acp" {
+		if s.acp != nil {
+			s.acp.stop()
+			s.acp = nil
+			s.acpSID = ""
+		}
+		s.readySig.Set(false)
+		s.status.Set(statusIdle)
+		a.ensureACPSession(s)
+		return
+	}
 	if s.engine == nil {
 		a.ensureEngine(s, nil)
 		return
@@ -1656,7 +1700,20 @@ func (a *app) restartAgent(s *session) {
 // closeAgent stops a session's pi and keeps the transcript and tab; the
 // next message starts it again.
 func (a *app) closeAgent(s *session) {
-	if s == nil || s.engine == nil {
+	if s == nil {
+		return
+	}
+	if s.backend == "acp" {
+		if s.acp != nil {
+			s.acp.stop()
+			s.acp = nil
+			s.acpSID = ""
+		}
+		s.readySig.Set(false)
+		s.status.Set(statusIdle)
+		return
+	}
+	if s.engine == nil {
 		return
 	}
 	s.engine.stop()
@@ -1842,6 +1899,9 @@ func (a *app) onPiExit(s *session, err error) {
 
 // startStats asks pi for the session's totals, when the engine is ready.
 func (a *app) startStats(s *session) {
+	if s != nil && s.backend == "acp" {
+		return
+	}
 	c := s.engine
 	if c == nil {
 		return
@@ -1945,7 +2005,11 @@ func (a *app) submitTurn(s *session, text string, images []promptImage, plan boo
 		s.notice.Set("")
 		s.conversation.JumpToLatest()
 		a.touch(s)
-		a.ensureEngine(s, func() { a.prompt(s, turnID, text, images) })
+		if s.backend == "acp" {
+			a.ensureEngine(s, func() { a.acpPrompt(s, turnID, text) })
+		} else {
+			a.ensureEngine(s, func() { a.prompt(s, turnID, text, images) })
+		}
 	})
 }
 
@@ -2062,7 +2126,20 @@ func (a *app) finishTurn(s *session, turnID string, status chat.Status, errText 
 
 // stop aborts the run and clears anything queued behind it.
 func (a *app) stop(s *session) {
-	if s == nil || s.engine == nil {
+	if s == nil {
+		return
+	}
+	if s.backend == "acp" {
+		if !s.busyNow() {
+			return
+		}
+		if s.acp != nil && s.acpSID != "" {
+			s.acp.cancel(s.acpSID)
+		}
+		s.status.Set(statusWaiting)
+		return
+	}
+	if s.engine == nil {
 		return
 	}
 	if !s.busyNow() {
@@ -2085,6 +2162,10 @@ func (a *app) stop(s *session) {
 // compact asks pi to summarize the conversation.
 func (a *app) compact(s *session) {
 	if s == nil {
+		return
+	}
+	if s.backend == "acp" {
+		a.toast(ui.ToastInfo, "ACP 会话不支持压缩", "请在该 CLI 自己的界面里处理上下文。")
 		return
 	}
 	a.ensureEngine(s, func() {
@@ -2877,7 +2958,22 @@ func (a *app) answerAsk(s *session, value map[string]any) {
 		return
 	}
 	ask := s.ask.GetUntracked()
-	if ask == nil || s.engine == nil {
+	if ask == nil {
+		return
+	}
+	if s.acpReply != nil {
+		name, _ := value["value"].(string)
+		if cancelled, _ := value["cancelled"].(bool); cancelled {
+			name = ""
+		}
+		reply := s.acpReply
+		s.acpReply = nil
+		s.ask.Set(nil)
+		a.askSeq.Update(func(n int) int { return n + 1 })
+		reply(name)
+		return
+	}
+	if s.engine == nil {
 		return
 	}
 	s.engine.uiResponse(ask.ID, value)

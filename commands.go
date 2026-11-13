@@ -37,6 +37,8 @@ func builtinCommands() []appCommand {
 	return []appCommand{
 		{ID: "palette", Label: "打开命令面板", Group: "应用", Shortcut: "mod+k", Icon: lucide.Command, Hidden: true,
 			Run: func(a *app) { a.palette.Set(true) }},
+		{ID: "acp-session", Label: "新建 ACP 会话…", Group: "会话", Icon: lucide.Bot,
+			Run: func(a *app) { a.acpOpenDialog() }},
 		{ID: "new-session", Label: "新建会话", Group: "会话", Shortcut: "mod+n", Icon: lucide.SquarePen,
 			Run: func(a *app) { a.newSession(a.activeWS.Get()) }},
 		{ID: "close-tab", Label: "关闭当前标签", Group: "会话", Shortcut: "mod+w", Icon: lucide.X, Hidden: true,

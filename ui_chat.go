@@ -620,11 +620,12 @@ func (a *app) composer(s *session) core.Node {
 // composerAccessory is the model and thinking controls.
 func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
-		return core.Group{
-			ui.IconButton{Icon: lucide.ClipboardList, Label: "计划模式", Size: 26, IconSize: 13, TestID: "plan-mode",
-				Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }},
-			a.modelMenu(s, s.modelOpen), a.effortPicker(s),
+		plan := ui.IconButton{Icon: lucide.ClipboardList, Label: "计划模式", Size: 26, IconSize: 13, TestID: "plan-mode",
+			Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }}
+		if s.backend == "acp" {
+			return core.Group{plan}
 		}
+		return core.Group{plan, a.modelMenu(s, s.modelOpen), a.effortPicker(s)}
 	}
 }
 

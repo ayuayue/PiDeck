@@ -38,6 +38,7 @@ func (a *app) view() core.Node {
 		a.parallelAskDialog(),
 		a.shortcutsDialog(),
 		a.searchDialog(),
+		a.acpDialog(),
 		a.projectGroupDialog(),
 		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: "关闭", TestID: "toasts"},
 	}}
