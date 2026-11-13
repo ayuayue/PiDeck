@@ -38,6 +38,7 @@ func (a *app) view() core.Node {
 		a.parallelAskDialog(),
 		a.shortcutsDialog(),
 		a.searchDialog(),
+		a.projectGroupDialog(),
 		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: "关闭", TestID: "toasts"},
 	}}
 }
@@ -288,10 +289,23 @@ func (a *app) searchField() core.Node {
 	}}
 }
 
-// projectList is the workspace tree.
+// projectList is the workspace tree: pinned first, then the named groups.
 func (a *app) projectList() core.Node {
-	return core.Each(a.workspaces.Get, func(w *workspace) string { return w.Path }, func(cx *core.Scope, w func() *workspace, _ func() int) core.Node {
-		return a.workspaceBlock(w)
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = a.projectsRev.Get()
+		groups := a.projectGroups()
+		showHeaders := len(groups) > 1 || (len(groups) == 1 && groups[0].Name != "未分组")
+		var out []core.Node
+		for _, g := range groups {
+			if showHeaders {
+				out = append(out, a.groupLabel(g.Name))
+			}
+			for _, w := range g.Projects {
+				ws := w
+				out = append(out, a.workspaceBlock(func() *workspace { return ws }))
+			}
+		}
+		return core.View{Style: core.Style{Gap: 2}, Children: out}
 	})
 }
 

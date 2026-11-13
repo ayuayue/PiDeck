@@ -587,6 +587,12 @@ func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 		a.menuRow(a.cx, lucide.SquareTerminal, "在此打开终端", "", false, func() { a.openTerminalFor(w()) }),
 		a.menuRow(a.cx, lucide.GitBranch, "查看 Git 变更", "", false, func() { a.openGitFor(w()) }),
 		a.menuSeparator(a.cx),
+		a.menuRow(a.cx, lucide.Pin, pinProjectLabel(w()), "", false, func() { a.toggleProjectPin(w()) }),
+		a.menuRow(a.cx, lucide.ChevronUp, "上移项目", "", false, func() { a.moveProject(w(), -1) }),
+		a.menuRow(a.cx, lucide.ChevronDown, "下移项目", "", false, func() { a.moveProject(w(), 1) }),
+		a.menuRow(a.cx, lucide.FolderInput, "移动到分组…", "", false, func() { a.askProjectGroup(w()) }),
+		a.menuRow(a.cx, lucide.ArrowDownAZ, projectSortLabel(a), "", false, func() { a.cycleProjectSort() }),
+		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.RefreshCw, "刷新会话", "", false, func() {
 			w().piLoaded = false
 			a.scanProject(w())

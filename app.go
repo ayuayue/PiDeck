@@ -23,6 +23,9 @@ import (
 type workspace struct {
 	Path     string
 	Name     string
+	Group    string
+	Pinned   bool
+	Added    time.Time
 	Target   target
 	Expanded *core.Signal[bool]
 	Sessions *core.Signal[[]*session]
@@ -162,6 +165,12 @@ type app struct {
 	// Parallel inquiry: the question, its answer and the session it ran in.
 	askBox  *core.Signal[askBox]
 	askText *core.Signal[string]
+
+	// projectsRev changes when a project is pinned, grouped or moved.
+	projectsRev      *core.Signal[int]
+	projectGroupOpen *core.Signal[bool]
+	projectGroupPath *core.Signal[string]
+	projectGroupText *core.Signal[string]
 
 	// The keyboard cheat sheet.
 	shortcutsOpen  *core.Signal[bool]
@@ -332,6 +341,10 @@ func newApp(cx *core.Scope) *app {
 		resourcesLoading: core.NewSignal(cx, false),
 		askBox:           core.NewSignal(cx, askBox{}),
 		askText:          core.NewSignal(cx, ""),
+		projectsRev:      core.NewSignal(cx, 0),
+		projectGroupOpen: core.NewSignal(cx, false),
+		projectGroupPath: core.NewSignal(cx, ""),
+		projectGroupText: core.NewSignal(cx, ""),
 		shortcutsOpen:    core.NewSignal(cx, false),
 		shortcutsQuery:   core.NewSignal(cx, ""),
 		searchOpen:       core.NewSignal(cx, false),
@@ -406,7 +419,8 @@ func newApp(cx *core.Scope) *app {
 	var list []*workspace
 	for _, wc := range a.cfg.Workspaces {
 		wc.Path = cleanTargetPath(parseTarget(wc.Target), wc.Path)
-		ws := &workspace{Path: wc.Path, Name: wc.Name, Target: parseTarget(wc.Target),
+		ws := &workspace{Path: wc.Path, Name: wc.Name, Group: wc.Group, Pinned: wc.Pinned, Added: wc.Added,
+			Target:    parseTarget(wc.Target),
 			Expanded:  core.NewSignal(cx, wc.Expanded || len(byKey[parseTarget(wc.Target).key()+"|"+wc.Path]) > 0),
 			Sessions:  core.NewSignalFunc(cx, []*session{}, nil),
 			Pi:        core.NewSignalFunc(cx, []*session(nil), nil),
@@ -1198,7 +1212,7 @@ func (a *app) addWorkspaceFor(t target, path, name string) {
 		}
 		return
 	}
-	ws := &workspace{Path: path, Name: name, Target: t, Expanded: core.NewSignal(a.cx, true),
+	ws := &workspace{Path: path, Name: name, Target: t, Added: a.cx.Now(), Expanded: core.NewSignal(a.cx, true),
 		Sessions:  core.NewSignalFunc(a.cx, []*session{}, nil),
 		Pi:        core.NewSignalFunc(a.cx, []*session(nil), nil),
 		PiOpen:    core.NewSignal(a.cx, true),
@@ -1215,7 +1229,7 @@ func (a *app) addWorkspaceFor(t target, path, name string) {
 				return
 			}
 		}
-		c.Workspaces = append(c.Workspaces, workspaceCfg{Path: path, Name: name, Target: t.key(), Expanded: true})
+		c.Workspaces = append(c.Workspaces, workspaceCfg{Path: path, Name: name, Target: t.key(), Expanded: true, Added: ws.Added})
 	})
 	if !t.remote() {
 		a.files.watch(path)

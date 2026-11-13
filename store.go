@@ -21,9 +21,12 @@ import (
 
 // workspaceCfg is one project folder.
 type workspaceCfg struct {
-	Path     string `json:"path"`
-	Name     string `json:"name,omitempty"`
-	Expanded bool   `json:"expanded"`
+	Path     string    `json:"path"`
+	Name     string    `json:"name,omitempty"`
+	Expanded bool      `json:"expanded"`
+	Group    string    `json:"group,omitempty"`
+	Pinned   bool      `json:"pinned,omitempty"`
+	Added    time.Time `json:"added,omitempty"`
 	// Target is where its agents run: "" here, "wsl:<distro>",
 	// "ssh:<host>".
 	Target string `json:"target,omitempty"`
@@ -61,6 +64,9 @@ type config struct {
 	// SessionSort orders a project's sessions: "updated" (default) or
 	// "name".
 	SessionSort string `json:"sessionSort,omitempty"`
+	// ProjectSort orders the rail's projects: "" or "manual" keeps the
+	// stored order; "recent", "created" and "title" sort them.
+	ProjectSort string `json:"projectSort,omitempty"`
 	// TerminalOpen and TerminalHeight restore the bottom terminal panel.
 	TerminalOpen   bool    `json:"terminalOpen,omitempty"`
 	TerminalHeight float64 `json:"terminalHeight,omitempty"`

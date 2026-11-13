@@ -309,6 +309,12 @@ func (a *app) settingsGeneral() core.Node {
 					Children: modelChips}),
 				setGroup("新会话默认思考等级", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
 					Children: levelChips}),
+				setGroup("项目",
+					setRow("项目排序", "侧栏项目按手动顺序、最近活动、创建时间或名称排列；置顶项目总在最前。",
+						choiceChips([]choice[string]{
+							{"", "手动"}, {"recent", "最近活动"}, {"created", "创建时间"}, {"title", "名称"},
+						}, func() string { return a.cfg.ProjectSort }, a.setProjectSort)),
+				),
 				setGroup("会话列表",
 					setRow("排序", "项目里的会话按最近活动或名称排列；置顶的总在最前。",
 						choiceChips([]choice[string]{
