@@ -430,9 +430,9 @@ import { SkillManager } from "./skills/SkillManager";
 import { readSkillContent } from "./skills/readSkillContent";
 import { buildSkillInstallProxyEnv } from "./skills/skillHubInstallProxy";
 import { ExtensionManager } from "./extensions/ExtensionManager";
-import { BuiltInExtensionsUpdater } from "./extensions/builtInExtensionsUpdater";
-import { readEffectiveBuiltInExtensionsVersion, resolveBuiltInExtensionsDir, resolveBuiltInExtensionsOverlayDir, resolveVendorNodeModulesDir, type BuiltInExtensionPathRoots } from "./extensions/builtInExtensions";
+import { readEffectiveBuiltInExtensionsVersion, resolveBuiltInExtensionsOverlayDir, type BuiltInExtensionPathRoots } from "./extensions/builtInExtensions";
 import { createPiProcessExtensionResolvers } from "./extensions/piProcessExtensionResolvers";
+import { startAppUpdate } from "./startup/appUpdate";
 import { startResourceStores } from "./startup/resourceStores";
 import { startCoreServices } from "./startup/services";
 import { startSidecars } from "./startup/sidecars";
@@ -556,8 +556,7 @@ import { registerResourceImportIpc } from "./ipc/resourceImportIpc";
 import { registerBackupIpc } from "./ipc/backupIpc";
 import { registerNoticeHistoryIpc } from "./ipc/noticeHistoryIpc";
 import { NoticeHistoryStore } from "./notices/NoticeHistoryStore";
-import { getPiAiCatalogIndex, lookupPiAiCatalogEntry, setPiAiCatalogUserDataDir } from "./pi/piAiBuiltinCatalog";
-import { PiAiCatalogUpdater } from "./pi/PiAiCatalogUpdater";
+import { getPiAiCatalogIndex, lookupPiAiCatalogEntry } from "./pi/piAiBuiltinCatalog";
 import { fetchModelList, refreshModelCatalogIfStale, refreshModelList, getCachedModelList } from "./pi/modelListCache";
 import { registerFilesIpc } from "./ipc/filesIpc";
 import { FileIndexService } from "./files/FileIndexService";
@@ -595,15 +594,7 @@ import { LogBundleExporter } from "./health/LogBundleExporter";
 import { QuitCleanupRegistry } from "./lifecycle/QuitCleanupRegistry";
 import { ensureWindowsPathFresh } from "./process/windowsPathRefresh";
 import type { FeishuChatBinding } from "../shared/types";
-import { createRealAutoUpdater } from "./update/createAutoUpdater";
-import { installAtomgitNoCacheBypass, UPDATER_PARTITION_NAME } from "./update/atomgitNoCacheBypass";
-import { createManualUpdateChecker } from "./update/macManualUpdate";
-import { resolveAppUpdateDeliveryPlan } from "./update/deliveryPlan";
-import { detectMacDeveloperIdSignature } from "./update/macCodeSignature";
-import { resolveManualUpdateTarget } from "./update/manualUpdateSelection";
-import { downloadInstallerAsset, type InstallerDownloadProgress } from "./update/installerDownload";
 import { UpdateService } from "./update/UpdateService";
-import type { AppManualUpdateRelease } from "../shared/types/app";
 
 import { getTray, refreshTrayContextMenu, setupTray, type TrayDeps } from "./window/tray";
 import { createMainWindow, type MainWindowDeps } from "./window/mainWindow";
@@ -3420,126 +3411,23 @@ function registerIpc() {
 	// Phase 3.7 拆出 systemIpc 后这些可选依赖必须显式注入；
 	// 漏传 extensionManager 会导致 pi:update-check / pi:update 根本不注册。
 	if (!piModelCapabilityCache) throw new Error("Pi model capability cache is unavailable after settings load");
-	// 模型目录更新器：设置页手动更新与 UpdateService 第三路定时检查共用同一实例。
-	// 覆盖层目录须在 catalog 初次读取前登记（getPiAiCatalogIndex 首次调用即锁定索引）；
-	// app 已 ready 后 app.getPath("userData") 才可靠，故在此提前构造。
-	setPiAiCatalogUserDataDir(app.getPath("userData"));
-	const catalogUpdater = new PiAiCatalogUpdater({
-		userDataDir: app.getPath("userData"),
-		// 目录更新/检测复用应用更新的源偏好（settings.updateSource）：
-		// github → raw 直连优先；atomgit 等 → AtomGit OpenAPI 优先，两者互为兜底。
-		source: () => settingsStore.get().updateSource,
-	});
-	// 内置扩展热更新：版本号不跟 PiDeck 应用版本走（见 resources/extensions/extensions-manifest.json），
-	// 打包态 resources 只读，更新写进 userData 覆盖层，路径解析侧覆盖层优先 → 重启会话即生效。
-	const builtInExtensionRoots = resolveBuiltInExtensionRoots();
-	const builtInExtensionsUpdater = new BuiltInExtensionsUpdater({
-		userDataDir: app.getPath("userData"),
-		builtinExtensionsDir: resolveBuiltInExtensionsDir(builtInExtensionRoots),
-		// vendored 运行时依赖（node_modules/undici 等）的源目录：覆盖层上层没有 node_modules，
-		// 缺了它 pi 会因扩展裸导入解析不到而启动失败（2026-09-15 线上事故）。
-		vendorNodeModulesDir: resolveVendorNodeModulesDir(builtInExtensionRoots),
-		// 与模型目录/应用更新共用 settings.updateSource：默认 AtomGit，切 GitHub 后 raw 直连优先。
-		source: () => settingsStore.get().updateSource,
-	});
-	// 旧覆盖层（没有 vendored 依赖的版本写的）启动自愈，不能要求用户先点一次「更新」
-	builtInExtensionsUpdater.ensureOverlayVendorDependencies();
-	// 后台更新检查：Windows / 支持自动升级的发行物走 electron-updater；
-	// macOS 当前未签 Developer ID，不能承诺稳定的替换/重启，因此只检测 Release 并交给用户手动安装。
-	// 两条路径都由同一个 UpdateService 快照推送渲染层，设置页能明确表达能力边界。
-	// AtomGit 镜像源对 query string 返回 404，而 electron-updater 检查必带 noCache 参数：
-	// 在 updater 首次发起请求前注册 webRequest 剥除器（幂等）。注意必须挂在
-	// electron-updater 的独立 partition session（"electron-updater"）上，而不是 defaultSession
-	// —— updater 的 ElectronHttpExecutor 用 session.fromPartition("electron-updater") 发请求，
-	// 挂在 defaultSession 会拦不到（0.7.5 曾因此漏修）。
-	installAtomgitNoCacheBypass(() => session.fromPartition(UPDATER_PARTITION_NAME, { cache: false }));
-	const updateServiceBase = {
+	// 更新服务、模型目录与内置扩展三件套整体搬到 startup/appUpdate.ts：交付模式分支与
+	// `updateService` 的唯一 owner 回填都在那里，这里原位调用，构造与 start() 顺序不变。
+	const { catalogUpdater, builtInExtensionsUpdater } = startAppUpdate({
+		appLogger,
+		getExtensionManager: () => extensionManager,
+		getIsQuitting: () => isQuitting,
+		getMainWindow: () => mainWindow,
+		resolveBuiltInExtensionRoots,
+		setIsQuitting: (value) => {
+			isQuitting = value;
+		},
 		settingsStore,
-		// 更新通道（dev/stable，启动时已判定）：dev 开启 allowPrerelease，更新源仍跟随设置（见 UpdateService.applyUpdateSource）。
-		channel: updateChannel,
-		checkPiUpdate: () => extensionManager.checkPiUpdate(),
-		// 模型目录：复用设置页同一检查链路（GitHub main 分支 manifest 比对），结果并入更新快照。
-		checkCatalogUpdate: () => catalogUpdater.checkRemote(),
-		// 目录自动更新：检测到新版本后由 UpdateService 按设置（catalogAutoUpdate，默认开）自动拉取，
-		// 与设置页「更新到最新」按钮共用同一 updater（含校验与备份）。
-		updateCatalog: () => catalogUpdater.update(),
-		sendToRenderer: (snapshot: import("../shared/types").AppUpdateStatusSnapshot) => {
-			if (mainWindow && !mainWindow.isDestroyed()) {
-				mainWindow.webContents.send(ipcChannels.appUpdateStatusChanged, snapshot);
-			}
+		updateChannel,
+		assign: (patch) => {
+			if (patch.updateService !== undefined) updateService = patch.updateService;
 		},
-		log: (level: "info" | "warn", message: string, details?: Record<string, unknown>) => {
-			if (level === "warn") void appLogger.warn("update", message, details ?? {});
-			else void appLogger.info("update", message, details ?? {});
-		},
-		getCurrentVersion: () => app.getVersion(),
-	};
-	// quitAndInstall 会调用 app.quit；该标记让 closeToTray 放行真正的退出。
-	let updateInstallSetQuitting = false;
-	// 交付模式按设备能力判定：Linux arm64 / deb / tar.gz 没有可靠的应用内替换链路，
-	// 与 macOS 无签名发行物一样走 manual（检查更新 + 一键下载设备匹配安装包）；
-	// macOS Developer ID 签名包由运行时 codesign 探测识别，走 electron-updater 自动替换。
-	const appUpdateDelivery = resolveAppUpdateDeliveryPlan({
-		platform: process.platform,
-		arch: process.arch,
-		isAppImage: Boolean(process.env.APPIMAGE),
-		macDeveloperIdSigned: detectMacDeveloperIdSignature({ isPackaged: app.isPackaged }),
 	});
-	const manualUpdateTarget = resolveManualUpdateTarget({
-		platform: process.platform,
-		arch: process.arch,
-		isPortable: process.env.PORTABLE_EXECUTABLE_DIR !== undefined,
-		isAppImage: Boolean(process.env.APPIMAGE),
-		execPath: process.execPath,
-		runningUnderArm64Translation: app.runningUnderARM64Translation === true,
-	});
-	if (appUpdateDelivery.mode === "manual") {
-		const checkManualUpdate = createManualUpdateChecker({ channel: updateChannel, target: manualUpdateTarget });
-		updateService = new UpdateService({
-			...updateServiceBase,
-			deliveryMode: "manual",
-			deliveryReason: appUpdateDelivery.reason,
-			// latestReleaseUrl（镜像源）由 UpdateService 按设置传入；null = 官方 GitHub。
-			checkManualAppUpdate: (latestReleaseUrl?: string) => checkManualUpdate(app.getVersion(), latestReleaseUrl),
-			// 手动交付的安装包落到系统下载目录；文件名/digest 来自检查阶段匹配的 release 资产。
-			downloadManualUpdate: (release: AppManualUpdateRelease, options: { signal?: AbortSignal; onProgress?: (progress: InstallerDownloadProgress) => void }) =>
-				downloadInstallerAsset({
-					assetName: release.assetName,
-					assetUrl: release.assetUrl,
-					digestSha256: release.digestSha256,
-					targetDir: app.getPath("downloads"),
-					netFetch: (url, init) => net.fetch(url, init),
-					signal: options.signal,
-					onProgress: options.onProgress,
-				}),
-			// macOS 打开 dmg 让用户拖入 Applications；其他平台只定位文件，绝不自动运行未知安装包。
-			openManualInstaller: async (filePath: string) => {
-				if (process.platform === "darwin") {
-					const error = await openSystemPath(filePath);
-					if (error) throw new Error(error);
-					return;
-				}
-				shell.showItemInFolder(filePath);
-			},
-		});
-	} else {
-		updateService = new UpdateService({
-			...updateServiceBase,
-			deliveryMode: "automatic",
-			autoUpdater: createRealAutoUpdater(),
-			// closeToTray 会吞掉普通窗口关闭；安装器必须等待真实主进程退出。
-			prepareForInstall: () => {
-				updateInstallSetQuitting = !isQuitting;
-				isQuitting = true;
-			},
-			// 同步失败或 watchdog 超时才会走这里；正常 quitAndInstall 会直接结束进程。
-			rollbackInstallPreparation: () => {
-				if (updateInstallSetQuitting) isQuitting = false;
-				updateInstallSetQuitting = false;
-			},
-		});
-	}
-	updateService.start();
 	registerContentStack({
 		appLogger,
 		builtInExtensionsUpdater,

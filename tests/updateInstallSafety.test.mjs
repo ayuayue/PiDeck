@@ -9,8 +9,9 @@ const settingsRoot = readFileSync("src/renderer/src/components/app/SettingsFeatu
 const backgroundWatch = readFileSync("src/renderer/src/hooks/useBackgroundUpdateWatch.ts", "utf8");
 
 test("update installation enters real quit mode and restores it only after a failed handoff", () => {
-	assert.match(mainEntry, /prepareForInstall:\s*\(\)\s*=>\s*\{[\s\S]*?isQuitting = true;/);
-	assert.match(mainEntry, /rollbackInstallPreparation:\s*\(\)\s*=>\s*\{[\s\S]*?isQuitting = false;/);
+	// update 装配已迁到 startup/appUpdate.ts：退出标记改经 ctx.setIsQuitting 回填（模块级 let 仍在 index.ts）
+	assert.match(mainEntry, /prepareForInstall:\s*\(\)\s*=>\s*\{[\s\S]*?setIsQuitting\(true\)/);
+	assert.match(mainEntry, /rollbackInstallPreparation:\s*\(\)\s*=>\s*\{[\s\S]*?setIsQuitting\(false\)/);
 });
 
 test("renderer installation requests keep save and discard confirmation at the settings boundary", () => {
