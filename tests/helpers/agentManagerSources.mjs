@@ -17,6 +17,10 @@ const collaboratorPaths = [
 	"src/main/pi/agentFactoryRemote.ts",
 	"src/main/pi/agentFactoryLocal.ts",
 	"src/main/pi/promptDispatch.ts",
+	"src/main/pi/sessionMessageEditor.ts",
+	"src/main/pi/sessionFileWriter.ts",
+	"src/main/pi/bashCommandRunner.ts",
+	"src/main/pi/retryStatusMessages.ts",
 ];
 
 export const agentManagerSources = [entryPath, ...collaboratorPaths].map((path) => ({ path, source: readFileSync(path, "utf8") }));
