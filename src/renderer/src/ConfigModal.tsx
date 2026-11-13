@@ -46,6 +46,11 @@ import type { DiscoveredExtensionItem } from "./config/extensionsTableRows";
 // 会话取值 / 落点 id 映射 / 「页消失就回退」都收在 hook 里（PR 评审 §3）。
 import { SecuritySection, type SecuritySectionHandle } from "./components/config/SecuritySection";
 import { useConfigPromptsEditing } from "./config/configModal/useConfigPromptsEditing";
+import { useConfigSkillsEditing } from "./config/configModal/useConfigSkillsEditing";
+import { useConfigExtensionsEditing } from "./config/configModal/useConfigExtensionsEditing";
+import { useConfigModelsProviderEditing } from "./config/configModal/useConfigModelsProviderEditing";
+import { useConfigModelRowsEditing } from "./config/configModal/useConfigModelRowsEditing";
+import { modelIdIndex } from "./config/configModal/modelIdIndex";
 import { secretHint } from "./components/app/settings/SecretValueInput";
 import { DshConfigTab, type DshConfigTabHandle } from "./config/DshConfigTab";
 import { t } from "./i18n";
@@ -207,15 +212,6 @@ function normalizeModelsFile(value: unknown): ModelsFile {
 		};
 	}
 	return { providers };
-}
-
-/**
- * provider → 该供应商当前模型 id 集合（配置写盘前清理孤儿键用）。
- * 只包含 models.json 里的供应商：不在表里的 provider 一律不动——pi 内置 provider
- * （没写进用户 models.json 的 anthropic 等）的档位与隐藏设置是合法的。
- */
-function modelIdIndex(providers: ModelsFile["providers"]): ProviderModelIdIndex {
-	return new Map(Object.entries(providers).map(([name, provider]) => [name, new Set(provider.models.map((model) => model.id).filter(Boolean))] as const));
 }
 
 type ConfigModalProps = {
@@ -633,43 +629,92 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	/** 自动发现的模型：auth-only 供应商通过已知端点获取的模型列表 */
 	const [discoveredModels, setDiscoveredModels] = useState<Record<string, Array<{ id: string; name?: string }>>>({});
 	const [trustData, setTrustData] = useState<Record<string, boolean>>({});
-	const [skillsData, setSkillsData] = useState<PiSkillListResult>({
-		locations: [],
-		skills: [],
-	});
 	const [projectResourcesData, setProjectResourcesData] = useState<ProjectResourceListResult>(emptyProjectResourceData);
 	/** 运行时发现的资源（packages/settings 显式路径/祖先 .agents/skills）只读描述。 */
 	const [discoveryData, setDiscoveryData] = useState<ProjectResourceDiscoveryResult>(emptyDiscoveryData);
-	const [extensionsData, setExtensionsData] = useState<PiExtensionListResult>({
-		extensions: [],
-		raw: "",
-	});
-	const [extensionsLoading, setExtensionsLoading] = useState(false);
 	/** 资源刷新代数：scope/project 变化或 mutation 后递增，旧响应不得覆盖新结果。 */
 	const resourceGenerationRef = useRef(0);
 	const bumpResourceGeneration = useCallback(() => {
 		resourceGenerationRef.current += 1;
 	}, []);
-	const [creatingSkill, setCreatingSkill] = useState(false);
-	const [uninstallingExtensionSource, setUninstallingExtensionSource] = useState<string | null>(null);
-	const [newSkillName, setNewSkillName] = useState("");
-	const [newSkillDescription, setNewSkillDescription] = useState("");
-	const [newSkillLocationId, setNewSkillLocationId] = useState<PiSkillLocation["id"]>("pi-global");
-	/** Keep the create target inside the selected resource scope. */
-	useEffect(() => {
-		const allowed = skillsData.locations.filter((location) => (resourceScope === "project" ? PROJECT_SKILL_SOURCES.has(location.id) : GLOBAL_SKILL_SOURCES.has(location.id)));
-		if (allowed.length > 0 && !allowed.some((location) => location.id === newSkillLocationId)) {
-			setNewSkillLocationId(allowed[0].id);
-		}
-	}, [newSkillLocationId, resourceScope, skillsData.locations]);
-	const [deleteSkillConfirm, setDeleteSkillConfirm] = useState<PiSkillSummary | null>(null);
-	const [editingGlobalSkill, setEditingGlobalSkill] = useState<PiSkillSummary | null>(null);
-	const [editGlobalContent, setEditGlobalContent] = useState("");
-	const [editGlobalLoading, setEditGlobalLoading] = useState(false);
-	const [editGlobalSaving, setEditGlobalSaving] = useState(false);
-	const [editGlobalSaved, setEditGlobalSaved] = useState(false);
 	/** 统一 toast 出口：资源页动作成功提示（提到 hook 之前，供其作为依赖注入）。 */
 	const showToast = (msg: string) => showNotice(msg, 2500);
+
+	// 扩展页的列表状态与开关/卸载动作（搬迁到 config/configModal/useConfigExtensionsEditing，行为不变）。
+	const {
+		extensionsData,
+		extensionsLoading,
+		uninstallingExtensionSource,
+		uninstallExtensionConfirm,
+		setUninstallExtensionConfirm,
+		uninstallProjectPackageConfirm,
+		setUninstallProjectPackageConfirm,
+		refreshExtensions,
+		handleToggleExtension,
+		handleRequestExtensionUninstall,
+		handleRequestProjectPackageUninstall,
+		handleOpenExtensionLocation,
+		handleOpenDiscoveredLocation,
+		confirmUninstallExtension,
+		confirmUninstallProjectPackage,
+	} = useConfigExtensionsEditing({
+		api,
+		resourceScope,
+		effectiveProjectId,
+		hasProject,
+		resourceOptions,
+		blockResourceMutation,
+		resourceGenerationRef,
+		setDiscoveryData,
+		setProjectResourcesData,
+		setError,
+		notify: showToast,
+		scheduleUiTimer,
+	});
+
+	// 技能页的草稿状态与增删改动作（搬迁到 config/configModal/useConfigSkillsEditing，行为不变）。
+	const {
+		skillsData,
+		creatingSkill,
+		newSkillName,
+		setNewSkillName,
+		newSkillDescription,
+		setNewSkillDescription,
+		newSkillLocationId,
+		setNewSkillLocationId,
+		deleteSkillConfirm,
+		setDeleteSkillConfirm,
+		editingGlobalSkill,
+		setEditingGlobalSkill,
+		editGlobalContent,
+		setEditGlobalContent,
+		editGlobalLoading,
+		editGlobalSaving,
+		editGlobalSaved,
+		refreshSkills,
+		handleCreateSkill,
+		handleToggleSkill,
+		confirmDeleteSkill,
+		handleRenameGlobalSkill,
+		handleEditGlobalSkill,
+		saveGlobalSkillEditor,
+	} = useConfigSkillsEditing({
+		api,
+		resourceScope,
+		projectId,
+		effectiveProjectId,
+		hasProject,
+		resourceOptions,
+		blockResourceMutation,
+		resourceGenerationRef,
+		bumpResourceGeneration,
+		setDiscoveryData,
+		setProjectResourcesData,
+		clearDirty,
+		setError,
+		notify: showToast,
+		scheduleUiTimer,
+	});
 
 	// 提示词模板页的草稿状态与增删改动作（搬迁到 config/configModal/useConfigPromptsEditing，行为不变）。
 	const {
@@ -712,9 +757,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		setError,
 		notify: showToast,
 	});
-	const [uninstallExtensionConfirm, setUninstallExtensionConfirm] = useState<PiExtensionSummary | null>(null);
-	/** 项目包发现行（package-project）的卸载确认：走 `pi remove <source> -l`，只删项目层记账。 */
-	const [uninstallProjectPackageConfirm, setUninstallProjectPackageConfirm] = useState<{ source: string } | null>(null);
 	const [rawContent, setRawContent] = useState("");
 	const [rawFileName, setRawFileName] = useState("models.json");
 	/** 待切换的源文件名：当前文件有未保存草稿时先弹确认，确认丢弃后才真正切换。 */
@@ -1269,528 +1311,56 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		[loadConfig],
 	);
 
-	/**
-	 * 新增供应商（一步弹窗）：携带完整草稿（名字 + 服务商字段 + 模型列表），
-	 * 直接写入 modelsData 并展开卡片；不再先输名字再展开。
-	 */
-	/**
-	 * 供应商页确认后落盘两项「按 provider/modelId 建键」的设置（新增与编辑共用）。
-	 *
-	 * 页面把这两份设置整页读进草稿，确认时交回**绝对快照**，所以这里是替换而不是增删：
-	 * 页内删掉的模型不会留下设置（设置跟着模型走），页内改名也不会把键留在旧名字下。
-	 * 草稿里没带某项 = 页面没有这个入口（settings 未加载 / 未提供隐藏列表）→ 该项一个都不动。
-	 */
-	const applyProviderPageModelSettings = (draft: AddProviderDraft, savedName: string, finalName: string) => {
-		if (draft.modelThinkingLevelDefaults) {
-			const nextSettings = replaceModelThinkingLevels(settingsData, savedName, finalName, draft.modelThinkingLevelDefaults);
-			if (nextSettings !== settingsData) {
-				setSettingsData(nextSettings);
-				markDirty("config:settings");
-			}
-		}
-		if (draft.hiddenModelIds) {
-			// hiddenModels 是 AppSettings（没有配置草稿），与卡片眼睛按钮同一语义：立即持久化
-			const nextHidden = replaceProviderHiddenIds(hiddenModels, savedName, finalName, draft.hiddenModelIds);
-			if (!sameHiddenModelEntries(hiddenModels, nextHidden)) {
-				setHiddenModels(nextHidden);
-				void api.settings.update({ hiddenModels: nextHidden }).catch(() => undefined);
-			}
-		}
-	};
+	// 模型页的供应商级动作（搬迁到 config/configModal/useConfigModelsProviderEditing，行为不变）。
+	const { handleAddProvider, handleEditProvider, handleDeleteProvider, handleDuplicateProvider, handleApplyModelsTransfer, handleDeleteProviders, handleFetchModels, handleTestProvider } = useConfigModelsProviderEditing({
+		api,
+		configTargetOption,
+		modelsData,
+		setModelsData,
+		authData,
+		setAuthData,
+		settingsData,
+		setSettingsData,
+		hiddenModels,
+		setHiddenModels,
+		expandedProvider,
+		setExpandedProvider,
+		setAddingProvider,
+		setEditingProvider,
+		setDeleteConfirm,
+		markDirty,
+		notify: showToast,
+		setError,
+		applySuggestedBaseUrl,
+		setFetchingProvider,
+		setFetchedModels,
+		setFetchModelsErrorByProvider,
+		setTestingProvider,
+		setTestResult,
+		testModelIdByProvider,
+		testProxyModeByProvider,
+	});
 
-	const handleAddProvider = (draft: AddProviderDraft) => {
-		const providerName = draft.name.trim();
-		// 非法字符：提示规则，避免 DSH credentialRefFor 把含特殊字符的名字转成
-		// 非法环境变量名 → 密钥读不到（弹窗内已禁用确定，这里仅兜底）。
-		if (!isValidProviderName(providerName)) {
-			showNotice(t("config.providerNameRule"));
-			return;
-		}
-		const provider = mergeProviderDraft(undefined, draft);
-		const updated = {
-			...modelsData,
-			providers: {
-				...modelsData.providers,
-				[providerName]: provider,
-			},
-		};
-		setModelsData(updated);
-		markDirty("config:models");
-		// 页内草稿里的两项设置按最终名字落盘（新增时没有旧名字，savedName 传空）
-		applyProviderPageModelSettings(draft, "", providerName);
-		setExpandedProvider(providerName);
-		setAddingProvider(false);
-	};
-
-	/**
-	 * 编辑供应商（弹窗确认）：名字可改（走 rename 语义：provider key + auth key 同步），
-	 * 字段与模型列表整体写回 modelsData。
-	 */
-	const handleEditProvider = (oldName: string, draft: AddProviderDraft) => {
-		const newName = draft.name.trim();
-		if (!isValidProviderName(newName)) {
-			showNotice(t("config.providerNameRule"));
-			return;
-		}
-		if (newName !== oldName && modelsData.providers[newName]) {
-			showNotice(t("config.providerNameDuplicate"));
-			return;
-		}
-		// 编辑页保存以原 provider 为基底合并：保留表单不拥有的高级字段
-		// （oauth / authHeader / modelOverrides / 自定义字段与自定义 headers），
-		// 避免「编辑页重建 provider」把未知字段静默丢掉（与卡片内联编辑行为对齐）。
-		const provider = mergeProviderDraft(modelsData.providers[oldName], draft);
-		const providers = { ...modelsData.providers };
-		if (newName !== oldName) {
-			// 改名：新 key 承接旧 provider，删旧 key；auth.json 同步（pi 按新名称查认证）。
-			providers[newName] = provider;
-			delete providers[oldName];
-			if (authData[oldName]) {
-				const updatedAuth = { ...authData };
-				updatedAuth[newName] = updatedAuth[oldName];
-				delete updatedAuth[oldName];
-				setAuthData(updatedAuth);
-				markDirty("config:auth");
-			}
-			if (expandedProvider === oldName) setExpandedProvider(newName);
-		} else {
-			providers[oldName] = provider;
-		}
-		setModelsData({ ...modelsData, providers });
-		markDirty("config:models");
-		// 页内草稿的两项设置按最终名字替换式落盘：改名时旧名字下的键一并清掉（无需单独的改名迁移）
-		applyProviderPageModelSettings(draft, oldName, newName);
-		setEditingProvider(null);
-	};
-
-	const handleDeleteProvider = (name: string) => {
-		setDeleteConfirm({
-			type: "provider",
-			title: t("common.deleteConfirm"),
-			message: t("common.deleteConfirmMsg", { name }),
-			onConfirm: () => {
-				const providers = { ...modelsData.providers };
-				delete providers[name];
-				setModelsData({ ...modelsData, providers });
-				markDirty("config:models");
-				if (expandedProvider === name) setExpandedProvider(null);
-				setDeleteConfirm(null);
-			},
-		});
-	};
-
-	const handleDuplicateProvider = (name: string) => {
-		const sourceProvider = modelsData.providers[name];
-		if (!sourceProvider) return;
-
-		// 生成新名称：用连字符后缀（符合 provider 名严格白名单，避免空格/特殊字符）。
-		let newName = `${name}-copy`;
-		let counter = 2;
-		while (modelsData.providers[newName]) {
-			newName = `${name}-copy-${counter}`;
-			counter++;
-		}
-
-		// 深拷贝 provider 配置，包括 models 数组（含 apiKey）。
-		const duplicatedProvider = structuredClone(sourceProvider);
-
-		setModelsData({
-			...modelsData,
-			providers: {
-				...modelsData.providers,
-				[newName]: duplicatedProvider,
-			},
-		});
-		markDirty("config:models");
-		// 同步 auth.json：复制后的 provider 若有独立 auth key，也需要复制，
-		// 否则 pi 按新名称查不到认证 → 模型列表加载为空。
-		if (authData[name]) {
-			setAuthData({ ...authData, [newName]: { ...authData[name] } });
-			markDirty("config:auth");
-		}
-
-		// 展开新复制的 provider
-		setExpandedProvider(newName);
-	};
-
-	// 从 provider 的 baseUrl + apiKey 拉取可用模型列表
-	const handleFetchModels = async (providerName: string) => {
-		const provider = modelsData.providers[providerName];
-		if (!provider?.baseUrl || !provider?.apiKey) {
-			setFetchModelsErrorByProvider((prev) => ({
-				...prev,
-				[providerName]: t("config.missingBaseUrlApiKey"),
-			}));
-			return;
-		}
-		setFetchingProvider(providerName);
-		setFetchModelsErrorByProvider((prev) => ({
-			...prev,
-			[providerName]: undefined,
-		}));
-		try {
-			const result = await api.config.fetchModels(
-				provider.baseUrl,
-				provider.apiKey,
-				provider.api as string | undefined,
-				getProviderHeaders(provider.headers),
-				// 拉取列表与测试同用 per-provider 代理选择（海外网关需代理时不用改全局开关）。
-				testProxyModeByProvider[providerName] ?? "follow",
-			);
-			if (result.success && result.models) {
-				setFetchedModels((prev) => ({
-					...prev,
-					[providerName]: result.models!,
-				}));
-				setFetchModelsErrorByProvider((prev) => ({
-					...prev,
-					[providerName]: undefined,
-				}));
-				const normalized = applySuggestedBaseUrl(providerName, result.suggestedBaseUrl);
-				if (normalized && result.suggestedBaseUrl) {
-					showToast(
-						t("config.baseUrlAutoNormalized", {
-							url: result.suggestedBaseUrl,
-						}),
-					);
-				} else {
-					showToast(t("config.fetchedModels", { count: result.models.length }));
-				}
-			} else {
-				// 根据 API 类型提供不同的错误提示
-				const apiTypeHint = getFetchModelsHintByApi(provider.api as string | undefined, provider.baseUrl);
-				setFetchModelsErrorByProvider((prev) => ({
-					...prev,
-					[providerName]: (result.error ?? t("config.fetchModelsFailed")) + "\n" + apiTypeHint,
-				}));
-			}
-		} catch (e) {
-			setFetchModelsErrorByProvider((prev) => ({
-				...prev,
-				[providerName]: e instanceof Error ? e.message : String(e),
-			}));
-		} finally {
-			setFetchingProvider(null);
-		}
-	};
-
-	// 测试 provider 连接：先落盘表单配置，再用真实 pi 做一次最小调用。
-	// 保存的目的：pi 只读磁盘上的 models.json（baseUrl/apiKey 都从那里解析），
-	// 用真实 pi 测试才能与会话结果一致（不再用 net.fetch 模拟请求）。
-	const handleTestProvider = async (providerName: string) => {
-		const provider = modelsData.providers[providerName];
-		if (!provider?.baseUrl || !provider?.apiKey) {
-			setError(t("config.missingBaseUrlApiKey"));
-			return;
-		}
-		// 确定测试用的模型：优先用户指定的 testModelId，否则取第一个模型 id
-		const modelId = (testModelIdByProvider[providerName] ?? "").trim() || provider.models[0]?.id || "";
-		if (!modelId) {
-			setError(t("config.missingTestModel"));
-			return;
-		}
-		setTestingProvider(providerName);
-		setTestResult(null);
-		setError(null);
-		try {
-			// 统一隔离探针：测「当前表单值」（含未保存修改），不落盘正式配置。
-			// 测试 ≠ 保存：成功后仍需用户显式点保存按钮（与添加/编辑供应商页同一语义）。
-			const result = await api.config.testProvider(providerName, modelId, provider, provider.apiKey ?? "", testProxyModeByProvider[providerName] ?? "follow");
-			setTestResult({ providerName, ...result });
-		} catch (e) {
-			setTestResult({
-				providerName,
-				success: false,
-				error: e instanceof Error ? e.message : String(e),
-			});
-		} finally {
-			setTestingProvider(null);
-		}
-	};
-
-	const handleAddModel = (providerName: string) => {
-		const provider = modelsData.providers[providerName];
-		if (!provider) return;
-		// 新模型先保持未知字段为空：ID 失焦/保存时由端点元数据或唯一 catalog 候选补齐。
-		// 不能在这里写 1M/128K/reasoning/image 这类猜测值，否则真正规格永远无法覆盖。
-		const newModel: ModelItem = {
-			id: "",
-			name: "",
-		};
-		const updated = {
-			...modelsData,
-			providers: {
-				...modelsData.providers,
-				[providerName]: { ...provider, models: [...provider.models, newModel] },
-			},
-		};
-		setModelsData(updated);
-		markDirty("config:models");
-	};
-
-	const handleUpdateModel = (providerName: string, index: number, field: string, value: unknown) => {
-		const provider = modelsData.providers[providerName];
-		if (!provider) return;
-		const models = [...provider.models];
-		models[index] = { ...models[index], [field]: value };
-		setModelsData({
-			...modelsData,
-			providers: {
-				...modelsData.providers,
-				[providerName]: { ...provider, models },
-			},
-		});
-		markDirty("config:models");
-	};
-
-	/**
-	 * 重置为自适应：
-	 * 1. 显式拉取当前 provider 的 /models，取当前 modelId 的实报字段（失败也继续，listing 视为空）；
-	 * 2. 查询模型规格（运行中 pi 模型列表优先 + bundled pi-ai catalog 兜底，见 resolveModelSpecFromCatalogs）；
-	 * 3. endpoint 实报优先合并，然后只覆盖模板有值的字段。模板未提供的容量字段保留手填值，
-	 *    不落空——否则 Pi 按 128k 回退，用户手填的 1000000 被静默丢掉。
-	 */
-	const handleResetModelToAdaptive = async (providerName: string, index: number) => {
-		const provider = modelsData.providers[providerName];
-		const model = provider?.models[index];
-		if (!provider || !model) return;
-		setResettingModelKey(`${providerName}\u0000${index}`);
-		try {
-			let listing: FetchedModel | undefined;
-			if (provider.baseUrl && provider.apiKey) {
-				const result = await api.config.fetchModels(
-					provider.baseUrl,
-					provider.apiKey,
-					provider.api as string | undefined,
-					getProviderHeaders(provider.headers),
-					// 与列表拉取 / 测试连接同用 per-provider 代理选择，否则需要代理的网关在这里会直连失败。
-					testProxyModeByProvider[providerName] ?? "follow",
-				);
-				if (result.success && result.models) {
-					listing = result.models.find((item) => item.id === model.id);
-				}
-			}
-			const spec = await api.projects.getModelSpec(providerName, model.id, model.name).catch(() => null);
-			const template = mergeAdaptiveModelTemplate(listing, spec, model.id);
-			const nextModel = applyAdaptiveTemplateReset(model, template);
-			const models = [...provider.models];
-			models[index] = nextModel;
-			setModelsData({
-				...modelsData,
-				providers: {
-					...modelsData.providers,
-					[providerName]: { ...provider, models },
-				},
-			});
-			markDirty("config:models");
-			showNotice(template.matchedId ? t("config.modelResetAdaptiveDone", { model: template.matchedId }) : t("config.modelResetAdaptiveKept"), 3000);
-		} finally {
-			setResettingModelKey(null);
-		}
-	};
-
-	/**
-	 * 逐模型 User-Agent：写 provider.modelOverrides[modelId].headers["User-Agent"]。
-	 * 该结构由 pi 在发请求前最后合并（优先级高于 provider.headers），用于
-	 * 「同一供应商里只有个别模型需要特殊 UA」的场景（如某个模型走 Response 协议）。
-	 * 按 modelId 建键：卡片与编辑页共用同一回调，编辑页的模型草稿可能增删/重排，
-	 * 不能用下标（草稿下标与已保存数组会错位，写错模型）。
-	 */
-	const handleUpdateModelUserAgent = (providerName: string, modelId: string, value: string) => {
-		const provider = modelsData.providers[providerName];
-		if (!provider || !modelId) return;
-		setModelsData({
-			...modelsData,
-			providers: {
-				...modelsData.providers,
-				[providerName]: {
-					...provider,
-					modelOverrides: setModelUserAgentOverride(provider.modelOverrides, modelId, value),
-				},
-			},
-		});
-		markDirty("config:models");
-	};
-
-	const handleUpdateModelThinkingLevel = (providerName: string, index: number, level: ModelThinkingLevel, enabled: boolean) => {
-		const provider = modelsData.providers[providerName];
-		const currentModel = provider?.models[index];
-		if (!provider || !currentModel) return;
-		const models = [...provider.models];
-		const nextThinkingLevelMap = withModelThinkingLevelEnabled(currentModel.thinkingLevelMap, level, enabled);
-		const nextModel = {
-			...currentModel,
-			// xhigh/max 只有 reasoning 模型才有意义；打开任意档位时同步开启。
-			reasoning: enabled ? true : currentModel.reasoning,
-		};
-		if (nextThinkingLevelMap) {
-			nextModel.thinkingLevelMap = nextThinkingLevelMap;
-		} else {
-			delete nextModel.thinkingLevelMap;
-		}
-		models[index] = nextModel;
-
-		const nextProvider = enabled
-			? {
-					...provider,
-					compat: {
-						supportsDeveloperRole: false,
-						...(provider.compat ?? {}),
-						supportsReasoningEffort: true,
-					},
-				}
-			: { ...provider };
-		setModelsData({
-			...modelsData,
-			providers: {
-				...modelsData.providers,
-				[providerName]: { ...nextProvider, models },
-			},
-		});
-		markDirty("config:models");
-	};
-
-	/**
-	 * 每模型默认思考档位：写 pi settings.json 的 modelThinkingLevels（键 `provider/modelId`），
-	 * 与 Settings 页的全局默认档位共用同一条草稿保存链路（脏标记记在 config:settings 上）。
-	 * 值不做白名单裁剪——档位最终由 pi 按该模型可用档位收敛；空值 = 删键（跟随全局默认）。
-	 */
-	const handleUpdateModelThinkingLevelDefault = (providerName: string, modelId: string, level: string) => {
-		// 键由 provider/modelId 拼成；空 id（未填完的新行）无法定位。
-		if (!modelId) return;
-		setSettingsData((previous) => withModelThinkingLevelDefault(previous, providerName, modelId, level));
-		markDirty("config:settings");
-	};
-
-	const handleDeleteModel = (providerName: string, index: number) => {
-		const provider = modelsData.providers[providerName];
-		if (!provider) return;
-		const model = provider.models[index];
-		if (!model) return;
-		setDeleteConfirm({
-			type: "model",
-			title: t("common.deleteConfirm"),
-			message: t("common.deleteConfirmMsg", { name: `${providerName}/${model.id}` }),
-			onConfirm: () => {
-				const models = provider.models.filter((_, i) => i !== index);
-				setModelsData({
-					...modelsData,
-					providers: {
-						...modelsData.providers,
-						[providerName]: { ...provider, models },
-					},
-				});
-				markDirty("config:models");
-				setDeleteConfirm(null);
-			},
-		});
-	};
-
-	const handleDeleteModels = (providerName: string, indexes: number[]) => {
-		const provider = modelsData.providers[providerName];
-		if (!provider) return;
-		const validIndexes = [...new Set(indexes)].filter((index) => Number.isInteger(index) && index >= 0 && index < provider.models.length);
-		if (validIndexes.length === 0) return;
-		setDeleteConfirm({
-			type: "batch",
-			title: t("common.deleteConfirm"),
-			message: t("config.deleteModelsBatchConfirm", {
-				provider: providerName,
-				count: validIndexes.length,
-			}),
-			onConfirm: () => {
-				setModelsData((current) => {
-					const currentProvider = current.providers[providerName];
-					if (!currentProvider) return current;
-					return {
-						...current,
-						providers: {
-							...current.providers,
-							[providerName]: {
-								...currentProvider,
-								models: removeSelectedModelIndexes(currentProvider.models, new Set(validIndexes)),
-							},
-						},
-					};
-				});
-				markDirty("config:models");
-				setDeleteConfirm(null);
-			},
-		});
-	};
-
-	const handleSaveModels = async (): Promise<boolean> => {
-		// 保存前按能力目录批量补全空字段（端点/用户值不覆盖；未命中留空）。
-		const { providers: filledProviders, filledCount } = await collectModelSpecPatches(modelsData, (providerName, modelId, modelName) => api.projects.getModelSpec(providerName, modelId, modelName));
-		const base = filledCount > 0 ? { ...modelsData, providers: filledProviders } : modelsData;
-		// 保存前规范化所有供应商的 compat 字段，确保布尔值显式写入而不依赖后端默认值；
-		// supportsReasoningEffort 联动档位映射、requiresReasoningContentOnAssistantMessages
-		// 按 DeepSeek 特征判定（均见 deriveProviderCompat，传名字以便按 provider 名识别）。
-		// 显式标注 providers：铺开的字面量会丢掉 ProviderConfig 的索引签名，后面读 modelOverrides 等
-		// 高级字段就拿不到了（不靠 as 强转，靠变量标注把类型钉死）。
-		const normalizedProviders: ModelsFile["providers"] = Object.fromEntries(
-			Object.entries(base.providers).map(([name, provider]) => [
-				name,
-				{
-					...provider,
-					compat: deriveProviderCompat(provider, name),
-				},
-			]),
-		);
-		const normalizedData: ModelsFile = { ...base, providers: normalizedProviders };
-		// 设置跟着模型走：保存前清掉「模型已不在列表里」的孤儿（改过模型 ID / 删过模型之后）。
-		// 只清 models.json 里存在的供应商；pi 内置 provider 的高级覆盖一律不碰。
-		const prunedProviders = Object.fromEntries(
-			Object.entries(normalizedData.providers).map(([name, provider]) => {
-				const current = readModelOverrides(provider.modelOverrides);
-				if (!current) return [name, provider];
-				const pruned = pruneModelOverrides(
-					current,
-					provider.models.map((model) => model.id),
-				);
-				if (pruned === current) return [name, provider];
-				const nextProvider = { ...provider };
-				if (pruned) nextProvider.modelOverrides = pruned;
-				else delete nextProvider.modelOverrides;
-				return [name, nextProvider];
-			}),
-		);
-		const prunedData = { ...normalizedData, providers: prunedProviders };
-		const prunedHidden = pruneHiddenModelOrphans(hiddenModels, modelIdIndex(prunedProviders));
-		if (!sameHiddenModelEntries(hiddenModels, prunedHidden)) {
-			setHiddenModels(prunedHidden);
-			void api.settings.update({ hiddenModels: prunedHidden }).catch(() => undefined);
-		}
-		setSaving(true);
-		setError(null);
-		try {
-			const result = await api.config.saveModels(prunedData, configTargetOption);
-			if (!result.valid) {
-				setError(result.error ?? t("config.saveFailed"));
-				return false;
-			}
-			onSaved();
-			clearDirty("config:models");
-			// 保存成功后才把补全值写回 UI：失败时保留原值，下次保存会重新补全（幂等）
-			if (filledCount > 0) {
-				setModelsData(base);
-			}
-			// 即时反馈：主进程已解析刚写入的 models.json（0 fork），count 是本地配置的模型数。
-			// fork 真实 pi 的完整验证在主进程后台进行（~17-21s），失败时由全局
-			// useModelsVerifyNotifier 弹 toast——保存动作本身不再被验证阻塞。
-			// 非本机目标没有本机模型加载校验（主进程不 fork 本机 pi），只报保存成功。
-			if (result.modelLoadOk) showToast(t("config.modelsSavedVerified", { count: result.modelCount ?? 0 }));
-			else if (configTargetOption) showToast(t("config.saved"));
-			else showNotice(t("config.modelsSavedButEmpty"), 6000, "warning");
-			await loadConfig("models", { force: true });
-			return true;
-		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
-			return false;
-		} finally {
-			setSaving(false);
-		}
-	};
+	// 模型页的模型行级动作（搬迁到 config/configModal/useConfigModelRowsEditing，行为不变）。
+	const { handleAddModel, handleUpdateModel, handleResetModelToAdaptive, handleUpdateModelUserAgent, handleUpdateModelThinkingLevel, handleUpdateModelThinkingLevelDefault, handleDeleteModel, handleDeleteModels, handleSaveModels } = useConfigModelRowsEditing({
+		api,
+		configTargetOption,
+		modelsData,
+		setModelsData,
+		setSettingsData,
+		hiddenModels,
+		setHiddenModels,
+		markDirty,
+		clearDirty,
+		onSaved,
+		notify: showToast,
+		setError,
+		setSaving,
+		reloadConfig: loadConfig,
+		setDeleteConfirm,
+		setResettingModelKey,
+		testProxyModeByProvider,
+	});
 
 	// ── Auth 操作 ────────────────────────────────────────
 
@@ -1852,28 +1422,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		});
 		markDirty("config:auth");
 		setExpandedAuth(newName);
-	};
-
-	// 导入面板把合并结果写入未保存草稿；用户在配置页检查后点「保存」才落盘（设计决策 #7）
-	const handleApplyModelsTransfer = (next: ModelsFile) => {
-		setModelsData(next);
-		markDirty("config:models");
-	};
-
-	const handleDeleteProviders = (names: string[]) => {
-		setDeleteConfirm({
-			type: "batch",
-			title: t("common.deleteConfirm"),
-			message: t("common.deleteBatchConfirm", { count: names.length }),
-			onConfirm: () => {
-				const providers = { ...modelsData.providers };
-				for (const name of names) delete providers[name];
-				setModelsData({ ...modelsData, providers });
-				markDirty("config:models");
-				if (names.includes(expandedProvider ?? "")) setExpandedProvider(null);
-				setDeleteConfirm(null);
-			},
-		});
 	};
 
 	const handleDeleteAuths = (providers: string[]) => {
@@ -2001,349 +1549,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		},
 		reloadAfterImport: () => loadConfig(tab, { force: true }),
 	});
-
-	/**
-	/**
-	 * Refresh global resources and, when in project scope, project-owned resources plus overrides.
-	 * Discovery is always requested: the global page renders package/settings owned rows too.
-	 */
-	const refreshSkills = async () => {
-		const generation = resourceGenerationRef.current;
-		const projectIdHere = resourceScope === "project" ? effectiveProjectId : undefined;
-		const [globalResult, projectResult, discoveryResult] = await Promise.all([api.skills.list(resourceOptions), projectIdHere && hasProject ? api.projectResources.list(projectIdHere) : Promise.resolve(emptyProjectResourceData()), api.projectResources.discovery(projectIdHere)]);
-		if (generation !== resourceGenerationRef.current) return;
-		setDiscoveryData(discoveryResult);
-		setProjectResourcesData(projectResult);
-		const locations = [...globalResult.locations, ...projectResult.skillLocations];
-		setSkillsData({
-			locations,
-			skills: [...projectResult.skills, ...globalResult.skills.filter(isGlobalSkill)],
-		});
-	};
-
-	const handleCreateSkill = async () => {
-		if (blockResourceMutation("skills:create")) return;
-		setCreatingSkill(true);
-		setError(null);
-		try {
-			if (resourceScope === "project" && projectId) {
-				const locationId = newSkillLocationId === "project-agents" ? "project-agents" : "project-pi";
-				await api.projectResources.createSkill({
-					projectId,
-					name: newSkillName,
-					description: newSkillDescription,
-					locationId,
-				});
-			} else {
-				await api.skills.create({ name: newSkillName, description: newSkillDescription, locationId: newSkillLocationId }, resourceOptions);
-			}
-			setNewSkillName("");
-			setNewSkillDescription("");
-			bumpResourceGeneration();
-			await refreshSkills();
-			showToast(t("config.skillCreatedToast"));
-		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
-		} finally {
-			setCreatingSkill(false);
-		}
-	};
-
-	const handleToggleSkill = async (skill: PiSkillSummary, enabled: boolean) => {
-		if (blockResourceMutation("skills:toggle")) return;
-		setError(null);
-		try {
-			if (resourceScope === "project" && effectiveProjectId) {
-				if (isProjectSkill(skill)) {
-					await api.projectResources.toggleSkill(effectiveProjectId, skill.path, enabled);
-				} else if (isGlobalSkill(skill) && isGlobalSkillSourceId(skill.sourceId)) {
-					if (skill.enabled === false) {
-						// A globally disabled skill cannot be re-enabled from project scope.
-						showNotice(t("config.resourceScope.inheritedReadOnly"), 4000, "warning");
-						return;
-					}
-					await api.projectResources.toggleInherited({
-						projectId: effectiveProjectId,
-						kind: "skill",
-						// 原生规则写的是 pi 能匹配的文件路径；身份键（pi-global:<名>）pi 不认，写了也不生效
-						key: skill.path,
-						enabled,
-					});
-				}
-			} else {
-				await api.skills.toggle(skill.path, enabled, resourceOptions);
-			}
-			bumpResourceGeneration();
-			await refreshSkills();
-			showToast(enabled ? t("config.skillEnabledToast") : t("config.skillDisabledToast"));
-		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
-		}
-	};
-
-	const confirmDeleteSkill = async () => {
-		if (blockResourceMutation("skills:delete")) return;
-		if (!deleteSkillConfirm) return;
-		const target = deleteSkillConfirm;
-		setDeleteSkillConfirm(null);
-		setError(null);
-		try {
-			if (resourceScope === "project" && !isProjectSkill(target)) return;
-			if (resourceScope === "project" && effectiveProjectId) {
-				await api.projectResources.deleteSkill(effectiveProjectId, target.path);
-			} else {
-				await api.skills.delete(target.path, resourceOptions);
-			}
-			bumpResourceGeneration();
-			await refreshSkills();
-			showToast(t("config.skillDeletedToast"));
-		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
-		}
-	};
-
-	const handleRenameGlobalSkill = async (skill: PiSkillSummary, newName: string) => {
-		if (blockResourceMutation("skills:rename")) return;
-		setError(null);
-		try {
-			if (resourceScope === "project" && !isProjectSkill(skill)) {
-				// Inherited global rows are read-only in project scope; never mutate the global skill.
-				showNotice(t("config.resourceScope.inheritedReadOnly"), 4000, "warning");
-				return;
-			}
-			if (resourceScope === "project" && isProjectSkill(skill) && effectiveProjectId) {
-				await api.projectResources.renameSkill(effectiveProjectId, skill.path, newName);
-			} else {
-				await api.skills.rename(skill.path, newName, resourceOptions);
-			}
-			bumpResourceGeneration();
-			await refreshSkills();
-			showToast(t("config.skillRenamedToast"));
-		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
-		}
-	};
-
-	const handleEditGlobalSkill = async (skill: PiSkillSummary) => {
-		if (blockResourceMutation("skills:edit")) return;
-		// Inherited global rows are read-only in project scope.
-		if (resourceScope === "project" && !isProjectSkill(skill)) {
-			showNotice(t("config.resourceScope.inheritedReadOnly"), 4000, "warning");
-			return;
-		}
-		setEditingGlobalSkill(skill);
-		setEditGlobalContent("");
-		setEditGlobalLoading(true);
-		setError(null);
-		try {
-			const accessScope = isProjectSkill(skill) && effectiveProjectId ? { projectId: effectiveProjectId } : undefined;
-			const content = await api.files.readContent(skill.path, undefined, accessScope);
-			setEditGlobalContent(content);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
-			setEditingGlobalSkill(null);
-		} finally {
-			setEditGlobalLoading(false);
-		}
-	};
-
-	// Ctrl+S / Cmd+S 快捷键保存 skill 编辑器
-	useEffect(() => {
-		const handleKeyDown = (e: KeyboardEvent) => {
-			if ((e.ctrlKey || e.metaKey) && e.key === "s" && editingGlobalSkill && !editGlobalSaving) {
-				e.preventDefault();
-				void saveGlobalSkillEditor();
-			}
-		};
-		if (editingGlobalSkill) {
-			window.addEventListener("keydown", handleKeyDown);
-			return () => window.removeEventListener("keydown", handleKeyDown);
-		}
-	}, [editingGlobalSkill, editGlobalSaving]);
-
-	const saveGlobalSkillEditor = async (): Promise<boolean> => {
-		if (!editingGlobalSkill || editGlobalSaving) return false;
-		setEditGlobalSaving(true);
-		setError(null);
-		try {
-			const accessScope = isProjectSkill(editingGlobalSkill) && effectiveProjectId ? { projectId: effectiveProjectId } : undefined;
-			await api.files.writeContent(editingGlobalSkill.path, editGlobalContent, accessScope);
-			clearDirty("skills");
-			setEditGlobalSaved(true);
-			scheduleUiTimer(() => setEditGlobalSaved(false), 2000);
-			bumpResourceGeneration();
-			await refreshSkills();
-			return true;
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
-			return false;
-		} finally {
-			setEditGlobalSaving(false);
-		}
-	};
-
-	/**
-	 * Load the complete list, while project-owned rows are fetched only in project scope.
-	 * Discovery is always requested: extension discovery also resolves global settings packages.
-	 */
-	const refreshExtensions = async (forceRefresh = false) => {
-		setExtensionsLoading(true);
-		setError(null);
-		const generation = resourceGenerationRef.current;
-		const projectIdHere = resourceScope === "project" ? effectiveProjectId : undefined;
-		try {
-			const [globalResult, projectResult, discoveryResult] = await Promise.all([api.extensions.list(forceRefresh, resourceOptions), projectIdHere && hasProject ? api.projectResources.list(projectIdHere) : Promise.resolve(emptyProjectResourceData()), api.projectResources.discovery(projectIdHere)]);
-			if (generation !== resourceGenerationRef.current) return;
-			setDiscoveryData(discoveryResult);
-			const globalExtensions = globalResult.extensions.filter((extension) => !isProjectExtension(extension));
-			const projectExtensions = projectResult.extensions;
-			setProjectResourcesData(projectResult);
-			const seenSources = new Set<string>();
-			const mergedExtensions = [...projectExtensions, ...globalExtensions].filter((extension) => {
-				const key = `${extension.scope ?? "unknown"}\u0000${extension.source}`;
-				if (seenSources.has(key)) return false;
-				seenSources.add(key);
-				return true;
-			});
-			setExtensionsData({ ...globalResult, extensions: mergedExtensions });
-		} catch (e) {
-			// 资源域失败给稳定码文案；其它异常保留原文。
-			setError(resourceTargetErrorMessage(e));
-		} finally {
-			if (generation === resourceGenerationRef.current) setExtensionsLoading(false);
-		}
-	};
-
-	/** Extension toggles in project view are project overrides, never global mutations. */
-	const handleToggleExtension = async (extension: PiExtensionSummary, enabled: boolean) => {
-		if (blockResourceMutation("extensions:toggle")) return;
-		if (resourceScope === "project" && effectiveProjectId) {
-			if (isProjectExtension(extension) && extension.path) {
-				await api.projectResources.toggleExtension(effectiveProjectId, extension.path, enabled);
-			} else if (!isProjectExtension(extension)) {
-				if (extension.enabled === false) {
-					// A globally disabled extension cannot be re-enabled from project scope.
-					showNotice(t("config.resourceScope.inheritedReadOnly"), 4000, "warning");
-					return;
-				}
-				await api.projectResources.toggleInherited({
-					projectId: effectiveProjectId,
-					kind: "extension",
-					// 文件扩展用路径；包扩展回退 source（包级过滤走 packages，路径形态 pi 同样能匹配到入口文件时才生效）
-					key: extension.path ?? extension.source,
-					enabled,
-				});
-			}
-			return;
-		}
-		// 传路径与项目上下文：本地文件扩展需要精确路径，项目作用域需要 projectId 写项目 .pi/settings.json。
-		await api.extensions.toggle(extension.source, enabled, extension.scope, extension.path, effectiveProjectId, resourceOptions);
-	};
-
-	const handleRequestExtensionUninstall = (extension: PiExtensionSummary) => {
-		if (blockResourceMutation("extensions:uninstall")) return;
-		// A global row shown as inherited by a project is read-only in that project.
-		if (resourceScope === "project" && !isProjectExtension(extension)) return;
-		setUninstallExtensionConfirm(extension);
-	};
-
-	const handleRequestProjectPackageUninstall = (item: DiscoveredExtensionItem) => {
-		if (blockResourceMutation("extensions:uninstall")) return;
-		setUninstallProjectPackageConfirm({ source: item.source });
-	};
-
-	const handleOpenExtensionLocation = async (extension: PiExtensionSummary) => {
-		if (!extension.path) return;
-		try {
-			await api.files.showInFolder(extension.path, extension.scope === "project" && effectiveProjectId ? { projectId: effectiveProjectId } : undefined);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
-		}
-	};
-
-	/** 发现行打开安装位置：包缓存（user 层）走默认边界，项目目录内文件（settings-project 等）需带 projectId 走项目读边界。 */
-	const handleOpenDiscoveredLocation = async (item: DiscoveredExtensionItem) => {
-		if (!item.path) return;
-		try {
-			await api.files.showInFolder(item.path, item.physicalScope === "project" && effectiveProjectId ? { projectId: effectiveProjectId } : undefined);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
-		}
-	};
-
-	const confirmUninstallExtension = async () => {
-		if (blockResourceMutation("extensions:uninstall")) return;
-		if (!uninstallExtensionConfirm) return;
-		const target = uninstallExtensionConfirm;
-		setUninstallExtensionConfirm(null);
-		// 立刻进入卸载态以触发卡片退场动画，同时发起真实卸载；两者并行，避免"删完才闪一下"。
-		setUninstallingExtensionSource(target.source);
-		const exitAnimation = new Promise<void>((resolve) => {
-			scheduleUiTimer(resolve, 280);
-		});
-		try {
-			await Promise.all([
-				(async () => {
-					if (isProjectExtension(target) && effectiveProjectId && target.path) {
-						await api.projectResources.deleteExtension(effectiveProjectId, target.path);
-					} else if (target.builtIn) {
-						await api.extensions.removeBuiltIn(target.source);
-					} else {
-						await api.extensions.uninstall(target.source, target.scope, target.scope === "project" ? effectiveProjectId : undefined);
-					}
-				})(),
-				exitAnimation,
-			]);
-			// 与禁用/手动刷新一致：强制重扫并跳过可能残留的 in-flight 缓存结果。
-			await refreshExtensions(true);
-			showToast(t("config.extensionUninstalledToast"));
-		} catch (e) {
-			if (isProjectExtension(target) || target.builtIn) {
-				showNotice(t("config.extensionOperationFailed", { error: formatIpcError(e) }), 4500, "error");
-				return;
-			}
-			// Package uninstall failures include the equivalent CLI command as a manual fallback.
-			const uninstallCmd = `pi uninstall ${target.source}${target.scope === "project" ? " -l" : ""}`;
-			showNotice(t("config.extensionUninstallFailed", { error: formatIpcError(e) }) + " " + t("config.extensionUninstallManual", { command: uninstallCmd }), 6000, "error", undefined, {
-				action: {
-					label: t("config.copyUninstallCmd"),
-					onClick: () => void navigator.clipboard.writeText(uninstallCmd),
-				},
-			});
-		} finally {
-			setUninstallingExtensionSource(null);
-		}
-	};
-
-	/**
-	 * 项目包卸载：`pi remove <source> -l` 删项目层记账条目（<项目>/.pi/settings.json 的 packages），
-	 * 不动全局缓存与磁盘文件；卸载态复用 uninstallingExtensionSource（发现行按 source 匹配）。
-	 */
-	const confirmUninstallProjectPackage = async () => {
-		if (blockResourceMutation("extensions:uninstall")) return;
-		if (!uninstallProjectPackageConfirm) return;
-		const target = uninstallProjectPackageConfirm;
-		setUninstallProjectPackageConfirm(null);
-		setUninstallingExtensionSource(target.source);
-		try {
-			// 与全局包卸载一致：失败时给等价 CLI 手动回退（项目层加 -l）。项目层要带 effectiveProjectId，
-			// 后端经信任门解析项目根后再执行 pi remove -l（无 id 会被拒绝，不会误删别的项目）。
-			await api.extensions.uninstall(target.source, "project", effectiveProjectId);
-			await refreshExtensions(true);
-			showToast(t("config.extensionUninstalledToast"));
-		} catch (e) {
-			// 与全局包卸载一致：失败时给等价 CLI 手动回退（项目层加 -l）。
-			const uninstallCmd = `pi uninstall ${target.source} -l`;
-			showNotice(t("config.extensionUninstallFailed", { error: formatIpcError(e) }) + " " + t("config.extensionUninstallManual", { command: uninstallCmd }), 6000, "error", undefined, {
-				action: {
-					label: t("config.copyUninstallCmd"),
-					onClick: () => void navigator.clipboard.writeText(uninstallCmd),
-				},
-			});
-		} finally {
-			setUninstallingExtensionSource(null);
-		}
-	};
 
 	/** 安全管理面板句柄（顶部统一保存按钮经 saveByKey 调用其 save） */
 	const securitySectionRef = useRef<SecuritySectionHandle>(null);

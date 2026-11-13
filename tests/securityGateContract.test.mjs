@@ -10,6 +10,7 @@ import vm from "node:vm";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
 import { configModalSource } from "./helpers/configModalSources.mjs";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -66,7 +67,7 @@ test("PIDECK_SESSION_ID is keyed on catalog session id, not sessionPath", () => 
 	// 回归：SecurityLevelMenu 用 SessionRecord.id（UUID）保存会话级覆盖，
 	// 否则扩展按 sessionLevels[sessionId] 永远查不到覆盖而回落到全局默认等级。
 	const agentManager = agentManagerSource;
-	const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+	const coordinator = readSessionRuntimeCoordinatorSources();
 	const agentTypes = readFileSync("src/shared/types/agent.ts", "utf8");
 	assert.match(agentManager, /securitySessionId: securitySessionKey \?\? sessionPath/);
 	// 运行时创建 agent 时把 catalog 会话身份透传给 AgentManager

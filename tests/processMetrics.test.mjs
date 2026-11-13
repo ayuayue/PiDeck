@@ -12,6 +12,7 @@ import { preloadSource } from "./helpers/preloadSources.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import { configModalSource } from "./helpers/configModalSources.mjs";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 // ===== 纯函数：批量采样的进程表解析 =====
 
 test("parsePsCpuTime: hh:mm:ss / mm:ss.ss / dd- 三种 TIME 形状", () => {
@@ -172,7 +173,7 @@ test("stop-agent: full session stop chain (coordinator + detach)", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 	const systemIpc = systemIpcSource;
 	const preload = preloadSource;
-	const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+	const coordinator = readSessionRuntimeCoordinatorSources();
 	const index = mainIpcSource;
 	const tab = readFileSync("src/renderer/src/components/app/settings/ProcessMetricsTab.tsx", "utf8");
 	// 通道 + handler：agentId 输入校验（渲染层数据不可信），走完整会话停止链路
@@ -234,7 +235,7 @@ test("process monitor rows show the session associated with each agent", () => {
 	assert.doesNotMatch(tab, /title=\{agent\.agentId\}/);
 	assert.doesNotMatch(tab, /title=\{agent\.sessionId\}/);
 	// 主进程：会话身份由 coordinator 按 agentId 反查（同源：sessionIdByAgent + catalog）
-	const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+	const coordinator = readSessionRuntimeCoordinatorSources();
 	assert.match(coordinator, /getSessionInfoForAgent\(/);
 	assert.match(coordinator, /sessionIdByAgent\.get\(agentId\)/);
 	assert.match(coordinator, /catalog\.get\(sessionId\)/);
