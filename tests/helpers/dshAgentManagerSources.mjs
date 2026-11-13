@@ -7,7 +7,17 @@ import { readFileSync } from "node:fs";
  * 顺序：宿主在前（编排/生命周期/runtimes map），其后是已落地的域协作者（新增协作者追加到末尾）。
  */
 const entryPath = "src/main/dsh/DshAgentManager.ts";
-const collaboratorPaths = ["src/main/dsh/manager/dshAgentRuntime.ts", "src/main/dsh/manager/dshProjectionFrames.ts", "src/main/dsh/manager/dshMuxFrames.ts"];
+const collaboratorPaths = [
+	"src/main/dsh/manager/dshAgentRuntime.ts",
+	"src/main/dsh/manager/dshProjectionFrames.ts",
+	"src/main/dsh/manager/dshMuxFrames.ts",
+	"src/main/dsh/manager/dshHistoryReads.ts",
+	"src/main/dsh/manager/dshRuntimeState.ts",
+	"src/main/dsh/manager/dshRuntimePumps.ts",
+	"src/main/dsh/manager/dshImageHydration.ts",
+	"src/main/dsh/manager/dshModelControl.ts",
+	"src/main/dsh/manager/dshSessionExport.ts",
+];
 
 export const dshAgentManagerSources = [entryPath, ...collaboratorPaths].map((path) => ({ path, source: readFileSync(path, "utf8") }));
 
