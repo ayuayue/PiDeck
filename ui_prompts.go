@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
@@ -99,7 +100,7 @@ func (a *app) promptDialog() core.Node {
 			Title:        "提示词库",
 			TestID:       "prompt-library",
 			Style:        core.Style{Width: core.Pt(760), Height: core.Pt(560)},
-			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, MinHeight: core.Pt(0), Gap: 10},
+			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, Height: core.Pt(430), MinHeight: core.Pt(0), Gap: 10},
 				Children: []core.Node{
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(156), FlexShrink: 0, Padding: core.Symmetric(6, 2), Gap: 1,
@@ -130,8 +131,95 @@ func (a *app) promptDialog() core.Node {
 					}},
 				}}},
 			Footer: []core.Node{
+				ui.Button{Text: "导入提示词包…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "prompt-import",
+					OnPress: a.openPromptImport},
 				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "prompt-close",
 					OnPress: func() { a.promptOpen.Set(false) }},
+			},
+		}
+	})
+}
+
+// openPromptImport asks for a shared pack's URL.
+func (a *app) openPromptImport() {
+	a.promptImportURL.Set("")
+	a.promptImportErr.Set("")
+	a.promptImportBusy.Set(false)
+	a.promptImportOpen.Set(true)
+}
+
+// importPromptURL downloads a pack and merges it into the user's prompts.
+func (a *app) importPromptURL() {
+	if a.promptImportBusy.GetUntracked() {
+		return
+	}
+	url := strings.TrimSpace(a.promptImportURL.GetUntracked())
+	if url == "" {
+		a.promptImportErr.Set("先填一个链接")
+		return
+	}
+	a.promptImportBusy.Set(true)
+	a.promptImportErr.Set("")
+	go func() {
+		pack, err := fetchPromptPack(url)
+		if err == nil {
+			var added, skipped int
+			added, skipped, err = a.importPromptPack(pack)
+			if err == nil {
+				a.cx.Post(func() {
+					a.promptImportBusy.Set(false)
+					a.promptImportOpen.Set(false)
+					a.prompts.Set(a.loadPrompts())
+					if added == 0 {
+						a.toast(ui.ToastInfo, "没有新的提示词", fmt.Sprintf("已跳过 %d 条重复。", skipped))
+						return
+					}
+					a.toast(ui.ToastSuccess, fmt.Sprintf("已导入 %d 条", added), fmt.Sprintf("跳过 %d 条重复。", skipped))
+				})
+				return
+			}
+		}
+		a.cx.Post(func() {
+			a.promptImportBusy.Set(false)
+			a.promptImportErr.Set(err.Error())
+		})
+	}()
+}
+
+// promptImportDialog takes a link to a JSON or YAML prompt pack.
+func (a *app) promptImportDialog() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		busy := a.promptImportBusy.Get()
+		var status core.Node
+		if busy {
+			status = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+				ui.Spinner{Size: 12}, ui.Text("正在下载并导入…", 11.5, ui.Regular, colors.Muted)}}
+		} else if a.promptImportErr.Get() != "" {
+			status = core.Text{Content: a.promptImportErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 11, LineHeight: 16},
+				StyleFunc: ui.Colored(colors.Danger)}
+		}
+		return ui.Dialog{
+			Open:         a.promptImportOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) { a.promptImportOpen.Set(open) },
+			Title:        "导入提示词包",
+			TestID:       "prompt-import-dialog",
+			Style:        core.Style{Width: core.Pt(540)},
+			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
+				core.Text{Content: "填一个 http(s) 链接：JSON 或 YAML，可以是 {prompts:[…]} 或直接一个数组；每条要有 title 和 body（或 prompt）。",
+					Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
+				core.Input{Value: a.promptImportURL.Get, OnChange: a.promptImportURL.Set, Placeholder: "https://…/prompts.json",
+					Label: "提示词包链接", TestID: "prompt-import-url", AutoFocus: true,
+					OnSubmit: func(string) { a.importPromptURL() },
+					Style: core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), FontSize: 12, FontFamily: ui.Mono, Color: colors.Text(),
+						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
+				status,
+			}}},
+			Footer: []core.Node{
+				ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					OnPress: func() { a.promptImportOpen.Set(false) }},
+				ui.Button{Text: "导入", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "prompt-import-go",
+					Disabled: func() bool { return busy }, OnPress: a.importPromptURL},
 			},
 		}
 	})

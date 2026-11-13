@@ -222,10 +222,14 @@ type app struct {
 	searchGen      int
 
 	// The prompt library: its packs, the dialog's query and category.
-	prompts     *core.Signal[[]promptItem]
-	promptOpen  *core.Signal[bool]
-	promptQuery *core.Signal[string]
-	promptCat   *core.Signal[string]
+	prompts          *core.Signal[[]promptItem]
+	promptOpen       *core.Signal[bool]
+	promptQuery      *core.Signal[string]
+	promptImportOpen *core.Signal[bool]
+	promptImportURL  *core.Signal[string]
+	promptImportBusy *core.Signal[bool]
+	promptImportErr  *core.Signal[string]
+	promptCat        *core.Signal[string]
 
 	// The provider editor: which provider, its fields, and the result of
 	// a connection test.
@@ -424,6 +428,10 @@ func newApp(cx *core.Scope) *app {
 		prompts:          core.NewSignalFunc(cx, []promptItem(nil), nil),
 		promptOpen:       core.NewSignal(cx, false),
 		promptQuery:      core.NewSignal(cx, ""),
+		promptImportOpen: core.NewSignal(cx, false),
+		promptImportURL:  core.NewSignal(cx, ""),
+		promptImportBusy: core.NewSignal(cx, false),
+		promptImportErr:  core.NewSignal(cx, ""),
 		promptCat:        core.NewSignal(cx, ""),
 		langRev:          core.NewSignal(cx, 0),
 		providerOpen:     core.NewSignal(cx, false),

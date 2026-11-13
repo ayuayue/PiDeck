@@ -38,6 +38,7 @@ func (a *app) view() core.Node {
 		a.gitNewBranchDialog(),
 		a.providerDialog(),
 		a.promptDialog(),
+		a.promptImportDialog(),
 		a.parallelAskDialog(),
 		a.shortcutsDialog(),
 		a.searchDialog(),

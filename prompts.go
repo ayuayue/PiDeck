@@ -7,7 +7,9 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,15 +32,20 @@ type promptItem struct {
 	Source   string
 }
 
+// promptPackEntry is one prompt in a pack. Prompt is an alias for Body,
+// so a shared file can use whichever name it likes.
+type promptPackEntry struct {
+	Title    string   `yaml:"title" json:"title"`
+	Body     string   `yaml:"body" json:"body"`
+	Prompt   string   `yaml:"prompt" json:"prompt"`
+	Category string   `yaml:"category" json:"category"`
+	Tags     []string `yaml:"tags" json:"tags"`
+}
+
 // promptPack is one file's prompts.
 type promptPack struct {
-	Name    string `yaml:"name" json:"name"`
-	Prompts []struct {
-		Title    string   `yaml:"title" json:"title"`
-		Body     string   `yaml:"body" json:"body"`
-		Category string   `yaml:"category" json:"category"`
-		Tags     []string `yaml:"tags" json:"tags"`
-	} `yaml:"prompts" json:"prompts"`
+	Name    string            `yaml:"name" json:"name"`
+	Prompts []promptPackEntry `yaml:"prompts" json:"prompts"`
 }
 
 // promptsDir is the folder the library lives in.
@@ -117,6 +124,124 @@ func (a *app) loadPrompts() []promptItem {
 	return out
 }
 
+// fetchPromptPack downloads a shared pack.
+func fetchPromptPack(rawURL string) (promptPack, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if !strings.HasPrefix(rawURL, "https://") && !strings.HasPrefix(rawURL, "http://") {
+		return promptPack{}, errors.New("只支持 http(s) 链接")
+	}
+	resp, err := appHTTPClient.Get(rawURL)
+	if err != nil {
+		return promptPack{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return promptPack{}, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return promptPack{}, err
+	}
+	return parsePromptPack(raw)
+}
+
+// parsePromptPack reads an object or a bare array of prompts.
+func parsePromptPack(raw []byte) (promptPack, error) {
+	var pack promptPack
+	if yaml.Unmarshal(raw, &pack) == nil && len(pack.Prompts) > 0 {
+		pack = normalizePromptPack(pack)
+		if len(pack.Prompts) == 0 {
+			return promptPack{}, errors.New("提示词包是空的")
+		}
+		return pack, nil
+	}
+	var list []promptPackEntry
+	if yaml.Unmarshal(raw, &list) != nil || len(list) == 0 {
+		return promptPack{}, errors.New("不是提示词包")
+	}
+	pack.Prompts = list
+	pack = normalizePromptPack(pack)
+	if len(pack.Prompts) == 0 {
+		return promptPack{}, errors.New("提示词包是空的")
+	}
+	return pack, nil
+}
+
+// normalizePromptPack fills Body from Prompt, trims, and drops empty or
+// over-long entries.
+func normalizePromptPack(pack promptPack) promptPack {
+	pack.Name = strings.TrimSpace(pack.Name)
+	var out []promptPackEntry
+	for _, p := range pack.Prompts {
+		p.Title = strings.TrimSpace(p.Title)
+		p.Body = strings.TrimSpace(firstNonEmpty(p.Body, p.Prompt))
+		p.Prompt = ""
+		p.Category = strings.TrimSpace(p.Category)
+		if p.Title == "" || p.Body == "" {
+			continue
+		}
+		p.Title = firstLine(p.Title, 80)
+		out = append(out, p)
+		if len(out) >= 200 {
+			break
+		}
+	}
+	pack.Prompts = out
+	return pack
+}
+
+// importPromptPack merges a pack into prompts/user.json, skipping titles
+// the library already has.
+func (a *app) importPromptPack(pack promptPack) (int, int, error) {
+	dir := a.promptsDir()
+	if dir == "" {
+		return 0, 0, errors.New("找不到提示词目录")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return 0, 0, err
+	}
+	path := filepath.Join(dir, "user.json")
+	var user promptPack
+	if raw, err := os.ReadFile(path); err == nil {
+		if yaml.Unmarshal(raw, &user) != nil {
+			return 0, 0, errors.New("user.json 不是有效的提示词文件")
+		}
+	}
+	if user.Name == "" {
+		user.Name = "我的提示词"
+	}
+	seen := map[string]bool{}
+	for _, p := range a.loadPrompts() {
+		seen[strings.ToLower(p.Title)] = true
+	}
+	added, skipped := 0, 0
+	for _, p := range pack.Prompts {
+		key := strings.ToLower(p.Title)
+		if seen[key] {
+			skipped++
+			continue
+		}
+		seen[key] = true
+		if p.Category == "" {
+			p.Category = "导入"
+		}
+		user.Prompts = append(user.Prompts, p)
+		added++
+	}
+	if added == 0 {
+		return 0, skipped, nil
+	}
+	raw, err := json.MarshalIndent(user, "", "  ")
+	if err != nil {
+		return 0, skipped, err
+	}
+	raw = append(raw, '\n')
+	if err := writeFileAtomic(path, raw, 0o644); err != nil {
+		return 0, skipped, err
+	}
+	return added, skipped, nil
+}
+
 // openPromptLibrary reads the packs and shows the dialog.
 func (a *app) openPromptLibrary() {
 	if a.st == nil {
@@ -173,12 +298,7 @@ func (a *app) saveDraftPrompt() {
 	if pack.Name == "" {
 		pack.Name = "我的提示词"
 	}
-	var entry struct {
-		Title    string   `yaml:"title" json:"title"`
-		Body     string   `yaml:"body" json:"body"`
-		Category string   `yaml:"category" json:"category"`
-		Tags     []string `yaml:"tags" json:"tags"`
-	}
+	entry := promptPackEntry{}
 	entry.Title = firstLine(body, 40)
 	entry.Body = body
 	entry.Category = "我的"
