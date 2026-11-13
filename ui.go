@@ -35,6 +35,7 @@ func (a *app) view() core.Node {
 		a.providerDialog(),
 		a.promptDialog(),
 		a.parallelAskDialog(),
+		a.shortcutsDialog(),
 		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: "关闭", TestID: "toasts"},
 	}}
 }

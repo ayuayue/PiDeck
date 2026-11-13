@@ -30,6 +30,7 @@ func defaultKeybindings() []keyBinding {
 		{Command: "terminal", Key: "ctrl+shift+t"},
 		{Command: "prompts", Key: "mod+shift+p"},
 		{Command: "ask", Key: "mod+shift+a"},
+		{Command: "shortcuts", Key: "mod+/"},
 		{Command: "settings", Key: "mod+,"},
 	}
 }

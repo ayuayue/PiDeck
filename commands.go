@@ -191,6 +191,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openPluginsDir() }},
 		{ID: "reload-addons", Label: "重新加载插件与主题", Group: "应用", Icon: lucide.RefreshCw,
 			Run: func(a *app) { a.reloadAddons() }},
+		{ID: "shortcuts", Label: "键盘快捷键", Group: "应用", Shortcut: "mod+/", Icon: lucide.Keyboard,
+			Run: func(a *app) { a.shortcutsQuery.Set(""); a.shortcutsOpen.Set(true) }},
 		{ID: "check-updates", Label: "检查更新", Group: "应用", Icon: lucide.CloudDownload,
 			Run: func(a *app) { updater.Check(a.cx) }},
 		{ID: "settings", Label: "设置", Group: "应用", Shortcut: "mod+,", Icon: lucide.Settings,

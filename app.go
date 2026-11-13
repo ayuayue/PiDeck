@@ -161,6 +161,10 @@ type app struct {
 	askBox  *core.Signal[askBox]
 	askText *core.Signal[string]
 
+	// The keyboard cheat sheet.
+	shortcutsOpen  *core.Signal[bool]
+	shortcutsQuery *core.Signal[string]
+
 	// The prompt library: its packs, the dialog's query and category.
 	prompts     *core.Signal[[]promptItem]
 	promptOpen  *core.Signal[bool]
@@ -311,6 +315,8 @@ func newApp(cx *core.Scope) *app {
 		resourcesLoading: core.NewSignal(cx, false),
 		askBox:           core.NewSignal(cx, askBox{}),
 		askText:          core.NewSignal(cx, ""),
+		shortcutsOpen:    core.NewSignal(cx, false),
+		shortcutsQuery:   core.NewSignal(cx, ""),
 		prompts:          core.NewSignalFunc(cx, []promptItem(nil), nil),
 		promptOpen:       core.NewSignal(cx, false),
 		promptQuery:      core.NewSignal(cx, ""),
