@@ -92,14 +92,16 @@ func (a *app) startACPEngine(s *session) {
 		return
 	}
 	sid := ""
+	modes := acpModeState{}
 	if s.acpSID != "" {
-		if c.loadSession(s.acpSID, s.WS) == nil {
+		if st, err := c.loadSession(s.acpSID, s.WS); err == nil {
 			sid = s.acpSID
+			modes = st
 		}
 	}
 	if sid == "" {
 		var err error
-		sid, err = c.newSession(s.WS)
+		sid, modes, err = c.newSession(s.WS)
 		if err != nil {
 			c.stop()
 			a.cx.Post(func() { a.failSession(s, "ACP 建会话失败："+err.Error()) })
@@ -109,6 +111,8 @@ func (a *app) startACPEngine(s *session) {
 	a.cx.Post(func() {
 		s.acp = c
 		s.acpSID = sid
+		s.acpModes.Set(modes.AvailableModes)
+		s.acpMode.Set(modes.CurrentModeID)
 		s.starting = false
 		s.readySig.Set(true)
 		s.status.Set(statusIdle)
@@ -322,7 +326,8 @@ func (a *app) flushACP(s *session) {
 	})
 }
 
-// acpBadge names the ACP preset and its current mode.
+// acpBadge names the ACP preset and its current mode; with modes on
+// offer it opens the mode picker.
 func (a *app) acpBadge(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
@@ -330,9 +335,10 @@ func (a *app) acpBadge(s *session) core.Node {
 		if p := a.acpPresetByID(s.acpPreset); p != nil {
 			name = p.Name
 		}
+		modes := s.acpModes.Get()
 		label := name
 		if mode := s.acpMode.Get(); mode != "" {
-			label += " · " + mode
+			label += " · " + acpModeLabel(modes, mode)
 		}
 		dot := colors.Faint
 		if s.status.Get() == statusFailed {
@@ -340,7 +346,7 @@ func (a *app) acpBadge(s *session) core.Node {
 		} else if s.readySig.Get() {
 			dot = colors.Up
 		}
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
+		chip := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
 			Padding: core.Symmetric(0, 7), CornerRadius: 12, Background: colors.Inset()}, Children: []core.Node{
 			core.View{StyleFunc: func() core.Style {
 				return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: dot()}
@@ -348,7 +354,81 @@ func (a *app) acpBadge(s *session) core.Node {
 			core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 				Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
 		}}
+		if len(modes) == 0 {
+			return chip
+		}
+		chip.OnPress = func(core.PressEvent) { s.acpModeOpen.Update(func(v bool) bool { return !v }) }
+		chip.Role = core.RoleButton
+		chip.Label = "切换 ACP 模式"
+		chip.TestID = "acp-mode-badge"
+		chip.Style.Hover = &core.Style{Background: colors.Hover()}
+		return a.popoverCard(s.acpModeOpen, core.PlaceTop, core.AlignStart, 260, chip, func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			current := s.acpMode.Get()
+			var rows []core.Node
+			for _, m := range modes {
+				mode := m
+				title := mode.Name
+				if title == "" {
+					title = mode.ID
+				}
+				rows = append(rows, core.View{
+					OnPress: func(core.PressEvent) { a.setACPMode(s, mode.ID) },
+					Role:    core.RoleButton, Label: "切换到 " + title, TestID: "acp-mode-" + mode.ID,
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(32),
+							Padding: core.Symmetric(3, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
+					},
+					Children: []core.Node{
+						core.View{Style: core.Style{Width: core.Pt(14)},
+							Children: []core.Node{core.Show{When: func() bool { return mode.ID == current }, Then: func(*core.Scope) core.Node {
+								return ui.Icon(lucide.Check, 12, colors.Accent)
+							}}}},
+						core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+							core.Text{Content: title, Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
+							core.Show{When: func() bool { return mode.Description != "" }, Then: func(*core.Scope) core.Node {
+								return core.Text{Content: mode.Description, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+									Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)}
+							}},
+						}},
+					},
+				})
+			}
+			return core.View{Style: core.Style{Gap: 1}, Children: rows}
+		}, "acp-mode-menu")
 	})
+}
+
+// acpModeLabel maps a mode id to the name the agent gave it.
+func acpModeLabel(modes []acpMode, id string) string {
+	for _, m := range modes {
+		if m.ID == id && m.Name != "" {
+			return m.Name
+		}
+	}
+	return id
+}
+
+// setACPMode switches the running agent to another operating mode.
+func (a *app) setACPMode(s *session, modeID string) {
+	if s == nil || s.acp == nil || s.acpSID == "" || modeID == "" {
+		return
+	}
+	s.acpModeOpen.Set(false)
+	if s.acpMode.Get() == modeID {
+		return
+	}
+	c, sid := s.acp, s.acpSID
+	go func() {
+		err := c.setMode(sid, modeID)
+		a.cx.Post(func() {
+			if err != nil {
+				a.toast(ui.ToastError, "切换模式失败", err.Error())
+				return
+			}
+			s.acpMode.Set(modeID)
+		})
+	}()
 }
 
 // acpCommandMenu lists the commands an ACP agent offers.

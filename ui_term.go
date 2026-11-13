@@ -253,16 +253,19 @@ func (a *app) terminalBody() core.Node {
 			if tab.term == nil {
 				return nil
 			}
-			return a.terminalView(tab)
+			return a.terminalView(cx, tab)
 		})
 	})
 }
 
 // terminalView is the grid, with the context menu an app puts on it.
-func (a *app) terminalView(tab *termTab) core.Node {
+func (a *app) terminalView(cx *core.Scope, tab *termTab) core.Node {
+	th := terminalTheme(cx.Palette(), cx.Dark())
 	view := sgt.View{
 		Terminal:  tab.term,
 		Font:      core.Font{Size: 12.5},
+		Theme:     th,
+		DarkTheme: th,
 		Padding:   sgt.Padding{X: 8, Y: 6},
 		AutoFocus: true,
 		TestID:    "terminal-view",
@@ -277,4 +280,25 @@ func (a *app) terminalView(tab *termTab) core.Node {
 			ui.MenuItem{Text: T("清屏"), Icon: lucide.Eraser, OnSelect: a.clearTerminal},
 			ui.MenuItem{Text: T("重启终端"), Icon: lucide.RefreshCw, OnSelect: a.restartTerminal},
 		}}
+}
+
+// terminalTheme colors a terminal from the app's palette: the page and
+// text, with danger, success, warning and accent filling the ANSI slots
+// programs use most, so the shell sits in the theme instead of beside it.
+func terminalTheme(p core.Palette, dark bool) *sgt.Theme {
+	base := sgt.LightTheme()
+	if dark {
+		base = sgt.DarkTheme()
+	}
+	th := *base
+	th.Foreground, th.Background = p.Text, p.Background
+	th.Cursor, th.CursorText = p.Accent, p.Background
+	th.Selection, th.SelectionText = p.Selection, p.Text
+	th.Palette[1], th.Palette[9] = p.Danger, p.Danger
+	th.Palette[2], th.Palette[10] = p.Success, p.Success
+	th.Palette[3], th.Palette[11] = p.Warning, p.Warning
+	th.Palette[4], th.Palette[12] = p.Accent, p.Accent
+	th.Palette[7] = p.Text
+	th.Palette[8] = p.TextMuted
+	return &th
 }

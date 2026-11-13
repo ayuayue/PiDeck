@@ -33,24 +33,38 @@ func TestFakeACPAgent(t *testing.T) {
 				"result": map[string]any{"protocolVersion": 1}})
 		case "session/new":
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
-				"result": map[string]any{"sessionId": "s1"}})
+				"result": map[string]any{"sessionId": "s1", "modes": map[string]any{
+					"currentModeId": "ask",
+					"availableModes": []map[string]string{
+						{"id": "ask", "name": "Ask", "description": "confirm first"},
+						{"id": "code", "name": "Code"},
+					}}}})
+		case "session/set_mode":
+			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{}})
 		case "session/prompt":
-			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
-				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
-					"sessionUpdate": "current_mode_update", "currentModeId": "plan"}}})
-			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
-				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
-					"sessionUpdate":     "available_commands_update",
-					"availableCommands": []map[string]string{{"name": "web", "description": "search"}}}}})
+			ui := os.Getenv("PIDECK_FAKE_ACP_UI") == "1"
+			if !ui {
+				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
+					"params": map[string]any{"sessionId": "s1", "update": map[string]any{
+						"sessionUpdate": "current_mode_update", "currentModeId": "plan"}}})
+				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
+					"params": map[string]any{"sessionId": "s1", "update": map[string]any{
+						"sessionUpdate":     "available_commands_update",
+						"availableCommands": []map[string]string{{"name": "web", "description": "search"}}}}})
+			}
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
 				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
 					"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "hello"}}}})
-			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 99, "method": "session/request_permission",
-				"params": map[string]any{"sessionId": "s1", "toolCall": map[string]string{"toolCallId": "t1", "title": "run"},
-					"options": []map[string]string{{"optionId": "allow", "name": "Allow", "kind": "allow_once"}}}})
+			if !ui {
+				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 99, "method": "session/request_permission",
+					"params": map[string]any{"sessionId": "s1", "toolCall": map[string]string{"toolCallId": "t1", "title": "run"},
+						"options": []map[string]string{{"optionId": "allow", "name": "Allow", "kind": "allow_once"}}}})
+			}
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
 				"result": map[string]any{"stopReason": "end_turn"}})
-			os.Exit(0)
+			if !ui {
+				os.Exit(0)
+			}
 		}
 	}
 	os.Exit(0)
@@ -75,9 +89,15 @@ func TestACPClient(t *testing.T) {
 	if err != nil || version != 1 {
 		t.Fatalf("initialize = %d, %v", version, err)
 	}
-	sid, err := c.newSession(".")
+	sid, modes, err := c.newSession(".")
 	if err != nil || sid != "s1" {
 		t.Fatalf("newSession = %q, %v", sid, err)
+	}
+	if modes.CurrentModeID != "ask" || len(modes.AvailableModes) != 2 || modes.AvailableModes[1].Name != "Code" {
+		t.Fatalf("modes = %+v", modes)
+	}
+	if err := c.setMode(sid, "code"); err != nil {
+		t.Fatalf("setMode: %v", err)
 	}
 	stop, err := c.prompt(sid, "hi")
 	if err != nil || stop != "end_turn" {

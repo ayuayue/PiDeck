@@ -37,6 +37,20 @@ type acpUpdate struct {
 	Raw       json.RawMessage
 }
 
+// acpMode is one operating mode an ACP agent offers.
+type acpMode struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// acpModeState is a session's mode state, as returned by session/new or
+// session/load.
+type acpModeState struct {
+	CurrentModeID  string    `json:"currentModeId"`
+	AvailableModes []acpMode `json:"availableModes"`
+}
+
 // acpPermissionOption is one answer a permission request offers.
 type acpPermissionOption struct {
 	ID   string
@@ -379,23 +393,44 @@ func (c *acpClient) initialize(name, version string) (int, error) {
 	return out.ProtocolVersion, err
 }
 
-// newSession starts a session in cwd and returns its id.
-func (c *acpClient) newSession(cwd string) (string, error) {
+// newSession starts a session in cwd and returns its id and mode state.
+func (c *acpClient) newSession(cwd string) (string, acpModeState, error) {
 	var out struct {
-		SessionID string `json:"sessionId"`
+		SessionID string        `json:"sessionId"`
+		Modes     *acpModeState `json:"modes"`
 	}
 	err := c.call("session/new", map[string]any{"cwd": cwd, "mcpServers": []any{}}, &out, 60*time.Second)
 	if err == nil && out.SessionID == "" {
 		err = fmt.Errorf("ACP 没有返回会话 ID")
 	}
-	return out.SessionID, err
+	modes := acpModeState{}
+	if out.Modes != nil {
+		modes = *out.Modes
+	}
+	return out.SessionID, modes, err
 }
 
-// loadSession reattaches to a session the CLI kept.
-func (c *acpClient) loadSession(sessionID, cwd string) error {
-	return c.call("session/load", map[string]any{
+// loadSession reattaches to a session the CLI kept and returns its mode
+// state.
+func (c *acpClient) loadSession(sessionID, cwd string) (acpModeState, error) {
+	var out struct {
+		Modes *acpModeState `json:"modes"`
+	}
+	err := c.call("session/load", map[string]any{
 		"sessionId": sessionID, "cwd": cwd, "mcpServers": []any{},
-	}, nil, 60*time.Second)
+	}, &out, 60*time.Second)
+	modes := acpModeState{}
+	if out.Modes != nil {
+		modes = *out.Modes
+	}
+	return modes, err
+}
+
+// setMode switches the agent's operating mode.
+func (c *acpClient) setMode(sessionID, modeID string) error {
+	return c.call("session/set_mode", map[string]any{
+		"sessionId": sessionID, "modeId": modeID,
+	}, nil, 20*time.Second)
 }
 
 // prompt sends a prompt and waits for the turn's stop reason.
