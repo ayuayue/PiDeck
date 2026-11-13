@@ -102,4 +102,13 @@ test("tool row keeps a fixed duration after completion (no longer hover-only)", 
 	assert.match(toolCard, /\(status === "running" \|\| \(!isAskCard && durationMs !== undefined\)\)/);
 	assert.match(toolCard, /\) : status === "running" \? \(/);
 	assert.match(toolCard, /formatDuration\(durationMs as number\)/);
+	// 位置不变量（2026-11 用户反馈「时间出现的位置，不统一」）：耗时紧贴动词标签、
+	// 位于折叠箭头之前，与思考行「思考了 10.2s ›」同构。坏样本：把耗时挪回 chevron
+	// 之后（紧跟命令预览），下面的交叉断言转红。
+	const toolCardSection = toolCard.slice(toolCard.indexOf("export const ToolCard = memo"), toolCard.indexOf("export const ToolGroupCard = memo"));
+	const verbAt = toolCardSection.indexOf("phrase.verb}");
+	const durationAt = toolCardSection.indexOf("tabular-nums text-text-tertiary");
+	const chevronAt = toolCardSection.indexOf("<ChevronRight size={14}");
+	assert.ok(verbAt > 0 && durationAt > 0 && chevronAt > 0, "三个锚点必须都在 ToolCard 段内，否则本断言恒假绿");
+	assert.ok(verbAt < durationAt && durationAt < chevronAt, `耗时必须落在动词标签之后、折叠箭头之前：verb=${verbAt} duration=${durationAt} chevron=${chevronAt}`);
 });
