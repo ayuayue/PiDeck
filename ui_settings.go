@@ -1060,6 +1060,8 @@ func (a *app) settingsDiagnostics() core.Node {
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{
 					ui.Button{Text: "复制诊断信息", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "diag-copy",
 						OnPress: func() { a.copyText(a.diagnosticText(), "诊断信息") }},
+					ui.Button{Text: "导出诊断包", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "diag-bundle",
+						OnPress: a.exportDiagnostics},
 					ui.Button{Text: "打开日志目录", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						if dir := a.diagDir(); dir != "" {
 							a.cx.OpenURL(fileURL(dir), nil)
