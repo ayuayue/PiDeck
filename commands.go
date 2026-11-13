@@ -119,6 +119,8 @@ func builtinCommands() []appCommand {
 		{ID: "reveal-session", Label: "在文件管理器中显示会话", Group: "会话", Icon: lucide.FolderOpen,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.revealSession(a.active()) }},
+		{ID: "search-sessions", Label: "搜索会话内容…", Group: "会话", Shortcut: "mod+shift+f", Icon: lucide.Search,
+			Run: func(a *app) { a.openSearch() }},
 		{ID: "ask", Label: "并行问询…", Group: "会话", Shortcut: "mod+shift+a", Icon: lucide.MessagesSquare,
 			Run: func(a *app) { a.openAsk() }},
 		{ID: "fork-last", Label: "分叉上一条提问", Group: "会话", Icon: lucide.GitBranch,

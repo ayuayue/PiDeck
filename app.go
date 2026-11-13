@@ -165,6 +165,16 @@ type app struct {
 	shortcutsOpen  *core.Signal[bool]
 	shortcutsQuery *core.Signal[string]
 
+	// Global session search: its index, query and results.
+	searchOpen     *core.Signal[bool]
+	searchText     *core.Signal[string]
+	searchHits     *core.Signal[[]searchHit]
+	searchBusy     *core.Signal[bool]
+	searchDocs     []searchDoc
+	searchIndexed  bool
+	searchBuilding bool
+	searchGen      int
+
 	// The prompt library: its packs, the dialog's query and category.
 	prompts     *core.Signal[[]promptItem]
 	promptOpen  *core.Signal[bool]
@@ -317,6 +327,10 @@ func newApp(cx *core.Scope) *app {
 		askText:          core.NewSignal(cx, ""),
 		shortcutsOpen:    core.NewSignal(cx, false),
 		shortcutsQuery:   core.NewSignal(cx, ""),
+		searchOpen:       core.NewSignal(cx, false),
+		searchText:       core.NewSignal(cx, ""),
+		searchHits:       core.NewSignalFunc(cx, []searchHit(nil), nil),
+		searchBusy:       core.NewSignal(cx, false),
 		prompts:          core.NewSignalFunc(cx, []promptItem(nil), nil),
 		promptOpen:       core.NewSignal(cx, false),
 		promptQuery:      core.NewSignal(cx, ""),
