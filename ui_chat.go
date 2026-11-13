@@ -623,7 +623,7 @@ func (a *app) composerAccessory(s *session) chat.View {
 		plan := ui.IconButton{Icon: lucide.ClipboardList, Label: "计划模式", Size: 26, IconSize: 13, TestID: "plan-mode",
 			Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }}
 		if s.backend == "acp" {
-			return core.Group{plan}
+			return core.Group{plan, a.acpCommandMenu(s)}
 		}
 		return core.Group{plan, a.modelMenu(s, s.modelOpen), a.effortPicker(s)}
 	}

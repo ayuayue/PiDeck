@@ -37,6 +37,10 @@ func TestFakeACPAgent(t *testing.T) {
 		case "session/prompt":
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
 				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
+					"sessionUpdate":     "available_commands_update",
+					"availableCommands": []map[string]string{{"name": "web", "description": "search"}}}}})
+			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
+				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
 					"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "hello"}}}})
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 99, "method": "session/request_permission",
 				"params": map[string]any{"sessionId": "s1", "toolCall": map[string]string{"toolCallId": "t1", "title": "run"},
@@ -76,13 +80,25 @@ func TestACPClient(t *testing.T) {
 	if err != nil || stop != "end_turn" {
 		t.Fatalf("prompt = %q, %v", stop, err)
 	}
-	select {
-	case u := <-updates:
-		if u.Kind != "agent_message_chunk" || u.Text != "hello" || u.SessionID != "s1" {
-			t.Fatalf("update = %+v", u)
+	var sawCommands, sawText bool
+	for !sawCommands || !sawText {
+		select {
+		case u := <-updates:
+			switch u.Kind {
+			case "available_commands_update":
+				if len(u.Commands) != 1 || u.Commands[0].Name != "web" {
+					t.Fatalf("commands = %+v", u.Commands)
+				}
+				sawCommands = true
+			case "agent_message_chunk":
+				if u.Text != "hello" || u.SessionID != "s1" {
+					t.Fatalf("update = %+v", u)
+				}
+				sawText = true
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("missing update")
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("no update")
 	}
 	select {
 	case p := <-perms:

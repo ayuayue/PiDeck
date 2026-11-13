@@ -17,6 +17,13 @@ import (
 	"time"
 )
 
+// acpCommand is one command an ACP agent offers.
+type acpCommand struct {
+	Name        string
+	Description string
+	Hint        string
+}
+
 // acpUpdate is one session/update notification's payload.
 type acpUpdate struct {
 	SessionID string
@@ -25,6 +32,7 @@ type acpUpdate struct {
 	ToolID    string
 	Title     string
 	Status    string
+	Commands  []acpCommand
 	Raw       json.RawMessage
 }
 
@@ -182,14 +190,29 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 			ToolCallID    string          `json:"toolCallId"`
 			Title         string          `json:"title"`
 			Status        string          `json:"status"`
+			Commands      []struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				Input       *struct {
+					Hint string `json:"hint"`
+				} `json:"input"`
+			} `json:"availableCommands"`
 		} `json:"update"`
 	}
 	if json.Unmarshal(raw, &params) != nil {
 		return
 	}
-	c.onUpdate(acpUpdate{SessionID: params.SessionID, Kind: params.Update.SessionUpdate,
+	u := acpUpdate{SessionID: params.SessionID, Kind: params.Update.SessionUpdate,
 		Text: acpContentText(params.Update.Content), ToolID: params.Update.ToolCallID,
-		Title: params.Update.Title, Status: params.Update.Status, Raw: raw})
+		Title: params.Update.Title, Status: params.Update.Status, Raw: raw}
+	for _, c := range params.Update.Commands {
+		cmd := acpCommand{Name: c.Name, Description: c.Description}
+		if c.Input != nil {
+			cmd.Hint = c.Input.Hint
+		}
+		u.Commands = append(u.Commands, cmd)
+	}
+	c.onUpdate(u)
 }
 
 // dispatchPermission asks the app for an answer and replies.

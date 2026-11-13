@@ -170,6 +170,8 @@ func (a *app) applyACPUpdate(s *session, u acpUpdate) {
 		if due {
 			a.cx.AfterFunc(40*time.Millisecond, func() { a.flushACP(s) })
 		}
+	case "available_commands_update":
+		s.acpCommands.Set(u.Commands)
 	case "tool_call":
 		run := toolRun{CallID: u.ToolID, Name: u.Title, Action: "工具", Detail: u.Title, Status: chat.Running}
 		a.updateACPTool(s, run, true)
@@ -239,6 +241,48 @@ func (a *app) flushACP(s *session) {
 			return ts
 		}
 		return ts
+	})
+}
+
+// acpCommandMenu lists the commands an ACP agent offers.
+func (a *app) acpCommandMenu(s *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		cmds := s.acpCommands.Get()
+		if len(cmds) == 0 {
+			return nil
+		}
+		trigger := a.pressIcon(lucide.Command, "ACP 命令", 26, 13, nil, func() {
+			s.acpCmdOpen.Update(func(v bool) bool { return !v })
+		}, "acp-commands")
+		return a.popoverCard(s.acpCmdOpen, core.PlaceTop, core.AlignStart, 300, trigger, func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			var rows []core.Node
+			for _, c := range cmds {
+				cmd := c
+				rows = append(rows, core.View{
+					OnPress: func(core.PressEvent) {
+						draft := s.draft.GetUntracked()
+						if draft != "" && !strings.HasSuffix(draft, " ") && !strings.HasSuffix(draft, "\n") {
+							draft += " "
+						}
+						s.draft.Set(draft + "/" + cmd.Name + " ")
+						s.acpCmdOpen.Set(false)
+					},
+					Role: core.RoleButton, Label: cmd.Name,
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30),
+							Padding: core.Symmetric(2, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
+					},
+					Children: []core.Node{
+						core.Text{Content: "/" + cmd.Name, Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5, Width: core.Pt(110)},
+							StyleFunc: ui.Colored(colors.Text)},
+						core.Text{Content: cmd.Description, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
+					},
+				})
+			}
+			return core.View{Style: core.Style{Gap: 1}, Children: rows}
+		}, "acp-command-menu")
 	})
 }
 

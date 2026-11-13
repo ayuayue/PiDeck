@@ -453,6 +453,7 @@ var messages = map[string]map[string]string{
 		"自定义预设":                "Custom presets",
 		"在数据目录的 acp/*.json 里加自定义 ACP 命令；内置 Claude / Gemini / Codex。": "Add custom ACP commands in acp/*.json under the data folder; Claude, Gemini and Codex are built in.",
 		"打开预设目录": "Open presets folder",
+		"ACP 命令": "ACP commands",
 		// General settings.
 		"界面": "Interface",
 		"语言": "Language",
@@ -908,6 +909,7 @@ var messages = map[string]map[string]string{
 		"自定义预设":                "自訂預設",
 		"在数据目录的 acp/*.json 里加自定义 ACP 命令；内置 Claude / Gemini / Codex。": "在資料目錄的 acp/*.json 裡加自訂 ACP 指令；內建 Claude / Gemini / Codex。",
 		"打开预设目录": "開啟預設目錄",
+		"ACP 命令": "ACP 指令",
 		// General settings.
 		"界面": "介面",
 		"语言": "語言",
