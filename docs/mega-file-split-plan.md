@@ -258,3 +258,19 @@
 2. **断言边界会反过来约束域边界**：timeline 的 4 个测试把两个域的正则钉死在源码文本上，正确解法是聚合 helper（`sessionTimelineControllerSources`）而不是改断言；若某条正则跨两个函数，就把这两个函数留在同一文件，域边界服从断言边界。
 3. **嵌套引号的 grep 会挂死 bash**（不是管道问题）：`grep -rn "readFileSync(\"x.ts\")\|readFileSync('x.ts')"` 引号没闭合，bash 等续行永不返回。需要匹配带引号的代码时把模式写进 `.tmp/pat.txt` 再 `grep -f`。
 4. **上游 merge 会让门禁「假红」**：`a16b7e704` 合入 origin/dev 后，`WebTimeline 935→990`、`webApi 777→790`、`WebEventStream 694→697` 与 `tests/webLayout` 新增的只读源码块全被门禁抓到。这是基线快照过期，不是本轮改动——已把这三条额度对齐当前值与 `testShapeBaseline` 刷新（在单独 commit 里注明）。
+
+## 第五轮并行波次（2026-11-13 晚，5 个子代理）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `main/index.ts` | 6131 | **6019** | `startup/appUpdate.ts 188`（更新器/扩展热更/AtomGit bypass/交付分支），`updateService` 经 `ctx.assign` 回填 |
+| `useSessionComposerController.ts` | 2767 | **1859** | `hooks/session/composer/` 四个子 hook：Generation 349 / SendInteraction 313 / DraftAssist 231 / Paste 337 |
+| `SessionScanner.ts` | 2475 | **1575** | `sessions/scanner/` 七个协作者（摘要 388 / 标题探针 260 / 消息读 196 / 根枚举 142 / 路径推导 122 / 导出 73 / 信息追加 64） |
+| `ConfigModal.tsx` | 2492 | **1899** | 改抽**子组件**：Shell / NavSidebar / Dialogs / McpTab / SkillsTab + `useConfigLoader` + `configModalStorage` |
+| `DshAgentManager.ts` | 2863 | **2382** | `dsh/manager/`：runtime 86 / projectionFrames 166 / muxFrames 268 |
+
+### 本轮的三个实测结论
+
+1. **「抽 hook」vs「抽子组件」的回收率差 3 倍**：ConfigModal 第四轮抽 hook 搬走 400+ 行宿主只减 204 行；第五轮改抽子组件，同样搬走约 600 行宿主减了 593 行。**状态 hook 适合主进程/无 JSX 的域；带 JSX 的 Tab 一律抽子组件。**
+2. **子代理写盘会带 CRLF**：`ConfigModal.tsx` 被写成 1899 行 CRLF（HEAD 是 LF，`.gitattributes` 要求 `eol=lf`），导致所有跨行正则（`\{\n`）全红，被误判成「断言漂移」。收尾时统一 `\r\n → \n` 后 1 个测试立刻恢复。**验收时要先查行尾**再改断言。
+3. **超时 ≠ 没干活**：本轮 ConfigModal 的子代理 30 分钟超时，但实际把 2492 减到 1899（超出目标），typecheck 全绿；反过来 DshAgentManager 的子代理顺利「完成」但只到 2382（目标 2200）。**行数目标只是参考，门禁与测试才是判据。**
