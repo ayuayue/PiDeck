@@ -94,6 +94,7 @@ type mobileApp struct {
 	hits      *core.Signal[[]remoteWireHit]
 	hitsBusy  *core.Signal[bool]
 	searchSeq int
+	hitsQuery string
 
 	// scroll is the transcript's scroller; atBottom says it rests at the
 	// end, notice is a short confirmation over the composer.
@@ -585,6 +586,8 @@ func (a *mobileApp) openSession(id, title string) {
 	a.activeTitle.Set(title)
 	a.messages.Set(nil)
 	a.running.Set(false)
+	a.findOpen.Set(false)
+	a.findText.Set("")
 	a.transcriptErr.Set("")
 	a.options.Set(remoteWireOptions{})
 	a.refreshTranscript()
@@ -738,6 +741,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 				}}
 			}},
 		}},
+		a.retryBar(cx),
 		a.sessionBar(cx),
 		a.composer(cx),
 	}}
@@ -1309,6 +1313,40 @@ func (a *mobileApp) deleteSession(id string) {
 	}()
 }
 
+// retryBar offers the last prompt again after a failed turn.
+func (a *mobileApp) retryBar(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.Show{When: func() bool {
+		msgs := a.messages.Get()
+		return len(msgs) > 0 && msgs[len(msgs)-1].Role == "error" && a.lastPrompt() != ""
+	}, Then: func(*core.Scope) core.Node {
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(2, 12)},
+			Children: []core.Node{
+				ui.Button{Text: "重试上一条", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "mobile-retry",
+					OnPress: func() {
+						text := a.lastPrompt()
+						if text == "" {
+							return
+						}
+						a.draft.Set(text)
+						a.sendMessage()
+					}},
+				ui.Text("这一轮失败了", 10.5, ui.Regular, colors.Faint),
+			}}
+	}}
+}
+
+// lastPrompt is the newest user message, the one a retry re-sends.
+func (a *mobileApp) lastPrompt() string {
+	msgs := a.messages.GetUntracked()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			return strings.TrimSpace(msgs[i].Text)
+		}
+	}
+	return ""
+}
+
 // sessionBar is the model and thinking line over the composer.
 func (a *mobileApp) sessionBar(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
@@ -1522,6 +1560,7 @@ func (a *mobileApp) scheduleSearch() {
 					return
 				}
 				a.hits.Set(hits)
+				a.hitsQuery = query
 			})
 		}()
 	})
@@ -1546,6 +1585,9 @@ func (a *mobileApp) hitRows(cx *core.Scope, query string) []core.Node {
 			a.query.Set("")
 			a.hits.Set(nil)
 			a.openSession(h.Session, h.Title)
+			// Land on the matches rather than the top of a long history.
+			a.findText.Set(strings.TrimSpace(a.hitsQuery))
+			a.findOpen.Set(true)
 		}, Role: core.RoleButton, Label: h.Title, TestID: "mobile-hit",
 			StyleFunc: func() core.Style {
 				return core.Style{Gap: 2, Padding: core.Symmetric(7, 12), CornerRadius: 8, Transition: pressMotion,
