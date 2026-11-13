@@ -235,6 +235,23 @@ func (a *app) gitCheckout(branch string) {
 	}, nil)
 }
 
+// gitCheckoutRemote checks out a remote branch, creating the local one
+// that tracks it when it does not exist.
+func (a *app) gitCheckoutRemote(remote string) {
+	a.gitBranches.Set(false)
+	local := remote
+	if i := strings.Index(remote, "/"); i >= 0 {
+		local = remote[i+1:]
+	}
+	a.git.run(T("切换到 %s", remote), func(g gitRunner) error {
+		if _, err := g.exec(60*time.Second, "switch", "--track", remote); err == nil {
+			return nil
+		}
+		_, err := g.exec(60*time.Second, "switch", local)
+		return err
+	}, nil)
+}
+
 // gitCreateBranch makes the named branch and checks it out.
 func (a *app) gitCreateBranch() {
 	name := strings.TrimSpace(a.gitNewBranchName.GetUntracked())
@@ -519,6 +536,29 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 		if len(rows) == 0 {
 			rows = append(rows, core.Text{Content: T("没有本地分支"), Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)})
+		}
+		if len(st.RemoteBranches) > 0 {
+			rows = append(rows, core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(4, 4)}, StyleFunc: ui.Filled(colors.Line)})
+			rows = append(rows, core.Text{Content: T("远程分支"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9,
+				Padding: core.Edges{Left: 8, Top: 4, Bottom: 2}}, StyleFunc: ui.Colored(colors.Faint)})
+			for _, name := range st.RemoteBranches {
+				b := name
+				rows = append(rows, core.View{
+					OnPress: func(core.PressEvent) { a.gitCheckoutRemote(b) },
+					Role:    core.RoleOption, Label: b,
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(28),
+							Padding: core.Symmetric(0, 8), CornerRadius: 6, Transition: pressMotion,
+							Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+					},
+					Children: []core.Node{
+						core.View{Style: core.Style{Width: core.Pt(14), AlignItems: core.AlignCenter},
+							Children: []core.Node{ui.Icon(lucide.Cloud, 11, colors.Faint)}},
+						core.Text{Content: b, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12}, StyleFunc: ui.Colored(colors.Muted)},
+					},
+				})
+			}
 		}
 		rows = append(rows, core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(4, 4)}, StyleFunc: ui.Filled(colors.Line)})
 		rows = append(rows, core.View{

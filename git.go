@@ -86,9 +86,10 @@ type gitState struct {
 	Ahead    int
 	Behind   int
 
-	Files    []gitFile
-	Commits  []gitCommit
-	Branches []string
+	Files          []gitFile
+	Commits        []gitCommit
+	Branches       []string
+	RemoteBranches []string
 	// LogLimit is how many commits were asked for.
 	LogLimit int
 	Error    string
@@ -368,6 +369,9 @@ func readGitState(t target, dir string, logLimit int) gitState {
 	if out, _, code, err := gitRun(t, dir, 20*time.Second, "branch", "--list", "--format=%(refname:short)"); err == nil && code == 0 {
 		st.Branches = parseGitBranches(out)
 	}
+	if out, _, code, err := gitRun(t, dir, 20*time.Second, "branch", "-r", "--format=%(refname:short)"); err == nil && code == 0 {
+		st.RemoteBranches = parseRemoteBranches(out)
+	}
 	return st
 }
 
@@ -484,6 +488,19 @@ func parseGitLog(out string) []gitCommit {
 		commits = append(commits, c)
 	}
 	return commits
+}
+
+// parseRemoteBranches reads remote branches, leaving out the symbolic HEAD.
+func parseRemoteBranches(out string) []string {
+	var branches []string
+	for _, line := range strings.Split(out, "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" || strings.HasSuffix(name, "/HEAD") || name == "HEAD" {
+			continue
+		}
+		branches = append(branches, name)
+	}
+	return branches
 }
 
 // parseGitBranches reads one branch name a line.

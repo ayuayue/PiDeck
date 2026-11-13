@@ -87,3 +87,12 @@ func TestSplitGitPath(t *testing.T) {
 		t.Fatalf("split = (%q, %q)", name, dir)
 	}
 }
+
+// TestParseRemoteBranches checks the symbolic HEAD is left out.
+func TestParseRemoteBranches(t *testing.T) {
+	out := "origin/HEAD\norigin/main\norigin/feature/x\n"
+	got := parseRemoteBranches(out)
+	if len(got) != 2 || got[0] != "origin/main" || got[1] != "origin/feature/x" {
+		t.Fatalf("branches = %v", got)
+	}
+}

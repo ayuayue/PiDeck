@@ -434,7 +434,9 @@ var messages = map[string]map[string]string{
 		"已找到：":   "Found: ",
 		"打不开编辑器": "Could not open the editor",
 		"没有找到编辑器；在 设置 → 环境 里填一个命令": "No editor found; set a command in Settings → Environment",
-		"没有路径": "No path",
+		"没有路径":   "No path",
+		"远程分支":   "Remote branches",
+		"切换到 %s": "Switch to %s",
 		// General settings.
 		"界面": "Interface",
 		"语言": "Language",
@@ -871,7 +873,9 @@ var messages = map[string]map[string]string{
 		"已找到：":   "已找到：",
 		"打不开编辑器": "打不開編輯器",
 		"没有找到编辑器；在 设置 → 环境 里填一个命令": "沒有找到編輯器；在 設定 → 環境 裡填一個指令",
-		"没有路径": "沒有路徑",
+		"没有路径":   "沒有路徑",
+		"远程分支":   "遠端分支",
+		"切换到 %s": "切換到 %s",
 		// General settings.
 		"界面": "介面",
 		"语言": "語言",
