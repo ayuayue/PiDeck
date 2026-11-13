@@ -388,19 +388,22 @@ export const ToolCard = memo(function ToolCard(props: {
 									{expanded ? <ChevronDown size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" /> : <ChevronRight size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" />}
 									{!isSkillRead && kindLabel && <span className="tool-card-kind self-center">{kindLabel}</span>}
 									{statusBadge && <span className="inline-flex self-center">{statusBadge}</span>}
-									{/* 耗时只对运行中的工具有行内意义（活秒表）；完成后的耗时移入行 tooltip，
-							    与静默完成态一致（单条耗时撤出常驻行，交给 hover）。 */}
-									{status === "running" && (
+									{/* 耗时是工具行的一等信息：运行中走活秒表，完成后钉住 tool_execution_end 落地的
+									    durationMs（pi 已持久化，重开会话仍是原值）。ask 等待阶段仍只显示「等待回答…」。 */}
+									{(status === "running" || (!isAskCard && durationMs !== undefined)) && (
 										<span className="shrink-0 text-chat-detail tabular-nums text-text-tertiary" title={isAskCard ? t("ask.waitingHint") : t("tool.durationTitle")}>
 											{isAskCard ? (
 												// ask 等待用户回答阶段不计入工具耗时：不展示累加秒表，改用「等待回答…」
 												// 提示。用户回答后 tool_execution_end 落地的 durationMs 已由主进程扣除等待时长。
 												t("ask.waitingForAnswer")
-											) : (
+											) : status === "running" ? (
 												// 工具执行中：以 meta.startedAt 为秒表起点实时计时。消息 timestamp 会被主进程
 												// 在每次 update/end 时刷新（见 getToolLiveStartTimestamp），直接用会让长命令的
 												// 耗时显示反复归零，结束才突然跳到总时长。
 												<LiveDuration startedAt={getToolLiveStartTimestamp(props.message)} isStreaming />
+											) : (
+												// 完成态：钉住落盘的实际耗时（含重开会话后的历史），不再跳秒。
+												formatDuration(durationMs as number)
 											)}
 										</span>
 									)}

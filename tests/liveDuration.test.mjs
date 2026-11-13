@@ -89,3 +89,13 @@ test("remaining LiveDuration call sites: thinking block and running tool card", 
 	// 主进程在每次 update/end 时刷新，直接用会导致流式期间反复归零）
 	assert.match(toolCard, /<LiveDuration[\s\S]*?startedAt=\{getToolLiveStartTimestamp\(props\.message\)\}/);
 });
+
+test("tool row keeps a fixed duration after completion (no longer hover-only)", () => {
+	const toolCard = readFileSync("src/renderer/src/components/session/ToolCallComponents.tsx", "utf8");
+	// 坏样本：完成态若只把耗时塞进行 tooltip（rowTitleParts），重开会话后用户看到的
+	// 工具行没有任何耗时——用户 2026-11 反馈「工具调用没有时间」。
+	// 契约：完成态与运行中同一位置渲染，运行中走 LiveDuration，完成走落盘的 durationMs。
+	assert.match(toolCard, /\(status === "running" \|\| \(!isAskCard && durationMs !== undefined\)\)/);
+	assert.match(toolCard, /\) : status === "running" \? \(/);
+	assert.match(toolCard, /formatDuration\(durationMs as number\)/);
+});

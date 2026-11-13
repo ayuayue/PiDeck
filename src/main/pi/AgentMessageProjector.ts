@@ -157,6 +157,12 @@ export class AgentMessageProjector {
 						const text = this.extractText(typed.content) || (recoveredImageGen ? this.deps.translate("session.imagePlaceholder") : "");
 						// 无文本、无 thinking、无图片时才是真正的空消息，跳过。
 						if (!text.trim() && !thinking?.trim() && images.length === 0) return [];
+						// 思考区间：pi 的 assistant 消息持久化 timestamp（请求开始）与 durationMs（本次调用
+						// 实测耗时），相加即本条写完时刻。上游不存思考段的精确边界，所以对同时含
+						// thinking 与正文的消息，这个区间是「本条调用总时长」，比思考本身偏大；
+						// 选它是因为另一个选项是 0ms——渲染层回落到 message.timestamp 兜底时两端同值，
+						// 用户看到「思考了 0ms」（2026-11 反馈：一停止就归零）。
+						const hasThinking = Boolean(thinking?.trim());
 						// stopReason（provider 归一化）：历史 JSONL 已持久化，
 						// 渲染层据此精确区分中间/最终回复（与 live 路径同源）。
 						// 归一：被打断的纯文本回复在 pi 里记成 toolUse 但没有 toolCall 块，见 normalizePiStopReason。
@@ -193,6 +199,8 @@ export class AgentMessageProjector {
 									...(endedAt !== undefined ? { endedAt } : {}),
 								},
 								...(thinking ? { thinking } : {}),
+								...(hasThinking && startedAt !== undefined ? { thinkingStartedAt: startedAt } : {}),
+								...(hasThinking && endedAt !== undefined ? { thinkingEndedAt: endedAt } : {}),
 								...(images.length > 0 ? { images } : {}),
 								...(stopReason ? { stopReason } : {}),
 								...(model ? { model } : {}),
