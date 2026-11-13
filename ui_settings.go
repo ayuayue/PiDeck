@@ -689,6 +689,38 @@ func (a *app) settingsEnv() core.Node {
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 			}),
 		)
+		proxyField := func(value func() string, set func(string), placeholder, label, testID string) core.Node {
+			return core.Input{Value: value, Placeholder: placeholder, Label: label, TestID: testID,
+				OnChange: set,
+				Style: core.Style{Width: core.Pt(190), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
+					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}}
+		}
+		proxyRows := []core.Node{
+			setRow("应用请求代理", "供应商测试/余额、飞书与 Git 的网络请求；留空直连。", proxyField(
+				func() string { return a.cfg.ProxyApp },
+				func(v string) {
+					a.cfg.ProxyApp = v
+					a.st.edit(func(c *config) { c.ProxyApp = v })
+					a.applyProxy()
+				}, "http://127.0.0.1:7890", "应用请求代理", "proxy-app")),
+			setDivider(),
+			setRow("Agent 代理", "启动 pi 与 ACP 时写入 HTTP(S)_PROXY；重启 Agent 后生效。", proxyField(
+				func() string { return a.cfg.ProxyAgent },
+				func(v string) {
+					a.cfg.ProxyAgent = v
+					a.st.edit(func(c *config) { c.ProxyAgent = v })
+					a.applyProxy()
+				}, "http://127.0.0.1:7890", "Agent 代理", "proxy-agent")),
+			setDivider(),
+			setRow("直连名单", "NO_PROXY，逗号分隔域名或网段；两侧共用。", proxyField(
+				func() string { return a.cfg.ProxyBypass },
+				func(v string) {
+					a.cfg.ProxyBypass = v
+					a.st.edit(func(c *config) { c.ProxyBypass = v })
+					a.applyProxy()
+				}, "localhost,127.0.0.1,.local", "直连名单", "proxy-bypass")),
+		}
 		var targets []core.Node
 		if info.TargetsProbing {
 			targets = append(targets, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(2, 0)}, Children: []core.Node{
@@ -717,6 +749,9 @@ func (a *app) settingsEnv() core.Node {
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 2}, Children: []core.Node{
 				setGroup("本机", rows...),
+				setGroup("网络代理", proxyRows...),
+				core.Text{Content: "应用代理只影响应用自己发出的请求；Agent 代理在启动进程时注入环境变量。",
+					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				setGroup("其它机器", targets...),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: "添加 WSL 工作区", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {

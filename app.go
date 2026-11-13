@@ -432,6 +432,7 @@ func newApp(cx *core.Scope) *app {
 	a.st = st
 	a.initDiag()
 	a.cfg = st.config()
+	a.applyProxy()
 	a.theme.Set(a.cfg.Theme)
 	a.sidebar.Set(a.cfg.SidebarOpen)
 	a.drawer.Set(a.cfg.DrawerOpen)

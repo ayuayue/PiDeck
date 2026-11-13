@@ -51,7 +51,7 @@ func sendFeishu(webhook, secret, text string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 12 * time.Second}).Do(req)
+	resp, err := appHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}

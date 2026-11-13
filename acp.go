@@ -135,7 +135,8 @@ func startACP(dir, command string, args []string, onUpdate func(acpUpdate), onPe
 		cmd = exec.Command(command, args...)
 	}
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PIDECK_LITE=1")
+	cmd.Env = append(os.Environ(), agentProxy.env()...)
+	cmd.Env = append(cmd.Env, "PIDECK_LITE=1")
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

@@ -214,7 +214,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 加载占位：项目历史与项目会话数量在读取时显示 pulse 骨架；打开历史会话时，
   正文区先显示加载骨架，读完再淡入内容
 - 导入会话：pi 的 `.jsonl` 直接复制；Codex rollout 与 Claude Code 日志会转换后写入应用目录；原文件不动；删除进 `trash/`
-- 配置 `config.json`：工作区（含目标）、标签、收藏、默认模型与思考等级、主题、标题、键位、停用的插件
+- 配置 `config.json`：工作区（含目标）、标签、收藏、默认模型与思考等级、主题、标题、键位、停用的插件、插件设置、代理
 
 **目标：本机 / WSL / SSH**
 - 探测：`pi --version`、`wsl -l -q`、`~/.ssh/config` 的 Host，逐个试 `command -v pi`
@@ -233,7 +233,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
   也可查询余额（OpenRouter / Moonshot / DeepSeek / SiliconFlow，按 BaseURL 或供应商 ID 识别）
 - 原始配置：直接在内置编辑器里打开 `models.json` / `settings.json` / `auth.json`
 - 外观：配色（跟随系统/纸白/炭黑/用户主题）、打开主题目录
-- 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区
+- 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区；网络代理分「应用请求」与「Agent 进程」两栏，另可填直连名单
 - 扩展：插件列表与命令、插件声明式设置（开关/文本/数字/单选）、打开插件目录、重新加载
 - 集成：飞书群自定义机器人；一轮结束把标题、状态与一句摘要发到群里，可填签名密钥并测试
 - 诊断：运行中的 pi/终端进程、goroutine 与堆、最近日志；可复制诊断报告、打开日志目录、清空内存日志
@@ -288,6 +288,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `diag.go` | 诊断：内存日志、滚动文件、进程列表与诊断报告 |
 | `pet.go` | 桌面宠物：会话状态聚合、小浮窗与开关 |
 | `feishu.go` | 飞书群机器人：签名、发送与一轮完成通知 |
+| `netproxy.go` | 网络代理：应用请求与 Agent 进程分开，HTTP 客户端与进程环境变量 |
 | `projects.go` | 项目分组、置顶、排序与顺序持久化 |
 | `ui_projects.go` | 项目分组对话框：名称输入与已有分组建议 |
 | `import_ext.go` | 导入 Codex / Claude 会话：识别格式、提取消息、写成 pi 会话 |

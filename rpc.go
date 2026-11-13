@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -251,6 +252,7 @@ func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent
 	if err != nil {
 		return nil, err
 	}
+	cmd.Env = append(os.Environ(), agentProxy.env()...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

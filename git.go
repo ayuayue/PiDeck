@@ -531,6 +531,7 @@ func gitCommand(ctx context.Context, t target, dir string, args ...string) *exec
 		cmd.Dir = dir
 	}
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "GIT_EDITOR=true", "LC_ALL=C")
+	cmd.Env = append(cmd.Env, appProxy.env()...)
 	hideWindow(cmd)
 	return cmd
 }

@@ -86,6 +86,11 @@ type config struct {
 	// PluginSettings holds the values of settings plugins declare, by
 	// "pluginID/key".
 	PluginSettings map[string]string `json:"pluginSettings,omitempty"`
+	// ProxyApp routes the app's own HTTP calls, ProxyAgent the agent
+	// processes it starts, and ProxyBypass is their shared no-proxy list.
+	ProxyApp    string `json:"proxyApp,omitempty"`
+	ProxyAgent  string `json:"proxyAgent,omitempty"`
+	ProxyBypass string `json:"proxyBypass,omitempty"`
 	// Keybindings replaces a command's default key, by command id. An
 	// empty key removes the binding.
 	Keybindings map[string]string `json:"keybindings,omitempty"`

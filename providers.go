@@ -363,7 +363,7 @@ func providerRequest(method, url, key string, body []byte) (int, []byte, error) 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := (&http.Client{Timeout: 12 * time.Second}).Do(req)
+	resp, err := appHTTPClient.Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
