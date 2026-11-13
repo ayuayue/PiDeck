@@ -148,7 +148,9 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 手机端连接后浏览电脑上的项目、会话和会话历史，列表每 2.5 秒刷新（会话运行中 1.2 秒）
 - 手机端能做的会话操作：
   - 新建：标题栏「+」，只有一个项目时直接建，多个项目时先选项目；建完直接进对话
-  - 搜索：标题栏放大镜，按会话标题过滤；会话内再按内容过滤已加载的消息
+  - 搜索：标题栏放大镜。先按标题过滤，同时去电脑上搜**所有会话的消息内容**
+    （≥2 个字，300ms 防抖，命中显示片段，点一下直接进那个会话）；
+    会话内还能再按内容过滤已加载的消息
   - 行内「…」：重命名、置顶 / 取消置顶、删除（删除会二次确认，文件进电脑的 `trash/`）
   - 发消息：底部输入框 + 发送；运行中多一个停止键（不挡输入，pi 会排队），
     回复按 1.2 秒轮询流式出现
@@ -169,6 +171,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | GET | `/api/state` | 项目、会话、置顶与运行状态 |
 | GET | `/api/session/{id}` | 一个会话的消息；运行中带 live 文本 |
 | GET | `/api/session/{id}/options` | 模型列表、当前模型、思考等级；pi 没起会顺手拉起 |
+| GET | `/api/search?q=&project=` | 跨会话搜消息正文，返回会话、标题与片段（按文件缓存） |
 | POST | `/api/sessions` | `{project}` 新建会话，返回 `{id,title}` |
 | POST | `/api/sessions/{id}/prompt` | `{text,images:[{mime,data}]}` 发一条消息；运行中自动改成 steer |
 | POST | `/api/sessions/{id}/stop` | 停止当前一轮 |

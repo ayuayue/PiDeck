@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -328,5 +329,96 @@ func TestRemoteSessionActions(t *testing.T) {
 	handler.ServeHTTP(unauthorized, req)
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("no token = %d", unauthorized.Code)
+	}
+}
+
+// TestRemoteSearch finds a word in a session's messages.
+func TestRemoteSearch(t *testing.T) {
+	home := t.TempDir()
+	workspace, err := os.MkdirTemp("", "pideck-search")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		time.Sleep(200 * time.Millisecond)
+		_ = os.RemoveAll(workspace)
+	})
+	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	raw, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "SearchProject"}},
+		Theme: "system", SidebarOpen: true, ScanPi: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "sessions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const id = "search-1"
+	header, _ := json.Marshal(map[string]any{"type": "session", "version": 3, "id": id,
+		"timestamp": "2026-01-02T03:04:05.000Z", "cwd": filepath.ToSlash(workspace)})
+	message, _ := json.Marshal(map[string]any{"type": "message", "id": "m1", "timestamp": "2026-01-02T03:04:06.000Z",
+		"message": map[string]any{"role": "user", "content": "帮我找一下蓝色按钮的样式", "timestamp": 1767323046000}})
+	name := filepath.Join(dir, "2026-01-02T03-04-05-000Z_"+id+".jsonl")
+	if err := os.WriteFile(name, append(append(header, '\n'), message...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var built *app
+	root := func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		return built.view()
+	}
+	screen := nsgotest.Start(t, root, nsgotest.Size(1200, 800))
+	built.remote.mu.Lock()
+	built.remote.token = "phone-token"
+	built.remote.mu.Unlock()
+	handler := built.remote.handler()
+
+	call := func(path string) *httptest.ResponseRecorder {
+		done := make(chan *httptest.ResponseRecorder, 1)
+		go func() {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("Authorization", "Bearer phone-token")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			done <- rec
+		}()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			select {
+			case rec := <-done:
+				return rec
+			case <-time.After(2 * time.Millisecond):
+				if time.Now().After(deadline) {
+					t.Fatal("search timed out")
+				}
+				screen.Settle()
+			}
+		}
+	}
+
+	rec := call("/api/search?q=" + url.QueryEscape("蓝色按钮"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("search = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Hits []remoteWireHit `json:"hits"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Hits) != 1 || out.Hits[0].Session != id {
+		t.Fatalf("hits = %+v", out.Hits)
+	}
+	if !strings.Contains(out.Hits[0].Snippet, "蓝色按钮") {
+		t.Fatalf("snippet = %q", out.Hits[0].Snippet)
+	}
+	// One character is not a search.
+	if rec := call("/api/search?q=" + url.QueryEscape("蓝")); rec.Code != http.StatusBadRequest {
+		t.Fatalf("short query = %d", rec.Code)
 	}
 }

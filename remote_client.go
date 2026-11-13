@@ -166,6 +166,19 @@ func (c *remoteClient) createSession(project string) (string, string, error) {
 	return out.ID, out.Title, nil
 }
 
+// search looks for a word in every session's messages.
+func (c *remoteClient) search(query, project string) ([]remoteWireHit, error) {
+	path := "/api/search?q=" + url.QueryEscape(query)
+	if project != "" {
+		path += "&project=" + url.QueryEscape(project)
+	}
+	var out struct {
+		Hits []remoteWireHit `json:"hits"`
+	}
+	err := c.do(path, &out)
+	return out.Hits, err
+}
+
 // options lists a session's models and thinking levels.
 func (c *remoteClient) options(id string) (remoteWireOptions, error) {
 	var out remoteWireOptions

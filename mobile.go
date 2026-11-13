@@ -89,6 +89,12 @@ type mobileApp struct {
 	toolOpen *core.Signal[string]
 	longOpen *core.Signal[string]
 
+	// hits are the message matches for the list's query; searchSeq drops
+	// answers for a query the user already changed.
+	hits      *core.Signal[[]remoteWireHit]
+	hitsBusy  *core.Signal[bool]
+	searchSeq int
+
 	// scroll is the transcript's scroller; atBottom says it rests at the
 	// end, notice is a short confirmation over the composer.
 	scroll   *core.Ref
@@ -137,6 +143,8 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		optionsOpen:    core.NewSignal(cx, false),
 		toolOpen:       core.NewSignal(cx, ""),
 		longOpen:       core.NewSignal(cx, ""),
+		hits:           core.NewSignalFunc(cx, []remoteWireHit(nil), nil),
+		hitsBusy:       core.NewSignal(cx, false),
 		scroll:         &core.Ref{},
 		atBottom:       core.NewSignal(cx, true),
 		notice:         core.NewSignal(cx, ""),
@@ -415,6 +423,11 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 							core.View{Style: core.Style{Gap: 1}, Children: rows},
 						}})
 					}
+					if query != "" {
+						if hits := a.hitRows(cx, query); len(hits) > 0 {
+							sections = append(sections, hits...)
+						}
+					}
 					switch {
 					case len(sections) > 0:
 					case query != "":
@@ -550,10 +563,14 @@ func (a *mobileApp) searchHeader(cx *core.Scope) core.Node {
 		a.pressIcon(lucide.X, "关闭搜索", 34, 16, nil, func() {
 			a.searchOpen.Set(false)
 			a.query.Set("")
+			a.hits.Set(nil)
 		}, "mobile-search-close"),
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.Input{
-				Value: a.query.Get, OnChange: a.query.Set, Placeholder: "搜索会话标题", Label: "搜索会话", TestID: "mobile-search-input",
+				Value: a.query.Get, OnChange: func(v string) {
+					a.query.Set(v)
+					a.scheduleSearch()
+				}, Placeholder: "搜索会话标题和消息", Label: "搜索会话", TestID: "mobile-search-input",
 				Style: core.Style{Height: core.Pt(38), Padding: core.Symmetric(0, 10), FontSize: 14, Color: colors.Text(),
 					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 9,
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection},
@@ -1475,6 +1492,84 @@ func (a *mobileApp) chooseThinking(level string) {
 			a.loadOptions(id)
 		})
 	}()
+}
+
+// scheduleSearch asks the desktop for message matches, once typing pauses.
+func (a *mobileApp) scheduleSearch() {
+	query := strings.TrimSpace(a.query.GetUntracked())
+	if len([]rune(query)) < 2 {
+		a.searchSeq++
+		a.hits.Set(nil)
+		a.hitsBusy.Set(false)
+		return
+	}
+	a.searchSeq++
+	seq := a.searchSeq
+	a.hitsBusy.Set(true)
+	a.cx.AfterFunc(320*time.Millisecond, func() {
+		if seq != a.searchSeq || a.client == nil {
+			return
+		}
+		client := a.client
+		go func() {
+			hits, err := client.search(query, "")
+			a.cx.Post(func() {
+				if seq != a.searchSeq {
+					return
+				}
+				a.hitsBusy.Set(false)
+				if err != nil {
+					return
+				}
+				a.hits.Set(hits)
+			})
+		}()
+	})
+}
+
+// hitRows are the message matches under the title matches.
+func (a *mobileApp) hitRows(cx *core.Scope, query string) []core.Node {
+	colors := ui.ColorsOf(cx)
+	hits := a.hits.Get()
+	if a.hitsBusy.Get() && len(hits) == 0 {
+		return []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(8, 16)},
+			Children: []core.Node{ui.Spinner{Size: 12, Label: "搜索消息"}, ui.Text("正在搜索消息…", 11, ui.Regular, colors.Faint)}}}
+	}
+	if len(hits) == 0 {
+		return nil
+	}
+	rows := make([]core.Node, 0, len(hits))
+	for _, hit := range hits {
+		h := hit
+		rows = append(rows, core.View{OnPress: func(core.PressEvent) {
+			a.searchOpen.Set(false)
+			a.query.Set("")
+			a.hits.Set(nil)
+			a.openSession(h.Session, h.Title)
+		}, Role: core.RoleButton, Label: h.Title, TestID: "mobile-hit",
+			StyleFunc: func() core.Style {
+				return core.Style{Gap: 2, Padding: core.Symmetric(7, 12), CornerRadius: 8, Transition: pressMotion,
+					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+			},
+			Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+					ui.Icon(lucide.MessageSquare, 11, colors.Faint),
+					core.Text{Content: h.Title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+						Style: core.Style{FlexGrow: 1, FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
+					ui.Text(h.Project, 9.5, ui.Regular, colors.Faint),
+				}},
+				core.Text{Content: h.Snippet, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
+					Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
+			}})
+	}
+	return []core.Node{core.View{Style: core.Style{Gap: 1, Margin: core.Edges{Bottom: 14}}, Children: append([]core.Node{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(8, 16)}, Children: []core.Node{
+			ui.Icon(lucide.Search, 13, colors.Muted),
+			core.Text{Content: "消息匹配", MaxLines: 1, Style: core.Style{FlexGrow: 1, FontSize: 12, FontWeight: ui.Semibold},
+				StyleFunc: ui.Colored(colors.Text)},
+			ui.Text(fmt.Sprint(len(hits)), 10, ui.Regular, colors.Faint),
+		}},
+	}, rows...)}}
 }
 
 // --- saved connection ----------------------------------------------------
