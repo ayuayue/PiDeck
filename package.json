@@ -511,7 +511,7 @@
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.0.0",
     "react-resizable-panels": "^4.12.2",
-    "recharts": "^3.8.0",
+    "recharts": "^3.10.1",
     "rehype-katex": "^7.0.1",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
