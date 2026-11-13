@@ -73,11 +73,20 @@ func (a *app) startACPEngine(s *session) {
 		a.cx.Post(func() { a.failSession(s, "ACP 握手失败："+err.Error()) })
 		return
 	}
-	sid, err := c.newSession(s.WS)
-	if err != nil {
-		c.stop()
-		a.cx.Post(func() { a.failSession(s, "ACP 建会话失败："+err.Error()) })
-		return
+	sid := ""
+	if s.acpSID != "" {
+		if c.loadSession(s.acpSID, s.WS) == nil {
+			sid = s.acpSID
+		}
+	}
+	if sid == "" {
+		var err error
+		sid, err = c.newSession(s.WS)
+		if err != nil {
+			c.stop()
+			a.cx.Post(func() { a.failSession(s, "ACP 建会话失败："+err.Error()) })
+			return
+		}
 	}
 	a.cx.Post(func() {
 		s.acp = c
@@ -100,6 +109,7 @@ func (a *app) acpPrompt(s *session, turnID, text string) {
 		return
 	}
 	s.acpTurnID = turnID
+	a.saveACPArchive(s)
 	s.status.Set(statusRunning)
 	s.runningSig.Set(true)
 	go func() {

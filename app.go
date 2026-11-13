@@ -467,6 +467,8 @@ func newApp(cx *core.Scope) *app {
 		}
 	}
 
+	a.loadACPArchives()
+
 	// pi's own sessions are read in the background, with the rest of the
 	// environment probe.
 	a.reloadFrameworks()
@@ -1531,6 +1533,32 @@ func (a *app) forkLastTurn() {
 
 func (a *app) deleteSession(s *session) {
 	if s == nil {
+		return
+	}
+	if s.backend == "acp" {
+		a.askConfirm("删除会话", "「"+s.title.GetUntracked()+"」会从侧栏消失，ACP 归档也会删除。", "删除", func() {
+			a.deleteACPArchive(s.ID)
+			a.closeTab(s.ID)
+			delete(a.byID, s.ID)
+			for i, x := range a.all {
+				if x == s {
+					a.all = append(a.all[:i], a.all[i+1:]...)
+					break
+				}
+			}
+			if ws := a.workspaceOf(s.WS); ws != nil {
+				ws.Sessions.Update(func(ss []*session) []*session {
+					out := ss[:0]
+					for _, x := range ss {
+						if x != s {
+							out = append(out, x)
+						}
+					}
+					return out
+				})
+			}
+			a.remember()
+		})
 		return
 	}
 	if s.External {

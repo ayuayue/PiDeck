@@ -353,6 +353,13 @@ func (c *acpClient) newSession(cwd string) (string, error) {
 	return out.SessionID, err
 }
 
+// loadSession reattaches to a session the CLI kept.
+func (c *acpClient) loadSession(sessionID, cwd string) error {
+	return c.call("session/load", map[string]any{
+		"sessionId": sessionID, "cwd": cwd, "mcpServers": []any{},
+	}, nil, 60*time.Second)
+}
+
 // prompt sends a prompt and waits for the turn's stop reason.
 func (c *acpClient) prompt(sessionID, text string) (string, error) {
 	var out struct {
