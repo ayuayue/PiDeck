@@ -21,12 +21,13 @@ import (
 
 // workspaceCfg is one project folder.
 type workspaceCfg struct {
-	Path     string    `json:"path"`
-	Name     string    `json:"name,omitempty"`
-	Expanded bool      `json:"expanded"`
-	Group    string    `json:"group,omitempty"`
-	Pinned   bool      `json:"pinned,omitempty"`
-	Added    time.Time `json:"added,omitempty"`
+	Path      string    `json:"path"`
+	Name      string    `json:"name,omitempty"`
+	Expanded  bool      `json:"expanded"`
+	Group     string    `json:"group,omitempty"`
+	Pinned    bool      `json:"pinned,omitempty"`
+	Added     time.Time `json:"added,omitempty"`
+	ACPPreset string    `json:"acpPreset,omitempty"`
 	// Target is where its agents run: "" here, "wsl:<distro>",
 	// "ssh:<host>".
 	Target string `json:"target,omitempty"`

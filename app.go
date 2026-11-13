@@ -21,14 +21,15 @@ import (
 
 // workspace is a project folder and its sessions.
 type workspace struct {
-	Path     string
-	Name     string
-	Group    string
-	Pinned   bool
-	Added    time.Time
-	Target   target
-	Expanded *core.Signal[bool]
-	Sessions *core.Signal[[]*session]
+	Path      string
+	Name      string
+	Group     string
+	Pinned    bool
+	Added     time.Time
+	ACPPreset string
+	Target    target
+	Expanded  *core.Signal[bool]
+	Sessions  *core.Signal[[]*session]
 	// Pi are pi's own sessions in this folder, and PiOpen whether the
 	// group shows.
 	Pi     *core.Signal[[]*session]

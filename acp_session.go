@@ -25,9 +25,37 @@ func (a *app) newACPSession(ws *workspace, preset acpPreset) *session {
 	s := a.blankSession("acp-"+newSessionID(), ws, "ACP · "+preset.Name)
 	s.backend = "acp"
 	s.acpPreset = preset.ID
+	ws.ACPPreset = preset.ID
+	a.saveProjects()
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	a.selectSession(s)
 	return s
+}
+
+// newACPSessionDefault starts the project's default ACP preset, or asks
+// which one when it has none.
+func (a *app) newACPSessionDefault() {
+	ws := a.activeWorkspace()
+	if ws == nil {
+		a.toast(ui.ToastInfo, "先选一个项目", "ACP 会话要在项目里运行。")
+		return
+	}
+	if ws.ACPPreset != "" {
+		if p := a.acpPresetByID(ws.ACPPreset); p != nil {
+			a.newACPSession(ws, *p)
+			return
+		}
+	}
+	a.acpOpenDialog()
+}
+
+// clearACPPreset forgets a project's default ACP preset.
+func (a *app) clearACPPreset(ws *workspace) {
+	if ws == nil {
+		return
+	}
+	ws.ACPPreset = ""
+	a.saveProjects()
 }
 
 // ensureACPSession starts the agent when it is not running.
@@ -484,6 +512,10 @@ func (a *app) acpOpenDialog() {
 func (a *app) acpDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
+		def := ""
+		if ws := a.activeWorkspace(); ws != nil {
+			def = ws.ACPPreset
+		}
 		var rows []core.Node
 		for _, p := range a.acpPresetList() {
 			preset := p
@@ -502,7 +534,12 @@ func (a *app) acpDialog() core.Node {
 				Children: []core.Node{
 					ui.Icon(lucide.Bot, 14, colors.Muted),
 					core.View{Style: core.Style{FlexGrow: 1, Gap: 1}, Children: []core.Node{
-						core.Text{Content: preset.Name, Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
+							core.Text{Content: preset.Name, Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
+							core.Show{When: func() bool { return preset.ID == def }, Then: func(*core.Scope) core.Node {
+								return ui.Icon(lucide.Star, 10, colors.Accent)
+							}},
+						}},
 						core.Text{Content: preset.Command + " " + strings.Join(preset.Args, " "), MaxLines: 1,
 							EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
 							StyleFunc: ui.Colored(colors.Faint)},
@@ -518,6 +555,10 @@ func (a *app) acpDialog() core.Node {
 			Style:        core.Style{Width: core.Pt(520)},
 			Children:     []core.Node{core.View{Style: core.Style{Gap: 4}, Children: rows}},
 			Footer: []core.Node{
+				core.Show{When: func() bool { return def != "" }, Then: func(*core.Scope) core.Node {
+					return ui.Button{Text: "清除默认", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+						OnPress: func() { a.clearACPPreset(a.activeWorkspace()) }}
+				}},
 				ui.Button{Text: "打开预设目录", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 					OnPress: a.openACPDir},
 				ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall,

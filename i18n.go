@@ -461,6 +461,8 @@ var messages = map[string]map[string]string{
 		"正在重新连接 ACP":             "Reconnecting ACP",
 		"ACP 进程退出了":              "The ACP process exited",
 		"其中 %d 条为 ACP 估算（按文本长度）": "%d entries are ACP estimates from text length",
+		"新建 ACP 会话（选择预设）…":       "New ACP session (choose a preset)…",
+		"清除默认":                   "Clear default",
 		// General settings.
 		"界面": "Interface",
 		"语言": "Language",
@@ -924,6 +926,8 @@ var messages = map[string]map[string]string{
 		"正在重新连接 ACP":             "正在重新連接 ACP",
 		"ACP 进程退出了":              "ACP 程序已結束",
 		"其中 %d 条为 ACP 估算（按文本长度）": "其中 %d 條為 ACP 估算（依文字長度）",
+		"新建 ACP 会话（选择预设）…":       "新增 ACP 工作階段（選擇預設）…",
+		"清除默认":                   "清除預設",
 		// General settings.
 		"界面": "介面",
 		"语言": "語言",

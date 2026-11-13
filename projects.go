@@ -99,7 +99,8 @@ func (a *app) saveProjects() {
 		out := make([]workspaceCfg, 0, len(list))
 		for _, w := range list {
 			out = append(out, workspaceCfg{Path: w.Path, Name: w.Name, Target: w.Target.key(),
-				Expanded: w.Expanded.GetUntracked(), Group: w.Group, Pinned: w.Pinned, Added: w.Added})
+				Expanded: w.Expanded.GetUntracked(), Group: w.Group, Pinned: w.Pinned, Added: w.Added,
+				ACPPreset: w.ACPPreset})
 		}
 		c.Workspaces = out
 	})
