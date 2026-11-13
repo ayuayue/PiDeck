@@ -90,8 +90,9 @@ type config struct {
 	SessionPersonas map[string]string `json:"sessionPersonas,omitempty"`
 	// ForkParents maps a fork to the session it branched from.
 	ForkParents map[string]string `json:"forkParents,omitempty"`
-	// PluginIndexURL is the plugin market's last index link.
+	// PluginIndexURL and PromptIndexURL are the markets' last links.
 	PluginIndexURL string `json:"pluginIndexUrl,omitempty"`
+	PromptIndexURL string `json:"promptIndexUrl,omitempty"`
 	// TrustedProjects are the projects the user allowed agents to work
 	// in, keyed "target|path". A project added at runtime starts
 	// untrusted; configs from before trust existed are migrated as trusted.

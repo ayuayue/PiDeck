@@ -316,6 +316,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `events.go` | 应用事件总线：订阅、插件 hooks、`${event:…}` 占位符与防递归 |
 | `market.go` | 插件市场：索引读取、单文件清单下载与安装 |
 | `ui_market.go` | 插件市场对话框：索引链接、条目列表、安装状态 |
+| `prompts_store.go` | 提示词商店：索引读取与整包导入 |
+| `ui_prompts_store.go` | 提示词商店对话框：索引链接、包列表与导入状态 |
 | `projects.go` | 项目分组、置顶、排序与顺序持久化 |
 | `ui_projects.go` | 项目分组对话框：名称输入与已有分组建议 |
 | `import_ext.go` | 导入 Codex / Claude 会话：识别格式、提取消息、写成 pi 会话 |
@@ -376,6 +378,7 @@ direct 构建从 GitHub Release 的 `appcast-<目标>.xml` 检查更新：
 - 「保存当前草稿」写进 `prompts/user.json`，标题取正文第一行
 - 起步包只在 `prompts/` 不存在时写一次，不会覆盖你的修改
 - 「导入提示词包…」填一个 http(s) 链接（2 MB 上限），支持 `{prompts:[…]}` 或裸数组，`body` 与 `prompt` 两个字段名都认；导入写进 `user.json`，与已有标题重复的会跳过
+- 「提示词商店…」填一个索引链接（`{packs:[{id,name,url}]}` 或数组），加载后一键导入整包；已导入的包会标记
 
 ## 主题与插件格式
 

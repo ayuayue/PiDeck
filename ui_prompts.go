@@ -99,7 +99,7 @@ func (a *app) promptDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.promptOpen.Set(open) },
 			Title:        "提示词库",
 			TestID:       "prompt-library",
-			Style:        core.Style{Width: core.Pt(760), Height: core.Pt(560)},
+			Style:        core.Style{Width: core.Pt(760), Height: core.Pt(620)},
 			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, Height: core.Pt(430), MinHeight: core.Pt(0), Gap: 10},
 				Children: []core.Node{
 					core.View{StyleFunc: func() core.Style {
@@ -131,6 +131,8 @@ func (a *app) promptDialog() core.Node {
 					}},
 				}}},
 			Footer: []core.Node{
+				ui.Button{Text: "提示词商店…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "prompt-store-open",
+					OnPress: a.openPromptStore},
 				ui.Button{Text: "导入提示词包…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "prompt-import",
 					OnPress: a.openPromptImport},
 				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "prompt-close",
