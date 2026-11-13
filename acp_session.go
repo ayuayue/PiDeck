@@ -52,7 +52,8 @@ func (a *app) startACPEngine(s *session) {
 	}
 	c, err := startACP(s.WS, preset.Command, preset.Args,
 		func(u acpUpdate) { a.cx.Post(func() { a.applyACPUpdate(s, u) }) },
-		func(p acpPermission) string { return a.askACPPermission(s, p) })
+		func(p acpPermission) string { return a.askACPPermission(s, p) },
+		func(err error) { a.cx.Post(func() { a.onACPExit(s, err) }) })
 	if err != nil {
 		a.cx.Post(func() { a.failSession(s, "启动 ACP 失败："+err.Error()) })
 		return
@@ -89,6 +90,43 @@ func (a *app) startACPEngine(s *session) {
 			fn()
 		}
 	})
+}
+
+// onACPExit tidies a session whose agent process ended.
+func (a *app) onACPExit(s *session, err error) {
+	if s == nil || s.acp == nil {
+		return
+	}
+	s.acp = nil
+	s.starting = false
+	s.readySig.Set(false)
+	s.runningSig.Set(false)
+	if err != nil {
+		s.status.Set(statusFailed)
+		s.notice.Set(err.Error())
+		a.diagf("error", "ACP 进程退出 %s：%v", s.title.GetUntracked(), err)
+	} else {
+		s.status.Set(statusIdle)
+		s.notice.Set("")
+	}
+	if s.acpTurnID != "" {
+		a.acpFinish(s, s.acpTurnID, "cancelled", err)
+	}
+}
+
+// reconnectACP restarts the agent process.
+func (a *app) reconnectACP(s *session) {
+	if s == nil || s.backend != "acp" {
+		return
+	}
+	if s.acp != nil {
+		s.acp.stop()
+		s.acp = nil
+	}
+	s.readySig.Set(false)
+	s.status.Set(statusIdle)
+	a.ensureACPSession(s)
+	a.toast(ui.ToastInfo, "正在重新连接 ACP", "")
 }
 
 // acpPrompt sends one turn and waits for its stop reason.

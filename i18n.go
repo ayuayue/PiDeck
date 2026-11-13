@@ -457,6 +457,9 @@ var messages = map[string]map[string]string{
 		"清除 ACP 权限记忆":  "Clear ACP permission memory",
 		"已清除权限记忆":      "Permission memory cleared",
 		"下次工具调用会重新询问。": "The next tool call asks again.",
+		"重新连接 ACP":     "Reconnect ACP",
+		"正在重新连接 ACP":   "Reconnecting ACP",
+		"ACP 进程退出了":    "The ACP process exited",
 		// General settings.
 		"界面": "Interface",
 		"语言": "Language",
@@ -916,6 +919,9 @@ var messages = map[string]map[string]string{
 		"清除 ACP 权限记忆":  "清除 ACP 權限記憶",
 		"已清除权限记忆":      "已清除權限記憶",
 		"下次工具调用会重新询问。": "下次工具呼叫會重新詢問。",
+		"重新连接 ACP":     "重新連接 ACP",
+		"正在重新连接 ACP":   "正在重新連接 ACP",
+		"ACP 进程退出了":    "ACP 程序已結束",
 		// General settings.
 		"界面": "介面",
 		"语言": "語言",

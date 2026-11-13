@@ -66,7 +66,7 @@ func TestACPClient(t *testing.T) {
 	perms := make(chan acpPermission, 1)
 	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=TestFakeACPAgent"},
 		func(u acpUpdate) { updates <- u },
-		func(p acpPermission) string { perms <- p; return "allow" })
+		func(p acpPermission) string { perms <- p; return "allow" }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,5 +128,25 @@ func TestACPPresets(t *testing.T) {
 		if p.ID == "" || p.Name == "" || p.Command == "" {
 			t.Errorf("preset = %+v", p)
 		}
+	}
+}
+
+// TestACPExit checks a stopped agent reports its exit.
+func TestACPExit(t *testing.T) {
+	if os.Getenv("PIDECK_FAKE_ACP") == "1" {
+		t.Skip("the helper process")
+	}
+	t.Setenv("PIDECK_FAKE_ACP", "1")
+	exits := make(chan error, 1)
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=TestFakeACPAgent"},
+		func(acpUpdate) {}, nil, func(err error) { exits <- err })
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.stop()
+	select {
+	case <-exits:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no exit")
 	}
 }

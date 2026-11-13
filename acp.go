@@ -65,6 +65,7 @@ type acpClient struct {
 
 	onUpdate     func(acpUpdate)
 	onPermission func(acpPermission) string
+	onExit       func(error)
 }
 
 type acpResponse struct {
@@ -106,7 +107,7 @@ func acpPresets() []acpPreset {
 }
 
 // startACP spawns an agent in dir and connects to it.
-func startACP(dir, command string, args []string, onUpdate func(acpUpdate), onPermission func(acpPermission) string) (*acpClient, error) {
+func startACP(dir, command string, args []string, onUpdate func(acpUpdate), onPermission func(acpPermission) string, onExit func(error)) (*acpClient, error) {
 	if strings.TrimSpace(command) == "" {
 		return nil, fmt.Errorf("没有 ACP 命令")
 	}
@@ -133,7 +134,7 @@ func startACP(dir, command string, args []string, onUpdate func(acpUpdate), onPe
 		return nil, err
 	}
 	c := &acpClient{cmd: cmd, in: in, stderr: stderr, pending: map[int]chan acpResponse{},
-		onUpdate: onUpdate, onPermission: onPermission}
+		onUpdate: onUpdate, onPermission: onPermission, onExit: onExit}
 	trackACP(c)
 	go func() {
 		c.read(out)
@@ -174,8 +175,20 @@ func (c *acpClient) read(r io.Reader) {
 		}
 	}
 	c.mu.Lock()
+	closed := c.closed
 	c.closed = true
 	c.mu.Unlock()
+	if c.onExit != nil {
+		if closed {
+			c.onExit(nil)
+			return
+		}
+		why := c.stderrText()
+		if why == "" {
+			why = "ACP 进程退出了"
+		}
+		c.onExit(fmt.Errorf("%s", why))
+	}
 }
 
 // dispatchUpdate turns a session/update into an acpUpdate.
