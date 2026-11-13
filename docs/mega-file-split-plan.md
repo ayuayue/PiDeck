@@ -195,12 +195,12 @@
 | W1 | `renderer/src/previewApi.ts` | 2409 | ≤400 | ✅ 38 行 |
 | W2 | `preload/index.ts` | 2157 | ≤400 | ✅ 56 行 |
 | W3 | `main/index.ts` 启动装配 | 8307 | ≤5800 | ⏳ 8288（只搬了 resourceStores；装配体需先做 accessor 化） |
-| W4 | `main/index.ts` registerIpc | — | ≤3900 | ⏳ 10 个 stack 已外移，index 6711 |
+| W4 | `main/index.ts` registerIpc + 窗口 | — | ≤3900 | ⏳ 10 个 stack + `window/mainWindow.ts`，index 6372 |
 | W5 | `main/index.ts` 窗口/生命周期 | — | ≤2800 | ⏳ `window/tray.ts` 178 行，index 7308→7199 |
 | W6 | `main/index.ts` 收尾 | — | ≤1500 | 未开工 |
 | W7 | `renderer/src/App.tsx` JSX | 4065 | ≤3600 | ✅ 3461 行（4 个 workbench 组件） |
-| W8 | `renderer/src/App.tsx` 剩余域 | — | ≤1600 | ⏳ 3106（2 个 hook 域已抽） |
-| W9 | `pi/AgentManager.ts` | 7268 | ≤6000（改） | ⏳ 6208（4 个协作者：toolMessageAssembler 392 / runtimeHistoryLoader 420 / compactionRunner 382 / runtimeStateReader 400） |
+| W8 | `renderer/src/App.tsx` 剩余域 | — | ≤1600 | ⏳ 2939（4 个 hook 域） |
+| W9 | `pi/AgentManager.ts` | 7268 | ≤5500 | ⏳ 5854（5 个协作者：toolMessageAssembler 392 / runtimeHistoryLoader 420 / compactionRunner 382 / runtimeStateReader 400 / processReattach 578） |
 | W10 | `ipc/sessionIpc.ts` | 1885 | ≤400/文件 | ✅ 563 行（12 个域文件） |
 | W11 | `ipc/systemIpc.ts` | 1234 | ≤400/文件 | ✅ 达标 |
 
@@ -221,3 +221,23 @@
 - **子代理自验的 typecheck 不可信**：它有 41 个错误来自他人的在飞文件，于是漏报了自己引入的 6 个「调用私有方法」错误（`runtimeStateReader` 的 6 个方法需公开）。→ **父代理必须自己跑一次全量 typecheck**，不能采信「我的文件 0 error」。
 - **契约断言随访问器形态演进**：`dshRuntimeIpc` 断言 `getDshRuntimeStatus: () => dshRuntimeStatus.getStatus()`，迁到 stack 后成了 `() => getDshRuntimeStatus().getStatus()`；断言改成「锁注入了哪个服务方法、不绑访问器写法」。
 
+
+## 第三轮并行波次（2026-11-13，5 个子代理）
+
+| 波次 | 目标 | 前 | 后 | 落地形态 |
+|---|---|---:|---:|---|
+| W4c | `main/index.ts` | 6711 | **6372** | `window/mainWindow.ts` 468 行 + `MainWindowDeps` 33 个成员（可变单例走 getter/setter，不可变依赖一次解构） |
+| W8b | `renderer/src/App.tsx` | 3106 | **2939** | `hooks/app/useAppSidebarActions 299`（侧栏 5 组动作） |
+| W9e | `pi/AgentManager.ts` | 6208 | **5854** | `pi/processReattach.ts 578`（重挂接 + 进程退出处理 + 启动失败文案） |
+| 新 | `sessions/SessionRuntimeCoordinator.ts` | 2759 | **2406** | `sessions/runtime/{sessionRuntimeGateways 206, sessionRuntimePreferences 226}`；远端消息变更域因源码断言绑死相邻性主动留下 |
+| 新 | `renderer/src/ConfigModal.tsx` | 3491 | **2696** | 4 个 Tab hook + `modelIdIndex`（超时收工，但比预期多拆） |
+
+### 本轮的三条硬教训（都已落到规则/简报里）
+
+1. **不要用 codemod / AST 脚本改代码**：负责 accessor 化的子代理写了基于 tsc 符号表的批量替换，`{ projectStore }` 简写属性没被识别，一次制造 **1019 个 `Cannot find name 'boot'`**，整波回滚（`git checkout` + 删 `bootState.ts`）。
+2. **「accessor 化」不该作为独立波次**：真正要搬的块只读十来个单例，**随块搬迁时按需加 getter** 就够（`ipcStacks` 10 个 stack、`window/tray`、`window/mainWindow` 都是这么成的），不需要先把 150 个模块级 `let` 全量重塑。本文件中「W3 需要 accessor 化」的说法按此修正。
+3. **bash 管道在本机会死锁**（rtk 包装不产生 EOF）：本轮 7 次挂起里 6 次是子代理自己写了 `| tail` / `| grep`。已把「bash 禁用管道」写进 `AGENTS.md`（会注入每个子会话上下文），比简报里反复叮嘱可靠。
+
+另外两条运维事实：
+- **子代理自验的 typecheck 不可信**：并行期间别人的在飞文件会污染全量 tsc，子代理因此漏报过自己的错误（`runtimeStateReader` 的 6 个 private 方法）。**父代理必须自己跑一次全量 typecheck**。
+- **超时不等于没干活**：ConfigModal 的子代理 30 分钟超时，但落地了 4 个 Tab；反过来，顺利「完成」的子代理也可能带着未达标行数交付（`processReattach` 578 > 400 目标）。行数目标只能当参考，门禁与测试才是判据。

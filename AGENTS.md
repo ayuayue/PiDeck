@@ -27,6 +27,7 @@ PiDeck 是 Electron 桌面应用：在多个项目目录间管理和运行 AI Ag
 
 - **门禁**：合并前 `typecheck` + 改动涉及的针对性测试全绿；纯 UI 样式微调至少 typecheck。禁止「先合再修」。
 - **退出码**：门禁命令禁止用管道吞 rc（`npm run typecheck | tail` 返回的是 tail 的 0）。用 `set -o pipefail` 或重定向后查 `$?`——测试经沙箱 TS 转译对语法错误容错，可能假绿。
+- **bash 禁用管道**（`| tail` / `| grep` / `| head`）：rtk 包装下管道无 EOF 会挂死（已复现 7 次）。要截取就直出：`grep -n` / `grep -c` / `tail -n 20 <file>`。
 
 ## 铁律
 
