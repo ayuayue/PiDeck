@@ -131,13 +131,13 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 				core.Dynamic(func(*core.Scope) core.Node {
 					switch t.state.Get() {
 					case termExited:
-						return ui.Text(fmt.Sprintf("已退出 %d", t.exit.Get()), 9, ui.Regular, colors.Faint)
+						return ui.Text(fmt.Sprintf(T("已退出 %d"), t.exit.Get()), 9, ui.Regular, colors.Faint)
 					case termFailed:
 						return ui.Icon(lucide.TriangleAlert, 10, colors.Danger)
 					}
 					return nil
 				}),
-				core.View{OnPress: func(core.PressEvent) { a.closeTerminalTab(t.ID) }, Role: core.RoleButton, Label: "关闭终端",
+				core.View{OnPress: func(core.PressEvent) { a.closeTerminalTab(t.ID) }, Role: core.RoleButton, Label: T("关闭终端"),
 					StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(17), Height: core.Pt(17), CornerRadius: 4, AlignItems: core.AlignCenter,
 							JustifyContent: core.JustifyCenter, Transition: pressMotion,
@@ -158,17 +158,17 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 				}),
 			}}},
 		},
-		a.pressIcon(lucide.Plus, "新建终端", 24, 12, nil, func() { a.newTerminalTab() }, "terminal-new"),
+		a.pressIcon(lucide.Plus, T("新建终端"), 24, 12, nil, func() { a.newTerminalTab() }, "terminal-new"),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 1}, Children: []core.Node{
-			a.pressIcon(lucide.Search, "搜索终端", 25, 12.5, nil, func() {
+			a.pressIcon(lucide.Search, T("搜索终端"), 25, 12.5, nil, func() {
 				a.term.findOpen.Set(true)
 				if q := a.term.findText.GetUntracked(); q != "" {
 					a.term.search(q)
 				}
 			}, ""),
-			a.pressIcon(lucide.Eraser, "清屏", 25, 12.5, nil, a.clearTerminal, ""),
-			a.pressIcon(lucide.RefreshCw, "重启终端", 25, 12.5, nil, a.restartTerminal, ""),
-			a.pressIcon(lucide.X, "隐藏终端", 25, 13, nil, func() {
+			a.pressIcon(lucide.Eraser, T("清屏"), 25, 12.5, nil, a.clearTerminal, ""),
+			a.pressIcon(lucide.RefreshCw, T("重启终端"), 25, 12.5, nil, a.restartTerminal, ""),
+			a.pressIcon(lucide.X, T("隐藏终端"), 25, 13, nil, func() {
 				a.term.open.Set(false)
 				a.remember()
 			}, "terminal-hide"),
@@ -193,7 +193,7 @@ func (a *app) terminalFindBar(cx *core.Scope) core.Node {
 			text = fmt.Sprintf("%d…", st.Total)
 		}
 		if st.Total == 0 && !st.Searching {
-			text = "无结果"
+			text = T("无结果")
 		}
 		return core.Text{Content: text, Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
 			StyleFunc: ui.Colored(colors.Faint)}
@@ -206,16 +206,16 @@ func (a *app) terminalFindBar(cx *core.Scope) core.Node {
 		ui.Icon(lucide.Search, 12, colors.Faint),
 		core.Input{
 			Value: a.term.findText.Get, OnChange: a.term.search,
-			Placeholder: "在终端里搜索", Label: "搜索终端", AutoFocus: true, TestID: "terminal-search",
+			Placeholder: T("在终端里搜索"), Label: T("搜索终端"), AutoFocus: true, TestID: "terminal-search",
 			Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Height: core.Pt(24), FontSize: 12, Color: colors.Text()},
 			StyleFunc: func() core.Style {
 				return core.Style{PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
 			},
 		},
 		status,
-		a.pressIcon(lucide.ChevronUp, "上一个匹配", 23, 12, nil, func() { a.term.searchNext(true) }, ""),
-		a.pressIcon(lucide.ChevronDown, "下一个匹配", 23, 12, nil, func() { a.term.searchNext(false) }, ""),
-		a.pressIcon(lucide.X, "结束搜索", 23, 12, nil, a.term.endSearch, ""),
+		a.pressIcon(lucide.ChevronUp, T("上一个匹配"), 23, 12, nil, func() { a.term.searchNext(true) }, ""),
+		a.pressIcon(lucide.ChevronDown, T("下一个匹配"), 23, 12, nil, func() { a.term.searchNext(false) }, ""),
+		a.pressIcon(lucide.X, T("结束搜索"), 23, 12, nil, a.term.endSearch, ""),
 	}}
 }
 
@@ -227,8 +227,8 @@ func (a *app) terminalBody() core.Node {
 		if len(tabs) == 0 {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 10},
 				Children: []core.Node{
-					ui.Text("还没有终端", 12.5, ui.Regular, colors.Muted),
-					ui.Button{Text: "新建终端", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.newTerminalTab() }},
+					ui.Text(T("还没有终端"), 12.5, ui.Regular, colors.Muted),
+					ui.Button{Text: T("新建终端"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.newTerminalTab() }},
 				}}
 		}
 		tab := a.term.activeTab()
@@ -238,11 +238,11 @@ func (a *app) terminalBody() core.Node {
 		switch tab.state.Get() {
 		case termStarting:
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-				Children: []core.Node{ui.Spinner{Size: 16, Label: "启动终端"}, ui.Text("正在启动终端…", 12, ui.Regular, colors.Muted)}}
+				Children: []core.Node{ui.Spinner{Size: 16, Label: "启动终端"}, ui.Text(T("正在启动终端…"), 12, ui.Regular, colors.Muted)}}
 		case termFailed:
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8, Padding: core.All(20)},
 				Children: []core.Node{
-					ui.Text("终端启动失败", 13, ui.Semibold, colors.Danger),
+					ui.Text(T("终端启动失败"), 13, ui.Semibold, colors.Danger),
 					core.Text{Content: tab.errMsg.Get(), Style: core.Style{FontSize: 11.5, MaxWidth: core.Pt(480), TextAlign: core.TextAlignCenter},
 						StyleFunc: ui.Colored(colors.Muted)},
 					ui.Button{Text: "重试", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.term.restart(tab) }},
@@ -270,11 +270,11 @@ func (a *app) terminalView(tab *termTab) core.Node {
 	}
 	return ui.ContextMenu{Trigger: view, Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}, TestID: "terminal-menu",
 		Children: []core.Node{
-			ui.MenuItem{Text: "复制", Icon: lucide.Copy, Shortcut: "mod+c",
+			ui.MenuItem{Text: T("复制"), Icon: lucide.Copy, Shortcut: "mod+c",
 				Disabled: func() bool { return !tab.ref.Selected() }, OnSelect: tab.ref.Copy},
-			ui.MenuItem{Text: "粘贴", Icon: lucide.ClipboardPaste, Shortcut: "mod+v", OnSelect: tab.ref.Paste},
-			ui.MenuItem{Text: "全选", Icon: lucide.SquareDashed, OnSelect: tab.ref.SelectAll},
-			ui.MenuItem{Text: "清屏", Icon: lucide.Eraser, OnSelect: a.clearTerminal},
-			ui.MenuItem{Text: "重启终端", Icon: lucide.RefreshCw, OnSelect: a.restartTerminal},
+			ui.MenuItem{Text: T("粘贴"), Icon: lucide.ClipboardPaste, Shortcut: "mod+v", OnSelect: tab.ref.Paste},
+			ui.MenuItem{Text: T("全选"), Icon: lucide.SquareDashed, OnSelect: tab.ref.SelectAll},
+			ui.MenuItem{Text: T("清屏"), Icon: lucide.Eraser, OnSelect: a.clearTerminal},
+			ui.MenuItem{Text: T("重启终端"), Icon: lucide.RefreshCw, OnSelect: a.restartTerminal},
 		}}
 }

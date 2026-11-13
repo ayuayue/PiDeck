@@ -7,6 +7,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 )
@@ -79,7 +80,11 @@ func resolveLanguage(setting, system string) string {
 // applyLanguage sets the interface language from the config and the
 // system, and asks the pages that hold static text to rebuild.
 func (a *app) applyLanguage() {
-	setUILanguage(resolveLanguage(a.cfg.Language, a.cx.Env().Language()))
+	setting := a.cfg.Language
+	if setting == "" {
+		setting = strings.TrimSpace(os.Getenv("PIDECK_LITE_LANG"))
+	}
+	setUILanguage(resolveLanguage(setting, a.cx.Env().Language()))
 	if a.langRev != nil {
 		a.langRev.Update(func(n int) int { return n + 1 })
 	}
@@ -293,8 +298,24 @@ var messages = map[string]map[string]string{
 		"没有可显示的差异":       "No diff to show",
 		"复制补丁":           "Copy patch",
 		"新分支从当前提交开始，并立刻切换过去。": "The new branch starts at the current commit and switches to it.",
-		"分支名":   "Branch name",
-		"创建并切换": "Create and switch",
+		"分支名":     "Branch name",
+		"创建并切换":   "Create and switch",
+		"已退出 %d":  "Exited %d",
+		"关闭终端":    "Close terminal",
+		"搜索终端":    "Search terminal",
+		"清屏":      "Clear",
+		"重启终端":    "Restart terminal",
+		"隐藏终端":    "Hide terminal",
+		"无结果":     "No results",
+		"在终端里搜索":  "Search in terminal",
+		"上一个匹配":   "Previous match",
+		"下一个匹配":   "Next match",
+		"结束搜索":    "End search",
+		"还没有终端":   "No terminal yet",
+		"正在启动终端…": "Starting terminal…",
+		"终端启动失败":  "Terminal failed to start",
+		"粘贴":      "Paste",
+		"全选":      "Select all",
 		// General settings.
 		"界面": "Interface",
 		"语言": "Language",
@@ -593,8 +614,24 @@ var messages = map[string]map[string]string{
 		"没有可显示的差异":       "沒有可顯示的差異",
 		"复制补丁":           "複製補丁",
 		"新分支从当前提交开始，并立刻切换过去。": "新分支從目前提交開始，並立刻切換過去。",
-		"分支名":   "分支名稱",
-		"创建并切换": "建立並切換",
+		"分支名":     "分支名稱",
+		"创建并切换":   "建立並切換",
+		"已退出 %d":  "已結束 %d",
+		"关闭终端":    "關閉終端機",
+		"搜索终端":    "搜尋終端機",
+		"清屏":      "清除畫面",
+		"重启终端":    "重新啟動終端機",
+		"隐藏终端":    "隱藏終端機",
+		"无结果":     "沒有結果",
+		"在终端里搜索":  "在終端機裡搜尋",
+		"上一个匹配":   "上一個符合",
+		"下一个匹配":   "下一個符合",
+		"结束搜索":    "結束搜尋",
+		"还没有终端":   "還沒有終端機",
+		"正在启动终端…": "正在啟動終端機…",
+		"终端启动失败":  "終端機啟動失敗",
+		"粘贴":      "貼上",
+		"全选":      "全選",
 		// General settings.
 		"界面": "介面",
 		"语言": "語言",

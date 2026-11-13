@@ -13,7 +13,12 @@ import (
 )
 
 // TestMain gives the platform the main thread under nsgo test -target.
-func TestMain(m *testing.M) { nsgotest.Main(m) }
+func TestMain(m *testing.M) {
+	// Tests drive the Chinese source strings; a language switch test sets
+	// the config itself, which wins over this.
+	os.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	nsgotest.Main(m)
+}
 
 // TestWelcome checks the first screen: the wordmark, the rail and the
 // invitation to add a workspace.
