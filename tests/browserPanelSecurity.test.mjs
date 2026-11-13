@@ -84,9 +84,12 @@ test("BrowserPanel guest navigation, redirects, windows, and permissions default
 });
 
 test("webview hardening is installed before the main window loads renderer content", () => {
-	const createWindow = functionBlock(main, "async function createWindow()", "\n\nfunction shouldUseDevRendererUrl");
-	const configureIndex = createWindow.indexOf("configureBrowserPanelWebviewHost(createdWindow)");
-	const loadIndex = createWindow.indexOf("mainWindow.loadURL");
+	// 建窗实现已迁到 src/main/window/mainWindow.ts：从函数起点切一段窗口装配体，仍校验「加固先于加载」。
+	const windowStart = main.indexOf("async function createMainWindow(");
+	assert.ok(windowStart >= 0, "expected createMainWindow in the window module");
+	const createWindow = main.slice(windowStart, windowStart + 30000);
+	const configureIndex = createWindow.indexOf("configureBrowserPanelWebviewHost(");
+	const loadIndex = createWindow.indexOf(".loadURL(");
 	assert.ok(configureIndex >= 0, "expected webview hardening setup");
 	assert.ok(loadIndex >= 0, "expected renderer load");
 	assert.ok(configureIndex < loadIndex, "hardening must be installed before renderer load");

@@ -125,7 +125,7 @@ test("main 侧 console-message 镜像跳过良性事件（不与 renderer 双写
 	// 良性判定后直接 return，良性噪音只由 renderer 的全局处理器写一条
 	assert.match(source, /if \(classifyRendererNoise\(event\.message\)\.benign\) return;/);
 	// 聚合器与 renderer 同源（shared），保证两条管道口径一致
-	assert.match(source, /from "\.\.\/shared\/rendererNoise"/);
+	assert.match(source, /from "(?:\.\.\/)+shared\/rendererNoise"/);
 	const pet = readFileSync("src/main/pet/PetWindow.ts", "utf8");
 	assert.match(pet, /if \(classifyRendererNoise\(event\.message\)\.benign\) return;/);
 });

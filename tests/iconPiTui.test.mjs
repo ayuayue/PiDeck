@@ -163,11 +163,12 @@ test("window icon is resolved at window creation (startup applyWindowLogoStyle r
 	// 回归：启动阶段的 applyWindowLogoStyle（settingsStore.load() 之后）早于 createWindow 执行，
 	// 那时 mainWindow 还是 null → 调用是空操作；建窗参数若写死 iconPath，
 	// 冷启动的任务栏/Alt-Tab 图标就永远不跟 logoStyle（要等用户改一次设置才纠正）。
-	const index = fs.readFileSync(path.join(root, "src", "main", "index.ts"), "utf8");
-	const createWindowStart = index.indexOf("async function createWindow()");
-	assert.notEqual(createWindowStart, -1, "index.ts must define createWindow");
-	const createWindow = index.slice(createWindowStart);
-	const optionsIndex = createWindow.indexOf("settingsStore.createWindowOptions()");
+	// 建窗实现已迁到 src/main/window/mainWindow.ts：读装配聚合面，锁定 createMainWindow 内的取图标方式。
+	const assembly = mainAssemblySource;
+	const createWindowStart = assembly.indexOf("async function createMainWindow(");
+	assert.notEqual(createWindowStart, -1, "createMainWindow must be defined in the window module");
+	const createWindow = assembly.slice(createWindowStart);
+	const optionsIndex = createWindow.indexOf("createWindowOptions()");
 	assert.notEqual(optionsIndex, -1, "createWindow must read window options");
 	const iconOption = createWindow.slice(optionsIndex).match(/\bicon:\s*([^,\n]+)/);
 	assert.ok(iconOption, "createWindow must set a window icon");
