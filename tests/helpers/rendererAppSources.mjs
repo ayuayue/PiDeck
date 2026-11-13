@@ -9,12 +9,30 @@ const workbenchDirectory = "src/renderer/src/components/workbench";
  * 目录不存在时按空处理，拆走最后一个文件也不会让读源失败。
  */
 const appHookDirectory = "src/renderer/src/hooks/app";
-const appHookFiles = ["useAppProjectActions.ts", "useAppSidebarActions.ts", "useSessionTabsAssembly.ts", "useAppSessionPaneServices.tsx", "useAppFileTreeTransfer.ts"];
+const appHookFiles = [
+	"useAppProjectActions.ts",
+	"useAppSidebarActions.ts",
+	"useSessionTabsAssembly.ts",
+	"useAppSessionPaneServices.tsx",
+	"useAppFileTreeTransfer.ts",
+	"useAppSessionCreation.ts",
+	"useAppSessionEntrypoints.ts",
+	"useAppStartupWiring.ts",
+	"useAppActiveProjectSync.ts",
+	"useAppProjectScanEffects.ts",
+	"useAppGitBranchActions.ts",
+	"useAppHistoryMutations.ts",
+	"useAppSettingsMirrors.ts",
+];
 
 /**
  * 装配层的域 hook：项目记录动作（useAppProjectActions）、侧栏动作装配（useAppSidebarActions）、
- * 会话 Tab 栏装配（useSessionTabsAssembly）、会话栏服务装配（useAppSessionPaneServices）
- * 与文件树传输（useAppFileTreeTransfer）。它们承载的闸门/文案/装配顺序属于 App 装配契约，
+ * 会话 Tab 栏装配（useSessionTabsAssembly）、会话栏服务装配（useAppSessionPaneServices）、
+ * 文件树传输（useAppFileTreeTransfer）、会话创建入口（useAppSessionCreation）、会话入口与
+ * 引导页首发（useAppSessionEntrypoints）、启动接线（useAppStartupWiring）、活动项目
+ * catalog/git 同步（useAppActiveProjectSync）、项目集合收敛（useAppProjectScanEffects）、
+ * 分支动作（useAppGitBranchActions）、历史改写接线（useAppHistoryMutations）与设置镜像
+ * （useAppSettingsMirrors）。它们承载的闸门/文案/装配顺序属于 App 装配契约，
  * 契约测试随搬迁一起看这些文件。
  */
 export const rendererAppSources = [

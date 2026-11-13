@@ -28,8 +28,6 @@ import {
 	openSettingsAtom,
 	settingsOpenAtom,
 	openAutomationPageAtom,
-	agentProfilesAtom,
-	pendingAgentBindingAtom,
 	activeWorkspacePageAtom,
 	openWorkspacePageIdsAtom,
 	openWorkspacePageAtom,
@@ -42,10 +40,9 @@ import {
 import { type SidebarActions } from "./components/sidebar/SidebarContent";
 import { AppSidebar } from "./components/sidebar/AppSidebar";
 import { SettingsFeatureRoot } from "./components/app/SettingsFeatureRoot";
-import { hostPluginCatalogAtom, hostPluginPanelAtom, isHostPluginPagePanel } from "./atoms/host-plugin-atoms";
+import { hostPluginPanelAtom } from "./atoms/host-plugin-atoms";
 import { AutomationPage } from "./components/automation/AutomationPage";
 import { AgentMarketPage } from "./components/agents/AgentMarketPage";
-import { buildAgentSessionTitle } from "./components/agents/agentIconCodec";
 import { FavoritesPage } from "./components/favorites/FavoritesPage";
 import { useRename } from "./hooks/useRename";
 import { useProjectRuntimeCapabilities } from "./hooks/useRuntimeCapabilities";
@@ -56,11 +53,6 @@ import { useAnnouncementNotifier } from "./hooks/useAnnouncementNotifier";
 import { useStarReminder } from "./hooks/useStarReminder";
 import { useModelsVerifyNotifier } from "./hooks/useModelsVerifyNotifier";
 import { useBackgroundAskPatrol } from "./hooks/useBackgroundAskPatrol";
-import { announcementCenterOpenAtom, announcementNotificationEnabledAtom } from "./atoms/announcement-atoms";
-import { appDisplayNameAtom, customLogoAtom, logoStyleAtom } from "./atoms/app-ui-atoms";
-import { LOGO_STYLE_STORAGE_KEY, resolveLogoStyle } from "./components/app/piTuiLogoData";
-import { writeBootBrandCache } from "./components/app/bootBrandCache";
-import { resolveAppDisplayName } from "../../shared/types/settings";
 import { openProviderLoginAtom } from "./atoms/providerLoginAtoms";
 import { wslProjectPickerAtom } from "./atoms/wsl-project-atoms";
 import { useSessionLayout } from "./hooks/useSessionLayout";
@@ -77,11 +69,8 @@ import { useQueuedPrompt } from "./hooks/useQueuedPrompt";
 import { useComposerStateSessionPrune } from "./hooks/useComposerStateSessionPrune";
 import { useStoppedSessionCacheTrim } from "./hooks/useStoppedSessionCacheTrim";
 import { activeAgentIdAtom } from "./hooks/useSessionRuntimeController";
-import { useSessionHistoryMutations } from "./hooks/useSessionHistoryMutations";
 import { useUserMessageEditReplay } from "./hooks/useUserMessageEditReplay";
 import { isLiveRuntimeStatus } from "./utils/sessionCommands";
-import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeDshModelPreference, readWelcomeModelPreference, readWelcomeThinkingPreference, resolveChatSessionBootstrap, type NewSessionBackendTarget } from "./utils/chatSessionBootstrap";
-import { createSessionOnce } from "./utils/sessionCreation";
 import { useAppAppearance } from "./hooks/appearance/useAppAppearance";
 import { useAppBootstrapInfo } from "./hooks/app/useAppBootstrapInfo";
 import { useBootOverlayReady } from "./hooks/app/useBootOverlayReady";
@@ -91,6 +80,14 @@ import { useAppSidebarActions } from "./hooks/app/useAppSidebarActions";
 import { useSessionTabsAssembly } from "./hooks/app/useSessionTabsAssembly";
 import { useAppSessionPaneServices } from "./hooks/app/useAppSessionPaneServices";
 import { useAppFileTreeTransfer } from "./hooks/app/useAppFileTreeTransfer";
+import { useAppSessionCreation } from "./hooks/app/useAppSessionCreation";
+import { useAppActiveProjectSync } from "./hooks/app/useAppActiveProjectSync";
+import { useAppSessionEntrypoints } from "./hooks/app/useAppSessionEntrypoints";
+import { useAppStartupWiring } from "./hooks/app/useAppStartupWiring";
+import { useAppSettingsMirrors } from "./hooks/app/useAppSettingsMirrors";
+import { useAppGitBranchActions } from "./hooks/app/useAppGitBranchActions";
+import { useAppProjectScanEffects } from "./hooks/app/useAppProjectScanEffects";
+import { useAppHistoryMutations } from "./hooks/app/useAppHistoryMutations";
 import { useSidebarArchiveActions } from "./hooks/sidebar/useSidebarArchiveActions";
 import { useSettingsUpdater } from "./hooks/settings/useSettingsUpdater";
 import { useTpsDisplayMode } from "./hooks/settings/useTpsDisplayMode";
@@ -128,8 +125,6 @@ import {
 	sessionRuntimeBySessionIdAtomFamily,
 	sidebarExpandedProjectIdsAtom,
 	compactMiddlePackagesAtom,
-	sessionCatalogLoadStateAtom,
-	sessionMessagesCacheAtom,
 	sessionSummariesByProjectIdAtomFamily,
 	modifiedFilesAtom,
 	promoteSessionComposerStateAtom,
@@ -139,7 +134,6 @@ import {
 	setSessionMessageLoadStateAtom,
 	setSessionHistoryMutationOverlayAtom,
 	setSessionDraftAtom,
-	sessionDraftByIdAtom,
 	cacheSessionMessagesAtom,
 	upsertSessionAtom,
 	acpToolsAtom,
@@ -148,7 +142,7 @@ import {
 } from "./atoms";
 import { isSameSessionPath } from "./agentListDisplay";
 import { t } from "./i18n";
-import { isChatProject, loadSessionSourceFilter, saveSessionSourceFilter, isReplacementForPendingAgent, isPendingAgentId, migrateAgentRecord, stampIdleSessionDuration, type PendingAgentTab } from "./rendererUtils";
+import { isChatProject, loadSessionSourceFilter, saveSessionSourceFilter, isReplacementForPendingAgent, stampIdleSessionDuration, type PendingAgentTab } from "./rendererUtils";
 import { isLocalProject, isRemoteProject } from "../../shared/projectLocation";
 import type { SessionFilterPill } from "./sessionFilterPills";
 import { useResize } from "./hooks/useResize";
@@ -172,7 +166,6 @@ import { useQuickTask } from "./hooks/useQuickTask";
 import { useSideTasks } from "./hooks/useSideTasks";
 import { HostPluginPageOverlay } from "./components/plugins/HostPluginPageOverlay";
 import { useHostPluginPageTab } from "./hooks/useHostPluginPageTab";
-import { useHostPluginNavigation } from "./hooks/plugins/useHostPluginNavigation";
 import { TerminalDockPanel } from "./components/terminal/TerminalDockPanel";
 import { ResizablePanel, ResizablePanelGroup } from "./components/ui-shadcn/resizable";
 import { WorkbenchStage } from "./components/workspace/WorkbenchStage";
@@ -186,7 +179,6 @@ import { WorkbenchShell } from "./components/workbench/WorkbenchShell";
 import { usePiEnvironmentGuide } from "./hooks/usePiEnvironmentGuide";
 import { navigateTo } from "./components/app/BrowserPanel";
 import { createDefaultAppSettings } from "../../shared/types";
-import { hydrateImageContents } from "../../shared/imageContentSrc";
 import { parseSessionStatusPlacement, placementShowsSidebarPanel } from "../../shared/sessionStatusPlacement";
 import type {
 	AgentRuntimeState,
@@ -201,8 +193,6 @@ import type {
 	Project,
 	ProjectFileTarget,
 	AgentBackend,
-	AgentProfile,
-	SessionLaunchPreferences,
 	SessionRecord,
 	SessionSummary,
 	ComposerAgentMode,
@@ -804,17 +794,6 @@ export function App() {
 		},
 		[api, showToast],
 	);
-	const [expandedSidebarProjects, setExpandedSidebarProjects] = useState<Set<string>>(new Set());
-	const expandedSidebarProjectsRef = useRef(expandedSidebarProjects);
-	expandedSidebarProjectsRef.current = expandedSidebarProjects;
-	const expandedSidebarFromSettingsRef = useRef(false);
-	function saveExpandedSidebarProjectsToLocal(next: Set<string>) {
-		try {
-			localStorage.setItem("pidek.sidebarExpandedProjectIds", JSON.stringify([...next]));
-		} catch {
-			// ignore
-		}
-	}
 	const queuedTrackRef = useRef<HTMLElement | null>(null);
 
 	const composerTextareaRef = useRef<HTMLDivElement | null>(null);
@@ -974,43 +953,9 @@ export function App() {
 	// 架构错包检测：x64 包跑在 Apple Silicon（Rosetta）下时提示换装 arm64 原生包（可永久关闭）
 	useArchMismatchNotice();
 
-	// logo 风格 → 渲染层镜像 atom + localStorage 缓存：LogoMark/侧栏/关于弹层订阅 atom 即时切换；
-	// localStorage 让下次启动的启动画面（React 挂载前）就能用同一风格，避免开屏闪回默认 pi-tui。
-	const setLogoStyle = useSetAtom(logoStyleAtom);
-	useEffect(() => {
-		const logoStyle = resolveLogoStyle(settings.logoStyle);
-		setLogoStyle(logoStyle);
-		try {
-			window.localStorage.setItem(LOGO_STYLE_STORAGE_KEY, logoStyle);
-		} catch {
-			// localStorage 不可用（隐私模式等）只影响启动画面回退 classic，不致命
-		}
-	}, [settings.logoStyle, setLogoStyle]);
-
-	// 自定义品牌（显示名称 / 自定义 logo 图）→ 渲染层镜像 atom：品牌区、关于弹层、空态 LogoMark 订阅即时切换；
-	// 同时写 localStorage 开屏缓存，让下次启动的开屏（React 挂载前）用同一套品牌值。
-	// 自定义图只在 custom 风格下进缓存：切回内置风格时要把上一张图清掉，否则开屏会残留旧图。
-	const setAppDisplayName = useSetAtom(appDisplayNameAtom);
-	const setCustomLogo = useSetAtom(customLogoAtom);
-	useEffect(() => {
-		const displayName = resolveAppDisplayName(settings.appDisplayName);
-		const customLogo = resolveLogoStyle(settings.logoStyle) === "custom" ? (settings.logoCustomImage ?? "") : "";
-		setAppDisplayName(displayName);
-		setCustomLogo(settings.logoCustomImage ?? "");
-		writeBootBrandCache(displayName, customLogo);
-	}, [settings.appDisplayName, settings.logoCustomImage, settings.logoStyle, setAppDisplayName, setCustomLogo]);
-
-	// 公告通知开关 → 渲染层镜像 atom：通知调度与侧栏入口显隐共用同一数据源，
-	// 设置保存后即时生效（settings.get 首拉与 onSettingsApplied 都经此处同步）
-	const setAnnouncementNotifyEnabled = useSetAtom(announcementNotificationEnabledAtom);
-	useEffect(() => {
-		setAnnouncementNotifyEnabled(settings.announcementNotificationEnabled);
-		// 关闭通知时若公告弹窗恰好开着（弹窗与设置弹窗互斥，理论少见），一并收起，
-		// 避免重新开启后残留的 open=true 让弹窗自动弹开
-		if (!settings.announcementNotificationEnabled) {
-			store.set(announcementCenterOpenAtom, false);
-		}
-	}, [settings.announcementNotificationEnabled, setAnnouncementNotifyEnabled, store]);
+	// 设置 → 渲染层镜像 atom / 开屏缓存（logo 风格、自定义品牌、公告通知开关）
+	// 收口到 useAppSettingsMirrors。
+	useAppSettingsMirrors({ settings, store });
 
 	// 公告通知调度（读镜像 atom）：输入/Agent 运行中/模态打开/窗口不活跃时自动延后弹出（不打扰操作，见 hook 注释）
 	useAnnouncementNotifier();
@@ -1329,512 +1274,104 @@ export function App() {
 		});
 	}, [workspaceChrome, selectSessionCommand, selectProjectCommand, overlays, showToast]);
 
-	/**
-	 * 新建会话：选中 + 登记常驻 Tab（chrome 与 selection 在 App 边界组合）。
-	 *
-	 * 同一项目同一时刻只跑一条创建（issue #481）：入口在等 IPC 往返时引导页
-	 * 输入框仍可发送，两条链路各建一条会话就会在 Tab 栏留下没人写过的空标签；
-	 * 后到者复用先到者的会话，选择与 Tab 登记本来就幂等。
-	 */
-	const createSessionDraftWithTab = useCallback(
-		async (projectId?: string, preferences: SessionLaunchPreferences = {}, backend?: AgentBackend) => {
-			const targetProjectId = projectId ?? activeProjectId;
-			if (!targetProjectId) return undefined;
-			return createSessionOnce(pendingDraftCreationRef.current, targetProjectId, async () => {
-				const session = await runCreateSessionDraft(targetProjectId, preferences, backend);
-				if (session) {
-					lastCreatedDraftIdRef.current = session.id;
-					workspaceChrome.registerOpenSession(session.id, "permanent");
-				}
-				return session;
-			});
-		},
-		[activeProjectId, runCreateSessionDraft, workspaceChrome],
-	);
+	// 会话创建入口族（新建草稿/匿名会话、问题反馈会话、智能体「发送到会话」/「使用」）
+	// 收口到 useAppSessionCreation：App 只接选中态、在途闸门与草稿写入，动作实现与文案都在 hook 内。
+	const { createSessionDraftWithTab, createAnonymousSessionWithTab, handleFeedbackCreateSession, handleAgentSendToSession, handleAgentUseAgent } = useAppSessionCreation({
+		store,
+		activeProjectId,
+		effectiveAgentBackend,
+		projects,
+		setSessionDraft,
+		selectSessionCommand,
+		selectProjectCommand,
+		showToast,
+		upsertSession,
+		workspaceChrome,
+		runCreateSessionDraft,
+		runCreateAnonymousSession,
+		pendingDraftCreationRef,
+		lastCreatedDraftIdRef,
+	});
 
-	const createAnonymousSessionWithTab = useCallback(
-		async (projectId?: string, preferences: SessionLaunchPreferences = {}) => {
-			const session = await runCreateAnonymousSession(projectId, preferences);
-			if (session) workspaceChrome.registerOpenSession(session.id, "permanent");
-			return session;
-		},
-		[runCreateAnonymousSession, workspaceChrome],
-	);
-
-	/**
-	 * 问题反馈「新建会话分析」：在活动项目新建草稿会话并选中，把 AI 提示词预填进
-	 * 该会话输入框（composer 草稿）。pi 启动后会自动加载项目 AGENTS.md 与技能，
-	 * 提示词里的诊断报告 + 项目上下文可让 pi 在正确约束下排查。
-	 */
-	const handleFeedbackCreateSession = useCallback(
-		async (prompt: string): Promise<boolean> => {
-			const session = await createSessionDraftWithTab();
-			if (!session) return false;
-			setSessionDraft({ sessionId: session.id, value: prompt });
-			return true;
-		},
-		[createSessionDraftWithTab, setSessionDraft],
-	);
-
-	/**
-	 * 划词工具「发送到会话」：在活动项目新建草稿会话（标题 = 智能体名），把角色设定经
-	 * agentMessage 隐藏通道后发送。
-	 * - message 是用户可见原文（会话气泡），agentMessage 是实际发给 pi 的载荷；AgentManager
-	 *   在 agentMessage 非空时**整体替换** message，因此角色设定必须与原文拼在一起提交，
-	 *   时间线仍只显示原文（与 AutomationRunCoordinator / 飞书桥接的同一写法）。
-	 * - DSH 后端没有 agentMessage 通道且会拒收整条 prompt，角色设定退化为可见前缀；
-	 *   ACP 走 acpTurnSettlement 的同名通道，可以照常隐藏。
-	 * - 智能体偏好模型只在 pi 后端带入：DSH 的模型是 host route、ACP 由外部 CLI 决定，
-	 *   直接塞 pi 的 provider/modelId 会把草稿偏好写成无效值。
-	 * - 后端只保留 pi / dsh：ACP 需要用户先在草稿里点选外部 CLI 工具（这里没有该上下文，
-	 *   硬塞 acp 会建出无法激活的草稿），生图/生视频后端没有「提示词 agent」语义。
-	 *   其余后端一律回落 pi——智能体角色设定本来就是 pi 原生 agentMessage 的语言。
-	 */
-	const handleAgentSendToSession = useCallback(
-		async ({ agentId, text }: { agentId: string; text: string }): Promise<boolean> => {
-			const agent = store.get(agentProfilesAtom).find((profile) => profile.id === agentId);
-			const project = projects.find((candidate) => candidate.id === activeProjectId);
-			const trimmed = text.trim();
-			if (!agent || !project || !trimmed) return false;
-			const backend: AgentBackend = effectiveAgentBackend === "dsh" ? "dsh" : "pi";
-			try {
-				const title = buildAgentSessionTitle(agent);
-				const session = await api.sessions.createDraft({
-					projectId: project.id,
-					title,
-					backend,
-					...(agent.model && backend === "pi" ? { model: agent.model } : {}),
-				});
-				upsertSession(session);
-				selectSessionCommand(project.id, session.id, false);
-				workspaceChrome.registerOpenSession(session.id, "permanent");
-				const persona = agent.systemPrompt.trim();
-				const hiddenPersona = session.backend !== "dsh";
-				const payload = `${persona}\n\n${trimmed}`;
-				const result = await api.sessions.sendPrompt({
-					sessionId: session.id,
-					requestId: crypto.randomUUID(),
-					message: hiddenPersona ? trimmed : payload,
-					...(hiddenPersona ? { agentMessage: payload } : {}),
-				});
-				if (!result.accepted) {
-					showToast(result.error || t("agentInvoke.errorTitle"), 4000, "error");
-					return false;
-				}
-				return true;
-			} catch (error) {
-				showToast(error instanceof Error ? error.message : String(error), 4000, "error");
-				return false;
-			}
-		},
-		[activeProjectId, effectiveAgentBackend, projects, selectSessionCommand, showToast, store, upsertSession, workspaceChrome],
-	);
-
-	/**
-	 * 智能体「使用」：带着该智能体回到新会话页（不建会话、不发请求）。
-	 *
-	 * 目录由新会话页输入框上方的项目选择器决定，用户在那里换项目；待绑定智能体记在
-	 * pendingAgentBindingAtom 里，首次发送时由 ensureSessionForSend 建会话并落绑定。
-	 * 角色设定不预填：主进程在绑定会话的首次发送时把 systemPrompt 拼进 agentMessage
-	 * （对 UI 隐藏，见 src/main/ipc/sessionIpc.ts 的 resolveSessionAgentInstruction）。
-	 * 留在市场页（返回 false）只有一种情形：一个项目都没有，无处可去。
-	 */
-	const handleAgentUseAgent = useCallback(
-		async (agent: AgentProfile): Promise<boolean> => {
-			const liveProjects = store.get(projectInventoryAtom);
-			const project = liveProjects.find((candidate) => candidate.id === activeProjectId) ?? liveProjects[0];
-			if (!project) {
-				showToast(t("agentMarket.useFailed", { error: t("feedback.ai.noProject") }), 4000, "error");
-				return false;
-			}
-			store.set(pendingAgentBindingAtom, agent.id);
-			selectProjectCommand(project.id);
-			showToast(t("agentMarket.useArmed", { name: agent.name }), 2600);
-			return true;
-		},
-		[activeProjectId, selectProjectCommand, showToast, store],
-	);
-
-	/**
-	 * 系统级划词浮窗的「发送到 PiDeck」：把浮窗里的文本追加到当前会话输入框。
-	 * 没有已选会话（引导页）时落到引导页草稿，行为与手动粘贴一致。
-	 */
-	useEffect(() => {
-		return api.selectionTool.onInserted(({ text }) => {
-			const trimmed = text.trim();
-			if (!trimmed) return;
-			const targetSessionId = currentSessionId ?? GUIDE_BOOTSTRAP_SESSION_ID;
-			const existing = store.get(sessionDraftByIdAtom)[targetSessionId] ?? "";
-			setSessionDraft({ sessionId: targetSessionId, value: existing ? `${existing}\n\n${trimmed}` : trimmed });
-			showToast(t("selectionTool.inserted"), 2400);
-		});
-	}, [currentSessionId, setSessionDraft, showToast, store]);
-
-	// 页面式工作区（定时任务 / 智能体）与会话共用同一条 Tab 栏：用户点侧栏切会话/项目时
-	// 只让页面「失活」（页面 Tab 与搜索/编辑状态保留），否则会出现「点了另一个会话，
-	// 页面还盖在上面」的错觉（与 HostPluginPageOverlay 同约定；区别是它直接收起插件页）。
-	const workspacePageScopeRef = useRef<string | undefined>(undefined);
-	useEffect(() => {
-		const scope = `${activeProjectId ?? ""}|${currentSessionId ?? ""}`;
-		if (workspacePageScopeRef.current === undefined) {
-			workspacePageScopeRef.current = scope;
-			return;
-		}
-		if (scope === workspacePageScopeRef.current) return;
-		workspacePageScopeRef.current = scope;
-		deactivateWorkspacePage();
-	}, [activeProjectId, currentSessionId, deactivateWorkspacePage]);
-
-	// 会话列同一时刻只呈现一层页面：打开工作区页面时收起页面式插件面板
-	// （两者都占 absolute inset-0，叠在一起会互相遮挡，且插件伪 Tab 无法再被点开）。
-	// 反方向（打开页面式面板时让页面失活）在 openHostPluginPanelAtom 里做，否则两边互相抵消。
-	// 对话框/浮层面板不占会话列，不与页面互斥。
-	useEffect(() => {
-		if (!activeWorkspacePage || !hostPluginPanel) return;
-		if (isHostPluginPagePanel(hostPluginPanel, store.get(hostPluginCatalogAtom).catalog)) setHostPluginPanel(null);
-	}, [activeWorkspacePage, hostPluginPanel, setHostPluginPanel, store]);
-
-	/** 侧栏/分支打开：选中成功后按 preview|permanent 登记 Tab */
-	const openSidebarSessionByIdWithTab = useCallback(
-		async (projectId: string, sessionId: string, tabMode: "preview" | "permanent" = "permanent") => {
-			const openedId = await runOpenSidebarSessionById(projectId, sessionId);
-			if (openedId) workspaceChrome.registerOpenSession(openedId, tabMode);
-			return openedId;
-		},
-		[runOpenSidebarSessionById, workspaceChrome],
-	);
-
-	// 桌面插件发起的会话导航：broker 已验权限/归属，复用侧栏打开链路（选中 + 常驻 Tab）。
-	// 插件页是临时页面，走纯选中会让会话没有任何 Tab 归属；与「定时任务」页查看会话同一条链路。
-	useHostPluginNavigation((projectId, sessionId) => {
-		void openSidebarSessionByIdWithTab(projectId, sessionId, "permanent");
-	}, openInBrowser);
-
-	// 收藏页「会话」条目：FavoritesPage 渲染在 SessionPaneServices 之外，经 atom 发导航请求，
-	// 这里复用侧栏打开链路（选中 + 常驻 Tab），不引入第二条会话选中路径。
-	useEffect(() => {
-		if (!favoritesOpenSessionRequest) return;
-		const request = favoritesOpenSessionRequest;
-		// 先消费再打开：openSidebarSessionByIdWithTab 的身份会随 workspaceChrome 变化，
-		// 不清空请求会在后续渲染里重复打开同一会话。
-		setFavoritesOpenSessionRequest(null);
-		void openSidebarSessionByIdWithTab(request.projectId, request.sessionId, "permanent").then((openedId) => {
-			// 目标恰好是当前会话时 scope 不变，页面自身不会失活；打开成功后显式让收藏页让位。
-			// 失败（会话已删除/项目读不到）时保留页面，用户还能看到收藏条目与提示。
-			if (openedId) deactivateWorkspacePage();
-		});
-	}, [deactivateWorkspacePage, favoritesOpenSessionRequest, openSidebarSessionByIdWithTab, setFavoritesOpenSessionRequest]);
-
-	useEffect(() => {
-		if (!activeProject) return;
-		const action = resolveChatSessionBootstrap({
-			isChatProject: isChatProject(activeProject),
-			currentSessionId,
-			catalogStatus: store.get(sessionCatalogLoadStateAtom)[activeProject.id]?.status,
-		});
-		if (action.kind === "load") {
-			void refreshProjectSessionsRef.current(activeProject.id).catch(() => undefined);
-		}
-	}, [activeProject, currentSessionId, store]);
-
-	// 引导页空白输入框（虚拟会话 GUIDE_BOOTSTRAP_SESSION_ID）的落地钩子：
-	// - 首次发送时创建真实 Catalog 会话（Chat 匿名 / 非 Chat draft）；
-	// - 选择 ACP 时也立即创建（ACP 的 configOptions 只有 runtime 握手后才有，
-	//   引导页没有 catalog record 无法预热，不建草稿就永远不自动加载/启动）。
-	// 创建后把 composer 状态整体提升到新会话（promoteSessionComposerStateAtom），
-	// 随后选中并登记 Tab，返回真实 sessionId；非虚拟会话直接透传（保持签名兼容）。
-	// 并发发送（快速双击）复用 guideBootstrapPromotionRef 里的同一个提升 promise，
-	// 避免建出两个会话。创建即用户意图，Chat 拉起 pi 是预期行为。
-	const ensureSessionForSend = useCallback(
-		async (sessionId: string, target?: NewSessionBackendTarget) => {
-			if (sessionId !== GUIDE_BOOTSTRAP_SESSION_ID) return sessionId;
-			if (guideBootstrapPromotionRef.current) return guideBootstrapPromotionRef.current;
-			const project = projects.find((candidate) => candidate.id === activeProjectId);
-			if (!project) {
-				throw new Error(t("app.guideBootstrapUnavailable"));
-			}
-			const promotion = (async () => {
-				// 「使用」带来的人：首次发送建会话时落地绑定。必须在选中会话之前完成——
-				// 主进程按绑定在首次发送时拼角色设定，晚一步首条消息就不带人设。
-				const pendingAgentId = store.get(pendingAgentBindingAtom);
-				const pendingAgent = pendingAgentId ? store.get(agentProfilesAtom).find((profile) => profile.id === pendingAgentId) : undefined;
-				// 引导页 picker 无 record 分支把显式选择存进 localStorage；创建时将模型交给
-				// 主进程校验、将思考档位作为启动偏好带入。底栏展示和真实会话创建读取同一份值，
-				// 避免出现「菜单看似切换，首次发送后又回到默认档位」。
-				// 后端取引导页输入框当前选择（composer 经 ensureSessionId 传入，已做可用性
-				// 回落）；没有显式选择就是设置默认后端。不再读 localStorage 的「上次选择」。
-				// 远端项目只跑主机上的 pi：即使欢迎页残留 dsh/acp 偏好，也不能把本地 runtime 绑到远端项目。
-				const draftBackend = isRemoteProject(project) ? "pi" : (target?.backend ?? effectiveAgentBackend);
-				const acpToolId = target?.acpToolId;
-				// 模型偏好按后端分开取（issue #253）：DSH 的模型是 host route 名，不在 models.json，
-				// 必须作为显式 model 直接带给 host；pi 的偏好走 welcomeModel（launchDefaults 会按
-				// models.json 校验存在性）。历史上 DSH 侧不读偏好，点选因此永远不生效。
-				// ACP 的模型/思考由 agent CLI 自持（session/config options），PiDeck 的
-				// models.json 偏好对它无意义：不传 welcomeModel/thinkingLevel，避免把 pi
-				// 的偏好写进 ACP 草稿（与 sessionIpc createDraft 的 nonPiBackend 同口径）。
-				const welcomeModel = draftBackend === "dsh" ? readWelcomeDshModelPreference()?.model : draftBackend === "pi" ? readWelcomeModelPreference()?.model : undefined;
-				const welcomeThinking = draftBackend === "acp" ? undefined : readWelcomeThinkingPreference()?.thinkingLevel;
-				// ACP 草稿标题用工具名（与项目「+」/Tab「+」的 createAcp 同观感），
-				// 找不到工具时退回项目名。
-				// 统一创建 draft 会话（Chat 项目也走普通会话、可保存）：创建不拉 pi，
-				// selectSessionCommand 同步切页、立即进入会话页；匿名会话仅保留给侧栏
-				// 「新建临时对话」入口（createAnonymousSessionWithTab）。
-				// 默认后端跟随设置项（settings.defaultAgentBackend，默认 pi），
-				// 且经 DSH runtime 安装态钳制——runtime 不可用时不会尝试建 dsh 会话。
-				// 激活时 SessionRuntimeCoordinator.applyPreferences → DshAgentManager.setModel
-				// 会把这条显式 model 落到 host（host 拒绝时降级并告警，不让创建失败）。
-				const acpToolName = draftBackend === "acp" && acpToolId ? store.get(acpToolsAtom).find((candidate) => candidate.id === acpToolId)?.name : undefined;
-				// 复用 Tab 栏「+」/ 侧栏新建正在创建的草稿（issue #481）：那条 IPC 还没回来时
-				// 引导页首发若另建一条，Tab 栏会多出一个没人写过的空标签。创建失败（undefined）
-				// 时照常自建——失败的那条本来就没落地，不该让首发跟着失败。
-				const inFlightDraft = pendingDraftCreationRef.current.get(project.id);
-				// 「+」/侧栏新建刚落地、并且已经顶掉引导页（currentSessionId 指向它）：这条发送
-				// 来自即将卸载的输入框，消息要落进那条会话。只认「最近新建的那条」，用户手动
-				// 切到的其它会话不会被误当成新建目标。
-				const liveSessionId = store.get(currentSessionIdAtom);
-				const adoptedSession = liveSessionId && liveSessionId === lastCreatedDraftIdRef.current ? store.get(sessionRecordByIdAtomFamily(liveSessionId)) : undefined;
-				const adoptedDraft = inFlightDraft ? await inFlightDraft : adoptedSession;
-				const session =
-					adoptedDraft ??
-					(await createSessionOnce(pendingDraftCreationRef.current, project.id, async () => {
-						const created = await api.sessions.createDraft({
-							projectId: project.id,
-							title: pendingAgent ? buildAgentSessionTitle(pendingAgent) : draftBackend === "dsh" ? `${project.name} DSH` : (acpToolName ?? `${project.name} agent`),
-							backend: draftBackend,
-							...(draftBackend === "acp" && acpToolId ? { acpToolId } : {}),
-							...(welcomeModel ? (draftBackend === "dsh" ? { model: welcomeModel } : { welcomeModel }) : {}),
-							...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
-						});
-						upsertSession(created);
-						return created;
-					}));
-				if (!session) throw new Error(t("app.sessionCreateFailed"));
-				if (pendingAgent) {
-					// 绑定失败不阻断发送（会话已存在，用户还能在输入框上方的提示条里再绑）；
-					// 无论成败都清掉待绑定 id，避免下一轮新会话页继承上一个智能体。
-					try {
-						await api.agentProfiles.bindSession({ sessionId: session.id, agentId: pendingAgent.id });
-					} catch (error) {
-						showToast(t("agentMarket.useFailed", { error: error instanceof Error ? error.message : String(error) }), 5000, "error");
-					}
-					store.set(pendingAgentBindingAtom, null);
-				}
-				// 引导页发送时 useSessionSend 已把 user 消息乐观写入虚拟会话 cache；
-				// 提升时搬到真实会话——否则切页后新会话空态与引导页视觉相同，
-				// 要等 agent 启动、回复流入后页面才「动」，用户误以为发送没生效。
-				// 虚拟会话的 cache 随之清空（见 promoteSessionMessagesCacheAtom）。
-				promoteSessionMessagesCache({
-					fromSessionId: GUIDE_BOOTSTRAP_SESSION_ID,
-					toSessionId: session.id,
-				});
-				promoteSessionComposerState({
-					fromSessionId: GUIDE_BOOTSTRAP_SESSION_ID,
-					toSessionId: session.id,
-				});
-				selectSessionCommand(project.id, session.id, false);
-				workspaceChrome.registerOpenSession(session.id, "permanent");
-				return session.id;
-			})();
-			guideBootstrapPromotionRef.current = promotion;
-			try {
-				return await promotion;
-			} finally {
-				guideBootstrapPromotionRef.current = undefined;
-			}
-		},
-		[activeProjectId, projects, promoteSessionComposerState, promoteSessionMessagesCache, selectSessionCommand, upsertSession, workspaceChrome, effectiveAgentBackend, store, showToast],
-	);
-
-	// 待绑定智能体只在「新会话页」有意义：一旦进入真实会话（含刚建好的），就丢掉——
-	// 否则用户之后再回到引导页发消息，会把上一轮选过的智能体莫名绑上去。
-	useEffect(() => {
-		if (!currentSessionId) return;
-		if (store.get(pendingAgentBindingAtom) === null) return;
-		store.set(pendingAgentBindingAtom, null);
-	}, [currentSessionId, store]);
+	// 会话入口与引导页首发（划词回填 / 页面式工作区互斥 / 侧栏·插件·收藏页打开会话 /
+	// 引导页首次发送落地真实会话）收口到 useAppSessionEntrypoints。
+	const { openSidebarSessionByIdWithTab, ensureSessionForSend } = useAppSessionEntrypoints({
+		store,
+		currentSessionId,
+		activeProjectId,
+		activeProject,
+		projects,
+		effectiveAgentBackend,
+		setSessionDraft,
+		showToast,
+		selectSessionCommand,
+		upsertSession,
+		promoteSessionComposerState,
+		promoteSessionMessagesCache,
+		workspaceChrome,
+		runOpenSidebarSessionById,
+		openInBrowser,
+		activeWorkspacePage,
+		deactivateWorkspacePage,
+		hostPluginPanel,
+		setHostPluginPanel,
+		favoritesOpenSessionRequest,
+		setFavoritesOpenSessionRequest,
+		refreshProjectSessionsRef,
+		pendingDraftCreationRef,
+		lastCreatedDraftIdRef,
+		guideBootstrapPromotionRef,
+	});
 
 	/** 有效文件路径白名单：仅工作区真实存在的 @ 引用渲染为 chip */
 	const validFilePaths = useMemo(() => new Set(flatFiles.map((f) => f.relativePath)), [flatFiles]);
 
 	const projectIdsKey = useMemo(() => projects.map((project) => project.id).join("\n"), [projects]);
 
-	function handleAgentInventoryChanged(nextAgents: AgentTab[]) {
-		const previousPendingAgents = pendingAgentsRef.current;
-		const remainingPendingAgents = previousPendingAgents.filter((pending) => !nextAgents.some((agent) => isReplacementForPendingAgent(agent, pending)));
-		const pendingReplacementById = new Map(
-			previousPendingAgents
-				.map((pending) => {
-					const replacement = nextAgents.find((agent) => isReplacementForPendingAgent(agent, pending));
-					return replacement ? [pending.id, replacement.id] : undefined;
-				})
-				.filter((entry): entry is [string, string] => Boolean(entry)),
-		);
-		if (remainingPendingAgents.length !== previousPendingAgents.length) {
-			pendingAgentsRef.current = remainingPendingAgents;
-			setPendingAgents(remainingPendingAgents);
-		}
-		const draftIds = new Set([...nextAgents.map((agent) => agent.id), ...remainingPendingAgents.map((agent) => agent.id)]);
-		// 终端状态清理统一由下方 useEffect([displayAgents]) 的 prune 负责：
-		// 此处再调一次会在流式 runtime 更新时与 displayAgents effect 重复执行，
-		// 形成不必要的 setState 链（历史日志：发送消息后 Maximum update depth）。
-		livePromptByAgentRef.current = migrateAgentRecord(livePromptByAgentRef.current, pendingReplacementById, draftIds);
-	}
+	// App 启动接线（Agent 清单替换 + 宿主 bootstrapProps + 首拉设置）收口到 useAppStartupWiring。
+	const { bootstrapProps } = useAppStartupWiring({
+		store,
+		agents,
+		pendingAgentsRef,
+		setPendingAgents,
+		livePromptByAgentRef,
+		activeProjectId,
+		setActiveProjectId,
+		setSettings,
+		setSettingsLoaded,
+		setImageGenConfig,
+		setEnhanceModel,
+		setEnhanceIncludeContext,
+		setPromptSuggestionEnabled,
+		setPromptSuggestionModel,
+		showToast,
+		selectSessionCommand,
+		openInBrowser,
+		overlays,
+		workspace,
+		piUpdate,
+	});
 
-	useEffect(() => {
-		handleAgentInventoryChanged(agents);
-	}, [agents]);
-
-	const bootstrapProps = {
-		onProjectsChanged: (next: Project[]) => {
-			if (!activeProjectId && next.length > 0) setActiveProjectId(next[0].id);
-		},
-		onSettingsApplied: (next: AppSettings) => {
-			setSettings(next);
-			showToast(t("settings.restartNotice"));
-		},
-		onOpenInBrowser: openInBrowser,
-		onTrustRequest: overlays.setTrustRequest,
-		// 主进程焦点目标（通知点击/右键打开项目）：sessionId 走旧链路选中会话；
-		// projectId/projectPath 由 useSessionWorkspaceChrome 的订阅处理（本回调只透传不重复消费）。
-		onFocusTarget: (target: FocusTargetPayload) => {
-			if (!("sessionId" in target)) return;
-			const session = store.get(sessionRecordByIdAtomFamily(target.sessionId));
-			if (session) selectSessionCommand(session.projectId, session.id, false);
-		},
-	};
-
-	useEffect(() => {
-		void workspace.loadExternalEditors().catch(() => undefined);
-		void api.imagegen
-			.getConfig()
-			.then(setImageGenConfig)
-			.catch(() => undefined);
-		void api.settings
-			.get()
-			.then((next) => {
-				setSettings(next);
-				setSettingsLoaded(true);
-				setEnhanceModel(next.enhanceModel ?? null);
-				setEnhanceIncludeContext(next.enhanceIncludeContext === true);
-				setPromptSuggestionEnabled(next.promptSuggestionEnabled !== false);
-				setPromptSuggestionModel(next.promptSuggestionModel ?? null);
-				piUpdate.setCustomPiPath(next.customPiPath ?? "");
-				if (!Object.values(next.externalEditors).some((editor) => editor.command)) {
-					void api.editors
-						.redetect()
-						.then((updated) => {
-							setSettings(updated);
-						})
-						.then(() => workspace.loadExternalEditors())
-						.catch(() => undefined);
-				}
-				if (!next.piEnvironmentChecked) {
-					// 首次检测延后一帧启动,先让主界面完成绘制,避免 packaged app 打开时出现几秒白屏。
-					window.setTimeout(() => {
-						// 默认后端已是可用 DSH 时不再弹出「没有 pi」：只装 DSH 的用户不需要每次启动都被催装 pi。
-						// 探针可能还没落地（checking），那就照常检测——宁可多问一次，不能把真正缺后端的用户闷死。
-						if (next.defaultAgentBackend === "dsh" && store.get(dshRuntimeStatusAtom).state === "installed") return;
-						void piUpdate.checkPiInstall("startup");
-					}, 300);
-				}
-			})
-			.catch(() => {
-				// 即使 settings IPC 暂不可用，也要允许侧栏继续使用 localStorage/default 状态。
-				setSettingsLoaded(true);
-			});
-	}, []);
-
-	/**
-	 * 更新侧栏展开集合并双写持久化：
-	 * 1) localStorage：同步，首屏可读
-	 * 2) settings.json：主进程 writeFile，dev 强杀/重启也不丢
-	 */
-	const commitExpandedSidebarProjects = useCallback((next: Set<string>) => {
-		// 标记已有权威写入，防止启动时迟到的 settings.get 用旧值覆盖用户刚点的展开
-		expandedSidebarFromSettingsRef.current = true;
-		expandedSidebarProjectsRef.current = next;
-		setExpandedSidebarProjects(next);
-		saveExpandedSidebarProjectsToLocal(next);
-		void api.settings
-			.update({ sidebarExpandedProjectIds: [...next] })
-			.then((saved) => {
-				// 只合并本字段，避免覆盖用户在设置页刚改的其它项的本地缓存
-				setSettings((current) => ({
-					...current,
-					sidebarExpandedProjectIds: saved.sidebarExpandedProjectIds,
-				}));
-			})
-			.catch(() => undefined);
-	}, []);
-
-	/** 展开/折叠某个项目；forceExpand=true 时只展开不切换 */
-	const setProjectSidebarExpanded = useCallback(
-		(projectId: string, forceExpand?: boolean) => {
-			const prev = expandedSidebarProjectsRef.current;
-			const next = new Set(prev);
-			const shouldExpand = forceExpand ?? !next.has(projectId);
-			if (shouldExpand) next.add(projectId);
-			else next.delete(projectId);
-			const unchanged = next.size === prev.size && [...next].every((id) => prev.has(id));
-			if (unchanged) return next;
-			commitExpandedSidebarProjects(next);
-			return next;
-		},
-		[commitExpandedSidebarProjects],
-	);
-
-	useEffect(() => {
-		const projectIds = new Set(projects.map((project) => project.id));
-		setVisibleProjectChildCountByProject((current) => Object.fromEntries(Object.entries(current).filter(([projectId]) => projectIds.has(projectId))));
-		setSessionLoadingByProject((current) => Object.fromEntries(Object.entries(current).filter(([projectId]) => projectIds.has(projectId))));
-	}, [projectIdsKey]);
-
-	useEffect(() => {
-		// settings.json 覆盖首屏 localStorage 后，按最终展开集合补加载；使用 catalog load state
-		// 而不是会话数量判定，空项目也只加载一次。
-		if (!expandedProjectsReady) return;
-		for (const project of projects) {
-			if (!expandedProjects.has(project.id)) continue;
-			const loadState = store.get(sessionCatalogLoadStateAtom)[project.id];
-			if (loadState?.status === "loading" || loadState?.status === "ready") continue;
-			void refreshProjectSessionsRef.current(project.id).catch(() => undefined);
-		}
-	}, [expandedProjects, expandedProjectsReady, projectIdsKey, store]);
-
-	useEffect(() => {
-		if (activeAgentId && !isPendingAgentId(activeAgentId)) void refreshRuntimeState(activeAgentId);
-	}, [activeAgentId]);
-
-	useEffect(() => {
-		// 只按各自存活集合裁剪：流式事件仅更新 agent 集合，不能误删项目终端状态
-		const liveAgentIds = new Set(displayAgents.map((agent) => agent.id));
-		const liveProjectIds = new Set(projects.map((project) => project.id));
-		pruneTerminalDockState(liveAgentIds, liveProjectIds);
-	}, [displayAgents, projects]);
-
-	useEffect(() => {
-		// 折叠中的项目不跑周期扫描，避免后台无意义刷会话列表
-		if (!expandedProjectsReady || !activeProjectId || !expandedProjects.has(activeProjectId)) return;
-		// 进入/退出运行态时都立即扫描一次，保证最终 child session 不因最后一次写入时序而遗漏。
-		let disposed = false;
-		const scheduleRefresh = () => {
-			if (disposed) return;
-			void refreshProjectSessions(activeProjectId, true).catch(() => undefined);
-		};
-		scheduleRefresh();
-		if (!activeProjectHasBusyAgent) {
-			return () => {
-				disposed = true;
-			};
-		}
-
-		// 子会话由扩展直接写盘，运行期间保留低频兜底；工具 start/end 不应重置计时器并触发额外扫描。
-		const timer = window.setInterval(scheduleRefresh, 15_000);
-		return () => {
-			disposed = true;
-			window.clearInterval(timer);
-		};
-	}, [activeProjectId, activeProjectHasBusyAgent, activeProjectSessionSyncKey, expandedProjects, expandedProjectsReady]);
+	// 项目/会话集合的收敛 effect（项目裁剪、catalog 补加载、运行态回读、终端裁剪、周期扫描）
+	// 收口到 useAppProjectScanEffects。
+	useAppProjectScanEffects({
+		store,
+		projects,
+		projectIdsKey,
+		setVisibleProjectChildCountByProject,
+		setSessionLoadingByProject,
+		expandedProjects,
+		expandedProjectsReady,
+		refreshProjectSessionsRef,
+		activeAgentId,
+		refreshRuntimeState,
+		displayAgents,
+		pruneTerminalDockState,
+		activeProjectId,
+		activeProjectHasBusyAgent,
+		activeProjectSessionSyncKey,
+		refreshProjectSessions,
+	});
 
 	// Composer sizing is owned by the composer panel (react-resizable-panels) since #115 U5.
 	// 待发送轨道高度变化只影响面板可用空间，不再回写 composer 高度状态。
@@ -1882,77 +1419,19 @@ export function App() {
 		return () => window.removeEventListener("composer-attach-refs", handler);
 	}, []);
 
-	useEffect(() => {
-		if (!activeProjectId || activeProjectIsRemote) return;
-		// 切换项目时按 catalog load state 判断。空项目成功返回 [] 后也会是 ready，
-		// 不能再用列表长度，否则每次选中都会重扫。
-		const activeProject = projects.find((p) => p.id === activeProjectId);
-		const loadState = store.get(sessionCatalogLoadStateAtom)[activeProjectId];
-		if (expandedProjectsReady && activeProject && expandedProjects.has(activeProjectId) && loadState?.status !== "loading" && loadState?.status !== "ready") {
-			void refreshProjectSessionsRef.current(activeProjectId).catch(() => undefined);
-		}
-	}, [activeProjectId, activeProjectIsRemote, expandedProjects, expandedProjectsReady, projects, store]);
-
-	// 项目切换只刷 git 分支（文件树加载/恢复已收口到 useProjectFileTreeController）
-	useEffect(() => {
-		if (!activeProjectId || activeProjectIsRemote) {
-			setGitInfo({ current: null, branches: [] });
-			return;
-		}
-		let cancelled = false;
-
-		void api.git
-			.branches(activeProjectId)
-			.then((info) => {
-				if (!cancelled) setGitInfo(info);
-			})
-			.catch(() => {
-				if (!cancelled) setGitInfo({ current: null, branches: [] });
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [activeProjectId, activeProjectIsRemote]);
-
-	useEffect(() => {
-		if (!activeProjectId || activeProjectIsRemote) return;
-		let stopped = false;
-		const refreshGitInfo = async () => {
-			try {
-				const next = await api.git.branches(activeProjectId);
-				if (stopped) return;
-				// 外部终端/IDE 切分支时同步侧栏徽标与抽屉，只在状态真的变化时更新，避免不必要重渲染。
-				setGitInfo((current) => (current.current === next.current && current.branches.join("\n") === next.branches.join("\n") ? current : next));
-				// 侧栏分支徽标与 Git 抽屉同源：外部终端 checkout 后也要一起跟上。
-				// 只更新聚焦项目——非聚焦项目不在监听范围内，由栏内 usePaneGitInfo 回写。
-				setBranchByProject((prev) => (prev[activeProjectId] === next.current ? prev : { ...prev, [activeProjectId]: next.current }));
-			} catch {
-				if (!stopped) {
-					setGitInfo({ current: null, branches: [] });
-				}
-			}
-		};
-		void refreshGitInfo();
-		// 与栏内 usePaneGitInfo 同一事件源：主进程 GitRefsWatcher 复用一份 1.5s refs
-		// 签名轮询，替代 App 级 4s 盲轮询；订阅失败时静默降级为初始一次回读。
-		const offRefsChanged = api.git.onRefsChanged((changedWatchId) => {
-			if (changedWatchId !== watchId || stopped) return;
-			void refreshGitInfo();
-		});
-		const watchPromise = api.git.watchRefs(activeProjectId).catch(() => null);
-		let watchId: string | null = null;
-		void watchPromise.then((id) => {
-			watchId = id;
-		});
-		return () => {
-			stopped = true;
-			offRefsChanged();
-			// 竞态安全：卸载时 watch 可能尚未 resolve，退订等它落地后执行。
-			void watchPromise.then((id) => {
-				if (id) void api.git.unwatchRefs(id);
-			});
-		};
-	}, [activeProjectId, activeProjectIsRemote]);
+	// 活动项目的 catalog 补加载与 git 分支同步（切项目回读分支 + 订 refs 变化事件）
+	// 收口到 useAppActiveProjectSync：三条 effect 共用「活动项目 + 是否远端」同一入口条件。
+	useAppActiveProjectSync({
+		store,
+		activeProjectId,
+		activeProjectIsRemote,
+		projects,
+		expandedProjects,
+		expandedProjectsReady,
+		refreshProjectSessionsRef,
+		setGitInfo,
+		setBranchByProject,
+	});
 
 	// 项目记录域（入库/移除/排序/置顶、Chat 记录目录切换、草稿会话删除、catalog 按需预热）
 	// 收口到 useAppProjectActions：App 只接 IO 接口与选中态，动作实现与文案都在 hook 内。
@@ -2006,11 +1485,9 @@ export function App() {
 	// Session prompt dispatch extracted to useSessionPromptDispatch
 	// (dispatchPromptSnapshot / submitPromptSnapshot / translateAgentErrorMessage /
 	// isAgentCurrentlyBusy / setPromptForAgent / setPrompt / livePromptByAgentRef).
-	/**
-	 * pi 历史消息改写：无 runtime 直接改 JSONL；有 runtime 先确认停止再改文件。
-	 * DSH 入口在 Injector 按 backend 隐藏。下次发送才重新激活 Agent。
-	 */
-	const { editMessage, deleteMessage, removeMessageImage, resendUserMessage, forkFromUserMessage, forkAtEntry, pendingHistoryMutation } = useSessionHistoryMutations({
+	// pi 历史消息改写（编辑/删除/重发/分支）的装配收口到 useAppHistoryMutations：策略与写盘在
+	// useSessionHistoryMutations，这里只接「会话身份 → 项目/文件/后端形态」判定。
+	const { editMessage, deleteMessage, removeMessageImage, resendUserMessage, forkFromUserMessage, forkAtEntry, pendingHistoryMutation } = useAppHistoryMutations({
 		currentSessionId,
 		getRuntimeTargetForSession,
 		getRuntimeTargetForAgent,
@@ -2022,53 +1499,13 @@ export function App() {
 		submitPromptSnapshot,
 		openReplacedRuntimeSession,
 		setPromptForAgent,
-		setCurrentSessionIdRef: (sessionId) => {
-			currentSessionIdRef.current = sessionId;
-		},
 		isAgentCurrentlyBusy,
-		resolveProjectId: (sessionId) => getSessionRecord(sessionId)?.projectId ?? activeProjectId,
-		hasPersistedSessionFile: (sessionId) => {
-			const record = getSessionRecord(sessionId);
-			if (!record || record.noSession) return false;
-			// 远端（ssh）会话没有本机 filePath，但它在远端有真实的会话文件——编辑 / 删除 / 准备重发改写的
-			// 就是它（P4.5c 的远端写面）。判据必须认 locator 里的远端身份，否则远端会话在这里被判成
-			// 「无持久化文件」，那三条链路在 UI 上永远走不到（表现为"匿名会话不支持编辑"）。
-			if (record.locator?.kind === "ssh") return Boolean(record.locator.remoteSessionId || record.locator.remotePath);
-			return Boolean(record.filePath);
-		},
-		// 生图 draft：会话消息里存在生图占位/结果即判定为生图模式（无 pi runtime、无 pi JSONL）。
-		isImageGenSession: (sessionId) => (store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? []).some((message) => message.meta?.imageGen !== undefined),
-		// fork 化重发/编辑只服务本机 pi 后端：DSH 维持 legacy 路径（策略层返回 catalog）
-		isDshSession: (sessionId) => getSessionRecord(sessionId)?.backend === "dsh",
-		// 远端 SSH 会话同样维持 catalog：改写主机上的会话文件由 RemoteSessionHistoryWriter 负责
-		// （含外部改动冲突检测）；pi fork 只接受 user 条目，而编辑目标是 assistant 回复。
-		isRemoteSession: (sessionId) => getSessionRecord(sessionId)?.locator?.kind === "ssh",
-		// fork 锚点是否为最后一条用户消息：尾部 → 替换语义（旧会话隐藏）；非尾部 → 分支模式（旧会话保留可见）。
-		// 缓存缺失时按非尾部处理（false），宁可两会话并存也不隐藏可能还有独属内容的旧会话。
-		isLastUserMessage: (sessionId, message) => {
-			const cached = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages;
-			if (!cached) return false;
-			const index = cached.findIndex((candidate) => candidate.id === message.id);
-			if (index < 0) return false;
-			return !cached.slice(index + 1).some((candidate) => candidate.role === "user");
-		},
-		// 生图重发：把失败的提示词（+参考图）放回输入框供一键重试。参考图直接整体替换附件栏
-		//（重发目标就是这轮消息自身，不需要前插保留——那是失败后保留用户新粘贴图的场景）。
-		restoreImageGenTurn: (sessionId, text, images) => {
-			setSessionDraft({ sessionId, value: text });
-			if (!images?.length) return;
-			// 历史消息里的参考图是落盘引用（ref），附件栏与后续请求体要的是 base64：
-			// 异步回填，取不到字节的条目丢掉（不阻断提示词回填）。
-			void hydrateImageContents(images, (ref) => window.piDesktop.imagegen.readImageBlob(ref))
-				.then((hydrated) => {
-					if (hydrated.length > 0) {
-						setSessionAttachments({ sessionId, value: hydrated });
-						return;
-					}
-					if (images.length > 0) showToast(t("imagegen.referenceUnavailable"));
-				})
-				.catch(() => showToast(t("imagegen.referenceUnavailable")));
-		},
+		currentSessionIdRef,
+		store,
+		getSessionRecord,
+		activeProjectId,
+		setSessionDraft,
+		setSessionAttachments,
 	});
 
 	/**
@@ -2100,44 +1537,14 @@ export function App() {
 		webServiceEnabled: settings.webServiceEnabled,
 	});
 
-	const switchBranch = useCallback(
-		async (branch: string) => {
-			if (!activeProjectId || !branch || branch === gitInfo.current) return;
-			try {
-				const next = await api.git.checkout(activeProjectId, branch);
-				setGitInfo(next);
-				setBranchByProject((prev) => ({ ...prev, [activeProjectId]: next.current }));
-			} catch (error) {
-				showToast(
-					t("app.branchSwitchFailed", {
-						error: error instanceof Error ? error.message : String(error),
-					}),
-				);
-				const refreshed = await api.git.branches(activeProjectId).catch(() => ({ current: null, branches: [] }));
-				setGitInfo(refreshed);
-			}
-		},
-		[activeProjectId, gitInfo.current, showToast],
-	);
-
-	const createBranch = useCallback(
-		async (branchName: string) => {
-			if (!activeProjectId || !branchName.trim()) return;
-			try {
-				const next = await api.git.createBranch(activeProjectId, branchName);
-				setGitInfo(next);
-				setBranchByProject((prev) => ({ ...prev, [activeProjectId]: next.current }));
-				showToast(t("app.branchCreated", { branch: branchName }), 2500);
-			} catch (error) {
-				showToast(
-					t("app.branchCreateFailed", {
-						error: error instanceof Error ? error.message : String(error),
-					}),
-				);
-			}
-		},
-		[activeProjectId, showToast],
-	);
+	// 分支切换/新建（成功后同源回写侧栏徽标与 Git 抽屉）收口到 useAppGitBranchActions。
+	const { switchBranch, createBranch } = useAppGitBranchActions({
+		activeProjectId,
+		gitInfo,
+		showToast,
+		setGitInfo,
+		setBranchByProject,
+	});
 
 	// 侧栏会话归档/删除族收口到 useSidebarArchiveActions（删除/归档/恢复 + DSH 归档）
 	const archiveActions = useSidebarArchiveActions({

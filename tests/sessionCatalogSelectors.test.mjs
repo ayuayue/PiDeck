@@ -6,6 +6,7 @@ import ts from "typescript";
 import vm from "node:vm";
 import { createStore } from "jotai/vanilla";
 import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { sessionAtomsLoaderImports } from "./helpers/sessionAtomsSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 const appSource = rendererAppSource;
@@ -46,20 +47,27 @@ function loadAtoms() {
 	const sessionActivityAtoms = compileModule("src/renderer/src/atoms/sessionActivityAtoms.ts", {
 		"../utils/sessionActivityClock": sessionActivityClock,
 	});
-	const sessions = compileModule("src/renderer/src/atoms/session-atoms.ts", {
-		"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
-		"./composer-atoms": composerExports,
-		"../utils/agentRuntimeState": compileModule("src/renderer/src/utils/agentRuntimeState.ts"),
-		"../utils/sessionRecordIdentity": compileModule("src/renderer/src/utils/sessionRecordIdentity.ts"),
-		"../utils/liveTextHandoff": compileModule("src/renderer/src/utils/liveTextHandoff.ts"),
-		"./outlineRevision": compileModule("src/renderer/src/atoms/outlineRevision.ts"),
-		"./outlineProjectionCache": compileModule("src/renderer/src/atoms/outlineProjectionCache.ts"),
-		"./sessionActivityAtoms": sessionActivityAtoms,
-		"../utils/sessionActivityClock": sessionActivityClock,
-		// 分段计时探针（perfSpan）：默认关闭时是空函数，stub 掉即可（同 sessionAtoms.test.mjs）。
-		"../utils/perfProbe": { perfSpan: () => () => undefined },
-		"./session-family-registry": familyRegistry,
-	});
+	// 域模块（session-atoms 拆出的 session-*.ts）由 helper 惰性编译，其余 specifier 仍走下面的手写桩。
+	const sessions = compileModule(
+		"src/renderer/src/atoms/session-atoms.ts",
+		sessionAtomsLoaderImports({
+			compileModule,
+			imports: {
+				"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
+				"./composer-atoms": composerExports,
+				"../utils/agentRuntimeState": compileModule("src/renderer/src/utils/agentRuntimeState.ts"),
+				"../utils/sessionRecordIdentity": compileModule("src/renderer/src/utils/sessionRecordIdentity.ts"),
+				"../utils/liveTextHandoff": compileModule("src/renderer/src/utils/liveTextHandoff.ts"),
+				"./outlineRevision": compileModule("src/renderer/src/atoms/outlineRevision.ts"),
+				"./outlineProjectionCache": compileModule("src/renderer/src/atoms/outlineProjectionCache.ts"),
+				"./sessionActivityAtoms": sessionActivityAtoms,
+				"../utils/sessionActivityClock": sessionActivityClock,
+				// 分段计时探针（perfSpan）：默认关闭时是空函数，stub 掉即可（同 sessionAtoms.test.mjs）。
+				"../utils/perfProbe": { perfSpan: () => () => undefined },
+				"./session-family-registry": familyRegistry,
+			},
+		}),
+	);
 	const composer = compileModule("src/renderer/src/atoms/composer-atoms.ts", {
 		"./session-atoms": sessions,
 		"./session-family-registry": familyRegistry,
