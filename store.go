@@ -97,6 +97,8 @@ type config struct {
 	FeishuEnabled bool   `json:"feishuEnabled,omitempty"`
 	FeishuWebhook string `json:"feishuWebhook,omitempty"`
 	FeishuSecret  string `json:"feishuSecret,omitempty"`
+	// PetEnabled shows the desktop pet window.
+	PetEnabled bool `json:"petEnabled,omitempty"`
 }
 
 // store holds the config file and the session directory.

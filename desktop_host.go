@@ -28,6 +28,7 @@ func (a *app) setupDesktop() {
 		Menu:    a.trayMenu,
 	})
 	a.updateTray()
+	a.setupPet()
 }
 
 // attachMainWindow hooks the window's close once the platform has made
