@@ -76,6 +76,10 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	// 子代理首屏分页读取（dev 引入）：控制器只调用 readSessionFirstScreenPage，stub 成空实现。
 	"../components/session/sessionSubagentTranscript": { readSessionFirstScreenPage: () => undefined },
 	"./timeline/browsePin": browsePin,
+	// 拆分出的两个域子 hook（2026-12）：本测试只用控制器导出的纯函数（surface 派生 / 锚点选择），
+	// 不驱动 hook 本体；缺这两条时 loader 会回落到以 tests/ 为基准的 nodeRequire 解析 .ts 失败。
+	"./session/timeline/useTimelineHistoryPaging": {},
+	"./session/timeline/useTimelineScrollAnchor": {},
 	// SendScrollPositioner（612bb51c1 从 controller 迁出）：真实模块自身只依赖
 	// ../../lib/pinTurnScroll，与 ../lib/pinTurnScroll 同名 mock 共享即可。
 	"./timeline/sendScroll": compile("src/renderer/src/hooks/timeline/sendScroll.ts", {

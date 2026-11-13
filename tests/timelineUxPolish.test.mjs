@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionTimelineControllerSource as controller } from "./helpers/sessionTimelineControllerSources.mjs";
 
 const toolCard = readFileSync("src/renderer/src/components/session/ToolCallComponents.tsx", "utf8");
 const turnExecution = readFileSync("src/renderer/src/components/session/turn/useTurnExecution.ts", "utf8");
-const controller = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
 const sendScroll = readFileSync("src/renderer/src/hooks/timeline/sendScroll.ts", "utf8");
 const scroller = readFileSync("src/renderer/src/components/agents/message-scroller.tsx", "utf8");
 const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");

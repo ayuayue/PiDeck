@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -129,7 +130,7 @@ test("MessageScroller forwards restoreAt to timeline controller scroll api", () 
 });
 
 test("timeline controller restores via engine restoreAt and keeps negative offset", () => {
-	const source = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const source = sessionTimelineControllerSource;
 	// 保存锚点保留负偏移（视口顶部常被上一行底部占据，截断会导致恢复位置偏下）
 	// origin 真值：视口顶 = getBoundingClientRect().top + clientTop（IntersectionObserver 的
 	// root 相交矩形以 padding box 为界）。改回裸 viewportRect.top 或漏掉 clientTop 必须红。
@@ -150,7 +151,7 @@ test("timeline controller restores via engine restoreAt and keeps negative offse
 
 test("turn-window expansion pins the visible row instead of native scrollTop", () => {
 	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controllerSource = sessionTimelineControllerSource;
 	// 扩窗补偿走 pinBrowseRow（钉正在看的那一轮），不再用整页高度差写原生 scrollTop。
 	// 补偿之后还要通知 controller 解除「整表渲染」（endPrependSolid）：扩窗在顶部插入轮次，
 	// 虚拟化会顺手卸载视口里被推走的那一行，之后 pin 拿不到 currentTop 就补不了位移。
@@ -169,7 +170,7 @@ test("turn-window expansion pins the visible row instead of native scrollTop", (
 
 test("timeline keeps the same turn window through anchor restoration", () => {
 	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controllerSource = sessionTimelineControllerSource;
 	// 保存、恢复和正常历史浏览必须都按同一个 tail-window 裁剪。恢复期若改成全量，
 	// restoreAt 后再收回小窗口会让浏览器把 scrollTop 截断到新的最大值。
 	assert.match(timelineSource, /selectTimelineTurnWindow\(reconciledRuns, turnWindowTurns\)/);

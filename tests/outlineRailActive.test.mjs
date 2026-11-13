@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -69,7 +70,7 @@ test("unknown active checkpoints do not highlight an unrelated rail tick", () =>
 const activeHookSource = readFileSync("src/renderer/src/components/session/timeline/useTimelineOutlineActiveId.ts", "utf8");
 const stickSource = readFileSync("src/renderer/src/lib/stick-to-bottom/useStickToBottom.ts", "utf8");
 const scrollerSource = readFileSync("src/renderer/src/components/agents/message-scroller.tsx", "utf8");
-const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+const controllerSource = sessionTimelineControllerSource;
 
 test("equivalent outline values do not force a rail recomputation", () => {
 	const previous = [{ id: "one", role: "user", title: "First", time: "10:00" }];

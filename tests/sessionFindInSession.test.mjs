@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 /**
  * 会话内查找（useSessionMessageSearch）的请求生命周期回归。
  *
@@ -201,7 +202,7 @@ test("渠道与契约接线：IPC 常量、preload 白名单、主进程 handler
 	// 点击命中必须真的跳得过去：命中 id 是会话文件条目 id（meta.entryId），时间线节点
 	// 用的是投影 id，controller 必须先归一（否则查不到 DOM，点击毫无反应——2027-02 用户反馈）。
 	assert.match(pane, /onJump=\{\(messageId\) => \{[\s\S]{0,80}?sessionTimeline\.jumpToMessage\(messageId\)/);
-	const controller = read("src/renderer/src/hooks/useSessionTimelineController.ts");
+	const controller = sessionTimelineControllerSource;
 	assert.match(controller, /resolveJumpMessageIndex\(combinedMessages, messageId\)/);
 	assert.match(controller, /resolveJumpMessageIndex\(combinedMessages, pendingJump\.value\.messageId\)/);
 	assert.match(controller, /resolveJumpScrollTarget\(/);

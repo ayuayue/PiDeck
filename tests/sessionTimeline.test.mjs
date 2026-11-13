@@ -4,8 +4,8 @@ import test from "node:test";
 import { createStore } from "jotai/vanilla";
 import { selectAtom } from "jotai/utils";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
+import { sessionTimelineControllerSource as source } from "./helpers/sessionTimelineControllerSources.mjs";
 
-const source = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
 const visibleRowsSource = readFileSync("src/renderer/src/hooks/timeline/useVisibleTimelineRows.ts", "utf8");
 
 /**

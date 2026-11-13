@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 /**
  * DSH host 手动停止（dshManualStopped）接线测试。
  *
@@ -30,7 +31,7 @@ const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 const sessionTypes = readFileSync("src/shared/types/session.ts", "utf8");
 const dshManualStop = readFileSync("src/main/dsh/dshManualStop.ts", "utf8");
 const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-const timelineController = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+const timelineController = sessionTimelineControllerSource;
 const appShell = readFileSync("src/renderer/src/hooks/session/useSessionRunControl.ts", "utf8");
 const historyMutations = readFileSync("src/renderer/src/hooks/useSessionHistoryMutations.ts", "utf8");
 const trajectorySource = readFileSync("src/renderer/src/hooks/useSessionTrajectorySource.ts", "utf8");

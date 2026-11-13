@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 /**
  * 会话内查找「点了跳不过去」的回归（2027-02 用户反馈）。
  *
@@ -57,7 +58,7 @@ test("接线：controller 发揭示请求并在结算时清空，TurnRow 收到�
 	assert.match(atoms, /export const timelineRevealRequestsAtom = atom</);
 	assert.match(atoms, /export const requestTimelineRevealAtom = atom\(null/);
 	assert.match(atoms, /export const clearTimelineRevealAtom = atom\(null/);
-	const controller = read("src/renderer/src/hooks/useSessionTimelineController.ts");
+	const controller = sessionTimelineControllerSource;
 	assert.match(controller, /requestTimelineReveal\(targetNodeId\)/);
 	assert.match(controller, /clearTimelineReveal\(\)/);
 	assert.match(controller, /findFallbackJumpRow\(pendingJump\.value\.messageId\)/);

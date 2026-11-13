@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -105,7 +106,7 @@ test("resolveAutoExpandThreshold scales with viewport but floors at 120px", () =
 });
 
 test("auto-expand wiring: controller exposes windowExpandableRef and listens near top", () => {
-	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controllerSource = sessionTimelineControllerSource;
 	// 滚动监听进入「接近顶部」区间（scrollTop ≤ 视口比例阈值，下限 120px）且窗口仍可
 	// 扩展时先扩窗口：触顶也优先消费 atom 已加载的 cohort，不因一把拉到顶而跳过本地扩窗。
 	// 2026-09 强化：扩窗必须由引擎上报的用户上滚意图授权（shouldAutoExpandRenderWindow），

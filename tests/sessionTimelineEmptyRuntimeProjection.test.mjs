@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 /**
  * 空 runtime 投影不得让时间线永久停在「正在加载历史」。
  *
@@ -107,7 +108,7 @@ test("settled read error must not auto-retry the disk load (loading↔error loop
 test("controller effect must consult shouldSkipInitialDiskRead", () => {
 	// 回归保险：effect 里不得再裸判断 `previouslyLoaded && cachedEntry` 或 `cachedEntry ||`
 	// （空 runtime 条目覆盖旧窗口时会误跳读盘，Issue #350 / 2026-10-08 现场）。
-	const source = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const source = sessionTimelineControllerSource;
 	assert.match(source, /shouldSkipInitialDiskRead\(\{ previouslyLoaded, cachedEntry, knownEmpty, loadStateStatus \}\)/);
 	assert.doesNotMatch(source, /if \(previouslyLoaded && cachedEntry\) return/);
 	assert.doesNotMatch(source, /if \(cachedEntry \|\| knownEmpty\) return/);

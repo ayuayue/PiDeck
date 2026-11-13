@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -18,7 +19,7 @@ const videogenIpc = read("src/main/ipc/videogenIpc.ts");
 const composerComponents = read("src/renderer/src/components/session/ComposerComponents.tsx");
 const controller = read("src/renderer/src/hooks/useSessionComposerController.ts");
 const finalAnswer = read("src/renderer/src/components/session/turn/FinalAnswer.tsx");
-const timeline = read("src/renderer/src/hooks/useSessionTimelineController.ts");
+const timeline = sessionTimelineControllerSource;
 const html = read("src/renderer/index.html");
 const zh = read("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 const en = read("src/renderer/src/i18n/rendererCopy.en-US.ts");

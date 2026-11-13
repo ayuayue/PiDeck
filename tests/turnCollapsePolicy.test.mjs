@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -104,7 +105,7 @@ test("manual/streaming expansion is remembered across remounts (session-scoped)"
 // 「发送后动画先向上再向下」根因回归（2026-10）：折叠信号在置顶动画途中到达，
 // 上一轮执行过程从新消息上方骤缩，动画中的视口补偿把 scrollTop 往回带。
 test("send-pin animation defers the new-turn collapse until it settles", () => {
-	const controller = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controller = sessionTimelineControllerSource;
 	const sendScroll = readFileSync("src/renderer/src/hooks/timeline/sendScroll.ts", "utf8");
 	// 折叠延后判据（effect 在动画标记落回 false 后会重跑并消费同一个 tick）
 	assert.match(turnExecution, /if \(opts\.sendPinAnimating\) return;/);

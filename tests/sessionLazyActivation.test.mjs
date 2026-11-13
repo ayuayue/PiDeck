@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -333,7 +334,7 @@ test("TurnRow has no hook placed after an early return", () => {
 // ════════════════════════════════════════════════════════════════════
 
 test("deriveSessionSurfaceRuntime hides loading for idle non-activating Session", () => {
-	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controllerSource = sessionTimelineControllerSource;
 
 	// deriveSessionSurfaceRuntime must exist
 	const fnBody = functionBody("deriveSessionSurfaceRuntime", controllerSource);

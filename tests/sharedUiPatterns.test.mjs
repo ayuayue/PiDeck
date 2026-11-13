@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -19,7 +20,7 @@ const SKILL_PICKER = read("components/session/ComposerSkillPicker.tsx");
 const COMPOSER = read("components/session/ComposerComponents.tsx");
 const THEME_SECTION = read("components/app/settings/CustomThemeSection.tsx");
 const WALLPAPER = read("components/app/wallpaper/WallpaperVideoLayer.tsx");
-const TIMELINE_CONTROLLER = read("hooks/useSessionTimelineController.ts");
+const TIMELINE_CONTROLLER = sessionTimelineControllerSource;
 const CONFIG_MODAL = configModalSource;
 
 test("PageHeader 壳契约：语义化标题层级 + 统一 header 排版", () => {

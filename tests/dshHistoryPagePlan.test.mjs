@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -140,7 +141,7 @@ test("接线：attach 截断信息进运行时窗口协议（main），渲染层
 	// 渲染层：窗口游标由 resolveEarlierHistoryCursor 统一给出（windowStartFilePos 是首次补页的
 	// 唯一证据；「还有更早历史」与「真能发出一次翻页」必须同源，否则就是死按钮）。
 	// 2026-12 起不再在 controller 里内联那两条表达式，改断言「接线到同一游标函数」+ 策略本身。
-	const controller = read("src/renderer/src/hooks/useSessionTimelineController.ts");
+	const controller = sessionTimelineControllerSource;
 	// 入参顺序与字段随 ACP 分页（windowStart，无会话文件）演进而多了一个，断言保留三个关键输入。
 	assert.match(controller, /resolveEarlierHistoryCursor\(\{[\s\S]*?runtimeHistory,[\s\S]*?windowMessages: messages,[\s\S]*?windowStartFilePos: cachedEntry\?\.windowStartFilePos,/);
 	assert.match(controller, /const \{ before, beforeEntryId \} = earlierHistoryCursor;/);

@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -68,7 +69,7 @@ test("modern surface state covers cached loading, activation before binding, and
 });
 
 test("timeline controller exposes surface loading for the bottom composer gate", () => {
-	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controllerSource = sessionTimelineControllerSource;
 	// SessionView 不能再用 messages.length>0 当挂载条件：历史会话首帧 length=0。
 	assert.match(controllerSource, /isSurfaceLoading/);
 	assert.match(controllerSource, /deriveSessionSurfaceRuntime\(/);
@@ -233,7 +234,7 @@ test("history availability gate only flags pages main marked unavailable", () =>
 });
 
 test("stickyEmptySessionIds 必须有 LRU 上限（会话删除后条目永不清理，桌面进程长运行无界增长）", () => {
-	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controllerSource = sessionTimelineControllerSource;
 	// 与 latestLoadBySession（LATEST_LOAD_LRU_LIMIT=20）同构：模块级 Set 跨挂载存活，
 	// 删除的草稿会话在 catalog 清理后 sticky 条目仍残留，只有上限裁剪能兑底。
 	assert.match(controllerSource, /STICKY_EMPTY_SESSION_LRU_LIMIT = \d+/, "sticky 集合必须声明 LRU 上限常量");

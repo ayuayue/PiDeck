@@ -5,6 +5,7 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 
 function compile(filePath, imports = {}) {
 	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
@@ -44,7 +45,7 @@ test("A to B owner switch renders B's initial page without A visibleCount or loa
 test("append growth keeps the top message in the window (no lagged visibleCount)", () => {
 	// 轮次模型下渲染层无条数窗口：新消息追加即全部显示，无 visibleCount 追赶问题。
 	// 保留该测试名作为契约：controller 不再依赖 growVisibleCountForAppend。
-	const controller = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controller = sessionTimelineControllerSource;
 	assert.doesNotMatch(controller, /growVisibleCountForAppend/);
 });
 
