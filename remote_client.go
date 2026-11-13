@@ -222,6 +222,11 @@ func (c *remoteClient) promptWithImages(id, text string, images []promptImage) e
 	return c.post("/api/sessions/"+url.PathEscape(id)+"/prompt", body, nil)
 }
 
+// answer replies to the question a session is waiting on.
+func (c *remoteClient) answer(id string, body map[string]any) error {
+	return c.post("/api/sessions/"+url.PathEscape(id)+"/answer", body, nil)
+}
+
 func (c *remoteClient) stop(id string) error {
 	return c.post("/api/sessions/"+url.PathEscape(id)+"/stop", map[string]any{}, nil)
 }

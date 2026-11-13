@@ -180,6 +180,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
   - 行内「…」：重命名、置顶 / 取消置顶、删除（删除会二次确认，文件进电脑的 `trash/`）
   - 发消息：底部多行输入框（自动换行长到 5 行左右，回车换行，发送键发送）；
     运行中多一个停止键（不挡输入，pi 会排队），回复按 1.2 秒轮询流式出现
+  - 审批：电脑上的 pi/ACP 在等确认或选项时，输入框上方出现提示卡，
+    可直接允许/拒绝或选一项，答案回传电脑让那一轮继续
   - 工具调用折成一行「调用了 N 个工具」，点开原地展开每条命令
   - 图片：输入框右侧的图片按钮从相册/文件里选（最多 4 张、单张 6 MB），
     选完在输入框上方出缩略图，点缩略图移除；可以只发图不写字
@@ -194,8 +196,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
 | GET | `/api/ping` | 主机名与版本，连接时探活 |
-| GET | `/api/state` | 项目、会话、置顶与运行状态 |
-| GET | `/api/session/{id}` | 一个会话的消息；运行中带 live 文本 |
+| GET | `/api/state` | 项目、会话、置顶、运行状态与等待回答的问题 |
+| GET | `/api/session/{id}` | 一个会话的消息；运行中带 live 文本，等待回答时带 `ask` |
 | GET | `/api/session/{id}/options` | 模型列表、当前模型、思考等级；pi 没起会顺手拉起 |
 | GET | `/api/search?q=&project=` | 跨会话搜消息正文，返回会话、标题与片段（按文件缓存） |
 | POST | `/api/projects` | `{path,remove}` 在电脑上添加/移除项目文件夹 |
@@ -206,6 +208,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | POST | `/api/sessions/{id}/pin` | `{pinned}` 置顶或取消 |
 | POST | `/api/sessions/{id}/model` | `{provider,id}` 切模型 |
 | POST | `/api/sessions/{id}/thinking` | `{level}` 切思考等级 |
+| POST | `/api/sessions/{id}/answer` | `{confirmed}` / `{value}` / `{cancelled}` 回答电脑上等待的确认、选项或输入 |
 | POST | `/api/sessions/{id}/delete` | 删除会话（pi 自己的会话会拒绝） |
 
 **会话与数据**
@@ -311,7 +314,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `desktop_host.go` | 系统托盘、关闭到托盘、完成通知与各平台通知命令 |
 | `remote.go` | 手机 HTTP 服务、令牌、快照/历史接口，局域网/Tailscale/EasyTier 地址探测 |
 | `remote_client.go` | 手机端 HTTP 客户端与连接串解析 |
-| `mobile.go` | 手机端连接页、项目/会话列表、只读会话历史 |
+| `mobile.go` | 手机端连接页、项目/会话列表、会话历史、发消息与审批 |
 | `ui_remote.go` | 桌面设置里的远程访问面板 |
 | `scripts/android.ps1` | 模拟器日常操作：启动、装包、复制连接链接、看状态 |
 | `ui.go` | 侧栏、标签、抽屉、命令面板、目标/重命名/确认/扩展对话框 |

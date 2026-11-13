@@ -697,6 +697,8 @@ func (h *remoteHost) handleSessionAction(w http.ResponseWriter, r *http.Request)
 		h.sessionThinking(w, r, id)
 	case "delete":
 		h.sessionDelete(w, id)
+	case "answer":
+		h.sessionAnswer(w, r, id)
 	default:
 		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "没有这个操作"})
 	}
@@ -775,6 +777,73 @@ func (h *remoteHost) sessionStop(w http.ResponseWriter, id string) {
 		if s.busyNow() {
 			h.app.stop(s)
 		}
+	})
+	h.finishAction(w, ok, failure, map[string]any{"ok": true})
+}
+
+// sessionAnswer answers the question a session is waiting on, so a turn
+// that needs approval can finish while the user is away from the desk.
+func (h *remoteHost) sessionAnswer(w http.ResponseWriter, r *http.Request, id string) {
+	var body struct {
+		Confirmed *bool  `json:"confirmed"`
+		Value     string `json:"value"`
+		Cancelled bool   `json:"cancelled"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var failure error
+	ok := h.app.withUI(func() {
+		s := h.app.byID[id]
+		if s == nil {
+			failure = errors.New("找不到这个会话")
+			return
+		}
+		ask := s.ask.GetUntracked()
+		if ask == nil {
+			failure = errors.New("这个会话没有等待回答")
+			return
+		}
+		value := map[string]any{}
+		switch ask.Method {
+		case "confirm":
+			if body.Confirmed == nil {
+				failure = errors.New("缺少 confirmed")
+				return
+			}
+			value["confirmed"] = *body.Confirmed
+		case "select":
+			if body.Cancelled {
+				value["cancelled"] = true
+				break
+			}
+			known := false
+			for _, opt := range ask.Options {
+				if opt == body.Value {
+					known = true
+					break
+				}
+			}
+			if !known {
+				failure = errors.New("这个选项不存在")
+				return
+			}
+			value["value"] = body.Value
+		case "input", "editor":
+			if body.Cancelled {
+				value["cancelled"] = true
+				break
+			}
+			if strings.TrimSpace(body.Value) == "" {
+				failure = errors.New("缺少回答内容")
+				return
+			}
+			value["value"] = body.Value
+		default:
+			value["cancelled"] = true
+		}
+		h.app.answerAsk(s, value)
 	})
 	h.finishAction(w, ok, failure, map[string]any{"ok": true})
 }
@@ -1006,13 +1075,23 @@ type remoteWireProject struct {
 }
 
 type remoteWireSession struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Status   string `json:"status"`
-	Updated  int64  `json:"updated"`
-	External bool   `json:"external"`
-	Pinned   bool   `json:"pinned"`
-	Running  bool   `json:"running"`
+	ID       string         `json:"id"`
+	Title    string         `json:"title"`
+	Status   string         `json:"status"`
+	Updated  int64          `json:"updated"`
+	External bool           `json:"external"`
+	Pinned   bool           `json:"pinned"`
+	Running  bool           `json:"running"`
+	Ask      *remoteWireAsk `json:"ask,omitempty"`
+}
+
+// remoteWireAsk is a question the desktop is waiting on, so the phone can
+// answer it instead of leaving the turn stuck.
+type remoteWireAsk struct {
+	Method  string   `json:"method"`
+	Title   string   `json:"title"`
+	Message string   `json:"message"`
+	Options []string `json:"options,omitempty"`
 }
 
 type remoteWireSnapshot struct {
@@ -1032,7 +1111,18 @@ type remoteWireTranscript struct {
 	Title    string              `json:"title"`
 	Running  bool                `json:"running"`
 	Messages []remoteWireMessage `json:"messages"`
+	Ask      *remoteWireAsk      `json:"ask,omitempty"`
 	Error    string              `json:"error,omitempty"`
+}
+
+// remoteAskOf is the question a session is waiting on, if any.
+func remoteAskOf(s *session) *remoteWireAsk {
+	ask := s.ask.GetUntracked()
+	if ask == nil {
+		return nil
+	}
+	return &remoteWireAsk{Method: ask.Method, Title: ask.Title, Message: ask.Message,
+		Options: append([]string(nil), ask.Options...)}
 }
 
 // remoteSnapshot reads the projects and sessions on the UI thread.
@@ -1055,7 +1145,7 @@ func (a *app) remoteSnapshot() (remoteWireSnapshot, error) {
 				project.Sessions = append(project.Sessions, remoteWireSession{
 					ID: s.ID, Title: s.title.Get(), Status: remoteStatus(s.status.Get()),
 					Updated: s.updated.Get().UnixMilli(), External: s.External,
-					Pinned: a.isPinned(s.ID), Running: s.busyNow(),
+					Pinned: a.isPinned(s.ID), Running: s.busyNow(), Ask: remoteAskOf(s),
 				})
 			}
 			out.Projects = append(out.Projects, project)
@@ -1089,6 +1179,7 @@ func (a *app) remoteTranscript(id string) (remoteWireTranscript, error) {
 	var turns []turn
 	var found, loaded, running bool
 	var live, liveThinking string
+	var ask *remoteWireAsk
 	ok := a.withUI(func() {
 		s := a.byID[id]
 		if s == nil {
@@ -1096,6 +1187,7 @@ func (a *app) remoteTranscript(id string) (remoteWireTranscript, error) {
 		}
 		found, title, file, loaded = true, s.title.Get(), s.File, s.loaded.GetUntracked()
 		running = s.busyNow()
+		ask = remoteAskOf(s)
 		live, liveThinking = s.streamText.GetUntracked(), s.streamThinking.GetUntracked()
 		if loaded {
 			turns = s.turns.GetUntracked()
@@ -1107,7 +1199,7 @@ func (a *app) remoteTranscript(id string) (remoteWireTranscript, error) {
 	if !found {
 		return out, errors.New("找不到这个会话")
 	}
-	out.ID, out.Title = id, title
+	out.ID, out.Title, out.Ask = id, title, ask
 	if !loaded {
 		if file == "" {
 			// A session that never ran has no file yet; that is empty, not

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -329,6 +330,47 @@ func TestRemoteSessionActions(t *testing.T) {
 		t.Fatalf("empty prompt = %d: %s", rec.Code, rec.Body.String())
 	}
 
+	// A pending question reaches the phone, and the phone's answer clears
+	// it and reaches the waiting side.
+	var replied string
+	posted := make(chan bool, 1)
+	built.cx.Post(func() {
+		s := built.byID[created.ID]
+		if s == nil {
+			posted <- false
+			return
+		}
+		s.ask.Set(&extensionAsk{ID: "q1", Method: "select", Title: "允许运行？", Message: "要跑测试", Options: []string{"允许", "拒绝"}})
+		s.acpReply = func(name string) { replied = name }
+		posted <- true
+	})
+	screen.Settle()
+	if !<-posted {
+		t.Fatal("the session vanished")
+	}
+	if got := stateSessions(); len(got) != 1 || got[0].Ask == nil || got[0].Ask.Title != "允许运行？" || len(got[0].Ask.Options) != 2 {
+		t.Fatalf("state ask = %+v", got)
+	}
+	rec = call(http.MethodGet, "/api/session/"+created.ID, "")
+	var tr remoteWireTranscript
+	if err := json.Unmarshal(rec.Body.Bytes(), &tr); err != nil || tr.Ask == nil || tr.Ask.Message != "要跑测试" {
+		t.Fatalf("transcript ask = %+v, %v", tr.Ask, err)
+	}
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/answer", `{"value":"随便"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown option = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/answer", `{"value":"允许"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("answer = %d: %s", rec.Code, rec.Body.String())
+	}
+	if replied != "允许" {
+		t.Fatalf("the waiting side got %q", replied)
+	}
+	if got := stateSessions(); len(got) != 1 || got[0].Ask != nil {
+		t.Fatalf("ask after answer = %+v", got)
+	}
+
 	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/delete", `{}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete = %d: %s", rec.Code, rec.Body.String())
@@ -512,4 +554,86 @@ func TestMobileRecentConnections(t *testing.T) {
 	}
 	app.Advance(300 * time.Millisecond)
 	shot(app, "68-mobile-recent")
+}
+
+// TestMobileAsk answers the desktop's pending question from the phone.
+func TestMobileAsk(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	const token = "phone-token"
+	var mu sync.Mutex
+	ask := &remoteWireAsk{Method: "confirm", Title: "允许运行 go test？", Message: "桌面在等你"}
+	var answered map[string]any
+	state := remoteWireSnapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remoteWireProject{{
+		Path: "/tmp/project", Name: "电脑项目", Sessions: []remoteWireSession{{ID: "s1", Title: "电脑上的会话"}},
+	}}}
+	check := func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			return false
+		}
+		return true
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
+		if check(w, r) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "PiDeck Lite", "host": "desk"})
+		}
+	})
+	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
+		if check(w, r) {
+			_ = json.NewEncoder(w).Encode(state)
+		}
+	})
+	mux.HandleFunc("/api/session/", func(w http.ResponseWriter, r *http.Request) {
+		if !check(w, r) {
+			return
+		}
+		mu.Lock()
+		tr := remoteWireTranscript{ID: "s1", Title: "电脑上的会话", Ask: ask}
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(tr)
+	})
+	mux.HandleFunc("/api/sessions/s1/answer", func(w http.ResponseWriter, r *http.Request) {
+		if !check(w, r) {
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		answered, ask = body, nil
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
+	app.WaitFor("id:mobile-server", 10*time.Second)
+	app.Type("id:mobile-server", server.URL)
+	app.Type("id:mobile-token", token)
+	app.Press("id:mobile-connect")
+	waitApp(app, "text:电脑项目", 15*time.Second)
+	app.WaitFor("id:mobile-session", 10*time.Second)
+	app.Press("id:mobile-session")
+	waitApp(app, "id:mobile-ask", 15*time.Second)
+	app.Press("id:mobile-ask-allow")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		mu.Lock()
+		got := answered
+		mu.Unlock()
+		if got != nil && got["confirmed"] == true {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("answer = %+v", got)
+		}
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
+	app.WaitForGone("id:mobile-ask", 10*time.Second)
 }
