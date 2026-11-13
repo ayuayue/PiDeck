@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
+
+import { readFeishuBridgeSources } from "./helpers/feishuBridgeSources.mjs";
 
 /**
  * 飞书桥 run 生命周期回归（2027-03 深审）：
@@ -8,7 +9,7 @@ import test from "node:test";
  * 卡片创建、300s 超时误删仍在运行 run 的注册表、sendPrompt 失败遗留孤儿卡片。
  * 契约用空白容忍正则（AGENTS.md：源码扫描测试必须空白容忍）。
  */
-const source = readFileSync("src/main/feishu/FeishuBridge.ts", "utf8");
+const source = readFeishuBridgeSources();
 
 test("cardTerminalSucceeded 预占必须在 agent_end 消费，不得跨轮残留压制文本同步", () => {
 	// 门控块：agent_end 时先取 deliveredByCard 并删除预占，再决定是否文本同步。

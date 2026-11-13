@@ -8,6 +8,7 @@ import ts from "typescript";
 import vm from "node:vm";
 
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
+import { feishuBridgeCollaboratorFiles } from "./helpers/feishuBridgeSources.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const bridgeSource = readFileSync("src/main/feishu/FeishuBridge.ts", "utf8");
@@ -129,6 +130,37 @@ test("main gateway keeps a pathless existing Session and attaches metadata witho
 	assert.doesNotMatch(pathlessBranch, /title/, "runtime metadata must not overwrite Session title");
 });
 
+/**
+ * 真实装载 bridge/* 协作者：它们是桥实现的一部分，用桩会把协作者域的断言变成自证。
+ * specifier 走与宿主同一张 require 表（协作者之间的 `./bridgeLog`、指向兄弟模块的
+ * `../FeishuI18n` 等都要能命中），所以加载时把本体同时注册到两种写法。
+ */
+function loadBridgeCollaborator(file, imports) {
+	const output = ts.transpileModule(readFileSync(file, "utf8"), {
+		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+	}).outputText;
+	const module = { exports: {} };
+	vm.runInNewContext(
+		output,
+		{
+			module,
+			exports: module.exports,
+			require: (specifier) =>
+				imports[specifier] ??
+				(() => {
+					throw new Error(`unexpected import: ${specifier}`);
+				})(),
+			console: { log() {}, warn() {}, error() {}, info() {}, debug() {}, trace() {} },
+			Buffer,
+			setTimeout,
+			clearTimeout,
+			Promise,
+		},
+		{ filename: file },
+	);
+	return module.exports;
+}
+
 function compileBridge(loadBindings = [], options = {}) {
 	const output = ts.transpileModule(bridgeSource, {
 		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -187,6 +219,18 @@ function compileBridge(loadBindings = [], options = {}) {
 		"./FeishuI18n": feishuI18n,
 		"./attachmentFiles": compileAttachmentFiles(),
 	};
+	// 兄弟模块的 `../X` 写法（bridge/* 协作者视角）与宿主的 `./X` 指向同一份桩/真实现。
+	for (const key of Object.keys(imports)) {
+		if (!key.startsWith("./")) continue;
+		imports[`../${key.slice(2)}`] = imports[key];
+	}
+	// bridge/* 协作者按清单顺序（依赖先于使用方）真实装载。
+	for (const file of feishuBridgeCollaboratorFiles) {
+		const name = file.slice(file.lastIndexOf("/") + 1, -".ts".length);
+		const loaded = loadBridgeCollaborator(file, imports);
+		imports[`./${name}`] = loaded;
+		imports[`./bridge/${name}`] = loaded;
+	}
 	vm.runInNewContext(
 		output,
 		{
