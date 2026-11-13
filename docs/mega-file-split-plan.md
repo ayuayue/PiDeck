@@ -348,3 +348,17 @@
    → 应对：**逻辑层搬迁**——纯模块与 hook 搬走，JSX / DOM / testid / i18n / 依赖数组一字不动。新建的 helper 必须用**显式文件清单**，不能目录扫描整个 `git/`，否则 `GitGraph` / `GitResourceTree` 混进聚合面会打坏 `font-mono` 计数=1 那条断言。
 2. **又一个「切片锚点失效」**：`agentHistoryLoadFreeze` 用 `private async createUnlocked` → `\n\tasync rename(` 切片；搬迁后宿主只剩**非 async** 的薄包装、实现在 `agentFactoryLocal.ts`，`indexOf` 返回 -1，`slice(-1, …)` 得到空串，断言报 `actual: ''`。
    → 修法：锚**实现**起点，再切到「下一个文件边界」（聚合面用 `// <path>` 分隔）。这类「切到下一个函数名」的断言在拆分语境下天然脆弱，以后一律改成文件边界切片。
+
+## 第十轮：SessionRuntimeCoordinator 与 AgentManager 再切（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `pi/AgentManager.ts` | 5259 | **4785** | `bashCommandRunner` / `retryStatusMessages` / `sessionFileWriter` / `sessionMessageEditor` 四个域文件 |
+| `sessions/SessionRuntimeCoordinator.ts` | 2407 | **2162** | `runtime/remoteMessageMutation`（远端消息变更 + 命令失败分类）、`runtime/runtimeBinding`（绑定与代数判定）、`runtime/sessionRuntimeCommandError`；与既有 `sessionRuntimeGateways` / `sessionRuntimePreferences` 并列 |
+
+### 两条本轮学到的
+
+1. **父代理给的「方法行数」只是参考，子会话按实读代码有权改方案**。我的扫描把字段声明算进相邻方法，于是 `hasActiveStreaming 285`、`constructor 263` 都不准（前者没那么大，后者是纯装配、无可抽初始化逻辑）。AgentManager 那个会话据此自选了 `bashCommandRunner` / `retryStatusMessages` / `sessionFileWriter` / `sessionMessageEditor` 四个中型方法组，并在报告里明确更正了我的前提。**结论：行数用来排优先级，不用来指定搬哪块。**
+2. **Coordinator 只降到 2162（目标 1800，缺口 362）**：两个域搬走后，host 侧要新增薄包装与 host 接口成员，净减被吃掉一部分。剩下的质量集中在 `activate 167` / `sendOnce 131` / `restartSession 61` 这些编排方法上——**它们和 `AgentManager.handlePiEvent` 同性质，继续硬拆只会得到转发层**。建议该文件就停在 2162 这个量级，转而处理 `session-atoms 2213` / `DshAgentManager 2382`。
+
+本轮两个会话都没有改动任何测试文件（只各改了自己的 helper 一行），全量 17384 条测试 0 失败——说明前面九轮铺的聚合 helper 网已经把「拆分就要改测试」这件事基本消掉了。
