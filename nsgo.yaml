@@ -3,6 +3,15 @@ id: dev.nsgo.pidecklite
 version: 0.2.0
 appearance: light
 
+# Direct updates: the app reads appcast-<target>.xml next to the release
+# and verifies its EdDSA signature with updates.pub. The private key
+# (updates.key) stays out of the repository; CI gets it as
+# NSGO_UPDATES_KEY.
+updates:
+  key: updates.pub
+  feed: https://github.com/ayuayue/PiDeck-Lite/releases/latest/download/
+  automatic: true
+
 icon:
   png: assets/Icon.png
 

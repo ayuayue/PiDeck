@@ -16,6 +16,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/oneo-me/nsgo/updater"
 )
 
 // settingsSection is one entry of the settings rail.
@@ -906,6 +907,11 @@ func (a *app) settingsAbout() core.Node {
 					setRow("pi", piVersionLine(info), nil),
 					setDivider(),
 					setRow("后端", "pi --mode rpc（会话、工具、模型都由 pi 提供）", nil),
+				),
+				setGroup("更新",
+					setRow("检查更新", "从 GitHub Release 的 appcast 检查；direct 构建会下载、校验并安装。",
+						ui.Button{Text: "检查", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "check-updates",
+							OnPress: func() { updater.Check(a.cx) }}),
 				),
 				setGroup("链接",
 					setRow("pi 项目", "github.com/badlogic/pi-mono", ui.Button{Text: "复制", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {

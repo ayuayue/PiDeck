@@ -199,7 +199,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 数据：应用/会话/pi 会话目录、会话数量
 - 用量：从本地会话文件统计累计 tokens 与费用、最近 12 周热力图、模型与项目分布；
   只在本机计算，可手动重新统计
-- 关于：版本、运行方式、项目链接
+- 关于：版本、运行方式、检查更新、项目链接
 
 **外观与扩展（可写文件，不跑代码）**
 - 资源页：pi 的 skills 与 extensions；技能点开看 `SKILL.md`，扩展可开关（写 `settings.json`）
@@ -256,6 +256,17 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `ui_chat.go` | 对话：轮次、思考行、工具行（diff/嵌套调用）、Markdown、输入区、空状态 |
 | `theme.go` | PiDeck 配色的 NSGo 主题，用户主题在其上覆盖 |
 | `*_test.go` | 无头 UI 测试、端到端（真 pi）、目标命令/主题/插件单测 |
+
+## 自动更新
+
+direct 构建从 GitHub Release 的 `appcast-<目标>.xml` 检查更新：
+
+- `updates.pub` 是公钥，已提交；私钥 `updates.key` 不入库，CI 用 `NSGO_UPDATES_KEY`
+- 生成密钥：`go tool nsgo keygen updates`
+- 打包：`go tool nsgo build` 用私钥签安装程序并写出 appcast；把 `dist/releases` 整个上传到 Release
+- 应用内：设置 → 关于 → 检查更新，或命令面板「检查更新」；macOS/Windows 由 Sparkle/WinSparkle 下载并安装，
+  Linux 打开对应 Release 页面
+- 本地没有 `updates.key` 时不会生成 macOS/Windows 的 appcast；开发构建从不检查更新
 
 ## 提示词库
 

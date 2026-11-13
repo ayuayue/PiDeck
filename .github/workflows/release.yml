@@ -54,6 +54,8 @@ jobs:
 
       - name: Build
         shell: bash
+        env:
+          NSGO_UPDATES_KEY: ${{ secrets.NSGO_UPDATES_KEY }}
         run: go tool nsgo build -target ${{ matrix.target }} -version ${{ steps.version.outputs.value }}
 
       - name: Collect

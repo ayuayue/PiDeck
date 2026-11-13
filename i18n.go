@@ -250,6 +250,9 @@ var messages = map[string]map[string]string{
 		"打开插件目录":               "Open plugins folder",
 		"重新加载插件与主题":            "Reload plugins and themes",
 		"设置":                   "Settings",
+		"检查更新":                 "Check for updates",
+		"更新":                   "Updates",
+		"检查":                   "Check",
 
 		// Tray.
 		"显示 PiDeck Lite": "Show PiDeck Lite",
@@ -399,6 +402,9 @@ var messages = map[string]map[string]string{
 		"打开插件目录":               "開啟外掛目錄",
 		"重新加载插件与主题":            "重新載入外掛與主題",
 		"设置":                   "設定",
+		"检查更新":                 "檢查更新",
+		"更新":                   "更新",
+		"检查":                   "檢查",
 
 		// Tray.
 		"显示 PiDeck Lite": "顯示 PiDeck Lite",

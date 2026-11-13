@@ -12,6 +12,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/oneo-me/nsgo/updater"
 )
 
 // appCommand is one thing the app can do, as the palette lists it.
@@ -185,6 +186,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openPluginsDir() }},
 		{ID: "reload-addons", Label: "重新加载插件与主题", Group: "应用", Icon: lucide.RefreshCw,
 			Run: func(a *app) { a.reloadAddons() }},
+		{ID: "check-updates", Label: "检查更新", Group: "应用", Icon: lucide.CloudDownload,
+			Run: func(a *app) { updater.Check(a.cx) }},
 		{ID: "settings", Label: "设置", Group: "应用", Shortcut: "mod+,", Icon: lucide.Settings,
 			Run: func(a *app) { a.settings.Set(true) }},
 	}

@@ -9,3 +9,6 @@
 # OS files
 .DS_Store
 Thumbs.db
+
+# Update signing key: the public half (updates.pub) is committed, this is not
+/updates.key
