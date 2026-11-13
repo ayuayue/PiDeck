@@ -1000,19 +1000,19 @@ func whenText(t time.Time, now time.Time) string {
 func levelLabel(level string) string {
 	switch level {
 	case "off":
-		return "关"
+		return T("关")
 	case "minimal":
-		return "极简"
+		return T("极简")
 	case "low":
-		return "低"
+		return T("低")
 	case "medium":
-		return "中"
+		return T("中")
 	case "high":
-		return "高"
+		return T("高")
 	case "xhigh":
-		return "极高"
+		return T("极高")
 	case "max":
-		return "最大"
+		return T("最大")
 	}
 	return level
 }
@@ -1027,9 +1027,9 @@ func (a *app) paletteDialog() core.Node {
 		TestID:       "palette",
 		Command: ui.Command{
 			Items:       a.commandItems,
-			Placeholder: "搜索命令、会话或工作区…",
-			SearchLabel: "命令",
-			Empty:       "没有匹配的命令",
+			Placeholder: T("搜索命令、会话或工作区…"),
+			SearchLabel: T("命令"),
+			Empty:       T("没有匹配的命令"),
 			OnSelect:    a.runCommand,
 		},
 	}
@@ -1041,11 +1041,11 @@ func (a *app) pickerDialog() core.Node {
 		colors := ui.ColorsOf(cx)
 		p := a.pick
 		importing := p.mode.Get() == "import"
-		title := "添加工作区"
-		sub := "选一个项目文件夹；会话会在它的目录里运行。"
+		title := T("添加工作区")
+		sub := T("选一个项目文件夹；会话会在它的目录里运行。")
 		if importing {
-			title = "导入 pi 会话"
-			sub = "选一个 .jsonl 会话文件，复制到本应用自己的会话目录，不改动原文件。"
+			title = T("导入 pi 会话")
+			sub = T("选一个 .jsonl 会话文件，复制到本应用自己的会话目录，不改动原文件。")
 		}
 		row := func(e pickEntry) core.Node {
 			selected := func() bool { return p.selected.Get() == e.Path }
@@ -1083,7 +1083,7 @@ func (a *app) pickerDialog() core.Node {
 					core.Text{Content: e.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
 					core.Show{When: func() bool { return !e.Dir && importing }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: "会话", Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+						return core.Text{Content: T("会话"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 					}},
 				},
 			}
@@ -1091,7 +1091,7 @@ func (a *app) pickerDialog() core.Node {
 		var rows []core.Node
 		rows = append(rows, core.Show{When: func() bool { return len(p.visible()) == 0 }, Then: func(*core.Scope) core.Node {
 			return core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
-				ui.Text("这个文件夹是空的", 12, ui.Regular, colors.Faint),
+				ui.Text(T("这个文件夹是空的"), 12, ui.Regular, colors.Faint),
 			}}
 		}})
 		rows = append(rows, core.Each(func() []pickEntry { return p.visible() }, func(e pickEntry) string { return e.Path },
@@ -1110,9 +1110,9 @@ func (a *app) pickerDialog() core.Node {
 				Children: []core.Node{ui.Icon(lucide.FolderGit2, 11, colors.Muted), ui.Text(entry.Name, 11.5, ui.Regular, colors.Muted)},
 			})
 		}
-		primary := "选择这个文件夹"
+		primary := T("选择这个文件夹")
 		if importing {
-			primary = "导入"
+			primary = T("导入")
 		}
 		return ui.Dialog{
 			Open:         p.open.Get,
@@ -1130,8 +1130,8 @@ func (a *app) pickerDialog() core.Node {
 					}, Children: []core.Node{
 						ui.Icon(lucide.Folder, 13, colors.Faint),
 						core.Input{
-							Value: p.addr.Get, OnChange: p.addr.Set, Placeholder: "输入路径后回车",
-							Label: "文件夹路径", SubmitBehavior: core.SubmitBehaviorSubmit,
+							Value: p.addr.Get, OnChange: p.addr.Set, Placeholder: T("输入路径后回车"),
+							Label: T("文件夹路径"), SubmitBehavior: core.SubmitBehaviorSubmit,
 							OnSubmit: func(text string) { p.load(text) },
 							Style:    core.Style{FlexGrow: 1, MinWidth: core.Pt(0), FontSize: 12, Color: colors.Text()},
 							StyleFunc: func() core.Style {
@@ -1139,8 +1139,8 @@ func (a *app) pickerDialog() core.Node {
 							},
 						},
 					}},
-					ui.IconButton{Icon: lucide.ArrowUp, Label: "上一级", Size: 28, IconSize: 14, OnPress: p.up},
-					ui.IconButton{Icon: lucide.RefreshCw, Label: "刷新", Size: 28, IconSize: 13, OnPress: func() { p.load(p.path.GetUntracked()) }},
+					ui.IconButton{Icon: lucide.ArrowUp, Label: T("上一级"), Size: 28, IconSize: 14, OnPress: p.up},
+					ui.IconButton{Icon: lucide.RefreshCw, Label: T("刷新"), Size: 28, IconSize: 13, OnPress: func() { p.load(p.path.GetUntracked()) }},
 					ui.IconButton{Icon: lucide.Eye, Label: T("显示隐藏文件"), Size: 28, IconSize: 13,
 						Selected: p.hidden.Get, OnPress: func() { p.hidden.Update(func(v bool) bool { return !v }) }},
 				}},
@@ -1153,7 +1153,7 @@ func (a *app) pickerDialog() core.Node {
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(16)}, Children: []core.Node{
 					core.Show{When: func() bool { return p.loading.Get() }, Then: func(*core.Scope) core.Node {
 						return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-							ui.Spinner{Size: 11}, ui.Text("读取中…", 11.5, ui.Regular, colors.Faint),
+							ui.Spinner{Size: 11}, ui.Text(T("读取中…"), 11.5, ui.Regular, colors.Faint),
 						}}
 					}},
 					core.Text{ContentFunc: func() string { return p.err.Get() }, MaxLines: 2, Style: core.Style{FlexShrink: 1, FontSize: 11},
@@ -1161,12 +1161,12 @@ func (a *app) pickerDialog() core.Node {
 				}},
 			},
 			Footer: []core.Node{
-				ui.Button{Text: "系统选择器", Variant: ui.ButtonGhost, TestID: "picker-native", OnPress: func() {
+				ui.Button{Text: T("系统选择器"), Variant: ui.ButtonGhost, TestID: "picker-native", OnPress: func() {
 					mode := p.mode.GetUntracked()
 					p.open.Set(false)
 					a.pickNative(mode)
 				}},
-				ui.Button{Text: "取消", Variant: ui.ButtonGhost, OnPress: func() { p.open.Set(false) }},
+				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, OnPress: func() { p.open.Set(false) }},
 				ui.Button{Text: primary, Variant: ui.ButtonPrimary, Disabled: func() bool { _, ok := p.chosen(); return !ok },
 					TestID: "picker-choose", OnPress: func() {
 						if path, ok := p.chosen(); ok {
@@ -1206,13 +1206,13 @@ func (a *app) targetDialog() core.Node {
 			for _, h := range env.SSH {
 				options = append(options, h.Name)
 			}
-			label, hint = "SSH 主机", "从 ~/.ssh/config 里读到的 Host；远端需要装好 pi，并已配置免密登录。"
+			label, hint = T("SSH 主机"), T("从 ~/.ssh/config 里读到的 Host；远端需要装好 pi，并已配置免密登录。")
 			placeholder = "/home/you/project"
 		} else {
 			for _, d := range env.WSL {
 				options = append(options, d.Name)
 			}
-			label, hint = "WSL 发行版", "在 Windows 上通过 wsl.exe 运行 pi；会话存在该发行版的 ~/.pideck-lite/sessions。"
+			label, hint = T("WSL 发行版"), T("在 Windows 上通过 wsl.exe 运行 pi；会话存在该发行版的 ~/.pideck-lite/sessions。")
 			placeholder = "$HOME/project 或 /mnt/c/Users/you/project"
 		}
 		if len(options) == 0 {
@@ -1240,7 +1240,7 @@ func (a *app) targetDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.addTarget.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.addTarget.Set(open) },
-			Title:        map[targetKind]string{targetWSL: "在 WSL 里工作", targetSSH: "在 SSH 主机上工作"}[kind],
+			Title:        T(map[targetKind]string{targetWSL: "在 WSL 里工作", targetSSH: "在 SSH 主机上工作"}[kind]),
 			Description:  hint,
 			TestID:       "target-dialog",
 			Children: []core.Node{
@@ -1248,14 +1248,14 @@ func (a *app) targetDialog() core.Node {
 					ui.Text(label, 12.5, ui.Semibold, colors.Text),
 					core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: chips},
 					core.Show{When: func() bool { return len(options) == 1 && options[0] == "" }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: "没有读到可用的目标：先在系统里配一个 WSL 发行版或 SSH Host。",
+						return core.Text{Content: T("没有读到可用的目标：先在系统里配一个 WSL 发行版或 SSH Host。"),
 							Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Warn)}
 					}},
 				}},
 				core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-					ui.Text("目录", 12.5, ui.Semibold, colors.Text),
+					ui.Text(T("目录"), 12.5, ui.Semibold, colors.Text),
 					core.Input{
-						Value: a.addPath.Get, OnChange: a.addPath.Set, Placeholder: placeholder, Label: "远端目录", AutoFocus: true,
+						Value: a.addPath.Get, OnChange: a.addPath.Set, Placeholder: placeholder, Label: T("远端目录"), AutoFocus: true,
 						OnSubmit: func(string) { a.addRemoteWorkspace() },
 						StyleFunc: func() core.Style {
 							return core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 10), CornerRadius: 7, Background: colors.Field(),
@@ -1265,8 +1265,8 @@ func (a *app) targetDialog() core.Node {
 				}},
 			},
 			Footer: []core.Node{
-				ui.Button{Text: "取消", Variant: ui.ButtonGhost, OnPress: func() { a.addTarget.Set(false) }},
-				ui.Button{Text: "添加并开会话", Variant: ui.ButtonPrimary, TestID: "target-add", OnPress: func() { a.addRemoteWorkspace() }},
+				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, OnPress: func() { a.addTarget.Set(false) }},
+				ui.Button{Text: T("添加并开会话"), Variant: ui.ButtonPrimary, TestID: "target-add", OnPress: func() { a.addRemoteWorkspace() }},
 			},
 		}
 	})
@@ -1303,10 +1303,10 @@ func (a *app) renameDialog() core.Node {
 	return ui.Dialog{
 		Open:         a.renameOpen.Get,
 		OnOpenChange: func(open bool, _ base.Reason) { a.renameOpen.Set(open) },
-		Title:        "重命名会话",
+		Title:        T("重命名会话"),
 		TestID:       "rename",
 		Children: []core.Node{core.Input{
-			Value: a.renameText.Get, OnChange: a.renameText.Set, Placeholder: "会话名称", Label: "会话名称", AutoFocus: true,
+			Value: a.renameText.Get, OnChange: a.renameText.Set, Placeholder: T("会话名称"), Label: T("会话名称"), AutoFocus: true,
 			OnSubmit: func(string) { a.rename() },
 			StyleFunc: func() core.Style {
 				return core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), CornerRadius: 7, Background: colors.Field(),
@@ -1314,7 +1314,7 @@ func (a *app) renameDialog() core.Node {
 			},
 		}},
 		Footer: []core.Node{
-			ui.Button{Text: "取消", Variant: ui.ButtonGhost, TestID: "rename-cancel", OnPress: func() { a.renameOpen.Set(false) }},
+			ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, TestID: "rename-cancel", OnPress: func() { a.renameOpen.Set(false) }},
 			ui.Button{Text: T("重命名"), Variant: ui.ButtonPrimary, TestID: "rename-ok", OnPress: func() { a.rename() }},
 		},
 	}
@@ -1338,7 +1338,7 @@ func (a *app) confirmDialog() core.Node {
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 						core.Text{ContentFunc: func() string { return a.confirmHead.Get() },
 							Style: core.Style{FontSize: 14, FontWeight: ui.Semibold, LineHeight: 20}, StyleFunc: ui.Colored(colors.Text)},
-						core.Text{ContentFunc: func() string { return a.confirmWhy.Get() + "后无法撤销" },
+						core.Text{ContentFunc: func() string { return a.confirmWhy.Get() + T("后无法撤销") },
 							Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 				}},
@@ -1351,7 +1351,7 @@ func (a *app) confirmDialog() core.Node {
 				}},
 			},
 			Footer: []core.Node{
-				ui.Button{Text: "取消", Variant: ui.ButtonGhost, TestID: "confirm-cancel", OnPress: func() { a.confirmOpen.Set(false) }},
+				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, TestID: "confirm-cancel", OnPress: func() { a.confirmOpen.Set(false) }},
 				ui.Button{Text: a.confirmWhy.Get(), Variant: ui.ButtonPrimary, TestID: "confirm-ok",
 					Color:   func() core.Color { return colors.Danger() },
 					OnPress: func() { a.confirm() }},
@@ -1372,22 +1372,22 @@ func (a *app) askDialog() core.Node {
 		cancel := func() { a.answerAsk(s, map[string]any{"cancelled": true}) }
 		title := ask.Title
 		if title == "" {
-			title = map[string]string{"confirm": "确认", "select": "选择一个选项", "input": "输入", "editor": "编辑内容"}[ask.Method]
+			title = T(map[string]string{"confirm": "确认", "select": "选择一个选项", "input": "输入", "editor": "编辑内容"}[ask.Method])
 		}
 		switch ask.Method {
 		case "confirm":
 			body := ask.Message
 			if body == "" {
-				body = "pi 扩展请求确认。"
+				body = T("pi 扩展请求确认。")
 			}
 			return ui.Dialog{
 				Open: func() bool { return true }, OnOpenChange: func(bool, base.Reason) {}, Title: title, Description: body, TestID: "ask",
 				NoCloseOnBackdropPress: true, NoCloseOnEscape: true,
 				Footer: []core.Node{
-					ui.Button{Text: "拒绝", Variant: ui.ButtonSecondary, OnPress: func() {
+					ui.Button{Text: T("拒绝"), Variant: ui.ButtonSecondary, OnPress: func() {
 						a.answerAsk(s, map[string]any{"confirmed": false})
 					}},
-					ui.Button{Text: "允许", Variant: ui.ButtonPrimary, OnPress: func() {
+					ui.Button{Text: T("允许"), Variant: ui.ButtonPrimary, OnPress: func() {
 						a.answerAsk(s, map[string]any{"confirmed": true})
 					}},
 				},
@@ -1400,7 +1400,7 @@ func (a *app) askDialog() core.Node {
 					a.answerAsk(s, map[string]any{"value": value})
 				}})
 			}
-			buttons = append(buttons, ui.Button{Text: "取消", Variant: ui.ButtonGhost, OnPress: cancel})
+			buttons = append(buttons, ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, OnPress: cancel})
 			return ui.Dialog{Open: func() bool { return true }, OnOpenChange: func(bool, base.Reason) {}, Title: title, Description: ask.Message,
 				TestID: "ask", NoCloseOnBackdropPress: true, NoCloseOnEscape: true,
 				Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: buttons}}}
@@ -1416,8 +1416,8 @@ func (a *app) askDialog() core.Node {
 					},
 				}},
 				Footer: []core.Node{
-					ui.Button{Text: "取消", Variant: ui.ButtonGhost, OnPress: cancel},
-					ui.Button{Text: "确定", Variant: ui.ButtonPrimary, OnPress: func() {
+					ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, OnPress: cancel},
+					ui.Button{Text: T("确定"), Variant: ui.ButtonPrimary, OnPress: func() {
 						a.answerAsk(s, map[string]any{"value": a.askEdit.Get()})
 					}},
 				}}

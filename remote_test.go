@@ -91,6 +91,9 @@ func TestMobileConnect(t *testing.T) {
 	}}}
 	transcript := remoteWireTranscript{ID: "s1", Title: "电脑上的会话", Messages: []remoteWireMessage{
 		{Role: "user", Text: "手机能看到吗"},
+		{Role: "thinking", Text: "用户在问手机端能不能看到会话内容。"},
+		{Role: "tool", Text: "read src/app.ts"},
+		{Role: "tool", Text: "edit src/app.ts"},
 		{Role: "assistant", Text: "看到了，这是电脑上的会话。"},
 	}}
 	server := newTestHTTPServer(t, token, state, transcript)
@@ -110,6 +113,10 @@ func TestMobileConnect(t *testing.T) {
 	app.Press("id:mobile-session")
 	waitApp(app, "text:看到了，这是电脑上的会话。", 15*time.Second)
 	shot(app, "61-mobile-transcript")
+	// Tool calls fold into one row that opens in place.
+	app.Press("id:mobile-tools")
+	waitApp(app, "text:read src/app.ts", 5*time.Second)
+	shot(app, "66-mobile-tools")
 }
 
 // newTestHTTPServer is the desktop the mobile test connects to.

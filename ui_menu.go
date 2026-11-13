@@ -39,6 +39,7 @@ func (a *app) menuPopup(cx *core.Scope) core.Style {
 // danger tone for what cannot be undone.
 func (a *app) menuRow(cx *core.Scope, icon func() *core.SVG, label, hint string, danger bool, onPress func()) base.MenuItem {
 	colors := ui.ColorsOf(cx)
+	label, hint = T(label), T(hint)
 	ink := colors.Text()
 	glyph := colors.Muted()
 	if danger {
@@ -139,7 +140,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 		colors := ui.ColorsOf(cx)
 		m := s.model.Get()
 		provider := m.Provider
-		label := "选择模型"
+		label := T("选择模型")
 		if m.ID != "" {
 			label = modelLabel(m)
 		}
@@ -159,7 +160,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 				s.modelQuery.Set("")
 			}
 		},
-			Role: core.RoleButton, Label: "选择模型", TestID: "model-picker",
+			Role: core.RoleButton, Label: T("选择模型"), TestID: "model-picker",
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(26), MinWidth: core.Pt(0),
 					Padding: core.Symmetric(0, 7), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
@@ -177,7 +178,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 			ui.Icon(lucide.Search, 12, colors.Faint),
 			core.Input{
 				Value: s.modelQuery.Get, OnChange: s.modelQuery.Set,
-				Placeholder: "搜索模型或供应商", Label: "搜索模型", AutoFocus: true, TestID: "model-search",
+				Placeholder: T("搜索模型或供应商"), Label: T("搜索模型"), AutoFocus: true, TestID: "model-search",
 				Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), FontSize: 12, Color: colors.Text()},
 				StyleFunc: func() core.Style {
 					return core.Style{PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
@@ -226,7 +227,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 						}},
 						core.Text{Content: tokens(m.ContextWindow), Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexShrink: 0},
 							StyleFunc: ui.Colored(colors.Faint)},
-						core.View{OnPress: func(core.PressEvent) { a.toggleFavModel(m) }, Role: core.RoleButton, Label: "收藏模型",
+						core.View{OnPress: func(core.PressEvent) { a.toggleFavModel(m) }, Role: core.RoleButton, Label: T("收藏模型"),
 							StyleFunc: func() core.Style {
 								return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, AlignItems: core.AlignCenter,
 									JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
@@ -266,7 +267,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 					}}
 			}
 			if len(favs) > 0 {
-				rows = append(rows, groupHeader("★ 常用"))
+				rows = append(rows, groupHeader(T("★ 常用")))
 				for _, m := range favs {
 					rows = append(rows, row(m))
 				}
@@ -285,7 +286,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 				}
 			}
 			if len(rows) == 0 {
-				rows = append(rows, core.Text{Content: "没有匹配的模型", Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
+				rows = append(rows, core.Text{Content: T("没有匹配的模型"), Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
 					StyleFunc: ui.Colored(colors.Faint)})
 			}
 			return core.Scroll{Style: core.Style{MaxHeight: core.Pt(380), MinWidth: core.Pt(0)}, Children: []core.Node{
@@ -368,10 +369,10 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 		u := s.usage.Get()
 		total := tokens(u.Total)
 		if u.Total == 0 {
-			total = "用量"
+			total = T("用量")
 		}
 		return core.View{OnPress: func(core.PressEvent) { open.Update(func(v bool) bool { return !v }) },
-			Role: core.RoleButton, Label: "用量", TestID: "usage-chip",
+			Role: core.RoleButton, Label: T("用量"), TestID: "usage-chip",
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
 					Padding: core.Symmetric(0, 7), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
@@ -408,7 +409,7 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 		}
 		return core.View{Style: core.Style{Width: core.Pt(288), Gap: 8}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				ui.Text("用量", 12.5, ui.Semibold, colors.Text),
+				ui.Text(T("用量"), 12.5, ui.Semibold, colors.Text),
 				core.View{Style: core.Style{FlexGrow: 1}},
 				ui.Text(modelLabel(m), 10.5, ui.Regular, colors.Faint),
 			}},
@@ -418,7 +419,7 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 					core.View{Style: core.Style{FlexGrow: 1}},
 					ui.Textf(func() string {
 						if ctxWindow == 0 {
-							return "未测量"
+							return T("未测量")
 						}
 						return fmt.Sprintf("%s / %s · %.0f%%", tokens(ctxTokens), tokens(ctxWindow), fraction*100)
 					}, 10.5, ui.Regular, colors.Faint),
@@ -440,7 +441,7 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 				row("输出", tokens(u.Output), colors.Text),
 				row("缓存读", tokens(u.CacheRead), colors.Muted),
 				row("费用", credits(u.Cost), colors.Text),
-				row("轮次 / 工具", fmt.Sprintf("%d / %d", turns, tools), colors.Muted),
+				row(T("轮次 / 工具"), fmt.Sprintf("%d / %d", turns, tools), colors.Muted),
 			}},
 			core.View{Style: core.Style{Height: core.Pt(1)}, StyleFunc: ui.Filled(colors.Line)},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
@@ -448,7 +449,7 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 					open.Set(false)
 					a.compact(s)
 				}},
-				ui.Button{Text: "会话面板", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
+				ui.Button{Text: T("会话面板"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 					open.Set(false)
 					a.drawer.Set(true)
 					a.drawerTab.Set("overview")
@@ -462,7 +463,7 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 func (a *app) projectMenu(s *session, open *core.Signal[bool]) core.Node {
 	trigger := core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
-		name := "选择项目"
+		name := T("选择项目")
 		badge := ""
 		if ws := a.workspaceFor(s.Target, s.WS); ws != nil {
 			name = ws.label()
@@ -517,18 +518,18 @@ func (a *app) projectMenu(s *session, open *core.Signal[bool]) core.Node {
 		rows = append(rows, core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Edges{Top: 4, Bottom: 4}}, StyleFunc: ui.Filled(colors.Line)})
 		rows = append(rows, core.View{
 			OnPress: func(core.PressEvent) { open.Set(false); a.pickNative("workspace") },
-			Role:    core.RoleButton, Label: "添加项目",
+			Role:    core.RoleButton, Label: T("添加项目"),
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
 					Padding: core.Symmetric(0, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
 			},
 			Children: []core.Node{
 				ui.Icon(lucide.Plus, 13, colors.Muted),
-				ui.Text("添加项目…", 12.5, ui.Regular, colors.Text),
+				ui.Text(T("添加项目…"), 12.5, ui.Regular, colors.Text),
 			},
 		})
 		if len(list) == 0 {
-			rows = append([]core.Node{core.Text{Content: "还没有项目", Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
+			rows = append([]core.Node{core.Text{Content: T("还没有项目"), Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)}}, rows...)
 		}
 		return core.View{Style: core.Style{Width: core.Pt(268)}, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}
@@ -591,7 +592,7 @@ func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() { a.revealProject(w()) }),
 		a.menuRow(a.cx, lucide.Copy, "复制项目路径", "", false, func() { a.copyText(w().Path, "路径") }),
-		a.menuRow(a.cx, lucide.FolderPlus, "添加项目…", "", false, func() { a.pickNative("workspace") }),
+		a.menuRow(a.cx, lucide.FolderPlus, T("添加项目…"), "", false, func() { a.pickNative("workspace") }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.FolderMinus, "移除项目", "", true, func() { a.removeWorkspace(w()) }),
 	}

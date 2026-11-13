@@ -81,6 +81,9 @@ type mobileApp struct {
 	options     *core.Signal[remoteWireOptions]
 	optionsOpen *core.Signal[bool]
 
+	// toolOpen is the key of the tool block the user unfolded.
+	toolOpen *core.Signal[string]
+
 	stateLoading      bool
 	transcriptLoading bool
 	refreshing        *core.Signal[bool]
@@ -120,6 +123,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		creating:       core.NewSignal(cx, false),
 		options:        core.NewSignalFunc(cx, remoteWireOptions{}, nil),
 		optionsOpen:    core.NewSignal(cx, false),
+		toolOpen:       core.NewSignal(cx, ""),
 	}
 	if saved := loadMobileSaved(cx); saved.Server != "" {
 		a.server.Set(saved.Server)
@@ -642,8 +646,18 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 					ui.Text(fmt.Sprintf("匹配 %d 条", matches), 11, ui.Medium, colors.Faint),
 				}})
 			}
-			for _, m := range msgs {
-				rows = append(rows, mobileMessage(cx, m))
+			for i := 0; i < len(msgs); {
+				if msgs[i].Role == "tool" {
+					j := i
+					for j < len(msgs) && msgs[j].Role == "tool" {
+						j++
+					}
+					rows = append(rows, a.toolBlock(cx, msgs[i:j]))
+					i = j
+					continue
+				}
+				rows = append(rows, mobileMessage(cx, msgs[i]))
+				i++
 			}
 			if len(rows) == 0 || (query != "" && matches == 0) {
 				empty := "这个会话还没有消息"
@@ -700,11 +714,14 @@ func (a *mobileApp) composer(cx *core.Scope) core.Node {
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
 		}},
 		core.Dynamic(func(*core.Scope) core.Node {
-			if a.running.Get() {
-				return a.pressIcon(lucide.Square, "停止这一轮", 40, 15, nil, a.stopTurn, "mobile-stop")
-			}
 			empty := func() bool { return strings.TrimSpace(a.draft.Get()) == "" }
-			return ui.Press{OnPress: a.sendMessage, Disabled: empty, Scale: 0.9, Role: core.RoleButton, Label: "发送", TestID: "mobile-send",
+			var actions []core.Node
+			// A running turn can still take another message: pi queues it,
+			// so the stop button sits beside send instead of replacing it.
+			if a.running.Get() {
+				actions = append(actions, a.pressIcon(lucide.Square, "停止这一轮", 38, 14, nil, a.stopTurn, "mobile-stop"))
+			}
+			actions = append(actions, ui.Press{OnPress: a.sendMessage, Disabled: empty, Scale: 0.9, Role: core.RoleButton, Label: "发送", TestID: "mobile-send",
 				StyleFunc: func() core.Style {
 					st := core.Style{Width: core.Pt(40), Height: core.Pt(40), CornerRadius: 20, AlignItems: core.AlignCenter,
 						JustifyContent: core.JustifyCenter, Background: colors.Light(), Transition: pressMotion}
@@ -718,7 +735,8 @@ func (a *mobileApp) composer(cx *core.Scope) core.Node {
 						return colors.Faint()
 					}
 					return colors.OnLight()
-				})}}
+				})}})
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: actions}
 		}),
 	}}
 }
@@ -765,6 +783,48 @@ func (a *mobileApp) stopTurn() {
 			a.refreshTranscript()
 		})
 	}()
+}
+
+// toolBlock folds a run of tool calls into one row that opens in place.
+func (a *mobileApp) toolBlock(cx *core.Scope, lines []remoteWireMessage) core.Node {
+	colors := ui.ColorsOf(cx)
+	key := lines[0].Text
+	open := a.toolOpen.Get() == key
+	header := "调用了 " + fmt.Sprint(len(lines)) + " 个工具"
+	if len(lines) == 1 {
+		header = firstLine(lines[0].Text, 40)
+	}
+	children := []core.Node{
+		core.View{OnPress: func(core.PressEvent) {
+			if open {
+				a.toolOpen.Set("")
+			} else {
+				a.toolOpen.Set(key)
+			}
+		}, Role: core.RoleButton, Label: header, TestID: "mobile-tools",
+			StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(4, 6),
+					CornerRadius: 7, Transition: pressMotion, Hover: &core.Style{Background: colors.Hover()},
+					Active: &core.Style{Background: colors.Pressed()}}
+			},
+			Children: []core.Node{
+				ui.Icon(lucide.Terminal, 12, colors.Faint),
+				core.Text{Content: header, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 10.5},
+					StyleFunc: ui.Colored(colors.Faint)},
+				ui.Icon(map[bool]func() *core.SVG{true: lucide.ChevronUp, false: lucide.ChevronDown}[open], 12, colors.Faint),
+			}},
+	}
+	if open {
+		inner := make([]core.Node, 0, len(lines))
+		for _, line := range lines {
+			inner = append(inner, core.Text{Content: line.Text, MaxLines: 12,
+				Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)})
+		}
+		children = append(children, core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Left: 18, Top: 2, Bottom: 4}},
+			Children: inner})
+	}
+	return core.View{Style: core.Style{Gap: 2}, Children: children}
 }
 
 // mobileMessage draws one line of a remote transcript.
