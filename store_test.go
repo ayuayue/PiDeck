@@ -115,7 +115,7 @@ func TestConfigMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"version": 1`) || strings.Contains(string(raw), "bogus") {
+	if !strings.Contains(string(raw), `"version": 2`) || strings.Contains(string(raw), "bogus") {
 		t.Fatalf("migrated file = %s", raw)
 	}
 }
@@ -123,7 +123,7 @@ func TestConfigMigration(t *testing.T) {
 // TestConfigValidIsNotRewritten keeps a valid file exactly as it was.
 func TestConfigValidIsNotRewritten(t *testing.T) {
 	dir := t.TempDir()
-	body := `{"version":1,"sessionSort":"name","scanPi":false,"scanAll":false,"closeToTray":false,"notifyOnDone":false,"notifyOnlyHidden":false}`
+	body := `{"version":2,"sessionSort":"name","scanPi":false,"scanAll":false,"closeToTray":false,"notifyOnDone":false,"notifyOnlyHidden":false}`
 	path := filepath.Join(dir, "config.json")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -161,5 +161,69 @@ func TestConfigCopyDoesNotAliasMaps(t *testing.T) {
 	again := st.config()
 	if again.PluginSettings["p/k"] != "1" || again.SessionPersonas["s"] != "review" {
 		t.Fatalf("copy aliased the store: %+v %+v", again.PluginSettings, again.SessionPersonas)
+	}
+}
+
+// TestTrustMigration trusts projects that existed before trust, and leaves
+// a current config's choices alone.
+func TestTrustMigration(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"version":1,"workspaces":[{"path":"/a"},{"path":"/b","target":"wsl:Ubuntu"}]}`
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := st.config()
+	if c.Version != configVersion || len(c.TrustedProjects) != 2 {
+		t.Fatalf("version/trusted = %d/%v", c.Version, c.TrustedProjects)
+	}
+	raw, _ := os.ReadFile(path)
+	if !strings.Contains(string(raw), `"version": 2`) || !strings.Contains(string(raw), "trustedProjects") {
+		t.Fatalf("migrated config = %s", raw)
+	}
+
+	dir2 := t.TempDir()
+	body2 := `{"version":2,"workspaces":[{"path":"/a"}]}`
+	path2 := filepath.Join(dir2, "config.json")
+	if err := os.WriteFile(path2, []byte(body2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st2, err := newStore(dir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st2.config().TrustedProjects; len(got) != 0 {
+		t.Fatalf("a current config gained trust: %v", got)
+	}
+}
+
+// TestTrustProject checks trusting and revoking reach the config.
+func TestTrustProject(t *testing.T) {
+	dir := t.TempDir()
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st}
+	a.cfg = st.config()
+	ws := &workspace{Path: "/p", Target: localTarget}
+	if a.projectTrusted(ws) {
+		t.Fatal("a new project is trusted")
+	}
+	a.trustProject(ws)
+	if !a.projectTrusted(ws) {
+		t.Fatal("trust did not stick")
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "config.json"))
+	if !strings.Contains(string(raw), "/p") {
+		t.Fatalf("config = %s", raw)
+	}
+	a.untrustProject(ws)
+	if a.projectTrusted(ws) {
+		t.Fatal("revoking did not stick")
 	}
 }

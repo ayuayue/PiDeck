@@ -34,7 +34,7 @@ func (a *app) chatPane() core.Node {
 					JumpLabel: "跳到最新消息",
 					TestID:    "transcript",
 					Children:  []core.Node{a.transcript(s)},
-					Composer:  []core.Node{a.todoBar(s), a.composer(s)},
+					Composer:  []core.Node{a.trustBar(s), a.todoBar(s), a.composer(s)},
 				},
 				core.Show{When: func() bool {
 					return len(s.turns.Get()) == 0 && !s.loaded.Get() && s.status.Get() != statusFailed

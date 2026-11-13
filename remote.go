@@ -789,6 +789,10 @@ func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id st
 			failure = errors.New("找不到这个会话")
 			return
 		}
+		if ws := h.app.workspaceOf(s.WS); ws != nil && !h.app.projectTrusted(ws) {
+			failure = errors.New(T("这个项目还没有在电脑上被信任"))
+			return
+		}
 		// A message for a turn that is still running steers it, as the
 		// desktop's composer does.
 		if s.busyNow() {

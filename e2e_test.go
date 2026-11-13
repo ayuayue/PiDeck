@@ -43,6 +43,11 @@ func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App 
 	// With a project in place the welcome's main action opens a session.
 	app.Press("id:welcome-primary")
 	app.WaitFor("id:composer", 10*time.Second)
+	// A folder added at runtime starts untrusted; tests trust it once.
+	if len(app.Query("id:trust-project")) > 0 {
+		app.Press("id:trust-project")
+		app.WaitForGone("id:trust-bar", 5*time.Second)
+	}
 	return app
 }
 

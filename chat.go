@@ -42,6 +42,7 @@ func (a *app) openChat() *session {
 			PiLoading: core.NewSignal(a.cx, false),
 			Visible:   core.NewSignal(a.cx, 0)}
 		a.workspaces.Update(func(list []*workspace) []*workspace { return append(list, ws) })
+		a.trustProject(ws)
 		a.files.watch(dir)
 		a.saveProjects()
 		a.rescanPi()

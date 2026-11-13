@@ -283,6 +283,10 @@ type app struct {
 	// The export dialog and the session it writes.
 	exportOpen *core.Signal[bool]
 	exportID   string
+	// The trust dialog and what waits for the answer.
+	trustOpen *core.Signal[bool]
+	trustWS   *workspace
+	trustThen func()
 	// Image generation.
 	imageOpen     *core.Signal[bool]
 	imagePrompt   *core.Signal[string]
@@ -382,6 +386,7 @@ func newApp(cx *core.Scope) *app {
 		fileOpTitle:      core.NewSignal(cx, ""),
 		fileOpText:       core.NewSignal(cx, ""),
 		exportOpen:       core.NewSignal(cx, false),
+		trustOpen:        core.NewSignal(cx, false),
 		imageOpen:        core.NewSignal(cx, false),
 		imagePrompt:      core.NewSignal(cx, ""),
 		imageModel:       core.NewSignal(cx, ""),
@@ -2064,6 +2069,14 @@ func (a *app) send() {
 	if text == "" && len(images) == 0 {
 		return
 	}
+	if ws := a.workspaceOf(s.WS); ws != nil && !a.projectTrusted(ws) {
+		a.askTrust(ws, func() {
+			s.draft.Set(text)
+			s.images.Set(images)
+			a.send()
+		})
+		return
+	}
 	if s.busyNow() && s.engine != nil {
 		s.draft.Set("")
 		s.images.Set(nil)
@@ -2091,6 +2104,10 @@ func planPrompt(text string) string {
 
 // submitTurn starts a turn, asking for a plan when plan is true.
 func (a *app) submitTurn(s *session, text string, images []promptImage, plan bool) {
+	if ws := a.workspaceOf(s.WS); ws != nil && !a.projectTrusted(ws) {
+		a.askTrust(ws, func() { a.submitTurn(s, text, images, plan) })
+		return
+	}
 	original := text
 	if p := a.agentByID(s.personaID); p != nil {
 		text = personaPrompt(p.Prompt, text)

@@ -88,6 +88,10 @@ type config struct {
 	PluginSettings map[string]string `json:"pluginSettings,omitempty"`
 	// SessionPersonas binds a session to an agent by its id.
 	SessionPersonas map[string]string `json:"sessionPersonas,omitempty"`
+	// TrustedProjects are the projects the user allowed agents to work
+	// in, keyed "target|path". A project added at runtime starts
+	// untrusted; configs from before trust existed are migrated as trusted.
+	TrustedProjects []string `json:"trustedProjects,omitempty"`
 	// ImageProvider, ImageModel and ImageSize remember the image
 	// generator's last choices.
 	ImageProvider string `json:"imageProvider,omitempty"`
@@ -160,14 +164,14 @@ func newStore(dataDir string) (*store, error) {
 
 // configVersion is the shape of config.json this build writes. A file
 // from an older build is migrated on load and written back once.
-const configVersion = 1
+const configVersion = 2
 
 // migrateConfig brings an older config up to date and repairs values a
 // hand-edited file may have got wrong. It reports whether anything
 // changed, so the store writes the file back once.
 func migrateConfig(c *config, raw []byte) bool {
 	changed := false
-	if c.Version < configVersion {
+	if c.Version < 1 {
 		// A config written before these fields existed reads pi's own
 		// sessions under their projects: it is the useful default.
 		if !bytes.Contains(raw, []byte(`"scanPi"`)) && !bytes.Contains(raw, []byte(`"scanAll"`)) {
@@ -184,7 +188,25 @@ func migrateConfig(c *config, raw []byte) bool {
 		if !bytes.Contains(raw, []byte(`"notifyOnlyHidden"`)) {
 			c.NotifyOnlyHidden = true
 		}
-		c.Version = configVersion
+		c.Version = 1
+		changed = true
+	}
+	if c.Version < 2 {
+		// Projects that existed before trust was introduced are trusted;
+		// only folders added later need confirmation.
+		seen := map[string]bool{}
+		for _, key := range c.TrustedProjects {
+			seen[key] = true
+		}
+		for _, w := range c.Workspaces {
+			t := parseTarget(w.Target)
+			key := t.key() + "|" + cleanTargetPath(t, w.Path)
+			if w.Path != "" && !seen[key] {
+				c.TrustedProjects = append(c.TrustedProjects, key)
+				seen[key] = true
+			}
+		}
+		c.Version = 2
 		changed = true
 	}
 	return normalizeConfig(c) || changed
@@ -300,6 +322,7 @@ func (s *store) config() config {
 	for k, v := range s.c.Titles {
 		c.Titles[k] = v
 	}
+	c.TrustedProjects = append([]string(nil), s.c.TrustedProjects...)
 	c.PluginSettings = make(map[string]string, len(s.c.PluginSettings))
 	for k, v := range s.c.PluginSettings {
 		c.PluginSettings[k] = v

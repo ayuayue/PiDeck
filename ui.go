@@ -30,6 +30,7 @@ func (a *app) view() core.Node {
 		a.renameDialog(),
 		a.fileOpDialog(),
 		a.exportDialog(),
+		a.trustDialog(),
 		a.imageDialog(),
 		a.confirmDialog(),
 		a.askDialog(),

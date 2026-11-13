@@ -581,6 +581,20 @@ func (a *app) menuSeparator(cx *core.Scope) base.MenuSeparator {
 }
 
 // projectMenuItems is a project's right-click menu.
+// trustMenuItem names the project menu's trust action.
+func (a *app) trustMenuItem(w *workspace) string {
+	if w == nil {
+		return T("信任项目")
+	}
+	if w.Chat {
+		return T("内置对话始终受信任")
+	}
+	if a.projectTrusted(w) {
+		return T("撤销信任")
+	}
+	return T("信任项目")
+}
+
 func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 	return []core.Node{
 		a.menuRow(a.cx, lucide.SquarePen, "在此新建会话", "", false, func() { a.newSession(w().Path) }),
@@ -588,6 +602,7 @@ func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 		a.menuRow(a.cx, lucide.GitBranch, "查看 Git 变更", "", false, func() { a.openGitFor(w()) }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.Pin, pinProjectLabel(w()), "", false, func() { a.toggleProjectPin(w()) }),
+		a.menuRow(a.cx, lucide.ShieldCheck, a.trustMenuItem(w()), "", w().Chat, func() { a.toggleProjectTrust(w()) }),
 		a.menuRow(a.cx, lucide.ChevronUp, "上移项目", "", false, func() { a.moveProject(w(), -1) }),
 		a.menuRow(a.cx, lucide.ChevronDown, "下移项目", "", false, func() { a.moveProject(w(), 1) }),
 		a.menuRow(a.cx, lucide.FolderInput, "移动到分组…", "", false, func() { a.askProjectGroup(w()) }),
