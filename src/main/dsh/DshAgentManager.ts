@@ -1,23 +1,4 @@
-import type {
-	AgentBackend,
-	AgentGatewayCapability,
-	AgentRuntimeState,
-	AgentTab,
-	DshPermissionPreset,
-	AvailableModel,
-	ChatMessage,
-	CreateAgentInput,
-	DshQueuedMessage,
-	DshSkillView,
-	ImageContent,
-	PiCommand,
-	Project,
-	SendPromptInput,
-	SendPromptResult,
-	SessionRuntimeModelSelection,
-	SessionUiResponseInput,
-	TodoItem,
-} from "../../shared/types";
+import type { AgentBackend, AgentGatewayCapability, AgentRuntimeState, AgentTab, DshPermissionPreset, AvailableModel, ChatMessage, CreateAgentInput, DshSkillView, ImageContent, PiCommand, Project, SendPromptInput, SendPromptResult, SessionRuntimeModelSelection, SessionUiResponseInput } from "../../shared/types";
 import { emitAgentMessageMeasured } from "../perf/messageFlushMeter";
 import { isDshPermissionPreset } from "../../shared/types/agent";
 import type { SessionProcessEvent } from "../../shared/types/trajectory";
@@ -34,36 +15,21 @@ import type { DshHost } from "./DshHost";
 import { renderDshSessionHtml, sanitizeExportFileName } from "./dshSessionHtmlExport";
 import { collectDshExportMessages, DSH_EXPORT_MESSAGES_CODES, DshExportMessagesError, type DshExportMessagesCollection } from "./dshExportMessages";
 import { defaultToolDetailTranslate, type ToolDetailTranslate } from "../../shared/formatToolDetail";
-import { projectDshEvent, parseDshTodoList, parseDshInboxProjection, type DshProjection } from "./dshEventProjector";
+import { projectDshEvent, parseDshTodoList } from "./dshEventProjector";
 import { projectDshSubagentTranscriptPage, type DshSubagentTranscriptPage } from "./dshSubagentTranscript";
-import {
-	cacheHitPercentOf,
-	collectDshProcessEvent,
-	collectDshProcessEvents,
-	deriveDshSessionStats,
-	deriveSessionStatsFallback,
-	estimateContextTokens,
-	parseContextBreakdownProjection,
-	parseContextPressureProjection,
-	parseSessionStatsProjection,
-	parseTokenUsageProjection,
-	pushDshProcessEvent,
-	type DshSessionStatsProjection,
-	type DshUsageTotals,
-} from "./dshProcessEvents";
-import { applyDshControlEvent, beginDshCancel, type DshControlState } from "./dshRuntimeControl";
+import { cacheHitPercentOf, collectDshProcessEvents, deriveDshSessionStats, deriveSessionStatsFallback, estimateContextTokens, parseContextBreakdownProjection, parseContextPressureProjection, parseSessionStatsProjection, parseTokenUsageProjection } from "./dshProcessEvents";
+import { beginDshCancel, type DshControlState } from "./dshRuntimeControl";
 import { isDshModelImageUnsupportedRejection, readDshModelSelection, resolveDshModelDirectory, toDshAvailableModels } from "./dshModels";
 import { approvalUiRequest, buildDshRejectValue, buildDshRespondValue, parseDshApprovalFrame, parseDshQuestionFrame, questionUiRequest, type DshApprovalFrame, type DshQuestionFrame } from "./dshApprovalBridge";
 import { assembleDshHistoryEntries, countDshUserMessages, DSH_HISTORY_DEFAULT_TURN_PAGE_SIZE, dshRuntimeWindowFields, normalizeDshTurnPageSize, planDshHistoryRounds, resolveDshHistoryWindow, trimToOldestTurnStart } from "./dshHistoryPagePlan";
 import { DSH_SESSION_FIND_MAX_MATCHES, findDshSessionMatches, type DshSessionFindResult } from "./dshSessionFind";
-import { isContextOverflowError } from "../../shared/contextOverflow";
 import { reasoningText } from "../../shared/reasoningText";
 import { parseDshTeamProjection } from "./dshTeamProjection";
-import type { DshTeamState } from "../../shared/types/agent";
 import type { RpcLogEntry } from "../../shared/types/rpcLog";
 import type { RpcLogLiveSink } from "../logging/RpcLogLiveBroadcaster";
-
-const DSH_PROJECTION_KEYS = ["contextPressure", "contextBreakdown", "tokenUsage", "sessionStats", "todos", "inbox", "agentTeam"];
+import type { DshAgentRuntime } from "./manager/dshAgentRuntime";
+import { applyDshHistoryProjectionBaseline, DSH_PROJECTION_KEYS } from "./manager/dshProjectionFrames";
+import { dispatchDshMuxFrame, type DshMuxFrameHost, lastAssistantText, mergeDshHydratedMessages } from "./manager/dshMuxFrames";
 
 /**
  * DSH 后端网关：实现 SessionAgentGateway，把 DSH host（DshHost）的会话/事件
@@ -174,6 +140,19 @@ export class DshAgentManager implements SessionAgentGateway {
 	private sessionFindCache?: { dshSessionId: string; cursor: number; messages: ChatMessage[]; expiresAt: number };
 	/** 正在构建的历史快照（按会话合并并发）：连续输入会并发发起多次检索，不能各走一遍分页。 */
 	private readonly sessionFindInflight = new Map<string, Promise<ChatMessage[]>>();
+	/** mux 帧分发/投影模块的宿主出口（模块只经这些方法回读会话 map 与输出通道，状态仍留宿主）。 */
+	private readonly muxFrameHost: DshMuxFrameHost = {
+		findRuntimeBySessionId: (sessionId) => this.findRuntimeBySessionId(sessionId),
+		handleServerRequest: (runtime, frame, payload) => this.handleServerRequest(runtime, frame, payload),
+		applyControl: (runtime, next) => this.applyControl(runtime, next),
+		emit: (channel, payload) => this.emit(channel, payload),
+		emitState: () => this.emit(agentEventTags.agentsState, this.list()),
+		emitMessages: (runtime) => this.emitMessages(runtime),
+		emitRuntimeState: (agentId) => this.emitRuntimeState(agentId),
+		notifyAgentSettled: (agentId, title) => this.notifyAgentSettled(agentId, title),
+		notifyTitleChanged: (dshSessionId, title) => this.onTitleChanged?.(dshSessionId, title),
+		hydrateRuntimeDshImages: (runtime) => this.hydrateRuntimeDshImages(runtime),
+	};
 	constructor(
 		private readonly dshHost: DshHost,
 		private readonly getProject: (id: string) => Project | undefined,
@@ -2052,156 +2031,9 @@ export class DshAgentManager implements SessionAgentGateway {
 			.catch(() => undefined);
 	}
 
-	/** 当前 runtime 是否已有可用于抵御零 usage 覆盖的上下文证据。 */
-	private hasKnownContext(runtime: DshAgentRuntime): boolean {
-		const pressureValues = [runtime.contextPressure?.pressureTokens, runtime.contextPressure?.projectedTokens];
-		if (pressureValues.some((value) => typeof value === "number" && value > 0)) return true;
-		const breakdown = runtime.contextBreakdown;
-		if (breakdown && (breakdown.systemTokens ?? 0) + (breakdown.toolsTokens ?? 0) + (breakdown.messageTokens ?? 0) > 0) return true;
-		const usage = runtime.usageTotals;
-		if (usage && usage.inputTokens + usage.outputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0) > 0) return true;
-		return estimateContextTokens(runtime.messages) > 0;
-	}
-
-	/** 失败重试可能带来两个 token 字段均为 0 的伪采样；空会话的真实 0 仍然有效。 */
-	private isZeroContextPressure(value: NonNullable<DshAgentRuntime["contextPressure"]>): boolean {
-		const tokens = [value.pressureTokens, value.projectedTokens].filter((token): token is number => typeof token === "number");
-		return tokens.length > 0 && tokens.every((token) => token === 0);
-	}
-
-	/** 对齐 DSH web ProjectionValueStore：每个 projection key 独立按 seq higher-seq-wins。 */
-	private acceptsProjectionFrame(runtime: DshAgentRuntime, key: string, rawSeq: unknown): boolean {
-		const lastSeq = runtime.projectionSeq.get(key);
-		if (rawSeq === undefined) return lastSeq === undefined;
-		if (typeof rawSeq !== "number" || !Number.isSafeInteger(rawSeq) || rawSeq < 0) return false;
-		if (lastSeq !== undefined && rawSeq <= lastSeq) return false;
-		runtime.projectionSeq.set(key, rawSeq);
-		return true;
-	}
-
-	/**
-	 * 投影帧 → runtime 投影缓存（上下文圆环/会话统计/待办的数据源）。
-	 *
-	 * 帧有三个来源，都汇到这一个入口：
-	 * - `session/control` 的 `{type:'projection', sessionId, key, value, seq}`
-	 *   （0.1.5 唯一实时来源，host 的 sessionProjections.onChanged 原样广播）；
-	 * - `session/follow` snapshot 里的 `projections`；
-	 * - 投影 baseline（`applyProjectionBaseline` 逐 key 拆开复用本方法）。
-	 *
-	 * 只消费本项目消费的投影单元（contextPressure/contextBreakdown/tokenUsage/
-	 * sessionStats/todos），其余键忽略——渲染层队列/后台任务展示（session/queue、
-	 * session/jobs）如需接入，在此扩展。
-	 * 帧的 value 是 host 按 onChanged 原样下发的单元值本体（无 {key: value} 包装）；
-	 * 解析器（parse*Projection）统一兼容包装形（attach projections.values）与单元值形（帧）。
-	 */
-	private applyProjectionFrame(runtime: DshAgentRuntime, payload: { sessionId?: unknown; key?: unknown; value?: unknown; seq?: unknown }): void {
-		const key = typeof payload.key === "string" ? payload.key : "";
-		if (!DSH_PROJECTION_KEYS.includes(key)) return;
-		if (!this.acceptsProjectionFrame(runtime, key, payload.seq)) return;
-		if (key === "contextPressure") {
-			const parsed = parseContextPressureProjection(payload.value);
-			if (parsed !== undefined) {
-				if (this.isZeroContextPressure(parsed) && this.hasKnownContext(runtime)) {
-					// 仅更新独立的容量字段，保留最后一个有效分子；否则 retry 的零 usage 会让
-					// 一个仍有 200K 对话内容的会话瞬间显示 0 / 1M。
-					const previous = runtime.contextPressure;
-					if (parsed.contextWindow !== undefined && parsed.contextWindow !== previous?.contextWindow) {
-						runtime.contextPressure = {
-							...(previous ?? {}),
-							contextWindow: parsed.contextWindow,
-						};
-						this.emitRuntimeState(runtime.tab.id);
-					}
-					return;
-				}
-				runtime.contextPressure = parsed;
-				this.emitRuntimeState(runtime.tab.id);
-			}
-			return;
-		}
-		if (key === "contextBreakdown") {
-			const parsed = parseContextBreakdownProjection(payload.value);
-			if (parsed !== undefined) {
-				runtime.contextBreakdown = parsed;
-				this.emitRuntimeState(runtime.tab.id);
-			}
-			return;
-		}
-		if (key === "tokenUsage") {
-			const parsed = parseTokenUsageProjection(payload.value);
-			if (parsed !== undefined) {
-				runtime.usageTotals = parsed;
-				this.emitRuntimeState(runtime.tab.id);
-			}
-			return;
-		}
-		if (key === "sessionStats") {
-			const parsed = parseSessionStatsProjection(payload.value);
-			if (parsed !== undefined) {
-				runtime.sessionStats = parsed;
-				this.emitRuntimeState(runtime.tab.id);
-			}
-			return;
-		}
-		if (key === "todos") {
-			// 官方 tool-todo 的 todos 投影：整表快照（null = 清空）。seq 已在
-			// acceptsProjectionFrame 做 higher-seq-wins；解析失败（undefined）保持原值。
-			const parsed = parseDshTodoList(payload.value);
-			if (parsed !== undefined) {
-				runtime.todos = parsed;
-				this.emitRuntimeState(runtime.tab.id);
-			}
-			return;
-		}
-		if (key === "inbox") {
-			// 官方 inbox 投影：host 侧排队消息（next-turn/next-step 整值替换）。与本地
-			// 排队队列（queuedPromptQueue，waitForIdle 前的客户端暂存）互补——覆盖的是已
-			// 发出但 host 因运行中回合而滞留 inbox 的盲区；空数组是有效值（排队被消费）。
-			const parsed = parseDshInboxProjection(payload.value);
-			if (parsed !== undefined) {
-				runtime.queuedMessages = parsed;
-				this.emitRuntimeState(runtime.tab.id);
-			}
-			return;
-		}
-		if (key === "agentTeam") {
-			// agent-team 实验预设的团队投影（成员/任务板整值替换；解析失败保持原值）。
-			// 未启用预设的会话不会收到该 key，白名单已把它与其他会话的杂散帧隔开。
-			const parsed = parseDshTeamProjection(payload.value);
-			if (parsed !== undefined) {
-				runtime.dshTeam = parsed;
-				this.emitRuntimeState(runtime.tab.id);
-			}
-			return;
-		}
-	}
-
-	/**
-	 * 消费投影 baseline（`{asOfSeq, values}` 块）——两个来源共用同一入口：
-	 * - `session.history` 尾页的 `projections`（attach/restart/重连补帧/崩溃恢复都拉
-	 *   同一尾页，是底层完整折叠，不受 200 条事件窗口截断影响）；
-	 * - `session/control` 首帧 `{type:'baseline', value:{projections}}` 里每会话一块
-	 *   （host 重连后重发，天然完成投影补齐）。
-	 *
-	 * 逐 key 判断是否存在：缺 key 的不动（保留现值），避免用 baseline 的“缺省”
-	 * 把已到达的实时值抹掉。与实时帧共用 acceptsProjectionFrame 的 higher-seq-wins，
-	 * 基线晚于实时帧到达时会被拒绝（不回退）。
-	 */
-	private applyProjectionBaseline(runtime: DshAgentRuntime, block: unknown): void {
-		if (block === null || typeof block !== "object") return;
-		const record = block as { asOfSeq?: unknown; values?: unknown };
-		if (record.values === null || typeof record.values !== "object") return;
-		const values = record.values as Record<string, unknown>;
-		const asOfSeq = typeof record.asOfSeq === "number" && Number.isSafeInteger(record.asOfSeq) && record.asOfSeq >= -1 ? record.asOfSeq : undefined;
-		for (const key of DSH_PROJECTION_KEYS) {
-			if (!Object.prototype.hasOwnProperty.call(values, key)) continue;
-			this.applyProjectionFrame(runtime, { key, value: values[key], seq: asOfSeq });
-		}
-	}
-
-	/** `session.history` 尾页 projections baseline 入口（语义见 applyProjectionBaseline）。 */
+	/** `session.history` 尾页 projections baseline 入口（语义见 applyDshProjectionBaseline）。 */
 	private applyHistoryProjectionBaseline(runtime: DshAgentRuntime, projections: unknown): void {
-		this.applyProjectionBaseline(runtime, projections);
+		applyDshHistoryProjectionBaseline(this.muxFrameHost, runtime, projections);
 	}
 
 	private applyControl(runtime: DshAgentRuntime, next: DshControlState): void {
@@ -2520,245 +2352,10 @@ export class DshAgentManager implements SessionAgentGateway {
 		});
 	}
 
-	/** 共享 mux 帧按 sessionId 分发给对应 runtime。 */
+	/** 共享 mux 帧按 sessionId 分发给对应 runtime（分发/投影在 manager/dshMuxFrames）。 */
 	private dispatchMuxFrame(frame: { rpcId?: unknown; payload?: unknown }): void {
-		const payload = (frame?.payload ?? frame) as Record<string, unknown> | undefined;
-		if (!payload || typeof payload !== "object") return;
-		const runtime = this.findRuntimeBySessionId(payload.sessionId);
-		if (!runtime) return;
-		if (payload.type === "approval/requested" || payload.type === "question/requested") {
-			this.handleServerRequest(runtime, frame, payload);
-			return;
-		}
-		if (payload.type === "session/projection-baseline") {
-			// session/control 的 baseline 是全会话投影快照，按 sessionId 拆帧后到这里。
-			this.applyProjectionBaseline(runtime, payload.block);
-			return;
-		}
-		if (payload.type === "session/projection") {
-			this.applyProjectionFrame(runtime, payload);
-			return;
-		}
-		if (payload.type !== "session/event") return;
-		// journal 回放（follow 的 snapshot.records）不是实时事件：投影照旧（历史要显示），
-		// 但不得触发「回合完成」——否则打开历史会话会把每条历史 turn/end 都提醒一遍。
-		const replayed = payload.replay === true;
-		const event = payload.event as { type?: string; seq?: number; time?: number; data?: unknown } | undefined;
-		// 轨迹过程事件：模型切换/权限/plan/goal/压缩命令等非对话记录
-		// （pi 会话文件过程事件的 DSH 等价物；与消息投影并行收集）。
-		runtime.processEvents = pushDshProcessEvent(runtime.processEvents, collectDshProcessEvent(runtime.processEvents, event));
-		// DSH host 会话标题（dsh-session-title 的 session/title 事件）：
-		// 更新 runtime tab + 写回 catalog（侧栏运行中行实时、历史行/重启后持久），
-		// 不投影消息、不影响流式状态机。
-		if (event?.type === "session/title" && event.data !== null && typeof event.data === "object" && typeof (event.data as { title?: unknown }).title === "string" && (event.data as { title: string }).title.trim()) {
-			const title = (event.data as { title: string }).title.trim();
-			if (runtime.tab.title !== title) {
-				runtime.tab.title = title;
-				this.emit(agentEventTags.agentsState, this.list());
-				this.onTitleChanged?.(String(runtime.sessionId), title);
-			}
-			return;
-		}
-		const eventView = (payload as { view?: unknown }).view;
-		const eventGeneration = runtime.control.cancelGeneration;
-		const controlled = applyDshControlEvent(runtime.control, event?.type, eventGeneration, event?.data);
-		this.applyControl(runtime, controlled.next);
-		if (controlled.ignoreStream) {
-			// 停止后的迟到流：只投影 turn/end（把已流式的部分文本落回骨架，
-			// 并收口 cancelled）。assistant/message、chunk、tool 等旧回合残留
-			// 一律不投影——否则停止后完整回答/工具卡片继续上屏（「还在跑」），
-			// 或被拼进下一条消息（「串台」）。
-			if (event?.type === "turn/end") {
-				// D8：停止后的迟到 turn/end 不追加 error 气泡（停止 ≠ 回合失败）
-				runtime.projection = projectDshEvent(runtime.projection, event, runtime.tab.id, undefined, { skipErrorTurnEnd: true });
-				runtime.messages = mergeDshProjectedMessages(runtime.messages, runtime.projection.messages);
-				// 收口时带上已累积正文，避免空 done 把渲染层 live 槽抹成空白。
-				// turnEnded：停止后迟到的 turn/end 同样是「本轮终点」，Web SSE 在此收流。
-				this.emit(agentEventTags.agentsTextStream, {
-					agentId: runtime.tab.id,
-					text: lastAssistantText(runtime.messages),
-					done: true,
-					turnEnded: true,
-				});
-				this.emitMessages(runtime);
-				if (runtime.isCompacting) {
-					runtime.isCompacting = false;
-					this.emitRuntimeState(runtime.tab.id);
-				}
-			}
-			return;
-		}
-		runtime.projection = projectDshEvent(runtime.projection, event, runtime.tab.id, eventView);
-		runtime.messages = mergeDshProjectedMessages(runtime.messages, runtime.projection.messages);
-		// todo/write / turn/start 折叠进 projection.todos：实时同步到 runtime，
-		// 随 p.stateChanged 的 emitRuntimeState 一起推给渲染层 todo 条。
-		runtime.todos = runtime.projection.todos;
-		if (typeof event?.seq === "number" && event.seq > (runtime.lastProjectedSeq ?? 0)) {
-			runtime.lastProjectedSeq = event.seq;
-		}
-		const p = runtime.projection;
-		const eventSeq = typeof event?.seq === "number" ? event.seq : 0;
-		const eventTime = typeof event?.time === "number" ? event.time : Date.now();
-		if (event?.type === "turn/start") {
-			// 与 pi agent_start 对齐：新回合丢掉上一轮 held live 槽。
-			this.emit(agentEventTags.agentsTextStream, {
-				agentId: runtime.tab.id,
-				text: "",
-				done: true,
-				reset: true,
-			});
-		}
-		if (p.deltaText !== undefined) {
-			this.emit(agentEventTags.agentsTextStream, {
-				agentId: runtime.tab.id,
-				text: p.pendingAssistantText,
-				done: false,
-			});
-		}
-		if (p.deltaReasoning !== undefined) {
-			runtime.thinkingId ??= `msg-thinking-${p.pendingAssistantId ?? `dsh:${eventSeq}`}`;
-			runtime.thinkingStartedAt ??= eventTime;
-			this.emit(agentEventTags.agentsThinking, {
-				agentId: runtime.tab.id,
-				id: runtime.thinkingId,
-				// 累积文本保留签名，下发前跑展示净化（未闭合的签名块下发空串，行自然隐藏）。
-				text: reasoningText(p.pendingAssistantThinking),
-				startedAt: runtime.thinkingStartedAt,
-				done: false,
-			});
-		}
-		if (runtime.thinkingId && p.deltaReasoning === undefined && p.pendingAssistantThinking === "") {
-			this.emit(agentEventTags.agentsThinking, {
-				agentId: runtime.tab.id,
-				id: runtime.thinkingId,
-				text: "",
-				startedAt: runtime.thinkingStartedAt ?? 0,
-				endedAt: eventTime,
-				done: true,
-			});
-			runtime.thinkingId = undefined;
-			runtime.thinkingStartedAt = undefined;
-		}
-		if (p.stateChanged) {
-			runtime.executingTool = p.executingTool;
-			if (p.model) runtime.model = p.model;
-			if (p.contextWindow !== undefined) runtime.contextWindow = p.contextWindow;
-			if (p.usage) runtime.usage = p.usage;
-			if ((event as { type?: string } | undefined)?.type === "goal/change") runtime.goal = p.goal;
-			if (p.permissionPreset !== undefined) runtime.permissionPreset = p.permissionPreset;
-			runtime.planModeActive = p.planModeActive;
-			this.emitRuntimeState(runtime.tab.id);
-		}
-		if (p.turnEnded) {
-			const wasCompacting = runtime.isCompacting === true;
-			const turnEndReason = event?.data && typeof event.data === "object" && (event.data as { reason?: unknown }).reason;
-			const reasonMessage = turnEndReason && typeof turnEndReason === "object" && "error" in turnEndReason && typeof (turnEndReason as { error?: { message?: unknown } }).error?.message === "string" ? (turnEndReason as { error: { message: string } }).error.message : "";
-			const reasonKind = turnEndReason && typeof turnEndReason === "object" && "kind" in turnEndReason ? String((turnEndReason as { kind?: unknown }).kind) : "";
-			// control.cancelled 在 turn/end 已被复位，用户停止只能靠 abort() 置的独立标记判断。
-			const userStopped = runtime.userStoppedTurn === true;
-			runtime.userStoppedTurn = false;
-			if (reasonMessage) {
-				runtime.contextOverflow = isContextOverflowError(reasonMessage);
-			} else if (wasCompacting) {
-				// /compact 回合正常收口后，清掉之前的超限恢复态；普通回答收口不改写该标记。
-				runtime.contextOverflow = false;
-			}
-			// turnEnded：正常回合终点（含被停止的 cancelled 收口），Web SSE 在此收流。
-			this.emit(agentEventTags.agentsTextStream, {
-				agentId: runtime.tab.id,
-				text: lastAssistantText(runtime.messages),
-				done: true,
-				turnEnded: true,
-			});
-			this.emitMessages(runtime);
-			// 回合结束必须推 runtime：sessionStats 投影帧可能稍后才到，
-			// 消息兜底的轮数/步数要在 turn/end 当帧更新输入框底下的 StatsLine。
-			if (runtime.isCompacting) runtime.isCompacting = false;
-			this.emitRuntimeState(runtime.tab.id);
-			// 成功收口：通知装配层（会话完成通知 / 桌宠 done 气泡）。
-			// 用户停止、失败回合与 /compact 命令回合都不算「回答完成」（与 pi 的 settled 同口径）；
-			// 回放的历史回合同理不算——它们早就提醒过了。
-			if (!replayed && !userStopped && !wasCompacting && reasonKind !== "error") this.notifyAgentSettled(runtime.tab.id, runtime.tab.title);
-		}
-		if (p.messagesChanged && !p.turnEnded) {
-			this.emitMessages(runtime);
-			if (event?.type === "assistant/message") {
-				this.emit(agentEventTags.agentsTextStream, {
-					agentId: runtime.tab.id,
-					text: lastAssistantText(runtime.messages),
-					done: true,
-				});
-			}
-		}
-		// 实时 mux 中 canonical 图片只有 attachment ref，先推文本、再异步拉字节补图。
-		if (p.messagesChanged) {
-			void this.hydrateRuntimeDshImages(runtime);
-		}
+		dispatchDshMuxFrame(this.muxFrameHost, frame);
 	}
-}
-
-/** Merge image bytes already available in a newer runtime snapshot into projection messages. */
-function mergeDshProjectedMessages(previous: ChatMessage[], projected: ChatMessage[]): ChatMessage[] {
-	const previousImagesById = new Map<string, ImageContent[]>();
-	for (const message of previous) {
-		if (message.images && message.images.length > 0) previousImagesById.set(message.id, message.images);
-	}
-	if (previousImagesById.size === 0) return projected;
-	let changed = false;
-	const merged = projected.map((message) => {
-		const previousImages = previousImagesById.get(message.id);
-		if (!previousImages) return message;
-		const images = mergeDshImageArrays(message.images, previousImages);
-		if (images === message.images) return message;
-		changed = true;
-		return { ...message, images };
-	});
-	return changed ? merged : projected;
-}
-
-/** Merge attachment hydration into the newest runtime list without dropping newer messages. */
-function mergeDshHydratedMessages(current: ChatMessage[], hydrated: ChatMessage[]): ChatMessage[] {
-	const hydratedById = new Map(hydrated.map((message) => [message.id, message]));
-	let changed = false;
-	const merged = current.map((message) => {
-		const hydratedMessage = hydratedById.get(message.id);
-		if (!hydratedMessage?.images) return message;
-		const images = mergeDshImageArrays(message.images, hydratedMessage.images);
-		if (images === message.images) return message;
-		changed = true;
-		return { ...message, images };
-	});
-	return changed ? merged : current;
-}
-
-function mergeDshImageArrays(existing: ImageContent[] | undefined, additions: ImageContent[]): ImageContent[] | undefined {
-	if (additions.length === 0) return existing;
-	const merged = [...(existing ?? [])];
-	let changed = false;
-	for (const image of additions) {
-		let duplicate = false;
-		for (const known of merged) {
-			if (known.mimeType !== image.mimeType) continue;
-			if (known.data !== image.data) continue;
-			duplicate = true;
-			break;
-		}
-		if (!duplicate) {
-			merged.push(image);
-			changed = true;
-		}
-	}
-	return changed ? merged : existing;
-}
-
-/** 本轮最后一条助手正文；收口 text-stream 时带上，避免空 done 抹掉 live 槽。 */
-function lastAssistantText(messages: ChatMessage[]): string {
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (message.role === "user") return "";
-		if (message.role === "assistant" && message.text.trim()) return message.text;
-	}
-	return "";
 }
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
@@ -2783,81 +2380,3 @@ function initialDshControl(): DshControlState {
 		cancelled: false,
 	};
 }
-
-type DshAgentRuntime = {
-	tab: AgentTab;
-	/** 本轮是用户主动停止的（abort 置位，turn/end 消费后复位）：完成信号据此跳过。 */
-	userStoppedTurn?: boolean;
-	sessionId: SessionId;
-	cwd: string;
-	messages: ChatMessage[];
-	projection: DshProjection;
-	isStreaming: boolean;
-	control: DshControlState;
-	executingTool?: string;
-	model?: { provider: string; model: string };
-	modelRoutable?: boolean;
-	thinkingLevel?: string;
-	/** DSH 权限预设（permission/preset 事件折叠；read-only/workspace-write/danger-full-access）。 */
-	permissionPreset?: string;
-	/** DSH plan 模式（plan/mode 事件折叠）。 */
-	planModeActive?: boolean;
-	/** /compact 命令回合进行中（命令已发出、turn/end 未到）；UI 压缩按钮显示进行态。 */
-	isCompacting?: boolean;
-	/** 最近一次请求因上下文超限失败；保留压缩恢复入口，即使 host 没有 pressure 投影。 */
-	contextOverflow?: boolean;
-	/** 已投影的最大事件 seq（D6：mux 重连补帧时跳过已投影事件，避免重复）。 */
-	lastProjectedSeq?: number;
-	/**
-	 * attach 窗口前还有更早历史（host session/page 的 hasMore）与续页游标（窗口最旧事件 seq）。
-	 * DSH 的运行时消息窗口只取尾部 200 条消息事件；渲染层的分页协议只认
-	 * windowStart（数字）/windowStartFilePos（数值游标）两个槽位，见 emitMessages 的合成标记。
-	 */
-	historyHasOlder?: boolean;
-	historyBeforeSeq?: number;
-	/** 每个 host projection key 的水位线，按 DSH web 的 higher-seq-wins 规则维护。 */
-	projectionSeq: Map<string, number>;
-	/** 已尝试拉取过的 DSH attachmentId（避免 mux 每帧对同一图片重复 RPC）。 */
-	hydratedImageRefs?: Set<string>;
-	/** 最近一次 assistant 回合的 token 用量（G16；assistant/message 事件投影更新）。 */
-	usage?: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number };
-	/** 会话累计 token 用量（host tokenUsage 投影；整段日志累计，dsh-web StatsLine 同源）。
-	 *  优先于 usage（最近一步），缺失时回退 usage。 */
-	usageTotals?: DshUsageTotals;
-	/** 会话统计（host sessionStats 投影；整段日志回合/步骤计数与墙钟汇总，dsh-web StatsLine 同源）。 */
-	sessionStats?: DshSessionStatsProjection;
-	/** host 侧排队消息（inbox 投影；空数组 = 无排队）。见 parseDshInboxProjection。 */
-	queuedMessages?: DshQueuedMessage[];
-	/**
-	 * 上下文占用投影（host contextPressure 单元）：provider 上报的最新请求大小 +
-	 * 下一条请求的估算成本 + 路由容量。mux session/projection 帧与 attach 初值双来源，
-	 * 供上下文圆环（ContextMeter）展示 DSH 会话占用。
-	 */
-	contextPressure?: { pressureTokens?: number; projectedTokens?: number; contextWindow?: number };
-	/** 上下文构成投影（host contextBreakdown 单元）：系统提示/工具 schema/对话的启发式估算；字段缺失 = host 未上报，保持 undefined 而非 0。 */
-	contextBreakdown?: { systemTokens?: number; toolsTokens?: number; messageTokens?: number };
-	/** 路由上下文容量（request/context 事件的 contextWindow；无 pressure 投影时的兜底窗口）。 */
-	contextWindow?: number;
-	/** 轨迹过程事件（modelChange/permission/plan/goal/compaction；pi 会话文件过程事件的 DSH 等价物）。 */
-	processEvents: SessionProcessEvent[];
-	/** 当前 goal（G5；goal/change 事件投影更新，clear 后为 undefined）。 */
-	goal?: {
-		refId: string;
-		revision: number;
-		objective: string;
-		phase: "active" | "paused" | "blocked" | "complete";
-		maxGoalRounds: number;
-		roundsStarted: number;
-	};
-	/**
-	 * 当前待办计划（官方 todos projection / todo/write 快照的归一化折叠）：
-	 * 实时 mux、attach/restart/backfill/recover 的多来源恢复都收敛到这一个字段，
-	 * 经 runtime-state 推给渲染层 todo 条；null = 已清空（standing plan 语义）。
-	 */
-	todos?: TodoItem[] | null;
-	/** agent-team 团队状态（agentTeam 投影；仅启用实验预设的会话有值）。见 parseDshTeamProjection。 */
-	dshTeam?: DshTeamState | null;
-	/** 进行中的思考段 id（turn 内首个 reasoning-delta 起登记；终态清空）。 */
-	thinkingId?: string;
-	thinkingStartedAt?: number;
-};
