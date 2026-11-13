@@ -48,7 +48,7 @@ const searchTextLimit = 16 << 10
 const searchFileLimit = 3000
 
 // buildSearchIndex reads the newest session files under roots.
-func buildSearchIndex(roots []string) []searchDoc {
+func buildSearchIndex(roots []string, acpDir string) []searchDoc {
 	type fileInfo struct {
 		path string
 		mod  time.Time
@@ -82,6 +82,13 @@ func buildSearchIndex(roots []string) []searchDoc {
 	}
 	var docs []searchDoc
 	seenID := map[string]bool{}
+	for _, d := range buildACPSearchDocs(acpDir) {
+		if seenID[d.ID] {
+			continue
+		}
+		seenID[d.ID] = true
+		docs = append(docs, d)
+	}
 	for _, f := range files {
 		doc, ok := readSearchDoc(f.path)
 		if !ok || seenID[doc.ID] {
@@ -91,6 +98,63 @@ func buildSearchIndex(roots []string) []searchDoc {
 		docs = append(docs, doc)
 	}
 	return docs
+}
+
+// buildACPSearchDocs indexes the ACP archives.
+func buildACPSearchDocs(dir string) []searchDoc {
+	if dir == "" {
+		return nil
+	}
+	entries, _ := os.ReadDir(dir)
+	var out []searchDoc
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var arch acpArchive
+		if json.Unmarshal(raw, &arch) != nil || arch.ID == "" || arch.Cwd == "" {
+			continue
+		}
+		var text strings.Builder
+		for _, t := range arch.Turns {
+			if t.Prompt != "" {
+				text.WriteString("用户：" + t.Prompt + "\n")
+			}
+			for _, st := range t.Steps {
+				if st.Thinking != "" {
+					text.WriteString(st.Thinking + "\n")
+				}
+				if st.Text != "" {
+					text.WriteString(st.Text + "\n")
+				}
+				for _, tool := range st.Tools {
+					text.WriteString(tool.Name + " " + tool.Detail + " " + tool.Output + "\n")
+				}
+			}
+			if t.Final != "" {
+				text.WriteString(t.Final + "\n")
+			}
+			if text.Len() > searchTextLimit {
+				break
+			}
+		}
+		title := arch.Title
+		if title == "" {
+			title = "ACP 会话"
+		}
+		body := text.String()
+		if len(body) > searchTextLimit {
+			body = body[:searchTextLimit]
+		}
+		out = append(out, searchDoc{ID: arch.ID, Title: title, Cwd: arch.Cwd, File: path,
+			Updated: arch.Updated, Text: body})
+	}
+	return out
 }
 
 // readSearchDoc reads one session's title and a bounded text.
@@ -250,7 +314,7 @@ func (a *app) loadSearchIndex(then func()) {
 		roots = append(roots, dir)
 	}
 	go func() {
-		docs := buildSearchIndex(roots)
+		docs := buildSearchIndex(roots, a.acpArchiveDir())
 		a.cx.Post(func() {
 			a.searchDocs = docs
 			a.searchIndexed = true
@@ -302,6 +366,10 @@ func (a *app) runSearch() {
 func (a *app) openSearchHit(hit searchHit) {
 	a.searchOpen.Set(false)
 	if s := a.byID[hit.ID]; s != nil {
+		a.selectSession(s)
+		return
+	}
+	if s := a.loadACPArchiveFile(hit.File); s != nil {
 		a.selectSession(s)
 		return
 	}

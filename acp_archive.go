@@ -120,33 +120,42 @@ func (a *app) loadACPArchives() {
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
-		}
-		var arch acpArchive
-		if json.Unmarshal(raw, &arch) != nil || arch.ID == "" || arch.Cwd == "" {
-			continue
-		}
-		if a.byID[arch.ID] != nil {
-			continue
-		}
-		ws := a.workspaceOf(arch.Cwd)
-		if ws == nil {
-			continue
-		}
-		s := a.blankSession(arch.ID, ws, arch.Title)
-		s.backend = "acp"
-		s.acpPreset = arch.Preset
-		s.acpSID = arch.ACPSessionID
-		if arch.Updated.IsZero() {
-			arch.Updated = a.cx.Now()
-		}
-		s.updated.Set(arch.Updated)
-		s.turns.Set(arch.Turns)
-		s.loaded.Set(true)
-		ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
+		a.loadACPArchiveFile(filepath.Join(dir, e.Name()))
 	}
+}
+
+// loadACPArchiveFile restores one archive, when its project is known.
+func (a *app) loadACPArchiveFile(path string) *session {
+	if path == "" || !strings.HasSuffix(strings.ToLower(path), ".json") {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var arch acpArchive
+	if json.Unmarshal(raw, &arch) != nil || arch.ID == "" || arch.Cwd == "" {
+		return nil
+	}
+	if s := a.byID[arch.ID]; s != nil {
+		return s
+	}
+	ws := a.workspaceOf(arch.Cwd)
+	if ws == nil {
+		return nil
+	}
+	s := a.blankSession(arch.ID, ws, arch.Title)
+	s.backend = "acp"
+	s.acpPreset = arch.Preset
+	s.acpSID = arch.ACPSessionID
+	if arch.Updated.IsZero() {
+		arch.Updated = a.cx.Now()
+	}
+	s.updated.Set(arch.Updated)
+	s.turns.Set(arch.Turns)
+	s.loaded.Set(true)
+	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
+	return s
 }
 
 // deleteACPArchive removes a session's transcript.

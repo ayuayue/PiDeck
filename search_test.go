@@ -3,6 +3,7 @@ package main
 // Checks for the global session search: indexing, matching and opening.
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,7 @@ func TestSearchIndexAndMatch(t *testing.T) {
 	write("a.jsonl", searchSession("a", "C:/work/shop", "部署手册", "怎么发布到生产环境"))
 	write("b.jsonl", searchSession("b", "C:/work/blog", "", "写一篇关于并发编程的文章"))
 	write("c.jsonl", searchSession("c", "C:/work/other", "无关会话", "今天天气不错"))
-	docs := buildSearchIndex([]string{dir})
+	docs := buildSearchIndex([]string{dir}, "")
 	if len(docs) != 3 {
 		t.Fatalf("docs = %d", len(docs))
 	}
@@ -96,10 +97,32 @@ func TestSearchIndexNested(t *testing.T) {
 		[]byte(searchSession("s-1", `C:\work\shop`, "部署手册", "怎么发布到生产环境")), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	docs := buildSearchIndex([]string{filepath.Join(home, "sessions")})
+	docs := buildSearchIndex([]string{filepath.Join(home, "sessions")}, "")
 	t.Logf("docs = %+v", docs)
 	hits := matchSearch(docs, "部署", 10)
 	if len(hits) != 1 {
+		t.Fatalf("hits = %+v", hits)
+	}
+}
+
+// TestSearchACPDocs checks archived ACP transcripts are searchable.
+func TestSearchACPDocs(t *testing.T) {
+	dir := t.TempDir()
+	arch := acpArchive{ID: "acp-1", Title: "ACP 会话", Cwd: "C:/work/z",
+		Turns: []turn{{Prompt: "问 ACP", Final: "ACP 回答"}}}
+	raw, err := json.Marshal(arch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "acp-1.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	docs := buildACPSearchDocs(dir)
+	if len(docs) != 1 || docs[0].ID != "acp-1" || !strings.Contains(docs[0].Text, "ACP 回答") {
+		t.Fatalf("docs = %+v", docs)
+	}
+	hits := matchSearch(docs, "ACP", 10)
+	if len(hits) != 1 || hits[0].ID != "acp-1" {
 		t.Fatalf("hits = %+v", hits)
 	}
 }
