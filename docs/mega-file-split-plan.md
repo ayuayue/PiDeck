@@ -296,3 +296,18 @@
 1. **源码契约会反向钉住搬迁位置**：飞书 IPC 注册最终**留在了 index.ts**——`tests/portableUserData.test.mjs` 断言 `registerFeishuIpc({` 出现在入口文件里（启动序语义）。子会话把微信搬走、飞书留下，并在新文件注释里写清了原因。这是对的：域边界服从契约边界。
 2. **`check:format` 必须进每轮验证清单**：前几轮子代理用 `npx biome`（解析到 v10 错包）写盘，16 个文件不符合仓库 biome 2.3.11 的格式，CI 的 `check:format` 会红。本轮补了一个 `style:` commit 统一重排。以后门禁固定为：typecheck + check:ipc-wiring + check:test-shape + check:file-size + **check:format**。
 3. **基线要为「已合并的他人增长」单独对齐**：`7ed47961e fix(sidebar)` 把 `AgentManager` +5、`SessionTree` +1 顶过基线。处理方式与上游 merge 相同——把这两条额度对齐当前值，并在 commit message 里注明来源提交，而不是放宽整个规则。
+
+## 第七轮：关联子会话拆 FeishuBridge / CloudSyncManager（2026-11-13 深夜）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `feishu/FeishuBridge.ts` | 2349 | **1492** | `feishu/bridge/` 11 个协作者（`media 168` / `askCenter 161` / `sessionMirror 273` / `commands` / `bindings` / `outbound` / `bridgeLog` …），全部 ≤400 |
+| `cloudSync/CloudSyncManager.ts` | 2267 | **1322** | `cloudSync/manager/` 6 个协作者（`providerOAuthFlows 343` / `backupTransfer 296` / `localIndexBuilder 240` / `sessionObjectTransfer 184` / `objectIo 173` / `githubDeviceFlow 87`） |
+
+两个会话都先读了同目录的兄弟模块（feishu 已有 CardRenderer/CardStream/AskCard，cloudSync 已有 merge/EncryptionService/adapters），没有重复造轮子；FeishuBridge 那波顺带建了 `tests/helpers/feishuBridgeSources.mjs` 并迁移 5 个契约测试的读取行（断言未改），CloudSync 那波不需要新 helper。
+
+### 关联子会话第 2、3 次使用的观察
+
+- **两个会话并行、文件域完全不相交时，这条链路很稳**：两轮下来没有一次互相踩文件，也没有一次需要我在中途叫停。
+- **它们会自己发现「哪些东西不能搬」**：Feishu 那轮把 `bridgeLog` 这种宿主与协作者共用的极小工具单独抽出来（18 行），而不是硬塞进某个域；CloudSync 那轮把 provider OAuth 流程整块切走（343 行，接近上限），说明「单文件 ≤400」这个约束被当成了硬边界而不是建议。
+- 仍然成立的纪律：**并行会话期间主会话不写代码**，只做验证与提交；两个会话都 idle 之后才跑全量 tsc / 全量测试。
