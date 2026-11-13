@@ -4,7 +4,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } fr
 import { useAtomValue, useSetAtom, useStore } from "jotai";
 import { toggleThemeMode } from "./themeAppearance";
 import { DURATION_SLOW_MS, EASE_OUT_QUINT_CSS } from "./lib/motionTokens";
-import { Code, Pencil, Terminal } from "lucide-react";
 import { configureNoticeDefaults, showNotice, type NoticeKind } from "./utils/notice";
 import { copyTextWithCopiedNotice } from "./utils/clipboardNotice";
 import { buildSettingsCommands, type PaletteCommand } from "./utils/commandPaletteCommands";
@@ -90,6 +89,8 @@ import { useCommandPalette } from "./hooks/app/useCommandPalette";
 import { useAppProjectActions } from "./hooks/app/useAppProjectActions";
 import { useAppSidebarActions } from "./hooks/app/useAppSidebarActions";
 import { useSessionTabsAssembly } from "./hooks/app/useSessionTabsAssembly";
+import { useAppSessionPaneServices } from "./hooks/app/useAppSessionPaneServices";
+import { useAppFileTreeTransfer } from "./hooks/app/useAppFileTreeTransfer";
 import { useSidebarArchiveActions } from "./hooks/sidebar/useSidebarArchiveActions";
 import { useSettingsUpdater } from "./hooks/settings/useSettingsUpdater";
 import { useTpsDisplayMode } from "./hooks/settings/useTpsDisplayMode";
@@ -162,7 +163,7 @@ import { ChatSessionPane } from "./components/session/ChatSessionPane";
 import { SessionSplitStage } from "./components/session/SessionSplitStage";
 import { splitLayoutSessionIds } from "./utils/sessionSplitEdge";
 import { flattenFiles } from "./components/app/AppUtils";
-import { SessionTabsBar, type SessionToolAction } from "./components/session/SessionTabsBar";
+import { SessionTabsBar } from "./components/session/SessionTabsBar";
 import { SessionPaneServicesProvider, type SessionFileOpenContext } from "./components/session/SessionPaneServices";
 import { ProjectEmptyState } from "./components/session/ProjectEmptyState";
 import { useSessionWorkspaceChrome } from "./hooks/useSessionWorkspaceChrome";
@@ -2341,175 +2342,51 @@ export function App() {
 		[setBranchByProject],
 	);
 
-	// 工具开关上收会话 Tab 栏（原右侧悬浮工具条入口的唯一挂载点）：
-	// 草稿纸 / 终端 / 外部编辑器，与抽屉开关同排。
-	// 终端按钮绑定 owner（agent 或项目），不再要求 agent 已激活；
-	// web 预览 / 无可用目标（纯聊天无项目）时隐藏，避免指向无处可开的终端。
-	const sessionToolActions: SessionToolAction[] = [
-		{
-			id: "scratch",
-			label: t("scratchPad.openTooltip"),
-			icon: <Pencil size={14} />,
-			active: scratchPad.isOpen,
-			onClick: () => scratchPad.toggle(),
-		},
-		...(!isLanWeb && terminalTarget
-			? [
-					{
-						id: "terminal",
-						label: t("app.terminal"),
-						icon: <Terminal size={14} />,
-						active: terminalOpen,
-						onClick: () => {
-							setTerminalOpenForOwner(!terminalOpen);
-						},
-					},
-				]
-			: []),
-		{
-			id: "editors",
-			label: t("app.openWithEditor"),
-			icon: <Code size={14} />,
-			active: editorsOpen,
-			onClick: (e) => {
-				const projectPath = activeAgent?.cwd || (activeProject && !isChatProject(activeProject) ? activeProject.path : null);
-				// 无项目目录也允许打开：编辑器入口在气泡内禁用并提示，
-				// 文件管理器不依赖项目（空路径由主进程回退用户主目录）
-				const anchor = adjustMenuPos(e.currentTarget.getBoundingClientRect().left - 4, e.currentTarget.getBoundingClientRect().bottom + 4, 240, 240);
-				workspace.openExternalEditorChooser(projectPath || "", anchor);
-			},
-		},
-	];
-	const sessionPaneServices = useMemo(
-		() => ({
-			simpleNavigation: settings.navigationMode === "simple",
-			isLanWeb,
-			promoteSessionToPermanent: workspaceChrome.promotePreview,
-			showToast,
-			onOpenFile: handleOpenLinkedFile,
-			onDiffFile: diffFilePath,
-			onPreviewImage: setPreviewImage,
-			abortAgent,
-			restartActiveAgent,
-			getSessionRunCapabilities,
-			runSessionControl,
-			// 会话头部「⋯」菜单（原 Tab 栏「⋯」）：会话操作 / 代理 / 工具开关按本栏 sessionId 现算。
-			requestCloseAgentForSession,
-			getSessionMenu: (sessionId: string) => ({
-				sessionActions: buildTabsSessionActions(sessionId),
-				toolActions: sessionToolActions,
-				onOpenProxySetting: getSessionRecord(sessionId)?.backend !== "acp" ? () => setProxyDialogSessionId(sessionId) : undefined,
-			}),
-			stoppingAgentId,
-			activatingSessionId,
-			reloadingSessionId,
-			openProviderLogin,
-			runCreateSessionDraft: async () => {
-				await createSessionDraftWithTab();
-			},
-			enqueueSessionPrompt,
-			insertQuickPrompt,
-			ensureSessionId: ensureSessionForSend,
-			resendUserMessage,
-			editMessage,
-			deleteMessage,
-			removeMessageImage,
-			forkFromUserMessage,
-			pendingHistoryMutation,
-			openSidebarSessionById: async (projectId: string, sessionId: string) => {
-				await openSidebarSessionByIdWithTab(projectId, sessionId, "permanent");
-			},
-			focusAskSessionById: jumpToAskSession,
-			agents: displayAgents,
-			queuedPromptsBySession: queue.queuedPrompts,
-			queueRetract: queue.retractQueuedPromptForEdit,
-			queueDiscard: queue.discardQueuedPrompt,
-			queueChangeBehavior: queue.setQueuedPromptBehavior,
-			queueSendNow: queue.sendQueuedPromptNow,
-			// ACP 忙时「立即发送」= 先停当前回合（与输入框「停止」同一条 runSessionControl 链路）。
-			queueStopTurn: (sessionId: string) => void runSessionControl(sessionId, "abort"),
-			queueSuppressAutoDrain: queue.suppressSessionQueueAutoDrain,
-			queueFlushBySessionRef,
-			restartingAgentId,
-			sessionDurationByAgent,
-			activeProjectId,
-			onProjectGitChanged: handleProjectGitChanged,
-			showThinking: settings.showThinking,
-			validFilePaths,
-			terminalStatesByOwner,
-			activeTerminalOwnerKey,
-			availableTerminalHeight: availableTerminalHeight ?? 120,
-			setTerminalOpenByOwnerKey,
-			setTerminalCollapsedByOwnerKey,
-			setTerminalHeight,
-			terminalSettings,
-			hiddenComposerFeatures: settings.hiddenComposerFeatures ?? [],
-			onTerminalThemeChange: setTerminalTheme,
-			environmentDialog: Boolean(environmentDialog),
-			showNotice,
-			api,
-			changeChatPath,
-			jumpToMessageRef,
-			layoutRefs: paneLayoutRefs,
-			exitSessionSplit: workspaceChrome.exitSplit,
-		}),
-		[
-			abortAgent,
-			activeTerminalOwnerKey,
-			activeProjectId,
-			availableTerminalHeight,
-			createSessionDraftWithTab,
-			changeChatPath,
-			deleteMessage,
-			removeMessageImage,
-			diffFilePath,
-			displayAgents,
-			editMessage,
-			enqueueSessionPrompt,
-			handleProjectGitChanged,
-			ensureSessionForSend,
-			environmentDialog,
-			forkFromUserMessage,
-			pendingHistoryMutation,
-			handleOpenLinkedFile,
-			insertQuickPrompt,
-			isLanWeb,
-			jumpToAskSession,
-			jumpToMessageRef,
-			openSidebarSessionByIdWithTab,
-			paneLayoutRefs,
-			queue.discardQueuedPrompt,
-			queue.queuedPrompts,
-			queue.retractQueuedPromptForEdit,
-			queue.suppressSessionQueueAutoDrain,
-			queueFlushBySessionRef,
-			restartActiveAgent,
-			restartingAgentId,
-			getSessionRunCapabilities,
-			runSessionControl,
-			stoppingAgentId,
-			activatingSessionId,
-			reloadingSessionId,
-			openProviderLogin,
-			resendUserMessage,
-			sessionDurationByAgent,
-			settings.showThinking,
-			settings.navigationMode,
-			setPreviewImage,
-			setTerminalCollapsedByOwnerKey,
-			setTerminalHeight,
-			setTerminalTheme,
-			terminalSettings,
-			settings.hiddenComposerFeatures,
-			setTerminalOpenByOwnerKey,
-			showToast,
-			terminalStatesByOwner,
-			availableTerminalHeight,
-			validFilePaths,
-			workspaceChrome.exitSplit,
-			workspaceChrome.promotePreview,
-		],
-	);
+	// 会话栏服务装配域（Tab 栏工具开关 + SessionPaneServices 值）收口到 useAppSessionPaneServices：
+	// 运行控制/历史变更/排队队列/终端外观按栏契约接线，App 只提供跨域取值与选中态。
+	const { sessionToolActions, sessionPaneServices } = useAppSessionPaneServices({
+		settings,
+		showToast,
+		showNotice,
+		api,
+		scratchPad,
+		terminalTarget,
+		terminalOpen,
+		setTerminalOpenForOwner,
+		editorsOpen,
+		activeAgent,
+		activeProject,
+		adjustMenuPos,
+		openExternalEditorChooser: workspace.openExternalEditorChooser,
+		workspaceChrome,
+		runControl: { abortAgent, restartActiveAgent, getSessionRunCapabilities, runSessionControl, requestCloseAgentForSession, restartingAgentId, stoppingAgentId, activatingSessionId, reloadingSessionId },
+		history: { resendUserMessage, editMessage, deleteMessage, removeMessageImage, forkFromUserMessage, pendingHistoryMutation },
+		queue,
+		terminal: { terminalStatesByOwner, activeTerminalOwnerKey, availableTerminalHeight, setTerminalOpenByOwnerKey, setTerminalCollapsedByOwnerKey, setTerminalHeight, terminalSettings, onTerminalThemeChange: setTerminalTheme },
+		getSessionRecord,
+		setProxyDialogSessionId,
+		buildTabsSessionActions,
+		createSessionDraftWithTab,
+		openSidebarSessionByIdWithTab,
+		openProviderLogin,
+		jumpToAskSession,
+		ensureSessionForSend,
+		enqueueSessionPrompt,
+		insertQuickPrompt,
+		displayAgents,
+		queueFlushBySessionRef,
+		sessionDurationByAgent,
+		activeProjectId,
+		handleProjectGitChanged,
+		validFilePaths,
+		environmentDialog: Boolean(environmentDialog),
+		changeChatPath,
+		jumpToMessageRef,
+		paneLayoutRefs,
+		handleOpenLinkedFile,
+		diffFilePath,
+		setPreviewImage,
+	});
 
 	const chatPaneSessionNode = (
 		<SessionPaneServicesProvider value={sessionPaneServices}>
@@ -2775,6 +2652,10 @@ export function App() {
 	);
 
 	// ── DrawerSurface port objects (stable via useMemo) ──
+	// 文件树传输域（OS 拖入 / 剪贴板粘贴 / 树内拖拽移动 + 右键菜单剪贴板探测）收口到
+	// useAppFileTreeTransfer：三个入口只差源路径从哪来，落地动作与提示文案同源。
+	const fileTreeTransfer = useAppFileTreeTransfer({ api, refreshVisibleFiles, showToast, setFileMenu, setHasClipboardFiles });
+
 	const drawerPorts = useDrawerPorts({
 		enableGitManagement: settings.enableGitManagement,
 		activeProjectId,
@@ -2811,15 +2692,7 @@ export function App() {
 		expandedDirs,
 		onToggleDirectory: toggleDirectory,
 		onCollapseAllDirectories: collapseAllDirectories,
-		setFileMenu: (menu: { x: number; y: number; node: FileTreeNode } | null) => {
-			setFileMenu(menu);
-			if (!menu) return;
-			try {
-				setHasClipboardFiles(api.files.getClipboardPaths().length > 0);
-			} catch {
-				setHasClipboardFiles(false);
-			}
-		},
+		setFileMenu: fileTreeTransfer.setFileMenu,
 		refreshFiles: refreshVisibleFiles,
 		showToast,
 		projects,
@@ -2838,59 +2711,9 @@ export function App() {
 		api,
 		t,
 		projectRoot: activeProject?.path,
-		onDropFiles: (targetDir, fileList) => {
-			// 从 OS 拖入：解析本地路径后复制到目标目录（目录不支持跨源复制时跳过）
-			const paths: string[] = [];
-			for (let i = 0; i < fileList.length; i++) {
-				const file = fileList.item(i);
-				if (file) {
-					const path = api.files.getPathForFile(file);
-					if (path) paths.push(path);
-				}
-			}
-			if (paths.length > 0) {
-				void api.files
-					.copy(paths, targetDir)
-					.then(() => {
-						void refreshVisibleFiles();
-						showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
-					})
-					.catch((error) => {
-						showToast(error instanceof Error ? error.message : String(error), 4000);
-					});
-			}
-		},
-		onPasteFiles: (targetDir) => {
-			// 粘贴：从系统剪贴板读取资源管理器复制的文件路径，复制到目标目录
-			try {
-				const paths = api.files.getClipboardPaths();
-				if (paths.length > 0) {
-					void api.files
-						.copy(paths, targetDir)
-						.then(() => {
-							void refreshVisibleFiles();
-							showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
-						})
-						.catch((error) => {
-							showToast(t("app.filePasteFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
-						});
-				}
-			} catch {
-				/* 剪贴板不可用 */
-			}
-		},
-		onMoveFiles: (sourcePaths, targetDir) => {
-			// 文件树内部拖拽移动：同设备 rename，跨设备 cp+rm
-			void api.files
-				.move(sourcePaths, targetDir)
-				.then(() => {
-					void refreshVisibleFiles();
-					showToast(t("app.fileMoveDone", { count: sourcePaths.length }), 2000);
-				})
-				.catch((error) => {
-					showToast(error instanceof Error ? error.message : String(error), 4000);
-				});
-		},
+		onDropFiles: fileTreeTransfer.onDropFiles,
+		onPasteFiles: fileTreeTransfer.onPasteFiles,
+		onMoveFiles: fileTreeTransfer.onMoveFiles,
 	});
 
 	return (
