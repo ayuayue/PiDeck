@@ -274,3 +274,25 @@
 1. **「抽 hook」vs「抽子组件」的回收率差 3 倍**：ConfigModal 第四轮抽 hook 搬走 400+ 行宿主只减 204 行；第五轮改抽子组件，同样搬走约 600 行宿主减了 593 行。**状态 hook 适合主进程/无 JSX 的域；带 JSX 的 Tab 一律抽子组件。**
 2. **子代理写盘会带 CRLF**：`ConfigModal.tsx` 被写成 1899 行 CRLF（HEAD 是 LF，`.gitattributes` 要求 `eol=lf`），导致所有跨行正则（`\{\n`）全红，被误判成「断言漂移」。收尾时统一 `\r\n → \n` 后 1 个测试立刻恢复。**验收时要先查行尾**再改断言。
 3. **超时 ≠ 没干活**：本轮 ConfigModal 的子代理 30 分钟超时，但实际把 2492 减到 1899（超出目标），typecheck 全绿；反过来 DshAgentManager 的子代理顺利「完成」但只到 2382（目标 2200）。**行数目标只是参考，门禁与测试才是判据。**
+
+## 第六轮：首次用「关联子会话」跑拆分（2026-11-13）
+
+用 `start_session` 开了两个用户可见的关联会话（而不是 fire-and-forget 的 worker 子代理），各领一波、按轮回报：
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `main/index.ts` | 6019 | **5570** | `startup/{weChatBridge 62, soundsAndAnnouncements 75, remoteAccess 67, webService 55, webServiceContext 91, webServiceDepsRuntime 146, webServiceDepsWeb 323}` |
+| `pi/SessionHistoryReader.ts` | 2106 | **1471** | `pi/sessionReader/{sessionCardProjection 236, sessionDisplayPaging 327, sessionSubagentProjection 231}` |
+
+### 关联子会话 vs 一次性子代理（实测对比）
+
+- **更早暴露算术问题**：`index.ts` 那个会话在第一轮就回来说「四块原文只有 116 行、净减 82，离 5400 差 537」，并列出剩余可搬块、给出 (a)/(b)/(c) 三个选项让我裁决。worker 子代理通常只会默默做到超时。
+- **可见可接管**：两个会话在侧栏里能点进去看进度、能直接接管；出问题时不用猜它卡在哪。
+- **代价**：它们拿不到本会话上下文，简报必须自足（我这次每份都写了禁 codemod、禁管道、域内 tsc、边界清单）。
+- **一条纪律仍然成立**：两个会话同时在跑时**不要再开第三个写者**。我这轮刻意没有自己动手搬代码，只做验证与提交。
+
+### 本轮的三条经验
+
+1. **源码契约会反向钉住搬迁位置**：飞书 IPC 注册最终**留在了 index.ts**——`tests/portableUserData.test.mjs` 断言 `registerFeishuIpc({` 出现在入口文件里（启动序语义）。子会话把微信搬走、飞书留下，并在新文件注释里写清了原因。这是对的：域边界服从契约边界。
+2. **`check:format` 必须进每轮验证清单**：前几轮子代理用 `npx biome`（解析到 v10 错包）写盘，16 个文件不符合仓库 biome 2.3.11 的格式，CI 的 `check:format` 会红。本轮补了一个 `style:` commit 统一重排。以后门禁固定为：typecheck + check:ipc-wiring + check:test-shape + check:file-size + **check:format**。
+3. **基线要为「已合并的他人增长」单独对齐**：`7ed47961e fix(sidebar)` 把 `AgentManager` +5、`SessionTree` +1 顶过基线。处理方式与上游 merge 相同——把这两条额度对齐当前值，并在 commit message 里注明来源提交，而不是放宽整个规则。

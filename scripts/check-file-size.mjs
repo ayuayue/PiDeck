@@ -82,9 +82,7 @@ if (update) {
 	const tightened = Object.entries(nextHard).filter(([path, lines]) => hard[path] !== undefined && lines < hard[path]);
 	const dropped = Object.keys(hard).filter((path) => nextHard[path] === undefined);
 	writeFileSync(BASELINE_FILE, `${JSON.stringify({ hard: nextHard, soft: nextSoft }, null, "\t")}\n`);
-	console.log(
-		`[check-file-size] 基线更新：hard ${Object.keys(hard).length} → ${Object.keys(nextHard).length} 条，soft ${soft.size} → ${nextSoft.length} 条`,
-	);
+	console.log(`[check-file-size] 基线更新：hard ${Object.keys(hard).length} → ${Object.keys(nextHard).length} 条，soft ${soft.size} → ${nextSoft.length} 条`);
 	for (const [path, lines] of tightened) console.log(`  ↓ 收紧 ${path}：${hard[path]} → ${lines}`);
 	for (const path of dropped) console.log(`  ✓ 出基线 ${path}（已 ≤${MAX_NEW} 行）`);
 	process.exit(0);
@@ -119,14 +117,8 @@ for (const line of hints) console.warn(`[check-file-size] 提示 ${line}`);
 if (failures.length > 0) {
 	console.error(`[check-file-size] ${failures.length} 处违规：`);
 	for (const line of failures) console.error(`  - ${line}`);
-	console.error(
-		"\n口径：存量巨文件（>600 行）行数只准降不准升；新文件 >400 行需说明、>600 行需先写拆分计划。" +
-			"\n拆完一波跑 `node scripts/check-file-size.mjs --update` 收紧基线，回涨立刻被发现。",
-	);
+	console.error("\n口径：存量巨文件（>600 行）行数只准降不准升；新文件 >400 行需说明、>600 行需先写拆分计划。" + "\n拆完一波跑 `node scripts/check-file-size.mjs --update` 收紧基线，回涨立刻被发现。");
 	process.exit(1);
 }
 
-console.log(
-	`[check-file-size] ok：${files.size} 个源文件，hard 基线 ${Object.keys(hard).length} 条` +
-		(releasable.length > 0 ? `，${releasable.length} 个可收紧（跑 --update）` : ""),
-);
+console.log(`[check-file-size] ok：${files.size} 个源文件，hard 基线 ${Object.keys(hard).length} 条` + (releasable.length > 0 ? `，${releasable.length} 个可收紧（跑 --update）` : ""));
