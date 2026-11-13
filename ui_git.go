@@ -168,7 +168,7 @@ func (a *app) gitCommit(all, amend bool) {
 		a.toast(ui.ToastInfo, "没有已暂存的改动", "先用 + 暂存文件，或者直接「全部提交」。")
 		return
 	}
-	a.git.run("提交", func(g gitRunner) error {
+	a.git.run(T("提交"), func(g gitRunner) error {
 		if all {
 			if _, err := g.exec(60*time.Second, "add", "-A"); err != nil {
 				return err
@@ -229,7 +229,7 @@ func (a *app) gitCheckout(branch string) {
 	if branch == "" || branch == st.Branch {
 		return
 	}
-	a.git.run("切换分支", func(g gitRunner) error {
+	a.git.run(T("切换分支"), func(g gitRunner) error {
 		_, err := g.exec(60*time.Second, "checkout", branch)
 		return err
 	}, nil)
@@ -243,7 +243,7 @@ func (a *app) gitCreateBranch() {
 		return
 	}
 	a.gitNewBranchOpen.Set(false)
-	a.git.run("新建分支", func(g gitRunner) error {
+	a.git.run(T(T("新建分支")), func(g gitRunner) error {
 		_, err := g.exec(60*time.Second, "checkout", "-b", name)
 		return err
 	}, func(err error) {
@@ -374,20 +374,20 @@ func (a *app) drawerGit() core.Node {
 		colors := ui.ColorsOf(cx)
 		st := a.git.state.Get()
 		if a.gitPath() == "" {
-			return gitEmpty(colors, "先打开一个项目", "Git 面板显示当前项目的分支、改动与历史。")
+			return gitEmpty(colors, T("先打开一个项目"), T("Git 面板显示当前项目的分支、改动与历史。"))
 		}
 		if !st.Checked && st.Loading {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-				Children: []core.Node{ui.Spinner{Size: 16, Label: "读取 Git 仓库"}, ui.Text("正在读取仓库…", 12, ui.Regular, colors.Muted)}}
+				Children: []core.Node{ui.Spinner{Size: 16, Label: "读取 Git 仓库"}, ui.Text(T("正在读取仓库…"), 12, ui.Regular, colors.Muted)}}
 		}
 		if st.NotRepo {
 			return a.gitNotRepo(cx, st)
 		}
 		if !st.IsRepo && st.Error != "" {
 			return core.View{Style: core.Style{Gap: 10, Padding: core.All(16)}, Children: []core.Node{
-				ui.Text("无法读取 Git 仓库", 13, ui.Semibold, colors.Danger),
+				ui.Text(T("无法读取 Git 仓库"), 13, ui.Semibold, colors.Danger),
 				core.Text{Content: st.Error, Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
-				ui.Button{Text: "重试", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.git.refreshAll() }},
+				ui.Button{Text: T("重试"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.git.refreshAll() }},
 			}}
 		}
 		return core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0), Gap: 10}, Children: []core.Node{
@@ -397,7 +397,7 @@ func (a *app) drawerGit() core.Node {
 					ui.Icon(lucide.TriangleAlert, 12, colors.Danger),
 					core.Text{Content: st.Error, MaxLines: 3, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10.5, LineHeight: 15},
 						StyleFunc: ui.Colored(colors.Danger)},
-					ui.Button{Text: "重试", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.git.refreshAll() }},
+					ui.Button{Text: T("重试"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.git.refreshAll() }},
 				}}
 			}},
 			core.Show{When: func() bool { return a.git.err.Get() != "" }, Then: func(cx *core.Scope) core.Node { return a.gitError(cx) }},
@@ -432,10 +432,10 @@ func (a *app) gitNotRepo(cx *core.Scope, st gitState) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{FlexGrow: 1, Padding: core.All(18), Gap: 9, AlignItems: core.AlignStart}, Children: []core.Node{
 		ui.Icon(lucide.FolderGit, 22, colors.Faint),
-		ui.Text("这个项目还不是 Git 仓库", 13, ui.Semibold, colors.Text),
+		ui.Text(T("这个项目还不是 Git 仓库"), 13, ui.Semibold, colors.Text),
 		core.Text{ContentFunc: a.gitPath, MaxLines: 3, EllipsizeMode: core.EllipsizeMiddle,
 			Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
-		ui.Button{Text: "初始化 Git 仓库", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, OnPress: a.gitInit},
+		ui.Button{Text: T("初始化 Git 仓库"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, OnPress: a.gitInit},
 		core.Show{When: func() bool { return st.Error != "" }, Then: func(cx *core.Scope) core.Node {
 			return core.Text{Content: st.Error, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Danger)}
 		}},
@@ -468,7 +468,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 					return "HEAD · " + short
 				}
 				if st.Branch == "" {
-					return "分支"
+					return T("分支")
 				}
 				return st.Branch
 			}, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
@@ -486,7 +486,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 			if a.gitBranches.GetUntracked() {
 				a.git.refreshAll()
 			}
-		}, Role: core.RoleButton, Label: "切换分支", TestID: "git-branch",
+		}, Role: core.RoleButton, Label: T("切换分支"), TestID: "git-branch",
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(26), MinWidth: core.Pt(0),
 					Padding: core.Symmetric(0, 6), CornerRadius: 6, Transition: pressMotion,
@@ -517,7 +517,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 			})
 		}
 		if len(rows) == 0 {
-			rows = append(rows, core.Text{Content: "没有本地分支", Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
+			rows = append(rows, core.Text{Content: T("没有本地分支"), Style: core.Style{FontSize: 11.5, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)})
 		}
 		rows = append(rows, core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(4, 4)}, StyleFunc: ui.Filled(colors.Line)})
@@ -527,7 +527,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 				a.gitNewBranchName.Set("")
 				a.gitNewBranchOpen.Set(true)
 			},
-			Role: core.RoleButton, Label: "新建分支",
+			Role: core.RoleButton, Label: T(T("新建分支")),
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(28),
 					Padding: core.Symmetric(0, 8), CornerRadius: 6, Transition: pressMotion,
@@ -535,7 +535,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 			},
 			Children: []core.Node{
 				ui.Icon(lucide.GitBranchPlus, 13, colors.Muted),
-				ui.Text("新建分支…", 12, ui.Regular, colors.Text),
+				ui.Text(T("新建分支…"), 12, ui.Regular, colors.Text),
 			},
 		})
 		return core.Scroll{Style: core.Style{MaxHeight: core.Pt(360), Width: core.Pt(234)}, Children: []core.Node{
@@ -552,20 +552,20 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 				}
 				return nil
 			}),
-			a.pressIcon(lucide.CloudDownload, "获取远程（fetch）", 24, 13,
+			a.pressIcon(lucide.CloudDownload, T("获取远程（fetch）"), 24, 13,
 				func() bool { return a.git.busy.Get() != "" }, a.gitFetch, ""),
-			a.pressIcon(lucide.ArrowDownToLine, "拉取（pull）", 24, 13,
+			a.pressIcon(lucide.ArrowDownToLine, T("拉取（pull）"), 24, 13,
 				func() bool { return a.git.busy.Get() != "" }, a.gitPull, ""),
-			a.pressIcon(lucide.ArrowUpFromLine, "推送（push）", 24, 13,
+			a.pressIcon(lucide.ArrowUpFromLine, T("推送（push）"), 24, 13,
 				func() bool { return a.git.busy.Get() != "" }, func() { a.gitPush(false) }, ""),
-			a.pressIcon(lucide.RefreshCw, "刷新 Git", 24, 12.5,
+			a.pressIcon(lucide.RefreshCw, T("刷新 Git"), 24, 12.5,
 				func() bool { return a.git.busy.Get() != "" }, func() { a.git.refreshAll() }, ""),
-			ui.ContextMenu{Trigger: a.pressIcon(lucide.Ellipsis, "更多 Git 操作", 24, 14, nil, nil, ""),
+			ui.ContextMenu{Trigger: a.pressIcon(lucide.Ellipsis, T("更多 Git 操作"), 24, 14, nil, nil, ""),
 				TestID: "git-more-menu", Children: []core.Node{
-					ui.MenuItem{Text: "贮藏全部改动", Icon: lucide.Archive, OnSelect: a.gitStash},
-					ui.MenuItem{Text: "恢复最近贮藏", Icon: lucide.ArchiveRestore, OnSelect: a.gitStashPop},
-					ui.MenuItem{Text: "丢弃全部改动", Icon: lucide.Undo2, Variant: ui.MenuItemDanger, OnSelect: a.gitDiscardAll},
-					ui.MenuItem{Text: "初始化 Git 仓库", Icon: lucide.FolderGit, OnSelect: a.gitInit},
+					ui.MenuItem{Text: T("贮藏全部改动"), Icon: lucide.Archive, OnSelect: a.gitStash},
+					ui.MenuItem{Text: T("恢复最近贮藏"), Icon: lucide.ArchiveRestore, OnSelect: a.gitStashPop},
+					ui.MenuItem{Text: T("丢弃全部改动"), Icon: lucide.Undo2, Variant: ui.MenuItemDanger, OnSelect: a.gitDiscardAll},
+					ui.MenuItem{Text: T("初始化 Git 仓库"), Icon: lucide.FolderGit, OnSelect: a.gitInit},
 				}},
 		}},
 		core.Dynamic(func(*core.Scope) core.Node {
@@ -575,8 +575,8 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 				}
 				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					ui.Icon(lucide.Cloud, 11, colors.Faint),
-					ui.Text("这个分支还没有上游", 10.5, ui.Regular, colors.Faint),
-					ui.Button{Text: "发布到 origin", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitPush(true) }},
+					ui.Text(T("这个分支还没有上游"), 10.5, ui.Regular, colors.Faint),
+					ui.Button{Text: T("发布到 origin"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitPush(true) }},
 				}}
 			}
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
@@ -635,25 +635,25 @@ func (a *app) gitChanges(cx *core.Scope, st gitState) core.Node {
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinHeight: core.Pt(22)}, Children: children}
 	}
 	var body []core.Node
-	body = append(body, row("已暂存", fmt.Sprint(len(staged)),
+	body = append(body, row(T("已暂存"), fmt.Sprint(len(staged)),
 		a.pressIcon(lucide.Minus, "取消暂存全部", 21, 11,
 			func() bool { return len(staged) == 0 || a.git.busy.Get() != "" }, a.gitUnstageAll, "")))
 	for _, f := range staged {
 		body = append(body, a.gitFileRow(cx, f, true))
 	}
 	if len(staged) == 0 {
-		body = append(body, core.Text{Content: "还没有暂存的改动", Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
+		body = append(body, core.Text{Content: T("还没有暂存的改动"), Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
 			StyleFunc: ui.Colored(colors.Faint)})
 	}
 	body = append(body, core.View{Style: core.Style{Height: core.Pt(6)}})
-	body = append(body, row("更改", fmt.Sprint(len(unstaged)),
+	body = append(body, row(T("更改"), fmt.Sprint(len(unstaged)),
 		a.pressIcon(lucide.Plus, "暂存全部", 21, 11,
 			func() bool { return len(unstaged) == 0 || a.git.busy.Get() != "" }, a.gitStageAll, "")))
 	for _, f := range unstaged {
 		body = append(body, a.gitFileRow(cx, f, false))
 	}
 	if len(unstaged) == 0 {
-		body = append(body, core.Text{Content: "工作区干净", Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
+		body = append(body, core.Text{Content: T("工作区干净"), Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
 			StyleFunc: ui.Colored(colors.Faint)})
 	}
 	return core.View{Style: core.Style{Gap: 1}, Children: body}
@@ -719,13 +719,13 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 		BorderWidth: 1, BorderColor: colors.Border()}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			ui.Icon(lucide.GitCommitHorizontal, 13, colors.Muted),
-			ui.Text("提交", 12, ui.Semibold, colors.Text),
+			ui.Text(T("提交"), 12, ui.Semibold, colors.Text),
 			core.View{Style: core.Style{FlexGrow: 1}},
-			ui.Text(fmt.Sprintf("已暂存 %d", st.stagedCount()), 9.5, ui.Regular, colors.Faint),
+			ui.Text(fmt.Sprintf(T("已暂存 %d"), st.stagedCount()), 9.5, ui.Regular, colors.Faint),
 		}},
 		core.Input{
 			Value: a.git.msg.Get, OnChange: a.git.msg.Set, Multiline: true,
-			Placeholder: "提交说明（第一行是标题）", Label: "提交说明", TestID: "git-commit-message",
+			Placeholder: T("提交说明（第一行是标题）"), Label: T("提交说明"), TestID: "git-commit-message",
 			Style: core.Style{MinHeight: core.Pt(58), MaxHeight: core.Pt(120), Padding: core.Symmetric(7, 8), FontSize: 12, Color: colors.Text()},
 			StyleFunc: func() core.Style {
 				return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
@@ -733,12 +733,12 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 			},
 		},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Checkbox{Checked: a.git.amend.Get, OnChange: a.git.amend.Set, Text: "修订上次提交", Label: "修订上次提交",
+			ui.Checkbox{Checked: a.git.amend.Get, OnChange: a.git.amend.Set, Text: T("修订上次提交"), Label: T("修订上次提交"),
 				Style: core.Style{FlexGrow: 1}},
-			ui.Button{Text: "全部提交", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-commit-all",
+			ui.Button{Text: T("全部提交"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-commit-all",
 				OnPress:  func() { a.gitCommit(true, false) },
 				Disabled: func() bool { return busy() || msgEmpty() || len(st.Files) == 0 }},
-			ui.Button{Text: "提交", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "git-commit",
+			ui.Button{Text: T("提交"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "git-commit",
 				OnPress:  func() { a.gitCommit(false, a.git.amend.Get()) },
 				Disabled: func() bool { return busy() || msgEmpty() || (st.stagedCount() == 0 && !a.git.amend.Get()) }},
 		}},
@@ -772,15 +772,15 @@ func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 		})
 	}
 	if len(rows) == 0 {
-		rows = append(rows, core.Text{Content: "还没有提交", Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
+		rows = append(rows, core.Text{Content: T("还没有提交"), Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
 			StyleFunc: ui.Colored(colors.Faint)})
 	}
 	return core.View{Style: core.Style{Gap: 3}, Children: append([]core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			core.Text{Content: "历史", Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.5}, StyleFunc: ui.Colored(colors.Faint)},
+			core.Text{Content: T("历史"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.5}, StyleFunc: ui.Colored(colors.Faint)},
 			core.Text{Content: fmt.Sprint(len(st.Commits)), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			a.pressIcon(lucide.RefreshCw, "刷新历史", 21, 11, nil, func() { a.git.refreshAll() }, ""),
+			a.pressIcon(lucide.RefreshCw, T("刷新历史"), 21, 11, nil, func() { a.git.refreshAll() }, ""),
 		}},
 	}, rows...)}
 }
@@ -835,12 +835,12 @@ func (a *app) gitDiffDialog() core.Node {
 		body := core.Dynamic(func(cx *core.Scope) core.Node {
 			if a.gitDiffLoading.Get() {
 				return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-					Children: []core.Node{ui.Spinner{Size: 16, Label: "读取补丁"}, ui.Text("正在读取补丁…", 12, ui.Regular, colors.Muted)}}
+					Children: []core.Node{ui.Spinner{Size: 16, Label: "读取补丁"}, ui.Text(T("正在读取补丁…"), 12, ui.Regular, colors.Muted)}}
 			}
 			patch := a.gitDiffPatch.Get()
 			if strings.TrimSpace(patch) == "" {
 				return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-					Children: []core.Node{ui.Text("没有可显示的差异", 12, ui.Regular, colors.Faint)}}
+					Children: []core.Node{ui.Text(T("没有可显示的差异"), 12, ui.Regular, colors.Faint)}}
 			}
 			if strings.HasPrefix(patch, "无法读取") {
 				return core.View{Style: core.Style{FlexGrow: 1, Padding: core.All(16)},
@@ -856,11 +856,11 @@ func (a *app) gitDiffDialog() core.Node {
 			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0),
 				BorderWidth: 1, BorderColor: colors.Border(), CornerRadius: 8, Overflow: core.Hidden}, Children: []core.Node{body}}},
 			Footer: []core.Node{
-				ui.Button{Text: "复制补丁", Variant: ui.ButtonGhost, OnPress: func() {
+				ui.Button{Text: T("复制补丁"), Variant: ui.ButtonGhost, OnPress: func() {
 					a.copyText(a.gitDiffPatch.GetUntracked(), "补丁")
 				}},
 				core.View{Style: core.Style{FlexGrow: 1}},
-				ui.Button{Text: "关闭", Variant: ui.ButtonPrimary, OnPress: func() { a.gitDiffOpen.Set(false) }},
+				ui.Button{Text: T("关闭"), Variant: ui.ButtonPrimary, OnPress: func() { a.gitDiffOpen.Set(false) }},
 			},
 		}
 	})
@@ -871,10 +871,10 @@ func (a *app) gitNewBranchDialog() core.Node {
 	colors := ui.ColorsOf(a.cx)
 	return ui.Dialog{
 		Open: a.gitNewBranchOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.gitNewBranchOpen.Set(open) },
-		Title: "新建分支", Description: "新分支从当前提交开始，并立刻切换过去。", TestID: "git-new-branch",
+		Title: T(T("新建分支")), Description: T("新分支从当前提交开始，并立刻切换过去。"), TestID: "git-new-branch",
 		Children: []core.Node{core.Input{
 			Value: a.gitNewBranchName.Get, OnChange: a.gitNewBranchName.Set, Placeholder: "feature/my-change",
-			Label: "分支名", AutoFocus: true, OnSubmit: func(string) { a.gitCreateBranch() },
+			Label: T("分支名"), AutoFocus: true, OnSubmit: func(string) { a.gitCreateBranch() },
 			StyleFunc: func() core.Style {
 				return core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), CornerRadius: 7, Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), FontSize: 13}
@@ -882,7 +882,7 @@ func (a *app) gitNewBranchDialog() core.Node {
 		}},
 		Footer: []core.Node{
 			ui.Button{Text: "取消", Variant: ui.ButtonGhost, OnPress: func() { a.gitNewBranchOpen.Set(false) }},
-			ui.Button{Text: "创建并切换", Variant: ui.ButtonPrimary, OnPress: a.gitCreateBranch},
+			ui.Button{Text: T("创建并切换"), Variant: ui.ButtonPrimary, OnPress: a.gitCreateBranch},
 		},
 	}
 }
