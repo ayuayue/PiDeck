@@ -1,0 +1,24 @@
+#!/bin/sh
+# PiDeck —— pre-commit 钩子：把 CI 上的三条机械守卫前移到本地提交。
+#
+# 挡什么：存量巨文件净增长 / 新增「只读源码」测试 / 本次暂存文件的 biome 格式。
+# 不挡（留给 CI，单机跑太慢或需要构建）：全量 typecheck、单测、check:ipc-wiring、e2e。
+#
+# 本文件只做三件事：找 node → 找仓库根 → 把决定权交给 scripts/preCommitGate.mjs。
+# 判定逻辑在 Node 模块里，便于单测覆盖，也避免 sh 里拼路径。
+#
+# 跳过：PI_DECK_SKIP_PRECOMMIT=1 git commit ...（CI 仍会再挡一次）。
+# 安装：node scripts/install-git-hooks.mjs（npm install 经 prepare 自动执行；幂等）。
+
+# node 缺失时放行：钩子不能让提交因为环境缺东西而失败
+command -v node >/dev/null 2>&1 || {
+	echo "ℹ️  未找到 node，跳过本地提交守卫（不影响本次 commit）"
+	exit 0
+}
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$root" ] || exit 0
+gate="$root/scripts/preCommitGate.mjs"
+[ -f "$gate" ] || exit 0
+
+exec node "$gate"
