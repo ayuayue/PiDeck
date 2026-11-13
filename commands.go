@@ -126,6 +126,7 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) {
 				if s := a.active(); s != nil {
 					s.acpClearPermissions()
+					a.saveACPArchive(s)
 					a.toast(ui.ToastInfo, "已清除权限记忆", "下次工具调用会重新询问。")
 				}
 			}},

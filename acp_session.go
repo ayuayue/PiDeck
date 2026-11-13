@@ -353,6 +353,7 @@ func (a *app) askACPPermission(s *session, req acpPermission) string {
 			if o.Name == name {
 				if decision := acpOptionDecision(o.Kind); decision != "" {
 					s.acpRememberPermission(key, decision)
+					a.cx.Post(func() { a.saveACPArchive(s) })
 				}
 				return o.ID
 			}

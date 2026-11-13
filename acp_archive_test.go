@@ -42,3 +42,19 @@ func TestACPArchiveBytes(t *testing.T) {
 		t.Fatal("the oversized text was not marked as cut")
 	}
 }
+
+// TestACPArchivePermissions checks remembered permissions survive the file.
+func TestACPArchivePermissions(t *testing.T) {
+	arch := acpArchive{ID: "a", Permissions: map[string]string{"run": "allow", "write": "reject"}}
+	data, err := marshalACPArchive(arch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got acpArchive
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Permissions["run"] != "allow" || got.Permissions["write"] != "reject" {
+		t.Fatalf("permissions = %+v", got.Permissions)
+	}
+}

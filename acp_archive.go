@@ -21,13 +21,14 @@ const (
 
 // acpArchive is one ACP session on disk.
 type acpArchive struct {
-	ID           string    `json:"id"`
-	Preset       string    `json:"preset"`
-	ACPSessionID string    `json:"acpSessionId"`
-	Title        string    `json:"title"`
-	Cwd          string    `json:"cwd"`
-	Updated      time.Time `json:"updated"`
-	Turns        []turn    `json:"turns"`
+	ID           string            `json:"id"`
+	Preset       string            `json:"preset"`
+	ACPSessionID string            `json:"acpSessionId"`
+	Title        string            `json:"title"`
+	Cwd          string            `json:"cwd"`
+	Updated      time.Time         `json:"updated"`
+	Turns        []turn            `json:"turns"`
+	Permissions  map[string]string `json:"permissions,omitempty"`
 }
 
 // acpArchiveDir is where ACP transcripts live.
@@ -50,9 +51,15 @@ func (a *app) saveACPArchive(s *session) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
+	s.acpPermMu.Lock()
+	perms := make(map[string]string, len(s.acpPerm))
+	for k, v := range s.acpPerm {
+		perms[k] = v
+	}
+	s.acpPermMu.Unlock()
 	arch := acpArchive{ID: s.ID, Preset: s.acpPreset, ACPSessionID: s.acpSID,
 		Title: s.title.GetUntracked(), Cwd: s.WS, Updated: s.updated.GetUntracked(),
-		Turns: append([]turn(nil), s.turns.GetUntracked()...)}
+		Turns: append([]turn(nil), s.turns.GetUntracked()...), Permissions: perms}
 	data, err := marshalACPArchive(arch)
 	if err != nil {
 		return
@@ -153,6 +160,7 @@ func (a *app) loadACPArchiveFile(path string) *session {
 	}
 	s.updated.Set(arch.Updated)
 	s.turns.Set(arch.Turns)
+	s.acpPerm = arch.Permissions
 	s.loaded.Set(true)
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	return s
