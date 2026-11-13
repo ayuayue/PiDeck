@@ -470,3 +470,81 @@ func shortPath(path string, n int) string {
 	}
 	return "…" + string(runes[len(runes)-n+1:])
 }
+
+// forkSession copies a session up to the user message at turn, writes it
+// under a new id, and returns the prompt that was left out so the app can
+// put it back in the composer. The original file is not touched.
+func (s *store) forkSession(src, id string, turn int, title string) (sessionMeta, string, error) {
+	if src == "" || id == "" {
+		return sessionMeta{}, "", fmt.Errorf("没有可分叉的会话文件")
+	}
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return sessionMeta{}, "", err
+	}
+	lines := bytes.Split(raw, []byte("\n"))
+	if len(lines) == 0 {
+		return sessionMeta{}, "", fmt.Errorf("不是有效的 pi 会话文件")
+	}
+	var head map[string]any
+	if json.Unmarshal(lines[0], &head) != nil || head["type"] != "session" {
+		return sessionMeta{}, "", fmt.Errorf("不是有效的 pi 会话文件")
+	}
+	cwd, _ := head["cwd"].(string)
+	now := time.Now().UTC()
+	head["id"] = id
+	head["timestamp"] = now.Format(time.RFC3339Nano)
+	headRaw, err := json.Marshal(head)
+	if err != nil {
+		return sessionMeta{}, "", err
+	}
+	var out bytes.Buffer
+	out.Write(headRaw)
+	out.WriteByte('\n')
+	seenUser, prompt, found := 0, "", false
+	for _, line := range lines[1:] {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var entry struct {
+			Type    string          `json:"type"`
+			Message json.RawMessage `json:"message"`
+		}
+		if json.Unmarshal(line, &entry) == nil && entry.Type == "message" && len(entry.Message) > 0 {
+			var msg piMessage
+			if json.Unmarshal(entry.Message, &msg) == nil && msg.Role == "user" {
+				if seenUser == turn {
+					prompt = msg.text()
+					found = true
+					break
+				}
+				seenUser++
+			}
+		}
+		out.Write(line)
+		out.WriteByte('\n')
+	}
+	if !found {
+		return sessionMeta{}, "", fmt.Errorf("找不到要分叉的那一轮")
+	}
+	if title != "" {
+		info, _ := json.Marshal(map[string]any{
+			"type": "session_info", "name": title, "timestamp": now.Format(time.RFC3339Nano),
+		})
+		out.Write(info)
+		out.WriteByte('\n')
+	}
+	dir := filepath.Join(s.sessions, encodeCwd(filepath.Clean(cwd)))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return sessionMeta{}, "", err
+	}
+	dst := filepath.Join(dir, now.Format("2006-01-02T15-04-05-000Z")+"_"+id+".jsonl")
+	if err := os.WriteFile(dst, out.Bytes(), 0o644); err != nil {
+		return sessionMeta{}, "", err
+	}
+	m, ok := readSessionMeta(dst, nil)
+	if !ok {
+		return sessionMeta{}, "", fmt.Errorf("分叉后无法读取该会话")
+	}
+	return m, prompt, nil
+}

@@ -1317,6 +1317,72 @@ func (a *app) duplicateSession(s *session) {
 	}()
 }
 
+// forkSession copies a session up to one turn into a new session and
+// puts that turn's prompt back in the composer: the way to try another
+// answer without losing the original history.
+func (a *app) forkSession(s *session, turnID string) {
+	if s == nil || a.st == nil {
+		return
+	}
+	if s.Target.remote() {
+		a.toast(ui.ToastInfo, "远程会话暂不支持分叉", "现在只分叉本机会话。")
+		return
+	}
+	if s.File == "" {
+		a.toast(ui.ToastInfo, "这个会话还没有文件", "发一条消息后再分叉。")
+		return
+	}
+	turns := s.turns.GetUntracked()
+	idx := -1
+	for i, t := range turns {
+		if t.ID == turnID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	id := newSessionID()
+	title := s.title.GetUntracked() + " 分叉"
+	src, st := s.File, a.st
+	go func() {
+		meta, prompt, err := st.forkSession(src, id, idx, title)
+		a.cx.Post(func() {
+			if err != nil {
+				a.toast(ui.ToastError, "分叉会话失败", err.Error())
+				return
+			}
+			ns := a.makeSession(meta, s.Target)
+			if ws := a.workspaceOf(meta.Cwd); ws != nil {
+				ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{ns}, ss...) })
+			}
+			a.selectSession(ns)
+			if prompt == "" {
+				prompt = turns[idx].Prompt
+			}
+			ns.draft.Set(prompt)
+			a.toast(ui.ToastSuccess, "已分叉会话", "原提问已放回输入框，改完可以直接发。")
+		})
+	}()
+}
+
+// forkLastTurn forks at the newest user prompt.
+func (a *app) forkLastTurn() {
+	s := a.active()
+	if s == nil {
+		return
+	}
+	turns := s.turns.GetUntracked()
+	for i := len(turns) - 1; i >= 0; i-- {
+		if turns[i].Prompt != "" {
+			a.forkSession(s, turns[i].ID)
+			return
+		}
+	}
+	a.toast(ui.ToastInfo, "没有可分叉的提问", "")
+}
+
 func (a *app) deleteSession(s *session) {
 	if s == nil {
 		return

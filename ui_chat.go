@@ -190,6 +190,8 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 						}
 						a.copyText(text, "回复")
 					}},
+					chat.IconAction{Label: "从这里分叉", Icon: lucide.GitBranch, Disabled: func() bool { return tt.Prompt == "" },
+						OnPress: func() { a.forkSession(s, tt.ID) }},
 					chat.IconAction{Label: "重试", Icon: lucide.RefreshCw, OnPress: func() { a.retry(s, tt) }},
 				}
 			},
