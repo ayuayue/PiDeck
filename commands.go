@@ -49,6 +49,9 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.agentOpen.Set(true) }},
 		{ID: "image-gen", Label: "生成图片…", Group: "工具", Icon: lucide.Image,
 			Run: func(a *app) { a.openImageDialog() }},
+		{ID: "fork-tree", Label: "查看分叉树…", Group: "会话", Icon: lucide.GitBranch,
+			When: func(a *app) bool { return a.active() != nil },
+			Run:  func(a *app) { a.openForkTree() }},
 		{ID: "close-tab", Label: "关闭当前标签", Group: "会话", Shortcut: "mod+w", Icon: lucide.X, Hidden: true,
 			When: func(a *app) bool { return a.editorOpen() || a.activeID.GetUntracked() != "" },
 			Run: func(a *app) {

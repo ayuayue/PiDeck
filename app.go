@@ -294,6 +294,8 @@ type app struct {
 	// The step-by-step plan dialog.
 	planAskOpen    *core.Signal[bool]
 	planAskSession *session
+	// The fork tree dialog.
+	forksOpen *core.Signal[bool]
 	// Image generation.
 	imageOpen     *core.Signal[bool]
 	imagePrompt   *core.Signal[string]
@@ -395,6 +397,7 @@ func newApp(cx *core.Scope) *app {
 		exportOpen:       core.NewSignal(cx, false),
 		trustOpen:        core.NewSignal(cx, false),
 		planAskOpen:      core.NewSignal(cx, false),
+		forksOpen:        core.NewSignal(cx, false),
 		imageOpen:        core.NewSignal(cx, false),
 		imagePrompt:      core.NewSignal(cx, ""),
 		imageModel:       core.NewSignal(cx, ""),

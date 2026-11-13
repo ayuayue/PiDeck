@@ -36,13 +36,14 @@ func TestForkParentLink(t *testing.T) {
 	}
 	write("parent-1", "父提问")
 	write("child-1", "子提问")
+	write("grandchild-1", "孙提问")
 	cfg, err := json.Marshal(config{Version: 2,
 		Workspaces:  []workspaceCfg{{Path: workspace, Name: "分叉项目", Expanded: true}},
 		Theme:       "system",
 		SidebarOpen: true,
 		ScanPi:      false,
-		Titles:      map[string]string{"parent-1": "父会话", "child-1": "子会话"},
-		ForkParents: map[string]string{"child-1": "parent-1"},
+		Titles:      map[string]string{"parent-1": "父会话", "child-1": "子会话", "grandchild-1": "孙会话"},
+		ForkParents: map[string]string{"child-1": "parent-1", "grandchild-1": "child-1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -61,4 +62,14 @@ func TestForkParentLink(t *testing.T) {
 	app.WaitFor("id:fork-parent", 5*time.Second)
 	app.Press("id:fork-parent")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:parent-1")) > 0 })
+
+	// The tree shows the whole family and opens any node.
+	app.Press("id:rail-palette")
+	app.Type("label:命令", "分叉树")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:option")) > 0 })
+	app.Press("role:option >> nth=0")
+	app.WaitFor("id:fork-tree", 5*time.Second)
+	app.WaitFor("id:fork-node-grandchild-1", 5*time.Second)
+	app.Press("id:fork-node-grandchild-1")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:grandchild-1")) > 0 })
 }
