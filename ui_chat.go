@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -146,6 +147,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 				// Each part watches the turn itself: a footer built once
 				// would keep the state it had when the turn started.
 				return core.Group{
+					a.changeSummary(s, t),
 					core.Show{When: func() bool { return t().Err != "" }, Then: func(cx *core.Scope) core.Node {
 						tt := t()
 						return a.errorRow(func() { a.retry(s, tt) }, tt.Err)
@@ -330,6 +332,96 @@ func (a *app) toolRows(s *session, tools []toolRun) core.Node {
 		rows = append(rows, a.toolRow(s, run))
 	}
 	return core.View{Style: core.Style{Gap: 6, MinWidth: core.Pt(0)}, Children: rows}
+}
+
+// changeSummary lists the files a turn edited or wrote, folded to one
+// line until opened; a path opens in the built-in editor.
+func (a *app) changeSummary(s *session, t func() turn) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		s.uiSeq.Get() // redraw when the summary opens or closes
+		tt := t()
+		changes := turnChanges(tt)
+		if len(changes) == 0 {
+			return nil
+		}
+		key := s.ID + "/changes/" + tt.ID
+		open := s.toolOpen(key, false)
+		added, removed := 0, 0
+		for _, c := range changes {
+			added += c.Added
+			removed += c.Removed
+		}
+		header := []core.Node{
+			ui.Icon(lucide.FileDiff, 12, colors.Muted),
+			core.Text{Content: fmt.Sprintf("修改 %d 个文件", len(changes)), Style: core.Style{FontSize: 12},
+				StyleFunc: ui.Colored(colors.Muted)},
+		}
+		if added > 0 || removed > 0 {
+			header = append(header,
+				core.Text{Content: fmt.Sprintf("+%d", added), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
+					StyleFunc: ui.Colored(colors.Up)},
+				core.Text{Content: fmt.Sprintf("−%d", removed), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
+					StyleFunc: ui.Colored(colors.Danger)})
+		}
+		header = append(header, ui.IconOf(func() *core.SVG {
+			if open {
+				return lucide.ChevronDown()
+			}
+			return lucide.ChevronRight()
+		}, 11, colors.Faint))
+		rows := []core.Node{core.View{
+			OnPress: func(core.PressEvent) { s.toggleOpen(key) },
+			Role:    core.RoleButton, Label: "修改摘要", TestID: "turn-changes",
+			StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(24),
+					Padding: core.Symmetric(0, 4), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
+			},
+			Children: header,
+		}}
+		if open {
+			for i, c := range changes {
+				change := c
+				row := core.View{
+					OnPress: func(core.PressEvent) { a.openChangeFile(s, change.Path) },
+					Role:    core.RoleButton, Label: "打开 " + change.Path, TestID: fmt.Sprintf("turn-change-%d", i),
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24),
+							Padding: core.Symmetric(0, 6), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
+					},
+					Children: []core.Node{
+						core.Text{Content: change.Path, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11},
+							StyleFunc: ui.Colored(colors.Muted)},
+					},
+				}
+				if change.Added > 0 || change.Removed > 0 {
+					row.Children = append(row.Children,
+						core.Text{Content: fmt.Sprintf("+%d", change.Added), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+							StyleFunc: ui.Colored(colors.Up)},
+						core.Text{Content: fmt.Sprintf("−%d", change.Removed), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+							StyleFunc: ui.Colored(colors.Danger)})
+				}
+				rows = append(rows, row)
+			}
+		}
+		return core.View{Style: core.Style{Gap: 1, MinWidth: core.Pt(0)}, Children: rows}
+	})
+}
+
+// openChangeFile opens a path a tool changed, resolving it against the
+// session's folder when it is relative.
+func (a *app) openChangeFile(s *session, path string) {
+	if s == nil || path == "" || strings.HasSuffix(path, "…") {
+		return
+	}
+	if i := strings.Index(path, " 等 "); i > 0 {
+		path = path[:i]
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(s.WS, path)
+	}
+	a.openEditorFile(s.WS, path)
 }
 
 // noteBlock is a system note, such as a compaction summary.

@@ -255,7 +255,10 @@ func (a *app) applyACPUpdate(s *session, u acpUpdate) {
 	case "available_commands_update":
 		s.acpCommands.Set(u.Commands)
 	case "tool_call":
-		run := toolRun{CallID: u.ToolID, Name: u.Title, Action: "工具", Detail: u.Title, Status: chat.Running}
+		run := acpToolRun(u, chat.Running)
+		if run.Action == "" {
+			run.Action = "工具"
+		}
 		a.updateACPTool(s, run, true)
 	case "tool_call_update":
 		status := chat.Running
@@ -267,8 +270,50 @@ func (a *app) applyACPUpdate(s *session, u acpUpdate) {
 		case "cancelled":
 			status = chat.Cancelled
 		}
-		a.updateACPTool(s, toolRun{CallID: u.ToolID, Name: u.Title, Output: u.Text, Status: status}, false)
+		a.updateACPTool(s, acpToolRun(u, status), false)
 	}
+}
+
+// acpToolAction turns a tool kind into the transcript's verb.
+func acpToolAction(kind string) string {
+	switch kind {
+	case "read":
+		return "读取"
+	case "edit":
+		return "编辑"
+	case "delete":
+		return "删除"
+	case "move":
+		return "移动"
+	case "search":
+		return "搜索"
+	case "execute":
+		return "运行"
+	case "think":
+		return "思考"
+	case "fetch":
+		return "抓取"
+	case "switch_mode":
+		return "切换模式"
+	}
+	return ""
+}
+
+// acpToolRun projects a tool call into a tool run: its kind is the verb,
+// its first location the target. Fields the update leaves out stay empty,
+// so merging keeps what the initial call said.
+func acpToolRun(u acpUpdate, status chat.Status) toolRun {
+	run := toolRun{CallID: u.ToolID, Name: u.ToolName, Action: acpToolAction(u.ToolKind),
+		Output: u.Text, Status: status}
+	switch {
+	case len(u.Locations) > 1:
+		run.Detail = fmt.Sprintf("%s 等 %d 个文件", u.Locations[0], len(u.Locations))
+	case len(u.Locations) == 1:
+		run.Detail = u.Locations[0]
+	default:
+		run.Detail = u.Title
+	}
+	return run
 }
 
 // updateACPTool adds or merges a tool in the running turn's last step.

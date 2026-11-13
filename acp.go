@@ -31,6 +31,9 @@ type acpUpdate struct {
 	Text      string
 	ToolID    string
 	Title     string
+	ToolName  string   // the programmatic tool name
+	ToolKind  string   // read, edit, execute…
+	Locations []string // paths the tool touched
 	Status    string
 	Mode      string
 	Commands  []acpCommand
@@ -217,9 +220,14 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 			Content       json.RawMessage `json:"content"`
 			ToolCallID    string          `json:"toolCallId"`
 			Title         string          `json:"title"`
+			Name          string          `json:"name"`
+			ToolKind      string          `json:"kind"`
 			Status        string          `json:"status"`
 			CurrentModeID string          `json:"currentModeId"`
-			Commands      []struct {
+			Locations     []struct {
+				Path string `json:"path"`
+			} `json:"locations"`
+			Commands []struct {
 				Name        string `json:"name"`
 				Description string `json:"description"`
 				Input       *struct {
@@ -233,7 +241,13 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 	}
 	u := acpUpdate{SessionID: params.SessionID, Kind: params.Update.SessionUpdate,
 		Text: acpContentText(params.Update.Content), ToolID: params.Update.ToolCallID,
-		Title: params.Update.Title, Status: params.Update.Status, Mode: params.Update.CurrentModeID, Raw: raw}
+		Title: params.Update.Title, ToolName: params.Update.Name, ToolKind: params.Update.ToolKind,
+		Status: params.Update.Status, Mode: params.Update.CurrentModeID, Raw: raw}
+	for _, l := range params.Update.Locations {
+		if l.Path != "" {
+			u.Locations = append(u.Locations, l.Path)
+		}
+	}
 	for _, c := range params.Update.Commands {
 		cmd := acpCommand{Name: c.Name, Description: c.Description}
 		if c.Input != nil {
@@ -283,22 +297,32 @@ func acpContentText(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
 	}
-	var block struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+	type block struct {
+		Type    string `json:"type"`
+		Text    string `json:"text"`
+		Content *struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
 	}
-	if json.Unmarshal(raw, &block) == nil && block.Text != "" {
-		return block.Text
+	var one block
+	if json.Unmarshal(raw, &one) == nil {
+		if one.Text != "" {
+			return one.Text
+		}
+		if one.Content != nil && one.Content.Text != "" {
+			return one.Content.Text
+		}
 	}
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	var blocks []block
 	if json.Unmarshal(raw, &blocks) == nil {
 		var b strings.Builder
 		for _, bl := range blocks {
 			if bl.Text != "" {
 				b.WriteString(bl.Text)
+			}
+			if bl.Content != nil && bl.Content.Text != "" {
+				b.WriteString(bl.Content.Text)
 			}
 		}
 		return b.String()

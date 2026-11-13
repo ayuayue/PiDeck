@@ -54,6 +54,15 @@ func TestFakeACPAgent(t *testing.T) {
 			}
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
 				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
+					"sessionUpdate": "tool_call", "toolCallId": "t2", "title": "Editing changed.txt",
+					"name": "edit_file", "kind": "edit", "status": "in_progress",
+					"locations": []map[string]any{{"path": "changed.txt", "line": 1}}}}})
+			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
+				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
+					"sessionUpdate": "tool_call_update", "toolCallId": "t2", "status": "completed",
+					"content": []map[string]any{{"type": "content", "content": map[string]string{"type": "text", "text": "ok"}}}}}})
+			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
+				"params": map[string]any{"sessionId": "s1", "update": map[string]any{
 					"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "hello"}}}})
 			if !ui {
 				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 99, "method": "session/request_permission",
@@ -76,7 +85,7 @@ func TestACPClient(t *testing.T) {
 		t.Skip("the helper process")
 	}
 	t.Setenv("PIDECK_FAKE_ACP", "1")
-	updates := make(chan acpUpdate, 4)
+	updates := make(chan acpUpdate, 8)
 	perms := make(chan acpPermission, 1)
 	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=TestFakeACPAgent"},
 		func(u acpUpdate) { updates <- u },
@@ -103,8 +112,8 @@ func TestACPClient(t *testing.T) {
 	if err != nil || stop != "end_turn" {
 		t.Fatalf("prompt = %q, %v", stop, err)
 	}
-	var sawCommands, sawText, sawMode bool
-	for !sawCommands || !sawText || !sawMode {
+	var sawCommands, sawText, sawMode, sawTool, sawToolDone bool
+	for !sawCommands || !sawText || !sawMode || !sawTool || !sawToolDone {
 		select {
 		case u := <-updates:
 			switch u.Kind {
@@ -118,6 +127,16 @@ func TestACPClient(t *testing.T) {
 					t.Fatalf("commands = %+v", u.Commands)
 				}
 				sawCommands = true
+			case "tool_call":
+				if u.ToolKind != "edit" || u.ToolName != "edit_file" || len(u.Locations) != 1 || u.Locations[0] != "changed.txt" {
+					t.Fatalf("tool call = %+v", u)
+				}
+				sawTool = true
+			case "tool_call_update":
+				if u.Status != "completed" || u.Text != "ok" {
+					t.Fatalf("tool update = %+v", u)
+				}
+				sawToolDone = true
 			case "agent_message_chunk":
 				if u.Text != "hello" || u.SessionID != "s1" {
 					t.Fatalf("update = %+v", u)

@@ -116,6 +116,39 @@ type toolRun struct {
 	DurationMs int64
 }
 
+// fileChange is one file a turn's tools edited or wrote, with the lines
+// they added and removed when the tool reported them.
+type fileChange struct {
+	Path    string
+	Added   int
+	Removed int
+	Count   int
+}
+
+// turnChanges merges the files a turn's tools edited or wrote, in the
+// order they first appear.
+func turnChanges(t turn) []fileChange {
+	var out []fileChange
+	at := map[string]int{}
+	for _, st := range t.Steps {
+		for _, run := range st.Tools {
+			if run.Detail == "" || (run.Action != "编辑" && run.Action != "写入") {
+				continue
+			}
+			ix, ok := at[run.Detail]
+			if !ok {
+				ix = len(out)
+				at[run.Detail] = ix
+				out = append(out, fileChange{Path: run.Detail})
+			}
+			out[ix].Added += run.Added
+			out[ix].Removed += run.Removed
+			out[ix].Count++
+		}
+	}
+	return out
+}
+
 // toolDetails is a tool result's details, as the tools that use them send.
 type toolDetails struct {
 	Diff  string `json:"diff"`
