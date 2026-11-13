@@ -76,6 +76,11 @@ type mobileApp struct {
 	newOpen    *core.Signal[bool]
 	creating   *core.Signal[bool]
 
+	// options are the open session's models and thinking levels, shown in
+	// the sheet over optionsOpen.
+	options     *core.Signal[remoteWireOptions]
+	optionsOpen *core.Signal[bool]
+
 	stateLoading      bool
 	transcriptLoading bool
 	refreshing        *core.Signal[bool]
@@ -113,6 +118,8 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		renameText:     core.NewSignal(cx, ""),
 		newOpen:        core.NewSignal(cx, false),
 		creating:       core.NewSignal(cx, false),
+		options:        core.NewSignalFunc(cx, remoteWireOptions{}, nil),
+		optionsOpen:    core.NewSignal(cx, false),
 	}
 	if saved := loadMobileSaved(cx); saved.Server != "" {
 		a.server.Set(saved.Server)
@@ -144,6 +151,7 @@ func (a *mobileApp) view() core.Node {
 		a.actionSheet(),
 		a.renameSheet(),
 		a.newSessionSheet(),
+		a.optionsSheet(),
 	}}
 }
 
@@ -289,6 +297,9 @@ func (a *mobileApp) startPolling() {
 		a.refreshState()
 		if a.active.GetUntracked() != "" {
 			a.refreshTranscript()
+			if a.optionsOpen.GetUntracked() {
+				a.loadOptions(a.active.GetUntracked())
+			}
 		}
 		wait := 2500 * time.Millisecond
 		if a.running.GetUntracked() {
@@ -535,7 +546,9 @@ func (a *mobileApp) openSession(id, title string) {
 	a.messages.Set(nil)
 	a.running.Set(false)
 	a.transcriptErr.Set("")
+	a.options.Set(remoteWireOptions{})
 	a.refreshTranscript()
+	a.loadOptions(id)
 }
 
 func (a *mobileApp) closeSession() {
@@ -646,6 +659,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 				core.View{Selectable: true, Style: core.Style{Padding: core.Edges{Top: 14, Bottom: 20, Left: 14, Right: 14}, Gap: 12}, Children: rows},
 			}}
 		}),
+		a.sessionBar(cx),
 		a.composer(cx),
 	}}
 }
@@ -1046,6 +1060,191 @@ func (a *mobileApp) deleteSession(id string) {
 				a.closeSession()
 			}
 			a.refreshState()
+		})
+	}()
+}
+
+// sessionBar is the model and thinking line over the composer.
+func (a *mobileApp) sessionBar(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	label := func() string {
+		opts := a.options.Get()
+		name := opts.Model
+		for _, m := range opts.Models {
+			if m.ID == opts.Model {
+				name = m.Name
+				break
+			}
+		}
+		if name == "" {
+			name = "默认模型"
+		}
+		if opts.Thinking != "" {
+			name += " · " + opts.Thinking
+		}
+		return name
+	}
+	return core.View{OnPress: func(core.PressEvent) { a.openOptions() }, Role: core.RoleButton, Label: "模型与思考等级",
+		TestID: "mobile-options",
+		StyleFunc: func() core.Style {
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Symmetric(4, 12),
+				Transition: pressMotion, Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+		},
+		Children: []core.Node{
+			ui.Icon(lucide.Brain, 11, colors.Faint),
+			core.Text{ContentFunc: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FlexShrink: 1, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
+			ui.Icon(lucide.ChevronUp, 11, colors.Faint),
+		}}
+}
+
+// openOptions reads the session's choices and shows them.
+func (a *mobileApp) openOptions() {
+	id := a.active.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.optionsOpen.Set(true)
+	a.loadOptions(id)
+}
+
+// loadOptions reads a session's models and thinking levels.
+func (a *mobileApp) loadOptions(id string) {
+	client := a.client
+	if client == nil || id == "" {
+		return
+	}
+	go func() {
+		opts, err := client.options(id)
+		a.cx.Post(func() {
+			if a.active.GetUntracked() != id || err != nil {
+				return
+			}
+			a.options.Set(opts)
+		})
+	}()
+}
+
+// optionsSheet picks the model or the thinking level.
+func (a *mobileApp) optionsSheet() core.Node {
+	return ui.Dialog{
+		Open:         func() bool { return a.optionsOpen.Get() },
+		OnOpenChange: func(open bool, _ base.Reason) { a.optionsOpen.Set(open) },
+		Title:        "模型与思考",
+		TestID:       "mobile-options-sheet",
+		Style:        core.Style{Width: core.Pt(360)},
+		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			opts := a.options.Get()
+			var sections []core.Node
+			if len(opts.Levels) > 0 {
+				chips := make([]core.Node, 0, len(opts.Levels))
+				for _, level := range opts.Levels {
+					l := level
+					on := l == opts.Thinking
+					chips = append(chips, core.View{OnPress: func(core.PressEvent) { a.chooseThinking(l) },
+						Role: core.RoleButton, Label: l, TestID: "mobile-level",
+						StyleFunc: func() core.Style {
+							st := core.Style{Padding: core.Symmetric(6, 12), CornerRadius: 14, BorderWidth: 1,
+								BorderColor: colors.FieldBorder(), Transition: pressMotion,
+								Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+							if on {
+								st.Background = colors.Light()
+								st.BorderColor = colors.Light()
+							}
+							return st
+						},
+						Children: []core.Node{ui.Text(l, 12, ui.Medium, func() core.Color {
+							if on {
+								return colors.OnLight()
+							}
+							return colors.Muted()
+						})}})
+				}
+				sections = append(sections, core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
+					ui.Text("思考等级", 11, ui.Medium, colors.Faint),
+					core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: chips},
+				}})
+			}
+			if len(opts.Models) > 0 {
+				rows := make([]core.Node, 0, len(opts.Models))
+				for _, m := range opts.Models {
+					model := m
+					on := model.ID == opts.Model
+					rows = append(rows, core.View{OnPress: func(core.PressEvent) { a.chooseModel(model) },
+						Role: core.RoleButton, Label: model.Name, TestID: "mobile-model",
+						StyleFunc: func() core.Style {
+							return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(40),
+								Padding: core.Symmetric(0, 8), CornerRadius: 7, Transition: pressMotion,
+								Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+						},
+						Children: []core.Node{
+							core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+								core.Text{Content: model.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+									Style: core.Style{FontSize: 13.5}, StyleFunc: ui.Colored(colors.Text)},
+								core.Text{Content: model.Provider, MaxLines: 1, Style: core.Style{FontSize: 10},
+									StyleFunc: ui.Colored(colors.Faint)},
+							}},
+							core.Show{When: func() bool { return on }, Then: func(*core.Scope) core.Node {
+								return ui.Icon(lucide.Check, 14, colors.Text)
+							}},
+						}})
+				}
+				sections = append(sections, core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
+					ui.Text("模型", 11, ui.Medium, colors.Faint),
+					core.Scroll{Style: core.Style{MaxHeight: core.Pt(320)}, Children: []core.Node{
+						core.View{Style: core.Style{Gap: 1}, Children: rows},
+					}},
+				}})
+			}
+			if len(sections) == 0 {
+				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(10, 4)},
+					Children: []core.Node{
+						ui.Spinner{Size: 13, Label: "正在读取"},
+						ui.Text("正在读取模型列表…", 12, ui.Regular, colors.Faint),
+					}}
+			}
+			return core.View{Style: core.Style{Gap: 14}, Children: sections}
+		})},
+	}
+}
+
+// chooseModel switches the open session's model.
+func (a *mobileApp) chooseModel(m remoteWireModel) {
+	id := a.active.GetUntracked()
+	client := a.client
+	if id == "" || client == nil {
+		return
+	}
+	a.optionsOpen.Set(false)
+	go func() {
+		err := client.setModel(id, m.Provider, m.ID)
+		a.cx.Post(func() {
+			if err != nil {
+				a.transcriptErr.Set(remoteErrorText(err))
+				return
+			}
+			a.loadOptions(id)
+		})
+	}()
+}
+
+// chooseThinking switches the open session's reasoning level.
+func (a *mobileApp) chooseThinking(level string) {
+	id := a.active.GetUntracked()
+	client := a.client
+	if id == "" || client == nil {
+		return
+	}
+	a.optionsOpen.Set(false)
+	go func() {
+		err := client.setThinking(id, level)
+		a.cx.Post(func() {
+			if err != nil {
+				a.transcriptErr.Set(remoteErrorText(err))
+				return
+			}
+			a.loadOptions(id)
 		})
 	}()
 }

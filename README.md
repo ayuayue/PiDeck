@@ -150,6 +150,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
   - 搜索：标题栏放大镜，按会话标题过滤；会话内再按内容过滤已加载的消息
   - 行内「…」：重命名、置顶 / 取消置顶、删除（删除会二次确认，文件进电脑的 `trash/`）
   - 发消息：底部输入框 + 发送；运行中发送键换成停止键，回复按 1.2 秒轮询流式出现
+  - 模型与思考：输入框上方一行显示当前模型和思考等级，点开是原生底部弹层，
+    可切模型（按供应商分组）和 low/high/max
 - 令牌鉴权；链接含令牌；pi 自己的会话只能在电脑上删除
 
 **手机端的接口**
@@ -159,11 +161,14 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | GET | `/api/ping` | 主机名与版本，连接时探活 |
 | GET | `/api/state` | 项目、会话、置顶与运行状态 |
 | GET | `/api/session/{id}` | 一个会话的消息；运行中带 live 文本 |
+| GET | `/api/session/{id}/options` | 模型列表、当前模型、思考等级；pi 没起会顺手拉起 |
 | POST | `/api/sessions` | `{project}` 新建会话，返回 `{id,title}` |
 | POST | `/api/sessions/{id}/prompt` | `{text}` 发一条消息 |
 | POST | `/api/sessions/{id}/stop` | 停止当前一轮 |
 | POST | `/api/sessions/{id}/rename` | `{title}` 改名 |
 | POST | `/api/sessions/{id}/pin` | `{pinned}` 置顶或取消 |
+| POST | `/api/sessions/{id}/model` | `{provider,id}` 切模型 |
+| POST | `/api/sessions/{id}/thinking` | `{level}` 切思考等级 |
 | POST | `/api/sessions/{id}/delete` | 删除会话（pi 自己的会话会拒绝） |
 
 **会话与数据**
@@ -401,7 +406,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 资源页的扩展开关只改 `settings.json`，重启 Agent 后生效；本地 `.ts` 扩展自动加载，不能在此停用
 - 翻译目前覆盖设置页、命令面板、托盘与键位页；其余界面仍显示中文，按 `i18n.go` 的目录逐步补
 - 用量统计最多读最近 3000 个会话文件，按会话 ID 去重；导入副本与移动过的文件可能让统计略有偏差
-- 手机端不支持：切换模型与思考等级、附件与图片、工具调用展开、多行输入、会话内跳转到命中位置
+- 手机端不支持：附件与图片、工具调用展开、多行输入、会话内跳转到命中位置
 - 手机端只列本机项目（WSL/SSH 目标的项目不出现）
 - 局域网连接走 HTTP + 令牌，Tailscale/EasyTier 的链路本身加密
 - 草稿与附件不跨重启保存；单窗口

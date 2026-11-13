@@ -267,6 +267,25 @@ func TestRemoteSessionActions(t *testing.T) {
 		t.Fatalf("pinned after pin = %+v", got)
 	}
 
+	// Model and thinking choices come back for the sheet, and empty
+	// values are refused.
+	rec = call(http.MethodGet, "/api/session/"+created.ID+"/options", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options = %d: %s", rec.Code, rec.Body.String())
+	}
+	var options remoteWireOptions
+	if err := json.Unmarshal(rec.Body.Bytes(), &options); err != nil {
+		t.Fatalf("options body = %s", rec.Body.String())
+	}
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/model", `{"provider":"x","id":""}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty model = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/thinking", `{"level":" "}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty level = %d: %s", rec.Code, rec.Body.String())
+	}
+
 	rec = call(http.MethodPost, "/api/sessions/"+created.ID+"/delete", `{}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete = %d: %s", rec.Code, rec.Body.String())

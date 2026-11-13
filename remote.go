@@ -362,7 +362,17 @@ func (h *remoteHost) handleSession(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	id, err := url.PathUnescape(strings.TrimPrefix(r.URL.Path, "/api/session/"))
+	rest := strings.TrimPrefix(r.URL.Path, "/api/session/")
+	if strings.HasSuffix(rest, "/options") {
+		id, err := url.PathUnescape(strings.TrimSuffix(rest, "/options"))
+		if err != nil || id == "" {
+			writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少会话 ID"})
+			return
+		}
+		h.sessionOptions(w, id)
+		return
+	}
+	id, err := url.PathUnescape(rest)
 	if err != nil || id == "" {
 		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少会话 ID"})
 		return
@@ -468,6 +478,10 @@ func (h *remoteHost) handleSessionAction(w http.ResponseWriter, r *http.Request)
 		h.sessionRename(w, r, id)
 	case "pin":
 		h.sessionPin(w, r, id)
+	case "model":
+		h.sessionModel(w, r, id)
+	case "thinking":
+		h.sessionThinking(w, r, id)
 	case "delete":
 		h.sessionDelete(w, id)
 	default:
@@ -601,6 +615,108 @@ func (h *remoteHost) sessionDelete(w http.ResponseWriter, id string) {
 			return
 		}
 		h.app.removeSession(s)
+	})
+	h.finishAction(w, ok, failure, map[string]any{"ok": true})
+}
+
+// remoteWireModel is one model the phone can switch to.
+type remoteWireModel struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Provider  string `json:"provider"`
+	Reasoning bool   `json:"reasoning"`
+}
+
+// remoteWireOptions is a session's model and thinking choices.
+type remoteWireOptions struct {
+	Models   []remoteWireModel `json:"models"`
+	Model    string            `json:"model"`
+	Provider string            `json:"provider"`
+	Thinking string            `json:"thinking"`
+	Levels   []string          `json:"levels"`
+	Ready    bool              `json:"ready"`
+}
+
+// sessionOptions lists the models and levels of a session, starting pi
+// when it is not up yet.
+func (h *remoteHost) sessionOptions(w http.ResponseWriter, id string) {
+	var out remoteWireOptions
+	var found bool
+	ok := h.app.withUI(func() {
+		s := h.app.byID[id]
+		if s == nil {
+			return
+		}
+		found = true
+		current := s.model.GetUntracked()
+		out.Model, out.Provider, out.Thinking = current.ID, current.Provider, s.thinking.GetUntracked()
+		for _, m := range s.models.GetUntracked() {
+			out.Models = append(out.Models, remoteWireModel{ID: m.ID, Name: m.label(), Provider: m.Provider, Reasoning: m.Reasoning})
+		}
+		out.Levels = append([]string(nil), s.levels.GetUntracked()...)
+		out.Ready = s.readySig.GetUntracked()
+		if !out.Ready {
+			h.app.ensureEngine(s, nil)
+		}
+	})
+	switch {
+	case !ok:
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+	case !found:
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个会话"})
+	default:
+		writeRemoteJSON(w, http.StatusOK, out)
+	}
+}
+
+// sessionModel switches the model of a session.
+func (h *remoteHost) sessionModel(w http.ResponseWriter, r *http.Request, id string) {
+	var body struct {
+		ID       string `json:"id"`
+		Provider string `json:"provider"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(body.ID) == "" {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少模型 ID"})
+		return
+	}
+	var failure error
+	ok := h.app.withUI(func() {
+		s := h.app.byID[id]
+		if s == nil {
+			failure = errors.New("找不到这个会话")
+			return
+		}
+		h.app.applyModel(s, body.Provider, body.ID, false)
+	})
+	h.finishAction(w, ok, failure, map[string]any{"ok": true})
+}
+
+// sessionThinking switches the reasoning level of a session.
+func (h *remoteHost) sessionThinking(w http.ResponseWriter, r *http.Request, id string) {
+	var body struct {
+		Level string `json:"level"`
+	}
+	if err := decodeRemoteBody(r, &body); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	level := strings.TrimSpace(body.Level)
+	if level == "" {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少思考等级"})
+		return
+	}
+	var failure error
+	ok := h.app.withUI(func() {
+		s := h.app.byID[id]
+		if s == nil {
+			failure = errors.New("找不到这个会话")
+			return
+		}
+		h.app.applyThinking(s, level, false)
 	})
 	h.finishAction(w, ok, failure, map[string]any{"ok": true})
 }

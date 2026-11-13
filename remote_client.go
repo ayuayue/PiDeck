@@ -165,6 +165,23 @@ func (c *remoteClient) createSession(project string) (string, string, error) {
 	return out.ID, out.Title, nil
 }
 
+// options lists a session's models and thinking levels.
+func (c *remoteClient) options(id string) (remoteWireOptions, error) {
+	var out remoteWireOptions
+	err := c.do("/api/session/"+url.PathEscape(id)+"/options", &out)
+	return out, err
+}
+
+// setModel switches a session's model.
+func (c *remoteClient) setModel(id, provider, modelID string) error {
+	return c.post("/api/sessions/"+url.PathEscape(id)+"/model", map[string]string{"provider": provider, "id": modelID}, nil)
+}
+
+// setThinking switches a session's reasoning level.
+func (c *remoteClient) setThinking(id, level string) error {
+	return c.post("/api/sessions/"+url.PathEscape(id)+"/thinking", map[string]string{"level": level}, nil)
+}
+
 func (c *remoteClient) prompt(id, text string) error {
 	return c.post("/api/sessions/"+url.PathEscape(id)+"/prompt", map[string]string{"text": text}, nil)
 }
