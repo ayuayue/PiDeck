@@ -99,11 +99,23 @@ test("思考结束（thinking_end）后消息就带上区间，不等 abort", as
 	manager.handlePiEvent("agent-1", {
 		type: "message_update",
 		assistantMessageEvent: { type: "text_delta", delta: "结论如下。" },
-		message: { role: "assistant", content: [{ type: "thinking", thinking: "先想第一步，再想第二步。" }, { type: "text", text: "结论如下。" }] },
+		message: {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "先想第一步，再想第二步。" },
+				{ type: "text", text: "结论如下。" },
+			],
+		},
 	});
 	manager.handlePiEvent("agent-1", {
 		type: "message_end",
-		message: { role: "assistant", content: [{ type: "thinking", thinking: "先想第一步，再想第二步。" }, { type: "text", text: "结论如下。" }] },
+		message: {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "先想第一步，再想第二步。" },
+				{ type: "text", text: "结论如下。" },
+			],
+		},
 	});
 	await settleTimers();
 	const messages = manager.messages.get("agent-1") ?? [];

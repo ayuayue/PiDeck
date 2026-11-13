@@ -92,6 +92,10 @@ test("remaining LiveDuration call sites: thinking block and running tool card", 
 
 test("tool row keeps a fixed duration after completion (no longer hover-only)", () => {
 	const toolCard = readFileSync("src/renderer/src/components/session/ToolCallComponents.tsx", "utf8");
+	// 运行时锚：完成态渲染的字符串由 formatDuration 生成，先钉住它的真实输出。
+	const { formatDuration } = loadTsModule("src/renderer/src/components/session/TimelineFormat.ts");
+	assert.equal(formatDuration(1500), "1.5s");
+	assert.equal(formatDuration(870), "870ms");
 	// 坏样本：完成态若只把耗时塞进行 tooltip（rowTitleParts），重开会话后用户看到的
 	// 工具行没有任何耗时——用户 2026-11 反馈「工具调用没有时间」。
 	// 契约：完成态与运行中同一位置渲染，运行中走 LiveDuration，完成走落盘的 durationMs。
