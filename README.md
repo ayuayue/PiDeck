@@ -154,6 +154,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
     （≥2 个字，300ms 防抖，命中显示片段；点一下进那个会话并直接落到匹配处）；
     会话内还能再按内容过滤已加载的消息
   - 失败重试：最后一轮失败时，输入框上方出现「重试上一条」
+  - 项目：标题栏「⋯ → 添加项目…」按电脑上的文件夹路径添加，长按项目标题可移除
+    （只从侧栏移除，文件不动）；没有会话的项目也会列出来，点一下就能在里面新建
   - 行内「…」：重命名、置顶 / 取消置顶、删除（删除会二次确认，文件进电脑的 `trash/`）
   - 发消息：底部多行输入框（自动换行长到 5 行左右，回车换行，发送键发送）；
     运行中多一个停止键（不挡输入，pi 会排队），回复按 1.2 秒轮询流式出现
@@ -175,6 +177,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | GET | `/api/session/{id}` | 一个会话的消息；运行中带 live 文本 |
 | GET | `/api/session/{id}/options` | 模型列表、当前模型、思考等级；pi 没起会顺手拉起 |
 | GET | `/api/search?q=&project=` | 跨会话搜消息正文，返回会话、标题与片段（按文件缓存） |
+| POST | `/api/projects` | `{path,remove}` 在电脑上添加/移除项目文件夹 |
 | POST | `/api/sessions` | `{project}` 新建会话，返回 `{id,title}` |
 | POST | `/api/sessions/{id}/prompt` | `{text,images:[{mime,data}]}` 发一条消息；运行中自动改成 steer |
 | POST | `/api/sessions/{id}/stop` | 停止当前一轮 |

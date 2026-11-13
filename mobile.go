@@ -83,6 +83,7 @@ type mobileApp struct {
 	addPath    *core.Signal[string]
 	addOpen    *core.Signal[bool]
 	removePath *core.Signal[string]
+	moreOpen   *core.Signal[bool]
 
 	// options are the open session's models and thinking levels, shown in
 	// the sheet over optionsOpen.
@@ -148,6 +149,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		addPath:        core.NewSignal(cx, ""),
 		addOpen:        core.NewSignal(cx, false),
 		removePath:     core.NewSignal(cx, ""),
+		moreOpen:       core.NewSignal(cx, false),
 		options:        core.NewSignalFunc(cx, remoteWireOptions{}, nil),
 		optionsOpen:    core.NewSignal(cx, false),
 		toolOpen:       core.NewSignal(cx, ""),
@@ -189,8 +191,10 @@ func (a *mobileApp) view() core.Node {
 		a.renameSheet(),
 		a.newSessionSheet(),
 		a.optionsSheet(),
+		a.noticePill(),
 		a.addProjectSheet(),
 		a.removeProjectSheet(),
+		a.moreSheet(),
 	}}
 }
 
@@ -391,7 +395,7 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 				a.pressIcon(lucide.Search, "搜索会话", 34, 16, nil, func() { a.searchOpen.Set(true) }, "mobile-search"),
 				a.pressIcon(lucide.Plus, "新建会话", 34, 18, nil, a.startNewSession, "mobile-new"),
 				a.pressIcon(lucide.RefreshCw, "刷新", 34, 16, nil, a.refreshState, "mobile-refresh"),
-				a.pressIcon(lucide.Unplug, "断开连接", 34, 16, nil, func() { a.disconnect() }, "mobile-disconnect"),
+				a.pressIcon(lucide.Ellipsis, "更多", 34, 18, nil, func() { a.moreOpen.Set(true) }, "mobile-more"),
 			)
 		}),
 		core.Show{When: func() bool { return a.err.Get() != "" }, Then: func(cx *core.Scope) core.Node {
@@ -456,6 +460,14 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 								ui.Button{Text: "新建会话", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-new-empty",
 									OnPress: a.startNewSession},
 							}},
+						}})
+					}
+					if query == "" {
+						sections = append(sections, core.View{Style: core.Style{Padding: core.Edges{Left: 8, Top: 2}}, Children: []core.Node{
+							a.sheetRow(lucide.FolderPlus, "添加项目", colors.Faint, func() {
+								a.addPath.Set("")
+								a.addOpen.Set(true)
+							}, "mobile-add-project-row"),
 						}})
 					}
 					return core.View{Style: core.Style{Padding: core.Edges{Top: 10, Bottom: 24, Left: 8, Right: 8}, Gap: 0}, Children: sections}
@@ -741,15 +753,6 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 						ui.Text("最新", 11, ui.Medium, colors.OnLight),
 					}}
 			}},
-			core.Show{When: func() bool { return a.notice.Get() != "" }, Then: func(cx *core.Scope) core.Node {
-				colors := ui.ColorsOf(cx)
-				return core.View{Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(64),
-					AlignItems: core.AlignCenter, PointerEvents: core.PointerEventsBoxNone}, Children: []core.Node{
-					core.View{StyleFunc: func() core.Style {
-						return core.Style{Padding: core.Symmetric(6, 14), CornerRadius: 16, Background: colors.Light()}
-					}, Children: []core.Node{ui.Text(a.notice.Get(), 11.5, ui.Medium, colors.OnLight)}},
-				}}
-			}},
 		}},
 		a.retryBar(cx),
 		a.sessionBar(cx),
@@ -987,6 +990,19 @@ func (a *mobileApp) message(cx *core.Scope, m remoteWireMessage) core.Node {
 	}, Children: []core.Node{body}}
 }
 
+// noticePill is the short confirmation every screen shows.
+func (a *mobileApp) noticePill() core.Node {
+	return core.Show{When: func() bool { return a.notice.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		return core.View{Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(120),
+			AlignItems: core.AlignCenter, PointerEvents: core.PointerEventsBoxNone}, Children: []core.Node{
+			core.View{StyleFunc: func() core.Style {
+				return core.Style{Padding: core.Symmetric(7, 15), CornerRadius: 16, Background: colors.Light()}
+			}, Children: []core.Node{ui.Text(a.notice.Get(), 12, ui.Medium, colors.OnLight)}},
+		}}
+	}}
+}
+
 // flash shows a short confirmation over the composer.
 func (a *mobileApp) flash(text string) {
 	a.notice.Set(text)
@@ -1097,7 +1113,7 @@ func (a *mobileApp) actionSheet() core.Node {
 			}
 		},
 		TestID: "mobile-actions",
-		Style:  core.Style{Width: core.Pt(340)},
+		Style:  core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
 			id := a.actionID.Get()
@@ -1150,7 +1166,7 @@ func (a *mobileApp) renameSheet() core.Node {
 		},
 		Title:  "重命名会话",
 		TestID: "mobile-rename",
-		Style:  core.Style{Width: core.Pt(340)},
+		Style:  core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
 			return core.Input{Value: a.renameText.Get, OnChange: a.renameText.Set, Label: "会话名字", TestID: "mobile-rename-input",
@@ -1178,7 +1194,7 @@ func (a *mobileApp) deleteSheet() core.Node {
 		Title:       "删除会话",
 		Description: "会话文件会移到电脑数据目录的 trash 里，需要时可以找回。",
 		TestID:      "mobile-delete",
-		Style:       core.Style{Width: core.Pt(340)},
+		Style:       core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Footer: []core.Node{
 			ui.Button{Text: "删除", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-delete-yes",
 				OnPress: func() { a.deleteSession(a.deleteID.GetUntracked()) }},
@@ -1198,7 +1214,7 @@ func (a *mobileApp) newSessionSheet() core.Node {
 		},
 		Title:  "在哪个项目里新建",
 		TestID: "mobile-new",
-		Style:  core.Style{Width: core.Pt(340)},
+		Style:  core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
 			var rows []core.Node
@@ -1225,6 +1241,31 @@ func (a *mobileApp) newSessionSheet() core.Node {
 	}
 }
 
+// moreSheet holds the list's less used actions.
+func (a *mobileApp) moreSheet() core.Node {
+	return ui.Dialog{
+		Open:         func() bool { return a.moreOpen.Get() },
+		OnOpenChange: func(open bool, _ base.Reason) { a.moreOpen.Set(open) },
+		Title:        "更多",
+		TestID:       "mobile-more-sheet",
+		Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
+		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			return core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
+				a.sheetRow(lucide.FolderPlus, "添加项目…", colors.Text, func() {
+					a.moreOpen.Set(false)
+					a.addPath.Set("")
+					a.addOpen.Set(true)
+				}, "mobile-add-project"),
+				a.sheetRow(lucide.Unplug, "断开连接", colors.Danger, func() {
+					a.moreOpen.Set(false)
+					a.disconnect()
+				}, "mobile-disconnect"),
+			}}
+		})},
+	}
+}
+
 // addProjectSheet asks for a folder to put on the desktop's rail.
 func (a *mobileApp) addProjectSheet() core.Node {
 	return ui.Dialog{
@@ -1237,7 +1278,7 @@ func (a *mobileApp) addProjectSheet() core.Node {
 		Title:       "添加项目",
 		Description: "填电脑上的文件夹路径，和电脑端「添加工作区」是同一件事。",
 		TestID:      "mobile-add-project-sheet",
-		Style:       core.Style{Width: core.Pt(360)},
+		Style:       core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
 			return core.Input{Value: a.addPath.Get, OnChange: a.addPath.Set, Label: "文件夹路径", TestID: "mobile-add-path",
@@ -1516,7 +1557,7 @@ func (a *mobileApp) optionsSheet() core.Node {
 		OnOpenChange: func(open bool, _ base.Reason) { a.optionsOpen.Set(open) },
 		Title:        "模型与思考",
 		TestID:       "mobile-options-sheet",
-		Style:        core.Style{Width: core.Pt(360)},
+		Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
 			opts := a.options.Get()
