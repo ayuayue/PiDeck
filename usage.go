@@ -27,6 +27,8 @@ type usageSample struct {
 	CacheWrite int
 	Total      int
 	Cost       float64
+	// Estimated marks an ACP sample, whose tokens come from text length.
+	Estimated bool
 }
 
 // usageDay is one day of the heatmap.
@@ -49,15 +51,16 @@ type usageBucket struct {
 
 // usageReport is what the usage page shows.
 type usageReport struct {
-	Days     []usageDay
-	Models   []usageBucket
-	Projects []usageBucket
-	Total    usageInfo
-	Sessions int
-	Replies  int
-	Files    int
-	Since    time.Time
-	Until    time.Time
+	Days      []usageDay
+	Models    []usageBucket
+	Projects  []usageBucket
+	Total     usageInfo
+	Sessions  int
+	Replies   int
+	Files     int
+	Estimated int
+	Since     time.Time
+	Until     time.Time
 }
 
 // usageWindowDays is how many days the heatmap covers: 12 weeks.
@@ -70,7 +73,7 @@ const maxUsageFiles = 3000
 // collectUsage reads the newest session files under roots and builds the
 // report. Files are capped and sessions counted once, so an imported copy
 // does not double the original.
-func collectUsage(roots []string, now time.Time) usageReport {
+func collectUsage(roots []string, acpDir string, now time.Time) usageReport {
 	type fileInfo struct {
 		path string
 		mod  time.Time
@@ -115,6 +118,14 @@ func collectUsage(roots []string, now time.Time) usageReport {
 			seenSession[id] = true
 		}
 		samples = append(samples, ss...)
+	}
+	for _, sample := range readACPUsage(acpDir) {
+		if seenSession[sample.SessionID] {
+			continue
+		}
+		seenSession[sample.SessionID] = true
+		samples = append(samples, sample)
+		report.Estimated++
 	}
 	report.Sessions = len(seenSession)
 	report.Replies = len(samples)
@@ -168,6 +179,66 @@ func collectUsage(roots []string, now time.Time) usageReport {
 	report.Models = topBuckets(models, 10)
 	report.Projects = topBuckets(projects, 10)
 	return report
+}
+
+// readACPUsage estimates ACP tokens from the archived text.
+func readACPUsage(dir string) []usageSample {
+	if dir == "" {
+		return nil
+	}
+	entries, _ := os.ReadDir(dir)
+	var out []usageSample
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var arch acpArchive
+		if json.Unmarshal(raw, &arch) != nil || arch.ID == "" {
+			continue
+		}
+		for _, t := range arch.Turns {
+			var output strings.Builder
+			output.WriteString(t.Final)
+			for _, st := range t.Steps {
+				output.WriteString(st.Text)
+				output.WriteString(st.Thinking)
+			}
+			in, outTok := estimateTokens(t.Prompt), estimateTokens(output.String())
+			if in+outTok == 0 {
+				continue
+			}
+			when := t.Start
+			if when.IsZero() {
+				when = t.End
+			}
+			if when.IsZero() {
+				when = arch.Updated
+			}
+			out = append(out, usageSample{Time: when, Provider: "acp", Model: arch.Preset,
+				Cwd: arch.Cwd, SessionID: arch.ID, Input: in, Output: outTok, Total: in + outTok, Estimated: true})
+		}
+	}
+	return out
+}
+
+// estimateTokens approximates tokens from text: one per CJK rune, a
+// quarter per other non-space rune.
+func estimateTokens(text string) int {
+	cjk, other := 0, 0
+	for _, r := range text {
+		switch {
+		case r >= 0x2E80 && r <= 0x9FFF, r >= 0xF900 && r <= 0xFAFF, r >= 0xFF00 && r <= 0xFFEF:
+			cjk++
+		case r == ' ' || r == '\n' || r == '\t' || r == '\r':
+		default:
+			other++
+		}
+	}
+	return cjk + (other+3)/4
 }
 
 // readUsageFile reads one session file's usage samples and its id.
@@ -307,7 +378,7 @@ func (a *app) loadUsage(force bool) {
 	}
 	a.usageLoading.Set(true)
 	go func() {
-		report := collectUsage(roots, time.Now())
+		report := collectUsage(roots, a.acpArchiveDir(), time.Now())
 		a.cx.Post(func() {
 			a.usage.Set(report)
 			a.usageLoading.Set(false)

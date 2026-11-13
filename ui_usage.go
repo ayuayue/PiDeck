@@ -80,6 +80,10 @@ func (a *app) settingsUsage() core.Node {
 							fmt.Sprintf("输入 %s · 输出 %s", tokens(r.Total.Input), tokens(r.Total.Output))),
 						statCard(colors, "费用", credits(r.Total.Cost), ""),
 					}}),
+				core.Show{When: func() bool { return r.Estimated > 0 }, Then: func(*core.Scope) core.Node {
+					return core.Text{Content: T("其中 %d 条为 ACP 估算（按文本长度）", r.Estimated),
+						Style: core.Style{FontSize: 10.5, Padding: core.Edges{Left: 4}}, StyleFunc: ui.Colored(colors.Faint)}
+				}},
 				setGroup("最近 12 周",
 					core.View{Style: core.Style{Padding: core.Symmetric(6, 2), Gap: 6}, Children: []core.Node{
 						heat,

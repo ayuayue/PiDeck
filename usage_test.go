@@ -3,6 +3,7 @@ package main
 // Checks for reading usage out of session files and rolling it up.
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,7 +58,7 @@ func TestCollectUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.Local)
-	report := collectUsage([]string{dir}, now)
+	report := collectUsage([]string{dir}, "", now)
 	if report.Sessions != 1 {
 		t.Fatalf("sessions = %d", report.Sessions)
 	}
@@ -133,4 +134,39 @@ func TestUsagePage(t *testing.T) {
 	app.Press("id:settings-tab-usage")
 	app.WaitFor("text:最近 12 周", 10*time.Second)
 	app.WaitFor(`text:"375"`, 5*time.Second)
+}
+
+// TestEstimateTokens checks the CJK and ASCII split.
+func TestEstimateTokens(t *testing.T) {
+	if got := estimateTokens("hello world"); got != 3 {
+		t.Errorf("ascii = %d", got)
+	}
+	if got := estimateTokens("你好"); got != 2 {
+		t.Errorf("cjk = %d", got)
+	}
+	if got := estimateTokens(""); got != 0 {
+		t.Errorf("empty = %d", got)
+	}
+}
+
+// TestReadACPUsage checks archived ACP turns become estimated samples.
+func TestReadACPUsage(t *testing.T) {
+	dir := t.TempDir()
+	arch := acpArchive{ID: "acp-1", Preset: "claude", Cwd: "C:/w", Updated: time.Now(),
+		Turns: []turn{{Prompt: "你好", Final: "你好，我在"}}}
+	raw, err := json.Marshal(arch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "acp-1.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	samples := readACPUsage(dir)
+	if len(samples) != 1 {
+		t.Fatalf("samples = %+v", samples)
+	}
+	s := samples[0]
+	if !s.Estimated || s.Provider != "acp" || s.Model != "claude" || s.Input == 0 || s.Output == 0 {
+		t.Fatalf("sample = %+v", s)
+	}
 }
