@@ -27,9 +27,11 @@ type workspace struct {
 	Pinned    bool
 	Added     time.Time
 	ACPPreset string
-	Target    target
-	Expanded  *core.Signal[bool]
-	Sessions  *core.Signal[[]*session]
+	// Chat marks the built-in chat folder under the app's data.
+	Chat     bool
+	Target   target
+	Expanded *core.Signal[bool]
+	Sessions *core.Signal[[]*session]
 	// Pi are pi's own sessions in this folder, and PiOpen whether the
 	// group shows.
 	Pi     *core.Signal[[]*session]
@@ -453,6 +455,7 @@ func newApp(cx *core.Scope) *app {
 	for _, wc := range a.cfg.Workspaces {
 		wc.Path = cleanTargetPath(parseTarget(wc.Target), wc.Path)
 		ws := &workspace{Path: wc.Path, Name: wc.Name, Group: wc.Group, Pinned: wc.Pinned, Added: wc.Added,
+			Chat:      wc.Chat,
 			Target:    parseTarget(wc.Target),
 			Expanded:  core.NewSignal(cx, wc.Expanded || len(byKey[parseTarget(wc.Target).key()+"|"+wc.Path]) > 0),
 			Sessions:  core.NewSignalFunc(cx, []*session{}, nil),
@@ -1193,7 +1196,11 @@ func (a *app) newSession(path string) *session {
 		a.pickNative("workspace")
 		return nil
 	}
-	s := a.blankSession(newSessionID(), ws, "新会话")
+	title := "新会话"
+	if ws.Chat {
+		title = T("对话")
+	}
+	s := a.blankSession(newSessionID(), ws, title)
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	a.selectSession(s)
 	return s

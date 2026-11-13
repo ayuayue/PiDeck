@@ -334,6 +334,9 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 						return lucide.ChevronRight()
 					}, 12, colors.Faint),
 					ui.IconOf(func() *core.SVG {
+						if w().Chat {
+							return lucide.MessageCircle()
+						}
 						if w().Expanded.Get() {
 							return lucide.FolderOpen()
 						}

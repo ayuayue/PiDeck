@@ -28,6 +28,9 @@ type workspaceCfg struct {
 	Pinned    bool      `json:"pinned,omitempty"`
 	Added     time.Time `json:"added,omitempty"`
 	ACPPreset string    `json:"acpPreset,omitempty"`
+	// Chat marks the built-in chat folder, which is not a project the
+	// user added but the app's own place for conversations.
+	Chat bool `json:"chat,omitempty"`
 	// Target is where its agents run: "" here, "wsl:<distro>",
 	// "ssh:<host>".
 	Target string `json:"target,omitempty"`
