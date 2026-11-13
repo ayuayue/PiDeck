@@ -181,6 +181,16 @@ func (a *app) acpFinish(s *session, turnID, stop string, err error) {
 		s.notice.Set("")
 	}
 	a.touch(s)
+	a.saveACPArchive(s)
+	switch {
+	case err != nil:
+		a.notifyFeishu(s, "失败", err.Error())
+	case stop == "cancelled":
+		a.notifyFeishu(s, "已停止", "")
+	default:
+		a.notifyTurnDone(s)
+		a.notifyFeishu(s, "完成", lastAnswer(s))
+	}
 }
 
 // applyACPUpdate folds one session/update into the running turn.
