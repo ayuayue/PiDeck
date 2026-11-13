@@ -667,6 +667,23 @@ func (a *app) ensureAddonDirs() {
 `), 0o644)
 		}
 	}
+	if dir := a.agentsDir(); dir != "" {
+		_ = os.MkdirAll(dir, 0o755)
+		example := filepath.Join(dir, "example.json")
+		if _, err := os.Stat(example); os.IsNotExist(err) {
+			_ = os.WriteFile(example, []byte(`{
+  "agents": [
+    {
+      "id": "security",
+      "name": "安全审查",
+      "description": "从输入边界、权限与依赖看风险。",
+      "prompt": "你是一名安全审查者。先看输入边界与权限，再看依赖与敏感数据流；每个风险给出触发条件与最小修复。"
+    }
+  ]
+}
+`), 0o644)
+		}
+	}
 	if dir := a.pluginsDir(); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 		example := filepath.Join(dir, "example-plugin.json")

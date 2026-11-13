@@ -714,10 +714,11 @@ func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
 		plan := ui.IconButton{Icon: lucide.ClipboardList, Label: "计划模式", Size: 26, IconSize: 13, TestID: "plan-mode",
 			Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }}
+		persona := a.personaChip(s)
 		if s.backend == "acp" {
-			return core.Group{plan, a.acpBadge(s), a.acpCommandMenu(s)}
+			return core.Group{persona, plan, a.acpBadge(s), a.acpCommandMenu(s)}
 		}
-		return core.Group{plan, a.modelMenu(s, s.modelOpen), a.effortPicker(s)}
+		return core.Group{persona, plan, a.modelMenu(s, s.modelOpen), a.effortPicker(s)}
 	}
 }
 

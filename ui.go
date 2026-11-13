@@ -39,6 +39,7 @@ func (a *app) view() core.Node {
 		a.shortcutsDialog(),
 		a.searchDialog(),
 		a.acpDialog(),
+		a.agentDialog(),
 		a.projectGroupDialog(),
 		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: "关闭", TestID: "toasts"},
 	}}

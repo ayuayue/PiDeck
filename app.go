@@ -121,6 +121,8 @@ type session struct {
 	conversation *chat.ConversationState
 
 	engine *piClient
+	// personaID binds the session to a built-in or custom agent.
+	personaID string
 	// ACP sessions run an external agent CLI instead of pi.
 	backend     string
 	acpPreset   string
@@ -202,7 +204,8 @@ type app struct {
 	projectGroupText *core.Signal[string]
 
 	// The ACP preset picker.
-	acpOpen *core.Signal[bool]
+	acpOpen   *core.Signal[bool]
+	agentOpen *core.Signal[bool]
 
 	// The keyboard cheat sheet.
 	shortcutsOpen  *core.Signal[bool]
@@ -377,6 +380,7 @@ func newApp(cx *core.Scope) *app {
 		askText:          core.NewSignal(cx, ""),
 		projectsRev:      core.NewSignal(cx, 0),
 		acpOpen:          core.NewSignal(cx, false),
+		agentOpen:        core.NewSignal(cx, false),
 		projectGroupOpen: core.NewSignal(cx, false),
 		projectGroupPath: core.NewSignal(cx, ""),
 		projectGroupText: core.NewSignal(cx, ""),
@@ -585,6 +589,9 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		acpMode:        core.NewSignal(a.cx, ""),
 		acpModes:       core.NewSignalFunc(a.cx, []acpMode(nil), nil),
 		acpModeOpen:    core.NewSignal(a.cx, false),
+	}
+	if id := a.cfg.SessionPersonas[m.ID]; id != "" {
+		s.personaID = id
 	}
 	s.conversation = chat.NewConversationState(a.cx)
 	a.byID[s.ID] = s
@@ -2039,6 +2046,9 @@ func planPrompt(text string) string {
 // submitTurn starts a turn, asking for a plan when plan is true.
 func (a *app) submitTurn(s *session, text string, images []promptImage, plan bool) {
 	original := text
+	if p := a.agentByID(s.personaID); p != nil {
+		text = personaPrompt(p.Prompt, text)
+	}
 	if plan {
 		text = planPrompt(text)
 	}

@@ -81,7 +81,7 @@
 | --- | --- | --- |
 | Skills / Extensions 管理 | ✅ | 技能列表与 SKILL.md、扩展启停（写 settings.json）、目录入口 |
 | Prompt / Skill 商店 | ⬜ | 在线索引 + 一键安装 |
-| 内置智能体 | ⬜ | 预设提示词与会话绑定 |
+| 内置智能体 | ✅ | 5 个内置 + `agents/*.json` 自定义；提示词前缀、徽章清除、按会话持久化 |
 | 中文提示词库 | 🟡 | 内置 20 条起步提示词 + 用户 JSON/YAML 包、分类搜索、草稿保存；4000+ 库待接 |
 | 视觉桥 | ⬜ | 图片转文字描述 |
 | 插件市场（registry.json） | ⬜ | 兼容 `ayuayue/pideck-plugins` 索引 |

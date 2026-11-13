@@ -86,6 +86,8 @@ type config struct {
 	// PluginSettings holds the values of settings plugins declare, by
 	// "pluginID/key".
 	PluginSettings map[string]string `json:"pluginSettings,omitempty"`
+	// SessionPersonas binds a session to an agent by its id.
+	SessionPersonas map[string]string `json:"sessionPersonas,omitempty"`
 	// ProxyApp routes the app's own HTTP calls, ProxyAgent the agent
 	// processes it starts, and ProxyBypass is their shared no-proxy list.
 	ProxyApp    string `json:"proxyApp,omitempty"`

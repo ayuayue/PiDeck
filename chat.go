@@ -23,14 +23,14 @@ func (a *app) chatDir() string {
 
 // openChat starts a session in the built-in chat folder, making the
 // folder and its pseudo project on first use.
-func (a *app) openChat() {
+func (a *app) openChat() *session {
 	dir := a.chatDir()
 	if dir == "" {
-		return
+		return nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		a.toast(ui.ToastError, "无法创建内置对话目录", err.Error())
-		return
+		return nil
 	}
 	ws := a.workspaceFor(localTarget, dir)
 	if ws == nil {
@@ -48,5 +48,5 @@ func (a *app) openChat() {
 	}
 	ws.Expanded.Set(true)
 	a.activeWS.Set(dir)
-	a.newSession(dir)
+	return a.newSession(dir)
 }
