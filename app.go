@@ -1558,6 +1558,13 @@ func (a *app) forkSession(s *session, turnID string) {
 				prompt = turns[idx].Prompt
 			}
 			ns.draft.Set(prompt)
+			st.edit(func(c *config) {
+				if c.ForkParents == nil {
+					c.ForkParents = map[string]string{}
+				}
+				c.ForkParents[ns.ID] = s.ID
+			})
+			a.cfg = st.config()
 			a.toast(ui.ToastSuccess, "已分叉会话", "原提问已放回输入框，改完可以直接发。")
 		})
 	}()
@@ -1634,6 +1641,7 @@ func (a *app) deleteSession(s *session) {
 	if s.backend == "acp" {
 		a.askConfirm("删除会话", "「"+s.title.GetUntracked()+"」会从侧栏消失，ACP 归档也会删除。", "删除", func() {
 			a.deleteACPArchive(s.ID)
+			a.forgetFork(s.ID)
 			a.closeTab(s.ID)
 			delete(a.byID, s.ID)
 			for i, x := range a.all {
@@ -1666,6 +1674,23 @@ func (a *app) deleteSession(s *session) {
 	a.askConfirm("删除会话", body, "删除", func() { a.removeSession(s) })
 }
 
+// forgetFork drops a deleted session's fork links, its own and its
+// children's.
+func (a *app) forgetFork(id string) {
+	if a.st == nil || id == "" {
+		return
+	}
+	a.st.edit(func(c *config) {
+		delete(c.ForkParents, id)
+		for child, parent := range c.ForkParents {
+			if parent == id {
+				delete(c.ForkParents, child)
+			}
+		}
+	})
+	a.cfg = a.st.config()
+}
+
 // removeSession deletes a session's file and every trace of it, without
 // asking: the phone's delete comes in already confirmed.
 func (a *app) removeSession(s *session) {
@@ -1683,7 +1708,16 @@ func (a *app) removeSession(s *session) {
 			a.toast(ui.ToastError, "删除失败", err.Error())
 			return
 		}
-		a.st.edit(func(c *config) { delete(c.Titles, s.ID) })
+		a.st.edit(func(c *config) {
+			delete(c.Titles, s.ID)
+			delete(c.ForkParents, s.ID)
+			for child, parent := range c.ForkParents {
+				if parent == s.ID {
+					delete(c.ForkParents, child)
+				}
+			}
+		})
+		a.cfg = a.st.config()
 	}
 	a.closeTab(s.ID)
 	delete(a.byID, s.ID)

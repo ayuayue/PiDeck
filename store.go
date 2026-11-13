@@ -88,6 +88,8 @@ type config struct {
 	PluginSettings map[string]string `json:"pluginSettings,omitempty"`
 	// SessionPersonas binds a session to an agent by its id.
 	SessionPersonas map[string]string `json:"sessionPersonas,omitempty"`
+	// ForkParents maps a fork to the session it branched from.
+	ForkParents map[string]string `json:"forkParents,omitempty"`
 	// TrustedProjects are the projects the user allowed agents to work
 	// in, keyed "target|path". A project added at runtime starts
 	// untrusted; configs from before trust existed are migrated as trusted.
@@ -330,6 +332,10 @@ func (s *store) config() config {
 	c.SessionPersonas = make(map[string]string, len(s.c.SessionPersonas))
 	for k, v := range s.c.SessionPersonas {
 		c.SessionPersonas[k] = v
+	}
+	c.ForkParents = make(map[string]string, len(s.c.ForkParents))
+	for k, v := range s.c.ForkParents {
+		c.ForkParents[k] = v
 	}
 	return c
 }

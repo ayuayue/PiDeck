@@ -154,13 +154,15 @@ func TestConfigCopyDoesNotAliasMaps(t *testing.T) {
 	st.edit(func(c *config) {
 		c.PluginSettings = map[string]string{"p/k": "1"}
 		c.SessionPersonas = map[string]string{"s": "review"}
+		c.ForkParents = map[string]string{"child": "parent"}
 	})
 	c := st.config()
 	c.PluginSettings["p/k"] = "2"
 	c.SessionPersonas["s"] = "tests"
+	c.ForkParents["child"] = "other"
 	again := st.config()
-	if again.PluginSettings["p/k"] != "1" || again.SessionPersonas["s"] != "review" {
-		t.Fatalf("copy aliased the store: %+v %+v", again.PluginSettings, again.SessionPersonas)
+	if again.PluginSettings["p/k"] != "1" || again.SessionPersonas["s"] != "review" || again.ForkParents["child"] != "parent" {
+		t.Fatalf("copy aliased the store: %+v %+v %+v", again.PluginSettings, again.SessionPersonas, again.ForkParents)
 	}
 }
 

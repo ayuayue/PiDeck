@@ -561,6 +561,9 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 						}
 						return core.Style{Color: colors.Text(), FontWeight: w}
 					}},
+				core.Show{When: func() bool { return a.cfg.ForkParents[s().ID] != "" }, Then: func(*core.Scope) core.Node {
+					return ui.Icon(lucide.GitBranch, 10.5, colors.Faint)
+				}},
 				core.Show{When: func() bool { return s().External }, Then: func(*core.Scope) core.Node {
 					return ui.Icon(lucide.Clock, 10.5, colors.Faint)
 				}},
@@ -860,6 +863,30 @@ func (a *app) drawerOverview() core.Node {
 						return "默认"
 					}),
 					row(T("会话 ID"), func() string { return s.ID }),
+					core.Show{When: func() bool { return a.cfg.ForkParents[s.ID] != "" }, Then: func(cx *core.Scope) core.Node {
+						parentID := a.cfg.ForkParents[s.ID]
+						title := a.cfg.Titles[parentID]
+						if p := a.byID[parentID]; p != nil {
+							title = p.title.Get()
+						}
+						if title == "" {
+							title = T("原会话")
+						}
+						children := []core.Node{
+							ui.Icon(lucide.GitBranch, 11, colors.Faint),
+							core.Text{Content: T("分叉自 %s", title), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+								Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Muted)},
+						}
+						if a.byID[parentID] != nil {
+							children = append(children, ui.Button{Text: T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+								TestID: "fork-parent", OnPress: func() {
+									if p := a.byID[parentID]; p != nil {
+										a.selectSession(p)
+									}
+								}})
+						}
+						return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: children}
+					}},
 					core.Show{When: func() bool { return s.Target.remote() || s.External }, Then: func(cx *core.Scope) core.Node {
 						label := "本机"
 						if s.Target.remote() {
