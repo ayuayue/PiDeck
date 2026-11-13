@@ -99,6 +99,8 @@ type config struct {
 	FeishuSecret  string `json:"feishuSecret,omitempty"`
 	// PetEnabled shows the desktop pet window.
 	PetEnabled bool `json:"petEnabled,omitempty"`
+	// EditorCommand opens files outside the app; empty detects one.
+	EditorCommand string `json:"editorCommand,omitempty"`
 }
 
 // store holds the config file and the session directory.

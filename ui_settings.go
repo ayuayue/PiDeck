@@ -676,6 +676,18 @@ func (a *app) settingsEnv() core.Node {
 					a.cx.OpenURL(fileURL(dir), nil)
 				}
 			}}),
+			setDivider(),
+			setRow("外部编辑器", detectedEditorsText(), core.Input{
+				Value: func() string { return a.cfg.EditorCommand }, Placeholder: "code / cursor / 自定义命令",
+				Label: "外部编辑器命令", TestID: "editor-command",
+				OnChange: func(v string) {
+					a.cfg.EditorCommand = v
+					a.st.edit(func(c *config) { c.EditorCommand = v })
+				},
+				Style: core.Style{Width: core.Pt(170), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
+					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
+			}),
 		)
 		var targets []core.Node
 		if info.TargetsProbing {
@@ -973,6 +985,19 @@ func (a *app) settingsDiagnostics() core.Node {
 			}},
 		}}
 	})
+}
+
+// detectedEditorsText names the editors found on PATH.
+func detectedEditorsText() string {
+	list := detectEditors()
+	if len(list) == 0 {
+		return "没有在 PATH 里找到常见编辑器；可以填一个命令。"
+	}
+	names := make([]string, 0, len(list))
+	for _, e := range list {
+		names = append(names, e.Name)
+	}
+	return "已找到：" + strings.Join(names, "、")
 }
 
 // settingsData shows the folders the app writes.
