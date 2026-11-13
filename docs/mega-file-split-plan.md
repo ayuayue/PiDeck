@@ -378,3 +378,18 @@
 3. **把 CI 的 e2e 覆盖面从 1/133 提到 3 条整链路**（`ab776cf16`）：markdown 图片链路、启动→首发提升、预热历史+光标。本地实测 4 个 case / 26s。
 
 **教训（值得单独记）**：仓库有 133 条 e2e，CI 只跑 1 条 —— 这就是那个光标 bug 红了大半年没人发现的**唯一原因**。拆分再勤，也补不上「整链路没人跑」这个洞。
+
+## 第十二轮：session-atoms 与 App.tsx 收尾（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `atoms/session-atoms.ts` | 2213 | **896** | `session-atoms-types 129`（纯类型）、`session-cache-policy 136`（纯策略）、`session-state-atoms` / `session-message-cache-atoms` / `session-timeline-atoms` / `session-history-atoms` / `session-runtime-ui-atoms`（均 ≤400） |
+| `renderer/App.tsx` | 2762 | **2169** | `hooks/app/` 新增八个域：useAppSessionCreation 177 / useAppSessionEntrypoints 290 / useAppSettingsMirrors / useAppHistoryMutations / useAppGitBranchActions / useAppActiveProjectSync / useAppProjectScanEffects / useAppStartupWiring |
+
+### 本轮唯一容易致命的地方：atom 身份
+
+atom / atomFamily **只能整体搬家**，入口文件用 `export { x } from "./..."` 转发。一旦在新文件里重新 `atom(...)` 一份同名 atom，就会出现「两套状态」：读写方各连一份，症状是「改了 A 处 B 处不刷新」，而且 100% 没有报错——这是这批文件里唯一不能靠 typecheck 兜住的错误类型。本轮所有 atom 均为整体搬迁，未新建任何 `atom` 调用。
+
+### 十二轮之后的位置
+
+`App.tsx` 4065 → **2169**（−47%）、`session-atoms` 2213 → **896**（−60%）。剩下的大头只剩两个并行的「编排内核」：`main/index.ts 4964`、`pi/AgentManager.ts 4785`——两者的剩余质量主要是装配顺序与事件编排，继续硬拆只会得到转发壳（`SessionRuntimeCoordinator` 停在 2162 就是这个结论）。**拆分主线到这里可以收了**；后续按 `AGENTS.md` 的「谁改到哪块就拆哪块」增量执行即可。
