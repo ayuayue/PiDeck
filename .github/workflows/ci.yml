@@ -103,13 +103,16 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Markdown image layout e2e
-        # 图片渲染链路的几何守卫：同段多图 = 96×96 瓷砖并排、单图 640×360 上限、
-        # src 走 pideck-file://、点击开预览。这条链路的三类回归（hast 的 %5C 编码、
-        # rehype-sanitize 剥非白名单属性、Windows 8.3 短名）单测都抓不到，
-        # 只有真实 Electron 能发现。Windows runner 自带桌面会话，不需要 xvfb。
-        timeout-minutes: 10
-        run: npx playwright test e2e/markdown-image-layout.spec.ts
+      - name: Smoke e2e (renderer + session wiring)
+        # 三条整链路守卫，单测都抓不到，只有真实 Electron 能发现：
+        # 1) markdown 图片：同段多图 = 96×96 瓷砖、单图 640×360 上限、src 走 pideck-file://、
+        #    点击开预览（hast 的 %5C 编码 / rehype-sanitize 剥属性 / Windows 8.3 短名都在这条链上）。
+        # 2) 启动 → 首发提升为真实会话：占位 Tab 不许残留（草稿、catalog 刷新、Tab 归属）。
+        # 3) 预热历史 + composer 焦点：外部重渲染不得把中段输入的鼠标光标挪到文末
+        #    （2026-11 修过一次：受控同步无条件 setContent + 文末兜底；这条 e2e 是它的守护）。
+        # Windows runner 自带桌面会话，不需要 xvfb。
+        timeout-minutes: 15
+        run: npx playwright test e2e/markdown-image-layout.spec.ts e2e/session-bootstrap-tabs.spec.ts e2e/session-prewarm-history.spec.ts
 
       - name: Verify packaging config
         run: npm run pack
