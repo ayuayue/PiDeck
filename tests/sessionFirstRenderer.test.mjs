@@ -51,7 +51,8 @@ test("App routes project and Session selection through the command owner", () =>
 	assert.match(sessionRunControlSource, /selectSessionCommand\(projectId, targetSessionId, true\)/);
 	// select 口只负责选中 + 交给统一的按需加载入口，「什么时候该扫、什么时候该跳过」
 	// 的规则留在 ensureProjectCatalogLoaded 一处，不在 select 口重复一份（防止规则漂移）。
-	assert.match(appSource, /select: \(projectId\) => \{\s*selectProjectCommand\(projectId\);[\s\S]*?ensureProjectCatalogLoaded\(projectId\);/);
+	// 侧栏 select 已迁入 useAppSidebarActions：命令入口以 selectProject 注入，选中后仍按需加载 catalog。
+	assert.match(appSource, /select: \(projectId\) => \{\s*selectProject\(projectId\);[\s\S]*?ensureProjectCatalogLoaded\(projectId\);/);
 	assert.match(
 		appSource,
 		/ensureProjectCatalogLoaded = useCallback\(\s*\(projectId: string, silent = false\) => \{[\s\S]*?if \(projects\.some\(\(project\) => project\.id === projectId && isRemoteProject\(project\)\)\) return;\s*const loadState = store\.get\(sessionCatalogLoadStateAtom\)\[projectId\];\s*if \(loadState\?\.status === "loading" \|\| loadState\?\.status === "ready"\) return;/,

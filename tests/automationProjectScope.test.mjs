@@ -17,7 +17,10 @@ test("a project menu opens its own automation task table", () => {
 	assert.match(sidebar, /onManageAutomations=\{\s*automationHidden\s*\?\s*undefined\s*:\s*\(\) => \{[\s\S]{0,200}?actions\.projects\.manageAutomations\(menuProject\.id\)/);
 	assert.match(projectMenu, /onManageAutomations\?: \(\) => void/);
 	assert.match(projectMenu, /<Clock className="size-3\.5"/);
-	assert.match(app, /manageAutomations: \(projectId\) => openAutomationPage\(projectId\)/);
+	// 侧栏动作已迁入 hooks/app/useAppSidebarActions：项目菜单经注入的 openAutomations 打开该项目自动化页，
+	// 注入源是 atom 入口 openAutomationPage（在 App 里接线）。
+	assert.match(app, /manageAutomations: \(projectId\) => openAutomations\(projectId\)/);
+	assert.match(app, /openAutomations: openAutomationPage,/);
 });
 
 test("project scope filters tasks and runs and locks new task ownership", () => {
