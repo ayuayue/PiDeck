@@ -182,7 +182,7 @@ func (a *mobileApp) gitSheet() core.Node {
 						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
 				}},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-				ui.Text(fmt.Sprintf("已暂存 %d", staged), 10.5, ui.Regular, colors.Faint),
+				ui.Text(T("已暂存 %d", staged), 10.5, ui.Regular, colors.Faint),
 				core.View{Style: core.Style{FlexGrow: 1}},
 				ui.Button{Text: "提交", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-git-commit",
 					Disabled: func() bool { return a.gitSending.Get() || strings.TrimSpace(a.gitMsg.Get()) == "" || staged == 0 },
@@ -202,7 +202,7 @@ func (a *mobileApp) gitSheet() core.Node {
 			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520)},
 			Children:     []core.Node{core.View{Style: core.Style{Gap: 6}, Children: children}},
 			Footer: []core.Node{
-				ui.Button{Text: "刷新", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadGit},
+				ui.Button{Text: T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadGit},
 				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitOpen.Set(false) }},
 			},
 		}

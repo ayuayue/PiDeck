@@ -151,6 +151,8 @@ type mobileApp struct {
 func newMobileApp(cx *core.Scope) *mobileApp {
 	cx.SetAppearance(core.AppearanceSystem)
 	cx.SetTheme(pideckTheme())
+	setting := strings.TrimSpace(os.Getenv("PIDECK_LITE_LANG"))
+	setUILanguage(resolveLanguage(setting, cx.Env().Locale()))
 	a := &mobileApp{
 		cx:              cx,
 		server:          core.NewSignal(cx, ""),
@@ -276,8 +278,8 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 		return core.Style{Gap: 12, Padding: core.All(16), CornerRadius: 14, Background: colors.Surface(),
 			BorderWidth: 1, BorderColor: colors.Border()}
 	}, Children: []core.Node{
-		field("连接地址", "http://192.168.1.8:8787/?token=…", "mobile-server", a.server, a.connect),
-		field("访问令牌", "粘贴电脑端显示的令牌", "mobile-token", a.token, a.connect),
+		field(T("连接地址"), "http://192.168.1.8:8787/?token=…", "mobile-server", a.server, a.connect),
+		field(T("访问令牌"), "粘贴电脑端显示的令牌", "mobile-token", a.token, a.connect),
 		core.Show{When: func() bool { return a.err.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(8, 9), CornerRadius: 8,
 				Background: ui.Alpha(colors.Danger(), 0.08)}, Children: []core.Node{
@@ -289,16 +291,16 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 			core.Dynamic(func(*core.Scope) core.Node {
 				if a.busy.Get() {
-					return ui.Spinner{Size: 14, Label: "连接中"}
+					return ui.Spinner{Size: 14, Label: T("连接中")}
 				}
 				return nil
 			}),
-			ui.Button{Text: "连接", Variant: ui.ButtonPrimary, Size: ui.SizeLarge, Flex: 1, TestID: "mobile-connect",
+			ui.Button{Text: T("连接"), Variant: ui.ButtonPrimary, Size: ui.SizeLarge, Flex: 1, TestID: "mobile-connect",
 				Disabled: func() bool { return a.busy.Get() }, OnPress: a.connect},
 		}},
-		ui.Button{Text: "扫码连接", Variant: ui.ButtonSecondary, Size: ui.SizeLarge, TestID: "mobile-scan",
+		ui.Button{Text: T("扫码连接"), Variant: ui.ButtonSecondary, Size: ui.SizeLarge, TestID: "mobile-scan",
 			OnPress: a.scanQR},
-		ui.Button{Text: "从相册选二维码", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-scan-library",
+		ui.Button{Text: T("从相册选二维码"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-scan-library",
 			OnPress: a.scanImage},
 	}}
 	column := core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(480), Gap: 16}, Children: []core.Node{
@@ -306,11 +308,11 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 			Style: core.Style{Width: core.Pt(64), Height: core.Pt(64), CornerRadius: 18, AlignSelf: core.AlignCenter}},
 		core.View{Style: core.Style{Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
 			ui.Text("PiDeck Lite", 24, ui.Bold, colors.Text),
-			ui.Text("连接电脑上的会话", 13, ui.Regular, colors.Muted),
+			ui.Text(T("连接电脑上的会话"), 13, ui.Regular, colors.Muted),
 		}},
 		card,
 		a.recentList(),
-		core.Text{Content: "在电脑端打开 设置 → 远程，启用后扫码或复制连接链接；手机和电脑需要在同一局域网、Tailscale 或 EasyTier 网络里。",
+		core.Text{Content: T("在电脑端打开 设置 → 远程，启用后扫码或复制连接链接；手机和电脑需要在同一局域网、Tailscale 或 EasyTier 网络里。"),
 			Style: core.Style{FontSize: 11, LineHeight: 17, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
 	}}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
@@ -352,7 +354,7 @@ func (a *mobileApp) recentList() core.Node {
 				}})
 		}
 		return core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(480), Gap: 6}, Children: []core.Node{
-			ui.Text("最近连接", 11, ui.Medium, colors.Faint),
+			ui.Text(T("最近连接"), 11, ui.Medium, colors.Faint),
 			core.View{Style: core.Style{Gap: 4}, Children: rows},
 		}}
 	}}
@@ -568,9 +570,9 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 				return a.searchHeader(cx)
 			}
 			return a.mobileHeader(cx, a.serverName.Get(), a.server.Get(), false,
-				a.pressIcon(lucide.Search, "搜索会话", 34, 16, nil, func() { a.searchOpen.Set(true) }, "mobile-search"),
-				a.pressIcon(lucide.Plus, "新建会话", 34, 18, nil, a.startNewSession, "mobile-new"),
-				a.pressIcon(lucide.RefreshCw, "刷新", 34, 16, nil, a.refreshState, "mobile-refresh"),
+				a.pressIcon(lucide.Search, T("搜索会话"), 34, 16, nil, func() { a.searchOpen.Set(true) }, "mobile-search"),
+				a.pressIcon(lucide.Plus, T("新建会话"), 34, 18, nil, a.startNewSession, "mobile-new"),
+				a.pressIcon(lucide.RefreshCw, T("刷新"), 34, 16, nil, a.refreshState, "mobile-refresh"),
 				a.pressIcon(lucide.Ellipsis, "更多", 34, 18, nil, func() { a.moreOpen.Set(true) }, "mobile-more"),
 			)
 		}),
@@ -627,16 +629,16 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 					case query != "":
 						sections = append(sections, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 							ui.Icon(lucide.SearchX, 28, colors.Faint),
-							ui.Text("没有匹配的会话", 13, ui.Medium, colors.Muted),
-							ui.Text("换个词试试，或者新建一个会话。", 11.5, ui.Regular, colors.Faint),
+							ui.Text(T("没有匹配的会话"), 13, ui.Medium, colors.Muted),
+							ui.Text(T("换个词试试，或者新建一个会话。"), 11.5, ui.Regular, colors.Faint),
 						}})
 					default:
 						sections = append(sections, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 							ui.Icon(lucide.Laptop, 30, colors.Faint),
-							ui.Text("电脑上还没有会话", 13, ui.Medium, colors.Muted),
-							ui.Text("点右上角的新建，直接在手机上开始。", 11.5, ui.Regular, colors.Faint),
+							ui.Text(T("电脑上还没有会话"), 13, ui.Medium, colors.Muted),
+							ui.Text(T("点右上角的新建，直接在手机上开始。"), 11.5, ui.Regular, colors.Faint),
 							core.View{Style: core.Style{Margin: core.Edges{Top: 6}}, Children: []core.Node{
-								ui.Button{Text: "新建会话", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-new-empty",
+								ui.Button{Text: T("新建会话"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-new-empty",
 									OnPress: a.startNewSession},
 							}},
 						}})
@@ -677,10 +679,10 @@ func (a *mobileApp) mobileSessionRow(cx *core.Scope, s remoteWireSession) core.N
 					core.Text{Content: mobileWhen(s.Updated), MaxLines: 1, Style: core.Style{FontSize: 10.5},
 						StyleFunc: ui.Colored(colors.Faint)},
 					core.Show{When: func() bool { return s.Running }, Then: func(*core.Scope) core.Node {
-						return ui.Text("运行中", 10, ui.Medium, colors.Accent)
+						return ui.Text(T("运行中"), 10, ui.Medium, colors.Accent)
 					}},
 					core.Show{When: func() bool { return s.Ask != nil }, Then: func(*core.Scope) core.Node {
-						return ui.Text("待确认", 10, ui.Medium, colors.Warn)
+						return ui.Text(T("待确认"), 10, ui.Medium, colors.Warn)
 					}},
 				}},
 			}},
@@ -750,7 +752,7 @@ func (a *mobileApp) mobileHeader(cx *core.Scope, title, subtitle string, back bo
 	}})
 	children = append(children, core.Dynamic(func(*core.Scope) core.Node {
 		if a.transcriptBusy.Get() || a.refreshing.Get() {
-			return ui.Spinner{Size: 12, Label: "刷新"}
+			return ui.Spinner{Size: 12, Label: T("刷新")}
 		}
 		return nil
 	}))
@@ -778,7 +780,7 @@ func (a *mobileApp) searchHeader(cx *core.Scope) core.Node {
 				Value: a.query.Get, OnChange: func(v string) {
 					a.query.Set(v)
 					a.scheduleSearch()
-				}, Placeholder: "搜索会话标题和消息", Label: "搜索会话", TestID: "mobile-search-input",
+				}, Placeholder: T("搜索会话标题和消息"), Label: T("搜索会话"), TestID: "mobile-search-input",
 				Style: core.Style{Height: core.Pt(38), Padding: core.Symmetric(0, 10), FontSize: 14, Color: colors.Text(),
 					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 9,
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection},
@@ -854,11 +856,11 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
 		PaddingEnv: core.EnvAll(core.EnvSafeArea)}, Children: []core.Node{
 		a.mobileHeader(cx, a.activeTitle.Get(), "", true,
-			a.pressIcon(lucide.Search, "搜索会话内容", 34, 16, nil, func() {
+			a.pressIcon(lucide.Search, T("搜索会话内容"), 34, 16, nil, func() {
 				a.findText.Set("")
 				a.findOpen.Update(func(v bool) bool { return !v })
 			}, "mobile-find"),
-			a.pressIcon(lucide.RefreshCw, "刷新", 34, 16, nil, a.refreshTranscript, "mobile-refresh"),
+			a.pressIcon(lucide.RefreshCw, T("刷新"), 34, 16, nil, a.refreshTranscript, "mobile-refresh"),
 		),
 		core.Show{When: a.findOpen.Get, Then: func(cx *core.Scope) core.Node { return a.findBar(cx) }},
 		core.Show{When: func() bool { return a.transcriptErr.Get() != "" }, Then: func(cx *core.Scope) core.Node {
@@ -881,8 +883,8 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 					msgs := a.messages.Get()
 					if a.transcriptBusy.Get() && len(msgs) == 0 {
 						return core.View{Style: core.Style{Padding: core.All(18), Gap: 14}, Children: []core.Node{
-							ui.Skeleton{Lines: 3, Avatar: true, Label: "正在读取会话"},
-							ui.Skeleton{Lines: 4, Avatar: true, Label: "正在读取会话"},
+							ui.Skeleton{Lines: 3, Avatar: true, Label: T("正在读取会话")},
+							ui.Skeleton{Lines: 4, Avatar: true, Label: T("正在读取会话")},
 						}}
 					}
 					query := strings.ToLower(strings.TrimSpace(a.findText.Get()))
@@ -901,7 +903,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 					if query != "" {
 						rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							ui.Icon(lucide.Search, 12, colors.Faint),
-							ui.Text(fmt.Sprintf("匹配 %d 条", matches), 11, ui.Medium, colors.Faint),
+							ui.Text(T("匹配 %d 条", matches), 11, ui.Medium, colors.Faint),
 						}})
 					}
 					for i := 0; i < len(msgs); {
@@ -932,7 +934,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 			core.Show{When: func() bool { return !a.atBottom.Get() && len(a.messages.Get()) > 0 }, Then: func(cx *core.Scope) core.Node {
 				colors := ui.ColorsOf(cx)
 				return core.View{OnPress: func(core.PressEvent) { a.scroll.ScrollToEnd(true) }, Role: core.RoleButton,
-					Label: "回到最新", TestID: "mobile-latest",
+					Label: T("回到最新"), TestID: "mobile-latest",
 					StyleFunc: func() core.Style {
 						return core.Style{Position: core.Absolute, Right: core.Pt(14), Bottom: core.Pt(12), Direction: core.Row,
 							AlignItems: core.AlignCenter, Gap: 4, Padding: core.Symmetric(6, 10), CornerRadius: 16,
@@ -940,7 +942,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 					},
 					Children: []core.Node{
 						ui.Icon(lucide.ChevronDown, 12, colors.OnLight),
-						ui.Text("最新", 11, ui.Medium, colors.OnLight),
+						ui.Text(T("最新"), 11, ui.Medium, colors.OnLight),
 					}}
 			}},
 		}},
@@ -959,7 +961,7 @@ func (a *mobileApp) findBar(cx *core.Scope) core.Node {
 			Background: colors.Surface(), Borders: core.Edges{Bottom: 1}, BorderColors: core.EdgeColors{Bottom: colors.Line()}}
 	}, Children: []core.Node{
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-			core.Input{Value: a.findText.Get, OnChange: a.findText.Set, Placeholder: "在这个会话里搜索", Label: "搜索会话内容", TestID: "mobile-find-input",
+			core.Input{Value: a.findText.Get, OnChange: a.findText.Set, Placeholder: T("在这个会话里搜索"), Label: T("搜索会话内容"), TestID: "mobile-find-input",
 				Style: core.Style{Height: core.Pt(36), Padding: core.Symmetric(0, 10), FontSize: 13.5, Color: colors.Text(),
 					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 9,
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
@@ -1004,16 +1006,16 @@ func (a *mobileApp) askBar(cx *core.Scope) core.Node {
 			for i, opt := range ask.Options {
 				actions = append(actions, button(opt, false, fmt.Sprintf("mobile-ask-option-%d", i), map[string]any{"value": opt}))
 			}
-			actions = append(actions, button("取消", false, "mobile-ask-cancel", map[string]any{"cancelled": true}))
+			actions = append(actions, button(T("取消"), false, "mobile-ask-cancel", map[string]any{"cancelled": true}))
 		default:
 			actions = append(actions, core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-				core.Input{Value: a.askText.Get, OnChange: a.askText.Set, Placeholder: "输入回答", Label: "回答", TestID: "mobile-ask-input",
+				core.Input{Value: a.askText.Get, OnChange: a.askText.Set, Placeholder: T("输入回答"), Label: T("回答"), TestID: "mobile-ask-input",
 					Style: core.Style{Height: core.Pt(36), Padding: core.Symmetric(0, 10), FontSize: 13.5, Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 9,
 						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
 			}})
 			actions = append(actions,
-				button("取消", false, "mobile-ask-cancel", map[string]any{"cancelled": true}),
+				button(T("取消"), false, "mobile-ask-cancel", map[string]any{"cancelled": true}),
 				button("确定", true, "mobile-ask-send", map[string]any{"value": a.askText.GetUntracked()}))
 		}
 		head := []core.Node{
@@ -1076,7 +1078,7 @@ func (a *mobileApp) composer(cx *core.Scope) core.Node {
 		a.pendingStrip(cx),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignEnd, Gap: 8}, Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(42)}, Children: []core.Node{
-				core.Input{Value: a.draft.Get, OnChange: a.draft.Set, Placeholder: "发消息给 pi…", Label: "消息", TestID: "mobile-draft",
+				core.Input{Value: a.draft.Get, OnChange: a.draft.Set, Placeholder: T("发消息给 pi…"), Label: T("消息"), TestID: "mobile-draft",
 					// Return makes a new line; the send button sends.
 					Multiline: true, SubmitBehavior: core.SubmitBehaviorNewline,
 					Style: core.Style{MinHeight: core.Pt(42), MaxHeight: core.Pt(132), Padding: core.Symmetric(10, 12), FontSize: 14, Color: colors.Text(),
@@ -1094,7 +1096,7 @@ func (a *mobileApp) composer(cx *core.Scope) core.Node {
 				if a.running.Get() {
 					actions = append(actions, a.pressIcon(lucide.Square, "停止这一轮", 38, 14, nil, a.stopTurn, "mobile-stop"))
 				}
-				actions = append(actions, ui.Press{OnPress: a.sendMessage, Disabled: empty, Scale: 0.9, Role: core.RoleButton, Label: "发送", TestID: "mobile-send",
+				actions = append(actions, ui.Press{OnPress: a.sendMessage, Disabled: empty, Scale: 0.9, Role: core.RoleButton, Label: T("发送"), TestID: "mobile-send",
 					StyleFunc: func() core.Style {
 						st := core.Style{Width: core.Pt(40), Height: core.Pt(40), CornerRadius: 20, AlignItems: core.AlignCenter,
 							JustifyContent: core.JustifyCenter, Background: colors.Light(), Transition: pressMotion}
@@ -1133,11 +1135,11 @@ func (a *mobileApp) pendingStrip(cx *core.Scope) core.Node {
 					}
 					return out
 				})
-			}, Role: core.RoleButton, Label: "移除图片", TestID: "mobile-pending",
+			}, Role: core.RoleButton, Label: T("移除图片"), TestID: "mobile-pending",
 				Style: core.Style{Width: core.Pt(46), Height: core.Pt(46), CornerRadius: 9, Overflow: core.Hidden,
 					BorderWidth: 1, BorderColor: colors.Border()},
 				Children: []core.Node{core.Image{Source: core.ImageSource{Data: img.Data}, ResizeMode: core.Cover,
-					Label: "待发送的图片", Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}}},
+					Label: T("待发送的图片"), Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}}},
 			})
 		}
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: thumbs}
@@ -1318,7 +1320,7 @@ func (a *mobileApp) messageBody(cx *core.Scope, m remoteWireMessage) core.Node {
 				} else {
 					a.longOpen.Set(key)
 				}
-			}, Role: core.RoleButton, Label: "长消息", TestID: "mobile-long",
+			}, Role: core.RoleButton, Label: T("长消息"), TestID: "mobile-long",
 				Style: core.Style{Direction: core.Row, JustifyContent: core.JustifyEnd}, Children: []core.Node{
 					core.View{Style: core.Style{MaxWidth: core.Pct(86), Padding: core.Symmetric(9, 13), CornerRadius: 15,
 						Background: colors.Light()}, Children: []core.Node{
@@ -1454,15 +1456,15 @@ func (a *mobileApp) renameSheet() core.Node {
 		Style:  core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
-			return core.Input{Value: a.renameText.Get, OnChange: a.renameText.Set, Label: "会话名字", TestID: "mobile-rename-input",
-				Placeholder: "给这个会话起个名字", OnSubmit: func(string) { a.saveRename() },
+			return core.Input{Value: a.renameText.Get, OnChange: a.renameText.Set, Label: T("会话名字"), TestID: "mobile-rename-input",
+				Placeholder: T("给这个会话起个名字"), OnSubmit: func(string) { a.saveRename() },
 				Style: core.Style{Height: core.Pt(42), Padding: core.Symmetric(0, 10), FontSize: 14, Color: colors.Text(),
 					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 9,
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}}
 		})},
 		Footer: []core.Node{
-			ui.Button{Text: "保存", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-rename-save", OnPress: a.saveRename},
-			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.renameID.Set("") }},
+			ui.Button{Text: T("保存"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-rename-save", OnPress: a.saveRename},
+			ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.renameID.Set("") }},
 		},
 	}
 }
@@ -1481,9 +1483,9 @@ func (a *mobileApp) deleteSheet() core.Node {
 		TestID:      "mobile-delete",
 		Style:       core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Footer: []core.Node{
-			ui.Button{Text: "删除", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-delete-yes",
+			ui.Button{Text: T("删除"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-delete-yes",
 				OnPress: func() { a.deleteSession(a.deleteID.GetUntracked()) }},
-			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.deleteID.Set("") }},
+			ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.deleteID.Set("") }},
 		},
 	}
 }
@@ -1566,15 +1568,15 @@ func (a *mobileApp) addProjectSheet() core.Node {
 		Style:       core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
-			return core.Input{Value: a.addPath.Get, OnChange: a.addPath.Set, Label: "文件夹路径", TestID: "mobile-add-path",
-				Placeholder: "例如 C:/Users/me/project", OnSubmit: func(string) { a.addProject() },
+			return core.Input{Value: a.addPath.Get, OnChange: a.addPath.Set, Label: T("文件夹路径"), TestID: "mobile-add-path",
+				Placeholder: T("例如 C:/Users/me/project"), OnSubmit: func(string) { a.addProject() },
 				Style: core.Style{Height: core.Pt(42), Padding: core.Symmetric(0, 10), FontSize: 13.5, Color: colors.Text(),
 					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 9,
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}}
 		})},
 		Footer: []core.Node{
-			ui.Button{Text: "添加", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-add-yes", OnPress: a.addProject},
-			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.addOpen.Set(false) }},
+			ui.Button{Text: T("添加"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-add-yes", OnPress: a.addProject},
+			ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.addOpen.Set(false) }},
 		},
 	}
 }
@@ -1592,9 +1594,9 @@ func (a *mobileApp) removeProjectSheet() core.Node {
 		Description: "只是从电脑端的侧栏移除，会话文件和项目目录都还在。",
 		TestID:      "mobile-remove-project-sheet",
 		Footer: []core.Node{
-			ui.Button{Text: "移除", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-remove-yes",
+			ui.Button{Text: T("移除"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-remove-yes",
 				OnPress: func() { a.changeProject(a.removePath.GetUntracked(), true) }},
-			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.removePath.Set("") }},
+			ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.removePath.Set("") }},
 		},
 	}
 }
@@ -1749,7 +1751,7 @@ func (a *mobileApp) retryBar(cx *core.Scope) core.Node {
 	}, Then: func(*core.Scope) core.Node {
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(2, 12)},
 			Children: []core.Node{
-				ui.Button{Text: "重试上一条", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "mobile-retry",
+				ui.Button{Text: T("重试上一条"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "mobile-retry",
 					OnPress: func() {
 						text := a.lastPrompt()
 						if text == "" {
@@ -1758,7 +1760,7 @@ func (a *mobileApp) retryBar(cx *core.Scope) core.Node {
 						a.draft.Set(text)
 						a.sendMessage()
 					}},
-				ui.Text("这一轮失败了", 10.5, ui.Regular, colors.Faint),
+				ui.Text(T("这一轮失败了"), 10.5, ui.Regular, colors.Faint),
 			}}
 	}}
 }
@@ -1794,7 +1796,7 @@ func (a *mobileApp) sessionBar(cx *core.Scope) core.Node {
 		}
 		return name
 	}
-	return core.View{OnPress: func(core.PressEvent) { a.openOptions() }, Role: core.RoleButton, Label: "模型与思考等级",
+	return core.View{OnPress: func(core.PressEvent) { a.openOptions() }, Role: core.RoleButton, Label: T("模型与思考等级"),
 		TestID: "mobile-options",
 		StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Symmetric(4, 12),
@@ -1872,7 +1874,7 @@ func (a *mobileApp) optionsSheet() core.Node {
 						})}})
 				}
 				sections = append(sections, core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-					ui.Text("思考等级", 11, ui.Medium, colors.Faint),
+					ui.Text(T("思考等级"), 11, ui.Medium, colors.Faint),
 					core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: chips},
 				}})
 			}
@@ -1901,7 +1903,7 @@ func (a *mobileApp) optionsSheet() core.Node {
 						}})
 				}
 				sections = append(sections, core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-					ui.Text("模型", 11, ui.Medium, colors.Faint),
+					ui.Text(T("模型"), 11, ui.Medium, colors.Faint),
 					core.Scroll{Style: core.Style{MaxHeight: core.Pt(320)}, Children: []core.Node{
 						core.View{Style: core.Style{Gap: 1}, Children: rows},
 					}},
@@ -1911,7 +1913,7 @@ func (a *mobileApp) optionsSheet() core.Node {
 				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(10, 4)},
 					Children: []core.Node{
 						ui.Spinner{Size: 13, Label: "正在读取"},
-						ui.Text("正在读取模型列表…", 12, ui.Regular, colors.Faint),
+						ui.Text(T("正在读取模型列表…"), 12, ui.Regular, colors.Faint),
 					}}
 			}
 			return core.View{Style: core.Style{Gap: 14}, Children: sections}
@@ -1999,7 +2001,7 @@ func (a *mobileApp) hitRows(cx *core.Scope, query string) []core.Node {
 	hits := a.hits.Get()
 	if a.hitsBusy.Get() && len(hits) == 0 {
 		return []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(8, 16)},
-			Children: []core.Node{ui.Spinner{Size: 12, Label: "搜索消息"}, ui.Text("正在搜索消息…", 11, ui.Regular, colors.Faint)}}}
+			Children: []core.Node{ui.Spinner{Size: 12, Label: "搜索消息"}, ui.Text(T("正在搜索消息…"), 11, ui.Regular, colors.Faint)}}}
 	}
 	if len(hits) == 0 {
 		return nil
@@ -2034,7 +2036,7 @@ func (a *mobileApp) hitRows(cx *core.Scope, query string) []core.Node {
 	return []core.Node{core.View{Style: core.Style{Gap: 1, Margin: core.Edges{Bottom: 14}}, Children: append([]core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(8, 16)}, Children: []core.Node{
 			ui.Icon(lucide.Search, 13, colors.Muted),
-			core.Text{Content: "消息匹配", MaxLines: 1, Style: core.Style{FlexGrow: 1, FontSize: 12, FontWeight: ui.Semibold},
+			core.Text{Content: T("消息匹配"), MaxLines: 1, Style: core.Style{FlexGrow: 1, FontSize: 12, FontWeight: ui.Semibold},
 				StyleFunc: ui.Colored(colors.Text)},
 			ui.Text(fmt.Sprint(len(hits)), 10, ui.Regular, colors.Faint),
 		}},
