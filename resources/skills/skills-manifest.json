@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "2dfe4a11ee677350bdf8cc239372d0cb7de83682def4704f38706025ce01ae04",
-  "fileCount": 4,
+  "bundleSha256": "b91e58a95068b6c445766020cee3a52b74fee93e0e30b464d9145025af61c1be",
+  "fileCount": 8,
   "files": [
     {
       "name": "image-gen/SKILL.md",
@@ -18,6 +18,26 @@
       "name": "pideck-doctor/SKILL.md",
       "sha256": "18f79100a9ae5b8800cb9d3970ef11fee2049db88b9f299e1f5c72c478d2e81d",
       "bytes": 4784
+    },
+    {
+      "name": "pideck-web-api/check-doc.mjs",
+      "sha256": "88c42e500c42ac398c8e4458482858f86e20d9c58cd04fdc39e010d71ace280f",
+      "bytes": 7912
+    },
+    {
+      "name": "pideck-web-api/check-format.mjs",
+      "sha256": "dfaf0f2d659a44f41cd4848ba15cc86d7e8b51e8d7dcc19f8851a3fba55f6d42",
+      "bytes": 2556
+    },
+    {
+      "name": "pideck-web-api/check-paths.mjs",
+      "sha256": "54e660a02671bfe5561f6476a9c20bf6fd01543cf25f1485b00b3a315ed696a6",
+      "bytes": 3223
+    },
+    {
+      "name": "pideck-web-api/SKILL.md",
+      "sha256": "2e3dd17ad1d91474a663c615361e4db922fd8336297fea72c5e6c346c8c0d19c",
+      "bytes": 35949
     },
     {
       "name": "usage-probe/SKILL.md",

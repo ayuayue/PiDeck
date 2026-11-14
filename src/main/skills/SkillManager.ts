@@ -12,6 +12,11 @@ import { pideckBundledSkillsDir } from "./pideckSkillsPath";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 
 const SKILL_FILE = "SKILL.md";
+/** 技能目录里除 SKILL.md 之外要一起落盘的附件（相对文件名）。
+ *  2026-11-14：pideck-web-api 的 restart-peer.mjs 删掉了。它是 curl 三步的封装，而技能正文
+ *  直接给 curl 就够用——封装多出一层要维护的判断逻辑（等多久算空闲、连不上算什么），
+ *  多出来的判断本身成了 bug 来源。现在没有技能需要附件，保留这张表是为了下一个。 */
+const SKILL_EXTRA_FILES: Record<string, string[]> = {};
 const IMPORT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const IMPORT_MAX_TREE_BYTES = 50 * 1024 * 1024;
 const IMPORT_MAX_DEPTH = 32;
@@ -234,9 +239,8 @@ export class SkillManager {
 		}
 		await this.assertImportSkillTree(sourceDirectory);
 
-		// The global skill roots are user-managed directories, so an existing symlink or
-		// junction must never be followed as a write target.  Resolve the nearest existing
-		// ancestor before mkdir, then resolve again after mkdir to close the common swap gap.
+		// The global skill roots are user-managed: an existing symlink or junction must never be
+		// followed as a write target. Resolve the nearest ancestor before and after mkdir.
 		const initialRoot = await this.resolveManagedImportLocation(location);
 		await mkdir(initialRoot, { recursive: true });
 		const targetRoot = await this.resolveManagedImportLocation(location);
@@ -261,9 +265,8 @@ export class SkillManager {
 				force: false,
 				verbatimSymlinks: true,
 			});
-			// Re-check the copied tree as well as the source.  A source can change between
-			// validation and cp; rejecting a link/special file in the temporary tree keeps
-			// the managed destination free of unsafe entries.
+			// Re-check the copied tree as well as the source: a source can change between validation
+			// and cp, so reject a link/special file in the temporary tree too.
 			await this.assertImportSkillTree(temporaryDirectory);
 			await assertTargetAbsent();
 			if ((await this.resolveManagedImportLocation(location)) !== targetRoot) throw new Error(UNSAFE_IMPORT_TARGET);
@@ -418,7 +421,7 @@ export class SkillManager {
 	 * 幂等覆盖：模板随应用更新同步；用户自定义配置写在各自的数据文件，不在此文件。
 	 * `disable-model-invocation` 是用户手动设置的「仅手动调用」标记，覆盖时保留。
 	 */
-	private async installTemplate(skillName: string, locationId: "pideck-global" | "pi-global" = "pideck-global"): Promise<{ success: true; path: string } | { success: false; error: string }> {
+	async installTemplate(skillName: string, locationId: "pideck-global" | "pi-global" = "pideck-global"): Promise<{ success: true; path: string } | { success: false; error: string }> {
 		try {
 			const location = this.requireLocation(locationId);
 			// 老版本把桌面端技能装在 pi 的自动发现根里：先迁移，TUI 才不会再加载。
@@ -436,6 +439,11 @@ export class SkillManager {
 			const previous = await readFile(targetPath, "utf8").catch(() => null);
 			const wasUserOnly = previous !== null && this.parseFrontmatter(previous)["disable-model-invocation"] === "true";
 			await writeFile(targetPath, content, "utf8");
+			for (const file of SKILL_EXTRA_FILES[skillName] ?? []) {
+				const from = overlayDir ? join(overlayDir, skillName, file) : join(root, "skills", skillName, file);
+				if (!existsSync(from)) continue;
+				await writeFile(join(targetDir, file), await readFile(from), "utf8");
+			}
 			if (wasUserOnly) {
 				await writeFile(targetPath, this.setFrontmatterBoolean(content, "disable-model-invocation", true), "utf8");
 			}
@@ -462,31 +470,6 @@ export class SkillManager {
 		if (!entry || !entry.isDirectory() || entry.isSymbolicLink()) return;
 		await mkdir(dirname(targetDir), { recursive: true });
 		await rename(legacyDir, targetDir).catch(() => undefined);
-	}
-
-	async installUsageProbeTemplate(): Promise<{ success: true; path: string } | { success: false; error: string }> {
-		return this.installTemplate("usage-probe");
-	}
-
-	async installImageGenTemplate(): Promise<{ success: true; path: string } | { success: false; error: string }> {
-		return this.installTemplate("image-gen");
-	}
-
-	/**
-	 * 安装内置「MCP 配置助手」技能模板（resources/skills/mcp-setup/SKILL.md）。
-	 * 用户在 MCP 页点「让 AI 帮你配」时安装；之后可在任意会话里让 AI 按官方文档代配任意 MCP 服务。
-	 */
-	async installMcpSetupTemplate(): Promise<{ success: true; path: string } | { success: false; error: string }> {
-		// 通用能力（pi 的 mcp.json + pi mcp list），TUI 同样可用，保持装进全局技能目录。
-		return this.installTemplate("mcp-setup", "pi-global");
-	}
-
-	/**
-	 * 安装内置的「环境诊断」技能模板（resources/skills/pideck-doctor/SKILL.md）。
-	 * 用户在问题反馈页生成诊断报告后，可让 pi 直接读报告分析排障（/skill:pideck-doctor）。
-	 */
-	async installPideckDoctorTemplate(): Promise<{ success: true; path: string } | { success: false; error: string }> {
-		return this.installTemplate("pideck-doctor");
 	}
 
 	private async scanLocation(location: PiSkillLocation): Promise<PiSkillSummary[]> {
