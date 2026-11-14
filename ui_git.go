@@ -223,6 +223,20 @@ func (a *app) gitPush(publish bool) {
 	}, nil)
 }
 
+// gitDeleteBranch deletes a local branch after asking.
+func (a *app) gitDeleteBranch(name string) {
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+	a.gitBranches.Set(false)
+	a.askConfirm("删除分支", "本地分支「"+name+"」会被删除；已合并的提交不会丢。", "删除", func() {
+		a.git.run("删除分支", func(g gitRunner) error {
+			_, err := g.exec(60*time.Second, "branch", "-d", name)
+			return err
+		}, nil)
+	})
+}
+
 // gitCheckout switches branches.
 func (a *app) gitCheckout(branch string) {
 	a.gitBranches.Set(false)
@@ -517,6 +531,22 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 		for _, name := range st.Branches {
 			b := name
 			current := b == st.Branch
+			children := []core.Node{
+				core.View{Style: core.Style{Width: core.Pt(14), AlignItems: core.AlignCenter}, Children: []core.Node{
+					core.Show{When: func() bool { return current }, Then: func(*core.Scope) core.Node { return ui.Icon(lucide.Check, 12, colors.Text) }},
+				}},
+				core.Text{Content: b, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
+			}
+			if !current {
+				children = append(children, core.View{OnPress: func(core.PressEvent) { a.gitDeleteBranch(b) },
+					Role: core.RoleButton, Label: T("删除分支") + " " + b, TestID: "git-branch-delete-" + b,
+					StyleFunc: func() core.Style {
+						return core.Style{Width: core.Pt(20), Height: core.Pt(20), CornerRadius: 5, AlignItems: core.AlignCenter,
+							JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
+					},
+					Children: []core.Node{ui.Icon(lucide.Trash, 10, colors.Faint)}})
+			}
 			rows = append(rows, core.View{
 				OnPress: func(core.PressEvent) { a.gitCheckout(b) },
 				Role:    core.RoleOption, Label: b,
@@ -525,13 +555,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 						Padding: core.Symmetric(0, 8), CornerRadius: 6, Transition: pressMotion,
 						Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 				},
-				Children: []core.Node{
-					core.View{Style: core.Style{Width: core.Pt(14), AlignItems: core.AlignCenter}, Children: []core.Node{
-						core.Show{When: func() bool { return current }, Then: func(*core.Scope) core.Node { return ui.Icon(lucide.Check, 12, colors.Text) }},
-					}},
-					core.Text{Content: b, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
-				},
+				Children: children,
 			})
 		}
 		if len(rows) == 0 {
