@@ -82,7 +82,15 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派
 
 `/messages` 返回 `{messages, total, windowStart, truncated}`，**是有界窗口不是全部历史**。看到 `truncated: true` 说明还有更早的。
 
-**但 `?before` 翻不了页。** 实测传 `?before=5516`、`?before=999999`、`?before=abc`，返回的 `windowStart` 和条数与不传时完全相同——这个接口不吃查询参数。要读更早的消息，直接读磁盘上的 jsonl：
+**`/messages` 本身不吃 `?before`。** 实测传 `?before=5516`、`?before=999999`、`?before=abc`，返回的 `windowStart` 和条数与不传时完全相同。翻更早的历史用另一个端点：
+
+```bash
+curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&before=<nextBefore>"
+```
+
+返回 `{messages, nextBefore}`，`nextBefore` 是下一轮的游标。2026-11-14 实测可用。
+
+只有这个端点也不够用时（比如要原始的工具调用参数），才去读磁盘上的 jsonl：
 
 ```bash
 node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\n").forEach(l=>{if(!l.trim())return;const j=JSON.parse(l);if(j.role)console.log(j.role+": "+String(j.text||"").slice(0,120))})' "<runtimes[] 里的 sessionPath>"
@@ -107,7 +115,7 @@ curl -s -H "$AUTH" "$BASE/api/state"
 
 **两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。反过来，不在 `runtimes[]` 里的会话进程没起，第 5 节的消息送不到。
 
-**没有 `/api/sessions` 这个端点。** 猜它会拿到 `{"code":"webError.apiNotFound"}`。列会话就是上面的 `/api/state`。
+**`GET /api/sessions` 不存在**，猜它会拿到 `{"code":"webError.apiNotFound"}`——列会话用上面的 `/api/state`。**`POST /api/sessions` 存在**，用来新建会话，见第 6 节。别把这两个方法混成一个「端点不存在」。
 
 `/api/sessions/runtimes` 和 `/api/state` 的 `runtimes[]` **是同一份数据**（字段逐个比对一致），用哪个都行。
 
@@ -260,10 +268,10 @@ stop           100 ms
 activate       4227 ms
 发消息         2069 ms
 停 + 删         297 ms
-合计          11.6 秒
+合计          11.2 秒
 ```
 
-**activate 占 8.4 秒，是服务端拉起 pi 进程的时间，省不掉。** 目标已经在跑时只走 stop + activate，约 4.3 秒就是一次重启的下限。其余每步都在 100~250 ms。
+**activate 占 8.4 秒，是服务端拉起 pi 进程的时间，省不掉。** 目标已经在跑时只走 stop + activate，约 4.3 秒就是一次重启的下限。其余各步：`取 target`、`stop`、`建会话` 在 100~250 ms；`发消息` 约 2 秒（要等模型回一轮），`停 + 删` 约 0.3 秒。
 
 所以别做这两件事：不要建完会话反复轮询 `runtimes[]` 等它出现（`activate` 返回时进程已经在里面，`status` 就在返回体里）；不要为了拿 `total` 反复拉 `/messages`（1.5 MB 一次）。
 
