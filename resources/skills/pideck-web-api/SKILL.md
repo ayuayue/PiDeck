@@ -92,7 +92,9 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派
 curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&before=<nextBefore>"
 ```
 
-返回 `{messages, nextBefore}`，`nextBefore` 是下一轮的游标。2026-11-14 实测可用。
+返回 7 个键：`messages`、`total`、`nextBefore`、`nextBeforeEntryId`、`indexVersion`、`model`、`thinkingLevel`。
+
+`pageSize` 的单位是**轮**不是条：实测 `pageSize=2` 返回 123 条消息（两轮问答），`total` 是全部条数。2026-11-14 实测可用。
 
 只有这个端点也满足不了需求时（比如要原始的工具调用参数），才去读磁盘上的 jsonl：
 
