@@ -26,9 +26,11 @@ function log(line) {
   process.stdout.write(row);
 }
 
-function state(patch) {
+// reset=true 表示开一轮新记录：丢掉上一轮的字段，免得 no-target 的记录里带着上一次的
+// genBefore/genAfter/messaged，读者会以为重启发生过。
+function state(patch, reset = false) {
   let cur = {};
-  try { cur = JSON.parse(fs.readFileSync(STATE, "utf8")); } catch {}
+  if (!reset) { try { cur = JSON.parse(fs.readFileSync(STATE, "utf8")); } catch {} }
   const next = { ...cur, ...patch, at: new Date().toISOString() };
   try {
     fs.mkdirSync(path.dirname(STATE), { recursive: true });
@@ -156,10 +158,11 @@ async function main() {
   const before = (await runtimes()).find((x) => x.sessionId === targetId);
   if (!before) {
     log("失败：runtimes[] 里找不到目标，它本来就没在跑");
-    state({ result: "no-target", targetId });
+    state({ result: "no-target", targetId }, true);
     process.exit(1);
   }
   log("重启前 generation=" + before.runtimeGeneration);
+  state({ result: "dispatched", targetId, genBefore: before.runtimeGeneration }, true);
 
   // 调试用：只判定目标当前有没有回合在跑，不动手（不会被误用成重启）。
   if (process.argv.includes("--wait-only")) {

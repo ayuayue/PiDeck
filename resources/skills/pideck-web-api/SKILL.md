@@ -188,6 +188,8 @@ node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <对方 
 
 唤醒消息是否发出是另一个字段 `messaged`，与 `result` 并列：`messaged` 是 200 表示发出去了；失败不影响「重启已成功」这个结论。
 
+状态文件每开一轮就整份覆盖，所以看到 `no-target` 时不会残留上一轮的 `genBefore`／`genAfter`。看到这些字段，说明那一轮真的取到过基线。
+
 ### 5.5 两条反直觉的事实
 
 - **界面显示「异常停下」不是失败**，那是 stop 动作本身。成败只能读日志文件，不要看界面。
