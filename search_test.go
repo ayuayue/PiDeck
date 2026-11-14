@@ -84,6 +84,17 @@ func TestSearchOpensSession(t *testing.T) {
 	app.Press("id:search-hit")
 	app.WaitForGone("id:session-search", 5*time.Second)
 	app.WaitFor("id:composer", 10*time.Second)
+
+	// The query is remembered, and a chip searches again.
+	app.Key("mod+shift+f")
+	app.WaitFor("id:session-search", 10*time.Second)
+	app.WaitFor("text:最近搜索", 5*time.Second)
+	app.Press("role:button 最近搜索 部署")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) > 0 })
+	app.Clear("id:search-input")
+	app.WaitFor("text:最近搜索", 5*time.Second)
+	app.Press("text:清除")
+	app.WaitForGone("text:最近搜索", 5*time.Second)
 }
 
 // TestSearchIndexNested checks the app's own nested session layout.

@@ -145,6 +145,8 @@ type config struct {
 	FeishuInbound     bool   `json:"feishuInbound,omitempty"`
 	FeishuVerifyToken string `json:"feishuVerifyToken,omitempty"`
 	FeishuReply       bool   `json:"feishuReply,omitempty"`
+	// RecentSearches are the last queries the search dialog opened.
+	RecentSearches []string `json:"recentSearches,omitempty"`
 	// EditorWrap soft-wraps long lines in the built-in editor.
 	EditorWrap bool `json:"editorWrap,omitempty"`
 	// TerminalFont is the terminal's text size; 0 keeps the default.
@@ -325,6 +327,23 @@ func normalizeConfig(c *config) bool {
 		c.RemotePort = 0
 		changed = true
 	}
+	seenSearch := map[string]bool{}
+	var searches []string
+	for _, q := range c.RecentSearches {
+		q = strings.TrimSpace(q)
+		if q == "" || seenSearch[q] {
+			continue
+		}
+		seenSearch[q] = true
+		searches = append(searches, q)
+		if len(searches) >= 8 {
+			break
+		}
+	}
+	if len(searches) != len(c.RecentSearches) {
+		c.RecentSearches = searches
+		changed = true
+	}
 	seen := map[string]bool{}
 	var projects []workspaceCfg
 	for _, w := range c.Workspaces {
@@ -423,6 +442,7 @@ func (s *store) config() config {
 	for k, v := range s.c.SessionPersonas {
 		c.SessionPersonas[k] = v
 	}
+	c.RecentSearches = append([]string(nil), s.c.RecentSearches...)
 	c.ForkParents = make(map[string]string, len(s.c.ForkParents))
 	for k, v := range s.c.ForkParents {
 		c.ForkParents[k] = v

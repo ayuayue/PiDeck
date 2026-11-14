@@ -240,6 +240,7 @@ type app struct {
 	searchOpen     *core.Signal[bool]
 	searchText     *core.Signal[string]
 	searchScope    *core.Signal[string]
+	searchRev      *core.Signal[int]
 	searchHits     *core.Signal[[]searchHit]
 	searchBusy     *core.Signal[bool]
 	searchDocs     []searchDoc
@@ -621,6 +622,7 @@ func newApp(cx *core.Scope) *app {
 		searchOpen:             core.NewSignal(cx, false),
 		searchText:             core.NewSignal(cx, ""),
 		searchScope:            core.NewSignal(cx, ""),
+		searchRev:              core.NewSignal(cx, 0),
 		searchHits:             core.NewSignalFunc(cx, []searchHit(nil), nil),
 		searchBusy:             core.NewSignal(cx, false),
 		prompts:                core.NewSignalFunc(cx, []promptItem(nil), nil),

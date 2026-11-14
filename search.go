@@ -361,9 +361,41 @@ func (a *app) runSearch() {
 	a.searchHits.Set(matchSearch(a.searchDocs, q, 60))
 }
 
+// rememberSearch keeps a query among the recent ones, newest first.
+func (a *app) rememberSearch(query string) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return
+	}
+	list := []string{query}
+	for _, q := range a.cfg.RecentSearches {
+		if q != query {
+			list = append(list, q)
+		}
+	}
+	if len(list) > 8 {
+		list = list[:8]
+	}
+	a.cfg.RecentSearches = list
+	a.searchRev.Update(func(n int) int { return n + 1 })
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.RecentSearches = append([]string(nil), list...) })
+	}
+}
+
+// clearSearches forgets the recent queries.
+func (a *app) clearSearches() {
+	a.cfg.RecentSearches = nil
+	a.searchRev.Update(func(n int) int { return n + 1 })
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.RecentSearches = nil })
+	}
+}
+
 // openSearchHit opens the session a result names, creating it in the rail
 // when it is not there yet.
 func (a *app) openSearchHit(hit searchHit) {
+	a.rememberSearch(a.searchText.GetUntracked())
 	a.searchOpen.Set(false)
 	if s := a.byID[hit.ID]; s != nil {
 		a.selectSession(s)

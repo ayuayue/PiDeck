@@ -54,11 +54,40 @@ func (a *app) searchDialog() core.Node {
 						return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
 							Children: []core.Node{ui.Spinner{Size: 16}, ui.Text("正在建立会话索引…", 11.5, ui.Regular, colors.Muted)}}
 					case query == "":
+						_ = a.searchRev.Get()
+						var recent []core.Node
+						for _, q := range a.cfg.RecentSearches {
+							q := q
+							recent = append(recent, core.View{OnPress: func(core.PressEvent) {
+								a.searchText.Set(q)
+								a.scheduleSearch()
+							}, Role: core.RoleButton, Label: T("最近搜索") + " " + q,
+								StyleFunc: func() core.Style {
+									return core.Style{Height: core.Pt(24), Padding: core.Symmetric(0, 9), CornerRadius: 12,
+										BorderWidth: 1, BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}}
+								},
+								Children: []core.Node{ui.Text(q, 11, ui.Regular, colors.Muted)}})
+						}
+						recentRow := core.Node(core.View{})
+						if len(recent) > 0 {
+							recentRow = core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+								core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+									ui.Text(T("最近搜索"), 10, ui.Regular, colors.Faint),
+									core.View{OnPress: func(core.PressEvent) { a.clearSearches() }, Role: core.RoleButton, Label: T("清除"),
+										StyleFunc: func() core.Style {
+											return core.Style{Height: core.Pt(20), Padding: core.Symmetric(0, 6), CornerRadius: 10,
+												Hover: &core.Style{Background: colors.Hover()}}
+										}, Children: []core.Node{ui.Text(T("清除"), 9.5, ui.Regular, colors.Faint)}},
+								}},
+								core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5, JustifyContent: core.JustifyCenter}, Children: recent},
+							}}
+						}
 						return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
 							Children: []core.Node{
 								ui.Icon(lucide.Search, 22, colors.Faint),
 								ui.Text("输入关键词，搜索所有会话的标题与内容", 12, ui.Regular, colors.Muted),
 								ui.Text(fmt.Sprintf("索引里有 %d 个会话", len(a.searchDocs)), 10.5, ui.Regular, colors.Faint),
+								recentRow,
 							}}
 					case len(hits) == 0:
 						return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
