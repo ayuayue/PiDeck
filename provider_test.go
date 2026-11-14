@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/nsgotest"
 )
 
@@ -320,5 +321,100 @@ func TestProviderCustomBalanceDialog(t *testing.T) {
 			t.Fatalf("config.json after save = %s", raw)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestSaveProviderModels keeps the fields the editor does not show.
+func TestSaveProviderModels(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	path := filepath.Join(dir, "models.json")
+	body := `{"providers":{"acme":{"api":"openai-completions","baseUrl":"https://x/v1",
+		"models":[{"id":"m1","name":"One","contextWindow":128000,"compat":{"note":"keep"}},
+		          {"id":"m2","name":"Two"}]}}}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	list := []modelConfig{
+		{ID: "m1", Name: "One changed", ContextWindow: 64000, MaxTokens: 4096, Reasoning: true},
+		{ID: "m3", Name: "Three"},
+	}
+	if err := saveProviderModels("acme", list); err != nil {
+		t.Fatal(err)
+	}
+	cfgs := readProviderConfigs()
+	if len(cfgs) != 1 || len(cfgs[0].Models) != 2 {
+		t.Fatalf("configs = %+v", cfgs)
+	}
+	m := cfgs[0].Models[0]
+	if m.ID != "m1" || m.Name != "One changed" || m.ContextWindow != 64000 || m.MaxTokens != 4096 || !m.Reasoning {
+		t.Fatalf("m1 = %+v", m)
+	}
+	if cfgs[0].Models[1].ID != "m3" {
+		t.Fatalf("m3 missing: %+v", cfgs[0].Models)
+	}
+	raw, _ := os.ReadFile(path)
+	if !strings.Contains(string(raw), `"compat"`) || !strings.Contains(string(raw), "keep") {
+		t.Fatalf("compat fields were dropped:\n%s", raw)
+	}
+	if strings.Contains(string(raw), `"m2"`) {
+		t.Fatalf("a removed model stayed:\n%s", raw)
+	}
+}
+
+// TestProviderModelEditor adds, edits and removes a model from the dialog.
+func TestProviderModelEditor(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := t.TempDir()
+	cfgDir := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	path := filepath.Join(cfgDir, "models.json")
+	body := `{"providers":{"acme":{"api":"openai-completions","baseUrl":"https://x/v1","models":[{"id":"m1","name":"One"}]}}}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-models")
+	app.WaitFor("text:acme", 10*time.Second)
+	app.Press("id:provider-configure-acme")
+	app.WaitFor("id:provider-dialog", 5*time.Second)
+	app.ScrollTo("id:provider-scroll", core.Point{Y: 400})
+	app.Press("id:provider-model-id")
+	app.Type("id:provider-model-id", "new-1")
+	app.Type("id:provider-model-name", "New Model")
+	app.Type("id:provider-model-context", "32000")
+	app.Press("id:provider-model-save")
+	raw, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(raw), "new-1") || !strings.Contains(string(raw), "32000") {
+		t.Fatalf("models.json = %s, %v", raw, err)
+	}
+	app.ScrollTo("id:provider-scroll", core.Point{Y: 400})
+	app.WaitFor("id:provider-model-new-1", 5*time.Second)
+	app.Press("id:provider-model-new-1")
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:provider-model-id").Text == "new-1" })
+	app.Clear("id:provider-model-name")
+	app.Type("id:provider-model-name", "Renamed")
+	app.Press("id:provider-model-save")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		raw, err = os.ReadFile(path)
+		if err == nil && strings.Contains(string(raw), "Renamed") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("models.json after rename = %s, %v", raw, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	app.Press("id:provider-model-remove-new-1")
+	app.ScrollTo("id:provider-scroll", core.Point{Y: 400})
+	app.WaitForGone("id:provider-model-new-1", 5*time.Second)
+	raw, err = os.ReadFile(path)
+	if err != nil || strings.Contains(string(raw), "new-1") {
+		t.Fatalf("models.json after removing = %s, %v", raw, err)
 	}
 }

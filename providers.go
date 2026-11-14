@@ -579,3 +579,80 @@ func strField(v any) string {
 	s, _ := v.(string)
 	return s
 }
+
+// saveProviderModels writes a provider's model entries, keeping the
+// fields of each entry the editor does not show.
+func saveProviderModels(id string, models []modelConfig) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("供应商 ID 不能为空")
+	}
+	path := modelsJSONPath()
+	if path == "" {
+		return fmt.Errorf("找不到 pi 的配置目录")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return fmt.Errorf("models.json 不是有效的 JSON：%w", err)
+	}
+	providers, _ := root["providers"].(map[string]any)
+	p, _ := providers[id].(map[string]any)
+	if p == nil {
+		return fmt.Errorf("models.json 里没有这个供应商")
+	}
+	existing := map[string]map[string]any{}
+	if list, ok := p["models"].([]any); ok {
+		for _, v := range list {
+			m, _ := v.(map[string]any)
+			if m == nil {
+				continue
+			}
+			if mid, _ := m["id"].(string); mid != "" {
+				existing[mid] = m
+			}
+		}
+	}
+	out := make([]any, 0, len(models))
+	for _, m := range models {
+		m.ID = strings.TrimSpace(m.ID)
+		m.Name = strings.TrimSpace(m.Name)
+		if m.ID == "" {
+			continue
+		}
+		entry := existing[m.ID]
+		if entry == nil {
+			entry = map[string]any{"id": m.ID}
+		}
+		if m.Name != "" {
+			entry["name"] = m.Name
+		} else {
+			delete(entry, "name")
+		}
+		if m.ContextWindow > 0 {
+			entry["contextWindow"] = m.ContextWindow
+		} else {
+			delete(entry, "contextWindow")
+		}
+		if m.MaxTokens > 0 {
+			entry["maxTokens"] = m.MaxTokens
+		} else {
+			delete(entry, "maxTokens")
+		}
+		if m.Reasoning {
+			entry["reasoning"] = true
+		} else {
+			delete(entry, "reasoning")
+		}
+		out = append(out, entry)
+	}
+	p["models"] = out
+	data, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, append(data, '\n'), 0o600)
+}

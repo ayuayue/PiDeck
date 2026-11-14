@@ -32,6 +32,7 @@ func (a *app) openProviderDialog(id string) {
 	a.providerBalURL.Set(spec.URL)
 	a.providerBalPath.Set(spec.Path)
 	a.providerBalCur.Set(spec.Currency)
+	a.resetModelForm()
 	for _, cfg := range readProviderConfigs() {
 		if cfg.ID != id {
 			continue
@@ -133,6 +134,107 @@ func (a *app) queryProviderBalance() {
 	}()
 }
 
+// resetModelForm clears the model editor.
+func (a *app) resetModelForm() {
+	a.providerModelEditing.Set("")
+	a.providerModelID.Set("")
+	a.providerModelName.Set("")
+	a.providerModelContext.Set("")
+	a.providerModelMax.Set("")
+	a.providerModelReasoning.Set(false)
+}
+
+// editProviderModel loads one model into the editor.
+func (a *app) editProviderModel(m modelConfig) {
+	a.providerModelEditing.Set(m.ID)
+	a.providerModelID.Set(m.ID)
+	a.providerModelName.Set(m.Name)
+	a.providerModelContext.Set(modelNumber(m.ContextWindow))
+	a.providerModelMax.Set(modelNumber(m.MaxTokens))
+	a.providerModelReasoning.Set(m.Reasoning)
+}
+
+// modelNumber is a positive count as text, or empty.
+func modelNumber(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
+}
+
+// modelCount reads a count typed into the editor.
+func modelCount(text string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+// saveProviderModel writes the editor's model into models.json.
+func (a *app) saveProviderModel() {
+	id := strings.TrimSpace(a.providerModelID.GetUntracked())
+	if id == "" {
+		a.toast(ui.ToastWarning, "还差模型 ID", "填一个模型名，例如 gpt-4o-mini。")
+		return
+	}
+	editing := a.providerModelEditing.GetUntracked()
+	model := modelConfig{ID: id, Name: strings.TrimSpace(a.providerModelName.GetUntracked()),
+		ContextWindow: modelCount(a.providerModelContext.GetUntracked()),
+		MaxTokens:     modelCount(a.providerModelMax.GetUntracked()),
+		Reasoning:     a.providerModelReasoning.GetUntracked()}
+	list := append([]modelConfig(nil), a.providerModels...)
+	if editing != "" && editing != id {
+		out := list[:0]
+		for _, m := range list {
+			if m.ID != editing {
+				out = append(out, m)
+			}
+		}
+		list = out
+	}
+	replaced := false
+	for i := range list {
+		if list[i].ID == id {
+			list[i] = model
+			replaced = true
+		}
+	}
+	if !replaced {
+		list = append(list, model)
+	}
+	if err := saveProviderModels(a.providerID.GetUntracked(), list); err != nil {
+		a.toast(ui.ToastError, "保存模型失败", err.Error())
+		return
+	}
+	a.providerModels = list
+	a.providerModelsRev.Update(func(n int) int { return n + 1 })
+	a.resetModelForm()
+	a.refreshProviders()
+	a.toast(ui.ToastSuccess, T("已保存模型 %s", id), T("重启 Agent 后生效。"))
+}
+
+// removeProviderModel deletes one model from models.json.
+func (a *app) removeProviderModel(id string) {
+	var list []modelConfig
+	for _, m := range a.providerModels {
+		if m.ID != id {
+			list = append(list, m)
+		}
+	}
+	if err := saveProviderModels(a.providerID.GetUntracked(), list); err != nil {
+		a.toast(ui.ToastError, "删除模型失败", err.Error())
+		return
+	}
+	a.providerModels = list
+	a.providerModelsRev.Update(func(n int) int { return n + 1 })
+	if a.providerModelEditing.GetUntracked() == id {
+		a.resetModelForm()
+	}
+	a.refreshProviders()
+	a.toast(ui.ToastInfo, "已删除模型", id)
+}
+
 // refreshProviders reads models.json again and probes auth in the
 // background.
 func (a *app) refreshProviders() {
@@ -171,6 +273,8 @@ func (a *app) providerDialog() core.Node {
 				input,
 			}}
 		}
+		_ = a.providerModelsRev.Get()
+		_ = a.providerModelEditing.Get()
 		var modelRows []core.Node
 		for _, m := range a.providerModels {
 			name := m.Name
@@ -185,15 +289,29 @@ func (a *app) providerDialog() core.Node {
 				if meta != "" {
 					meta += " · "
 				}
-				meta += "推理"
+				meta += T("推理")
 			}
-			modelRows = append(modelRows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
-				MinHeight: core.Pt(24)}, Children: []core.Node{
-				ui.Icon(lucide.Cpu, 11, colors.Faint),
-				core.Text{Content: name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
-				core.Text{Content: meta, Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
-			}})
+			modelRows = append(modelRows, core.View{
+				OnPress: func(core.PressEvent) { a.editProviderModel(m) },
+				Role:    core.RoleButton, Label: name, TestID: "provider-model-" + m.ID,
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(26),
+						Padding: core.Symmetric(0, 4), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
+				},
+				Children: []core.Node{
+					ui.Icon(lucide.Cpu, 11, colors.Faint),
+					core.Text{Content: name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
+					core.Text{Content: meta, Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+					core.View{OnPress: func(core.PressEvent) { a.removeProviderModel(m.ID) }, Role: core.RoleButton,
+						Label: T("删除模型") + " " + name, TestID: "provider-model-remove-" + m.ID,
+						StyleFunc: func() core.Style {
+							return core.Style{Width: core.Pt(20), Height: core.Pt(20), CornerRadius: 5, AlignItems: core.AlignCenter,
+								JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
+						},
+						Children: []core.Node{ui.Icon(lucide.Trash, 10, colors.Faint)}},
+				},
+			})
 		}
 		if len(modelRows) == 0 {
 			modelRows = append(modelRows, core.Text{Content: "这个供应商还没有模型条目。",
@@ -215,7 +333,7 @@ func (a *app) providerDialog() core.Node {
 			Title:        "配置 " + a.providerID.Get(),
 			TestID:       "provider-dialog",
 			Style:        core.Style{Width: core.Pt(580), MaxHeight: core.Pt(620)},
-			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(470)}, Children: []core.Node{
+			Children: []core.Node{core.Scroll{TestID: "provider-scroll", Style: core.Style{MaxHeight: core.Pt(470)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: 6}}, Children: []core.Node{
 					field("API", "pi 的适配器名", core.Input{
 						Value: a.providerAPI.Get, OnChange: a.providerAPI.Set,
@@ -247,6 +365,54 @@ func (a *app) providerDialog() core.Node {
 						Placeholder: "USD", Label: "余额货币", TestID: "provider-balance-currency",
 						Style: fieldStyle,
 					}),
+					core.View{Style: core.Style{Gap: 5, Margin: core.Edges{Top: 2}}, Children: []core.Node{
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+							ui.Text(T("添加模型"), 10.5, ui.Medium, colors.Muted),
+							core.Text{Content: T("点上面一行可以修改"), Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						}},
+						core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
+							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+								core.Input{Value: a.providerModelID.Get, OnChange: a.providerModelID.Set, Placeholder: "gpt-4o-mini",
+									Label: T("模型 ID"), TestID: "provider-model-id",
+									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
+										FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
+							}},
+							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+								core.Input{Value: a.providerModelName.Get, OnChange: a.providerModelName.Set, Placeholder: T("显示名称，可留空"),
+									Label: T("模型名称"), TestID: "provider-model-name",
+									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
+										Color: colors.Text(), Background: colors.Field(),
+										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
+							}},
+						}},
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+								core.Input{Value: a.providerModelContext.Get, OnChange: a.providerModelContext.Set, Placeholder: "128000",
+									Label: T("上下文"), TestID: "provider-model-context",
+									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
+										FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
+							}},
+							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+								core.Input{Value: a.providerModelMax.Get, OnChange: a.providerModelMax.Set, Placeholder: "8192",
+									Label: T("最大输出"), TestID: "provider-model-max",
+									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
+										FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
+							}},
+							ui.Switch{Checked: a.providerModelReasoning.Get, Label: T("推理"), TestID: "provider-model-reasoning",
+								OnChange: a.providerModelReasoning.Set},
+						}},
+						core.View{Style: core.Style{Direction: core.Row, JustifyContent: core.JustifyEnd, Gap: 6}, Children: []core.Node{
+							core.Show{When: func() bool { return a.providerModelEditing.Get() != "" }, Then: func(*core.Scope) core.Node {
+								return ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "provider-model-cancel",
+									OnPress: a.resetModelForm}
+							}},
+							ui.Button{Text: T("保存模型"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "provider-model-save",
+								OnPress: a.saveProviderModel},
+						}},
+					}},
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							ui.Text("模型", 10.5, ui.Medium, colors.Muted),
