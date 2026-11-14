@@ -67,7 +67,7 @@ echo $PIDECK_SESSION_ID
 
 **取不到时别停。** 2026-11-14 在另一台发行版上实测：`echo $PIDECK_SESSION_ID` 打印空行，同一个进程里 `$PIDECK_SECURITY_CONFIG` 却有值——同一段注入代码里断了一半。所以这条路失败就往下走，不要以为「文档说的必对」。
 
-**兜底：拿 `$PI_SESSION_FILE` 去 `runtimes[]` 里认自己。** 这个变量是 pi 自己的会话文件路径，会一直有值（本机实测有），而 `runtimes[].sessionPath` 指向同一个文件：
+**兜底：拿 `$PI_SESSION_FILE` 去 `runtimes[]` 里认自己。** 这个变量是 pi 自己的会话文件路径，本机有值（2026-11-14 实测），而 `runtimes[].sessionPath` 指向同一个文件：
 
 ```bash
 curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" |
@@ -76,7 +76,7 @@ curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" |
 
 打印出一个 uuid 就是你的 sessionId；打印「没找到」说明你不在这台 PiDeck 里跑。这个匹配区分大小写。
 
-**第三条线索**：`$PIDECK_LINKED_SESSIONS_URL` 的末尾就是 PiDeck 会话 id，形如 `http://127.0.0.1:<port>/linked/<sessionId>`。它和 `$PIDECK_SESSION_ID` 一起失效的概率很低，前两条都空时再用。
+**第三条线索**：`$PIDECK_LINKED_SESSIONS_URL` 的末尾就是 PiDeck 会话 id，形如 `http://127.0.0.1:<port>/linked/<sessionId>`。前两条都空时再用它。
 
 **认自己的目的是不出错。** 怎么判只一条：拿到的 id 在 `/api/state` 的 `sessions[]` 里能找到。找不到就是坐标系错了。
 
