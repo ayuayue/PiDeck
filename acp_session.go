@@ -29,6 +29,7 @@ func (a *app) newACPSession(ws *workspace, preset acpPreset) *session {
 	a.saveProjects()
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	a.selectSession(s)
+	a.sessionCreated(s, "acp")
 	return s
 }
 
@@ -234,7 +235,7 @@ func (a *app) acpFinish(s *session, turnID, stop string, err error) {
 	if err != nil {
 		detail = err.Error()
 	}
-	a.emit("turn.done", appEvent{Session: s, Data: map[string]string{
+	a.emit(eventTurnDone, appEvent{Session: s, Data: map[string]string{
 		"status": status, "answer": lastAnswer(s), "error": detail,
 	}})
 }

@@ -86,6 +86,9 @@ func (a *app) generateImageNow() {
 					c.ImageProvider, c.ImageModel, c.ImageSize = cfg.ID, model, size
 				})
 			}
+			a.emit(eventImageGenerated, appEvent{Data: map[string]string{
+				"provider": cfg.ID, "model": model, "size": size,
+			}})
 		})
 	}()
 }

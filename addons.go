@@ -609,7 +609,17 @@ func (a *app) expandPluginText(p plugin, text string) string {
 }
 
 // appEvents are the events a plugin hook may listen to.
-var appEvents = map[string]bool{"turn.done": true, "session.opened": true, "theme.changed": true}
+var appEvents = map[string]bool{
+	eventTurnStart:      true,
+	eventTurnDone:       true,
+	eventSessionCreated: true,
+	eventSessionOpened:  true,
+	eventSessionDeleted: true,
+	eventThemeChanged:   true,
+	eventPlanFinished:   true,
+	eventGitCommit:      true,
+	eventImageGenerated: true,
+}
 
 // normalizePluginHooks checks a plugin's hooks: a known event, and an
 // action that cannot start another turn.

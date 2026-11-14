@@ -185,6 +185,7 @@ func (a *app) gitCommit(all, amend bool) {
 		if err == nil {
 			a.git.msg.Set("")
 			a.git.amend.Set(false)
+			a.emit(eventGitCommit, appEvent{Data: map[string]string{"message": msg, "amend": fmt.Sprintf("%t", amend)}})
 		}
 	})
 }

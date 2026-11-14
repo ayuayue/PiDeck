@@ -452,9 +452,11 @@ knob code info down`。
 
 - `action.type`：`prompt` / `insert` 填进输入框，`send` 直接发送，`command` 执行内置命令，
   `url` 打开 http(s) 链接，`theme` 切换主题（可写 id 或显示名）
-- `contributes.hooks` 让插件在事件上做事：`turn.done` / `session.opened` / `theme.changed`，
-  动作只允许 `url` / `command` / `theme`（不能起新一轮，避免自激）；文本里可用
+- `contributes.hooks` 让插件在事件上做事：`turn.start` / `turn.done` / `session.created` /
+  `session.opened` / `session.deleted` / `theme.changed` / `plan.finished` / `git.commit` /
+  `image.generated`，动作只允许 `url` / `command` / `theme`（不能起新一轮，避免自激）；文本里可用
   `${event:session}` / `${event:title}` / `${event:project}` / `${event:status}` / `${event:answer}`
+  等字段，事件各自的字段（`origin`、`plan`、`steps`、`message`、`provider` 等）也按同名取用
 - `contributes.settings` 声明插件设置：`type` 为 `bool` / `string` / `number` / `select`，
   `select` 需要 `options`；设置显示在 设置 → 扩展 的插件条目下，值存 `config.json` 的
   `pluginSettings`（键为 `<插件 id>/<key>`）

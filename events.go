@@ -11,6 +11,19 @@ import (
 	"sync"
 )
 
+// The events the app emits. A plugin hook may listen to any of them.
+const (
+	eventTurnStart      = "turn.start"
+	eventTurnDone       = "turn.done"
+	eventSessionCreated = "session.created"
+	eventSessionOpened  = "session.opened"
+	eventSessionDeleted = "session.deleted"
+	eventThemeChanged   = "theme.changed"
+	eventPlanFinished   = "plan.finished"
+	eventGitCommit      = "git.commit"
+	eventImageGenerated = "image.generated"
+)
+
 // appEvent is something that happened.
 type appEvent struct {
 	Name    string
@@ -92,6 +105,15 @@ func (a *app) runPluginHooks(ev appEvent) {
 			a.inHook = false
 		}
 	}
+}
+
+// sessionCreated announces a session the user just made, by how it was
+// made: project, chat, acp or fork.
+func (a *app) sessionCreated(s *session, origin string) {
+	if s == nil {
+		return
+	}
+	a.emit(eventSessionCreated, appEvent{Session: s, Data: map[string]string{"origin": origin}})
 }
 
 // expandPluginTextFor fills ${setting:key} and ${event:key} references.

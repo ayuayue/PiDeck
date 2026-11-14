@@ -15,7 +15,7 @@
 | A4 | 主题 v2 | 🔧 | 角色色 + 设计 token + 字体 + 圆角 + 终端配色；兼容 shadcn/ui 主题文件与 YAML |
 | A5 | 设置 schema | 🟡 | 插件设置声明式；配置版本迁移/校验；应用设置的索引与搜索已做；逐项类型/默认值声明待做 |
 | A6 | 后端抽象 | 🟡 | ACP 会话可用：预设与项目默认、工具类型/路径投影、权限记忆、归档、session/load、搜索、命令菜单、模式切换、重连、通知 |
-| A7 | 事件总线 | 🟡 | `turn.done` / `session.opened` / `theme.changed` 事件、订阅者与插件 hooks（url/command/theme，防递归）；更多事件与内置订阅待接 |
+| A7 | 事件总线 | ✅ | 9 个事件：turn.start/done、session.created/opened/deleted、theme.changed、plan.finished、git.commit、image.generated；订阅者与插件 hooks（url/command/theme，防递归） |
 | A8 | i18n 文案层 | 🟡 | 源文本目录、系统语言匹配、运行时切换；桌面端主要界面与手机端连接/会话/对话/Git 已覆盖；其余提示消息待迁移 |
 | A9 | 崩溃与诊断 | 🟡 | 进程/日志面板、诊断报告与脱敏诊断包已做；panic 捕获与崩溃日志待做 |
 | A10 | 自动更新 | ✅ | EdDSA 签名 appcast、检查更新入口、CI 密钥注入；stable/dev 渠道待拆 |

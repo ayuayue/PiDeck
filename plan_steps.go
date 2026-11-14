@@ -107,11 +107,14 @@ func (a *app) onPlanTurn(ev appEvent) {
 	case planStopped:
 		s.planActive = false
 		s.planSteps = nil
+		a.emit(eventPlanFinished, appEvent{Session: s, Data: map[string]string{"status": "stopped"}})
 		a.toast(ui.ToastWarning, "逐步执行已停止", "这一轮没有完成。")
 	case planFinished:
+		steps := s.planIndex + 1
 		s.planActive = false
 		s.planSteps = nil
-		a.toast(ui.ToastSuccess, "计划执行完毕", fmt.Sprintf("共 %d 步。", s.planIndex+1))
+		a.emit(eventPlanFinished, appEvent{Session: s, Data: map[string]string{"status": "finished", "steps": fmt.Sprintf("%d", steps)}})
+		a.toast(ui.ToastSuccess, "计划执行完毕", fmt.Sprintf("共 %d 步。", steps))
 	case planGoOn:
 		a.planAskSession = s
 		a.planAskOpen.Set(true)

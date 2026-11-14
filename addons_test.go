@@ -511,14 +511,25 @@ func TestPluginSettingUI(t *testing.T) {
 // and known events.
 func TestPluginHooks(t *testing.T) {
 	p := plugin{ID: "team", Contributes: pluginContrib{Hooks: map[string][]pluginAction{
-		"session.opened": {{Type: "command", Command: "sidebar"}},
-		"turn.done":      {{Type: "url", URL: "https://example.com/?s=${event:session}"}},
-		"theme.changed":  {{Type: "prompt", Prompt: "no"}, {Type: "theme", Theme: "dark"}},
-		"bogus":          {{Type: "url", URL: "https://example.com"}},
+		"session.opened":  {{Type: "command", Command: "sidebar"}},
+		"session.created": {{Type: "command", Command: "sidebar"}},
+		"turn.start":      {{Type: "command", Command: "sidebar"}},
+		"turn.done":       {{Type: "url", URL: "https://example.com/?s=${event:session}"}},
+		"plan.finished":   {{Type: "command", Command: "sidebar"}},
+		"git.commit":      {{Type: "url", URL: "https://example.com/commit"}},
+		"image.generated": {{Type: "command", Command: "sidebar"}},
+		"session.deleted": {{Type: "command", Command: "sidebar"}},
+		"theme.changed":   {{Type: "prompt", Prompt: "no"}, {Type: "theme", Theme: "dark"}},
+		"bogus":           {{Type: "url", URL: "https://example.com"}},
 	}}}
 	normalizePlugin(&p)
 	if len(p.Contributes.Hooks["session.opened"]) != 1 || len(p.Contributes.Hooks["turn.done"]) != 1 {
 		t.Fatalf("hooks = %+v", p.Contributes.Hooks)
+	}
+	for _, name := range []string{"session.created", "turn.start", "plan.finished", "git.commit", "image.generated", "session.deleted"} {
+		if len(p.Contributes.Hooks[name]) != 1 {
+			t.Fatalf("%s hook = %+v", name, p.Contributes.Hooks[name])
+		}
 	}
 	if len(p.Contributes.Hooks["theme.changed"]) != 1 || p.Contributes.Hooks["theme.changed"][0].Type != "theme" {
 		t.Fatalf("theme hooks = %+v", p.Contributes.Hooks["theme.changed"])
@@ -593,4 +604,44 @@ func TestPluginHookCommand(t *testing.T) {
 	app.WaitForGone("id:sidebar-panel", 5*time.Second)
 	app.Key("mod+b")
 	app.WaitFor("id:sidebar-panel", 5*time.Second)
+}
+
+// TestPluginHookSessionCreated runs a hook when a session is made, which
+// is a different moment from opening one.
+func TestPluginHookSessionCreated(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := editorWorkspace(t)
+	workspace := editorWorkspace(t)
+	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"id":"created","name":"新会话钩子","version":"1.0.0","contributes":{"hooks":{"session.created":[{"type":"command","command":"sidebar"}]}}}`
+	if err := os.WriteFile(filepath.Join(dir, "created.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := json.Marshal(config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "新会话项目", Expanded: true}},
+		Theme: "system", SidebarOpen: true, ScanPi: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
+	app.WaitFor("id:welcome-primary", 10*time.Second)
+	app.Press("label:设置")
+	app.Press("id:settings-tab-addons")
+	app.WaitFor("text:新会话钩子", 15*time.Second)
+	app.Press("id:settings-done")
+	app.WaitForGone("id:settings-tab-addons", 5*time.Second)
+	// Making the first session runs the hook, which toggles the sidebar off.
+	app.Press("id:welcome-primary")
+	app.WaitForGone("id:sidebar-panel", 5*time.Second)
 }

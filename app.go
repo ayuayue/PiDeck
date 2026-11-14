@@ -1212,7 +1212,7 @@ func (a *app) selectSession(s *session) {
 		a.git.attach(a.workspaceFor(s.Target, s.WS))
 	}
 	a.remember()
-	a.emit("session.opened", appEvent{Session: s})
+	a.emit(eventSessionOpened, appEvent{Session: s})
 }
 
 // addTab appends a tab once.
@@ -1352,6 +1352,11 @@ func (a *app) newSession(path string) *session {
 	s := a.blankSession(newSessionID(), ws, title)
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	a.selectSession(s)
+	origin := "project"
+	if ws.Chat {
+		origin = "chat"
+	}
+	a.sessionCreated(s, origin)
 	return s
 }
 
@@ -1655,6 +1660,7 @@ func (a *app) forkSession(s *session, turnID string) {
 				c.ForkParents[ns.ID] = s.ID
 			})
 			a.cfg = st.config()
+			a.sessionCreated(ns, "fork")
 			a.toast(ui.ToastSuccess, "已分叉会话", "原提问已放回输入框，改完可以直接发。")
 		})
 	}()
@@ -1752,6 +1758,7 @@ func (a *app) deleteSession(s *session) {
 				})
 			}
 			a.remember()
+			a.emit(eventSessionDeleted, appEvent{Session: s, Data: map[string]string{"backend": s.backend}})
 		})
 		return
 	}
@@ -1830,6 +1837,7 @@ func (a *app) removeSession(s *session) {
 	}
 	a.toast(ui.ToastSuccess, "已删除会话", "文件在数据目录的 trash 下")
 	a.remember()
+	a.emit(eventSessionDeleted, appEvent{Session: s, Data: map[string]string{"backend": s.backend}})
 }
 
 // askRename opens the rename dialog for a session.
@@ -2274,6 +2282,9 @@ func (a *app) submitTurn(s *session, text string, images []promptImage, plan boo
 			a.ensureEngine(s, func() { a.prompt(s, turnID, text, images) })
 		}
 	})
+	a.emit(eventTurnStart, appEvent{Session: s, Data: map[string]string{
+		"plan": fmt.Sprintf("%t", plan), "backend": s.backend, "prompt": firstLine(original, 200),
+	}})
 }
 
 // steer sends a message into the running turn, waiting for pi if it is
@@ -3110,7 +3121,7 @@ func (a *app) settled(s *session, ev piEvent) {
 	case s.status.GetUntracked() == statusFailed:
 		status = "failed"
 	}
-	a.emit("turn.done", appEvent{Session: s, Data: map[string]string{
+	a.emit(eventTurnDone, appEvent{Session: s, Data: map[string]string{
 		"status": status, "answer": lastAnswer(s), "error": s.notice.GetUntracked(),
 	}})
 	if a.activeID.GetUntracked() == s.ID && s.conversation.AtLatest() {
@@ -3470,7 +3481,7 @@ func (a *app) setTheme(name string) {
 	a.theme.Set(name)
 	a.applyTheme()
 	a.st.edit(func(c *config) { c.Theme = name })
-	a.emit("theme.changed", appEvent{Data: map[string]string{"theme": name}})
+	a.emit(eventThemeChanged, appEvent{Data: map[string]string{"theme": name}})
 }
 
 // openWorkspaceFolder reveals a folder in the file manager of the machine
