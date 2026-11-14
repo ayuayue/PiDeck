@@ -1011,6 +1011,8 @@ func (a *app) drawerFiles() core.Node {
 				ui.Text(T("目录为空"), 11.5, ui.Regular, colors.Faint),
 			}}
 		}
+		filter := strings.ToLower(strings.TrimSpace(a.filesQuery.Get()))
+		_ = a.filesRev.Get()
 		marks := a.fileMarks()
 		dirs := changedDirs(marks, root)
 		markColor := func(mark string) core.Color {
@@ -1090,12 +1092,55 @@ func (a *app) drawerFiles() core.Node {
 				PopupStyleFunc: func() core.Style { return a.menuCard(a.cx) },
 			}
 		})
+		search := core.Input{Value: a.filesQuery.Get, OnChange: a.filesQuery.Set, Placeholder: T("筛选文件…"),
+			Label: T("筛选文件"), TestID: "files-search",
+			Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
+				FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+				BorderWidth: 1, BorderColor: colors.FieldBorder()}}
+		hits := func() core.Node {
+			var rows []core.Node
+			for _, rel := range a.workspaceFiles(root) {
+				if !strings.Contains(strings.ToLower(rel), filter) {
+					continue
+				}
+				rel := rel
+				rows = append(rows, core.View{
+					OnPress: func(core.PressEvent) { a.openEditorFile(root, filepath.Join(root, filepath.FromSlash(rel))) },
+					Role:    core.RoleButton, Label: rel, TestID: "file-hit",
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(25),
+							Padding: core.Symmetric(0, 6), CornerRadius: 6, Transition: pressMotion,
+							Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+					},
+					Children: []core.Node{
+						ui.Icon(lucide.FileText, 12, colors.Faint),
+						core.Text{Content: rel, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11},
+							StyleFunc: ui.Colored(colors.Text)},
+					},
+				})
+				if len(rows) >= 60 {
+					break
+				}
+			}
+			if len(rows) == 0 {
+				rows = append(rows, core.Text{Content: T("没有匹配的文件"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(8, 4)},
+					StyleFunc: ui.Colored(colors.Faint)})
+			}
+			return core.View{Style: core.Style{Gap: 1}, Children: rows}
+		}
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Top: 2, Bottom: 20, Right: 2, Left: 2}}, Children: []core.Node{
 				head,
+				search,
 				core.Text{Content: T("点文件在编辑器里打开，点目录展开；右键可插入 @ 路径。"), Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
-				core.Show{When: func() bool { return len(a.files.nodes.Get()) == 0 }, Then: func(*core.Scope) core.Node { return empty() }},
-				list,
+				core.Show{When: func() bool { return filter != "" }, Then: func(*core.Scope) core.Node { return hits() }},
+				core.Show{When: func() bool { return filter == "" }, Then: func(*core.Scope) core.Node {
+					return core.Group{
+						core.Show{When: func() bool { return len(a.files.nodes.Get()) == 0 }, Then: func(*core.Scope) core.Node { return empty() }},
+						list,
+					}
+				}},
 			}},
 		}}
 	})

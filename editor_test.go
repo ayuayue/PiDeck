@@ -209,3 +209,30 @@ func TestEditorWrap(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// TestFileFilter filters the drawer's tree by name.
+func TestFileFilter(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir := editorWorkspace(t)
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "app.go"), []byte("package main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := startApp(t, dir, 1280, 860)
+	app.Key("mod+j")
+	app.WaitFor("id:drawer-tab-files", 5*time.Second)
+	app.Press("id:drawer-tab-files")
+	app.WaitFor("id:files-search", 5*time.Second)
+	app.Type("id:files-search", "app")
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:file-hit")) > 0 })
+	app.WaitFor("text:src/app.go", 5*time.Second)
+	app.Press("id:file-hit >> nth=0")
+	app.WaitFor("text:package main", 5*time.Second)
+}
