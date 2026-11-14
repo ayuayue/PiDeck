@@ -253,12 +253,18 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
 
 两个常见错误码：`webError.requestIdRequired`（请求体缺 `id`）、`webError.messageRequired`（`messages` 里没有 role 为 user 的项，或 text 为空）。
 
-**目标没在跑时先 activate**：`/api/chat` 只对已经跑着的会话生效。发给一个 `runtimes[]` 里没有的
-会话，会返回 `200` 但一个帧都不吐，会话历史也不变——**状态码不能用来判送达**，判据是收到
-`start-step`。正确顺序：先 `runtime/activate`，等它出现在 `runtimes[]` 里，再发请求。
+**这条请求是异步入队，不是同步流**。消息进了目标会话的队列就返回，HTTP 可能一个帧都不吐（实测
+curl 挂 5 秒收到 0 帧），而目标照样开始干活。所以**送达的判据是回读 `messages` 的 `total` 加没加**，
+不是「收到 `start-step`」。想要流式帧就一路挂着 SSE 等；只想确认送到了，读 `total` 更快。
 
-2026-11-14 实测：空闲会话收到 `http=200 size=0`，重读 `messages` 总数没变；同一条请求发给正在跑的
-会话才有帧。
+两件事要分开：
+
+- **目标没在跑**：`/api/chat` 返回 `200`、0 帧、`total` 不变。这是真没送到。先 `runtime/activate`，
+  等它进 `runtimes[]`，再发。
+- **目标在跑但忙**：返回 `200`、0 帧，但 `total` 会加一。消息已入队，等它做完手上的事就轮到这条。
+
+2026-11-14 实测：对一个 `status: idle`、已在 `runtimes[]` 里的会话，curl 5 秒 0 帧，`total` 从 7395
+涨到 7396，几十秒后它开始做题。
 
 ## 8 停止 / 启动 / 重启：原样请求
 
