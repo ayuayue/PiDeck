@@ -1,6 +1,6 @@
 {
 	"hard": {
-		"src/main/acp/AcpAgentManager.ts": 1289,
+		"src/main/acp/AcpAgentManager.ts": 941,
 		"src/main/automation/AutomationRunCoordinator.ts": 717,
 		"src/main/automation/AutomationStore.ts": 616,
 		"src/main/cloudSync/CloudSyncManager.ts": 1322,
@@ -11,7 +11,7 @@
 		"src/main/config/providerUsageProbe.ts": 687,
 		"src/main/dsh/DshAgentManager.ts": 1788,
 		"src/main/dsh/dshEventProjector.ts": 993,
-		"src/main/dsh/DshHost.ts": 1212,
+		"src/main/dsh/DshHost.ts": 808,
 		"src/main/dsh/dshProcessEvents.ts": 614,
 		"src/main/dsh/dshRemoteClient.ts": 614,
 		"src/main/feishu/FeishuBridge.ts": 1492,

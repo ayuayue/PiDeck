@@ -472,3 +472,32 @@ const selectTab = useCallback((id: string) => {
 3. **时机与顺序相同**（仍在 `setActiveTab` 之后紧邻执行）
 
 三条里任一不成立就必须打回。这条写在这里是因为「为了搬得干净，顺手把内联代码抽成函数」是很容易越界的一步——它看着无害，但把「同步写」悄悄变成「effect 里写」就会改变可观察行为。
+
+## 第十七轮（收尾）：AcpAgentManager 与 DshHost（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/acp/AcpAgentManager.ts` | 1289 | **941** | `acpRuntimeDiagnostics`（stderr 尾部 / 超时常量）、`AcpRuntimeLifecycle`（bootstrap/respawn）、`AcpConfigOptions`、`acpRuntimeTeardown`、`acpSessionMessages`；`acpAgentRuntime.ts` 新增 `buildAcpAgentRuntime`（原类内联 runtime 字面量） |
+| `src/main/dsh/DshHost.ts` | 1212 | **808** | `dshHostEnv 35`（纯 helper 第一刀）、`dshHostSettings 238`、`dshHostCatalog 121`、`dshHostArchive 162`、`dshHostPlugins 155`、`dshHostSessions 78` |
+
+### 一条核对方法：类内联字面量外提成 builder
+
+`AcpAgentManager` 里 `const runtime: AcpAgentRuntime = { … }` 有 30 个字段，外提成 `buildAcpAgentRuntime(args)` 时逐项比对过 HEAD 版本：字段名、字段顺序、默认值（`""` / `0` / `null` / `false` / 空 Map/Set/数组）全部一致；唯一差别是 `permissions: new AcpPermissionRequests(...)` 改由调用方构造传入——构造函数依赖 `this.emit` 与 `this.deps`，只能留在宿主。
+
+**判据**：字面量外提只要保证「字段清单 + 默认值 + 构造时机」三点一致就等价；把依赖注入进 builder 时，必须在注释里写明「由谁构造、为什么不能在里面造」，否则下一个人会以为可以在里面 new。
+
+### 拆分要连带修文档指针
+
+`docs/acp-replay-batching-plan.md` 与 `docs/maintenance-domains.md` 里有 `AcpAgentManager.bootstrapRuntime` / `AcpAgentManager.ts:598` 这类**指向实现位置的指针**。方法搬到 `AcpRuntimeLifecycle.ts` 后指针立刻失效——文档比代码更不可信，比没有文档更糟。本轮把这类指针一并改到新文件。**以后凡是搬走被文档点名的函数，同批扫一遍 `docs/` 里的 `文件名:行号`。**
+
+---
+
+## 专项波次到此关闭
+
+十七轮做完，`>600 行` 的文件从 190 个降到 107 个，``≥1200`` 的从 31 个降到 25 个，而这 25 个已全部属于三类：
+
+1. **编排内核**：`main/index.ts 4964`、`pi/AgentManager.ts 4785`、`App.tsx 2169`、`SessionRuntimeCoordinator 2162`、`SessionCatalog/SessionScanner/SessionHistoryReader/DshAgentManager/FeishuBridge/CloudSyncManager`——再拆只剩转发壳或得改契约。
+2. **契约单点**：`shared/ipc.ts 1508`、`shared/types/settings.ts 1344`——铁律要求一处定义，拆开即破。
+3. **桶文件**：`SessionTabsBar 1537`、`SurfaceComponents 1532`、`ComposerComponents 1402`、`SidebarComponents 1349`、`SessionMessageTimeline 1223`——能用 `loadTsCommonJs` + 相对说明符 stub 真渲染，搬 JSX 会让 stub 全失配，单文件成本翻倍。
+
+后续**不再开专项波次**，改按 `AGENTS.md` 的增量规则执行：改到哪个文件就把新逻辑放进新模块，让行数只降不升（`check:file-size` 基线已收紧到当前水位，回涨会被 pre-commit 与 CI 同时挡住）。
