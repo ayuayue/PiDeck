@@ -239,9 +239,8 @@ export class SkillManager {
 		}
 		await this.assertImportSkillTree(sourceDirectory);
 
-		// The global skill roots are user-managed directories, so an existing symlink or
-		// junction must never be followed as a write target.  Resolve the nearest existing
-		// ancestor before mkdir, then resolve again after mkdir to close the common swap gap.
+		// The global skill roots are user-managed: an existing symlink or junction must never be
+		// followed as a write target. Resolve the nearest ancestor before and after mkdir.
 		const initialRoot = await this.resolveManagedImportLocation(location);
 		await mkdir(initialRoot, { recursive: true });
 		const targetRoot = await this.resolveManagedImportLocation(location);
@@ -266,9 +265,8 @@ export class SkillManager {
 				force: false,
 				verbatimSymlinks: true,
 			});
-			// Re-check the copied tree as well as the source.  A source can change between
-			// validation and cp; rejecting a link/special file in the temporary tree keeps
-			// the managed destination free of unsafe entries.
+			// Re-check the copied tree as well as the source: a source can change between validation
+			// and cp, so reject a link/special file in the temporary tree too.
 			await this.assertImportSkillTree(temporaryDirectory);
 			await assertTargetAbsent();
 			if ((await this.resolveManagedImportLocation(location)) !== targetRoot) throw new Error(UNSAFE_IMPORT_TARGET);
