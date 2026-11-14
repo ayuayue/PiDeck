@@ -61,7 +61,8 @@ export function ExtensionTableRow(props: {
 	onShowInFolder: (extension: PiExtensionSummary) => void;
 }) {
 	const { extension, effectiveEnabled, inherited } = props;
-	const name = extension.source.replace(/^(?:npm|file|github|git):/i, "");
+	const gitHubName = extension.source.match(/^(?:git:github\.com\/|github:|git:https:\/\/github\.com\/|https:\/\/github\.com\/)[^/]+\/([^/#@]+?)(?:\.git)?(?:[/@].+)?$/i)?.[1];
+	const name = gitHubName ?? extension.source.replace(/^(?:npm|file|github|git):/i, "");
 	const disabled = extension.enabled === false;
 	return (
 		<TableRow aria-busy={props.uninstalling}>
