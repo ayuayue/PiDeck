@@ -157,6 +157,13 @@ data: [DONE]
 >      "$BASE/api/sessions/<目标>/runtime/activate"
 >    ```
 > 4. **验**：再读一次 `runtimes[]`，目标那一项的 `runtimeGeneration` 变成新值才算换进程。
+> 5. **发一条消息，证明它能接活**：
+>    ```bash
+>    curl -s -H "$AUTH" -H "Content-Type: application/json" \
+>      -d '{"id":"<目标>","messages":[{"role":"user","parts":[{"type":"text","text":"重启完成，这条消息用来验证你能接活"}]}]}' \
+>      "$BASE/api/chat"
+>    ```
+>    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。§5 说过，这条请求是异步入队，可能一个帧都不吐。
 
 **HTTP 200 不等于成功，必须看 body。** 三个实测形状：
 
@@ -195,6 +202,8 @@ data: [DONE]
 第 4 步 再读 runtimes
   gen 1 -> 2，agentId 5b9b9fbd -> 7a2c0052
 ```
+
+第 5 步 发消息 `/api/chat` -> HTTP 200，`total` 7470 -> 7473（加了 3，不是 1）
 
 **代号和 `agentId` 会一起变。** 两个都是「换没换进程」的证据，任一个变了就是换了。
 
