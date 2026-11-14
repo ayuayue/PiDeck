@@ -97,7 +97,9 @@ curl -s -H "$AUTH" "$BASE/api/state"
 - `sessions[]`：**所有会话**，含没在跑的。字段 `{id, projectId, title, status, model, thinkingLevel, updatedAt, createdAt}`。
 - `runtimes[]`：**此刻正在跑的进程**。字段 `{sessionId, agentId, runtimeGeneration, projectId, cwd, status, sessionPath, createdAt, deckSessionId}`。
 
-**两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表空闲——实测一个完全空闲的会话照样 `status: running`；反过来，不在 `runtimes[]` 里的会话进程没起，§5 的消息送不到。
+**两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。反过来，不在 `runtimes[]` 里的会话进程没起，§5 的消息送不到。
+
+**没有 `/api/sessions` 这个端点。** 猜它会拿到 `{"code":"webError.apiNotFound"}`。列会话就是上面的 `/api/state`。
 
 `/api/sessions/runtimes` 和 `/api/state` 的 `runtimes[]` **是同一份数据**（字段逐个比对一致），用哪个都行。
 
@@ -141,7 +143,18 @@ data: [DONE]
 
 **重启 = 停止进程 + 重新启动进程。你自己发不出这两个请求**：stop 杀掉的就是发请求的那个进程，没有进程去发 activate。
 
-让别人做。最简单的办法：**新开一个空会话**（它自动启动、天然空闲），把技能名和下面这段一起贴给它。
+让别人做。最简单的办法：**新开一个空会话**，它自动启动、天然空闲，把技能名和下面这段一起贴给它。
+
+建会话用这条（`projectId` 从 `/api/state` 的 `projects[]` 里取，常见的是 `builtin-chat`）：
+
+```bash
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"projectId":"builtin-chat"}' "$BASE/api/sessions/anonymous"
+```
+
+返回 `{"session":{"id":"...", ...}}`，取 `session.id`。
+
+**匿名会话只能当执行者，不能当重启目标。** 实测对它发 stop 会返回 200 且 `ok:true`，但整条会话记录随之被删掉，紧接着 activate 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`——HTTP 仍然是 200。要测重启流程，拿一个普通会话当目标。
 
 > 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的 §2，再按五步做，每步把输出贴回来。
 >
@@ -158,7 +171,7 @@ data: [DONE]
 >    curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 >      "$BASE/api/sessions/<目标>/runtime/activate"
 >    ```
-> 4. **验**：再读一次 `runtimes[]`，目标那一项的 `runtimeGeneration` 变成新值才算换进程。
+> 4. **验**：`activate` 的返回里直接有 `runtimeGeneration` 和 `agentId`，不用再读一次 `runtimes[]`。代号比第 1 步的 `N` 大 1 才是换了进程，例如 `N=3` 重启后返回 `4`。
 > 5. **发一条消息，证明它能接活**：
 >    ```bash
 >    curl -s -H "$AUTH" -H "Content-Type: application/json" \
