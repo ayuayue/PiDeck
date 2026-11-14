@@ -862,6 +862,7 @@ func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 					a.menuRow(a.cx, lucide.FileDiff, T("查看提交详情"), "", false, func() { a.gitShowCommit(commit) }),
 					a.menuRow(a.cx, lucide.Copy, T("复制哈希"), "", false, func() { a.copyText(commit.Hash, "哈希") }),
 					a.menuRow(a.cx, lucide.Copy, T("复制提交说明"), "", false, func() { a.copyText(commit.Subject, "提交说明") }),
+					a.menuRow(a.cx, lucide.ExternalLink, T("在浏览器打开提交"), "", false, func() { a.openCommitInBrowser(commit) }),
 				},
 				PopupStyle: core.Style{MinWidth: core.Pt(180)},
 				PopupStyleFunc: func() core.Style {

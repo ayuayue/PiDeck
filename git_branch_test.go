@@ -178,6 +178,7 @@ func TestGitCommitMenu(t *testing.T) {
 	waitApp(app, "id:git-commit-row", 20*time.Second)
 	app.RightClick("id:git-commit-row")
 	app.WaitFor("text:复制提交说明", 5*time.Second)
+	app.WaitFor("text:在浏览器打开提交", 5*time.Second)
 	app.Press("text:复制哈希")
 	if app.Clipboard != hash {
 		t.Fatalf("clipboard = %q, want %q", app.Clipboard, hash)
@@ -187,5 +188,28 @@ func TestGitCommitMenu(t *testing.T) {
 	app.Press("id:git-diff-hash")
 	if app.Clipboard != hash {
 		t.Fatalf("dialog clipboard = %q, want %q", app.Clipboard, hash)
+	}
+}
+
+// TestCommitWebURL builds a commit page from common remote shapes.
+func TestCommitWebURL(t *testing.T) {
+	cases := []struct{ remote, want string }{
+		{"https://github.com/acme/shop.git", "https://github.com/acme/shop/commit/abc123"},
+		{"git@github.com:acme/shop.git", "https://github.com/acme/shop/commit/abc123"},
+		{"ssh://git@github.com/acme/shop.git", "https://github.com/acme/shop/commit/abc123"},
+		{"https://gitlab.com/acme/shop.git", "https://gitlab.com/acme/shop/-/commit/abc123"},
+		{"git@bitbucket.org:acme/shop.git", "https://bitbucket.org/acme/shop/commits/abc123"},
+	}
+	for _, c := range cases {
+		got, err := commitWebURL(c.remote, "abc123")
+		if err != nil || got != c.want {
+			t.Errorf("%s = %q, %v; want %q", c.remote, got, err, c.want)
+		}
+	}
+	if _, err := commitWebURL("", "abc"); err == nil {
+		t.Error("an empty remote should fail")
+	}
+	if _, err := commitWebURL("file:///tmp/repo", "abc"); err == nil {
+		t.Error("a file remote should fail")
 	}
 }

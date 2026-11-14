@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/ui"
 )
 
 // gitFile is one changed path in a repository.
@@ -660,4 +662,74 @@ func listGitStashes(g gitRunner) ([]gitStashEntry, error) {
 		}
 	}
 	return list, nil
+}
+
+// commitWebURL is the web page of a commit, from a remote's URL.
+func commitWebURL(remote, hash string) (string, error) {
+	remote = strings.TrimSpace(remote)
+	hash = strings.TrimSpace(hash)
+	if remote == "" {
+		return "", errors.New("这个仓库没有 origin 远端")
+	}
+	if hash == "" {
+		return "", errors.New("没有提交哈希")
+	}
+	host, path := "", ""
+	switch {
+	case strings.HasPrefix(remote, "http://") || strings.HasPrefix(remote, "https://"):
+		u, err := url.Parse(remote)
+		if err != nil || u.Host == "" {
+			return "", errors.New("远端地址看不懂：" + remote)
+		}
+		host, path = u.Host, u.Path
+	case strings.HasPrefix(remote, "ssh://"):
+		u, err := url.Parse(remote)
+		if err != nil || u.Hostname() == "" {
+			return "", errors.New("远端地址看不懂：" + remote)
+		}
+		host, path = u.Hostname(), u.Path
+	case strings.HasPrefix(remote, "git@"):
+		rest := strings.TrimPrefix(remote, "git@")
+		h, p, ok := strings.Cut(rest, ":")
+		if !ok || h == "" || p == "" {
+			return "", errors.New("远端地址看不懂：" + remote)
+		}
+		host, path = h, p
+	default:
+		return "", errors.New("远端不是常见地址：" + remote)
+	}
+	path = strings.Trim(strings.TrimSuffix(path, ".git"), "/")
+	if host == "" || path == "" {
+		return "", errors.New("远端地址缺主机或仓库：" + remote)
+	}
+	lower := strings.ToLower(host)
+	switch {
+	case strings.Contains(lower, "gitlab"):
+		return "https://" + host + "/" + path + "/-/commit/" + hash, nil
+	case strings.Contains(lower, "bitbucket"):
+		return "https://" + host + "/" + path + "/commits/" + hash, nil
+	}
+	return "https://" + host + "/" + path + "/commit/" + hash, nil
+}
+
+// openCommitInBrowser opens a commit on its remote's web page.
+func (a *app) openCommitInBrowser(c gitCommit) {
+	if a.gitPath() == "" {
+		return
+	}
+	runner := a.git.runner()
+	go func() {
+		out, err := runner.exec(20*time.Second, "remote", "get-url", "origin")
+		var link string
+		if err == nil {
+			link, err = commitWebURL(strings.TrimSpace(out), c.Hash)
+		}
+		a.cx.Post(func() {
+			if err != nil {
+				a.toast(ui.ToastError, "打不开提交链接", err.Error())
+				return
+			}
+			a.cx.OpenURL(link, nil)
+		})
+	}()
 }
