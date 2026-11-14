@@ -533,6 +533,10 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 没有「agent 自己重启自己」的捷径。曾经有过 `self-restart.mjs`：起一个脱离进程树的守卫替你 stop 再 activate，实测跑了三次，三次都起来了。2026-11-14 删掉了——不是它不成立，是它和「不许自己停」这句冲突：两句话同时在，agent 会挑省事的那句执行。
 
+**2026-11-15 又试了一次，当场踩坑。** 用户明确要求「重启一下你自己」，重建的守卫第一版就死在第二步：stop 的 body 里没带 `target`，返回 400 `webError.runtimeTargetRequired`。更糟的是守卫自己的「停了吗」检查读的是 `runtimes[].status`——进程其实还在跑，但空闲状态下 status 就是 `idle`，不等于 `running`，于是它判定「已停」，接着三次 activate 全部 rc=200、`runtimeGeneration` 一直是 1，日志还写「三次都没起来」。**实际从头到尾没被停过。**
+
+要停掉自己，stop 必须带齐 `sessionId` + `agentId` + `runtimeGeneration` 三件；能发出这个请求的应该是**另一个活着的进程**，不是守卫。让别的会话替你重启的完整任务书见本节第 0~5 步，关键就一句：目标会话不能是执行者自己。
+
 ## 9 边界
 
 - 只读 pi 的会话文件，不要改 `~/.pi/agent/sessions/*.jsonl`。
