@@ -98,6 +98,8 @@ func (a *app) settingsUsage() core.Node {
 				setGroup("项目", append(projectRows, usageNote(colors, "按会话工作目录归并。"))...),
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 					ui.Button{Text: "重新统计", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.loadUsage(true) }},
+					ui.Button{Text: T("导出 CSV"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "usage-export",
+						OnPress: a.exportUsageCSV},
 					core.Text{Content: fmt.Sprintf("读了 %d 个会话文件 · 只在本机计算", r.Files), Style: core.Style{FontSize: 10.5},
 						StyleFunc: ui.Colored(colors.Faint)},
 				}},
