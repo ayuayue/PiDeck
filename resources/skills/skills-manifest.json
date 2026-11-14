@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "aa426dd3683a607b98d1bb497e971ac0547b4e31b98b23e7cb65e119ada888a1",
+  "bundleSha256": "05dbba71f3c2c750fa7bb6032a23a1c3ff408cd47a96f35587da20b0754f9c87",
   "fileCount": 6,
   "files": [
     {
@@ -21,13 +21,13 @@
     },
     {
       "name": "pideck-web-api/self-restart.mjs",
-      "sha256": "87b6ea86686a0c84856bcd19a2427cb0b3009c95650958745cc5933b0786fbea",
-      "bytes": 9680
+      "sha256": "086bf03e01918dc43bf4e0365253480259a1745189141ec63e6e911cb812179c",
+      "bytes": 10669
     },
     {
       "name": "pideck-web-api/SKILL.md",
-      "sha256": "0d347dbef4bfc05ae95140811d81e517009086453d5385e35c57b6c4b9431807",
-      "bytes": 11037
+      "sha256": "aaf5015935796d57a0b17c9ca8d178e88f293da05036038e37e597c5878ad809",
+      "bytes": 14221
     },
     {
       "name": "usage-probe/SKILL.md",

@@ -96,14 +96,15 @@ async function findSelf() {
 
 async function supervisor(startedAt) {
   const { self } = env();
-  log("守卫启动 pid=" + process.pid + " ppid=" + process.ppid + " session=" + self);
+  const delay = delayArg();
+  log("守卫启动 pid=" + process.pid + " ppid=" + process.ppid + " session=" + self + (delay ? " delay=" + delay + "ms" : ""));
 
   // 脱离判据：不是看 ppid（Windows 上 detached 之后 ppid 仍指向原进程，实测 46752），
   // 而是看「stop 之后还活着」—— 下面每一条在 stop 之后写出的日志，本身就是证据。
   // 所以这里只在日志里记一笔，不做断言。
 
-  // 1) 等调用方那条命令返回，别在自己的请求里杀自己。
-  await sleep(2500);
+  // 1) 等调用方那条命令返回，别在自己的请求里杀自己；--delay 再额外留出让回复发完的时间。
+  await sleep(2500 + delay);
 
   // 2) 记下重启前的 generation，作为「真的换了进程」的基线。
   const before = await findSelf();
@@ -150,6 +151,16 @@ async function supervisor(startedAt) {
 
   log("失败：" + MAX_START_TRY + " 次都没起来。会话现在停着，需要人工 activate。");
   state({ result: "start-failed", genBefore });
+}
+
+// --delay <毫秒>：起守卫后先等这么久再 stop。
+// 用途：重启是从你自己的回合里发起的，stop 会把那条正在生成的回复截断在半句上。
+// 加 --delay 15000，回复在 stop 之前就发出去了，读者能先看到「已启动」再看到进程消失。
+// 上限 60 秒：整段预算是 150 秒，延迟也算在里面。
+function delayArg() {
+  const i = process.argv.indexOf("--delay");
+  const v = i >= 0 ? Number(process.argv[i + 1]) : 0;
+  return Number.isFinite(v) && v > 0 ? Math.min(v, 60_000) : 0;
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -201,11 +212,13 @@ async function main() {
     console.log("");
     console.log("这是干跑。加 --go 才真的执行。");
     console.log("注意：真跑时这个进程会消失，看到的最后一行会是守卫写的日志。");
+    console.log(delayArg() ? "延迟：stop 会推迟 " + (2.5 + delayArg() / 1000) + " 秒，够这条回复发出去。" : "延迟：无（2.5 秒后 stop）。若重启是从你自己回合里发起的，加 --delay 15000。");
     return;
   }
 
   // 关键：detached + unref + 忽略 stdio，守卫才能活过 stop。
-  const child = spawn(process.execPath, [process.argv[1], "--supervisor"], {
+  const delay = delayArg();
+  const child = spawn(process.execPath, [process.argv[1], "--supervisor", ...(delay ? ["--delay", String(delay)] : [])], {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
