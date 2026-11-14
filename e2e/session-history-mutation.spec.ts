@@ -58,13 +58,14 @@ test("delete: repeated deletes apply immediately with no duplicates", async ({ w
 	const reply2 = await sendTurn(window, "第二轮问题");
 	await waitIdle(window);
 
-	// ── 第一次删除：最后一条 assistant 回复。agent 仍在运行（idle 即 live）→
-	//    弹「先停止 Agent」确认，点「停止」→ 停止 → 改文件 → 立即重载。
+	// ── 第一次删除：最后一条 assistant 回复。会话仍 live（但已 idle）→ 弹确认，
+	//    文案用 idle 变体（historyStopToDeleteBodyIdle）：只有正在流式时才带「会话正在运行。」前缀，
+	//    因为 idle 时并不需要真的打断什么。点「停止」→ 停止 → 改文件 → 立即重载。
 	const lastTurn = timeline.locator(".turn-row").filter({ hasText: reply2 });
 	await lastTurn.getByTitle("删除").click();
 	const stopDialog = window.getByRole("alertdialog");
 	await expect(stopDialog).toBeVisible({ timeout: 10_000 });
-	await expect(stopDialog).toContainText("会话正在运行。删除消息会先停止 Agent");
+	await expect(stopDialog).toContainText("删除消息会先停止 Agent，再改会话文件");
 	await stopDialog.getByRole("button", { name: "停止" }).click();
 
 	// 删除立即生效：第二轮回复从时间线消失（不再需要手动重载会话）
