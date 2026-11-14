@@ -1,3 +1,4 @@
+import { appUtilsSource } from "./helpers/appUtilsSources.mjs";
 import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 import assert from "node:assert/strict";
@@ -19,7 +20,7 @@ const buildTurn = readFileSync("src/renderer/src/components/session/timeline/bui
 const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
 const thinkingStep = readFileSync("src/renderer/src/components/session/turn/ThinkingStep.tsx", "utf8");
 const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-const appUtils = readFileSync("src/renderer/src/components/app/AppUtils.ts", "utf8");
+const appUtils = appUtilsSource;
 
 test("ThinkingUpdate payload carries stable id + lifecycle fields", () => {
 	assert.match(agentTypes, /export type ThinkingUpdate = \{/);

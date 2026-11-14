@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { buildTurnDisplay, hasFoldableContent } from "../src/renderer/src/components/session/timeline/buildTurnDisplay.ts";
 import { buildProcessSummary } from "../src/renderer/src/components/session/timeline/segmentSummary.ts";
@@ -201,26 +198,17 @@ test("过程步骤使用稳定 id（流式重渲染不重置展开状态）", ()
 /* ── groupToolMessages：连续 assistant 消息不再合并（多段回答原位平铺，issue #130） ── */
 
 function loadAppUtils() {
-	const source = readFileSync("src/renderer/src/components/app/AppUtils.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	});
-	const sandbox = {
-		exports: {},
-		location: { href: "file:///Users/test/app" },
-		require: (id) => {
-			if (id === "../session/composer/chips") return { formatFilePathRef: (p) => p };
-			if (id.endsWith("shared/ansiText")) return { stripAnsiCsi };
-			if (id === "../session/timelineFailureNotice") {
-				// 重试状态消息判定：与生产实现同口径（diagnostic.retry* i18nKey 集合）
-				const RETRY_KEYS = new Set(["diagnostic.retryScheduled", "diagnostic.retryScheduledAfterDelay", "diagnostic.retrySucceeded", "diagnostic.retryFailed"]);
-				return { isRetryStatusMessage: (message) => RETRY_KEYS.has(message?.meta?.i18nKey) };
-			}
-			return {};
+	// AppUtils 已是纯转发 barrel（实现按域拆到 appUtils/*），用能递归解析生产依赖图的加载器；
+	// 三处外部依赖仍按原口径桩掉（stub 键随域文件的下掉深度换成 ../../…）。
+	// 重试状态消息判定：与生产实现同口径（diagnostic.retry* i18nKey 集合）
+	const RETRY_KEYS = new Set(["diagnostic.retryScheduled", "diagnostic.retryScheduledAfterDelay", "diagnostic.retrySucceeded", "diagnostic.retryFailed"]);
+	return loadTsCommonJs("src/renderer/src/components/app/AppUtils.ts", {
+		stubs: {
+			"../../session/composer/chips": { formatFilePathRef: (p) => p },
+			"../../../../../shared/ansiText": { stripAnsiCsi },
+			"../../session/timelineFailureNotice": { isRetryStatusMessage: (message) => RETRY_KEYS.has(message?.meta?.i18nKey) },
 		},
-	};
-	vm.runInNewContext(outputText, sandbox, { filename: "AppUtils.ts" });
-	return sandbox.exports;
+	});
 }
 
 test("groupToolMessages 不合并连续 assistant 消息：多段回答各自独立、顺序保持", () => {

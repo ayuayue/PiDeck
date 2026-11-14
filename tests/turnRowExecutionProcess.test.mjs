@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { appUtilsSource } from "./helpers/appUtilsSources.mjs";
 
 const turnRowSource = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
 const stepRowSource = readFileSync("src/renderer/src/components/session/turn/TurnStepRow.tsx", "utf8");
@@ -111,5 +112,5 @@ test("TurnRow uses custom memo compare so unchanged runs skip re-render", () => 
 	assert.match(timelineEventCardsSource, /prev\.onOpenExternal === next\.onOpenExternal/);
 	assert.match(timelineEventCardsSource, /prev\.onOpenFile === next\.onOpenFile/);
 	// 深度比较入口来自 AppUtils
-	assert.match(readFileSync("src/renderer/src/components/app/AppUtils.ts", "utf8"), /export function sameAgentRunForRender/);
+	assert.match(appUtilsSource, /export function sameAgentRunForRender/);
 });

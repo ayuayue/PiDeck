@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
  * 阶段0补强：历史 run 引用稳定。
@@ -13,23 +12,12 @@ import vm from "node:vm";
  * 比较退化为 O(1)，不再每次流式增量都深度遍历全部历史消息。
  */
 
-// AppUtils 依赖 chips 模块，用 transpileModule + vm 沙箱加载
-//（与 tests/turnSegments.test.mjs 的 loadAppUtils 同套路）。
+// AppUtils 已是纯转发 barrel（实现按域拆到 appUtils/*），用能递归解析生产依赖图的加载器；
+// chips 仍显式桩掉（只用到 formatFilePathRef 的直通语义）。
 function loadAppUtils() {
-	const source = readFileSync("src/renderer/src/components/app/AppUtils.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+	return loadTsCommonJs("src/renderer/src/components/app/AppUtils.ts", {
+		stubs: { "../../session/composer/chips": { formatFilePathRef: (p) => p } },
 	});
-	const sandbox = {
-		exports: {},
-		location: { href: "file:///Users/test/app" },
-		require: (id) => {
-			if (id === "../session/composer/chips") return { formatFilePathRef: (p) => p };
-			return {};
-		},
-	};
-	vm.runInNewContext(outputText, sandbox, { filename: "AppUtils.ts" });
-	return sandbox.exports;
 }
 
 function makeRun(id, text) {
