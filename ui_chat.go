@@ -43,6 +43,7 @@ func (a *app) chatPane() core.Node {
 					Children:  []core.Node{a.transcript(s)},
 					Composer:  []core.Node{a.composerStack(s)},
 				},
+				a.turnAxis(s),
 				core.Show{When: func() bool {
 					return len(s.turns.Get()) == 0 && !s.loaded.Get() && s.status.Get() != statusFailed
 				}, Then: func(cx *core.Scope) core.Node { return a.historySkeleton(s) }},
@@ -128,6 +129,75 @@ func (a *app) loadEarlier(s *session) core.Node {
 			}},
 		}}},
 	}
+}
+
+// axisTicks is the turns the ruler marks: every one of a short session,
+// and an even sample of a long one, so the ticks stay apart.
+func axisTicks(n int) []int {
+	const most = 24
+	if n <= 0 {
+		return nil
+	}
+	if n <= most {
+		out := make([]int, n)
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	}
+	out := make([]int, most)
+	for i := range out {
+		out[i] = i * (n - 1) / (most - 1)
+	}
+	return out
+}
+
+// turnAxis is the ruler at the transcript's right edge: one tick per
+// turn, and a click scrolls to where that tick stands.
+func (a *app) turnAxis(s *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		ticks := axisTicks(len(s.turns.Get()))
+		if len(ticks) < 3 {
+			return nil
+		}
+		colors := ui.ColorsOf(cx)
+		var marks []core.Node
+		for j, i := range ticks {
+			j, i := j, i
+			marks = append(marks, core.View{
+				OnPress: func(core.PressEvent) { a.jumpToTurn(s, float64(j)/float64(len(ticks)-1)) },
+				Role:    core.RoleButton, Label: T("跳到第 %d 轮", i+1),
+				TestID: fmt.Sprintf("turn-tick-%d", j),
+				StyleFunc: func() core.Style {
+					return core.Style{Width: core.Pt(9), Height: core.Pt(4), CornerRadius: 2, Background: colors.Faint(),
+						Hover: &core.Style{Background: colors.Text()}}
+				},
+			})
+		}
+		return core.View{Style: core.Style{Position: core.Absolute, Right: core.Pt(3), Width: core.Pt(12),
+			Direction: core.Column, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
+			PointerEvents: core.PointerEventsBoxNone},
+			StyleFunc: func() core.Style {
+				return core.Style{Top: core.Pt(24), Bottom: core.Pt(s.conversation.ComposerHeight() + 16)}
+			},
+			Children: marks}
+	})
+}
+
+// jumpToTurn scrolls the transcript to a fraction of its scrollable
+// length, where the ruler's tick stands.
+func (a *app) jumpToTurn(s *session, fraction float64) {
+	ref := s.conversation.Scroll()
+	frame, ok := ref.Frame()
+	content, hasContent := ref.ContentBounds()
+	if !ok || !hasContent {
+		return
+	}
+	maxY := content.Size.Height - frame.Size.Height
+	if maxY <= 0 {
+		return
+	}
+	ref.ScrollTo(core.Point{Y: core.Points(float64(maxY) * fraction)}, true)
 }
 
 // turnView is one prompt and everything pi answered.
