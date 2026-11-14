@@ -125,7 +125,13 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$SELF/messages/page?before=<windowStart>&
 
 ### 5.1 让别的会话重启你
 
-把下面这条命令交给一个**协作会话**执行（不是你自己执行），参数是你要重启的那个会话 id：
+**先选对协作会话**：`/api/state` 的 `sessions[]` 里，`runtimes[]` **搜不到**的那些才是空闲的。
+不要发给正在跑的会话——它可能正在处理自己的回合，你这条消息会插进它手里的事，它回复的是它的任务，
+不是你的指令。判据：`runtimes[]` 里没有它的 `sessionId`。
+
+都忙的话，在 PiDeck 里新开一个空会话（它自带运行时），或者让人按 §5.3 手工点。
+
+把下面这条命令交给那个**空闲协作会话**执行（不是你自己执行），参数是你要重启的那个会话 id：
 
 ```bash
 node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <目标 sessionId> --message "重启完成，这条消息用来验证目标能被唤醒"
@@ -172,6 +178,10 @@ node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <对方 
 你被停之后必须有人接。所以这条路只能由人走：在 PiDeck 里点该会话的「停止」，再点「激活」；或人自己执行 §8 的两条 curl。
 
 不存在「agent 自己重启自己」的路径。硬来（`--no-wait` 指向自己）等于自杀：进程没了，没有人发 activate。
+
+`~/.pi/agent/bin/self-restart.mjs` 曾提供过一条带守卫的自查重启（守卫脱离进程树，由它 stop 再
+activate），实测成功过三次。它被删了：能力留在这里，禁令也在这里，两处真值打架的结果是 agent 会挑
+那条更省事的路走。现在只剩「让别人关」这一条。
 
 ### 5.4 失败时读哪一行
 
@@ -239,6 +249,13 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
 `-N` 关掉 curl 的缓冲。不加就看不到流式，会一直等到结束才吐。
 
 两个常见错误码：`webError.requestIdRequired`（请求体缺 `id`）、`webError.messageRequired`（`messages` 里没有 role 为 user 的项，或 text 为空）。
+
+**目标没在跑时先 activate**：`/api/chat` 只对已经跑着的运行时生效。发给一个 `runtimes[]` 里没有的
+会话，会返回 `200` 但一个帧都不吐，会话历史也不变——**状态码不能用来判送达**，判据是收到
+`start-step`。正确顺序：先 `runtime/activate`，等它出现在 `runtimes[]` 里，再发请求。
+
+2026-11-14 实测：空闲会话收到 `http=200 size=0`，重读 `messages` 总数没变；同一条请求发给正在跑的
+会话才有帧。
 
 ## 8 停止 / 启动 / 重启：原样请求
 
