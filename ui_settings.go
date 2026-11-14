@@ -574,10 +574,11 @@ func (a *app) settingsModels() core.Node {
 			favRows = append(favRows, core.Text{Content: "在输入框的模型菜单里点星标收藏；收藏的模型排在最前，可在这里调顺序。",
 				Style: core.Style{FontSize: 11, LineHeight: 16, Padding: core.Symmetric(4, 2)}, StyleFunc: ui.Colored(colors.Faint)})
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-content", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
 				setGroup("常用模型", core.View{Style: core.Style{Gap: 1}, Children: favRows}),
 				setGroup("供应商与认证", rows...),
+				a.piSettingsGroup(),
 				core.Text{Content: "凭据由 pi 管理（~/.pi/agent/auth.json）。在终端里执行登录命令后，点下方的「重新检测」。",
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{

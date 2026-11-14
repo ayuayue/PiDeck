@@ -68,7 +68,7 @@
 
 | 功能 | 状态 | 计划 |
 | --- | --- | --- |
-| models.json / auth.json / settings.json 可视化 | 🟡 | 供应商三字段 + 模型条目增删改可视化、余额模板、原始 JSON 编辑器；settings.json / auth.json 的表单待做 |
+| models.json / auth.json / settings.json 可视化 | 🟡 | 供应商三字段 + 模型条目增删改、余额模板、settings.json 常用项表单、原始 JSON 编辑器；auth.json 的表单待做 |
 | 连接测试 | ✅ | `/models` 优先，失败退到最小 chat 请求；显示状态码与耗时 |
 | 模型能力自适应 | ✅ | 读 models.json；模型菜单底部「刷新模型」重新向 pi 取模型与思考档 |
 | 供应商余额/额度查询 | ✅ | OpenRouter / Moonshot / DeepSeek / SiliconFlow 内置；其他供应商可配「余额接口 + JSON 字段 + 货币」自定义模板 |

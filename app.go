@@ -273,7 +273,15 @@ type app struct {
 	providerModelMax       *core.Signal[string]
 	providerModelReasoning *core.Signal[bool]
 	providerModelsRev      *core.Signal[int]
-	providerModels         []modelConfig
+	// pi settings.json, as the settings page shows it.
+	piSet    piSettings
+	piSetErr string
+	piSetRev *core.Signal[int]
+	// The number fields text, so typing survives a redraw.
+	piRetryText    *core.Signal[string]
+	piReserveText  *core.Signal[string]
+	piKeepText     *core.Signal[string]
+	providerModels []modelConfig
 
 	// langRev changes when the interface language does, so pages that
 	// hold static text rebuild.
@@ -605,6 +613,10 @@ func newApp(cx *core.Scope) *app {
 		providerModelMax:       core.NewSignal(cx, ""),
 		providerModelReasoning: core.NewSignal(cx, false),
 		providerModelsRev:      core.NewSignal(cx, 0),
+		piSetRev:               core.NewSignal(cx, 0),
+		piRetryText:            core.NewSignal(cx, ""),
+		piReserveText:          core.NewSignal(cx, ""),
+		piKeepText:             core.NewSignal(cx, ""),
 	}
 	a.toaster = ui.NewToaster(cx)
 	a.files = newFileTree(cx)
@@ -653,6 +665,7 @@ func newApp(cx *core.Scope) *app {
 			})
 		})
 	}
+	a.piSet, _ = readPiSettings()
 	a.applyProxy()
 	a.theme.Set(a.cfg.Theme)
 	a.sidebar.Set(a.cfg.SidebarOpen)
