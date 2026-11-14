@@ -393,3 +393,22 @@ atom / atomFamily **只能整体搬家**，入口文件用 `export { x } from ".
 ### 十二轮之后的位置
 
 `App.tsx` 4065 → **2169**（−47%）、`session-atoms` 2213 → **896**（−60%）。剩下的大头只剩两个并行的「编排内核」：`main/index.ts 4964`、`pi/AgentManager.ts 4785`——两者的剩余质量主要是装配顺序与事件编排，继续硬拆只会得到转发壳（`SessionRuntimeCoordinator` 停在 2162 就是这个结论）。**拆分主线到这里可以收了**；后续按 `AGENTS.md` 的「谁改到哪块就拆哪块」增量执行即可。
+
+## 第十三轮：PiLocator 与 AppUtils（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/pi/PiLocator.ts` | 1464 | **885** | `piLocator/`：`piCustomPath`（自定义路径校验）、`piSearchDirs`（包管理器全局 bin / PATH / WSL 候选枚举）、`piWindowsShim 174`（`.cmd` 垫片识别、`node-direct` 还原、`cmd-shim` 回退、引号与 8k 命令行预算）、`piLaunchEnv`、`piVersionCheck 178` |
+| `renderer/components/app/AppUtils.ts` | 1379 | **48** | `appUtils/` 十二个子模块（groupMessages 376 / suggestionItems 200 / renderTypes / toolArgs / textFormat / pathMatch / outline / reconcileRuns / renderEquality / commandMenu / composerTrigger / fileNodeDrag），入口只留 `export ... from` 转发 |
+
+### 这两块的共性：都是「零风险的机械搬迁」
+
+`PiLocator` 决定「用什么命令启动 pi」，`AppUtils` 是无状态纯函数，两者都没有隐藏的时序依赖，所以能用「搬定义 + 入口转发」的方式做到 import 说明符零改动：`AppUtils.ts` 留成纯 barrel、`PiLocator` 的五份实现被入口按需引用。目标文件从「实现体量」变成「域名录」。
+
+### 顺带发现（未改，留记录）
+
+`PiLocator.wslExePath` getter **零调用方**（`SessionScanner` 有一份自己的同名实现）。存量死代码，与拆分无关；清理与否另议——按「发现但不阻塞任务的问题记录后留在原处」处理。
+
+### 一条经验：源码契约测试的引用面要跟着搬
+
+`PiLocator` 有 29 个测试引用（多个直接读源码断言命令形状），`AppUtils` 有 17 个。两轮都靠「新建 `xxxSources.mjs` 显式文件清单 + 只改读取面 + 断言一字不动」过关。**搬函数必须同时搬「断言看得见的位置」**，否则就会为了迁就正则去改生产结构——那是上一批拆分踩过的坑。
