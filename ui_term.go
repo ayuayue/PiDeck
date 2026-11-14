@@ -59,6 +59,22 @@ func (a *app) closeTerminalTab(id string) {
 	a.term.remove(id)
 }
 
+// closeOtherTerminalTabs closes every terminal tab but one.
+func (a *app) closeOtherTerminalTabs(id string) {
+	for _, t := range append([]*termTab(nil), a.term.tabs.GetUntracked()...) {
+		if t.ID != id {
+			a.closeTerminalTab(t.ID)
+		}
+	}
+}
+
+// closeAllTerminalTabs closes every terminal tab.
+func (a *app) closeAllTerminalTabs() {
+	for _, t := range append([]*termTab(nil), a.term.tabs.GetUntracked()...) {
+		a.closeTerminalTab(t.ID)
+	}
+}
+
 // restartTerminal starts the tab in front again.
 func (a *app) restartTerminal() {
 	if tab := a.term.activeTab(); tab != nil {
@@ -103,7 +119,7 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	tab := func(t *termTab) core.Node {
 		on := func() bool { return a.term.active.Get() == t.ID }
-		return core.View{
+		return ui.ContextMenu{Trigger: core.View{
 			OnPress: func(core.PressEvent) {
 				if a.term.active.Get() != t.ID {
 					a.animateNextLayout()
@@ -144,7 +160,11 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 							Hover: &core.Style{Background: colors.Pressed()}, Active: &core.Style{Background: colors.Pressed()}}
 					}, Children: []core.Node{ui.Icon(lucide.X, 10, colors.Faint)}},
 			},
-		}
+		}, TestID: "terminal-tab-menu", Children: []core.Node{
+			ui.MenuItem{Text: T("关闭终端"), Icon: lucide.X, OnSelect: func() { a.closeTerminalTab(t.ID) }},
+			ui.MenuItem{Text: T("关闭其他终端"), Icon: lucide.X, OnSelect: func() { a.closeOtherTerminalTabs(t.ID) }},
+			ui.MenuItem{Text: T("关闭全部终端"), Icon: lucide.X, OnSelect: a.closeAllTerminalTabs},
+		}}
 	}
 	return core.View{StyleFunc: func() core.Style {
 		return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Height: core.Pt(33), FlexShrink: 0,
