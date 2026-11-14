@@ -20,9 +20,9 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 | 重启某个会话（自己或别人） | 会，目标被停 | 第 6 节 |
 | 单独停、启、中止 | 会，目标被停 | 第 7 节 |
 
-第 2 节 是所有节的前提。
+第 2 节是所有节的前提。
 
-**先读 第 2 节 的一条注意事项**：每段 bash 都是独立 shell，变量不跨段保留。后面几节的命令都假设 `$AUTH`、`$BASE` 已经在**同一次**调用里设好。
+**先读第 2 节的一条注意事项**：每段 bash 都是独立 shell，变量不跨段保留。后面几节的命令都假设 `$AUTH`、`$BASE` 已经在**同一次**调用里设好。
 
 ## 1 三个词
 
@@ -99,7 +99,7 @@ curl -s -H "$AUTH" "$BASE/api/state"
 - `sessions[]`：**所有会话**，含没在跑的。字段 `{id, projectId, title, status, model, thinkingLevel, updatedAt, createdAt}`。
 - `runtimes[]`：**此刻正在跑的进程**。字段 `{sessionId, agentId, runtimeGeneration, projectId, cwd, status, sessionPath, createdAt, deckSessionId}`。
 
-**两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。反过来，不在 `runtimes[]` 里的会话进程没起，第 5 节 的消息送不到。
+**两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。反过来，不在 `runtimes[]` 里的会话进程没起，第 5 节的消息送不到。
 
 **没有 `/api/sessions` 这个端点。** 猜它会拿到 `{"code":"webError.apiNotFound"}`。列会话就是上面的 `/api/state`。
 
@@ -117,12 +117,13 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
   "$BASE/api/chat"
 ```
 
-返回是 SSE，逐行 `data: {...}`。原始形状长这样（一行一帧，`data:` 后面是 JSON）：
+返回是 SSE（服务端推过来的流式文本，一行一帧，`data:` 后面是 JSON）。实测形状：
 
 ```text
-data: {"type":"start-step"}
-data: {"type":"reasoning-delta","delta":"先看看"}
-data: {"type":"text-delta","delta":"收到"}
+data: {"type":"start","messageId":"msg_1794659108957"}
+data: {"type":"text-start","id":"text_1794659109932_i4wmgw"}
+data: {"type":"reasoning-delta","id":"reasoning_...","delta":"「"}
+data: {"type":"text-delta","id":"text_1794659109932_i4wmgw","delta":"收到"}
 data: {"type":"finish"}
 data: [DONE]
 ```
@@ -134,9 +135,19 @@ data: [DONE]
 1. 回读目标的 `/messages`，`total` 变大就是送到了。
 2. 或者看 SSE 里有没有 `error` 帧——目标没在跑时服务端会写 `error` + `finish` + `[DONE]`，消息不入队。
 
+**目标不存在或没在跑时**，服务端写这三帧，HTTP 仍然是 200：
+
+```text
+data: {"type":"error","errorText":"Session not found: 00000000-0000-0000-0000-000000000000"}
+data: {"type":"finish"}
+data: [DONE]
+```
+
+注意 `error` 帧带的是 `errorText`，不是 `code`。HTTP 200 加这三帧，等于没送到。
+
 两种情况：
 
-- **目标没在跑**：`total` 不变，SSE 里有 `error` 帧。先按 第 7 节 启动它，等它进 `runtimes[]`，再发。
+- **目标没在跑**：`total` 不变，SSE 里有 `error` 帧。先按第 7 节启动它，等它进 `runtimes[]`，再发。
 - **目标在跑但忙**：`total` 变大，消息已入队，等它做完手上的事就轮到这条。
 
 两个常见错误码：`webError.requestIdRequired`（body 缺 `id`）、`webError.messageRequired`（没有 role 为 user 的项，或 text 为空）。
@@ -154,14 +165,14 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"projectId":"builtin-chat"}' "$BASE/api/sessions"
 ```
 
-返回 `{"session":{"id":"...", ...}}`，取 `session.id`。新建的是草稿态，还得按 第 7 节 对它 activate 一次才会进 `runtimes[]`，进不去就发不了消息。
+返回 `{"session":{"id":"...", ...}}`，取 `session.id`。新建的是草稿态，还得按第 7 节对它 activate 一次才会进 `runtimes[]`，进不去就发不了消息。
 
 **别用 `/api/sessions/anonymous` 建执行者。** 它有两个实测的坑：
 
 - `noSession: true`，**没有自己的 `sessionPath`**。执行者要认「我是谁」时会去比对磁盘上哪个 jsonl 正在被写，拿到的却是目标的路径，结论必然是「目标就是我」，于是拒绝执行。
 - stop 之后整条记录被删掉，紧接着 activate 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`——HTTP 仍是 200。它连当目标都不行。
 
-> 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的 第 2 节，再按第 0 步到第 5 步做，每步把输出贴回来。
+> 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的第 2 节，再按第 0 步到第 5 步做，每步把输出贴回来。
 >
 > 0. **先认自己是谁**：`echo $PIDECK_SESSION_ID`。如果它等于 `<目标 sessionId>`，停下——停掉的就是你自己，没有进程去发 activate。如果它不等于，继续。
 > 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。找不到说明目标没在跑，直接跳到第 3 步。
@@ -184,9 +195,9 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 >      -d '{"id":"<目标>","messages":[{"role":"user","parts":[{"type":"text","text":"重启完成，这条消息用来验证你能接活"}]}]}' \
 >      "$BASE/api/chat"
 >    ```
->    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。第 5 节 说过，这条请求是异步入队，可能一个帧都不吐。
+>    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。第 5 节说过，这条请求是异步入队，可能一个帧都不吐。
 
-**第 0 步不能省，也不能换成别的判法。** 实测一个匿名执行者会话自己分辨「我是谁」时，用 `runtimes[]` 里目标的 `sessionPath` 去比对磁盘上哪个 jsonl 正在被写，再对齐时间戳，结论是「目标就是我」，于是拒绝执行。错在匿名会话 `noSession: true`、**没有自己的 `sessionPath`**，拿别人的路径认自己必然认错。唯一可靠的是 `echo $PIDECK_SESSION_ID`。
+**第 0 步不能省，也别换成别的判法。** 别拿 `sessionPath` 或磁盘写入时间去推断自己是谁——匿名会话没有 `sessionPath`，会拿目标的路径认自己，结论正好反过来。只有 `echo $PIDECK_SESSION_ID` 可靠。
 
 **HTTP 200 不代表做成了，必须看 body。** 三个实测形状：
 
@@ -194,15 +205,15 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 |---|---|---|
 | 停成了 | 200 | `{"result":{"ok":true,"value":{...}}}` |
 | 目标本来就没在跑 | 200 | `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_UNAVAILABLE"}}}` |
-| URL 与 body 的 sessionId 不一致 / 没给 target | 400 | `{"code":"webError.runtimeTargetRequired"}` |
+| URL 与 body 的 sessionId 不一致 / 没给 target | 400 | `{"code":"webError.runtimeTargetRequired","error":"A matching Session runtime target is required"}` |
 
-**`runtimeGeneration` 不校验。** 实测传一个比实际大 99 的代号，stop 照样 200 并真的把目标停了。所以这个字段是给你自己对齐用的，不是防误停的闸。
+**`runtimeGeneration` 不校验。** 实测传一个比实际大 99 的代号，stop 照样 200 并真的把目标停了。所以这个字段是给你自己核对用的，不是防误停的闸。
 
 **要不要直接用 `restart` 一步做完？** 有这个动作，请求体和 stop 一样（带 target），由服务端串起停和启。本文的流程用 stop + activate 两步，是因为每一步都能单独验收：停完能确认目标真的从 `runtimes[]` 消失，启完能确认代号变了。用 `restart` 省一次调用，但中间状态看不到。
 
 **为什么不用等目标回合结束**：如果目标正在写回复，stop 会让它断在半句。判断它忙不忙没有可靠办法——问用户最快。新开的空会话天然空闲，这是它最省事的地方。
 
-**重启之后你是新进程**：不记得上一轮在干什么。会话历史仍在同一个 jsonl（`runtimes[].sessionPath`），上下文不丢，但「成没成」只能由重启后的一方重读 `runtimes[]` 确认。界面显示「异常停下」是 stop 动作本身，不是失败。
+**重启之后你是新进程**：不记得上一个进程在干什么。会话历史仍在同一个 jsonl（`runtimes[].sessionPath`），上下文不丢，但「成没成」只能由重启后的一方重读 `runtimes[]` 确认。界面显示「异常停下」是 stop 动作本身，不是失败。
 
 ### 6.1 这条流程的实测记录
 
@@ -303,4 +314,4 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 1. **能观察自己**（只读）：`echo $PIDECK_SESSION_ID` 非空，且这个 id 出现在 `/api/state` 的 `sessions[]` 里。
 2. **能读别人**（只读）：`sessions[]` 里看得到别的会话标题。
-3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，收到 `text-delta` 帧且 `total` 变大；要验「真进程」，走一次 第 6 节，`runtimeGeneration` 变了才算。
+3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，收到 `text-delta` 帧且 `total` 变大；要验「真进程」，走一次第 6 节，`runtimeGeneration` 变了才算。
