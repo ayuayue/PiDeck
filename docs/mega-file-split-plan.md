@@ -446,3 +446,29 @@ atom / atomFamily **只能整体搬家**，入口文件用 `export { x } from ".
 ### 一条断言的处置方式（与「断言锁语义不锁形态」一致）
 
 `scrollToLatestOnSend` 那条 gate 的源码断言差点逼着去改生产形状（把 store 引用改成闭包捕获）。子代理的处理是对的：**保持原形态——注入 `store` + atom keys**，一个字没动断言。反过来（为了迁就正则改生产结构）就是上一批拆分踩过的坑。
+
+## 第十六轮：ConfigManager 与 DshConfigTab（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/config/ConfigManager.ts` | 1560 | **966** | `configModelTypes 85`（纯类型，宿主 `export type ... from` 转发）、`providerUsageEndpoint`、`providerUsageHost`、`providerUsageProbes`、`providerUsageQueries`（用量与探测域整体外提） |
+| `renderer/src/config/DshConfigTab.tsx` | 1449 | **736** | `config/dsh/` 六个：`DshConfigOverview`（原 `Overview` 子组件整段）、`dshConfigNav`（NAV_ITEMS + localStorage 记忆）、`dshConfigTypes`、`DshConfigEmpty`、`DshConfigPresetsTab`、`DshConfigRawTab` |
+
+### 边界案例：把内联语句抽成具名函数，算不算纯搬迁
+
+`DshConfigTab` 里原来有两处内联写：
+
+```ts
+const selectTab = useCallback((id: string) => {
+	setActiveTab(id);
+	try { localStorage.setItem(DSH_LAST_TAB_KEY, id); } catch { /* 隐私模式 */ }
+}, []);
+```
+
+搬迁时它把 try/catch 抽成了 `rememberDshLastTab(id)` 具名函数。判定标准是三条**同时**满足才算等价、可以接受：
+
+1. **同步调用**（没变成异步 / 没加防抖节流 / 没延后到 effect）
+2. **key 与值相同**（`DSH_LAST_TAB_KEY` + 同一个 id）
+3. **时机与顺序相同**（仍在 `setActiveTab` 之后紧邻执行）
+
+三条里任一不成立就必须打回。这条写在这里是因为「为了搬得干净，顺手把内联代码抽成函数」是很容易越界的一步——它看着无害，但把「同步写」悄悄变成「effect 里写」就会改变可观察行为。
