@@ -373,3 +373,21 @@ func editorLanguage(path string) string {
 	}
 	return strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
 }
+
+// saveAllFiles writes every dirty file, skipping ones still loading.
+func (a *app) saveAllFiles() {
+	if a.editor == nil {
+		return
+	}
+	saved := 0
+	for _, f := range a.editor.files.GetUntracked() {
+		if f == nil || f.Loading.GetUntracked() || f.Err.GetUntracked() != "" || !f.Dirty.GetUntracked() {
+			continue
+		}
+		a.editor.save(f)
+		saved++
+	}
+	if saved == 0 {
+		a.toast(ui.ToastInfo, "没有要保存的文件", "所有打开的文件都已保存。")
+	}
+}

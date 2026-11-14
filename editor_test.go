@@ -122,3 +122,46 @@ func editorWorkspace(t *testing.T) string {
 	})
 	return dir
 }
+
+// TestSaveAllFiles saves every dirty editor tab at once.
+func TestSaveAllFiles(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir := editorWorkspace(t)
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	aPath := filepath.Join(dir, "a.txt")
+	bPath := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(aPath, []byte("aa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bPath, []byte("bb"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := startApp(t, dir, 1280, 860)
+	app.Key("mod+j")
+	app.WaitFor("id:drawer-tab-files", 5*time.Second)
+	app.Press("id:drawer-tab-files")
+	app.WaitFor("text:a.txt", 5*time.Second)
+	app.Press("text:a.txt")
+	app.WaitFor("text:aa", 5*time.Second)
+	app.Type("id:editor", "!")
+	app.Press("text:b.txt")
+	app.WaitFor("text:bb", 5*time.Second)
+	app.Type("id:editor", "?")
+	app.Key("mod+alt+s")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		aData, _ := os.ReadFile(aPath)
+		bData, _ := os.ReadFile(bPath)
+		if string(aData) == "!aa" && string(bData) == "?bb" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("files = %q, %q", aData, bData)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}

@@ -100,6 +100,15 @@ func (a *app) editorActions() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
 		ui.IconButton{Icon: lucide.Save, Label: "保存", Size: 28, IconSize: 14, TestID: "editor-save",
 			Disabled: func() bool { return !dirty() }, OnPress: func() { a.saveActiveFile() }},
+		ui.IconButton{Icon: lucide.SaveAll, Label: "保存所有文件", Size: 28, IconSize: 14, TestID: "editor-save-all",
+			Disabled: func() bool {
+				for _, f := range a.editor.files.GetUntracked() {
+					if f != nil && f.Dirty.GetUntracked() {
+						return false
+					}
+				}
+				return true
+			}, OnPress: func() { a.saveAllFiles() }},
 		ui.IconButton{Icon: lucide.RotateCcw, Label: "重新读取", Size: 28, IconSize: 14, TestID: "editor-reload",
 			Disabled: func() bool { return !enabled() }, OnPress: func() { a.reloadActiveFile() }},
 		ui.IconButton{Icon: lucide.ExternalLink, Label: "在文件管理器中显示", Size: 28, IconSize: 14,

@@ -68,6 +68,19 @@ func builtinCommands() []appCommand {
 				}
 				a.closeTab(a.activeID.GetUntracked())
 			}},
+		{ID: "save-all-files", Label: "保存所有文件", Group: "文件", Shortcut: "mod+alt+s", Icon: lucide.SaveAll,
+			When: func(a *app) bool {
+				if !a.editorOpen() {
+					return false
+				}
+				for _, f := range a.editor.files.GetUntracked() {
+					if f != nil && f.Dirty.GetUntracked() {
+						return true
+					}
+				}
+				return false
+			},
+			Run: func(a *app) { a.saveAllFiles() }},
 		{ID: "save-file", Label: "保存文件", Group: "文件", Shortcut: "mod+s", Icon: lucide.Save,
 			When: func(a *app) bool {
 				return a.editorOpen() && a.editor.activeFile() != nil && a.editor.activeFile().Dirty.GetUntracked()
