@@ -30,6 +30,7 @@ var settingsIndex = []settingEntry{
 	{"keys", "键位", "keybinding shortcut keyboard"},
 	{"look", "配色", "theme appearance color"},
 	{"look", "主题文件", "theme file json yaml"},
+	{"look", "导出当前主题", "export theme file"},
 	{"env", "pi 可执行文件", "pi path binary"},
 	{"env", "pi 会话目录", "pi sessions directory"},
 	{"env", "pi 配置目录", "pi config directory"},

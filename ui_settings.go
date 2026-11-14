@@ -685,10 +685,7 @@ func (a *app) settingsLook() core.Node {
 						Padding: core.Symmetric(2, 2), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
 				},
 				Children: []core.Node{
-					core.View{StyleFunc: func() core.Style {
-						return core.Style{Width: core.Pt(28), Height: core.Pt(18), CornerRadius: 4, Background: s.swatch(),
-							BorderWidth: 1, BorderColor: colors.Border()}
-					}},
+					themePreview(s),
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						ui.Text(s.Name, 12.5, ui.Regular, colors.Text),
 						core.Show{When: func() bool { return note != "" }, Then: func(*core.Scope) core.Node {
@@ -721,6 +718,10 @@ func (a *app) settingsLook() core.Node {
 					ui.Button{Text: "打开目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 						a.openThemesDir()
 					}}),
+				setDivider(),
+				setRow("导出当前主题", "把当前配色、tokens、字体与圆角写成一个主题文件，可分享或继续改。",
+					ui.Button{Text: "导出", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-export",
+						OnPress: a.exportTheme}),
 				core.Text{Content: "角色：background surface border text textMuted accent danger warning success selection focus scrollbar inset raised field line faint code info track knob。",
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 			}},

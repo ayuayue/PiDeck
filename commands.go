@@ -240,6 +240,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.shortcutsQuery.Set(""); a.shortcutsOpen.Set(true) }},
 		{ID: "check-updates", Label: "检查更新", Group: "应用", Icon: lucide.CloudDownload,
 			Run: func(a *app) { updater.Check(a.cx) }},
+		{ID: "theme-export", Label: "导出当前主题…", Group: "外观", Icon: lucide.Palette,
+			Run: func(a *app) { a.exportTheme() }},
 		{ID: "settings", Label: "设置", Group: "应用", Shortcut: "mod+,", Icon: lucide.Settings,
 			Run: func(a *app) { a.settings.Set(true) }},
 	}

@@ -19,6 +19,7 @@ package main
 // Top-level "prompts" and "themes" are the older shape and still load.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,8 +27,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/ui"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -104,6 +107,85 @@ func (t themeSpec) swatch() core.Color {
 		return core.RGB(0xffffff)
 	}
 	return core.RGBA(0x0d0d0d, 0.35)
+}
+
+// previewColor is one role of a theme, from the side it shows, falling
+// back to the app's own palette.
+func (t themeSpec) previewColor(name string) core.Color {
+	dark := t.Appearance == "dark" || (t.Appearance != "light" && t.ID == "dark")
+	if dark {
+		if c, ok := t.DarkColors[name]; ok {
+			return c
+		}
+		if v, ok := t.Dark[name]; ok {
+			if c, err := core.ParseColor(v); err == nil {
+				return c
+			}
+		}
+	} else {
+		if c, ok := t.LightColors[name]; ok {
+			return c
+		}
+		if v, ok := t.Light[name]; ok {
+			if c, err := core.ParseColor(v); err == nil {
+				return c
+			}
+		}
+	}
+	pal := pideckTheme().Light
+	if dark {
+		pal = pideckTheme().Dark
+	}
+	if c, ok := pal.Color(name); ok {
+		return c
+	}
+	return core.Transparent
+}
+
+// themePreview is a theme in miniature: its background, a line of text,
+// an accent dot and a danger dot.
+func themePreview(t themeSpec) core.Node {
+	text := t.previewColor("text")
+	return core.View{Style: core.Style{Width: core.Pt(46), Height: core.Pt(26), CornerRadius: 5,
+		Background: t.previewColor("background"), BorderWidth: 1, BorderColor: t.previewColor("border")},
+		Children: []core.Node{
+			core.View{Style: core.Style{Position: core.Absolute, Left: core.Pt(6), Top: core.Pt(6), Width: core.Pt(22), Height: core.Pt(3),
+				CornerRadius: 1.5, Background: text}},
+			core.View{Style: core.Style{Position: core.Absolute, Left: core.Pt(6), Top: core.Pt(12), Width: core.Pt(14), Height: core.Pt(2),
+				CornerRadius: 1, Background: ui.Alpha(text, 0.55)}},
+			core.View{Style: core.Style{Position: core.Absolute, Right: core.Pt(6), Bottom: core.Pt(5), Width: core.Pt(6), Height: core.Pt(6),
+				CornerRadius: 3, Background: t.previewColor("accent")}},
+			core.View{Style: core.Style{Position: core.Absolute, Right: core.Pt(15), Bottom: core.Pt(5), Width: core.Pt(6), Height: core.Pt(6),
+				CornerRadius: 3, Background: t.previewColor("danger")}},
+		}}
+}
+
+// paletteRoleMap writes a palette's roles as a theme file does.
+func paletteRoleMap(p core.Palette) map[string]string {
+	names := []string{"background", "surface", "surfaceHover", "surfacePressed", "border", "text", "textMuted",
+		"accent", "accentHover", "accentPressed", "accentText", "danger", "warning", "success",
+		"selection", "focus", "scrollbar"}
+	out := map[string]string{}
+	for _, name := range names {
+		if c, ok := p.Color(name); ok {
+			out[name] = colorText(c)
+		}
+	}
+	for name, c := range p.Colors {
+		if _, ok := out[name]; !ok {
+			out[name] = colorText(c)
+		}
+	}
+	return out
+}
+
+// colorText formats a color as #rrggbb, or rgba() when it is translucent.
+func colorText(c core.Color) string {
+	r, g, b, a := c.Components()
+	if a < 0.999 {
+		return fmt.Sprintf("rgba(%d,%d,%d,%.2f)", int(r*255+0.5), int(g*255+0.5), int(b*255+0.5), a)
+	}
+	return fmt.Sprintf("#%02x%02x%02x", int(r*255+0.5), int(g*255+0.5), int(b*255+0.5))
 }
 
 // plugin is a folder of add-ons.
@@ -828,6 +910,73 @@ func (a *app) applyTheme() {
 		}
 	}
 	a.cx.SetTheme(base)
+}
+
+// exportTheme writes the current look as a theme file the app reads back.
+func (a *app) exportTheme() {
+	dir := a.themesDir()
+	if dir == "" {
+		a.toast(ui.ToastError, "找不到主题目录", "")
+		return
+	}
+	base := pideckTheme()
+	spec := a.themeSpec(a.theme.GetUntracked())
+	if spec != nil {
+		applyRoles(&base.Light, spec.Light)
+		applyRoles(&base.Dark, spec.Dark)
+		for k, c := range spec.LightColors {
+			base.Light.SetColor(k, c)
+		}
+		for k, c := range spec.DarkColors {
+			base.Dark.SetColor(k, c)
+		}
+		if len(spec.Tokens) > 0 {
+			if base.Tokens == nil {
+				base.Tokens = map[string]string{}
+			}
+			for k, v := range spec.Tokens {
+				base.Tokens[k] = v
+			}
+		}
+		if spec.Radius > 0 {
+			base.Radius = core.Points(spec.Radius)
+		}
+		if spec.Sans != "" {
+			base.Sans = spec.Sans
+		}
+		if spec.Mono != "" {
+			base.Mono = spec.Mono
+		}
+	}
+	name, appearance := "我的主题", ""
+	if spec != nil {
+		name = spec.Name + " 副本"
+		appearance = spec.Appearance
+	}
+	id := "exported-" + time.Now().Format("20060102-150405")
+	f := themeFile{ID: id, Name: name, Author: "PiDeck Lite", Appearance: appearance,
+		Light: paletteRoleMap(base.Light), Dark: paletteRoleMap(base.Dark), Tokens: base.Tokens,
+		Sans: base.Sans, Mono: base.Mono}
+	if base.Radius > 0 {
+		radius := float32(base.Radius)
+		f.Radius = &radius
+	}
+	data, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		a.toast(ui.ToastError, "导出主题失败", err.Error())
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		a.toast(ui.ToastError, "导出主题失败", err.Error())
+		return
+	}
+	path := filepath.Join(dir, id+".json")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		a.toast(ui.ToastError, "导出主题失败", err.Error())
+		return
+	}
+	a.reloadAddons()
+	a.toastAction(ui.ToastSuccess, "已导出主题", path, "打开", func() { a.openEditorFile(dir, path) })
 }
 
 // themeSpec finds a look by id.

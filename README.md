@@ -257,7 +257,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
   也可查询余额（OpenRouter / Moonshot / DeepSeek / SiliconFlow 按 BaseURL 或供应商 ID 识别；
   其他供应商可在供应商配置里填「余额接口 / 余额字段 / 余额货币」，字段是 JSON 路径，支持数组下标）
 - 原始配置：直接在内置编辑器里打开 `models.json` / `settings.json` / `auth.json`
-- 外观：配色（跟随系统/纸白/炭黑/用户主题）、打开主题目录
+- 外观：配色（跟随系统/纸白/炭黑/用户主题，每项带一张配色缩略图）、打开主题目录、
+  把当前配色导出成主题文件（含 tokens、字体与圆角）
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区；网络代理分「应用请求」与「Agent 进程」两栏，另可填直连名单
 - 扩展：插件列表与命令、插件声明式设置（开关/文本/数字/单选）、插件市场、打开插件目录、重新加载
 - MCP：设置 → MCP 列出 pi 的 MCP 服务器（状态、传输、工具数、错误），可添加 HTTP 地址或启动命令、移除；配置由 pi 保存在 `mcp.json`
