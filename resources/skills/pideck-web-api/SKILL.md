@@ -304,7 +304,11 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 > 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的第 2 节，再按第 0 步到第 5 步做，每步把输出贴回来。
 >
-> 0. **先认自己是谁**：`echo $PIDECK_SESSION_ID`。如果它等于 `<目标 sessionId>`，停下——停掉的就是你自己，没有进程去发 activate。如果它不等于，继续。
+> 0. **先认自己是谁**：`echo $PIDECK_SESSION_ID`。
+>
+>    它为空就用第 2 节那两条兜底：`$PI_SESSION_FILE` 去 `runtimes[].sessionPath` 里对，或者取 `$PIDECK_LINKED_SESSIONS_URL` 的尾段。
+>
+>    拿到自己的 id 之后比对：等于 `<目标 sessionId>` 就停下——停掉的就是你自己，没有进程去发 activate。**三条路都拿不到自己的 id 也停下，别赌。**
 > 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。
 > 找不到说明目标没在跑，直接跳到第 3 步。
 > 2. **停**：
