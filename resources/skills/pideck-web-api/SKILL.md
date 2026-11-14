@@ -174,6 +174,31 @@ data: [DONE]
 
 **重启之后你是新进程**：不记得上一轮在干什么。会话历史仍在同一个 jsonl（`runtimes[].sessionPath`），上下文不丢，但「成没成」只能由重启后的一方重读 `runtimes[]` 确认。界面显示「异常停下」是 stop 动作本身，不是失败。
 
+### 6.1 这套流程的实测记录
+
+2026-11-14，Windows 发行版，目标是 `fc3b8a41`（一个没在跑的会话），由另一个会话执行：
+
+```text
+第 0 步 activate
+  HTTP 200  {"result":{"ok":true,"value":{...,"runtimeGeneration":1,"status":"idle"}}}
+
+第 1 步 取 target
+  {"sessionId":"fc3b8a41-…","agentId":"5b9b9fbd-…","runtimeGeneration":1}
+
+第 2 步 stop
+  HTTP 200  {"result":{"ok":true,"value":{...,"runtimeGeneration":1}}}
+  再读 runtimes：目标已不在列表里
+
+第 3 步 activate
+  HTTP 200  {"result":{"ok":true,"value":{...,"agentId":"7a2c0052-…","runtimeGeneration":2,"status":"idle"}}}
+
+第 4 步 再读 runtimes
+  gen 1 -> 2，agentId 5b9b9fbd -> 7a2c0052
+```
+
+**代号和 `agentId` 会一起变。** 两个都是「换没换进程」的证据，任一个变了就是换了。
+
+**匿名会话会在空闲后消失。** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。要拿它当测试目标，建完就得马上用。PiDeck 里正常新建的会话不受这个影响。
 ## 7 停 / 启 / 中止：单个动作
 
 动作挂在 `/api/sessions/<id>/runtime/<action>`。常用的四个：
