@@ -9,7 +9,7 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 
 下面每条命令都在 2026-11 的 Windows 发行版上跑过，写了期望返回。返回形状不符说明版本变了，以源码里的 `src/main/web/WebApiRoutes.ts` 为准（`/api/health` 例外，它在 `WebServiceManager.ts:497`）。
 
-本机克隆在 `C:\Users\15066212pp\src\PiDeck\v099`，换台机器就换成你自己的克隆路径。
+要看源码就看你自己的那份克隆。技能本身不依赖它，只有想确认「这个端点源码里到底怎么写的」时才需要。
 
 **下面所有 bash 都按 Git Bash 写**（PiDeck 在 Windows 上附带的那套）。别在 cmd 或 PowerShell 里跑：`$VAR` 不展开，`%APPDATA%` 在 bash 里不展开。怎么确认：`echo $APPDATA` 有值就是对的 shell。
 

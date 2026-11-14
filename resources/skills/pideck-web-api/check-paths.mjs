@@ -52,6 +52,10 @@ for (const p of uniq) {
     if (!srcSegs.has(s)) { console.log("  " + p + " 里的段「" + s + "」源码里没有"); bad++; }
   }
 }
+// 本机绝对路径不能写进技能：技能是发给别人用的，别人的机器上没有这个目录。
+const foreign = (skill.match(/[A-Z]:\\Users/g) || []);
+for (const f of foreign) { console.log("  文档里写了本机路径: " + f); bad++; }
+
 console.log("文档里 " + uniq.length + " 条 /api 路径，" + (bad ? bad + " 处段对不上" : "每一段都在源码里"));
 console.log(bad ? "FAIL" : "PASS");
 process.exit(bad ? 1 : 0);
