@@ -7,7 +7,9 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 
 **PiDeck 每个窗口背后跑一个 pi 进程，同时开一个只监听本机的 HTTP 服务。用这个服务，你能读自己的状态、给别的窗口发消息、让另一个会话把自己重启。**
 
-下面每条命令都在 2026-11 的 Windows 发行版上跑过，写了期望返回。返回形状不符说明版本变了，以源码里的 `src/main/web/WebApiRoutes.ts` 为准。本机克隆在 `C:\Users\15066212pp\src\PiDeck\v099`，换台机器就换成你自己的克隆路径。
+下面每条命令都在 2026-11 的 Windows 发行版上跑过，写了期望返回。返回形状不符说明版本变了，以源码里的 `src/main/web/WebApiRoutes.ts` 为准（`/api/health` 例外，它在 `WebServiceManager.ts:497`）。
+
+本机克隆在 `C:\Users\15066212pp\src\PiDeck\v099`，换台机器就换成你自己的克隆路径。
 
 **下面所有 bash 都按 Git Bash 写**（PiDeck 在 Windows 上附带的那套）。别在 cmd 或 PowerShell 里跑：`$VAR` 不展开，`%APPDATA%` 在 bash 里不展开。怎么确认：`echo $APPDATA` 有值就是对的 shell。
 
@@ -59,7 +61,9 @@ echo $PIDECK_SESSION_ID
 
 **别拿错变量**：`$PI_SESSION_ID` 是 pi 自己的会话 id，不是 PiDeck 的身份。分辨办法：`$PIDECK_SESSION_ID` 能在 `/api/state` 的 `sessions[]` 里找到，`$PI_SESSION_ID` 找不到。
 
-**别用 `grep ^PI_` 找它。** `PIDECK_SESSION_ID` 不以 `PI_` 开头，那个 grep 会把它整条漏掉，剩下唯一像身份的 `$PI_SESSION_ID` 是 pi 自己的会话 id，看起来对，坐标系是错的。找身份就一条命令：`echo $PIDECK_SESSION_ID`，不要从 env 里筛。
+**别用 `grep ^PI_` 找它。** `PIDECK_SESSION_ID` 不以 `PI_` 开头，那个 grep 会把它整条漏掉，剩下唯一像身份的 `$PI_SESSION_ID` 是 pi 自己的会话 id，看起来对，坐标系是错的。
+
+找身份就一条命令：`echo $PIDECK_SESSION_ID`，不要从 env 里筛。
 
 四条验证，每条写了该返回什么，**放在同一次调用里跑**（变量不跨段）：
 
@@ -98,9 +102,15 @@ node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\
 
 首行 `type: session`，其余每行一条消息。`windowStart` 是个数字（例如 5516），不是消息 id。
 
-**这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。一个 208 条的会话返回 1.5 MB，耗时 100~260 ms；作为对比 `/api/state` 4 KB 用 2 ms，`/api/sessions/runtimes` 1 KB 用 1.4 ms。所以**别拿它轮询**：判断消息送没送到，先看 SSE 有没有 `error` 帧，只查一次 `/messages`。
+**这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。
 
-单条消息的字段是 `{id, agentId, role, text, timestamp, meta}`，assistant 还多 `thinking`、`model`、`stopReason`。注意正文在 `text`，不在 `parts`——`parts` 只在 `/api/chat` 的**请求**里用。
+一个 208 条的会话返回 1.5 MB，耗时 100~260 ms；作为对比（2026-11-14 本机，61 个会话）：`/api/state` 约 7.5 KB 用 3.7 ms，`/api/sessions/runtimes` 约 1.5 KB 用 1.6 ms。这两个数随会话数涨，不是常量。
+
+所以**别拿它轮询**：判断消息送没送到，先看 SSE 有没有 `error` 帧，只查一次 `/messages`。
+
+单条消息的字段是 `{id, agentId, role, text, timestamp, meta}`，assistant 还多 `thinking`、`thinkingStartedAt`、`thinkingEndedAt`、`model`、`stopReason`。
+
+注意正文在 `text`，不在 `parts`——`parts` 只在 `/api/chat` 的**请求**里用。
 
 ## 4 找别的会话
 
@@ -113,7 +123,9 @@ curl -s -H "$AUTH" "$BASE/api/state"
 - `sessions[]`：**所有会话**，含没在跑的。字段 `{id, projectId, title, status, model, thinkingLevel, updatedAt, createdAt}`。
 - `runtimes[]`：**此刻正在跑的进程**。字段 `{sessionId, agentId, runtimeGeneration, projectId, cwd, status, sessionPath, createdAt, deckSessionId}`。
 
-**两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。反过来，不在 `runtimes[]` 里的会话进程没起，第 5 节的消息送不到。
+**两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。
+
+反过来，不在 `runtimes[]` 里的会话进程没起，第 5 节的消息送不到。
 
 **`GET /api/sessions` 不存在**，猜它会拿到 `{"code":"webError.apiNotFound"}`——列会话用上面的 `/api/state`。**`POST /api/sessions` 存在**，用来新建会话，见第 6 节。别把这两个方法混成一个「端点不存在」。
 
@@ -286,7 +298,11 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 返回 `{"deleted":true}`。先 stop 再 delete，否则进程还占着。
 
-**匿名会话会在空闲后消失。** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。PiDeck 里正常新建的会话不受这个影响。
+**匿名会话会在空闲后消失。
+
+** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。
+
+PiDeck 里正常新建的会话不受这个影响。
 
 ## 7 停 / 启 / 中止：单个动作
 
