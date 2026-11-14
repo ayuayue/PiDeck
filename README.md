@@ -261,6 +261,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - MCP：设置 → MCP 列出 pi 的 MCP 服务器（状态、传输、工具数、错误），可添加 HTTP 地址或启动命令、移除；配置由 pi 保存在 `mcp.json`
 - 集成：飞书群自定义机器人；一轮结束把标题、状态与一句摘要发到群里，可填签名密钥并测试
 - 诊断：运行中的 pi/终端进程、goroutine 与堆、最近日志；可复制诊断报告、导出诊断包（zip，含报告/脱敏配置/日志尾部/插件列表）、打开日志目录、清空内存日志
+- 崩溃：界面外层有错误边界，任一屏 panic 时写崩溃日志（数据目录 `crashes/`）并显示「重新加载界面」，
+  应用不退出；启动时若发现上次崩溃会提示一次，设置 → 诊断可查看最近崩溃与日志数量
 - 资源：pi 的技能（读 `SKILL.md` 的 name/description，点开在编辑器里看）与扩展
   （内置 / npm / 本地 `.ts`），可启停；打开技能/扩展目录、重新读取；「技能商店…」从
   `{skills:[{id,name,url}]}` 索引一键安装 SKILL.md 到 pi 的 skills 目录
@@ -313,6 +315,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `editor_ext.go` | 外部编辑器：探测常见编辑器、按命令打开文件或项目 |
 | `diag.go` | 诊断：内存日志、滚动文件、进程列表与诊断报告 |
 | `diag_bundle.go` | 诊断包：zip 打包、配置脱敏、日志尾部与插件清单 |
+| `crash.go` | 崩溃日志：写入 `crashes/`、查找最近崩溃、记录数据目录 |
+| `ui_crash.go` | 错误边界界面：panic 摘要、重新加载、打开/复制日志 |
 | `imagegen.go` | 生图：OpenAI 兼容 `/images/generations`，b64/URL 两种返回 |
 | `ui_image.go` | 生图对话框：供应商/模型/尺寸、预览、插入输入框或保存项目 |
 | `vision.go` | 视觉桥：图片以 data URL 进 `/chat/completions`，解析字符串/分段回答 |

@@ -2,6 +2,9 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
+	"os"
+	"runtime/debug"
 
 	"github.com/oneo-me/nsgo"
 	"github.com/oneo-me/nsgo/core"
@@ -17,15 +20,37 @@ var logoPNG []byte
 
 // Root builds the app once; signals drive everything after that. The
 // phone build shows the remote client instead of the desktop workbench.
+// The whole interface sits under an error boundary, so a panic in one
+// screen becomes a crash screen and a crash log instead of a dead app.
 func Root(cx *core.Scope) core.Node {
 	if mobileMode() {
-		return newMobileApp(cx).view()
+		m := newMobileApp(cx)
+		return core.Catch{
+			Try: func(*core.Scope) core.Node { return m.view() },
+			Fallback: func(cx *core.Scope, err error, reset func()) core.Node {
+				return crashScreenFor(cx, err, reset, "", nil, nil)
+			},
+		}
 	}
 	a := newApp(cx)
-	return a.view()
+	return core.Catch{
+		Try: func(*core.Scope) core.Node { return a.view() },
+		Fallback: func(cx *core.Scope, err error, reset func()) core.Node {
+			return a.crashScreen(cx, err, reset)
+		},
+	}
 }
 
 func main() {
+	// A panic outside the interface still leaves a crash log behind.
+	defer func() {
+		if r := recover(); r != nil {
+			if path, err := writeCrashReport(crashDataDirNow(), r, debug.Stack()); err == nil {
+				fmt.Fprintln(os.Stderr, "PiDeck Lite: crash log written to", path)
+			}
+			panic(r)
+		}
+	}()
 	var opts []nsgo.Option
 	if !mobileMode() {
 		opts = append(opts, nsgo.WindowSize(1320, 860),

@@ -1136,6 +1136,22 @@ func (a *app) settingsDiagnostics() core.Node {
 			logRows = append(logRows, core.Text{Content: "还没有日志。", Style: core.Style{FontSize: 10.5},
 				StyleFunc: ui.Colored(colors.Faint)})
 		}
+		var crashRows []core.Node
+		if path, at, ok := latestCrash(a.dataDir); ok {
+			crashRows = append(crashRows,
+				setRow("最近崩溃", at.Format("2006-01-02 15:04:05")+" · "+filepath.Base(path),
+					core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
+						ui.Button{Text: "查看", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "crash-view",
+							OnPress: func() { a.openEditorFile(filepath.Dir(path), path) }},
+						ui.Button{Text: "打开目录", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "crash-dir",
+							OnPress: func() { a.openResourcesDir(crashDir(a.dataDir)) }},
+					}}),
+				setDivider(),
+				setRow("崩溃日志", fmt.Sprintf("共 %d 个文件；panic 时自动写入数据目录的 crashes/。", crashCount(a.dataDir)), nil),
+			)
+		} else {
+			crashRows = append(crashRows, setRow("崩溃日志", "还没有崩溃记录；panic 时自动写到数据目录的 crashes/。", nil))
+		}
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("运行",
@@ -1144,6 +1160,7 @@ func (a *app) settingsDiagnostics() core.Node {
 					setRow("内存与协程", T("堆 %.1f MB · %d 个 goroutine · 已运行 %s",
 						float64(mem.HeapAlloc)/(1<<20), runtime.NumGoroutine(), uptime), nil),
 				),
+				setGroup("崩溃", crashRows...),
 				setGroup("进程", procRows...),
 				setGroup("最近日志", core.View{Style: core.Style{Gap: 2, Padding: core.Symmetric(4, 2)}, Children: logRows}),
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{

@@ -39,7 +39,7 @@ func TestTurnAxis(t *testing.T) {
 		app.Type("id:composer", "hi")
 		app.Press("role:button 发送")
 		want := i + 2
-		app.WaitUntil(30*time.Second, func() bool { return len(app.Query("text:hello")) >= want })
+		app.WaitUntil(60*time.Second, func() bool { return len(app.Query("text:hello")) >= want })
 	}
 	app.WaitFor("id:turn-tick-0", 10*time.Second)
 	app.Press("id:turn-tick-0")

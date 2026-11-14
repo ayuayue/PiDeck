@@ -171,9 +171,14 @@ type session struct {
 
 // app is everything the window shows.
 type app struct {
-	cx  *core.Scope
-	st  *store
-	cfg config
+	cx      *core.Scope
+	st      *store
+	cfg     config
+	dataDir string
+	// crashShown is the panic the crash screen last logged, so it does
+	// not write a file on every render; crashPath is where it wrote.
+	crashShown string
+	crashPath  string
 
 	env       *core.Signal[envInfo]
 	pinned    *core.Signal[[]string]
@@ -579,6 +584,8 @@ func newApp(cx *core.Scope) *app {
 	if custom := os.Getenv("PIDECK_LITE_HOME"); custom != "" {
 		dataDir = custom
 	}
+	a.dataDir = dataDir
+	setCrashDataDir(dataDir)
 	st, err := newStore(dataDir)
 	if err != nil {
 		a.toast(ui.ToastError, "无法打开数据目录", err.Error())
@@ -588,6 +595,17 @@ func newApp(cx *core.Scope) *app {
 	a.initDiag()
 	a.cfg = st.config()
 	a.chatWidth.Set(a.cfg.ChatWidth)
+	// A crash from the last run is worth one notice, with a way to look.
+	if path, at, ok := latestCrash(a.dataDir); ok && filepath.Base(path) != a.cfg.CrashSeen {
+		name := filepath.Base(path)
+		a.cfg.CrashSeen = name
+		st.edit(func(c *config) { c.CrashSeen = name })
+		a.cx.Post(func() {
+			a.toastAction(ui.ToastWarning, "上次运行崩溃过", at.Format("2006-01-02 15:04"), "查看", func() {
+				a.openEditorFile(filepath.Dir(path), path)
+			})
+		})
+	}
 	a.applyProxy()
 	a.theme.Set(a.cfg.Theme)
 	a.sidebar.Set(a.cfg.SidebarOpen)

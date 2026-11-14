@@ -101,6 +101,9 @@ type config struct {
 	// in, keyed "target|path". A project added at runtime starts
 	// untrusted; configs from before trust existed are migrated as trusted.
 	TrustedProjects []string `json:"trustedProjects,omitempty"`
+	// CrashSeen is the crash log the user was last told about, so the
+	// notice shows once per crash.
+	CrashSeen string `json:"crashSeen,omitempty"`
 	// ImageProvider, ImageModel and ImageSize remember the image
 	// generator's last choices.
 	ImageProvider string `json:"imageProvider,omitempty"`
