@@ -217,7 +217,6 @@ data: [DONE]
 **对端忙的时候，整条连接可能只有一行 `: ping` 心跳，没有 data 帧，`total` 也不立即变大**，而消息确实插进了它的对话。拿 `total` 当检查办法会判成没送到，重试一次就变成两条重复消息。
 
 两个常见错误码：`webError.requestIdRequired`（body 缺 `id`）、`webError.messageRequired`（没有 role 为 user 的项，或 text 为空）。
-（没有 role 为 user 的项，或 text 为空）。
 
 ### 更省事的发法：`/prompt`
 
@@ -242,6 +241,13 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 **发完之后怎么知道它做完了**：看第 5.5 节，或者查 `/api/sessions/<目标>/messages` 的 `total` 是否变大（这时候可以看，因为它已经不在生成中途）。
 
 ## 5.5 看着对方干活：订阅 stream，不要 sleep
+
+**两个流别搞混。**
+
+- `/api/sessions/<id>/stream` 推的是**这个会话的消息流**：`start` / `text-delta` / `finish`。看它干活用这个。
+- `/api/events` 推的是**全局状态快照**：`event: state` 加一份 `data: {projects, sessions, runtimes, ...}` 的 JSON。看谁上线、谁下线、标题变没变用这个，它不推消息文本。
+
+订阅一个不存在的会话 id 到 `/stream`，第一帧仍然是全局 `event: state`（实测：拿全零 UUID 请求，HTTP 200，返回的就是状态快照）。**别把这一帧当成「对方说话了」**——消息帧一定带 `"type"`。
 
 **首选订阅它的流。** 一次连接，服务端把对端的 `start` / `text-delta` / `finish` 实时推过来，比轮询文件干净：
 
@@ -416,18 +422,62 @@ PiDeck 里正常新建的会话不受这个影响。
 要区分就看 `/api/state` 的 `sessions[]` 里有没有这个 id。
 
 
-## 7 停 / 启 / 中止：单个动作
+## 7 动作：运行时 21 个，记录层 8 个
 
-动作挂在 `/api/sessions/<id>/runtime/<action>`。常用的四个：
+两套东西别混：**运行时动作**动的是活着的进程，**记录层动作**只改会话记录。改记录不会让正在跑的进程换模型，停进程也不会删掉记录。
 
-| action | 要 target 吗 | 作用 |
+### 7.1 运行时动作：`/api/sessions/<id>/runtime/<action>`
+
+全部 21 个，从源码 `WebApiRoutes.ts` 的路由正则逐条抄出：
+
+| action | 额外 body 字段 | 作用 |
 |---|---|---|
-| `activate` | **不要**，body 传 `{}` | 把冷会话的进程拉起来 |
-| `stop` | 要 | 停进程 |
-| `abort` | 要 | 只中止当前回合，进程留着 |
-| `restart` | 要 | 停完接着启，服务端串起来 |
+| `activate` | 无（body 传 `{}`） | 冷会话拉起进程 |
+| `stop` | — | 停进程，会话记录留着 |
+| `abort` | — | 只中止当前回合，进程留着 |
+| `restart` | — | 停完接着启；等待期间每 2 秒回一次心跳 |
+| `compact` | `prompt?` | 压缩上下文 |
+| `state` | — | 读运行时状态 |
+| `commands` | — | 列该运行时的命令 |
+| `models` | — | 列可用模型 |
+| `model` | `provider` `modelId` `modelName?` | 给活着的进程换模型 |
+| `thinking` | `level` | 换思考档 |
+| `permission` | `preset` | 换权限预设 |
+| `edit-message` | `messageId` `newText` | 改历史里某条消息 |
+| `delete-message` | `messageId` | 删历史里某条消息 |
+| `prepare-resend` | `messageId` | 准备重发 |
+| `clone` | — | 克隆运行时 |
+| `fork` | `entryId` `mutationFork?` `branchMode?` | 从某一轮分叉出新会话 |
+| `get-fork-messages` | — | 分叉点候选消息 |
+| `rewind-list` | `limit?` `beforeTimestamp?` | 检查点列表，可翻页 |
+| `rewind-diff` | `checkpointId` | 某个检查点改了什么 |
+| `rewind-restore` | `checkpointId` `scope` | 回滚到某检查点 |
+| `export-html` | — | 导出成 HTML |
 
 `activate` 是唯一不要 target 的——它要做的正是「这个冷会话现在起来」，没有 target 可回传。
+
+其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
+
+`target.agentId` 是真闸：给假值会被拒（2026-11-14 在 Windows 发行版上实测）。`target.runtimeGeneration` 不校验，给 999 也照做。三个字段都传最稳。
+
+### 7.2 记录层动作：改记录，不碰进程
+
+| 端点 | 方法 | body / 查询 | 作用 |
+|---|---|---|---|
+| `/api/sessions` | POST | `projectId`（必填）`title` `model` `welcomeModel` `thinkingLevel` `backend` `agentPreset` `acpToolId` `sideTask` | 建一份草稿，返回 `{session}` |
+| `/api/sessions/anonymous` | POST | `projectId` `title` `backend` `model` `thinkingLevel` | 不写会话文件的一次性运行时 |
+| `/api/sessions/<id>/update` | POST | `title` `model` `thinkingLevel` `permissionPreset` `agentPreset` `backend` `acpToolId` `proxy` `sideTask` | 改会话记录 |
+| `/api/sessions/<id>/delete` | POST | — | 删记录 |
+| `/api/sessions/<id>/copy` | POST | — | 复制 |
+| `/api/sessions/<id>/export-html` | GET | — | 导出 |
+| `/api/sessions/<id>/reference-messages` | GET | — | 取被引用的消息 |
+| `/api/sessions/<id>/security-level` | POST | `levelId`（字符串或 `null`） | 换安全等级，`null` 表示跟全局默认 |
+
+`update` 把 `model` / `thinkingLevel` 传 `null` 当作「清掉覆盖、回到默认」。它**只改记录**：改标题立刻生效（下一次 `/api/state` 就能看到），但改模型对已经活着的进程不起作用，要换活进程的模型得用 7.1 的 `model`。
+
+**首条消息会改写标题。** 新会话建好时标题是你给的那个，第一轮对话结束后 pi 的命名扩展会用模型重新起一个（`titleOrigin` 字段记录「这条标题是谁取的」）。所以拿标题认会话会认错，认会话只认 id。
+
+**删除不等于停进程。** `delete` 删的是记录，界面上那份条目要到下一次状态推送才消失，偶尔会看到几秒残影，刷新即无。
 
 ```bash
 curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
