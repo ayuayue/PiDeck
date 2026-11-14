@@ -544,6 +544,19 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 - 没有第二个活着的窗口能接，就别停：被停之后没人发 activate，就是永久停着。
 - **改了这个技能，已经在跑的会话看不到新版。** 技能是进程启动时用 `--skill <目录>` 注入的（源码 `PiProcess.ts`），内容在启动那一刻就进了内存。要让它生效，只能重启那个会话（第 6 节）或者新开一个。
 
+**改 `SKILL.md` 本身放哪儿才有用。** 这个技能在盘上有四份，改错地方等于没改（2026-11-15 实测，一天的工作一次都没生效）：
+
+| 位置 | 谁读它 | 改了会不会留 |
+| --- | --- | --- |
+| `<仓库>/resources/skills/pideck-web-api/SKILL.md` | 只有打包和测试 | 会留，但**不生效** |
+| `<userData>/skills-overlay/pideck-web-api/SKILL.md` | `installTemplate` 优先读它 | **会留，且生效**——要改就改这里 |
+| `~/.pi/agent/pideck-skills/pideck-web-api/SKILL.md` | PiDeck spawn 时 `--skill` 注入 | 每次启动被覆盖，手改白费 |
+| `~/.agents/skills/pideck-web-api/SKILL.md` | 终端里直接启动的 pi | 会留，但 PiDeck 不读它 |
+
+`installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile` 目标文件，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。所以两条结论：手改 `pideck-skills/` 下次启动就没了；要让新版生效，把文件放进 `<userData>/skills-overlay/pideck-web-api/`，重启 PiDeck。
+
+`<userData>` 是 `%APPDATA%\PiDeck`（开发版是 `%APPDATA%\PiDeck Dev`）。四份内容一致由 `~/.pi/agent/bin/skill-copies.mjs` 守着，不一致 gate 会红。
+
 ## 10 验收：三级别
 
 按你做到哪一级说哪一级。
