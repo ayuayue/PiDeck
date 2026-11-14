@@ -308,6 +308,27 @@ func (s *store) save() error {
 	return os.Rename(tmp, path)
 }
 
+// reload rereads config.json after something outside the store wrote it,
+// such as a settings backup.
+func (s *store) reload() error {
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		return err
+	}
+	var c config
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return err
+	}
+	if c.Titles == nil {
+		c.Titles = map[string]string{}
+	}
+	migrateConfig(&c, raw)
+	s.mu.Lock()
+	s.c = &c
+	s.mu.Unlock()
+	return nil
+}
+
 // config returns a copy safe to read on the UI thread.
 func (s *store) config() config {
 	s.mu.Lock()

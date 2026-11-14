@@ -1152,6 +1152,15 @@ func (a *app) settingsData() core.Node {
 					setRow("配置版本", fmt.Sprintf("%d", a.cfg.Version),
 						ui.Text("旧文件读取时自动迁移", 10.5, ui.Regular, colors.Faint)),
 				),
+				setGroup("备份",
+					setRow("导出设置包", "配置、插件、主题、提示词、智能体与 ACP 预设打成一个 zip；不含会话与日志。",
+						ui.Button{Text: "导出", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-export",
+							OnPress: a.exportSettings}),
+					setDivider(),
+					setRow("导入设置包", "从 zip 恢复；同名文件会被覆盖，部分设置重启后生效。",
+						ui.Button{Text: "选择…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-import",
+							OnPress: a.pickSettingsZip}),
+				),
 			}},
 		}}
 	})
