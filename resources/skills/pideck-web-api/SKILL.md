@@ -141,7 +141,7 @@ node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <目标 
 最终结论在 `~/.pi/agent/ledger/restart-peer.state.json` 的 `result`，取值见 §5.4。
 
 
-**实测（2026-11-14，Windows，PiDeck 发行版）**：协作会话 b1e367af 执行本脚本重启 cf4bffc3，日志依次是 `目标已停止` → `成功：generation 2 -> 3，health=200` → `唤醒消息 -> 200`，`state.result` 为 `ok`；被重启方的 `agentId` 由 `3fe9ddcd…` 变为 `a2217435…`。等待判定不用固定时长：目标空闲时 8 秒判 `idle`，目标正在回话时收到第 12 帧即判 `turn-end`（4 秒）。演练最后一步由被重启方执行：它把协作会话停掉（代号 4 → 从 `runtimes[]` 消失），证明两个方向用的是同一套动作。
+**实测（2026-11-14，Windows，PiDeck 发行版）**：协作会话 b1e367af 执行本脚本重启 cf4bffc3，日志依次是 `目标已停止` → `成功：generation 2 -> 3，health=200` → `唤醒消息 -> 200`，`state.result` 为 `ok`；被重启方的 `agentId` 由 `3fe9ddcd…` 变为 `a2217435…`。等待判定不用固定时长：目标空闲时 8 秒判 `idle`，目标正在回话时收到第 12 帧即判 `turn-end`（4 秒）。演练最后一步由被重启方执行：它把协作会话停掉（代号 4 → 从 `runtimes[]` 消失），证明两个方向用的是同一套动作。 代发时目标正在回话：订阅后第 78 帧抓到本轮结束，`waitMs` 29 毫秒，整段 3 -> 4 用了 4 秒（旧版固定等 90 秒）。
 
 ### 5.2 你重启别人
 
