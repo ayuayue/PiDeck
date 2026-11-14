@@ -44,6 +44,7 @@ func (a *app) view() core.Node {
 		a.remoteQRDialog(),
 		a.gitDiffDialog(),
 		a.gitNewBranchDialog(),
+		a.gitStashDialog(),
 		a.providerDialog(),
 		a.promptDialog(),
 		a.promptImportDialog(),

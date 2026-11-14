@@ -625,8 +625,12 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 				func() bool { return a.git.busy.Get() != "" }, func() { a.gitPush(false) }, ""),
 			a.pressIcon(lucide.RefreshCw, T("刷新 Git"), 24, 12.5,
 				func() bool { return a.git.busy.Get() != "" }, func() { a.git.refreshAll() }, ""),
-			ui.ContextMenu{Trigger: a.pressIcon(lucide.Ellipsis, T("更多 Git 操作"), 24, 14, nil, nil, ""),
+			ui.ContextMenu{Open: a.gitMoreOpen.Get,
+				OnOpenChange: func(open bool, _ base.Reason) { a.gitMoreOpen.Set(open) },
+				Trigger: a.pressIcon(lucide.Ellipsis, T("更多 Git 操作"), 24, 14, nil,
+					func() { a.gitMoreOpen.Update(func(v bool) bool { return !v }) }, "git-more"),
 				TestID: "git-more-menu", Children: []core.Node{
+					ui.MenuItem{Text: T("贮藏列表…"), Icon: lucide.Archive, OnSelect: a.openGitStashList},
 					ui.MenuItem{Text: T("贮藏全部改动"), Icon: lucide.Archive, OnSelect: a.gitStash},
 					ui.MenuItem{Text: T("恢复最近贮藏"), Icon: lucide.ArchiveRestore, OnSelect: a.gitStashPop},
 					ui.MenuItem{Text: T("丢弃全部改动"), Icon: lucide.Undo2, Variant: ui.MenuItemDanger, OnSelect: a.gitDiscardAll},

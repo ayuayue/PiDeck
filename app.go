@@ -425,6 +425,12 @@ type app struct {
 	// commit patch in front.
 	gitBranches      *core.Signal[bool]
 	gitNewBranchOpen *core.Signal[bool]
+	// The stash list.
+	gitStashOpen     *core.Signal[bool]
+	gitStashList     *core.Signal[[]gitStashEntry]
+	gitStashBusy     *core.Signal[bool]
+	gitStashErr      *core.Signal[string]
+	gitMoreOpen      *core.Signal[bool]
 	gitNewBranchName *core.Signal[string]
 	gitDiffOpen      *core.Signal[bool]
 	gitDiffTitle     *core.Signal[string]
@@ -548,6 +554,11 @@ func newApp(cx *core.Scope) *app {
 		askSeq:                 core.NewSignal(cx, 0),
 		gitBranches:            core.NewSignal(cx, false),
 		gitNewBranchOpen:       core.NewSignal(cx, false),
+		gitStashOpen:           core.NewSignal(cx, false),
+		gitStashList:           core.NewSignalFunc(cx, []gitStashEntry(nil), nil),
+		gitStashBusy:           core.NewSignal(cx, false),
+		gitStashErr:            core.NewSignal(cx, ""),
+		gitMoreOpen:            core.NewSignal(cx, false),
 		gitNewBranchName:       core.NewSignal(cx, ""),
 		gitDiffOpen:            core.NewSignal(cx, false),
 		gitDiffTitle:           core.NewSignal(cx, ""),

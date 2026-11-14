@@ -631,3 +631,33 @@ func gitMarkColor(mark string) string {
 	}
 	return "faint"
 }
+
+// gitStashEntry is one entry of git stash list.
+type gitStashEntry struct {
+	Ref     string
+	Subject string
+}
+
+// listGitStashes reads the stash list.
+func listGitStashes(g gitRunner) ([]gitStashEntry, error) {
+	out, err := g.exec(30*time.Second, "stash", "list", "--format=%gd%x09%gs")
+	if err != nil {
+		return nil, err
+	}
+	var list []gitStashEntry
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		ref, subject, _ := strings.Cut(line, "\t")
+		if ref == "" {
+			continue
+		}
+		list = append(list, gitStashEntry{Ref: ref, Subject: subject})
+		if len(list) >= 100 {
+			break
+		}
+	}
+	return list, nil
+}

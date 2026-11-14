@@ -71,3 +71,67 @@ func TestGitDeleteBranch(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// TestGitStashList pops a stash from the dialog.
+func TestGitStashList(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	t.Setenv("GIT_AUTHOR_NAME", "PiDeck Test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "pideck@example.com")
+	t.Setenv("GIT_COMMITTER_NAME", "PiDeck Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "pideck@example.com")
+	dir := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return string(out)
+	}
+	run("init")
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "first")
+	if err := os.WriteFile(path, []byte("second"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("stash", "push", "-m", "试贮藏")
+
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	cfg, err := json.Marshal(config{Version: 2, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
+		Theme: "system", SidebarOpen: true, ScanPi: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
+	app.Press("id:git-toggle")
+	waitApp(app, "id:git-branch", 20*time.Second)
+	app.Press("id:git-more")
+	app.WaitFor("text:贮藏列表…", 5*time.Second)
+	app.Press("text:贮藏列表…")
+	app.WaitFor("id:git-stash-dialog", 5*time.Second)
+	app.WaitFor("id:git-stash-row-0", 10*time.Second)
+	app.Press("id:git-stash-pop-0")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		out, err := exec.Command("git", "-C", dir, "stash", "list").CombinedOutput()
+		if err == nil && strings.TrimSpace(string(out)) == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stash still exists: %s, %v", out, err)
+		}
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
+}
