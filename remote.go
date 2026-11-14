@@ -1454,6 +1454,11 @@ type remoteWireSession struct {
 	Pinned   bool           `json:"pinned"`
 	Running  bool           `json:"running"`
 	Ask      *remoteWireAsk `json:"ask,omitempty"`
+	// Tokens and context are what the phone shows above the composer.
+	Tokens        int     `json:"tokens,omitempty"`
+	Context       int     `json:"context,omitempty"`
+	ContextWindow int     `json:"contextWindow,omitempty"`
+	Cost          float64 `json:"cost,omitempty"`
 }
 
 // remoteWireAsk is a question the desktop is waiting on, so the phone can
@@ -1513,10 +1518,13 @@ func (a *app) remoteSnapshot() (remoteWireSnapshot, error) {
 				if s == nil {
 					continue
 				}
+				stats := s.stats.Get()
+				usage := s.usage.Get()
 				project.Sessions = append(project.Sessions, remoteWireSession{
 					ID: s.ID, Title: s.title.Get(), Status: remoteStatus(s.status.Get()),
 					Updated: s.updated.Get().UnixMilli(), External: s.External,
 					Pinned: a.isPinned(s.ID), Running: s.busyNow(), Ask: remoteAskOf(s),
+					Tokens: usage.Total, Context: stats.ContextTokens, ContextWindow: stats.ContextWindow, Cost: usage.Cost,
 				})
 			}
 			out.Projects = append(out.Projects, project)

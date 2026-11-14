@@ -22,3 +22,15 @@ func TestMobileLanguage(t *testing.T) {
 	app.WaitFor("text:Desktop address", 5*time.Second)
 	app.WaitFor("text:Scan to connect", 5*time.Second)
 }
+
+func TestSessionStatsLabel(t *testing.T) {
+	if got := sessionStatsLabel(1234, 1234, 128000, 0.02); got != "1k / 128k · $0.02" {
+		t.Fatalf("label = %q", got)
+	}
+	if got := sessionStatsLabel(900, 0, 0, 0); got != "900 tokens" {
+		t.Fatalf("tokens only = %q", got)
+	}
+	if got := sessionStatsLabel(0, 0, 0, 0); got != "" {
+		t.Fatalf("empty = %q", got)
+	}
+}

@@ -20,7 +20,8 @@ func TestMobileSessionActions(t *testing.T) {
 	var mu sync.Mutex
 	state := remoteWireSnapshot{Name: "PiDeck Lite", Version: "0.2.0", Host: "desk", Projects: []remoteWireProject{{
 		Path: "/tmp/project", Name: "电脑项目", Sessions: []remoteWireSession{
-			{ID: "s1", Title: "电脑上的会话", Status: "idle", Updated: time.Now().UnixMilli()},
+			{ID: "s1", Title: "电脑上的会话", Status: "idle", Updated: time.Now().UnixMilli(),
+				Tokens: 1234, Context: 1234, ContextWindow: 128000, Cost: 0.02},
 		},
 	}}}
 	var prompted, renamed []string

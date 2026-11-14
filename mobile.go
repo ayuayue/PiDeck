@@ -1809,7 +1809,52 @@ func (a *mobileApp) sessionBar(cx *core.Scope) core.Node {
 			core.Text{ContentFunc: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 				Style: core.Style{FlexShrink: 1, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
 			ui.Icon(lucide.ChevronUp, 11, colors.Faint),
+			a.usageChip(),
 		}}
+}
+
+// sessionStatsLabel names a session's context use and cost.
+func sessionStatsLabel(tokenCount, context, window int, cost float64) string {
+	var parts []string
+	switch {
+	case window > 0 && context > 0:
+		parts = append(parts, tokens(context)+" / "+tokens(window))
+	case tokenCount > 0:
+		parts = append(parts, tokens(tokenCount)+" tokens")
+	}
+	if cost > 0 {
+		parts = append(parts, fmt.Sprintf("$%.2f", cost))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// usageChip shows the active session's context and cost.
+func (a *mobileApp) usageChip() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		id := a.active.Get()
+		var found *remoteWireSession
+		for _, p := range a.state.Get().Projects {
+			for i := range p.Sessions {
+				if p.Sessions[i].ID == id {
+					cp := p.Sessions[i]
+					found = &cp
+					break
+				}
+			}
+		}
+		if found == nil {
+			return nil
+		}
+		label := sessionStatsLabel(found.Tokens, found.Context, found.ContextWindow, found.Cost)
+		if label == "" {
+			return nil
+		}
+		return core.View{TestID: "mobile-usage", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+			ui.Icon(lucide.Gauge, 10, colors.Faint),
+			core.Text{Content: label, MaxLines: 1, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+		}}
+	})
 }
 
 // openOptions reads the session's choices and shows them.
