@@ -320,6 +320,7 @@ func (a *app) gitShowFileDiff(f gitFile, staged bool) {
 	case staged:
 		sub = "已暂存的改动"
 	}
+	a.gitDiffHash = ""
 	a.gitDiffTitle.Set(f.Path)
 	a.gitDiffSub.Set(sub)
 	a.gitDiffPatch.Set("")
@@ -361,6 +362,7 @@ func (a *app) gitShowCommit(c gitCommit) {
 	if a.gitPath() == "" {
 		return
 	}
+	a.gitDiffHash = c.Hash
 	a.gitDiffTitle.Set(c.Short + " · " + c.Subject)
 	sub := c.Author
 	if !c.Date.IsZero() {
@@ -836,23 +838,34 @@ func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 				}
 			}
 			shown++
-			rows = append(rows, core.View{
-				OnPress: func(core.PressEvent) { a.gitShowCommit(commit) },
-				Role:    core.RoleButton, Label: commit.Subject, TestID: "git-commit-row",
-				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(36),
-						Padding: core.Edges{Left: 4, Right: 2}, CornerRadius: 6, Transition: pressMotion,
-						Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+			rows = append(rows, base.ContextMenu{
+				Trigger: core.View{
+					OnPress: func(core.PressEvent) { a.gitShowCommit(commit) },
+					Role:    core.RoleButton, Label: commit.Subject, TestID: "git-commit-row",
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(36),
+							Padding: core.Edges{Left: 4, Right: 2}, CornerRadius: 6, Transition: pressMotion,
+							Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+					},
+					Children: []core.Node{
+						ui.Icon(lucide.GitCommitHorizontal, 12, colors.Faint),
+						core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 0}, Children: []core.Node{
+							core.Text{Content: commit.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+								Style: core.Style{FontSize: 11.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)},
+							core.Text{Content: commitLine(commit), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+								Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
+						}},
+						ui.Icon(lucide.ChevronRight, 10, colors.Faint),
+					},
 				},
 				Children: []core.Node{
-					ui.Icon(lucide.GitCommitHorizontal, 12, colors.Faint),
-					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 0}, Children: []core.Node{
-						core.Text{Content: commit.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-							Style: core.Style{FontSize: 11.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)},
-						core.Text{Content: commitLine(commit), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-							Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
-					}},
-					ui.Icon(lucide.ChevronRight, 10, colors.Faint),
+					a.menuRow(a.cx, lucide.FileDiff, T("查看提交详情"), "", false, func() { a.gitShowCommit(commit) }),
+					a.menuRow(a.cx, lucide.Copy, T("复制哈希"), "", false, func() { a.copyText(commit.Hash, "哈希") }),
+					a.menuRow(a.cx, lucide.Copy, T("复制提交说明"), "", false, func() { a.copyText(commit.Subject, "提交说明") }),
+				},
+				PopupStyle: core.Style{MinWidth: core.Pt(180)},
+				PopupStyleFunc: func() core.Style {
+					return a.menuCard(a.cx)
 				},
 			})
 		}
@@ -958,6 +971,10 @@ func (a *app) gitDiffDialog() core.Node {
 			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0),
 				BorderWidth: 1, BorderColor: colors.Border(), CornerRadius: 8, Overflow: core.Hidden}, Children: []core.Node{body}}},
 			Footer: []core.Node{
+				core.Show{When: func() bool { return a.gitDiffHash != "" }, Then: func(*core.Scope) core.Node {
+					return ui.Button{Text: T("复制哈希"), Variant: ui.ButtonGhost, TestID: "git-diff-hash",
+						OnPress: func() { a.copyText(a.gitDiffHash, "哈希") }}
+				}},
 				ui.Button{Text: T("复制补丁"), Variant: ui.ButtonGhost, OnPress: func() {
 					a.copyText(a.gitDiffPatch.GetUntracked(), "补丁")
 				}},

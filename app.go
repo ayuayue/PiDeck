@@ -426,11 +426,13 @@ type app struct {
 	gitBranches      *core.Signal[bool]
 	gitNewBranchOpen *core.Signal[bool]
 	// The stash list.
-	gitStashOpen     *core.Signal[bool]
-	gitStashList     *core.Signal[[]gitStashEntry]
-	gitStashBusy     *core.Signal[bool]
-	gitStashErr      *core.Signal[string]
-	gitMoreOpen      *core.Signal[bool]
+	gitStashOpen *core.Signal[bool]
+	gitStashList *core.Signal[[]gitStashEntry]
+	gitStashBusy *core.Signal[bool]
+	gitStashErr  *core.Signal[string]
+	gitMoreOpen  *core.Signal[bool]
+	// gitDiffHash is the commit the diff dialog shows, empty for a file.
+	gitDiffHash      string
 	gitNewBranchName *core.Signal[string]
 	gitDiffOpen      *core.Signal[bool]
 	gitDiffTitle     *core.Signal[string]

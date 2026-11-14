@@ -135,3 +135,57 @@ func TestGitStashList(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// TestGitCommitMenu copies a commit's hash from its menu and dialog.
+func TestGitCommitMenu(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	t.Setenv("GIT_AUTHOR_NAME", "PiDeck Test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "pideck@example.com")
+	t.Setenv("GIT_COMMITTER_NAME", "PiDeck Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "pideck@example.com")
+	dir := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init")
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "first commit")
+	hash := run("rev-parse", "HEAD")
+
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	cfg, err := json.Marshal(config{Version: 2, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
+		Theme: "system", SidebarOpen: true, ScanPi: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
+	app.Press("id:git-toggle")
+	waitApp(app, "id:git-commit-row", 20*time.Second)
+	app.RightClick("id:git-commit-row")
+	app.WaitFor("text:复制提交说明", 5*time.Second)
+	app.Press("text:复制哈希")
+	if app.Clipboard != hash {
+		t.Fatalf("clipboard = %q, want %q", app.Clipboard, hash)
+	}
+	app.Press("id:git-commit-row")
+	app.WaitFor("id:git-diff", 10*time.Second)
+	app.Press("id:git-diff-hash")
+	if app.Clipboard != hash {
+		t.Fatalf("dialog clipboard = %q, want %q", app.Clipboard, hash)
+	}
+}
