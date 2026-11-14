@@ -378,7 +378,9 @@ func providerRequestTimeout(method, url, key string, body []byte, timeout time.D
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	// Image responses carry base64 pictures, and a long answer can pass
+	// the old 4 KB cap; read generously and let the caller trim errors.
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	return resp.StatusCode, data, nil
 }
 

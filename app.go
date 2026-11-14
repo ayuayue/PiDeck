@@ -355,6 +355,7 @@ type app struct {
 	imageSelected *core.Signal[int]
 	imageType     *core.Signal[string]
 	imageCount    *core.Signal[int]
+	imageRef      *core.Signal[string]
 	// The vision bridge.
 	visionOpen     *core.Signal[bool]
 	visionPath     *core.Signal[string]
@@ -496,6 +497,7 @@ func newApp(cx *core.Scope) *app {
 		imageSelected:         core.NewSignal(cx, 0),
 		imageType:             core.NewSignal(cx, ""),
 		imageCount:            core.NewSignal(cx, 1),
+		imageRef:              core.NewSignal(cx, ""),
 		visionOpen:            core.NewSignal(cx, false),
 		visionPath:            core.NewSignal(cx, ""),
 		visionQuestion:        core.NewSignal(cx, ""),
@@ -1417,6 +1419,17 @@ func (a *app) pickNative(mode string) {
 				// Cancelled.
 			default:
 				a.visionPath.Set(files[0].Path)
+			}
+		})
+	case "image-ref":
+		a.cx.PickFiles(core.PickFilesOptions{Types: []string{".png", ".jpg", ".jpeg", ".webp"}}, func(files []core.File, err error) {
+			switch {
+			case err != nil:
+				a.toast(ui.ToastError, "选择图片失败", err.Error())
+			case len(files) == 0:
+				// Cancelled.
+			default:
+				a.imageRef.Set(files[0].Path)
 			}
 		})
 	case "import":

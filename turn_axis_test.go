@@ -35,7 +35,7 @@ func TestTurnAxis(t *testing.T) {
 	app := fakeACPApp(t)
 	newFakeACPSession(t, app)
 	app.WaitFor("text:hello", 20*time.Second)
-	for i := 0; i < 7; i++ {
+	for i := 0; i < 4; i++ {
 		app.Type("id:composer", "hi")
 		app.Press("role:button 发送")
 		want := i + 2

@@ -36,6 +36,7 @@ func (a *app) openImageDialog() {
 		count = 1
 	}
 	a.imageCount.Set(count)
+	a.imageRef.Set("")
 	a.imageOpen.Set(true)
 }
 
@@ -69,10 +70,30 @@ func (a *app) generateImageNow() {
 		a.imageErr.Set("画面描述和模型名都要填。")
 		return
 	}
+	ref := strings.TrimSpace(a.imageRef.GetUntracked())
+	var refRaw []byte
+	if ref != "" {
+		raw, err := os.ReadFile(ref)
+		if err != nil {
+			a.imageErr.Set("读不了参考图：" + err.Error())
+			return
+		}
+		if len(raw) > 20<<20 {
+			a.imageErr.Set("参考图太大，换一张 20 MB 以内的。")
+			return
+		}
+		refRaw = raw
+	}
 	a.imageBusy.Set(true)
 	a.imageErr.Set("")
 	go func() {
-		images, err := generateImage(*cfg, model, prompt, size, count)
+		var images []generatedImage
+		var err error
+		if len(refRaw) > 0 {
+			images, err = editImage(*cfg, model, prompt, size, refRaw, imageMimeOf(refRaw))
+		} else {
+			images, err = generateImage(*cfg, model, prompt, size, count)
+		}
 		a.cx.Post(func() {
 			a.imageBusy.Set(false)
 			if err != nil {
@@ -214,6 +235,19 @@ func (a *app) imageDialog() core.Node {
 						return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 8,
 							PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
 					}},
+			}},
+			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
+				ui.Text("参考图（可选）", 10.5, ui.Medium, colors.Muted),
+				core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
+					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+						core.Input{Value: a.imageRef.Get, OnChange: a.imageRef.Set, Placeholder: "填了就走 /images/edits，按描述修改这张图",
+							Label: "参考图", TestID: "image-ref",
+							Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 11.5, FontFamily: ui.Mono, Color: colors.Text(),
+								Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
+					}},
+					ui.Button{Text: "选择…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-ref-pick",
+						OnPress: func() { a.pickNative("image-ref") }},
+				}},
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				ui.Text("图片模型", 10.5, ui.Medium, colors.Muted),

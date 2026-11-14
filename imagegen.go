@@ -6,11 +6,14 @@ package main
 // composer or save them into the project.
 
 import (
+	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -56,16 +59,24 @@ func generateImage(cfg providerConfig, model, prompt, size string, n int) ([]gen
 		return nil, fmt.Errorf("HTTP %d：%s", status, shorten(string(data), 200))
 	}
 	var out struct {
-		Data []struct {
-			B64 string `json:"b64_json"`
-			URL string `json:"url"`
-		} `json:"data"`
+		Data []imageDataItem `json:"data"`
 	}
 	if json.Unmarshal(data, &out) != nil || len(out.Data) == 0 {
 		return nil, errors.New("返回里没有图片")
 	}
+	return readImageData(out.Data)
+}
+
+// imageDataItem is one picture in an images response, inlined or linked.
+type imageDataItem struct {
+	B64 string `json:"b64_json"`
+	URL string `json:"url"`
+}
+
+// readImageData turns an images response into pictures.
+func readImageData(items []imageDataItem) ([]generatedImage, error) {
 	var images []generatedImage
-	for _, item := range out.Data {
+	for _, item := range items {
 		if b64 := strings.TrimSpace(item.B64); b64 != "" {
 			raw, err := base64.StdEncoding.DecodeString(b64)
 			if err != nil {
@@ -86,6 +97,70 @@ func generateImage(cfg providerConfig, model, prompt, size string, n int) ([]gen
 		return nil, errors.New("返回里没有图片")
 	}
 	return images, nil
+}
+
+// editImage asks a provider to edit a picture, uploading it with the
+// prompt to /images/edits.
+func editImage(cfg providerConfig, model, prompt, size string, raw []byte, mime string) ([]generatedImage, error) {
+	base := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	switch {
+	case base == "":
+		return nil, errors.New("这个供应商没有 Base URL")
+	case strings.TrimSpace(prompt) == "":
+		return nil, errors.New("先写一句修改要求")
+	case strings.TrimSpace(model) == "":
+		return nil, errors.New("先填图片模型名")
+	case len(raw) == 0:
+		return nil, errors.New("先选一张参考图")
+	}
+	if mime == "" {
+		mime = imageMimeOf(raw)
+	}
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("model", model)
+	_ = mw.WriteField("prompt", prompt)
+	_ = mw.WriteField("n", "1")
+	if size != "" {
+		_ = mw.WriteField("size", size)
+	}
+	part, err := mw.CreateFormFile("image", "image"+imageExt(mime))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := part.Write(raw); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), imageGenTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/images/edits", &buf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if key := providerKey(cfg); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("x-api-key", key)
+	}
+	resp, err := appHTTPLongClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d：%s", resp.StatusCode, shorten(string(data), 200))
+	}
+	var out struct {
+		Data []imageDataItem `json:"data"`
+	}
+	if json.Unmarshal(data, &out) != nil || len(out.Data) == 0 {
+		return nil, errors.New("返回里没有图片")
+	}
+	return readImageData(out.Data)
 }
 
 // downloadImage reads an image a provider linked instead of inlining.

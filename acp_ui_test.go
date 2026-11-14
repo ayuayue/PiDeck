@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/nsgotest"
 )
 
@@ -36,7 +37,7 @@ func TestACPPicker(t *testing.T) {
 
 // fakeACPApp starts an app over a project with one fake ACP preset and
 // two files, the fake agent answering in UI mode.
-func fakeACPApp(t *testing.T) *nsgotest.App {
+func fakeACPApp(t *testing.T, size ...core.Points) *nsgotest.App {
 	t.Helper()
 	home := editorWorkspace(t)
 	workspace := editorWorkspace(t)
@@ -63,7 +64,11 @@ func fakeACPApp(t *testing.T) *nsgotest.App {
 	t.Setenv("PIDECK_FAKE_ACP", "1")
 	t.Setenv("PIDECK_FAKE_ACP_UI", "1")
 	t.Cleanup(closeAllACP)
-	return openApp(t, workspace, 1280, 860)
+	w, h := core.Points(1280), core.Points(860)
+	if len(size) == 2 {
+		w, h = size[0], size[1]
+	}
+	return openApp(t, workspace, w, h)
 }
 
 // newFakeACPSession picks the fake preset and sends one prompt.

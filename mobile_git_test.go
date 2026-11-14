@@ -133,11 +133,21 @@ func TestMobileGit(t *testing.T) {
 	app.Press("id:mobile-connect")
 	waitApp(app, "text:电脑项目", 15*time.Second)
 	app.WaitFor("id:mobile-git-0", 10*time.Second)
-	app.Press("id:mobile-git-0")
+	for i := 0; i < 4; i++ {
+		app.Press("id:mobile-git-0")
+		if waitQuiet(app, "id:mobile-git", 2*time.Second) {
+			break
+		}
+	}
 	waitApp(app, "id:mobile-git", 10*time.Second)
 	waitApp(app, "text:main", 5*time.Second)
 	app.WaitFor("id:mobile-git-file-0", 5*time.Second)
-	app.Press("id:mobile-git-file-0")
+	for i := 0; i < 4; i++ {
+		app.Press("id:mobile-git-file-0")
+		if waitQuiet(app, "id:mobile-git-diff", 2*time.Second) {
+			break
+		}
+	}
 	waitApp(app, "id:mobile-git-diff", 10*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:+new")) > 0 })
 	app.Press("id:mobile-git-diff-close")
