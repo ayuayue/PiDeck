@@ -1,13 +1,13 @@
 ---
 name: pideck-web-api
-description: 用 HTTP 观察和驱动 PiDeck 里的会话——既能读自己的时间线、运行时与 todo，也能给别的窗口发消息、读它的思维链、重启它的运行时。当用户想用脚本或另一个 agent 控制 PiDeck（自动化、CI、跨进程协作），或需要 agent 自检当前会话状态时使用；不用于修改 PiDeck 源码，也不用于浏览器自动化。Use for PiDeck web API, SSE stream, driving or inspecting a PiDeck session over HTTP.
+description: "要用脚本或另一个 agent 控制 PiDeck 时用：自动化、CI、跨进程协作、或让 agent 自检当前会话状态。走 HTTP，能读自己的时间线／运行时／todo，也能给别的窗口发消息、读它的思维链、重启它的运行时。不用于修改 PiDeck 源码，也不用于浏览器自动化。Use for PiDeck web API, SSE stream."
 ---
 
 # PiDeck Web API（pideck-web-api）
 
 **PiDeck 自带 HTTP + SSE 接口。它既能操作别的窗口，也能让当前会话看清自己正在发生什么。**
 
-本技能只写「怎么调通、怎么验证调通了」。端点全集见 `src/main/web/WebApiRoutes.ts`——本文不复制清单，避免两处真值各自漂移。
+本技能只写「怎么调通、怎么验证调通了」。端点全集在 PiDeck 源码仓的 `src/main/web/WebApiRoutes.ts`（相对仓库根，本机装的是发行版时看不到这个文件）——本文不复制清单，避免两处真值各自漂移。
 
 ## 0 三个前提，缺一跑不通
 
@@ -127,4 +127,4 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 ## 边界
 
 - 只读 pi 的会话文件，不改 `~/.pi/agent/sessions/*.jsonl`（PiDeck 仓库明令禁止）。
-- 端点以 `src/main/web/WebApiRoutes.ts` 为准。跑不通先读那里的路由表，不要照本文猜。
+- 端点以 PiDeck 源码仓的 `src/main/web/WebApiRoutes.ts` 为准。手边没有源码时以本文实测结果为准，并记下版本号；两者不一致时信源码。
