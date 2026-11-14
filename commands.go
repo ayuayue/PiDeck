@@ -198,6 +198,10 @@ func builtinCommands() []appCommand {
 
 		{ID: "add-workspace", Label: "添加工作区（系统选择器）", Group: "工作区", Icon: lucide.FolderPlus,
 			Run: func(a *app) { a.pickNative("workspace") }},
+		{ID: "export-projects", Label: "导出项目列表…", Group: "工作区", Icon: lucide.Download,
+			Run: func(a *app) { a.exportProjects() }},
+		{ID: "import-projects", Label: "导入项目列表…", Group: "工作区", Icon: lucide.Upload,
+			Run: func(a *app) { a.pickProjectsFile() }},
 		{ID: "add-wsl", Label: "在 WSL 里添加工作区…", Group: "工作区", Icon: lucide.Monitor,
 			Run: func(a *app) { a.openTargetDialog(targetWSL) }},
 		{ID: "add-ssh", Label: "在 SSH 主机上添加工作区…", Group: "工作区", Icon: lucide.Globe,
