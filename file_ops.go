@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
@@ -129,4 +130,89 @@ func (a *app) renameFileNode(path string) {
 		a.editor.renamePath(path, next)
 		a.files.reload()
 	})
+}
+
+// trashFile moves a file or folder into the data folder's trash, after
+// asking. It is the one destructive file action, so it never runs on a
+// press alone.
+func (a *app) trashFile(path string) {
+	if a.st == nil || strings.TrimSpace(path) == "" {
+		return
+	}
+	name := filepath.Base(path)
+	a.askConfirm("移到回收站", "「"+name+"」会移到数据目录的 trash/files 里，需要时可以手动找回。", "移到回收站", func() {
+		dir := filepath.Join(a.st.dir, "trash", "files")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			a.toast(ui.ToastError, "移到回收站失败", err.Error())
+			return
+		}
+		dest := filepath.Join(dir, time.Now().Format("20060102-150405")+"-"+name)
+		if err := movePath(path, dest); err != nil {
+			a.toast(ui.ToastError, "移到回收站失败", err.Error())
+			return
+		}
+		a.invalidateFileIndex()
+		a.files.reload()
+		a.toastAction(ui.ToastInfo, "已移到回收站", dest, "打开", func() {
+			a.cx.OpenURL(fileURL(filepath.Dir(dest)), nil)
+		})
+	})
+}
+
+// movePath renames, and copies across volumes when a rename cannot.
+func movePath(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		if err := copyTree(src, dst); err != nil {
+			return err
+		}
+		return os.RemoveAll(src)
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, data, info.Mode()); err != nil {
+		return err
+	}
+	return os.Remove(src)
+}
+
+// copyTree copies a folder, files and modes.
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
+}
+
+// invalidateFileIndex makes the next @ completion rescan the workspace.
+func (a *app) invalidateFileIndex() {
+	a.fileIdx.mu.Lock()
+	a.fileIdx.at = time.Time{}
+	a.fileIdx.mu.Unlock()
 }

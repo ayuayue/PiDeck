@@ -217,6 +217,8 @@ func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 			a.menuRow(a.cx, lucide.Copy, "复制路径", "", false, func() {
 				a.copyText(a.files.relative(node.Path), "路径")
 			}),
+			a.menuSeparator(a.cx),
+			a.menuRow(a.cx, lucide.Trash, "移到回收站", "", false, func() { a.trashFile(node.Path) }),
 		}
 	}
 	return []core.Node{
@@ -238,6 +240,8 @@ func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 		a.menuRow(a.cx, lucide.Copy, "复制相对路径", "", false, func() {
 			a.copyText(a.files.relative(node.Path), "路径")
 		}),
+		a.menuSeparator(a.cx),
+		a.menuRow(a.cx, lucide.Trash, "移到回收站", "", false, func() { a.trashFile(node.Path) }),
 	}
 }
 

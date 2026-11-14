@@ -96,3 +96,46 @@ func waitPath(t *testing.T, path string, want bool) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// TestFileTrash moves a file to the data folder's trash.
+func TestFileTrash(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	dir := editorWorkspace(t)
+	for _, name := range []string{"note.txt", "extra.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("hello"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := startApp(t, dir, 1280, 860)
+	app.Key("mod+j")
+	app.WaitFor("id:drawer-tab-files", 5*time.Second)
+	app.Press("id:drawer-tab-files")
+	app.WaitFor("text:extra.txt", 10*time.Second)
+	for i := 0; i < 4; i++ {
+		app.RightClick("text:extra.txt")
+		if waitQuiet(app, "text:移到回收站", 2*time.Second) {
+			break
+		}
+	}
+	app.Press("text:移到回收站")
+	app.WaitFor("id:confirm-ok", 5*time.Second)
+	app.Press("id:confirm-ok")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "extra.txt")); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("extra.txt was not moved")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	entries, err := os.ReadDir(filepath.Join(home, "trash", "files"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("trash = %v, %v", entries, err)
+	}
+}
