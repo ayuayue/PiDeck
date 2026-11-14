@@ -632,6 +632,7 @@ func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 		a.menuRow(a.cx, lucide.ChevronUp, "上移项目", "", false, func() { a.moveProject(w(), -1) }),
 		a.menuRow(a.cx, lucide.ChevronDown, "下移项目", "", false, func() { a.moveProject(w(), 1) }),
 		a.menuRow(a.cx, lucide.FolderInput, "移动到分组…", "", false, func() { a.askProjectGroup(w()) }),
+		a.menuRow(a.cx, lucide.Pencil, "重命名项目…", "", w().Chat, func() { a.askWorkspaceName(w()) }),
 		a.menuRow(a.cx, lucide.ArrowDownAZ, projectSortLabel(a), "", false, func() { a.cycleProjectSort() }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.RefreshCw, "刷新会话", "", false, func() {

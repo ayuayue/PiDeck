@@ -55,6 +55,7 @@ func (a *app) view() core.Node {
 		a.acpPresetManagerDialog(),
 		a.agentDialog(),
 		a.projectGroupDialog(),
+		a.workspaceRenameDialog(),
 		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: "关闭", TestID: "toasts"},
 	}}
 }

@@ -216,6 +216,9 @@ type app struct {
 	projectGroupOpen *core.Signal[bool]
 	projectGroupPath *core.Signal[string]
 	projectGroupText *core.Signal[string]
+	wsRenameOpen     *core.Signal[bool]
+	wsRenameKey      *core.Signal[string]
+	wsRenameText     *core.Signal[string]
 
 	// The ACP preset picker.
 	acpOpen *core.Signal[bool]
@@ -596,6 +599,9 @@ func newApp(cx *core.Scope) *app {
 		projectGroupOpen:       core.NewSignal(cx, false),
 		projectGroupPath:       core.NewSignal(cx, ""),
 		projectGroupText:       core.NewSignal(cx, ""),
+		wsRenameOpen:           core.NewSignal(cx, false),
+		wsRenameKey:            core.NewSignal(cx, ""),
+		wsRenameText:           core.NewSignal(cx, ""),
 		shortcutsOpen:          core.NewSignal(cx, false),
 		shortcutsQuery:         core.NewSignal(cx, ""),
 		searchOpen:             core.NewSignal(cx, false),
