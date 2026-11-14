@@ -22,8 +22,8 @@ session/load 请求
        └─ AcpUpdatePipeline.handleSessionUpdate
             └─ if (runtime.reloading) return;   // ← 重放期完全不 flush（AcpUpdatePipeline.ts:90）
   └─ load 响应返回，握手收尾
-       └─ AcpAgentManager.bootstrapRuntime
-            └─ updates.flushMessages(runtime, true)  // ← 唯一一次投递（AcpAgentManager.ts:598）
+       └─ AcpRuntimeLifecycle.bootstrapRuntime
+            └─ updates.flushMessages(runtime, true)  // ← 唯一一次投递（AcpRuntimeLifecycle.ts）
                  └─ emit("agents:message", { messages: 全量数组, totalLength })  // AcpUpdatePipeline.ts:160
 ```
 
@@ -171,7 +171,7 @@ payload 降了 80%，但最长任务仍有 180ms——原因写在下一条。
 
 `AcpUpdatePipeline.flushMessagesChunked`：窗口段每 100 条一块、块间隔 12ms，
 协议复用既有 `upsertFrom`/`totalLength`（首块全量建立缓存，后续块增量），
-`AcpAgentManager.bootstrapRuntime` 的重放回显改走它。分块期间投影被改写（用户已发消息）
+`AcpRuntimeLifecycle.bootstrapRuntime` 的重放回显改走它。分块期间投影被改写（用户已发消息）
 就停止分块并补一次全量，绝不留残缺历史。
 
 **分块单独上线时（未窗口化）**：payload 4251KB → ≤461KB，最长 longtask 236 → 146ms，
