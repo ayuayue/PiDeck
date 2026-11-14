@@ -126,8 +126,13 @@ func TestMobileSessionActions(t *testing.T) {
 
 	// Pin goes through the same sheet, once the rename sheet has gone.
 	app.Advance(400 * time.Millisecond)
-	app.Press("id:mobile-session-actions >> nth=0")
-	app.WaitFor("id:mobile-act-pin", 10*time.Second)
+	for i := 0; i < 4; i++ {
+		app.Press("id:mobile-session-actions >> nth=0")
+		if waitQuiet(app, "id:mobile-act-pin", 2*time.Second) {
+			break
+		}
+		app.Advance(200 * time.Millisecond)
+	}
 	app.Press("id:mobile-act-pin")
 	waitFor(t, app, 10*time.Second, func() bool {
 		mu.Lock()

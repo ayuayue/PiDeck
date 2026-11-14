@@ -323,6 +323,14 @@ type app struct {
 	promptStoreList       *core.Signal[[]promptIndexEntry]
 	promptStoreInstalling *core.Signal[string]
 	promptStoreDone       map[string]bool
+	// The skill store.
+	skillStoreOpen       *core.Signal[bool]
+	skillStoreURL        *core.Signal[string]
+	skillStoreBusy       *core.Signal[bool]
+	skillStoreErr        *core.Signal[string]
+	skillStoreList       *core.Signal[[]skillIndexEntry]
+	skillStoreInstalling *core.Signal[string]
+	skillStoreDone       map[string]bool
 	// The plugin market.
 	marketOpen       *core.Signal[bool]
 	marketURL        *core.Signal[string]
@@ -459,6 +467,12 @@ func newApp(cx *core.Scope) *app {
 		promptStoreErr:        core.NewSignal(cx, ""),
 		promptStoreList:       core.NewSignalFunc(cx, []promptIndexEntry(nil), nil),
 		promptStoreInstalling: core.NewSignal(cx, ""),
+		skillStoreOpen:        core.NewSignal(cx, false),
+		skillStoreURL:         core.NewSignal(cx, ""),
+		skillStoreBusy:        core.NewSignal(cx, false),
+		skillStoreErr:         core.NewSignal(cx, ""),
+		skillStoreList:        core.NewSignalFunc(cx, []skillIndexEntry(nil), nil),
+		skillStoreInstalling:  core.NewSignal(cx, ""),
 		marketOpen:            core.NewSignal(cx, false),
 		marketURL:             core.NewSignal(cx, ""),
 		marketBusy:            core.NewSignal(cx, false),

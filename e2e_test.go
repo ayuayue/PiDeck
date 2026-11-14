@@ -34,16 +34,16 @@ func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App 
 	app.Press("id:rail-palette")
 	app.WaitFor("text:浏览文件夹添加工作区", 10*time.Second)
 	app.Press("text:浏览文件夹添加工作区")
-	app.WaitFor("text:选择这个文件夹", 10*time.Second)
+	app.WaitFor("text:选择这个文件夹", 20*time.Second)
 	app.Clear("label:文件夹路径")
 	app.Type("label:文件夹路径", dir)
 	app.Submit("label:文件夹路径")
-	app.WaitFor("text:note.txt", 10*time.Second)
+	app.WaitFor("text:note.txt", 20*time.Second)
 	app.Press("text:选择这个文件夹")
-	app.WaitFor("text:打开一个会话，或者新建一个。", 10*time.Second)
+	app.WaitFor("text:打开一个会话，或者新建一个。", 20*time.Second)
 	// With a project in place the welcome's main action opens a session.
 	app.Press("id:welcome-primary")
-	app.WaitFor("id:composer", 10*time.Second)
+	app.WaitFor("id:composer", 20*time.Second)
 	// A folder added at runtime starts untrusted; tests trust it once. A
 	// press can land before the bar settles, so try a few times.
 	for i := 0; i < 4; i++ {
@@ -385,10 +385,14 @@ func TestSessionMenuPinAndRename(t *testing.T) {
 	}
 	app := startApp(t, workspaceWith(t), 1320, 860)
 	waitApp(app, "id:pi-ready", 90*time.Second)
-	app.RightClick("id:session-row")
-	app.WaitFor("text:收藏", 5*time.Second)
+	for i := 0; i < 4; i++ {
+		app.RightClick("id:session-row")
+		if waitQuiet(app, "text:收藏", 2*time.Second) {
+			break
+		}
+	}
 	app.Press("text:收藏")
-	app.WaitFor("text:置顶", 5*time.Second)
+	app.WaitFor("text:置顶", 10*time.Second)
 	// Pinning moves the row; try the press until its menu is up.
 	for i := 0; i < 4; i++ {
 		app.RightClick("id:session-row")

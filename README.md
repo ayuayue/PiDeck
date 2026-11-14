@@ -262,7 +262,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 集成：飞书群自定义机器人；一轮结束把标题、状态与一句摘要发到群里，可填签名密钥并测试
 - 诊断：运行中的 pi/终端进程、goroutine 与堆、最近日志；可复制诊断报告、导出诊断包（zip，含报告/脱敏配置/日志尾部/插件列表）、打开日志目录、清空内存日志
 - 资源：pi 的技能（读 `SKILL.md` 的 name/description，点开在编辑器里看）与扩展
-  （内置 / npm / 本地 `.ts`），可启停；打开技能/扩展目录、重新读取
+  （内置 / npm / 本地 `.ts`），可启停；打开技能/扩展目录、重新读取；「技能商店…」从
+  `{skills:[{id,name,url}]}` 索引一键安装 SKILL.md 到 pi 的 skills 目录
 - 数据：应用/会话/pi 会话目录、会话数量、配置版本；「导出设置包」把配置/插件/主题/提示词/智能体/ACP 预设打成 zip，「导入设置包」恢复（同名覆盖，部分设置重启后生效）
 - 用量：从本地 pi 会话与 ACP 归档统计累计 tokens 与费用、最近 12 周热力图、模型与项目分布；
   ACP 的 token 按文本长度估算、费用记为 0；只在本机计算，可手动重新统计
@@ -328,6 +329,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `ui_market.go` | 插件市场对话框：索引链接、条目列表、安装状态 |
 | `prompts_store.go` | 提示词商店：索引读取与整包导入 |
 | `ui_prompts_store.go` | 提示词商店对话框：索引链接、包列表与导入状态 |
+| `skills_store.go` | 技能商店：索引读取、SKILL.md 下载与安装到 pi 的 skills 目录 |
+| `ui_skills_store.go` | 技能商店对话框：索引链接、技能列表与安装状态 |
 | `mcp.go` | MCP：`pi mcp list/add/remove` 的调用与参数拼装 |
 | `backup.go` | 设置包：zip 导出/导入、路径校验与大小上限 |
 | `settings_index.go` | 设置索引：每个设置的分区、标题与搜索关键词 |

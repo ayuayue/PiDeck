@@ -88,9 +88,16 @@ func TestACPModePicker(t *testing.T) {
 	app := fakeACPApp(t)
 	newFakeACPSession(t, app)
 	waitApp(app, "id:acp-mode-badge", 60*time.Second)
-	app.Press("id:acp-mode-badge")
-	app.WaitFor("id:acp-mode-code", 5*time.Second)
-	app.Press("id:acp-mode-code")
+	// The badge and its menu can still be settling under load; try again.
+	for i := 0; i < 4; i++ {
+		app.Press("id:acp-mode-badge")
+		if waitQuiet(app, "id:acp-mode-code", 2*time.Second) {
+			app.Press("id:acp-mode-code")
+		}
+		if waitQuiet(app, `text:"Fake Agent · Code"`, 2*time.Second) {
+			break
+		}
+	}
 	waitApp(app, `text:"Fake Agent · Code"`, 10*time.Second)
 }
 

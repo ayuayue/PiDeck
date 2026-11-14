@@ -106,6 +106,8 @@ func (a *app) settingsResources() core.Node {
 		}
 		children = append(children, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}},
 			Children: []core.Node{
+				ui.Button{Text: "技能商店…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "skill-store-open",
+					OnPress: func() { a.openSkillStore() }},
 				ui.Button{Text: "打开技能目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 					if dirs := skillsDirs(); len(dirs) > 0 {
 						a.openResourcesDir(dirs[0])

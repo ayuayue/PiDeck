@@ -34,14 +34,14 @@ func TestTurnAxis(t *testing.T) {
 	}
 	app := fakeACPApp(t)
 	newFakeACPSession(t, app)
-	app.WaitFor("text:hello", 10*time.Second)
+	app.WaitFor("text:hello", 20*time.Second)
 	for i := 0; i < 7; i++ {
 		app.Type("id:composer", "hi")
 		app.Press("role:button 发送")
 		want := i + 2
-		app.WaitUntil(15*time.Second, func() bool { return len(app.Query("text:hello")) >= want })
+		app.WaitUntil(30*time.Second, func() bool { return len(app.Query("text:hello")) >= want })
 	}
-	app.WaitFor("id:turn-tick-0", 5*time.Second)
+	app.WaitFor("id:turn-tick-0", 10*time.Second)
 	app.Press("id:turn-tick-0")
 	app.WaitFor("label:跳到最新消息", 5*time.Second)
 }

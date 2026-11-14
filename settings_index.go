@@ -41,6 +41,7 @@ var settingsIndex = []settingEntry{
 	{"addons", "插件市场", "plugin market registry"},
 	{"addons", "插件设置", "plugin settings"},
 	{"resources", "技能", "skill SKILL.md"},
+	{"resources", "技能商店", "skill store index install"},
 	{"resources", "扩展", "extension package"},
 	{"mcp", "MCP 服务器", "mcp server tools"},
 	{"mcp", "添加服务器", "mcp add server url command"},

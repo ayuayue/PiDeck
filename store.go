@@ -96,6 +96,7 @@ type config struct {
 	// PluginIndexURL and PromptIndexURL are the markets' last links.
 	PluginIndexURL string `json:"pluginIndexUrl,omitempty"`
 	PromptIndexURL string `json:"promptIndexUrl,omitempty"`
+	SkillIndexURL  string `json:"skillIndexUrl,omitempty"`
 	// TrustedProjects are the projects the user allowed agents to work
 	// in, keyed "target|path". A project added at runtime starts
 	// untrusted; configs from before trust existed are migrated as trusted.

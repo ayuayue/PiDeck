@@ -51,6 +51,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openImageDialog() }},
 		{ID: "vision-image", Label: "描述图片…", Group: "工具", Icon: lucide.Eye,
 			Run: func(a *app) { a.openVisionDialog() }},
+		{ID: "skill-store", Label: "技能商店…", Group: "工具", Icon: lucide.Sparkles,
+			Run: func(a *app) { a.openSkillStore() }},
 		{ID: "fork-tree", Label: "查看分叉树…", Group: "会话", Icon: lucide.GitBranch,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.openForkTree() }},
