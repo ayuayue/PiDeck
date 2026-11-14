@@ -143,21 +143,25 @@ data: [DONE]
 
 **重启 = 停止进程 + 重新启动进程。你自己发不出这两个请求**：stop 杀掉的就是发请求的那个进程，没有进程去发 activate。
 
-让别人做。最简单的办法：**新开一个空会话**，它自动启动、天然空闲，把技能名和下面这段一起贴给它。
+让别人做。最简单的办法：**新建一个普通会话**，把技能名和下面这段一起贴给它。
 
-建会话用这条（`projectId` 从 `/api/state` 的 `projects[]` 里取，常见的是 `builtin-chat`）：
+建普通会话用这条（`projectId` 从 `/api/state` 的 `projects[]` 里取，常见的是 `builtin-chat`）：
 
 ```bash
 curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"projectId":"builtin-chat"}' "$BASE/api/sessions/anonymous"
+  -d '{"projectId":"builtin-chat"}' "$BASE/api/sessions"
 ```
 
-返回 `{"session":{"id":"...", ...}}`，取 `session.id`。
+返回 `{"session":{"id":"...", ...}}`，取 `session.id`。新建的是草稿态，还得按 §7 对它 activate 一次才会进 `runtimes[]`，进不去就发不了消息。
 
-**匿名会话只能当执行者，不能当重启目标。** 实测对它发 stop 会返回 200 且 `ok:true`，但整条会话记录随之被删掉，紧接着 activate 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`——HTTP 仍然是 200。要测重启流程，拿一个普通会话当目标。
+**别用 `/api/sessions/anonymous` 建执行者。** 它有两个实测的坑：
+
+- `noSession: true`，**没有自己的 `sessionPath`**。执行者要认「我是谁」时会去比对磁盘上哪个 jsonl 正在被写，拿到的却是目标的路径，结论必然是「目标就是我」，于是拒绝执行。
+- stop 之后整条记录被删掉，紧接着 activate 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`——HTTP 仍是 200。它连当目标都不行。
 
 > 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的 §2，再按五步做，每步把输出贴回来。
 >
+> 0. **先认自己是谁**：`echo $PIDECK_SESSION_ID`。如果它等于 `<目标 sessionId>`，停下——停掉的就是你自己，没有进程去发 activate。如果它不等于，继续。
 > 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。找不到说明目标没在跑，直接跳到第 3 步。
 > 2. **停**：
 >    ```bash
@@ -179,6 +183,8 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 >      "$BASE/api/chat"
 >    ```
 >    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。§5 说过，这条请求是异步入队，可能一个帧都不吐。
+
+**第 0 步不能省，也不能换成别的判法。** 实测一个匿名执行者会话自己分辨「我是谁」时，用 `runtimes[]` 里目标的 `sessionPath` 去比对磁盘上哪个 jsonl 正在被写，再对齐时间戳，结论是「目标就是我」，于是拒绝执行。错在匿名会话 `noSession: true`、**没有自己的 `sessionPath`**，拿别人的路径认自己必然认错。唯一可靠的是 `echo $PIDECK_SESSION_ID`。
 
 **HTTP 200 不代表做成了，必须看 body。** 三个实测形状：
 
@@ -222,7 +228,16 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 **代号和 `agentId` 会一起变。** 两个都是「换没换进程」的证据，任一个变了就是换了。
 
-**匿名会话会在空闲后消失。** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。要拿它当测试目标，建完就得马上用。PiDeck 里正常新建的会话不受这个影响。
+**用完把执行者删掉**，别留在侧边栏里：
+
+```bash
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
+  "$BASE/api/sessions/<执行者 id>/delete"
+```
+
+返回 `{"deleted":true}`。先 stop 再 delete，否则进程还占着。
+
+**匿名会话会在空闲后消失。** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。PiDeck 里正常新建的会话不受这个影响。
 
 ## 7 停 / 启 / 中止：单个动作
 
