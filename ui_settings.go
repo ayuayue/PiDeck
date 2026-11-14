@@ -60,22 +60,8 @@ func (a *app) settingsDialog() core.Node {
 			_ = a.langRev.Get()
 			colors := ui.ColorsOf(cx)
 			return core.View{
-				OnPress: func(core.PressEvent) {
-					a.settingsTab.Set(s.ID)
-					if s.ID == "remote" && a.remote != nil {
-						a.remote.refresh()
-					}
-					if s.ID == "usage" {
-						a.loadUsage(false)
-					}
-					if s.ID == "resources" {
-						a.loadResources(false)
-					}
-					if s.ID == "mcp" {
-						a.loadMCPServers(true)
-					}
-				},
-				Role: core.RoleTab, Label: T(s.Label), TestID: "settings-tab-" + s.ID,
+				OnPress: func(core.PressEvent) { a.openSettingsSection(s.ID) },
+				Role:    core.RoleTab, Label: T(s.Label), TestID: "settings-tab-" + s.ID,
 				StyleFunc: func() core.Style {
 					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(30),
 						Padding: core.Symmetric(0, 9), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()}}
@@ -104,21 +90,34 @@ func (a *app) settingsDialog() core.Node {
 		}))
 	}
 	return ui.Dialog{
-		Open:         a.settings.Get,
-		OnOpenChange: func(open bool, _ base.Reason) { a.settings.Set(open) },
-		Bare:         true,
-		TestID:       "settings",
-		Style:        core.Style{Width: core.Pt(760), Height: core.Pt(560)},
+		Open: a.settings.Get,
+		OnOpenChange: func(open bool, _ base.Reason) {
+			a.settings.Set(open)
+			if !open {
+				a.settingsQuery.Set("")
+			}
+		},
+		Bare:   true,
+		TestID: "settings",
+		Style:  core.Style{Width: core.Pt(760), Height: core.Pt(560)},
 		Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 			// rail
 			core.View{StyleFunc: func() core.Style {
 				return core.Style{Width: core.Pt(176), Padding: core.All(10), Gap: 2, FlexShrink: 0,
 					Background: colors.Inset(), Borders: core.Edges{Right: 1}, BorderColors: core.EdgeColors{Right: colors.Now().Line}}
-			}, Children: append([]core.Node{
-				core.View{Style: core.Style{Padding: core.Edges{Left: 9, Top: 4, Bottom: 10}}, Children: []core.Node{
+			}, Children: []core.Node{
+				core.View{Style: core.Style{Padding: core.Edges{Left: 9, Top: 4, Bottom: 8}}, Children: []core.Node{
 					ui.Text("设置", 13, ui.Semibold, colors.Text),
 				}},
-			}, nav...)},
+				core.View{Style: core.Style{Padding: core.Edges{Left: 1, Right: 1, Bottom: 8}}, Children: []core.Node{
+					core.Input{Value: a.settingsQuery.Get, OnChange: a.settingsQuery.Set, Placeholder: T("搜索设置"),
+						Label: T("搜索设置"), TestID: "settings-search",
+						Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), FontSize: 11, Color: colors.Text(),
+							Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
+							PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
+				}},
+				a.settingsRail(nav),
+			}},
 			// content
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), Direction: core.Column}, Children: []core.Node{
 				core.Dynamic(func(cx *core.Scope) core.Node {
@@ -148,6 +147,64 @@ func (a *app) settingsDialog() core.Node {
 			}},
 		}}},
 	}
+}
+
+// openSettingsSection switches to a section and runs its loader.
+func (a *app) openSettingsSection(id string) {
+	a.settingsTab.Set(id)
+	a.settingsQuery.Set("")
+	switch id {
+	case "remote":
+		if a.remote != nil {
+			a.remote.refresh()
+		}
+	case "usage":
+		a.loadUsage(false)
+	case "resources":
+		a.loadResources(false)
+	case "mcp":
+		a.loadMCPServers(true)
+	}
+}
+
+// settingsRail is the section list, or the search results while a query is
+// being typed.
+func (a *app) settingsRail(nav []core.Node) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		query := strings.ToLower(strings.TrimSpace(a.settingsQuery.Get()))
+		if query == "" {
+			return core.View{Style: core.Style{Gap: 2}, Children: nav}
+		}
+		hits := searchSettings(query)
+		if len(hits) == 0 {
+			return core.Text{Content: T("没有匹配的设置"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(6, 8)},
+				StyleFunc: ui.Colored(colors.Faint)}
+		}
+		bySection := map[string]int{}
+		var rows []core.Node
+		for _, e := range hits {
+			entry := e
+			n := bySection[entry.Section]
+			bySection[entry.Section] = n + 1
+			rows = append(rows, core.View{
+				OnPress: func(core.PressEvent) { a.openSettingsSection(entry.Section) },
+				Role:    core.RoleButton, Label: T(entry.Label),
+				TestID: fmt.Sprintf("settings-hit-%s-%d", entry.Section, n),
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(26),
+						Padding: core.Symmetric(0, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
+				},
+				Children: []core.Node{
+					core.Text{Content: T(entry.Label), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
+					core.Text{Content: T(settingsSectionTitle(entry.Section)), MaxLines: 1, Style: core.Style{FontSize: 9.5, FlexShrink: 0},
+						StyleFunc: ui.Colored(colors.Faint)},
+				},
+			})
+		}
+		return core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}
+	})
 }
 
 // settingsContent picks the section's body.

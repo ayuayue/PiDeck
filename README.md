@@ -242,6 +242,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 **设置**（左栏分类，右侧一行一条，控制项在行尾）
 - 通用：新会话默认模型/思考等级、项目下是否列 pi 本地会话、是否扫描所有项目、界面语言
   （跟随系统 / 简体中文 / 繁體中文 / English）
+- 设置搜索：侧栏顶部输入关键词（中英文均可），结果直接跳到对应分区
 - 模型与认证：供应商列表（模型数、API、BaseURL）、`pi auth check` 的就绪状态、
   复制登录命令、常用模型（收藏）管理
 - 供应商配置：点供应商右侧的设置按钮改 `api` / `baseUrl` / `apiKey`（只写这三个字段，
@@ -321,6 +322,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `ui_prompts_store.go` | 提示词商店对话框：索引链接、包列表与导入状态 |
 | `mcp.go` | MCP：`pi mcp list/add/remove` 的调用与参数拼装 |
 | `backup.go` | 设置包：zip 导出/导入、路径校验与大小上限 |
+| `settings_index.go` | 设置索引：每个设置的分区、标题与搜索关键词 |
 | `ui_mcp.go` | MCP 设置页：服务器列表、添加对话框与移除确认 |
 | `projects.go` | 项目分组、置顶、排序与顺序持久化 |
 | `ui_projects.go` | 项目分组对话框：名称输入与已有分组建议 |

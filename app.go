@@ -296,6 +296,8 @@ type app struct {
 	planAskSession *session
 	// The fork tree dialog.
 	forksOpen *core.Signal[bool]
+	// The settings search query.
+	settingsQuery *core.Signal[string]
 	// MCP servers, read through pi's CLI.
 	mcpServers *core.Signal[[]mcpServer]
 	mcpBusy    *core.Signal[bool]
@@ -426,6 +428,7 @@ func newApp(cx *core.Scope) *app {
 		trustOpen:             core.NewSignal(cx, false),
 		planAskOpen:           core.NewSignal(cx, false),
 		forksOpen:             core.NewSignal(cx, false),
+		settingsQuery:         core.NewSignal(cx, ""),
 		mcpServers:            core.NewSignalFunc(cx, []mcpServer(nil), nil),
 		mcpBusy:               core.NewSignal(cx, false),
 		mcpErr:                core.NewSignal(cx, ""),
