@@ -104,7 +104,9 @@ node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\
 
 **这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。
 
-一个 208 条的会话返回 1.5 MB，耗时 100~260 ms；作为对比（2026-11-14 本机，61 个会话）：`/api/state` 约 7.5 KB 用 3.7 ms，`/api/sessions/runtimes` 约 1.5 KB 用 1.6 ms。这两个数随会话数涨，不是常量。
+一个 208 条的会话返回 1.5 MB，耗时 100~260 ms；作为对比（2026-11-14 本机，9 个会话）：`/api/state` 约 5.4 KB 用 3.7 ms，`/api/sessions/runtimes` 约 1.5 KB 用 1.6 ms。
+
+这两个数随会话数涨：单个 session 对象至少 171 字节，会话多了就线性涨，别当常量。
 
 所以**别拿它轮询**：判断消息送没送到，先看 SSE 有没有 `error` 帧，只查一次 `/messages`。
 
@@ -182,6 +184,27 @@ data: [DONE]
 
 两个常见错误码：`webError.requestIdRequired`（body 缺 `id`）、`webError.messageRequired`（没有 role 为 user 的项，或 text 为空）。
 
+## 5.5 等回复：轮询，不要 sleep
+
+发完消息不要在同一个 bash 里 sleep 几百秒干等。长 sleep 会撞上工具自己的超时——实测一个 280 秒的 curl 被中途中止，数据只到手一半。
+
+改成每轮只查一次、立刻返回：
+
+```bash
+stat -c %s /tmp/reply.txt
+tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
+```
+
+看见 `"type":"finish"` 和 `data: [DONE]` 就是跑完了，可以解析。没看见就下一轮再查。一次完整审查实测跑 38 步、104 次工具调用，6~10 分钟。中间查 20 次左右，每次不到 1 秒。
+
+## 5.6 复用旧会话还是新开
+
+判断办法只有一条：**目标会话里有没有关于被审对象的结论。**
+
+- 有，就新开。它记得自己上一次的判断，你说「这些已经修了」，它会顺着那个结论找理由，不再独立看。审查、验证、要第二意见都属于这类。
+- 没有，就复用。同一件事的下一轮执行、换个小需求、接着改代码，上下文有用，新开反而要重新交代一遍。
+
+新开之后旧会话不要停：它可能还有没跑完的活，停掉等于丢掉。它不动了会自己进 idle。
 ## 6 重启：你关不掉自己，让别人关
 
 **重启 = 停止进程 + 重新启动进程。你自己发不出这两个请求**：stop 杀掉的就是发请求的那个进程，没有进程去发 activate。
@@ -205,7 +228,8 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 > 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的第 2 节，再按第 0 步到第 5 步做，每步把输出贴回来。
 >
 > 0. **先认自己是谁**：`echo $PIDECK_SESSION_ID`。如果它等于 `<目标 sessionId>`，停下——停掉的就是你自己，没有进程去发 activate。如果它不等于，继续。
-> 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。找不到说明目标没在跑，直接跳到第 3 步。
+> 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。
+> 找不到说明目标没在跑，直接跳到第 3 步。
 > 2. **停**：
 >    ```bash
 >    curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
@@ -298,9 +322,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 返回 `{"deleted":true}`。先 stop 再 delete，否则进程还占着。
 
-**匿名会话会在空闲后消失。
-
-** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。
+**匿名会话会在空闲后消失。** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。
 
 PiDeck 里正常新建的会话不受这个影响。
 
