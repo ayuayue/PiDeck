@@ -774,3 +774,19 @@ func TestMobileAsk(t *testing.T) {
 	}
 	app.WaitForGone("id:mobile-ask", 10*time.Second)
 }
+
+// TestRemoteGitCommits carries at most twenty commits to the phone.
+func TestRemoteGitCommits(t *testing.T) {
+	var st gitState
+	for i := 0; i < 30; i++ {
+		st.Commits = append(st.Commits, gitCommit{Hash: "h", Short: "s", Subject: "提交", Author: "Dev",
+			Date: time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)})
+	}
+	out := remoteGitOf(st)
+	if len(out.Commits) != 20 {
+		t.Fatalf("commits = %d, want 20", len(out.Commits))
+	}
+	if out.Commits[0].Subject != "提交" || out.Commits[0].When != "2026-06-01" {
+		t.Fatalf("commit = %+v", out.Commits[0])
+	}
+}

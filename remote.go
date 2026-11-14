@@ -438,6 +438,15 @@ type remoteWireGitFile struct {
 	Staged bool   `json:"staged"`
 }
 
+// remoteWireCommit is one commit in the phone's history.
+type remoteWireCommit struct {
+	Hash    string `json:"hash"`
+	Short   string `json:"short"`
+	Subject string `json:"subject"`
+	Author  string `json:"author"`
+	When    string `json:"when"`
+}
+
 // remoteWireGit is a project's repository as the phone shows it.
 type remoteWireGit struct {
 	IsRepo   bool                `json:"isRepo"`
@@ -447,6 +456,7 @@ type remoteWireGit struct {
 	Behind   int                 `json:"behind,omitempty"`
 	Branches []string            `json:"branches,omitempty"`
 	Files    []remoteWireGitFile `json:"files,omitempty"`
+	Commits  []remoteWireCommit  `json:"commits,omitempty"`
 	Error    string              `json:"error,omitempty"`
 }
 
@@ -456,6 +466,16 @@ func remoteGitOf(st gitState) remoteWireGit {
 		Ahead: st.Ahead, Behind: st.Behind, Branches: append([]string(nil), st.Branches...), Error: st.Error}
 	for _, f := range st.Files {
 		out.Files = append(out.Files, remoteWireGitFile{Path: f.Path, Mark: f.mark(), Staged: f.staged()})
+	}
+	for i, c := range st.Commits {
+		if i >= 20 {
+			break
+		}
+		when := ""
+		if !c.Date.IsZero() {
+			when = c.Date.Format("2006-01-02")
+		}
+		out.Commits = append(out.Commits, remoteWireCommit{Hash: c.Hash, Short: c.Short, Subject: c.Subject, Author: c.Author, When: when})
 	}
 	return out
 }

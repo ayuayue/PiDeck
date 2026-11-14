@@ -29,7 +29,8 @@ func TestMobileGit(t *testing.T) {
 	synced := ""
 	repo := remoteWireGit{IsRepo: true, Branch: "main", Upstream: "origin/main", Ahead: 1,
 		Branches: []string{"main", "feature"},
-		Files:    []remoteWireGitFile{{Path: "src/app.ts", Mark: "M"}}}
+		Files:    []remoteWireGitFile{{Path: "src/app.ts", Mark: "M"}},
+		Commits:  []remoteWireCommit{{Hash: "0123456789abcdef", Short: "0123456", Subject: "第一次提交", Author: "Dev", When: "2026-06-01"}}}
 	check := func(w http.ResponseWriter, r *http.Request) bool {
 		if r.Header.Get("Authorization") != "Bearer "+token {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -142,6 +143,7 @@ func TestMobileGit(t *testing.T) {
 	waitApp(app, "id:mobile-git", 10*time.Second)
 	waitApp(app, "text:main", 5*time.Second)
 	app.WaitFor("id:mobile-git-file-0", 5*time.Second)
+	app.WaitFor("text:第一次提交", 5*time.Second)
 	for i := 0; i < 4; i++ {
 		app.Press("id:mobile-git-file-0")
 		if waitQuiet(app, "id:mobile-git-diff", 2*time.Second) {

@@ -166,6 +166,24 @@ func (a *mobileApp) gitSheet() core.Node {
 					Children: row,
 				})
 			}
+			if len(st.Commits) > 0 {
+				rows = append(rows, core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(8, 0)}, StyleFunc: ui.Filled(colors.Line)})
+				rows = append(rows, ui.Text(T("最近提交"), 10.5, ui.Medium, colors.Faint))
+				for _, c := range st.Commits {
+					commit := c
+					rows = append(rows, core.View{TestID: "mobile-git-commit-row",
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, MinHeight: core.Pt(38),
+							Padding: core.Symmetric(3, 6)}, Children: []core.Node{
+							ui.Icon(lucide.GitCommitHorizontal, 12, colors.Faint),
+							core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+								core.Text{Content: commit.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+									Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
+								core.Text{Content: commit.Short + " · " + commit.Author + " · " + commit.When, MaxLines: 1,
+									Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+							}},
+						}})
+				}
+			}
 		}
 		staged := 0
 		for _, f := range st.Files {
