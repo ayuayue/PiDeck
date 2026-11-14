@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { previewApiSource } from "./helpers/previewApiSources.mjs";
 import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { configManagerSource } from "./helpers/configManagerSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
@@ -93,7 +94,7 @@ test("开关只存在「用量查询」弹窗里（徽章只读）", () => {
 	assert.match(dialog, /data-testid="usage-probe-enable"/);
 	assert.match(dialog, /setEnabled\(config\?\.enabled \?\? false\)/);
 	// 主进程按同一个字段判定生效开关（enabled ?? false）。
-	const manager = read("src/main/config/ConfigManager.ts");
+	const manager = configManagerSource;
 	assert.match(manager, /enabled: config\?\.enabled \?\? false/);
 	assert.match(manager, /if \(settings\.config\?\.enabled !== true\) \{/);
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { configManagerSource } from "./helpers/configManagerSources.mjs";
 
 const custom = loadTsCommonJs("src/main/config/providerUsageCustom.ts");
 
@@ -148,7 +149,7 @@ test("面板 JWT 失败不再纯静默：合并层带 panelBalanceError，401 �
 	// 源码扫描契约（空白容忍）：主结果成功但面板余额追加失败时必须带原因字段，
 	// UI 才能显示「JWT 已过期」而不是余额段无感消失（2026-10 实测踩坑：用户贴的
 	// JWT 已到期，静默降级看起来像功能坏了）。
-	const source = readFileSync("src/main/config/ConfigManager.ts", "utf8");
+	const source = configManagerSource;
 	assert.match(source, /else\s+result\.panelBalanceError\s*=\s*merged\.reason/);
 	// 401 归因已随面板 JWT 自动续期抽到 sub2apiPanelSession（续期与 /auth/me 两条链路：
 	// 401 记为 unauthorized，网络错误 / 5xx / 结构变更记为 failed，续期失序仍能上到 UI）。
