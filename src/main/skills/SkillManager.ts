@@ -13,8 +13,8 @@ import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCop
 
 const SKILL_FILE = "SKILL.md";
 /** 技能目录里除 SKILL.md 之外要一起落盘的附件（相对文件名）。
- *  为什么需要：self-restart.mjs 是技能正文直接让读者去跑的东西，只装 SKILL.md 会让它成为空指针。 */
-const SKILL_EXTRA_FILES: Record<string, string[]> = { "pideck-web-api": ["self-restart.mjs"] };
+ *  为什么需要：restart-peer.mjs 是技能正文直接让读者去跑的东西，只装 SKILL.md 会让它成为空指针。 */
+const SKILL_EXTRA_FILES: Record<string, string[]> = { "pideck-web-api": ["restart-peer.mjs"] };
 const IMPORT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const IMPORT_MAX_TREE_BYTES = 50 * 1024 * 1024;
 const IMPORT_MAX_DEPTH = 32;

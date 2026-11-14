@@ -367,9 +367,9 @@ test("installPideckWebApiTemplate copies the bundled web-api skill into the PiDe
 		// 名字与端点锚：技能讲的是 PiDeck 独有的 web 服务，装错文件这两条立刻红。
 		assert.match(written, /name: pideck-web-api/);
 		assert.match(written, /\/api\/chat/);
-		// 附件：正文让读者直接去跑 self-restart.mjs，只装 SKILL.md 会让它变成空指针。
-		const asset = readFileSync(join(home, ".pi", "agent", "pideck-skills", "pideck-web-api", "self-restart.mjs"), "utf8");
-		assert.match(asset, /PIDECK_SESSION_ID/);
+		// 附件：正文让读者直接去跑 restart-peer.mjs，只装 SKILL.md 会让它变成空指针。
+		const asset = readFileSync(join(home, ".pi", "agent", "pideck-skills", "pideck-web-api", "restart-peer.mjs"), "utf8");
+		assert.match(asset, /--target/);
 		// 幂等覆盖：重复安装不报错、内容一致
 		const again = await manager.installTemplate("pideck-web-api");
 		assert.equal(again.success, true);
