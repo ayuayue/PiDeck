@@ -494,7 +494,17 @@ const selectTab = useCallback((id: string) => {
 
 ## 专项波次到此关闭
 
-十七轮做完，`>600 行` 的文件从 190 个降到 107 个，``≥1200`` 的从 31 个降到 25 个，而这 25 个已全部属于三类：
+十七轮做完的真实数字（据基线首版与当前对比，别拿文件个数当成绩）：
+
+| 口径 | 基线首版 | 现在 |
+|---|---:|---:|
+| `>600 行` 文件数（hard 基线条数） | 108 | 107 |
+| `≥2000 行` | 14 | **4** |
+| `1200–1999` | 19 | 19 |
+| `600–1199` | 75 | 84 |
+| 基线内总行数 | 132,817 | **109,420（−17.6%）** |
+
+**文件个数几乎没动，是因为大部分文件是「缩到下一档」而不是「跌出 600」**——真正的成绩是大文件塌方（`≥2000` 从 14 降到 4）与基线内总行数少了 2.3 万行。剩下 `≥1200` 的 23 个已全部属于三类：
 
 1. **编排内核**：`main/index.ts 4964`、`pi/AgentManager.ts 4785`、`App.tsx 2169`、`SessionRuntimeCoordinator 2162`、`SessionCatalog/SessionScanner/SessionHistoryReader/DshAgentManager/FeishuBridge/CloudSyncManager`——再拆只剩转发壳或得改契约。
 2. **契约单点**：`shared/ipc.ts 1508`、`shared/types/settings.ts 1344`——铁律要求一处定义，拆开即破。
