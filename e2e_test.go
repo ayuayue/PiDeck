@@ -280,6 +280,19 @@ func TestModelSearch(t *testing.T) {
 	}
 }
 
+// TestModelRefresh asks pi for its model list from the menu.
+func TestModelRefresh(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.Press("id:model-picker")
+	app.WaitFor("id:model-refresh", 5*time.Second)
+	app.Press("id:model-refresh")
+	app.WaitFor("text:模型列表已刷新", 15*time.Second)
+}
+
 // TestThinkingMenu switches the reasoning level from the composer.
 func TestThinkingMenu(t *testing.T) {
 	if testing.Short() || nsgotest.Target() != "" {
@@ -376,7 +389,13 @@ func TestSessionMenuPinAndRename(t *testing.T) {
 	app.WaitFor("text:收藏", 5*time.Second)
 	app.Press("text:收藏")
 	app.WaitFor("text:置顶", 5*time.Second)
-	app.RightClick("id:session-row")
+	// Pinning moves the row; try the press until its menu is up.
+	for i := 0; i < 4; i++ {
+		app.RightClick("id:session-row")
+		if waitQuiet(app, "role:menuitem 重命名", 2*time.Second) {
+			break
+		}
+	}
 	app.Press("role:menuitem 重命名")
 	app.WaitFor("id:rename-ok", 5*time.Second)
 	app.Clear("label:会话名称")

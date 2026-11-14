@@ -293,7 +293,33 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 				core.View{Style: core.Style{Gap: 1}, Children: rows},
 			}}
 		})
-		return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{search, list}}
+		refresh := core.Dynamic(func(cx *core.Scope) core.Node {
+			if s.backend == "acp" {
+				return nil
+			}
+			colors := ui.ColorsOf(cx)
+			busy := s.modelsBusy.Get()
+			var lead core.Node = ui.Icon(lucide.RotateCw, 11, colors.Muted)
+			if busy {
+				lead = ui.Spinner{Size: 11}
+			}
+			return core.View{
+				OnPress: func(core.PressEvent) { a.refreshModels(s) },
+				Role:    core.RoleButton, Label: T("刷新模型"), TestID: "model-refresh",
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(30),
+						Margin: core.Edges{Top: 4}, Padding: core.Symmetric(0, 8), CornerRadius: 6,
+						BorderWidth: 1, BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}}
+				},
+				Children: []core.Node{
+					lead,
+					core.Text{Content: T("刷新模型"), Style: core.Style{FontSize: 11.5, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
+					core.Text{ContentFunc: func() string { return fmt.Sprintf("%d 个", len(s.models.Get())) },
+						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+				},
+			}
+		})
+		return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{search, list, refresh}}
 	}, "model-menu")
 }
 

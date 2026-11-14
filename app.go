@@ -79,23 +79,24 @@ type session struct {
 	Target   target
 	External bool // a session in pi's own store, opened in place
 
-	title    *core.Signal[string]
-	status   *core.Signal[sessionStatus]
-	turns    *core.Signal[[]turn]
-	draft    *core.Signal[string]
-	images   *core.Signal[[]promptImage]
-	model    *core.Signal[modelInfo]
-	models   *core.Signal[[]modelInfo]
-	thinking *core.Signal[string]
-	levels   *core.Signal[[]string]
-	usage    *core.Signal[usageInfo]
-	stats    *core.Signal[sessionStats]
-	updated  *core.Signal[time.Time]
-	loaded   *core.Signal[bool]
-	notice   *core.Signal[string]
-	queued   *core.Signal[int]
-	ask      *core.Signal[*extensionAsk]
-	window   *core.Signal[int]
+	title      *core.Signal[string]
+	status     *core.Signal[sessionStatus]
+	turns      *core.Signal[[]turn]
+	draft      *core.Signal[string]
+	images     *core.Signal[[]promptImage]
+	model      *core.Signal[modelInfo]
+	models     *core.Signal[[]modelInfo]
+	modelsBusy *core.Signal[bool]
+	thinking   *core.Signal[string]
+	levels     *core.Signal[[]string]
+	usage      *core.Signal[usageInfo]
+	stats      *core.Signal[sessionStats]
+	updated    *core.Signal[time.Time]
+	loaded     *core.Signal[bool]
+	notice     *core.Signal[string]
+	queued     *core.Signal[int]
+	ask        *core.Signal[*extensionAsk]
+	window     *core.Signal[int]
 	// todos is the agent's task list, and todoOpen whether the bar above
 	// the composer shows all of it.
 	todos    *core.Signal[[]todoItem]
@@ -696,6 +697,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		images:         core.NewSignalFunc(a.cx, []promptImage(nil), nil),
 		model:          core.NewSignal(a.cx, modelInfo{}),
 		models:         core.NewSignalFunc(a.cx, []modelInfo(nil), nil),
+		modelsBusy:     core.NewSignal(a.cx, false),
 		thinking:       core.NewSignal(a.cx, ""),
 		levels:         core.NewSignalFunc(a.cx, []string(nil), nil),
 		usage:          core.NewSignal(a.cx, usageInfo{}),
@@ -1289,6 +1291,7 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		images:         core.NewSignalFunc(a.cx, []promptImage(nil), nil),
 		model:          core.NewSignal(a.cx, modelInfo{}),
 		models:         core.NewSignalFunc(a.cx, []modelInfo(nil), nil),
+		modelsBusy:     core.NewSignal(a.cx, false),
 		thinking:       core.NewSignal(a.cx, ""),
 		levels:         core.NewSignalFunc(a.cx, []string(nil), nil),
 		usage:          core.NewSignal(a.cx, usageInfo{}),
@@ -2538,6 +2541,42 @@ func (a *app) applyModel(s *session, provider, id string, remember bool) {
 			})
 		}()
 	})
+}
+
+// refreshModels asks pi for its model list again, after models.json or
+// auth changed outside the session.
+func (a *app) refreshModels(s *session) {
+	if s == nil || s.backend == "acp" || s.modelsBusy.GetUntracked() {
+		return
+	}
+	c := s.engine
+	if c == nil {
+		a.toast(ui.ToastInfo, "会话还没就绪", "等 Agent 启动后再刷新。")
+		return
+	}
+	s.modelsBusy.Set(true)
+	go func() {
+		var models struct {
+			Models []modelInfo `json:"models"`
+		}
+		err := c.call(map[string]any{"type": "get_available_models"}, &models, 40*time.Second)
+		var levels struct {
+			Levels []string `json:"levels"`
+		}
+		levelsErr := c.call(map[string]any{"type": "get_available_thinking_levels"}, &levels, 20*time.Second)
+		a.cx.Post(func() {
+			s.modelsBusy.Set(false)
+			if err != nil {
+				a.toast(ui.ToastError, "刷新模型失败", err.Error())
+				return
+			}
+			s.models.Set(models.Models)
+			if levelsErr == nil && len(levels.Levels) > 0 {
+				s.levels.Set(levels.Levels)
+			}
+			a.toast(ui.ToastSuccess, "模型列表已刷新", fmt.Sprintf("共 %d 个模型。", len(models.Models)))
+		})
+	}()
 }
 
 // refreshModelState reads what the current model accepts again: its

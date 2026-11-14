@@ -70,7 +70,7 @@
 | --- | --- | --- |
 | models.json / auth.json / settings.json 可视化 | 🟡 | 供应商三字段可视化 + 原始 JSON 编辑器；schema 表单待做 |
 | 连接测试 | ✅ | `/models` 优先，失败退到最小 chat 请求；显示状态码与耗时 |
-| 模型能力自适应 | 🟡 | 读 models.json，缺动态刷新 |
+| 模型能力自适应 | ✅ | 读 models.json；模型菜单底部「刷新模型」重新向 pi 取模型与思考档 |
 | 供应商余额/额度查询 | 🟡 | OpenRouter / Moonshot / DeepSeek / SiliconFlow 可用；自定义余额接口模板待做 |
 | 用量统计（热力图/日/模型/项目） | ✅ | pi 会话精确、ACP 按文本估算；累计、热力图、模型与项目榜 |
 | 代理设置 | ✅ | 应用请求与 Agent 进程分开，NO_PROXY 共用；供应商/飞书/Git 走应用代理，pi/ACP 注入环境变量 |
