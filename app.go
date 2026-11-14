@@ -3727,6 +3727,18 @@ func (a *app) setTheme(name string) {
 	a.emit(eventThemeChanged, appEvent{Data: map[string]string{"theme": name}})
 }
 
+// cycleAppearance walks the three built-in looks: system, light, dark.
+func (a *app) cycleAppearance() {
+	switch a.theme.GetUntracked() {
+	case "system", "":
+		a.setTheme("light")
+	case "light":
+		a.setTheme("dark")
+	default:
+		a.setTheme("system")
+	}
+}
+
 // openWorkspaceFolder reveals a folder in the file manager of the machine
 // it is on.
 func (a *app) openWorkspaceFolder(path string) {

@@ -24,6 +24,7 @@ func defaultKeybindings() []keyBinding {
 		{Command: "close-tab", Key: "mod+w"},
 		{Command: "save-file", Key: "mod+s"},
 		{Command: "save-all-files", Key: "mod+alt+s"},
+		{Command: "appearance-cycle", Key: "mod+shift+l"},
 		{Command: "next-tab", Key: "ctrl+tab"},
 		{Command: "prev-tab", Key: "ctrl+shift+tab"},
 		{Command: "sidebar", Key: "mod+b"},

@@ -72,3 +72,28 @@ func TestExportTheme(t *testing.T) {
 		t.Fatalf("theme file = %+v", f)
 	}
 }
+
+// TestCycleAppearance walks system, light and dark with the shortcut.
+func TestCycleAppearance(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	read := func() string {
+		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
+		if err != nil {
+			return ""
+		}
+		var c config
+		_ = json.Unmarshal(raw, &c)
+		return c.Theme
+	}
+	app.Key("mod+shift+l")
+	app.WaitUntil(5*time.Second, func() bool { return read() == "light" })
+	app.Key("mod+shift+l")
+	app.WaitUntil(5*time.Second, func() bool { return read() == "dark" })
+	app.Key("mod+shift+l")
+	app.WaitUntil(5*time.Second, func() bool { return read() == "system" })
+}
