@@ -108,9 +108,9 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派
 curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&before=<nextBefore>"
 ```
 
-返回 7 个键：`messages`、`total`、`nextBefore`、`nextBeforeEntryId`、`indexVersion`、`model`、`thinkingLevel`。
+返回 6 个键：`messages`、`total`、`nextBefore`、`indexVersion`、`model`、`thinkingLevel`。
 
-`pageSize` 的单位是**轮**不是条：实测 `pageSize=2` 返回 123 条消息（两轮问答），`total` 是全部条数。2026-11-14 实测可用。
+**`pageSize` 不生效。** 实测 `pageSize=1`、`2`、`100`、`500` 四档都返回同一个会话的全部消息（126 条），`nextBefore` 一律是 `null`。所以这个端点现在只能整体取一次，按页翻历史这条路没落地——要翻更早的，还是读磁盘那份 jsonl。
 
 只有这个端点也满足不了需求时（比如要原始的工具调用参数），才去读磁盘上的 jsonl：
 
@@ -122,7 +122,13 @@ node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\
 
 **这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。
 
-一个 208 条的会话返回 1.5 MB，耗时 100~260 ms；作为对比（2026-11-14 本机，9 个会话）：`/api/state` 约 5.4 KB 用 3.7 ms，`/api/sessions/runtimes` 约 1.5 KB 用 1.6 ms。
+`/messages` 的体积跟会话长度成正比，一百多条消息的会话是 MB 级。`/api/state` 和 `/api/sessions/runtimes` 是 KB 级。
+
+具体数字自己量，别抄这里的：
+
+```bash
+curl -s -o /dev/null -w '%{size_download} %{time_total}\n' -H "$AUTH" "$BASE/api/state"
+```
 
 这两个数随会话数涨：单个 session 对象至少 171 字节，会话多了就线性涨，别当常量。
 
