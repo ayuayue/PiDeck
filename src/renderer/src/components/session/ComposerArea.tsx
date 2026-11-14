@@ -274,6 +274,8 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 										<ComposerStatsLine
 											state={composer.runtime?.state}
 											turnCount={props.turnCount}
+											provider={composer.backend === "acp" ? undefined : (composer.dshDefaultModel?.provider ?? composer.bootstrapDefaultModel?.provider)}
+											usageBackend={composer.backend === "dsh" ? "dsh" : "pi"}
 											contextMeter={
 												composer.mode === "imagegen" ? null : (
 													<SessionContextMeter
