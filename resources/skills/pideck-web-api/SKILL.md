@@ -125,11 +125,13 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$SELF/messages/page?before=<windowStart>&
 
 ### 5.1 让别的会话重启你
 
-**先选对协作会话**：`/api/state` 的 `sessions[]` 里，`runtimes[]` **搜不到**的那些才是空闲的。
-不要发给正在跑的会话——它可能正在处理自己的回合，你这条消息会插进它手里的事，它回复的是它的任务，
-不是你的指令。判据：`runtimes[]` 里没有它的 `sessionId`。
+**先选对协作会话**：你需要一个「此刻没在干活」的会话替你发指令。判法是把 `/api/state` 返回的两个
+数组对一遍——`sessions[]` 列出全部会话，`runtimes[]` 列出此刻真的在跑的；只有出现在前者、不在后者
+的那些才是空闲的。
 
-都忙的话，在 PiDeck 里新开一个空会话（它自带运行时），或者让人按 §5.3 手工点。
+不要选正在跑的：它可能正忙自己的任务，你这条消息会插进它手里的事，它回的是它的任务，不是你的指令。
+
+都忙的话，在 PiDeck 里新开一个空会话（新会话会自动启动，不用额外操作），或者让人按 §5.3 手工点。
 
 把下面这条命令交给那个**空闲协作会话**执行（不是你自己执行），参数是你要重启的那个会话 id：
 
@@ -179,9 +181,10 @@ node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <对方 
 
 不存在「agent 自己重启自己」的路径。硬来（`--no-wait` 指向自己）等于自杀：进程没了，没有人发 activate。
 
-`~/.pi/agent/bin/self-restart.mjs` 曾提供过一条带守卫的自查重启（守卫脱离进程树，由它 stop 再
-activate），实测成功过三次。它被删了：能力留在这里，禁令也在这里，两处真值打架的结果是 agent 会挑
-那条更省事的路走。现在只剩「让别人关」这一条。
+`~/.pi/agent/bin/self-restart.mjs` 曾经提供过这条捷径：起一个脱离进程树的守卫，由守卫替你 stop 再
+activate，实测成功过三次。2026-11-14 删掉了。原因不是它不成立，是它和上面那句禁令冲突——文档里
+写着「不许自己停」，bin 目录里却有个专门干这个的脚本。两句话同时在的时候，agent 会挑省事的那句
+执行，当天就是这么发生的。删掉脚本后，只剩「让别人关」这一条路。
 
 ### 5.4 失败时读哪一行
 
@@ -250,7 +253,7 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
 
 两个常见错误码：`webError.requestIdRequired`（请求体缺 `id`）、`webError.messageRequired`（`messages` 里没有 role 为 user 的项，或 text 为空）。
 
-**目标没在跑时先 activate**：`/api/chat` 只对已经跑着的运行时生效。发给一个 `runtimes[]` 里没有的
+**目标没在跑时先 activate**：`/api/chat` 只对已经跑着的会话生效。发给一个 `runtimes[]` 里没有的
 会话，会返回 `200` 但一个帧都不吐，会话历史也不变——**状态码不能用来判送达**，判据是收到
 `start-step`。正确顺序：先 `runtime/activate`，等它出现在 `runtimes[]` 里，再发请求。
 
