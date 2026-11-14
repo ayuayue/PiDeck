@@ -29,6 +29,8 @@ function loadStats() {
 			"../i18n": { t },
 			"./TimelineFormat": { formatDuration: (ms) => `${ms}ms` },
 			"./SessionContextMeter": { formatTokens: (n) => String(n) },
+			"../../hooks/useProviderUsage": { useProviderUsageEntry: () => ({ result: null }) },
+			"../../utils/providerUsageDisplay": { usageBadgeSegments: () => null, USAGE_TONE_TEXT_CLASS: {} },
 		},
 	});
 }
@@ -137,7 +139,10 @@ test("composer area mounts the stats strip under the input card", () => {
 	const area = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
 	const stats = readFileSync("src/renderer/src/components/session/ComposerStatsLine.tsx", "utf8");
 	assert.match(area, /import \{ ComposerStatsLine \} from "\.\/ComposerStatsLine"/);
-	assert.match(area, /statsLine=\{\s*<ComposerStatsLine\s+state=\{composer\.runtime\?\.state\}\s+turnCount=\{props\.turnCount\}\s+contextMeter=/);
+	assert.match(
+		area,
+		/statsLine=\{\s*<ComposerStatsLine\s+state=\{composer\.runtime\?\.state\}\s+turnCount=\{props\.turnCount\}\s+provider=\{composer\.backend === "acp" \? undefined : \(composer\.dshDefaultModel\?\.provider \?\? composer\.bootstrapDefaultModel\?\.provider\)\}\s+usageBackend=\{composer\.backend === "dsh" \? "dsh" : "pi"\}\s+contextMeter=/,
+	);
 	assert.match(area, /\{props\.statsLine\}/);
 	// footer 固定保留 8px 底部留白；ComposerMeasuredExtras 会把它计入总高度，
 	// StatsLine 自身仍只在有数字时渲染。
@@ -149,6 +154,15 @@ test("composer area mounts the stats strip under the input card", () => {
 	assert.match(stats, /placeholder && "invisible"/);
 	assert.match(stats, /px-1 pb-0 pt-1/);
 	assert.match(stats, /min-w-0 truncate text-center/);
+});
+
+test("stats line reuses the enabled provider usage cache and formats its own badge", () => {
+	const stats = readFileSync("src/renderer/src/components/session/ComposerStatsLine.tsx", "utf8");
+	assert.match(stats, /useProviderUsageEntry\(props\.provider, props\.usageBackend\)/);
+	assert.match(stats, /usageEntry\.result\?\.success \? usageBadgeSegments\(usageEntry\.result, t\) : null/);
+	assert.match(stats, /segment\.labelKey != null \? t\(segment\.labelKey\) : segment\.labelText/);
+	assert.match(stats, /USAGE_TONE_TEXT_CLASS\[segment\.tone\]/);
+	assert.match(stats, /title=\{t\("sessionContext\.usageBalance"\)\}/);
 });
 
 test("stats copy exists in both locales", () => {

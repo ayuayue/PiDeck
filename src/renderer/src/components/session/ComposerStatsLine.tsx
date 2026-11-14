@@ -1,12 +1,15 @@
 import { Fragment, memo, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../../i18n";
 import type { AgentRuntimeState, TpsDisplayMode } from "../../../../shared/types";
+import type { UsageProbeBackend } from "../../../../shared/types/providerUsage";
 import { useAtomValue } from "jotai";
 import { tpsDisplayModeAtom } from "../../atoms/tps-atoms";
 import { buildTpsDisplay } from "../../utils/tpsDisplay";
 import { cn } from "../../lib/utils";
 import { formatDuration } from "./TimelineFormat";
 import { formatTokens } from "./SessionContextMeter";
+import { useProviderUsageEntry } from "../../hooks/useProviderUsage";
+import { USAGE_TONE_TEXT_CLASS, usageBadgeSegments } from "../../utils/providerUsageDisplay";
 
 /**
  * 输入卡正下方的会话指标条（dsh-web StatsLine / conversation.composer.dock）。
@@ -104,9 +107,11 @@ export function buildComposerStatsGroups(state: Pick<AgentRuntimeState, "dshSess
 	return buildComposerStatsSegments(state, turnCount, tpsMode).map((parts) => parts.map((part) => part.text).join(" · "));
 }
 
-export const ComposerStatsLine = memo(function ComposerStatsLine(props: { state?: AgentRuntimeState; turnCount?: number; contextMeter?: ReactNode }) {
+export const ComposerStatsLine = memo(function ComposerStatsLine(props: { state?: AgentRuntimeState; turnCount?: number; contextMeter?: ReactNode; provider?: string; usageBackend?: UsageProbeBackend }) {
 	const tpsMode = useAtomValue(tpsDisplayModeAtom);
+	const usageEntry = useProviderUsageEntry(props.provider, props.usageBackend);
 	const segments = buildComposerStatsSegments(props.state, props.turnCount, tpsMode);
+	const usageSegments = usageEntry.result?.success ? usageBadgeSegments(usageEntry.result, t) : null;
 	const rootRef = useRef<HTMLDivElement | null>(null);
 	const [truncated, setTruncated] = useState(false);
 	const line = segments.map((parts) => parts.map((part) => part.text).join(" · ")).join(" | ");
@@ -160,6 +165,18 @@ export const ComposerStatsLine = memo(function ComposerStatsLine(props: { state?
 								<span title={part.hint}>{part.text}</span>
 							</Fragment>
 						))}
+						{i === segments.length - 1 && usageSegments && usageSegments.length > 0 && (
+							<span className="ml-2.5 inline-flex items-baseline gap-1.5 whitespace-nowrap border-l border-border-strong pl-2.5" data-testid="composer-provider-usage">
+								{usageSegments.map((segment, index) => (
+									<Fragment key={`${segment.labelKey ?? segment.labelText ?? "usage"}-${index}`}>
+										<span title={t("sessionContext.usageBalance")}>{segment.labelKey != null ? t(segment.labelKey) : segment.labelText}</span>
+										<span className={`font-mono font-semibold tabular-nums ${USAGE_TONE_TEXT_CLASS[segment.tone]}`} title={t("sessionContext.usageBalance")}>
+											{segment.text}
+										</span>
+									</Fragment>
+								))}
+							</span>
+						)}
 					</Fragment>
 				))}
 			</div>
