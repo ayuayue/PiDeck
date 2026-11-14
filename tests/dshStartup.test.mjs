@@ -7,6 +7,8 @@ import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 const { startDshHostInBackground } = loadTsCommonJs("src/main/dsh/startDshHostInBackground.ts");
 const main = mainIpcSource;
 const configTab = readFileSync("src/renderer/src/config/DshConfigTab.tsx", "utf8");
+// 概览区（重启/启动入口）已按域拆出：断言跟着源码走，否则搬迁就等于让契约失效。
+const dshOverview = readFileSync("src/renderer/src/config/dsh/DshConfigOverview.tsx", "utf8");
 
 test("startDshHostInBackground starts immediately without awaiting host readiness", async () => {
 	let resolveStart;
@@ -62,12 +64,14 @@ test("startup integration warms DSH after the main window whenever the runtime i
 	// 默认后端不再是预热门控：纯 pi 用户只要装了 runtime 也应该预热 DSH host。
 	assert.doesNotMatch(main, /function dshWarmupEnabled\(\): boolean[\s\S]{0,300}defaultAgentBackend/);
 	assert.match(main, /function dshWarmupEnabled\(\): boolean\s*\{\s*return dshRuntimeStatus\.canCreateDshSession\(\) && settingsStore\.get\(\)\.dshManualStopped !== true;\s*\}/);
-	assert.match(configTab, /const restartHost = async \(\) =>/);
+	assert.match(dshOverview, /const restartHost = async \(\) =>/);
+	assert.match(dshOverview, /desktopApi\.sessions\.restartDshHost\(\)/);
+	assert.match(dshOverview, /t\("config\.dsh\.restartHost"\)/);
+	assert.match(dshOverview, /const startHost = async \(\) =>/);
+	assert.match(dshOverview, /desktopApi\.sessions\.startDshHost\(\)/);
+	assert.match(dshOverview, /t\("config\.dsh\.startHost"\)/);
+	// banner 的「重启 host」入口留在主组件：同一链路，不能只在概览区可用。
 	assert.match(configTab, /desktopApi\.sessions\.restartDshHost\(\)/);
-	assert.match(configTab, /t\("config\.dsh\.restartHost"\)/);
-	assert.match(configTab, /const startHost = async \(\) =>/);
-	assert.match(configTab, /desktopApi\.sessions\.startDshHost\(\)/);
-	assert.match(configTab, /t\("config\.dsh\.startHost"\)/);
 	// 启动后回读状态：手动停止标记清除后徽标要变成「运行中」（不同步成 started 会停在已停止）
 	assert.match(configTab, /setStatus\(statusResult\)/);
 });
