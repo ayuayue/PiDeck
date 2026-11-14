@@ -528,4 +528,15 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 1. **能观察自己**（只读）：`echo $PIDECK_SESSION_ID` 非空，且这个 id 出现在 `/api/state` 的 `sessions[]` 里。
 2. **能读别人**（只读）：`sessions[]` 里看得到别的会话标题。
-3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，收到 `text-delta` 帧且 `total` 变大；要验「真进程」，走一次第 6 节，`runtimeGeneration` 变了才算。
+3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，**没有 `error` 帧**就是送到了（别拿 `total` 或帧数当判据——对方忙的时候整条连接可能只有一行 `: ping`，而消息确实进了它的对话，见第 5 节）。要验「真进程」，走一次第 6 节，`runtimeGeneration` 变了才算。
+
+## 11 改这个技能之前
+
+第 7 节那两张表是照源码抄的，抄错没人看得见。改完跑下面这两条检查，两条的 rc 都得是 0：
+
+```bash
+node resources/skills/pideck-web-api/check-doc.mjs    # 第 7 节的动作表、端点数，逐条对源码
+node resources/skills/pideck-web-api/check-paths.mjs  # 全文每个 /api 路径，逐段对源码
+```
+
+两条都自带坏样本：故意写错一个动作名，或者把一个路径段拼错，它们必须报红。一直绿的那条，多半是检查本身坏了。
