@@ -16,6 +16,7 @@ type settingEntry struct {
 // settingsIndex lists the settings by section and search words.
 var settingsIndex = []settingEntry{
 	{"general", "语言", "language locale english chinese"},
+	{"general", "内容宽度", "chat width content reading column narrow wide 宽度"},
 	{"general", "项目排序", "project sort order recent created title"},
 	{"general", "排序", "session sort name updated"},
 	{"general", "列出 pi 本地会话", "scan pi sessions history"},

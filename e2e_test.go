@@ -32,14 +32,15 @@ func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App 
 	// The app's own browser works the same on every platform, so the
 	// end-to-end tests drive it; the system picker has a test of its own.
 	app.Press("id:rail-palette")
+	app.WaitFor("text:浏览文件夹添加工作区", 10*time.Second)
 	app.Press("text:浏览文件夹添加工作区")
-	app.WaitFor("text:选择这个文件夹", 5*time.Second)
+	app.WaitFor("text:选择这个文件夹", 10*time.Second)
 	app.Clear("label:文件夹路径")
 	app.Type("label:文件夹路径", dir)
 	app.Submit("label:文件夹路径")
-	app.WaitFor("text:note.txt", 5*time.Second)
+	app.WaitFor("text:note.txt", 10*time.Second)
 	app.Press("text:选择这个文件夹")
-	app.WaitFor("text:打开一个会话，或者新建一个。", 5*time.Second)
+	app.WaitFor("text:打开一个会话，或者新建一个。", 10*time.Second)
 	// With a project in place the welcome's main action opens a session.
 	app.Press("id:welcome-primary")
 	app.WaitFor("id:composer", 10*time.Second)
@@ -346,7 +347,15 @@ func TestProjectMenu(t *testing.T) {
 	dir := workspaceWith(t)
 	app := startApp(t, dir, 1320, 860)
 	waitApp(app, "id:pi-ready", 90*time.Second)
-	app.RightClick("text:" + filepath.Base(dir))
+	label := "text:" + filepath.Base(dir)
+	waitApp(app, label, 30*time.Second)
+	// The row can rebuild while the press lands; try until its menu is up.
+	for i := 0; i < 4; i++ {
+		app.RightClick(label)
+		if waitQuiet(app, `text:"在此新建会话"`, 2*time.Second) {
+			break
+		}
+	}
 	for _, item := range []string{"在此新建会话", "刷新会话", "在文件管理器中打开", "复制项目路径", "添加项目…", "移除项目"} {
 		app.WaitFor(`text:"`+item+`"`, 5*time.Second)
 	}

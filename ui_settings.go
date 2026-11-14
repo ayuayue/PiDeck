@@ -374,6 +374,21 @@ func (a *app) settingsGeneral() core.Node {
 						choiceChips([]choice[string]{
 							{langSystem, "跟随系统"}, {langZhCN, "简体中文"}, {langZhTW, "繁體中文"}, {langEnUS, "English"},
 						}, func() string { return a.cfg.Language }, a.setLanguage)),
+					setDivider(),
+					setRow("内容宽度", "对话正文与输入框的最大宽度；窄一些更好读，宽一些能放下更多代码。",
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(230)}, Children: []core.Node{
+							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+								ui.Slider{Min: chatWidthMin, Max: chatWidthMax, Step: 20,
+									Value:     func() float64 { return float64(a.contentWidth()) },
+									Label:     T("对话内容宽度"),
+									ValueText: func(v float64) string { return fmt.Sprintf("%.0f pt", v) },
+									TestID:    "chat-width",
+									OnChange:  func(v float64) { a.setChatWidth(int(v)) }},
+							}},
+							core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", float64(a.contentWidth())) },
+								Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
+								StyleFunc: ui.Colored(colors.Muted)},
+						}}),
 				),
 				setGroup("新会话默认模型", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
 					Children: modelChips}),

@@ -74,6 +74,9 @@ type config struct {
 	// TerminalOpen and TerminalHeight restore the bottom terminal panel.
 	TerminalOpen   bool    `json:"terminalOpen,omitempty"`
 	TerminalHeight float64 `json:"terminalHeight,omitempty"`
+	// ChatWidth is the reading width of the transcript and composer, in
+	// points; 0 keeps the kit's default.
+	ChatWidth int `json:"chatWidth,omitempty"`
 	// Remote is the phone server: whether it listens, its port and token,
 	// and the EasyTier address when its CLI cannot be read.
 	RemoteEnabled    bool   `json:"remoteEnabled,omitempty"`
@@ -254,6 +257,19 @@ func normalizeConfig(c *config) bool {
 	if c.TerminalHeight != 0 && (c.TerminalHeight < 120 || c.TerminalHeight > 1200) {
 		c.TerminalHeight = 0
 		changed = true
+	}
+	if c.ChatWidth != 0 {
+		w := c.ChatWidth
+		if w < chatWidthMin {
+			w = chatWidthMin
+		}
+		if w > chatWidthMax {
+			w = chatWidthMax
+		}
+		if w != c.ChatWidth {
+			c.ChatWidth = w
+			changed = true
+		}
 	}
 	if c.RemotePort != 0 && (c.RemotePort < 1 || c.RemotePort > 65535) {
 		c.RemotePort = 0

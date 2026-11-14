@@ -249,6 +249,9 @@ type app struct {
 	// langRev changes when the interface language does, so pages that
 	// hold static text rebuild.
 	langRev *core.Signal[int]
+	// chatWidth is the transcript's reading width, so a slider drag
+	// rebuilds the chat without touching the stored config.
+	chatWidth *core.Signal[int]
 	// events carries app events to subscribers and plugin hooks; inHook
 	// stops a hook's own action from triggering hooks again.
 	events eventBus
@@ -510,6 +513,7 @@ func newApp(cx *core.Scope) *app {
 		promptImportErr:       core.NewSignal(cx, ""),
 		promptCat:             core.NewSignal(cx, ""),
 		langRev:               core.NewSignal(cx, 0),
+		chatWidth:             core.NewSignal(cx, 0),
 		providerOpen:          core.NewSignal(cx, false),
 		providerID:            core.NewSignal(cx, ""),
 		providerAPI:           core.NewSignal(cx, ""),
@@ -551,6 +555,7 @@ func newApp(cx *core.Scope) *app {
 	a.st = st
 	a.initDiag()
 	a.cfg = st.config()
+	a.chatWidth.Set(a.cfg.ChatWidth)
 	a.applyProxy()
 	a.theme.Set(a.cfg.Theme)
 	a.sidebar.Set(a.cfg.SidebarOpen)

@@ -17,6 +17,13 @@ import (
 	"github.com/oneo-me/nsgo/ui/chat"
 )
 
+// The reading width of the transcript and composer: the kit's column is
+// 720 points wide, and narrower reads better on wide screens.
+const (
+	chatWidthMin = 520
+	chatWidthMax = 720
+)
+
 // chatPane is the conversation and its composer.
 func (a *app) chatPane() core.Node {
 	return core.View{Style: ui.FillRest, Children: []core.Node{
@@ -34,7 +41,7 @@ func (a *app) chatPane() core.Node {
 					JumpLabel: "跳到最新消息",
 					TestID:    "transcript",
 					Children:  []core.Node{a.transcript(s)},
-					Composer:  []core.Node{a.trustBar(s), a.todoBar(s), a.composer(s)},
+					Composer:  []core.Node{a.composerStack(s)},
 				},
 				core.Show{When: func() bool {
 					return len(s.turns.Get()) == 0 && !s.loaded.Get() && s.status.Get() != statusFailed
@@ -47,10 +54,49 @@ func (a *app) chatPane() core.Node {
 	}}
 }
 
+// contentWidth is the transcript and composer's reading width, the kit's
+// default until the user narrows it.
+func (a *app) contentWidth() int {
+	w := a.chatWidth.Get()
+	if w < chatWidthMin || w > chatWidthMax {
+		w = int(chat.ContentWidth)
+	}
+	return w
+}
+
+// setChatWidth narrows or widens the transcript and composer, and keeps
+// the choice; the kit's own width is stored as the default.
+func (a *app) setChatWidth(w int) {
+	if w < chatWidthMin {
+		w = chatWidthMin
+	}
+	if w > chatWidthMax {
+		w = chatWidthMax
+	}
+	a.chatWidth.Set(w)
+	stored := w
+	if w == int(chat.ContentWidth) {
+		stored = 0
+	}
+	a.cfg.ChatWidth = stored
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.ChatWidth = stored })
+	}
+}
+
+// composerStack keeps the composer and its bars at the reading width.
+func (a *app) composerStack(s *session) core.Node {
+	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
+		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(core.Points(a.contentWidth())), MinWidth: core.Pt(0)}, Children: []core.Node{
+			a.trustBar(s), a.todoBar(s), a.composer(s),
+		}},
+	}}
+}
+
 // transcript is the keyed list of turns, bounded to a window of the newest.
 func (a *app) transcript(s *session) core.Node {
-	return core.View{Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0}, Children: []core.Node{
-		core.View{Selectable: true, Style: core.Style{MinWidth: core.Pt(0), Gap: 48}, Children: []core.Node{
+	return core.View{Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0, Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
+		core.View{Selectable: true, TestID: "transcript-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(core.Points(a.contentWidth())), MinWidth: core.Pt(0), Gap: 48}, Children: []core.Node{
 			core.Show{When: func() bool { return len(s.turns.Get()) > s.window.Get() }, Then: func(cx *core.Scope) core.Node {
 				return a.loadEarlier(s)
 			}},
