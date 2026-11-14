@@ -92,6 +92,7 @@ type gitState struct {
 	Commits        []gitCommit
 	Branches       []string
 	RemoteBranches []string
+	Tags           []string
 	// LogLimit is how many commits were asked for.
 	LogLimit int
 	Error    string
@@ -374,7 +375,26 @@ func readGitState(t target, dir string, logLimit int) gitState {
 	if out, _, code, err := gitRun(t, dir, 20*time.Second, "branch", "-r", "--format=%(refname:short)"); err == nil && code == 0 {
 		st.RemoteBranches = parseRemoteBranches(out)
 	}
+	if out, _, code, err := gitRun(t, dir, 20*time.Second, "tag", "--sort=-creatordate"); err == nil && code == 0 {
+		st.Tags = parseGitTags(out)
+	}
 	return st
+}
+
+// parseGitTags reads a tag list, newest first, capped.
+func parseGitTags(out string) []string {
+	var tags []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		tags = append(tags, line)
+		if len(tags) >= 100 {
+			break
+		}
+	}
+	return tags
 }
 
 // readGitStatus reads the status alone.

@@ -434,6 +434,8 @@ type app struct {
 	gitStashBusy *core.Signal[bool]
 	gitStashErr  *core.Signal[string]
 	gitMoreOpen  *core.Signal[bool]
+	gitTagsOpen  *core.Signal[bool]
+	gitTagText   *core.Signal[string]
 	// gitDiffHash is the commit the diff dialog shows, empty for a file.
 	gitDiffHash string
 	// addonsGen drops a stale plugin reload that finished after a newer one.
@@ -566,6 +568,8 @@ func newApp(cx *core.Scope) *app {
 		gitStashBusy:           core.NewSignal(cx, false),
 		gitStashErr:            core.NewSignal(cx, ""),
 		gitMoreOpen:            core.NewSignal(cx, false),
+		gitTagsOpen:            core.NewSignal(cx, false),
+		gitTagText:             core.NewSignal(cx, ""),
 		gitNewBranchName:       core.NewSignal(cx, ""),
 		gitDiffOpen:            core.NewSignal(cx, false),
 		gitDiffTitle:           core.NewSignal(cx, ""),

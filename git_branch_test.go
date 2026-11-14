@@ -213,3 +213,68 @@ func TestCommitWebURL(t *testing.T) {
 		t.Error("a file remote should fail")
 	}
 }
+
+// TestGitTags creates and deletes a tag from the dialog.
+func TestGitTags(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	t.Setenv("GIT_AUTHOR_NAME", "PiDeck Test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "pideck@example.com")
+	t.Setenv("GIT_COMMITTER_NAME", "PiDeck Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "pideck@example.com")
+	dir := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init")
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "first")
+
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	cfg, err := json.Marshal(config{Version: 2, Workspaces: []workspaceCfg{{Path: dir, Expanded: true}},
+		Theme: "system", SidebarOpen: true, ScanPi: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
+	app.Press("id:git-toggle")
+	waitApp(app, "id:git-branch", 20*time.Second)
+	app.Press("id:git-more")
+	app.WaitFor("text:标签…", 5*time.Second)
+	app.Press("text:标签…")
+	app.WaitFor("id:git-tags", 5*time.Second)
+	app.Type("id:git-tag-name", "v1.0.0")
+	app.Press("id:git-tag-create")
+	app.WaitFor("id:git-tag-row-0", 10*time.Second)
+	if out := run("tag", "--list", "v1.0.0"); out != "v1.0.0" {
+		t.Fatalf("tag = %q", out)
+	}
+	app.Press("id:git-tag-delete-0")
+	app.WaitFor("id:confirm-ok", 5*time.Second)
+	app.Press("id:confirm-ok")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if run("tag", "--list") == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the tag was not deleted")
+		}
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
+}
