@@ -59,6 +59,8 @@ echo $PIDECK_SESSION_ID
 
 **别拿错变量**：`$PI_SESSION_ID` 是 pi 自己的会话 id，不是 PiDeck 的身份。分辨办法：`$PIDECK_SESSION_ID` 能在 `/api/state` 的 `sessions[]` 里找到，`$PI_SESSION_ID` 找不到。
 
+**别用 `grep ^PI_` 找它。** `PIDECK_SESSION_ID` 不以 `PI_` 开头，那个 grep 会把它整条漏掉，剩下唯一像身份的 `$PI_SESSION_ID` 是 pi 自己的会话 id，看起来对，坐标系是错的。找身份就一条命令：`echo $PIDECK_SESSION_ID`，不要从 env 里筛。
+
 四条验证，每条写了该返回什么，**放在同一次调用里跑**（变量不跨段）：
 
 ```bash
@@ -112,6 +114,10 @@ curl -s -H "$AUTH" "$BASE/api/state"
 列表里找不到某个会话，不等于它不存在：先确认 `projects[]` 里有它所属的项目。
 
 ## 5 发消息并读回复
+
+**发之前再认一次自己。** `echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息：消息会插进你自己的对话，然后你自己等自己回。
+
+这个错真发生过。想找「另一个会话」，用 `env | grep ^PI_` 找身份，漏掉了 `PIDECK_SESSION_ID`（它不以 `PI_` 开头）；于是拿会话标题猜，把标题恰好也是这个任务的会话当成了别人，其实那就是自己。标题、`updatedAt`、`model` 都不是身份。
 
 **最容易猜错的一步**：请求体不是 `{message: "..."}`，是完整消息数组；`id` 是**目标会话的 sessionId**（`sessions[].id`），不是 `agentId`。
 
