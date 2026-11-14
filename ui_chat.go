@@ -339,6 +339,9 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					)
 				}
 				return core.Group(append(planActions, []core.Node{
+					chat.IconAction{Label: "重新发送", Icon: lucide.RefreshCw,
+						Disabled: func() bool { return tt.Prompt == "" || t().running() },
+						OnPress:  func() { a.resendTurn(s, tt) }},
 					chat.IconAction{Label: "复制提问", Icon: lucide.Quote, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() { a.copyText(tt.Prompt, "提问") }},
 					chat.IconAction{Label: "把提问放回输入框", Icon: lucide.PencilLine, Disabled: func() bool { return tt.Prompt == "" },

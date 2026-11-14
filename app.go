@@ -2758,6 +2758,18 @@ func (a *app) retry(s *session, t turn) {
 	a.submit(s, t.Prompt, t.Images)
 }
 
+// resendTurn sends a turn's prompt again as a new turn.
+func (a *app) resendTurn(s *session, t turn) {
+	if s == nil || strings.TrimSpace(t.Prompt) == "" {
+		return
+	}
+	if s.busyNow() {
+		a.toast(ui.ToastInfo, "还在运行", "等这一轮结束再重发。")
+		return
+	}
+	a.submitTurn(s, t.Prompt, append([]promptImage(nil), t.Images...), t.Plan)
+}
+
 // addImage attaches a pasted or dropped image.
 func (a *app) addImage(s *session, img promptImage) {
 	if s == nil {

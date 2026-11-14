@@ -106,6 +106,18 @@ func TestACPModePicker(t *testing.T) {
 	waitApp(app, `text:"Fake Agent · Code"`, 10*time.Second)
 }
 
+// TestResendTurn sends a finished turn's prompt again as a new turn.
+func TestResendTurn(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := fakeACPApp(t)
+	newFakeACPSession(t, app)
+	app.WaitFor("text:hello", 20*time.Second)
+	app.Press("label:重新发送")
+	app.WaitUntil(30*time.Second, func() bool { return len(app.Query("text:hello")) >= 2 })
+}
+
 // TestACPChangeSummary folds the turn's edited files into a row and opens
 // one from it in the editor.
 func TestACPChangeSummary(t *testing.T) {
