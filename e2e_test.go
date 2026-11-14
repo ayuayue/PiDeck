@@ -33,13 +33,27 @@ func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App 
 	// end-to-end tests drive it; the system picker has a test of its own.
 	app.Press("id:rail-palette")
 	app.WaitFor("text:浏览文件夹添加工作区", 10*time.Second)
-	app.Press("text:浏览文件夹添加工作区")
+	// The palette and the picker can still be settling under load; press
+	// again until each step shows.
+	for i := 0; i < 3 && len(app.Query("text:选择这个文件夹")) == 0; i++ {
+		app.Press("text:浏览文件夹添加工作区")
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
 	app.WaitFor("text:选择这个文件夹", 20*time.Second)
 	app.Clear("label:文件夹路径")
 	app.Type("label:文件夹路径", dir)
-	app.Submit("label:文件夹路径")
+	for i := 0; i < 3 && len(app.Query("text:note.txt")) == 0; i++ {
+		app.Submit("label:文件夹路径")
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
 	app.WaitFor("text:note.txt", 20*time.Second)
-	app.Press("text:选择这个文件夹")
+	for i := 0; i < 3 && len(app.Query("text:打开一个会话，或者新建一个。")) == 0; i++ {
+		app.Press("text:选择这个文件夹")
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
 	app.WaitFor("text:打开一个会话，或者新建一个。", 20*time.Second)
 	// With a project in place the welcome's main action opens a session.
 	app.Press("id:welcome-primary")
@@ -55,6 +69,21 @@ func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App 
 		app.Settle()
 	}
 	return app
+}
+
+// typeAll fills a field and checks it holds the whole text: a rebuild
+// between keystrokes can drop the rest under load.
+func typeAll(t *testing.T, app *nsgotest.App, selector, text string) {
+	t.Helper()
+	for i := 0; i < 5; i++ {
+		app.Clear(selector)
+		app.Type(selector, text)
+		if got := app.Find(selector).Text; got == text {
+			return
+		}
+		app.Settle()
+	}
+	t.Fatalf("%s holds %q, want %q", selector, app.Find(selector).Text, text)
 }
 
 // waitApp waits for what another goroutine posts: on a platform a frame

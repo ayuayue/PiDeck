@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/oneo-me/nsgo/base"
@@ -292,6 +293,12 @@ func (a *app) commandItems() []base.CommandItem {
 				Icon: lucide.Palette()})
 		}
 	}
+	// Settings are commands too: the palette jumps straight to a section.
+	for i, e := range settingsIndex {
+		out = append(out, base.CommandItem{ID: "setting:" + strconv.Itoa(i),
+			Label: T("设置") + " · " + T(e.Label), Description: T(settingsSectionTitle(e.Section)),
+			Group: T("设置"), Icon: lucide.SlidersHorizontal()})
+	}
 	return out
 }
 
@@ -300,6 +307,13 @@ func (a *app) runCommand(id string) {
 	a.palette.Set(false)
 	if rest, ok := strings.CutPrefix(id, "theme:"); ok {
 		a.setTheme(rest)
+		return
+	}
+	if rest, ok := strings.CutPrefix(id, "setting:"); ok {
+		if ix, err := strconv.Atoi(rest); err == nil && ix >= 0 && ix < len(settingsIndex) {
+			a.settings.Set(true)
+			a.openSettingsSection(settingsIndex[ix].Section)
+		}
 		return
 	}
 	if rest, ok := strings.CutPrefix(id, "plugin:"); ok {

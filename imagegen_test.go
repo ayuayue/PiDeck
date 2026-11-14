@@ -249,7 +249,7 @@ func TestImageEditDialog(t *testing.T) {
 	app.WaitFor("id:image-dialog", 5*time.Second)
 	app.Type("id:image-prompt", "给它戴一顶帽子")
 	app.Type("id:image-model", "img-1")
-	app.Type("id:image-ref", photo)
+	typeAll(t, app, "id:image-ref", photo)
 	app.Press("id:image-generate")
 	app.WaitFor("id:image-thumb-0", 15*time.Second)
 	for i := 0; i < 4 && len(app.Query("id:image-dialog")) > 0; i++ {

@@ -123,7 +123,7 @@ func TestSkillStoreDialog(t *testing.T) {
 	app.WaitFor("id:skill-store-open", 5*time.Second)
 	app.Press("id:skill-store-open")
 	app.WaitFor("id:skill-store", 5*time.Second)
-	app.Type("id:skill-store-url", srv.URL+"/skills.json")
+	typeAll(t, app, "id:skill-store-url", srv.URL+"/skills.json")
 	for i := 0; i < 4; i++ {
 		app.Press("id:skill-store-load")
 		if waitQuiet(app, "id:skill-store-entry-release", 3*time.Second) {

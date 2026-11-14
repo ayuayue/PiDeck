@@ -119,11 +119,15 @@ func TestVisionDialog(t *testing.T) {
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:描述图片…")) > 0 })
 	app.Press("role:option 描述图片…")
 	app.WaitFor("id:vision-dialog", 5*time.Second)
-	app.Type("id:vision-path", photo)
+	typeAll(t, app, "id:vision-path", photo)
 	app.Type("id:vision-model", "vision-1")
 	app.Press("id:vision-run")
 	app.WaitFor("id:vision-result", 10*time.Second)
-	app.Press("id:vision-insert")
+	for i := 0; i < 4 && len(app.Query("id:vision-dialog")) > 0; i++ {
+		app.Press("id:vision-insert")
+		app.Settle()
+		time.Sleep(100 * time.Millisecond)
+	}
 	app.WaitForGone("id:vision-dialog", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool {
 		return strings.Contains(app.Find("id:composer").Text, "一张窗台上的猫的照片。")
