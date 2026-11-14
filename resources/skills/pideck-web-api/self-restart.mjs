@@ -7,12 +7,12 @@
 // 有守卫接住的情况下，自重启是可做的，而且判据很硬：runtimeGeneration 变了 + health 200。
 //
 // 两段式：
-//   node bin/self-restart.mjs              干跑，打印计划，什么都不做（默认）
-//   node bin/self-restart.mjs --go         起一个脱离进程树的守卫，然后立刻返回
-//   node bin/self-restart.mjs --supervisor 守卫本体，由上一行以 detached 方式拉起，人不该手敲
+//   node self-restart.mjs                  干跑，打印计划，什么都不做（默认）
+//   node self-restart.mjs --go             起一个脱离进程树的守卫，然后立刻返回
+//   node self-restart.mjs --supervisor     守卫本体，由上一行以 detached 方式拉起，人不该手敲
 //
-// 守卫必须真的脱离：spawn 时 detached + unref，起来后 PPID 应该是 1（不是 agent）。
-// 这一条是可验证的判据，不是设计意图——没脱离的守卫会和 agent 一起被 stop 杀掉。
+// 守卫必须真的脱离：spawn 时 detached + unref，脱离后进程组独立，停止命令杀不到它。
+// 判据不是 ppid（Windows 上它仍指向原进程），而是「停止之后守卫还能继续写日志」。
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -189,11 +189,12 @@ async function main() {
   }
 
   console.log("会话      " + self);
-  console.log("当前代号  " + before.hit.runtimeGeneration);
+  console.log("运行时代号 " + before.hit.runtimeGeneration + "（每成功启动一次加一；变了才算真的换了进程）");
   console.log("服务      " + base);
   console.log("日志      " + LOG);
   console.log("");
-  console.log("计划：起一个脱离进程树的守卫 → 守卫等你这条命令返回 → stop → 等停稳 → activate");
+  console.log("守卫 = 一个独立进程，在你的会话被停掉之后仍活着，负责把你重新启动起来。");
+  console.log("计划：起守卫 → 等这条命令返回 → stop → 等停稳 → activate");
   console.log("      → 等 generation 变化且 health 200。最多 150 秒，启动失败重试 3 次。");
 
   if (!args.includes("--go")) {
