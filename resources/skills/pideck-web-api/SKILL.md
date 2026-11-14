@@ -536,11 +536,12 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 ## 11 改这个技能之前
 
-第 7 节那两张表是照源码抄的，抄错没人看得见。改完跑下面这两条检查，两条的 rc 都得是 0：
+第 7 节那两张表是照源码抄的，抄错没人看得见。改完跑下面这三条检查，每条的 rc 都得是 0：
 
 ```bash
-node resources/skills/pideck-web-api/check-doc.mjs    # 第 7 节的动作表、端点数，逐条对源码
-node resources/skills/pideck-web-api/check-paths.mjs  # 全文每个 /api 路径，逐段对源码
+node resources/skills/pideck-web-api/check-doc.mjs     # 第 7 节的动作表、端点数，逐条对源码
+node resources/skills/pideck-web-api/check-paths.mjs   # 全文每个 /api 路径，逐段对源码
+node resources/skills/pideck-web-api/check-format.mjs  # 加粗成对、代码块配对、表格列数一致
 ```
 
-两条都自带坏样本：故意写错一个动作名，或者把一个路径段拼错，它们必须报红。一直绿的那条，多半是检查本身坏了。
+三条都自带坏样本：写错一个动作名、把一个路径段拼错、漏一个 `**`，它们必须报红。一直绿的那条，多半是检查本身坏了。
