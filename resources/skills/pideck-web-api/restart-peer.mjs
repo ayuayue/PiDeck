@@ -5,8 +5,9 @@
 // 为什么必须由别的会话发起：stop 会杀掉发起请求的那个进程。被重启者自己发，就没有人接 activate。
 //
 // 为什么不用固定等待：目标可能正在生成回复，stop 会把它截断。等 90 秒既慢又靠猜。
-// 这里改成订阅目标的事件流，看到本轮结束帧（finish / [DONE]）就立刻动手；
-// 订阅 8 秒内没有任何 data: 帧，说明目标当前没有回合在跑，也立刻动手。
+// 这里改成订阅目标的事件流：只有结束帧（finish / [DONE]）才算「回合结束」的证据。
+// 8 秒内没有任何 data: 帧、或连接被关闭，都判为状态未知并放弃——长工具调用、
+// 模型暂无输出、连接抖动都会造成同样的静默，拿它去 stop 会截断正在跑的回合。
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -118,7 +119,10 @@ async function waitTurnEnd(targetId, capMs) {
         continue;
       }
       if (step.done) {
-        log("目标事件流结束，动手");
+        // 2026-11-14 review：连接被关闭同样不是回合结束的证据。
+        // 之前的写法这里返回 closed，而调用方只挡 cap/error/unknown，于是
+        // 一次异常断连会直接走到 stop。只有 finish / [DONE] 才算结束。
+        log("目标事件流被关闭，没有收到结束帧。这不能证明回合结束，判为状态未知");
         return "closed";
       }
       buf += dec.decode(step.value, { stream: true });
@@ -130,7 +134,7 @@ async function waitTurnEnd(targetId, capMs) {
         frames++;
         lastEvent = Date.now();
         if (line.includes("\"finish\"") || line.includes("[DONE]")) {
-          log("收到本轮结束帧（第 " + frames + " 帧），动手");
+          log("收到本轮结束帧（第 " + frames + " 帧），可以动手");
           return "turn-end";
         }
       }
@@ -181,7 +185,7 @@ async function main() {
     state({ waited, waitMs: Date.now() - t0 });
     // unknown 一起放弃。之前的写法只挡 cap/error，于是 8 秒静默会走到 stop——
     // 那正是 review 指出的「不足以证明可以安全停止」被当成了可以。
-    if (waited === "cap" || waited === "error" || waited === "unknown") {
+    if (waited === "cap" || waited === "error" || waited === "unknown" || waited === "closed") {
       log("放弃：目标可能还在生成（判定 " + waited + "）。确认它已经不动之后再跑，或加 --no-wait 自己承担截断风险");
       state({ result: "wait-failed", waited, targetId });
       process.exit(1);

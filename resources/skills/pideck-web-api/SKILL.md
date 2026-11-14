@@ -175,7 +175,7 @@ node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <目标 
 
 判据四条，都在日志里：
 
-1. 先出现等待判定：`收到本轮结束帧` 或 `视为没有活跃回合`。
+1. 先出现等待判定：必须是 `收到本轮结束帧（第 N 帧）`。判成 `unknown` 或收到 `目标事件流被关闭` 都不算动手，脚本会放弃。
 2. `stop -> 200`，随后出现 `目标已停止`。
 3. `activate -> 200`，随后出现 `成功：generation N -> N+1，health=200`。
 4. `唤醒消息 -> 200`。
@@ -193,7 +193,7 @@ node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <目标 
 node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <对方 sessionId> --wait-only
 ```
 
-它只打印判定（`idle` / `turn-end` / `cap`），不动任何人。判成 `cap` 说明对方一直在输出，等它自己停下再说。
+它只打印判定，不动任何人。取值：`turn-end`（收到结束帧，可以动手）、`unknown`（8 秒无帧）、`closed`（事件流被关闭）、`cap`（超上限）、`error`（订阅出错）。**只有 `turn-end` 是可以动手的判定**，其余四种一律放弃；判成 `cap` 说明对方一直在输出，等它自己停下再说。
 
 ### 5.3 没有别的窗口时（只能人工）
 
