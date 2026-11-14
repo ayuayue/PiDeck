@@ -1,8 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { SessionMessageImageTarget } from "../../shared/types/session";
-import { open as openFile, readFile, realpath, readdir, rename, stat, unlink, type FileHandle } from "node:fs/promises";
-import { basename, dirname, join, posix, win32 } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { getAppLogger } from "../logging/sharedLogger";
+import { ReloadAttemptFailure, SessionFileEditorError, type SessionFileEditorErrorCode } from "./sessionFile/sessionFileEditorError";
+import { descendantEntryIds, descendantsFromParentMap, legacyEntryId, locateEntry, removableImageIndex, replaceTextInContent, type LocatedEntry, type SessionEntryTarget, tombstone } from "./sessionFile/sessionFileEntryTargets";
+import { currentLeafId, entryIdOf, ensureTrailingEol, inputRole, messageOf, parentIdOf, parseDocument, replaceLine, serializeDocument, textOf, type JsonlDocument, type JsonlEntry } from "./sessionFile/sessionFileJsonl";
+import { atomicReplaceFile, createSessionBackup, defaultFs, normalizePhysicalPath, pruneSessionBackups, type SessionFileEditorFs, type SessionFileEditorLogger, type SessionFileStorageDeps } from "./sessionFile/sessionFileStorage";
 import { SessionFileStreamError, copySessionFile, copySessionFileToTemp, commitSessionTempFile, hashSessionFile, iterateSessionLines, readSessionLineAt, rewriteSessionFile, scanSessionFile, type SessionFileScan, type SessionFileStreamEntry, type SessionStreamRewritePlan } from "./sessionFileStream";
 
 export type SessionFileEnvironment = "native" | "wsl";
@@ -14,14 +17,8 @@ export type SessionFileRef = {
 	wslDistro?: string;
 };
 
-export type SessionEntryTarget = {
-	entryId?: string;
-	legacyMessageId?: string;
-	legacyAgentId?: string;
-	role: "user" | "assistant";
-	text: string;
-	activeLeafId?: string;
-};
+// entry 目标契约随定位域搬到 sessionFile/sessionFileEntryTargets.ts；此处原样 re-export。
+export type { SessionEntryTarget };
 
 export type SessionMutationResult = {
 	targetEntryId: string;
@@ -56,61 +53,11 @@ export type AppendMessagesInput = {
  */
 const MAX_IN_MEMORY_SESSION_BYTES = 32 * 1024 * 1024;
 
-export type SessionFileEditorErrorCode =
-	| "SESSION_FILE_EMPTY"
-	| "SESSION_FILE_INVALID_JSONL"
-	/** 文件超出可安全整读的上限（正常已分流到流式路径，见 assertInMemoryReadSafe） */
-	| "SESSION_FILE_TOO_LARGE"
-	| "SESSION_ENTRY_NOT_FOUND"
-	| "SESSION_ENTRY_AMBIGUOUS"
-	| "SESSION_ENTRY_ROLE_INVALID"
-	| "SESSION_FILE_CHANGED"
-	| "SESSION_BACKUP_FAILED"
-	| "SESSION_ATOMIC_WRITE_FAILED"
-	| "SESSION_RELOAD_FAILED"
-	| "SESSION_ROLLBACK_FAILED"
-	| "SESSION_ROLLBACK_RELOAD_FAILED"
-	| "SESSION_ROLLBACK_CONFLICT"
-	| "SESSION_MARKER_CONFLICT";
+// 错误码联合类型与错误类在 sessionFile/sessionFileEditorError.ts；此处原样 re-export，公开契约与 import 路径不变。
+export { SessionFileEditorError, type SessionFileEditorErrorCode };
 
-export class SessionFileEditorError extends Error {
-	readonly code: SessionFileEditorErrorCode;
-	readonly details?: Record<string, string | number>;
-	readonly backupPath?: string;
-
-	constructor(
-		code: SessionFileEditorErrorCode,
-		message: string,
-		options: {
-			cause?: unknown;
-			details?: Record<string, string | number>;
-			backupPath?: string;
-		} = {},
-	) {
-		super(message, options.cause === undefined ? undefined : { cause: options.cause });
-		this.name = "SessionFileEditorError";
-		this.code = code;
-		this.details = options.details;
-		this.backupPath = options.backupPath;
-	}
-}
-
-type WritableFileHandle = Pick<FileHandle, "writeFile" | "sync" | "close">;
-
-export type SessionFileEditorFs = {
-	readFile(path: string): Promise<Buffer>;
-	/** 体量护栏用的 stat；测试替身可省（缺省时跳过护栏，不影响行为） */
-	stat(path: string): Promise<{ size: number }>;
-	realpath(path: string): Promise<string>;
-	open(path: string, flags: "wx"): Promise<WritableFileHandle>;
-	readdir(path: string): Promise<string[]>;
-	rename(from: string, to: string): Promise<void>;
-	unlink(path: string): Promise<void>;
-};
-
-export type SessionFileEditorLogger = {
-	warn(message: string, details?: Record<string, unknown>): void | Promise<void>;
-};
+// fs 端口与 logger 契约随落盘层搬到 sessionFile/sessionFileStorage.ts；此处原样 re-export。
+export type { SessionFileEditorFs, SessionFileEditorLogger };
 
 export type SessionFileEditorOptions = {
 	fs?: Partial<SessionFileEditorFs>;
@@ -123,25 +70,6 @@ export type SessionFileEditorOptions = {
 	maxInMemoryBytes?: number;
 };
 
-type JsonlEntry = Record<string, unknown>;
-
-type JsonlLine = {
-	content: string;
-	eol: string;
-	entry?: JsonlEntry;
-};
-
-type JsonlDocument = {
-	lines: JsonlLine[];
-	entryLineById: Map<string, number>;
-};
-
-type LocatedEntry = {
-	lineIndex: number;
-	entry: JsonlEntry;
-	entryId: string;
-};
-
 type MutationKind = "edit" | "delete" | "resend" | "remove-image";
 
 type MutationInput = {
@@ -150,388 +78,7 @@ type MutationInput = {
 	reload: () => Promise<void>;
 };
 
-class ReloadAttemptFailure extends Error {
-	constructor(
-		readonly error: unknown,
-		readonly ownedStates: Buffer[],
-		/** 流式路径的「已写入内容」哈希（与 ownedStates 同义，因为大文件不能驻留 Buffer）。 */
-		readonly ownedHashes: string[] = [],
-	) {
-		super("Session reload attempt failed", { cause: error });
-	}
-}
-
-const defaultFs: SessionFileEditorFs = {
-	stat,
-	readFile: (path) => readFile(path),
-	realpath,
-	open: (path, flags) => openFile(path, flags),
-	readdir,
-	rename,
-	unlink,
-};
-
 const sharedFileLocks = new Map<string, Promise<void>>();
-
-function errorCode(error: unknown): string | undefined {
-	return error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code ?? "") : undefined;
-}
-
-function normalizePhysicalPath(path: string): string {
-	const slashed = path.replaceAll("\\", "/");
-	const wslUnc = slashed.match(/^\/\/wsl(?:\.localhost|\$)\/([^/]+)(\/.*)?$/i);
-	if (wslUnc) {
-		return `wsl-unc\u0000${wslUnc[1].toLowerCase()}\u0000${posix.normalize(wslUnc[2] || "/")}`;
-	}
-	return `host\u0000${win32.normalize(path).replaceAll("\\", "/").toLowerCase()}`;
-}
-
-function entryIdOf(entry: JsonlEntry): string | undefined {
-	if (typeof entry.id === "string" && entry.id) return entry.id;
-	if (typeof entry.entryId === "string" && entry.entryId) return entry.entryId;
-	return undefined;
-}
-
-function parentIdOf(entry: JsonlEntry): string | null | undefined {
-	if (entry.parentId === null) return null;
-	return typeof entry.parentId === "string" ? entry.parentId : undefined;
-}
-
-function messageOf(entry: JsonlEntry): Record<string, unknown> | undefined {
-	return entry.message && typeof entry.message === "object" && !Array.isArray(entry.message) ? (entry.message as Record<string, unknown>) : undefined;
-}
-
-function textOf(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter((block): block is Record<string, unknown> => Boolean(block) && typeof block === "object")
-		.filter((block) => block.type === "text" && typeof block.text === "string")
-		.map((block) => String(block.text))
-		.join("");
-}
-
-function splitJsonl(text: string): JsonlLine[] {
-	if (!text) return [];
-	const lines: JsonlLine[] = [];
-	let start = 0;
-	for (let index = 0; index < text.length; index += 1) {
-		const character = text[index];
-		if (character !== "\r" && character !== "\n") continue;
-		let eol = character;
-		if (character === "\r" && text[index + 1] === "\n") {
-			eol = "\r\n";
-			index += 1;
-		}
-		const end = index + 1 - eol.length;
-		lines.push({ content: text.slice(start, end), eol });
-		start = index + 1;
-	}
-	if (start < text.length) lines.push({ content: text.slice(start), eol: "" });
-	return lines;
-}
-
-function parseDocument(bytes: Buffer): JsonlDocument {
-	let text: string;
-	try {
-		text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-	} catch (cause) {
-		throw new SessionFileEditorError("SESSION_FILE_INVALID_JSONL", "Session file is not valid UTF-8", { cause });
-	}
-	const lines = splitJsonl(text);
-	if (!lines.some((line) => line.content.trim())) {
-		throw new SessionFileEditorError("SESSION_FILE_EMPTY", "Session file is empty");
-	}
-
-	const entryLineById = new Map<string, number>();
-	let sessionHeaderCount = 0;
-	for (let index = 0; index < lines.length; index += 1) {
-		const line = lines[index];
-		if (!line.content.trim()) continue;
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(line.content);
-		} catch (cause) {
-			throw new SessionFileEditorError("SESSION_FILE_INVALID_JSONL", `Session file contains invalid JSONL at line ${index + 1}`, { cause, details: { line: index + 1 } });
-		}
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			throw new SessionFileEditorError("SESSION_FILE_INVALID_JSONL", `Session file contains a non-object entry at line ${index + 1}`, { details: { line: index + 1 } });
-		}
-		line.entry = parsed as JsonlEntry;
-		// 墓碑也要进 id 索引：pi 会把最后一条带 id 的记录当 leaf，再沿 parentId
-		// 回溯。旧墓碑没有 id，这里仍会跳过（entryIdOf 为空）。
-		if (line.entry.type === "session") sessionHeaderCount += 1;
-		const entryId = entryIdOf(line.entry);
-		if (entryId) {
-			if (entryLineById.has(entryId)) {
-				throw new SessionFileEditorError("SESSION_FILE_INVALID_JSONL", `Session file contains duplicate entry ID ${entryId}`, { details: { line: index + 1 } });
-			}
-			entryLineById.set(entryId, index);
-		}
-	}
-	if (sessionHeaderCount !== 1) {
-		throw new SessionFileEditorError("SESSION_FILE_INVALID_JSONL", `Session file must contain exactly one session header; found ${sessionHeaderCount}`);
-	}
-
-	for (const [entryId, lineIndex] of entryLineById) {
-		const parentId = parentIdOf(lines[lineIndex].entry!);
-		if (parentId && !entryLineById.has(parentId)) {
-			throw new SessionFileEditorError("SESSION_FILE_INVALID_JSONL", `Session entry ${entryId} has a dangling parent ${parentId}`, { details: { line: lineIndex + 1 } });
-		}
-	}
-
-	const completed = new Set<string>();
-	for (const entryId of entryLineById.keys()) {
-		const visiting = new Set<string>();
-		let current: string | null | undefined = entryId;
-		while (current && !completed.has(current)) {
-			if (visiting.has(current)) {
-				throw new SessionFileEditorError("SESSION_FILE_INVALID_JSONL", `Session entry graph contains a cycle at ${current}`);
-			}
-			visiting.add(current);
-			const lineIndex = entryLineById.get(current);
-			current = lineIndex === undefined ? undefined : parentIdOf(lines[lineIndex].entry!);
-		}
-		for (const visited of visiting) completed.add(visited);
-	}
-	return { lines, entryLineById };
-}
-
-function serializeDocument(document: JsonlDocument): Buffer {
-	return Buffer.from(document.lines.map((line) => `${line.content}${line.eol}`).join(""), "utf8");
-}
-
-function replaceLine(document: JsonlDocument, lineIndex: number, entry: JsonlEntry): void {
-	document.lines[lineIndex].entry = entry;
-	document.lines[lineIndex].content = JSON.stringify(entry);
-}
-
-/**
- * 选出要删除的可见图块下标并校验（数量 + 哈希）。
- * 与 AgentMessageProjector 的可见投影一致：无有效 data 的 image 不占序号。
- * 返回 undefined = 校验失败，调用方按「图片已变化」报错（提示重新加载会话）。
- */
-function removableImageIndex(content: unknown, imageTarget: SessionMessageImageTarget | undefined): number | undefined {
-	if (!Array.isArray(content) || !imageTarget || !Number.isSafeInteger(imageTarget.index) || imageTarget.index < 0) return undefined;
-	const visible: Array<{ index: number; data: string }> = [];
-	for (let index = 0; index < content.length; index += 1) {
-		const block: unknown = content[index];
-		if (!block || typeof block !== "object" || !("type" in block) || block.type !== "image") continue;
-		const source = "source" in block && block.source && typeof block.source === "object" ? block.source : undefined;
-		const data = "data" in block && typeof block.data === "string" ? block.data : source && "data" in source && typeof source.data === "string" ? source.data : "";
-		if (data) visible.push({ index, data });
-	}
-	const selected = visible[imageTarget.index];
-	if (!selected || imageTarget.expectedImageCount !== visible.length || !/^[a-f0-9]{64}$/.test(imageTarget.expectedHash) || createHash("sha256").update(selected.data).digest("hex") !== imageTarget.expectedHash) return undefined;
-	return selected.index;
-}
-
-/**
- * 追加新行前补全行尾：文件末尾没有换行时，直接拼接会让新行粘在原最后一行 JSON
- * 后面（相邻两条记录连成一行），整份文件变得不可解析。
- */
-function ensureTrailingEol(document: JsonlDocument): void {
-	const last = document.lines[document.lines.length - 1];
-	if (last && last.eol === "") last.eol = "\n";
-}
-
-function legacyEntryId(target: SessionEntryTarget): string | undefined {
-	if (!target.legacyMessageId || !target.legacyAgentId) return undefined;
-	const prefix = `${target.legacyAgentId}-history-`;
-	return target.legacyMessageId.startsWith(prefix) ? target.legacyMessageId.slice(prefix.length) : undefined;
-}
-
-function validateLocatedRole(entry: JsonlEntry, target: SessionEntryTarget): void {
-	const role = messageOf(entry)?.role;
-	if (role !== target.role) {
-		throw new SessionFileEditorError("SESSION_ENTRY_ROLE_INVALID", `Session entry role ${String(role)} cannot be used as ${target.role}`);
-	}
-}
-
-/**
- * 会话内当前叶节点（新追加条目的 parentId）。
- *
- * 与 pi `SessionManager._buildIndex` 语义一致：跳过 session 头部，取**最后一条带 id**
- * 的条目（包括 PiDeck 自己的 `deleted` 墓碑与 `_reloadMarker`）。
- * 不能只找最后一条 message：前面追加过 `context_edit` / label 时，它们就是当前叶，
- * 跳过它们会把新条目挂到更早的位置，形成平行分支而不是延续当前分支。
- */
-function currentLeafId(document: JsonlDocument): string | null {
-	for (let index = document.lines.length - 1; index >= 0; index -= 1) {
-		const entry = document.lines[index].entry;
-		if (!entry || entry.type === "session") continue;
-		const candidate = entryIdOf(entry);
-		if (candidate) return candidate;
-	}
-	return null;
-}
-
-/**
- * 计算「只改文本」的替换内容，保留图片 / 工具块等其他合法内容。
- *
- * 为什么不能直接把 newText 当 replacement.content：pi 的 `projectContextEntry`
- * 会用 replacement.content **整体**替换消息内容，|user 消息直接丢掉附件图片，
- * 块状内容也会被一个纯文本块顶掉。这里沿用旧 `setMessageText` 的语义（只改第一个
- * text 块、其余块原样保留），先算好完整 content 再交给 pi。
- *
- * 返回 `{ content, changed }`：changed 为 false 表示原文与新文本等价（图片但无文本块等），
- * 此时仍会写入替换记录，保持「用户确实编辑过」的事实。
- */
-function replaceTextInContent(content: unknown, text: string): unknown {
-	if (typeof content === "string") return text;
-	if (!Array.isArray(content)) return [{ type: "text", text }];
-	const next: unknown[] = [];
-	let replaced = false;
-	for (const candidate of content) {
-		const isText = Boolean(candidate && typeof candidate === "object" && (candidate as Record<string, unknown>).type === "text");
-		if (!isText) {
-			next.push(candidate);
-			continue;
-		}
-		if (replaced) continue;
-		next.push({ ...(candidate as Record<string, unknown>), text });
-		replaced = true;
-	}
-	if (!replaced) next.push({ type: "text", text });
-	return next;
-}
-
-function locateById(document: JsonlDocument, entryId: string | undefined, target: SessionEntryTarget, activeIds: Set<string>): LocatedEntry | undefined {
-	if (!entryId) return undefined;
-	const lineIndex = document.entryLineById.get(entryId);
-	if (lineIndex === undefined) return undefined;
-	if (!activeIds.has(entryId)) {
-		throw new SessionFileEditorError("SESSION_ENTRY_NOT_FOUND", "The requested entry is not part of the active session branch");
-	}
-	const entry = document.lines[lineIndex].entry!;
-	if (entry.type === "deleted") {
-		throw new SessionFileEditorError("SESSION_ENTRY_NOT_FOUND", "The requested entry has already been deleted");
-	}
-	validateLocatedRole(entry, target);
-	return { lineIndex, entry, entryId };
-}
-
-function activeBranchIds(document: JsonlDocument, activeLeafId?: string): Set<string> {
-	let leafId = activeLeafId;
-	if (leafId && !document.entryLineById.has(leafId)) {
-		throw new SessionFileEditorError("SESSION_ENTRY_NOT_FOUND", "The active session branch is no longer present in the file");
-	}
-	if (!leafId) {
-		for (let index = document.lines.length - 1; index >= 0; index -= 1) {
-			const entry = document.lines[index].entry;
-			if (!entry || entry.type === "deleted") continue;
-			const candidate = entryIdOf(entry);
-			if (candidate) {
-				leafId = candidate;
-				break;
-			}
-		}
-	}
-	if (!leafId) return new Set();
-
-	const result = new Set<string>();
-	let current: string | null | undefined = leafId;
-	while (current && !result.has(current)) {
-		result.add(current);
-		const lineIndex = document.entryLineById.get(current);
-		if (lineIndex === undefined) break;
-		current = parentIdOf(document.lines[lineIndex].entry!);
-	}
-	return result;
-}
-
-/**
- * 分支上每个条目最终生效的替换文本（同一 targetId 后者覆盖前者）。
- * 仅用于「按文本定位」的回退比较：编辑后的条目在文件里仍是原文，
- * 但界面上显示的是改写后的文本，用原文比较会找不到刚编辑过的那条。
- * 返回 Map<targetId, string | null>：null 表示已被移出上下文。
- */
-function effectiveContextEditTexts(document: JsonlDocument): Map<string, string | null> {
-	const texts = new Map<string, string | null>();
-	for (const line of document.lines) {
-		const entry = line.entry;
-		if (!entry || entry.type !== "context_edit") continue;
-		const targetId = typeof entry.targetId === "string" ? entry.targetId : undefined;
-		if (!targetId) continue;
-		const replacement = entry.replacement;
-		if (replacement === null) {
-			texts.set(targetId, null);
-			continue;
-		}
-		if (replacement && typeof replacement === "object" && !Array.isArray(replacement)) {
-			const content = (replacement as Record<string, unknown>).content;
-			if (typeof content === "string") texts.set(targetId, content);
-			else if (Array.isArray(content)) texts.set(targetId, textOf(content));
-		}
-	}
-	return texts;
-}
-
-function locateEntry(document: JsonlDocument, target: SessionEntryTarget): LocatedEntry {
-	const branchIds = activeBranchIds(document, target.activeLeafId);
-	const exact = locateById(document, target.entryId, target, branchIds);
-	if (exact) return exact;
-	const legacy = locateById(document, legacyEntryId(target), target, branchIds);
-	if (legacy) return legacy;
-
-	// 文本回退要同时认「原文」与「有效文本（改写后）」：一次编辑后界面上显示的是
-	// 改写内容，用户再编辑一次时带的就是改写文本，而文件里仍是原文。
-	const effectiveTexts = effectiveContextEditTexts(document);
-	const candidates: LocatedEntry[] = [];
-	for (const entryId of branchIds) {
-		const lineIndex = document.entryLineById.get(entryId);
-		if (lineIndex === undefined) continue;
-		const entry = document.lines[lineIndex].entry!;
-		const message = messageOf(entry);
-		if (message?.role !== target.role) continue;
-		const rawText = textOf(message.content);
-		const overridden = effectiveTexts.get(entryId);
-		const effective = overridden === undefined ? rawText : (overridden ?? "");
-		if (rawText !== target.text && effective !== target.text) continue;
-		candidates.push({ lineIndex, entry, entryId });
-	}
-
-	if (candidates.length === 1) return candidates[0];
-	if (candidates.length > 1) {
-		throw new SessionFileEditorError("SESSION_ENTRY_AMBIGUOUS", "More than one entry matches the requested message on the active branch", { details: { matches: candidates.length } });
-	}
-	throw new SessionFileEditorError("SESSION_ENTRY_NOT_FOUND", "Message was not found on the active session branch");
-}
-
-function descendantEntryIds(document: JsonlDocument, rootEntryId: string): Set<string> {
-	const descendants = new Set<string>([rootEntryId]);
-	let changed = true;
-	while (changed) {
-		changed = false;
-		for (const line of document.lines) {
-			const entry = line.entry;
-			if (!entry || entry.type === "deleted") continue;
-			const entryId = entryIdOf(entry);
-			const parentId = parentIdOf(entry);
-			if (!entryId || !parentId || !descendants.has(parentId) || descendants.has(entryId)) continue;
-			descendants.add(entryId);
-			changed = true;
-		}
-	}
-	return descendants;
-}
-
-/**
- * 删除/重发截断写入的墓碑。必须保留 id + parentId：
- * pi SessionManager._buildIndex 把文件里最后一条带 id 的记录当成 leaf，
- * 再沿 parentId 回溯活动分支。旧墓碑只有 originalEntryId，leaf 会落在
- * 这条「无 id、无父节点」的记录上，get_messages 整页变空。
- */
-function tombstone(entryId: string, now: number, parentId?: string | null, reason?: string): JsonlEntry {
-	return {
-		type: "deleted",
-		id: entryId,
-		originalEntryId: entryId,
-		parentId: parentId ?? null,
-		ts: now,
-		...(reason ? { reason } : {}),
-	};
-}
 
 export class SessionFileEditor {
 	private readonly fs: SessionFileEditorFs;
@@ -541,6 +88,8 @@ export class SessionFileEditor {
 	private readonly logger?: SessionFileEditorLogger;
 	private readonly maxBackups: number;
 	private readonly maxInMemoryBytes: number;
+	/** 落盘层的依赖切片（与下面的私有字段同源，只给 sessionFileStorage 用）。 */
+	private readonly storage: SessionFileStorageDeps;
 
 	constructor(options: SessionFileEditorOptions = {}) {
 		this.fs = { ...defaultFs, ...options.fs };
@@ -555,6 +104,7 @@ export class SessionFileEditor {
 		this.logger = options.logger;
 		this.maxBackups = Math.max(1, options.maxBackups ?? 3);
 		this.maxInMemoryBytes = Math.max(1, options.maxInMemoryBytes ?? MAX_IN_MEMORY_SESSION_BYTES);
+		this.storage = { fs: this.fs, logger: this.logger, now: this.now, createUuid: this.createUuid, sleep: this.sleep, maxBackups: this.maxBackups };
 	}
 
 	editMessage(input: MutationInput & { newText: string }): Promise<SessionMutationResult> {
@@ -875,99 +425,19 @@ export class SessionFileEditor {
 	}
 
 	private async createBackup(path: string, original: Buffer): Promise<string> {
-		const directory = dirname(path);
-		const filename = basename(path);
-		const stamp = String(this.now()).padStart(13, "0");
-		const backupPath = join(directory, `${filename}.${stamp}-${this.createUuid()}.edit-backup`);
-		let handle: WritableFileHandle | undefined;
-		try {
-			handle = await this.fs.open(backupPath, "wx");
-			await handle.writeFile(original);
-			await handle.sync();
-			await handle.close();
-			handle = undefined;
-		} catch (cause) {
-			await handle?.close().catch(() => undefined);
-			await this.fs.unlink(backupPath).catch(() => undefined);
-			throw new SessionFileEditorError("SESSION_BACKUP_FAILED", "Session backup could not be created", { cause, backupPath });
-		}
-
-		await this.pruneBackups(directory, filename, basename(backupPath));
-		try {
-			const verified = await this.fs.readFile(backupPath);
-			if (!verified.equals(original)) throw new Error("Backup content mismatch");
-		} catch (cause) {
-			throw new SessionFileEditorError("SESSION_BACKUP_FAILED", "Session backup could not be verified", { cause, backupPath });
-		}
-		return backupPath;
+		return createSessionBackup(this.storage, path, original);
 	}
 
 	private async pruneBackups(directory: string, filename: string, protectedBackup: string): Promise<void> {
-		try {
-			const prefix = `${filename}.`;
-			const suffix = ".edit-backup";
-			const backups = (await this.fs.readdir(directory)).filter((candidate) => candidate.startsWith(prefix) && candidate.endsWith(suffix)).sort();
-			while (backups.length > this.maxBackups) {
-				const oldestIndex = backups.findIndex((candidate) => candidate !== protectedBackup);
-				if (oldestIndex < 0) break;
-				const [oldest] = backups.splice(oldestIndex, 1);
-				if (oldest) await this.fs.unlink(join(directory, oldest));
-			}
-		} catch (error) {
-			void this.logger?.warn("Session backup pruning failed", {
-				directory,
-				error: error instanceof Error ? error.message : String(error),
-			});
-		}
+		return pruneSessionBackups(this.storage, directory, filename, protectedBackup);
 	}
 
 	private async replaceIfUnchanged(path: string, expected: Buffer, next: Buffer, backupPath?: string): Promise<void> {
-		await this.atomicReplace(path, next, backupPath, expected);
+		return atomicReplaceFile(this.storage, path, next, backupPath, expected);
 	}
 
 	private async atomicReplace(path: string, next: Buffer, backupPath?: string, expected?: Buffer): Promise<void> {
-		const tempPath = join(dirname(path), `.${basename(path)}.${process.pid}.${this.createUuid()}.tmp`);
-		let handle: WritableFileHandle | undefined;
-		let renamed = false;
-		try {
-			handle = await this.fs.open(tempPath, "wx");
-			await handle.writeFile(next);
-			await handle.sync();
-			await handle.close();
-			handle = undefined;
-			await this.renameWithRetry(tempPath, path, expected, backupPath);
-			renamed = true;
-		} catch (cause) {
-			if (cause instanceof SessionFileEditorError) throw cause;
-			throw new SessionFileEditorError("SESSION_ATOMIC_WRITE_FAILED", "Session file could not be replaced atomically", { cause, backupPath });
-		} finally {
-			await handle?.close().catch(() => undefined);
-			if (!renamed) await this.fs.unlink(tempPath).catch(() => undefined);
-		}
-	}
-
-	private async renameWithRetry(from: string, to: string, expected?: Buffer, backupPath?: string): Promise<void> {
-		const delays = [0, 20, 75, 200];
-		let lastError: unknown;
-		for (const delay of delays) {
-			if (delay) await this.sleep(delay);
-			try {
-				if (expected) {
-					const current = await this.fs.readFile(to).catch((cause) => {
-						throw new SessionFileEditorError("SESSION_FILE_CHANGED", "Session file could not be verified before committing", { cause, backupPath });
-					});
-					if (!current.equals(expected)) {
-						throw new SessionFileEditorError("SESSION_FILE_CHANGED", "Session file changed while the replacement was being committed", { backupPath });
-					}
-				}
-				await this.fs.rename(from, to);
-				return;
-			} catch (error) {
-				lastError = error;
-				if (errorCode(error) !== "EPERM" && errorCode(error) !== "EBUSY") throw error;
-			}
-		}
-		throw lastError;
+		return atomicReplaceFile(this.storage, path, next, backupPath, expected);
 	}
 
 	private async reloadWithMarker(file: SessionFileRef, reload: () => Promise<void>, expectedBase?: Buffer): Promise<void> {
@@ -1463,34 +933,8 @@ export class SessionFileEditor {
 	}
 }
 
-/** 从索引（parentId 映射）展开后代集合；与整读路径 descendantEntryIds 同语义（跳过墓碑）。 */
-function descendantsFromParentMap(parentById: ReadonlyMap<string, string | null>, rootId: string, deletedIds: ReadonlySet<string>): Set<string> {
-	const children = new Map<string, string[]>();
-	for (const [entryId, parentId] of parentById) {
-		if (!parentId) continue;
-		const siblings = children.get(parentId) ?? [];
-		siblings.push(entryId);
-		children.set(parentId, siblings);
-	}
-	const result = new Set<string>([rootId]);
-	const stack = [rootId];
-	while (stack.length > 0) {
-		const current = stack.pop()!;
-		for (const child of children.get(current) ?? []) {
-			if (result.has(child) || deletedIds.has(child)) continue;
-			result.add(child);
-			stack.push(child);
-		}
-	}
-	return result;
-}
-
 function stripReloadMarker(entry: SessionFileStreamEntry): SessionFileStreamEntry {
 	const copy = { ...entry };
 	delete copy._reloadMarker;
 	return copy;
-}
-
-function inputRole(entry: JsonlEntry): string | undefined {
-	return typeof messageOf(entry)?.role === "string" ? String(messageOf(entry)?.role) : undefined;
 }
