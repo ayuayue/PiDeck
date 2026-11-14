@@ -655,49 +655,68 @@ func (a *app) tab(id func() string) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	sess := func() *session { return a.byID[id()] }
 	active := func() bool { return a.activeID.Get() == id() }
-	return core.View{
-		OnPress: func(core.PressEvent) {
-			if s := sess(); s != nil {
-				a.selectSession(s)
-			}
-		},
-		OnContextMenu: func(core.ContextMenuEvent) {},
-		Role:          core.RoleButton, LabelFunc: func() string { return sess().title.Get() },
-		StyleFunc: func() core.Style {
-			st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(28), MaxWidth: core.Pt(220),
-				Padding: core.Edges{Left: 9, Right: 5}, CornerRadius: 7, BorderWidth: 1, BorderColor: core.Transparent,
-				Transition: pressMotion, Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
-			if active() {
-				st.Background = colors.Surface()
-				st.BorderColor = colors.Border()
-				st.Hover = &core.Style{Background: colors.Surface()}
-			}
-			return st
-		},
-		Children: []core.Node{
-			core.View{StyleFunc: func() core.Style {
-				c := colors.Faint()
-				s := sess()
-				if s != nil {
-					switch s.status.Get() {
-					case statusRunning:
-						c = thinking
-					case statusWaiting:
-						c = warning
-					case statusFailed:
-						c = colors.Danger()
-					}
+	return base.ContextMenu{
+		Trigger: core.View{
+			TestID: "tab",
+			OnPress: func(core.PressEvent) {
+				if s := sess(); s != nil {
+					a.selectSession(s)
 				}
-				return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: c, FlexShrink: 0}
-			}},
-			core.Text{ContentFunc: func() string { return sess().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
-			core.View{OnPress: func(core.PressEvent) { a.closeTab(id()) }, Role: core.RoleButton, Label: "关闭标签页",
-				StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(18), Height: core.Pt(18), CornerRadius: 5, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
-						Transition: pressMotion, Hover: &core.Style{Background: colors.Pressed()}, Active: &core.Style{Background: colors.Pressed()}}
-				}, Children: []core.Node{ui.Icon(lucide.X, 11, colors.Faint)}},
+			},
+			Role: core.RoleButton, LabelFunc: func() string { return sess().title.Get() },
+			StyleFunc: func() core.Style {
+				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(28), MaxWidth: core.Pt(220),
+					Padding: core.Edges{Left: 9, Right: 5}, CornerRadius: 7, BorderWidth: 1, BorderColor: core.Transparent,
+					Transition: pressMotion, Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+				if active() {
+					st.Background = colors.Surface()
+					st.BorderColor = colors.Border()
+					st.Hover = &core.Style{Background: colors.Surface()}
+				}
+				return st
+			},
+			Children: []core.Node{
+				core.View{StyleFunc: func() core.Style {
+					c := colors.Faint()
+					s := sess()
+					if s != nil {
+						switch s.status.Get() {
+						case statusRunning:
+							c = thinking
+						case statusWaiting:
+							c = warning
+						case statusFailed:
+							c = colors.Danger()
+						}
+					}
+					return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: c, FlexShrink: 0}
+				}},
+				core.Text{ContentFunc: func() string { return sess().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
+				core.View{OnPress: func(core.PressEvent) { a.closeTab(id()) }, Role: core.RoleButton, Label: "关闭标签页",
+					StyleFunc: func() core.Style {
+						return core.Style{Width: core.Pt(18), Height: core.Pt(18), CornerRadius: 5, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+							Transition: pressMotion, Hover: &core.Style{Background: colors.Pressed()}, Active: &core.Style{Background: colors.Pressed()}}
+					}, Children: []core.Node{ui.Icon(lucide.X, 11, colors.Faint)}},
+			},
 		},
+		Children:   a.tabMenuItems(id),
+		PopupStyle: core.Style{MinWidth: core.Pt(180)},
+		PopupStyleFunc: func() core.Style {
+			return a.menuCard(a.cx)
+		},
+	}
+}
+
+// tabMenuItems is a tab's right-click menu.
+func (a *app) tabMenuItems(id func() string) []core.Node {
+	return []core.Node{
+		a.menuRow(a.cx, lucide.X, "关闭标签页", "", false, func() { a.closeTab(id()) }),
+		a.menuRow(a.cx, lucide.X, "关闭其他标签", "", false, func() { a.closeOtherTabs(id()) }),
+		a.menuRow(a.cx, lucide.X, "关闭右侧标签", "", false, func() { a.closeTabsRight(id()) }),
+		a.menuRow(a.cx, lucide.X, "关闭全部标签", "", false, func() { a.closeAllTabs() }),
+		a.menuSeparator(a.cx),
+		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(id(), "会话 ID") }),
 	}
 }
 

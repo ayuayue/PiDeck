@@ -1325,6 +1325,40 @@ func (a *app) closeTab(id string) {
 	a.remember()
 }
 
+// closeOtherTabs closes every tab but one.
+func (a *app) closeOtherTabs(id string) {
+	for _, t := range append([]string(nil), a.tabs.GetUntracked()...) {
+		if t != id {
+			a.closeTab(t)
+		}
+	}
+}
+
+// closeTabsRight closes the tabs after one.
+func (a *app) closeTabsRight(id string) {
+	tabs := append([]string(nil), a.tabs.GetUntracked()...)
+	ix := -1
+	for i, t := range tabs {
+		if t == id {
+			ix = i
+			break
+		}
+	}
+	if ix < 0 {
+		return
+	}
+	for _, t := range tabs[ix+1:] {
+		a.closeTab(t)
+	}
+}
+
+// closeAllTabs closes every open tab.
+func (a *app) closeAllTabs() {
+	for _, t := range append([]string(nil), a.tabs.GetUntracked()...) {
+		a.closeTab(t)
+	}
+}
+
 // cycleTab moves between tabs like a browser.
 func (a *app) cycleTab(delta int) {
 	tabs := a.tabs.GetUntracked()
