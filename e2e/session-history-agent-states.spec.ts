@@ -60,10 +60,12 @@ test("delete while streaming: stops agent first, applies immediately, no partial
 	const reply1 = await sendTurn(window, "流中删除目标");
 	await waitIdle(window);
 
-	// 第二轮慢速流式（SLOW），中途对第一轮已落盘消息执行删除
-	await sendTurnBegin(window, "SLOW 流中删除进行中");
+	// 第二轮超长慢流（SLOWDRIP：600ms × 40 ≈ 24s）。普通 SLOW 在这台机器上约 3s 就结算，
+	// 点到一半 agent 已 idle，断言到的是结算后的 idle 文案 —— 必须用足够长的流才有确定窗口。
+	await sendTurnBegin(window, "SLOWDRIP 流中删除进行中");
 	// 等部分流式文本出现，确认 agent 处于 streaming 态
-	await expect(timeline).toContainText("Mock 回复：「SLOW 流中删除进行中」", { timeout: 10_000 });
+	// 慢流每 600ms 只推 2 个字符，这里只等「开始吐字」这一小段，不要等整句
+	await expect(timeline).toContainText("Mock 回复：「SL", { timeout: 10_000 });
 
 	// 流式中删除 → 弹「先停止 Agent」确认
 	const firstTurn = timeline.locator(".turn-row").filter({ hasText: reply1 });
@@ -76,7 +78,7 @@ test("delete while streaming: stops agent first, applies immediately, no partial
 	// 停止 + 删除立即生效：第一轮回复消失；流式中的第二轮未落盘，随停止丢弃
 	await expect(timeline).not.toContainText(reply1, { timeout: 30_000 });
 	await window.waitForTimeout(1500); // 给残留流窗口
-	await expect(timeline).not.toContainText("SLOW 流中删除进行中」流式渲染验证完成");
+	await expect(timeline).not.toContainText("SLOWDRIP 流中删除进行中」流式渲染验证完成");
 	// 无重复
 	expect(await countOccurrences(window, reply1)).toBe(0);
 });

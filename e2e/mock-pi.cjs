@@ -577,7 +577,11 @@ function startStream(userText, options = {}) {
 	// startedAt+durationMs 冻结（见 AgentManager.upsertAssistantMessage）。
 	const turnStartedAt = Date.now();
 	const slow = userText.includes("SLOW");
-	streamIntervalMs = slow ? 220 : 80;
+	// SLOWDRIP：给「必须在流式中完成的交互」用的超长慢流（600ms × 40 ≈ 24s）。
+	// 普通 SLOW（220ms × ~15 ≈ 3.3s）在这台机器上常在两三秒内就结算，测试点到一半
+	// agent 已经 idle，断言到的是结算后的状态（session-history-agent-states 流中删除用例曾因此误判）。
+	const slowLong = userText.includes("SLOWDRIP");
+	streamIntervalMs = slowLong ? 600 : slow ? 220 : 80;
 	// BURST 模式：模拟真实 LLM 突发输出——前 6 个 chunk 慢速（250ms），
 	// 之后 15ms 密集推送（复现「开头吐字、后面蹦字」）。
 	const burst = userText.includes("BURST");
@@ -641,7 +645,7 @@ function startStream(userText, options = {}) {
 									"\n",
 								)
 							: `Mock 回复：「${userText.slice(0, 40)}」流式渲染验证完成。`;
-	const chunkCount = slow ? 18 : burst ? 24 : 12;
+	const chunkCount = slowLong ? 40 : slow ? 18 : burst ? 24 : 12;
 	const per = Math.max(1, Math.ceil(reply.length / chunkCount));
 	streamChunks = [];
 	for (let i = 0; i < reply.length; i += per) streamChunks.push(reply.slice(i, i + per));
