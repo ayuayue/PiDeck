@@ -889,7 +889,20 @@ func (a *app) drawerOverview() core.Node {
 						}
 						return "默认"
 					}),
-					row(T("会话 ID"), func() string { return s.ID }),
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24)}, Children: []core.Node{
+						core.Text{Content: T("会话 ID"), Style: core.Style{FontSize: 12, Width: core.Pt(74)}, StyleFunc: ui.Colored(colors.Muted)},
+						core.Text{ContentFunc: func() string { return s.ID }, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Text)},
+						core.View{OnPress: func(core.PressEvent) { a.copyText(s.ID, "会话 ID") }, Role: core.RoleButton, Label: T("复制会话 ID"),
+							TestID: "overview-copy-id",
+							StyleFunc: func() core.Style {
+								return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, AlignItems: core.AlignCenter,
+									JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Hover()}}
+							}, Children: []core.Node{ui.Icon(lucide.Copy, 12, colors.Faint)}},
+					}},
+					core.Show{When: func() bool { return s.File != "" }, Then: func(*core.Scope) core.Node {
+						return row(T("会话文件"), func() string { return shortPath(s.File, 48) })
+					}},
 					core.Show{When: func() bool { return a.cfg.ForkParents[s.ID] != "" }, Then: func(cx *core.Scope) core.Node {
 						parentID := a.cfg.ForkParents[s.ID]
 						title := a.cfg.Titles[parentID]

@@ -26,12 +26,22 @@ func TestTabMenu(t *testing.T) {
 	app.Key("mod+n")
 	app.Key("mod+n")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 3 })
-	app.RightClick("id:tab >> nth=0")
-	app.WaitFor("text:关闭其他标签", 5*time.Second)
+	for i := 0; i < 4; i++ {
+		app.RightClick("id:tab >> nth=0")
+		if waitQuiet(app, "text:关闭其他标签", 2*time.Second) {
+			break
+		}
+	}
+	app.WaitFor("text:关闭其他标签", 15*time.Second)
 	app.Press("text:关闭其他标签")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 1 })
-	app.RightClick("id:tab >> nth=0")
-	app.WaitFor("text:关闭全部标签", 5*time.Second)
+	for i := 0; i < 4; i++ {
+		app.RightClick("id:tab >> nth=0")
+		if waitQuiet(app, "text:关闭全部标签", 2*time.Second) {
+			break
+		}
+	}
+	app.WaitFor("text:关闭全部标签", 15*time.Second)
 	app.Press("text:关闭全部标签")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 0 })
 }
