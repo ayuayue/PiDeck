@@ -1,18 +1,22 @@
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
-import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { app } from "electron";
-import type { AppSettings, PiInstallation, PiInstallationSource, PiInstallStatus } from "../../shared/types";
+import type { PiInstallation, PiInstallationSource, PiInstallStatus } from "../../shared/types";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import { compareVersions } from "../utils/versionCompare";
-// 只依赖纯路径模块（零 Electron / 零副作用）：PiLocator 会在裸 Node 沙箱里被加载，
-// 引入便携 Node 安装器会把 DSH 运行时依赖一并拖进来，把检测链路弄重。
-import { piRuntimeNodeBinDir, piRuntimePiBinDir } from "./piRuntimePaths";
-import { nvmNodeVersionDirs } from "./nvmNodeVersions";
-import { WSL_PI_NEGATIVE_CACHE_TTL_MS, WSL_PI_PROBE_TIMEOUT_MS, buildWslCommandMarker, buildWslPiExecArgs, buildWslPiProbeScript, isWslInteropPath, parseWslCommandMarker, parseWslPiProbeOutput, type WslPiProbeResult } from "../wsl/wslPiProbe";
+import { WSL_PI_NEGATIVE_CACHE_TTL_MS, WSL_PI_PROBE_TIMEOUT_MS, buildWslCommandMarker, buildWslPiExecArgs, buildWslPiProbeScript, parseWslCommandMarker, parseWslPiProbeOutput, type WslPiProbeResult } from "../wsl/wslPiProbe";
 import { decodeWslOutput } from "../wsl/wslExe";
-import { buildPiProxyEnvPatch, PIDECK_PI_PROXY_SCOPE } from "../sessions/sessionProxyPolicy";
 import { stripBom } from "../config/piConfigFileStore";
+import { describeCmdShimFallback, needsCmdQuote, quoteCmdArgument, resolveCmdExe, resolveWindowsCmdShim, resolveWindowsCmdShimDetailed } from "./piLocator/piWindowsShim";
+import { isDrivelessLinuxPathOnWindows, isUnsupportedPowerShellShim, normalizeCustomPath, toWslCustomPath } from "./piLocator/piCustomPath";
+import { createPiProcessEnv, getCommandBinDir, sanitizePiChildEnv, type PiProxySettings } from "./piLocator/piLaunchEnv";
+import { getCandidates, getSearchDirs, searchDirEntries, warmLoginShellPath } from "./piLocator/piSearchDirs";
+import { cleanExecError, composeCheckFailure, runPiVersionCheck } from "./piLocator/piVersionCheck";
+
+// 拆分后的域符号仍从本文件导出：下游只认 PiLocator.ts，不追 piLocator/ 子模块。
+export { describeCmdShimFallback } from "./piLocator/piWindowsShim";
+export type { CmdShimResolution } from "./piLocator/piWindowsShim";
 
 /**
  * 进程级 WSL pi 探测缓存。
@@ -28,13 +32,6 @@ type WslCommandCacheEntry = {
 
 const wslCommandCache = new Map<string, WslCommandCacheEntry>();
 const wslCommandInflight = new Map<string, Promise<string | null>>();
-
-// 登录 shell PATH 的进程级缓存（含负缓存 ""）。readLoginShellPath 曾同步
-// execFileSync：每次定位 pi 都在主进程事件循环里跑 /bin/sh -lc，nvm/慢 shell
-// 初始化数百毫秒起步，期间所有窗口输入与 IPC 整体冻结——与下方 WSL 探测
-// 「禁止回到 execFileSync」注释（:815-825）同一教训，改为异步预热 + 只读缓存。
-let cachedLoginShellPath: string | undefined;
-let loginShellPathInflight: Promise<string> | undefined;
 
 /** 交互式登录 shell 反查到的 pi 路径（null = 查过但没找到）。 */
 type ShellPiProbeCacheEntry = { path: string | null; at: number };
@@ -74,13 +71,6 @@ export const CREATE_PROCESS_ARG_CHAR_BUDGET = 26000;
 export const CMD_EXE_ARG_CHAR_BUDGET = 5000;
 /** 非 Windows 走 execve，受系统 ARG_MAX 限制（Linux ≥2MB / macOS ≥1MB），实际等同于不限制。 */
 export const UNLIMITED_ARG_CHAR_BUDGET = 1_000_000;
-
-/**
- * Node 未捕获异常的诊断行（`TypeError: ...` / `Error [ERR_XXX]: ...`）。
- * pi 的 POSIX 垫片靠 `#!/usr/bin/env node` 找解释器：命中过旧 node 时 stderr 首行是
- * `file:///.../chunk-XXXX.js:47` 这类栈帧地址，真正的原因（缺哪个 API）在后面的异常行里（#484）。
- */
-const NODE_EXCEPTION_LINE = /^(?:[A-Za-z_$][\w$]*)?Error\b/;
 
 function wslCommandCacheKey(distro: string, user: string): string {
 	return `${distro}\0${user}`;
@@ -141,8 +131,6 @@ export function resetPiInstallationCaches(): void {
 
 type PiLocatorCopy = (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
 
-type PiProxySettings = Pick<AppSettings, "piProxyEnabled" | "piProxyUrl" | "piProxyBypass">;
-
 export type PiCommandInvocation = {
 	command: string;
 	args: string[];
@@ -179,58 +167,6 @@ export type PiCommandInvocation = {
 	};
 };
 
-/** .cmd 垫片解析结果：命中 node 直启入口，或说明为何不能直启。 */
-export type CmdShimResolution = { kind: "entry"; entry: string; matchedBy: "prefix-relative" | "shim-relative" } | { kind: "not-cmd" } | { kind: "missing" } | { kind: "unreadable" } | { kind: "unrecognized" } | { kind: "entry-missing"; candidate: string };
-
-/** 把「没能走 node 直启」的解析结果翻成人话（命中时返回 null）。 */
-export function describeCmdShimFallback(resolution: CmdShimResolution, shimPath: string): string | null {
-	switch (resolution.kind) {
-		case "entry":
-			return null;
-		case "missing":
-			return `pi 路径不存在：${shimPath}（版本管理器切换/卸载后路径失效？）`;
-		case "unreadable":
-			return `垫片文件读取失败（权限或占用）：${shimPath}`;
-		case "unrecognized":
-			return "垫片入口无法静态解析（npm 12+ 等变量式 shim：入口由 SET 变量间接引用），已回退 cmd.exe；功能不受影响";
-		case "entry-missing":
-			return `垫片引用的 JS 入口不存在：${resolution.candidate}（常见于 nvm/pnpm 切换版本后残留的旧垫片）`;
-		case "not-cmd":
-			return null;
-	}
-}
-
-/**
- * 入口能否当 node 脚本运行：有 .js/.mjs/.cjs 扩展名，或（无扩展名的 bin 脚本）首行 shebang 指向 node。
- * 只读文件头，避免为了判断把大文件整个读进内存。
- */
-function isRunnableNodeEntry(path: string): boolean {
-	try {
-		if (!statSync(path).isFile()) return false;
-	} catch {
-		return false;
-	}
-	if (/\.(?:m?js|cjs)$/i.test(path)) return true;
-	// 本地安装的 bin 脚本（node_modules/<pkg>/bin/<name>）通常无扩展名，靠 shebang 认身份。
-	let fd: number | undefined;
-	try {
-		fd = openSync(path, "r");
-		const buffer = Buffer.alloc(256);
-		const read = readSync(fd, buffer, 0, buffer.length, 0);
-		return /^#![^\n]*\bnode\b/m.test(buffer.subarray(0, read).toString("utf8"));
-	} catch {
-		return false;
-	} finally {
-		if (fd !== undefined) {
-			try {
-				closeSync(fd);
-			} catch {
-				// 关不掉不影响判断结果
-			}
-		}
-	}
-}
-
 /** Resolves the pi CLI across packaged Electron environments where shell PATH is often incomplete. */
 export class PiLocator {
 	constructor(private readonly translate: PiLocatorCopy = () => "Could not run pi CLI.") {}
@@ -246,7 +182,7 @@ export class PiLocator {
 		// 否则设置页残留的 Windows pi.cmd 会把 Agent 静默切回宿主机。
 		if (normalizedCustomPath?.startsWith("wsl://")) return normalizedCustomPath;
 		if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) {
-			const wslCustomPath = this.toWslCustomPath(normalizedCustomPath, wslEnabled, wslDistro, wslUser);
+			const wslCustomPath = toWslCustomPath(normalizedCustomPath, wslEnabled, wslDistro, wslUser);
 			if (wslCustomPath) return wslCustomPath;
 			// 热路径只读缓存：同步 WSL 探测会把关窗/设置点死。
 			// 即使尚未预热或探测失败，也必须保留 WSL 边界；返回裸 `pi` 的 WSL 标记，
@@ -259,11 +195,11 @@ export class PiLocator {
 		// 路径已失效（文件被删 / 版本管理器切换后旧路径残留）时同样回退自动检测——否则 check()
 		// 会拿着失效路径反复失败，永远不重扫，用户会看到「检测不到 pi」卡死。wsl:// 是标记串
 		// 不是本地文件，existsSync 对它无意义，必须原样保留。
-		if (normalizedCustomPath && !this.isUnsupportedPowerShellShim(normalizedCustomPath) && !normalizedCustomPath.startsWith("wsl://") && existsSync(normalizedCustomPath)) {
+		if (normalizedCustomPath && !isUnsupportedPowerShellShim(normalizedCustomPath) && !normalizedCustomPath.startsWith("wsl://") && existsSync(normalizedCustomPath)) {
 			return normalizedCustomPath;
 		}
 
-		const candidates = this.getCandidates();
+		const candidates = getCandidates();
 		const found = candidates.find((candidate) => existsSync(candidate));
 		if (found) return found;
 		return "pi";
@@ -307,169 +243,19 @@ export class PiLocator {
 		return cached;
 	}
 
+	/** 搜索目录枚举：实现见 piLocator/piSearchDirs.ts，本类只留同名薄包装（顺序即解析优先级）。 */
 	getSearchDirs() {
-		// These directories only locate an existing pi installation; pi itself is not bundled yet.
-		return [...new Set(this.searchDirEntries().map((entry) => entry.dir))];
+		return getSearchDirs();
 	}
 
-	/**
-	 * 扫描目录 + 来源标签。
-	 *
-	 * 顺序即解析优先级（resolveCommand / getCandidates 取第一个存在的候选），所以必须保持原有的
-	 * 「env PATH → 登录 shell PATH → 包管理器/版本管理器目录 → 平台兜底 → PiDeck 自带运行时」；
-	 * 唯一例外是 macOS 的 Homebrew 目录（排在 env PATH 之前，理由见 entries 首行的注释）；
-	 * 新增目录时应扦在同类群里，不要插到 PATH 前面（否则会静默改掉已有用户实际启动的 pi）。
-	 * 来源标签只用于「检测到多个安装」时的展示与排序（见 listInstallations）。
-	 */
-	private searchDirEntries(): Array<{ dir: string; source: PiInstallationSource }> {
-		const home = app.getPath("home");
-		const appData = process.env.APPDATA ?? join(home, "AppData", "Roaming");
-		const localAppData = process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
-		// mise 数据目录可被 MISE_DATA_DIR 覆盖（安装目录可再被 MISE_INSTALL_PATH 覆盖）。
-		// 只扫硬编码默认目录会漏掉自定义安装（如 D:\mise-data），且非 Windows 默认是
-		// ~/.local/share/mise 而非 AppData；npm 全局 bin（pi.cmd）默认就装在
-		// <mise 数据目录>/installs/node/<version>/ 下，与 node.exe 同目录。
-		const miseDataDir = process.env.MISE_DATA_DIR || (process.platform === "win32" ? join(localAppData, "mise") : join(home, ".local", "share", "mise"));
-		const miseInstallsDir = process.env.MISE_INSTALL_PATH || join(miseDataDir, "installs");
-		// pnpm 全局 bin：Linux 默认 ~/.local/share/pnpm（可被 PNPM_HOME 覆盖），
-		// macOS 默认 ~/Library/pnpm，Windows 默认 %LOCALAPPDATA%\pnpm。
-		// 官方推荐的 `pnpm add -g --ignore-scripts @earendil-works/pi-coding-agent` 就落在这里。
-		const pnpmHome = process.env.PNPM_HOME || (process.platform === "win32" ? join(localAppData, "pnpm") : process.platform === "darwin" ? join(home, "Library", "pnpm") : join(home, ".local", "share", "pnpm"));
-		const pkg = (dir: string) => ({ dir, source: "package-manager" as const });
-		const plain = (dir: string) => ({ dir, source: "path" as const });
-		const portable = (dir: string) => ({ dir, source: "portable" as const });
-		// fnm（POSIX）：数据目录可被 FNM_DIR 整体覆盖；旧版默认 ~/.fnm，现代版按 XDG
-		// （Linux ~/.local/share/fnm、macOS ~/Library/Application Support/fnm，也尊重 XDG_DATA_HOME）。
-		// #318：fnm 装在非 ~/.fnm 布局时，GUI 启动的 PATH 拿不到这些目录，pi 反查不到、
-		// 扩展版本检查（npm view）也会全部 ENOENT。多根都扫：listChildDirs 对不存在
-		// 的目录返回空集，代价可忽略。Windows 布局（node-versions/<ver>/installation 无 bin 层）
-		// 保留在下方 win32 分支，默认目录已被覆盖，FNM_DIR 覆盖场景暂无反馈不扩。
-		const fnmRoots = [...(process.env.FNM_DIR ? [process.env.FNM_DIR] : []), join(home, ".fnm"), join(process.env.XDG_DATA_HOME || join(home, ".local", "share"), "fnm"), ...(process.platform === "darwin" ? [join(home, "Library", "Application Support", "fnm")] : [])];
-		const fnmEntries = process.platform === "win32" ? [] : fnmRoots.flatMap((root) => [plain(join(root, "current", "bin")), ...this.listChildDirs(join(root, "node-versions")).map((dir) => plain(join(dir, "installation", "bin")))]);
-		const entries = [
-			// #484：macOS 上 Homebrew 目录必须排在 env PATH 之前。GUI 启动（Dock/Finder）的 PATH 来自
-			// /etc/paths，固定且常过期——典型是官方 pkg 装的 node 落在 /usr/local/bin，而 Apple Silicon 的
-			// Homebrew 在 /opt/homebrew（不在 /etc/paths，只能靠本项补上）。pi 的 POSIX 垫片是
-			// `#!/usr/bin/env node`，PATH 顺序直接决定它拿到哪个 node：排在最后时 `env node` 命中旧 node，
-			// pi 一早崩在缺 API 上（老版本 node 22 无 zlib.createZstdDecompress），终端里正常、桌面端起不来。
-			// Intel 的 Homebrew 目录就是 /usr/local/bin，通常已是 /etc/paths 首项，此调整无行为变化。
-			// 版本管理器目录不在本项：已由上方 fnmEntries / nvm 分支统一覆盖（FNM_DIR/XDG 布局）。
-			...(process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"].map(plain) : []),
-			...this.pathDirs().map(plain),
-			pkg(join(appData, "npm")),
-			// pnpm：PNPM_HOME / 平台默认目录 + Windows 的 %LOCALAPPDATA%\pnpm
-			pkg(pnpmHome),
-			pkg(join(localAppData, "pnpm")),
-			// yarn：classic 的全局 bin 在不同平台分别是 ~/.yarn/bin、~/.config/yarn/global/bin；
-			// Windows 的 %LOCALAPPDATA%\Yarn\bin 已由下一行覆盖。
-			pkg(join(home, ".yarn", "bin")),
-			pkg(join(home, ".config", "yarn", "global", "bin")),
-			pkg(join(localAppData, "Yarn", "bin")),
-			pkg(join(localAppData, "Volta", "bin")),
-			pkg(join(miseDataDir, "shims")),
-			...this.listChildDirs(join(miseInstallsDir, "node")).map(pkg),
-			// Windows fnm：node 与 npm 全局 bin（pi.cmd）同在
-			// %LOCALAPPDATA%\fnm\node-versions\<ver>\installation，macOS 分支已有等价兜底。
-			// Scoop：shims 目录放 scoop 装的 app shim；nodejs 的 npm prefix 默认是
-			// apps\nodejs\current（全局包装在该目录，node.exe 同目录）。
-			...(process.platform === "win32" ? [...this.listChildDirs(join(localAppData, "fnm", "node-versions")).map((dir) => join(dir, "installation")), join(home, "scoop", "shims"), join(home, "scoop", "apps", "nodejs", "current")].map(pkg) : []),
-			pkg(join(home, ".bun", "bin")),
-			pkg(join(home, ".deno", "bin")),
-			plain(join(home, ".local", "bin")),
-			pkg(join(home, ".npm-global", "bin")),
-			pkg(join(home, ".nvm", "current", "bin")),
-			...nvmNodeVersionDirs(join(home, ".nvm")).map((dir) => pkg(join(dir, "bin"))),
-			...fnmEntries,
-			pkg(join(home, ".asdf", "shims")),
-			pkg(join(home, ".volta", "bin")),
-			// pi 官方安装器（install.sh；Windows 下 install.ps1 需 PI_EXPERIMENTAL=1）的启动器落点。
-			//
-			// 为什么必须扫：安装器只把 PATH 写进当前 shell 的 rc（bash → ~/.bashrc），
-			// 非交互登录 shell 读不到，GUI 启动的 PiDeck 不扫这里就会把「终端里明明有 pi」
-			// 判成没装，进而引导用户又装一份 npm 全局副本。入口也可能是 ~/.local/bin 里
-			// 指向该启动器的软链（安装器 select_managed_path_bin_dir），那条已在上面扫到。
-			//
-			// 为什么排在版本管理器目录之后：它只在其他候选都没命中时才生效，
-			// 避免静默改掉已有用户实际启动的 pi（换装走设置页/安装列表让用户自己选）。
-			// 来源不在这里标 managed：只有 managed-install.json 校验通过才算官方安装
-			// （见 classifyInstallationSource），残留/半删的目录不应被宣称成官方安装。
-			plain(join(home, ".pi", "agent", "bin")),
-			// Linux 常见全局 bin，同样覆盖“桌面启动 PATH 不完整”的场景。
-			...(process.platform === "linux" ? ["/usr/local/bin", "/usr/bin"].map(plain) : []),
-			// PiDeck 自带引导装的便携 Node/pi 全局目录（<userData>/pi-runtime）：
-			// 引导安装不写系统 PATH，装完 pi 可执行落在这两个目录，必须自行扫描。
-			//
-			// 注意 1：POSIX 比 Windows 多一层 bin/（npm 全局可执行在 <prefix>/bin，Windows 才直接在 <prefix>；
-			// 官方 node 包同理 bin/node vs node.exe）。少这一层会导致
-			// 「引导装完 -> 重新检测说没装 -> 又引导你再装一遍」。
-			// 注意 2：只看当前 userData——dev 与正式版各管自己的 pi-runtime，不做跨数据目录互扫（产品决定）。
-			plain(piRuntimeNodeBinDir(app.getPath("userData"), process.platform)),
-			portable(piRuntimePiBinDir(app.getPath("userData"), process.platform)),
-		];
-		return entries.filter((entry) => Boolean(entry.dir));
-	}
-
+	/** 给 pi 子进程准备 env：实现见 piLocator/piLaunchEnv.ts，本类只留同名薄包装。 */
 	createProcessEnv(settings?: PiProxySettings, pathPrefix?: string, wsl?: PiCommandInvocation["wsl"]) {
-		if (wsl) {
-			// WSL 模式：保留原始 PATH 以便找到 wsl.exe（在 System32 中），
-			// 同时注入代理环境变量（wsl.exe 子进程通过 Windows 网络栈访问外网）。
-			const pathValue = pathPrefix || process.env.PATH || process.env.Path || "";
-			const base = this.sanitizePiChildEnv({
-				...process.env,
-				// Windows cmd 读 Path；部分宿主只改 PATH 会导致 .cmd shim 找不到 node
-				PATH: pathValue,
-				...(process.platform === "win32" ? { Path: pathValue } : {}),
-			});
-			return this.applyPiProxyEnv(base, settings);
-		}
-		const searchDirs = pathPrefix ? [pathPrefix, ...this.getSearchDirs().filter((dir) => dir !== pathPrefix)] : this.getSearchDirs();
-		const pathValue = searchDirs.join(delimiter);
-		const env = this.sanitizePiChildEnv({
-			...process.env,
-			PATH: pathValue,
-			// 同步 Path：Windows 下 Node 对 env 键大小写不敏感，但显式双写更稳
-			...(process.platform === "win32" ? { Path: pathValue } : {}),
-		});
-
-		return this.applyPiProxyEnv(env, settings);
+		return createPiProcessEnv(settings, pathPrefix, wsl, () => this.getSearchDirs());
 	}
 
-	/**
-	 * 给 pi 子进程消毒 Electron 宿主环境。
-	 * 桌面端主进程 env 常带 ELECTRON_* / 可能含 electron 注入的 NODE_OPTIONS；
-	 * 原样继承后 jiti 加载扩展或子进程行为可能与终端 CLI 不一致。
-	 */
+	/** 子进程 env 消毒：实现见 piLocator/piLaunchEnv.ts，本类只留同名薄包装。 */
 	sanitizePiChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-		const next: NodeJS.ProcessEnv = { ...env };
-		// 该标记只能由本次 PiDeck 代理 patch 重新写入，不能从宿主环境或用户 shell 继承。
-		delete next[PIDECK_PI_PROXY_SCOPE];
-
-		for (const key of Object.keys(next)) {
-			if (key.startsWith("ELECTRON_") || key === "ELECTRON_RUN_AS_NODE") {
-				delete next[key];
-				continue;
-			}
-			if (key.startsWith("CHROME_") || key.startsWith("GOOGLE_API_")) {
-				delete next[key];
-			}
-		}
-
-		const nodeOptions = next.NODE_OPTIONS;
-		if (typeof nodeOptions === "string" && nodeOptions.trim()) {
-			const cleaned = nodeOptions
-				.split(/\s+/)
-				.filter((token) => {
-					if (!token) return false;
-					const lower = token.toLowerCase();
-					return !(lower.includes("electron") || lower.includes("asar") || lower.includes("app.asar") || lower.includes("electron-vite"));
-				})
-				.join(" ")
-				.trim();
-			if (cleaned) next.NODE_OPTIONS = cleaned;
-			else delete next.NODE_OPTIONS;
-		}
-
-		return next;
+		return sanitizePiChildEnv(env);
 	}
 
 	createInvocation(command: string, args: string[], options: { wslCwd?: string } = {}): PiCommandInvocation {
@@ -506,12 +292,12 @@ export class PiLocator {
 				args: [command, ...args],
 				shell: false,
 				// JS 文件同目录一般没有 node；靠 createProcessEnv 的搜索目录解析 node。
-				pathPrefix: this.getCommandBinDir(command),
+				pathPrefix: getCommandBinDir(command),
 			};
 		}
 
 		if (process.platform !== "win32") {
-			return { command, args, shell: false, pathPrefix: this.getCommandBinDir(command) };
+			return { command, args, shell: false, pathPrefix: getCommandBinDir(command) };
 		}
 
 		// Windows：npm/pnpm 的 pi 是 .cmd 垫片，内容只是把参数转发给
@@ -523,7 +309,7 @@ export class PiLocator {
 		//      继续跑（占内存、锁会话文件），进程监控取到的 pid 也是 cmd 而非 pi。
 		// 还原出 node + JS 入口即可同时消除这三点：参数由 spawn 按 CreateProcess 规则转义，
 		// 不再需要手工维护 cmd 引号。垫片形态不符预期时返回 null，回退下面的 cmd 路径。
-		const shimEntry = this.resolveWindowsCmdShimDetailed(command);
+		const shimEntry = resolveWindowsCmdShimDetailed(command);
 		if (shimEntry.kind === "entry") {
 			const siblingNode = join(dirname(command), "node.exe");
 			return {
@@ -532,7 +318,7 @@ export class PiLocator {
 				command: existsSync(siblingNode) ? siblingNode : "node.exe",
 				args: [shimEntry.entry, ...args],
 				shell: false,
-				pathPrefix: this.getCommandBinDir(command),
+				pathPrefix: getCommandBinDir(command),
 				windowsLaunch: { channel: "node-direct", entry: shimEntry.entry },
 			};
 		}
@@ -543,13 +329,13 @@ export class PiLocator {
 		// Windows npm 全局命令通常是 .cmd shim；当命令路径本身需要引号时，cmd /s /c
 		// 需要额外一层外引号才能正确解析用户名含空格的路径；不需要引号的路径不能套外层引号，
 		// 否则 cmd 会把 `C:\...\pi.cmd --version` 整段当作命令名。
-		const innerCommand = [command, ...args].map((part) => this.quoteCmdArgument(part)).join(" ");
-		const commandLine = this.needsCmdQuote(command) ? `"${innerCommand}"` : innerCommand;
+		const innerCommand = [command, ...args].map((part) => quoteCmdArgument(part)).join(" ");
+		const commandLine = needsCmdQuote(command) ? `"${innerCommand}"` : innerCommand;
 		return {
-			command: this.resolveCmdExe(),
+			command: resolveCmdExe(),
 			args: ["/d", "/s", "/c", commandLine],
 			shell: false,
-			pathPrefix: this.getCommandBinDir(command),
+			pathPrefix: getCommandBinDir(command),
 			// 关键：cmd /c 的最后一个参数是完整命令行，里面的引号由 quoteCmdArgument/control 逻辑维护。
 			// 若让 Node 再转义一次，`D:\\foo bar\\pi.cmd` 会变成 cmd 无法识别的路径。
 			windowsVerbatimArguments: true,
@@ -581,14 +367,7 @@ export class PiLocator {
 		if (/\.(?:m?js|cjs)$/i.test(command) && existsSync(command)) {
 			return CREATE_PROCESS_ARG_CHAR_BUDGET;
 		}
-		return this.resolveWindowsCmdShim(command) ? CREATE_PROCESS_ARG_CHAR_BUDGET : CMD_EXE_ARG_CHAR_BUDGET;
-	}
-
-	private applyPiProxyEnv(env: NodeJS.ProcessEnv, settings?: PiProxySettings) {
-		// 代理 env 的组装规则（含为什么必须带 NODE_USE_ENV_PROXY）集中在
-		// sessionProxyPolicy.buildPiProxyEnvPatch，与 DSH host 共用同一套语义，避免两处漂移。
-		const patch = buildPiProxyEnvPatch(settings);
-		return patch ? { ...env, ...patch } : env;
+		return resolveWindowsCmdShim(command) ? CREATE_PROCESS_ARG_CHAR_BUDGET : CMD_EXE_ARG_CHAR_BUDGET;
 	}
 
 	/**
@@ -598,11 +377,11 @@ export class PiLocator {
 	 */
 	async validateCustomPath(customPath: string, wslEnabled?: boolean, wslDistro?: string, wslUser?: string): Promise<PiInstallStatus> {
 		const normalized = this.normalizeCustomPath(customPath);
-		const command = this.toWslCustomPath(normalized, wslEnabled, wslDistro, wslUser) ?? normalized;
+		const command = toWslCustomPath(normalized, wslEnabled, wslDistro, wslUser) ?? normalized;
 		if (!command) {
 			return { installed: false, searchedDirs: [], error: this.translate("mainPi.pathRequired") };
 		}
-		if (this.isUnsupportedPowerShellShim(command)) return this.unsupportedPowerShellStatus(command);
+		if (isUnsupportedPowerShellShim(command)) return this.unsupportedPowerShellStatus(command);
 		if (command.startsWith("wsl://")) {
 			const parsed = this.parseWslUrl(command);
 			if (!parsed) return { installed: false, searchedDirs: [], error: this.translate("mainPi.invalidWslUrl") };
@@ -610,7 +389,7 @@ export class PiLocator {
 			// 设置页继续保存用户输入的 Linux 路径；下次启动由 resolveCommand 再转成 wsl:// 标记。
 			return { ...status, command: normalized };
 		}
-		if (this.isDrivelessLinuxPathOnWindows(command)) {
+		if (isDrivelessLinuxPathOnWindows(command)) {
 			return this.linuxPathOutsideWslStatus(command, []);
 		}
 		return this.runCheck(command, []);
@@ -618,7 +397,7 @@ export class PiLocator {
 
 	async check(customPath?: string, wslEnabled?: boolean, wslDistro?: string, wslUser?: string, options?: { forceWslProbe?: boolean }): Promise<PiInstallStatus> {
 		const normalizedCustomPath = this.normalizeCustomPath(customPath);
-		if (normalizedCustomPath && this.isUnsupportedPowerShellShim(normalizedCustomPath) && !(wslEnabled && process.platform === "win32" && wslDistro && wslUser)) {
+		if (normalizedCustomPath && isUnsupportedPowerShellShim(normalizedCustomPath) && !(wslEnabled && process.platform === "win32" && wslDistro && wslUser)) {
 			return this.unsupportedPowerShellStatus(normalizedCustomPath, this.getSearchDirs());
 		}
 		// 设置页检测可以等 WSL 探测：缓存未命中时先异步探测，再 resolve，避免热路径同步子进程。
@@ -642,7 +421,7 @@ export class PiLocator {
 			};
 		}
 
-		if (this.isDrivelessLinuxPathOnWindows(command)) {
+		if (isDrivelessLinuxPathOnWindows(command)) {
 			return this.linuxPathOutsideWslStatus(command, searchedDirs);
 		}
 
@@ -861,7 +640,7 @@ export class PiLocator {
 		const managedRoot = this.resolveManagedInstallRoot(commandPath);
 		if (managedRoot) return { source: "managed", managedRoot };
 		const dir = dirname(commandPath);
-		const entry = this.searchDirEntries().find((item) => item.dir === dir);
+		const entry = searchDirEntries().find((item) => item.dir === dir);
 		// 目录不在任何已知落点 → 就是用户自己指定的那个路径（设置里手填/浏览选的）。
 		if (!entry) return { source: "custom" };
 		if (entry?.source === "portable") return { source: "portable" };
@@ -887,65 +666,12 @@ export class PiLocator {
 
 	/** 扫描目录 × 候选文件名，返回存在的入口（保序；供安装列表复用）。 */
 	private candidateInstalls(): string[] {
-		return this.getCandidates().filter((candidate) => existsSync(candidate));
+		return getCandidates().filter((candidate) => existsSync(candidate));
 	}
 
-	/**
-	 * 归一化用户粘贴的路径：去除首尾引号，兼容 JSON 风格双反斜杠，并在 Windows 下优先补全同目录 pi.cmd。
-	 * 这样 UI 校验、settings 保存和 agent 启动都使用同一条路径规则，避免不同入口行为不一致。
-	 */
+	/** 用户输入路径归一化：实现见 piLocator/piCustomPath.ts，本类只留同名薄包装。 */
 	normalizeCustomPath(rawPath?: string) {
-		let value = rawPath?.trim() ?? "";
-		if (!value) return "";
-
-		const quotePairs: Array<[string, string]> = [
-			['"', '"'],
-			["'", "'"],
-			["“", "”"],
-			["‘", "’"],
-		];
-		let stripped = true;
-		while (stripped && value.length >= 2) {
-			stripped = false;
-			for (const [left, right] of quotePairs) {
-				if (value.startsWith(left) && value.endsWith(right)) {
-					value = value.slice(left.length, -right.length).trim();
-					stripped = true;
-				}
-			}
-		}
-
-		if (process.platform === "win32") {
-			// 用户从 JSON/日志里复制时可能得到 D:\\foo\\pi.cmd；只在疑似 Windows 盘符/UNC 路径时折叠双反斜杠。
-			if (/^(?:[a-zA-Z]:\\\\|\\\\\\\\)/.test(value)) {
-				value = value.replace(/\\\\/g, "\\");
-			}
-
-			// npm 有时同时生成无扩展名脚本和 .cmd；Windows 启动 agent 时优先使用 .cmd shim，
-			// 可避免裸 `pi` 被当作 shell 内部命令或文本文件处理。
-			if (!extname(value)) {
-				const cmdCandidate = `${value}.cmd`;
-				if (existsSync(cmdCandidate)) return cmdCandidate;
-				const exeCandidate = `${value}.exe`;
-				if (existsSync(exeCandidate)) return exeCandidate;
-			}
-		}
-
-		return value;
-	}
-
-	private isUnsupportedPowerShellShim(command: string) {
-		return process.platform === "win32" && command.trim().toLowerCase().endsWith(".ps1");
-	}
-
-	/**
-	 * win32 下无盘符的 Linux 绝对路径（/home/...）：不可能是 Windows 可执行文件，
-	 * 直接跑只会 ENOENT + 笼统文案。典型成因是 WSL 模式没落盘（设置草稿未提交）
-	 * 或用户在非 WSL 模式粘贴了 WSL 内路径（2026-09-17 用户反馈）。
-	 * 给出可行动的提示，而不是让用户对着 ENOENT 猜。
-	 */
-	private isDrivelessLinuxPathOnWindows(command: string) {
-		return process.platform === "win32" && command.startsWith("/");
+		return normalizeCustomPath(rawPath);
 	}
 
 	private linuxPathOutsideWslStatus(command: string, searchedDirs: string[]): PiInstallStatus {
@@ -957,14 +683,6 @@ export class PiLocator {
 		};
 	}
 
-	/** 用户粘贴的 Linux 绝对路径在 WSL 模式下包装成内部 wsl:// 标记。双斜杠保留命令自身的首 `/`。 */
-	private toWslCustomPath(command: string, wslEnabled?: boolean, wslDistro?: string, wslUser?: string): string | null {
-		if (!command || !wslEnabled || process.platform !== "win32" || !wslDistro || !wslUser || !command.startsWith("/") || isWslInteropPath(command)) {
-			return null;
-		}
-		return buildWslCommandMarker(wslDistro, wslUser, command);
-	}
-
 	private unsupportedPowerShellStatus(command: string, searchedDirs: string[] = []): PiInstallStatus {
 		return {
 			installed: false,
@@ -974,69 +692,14 @@ export class PiLocator {
 		};
 	}
 
-	/**
-	 * 执行 --version 轻量健康检查：验证可执行文件发现和 Node shim 启动是否正常。
-	 * validateCustomPath 和 check 共用此方法，仅 searchedDirs 有差异：
-	 * - validateCustomPath: searchedDirs 为空（用户已手动指定路径）
-	 * - check: searchedDirs 为自动扫描的目录列表
-	 *
-	 * 使用 encoding: 'buffer' 避免 Windows 中文环境下 stderr 的 GBK 输出被 utf8 错误解码导致乱码。
-	 *
-	 * `quiet`：安装列表探测逐个候选跑 --version，没装好/陈旧的候选失败是常态，
-	 * 不必为每一条往主进程日志刷 console.error（真正的启动失败由 check()/PiProcess 报）。
-	 */
+	/** --version 探测：实现见 piLocator/piVersionCheck.ts，本类只留同名薄包装。 */
 	private async runCheck(command: string, searchedDirs: string[], options: { quiet?: boolean } = {}): Promise<PiInstallStatus> {
-		return new Promise((resolve) => {
-			const invocation = this.createInvocation(command, ["--version"]);
-			// 子进程 PATH 与「pi 垫片自己看到的 PATH」必须同源：失败时靠它反查 shebang 的 `env node`。
-			const env = this.createProcessEnv(undefined, invocation.pathPrefix, invocation.wsl);
-			execFile(
-				invocation.command,
-				invocation.args,
-				{
-					env,
-					shell: invocation.shell,
-					windowsHide: true,
-					timeout: 8_000,
-					encoding: "buffer",
-					windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-				},
-				async (error, stdout, stderr) => {
-					if (error) {
-						// 优先使用 stderr 中的实际错误信息（如"系统找不到指定的文件"），
-						// 并处理 Windows GBK 编码问题。兜底用 error.message 但去掉冗余的命令行前缀。
-						const stderrText = this.decodeBuffer(stderr);
-						const stdoutText = this.decodeBuffer(stdout);
-						const raw = stderrText || this.cleanExecError(error.message);
-						// 仅命令行本身没有诊断价值时，补上 exit code / timeout，方便区分 PATH 与真失败
-						const errObj = error as NodeJS.ErrnoException & { killed?: boolean; code?: string | number };
-						// 逐个候选探测（quiet）失败是常态，WSL 里生效的是发行版内的 node：两种情形都不探。
-						const node = options.quiet || invocation.wsl ? undefined : await this.probeEnvNode(env);
-						if (!options.quiet) {
-							console.error("[PiLocator] pi CLI check failed", {
-								command,
-								error: raw,
-								stderr: stderrText || undefined,
-								stdout: stdoutText || undefined,
-								exitCode: errObj.code,
-								killed: errObj.killed,
-								envNode: node ? `${node.version} ${node.execPath}` : undefined,
-								invocation: {
-									command: invocation.command,
-									args: invocation.args,
-									pathPrefix: invocation.pathPrefix,
-								},
-							});
-						}
-						resolve({ installed: false, command, searchedDirs, error: this.composeCheckFailure(raw, node?.version) });
-						return;
-					}
+		return runPiVersionCheck(this, this.translate, command, searchedDirs, options);
+	}
 
-					const version = this.decodeBuffer(stdout).trim();
-					resolve({ installed: true, command, searchedDirs, version });
-				},
-			);
-		});
+	/** 失败文案合成：实现见 piLocator/piVersionCheck.ts，本类只留同名薄包装（契约测试直接调它）。 */
+	private composeCheckFailure(raw: string, nodeVersion?: string): string {
+		return composeCheckFailure(this.translate, raw, nodeVersion);
 	}
 
 	/**
@@ -1202,7 +865,7 @@ export class PiLocator {
 				},
 				(error, stdout, stderr) => {
 					if (error) {
-						const raw = decodeWslOutput(stderr).trim() || this.cleanExecError(error.message);
+						const raw = decodeWslOutput(stderr).trim() || cleanExecError(error.message);
 						console.error("[PiLocator] WSL pi CLI check failed", { piCommand, error: raw });
 						resolve({ installed: false, searchedDirs: [], error: this.composeCheckFailure(raw) });
 						return;
@@ -1215,250 +878,8 @@ export class PiLocator {
 		});
 	}
 
-	private decodeBuffer(buf: Buffer | null): string {
-		if (!buf || buf.length === 0) return "";
-		const utf8 = buf.toString("utf8");
-		// UTF-8 解码后不含 Unicode 替换字符（\ufffd），说明解码正确
-		if (!utf8.includes("\ufffd")) return utf8;
-		// Windows 中文环境下，cmd/powershell 的错误输出通常是 GBK (codepage 936)
-		try {
-			return new TextDecoder("gbk", { fatal: false }).decode(buf);
-		} catch {
-			// 极少数环境不支持 gbk TextDecoder（如某些精简 Node.js），保留原始字节
-			return buf.toString("latin1");
-		}
-	}
-
-	/**
-	 * 清理 execFile 默认错误消息，去掉冗余的 "Command failed: ..." 命令行前缀，
-	 * 只保留有意义的错误描述。
-	 */
-	private cleanExecError(message: string): string {
-		// Node.js execFile 错误格式："Command failed: powershell.exe ..."
-		// 去掉前缀，只保留后半段或返回简洁提示
-		const cleaned = message.replace(/^Command failed:\s*/i, "").trim();
-		// 如果去掉前缀后仍是完整命令行（太长），截断为友好提示
-		if (cleaned.length > 120) {
-			return cleaned.slice(0, 100) + "…";
-		}
-		return cleaned;
-	}
-
-	/**
-	 * 校验/检测失败的对外文案：通用提示 + 真实失败原因首行。
-	 * stderr 里的「No such file or directory / Permission denied / timed out」是用户
-	 * 区分「路径写错 / 不可执行 / WSL 冷启动超时」的唯一线索，此前只进 dev console，
-	 * 设置页只能看到笼统的「无法运行 pi CLI」，用户无从下手（2026-09-17 WSL 自定义路径排查）。
-	 * 单行 + 去 ANSI/控制字符 + 截断，避免多行 stderr 破坏设置页布局。
-	 *
-	 * 取行顺序：Node 异常行 > 第一条非空行。崩溃栈的首行只有 `file:///...chunk.js:47`，
-	 * 只取首行会把「缺哪个 API」这类可行动信息吞掉，用户拿到的原因毫无意义（#484）。
-	 * nodeVersion 只在崩在 JS 异常上时附带：这类失败八成是 PATH 命中的 node 太旧，
-	 * 而 pi 的 engines 为空、CLI 自身不报版本问题，两侧都没有版本线索。
-	 */
-	private composeCheckFailure(raw: string, nodeVersion?: string): string {
-		const lines = raw
-			.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
-			.split(/\r?\n/)
-			.map((line) => line.replace(/[\x00-\x1f\x7f]/g, "").trim())
-			.filter((line) => line.length > 0);
-		const picked = lines.find((line) => NODE_EXCEPTION_LINE.test(line)) ?? lines[0];
-		if (!picked) return this.translate("mainPi.checkFailed");
-		let short = picked.length > 160 ? `${picked.slice(0, 160)}…` : picked;
-		if (nodeVersion && NODE_EXCEPTION_LINE.test(picked)) short = `${short} (node ${nodeVersion})`;
-		return this.translate("mainPi.checkFailedReason", { reason: short });
-	}
-
-	/**
-	 * 反查 `#!/usr/bin/env node` 实际命中的解释器（版本 + 真实路径）。
-	 *
-	 * pi 的 POSIX 垫片靠 shebang 找 node，子进程 PATH 的顺序直接决定拿到哪个版本：
-	 * 用户 PATH 里遗留的旧 node 会让 pi 一早崩在缺 API 上，而 pi 的 engines 为空、
-	 * CLI 自身不会提示，两侧都没有版本线索（#484）。检测失败时多跑一次 `env node`，
-	 * 把解释器写进日志/原因，让「PATH 里有个旧 node」从靠猜变成可见。
-	 * Win32 不经 `env`（.cmd 垫片直接解析 node.exe），WSL 里生效的是发行版内的 node，两者都不探。
-	 */
-	private probeEnvNode(env: NodeJS.ProcessEnv): Promise<{ version: string; execPath: string } | undefined> {
-		if (process.platform === "win32") return Promise.resolve(undefined);
-		return new Promise((resolve) => {
-			execFile("/usr/bin/env", ["node", "-p", "process.version + ' ' + process.execPath"], { env, timeout: 3_000, encoding: "utf8", windowsHide: true }, (error, stdout) => {
-				if (error) {
-					resolve(undefined);
-					return;
-				}
-				const [version, execPath] = String(stdout).trim().split(/\s+/);
-				resolve(version && execPath && /^v\d+\.\d+\.\d+/.test(version) ? { version, execPath } : undefined);
-			});
-		});
-	}
-
-	/**
-	 * 解析 Windows npm/pnpm 生成的 .cmd 垫片，取出真实 JS 入口路径（配合 node 直启）。
-	 *
-	 * npm 垫片最后一行形如：
-	 *   endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_modules\<pkg>\...\cli.js" %*
-	 * pnpm 及部分工具的垫片用 `%~dp0`。两种前缀都识别，但只接受落在
-	 * `<垫片目录>\node_modules\` 内、且真实存在的 .js/.mjs/.cjs 入口：
-	 * 垫片来自用户磁盘，属于不可信输入，路径被改写时必须拒绝而非盲从。
-	 * 形态不符（自建包装脚本、非 node 入口、入口文件缺失）返回 null，由调用方回退 cmd 路径。
-	 */
-	private resolveWindowsCmdShim(shimPath: string): string | null {
-		const resolution = this.resolveWindowsCmdShimDetailed(shimPath);
-		return resolution.kind === "entry" ? resolution.entry : null;
-	}
-
-	/**
-	 * 解析 .cmd 垫片，还原出可 `node <entry>` 直启的 JS 入口。
-	 *
-	 * 覆盖两种真实垫片形态（都只在「解析出的入口真实存在」时才接管，否则回退 cmd.exe）：
-	 *   ① npm 全局安装：`"%dp0%\node_modules\<包>\<入口>.js"`（全局 bin 目录 = node 根目录）；
-	 *   ② npm 本地安装（`node_modules/.bin/*.cmd`）：`"%dp0%\..\<包>\bin\<脚本>"`，
-	 *      入口通常**无扩展名**，靠 shebang 认 node 身份。
-	 * 形态②此前一律落到 cmd.exe 回退 —— 这就是「pi 不是改成 node 启动了吗」的落差点：
-	 * 改动只覆盖了全局垫片。回退原因现在随 `windowsLaunch.reason` 带出，不再静默。
-	 *
-	 * 安全：垫片来自用户磁盘，属不可信输入。「%dp0%」前缀形态必须解析在垫片目录内；
-	 * 「..」形态必须落在某个 node_modules 包目录内，挡住 `node_modules\..\..\evil.js` 这类改写。
-	 *
-	 * 形态不符（自建包装脚本、非 node 入口、入口文件缺失）返回对应 reason，由调用方回退 cmd 路径。
-	 */
-	private resolveWindowsCmdShimDetailed(shimPath: string): CmdShimResolution {
-		if (!/\.cmd$/i.test(shimPath)) return { kind: "not-cmd" };
-		if (!existsSync(shimPath)) return { kind: "missing" };
-		let content: string;
-		try {
-			content = readFileSync(shimPath, "utf8");
-		} catch {
-			return { kind: "unreadable" };
-		}
-		const baseDir = dirname(shimPath);
-		// 只在**实际执行行**（含 `%*`）上找入口：新式垫片（npm 12+ 的 npm.cmd/npx.cmd）用
-		// `SET "NPM_CLI_JS=%~dp0\node_modules\npm\bin\npm-cli.js"` 变量间接引用，执行行形如
-		// `"%NODE_EXE%" "%NPM_CLI_JS%" %*`。若按全文取第一个 `node_modules\…js`，会抓到变量赋值里的
-		// `npm-prefix.js`——实测把「装包」跑成「打印前缀」，exit 0 却什么都没装（npm 12.0.2 的 npm.cmd 复现）；
-		// 入口变量还可能被 prefix 覆盖，静态解析给不出与 cmd 等价的目标，因此这类形态一律回退 cmd.exe。
-		const execLines = content.split(/\r?\n/).filter((line) => line.includes("%*"));
-
-		// ① %dp0% / %~dp0% 之后紧跟 `\<node_modules 相对路径>`；`\\(` 中的反斜杠是字面量，
-		// 其后的 `(` 即捕获组起点，整段相对路径由该组取回。
-		for (const line of execLines) {
-			const match = /%~?dp0%?\\(node_modules[\\/][^"%\r\n]+\.(?:m?js|cjs))/i.exec(line);
-			if (!match) continue;
-			// 垫片内一律是 Windows 反斜杠；归一成 `/` 使 path.resolve 在 POSIX 宿主上也能正确拼接
-			// （测试会以 Linux/macOS 宿主模拟 win32 跑这条分支）。
-			const entry = resolve(baseDir, match[1].replace(/\\/g, "/"));
-			// 逃逸检查：解析结果必须仍在垫片目录内，挡住 `..\..\` 形态的路径改写。
-			const rel = relative(baseDir, entry);
-			if (!rel || rel.startsWith("..") || isAbsolute(rel)) return { kind: "entry-missing", candidate: entry };
-			return existsSync(entry) ? { kind: "entry", entry, matchedBy: "prefix-relative" } : { kind: "entry-missing", candidate: entry };
-		}
-
-		// ② 本地安装垫片：`"%dp0%\..\<包>\bin\<脚本>"`（可继续带 `..`，但必须留在 node_modules 内）
-		for (const line of execLines) {
-			const shimRelative = /%~?dp0%?\\\.\.\\([^"%\r\n]+)/i.exec(line);
-			if (!shimRelative) continue;
-			const candidate = resolve(baseDir, `../${shimRelative[1].replace(/\\/g, "/")}`);
-			if (/[\\/]node_modules[\\/]/i.test(candidate) && isRunnableNodeEntry(candidate)) {
-				return { kind: "entry", entry: candidate, matchedBy: "shim-relative" };
-			}
-			return { kind: "entry-missing", candidate };
-		}
-
-		return { kind: "unrecognized" };
-	}
-
-	/**
-	 * 跑 .cmd 垫片用的 cmd.exe 路径。
-	 *
-	 * 不能只信 ComSpec：它可能指向本机并不存在的位置（系统盘换代、环境变量被改、
-	 * 从别的机器/环境继承而来），这时 spawn 只会报 "spawn C:\WINDOWS\system32\cmd.exe ENOENT"，
-	 * 用户根本看不出是 cmd.exe 路径本身失效。逐级退回：ComSpec（存在才用）→
-	 * %SystemRoot%\System32\cmd.exe → 原样（交给 PATH 解析，至少保留可诊断的报错）。
-	 */
-	private resolveCmdExe(): string {
-		const fromEnv = process.env.ComSpec?.trim();
-		if (fromEnv && existsSync(fromEnv)) return fromEnv;
-		const systemRoot = process.env.SystemRoot?.trim() || process.env.windir?.trim();
-		if (systemRoot) {
-			const candidate = join(systemRoot, "System32", "cmd.exe");
-			if (existsSync(candidate)) return candidate;
-		}
-		return fromEnv || "cmd.exe";
-	}
-
-	private quoteCmdArgument(value: string) {
-		if (!this.needsCmdQuote(value)) return value;
-		return `"${value.replace(/"/g, '""')}"`;
-	}
-
-	private needsCmdQuote(value: string) {
-		// 双引号必须入类：cmd-shim 通道用 windowsVerbatimArguments 把拼好的整条命令行直接交给
-		// cmd.exe（没有 Node 的二次转义），裸引号会打乱 /s /c 的引号配对，把后续参数里的 & 甩到
-		// 引号外造成命令行分裂（实测 name=a" + 后续参数含 & → cmd 真去执行了 & 后面的命令）。
-		// % 故意不入类：引号阻止不了 cmd 的 %VAR% 展开（实测 "a%PATH%b" 照旧被展开），
-		// 放进字符类只会让人误以为已处理；含 % 的供应商名改由 isValidProviderName 拒绝。
-		// ~ 故意不入类：cmd 不展开 ~（那是 bash 的语义），而 Windows 8.3 短路径
-		// （C:\Users\RUNNER~1\...；CI 与部分用户机器的临时/主目录）天生带 ~。把它算进
-		// 「需要引号」会让整条命令行多套一层外引号，行尾那个引号直接粘在最后一个参数上
-		// （2026-09-30 CI 实证：中文供应商" → 供应商名匹配失败），而无空格时这层引号毫无必要。
-		return /[\s&()\[\]{}^=;!'+,`|<>"]/.test(value);
-	}
-
-	private getCommandBinDir(command: string) {
-		if (!/[\\/]/.test(command) || !existsSync(command)) return undefined;
-		const binDir = dirname(command);
-		// npm/nvm/asdf/mise shims resolve Node through env/PATH. Prepending the shim's own
-		// bin directory keeps that lookup on the Node version that installed pi, instead
-		// of a different Node inherited from Finder/Explorer/Electron.
-		const nodeName = process.platform === "win32" ? "node.exe" : "node";
-		return existsSync(join(binDir, nodeName)) ? binDir : undefined;
-	}
-
-	private getCandidates() {
-		// Windows 不再自动检测 pi.ps1：PowerShell shim 与 .cmd 指向同一入口，但执行策略/编码/引号规则更复杂。
-		// Linux 另追加 pi.js/pi.mjs/pi.cjs：部分用户通过 alias "node /path/pi.js" 直接运行 JS 源文件而非
-		// npm 装出的 shim（#169）；pi 排在前，存在标准 shim 时仍优先命中，不会被同名 JS 误拦。
-		const names = process.platform === "win32" ? ["pi.cmd", "pi.exe", "pi"] : ["pi", "pi.js", "pi.mjs", "pi.cjs"];
-		return this.getSearchDirs().flatMap((dir) => names.map((name) => join(dir, name)));
-	}
-
-	private pathDirs() {
-		const fromEnv = process.env.PATH ?? process.env.Path ?? "";
-		// 只读缓存；未预热时本次仅用 env PATH（不阻塞），同时后台补热，
-		// 下次 spawn / 状态检测即拿到登录 shell 目录。绝不允许回到同步 execFileSync。
-		if (cachedLoginShellPath === undefined) void this.warmLoginShellPath();
-		const fromShell = cachedLoginShellPath ?? "";
-		return [...fromEnv.split(delimiter), ...fromShell.split(delimiter)].filter(Boolean);
-	}
-
-	/** 异步预热登录 shell PATH（win32 恒空）。结果（含失败负缓存 ""）进程级缓存。 */
+	/** 登录 shell PATH 预热：实现见 piLocator/piSearchDirs.ts，本类只留同名薄包装。 */
 	async warmLoginShellPath(): Promise<string> {
-		if (process.platform === "win32") {
-			// Windows 检测链路不依赖 PowerShell/登录 shell：Explorer 启动的 Electron
-			// 已拿到系统合并 PATH，其他包管理器路径由 getSearchDirs 与手动输入兜底。
-			return "";
-		}
-		if (cachedLoginShellPath !== undefined) return cachedLoginShellPath;
-		if (loginShellPathInflight) return loginShellPathInflight;
-		const task = new Promise<string>((resolve) => {
-			execFile("/bin/sh", ["-lc", 'printf %s "$PATH"'], { encoding: "utf8", timeout: 3000 }, (error, stdout) => {
-				// 失败（超时/无 sh）负缓存 ""：与旧 catch 行为一致，仅退化到 env PATH。
-				cachedLoginShellPath = error ? "" : String(stdout).trim();
-				loginShellPathInflight = undefined;
-				resolve(cachedLoginShellPath);
-			});
-		});
-		loginShellPathInflight = task;
-		return task;
-	}
-
-	private listChildDirs(parent: string) {
-		try {
-			return readdirSync(parent, { withFileTypes: true })
-				.filter((entry) => entry.isDirectory())
-				.map((entry) => join(parent, entry.name));
-		} catch {
-			return [];
-		}
+		return warmLoginShellPath();
 	}
 }
