@@ -28,6 +28,10 @@ func (a *app) openProviderDialog(id string) {
 	a.providerModels = nil
 	a.providerTest.Set("")
 	a.providerBalance.Set("")
+	spec := a.cfg.Balances[id]
+	a.providerBalURL.Set(spec.URL)
+	a.providerBalPath.Set(spec.Path)
+	a.providerBalCur.Set(spec.Currency)
 	for _, cfg := range readProviderConfigs() {
 		if cfg.ID != id {
 			continue
@@ -49,9 +53,40 @@ func (a *app) saveProvider() {
 		a.toast(ui.ToastError, "保存失败", err.Error())
 		return
 	}
+	spec := balanceSpec{
+		URL:      strings.TrimSpace(a.providerBalURL.GetUntracked()),
+		Path:     strings.TrimSpace(a.providerBalPath.GetUntracked()),
+		Currency: strings.TrimSpace(a.providerBalCur.GetUntracked()),
+	}
+	if a.st != nil {
+		a.st.edit(func(c *config) {
+			if spec.URL == "" && spec.Path == "" && spec.Currency == "" {
+				delete(c.Balances, id)
+				return
+			}
+			if c.Balances == nil {
+				c.Balances = map[string]balanceSpec{}
+			}
+			c.Balances[id] = spec
+		})
+		a.cfg = a.st.config()
+	}
 	a.providerOpen.Set(false)
 	a.toast(ui.ToastSuccess, "已保存 "+id, "重启 Agent 后生效。")
 	a.refreshProviders()
+}
+
+// dialogBalanceSpec is the balance endpoint as the dialog reads now.
+func (a *app) dialogBalanceSpec() *balanceSpec {
+	spec := balanceSpec{
+		URL:      strings.TrimSpace(a.providerBalURL.GetUntracked()),
+		Path:     strings.TrimSpace(a.providerBalPath.GetUntracked()),
+		Currency: strings.TrimSpace(a.providerBalCur.GetUntracked()),
+	}
+	if spec.URL == "" && spec.Path == "" && spec.Currency == "" {
+		return nil
+	}
+	return &spec
 }
 
 // providerFromDialog is the provider as the dialog's fields read now.
@@ -85,8 +120,9 @@ func (a *app) testProvider() {
 func (a *app) queryProviderBalance() {
 	cfg := a.providerFromDialog()
 	a.providerBalance.Set("正在查询…")
+	spec := a.dialogBalanceSpec()
 	go func() {
-		msg, err := providerBalance(cfg)
+		msg, err := providerBalanceWith(cfg, spec)
 		a.cx.Post(func() {
 			if err != nil {
 				a.providerBalance.Set("失败：" + err.Error())
@@ -194,6 +230,21 @@ func (a *app) providerDialog() core.Node {
 					field("API Key", "可以写 $环境变量", core.Input{
 						Value: a.providerKeySig.Get, OnChange: a.providerKeySig.Set, Masked: true,
 						Placeholder: "sk-… 或 $MY_API_KEY", Label: "API Key", TestID: "provider-key",
+						Style: fieldStyle,
+					}),
+					field("余额接口", "可选；相对 Base URL 或完整地址", core.Input{
+						Value: a.providerBalURL.Get, OnChange: a.providerBalURL.Set,
+						Placeholder: "/credits 或 https://api.example.com/credits", Label: "余额接口", TestID: "provider-balance-url",
+						Style: fieldStyle,
+					}),
+					field("余额字段", "JSON 路径，如 data.balance 或 data.0.total", core.Input{
+						Value: a.providerBalPath.Get, OnChange: a.providerBalPath.Set,
+						Placeholder: "balance", Label: "余额字段", TestID: "provider-balance-path",
+						Style: fieldStyle,
+					}),
+					field("余额货币", "如 CNY / USD，留空只显示数字", core.Input{
+						Value: a.providerBalCur.Get, OnChange: a.providerBalCur.Set,
+						Placeholder: "USD", Label: "余额货币", TestID: "provider-balance-currency",
 						Style: fieldStyle,
 					}),
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{

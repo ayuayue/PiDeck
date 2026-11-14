@@ -114,6 +114,9 @@ type config struct {
 	// choices.
 	VisionProvider string `json:"visionProvider,omitempty"`
 	VisionModel    string `json:"visionModel,omitempty"`
+	// Balances are custom balance endpoints, by provider id, for
+	// providers the app does not know.
+	Balances map[string]balanceSpec `json:"balances,omitempty"`
 	// ProxyApp routes the app's own HTTP calls, ProxyAgent the agent
 	// processes it starts, and ProxyBypass is their shared no-proxy list.
 	ProxyApp    string `json:"proxyApp,omitempty"`
@@ -286,6 +289,25 @@ func normalizeConfig(c *config) bool {
 		c.ImageCount = 0
 		changed = true
 	}
+	for id, spec := range c.Balances {
+		spec.URL = strings.TrimSpace(spec.URL)
+		spec.Path = strings.TrimSpace(spec.Path)
+		spec.Currency = strings.TrimSpace(spec.Currency)
+		if len(spec.URL) > 500 {
+			spec.URL = spec.URL[:500]
+			changed = true
+		}
+		if len(spec.Path) > 200 {
+			spec.Path = spec.Path[:200]
+			changed = true
+		}
+		if id == "" || (spec.URL == "" && spec.Path == "" && spec.Currency == "") {
+			delete(c.Balances, id)
+			changed = true
+			continue
+		}
+		c.Balances[id] = spec
+	}
 	if c.RemotePort != 0 && (c.RemotePort < 1 || c.RemotePort > 65535) {
 		c.RemotePort = 0
 		changed = true
@@ -391,6 +413,10 @@ func (s *store) config() config {
 	c.ForkParents = make(map[string]string, len(s.c.ForkParents))
 	for k, v := range s.c.ForkParents {
 		c.ForkParents[k] = v
+	}
+	c.Balances = make(map[string]balanceSpec, len(s.c.Balances))
+	for k, v := range s.c.Balances {
+		c.Balances[k] = v
 	}
 	return c
 }

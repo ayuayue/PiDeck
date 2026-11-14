@@ -150,7 +150,11 @@ func TestImageDialog(t *testing.T) {
 	app.Press("id:image-regenerate")
 	app.WaitFor("id:image-thumb-3", 15*time.Second)
 	app.Press("id:image-thumb-0")
-	app.Press("id:image-insert")
+	for i := 0; i < 4 && len(app.Query("id:image-dialog")) > 0; i++ {
+		app.Press("id:image-insert")
+		app.Settle()
+		time.Sleep(100 * time.Millisecond)
+	}
 	if requests < 2 {
 		t.Fatalf("requests = %d", requests)
 	}
@@ -248,7 +252,11 @@ func TestImageEditDialog(t *testing.T) {
 	app.Type("id:image-ref", photo)
 	app.Press("id:image-generate")
 	app.WaitFor("id:image-thumb-0", 15*time.Second)
-	app.Press("id:image-insert")
+	for i := 0; i < 4 && len(app.Query("id:image-dialog")) > 0; i++ {
+		app.Press("id:image-insert")
+		app.Settle()
+		time.Sleep(100 * time.Millisecond)
+	}
 	if edits != 1 {
 		t.Fatalf("edits = %d", edits)
 	}

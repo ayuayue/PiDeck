@@ -211,6 +211,39 @@ func TestProviderBalance(t *testing.T) {
 	}
 }
 
+// TestCustomBalance reads a provider's own endpoint with a JSON path.
+func TestCustomBalance(t *testing.T) {
+	var path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		if r.Header.Get("Authorization") != "Bearer k" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"credit":"12.5","list":[{"left":3}]}}`))
+	}))
+	defer srv.Close()
+	cfg := providerConfig{ID: "acme", BaseURL: srv.URL + "/v1", APIKey: "k"}
+	got, err := providerBalanceWith(cfg, &balanceSpec{URL: "/billing", Path: "data.credit", Currency: "USD"})
+	if err != nil || got != "余额 $12.50" {
+		t.Fatalf("relative = %q, %v", got, err)
+	}
+	if path != "/v1/billing" {
+		t.Fatalf("asked %q", path)
+	}
+	got, err = providerBalanceWith(cfg, &balanceSpec{URL: srv.URL + "/billing", Path: "data.list.0.left"})
+	if err != nil || got != "余额 3.00" {
+		t.Fatalf("absolute/indexed = %q, %v", got, err)
+	}
+	if _, err := providerBalanceWith(cfg, &balanceSpec{URL: "/billing", Path: "data.missing"}); err == nil ||
+		!strings.Contains(err.Error(), "data.missing") {
+		t.Fatalf("missing path error = %v", err)
+	}
+	if _, err := providerBalanceWith(cfg, &balanceSpec{URL: "/billing", Path: "data.credit", Currency: "JPY"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestProviderDialogBalance checks the dialog's balance button, against a
 // local server standing in for SiliconFlow.
 func TestProviderDialogBalance(t *testing.T) {
@@ -241,4 +274,51 @@ func TestProviderDialogBalance(t *testing.T) {
 	app.WaitFor("id:provider-dialog", 5*time.Second)
 	app.Press("id:provider-balance")
 	waitApp(app, "text:余额 ¥5.00", 10*time.Second)
+}
+
+// TestProviderCustomBalanceDialog sets a provider's own endpoint in the
+// dialog, queries it, and keeps the fields in config.json.
+func TestProviderCustomBalanceDialog(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/billing" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"credit":"7.25"}}`))
+	}))
+	defer srv.Close()
+	home := t.TempDir()
+	cfgDir := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
+	body := fmt.Sprintf(`{"providers":{"acme":{"api":"openai-completions","baseUrl":%q,"apiKey":"k","models":[{"id":"m1"}]}}}`, srv.URL+"/v1")
+	if err := os.WriteFile(filepath.Join(cfgDir, "models.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-models")
+	app.WaitFor("text:acme", 10*time.Second)
+	app.Press("id:provider-configure-acme")
+	app.WaitFor("id:provider-dialog", 5*time.Second)
+	app.Type("id:provider-balance-url", "/billing")
+	app.Type("id:provider-balance-path", "data.credit")
+	app.Type("id:provider-balance-currency", "USD")
+	app.Press("id:provider-balance")
+	waitApp(app, "text:余额 $7.25", 10*time.Second)
+	app.Press("id:provider-save")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
+		if err == nil && strings.Contains(string(raw), `"balances"`) && strings.Contains(string(raw), "data.credit") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("config.json after save = %s", raw)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }

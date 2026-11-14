@@ -253,7 +253,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
   复制登录命令、常用模型（收藏）管理
 - 供应商配置：点供应商右侧的设置按钮改 `api` / `baseUrl` / `apiKey`（只写这三个字段，
   其余保持原样），可一键测试连接（先探 `/models`，再退到一次最小 chat 请求），
-  也可查询余额（OpenRouter / Moonshot / DeepSeek / SiliconFlow，按 BaseURL 或供应商 ID 识别）
+  也可查询余额（OpenRouter / Moonshot / DeepSeek / SiliconFlow 按 BaseURL 或供应商 ID 识别；
+  其他供应商可在供应商配置里填「余额接口 / 余额字段 / 余额货币」，字段是 JSON 路径，支持数组下标）
 - 原始配置：直接在内置编辑器里打开 `models.json` / `settings.json` / `auth.json`
 - 外观：配色（跟随系统/纸白/炭黑/用户主题）、打开主题目录
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区；网络代理分「应用请求」与「Agent 进程」两栏，另可填直连名单

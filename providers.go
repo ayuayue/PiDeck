@@ -405,6 +405,96 @@ func balanceEndpoint(cfg providerConfig) (string, string, error) {
 	return "", "", fmt.Errorf("这个供应商没有已知的余额接口")
 }
 
+// balanceSpec is a provider's own balance endpoint: a URL (absolute, or
+// a path under its Base URL), the JSON path to the amount, and the
+// currency.
+type balanceSpec struct {
+	URL      string `json:"url,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Currency string `json:"currency,omitempty"`
+}
+
+// providerBalanceWith uses a custom endpoint when one is configured, and
+// the known providers otherwise.
+func providerBalanceWith(cfg providerConfig, spec *balanceSpec) (string, error) {
+	if spec != nil && (strings.TrimSpace(spec.URL) != "" || strings.TrimSpace(spec.Path) != "") {
+		return customBalance(cfg, *spec)
+	}
+	return providerBalance(cfg)
+}
+
+// customBalance reads an amount from a provider's own endpoint.
+func customBalance(cfg providerConfig, spec balanceSpec) (string, error) {
+	rawURL := strings.TrimSpace(spec.URL)
+	path := strings.TrimSpace(spec.Path)
+	if path == "" {
+		path = "balance"
+	}
+	if rawURL == "" {
+		return "", fmt.Errorf("先填余额接口")
+	}
+	if !isHTTPURL(rawURL) {
+		base := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+		if base == "" {
+			return "", fmt.Errorf("这个供应商没有 Base URL")
+		}
+		rawURL = base + "/" + strings.TrimLeft(rawURL, "/")
+	}
+	status, body, err := providerRequest(http.MethodGet, rawURL, providerKey(cfg), nil)
+	if err != nil {
+		return "", err
+	}
+	if status < 200 || status >= 300 {
+		return "", fmt.Errorf("HTTP %d：%s", status, shorten(string(body), 160))
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var root any
+	if dec.Decode(&root) != nil {
+		return "", fmt.Errorf("返回的不是 JSON")
+	}
+	value, ok := jsonPath(root, path)
+	if !ok {
+		return "", fmt.Errorf("返回里没有 %s", path)
+	}
+	amount, ok := floatField(value)
+	if !ok {
+		return "", fmt.Errorf("%s 不是数字", path)
+	}
+	if currency := strings.TrimSpace(spec.Currency); currency != "" {
+		return fmt.Sprintf("余额 %s%.2f", currencySymbol(currency), amount), nil
+	}
+	return fmt.Sprintf("余额 %.2f", amount), nil
+}
+
+// jsonPath walks a dotted path through maps and array indexes.
+func jsonPath(root any, path string) (any, bool) {
+	cur := root
+	for _, part := range strings.Split(path, ".") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		switch node := cur.(type) {
+		case map[string]any:
+			next, ok := node[part]
+			if !ok {
+				return nil, false
+			}
+			cur = next
+		case []any:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return nil, false
+			}
+			cur = node[idx]
+		default:
+			return nil, false
+		}
+	}
+	return cur, true
+}
+
 // providerBalance asks a provider how much credit is left.
 func providerBalance(cfg providerConfig) (string, error) {
 	url, kind, err := balanceEndpoint(cfg)

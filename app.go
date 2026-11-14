@@ -250,6 +250,9 @@ type app struct {
 	providerKeySig  *core.Signal[string]
 	providerTest    *core.Signal[string]
 	providerBalance *core.Signal[string]
+	providerBalURL  *core.Signal[string]
+	providerBalPath *core.Signal[string]
+	providerBalCur  *core.Signal[string]
 	providerModels  []modelConfig
 
 	// langRev changes when the interface language does, so pages that
@@ -562,6 +565,9 @@ func newApp(cx *core.Scope) *app {
 		providerKeySig:        core.NewSignal(cx, ""),
 		providerTest:          core.NewSignal(cx, ""),
 		providerBalance:       core.NewSignal(cx, ""),
+		providerBalURL:        core.NewSignal(cx, ""),
+		providerBalPath:       core.NewSignal(cx, ""),
+		providerBalCur:        core.NewSignal(cx, ""),
 	}
 	a.toaster = ui.NewToaster(cx)
 	a.files = newFileTree(cx)
