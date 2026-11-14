@@ -97,3 +97,39 @@ func TestCycleAppearance(t *testing.T) {
 	app.Key("mod+shift+l")
 	app.WaitUntil(5*time.Second, func() bool { return read() == "system" })
 }
+
+// TestTerminalFont keeps the terminal's text size.
+func TestTerminalFont(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-look")
+	app.WaitFor("id:term-font", 5*time.Second)
+	app.Drag("id:term-font-thumb", core.Point{X: 20})
+	app.WaitUntil(5*time.Second, func() bool {
+		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
+		if err != nil {
+			return false
+		}
+		var c config
+		return json.Unmarshal(raw, &c) == nil && c.TerminalFont > 12.5 && c.TerminalFont <= 20
+	})
+}
+
+// TestTerminalFontNormalized drops out-of-range sizes.
+func TestTerminalFontNormalized(t *testing.T) {
+	for _, size := range []float64{5, 25} {
+		c := &config{TerminalFont: size}
+		if !normalizeConfig(c) || c.TerminalFont != 0 {
+			t.Fatalf("%v normalized to %v", size, c.TerminalFont)
+		}
+	}
+	c := &config{TerminalFont: 14}
+	if normalizeConfig(c) || c.TerminalFont != 14 {
+		t.Fatalf("14 normalized to %v", c.TerminalFont)
+	}
+}

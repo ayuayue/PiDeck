@@ -723,6 +723,18 @@ func (a *app) settingsLook() core.Node {
 				setRow("导出当前主题", "把当前配色、tokens、字体与圆角写成一个主题文件，可分享或继续改。",
 					ui.Button{Text: "导出", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-export",
 						OnPress: a.exportTheme}),
+				setDivider(),
+				setRow("终端字号", "底部终端面板的文字大小，8–20 pt；改完立即重绘。",
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(200)}, Children: []core.Node{
+						core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+							ui.Slider{Min: 8, Max: 20, Step: 1, Value: func() float64 { return a.termFont.Get() },
+								Label: T("终端字号"), ValueText: func(v float64) string { return fmt.Sprintf("%.0f pt", v) },
+								TestID: "term-font", OnChange: a.setTerminalFont},
+						}},
+						core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", a.termFont.Get()) },
+							Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
+							StyleFunc: ui.Colored(colors.Muted)},
+					}}),
 				core.Text{Content: "角色：background surface border text textMuted accent danger warning success selection focus scrollbar inset raised field line faint code info track knob。",
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 			}},

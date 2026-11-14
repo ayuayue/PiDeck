@@ -147,6 +147,8 @@ type config struct {
 	FeishuReply       bool   `json:"feishuReply,omitempty"`
 	// EditorWrap soft-wraps long lines in the built-in editor.
 	EditorWrap bool `json:"editorWrap,omitempty"`
+	// TerminalFont is the terminal's text size; 0 keeps the default.
+	TerminalFont float64 `json:"terminalFont,omitempty"`
 	// PetEnabled shows the desktop pet window.
 	PetEnabled bool `json:"petEnabled,omitempty"`
 	// EditorCommand opens files outside the app; empty detects one.
@@ -314,6 +316,10 @@ func normalizeConfig(c *config) bool {
 			continue
 		}
 		c.Balances[id] = spec
+	}
+	if c.TerminalFont != 0 && (c.TerminalFont < 8 || c.TerminalFont > 20) {
+		c.TerminalFont = 0
+		changed = true
 	}
 	if c.RemotePort != 0 && (c.RemotePort < 1 || c.RemotePort > 65535) {
 		c.RemotePort = 0
