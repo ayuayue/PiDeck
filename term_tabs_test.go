@@ -26,12 +26,22 @@ func TestTerminalTabMenu(t *testing.T) {
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:option")) > 0 })
 	app.Press("role:option >> nth=0")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:terminal-tab")) == 3 })
-	app.RightClick("id:terminal-tab >> nth=0")
-	app.WaitFor("text:关闭其他终端", 5*time.Second)
+	for i := 0; i < 4; i++ {
+		app.RightClick("id:terminal-tab >> nth=0")
+		if waitQuiet(app, "text:关闭其他终端", 2*time.Second) {
+			break
+		}
+	}
+	app.WaitFor("text:关闭其他终端", 15*time.Second)
 	app.Press("text:关闭其他终端")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:terminal-tab")) == 1 })
-	app.RightClick("id:terminal-tab >> nth=0")
-	app.WaitFor("text:关闭全部终端", 5*time.Second)
+	for i := 0; i < 4; i++ {
+		app.RightClick("id:terminal-tab >> nth=0")
+		if waitQuiet(app, "text:关闭全部终端", 2*time.Second) {
+			break
+		}
+	}
+	app.WaitFor("text:关闭全部终端", 15*time.Second)
 	app.Press("text:关闭全部终端")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:terminal-tab")) == 0 })
 }

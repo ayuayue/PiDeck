@@ -1325,6 +1325,22 @@ func (a *app) selectSession(s *session) {
 	a.emit(eventSessionOpened, appEvent{Session: s})
 }
 
+// openWorkspaceKey opens the project a palette row names: it expands the
+// folder and shows its newest session.
+func (a *app) openWorkspaceKey(key string) {
+	for _, ws := range a.workspaces.GetUntracked() {
+		if ws.Target.key()+"|"+ws.Path != key {
+			continue
+		}
+		ws.Expanded.Set(true)
+		a.activeWS.Set(ws.Path)
+		if list := ws.Sessions.GetUntracked(); len(list) > 0 {
+			a.selectSession(list[0])
+		}
+		return
+	}
+}
+
 // addTab appends a tab once.
 func (a *app) addTab(id string) {
 	found := false

@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -310,6 +311,22 @@ func (a *app) commandItems() []base.CommandItem {
 				Icon: lucide.Palette()})
 		}
 	}
+	// Projects and sessions are palette rows too, as the placeholder says.
+	for _, ws := range a.workspaces.GetUntracked() {
+		out = append(out, base.CommandItem{ID: "workspace:" + ws.Target.key() + "|" + ws.Path,
+			Label: ws.label(), Description: T("项目"), Group: T("项目"), Icon: lucide.Folder()})
+	}
+	sessions := append([]*session(nil), a.all...)
+	sort.SliceStable(sessions, func(i, j int) bool {
+		return sessions[i].updated.GetUntracked().After(sessions[j].updated.GetUntracked())
+	})
+	for i, s := range sessions {
+		if i >= 60 {
+			break
+		}
+		out = append(out, base.CommandItem{ID: "session:" + s.ID, Label: s.title.GetUntracked(),
+			Description: projectLabel(s.WS), Group: T("会话"), Icon: lucide.MessageSquare()})
+	}
 	// Settings are commands too: the palette jumps straight to a section.
 	for i, e := range settingsIndex {
 		out = append(out, base.CommandItem{ID: "setting:" + strconv.Itoa(i),
@@ -324,6 +341,16 @@ func (a *app) runCommand(id string) {
 	a.palette.Set(false)
 	if rest, ok := strings.CutPrefix(id, "theme:"); ok {
 		a.setTheme(rest)
+		return
+	}
+	if rest, ok := strings.CutPrefix(id, "workspace:"); ok {
+		a.openWorkspaceKey(rest)
+		return
+	}
+	if rest, ok := strings.CutPrefix(id, "session:"); ok {
+		if s := a.byID[rest]; s != nil {
+			a.selectSession(s)
+		}
 		return
 	}
 	if rest, ok := strings.CutPrefix(id, "setting:"); ok {
