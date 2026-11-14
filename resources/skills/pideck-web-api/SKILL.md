@@ -15,14 +15,14 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 
 | 想做的事 | 会打断别人吗 | 读哪节 |
 |---|---|---|
-| 读自己的时间线、todo、子 agent、运行状态 | 不会 | §3 |
-| 找别的会话、发消息、读回复 | 不会停它，但消息会插进它的对话 | §4、§5 |
-| 重启某个会话（自己或别人） | 会，目标被停 | §6 |
-| 单独停、启、中止 | 会，目标被停 | §7 |
+| 读自己的时间线、todo、子 agent、运行状态 | 不会 | 第 3 节 |
+| 找别的会话、发消息、读回复 | 不会停它，但消息会插进它的对话 | 第 4 节、第 5 节 |
+| 重启某个会话（自己或别人） | 会，目标被停 | 第 6 节 |
+| 单独停、启、中止 | 会，目标被停 | 第 7 节 |
 
-§2 是所有节的前提。
+第 2 节 是所有节的前提。
 
-**先读 §2 的一条注意事项**：每段 bash 都是独立 shell，变量不跨段保留。后面几节的命令都假设 `$AUTH`、`$BASE` 已经在**同一次**调用里设好。
+**先读 第 2 节 的一条注意事项**：每段 bash 都是独立 shell，变量不跨段保留。后面几节的命令都假设 `$AUTH`、`$BASE` 已经在**同一次**调用里设好。
 
 ## 1 三个词
 
@@ -99,7 +99,7 @@ curl -s -H "$AUTH" "$BASE/api/state"
 - `sessions[]`：**所有会话**，含没在跑的。字段 `{id, projectId, title, status, model, thinkingLevel, updatedAt, createdAt}`。
 - `runtimes[]`：**此刻正在跑的进程**。字段 `{sessionId, agentId, runtimeGeneration, projectId, cwd, status, sessionPath, createdAt, deckSessionId}`。
 
-**两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。反过来，不在 `runtimes[]` 里的会话进程没起，§5 的消息送不到。
+**两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。反过来，不在 `runtimes[]` 里的会话进程没起，第 5 节 的消息送不到。
 
 **没有 `/api/sessions` 这个端点。** 猜它会拿到 `{"code":"webError.apiNotFound"}`。列会话就是上面的 `/api/state`。
 
@@ -136,7 +136,7 @@ data: [DONE]
 
 两种情况：
 
-- **目标没在跑**：`total` 不变，SSE 里有 `error` 帧。先按 §7 启动它，等它进 `runtimes[]`，再发。
+- **目标没在跑**：`total` 不变，SSE 里有 `error` 帧。先按 第 7 节 启动它，等它进 `runtimes[]`，再发。
 - **目标在跑但忙**：`total` 变大，消息已入队，等它做完手上的事就轮到这条。
 
 两个常见错误码：`webError.requestIdRequired`（body 缺 `id`）、`webError.messageRequired`（没有 role 为 user 的项，或 text 为空）。
@@ -154,14 +154,14 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"projectId":"builtin-chat"}' "$BASE/api/sessions"
 ```
 
-返回 `{"session":{"id":"...", ...}}`，取 `session.id`。新建的是草稿态，还得按 §7 对它 activate 一次才会进 `runtimes[]`，进不去就发不了消息。
+返回 `{"session":{"id":"...", ...}}`，取 `session.id`。新建的是草稿态，还得按 第 7 节 对它 activate 一次才会进 `runtimes[]`，进不去就发不了消息。
 
 **别用 `/api/sessions/anonymous` 建执行者。** 它有两个实测的坑：
 
 - `noSession: true`，**没有自己的 `sessionPath`**。执行者要认「我是谁」时会去比对磁盘上哪个 jsonl 正在被写，拿到的却是目标的路径，结论必然是「目标就是我」，于是拒绝执行。
 - stop 之后整条记录被删掉，紧接着 activate 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`——HTTP 仍是 200。它连当目标都不行。
 
-> 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的 §2，再按第 0 步到第 5 步做，每步把输出贴回来。
+> 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的 第 2 节，再按第 0 步到第 5 步做，每步把输出贴回来。
 >
 > 0. **先认自己是谁**：`echo $PIDECK_SESSION_ID`。如果它等于 `<目标 sessionId>`，停下——停掉的就是你自己，没有进程去发 activate。如果它不等于，继续。
 > 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。找不到说明目标没在跑，直接跳到第 3 步。
@@ -184,7 +184,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 >      -d '{"id":"<目标>","messages":[{"role":"user","parts":[{"type":"text","text":"重启完成，这条消息用来验证你能接活"}]}]}' \
 >      "$BASE/api/chat"
 >    ```
->    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。§5 说过，这条请求是异步入队，可能一个帧都不吐。
+>    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。第 5 节 说过，这条请求是异步入队，可能一个帧都不吐。
 
 **第 0 步不能省，也不能换成别的判法。** 实测一个匿名执行者会话自己分辨「我是谁」时，用 `runtimes[]` 里目标的 `sessionPath` 去比对磁盘上哪个 jsonl 正在被写，再对齐时间戳，结论是「目标就是我」，于是拒绝执行。错在匿名会话 `noSession: true`、**没有自己的 `sessionPath`**，拿别人的路径认自己必然认错。唯一可靠的是 `echo $PIDECK_SESSION_ID`。
 
@@ -303,4 +303,4 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 1. **能观察自己**（只读）：`echo $PIDECK_SESSION_ID` 非空，且这个 id 出现在 `/api/state` 的 `sessions[]` 里。
 2. **能读别人**（只读）：`sessions[]` 里看得到别的会话标题。
-3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，收到 `text-delta` 帧且 `total` 变大；要验「真进程」，走一次 §6，`runtimeGeneration` 变了才算。
+3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，收到 `text-delta` 帧且 `total` 变大；要验「真进程」，走一次 第 6 节，`runtimeGeneration` 变了才算。
