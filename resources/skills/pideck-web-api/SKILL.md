@@ -65,6 +65,22 @@ echo $PIDECK_SESSION_ID
 
 找身份就一条命令：`echo $PIDECK_SESSION_ID`，不要从 env 里筛。
 
+**取不到时别停。** 2026-11-14 在另一台发行版上实测：`echo $PIDECK_SESSION_ID` 打印空行，同一个进程里 `$PIDECK_SECURITY_CONFIG` 却有值——同一段注入代码里断了一半。所以这条路失败就往下走，不要以为「文档说的必对」。
+
+**兜底：拿 `$PI_SESSION_FILE` 去 `runtimes[]` 里认自己。** 这个变量是 pi 自己的会话文件路径，会一直有值（本机实测有），而 `runtimes[].sessionPath` 指向同一个文件：
+
+```bash
+curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" |
+  node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));const s=j.runtimes.find(r=>r.sessionPath===process.env.PI_SESSION_FILE);console.log(s?s.sessionId:"没找到")'
+```
+
+打印出一个 uuid 就是你的 sessionId；打印「没找到」说明你不在这台 PiDeck 里跑。这个匹配区分大小写。
+
+**第三条线索**：`$PIDECK_LINKED_SESSIONS_URL` 的末尾就是 PiDeck 会话 id，形如 `http://127.0.0.1:<port>/linked/<sessionId>`。它和 `$PIDECK_SESSION_ID` 一起失效的概率很低，前两条都空时再用。
+
+**认自己的目的是不出错。** 怎么判只一条：拿到的 id 在 `/api/state` 的 `sessions[]` 里能找到。找不到就是坐标系错了。
+
+
 四条验证，每条写了该返回什么，**放在同一次调用里跑**（变量不跨段）：
 
 ```bash
@@ -164,12 +180,16 @@ data: [DONE]
 
 `finish` 和 `[DONE]` 是同一件事的两种表示，看到任一个就是本轮结束。`-N` 必须加，否则看不到流式。
 
-**这条请求是异步入队，不是同步流。** 消息进了队列就返回，HTTP 可能一个帧都不吐（实测挂 5 秒 0 帧），而目标照样开始干活。所以判断「送到了没有」看两个地方：
+**这条请求是异步入队，不是同步流**：消息进队列就返回，HTTP 可能一个帧都不吐，目标照样开始干活。判断「送到了没有」只有一条可靠检查——**看 `error` 帧，不看 `total`，也不看有没有 data 帧。**
 
-1. 回读目标的 `/messages`，`total` 变大就是送到了。
-2. 或者看 SSE 里有没有 `error` 帧——目标没在跑时服务端会写 `error` + `finish` + `[DONE]`，消息不入队。
+- 没有 `error` 帧就是送到了。哪怕 0 个 data 帧、`total` 当场没变。
+- 有 `error` 帧就是没送到，原因写在 `errorText` 里。
 
-**目标不存在或没在跑时**，服务端写这三帧，HTTP 仍然是 200：
+**会话记录存在时，对端进程死没死都能送到。** 实测：先把目标 stop 掉（`runtimes[]` 里已经没有它），直接发这条请求，照样收到完整正常流 `start` → `text-delta` → `text-end` → `finish` → `[DONE]`。
+
+随后 `/prompt` 的返回里 `runtimeGeneration` 从 2 变成 3——服务端替你 `activate` 了一次。所以「先 activate 再发消息」这一步可以省。
+
+**只有会话记录本身不存在时才写 error 帧**，HTTP 仍然是 200：
 
 ```text
 data: {"type":"error","errorText":"Session not found: 00000000-0000-0000-0000-000000000000"}
@@ -177,20 +197,48 @@ data: {"type":"finish"}
 data: [DONE]
 ```
 
-注意 `error` 帧带的是 `errorText`，不是 `code`。HTTP 200 加这三帧，等于没送到。
+注意 `error` 帧带的是 `errorText`，不是 `code`。
 
-两种情况：
-
-- **目标没在跑**：`total` 不变，SSE 里有 `error` 帧。先按第 7 节启动它，等它进 `runtimes[]`，再发。
-- **目标在跑但忙**：`total` 变大，消息已入队，等它做完手上的事就轮到这条。
+**对端忙的时候，整条连接可能只有一行 `: ping` 心跳，没有 data 帧，`total` 也不立即变大**，而消息确实插进了它的对话。拿 `total` 当检查办法会判成没送到，重试一次就变成两条重复消息。
 
 两个常见错误码：`webError.requestIdRequired`（body 缺 `id`）、`webError.messageRequired`（没有 role 为 user 的项，或 text 为空）。
+（没有 role 为 user 的项，或 text 为空）。
 
-## 5.5 等回复：轮询，不要 sleep
+### 更省事的发法：`/prompt`
 
-发完消息不要在同一个 bash 里 sleep 几百秒干等。长 sleep 会撞上工具自己的超时——实测一个 280 秒的 curl 被中途中止，数据只到手一半。
+`/api/chat` 要自己拼 `messages` 数组；`/prompt` 只发一段文本，而且**同步返回 accepted**，不必回读任何东西就知道送到了。
 
-先把第 5 节那条 curl 的输出重定向到文件，后台跑：
+```bash
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"requestId":"'"$(date +%s)"'","message":"只回两个字：收到"}' \
+  "$BASE/api/sessions/<目标>/prompt"
+```
+
+期望：
+
+```json
+{"result":{"accepted":true,"sessionId":"...","requestId":"probe-1794669273","agentId":"...","runtimeGeneration":3}}
+```
+
+字段名是 `message` 不是 `text`，写错返回 400 `webError.messageRequired`；`requestId` 必填，缺了返回 400 `webError.requestIdRequired`。
+
+返回里的 `runtimeGeneration` 是对端当前的运行时代号。它比你发之前记下的那个大，说明服务端刚替你拉起过它——这个信息 `/api/chat` 的 SSE 里没有。
+
+**发完之后怎么知道它做完了**：看第 5.5 节，或者查 `/api/sessions/<目标>/messages` 的 `total` 是否变大（这时候可以看，因为它已经不在生成中途）。
+
+## 5.5 看着对方干活：订阅 stream，不要 sleep
+
+**首选订阅它的流。** 一次连接，服务端把对端的 `start` / `text-delta` / `finish` 实时推过来，比轮询文件干净：
+
+```bash
+curl -sN --max-time 600 -H "$AUTH" "$BASE/api/sessions/<目标>/stream"
+```
+
+`--max-time` 是给自己设的上限：一次完整审查实测 6~10 分钟，给 600 秒够用，超时就断开重连——断开不影响对端继续干活。
+
+**看它活着没有，看 `runtimes[].status`**：`running` 表示它正在生成，`idle` 表示它手上的活已经做完。整条从 `runtimes[]` 里消失说明进程已经停了；这时发消息它会自己回来（见第 5 节），不必先 `activate`。
+
+**退路才是轮询。** 长 sleep 会撞上工具自己的超时——实测一个 280 秒的 curl 被中途中止，数据只到手一半。所以把第 5 节那条 curl 的输出重定向到文件、后台跑：
 
 ```bash
 curl -sN -H "$AUTH" -H "Content-Type: application/json" -d @body.json "$BASE/api/chat" > /tmp/reply.txt 2>&1 &
@@ -203,8 +251,7 @@ stat -c %s /tmp/reply.txt
 tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
 ```
 
-看见 `"type":"finish"` 和 `data: [DONE]` 就是跑完了，可以解析。没看见就下一轮再查。一次完整审查实测跑 38 步、104 次工具调用，6~10 分钟。中间查 20 次左右，每次不到 1 秒。
-
+看见 `"type":"finish"` 和 `data: [DONE]` 就是跑完了。一次完整审查实测跑 38 步、104 次工具调用，6~10 分钟，中间查 20 次左右，每次不到 1 秒。
 ## 5.6 复用旧会话还是新开
 
 判断办法只有一条：**目标会话里有没有关于被审对象的结论。**
@@ -333,6 +380,25 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 **匿名会话会在空闲后消失。** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。
 
 PiDeck 里正常新建的会话不受这个影响。
+
+**一个空会话被 stop 会整个消失，不是变闲。** 实测（本机，2026-11-14）：新建会话 → `activate` → 直接 `stop`，中间没发过任何消息。
+
+结果：`/api/state` 的 `sessions[]` 里已经没有它，`activate` 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`，`/messages` 返回 HTTP 200 加空数组。
+
+发过消息的会话不会这样：同样 `stop` 之后 `state` 里还在，`status` 是 `active`，`activate` 成功且 `runtimeGeneration` 1→2。
+
+所以：**别拿刚建好的空会话试 stop**，试完它就不存在了，而且不会有任何报错提示你这一点。
+
+**target 里只有 `agentId` 真的被校验。** 实测：传一个不存在的 `agentId`，返回 `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_UNAVAILABLE"}}}`。
+
+同一个请求，`agentId` 对、`runtimeGeneration` 故意传 9（真实值是 1）却**返回成功**。
+
+所以代号写错不拦，进程号写错才拦。别把 `runtimeGeneration` 当成安全边界，它只是给你自己对账用的。
+
+**会话不存在时 `/messages` 不给 404。** 返回 HTTP 200 加 `{"messages":[],"total":0,"windowStart":0,"truncated":false}`，和「存在但一条消息都没有」长得一模一样。
+
+要区分就看 `/api/state` 的 `sessions[]` 里有没有这个 id。
+
 
 ## 7 停 / 启 / 中止：单个动作
 
