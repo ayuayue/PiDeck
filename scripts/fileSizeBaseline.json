@@ -17,7 +17,7 @@
 		"src/main/feishu/FeishuBridge.ts": 1492,
 		"src/main/git/GitService.ts": 1040,
 		"src/main/git/RemoteGitService.ts": 983,
-		"src/main/index.ts": 4964,
+		"src/main/index.ts": 4937,
 		"src/main/ipc/filesIpc.ts": 832,
 		"src/main/ipc/gitIpc.ts": 997,
 		"src/main/ipc/remoteGitReadIpc.ts": 739,

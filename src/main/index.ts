@@ -416,6 +416,7 @@ import { SessionIndexService } from "./sessions/SessionIndexService";
 import { deriveOrphanSweepMarkers, sweepOrphanedManagedProcesses } from "./process/orphanSweep";
 import { XuePromptDbStore } from "./prompts/XuePromptDbStore";
 import { SkillManager } from "./skills/SkillManager";
+import { autoInstallBundledSkills } from "./skills/autoInstallBundledSkills";
 import { readSkillContent } from "./skills/readSkillContent";
 import { buildSkillInstallProxyEnv } from "./skills/skillHubInstallProxy";
 import { ExtensionManager } from "./extensions/ExtensionManager";
@@ -3620,35 +3621,7 @@ app
 			if (!entries) return undefined;
 			return projectResourceEnabled({ entries, value: skillPath, baseDir: dirname(skillPath) });
 		});
-		// 启动时自动安装内置 usage-probe 技能模板到 PiDeck 专属技能目录（~/.pi/agent/pideck-skills）：
-		// 该目录不在 pi 的自动发现根里，只有 PiDeck spawn 时以 --skill 注入，
-		// 终端里的 pi（TUI）不会加载；用户仍可在聊天里 /skill:usage-probe 触发。
-		// fire-and-forget：安装失败不阻塞启动，仅记日志（手动入口 configInstallUsageSkill 仍可兑底）。
-		void skillManager.installUsageProbeTemplate().then((result) => {
-			if (result.success) {
-				void appLogger?.info("skill", "Usage probe skill template auto-installed", { path: result.path });
-			} else {
-				void appLogger?.warn("skill", "Usage probe skill template auto-install failed", { error: result.error });
-			}
-		});
-		// 生图技能同样启动时落到 PiDeck 专属技能目录（只由 PiDeck 的 --skill 注入），
-		// 否则用户无法 /skill:image-gen 触发生图。fire-and-forget，失败不阻塞启动。
-		void skillManager.installImageGenTemplate().then((result) => {
-			if (result.success) {
-				void appLogger?.info("skill", "Image-gen skill template auto-installed", { path: result.path });
-			} else {
-				void appLogger?.warn("skill", "Image-gen skill template auto-install failed", { error: result.error });
-			}
-		});
-		// 环境诊断技能启动时落到 PiDeck 专属技能目录，用户可 /skill:pideck-doctor 让 pi 读诊断报告排障。
-		// fire-and-forget，失败不阻塞启动。
-		void skillManager.installPideckDoctorTemplate().then((result) => {
-			if (result.success) {
-				void appLogger?.info("skill", "Pideck-doctor skill template auto-installed", { path: result.path });
-			} else {
-				void appLogger?.warn("skill", "Pideck-doctor skill template auto-install failed", { error: result.error });
-			}
-		});
+		autoInstallBundledSkills(skillManager, appLogger);
 		// issue #450：Windows 没有进程组级联回收，强杀/异常退出会留下 npx 型 MCP 与 ACP 的
 		// 孤儿 node 进程（事故现场 195 个 / 21GB 提交内存）。启动后后台回收一次：只杀
 		// 「父进程已消失 + 命令行命中当前 MCP/ACP 配置」的 node.exe，活的进程一律不碰。

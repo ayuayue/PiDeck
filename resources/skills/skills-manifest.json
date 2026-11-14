@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "2dfe4a11ee677350bdf8cc239372d0cb7de83682def4704f38706025ce01ae04",
-  "fileCount": 4,
+  "bundleSha256": "415a3954195204884b3bfc5ed1e6e9c21c8f88308b4cb2fccdbaa4d97362e8b8",
+  "fileCount": 5,
   "files": [
     {
       "name": "image-gen/SKILL.md",
@@ -18,6 +18,11 @@
       "name": "pideck-doctor/SKILL.md",
       "sha256": "18f79100a9ae5b8800cb9d3970ef11fee2049db88b9f299e1f5c72c478d2e81d",
       "bytes": 4784
+    },
+    {
+      "name": "pideck-web-api/SKILL.md",
+      "sha256": "7d3a5678cbf1ba44836dc00a85e6245677d678ff4ae39622dfa33a7e6e2d2d5e",
+      "bytes": 6181
     },
     {
       "name": "usage-probe/SKILL.md",

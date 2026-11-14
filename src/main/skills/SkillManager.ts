@@ -418,7 +418,7 @@ export class SkillManager {
 	 * 幂等覆盖：模板随应用更新同步；用户自定义配置写在各自的数据文件，不在此文件。
 	 * `disable-model-invocation` 是用户手动设置的「仅手动调用」标记，覆盖时保留。
 	 */
-	private async installTemplate(skillName: string, locationId: "pideck-global" | "pi-global" = "pideck-global"): Promise<{ success: true; path: string } | { success: false; error: string }> {
+	async installTemplate(skillName: string, locationId: "pideck-global" | "pi-global" = "pideck-global"): Promise<{ success: true; path: string } | { success: false; error: string }> {
 		try {
 			const location = this.requireLocation(locationId);
 			// 老版本把桌面端技能装在 pi 的自动发现根里：先迁移，TUI 才不会再加载。

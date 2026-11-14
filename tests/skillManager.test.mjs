@@ -356,6 +356,23 @@ test("installImageGenTemplate copies the bundled image-gen skill into the PiDeck
 	});
 });
 
+test("installPideckWebApiTemplate copies the bundled web-api skill into the PiDeck-only skills dir", async () => {
+	await withTemporaryHome(async (home) => {
+		const { SkillManager } = loadSkillManagerModule();
+		const manager = new SkillManager(home);
+		const result = await manager.installTemplate("pideck-web-api");
+		assert.equal(result.success, true);
+		const target = join(home, ".pi", "agent", "pideck-skills", "pideck-web-api", "SKILL.md");
+		const written = readFileSync(target, "utf8");
+		// 名字与端点锚：技能讲的是 PiDeck 独有的 web 服务，装错文件这两条立刻红。
+		assert.match(written, /name: pideck-web-api/);
+		assert.match(written, /\/api\/chat/);
+		// 幂等覆盖：重复安装不报错、内容一致
+		const again = await manager.installTemplate("pideck-web-api");
+		assert.equal(again.success, true);
+		assert.equal(readFileSync(target, "utf8"), written);
+	});
+});
 test("legacy 内置技能整目录迁到 PiDeck 目录：旧位置消失、附加文件保留", async () => {
 	await withTemporaryHome(async (home) => {
 		const { SkillManager } = loadSkillManagerModule();
