@@ -377,6 +377,14 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `theme.go` | PiDeck 配色的 NSGo 主题，用户主题在其上覆盖 |
 | `*_test.go` | 无头 UI 测试、端到端（真 pi）、目标命令/主题/插件单测 |
 
+## 打包与发布
+
+- `ci.yml`：Ubuntu / Windows / macOS 三平台构建、vet、测试；另有 `cross` 作业把六个发布目标
+  在 Linux 上交叉编译一遍，平台相关代码坏了在 CI 就能看到
+- `release.yml`：打 `v*` 标签时构建六个目标——`windows_x64` / `windows_arm64` /
+  `macos_arm64` / `macos_x64` / `linux_x64` / `linux_arm64`，上传产物并发布 Release
+- 本机打包：`go tool nsgo build -target <目标> -version <版本>`，产物在 `dist/`
+
 ## 自动更新
 
 direct 构建从 GitHub Release 的 `appcast-<目标>.xml` 检查更新：

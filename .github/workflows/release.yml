@@ -21,10 +21,16 @@ jobs:
         include:
           - os: windows-latest
             target: windows_x64
+          - os: windows-latest
+            target: windows_arm64
           - os: macos-latest
             target: macos_arm64
+          - os: macos-latest
+            target: macos_x64
           - os: ubuntu-latest
             target: linux_x64
+          - os: ubuntu-latest
+            target: linux_arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

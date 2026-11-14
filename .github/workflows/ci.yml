@@ -36,3 +36,45 @@ jobs:
         env:
           # Tests drive the app headless; no window or GPU is needed.
           CGO_ENABLED: "0"
+
+  cross:
+    name: cross (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows_x64
+            goos: windows
+            goarch: amd64
+          - target: windows_arm64
+            goos: windows
+            goarch: arm64
+          - target: macos_arm64
+            goos: darwin
+            goarch: arm64
+          - target: macos_x64
+            goos: darwin
+            goarch: amd64
+          - target: linux_x64
+            goos: linux
+            goarch: amd64
+          - target: linux_arm64
+            goos: linux
+            goarch: arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Every release target must compile from one machine, so a platform
+      # break shows up in CI rather than in a tag's release run.
+      - name: Build
+        run: go build -o "$RUNNER_TEMP/build/" ./...
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
