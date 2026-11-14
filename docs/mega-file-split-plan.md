@@ -412,3 +412,20 @@ atom / atomFamily **只能整体搬家**，入口文件用 `export { x } from ".
 ### 一条经验：源码契约测试的引用面要跟着搬
 
 `PiLocator` 有 29 个测试引用（多个直接读源码断言命令形状），`AppUtils` 有 17 个。两轮都靠「新建 `xxxSources.mjs` 显式文件清单 + 只改读取面 + 断言一字不动」过关。**搬函数必须同时搬「断言看得见的位置」**，否则就会为了迁就正则去改生产结构——那是上一批拆分踩过的坑。
+
+## 第十四轮：RemoteHostConnectionService 与 ConfigModal（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/remote/RemoteHostConnectionService.ts` | 1821 | **1351** | `remoteHostConnectionGuards 93`（状态集 / HOST_ID / NONCE / 校验小函数）、`RemoteHostConnectionFacts 198`、`RemoteHostSecrets`、`RemotePiSessionFacts`、`RemoteProjectSessionBinding 128`、`RemoteSecurityPolicySnapshot` |
+| `src/renderer/src/ConfigModal.tsx` | 1887 | **1386** | `configModal/` 新增 11 个：`useConfigSaveOrchestration 257`（保存/关闭/丢弃编排）、`useConfigDirtyMarks`、`useConfigWriteFlow`、`useConfigLoadEffects`、`useConfigPaneBridge`、`useConfigBackendPane`、`useConfigDeepLinkFocus`、`useConfigTargetAutoSelect`、`useConfigUiPreferences`、`useModelBaseUrlAutofix`、`ConfigStatusBlock` |
+
+### 闭包工厂的拆分上限（本轮最值得记的一条）
+
+`RemoteHostConnectionService` 是「所有状态在闭包里 + 对外类型靠 `ReturnType<typeof createRemoteHostConnectionService>` 推导」的形状。这类文件的拆法有天然上限：**只要还有方法要读同一批闭包状态，外提就得先给它们开 ctx，而 ctx 一开就动到返回对象的形状**——`ReturnType` 会跟着变，那是契约变更，不在「纯搬迁」允许范围内。
+
+所以它停在 **1351**（目标 ≤1100）是对的取舍：再往下只有两条路——(a) 把 `ReturnType` 换成手写 interface 后再拆（契约变更，需要单独评估）；(b) 硬塞转发层（只得到壳）。**遇到同类形状（`ReturnType` + 巨型闭包）先看这一步，别把行数目标当硬指标。**
+
+### 一个省事的细节
+
+`tests/helpers/configModalSources.mjs` 用的是 `readdirSync(目录)` 而非显式清单，所以本轮新增 11 个文件**不用改 helper** 就自动纳入契约面。巨型「域目录」类目标优先用目录扫描；只有包含不该被断言的邻居文件（如 GitPanel 的 GitGraph）时才退回显式清单。
