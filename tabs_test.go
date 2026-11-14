@@ -45,3 +45,19 @@ func TestTabMenu(t *testing.T) {
 	app.Press("text:关闭全部标签")
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 0 })
 }
+
+// TestReopenTab brings back the last closed session tab.
+func TestReopenTab(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := startApp(t, workspaceWith(t), 1320, 860)
+	waitApp(app, "id:pi-ready", 90*time.Second)
+	app.Key("mod+n")
+	app.Key("mod+n")
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 3 })
+	app.Key("mod+w")
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 2 })
+	app.Key("mod+alt+t")
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:tab")) == 3 })
+}

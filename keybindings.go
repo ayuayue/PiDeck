@@ -22,6 +22,7 @@ func defaultKeybindings() []keyBinding {
 		{Command: "new-session", Key: "mod+n"},
 		{Command: "chat-session", Key: "mod+shift+n"},
 		{Command: "close-tab", Key: "mod+w"},
+		{Command: "reopen-tab", Key: "mod+alt+t"},
 		{Command: "save-file", Key: "mod+s"},
 		{Command: "save-all-files", Key: "mod+alt+s"},
 		{Command: "appearance-cycle", Key: "mod+shift+l"},

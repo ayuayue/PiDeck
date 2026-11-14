@@ -39,6 +39,8 @@ func builtinCommands() []appCommand {
 	return []appCommand{
 		{ID: "palette", Label: "打开命令面板", Group: "应用", Shortcut: "mod+k", Icon: lucide.Command, Hidden: true,
 			Run: func(a *app) { a.palette.Set(true) }},
+		{ID: "browse-workspace", Label: "浏览文件夹添加工作区…", Group: "工作区", Icon: lucide.FolderOpen,
+			Run: func(a *app) { a.openPicker("workspace") }},
 		{ID: "acp-session", Label: "新建 ACP 会话", Group: "会话", Icon: lucide.Bot,
 			Run: func(a *app) { a.newACPSessionDefault() }},
 		{ID: "acp-session-pick", Label: "新建 ACP 会话（选择预设）…", Group: "会话", Icon: lucide.Bot,
@@ -60,6 +62,8 @@ func builtinCommands() []appCommand {
 		{ID: "fork-tree", Label: "查看分叉树…", Group: "会话", Icon: lucide.GitBranch,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.openForkTree() }},
+		{ID: "reopen-tab", Label: "恢复关闭的标签", Group: "会话", Shortcut: "mod+alt+t", Icon: lucide.RotateCcw,
+			Run: func(a *app) { a.reopenTab() }},
 		{ID: "close-tab", Label: "关闭当前标签", Group: "会话", Shortcut: "mod+w", Icon: lucide.X, Hidden: true,
 			When: func(a *app) bool { return a.editorOpen() || a.activeID.GetUntracked() != "" },
 			Run: func(a *app) {
@@ -194,8 +198,6 @@ func builtinCommands() []appCommand {
 
 		{ID: "add-workspace", Label: "添加工作区（系统选择器）", Group: "工作区", Icon: lucide.FolderPlus,
 			Run: func(a *app) { a.pickNative("workspace") }},
-		{ID: "browse-workspace", Label: "浏览文件夹添加工作区…", Group: "工作区", Icon: lucide.FolderOpen,
-			Run: func(a *app) { a.openPicker("workspace") }},
 		{ID: "add-wsl", Label: "在 WSL 里添加工作区…", Group: "工作区", Icon: lucide.Monitor,
 			Run: func(a *app) { a.openTargetDialog(targetWSL) }},
 		{ID: "add-ssh", Label: "在 SSH 主机上添加工作区…", Group: "工作区", Icon: lucide.Globe,

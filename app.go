@@ -445,6 +445,8 @@ type app struct {
 	gitTagText     *core.Signal[string]
 	// gitDiffHash is the commit the diff dialog shows, empty for a file.
 	gitDiffHash string
+	// closedTabs are the sessions whose tabs were closed, newest last.
+	closedTabs []string
 	// addonsGen drops a stale plugin reload that finished after a newer one.
 	addonsGen        int
 	gitNewBranchName *core.Signal[string]
@@ -1400,6 +1402,12 @@ func (a *app) closeTab(id string) {
 	}
 	next := append(append([]string(nil), tabs[:ix]...), tabs[ix+1:]...)
 	a.tabs.Set(next)
+	if a.byID[id] != nil {
+		a.closedTabs = append(a.closedTabs, id)
+		if len(a.closedTabs) > 10 {
+			a.closedTabs = a.closedTabs[len(a.closedTabs)-10:]
+		}
+	}
 	if a.activeID.GetUntracked() == id {
 		if len(next) > 0 {
 			n := next[min(ix, len(next)-1)]
@@ -1412,6 +1420,28 @@ func (a *app) closeTab(id string) {
 		}
 	}
 	a.remember()
+}
+
+// reopenTab brings back the last closed session's tab.
+func (a *app) reopenTab() {
+	for len(a.closedTabs) > 0 {
+		id := a.closedTabs[len(a.closedTabs)-1]
+		a.closedTabs = a.closedTabs[:len(a.closedTabs)-1]
+		s := a.byID[id]
+		if s == nil {
+			continue
+		}
+		for _, t := range a.tabs.GetUntracked() {
+			if t == id {
+				a.selectSession(s)
+				return
+			}
+		}
+		a.addTab(id)
+		a.selectSession(s)
+		return
+	}
+	a.toast(ui.ToastInfo, "没有可恢复的标签", "关掉的会话标签会记在这里。")
 }
 
 // closeOtherTabs closes every tab but one.
