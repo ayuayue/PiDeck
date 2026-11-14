@@ -56,7 +56,7 @@ const crypto = require("node:crypto");
 // 关联会话 e2e 在同一项目里同时跑父/子两个会话：按 cwd 哈希会让两者共用一个会话文件。
 // 该用例设 PIDECK_MOCK_SESSION_PER_DECK=1，按 PiDeck 注入的会话身份（PIDECK_SESSION_ID）再区分一次。
 const deckSessionKey = process.env.PIDECK_MOCK_SESSION_PER_DECK === "1" ? process.env.PIDECK_SESSION_ID : undefined;
-const sessionId =
+let sessionId =
 	"mock-" +
 	crypto
 		.createHash("md5")
@@ -81,6 +81,9 @@ let currentThinking = "medium";
 let contextPercent = 45;
 // 记录收到的用户 prompt：fork 用例的 get_fork_messages 按文本匹配 entryId。
 const userPrompts = [];
+// 每条 prompt 写进会话文件后的真实 entry id：get_fork_messages 必须返回文件里真实存在的 id，
+// 否则 fork 拿到的锚点在文件里查不到（旧实现回 entry-N 假 id，掩盖了 mock 没实现 fork 这件事）。
+const userEntryIds = [];
 // 内存消息列表：get_messages 在 fork/reload 后需要返回真实对话，
 // 否则 refreshRuntimeAfterSessionReplacement 会把时间线清空。
 const conversationMessages = [];
@@ -101,7 +104,7 @@ function encodeSessionDir(cwd) {
 let sessionFile = resumeSessionPath;
 let sessionHeaderWritten = false;
 const PROJECT_SESSIONS_DIR = path.join(process.cwd(), ".pi", "sessions");
-const PROJECT_SESSION_FILE_PATH = path.join(PROJECT_SESSIONS_DIR, sessionId + ".jsonl");
+let PROJECT_SESSION_FILE_PATH = path.join(PROJECT_SESSIONS_DIR, sessionId + ".jsonl");
 // Session identity tests need the RPC-reported file and scanner file to be the same,
 // as with real pi; retain the older dual-file fixture for existing recovery tests.
 const TMP_SESSION_FILE_PATH = process.env.PIDECK_MOCK_SESSION_IN_PROJECT === "1" ? PROJECT_SESSION_FILE_PATH : path.join(require("node:os").tmpdir(), sessionId + ".jsonl");
@@ -352,6 +355,7 @@ function appendSessionMessages(userText, assistantText, startedAt, finishedAt) {
 	}
 	const userParent = lastEntryId;
 	const userId = `e${nextEntrySeq++}`;
+	userEntryIds.push(userId);
 	lines.push(
 		JSON.stringify({
 			type: "message",
@@ -913,11 +917,54 @@ function handleCommand(cmd) {
 			return;
 		case "get_fork_messages":
 			respond(cmd, {
-				messages: userPrompts.map((text, i) => ({ entryId: `entry-${i + 1}`, text })),
+				messages: userPrompts.map((text, i) => ({ entryId: userEntryIds[i], text })),
 			});
 			return;
 		case "fork": {
-			const found = userPrompts.find((_, i) => `entry-${i + 1}` === cmd.entryId);
+			const index = userEntryIds.indexOf(cmd.entryId);
+			const found = index >= 0 ? userPrompts[index] : undefined;
+			// 仿真真实 pi 的 fork：从锚点截出新会话文件（旧文件保持不动）+ 进程切到新会话，
+			// 之后的 get_state 必须报新 sessionFile/sessionId——桌面端 replaceLiveSession
+			// 靠它推导 targetSessionId 才做尾部替换。只回 text 不切会话时，桌面端会在原会话里
+			// 直接重发同一条 prompt，时间线出现两遍（e2e resend「不产生重复」用例因此恒红）。
+			if (index >= 0 && sessionFile) {
+				try {
+					const newId = "mock-" + crypto.randomBytes(5).toString("hex");
+					const newPath = path.join(path.dirname(sessionFile), newId + ".jsonl");
+					const lines = fs.readFileSync(sessionFile, "utf8").split("\n").filter(Boolean);
+					let cut = -1;
+					for (let i = 0; i < lines.length; i++) {
+						try {
+							if (JSON.parse(lines[i]).id === cmd.entryId) {
+								cut = i;
+								break;
+							}
+						} catch {
+							/* 跳过坏行 */
+						}
+					}
+					const kept = (cut >= 0 ? lines.slice(0, cut + 1) : lines).join("\n") + "\n";
+					fs.writeFileSync(newPath, kept);
+					// 内存态随 fork 截断：保留到锚点这一轮的用户消息为止
+					userPrompts.length = index + 1;
+					userEntryIds.length = index + 1;
+					conversationMessages.length = Math.min(conversationMessages.length, index * 2 + 1);
+					sessionFile = newPath;
+					sessionId = newId;
+					sessionHeaderWritten = true;
+					lastEntryId = cmd.entryId;
+					const projectMirror = path.join(PROJECT_SESSIONS_DIR, newId + ".jsonl");
+					try {
+						fs.mkdirSync(PROJECT_SESSIONS_DIR, { recursive: true });
+						fs.writeFileSync(projectMirror, kept);
+						PROJECT_SESSION_FILE_PATH = projectMirror;
+					} catch {
+						/* 镜像写失败不影响 runtime 语义 */
+					}
+				} catch {
+					/* 落盘失败时退回「只回 text」，由用例自己暴露 */
+				}
+			}
 			// 桌面端读取 result.text 预填回输入框；cancelled 为空对象语义
 			respond(cmd, { text: found ?? "" });
 			return;
