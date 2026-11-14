@@ -456,6 +456,20 @@ PiDeck 里正常新建的会话不受这个影响。
 
 `activate` 是唯一不要 target 的——它要做的正是「这个冷会话现在起来」，没有 target 可回传。
 
+**`activate` 是冷启动，别按毫秒算。** 本机实测（Windows 发行版，进程完全没起）一次 3556 毫秒；别人机器上记过一次 45 毫秒，那是进程已经预热的情况。给它设超时按 5 秒以上给。
+
+**`state` 是唯一能一次问清「它现在在干嘛」的动作。** 返回体套两层：`{result:{ok, value:{target, value:{...}}}}`，真正的字段在里层：
+
+| 字段 | 读出来的意思 |
+|---|---|
+| `modelId` / `provider` / `thinkingLevel` | 它此刻实际在用的模型与思考档，不是记录里那份 |
+| `isStreaming` / `isTurnActive` | 正在生成 / 有回合没结束 |
+| `isExecutingTool` / `isCompacting` | 正在跑工具 / 正在压缩上下文 |
+| `contextTokens` / `contextWindow` / `contextPercent` | 上下文用掉多少 |
+| `toolStateSequence` | 工具状态序号，每变一次 +1，拿它看它有没有在动 |
+
+**`permission` 在 pi 后端一定失败。** 源码里只给 DSH 后端注册了这个能力，pi 会话发过去返回 `SESSION_COMMAND_FAILED`（本机实测）。要改 pi 会话的权限，走记录层的 `update` 或者界面。
+
 其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
 
 `target.agentId` 是真闸：给假值会被拒（2026-11-14 在 Windows 发行版上实测）。`target.runtimeGeneration` 不校验，给 999 也照做。三个字段都传最稳。
@@ -501,6 +515,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 - 只读 pi 的会话文件，不要改 `~/.pi/agent/sessions/*.jsonl`。
 - 端点全集以源码 `WebApiRoutes.ts` 为准；本文是 2026-11 的实测记录，不一致时信源码。
 - 没有第二个活着的窗口能接，就别停：被停之后没人发 activate，就是永久停着。
+- **改了这个技能，已经在跑的会话看不到新版。** 技能是进程启动时用 `--skill <目录>` 注入的（源码 `PiProcess.ts`），内容在启动那一刻就进了内存。要让它生效，只能重启那个会话（第 6 节）或者新开一个。
 
 ## 10 验收：三级别
 
