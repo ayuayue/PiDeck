@@ -236,6 +236,7 @@ type app struct {
 	// Global session search: its index, query and results.
 	searchOpen     *core.Signal[bool]
 	searchText     *core.Signal[string]
+	searchScope    *core.Signal[string]
 	searchHits     *core.Signal[[]searchHit]
 	searchBusy     *core.Signal[bool]
 	searchDocs     []searchDoc
@@ -584,6 +585,7 @@ func newApp(cx *core.Scope) *app {
 		shortcutsQuery:         core.NewSignal(cx, ""),
 		searchOpen:             core.NewSignal(cx, false),
 		searchText:             core.NewSignal(cx, ""),
+		searchScope:            core.NewSignal(cx, ""),
 		searchHits:             core.NewSignalFunc(cx, []searchHit(nil), nil),
 		searchBusy:             core.NewSignal(cx, false),
 		prompts:                core.NewSignalFunc(cx, []promptItem(nil), nil),

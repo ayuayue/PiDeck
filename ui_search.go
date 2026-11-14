@@ -29,10 +29,26 @@ func (a *app) searchDialog() core.Node {
 					Style: core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), CornerRadius: 8,
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
 						Color: colors.Text(), FontSize: 13}},
+				choiceChips([]choice[string]{{"", "全部"}, {"title", "标题"}, {"body", "正文"}},
+					func() string { return a.searchScope.Get() }, func(v string) { a.searchScope.Set(v) }),
 				core.Dynamic(func(cx *core.Scope) core.Node {
 					colors := ui.ColorsOf(cx)
 					query := a.searchText.Get()
-					hits := a.searchHits.Get()
+					scope := a.searchScope.Get()
+					var hits []searchHit
+					for _, h := range a.searchHits.Get() {
+						switch scope {
+						case "title":
+							if !h.InTitle {
+								continue
+							}
+						case "body":
+							if h.Count == 0 {
+								continue
+							}
+						}
+						hits = append(hits, h)
+					}
 					switch {
 					case a.searchBusy.Get() && !a.searchIndexed:
 						return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},

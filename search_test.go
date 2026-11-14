@@ -126,3 +126,38 @@ func TestSearchACPDocs(t *testing.T) {
 		t.Fatalf("hits = %+v", hits)
 	}
 }
+
+// TestSearchScope filters results by title or body.
+func TestSearchScope(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := editorWorkspace(t)
+	workspace := editorWorkspace(t)
+	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	dir := filepath.Join(home, "sessions", "--x--")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.jsonl"),
+		[]byte(searchSession("s-1", workspace, "部署手册", "怎么发布到生产环境")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.jsonl"),
+		[]byte(searchSession("s-2", workspace, "发布记录", "这次部署踩了两个坑")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Key("mod+shift+f")
+	app.WaitFor("id:session-search", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:索引里有 2 个会话")) > 0 })
+	app.Type("id:search-input", "部署")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) == 2 })
+	app.Press("role:radio 标题")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) == 1 })
+	app.Press("role:radio 正文")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) == 1 })
+	app.Press("role:radio 全部")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) == 2 })
+}
