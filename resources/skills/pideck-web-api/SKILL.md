@@ -59,7 +59,7 @@ echo $PIDECK_SESSION_ID
 
 **别拿错变量**：`$PI_SESSION_ID` 是 pi 自己的会话 id，不是 PiDeck 的身份。分辨办法：`$PIDECK_SESSION_ID` 能在 `/api/state` 的 `sessions[]` 里找到，`$PI_SESSION_ID` 找不到。
 
-三条验证，每条写了该返回什么，**放在同一次调用里跑**（变量不跨段）：
+四条验证，每条写了该返回什么，**放在同一次调用里跑**（变量不跨段）：
 
 ```bash
 curl -s -o /dev/null -w 'health=%{http_code}\n' "$BASE/api/health"              # 期望 health=200，这是唯一免鉴权的端点
@@ -83,6 +83,8 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派
 ```bash
 curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/messages?before=<上一页的 windowStart>"
 ```
+
+**这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。我这个会话 208 条 = 1.5 MB，耗时 100~260 ms；作为对比 `/api/state` 4 KB 用 2 ms，`/api/sessions/runtimes` 1 KB 用 1.4 ms。所以**别拿它轮询**：判断消息送没送到，先看 SSE 有没有 `error` 帧，只查一次 `/messages`。
 
 单条消息的字段是 `{id, agentId, role, text, timestamp, meta}`，assistant 还多 `thinking`、`model`、`stopReason`。注意正文在 `text`，不在 `parts`——`parts` 只在 `/api/chat` 的**请求**里用。
 
@@ -129,13 +131,13 @@ data: [DONE]
 
 **这条请求是异步入队，不是同步流。** 消息进了队列就返回，HTTP 可能一个帧都不吐（实测挂 5 秒 0 帧），而目标照样开始干活。所以判断「送到了没有」看两个地方：
 
-1. 回读目标的 `/messages`，`total` 加一就是送到了。
+1. 回读目标的 `/messages`，`total` 变大就是送到了。
 2. 或者看 SSE 里有没有 `error` 帧——目标没在跑时服务端会写 `error` + `finish` + `[DONE]`，消息不入队。
 
 两种情况：
 
 - **目标没在跑**：`total` 不变，SSE 里有 `error` 帧。先按 §7 启动它，等它进 `runtimes[]`，再发。
-- **目标在跑但忙**：`total` 加一，消息已入队，等它做完手上的事就轮到这条。
+- **目标在跑但忙**：`total` 变大，消息已入队，等它做完手上的事就轮到这条。
 
 两个常见错误码：`webError.requestIdRequired`（body 缺 `id`）、`webError.messageRequired`（没有 role 为 user 的项，或 text 为空）。
 
@@ -159,7 +161,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 - `noSession: true`，**没有自己的 `sessionPath`**。执行者要认「我是谁」时会去比对磁盘上哪个 jsonl 正在被写，拿到的却是目标的路径，结论必然是「目标就是我」，于是拒绝执行。
 - stop 之后整条记录被删掉，紧接着 activate 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`——HTTP 仍是 200。它连当目标都不行。
 
-> 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的 §2，再按五步做，每步把输出贴回来。
+> 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的 §2，再按第 0 步到第 5 步做，每步把输出贴回来。
 >
 > 0. **先认自己是谁**：`echo $PIDECK_SESSION_ID`。如果它等于 `<目标 sessionId>`，停下——停掉的就是你自己，没有进程去发 activate。如果它不等于，继续。
 > 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。找不到说明目标没在跑，直接跳到第 3 步。
@@ -202,29 +204,49 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 **重启之后你是新进程**：不记得上一轮在干什么。会话历史仍在同一个 jsonl（`runtimes[].sessionPath`），上下文不丢，但「成没成」只能由重启后的一方重读 `runtimes[]` 确认。界面显示「异常停下」是 stop 动作本身，不是失败。
 
-### 6.1 这套流程的实测记录
+### 6.1 这条流程的实测记录
 
-2026-11-14，Windows 发行版，目标是 `fc3b8a41`（一个没在跑的会话），由另一个会话执行：
+2026-11-14，Windows 发行版。两种用法都真跑过。
+
+**用法一：重启一个没在跑的会话**（目标 `fc3b8a41`）。
 
 ```text
-第 0 步 activate
-  HTTP 200  {"result":{"ok":true,"value":{...,"runtimeGeneration":1,"status":"idle"}}}
-
-第 1 步 取 target
-  {"sessionId":"fc3b8a41-…","agentId":"5b9b9fbd-…","runtimeGeneration":1}
-
-第 2 步 stop
-  HTTP 200  {"result":{"ok":true,"value":{...,"runtimeGeneration":1}}}
-  再读 runtimes：目标已不在列表里
-
-第 3 步 activate
-  HTTP 200  {"result":{"ok":true,"value":{...,"agentId":"7a2c0052-…","runtimeGeneration":2,"status":"idle"}}}
-
-第 4 步 再读 runtimes
-  gen 1 -> 2，agentId 5b9b9fbd -> 7a2c0052
+第 0 步 echo $PIDECK_SESSION_ID -> 执行者自己的 id，不是目标
+第 1 步 取 target        目标不在 runtimes[] 里 -> 按技能跳到第 3 步
+第 3 步 activate        HTTP 200  gen=3  agentId=5c87249a-…  status=idle
+第 5 步 发消息          total 7473 -> 7476（加 3）
+收尾  stop(gen=3)       HTTP 200
+       activate         gen=4  agentId=f711cb00-…
 ```
 
-**第 5 步那次是单独测的**：`/api/chat` → HTTP 200，`total` 7470 → 7473（加了 3，不是 1，另外两条是 assistant 回复和注入）。
+`activate` 要 4~6 秒才返回，不是卡住。
+
+**用法二：让别人重启自己**（本会话 `b1e367af` 当目标，执行者是一个新建的普通会话）。
+
+```text
+被停的那一刻    手上正在跑的工具调用直接 abort（This operation was aborted）
+重启后自读      gen 2 -> 3，agentId 0ec64be6-… -> 2a8ef668-…
+执行者第 5 步发的报告    代号和 agentId 与我自读的一致
+```
+
+**`total` 一次加 3 不是 1**：你发的那条 + assistant 的回复 + 一条注入。
+
+**各步耗时**（同一台机器，目标原本没在跑，跑完整一套）：
+
+```text
+建普通会话     245 ms
+activate       4149 ms
+取 target      102 ms
+stop           100 ms
+activate       4227 ms
+发消息         2069 ms
+停 + 删         297 ms
+合计          11.6 秒
+```
+
+**activate 占 8.4 秒，是服务端拉起 pi 进程的时间，省不掉。** 目标已经在跑时只走 stop + activate，约 4.3 秒就是一次重启的下限。其余每步都在 100~250 ms。
+
+所以别做这两件事：不要建完会话反复轮询 `runtimes[]` 等它出现（`activate` 返回时进程已经在里面，`status` 就在返回体里）；不要为了拿 `total` 反复拉 `/messages`（1.5 MB 一次）。
 
 **代号和 `agentId` 会一起变。** 两个都是「换没换进程」的证据，任一个变了就是换了。
 
