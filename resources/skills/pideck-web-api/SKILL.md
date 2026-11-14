@@ -108,21 +108,18 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派
 curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&before=<nextBefore>"
 ```
 
-返回 6 个键：`messages`、`total`、`nextBefore`、`indexVersion`、`model`、`thinkingLevel`。
+返回 7 个键：`messages`、`total`、`nextBefore`、`nextBeforeEntryId`、`indexVersion`、`model`、`thinkingLevel`。
 
-**`pageSize` 的单位是轮（一轮问答），默认 3。** 实测一个 1653 条的会话：
+**`pageSize` 的单位是一轮问答，默认 3。** 一轮装多少条消息不固定——问一句答一句是 3 条，带一堆工具调用的轮能有几十条。同一天两个会话实测：
 
-| pageSize | 返回消息 | nextBefore |
-| --- | --- | --- |
-| 不传 | 12 | 1644 |
-| 1 | 6 | 1649 |
-| 2 | 9 | 1647 |
-| 3 | 12 | 1644 |
-| 100 | 1556 | null |
+| 会话 | 不传 | pageSize=1 | 2 | 3 |
+| --- | --- | --- | --- | --- |
+| 1653 条 | 12 | 6 | 9 | 12 |
+| 5887 条 | 182 | 59 | 153 | 182 |
 
-每加 1 多 3 条消息、`nextBefore` 退 3，就是一轮问答。翻页把上一页的 `nextBefore` 传给 `before`，翻到 `nextBefore` 是 `null` 就到头了。
+所以别拿条数去推轮数。翻页只做一件事：把上一页的 `nextBefore` 传给 `before`，翻到它是 `null` 就到头。
 
-**正常返回 7 个键，`nextBefore` 为 `null` 时只有 6 个**——那一页没有 `nextBeforeEntryId`。按字段名取，别按位置取。
+**`nextBefore` 不为 `null` 时返回 7 个键，为 `null` 时只有 6 个**——最后一页没有 `nextBeforeEntryId`。按字段名取，别按位置取。
 
 只有这个端点也满足不了需求时（比如要原始的工具调用参数），才去读磁盘上的 jsonl：
 
@@ -134,7 +131,7 @@ node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\
 
 **这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。
 
-默认一页是几十 KB（12 条消息实测 53 KB）；把 `pageSize` 拉到 100 会把 1500 多条一起拉回来，实测 15.6 MB。`/api/state` 与 `/api/sessions/runtimes` 是几 KB。
+`/messages` 一次返回整个窗口：1653 条的会话实测 226 KB，几十条的小会话只有几十字节。把 `pageSize` 拉到 100 会连那一段历史一起拉回来，同一会话实测 15 MB 级。`/api/state` 与 `/api/sessions/runtimes` 是几 KB。
 
 具体数字自己量，别抄这里的：
 
@@ -252,11 +249,11 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 curl -sN --max-time 600 -H "$AUTH" "$BASE/api/sessions/<目标>/stream"
 ```
 
-`--max-time` 是给自己设的上限：一次完整审查实测 6~10 分钟，给 600 秒够用，超时就断开重连——断开不影响对端继续干活。
+`--max-time` 是给自己设的上限，别不设。到点断开不影响对端继续干活，重连一次接着看。
 
 **看它活着没有，看 `runtimes[].status`**：`running` 表示它正在生成，`idle` 表示它手上的活已经做完。整条从 `runtimes[]` 里消失说明进程已经停了；这时发消息它会自己回来（见第 5 节），不必先 `activate`。
 
-**退路才是轮询。** 长 sleep 会撞上工具自己的超时——实测一个 280 秒的 curl 被中途中止，数据只到手一半。所以把第 5 节那条 curl 的输出重定向到文件、后台跑：
+**退路才是轮询。** 长 sleep 会撞上工具自己的超时——几百秒的 curl 会被中途中止，数据只到手一半。所以把第 5 节那条 curl 的输出重定向到文件、后台跑：
 
 ```bash
 curl -sN -H "$AUTH" -H "Content-Type: application/json" -d @body.json "$BASE/api/chat" > /tmp/reply.txt 2>&1 &
@@ -269,7 +266,7 @@ stat -c %s /tmp/reply.txt
 tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
 ```
 
-看见 `"type":"finish"` 和 `data: [DONE]` 就是跑完了。一次完整审查实测跑 38 步、104 次工具调用，6~10 分钟，中间查 20 次左右，每次不到 1 秒。
+看见 `"type":"finish"` 和 `data: [DONE]` 就是跑完了。没看见就下一轮再查——查一次不到 1 秒，一次完整审查要查几十轮。
 ## 5.6 复用旧会话还是新开
 
 判断办法只有一条：**目标会话里有没有关于被审对象的结论。**
@@ -380,7 +377,9 @@ activate       4227 ms
 合计          11.2 秒
 ```
 
-**activate 占 8.4 秒，是服务端拉起 pi 进程的时间，省不掉。** 目标已经在跑时只走 stop + activate，约 4.3 秒就是一次重启的下限。其余各步：`取 target`、`stop`、`建会话` 是百毫秒级；`发消息` 要等模型回一轮，秒级；`停 + 删` 亚秒级。
+**绝大部分时间花在 activate 上，那是服务端拉起 pi 进程的时间，省不掉。** 目标已经在跑时只走 stop + activate，秒级就是一次重启的下限。其余各步：`取 target`、`stop`、`建会话` 是百毫秒级；`发消息` 要等模型回一轮。
+
+上面那张表的毫秒数是某次测量的快照，换台机器就变，只看量级。
 
 所以别做这两件事：不要建完会话反复轮询 `runtimes[]` 等它出现（`activate` 返回时进程已经在里面，`status` 就在返回体里）；不要为了拿 `total` 反复拉 `/messages`（一次几十 KB 起，大会话更大）。
 
