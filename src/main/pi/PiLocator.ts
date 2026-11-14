@@ -721,11 +721,6 @@ export class PiLocator {
 		console.log("[PiLocator] resolveWslExe fallback: PATH lookup with shell disabled");
 		return { command: "wsl", shell: false };
 	}
-	/** @deprecated 使用 resolveWslExe() 代替，支持 PATH 回退 */
-	private get wslExePath(): string {
-		return this.resolveWslExe().command;
-	}
-
 	/**
 	 * 解析 "wsl://<distro>/<user>/<piCommand>" 格式的标记。
 	 * piCommand 现在是绝对 Linux 路径（带斜杠），解析规则集中在 wslPiProbe，与构造侧对称。

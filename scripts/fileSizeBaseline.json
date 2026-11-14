@@ -26,7 +26,7 @@
 		"src/main/ipc/systemIpc.ts": 1234,
 		"src/main/pi/AgentManager.ts": 4785,
 		"src/main/pi/modelListCache.ts": 669,
-		"src/main/pi/PiLocator.ts": 885,
+		"src/main/pi/PiLocator.ts": 880,
 		"src/main/pi/PiProcess.ts": 793,
 		"src/main/pi/SessionFileEditor.ts": 940,
 		"src/main/pi/SessionHistoryReader.ts": 1471,

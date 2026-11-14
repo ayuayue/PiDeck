@@ -27,7 +27,7 @@ session/load 请求
                  └─ emit("agents:message", { messages: 全量数组, totalLength })  // AcpUpdatePipeline.ts:160
 ```
 
-渲染层收到后的全量分支：`src/renderer/src/atoms/session-atoms.ts:1672` 起，`upsertFrom`/`windowStart` 缺失 → 走「窗口化全量 / 传统全量」替换路径。
+渲染层收到后的全量分支：`src/renderer/src/atoms/session-atoms.ts` 里 `upsertFrom`/`windowStart` 缺失的分支 → 走「窗口化全量 / 传统全量」替换路径。
 
 **推论**：重放的 IPC 次数已经是 1，再谈「合并事件」没有收益；要减的是一次事件的**内容**和渲染层对它的**处理量**。
 
@@ -40,7 +40,7 @@ session/load 请求
 | 工具结果裁剪 `stripToolResultForDelivery` | ✅ `agentUtils.ts:191` | ❌ | 大工具输出随每次 flush 反复过 IPC |
 | flush 节流 | 50ms + `MessageEmitBatcher` 合批 | 80ms 单定时器 | 次要 |
 
-注意：ACP 的**分页读取能力已经具备**——`sessions.messages(before, pageSize)` 对 ACP 走 `acpMessagePage`（`src/main/ipc/sessionIpc.ts:1638`、`src/main/index.ts:6672`），时间线的「加载更早」可直接复用。缺口在**投递端不窗口化**。
+注意：ACP 的**分页读取能力已经具备**——`sessions.messages(before, pageSize)` 对 ACP 走 `acpMessagePage`（`src/main/acp/acpMessagePage.ts`），时间线的「加载更早」可直接复用。缺口在**投递端不窗口化**。
 
 ## 4. 分阶段方案
 

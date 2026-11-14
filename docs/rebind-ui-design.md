@@ -134,7 +134,7 @@
 | `PROJECT_STORE_NEEDS_REPAIR` / `SESSION_CATALOG_NEEDS_REPAIR` / `PROJECT_STORE_REMOTE_UNSUPPORTED` | plan/执行（**原样透出**，`HostRebindJournal.ts:138`） | ②/④ 指向具体 store | 先修那个 store；`REMOTE_UNSUPPORTED` 属版本/能力问题 |
 | `REMOTE_HOST_STORE_NEEDS_REPAIR` | plan/执行 | ② + 链接 `RepairPanel` | 先修复主机库（`RemoteHostStore.ts:143-175`） |
 | `HOST_REPAIR_*` | 修复动作（E2 路径） | 修复面板 | 与今天一致 |
-| `REMOTE_HOST_REFERENCE_REBIND_ACTIVE` | 其它域的写（项目/会话增删） | 不是本向导的态 | 横幅文案解释"迁移期间不能新增/删除远端项目与会话"（`ProjectStore.ts:371`/`:396`、`SessionCatalog.ts:1996`/`:2041`） |
+| `REMOTE_HOST_REFERENCE_REBIND_ACTIVE` | 其它域的写（项目/会话增删） | 不是本向导的态 | 横幅文案解释"迁移期间不能新增/删除远端项目与会话"（`ProjectStore.ts:371`/`:396`、`SessionCatalog`——实际拦截在 `src/main/remote/RemoteReferenceWriteGuard.ts`） |
 | `REMOTE_FEATURE_DISABLED` | 任意新通道 | 整个连接页不可见（`SettingsModal.tsx:654`/`:920`） | 无（能力下线） |
 | 其它未列码 | 任意 | ④ "迁移未完成（{code}）" + 「重新检查」 | 收敛重试；保留 journal（绝不删） |
 
@@ -203,7 +203,7 @@
 ## 5. 能力门控与降级
 
 ### 5.1 功能开关
-- 单一发布策略 `REMOTE_FEATURE_AVAILABLE`（`src/main/remote/remoteFeaturePolicy.ts:6`）→ `update:get-channel.remoteAvailable`（`systemIpc.ts:1344`）→ 渲染层 `useRemoteFeatureAvailable()`（`src/renderer/src/hooks/useRemoteFeatureAvailable.ts:11-13`）。
+- 单一发布策略 `REMOTE_FEATURE_AVAILABLE`（`src/main/remote/remoteFeaturePolicy.ts:6`）→ `update:get-channel.remoteAvailable`（`src/main/ipc/systemAppIpc.ts`）→ 渲染层 `useRemoteFeatureAvailable()`（`src/renderer/src/hooks/useRemoteFeatureAvailable.ts:11-13`）。
 - 渲染层：`isRemoteEntryVisible(remoteAvailable)` 已经让"连接"页整体不可见（`SettingsModal.tsx:654`/`:920`），因此 rebind 入口**自动**跟随；横幅也只在连接页内渲染，不做全局常驻。
 - 主进程：每个新通道 `if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" }`（与 `remoteHostIpc.ts:141`/`:468` 同型），**fail closed**，不因为是"只读"就放行。
 

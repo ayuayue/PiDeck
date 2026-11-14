@@ -511,3 +511,16 @@ const selectTab = useCallback((id: string) => {
 3. **桶文件**：`SessionTabsBar 1537`、`SurfaceComponents 1532`、`ComposerComponents 1402`、`SidebarComponents 1349`、`SessionMessageTimeline 1223`——能用 `loadTsCommonJs` + 相对说明符 stub 真渲染，搬 JSX 会让 stub 全失配，单文件成本翻倍。
 
 后续**不再开专项波次**，改按 `AGENTS.md` 的增量规则执行：改到哪个文件就把新逻辑放进新模块，让行数只降不升（`check:file-size` 基线已收紧到当前水位，回涨会被 pre-commit 与 CI 同时挡住）。
+
+### 文档里的「文件:行号」指针：活动文档改符号，记录保持原样
+
+拆分会让 `docs/` 里的 `Foo.ts:123` 一类实现指针成片失效。2026-11-13 用只读脚本扫了一遍：`docs/` 共 924 处指针，**22 处行号已超出文件实际行数**（必然失效）。
+
+处置分两类，别一刀切：
+
+| 文档类型 | 处置 | 理由 |
+|---|---|---|
+| **活动文档**（设计稿、计划、维护域说明） | 改成**符号或文件名**，不钉行号 | 行号是移动靶；写 `acpMessagePage`（`src/main/acp/acpMessagePage.ts`）比写 `sessionIpc.ts:1638` 寿命长得多 |
+| **归档与记录**（`docs/archive/**`、验收日志、验证记录、review 记录） | **保持原样不动** | 它们是"某时点看到的是这行"的证据；改掉等于篡改历史 |
+
+判定失效的最省事办法：`行号 > 文件当前行数` 必定失效（脚本几十行，扫完 924 处约 0.5 秒）。行号仍在范围内但不指原内容的，只能靠人读——所以活动文档干脆别钉行号。
