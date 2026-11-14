@@ -110,7 +110,19 @@ curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&befor
 
 返回 6 个键：`messages`、`total`、`nextBefore`、`indexVersion`、`model`、`thinkingLevel`。
 
-**`pageSize` 不生效。** 实测 `pageSize=1`、`2`、`100`、`500` 四档都返回同一个会话的全部消息（126 条），`nextBefore` 一律是 `null`。所以这个端点现在只能整体取一次，按页翻历史这条路没落地——要翻更早的，还是读磁盘那份 jsonl。
+**`pageSize` 的单位是轮（一轮问答），默认 3。** 实测一个 1653 条的会话：
+
+| pageSize | 返回消息 | nextBefore |
+| --- | --- | --- |
+| 不传 | 12 | 1644 |
+| 1 | 6 | 1649 |
+| 2 | 9 | 1647 |
+| 3 | 12 | 1644 |
+| 100 | 1556 | null |
+
+每加 1 多 3 条消息、`nextBefore` 退 3，就是一轮问答。翻页把上一页的 `nextBefore` 传给 `before`，翻到 `nextBefore` 是 `null` 就到头了。
+
+**正常返回 7 个键，`nextBefore` 为 `null` 时只有 6 个**——那一页没有 `nextBeforeEntryId`。按字段名取，别按位置取。
 
 只有这个端点也满足不了需求时（比如要原始的工具调用参数），才去读磁盘上的 jsonl：
 
@@ -122,7 +134,7 @@ node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\
 
 **这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。
 
-`/messages` 的体积跟会话长度成正比，一百多条消息的会话是 MB 级。`/api/state` 和 `/api/sessions/runtimes` 是 KB 级。
+默认一页是几十 KB（12 条消息实测 53 KB）；把 `pageSize` 拉到 100 会把 1500 多条一起拉回来，实测 15.6 MB。`/api/state` 与 `/api/sessions/runtimes` 是几 KB。
 
 具体数字自己量，别抄这里的：
 
@@ -338,7 +350,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 第 0 步 echo $PIDECK_SESSION_ID -> 执行者自己的 id，不是目标
 第 1 步 取 target        目标不在 runtimes[] 里 -> 按技能跳到第 3 步
 第 3 步 activate        HTTP 200  gen=3  status=idle
-第 5 步 发消息          total 7473 -> 7476（加 3）
+第 5 步 发消息          total 加 3
 收尾  stop(gen=3)       HTTP 200
        activate         gen=4
 ```
@@ -368,9 +380,9 @@ activate       4227 ms
 合计          11.2 秒
 ```
 
-**activate 占 8.4 秒，是服务端拉起 pi 进程的时间，省不掉。** 目标已经在跑时只走 stop + activate，约 4.3 秒就是一次重启的下限。其余各步：`取 target`、`stop`、`建会话` 在 100~250 ms；`发消息` 约 2 秒（要等模型回一轮），`停 + 删` 约 0.3 秒。
+**activate 占 8.4 秒，是服务端拉起 pi 进程的时间，省不掉。** 目标已经在跑时只走 stop + activate，约 4.3 秒就是一次重启的下限。其余各步：`取 target`、`stop`、`建会话` 是百毫秒级；`发消息` 要等模型回一轮，秒级；`停 + 删` 亚秒级。
 
-所以别做这两件事：不要建完会话反复轮询 `runtimes[]` 等它出现（`activate` 返回时进程已经在里面，`status` 就在返回体里）；不要为了拿 `total` 反复拉 `/messages`（1.5 MB 一次）。
+所以别做这两件事：不要建完会话反复轮询 `runtimes[]` 等它出现（`activate` 返回时进程已经在里面，`status` 就在返回体里）；不要为了拿 `total` 反复拉 `/messages`（一次几十 KB 起，大会话更大）。
 
 **代号和 `agentId` 会一起变。** 两个都是「换没换进程」的证据，任一个变了就是换了。对照就看这两个数字，别去猜 pid。
 
