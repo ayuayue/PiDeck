@@ -476,6 +476,8 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 | `contextTokens` / `contextWindow` / `contextPercent` | 上下文用掉多少 |
 | `toolStateSequence` | 工具状态序号，每变一次 +1，拿它看它有没有在动 |
 
+**换模型会把思考档重置成新模型的默认值。** 本机实测：`thinking=low` 的时候调 `model` 换到另一个模型，`thinkingLevel` 变回 `high`。所以这两步要按顺序发——先 `model`，再 `thinking`。反过来先设了思考档再换模型，等于没设。
+
 **`permission` 在 pi 后端一定失败。** 源码里只给 DSH 后端注册了这个能力，pi 会话发过去返回 `SESSION_COMMAND_FAILED`（本机实测）。要改 pi 会话的权限，走记录层的 `update` 或者界面。
 
 **鉴权规则**：写操作（POST）只认请求头。`?token=` 查询参数只对 GET 和 SSE 开放，因为浏览器的 EventSource 不能自定义请求头；写操作开这个口子会把令牌漏进代理日志和浏览器历史。
