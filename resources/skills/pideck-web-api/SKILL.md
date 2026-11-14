@@ -7,9 +7,9 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 
 **PiDeck 每个窗口背后跑一个 pi 进程，同时开一个只监听本机的 HTTP 服务。用这个服务，你能读自己的状态、给别的窗口发消息、让另一个会话把自己重启。**
 
-下面每条命令都在 2026-11 的 Windows 发行版上跑过，写了期望返回。返回形状不符说明版本变了，以源码 `C:\Users\15066212pp\src\PiDeck\v099\src\main\web\WebApiRoutes.ts` 为准（这是本机路径，换机器要换成你自己的克隆）。
+下面每条命令都在 2026-11 的 Windows 发行版上跑过，写了期望返回。返回形状不符说明版本变了，以源码里的 `src/main/web/WebApiRoutes.ts` 为准。本机克隆在 `C:\Users\15066212pp\src\PiDeck\v099`，换台机器就换成你自己的克隆路径。
 
-**下面所有 bash 都按 Git Bash 写**（PiDeck 在 Windows 上附带的那套）。别在 cmd 或 PowerShell 里跑：`$VAR` 不展开，`%APPDATA%` 在 bash 里不展开。判据：`echo $APPDATA` 有值就是对的 shell。
+**下面所有 bash 都按 Git Bash 写**（PiDeck 在 Windows 上附带的那套）。别在 cmd 或 PowerShell 里跑：`$VAR` 不展开，`%APPDATA%` 在 bash 里不展开。怎么确认：`echo $APPDATA` 有值就是对的 shell。
 
 ## 0 先确定你要做什么
 
@@ -28,13 +28,15 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 
 - **会话**：PiDeck 侧边栏里的一行。会话可以存在，但此刻没在跑。
 - **运行时**：为某个会话在后台跑的那个 pi 进程。会话是记录，运行时是进程。
-- **运行时代号**（`runtimeGeneration`）：每成功启动一次加一。进程号不对外暴露，所以「代号变了」是「真的换了进程」的唯一证据。
+- **运行时代号**（`runtimeGeneration`）：每起来一次加一。进程号不对外暴露，所以「代号变了」是「真的换了进程」的证据。`agentId` 也会跟着换，两个标一个意思，看哪个都行。
 
 ## 2 连上：地址、令牌、自己的会话 id
 
 **服务默认关闭**，在 PiDeck 的「设置 → Web 服务」里打开。端口默认 8765。
 
 令牌和端口都存在设置文件里。Dev 通道的设置文件在 `PiDeck Dev` 目录，下面这段两个都试：
+
+这段一次把三件事做完：从设置文件读出令牌和端口、检查令牌不是空的、把它们设成 `$AUTH` 和 `$BASE` 供后面用。
 
 ```bash
 # 取端口和令牌，同时确认不是空值
@@ -141,7 +143,7 @@ data: [DONE]
 
 让别人做。最简单的办法：**新开一个空会话**（它自动启动、天然空闲），把技能名和下面这段一起贴给它。
 
-> 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的 §2，再按四步做，每步把输出贴回来。
+> 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的 §2，再按五步做，每步把输出贴回来。
 >
 > 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。找不到说明目标没在跑，直接跳到第 3 步。
 > 2. **停**：
@@ -165,11 +167,11 @@ data: [DONE]
 >    ```
 >    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。§5 说过，这条请求是异步入队，可能一个帧都不吐。
 
-**HTTP 200 不等于成功，必须看 body。** 三个实测形状：
+**HTTP 200 不代表做成了，必须看 body。** 三个实测形状：
 
 | 情况 | HTTP | body |
 |---|---|---|
-| 停成功 | 200 | `{"result":{"ok":true,"value":{...}}}` |
+| 停成了 | 200 | `{"result":{"ok":true,"value":{...}}}` |
 | 目标本来就没在跑 | 200 | `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_UNAVAILABLE"}}}` |
 | URL 与 body 的 sessionId 不一致 / 没给 target | 400 | `{"code":"webError.runtimeTargetRequired"}` |
 
@@ -203,11 +205,12 @@ data: [DONE]
   gen 1 -> 2，agentId 5b9b9fbd -> 7a2c0052
 ```
 
-第 5 步 发消息 `/api/chat` -> HTTP 200，`total` 7470 -> 7473（加了 3，不是 1）
+**第 5 步那次是单独测的**：`/api/chat` → HTTP 200，`total` 7470 → 7473（加了 3，不是 1，另外两条是 assistant 回复和注入）。
 
 **代号和 `agentId` 会一起变。** 两个都是「换没换进程」的证据，任一个变了就是换了。
 
 **匿名会话会在空闲后消失。** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。要拿它当测试目标，建完就得马上用。PiDeck 里正常新建的会话不受这个影响。
+
 ## 7 停 / 启 / 中止：单个动作
 
 动作挂在 `/api/sessions/<id>/runtime/<action>`。常用的四个：
@@ -236,7 +239,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 - **给别的会话发消息**：等于替用户对它说话。只在用户明确讲了「去让某个会话做某事」之后才发。
 - **停或重启别的会话**：会让目标当前回合中断。发出前要拿到用户对**那一个会话**的明确同意。
 
-没有「agent 自己重启自己」的捷径。曾经有过 `self-restart.mjs`：起一个脱离进程树的守卫替你 stop 再 activate，实测成功过三次。2026-11-14 删掉了——不是它不成立，是它和「不许自己停」这句冲突：两句话同时在，agent 会挑省事的那句执行。
+没有「agent 自己重启自己」的捷径。曾经有过 `self-restart.mjs`：起一个脱离进程树的守卫替你 stop 再 activate，实测跑了三次，三次都起来了。2026-11-14 删掉了——不是它不成立，是它和「不许自己停」这句冲突：两句话同时在，agent 会挑省事的那句执行。
 
 ## 9 边界
 
@@ -250,4 +253,4 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 1. **能观察自己**（只读）：`echo $PIDECK_SESSION_ID` 非空，且这个 id 出现在 `/api/state` 的 `sessions[]` 里。
 2. **能读别人**（只读）：`sessions[]` 里看得到别的会话标题。
-3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，收到 `text-delta` 帧且 `total` 加一；要验「真进程」，走一次 §6，`runtimeGeneration` 变了才算。
+3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，收到 `text-delta` 帧且 `total` 变大；要验「真进程」，走一次 §6，`runtimeGeneration` 变了才算。
