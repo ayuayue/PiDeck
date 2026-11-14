@@ -5,7 +5,10 @@ description: "要用脚本或另一个 agent 控制 PiDeck 时用：自动化、
 
 # PiDeck Web API（pideck-web-api）
 
+
 **PiDeck 自带 HTTP + SSE 接口。它既能操作别的窗口，也能让当前会话看清自己正在发生什么。**
+
+
 
 本技能只写「怎么调通、怎么验证调通了」。端点全集在 PiDeck 源码仓的 `src/main/web/WebApiRoutes.ts`（相对仓库根，本机装的是发行版时看不到这个文件）——本文不复制清单，避免两处真值各自漂移。
 
@@ -52,13 +55,46 @@ SELF="$PIDECK_SESSION_ID"   # PiDeck spawn 的会话才有；为空 = 你在 TUI
 
 自检：`.../messages | jq '.total'` 返回一个数字（不是 null），说明这条路通。
 
-**两条禁令**（写自己会把自己弄坏）：
+**两条禁令**（无守卫时写自己会把自己弄坏；要自重启走下面 §2.5）：
 
 - 不要对自己 `POST /api/chat`：那是往自己身上再排一条用户消息，等于自我克隆。
 - 不要对自己 `runtime/stop|restart|abort`：那是把自己杀掉或打断。
 
 读自己随便读，写自己一律走用户指令。
 
+## 2.5 自重启：能不能停掉自己再起来
+**能，但必须先摘出一个守卫。** 技能里原本写着「不要对自己 runtime/stop|restart」，
+那条禁令的实质不是「禁止自重启」，而是**禁止没有人接的自杀**——stop 会杀掉发起 stop 的进程，
+agent 自己停掉之后没人活着发 activate。
+脚本随本技能一起安装（`~/.pi/agent/pideck-skills/pideck-web-api/self-restart.mjs`），三段式：
+```bash
+node ~/.pi/agent/pideck-skills/pideck-web-api/self-restart.mjs        # 干跑：打印会话 id、当前 generation、计划，不做任何事
+node ~/.pi/agent/pideck-skills/pideck-web-api/self-restart.mjs --go   # 真跑：起一个 detached 守卫，本进程随即被 stop 杀掉
+tail -f ~/.pi/agent/ledger/self-restart.log  # 守卫写的日志，重启后从这里读结果
+```
+**三个设计约束**，每条都对应一次会死人的失败：
+| 约束 | 不做会怎样 |
+|---|---|
+| 守卫用 `detached + unref` 起，脱离进程树 | 和 agent 一起被 stop 杀掉，会话永久停着 |
+| 身份只从 `$PIDECK_SESSION_ID` 取，不接受参数覆盖 | 变成「重启别人」的工具，误伤正在干活的窗口 |
+| activate 失败重试 3 次，每次等 80 秒，总上限 150 秒 | 留一个半死的运行时，比停着更难查 |
+**验收判据**（三条，缺一条都算没成功）：
+1. `runtimes[]` 里自己那项的 `runtimeGeneration` 变了 —— 返回 200 不算，这是「真的换了进程」的唯一可判事实。
+2. `/api/health` 返回 200。
+3. 新会话起来后 `~/.pi/agent/ledger/self-restart.state.json` 的 `result` 是 `ok`。
+**做不到的时候**：`cleanup` 阶段（会话正在结束）不要自重启，那时 stop 之后没有 activate 的时机。
+
+**第一条实测（2026-11-14）：「stop → 已停止 → activate 第 1 次 → 200 → generation 1 → 2，health=200」，守卫存活 8 秒（跨过 stop）。** 界面会显示「异常停下」——那是 stop 本身，不是失败。
+
+**从界面上分不清成功和失败，所以要读文件**：`~/.pi/agent/ledger/self-restart.log` 最后一行、`~/.pi/agent/ledger/self-restart.state.json` 的 `result`。
+
+**重启之后第一件事**：读这两个文件确认上一轮是什么结果。成功就把 generation 新值记下来；失败就看停在哪一步——`stop-timeout` 是没停稳（会话可能还在跑，别再发 activate），`start-failed` 是起了三次没起来（需要人工在 PiDeck 里点激活）。
+
+**脱离进程树的判据不是 ppid。** Windows 上 `detached + unref` 之后 ppid 仍指向原进程（实测 46752），但进程组独立，stop 杀不到它。真判据是「stop 之后还能写日志」——守卫在停止与启动之间写出的每一行都是证据。
+
+**守卫自己挂了怎么办**：那是唯一无法自愈的情形（会话停着，守卫也没了）。退路是**让另一个会话重启你**：从任何活着的 PiDeck 会话里，用 §6 的 runtime/stop + activate 指向你的 sessionId。所以自重启前先确认还有一个窗口活着并且能连上 API——那是你唯一的保险。
+真跑之前先确认没有别的会话正在通过 `/api/chat` 调你——你会把它们挂在那里等超时。
+---
 ## 3 拿别人的会话 id
 
 ```bash

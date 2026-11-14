@@ -51,7 +51,7 @@
 		"src/main/sessions/SessionRuntimeCoordinator.ts": 2162,
 		"src/main/sessions/SessionScanner.ts": 1575,
 		"src/main/settings/SettingsStore.ts": 1521,
-		"src/main/skills/SkillManager.ts": 714,
+		"src/main/skills/SkillManager.ts": 697,
 		"src/main/update/UpdateService.ts": 601,
 		"src/main/updates/builtinContentUpdater.ts": 625,
 		"src/main/web/WebApiRoutes.ts": 779,

@@ -215,7 +215,7 @@ export function registerSystemConfigProviderIpc(deps: SystemConfigProviderIpcDep
 	// （只由 PiDeck spawn 时 --skill 注入，TUI 不扫）。
 	// 幂等：内容直接覆盖；启动时也会自动安装（见 index.ts），此处保留手动触发兑底。
 	ipcMain.handle(ipcChannels.configInstallUsageSkill, async () => {
-		const result = await skillManager.installUsageProbeTemplate();
+		const result = await skillManager.installTemplate("usage-probe");
 		if (result.success) {
 			void appLogger.info("skill", "Usage probe skill template installed", { path: result.path });
 			return { success: true, path: result.path };
@@ -226,7 +226,7 @@ export function registerSystemConfigProviderIpc(deps: SystemConfigProviderIpcDep
 
 	// 内置生图技能手动安装入口：与 usage-probe 同理，供 UI/调试触发兑底（启动时已自动装，此处幂等覆盖）。
 	ipcMain.handle(ipcChannels.configInstallImageGenSkill, async () => {
-		const result = await skillManager.installImageGenTemplate();
+		const result = await skillManager.installTemplate("image-gen");
 		if (result.success) {
 			void appLogger.info("skill", "Image-gen skill template installed", { path: result.path });
 			return { success: true, path: result.path };
@@ -237,7 +237,7 @@ export function registerSystemConfigProviderIpc(deps: SystemConfigProviderIpcDep
 
 	// 内置「MCP 配置助手」技能安装入口：MCP 页「让 AI 帮你配」按钮触发（幂等覆盖，重装即更新模板）。
 	ipcMain.handle(ipcChannels.configInstallMcpSetupSkill, async () => {
-		const result = await skillManager.installMcpSetupTemplate();
+		const result = await skillManager.installTemplate("mcp-setup", "pi-global");
 		if (result.success) {
 			void appLogger.info("skill", "MCP setup skill template installed", { path: result.path });
 			return { success: true, path: result.path };

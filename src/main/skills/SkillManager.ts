@@ -12,6 +12,9 @@ import { pideckBundledSkillsDir } from "./pideckSkillsPath";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 
 const SKILL_FILE = "SKILL.md";
+/** 技能目录里除 SKILL.md 之外要一起落盘的附件（相对文件名）。
+ *  为什么需要：self-restart.mjs 是技能正文直接让读者去跑的东西，只装 SKILL.md 会让它成为空指针。 */
+const SKILL_EXTRA_FILES: Record<string, string[]> = { "pideck-web-api": ["self-restart.mjs"] };
 const IMPORT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const IMPORT_MAX_TREE_BYTES = 50 * 1024 * 1024;
 const IMPORT_MAX_DEPTH = 32;
@@ -436,6 +439,11 @@ export class SkillManager {
 			const previous = await readFile(targetPath, "utf8").catch(() => null);
 			const wasUserOnly = previous !== null && this.parseFrontmatter(previous)["disable-model-invocation"] === "true";
 			await writeFile(targetPath, content, "utf8");
+			for (const file of SKILL_EXTRA_FILES[skillName] ?? []) {
+				const from = overlayDir ? join(overlayDir, skillName, file) : join(root, "skills", skillName, file);
+				if (!existsSync(from)) continue;
+				await writeFile(join(targetDir, file), await readFile(from), "utf8");
+			}
 			if (wasUserOnly) {
 				await writeFile(targetPath, this.setFrontmatterBoolean(content, "disable-model-invocation", true), "utf8");
 			}
@@ -462,31 +470,6 @@ export class SkillManager {
 		if (!entry || !entry.isDirectory() || entry.isSymbolicLink()) return;
 		await mkdir(dirname(targetDir), { recursive: true });
 		await rename(legacyDir, targetDir).catch(() => undefined);
-	}
-
-	async installUsageProbeTemplate(): Promise<{ success: true; path: string } | { success: false; error: string }> {
-		return this.installTemplate("usage-probe");
-	}
-
-	async installImageGenTemplate(): Promise<{ success: true; path: string } | { success: false; error: string }> {
-		return this.installTemplate("image-gen");
-	}
-
-	/**
-	 * 安装内置「MCP 配置助手」技能模板（resources/skills/mcp-setup/SKILL.md）。
-	 * 用户在 MCP 页点「让 AI 帮你配」时安装；之后可在任意会话里让 AI 按官方文档代配任意 MCP 服务。
-	 */
-	async installMcpSetupTemplate(): Promise<{ success: true; path: string } | { success: false; error: string }> {
-		// 通用能力（pi 的 mcp.json + pi mcp list），TUI 同样可用，保持装进全局技能目录。
-		return this.installTemplate("mcp-setup", "pi-global");
-	}
-
-	/**
-	 * 安装内置的「环境诊断」技能模板（resources/skills/pideck-doctor/SKILL.md）。
-	 * 用户在问题反馈页生成诊断报告后，可让 pi 直接读报告分析排障（/skill:pideck-doctor）。
-	 */
-	async installPideckDoctorTemplate(): Promise<{ success: true; path: string } | { success: false; error: string }> {
-		return this.installTemplate("pideck-doctor");
 	}
 
 	private async scanLocation(location: PiSkillLocation): Promise<PiSkillSummary[]> {
