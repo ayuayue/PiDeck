@@ -469,9 +469,11 @@ func (a *mobileApp) connect() {
 			a.state.Set(snap)
 			a.connected.Set(true)
 			a.err.Set("")
-			saveMobileSaved(a.cx, rememberConnection(a.recent.GetUntracked(), mobileRecent{
+			saved := rememberConnection(a.recent.GetUntracked(), mobileRecent{
 				Server: client.base, Token: token, Name: a.serverName.Get(), At: time.Now().UnixMilli(),
-			}))
+			})
+			saveMobileSaved(a.cx, saved)
+			a.recent.Set(saved.Recent)
 			a.startPolling()
 		})
 	}()

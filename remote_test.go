@@ -657,6 +657,36 @@ func TestMobileRecentConnections(t *testing.T) {
 	shot(app, "68-mobile-recent")
 }
 
+// TestMobileRecentAfterConnect lists the server the phone just used, without
+// restarting: the saved link alone does not fill the list.
+func TestMobileRecentAfterConnect(t *testing.T) {
+	const token = "phone-token"
+	state := remoteWireSnapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remoteWireProject{{
+		Path: "/tmp/project", Name: "电脑项目", Sessions: []remoteWireSession{{ID: "s1", Title: "电脑上的会话"}},
+	}}}
+	server := newTestHTTPServer(t, token, state, remoteWireTranscript{ID: "s1"})
+	defer server.Close()
+
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", home)
+	raw, err := json.Marshal(mobileSaved{Server: server.URL, Token: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "remote.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
+	waitApp(app, "text:电脑项目", 15*time.Second)
+	app.Press("id:mobile-more")
+	app.Press("id:mobile-disconnect")
+	app.WaitFor("text:最近连接", 5*time.Second)
+	if got := len(app.Query("id:mobile-recent")); got != 1 {
+		t.Fatalf("recent rows = %d, want 1", got)
+	}
+}
+
 // TestMobileAsk answers the desktop's pending question from the phone.
 func TestMobileAsk(t *testing.T) {
 	if testing.Short() || nsgotest.Target() != "" {
