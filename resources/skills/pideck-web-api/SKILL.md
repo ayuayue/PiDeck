@@ -492,6 +492,8 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 ### 7.2 记录层动作：改记录，不碰进程
 
+判据 `check-doc.mjs` 只比路径，不比 HTTP 方法：它抓「源码里没有这条完整路由」，方法列写错它看不见。
+
 | 端点 | 方法 | body / 查询 | 作用 |
 |---|---|---|---|
 | `/api/sessions` | POST | `projectId`（必填）`title` `model` `welcomeModel` `thinkingLevel` `backend` `agentPreset` `acpToolId` `sideTask` | 建一份草稿，返回 `{session}` |
