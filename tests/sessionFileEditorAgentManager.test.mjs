@@ -275,6 +275,7 @@ function createHarness(editor, options = {}) {
 			sessionEnvironment: "native",
 			sessionSource: "pi",
 			createdAt: 1,
+			...(options.standby ? { standby: true } : {}),
 		},
 		process: {
 			client: {
@@ -623,6 +624,19 @@ test("mutatePersistedSessionMessage refuses a live runtime", async () => {
 	const { manager } = createHarness(editor, { status: "idle" });
 	await assert.rejects(manager.mutatePersistedSessionMessage("C:/sessions/session.jsonl", "agent-1-history-a1", "edit", { newText: "changed" }), /BUSY_GENERIC/);
 	assert.equal(called, false);
+});
+
+test("mutatePersistedSessionMessage ignores pooled standby warmup on the same path", async () => {
+	// 「停止 Agent 后立即删除」：stop 已把绑定 runtime 从 agents 移除，但 standby 池里
+	// 可能还有同一 sessionPath 的预热进程（未认领、空闲）。它不持有会话内存树，
+	// 不能被当成「会话正在运行」，否则删除会被静默拒绝（真实用户可见缺陷）。
+	const editor = { editMessage: async () => {} };
+	const { manager } = createHarness(editor, { status: "idle", standby: true });
+	const failure = await manager.mutatePersistedSessionMessage("C:/sessions/session.jsonl", "agent-1-history-a1", "edit", { newText: "changed" }).then(
+		() => null,
+		(error) => error,
+	);
+	assert.ok(!/BUSY_GENERIC/.test(String(failure?.message ?? "")), `standby 预热进程不应触发 BUSY，实际: ${failure?.message}`);
 });
 
 test("mutatePersistedSessionMessage delete accepts a message absent from the file (unpersisted turn)", async () => {

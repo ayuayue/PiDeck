@@ -122,7 +122,13 @@ export class SessionFileWriter {
 		},
 	): Promise<{ text: string; images?: ImageContent[] } | undefined> {
 		const hostPath = this.toSessionHostPath(sessionPath);
-		const live = [...this.agents.values()].find((candidate) => candidate.tab.sessionPath && this.toSessionHostPath(candidate.tab.sessionPath) === hostPath);
+		const live = [...this.agents.values()].find(
+			(candidate) =>
+				// standby 池化进程只是预热的空闲 pi（未认领会话），不持有该会话的内存树，
+				// 不能算「会话正在运行」——否则用户停掉 Agent 后紧跟的删除/编辑会命中
+				// 池里同路径的预热进程，被误判 BUSY 而静默失败（e2e session-history-mutation 回归）。
+				!candidate.tab.standby && candidate.tab.sessionPath && this.toSessionHostPath(candidate.tab.sessionPath) === hostPath,
+		);
 		// 边界防御：协调器已要求先停；这里再拦一次，避免漏调 stop 时静默写文件。
 		if (live && live.tab.status !== "closed" && live.tab.status !== "error") {
 			throw new Error("BUSY_GENERIC: Stop the running agent before mutating the session file");
