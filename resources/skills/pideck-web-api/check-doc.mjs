@@ -77,8 +77,19 @@ function methodsInSource(ep) {
   }
   return out;
 }
+/** 方法列与源码不符时返回源码里的方法列表，相符返回 null。
+ *  抽成函数只为一个目的：自检坏样本能直接喂错方法，证明这条判据会红。
+ *  2026-11-16 变异实验：删掉这段比对，check-doc 照样 PASS——此前它没有坏样本。 */
+function methodMismatch(ep, docMethod) {
+  const real = methodsInSource(ep);
+  return real.length && !real.includes(docMethod) ? real : null;
+}
 
 let bad = 0;
+// 自检坏样本：方法比对必须能红。删掉比对或让它恒返回 null，这里立刻退出。
+const MM_PROBE = "/api/sessions/<id>/copy";
+if (!methodMismatch(MM_PROBE, "GET")) { console.log("FAIL 自检坏样本：方法列写错没被判出来（" + MM_PROBE + "）"); process.exit(1); }
+if (methodMismatch(MM_PROBE, "POST")) { console.log("FAIL 自检正样本：正确方法被误判（" + MM_PROBE + "）"); process.exit(1); }
 let checked = 0;
 for (const line of sec72.split(/\r?\n/)) {
   const mt = line.match(/^\| \x60(\/api[^\x60]*)\x60 \| (GET|POST) \|/);
@@ -87,8 +98,8 @@ for (const line of sec72.split(/\r?\n/)) {
   const docMethod = mt[2];
   checked++;
   if (!routes.has(docNorm(ep))) { console.log("  源码里没有完整路由 " + ep); bad++; continue; }
-  const real = methodsInSource(ep);
-  if (real.length && !real.includes(docMethod)) { console.log("  " + ep + " 文档写 " + docMethod + "，源码是 " + real.join("/")); bad++; }
+  const real = methodMismatch(ep, docMethod);
+  if (real) { console.log("  " + ep + " 文档写 " + docMethod + "，源码是 " + real.join("/")); bad++; }
 }
 if (!checked) { console.log("FAIL 7.2 端点一行都没匹配到"); process.exit(1); }
 
