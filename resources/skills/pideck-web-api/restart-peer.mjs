@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-// 跨会话重启：由**另一个会话**执行，把目标会话的运行时停掉再启动，然后给目标发一条消息。
+// 重启一个会话的运行时：由**另一个会话**执行，stop → activate → 给目标发一条消息。
+// 「重启自己」和「重启别人」用的是同一个脚本：区别只在 --target 指向谁。
 //
-// 与 self-restart.mjs 的区别（技能里写成「推荐做法」的原因）：
-//   self-restart.mjs 由被重启者自己发起，靠一个 detached 守卫接住；守卫自己挂了就无法自愈。
-//   本脚本由别的会话发起，发起者本来就在另一个运行时里，不需要任何自愈机制。
+// 为什么必须由别的会话发起：stop 会杀掉发起请求的那个进程。被重启者自己发，就没有人接 activate。
 //
-// 用法（在协作会话里跑，参数是目标会话的 PiDeck sessionId）：
-//   node restart-peer.mjs --target <sessionId> [--delay-ms 30000] [--message "..."]
-
+// 为什么不用固定等待：目标可能正在生成回复，stop 会把它截断。等 90 秒既慢又靠猜。
+// 这里改成订阅目标的事件流，看到本轮结束帧（finish / [DONE]）就立刻动手；
+// 订阅 8 秒内没有任何 data: 帧，说明目标当前没有回合在跑，也立刻动手。
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -15,7 +14,7 @@ import os from "node:os";
 const LEDGER = path.join(os.homedir(), ".pi", "agent", "ledger");
 const LOG = path.join(LEDGER, "restart-peer.log");
 const STATE = path.join(LEDGER, "restart-peer.state.json");
-const LIMIT = { stop: 60_000, start: 80_000, poll: 1_500 };
+const LIMIT = { stop: 60_000, start: 80_000, poll: 1_500, waitTurnEnd: 120_000, quiet: 8_000 };
 
 function log(line) {
   const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -42,6 +41,7 @@ function arg(name, fallback) {
   return i >= 0 ? process.argv[i + 1] : fallback;
 }
 
+// settings.json 是端口与令牌的唯一真值；Dev 通道目录叫 PiDeck Dev。
 function settings() {
   const base = process.env.APPDATA || "";
   for (const dir of ["PiDeck", "PiDeck Dev"]) {
@@ -81,18 +81,77 @@ async function waitUntil(fn, limit, label) {
   return false;
 }
 
+// 等目标当前回合结束。返回 turn-end / quiet / idle / closed / cap / error。
+// 判据是目标自己的事件流：finish 或 [DONE] 出现即本轮结束；6 秒无事件即视为没有活跃回合。
+async function waitTurnEnd(targetId, capMs) {
+  const started = Date.now();
+  const ctl = new AbortController();
+  const cap = setTimeout(() => ctl.abort(), capMs);
+  try {
+    const res = await fetch(BASE + "/api/sessions/" + targetId + "/stream", {
+      headers: TOKEN ? { Authorization: "Bearer " + TOKEN } : {},
+      signal: ctl.signal,
+    });
+    log("订阅目标事件流 -> " + res.status);
+    if (!res.body) return "no-stream";
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let frames = 0;
+    // keepAlive 会定期发注释行（不是 data:），所以「静默」按最后一个 data: 帧算，不按最后一条字节。
+    let lastEvent = Date.now();
+    while (Date.now() - started < capMs) {
+      const left = Math.max(200, LIMIT.quiet - (Date.now() - lastEvent));
+      const step = await Promise.race([reader.read(), sleep(left).then(() => ({ timeout: true }))]);
+      if (step.timeout) {
+        if (Date.now() - lastEvent >= LIMIT.quiet) {
+          log("目标 " + Math.round(LIMIT.quiet / 1000) + " 秒没有新的 data: 帧，视为没有活跃回合，动手");
+          return frames ? "quiet" : "idle";
+        }
+        continue;
+      }
+      if (step.done) {
+        log("目标事件流结束，动手");
+        return "closed";
+      }
+      buf += dec.decode(step.value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        if (!line.startsWith("data:")) continue;
+        frames++;
+        lastEvent = Date.now();
+        if (line.includes("\"finish\"") || line.includes("[DONE]")) {
+          log("收到本轮结束帧（第 " + frames + " 帧），动手");
+          return "turn-end";
+        }
+      }
+    }
+    log("等待上限 " + capMs + " 毫秒用尽，目标仍在流式输出；这次不动手");
+    return "cap";
+  } catch (e) {
+    if (e && e.name === "AbortError") return "cap";
+    log("订阅出错：" + (e && e.message));
+    return "error";
+  } finally {
+    clearTimeout(cap);
+    try { ctl.abort(); } catch {}
+  }
+}
+
 async function main() {
   const targetId = arg("--target", "");
-  const delayMs = Number(arg("--delay-ms", "0")) || 0;
-  const message = arg("--message", "跨会话重启完成。这条消息由协作会话在重启之后发出，用来验证目标会话能被唤醒。");
+  const waitCap = Number(arg("--wait-turn-end", String(LIMIT.waitTurnEnd))) || LIMIT.waitTurnEnd;
+  const noWait = process.argv.includes("--no-wait");
+  const message = arg("--message", "重启完成。这条消息由协作会话在重启之后发出，用来验证目标能被唤醒。");
   if (!targetId) {
-    console.error("用法：node restart-peer.mjs --target <sessionId> [--delay-ms 毫秒] [--message 文本]");
+    console.error("用法：node restart-peer.mjs --target <sessionId> [--wait-turn-end 毫秒] [--no-wait] [--wait-only] [--message 文本]");
     process.exit(2);
   }
   const selfId = process.env.PIDECK_SESSION_ID || "";
-  log("协作会话 " + selfId + " 开始重启目标 " + targetId + (delayMs ? "（延迟 " + delayMs + "ms）" : ""));
-
-  if (delayMs) await sleep(delayMs);
+  const t0 = Date.now();
+  log("协作会话 " + selfId + " 开始重启目标 " + targetId);
 
   const before = (await runtimes()).find((x) => x.sessionId === targetId);
   if (!before) {
@@ -102,6 +161,23 @@ async function main() {
   }
   log("重启前 generation=" + before.runtimeGeneration);
 
+  // 调试用：只判定目标当前有没有回合在跑，不动手（不会被误用成重启）。
+  if (process.argv.includes("--wait-only")) {
+    const waited = await waitTurnEnd(targetId, waitCap);
+    log("--wait-only：判定 " + waited + "，耗时 " + Math.round((Date.now() - t0) / 1000) + " 秒；没有动任何东西");
+    state({ result: "wait-only", waited, targetId });
+    return;
+  }
+  if (!noWait) {
+    const waited = await waitTurnEnd(targetId, waitCap);
+    state({ waited, waitMs: Date.now() - t0 });
+    if (waited === "cap" || waited === "error") {
+      log("放弃：目标可能还在生成，重来一次或加 --no-wait 强制");
+      state({ result: "wait-failed", waited, targetId });
+      process.exit(1);
+    }
+  }
+
   const stop = await api("/api/sessions/" + targetId + "/runtime/stop", {
     method: "POST",
     body: JSON.stringify({ target: { sessionId: before.sessionId, agentId: before.agentId, runtimeGeneration: before.runtimeGeneration } }),
@@ -110,7 +186,7 @@ async function main() {
 
   const gone = await waitUntil(async () => !(await runtimes()).some((x) => x.sessionId === targetId), LIMIT.stop, "停止");
   if (!gone) {
-    log("失败：没停稳。按技能 §5.6，此时不要再发 activate");
+    log("失败：没停稳。按技能 §5.7，此时不要再发 activate");
     state({ result: "stop-timeout", targetId, genBefore: before.runtimeGeneration });
     process.exit(1);
   }
@@ -133,10 +209,10 @@ async function main() {
     state({ result: "start-failed", targetId, genBefore: before.runtimeGeneration, health });
     process.exit(1);
   }
-  log("成功：generation " + before.runtimeGeneration + " -> " + after.runtimeGeneration + "，health=" + health);
-  state({ result: health === 200 ? "ok" : "up-but-unhealthy", targetId, genBefore: before.runtimeGeneration, genAfter: after.runtimeGeneration, health });
+  const totalMs = Date.now() - t0;
+  log("成功：generation " + before.runtimeGeneration + " -> " + after.runtimeGeneration + "，health=" + health + "，总耗时 " + Math.round(totalMs / 1000) + " 秒");
+  state({ result: health === 200 ? "ok" : "up-but-unhealthy", targetId, genBefore: before.runtimeGeneration, genAfter: after.runtimeGeneration, health, totalMs });
 
-  // 重启后由协作会话发一条消息，证明目标会话真的能被唤醒（这是人工重启里「他再发」那一步）。
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 10_000);
   try {

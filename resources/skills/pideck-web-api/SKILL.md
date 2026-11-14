@@ -112,10 +112,16 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$SELF/messages/page?before=<windowStart>&
 脚本 `restart-peer.mjs` 随技能安装，由**协作会话**执行，参数是目标会话 id：
 
 ```bash
-node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <目标 sessionId> --delay-ms 40000 --message "重启完成，这条消息用来验证目标能被唤醒"
+node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <目标 sessionId> --message "重启完成，这条消息用来验证目标能被唤醒"
 ```
 
-`--delay-ms` 让目标当前那条回复先发完，再动手。
+**不用固定等待**。脚本先订阅目标的事件流，再按判据动手：
+
+- 看到本轮结束帧（`finish` 或 `[DONE]`）：目标刚回完话，立刻 stop，回复不会被截断。
+- 8 秒内没有任何 `data:` 帧：目标当前没有回合在跑，立刻 stop。
+- 默认上限 120 秒；超时不动作，报 `wait-failed`。目标一直在流式输出时不硬来。
+
+三个开关：`--no-wait` 不等直接动手；`--wait-only` 只判定不动手（不会停任何人）；`--wait-turn-end <毫秒>` 改上限。
 
 它按顺序做五件事，每件写进 `~/.pi/agent/ledger/restart-peer.log`：
 
@@ -125,8 +131,9 @@ node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <目标 
 4. 等 `runtimeGeneration` 变化且 `/api/health` 是 200（最多 80 秒）
 5. 给目标发一条消息，证明它真的能被唤醒
 
-判据三条，全在日志里：
+判据四条，全在日志里：
 
+0. 先出现等待判定：`收到本轮结束帧` 或 `视为没有活跃回合`。
 1. `stop -> 200`，随后出现 `目标已停止`。
 2. `activate -> 200`，随后出现 `成功：generation N -> N+1，health=200`。
 3. `唤醒消息 -> 200`。
@@ -134,7 +141,7 @@ node ~/.pi/agent/pideck-skills/pideck-web-api/restart-peer.mjs --target <目标 
 最终结论在 `~/.pi/agent/ledger/restart-peer.state.json` 的 `result`，取值见 §5.4。
 
 
-**实测（2026-11-14，Windows，PiDeck 发行版）**：协作会话 b1e367af 执行本脚本重启 cf4bffc3，日志依次是 `目标已停止» → `成功：generation 2 -> 3，health=200» → `唤醒消息 -> 200»，`state.result» 为 `ok»；被重启方的 `agentId» 由 `3fe9ddcd…» 变为 `a2217435…»。演练最后一步由被重启方执行：它把协作会话停掉（代号 4 → 从 `runtimes[]» 消失），证明两个方向用的是同一套动作。
+**实测（2026-11-14，Windows，PiDeck 发行版）**：协作会话 b1e367af 执行本脚本重启 cf4bffc3，日志依次是 `目标已停止` → `成功：generation 2 -> 3，health=200` → `唤醒消息 -> 200`，`state.result` 为 `ok`；被重启方的 `agentId` 由 `3fe9ddcd…` 变为 `a2217435…`。等待判定不用固定时长：目标空闲时 8 秒判 `idle`，目标正在回话时收到第 12 帧即判 `turn-end`（4 秒）。演练最后一步由被重启方执行：它把协作会话停掉（代号 4 → 从 `runtimes[]` 消失），证明两个方向用的是同一套动作。
 
 ### 5.2 你重启别人
 
