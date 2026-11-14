@@ -340,11 +340,20 @@ type app struct {
 	imageResults  *core.Signal[[][]byte]
 	imageSelected *core.Signal[int]
 	imageType     *core.Signal[string]
-	confirmOpen   *core.Signal[bool]
-	confirmHead   *core.Signal[string]
-	confirmBody   *core.Signal[string]
-	confirmWhy    *core.Signal[string]
-	confirmFn     func()
+	// The vision bridge.
+	visionOpen     *core.Signal[bool]
+	visionPath     *core.Signal[string]
+	visionQuestion *core.Signal[string]
+	visionModel    *core.Signal[string]
+	visionProvider *core.Signal[string]
+	visionBusy     *core.Signal[bool]
+	visionErr      *core.Signal[string]
+	visionText     *core.Signal[string]
+	confirmOpen    *core.Signal[bool]
+	confirmHead    *core.Signal[string]
+	confirmBody    *core.Signal[string]
+	confirmWhy     *core.Signal[string]
+	confirmFn      func()
 
 	pick *pickerState
 
@@ -465,6 +474,14 @@ func newApp(cx *core.Scope) *app {
 		imageResults:          core.NewSignalFunc(cx, [][]byte(nil), nil),
 		imageSelected:         core.NewSignal(cx, 0),
 		imageType:             core.NewSignal(cx, ""),
+		visionOpen:            core.NewSignal(cx, false),
+		visionPath:            core.NewSignal(cx, ""),
+		visionQuestion:        core.NewSignal(cx, ""),
+		visionModel:           core.NewSignal(cx, ""),
+		visionProvider:        core.NewSignal(cx, ""),
+		visionBusy:            core.NewSignal(cx, false),
+		visionErr:             core.NewSignal(cx, ""),
+		visionText:            core.NewSignal(cx, ""),
 		confirmOpen:           core.NewSignal(cx, false),
 		confirmHead:           core.NewSignal(cx, ""),
 		confirmBody:           core.NewSignal(cx, ""),
@@ -1349,6 +1366,17 @@ func (a *app) openPicker(mode string) {
 // typing a path or seeing what a folder holds.
 func (a *app) pickNative(mode string) {
 	switch mode {
+	case "image":
+		a.cx.PickFiles(core.PickFilesOptions{Types: []string{".png", ".jpg", ".jpeg", ".webp", ".gif"}}, func(files []core.File, err error) {
+			switch {
+			case err != nil:
+				a.toast(ui.ToastError, "选择图片失败", err.Error())
+			case len(files) == 0:
+				// Cancelled.
+			default:
+				a.visionPath.Set(files[0].Path)
+			}
+		})
 	case "import":
 		a.cx.PickFiles(core.PickFilesOptions{Types: []string{".jsonl"}}, func(files []core.File, err error) {
 			switch {

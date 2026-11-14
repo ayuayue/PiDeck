@@ -105,6 +105,10 @@ type config struct {
 	ImageProvider string `json:"imageProvider,omitempty"`
 	ImageModel    string `json:"imageModel,omitempty"`
 	ImageSize     string `json:"imageSize,omitempty"`
+	// VisionProvider and VisionModel remember the vision bridge's last
+	// choices.
+	VisionProvider string `json:"visionProvider,omitempty"`
+	VisionModel    string `json:"visionModel,omitempty"`
 	// ProxyApp routes the app's own HTTP calls, ProxyAgent the agent
 	// processes it starts, and ProxyBypass is their shared no-proxy list.
 	ProxyApp    string `json:"proxyApp,omitempty"`

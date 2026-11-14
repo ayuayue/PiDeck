@@ -37,6 +37,7 @@ func (a *app) view() core.Node {
 		a.promptStoreDialog(),
 		a.mcpDialog(),
 		a.imageDialog(),
+		a.visionDialog(),
 		a.confirmDialog(),
 		a.askDialog(),
 		a.remoteQRDialog(),
