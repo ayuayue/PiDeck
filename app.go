@@ -354,6 +354,7 @@ type app struct {
 	imageResults  *core.Signal[[][]byte]
 	imageSelected *core.Signal[int]
 	imageType     *core.Signal[string]
+	imageCount    *core.Signal[int]
 	// The vision bridge.
 	visionOpen     *core.Signal[bool]
 	visionPath     *core.Signal[string]
@@ -494,6 +495,7 @@ func newApp(cx *core.Scope) *app {
 		imageResults:          core.NewSignalFunc(cx, [][]byte(nil), nil),
 		imageSelected:         core.NewSignal(cx, 0),
 		imageType:             core.NewSignal(cx, ""),
+		imageCount:            core.NewSignal(cx, 1),
 		visionOpen:            core.NewSignal(cx, false),
 		visionPath:            core.NewSignal(cx, ""),
 		visionQuestion:        core.NewSignal(cx, ""),

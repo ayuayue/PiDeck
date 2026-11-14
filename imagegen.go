@@ -19,30 +19,41 @@ import (
 // imageGenTimeout is how long a provider may take to draw one image.
 const imageGenTimeout = 180 * time.Second
 
-// generateImage asks a provider for one image and returns its bytes and
-// MIME type.
-func generateImage(cfg providerConfig, model, prompt, size string) ([]byte, string, error) {
+// generatedImage is one picture a provider returned.
+type generatedImage struct {
+	Data []byte
+	Mime string
+}
+
+// generateImage asks a provider for n images and returns them.
+func generateImage(cfg providerConfig, model, prompt, size string, n int) ([]generatedImage, error) {
 	base := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	switch {
 	case base == "":
-		return nil, "", errors.New("这个供应商没有 Base URL")
+		return nil, errors.New("这个供应商没有 Base URL")
 	case strings.TrimSpace(prompt) == "":
-		return nil, "", errors.New("先写一句画面描述")
+		return nil, errors.New("先写一句画面描述")
 	case strings.TrimSpace(model) == "":
-		return nil, "", errors.New("先填图片模型名")
+		return nil, errors.New("先填图片模型名")
+	}
+	if n < 1 {
+		n = 1
+	}
+	if n > 4 {
+		n = 4
 	}
 	body, err := json.Marshal(map[string]any{
-		"model": model, "prompt": prompt, "n": 1, "size": size,
+		"model": model, "prompt": prompt, "n": n, "size": size,
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	status, data, err := providerRequestTimeout(http.MethodPost, base+"/images/generations", providerKey(cfg), body, imageGenTimeout)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, "", fmt.Errorf("HTTP %d：%s", status, shorten(string(data), 200))
+		return nil, fmt.Errorf("HTTP %d：%s", status, shorten(string(data), 200))
 	}
 	var out struct {
 		Data []struct {
@@ -51,23 +62,30 @@ func generateImage(cfg providerConfig, model, prompt, size string) ([]byte, stri
 		} `json:"data"`
 	}
 	if json.Unmarshal(data, &out) != nil || len(out.Data) == 0 {
-		return nil, "", errors.New("返回里没有图片")
+		return nil, errors.New("返回里没有图片")
 	}
-	if b64 := strings.TrimSpace(out.Data[0].B64); b64 != "" {
-		raw, err := base64.StdEncoding.DecodeString(b64)
-		if err != nil {
-			return nil, "", fmt.Errorf("图片数据不对：%w", err)
+	var images []generatedImage
+	for _, item := range out.Data {
+		if b64 := strings.TrimSpace(item.B64); b64 != "" {
+			raw, err := base64.StdEncoding.DecodeString(b64)
+			if err != nil {
+				return nil, fmt.Errorf("图片数据不对：%w", err)
+			}
+			images = append(images, generatedImage{Data: raw, Mime: imageMimeOf(raw)})
+			continue
 		}
-		return raw, imageMimeOf(raw), nil
-	}
-	if u := strings.TrimSpace(out.Data[0].URL); u != "" {
-		raw, err := downloadImage(u)
-		if err != nil {
-			return nil, "", err
+		if u := strings.TrimSpace(item.URL); u != "" {
+			raw, err := downloadImage(u)
+			if err != nil {
+				return nil, err
+			}
+			images = append(images, generatedImage{Data: raw, Mime: imageMimeOf(raw)})
 		}
-		return raw, imageMimeOf(raw), nil
 	}
-	return nil, "", errors.New("返回里没有图片")
+	if len(images) == 0 {
+		return nil, errors.New("返回里没有图片")
+	}
+	return images, nil
 }
 
 // downloadImage reads an image a provider linked instead of inlining.

@@ -109,6 +109,7 @@ type config struct {
 	ImageProvider string `json:"imageProvider,omitempty"`
 	ImageModel    string `json:"imageModel,omitempty"`
 	ImageSize     string `json:"imageSize,omitempty"`
+	ImageCount    int    `json:"imageCount,omitempty"`
 	// VisionProvider and VisionModel remember the vision bridge's last
 	// choices.
 	VisionProvider string `json:"visionProvider,omitempty"`
@@ -278,6 +279,12 @@ func normalizeConfig(c *config) bool {
 			c.ChatWidth = w
 			changed = true
 		}
+	}
+	switch c.ImageCount {
+	case 0, 1, 2, 4:
+	default:
+		c.ImageCount = 0
+		changed = true
 	}
 	if c.RemotePort != 0 && (c.RemotePort < 1 || c.RemotePort > 65535) {
 		c.RemotePort = 0

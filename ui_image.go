@@ -31,6 +31,11 @@ func (a *app) openImageDialog() {
 	a.imageSelected.Set(0)
 	a.imageType.Set("")
 	a.imageBusy.Set(false)
+	count := a.cfg.ImageCount
+	if count < 1 {
+		count = 1
+	}
+	a.imageCount.Set(count)
 	a.imageOpen.Set(true)
 }
 
@@ -59,6 +64,7 @@ func (a *app) generateImageNow() {
 	prompt := strings.TrimSpace(a.imagePrompt.GetUntracked())
 	model := strings.TrimSpace(a.imageModel.GetUntracked())
 	size := a.imageSize.GetUntracked()
+	count := a.imageCount.GetUntracked()
 	if prompt == "" || model == "" {
 		a.imageErr.Set("画面描述和模型名都要填。")
 		return
@@ -66,28 +72,35 @@ func (a *app) generateImageNow() {
 	a.imageBusy.Set(true)
 	a.imageErr.Set("")
 	go func() {
-		raw, mime, err := generateImage(*cfg, model, prompt, size)
+		images, err := generateImage(*cfg, model, prompt, size, count)
 		a.cx.Post(func() {
 			a.imageBusy.Set(false)
 			if err != nil {
 				a.imageErr.Set(err.Error())
 				return
 			}
-			a.imageType.Set(mime)
+			if len(images) > 0 {
+				a.imageType.Set(images[0].Mime)
+			}
 			n := 0
 			a.imageResults.Update(func(list [][]byte) [][]byte {
 				n = len(list)
-				return append(list, raw)
+				for _, img := range images {
+					list = append(list, img.Data)
+				}
+				return list
 			})
-			a.imageSelected.Set(n)
+			a.imageSelected.Set(n + len(images) - 1)
 			a.cfg.ImageProvider, a.cfg.ImageModel, a.cfg.ImageSize = cfg.ID, model, size
+			a.cfg.ImageCount = count
 			if a.st != nil {
 				a.st.edit(func(c *config) {
 					c.ImageProvider, c.ImageModel, c.ImageSize = cfg.ID, model, size
+					c.ImageCount = count
 				})
 			}
 			a.emit(eventImageGenerated, appEvent{Data: map[string]string{
-				"provider": cfg.ID, "model": model, "size": size,
+				"provider": cfg.ID, "model": model, "size": size, "count": fmt.Sprint(len(images)),
 			}})
 		})
 	}()
@@ -137,6 +150,29 @@ func (a *app) saveGeneratedImage() {
 	}
 	a.imageOpen.Set(false)
 	a.toastAction(ui.ToastSuccess, "已保存图片", path, "打开", func() { a.cx.OpenURL(fileURL(path), nil) })
+}
+
+// imageCountChips picks how many images one request draws.
+func (a *app) imageCountChips(colors ui.Colors) core.Node {
+	var chips []core.Node
+	for _, n := range []int{1, 2, 4} {
+		n := n
+		chips = append(chips, core.View{
+			OnPress: func(core.PressEvent) { a.imageCount.Set(n) },
+			Role:    core.RoleRadio, Label: T("%d 张", n), TestID: fmt.Sprintf("image-count-%d", n),
+			StyleFunc: func() core.Style {
+				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(26), Padding: core.Symmetric(0, 9),
+					CornerRadius: 13, BorderWidth: 1, BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}}
+				if a.imageCount.Get() == n {
+					st.Background = colors.Pressed()
+					st.BorderColor = colors.Text()
+				}
+				return st
+			},
+			Children: []core.Node{ui.Text(T("%d 张", n), 11.5, ui.Regular, colors.Text)},
+		})
+	}
+	return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)}, Children: chips}
 }
 
 // imageDialog generates an image and offers to attach or save it.
@@ -189,6 +225,10 @@ func (a *app) imageDialog() core.Node {
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				ui.Text("尺寸", 10.5, ui.Medium, colors.Muted),
 				choiceChips(sizeChoices, func() string { return a.imageSize.Get() }, func(v string) { a.imageSize.Set(v) }),
+			}},
+			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
+				ui.Text(T("数量"), 10.5, ui.Medium, colors.Muted),
+				a.imageCountChips(colors),
 			}},
 		)
 		switch {
