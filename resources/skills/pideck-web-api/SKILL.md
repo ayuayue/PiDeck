@@ -455,9 +455,16 @@ PiDeck 里正常新建的会话不受这个影响。
 | `rewind-restore` | `checkpointId` `scope` | 回滚到某检查点 |
 | `export-html` | — | 导出成 HTML |
 
-`activate` 是唯一不要 target 的——它要做的正是「这个冷会话现在起来」，没有 target 可回传。
+`activate` 是唯一不要 target 的——它要做的正是「这个冷会话现在起来」，没有 target 可回传。其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
+
+`target.agentId` 是真闸：给假值会被拒（2026-11-14 在 Windows 发行版上实测）。`target.runtimeGeneration` 不校验，给 999 也照做。三个字段都传最稳。
 
 **`activate` 是冷启动，别按毫秒算。** 本机实测（Windows 发行版，进程完全没起）一次 3556 毫秒；别人机器上记过一次 45 毫秒，那是进程已经预热的情况。给它设超时按 5 秒以上给。
+
+```bash
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
+  "$BASE/api/sessions/<sessionId>/runtime/activate"
+```
 
 **`state` 是唯一能一次问清「它现在在干嘛」的动作。** 返回体套两层：`{result:{ok, value:{target, value:{...}}}}`，真正的字段在里层：
 
@@ -470,6 +477,8 @@ PiDeck 里正常新建的会话不受这个影响。
 | `toolStateSequence` | 工具状态序号，每变一次 +1，拿它看它有没有在动 |
 
 **`permission` 在 pi 后端一定失败。** 源码里只给 DSH 后端注册了这个能力，pi 会话发过去返回 `SESSION_COMMAND_FAILED`（本机实测）。要改 pi 会话的权限，走记录层的 `update` 或者界面。
+
+**鉴权规则**：写操作（POST）只认请求头。`?token=` 查询参数只对 GET 和 SSE 开放，因为浏览器的 EventSource 不能自定义请求头；写操作开这个口子会把令牌漏进代理日志和浏览器历史。
 
 其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
 
@@ -493,13 +502,6 @@ PiDeck 里正常新建的会话不受这个影响。
 **首条消息会改写标题。** 新会话建好时标题是你给的那个，第一轮对话结束后 pi 的命名扩展会用模型重新起一个（`titleOrigin` 字段记录「这条标题是谁取的」）。所以拿标题认会话会认错，认会话只认 id。
 
 **删除不等于停进程。** `delete` 删的是记录，界面上那份条目要到下一次状态推送才消失，偶尔会看到几秒残影，刷新即无。
-
-```bash
-curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
-  "$BASE/api/sessions/<sessionId>/runtime/activate"
-```
-
-**鉴权规则**：写操作（POST）只认请求头。`?token=` 查询参数只对 GET 和 SSE 开放，因为浏览器的 EventSource 不能自定义请求头；写操作开这个口子会把令牌漏进代理日志和浏览器历史。
 
 ## 8 动别的会话之前先问
 
