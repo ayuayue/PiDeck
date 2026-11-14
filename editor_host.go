@@ -374,6 +374,16 @@ func editorLanguage(path string) string {
 	return strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
 }
 
+// toggleEditorWrap flips soft wrapping in the editor.
+func (a *app) toggleEditorWrap() {
+	on := !a.editorWrap.GetUntracked()
+	a.editorWrap.Set(on)
+	a.cfg.EditorWrap = on
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.EditorWrap = on })
+	}
+}
+
 // saveAllFiles writes every dirty file, skipping ones still loading.
 func (a *app) saveAllFiles() {
 	if a.editor == nil {

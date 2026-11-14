@@ -145,6 +145,8 @@ type config struct {
 	FeishuInbound     bool   `json:"feishuInbound,omitempty"`
 	FeishuVerifyToken string `json:"feishuVerifyToken,omitempty"`
 	FeishuReply       bool   `json:"feishuReply,omitempty"`
+	// EditorWrap soft-wraps long lines in the built-in editor.
+	EditorWrap bool `json:"editorWrap,omitempty"`
 	// PetEnabled shows the desktop pet window.
 	PetEnabled bool `json:"petEnabled,omitempty"`
 	// EditorCommand opens files outside the app; empty detects one.

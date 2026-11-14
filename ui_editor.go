@@ -100,6 +100,8 @@ func (a *app) editorActions() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
 		ui.IconButton{Icon: lucide.Save, Label: "保存", Size: 28, IconSize: 14, TestID: "editor-save",
 			Disabled: func() bool { return !dirty() }, OnPress: func() { a.saveActiveFile() }},
+		ui.IconButton{Icon: lucide.TextWrap, Label: "自动换行", Size: 28, IconSize: 14, TestID: "editor-wrap",
+			Selected: a.editorWrap.Get, OnPress: a.toggleEditorWrap},
 		ui.IconButton{Icon: lucide.SaveAll, Label: "保存所有文件", Size: 28, IconSize: 14, TestID: "editor-save-all",
 			Disabled: func() bool {
 				for _, f := range a.editor.files.GetUntracked() {
@@ -155,7 +157,7 @@ func (a *app) editorBody() core.Node {
 				AutoFocus:  true,
 				FontSize:   13,
 				LineHeight: 21,
-				SoftWrap:   false,
+				SoftWrap:   a.editorWrap.Get(),
 				StylesFunc: editorStyles(cx),
 				TestID:     "editor",
 				Style:      core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},

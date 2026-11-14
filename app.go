@@ -289,7 +289,8 @@ type app struct {
 
 	// langRev changes when the interface language does, so pages that
 	// hold static text rebuild.
-	langRev *core.Signal[int]
+	langRev    *core.Signal[int]
+	editorWrap *core.Signal[bool]
 	// chatWidth is the transcript's reading width, so a slider drag
 	// rebuilds the chat without touching the stored config.
 	chatWidth *core.Signal[int]
@@ -628,6 +629,7 @@ func newApp(cx *core.Scope) *app {
 		promptImportErr:        core.NewSignal(cx, ""),
 		promptCat:              core.NewSignal(cx, ""),
 		langRev:                core.NewSignal(cx, 0),
+		editorWrap:             core.NewSignal(cx, false),
 		chatWidth:              core.NewSignal(cx, 0),
 		providerOpen:           core.NewSignal(cx, false),
 		providerID:             core.NewSignal(cx, ""),
@@ -687,6 +689,7 @@ func newApp(cx *core.Scope) *app {
 	a.initDiag()
 	a.cfg = st.config()
 	a.chatWidth.Set(a.cfg.ChatWidth)
+	a.editorWrap.Set(a.cfg.EditorWrap)
 	// A crash from the last run is worth one notice, with a way to look.
 	if path, at, ok := latestCrash(a.dataDir); ok && filepath.Base(path) != a.cfg.CrashSeen {
 		name := filepath.Base(path)

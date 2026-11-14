@@ -69,6 +69,9 @@ func builtinCommands() []appCommand {
 				}
 				a.closeTab(a.activeID.GetUntracked())
 			}},
+		{ID: "editor-wrap", Label: "自动换行", Group: "文件", Icon: lucide.TextWrap,
+			When: func(a *app) bool { return a.editorOpen() },
+			Run:  func(a *app) { a.toggleEditorWrap() }},
 		{ID: "save-all-files", Label: "保存所有文件", Group: "文件", Shortcut: "mod+alt+s", Icon: lucide.SaveAll,
 			When: func(a *app) bool {
 				if !a.editorOpen() {

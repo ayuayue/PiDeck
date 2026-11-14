@@ -52,6 +52,7 @@ var appSettingFields = []settingField{
 	{Key: "proxyAgent", Type: "text", Default: ""},
 	{Key: "proxyBypass", Type: "text", Default: ""},
 	{Key: "editorCommand", Type: "text", Default: ""},
+	{Key: "editorWrap", Type: "bool", Default: false},
 }
 
 // settingsSchema is the schema as the diagnostics bundle carries it.
