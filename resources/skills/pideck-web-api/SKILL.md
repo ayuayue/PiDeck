@@ -80,11 +80,12 @@ curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" |
 
 **认自己的目的是不出错。** 怎么判只一条：拿到的 id 在 `/api/state` 的 `sessions[]` 里能找到。找不到就是坐标系错了。
 
+### 连通性自检：四条，一次跑完
 
-四条验证，每条写了该返回什么，**放在同一次调用里跑**（变量不跨段）：
+每条都写了该返回什么。四条**放在同一次调用里跑**，因为变量不跨段：
 
 ```bash
-curl -s -o /dev/null -w 'health=%{http_code}\n' "$BASE/api/health"              # 期望 health=200。实测 state、runtimes、models、projects 不带令牌都是 401
+curl -s -o /dev/null -w 'health=%{http_code}\n' "$BASE/api/health"              # 期望 health=200。除 health 外的端点不带令牌一律 401（state 实测过）
 curl -s -o /dev/null -w 'state有令牌=%{http_code}\n' -H "$AUTH" "$BASE/api/state"  # 期望 200
 curl -s -o /dev/null -w 'state无令牌=%{http_code}\n' "$BASE/api/state"             # 期望 401
 curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300                    # 期望 {"runtimes":[...]}
