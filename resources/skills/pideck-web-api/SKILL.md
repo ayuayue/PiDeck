@@ -276,6 +276,18 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   "$BASE/api/sessions/<sessionId>/runtime/stop"
 ```
 
+**`activate` 是唯一不带 target 的动作**。它要做的正是「这个冷会话（此刻不在 `runtimes[]` 里）现在
+起来」，所以没有 target 可回传。body 传 `{}` 就行，响应直接给新的 runtime 对象：
+
+```bash
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
+  "$BASE/api/sessions/<sessionId>/runtime/activate"
+```
+
+2026-11-14 实测：目标是一个 7389 条历史、压缩过 23 次、`runtimes[]` 里没有的会话。这条请求返回 200，
+body 里带 `agentId`、`runtimeGeneration: 3`、`status: "idle"`、`compactionCount: 23`；紧接着 `runtimes[]`
+里就有它了。另外三个（`stop` / `abort` / `restart`）都要完整 target——它们作用在已经存在的进程上。
+
 **验证**：动作之后再读一次 `runtimes[]`，`runtimeGeneration` 变了才算真的换了进程。接口返回 200 不算——那只说明请求收到了。
 
 ## 9 最终自检
