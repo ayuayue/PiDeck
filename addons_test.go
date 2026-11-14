@@ -698,3 +698,27 @@ func TestPluginHookSessionCreated(t *testing.T) {
 	app.Press("id:welcome-primary")
 	app.WaitForGone("id:sidebar-panel", 5*time.Second)
 }
+
+// TestPluginManifestOpen opens a plugin's file from the addons page.
+func TestPluginManifestOpen(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := editorWorkspace(t)
+	dir := filepath.Join(home, "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"id":"team","name":"团队插件","version":"1.0.0","contributes":{"commands":[{"id":"go","title":"走","action":{"type":"prompt","prompt":"x"}}]}}`
+	if err := os.WriteFile(filepath.Join(dir, "team.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-addons")
+	app.WaitFor("id:plugin-open-team", 10*time.Second)
+	app.Press("id:plugin-open-team")
+	app.WaitFor("id:editor", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:团队插件")) > 0 })
+}

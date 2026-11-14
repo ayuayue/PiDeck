@@ -944,6 +944,16 @@ func (a *app) settingsAddons() core.Node {
 			} else {
 				control = ui.Text("无法读取", 10.5, ui.Regular, colors.Danger)
 			}
+			if plug.Path != "" {
+				dir, path := plug.Dir, plug.Path
+				open := ui.IconButton{Icon: lucide.FileText, Label: T("查看插件清单"), Size: 24, IconSize: 12,
+					TestID: "plugin-open-" + plug.ID, OnPress: func() {
+						a.settings.Set(false)
+						a.openEditorFile(dir, path)
+					}}
+				control = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
+					Children: []core.Node{control, open}}
+			}
 			rows = append(rows, setRow(title, desc, control))
 			var lines []core.Node
 			meta := pluginSummary(plug)

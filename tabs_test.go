@@ -51,6 +51,7 @@ func TestReopenTab(t *testing.T) {
 	if testing.Short() || nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
+	t.Setenv("PIDECK_LITE_HOME", editorWorkspace(t))
 	app := startApp(t, workspaceWith(t), 1320, 860)
 	waitApp(app, "id:pi-ready", 90*time.Second)
 	app.Key("mod+n")
