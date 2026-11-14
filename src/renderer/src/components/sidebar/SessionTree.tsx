@@ -10,7 +10,6 @@ import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
 import { linkedSessionLinkByChildIdAtom } from "../../atoms/linked-session-atoms";
 import type { LinkedSessionLink, LinkedSessionState } from "../../../../shared/types/linkedSessions";
 import { t } from "../../i18n";
-import { formatRelativeTime } from "../../utils/relativeTime";
 import { hasPendingAskForSession } from "../../utils/askUi";
 import { filterSidebarSessions, getBoundSidebarRuntimeAgent, type SidebarController } from "../../hooks/useSidebarController";
 import { Button } from "../ui-shadcn/button";
@@ -20,6 +19,7 @@ import { SessionRuntimeStatusDot } from "./SidebarStatusDot";
 import { AcpBackendMark, SessionBackendMark, SessionChannelMark, SessionSourceBadge, SideTaskMark } from "../session/SessionSourceBadge";
 import { SessionActivityIndicator } from "../session/SessionActivityIndicator";
 import { SessionHoverCard } from "./SessionHoverCard";
+import { SidebarRowTime } from "./SidebarRowTime";
 import { TitleScrollText } from "./TitleScrollText";
 import { SESSION_ROW_CLASS, SESSION_ROW_SELECTED_CLASS, ROW_MORE_ACTIONS_CLASS, ROW_CONTAINER_CLASS } from "./sidebarRowStyles";
 import { LINKED_NEST_MAX_DEPTH, groupLinkedChildren, resolveBoundSession } from "./activitySessionsModel";
@@ -304,7 +304,8 @@ export function SessionTree(props: {
 							<div className="conversation-title flex min-w-0 items-center gap-1.5">
 								<TitleScrollText text={title} className={cn(liveStatus ? "font-medium" : "font-normal text-muted-foreground/90")} />
 								{hasPendingAskForSession(record.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}
-								<span className="w-max shrink-0 overflow-hidden whitespace-nowrap text-micro text-muted-foreground transition-[width,opacity] [interpolate-size:allow-keywords] group-hover/row:w-0 group-hover/row:opacity-0 group-focus-within/row:w-0 group-focus-within/row:opacity-0">{linkedStateLabel(link.state)}</span>
+								{/* 行尾与普通会话行一致显示「多久前用过」，不再内联状态文案（状态只留在点与 tooltip 里）。 */}
+								<SidebarRowTime at={activityAt(record.id, record.updatedAt)} />
 							</div>
 						</div>
 					</button>
@@ -491,20 +492,8 @@ export function SessionTree(props: {
 									{/* 相对时间常显：多久前用过一目了然；hover 行时让位给右侧「⋯」按钮。
                   基准是「计时点」而不是文件 mtime（见 hooks/sidebar/useSessionActivityClock）：
                   本轮开始（用户输入）与 turn 结束各算一次，流式期间不会一直被重置成「刚刚」。
-                  窄侧栏时间可能被截断，title 提示完整相对时间。
-                  hover 用「宽度收拢」而不是 display:none：时间瞬时消失会让左侧胶囊一步跳到行尾
-                  （那一刻正好压在「⋯」上，150ms 后才被 padding 带回左边），改成与 padding 同步
-                  （同为 150ms 默认时长）收拢后胶囊是缓慢滑过去，任何一帧都不会越过「⋯」左缘。
-                  w-max 保证非 hover 态宽度与 auto 完全一致（不写魔法宽度，「3天」这类文案不会被截）；
-                  interpolate-size 让 max-content→0 可插值（Electron 43 / Chromium 142 支持）。
-                  不支持该属性的旧浏览器退化为瞬时收拢，胶囊在该帧会短暂压到「⋯」左缘——仅降级路径，
-                  比时间直接 display:none 时「整颗胶囊跳到行尾」轻得多，故不额外加延迟。 */}
-									<span
-										className="w-max shrink-0 overflow-hidden whitespace-nowrap text-micro tabular-nums text-muted-foreground transition-[width,opacity] [interpolate-size:allow-keywords] group-hover/row:w-0 group-hover/row:opacity-0 group-focus-within/row:w-0 group-focus-within/row:opacity-0"
-										title={formatRelativeTime(activityAt(child.session.id, child.session.updatedAt))}
-									>
-										{formatRelativeTime(activityAt(child.session.id, child.session.updatedAt))}
-									</span>
+                  收拢细节（为何不用 display:none）见 SidebarRowTime。 */}
+									<SidebarRowTime at={activityAt(child.session.id, child.session.updatedAt)} />
 								</div>
 							</div>
 						</button>
