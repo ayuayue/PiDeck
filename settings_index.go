@@ -53,6 +53,7 @@ var settingsIndex = []settingEntry{
 	{"integrations", "验证 Token", "feishu verification token inbound"},
 	{"integrations", "把回答发回群", "feishu reply answer group"},
 	{"integrations", "自定义预设", "acp preset custom"},
+	{"integrations", "管理预设", "acp preset manage add remove"},
 	{"diagnostics", "导出诊断包", "diagnostics bundle zip"},
 	{"diagnostics", "复制诊断信息", "diagnostics report copy"},
 	{"diagnostics", "打开日志目录", "logs directory"},

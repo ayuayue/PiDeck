@@ -42,6 +42,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.newACPSessionDefault() }},
 		{ID: "acp-session-pick", Label: "新建 ACP 会话（选择预设）…", Group: "会话", Icon: lucide.Bot,
 			Run: func(a *app) { a.acpOpenDialog() }},
+		{ID: "acp-presets", Label: "管理 ACP 预设…", Group: "会话", Icon: lucide.Settings,
+			Run: func(a *app) { a.openACPPresetManager() }},
 		{ID: "new-session", Label: "新建会话", Group: "会话", Shortcut: "mod+n", Icon: lucide.SquarePen,
 			Run: func(a *app) { a.newSession(a.activeWS.Get()) }},
 		{ID: "chat-session", Label: "新建对话（不绑定项目）", Group: "会话", Shortcut: "mod+shift+n", Icon: lucide.MessageCircle,

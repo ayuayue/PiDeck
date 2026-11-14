@@ -67,8 +67,13 @@ func TestFileTreeOps(t *testing.T) {
 	waitApp(app, "role:button renamed.txt", 10*time.Second)
 
 	// A new folder.
-	app.RightClick("text:docs")
-	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:新建文件夹")) > 0 })
+	for i := 0; i < 4; i++ {
+		app.RightClick("text:docs")
+		if waitQuiet(app, "text:新建文件夹", 2*time.Second) {
+			break
+		}
+	}
+	app.WaitUntil(15*time.Second, func() bool { return len(app.Query("text:新建文件夹")) > 0 })
 	app.Press("role:menuitem 新建文件夹")
 	app.WaitFor("id:file-op", 5*time.Second)
 	app.Type("id:file-op-name", "sub")

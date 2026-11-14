@@ -218,8 +218,16 @@ type app struct {
 	projectGroupText *core.Signal[string]
 
 	// The ACP preset picker.
-	acpOpen   *core.Signal[bool]
-	agentOpen *core.Signal[bool]
+	acpOpen *core.Signal[bool]
+	// The ACP preset manager.
+	acpManageOpen *core.Signal[bool]
+	acpNewID      *core.Signal[string]
+	acpNewName    *core.Signal[string]
+	acpNewCommand *core.Signal[string]
+	acpNewArgs    *core.Signal[string]
+	acpManageErr  *core.Signal[string]
+	acpManageRev  *core.Signal[int]
+	agentOpen     *core.Signal[bool]
 
 	// The keyboard cheat sheet.
 	shortcutsOpen  *core.Signal[bool]
@@ -545,6 +553,13 @@ func newApp(cx *core.Scope) *app {
 		projectsRev:           core.NewSignal(cx, 0),
 		filesRev:              core.NewSignal(cx, 0),
 		acpOpen:               core.NewSignal(cx, false),
+		acpManageOpen:         core.NewSignal(cx, false),
+		acpNewID:              core.NewSignal(cx, ""),
+		acpNewName:            core.NewSignal(cx, ""),
+		acpNewCommand:         core.NewSignal(cx, ""),
+		acpNewArgs:            core.NewSignal(cx, ""),
+		acpManageErr:          core.NewSignal(cx, ""),
+		acpManageRev:          core.NewSignal(cx, 0),
 		agentOpen:             core.NewSignal(cx, false),
 		projectGroupOpen:      core.NewSignal(cx, false),
 		projectGroupPath:      core.NewSignal(cx, ""),

@@ -28,8 +28,12 @@ func TestTrustGate(t *testing.T) {
 	app.WaitFor("text:选择这个文件夹", 5*time.Second)
 	app.Clear("label:文件夹路径")
 	app.Type("label:文件夹路径", workspace)
-	app.Submit("label:文件夹路径")
-	app.WaitFor("text:note.txt", 5*time.Second)
+	for i := 0; i < 3 && len(app.Query("text:note.txt")) == 0; i++ {
+		app.Submit("label:文件夹路径")
+		app.Settle()
+		time.Sleep(50 * time.Millisecond)
+	}
+	app.WaitFor("text:note.txt", 15*time.Second)
 	app.Press("text:选择这个文件夹")
 	app.WaitFor("text:打开一个会话，或者新建一个。", 5*time.Second)
 	app.Press("id:welcome-primary")

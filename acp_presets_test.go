@@ -3,9 +3,14 @@ package main
 // Checks custom ACP presets load from the data folder.
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/oneo-me/nsgo/nsgotest"
 )
 
 // TestACPPresetList checks files add presets, bad entries are skipped and
@@ -52,5 +57,62 @@ func TestACPPresetList(t *testing.T) {
 	}
 	if byID["claude"].Name == "Dup" {
 		t.Fatal("a duplicate id overrode the built-in")
+	}
+}
+
+// TestACPPresetStore checks the manager's file round-trips.
+func TestACPPresetStore(t *testing.T) {
+	dir := t.TempDir()
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st}
+	list := []acpPreset{{ID: "mine", Name: "我的 Agent", Command: "my-agent", Args: []string{"--acp"}}}
+	if err := a.saveACPPresets(list); err != nil {
+		t.Fatal(err)
+	}
+	got := a.acpCustomPresets()
+	if len(got) != 1 || got[0].ID != "mine" || got[0].Command != "my-agent" || len(got[0].Args) != 1 {
+		t.Fatalf("presets = %+v", got)
+	}
+	if all := a.acpPresetList(); len(all) != len(acpPresets())+1 {
+		t.Fatalf("the list has %d presets, want %d", len(all), len(acpPresets())+1)
+	}
+}
+
+// TestACPPresetManager adds and removes a preset through the dialog.
+func TestACPPresetManager(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-integrations")
+	app.WaitFor("id:acp-manage-open", 5*time.Second)
+	app.Press("id:acp-manage-open")
+	app.WaitFor("id:acp-preset-manager", 5*time.Second)
+	app.Type("id:acp-preset-id", "mine")
+	app.Type("id:acp-preset-name", "我的 Agent")
+	app.Type("id:acp-preset-command", "my-agent")
+	app.Type("id:acp-preset-args", "--acp --fast")
+	app.Press("id:acp-preset-add")
+	app.WaitFor("id:acp-preset-row-mine", 5*time.Second)
+	path := filepath.Join(home, "acp", "presets.json")
+	raw, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(raw), "mine") || !strings.Contains(string(raw), "--fast") {
+		t.Fatalf("presets.json = %s, %v", raw, err)
+	}
+	app.Press("id:acp-preset-remove-mine")
+	app.WaitForGone("id:acp-preset-row-mine", 5*time.Second)
+	raw, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file acpPresetFile
+	if json.Unmarshal(raw, &file) != nil || len(file.Presets) != 0 {
+		t.Fatalf("after removing: %s", raw)
 	}
 }

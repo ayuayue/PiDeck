@@ -14,7 +14,7 @@
 | A3 | 插件清单 v2 | ✅ | `plugin.json` 元数据、`contributes.commands/themes/keybindings/settings/hooks/agents`、启用/禁用、错误面板、热重载 |
 | A4 | 主题 v2 | ✅ | 角色色 + 设计 token + 字体 + 圆角 + 终端配色；shadcn/ui 主题文件与 YAML；配色缩略图与「导出当前主题」 |
 | A5 | 设置 schema | 🟡 | 插件设置声明式（类型/默认值/选项）；配置版本迁移/校验；设置索引、分区搜索与命令面板直达；应用设置逐项类型/默认值声明待做 |
-| A6 | 后端抽象 | 🟡 | ACP 会话可用：预设与项目默认、工具类型/路径投影、权限记忆、归档、session/load、搜索、命令菜单、模式切换、重连、通知 |
+| A6 | 后端抽象 | 🟡 | ACP 会话可用：预设（3 个内置 + 图形化管理自定义）与项目默认、工具类型/路径投影、权限记忆、归档、session/load、搜索、命令菜单、模式切换、重连、通知 |
 | A7 | 事件总线 | ✅ | 9 个事件：turn.start/done、session.created/opened/deleted、theme.changed、plan.finished、git.commit、image.generated；订阅者与插件 hooks（url/command/theme，防递归） |
 | A8 | i18n 文案层 | 🟡 | 源文本目录、系统语言匹配、运行时切换；桌面端主要界面与手机端连接/会话/对话/Git 已覆盖；其余提示消息待迁移 |
 | A9 | 崩溃与诊断 | ✅ | 进程/日志面板、诊断报告与脱敏诊断包；根级 `core.Catch` 错误边界写崩溃日志并可重载界面，main 兜底记录；启动提示上次崩溃 |
@@ -37,7 +37,7 @@
 
 | 功能 | 状态 | 计划 |
 | --- | --- | --- |
-| 多后端（pi / DSH / ACP 15 预设） | 🟡 | ACP 3 个预设可用；DSH 与其余预设待接 |
+| 多后端（pi / DSH / ACP 15 预设） | 🟡 | ACP 3 个内置预设 + 自定义预设图形化管理；DSH 待接 |
 | 生图模式 | ✅ | OpenAI 兼容 `/images/generations`（数量 1/2/4）与 `/images/edits`（参考图 + 描述）；连续生成、缩略图选择、插入输入框或保存项目 |
 | 计划模式 | ✅ | 提示词约定 + 计划标记 + 执行/修改 + 逐步执行（每步之间确认，可随时停止） |
 | Ask 并行问询 | ✅ | 独立会话、最近 6 轮背景、答案插入/复制/打开会话 |

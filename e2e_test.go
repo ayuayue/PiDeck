@@ -295,7 +295,7 @@ func TestModelSearch(t *testing.T) {
 	if before == 0 {
 		t.Fatal("the menu listed no models")
 	}
-	app.Type("id:model-search", "zzzz")
+	typeAll(t, app, "id:model-search", "zzzz")
 	if got := app.Find("id:model-search").Text; got != "zzzz" {
 		t.Fatalf("search field holds %q, want zzzz", got)
 	}
