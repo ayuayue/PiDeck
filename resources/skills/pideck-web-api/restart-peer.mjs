@@ -155,9 +155,10 @@ async function main() {
   const targetId = arg("--target", "");
   const waitCap = Number(arg("--wait-turn-end", String(LIMIT.waitTurnEnd))) || LIMIT.waitTurnEnd;
   const noWait = process.argv.includes("--no-wait");
+  const assumeIdle = process.argv.includes("--assume-idle");
   const message = arg("--message", "重启完成。这条消息由协作会话在重启之后发出，用来验证目标能被唤醒。");
   if (!targetId) {
-    console.error("用法：node restart-peer.mjs --target <sessionId> [--wait-turn-end 毫秒] [--no-wait] [--wait-only] [--message 文本]");
+    console.error("用法：node restart-peer.mjs --target <sessionId> [--wait-turn-end 毫秒] [--assume-idle] [--no-wait] [--wait-only] [--message 文本]");
     process.exit(2);
   }
   const selfId = process.env.PIDECK_SESSION_ID || "";
@@ -173,14 +174,22 @@ async function main() {
   log("重启前 generation=" + before.runtimeGeneration);
   state({ result: "dispatched", targetId, genBefore: before.runtimeGeneration }, true);
 
-  // 调试用：只判定目标当前有没有回合在跑，不动手（不会被误用成重启）。
-  if (process.argv.includes("--wait-only")) {
+  if (assumeIdle) {
+    // 2026-11-14：收紧「静默 = 空闲」之后出现一个死角——空闲的会话恰恰就是静默的那个，
+    // 于是它永远判 unknown，永远重启不了。解法不是把静默改回空闲（那会重新引入截断风险），
+    // 而是让「我已确认目标空闲」成为调用方的显式声明：由人看过目标最后一条是 assistant、
+    // 或目标刚开还没对话过，才传这个开关。脚本自己不猜，日志留痕。
+    log("--assume-idle：调用方声明目标当前没有回合在跑，跳过等待直接动手");
+    state({ waited: "assume-idle", waitMs: Date.now() - t0 });
+  } else if (process.argv.includes("--wait-only")) {
+    // 调试用：只判定目标当前有没有回合在跑，不动手（不会被误用成重启）。
     const waited = await waitTurnEnd(targetId, waitCap);
     log("--wait-only：判定 " + waited + "，耗时 " + Math.round((Date.now() - t0) / 1000) + " 秒；没有动任何东西");
     state({ result: "wait-only", waited, targetId });
     return;
   }
-  if (!noWait) {
+  // assumeIdle 已经声明过空闲，不能再等一次——否则它退化成 no-op，白传参数。
+  if (!noWait && !assumeIdle) {
     const waited = await waitTurnEnd(targetId, waitCap);
     state({ waited, waitMs: Date.now() - t0 });
     // unknown 一起放弃。之前的写法只挡 cap/error，于是 8 秒静默会走到 stop——
