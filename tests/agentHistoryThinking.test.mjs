@@ -483,3 +483,65 @@ test("offline Session Viewer keeps whole turns under the unified turn protocol",
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+test("history replay keeps the thinking interval so 纯思考条重开后不是 0ms", () => {
+	const { AgentManager } = loadAgentManagerModule();
+	const manager = new AgentManager(
+		() => undefined,
+		() => null,
+		{ get: () => ({}) },
+		{},
+	);
+
+	const messages = manager.convertAgentMessages(
+		"agent-1",
+		[
+			{
+				role: "assistant",
+				content: [{ type: "thinking", thinking: "reason through the tool result" }],
+				timestamp: 1000,
+				durationMs: 2500,
+			},
+		],
+		["entry-1"],
+	);
+
+	assert.equal(messages.length, 1);
+	// 坏样本：不写这两个字段时 AppUtils 会回落到 message.timestamp 兜底，
+	// 两端同值 → 重开会话永久显示「思考了 0ms」。
+	assert.equal(messages[0].thinkingStartedAt, 1000);
+	assert.equal(messages[0].thinkingEndedAt, 3500);
+});
+
+test("history replay also gives mixed assistant turns a thinking interval", () => {
+	const { AgentManager } = loadAgentManagerModule();
+	const manager = new AgentManager(
+		() => undefined,
+		() => null,
+		{ get: () => ({}) },
+		{},
+	);
+
+	const messages = manager.convertAgentMessages(
+		"agent-1",
+		[
+			{
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "short reasoning" },
+					{ type: "text", text: "here is the visible answer" },
+				],
+				timestamp: 1000,
+				durationMs: 2500,
+			},
+		],
+		["entry-1"],
+	);
+
+	assert.equal(messages.length, 1);
+	assert.equal(messages[0].thinking, "short reasoning");
+	// 混合消息里思考只是本次调用的一段，上游不存更细的边界；这里给的是「本条调用总时长」，
+	// 语义偏大但可复算。不写的代价是渲染层兜底成 message.timestamp → 永久「思考了 0ms」。
+	assert.equal(messages[0].thinkingStartedAt, 1000);
+	assert.equal(messages[0].thinkingEndedAt, 3500);
+});

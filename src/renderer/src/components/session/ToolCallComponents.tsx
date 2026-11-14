@@ -385,25 +385,29 @@ export const ToolCard = memo(function ToolCard(props: {
 							    字重保持 normal（不降档），过轻在 CJK 下会有锯齿/发虚。
 							    原始工具名已移进行 tooltip，MCP 来源仍由 kind pill 标识。 */}
 									<span className="shrink-0 text-chat-row lowercase text-text-faint">{isSkillRead ? `skill:${skillName}` : isAskCard ? t("ask.toolName") : phrase.verb}</span>
-									{expanded ? <ChevronDown size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" /> : <ChevronRight size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" />}
-									{!isSkillRead && kindLabel && <span className="tool-card-kind self-center">{kindLabel}</span>}
-									{statusBadge && <span className="inline-flex self-center">{statusBadge}</span>}
-									{/* 耗时只对运行中的工具有行内意义（活秒表）；完成后的耗时移入行 tooltip，
-							    与静默完成态一致（单条耗时撤出常驻行，交给 hover）。 */}
-									{status === "running" && (
+									{/* 耗时紧贴动词标签、位于折叠箭头之前，与思考行「思考了 10.2s ›」同构；
+									    运行中走活秒表，完成后钉住 tool_execution_end 落地的 durationMs（pi 已持久化），
+									    ask 等待阶段仍只显示「等待回答…」。 */}
+									{(status === "running" || (!isAskCard && durationMs !== undefined)) && (
 										<span className="shrink-0 text-chat-detail tabular-nums text-text-tertiary" title={isAskCard ? t("ask.waitingHint") : t("tool.durationTitle")}>
 											{isAskCard ? (
 												// ask 等待用户回答阶段不计入工具耗时：不展示累加秒表，改用「等待回答…」
 												// 提示。用户回答后 tool_execution_end 落地的 durationMs 已由主进程扣除等待时长。
 												t("ask.waitingForAnswer")
-											) : (
+											) : status === "running" ? (
 												// 工具执行中：以 meta.startedAt 为秒表起点实时计时。消息 timestamp 会被主进程
 												// 在每次 update/end 时刷新（见 getToolLiveStartTimestamp），直接用会让长命令的
 												// 耗时显示反复归零，结束才突然跳到总时长。
 												<LiveDuration startedAt={getToolLiveStartTimestamp(props.message)} isStreaming />
+											) : (
+												// 完成态：钉住落盘的实际耗时（含重开会话后的历史），不再跳秒。
+												formatDuration(durationMs as number)
 											)}
 										</span>
 									)}
+									{expanded ? <ChevronDown size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" /> : <ChevronRight size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" />}
+									{!isSkillRead && kindLabel && <span className="tool-card-kind self-center">{kindLabel}</span>}
+									{statusBadge && <span className="inline-flex self-center">{statusBadge}</span>}
 									{isAskCard && askCard?.question ? (
 										<span className="min-w-0 flex-[1_1_auto] whitespace-normal break-words font-mono text-chat-detail text-text-faint" title={askCard.question}>
 											| {askCard.question}
