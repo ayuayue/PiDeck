@@ -47,7 +47,7 @@ export BASE="http://127.0.0.1:$PORT"
 echo "port=$PORT token长度=${#TOKEN}"
 ```
 
-期望：`port=8765 token长度=36`。长度是 0 说明上面那行提示已经打了，先去设置页把服务打开。
+期望：`port=<设置里那个值，默认 8765> token长度=36`。长度是 0 说明上面那行提示已经打了，先去设置页把服务打开。
 
 自己的会话 id 是 PiDeck 启动会话时注入的环境变量，不用猜：
 
@@ -62,13 +62,13 @@ echo $PIDECK_SESSION_ID
 四条验证，每条写了该返回什么，**放在同一次调用里跑**（变量不跨段）：
 
 ```bash
-curl -s -o /dev/null -w 'health=%{http_code}\n' "$BASE/api/health"              # 期望 health=200，这是唯一免鉴权的端点
+curl -s -o /dev/null -w 'health=%{http_code}\n' "$BASE/api/health"              # 期望 health=200。实测 state、runtimes、models、projects 不带令牌都是 401
 curl -s -o /dev/null -w 'state有令牌=%{http_code}\n' -H "$AUTH" "$BASE/api/state"  # 期望 200
 curl -s -o /dev/null -w 'state无令牌=%{http_code}\n' "$BASE/api/state"             # 期望 401
 curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300                    # 期望 {"runtimes":[...]}
 ```
 
-前三条不对就别往下走：health 不是 200 说明服务没开或端口不对，与令牌无关；state 有令牌还是 401 说明令牌错。
+前三条不对就别往下走：health 不是 200 说明服务没开或端口不对，与令牌无关；state 有令牌还是 401 说明令牌错。第四条不是 `{"runtimes":[...]}` 说明服务版本变了，去查源码。
 
 ## 3 读自己的状态（只读）
 
@@ -78,13 +78,17 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/todo"         # 我的
 curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派了几个子 agent
 ```
 
-`/messages` 返回 `{messages, total, windowStart, truncated}`，**是有界窗口不是全部历史**。看到 `truncated: true` 说明还有更早的，往前翻用 `?before=<windowStart>`：
+`/messages` 返回 `{messages, total, windowStart, truncated}`，**是有界窗口不是全部历史**。看到 `truncated: true` 说明还有更早的。
+
+**但 `?before` 翻不了页。** 实测传 `?before=5516`、`?before=999999`、`?before=abc`，返回的 `windowStart` 和条数与不传时完全相同——这个接口不吃查询参数。要读更早的消息，直接读磁盘上的 jsonl：
 
 ```bash
-curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/messages?before=<上一页的 windowStart>"
+node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\n").forEach(l=>{if(!l.trim())return;const j=JSON.parse(l);if(j.role)console.log(j.role+": "+String(j.text||"").slice(0,120))})' "<runtimes[] 里的 sessionPath>"
 ```
 
-**这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。我这个会话 208 条 = 1.5 MB，耗时 100~260 ms；作为对比 `/api/state` 4 KB 用 2 ms，`/api/sessions/runtimes` 1 KB 用 1.4 ms。所以**别拿它轮询**：判断消息送没送到，先看 SSE 有没有 `error` 帧，只查一次 `/messages`。
+首行 `type: session`，其余每行一条消息。`windowStart` 是个数字（例如 5516），不是消息 id。
+
+**这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。一个 208 条的会话返回 1.5 MB，耗时 100~260 ms；作为对比 `/api/state` 4 KB 用 2 ms，`/api/sessions/runtimes` 1 KB 用 1.4 ms。所以**别拿它轮询**：判断消息送没送到，先看 SSE 有没有 `error` 帧，只查一次 `/messages`。
 
 单条消息的字段是 `{id, agentId, role, text, timestamp, meta}`，assistant 还多 `thinking`、`model`、`stopReason`。注意正文在 `text`，不在 `parts`——`parts` 只在 `/api/chat` 的**请求**里用。
 
@@ -209,35 +213,33 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 **`runtimeGeneration` 不校验。** 实测传一个比实际大 99 的代号，stop 照样 200 并真的把目标停了。所以这个字段是给你自己核对用的，不是防误停的闸。
 
-**要不要直接用 `restart` 一步做完？** 有这个动作，请求体和 stop 一样（带 target），由服务端串起停和启。本文的流程用 stop + activate 两步，是因为每一步都能单独验收：停完能确认目标真的从 `runtimes[]` 消失，启完能确认代号变了。用 `restart` 省一次调用，但中间状态看不到。
-
 **为什么不用等目标回合结束**：如果目标正在写回复，stop 会让它断在半句。判断它忙不忙没有可靠办法——问用户最快。新开的空会话天然空闲，这是它最省事的地方。
 
-**重启之后你是新进程**：不记得上一个进程在干什么。会话历史仍在同一个 jsonl（`runtimes[].sessionPath`），上下文不丢，但「成没成」只能由重启后的一方重读 `runtimes[]` 确认。界面显示「异常停下」是 stop 动作本身，不是失败。
+**重启之后你是新进程**：不记得上一个进程在干什么。会话历史仍在同一个 jsonl（`runtimes[].sessionPath`），上下文不丢，但「成没成」只能由重启后的一方重读 `runtimes[]` 确认。
 
 ### 6.1 这条流程的实测记录
 
 2026-11-14，Windows 发行版。两种用法都真跑过。
 
-**用法一：重启一个没在跑的会话**（目标 `fc3b8a41`）。
+**用法一：重启一个没在跑的会话。**
 
 ```text
 第 0 步 echo $PIDECK_SESSION_ID -> 执行者自己的 id，不是目标
 第 1 步 取 target        目标不在 runtimes[] 里 -> 按技能跳到第 3 步
-第 3 步 activate        HTTP 200  gen=3  agentId=5c87249a-…  status=idle
+第 3 步 activate        HTTP 200  gen=3  status=idle
 第 5 步 发消息          total 7473 -> 7476（加 3）
 收尾  stop(gen=3)       HTTP 200
-       activate         gen=4  agentId=f711cb00-…
+       activate         gen=4
 ```
 
 `activate` 要 4~6 秒才返回，不是卡住。
 
-**用法二：让别人重启自己**（本会话 `b1e367af` 当目标，执行者是一个新建的普通会话）。
+**用法二：让别人重启自己。** 执行者是一个新建的普通会话。
 
 ```text
 被停的那一刻    手上正在跑的工具调用直接 abort（This operation was aborted）
-重启后自读      gen 2 -> 3，agentId 0ec64be6-… -> 2a8ef668-…
-执行者第 5 步发的报告    代号和 agentId 与我自读的一致
+重启后自读      gen 2 -> 3
+执行者第 5 步发的报告    代号与我自读的一致
 ```
 
 **`total` 一次加 3 不是 1**：你发的那条 + assistant 的回复 + 一条注入。
@@ -259,7 +261,7 @@ activate       4227 ms
 
 所以别做这两件事：不要建完会话反复轮询 `runtimes[]` 等它出现（`activate` 返回时进程已经在里面，`status` 就在返回体里）；不要为了拿 `total` 反复拉 `/messages`（1.5 MB 一次）。
 
-**代号和 `agentId` 会一起变。** 两个都是「换没换进程」的证据，任一个变了就是换了。
+**代号和 `agentId` 会一起变。** 两个都是「换没换进程」的证据，任一个变了就是换了。对照就看这两个数字，别去猜 pid。
 
 **用完把执行者删掉**，别留在侧边栏里：
 
