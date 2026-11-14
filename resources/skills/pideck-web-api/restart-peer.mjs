@@ -107,8 +107,13 @@ async function waitTurnEnd(targetId, capMs) {
       const step = await Promise.race([reader.read(), sleep(left).then(() => ({ timeout: true }))]);
       if (step.timeout) {
         if (Date.now() - lastEvent >= LIMIT.quiet) {
-          log("目标 " + Math.round(LIMIT.quiet / 1000) + " 秒没有新的 data: 帧，视为没有活跃回合，动手");
-          return frames ? "quiet" : "idle";
+          // 2026-11-14 收到 review 意见：8 秒无 data: 帧不能证明回合结束。
+          // 长工具调用（跑测试、下载）期间目标完全可能几十秒不吐帧；模型暂时无输出、
+          // 网络抖动也一样。把这种情况判成「空闲」等于拿一个不成立的证据去 stop，
+          // 会把目标正在跑的回合截断。改为 unknowns，调用方默认放弃。
+          log("目标 " + Math.round(LIMIT.quiet / 1000) + " 秒没有新的 data: 帧。这不能证明回合结束" +
+            "（长工具调用、模型暂无输出、连接异常都会这样），判为状态未知");
+          return "unknown";
         }
         continue;
       }
@@ -174,8 +179,10 @@ async function main() {
   if (!noWait) {
     const waited = await waitTurnEnd(targetId, waitCap);
     state({ waited, waitMs: Date.now() - t0 });
-    if (waited === "cap" || waited === "error") {
-      log("放弃：目标可能还在生成，重来一次或加 --no-wait 强制");
+    // unknown 一起放弃。之前的写法只挡 cap/error，于是 8 秒静默会走到 stop——
+    // 那正是 review 指出的「不足以证明可以安全停止」被当成了可以。
+    if (waited === "cap" || waited === "error" || waited === "unknown") {
+      log("放弃：目标可能还在生成（判定 " + waited + "）。确认它已经不动之后再跑，或加 --no-wait 自己承担截断风险");
       state({ result: "wait-failed", waited, targetId });
       process.exit(1);
     }
@@ -186,10 +193,18 @@ async function main() {
     body: JSON.stringify({ target: { sessionId: before.sessionId, agentId: before.agentId, runtimeGeneration: before.runtimeGeneration } }),
   });
   log("stop -> " + stop.status + " " + String(stop.text || "").slice(0, 160));
+  // 2026-11-14 review 意见：原来不看 stop 的返回码就往下轮询、启动。
+  // 鉴权失败（401）、参数过期（409，target 的 runtimeGeneration 已被别的动作改过）
+  // 都会走到这里，此时继续 activate 只会把状态搞得更乱。
+  if (stop.status < 200 || stop.status >= 300) {
+    log("失败：stop 返回 " + stop.status + "，不再继续。目标可能仍在运行，检查令牌与 target 是否过期");
+    state({ result: "stop-failed", status: stop.status, targetId });
+    process.exit(1);
+  }
 
   const gone = await waitUntil(async () => !(await runtimes()).some((x) => x.sessionId === targetId), LIMIT.stop, "停止");
   if (!gone) {
-    log("失败：没停稳。按技能 §5.7，此时不要再发 activate");
+    log("失败：没停稳。按技能 §5.6，此时不要再发 activate");
     state({ result: "stop-timeout", targetId, genBefore: before.runtimeGeneration });
     process.exit(1);
   }
