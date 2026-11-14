@@ -25,6 +25,13 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	"../desktopApi": {},
 	"./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) },
 	"./timeline/browsePin": compile("src/renderer/src/hooks/timeline/browsePin.ts"),
+	// 纯策略模块（2026-12 从控制器提出）：贴底判定 / owner 判据 / runtime 忙碌都在这里，
+	// 本文件直接断言它们，编译真模块（stub 成 {} 会让断言打在 undefined 上）。
+	"./session/timeline/timelineSurfacePolicy": compile("src/renderer/src/hooks/session/timeline/timelineSurfacePolicy.ts", {
+		"../../timeline/browsePin": compile("src/renderer/src/hooks/timeline/browsePin.ts"),
+		"../../timeline/useVisibleTimelineRows": compile("src/renderer/src/hooks/timeline/useVisibleTimelineRows.ts", { react: {} }),
+		"../../../components/session/timeline/turnRenderWindow": { TIMELINE_SCROLLED_TURN_LIMIT: 3 },
+	}),
 });
 
 function readRendererRuntimeSources(directory) {
