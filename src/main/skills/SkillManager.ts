@@ -13,8 +13,10 @@ import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCop
 
 const SKILL_FILE = "SKILL.md";
 /** 技能目录里除 SKILL.md 之外要一起落盘的附件（相对文件名）。
- *  为什么需要：restart-peer.mjs 是技能正文直接让读者去跑的东西，只装 SKILL.md 会让它成为空指针。 */
-const SKILL_EXTRA_FILES: Record<string, string[]> = { "pideck-web-api": ["restart-peer.mjs"] };
+ *  2026-11-14：pideck-web-api 的 restart-peer.mjs 删掉了。它是 curl 三步的封装，而技能正文
+ *  直接给 curl 就够用——封装多出一层要维护的判断逻辑（等多久算空闲、连不上算什么），
+ *  多出来的判断本身成了 bug 来源。现在没有技能需要附件，保留这张表是为了下一个。 */
+const SKILL_EXTRA_FILES: Record<string, string[]> = {};
 const IMPORT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const IMPORT_MAX_TREE_BYTES = 50 * 1024 * 1024;
 const IMPORT_MAX_DEPTH = 32;

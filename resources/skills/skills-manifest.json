@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "5a342175af3aa4ffe0e74c18aac0b7340ba11e48d383af5598193532b754b9ac",
-  "fileCount": 6,
+  "bundleSha256": "267ca7cadbd83cc94d1d8a1c6ac1c8b8c544a1cbe5eb9bba857010014cb001e8",
+  "fileCount": 5,
   "files": [
     {
       "name": "image-gen/SKILL.md",
@@ -20,14 +20,9 @@
       "bytes": 4784
     },
     {
-      "name": "pideck-web-api/restart-peer.mjs",
-      "sha256": "b958e22da5e5f0b4cf0efdf73f7a7bf621fb9d2a23e2984121fea5757f4243c5",
-      "bytes": 10159
-    },
-    {
       "name": "pideck-web-api/SKILL.md",
-      "sha256": "d081830a9ea590e3cf5397006ee339dd99f1a2bb84df8e584fcdd16c8eede4d2",
-      "bytes": 15516
+      "sha256": "412fa7d149521c05b74e6605e3f5589726ab1b1f631d6a3f4c8e9c2b17c6544e",
+      "bytes": 10868
     },
     {
       "name": "usage-probe/SKILL.md",
