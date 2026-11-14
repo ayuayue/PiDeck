@@ -632,6 +632,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 				Trigger: a.pressIcon(lucide.Ellipsis, T("更多 Git 操作"), 24, 14, nil,
 					func() { a.gitMoreOpen.Update(func(v bool) bool { return !v }) }, "git-more"),
 				TestID: "git-more-menu", Children: []core.Node{
+					ui.MenuItem{Text: T("远端…"), Icon: lucide.Cloud, OnSelect: a.openGitRemotes},
 					ui.MenuItem{Text: T("标签…"), Icon: lucide.Tag, OnSelect: a.openGitTags},
 					ui.MenuItem{Text: T("贮藏列表…"), Icon: lucide.Archive, OnSelect: a.openGitStashList},
 					ui.MenuItem{Text: T("贮藏全部改动"), Icon: lucide.Archive, OnSelect: a.gitStash},

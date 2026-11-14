@@ -46,6 +46,7 @@ func (a *app) view() core.Node {
 		a.gitNewBranchDialog(),
 		a.gitStashDialog(),
 		a.gitTagsDialog(),
+		a.gitRemotesDialog(),
 		a.providerDialog(),
 		a.promptDialog(),
 		a.promptImportDialog(),

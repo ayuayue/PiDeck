@@ -93,6 +93,7 @@ type gitState struct {
 	Branches       []string
 	RemoteBranches []string
 	Tags           []string
+	Remotes        []gitRemote
 	// LogLimit is how many commits were asked for.
 	LogLimit int
 	Error    string
@@ -378,7 +379,34 @@ func readGitState(t target, dir string, logLimit int) gitState {
 	if out, _, code, err := gitRun(t, dir, 20*time.Second, "tag", "--sort=-creatordate"); err == nil && code == 0 {
 		st.Tags = parseGitTags(out)
 	}
+	if out, _, code, err := gitRun(t, dir, 20*time.Second, "remote", "-v"); err == nil && code == 0 {
+		st.Remotes = parseGitRemotes(out)
+	}
 	return st
+}
+
+// gitRemote is one named remote.
+type gitRemote struct {
+	Name string
+	URL  string
+}
+
+// parseGitRemotes reads remote -v, one row per name.
+func parseGitRemotes(out string) []gitRemote {
+	var list []gitRemote
+	seen := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 || seen[fields[0]] {
+			continue
+		}
+		seen[fields[0]] = true
+		list = append(list, gitRemote{Name: fields[0], URL: fields[1]})
+		if len(list) >= 20 {
+			break
+		}
+	}
+	return list
 }
 
 // parseGitTags reads a tag list, newest first, capped.
