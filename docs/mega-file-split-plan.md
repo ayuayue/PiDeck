@@ -429,3 +429,20 @@ atom / atomFamily **只能整体搬家**，入口文件用 `export { x } from ".
 ### 一个省事的细节
 
 `tests/helpers/configModalSources.mjs` 用的是 `readdirSync(目录)` 而非显式清单，所以本轮新增 11 个文件**不用改 helper** 就自动纳入契约面。巨型「域目录」类目标优先用目录扫描；只有包含不该被断言的邻居文件（如 GitPanel 的 GitGraph）时才退回显式清单。
+
+## 第十五轮：SessionFileEditor 与 useSessionTimelineController（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/pi/SessionFileEditor.ts` | 1496 | **940** | `sessionFile/`：`sessionFileEditorError 61`（错误码 + Error 类，做成叶子解开循环依赖）、`sessionFileJsonl 175`、`sessionFileEntryTargets`、`sessionFileStorage` |
+| `renderer/hooks/useSessionTimelineController.ts` | 1813 | **1122** | `session/timeline/` 新增 4 个：`sessionTimelineControllerContract`、`timelineSurfacePolicy`、`useTimelineJumpNavigation`、`useTimelineScrollOwnership 363`（加上原有 `useTimelineHistoryPaging` / `useTimelineScrollAnchor`） |
+
+### 本轮最有价值的一条：读写用户数据的搬迁要「差分验证」
+
+`SessionFileEditor` 负责改写 **pi 正在使用的会话 JSONL**，行为差异会直接毁数据。这轮的做法是：拆完后用脚本把**旧实现（`git show HEAD:` 版）与新实现**同时跑 24 个场景，逐项比对**输出文件字节 / 备份文件名 / 错误码 / 错误消息**，全部一致才算过。
+
+这比「测试绿」强得多——现有测试覆盖不到的组合（空文件、只有 header、重复 entryId、WSL 路径、写一半失败）正是差分脚本能兜住的地方。**以后任何「读写用户数据 / 落盘 / 迁移」类的搬迁，都该用这个动作收尾**，而不是只跑单测。
+
+### 一条断言的处置方式（与「断言锁语义不锁形态」一致）
+
+`scrollToLatestOnSend` 那条 gate 的源码断言差点逼着去改生产形状（把 store 引用改成闭包捕获）。子代理的处理是对的：**保持原形态——注入 `store` + atom keys**，一个字没动断言。反过来（为了迁就正则改生产结构）就是上一批拆分踩过的坑。
