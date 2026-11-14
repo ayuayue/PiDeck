@@ -383,11 +383,13 @@ type app struct {
 	askEdit *core.Signal[string]
 	askSeq  *core.Signal[int]
 
-	files  *fileTree
-	editor *editorHost
-	git    *gitRepo
-	term   *terminalHost
-	remote *remoteHost
+	files    *fileTree
+	filesRev *core.Signal[int]
+	fileIdx  fileIndexCache
+	editor   *editorHost
+	git      *gitRepo
+	term     *terminalHost
+	remote   *remoteHost
 
 	// The QR dialog shows a connection link the phone can scan.
 	qrOpen *core.Signal[bool]
@@ -541,6 +543,7 @@ func newApp(cx *core.Scope) *app {
 		askBox:                core.NewSignal(cx, askBox{}),
 		askText:               core.NewSignal(cx, ""),
 		projectsRev:           core.NewSignal(cx, 0),
+		filesRev:              core.NewSignal(cx, 0),
 		acpOpen:               core.NewSignal(cx, false),
 		agentOpen:             core.NewSignal(cx, false),
 		projectGroupOpen:      core.NewSignal(cx, false),

@@ -1,10 +1,23 @@
 # Build output
 /dist/
 /pideck-lite.exe
+/pideck-lite
 *.syso
 
 # NSGo test and dev artifacts
 /.nsgo/
+
+# App data a test can leave in the working directory
+/config.json
+/agents/
+/plugins/
+/prompts/
+/themes/
+/logs/
+/sessions/
+/acp-sessions/
+/crashes/
+/trash/
 
 # OS files
 .DS_Store

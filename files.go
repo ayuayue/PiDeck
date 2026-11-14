@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/oneo-me/nsgo/core"
 )
@@ -195,4 +197,145 @@ func (t *fileTree) relative(path string) string {
 		}
 	}
 	return filepath.ToSlash(path)
+}
+
+// fileIndexCache is a workspace's files for the composer's @ mentions,
+// scanned in the background and reused while it is fresh.
+type fileIndexCache struct {
+	mu      sync.Mutex
+	root    string
+	at      time.Time
+	files   []string
+	loading bool
+}
+
+// fileIndexMax bounds a workspace's mention list.
+const fileIndexMax = 4000
+
+// workspaceFiles is the cached file list; a stale or missing list starts
+// a background scan and returns what is known now.
+func (a *app) workspaceFiles(root string) []string {
+	if root == "" {
+		return nil
+	}
+	a.fileIdx.mu.Lock()
+	if a.fileIdx.root != root {
+		a.fileIdx.root = root
+		a.fileIdx.files = nil
+		a.fileIdx.at = time.Time{}
+		a.fileIdx.loading = false
+	}
+	files := append([]string(nil), a.fileIdx.files...)
+	stale := time.Since(a.fileIdx.at) > 10*time.Second
+	start := stale && !a.fileIdx.loading
+	if start {
+		a.fileIdx.loading = true
+	}
+	a.fileIdx.mu.Unlock()
+	if start {
+		go a.scanWorkspaceFiles(root)
+	}
+	return files
+}
+
+// scanWorkspaceFiles walks a workspace, skipping the folders that never
+// belong in a prompt, and announces the list.
+func (a *app) scanWorkspaceFiles(root string) {
+	var files []string
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != root && skipMentionDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		files = append(files, filepath.ToSlash(rel))
+		if len(files) >= fileIndexMax {
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	sort.Strings(files)
+	a.fileIdx.mu.Lock()
+	if a.fileIdx.root == root {
+		a.fileIdx.files = files
+		a.fileIdx.at = time.Now()
+	}
+	a.fileIdx.loading = false
+	a.fileIdx.mu.Unlock()
+	a.cx.Post(func() { a.filesRev.Update(func(n int) int { return n + 1 }) })
+}
+
+// skipMentionDir reports whether a folder is noise for @ completion.
+func skipMentionDir(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch name {
+	case "node_modules", "vendor", "dist", "build", "target", "__pycache__", "bin", "obj":
+		return true
+	}
+	return false
+}
+
+// mentionToken is the partial @path at the end of a draft, and whether
+// there is one.
+func mentionToken(text string) (string, bool) {
+	i := strings.LastIndex(text, "@")
+	if i < 0 {
+		return "", false
+	}
+	if i > 0 {
+		switch text[i-1] {
+		case ' ', '\n', '\t', '(':
+		default:
+			return "", false
+		}
+	}
+	token := text[i+1:]
+	if strings.ContainsAny(token, " \n\t") {
+		return "", false
+	}
+	return token, true
+}
+
+// mentionMatches lists the files a partial @path matches, best first.
+func mentionMatches(files []string, token string, limit int) []string {
+	token = strings.ToLower(strings.TrimSpace(token))
+	var prefix, contains []string
+	for _, f := range files {
+		lower := strings.ToLower(f)
+		base := strings.ToLower(filepath.Base(f))
+		switch {
+		case token == "" || strings.HasPrefix(lower, token) || strings.HasPrefix(base, token):
+			prefix = append(prefix, f)
+		case strings.Contains(lower, token):
+			contains = append(contains, f)
+		}
+		if len(prefix) >= limit {
+			break
+		}
+	}
+	out := append(prefix, contains...)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// insertMention replaces the draft's partial @path with a file's.
+func (a *app) insertMention(s *session, rel string) {
+	text := s.draft.GetUntracked()
+	i := strings.LastIndex(text, "@")
+	if i < 0 {
+		return
+	}
+	s.draft.Set(text[:i] + "@" + rel + " ")
 }

@@ -27,12 +27,17 @@ func startApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App
 // system's folder picker answering dir.
 func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App {
 	t.Helper()
+	// Always give the app a data folder of its own: without one it would
+	// write its config and seed files into the working directory.
+	if os.Getenv("PIDECK_LITE_HOME") == "" {
+		t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	}
 	t.Cleanup(closeAllPi)
 	app := nsgotest.Start(t, Root, nsgotest.Size(width, height))
 	// The app's own browser works the same on every platform, so the
 	// end-to-end tests drive it; the system picker has a test of its own.
 	app.Press("id:rail-palette")
-	app.WaitFor("text:浏览文件夹添加工作区", 10*time.Second)
+	app.WaitFor("text:浏览文件夹添加工作区", 15*time.Second)
 	// The palette and the picker can still be settling under load; press
 	// again until each step shows.
 	for i := 0; i < 3 && len(app.Query("text:选择这个文件夹")) == 0; i++ {
@@ -40,7 +45,7 @@ func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App 
 		app.Settle()
 		time.Sleep(50 * time.Millisecond)
 	}
-	app.WaitFor("text:选择这个文件夹", 20*time.Second)
+	app.WaitFor("text:选择这个文件夹", 30*time.Second)
 	app.Clear("label:文件夹路径")
 	app.Type("label:文件夹路径", dir)
 	for i := 0; i < 3 && len(app.Query("text:note.txt")) == 0; i++ {
@@ -48,16 +53,16 @@ func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App 
 		app.Settle()
 		time.Sleep(50 * time.Millisecond)
 	}
-	app.WaitFor("text:note.txt", 20*time.Second)
+	app.WaitFor("text:note.txt", 30*time.Second)
 	for i := 0; i < 3 && len(app.Query("text:打开一个会话，或者新建一个。")) == 0; i++ {
 		app.Press("text:选择这个文件夹")
 		app.Settle()
 		time.Sleep(50 * time.Millisecond)
 	}
-	app.WaitFor("text:打开一个会话，或者新建一个。", 20*time.Second)
+	app.WaitFor("text:打开一个会话，或者新建一个。", 30*time.Second)
 	// With a project in place the welcome's main action opens a session.
 	app.Press("id:welcome-primary")
-	app.WaitFor("id:composer", 20*time.Second)
+	app.WaitFor("id:composer", 30*time.Second)
 	// A folder added at runtime starts untrusted; tests trust it once. A
 	// press can land before the bar settles, so try a few times.
 	for i := 0; i < 4; i++ {

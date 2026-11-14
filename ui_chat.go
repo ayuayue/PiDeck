@@ -89,9 +89,41 @@ func (a *app) setChatWidth(w int) {
 func (a *app) composerStack(s *session) core.Node {
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(core.Points(a.contentWidth())), MinWidth: core.Pt(0)}, Children: []core.Node{
-			a.trustBar(s), a.todoBar(s), a.composer(s),
+			a.mentionBar(s), a.trustBar(s), a.todoBar(s), a.composer(s),
 		}},
 	}}
+}
+
+// mentionBar suggests files while a draft ends with a partial @path.
+func (a *app) mentionBar(s *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		_ = a.filesRev.Get()
+		token, ok := mentionToken(s.draft.Get())
+		if !ok {
+			return nil
+		}
+		files := mentionMatches(a.workspaceFiles(s.WS), token, 8)
+		if len(files) == 0 {
+			return nil
+		}
+		var chips []core.Node
+		for i, rel := range files {
+			rel := rel
+			chips = append(chips, core.View{
+				OnPress: func(core.PressEvent) { a.insertMention(s, rel) },
+				Role:    core.RoleButton, Label: rel, TestID: fmt.Sprintf("mention-%d", i),
+				StyleFunc: func() core.Style {
+					return core.Style{Height: core.Pt(24), Padding: core.Symmetric(0, 8), CornerRadius: 12,
+						BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Surface(),
+						Hover: &core.Style{Background: colors.Hover()}}
+				},
+				Children: []core.Node{core.Text{Content: rel, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+					Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)}},
+			})
+		}
+		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5, Margin: core.Edges{Bottom: 6}}, Children: chips}
+	})
 }
 
 // transcript is the keyed list of turns, bounded to a window of the newest.
