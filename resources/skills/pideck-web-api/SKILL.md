@@ -94,7 +94,7 @@ curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&befor
 
 返回 `{messages, nextBefore}`，`nextBefore` 是下一轮的游标。2026-11-14 实测可用。
 
-只有这个端点也不够用时（比如要原始的工具调用参数），才去读磁盘上的 jsonl：
+只有这个端点也满足不了需求时（比如要原始的工具调用参数），才去读磁盘上的 jsonl：
 
 ```bash
 node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\n").forEach(l=>{if(!l.trim())return;const j=JSON.parse(l);if(j.role)console.log(j.role+": "+String(j.text||"").slice(0,120))})' "<runtimes[] 里的 sessionPath>"
@@ -188,7 +188,13 @@ data: [DONE]
 
 发完消息不要在同一个 bash 里 sleep 几百秒干等。长 sleep 会撞上工具自己的超时——实测一个 280 秒的 curl 被中途中止，数据只到手一半。
 
-改成每轮只查一次、立刻返回：
+先把第 5 节那条 curl 的输出重定向到文件，后台跑：
+
+```bash
+curl -sN -H "$AUTH" -H "Content-Type: application/json" -d @body.json "$BASE/api/chat" > /tmp/reply.txt 2>&1 &
+```
+
+然后每轮只查一次、立刻返回：
 
 ```bash
 stat -c %s /tmp/reply.txt
@@ -246,7 +252,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 > 5. **发一条消息，证明它能接活**：
 >    ```bash
 >    curl -s -H "$AUTH" -H "Content-Type: application/json" \
->      -d '{"id":"<目标>","messages":[{"role":"user","parts":[{"type":"text","text":"重启完成，这条消息用来验证你能接活"}]}]}' \
+>      -d '{"id":"<目标>","messages":[{"role":"user","parts":[{"type":"text","text":"重启结束，这条消息用来验证你能接活"}]}]}' \
 >      "$BASE/api/chat"
 >    ```
 >    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。第 5 节说过，这条请求是异步入队，可能一个帧都不吐。
