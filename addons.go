@@ -229,6 +229,8 @@ type pluginContrib struct {
 	// actions that cannot start another turn are allowed, so a hook
 	// cannot loop.
 	Hooks map[string][]pluginAction `yaml:"hooks" json:"hooks"`
+	// Agents are ways of working the plugin adds to the agent picker.
+	Agents []agentPersona `yaml:"agents" json:"agents"`
 }
 
 // pluginSetting is one value a plugin asks the user for. Commands read it
@@ -483,6 +485,7 @@ func (a *app) loadPlugins() []plugin {
 func normalizePlugin(p *plugin) {
 	declared := normalizePluginSettings(p)
 	normalizePluginHooks(p)
+	normalizePluginAgents(p)
 	for i, pr := range p.Prompts {
 		if strings.TrimSpace(pr.Title) == "" || strings.TrimSpace(pr.Prompt) == "" {
 			continue
@@ -701,6 +704,32 @@ var appEvents = map[string]bool{
 	eventPlanFinished:   true,
 	eventGitCommit:      true,
 	eventImageGenerated: true,
+}
+
+// normalizePluginAgents checks a plugin's agents: an id safe to keep in a
+// config, a name and a prompt, at most 20.
+func normalizePluginAgents(p *plugin) {
+	if len(p.Contributes.Agents) == 0 {
+		return
+	}
+	seen := map[string]bool{}
+	var out []agentPersona
+	for _, agent := range p.Contributes.Agents {
+		agent.ID = strings.TrimSpace(agent.ID)
+		agent.Name = strings.TrimSpace(agent.Name)
+		agent.Description = strings.TrimSpace(agent.Description)
+		agent.Prompt = strings.TrimSpace(agent.Prompt)
+		if agent.ID == "" || agent.Name == "" || agent.Prompt == "" || !pluginSettingKey.MatchString(agent.ID) || seen[agent.ID] {
+			p.Warnings = append(p.Warnings, "跳过无效的智能体："+firstNonEmpty(agent.ID, agent.Name))
+			continue
+		}
+		seen[agent.ID] = true
+		out = append(out, agent)
+		if len(out) >= 20 {
+			break
+		}
+	}
+	p.Contributes.Agents = out
 }
 
 // normalizePluginHooks checks a plugin's hooks: a known event, and an

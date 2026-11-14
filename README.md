@@ -457,6 +457,9 @@ knob code info down`。
     ],
     "themes": ["themes/team-blue.json"],
     "keybindings": [{"command": "review", "key": "mod+shift+r"}],
+    "agents": [
+      {"id": "review", "name": "团队审查", "description": "按团队规则审查", "prompt": "按团队规则逐条审查，先列问题。"}
+    ],
     "hooks": {
       "turn.done": [{"type": "url", "url": "https://example.com/done?s=${event:session}"}]
     }
@@ -471,6 +474,8 @@ knob code info down`。
   `image.generated`，动作只允许 `url` / `command` / `theme`（不能起新一轮，避免自激）；文本里可用
   `${event:session}` / `${event:title}` / `${event:project}` / `${event:status}` / `${event:answer}`
   等字段，事件各自的字段（`origin`、`plan`、`steps`、`message`、`provider` 等）也按同名取用
+- `contributes.agents` 给智能体选择器加条目：`id` / `name` / `prompt` 必填，`description` 可选；
+  会话里保存为 `<插件 id>:<agent id>`，条目上标出插件名；禁用插件后它带来的智能体一起消失
 - `contributes.settings` 声明插件设置：`type` 为 `bool` / `string` / `number` / `select`，
   `select` 需要 `options`；设置显示在 设置 → 扩展 的插件条目下，值存 `config.json` 的
   `pluginSettings`（键为 `<插件 id>/<key>`）

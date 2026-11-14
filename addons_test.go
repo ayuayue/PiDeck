@@ -507,6 +507,23 @@ func TestPluginSettingUI(t *testing.T) {
 	}
 }
 
+// TestPluginAgents checks a plugin's agents are limited to valid ones.
+func TestPluginAgents(t *testing.T) {
+	p := plugin{ID: "team", Contributes: pluginContrib{Agents: []agentPersona{
+		{ID: "review", Name: "团队审查", Description: "团队规则", Prompt: "按团队规则审查。"},
+		{ID: "review", Name: "重复", Prompt: "重复的 id。"},
+		{ID: "bad id", Name: "坏", Prompt: "x"},
+		{ID: "empty", Name: "没有提示词"},
+	}}}
+	normalizePlugin(&p)
+	if len(p.Contributes.Agents) != 1 || p.Contributes.Agents[0].ID != "review" {
+		t.Fatalf("agents = %+v", p.Contributes.Agents)
+	}
+	if len(p.Warnings) < 2 {
+		t.Fatalf("warnings = %v", p.Warnings)
+	}
+}
+
 // TestPluginHooks checks a manifest's hooks are limited to safe actions
 // and known events.
 func TestPluginHooks(t *testing.T) {
@@ -604,6 +621,42 @@ func TestPluginHookCommand(t *testing.T) {
 	app.WaitForGone("id:sidebar-panel", 5*time.Second)
 	app.Key("mod+b")
 	app.WaitFor("id:sidebar-panel", 5*time.Second)
+}
+
+// TestPluginAgentPicker starts a session with an agent a plugin brings.
+func TestPluginAgentPicker(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := editorWorkspace(t)
+	dir := filepath.Join(home, "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"id":"team","name":"团队插件","version":"1.0.0","contributes":{"agents":[{"id":"review","name":"团队审查","description":"按团队规则","prompt":"按团队规则审查。"}]}}`
+	if err := os.WriteFile(filepath.Join(dir, "team.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := json.Marshal(config{Version: 2, Theme: "system", SidebarOpen: true, ScanPi: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Cleanup(closeAllPi)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1280, 860))
+	app.WaitFor("id:welcome-chat", 10*time.Second)
+	app.Press("id:rail-palette")
+	app.Type("label:命令", "智能体")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:option")) > 0 })
+	app.Press("role:option >> nth=0")
+	app.WaitFor("id:agent-dialog", 5*time.Second)
+	app.WaitUntil(15*time.Second, func() bool { return len(app.Query("role:button 团队审查")) > 0 })
+	app.Press("role:button 团队审查")
+	app.WaitFor("id:persona-chip", 20*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:团队审查")) > 0 })
 }
 
 // TestPluginHookSessionCreated runs a hook when a session is made, which

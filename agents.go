@@ -27,6 +27,8 @@ type agentPersona struct {
 	Prompt      string `yaml:"prompt" json:"prompt"`
 	// Icon is the built-in's mark; custom agents get the bot.
 	Icon func() *core.SVG `yaml:"-" json:"-"`
+	// Plugin names the plugin that brought the agent, for the picker.
+	Plugin string `yaml:"-" json:"-"`
 }
 
 // builtinAgents are the ways of working the app ships with.
@@ -72,7 +74,7 @@ func (a *app) agentList() []agentPersona {
 	}
 	dir := a.agentsDir()
 	if dir == "" {
-		return out
+		return a.withPluginAgents(out, seen)
 	}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
@@ -101,6 +103,31 @@ func (a *app) agentList() []agentPersona {
 			seen[p.ID] = true
 			p.Icon = lucide.Bot
 			out = append(out, p)
+		}
+	}
+	// Plugins bring their own agents, namespaced by plugin id.
+	return a.withPluginAgents(out, seen)
+}
+
+// withPluginAgents appends the enabled plugins' agents.
+func (a *app) withPluginAgents(out []agentPersona, seen map[string]bool) []agentPersona {
+	if a.plugins == nil {
+		return out
+	}
+	for _, p := range a.plugins.GetUntracked() {
+		if p.Disabled || p.Error != "" {
+			continue
+		}
+		for _, agent := range p.Contributes.Agents {
+			id := p.ID + ":" + agent.ID
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			agent.ID = id
+			agent.Plugin = p.Name
+			agent.Icon = lucide.Bot
+			out = append(out, agent)
 		}
 	}
 	return out
@@ -209,6 +236,9 @@ func (a *app) personaChip(s *session) core.Node {
 func (a *app) agentDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
+		if a.plugins != nil {
+			a.plugins.Get() // rebuild when a plugin's agents arrive
+		}
 		var rows []core.Node
 		for _, p := range a.agentList() {
 			agent := p
@@ -232,6 +262,10 @@ func (a *app) agentDialog() core.Node {
 						core.Text{Content: T(agent.Name), Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
 						core.Text{Content: T(agent.Description), MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
 							Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Muted)},
+						core.Show{When: func() bool { return agent.Plugin != "" }, Then: func(*core.Scope) core.Node {
+							return core.Text{Content: T("插件") + " · " + agent.Plugin, MaxLines: 1,
+								Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+						}},
 					}},
 				},
 			})
@@ -256,7 +290,7 @@ func (a *app) agentDialog() core.Node {
 				core.Text{Content: T("选择后会新建一个会话；它的工作方式会放在每个提问前面。"),
 					Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{Gap: 2, Margin: core.Edges{Top: 4}}, Children: rows},
-				core.Text{Content: T("自定义智能体放在数据目录的 agents/ 里。"),
+				core.Text{Content: T("自定义智能体放在数据目录的 agents/ 里；插件也可以在 contributes.agents 里带智能体。"),
 					Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
 			},
 			Footer: footer,
