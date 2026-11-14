@@ -544,10 +544,12 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 ## 11 改这个技能之前
 
-第 7 节那两张表是照源码抄的，抄错没人看得见。改完跑下面这三条检查，每条的 rc 都得是 0：
+**这一节只对改这个技能的人有用，用技能的人跳过。** 三个检查都要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`），所以只能在源码克隆里跑——PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这三个脚本。
+
+在 PiDeck 源码克隆的根目录跑，三条的 rc 都得是 0：
 
 ```bash
-node resources/skills/pideck-web-api/check-doc.mjs     # 第 7 节的动作表、端点数，逐条对源码
+node resources/skills/pideck-web-api/check-doc.mjs     # 第 7 节的动作表、端点数、字段，逐条对源码
 node resources/skills/pideck-web-api/check-paths.mjs   # 全文每个 /api 路径，逐段对源码
 node resources/skills/pideck-web-api/check-format.mjs  # 加粗成对、代码块配对、表格列数一致
 ```
