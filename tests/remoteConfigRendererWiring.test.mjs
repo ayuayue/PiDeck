@@ -5,6 +5,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
 import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 import { configModalSource } from "./helpers/configModalSources.mjs";
+import { remoteHostConnectionSource } from "./helpers/remoteHostConnectionSources.mjs";
 
 /**
  * 环境切换的渲染层契约（本次重构后）：
@@ -100,7 +101,7 @@ test("环境菜单自己会跟：分区重新可见时重读主机清单，连�
 	const settings = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
 	assert.match(settings, /active=\{pane === "config"\}/, "宿主必须告知分区可见性");
 	// 连接失败的推送在池化路径也要发（不建 manager 的那条分支）：否则另一视图停在旧的成功态。
-	const service = readFileSync("src/main/remote/RemoteHostConnectionService.ts", "utf8");
+	const service = remoteHostConnectionSource;
 	assert.match(service, /publishPooledState\(\{ hostId, state: \{ hostId, generation: entry\.generation, state: "offline"/);
 });
 

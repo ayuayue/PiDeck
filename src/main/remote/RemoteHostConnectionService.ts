@@ -1,8 +1,8 @@
-import { buildPinnedSshInvocation, type PinnedSshInvocation } from "./SshVerifiedConnection";
+import { buildPinnedSshInvocation } from "./SshVerifiedConnection";
 import { createRootSessionPool, type RootPoolPolicy, type RootSessionPool } from "./RemoteRootSessionPool";
 import { logRootPoolDiagnostic } from "./RemoteRootPoolDiagnostics";
 import { clearInterval as cancelSweepTimer, setInterval as intervalTimer } from "node:timers";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { RemoteHostStore } from "./RemoteHostStore";
 import { createRemoteHostOperationLock } from "./RemoteHostOperationLock";
@@ -10,24 +10,29 @@ import { resolveRemoteBrowseRoot } from "./RemoteBrowseRoot";
 import { buildReadHomeCommand } from "./RemoteDirectoryListing";
 import { bootstrapPinnedHost, resolveRemoteNodeExecutable } from "./RemoteBootstrapSession";
 import { resolveRemotePiExecutable } from "./RemotePiDiscovery";
-import { deployedRunnerPath } from "./RemoteBootstrapDeployment";
-import { writeRemoteSecurityPolicySnapshot } from "./RemoteSecurityPolicyArtifact";
-import { getAppLogger } from "../logging/sharedLogger";
-import { maintainDeployedBundles } from "./RemoteBundleMaintenance";
-import { deployRemoteExtensionSnapshot, deployedExtensionSnapshotRoot } from "./RemoteExtensionDeployment";
-import { readEffectiveExtensionSnapshot, remoteExtensionSnapshotFileNames } from "../extensions/remoteExtensionSnapshot";
+import { deployRemoteExtensionSnapshot } from "./RemoteExtensionDeployment";
 import type { BuiltInExtensionPathRoots } from "../extensions/builtInExtensions";
 import { createSshPiRuntimeLauncher } from "./SshPiRuntimeLauncher";
 import type { PiRuntimeLauncher } from "../pi/PiSpawnHandle";
 import { createSshConnectionManager, type SshConnectionManager, type SshHelperSession } from "./SshConnectionManager";
 import { createSshProcessLauncher } from "./SshProcessLauncher";
 import { diagnosticCodeFromError } from "./SshConnectionDiagnostics";
-import { withClientEnv, type SshClientRuntime } from "./SshClientRuntime";
-import { createSshAskpassBridge, type SshAskpassBridge } from "./SshAskpass";
-import { RemoteHostCredentialStore } from "./RemoteHostCredentialStore";
+import { type SshClientRuntime } from "./SshClientRuntime";
+import { createRemoteHostSecrets } from "./RemoteHostSecrets";
+import { createRemoteHostConnectionFacts } from "./RemoteHostConnectionFacts";
+import { createRemotePiSessionFacts, type HeldExtensionSnapshot, type PiProbeFacts } from "./RemotePiSessionFacts";
+import { createRemoteSecurityPolicySnapshot } from "./RemoteSecurityPolicySnapshot";
+import { createRemoteProjectSessionBuilder } from "./RemoteProjectSessionBinding";
+import type { RemoteExtensionSnapshotFacts, RemotePiRuntimeFacts } from "./RemotePiSessionFacts";
+import type { RemoteProjectSession } from "./RemoteProjectSessionBinding";
+
 import type { SshProcessLauncher } from "./RemoteHostConnectionTypes";
 import type { ConnectionMachineState } from "./RemoteHostConnectionState";
 import type { RemoteHostConnectionState } from "./RemoteHostConnectionTypes";
+import { createBootstrapNonce, DEFAULT_NONCE_BYTES, HOST_ID, managerToken, NONCE, pooledConnectionId, readRemoteHome, throwIfCancelled, TRANSIENT_SESSION_STATES } from "./remoteHostConnectionGuards";
+
+export { createBootstrapNonce };
+export type { RemoteExtensionSnapshotFacts, RemotePiRuntimeFacts, RemoteProjectSession };
 
 /**
  * The verified bootstrap result of one host, held for exactly as long as the store revision it was
@@ -50,20 +55,6 @@ type PooledRootSession = {
 	root: string;
 	manager: SshConnectionManager;
 	held: HeldBootstrap;
-};
-
-/**
- * 已部署的内置扩展快照（内容寻址），与 held bootstrap 同代缓存。
- *
- * 为什么缓存：快照每次会话都要用，而部署要一轮 ssh + scp；同一份 held session（同 revision/generation）
- * 里重复部署只会白付一次上传。重连/换根会换 held session，缓存随之失效（与 `piProbe` 同判据）。
- */
-type HeldExtensionSnapshot = {
-	revision: number;
-	generation: number;
-	sha256: string;
-	root: string;
-	fileNames: readonly string[];
 };
 
 /** Narrow, injectable view of the coordinator so tests never touch a real SSH process. */
@@ -140,71 +131,6 @@ export type RemoteHostConnectionServiceOptions = {
 /** Redacted outcome of one connect request: stable codes only, never pins or paths. */
 export type RemoteHostConnectResult = { ok: true; hostId: string; state: ConnectionMachineState } | { ok: false; hostId: string; code: string };
 
-/**
- * One helper session held for the whole duration of a read-only operation.
- *
- * `request`/`cancel` are already bound to the manager this session was established on, so the caller never
- * names a host or a manager: it cannot accidentally address a session that replaced this one mid-read.
- */
-export type RemoteProjectSession = {
-	readonly hostId: string;
-	/** 已验证且与本次会话同代的Node/主机版本，仅供main受控文件命令使用。 */
-	readonly nodePath: string;
-	/** The confirmed content address of the active bundle: the ticket and the runner path both name it. */
-	readonly deployRoot: string;
-	readonly bundleSha256: string;
-	/** The pin-confirmed route digest of this host revision; the ticket binds it, main never guesses it. */
-	readonly hostRouteDigest: string;
-	readonly hostRevision: number;
-	/**
-	 * 主进程持有的稳定 helper 会话身份：manager 实例 + 连接 generation。
-	 *
-	 * 一次会话里每次读都会新建一个 session 包装对象（这是有意的：包装绑定到当时的 manager），但它们
-	 * 代表同一个 helper，所以这个值不变。重连（manager 的 generation 前进）、换根或换 manager 都会
-	 * 换值。��阅类登记（目录 watcher）必须用它作 key：用包装对象会把同一次会话的每次读当成新会话。
-	 */
-	readonly connectionId: string;
-	runCommand(remoteCommand: string): Promise<{ exitCode: number; stdout: string }>;
-	/** Build and consume an interactive invocation under the host lock; no escaped stale spawn plan. */
-	withTerminalInvocation<T>(remoteCommand: string, launch: (invocation: PinnedSshInvocation, assertCurrent: () => Promise<void>) => T): Promise<T>;
-	/** Build and consume one SFTP subsystem invocation; renderer never supplies SSH flags or paths. */
-	withSftpInvocation<T>(launch: (invocation: PinnedSshInvocation, assertCurrent: () => Promise<void>) => T): Promise<T>;
-	request(method: string, params?: unknown, options?: { timeoutMs?: number; onRequestId?: (requestId: string) => void; repo?: string }): Promise<unknown>;
-	cancel(requestId: string, options?: { timeoutMs?: number }): Promise<unknown>;
-};
-
-/**
- * States in which the host is already working on its own connection: an attempt is in flight or the manager
- * is healing itself. A read must report them rather than rebuild — a rebuild would race that attempt.
- */
-const TRANSIENT_SESSION_STATES: ReadonlySet<string> = new Set(["connecting", "probing", "bootstrapping", "reconnecting", "degraded", "needs-attention"]);
-
-/**
- * Which generation number a connect attempt receives. The manager fences attempts by its own
- * generation; this counter names the bootstrap attempt and the nonce lineage only, so the two
- * fences stay independent and neither module has to know the other's numbering.
- */
-type PiProbeFacts = { readonly revision: number; readonly generation: number; readonly piPath: string; readonly version: string; readonly warning?: string };
-
-/** 一台主机上「跑远端 pi 会话」所需的全部事实（P4.2 的启动准备消费它）。 */
-export type RemotePiRuntimeFacts = {
-	readonly nodePath: string;
-	readonly piPath: string;
-	readonly version: string;
-	/** 高于已核验窗口时的提示码（放行但不冒充已核验组合）。 */
-	readonly warning?: string;
-	/** 远端 runner.mjs 的绝对路径（内容寻址部署包内，由 held bootstrap 推出）。 */
-	readonly runnerPath: string;
-	/** 部署根（`<home>/.pideck/remote-host`）：安全策略快照等固定路径的父目录。 */
-	readonly deployRoot: string;
-};
-
-/**
- * 内置扩展快照的部署结果。失败带稳定码，不抛异常：扩展缺失是降级，不是会话启动失败。
- * `fileNames` 是本次激活目录里真实存在的文件名（来自整份校验的清单），注入侧按它过滤。
- */
-export type RemoteExtensionSnapshotFacts = { readonly ok: true; readonly sha256: string; readonly root: string; readonly fileNames: readonly string[] } | { readonly ok: false; readonly code: string };
-
 type HostEntry = {
 	generation: number;
 	held?: HeldBootstrap;
@@ -238,79 +164,6 @@ type HostEntry = {
 
 /** One connect attempt's identity and cancellation. `generation` names the attempt, not the pin. */
 type HostAttempt = { generation: number; controller: AbortController };
-
-const HOST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-/** 16 random bytes base64url: matches the 15–63 character nonce the frozen entry accepts. */
-const DEFAULT_NONCE_BYTES = 16;
-/** Nonces must stay distinguishable between attempts of the same host. */
-const NONCE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$/;
-
-/**
- * 生成一个**必定符合 NONCE 契约**的引导 nonce。
- *
- * 契约（与冻结的 helper bundle 共用）要求首字符是字母数字，而 `randomBytes(n).toString("base64url")`
- * 的首字符有 2/64 ≈ 3.1% 的概率是 `-` 或 `_` —— 曾经的实现正好用它，于是服务**自己生成、自己校验**
- * 时会偶发抛 `REMOTE_CONNECTION_NONCE_INVALID`，表现为「有时连得上、有时一按连接就失败」。
- * 真机 e2e 抓到了这一次（第 5 次运行卡在连接步骤）。hex 恒满足契约，且同样不透明、同样 128 位熵。
- * 不修契约是因为它同时约束远端 helper（改契约要 bump bundle 版本与 sha）。
- */
-export function createBootstrapNonce(): string {
-	return randomBytes(DEFAULT_NONCE_BYTES).toString("hex");
-}
-/** Control bytes must never survive in a path handed on to another module. */
-const CONTROL_BYTES = /[\u0000-\u001f\u007f]/;
-/** Upper bound of a remote HOME, matching the helper contract's own ceiling. */
-const MAX_REMOTE_HOME_LENGTH = 4096;
-
-/**
- * Re-validate a remote HOME on the way out of this service.
- *
- * The manager stores only what its own shape check accepted, but this value is still remote input: it
- * arrives in a helper handshake, and callers join it into remote session paths. The egress check is
- * therefore repeated here (non-empty, absolute POSIX, no control bytes, bounded length) instead of trusting
- * an upstream filter, and a value that does not pass is reported as "unknown" rather than partially used.
- */
-function readRemoteHome(value: unknown): string | undefined {
-	if (typeof value !== "string" || value.length === 0 || value.length > MAX_REMOTE_HOME_LENGTH) return undefined;
-	if (value.charAt(0) !== "/" || CONTROL_BYTES.test(value)) return undefined;
-	return value;
-}
-
-/**
- * 扩展快照部署失败的稳定码。
- *
- * 只认「整条消息就是一个码」的错误（本域所有失败都是这么约定的），其它一律折成固定码：既不能把
- * 通用 SSH 失败伪装成「扩展问题」，也不能把半句路径/命令带进日志与 UI。
- */
-function extensionDeployCodeOf(error: unknown): string {
-	const message = typeof error === "object" && error !== null && "message" in error ? (error as { message?: unknown }).message : undefined;
-	return typeof message === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(message) ? message : "REMOTE_EXTENSIONS_DEPLOY_FAILED";
-}
-
-/**
- * Stable code for "this attempt was cancelled". Reuses the existing disconnect code instead of minting a
- * new public one: the renderer already renders it as "not connected", which is exactly the outcome.
- */
-function throwIfCancelled(signal: AbortSignal | undefined): void {
-	if (signal?.aborted === true) throw new Error("SSH_HOST_DISCONNECTED");
-}
-
-/**
- * Opaque identity for one live manager instance (see `RemoteProjectSession.connectionId`).
- *
- * A manager object is replaced on every root switch/rebind, so object identity already distinguishes those;
- * the caller appends the machine generation to distinguish a reconnect on the same manager. Kept as a
- * WeakMap so a discarded manager cannot be retained by this bookkeeping.
- */
-const managerTokens = new WeakMap<object, number>();
-let managerTokenCounter = 0;
-function managerToken(manager: object): number {
-	const existing = managerTokens.get(manager);
-	if (existing !== undefined) return existing;
-	managerTokenCounter += 1;
-	managerTokens.set(manager, managerTokenCounter);
-	return managerTokenCounter;
-}
 
 function defaultPorts(): RemoteHostConnectionPorts {
 	return {
@@ -434,23 +287,6 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		return (await RemoteHostStore.open(options.userDataDir)).getSnapshot().revision;
 	}
 
-	/**
-	 * 这台主机档案里手填的远端 pi 路径（缺省 = 自动探测）。
-	 *
-	 * 读不到 store / 档案不在时返回 undefined：此时探测自己会报 `SSH_HOST_NOT_READY`，不应该让
-	 * 一个读失败先变成一个看起来「用户没配」的事实。
-	 */
-	async function readPiCommand(hostId: string): Promise<string | undefined> {
-		try {
-			const snapshot = (await RemoteHostStore.open(options.userDataDir)).getSnapshot();
-			if (snapshot.status !== "ready") return undefined;
-			const command = snapshot.profiles.find((item) => item.id === hostId)?.remotePiCommand;
-			return typeof command === "string" && command.length > 0 ? command : undefined;
-		} catch {
-			return undefined;
-		}
-	}
-
 	/** The revision and the pin-confirmed route digest of one host, read together so they cannot disagree. */
 	async function readVerifiedRoute(hostId: string): Promise<{ revision: number; routeDigest: string } | null> {
 		const snapshot = (await RemoteHostStore.open(options.userDataDir)).getSnapshot();
@@ -461,47 +297,8 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		return { revision: snapshot.revision, routeDigest: endpoint.routeDigest };
 	}
 
-	/**
-	 * In-memory password material for hosts that authenticate with one.
-	 *
-	 * The secret never leaves this process: it is (a) not persisted, (b) not logged, (c) not passed to `ssh` as
-	 * an argument or an environment value. Each host gets its own askpass bridge and its own client view, so
-	 * `SSH_ASKPASS` is only inherited by the ssh processes of the host that actually holds a secret.
-	 */
-	const hostPasswords = new Map<string, string>();
-	const askpassBridges = new Map<string, SshAskpassBridge>();
-	const hostClients = new Map<string, SshClientRuntime>();
-	const credentials = new RemoteHostCredentialStore(options.userDataDir);
-
-	/** The client every pinned invocation of this host must use. */
-	function hostClient(hostId: string): SshClientRuntime {
-		return hostClients.get(hostId) ?? options.client;
-	}
-
-	async function releaseHostPassword(hostId: string): Promise<void> {
-		hostPasswords.delete(hostId);
-		hostClients.delete(hostId);
-		const bridge = askpassBridges.get(hostId);
-		askpassBridges.delete(hostId);
-		await bridge?.dispose();
-	}
-
-	async function applyHostPassword(hostId: string, secret: string): Promise<void> {
-		if (typeof secret !== "string" || secret.length === 0 || secret.length > 4096 || secret.includes(String.fromCharCode(0))) throw new Error("SSH_PASSWORD_INVALID");
-		await releaseHostPassword(hostId);
-		const bridge = await createSshAskpassBridge({ secret, executable: process.execPath });
-		try {
-			hostClients.set(hostId, withClientEnv(options.client, bridge.env));
-		} catch (error) {
-			await bridge.dispose();
-			throw error;
-		}
-		askpassBridges.set(hostId, bridge);
-		hostPasswords.set(hostId, secret);
-		// Persist a copy (OS-encrypted) so the next run does not ask again. A platform that cannot encrypt
-		// simply keeps the secret for this session; `set` returning false is not an error.
-		await credentials.set(hostId, secret).catch(() => false);
-	}
+	const secrets = createRemoteHostSecrets(options);
+	const hostClient = secrets.clientFor;
 
 	/** Best-effort profile read used only to decide whether a secret is required before connecting. */
 	async function readProfile(hostId: string) {
@@ -890,58 +687,17 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		};
 	}
 
-	/** 两种模式共用身份、就绪与 revision 复验；差别仅在 manager 归属判据。 */
-	function buildProjectSession(input: { hostId: string; manager: SshConnectionManager; held: HeldBootstrap; connectionId: string; hostRouteDigest: string; isCurrent: () => boolean }): RemoteProjectSession {
-		const { hostId, manager: bound, held, connectionId, hostRouteDigest } = input;
-		const isCurrent = (): boolean => !disposed && !explicitlyDisconnected.has(hostId) && input.isCurrent() && pooledConnectionId(hostId, bound) === connectionId;
-		const assertBound = async (): Promise<void> => {
-			if (!isCurrent() || bound.getState(hostId).state !== "ready" || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
-		};
-		return {
-			hostId,
-			nodePath: held.session.nodePath,
-			deployRoot: held.session.deployRoot,
-			bundleSha256: held.session.bundleSha256,
-			hostRouteDigest,
-			hostRevision: held.revision,
-			connectionId,
-			async runCommand(remoteCommand) {
-				// 每块重新校验pin和host store代数；不能拿旧Node路径向重绑后的主机发写命令。
-				await assertBound();
-				const invocation = await buildPinnedSshInvocation(options.userDataDir, hostId, "ssh-batch", { client: hostClient(hostId), remoteCommand });
-				// pin/route构造本身有await；必须在真正启动写命令前再次把host代数绑定到已验证Node。
-				await assertBound();
-				const result = await hostClient(hostId).run(invocation.executable, invocation.args);
-				return { exitCode: result.exitCode, stdout: result.stdout };
-			},
-			async withTerminalInvocation(remoteCommand, launch) {
-				await assertBound();
-				const invocation = await buildPinnedSshInvocation(options.userDataDir, hostId, "ssh-terminal", { client: hostClient(hostId), remoteCommand });
-				await assertBound();
-				// The PTY outlives helper-root switches, but never a host rebind, explicit disconnect or disposal.
-				const assertCurrent = async () => {
-					if (disposed || explicitlyDisconnected.has(hostId) || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
-				};
-				return launch(invocation, assertCurrent);
-			},
-			async withSftpInvocation(launch) {
-				await assertBound();
-				const invocation = await buildPinnedSshInvocation(options.userDataDir, hostId, "ssh-sftp", { client: hostClient(hostId) });
-				await assertBound();
-				return launch(invocation, assertBound);
-			},
-			async request(method, params, requestOptions) {
-				await assertBound();
-				const result = await bound.request(hostId, method, params, requestOptions);
-				await assertBound();
-				return result;
-			},
-			cancel(requestId, requestOptions) {
-				if (!isCurrent()) return Promise.reject(new Error("SSH_HOST_NOT_READY"));
-				return bound.cancel(hostId, requestId, requestOptions);
-			},
-		};
-	}
+	/**
+	 * 两种模式共用身份、就绪与 revision 复验；差别仅在 manager 归属判据。
+	 */
+	const projectSessions = createRemoteProjectSessionBuilder({
+		userDataDir: options.userDataDir,
+		clientFor: hostClient,
+		readRevision,
+		isDisposed: () => disposed,
+		explicitlyDisconnected,
+	});
+	const buildProjectSession = projectSessions.build;
 
 	/** 主机级代数：显式断开/重绑/换 held 都会推进它。池建立用它判断自己是否仍属于有效代。 */
 	function hostEpochOf(hostId: string): number {
@@ -949,11 +705,6 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 	}
 	function bumpHostEpoch(hostId: string): void {
 		hostEpochs.set(hostId, hostEpochOf(hostId) + 1);
-	}
-
-	/** 会话身份：manager 实例 + 连接代数；换 manager、重连、换代都会换值。 */
-	function pooledConnectionId(hostId: string, manager: SshConnectionManager): string {
-		return `${hostId}#${managerToken(manager)}#${manager.getState(hostId).generation}`;
 	}
 
 	/** 并发冷开共享主机 bootstrap；已就绪 root 的操作不经过此队列。 */
@@ -1186,55 +937,40 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		// 池化路径没有 root helper：用 pinned 只读探针回答主机级 HOME。
 		return rootPool === undefined ? undefined : readHomeViaPinnedProbe(hostId);
 	};
-	/**
-	 * 写一份安全策略快照到该主机的部署根（原子替换）。
-	 *
-	 * 与 facts/扩展快照同一个 host 锁与同一种「按需建立 held session」语义：等级变更要能热推，
-	 * 但推送本身不得与同主机的读取操作交错。失败抛稳定码，由调用方决定是否降级。
-	 */
-	const pushSnapshot = async (hostId: string, bytes: Buffer | Uint8Array): Promise<void> => {
-		if (typeof hostId !== "string" || !HOST_ID.test(hostId)) throw new Error("SSH_HOST_ID_INVALID");
-		const sha256 = createHash("sha256").update(bytes).digest("hex");
-		await operationLock.run(hostId, async () => {
-			const entry = entryFor(hostId);
-			// 内容没变就不再来一轮 ssh（同一次 held session 内等级只变几次，但 spawn 可能很多次）。
-			if (entry.securityPolicySha256 === sha256) return;
-			if (entry.held === undefined) {
-				const result = await connectLocked(hostId);
-				if (!result.ok) throw new Error(result.code);
-			}
-			const held = entry.held;
-			if (held === undefined) throw new Error("SSH_HOST_NOT_READY");
-			await writeRemoteSecurityPolicySnapshot({
-				userDataDir: options.userDataDir,
-				hostId,
-				generation: held.generation,
-				nodePath: held.session.nodePath,
-				deployRoot: held.session.deployRoot,
-				bytes,
-				client: hostClient(hostId),
-				launcher,
-				nonce: ports.createNonce(),
-			});
-			entry.securityPolicySha256 = sha256;
-		});
-	};
-	/**
-	 * 广播一份快照到当前仍有 held session 的主机（安全等级热更新）。
-	 *
-	 * 尽力而为：单台失败只记 warn（下一次 prepare 会在该主机重新推送），不把一次设置变更变成错误。
-	 */
-	const pushSnapshotToReadyHosts = async (bytes: Buffer | Uint8Array): Promise<void> => {
-		const targets = [...hosts].filter(([, entry]) => entry.held !== undefined).map(([hostId]) => hostId);
-		for (const hostId of targets) {
-			try {
-				await pushSnapshot(hostId, bytes);
-			} catch (error) {
-				const message = typeof error === "object" && error !== null && "message" in error ? (error as { message?: unknown }).message : undefined;
-				void getAppLogger()?.warn("remote", "Remote security snapshot push failed", { hostId, code: typeof message === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(message) ? message : "SECURITY_SNAPSHOT_PUSH_FAILED" });
-			}
-		}
-	};
+	const securitySnapshots = createRemoteSecurityPolicySnapshot({
+		userDataDir: options.userDataDir,
+		launcher,
+		createNonce: ports.createNonce,
+		entryFor,
+		connectLocked,
+		operationLock,
+		clientFor: hostClient,
+		hostIdsWithHeld: () => [...hosts].filter(([, entry]) => entry.held !== undefined).map(([hostId]) => hostId),
+	});
+	const pushSnapshot = securitySnapshots.pushSnapshot;
+	const pushSnapshotToReadyHosts = securitySnapshots.pushSnapshotToReadyHosts;
+	const piFacts = createRemotePiSessionFacts({
+		userDataDir: options.userDataDir,
+		ports,
+		launcher,
+		builtInExtensionRoots: options.builtInExtensionRoots,
+		entryFor,
+		entryPeek: (hostId) => hosts.get(hostId),
+		connectLocked,
+		operationLock,
+		clientFor: hostClient,
+	});
+	const facts = createRemoteHostConnectionFacts({
+		hosts,
+		pool: rootPool,
+		pooledHostStates,
+		pooledManager,
+		rootFailures,
+		workspaceRoots,
+		configuredRoot: options.root,
+		explicitlyDisconnected,
+		disposed: () => disposed,
+	});
 	return {
 		/**
 		 * The verified client this service drives.
@@ -1251,17 +987,15 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * keyring keeps it for this session only, and the caller must not claim otherwise.
 		 */
 		async setHostSecret(hostId: string, secret: string): Promise<{ persisted: boolean }> {
-			await applyHostPassword(hostId, secret);
-			return { persisted: await credentials.available() };
+			return secrets.setHostSecret(hostId, secret);
 		},
 		/** The stored secret, decrypted for the edit form. Never crosses into a log or a host store file. */
 		async readStoredSecret(hostId: string): Promise<string | undefined> {
-			return credentials.get(hostId);
+			return secrets.readStoredSecret(hostId);
 		},
 		/** Drop this host's stored secret (host removal). A plain disconnect keeps it for the next connect. */
 		async forgetHost(hostId: string): Promise<void> {
-			await releaseHostPassword(hostId);
-			await credentials.delete(hostId).catch(() => undefined);
+			return secrets.forgetHost(hostId);
 		},
 		/**
 		 * Current machine state per host that has a live manager.
@@ -1270,22 +1004,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * "disconnected" for a host that is still connected. This is the replay point for a fresh mount.
 		 */
 		states(): Record<string, RemoteHostConnectionState> {
-			const current: Record<string, RemoteHostConnectionState> = {};
-			for (const [hostId, entry] of hosts) {
-				const state = entry.manager?.getState(hostId).state;
-				if (state !== undefined) current[hostId] = state;
-			}
-			// 池化：一台主机的状态由它的各 root 会话聚合——任一条就绪即视为主机可用，显式 connect 的结论另记。
-			for (const entry of rootPool?.entries() ?? []) {
-				try {
-					const state = entry.value.manager.getState(entry.hostId).state;
-					if (current[entry.hostId] !== "ready") current[entry.hostId] = state;
-				} catch {
-					continue;
-				}
-			}
-			for (const [hostId, state] of pooledHostStates) if (current[hostId] === undefined) current[hostId] = state.state;
-			return current;
+			return facts.states();
 		},
 		/** The client a pinned command for this host must use (a password host carries its askpass bridge). */
 		clientForHost(hostId: string): SshClientRuntime {
@@ -1304,7 +1023,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		async connect(hostId: string, input?: { password?: string }): Promise<RemoteHostConnectResult> {
 			if (input?.password !== undefined) {
 				try {
-					await applyHostPassword(hostId, input.password);
+					await secrets.apply(hostId, input.password);
 				} catch {
 					return { ok: false, hostId, code: "SSH_PASSWORD_INVALID" };
 				}
@@ -1312,12 +1031,12 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 			// A password host can only be driven while a secret is held: without it every ssh child below would
 			// start a password prompt that no bridge can answer, and the failure would surface as a generic timeout.
 			const profile = await readProfile(hostId);
-			if (profile?.authMethod === "password" && !hostClients.has(hostId)) {
+			if (profile?.authMethod === "password" && !secrets.hasClient(hostId)) {
 				// A stored secret (encrypted at rest) is the normal path after the first connect; only when
 				// none exists, or it cannot be decrypted on this machine, does the UI have to ask again.
-				const stored = await credentials.get(hostId);
-				if (stored !== undefined) await applyHostPassword(hostId, stored).catch(() => undefined);
-				if (!hostClients.has(hostId)) return { ok: false, hostId, code: "SSH_PASSWORD_REQUIRED" };
+				const stored = await secrets.readStored(hostId);
+				if (stored !== undefined) await secrets.apply(hostId, stored).catch(() => undefined);
+				if (!secrets.hasClient(hostId)) return { ok: false, hostId, code: "SSH_PASSWORD_REQUIRED" };
 			}
 			const entry = entryFor(hostId);
 			// Only this explicit user boundary may undo a disconnect; session scanning also uses connectLocked.
@@ -1353,17 +1072,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * host. Only a ready/degraded session may answer, for the same reason remoteHome refuses one.
 		 */
 		helperCapabilities(hostId: string): readonly string[] | undefined {
-			if (disposed || explicitlyDisconnected.has(hostId)) return undefined;
-			// 池化：主机级能力取任一已就绪会话（能力与 root 无关）；项目级请用 projectHelperCapabilities。
-			const manager = pooledManager(hostId) ?? hosts.get(hostId)?.manager;
-			if (manager === undefined) return undefined;
-			try {
-				const state = manager.getState(hostId).state;
-				if (state !== "ready" && state !== "degraded") return undefined;
-				return manager.getCapabilities(hostId);
-			} catch {
-				return undefined;
-			}
+			return facts.helperCapabilities(hostId);
 		},
 		/**
 		 * The capabilities **the session of this project's root** negotiated, never a sibling root's.
@@ -1375,30 +1084,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * of guessing.
 		 */
 		projectHelperCapabilities(hostId: string, canonicalRoot: string): readonly string[] | undefined {
-			if (disposed || explicitlyDisconnected.has(hostId)) return undefined;
-			if (typeof canonicalRoot !== "string" || canonicalRoot.length === 0) return undefined;
-			// 池化：能力属于声明它的那条 helper 会话，因此只从本 root 的会话回答。
-			const pooledEntry = rootPool?.peek(hostId, canonicalRoot);
-			if (pooledEntry !== undefined) {
-				try {
-					const state = pooledEntry.value.manager.getState(hostId).state;
-					if (state !== "ready" && state !== "degraded") return undefined;
-					return pooledEntry.value.manager.getCapabilities(hostId);
-				} catch {
-					return undefined;
-				}
-			}
-			if (rootPool !== undefined) return undefined;
-			const manager = hosts.get(hostId)?.manager;
-			if (manager === undefined) return undefined;
-			if ((workspaceRoots.get(hostId) ?? options.root) !== canonicalRoot) return undefined;
-			try {
-				const state = manager.getState(hostId).state;
-				if (state !== "ready" && state !== "degraded") return undefined;
-				return manager.getCapabilities(hostId);
-			} catch {
-				return undefined;
-			}
+			return facts.projectHelperCapabilities(hostId, canonicalRoot);
 		},
 		/** 按连接身份成对保活；单会话模式为空操作。 */
 		retainProjectSessionWatch(hostId: string, root: string, connectionId: string): void {
@@ -1431,8 +1117,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * and each answers for its own root.
 		 */
 		projectRootStatus(hostId: string, root: string): { status: "ok" } | { status: "needs-attention"; code: string } {
-			const code = rootFailures.get(hostId)?.get(root);
-			return code === undefined ? { status: "ok" } : { status: "needs-attention", code };
+			return facts.projectRootStatus(hostId, root);
 		},
 		/**
 		 * Point this host's next session at a confirmed workspace root.
@@ -1479,14 +1164,11 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 					await rootPool.retireHost(hostId, "explicit");
 				}
 				pooledHostStates.delete(hostId);
-				await releaseHostPassword(hostId);
+				await secrets.release(hostId);
 			});
 		},
 		listDiagnostics(hostId?: string) {
-			const fromHosts = hostId !== undefined ? (hosts.get(hostId)?.manager?.listDiagnostics(hostId) ?? []) : [...hosts.values()].flatMap((entry) => entry.manager?.listDiagnostics() ?? []);
-			// 池化：每条 root 会话各有自己的诊断序列，全部并入（同主机多条会话不该互相遮盖）。
-			const fromPool = (rootPool?.entries() ?? []).filter((entry) => hostId === undefined || entry.hostId === hostId).flatMap((entry) => entry.value.manager.listDiagnostics(entry.hostId));
-			return [...fromHosts, ...fromPool];
+			return facts.listDiagnostics(hostId);
 		},
 		/**
 		 * 一台主机上「跑远端 pi 会话」所需的全部事实：解释器、pi 入口、runner 路径。
@@ -1500,37 +1182,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * 其余是探测自己的 `REMOTE_PI_*` 码原样透传（调用方据此给升级指引）。
 		 */
 		async remotePiRuntimeFacts(hostId: string): Promise<RemotePiRuntimeFacts> {
-			if (typeof hostId !== "string" || !HOST_ID.test(hostId)) throw new Error("SSH_HOST_ID_INVALID");
-			// 池化：按 (host, root) 租用会话，操作期间持租约（在途写不会被 TTL/LRU 回收）。
-			return operationLock.run(hostId, async () => {
-				const entry = entryFor(hostId);
-				if (entry.held === undefined) {
-					const result = await connectLocked(hostId);
-					if (!result.ok) throw new Error("SSH_HOST_NOT_READY");
-				}
-				const held = entry.held;
-				if (held === undefined) throw new Error("SSH_HOST_NOT_READY");
-				const cached = entry.piProbe;
-				const probe =
-					cached !== undefined && cached.revision === held.revision && cached.generation === held.generation
-						? cached
-						: await (async (): Promise<PiProbeFacts> => {
-								// 手填路径优先：用户已经明确说了 pi 在哪，不再扫登录 shell 的 PATH。
-								const piPath = await readPiCommand(hostId);
-								const observation = await ports.resolvePi({ userDataDir: options.userDataDir, hostId, client: hostClient(hostId), sentinel: ports.createSentinel(), nodePath: held.session.nodePath, ...(piPath === undefined ? {} : { piPath }) });
-								const facts: PiProbeFacts = { revision: held.revision, generation: held.generation, piPath: observation.piPath, version: observation.version, ...(observation.warning === undefined ? {} : { warning: observation.warning }) };
-								entry.piProbe = facts;
-								return facts;
-							})();
-				return {
-					nodePath: held.session.nodePath,
-					piPath: probe.piPath,
-					version: probe.version,
-					...(probe.warning === undefined ? {} : { warning: probe.warning }),
-					runnerPath: deployedRunnerPath({ bundleSha256: held.session.bundleSha256, deployRoot: held.session.deployRoot, active: `./bundles/${held.session.bundleSha256}` }),
-					deployRoot: held.session.deployRoot,
-				};
-			});
+			return piFacts.remotePiRuntimeFacts(hostId);
 		},
 		/**
 		 * 记住（或清除）这台主机手填的远端 pi 路径，并作废本代 held session 上缓存的探测结果。
@@ -1542,16 +1194,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * 形状校验在 IPC 边界与 store 各做一次：这里只负责写库与失效，不把业务规则再写一份。
 		 */
 		async setRemotePiCommand(hostId: string, command: string | undefined): Promise<void> {
-			if (typeof hostId !== "string" || !HOST_ID.test(hostId)) throw new Error("SSH_HOST_ID_INVALID");
-			return operationLock.run(hostId, async () => {
-				const store = await RemoteHostStore.open(options.userDataDir);
-				const snapshot = store.getSnapshot();
-				if (snapshot.status !== "ready") throw new Error("REMOTE_HOST_STORE_NEEDS_REPAIR");
-				if (!snapshot.profiles.some((profile) => profile.id === hostId)) throw new Error("REMOTE_HOST_NOT_FOUND");
-				await store.updateProfile(hostId, { remotePiCommand: command }, snapshot.revision);
-				const entry = hosts.get(hostId);
-				if (entry !== undefined) entry.piProbe = undefined;
-			});
+			return piFacts.setRemotePiCommand(hostId, command);
 		},
 		/**
 		 * 部署本机生效的内置扩展快照，返回内容寻址根（`-e` 的父路径）。
@@ -1561,54 +1204,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * 内容一致时不会重复改写）。任何失败都折叠成稳定码返回——扩展缺失是降级，不能卡住会话。
 		 */
 		async ensureRemoteExtensionSnapshot(hostId: string): Promise<RemoteExtensionSnapshotFacts> {
-			if (typeof hostId !== "string" || !HOST_ID.test(hostId)) return { ok: false, code: "SSH_HOST_ID_INVALID" };
-			const roots = options.builtInExtensionRoots;
-			if (roots === undefined) return { ok: false, code: "REMOTE_EXTENSIONS_UNAVAILABLE" };
-			const snapshot = readEffectiveExtensionSnapshot(roots);
-			if (snapshot === undefined) return { ok: false, code: "REMOTE_EXTENSIONS_UNAVAILABLE" };
-			const fileNames = remoteExtensionSnapshotFileNames(snapshot.manifest);
-			if (fileNames.length === 0) return { ok: false, code: "REMOTE_EXTENSIONS_UNAVAILABLE" };
-			return operationLock.run(hostId, async (): Promise<RemoteExtensionSnapshotFacts> => {
-				const entry = entryFor(hostId);
-				if (entry.held === undefined) {
-					const result = await connectLocked(hostId);
-					if (!result.ok) return { ok: false, code: result.code };
-				}
-				const held = entry.held;
-				if (held === undefined) return { ok: false, code: "SSH_HOST_NOT_READY" };
-				const cached = entry.extensionSnapshot;
-				if (cached !== undefined && cached.revision === held.revision && cached.generation === held.generation) return { ok: true, sha256: cached.sha256, root: cached.root, fileNames: cached.fileNames };
-				try {
-					const deployed = await ports.deployExtensions({
-						userDataDir: options.userDataDir,
-						hostId,
-						generation: held.generation,
-						nonce: ports.createNonce(),
-						nodePath: held.session.nodePath,
-						client: hostClient(hostId),
-						launcher,
-						snapshot: { dir: snapshot.dir, names: fileNames },
-						// An explicit disconnect/dispose during the upload cancels this attempt too; the cache is then
-						// not written, and the next session redeploys instead of trusting a half-finished result.
-						...(entry.attempt === undefined ? {} : { signal: entry.attempt.controller.signal }),
-					});
-					const root = deployedExtensionSnapshotRoot(deployed);
-					entry.extensionSnapshot = { revision: held.revision, generation: held.generation, sha256: deployed.bundleSha256, root, fileNames };
-					// 非致命回收：这一轮刚确认了两个 active（helper + 扩展），sweep 可以清旧快照；失败只记日志。
-					void maintainDeployedBundles({
-						userDataDir: options.userDataDir,
-						hostId,
-						client: hostClient(hostId),
-						nodePath: held.session.nodePath,
-						deployRoot: deployed.deployRoot,
-						activeBundleSha256: held.session.bundleSha256,
-						activeExtensionSha256: deployed.bundleSha256,
-					}).catch(() => undefined);
-					return { ok: true, sha256: deployed.bundleSha256, root, fileNames };
-				} catch (error) {
-					return { ok: false, code: extensionDeployCodeOf(error) };
-				}
-			});
+			return piFacts.ensureRemoteExtensionSnapshot(hostId);
 		},
 		async pushSecurityPolicySnapshot(hostId: string, bytes: Buffer | Uint8Array): Promise<void> {
 			await pushSnapshot(hostId, bytes);
@@ -1652,27 +1248,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * 确认连接仍然可用（离线时不得返回暖缓存成功）。没有 manager 或已显式断开时返回 undefined。
 		 */
 		connectionFacts(hostId: string): { connectionId: string; state: RemoteHostConnectionState } | undefined {
-			if (disposed || explicitlyDisconnected.has(hostId)) return undefined;
-			const entry = hosts.get(hostId);
-			// 池化：主机级事实取任一已就绪 root 会话的身份（项目级请用 projectConnectionFacts）。
-			const pooledManagerForHost = pooledManager(hostId);
-			if (rootPool !== undefined) {
-				if (pooledManagerForHost === undefined) return undefined;
-				try {
-					const state = pooledManagerForHost.getState(hostId);
-					return { connectionId: pooledConnectionId(hostId, pooledManagerForHost), state: state.state };
-				} catch {
-					return undefined;
-				}
-			}
-			const manager = entry?.manager;
-			if (manager === undefined) return undefined;
-			try {
-				const state = manager.getState(hostId);
-				return { connectionId: `${hostId}#${managerToken(manager)}#${state.generation}`, state: state.state };
-			} catch {
-				return undefined;
-			}
+			return facts.connectionFacts(hostId);
 		},
 		/**
 		 * The connection facts of **one project's root**, or undefined when this service cannot prove them.
@@ -1688,31 +1264,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * surface may ask on every render, and an offline host is never woken by a cache check.
 		 */
 		projectConnectionFacts(hostId: string, canonicalRoot: string): { connectionId: string; state: RemoteHostConnectionState } | undefined {
-			if (disposed || explicitlyDisconnected.has(hostId)) return undefined;
-			if (typeof canonicalRoot !== "string" || canonicalRoot.length === 0) return undefined;
-			const entry = hosts.get(hostId);
-			// 池化：项目事实来自**这个 root 自己的会话**，绝不取主机当前 manager、也不回退兄弟 root。
-			const pooled = rootPool?.peek(hostId, canonicalRoot);
-			if (pooled !== undefined) {
-				try {
-					const state = pooled.value.manager.getState(hostId);
-					return { connectionId: pooledConnectionId(hostId, pooled.value.manager), state: state.state };
-				} catch {
-					return undefined;
-				}
-			}
-			if (rootPool !== undefined) return undefined;
-			const manager = entry?.manager;
-			if (manager === undefined) return undefined;
-			// The root is the helper's `--root`: a session established for another boundary serves no path of this
-			// one, so its identity must not be handed out as this project's generation.
-			if ((workspaceRoots.get(hostId) ?? options.root) !== canonicalRoot) return undefined;
-			try {
-				const state = manager.getState(hostId);
-				return { connectionId: `${hostId}#${managerToken(manager)}#${state.generation}`, state: state.state };
-			} catch {
-				return undefined;
-			}
+			return facts.projectConnectionFacts(hostId, canonicalRoot);
 		},
 		/**
 		 * Stable project scope for a one-shot transfer job: the manager identity and the
@@ -1723,29 +1275,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * still re-establish the session under `withProjectSession` before writing.
 		 */
 		projectTransferIdentity(hostId: string, canonicalRoot: string): { connectionId: string; hostRevision: number; state: RemoteHostConnectionState } | undefined {
-			if (disposed || explicitlyDisconnected.has(hostId)) return undefined;
-			if (typeof canonicalRoot !== "string" || canonicalRoot.length === 0) return undefined;
-			const pooled = rootPool?.peek(hostId, canonicalRoot);
-			if (pooled !== undefined) {
-				try {
-					const state = pooled.value.manager.getState(hostId);
-					return { connectionId: pooledConnectionId(hostId, pooled.value.manager), hostRevision: pooled.value.held.revision, state: state.state };
-				} catch {
-					return undefined;
-				}
-			}
-			if (rootPool !== undefined) return undefined;
-			const entry = hosts.get(hostId);
-			const manager = entry?.manager;
-			const held = entry?.held;
-			if (manager === undefined || held === undefined) return undefined;
-			if ((workspaceRoots.get(hostId) ?? options.root) !== canonicalRoot) return undefined;
-			try {
-				const state = manager.getState(hostId);
-				return { connectionId: `${hostId}#${managerToken(manager)}#${state.generation}`, hostRevision: held.revision, state: state.state };
-			} catch {
-				return undefined;
-			}
+			return facts.projectTransferIdentity(hostId, canonicalRoot);
 		},
 		/**
 		 * Run one whole read-only operation against a host confined to `root`, with the session pinned.
@@ -1811,7 +1341,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 				if (rootPool !== undefined) await rootPool.dispose();
 				if (sweepTimer !== undefined) cancelSweepTimer(sweepTimer);
 				hosts.clear();
-				await Promise.all([...askpassBridges.keys()].map((hostId) => releaseHostPassword(hostId)));
+				await secrets.releaseAll();
 			})();
 			return disposing;
 		},

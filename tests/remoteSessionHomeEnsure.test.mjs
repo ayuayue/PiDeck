@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { remoteHostConnectionSource } from "./helpers/remoteHostConnectionSources.mjs";
 
 /**
  * 远端会话扫描必须在「缓存状态读不到 home」时按需建立会话（真机 e2e 定位到的缺陷）。
@@ -36,7 +36,7 @@ test("the scan uses an ensuring home resolver, not the cached read", async () =>
 });
 
 test("the read-only remoteHome keeps its contract (no connect on a plain read)", () => {
-	const source = readFileSync("src/main/remote/RemoteHostConnectionService.ts", "utf8");
+	const source = remoteHostConnectionSource;
 	// remoteHome 仍然是纯读：只委托 readCachedHome，自己绝不去 connect。
 	assert.match(source, /async remoteHome\(hostId: string\): Promise<string \| undefined> \{\s*return readCachedHome\(hostId\);/);
 	// 只有「确保式」版本才允许走 connectLocked（UI 每次渲染都可能问只读版，不能因此拉起 ssh）。
