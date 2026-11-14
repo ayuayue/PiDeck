@@ -106,6 +106,22 @@ AUTH="Authorization: Bearer $TOKEN"
 
 **`status` 别当忙闲用**：它是进程状态（`running` / `idle`），不保证反映「有没有回合在跑」。要判这个，用 §5.1 的 `--wait-only`。
 
+**`sessionPath` 的文件名不是 `sessionId`**，这是本节最容易扑空的一处。PiDeck 的会话 id 形如
+`81ad8718-4057-…`；pi 自己的会话 id 形如 `01a1d27c-fe94-…`，两者不同号。所以拿 PiDeck id 去
+`~/.pi/agent/sessions/` 里 `ls | grep` 找不到任何文件——路径只能从 `runtimes[].sessionPath` 拿，
+那是一整条绝对路径：
+
+```
+…/sessions/--c--users-…-chat-workspace--/2026-11-13T01-19-29-430Z_01a1d27c-fe94-….jsonl
+                                                    └ 带时间的目录 ┘   └── pi 的 session id ──┘
+```
+
+2026-11-14 实测：连续两次用 PiDeck id 的前 8 位当文件名去 grep，两次都扑空，白等两轮。
+
+**要知道一个会话有多少条消息，别去 `/api/state` 找**。那里的 `sessions[]` 每项只有
+`{id, projectId, title, status, model, thinkingLevel, updatedAt, createdAt}`，没有条数字段。
+条数在 `/api/sessions/<id>/messages` 的 `total` 里，那要单独请求一次。
+
 `/messages` 返回的是**有界窗口**，不是全部历史（长会话上千条，一次全吐会卡住）。看到 `truncated: true` 说明还有更早的，翻页用：
 
 ```bash
