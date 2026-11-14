@@ -34,5 +34,14 @@ lines.forEach((line, i) => {
 const fences = lines.filter((x) => /^\s*```/.test(x)).length;
 if (fences % 2) { console.log("  代码块 ``` 一共 " + fences + " 个，没配对"); bad++; }
 
+// 空对空不算通过：零字节或只剩一句话的文件里没有可查的结构，上面三条会全绿。
+// 2026-11-15 实测：printf '' > x.md 与只写两行的文件都 PASS——这正是「判据恒真绿」的形状。
+const tableRows = lines.filter((x) => /^\s*\|/.test(x)).length;
+const boldPairs = lines.reduce((n, x) => n + (x.replace(INLINE_CODE, "").match(/\*\*/g) || []).length, 0) / 2;
+if (fences + tableRows + boldPairs < 8) {
+  console.log("FAIL 这个文件里只有 " + fences + " 个围栏、" + tableRows + " 行表格、" + boldPairs + " 对加粗，没有可查的结构（拿错文件了？）");
+  bad++;
+}
+
 console.log(bad ? "FAIL " + bad + " 处结构问题" : "PASS 加粗成对、代码块配对、表格列数一致");
 process.exit(bad ? 1 : 0);
