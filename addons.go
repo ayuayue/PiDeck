@@ -1052,6 +1052,8 @@ func (a *app) reloadFrameworks() {
 	info.Probing = true
 	a.env.Set(info)
 	dataDir := a.st.dir
+	a.addonsGen++
+	gen := a.addonsGen
 	go func() {
 		// This machine first: it is what opening a session needs.
 		info := probeLocal(envInfo{AppDir: dataDir, Probing: true, TargetsProbing: true})
@@ -1060,6 +1062,9 @@ func (a *app) reloadFrameworks() {
 		providers := probeProviders(info.PiPath, readProviders())
 		a.cx.Post(func() {
 			a.env.Set(info)
+			if gen != a.addonsGen {
+				return // a newer reload already answered
+			}
 			a.plugins.Set(plugins)
 			a.themes.Set(themes)
 			a.providers.Set(providers)
@@ -1080,10 +1085,15 @@ func (a *app) reloadAddons() {
 	if a.st == nil {
 		return
 	}
+	a.addonsGen++
+	gen := a.addonsGen
 	go func() {
 		plugins := a.loadPlugins()
 		themes := a.loadThemes(plugins)
 		a.cx.Post(func() {
+			if gen != a.addonsGen {
+				return // a newer reload already answered
+			}
 			a.plugins.Set(plugins)
 			a.themes.Set(themes)
 			a.applyTheme()

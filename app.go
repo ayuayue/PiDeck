@@ -432,7 +432,9 @@ type app struct {
 	gitStashErr  *core.Signal[string]
 	gitMoreOpen  *core.Signal[bool]
 	// gitDiffHash is the commit the diff dialog shows, empty for a file.
-	gitDiffHash      string
+	gitDiffHash string
+	// addonsGen drops a stale plugin reload that finished after a newer one.
+	addonsGen        int
 	gitNewBranchName *core.Signal[string]
 	gitDiffOpen      *core.Signal[bool]
 	gitDiffTitle     *core.Signal[string]

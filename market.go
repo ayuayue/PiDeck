@@ -144,13 +144,19 @@ func (a *app) installMarketPlugin(entry marketEntry) (plugin, error) {
 
 // pluginInstalled reports whether a plugin with this id is loaded.
 func (a *app) pluginInstalled(id string) bool {
+	return a.installedPlugin(id) != nil
+}
+
+// installedPlugin finds a loaded plugin by id.
+func (a *app) installedPlugin(id string) *plugin {
 	if a.plugins == nil {
-		return false
+		return nil
 	}
 	for _, p := range a.plugins.GetUntracked() {
 		if p.ID == id {
-			return true
+			cp := p
+			return &cp
 		}
 	}
-	return false
+	return nil
 }

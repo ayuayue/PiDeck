@@ -77,11 +77,14 @@ func (a *app) pluginMarketDialog() core.Node {
 		colors := ui.ColorsOf(cx)
 		list := a.marketList.Get()
 		busy := a.marketBusy.Get()
+		if a.plugins != nil {
+			a.plugins.Get() // rebuild when an install finishes
+		}
 		installing := a.marketInstalling.Get()
 		var rows []core.Node
 		for _, e := range list {
 			entry := e
-			installed := a.pluginInstalled(entry.ID)
+			installed := a.installedPlugin(entry.ID)
 			meta := entry.Version
 			if entry.Author != "" {
 				meta = strings.TrimSpace(meta + " · " + entry.Author)
@@ -102,9 +105,18 @@ func (a *app) pluginMarketDialog() core.Node {
 				ui.Icon(lucide.Bot, 14, colors.Muted),
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: texts},
 			}
-			if installed {
+			if installed != nil {
+				label := T("已安装")
+				if installed.Version != "" {
+					label += " v" + installed.Version
+				}
 				row = append(row, core.View{Style: core.Style{Padding: core.Symmetric(1, 6), CornerRadius: 4, Background: colors.Inset()},
-					Children: []core.Node{ui.Text(T("已安装"), 9, ui.Medium, colors.Faint)}})
+					Children: []core.Node{ui.Text(label, 9, ui.Medium, colors.Faint)}})
+				if entry.Version != "" && installed.Version != "" && entry.Version != installed.Version {
+					row = append(row, ui.Button{Text: T("更新到 %s", entry.Version), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						TestID: "market-update-" + entry.ID, Disabled: func() bool { return installing != "" },
+						OnPress: func() { a.installFromMarket(entry) }})
+				}
 			} else {
 				row = append(row, ui.Button{Text: T("安装"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 					TestID: "market-install-" + entry.ID,
