@@ -93,5 +93,19 @@ for (const line of sec72.split(/\r?\n/)) {
 if (!checked) { console.log("FAIL 7.2 端点一行都没匹配到"); process.exit(1); }
 
 console.log("7.2 端点 " + checked + " 条（路径 + 方法都比对），" + (bad ? bad + " 处与源码不符" : "全部对得上"));
+// 7.1 的「额外 body 字段」列：源码 switch 里读到的 body.X 与文档必须一一对应。
+// 少写一个字段，读者就会漏传，服务端拿 undefined 当空值——静默做错事。
+const swStart = src[0].indexOf("switch (action)");
+const swEnd = swStart + 8000; // switch 体约 80 行；用固定窗口比找闭合括号稳（里面有多个 return true）
+const swBody = swStart >= 0 ? src[0].slice(swStart, swEnd) : "";
+const bodyFields = new Set([...swBody.matchAll(/body\.([a-zA-Z]+)/g)].map((x) => x[1]));
+if (bodyFields.size < 8) { console.log("FAIL 源码 switch 里只切出 " + bodyFields.size + " 个 body 字段，判据自己坏了"); process.exit(1); }
+const docRowFields = sec71.split(/\r?\n/).filter((l) => /^\| \x60[a-z-]+\x60 \|/.test(l)).map((l) => l.split("|")[2]).join(" ");
+// 可选字段在文档里写成 `prompt?`，问号在反引号里面，所以这里要允许一个问号。
+  const docFields = new Set([...docRowFields.matchAll(/\x60([a-zA-Z]+)\??\x60/g)].map((x) => x[1]));
+if (!docFields.size) { console.log("FAIL 7.1 的字段列一行都没匹配到"); process.exit(1); }
+for (const f of bodyFields) if (!docFields.has(f)) { console.log("  7.1 漏了字段 " + f + "（源码读过 body." + f + "）"); bad++; }
+for (const f of docFields) if (!bodyFields.has(f)) { console.log("  7.1 多写了字段 " + f + "（源码 switch 里没读）"); bad++; }
+
 console.log(okA && !bad ? "PASS" : "FAIL");
 process.exit(okA && !bad ? 0 : 1);
