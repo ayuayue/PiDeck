@@ -133,3 +133,38 @@ func TestTerminalFontNormalized(t *testing.T) {
 		t.Fatalf("14 normalized to %v", c.TerminalFont)
 	}
 }
+
+// TestDeleteTheme removes a user theme file from the look page.
+func TestDeleteTheme(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, "themes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "team.json")
+	if err := os.WriteFile(path, []byte(`{"id":"team","name":"团队主题","light":{"accent":"#ff0000"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-look")
+	app.WaitFor("id:theme-delete-user-team", 10*time.Second)
+	app.Press("id:theme-delete-user-team")
+	app.WaitFor("id:confirm-ok", 5*time.Second)
+	app.Press("id:confirm-ok")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the theme file was not removed")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	app.WaitForGone("id:theme-delete-user-team", 10*time.Second)
+}

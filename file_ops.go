@@ -4,6 +4,7 @@ package main
 // rename. The name dialog is shared; the checks run before the action.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,13 +142,8 @@ func (a *app) trashFile(path string) {
 	}
 	name := filepath.Base(path)
 	a.askConfirm("移到回收站", "「"+name+"」会移到数据目录的 trash/files 里，需要时可以手动找回。", "移到回收站", func() {
-		dir := filepath.Join(a.st.dir, "trash", "files")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			a.toast(ui.ToastError, "移到回收站失败", err.Error())
-			return
-		}
-		dest := filepath.Join(dir, time.Now().Format("20060102-150405")+"-"+name)
-		if err := movePath(path, dest); err != nil {
+		dest, err := a.moveToTrash(path)
+		if err != nil {
 			a.toast(ui.ToastError, "移到回收站失败", err.Error())
 			return
 		}
@@ -157,6 +153,23 @@ func (a *app) trashFile(path string) {
 			a.cx.OpenURL(fileURL(filepath.Dir(dest)), nil)
 		})
 	})
+}
+
+// moveToTrash moves a path under the data folder's trash and returns
+// where it went.
+func (a *app) moveToTrash(path string) (string, error) {
+	if a.st == nil {
+		return "", fmt.Errorf("找不到数据目录")
+	}
+	dir := filepath.Join(a.st.dir, "trash", "files")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	dest := filepath.Join(dir, time.Now().Format("20060102-150405")+"-"+filepath.Base(path))
+	if err := movePath(path, dest); err != nil {
+		return "", err
+	}
+	return dest, nil
 }
 
 // movePath renames, and copies across volumes when a rename cannot.

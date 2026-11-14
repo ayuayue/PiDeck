@@ -702,6 +702,14 @@ func (a *app) settingsLook() core.Node {
 							}
 							return ui.Text(label, 9.5, ui.Regular, colors.Faint)
 						}},
+					core.Show{When: func() bool { return !s.Builtin && s.Source != "" }, Then: func(*core.Scope) core.Node {
+						return core.View{OnPress: func(core.PressEvent) { a.deleteTheme(s) }, Role: core.RoleButton,
+							Label: T("删除主题") + " " + s.Name, TestID: "theme-delete-" + strings.ReplaceAll(s.ID, ":", "-"),
+							StyleFunc: func() core.Style {
+								return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, AlignItems: core.AlignCenter,
+									JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
+							}, Children: []core.Node{ui.Icon(lucide.Trash, 11, colors.Faint)}}
+					}},
 					core.Show{When: on, Then: func(*core.Scope) core.Node { return ui.Icon(lucide.Check, 13, colors.Text) }},
 					core.Show{When: func() bool { return !s.Builtin }, Then: func(*core.Scope) core.Node {
 						return ui.Text("用户主题", 9.5, ui.Regular, colors.Faint)

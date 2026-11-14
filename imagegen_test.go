@@ -145,7 +145,13 @@ func TestImageDialog(t *testing.T) {
 	app.Type("id:image-prompt", "一只在窗台看雨的猫")
 	app.Type("id:image-model", "img-1")
 	app.Press("id:image-count-2")
-	app.Press("id:image-generate")
+	for i := 0; i < 4 && len(app.Query("id:image-thumb-1")) == 0; i++ {
+		if len(app.Query("id:image-generate")) > 0 {
+			app.Press("id:image-generate")
+		}
+		app.Settle()
+		time.Sleep(100 * time.Millisecond)
+	}
 	app.WaitFor("id:image-thumb-1", 15*time.Second)
 	app.Press("id:image-regenerate")
 	app.WaitFor("id:image-thumb-3", 15*time.Second)

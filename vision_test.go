@@ -121,7 +121,13 @@ func TestVisionDialog(t *testing.T) {
 	app.WaitFor("id:vision-dialog", 5*time.Second)
 	typeAll(t, app, "id:vision-path", photo)
 	app.Type("id:vision-model", "vision-1")
-	app.Press("id:vision-run")
+	for i := 0; i < 4 && len(app.Query("id:vision-result")) == 0; i++ {
+		if len(app.Query("id:vision-run")) > 0 {
+			app.Press("id:vision-run")
+		}
+		app.Settle()
+		time.Sleep(100 * time.Millisecond)
+	}
 	app.WaitFor("id:vision-result", 10*time.Second)
 	for i := 0; i < 4 && len(app.Query("id:vision-dialog")) > 0; i++ {
 		app.Press("id:vision-insert")

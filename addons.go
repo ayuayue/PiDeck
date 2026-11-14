@@ -941,6 +941,24 @@ func (a *app) applyTheme() {
 	a.cx.SetTheme(base)
 }
 
+// deleteTheme moves a user theme file to the trash and reloads the looks.
+func (a *app) deleteTheme(s themeSpec) {
+	if s.Builtin || s.Source == "" {
+		return
+	}
+	a.askConfirm("删除主题", "主题文件「"+filepath.Base(s.Source)+"」会移到数据目录的 trash/files。", "删除", func() {
+		if a.theme.GetUntracked() == s.ID {
+			a.setTheme("system")
+		}
+		if _, err := a.moveToTrash(s.Source); err != nil {
+			a.toast(ui.ToastError, "删除主题失败", err.Error())
+			return
+		}
+		a.reloadAddons()
+		a.toast(ui.ToastInfo, "已删除主题", s.Name)
+	})
+}
+
 // exportTheme writes the current look as a theme file the app reads back.
 func (a *app) exportTheme() {
 	dir := a.themesDir()
