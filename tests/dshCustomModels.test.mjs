@@ -6,6 +6,7 @@ import vm from "node:vm";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
+import { dshHostSource } from "./helpers/dshHostSources.mjs";
 
 function asJson(value) {
 	return JSON.parse(JSON.stringify(value));
@@ -203,7 +204,7 @@ test("official DeepSeek lets inherited catalog rows materialize a model override
 });
 
 test("official DeepSeek inherits catalog rows from DSH composition base through IPC", () => {
-	const host = readFileSync("src/main/dsh/DshHost.ts", "utf8");
+	const host = dshHostSource;
 	const ipc = sessionIpcSource;
 	const preload = preloadSource;
 	const cards = readFileSync("src/renderer/src/config/DshProviderCards.tsx", "utf8");
