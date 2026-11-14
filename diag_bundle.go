@@ -40,6 +40,9 @@ func (a *app) diagnosticZip() ([]byte, error) {
 	if err := add("plugins.txt", []byte(a.pluginReport())); err != nil {
 		return nil, err
 	}
+	if err := add("settings-schema.json", settingsSchemaJSON()); err != nil {
+		return nil, err
+	}
 	if log := a.logTail(256 << 10); len(log) > 0 {
 		if err := add("app.log", log); err != nil {
 			return nil, err

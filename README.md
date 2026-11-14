@@ -276,7 +276,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - 集成：飞书群自定义机器人；一轮结束把标题、状态与一句摘要发到群里，可填签名密钥并测试；
   也可接收群消息（事件订阅指向 `/api/feishu`，校验 Verification Token），消息发给当前会话，
   开启「把回答发回群」后把这一轮的回答发回群里
-- 诊断：运行中的 pi/终端进程、goroutine 与堆、最近日志；可复制诊断报告、导出诊断包（zip，含报告/脱敏配置/日志尾部/插件列表）、打开日志目录、清空内存日志
+- 诊断：运行中的 pi/终端进程、goroutine 与堆、最近日志；可复制诊断报告、导出诊断包（zip，含报告/脱敏配置/日志尾部/插件列表/设置结构）、打开日志目录、清空内存日志
 - 崩溃：界面外层有错误边界，任一屏 panic 时写崩溃日志（数据目录 `crashes/`）并显示「重新加载界面」，
   应用不退出；启动时若发现上次崩溃会提示一次，设置 → 诊断可查看最近崩溃与日志数量
 - 资源：pi 的技能（读 `SKILL.md` 的 name/description，点开在编辑器里看）与扩展
@@ -330,7 +330,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `acp_archive.go` | ACP 归档：本地投影、2000 轮/8 MB 上限、原子写与恢复 |
 | `editor_ext.go` | 外部编辑器：探测常见编辑器、按命令打开文件或项目 |
 | `diag.go` | 诊断：内存日志、滚动文件、进程列表与诊断报告 |
-| `diag_bundle.go` | 诊断包：zip 打包、配置脱敏、日志尾部与插件清单 |
+| `diag_bundle.go` | 诊断包：zip 打包、配置脱敏、日志尾部、插件清单与设置结构 |
+| `settings_schema.go` | 应用设置结构：键、类型、默认值与取值范围，随诊断包导出 |
 | `crash.go` | 崩溃日志：写入 `crashes/`、查找最近崩溃、记录数据目录 |
 | `ui_crash.go` | 错误边界界面：panic 摘要、重新加载、打开/复制日志 |
 | `imagegen.go` | 生图：OpenAI 兼容 `/images/generations`，b64/URL 两种返回 |
