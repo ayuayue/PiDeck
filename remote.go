@@ -329,6 +329,7 @@ func (h *remoteHost) handler() http.Handler {
 	mux.HandleFunc("/api/git/checkout", h.handleGitCheckout)
 	mux.HandleFunc("/api/git/sync", h.handleGitSync)
 	mux.HandleFunc("/api/sessions/", h.handleSessionAction)
+	mux.HandleFunc("/api/feishu", h.handleFeishu)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
@@ -336,6 +337,11 @@ func (h *remoteHost) handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// Feishu authenticates with its own verification token.
+		if r.URL.Path == "/api/feishu" {
+			mux.ServeHTTP(w, r)
 			return
 		}
 		if !remoteAuthorized(r, h.currentToken()) {

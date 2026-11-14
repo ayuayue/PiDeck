@@ -136,10 +136,15 @@ type config struct {
 	// zh-CN, zh-TW or en-US.
 	Language string `json:"language,omitempty"`
 	// Feishu posts a finished turn to a group bot. The webhook is the
-	// bot's URL; Secret is its signing key, when it has one.
-	FeishuEnabled bool   `json:"feishuEnabled,omitempty"`
-	FeishuWebhook string `json:"feishuWebhook,omitempty"`
-	FeishuSecret  string `json:"feishuSecret,omitempty"`
+	// bot's URL; Secret is its signing key, when it has one. Inbound
+	// takes the bot's event callback on /api/feishu, verified by Token,
+	// and Reply sends the answer back to the group.
+	FeishuEnabled     bool   `json:"feishuEnabled,omitempty"`
+	FeishuWebhook     string `json:"feishuWebhook,omitempty"`
+	FeishuSecret      string `json:"feishuSecret,omitempty"`
+	FeishuInbound     bool   `json:"feishuInbound,omitempty"`
+	FeishuVerifyToken string `json:"feishuVerifyToken,omitempty"`
+	FeishuReply       bool   `json:"feishuReply,omitempty"`
 	// PetEnabled shows the desktop pet window.
 	PetEnabled bool `json:"petEnabled,omitempty"`
 	// EditorCommand opens files outside the app; empty detects one.

@@ -1073,6 +1073,19 @@ func (a *app) settingsIntegrations() core.Node {
 							setCfg(func(c *config) { c.FeishuSecret = v })
 						}, "可留空", "签名密钥", "feishu-secret", true)),
 					setDivider(),
+					setRow("接收群消息", "飞书开放平台的「事件订阅」地址填 http://<本机地址>:<远程端口>/api/feishu；先在「远程」里开启服务。",
+						ui.Switch{Checked: func() bool { return a.cfg.FeishuInbound }, Label: "接收群消息", TestID: "feishu-inbound",
+							OnChange: func(on bool) { setCfg(func(c *config) { c.FeishuInbound = on }) }}),
+					setDivider(),
+					setRow("验证 Token", "飞书应用「事件订阅」里的 Verification Token；不填就不接收。",
+						field(func() string { return a.cfg.FeishuVerifyToken }, func(v string) {
+							setCfg(func(c *config) { c.FeishuVerifyToken = v })
+						}, "Verification Token", "验证 Token", "feishu-verify-token", true)),
+					setDivider(),
+					setRow("把回答发回群", "收到群消息后，把这一轮的回答也发到群里（用上面的 Webhook）。",
+						ui.Switch{Checked: func() bool { return a.cfg.FeishuReply }, Label: "把回答发回群", TestID: "feishu-reply",
+							OnChange: func(on bool) { setCfg(func(c *config) { c.FeishuReply = on }) }}),
+					setDivider(),
 					setRow("测试", "发一条测试消息，确认地址与签名都对。",
 						ui.Button{Text: "发一条", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "feishu-test",
 							OnPress: a.testFeishu}),
@@ -1081,7 +1094,7 @@ func (a *app) settingsIntegrations() core.Node {
 					setRow("自定义预设", "在数据目录的 acp/*.json 里加自定义 ACP 命令；内置 Claude / Gemini / Codex。",
 						ui.Button{Text: "打开目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.openACPDir}),
 				),
-				core.Text{Content: "消息只包含会话标题、状态与一句摘要，不发完整对话内容。", Style: core.Style{FontSize: 11, LineHeight: 17},
+				core.Text{Content: "默认只发会话标题、状态与一句摘要；开启「把回答发回群」后，回答最多发 1500 字。", Style: core.Style{FontSize: 11, LineHeight: 17},
 					StyleFunc: ui.Colored(colors.Faint)},
 			}},
 		}}

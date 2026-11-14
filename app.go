@@ -179,6 +179,10 @@ type app struct {
 	// not write a file on every render; crashPath is where it wrote.
 	crashShown string
 	crashPath  string
+	// feishuPending marks sessions a Feishu message started, so their
+	// answer goes back to the group.
+	feishuMu      sync.Mutex
+	feishuPending map[string]bool
 
 	env       *core.Signal[envInfo]
 	pinned    *core.Signal[[]string]
@@ -706,7 +710,8 @@ func newApp(cx *core.Scope) *app {
 
 	a.ensureAddonDirs()
 	a.ensurePromptLibrary()
-	a.on("turn.done", a.onPlanTurn)
+	a.on(eventTurnDone, a.onPlanTurn)
+	a.on(eventTurnDone, a.onFeishuTurn)
 	a.remote = newRemoteHost(a)
 	a.remote.init()
 	a.qrOpen = core.NewSignal(cx, false)
