@@ -367,19 +367,18 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 **各步耗时**（同一台机器，目标原本没在跑，跑完整一套）：
 
 ```text
-建普通会话     245 ms
-activate       4149 ms
-取 target      102 ms
-stop           100 ms
-activate       4227 ms
-发消息         2069 ms
-停 + 删         297 ms
-合计          11.2 秒
+建普通会话     百毫秒级
+activate       秒级（最贵，服务端拉起 pi 进程）
+取 target      百毫秒级
+stop           百毫秒级
+activate       秒级
+发消息         秒级（要等模型回一轮）
+停 + 删         亚秒级
 ```
 
 **绝大部分时间花在 activate 上，那是服务端拉起 pi 进程的时间，省不掉。** 目标已经在跑时只走 stop + activate，秒级就是一次重启的下限。其余各步：`取 target`、`stop`、`建会话` 是百毫秒级；`发消息` 要等模型回一轮。
 
-上面那张表的毫秒数是某次测量的快照，换台机器就变，只看量级。
+表里是量级，不是常量：换台机器、换模型都会变。
 
 所以别做这两件事：不要建完会话反复轮询 `runtimes[]` 等它出现（`activate` 返回时进程已经在里面，`status` 就在返回体里）；不要为了拿 `total` 反复拉 `/messages`（一次几十 KB 起，大会话更大）。
 
