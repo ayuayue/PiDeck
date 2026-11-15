@@ -463,6 +463,8 @@ type app struct {
 	gotoOpen        *core.Signal[bool]
 	gotoLine        *core.Signal[string]
 	quickOpen       *core.Signal[bool]
+	chatFindOpen    *core.Signal[bool]
+	chatFindText    *core.Signal[string]
 	pluginNewOpen   *core.Signal[bool]
 	pluginNewID     *core.Signal[string]
 	pluginNewName   *core.Signal[string]
@@ -629,6 +631,8 @@ func newApp(cx *core.Scope) *app {
 		gotoOpen:               core.NewSignal(cx, false),
 		gotoLine:               core.NewSignal(cx, ""),
 		quickOpen:              core.NewSignal(cx, false),
+		chatFindOpen:           core.NewSignal(cx, false),
+		chatFindText:           core.NewSignal(cx, ""),
 		pluginNewOpen:          core.NewSignal(cx, false),
 		pluginNewID:            core.NewSignal(cx, ""),
 		pluginNewName:          core.NewSignal(cx, ""),

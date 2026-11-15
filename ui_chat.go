@@ -44,6 +44,7 @@ func (a *app) chatPane() core.Node {
 					Composer:  []core.Node{a.composerStack(s)},
 				},
 				a.turnAxis(s),
+				core.Show{When: a.chatFindOpen.Get, Then: func(cx *core.Scope) core.Node { return a.chatFindBar(s) }},
 				core.Show{When: func() bool {
 					return len(s.turns.Get()) == 0 && !s.loaded.Get() && s.status.Get() != statusFailed
 				}, Then: func(cx *core.Scope) core.Node { return a.historySkeleton(s) }},
@@ -137,7 +138,17 @@ func (a *app) transcript(s *session) core.Node {
 				turns := s.turns.Get()
 				window := s.window.Get()
 				start := max(0, len(turns)-window)
-				return turns[start:]
+				list := turns[start:]
+				if q := a.findQuery(); q != "" {
+					kept := make([]turn, 0, len(list))
+					for _, t := range list {
+						if turnMatches(t, q) {
+							kept = append(kept, t)
+						}
+					}
+					list = kept
+				}
+				return list
 			}, func(t turn) string { return t.ID }, func(cx *core.Scope, t func() turn, ix func() int) core.Node {
 				return a.turnView(s, t, ix)
 			}),

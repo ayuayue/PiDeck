@@ -39,6 +39,7 @@ func defaultKeybindings() []keyBinding {
 		{Command: "ask", Key: "mod+shift+a"},
 		{Command: "shortcuts", Key: "mod+/"},
 		{Command: "search-sessions", Key: "mod+shift+f"},
+		{Command: "chat-find", Key: "mod+f"},
 		{Command: "settings", Key: "mod+,"},
 	}
 }
