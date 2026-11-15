@@ -7,13 +7,13 @@
  *
  * 预测是后台功能（不弹 toast），所以每一步都写 scope=`suggest` 的应用日志：设置 → 日志
  * 里能区分「没触发 / 被拒绝 / 失败 / 模型返回空」，否则用户只能看到 ghost 没出现。
- * 日志只记模型标识、上下文条数、耗时与字数，不记用户内容。
+ * 日志记模型标识、上下文条数、耗时、字数与预测文本（单行限长）；不记对话上下文原文。
  */
 
 import type { IpcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import type { EnhanceEventPayload } from "../../shared/types/enhance";
-import type { PromptSuggestionRunInput, PromptSuggestionRunResult } from "../../shared/types/promptSuggestion";
+import { PROMPT_SUGGESTION_MAX_CHARS, type PromptSuggestionRunInput, type PromptSuggestionRunResult } from "../../shared/types/promptSuggestion";
 import type { EnhancePromptService } from "../pi/enhance/EnhancePromptService";
 import { PROMPT_SUGGESTION_SYSTEM_PROMPT, PROMPT_SUGGESTION_USER_TEXT } from "../pi/enhance/promptSuggestion";
 import { isModelId, parseContextMessages } from "./enhancePayloadValidation";
@@ -30,6 +30,16 @@ const SILENT_LOGGER: PromptSuggestionLogger = { debug: () => undefined, info: ()
 function getErrorMessage(error: unknown): string {
 	if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") return error.message;
 	return String(error);
+}
+
+/**
+ * 日志里的预测结果：折叠成单行、按展示上限截断。
+ * 与渲染层 normalize 的最终口径一致，方便直接对照「用户看到/没看到的 ghost」；
+ * 原始字数单独记录，截断不会掩盖模型实际返回了多长。
+ */
+function formatLoggedSuggestion(text: string): string {
+	const singleLine = text.replace(/\s+/g, " ").trim();
+	return singleLine.length > PROMPT_SUGGESTION_MAX_CHARS ? `${singleLine.slice(0, PROMPT_SUGGESTION_MAX_CHARS)}…` : singleLine;
 }
 
 /** 输入预测必须有上下文：没有历史就没有预测依据，空数组按无效入参拒绝。 */
@@ -77,7 +87,9 @@ export function registerPromptSuggestionIpc(ipc: IpcMain, service: EnhancePrompt
 					onDone: (text) => {
 						send({ runId: state.runId, phase: "done", text });
 						// 字数单独记：0 字 / 清洗后为空是「模型没给建议」，与请求失败不是一回事。
-						logger.info(`输入预测完成：${text.length} 字${text.length ? "" : "（模型返回空内容）"}，${elapsed()}ms，${modelLabel}`);
+						// 结果本身也记（单行限长）：只有字数时，ghost 没出现/内容不对无从核对。
+						const preview = formatLoggedSuggestion(text);
+						logger.info(`输入预测完成：${text.length} 字${preview ? "" : "（模型返回空内容）"}，${elapsed()}ms，${modelLabel}${preview ? `；结果「${preview}」` : ""}`);
 					},
 					onAborted: () => {
 						send({ runId: state.runId, phase: "aborted" });
