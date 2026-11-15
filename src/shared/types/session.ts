@@ -26,6 +26,14 @@ export type ChatMessage = {
 	videos?: VideoContent[];
 	/** 思考内容：来自 thinking 内容块，用于展示模型推理过程 */
 	thinking?: string;
+	/**
+	 * 去掉思考副本的正文（只有 assistant 消息、且带思考时提供）。
+	 *
+	 * `text` 会把 thinking 块拼成 `<thinking>…</thinking>` 塞进正文，纯文本通道要剥壳
+	 * 就得自己写正则（桌面端 answerText、手机端 splitThinking、微信、飞书各写了一遍）。
+	 * 这里直接给一份不含标签副本的正文，旧字段保持原样，消费方逐个切换。
+	 */
+	textWithoutThinking?: string;
 	/** 思考段开始时间（可选；缺省回退 message.timestamp） */
 	thinkingStartedAt?: number;
 	/** 思考段结束时间（可选；缺省回退 message.timestamp） */
