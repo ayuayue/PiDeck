@@ -229,6 +229,24 @@ func (c *remoteClient) git(project string) (remoteWireGit, error) {
 	return out, err
 }
 
+// files lists a project's files.
+func (c *remoteClient) files(project string) ([]remoteWireFile, error) {
+	var out struct {
+		Files []remoteWireFile `json:"files"`
+	}
+	err := c.do("/api/files?project="+url.QueryEscape(project), &out)
+	return out.Files, err
+}
+
+// file reads one file's text.
+func (c *remoteClient) file(project, path string) (string, error) {
+	var out struct {
+		Text string `json:"text"`
+	}
+	err := c.do("/api/file?project="+url.QueryEscape(project)+"&path="+url.QueryEscape(path), &out)
+	return out.Text, err
+}
+
 // gitDiff reads one changed file's patch.
 func (c *remoteClient) gitDiff(project, path string) (string, error) {
 	var out struct {

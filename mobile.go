@@ -88,6 +88,20 @@ type mobileApp struct {
 	gitSending      *core.Signal[bool]
 	gitBranchesOpen *core.Signal[bool]
 
+	// filesOpen browses a project's files, fileOpen shows one file's text.
+	filesOpen    *core.Signal[bool]
+	filesProject *core.Signal[string]
+	filesName    *core.Signal[string]
+	filesQuery   *core.Signal[string]
+	filesList    *core.Signal[[]remoteWireFile]
+	filesBusy    *core.Signal[bool]
+	filesErr     *core.Signal[string]
+	fileOpen     *core.Signal[bool]
+	fileTitle    *core.Signal[string]
+	fileText     *core.Signal[string]
+	fileBusy     *core.Signal[bool]
+	fileErr      *core.Signal[string]
+
 	client *remoteClient
 	gen    int
 
@@ -184,6 +198,18 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		gitMsg:          core.NewSignal(cx, ""),
 		gitSending:      core.NewSignal(cx, false),
 		gitBranchesOpen: core.NewSignal(cx, false),
+		filesOpen:       core.NewSignal(cx, false),
+		filesProject:    core.NewSignal(cx, ""),
+		filesName:       core.NewSignal(cx, ""),
+		filesQuery:      core.NewSignal(cx, ""),
+		filesList:       core.NewSignalFunc(cx, []remoteWireFile(nil), nil),
+		filesBusy:       core.NewSignal(cx, false),
+		filesErr:        core.NewSignal(cx, ""),
+		fileOpen:        core.NewSignal(cx, false),
+		fileTitle:       core.NewSignal(cx, ""),
+		fileText:        core.NewSignal(cx, ""),
+		fileBusy:        core.NewSignal(cx, false),
+		fileErr:         core.NewSignal(cx, ""),
 		refreshing:      core.NewSignal(cx, false),
 		query:           core.NewSignal(cx, ""),
 		searchOpen:      core.NewSignal(cx, false),
@@ -254,6 +280,8 @@ func (a *mobileApp) view() core.Node {
 		a.gitSheet(),
 		a.gitDiffSheet(),
 		a.gitBranchesSheet(),
+		a.filesSheet(),
+		a.fileSheet(),
 	}}
 }
 
@@ -858,6 +886,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
 		PaddingEnv: core.EnvAll(core.EnvSafeArea)}, Children: []core.Node{
 		a.mobileHeader(cx, a.activeTitle.Get(), "", true,
+			a.pressIcon(lucide.FolderOpen, T("浏览文件"), 34, 16, nil, a.openSessionFiles, "mobile-files"),
 			a.pressIcon(lucide.Search, T("搜索会话内容"), 34, 16, nil, func() {
 				a.findText.Set("")
 				a.findOpen.Update(func(v bool) bool { return !v })
