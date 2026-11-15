@@ -133,6 +133,57 @@ func (a *app) renameFileNode(path string) {
 	})
 }
 
+// ignorePath adds a file to the project's .gitignore, making one when the
+// project has none.
+func (a *app) ignorePath(path string) {
+	root := a.files.root.GetUntracked()
+	if root == "" {
+		root = a.quickOpenRoot()
+	}
+	if root == "" {
+		return
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		a.toast(ui.ToastWarning, "不在项目里", "只能忽略项目里的文件。")
+		return
+	}
+	line := filepath.ToSlash(rel)
+	if err := appendGitignore(root, line); err != nil {
+		a.toast(ui.ToastError, "写不了 .gitignore", err.Error())
+		return
+	}
+	a.toast(ui.ToastSuccess, "已加入 .gitignore", line)
+	a.files.reload()
+	if a.gitPath() != "" {
+		a.git.refreshAll()
+	}
+}
+
+// appendGitignore adds a line to a project's .gitignore, once.
+func appendGitignore(root, line string) error {
+	path := filepath.Join(root, ".gitignore")
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, l := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(l) == line {
+			return nil
+		}
+	}
+	out := string(raw)
+	if out != "" && !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	out += line + "\n"
+	mode := os.FileMode(0o644)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode()
+	}
+	return os.WriteFile(path, []byte(out), mode)
+}
+
 // trashFile moves a file or folder into the data folder's trash, after
 // asking. It is the one destructive file action, so it never runs on a
 // press alone.

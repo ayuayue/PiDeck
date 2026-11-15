@@ -254,6 +254,7 @@ func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 		a.menuRow(a.cx, lucide.Copy, "复制相对路径", "", false, func() {
 			a.copyText(a.files.relative(node.Path), "路径")
 		}),
+		a.menuRow(a.cx, lucide.EyeOff, "加入 .gitignore", "", false, func() { a.ignorePath(node.Path) }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.Trash, "移到回收站", "", false, func() { a.trashFile(node.Path) }),
 	}
