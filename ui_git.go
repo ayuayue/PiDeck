@@ -128,6 +128,35 @@ func (a *app) gitDiscardFile(f gitFile) {
 	})
 }
 
+// gitResolveConflict keeps one side of a conflict and stages the result.
+func (a *app) gitResolveConflict(f gitFile, side string) {
+	if !f.Conflicted {
+		return
+	}
+	label := "用我的版本"
+	if side == "theirs" {
+		label = "用对方版本"
+	}
+	a.git.run(label, func(g gitRunner) error {
+		if _, err := g.exec(60*time.Second, "checkout", "--"+side, "--", f.Path); err != nil {
+			return err
+		}
+		_, err := g.exec(60*time.Second, "add", "--", f.Path)
+		return err
+	}, nil)
+}
+
+// gitMarkResolved stages a conflict's file as it stands.
+func (a *app) gitMarkResolved(f gitFile) {
+	if !f.Conflicted {
+		return
+	}
+	a.git.run("标记已解决", func(g gitRunner) error {
+		_, err := g.exec(60*time.Second, "add", "--", f.Path)
+		return err
+	}, nil)
+}
+
 // gitDiscardAll asks, then restores every path and removes untracked ones.
 func (a *app) gitDiscardAll() {
 	st := a.git.state.GetUntracked()
@@ -708,6 +737,23 @@ func (a *app) gitChanges(cx *core.Scope, st gitState) core.Node {
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, MinHeight: core.Pt(22)}, Children: children}
 	}
 	var body []core.Node
+	if conflicts := st.conflicts(); len(conflicts) > 0 {
+		body = append(body, core.View{
+			OnPress: func(core.PressEvent) { a.gitConflictsOpen.Set(true) },
+			Role:    core.RoleButton, Label: T("%d 个文件有冲突", len(conflicts)), TestID: "git-conflicts",
+			StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, MinHeight: core.Pt(30),
+					Padding: core.Symmetric(0, 8), CornerRadius: 7, Background: ui.Alpha(colors.Danger(), 0.10),
+					BorderWidth: 1, BorderColor: ui.Alpha(colors.Danger(), 0.28), Transition: pressMotion,
+					Hover: &core.Style{Background: ui.Alpha(colors.Danger(), 0.16)}}
+			},
+			Children: []core.Node{
+				ui.Icon(lucide.TriangleAlert, 12, colors.Danger),
+				core.Text{Content: T("%d 个文件有冲突", len(conflicts)), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style: core.Style{FontSize: 11, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Danger)},
+				ui.Text(T("解决…"), 10.5, ui.Medium, colors.Danger),
+			}})
+	}
 	body = append(body, row(T("已暂存"), fmt.Sprint(len(staged)),
 		a.pressIcon(lucide.Minus, "取消暂存全部", 21, 11,
 			func() bool { return len(staged) == 0 || a.git.busy.Get() != "" }, a.gitUnstageAll, "")))
@@ -741,12 +787,20 @@ func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool) core.Node {
 		return a.pressIcon(icon, label, 20, 11, func() bool { return a.git.busy.Get() != "" }, press, testID)
 	}
 	var actions []core.Node
-	if staged {
+	switch {
+	case f.Conflicted:
+		// A conflicted path has no "theirs" or "ours" to discard; the
+		// dialog offers the three ways out.
+		actions = append(actions, action(lucide.GitMerge, "解决冲突 "+name,
+			func() { a.gitConflictsOpen.Set(true) }, "git-resolve"))
+	case staged:
 		actions = append(actions, action(lucide.Minus, "取消暂存 "+name, func() { a.gitUnstageFile(f) }, "git-unstage"))
-	} else {
+	default:
 		actions = append(actions, action(lucide.Plus, "暂存 "+name, func() { a.gitStageFile(f) }, "git-stage"))
 	}
-	actions = append(actions, action(lucide.Undo2, "丢弃 "+name, func() { a.gitDiscardFile(f) }, "git-discard"))
+	if !f.Conflicted {
+		actions = append(actions, action(lucide.Undo2, "丢弃 "+name, func() { a.gitDiscardFile(f) }, "git-discard"))
+	}
 	testID := "git-file"
 	if staged {
 		testID = "git-staged-file"

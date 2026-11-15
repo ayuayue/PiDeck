@@ -120,6 +120,17 @@ func (s gitState) changedCount() int {
 	return n
 }
 
+// conflicts lists the paths a merge or rebase left with conflict marks.
+func (s gitState) conflicts() []gitFile {
+	var out []gitFile
+	for _, f := range s.Files {
+		if f.Conflicted {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // gitRepo reads one project's repository and runs its operations.
 type gitRepo struct {
 	cx *core.Scope

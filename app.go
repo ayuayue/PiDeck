@@ -440,16 +440,18 @@ type app struct {
 	gitMoreOpen    *core.Signal[bool]
 	gitTagsOpen    *core.Signal[bool]
 	gitRemotesOpen *core.Signal[bool]
-	gitRemoteName  *core.Signal[string]
-	gitRemoteURL   *core.Signal[string]
-	gitTagText     *core.Signal[string]
-	termRenameOpen *core.Signal[bool]
-	termRenameID   *core.Signal[string]
-	termRenameText *core.Signal[string]
-	gotoOpen       *core.Signal[bool]
-	gotoLine       *core.Signal[string]
-	quickOpen      *core.Signal[bool]
-	fileSearchOpen *core.Signal[bool]
+	// gitConflictsOpen shows the dialog that resolves a merge's conflicts.
+	gitConflictsOpen *core.Signal[bool]
+	gitRemoteName    *core.Signal[string]
+	gitRemoteURL     *core.Signal[string]
+	gitTagText       *core.Signal[string]
+	termRenameOpen   *core.Signal[bool]
+	termRenameID     *core.Signal[string]
+	termRenameText   *core.Signal[string]
+	gotoOpen         *core.Signal[bool]
+	gotoLine         *core.Signal[string]
+	quickOpen        *core.Signal[bool]
+	fileSearchOpen   *core.Signal[bool]
 	// fileSearchQuery, fileSearchBusy and fileSearchRev drive the content
 	// search; its hits and sequence live beside them.
 	fileSearchQuery *core.Signal[string]
@@ -594,6 +596,7 @@ func newApp(cx *core.Scope) *app {
 		gitMoreOpen:            core.NewSignal(cx, false),
 		gitTagsOpen:            core.NewSignal(cx, false),
 		gitRemotesOpen:         core.NewSignal(cx, false),
+		gitConflictsOpen:       core.NewSignal(cx, false),
 		gitRemoteName:          core.NewSignal(cx, "origin"),
 		gitRemoteURL:           core.NewSignal(cx, ""),
 		gitTagText:             core.NewSignal(cx, ""),
