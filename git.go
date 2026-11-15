@@ -396,6 +396,19 @@ func readGitState(t target, dir string, logLimit int) gitState {
 	return st
 }
 
+// readUnpushedCommits lists the commits the upstream branch does not have.
+func readUnpushedCommits(t target, dir string) ([]gitCommit, error) {
+	out, stderr, code, err := gitRun(t, dir, 30*time.Second, "--no-pager", "log", "-n", "100", "--date=iso-strict",
+		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e", "@{u}..HEAD")
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return nil, errors.New(gitMessage(stderr, code))
+	}
+	return parseGitLog(out), nil
+}
+
 // gitRemote is one named remote.
 type gitRemote struct {
 	Name string

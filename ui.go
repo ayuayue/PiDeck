@@ -49,6 +49,7 @@ func (a *app) view() core.Node {
 		a.gitTagsDialog(),
 		a.gitRemotesDialog(),
 		a.gitConflictsDialog(),
+		a.gitUnpushedDialog(),
 		a.terminalRenameDialog(),
 		a.gotoLineDialog(),
 		a.quickOpenDialog(),

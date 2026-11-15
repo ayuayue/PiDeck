@@ -442,20 +442,25 @@ type app struct {
 	gitRemotesOpen *core.Signal[bool]
 	// gitConflictsOpen shows the dialog that resolves a merge's conflicts.
 	gitConflictsOpen *core.Signal[bool]
-	gitRemoteName    *core.Signal[string]
-	gitRemoteURL     *core.Signal[string]
-	gitTagText       *core.Signal[string]
-	termRenameOpen   *core.Signal[bool]
-	termRenameID     *core.Signal[string]
-	termRenameText   *core.Signal[string]
-	gotoOpen         *core.Signal[bool]
-	gotoLine         *core.Signal[string]
-	quickOpen        *core.Signal[bool]
-	pluginNewOpen    *core.Signal[bool]
-	pluginNewID      *core.Signal[string]
-	pluginNewName    *core.Signal[string]
-	pluginNewDesc    *core.Signal[string]
-	fileSearchOpen   *core.Signal[bool]
+	// gitUnpushedOpen shows the commits the upstream does not have.
+	gitUnpushedOpen *core.Signal[bool]
+	gitUnpushedRev  *core.Signal[int]
+	gitUnpushedErr  *core.Signal[string]
+	gitUnpushed     []gitCommit
+	gitRemoteName   *core.Signal[string]
+	gitRemoteURL    *core.Signal[string]
+	gitTagText      *core.Signal[string]
+	termRenameOpen  *core.Signal[bool]
+	termRenameID    *core.Signal[string]
+	termRenameText  *core.Signal[string]
+	gotoOpen        *core.Signal[bool]
+	gotoLine        *core.Signal[string]
+	quickOpen       *core.Signal[bool]
+	pluginNewOpen   *core.Signal[bool]
+	pluginNewID     *core.Signal[string]
+	pluginNewName   *core.Signal[string]
+	pluginNewDesc   *core.Signal[string]
+	fileSearchOpen  *core.Signal[bool]
 	// fileSearchQuery, fileSearchBusy and fileSearchRev drive the content
 	// search; its hits and sequence live beside them.
 	fileSearchQuery *core.Signal[string]
@@ -601,6 +606,9 @@ func newApp(cx *core.Scope) *app {
 		gitTagsOpen:            core.NewSignal(cx, false),
 		gitRemotesOpen:         core.NewSignal(cx, false),
 		gitConflictsOpen:       core.NewSignal(cx, false),
+		gitUnpushedOpen:        core.NewSignal(cx, false),
+		gitUnpushedRev:         core.NewSignal(cx, 0),
+		gitUnpushedErr:         core.NewSignal(cx, ""),
 		gitRemoteName:          core.NewSignal(cx, "origin"),
 		gitRemoteURL:           core.NewSignal(cx, ""),
 		gitTagText:             core.NewSignal(cx, ""),

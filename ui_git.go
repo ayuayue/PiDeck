@@ -157,6 +157,49 @@ func (a *app) gitMarkResolved(f gitFile) {
 	}, nil)
 }
 
+// gitResetLast moves the last commit's changes back to the index, keeping
+// the files as they are.
+func (a *app) gitResetLast() {
+	st := a.git.state.GetUntracked()
+	if st.Initial || st.OID == "" {
+		a.toast(ui.ToastInfo, "还没有提交", "第一次提交之前没有可撤销的提交。")
+		return
+	}
+	a.askConfirm("撤销上次提交", "把上一次提交放回暂存区（git reset --soft HEAD~1），文件内容不变。", "撤销", func() {
+		a.git.run("撤销上次提交", func(g gitRunner) error {
+			_, err := g.exec(60*time.Second, "reset", "--soft", "HEAD~1")
+			return err
+		}, nil)
+	})
+}
+
+// openUnpushedCommits lists what the upstream branch does not have yet.
+func (a *app) openUnpushedCommits() {
+	st := a.git.state.GetUntracked()
+	if st.Upstream == "" {
+		a.toast(ui.ToastInfo, "没有上游分支", "先发布到远端，才能看未推送的提交。")
+		return
+	}
+	t, path := a.git.repo()
+	if path == "" {
+		return
+	}
+	a.gitUnpushed = nil
+	a.gitUnpushedErr.Set("")
+	a.gitUnpushedOpen.Set(true)
+	a.gitUnpushedRev.Update(func(n int) int { return n + 1 })
+	go func() {
+		commits, err := readUnpushedCommits(t, path)
+		a.cx.Post(func() {
+			if err != nil {
+				a.gitUnpushedErr.Set(err.Error())
+			}
+			a.gitUnpushed = commits
+			a.gitUnpushedRev.Update(func(n int) int { return n + 1 })
+		})
+	}()
+}
+
 // gitDiscardAll asks, then restores every path and removes untracked ones.
 func (a *app) gitDiscardAll() {
 	st := a.git.state.GetUntracked()
@@ -663,6 +706,8 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 				TestID: "git-more-menu", Children: []core.Node{
 					ui.MenuItem{Text: T("远端…"), Icon: lucide.Cloud, OnSelect: a.openGitRemotes},
 					ui.MenuItem{Text: T("标签…"), Icon: lucide.Tag, OnSelect: a.openGitTags},
+					ui.MenuItem{Text: T("未推送的提交…"), Icon: lucide.CloudUpload, OnSelect: a.openUnpushedCommits},
+					ui.MenuItem{Text: T("撤销上次提交…"), Icon: lucide.Undo2, Variant: ui.MenuItemDanger, OnSelect: a.gitResetLast},
 					ui.MenuItem{Text: T("贮藏列表…"), Icon: lucide.Archive, OnSelect: a.openGitStashList},
 					ui.MenuItem{Text: T("贮藏全部改动"), Icon: lucide.Archive, OnSelect: a.gitStash},
 					ui.MenuItem{Text: T("恢复最近贮藏"), Icon: lucide.ArchiveRestore, OnSelect: a.gitStashPop},
