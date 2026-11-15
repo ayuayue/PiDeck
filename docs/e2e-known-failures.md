@@ -36,6 +36,7 @@
 |---|---|---|---|
 | 2026-11-14 | `session-history-mutation`（3 条） | 删除确认文案按 running/idle 分变体、编辑/重发已改 fork 语义 | 对齐断言；mock 补真 fork |
 | 2026-11-14 | `tab-context-menu:16` | `getByText("复制会话")` 子串同时命中「复制会话文件路径」 | 加 `exact: true` |
+| 2026-11-14 | `layout-terminal`（2 条）/ `content-width` / `math-delimiters` / `visual-tune-surfaces`（2 条）/ `typewriter`（1 条，burst） | 终端入口从 outline 悬浮条并入「更多运行操作」菜单；solo 会话栏类名换成 `.session-v-timeline` 且空会话不渲染时间线；状态词「空闲」移进状态点、不再进会话行按钮的可访问名；抽屉打开时 Tab 栏的 drawer 开关会隐藏（并入活动栏左端）；BURST 合并帧上限过紧 | 前四条改定位器/时机；`typewriter` 把「合并帧 ≤3 帧」放宽到 ≤6 帧（实测该模式单帧落 4–5 字符，守卫目标是 10+ 的整段蹦出） |
 | 2026-11-14 | `file-link-repro`/`imagegen-composer-layout`/`branch-tree-panel`/`agent-market-bulk`（5 条，同一批） | 侧栏行显示**项目名**（seed 里是 `link-repro` 等），不是临时目录名 `pideck-*`；抽屉「添加常驻面板」只把面板加进常驻栏、不自动选中；分支树压缩点行改为显示摘要正文；低频入口（智能体/收藏）收进「更多」折叠组 | hasText 改 seed 项目名、先展开「更多」、勾选后补点 rail 按钮、断言改为摘要 |
 | 2026-11-14 | `favorites-bulk`（2 条） | 收藏入口收进侧栏「更多」折叠组（定时任务/智能体/收藏），且页面内还有同名「收藏」按钮 | 先展开「更多」，再用 `#sidebar-more-actions` 精确定位入口 |
 | 2026-11-14 | `terminal-first-open`（3 条） | 会话操作菜单从 Tab 栏「更多操作」并入会话头部「更多运行操作」（`SessionActionsControl`） | 定位器改到新入口；**功能本身没坏**（#333 仍可用） |
@@ -44,6 +45,7 @@
 
 | 用例 | 原因 |
 |---|---|
+| `tmp-table-menu`（整条删除） | 2026-08 的临时验证脚本：只有截图 + `console.log` 几何，唯一断言是「复制菜单项可见」，从未断言过菜单是否压住表格。表格工具栏与 i18n 都变过两轮，维护成本大于价值，直接删文件（它想守的重叠问题需要真实像素断言才有意义，见下方待办） |
 | `settle-reposition` 的 2 条（mouse move + typing / holds its landing spot） | settle 后的「重新定位」在实现里被刻意移除——`SessionMessageTimeline` 的「运行中 → 停转」边沿注释写明「仅用于让旧的 settled 流水线失效；不再调度任何定位」，只保留「1.5s 阅读停顿 → 自动收起最新轮」。这两条断言的是不存在的契约，用 `test.fixme` 标记（若哪天定位被重新引入，会报 unexpectedly passed） |
 
 ---
@@ -106,3 +108,12 @@ isAgentBusy = hasActiveConversation && (activeConversationStatus === "running" |
 | `content-area loading overlay › never-started session…` | 同上，预置项目行未出现 | 同上 |
 
 这三条与「流式中删除」无关，属全量体检里 40 条的一部分，按集群下一轮处理。
+
+---
+
+## 下一批待办
+
+| 用例 | 现象 | 已经查到哪一步 / 下一步 |
+|---|---|---|
+| `process-group-display`（1 条：同行文本共基线） | `expect.poll` 拿到的基线组不足 3 项，10s 后以 `NaN` 收尾（不是极差超限） | 组头的实时详情只在 `running && !open` 时渲染（`ProcessGroupStep.tsx:201`：`detail = props.running && !props.open ? lastToolDetail(...) : undefined`）。流式中折叠栏默认展开（`expandInterimDuringStream`），此时 `[data-row-text]` 只有 1 个子元素 → 永远凑不满 3 项。下一步：在「运行中 + 组头收起」状态下取一次 DOM 快照，确认 3 个子元素都出现后再改断言（要么先收起折叠栏，要么把断言降到 2 项并说明理由） |
+| 表格工具栏菜单与表格重叠 | 之前的 `tmp-table-menu` 只截图不断言 | 需要一条真实几何断言：菜单 `boundingBox` 底边 ≤ 表格顶边，或菜单不覆盖任意 `td` 文本；菜单是 portal 渲染，定位要从页面级取而不是 `.message-timeline` 内 |
