@@ -128,9 +128,9 @@ curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&befor
 
 所以别拿条数去推轮数。翻页只做一件事：把上一页的 `nextBefore` 传给 `before`，翻到它是 `null` 翻页就结束。
 
-`nextBefore` 为 `null` 只说明没法继续翻，不等于拿全了。本机五个会话实测：一直翻到 `null`，累计条数仍比 `total` 少 83~321 条（1653 条的会话只拿到 1556，939 条的只拿到 856）。
+**`total` 数的是文件里的条目，`messages` 是转换后的消息，两者基数不同，别相减。** 同一个会话翻到底，累计条数有时比 `total` 少，有时还多：一条工具记录、一张压缩卡片、一次上下文改写，进出的条数都不一样。
 
-缺的是最早那段，接口不报错。判断拿全没有只有一个检查：累计 `messages.length` 是否等于 `total`。
+所以「累计 `messages.length` 等于 `total`」不是能用的检查，它会让每个会话都判红。该看的只有 `nextBefore`：它变成 `null` 表示游标落到了第 0 个条目，前面没有更早的了，这就是拿全。源码里这一句是 `nextBefore: start > 0 ? start : null`，两个接口的 `total` 也取自同一行的 `index.activeMessageEntries.length`。
 
 **`nextBefore` 不为 `null` 时返回 7 个键，为 `null` 时只有 6 个**——最后一页没有 `nextBeforeEntryId`。按字段名取，别按位置取。
 
