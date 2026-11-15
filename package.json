@@ -128,7 +128,7 @@
     "e2e": "playwright test",
     "verify": "npm run typecheck && npm test && npm run test:e2e",
     "probe:dsh": "node scripts/dsh-embed-probe.mjs",
-    "test:skills": "node resources/skills/pideck-web-api/check-doc.mjs && node resources/skills/pideck-web-api/check-paths.mjs && node resources/skills/pideck-web-api/check-format.mjs"
+    "test:skills": "node resources/skills/pideck-web-api/check-fields.mjs --selftest && node resources/skills/pideck-web-api/check-fields.mjs --src=src && node resources/skills/pideck-web-api/check-doc.mjs && node resources/skills/pideck-web-api/check-paths.mjs && node resources/skills/pideck-web-api/check-format.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
