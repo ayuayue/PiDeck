@@ -130,7 +130,20 @@ func shot(app *nsgotest.App, name string) {
 // workspaceWith makes a temp project with a small file pi can read.
 func workspaceWith(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir, err := os.MkdirTemp("", "pideck-workspace-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The app's file watcher can hold a handle for a moment after the test;
+	// give it time rather than failing the cleanup.
+	t.Cleanup(func() {
+		for i := 0; i < 40; i++ {
+			if os.RemoveAll(dir) == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
 	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello tool"), 0o644); err != nil {
 		t.Fatal(err)
 	}
