@@ -415,7 +415,7 @@ func (a *app) gitCreateBranch() {
 		return
 	}
 	a.gitNewBranchOpen.Set(false)
-	a.git.run(T(T("新建分支")), func(g gitRunner) error {
+	a.git.run(T("新建分支"), func(g gitRunner) error {
 		_, err := g.exec(60*time.Second, "checkout", "-b", name)
 		return err
 	}, func(err error) {
@@ -552,7 +552,7 @@ func (a *app) drawerGit() core.Node {
 		}
 		if !st.Checked && st.Loading {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-				Children: []core.Node{ui.Spinner{Size: 16, Label: "读取 Git 仓库"}, ui.Text(T("正在读取仓库…"), 12, ui.Regular, colors.Muted)}}
+				Children: []core.Node{ui.Spinner{Size: 16, Label: T("读取 Git 仓库")}, ui.Text(T("正在读取仓库…"), 12, ui.Regular, colors.Muted)}}
 		}
 		if st.NotRepo {
 			return a.gitNotRepo(cx, st)
@@ -734,7 +734,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 				a.gitNewBranchName.Set("")
 				a.gitNewBranchOpen.Set(true)
 			},
-			Role: core.RoleButton, Label: T(T("新建分支")),
+			Role: core.RoleButton, Label: T("新建分支"),
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(28),
 					Padding: core.Symmetric(0, 8), CornerRadius: 6, Transition: pressMotion,
@@ -820,7 +820,7 @@ func (a *app) gitError(cx *core.Scope) core.Node {
 		ui.Icon(lucide.TriangleAlert, 12, colors.Danger),
 		core.Text{ContentFunc: a.git.err.Get, MaxLines: 3, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11, LineHeight: 16},
 			StyleFunc: ui.Colored(colors.Danger)},
-		core.View{OnPress: func(core.PressEvent) { a.git.err.Set("") }, Role: core.RoleButton, Label: "关闭错误",
+		core.View{OnPress: func(core.PressEvent) { a.git.err.Set("") }, Role: core.RoleButton, Label: T("关闭错误"),
 			StyleFunc: func() core.Style {
 				return core.Style{Width: core.Pt(18), Height: core.Pt(18), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 					CornerRadius: 4, Hover: &core.Style{Background: colors.Hover()}}
@@ -1155,7 +1155,7 @@ func (a *app) gitDiffDialog() core.Node {
 		body := core.Dynamic(func(cx *core.Scope) core.Node {
 			if a.gitDiffLoading.Get() {
 				return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-					Children: []core.Node{ui.Spinner{Size: 16, Label: "读取补丁"}, ui.Text(T("正在读取补丁…"), 12, ui.Regular, colors.Muted)}}
+					Children: []core.Node{ui.Spinner{Size: 16, Label: T("读取补丁")}, ui.Text(T("正在读取补丁…"), 12, ui.Regular, colors.Muted)}}
 			}
 			patch := a.gitDiffPatch.Get()
 			if strings.TrimSpace(patch) == "" {
@@ -1230,7 +1230,7 @@ func (a *app) gitNewBranchDialog() core.Node {
 	colors := ui.ColorsOf(a.cx)
 	return ui.Dialog{
 		Open: a.gitNewBranchOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.gitNewBranchOpen.Set(open) },
-		Title: T(T("新建分支")), Description: T("新分支从当前提交开始，并立刻切换过去。"), TestID: "git-new-branch",
+		Title: T("新建分支"), Description: T("新分支从当前提交开始，并立刻切换过去。"), TestID: "git-new-branch",
 		Children: []core.Node{core.Input{
 			Value: a.gitNewBranchName.Get, OnChange: a.gitNewBranchName.Set, Placeholder: "feature/my-change",
 			Label: T("分支名"), AutoFocus: true, OnSubmit: func(string) { a.gitCreateBranch() },
@@ -1240,7 +1240,7 @@ func (a *app) gitNewBranchDialog() core.Node {
 			},
 		}},
 		Footer: []core.Node{
-			ui.Button{Text: "取消", Variant: ui.ButtonGhost, OnPress: func() { a.gitNewBranchOpen.Set(false) }},
+			ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, OnPress: func() { a.gitNewBranchOpen.Set(false) }},
 			ui.Button{Text: T("创建并切换"), Variant: ui.ButtonPrimary, OnPress: a.gitCreateBranch},
 		},
 	}

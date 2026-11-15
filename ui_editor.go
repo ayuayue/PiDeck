@@ -77,7 +77,7 @@ func (a *app) editorTab(f func() *editorFile) core.Node {
 				return core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3,
 					Background: colors.Accent(), FlexShrink: 0}}
 			}},
-			core.View{OnPress: func(core.PressEvent) { a.closeEditorFile(file()) }, Role: core.RoleButton, Label: "关闭文件",
+			core.View{OnPress: func(core.PressEvent) { a.closeEditorFile(file()) }, Role: core.RoleButton, Label: T("关闭文件"),
 				StyleFunc: func() core.Style {
 					return core.Style{Width: core.Pt(18), Height: core.Pt(18), CornerRadius: 5, AlignItems: core.AlignCenter,
 						JustifyContent: core.JustifyCenter, Transition: pressMotion,
@@ -99,11 +99,11 @@ func (a *app) editorActions() core.Node {
 		return enabled() && f.Dirty.Get()
 	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.Save, Label: "保存", Size: 28, IconSize: 14, TestID: "editor-save",
+		ui.IconButton{Icon: lucide.Save, Label: T("保存"), Size: 28, IconSize: 14, TestID: "editor-save",
 			Disabled: func() bool { return !dirty() }, OnPress: func() { a.saveActiveFile() }},
-		ui.IconButton{Icon: lucide.TextWrap, Label: "自动换行", Size: 28, IconSize: 14, TestID: "editor-wrap",
+		ui.IconButton{Icon: lucide.TextWrap, Label: T("自动换行"), Size: 28, IconSize: 14, TestID: "editor-wrap",
 			Selected: a.editorWrap.Get, OnPress: a.toggleEditorWrap},
-		ui.IconButton{Icon: lucide.SaveAll, Label: "保存所有文件", Size: 28, IconSize: 14, TestID: "editor-save-all",
+		ui.IconButton{Icon: lucide.SaveAll, Label: T("保存所有文件"), Size: 28, IconSize: 14, TestID: "editor-save-all",
 			Disabled: func() bool {
 				for _, f := range a.editor.files.GetUntracked() {
 					if f != nil && f.Dirty.GetUntracked() {
@@ -112,9 +112,9 @@ func (a *app) editorActions() core.Node {
 				}
 				return true
 			}, OnPress: func() { a.saveAllFiles() }},
-		ui.IconButton{Icon: lucide.RotateCcw, Label: "重新读取", Size: 28, IconSize: 14, TestID: "editor-reload",
+		ui.IconButton{Icon: lucide.RotateCcw, Label: T("重新读取"), Size: 28, IconSize: 14, TestID: "editor-reload",
 			Disabled: func() bool { return !enabled() }, OnPress: func() { a.reloadActiveFile() }},
-		ui.IconButton{Icon: lucide.ExternalLink, Label: "在文件管理器中显示", Size: 28, IconSize: 14,
+		ui.IconButton{Icon: lucide.ExternalLink, Label: T("在文件管理器中显示"), Size: 28, IconSize: 14,
 			Disabled: func() bool { return !enabled() }, OnPress: func() {
 				if f := a.editor.activeFile(); f != nil {
 					if err := revealFile(localTarget, f.Path); err != nil {
@@ -123,7 +123,7 @@ func (a *app) editorActions() core.Node {
 				}
 			}},
 		core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(18), Background: colors.Line(), Margin: core.Symmetric(0, 4)}},
-		ui.IconButton{Icon: lucide.X, Label: "回到对话", Size: 28, IconSize: 14, TestID: "editor-close",
+		ui.IconButton{Icon: lucide.X, Label: T("回到对话"), Size: 28, IconSize: 14, TestID: "editor-close",
 			OnPress: a.closeEditorPane},
 	}}
 }
@@ -146,7 +146,7 @@ func (a *app) editorBody() core.Node {
 					ui.Icon(lucide.FileX, 22, colors.Faint),
 					core.Text{Content: msg, MaxLines: 3, Style: core.Style{FontSize: 12, MaxWidth: core.Pt(420)},
 						StyleFunc: ui.Colored(colors.Muted)},
-					ui.Button{Text: "重新读取", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					ui.Button{Text: T("重新读取"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 						OnPress: func() { a.editor.load(f) }},
 				}}
 		}

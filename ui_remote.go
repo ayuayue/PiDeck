@@ -42,12 +42,12 @@ func (a *app) settingsRemote() core.Node {
 			status, statusTone = "正在检测网络…", colors.Faint
 		}
 		copyLink := func(testID string, ip string) core.Node {
-			return ui.Button{Text: "复制链接", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: testID,
+			return ui.Button{Text: T("复制链接"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: testID,
 				Disabled: func() bool { return !st.Running },
 				OnPress:  func() { a.copyText(a.remote.link(ip), "连接链接") }}
 		}
 		qrButton := func(ip string) core.Node {
-			return ui.IconButton{Icon: lucide.QrCode, Label: "显示二维码", Size: 24, IconSize: 13,
+			return ui.IconButton{Icon: lucide.QrCode, Label: T("显示二维码"), Size: 24, IconSize: 13,
 				Disabled: func() bool { return !st.Running }, OnPress: func() { a.showQR(a.remote.link(ip)) }}
 		}
 		addressRow := func(name, detail, ip, testID string) core.Node {
@@ -123,7 +123,7 @@ func (a *app) settingsRemote() core.Node {
 		manualET := core.Input{
 			Value: func() string { return a.cfg.RemoteEasyTierIP }, OnChange: func(v string) { a.cfg.RemoteEasyTierIP = v },
 			OnSubmit:    func(v string) { a.remote.setEasyTierIP(v) },
-			Placeholder: "手动填写 EasyTier 虚拟 IP", Label: "EasyTier 虚拟 IP", TestID: "remote-easytier-ip",
+			Placeholder: T("手动填写 EasyTier 虚拟 IP"), Label: T("EasyTier 虚拟 IP"), TestID: "remote-easytier-ip",
 			Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), FontSize: 11, Color: colors.Text(),
 				Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 		}
@@ -132,12 +132,12 @@ func (a *app) settingsRemote() core.Node {
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 0}, Children: []core.Node{
 				setGroup("服务",
 					setRow("远程访问", "让手机端连接这台电脑上的项目和会话；关闭后所有手机连接立即断开。",
-						ui.Switch{Checked: func() bool { return st.Enabled }, Label: "允许手机连接", TestID: "remote-enabled",
+						ui.Switch{Checked: func() bool { return st.Enabled }, Label: T("允许手机连接"), TestID: "remote-enabled",
 							OnChange: func(on bool) { a.remote.setEnabled(on) }}),
 					setDivider(),
 					setRow("端口", "手机连接地址里的端口，需在防火墙中放行。",
 						ui.NumberInput{Value: func() float64 { return float64(st.Port) }, Min: 1024, Max: 65535, Step: 1,
-							Label: "远程端口", TestID: "remote-port",
+							Label: T("远程端口"), TestID: "remote-port",
 							OnChange: func(v float64) { a.remote.setPort(int(v)) },
 							Style:    core.Style{Width: core.Pt(92)}}),
 					setDivider(),
@@ -146,9 +146,9 @@ func (a *app) settingsRemote() core.Node {
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							core.Text{Content: token, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
 								Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
-							ui.Button{Text: "复制", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Disabled: func() bool { return emptyToken },
+							ui.Button{Text: T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Disabled: func() bool { return emptyToken },
 								OnPress: func() { a.copyText(a.remote.state.GetUntracked().Token, "访问令牌") }},
-							ui.Button{Text: "重新生成", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+							ui.Button{Text: T("重新生成"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 								a.remote.rotateToken()
 								a.toast(ui.ToastInfo, "访问令牌已重新生成", "旧手机会在下一次请求时断开。")
 							}},
@@ -159,7 +159,7 @@ func (a *app) settingsRemote() core.Node {
 							core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: statusTone()}},
 							ui.Text(status, 10.5, ui.Regular, statusTone),
 							core.View{Style: core.Style{FlexGrow: 1}},
-							ui.Button{Text: "重新检测网络", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "remote-refresh",
+							ui.Button{Text: T("重新检测网络"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "remote-refresh",
 								OnPress: func() { a.remote.refresh() }},
 						}}
 					}),
@@ -175,7 +175,7 @@ func (a *app) settingsRemote() core.Node {
 					channel(lucide.Network, "EasyTier", "同一 EasyTier 网络内使用虚拟地址直连。", st.EasyTier,
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{manualET}},
-							ui.Button{Text: "应用 IP", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+							ui.Button{Text: T("应用 IP"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 								a.remote.setEasyTierIP(a.cfg.RemoteEasyTierIP)
 							}},
 						}},
@@ -207,8 +207,8 @@ func (a *app) remoteQRDialog() core.Node {
 	return ui.Dialog{
 		Open:         a.qrOpen.Get,
 		OnOpenChange: func(open bool, _ base.Reason) { a.qrOpen.Set(open) },
-		Title:        "扫码连接",
-		Description:  "手机端打开 PiDeck Lite，点「扫码连接」对着这里扫。",
+		Title:        T("扫码连接"),
+		Description:  T("手机端打开 PiDeck Lite，点「扫码连接」对着这里扫。"),
 		TestID:       "remote-qr",
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			png := a.qrPNG
@@ -218,7 +218,7 @@ func (a *app) remoteQRDialog() core.Node {
 			return core.View{Style: core.Style{Gap: 10, AlignItems: core.AlignCenter}, Children: []core.Node{
 				core.View{Style: core.Style{Padding: core.All(10), CornerRadius: 10, Background: core.RGBA(0xFFFFFF, 1)},
 					Children: []core.Node{core.Image{Source: core.ImageSource{Data: png}, ResizeMode: core.Contain,
-						Label: "连接二维码", Style: core.Style{Width: core.Pt(240), Height: core.Pt(240)}}}},
+						Label: T("连接二维码"), Style: core.Style{Width: core.Pt(240), Height: core.Pt(240)}}}},
 				core.Text{Content: a.qrLink.Get(), MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
 					Style: core.Style{FontFamily: ui.Mono, FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
 			}}

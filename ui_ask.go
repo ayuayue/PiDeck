@@ -40,16 +40,16 @@ func (a *app) parallelAskDialog() core.Node {
 			}}
 		}
 		buttonRow := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-			ui.Button{Text: "开始问", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "ask-start",
+			ui.Button{Text: T("开始问"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "ask-start",
 				Disabled: func() bool { return !canStart }, OnPress: func() { a.startAsk() }},
-			ui.Button{Text: "插入到输入框", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "ask-insert",
+			ui.Button{Text: T("插入到输入框"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "ask-insert",
 				Disabled: func() bool { return !hasAnswer }, OnPress: func() { a.insertAskAnswer() }},
-			ui.Button{Text: "复制答案", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "ask-copy",
+			ui.Button{Text: T("复制答案"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "ask-copy",
 				Disabled: func() bool { return !hasAnswer }, OnPress: func() { a.copyAskAnswer() }},
-			ui.Button{Text: "打开这个会话", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "ask-open-session",
+			ui.Button{Text: T("打开这个会话"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "ask-open-session",
 				Disabled: func() bool { return st.SessionID == "" }, OnPress: func() { a.openAskSession() }},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "ask-close",
+			ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "ask-close",
 				OnPress: func() { set(func(v *askBox) { v.Open = false }) }},
 		}}
 		return ui.Dialog{
@@ -59,7 +59,7 @@ func (a *app) parallelAskDialog() core.Node {
 					set(func(v *askBox) { v.Open = false })
 				}
 			},
-			Title:  "并行问询",
+			Title:  T("并行问询"),
 			TestID: "ask-dialog",
 			Style:  core.Style{Width: core.Pt(620), Height: core.Pt(560)},
 			Children: []core.Node{core.Scroll{Style: ui.FillRest, Children: []core.Node{
@@ -67,7 +67,7 @@ func (a *app) parallelAskDialog() core.Node {
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 						ui.Text("问题", 10.5, ui.Medium, colors.Muted),
 						core.Input{Value: a.askText.Get, OnChange: a.askText.Set,
-							Multiline: true, Placeholder: "在另一个会话里问什么？", Label: "问询问题", TestID: "ask-text",
+							Multiline: true, Placeholder: T("在另一个会话里问什么？"), Label: T("问询问题"), TestID: "ask-text",
 							Style: core.Style{Height: core.Pt(96), Padding: core.Symmetric(8, 10), CornerRadius: 8,
 								Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
 								Color: colors.Text(), FontSize: 12.5, LineHeight: 18}},
@@ -75,7 +75,7 @@ func (a *app) parallelAskDialog() core.Node {
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 						ui.Checkbox{Checked: func() bool { return a.askBox.GetUntracked().WithContext },
 							OnChange: func(on bool) { set(func(v *askBox) { v.WithContext = on }) },
-							Text:     "带上当前会话最近的上下文", Label: "带上当前会话最近的上下文", TestID: "ask-context"},
+							Text:     T("带上当前会话最近的上下文"), Label: T("带上当前会话最近的上下文"), TestID: "ask-context"},
 					}},
 					core.Show{When: func() bool { return status != "" }, Then: func(*core.Scope) core.Node {
 						return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{

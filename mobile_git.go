@@ -103,7 +103,7 @@ func (a *mobileApp) gitSheet() core.Node {
 			}
 			head = append(head, ui.Icon(lucide.ChevronDown, 12, colors.Faint))
 			rows = append(rows, core.View{OnPress: func(core.PressEvent) { a.gitBranchesOpen.Set(true) },
-				Role: core.RoleButton, Label: "切换分支", TestID: "mobile-git-branches",
+				Role: core.RoleButton, Label: T("切换分支"), TestID: "mobile-git-branches",
 				StyleFunc: func() core.Style {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7,
 						Padding: core.Symmetric(8, 4), CornerRadius: 7, Active: &core.Style{Background: colors.Pressed()}}
@@ -114,11 +114,11 @@ func (a *mobileApp) gitSheet() core.Node {
 			}
 			rows = append(rows, core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(6, 0)}, StyleFunc: ui.Filled(colors.Line)})
 			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(2, 4)}, Children: []core.Node{
-				ui.Button{Text: "获取", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-fetch",
+				ui.Button{Text: T("获取"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-fetch",
 					Disabled: func() bool { return a.gitSending.Get() }, OnPress: func() { a.gitSync("fetch") }},
-				ui.Button{Text: "拉取", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-pull",
+				ui.Button{Text: T("拉取"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-pull",
 					Disabled: func() bool { return a.gitSending.Get() }, OnPress: func() { a.gitSync("pull") }},
-				ui.Button{Text: "推送", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-push",
+				ui.Button{Text: T("推送"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-push",
 					Disabled: func() bool { return a.gitSending.Get() }, OnPress: func() { a.gitSync("push") }},
 			}})
 			if len(st.Files) == 0 {
@@ -192,7 +192,7 @@ func (a *mobileApp) gitSheet() core.Node {
 			}
 		}
 		commitBox := core.View{Style: core.Style{Gap: 6, Padding: core.Edges{Top: 4}}, Children: []core.Node{
-			core.Input{Value: a.gitMsg.Get, OnChange: a.gitMsg.Set, Multiline: true, Placeholder: "提交说明", Label: "提交说明",
+			core.Input{Value: a.gitMsg.Get, OnChange: a.gitMsg.Set, Multiline: true, Placeholder: T("提交说明"), Label: T("提交说明"),
 				TestID: "mobile-git-message",
 				Style:  core.Style{MinHeight: core.Pt(52), MaxHeight: core.Pt(110), Padding: core.Symmetric(7, 9), FontSize: 12.5, Color: colors.Text()},
 				StyleFunc: func() core.Style {
@@ -202,7 +202,7 @@ func (a *mobileApp) gitSheet() core.Node {
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 				ui.Text(T("已暂存 %d", staged), 10.5, ui.Regular, colors.Faint),
 				core.View{Style: core.Style{FlexGrow: 1}},
-				ui.Button{Text: "提交", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-git-commit",
+				ui.Button{Text: T("提交"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-git-commit",
 					Disabled: func() bool { return a.gitSending.Get() || strings.TrimSpace(a.gitMsg.Get()) == "" || staged == 0 },
 					OnPress:  a.commitGit},
 			}},
@@ -221,7 +221,7 @@ func (a *mobileApp) gitSheet() core.Node {
 			Children:     []core.Node{core.View{Style: core.Style{Gap: 6}, Children: children}},
 			Footer: []core.Node{
 				ui.Button{Text: T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.loadGit},
-				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitOpen.Set(false) }},
+				ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitOpen.Set(false) }},
 			},
 		}
 	})
@@ -356,13 +356,13 @@ func (a *mobileApp) gitBranchesSheet() core.Node {
 		return ui.Dialog{
 			Open:         a.gitBranchesOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.gitBranchesOpen.Set(open) },
-			Title:        "切换分支",
+			Title:        T("切换分支"),
 			TestID:       "mobile-git-branches-sheet",
 			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520)},
 			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)},
 				Children: []core.Node{core.View{Style: core.Style{Gap: 2}, Children: rows}}}},
 			Footer: []core.Node{
-				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitBranchesOpen.Set(false) }},
+				ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.gitBranchesOpen.Set(false) }},
 			},
 		}
 	})
@@ -389,7 +389,7 @@ func (a *mobileApp) gitDiffSheet() core.Node {
 			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
-				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-diff-close",
+				ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-git-diff-close",
 					OnPress: func() { a.gitDiffOpen.Set(false) }},
 			},
 		}

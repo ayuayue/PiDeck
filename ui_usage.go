@@ -27,7 +27,7 @@ func (a *app) settingsUsage() core.Node {
 					ui.Text("还没有可统计的用量", 12.5, ui.Regular, colors.Muted),
 					core.Text{Content: "发几轮消息后再来看；统计只读本地会话文件。",
 						Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
-					ui.Button{Text: "重新统计", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.loadUsage(true) }},
+					ui.Button{Text: T("重新统计"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.loadUsage(true) }},
 				}}
 		}
 		max := usageMaxDay(r.Days)
@@ -97,7 +97,7 @@ func (a *app) settingsUsage() core.Node {
 					fmt.Sprintf("按 token 排序，前 %d 个。", len(r.Models))))...),
 				setGroup("项目", append(projectRows, usageNote(colors, "按会话工作目录归并。"))...),
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-					ui.Button{Text: "重新统计", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.loadUsage(true) }},
+					ui.Button{Text: T("重新统计"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.loadUsage(true) }},
 					ui.Button{Text: T("导出 CSV"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "usage-export",
 						OnPress: a.exportUsageCSV},
 					core.Text{Content: fmt.Sprintf("读了 %d 个会话文件 · 只在本机计算", r.Files), Style: core.Style{FontSize: 10.5},

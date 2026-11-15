@@ -19,12 +19,12 @@ func (a *app) shortcutsDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.shortcutsOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.shortcutsOpen.Set(open) },
-			Title:        "键盘快捷键",
+			Title:        T("键盘快捷键"),
 			TestID:       "shortcuts",
 			Style:        core.Style{Width: core.Pt(560), Height: core.Pt(600)},
 			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
-				core.Input{Value: a.shortcutsQuery.Get, OnChange: a.shortcutsQuery.Set, Placeholder: "搜索命令或键位…",
-					Label: "搜索快捷键", TestID: "shortcuts-search", AutoFocus: true,
+				core.Input{Value: a.shortcutsQuery.Get, OnChange: a.shortcutsQuery.Set, Placeholder: T("搜索命令或键位…"),
+					Label: T("搜索快捷键"), TestID: "shortcuts-search", AutoFocus: true,
 					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), CornerRadius: 7,
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
 						Color: colors.Text(), FontSize: 12}},
@@ -85,13 +85,13 @@ func (a *app) shortcutsDialog() core.Node {
 				}),
 			}}},
 			Footer: []core.Node{
-				ui.Button{Text: "打开键位设置", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "shortcuts-settings",
+				ui.Button{Text: T("打开键位设置"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "shortcuts-settings",
 					OnPress: func() {
 						a.shortcutsOpen.Set(false)
 						a.settingsTab.Set("keys")
 						a.settings.Set(true)
 					}},
-				ui.Button{Text: "关闭", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "shortcuts-close",
+				ui.Button{Text: T("关闭"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "shortcuts-close",
 					OnPress: func() { a.shortcutsOpen.Set(false) }},
 			},
 		}

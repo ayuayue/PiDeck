@@ -534,7 +534,7 @@ knob code info down`。
 ## 语言
 
 界面文案以中文为源文本，按源文本查翻译；没有译文的条目原样显示中文，所以新界面可以先上线再补翻译。
-当前覆盖设置页、命令面板、托盘菜单、键位页，以及主界面的侧栏、欢迎页、输入框、抽屉、空对话、右键菜单、常用对话框、Git 面板与终端面板；手机端的连接页、会话列表、对话、输入区与 Git 也已迁移，其余提示逐步补。
+当前覆盖设置页、命令面板、托盘菜单、键位页，以及主界面的侧栏、欢迎页、输入框、抽屉、空对话、右键菜单、常用对话框、Git 面板与终端面板；手机端的连接页、会话列表、对话、输入区、文件与 Git 也已迁移。按钮、菜单项、输入框占位与对话框标题/说明同样走 `T()`，并由测试拦住漏翻的直写文案。
 切换在 设置 → 通用 → 界面 → 语言，立即生效并写入 `config.json` 的 `language`（`""` 跟随系统）。
 
 新增文案时：在 `i18n.go` 的 `messages` 里给 `en-US` 与 `zh-TW` 各加一条，键就是中文原文；
@@ -597,7 +597,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 供应商连接测试是轻量探测（`/models` 或一次最小 chat 请求），不等于完整模型可用性验证
 - 系统通知是尽力而为：macOS 用 `osascript`、Linux 用 `notify-send`、Windows 用 PowerShell 的 WinRT 通知；系统关掉通知权限时不会补发
 - 资源页的扩展开关只改 `settings.json`，重启 Agent 后生效；本地 `.ts` 扩展自动加载，不能在此停用
-- 翻译覆盖设置页、命令面板、托盘、键位、主界面外壳、右键菜单、常用对话框与手机端；`TestVisibleStringsTranslated`、`TestToastTitlesTranslated` 与 `TestToastDetailsTranslated` 会拦住没有英文的界面文案、提示标题与说明；动态错误文本（如 pi 的原始报错）原样显示
+- 翻译覆盖设置页、命令面板、托盘、键位、主界面外壳、右键菜单、常用对话框与手机端；`TestVisibleStringsTranslated`、`TestToastTitlesTranslated` 与 `TestToastDetailsTranslated` 会拦住没有英文的正文、按钮/菜单/占位/标题字段、提示标题与说明；动态错误文本（如 pi 的原始报错）原样显示
 - 飞书集成默认只发摘要；接收群消息需要远程服务对外可达、填 Verification Token，且只发给当前会话（没有会话时新建内置对话），回答最多回传 1500 字
 - 桌面宠物只有内置造型与状态色，不支持 petdex 社区宠物包
 - 日志文件超过 1 MB 时轮转一次（`pideck.log` → `pideck.log.1`）；没有日志级别设置

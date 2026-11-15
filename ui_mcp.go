@@ -162,9 +162,9 @@ func (a *app) settingsMCP() core.Node {
 						StyleFunc: ui.Colored(colors.Danger)}
 				}},
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
-					ui.Button{Text: "添加服务器", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "mcp-add",
+					ui.Button{Text: T("添加服务器"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "mcp-add",
 						OnPress: a.openMCPAdd},
-					ui.Button{Text: "刷新", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					ui.Button{Text: T("刷新"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 						Disabled: func() bool { return busy }, OnPress: func() { a.loadMCPServers(true) }},
 				}},
 			}},
@@ -193,7 +193,7 @@ func (a *app) mcpDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.mcpAddOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.mcpAddOpen.Set(open) },
-			Title:        "添加 MCP 服务器",
+			Title:        T("添加 MCP 服务器"),
 			TestID:       "mcp-dialog",
 			Style:        core.Style{Width: core.Pt(520)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
@@ -203,7 +203,7 @@ func (a *app) mcpDialog() core.Node {
 				field("说明", "这个服务器提供什么", "mcp-desc", a.mcpDesc),
 				core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 					ui.Text("范围", 10.5, ui.Medium, colors.Muted),
-					choiceChips([]choice[bool]{{Value: false, Label: "全局"}, {Value: true, Label: "本项目"}},
+					choiceChips([]choice[bool]{{Value: false, Label: T("全局")}, {Value: true, Label: T("本项目")}},
 						func() bool { return a.mcpLocal.Get() }, func(v bool) { a.mcpLocal.Set(v) }),
 				}},
 				core.Text{Content: "URL 与命令二选一；命令和参数用空格分隔。", Style: core.Style{FontSize: 11},
@@ -211,9 +211,9 @@ func (a *app) mcpDialog() core.Node {
 				status,
 			}}},
 			Footer: []core.Node{
-				ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mcp-cancel",
+				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mcp-cancel",
 					OnPress: func() { a.mcpAddOpen.Set(false) }},
-				ui.Button{Text: "添加", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mcp-add-go",
+				ui.Button{Text: T("添加"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mcp-add-go",
 					Disabled: func() bool { return busy }, OnPress: a.addMCPServer},
 			},
 		}

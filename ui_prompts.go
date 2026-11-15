@@ -66,7 +66,7 @@ func (a *app) promptDialog() core.Node {
 			}
 			rows = append(rows, core.View{
 				OnPress: func(core.PressEvent) { a.insertPrompt(item) },
-				Role:    core.RoleButton, Label: "提示词 " + item.Title, TestID: "prompt-row",
+				Role:    core.RoleButton, Label: T("提示词 ") + item.Title, TestID: "prompt-row",
 				StyleFunc: func() core.Style {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 10, Padding: core.Symmetric(8, 8),
 						CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()},
@@ -97,7 +97,7 @@ func (a *app) promptDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.promptOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.promptOpen.Set(open) },
-			Title:        "提示词库",
+			Title:        T("提示词库"),
 			TestID:       "prompt-library",
 			Style:        core.Style{Width: core.Pt(760), Height: core.Pt(620)},
 			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, Height: core.Pt(430), MinHeight: core.Pt(0), Gap: 10},
@@ -111,15 +111,15 @@ func (a *app) promptDialog() core.Node {
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 6}, Children: []core.Node{
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-								core.Input{Value: a.promptQuery.Get, OnChange: a.promptQuery.Set, Placeholder: "搜索标题、正文或标签…",
-									Label: "搜索提示词", TestID: "prompt-search", AutoFocus: true,
+								core.Input{Value: a.promptQuery.Get, OnChange: a.promptQuery.Set, Placeholder: T("搜索标题、正文或标签…"),
+									Label: T("搜索提示词"), TestID: "prompt-search", AutoFocus: true,
 									Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), CornerRadius: 7,
 										Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
 										Color: colors.Text(), FontSize: 12}},
 							}},
-							ui.IconButton{Icon: lucide.BookmarkPlus, Label: "保存当前草稿为提示词", Size: 32, IconSize: 14,
+							ui.IconButton{Icon: lucide.BookmarkPlus, Label: T("保存当前草稿为提示词"), Size: 32, IconSize: 14,
 								TestID: "prompt-save-draft", OnPress: func() { a.saveDraftPrompt() }},
-							ui.IconButton{Icon: lucide.FolderOpen, Label: "打开提示词目录", Size: 32, IconSize: 14,
+							ui.IconButton{Icon: lucide.FolderOpen, Label: T("打开提示词目录"), Size: 32, IconSize: 14,
 								TestID: "prompt-open-dir", OnPress: func() {
 									a.promptOpen.Set(false)
 									a.openResourcesDir(a.promptsDir())
@@ -131,11 +131,11 @@ func (a *app) promptDialog() core.Node {
 					}},
 				}}},
 			Footer: []core.Node{
-				ui.Button{Text: "提示词商店…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "prompt-store-open",
+				ui.Button{Text: T("提示词商店…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "prompt-store-open",
 					OnPress: a.openPromptStore},
-				ui.Button{Text: "导入提示词包…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "prompt-import",
+				ui.Button{Text: T("导入提示词包…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "prompt-import",
 					OnPress: a.openPromptImport},
-				ui.Button{Text: "关闭", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "prompt-close",
+				ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "prompt-close",
 					OnPress: func() { a.promptOpen.Set(false) }},
 			},
 		}
@@ -204,23 +204,23 @@ func (a *app) promptImportDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.promptImportOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.promptImportOpen.Set(open) },
-			Title:        "导入提示词包",
+			Title:        T("导入提示词包"),
 			TestID:       "prompt-import-dialog",
 			Style:        core.Style{Width: core.Pt(540)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 				core.Text{Content: "填一个 http(s) 链接：JSON 或 YAML，可以是 {prompts:[…]} 或直接一个数组；每条要有 title 和 body（或 prompt）。",
 					Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
 				core.Input{Value: a.promptImportURL.Get, OnChange: a.promptImportURL.Set, Placeholder: "https://…/prompts.json",
-					Label: "提示词包链接", TestID: "prompt-import-url", AutoFocus: true,
+					Label: T("提示词包链接"), TestID: "prompt-import-url", AutoFocus: true,
 					OnSubmit: func(string) { a.importPromptURL() },
 					Style: core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), FontSize: 12, FontFamily: ui.Mono, Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 				status,
 			}}},
 			Footer: []core.Node{
-				ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 					OnPress: func() { a.promptImportOpen.Set(false) }},
-				ui.Button{Text: "导入", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "prompt-import-go",
+				ui.Button{Text: T("导入"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "prompt-import-go",
 					Disabled: func() bool { return busy }, OnPress: a.importPromptURL},
 			},
 		}

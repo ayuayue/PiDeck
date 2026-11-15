@@ -139,19 +139,19 @@ func (a *app) visionDialog() core.Node {
 				ui.Text("图片", 10.5, ui.Medium, colors.Muted),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-						core.Input{Value: a.visionPath.Get, OnChange: a.visionPath.Set, Placeholder: "图片路径，或从项目里选",
-							Label: "图片路径", TestID: "vision-path",
+						core.Input{Value: a.visionPath.Get, OnChange: a.visionPath.Set, Placeholder: T("图片路径，或从项目里选"),
+							Label: T("图片路径"), TestID: "vision-path",
 							Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 11.5, FontFamily: ui.Mono, Color: colors.Text(),
 								Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 					}},
-					ui.Button{Text: "选择…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "vision-pick",
+					ui.Button{Text: T("选择…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "vision-pick",
 						OnPress: func() { a.pickNative("image") }},
 				}},
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				ui.Text("问题", 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: a.visionQuestion.Get, OnChange: a.visionQuestion.Set, Multiline: true, AutoFocus: true,
-					Placeholder: defaultVisionQuestion, Label: "问题", TestID: "vision-question",
+					Placeholder: defaultVisionQuestion, Label: T("问题"), TestID: "vision-question",
 					Style: core.Style{MinHeight: core.Pt(58), MaxHeight: core.Pt(120), Padding: core.Symmetric(8, 10), FontSize: 12.5, Color: colors.Text()},
 					StyleFunc: func() core.Style {
 						return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 8,
@@ -160,8 +160,8 @@ func (a *app) visionDialog() core.Node {
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				ui.Text("视觉模型", 10.5, ui.Medium, colors.Muted),
-				core.Input{Value: a.visionModel.Get, OnChange: a.visionModel.Set, Placeholder: "支持图片输入的模型名，如 gpt-4o-mini",
-					Label: "视觉模型", TestID: "vision-model",
+				core.Input{Value: a.visionModel.Get, OnChange: a.visionModel.Set, Placeholder: T("支持图片输入的模型名，如 gpt-4o-mini"),
+					Label: T("视觉模型"), TestID: "vision-model",
 					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: ui.Mono, Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 			}},
@@ -183,21 +183,21 @@ func (a *app) visionDialog() core.Node {
 			}})
 		}
 		footer := []core.Node{
-			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.visionOpen.Set(false) }},
+			ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.visionOpen.Set(false) }},
 		}
 		if a.visionText.Get() != "" && !busy {
 			footer = append(footer,
-				ui.Button{Text: "复制", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "vision-copy",
+				ui.Button{Text: T("复制"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "vision-copy",
 					OnPress: func() { a.copyText(a.visionText.GetUntracked(), "描述") }},
-				ui.Button{Text: "插入输入框", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "vision-insert", OnPress: a.insertVisionText})
+				ui.Button{Text: T("插入输入框"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "vision-insert", OnPress: a.insertVisionText})
 		} else {
-			footer = append(footer, ui.Button{Text: "描述", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "vision-run",
+			footer = append(footer, ui.Button{Text: T("描述"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "vision-run",
 				Disabled: func() bool { return a.visionBusy.Get() || len(providerChoices) == 0 }, OnPress: a.runVision})
 		}
 		return ui.Dialog{
 			Open:         a.visionOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.visionOpen.Set(open) },
-			Title:        "描述图片",
+			Title:        T("描述图片"),
 			TestID:       "vision-dialog",
 			Style:        core.Style{Width: core.Pt(560), MaxHeight: core.Pt(640)},
 			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(500)}, Children: []core.Node{

@@ -38,7 +38,7 @@ func (a *app) chatPane() core.Node {
 			}, Children: []core.Node{
 				chat.FloatingConversation{
 					State:     s.conversation,
-					JumpLabel: "跳到最新消息",
+					JumpLabel: T("跳到最新消息"),
 					TestID:    "transcript",
 					Children:  []core.Node{a.transcript(s)},
 					Composer:  []core.Node{a.composerStack(s)},
@@ -162,7 +162,7 @@ func (a *app) loadEarlier(s *session) core.Node {
 	return core.View{Style: core.Style{AlignItems: core.AlignCenter, Padding: core.Edges{Top: 2}},
 		Children: []core.Node{ui.Press{OnPress: func() {
 			s.window.Update(func(n int) int { return n + 24 })
-		}, Label: "加载更早的对话", Children: []core.Node{
+		}, Label: T("加载更早的对话"), Children: []core.Node{
 			core.View{StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(28), Padding: core.Symmetric(0, 12),
 					CornerRadius: 14, BorderWidth: 1, BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}}
@@ -338,29 +338,29 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 				var planActions []core.Node
 				if tt.Plan {
 					planActions = append(planActions,
-						chat.IconAction{Label: "执行计划", Icon: lucide.Play,
+						chat.IconAction{Label: T("执行计划"), Icon: lucide.Play,
 							Disabled: func() bool { return t().running() || t().Final == "" },
 							OnPress:  func() { a.executePlan(s, tt) }},
-						chat.IconAction{Label: "逐步执行", Icon: lucide.ListChecks,
+						chat.IconAction{Label: T("逐步执行"), Icon: lucide.ListChecks,
 							Disabled: func() bool { return t().running() || len(planSteps(t().Final)) < 2 },
 							OnPress:  func() { a.executePlanSteps(s, tt) }},
-						chat.IconAction{Label: "修改计划", Icon: lucide.PencilLine,
+						chat.IconAction{Label: T("修改计划"), Icon: lucide.PencilLine,
 							Disabled: func() bool { return t().Final == "" },
 							OnPress:  func() { a.editPlan(s, tt) }},
 					)
 				}
 				return core.Group(append(planActions, []core.Node{
-					chat.IconAction{Label: "重新发送", Icon: lucide.RefreshCw,
+					chat.IconAction{Label: T("重新发送"), Icon: lucide.RefreshCw,
 						Disabled: func() bool { return tt.Prompt == "" || t().running() },
 						OnPress:  func() { a.resendTurn(s, tt) }},
-					chat.IconAction{Label: "复制提问", Icon: lucide.Quote, Disabled: func() bool { return tt.Prompt == "" },
+					chat.IconAction{Label: T("复制提问"), Icon: lucide.Quote, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() { a.copyText(tt.Prompt, "提问") }},
-					chat.IconAction{Label: "把提问放回输入框", Icon: lucide.PencilLine, Disabled: func() bool { return tt.Prompt == "" },
+					chat.IconAction{Label: T("把提问放回输入框"), Icon: lucide.PencilLine, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() {
 							s.draft.Set(tt.Prompt)
 							a.toast(ui.ToastInfo, "提问已放回输入框", "可以改完再发。")
 						}},
-					chat.IconAction{Label: "复制回复", Icon: lucide.Copy, OnPress: func() {
+					chat.IconAction{Label: T("复制回复"), Icon: lucide.Copy, OnPress: func() {
 						text := tt.Final
 						if text == "" {
 							for i := len(tt.Steps) - 1; i >= 0; i-- {
@@ -372,9 +372,9 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 						}
 						a.copyText(text, "回复")
 					}},
-					chat.IconAction{Label: "从这里分叉", Icon: lucide.GitBranch, Disabled: func() bool { return tt.Prompt == "" },
+					chat.IconAction{Label: T("从这里分叉"), Icon: lucide.GitBranch, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() { a.forkSession(s, tt.ID) }},
-					chat.IconAction{Label: "重试", Icon: lucide.RefreshCw, OnPress: func() { a.retry(s, tt) }},
+					chat.IconAction{Label: T("重试"), Icon: lucide.RefreshCw, OnPress: func() { a.retry(s, tt) }},
 				}...))
 			},
 			ShowActions: func() bool {
@@ -537,7 +537,7 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 		}, 11, colors.Faint))
 		rows := []core.Node{core.View{
 			OnPress: func(core.PressEvent) { s.toggleOpen(key) },
-			Role:    core.RoleButton, Label: "修改摘要", TestID: "turn-changes",
+			Role:    core.RoleButton, Label: T("修改摘要"), TestID: "turn-changes",
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(24),
 					Padding: core.Symmetric(0, 4), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
@@ -549,7 +549,7 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 				change := c
 				row := core.View{
 					OnPress: func(core.PressEvent) { a.openChangeFile(s, change.Path) },
-					Role:    core.RoleButton, Label: "打开 " + change.Path, TestID: fmt.Sprintf("turn-change-%d", i),
+					Role:    core.RoleButton, Label: T("打开 ") + change.Path, TestID: fmt.Sprintf("turn-change-%d", i),
 					StyleFunc: func() core.Style {
 						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24),
 							Padding: core.Symmetric(0, 6), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
@@ -801,7 +801,7 @@ func (a *app) errorRow(retry func(), text string) core.Node {
 			ui.Icon(lucide.CircleAlert, 16, colors.Danger),
 			core.Text{Content: text, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, LineHeight: 19},
 				StyleFunc: ui.Colored(colors.Text)},
-			ui.Button{Text: "重试", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: retry},
+			ui.Button{Text: T("重试"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: retry},
 		}}
 	})
 }
@@ -822,7 +822,7 @@ func markdownView(text string, streaming func() bool, caret bool) core.Node {
 			Highlighter:          hl,
 			OpenLinks:            true,
 			NoCodeBlockScrollbar: true,
-			CodeBlockActions:     []textview.CodeAction{{ID: textview.CopyAction, Label: "复制"}},
+			CodeBlockActions:     []textview.CodeAction{{ID: textview.CopyAction, Label: T("复制")}},
 		}
 	})
 }
@@ -835,7 +835,7 @@ func (a *app) composer(s *session) core.Node {
 		return chat.Composer{
 			Draft:         s.draft.Get,
 			OnDraftChange: s.draft.Set,
-			Label:         "消息",
+			Label:         T("消息"),
 			PlaceholderFunc: func() string {
 				if s.busyNow() {
 					return T("运行中：回车插入引导，或点停止")
@@ -877,7 +877,7 @@ func (a *app) composer(s *session) core.Node {
 // composerAccessory is the model and thinking controls.
 func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
-		plan := ui.IconButton{Icon: lucide.ClipboardList, Label: "计划模式", Size: 26, IconSize: 13, TestID: "plan-mode",
+		plan := ui.IconButton{Icon: lucide.ClipboardList, Label: T("计划模式"), Size: 26, IconSize: 13, TestID: "plan-mode",
 			Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }}
 		persona := a.personaChip(s)
 		if s.backend == "acp" {
@@ -901,7 +901,7 @@ func (a *app) effortPicker(s *session) core.Node {
 			options = append(options, chat.Option{ID: l, Label: levelLabel(l)})
 		}
 		return chat.EffortPicker{
-			Label:  "思考",
+			Label:  T("思考"),
 			Icon:   lucide.Brain,
 			Levels: options,
 			Selected: func() string {
@@ -925,9 +925,9 @@ func (a *app) effortPicker(s *session) core.Node {
 func (a *app) composerTrailing(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
 		return core.Group{
-			chat.IconAction{Label: "粘贴图片", Icon: lucide.ImagePlus, OnPress: func() { a.pasteImage(s) }},
+			chat.IconAction{Label: T("粘贴图片"), Icon: lucide.ImagePlus, OnPress: func() { a.pasteImage(s) }},
 			chat.ContextMeter{
-				Label: "上下文", Title: "上下文用量",
+				Label: T("上下文"), Title: T("上下文用量"),
 				Tooltip:  func() string { return "上下文 · " + a.contextValue(s) },
 				Value:    func() string { return a.contextValue(s) },
 				Fraction: func() float64 { return a.contextFraction(s) },
@@ -972,7 +972,7 @@ func (a *app) composerFooter(s *session) chat.View {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.Show{When: func() bool { return s.readySig.Get() }, Then: func(*core.Scope) core.Node {
-				return core.View{TestID: "pi-ready", Label: "pi 就绪",
+				return core.View{TestID: "pi-ready", Label: T("pi 就绪"),
 					StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: colors.Up()}
 					}}
@@ -1028,14 +1028,14 @@ func (a *app) historySkeleton(s *session) core.Node {
 			}},
 		}}
 	}
-	return core.View{TestID: "history-skeleton", Accessible: true, Label: "正在读取历史会话",
+	return core.View{TestID: "history-skeleton", Accessible: true, Label: T("正在读取历史会话"),
 		Style: core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0),
 			AlignItems: core.AlignCenter, PointerEvents: core.PointerEventsBoxNone},
 		StyleFunc: func() core.Style { return core.Style{Bottom: core.Pt(s.conversation.ComposerHeight())} },
 		Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, Width: core.Pct(100), MaxWidth: core.Pt(720), MinHeight: core.Pt(0),
 			JustifyContent: core.JustifyCenter, Padding: core.Symmetric(32, 24), Gap: 22}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
-				ui.Spinner{Size: 11, Label: "正在读取历史会话"},
+				ui.Spinner{Size: 11, Label: T("正在读取历史会话")},
 				ui.Text("正在读取历史会话…", 10.5, ui.Regular, colors.Faint),
 			}},
 			block(0), block(1), block(2),
@@ -1202,7 +1202,7 @@ func (a *app) todoBar(s *session) core.Node {
 		}
 		head := core.View{
 			OnPress: func(core.PressEvent) { s.todoOpen.Update(func(v bool) bool { return !v }) },
-			Role:    core.RoleButton, Label: "任务列表", TestID: "todo-bar",
+			Role:    core.RoleButton, Label: T("任务列表"), TestID: "todo-bar",
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32),
 					Padding: core.Symmetric(0, 10), CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Border(),
@@ -1238,7 +1238,7 @@ func (a *app) todoBar(s *session) core.Node {
 					}
 					return lucide.ChevronUp()
 				}, 12, colors.Faint),
-				core.View{OnPress: func(core.PressEvent) { s.todos.Set(nil) }, Role: core.RoleButton, Label: "清除任务列表",
+				core.View{OnPress: func(core.PressEvent) { s.todos.Set(nil) }, Role: core.RoleButton, Label: T("清除任务列表"),
 					StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(20), Height: core.Pt(20), CornerRadius: 5, AlignItems: core.AlignCenter,
 							JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}

@@ -14,6 +14,8 @@ import (
 var (
 	visibleText = regexp.MustCompile(`ui\.Text\("([^"\n]*[\p{Han}][^"\n]*)"`)
 	visibleCore = regexp.MustCompile(`core\.Text\{Content: "([^"\n]*[\p{Han}][^"\n]*)"`)
+	// A field written straight, without T, shows Chinese in English too.
+	visibleField = regexp.MustCompile(`(?:Text|Label|Placeholder|Title|Description):\s*"([^"\n]*\p{Han}[^"\n]*)"`)
 )
 
 func TestVisibleStringsTranslated(t *testing.T) {
@@ -21,7 +23,15 @@ func TestVisibleStringsTranslated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries = append(entries, "mobile.go", "mobile_git.go")
+	mobile, err := filepath.Glob("mobile*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range mobile {
+		if !strings.HasSuffix(path, "_test.go") {
+			entries = append(entries, path)
+		}
+	}
 	en := messages[langEnUS]
 	for _, path := range entries {
 		raw, err := os.ReadFile(path)
@@ -29,7 +39,7 @@ func TestVisibleStringsTranslated(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(raw)
-		for _, re := range []*regexp.Regexp{visibleText, visibleCore} {
+		for _, re := range []*regexp.Regexp{visibleText, visibleCore, visibleField} {
 			for _, m := range re.FindAllStringSubmatch(text, -1) {
 				key := m[1]
 				if strings.TrimSpace(en[key]) == "" {

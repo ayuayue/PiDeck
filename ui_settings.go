@@ -140,9 +140,9 @@ func (a *app) settingsDialog() core.Node {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(10, 16),
 						FlexShrink: 0, Borders: core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: colors.Now().Line}}
 				}, Children: []core.Node{
-					ui.Button{Text: "重新检测", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.reloadFrameworks},
+					ui.Button{Text: T("重新检测"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.reloadFrameworks},
 					core.View{Style: core.Style{FlexGrow: 1}},
-					ui.Button{Text: "完成", Variant: ui.ButtonPrimary, TestID: "settings-done", OnPress: func() { a.settings.Set(false) }},
+					ui.Button{Text: T("完成"), Variant: ui.ButtonPrimary, TestID: "settings-done", OnPress: func() { a.settings.Set(false) }},
 				}},
 			}},
 		}}},
@@ -410,7 +410,7 @@ func (a *app) settingsGeneral() core.Node {
 						})),
 					setDivider(),
 					setRow("扫描所有项目", "默认只读打开过的项目；打开后每个项目都会读一遍 pi 的会话，会话多时更慢。",
-						ui.Switch{Checked: func() bool { return a.cfg.ScanAll }, Label: "扫描所有项目", OnChange: func(on bool) {
+						ui.Switch{Checked: func() bool { return a.cfg.ScanAll }, Label: T("扫描所有项目"), OnChange: func(on bool) {
 							a.cfg.ScanAll = on
 							a.st.edit(func(c *config) { c.ScanAll = on })
 							for _, ws := range a.workspaces.GetUntracked() {
@@ -421,14 +421,14 @@ func (a *app) settingsGeneral() core.Node {
 				),
 				setGroup("侧栏",
 					setRow("列出 pi 本地会话", "在项目下显示终端里 pi 用过的会话，点开即继续。",
-						ui.Switch{Checked: func() bool { return a.cfg.ScanPi }, Label: "列出 pi 本地会话", OnChange: func(on bool) {
+						ui.Switch{Checked: func() bool { return a.cfg.ScanPi }, Label: T("列出 pi 本地会话"), OnChange: func(on bool) {
 							a.cfg.ScanPi = on
 							a.st.edit(func(c *config) { c.ScanPi = on })
 							a.reloadFrameworks()
 						}}),
 					setDivider(),
 					setRow("扫描所有项目", "连没有添加为项目的文件夹也读，会话多时会更慢。",
-						ui.Switch{Checked: func() bool { return a.cfg.ScanAll }, Label: "扫描所有项目", OnChange: func(on bool) {
+						ui.Switch{Checked: func() bool { return a.cfg.ScanAll }, Label: T("扫描所有项目"), OnChange: func(on bool) {
 							a.cfg.ScanAll = on
 							a.st.edit(func(c *config) { c.ScanAll = on })
 							a.reloadFrameworks()
@@ -436,32 +436,32 @@ func (a *app) settingsGeneral() core.Node {
 				),
 				setGroup("桌面",
 					setRow("关闭窗口时留在托盘", "关掉窗口不退出应用，Agent 继续跑；从托盘图标恢复窗口。",
-						ui.Switch{Checked: func() bool { return a.cfg.CloseToTray }, Label: "关闭窗口时留在托盘", TestID: "close-to-tray",
+						ui.Switch{Checked: func() bool { return a.cfg.CloseToTray }, Label: T("关闭窗口时留在托盘"), TestID: "close-to-tray",
 							OnChange: func(on bool) {
 								a.cfg.CloseToTray = on
 								a.st.edit(func(c *config) { c.CloseToTray = on })
 							}}),
 					setDivider(),
 					setRow("一轮完成时通知", "用系统通知告诉你回答好了；运行中的会话也会显示在托盘菜单里。",
-						ui.Switch{Checked: func() bool { return a.cfg.NotifyOnDone }, Label: "一轮完成时通知", TestID: "notify-done",
+						ui.Switch{Checked: func() bool { return a.cfg.NotifyOnDone }, Label: T("一轮完成时通知"), TestID: "notify-done",
 							OnChange: func(on bool) {
 								a.cfg.NotifyOnDone = on
 								a.st.edit(func(c *config) { c.NotifyOnDone = on })
 							}}),
 					setDivider(),
 					setRow("只在窗口隐藏时通知", "窗口在前台时不再弹系统通知。",
-						ui.Switch{Checked: func() bool { return a.cfg.NotifyOnlyHidden }, Label: "只在窗口隐藏时通知", TestID: "notify-hidden",
+						ui.Switch{Checked: func() bool { return a.cfg.NotifyOnlyHidden }, Label: T("只在窗口隐藏时通知"), TestID: "notify-hidden",
 							OnChange: func(on bool) {
 								a.cfg.NotifyOnlyHidden = on
 								a.st.edit(func(c *config) { c.NotifyOnlyHidden = on })
 							}}),
 					setDivider(),
 					setRow("桌面宠物", "用一个小窗口显示运行中/出错的会话数；点它回到主窗口。",
-						ui.Switch{Checked: func() bool { return a.cfg.PetEnabled }, Label: "桌面宠物", TestID: "pet-enabled",
+						ui.Switch{Checked: func() bool { return a.cfg.PetEnabled }, Label: T("桌面宠物"), TestID: "pet-enabled",
 							OnChange: a.togglePet}),
 					setDivider(),
 					setRow("测试通知", "发一条系统通知，确认这台机器收得到。",
-						ui.Button{Text: "发一条", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+						ui.Button{Text: T("发一条"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 							notifyDesktop("PiDeck Lite", "通知已开启，一轮完成时会这样提醒。")
 						}}),
 				),
@@ -523,13 +523,13 @@ func (a *app) settingsModels() core.Node {
 					}},
 				}},
 				badge(),
-				ui.IconButton{Icon: lucide.Settings2, Label: "配置 " + prov.ID, Size: 26, IconSize: 13,
+				ui.IconButton{Icon: lucide.Settings2, Label: T("配置 ") + prov.ID, Size: 26, IconSize: 13,
 					TestID: "provider-configure-" + prov.ID, OnPress: func() { a.openProviderDialog(prov.ID) }},
 				arrowButton(lucide.ArrowUpToLine, "置顶供应商", func() { a.pinProvider(prov.ID) }),
 				arrowButton(lucide.ChevronUp, "上移供应商", func() { a.moveProvider(prov.ID, -1) }),
 				arrowButton(lucide.ChevronDown, "下移供应商", func() { a.moveProvider(prov.ID, 1) }),
 				core.View{OnPress: func(core.PressEvent) { a.copyText(loginCommand(prov), "登录命令") }, Role: core.RoleButton,
-					Label: "复制登录命令",
+					Label: T("复制登录命令"),
 					StyleFunc: func() core.Style {
 						return core.Style{Height: core.Pt(24), Padding: core.Symmetric(0, 8), CornerRadius: 6,
 							BorderWidth: 1, BorderColor: colors.Border(), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
@@ -562,7 +562,7 @@ func (a *app) settingsModels() core.Node {
 				}),
 				core.View{OnPress: func(core.PressEvent) {
 					a.toggleFavModel(modelInfo{Provider: provider, ID: id})
-				}, Role: core.RoleButton, Label: "取消收藏 " + id,
+				}, Role: core.RoleButton, Label: T("取消收藏 ") + id,
 					StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, AlignItems: core.AlignCenter,
 							JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Hover()}}
@@ -582,13 +582,13 @@ func (a *app) settingsModels() core.Node {
 				core.Text{Content: "凭据由 pi 管理（~/.pi/agent/auth.json）。在终端里执行登录命令后，点下方的「重新检测」。",
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{
-					ui.Button{Text: "编辑 models.json", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					ui.Button{Text: T("编辑 models.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 						OnPress: func() { a.openPiConfigFile("models.json") }},
-					ui.Button{Text: "编辑 settings.json", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					ui.Button{Text: T("编辑 settings.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 						OnPress: func() { a.openPiConfigFile("settings.json") }},
-					ui.Button{Text: "编辑 auth.json", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					ui.Button{Text: T("编辑 auth.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 						OnPress: func() { a.openPiConfigFile("auth.json") }},
-					ui.Button{Text: "重新检测", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.refreshProviders},
+					ui.Button{Text: T("重新检测"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.refreshProviders},
 				}},
 			}},
 		}}
@@ -610,7 +610,7 @@ func (a *app) settingsKeys() core.Node {
 			}
 			field := core.Input{
 				Value:       func() string { return a.effectiveKey(cmd.ID) },
-				Placeholder: "如 mod+shift+r",
+				Placeholder: T("如 mod+shift+r"),
 				Label:       cmd.Label + " 的键位",
 				TestID:      "key-" + cmd.ID,
 				OnSubmit: func(v string) {
@@ -625,7 +625,7 @@ func (a *app) settingsKeys() core.Node {
 					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 			}
-			reset := ui.Button{Text: "默认", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			reset := ui.Button{Text: T("默认"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 				Disabled: func() bool {
 					if a.cfg.Keybindings == nil {
 						return true
@@ -655,7 +655,7 @@ func (a *app) settingsKeys() core.Node {
 					return setGroup("冲突", conflicts...)
 				}},
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 2}}, Children: []core.Node{
-					ui.Button{Text: "全部恢复默认", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.resetKeybindings},
+					ui.Button{Text: T("全部恢复默认"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.resetKeybindings},
 				}},
 			}},
 		}}
@@ -724,12 +724,12 @@ func (a *app) settingsLook() core.Node {
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("配色", rows...),
 				setRow("主题文件", "放在数据目录的 themes 里：JSON 或 YAML，写角色色、tokens、字体与圆角；也读 shadcn/ui 主题文件。",
-					ui.Button{Text: "打开目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
+					ui.Button{Text: T("打开目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 						a.openThemesDir()
 					}}),
 				setDivider(),
 				setRow("导出当前主题", "把当前配色、tokens、字体与圆角写成一个主题文件，可分享或继续改。",
-					ui.Button{Text: "导出", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-export",
+					ui.Button{Text: T("导出"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-export",
 						OnPress: a.exportTheme}),
 				setDivider(),
 				setRow("终端字号", "底部终端面板的文字大小，8–20 pt；改完立即重绘。",
@@ -776,21 +776,21 @@ func (a *app) settingsEnv() core.Node {
 				return info.PiPath
 			}(), ui.Text(piVersionLine(info), 10.5, ui.Regular, colors.Faint)),
 			setDivider(),
-			setRow("pi 会话目录", info.SessionsDir, ui.Button{Text: "打开", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+			setRow("pi 会话目录", info.SessionsDir, ui.Button{Text: T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 				if info.SessionsDir != "" {
 					a.cx.OpenURL(fileURL(info.SessionsDir), nil)
 				}
 			}}),
 			setDivider(),
-			setRow("pi 配置目录", piConfigDir(), ui.Button{Text: "打开", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+			setRow("pi 配置目录", piConfigDir(), ui.Button{Text: T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 				if dir := piConfigDir(); dir != "" {
 					a.cx.OpenURL(fileURL(dir), nil)
 				}
 			}}),
 			setDivider(),
 			setRow("外部编辑器", detectedEditorsText(), core.Input{
-				Value: func() string { return a.cfg.EditorCommand }, Placeholder: "code / cursor / 自定义命令",
-				Label: "外部编辑器命令", TestID: "editor-command",
+				Value: func() string { return a.cfg.EditorCommand }, Placeholder: T("code / cursor / 自定义命令"),
+				Label: T("外部编辑器命令"), TestID: "editor-command",
 				OnChange: func(v string) {
 					a.cfg.EditorCommand = v
 					a.st.edit(func(c *config) { c.EditorCommand = v })
@@ -865,11 +865,11 @@ func (a *app) settingsEnv() core.Node {
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				setGroup("其它机器", targets...),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
-					ui.Button{Text: "添加 WSL 工作区", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
+					ui.Button{Text: T("添加 WSL 工作区"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 						a.settings.Set(false)
 						a.openTargetDialog(targetWSL)
 					}},
-					ui.Button{Text: "添加 SSH 工作区", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
+					ui.Button{Text: T("添加 SSH 工作区"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 						a.settings.Set(false)
 						a.openTargetDialog(targetSSH)
 					}},
@@ -953,7 +953,7 @@ func (a *app) settingsAddons() core.Node {
 			if plug.Error == "" {
 				control = ui.Switch{
 					Checked: func() bool { return !plug.Disabled },
-					Label:   "启用 " + plug.Name,
+					Label:   T("启用 ") + plug.Name,
 					Size:    ui.SizeSmall,
 					TestID:  "plugin-toggle-" + plug.ID,
 					OnChange: func(on bool) {
@@ -1041,12 +1041,12 @@ func (a *app) settingsAddons() core.Node {
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: T("新建插件…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "plugin-new",
 						OnPress: a.openPluginNew},
-					ui.Button{Text: "插件市场…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "plugin-market-open",
+					ui.Button{Text: T("插件市场…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "plugin-market-open",
 						OnPress: a.openPluginMarket},
-					ui.Button{Text: "打开插件目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
+					ui.Button{Text: T("打开插件目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 						a.openPluginsDir()
 					}},
-					ui.Button{Text: "重新加载", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.reloadAddons},
+					ui.Button{Text: T("重新加载"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.reloadAddons},
 				}},
 			}},
 		}}
@@ -1105,7 +1105,7 @@ func (a *app) settingsIntegrations() core.Node {
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("飞书",
 					setRow("飞书机器人", "一轮结束时，把会话标题、状态和一句摘要发到群里的自定义机器人。",
-						ui.Switch{Checked: func() bool { return a.cfg.FeishuEnabled }, Label: "飞书机器人", TestID: "feishu-enabled",
+						ui.Switch{Checked: func() bool { return a.cfg.FeishuEnabled }, Label: T("飞书机器人"), TestID: "feishu-enabled",
 							OnChange: func(on bool) { setCfg(func(c *config) { c.FeishuEnabled = on }) }}),
 					setDivider(),
 					setRow("Webhook 地址", "飞书群 → 设置 → 群机器人 → 自定义机器人，复制它的 Webhook 地址。",
@@ -1119,7 +1119,7 @@ func (a *app) settingsIntegrations() core.Node {
 						}, "可留空", "签名密钥", "feishu-secret", true)),
 					setDivider(),
 					setRow("接收群消息", "飞书开放平台的「事件订阅」地址填 http://<本机地址>:<远程端口>/api/feishu；先在「远程」里开启服务。",
-						ui.Switch{Checked: func() bool { return a.cfg.FeishuInbound }, Label: "接收群消息", TestID: "feishu-inbound",
+						ui.Switch{Checked: func() bool { return a.cfg.FeishuInbound }, Label: T("接收群消息"), TestID: "feishu-inbound",
 							OnChange: func(on bool) { setCfg(func(c *config) { c.FeishuInbound = on }) }}),
 					setDivider(),
 					setRow("验证 Token", "飞书应用「事件订阅」里的 Verification Token；不填就不接收。",
@@ -1128,16 +1128,16 @@ func (a *app) settingsIntegrations() core.Node {
 						}, "Verification Token", "验证 Token", "feishu-verify-token", true)),
 					setDivider(),
 					setRow("把回答发回群", "收到群消息后，把这一轮的回答也发到群里（用上面的 Webhook）。",
-						ui.Switch{Checked: func() bool { return a.cfg.FeishuReply }, Label: "把回答发回群", TestID: "feishu-reply",
+						ui.Switch{Checked: func() bool { return a.cfg.FeishuReply }, Label: T("把回答发回群"), TestID: "feishu-reply",
 							OnChange: func(on bool) { setCfg(func(c *config) { c.FeishuReply = on }) }}),
 					setDivider(),
 					setRow("测试", "发一条测试消息，确认地址与签名都对。",
-						ui.Button{Text: "发一条", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "feishu-test",
+						ui.Button{Text: T("发一条"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "feishu-test",
 							OnPress: a.testFeishu}),
 				),
 				setGroup("ACP 预设",
 					setRow("自定义预设", "内置 Claude / Gemini / Codex；也可以在这里加任何 ACP 命令，写进数据目录的 acp/presets.json。",
-						ui.Button{Text: "管理预设…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-manage-open",
+						ui.Button{Text: T("管理预设…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-manage-open",
 							OnPress: func() { a.openACPPresetManager() }}),
 				),
 				core.Text{Content: "默认只发会话标题、状态与一句摘要；开启「把回答发回群」后，回答最多发 1500 字。", Style: core.Style{FontSize: 11, LineHeight: 17},
@@ -1200,9 +1200,9 @@ func (a *app) settingsDiagnostics() core.Node {
 			crashRows = append(crashRows,
 				setRow("最近崩溃", at.Format("2006-01-02 15:04:05")+" · "+filepath.Base(path),
 					core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
-						ui.Button{Text: "查看", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "crash-view",
+						ui.Button{Text: T("查看"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "crash-view",
 							OnPress: func() { a.openEditorFile(filepath.Dir(path), path) }},
-						ui.Button{Text: "打开目录", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "crash-dir",
+						ui.Button{Text: T("打开目录"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "crash-dir",
 							OnPress: func() { a.openResourcesDir(crashDir(a.dataDir)) }},
 					}}),
 				setDivider(),
@@ -1223,16 +1223,16 @@ func (a *app) settingsDiagnostics() core.Node {
 				setGroup("进程", procRows...),
 				setGroup("最近日志", core.View{Style: core.Style{Gap: 2, Padding: core.Symmetric(4, 2)}, Children: logRows}),
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{
-					ui.Button{Text: "复制诊断信息", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "diag-copy",
+					ui.Button{Text: T("复制诊断信息"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "diag-copy",
 						OnPress: func() { a.copyText(a.diagnosticText(), "诊断信息") }},
-					ui.Button{Text: "导出诊断包", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "diag-bundle",
+					ui.Button{Text: T("导出诊断包"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "diag-bundle",
 						OnPress: a.exportDiagnostics},
-					ui.Button{Text: "打开日志目录", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+					ui.Button{Text: T("打开日志目录"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						if dir := a.diagDir(); dir != "" {
 							a.cx.OpenURL(fileURL(dir), nil)
 						}
 					}},
-					ui.Button{Text: "清空内存日志", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+					ui.Button{Text: T("清空内存日志"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						a.clearDiag()
 						a.toast(ui.ToastInfo, "内存日志已清空", "日志文件仍在数据目录的 logs 下。")
 					}},
@@ -1274,19 +1274,19 @@ func (a *app) settingsData() core.Node {
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 2}, Children: []core.Node{
 				setGroup("位置",
-					setRow("数据目录", dir, ui.Button{Text: "打开", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+					setRow("数据目录", dir, ui.Button{Text: T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						if dir != "" {
 							a.cx.OpenURL(fileURL(dir), nil)
 						}
 					}}),
 					setDivider(),
-					setRow("会话目录", sessions, ui.Button{Text: "打开", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+					setRow("会话目录", sessions, ui.Button{Text: T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						if sessions != "" {
 							a.cx.OpenURL(fileURL(sessions), nil)
 						}
 					}}),
 					setDivider(),
-					setRow("pi 的会话目录", a.env.GetUntracked().SessionsDir, ui.Button{Text: "打开", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+					setRow("pi 的会话目录", a.env.GetUntracked().SessionsDir, ui.Button{Text: T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						if sd := a.env.GetUntracked().SessionsDir; sd != "" {
 							a.cx.OpenURL(fileURL(sd), nil)
 						}
@@ -1302,11 +1302,11 @@ func (a *app) settingsData() core.Node {
 				),
 				setGroup("备份",
 					setRow("导出设置包", "配置、插件、主题、提示词、智能体与 ACP 预设打成一个 zip；不含会话与日志。",
-						ui.Button{Text: "导出", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-export",
+						ui.Button{Text: T("导出"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-export",
 							OnPress: a.exportSettings}),
 					setDivider(),
 					setRow("导入设置包", "从 zip 恢复；同名文件会被覆盖，部分设置重启后生效。",
-						ui.Button{Text: "选择…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-import",
+						ui.Button{Text: T("选择…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-import",
 							OnPress: a.pickSettingsZip}),
 				),
 			}},
@@ -1338,15 +1338,15 @@ func (a *app) settingsAbout() core.Node {
 				),
 				setGroup("更新",
 					setRow("检查更新", "从 GitHub Release 的 appcast 检查；direct 构建会下载、校验并安装。",
-						ui.Button{Text: "检查", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "check-updates",
+						ui.Button{Text: T("检查"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "check-updates",
 							OnPress: func() { updater.Check(a.cx) }}),
 				),
 				setGroup("链接",
-					setRow("pi 项目", "github.com/badlogic/pi-mono", ui.Button{Text: "复制", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+					setRow("pi 项目", "github.com/badlogic/pi-mono", ui.Button{Text: T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						a.copyText("https://github.com/badlogic/pi-mono", "链接")
 					}}),
 					setDivider(),
-					setRow("NSGo 框架", "oneo-me.github.io/nsgo", ui.Button{Text: "复制", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+					setRow("NSGo 框架", "oneo-me.github.io/nsgo", ui.Button{Text: T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						a.copyText("https://oneo-me.github.io/nsgo/", "链接")
 					}}),
 				),

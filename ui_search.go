@@ -19,14 +19,14 @@ func (a *app) searchDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.searchOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.searchOpen.Set(open) },
-			Title:        "搜索会话",
+			Title:        T("搜索会话"),
 			TestID:       "session-search",
 			Style:        core.Style{Width: core.Pt(680), Height: core.Pt(580)},
 			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
 				core.Input{Value: a.searchText.Get,
 					OnChange:    func(v string) { a.searchText.Set(v); a.scheduleSearch() },
 					OnSubmit:    func(string) { a.openSearchTop() },
-					Placeholder: "搜索所有会话的标题与内容…", Label: "搜索会话", TestID: "search-input", AutoFocus: true,
+					Placeholder: T("搜索所有会话的标题与内容…"), Label: T("搜索会话"), TestID: "search-input", AutoFocus: true,
 					Style: core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), CornerRadius: 8,
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
 						Color: colors.Text(), FontSize: 13}},
@@ -95,7 +95,7 @@ func (a *app) searchDialog() core.Node {
 						}
 						rows = append(rows, core.View{
 							OnPress: func(core.PressEvent) { a.openSearchHit(hit) },
-							Role:    core.RoleButton, Label: "会话 " + hit.Title, TestID: "search-hit",
+							Role:    core.RoleButton, Label: T("会话 ") + hit.Title, TestID: "search-hit",
 							StyleFunc: func() core.Style {
 								return core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 9, Padding: core.Symmetric(7, 8),
 									CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()},
@@ -130,12 +130,12 @@ func (a *app) searchDialog() core.Node {
 				}),
 			}}},
 			Footer: []core.Node{
-				ui.Button{Text: "重建索引", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "search-rebuild",
+				ui.Button{Text: T("重建索引"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "search-rebuild",
 					OnPress: func() {
 						a.searchIndexed = false
 						a.loadSearchIndex(nil)
 					}},
-				ui.Button{Text: "关闭", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "search-close",
+				ui.Button{Text: T("关闭"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "search-close",
 					OnPress: func() { a.searchOpen.Set(false) }},
 			},
 		}

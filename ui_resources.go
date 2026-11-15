@@ -29,7 +29,7 @@ func (a *app) settingsResources() core.Node {
 			}
 			skillRows = append(skillRows, core.View{
 				OnPress: func(core.PressEvent) { a.openSkill(sk) },
-				Role:    core.RoleButton, Label: "技能 " + sk.Name, TestID: "skill-row",
+				Role:    core.RoleButton, Label: T("技能 ") + sk.Name, TestID: "skill-row",
 				StyleFunc: func() core.Style {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, MinHeight: core.Pt(42),
 						Padding: core.Symmetric(4, 2), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()},
@@ -69,7 +69,7 @@ func (a *app) settingsResources() core.Node {
 			}
 			var control core.Node
 			if ex.Toggleable {
-				control = ui.Switch{Checked: func() bool { return ex.Enabled }, Label: "启用 " + ex.Source,
+				control = ui.Switch{Checked: func() bool { return ex.Enabled }, Label: T("启用 ") + ex.Source,
 					Size: ui.SizeSmall, TestID: "extension-toggle-" + strings.ReplaceAll(ex.Bare, ":", "-"),
 					OnChange: func(on bool) { a.toggleExtension(ex.Bare, on) }}
 			} else {
@@ -106,17 +106,17 @@ func (a *app) settingsResources() core.Node {
 		}
 		children = append(children, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}},
 			Children: []core.Node{
-				ui.Button{Text: "技能商店…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "skill-store-open",
+				ui.Button{Text: T("技能商店…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "skill-store-open",
 					OnPress: func() { a.openSkillStore() }},
-				ui.Button{Text: "打开技能目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
+				ui.Button{Text: T("打开技能目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 					if dirs := skillsDirs(); len(dirs) > 0 {
 						a.openResourcesDir(dirs[0])
 					}
 				}},
-				ui.Button{Text: "打开扩展目录", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
+				ui.Button{Text: T("打开扩展目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 					a.openResourcesDir(extensionsDir())
 				}},
-				ui.Button{Text: "重新读取", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+				ui.Button{Text: T("重新读取"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 					a.resourcesLoaded = false
 					a.loadResources(true)
 				}},

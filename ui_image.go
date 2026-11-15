@@ -229,7 +229,7 @@ func (a *app) imageDialog() core.Node {
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				ui.Text("画面描述", 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: a.imagePrompt.Get, OnChange: a.imagePrompt.Set, Multiline: true, AutoFocus: true,
-					Placeholder: "例如：雨夜的霓虹街道，电影感，广角", Label: "画面描述", TestID: "image-prompt",
+					Placeholder: T("例如：雨夜的霓虹街道，电影感，广角"), Label: T("画面描述"), TestID: "image-prompt",
 					Style: core.Style{MinHeight: core.Pt(72), MaxHeight: core.Pt(140), Padding: core.Symmetric(8, 10), FontSize: 12.5, Color: colors.Text()},
 					StyleFunc: func() core.Style {
 						return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 8,
@@ -240,19 +240,19 @@ func (a *app) imageDialog() core.Node {
 				ui.Text("参考图（可选）", 10.5, ui.Medium, colors.Muted),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-						core.Input{Value: a.imageRef.Get, OnChange: a.imageRef.Set, Placeholder: "填了就走 /images/edits，按描述修改这张图",
-							Label: "参考图", TestID: "image-ref",
+						core.Input{Value: a.imageRef.Get, OnChange: a.imageRef.Set, Placeholder: T("填了就走 /images/edits，按描述修改这张图"),
+							Label: T("参考图"), TestID: "image-ref",
 							Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 11.5, FontFamily: ui.Mono, Color: colors.Text(),
 								Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 					}},
-					ui.Button{Text: "选择…", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-ref-pick",
+					ui.Button{Text: T("选择…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-ref-pick",
 						OnPress: func() { a.pickNative("image-ref") }},
 				}},
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				ui.Text("图片模型", 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: a.imageModel.Get, OnChange: a.imageModel.Set, Placeholder: "gpt-image-1 / Kwai-Kolors/Kolors",
-					Label: "图片模型", TestID: "image-model",
+					Label: T("图片模型"), TestID: "image-model",
 					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: ui.Mono, Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 			}},
@@ -279,7 +279,7 @@ func (a *app) imageDialog() core.Node {
 				selected := i == sel
 				thumbs = append(thumbs, core.View{
 					OnPress: func(core.PressEvent) { a.imageSelected.Set(idx) },
-					Role:    core.RoleButton, Label: "查看图片", TestID: fmt.Sprintf("image-thumb-%d", i),
+					Role:    core.RoleButton, Label: T("查看图片"), TestID: fmt.Sprintf("image-thumb-%d", i),
 					StyleFunc: func() core.Style {
 						border := colors.Border()
 						if selected {
@@ -293,27 +293,27 @@ func (a *app) imageDialog() core.Node {
 				})
 			}
 			body = append(body, core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-				core.Image{Source: core.ImageSource{Data: results[sel]}, ResizeMode: core.Contain, Label: "生成的图片",
+				core.Image{Source: core.ImageSource{Data: results[sel]}, ResizeMode: core.Contain, Label: T("生成的图片"),
 					Style: core.Style{Width: core.Pt(280), Height: core.Pt(280), CornerRadius: 10, BorderWidth: 1, BorderColor: colors.Border()}},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, JustifyContent: core.JustifyCenter}, Children: thumbs},
 			}})
 		}
 		footer := []core.Node{
-			ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.imageOpen.Set(false) }},
+			ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.imageOpen.Set(false) }},
 		}
 		if len(results) > 0 && !busy {
 			footer = append(footer,
-				ui.Button{Text: "再生成", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-regenerate", OnPress: a.generateImageNow},
-				ui.Button{Text: "保存到项目", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-save", OnPress: a.saveGeneratedImage},
-				ui.Button{Text: "插入输入框", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "image-insert", OnPress: a.insertGeneratedImage})
+				ui.Button{Text: T("再生成"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-regenerate", OnPress: a.generateImageNow},
+				ui.Button{Text: T("保存到项目"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-save", OnPress: a.saveGeneratedImage},
+				ui.Button{Text: T("插入输入框"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "image-insert", OnPress: a.insertGeneratedImage})
 		} else {
-			footer = append(footer, ui.Button{Text: "生成", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "image-generate",
+			footer = append(footer, ui.Button{Text: T("生成"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "image-generate",
 				Disabled: func() bool { return a.imageBusy.Get() || len(providerChoices) == 0 }, OnPress: a.generateImageNow})
 		}
 		return ui.Dialog{
 			Open:         a.imageOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.imageOpen.Set(open) },
-			Title:        "生成图片",
+			Title:        T("生成图片"),
 			TestID:       "image-dialog",
 			Style:        core.Style{Width: core.Pt(560), MaxHeight: core.Pt(680)},
 			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(540)}, Children: []core.Node{

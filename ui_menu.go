@@ -471,7 +471,7 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 			}},
 			core.View{Style: core.Style{Height: core.Pt(1)}, StyleFunc: ui.Filled(colors.Line)},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
-				ui.Button{Text: "压缩上下文", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
+				ui.Button{Text: T("压缩上下文"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 					open.Set(false)
 					a.compact(s)
 				}},
@@ -506,7 +506,7 @@ func (a *app) projectMenu(s *session, open *core.Signal[bool]) core.Node {
 			}, Children: []core.Node{ui.Text(badge, 8.5, ui.Medium, colors.Faint)}})
 		}
 		return core.View{OnPress: func(core.PressEvent) { open.Update(func(v bool) bool { return !v }) },
-			Role: core.RoleButton, Label: "项目", TestID: "project-chip",
+			Role: core.RoleButton, Label: T("项目"), TestID: "project-chip",
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
 					Padding: core.Symmetric(0, 7), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}

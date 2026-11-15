@@ -320,14 +320,14 @@ func (a *app) terminalBody() core.Node {
 		switch tab.state.Get() {
 		case termStarting:
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-				Children: []core.Node{ui.Spinner{Size: 16, Label: "启动终端"}, ui.Text(T("正在启动终端…"), 12, ui.Regular, colors.Muted)}}
+				Children: []core.Node{ui.Spinner{Size: 16, Label: T("启动终端")}, ui.Text(T("正在启动终端…"), 12, ui.Regular, colors.Muted)}}
 		case termFailed:
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8, Padding: core.All(20)},
 				Children: []core.Node{
 					ui.Text(T("终端启动失败"), 13, ui.Semibold, colors.Danger),
 					core.Text{Content: tab.errMsg.Get(), Style: core.Style{FontSize: 11.5, MaxWidth: core.Pt(480), TextAlign: core.TextAlignCenter},
 						StyleFunc: ui.Colored(colors.Muted)},
-					ui.Button{Text: "重试", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.term.restart(tab) }},
+					ui.Button{Text: T("重试"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.term.restart(tab) }},
 				}}
 		}
 		return core.Dynamic(func(cx *core.Scope) core.Node {

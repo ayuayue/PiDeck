@@ -1484,7 +1484,7 @@ func (a *mobileApp) renameSheet() core.Node {
 				a.renameID.Set("")
 			}
 		},
-		Title:  "重命名会话",
+		Title:  T("重命名会话"),
 		TestID: "mobile-rename",
 		Style:  core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
@@ -1511,8 +1511,8 @@ func (a *mobileApp) deleteSheet() core.Node {
 				a.deleteID.Set("")
 			}
 		},
-		Title:       "删除会话",
-		Description: "会话文件会移到电脑数据目录的 trash 里，需要时可以找回。",
+		Title:       T("删除会话"),
+		Description: T("会话文件会移到电脑数据目录的 trash 里，需要时可以找回。"),
 		TestID:      "mobile-delete",
 		Style:       core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Footer: []core.Node{
@@ -1532,7 +1532,7 @@ func (a *mobileApp) newSessionSheet() core.Node {
 				a.newOpen.Set(false)
 			}
 		},
-		Title:  "在哪个项目里新建",
+		Title:  T("在哪个项目里新建"),
 		TestID: "mobile-new",
 		Style:  core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
@@ -1566,7 +1566,7 @@ func (a *mobileApp) moreSheet() core.Node {
 	return ui.Dialog{
 		Open:         func() bool { return a.moreOpen.Get() },
 		OnOpenChange: func(open bool, _ base.Reason) { a.moreOpen.Set(open) },
-		Title:        "更多",
+		Title:        T("更多"),
 		TestID:       "mobile-more-sheet",
 		Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
@@ -1595,8 +1595,8 @@ func (a *mobileApp) addProjectSheet() core.Node {
 				a.addOpen.Set(false)
 			}
 		},
-		Title:       "添加项目",
-		Description: "填电脑上的文件夹路径，和电脑端「添加工作区」是同一件事。",
+		Title:       T("添加项目"),
+		Description: T("填电脑上的文件夹路径，和电脑端「添加工作区」是同一件事。"),
 		TestID:      "mobile-add-project-sheet",
 		Style:       core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
@@ -1623,8 +1623,8 @@ func (a *mobileApp) removeProjectSheet() core.Node {
 				a.removePath.Set("")
 			}
 		},
-		Title:       "移除项目",
-		Description: "只是从电脑端的侧栏移除，会话文件和项目目录都还在。",
+		Title:       T("移除项目"),
+		Description: T("只是从电脑端的侧栏移除，会话文件和项目目录都还在。"),
 		TestID:      "mobile-remove-project-sheet",
 		Footer: []core.Node{
 			ui.Button{Text: T("移除"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-remove-yes",
@@ -1920,7 +1920,7 @@ func (a *mobileApp) optionsSheet() core.Node {
 	return ui.Dialog{
 		Open:         func() bool { return a.optionsOpen.Get() },
 		OnOpenChange: func(open bool, _ base.Reason) { a.optionsOpen.Set(open) },
-		Title:        "模型与思考",
+		Title:        T("模型与思考"),
 		TestID:       "mobile-options-sheet",
 		Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
@@ -1990,7 +1990,7 @@ func (a *mobileApp) optionsSheet() core.Node {
 			if len(sections) == 0 {
 				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(10, 4)},
 					Children: []core.Node{
-						ui.Spinner{Size: 13, Label: "正在读取"},
+						ui.Spinner{Size: 13, Label: T("正在读取")},
 						ui.Text(T("正在读取模型列表…"), 12, ui.Regular, colors.Faint),
 					}}
 			}
@@ -2079,7 +2079,7 @@ func (a *mobileApp) hitRows(cx *core.Scope, query string) []core.Node {
 	hits := a.hits.Get()
 	if a.hitsBusy.Get() && len(hits) == 0 {
 		return []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(8, 16)},
-			Children: []core.Node{ui.Spinner{Size: 12, Label: "搜索消息"}, ui.Text(T("正在搜索消息…"), 11, ui.Regular, colors.Faint)}}}
+			Children: []core.Node{ui.Spinner{Size: 12, Label: T("搜索消息")}, ui.Text(T("正在搜索消息…"), 11, ui.Regular, colors.Faint)}}}
 	}
 	if len(hits) == 0 {
 		return nil

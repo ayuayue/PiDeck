@@ -330,7 +330,7 @@ func (a *app) providerDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.providerOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.providerOpen.Set(open) },
-			Title:        "配置 " + a.providerID.Get(),
+			Title:        T("配置 ") + a.providerID.Get(),
 			TestID:       "provider-dialog",
 			Style:        core.Style{Width: core.Pt(580), MaxHeight: core.Pt(620)},
 			Children: []core.Node{core.Scroll{TestID: "provider-scroll", Style: core.Style{MaxHeight: core.Pt(470)}, Children: []core.Node{
@@ -347,22 +347,22 @@ func (a *app) providerDialog() core.Node {
 					}),
 					field("API Key", "可以写 $环境变量", core.Input{
 						Value: a.providerKeySig.Get, OnChange: a.providerKeySig.Set, Masked: true,
-						Placeholder: "sk-… 或 $MY_API_KEY", Label: "API Key", TestID: "provider-key",
+						Placeholder: T("sk-… 或 $MY_API_KEY"), Label: "API Key", TestID: "provider-key",
 						Style: fieldStyle,
 					}),
 					field("余额接口", "可选；相对 Base URL 或完整地址", core.Input{
 						Value: a.providerBalURL.Get, OnChange: a.providerBalURL.Set,
-						Placeholder: "/credits 或 https://api.example.com/credits", Label: "余额接口", TestID: "provider-balance-url",
+						Placeholder: T("/credits 或 https://api.example.com/credits"), Label: T("余额接口"), TestID: "provider-balance-url",
 						Style: fieldStyle,
 					}),
 					field("余额字段", "JSON 路径，如 data.balance 或 data.0.total", core.Input{
 						Value: a.providerBalPath.Get, OnChange: a.providerBalPath.Set,
-						Placeholder: "balance", Label: "余额字段", TestID: "provider-balance-path",
+						Placeholder: "balance", Label: T("余额字段"), TestID: "provider-balance-path",
 						Style: fieldStyle,
 					}),
 					field("余额货币", "如 CNY / USD，留空只显示数字", core.Input{
 						Value: a.providerBalCur.Get, OnChange: a.providerBalCur.Set,
-						Placeholder: "USD", Label: "余额货币", TestID: "provider-balance-currency",
+						Placeholder: "USD", Label: T("余额货币"), TestID: "provider-balance-currency",
 						Style: fieldStyle,
 					}),
 					core.View{Style: core.Style{Gap: 5, Margin: core.Edges{Top: 2}}, Children: []core.Node{
@@ -439,17 +439,17 @@ func (a *app) providerDialog() core.Node {
 				}},
 			}}},
 			Footer: []core.Node{
-				ui.Button{Text: "编辑原始 JSON", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+				ui.Button{Text: T("编辑原始 JSON"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 					a.openPiConfigFile("models.json")
 				}},
 				core.View{Style: core.Style{FlexGrow: 1}},
-				ui.Button{Text: "查询余额", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "provider-balance",
+				ui.Button{Text: T("查询余额"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "provider-balance",
 					OnPress: func() { a.queryProviderBalance() }},
-				ui.Button{Text: "测试连接", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "provider-test",
+				ui.Button{Text: T("测试连接"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "provider-test",
 					OnPress: func() { a.testProvider() }},
-				ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 					OnPress: func() { a.providerOpen.Set(false) }},
-				ui.Button{Text: "保存", Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "provider-save",
+				ui.Button{Text: T("保存"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "provider-save",
 					OnPress: func() { a.saveProvider() }},
 			},
 		}
