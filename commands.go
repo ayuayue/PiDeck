@@ -73,6 +73,8 @@ func builtinCommands() []appCommand {
 				}
 				a.closeTab(a.activeID.GetUntracked())
 			}},
+		{ID: "new-plugin", Label: "新建插件…", Group: "扩展", Icon: lucide.PackagePlus,
+			Run: func(a *app) { a.openPluginNew() }},
 		{ID: "quick-open", Label: "快速打开文件…", Group: "文件", Shortcut: "mod+p", Icon: lucide.FileSearch,
 			When: func(a *app) bool { return a.quickOpenRoot() != "" },
 			Run:  func(a *app) { a.openQuickOpen() }},

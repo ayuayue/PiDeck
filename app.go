@@ -451,6 +451,10 @@ type app struct {
 	gotoOpen         *core.Signal[bool]
 	gotoLine         *core.Signal[string]
 	quickOpen        *core.Signal[bool]
+	pluginNewOpen    *core.Signal[bool]
+	pluginNewID      *core.Signal[string]
+	pluginNewName    *core.Signal[string]
+	pluginNewDesc    *core.Signal[string]
 	fileSearchOpen   *core.Signal[bool]
 	// fileSearchQuery, fileSearchBusy and fileSearchRev drive the content
 	// search; its hits and sequence live beside them.
@@ -606,6 +610,10 @@ func newApp(cx *core.Scope) *app {
 		gotoOpen:               core.NewSignal(cx, false),
 		gotoLine:               core.NewSignal(cx, ""),
 		quickOpen:              core.NewSignal(cx, false),
+		pluginNewOpen:          core.NewSignal(cx, false),
+		pluginNewID:            core.NewSignal(cx, ""),
+		pluginNewName:          core.NewSignal(cx, ""),
+		pluginNewDesc:          core.NewSignal(cx, ""),
 		fileSearchOpen:         core.NewSignal(cx, false),
 		fileSearchQuery:        core.NewSignal(cx, ""),
 		fileSearchBusy:         core.NewSignal(cx, false),
