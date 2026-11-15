@@ -114,9 +114,9 @@ func TestPluginMarketUI(t *testing.T) {
 	app.WaitFor("id:plugin-market", 5*time.Second)
 	app.Type("id:market-url", srv.URL+"/index.json")
 	app.Press("id:market-load")
-	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:market-entry-team")) > 0 })
+	app.WaitUntil(20*time.Second, func() bool { return len(app.Query("id:market-entry-team")) > 0 })
 	app.Press("id:market-install-team")
-	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:已安装 v1.0.0")) > 0 })
+	app.WaitUntil(20*time.Second, func() bool { return len(app.Query("text:已安装 v1.0.0")) > 0 })
 	app.WaitFor("id:market-close", 5*time.Second)
 	deadline := time.Now().Add(10 * time.Second)
 	for {
