@@ -36,6 +36,7 @@
 |---|---|---|---|
 | 2026-11-14 | `session-history-mutation`（3 条） | 删除确认文案按 running/idle 分变体、编辑/重发已改 fork 语义 | 对齐断言；mock 补真 fork |
 | 2026-11-14 | `tab-context-menu:16` | `getByText("复制会话")` 子串同时命中「复制会话文件路径」 | 加 `exact: true` |
+| 2026-11-14 | `file-link-repro`/`imagegen-composer-layout`/`branch-tree-panel`/`agent-market-bulk`（5 条，同一批） | 侧栏行显示**项目名**（seed 里是 `link-repro` 等），不是临时目录名 `pideck-*`；抽屉「添加常驻面板」只把面板加进常驻栏、不自动选中；分支树压缩点行改为显示摘要正文；低频入口（智能体/收藏）收进「更多」折叠组 | hasText 改 seed 项目名、先展开「更多」、勾选后补点 rail 按钮、断言改为摘要 |
 | 2026-11-14 | `favorites-bulk`（2 条） | 收藏入口收进侧栏「更多」折叠组（定时任务/智能体/收藏），且页面内还有同名「收藏」按钮 | 先展开「更多」，再用 `#sidebar-more-actions` 精确定位入口 |
 | 2026-11-14 | `terminal-first-open`（3 条） | 会话操作菜单从 Tab 栏「更多操作」并入会话头部「更多运行操作」（`SessionActionsControl`） | 定位器改到新入口；**功能本身没坏**（#333 仍可用） |
 

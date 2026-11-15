@@ -82,10 +82,11 @@ test("A: live session relative-path links open non-empty content", async ({ wind
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	// 侧栏分段(56469f95)后默认停在「聊天」分段，工作区项目行在「项目」分段下，先切换
 	await window.getByRole("tab", { name: "项目" }).click();
-	const projectItem = window.locator(".conversation", { hasText: "pideck-linkrepro-" }).first();
+	// 侧栏项目行显示的是项目名（seed 里为 "link-repro"），不是临时目录名 pideck-linkrepro-*。
+	const projectItem = window.locator(".conversation", { hasText: "link-repro" }).first();
 	await expect(projectItem).toBeVisible({ timeout: 20_000 });
 	await projectItem.click();
-	const projectRow = window.locator(".conversation", { hasText: "pideck-linkrepro-" }).first();
+	const projectRow = window.locator(".conversation", { hasText: "link-repro" }).first();
 	await projectRow.hover();
 	await projectRow.getByRole("button", { name: "普通会话" }).first().click();
 
@@ -120,7 +121,7 @@ test("B/C: history session absolute-path links show content; dead link downgrade
 	// 侧栏分段(56469f95)后默认停在「聊天」分段，工作区项目行在「项目」分段下，先切换
 	await window.getByRole("tab", { name: "项目" }).click();
 
-	const projectRow = window.locator(".conversation", { hasText: "pideck-linkrepro-" }).first();
+	const projectRow = window.locator(".conversation", { hasText: "link-repro" }).first();
 	await expect(projectRow).toBeVisible({ timeout: 20_000 });
 	await projectRow.click();
 

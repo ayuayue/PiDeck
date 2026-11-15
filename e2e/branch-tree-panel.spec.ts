@@ -33,6 +33,14 @@ test.use({ seedProjects: [seedProject], seedSessionFiles: [{ projectPath: seedPr
 /** 打开种子项目里的历史会话（点侧栏会话行；历史会话不 spawn agent）。 */
 async function openSeededSession(window: import("@playwright/test").Page) {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	// 侧栏默认停在「聊天」分段，工作区项目行在「项目」分段下，先切换。
+	await window.getByRole("tab", { name: "项目", exact: true }).click();
+	// 项目行默认折叠：先点项目行展开（同时选中项目），会话行才会渲染。
+	const projectRow = window.locator(".conversation", { hasText: seedProject.name }).first();
+	await expect(projectRow).toBeVisible({ timeout: 20_000 });
+	if ((await window.locator(".conversation", { hasText: "更新链路" }).count()) === 0) {
+		await projectRow.click();
+	}
 	const sessionRow = window.locator(".conversation", { hasText: "更新链路" }).first();
 	await expect(sessionRow).toBeVisible({ timeout: 30_000 });
 	await sessionRow.click();
@@ -43,7 +51,9 @@ async function openSeededSession(window: import("@playwright/test").Page) {
 /** 用活动栏「+」把分支面板加进常驻并打开。 */
 async function openBranchPanel(window: import("@playwright/test").Page) {
 	await window.getByRole("button", { name: "添加常驻面板" }).click();
+	// 勾选只把面板加进常驻栏（不自动切过去，便于一次加多个）；要打开还得点活动栏按钮。
 	await window.getByRole("menuitemcheckbox", { name: "分支" }).click();
+	await window.getByTestId("drawer-rail-branchTree").click();
 	await expect(window.getByTestId("drawer-rail-branchTree")).toHaveAttribute("aria-selected", "true", { timeout: 5000 });
 }
 
@@ -70,8 +80,9 @@ test("branch panel folds assistant steps, indents only at branch points and clos
 	expect(u2Left).toBe(u2bLeft);
 	expect(u2Left - a1Left).toBeGreaterThanOrEqual(12);
 
-	// 活动叶与压缩点各自的标记
-	await expect(window.locator('[data-branch-row="c1"]')).toContainText("上下文压缩点");
+	// 活动叶与压缩点各自的标记：压缩点行显示的是**摘要正文**（seed 里 summary="压缩摘要"），
+	// 不再是入口类型名（旧断言写「上下文压缩点」，那是空内容时的兜底标签）。
+	await expect(window.locator('[data-branch-row="c1"]')).toContainText("压缩摘要");
 	await expect(window.locator('[data-branch-row="c1"]')).toContainText("当前");
 
 	// 点折叠段一次展开整段：a4 出现，a3 行不再是折叠态
