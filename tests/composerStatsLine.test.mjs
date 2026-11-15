@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 function loadStats() {
@@ -29,6 +31,27 @@ function loadStats() {
 			"../i18n": { t },
 			"./TimelineFormat": { formatDuration: (ms) => `${ms}ms` },
 			"./SessionContextMeter": { formatTokens: (n) => String(n) },
+			"../../hooks/useProviderUsage": { useProviderUsageEntry: () => ({ result: null }) },
+			"../../utils/providerUsageDisplay": { usageBadgeSegments: () => null, USAGE_TONE_TEXT_CLASS: {} },
+		},
+	});
+}
+
+function loadStatsForRender(usageResult) {
+	return loadTsCommonJs("src/renderer/src/components/session/ComposerStatsLine.tsx", {
+		stubs: {
+			jotai: { useAtomValue: () => "streaming" },
+			"../../atoms/tps-atoms": { tpsDisplayModeAtom: "streaming" },
+			"../../i18n": { t: (key) => key },
+			"../i18n": { t: (key) => key },
+			"./TimelineFormat": { formatDuration: (ms) => `${ms}ms` },
+			"./SessionContextMeter": { formatTokens: (n) => String(n) },
+			"../../hooks/useProviderUsage": { useProviderUsageEntry: () => ({ result: usageResult }) },
+			"../../utils/providerUsageDisplay": {
+				usageBadgeSegments: (result) => (result?.success ? [{ labelKey: "config.usage.balanceShort", text: "$12.50", tone: "ok" }] : null),
+				USAGE_TONE_TEXT_CLASS: { ok: "text-ok" },
+			},
+			"../../utils/tpsDisplay": { buildTpsDisplay: () => 42 },
 		},
 	});
 }
@@ -136,8 +159,11 @@ test("empty runtime produces no stats groups", () => {
 test("composer area mounts the stats strip under the input card", () => {
 	const area = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
 	const stats = readFileSync("src/renderer/src/components/session/ComposerStatsLine.tsx", "utf8");
-	assert.match(area, /import \{ ComposerStatsLine \} from "\.\/ComposerStatsLine"/);
-	assert.match(area, /statsLine=\{\s*<ComposerStatsLine\s+state=\{composer\.runtime\?\.state\}\s+turnCount=\{props\.turnCount\}\s+contextMeter=/);
+	assert.match(area, /import \{ ComposerStatsLine, resolveComposerUsageProvider \} from "\.\/ComposerStatsLine"/);
+	assert.match(
+		area,
+		/statsLine=\{\s*<ComposerStatsLine\s+state=\{composer\.runtime\?\.state\}\s+turnCount=\{props\.turnCount\}\s+provider=\{resolveComposerUsageProvider\(composer\.backend, composer\.runtime\?\.state, composer\.dshDefaultModel\?\.provider, composer\.bootstrapDefaultModel\?\.provider\)\}\s+usageBackend=\{composer\.backend === "dsh" \? "dsh" : "pi"\}\s+contextMeter=/,
+	);
 	assert.match(area, /\{props\.statsLine\}/);
 	// footer 固定保留 8px 底部留白；ComposerMeasuredExtras 会把它计入总高度，
 	// StatsLine 自身仍只在有数字时渲染。
@@ -149,6 +175,41 @@ test("composer area mounts the stats strip under the input card", () => {
 	assert.match(stats, /placeholder && "invisible"/);
 	assert.match(stats, /px-1 pb-0 pt-1/);
 	assert.match(stats, /min-w-0 truncate text-center/);
+});
+
+test("usage provider prefers the live runtime provider so real sessions can probe usage", () => {
+	const { resolveComposerUsageProvider } = loadStats();
+	// 真实 pi 会话只有 runtime 快照带 provider：bootstrapDefaults 仅在无 record 的引导页解析
+	assert.equal(resolveComposerUsageProvider("pi", { provider: "anthropic" }), "anthropic");
+	// DSH 空闲会话没有 runtime state：退回部署默认模型
+	assert.equal(resolveComposerUsageProvider("dsh", undefined, "deepseek"), "deepseek");
+	// 引导页（无 record/runtime）才用启动默认模型
+	assert.equal(resolveComposerUsageProvider("pi", undefined, undefined, "openai"), "openai");
+	// ACP 用量来自 agent 侧 usage_update，不查供应商配额
+	assert.equal(resolveComposerUsageProvider("acp", { provider: "codex" }, "deepseek", "openai"), undefined);
+	assert.equal(resolveComposerUsageProvider("pi", undefined), undefined);
+	assert.equal(resolveComposerUsageProvider("pi", { provider: "  " }, " "), undefined);
+});
+
+test("stats line renders the usage badge outside the truncating stats text", () => {
+	const { ComposerStatsLine } = loadStatsForRender({ success: true, kind: "balance" });
+	const html = renderToStaticMarkup(createElement(ComposerStatsLine, { state: { ttftMs: 210, totalMs: 4300, tps: 31, inputTokens: 800, outputTokens: 90 } }));
+	const truncateOpen = html.indexOf("min-w-0 truncate text-center");
+	const badge = html.indexOf('data-testid="composer-provider-usage"');
+	assert.ok(truncateOpen >= 0, "stats text container must render");
+	assert.ok(badge > truncateOpen, "usage badge must render after the stats text");
+	// 徽章必须是 truncate 容器的兄弟节点：放在里面时长统计行会先把它省略掉
+	const truncateClose = html.indexOf("</div>", truncateOpen);
+	assert.ok(truncateClose > 0 && truncateClose < badge, "usage badge must sit outside the truncating container");
+	assert.match(html, /\$12\.50/);
+	assert.match(html, /text-ok/);
+});
+
+test("stats line keeps its original shape when usage is unavailable", () => {
+	const { ComposerStatsLine } = loadStatsForRender(null);
+	const html = renderToStaticMarkup(createElement(ComposerStatsLine, { state: { ttftMs: 210, totalMs: 4300, tps: 31 } }));
+	assert.match(html, /composer-stats-line/);
+	assert.equal(html.includes("composer-provider-usage"), false);
 });
 
 test("stats copy exists in both locales", () => {

@@ -19,7 +19,7 @@ import { desktopApi } from "../../desktopApi";
 import { COMPOSER_TEXT_MAX_HEIGHT } from "../../rendererUtils";
 import { GUIDE_BOOTSTRAP_SESSION_ID, type NewSessionBackendTarget } from "../../utils/chatSessionBootstrap";
 import { chatContentWidthStyle } from "./chatContentWidth";
-import { ComposerStatsLine } from "./ComposerStatsLine";
+import { ComposerStatsLine, resolveComposerUsageProvider } from "./ComposerStatsLine";
 import { ComposerWidgetLayoutProvider, type ComposerWidgetCollapsedByKey, useComposerWidgetLayoutValue } from "./ComposerWidgetLayout";
 import { SessionAgentPromptBar } from "./SessionAgentPromptBar";
 import type { ChatMessage, GitBranchInfo } from "../../../../shared/types";
@@ -274,6 +274,8 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 										<ComposerStatsLine
 											state={composer.runtime?.state}
 											turnCount={props.turnCount}
+											provider={resolveComposerUsageProvider(composer.backend, composer.runtime?.state, composer.dshDefaultModel?.provider, composer.bootstrapDefaultModel?.provider)}
+											usageBackend={composer.backend === "dsh" ? "dsh" : "pi"}
 											contextMeter={
 												composer.mode === "imagegen" ? null : (
 													<SessionContextMeter
