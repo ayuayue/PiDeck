@@ -435,7 +435,14 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 >    ```
 >    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。第 5 节说过，这条请求是异步入队，可能一个帧都不吐。
 >
->    **别把「没吐帧」当成「没送到」。** 回 200 之后一帧不吐是正常的，重复发送会真的入队多条——实测同一段正文在一个会话里出现 3 次（`GET /messages` 里三条 user 记录的 `text` 逐字相同），对方要多花一轮读重复内容。所以发一次就回读 `total`：`total` 没变大才是没送到，变大了就别再发。
+>    **别把「没吐帧」当成「没送到」。** 回 200 之后一帧不吐是正常的，重复发送会真的入队多条——实测同一段正文在一个会话里出现 3 次（`GET /messages` 里三条 user 记录逐字相同），对方要多花一轮读重复内容。两条判据都在发送那一步就能拿到：
+>
+>    ```bash
+>    curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" -H "Content-Type: application/json" -d @msg.json "$BASE/api/chat"
+>    # 200 = 已入队；400 = 没进队列（缺 id 或空 text，body 里有 error 字段）
+>    ```
+>
+>    回 200 之后唯一的失败信号是流里出现 `error` 帧；没出现就是送到了，别再发一次。要看某一条进没进历史，数 `GET /messages` 里 `role: "user"` 的条数，不要用 `total`——它还会因对方的回复与注入而变大。
 
 **第 0 步不能省，也别换成别的判法。** 别拿 `sessionPath` 或磁盘写入时间去推断自己是谁——匿名会话没有 `sessionPath`，会拿目标的路径认自己，结论正好反过来。只有 `echo $PIDECK_SESSION_ID` 可靠。
 
