@@ -262,6 +262,10 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 - `/api/sessions/<id>/stream` 推的是**这个会话的消息流**：`start` / `text-delta` / `finish`。看它干活用这个。
 - `/api/events` 推的是**全局状态快照**：`event: state` 加一份 `data: {projects, sessions, runtimes, ...}` 的 JSON。看谁上线、谁下线、标题变没变用这个，它不推消息文本。
 
+它只在状态变化时推，没有心跳帧：连接静默不等于断了，别据无数据判死。
+
+它也没有 `id:` 行，重连拿到的是全量快照，不能从上次位置续传；要补历史自己比对 `updatedAt`。
+
 订阅一个不存在的会话 id 到 `/stream`，第一帧仍然是全局 `event: state`（实测：拿全零 UUID 请求，HTTP 200，返回的就是状态快照）。**别把这一帧当成「对方说话了」**——消息帧一定带 `"type"`。
 
 **首选订阅它的流。** 一次连接，服务端把对端的 `start` / `text-delta` / `finish` 实时推过来，比轮询文件干净：
