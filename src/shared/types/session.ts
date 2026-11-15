@@ -24,8 +24,8 @@ export type ChatMessage = {
 	images?: ImageContent[]; // 用户消息附件 / 工具结果里内联的图片
 	/** 生视频产物（meta.videoGen 消息）：只有落盘 ref 形态，展示走 pideck-video:// 协议 */
 	videos?: VideoContent[];
-	/** 思考内容：来自 thinking 内容块，用于展示模型推理过程 */
-	thinking?: string;
+	/** 思考内容：来自 thinking 内容块，用于展示模型推理过程 */ thinking?: string;
+	/** 去掉思考副本的正文（assistant 且带思考时提供）；`text` 自带 `<thinking>` 副本，保持原样 */ textWithoutThinking?: string;
 	/** 思考段开始时间（可选；缺省回退 message.timestamp） */
 	thinkingStartedAt?: number;
 	/** 思考段结束时间（可选；缺省回退 message.timestamp） */

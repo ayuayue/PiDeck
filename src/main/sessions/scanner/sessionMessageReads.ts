@@ -143,6 +143,7 @@ export async function readSessionChatMessages(host: SessionMessageReadHost, file
 				const text = extractMessageText(msg.content) || (isImageGen ? "[imagegen]" : "");
 				if (!text.trim() && images.length === 0) continue;
 				const thinking = extractThinkingRaw(msg.content);
+				const textWithoutThinking = thinking ? extractMessageText(msg.content, { includeThinking: false }) : undefined;
 				const imageGen = isImageGen ? (extraRecord.imageGen && typeof extraRecord.imageGen === "object" ? extraRecord.imageGen : { status: "complete", prompt: "" }) : undefined;
 				messages.push({
 					id: `sv-a-${seq++}`,
@@ -151,6 +152,7 @@ export async function readSessionChatMessages(host: SessionMessageReadHost, file
 					text,
 					timestamp: ts,
 					...(thinking ? { thinking } : {}),
+					...(textWithoutThinking !== undefined ? { textWithoutThinking } : {}),
 					...(images.length > 0 ? { images } : {}),
 					...(imageGen ? { meta: { imageGen } } : {}),
 				});
