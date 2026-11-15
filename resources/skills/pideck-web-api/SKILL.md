@@ -36,7 +36,7 @@ description: "用 PiDeck 的 HTTP 服务读自己的状态、给别的窗口发�
 - **会话**：PiDeck 侧边栏里的一行。会话可以存在，但此刻没在跑。
 - **运行时**：为某个会话在后台跑的那个 pi 进程。会话是记录，运行时是进程。
 - **运行时代号**（`runtimeGeneration`）与 `agentId`：同一会话每起一次进程，代号加一，服务端同时发一个新的 `agentId` uuid。两个一起变，都在 `runtimes[]` 里，验「换没换进程」看哪个都行。
-- 代号不是操作系统的 PID（进程号），那个不对外暴露。查状态与大部分动作要求这三个字段和 `runtimes[]` 里当前那份一致，不一致会被拒。**停止是例外**：它只认 `agentId`，代号与 sessionId 由服务端用活绑定覆盖，见第 6 节。
+- 代号不是操作系统的 PID（进程号），那个不对外暴露。请求里这两个字段都要传当前值：多数命令传错直接拒，唯独 `stop` 只认 `agentId`，代号传什么都不拦。两种语义的分界见第 7.1 节。
 - **判据**（判断对错的依据）：本文里指某一项能返回真假的检查，例如「发一条 ping，没有 error 帧就是送到了」。
 - **口径**（一条判据管到哪为止）：口径之外它给不出答案，不是它判错了。
 
@@ -437,11 +437,11 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 | 目标本来就没在跑 | 200 | `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_UNAVAILABLE"}}}` |
 | URL 与 body 的 sessionId 不一致 / 没给 target | 400 | `{"code":"webError.runtimeTargetRequired","error":"A matching Session runtime target is required"}` |
 
-**停止不校验 `runtimeGeneration`，这是它与其他动作唯一的区别。** 停止只认 `agentId`：只要它还有活的绑定，服务端就用绑定里当前的 `sessionId` 与代号覆盖你传的值，然后照停（`runtimeBinding.ts` 的 `resolveStopTarget`）。
+**`runtimeGeneration` 有两种语义，`stop` 与其余命令相反。**
 
-拿过期代号去停不会变成「什么都不做」，目标照样停。
+`restart`、`model`、`thinking` 这类命令走 `requireBoundTarget`：代号与绑定都比，传错返回 `SESSION_RUNTIME_CHANGED`，命令不执行（实测 `restart` 传 999 被拒，进程代号没变）。
 
-停止以外的动作走 `runTargetCommand` → `requireBoundTarget`：先核对 sessionId 与 agentId 的绑定，再比代号，不一致就抛 `SESSION_RUNTIME_CHANGED`（`SessionRuntimeCoordinator.ts`）。
+`stop` 走另一条路 `resolveStopTarget`：只要有 live 绑定的 `agentId`，它就取当前代号，请求里传什么代号都不拦。实测传 999 返回 `ok:true`，目标真被停下。所以 `stop` 唯一的闸是 `agentId`，而且它比路径里的 sessionId 更权威，见第 7.1 节。
 
 **为什么不用等目标回合结束**：如果目标正在写回复，stop 会让它断在半句。判断它忙不忙没有可靠办法——问用户最快。新开的空会话天然空闲，这是它最省事的地方。
 
@@ -519,13 +519,11 @@ PiDeck 里正常新建的会话不受这个影响。
 
 所以：**别拿刚建好的空会话试 stop**，试完它就不存在了，而且不会有任何报错提示你这一点。
 
-**`target` 里除 `stop` 以外都要逐个对上。** `agentId` 给不存在的 uuid 返回 `SESSION_RUNTIME_UNAVAILABLE`。
+**`target` 里两个字段都传，但只有 `agentId` 在 `stop` 上是真闸。** `agentId` 给不存在的 uuid 返回 `SESSION_RUNTIME_UNAVAILABLE`；`agentId` 对、`runtimeGeneration` 传错时：`restart` / `model` / `thinking` 返回 `SESSION_RUNTIME_CHANGED`（实测 `restart` 传 999 被拒，进程没动），`stop` 不拦（实测传 999 返回 `ok:true` 并真停）。
 
-`agentId` 对但代号传错（真实值 1，给 9 或 999）返回 `SESSION_RUNTIME_CHANGED`。
+**`stop` 停的是 `agentId` 指向的那个会话，不是 URL 里的那个。** 实测 `POST /api/sessions/<B>/runtime/stop` 配上 A 的 `agentId`：返回 `ok:true`，返回体 `sessionId` 是 A，A 被停、B 没动。要停 B 就必须用 B 自己的 `agentId`。
 
-`stop` 不校验代号，理由见第 6 节。
-
-两个都要传当前值，取法见第 6 节第 1 步。别把 `runtimeGeneration` 当成安全边界，它只负责把命令发给正确的那个进程。
+取当前值的办法见第 6 节第 1 步。
 
 **会话不存在时 `/messages` 不给 404。** 返回 HTTP 200 加 `{"messages":[],"total":0,"windowStart":0,"truncated":false}`，和「存在但一条消息都没有」长得一模一样。
 
@@ -566,7 +564,7 @@ PiDeck 里正常新建的会话不受这个影响。
 
 `activate` 是唯一不要 target 的——它要做的正是「这个冷会话现在起来」，没有 target 可回传。其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
 
-`target.agentId` 和 `target.runtimeGeneration` 都是真闸，值必须和 `runtimes[]` 里当前那份一致。两个字段被拒时返回的不是同一个码：
+`target.agentId` 在所有命令上都是真闸；`target.runtimeGeneration` 只在非 `stop` 的命令上是真闸（`stop` 用 live 绑定，见本节前面那段）。两个字段被拒时返回的不是同一个码：
 
 `agentId` 给不存在的 uuid，或它与路径里的 sessionId 对不上，返回 `SESSION_RUNTIME_UNAVAILABLE`。`agentId` 对、`runtimeGeneration` 漏传或给错（实测给 999），返回 `SESSION_RUNTIME_CHANGED`。
 
