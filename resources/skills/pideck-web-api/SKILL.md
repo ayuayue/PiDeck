@@ -505,7 +505,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 | `isStreaming` / `isTurnActive` | 正在生成 / 有回合没结束 |
 | `isExecutingTool` / `isCompacting` | 正在跑工具 / 正在压缩上下文 |
 | `contextTokens` / `contextWindow` / `contextPercent` | 上下文用掉多少 |
-| `toolStateSequence` | 工具状态序号，每变一次 +1，拿它看它有没有在动 |
+| `toolStateSequence` | 工具状态序号，内部每变一次加一。一次工具调用会让它加好几次，实测同一轮调两次工具从 413 涨到 417，所以它只证明「在动」，不能拿来数工具调用次数 |
 
 **换模型会把思考档重置成新模型的默认值。** 本机实测：`thinking=low` 的时候调 `model` 换到另一个模型，`thinkingLevel` 变回 `high`。所以这两步要按顺序发——先 `model`，再 `thinking`。反过来先设了思考档再换模型，等于没设。
 
