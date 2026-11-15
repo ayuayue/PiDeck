@@ -185,7 +185,7 @@ curl -s -H "$AUTH" "$BASE/api/state"
 
 **两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。
 
-反过来，不在 `runtimes[]` 里的会话进程没起，第 5 节的消息送不到。
+反过来，不在 `runtimes[]` 里只是说明进程没起，消息照样送得到——服务端会替你 `activate` 一次。实测发完那一刻它已经出现在 `runtimes[]` 里，`status` 是 `running`。所以别为了发消息先起进程。
 
 **`GET /api/sessions` 不存在**，猜它会拿到 `{"code":"webError.apiNotFound"}`——列会话用上面的 `/api/state`。**`POST /api/sessions` 存在**，用来新建会话，见第 6 节。别把这两个方法混成一个「端点不存在」。
 
