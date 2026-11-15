@@ -505,7 +505,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 | `isStreaming` / `isTurnActive` | 正在生成 / 有回合没结束 |
 | `isExecutingTool` / `isCompacting` | 正在跑工具 / 正在压缩上下文 |
 | `contextTokens` / `contextWindow` / `contextPercent` | 上下文用掉多少 |
-| `toolStateSequence` | 工具状态序号，在工具状态切换时变化。同一工具执行期间它不动——实测间隔 2 秒两次读都是 509，而 `isExecutingTool` 为 true；跨工具调用才涨，实测 417 涨到 509。判断「在不在动」看 `isStreaming` 和 `isExecutingTool`，不要用这个序号 |
+| `toolStateSequence` | 工具状态序号。只在工具状态切换时跳变，同一工具执行期间读多少次都不变；本机实测跨一轮从 486 跳到 496。判断「有没有在动」看两次读是否不同，别拿差值当工具调用次数 |
 
 **换模型会把思考档重置成新模型的默认值。** 本机实测：`thinking=low` 的时候调 `model` 换到另一个模型，`thinkingLevel` 变回 `high`。所以这两步要按顺序发——先 `model`，再 `thinking`。反过来先设了思考档再换模型，等于没设。
 
@@ -578,22 +578,6 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 `installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile` 目标文件，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。
 
 所以两条结论：手改 `pideck-skills/` 下次启动就没了；要让新版生效，把文件放进 `<userData>/skills-overlay/pideck-web-api/`，重启 PiDeck。
-
-**四份不会自动同步。** 改完仓库那份，另三处要么手抄要么跑这段：
-
-```bash
-for d in "$APPDATA/PiDeck/skills-overlay/pideck-web-api" "$HOME/.pi/agent/pideck-skills/pideck-web-api" "$HOME/.agents/skills/pideck-web-api"; do
-  cp resources/skills/pideck-web-api/SKILL.md "$d/"
-done
-```
-
-验法：下面这条打印 `1` 表示四处一致；大于 1 说明有地方没跟上，你改的版本并没有在跑。
-
-```bash
-node -e 'const fs=require("fs"),c=require("crypto");const p=["resources/skills/pideck-web-api/SKILL.md",process.env.APPDATA+"/PiDeck/skills-overlay/pideck-web-api/SKILL.md",process.env.HOME+"/.pi/agent/pideck-skills/pideck-web-api/SKILL.md",process.env.HOME+"/.agents/skills/pideck-web-api/SKILL.md"];const h=p.map(f=>c.createHash("sha256").update(fs.readFileSync(f)).digest("hex"));console.log(new Set(h).size)'
-```
-
-用 node 算而不用 `sha256sum`：路径里有反斜杠时 `sha256sum` 会在哈希前面加一个 `\` 表示转义，那个反斜杠不是值的一部分，会让人误判成不一致。
 
 **这一节只对改这个技能的人有用，用技能的人跳过。** 三个检查都要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`），所以只能在源码克隆里跑——PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这三个脚本。
 
