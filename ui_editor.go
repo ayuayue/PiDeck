@@ -205,6 +205,8 @@ func (a *app) editorStatus() core.Node {
 				ui.Text(f.Lang, 9.5, ui.Regular, colors.Faint),
 				core.View{Style: core.Style{Width: core.Pt(4), Height: core.Pt(4), CornerRadius: 2, Background: color}},
 				core.Text{Content: state, Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: T("%d 行", strings.Count(f.Text.Get(), "\n")+1), Style: core.Style{FontSize: 9.5},
+					StyleFunc: ui.Colored(colors.Faint), TestID: "editor-lines"},
 				core.View{Style: core.Style{FlexGrow: 1}},
 				core.Text{ContentFunc: func() string { return f.caret.Get() }, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
 					StyleFunc: ui.Colored(colors.Faint)},

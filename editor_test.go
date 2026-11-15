@@ -210,6 +210,30 @@ func TestEditorWrap(t *testing.T) {
 	}
 }
 
+// TestEditorLineCount shows the file's line count in the status bar and
+// keeps it current as the text changes.
+func TestEditorLineCount(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir := editorWorkspace(t)
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("a\nb\nc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := startApp(t, dir, 1280, 860)
+	app.Key("mod+j")
+	app.WaitFor("id:drawer-tab-files", 5*time.Second)
+	app.Press("id:drawer-tab-files")
+	app.WaitFor("text:note.txt", 5*time.Second)
+	app.Press("text:note.txt")
+	app.WaitFor("id:editor-lines", 5*time.Second)
+	app.WaitFor("text:3 行", 5*time.Second)
+
+	app.Focus("id:editor")
+	app.Key("enter")
+	app.WaitFor("text:4 行", 5*time.Second)
+}
+
 // TestFileFilter filters the drawer's tree by name.
 func TestFileFilter(t *testing.T) {
 	if nsgotest.Target() != "" {
