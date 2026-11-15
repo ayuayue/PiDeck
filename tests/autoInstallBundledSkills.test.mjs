@@ -66,10 +66,5 @@ test("BUNDLED_SKILLS 与 resources/skills 目录一一对应", async () => {
 		null,
 	);
 	await settle();
-	assert.deepEqual(
-		[...called].sort(),
-		onDisk,
-		"resources/skills 下有目录没进 BUNDLED_SKILLS：用户装完 /skill: 里看不到它，且不报错。缺的是 " +
-			onDisk.filter((name) => !called.includes(name)).join("、"),
-	);
+	assert.deepEqual([...called].sort(), onDisk, "resources/skills 下有目录没进 BUNDLED_SKILLS：用户装完 /skill: 里看不到它，且不报错。缺的是 " + onDisk.filter((name) => !called.includes(name)).join("、"));
 });
