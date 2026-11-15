@@ -470,6 +470,7 @@ type app struct {
 	forkCollapsed   *core.Signal[map[string]bool]
 	archiveRev      *core.Signal[int]
 	archiveOpen     *core.Signal[bool]
+	outlineOpen     *core.Signal[bool]
 	chatFindText    *core.Signal[string]
 	pluginNewOpen   *core.Signal[bool]
 	pluginNewID     *core.Signal[string]
@@ -642,6 +643,7 @@ func newApp(cx *core.Scope) *app {
 		forkCollapsed:          core.NewSignalFunc(cx, map[string]bool{}, nil),
 		archiveRev:             core.NewSignal(cx, 0),
 		archiveOpen:            core.NewSignal(cx, false),
+		outlineOpen:            core.NewSignal(cx, false),
 		chatFindText:           core.NewSignal(cx, ""),
 		pluginNewOpen:          core.NewSignal(cx, false),
 		pluginNewID:            core.NewSignal(cx, ""),
