@@ -229,6 +229,8 @@ data: [DONE]
 - 没有 `error` 帧就是送到了。哪怕 0 个 data 帧、`total` 当场没变。
 - 有 `error` 帧就是没送到，原因写在 `errorText` 里。
 
+参数错误不在流里：缺 `id`、没有 role 为 user 的项、text 为空，这几种直接返回 HTTP 400 加 JSON，一个 SSE 帧都没有。所以「送到没有」要分三处看：400 是没进队列，200 加 `error` 帧是进了但找不到会话，200 加无 `error` 帧才是送到。
+
 **会话记录存在时，对端进程死没死都能送到。** 实测：先把目标 stop 掉（`runtimes[]` 里已经没有它），直接发这条请求，照样收到完整正常流 `start` → `text-delta` → `text-end` → `finish` → `[DONE]`。
 
 随后 `/prompt` 的返回里 `runtimeGeneration` 从 2 变成 3——服务端替你 `activate` 了一次。所以「先 activate 再发消息」这一步可以省。
@@ -246,6 +248,8 @@ data: [DONE]
 **对端忙的时候，整条连接可能只有一行 `: ping` 心跳，没有 data 帧，`total` 也不立即变大**，而消息确实插进了它的对话。拿 `total` 当检查办法会判成没送到，重试一次就变成两条重复消息。
 
 两个常见错误码：`webError.requestIdRequired`（body 缺 `id`）、`webError.messageRequired`（没有 role 为 user 的项，或 text 为空）。
+
+路径写错分两种：以 `/api` 开头的错路径返回 404 `webError.apiNotFound`；漏掉 `/api` 前缀返回 200 加一整页 HTML（前端首页兜底），看着像成功，其实一个字都没发出去。先看响应 `content-type` 是 JSON 还是 SSE，再看状态码。
 
 ### 更省事的发法：`/prompt`
 
