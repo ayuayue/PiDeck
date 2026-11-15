@@ -108,7 +108,7 @@
     "dist:linux": "npm run build && electron-builder --linux AppImage deb tar.gz",
     "dist:linux:arm64": "npm run build && electron-builder --linux AppImage deb tar.gz --arm64",
     "preview": "electron-vite preview",
-    "test": "node --test --test-concurrency=4 \"tests/*.test.mjs\" \"tests/cua/*.test.mjs\"",
+    "test": "node --test --test-concurrency=4 --test-timeout=120000 --test-force-exit \"tests/*.test.mjs\" \"tests/cua/*.test.mjs\"",
     "test:serial": "node --test --test-concurrency=1 \"tests/*.test.mjs\" \"tests/cua/*.test.mjs\"",
     "format": "biome format --write src tests scripts e2e",
     "check:format": "biome format src tests scripts e2e",
