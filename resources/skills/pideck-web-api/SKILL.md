@@ -26,7 +26,7 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 
 **先读第 2 节的一条注意事项**：每段 bash 都是独立 shell，变量不跨段保留。后面几节的命令都假设 `$AUTH`、`$BASE` 已经在**同一次**调用里设好。
 
-## 1 三个词
+## 1 四个词
 
 - **会话**：PiDeck 侧边栏里的一行。会话可以存在，但此刻没在跑。
 - **运行时**：为某个会话在后台跑的那个 pi 进程。会话是记录，运行时是进程。
@@ -501,9 +501,6 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 **鉴权规则**：写操作（POST）只认请求头。`?token=` 查询参数只对 GET 和 SSE 开放，因为浏览器的 EventSource 不能自定义请求头；写操作开这个口子会把令牌漏进代理日志和浏览器历史。
 
-其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
-
-`target.agentId` 是真闸：给假值会被拒（2026-11-14 在 Windows 发行版上实测）。`target.runtimeGeneration` 不校验，给 999 也照做。三个字段都传最稳。
 
 ### 7.2 记录层动作：改记录，不碰进程
 
