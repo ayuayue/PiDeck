@@ -433,7 +433,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 >      -d '{"id":"<目标>","messages":[{"role":"user","parts":[{"type":"text","text":"重启结束，这条消息用来验证你能接活"}]}]}' \
 >      "$BASE/api/chat"
 >    ```
->    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。第 5 节说过，这条请求是异步入队，可能一个帧都不吐。
+>    送达看 HTTP 200 且流里没有 `error` 帧，帧数与 `total` 都不是判据（`total` 一次加 3：你发的那条、assistant 的回复、一条注入）。第 5 节说过，这条请求是异步入队，可能一个帧都不吐。
 >
 >    **别把「没吐帧」当成「没送到」。** 回 200 之后一帧不吐是正常的，重复发送会真的入队多条——实测同一段正文在一个会话里出现 3 次（`GET /messages` 里三条 user 记录逐字相同），对方要多花一轮读重复内容。两条判据都在发送那一步就能拿到：
 >
@@ -474,7 +474,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 第 0 步 echo $PIDECK_SESSION_ID -> 执行者自己的 id，不是目标
 第 1 步 取 target        目标不在 runtimes[] 里 -> 按技能跳到第 3 步
 第 3 步 activate        HTTP 200  gen=3  status=idle
-第 5 步 发消息          total 加 3
+第 5 步 发消息          无 error 帧（total 加 3 是现象）
 收尾  stop(gen=3)       HTTP 200
        activate         gen=4
 ```
@@ -489,7 +489,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 执行者第 5 步发的报告    代号与我自读的一致
 ```
 
-**`total` 一次加 3 不是 1**：你发的那条 + assistant 的回复 + 一条注入。
+**`total` 一次加 3 不是 1**：你发的那条 + assistant 的回复 + 一条注入。这是记录里的现象，不是送达判据——判据只有 HTTP 200 加「流里没有 `error` 帧」，见第 5 节。
 
 **各步耗时**（同一台机器，目标原本没在跑，跑完整一套）：
 
