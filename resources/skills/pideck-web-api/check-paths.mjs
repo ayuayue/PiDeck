@@ -44,13 +44,23 @@ for (const c of ["sessions", "runtimes", "state"]) {
   if (!srcSegs.has(c)) { console.log("FAIL 控制组段 " + c + " 在源码段集合里不存在"); process.exit(1); }
 }
 
+/** 一条文档路径里，哪些段在源码段集合里找不到。占位符段（<id> / $VAR）跳过。 */
+function missingSegs(p) {
+  const out = [];
+  for (const s of p.replace(/\/$/, "").split("/").filter(Boolean).slice(1)) {
+    if (/^<|^\$/.test(s)) continue;
+    if (!srcSegs.has(s)) out.push(s);
+  }
+  return out;
+}
+// 自检：这条判据必须能红，也必须不误红。2026-11-15 加——此前只有「控制组段存在」的正样本，
+// 没有证明「段不存在」真的会走进 bad++ 分支：把判定删掉，脚本照样全绿。
+if (missingSegs("/api/sessions/notexistsegment").length !== 1) { console.log("FAIL 自检坏样本：不存在的段没被判出来"); process.exit(1); }
+if (missingSegs("/api/sessions/runtimes").length !== 0) { console.log("FAIL 自检正样本：存在的段被误判"); process.exit(1); }
+
 let bad = 0;
 for (const p of uniq) {
-  const segs = p.replace(/\/$/, "").split("/").filter(Boolean).slice(1);
-  for (const s of segs) {
-    if (/^<|^\$/.test(s)) continue;
-    if (!srcSegs.has(s)) { console.log("  " + p + " 里的段「" + s + "」源码里没有"); bad++; }
-  }
+  for (const s of missingSegs(p)) { console.log("  " + p + " 里的段「" + s + "」源码里没有"); bad++; }
 }
 // 本机绝对路径不能写进技能：技能是发给别人用的，别人的机器上没有这个目录。
 const foreign = (skill.match(/[A-Z]:\\Users/g) || []);
