@@ -37,10 +37,9 @@ const okA = !missing.length && !extra.length && srcActions.length === docActions
 
 // 源码里的完整路由集合：组合式 (update|delete|copy) 展开成多条，参数段 ([^/]+) 归一成 :id。
 // 只查前缀会让 /api/sessions/<id>（源码里没有这条路由）判绿——2026-11-14 实测的漏。
-const routes = new Set();
-const routeRe = new RegExp(BS + "/api" + BS + "/[^" + QUOTE + TICK + " ,;]*", "g");
-for (const m2 of src.join("\n").matchAll(routeRe)) {
-  const route = m2[0].split("$").join("").split("([^/]+)").join(":id");
+/** 一条源码里的路由写法 → 归一化后的完整路由列表（组合式 (update|delete|copy) 展开成多条）。 */
+function expandRoute(token) {
+  const route = token.split("$").join("").split("([^/]+)").join(":id");
   let acc = [""];
   for (const raw of route.split("/").filter(Boolean)) {
     const seg = raw.replace(/^\(/, "").replace(/\)$/, "");
@@ -50,8 +49,11 @@ for (const m2 of src.join("\n").matchAll(routeRe)) {
     for (const a of acc) for (const alt of alts) next.push(a + "/" + alt);
     acc = next;
   }
-  for (const r of acc) routes.add(r);
+  return acc;
 }
+const routes = new Set();
+const routeRe = new RegExp(BS + "/api" + BS + "/[^" + QUOTE + TICK + " ,;]*", "g");
+for (const m2 of src.join("\n").matchAll(routeRe)) for (const r of expandRoute(m2[0])) routes.add(r);
 if (routes.size < 20) { console.log("FAIL 源码里只切出 " + routes.size + " 条完整路由，判据自己坏了"); process.exit(1); }
 const docNorm = (p) => p.replace(/\/$/, "").replace(/<[^>]+>/g, ":id");
 for (const [p, want] of [["/api/sessions/<id>/delete", true], ["/api/sessions/<id>", false], ["/api/sessions/<id>/deleteXXX", false]]) {
@@ -61,19 +63,28 @@ for (const [p, want] of [["/api/sessions/<id>/delete", true], ["/api/sessions/<i
 const sec72 = skill.split("### 7.2")[1];
 if (!sec72) { console.log("FAIL 文档里没有 7.2 节"); process.exit(1); }
 const srcLines = src[0].split(/\r?\n/);
-/** 源码里这条端点用的是哪个 HTTP 方法：先按整条路径找，再按末段找（组合式路由）。 */
+/** 每条归一化路由出现在 WebApiRoutes.ts 的哪些行。方法比对靠这张表定位，不按末段字符串猜。
+ *  2026-11-15 修正：此前按「末段字符串」匹配源码行，尾段是 sessions 这类父路径时会把
+ *  /api/sessions/<id>/... 的方法一并收进来，于是 /api/sessions 写成 GET 也判绿。 */
+const routeLines = new Map();
+for (let li = 0; li < srcLines.length; li++) {
+  for (const m3 of srcLines[li].matchAll(routeRe)) {
+    for (const r of expandRoute(m3[0])) {
+      if (!routeLines.has(r)) routeLines.set(r, []);
+      routeLines.get(r).push(li);
+    }
+  }
+}
+/** 源码里这条端点注册过哪些 HTTP 方法。
+ *  同一端点可能注册两种方法：export-html 既是记录层动作组的 POST，也是单独的 GET，
+ *  所以这里收集全部，不取第一个。 */
 function methodsInSource(ep) {
-  // 同一条端点可能注册两种方法：export-html 既是记录层动作组的 POST，也是单独的 GET。
-  // 只取第一个匹配会把合法的文档判红（2026-11-14 实测到的假阳性）。
-  const tail = ep.split("/").filter(Boolean).pop();
   const out = [];
-  let i = srcLines.findIndex((x) => x.includes("/api/sessions") && x.includes(tail));
-  while (i >= 0) {
-    for (let k = i; k < Math.min(i + 4, srcLines.length); k++) {
+  for (const li of routeLines.get(docNorm(ep)) || []) {
+    for (let k = li; k < Math.min(li + 4, srcLines.length); k++) {
       const mm = srcLines[k].match(/request\.method === "(GET|POST)"/);
       if (mm) { if (!out.includes(mm[1])) out.push(mm[1]); break; }
     }
-    i = srcLines.findIndex((x, idx) => idx > i && x.includes("/api/sessions") && x.includes(tail));
   }
   return out;
 }
@@ -90,6 +101,11 @@ let bad = 0;
 const MM_PROBE = "/api/sessions/<id>/copy";
 if (!methodMismatch(MM_PROBE, "GET")) { console.log("FAIL 自检坏样本：方法列写错没被判出来（" + MM_PROBE + "）"); process.exit(1); }
 if (methodMismatch(MM_PROBE, "POST")) { console.log("FAIL 自检正样本：正确方法被误判（" + MM_PROBE + "）"); process.exit(1); }
+// 2026-11-15 交叉审查抓到的漏：父路径端点（/api/sessions）此前因末段匹配过宽，
+// 把它下面所有子孙路由的方法都收了进来，写错方法也判绿。下面两条锁住它。
+const PREFIX_PROBE = "/api/sessions";
+if (!methodMismatch(PREFIX_PROBE, "GET")) { console.log("FAIL 自检坏样本：父路径端点写错方法没被判出来（" + PREFIX_PROBE + " 写 GET，源码只有 POST）"); process.exit(1); }
+if (methodMismatch(PREFIX_PROBE, "POST")) { console.log("FAIL 自检正样本：父路径端点的正确方法被误判（" + PREFIX_PROBE + "）"); process.exit(1); }
 let checked = 0;
 for (const line of sec72.split(/\r?\n/)) {
   const mt = line.match(/^\| \x60(\/api[^\x60]*)\x60 \| (GET|POST) \|/);
