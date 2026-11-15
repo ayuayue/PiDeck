@@ -13,6 +13,8 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 
 **下面所有 bash 都按 Git Bash 写**（PiDeck 在 Windows 上附带的那套）。别在 cmd 或 PowerShell 里跑：`$VAR` 不展开，`%APPDATA%` 在 bash 里不展开。怎么确认：`echo $APPDATA` 有值就是对的 shell。
 
+**前提：服务默认关闭，要人先在 PiDeck 的「设置 → Web 服务」里打开。** 没开就没有令牌，下面所有命令都会连不上或返回 401。
+
 ## 0 先确定你要做什么
 
 | 想做的事 | 会打断别人吗 | 读哪节 |
@@ -22,16 +24,15 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 | 重启某个会话（自己或别人） | 会，目标被停 | 第 6 节 |
 | 单独停、启、中止 | 会，目标被停 | 第 7 节 |
 
-第 2 节是所有节的前提。
+第 2 节是所有节的前提。第 9 节是使用边界，第 10 节是验收标准，第 11 节只对改这个技能的人有用。
 
 **先读第 2 节的一条注意事项**：每段 bash 都是独立 shell，变量不跨段保留。后面几节的命令都假设 `$AUTH`、`$BASE` 已经在**同一次**调用里设好。
 
-## 1 四个词
+## 1 三个词
 
 - **会话**：PiDeck 侧边栏里的一行。会话可以存在，但此刻没在跑。
 - **运行时**：为某个会话在后台跑的那个 pi 进程。会话是记录，运行时是进程。
-- **运行时代号**（`runtimeGeneration`）：同一个会话每起动一次进程，这个数字加一。它不是操作系统说的 PID（进程号），那个不对外暴露。所以「代号从 3 变成 4」等于「这个会话换了一个进程」。
-- **`agentId`**：服务端每次起进程时新发的一个 uuid，和上一条总是一起变。两个都在 `runtimes[]` 里，验「有没有真换进程」看哪个都行。
+- **运行时代号**（`runtimeGeneration`）与 `agentId`：同一个会话每起动一次进程，代号加一，同时服务端发一个新的 `agentId` uuid；两个一起变，都出现在 `runtimes[]` 里，验「有没有真换进程」看哪个都行。代号不是操作系统的 PID（进程号），那个不对外暴露。停止请求里 `agentId` 必带且会被校验，代号不校验。
 
 ## 2 连上：地址、令牌、自己的会话 id
 
@@ -105,8 +106,8 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派
 `/messages` 返回 `{messages, total, windowStart, truncated}`，**是有界窗口不是全部历史**：
 
 - `messages` 按时间**从旧到新**排，最后一条是最新的。要末尾 N 条就 `messages.slice(-N)`。
-- `total` 是这个会话一共多少条；`messages` 里只有其中一截。
-- `windowStart` 是这一截的第一条在整个会话里的序号（从 0 数）。`windowStart: 0` 表示从最早那条开始，也就是没截断。
+- `total` 是活动分支的消息**条目**数，不是 `messages` 数组的条数：一条条目可能展开成多条消息，所以 `messages.length` 可以比 `total` 大（本机实测 total=293、messages 294 条）。
+- `windowStart` 是这一截第一条的**条目**序号（从 0 数，和 `total` 同口径）。`windowStart: 0` 表示从最早那条开始，也就是没截断。
 - `truncated: true` 表示还有更早的没拿到，翻页用下面那个端点。
 
 **`/messages` 本身不吃 `?before`。** 实测传 `?before=5516`、`?before=999999`、`?before=abc`，返回的 `windowStart` 和条数与不传时完全相同。翻更早的历史用另一个端点：
@@ -544,6 +545,16 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 - 没有第二个活着的窗口能接，就别停：被停之后没人发 activate，就是永久停着。
 - **改了这个技能，已经在跑的会话看不到新版。** 技能是进程启动时用 `--skill <目录>` 注入的（源码 `PiProcess.ts`），内容在启动那一刻就进了内存。要让它生效，只能重启那个会话（第 6 节）或者新开一个。
 
+## 10 验收：三级别
+
+按你做到哪一级说哪一级。
+
+1. **能观察自己**（只读）：`echo $PIDECK_SESSION_ID` 非空，且这个 id 出现在 `/api/state` 的 `sessions[]` 里。
+2. **能读别人**（只读）：`sessions[]` 里看得到别的会话标题。这是**会话记录**那一层；要看别人的**进程**活着没有，用 `runtimes[]`（第 4 节讲过两个数组答的不是同一个问题），那两件事别混成一句验收。
+3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，**没有 `error` 帧**就是送到了（别拿 `total` 或帧数当判据——对方忙的时候整条连接可能只有一行 `: ping`，而消息确实进了它的对话，见第 5 节）。要验「真进程」，走一次第 6 节，`runtimeGeneration` 变了才算。
+
+## 11 改这个技能之前
+
 **改 `SKILL.md` 本身放哪儿才有用。** 这个技能在盘上有四份，改错地方等于没改（2026-11-15 实测，一天的工作一次都没生效）：
 
 | 位置 | 谁读它 | 改了会不会留 |
@@ -554,17 +565,6 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 | `~/.agents/skills/pideck-web-api/SKILL.md` | 终端里直接启动的 pi | 会留，但 PiDeck 不读它 |
 
 `installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile` 目标文件，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。所以两条结论：手改 `pideck-skills/` 下次启动就没了；要让新版生效，把文件放进 `<userData>/skills-overlay/pideck-web-api/`，重启 PiDeck。
-
-
-## 10 验收：三级别
-
-按你做到哪一级说哪一级。
-
-1. **能观察自己**（只读）：`echo $PIDECK_SESSION_ID` 非空，且这个 id 出现在 `/api/state` 的 `sessions[]` 里。
-2. **能读别人**（只读）：`sessions[]` 里看得到别的会话标题。这是**会话记录**那一层；要看别人的**进程**活着没有，用 `runtimes[]`（第 4 节讲过两个数组答的不是同一个问题），那两件事别混成一句验收。
-3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，**没有 `error` 帧**就是送到了（别拿 `total` 或帧数当判据——对方忙的时候整条连接可能只有一行 `: ping`，而消息确实进了它的对话，见第 5 节）。要验「真进程」，走一次第 6 节，`runtimeGeneration` 变了才算。
-
-## 11 改这个技能之前
 
 **这一节只对改这个技能的人有用，用技能的人跳过。** 三个检查都要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`），所以只能在源码克隆里跑——PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这三个脚本。
 
