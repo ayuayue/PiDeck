@@ -3,7 +3,7 @@ import rehypeKatex from "rehype-katex";
 import remarkBreaks from "remark-breaks";
 import remarkMath from "remark-math";
 import { Download, Eye, FilePlus, MoreHorizontal, Pencil, Trash2, X } from "lucide-react";
-import { remarkGfmNoSingleTilde } from "../../utils/markdownPlugins";
+import { remarkGfmNoSingleTilde, remarkRecoverBoldAutolinks } from "../../utils/markdownPlugins";
 import { remarkInlineMathGuard } from "../../utils/markdownInlineMath";
 import { MarkdownStream } from "../session/MarkdownStream";
 import { continueListOnNewline, normalizeOrderedLists, prepareTaskListPreview } from "./scratchPadLists";
@@ -88,7 +88,7 @@ const rehypeHighlightMark: Plugin<[], Root> = () => {
  * 预览插件列表必须提为模块级常量：内联数组每次重渲染生成新引用，
  * MarkdownStream 的 memo（浅比较）随即失效 → 整篇重新解析（与 FileDiffViewer 同因，2027-02）。
  */
-const SCRATCH_PAD_REMARK_PLUGINS = [remarkGfmNoSingleTilde, remarkInlineMathGuard, remarkMath, remarkBreaks];
+const SCRATCH_PAD_REMARK_PLUGINS = [remarkGfmNoSingleTilde, remarkRecoverBoldAutolinks, remarkInlineMathGuard, remarkMath, remarkBreaks];
 const SCRATCH_PAD_REHYPE_PLUGINS = [rehypeKatex, rehypeHighlightMark];
 const noopOpenExternal = (): void => undefined;
 

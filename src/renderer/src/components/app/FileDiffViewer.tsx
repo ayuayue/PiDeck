@@ -12,7 +12,7 @@ import { ConfirmDialog } from "../ui-shadcn/ConfirmDialog";
 import { defaultUrlTransform } from "../session/MarkdownLinkCore";
 import { UNTRUSTED_MARKDOWN_REHYPE_PLUGINS } from "../session/markdownSanitize";
 import rehypeKatex from "rehype-katex";
-import { remarkGfmNoSingleTilde } from "../../utils/markdownPlugins";
+import { remarkGfmNoSingleTilde, remarkRecoverBoldAutolinks } from "../../utils/markdownPlugins";
 import { imageMimeOrBinary } from "../../utils/imageMime";
 import { base64ToBytes } from "../../utils/base64Bytes";
 import { getBinaryPreviewKind, getMediaMimeForPath } from "../../utils/binaryPreview";
@@ -48,7 +48,7 @@ type ViewMode = "view" | "diff";
 // md 预览的插件列表必须提为模块级常量：内联数组/箭头函数在 FileDiffViewer 每次
 // 重新渲染时生成新引用，MarkdownStream 的 memo（浅比较）随即失效 → 整篇重新
 // 走 marked+shiki 解析（分屏下与会话流式渲染抢主线程，2027-02 卡顿实测根因之一）。
-const FILE_PREVIEW_REMARK_PLUGINS = [remarkGfmNoSingleTilde];
+const FILE_PREVIEW_REMARK_PLUGINS = [remarkGfmNoSingleTilde, remarkRecoverBoldAutolinks];
 // 文件预览同样渲染不可信内容（模型写的 .md 就可能是当前打开的文件）：复用统一净化序列，KaTeX 产物在 sanitize 之后生成
 const FILE_PREVIEW_REHYPE_PLUGINS = [...UNTRUSTED_MARKDOWN_REHYPE_PLUGINS, rehypeKatex];
 const noopOpenExternal = (): void => undefined;

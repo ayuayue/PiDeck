@@ -15,6 +15,9 @@ const gfmPlugin = remarkGfm as unknown as Plugin<[RemarkGfmOptions?]>;
 /** [plugin, options] 元组形态（与 streamdown defaultRemarkPlugins.gfm 同形），可放进 remarkPlugins 列表 */
 export const remarkGfmNoSingleTilde: Pluggable = [gfmPlugin, { singleTilde: false }];
 
+/** 加粗裸 URL 的定向修复（issue #543）：与 GFM 同处一个入口，调用方一次导入即可。 */
+export { remarkRecoverBoldAutolinks } from "./markdownRecoverBoldAutolinks.ts";
+
 /** 本地图片文件后缀：只救这些，其余（.md/.ts 等）留给文件链接处理。 */
 const RECOGNIZED_IMAGE_EXTENSION = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i;
 

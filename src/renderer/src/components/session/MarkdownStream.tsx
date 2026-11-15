@@ -10,7 +10,7 @@ import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 import { MarkdownImageGroupProvider, imageCountInChildren } from "./MarkdownImageGroup";
 import { localImageUrl } from "../../../../shared/localImage";
 import { markdownUrlTransform } from "./MarkdownLinkCore";
-import { remarkGfmNoSingleTilde, remarkRecoverLocalImages } from "../../utils/markdownPlugins";
+import { remarkGfmNoSingleTilde, remarkRecoverBoldAutolinks, remarkRecoverLocalImages } from "../../utils/markdownPlugins";
 import { remarkRecoverInlineLinks } from "../../utils/markdownRecoverInlineLinks";
 import { remarkInlineMathGuard } from "../../utils/markdownInlineMath";
 import { normalizeMathDelimiters } from "../../utils/normalizeMathDelimiters";
@@ -274,7 +274,7 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	}, [settledChunks, mountedChunkCount, props.paused, props.background]);
 	// 流式中精简插件：gfm/codeMeta/linkifyPaths 与 math 等插件都留到静态渲染；
 	// 外部显式传入的插件（FileDiffViewer 等场景）不受流式精简影响。
-	const resolvedRemarkPlugins = isStreamingNow ? NO_STREAM_REMARK_PLUGINS : (props.remarkPlugins ?? [remarkGfmNoSingleTilde, remarkInlineMathGuard, remarkRecoverLocalImages, remarkRecoverInlineLinks, defaultRemarkPlugins.codeMeta, remarkLinkifyPaths]);
+	const resolvedRemarkPlugins = isStreamingNow ? NO_STREAM_REMARK_PLUGINS : (props.remarkPlugins ?? [remarkGfmNoSingleTilde, remarkRecoverBoldAutolinks, remarkInlineMathGuard, remarkRecoverLocalImages, remarkRecoverInlineLinks, defaultRemarkPlugins.codeMeta, remarkLinkifyPaths]);
 	const resolvedRehypePlugins = isStreamingNow ? NO_STREAM_REHYPE_PLUGINS : (props.rehypePlugins ?? UNTRUSTED_MARKDOWN_REHYPE_PLUGINS);
 	// 显式 Components 标注：让 a 的 props 走上下文类型推断（streamdown 的
 	// Components 是「具名槽位 | 索引签名」联合，直接内联会触发索引签名分支的类型不兼容）

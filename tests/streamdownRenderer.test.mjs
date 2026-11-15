@@ -225,7 +225,8 @@ test("streaming overlong guard: plain-text fallback above STREAM_LIGHT_MAX_CHARS
 	// 流式集合可随场景增补（如 remarkRecoverLocalImages：带空格的本地图片路径在流式中就要成图），
 	// 但行内公式判别必须始终在首位，且不能退化成空列表。
 	assert.match(stream, /NO_STREAM_REMARK_PLUGINS:[\s\S]{0,200}?= \[remarkInlineMathGuard[,\]]/);
-	assert.match(stream, /remarkGfmNoSingleTilde,\s*remarkInlineMathGuard/);
+	// 加粗裸 URL 的恢复插件必须排在 GFM 之后、公式判别之前（#543：它修的是 GFM 解析结果）。
+	assert.match(stream, /remarkGfmNoSingleTilde,\s*remarkRecoverBoldAutolinks,\s*remarkInlineMathGuard/);
 });
 
 test("settle full render is deferred to idle (no long task during interaction)", () => {

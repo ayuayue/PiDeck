@@ -130,7 +130,7 @@ function viewerHarness(initialProps = {}) {
 			"../session/MarkdownLinkCore": { defaultUrlTransform: (value) => value },
 			"../session/markdownSanitize": { UNTRUSTED_MARKDOWN_REHYPE_PLUGINS: [] },
 			"rehype-katex": {},
-			"../../utils/markdownPlugins": { remarkGfmNoSingleTilde: {} },
+			"../../utils/markdownPlugins": { remarkGfmNoSingleTilde: {}, remarkRecoverBoldAutolinks: {} },
 			"../session/composer/chips": { formatFilePathRef: (value) => value },
 			"../../utils/notice": { showNotice() {} },
 		},
