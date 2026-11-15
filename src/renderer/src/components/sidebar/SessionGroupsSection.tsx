@@ -110,6 +110,7 @@ export function SessionGroupsSection(props: { nodes: readonly SessionGroupNode[]
 														// 多项目分组才标项目名：单项目组里重复同一个名字只是噪音（tooltip 始终给完整路径）。
 														title={projectCount > 1 ? `${session.title}\n${[projectLabel.name, projectLabel.path].filter(Boolean).join(" · ")}` : session.title}
 														onClick={() => void props.actions.sessions.open(session.projectId, session.id)}
+														onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => void props.actions.sessions.open(session.projectId, session.id, "permanent")}
 													>
 														<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 															<div className="conversation-title flex min-w-0 items-center gap-1.5">

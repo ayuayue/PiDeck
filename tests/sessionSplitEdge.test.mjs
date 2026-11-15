@@ -860,6 +860,7 @@ describe("session split edge resolution", () => {
 
 	it("sidebar sessions share drag MIME and preview/permanent open modes", () => {
 		const tree = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
+		const groups = readFileSync("src/renderer/src/components/sidebar/SessionGroupsSection.tsx", "utf8");
 		const injector = readFileSync("src/renderer/src/components/session/SessionRuntimeInjector.tsx", "utf8");
 		const chrome = readFileSync("src/renderer/src/hooks/useSessionWorkspaceChrome.ts", "utf8");
 		const runtime = readFileSync("src/renderer/src/hooks/useSessionRuntimeController.ts", "utf8");
@@ -867,6 +868,10 @@ describe("session split edge resolution", () => {
 		assert.match(tree, /SESSION_TAB_DRAG_MIME/);
 		assert.match(tree, /onDoubleClick/);
 		assert.match(tree, /openSession\(session\.id, "permanent"\)/);
+		// 分组区（插件数据渲染的那棵树）同样要能双击开永久标签，
+		// 否则用了会话分组插件之后只剩单击切换。
+		assert.match(groups, /onDoubleClick/);
+		assert.match(groups, /, "permanent"\)/);
 		// chrome 域从 App 抽出，App 只装配；Tab 登记与 selectSession 解耦
 		assert.match(app, /useSessionWorkspaceChrome/);
 		assert.match(app, /workspaceChrome\.dropSplit/);
