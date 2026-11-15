@@ -101,6 +101,7 @@ type mobileApp struct {
 	fileText     *core.Signal[string]
 	fileBusy     *core.Signal[bool]
 	fileErr      *core.Signal[string]
+	fileFind     *core.Signal[string]
 
 	client *remoteClient
 	gen    int
@@ -210,6 +211,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		fileText:        core.NewSignal(cx, ""),
 		fileBusy:        core.NewSignal(cx, false),
 		fileErr:         core.NewSignal(cx, ""),
+		fileFind:        core.NewSignal(cx, ""),
 		refreshing:      core.NewSignal(cx, false),
 		query:           core.NewSignal(cx, ""),
 		searchOpen:      core.NewSignal(cx, false),

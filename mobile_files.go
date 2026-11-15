@@ -84,6 +84,7 @@ func (a *mobileApp) openFile(path string) {
 	a.fileTitle.Set(path)
 	a.fileText.Set("")
 	a.fileErr.Set("")
+	a.fileFind.Set("")
 	a.fileBusy.Set(true)
 	a.fileOpen.Set(true)
 	go func() {
@@ -197,9 +198,14 @@ func (a *mobileApp) fileSheet() core.Node {
 		case errText != "":
 			body = core.Text{Content: errText, Style: core.Style{FontSize: 12, Padding: core.All(8)}, StyleFunc: ui.Colored(colors.Danger)}
 		default:
-			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(520)}, Children: []core.Node{
-				core.Text{Content: a.fileText.Get(), Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5, LineHeight: 17},
-					StyleFunc: ui.Colored(colors.Text)}}}
+			body = a.fileBody(colors)
+		}
+		var finder core.Node
+		if !busy && errText == "" {
+			finder = core.Input{Value: a.fileFind.Get, OnChange: a.fileFind.Set, Placeholder: T("在文件里查找…"),
+				Label: T("在文件里查找"), TestID: "mobile-file-find",
+				Style: core.Style{Height: core.Pt(38), Padding: core.Symmetric(0, 10), CornerRadius: 8, FontSize: 13,
+					Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()}}
 		}
 		return ui.Dialog{
 			Open:         a.fileOpen.Get,
@@ -207,10 +213,40 @@ func (a *mobileApp) fileSheet() core.Node {
 			Title:        a.fileTitle.Get(),
 			TestID:       "mobile-file-view",
 			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(640), Height: core.Pct(88)},
-			Children:     []core.Node{body},
+			Children:     []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{finder, body}}},
 			Footer: []core.Node{
 				ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.fileOpen.Set(false) }},
 			},
 		}
 	})
+}
+
+// fileBody is the file's text, or the lines that match the find field.
+func (a *mobileApp) fileBody(colors ui.Colors) core.Node {
+	q := strings.ToLower(strings.TrimSpace(a.fileFind.Get()))
+	text := a.fileText.Get()
+	if q == "" {
+		return core.Scroll{Style: core.Style{MaxHeight: core.Pt(520)}, Children: []core.Node{
+			core.Text{Content: text, Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5, LineHeight: 17},
+				StyleFunc: ui.Colored(colors.Text)}}}
+	}
+	var rows []core.Node
+	matched := 0
+	for i, line := range strings.Split(text, "\n") {
+		if !strings.Contains(strings.ToLower(line), q) {
+			continue
+		}
+		matched++
+		rows = append(rows, core.Text{Content: fmt.Sprintf("%4d  %s", i+1, line), TestID: "mobile-file-line",
+			Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)})
+		if matched >= 300 {
+			break
+		}
+	}
+	if matched == 0 {
+		return ui.Text(T("没有匹配的行"), 12, ui.Regular, colors.Faint)
+	}
+	head := ui.Text(T("%d 行匹配", matched), 10.5, ui.Regular, colors.Muted)
+	return core.Scroll{Style: core.Style{MaxHeight: core.Pt(500)}, Children: []core.Node{
+		core.View{Style: core.Style{Gap: 2}, Children: append([]core.Node{head}, rows...)}}}
 }
