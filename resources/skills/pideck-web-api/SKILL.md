@@ -85,7 +85,9 @@ curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" |
 
 打印出一个 uuid 就是你的 sessionId；打印「没找到」说明你不在这台 PiDeck 里跑。这个匹配区分大小写。
 
-**第三条线索要先验证再用。** `$PIDECK_LINKED_SESSIONS_URL` 形如 `http://127.0.0.1:<port>/linked/<某 id>`，但 2026-11-15 本机实测：那一段不是 PiDeck 会话 id。同一时刻同一条命令，`$PIDECK_SESSION_ID` 在 `/api/state` 的 `sessions[]` 里查得到（1 次命中），URL 尾段查不到（0 次命中）。
+**第三条线索要先验证再用。** `$PIDECK_LINKED_SESSIONS_URL` 形如 `http://127.0.0.1:<port>/linked/<某 id>`，但 2026-11-15 本机实测：那一段不是 PiDeck 会话 id。
+
+同一时刻同一条命令，`$PIDECK_SESSION_ID` 在 `/api/state` 的 `sessions[]` 里查得到，URL 尾段查不到。
 
 ```bash
 curl -s -H "$AUTH" "$BASE/api/state" | grep -c "$PIDECK_SESSION_ID"                     # 期望 >=1
@@ -545,7 +547,9 @@ PiDeck 里正常新建的会话不受这个影响。
 
 所以：**别拿刚建好的空会话试 stop**，试完它就不存在了，而且不会有任何报错提示你这一点。
 
-**`target` 里两个字段都传，但只有 `agentId` 在 `stop` 上是真闸。** `agentId` 给不存在的 uuid 返回 `SESSION_RUNTIME_UNAVAILABLE`；`agentId` 对、`runtimeGeneration` 传错时：`restart` / `model` / `thinking` 返回 `SESSION_RUNTIME_CHANGED`（实测 `restart` 传 999 被拒，进程没动），`stop` 不拦（实测传 999 返回 `ok:true` 并真停）。
+**`target` 里两个字段都传，但只有 `agentId` 在 `stop` 上是真闸。** `agentId` 给不存在的 uuid 返回 `SESSION_RUNTIME_UNAVAILABLE`。
+
+`agentId` 对、`runtimeGeneration` 传错时：`restart` / `model` / `thinking` 返回 `SESSION_RUNTIME_CHANGED`（实测 `restart` 传 999 被拒，进程没动），`stop` 不拦（实测传 999 返回 `ok:true` 并真停）。
 
 **`stop` 停的是 `agentId` 指向的那个会话，不是 URL 里的那个。** 实测 `POST /api/sessions/<B>/runtime/stop` 配上 A 的 `agentId`：返回 `ok:true`，返回体 `sessionId` 是 A，A 被停、B 没动。要停 B 就必须用 B 自己的 `agentId`。
 
