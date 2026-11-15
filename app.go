@@ -443,6 +443,12 @@ type app struct {
 	gitRemotesOpen *core.Signal[bool]
 	// gitConflictsOpen shows the dialog that resolves a merge's conflicts.
 	gitConflictsOpen *core.Signal[bool]
+	// gitFileHistoryOpen shows the commits that touched one path.
+	gitFileHistoryOpen *core.Signal[bool]
+	gitFileHistoryPath *core.Signal[string]
+	gitFileHistoryRev  *core.Signal[int]
+	gitFileHistoryErr  *core.Signal[string]
+	gitFileHistory     []gitCommit
 	// gitUnpushedOpen shows the commits the upstream does not have.
 	gitUnpushedOpen *core.Signal[bool]
 	gitUnpushedRev  *core.Signal[int]
@@ -607,6 +613,10 @@ func newApp(cx *core.Scope) *app {
 		gitTagsOpen:            core.NewSignal(cx, false),
 		gitRemotesOpen:         core.NewSignal(cx, false),
 		gitConflictsOpen:       core.NewSignal(cx, false),
+		gitFileHistoryOpen:     core.NewSignal(cx, false),
+		gitFileHistoryPath:     core.NewSignal(cx, ""),
+		gitFileHistoryRev:      core.NewSignal(cx, 0),
+		gitFileHistoryErr:      core.NewSignal(cx, ""),
 		gitUnpushedOpen:        core.NewSignal(cx, false),
 		gitUnpushedRev:         core.NewSignal(cx, 0),
 		gitUnpushedErr:         core.NewSignal(cx, ""),

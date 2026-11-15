@@ -200,6 +200,33 @@ func (a *app) openUnpushedCommits() {
 	}()
 }
 
+// openFileHistory lists the commits that touched one path.
+func (a *app) openFileHistory(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	t, dir := a.git.repo()
+	if dir == "" {
+		return
+	}
+	a.gitFileHistoryPath.Set(path)
+	a.gitFileHistory = nil
+	a.gitFileHistoryErr.Set("")
+	a.gitFileHistoryOpen.Set(true)
+	a.gitFileHistoryRev.Update(func(n int) int { return n + 1 })
+	go func() {
+		commits, err := readFileHistory(t, dir, path, 50)
+		a.cx.Post(func() {
+			if err != nil {
+				a.gitFileHistoryErr.Set(err.Error())
+			}
+			a.gitFileHistory = commits
+			a.gitFileHistoryRev.Update(func(n int) int { return n + 1 })
+		})
+	}()
+}
+
 // gitDiscardAll asks, then restores every path and removes untracked ones.
 func (a *app) gitDiscardAll() {
 	st := a.git.state.GetUntracked()
@@ -1076,6 +1103,10 @@ func (a *app) gitDiffDialog() core.Node {
 				core.Show{When: func() bool { return a.gitDiffHash != "" }, Then: func(*core.Scope) core.Node {
 					return ui.Button{Text: T("复制哈希"), Variant: ui.ButtonGhost, TestID: "git-diff-hash",
 						OnPress: func() { a.copyText(a.gitDiffHash, "哈希") }}
+				}},
+				core.Show{When: func() bool { return a.gitDiffHash == "" }, Then: func(*core.Scope) core.Node {
+					return ui.Button{Text: T("历史"), Variant: ui.ButtonGhost, TestID: "git-file-history",
+						OnPress: func() { a.openFileHistory(a.gitDiffTitle.GetUntracked()) }}
 				}},
 				ui.Button{Text: T("复制补丁"), Variant: ui.ButtonGhost, OnPress: func() {
 					a.copyText(a.gitDiffPatch.GetUntracked(), "补丁")
