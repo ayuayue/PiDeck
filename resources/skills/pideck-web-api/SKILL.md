@@ -126,7 +126,11 @@ curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&befor
 | 1653 条 | 12 | 6 | 9 | 12 |
 | 5887 条 | 182 | 59 | 153 | 182 |
 
-所以别拿条数去推轮数。翻页只做一件事：把上一页的 `nextBefore` 传给 `before`，翻到它是 `null` 就到头。
+所以别拿条数去推轮数。翻页只做一件事：把上一页的 `nextBefore` 传给 `before`，翻到它是 `null` 翻页就结束。
+
+`nextBefore` 为 `null` 只说明没法继续翻，不等于拿全了。本机五个会话实测：一直翻到 `null`，累计条数仍比 `total` 少 83~321 条（1653 条的会话只拿到 1556，939 条的只拿到 856）。
+
+缺的是最早那段，接口不报错。判断拿全没有只有一个检查：累计 `messages.length` 是否等于 `total`。
 
 **`nextBefore` 不为 `null` 时返回 7 个键，为 `null` 时只有 6 个**——最后一页没有 `nextBeforeEntryId`。按字段名取，别按位置取。
 
