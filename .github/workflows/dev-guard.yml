@@ -9,6 +9,7 @@ name: Dev Guard
 # - check:format —— biome 格式门禁（防格式漂移直入 dev）；
 # - check:ipc-wiring + check:test-shape —— 两条机械不变式（~1s，不联网）；
 # - check:skills-manifest —— 内置技能清单与实际文件对不上时红（~0.1s，不联网）；
+# - test:skills —— 技能文档四项判据（字段 / 格式 / 路径 / 方法表，~1s，不联网）；
 # - typecheck —— tsc --noEmit（~1 分钟）。
 # 刻意不跑 npm test / build：dev 是高频集成分支，45 分钟全量串行测试放在这里
 # 会让每次 push 排队半小时，收益远低于 main CI 的合并前兜底。
