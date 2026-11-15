@@ -36,7 +36,7 @@ description: "用 PiDeck 的 HTTP 服务读自己的状态、给别的窗口发�
 - **会话**：PiDeck 侧边栏里的一行。会话可以存在，但此刻没在跑。
 - **运行时**：为某个会话在后台跑的那个 pi 进程。会话是记录，运行时是进程。
 - **运行时代号**（`runtimeGeneration`）与 `agentId`：同一会话每起一次进程，代号加一，服务端同时发一个新的 `agentId` uuid。两个一起变，都在 `runtimes[]` 里，验「换没换进程」看哪个都行。
-- 代号不是操作系统的 PID（进程号），那个不对外暴露。停止或查状态的请求里这两个字段都要传当前值，传错或漏传会被拒。
+- 代号不是操作系统的 PID（进程号），那个不对外暴露。查状态与大部分动作要求这三个字段和 `runtimes[]` 里当前那份一致，不一致会被拒。**停止是例外**：它只认 `agentId`，代号与 sessionId 由服务端用活绑定覆盖，见第 6 节。
 - **判据**（判断对错的依据）：本文里指某一项能返回真假的检查，例如「发一条 ping，没有 error 帧就是送到了」。
 - **口径**（一条判据管到哪为止）：口径之外它给不出答案，不是它判错了。
 
@@ -437,9 +437,11 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 | 目标本来就没在跑 | 200 | `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_UNAVAILABLE"}}}` |
 | URL 与 body 的 sessionId 不一致 / 没给 target | 400 | `{"code":"webError.runtimeTargetRequired","error":"A matching Session runtime target is required"}` |
 
-**`runtimeGeneration` 是校验字段，不是给你参考的。** 它和 `agentId` 一样必须和 `runtimes[]` 里当前那份一致：漏传或传错（实测传 999）都返回 `SESSION_RUNTIME_CHANGED`，命令不执行。
+**停止不校验 `runtimeGeneration`，这是它与其他动作唯一的区别。** 停止只认 `agentId`：只要它还有活的绑定，服务端就用绑定里当前的 `sessionId` 与代号覆盖你传的值，然后照停（`runtimeBinding.ts` 的 `resolveStopTarget`）。
 
-源码里所有 target 命令都走同一个入口，它在派发前比一次代号与绑定是否一致（`SessionRuntimeCoordinator.ts` 的 `runTargetCommand`），不一致就抛这个码。
+拿过期代号去停不会变成「什么都不做」，目标照样停。
+
+停止以外的动作走 `runTargetCommand` → `requireBoundTarget`：先核对 sessionId 与 agentId 的绑定，再比代号，不一致就抛 `SESSION_RUNTIME_CHANGED`（`SessionRuntimeCoordinator.ts`）。
 
 **为什么不用等目标回合结束**：如果目标正在写回复，stop 会让它断在半句。判断它忙不忙没有可靠办法——问用户最快。新开的空会话天然空闲，这是它最省事的地方。
 
@@ -517,7 +519,11 @@ PiDeck 里正常新建的会话不受这个影响。
 
 所以：**别拿刚建好的空会话试 stop**，试完它就不存在了，而且不会有任何报错提示你这一点。
 
-**`target` 里两个字段都校验。** `agentId` 给不存在的 uuid 返回 `SESSION_RUNTIME_UNAVAILABLE`；`agentId` 对但 `runtimeGeneration` 传错（真实值 1，给 9 或 999）返回 `SESSION_RUNTIME_CHANGED`。
+**`target` 里除 `stop` 以外都要逐个对上。** `agentId` 给不存在的 uuid 返回 `SESSION_RUNTIME_UNAVAILABLE`。
+
+`agentId` 对但代号传错（真实值 1，给 9 或 999）返回 `SESSION_RUNTIME_CHANGED`。
+
+`stop` 不校验代号，理由见第 6 节。
 
 两个都要传当前值，取法见第 6 节第 1 步。别把 `runtimeGeneration` 当成安全边界，它只负责把命令发给正确的那个进程。
 
