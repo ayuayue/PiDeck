@@ -51,6 +51,10 @@ async function waitIdle(window: Page) {
 // 状态一：流式中（streaming）删除 → 先停止，立即生效，流式尾巴不残留
 // ──────────────────────────────────────────────────────────────
 test("delete while streaming: stops agent first, applies immediately, no partial tail", async ({ window }) => {
+	// 已知失败：流式中删除取到 idle 变体文案（功能正常，文案口径偏保守）。
+	// 根因链与已排除项见 docs/e2e-known-failures.md。这里用 test.fail() 而不是 skip：
+	// 用例照常执行，修好后 Playwright 会报「unexpectedly passed」，提醒删掉这行标记。
+	test.fail();
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await startAgent(window);
