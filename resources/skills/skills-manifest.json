@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "82f3d1c26165e77a2e345d428dd7542e8b969bd191218ae4c1eb4a321175fbb5",
+  "bundleSha256": "e4f588a746cdcbe562e6330402313677054049b5c20ea8eeffdf04315f39734e",
   "fileCount": 9,
   "files": [
     {
@@ -21,8 +21,8 @@
     },
     {
       "name": "pideck-web-api/check-doc.mjs",
-      "sha256": "24f075dad5e087c3636ae3a117a5d2efde06421e15925bbdd6b19ea1b8ce0177",
-      "bytes": 10200
+      "sha256": "7ef2aba83194c60f0790065e92c5407281aa744cf7d8b83c96c278ea1885008d",
+      "bytes": 11367
     },
     {
       "name": "pideck-web-api/check-fields.mjs",

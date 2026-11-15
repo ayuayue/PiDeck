@@ -29,8 +29,7 @@ if (!sec71) { console.log("FAIL 文档里没有 7.1 节"); process.exit(1); }
 const docActions = [...sec71.matchAll(/^\| \x60([a-z-]+)\x60/gm)].map((x) => x[1]);
 if (!docActions.length) { console.log("FAIL 7.1 表格一行都没匹配到"); process.exit(1); }
 
-const missing = srcActions.filter((a) => !docActions.includes(a));
-const extra = docActions.filter((a) => !srcActions.includes(a));
+const { missing, extra } = compareActions(srcActions, docActions);
 console.log("源码 " + srcActions.length + " 个，文档 " + docActions.length + " 行");
 console.log("漏: " + (missing.join(",") || "无") + "  多: " + (extra.join(",") || "无"));
 const okA = !missing.length && !extra.length && srcActions.length === docActions.length;
@@ -51,6 +50,26 @@ function expandRoute(token) {
   }
   return acc;
 }
+/** 7.1 动作表与源码动作集合的差集。
+ *  抽成纯函数只为一个目的：自检能喂假集合，证明「漏」与「多」两个方向都会非空。
+ *  2026-11-15 变异实测：把 missing 改成恒空数组之后，文档侧两个变异（删一行动作、加一行假动作）
+ *  全都静默变绿——判据坏了，而它自己一句话都不说。
+ *  与 guard 的 replayCandidate 是同一个动作：判据逻辑住在顶层，坏样本就喂不进去。 */
+function compareActions(srcList, docList) {
+  return {
+    missing: srcList.filter((x) => !docList.includes(x)),
+    extra: docList.filter((x) => !srcList.includes(x)),
+  };
+}
+
+// 自检坏样本：7.1 的漏与多两个方向都必须非空。把 compareActions 改成恒空，这里立刻退出。
+{
+  const onlySrc = compareActions(["x", "y"], ["x"]);
+  const onlyDoc = compareActions(["x"], ["x", "z"]);
+  if (onlySrc.missing.length !== 1 || onlySrc.missing[0] !== "y") { console.log("FAIL 自检坏样本：源码里多一个动作没被判出来"); process.exit(1); }
+  if (onlyDoc.extra.length !== 1 || onlyDoc.extra[0] !== "z") { console.log("FAIL 自检坏样本：文档里多一个动作没被判出来"); process.exit(1); }
+}
+
 const routes = new Set();
 const routeRe = new RegExp(BS + "/api" + BS + "/[^" + QUOTE + TICK + " ,;]*", "g");
 for (const m2 of src.join("\n").matchAll(routeRe)) for (const r of expandRoute(m2[0])) routes.add(r);
