@@ -1252,7 +1252,7 @@ func (a *app) settingsData() core.Node {
 		}
 		count := 0
 		if a.st != nil {
-			count = len(a.st.scanSessions(a.cfg.Titles))
+			count = a.st.countSessions()
 		}
 		piCount := 0
 		for _, ws := range a.workspaces.Get() {

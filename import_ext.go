@@ -289,7 +289,7 @@ func (s *store) importConverted(kind sessionKind, cwd, title string, msgs []impo
 	if err := os.WriteFile(dst, []byte(b.String()), 0o644); err != nil {
 		return sessionMeta{}, err
 	}
-	m, ok := readSessionMeta(dst, nil)
+	m, ok := s.readMeta(dst, nil)
 	if !ok {
 		return sessionMeta{}, fmt.Errorf("导入后无法读取该会话")
 	}

@@ -166,6 +166,20 @@ type store struct {
 	path     string // config.json
 	mu       sync.Mutex
 	c        *config
+	// metas caches the listing of each session file, keyed by path, so a
+	// rescan only reads files whose size or modification time changed.
+	metas map[string]metaCacheEntry
+	// parses counts the session files actually read, which lets a test
+	// see the cache doing its work.
+	parses int
+}
+
+// metaCacheEntry is one file's cached listing.
+type metaCacheEntry struct {
+	size    int64
+	modTime time.Time
+	meta    sessionMeta
+	ok      bool
 }
 
 func newStore(dataDir string) (*store, error) {
@@ -505,7 +519,7 @@ func (s *store) scanSessions(titles map[string]string) []sessionMeta {
 		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
 			return nil
 		}
-		if m, ok := readSessionMeta(path, titles); ok {
+		if m, ok := s.readMeta(path, titles); ok {
 			metas = append(metas, m)
 		}
 		if len(metas) > 2000 {
@@ -528,7 +542,7 @@ func (s *store) scanPiSessions(root string, titles map[string]string, keep func(
 		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
 			return nil
 		}
-		m, ok := readSessionMeta(path, titles)
+		m, ok := s.readMeta(path, titles)
 		if !ok || (keep != nil && !keep(m.Cwd)) {
 			return nil
 		}
@@ -543,8 +557,65 @@ func (s *store) scanPiSessions(root string, titles map[string]string, keep func(
 	return metas
 }
 
+// readMeta returns a session file's listing, reusing the cached one while
+// the file is unchanged. Titles come from the config and are applied on
+// every call, so a rename does not need a reparse.
+func (s *store) readMeta(path string, titles map[string]string) (sessionMeta, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return sessionMeta{}, false
+	}
+	s.mu.Lock()
+	if e, ok := s.metas[path]; ok && e.size == info.Size() && e.modTime.Equal(info.ModTime()) {
+		meta, valid := e.meta, e.ok
+		s.mu.Unlock()
+		if !valid {
+			return sessionMeta{}, false
+		}
+		return applySessionTitle(meta, titles), true
+	}
+	s.mu.Unlock()
+
+	meta, valid := readSessionMeta(path)
+	s.mu.Lock()
+	if s.metas == nil || len(s.metas) > 8000 {
+		s.metas = map[string]metaCacheEntry{}
+	}
+	s.metas[path] = metaCacheEntry{size: info.Size(), modTime: info.ModTime(), meta: meta, ok: valid}
+	s.parses++
+	s.mu.Unlock()
+	if !valid {
+		return sessionMeta{}, false
+	}
+	return applySessionTitle(meta, titles), true
+}
+
+// applySessionTitle puts the user's name, or a placeholder, on a listing.
+func applySessionTitle(meta sessionMeta, titles map[string]string) sessionMeta {
+	if t := titles[meta.ID]; t != "" {
+		meta.Title = t
+	} else if meta.Title == "" {
+		meta.Title = "未命名会话"
+	}
+	return meta
+}
+
+// countSessions counts the session files without reading them, for the
+// settings page, which only needs the number.
+func (s *store) countSessions() int {
+	n := 0
+	_ = filepath.WalkDir(s.sessions, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
+			return nil
+		}
+		n++
+		return nil
+	})
+	return n
+}
+
 // readSessionMeta reads as much of one session file as a listing needs.
-func readSessionMeta(path string, titles map[string]string) (sessionMeta, bool) {
+func readSessionMeta(path string) (sessionMeta, bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return sessionMeta{}, false
@@ -603,14 +674,8 @@ func readSessionMeta(path string, titles map[string]string) (sessionMeta, bool) 
 		return sessionMeta{}, false
 	}
 	meta.Cwd = filepath.Clean(meta.Cwd)
-	if t := titles[meta.ID]; t != "" {
-		meta.Title = t
-	}
 	if meta.Title == "" && firstUser != "" {
 		meta.Title = firstLine(firstUser, 48)
-	}
-	if meta.Title == "" {
-		meta.Title = "未命名会话"
 	}
 	return meta, true
 }
@@ -648,7 +713,7 @@ func (s *store) importSession(src string) (sessionMeta, error) {
 	if err := os.WriteFile(dst, data, 0o644); err != nil {
 		return sessionMeta{}, err
 	}
-	m, ok := readSessionMeta(dst, nil)
+	m, ok := s.readMeta(dst, nil)
 	if !ok {
 		return sessionMeta{}, fmt.Errorf("导入后无法读取该会话")
 	}
@@ -702,7 +767,7 @@ func (s *store) duplicateSession(src, id, title string) (sessionMeta, error) {
 	if err := os.WriteFile(dst, out.Bytes(), 0o644); err != nil {
 		return sessionMeta{}, err
 	}
-	m, ok := readSessionMeta(dst, nil)
+	m, ok := s.readMeta(dst, nil)
 	if !ok {
 		return sessionMeta{}, fmt.Errorf("复制后无法读取该会话")
 	}
@@ -849,7 +914,7 @@ func (s *store) forkSession(src, id string, turn int, title string) (sessionMeta
 	if err := os.WriteFile(dst, out.Bytes(), 0o644); err != nil {
 		return sessionMeta{}, "", err
 	}
-	m, ok := readSessionMeta(dst, nil)
+	m, ok := s.readMeta(dst, nil)
 	if !ok {
 		return sessionMeta{}, "", fmt.Errorf("分叉后无法读取该会话")
 	}
