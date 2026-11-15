@@ -27,14 +27,19 @@ const STEPS = [
 	["正文结构 format", [DIR + "/check-format.mjs"]],
 ];
 
+const TIMEOUT_MS = 120000;
+
 const failed = [];
 for (const [name, args] of STEPS) {
 	const started = Date.now();
-	const r = spawnSync(process.execPath, args, { cwd: ROOT, encoding: "utf8" });
+	// timeout 是必须的：某个 check 读目录时挂住，没有上界就永久阻塞 CI，
+	// 而 CI 卡住比红更难判断（红至少有名有姓）。
+	const r = spawnSync(process.execPath, args, { cwd: ROOT, encoding: "utf8", timeout: TIMEOUT_MS });
 	const ms = Date.now() - started;
 	const ok = r.status === 0;
+	const how = r.status === null ? (r.signal ? "被信号 " + r.signal + " 终止" : "超时 " + TIMEOUT_MS + "ms") : "rc=" + r.status;
 	if (!ok) failed.push(name);
-	console.log((ok ? "OK   " : "FAIL ") + name.padEnd(28) + " rc=" + r.status + "  " + ms + "ms");
+	console.log((ok ? "OK   " : "FAIL ") + name.padEnd(28) + " " + how + "  " + ms + "ms");
 	// 红的那条把输出带出来，绿的不带——否则七条的输出糊在一起，没人读。
 	if (!ok) {
 		const out = ((r.stdout || "") + (r.stderr || "")).trim();
