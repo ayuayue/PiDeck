@@ -73,6 +73,9 @@ func builtinCommands() []appCommand {
 				}
 				a.closeTab(a.activeID.GetUntracked())
 			}},
+		{ID: "go-to-line", Label: "转到行…", Group: "文件", Shortcut: "mod+g", Icon: lucide.Hash,
+			When: func(a *app) bool { return a.editorOpen() && a.editor.activeFile() != nil },
+			Run:  func(a *app) { a.openGotoLine() }},
 		{ID: "editor-wrap", Label: "自动换行", Group: "文件", Icon: lucide.TextWrap,
 			When: func(a *app) bool { return a.editorOpen() },
 			Run:  func(a *app) { a.toggleEditorWrap() }},

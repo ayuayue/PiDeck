@@ -9,8 +9,10 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"github.com/oneo-me/nsgo/base/editor"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/ui"
 )
@@ -29,6 +31,9 @@ type editorFile struct {
 	Dirty   *core.Signal[bool]
 	Loading *core.Signal[bool]
 	Err     *core.Signal[string]
+	// caret is the cursor's line and column, "3:5", for the status bar.
+	caret *core.Signal[string]
+	ref   *editor.Ref
 
 	saved string
 	mode  os.FileMode
@@ -87,6 +92,8 @@ func (h *editorHost) openFile(root, path string) {
 		Dirty:   core.NewSignal(h.cx, false),
 		Loading: core.NewSignal(h.cx, true),
 		Err:     core.NewSignal(h.cx, ""),
+		caret:   core.NewSignal(h.cx, "1:1"),
+		ref:     &editor.Ref{},
 	}
 	h.files.Update(func(list []*editorFile) []*editorFile { return append(list, f) })
 	h.open.Set(true)
@@ -372,6 +379,33 @@ func editorLanguage(path string) string {
 		return "json"
 	}
 	return strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+}
+
+// openGotoLine asks for a line number.
+func (a *app) openGotoLine() {
+	if a.editor == nil || a.editor.activeFile() == nil {
+		return
+	}
+	a.gotoLine.Set("")
+	a.gotoOpen.Set(true)
+}
+
+// jumpToLine puts the caret on the line typed.
+func (a *app) jumpToLine() {
+	f := a.editor.activeFile()
+	if f == nil || f.ref == nil {
+		return
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(a.gotoLine.GetUntracked()))
+	if err != nil || n < 1 {
+		a.toast(ui.ToastWarning, "行号不对", "填一个从 1 开始的行号。")
+		return
+	}
+	line := n - 1
+	f.ref.SetSelections([]editor.Selection{{Anchor: editor.Position{Line: line}, Head: editor.Position{Line: line}}})
+	f.ref.ScrollToLine(line)
+	f.ref.Focus()
+	a.gotoOpen.Set(false)
 }
 
 // toggleEditorWrap flips soft wrapping in the editor.

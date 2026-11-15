@@ -236,3 +236,26 @@ func TestFileFilter(t *testing.T) {
 	app.Press("id:file-hit >> nth=0")
 	app.WaitFor("text:package main", 5*time.Second)
 }
+
+// TestGoToLine moves the caret to a typed line.
+func TestGoToLine(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir := editorWorkspace(t)
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("one\ntwo\nthree\nfour\nfive\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := startApp(t, dir, 1280, 860)
+	app.Key("mod+j")
+	app.WaitFor("id:drawer-tab-files", 5*time.Second)
+	app.Press("id:drawer-tab-files")
+	app.WaitFor("text:note.txt", 5*time.Second)
+	app.Press("text:note.txt")
+	app.WaitFor("id:editor", 5*time.Second)
+	app.Key("mod+g")
+	app.WaitFor("id:goto-line", 5*time.Second)
+	app.Type("id:goto-line-input", "4")
+	app.Submit("id:goto-line-input")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:4:1")) > 0 })
+}

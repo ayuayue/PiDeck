@@ -446,6 +446,8 @@ type app struct {
 	termRenameOpen *core.Signal[bool]
 	termRenameID   *core.Signal[string]
 	termRenameText *core.Signal[string]
+	gotoOpen       *core.Signal[bool]
+	gotoLine       *core.Signal[string]
 	// gitDiffHash is the commit the diff dialog shows, empty for a file.
 	gitDiffHash string
 	// closedTabs are the sessions whose tabs were closed, newest last.
@@ -588,6 +590,8 @@ func newApp(cx *core.Scope) *app {
 		termRenameOpen:         core.NewSignal(cx, false),
 		termRenameID:           core.NewSignal(cx, ""),
 		termRenameText:         core.NewSignal(cx, ""),
+		gotoOpen:               core.NewSignal(cx, false),
+		gotoLine:               core.NewSignal(cx, ""),
 		gitNewBranchName:       core.NewSignal(cx, ""),
 		gitDiffOpen:            core.NewSignal(cx, false),
 		gitDiffTitle:           core.NewSignal(cx, ""),

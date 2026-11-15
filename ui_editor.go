@@ -4,6 +4,7 @@ package main
 // path and language under it, and the editor itself in between.
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/oneo-me/nsgo/base/editor"
@@ -151,8 +152,16 @@ func (a *app) editorBody() core.Node {
 		}
 		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Background: colors.Background()},
 			Children: []core.Node{editor.Editor{
-				Value:      f.Text.Get,
-				OnChange:   func(text string) { f.Text.Set(text); f.Dirty.Set(text != f.saved) },
+				Ref:      f.ref,
+				Value:    f.Text.Get,
+				OnChange: func(text string) { f.Text.Set(text); f.Dirty.Set(text != f.saved) },
+				OnSelectionChange: func(sels []editor.Selection) {
+					if len(sels) == 0 {
+						return
+					}
+					head := sels[0].Head
+					f.caret.Set(fmt.Sprintf("%d:%d", head.Line+1, head.Column+1))
+				},
 				Language:   f.Lang,
 				AutoFocus:  true,
 				FontSize:   13,
@@ -196,6 +205,9 @@ func (a *app) editorStatus() core.Node {
 				ui.Text(f.Lang, 9.5, ui.Regular, colors.Faint),
 				core.View{Style: core.Style{Width: core.Pt(4), Height: core.Pt(4), CornerRadius: 2, Background: color}},
 				core.Text{Content: state, Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+				core.View{Style: core.Style{FlexGrow: 1}},
+				core.Text{ContentFunc: func() string { return f.caret.Get() }, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
+					StyleFunc: ui.Colored(colors.Faint)},
 			}}
 		}),
 	}}
