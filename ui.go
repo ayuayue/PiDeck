@@ -594,6 +594,9 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 				core.Show{When: func() bool { return a.isPinned(s().ID) }, Then: func(*core.Scope) core.Node {
 					return ui.Icon(lucide.Star, 11, colors.Faint)
 				}},
+				core.Show{When: func() bool { return a.sessionArchived(s().ID) }, Then: func(*core.Scope) core.Node {
+					return ui.Icon(lucide.Archive, 10.5, colors.Faint)
+				}},
 				core.Text{ContentFunc: func() string { return whenText(s().updated.Get(), a.cx.Now()) }, MaxLines: 1,
 					Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
 			},

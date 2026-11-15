@@ -389,8 +389,21 @@ func (a *app) commandItems() []base.CommandItem {
 		if i >= 60 {
 			break
 		}
+		if a.sessionArchived(s.ID) {
+			continue
+		}
 		out = append(out, base.CommandItem{ID: "session:" + s.ID, Label: s.title.GetUntracked(),
 			Description: projectLabel(s.WS), Group: T("会话"), Icon: lucide.MessageSquare()})
+	}
+	// Archived sessions stay reachable by name.
+	seenArchived := map[string]bool{}
+	for _, id := range a.cfg.Archived {
+		if id == "" || seenArchived[id] {
+			continue
+		}
+		seenArchived[id] = true
+		out = append(out, base.CommandItem{ID: "archived:" + id, Label: a.sessionTitle(id),
+			Description: T("已归档"), Group: T("已归档"), Icon: lucide.Archive()})
 	}
 	// Settings are commands too: the palette jumps straight to a section.
 	for i, e := range settingsIndex {
@@ -423,6 +436,10 @@ func (a *app) runCommand(id string) {
 	}
 	if rest, ok := strings.CutPrefix(id, "file:"); ok {
 		a.openFileFromPalette(rest)
+		return
+	}
+	if rest, ok := strings.CutPrefix(id, "archived:"); ok {
+		a.openArchived(rest)
 		return
 	}
 	if rest, ok := strings.CutPrefix(id, "session:"); ok {
