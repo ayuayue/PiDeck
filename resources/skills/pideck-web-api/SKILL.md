@@ -249,7 +249,7 @@ data: [DONE]
 
 两个常见错误码：`webError.requestIdRequired`（body 缺 `id`）、`webError.messageRequired`（没有 role 为 user 的项，或 text 为空）。
 
-路径写错分两种：以 `/api` 开头的错路径返回 404 `webError.apiNotFound`；漏掉 `/api` 前缀返回 200 加一整页 HTML（前端首页兜底），看着像成功，其实一个字都没发出去。先看响应 `content-type` 是 JSON 还是 SSE，再看状态码。
+除 JSON 和 SSE 之外的响应，一律等于没发出去：漏掉 `/api` 前缀的请求返回 200 加一整页 HTML，八个样本无一例外；`/api` 下拼错是 404 加 `webError.apiNotFound`。先看 `content-type` 再看状态码，比记路径规则稳。
 
 ### 更省事的发法：`/prompt`
 
