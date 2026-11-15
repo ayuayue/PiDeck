@@ -32,7 +32,7 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 
 - **会话**：PiDeck 侧边栏里的一行。会话可以存在，但此刻没在跑。
 - **运行时**：为某个会话在后台跑的那个 pi 进程。会话是记录，运行时是进程。
-- **运行时代号**（`runtimeGeneration`）与 `agentId`：同一个会话每起动一次进程，代号加一，同时服务端发一个新的 `agentId` uuid；两个一起变，都出现在 `runtimes[]` 里，验「有没有真换进程」看哪个都行。代号不是操作系统的 PID（进程号），那个不对外暴露。停止请求里 `agentId` 必带且会被校验，代号不校验。
+- **运行时代号**（`runtimeGeneration`）与 `agentId`：同一个会话每起动一次进程，代号加一，同时服务端发一个新的 `agentId` uuid；两个一起变，都出现在 `runtimes[]` 里，验「有没有真换进程」看哪个都行。代号不是操作系统的 PID（进程号），那个不对外暴露。停止或查状态的请求里这两个字段都要传当前值，传错或漏传会被拒。
 
 ## 2 连上：地址、令牌、自己的会话 id
 
@@ -360,7 +360,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 | 目标本来就没在跑 | 200 | `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_UNAVAILABLE"}}}` |
 | URL 与 body 的 sessionId 不一致 / 没给 target | 400 | `{"code":"webError.runtimeTargetRequired","error":"A matching Session runtime target is required"}` |
 
-**`runtimeGeneration` 不校验。** 实测传一个比实际大 99 的代号，stop 照样 200 并真的把目标停了。所以这个字段是给你自己核对用的，不是防误停的闸。
+**`runtimeGeneration` 是校验字段，不是给你参考的。** 它和 `agentId` 一样必须和 `runtimes[]` 里当前那份一致：漏传或传错（实测传 999）都返回 `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_CHANGED"}}}`，命令不执行。源码里所有 target 命令都走同一个入口，它在派发前比一次代号与绑定是否一致（`SessionRuntimeCoordinator.ts` 的 `runTargetCommand`），不一致就抛这个码。
 
 **为什么不用等目标回合结束**：如果目标正在写回复，stop 会让它断在半句。判断它忙不忙没有可靠办法——问用户最快。新开的空会话天然空闲，这是它最省事的地方。
 
@@ -479,7 +479,7 @@ PiDeck 里正常新建的会话不受这个影响。
 
 `activate` 是唯一不要 target 的——它要做的正是「这个冷会话现在起来」，没有 target 可回传。其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
 
-`target.agentId` 是真闸：给假值会被拒（2026-11-14 在 Windows 发行版上实测）。`target.runtimeGeneration` 不校验，给 999 也照做。三个字段都传最稳。
+`target.agentId` 和 `target.runtimeGeneration` 都是真闸，值必须和 `runtimes[]` 里当前那份一致：agentId 给假值、代号漏传或给错（实测给 999）都会被拒，返回 `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_CHANGED"}}}`。这个错误码容易被读成「运行时代号变了」，其实是「你传的值不对」，别据此判断会话被重启过。三个字段都传当前值最稳，取法见第 6 节第 1 步。
 
 **`activate` 是冷启动，别按毫秒算。** 本机实测（Windows 发行版，进程完全没起）一次 3556 毫秒；别人机器上记过一次 45 毫秒，那是进程已经预热的情况。给它设超时按 5 秒以上给。
 
