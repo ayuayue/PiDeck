@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { parseMagpieProviderRates, annotateAcpModelRates, createMagpieRateSource } = loadTsCommonJs("src/main/acp/acpModelRates.ts");
+const { parseMagpieProviderRates, annotateAcpModelRates, annotateAcpLockedOptions, createMagpieRateSource } = loadTsCommonJs("src/main/acp/acpModelRates.ts");
+const { readAcpLockedReason } = loadTsCommonJs("src/main/acp/acpProtocol.ts");
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 const PROVIDERS = [
@@ -91,4 +92,22 @@ test("读取器：文件缺失 fail-open；同一 mtime 走缓存", () => {
 		},
 	});
 	assert.deepEqual([...missing().exact.keys()], []);
+});
+
+test("单项锁定：只认 codebuddy.ai/locked 的非空字符串，其余 _meta 一律不算锁定", () => {
+	assert.equal(readAcpLockedReason({ "codebuddy.ai/locked": "output style is pinned by --output-style X" }), "output style is pinned by --output-style X");
+	assert.equal(readAcpLockedReason({ "codebuddy.ai/locked": "   " }), undefined, "空白原因不算锁定");
+	assert.equal(readAcpLockedReason({ "codebuddy.ai/locked": true }), undefined, "boolean 不是本协议的形态");
+	assert.equal(readAcpLockedReason({ "other.vendor/locked": "x" }), undefined, "未知厂商 key 不能当锁定");
+	assert.equal(readAcpLockedReason(undefined), undefined);
+
+	const options = [
+		{ id: "output_style", name: "Output Style", currentValue: "A", options: [{ value: "A", name: "A" }], _meta: { "codebuddy.ai/locked": "forced by plugin" } },
+		{ id: "thought_level", name: "Thinking", currentValue: "high", options: [{ value: "high", name: "high" }] },
+	];
+	const annotated = plain(annotateAcpLockedOptions(options));
+	assert.equal(annotated[0].lockedReason, "forced by plugin");
+	assert.equal(Object.hasOwn(annotated[1], "lockedReason"), false, "没有 metadata 的项维持原样");
+	// 解锁是运行期事件：下一次快照不再带原因时必须把旧值丢掉，而不是沿用。
+	assert.equal(Object.hasOwn(plain(annotateAcpLockedOptions([{ id: "output_style", name: "Output Style", currentValue: "A" }]))[0], "lockedReason"), false);
 });

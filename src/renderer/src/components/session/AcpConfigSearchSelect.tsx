@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Lock } from "lucide-react";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "../ui-shadcn/command";
@@ -18,7 +18,7 @@ import type { AcpConfigSelectModel } from "./acpConfigSelect";
  * 搜索匹配显示名 + 原始值（模型 id），用精确子串过滤而不是 cmdk 默认 fuzzy——
  * 后者对任意子序列都返回 >0，1-2 个字符的输入会把整张表都命中。
  */
-export function AcpConfigSearchSelect(props: { option: { id: string; name: string; description?: string; category?: string }; select: AcpConfigSelectModel; disabled?: boolean; onPick: (value: string) => void }) {
+export function AcpConfigSearchSelect(props: { option: { id: string; name: string; description?: string; category?: string; lockedReason?: string }; select: AcpConfigSelectModel; disabled?: boolean; onPick: (value: string) => void }) {
 	const [open, setOpen] = useState(false);
 	const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -34,7 +34,8 @@ export function AcpConfigSearchSelect(props: { option: { id: string; name: strin
 
 	// 收起态只显示名称：把当前项的 description（模型倍率等）带进悬停提示，不挤占底栏宽度。
 	const currentValue = props.select.values.find((value) => value.value === props.select.value);
-	const title = `${props.option.name}: ${props.select.label}${currentValue?.description ? ` — ${currentValue.description}` : ""}${props.option.description ? ` — ${props.option.description}` : ""}`;
+	const locked = props.option.lockedReason;
+	const title = `${props.option.name}: ${props.select.label}${currentValue?.description ? ` — ${currentValue.description}` : ""}${props.option.description ? ` — ${props.option.description}` : ""}${locked === undefined ? "" : ` — ${locked}`}`;
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
@@ -49,6 +50,7 @@ export function AcpConfigSearchSelect(props: { option: { id: string; name: strin
 				>
 					<AcpConfigGlyph option={props.option} />
 					<span className="truncate text-xs">{props.select.label}</span>
+					{locked === undefined ? null : <Lock size={12} strokeWidth={1.8} className="shrink-0 text-muted-foreground" aria-hidden="true" />}
 				</button>
 			</PopoverTrigger>
 			<PopoverContent align="start" side="top" className="w-[min(360px,calc(100vw-24px))] p-0">

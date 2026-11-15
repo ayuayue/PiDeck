@@ -75,6 +75,8 @@ export type AcpSessionConfigOption = {
 	options?: Array<{ value: string; name: string; description?: string; rate?: AcpModelRate } | { group: string; name: string; options: Array<{ value: string; name: string; description?: string; rate?: AcpModelRate }> }>;
 	/** 语义类别(mode/model/model_config/thought_level):渲染层按它分组呈现。 */
 	category?: string;
+	/** agent 声明这一项当前不可改（原因原样透出,由 agent 给出,不翻译）;渲染层据此置灰。 */
+	lockedReason?: string;
 };
 
 /** configOptions 变更事件载荷(按 agentId 隔离,渲染层按当前 runtime 过滤迟到结果)。 */

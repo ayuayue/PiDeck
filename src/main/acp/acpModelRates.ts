@@ -2,6 +2,10 @@
  * ACP 模型倍率补充：从本机 magpie 的 provider 缓存里取每个模型的 credits 倍率，
  * 挂到 configOptions 的模型项上（ACP wire 本身没有价格字段，只有 name/description/_meta）。
  *
+ * 同一个装配点还负责第二件事：把 agent 声明的单项锁定原因（`_meta["codebuddy.ai/locked"]`）
+ * 映射成 DTO 的 `lockedReason`。两者都是「configOptions 出 main 时的注解」，共用
+ * `createAcpModelRateAnnotator` 这一个出口，避免查询/下发/推送三条路径各写一遍。
+ *
  * 数据源只读且可缺省：只有装了 magpie + codebuddy-import 插件才会有
  *   ~/.config/magpie/plugin-providers.json      （插件 provider 定义，含 rate/rateWas/free）
  *   ~/.cache/magpie/providers-state.json        （magpie 运行时缓存，同字段）
@@ -16,6 +20,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, statSync } from "node:fs";
 import type { AcpModelRate, AcpSessionConfigOption } from "../../shared/types/acp";
+import { readAcpLockedReason } from "./acpProtocol";
 
 type RateMap = Map<string, AcpModelRate>;
 export type AcpModelRateCatalogue = { exact: RateMap; bare: Map<string, AcpModelRate | null> };
@@ -134,7 +139,23 @@ export function annotateAcpModelRates(options: AcpSessionConfigOption[] | undefi
 	});
 }
 
+/**
+ * 把 agent 声明的单项锁定原因搬进 DTO（`_meta` 是协议元数据，不进渲染层契约）。
+ *
+ * 与倍率注解共用同一个装配点：`acpSessionConfigGet` / `acpSessionConfigSet` /
+ * `acpSessionConfigChanged` 三个出口都经过这里，所以只在「出 main」时映射一次。
+ * 解锁是运行期事件（`config_option_update` 不再带原因），因此每次都从当前 option 重算，
+ * 不做跨次缓存。
+ */
+export function annotateAcpLockedOptions(options: AcpSessionConfigOption[] | undefined): AcpSessionConfigOption[] | undefined {
+	if (!options?.length) return options;
+	return options.map((option) => {
+		const lockedReason = readAcpLockedReason((option as { _meta?: Record<string, unknown> })._meta);
+		return lockedReason === undefined ? option : { ...option, lockedReason };
+	});
+}
+
 /** 装配用：一次读取（缓存）+ 注解，main/index 把它同时接给查询/下发/推送三个出口。 */
 export function createAcpModelRateAnnotator(source: () => AcpModelRateCatalogue = createMagpieRateSource()) {
-	return (options: AcpSessionConfigOption[] | undefined): AcpSessionConfigOption[] | undefined => annotateAcpModelRates(options, source());
+	return (options: AcpSessionConfigOption[] | undefined): AcpSessionConfigOption[] | undefined => annotateAcpLockedOptions(annotateAcpModelRates(options, source()));
 }
