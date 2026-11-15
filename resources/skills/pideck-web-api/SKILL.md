@@ -117,84 +117,39 @@ curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300                  
 ## 3 读自己的状态（只读）
 
 ```bash
-curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/messages"     # 我的时间线
-curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/todo"         # 我的 todo
-curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派了几个子 agent
-curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300    # 我这条进程活着没有
+curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/messages"   # 我的时间线
+curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/todo"       # 我的 todo
+curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"  # 子 agent
+curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300        # 我的进程活着没有
 ```
 
-第四条给的是所有进程，按 `sessionId` 筛出自己那一行：`status` 是 `running` 表示正在生成，`idle` 表示闲着。逐个字段的解释在第 4 节。
+第四条给的是所有进程，按 `sessionId` 筛出自己那一行：`running` 表示正在生成，`idle` 表示闲着。字段解释在第 4 节。
 
-`/messages` 返回 `{messages, total, windowStart, truncated}`，**是有界窗口不是全部历史**：
+`/messages` 返回 `{messages, total, windowStart, truncated}`，**是有界窗口，不是全部历史**：
 
-读历史不用先把进程拉起来：`runtimes[]` 里查不到的会话，这两个读端点照样返回完整窗口。为了看一眼历史去 `activate`，代价是白起一个进程。
+- `messages` 从旧到新排，要末尾 N 条用 `messages.slice(-N)`。
+- `total` 数的是**文件里的条目**，`messages` 是转换后的消息，两者基数不同（工具记录、压缩卡片、分支展开的进出各不一样），**别相减，也别拿它推该有多少条**。
+- `windowStart: 0` 表示没截断；`truncated: true` 表示还有更早的。
 
-- `messages` 按时间**从旧到新**排，最后一条是最新的。要末尾 N 条就 `messages.slice(-N)`。
-- `total` 是活动分支的**条目**数，不是 `messages` 的条数。两者基数不同，展开和合并都会发生，别拿它推「该有多少条消息」；下面翻页那段给了实测与源码依据。
-- `windowStart` 是这一截第一条的**条目**序号（从 0 数，和 `total` 数的是同一类东西）。`windowStart: 0` 表示从最早那条开始，也就是没截断。
-- `truncated: true` 表示还有更早的没拿到，翻页用下面那个端点。
-
-**`/messages` 本身不吃 `?before`。** 实测传 `?before=5516`、`?before=999999`、`?before=abc`，返回的 `windowStart` 和条数与不传时完全相同。翻更早的历史用另一个端点：
+**单次 `/messages` 不吃 `?before`**（传了也不生效）。翻历史用另一个端点：
 
 ```bash
 curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&before=<nextBefore>"
 ```
 
-返回 7 个键：`messages`、`total`、`nextBefore`、`nextBeforeEntryId`、`indexVersion`、`model`、`thinkingLevel`。
+`pageSize` 的单位是**一轮问答**（默认 3），一轮多少条从 3 到几十不等，所以别用条数推轮数。翻页只做一件事：把上一页的 `nextBefore` 传给 `before`，直到它是 `null`——那就是拿全了。**判据只看 `nextBefore`**，不要用「累计条数等于 `total`」：本机十个会话翻到底，没有一个相等。
 
-**`pageSize` 的单位是一轮问答，默认 3。** 一轮装多少条消息不固定——问一句答一句是 3 条，带一堆工具调用的轮能有几十条。同一天两个会话实测：
+`nextBefore` 不为 `null` 时返回 7 个键，为 `null` 时 6 个（最后一页没有 `nextBeforeEntryId`），按字段名取。`before` / `pageSize` 不校验：非整数当没传；负数 `before` 返回空 `messages` 且 `nextBefore: null`（看起来像翻到底，其实是参数错）；`pageSize` 给 0 或负数退成 1 轮。
 
-| 会话 | 不传 | pageSize=1 | 2 | 3 |
-| --- | --- | --- | --- | --- |
-| total 1653 | 12 | 6 | 9 | 12 |
-| total 5887 | 182 | 59 | 153 | 182 |
+**每次返回整个窗口**，`?limit` 之类一律无视：1653 条的会话一次 226 KB，`pageSize=100` 能到 15 MB。所以**别拿它轮询**——判断消息送没送到，看 SSE 有没有 `error` 帧。
 
-所以别拿条数去推轮数。翻页只做一件事：把上一页的 `nextBefore` 传给 `before`，翻到它是 `null` 翻页就结束。
+单条消息字段 `{id, agentId, role, text, timestamp, meta}`，assistant 多 `thinking`、`model`、`stopReason`。正文在 `text` 不在 `parts`（`parts` 只在 `/api/chat` 的请求里用）。
 
-**`total` 数的是文件里的条目，`messages` 是转换后的消息，两者基数不同，别相减。** 同一个会话翻到底，累计条数有时比 `total` 少，有时还多：一条工具记录、一张压缩卡片、一次上下文改写，进出的条数都不一样。
-
-所以「累计 `messages.length` 等于 `total`」不能当检查用：本机十个会话翻到底，没有一个相等，正差 2 个、负差 8 个。
-
-该看的只有 `nextBefore`：它变成 `null` 表示游标落到了第 0 个条目，前面没有更早的了，这就是拿全。源码里这一句是 `nextBefore: start > 0 ? start : null`。
-
-**`nextBefore` 不为 `null` 时返回 7 个键，为 `null` 时只有 6 个**——最后一页没有 `nextBeforeEntryId`。按字段名取，别按位置取。
-
-`before` 与 `pageSize` 都不校验，按 JS 的数字转换走。三种情况要知道：
-
-- 非整数（`abc`、`1.7`）一律当没传：`pageSize` 退回默认 3 轮，`before` 退回「不翻页」，返回与不传时完全相同。
-- `before` 是负数会返回空 `messages` 且 `nextBefore` 为 `null`，看起来像「翻到底了」，其实是参数非法。
-- `pageSize` 给 0 或负数会退成 1 轮（实测 4 条），不报错。
-
-翻页只把上一页的 `nextBefore` 传回去，别自己造值。
-
-`windowStart` 是个数字（例如 5516），不是消息 id。
-
-
-**这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。
-
-`/messages` 一次返回整个窗口：1653 条的会话实测 226 KB，几十条的小会话也有几十 KB。把 `pageSize` 拉到 100 会连那一段历史一起拉回来，同一会话实测 15 MB 级。`/api/state` 与 `/api/sessions/runtimes` 是几 KB。
-
-具体数字自己量，别抄这里的：
+要原始工具调用参数只能读磁盘 jsonl（路径取 `runtimes[]` 的 `sessionPath`）：
 
 ```bash
-curl -s -o /dev/null -w '%{size_download} %{time_total}\n' -H "$AUTH" "$BASE/api/state"
+node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\n").forEach(l=>{if(!l.trim())return;const j=JSON.parse(l);if(j.role)console.log(j.role+": "+String(j.text||"").slice(0,120))})' "<sessionPath>"
 ```
-
-这两个数随会话数涨：单个 session 对象约 330 字节，会话多了就线性涨，别当常量。
-
-所以**别拿它轮询**：判断消息送没送到，先看 SSE 有没有 `error` 帧，只查一次 `/messages`。
-
-单条消息的字段是 `{id, agentId, role, text, timestamp, meta}`，assistant 还多 `thinking`、`thinkingStartedAt`、`thinkingEndedAt`、`model`、`stopReason`。
-
-注意正文在 `text`，不在 `parts`——`parts` 只在 `/api/chat` 的**请求**里用。
-
-要到原始工具调用参数，只能读磁盘上的 jsonl（路径取 `runtimes[]` 里的 `sessionPath`；刚发过 `/prompt` 的话它的返回里直接有，不用再查）：
-
-```bash
-node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\n").forEach(l=>{if(!l.trim())return;const j=JSON.parse(l);if(j.role)console.log(j.role+": "+String(j.text||"").slice(0,120))})' "<runtimes[] 里的 sessionPath>"
-```
-
-首行 `type: session`，其余每行一条消息。
 
 ## 4 找别的会话
 
@@ -217,73 +172,11 @@ curl -s -H "$AUTH" "$BASE/api/state"
 
 列表里找不到某个会话，不等于它不存在：先确认 `projects[]` 里有它所属的项目。
 
-## 5 发消息并读回复
+## 5 发消息
 
-**发之前再认一次自己。** `echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息：消息会插进你自己的对话，然后你自己等自己回。
+**发之前再认一次自己**：`echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息——消息插进你自己的对话，然后你自己等自己回。别用 `env | grep ^PI_` 找身份（`PIDECK_SESSION_ID` 不以 `PI_` 开头，会被整条漏掉）；标题、`updatedAt`、`model` 都不是身份。
 
-这个错真发生过。想找「另一个会话」，用 `env | grep ^PI_` 找身份，漏掉了 `PIDECK_SESSION_ID`（它不以 `PI_` 开头）；于是拿会话标题猜，把标题恰好也是这个任务的会话当成了别人，其实那就是自己。标题、`updatedAt`、`model` 都不是身份。
-
-**最容易猜错的一步**：请求体不是 `{message: "..."}`，是完整消息数组；`id` 是**目标会话的 sessionId**（`sessions[].id`），不是 `agentId`。
-
-```bash
-curl -N -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"id":"<目标 sessionId>","messages":[{"role":"user","parts":[{"type":"text","text":"ping"}]}]}' \
-  "$BASE/api/chat"
-```
-
-返回是 SSE（服务端推过来的流式文本，一行一帧，`data:` 后面是 JSON）。实测形状：
-
-```text
-data: {"type":"start","messageId":"msg_1794659108957"}
-data: {"type":"text-start","id":"text_1794659109932_i4wmgw"}
-data: {"type":"text-delta","id":"text_1794659109932_i4wmgw","delta":"收到"}
-data: {"type":"text-end","id":"text_1794659109932_i4wmgw"}
-data: {"type":"finish"}
-data: [DONE]
-```
-
-模型输出思考时，`text-start` 之前还会有一串 `reasoning-delta`；那一串不是每轮都有，按类型过滤即可，别假定它一定出现。`text-end` 每轮都有。
-
-带工具调用的回合还会出现 `tool-input-start` / `tool-input-available` / `tool-output-available`。
-
-有思考的一轮完整顺序是 `start` → `reasoning-start` → `reasoning-delta`… → `text-start` → `text-delta` → `reasoning-end` → `text-end` → `finish` → `[DONE]`。
-
-注意 `reasoning-end` 在 `text-delta` 之后，不在 `text-start` 之前。
-
-这几种都只表示进度。遇到不认识的帧按类型过滤，别当错误，也别等某一个特定帧。
-
-`finish` 和 `[DONE]` 是同一件事的两种表示，看到任一个就是本轮结束。`-N` 必须加，否则看不到流式。
-
-**这条请求是异步入队，不是同步流**：消息进队列就返回，HTTP 可能一个帧都不吐，目标照样开始干活。判断「送到了没有」只有一条可靠检查——**看 `error` 帧，不看 `total`，也不看有没有 data 帧。**
-
-- 没有 `error` 帧就是送到了。哪怕 0 个 data 帧、`total` 当场没变。
-- 有 `error` 帧就是没送到，原因写在 `errorText` 里。
-
-参数错误不在流里：缺 `id`、没有 role 为 user 的项、text 为空，这几种直接返回 HTTP 400 加 JSON，一个 SSE 帧都没有。所以「送到没有」要分三处看：400 是没进队列，200 加 `error` 帧是进了但找不到会话，200 加无 `error` 帧才是送到。
-
-**会话记录存在时，对端进程死没死都能送到。** 实测：先把目标 stop 掉（`runtimes[]` 里已经没有它），直接发这条请求，照样收到完整正常流 `start` → `text-delta` → `text-end` → `finish` → `[DONE]`。
-
-随后 `/prompt` 的返回里 `runtimeGeneration` 从 2 变成 3——服务端替你 `activate` 了一次。所以「先 activate 再发消息」这一步可以省。
-
-**只有会话记录本身不存在时才写 error 帧**，HTTP 仍然是 200：
-
-```text
-data: {"type":"error","errorText":"Session not found: 00000000-0000-0000-0000-000000000000"}
-data: {"type":"finish"}
-data: [DONE]
-```
-
-注意 `error` 帧带的是 `errorText`，不是 `code`。
-
-**对端忙的时候，整条连接可能只有一行 `: ping` 心跳，没有 data 帧，`total` 也不立即变大**，而消息确实插进了它的对话。拿 `total` 当检查办法会判成没送到，重试一次就变成两条重复消息。
-
-两个常见错误码：`webError.requestIdRequired`（body 缺 `id`）、`webError.messageRequired`（没有 role 为 user 的项，或 text 为空）。
-
-除 JSON 和 SSE 之外的响应，一律等于没发出去：漏掉 `/api` 前缀的请求返回 200 加一整页 HTML，八个样本无一例外；`/api` 下拼错是 404 加 `webError.apiNotFound`。先看 `content-type` 再看状态码，比记路径规则稳。
-
-### 更省事的发法：`/prompt`
-
-`/api/chat` 要自己拼 `messages` 数组；`/prompt` 只发一段文本，而且**同步返回 accepted**，不必回读任何东西就知道送到了。
+### 5.1 首选 `/prompt`：同步返回 accepted，不必回读
 
 ```bash
 curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
@@ -291,25 +184,37 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   "$BASE/api/sessions/<目标>/prompt"
 ```
 
-期望：
+期望：`{"result":{"accepted":true,"sessionId":"...","requestId":"...","agentId":"...","sessionPath":"C:\\...jsonl","runtimeGeneration":3}}`。
 
-```json
-{"result":{"accepted":true,"sessionId":"...","requestId":"probe-1794669273","agentId":"...","sessionPath":"C:\\...\\2026-11-15T03-17-13-312Z_01a1dd35.jsonl","runtimeGeneration":3}}
+`accepted: true` 就是送到了，不必回读任何东西。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
+
+### 5.2 要看流式才用 `/api/chat`
+
+请求体不是 `{message: "..."}`，是完整消息数组；`id` 是**目标会话的 sessionId**，不是 `agentId`：
+
+```bash
+curl -N -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"id":"<目标 sessionId>","messages":[{"role":"user","parts":[{"type":"text","text":"ping"}]}]}' \
+  "$BASE/api/chat"
 ```
 
-实际返回多一个 `sessionPath`，六个键。要拿 jsonl 路径时先看这里，省一次 `runtimes[]` 查询。
+返回 SSE，一行一帧。典型顺序 `start` → `reasoning-delta`（有思考时才有）→ `text-start` → `text-delta` → `text-end` → `finish` → `[DONE]`；带工具调用还有 `tool-input-start` / `tool-output-available`。不认识的帧按类型过滤，别当错误，也别等某个特定帧——**只认 `finish` 或 `[DONE]`**。`-N` 必须加，否则看不到流式。
 
-字段名是 `message` 不是 `text`，写错返回 400 `webError.messageRequired`；`requestId` 必填，缺了返回 400 `webError.requestIdRequired`。
+### 5.3 判「送到没有」只有一条
 
-返回里的 `runtimeGeneration` 是对端当前的运行时代号。它比你发之前记下的那个大，说明服务端刚替你拉起过它——这个信息 `/api/chat` 的 SSE 里没有。
+**看 `error` 帧，不看 `total`，也不看有没有 data 帧。** 没有 `error` 帧就是送到了（哪怕 0 个 data 帧、`total` 当场没变）；有就是没送到，原因写在 `errorText` 里。
 
-**发完之后怎么知道它做完了**：看第 5.5 节，或者查 `/api/sessions/<目标>/messages` 的 `total` 是否变大（这时候可以看，因为它已经不在生成中途）。
+参数错误不进流：缺 `id`、没有 role 为 user 的项、text 为空，直接 400 加 JSON。所以分三处看——400 是没进队列；200 加 `error` 帧是进了但找不到会话；200 加无 `error` 帧才是送到。
 
-**对方在 goal 模式时，消息发完要立刻补一条 `/goal on`。** 它收到 `/goal` 加一段文字就进入自动续跑，一轮结束后会自己接着做原来那件事。你插进去的普通消息不会让它续跑，续跑只认 goal 指令。
+**会话记录存在时，对端进程死没死都能送到**：服务端会替你 activate 一次。反过来，对端忙的时候整条连接可能只有 `: ping` 心跳，`total` 也不当场变大，而消息确实进了它的对话——拿 `total` 当判据会判成没送到，重发一次就变成两条重复消息。
 
-`/goal on` 只恢复续跑，不动它原来的任务。写成 `/goal 新目标` 是覆盖，会把它的活换成你写的那句话。所以只发斜杠加这两个词，不带参数，也别等它先回复。
+### 5.4 对方在 goal 模式时
 
-**它必须单独成一条消息，正文一个字都不带。** 后面跟一段话，那段话会被当成你的指令读——等于你替用户改了对方的目标。对方可能正在修另一个缺陷，读到你的报告就转头去修那个，原来那件事没人接着做。你要传达的发现，写在自己这一侧的交付说明里，或者让用户转述。
+发完消息立刻补一条 `/goal on`，**单独成一条，正文一个字都不带**。
+
+- 对方收到 `/goal` 加一段文字会进入自动续跑，一轮结束后接着做原来那件事；普通消息不会触发续跑。
+- `/goal 新目标` 是覆盖，会把它的活换成你写的那句。所以只发斜杠加两个词，不带参数，也别等它先回复。
+- 后面跟一段话，那段话会被当成你的指令读——等于你替用户改了对方的目标。
 
 发送前能机器核的一条：
 
@@ -317,8 +222,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 [ "$(cat msg.txt)" = "/goal on" ] || { echo "只发 /goal on，不带正文"; exit 1; }
 ```
 
-判的是「要发的这一份字节」，不是凭印象说发的是什么。用 `printf` 写这份文件而不是 `echo`：`echo` 在某些平台会给内容补一个换行或解释反斜杠，你真发出去的就不是你以为的那串。
-
+用 `printf` 写 msg.txt，别用 `echo`（后者会补换行或解释反斜杠，你真发出去的就不是你以为的那串）。
 
 ## 5.5 等对方干完：订阅、复用还是新开、什么时候算结束
 
@@ -360,12 +264,9 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 返回 `{"session":{"id":"...", ...}}`，取 `session.id`。新建的是草稿态，`status` 是 `draft`，也没有 `sessionPath`。
 
-直接发消息它就自己起来：实测 draft 会话直接 POST `/api/chat`，7 秒收齐 17 帧，之后 `runtimes[]` 里出现它，`status` 是 `idle`。
+直接发消息它就自己起来，不需要先 `activate`。
 
-**别用 `/api/sessions/anonymous` 建执行者。** 它有两个实测的坑：
-
-- `noSession: true`，**没有自己的 `sessionPath`**。执行者要认「我是谁」时会去比对磁盘上哪个 jsonl 正在被写，拿到的却是目标的路径，结论必然是「目标就是我」，于是拒绝执行。
-- stop 之后整条记录被删掉，紧接着 activate 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`——HTTP 仍是 200。它连当目标都不行。
+**别用 `/api/sessions/anonymous` 建执行者。** 它 `noSession: true`、没有自己的 `sessionPath`，认「我是谁」时会拿到目标的路径，结论必然是「目标就是我」，于是拒绝执行；而且 stop 之后整条记录被删，`activate` 返回 `SESSION_NOT_FOUND`（HTTP 仍是 200）。
 
 > 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的第 2 节，再按第 0 步到第 5 步做，每步把输出贴回来。
 >
