@@ -11,7 +11,7 @@
 import type { SkillManager } from "./SkillManager";
 
 /** 内置技能清单：目录名即技能名，与 resources/skills/ 下的子目录一一对应。 */
-const BUNDLED_SKILLS = ["usage-probe", "image-gen", "pideck-doctor", "pideck-web-api"] as const;
+const BUNDLED_SKILLS = ["usage-probe", "image-gen", "pideck-doctor", "mcp-setup", "pideck-web-api"] as const;
 
 interface BundledSkillLogger {
 	info(scope: string, message: string, detail?: unknown): unknown;
