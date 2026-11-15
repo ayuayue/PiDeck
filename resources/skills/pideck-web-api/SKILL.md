@@ -314,7 +314,7 @@ curl -sN --max-time 600 -H "$AUTH" "$BASE/api/sessions/<目标>/stream"
 
 **看它活着没有，看 `runtimes[].status`**：`running` 表示它正在生成，`idle` 表示它手上的活已经做完。整条从 `runtimes[]` 里消失说明进程已经停了；这时发消息它会自己回来（见第 5 节），不必先 `activate`。
 
-**退路才是轮询。** 长 sleep 会撞上工具自己的超时——几百秒的 curl 会被中途中止，数据只到手一半。所以把第 5 节那条 curl 的输出重定向到文件、后台跑：
+**退路才是轮询。** 长 sleep 会撞上工具自己的超时——几百秒的 curl 会被中途中止，数据只到手一半。所以把第 5 节那条 curl 的输出重定向到文件、后台跑。`body.json` 就是第 5 节 `-d` 后面那串 JSON，先单独存成文件：
 
 ```bash
 curl -sN -H "$AUTH" -H "Content-Type: application/json" -d @body.json "$BASE/api/chat" > /tmp/reply.txt 2>&1 &
