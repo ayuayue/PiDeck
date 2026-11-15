@@ -335,7 +335,10 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 >    curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 >      "$BASE/api/sessions/<目标>/runtime/activate"
 >    ```
-> 4. **验**：`activate` 的返回里直接有 `runtimeGeneration` 和 `agentId`，不用再读一次 `runtimes[]`。代号比第 1 步的 `N` 大 1 才是换了进程，例如 `N=3` 重启后返回 `4`。
+> 4. **验**：`activate` 的返回里直接有 `runtimeGeneration` 和 `agentId`，不用再读一次 `runtimes[]`。
+>
+>    - 第 1 步找到了 target（目标在跑）：新代号必须比 `N` 大 1，例如 `N=3` 重启后返回 `4`。等于 `N` 说明没换进程（stop 没生效）。
+>    - 第 1 步没找到 target（目标本来就没在跑）：**没有 `N` 可比**，此时口径换成「返回里有 `agentId` 且 `status` 是 `running`」——只看它起没起来，不跟一个不存在的代号比。
 > 5. **发一条消息，证明它能接活**：
 >    ```bash
 >    curl -s -H "$AUTH" -H "Content-Type: application/json" \
