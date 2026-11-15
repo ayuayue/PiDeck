@@ -19,6 +19,8 @@ type forkNode struct {
 	Title   string
 	Depth   int
 	Current bool
+	// Children is how many forks grew directly out of this one.
+	Children int
 }
 
 // forkRoot walks up to the session with no recorded parent.
@@ -62,7 +64,8 @@ func (a *app) forkFamily(target string) []forkNode {
 			return
 		}
 		visited[id] = true
-		out = append(out, forkNode{ID: id, Title: a.sessionTitle(id), Depth: depth, Current: id == target})
+		out = append(out, forkNode{ID: id, Title: a.sessionTitle(id), Depth: depth, Current: id == target,
+			Children: len(children[id])})
 		kids := append([]string(nil), children[id]...)
 		sort.SliceStable(kids, func(i, j int) bool {
 			return strings.ToLower(a.sessionTitle(kids[i])) < strings.ToLower(a.sessionTitle(kids[j]))
@@ -92,12 +95,56 @@ func (a *app) forkTreeDialog() core.Node {
 		if s != nil {
 			nodes = a.forkFamily(s.ID)
 		}
-		rows := make([]core.Node, 0, len(nodes))
+		collapsed := a.forkCollapsed.Get()
+		var shown []forkNode
+		hiddenDepth := -1
 		for _, n := range nodes {
+			if hiddenDepth >= 0 {
+				if n.Depth > hiddenDepth {
+					continue
+				}
+				hiddenDepth = -1
+			}
+			shown = append(shown, n)
+			if collapsed[n.ID] && n.Children > 0 {
+				hiddenDepth = n.Depth
+			}
+		}
+		rows := make([]core.Node, 0, len(shown))
+		for _, n := range shown {
 			node := n
 			open := a.byID[node.ID] != nil
+			var toggle core.Node = core.View{Style: core.Style{Width: core.Pt(14), Height: core.Pt(14)}}
+			if node.Children > 0 {
+				folded := collapsed[node.ID]
+				icon := lucide.ChevronDown
+				label := T("折叠")
+				if folded {
+					icon = lucide.ChevronRight
+					label = T("展开")
+				}
+				toggle = core.View{OnPress: func(core.PressEvent) {
+					a.forkCollapsed.Update(func(m map[string]bool) map[string]bool {
+						next := make(map[string]bool, len(m)+1)
+						for k, v := range m {
+							next[k] = v
+						}
+						if next[node.ID] {
+							delete(next, node.ID)
+						} else {
+							next[node.ID] = true
+						}
+						return next
+					})
+				}, Role: core.RoleButton, Label: label + " " + node.Title, TestID: "fork-toggle-" + node.ID,
+					StyleFunc: func() core.Style {
+						return core.Style{Width: core.Pt(14), Height: core.Pt(14), AlignItems: core.AlignCenter,
+							JustifyContent: core.JustifyCenter, CornerRadius: 3, Hover: &core.Style{Background: colors.Hover()}}
+					}, Children: []core.Node{ui.Icon(icon, 10, colors.Faint)}}
+			}
 			row := []core.Node{
 				core.View{Style: core.Style{Width: core.Pt(core.Points(node.Depth) * 14)}},
+				toggle,
 				ui.Icon(lucide.GitBranch, 11, colors.Faint),
 				core.Text{Content: node.Title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12},

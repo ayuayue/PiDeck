@@ -464,6 +464,7 @@ type app struct {
 	gotoLine        *core.Signal[string]
 	quickOpen       *core.Signal[bool]
 	chatFindOpen    *core.Signal[bool]
+	forkCollapsed   *core.Signal[map[string]bool]
 	chatFindText    *core.Signal[string]
 	pluginNewOpen   *core.Signal[bool]
 	pluginNewID     *core.Signal[string]
@@ -632,6 +633,7 @@ func newApp(cx *core.Scope) *app {
 		gotoLine:               core.NewSignal(cx, ""),
 		quickOpen:              core.NewSignal(cx, false),
 		chatFindOpen:           core.NewSignal(cx, false),
+		forkCollapsed:          core.NewSignalFunc(cx, map[string]bool{}, nil),
 		chatFindText:           core.NewSignal(cx, ""),
 		pluginNewOpen:          core.NewSignal(cx, false),
 		pluginNewID:            core.NewSignal(cx, ""),
