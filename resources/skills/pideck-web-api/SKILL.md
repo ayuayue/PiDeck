@@ -140,7 +140,7 @@ node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\
 
 **这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。
 
-`/messages` 一次返回整个窗口：1653 条的会话实测 226 KB，几十条的小会话只有几十字节。把 `pageSize` 拉到 100 会连那一段历史一起拉回来，同一会话实测 15 MB 级。`/api/state` 与 `/api/sessions/runtimes` 是几 KB。
+`/messages` 一次返回整个窗口：1653 条的会话实测 226 KB，几十条的小会话也有几十 KB。把 `pageSize` 拉到 100 会连那一段历史一起拉回来，同一会话实测 15 MB 级。`/api/state` 与 `/api/sessions/runtimes` 是几 KB。
 
 具体数字自己量，别抄这里的：
 
@@ -148,7 +148,7 @@ node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\
 curl -s -o /dev/null -w '%{size_download} %{time_total}\n' -H "$AUTH" "$BASE/api/state"
 ```
 
-这两个数随会话数涨：单个 session 对象至少 171 字节，会话多了就线性涨，别当常量。
+这两个数随会话数涨：单个 session 对象约 330 字节，会话多了就线性涨，别当常量。
 
 所以**别拿它轮询**：判断消息送没送到，先看 SSE 有没有 `error` 帧，只查一次 `/messages`。
 
