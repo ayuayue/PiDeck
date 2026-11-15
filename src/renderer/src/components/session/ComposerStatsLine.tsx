@@ -1,12 +1,15 @@
 import { Fragment, memo, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../../i18n";
-import type { AgentRuntimeState, TpsDisplayMode } from "../../../../shared/types";
+import type { AgentBackend, AgentRuntimeState, TpsDisplayMode } from "../../../../shared/types";
+import type { UsageProbeBackend } from "../../../../shared/types/providerUsage";
 import { useAtomValue } from "jotai";
 import { tpsDisplayModeAtom } from "../../atoms/tps-atoms";
 import { buildTpsDisplay } from "../../utils/tpsDisplay";
 import { cn } from "../../lib/utils";
 import { formatDuration } from "./TimelineFormat";
 import { formatTokens } from "./SessionContextMeter";
+import { useProviderUsageEntry } from "../../hooks/useProviderUsage";
+import { USAGE_TONE_TEXT_CLASS, usageBadgeSegments } from "../../utils/providerUsageDisplay";
 
 /**
  * 输入卡正下方的会话指标条（dsh-web StatsLine / conversation.composer.dock）。
@@ -104,9 +107,22 @@ export function buildComposerStatsGroups(state: Pick<AgentRuntimeState, "dshSess
 	return buildComposerStatsSegments(state, turnCount, tpsMode).map((parts) => parts.map((part) => part.text).join(" · "));
 }
 
-export const ComposerStatsLine = memo(function ComposerStatsLine(props: { state?: AgentRuntimeState; turnCount?: number; contextMeter?: ReactNode }) {
+/**
+ * 统计行用量徽章的 provider 解析。真实 pi 会话只有 runtime 快照带 provider；
+ * bootstrapDefaults 只在无 record 的引导页解析，dshDefaultModel 只在 DSH 后端有值，
+ * 因此必须先取 state.provider，否则徽章在真实会话里永远不出现。
+ * ACP 的用量来自 agent 侧 usage_update，与供应商配额无关，不查。
+ */
+export function resolveComposerUsageProvider(backend: AgentBackend | undefined, state: Pick<AgentRuntimeState, "provider"> | undefined, dshProvider?: string, bootstrapProvider?: string): string | undefined {
+	if (backend === "acp") return undefined;
+	return state?.provider?.trim() || dshProvider?.trim() || bootstrapProvider?.trim() || undefined;
+}
+
+export const ComposerStatsLine = memo(function ComposerStatsLine(props: { state?: AgentRuntimeState; turnCount?: number; contextMeter?: ReactNode; provider?: string; usageBackend?: UsageProbeBackend }) {
 	const tpsMode = useAtomValue(tpsDisplayModeAtom);
+	const usageEntry = useProviderUsageEntry(props.provider, props.usageBackend);
 	const segments = buildComposerStatsSegments(props.state, props.turnCount, tpsMode);
+	const usageSegments = usageEntry.result?.success ? usageBadgeSegments(usageEntry.result, t) : null;
 	const rootRef = useRef<HTMLDivElement | null>(null);
 	const [truncated, setTruncated] = useState(false);
 	const line = segments.map((parts) => parts.map((part) => part.text).join(" · ")).join(" | ");
@@ -163,6 +179,20 @@ export const ComposerStatsLine = memo(function ComposerStatsLine(props: { state?
 					</Fragment>
 				))}
 			</div>
+			{/* 用量徽章放在 truncate 容器外：放在里面时长行会把它先截掉。
+			    与上下文圆环同列（shrink-0），只让左侧统计文本自身省略。 */}
+			{usageSegments && usageSegments.length > 0 && (
+				<span className="inline-flex shrink-0 items-baseline gap-1.5 whitespace-nowrap border-l border-border-strong pl-2.5" data-testid="composer-provider-usage">
+					{usageSegments.map((segment, index) => (
+						<Fragment key={`${segment.labelKey ?? segment.labelText ?? "usage"}-${index}`}>
+							<span title={t("sessionContext.usageBalance")}>{segment.labelKey != null ? t(segment.labelKey) : segment.labelText}</span>
+							<span className={`font-mono font-semibold tabular-nums ${USAGE_TONE_TEXT_CLASS[segment.tone]}`} title={t("sessionContext.usageBalance")}>
+								{segment.text}
+							</span>
+						</Fragment>
+					))}
+				</span>
+			)}
 			<span className="shrink-0">{props.contextMeter}</span>
 		</div>
 	);
