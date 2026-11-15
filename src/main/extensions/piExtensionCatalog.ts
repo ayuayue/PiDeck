@@ -11,6 +11,7 @@ import { readConfiguredNpmCommand } from "../resourceWhitelist";
 import { discoverExtensionEntries } from "./extensionDiscovery";
 import { BUILT_IN_EXTENSIONS, INTERNAL_BUILT_IN_EXTENSIONS, isBuiltInExtensionName, readEffectiveBuiltInExtensionsVersion, resolveBuiltInExtensionPath, type BuiltInExtensionPathRoots } from "./builtInExtensions";
 import { createNpmRegistryVersionResolver } from "./npmRegistryVersion";
+import { parseGitHubRepositorySource, resolveGitHubLatestVersion, type GitHubVersionOptions } from "./githubVersion";
 
 /**
  * 扩展目录域：`pi list` + 本地目录扫描 → 合并 → 启用态投影 → （可选）npm 版本补全，带缓存与并发去重。
@@ -157,6 +158,8 @@ export type PiExtensionCatalogDeps = {
 	homeDir: () => string;
 	/** 内置扩展磁盘根：提供后可为内置扩展补齐真实路径与包级版本。 */
 	builtInRoots?: BuiltInExtensionPathRoots;
+	/** GitHub 网络实现注入：生产环境省略；测试可用本地替身验证版本查询。 */
+	gitHubVersionOptions?: GitHubVersionOptions;
 	/** 原生启用态读取：装配在当前所在的 manager（开关写盘后立刻反映）。 */
 	readNativeState: (extension: PiExtensionSummary) => ExtensionNativeState | undefined;
 	/** WSL 路径映射：列表里的路径可能是 Linux 形态，读 package.json 要回宿主路径。 */
@@ -175,6 +178,7 @@ export class PiExtensionCatalog {
 	private readonly translate: PiExtensionCatalogTranslate;
 	private readonly getHomeDir: () => string;
 	private readonly builtInRoots: BuiltInExtensionPathRoots | undefined;
+	private readonly gitHubVersionOptions: GitHubVersionOptions | undefined;
 	private readonly readNativeState: PiExtensionCatalogDeps["readNativeState"];
 	private readonly toHostPath: PiExtensionCatalogDeps["toHostPath"];
 	private readonly removeBuiltInFile: PiExtensionCatalogDeps["removeBuiltInFile"];
@@ -207,6 +211,7 @@ export class PiExtensionCatalog {
 		this.translate = deps.translate;
 		this.getHomeDir = deps.homeDir;
 		this.builtInRoots = deps.builtInRoots;
+		this.gitHubVersionOptions = deps.gitHubVersionOptions;
 		this.readNativeState = deps.readNativeState;
 		this.toHostPath = deps.toHostPath;
 		this.removeBuiltInFile = deps.removeBuiltInFile;
@@ -444,13 +449,15 @@ export class PiExtensionCatalog {
 	 * 本地目录包（`pi install <dir>`）：registry 上没有「最新版本」这个概念，只读包自身
 	 * package.json 的 version，绝不查 npm view / registry，也不产生 hasUpdate——
 	 * 这类包更新走 `pi update --extensions` 整批刷新（见 ExtensionManager.updateExtension）。
-	 * 其它非 npm 源（git:/github:/https: 等）保持原样直接返回。
+	 * GitHub 包：读已装 package.json + 查最新正式 Release；没有 Release 时回退到版本标签。
+	 * 其它非 npm 源（其它 Git 主机、https: 等）保持原样直接返回。
 	 *
 	 * 为什么两条查询各自 settle：registry 慢/断时把「当前版本」也一起吞掉会让整列变成
 	 * 「检查扩展版本失败」（2026-10 用户反馈）；读盘失败与查询失败分别留日志与提示。
 	 */
 	private async enrichExtensionVersion(extension: PiExtensionSummary, resolveLatestVersion: (packageName: string) => Promise<string | null>): Promise<PiExtensionSummary> {
-		if (!extension.source.toLowerCase().startsWith("npm:")) {
+		const repository = parseGitHubRepositorySource(extension.source);
+		if (!extension.source.toLowerCase().startsWith("npm:") && !repository) {
 			// local 标记来自 pi list 解析；source 形态兜底判定覆盖未经 parsePiListOutput
 			// 构造的条目（如测试/其它投影），避免本地包漏掉版本与更新语义。
 			if (extension.local !== true && !isPathLikePackageSource(extension.source)) return extension;
@@ -462,7 +469,7 @@ export class PiExtensionCatalog {
 			return installed.value === undefined ? extension : { ...extension, currentVersion: installed.value };
 		}
 		const packageName = extension.source.replace(/^npm:/i, "");
-		const [installed, latest] = await Promise.all([this.settleQuery(this.readInstalledVersion(extension.path)), this.settleQuery(resolveLatestVersion(packageName))]);
+		const [installed, latest] = await Promise.all([this.settleQuery(this.readInstalledVersion(extension.path)), this.settleQuery(repository ? resolveGitHubLatestVersion(repository, this.gitHubVersionOptions) : resolveLatestVersion(packageName))]);
 		const currentVersion = installed.value;
 		const latestVersion = latest.value ?? undefined;
 		if (installed.error) {
