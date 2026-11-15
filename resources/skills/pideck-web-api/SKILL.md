@@ -486,6 +486,8 @@ PiDeck 里正常新建的会话不受这个影响。
 
 依据是 `runtime/runtimeBinding.ts` 的 `requireBoundTarget`：它先核对 sessionId 与 agentId 的绑定，再比代号，两步抛的码不同。
 
+**`agentId` 会随进程换，抓完立刻用。** 隔着几分钟拿旧 `agentId` 去请求，先撞的是第一步「绑定对不上」，返回 `SESSION_RUNTIME_UNAVAILABLE`。看起来像会话没了，其实是身份过期。
+
 这两个码里 `SESSION_RUNTIME_CHANGED` 容易被读成「运行时代号变了」，实际意思是「你传的值不对」，别据此判断会话被重启过。三个字段都传当前值最稳，取法见第 6 节第 1 步。
 
 **`activate` 是冷启动，别按毫秒算。** 本机实测（Windows 发行版，进程完全没起）一次 3556 毫秒；别人机器上记过一次 45 毫秒，那是进程已经预热的情况。给它设超时按 5 秒以上给。
