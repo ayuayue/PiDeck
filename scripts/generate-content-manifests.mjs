@@ -242,6 +242,27 @@ function isMainModule() {
 	return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 }
 
+function selftest() {
+	const LF = String.fromCharCode(10);
+	const CRLF = String.fromCharCode(13, 10);
+	const lf = "alpha" + LF + "beta" + LF;
+	const crlf = "alpha" + CRLF + "beta" + CRLF;
+	const bin = Buffer.from([0, 13, 10, 1]);
+	const cases = [
+		["LF 与 CRLF 必须同哈希（行尾归一）", sha256(lf) === sha256(crlf)],
+		["CRLF 归一成 LF", normalizeEol(Buffer.from(crlf)).toString("utf8") === lf],
+		["LF 原样不动", normalizeEol(Buffer.from(lf)).toString("utf8") === lf],
+		["含 NUL 的按二进制原样", normalizeEol(bin).equals(bin)],
+	];
+	let fail = 0;
+	for (const [name, ok] of cases) if (!ok) { fail++; console.log("FAIL 自检：" + name); }
+	if (fail) { console.log("自检失败 " + fail + " 条"); process.exit(1); }
+	console.log("selftest PASS：" + cases.length + " 条");
+}
+if (process.argv.includes("--selftest")) {
+	selftest();
+	process.exit(0);
+}
 if (isMainModule()) {
 	try {
 		const result = generateContentManifest(parseArgs(process.argv.slice(2)));

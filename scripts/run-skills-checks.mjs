@@ -28,6 +28,9 @@ const REAL_STEPS = [
 	["动作表与端点表对源码 doc", [DIR + "/check-doc.mjs"]],
 	["API 路径逐段对源码 paths", [DIR + "/check-paths.mjs"]],
 	["正文结构 format", [DIR + "/check-format.mjs"]],
+	// 清单哈希前要归一化行尾：Windows 工作树是 CRLF、CI 检出是 LF，不归一就会在两边得出不同结论
+	// （2026-11-15 让 Dev Guard 第 7 步红了三次）。这条自检喂 LF/CRLF 两串比哈希，变异 normalizeEol 会红。
+	["清单行尾归一自检", ["scripts/generate-content-manifests.mjs", "--selftest"]],
 ];
 
 // 自检用假步，不碰任何判据：聚合器的不变量只有「每条都跑、红的都点名、绿的记下来」，
