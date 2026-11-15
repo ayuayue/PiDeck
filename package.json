@@ -128,7 +128,10 @@
     "e2e": "playwright test",
     "verify": "npm run typecheck && npm test && npm run test:e2e",
     "probe:dsh": "node scripts/dsh-embed-probe.mjs",
-    "test:skills": "node scripts/run-skills-checks.mjs",
+    "test:skills": "node scripts/run-skills-checks.mjs"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
     "@aws-sdk/client-s3": "^3.1116.0",
     "@e965/xlsx": "^0.20.3",
     "@electron-toolkit/utils": "^4.0.0",
