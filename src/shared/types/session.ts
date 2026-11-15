@@ -634,7 +634,15 @@ export type SessionUiResponseInput = {
 	response: AgentUiResponse;
 };
 
-/** 会话分支树（pi get_tree RPC 的瘦身投影）：主进程在 IPC 边界截断预览文本，渲染层只拿导航所需字段。 */
+/**
+ * 会话分支树的**扁平**节点（pi get_tree RPC 的瘦身投影）：主进程在 IPC 边界截断预览文本，
+ * 渲染层按 `parentId` 自行重组 children。
+ *
+ * 为什么扁平：退化链（无分叉的长会话）的嵌套深度 = 条目数，实测 2467 层。嵌套对象过
+ * `ipcRenderer.invoke` 时 Electron 的结构化克隆会栈溢出，回复发不出去、Promise 既不 resolve
+ * 也不 reject，面板永久停在 loading（#553）。扁平表把深度挡在传输层之外；渲染层重组用的是
+ * 普通 JS 递归，2467 层实测安全。
+ */
 export type SessionBranchNode = {
 	id: string;
 	parentId: string | null;
@@ -646,11 +654,11 @@ export type SessionBranchNode = {
 	timestamp: string;
 	/** 分支摘要（branch_summary / label entry 解析结果）。 */
 	label?: string;
-	children: SessionBranchNode[];
 };
 
 export type SessionBranchTree = {
-	roots: SessionBranchNode[];
+	/** 全量节点，按文件追加顺序（同父兄弟的相对顺序即数组顺序）。 */
+	nodes: SessionBranchNode[];
 	/** 当前叶子（活跃分支末端）；空会话为 null。 */
 	leafId: string | null;
 };

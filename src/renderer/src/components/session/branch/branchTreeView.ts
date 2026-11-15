@@ -1,5 +1,28 @@
 import type { SessionBranchNode, SessionBranchTree } from "../../../../../shared/types";
 
+/** 渲染层内部的重组树：wire 只传扁平表（#553 的 IPC 序列化上限），children 在这里才出现。 */
+export type BranchTreeNode = SessionBranchNode & { children: BranchTreeNode[] };
+export type BranchTree = { roots: BranchTreeNode[]; leafId: string | null };
+
+/**
+ * 扁平表 → 重组树。主进程已按文件追加顺序排好，所以按数组顺序挂孩子即等于「同父按 offset」；
+ * 父缺失（父链断裂，如墓碑父被合并进 fork 链外）的节点按 pi get_tree 同语义提升为根。
+ * 两趟循环，不递归：这条链路本来就是因为深度过深（实测 2467 层）才改成扁平的。
+ */
+export function hydrateBranchTree(tree: SessionBranchTree): BranchTree {
+	const byId = new Map<string, BranchTreeNode>();
+	for (const node of tree.nodes) byId.set(node.id, { ...node, children: [] });
+	const roots: BranchTreeNode[] = [];
+	for (const node of tree.nodes) {
+		const self = byId.get(node.id);
+		if (!self) continue;
+		const parent = node.parentId === null ? undefined : byId.get(node.parentId);
+		if (parent) parent.children.push(self);
+		else roots.push(self);
+	}
+	return { roots, leafId: tree.leafId };
+}
+
 /**
  * 分支树面板的**纯视图策略**（无 React、无 DOM）：把 pi 的原始条目树折算成一行行
  * 可直接渲染的 BranchRow。独立成模块的原因是可单测——「缩进怎么长、哪些行折叠」
@@ -18,7 +41,7 @@ import type { SessionBranchNode, SessionBranchTree } from "../../../../../shared
 export const MAX_INDENT_DEPTH = 6;
 
 /** 锚点节点：折叠步骤时必须保留可见的行。 */
-export function isAnchor(node: SessionBranchNode): boolean {
+export function isAnchor(node: BranchTreeNode): boolean {
 	return node.role === "user" || node.children.length > 1 || node.entryType === "compaction" || node.entryType === "branch_summary";
 }
 
@@ -26,7 +49,7 @@ export function isAnchor(node: SessionBranchNode): boolean {
  * 折叠纯中转节点：无预览、单孩子、且不是消息/摘要类的节点直接消失，用孩子顶替它的位置。
  * pi 会话文件里这类结构化占位（如仅有元数据的包装条目）数量可观，渲染成行只是噪音。
  */
-export function compactPassThrough(node: SessionBranchNode): SessionBranchNode {
+export function compactPassThrough(node: BranchTreeNode): BranchTreeNode {
 	const children = node.children.map(compactPassThrough);
 	const isContentish = node.entryType === "message" || node.entryType === "compaction" || node.entryType === "branch_summary";
 	if (!isContentish && node.preview === "" && children.length === 1) return { ...children[0], parentId: node.parentId };
@@ -34,15 +57,15 @@ export function compactPassThrough(node: SessionBranchNode): SessionBranchNode {
 }
 
 /** 活动分支节点集合：leafId 沿 parentId 上溯。孤儿（父链断裂）止步于根，不抛错。 */
-export function collectActiveIds(tree: SessionBranchTree): Set<string> {
-	const byId = new Map<string, SessionBranchNode>();
-	const walk = (node: SessionBranchNode) => {
+export function collectActiveIds(tree: BranchTree): Set<string> {
+	const byId = new Map<string, BranchTreeNode>();
+	const walk = (node: BranchTreeNode) => {
 		byId.set(node.id, node);
 		for (const child of node.children) walk(child);
 	};
 	for (const root of tree.roots) walk(root);
 	const active = new Set<string>();
-	let cursor: SessionBranchNode | undefined = tree.leafId ? byId.get(tree.leafId) : undefined;
+	let cursor: BranchTreeNode | undefined = tree.leafId ? byId.get(tree.leafId) : undefined;
 	while (cursor) {
 		active.add(cursor.id);
 		cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
@@ -51,9 +74,9 @@ export function collectActiveIds(tree: SessionBranchTree): Set<string> {
 }
 
 /** 默认折叠集 = 全部非活动路径上有孩子的节点：直接备选行仍可见（一行），后代收起。 */
-export function defaultCollapsedIds(tree: SessionBranchTree, activeIds: ReadonlySet<string>): Set<string> {
+export function defaultCollapsedIds(tree: BranchTree, activeIds: ReadonlySet<string>): Set<string> {
 	const collapsed = new Set<string>();
-	const walk = (node: SessionBranchNode) => {
+	const walk = (node: BranchTreeNode) => {
 		if (node.children.length > 0 && !activeIds.has(node.id)) collapsed.add(node.id);
 		for (const child of node.children) walk(child);
 	};
@@ -62,9 +85,9 @@ export function defaultCollapsedIds(tree: SessionBranchTree, activeIds: Readonly
 }
 
 /** 全部节点 id（「看全部」时把每个节点都标记成已展开的步骤段）。 */
-export function collectAllIds(tree: SessionBranchTree): string[] {
+export function collectAllIds(tree: BranchTree): string[] {
 	const ids: string[] = [];
-	const walk = (node: SessionBranchNode) => {
+	const walk = (node: BranchTreeNode) => {
 		ids.push(node.id);
 		for (const child of node.children) walk(child);
 	};
@@ -76,7 +99,7 @@ export function collectAllIds(tree: SessionBranchTree): string[] {
  * 折叠从 node 开始的非锚点连续段，返回该段末节点与步数（末节点的内容最有信息量）。
  * 锚点自身不作为段首：压缩点/用户消息的标记与文案必须留在屏幕上，不能被助手步骤的预览顶掉。
  */
-export function foldRun(node: SessionBranchNode, expandedRuns: ReadonlySet<string>): { tail: SessionBranchNode; steps: number } {
+export function foldRun(node: BranchTreeNode, expandedRuns: ReadonlySet<string>): { tail: BranchTreeNode; steps: number } {
 	if (expandedRuns.has(node.id) || isAnchor(node)) return { tail: node, steps: 0 };
 	let tail = node;
 	let steps = 0;
@@ -88,7 +111,7 @@ export function foldRun(node: SessionBranchNode, expandedRuns: ReadonlySet<strin
 }
 
 /** 一段折叠段里藏着的所有节点 id（点 ⌄ 时一次展开整段，不用逐行点）。 */
-export function collectRunIds(node: SessionBranchNode, expandedRuns: ReadonlySet<string>): string[] {
+export function collectRunIds(node: BranchTreeNode, expandedRuns: ReadonlySet<string>): string[] {
 	const { tail, steps } = foldRun(node, expandedRuns);
 	if (steps === 0) return [node.id];
 	const ids = [node.id];
@@ -107,9 +130,9 @@ export function indentUnits(depth: number): number {
 
 export interface BranchRow {
 	/** 行首节点（折叠段的首节点）：折叠标记与 fork 落点都挂在它上面。 */
-	node: SessionBranchNode;
+	node: BranchTreeNode;
 	/** 折叠段的末节点：行文案、角色图标、后续孩子都取自它。 */
-	tail: SessionBranchNode;
+	tail: BranchTreeNode;
 	/** 被折叠进这一行的步数（0 = 未折叠）。 */
 	steps: number;
 	/** 显示深度（已按「只有分支点加一级」折算）。 */
@@ -155,10 +178,10 @@ export function moveRowFocus(rows: BranchRow[], currentId: string, key: "ArrowDo
  * 把树折成可见行序列（前序遍历）。深度只在分支点增长，线性链保持同缩进——
  * 这条规则让 200 条消息的长会话从「200 层缩进」变成个位数层级。
  */
-export function buildBranchRows(tree: SessionBranchTree, view: { collapsedIds: ReadonlySet<string>; expandedRuns: ReadonlySet<string> }): BranchRow[] {
+export function buildBranchRows(tree: BranchTree, view: { collapsedIds: ReadonlySet<string>; expandedRuns: ReadonlySet<string> }): BranchRow[] {
 	const activeIds = collectActiveIds(tree);
 	const rows: BranchRow[] = [];
-	const walk = (node: SessionBranchNode, depth: number, parentRowId: string | undefined) => {
+	const walk = (node: BranchTreeNode, depth: number, parentRowId: string | undefined) => {
 		const { tail, steps } = foldRun(node, view.expandedRuns);
 		const runFolded = steps > 0;
 		const collapsed = !runFolded && view.collapsedIds.has(tail.id) && tail.children.length > 0;
@@ -184,14 +207,14 @@ export function buildBranchRows(tree: SessionBranchTree, view: { collapsedIds: R
 }
 
 /** 原始树 → 面板使用的紧凑树 + 活动集 + 节点数（一次遍历，避免渲染期重复算）。 */
-export function prepareTree(raw: SessionBranchTree): { tree: SessionBranchTree; activeIds: Set<string>; nodeCount: number } {
+export function prepareTree(raw: BranchTree): { tree: BranchTree; activeIds: Set<string>; nodeCount: number } {
 	const roots = raw.roots.map(compactPassThrough);
 	let nodeCount = 0;
-	const countNodes = (node: SessionBranchNode) => {
+	const countNodes = (node: BranchTreeNode) => {
 		nodeCount += 1;
 		for (const child of node.children) countNodes(child);
 	};
 	for (const root of roots) countNodes(root);
-	const tree: SessionBranchTree = { roots, leafId: raw.leafId };
+	const tree: BranchTree = { roots, leafId: raw.leafId };
 	return { tree, activeIds: collectActiveIds(tree), nodeCount };
 }

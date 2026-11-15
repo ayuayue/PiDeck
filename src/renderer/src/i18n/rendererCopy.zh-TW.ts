@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 4400ef8295fb44fedf0c68e47f6c74a267729555445a2c0258ce1fa181885de2（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: b4a481f65da2f15316187d1f8fd447e4dd8cc3aaced33ba19866592b36b48fef（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -6896,6 +6896,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"session.branchTree.noSession": "未開啟會話",
 	"session.branchTree.unsupported": "當前會話型別不支援分支樹",
 	"session.branchTree.loadFailed": "分支樹讀取失敗：{error}",
+	"session.branchTree.timeout": "分支樹讀取超時（30 秒），會話檔案可能過大或索引卡住；可點右上角重新整理重試",
 	"session.branchTree.nodeCount": "{count} 個節點",
 	"session.branchTree.forkHere": "從這裡 fork 新會話",
 	"session.branchTree.compactionNode": "上下文壓縮點",

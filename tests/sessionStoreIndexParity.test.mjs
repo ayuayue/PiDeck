@@ -66,7 +66,9 @@ test("sidecar 条目表与 TS 解析输出逐字段一致（含窗口/翻页/分
 	const expected = await assertReadersAgree(() =>
 		createReader(async (hostPath, version) => {
 			calls.push({ hostPath, version });
-			return GOLDEN;
+			// 版本字段用本次 stat 的真实值：golden 是 Go 侧产物，path/mtime 在生成时被归一化，
+			// 而读者现在要求「表版本 == 请求版本」才复用（见 requestIndexTable）。
+			return { ...GOLDEN, path: hostPath, size: version.size, mtimeMs: version.mtimeMs };
 		}),
 	);
 	// sidecar 路径确实被走到，且拿到的是真实 stat 版本（缓存键的语义来源）
@@ -147,4 +149,18 @@ test("用户消息 preview 与 Go 条目表逐条一致（导轨标题不靠回�
 	}
 	// 防止 fixture 被改瘦后测试变空转：至少要有用户消息预览被比对。
 	assert.equal(compared > 0, true);
+});
+
+test("sidecar 表版本与本次 stat 不一致时整份弃用，分支树回退 TS 且不少条目", async () => {
+	const native = await createReader().readBranchTree(SESSION_PATH);
+	let served = 0;
+	const stale = createReader(async (_hostPath, version) => {
+		served += 1;
+		// 陈旧表：少一半条目，且 size 明确对不上本次 stat。若读者不校验版本，
+		// 分支树会按这份表截断（#553 的「少 378 条」形态）；校验后必须回退 TS。
+		return { ...GOLDEN, path: SESSION_PATH, size: version.size + 1, mtimeMs: version.mtimeMs, entries: GOLDEN.entries.slice(0, Math.floor(GOLDEN.entries.length / 2)) };
+	});
+	const actual = await stale.readBranchTree(SESSION_PATH);
+	assert.equal(served, 1);
+	assert.deepEqual(actual, native);
 });

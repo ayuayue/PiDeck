@@ -6889,6 +6889,7 @@ export const zhCN = {
 	"session.branchTree.noSession": "未打开会话",
 	"session.branchTree.unsupported": "当前会话类型不支持分支树",
 	"session.branchTree.loadFailed": "分支树读取失败：{error}",
+	"session.branchTree.timeout": "分支树读取超时（30 秒），会话文件可能过大或索引卡住；可点右上角刷新重试",
 	"session.branchTree.nodeCount": "{count} 个节点",
 	"session.branchTree.forkHere": "从这里 fork 新会话",
 	"session.branchTree.compactionNode": "上下文压缩点",

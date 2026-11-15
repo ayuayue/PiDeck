@@ -6917,6 +6917,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"session.branchTree.noSession": "No session open",
 	"session.branchTree.unsupported": "Branch tree is not available for this session type",
 	"session.branchTree.loadFailed": "Failed to load branch tree: {error}",
+	"session.branchTree.timeout": "Loading the branch tree timed out after 30 seconds. The session file may be too large or the index may be stuck; use refresh in the top-right corner to retry.",
 	"session.branchTree.nodeCount": "{count} nodes",
 	"session.branchTree.forkHere": "Fork a new session from here",
 	"session.branchTree.compactionNode": "Context compaction",

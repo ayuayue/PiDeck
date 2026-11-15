@@ -787,24 +787,13 @@ export class SessionHistoryReader {
 	 * 移动了 leaf 而未追加新条目，此处不会反映（PiDeck 内的 fork/重发都靠追加，不受影响）。
 	 */
 	async readBranchTree(sessionPath: string): Promise<SessionBranchTree> {
+		// 这条链路此前全无日志：面板卡在 loading 时无法区分「main 卡住」「IPC 没注册」
+		// 「promise 没 settle」（issue #553）。起止两行足以把区间夹出来；正文计数给的是
+		// 「索引/预览各读到多少」，不打印树内容。
+		const startedAt = Date.now();
+		this.deps.logger?.info("session-history", "Branch tree read started", { sessionPath });
 		const index = await this.getSessionDisplayIndex(sessionPath);
-		// children 表：同父按文件 offset 排序（=追加顺序）；孤儿（父链断裂，如墓碑父被合并
-		// 进 fork 链外）按 pi get_tree 同语义提升为根。
-		const childrenOf = new Map<string, SessionDisplayEntry[]>();
-		const roots: SessionDisplayEntry[] = [];
-		for (const entry of index.entries.values()) {
-			const parent = entry.parentId ? index.entries.get(entry.parentId) : undefined;
-			if (parent) {
-				const siblings = childrenOf.get(parent.id);
-				if (siblings) siblings.push(entry);
-				else childrenOf.set(parent.id, [entry]);
-			} else {
-				roots.push(entry);
-			}
-		}
 		const byOffset = (a: SessionDisplayEntry, b: SessionDisplayEntry) => a.offset - b.offset || (a.chainHostPath ?? "").localeCompare(b.chainHostPath ?? "");
-		roots.sort(byOffset);
-		for (const siblings of childrenOf.values()) siblings.sort(byOffset);
 
 		// 预览文本：只给 message 条目读行；压缩/分支摘要用索引里的 summary，零 IO。
 		const previewTargets: SessionDisplayEntry[] = [];
@@ -821,7 +810,10 @@ export class SessionHistoryReader {
 			if (text) previews.set(previewTargets[i].id, text);
 		}
 
-		const toNode = (entry: SessionDisplayEntry): SessionBranchNode => ({
+		// 扁平投递（#553）：退化链的嵌套深度 = 条目数（实测 2467 层），嵌套对象过 IPC 时
+		// 结构化克隆栈溢出，回复发不出去、面板永久 loading。这里只发节点表，children 由
+		// 渲染层按 parentId 重组。全局按文件追加顺序排一次，兄弟顺序与父子归属都不会变。
+		const nodes: SessionBranchNode[] = [...index.entries.values()].sort(byOffset).map((entry) => ({
 			id: entry.id,
 			parentId: entry.parentId,
 			role: entry.role === "user" || entry.role === "assistant" || entry.role === "system" ? entry.role : "other",
@@ -829,12 +821,10 @@ export class SessionHistoryReader {
 			preview: previews.get(entry.id) ?? (entry.type === "compaction" || entry.type === "branch_summary" ? (entry.summary ?? "") : ""),
 			label: entry.summary,
 			timestamp: entry.timestamp ?? "",
-			children: (childrenOf.get(entry.id) ?? []).map(toNode),
-		});
-		return {
-			roots: roots.map(toNode),
-			leafId: index.activeBranch.at(-1)?.id ?? null,
-		};
+		}));
+		const tree: SessionBranchTree = { nodes, leafId: index.activeBranch.at(-1)?.id ?? null };
+		this.deps.logger?.info("session-history", "Branch tree read finished", { hostPath: index.hostPath, entries: index.entries.size, nodes: nodes.length, previews: previews.size, elapsedMs: Date.now() - startedAt });
+		return tree;
 	}
 
 	/**
@@ -1302,7 +1292,17 @@ export class SessionHistoryReader {
 		if (!read) return null;
 		try {
 			const table = await read(hostPath, version);
-			if (isRecord(table) && table.endsWithNewline === false) return null;
+			if (!isRecord(table)) return null;
+			if (table.endsWithNewline === false) return null;
+			// 版本键必须与本次 stat 一致：sidecar 可能返回上一版文件（stat 与扫描之间文件又增长、
+			// 或 sidecar 自己的缓存新鲜度误判）。旧表会让分支树/历史少条目，而本函数的结果按
+			// 外层 stat 版本缓存，之后不再自愈；所以整份弃用，回退 TS 逐行重建（issue #553）。
+			// mtime 用 1ms 容差：两侧时间戳都来自同一次文件系统记录，但 Go float64 与 Node
+			// mtimeMs 的浮点换算不保证逐位相等；size 才是增长/截断的强判据。
+			if (table.size !== version.size || typeof table.mtimeMs !== "number" || Math.abs(table.mtimeMs - version.mtimeMs) >= 1) {
+				this.deps.logger?.warn("session-history", "Sidecar index table does not match the requested file version", { hostPath, expectedSize: version.size, actualSize: table.size, expectedMtimeMs: version.mtimeMs, actualMtimeMs: table.mtimeMs });
+				return null;
+			}
 			return table;
 		} catch (error) {
 			this.deps.logger?.warn("session-history", "Sidecar index table unavailable", { hostPath, error: error instanceof Error ? error.message : String(error) });

@@ -10,7 +10,7 @@ function entry(id, suffix) {
 	return { type: "message", id, parentId: `parent-${id}`, message: { role: "toolResult", toolCallId: id, toolName: "read", content: [{ type: "text", text: suffix }] } };
 }
 
-function candidateTable(content) {
+function candidateTable(content, version) {
 	let offset = 0;
 	const entries = [];
 	for (const line of content.split("\n")) {
@@ -20,7 +20,9 @@ function candidateTable(content) {
 		entries.push({ id: parsed.id, parentId: null, type: "message", offset, byteLength: bytes, hasMessage: true, subagentCandidate: line.includes("acp_delegate") || line.includes('"subagent"') });
 		offset += bytes + 1;
 	}
-	return { entries, lastEntryId: entries.at(-1)?.id, endsWithNewline: content.endsWith("\n") };
+	// 读者只接受与本次 stat 版本一致的表（requestIndexTable）；测试注入也要带上版本字段，
+	// 否则会静默回退 TS 全量解析，下面的「只读新增字节」断言就失去意义。
+	return { entries, lastEntryId: entries.at(-1)?.id, endsWithNewline: content.endsWith("\n"), ...(version ? { size: version.size, mtimeMs: version.mtimeMs } : {}) };
 }
 
 function delegateCall(id) {
@@ -31,7 +33,7 @@ function delegateResult(id, toolCallId) {
 	return JSON.stringify({ type: "message", id, parentId: "off-topic-branch", message: { role: "toolResult", toolCallId, toolName: "subagent", content: [{ type: "text", text: "done" }] } }) + "\n";
 }
 
-function createReader(readIndexTable = async (path) => candidateTable(await fsPromises.readFile(path, "utf8"))) {
+function createReader(readIndexTable = async (path, version) => candidateTable(await fsPromises.readFile(path, "utf8"), version)) {
 	let indexedBytesRead = 0;
 	const { SessionHistoryReader } = loadTsCommonJs("src/main/pi/SessionHistoryReader.ts", {
 		stubs: {
@@ -89,8 +91,8 @@ test("子代理候选行索引：Go 不可用或旧表缺少标记时回退完�
 	assert.equal((await unavailable.reader.readDerivedSubagentEntries(file))[0].status, "completed");
 	assert.equal(unavailableCalls, 1);
 
-	const legacy = createReader(async (path) => {
-		const table = candidateTable(await fsPromises.readFile(path, "utf8"));
+	const legacy = createReader(async (path, version) => {
+		const table = candidateTable(await fsPromises.readFile(path, "utf8"), version);
 		return { ...table, entries: table.entries.map(({ subagentCandidate: _legacyField, ...item }) => item) };
 	});
 	assert.equal((await legacy.reader.readDerivedSubagentEntries(file))[0].status, "completed", "旧版条目表不能静默漏掉候选事件");
