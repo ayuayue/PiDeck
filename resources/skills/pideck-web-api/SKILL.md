@@ -433,7 +433,7 @@ PiDeck 里正常新建的会话不受这个影响。
 
 结果：`/api/state` 的 `sessions[]` 里已经没有它，`activate` 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`，`/messages` 返回 HTTP 200 加空数组。
 
-发过消息的会话不会这样：同样 `stop` 之后 `state` 里还在，`status` 是 `active`，`activate` 成功且 `runtimeGeneration` 1→2。复现见第 6 节第 1~3 步，验的时候读 `/api/state` 的 `runtimes[]`。
+发过消息的会话不会这样：同样 `stop` 之后 `/api/state` 的 `sessions[]` 里还在，`status` 是 `active`，`activate` 成功且 `runtimeGeneration` 1→2。复现见第 6 节第 1~3 步，验的时候读 `/api/state` 的 `runtimes[]`。
 
 所以：**别拿刚建好的空会话试 stop**，试完它就不存在了，而且不会有任何报错提示你这一点。
 
