@@ -62,27 +62,32 @@ for (const [p, want] of [["/api/sessions/<id>/delete", true], ["/api/sessions/<i
 
 const sec72 = skill.split("### 7.2")[1];
 if (!sec72) { console.log("FAIL 文档里没有 7.2 节"); process.exit(1); }
-const srcLines = src[0].split(/\r?\n/);
-/** 每条归一化路由出现在 WebApiRoutes.ts 的哪些行。方法比对靠这张表定位，不按末段字符串猜。
- *  2026-11-15 修正：此前按「末段字符串」匹配源码行，尾段是 sessions 这类父路径时会把
- *  /api/sessions/<id>/... 的方法一并收进来，于是 /api/sessions 写成 GET 也判绿。 */
+const srcLineSets = src.map((s) => s.split(/\r?\n/));
+/** 每条归一化路由出现在哪个源码文件的哪一行（fileIndex:lineIndex）。
+ *  两个源码文件都要扫：/api/health 与 /api/events 只在 WebServiceManager.ts 里注册，
+ *  只扫 WebApiRoutes.ts 会让这两条端点定位不到方法，于是写错方法也判绿（2026-11-15 实测）。 */
 const routeLines = new Map();
-for (let li = 0; li < srcLines.length; li++) {
-  for (const m3 of srcLines[li].matchAll(routeRe)) {
-    for (const r of expandRoute(m3[0])) {
-      if (!routeLines.has(r)) routeLines.set(r, []);
-      routeLines.get(r).push(li);
+for (let fi = 0; fi < srcLineSets.length; fi++) {
+  const ls = srcLineSets[fi];
+  for (let li = 0; li < ls.length; li++) {
+    for (const m3 of ls[li].matchAll(routeRe)) {
+      for (const r of expandRoute(m3[0])) {
+        if (!routeLines.has(r)) routeLines.set(r, []);
+        routeLines.get(r).push(fi + ":" + li);
+      }
     }
   }
 }
 /** 源码里这条端点注册过哪些 HTTP 方法。
  *  同一端点可能注册两种方法：export-html 既是记录层动作组的 POST，也是单独的 GET，
- *  所以这里收集全部，不取第一个。 */
+ *  所以收集全部，不取第一个。返回空数组表示「源码里定不到位」，调用方要当红处理。 */
 function methodsInSource(ep) {
   const out = [];
-  for (const li of routeLines.get(docNorm(ep)) || []) {
-    for (let k = li; k < Math.min(li + 4, srcLines.length); k++) {
-      const mm = srcLines[k].match(/request\.method === "(GET|POST)"/);
+  for (const ref of routeLines.get(docNorm(ep)) || []) {
+    const [fi, li] = ref.split(":").map(Number);
+    const ls = srcLineSets[fi];
+    for (let k = li; k < Math.min(li + 4, ls.length); k++) {
+      const mm = ls[k].match(/request\.method === "(GET|POST)"/);
       if (mm) { if (!out.includes(mm[1])) out.push(mm[1]); break; }
     }
   }
@@ -106,18 +111,29 @@ if (methodMismatch(MM_PROBE, "POST")) { console.log("FAIL 自检正样本：正�
 const PREFIX_PROBE = "/api/sessions";
 if (!methodMismatch(PREFIX_PROBE, "GET")) { console.log("FAIL 自检坏样本：父路径端点写错方法没被判出来（" + PREFIX_PROBE + " 写 GET，源码只有 POST）"); process.exit(1); }
 if (methodMismatch(PREFIX_PROBE, "POST")) { console.log("FAIL 自检正样本：父路径端点的正确方法被误判（" + PREFIX_PROBE + "）"); process.exit(1); }
+// 只被 WebServiceManager.ts 注册的端点也要能定位到方法，这条锁住「只扫第一个源码文件」。
+if (JSON.stringify(methodsInSource("/api/events")) !== JSON.stringify(["GET"])) {
+  console.log("FAIL 自检坏样本：/api/events 的方法定不到（应只在 WebServiceManager.ts 里是 GET）");
+  process.exit(1);
+}
+
+// 7.2 表格必须有多少行。写死是必要的：没有基数就抓不到「文档少了一条端点」——
+// 2026-11-15 实测，删掉 export-html 那一行后判据照样 PASS。增删端点时同步改这个数。
+const EXPECTED_72_ROWS = 8;
 let checked = 0;
 for (const line of sec72.split(/\r?\n/)) {
-  const mt = line.match(/^\| \x60(\/api[^\x60]*)\x60 \| (GET|POST) \|/);
+  const mt = line.match(/^\| \x60(\/api[^\x60]*)\x60 \| ([A-Za-z]+) \|/);
   if (!mt) continue;
   const ep = mt[1];
   const docMethod = mt[2];
   checked++;
   if (!routes.has(docNorm(ep))) { console.log("  源码里没有完整路由 " + ep); bad++; continue; }
-  const real = methodMismatch(ep, docMethod);
-  if (real) { console.log("  " + ep + " 文档写 " + docMethod + "，源码是 " + real.join("/")); bad++; }
+  if (docMethod !== "GET" && docMethod !== "POST") { console.log("  " + ep + " 的方法列写了 " + docMethod + "，不是 GET/POST"); bad++; continue; }
+  const real = methodsInSource(ep);
+  if (!real.length) { console.log("  " + ep + " 在源码里定不到方法（判据自己漏了路由）"); bad++; continue; }
+  if (!real.includes(docMethod)) { console.log("  " + ep + " 文档写 " + docMethod + "，源码是 " + real.join("/")); bad++; }
 }
-if (!checked) { console.log("FAIL 7.2 端点一行都没匹配到"); process.exit(1); }
+if (checked !== EXPECTED_72_ROWS) { console.log("FAIL 7.2 表格 " + checked + " 行，基线是 " + EXPECTED_72_ROWS); process.exit(1); }
 
 console.log("7.2 端点 " + checked + " 条（路径 + 方法都比对），" + (bad ? bad + " 处与源码不符" : "全部对得上"));
 // 7.1 的「额外 body 字段」列：源码 switch 里读到的 body.X 与文档必须一一对应。
