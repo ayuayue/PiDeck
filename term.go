@@ -50,6 +50,9 @@ type termTab struct {
 	// run tells a replaced terminal's callbacks from the current one's.
 	run    int
 	closed bool
+	// named says the user named the tab, so the shell's title stops
+	// changing it.
+	named bool
 }
 
 // terminalHost is the panel's state: its tabs, the one in front, the
@@ -206,7 +209,7 @@ func (h *terminalHost) start(tab *termTab) {
 				return
 			}
 			h.cx.Post(func() {
-				if !tab.closed && tab.run == run {
+				if !tab.closed && tab.run == run && !tab.named {
 					tab.Title.Set(title)
 				}
 			})

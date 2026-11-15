@@ -146,7 +146,7 @@ func TestImageDialog(t *testing.T) {
 	app.Type("id:image-model", "img-1")
 	app.Press("id:image-count-2")
 	for i := 0; i < 4 && len(app.Query("id:image-thumb-1")) == 0; i++ {
-		if len(app.Query("id:image-generate")) > 0 {
+		if len(app.Query("id:image-generate")) > 0 && app.Enabled("id:image-generate") {
 			app.Press("id:image-generate")
 		}
 		app.Settle()

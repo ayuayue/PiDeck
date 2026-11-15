@@ -122,7 +122,7 @@ func TestVisionDialog(t *testing.T) {
 	typeAll(t, app, "id:vision-path", photo)
 	app.Type("id:vision-model", "vision-1")
 	for i := 0; i < 4 && len(app.Query("id:vision-result")) == 0; i++ {
-		if len(app.Query("id:vision-run")) > 0 {
+		if len(app.Query("id:vision-run")) > 0 && app.Enabled("id:vision-run") {
 			app.Press("id:vision-run")
 		}
 		app.Settle()

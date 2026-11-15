@@ -5,8 +5,10 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/oneo-me/nsgo/base"
 	sgt "github.com/oneo-me/nsgo/base/terminal"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
@@ -57,6 +59,65 @@ func (a *app) toggleTerminal() {
 func (a *app) closeTerminalTab(id string) {
 	a.animateNextLayout()
 	a.term.remove(id)
+}
+
+// askTerminalName opens the rename dialog for a tab.
+func (a *app) askTerminalName(t *termTab) {
+	if t == nil {
+		return
+	}
+	a.termRenameID.Set(t.ID)
+	a.termRenameText.Set(t.Title.GetUntracked())
+	a.termRenameOpen.Set(true)
+}
+
+// saveTerminalName names the tab, and stops the shell renaming it.
+func (a *app) saveTerminalName() {
+	id := a.termRenameID.GetUntracked()
+	name := strings.TrimSpace(a.termRenameText.GetUntracked())
+	for _, t := range a.term.tabs.GetUntracked() {
+		if t.ID != id {
+			continue
+		}
+		if name == "" {
+			t.named = false
+		} else {
+			t.named = true
+			t.Title.Set(name)
+		}
+		break
+	}
+	a.termRenameOpen.Set(false)
+}
+
+// terminalRenameDialog edits a terminal tab's name.
+func (a *app) terminalRenameDialog() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		return ui.Dialog{
+			Open:         a.termRenameOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) { a.termRenameOpen.Set(open) },
+			Title:        T("重命名标签"),
+			TestID:       "term-rename",
+			Style:        core.Style{Width: core.Pt(420)},
+			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
+				core.Text{Content: T("给终端标签起一个名字；清空就跟随程序标题。"), Style: core.Style{FontSize: 11.5},
+					StyleFunc: ui.Colored(colors.Muted)},
+				core.Input{Value: a.termRenameText.Get, OnChange: a.termRenameText.Set, Placeholder: T("标签名称"),
+					Label: T("标签名称"), TestID: "term-rename-input", AutoFocus: true,
+					OnSubmit: func(string) { a.saveTerminalName() },
+					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), CornerRadius: 7,
+						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
+						Color: colors.Text(), FontSize: 12.5}},
+			}}},
+			Footer: []core.Node{
+				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					OnPress: func() { a.termRenameOpen.Set(false) }},
+				ui.Button{Text: T("保存"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "term-rename-save",
+					OnPress: func() { a.saveTerminalName() }},
+			},
+		}
+	})
 }
 
 // closeOtherTerminalTabs closes every terminal tab but one.
@@ -161,6 +222,7 @@ func (a *app) terminalHeader(cx *core.Scope) core.Node {
 					}, Children: []core.Node{ui.Icon(lucide.X, 10, colors.Faint)}},
 			},
 		}, TestID: "terminal-tab-menu", Children: []core.Node{
+			ui.MenuItem{Text: T("重命名标签…"), Icon: lucide.PencilLine, OnSelect: func() { a.askTerminalName(t) }},
 			ui.MenuItem{Text: T("关闭终端"), Icon: lucide.X, OnSelect: func() { a.closeTerminalTab(t.ID) }},
 			ui.MenuItem{Text: T("关闭其他终端"), Icon: lucide.X, OnSelect: func() { a.closeOtherTerminalTabs(t.ID) }},
 			ui.MenuItem{Text: T("关闭全部终端"), Icon: lucide.X, OnSelect: a.closeAllTerminalTabs},

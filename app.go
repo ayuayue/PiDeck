@@ -443,6 +443,9 @@ type app struct {
 	gitRemoteName  *core.Signal[string]
 	gitRemoteURL   *core.Signal[string]
 	gitTagText     *core.Signal[string]
+	termRenameOpen *core.Signal[bool]
+	termRenameID   *core.Signal[string]
+	termRenameText *core.Signal[string]
 	// gitDiffHash is the commit the diff dialog shows, empty for a file.
 	gitDiffHash string
 	// closedTabs are the sessions whose tabs were closed, newest last.
@@ -582,6 +585,9 @@ func newApp(cx *core.Scope) *app {
 		gitRemoteName:          core.NewSignal(cx, "origin"),
 		gitRemoteURL:           core.NewSignal(cx, ""),
 		gitTagText:             core.NewSignal(cx, ""),
+		termRenameOpen:         core.NewSignal(cx, false),
+		termRenameID:           core.NewSignal(cx, ""),
+		termRenameText:         core.NewSignal(cx, ""),
 		gitNewBranchName:       core.NewSignal(cx, ""),
 		gitDiffOpen:            core.NewSignal(cx, false),
 		gitDiffTitle:           core.NewSignal(cx, ""),
