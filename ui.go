@@ -53,6 +53,7 @@ func (a *app) view() core.Node {
 		a.archiveDialog(),
 		a.outlineDialog(),
 		a.gitFileHistoryDialog(),
+		a.gitBlameDialog(),
 		a.terminalRenameDialog(),
 		a.gotoLineDialog(),
 		a.quickOpenDialog(),

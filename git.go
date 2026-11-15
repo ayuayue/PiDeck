@@ -434,6 +434,90 @@ func diffFiles(patch string) []string {
 	return out
 }
 
+// blameRange is a run of lines last changed by one commit.
+type blameRange struct {
+	Hash    string
+	Author  string
+	When    time.Time
+	Subject string
+	Start   int // 1-based, inclusive
+	End     int
+}
+
+// short is the hash as a row shows it.
+func (b blameRange) short() string {
+	if len(b.Hash) > 7 {
+		return b.Hash[:7]
+	}
+	return b.Hash
+}
+
+// parseGitBlame reads the porcelain lines git blame prints, folding
+// consecutive lines of one commit into a range.
+func parseGitBlame(out string) []blameRange {
+	var ranges []blameRange
+	var cur blameRange
+	lineNo := 0
+	hash := ""
+	for _, line := range strings.Split(out, "\n") {
+		if len(line) > 41 && line[40] == ' ' && isHexHash(line[:40]) {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				if n, err := strconv.Atoi(fields[2]); err == nil {
+					lineNo = n
+					hash = fields[0]
+					cur.Hash = hash
+					continue
+				}
+			}
+		}
+		switch {
+		case strings.HasPrefix(line, "author "):
+			cur.Author = strings.TrimPrefix(line, "author ")
+		case strings.HasPrefix(line, "author-time "):
+			if sec, err := strconv.ParseInt(strings.TrimPrefix(line, "author-time "), 10, 64); err == nil {
+				cur.When = time.Unix(sec, 0)
+			}
+		case strings.HasPrefix(line, "summary "):
+			cur.Subject = strings.TrimPrefix(line, "summary ")
+		case strings.HasPrefix(line, "	"):
+			cur.Start, cur.End = lineNo, lineNo
+			if n := len(ranges); n > 0 && ranges[n-1].Hash == cur.Hash && ranges[n-1].End == lineNo-1 {
+				ranges[n-1].End = lineNo
+			} else {
+				ranges = append(ranges, cur)
+			}
+			cur = blameRange{}
+		}
+	}
+	return ranges
+}
+
+// isHexHash reports whether a string is a full commit id.
+func isHexHash(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// readFileBlame attributes a file's lines, at most the first 2000 of them.
+func readFileBlame(t target, dir, path string) ([]blameRange, error) {
+	out, stderr, code, err := gitRun(t, dir, 90*time.Second, "blame", "--line-porcelain", "-L", "1,2000", "--", path)
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return nil, errors.New(gitMessage(stderr, code))
+	}
+	return parseGitBlame(out), nil
+}
+
 // readFileHistory lists the commits that touched one path, newest first.
 func readFileHistory(t target, dir, path string, limit int) ([]gitCommit, error) {
 	if limit <= 0 {

@@ -444,6 +444,12 @@ type app struct {
 	gitRemotesOpen *core.Signal[bool]
 	// gitConflictsOpen shows the dialog that resolves a merge's conflicts.
 	gitConflictsOpen *core.Signal[bool]
+	// gitBlameOpen shows who last touched each run of lines.
+	gitBlameOpen *core.Signal[bool]
+	gitBlamePath *core.Signal[string]
+	gitBlameRev  *core.Signal[int]
+	gitBlameErr  *core.Signal[string]
+	gitBlame     []blameRange
 	// gitFileHistoryOpen shows the commits that touched one path.
 	gitFileHistoryOpen *core.Signal[bool]
 	gitFileHistoryPath *core.Signal[string]
@@ -622,6 +628,10 @@ func newApp(cx *core.Scope) *app {
 		gitTagsOpen:            core.NewSignal(cx, false),
 		gitRemotesOpen:         core.NewSignal(cx, false),
 		gitConflictsOpen:       core.NewSignal(cx, false),
+		gitBlameOpen:           core.NewSignal(cx, false),
+		gitBlamePath:           core.NewSignal(cx, ""),
+		gitBlameRev:            core.NewSignal(cx, 0),
+		gitBlameErr:            core.NewSignal(cx, ""),
 		gitFileHistoryOpen:     core.NewSignal(cx, false),
 		gitFileHistoryPath:     core.NewSignal(cx, ""),
 		gitFileHistoryRev:      core.NewSignal(cx, 0),

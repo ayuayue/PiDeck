@@ -220,6 +220,33 @@ func (a *app) openUnpushedCommits() {
 	}()
 }
 
+// openBlame attributes a file's lines to commits.
+func (a *app) openBlame(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	t, dir := a.git.repo()
+	if dir == "" {
+		return
+	}
+	a.gitBlamePath.Set(path)
+	a.gitBlame = nil
+	a.gitBlameErr.Set("")
+	a.gitBlameOpen.Set(true)
+	a.gitBlameRev.Update(func(n int) int { return n + 1 })
+	go func() {
+		ranges, err := readFileBlame(t, dir, path)
+		a.cx.Post(func() {
+			if err != nil {
+				a.gitBlameErr.Set(err.Error())
+			}
+			a.gitBlame = ranges
+			a.gitBlameRev.Update(func(n int) int { return n + 1 })
+		})
+	}()
+}
+
 // openFileHistory lists the commits that touched one path.
 func (a *app) openFileHistory(path string) {
 	path = strings.TrimSpace(path)
@@ -1214,6 +1241,10 @@ func (a *app) gitDiffDialog() core.Node {
 				core.Show{When: func() bool { return a.gitDiffHash == "" }, Then: func(*core.Scope) core.Node {
 					return ui.Button{Text: T("历史"), Variant: ui.ButtonGhost, TestID: "git-file-history",
 						OnPress: func() { a.openFileHistory(a.gitDiffTitle.GetUntracked()) }}
+				}},
+				core.Show{When: func() bool { return a.gitDiffHash == "" }, Then: func(*core.Scope) core.Node {
+					return ui.Button{Text: T("追溯"), Variant: ui.ButtonGhost, TestID: "git-file-blame",
+						OnPress: func() { a.openBlame(a.gitDiffTitle.GetUntracked()) }}
 				}},
 				ui.Button{Text: T("复制补丁"), Variant: ui.ButtonGhost, OnPress: func() {
 					a.copyText(a.gitDiffPatch.GetUntracked(), "补丁")
