@@ -26,7 +26,7 @@ const TICK = String.fromCharCode(96);
 function missingSegs(p, segs) {
   const out = [];
   for (const s of p.replace(/\/$/, "").split("/").filter(Boolean).slice(1)) {
-    if (/^<|^\$/.test(s)) continue;
+    if (/^<|^\$|^:/.test(s)) continue;
     if (!segs.has(s)) out.push(s);
   }
   return out;
@@ -71,6 +71,8 @@ function selftest() {
     ["存在的段", "/api/sessions/runtimes", 0],
     ["占位符段跳过", "/api/sessions/<id>/messages", 0],
     ["$ 变量段跳过", "/api/sessions/$SID/messages", 0],
+    [": 占位符段跳过但它后面的段照样查", "/api/sessions/:id/nosuch", 1],
+    [": 占位符段 + 正确段", "/api/sessions/:id/messages", 0],
     ["组合式路由的每个分支都在集合里", "/api/sessions/update", 0],
     ["组合式路由的另一个分支也在集合里", "/api/sessions/delete", 0],
   ];
@@ -105,7 +107,7 @@ const srcSegs = segsFromSource(src);
 if (srcSegs.size < 20) { console.log("FAIL 源码里只切出 " + srcSegs.size + " 个段，判据自己坏了"); process.exit(1); }
 
 const skill = fs.readFileSync(SKILL, "utf8");
-const found = [...skill.matchAll(/\/api\/[A-Za-z0-9_\/<>.$\u4e00-\u9fa5-]*/g)].map((m) => m[0].replace(/[.,;:)]+$/, ""));
+const found = [...skill.matchAll(/\/api\/[A-Za-z0-9_\/<>.:$\u4e00-\u9fa5-]*/g)].map((m) => m[0].replace(/[.,;:)]+$/, ""));
 const uniq = [...new Set(found)].sort();
 if (uniq.length < 10) { console.log("FAIL 只抽到 " + uniq.length + " 条路径"); process.exit(1); }
 
