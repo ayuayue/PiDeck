@@ -8,6 +8,7 @@ name: Dev Guard
 # 这里只挂快速检查（全程 <5 分钟），全量测试/typecheck 仍由 main CI 与 PR 承担：
 # - check:format —— biome 格式门禁（防格式漂移直入 dev）；
 # - check:ipc-wiring + check:test-shape —— 两条机械不变式（~1s，不联网）；
+# - check:skills-manifest —— 内置技能清单与实际文件对不上时红（~0.1s，不联网）；
 # - typecheck —— tsc --noEmit（~1 分钟）。
 # 刻意不跑 npm test / build：dev 是高频集成分支，45 分钟全量串行测试放在这里
 # 会让每次 push 排队半小时，收益远低于 main CI 的合并前兜底。
@@ -53,6 +54,13 @@ jobs:
       - name: Check structural invariants
         if: always()
         run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:scroll-containers
+
+      # 2026-11-15：本 PR 改了 4 个 SKILL.md 却没重生成 manifest，main CI 的
+      # check:skills-manifest 会红，而 dev-guard 没挂这一条，PR 页面三个 check 全绿。
+      # 纯 node、不联网、0.1 秒，符合本文件「秒级」的口径。
+      - name: Check skills manifest drift
+        if: always()
+        run: npm run check:skills-manifest
 
       - name: Type-check
         if: always()
