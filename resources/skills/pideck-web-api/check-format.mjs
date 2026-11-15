@@ -39,6 +39,55 @@ function headingWithoutBlank(lines) {
   return out;
 }
 
+/** 同一小节里，同一个反引号标识符既被当成判据，又被明确排除。
+ *  形状来自 2026-11-15 实测：同一节里一边写「送达看回读 total 变大」，一边写「不要用 total」——
+ *  两轮两个人先后加的，拼在一起成了两句互相否定的判据。读者按第一句做，把 total 因对方回复
+ *  而变大读成「我的消息到了」，于是重发。同一段正文在一个会话里出现 3 次就是这么来的。
+ *
+ *  钉标识符不钉自然语言短语：合法对比（判据是 A，不是 B）里两个标识符各占一头，同一个不会
+ *  两头都占；而这次撞车的是 total 一个词被赋了两个互斥角色。
+ *  含「改前 / 上一版 / 历史」的句子跳过：那里写的正是「以前用 X，现在不用」，是记录不是矛盾。 */
+function conflictingRoles(lines) {
+  const AFFIRM = /(是判据|作为判据|当判据|送达看|看回读|以此判|按它判)/;
+  const NEGATE = /(不是判据|不要用|别用|别拿|不算判据|不能当判据|排除)/;
+  // 只认真正的历史标记。「历史」「之前」这类词在正常句子里太常见——第一版写了它们，
+  // 于是「数 user 条数，不要用 total，进没进历史」这行因为含「历史」被跳过，判据当场失效。
+  const TIME = /(改前|上一版|旧版|20[0-9][0-9]-[0-9][0-9]-[0-9][0-9])/;
+  const out = [];
+  let section = -1;
+  let fence = false;
+  const buckets = new Map();
+  lines.forEach((line, i) => {
+    if (isFence(line)) { fence = !fence; return; }
+    if (fence) return;
+    if (/^#{1,6} /.test(line)) { section = i; return; }
+    if (section < 0) return;
+    const ids = line.match(INLINE_CODE);
+    if (!ids || TIME.test(line)) return;
+    const neg = NEGATE.test(line);
+    const aff = !neg && AFFIRM.test(line);
+    if (!neg && !aff) return;
+    let m = buckets.get(section);
+    if (!m) { m = new Map(); buckets.set(section, m); }
+    for (const raw of ids) {
+      const id = raw.slice(1, -1);
+      if (!id || /\s/.test(id)) continue;
+      const cur = m.get(id) || {};
+      if (aff && !cur.aff) cur.aff = i + 1;
+      if (neg && !cur.neg) cur.neg = i + 1;
+      m.set(id, cur);
+    }
+  });
+  for (const m of buckets.values()) {
+    for (const [id, cur] of m) {
+      if (cur.aff && cur.neg) {
+        out.push({ line: cur.neg, msg: "同一节里 " + TICK + id + TICK + " 既是判据（第 " + cur.aff + " 行）又被排除（第 " + cur.neg + " 行）：两句互相否定，读者按哪句都可能是错的", sample: "" });
+      }
+    }
+  }
+  return out;
+}
+
 /** 全部结构判据作用在一份 lines 上，返回问题列表。
  *  抽成纯函数只为一个目的：--selftest 能在内存里喂坏样本，证明每条判据都会红，
  *  而不是只证明脚本能跑完。 */
@@ -63,6 +112,7 @@ function scan(lines) {
   for (const n of headingWithoutBlank(lines)) out.push({ line: n, msg: "标题前缺空行", sample: "" });
   const fences = lines.filter(isFence).length;
   if (fences % 2) out.push({ line: 0, msg: "代码块围栏一共 " + fences + " 个，没配对", sample: "" });
+  out.push(...conflictingRoles(lines));
   return out;
 }
 
@@ -87,6 +137,18 @@ function selftest() {
     ["标题前缺空行", ["正文", "## 标题"], "空行", 1],
     ["代码块里的 # 行不算标题", ["正文", F + "bash", "# 注释", F, "", "## 标题"], "空行", 0],
     ["代码块里的 # 前有空格也不算标题", ["正文", F, "  # 缩进注释", F, "", "## 标题"], "空行", 0],
+    ["同一节里同一个标识符既是判据又被排除",
+      ["## 1 发送", "", "送达看回读 " + TICK + "total" + TICK + " 变大。", "要看某条进没进历史，数 user 条数，不要用 " + TICK + "total" + TICK + "。"],
+      "两句互相否定", 1],
+    ["合法对比不是矛盾：判据是 A 不是 B",
+      ["## 1 发送", "", "送达判据是 " + TICK + "code" + TICK + "，不是 " + TICK + "total" + TICK + "。"],
+      "两句互相否定", 0],
+    ["跨小节的同类表述不算矛盾",
+      ["## 1 发送", "", "送达看 " + TICK + "total" + TICK + "。", "", "## 2 边界", "", "不要用 " + TICK + "total" + TICK + " 判断别的事。"],
+      "两句互相否定", 0],
+    ["带日期的历史记录不算矛盾",
+      ["## 1 发送", "", "20xx 年改前送达看 " + TICK + "total" + TICK + "。", "不要用 " + TICK + "total" + TICK + "。"],
+      "两句互相否定", 0],
   ];
   let bad = 0;
   for (const [name, lines, want, expect] of cases) {
