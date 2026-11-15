@@ -433,7 +433,7 @@ PiDeck 里正常新建的会话不受这个影响。
 
 结果：`/api/state` 的 `sessions[]` 里已经没有它，`activate` 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`，`/messages` 返回 HTTP 200 加空数组。
 
-发过消息的会话不会这样：同样 `stop` 之后 `/api/state` 的 `sessions[]` 里还在，`status` 是 `active`，`activate` 成功且 `runtimeGeneration` 1→2。复现见第 6 节第 1~3 步，验的时候读 `/api/state` 的 `runtimes[]`。
+发过消息的会话不会这样：同样 `stop` 之后 `state` 里还在，`status` 是 `active`，`activate` 成功且 `runtimeGeneration` 1→2。复现见第 6 节第 1~3 步，验的时候读 `/api/state` 的 `runtimes[]`。
 
 所以：**别拿刚建好的空会话试 stop**，试完它就不存在了，而且不会有任何报错提示你这一点。
 
@@ -505,7 +505,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 | `isStreaming` / `isTurnActive` | 正在生成 / 有回合没结束 |
 | `isExecutingTool` / `isCompacting` | 正在跑工具 / 正在压缩上下文 |
 | `contextTokens` / `contextWindow` / `contextPercent` | 上下文用掉多少 |
-| `toolStateSequence` | 工具状态序号。只在工具状态切换时跳变，同一工具执行期间读多少次都不变；本机实测跨一轮从 486 跳到 496。判断「有没有在动」看两次读是否不同，别拿差值当工具调用次数 |
+| `toolStateSequence` | 工具状态序号。只在工具状态切换时跳变，同一工具执行期间读多少次都不变；三轮实测 486 → 496 → 530，增量不固定。判断「有没有在动」看两次读是否不同，别拿差值当调用次数 |
 
 **换模型会把思考档重置成新模型的默认值。** 本机实测：`thinking=low` 的时候调 `model` 换到另一个模型，`thinkingLevel` 变回 `high`。所以这两步要按顺序发——先 `model`，再 `thinking`。反过来先设了思考档再换模型，等于没设。
 
