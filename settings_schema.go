@@ -54,6 +54,7 @@ var appSettingFields = []settingField{
 	{Key: "editorCommand", Type: "text", Default: ""},
 	{Key: "editorWrap", Type: "bool", Default: false},
 	{Key: "terminalFont", Type: "number", Default: 0, Min: intPtr(8), Max: intPtr(20)},
+	{Key: "editorFont", Type: "number", Default: 0, Min: intPtr(11), Max: intPtr(20)},
 }
 
 // settingsSchema is the schema as the diagnostics bundle carries it.

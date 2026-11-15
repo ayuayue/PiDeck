@@ -155,6 +155,8 @@ type config struct {
 	EditorWrap bool `json:"editorWrap,omitempty"`
 	// TerminalFont is the terminal's text size; 0 keeps the default.
 	TerminalFont float64 `json:"terminalFont,omitempty"`
+	// EditorFont is the editor's text size; 0 keeps the default.
+	EditorFont int `json:"editorFont,omitempty"`
 	// PetEnabled shows the desktop pet window.
 	PetEnabled bool `json:"petEnabled,omitempty"`
 	// EditorCommand opens files outside the app; empty detects one.
@@ -341,6 +343,11 @@ func normalizeConfig(c *config) bool {
 		c.TerminalFont = 0
 		changed = true
 	}
+	if c.EditorFont != 0 && (c.EditorFont < 11 || c.EditorFont > 20) {
+		c.EditorFont = 0
+		changed = true
+	}
+
 	if c.RemotePort != 0 && (c.RemotePort < 1 || c.RemotePort > 65535) {
 		c.RemotePort = 0
 		changed = true

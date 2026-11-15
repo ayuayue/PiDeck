@@ -293,6 +293,7 @@ type app struct {
 	langRev    *core.Signal[int]
 	editorWrap *core.Signal[bool]
 	termFont   *core.Signal[float64]
+	editorFont *core.Signal[float64]
 	// chatWidth is the transcript's reading width, so a slider drag
 	// rebuilds the chat without touching the stored config.
 	chatWidth *core.Signal[int]
@@ -682,6 +683,7 @@ func newApp(cx *core.Scope) *app {
 		langRev:                core.NewSignal(cx, 0),
 		editorWrap:             core.NewSignal(cx, false),
 		termFont:               core.NewSignal(cx, 12.5),
+		editorFont:             core.NewSignal(cx, 13.0),
 		chatWidth:              core.NewSignal(cx, 0),
 		providerOpen:           core.NewSignal(cx, false),
 		providerID:             core.NewSignal(cx, ""),
@@ -744,6 +746,9 @@ func newApp(cx *core.Scope) *app {
 	a.editorWrap.Set(a.cfg.EditorWrap)
 	if a.cfg.TerminalFont > 0 {
 		a.termFont.Set(a.cfg.TerminalFont)
+	}
+	if a.cfg.EditorFont > 0 {
+		a.editorFont.Set(float64(a.cfg.EditorFont))
 	}
 	// A crash from the last run is worth one notice, with a way to look.
 	if path, at, ok := latestCrash(a.dataDir); ok && filepath.Base(path) != a.cfg.CrashSeen {
@@ -3824,6 +3829,25 @@ func (a *app) setTerminalFont(size float64) {
 	a.cfg.TerminalFont = stored
 	if a.st != nil {
 		a.st.edit(func(c *config) { c.TerminalFont = stored })
+	}
+}
+
+// setEditorFont changes the editor's text size and keeps it.
+func (a *app) setEditorFont(size float64) {
+	if size < 11 {
+		size = 11
+	}
+	if size > 20 {
+		size = 20
+	}
+	a.editorFont.Set(size)
+	stored := int(size + 0.5)
+	if stored == 13 {
+		stored = 0
+	}
+	a.cfg.EditorFont = stored
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.EditorFont = stored })
 	}
 }
 
