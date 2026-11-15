@@ -196,11 +196,13 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
 ```text
 data: {"type":"start","messageId":"msg_1794659108957"}
 data: {"type":"text-start","id":"text_1794659109932_i4wmgw"}
-data: {"type":"reasoning-delta","id":"reasoning_...","delta":"「"}
 data: {"type":"text-delta","id":"text_1794659109932_i4wmgw","delta":"收到"}
+data: {"type":"text-end","id":"text_1794659109932_i4wmgw"}
 data: {"type":"finish"}
 data: [DONE]
 ```
+
+模型输出思考时，`text-start` 之前还会有一串 `reasoning-delta`；那一串不是每轮都有，按类型过滤即可，别假定它一定出现。`text-end` 每轮都有。
 
 `finish` 和 `[DONE]` 是同一件事的两种表示，看到任一个就是本轮结束。`-N` 必须加，否则看不到流式。
 
