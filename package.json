@@ -128,7 +128,8 @@
     "e2e": "playwright test",
     "verify": "npm run typecheck && npm test && npm run test:e2e",
     "probe:dsh": "node scripts/dsh-embed-probe.mjs",
-    "test:skills": "node scripts/run-skills-checks.mjs"
+    "test:skills": "node scripts/run-skills-checks.mjs",
+    "check:version-not-lower": "node scripts/check-version-not-lower.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",

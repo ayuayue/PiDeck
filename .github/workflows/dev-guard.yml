@@ -63,6 +63,12 @@ jobs:
         if: always()
         run: npm run check:skills-manifest
 
+      # 2026-11-15：PR 分支长期没 rebase 会把旧 version 带回来。本 PR 从 0.6.x 的 dev 拉出来，
+      # dev 已升到 0.12.0 而分支仍写 0.6.72——合并取 PR 侧就是降版本，Updater 会把新包判成旧包。
+      # 只比 semver 三段数字；push 事件没有 base，脚本 SKIP 不红。
+      - name: Check version not lower than base
+        if: always()
+        run: npm run check:version-not-lower -- ${{ github.event.pull_request.base.sha }}
       # 2026-11-15：test:skills 此前只挂在 ci.yml，而 ci.yml 只对 main 的 push 与
       # 向 main 的 PR 触发。本 PR 目标是 dev，四个判据在整个 dev 期间没有任何闸门
       # 跑——写了判据没人跑，跟没写一样。实测 1.0 秒，纯 node、不联网，符合本文件口径。

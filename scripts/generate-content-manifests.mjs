@@ -255,8 +255,15 @@ function selftest() {
 		["含 NUL 的按二进制原样", normalizeEol(bin).equals(bin)],
 	];
 	let fail = 0;
-	for (const [name, ok] of cases) if (!ok) { fail++; console.log("FAIL 自检：" + name); }
-	if (fail) { console.log("自检失败 " + fail + " 条"); process.exit(1); }
+	for (const [name, ok] of cases)
+		if (!ok) {
+			fail++;
+			console.log("FAIL 自检：" + name);
+		}
+	if (fail) {
+		console.log("自检失败 " + fail + " 条");
+		process.exit(1);
+	}
 	console.log("selftest PASS：" + cases.length + " 条");
 }
 if (process.argv.includes("--selftest")) {
