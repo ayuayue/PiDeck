@@ -1,4 +1,4 @@
-// 判据：SKILL.md 的 Markdown 结构。三件事各一条断言。
+// 判据：SKILL.md 的 Markdown 结构。六条断言，逐条可红。
 // 为什么要有：加粗漏一个会把后面整段吃掉，表格少一列会错位，
 // 这两种在 PR review 里被指出过（PR 552 的 review 意见）。
 // 行内代码里的星号不算加粗：先剥掉反引号包住的内容再数，否则教人「漏一个 **」的正文会被误判。
@@ -66,5 +66,5 @@ if (fences + tableRows + boldPairs < 8) {
   bad++;
 }
 
-console.log(bad ? "FAIL " + bad + " 处结构问题" : "PASS 加粗成对、代码块配对、表格列数一致、标题前有空行");
+console.log(bad ? "FAIL " + bad + " 处结构问题" : "PASS 加粗成对、代码块配对、表格列数一致、标题前有空行、代码块引号正常、文件可读");
 process.exit(bad ? 1 : 0);

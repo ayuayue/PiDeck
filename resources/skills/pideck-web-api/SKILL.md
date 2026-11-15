@@ -640,8 +640,8 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 ```bash
 node resources/skills/pideck-web-api/check-doc.mjs     # 第 7 节的动作表、端点数、字段，逐条对源码
 node resources/skills/pideck-web-api/check-paths.mjs   # 全文每个 /api 路径，逐段对源码
-node resources/skills/pideck-web-api/check-format.mjs  # 加粗成对、代码块配对、表格列数一致
-node resources/skills/pideck-web-api/check-fields.mjs  # 全文反引号标识符逐词对源码，要全量 src
+node resources/skills/pideck-web-api/check-format.mjs  # 加粗成对、代码块配对、表格列数、标题前空行、代码块里反引号包 $ 变量
+node resources/skills/pideck-web-api/check-fields.mjs  # 全文反引号标识符逐词对源码，默认读同仓库 src/main
 ```
 
 前三条没有自检开关，要手工造坏样本：写错一个动作名、把一个路径段拼错、漏一个 `**`，改完跑一次必须报红。
