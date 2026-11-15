@@ -273,7 +273,13 @@ func (a *app) gitDiscardAll() {
 
 // gitCommit commits the staged changes, or all of them, with the box's
 // message.
-func (a *app) gitCommit(all, amend bool) {
+func (a *app) gitCommit(all, amend bool) { a.gitCommitPush(all, amend, false) }
+
+// gitCommitAndPush commits and pushes in one step.
+func (a *app) gitCommitAndPush() { a.gitCommitPush(false, a.git.amend.Get(), true) }
+
+// gitCommitPush commits, optionally pushing what the commit left to send.
+func (a *app) gitCommitPush(all, amend, push bool) {
 	msg := strings.TrimSpace(a.git.msg.GetUntracked())
 	if msg == "" {
 		a.toast(ui.ToastWarning, "还差提交说明", "写一句话，再把改动提交。")
@@ -283,11 +289,19 @@ func (a *app) gitCommit(all, amend bool) {
 	if !st.IsRepo {
 		return
 	}
+	if push && st.Upstream == "" {
+		a.toast(ui.ToastInfo, "没有上游分支", "先发布到 origin，才能提交并推送。")
+		return
+	}
 	if !all && !amend && st.stagedCount() == 0 {
 		a.toast(ui.ToastInfo, "没有已暂存的改动", "先用 + 暂存文件，或者直接「全部提交」。")
 		return
 	}
-	a.git.run(T("提交"), func(g gitRunner) error {
+	label := T("提交")
+	if push {
+		label = T("提交并推送")
+	}
+	a.git.run(label, func(g gitRunner) error {
 		if all {
 			if _, err := g.exec(60*time.Second, "add", "-A"); err != nil {
 				return err
@@ -298,8 +312,15 @@ func (a *app) gitCommit(all, amend bool) {
 			args = append(args, "--amend")
 		}
 		args = append(args, "-m", msg)
-		_, err := g.exec(180*time.Second, args...)
-		return err
+		if _, err := g.exec(180*time.Second, args...); err != nil {
+			return err
+		}
+		if push {
+			if _, err := g.exec(180*time.Second, "push"); err != nil {
+				return errors.New("已经提交，但推送失败：" + err.Error())
+			}
+		}
+		return nil
 	}, func(err error) {
 		if err == nil {
 			a.git.msg.Set("")
@@ -957,6 +978,8 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 			ui.Button{Text: T("全部提交"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-commit-all",
 				OnPress:  func() { a.gitCommit(true, false) },
 				Disabled: func() bool { return busy() || msgEmpty() || len(st.Files) == 0 }},
+			a.pressIcon(lucide.CloudUpload, T("提交并推送"), 24, 12,
+				func() bool { return busy() || msgEmpty() || st.stagedCount() == 0 }, a.gitCommitAndPush, "git-commit-push"),
 			ui.Button{Text: T("提交"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "git-commit",
 				OnPress:  func() { a.gitCommit(false, a.git.amend.Get()) },
 				Disabled: func() bool { return busy() || msgEmpty() || (st.stagedCount() == 0 && !a.git.amend.Get()) }},
