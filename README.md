@@ -583,7 +583,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 供应商连接测试是轻量探测（`/models` 或一次最小 chat 请求），不等于完整模型可用性验证
 - 系统通知是尽力而为：macOS 用 `osascript`、Linux 用 `notify-send`、Windows 用 PowerShell 的 WinRT 通知；系统关掉通知权限时不会补发
 - 资源页的扩展开关只改 `settings.json`，重启 Agent 后生效；本地 `.ts` 扩展自动加载，不能在此停用
-- 翻译覆盖设置页、命令面板、托盘、键位、主界面外壳、右键菜单与常用对话框；手机端界面与部分提示消息仍为中文，按 `i18n.go` 的目录逐步补
+- 翻译覆盖设置页、命令面板、托盘、键位、主界面外壳、右键菜单、常用对话框与手机端；`TestVisibleStringsTranslated` 会拦住没有英文的界面文案。toast 等提示消息仍有中文，按 `i18n.go` 逐步补
 - 飞书集成默认只发摘要；接收群消息需要远程服务对外可达、填 Verification Token，且只发给当前会话（没有会话时新建内置对话），回答最多回传 1500 字
 - 桌面宠物只有内置造型与状态色，不支持 petdex 社区宠物包
 - 日志文件超过 1 MB 时轮转一次（`pideck.log` → `pideck.log.1`）；没有日志级别设置

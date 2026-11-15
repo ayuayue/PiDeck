@@ -971,7 +971,7 @@ func (a *app) settingsAddons() core.Node {
 			lines = append(lines, core.Text{Content: meta, Style: core.Style{FontSize: 10.5},
 				StyleFunc: ui.Colored(colors.Faint)})
 			for _, w := range plug.Warnings {
-				lines = append(lines, core.Text{Content: "注意：" + w, Style: core.Style{FontSize: 10.5},
+				lines = append(lines, core.Text{Content: T("注意：%s", w), Style: core.Style{FontSize: 10.5},
 					StyleFunc: ui.Colored(colors.Warn)})
 			}
 			for _, c := range plug.Commands {
@@ -983,11 +983,11 @@ func (a *app) settingsAddons() core.Node {
 					StyleFunc: ui.Colored(colors.Muted)})
 			}
 			for _, th := range plug.ThemeSpecs {
-				lines = append(lines, core.Text{Content: "· 主题 " + th.Name, Style: core.Style{FontSize: 10.5},
+				lines = append(lines, core.Text{Content: T("· 主题 %s", th.Name), Style: core.Style{FontSize: 10.5},
 					StyleFunc: ui.Colored(colors.Muted)})
 			}
 			for _, kb := range plug.Contributes.Keybindings {
-				lines = append(lines, core.Text{Content: "· 键位 " + kb.Key + " → " + kb.Command,
+				lines = append(lines, core.Text{Content: T("· 键位 %s → %s", kb.Key, kb.Command),
 					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)})
 			}
 			var hooks []string
@@ -1280,7 +1280,7 @@ func (a *app) settingsData() core.Node {
 					}}),
 				),
 				setGroup("数量",
-					setRow("本应用的会话", fmt.Sprintf("%d 个", count), ui.Text("已打开 "+fmt.Sprint(len(a.tabs.Get())), 10.5, ui.Regular, colors.Faint)),
+					setRow("本应用的会话", fmt.Sprintf("%d 个", count), ui.Text(T("已打开 %d", len(a.tabs.Get())), 10.5, ui.Regular, colors.Faint)),
 					setDivider(),
 					setRow("项目下的 pi 本地会话", fmt.Sprintf("%d 个", piCount), nil),
 					setDivider(),

@@ -138,7 +138,7 @@ func (a *app) editorBody() core.Node {
 		}
 		if f.Loading.Get() {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-				Children: []core.Node{ui.Spinner{Size: 16}, ui.Text("正在读取 "+f.Name+"…", 11.5, ui.Regular, colors.Muted)}}
+				Children: []core.Node{ui.Spinner{Size: 16}, ui.Text(T("正在读取 %s…", f.Name), 11.5, ui.Regular, colors.Muted)}}
 		}
 		if msg := f.Err.Get(); msg != "" {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 10},
