@@ -85,6 +85,13 @@ jobs:
       - name: Skill docs and judges
         if: always()
         run: npm run test:skills
+      # 2026-11-15：check:dsh-wire 此前只写在 package.json 里，任何 workflow 都没调用——
+      # 判据写了没人跑，等于没写。它静态校验 DshRemoteClient 的每个 RPC 载荷键集是否与 host
+      # 侧 typert 描述符一致（31 个调用点，不符 0 个）。纯 node、不联网、约 1 秒，符合本文件口径。
+      # 缺依赖时它报 rc=2（环境不全），不是 rc=0。
+      - name: DSH wire payloads
+        if: always()
+        run: npm run check:dsh-wire
 
       - name: Type-check
         if: always()

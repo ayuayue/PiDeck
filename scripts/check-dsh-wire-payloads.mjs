@@ -11,7 +11,7 @@
  * 一次性列出全部问题。
  *
  * 运行：node scripts/check-dsh-wire-payloads.mjs
- * 退出码：0 = 全部通过；1 = 存在不符（CI/本地门禁可直接用）。
+ * 退出码：0 = 全部通过；1 = 存在不符；2 = 环境不全（缺依赖，判据没执行）。
  *
  * 局限（有意为之）：只做**静态**判据。展开表达式（`...(cond ? {a} : {})`）视为
  * 「可选补充」，不参与「多键」判断；动态端点（endpoint 变量）跳过并提示。
@@ -26,9 +26,12 @@ try {
 	zod = require("zod");
 } catch {
 	// 2026-11-11：缺依赖时此前直接抛 MODULE_NOT_FOUND 栈，读者看不出是「没装依赖」还是
-	// 「判据发现真问题」。与 bin/sync-verify 的 SKIP 语义一致：不是通过，判据没执行。
-	console.error("[check-dsh-wire] 跳过：缺依赖 zod（先跑 npm ci）。这不是通过——判据没有执行。");
-	process.exit(0);
+	// 「判据发现真问题」。
+	// 2026-11-15：这里原本写 process.exit(0) —— 注释说「这不是通过」，代码做的正是通过，
+	// 与 release-preflight 同型。改成 rc=2：环境不全与判据失败分开，读的人才知道该装依赖
+	// 还是该改代码。
+	console.error("[check-dsh-wire] 环境不全：缺依赖 zod（先跑 npm ci）。rc=2 表示判据没有执行，不是通过。");
+	process.exit(2);
 }
 // 0.2.1 起 typert 描述符会 import `createTypertRemoteInfo` 生成 $remote（TYPERT 只
 // 暴露 invocations getter）；旧版没有这个模块（描述符里也不引用），取不到时留空实现。
