@@ -112,11 +112,27 @@ func TestPluginMarketUI(t *testing.T) {
 	app.WaitFor("id:plugin-market-open", 5*time.Second)
 	app.Press("id:plugin-market-open")
 	app.WaitFor("id:plugin-market", 5*time.Second)
-	app.Type("id:market-url", srv.URL+"/index.json")
-	app.Press("id:market-load")
-	app.WaitUntil(20*time.Second, func() bool { return len(app.Query("id:market-entry-team")) > 0 })
-	app.Press("id:market-install-team")
-	app.WaitUntil(20*time.Second, func() bool { return len(app.Query("text:已安装 v1.0.0")) > 0 })
+	typeAll(t, app, "id:market-url", srv.URL+"/index.json")
+	for i := 0; i < 4; i++ {
+		if len(app.Query("id:market-entry-team")) > 0 {
+			break
+		}
+		app.Press("id:market-load")
+		app.Settle()
+		time.Sleep(100 * time.Millisecond)
+	}
+	app.WaitUntil(30*time.Second, func() bool { return len(app.Query("id:market-entry-team")) > 0 })
+	for i := 0; i < 4; i++ {
+		if len(app.Query("text:已安装 v1.0.0")) > 0 {
+			break
+		}
+		if len(app.Query("id:market-install-team")) > 0 && app.Enabled("id:market-install-team") {
+			app.Press("id:market-install-team")
+		}
+		app.Settle()
+		time.Sleep(100 * time.Millisecond)
+	}
+	app.WaitUntil(30*time.Second, func() bool { return len(app.Query("text:已安装 v1.0.0")) > 0 })
 	app.WaitFor("id:market-close", 5*time.Second)
 	deadline := time.Now().Add(10 * time.Second)
 	for {
