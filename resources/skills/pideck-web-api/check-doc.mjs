@@ -8,6 +8,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// 必须先跑：变异 compareActions 时第一行就要红，不能让统计行先打印。
+// 自检坏样本：7.1 的漏与多两个方向都必须非空。把 compareActions 改成恒空，这里立刻退出。
+{
+  const onlySrc = compareActions(["x", "y"], ["x"]);
+  const onlyDoc = compareActions(["x"], ["x", "z"]);
+  if (onlySrc.missing.length !== 1 || onlySrc.missing[0] !== "y") { console.log("FAIL 自检坏样本：源码里多一个动作没被判出来"); process.exit(1); }
+  if (onlyDoc.extra.length !== 1 || onlyDoc.extra[0] !== "z") { console.log("FAIL 自检坏样本：文档里多一个动作没被判出来"); process.exit(1); }
+}
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = process.argv[2] || path.join(here, "SKILL.md");
 const SRC = path.resolve(here, "../../../src/main/web/WebApiRoutes.ts");
@@ -62,13 +71,6 @@ function compareActions(srcList, docList) {
   };
 }
 
-// 自检坏样本：7.1 的漏与多两个方向都必须非空。把 compareActions 改成恒空，这里立刻退出。
-{
-  const onlySrc = compareActions(["x", "y"], ["x"]);
-  const onlyDoc = compareActions(["x"], ["x", "z"]);
-  if (onlySrc.missing.length !== 1 || onlySrc.missing[0] !== "y") { console.log("FAIL 自检坏样本：源码里多一个动作没被判出来"); process.exit(1); }
-  if (onlyDoc.extra.length !== 1 || onlyDoc.extra[0] !== "z") { console.log("FAIL 自检坏样本：文档里多一个动作没被判出来"); process.exit(1); }
-}
 
 const routes = new Set();
 const routeRe = new RegExp(BS + "/api" + BS + "/[^" + QUOTE + TICK + " ,;]*", "g");
