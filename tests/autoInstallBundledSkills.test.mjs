@@ -43,8 +43,35 @@ test("模板安装失败只记 warn，不抛异常、不中断其余技能", asy
 });
 
 /**
+ * 目标位置不能一律走默认值。mcp-setup 讲的是 pi 的 mcp.json 与 `pi mcp list`，在 TUI 里同样要用；
+ * 手动入口 configInstallMcpSetupSkill 一直显式传 "pi-global"。自动安装若走默认 "pideck-global"，
+ * 同一个技能就有两个入口装到两个位置：TUI 里 /skill:mcp-setup 不存在，而且不报错。
+ * 坏样本：把 BUNDLED_SKILLS 里 mcp-setup 的 location 改回 "pideck-global"，本断言红。
+ */
+test("mcp-setup 装进 pi-global，其余装进 pideck-global", async () => {
+	const { autoInstallBundledSkills } = loadTsModule("src/main/skills/autoInstallBundledSkills.ts");
+	const where = new Map();
+	autoInstallBundledSkills(
+		{
+			installTemplate: (name, location) => {
+				where.set(name, location);
+				return Promise.resolve({ success: true, path: "/tmp/" + name });
+			},
+		},
+		null,
+	);
+	await settle();
+	assert.equal(where.get("mcp-setup"), "pi-global", "mcp-setup 必须在 pi-global：TUI 里也要能用 /skill:mcp-setup");
+	assert.deepEqual(
+		[...where].filter(([name]) => name !== "mcp-setup").map(([, location]) => location),
+		["pideck-global", "pideck-global", "pideck-global", "pideck-global"],
+		"其余四个技能是桌面端专用，装进 pideck-global",
+	);
+});
+
+/**
  * 清单与目录对拍：resources/skills 下有 SKILL.md 的目录，必须都进 BUNDLED_SKILLS。
- * 上一条测试硬编码四个名字，只能抓「删掉某一项」，抓不到「新增了技能目录但忘了登记」——
+ * 第一条测试硬编码五个名字，只能抓「删掉某一项」，抓不到「新增了技能目录但忘了登记」——
  * 那是真实会发生的方向：新技能随包发出，用户装完却在 /skill: 里看不到它，没有任何报错。
  * 注释写「与 resources/skills 下的子目录一一对应」，这条把注释变成可执行的判据。
  */
