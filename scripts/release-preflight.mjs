@@ -54,6 +54,10 @@ export function parsePreflightArgs(argv) {
 	return args;
 }
 
+/** 走 PATH 的命令行工具（biome 等）。Windows 上 npm 装的是 .cmd shim，所以用 shell。 */
+function cliStep(label, cmd, args = []) {
+	return { label, file: cmd, args, shell: true };
+}
 function scriptStep(label, scriptPath, args = []) {
 	return { label, file: process.execPath, args: [scriptPath, ...args] };
 }
@@ -107,7 +111,9 @@ export function buildLanes({ testConcurrency, e2e }) {
 			id: "format",
 			label: "biome 格式检查",
 			timeoutMs: 5 * MIN,
-			steps: [scriptStep("biome format（check 模式）", join(ROOT, "node_modules/@biomejs/biome/bin/biome"), ["format", "src", "tests", "scripts", "e2e"])],
+			// 2026-11-15：原写法硬编码 node_modules/@biomejs/biome/bin/biome，依赖不全的克隆上恒红，
+			// 而 npm run check:format 走 PATH 是绿的——同一个检查两套入口，一处绿一处红。改成走 PATH。
+			steps: [cliStep("biome format（check 模式）", "biome", ["format", "src", "tests", "scripts", "e2e"])],
 		},
 		{ id: "release", label: "发布一致性", timeoutMs: 10 * MIN, steps: releaseSteps() },
 	];
