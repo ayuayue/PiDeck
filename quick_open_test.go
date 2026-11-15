@@ -121,3 +121,33 @@ func TestQuickOpenRecents(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// TestPaletteRecentFile reaches a recently opened file from the command
+// palette.
+func TestPaletteRecentFile(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir := editorWorkspace(t)
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello palette"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other.txt"), []byte("other"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := startApp(t, dir, 1280, 860)
+	app.Key("mod+j")
+	app.WaitFor("id:drawer-tab-files", 5*time.Second)
+	app.Press("id:drawer-tab-files")
+	app.WaitFor("text:note.txt", 5*time.Second)
+	app.Press("text:note.txt")
+	app.WaitFor("id:editor", 5*time.Second)
+	app.Key("mod+w")
+	app.WaitFor("id:composer", 5*time.Second)
+
+	app.Key("mod+k")
+	app.Type("label:命令", "note.txt")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:option note.txt")) > 0 })
+	app.Press("role:option note.txt")
+	app.WaitFor("text:hello palette", 10*time.Second)
+}

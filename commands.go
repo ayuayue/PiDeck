@@ -6,6 +6,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -336,6 +338,21 @@ func (a *app) commandItems() []base.CommandItem {
 		out = append(out, base.CommandItem{ID: c.ID, Label: T(c.Label), Description: T(c.Description),
 			Group: T("最近"), Shortcut: c.Shortcut, Icon: icon()})
 	}
+	// The files the editor opened last, so Ctrl+K reaches them too.
+	root := a.quickOpenRoot()
+	for _, path := range a.cfg.RecentFiles {
+		if len(out) >= 200 {
+			break
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		label := filepath.Base(path)
+		if rel, err := filepath.Rel(root, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			label = filepath.ToSlash(rel)
+		}
+		out = append(out, base.CommandItem{ID: "file:" + path, Label: label, Group: T("最近文件"), Icon: lucide.FileText()})
+	}
 	for _, c := range all {
 		if recent[c.ID] || c.Hidden || (c.When != nil && !c.When(a)) {
 			continue
@@ -379,6 +396,15 @@ func (a *app) commandItems() []base.CommandItem {
 }
 
 // runCommand runs a palette item by id.
+// openFileFromPalette opens a recent file the palette listed.
+func (a *app) openFileFromPalette(path string) {
+	root := a.quickOpenRoot()
+	if root == "" {
+		root = filepath.Dir(path)
+	}
+	a.openEditorFile(root, path)
+}
+
 func (a *app) runCommand(id string) {
 	a.palette.Set(false)
 	if rest, ok := strings.CutPrefix(id, "theme:"); ok {
@@ -387,6 +413,10 @@ func (a *app) runCommand(id string) {
 	}
 	if rest, ok := strings.CutPrefix(id, "workspace:"); ok {
 		a.openWorkspaceKey(rest)
+		return
+	}
+	if rest, ok := strings.CutPrefix(id, "file:"); ok {
+		a.openFileFromPalette(rest)
 		return
 	}
 	if rest, ok := strings.CutPrefix(id, "session:"); ok {
