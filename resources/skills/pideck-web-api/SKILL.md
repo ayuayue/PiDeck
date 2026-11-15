@@ -480,9 +480,13 @@ PiDeck 里正常新建的会话不受这个影响。
 
 `activate` 是唯一不要 target 的——它要做的正是「这个冷会话现在起来」，没有 target 可回传。其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
 
-`target.agentId` 和 `target.runtimeGeneration` 都是真闸，值必须和 `runtimes[]` 里当前那份一致：agentId 给假值、代号漏传或给错（实测给 999）都会被拒，返回 `SESSION_RUNTIME_CHANGED`。
+`target.agentId` 和 `target.runtimeGeneration` 都是真闸，值必须和 `runtimes[]` 里当前那份一致。两个字段被拒时返回的不是同一个码：
 
-这个错误码容易被读成「运行时代号变了」，其实是「你传的值不对」，别据此判断会话被重启过。三个字段都传当前值最稳，取法见第 6 节第 1 步。
+`agentId` 给不存在的 uuid，或它与路径里的 sessionId 对不上，返回 `SESSION_RUNTIME_UNAVAILABLE`。`agentId` 对、`runtimeGeneration` 漏传或给错（实测给 999），返回 `SESSION_RUNTIME_CHANGED`。
+
+依据是 `runtime/runtimeBinding.ts` 的 `requireBoundTarget`：它先核对 sessionId 与 agentId 的绑定，再比代号，两步抛的码不同。
+
+这两个码里 `SESSION_RUNTIME_CHANGED` 容易被读成「运行时代号变了」，实际意思是「你传的值不对」，别据此判断会话被重启过。三个字段都传当前值最稳，取法见第 6 节第 1 步。
 
 **`activate` 是冷启动，别按毫秒算。** 本机实测（Windows 发行版，进程完全没起）一次 3556 毫秒；别人机器上记过一次 45 毫秒，那是进程已经预热的情况。给它设超时按 5 秒以上给。
 
