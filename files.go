@@ -238,6 +238,13 @@ func (a *app) workspaceFiles(root string) []string {
 	return files
 }
 
+// fileIndexBusy reports whether the root's file list is being read.
+func (a *app) fileIndexBusy(root string) bool {
+	a.fileIdx.mu.Lock()
+	defer a.fileIdx.mu.Unlock()
+	return a.fileIdx.root == root && a.fileIdx.loading
+}
+
 // scanWorkspaceFiles walks a workspace, skipping the folders that never
 // belong in a prompt, and announces the list.
 func (a *app) scanWorkspaceFiles(root string) {
@@ -324,6 +331,52 @@ func mentionMatches(files []string, token string, limit int) []string {
 		}
 	}
 	out := append(prefix, contains...)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// fileMatches ranks files for quick open: names that start with the query
+// first, then names that contain it, then paths that do.
+func fileMatches(files []string, query string, limit int) []string {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		if len(files) > limit {
+			return files[:limit]
+		}
+		return files
+	}
+	var byName, inName, inPath []string
+	for _, f := range files {
+		lower := strings.ToLower(f)
+		base := strings.ToLower(filepath.Base(f))
+		switch {
+		case strings.HasPrefix(base, q):
+			byName = append(byName, f)
+		case strings.Contains(base, q):
+			inName = append(inName, f)
+		case strings.Contains(lower, q):
+			inPath = append(inPath, f)
+		}
+		if len(byName) >= limit {
+			break
+		}
+	}
+	// Within a tier the shortest path is the likeliest answer.
+	shortest := func(s []string) {
+		sort.SliceStable(s, func(i, j int) bool {
+			if len(s[i]) != len(s[j]) {
+				return len(s[i]) < len(s[j])
+			}
+			return s[i] < s[j]
+		})
+	}
+	shortest(byName)
+	shortest(inName)
+	shortest(inPath)
+	out := append(byName, inName...)
+	out = append(out, inPath...)
 	if len(out) > limit {
 		out = out[:limit]
 	}

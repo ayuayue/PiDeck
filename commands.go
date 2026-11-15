@@ -73,6 +73,9 @@ func builtinCommands() []appCommand {
 				}
 				a.closeTab(a.activeID.GetUntracked())
 			}},
+		{ID: "quick-open", Label: "快速打开文件…", Group: "文件", Shortcut: "mod+p", Icon: lucide.FileSearch,
+			When: func(a *app) bool { return a.quickOpenRoot() != "" },
+			Run:  func(a *app) { a.openQuickOpen() }},
 		{ID: "go-to-line", Label: "转到行…", Group: "文件", Shortcut: "mod+g", Icon: lucide.Hash,
 			When: func(a *app) bool { return a.editorOpen() && a.editor.activeFile() != nil },
 			Run:  func(a *app) { a.openGotoLine() }},
