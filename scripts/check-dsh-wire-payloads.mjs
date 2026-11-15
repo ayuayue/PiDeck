@@ -225,7 +225,21 @@ function nestedLiteralFor(literal, key) {
 	return braceIndex < 0 ? undefined : extractObjectLiteral(literal, braceIndex);
 }
 
-const source = readFileSync(clientPath, "utf8");
+// 2026-11-15：checkout 失败时 clientPath 不存在，readFileSync 抛 ENOENT 走到未捕获异常 → rc=1，
+// 与「载荷不符」同一个码。with: if: always() 意味着即使 checkout 挂了这步也会跑，所以这条路径
+// 真实存在。归 rc=2：读不到源码是环境不全，不是判据发现问题。
+//
+// 口径边界：只有「落在 src/ 输入根下的源码读不到」才算 rc=2。若将来加读清单/配置的地方，
+// 清单文件名写错属于缺陷（该 rc=1），不是环境不全——判法是看路径是否在输入根目录下。
+// 本脚本唯一的 readFileSync 输入就是 clientPath（src/main/dsh/dshRemoteClient.ts），其余读盘
+// 都在 existsSync 保护下，所以这里不会把两类 ENOENT 混在一起。
+let source;
+try {
+	source = readFileSync(clientPath, "utf8");
+} catch (e) {
+	console.error("[check-dsh-wire] 环境不全：读不到 " + clientPath + "（" + (e.code || e.message) + "）。rc=2 表示判据没有执行，不是通过。");
+	process.exit(2);
+}
 const callSites = [];
 const callRe = /\.(?:call|openStream)\(\s*(?:`([^`]+)`|"([^"]+)"|([A-Za-z_$][\w$]*))\s*,/g;
 let match;

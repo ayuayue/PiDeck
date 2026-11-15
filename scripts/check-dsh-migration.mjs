@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-/** 实际 host + RPC 的 V3→V4/fork 门禁：临时 HOME，无模型调用或真实凭据。 */
+/** 实际 host + RPC 的 V3→V4/fork 门禁：临时 HOME，无模型调用或真实凭据。
+ *
+ * **手动工具，不在 CI 里跑**：要起真 host 进程、建临时 HOME，单次几十秒。
+ * 名字以 check- 开头，但没有任何 workflow 调用它——不要把它当「每 PR 守卫」。
+ * 每 PR 的判据是同族的 check-dsh-wire-payloads（纯静态、1 秒，已挂 dev-guard）。 */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

@@ -34,6 +34,18 @@ export function compareVersion(head, base) {
 // 显式传的 ref 优先于环境变量：CI 里 GITHUB_BASE_REF 恒有值（dev），若让它压过命令行，
 // workflow 传的 -- <base.sha> 永远用不上（2026-11-15 评审实测：Dev Guard 第 8 步显示绿，
 // 日志却是 SKIP 取不到 base 版本（origin/dev），因为 fetch-depth:1 没拉这个引用）。
+/**
+ * CI 里必须拿到显式 base：`GITHUB_ACTIONS=true` 时 argv 为空说明 workflow 没把
+ * base.sha 传进来（或事件类型不对），判据实际上没执行。
+ * 本地手工跑允许退到 origin/dev——那时没有 PR 上下文，SKIP 是合理结果。
+ */
+export function shouldFailWithoutBase(explicit, eventName) {
+	// 只对 pull_request 生效：dev-guard 同时由 push(dev) 与 pull_request(dev) 触发，
+	// push 事件下 github.event.pull_request.base.sha 本来就是空，那时判 rc=1 会让门禁常红，
+	// 而常红的门禁等于没有门禁。
+	return Boolean(!explicit && eventName === "pull_request");
+}
+
 export function resolveBaseRef(explicit, envBaseRef) {
 	if (explicit) return explicit;
 	if (envBaseRef) return "origin/" + envBaseRef;
@@ -68,6 +80,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 			["无显式时用环境变量", resolveBaseRef(undefined, "dev") === "origin/dev"],
 			["都没有时退 origin/dev", resolveBaseRef(undefined, undefined) === "origin/dev"],
 			["显式带 origin 前缀原样用", resolveBaseRef("origin/main", "dev") === "origin/main"],
+			["pull_request 没给 base → 必须红", shouldFailWithoutBase(undefined, "pull_request") === true],
+			["push 没给 base → 允许 SKIP", shouldFailWithoutBase(undefined, "push") === false],
+			["本地没给 base（undefined）→ 允许 SKIP", shouldFailWithoutBase(undefined, undefined) === false],
+			["非 pull_request 的其它事件 → SKIP", shouldFailWithoutBase(undefined, "workflow_dispatch") === false],
+			["给了 base → 不走这条分支（PR 事件）", shouldFailWithoutBase("abc123", "pull_request") === false],
+			["给了 base → 不走这条分支（push 事件）", shouldFailWithoutBase("abc123", "push") === false],
 			["空串解析为 null", parseVersion("") === null],
 			["非数字解析为 null", parseVersion("abc") === null],
 		];
@@ -84,6 +102,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 		process.exit(0);
 	}
 	const explicit = process.argv.slice(2).find((a) => !a.startsWith("-"));
+	// 2026-11-15：上一笔修了「显式给了却读不到 → rc=1」，但「压根没给」仍然 SKIP exit(0) 绿。
+	// workflow 若漏传 base.sha（变量空、事件类型变成 push），这条判据又回到静默放行。
+	if (shouldFailWithoutBase(explicit, process.env.GITHUB_EVENT_NAME)) {
+		console.log("FAIL pull_request 事件里没拿到 base sha（argv 为空）：workflow 没把 base.sha 传进来，判据没有执行。");
+		process.exit(1);
+	}
 	const baseRef = resolveBaseRef(explicit, process.env.GITHUB_BASE_REF);
 	const head = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 	let base;
