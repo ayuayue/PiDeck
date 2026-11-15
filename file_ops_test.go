@@ -61,10 +61,7 @@ func TestFileTreeOps(t *testing.T) {
 	waitApp(app, "role:button renamed.txt", 10*time.Second)
 
 	// A new folder.
-	openMenu(t, app, "role:button docs", "新建文件夹")
-	app.WaitUntil(15*time.Second, func() bool { return len(app.Query("text:新建文件夹")) > 0 })
-	app.Press("role:menuitem 新建文件夹")
-	app.WaitFor("id:file-op", 5*time.Second)
+	pickMenu(t, app, "role:button docs", "新建文件夹")
 	app.Type("id:file-op-name", "sub")
 	app.Press("id:file-op-confirm")
 	waitPath(t, filepath.Join(docs, "sub"), true)
@@ -148,7 +145,7 @@ func openMenu(t *testing.T, app *nsgotest.App, trigger, item string) {
 // tree's rebuild closes the menu under it.
 func pickMenu(t *testing.T, app *nsgotest.App, trigger, item string) {
 	t.Helper()
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 12; i++ {
 		openMenu(t, app, trigger, item)
 		if len(app.Query("role:menuitem "+item)) == 0 {
 			continue
