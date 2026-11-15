@@ -451,7 +451,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
   "$BASE/api/sessions/<执行者 id>/delete"
 ```
 
-返回 `{"deleted":true}`。先 stop 再 delete，否则进程还占着。
+返回 `{"deleted":true}`。删除只走这个 `POST .../delete`，`DELETE /api/sessions/<id>` 不存在，会返回 404 `webError.apiNotFound`。先 stop 再 delete，否则进程还占着。
 
 **匿名会话会在空闲后消失。** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。
 
