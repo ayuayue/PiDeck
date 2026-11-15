@@ -442,11 +442,7 @@ export class SkillManager {
 			for (const file of SKILL_EXTRA_FILES[skillName] ?? []) {
 				const from = overlayDir ? join(overlayDir, skillName, file) : join(root, "skills", skillName, file);
 				if (!existsSync(from)) continue;
-				const to = join(targetDir, file);
-				// 附件可能带子目录（references/x.lean），也可能不是 UTF-8 文本：
-				// 只 mkdir 过 targetDir 会让前者 ENOENT，带 encoding 读会让后者被解码坏。
-				await mkdir(dirname(to), { recursive: true });
-				await writeFile(to, await readFile(from));
+				await writeFile(join(targetDir, file), await readFile(from), "utf8");
 			}
 			if (wasUserOnly) {
 				await writeFile(targetPath, this.setFrontmatterBoolean(content, "disable-model-invocation", true), "utf8");
