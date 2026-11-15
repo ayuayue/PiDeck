@@ -53,6 +53,7 @@ import {
 } from "./dshProcessEvents";
 import { applyDshControlEvent, beginDshCancel, type DshControlState } from "./dshRuntimeControl";
 import { isDshModelImageUnsupportedRejection, readDshModelSelection, resolveDshModelDirectory, toDshAvailableModels } from "./dshModels";
+import { readDshPermissionPreset, waitForDshPermissionPreset } from "./dshPermissionProjection";
 import { approvalUiRequest, buildDshRejectValue, buildDshRespondValue, parseDshApprovalFrame, parseDshQuestionFrame, questionUiRequest, type DshApprovalFrame, type DshQuestionFrame } from "./dshApprovalBridge";
 import { assembleDshHistoryEntries, countDshUserMessages, DSH_HISTORY_DEFAULT_TURN_PAGE_SIZE, dshRuntimeWindowFields, normalizeDshTurnPageSize, planDshHistoryRounds, resolveDshHistoryWindow, trimToOldestTurnStart } from "./dshHistoryPagePlan";
 import { DSH_SESSION_FIND_MAX_MATCHES, findDshSessionMatches, type DshSessionFindResult } from "./dshSessionFind";
@@ -1700,6 +1701,14 @@ export class DshAgentManager implements SessionAgentGateway {
 		// 与 sendPrompt 同一串行化约束：命令回合运行中不允许再 splice 消息
 		// （reject 路径会滞留回合内到达的 followup，见 sendPrompt 注释）。
 		await this.waitForIdle(agentId);
+		const probe = () => readDshPermissionPreset(client, String(runtime.sessionId));
+		// 幂等：host 已是目标预设时 /permission 不 append 任何事件（apply 是 no-op），
+		// 发出去只会多一个 blocked 回合并让重放永远超时（#548）。投影已是目标值就直接成功。
+		if ((await probe()) === preset) {
+			runtime.permissionPreset = preset;
+			this.emitRuntimeState(agentId);
+			return { accepted: true, preset, unchanged: true };
+		}
 		// The host-apiproxy client exposes sessions.prompt, not the browser runtime's
 		// high-level session.command API. The refreshed host-side slash bridge consumes
 		// this control message before model dispatch, so it never becomes a timeline item.
@@ -1714,21 +1723,12 @@ export class DshAgentManager implements SessionAgentGateway {
 		// Prompt admission only means the command reached DSH. Wait for the durable
 		// permission/preset projection before reporting success; otherwise the UI can
 		// persist a restricted preset while the host is still using the old policy.
-		const applied = await this.waitForPermissionPreset(runtime, preset);
+		// 投影兜底覆盖「事件折叠延迟/丢失」与幂等 no-op（#548）。
+		const applied = await waitForDshPermissionPreset({ runtime, preset, probe });
 		if (!applied) {
 			throw new Error(`dsh /permission was accepted but preset did not become active: ${preset}`);
 		}
 		return { accepted: true, preset };
-	}
-
-	/** Wait for the host event fold rather than guessing from prompt acceptance. */
-	private async waitForPermissionPreset(runtime: DshAgentRuntime, preset: DshPermissionPreset, timeoutMs = 5_000): Promise<boolean> {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < timeoutMs) {
-			if (runtime.permissionPreset === preset) return true;
-			await new Promise<void>((resolve) => setTimeout(resolve, 50));
-		}
-		return runtime.permissionPreset === preset;
 	}
 
 	async publishRuntimeState(agentId: string): Promise<void> {

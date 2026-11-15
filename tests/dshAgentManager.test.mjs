@@ -21,7 +21,7 @@ test("dshSessionFilePath：workspace 目录名编码与 DSH 内部规则一致",
  * DshAgentManager 只依赖 DshHost 的 ensureStarted/getClient（InProcessApiClient），
  * 这里用同形状的假 client（sessions.list/create/history + events.mux 空流）。
  */
-function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undefined } = {}) {
+function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undefined, permissionPreset = () => "read-only" } = {}) {
 	const sessions = new Map();
 	let nextSession = 0;
 	const historyBySession = new Map();
@@ -265,7 +265,7 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 			return response;
 		},
 		async sessionsProjections({ sessionId }) {
-			return { result: { ok: true, value: { asOfSeq: historyBySession.get(sessionId)?.length ?? 0, values: { modelSelection: { lastUsed: null, next: modelSelections.get(sessionId) ?? null } } } } };
+			return { result: { ok: true, value: { asOfSeq: historyBySession.get(sessionId)?.length ?? 0, values: { modelSelection: { lastUsed: null, next: modelSelections.get(sessionId) ?? null }, permissions: { currentValue: permissionPreset() } } } } };
 		},
 		sessionsFork(...args) {
 			return client.sessions.fork(...args);
@@ -1356,6 +1356,42 @@ test("setPermission 拒绝未知预设，避免把非法值送进 DSH 命令桥"
 
 	await assert.rejects(() => manager.setPermission(tab.id, "project-write"), /Unsupported DSH permission preset: project-write/);
 	assert.equal(calls.prompt, 0);
+});
+
+test("setPermission 在 host 已是目标预设时不发命令：幂等 no-op 不产生事件（#548）", async () => {
+	let preset = "danger-full-access";
+	const { host, client, promptCalls } = makeFakeHost({ permissionPreset: () => preset });
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+
+	// 重启后 applyPreferences 重放同一预设：/permission 是 no-op（不 append 任何事件），
+	// 旧实现会死等 5s 并让用户消息发不出去。投影已是目标值时直接成功且不发命令。
+	const result = await manager.setPermission(tab.id, "danger-full-access");
+	// 跨 vm realm 的对象原型不同：逐字段断言，不用 deepEqual。
+	assert.equal(result.accepted, true);
+	assert.equal(result.preset, "danger-full-access");
+	assert.equal(result.unchanged, true);
+	assert.deepEqual(promptCalls, []);
+	assert.equal((await manager.getRuntimeState(tab.id)).permissionPreset, "danger-full-access");
+	client.abortAllPending();
+});
+
+test("setPermission 事件折叠不可靠时以官方投影确认（#548）", async () => {
+	let preset = "read-only";
+	const { host, client, promptCalls } = makeFakeHost({ permissionPreset: () => preset });
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+
+	const changing = manager.setPermission(tab.id, "workspace-write");
+	// host 已生效但 mux 没推 permission/preset（事件折叠延迟/丢失）：投影是唯一证据。
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	preset = "workspace-write";
+	await changing;
+	assert.deepEqual(promptCalls, ["/permission workspace-write"]);
+	assert.equal((await manager.getRuntimeState(tab.id)).permissionPreset, "workspace-write");
+	client.abortAllPending();
 });
 
 test("setModel 按官方语义使用新模型默认档位，不携带旧模型的 thinkingLevel", async () => {
