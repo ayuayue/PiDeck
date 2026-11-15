@@ -62,6 +62,13 @@ jobs:
         if: always()
         run: npm run check:skills-manifest
 
+      # 2026-11-15：test:skills 此前只挂在 ci.yml，而 ci.yml 只对 main 的 push 与
+      # 向 main 的 PR 触发。本 PR 目标是 dev，四个判据在整个 dev 期间没有任何闸门
+      # 跑——写了判据没人跑，跟没写一样。实测 1.0 秒，纯 node、不联网，符合本文件口径。
+      - name: Skill docs and judges
+        if: always()
+        run: npm run test:skills
+
       - name: Type-check
         if: always()
         run: npm run typecheck
