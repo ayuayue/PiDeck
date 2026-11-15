@@ -633,7 +633,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 例外只有一个：frontmatter 里的 `disable-model-invocation: true` 会被记住，重启后重新写回（`SkillManager.ts:438-449`）。除它以外的改动都白费。
 
-**这一节只对改这个技能的人有用，用技能的人跳过。** 四个检查都要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`），所以只能在源码克隆里跑——PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这四个脚本。
+**这一节只对改这个技能的人有用，用技能的人跳过。** 四个检查里有三个要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`）。PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这四个脚本。
 
 在 PiDeck 源码克隆的根目录跑，四条的 rc 都得是 0：
 
@@ -644,9 +644,19 @@ node resources/skills/pideck-web-api/check-format.mjs  # 加粗成对、代码�
 node resources/skills/pideck-web-api/check-fields.mjs  # 全文反引号标识符逐词对源码，默认读同仓库 src/main
 ```
 
-前三条没有自检开关，要手工造坏样本：写错一个动作名、把一个路径段拼错、漏一个 `**`，改完跑一次必须报红。
+**四个检查都自带自检，跑一次就执行**：每条判据先喂一份坏样本，红不了就说明判据自己坏了。
 
-`check-fields.mjs` 自带 `--selftest`，不读真源码也能把好坏两个样本跑一遍（坏样本红、好样本绿，rc 才有意义）。
+其中三个能离开源码克隆单独验判据——装了 PiDeck 的机器上只有技能副本，没有 `src/main`，那里唯一能问的问题就是「判据自己还对不对」：
+
+```bash
+node resources/skills/pideck-web-api/check-format.mjs --selftest  # 9 条：表格列数、加粗没闭合、代码块配对、$ 被反引号包住、标题前空行
+node resources/skills/pideck-web-api/check-paths.mjs  --selftest  # 11 条：缺段、正样本、占位符跳过、组合式路由拆段、本机路径三种写法
+node resources/skills/pideck-web-api/check-fields.mjs --selftest  # 好坏样本各一遍
+```
+
+`check-doc.mjs` 没有这个开关：它每条判据都要真的路由表，脱离源码没有可验的对象。它的自检在读源码之后顺带跑，源码不在就先报「找不到源码」并 rc=2——那是环境不全，不是判据失败。
+
+判据的口径上限写在各自文件头里，读一遍再改：`check-paths` 只按段比对、抓不到顺序错；`check-doc` 抓不到模板串拼出来的路由。
 
 一直绿的那条，多半是检查本身坏了。
 
