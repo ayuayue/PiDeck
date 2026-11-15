@@ -75,6 +75,7 @@ import { fileTreeNodeKey, loadAtFileNameSearch, mergeAtFileNameSearchFiles, merg
 import { formatFilePathRef, type ComposerChip } from "../components/session/composer/chips";
 import type { ComposerCaretRequest } from "../components/session/composer/types";
 import { getComposerCaretCoords, getComposerCaretOffset, getComposerCaretBlockEdge, getComposerSelectionRange, isComposerAtVisualEdge } from "../components/session/composer/caretCoords";
+import { resolveInsertCaret } from "../components/session/composer/insertCaret";
 import { desktopApi } from "../desktopApi";
 import { useAskPanel } from "./useAskPanel";
 import { formatBytes } from "../../../shared/formatBytes";
@@ -1589,10 +1590,29 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		[draft, mode, generateImage, submitVideo, options.onPromoteSession, pasteFiles, send, sessionId, setDraft, setPasteFiles],
 	);
 
+	/**
+	 * 插入类操作的光标来源：**待消费的程序化光标优先于 DOM**。
+	 *
+	 * 为什么不能直接读 DOM：插入路径是「同步改草稿 + 写 caretRef」→ 编辑器在下一趟
+	 * layout pass 才把内容与选区同步过去。这中间的窗口里 DOM 选区还是旧值（连续拖入
+	 * 第二个文件时常见为 0），按它拼接就会把上一次插入的引用挤掉（#564：连续 drop
+	 * 文件时前一个 `@A` 消失）。判据见 `resolveInsertCaret`。
+	 */
+	const resolveLiveInsertCaret = useCallback(
+		(liveDraft: string): number =>
+			resolveInsertCaret({
+				pending: caretRef.current,
+				liveDraft,
+				domCaret: editorRef.current ? getComposerCaretOffset(editorRef.current) : null,
+				fallback: cursor,
+			}),
+		[cursor],
+	);
+
 	const selectSuggestion = useCallback(
 		(item: SuggestionItem) => {
 			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-			const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
+			const liveCursor = resolveLiveInsertCaret(liveDraft);
 			// 目录引用（isDirectory）不带尾随空格：@src/ 之后继续敲路径段时建议框会
 			// 随按键重新打开（onChange → detectTrigger），实现连续的目录下钻引用；
 			// 带空格会让建议框立刻关闭，用户必须回删空格才能继续，容易误以为只能选一层。
@@ -1606,12 +1626,12 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			setSuggestionsOpen(false);
 			requestAnimationFrame(() => editorRef.current?.focus());
 		},
-		[cursor, draft, sessionId, setDraft, validSessionRefs],
+		[cursor, draft, resolveLiveInsertCaret, sessionId, setDraft, validSessionRefs],
 	);
 
 	const closeSuggestions = useCallback(() => {
 		const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-		const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
+		const liveCursor = resolveLiveInsertCaret(liveDraft);
 		const result = clearSuggestionTrigger(liveDraft, liveCursor, validSessionRefs);
 		liveDomDraftRef.current = { sessionId, value: result.text };
 		setDraft(result.text);
@@ -1619,7 +1639,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		caretRef.current = { pos: result.cursor, forValue: result.text };
 		setSuggestionsOpen(false);
 		requestAnimationFrame(() => editorRef.current?.focus());
-	}, [cursor, draft, sessionId, setDraft, validSessionRefs]);
+	}, [cursor, draft, resolveLiveInsertCaret, sessionId, setDraft, validSessionRefs]);
 
 	const onChange = useCallback(
 		(value: string, nextCursor: number) => {
@@ -1793,7 +1813,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		(refTexts: string[]) => {
 			if (refTexts.length === 0) return;
 			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-			const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
+			const liveCursor = resolveLiveInsertCaret(liveDraft);
 			const refText = refTexts.join(" ");
 			const previous = liveDraft[liveCursor - 1];
 			const spacer = liveCursor > 0 && previous !== " " && previous !== "\n" ? " " : "";
@@ -1805,7 +1825,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			caretRef.current = { pos: nextCursor, forValue: next };
 			requestAnimationFrame(() => editorRef.current?.focus());
 		},
-		[cursor, draft, sessionId, setDraft],
+		[cursor, draft, resolveLiveInsertCaret, sessionId, setDraft],
 	);
 
 	/** 本地路径以 @path 引用插入（OS 文件拖入/粘贴/文件选择器共用）；含空格路径自动加引号 */
@@ -1825,7 +1845,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		(text: string) => {
 			if (!text) return;
 			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-			const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
+			const liveCursor = resolveLiveInsertCaret(liveDraft);
 			const next = liveDraft.slice(0, liveCursor) + text + liveDraft.slice(liveCursor);
 			const nextCursor = liveCursor + text.length;
 			liveDomDraftRef.current = { sessionId, value: next };
@@ -1834,7 +1854,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			caretRef.current = { pos: nextCursor, forValue: next };
 			requestAnimationFrame(() => editorRef.current?.focus());
 		},
-		[cursor, draft, sessionId, setDraft],
+		[cursor, draft, resolveLiveInsertCaret, sessionId, setDraft],
 	);
 
 	const captureVoiceTarget = useCallback((): VoiceTranscriptionTarget => {
