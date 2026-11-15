@@ -338,13 +338,15 @@ export class PiLocator {
 		const pkg = (dir: string) => ({ dir, source: "package-manager" as const });
 		const plain = (dir: string) => ({ dir, source: "path" as const });
 		const portable = (dir: string) => ({ dir, source: "portable" as const });
-		// fnm（POSIX）：数据目录可被 FNM_DIR 整体覆盖；旧版默认 ~/.fnm，现代版按 XDG
+		// fnm：数据目录可被 FNM_DIR 整体覆盖；旧版默认 ~/.fnm，现代版按 XDG
 		// （Linux ~/.local/share/fnm、macOS ~/Library/Application Support/fnm，也尊重 XDG_DATA_HOME）。
 		// #318：fnm 装在非 ~/.fnm 布局时，GUI 启动的 PATH 拿不到这些目录，pi 反查不到、
 		// 扩展版本检查（npm view）也会全部 ENOENT。多根都扫：listChildDirs 对不存在
 		// 的目录返回空集，代价可忽略。Windows 布局（node-versions/<ver>/installation 无 bin 层）
-		// 保留在下方 win32 分支，默认目录已被覆盖，FNM_DIR 覆盖场景暂无反馈不扩。
+		// 见下方 win32 分支，那里同样按这组根扫描（#551）。
 		const fnmRoots = [...(process.env.FNM_DIR ? [process.env.FNM_DIR] : []), join(home, ".fnm"), join(process.env.XDG_DATA_HOME || join(home, ".local", "share"), "fnm"), ...(process.platform === "darwin" ? [join(home, "Library", "Application Support", "fnm")] : [])];
+		// Windows 的 fnm 数据目录：FNM_DIR（scoop 会指到 scoop\apps\fnm\current）优先，其次 %LOCALAPPDATA%\fnm / %APPDATA%\fnm。
+		const winFnmRoots = process.platform === "win32" ? [...(process.env.FNM_DIR ? [process.env.FNM_DIR] : []), join(localAppData, "fnm"), join(appData, "fnm")] : [];
 		const fnmEntries = process.platform === "win32" ? [] : fnmRoots.flatMap((root) => [plain(join(root, "current", "bin")), ...this.listChildDirs(join(root, "node-versions")).map((dir) => plain(join(dir, "installation", "bin")))]);
 		const entries = [
 			// #484：macOS 上 Homebrew 目录必须排在 env PATH 之前。GUI 启动（Dock/Finder）的 PATH 来自
@@ -368,11 +370,9 @@ export class PiLocator {
 			pkg(join(localAppData, "Volta", "bin")),
 			pkg(join(miseDataDir, "shims")),
 			...this.listChildDirs(join(miseInstallsDir, "node")).map(pkg),
-			// Windows fnm：node 与 npm 全局 bin（pi.cmd）同在
-			// %LOCALAPPDATA%\fnm\node-versions\<ver>\installation，macOS 分支已有等价兜底。
-			// Scoop：shims 目录放 scoop 装的 app shim；nodejs 的 npm prefix 默认是
-			// apps\nodejs\current（全局包装在该目录，node.exe 同目录）。
-			...(process.platform === "win32" ? [...this.listChildDirs(join(localAppData, "fnm", "node-versions")).map((dir) => join(dir, "installation")), join(home, "scoop", "shims"), join(home, "scoop", "apps", "nodejs", "current")].map(pkg) : []),
+			// Windows fnm：node 与 npm 全局 bin（pi.cmd）同在各数据目录的 node-versions（#551 按
+			// FNM_DIR/平台默认根扫描）；Scoop：shims + nodejs/nodejs-lts 的 current（npm prefix 同目录）。
+			...(process.platform === "win32" ? [...winFnmRoots.flatMap((root) => this.listChildDirs(join(root, "node-versions")).map((dir) => join(dir, "installation"))), join(home, "scoop", "shims"), join(home, "scoop", "apps", "nodejs", "current"), join(home, "scoop", "apps", "nodejs-lts", "current")].map(pkg) : []),
 			pkg(join(home, ".bun", "bin")),
 			pkg(join(home, ".deno", "bin")),
 			plain(join(home, ".local", "bin")),
