@@ -70,7 +70,13 @@ if (SELFTEST) {
 }
 
 if (!fs.existsSync(SRC)) { console.log("FAIL 找不到源码目录 " + SRC + "（克隆不完整时用 --src= 指向完整 src）"); process.exit(1); }
+// 两条边界，方向相反：少于 100 = 克隆不完整（下面这条），多到离谱 = 目录里进了生成文件。
+// 上限不是性能优化——2026-11-15 实测 1027 个 .ts 跑 0.32 秒，一万个才会开始拖；
+// 它挡的是「目录结构悄悄变了没人说」。同仓 injection-map-fix.mjs（MAX_DEPTH/MAX_ENTRIES）
+// 与 check-contradiction.mjs（MAX_FILES）都有上限，就这一处漏了。
+const MAX_FILES = 5000;
 const { blob, files } = collect(SRC);
+if (files > MAX_FILES) { console.log("FAIL 扫到 " + files + " 个 .ts，超过上限 " + MAX_FILES + "：源码目录里是不是进了生成文件？确认后把上限调大"); process.exit(1); }
 if (files < 100) { console.log("FAIL 只读到 " + files + " 个 .ts，源码目录不完整 " + SRC + "（用 --src= 指向完整 src）"); process.exit(1); }
 const { total, miss } = check(SKILL, blob);
 if (miss.length) {
