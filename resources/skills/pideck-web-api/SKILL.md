@@ -1,6 +1,6 @@
 ---
 name: pideck-web-api
-description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗口发消息、让别的会话重启自己。当你要用脚本或另一个 agent 控制 PiDeck、做跨进程协作、或检查当前会话状态时用。不用于修改 PiDeck 源码，也不用于浏览器自动化。Use for PiDeck web API, SSE stream."
+description: "用 PiDeck 的 HTTP 服务读自己的状态、给别的窗口发消息、让别的会话重启自己。要用脚本或别的 agent 控制 PiDeck、查会话状态时用。不用于改 PiDeck 源码。Use for PiDeck web API, SSE."
 ---
 
 # PiDeck Web API
@@ -32,7 +32,8 @@ description: "用 PiDeck 自带的 HTTP 服务读自己的状态、给别的窗�
 
 - **会话**：PiDeck 侧边栏里的一行。会话可以存在，但此刻没在跑。
 - **运行时**：为某个会话在后台跑的那个 pi 进程。会话是记录，运行时是进程。
-- **运行时代号**（`runtimeGeneration`）与 `agentId`：同一个会话每起动一次进程，代号加一，同时服务端发一个新的 `agentId` uuid；两个一起变，都出现在 `runtimes[]` 里，验「有没有真换进程」看哪个都行。代号不是操作系统的 PID（进程号），那个不对外暴露。停止或查状态的请求里这两个字段都要传当前值，传错或漏传会被拒。
+- **运行时代号**（`runtimeGeneration`）与 `agentId`：同一会话每起一次进程，代号加一，服务端同时发一个新的 `agentId` uuid。两个一起变，都在 `runtimes[]` 里，验「换没换进程」看哪个都行。
+- 代号不是操作系统的 PID（进程号），那个不对外暴露。停止或查状态的请求里这两个字段都要传当前值，传错或漏传会被拒。
 
 ## 2 连上：地址、令牌、自己的会话 id
 
@@ -107,7 +108,7 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派
 
 - `messages` 按时间**从旧到新**排，最后一条是最新的。要末尾 N 条就 `messages.slice(-N)`。
 - `total` 是活动分支的消息**条目**数，不是 `messages` 数组的条数：一条条目可能展开成多条消息，所以 `messages.length` 可以比 `total` 大（本机实测 total=293、messages 294 条）。
-- `windowStart` 是这一截第一条的**条目**序号（从 0 数，和 `total` 同口径）。`windowStart: 0` 表示从最早那条开始，也就是没截断。
+- `windowStart` 是这一截第一条的**条目**序号（从 0 数，和 `total` 数的是同一类东西）。`windowStart: 0` 表示从最早那条开始，也就是没截断。
 - `truncated: true` 表示还有更早的没拿到，翻页用下面那个端点。
 
 **`/messages` 本身不吃 `?before`。** 实测传 `?before=5516`、`?before=999999`、`?before=abc`，返回的 `windowStart` 和条数与不传时完全相同。翻更早的历史用另一个端点：
@@ -341,7 +342,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 > 4. **验**：`activate` 的返回里直接有 `runtimeGeneration` 和 `agentId`，不用再读一次 `runtimes[]`。
 >
 >    - 第 1 步找到了 target（目标在跑）：新代号必须比 `N` 大 1，例如 `N=3` 重启后返回 `4`。等于 `N` 说明没换进程（stop 没生效）。
->    - 第 1 步没找到 target（目标本来就没在跑）：**没有 `N` 可比**，此时口径换成「返回里有 `agentId` 且 `status` 是 `running`」——只看它起没起来，不跟一个不存在的代号比。
+>    - 第 1 步没找到 target（目标本来就没在跑）：**没有 `N` 可比**，此时改看另一个条件：「返回里有 `agentId` 且 `status` 是 `running`」——只看它起没起来，不跟一个不存在的代号比。
 > 5. **发一条消息，证明它能接活**：
 >    ```bash
 >    curl -s -H "$AUTH" -H "Content-Type: application/json" \
@@ -360,7 +361,9 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 | 目标本来就没在跑 | 200 | `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_UNAVAILABLE"}}}` |
 | URL 与 body 的 sessionId 不一致 / 没给 target | 400 | `{"code":"webError.runtimeTargetRequired","error":"A matching Session runtime target is required"}` |
 
-**`runtimeGeneration` 是校验字段，不是给你参考的。** 它和 `agentId` 一样必须和 `runtimes[]` 里当前那份一致：漏传或传错（实测传 999）都返回 `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_CHANGED"}}}`，命令不执行。源码里所有 target 命令都走同一个入口，它在派发前比一次代号与绑定是否一致（`SessionRuntimeCoordinator.ts` 的 `runTargetCommand`），不一致就抛这个码。
+**`runtimeGeneration` 是校验字段，不是给你参考的。** 它和 `agentId` 一样必须和 `runtimes[]` 里当前那份一致：漏传或传错（实测传 999）都返回 `SESSION_RUNTIME_CHANGED`，命令不执行。
+
+源码里所有 target 命令都走同一个入口，它在派发前比一次代号与绑定是否一致（`SessionRuntimeCoordinator.ts` 的 `runTargetCommand`），不一致就抛这个码。
 
 **为什么不用等目标回合结束**：如果目标正在写回复，stop 会让它断在半句。判断它忙不忙没有可靠办法——问用户最快。新开的空会话天然空闲，这是它最省事的地方。
 
@@ -479,7 +482,9 @@ PiDeck 里正常新建的会话不受这个影响。
 
 `activate` 是唯一不要 target 的——它要做的正是「这个冷会话现在起来」，没有 target 可回传。其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
 
-`target.agentId` 和 `target.runtimeGeneration` 都是真闸，值必须和 `runtimes[]` 里当前那份一致：agentId 给假值、代号漏传或给错（实测给 999）都会被拒，返回 `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_CHANGED"}}}`。这个错误码容易被读成「运行时代号变了」，其实是「你传的值不对」，别据此判断会话被重启过。三个字段都传当前值最稳，取法见第 6 节第 1 步。
+`target.agentId` 和 `target.runtimeGeneration` 都是真闸，值必须和 `runtimes[]` 里当前那份一致：agentId 给假值、代号漏传或给错（实测给 999）都会被拒，返回 `SESSION_RUNTIME_CHANGED`。
+
+这个错误码容易被读成「运行时代号变了」，其实是「你传的值不对」，别据此判断会话被重启过。三个字段都传当前值最稳，取法见第 6 节第 1 步。
 
 **`activate` 是冷启动，别按毫秒算。** 本机实测（Windows 发行版，进程完全没起）一次 3556 毫秒；别人机器上记过一次 45 毫秒，那是进程已经预热的情况。给它设超时按 5 秒以上给。
 
@@ -536,7 +541,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 没有「agent 自己重启自己」的捷径。曾经有过 `self-restart.mjs`：起一个脱离进程树的守卫替你 stop 再 activate。2026-11-14 删掉了——理由不是它跑不起来，是它和「不许自己停」这句冲突：两句话同时在，agent 会挑省事的那句执行。
 
-**2026-11-15 又试了一次，当场踩坑。** 用户明确要求「重启一下你自己」，重建的守卫第一版就死在第二步：stop 的 body 里没带 `target`，返回 400 `webError.runtimeTargetRequired`。更糟的是守卫自己的「停了吗」检查读的是 `runtimes[].status`——进程其实还在跑，但空闲状态下 status 就是 `idle`，不等于 `running`，于是它判定「已停」，接着三次 activate 全部 rc=200、`runtimeGeneration` 一直是 1，日志还写「三次都没起来」。**实际从头到尾没被停过。**
+**别做「守卫替你停」这种设计。** 它会死在两处：stop 的 body 没带 `target` 时返回 400 `webError.runtimeTargetRequired`；用 `runtimes[].status` 判断「停了吗」时，空闲进程的 status 是 `idle`，于是判定已停。
 
 要停掉自己，stop 必须带齐 `sessionId` + `agentId` + `runtimeGeneration` 三件；能发出这个请求的应该是**另一个活着的进程**，不是守卫。让别的会话替你重启的完整任务书见本节第 0~5 步，关键就一句：目标会话不能是执行者自己。
 
@@ -566,7 +571,9 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 | `~/.pi/agent/pideck-skills/pideck-web-api/SKILL.md` | PiDeck spawn 时 `--skill` 注入 | 每次启动被覆盖，手改白费 |
 | `~/.agents/skills/pideck-web-api/SKILL.md` | 终端里直接启动的 pi | 会留，但 PiDeck 不读它 |
 
-`installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile` 目标文件，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。所以两条结论：手改 `pideck-skills/` 下次启动就没了；要让新版生效，把文件放进 `<userData>/skills-overlay/pideck-web-api/`，重启 PiDeck。
+`installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile` 目标文件，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。
+
+所以两条结论：手改 `pideck-skills/` 下次启动就没了；要让新版生效，把文件放进 `<userData>/skills-overlay/pideck-web-api/`，重启 PiDeck。
 
 **这一节只对改这个技能的人有用，用技能的人跳过。** 三个检查都要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`），所以只能在源码克隆里跑——PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这三个脚本。
 
