@@ -2,7 +2,8 @@
 // 为什么要有：加粗漏一个会把后面整段吃掉，表格少一列会错位，
 // 这两种在 PR review 里被指出过（PR 552 的 review 意见）。
 // 行内代码里的星号不算加粗：先剥掉反引号包住的内容再数，否则教人「漏一个 **」的正文会被误判。
-// 会红的五种：某行加粗没闭合、代码块没配对、表格某行列数与表头不符、标题前缺空行、文件读不到。
+// 会红的六种：某行加粗没闭合、代码块没配对、表格某行列数与表头不符、标题前缺空行、文件读不到，
+//   以及代码块里把 $ 变量写成反引号包裹（bash 会当命令替换执行，读者抄了就拿到 command not found）。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +46,7 @@ lines.forEach((line, i) => {
     return;
   }
   tableCols = 0;
+  if (inFence && /`[$]/.test(line)) { console.log("  行 " + (i + 1) + " 代码块里 $ 变量被反引号包住，bash 会当命令执行: " + line.slice(0, 60)); bad++; return; }
   if (inFence) return;
   const visible = line.replace(INLINE_CODE, "");
   if ((visible.match(/\*\*/g) || []).length % 2 === 1) { console.log("  行 " + (i + 1) + " 加粗没闭合: " + line.slice(0, 60)); bad++; }

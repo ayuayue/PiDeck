@@ -102,7 +102,10 @@ curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300                  
 curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/messages"     # 我的时间线
 curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/todo"         # 我的 todo
 curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派了几个子 agent
+curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300    # 我这条进程活着没有
 ```
+
+第四条给的是所有进程，按 `sessionId` 筛出自己那一行：`status` 是 `running` 表示正在生成，`idle` 表示闲着。逐个字段的解释在第 4 节。
 
 `/messages` 返回 `{messages, total, windowStart, truncated}`，**是有界窗口不是全部历史**：
 
