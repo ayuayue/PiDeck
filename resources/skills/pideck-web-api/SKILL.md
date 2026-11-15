@@ -204,6 +204,10 @@ data: [DONE]
 
 模型输出思考时，`text-start` 之前还会有一串 `reasoning-delta`；那一串不是每轮都有，按类型过滤即可，别假定它一定出现。`text-end` 每轮都有。
 
+带工具调用的回合还会出现 `tool-input-start` / `tool-input-available` / `tool-output-available`，思考帧成对出现时还会有 `reasoning-start` 与 `reasoning-end`。
+
+这几种都只表示进度。遇到不认识的帧按类型过滤，别当错误，也别等某一个特定帧。
+
 `finish` 和 `[DONE]` 是同一件事的两种表示，看到任一个就是本轮结束。`-N` 必须加，否则看不到流式。
 
 **这条请求是异步入队，不是同步流**：消息进队列就返回，HTTP 可能一个帧都不吐，目标照样开始干活。判断「送到了没有」只有一条可靠检查——**看 `error` 帧，不看 `total`，也不看有没有 data 帧。**
