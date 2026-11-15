@@ -165,10 +165,12 @@ func TestSearchScope(t *testing.T) {
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:索引里有 2 个会话")) > 0 })
 	app.Type("id:search-input", "部署")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) == 2 })
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:找到 2 个会话 · 2 处匹配")) > 0 })
 	app.Press("role:radio 标题")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) == 1 })
 	app.Press("role:radio 正文")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) == 1 })
 	app.Press("role:radio 全部")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) == 2 })
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:找到 2 个会话 · 2 处匹配")) > 0 })
 }
