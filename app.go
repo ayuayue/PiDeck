@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
@@ -464,8 +465,11 @@ type app struct {
 	gotoLine        *core.Signal[string]
 	quickOpen       *core.Signal[bool]
 	chatFindOpen    *core.Signal[bool]
+	chatSearch      *textview.Search
+	keepAwake       func()
 	forkCollapsed   *core.Signal[map[string]bool]
 	archiveRev      *core.Signal[int]
+	archiveOpen     *core.Signal[bool]
 	chatFindText    *core.Signal[string]
 	pluginNewOpen   *core.Signal[bool]
 	pluginNewID     *core.Signal[string]
@@ -634,8 +638,10 @@ func newApp(cx *core.Scope) *app {
 		gotoLine:               core.NewSignal(cx, ""),
 		quickOpen:              core.NewSignal(cx, false),
 		chatFindOpen:           core.NewSignal(cx, false),
+		chatSearch:             textview.NewSearch(cx),
 		forkCollapsed:          core.NewSignalFunc(cx, map[string]bool{}, nil),
 		archiveRev:             core.NewSignal(cx, 0),
+		archiveOpen:            core.NewSignal(cx, false),
 		chatFindText:           core.NewSignal(cx, ""),
 		pluginNewOpen:          core.NewSignal(cx, false),
 		pluginNewID:            core.NewSignal(cx, ""),
@@ -1206,6 +1212,26 @@ func (a *app) toggleArchive(s *session) {
 	} else {
 		a.toast(ui.ToastSuccess, T("已归档"), s.title.GetUntracked())
 	}
+}
+
+// findSession is a session by id, loaded or only listed in its project.
+func (a *app) findSession(id string) *session {
+	if s := a.byID[id]; s != nil {
+		return s
+	}
+	for _, ws := range a.workspaces.GetUntracked() {
+		for _, s := range ws.Sessions.GetUntracked() {
+			if s != nil && s.ID == id {
+				return s
+			}
+		}
+		for _, s := range ws.Pi.GetUntracked() {
+			if s != nil && s.ID == id {
+				return s
+			}
+		}
+	}
+	return nil
 }
 
 // toggleShowArchived flips whether archived sessions show in the rail.

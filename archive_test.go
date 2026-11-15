@@ -74,6 +74,15 @@ func TestArchiveSession(t *testing.T) {
 	app.Press("role:menuitem 归档")
 	app.WaitUntil(5*time.Second, func() bool { return rowOf() == "" })
 
+	// The archived dialog lists it and opens it.
+	app.RightClick("id:project-row >> nth=0")
+	app.WaitFor("role:menuitem 已归档…", 5*time.Second)
+	app.Press("role:menuitem 已归档…")
+	app.WaitFor("id:archive-dialog", 5*time.Second)
+	app.WaitFor("id:archived-row", 5*time.Second)
+	app.Press("id:archived-open >> nth=0")
+	app.WaitFor("id:composer", 10*time.Second)
+
 	// The project menu shows it again.
 	app.RightClick("id:project-row >> nth=0")
 	app.WaitFor("role:menuitem 显示已归档", 5*time.Second)

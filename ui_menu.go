@@ -658,6 +658,7 @@ func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 		}),
 		a.menuRow(a.cx, lucide.ArrowDownAZ, sortLabel(a), "", false, func() { a.toggleSessionSort() }),
 		a.menuRow(a.cx, lucide.Archive, showArchivedLabel(a), "", false, func() { a.toggleShowArchived() }),
+		a.menuRow(a.cx, lucide.Archive, "已归档…", "", false, func() { a.openArchiveDialog() }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.Code, "在编辑器中打开项目", "", false, func() { a.openPathInEditor(w().Path) }),
 		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() { a.revealProject(w()) }),
