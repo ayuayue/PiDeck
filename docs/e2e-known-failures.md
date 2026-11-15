@@ -36,7 +36,27 @@
 |---|---|---|---|
 | 2026-11-14 | `session-history-mutation`（3 条） | 删除确认文案按 running/idle 分变体、编辑/重发已改 fork 语义 | 对齐断言；mock 补真 fork |
 | 2026-11-14 | `tab-context-menu:16` | `getByText("复制会话")` 子串同时命中「复制会话文件路径」 | 加 `exact: true` |
+| 2026-11-14 | `favorites-bulk`（2 条） | 收藏入口收进侧栏「更多」折叠组（定时任务/智能体/收藏），且页面内还有同名「收藏」按钮 | 先展开「更多」，再用 `#sidebar-more-actions` 精确定位入口 |
 | 2026-11-14 | `terminal-first-open`（3 条） | 会话操作菜单从 Tab 栏「更多操作」并入会话头部「更多运行操作」（`SessionActionsControl`） | 定位器改到新入口；**功能本身没坏**（#333 仍可用） |
+
+### 已废弃用例（fixme）
+
+| 用例 | 原因 |
+|---|---|
+| `settle-reposition` 的 2 条（mouse move + typing / holds its landing spot） | settle 后的「重新定位」在实现里被刻意移除——`SessionMessageTimeline` 的「运行中 → 停转」边沿注释写明「仅用于让旧的 settled 流水线失效；不再调度任何定位」，只保留「1.5s 阅读停顿 → 自动收起最新轮」。这两条断言的是不存在的契约，用 `test.fixme` 标记（若哪天定位被重新引入，会报 unexpectedly passed） |
+
+---
+
+## `retry-status-card`（2 条）— 重试卡行为与产品要求不一致
+
+**状态**：已知失败，`test.fixme` 标记。**存量问题，不是重构引入**：在重构前基线 `78b911154` 的独立 worktree 上跑，两条失败现象逐条一致。
+
+| 用例 | 现象 | 判定 |
+|---|---|---|
+| 连续重试只挂一张卡，成功后卡片消失 | `自动重试成功` 卡仍留在时间线（期望 0，实际 1） | spec 编码的是产品要求「成功后卡片消失」，实测未消失 |
+| 重试最终失败保留失败卡留痕 | 进行中卡 `正在自动重试` 拿不到（期望 1，实际 0） | 进行中/失败卡的时序同样与 spec 不一致 |
+
+**待决策**：以 spec（产品要求）为准去修主进程的重试卡生命周期（`src/main/pi/retryStatusMessages.ts`），还是确认现状即新契约、改断言。动手前需要产品侧拍板。
 
 ---
 

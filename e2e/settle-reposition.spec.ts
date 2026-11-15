@@ -114,7 +114,12 @@ async function goBackToFollowing(window: Page) {
 	await expect(bottomButton(window)).toHaveCount(0);
 }
 
-test("mouse move + typing during the settle window do not cancel repositioning", async ({ app, window }) => {
+// 已废弃：settle 之后的「重新定位」在实现里被刻意移除——
+// SessionMessageTimeline 的「运行中 → 停转」边沿注释写明「仅用于让旧的 settled 流水线失效；
+// 不再调度任何定位」，只保留「1.5s 阅读停顿 → 自动收起最新轮」。
+// 因此这两条断言（定位到视口 30% + 不回弹）测试的是不存在的契约，fixme 而非 skip：
+// 如果哪天定位被重新引入，Playwright 会报 unexpectedly passed，提醒把断言改回来。
+test.fixme("mouse move + typing during the settle window do not cancel repositioning", async ({ app, window }) => {
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await ensureWindowVisible(app);
@@ -163,7 +168,8 @@ test("mouse move + typing during the settle window do not cancel repositioning",
 	expect(fingerprint.dist, `repositioning must leave the bottom: ${JSON.stringify(fingerprint)}`).toBeGreaterThan(90);
 });
 
-test("settled repositioning holds its landing spot (no bounce back to the bottom)", async ({ app, window }) => {
+// 已废弃：同上（定位已移除，不存在「落地后不回弹」这回事）。
+test.fixme("settled repositioning holds its landing spot (no bounce back to the bottom)", async ({ app, window }) => {
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await ensureWindowVisible(app);
