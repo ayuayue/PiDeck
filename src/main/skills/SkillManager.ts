@@ -12,11 +12,6 @@ import { pideckBundledSkillsDir } from "./pideckSkillsPath";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 
 const SKILL_FILE = "SKILL.md";
-/** 技能目录里除 SKILL.md 之外要一起落盘的附件（相对文件名）。
- *  2026-11-14：pideck-web-api 的 restart-peer.mjs 删掉了。它是 curl 三步的封装，而技能正文
- *  直接给 curl 就够用——封装多出一层要维护的判断逻辑（等多久算空闲、连不上算什么），
- *  多出来的判断本身成了 bug 来源。现在没有技能需要附件，保留这张表是为了下一个。 */
-const SKILL_EXTRA_FILES: Record<string, string[]> = {};
 const IMPORT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const IMPORT_MAX_TREE_BYTES = 50 * 1024 * 1024;
 const IMPORT_MAX_DEPTH = 32;
@@ -439,11 +434,6 @@ export class SkillManager {
 			const previous = await readFile(targetPath, "utf8").catch(() => null);
 			const wasUserOnly = previous !== null && this.parseFrontmatter(previous)["disable-model-invocation"] === "true";
 			await writeFile(targetPath, content, "utf8");
-			for (const file of SKILL_EXTRA_FILES[skillName] ?? []) {
-				const from = overlayDir ? join(overlayDir, skillName, file) : join(root, "skills", skillName, file);
-				if (!existsSync(from)) continue;
-				await writeFile(join(targetDir, file), await readFile(from), "utf8");
-			}
 			if (wasUserOnly) {
 				await writeFile(targetPath, this.setFrontmatterBoolean(content, "disable-model-invocation", true), "utf8");
 			}
