@@ -609,6 +609,8 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 所以两条结论：手改 `pideck-skills/` 下次启动就没了；要让新版生效，把文件放进 `<userData>/skills-overlay/pideck-web-api/`，重启 PiDeck。
 
+例外只有一个：frontmatter 里的 `disable-model-invocation: true` 会被记住，重启后重新写回（`SkillManager.ts:438-449`）。除它以外的改动都白费。
+
 **这一节只对改这个技能的人有用，用技能的人跳过。** 三个检查都要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`），所以只能在源码克隆里跑——PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这三个脚本。
 
 在 PiDeck 源码克隆的根目录跑，三条的 rc 都得是 0：
