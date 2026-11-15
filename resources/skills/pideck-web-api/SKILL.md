@@ -167,7 +167,7 @@ curl -s -o /dev/null -w '%{size_download} %{time_total}\n' -H "$AUTH" "$BASE/api
 
 注意正文在 `text`，不在 `parts`——`parts` 只在 `/api/chat` 的**请求**里用。
 
-要到原始工具调用参数，只能读磁盘上的 jsonl（路径取 `runtimes[]` 里的 `sessionPath`）：
+要到原始工具调用参数，只能读磁盘上的 jsonl（路径取 `runtimes[]` 里的 `sessionPath`；刚发过 `/prompt` 的话它的返回里直接有，不用再查）：
 
 ```bash
 node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\n").forEach(l=>{if(!l.trim())return;const j=JSON.parse(l);if(j.role)console.log(j.role+": "+String(j.text||"").slice(0,120))})' "<runtimes[] 里的 sessionPath>"
@@ -273,8 +273,10 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 期望：
 
 ```json
-{"result":{"accepted":true,"sessionId":"...","requestId":"probe-1794669273","agentId":"...","runtimeGeneration":3}}
+{"result":{"accepted":true,"sessionId":"...","requestId":"probe-1794669273","agentId":"...","sessionPath":"C:\\...\\2026-11-15T03-17-13-312Z_01a1dd35.jsonl","runtimeGeneration":3}}
 ```
+
+实际返回多一个 `sessionPath`，六个键。要拿 jsonl 路径时先看这里，省一次 `runtimes[]` 查询。
 
 字段名是 `message` 不是 `text`，写错返回 400 `webError.messageRequired`；`requestId` 必填，缺了返回 400 `webError.requestIdRequired`。
 
