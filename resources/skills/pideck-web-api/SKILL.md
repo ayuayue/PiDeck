@@ -615,14 +615,17 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 例外只有一个：frontmatter 里的 `disable-model-invocation: true` 会被记住，重启后重新写回（`SkillManager.ts:438-449`）。除它以外的改动都白费。
 
-**这一节只对改这个技能的人有用，用技能的人跳过。** 三个检查都要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`），所以只能在源码克隆里跑——PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这三个脚本。
+**这一节只对改这个技能的人有用，用技能的人跳过。** 四个检查都要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`），所以只能在源码克隆里跑——PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这四个脚本。
 
-在 PiDeck 源码克隆的根目录跑，三条的 rc 都得是 0：
+在 PiDeck 源码克隆的根目录跑，四条里前三条的 rc 都得是 0：
 
 ```bash
 node resources/skills/pideck-web-api/check-doc.mjs     # 第 7 节的动作表、端点数、字段，逐条对源码
 node resources/skills/pideck-web-api/check-paths.mjs   # 全文每个 /api 路径，逐段对源码
 node resources/skills/pideck-web-api/check-format.mjs  # 加粗成对、代码块配对、表格列数一致
+node resources/skills/pideck-web-api/check-fields.mjs  # 全文反引号标识符逐词对源码，要全量 src
 ```
 
-三条都自带坏样本：写错一个动作名、把一个路径段拼错、漏一个 `**`，它们必须报红。一直绿的那条，多半是检查本身坏了。
+四条都自带坏样本：写错一个动作名、把一个路径段拼错、漏一个 `**`，它们必须报红。一直绿的那条，多半是检查本身坏了。
+
+第四条比前三条慢十倍（要读全量 src），且克隆不完整时会报红而不是跳过——所以缺源码的目录用 `--src=<完整 src 目录>` 指过去，别删它求绿。
