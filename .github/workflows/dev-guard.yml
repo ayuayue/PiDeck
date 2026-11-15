@@ -47,14 +47,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 2026-11-15：ci.yml 把 format 与 hooks 一起跑，dev-guard 只跑了 format。
+      # 改代码时 React hooks 规则（biome lint --config-path=biome.hooks.jsonc）会踩，
+      # 而 PR 期间看不到——等合并到 main 才红，与 test:skills 那次同型。1.2 秒，纯本地。
+      # 结构化不变量补 check:file-size：ci.yml 跑四项，dev-guard 只跑三项。
+      # 0.8 秒，防「把文件改大过基线」。
       - name: Check formatting
-        run: npm run check:format
+        run: npm run check:format && npm run check:hooks
 
       # 2026-11-11：三面各自独立跑完。此前 format 一红，后两步直接 skipped——
       # dev 上 test-shape 的真实违规因此连续 4 次提交不可见（a26f173 的 Dev Guard 红）。
       - name: Check structural invariants
         if: always()
-        run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:scroll-containers
+        run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:file-size && npm run check:scroll-containers
 
       # 2026-11-15：本 PR 改了 4 个 SKILL.md 却没重生成 manifest，main CI 的
       # check:skills-manifest 会红，而 dev-guard 没挂这一条，PR 页面三个 check 全绿。
