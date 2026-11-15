@@ -349,7 +349,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 >      -d '{"id":"<目标>","messages":[{"role":"user","parts":[{"type":"text","text":"重启结束，这条消息用来验证你能接活"}]}]}' \
 >      "$BASE/api/chat"
 >    ```
->    送达看回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。第 5 节说过，这条请求是异步入队，可能一个帧都不吐。
+>    证明它接了活：等一轮结束后回读 `/messages` 的 `total` **变大**（不只是 user 那条：实测加 3，还有 assistant 回复和注入）。这里等的是应用层回复，与第 5 节那件「HTTP 有没有送达」是两回事，后者只看 `error` 帧、不看 `total`。
 
 **第 0 步不能省，也别换成别的判法。** 别拿 `sessionPath` 或磁盘写入时间去推断自己是谁——匿名会话没有 `sessionPath`，会拿目标的路径认自己，结论正好反过来。只有 `echo $PIDECK_SESSION_ID` 可靠。
 
