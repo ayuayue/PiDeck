@@ -237,6 +237,20 @@ func (a *app) openEditorFile(root, path string) {
 		root = a.files.root.GetUntracked()
 	}
 	a.editor.openFile(root, path)
+	a.rememberFile(path)
+}
+
+// rememberFile keeps the editor's recent files, newest first.
+func (a *app) rememberFile(path string) {
+	if path == "" {
+		return
+	}
+	path = filepath.Clean(path)
+	next := pushRecent(a.cfg.RecentFiles, path, recentFileMax)
+	a.cfg.RecentFiles = next
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.RecentFiles = append([]string(nil), next...) })
+	}
 }
 
 // openFileAt shows a file and puts the caret on a line, once its text is

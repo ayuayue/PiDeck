@@ -390,6 +390,24 @@ func fileMatches(files []string, query string, limit int) []string {
 	return out
 }
 
+// recentFileMax bounds the editor's recent file list.
+const recentFileMax = 20
+
+// pushRecent puts a path first in a bounded list, without duplicates.
+func pushRecent(list []string, path string, max int) []string {
+	if path == "" {
+		return list
+	}
+	out := []string{path}
+	for _, p := range list {
+		if p == path || len(out) >= max {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 // insertMention replaces the draft's partial @path with a file's.
 func (a *app) insertMention(s *session, rel string) {
 	text := s.draft.GetUntracked()

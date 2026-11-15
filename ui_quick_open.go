@@ -3,7 +3,9 @@ package main
 // Quick open: a workspace file by name, from the keyboard.
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
@@ -38,16 +40,48 @@ func (a *app) openQuickOpen() {
 	a.quickOpen.Set(true)
 }
 
-// quickOpenItems lists every file of the root, so the palette's filter can
-// pick from them in the app's order.
+// recentFilesFor lists the editor's recent files under a root, newest
+// first, as workspace-relative paths.
+func (a *app) recentFilesFor(root string) []string {
+	if root == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range a.cfg.RecentFiles {
+		rel, err := filepath.Rel(root, p)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		if info, err := os.Stat(p); err != nil || info.IsDir() {
+			continue
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	return out
+}
+
+// quickOpenItems lists every file of the root, with the editor's recent
+// files first, so the palette's filter can pick from them in this order.
 func (a *app) quickOpenItems() []base.CommandItem {
 	_ = a.activeID.Get()
 	_ = a.filesRev.Get()
-	files := a.workspaceFiles(a.quickOpenRoot())
-	group := T("文件")
+	root := a.quickOpenRoot()
+	files := a.workspaceFiles(root)
+	group, recentGroup := T("文件"), T("最近")
 	icon := lucide.FileSearch()
 	out := make([]base.CommandItem, 0, len(files))
+	seen := make(map[string]bool, len(files))
+	for _, rel := range a.recentFilesFor(root) {
+		if seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, base.CommandItem{ID: rel, Label: rel, Group: recentGroup, Icon: icon})
+	}
 	for _, rel := range files {
+		if seen[rel] {
+			continue
+		}
 		out = append(out, base.CommandItem{ID: rel, Label: rel, Group: group, Icon: icon})
 	}
 	return out

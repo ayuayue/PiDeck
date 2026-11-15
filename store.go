@@ -149,6 +149,8 @@ type config struct {
 	RecentCommands []string `json:"recentCommands,omitempty"`
 	// RecentSearches are the last queries the search dialog opened.
 	RecentSearches []string `json:"recentSearches,omitempty"`
+	// RecentFiles are the files the editor opened last, newest first.
+	RecentFiles []string `json:"recentFiles,omitempty"`
 	// EditorWrap soft-wraps long lines in the built-in editor.
 	EditorWrap bool `json:"editorWrap,omitempty"`
 	// TerminalFont is the terminal's text size; 0 keeps the default.
@@ -377,6 +379,23 @@ func normalizeConfig(c *config) bool {
 		c.RecentSearches = searches
 		changed = true
 	}
+	seenRecentFile := map[string]bool{}
+	var recentFiles []string
+	for _, p := range c.RecentFiles {
+		p = strings.TrimSpace(p)
+		if p == "" || seenRecentFile[p] {
+			continue
+		}
+		seenRecentFile[p] = true
+		recentFiles = append(recentFiles, p)
+		if len(recentFiles) >= recentFileMax {
+			break
+		}
+	}
+	if len(recentFiles) != len(c.RecentFiles) {
+		c.RecentFiles = recentFiles
+		changed = true
+	}
 	seen := map[string]bool{}
 	var projects []workspaceCfg
 	for _, w := range c.Workspaces {
@@ -467,6 +486,7 @@ func (s *store) config() config {
 		c.Titles[k] = v
 	}
 	c.TrustedProjects = append([]string(nil), s.c.TrustedProjects...)
+	c.RecentFiles = append([]string(nil), s.c.RecentFiles...)
 	c.PluginSettings = make(map[string]string, len(s.c.PluginSettings))
 	for k, v := range s.c.PluginSettings {
 		c.PluginSettings[k] = v

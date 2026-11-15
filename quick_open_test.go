@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,4 +67,57 @@ func TestQuickOpenFile(t *testing.T) {
 	}
 	app.Key("enter")
 	app.WaitFor("text:package main // root file", 10*time.Second)
+}
+
+// TestPushRecent checks the recent list keeps one of each path, newest
+// first, and stays bounded.
+func TestPushRecent(t *testing.T) {
+	if got := pushRecent([]string{"/a", "/b", "/a"}, "/c", 3); !slices.Equal(got, []string{"/c", "/a", "/b"}) {
+		t.Fatalf("pushRecent = %v", got)
+	}
+	if got := pushRecent([]string{"/a", "/b"}, "/c", 2); !slices.Equal(got, []string{"/c", "/a"}) {
+		t.Fatalf("bounded pushRecent = %v", got)
+	}
+	if got := pushRecent([]string{"/a"}, "", 3); !slices.Equal(got, []string{"/a"}) {
+		t.Fatalf("empty pushRecent = %v", got)
+	}
+}
+
+// TestQuickOpenRecents opens a file and finds it under 最近 in quick open.
+func TestQuickOpenRecents(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir := editorWorkspace(t)
+	for _, name := range []string{"note.txt", "other.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("hello "+name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := startApp(t, dir, 1280, 860)
+	app.Key("mod+j")
+	app.WaitFor("id:drawer-tab-files", 5*time.Second)
+	app.Press("id:drawer-tab-files")
+	app.WaitFor("text:note.txt", 5*time.Second)
+	app.Press("text:note.txt")
+	app.WaitFor("id:editor", 5*time.Second)
+
+	app.Key("mod+p")
+	app.WaitFor("id:quick-open", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:最近")) > 0 })
+	app.WaitFor("role:option note.txt", 5*time.Second)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		raw, err := os.ReadFile(filepath.Join(home, "config.json"))
+		if err == nil && strings.Contains(string(raw), "recentFiles") && strings.Contains(string(raw), "note.txt") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("config = %s, %v", raw, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
