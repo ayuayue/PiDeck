@@ -302,11 +302,31 @@ func (a *app) commandList() []appCommand {
 // commandItems turns the commands into the palette's rows.
 func (a *app) commandItems() []base.CommandItem {
 	var out []base.CommandItem
-	for _, c := range a.commandList() {
-		if c.Hidden {
+	all := a.commandList()
+	byID := make(map[string]appCommand, len(all))
+	for _, c := range all {
+		byID[c.ID] = c
+	}
+	// Commands used last come first, under their own group.
+	recent := map[string]bool{}
+	for _, id := range a.cfg.RecentCommands {
+		c, ok := byID[id]
+		if !ok || recent[id] {
 			continue
 		}
-		if c.When != nil && !c.When(a) {
+		recent[id] = true
+		if c.Hidden || (c.When != nil && !c.When(a)) {
+			continue
+		}
+		icon := c.Icon
+		if icon == nil {
+			icon = lucide.Command
+		}
+		out = append(out, base.CommandItem{ID: c.ID, Label: T(c.Label), Description: T(c.Description),
+			Group: T("最近"), Shortcut: c.Shortcut, Icon: icon()})
+	}
+	for _, c := range all {
+		if recent[c.ID] || c.Hidden || (c.When != nil && !c.When(a)) {
 			continue
 		}
 		icon := c.Icon
@@ -378,9 +398,31 @@ func (a *app) runCommand(id string) {
 	}
 	for _, c := range builtinCommands() {
 		if c.ID == id {
+			a.rememberCommand(id)
 			c.Run(a)
 			return
 		}
+	}
+}
+
+// rememberCommand keeps a palette command among the recent ones.
+func (a *app) rememberCommand(id string) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	list := []string{id}
+	for _, x := range a.cfg.RecentCommands {
+		if x != id {
+			list = append(list, x)
+		}
+	}
+	if len(list) > 8 {
+		list = list[:8]
+	}
+	a.cfg.RecentCommands = list
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.RecentCommands = append([]string(nil), list...) })
 	}
 }
 

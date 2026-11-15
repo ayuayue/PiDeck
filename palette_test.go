@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,4 +58,27 @@ func TestPaletteSessions(t *testing.T) {
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:option 调色板项目")) > 0 })
 	app.Press("role:option 调色板项目")
 	app.WaitFor("id:composer", 20*time.Second)
+}
+
+// TestRecentCommands puts a used command at the top of the palette.
+func TestRecentCommands(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("id:rail-palette")
+	app.WaitFor("id:palette", 10*time.Second)
+	app.Type("label:命令", "切换深浅色")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:option 切换深浅色")) > 0 })
+	app.Press("role:option 切换深浅色")
+	app.Press("id:rail-palette")
+	app.WaitFor("id:palette", 10*time.Second)
+	app.WaitFor("text:最近", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("role:option 切换深浅色")) > 0 })
+	raw, err := os.ReadFile(filepath.Join(home, "config.json"))
+	if err != nil || !strings.Contains(string(raw), "appearance-cycle") {
+		t.Fatalf("config = %s, %v", raw, err)
+	}
 }

@@ -145,6 +145,8 @@ type config struct {
 	FeishuInbound     bool   `json:"feishuInbound,omitempty"`
 	FeishuVerifyToken string `json:"feishuVerifyToken,omitempty"`
 	FeishuReply       bool   `json:"feishuReply,omitempty"`
+	// RecentCommands are the palette commands used last, newest first.
+	RecentCommands []string `json:"recentCommands,omitempty"`
 	// RecentSearches are the last queries the search dialog opened.
 	RecentSearches []string `json:"recentSearches,omitempty"`
 	// EditorWrap soft-wraps long lines in the built-in editor.
@@ -327,6 +329,23 @@ func normalizeConfig(c *config) bool {
 		c.RemotePort = 0
 		changed = true
 	}
+	seenCmd := map[string]bool{}
+	var cmds []string
+	for _, id := range c.RecentCommands {
+		id = strings.TrimSpace(id)
+		if id == "" || seenCmd[id] {
+			continue
+		}
+		seenCmd[id] = true
+		cmds = append(cmds, id)
+		if len(cmds) >= 8 {
+			break
+		}
+	}
+	if len(cmds) != len(c.RecentCommands) {
+		c.RecentCommands = cmds
+		changed = true
+	}
 	seenSearch := map[string]bool{}
 	var searches []string
 	for _, q := range c.RecentSearches {
@@ -442,6 +461,7 @@ func (s *store) config() config {
 	for k, v := range s.c.SessionPersonas {
 		c.SessionPersonas[k] = v
 	}
+	c.RecentCommands = append([]string(nil), s.c.RecentCommands...)
 	c.RecentSearches = append([]string(nil), s.c.RecentSearches...)
 	c.ForkParents = make(map[string]string, len(s.c.ForkParents))
 	for k, v := range s.c.ForkParents {
