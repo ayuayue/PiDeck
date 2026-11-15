@@ -311,6 +311,14 @@ if (sessionFile && fs.existsSync(sessionFile)) {
 							: (entry.message.content ?? "");
 						if (text) {
 							conversationMessages.push({ role, content: [{ type: "text", text }] });
+							// fork 锚点也要覆盖**落盘过的历史** user 条目：真实 pi 的
+							// get_fork_messages 直接读会话文件，不依赖「本进程收到过哪些 prompt」。
+							// 缺这一步时，在历史会话里编辑/重发 → fork 拿不到锚点 → 静默退化，
+							// mock 把新消息追加到同一文件，时间线出现「旧 + 新」两份。
+							if (role === "user" && typeof entry.id === "string") {
+								userPrompts.push(text);
+								userEntryIds.push(entry.id);
+							}
 						}
 					}
 				}
@@ -947,16 +955,33 @@ function handleCommand(cmd) {
 							/* 跳过坏行 */
 						}
 					}
-					const kept = (cut >= 0 ? lines.slice(0, cut + 1) : lines).join("\n") + "\n";
+					// 真实 pi 的 fork 默认 position:"before"（agent-session-runtime.js）：
+					// 新会话的 leaf 是锚点的**父节点**，锚点这条 user 消息本身不进分支，
+					// 它的文本由 RPC 回给客户端去重发。旧实现 slice(0, cut + 1) 把锚点也留了下来，
+					// 于是重发/编辑后新分支里「旧消息 + 重发的新消息」并存（时间线出现两份）。
+					const keepCount = cut > 0 ? cut : 0;
+					const kept = keepCount > 0 ? lines.slice(0, keepCount).join("\n") + "\n" : "";
 					fs.writeFileSync(newPath, kept);
-					// 内存态随 fork 截断：保留到锚点这一轮的用户消息为止
-					userPrompts.length = index + 1;
-					userEntryIds.length = index + 1;
-					conversationMessages.length = Math.min(conversationMessages.length, index * 2 + 1);
+					let newLeafId = null;
+					for (let i = keepCount - 1; i >= 0; i -= 1) {
+						try {
+							const keptEntry = JSON.parse(lines[i]);
+							if (keptEntry.type !== "deleted" && typeof keptEntry.id === "string") {
+								newLeafId = keptEntry.id;
+								break;
+							}
+						} catch {
+							/* 跳过坏行 */
+						}
+					}
+					// 内存态随 fork 截断：锚点（含）之后全部丢弃
+					userPrompts.length = index;
+					userEntryIds.length = index;
+					conversationMessages.length = Math.min(conversationMessages.length, index * 2);
 					sessionFile = newPath;
 					sessionId = newId;
-					sessionHeaderWritten = true;
-					lastEntryId = cmd.entryId;
+					sessionHeaderWritten = keepCount > 0;
+					lastEntryId = newLeafId;
 					const projectMirror = path.join(PROJECT_SESSIONS_DIR, newId + ".jsonl");
 					try {
 						fs.mkdirSync(PROJECT_SESSIONS_DIR, { recursive: true });

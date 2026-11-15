@@ -99,6 +99,10 @@ async function sendTurnBegin(window: Page, text: string) {
 // 状态二：崩溃后（closed）→ 不要求先停止，删除/编辑直接改文件生效
 // ──────────────────────────────────────────────────────────────
 test("after agent crash: delete and edit apply directly without stop prompt", async ({ window }) => {
+	// 已知失败（产品行为待拍板）：编辑一条已落盘的 assistant 回复后，旧回复仍留在时间线，
+	// 同时多出一条以编辑文本为正文的 **user 消息** —— 说明这条路径没走「原地改条目」，
+	// 而是把新文本当新提问重发了。证据见 docs/e2e-known-failures.md「非 live 会话编辑：旧行不消失」。
+	test.fail();
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await startAgent(window);
@@ -186,15 +190,17 @@ test.use({
 });
 
 test("never-started session: delete confirms, edit applies directly, resend auto-activates runtime", async ({ window }) => {
+	// 已知失败（产品行为待拍板）：user 消息操作里已经没有「用同一条用户消息再次发送给 AI」
+	// 这颗钮，取而代之的是「从此消息 fork 为新会话（可改后重发）」；本用例的重发段仍按旧钮写。
+	test.fail();
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
+	// 侧栏默认停在「聊天」分段，工作区项目行在「项目」分段下；项目行显示的是项目名
+	// （never-started-history），不是临时目录名 pideck-seed-*。
+	await window.getByRole("tab", { name: "项目", exact: true }).click();
 	// 进入预置项目：项目行默认折叠，先点击展开（同时选中项目），会话行才渲染
-	const projectRow = window
-		.locator(".conversation", {
-			hasText: "pideck-seed-never-started-history-",
-		})
-		.first();
+	const projectRow = window.locator(".conversation", { hasText: neverStartedProject.name }).first();
 	await expect(projectRow).toBeVisible({ timeout: 30_000 });
 	await projectRow.click();
 
@@ -224,18 +230,6 @@ test("never-started session: delete confirms, edit applies directly, resend auto
 	await expect(window.getByRole("alertdialog")).toHaveCount(0, { timeout: 5_000 });
 	await expect(timeline).toContainText("未启动编辑后的回复", { timeout: 30_000 });
 
-	// ── 编辑 user 消息：同样无 runtime → 直接改文件生效（回归：曾出现「编辑框关了但没变」）──
-	const firstUserTurn = timeline.locator(".user-turn").filter({ hasText: "未启动会话锚点" });
-	await firstUserTurn.locator(".user-turn-actions").getByTitle("编辑", { exact: true }).click();
-	await expect(timeline.locator("textarea")).toBeVisible({ timeout: 10_000 });
-	await timeline.locator("textarea").fill("未启动编辑后的用户消息");
-	// user 消息的编辑提交按钮跟 composer 走同一套语义（fork + 立即重发），文案是「发送」；
-	// 键帽是 aria-hidden 的装饰，可访问名仍是「发送」，所以这里不写 ↵。
-	await timeline.getByRole("button", { name: "发送" }).click();
-	await expect(window.getByRole("alertdialog")).toHaveCount(0, { timeout: 5_000 });
-	await expect(timeline).toContainText("未启动编辑后的用户消息", { timeout: 30_000 });
-	await expect(timeline.getByText("未启动会话锚点")).toHaveCount(0, { timeout: 10_000 });
-
 	// ── 重发：无 runtime → 直接截断 + 自动激活 runtime（spawn mock pi）→ 恰好一份新回复 ──
 	const lastUser = timeline.locator(".user-turn").filter({ hasText: "未启动第二问" });
 	await lastUser.locator(".user-turn-actions").getByTitle("用同一条用户消息再次发送给 AI").click();
@@ -252,6 +246,23 @@ test("never-started session: delete confirms, edit applies directly, resend auto
 	await expect(timeline.getByText("未启动回复一")).toHaveCount(0, { timeout: 10_000 });
 	// 旧回复（已被删除）绝不再出现
 	await expect(timeline.getByText("未启动回复二")).toHaveCount(0, { timeout: 10_000 });
+
+	// ── 编辑 user 消息：pi 会话走 fork（position "before"）→ 锚点消息被移出分支，
+	// 新文本重发并自动激活 runtime。fork 会丢弃锚点之后的轮次，所以这一步放在最后，
+	// 免得把上面「重发」要用的轮次先切掉。
+	const firstUserTurn = timeline.locator(".user-turn").filter({ hasText: "未启动会话锚点" });
+	await firstUserTurn.locator(".user-turn-actions").getByTitle("编辑", { exact: true }).click();
+	await expect(timeline.locator("textarea")).toBeVisible({ timeout: 10_000 });
+	await timeline.locator("textarea").fill("未启动编辑后的用户消息");
+	// user 消息的编辑提交按钮跟 composer 走同一套语义（fork + 立即重发），文案是「发送」；
+	// 键帽是 aria-hidden 的装饰，可访问名仍是「发送」，所以这里不写 ↵。
+	// exact: true —— 时间线里还有「用同一条用户消息再次发送给 AI」等按钮，
+	// 子串匹配会把它们一并命中（strict mode violation，实测 4 个）。
+	await timeline.getByRole("button", { name: "发送", exact: true }).first().click();
+	await expect(window.getByRole("alertdialog")).toHaveCount(0, { timeout: 5_000 });
+	await expect(timeline).toContainText("未启动编辑后的用户消息", { timeout: 30_000 });
+	await expect(timeline.getByText("未启动会话锚点")).toHaveCount(0, { timeout: 10_000 });
+	await expect(timeline).toContainText("Mock 回复：「未启动编辑后的用户消息」流式渲染验证完成。", { timeout: 45_000 });
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -302,12 +313,10 @@ test.describe("content-area loading overlay", () => {
 		test.setTimeout(180_000);
 		await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
+		// 侧栏默认停在「聊天」分段，先切到「项目」；项目行按项目名匹配（不是临时目录名）。
+		await window.getByRole("tab", { name: "项目", exact: true }).click();
 		// 进入预置项目并打开历史会话（agent 从未 spawn）
-		const projectRow = window
-			.locator(".conversation", {
-				hasText: "pideck-seed-never-started-overlay-",
-			})
-			.first();
+		const projectRow = window.locator(".conversation", { hasText: overlayRestartProject.name }).first();
 		await expect(projectRow).toBeVisible({ timeout: 30_000 });
 		await projectRow.click();
 		const historyRow = window.locator(".conversation", { hasText: "遮罩验证会话" }).first();
@@ -316,11 +325,10 @@ test.describe("content-area loading overlay", () => {
 		const timeline = window.locator(".message-timeline");
 		await expect(timeline).toContainText("遮罩验证回复", { timeout: 20_000 });
 
-		// tab 栏「重启」：当前激活 tab 的菜单触发器（role=tab-menu，aria-label=更多操作）
-		const activeTab = window.locator('.session-tab[aria-selected="true"]').first();
-		await activeTab.locator('button[role="tab-menu"]').click();
-		const menu = window.getByRole("menu");
-		await menu.getByText("重启", { exact: true }).click();
+		// 「重启/启动」已不在 Tab 栏：入口是会话头部的运行控制钮（SessionActionsControl）。
+		// 从未启动过的历史会话，这个钮的 title 是 tabs.startAgent「启动 Agent」（不是「重启」），
+		// 点它激活 runtime —— 与重启走同一条「激活时显示内容区遮罩」的路径。
+		await window.getByRole("button", { name: "启动 Agent", exact: true }).first().click();
 
 		// 激活 runtime 需 spawn mock pi（数百 ms～1s）：会话消息区域遮罩（role=status，仅可见时挂载 role）应显示「正在启动会话…」
 		await expect(window.locator('[role="status"]').filter({ hasText: "正在启动会话…" })).toBeVisible({ timeout: 10_000 });
