@@ -11,7 +11,16 @@ function stripCpaCompletionMarker(text: string): string {
  * content item 的情况：这些 item 只是流式分片，不代表 Markdown 段落边界，不能用换行拼接，
  * 否则中文会被渲染成一行一个短片段的“竖排”消息。
  */
-export function extractMessageText(content: unknown): string {
+export type ExtractMessageTextOptions = {
+	/**
+	 * false：跳过 thinking 块，只拼正文。
+	 * 给「要一份不带 `<thinking>` 标签副本」的通道用，默认行为不变。
+	 */
+	includeThinking?: boolean;
+};
+
+export function extractMessageText(content: unknown, options: ExtractMessageTextOptions = {}): string {
+	const includeThinking = options.includeThinking !== false;
 	if (typeof content === "string") {
 		// 宿主指令 / 飞书能力提示只给模型看，UI 与历史展示前剥离。
 		return stripCpaCompletionMarker(stripHostInstruction(stripFeishuDocActionHint(content)));
@@ -29,6 +38,7 @@ export function extractMessageText(content: unknown): string {
 		const typed = item as Record<string, unknown>;
 		if (typed.type === "image") continue;
 		if (typed.type === "thinking") {
+			if (!includeThinking) continue;
 			const thinking = String(typed.thinking ?? "");
 			if (thinking) {
 				// thinking 是独立语义块，保留为标签块；前后补边界，避免和正文黏在一起。
