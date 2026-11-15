@@ -130,6 +130,14 @@ curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&befor
 
 **`nextBefore` 不为 `null` 时返回 7 个键，为 `null` 时只有 6 个**——最后一页没有 `nextBeforeEntryId`。按字段名取，别按位置取。
 
+`before` 与 `pageSize` 都不校验，按 JS 的数字转换走。三种情况要知道：
+
+- 非整数（`abc`、`1.7`）一律当没传：`pageSize` 退回默认 3 轮，`before` 退回「不翻页」，返回与不传时完全相同。
+- `before` 是负数会返回空 `messages` 且 `nextBefore` 为 `null`，看起来像「翻到底了」，其实是参数非法。
+- `pageSize` 给 0 或负数会退成 1 轮（实测 4 条），不报错。
+
+翻页只把上一页的 `nextBefore` 传回去，别自己造值。
+
 只有这个端点也满足不了需求时（比如要原始的工具调用参数），才去读磁盘上的 jsonl：
 
 ```bash
