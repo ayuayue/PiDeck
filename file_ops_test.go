@@ -45,20 +45,14 @@ func TestFileTreeOps(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// A new file in docs opens in the editor.
-	app.RightClick("text:docs")
-	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:新建文件")) > 0 })
-	app.Press("role:menuitem 新建文件 >> nth=0")
-	app.WaitFor("id:file-op", 5*time.Second)
+	pickMenu(t, app, "role:button docs", "新建文件")
 	app.Type("id:file-op-name", "new.txt")
 	app.Press("id:file-op-confirm")
 	waitPath(t, filepath.Join(docs, "new.txt"), true)
 	waitApp(app, "role:button new.txt", 10*time.Second)
 
 	// Rename follows the file in the tree.
-	app.RightClick("role:button new.txt")
-	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:重命名")) > 0 })
-	app.Press("role:menuitem 重命名")
-	app.WaitFor("id:file-op", 5*time.Second)
+	pickMenu(t, app, "role:button new.txt", "重命名")
 	app.Clear("id:file-op-name")
 	app.Type("id:file-op-name", "renamed.txt")
 	app.Press("id:file-op-confirm")
@@ -67,12 +61,7 @@ func TestFileTreeOps(t *testing.T) {
 	waitApp(app, "role:button renamed.txt", 10*time.Second)
 
 	// A new folder.
-	for i := 0; i < 4; i++ {
-		app.RightClick("text:docs")
-		if waitQuiet(app, "text:新建文件夹", 2*time.Second) {
-			break
-		}
-	}
+	openMenu(t, app, "role:button docs", "新建文件夹")
 	app.WaitUntil(15*time.Second, func() bool { return len(app.Query("text:新建文件夹")) > 0 })
 	app.Press("role:menuitem 新建文件夹")
 	app.WaitFor("id:file-op", 5*time.Second)
@@ -138,4 +127,38 @@ func TestFileTrash(t *testing.T) {
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("trash = %v, %v", entries, err)
 	}
+}
+
+// openMenu right-clicks a row until its menu item is there to press: the
+// press that expanded a folder can swallow the next one.
+func openMenu(t *testing.T, app *nsgotest.App, trigger, item string) {
+	t.Helper()
+	for i := 0; i < 6; i++ {
+		if len(app.Query("role:menuitem "+item)) > 0 {
+			return
+		}
+		app.RightClick(trigger)
+		app.Settle()
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("menu item %q did not open on %s", item, trigger)
+}
+
+// pickMenu opens a row's menu and presses an item, retrying while the
+// tree's rebuild closes the menu under it.
+func pickMenu(t *testing.T, app *nsgotest.App, trigger, item string) {
+	t.Helper()
+	for i := 0; i < 8; i++ {
+		openMenu(t, app, trigger, item)
+		if len(app.Query("role:menuitem "+item)) == 0 {
+			continue
+		}
+		app.Press("role:menuitem " + item + " >> nth=0")
+		app.Settle()
+		if len(app.Query("id:file-op")) > 0 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("menu item %q on %s opened nothing", item, trigger)
 }
