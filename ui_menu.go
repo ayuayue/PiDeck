@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oneo-me/nsgo/base"
-	"github.com/oneo-me/nsgo/core"
-	"github.com/oneo-me/nsgo/icons/lucide"
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/base"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // menuCard is the surface every menu and popover shares: a raised card with

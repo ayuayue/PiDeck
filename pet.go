@@ -6,9 +6,9 @@ package main
 import (
 	"time"
 
-	"github.com/oneo-me/nsgo/core"
-	"github.com/oneo-me/nsgo/desktop"
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // petMood is what the pet shows.

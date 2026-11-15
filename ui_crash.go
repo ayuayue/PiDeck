@@ -6,9 +6,9 @@ package main
 import (
 	"path/filepath"
 
-	"github.com/oneo-me/nsgo/core"
-	"github.com/oneo-me/nsgo/icons/lucide"
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // crashScreen replaces a panicking screen: it logs the panic, shows what

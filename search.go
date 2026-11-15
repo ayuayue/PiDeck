@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // searchDoc is one session in the index.

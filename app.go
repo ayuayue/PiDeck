@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oneo-me/nsgo/core"
-	"github.com/oneo-me/nsgo/ui"
-	"github.com/oneo-me/nsgo/ui/chat"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
 // workspace is a project folder and its sessions.

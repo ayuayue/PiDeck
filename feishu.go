@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // feishuSign is a custom bot's signature: HMAC-SHA256 of an empty body,

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/oneo-me/nsgo/base/editor"
-	"github.com/oneo-me/nsgo/core"
-	"github.com/oneo-me/nsgo/icons/lucide"
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/base/editor"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // editorPane is the editor in the middle of the window.

@@ -6,7 +6,7 @@ package main
 import (
 	"time"
 
-	"github.com/oneo-me/nsgo/core"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 // The tones, from DESIGN.md.

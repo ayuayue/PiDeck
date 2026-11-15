@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui"
 	"go.yaml.in/yaml/v3"
 )
 

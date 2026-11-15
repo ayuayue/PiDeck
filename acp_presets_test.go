@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oneo-me/nsgo/nsgotest"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 // TestACPPresetList checks files add presets, bad entries are skipped and

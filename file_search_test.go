@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oneo-me/nsgo/nsgotest"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 // TestSearchWorkspace checks the matching rules: case, limits, and the

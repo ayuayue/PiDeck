@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oneo-me/nsgo/nsgotest"
-	"github.com/oneo-me/nsgo/ui/chat"
+	"github.com/nsgo-dev/nsgo/nsgotest"
+	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
 func TestAxisTicks(t *testing.T) {

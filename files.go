@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oneo-me/nsgo/core"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 // fileEntry is one directory entry, read off the UI thread.

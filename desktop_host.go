@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oneo-me/nsgo/core"
-	"github.com/oneo-me/nsgo/desktop"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 )
 
 // setupDesktop gives the app its tray and its close-to-tray behaviour,

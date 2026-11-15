@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oneo-me/nsgo/nsgotest"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 // TestPromptLibrarySeeds checks the starter pack lands once and reads.

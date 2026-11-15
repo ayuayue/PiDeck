@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // defaultKeybindings is command → key. These are the keys the app has

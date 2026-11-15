@@ -14,7 +14,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // skillInfo is one skill folder.

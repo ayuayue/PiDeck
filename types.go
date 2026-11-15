@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oneo-me/nsgo/ui/chat"
+	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
 // sessionStatus is a session's lifecycle as the sidebar shows it.

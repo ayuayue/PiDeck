@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // diagnosticZip builds the bundle in memory.

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	sgt "github.com/oneo-me/nsgo/base/terminal"
-	"github.com/oneo-me/nsgo/nsgotest"
+	sgt "github.com/nsgo-dev/nsgo/base/terminal"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 // TestTerminalPanel opens the panel and waits for the terminal's view.

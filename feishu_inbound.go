@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // feishuMention matches the @-mention placeholders Feishu puts in text.

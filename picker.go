@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oneo-me/nsgo/core"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 // pickEntry is one row of the browser.

@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	sgt "github.com/oneo-me/nsgo/base/terminal"
-	"github.com/oneo-me/nsgo/core"
+	sgt "github.com/nsgo-dev/nsgo/base/terminal"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 // defaultTerminalHeight is the panel's height when none was dragged.

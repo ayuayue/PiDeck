@@ -32,7 +32,7 @@ import (
 
 	qrcode "github.com/skip2/go-qrcode"
 
-	"github.com/oneo-me/nsgo/core"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 const (

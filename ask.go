@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // askBox is the dialog's state.

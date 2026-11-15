@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // usageCSV writes the report as three sections: days, models, projects.

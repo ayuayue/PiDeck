@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oneo-me/nsgo/base"
-	sgt "github.com/oneo-me/nsgo/base/terminal"
-	"github.com/oneo-me/nsgo/core"
-	"github.com/oneo-me/nsgo/icons/lucide"
-	"github.com/oneo-me/nsgo/ui"
+	"github.com/nsgo-dev/nsgo/base"
+	sgt "github.com/nsgo-dev/nsgo/base/terminal"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // addTerminalTab opens a tab running in a workspace, or in the home
