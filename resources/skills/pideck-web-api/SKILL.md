@@ -433,15 +433,13 @@ PiDeck 里正常新建的会话不受这个影响。
 
 结果：`/api/state` 的 `sessions[]` 里已经没有它，`activate` 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`，`/messages` 返回 HTTP 200 加空数组。
 
-发过消息的会话不会这样：同样 `stop` 之后 `state` 里还在，`status` 是 `active`，`activate` 成功且 `runtimeGeneration` 1→2。
+发过消息的会话不会这样：同样 `stop` 之后 `state` 里还在，`status` 是 `active`，`activate` 成功且 `runtimeGeneration` 1→2。复现见第 6 节第 1~3 步，验的时候读 `/api/state` 的 `runtimes[]`。
 
 所以：**别拿刚建好的空会话试 stop**，试完它就不存在了，而且不会有任何报错提示你这一点。
 
-**target 里只有 `agentId` 真的被校验。** 实测：传一个不存在的 `agentId`，返回 `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_UNAVAILABLE"}}}`。
+**`target` 里两个字段都校验。** `agentId` 给不存在的 uuid 返回 `SESSION_RUNTIME_UNAVAILABLE`；`agentId` 对但 `runtimeGeneration` 传错（真实值 1，给 9 或 999）返回 `SESSION_RUNTIME_CHANGED`。
 
-同一个请求，`agentId` 对、`runtimeGeneration` 故意传 9（真实值是 1）却**返回成功**。
-
-所以代号写错不拦，进程号写错才拦。别把 `runtimeGeneration` 当成安全边界，它只是给你自己对账用的。
+两个都要传当前值，取法见第 6 节第 1 步。别把 `runtimeGeneration` 当成安全边界，它只负责把命令发给正确的那个进程。
 
 **会话不存在时 `/messages` 不给 404。** 返回 HTTP 200 加 `{"messages":[],"total":0,"windowStart":0,"truncated":false}`，和「存在但一条消息都没有」长得一模一样。
 
