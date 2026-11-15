@@ -384,7 +384,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
        activate         gen=4
 ```
 
-`activate` 要 4~6 秒才返回，不是卡住。
+`activate` 要几秒才返回，不是卡住。实测耗时与超时该设多少，见 7.1 节末尾。
 
 **用法二：让别人重启自己。** 执行者是一个新建的普通会话。
 
