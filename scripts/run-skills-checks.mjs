@@ -38,7 +38,13 @@ for (const [name, args] of STEPS) {
 	// 红的那条把输出带出来，绿的不带——否则七条的输出糊在一起，没人读。
 	if (!ok) {
 		const out = ((r.stdout || "") + (r.stderr || "")).trim();
-		if (out) console.log(out.split(String.fromCharCode(10)).map((l) => "       " + l).join(String.fromCharCode(10)));
+		if (out)
+			console.log(
+				out
+					.split(String.fromCharCode(10))
+					.map((l) => "       " + l)
+					.join(String.fromCharCode(10)),
+			);
 	}
 }
 
