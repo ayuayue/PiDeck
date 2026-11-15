@@ -156,6 +156,29 @@ test("loads a backup for offline inspection but never upgrades it to writable tr
 	assert.equal(await readFile(join(directory, "remote-hosts.json"), "utf8"), "{broken json");
 });
 
+test("a legacy `~/...` identityFile no longer rolls the whole catalog back to the backup (#542)", async (t) => {
+	const directory = await fixture(t);
+	const legacy = { ...draft, identityFile: "~/.ssh/id_ed25519" };
+	await writeFile(join(directory, "remote-hosts.json.bak"), JSON.stringify(envelope([{ ...draft, label: "Older" }], 1)));
+	await writeFile(join(directory, "remote-hosts.json"), JSON.stringify(envelope([legacy], 2)));
+	const store = await RemoteHostStore.open(directory);
+	const snapshot = store.getSnapshot();
+	assert.equal(snapshot.status, "ready");
+	assert.equal(snapshot.revision, 2);
+	assert.deepEqual(
+		Array.from(snapshot.profiles, (profile) => profile.label),
+		["Build Pi"],
+	);
+	// 下一次写入把不可持久化的值从磁盘上清掉，而不是让每次写入都重演同一个失败。
+	await store.createDraft({ label: "Other", sshHost: "other", connectTimeoutMs: 15000 }, 2);
+	const disk = JSON.parse(await readFile(join(directory, "remote-hosts.json"), "utf8"));
+	assert.equal(Object.hasOwn(disk.profiles[0], "identityFile"), false);
+	assert.deepEqual(
+		disk.profiles.map((profile) => profile.label),
+		["Build Pi", "Other"],
+	);
+});
+
 test("retired host IDs survive later draft writes", async (t) => {
 	const directory = await fixture(t);
 	const retired = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

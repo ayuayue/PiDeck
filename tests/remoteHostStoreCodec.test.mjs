@@ -48,3 +48,24 @@ test("rejects duplicate, reused, or inconsistent endpoint identities", () => {
 	])
 		assert.throws(() => decodeRemoteHostSnapshot(invalid), /REMOTE_HOST_STORE_INVALID/);
 });
+
+test("keeps a legacy `~/...` identityFile readable and drops it on write (#542)", () => {
+	const otherId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+	const legacy = { ...draft, identityFile: "~/.ssh/id_ed25519" };
+	const snapshot = decodeRemoteHostSnapshot(envelope([legacy, { ...draft, id: otherId, label: "Other" }], [], 7));
+	assert.equal(snapshot.revision, 7);
+	assert.deepEqual(
+		snapshot.profiles.map((profile) => profile.label),
+		["Build Pi", "Other"],
+	);
+	assert.equal(snapshot.profiles[0].identityFile, "~/.ssh/id_ed25519");
+	// 写紧：不可持久化的值不写回快照，其它字段与另一台主机原样保留。
+	const encoded = encodeRemoteHostSnapshot(snapshot.profiles, snapshot.retiredHostIds, 8);
+	assert.equal(Object.hasOwn(encoded.profiles[0], "identityFile"), false);
+	assert.equal(encoded.profiles[0].label, "Build Pi");
+	assert.equal(Object.hasOwn(encoded.profiles[1], "identityFile"), false);
+	assert.equal(encoded.profiles[1].label, "Other");
+	// 可持久化的绝对路径照常往返；控制字节仍然算损坏。
+	assert.equal(decodeRemoteHostSnapshot(envelope([{ ...draft, identityFile: "/home/alice/.ssh/id_ed25519" }])).profiles[0].identityFile, "/home/alice/.ssh/id_ed25519");
+	assert.throws(() => decodeRemoteHostSnapshot(envelope([{ ...draft, identityFile: "/home/alice/id\n" }])), /REMOTE_HOST_STORE_INVALID/);
+});

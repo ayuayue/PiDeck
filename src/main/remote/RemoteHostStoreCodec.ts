@@ -8,6 +8,7 @@ export type RemoteHostProfile = SshDraftRoute & {
 	connectTimeoutMs: number;
 	createdAt: string;
 	updatedAt: string;
+	/** `-i` 实参：可持久化的值必须是本机绝对路径；存量记录可能仍是 `~/...`，连接时会被明确拒绝（#542）。 */
 	identityFile?: string;
 	/** `password` means the host is authenticated from an in-memory secret; the secret itself is never stored. */
 	authMethod?: "password";
@@ -70,7 +71,10 @@ function readProfile(value: unknown): RemoteHostProfile {
 	if (value.disabledAt !== undefined && (!validDate(value.disabledAt) || value.disabledAt < value.createdAt)) invalid();
 	if (value.lastConnectedAt !== undefined && !validDate(value.lastConnectedAt)) invalid();
 	if (value.authMethod !== undefined && value.authMethod !== "password") invalid();
-	if (value.identityFile !== undefined && (typeof value.identityFile !== "string" || !isAbsolute(value.identityFile) || /[\x00-\x1f\x7f]/.test(value.identityFile))) invalid();
+	// 存量快照里的 `identityFile` 可能不是本机绝对路径（典型 `~/.ssh/id_ed25519`，来自 add-host 规范化
+	// 之前写下的记录）。这类值在连接时由 `SshCommandBuilder` 以 `INVALID_SSH_LOCAL_PATH` 拒绝，读盘时
+	// **不判整份损坏**：一条旧数据不该让全部主机回退到备份（#542）。类型与控制字节仍然严格——那才是损坏。
+	if (value.identityFile !== undefined && (typeof value.identityFile !== "string" || /[\x00-\x1f\x7f]/.test(value.identityFile))) invalid();
 	if (value.remotePiCommand !== undefined && !validToken(value.remotePiCommand)) invalid();
 	if (value.remoteNodeCommand !== undefined && !validToken(value.remoteNodeCommand)) invalid();
 	if (
@@ -137,8 +141,16 @@ export function decodeRemoteHostSnapshot(value: unknown): DecodedRemoteHostSnaps
 	return { revision: Number(value.revision), profiles, retiredHostIds };
 }
 
+/** 写侧丢字段：`identityFile` 不可持久化时只去掉这一个键，其余字段（含端点身份）原样保留。 */
+function withoutIdentityFile({ identityFile: _dropped, ...rest }: RemoteHostProfile): RemoteHostProfile {
+	return rest;
+}
+
 export function encodeRemoteHostSnapshot(profiles: RemoteHostProfile[], retiredHostIds: string[], revision: number): RemoteHostSnapshot {
 	if (!Number.isSafeInteger(revision) || revision < 1) invalid();
-	const decoded = decodeRemoteHostSnapshot({ schemaVersion: 1, revision, profiles, retiredHostIds });
+	// 写紧：读侧容忍下来的不可持久化 `identityFile`（存量 `~/...`、相对路径）在这里丢掉，而不是写回快照。
+	// 写进去的值永远过不了 `SshCommandBuilder.validLocalPath`；保留它只会让下一次写入重演同一个失败。
+	const persistable = profiles.map((profile) => (profile.identityFile === undefined || isAbsolute(profile.identityFile) ? profile : withoutIdentityFile(profile)));
+	const decoded = decodeRemoteHostSnapshot({ schemaVersion: 1, revision, profiles: persistable, retiredHostIds });
 	return { schemaVersion: 1, ...decoded };
 }
