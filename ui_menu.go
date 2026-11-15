@@ -579,8 +579,25 @@ func (a *app) sessionMenuItems(sess func() *session) []core.Node {
 		a.menuRow(a.cx, lucide.FileDown, "导出…", "", false, func() { a.openExport(sess()) }),
 		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中显示", "", false, func() { a.revealSession(sess()) }),
 		a.menuRow(a.cx, lucide.Copy, "复制工作目录", "", false, func() { a.copyText(sess().WS, "路径") }),
+		a.menuRow(a.cx, lucide.Archive, archiveLabel(a, sess), "", false, func() { a.toggleArchive(sess()) }),
 		a.menuRow(a.cx, lucide.Trash, "删除会话", "", true, func() { a.deleteSession(sess()) }),
 	}
+}
+
+// archiveLabel names the archive action for the state a session is in.
+func archiveLabel(a *app, sess func() *session) string {
+	if a.sessionArchived(sess().ID) {
+		return "取消归档"
+	}
+	return "归档"
+}
+
+// showArchivedLabel names the rail's archived-sessions toggle.
+func showArchivedLabel(a *app) string {
+	if a.cfg.ShowArchived {
+		return "隐藏已归档"
+	}
+	return "显示已归档"
 }
 
 // pinLabel names the pin action for the state a session is in.
@@ -640,6 +657,7 @@ func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 			a.scanProject(w())
 		}),
 		a.menuRow(a.cx, lucide.ArrowDownAZ, sortLabel(a), "", false, func() { a.toggleSessionSort() }),
+		a.menuRow(a.cx, lucide.Archive, showArchivedLabel(a), "", false, func() { a.toggleShowArchived() }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.Code, "在编辑器中打开项目", "", false, func() { a.openPathInEditor(w().Path) }),
 		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中打开", "", false, func() { a.revealProject(w()) }),

@@ -465,6 +465,7 @@ type app struct {
 	quickOpen       *core.Signal[bool]
 	chatFindOpen    *core.Signal[bool]
 	forkCollapsed   *core.Signal[map[string]bool]
+	archiveRev      *core.Signal[int]
 	chatFindText    *core.Signal[string]
 	pluginNewOpen   *core.Signal[bool]
 	pluginNewID     *core.Signal[string]
@@ -634,6 +635,7 @@ func newApp(cx *core.Scope) *app {
 		quickOpen:              core.NewSignal(cx, false),
 		chatFindOpen:           core.NewSignal(cx, false),
 		forkCollapsed:          core.NewSignalFunc(cx, map[string]bool{}, nil),
+		archiveRev:             core.NewSignal(cx, 0),
 		chatFindText:           core.NewSignal(cx, ""),
 		pluginNewOpen:          core.NewSignal(cx, false),
 		pluginNewID:            core.NewSignal(cx, ""),
@@ -1166,6 +1168,56 @@ func (a *app) isFavModel(m modelInfo) bool {
 // projectSessions is a project's sessions: the app's own and pi's in the
 // same folder, pinned first, then by the chosen order. Pinned ones are
 // shown under their own heading.
+// sessionArchived reports whether the rail hides a session.
+func (a *app) sessionArchived(id string) bool {
+	for _, x := range a.cfg.Archived {
+		if x == id {
+			return true
+		}
+	}
+	return false
+}
+
+// toggleArchive hides a session from the rail, or shows it again.
+func (a *app) toggleArchive(s *session) {
+	if s == nil {
+		return
+	}
+	next := append([]string(nil), a.cfg.Archived...)
+	found := -1
+	for i, id := range next {
+		if id == s.ID {
+			found = i
+			break
+		}
+	}
+	if found >= 0 {
+		next = append(next[:found], next[found+1:]...)
+	} else {
+		next = append([]string{s.ID}, next...)
+	}
+	a.cfg.Archived = next
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.Archived = append([]string(nil), next...) })
+	}
+	a.archiveRev.Update(func(n int) int { return n + 1 })
+	if found >= 0 {
+		a.toast(ui.ToastSuccess, T("已取消归档"), s.title.GetUntracked())
+	} else {
+		a.toast(ui.ToastSuccess, T("已归档"), s.title.GetUntracked())
+	}
+}
+
+// toggleShowArchived flips whether archived sessions show in the rail.
+func (a *app) toggleShowArchived() {
+	on := !a.cfg.ShowArchived
+	a.cfg.ShowArchived = on
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.ShowArchived = on })
+	}
+	a.archiveRev.Update(func(n int) int { return n + 1 })
+}
+
 func (a *app) projectSessions(ws *workspace) (pinned, rest []*session) {
 	all := append(append([]*session{}, ws.Sessions.Get()...), ws.Pi.Get()...)
 	seen := map[string]bool{}
@@ -1176,6 +1228,15 @@ func (a *app) projectSessions(ws *workspace) (pinned, rest []*session) {
 		}
 		seen[s.ID] = true
 		list = append(list, s)
+	}
+	if !a.cfg.ShowArchived {
+		kept := list[:0]
+		for _, s := range list {
+			if !a.sessionArchived(s.ID) {
+				kept = append(kept, s)
+			}
+		}
+		list = kept
 	}
 	sort.SliceStable(list, func(i, j int) bool {
 		pi, pj := a.pinIndex(list[i].ID), a.pinIndex(list[j].ID)

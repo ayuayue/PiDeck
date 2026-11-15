@@ -346,7 +346,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 					a.animateNextLayout()
 					w().Expanded.Update(func(v bool) bool { return !v })
 				},
-				Role: core.RoleButton, LabelFunc: func() string { return w().label() },
+				Role: core.RoleButton, LabelFunc: func() string { return w().label() }, TestID: "project-row",
 				StyleFunc: func() core.Style {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(30), Padding: core.Symmetric(0, 8),
 						CornerRadius: ui.RadiusControl, Transition: pressMotion,
@@ -389,6 +389,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 		core.Show{When: func() bool { return w().Expanded.Get() || a.filter.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				ws := w()
+				_ = a.archiveRev.Get()
 				// A project reads its own pi history the first time it is
 				// opened, not every project's at startup.
 				a.scanProject(ws)
