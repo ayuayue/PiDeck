@@ -409,6 +409,31 @@ func readUnpushedCommits(t target, dir string) ([]gitCommit, error) {
 	return parseGitLog(out), nil
 }
 
+// diffFiles lists the paths a patch touches, in order and once each.
+func diffFiles(patch string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(patch, "\n") {
+		if !strings.HasPrefix(line, "+++ ") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(line, "+++ "))
+		if len(fields) == 0 {
+			continue
+		}
+		path := strings.Trim(strings.TrimPrefix(fields[0], "b/"), "\"")
+		if path == "" || path == "/dev/null" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+		if len(out) >= 50 {
+			break
+		}
+	}
+	return out
+}
+
 // readFileHistory lists the commits that touched one path, newest first.
 func readFileHistory(t target, dir, path string, limit int) ([]gitCommit, error) {
 	if limit <= 0 {

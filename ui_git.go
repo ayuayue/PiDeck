@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1090,8 +1091,39 @@ func (a *app) gitDiffDialog() core.Node {
 				return core.View{Style: core.Style{FlexGrow: 1, Padding: core.All(16)},
 					Children: []core.Node{core.Text{Content: patch, Style: core.Style{FontSize: 12, LineHeight: 18}, StyleFunc: ui.Colored(colors.Danger)}}}
 			}
-			return uidiff.View{Patch: func() string { return patch }, Unified: true, Selectable: true, SoftWrap: true,
-				Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}}
+			var head []core.Node
+			if a.gitDiffHash != "" {
+				if files := diffFiles(patch); len(files) > 0 {
+					var chips []core.Node
+					for _, f := range files {
+						f := f
+						chips = append(chips, core.View{
+							OnPress: func(core.PressEvent) {
+								root := a.gitPath()
+								if root == "" {
+									return
+								}
+								a.gitDiffOpen.Set(false)
+								a.openEditorFile(root, filepath.Join(root, filepath.FromSlash(f)))
+							},
+							Role: core.RoleButton, Label: f, TestID: "git-diff-file",
+							StyleFunc: func() core.Style {
+								return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Height: core.Pt(22),
+									Padding: core.Symmetric(0, 7), CornerRadius: 5, Background: colors.Inset(),
+									Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+							},
+							Children: []core.Node{
+								ui.Icon(lucide.FileText, 10, colors.Faint),
+								core.Text{Content: f, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+									Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
+							}})
+					}
+					head = append(head, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5}, Children: chips})
+				}
+			}
+			return core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Gap: 6}, Children: append(head,
+				uidiff.View{Patch: func() string { return patch }, Unified: true, Selectable: true, SoftWrap: true,
+					Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}})}
 		})
 		return ui.Dialog{
 			Open: a.gitDiffOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.gitDiffOpen.Set(open) },
