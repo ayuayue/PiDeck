@@ -174,3 +174,32 @@ func TestSearchScope(t *testing.T) {
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) == 2 })
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:找到 2 个会话 · 2 处匹配")) > 0 })
 }
+
+// TestSearchEnterOpensFirst opens the first result with Enter.
+func TestSearchEnterOpensFirst(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := editorWorkspace(t)
+	workspace := editorWorkspace(t)
+	t.Setenv("PIDECK_LITE_HOME", home)
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	dir := filepath.Join(home, "sessions", "--x--")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "s.jsonl"),
+		[]byte(searchSession("s-1", workspace, "部署手册", "怎么发布到生产环境")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Key("mod+shift+f")
+	app.WaitFor("id:session-search", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:索引里有 1 个会话")) > 0 })
+	app.Type("id:search-input", "部署")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:search-hit")) > 0 })
+	app.Submit("id:search-input")
+	app.WaitForGone("id:session-search", 5*time.Second)
+	app.WaitFor("id:composer", 10*time.Second)
+	app.WaitFor("text:部署手册", 10*time.Second)
+}

@@ -420,3 +420,40 @@ func (a *app) openSearchHit(hit searchHit) {
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	a.selectSession(s)
 }
+
+// searchVisible is the hits the dialog shows, after the scope chips.
+func (a *app) searchVisible() []searchHit {
+	return searchVisibleOf(a.searchHits.Get(), a.searchScope.Get())
+}
+
+// searchVisibleNow is the same list, read outside a render.
+func (a *app) searchVisibleNow() []searchHit {
+	return searchVisibleOf(a.searchHits.GetUntracked(), a.searchScope.GetUntracked())
+}
+
+func searchVisibleOf(hits []searchHit, scope string) []searchHit {
+	var out []searchHit
+	for _, h := range hits {
+		switch scope {
+		case "title":
+			if !h.InTitle {
+				continue
+			}
+		case "body":
+			if h.Count == 0 {
+				continue
+			}
+		}
+		out = append(out, h)
+	}
+	return out
+}
+
+// openSearchTop opens the first hit of the search, as Enter does.
+func (a *app) openSearchTop() {
+	hits := a.searchVisibleNow()
+	if len(hits) == 0 {
+		return
+	}
+	a.openSearchHit(hits[0])
+}

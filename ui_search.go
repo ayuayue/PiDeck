@@ -25,6 +25,7 @@ func (a *app) searchDialog() core.Node {
 			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
 				core.Input{Value: a.searchText.Get,
 					OnChange:    func(v string) { a.searchText.Set(v); a.scheduleSearch() },
+					OnSubmit:    func(string) { a.openSearchTop() },
 					Placeholder: "搜索所有会话的标题与内容…", Label: "搜索会话", TestID: "search-input", AutoFocus: true,
 					Style: core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), CornerRadius: 8,
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
@@ -34,21 +35,7 @@ func (a *app) searchDialog() core.Node {
 				core.Dynamic(func(cx *core.Scope) core.Node {
 					colors := ui.ColorsOf(cx)
 					query := a.searchText.Get()
-					scope := a.searchScope.Get()
-					var hits []searchHit
-					for _, h := range a.searchHits.Get() {
-						switch scope {
-						case "title":
-							if !h.InTitle {
-								continue
-							}
-						case "body":
-							if h.Count == 0 {
-								continue
-							}
-						}
-						hits = append(hits, h)
-					}
+					hits := a.searchVisible()
 					switch {
 					case a.searchBusy.Get() && !a.searchIndexed:
 						return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},

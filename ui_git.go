@@ -972,6 +972,7 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
 			},
 		},
+		recentMessages(a, st),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			ui.Checkbox{Checked: a.git.amend.Get, OnChange: a.git.amend.Set, Text: T("修订上次提交"), Label: T("修订上次提交"),
 				Style: core.Style{FlexGrow: 1}},
@@ -987,7 +988,39 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 	}}
 }
 
-// gitHistory lists the latest commits.
+// recentMessages offers the last commit subjects while the box is empty.
+func recentMessages(a *app, st gitState) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	var chips []core.Node
+	seen := map[string]bool{}
+	for _, c := range st.Commits {
+		subject := strings.TrimSpace(c.Subject)
+		if subject == "" || seen[subject] {
+			continue
+		}
+		seen[subject] = true
+		text := subject
+		chips = append(chips, core.View{
+			OnPress: func(core.PressEvent) { a.git.msg.Set(text) },
+			Role:    core.RoleButton, Label: T("用上次的说明：") + subject, TestID: "git-msg-recent",
+			StyleFunc: func() core.Style {
+				return core.Style{MaxWidth: core.Pt(150), Height: core.Pt(20), Padding: core.Symmetric(0, 7), CornerRadius: 10,
+					BorderWidth: 1, BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}}
+			},
+			Children: []core.Node{core.Text{Content: subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Muted)}},
+		})
+		if len(chips) >= 3 {
+			break
+		}
+	}
+	if len(chips) == 0 {
+		return core.View{}
+	}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Wrap: core.Wrap}, Children: chips}
+}
+
+// gitHistory lists the latest commits.// gitHistory lists the latest commits.
 func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 	colors := ui.ColorsOf(cx)
 	search := core.Input{Value: a.git.logQuery.Get, OnChange: a.git.logQuery.Set,
