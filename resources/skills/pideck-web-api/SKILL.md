@@ -558,7 +558,6 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 `installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile` 目标文件，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。所以两条结论：手改 `pideck-skills/` 下次启动就没了；要让新版生效，把文件放进 `<userData>/skills-overlay/pideck-web-api/`，重启 PiDeck。
 
-`<userData>` 是 `%APPDATA%\PiDeck`（开发版是 `%APPDATA%\PiDeck Dev`）。四份内容一致由 `~/.pi/agent/bin/skill-copies.mjs` 守着，不一致 gate 会红。
 
 ## 10 验收：三级别
 
