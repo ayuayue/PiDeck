@@ -220,7 +220,11 @@ data: [DONE]
 
 模型输出思考时，`text-start` 之前还会有一串 `reasoning-delta`；那一串不是每轮都有，按类型过滤即可，别假定它一定出现。`text-end` 每轮都有。
 
-带工具调用的回合还会出现 `tool-input-start` / `tool-input-available` / `tool-output-available`，思考帧成对出现时还会有 `reasoning-start` 与 `reasoning-end`。
+带工具调用的回合还会出现 `tool-input-start` / `tool-input-available` / `tool-output-available`。
+
+有思考的一轮完整顺序是 `start` → `reasoning-start` → `reasoning-delta`… → `text-start` → `text-delta` → `reasoning-end` → `text-end` → `finish` → `[DONE]`。
+
+注意 `reasoning-end` 在 `text-delta` 之后，不在 `text-start` 之前。
 
 这几种都只表示进度。遇到不认识的帧按类型过滤，别当错误，也别等某一个特定帧。
 
@@ -345,7 +349,9 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"projectId":"builtin-chat"}' "$BASE/api/sessions"
 ```
 
-返回 `{"session":{"id":"...", ...}}`，取 `session.id`。新建的是草稿态，还得按第 7 节对它 activate 一次才会进 `runtimes[]`，进不去就发不了消息。
+返回 `{"session":{"id":"...", ...}}`，取 `session.id`。新建的是草稿态，`status` 是 `draft`，也没有 `sessionPath`。
+
+直接发消息它就自己起来：实测 draft 会话直接 POST `/api/chat`，7 秒收齐 17 帧，之后 `runtimes[]` 里出现它，`status` 是 `idle`。
 
 **别用 `/api/sessions/anonymous` 建执行者。** 它有两个实测的坑：
 
