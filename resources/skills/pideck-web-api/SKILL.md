@@ -465,6 +465,8 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 返回 `{"deleted":true}`。删除只走这个 `POST .../delete`，`DELETE /api/sessions/<id>` 不存在，会返回 404 `webError.apiNotFound`。先 stop 再 delete，否则进程还占着。
 
+删一个已经不存在的 id 返回 `{"deleted":false}`，HTTP 仍是 200。这不是失败，是它早就没了——特别是空会话 stop 几秒后自己消失的那种。
+
 **匿名会话会在空闲后消失。** `POST /api/sessions/anonymous` 建出来的会话（标题是「匿名聊天 - Chat」）空闲几分钟后自己从 `runtimes[]` 和 `sessions[]` 里消失，之后对它的 `activate` 返回 `SESSION_NOT_FOUND`。
 
 PiDeck 里正常新建的会话不受这个影响。
@@ -472,6 +474,8 @@ PiDeck 里正常新建的会话不受这个影响。
 **一个空会话被 stop 会整个消失，不是变闲。** 实测（本机，2026-11-14）：新建会话 → `activate` → 直接 `stop`，中间没发过任何消息。
 
 结果：`/api/state` 的 `sessions[]` 里已经没有它，`activate` 返回 `{"result":{"ok":false,"error":{"code":"SESSION_NOT_FOUND"}}}`，`/messages` 返回 HTTP 200 加空数组。
+
+不是立刻消失。实测 stop 之后 0ms 查还在 `sessions[]` 里，3 秒后就没了。刚 stop 完立刻查会看到它还在，别据此判成没消失。
 
 发过消息的会话不会这样：同样 `stop` 之后 `state` 里还在，`status` 是 `active`，`activate` 成功且 `runtimeGeneration` 1→2。复现见第 6 节第 1~3 步，验的时候读 `/api/state` 的 `runtimes[]`。
 
