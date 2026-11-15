@@ -85,7 +85,16 @@ curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" |
 
 打印出一个 uuid 就是你的 sessionId；打印「没找到」说明你不在这台 PiDeck 里跑。这个匹配区分大小写。
 
-**第三条线索**：`$PIDECK_LINKED_SESSIONS_URL` 的末尾就是 PiDeck 会话 id，形如 `http://127.0.0.1:<port>/linked/<sessionId>`。前两条都空时再用它。
+**第三条线索要先验证再用。** `$PIDECK_LINKED_SESSIONS_URL` 形如 `http://127.0.0.1:<port>/linked/<某 id>`，但 2026-11-15 本机实测：那一段不是 PiDeck 会话 id。同一时刻同一条命令，`$PIDECK_SESSION_ID` 在 `/api/state` 的 `sessions[]` 里查得到（1 次命中），URL 尾段查不到（0 次命中）。
+
+```bash
+curl -s -H "$AUTH" "$BASE/api/state" | grep -c "$PIDECK_SESSION_ID"                     # 期望 >=1
+curl -s -H "$AUTH" "$BASE/api/state" | grep -c "${PIDECK_LINKED_SESSIONS_URL##*/}"        # 本机实测 0
+```
+
+前两条都空时它只能当候选，必须先在 `sessions[]` 里查得到才算数。
+
+**认错的后果比「找错人」重。** 第 6 节第 0 步拿这个 id 判断「目标是不是我自己」：用一个查不到的 id 去比，结论必然是「不是我」，于是停掉自己；被停之后没有进程发 activate，就是永久停着。所以这一条只在 `sessions[]` 查得到时用，查不到就当它不存在。
 
 **认自己的目的是不出错。** 怎么判只一条：拿到的 id 在 `/api/state` 的 `sessions[]` 里能找到。找不到就是坐标系错了。
 
@@ -406,7 +415,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 >
 > 0. **先认自己是谁**：`echo $PIDECK_SESSION_ID`。
 >
->    它为空就用第 2 节那两条兜底：`$PI_SESSION_FILE` 去 `runtimes[].sessionPath` 里对，或者取 `$PIDECK_LINKED_SESSIONS_URL` 的尾段。
+>    它为空就用第 2 节那两条兜底：`$PI_SESSION_FILE` 去 `runtimes[].sessionPath` 里对，或者取 `$PIDECK_LINKED_SESSIONS_URL` 的尾段（必须先在 `sessions[]` 里查到，见第 2 节）。
 >
 >    拿到自己的 id 之后比对：等于 `<目标 sessionId>` 就停下——停掉的就是你自己，没有进程去发 activate。**三条路都拿不到自己的 id 也停下，别赌。**
 > 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。
