@@ -31,6 +31,15 @@ export function compareVersion(head, base) {
 	return 0;
 }
 
+// 显式传的 ref 优先于环境变量：CI 里 GITHUB_BASE_REF 恒有值（dev），若让它压过命令行，
+// workflow 传的 -- <base.sha> 永远用不上（2026-11-15 评审实测：Dev Guard 第 8 步显示绿，
+// 日志却是 SKIP 取不到 base 版本（origin/dev），因为 fetch-depth:1 没拉这个引用）。
+export function resolveBaseRef(explicit, envBaseRef) {
+	if (explicit) return explicit;
+	if (envBaseRef) return "origin/" + envBaseRef;
+	return "origin/dev";
+}
+
 function versionOf(ref) {
 	const text = execFileSync("git", ["show", ref + ":package.json"], { cwd: ROOT, encoding: "utf8" });
 	return JSON.parse(text).version;
@@ -55,6 +64,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 			}
 		}
 		const extra = [
+			["显式 sha 优先于环境变量", resolveBaseRef("abc123", "dev") === "abc123"],
+			["无显式时用环境变量", resolveBaseRef(undefined, "dev") === "origin/dev"],
+			["都没有时退 origin/dev", resolveBaseRef(undefined, undefined) === "origin/dev"],
+			["显式带 origin 前缀原样用", resolveBaseRef("origin/main", "dev") === "origin/main"],
 			["空串解析为 null", parseVersion("") === null],
 			["非数字解析为 null", parseVersion("abc") === null],
 		];
@@ -70,13 +83,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 		console.log("selftest PASS：" + (cases.length + extra.length) + " 条");
 		process.exit(0);
 	}
-	const baseRef = process.env.GITHUB_BASE_REF ? "origin/" + process.env.GITHUB_BASE_REF : process.argv[2] || "origin/dev";
+	const explicit = process.argv.slice(2).find((a) => !a.startsWith("-"));
+	const baseRef = resolveBaseRef(explicit, process.env.GITHUB_BASE_REF);
 	const head = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 	let base;
 	try {
 		base = versionOf(baseRef);
 	} catch (e) {
-		console.log("SKIP 取不到 base 版本（" + baseRef + "）：" + String(e).slice(0, 80));
+		// 显式给了输入却读不到，不能当「没事」滑过：那正是这条判据要抓的静默放行。
+		if (explicit) {
+			console.log("FAIL 显式指定的 base 取不到（" + baseRef + "）：" + String(e).slice(0, 80));
+			process.exit(1);
+		}
+		console.log("SKIP 取不到 base 版本（" + baseRef + "，没显式指定 ref）：" + String(e).slice(0, 80));
 		process.exit(0);
 	}
 	const cmp = compareVersion(head, base);

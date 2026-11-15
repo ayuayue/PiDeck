@@ -71,6 +71,11 @@ jobs:
       # 2026-11-15：PR 分支长期没 rebase 会把旧 version 带回来。本 PR 从 0.6.x 的 dev 拉出来，
       # dev 已升到 0.12.0 而分支仍写 0.6.72——合并取 PR 侧就是降版本，Updater 会把新包判成旧包。
       # 只比 semver 三段数字；push 事件没有 base，脚本 SKIP 不红。
+      # 2026-11-15 评审实测：默认 checkout 是 fetch-depth:1，本地没有 base commit 的对象，
+      # 下面那句 -- <base.sha> 取不到，脚本按「显式给了却读不到」判红。这一行把那个对象拉下来。
+      - name: Fetch base commit for version check
+        if: github.event.pull_request.base.sha != ''
+        run: git fetch --no-tags --depth=1 origin ${{ github.event.pull_request.base.sha }}
       - name: Check version not lower than base
         if: always()
         run: npm run check:version-not-lower -- ${{ github.event.pull_request.base.sha }}
