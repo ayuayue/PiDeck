@@ -587,7 +587,13 @@ for d in "$APPDATA/PiDeck/skills-overlay/pideck-web-api" "$HOME/.pi/agent/pideck
 done
 ```
 
-验法：`sha256sum` 这四处的 SKILL.md，四个值应该相同。不同说明有地方没跟上，那时候你改的版本并没有在跑。
+验法：下面这条打印 `1` 表示四处一致；大于 1 说明有地方没跟上，你改的版本并没有在跑。
+
+```bash
+for f in resources/skills/pideck-web-api/SKILL.md "$APPDATA/PiDeck/skills-overlay/pideck-web-api/SKILL.md" "$HOME/.pi/agent/pideck-skills/pideck-web-api/SKILL.md" "$HOME/.agents/skills/pideck-web-api/SKILL.md"; do sha256sum "$f"; done | cut -c1-64 | sort -u | wc -l
+```
+
+路径里有空格或非 ASCII 字符时 `sha256sum` 会在值前面加一个 `\` 表示转义，那不是值的一部分，所以上面用 `cut -c1-64` 只取前 64 位。
 
 **这一节只对改这个技能的人有用，用技能的人跳过。** 三个检查都要读 PiDeck 的源码（`src/main/web/WebApiRoutes.ts`），所以只能在源码克隆里跑——PiDeck 装到 `~/.pi/agent/pideck-skills/` 的那一份只有 SKILL.md，没有这三个脚本。
 
