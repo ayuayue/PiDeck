@@ -130,7 +130,9 @@ curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&befor
 
 **`total` 数的是文件里的条目，`messages` 是转换后的消息，两者基数不同，别相减。** 同一个会话翻到底，累计条数有时比 `total` 少，有时还多：一条工具记录、一张压缩卡片、一次上下文改写，进出的条数都不一样。
 
-所以「累计 `messages.length` 等于 `total`」不是能用的检查，它会让每个会话都判红。该看的只有 `nextBefore`：它变成 `null` 表示游标落到了第 0 个条目，前面没有更早的了，这就是拿全。源码里这一句是 `nextBefore: start > 0 ? start : null`，两个接口的 `total` 也取自同一行的 `index.activeMessageEntries.length`。
+所以「累计 `messages.length` 等于 `total`」不是能用的检查，它会让每个会话都判红。
+
+该看的只有 `nextBefore`：它变成 `null` 表示游标落到了第 0 个条目，前面没有更早的了，这就是拿全。源码里这一句是 `nextBefore: start > 0 ? start : null`。
 
 **`nextBefore` 不为 `null` 时返回 7 个键，为 `null` 时只有 6 个**——最后一页没有 `nextBeforeEntryId`。按字段名取，别按位置取。
 
