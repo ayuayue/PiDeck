@@ -36,6 +36,7 @@
 |---|---|---|---|
 | 2026-11-14 | `session-history-mutation`（3 条） | 删除确认文案按 running/idle 分变体、编辑/重发已改 fork 语义 | 对齐断言；mock 补真 fork |
 | 2026-11-14 | `tab-context-menu:16` | `getByText("复制会话")` 子串同时命中「复制会话文件路径」 | 加 `exact: true` |
+| 2026-11-14 | `visual-session` / `tab-font-size` / `provider-model-setup:63` | 合成器的发送/停止是同一颗主钮 `.composer-send-primary`（旧 `.composer-bar-btn.stop/send` 都已删）；模型与思考档位并进 `.model-thinking` 芯片（旧的 `.composer-bar-btn.model/thinking` 与 `.thinking-picker` 不存在）；打开「设置」会在 Tab 栏多一个「设置」tab 并抢走选中态；模型芯片可能直接开选择器，不再夹一层「选择模型」popover | 改定位器；tab 计数统一排除「设置」tab，删掉设置打开后不再成立的选中态断言（会话 tab 的选中契约在打开设置前已断言）；主题改为直切 `dataset.theme` |
 | 2026-11-14 | `session-history-agent-states`（种子行 + 遮罩 2 条） | 预置项目行按**项目名**匹配（不是临时目录名 `pideck-seed-*`）、侧栏默认在「聊天」分段要先切「项目」；「重启」入口从 Tab 栏右键菜单改为会话头部运行控制钮（从未启动的会话是「启动 Agent」） | 改定位器与前置步骤 |
 | 2026-11-14 | `layout-terminal`（2 条）/ `content-width` / `math-delimiters` / `visual-tune-surfaces`（2 条）/ `typewriter`（1 条，burst） | 终端入口从 outline 悬浮条并入「更多运行操作」菜单；solo 会话栏类名换成 `.session-v-timeline` 且空会话不渲染时间线；状态词「空闲」移进状态点、不再进会话行按钮的可访问名；抽屉打开时 Tab 栏的 drawer 开关会隐藏（并入活动栏左端）；BURST 合并帧上限过紧 | 前四条改定位器/时机；`typewriter` 把「合并帧 ≤3 帧」放宽到 ≤6 帧（实测该模式单帧落 4–5 字符，守卫目标是 10+ 的整段蹦出） |
 | 2026-11-14 | `file-link-repro`/`imagegen-composer-layout`/`branch-tree-panel`/`agent-market-bulk`（5 条，同一批） | 侧栏行显示**项目名**（seed 里是 `link-repro` 等），不是临时目录名 `pideck-*`；抽屉「添加常驻面板」只把面板加进常驻栏、不自动选中；分支树压缩点行改为显示摘要正文；低频入口（智能体/收藏）收进「更多」折叠组 | hasText 改 seed 项目名、先展开「更多」、勾选后补点 rail 按钮、断言改为摘要 |
@@ -138,13 +139,26 @@ fork 默认 **before**：新会话的 leaf 是锚点的**父节点**，锚点这
 
 ---
 
+## 配置管理的保存点了没反应（疑似产品缺陷，未查完）
+
+**现象**：设置 → 配置管理 → Pi 配置管理 → 模型 → 「+ 添加供应商」填完（名称/Base URL/手动加模型）→ 点「添加」回到列表 → 点右上角「保存」：**什么都没发生**，按钮 title 仍是「有未保存的修改」，供应商没有落盘。
+
+**证据**（一次性探针 + `PIDECK_E2E_KEEP=1` 的 `profile/logs/app-*.log`）：
+
+- 点保存后按钮 title 仍为 `config.dirtyTooltip`（「有未保存的修改」），说明 dirty 没清；
+- 主进程日志里**没有任何** config 保存类调用（连失败都没有）；
+- `piDesktop.config.getModels().parsed.providers` 为空，磁盘上也搜不到「中文供应商」；
+- 没有 alertdialog、没有错误 toast（只有一条「已按模型能力目录填充 gpt-4o 的规格」的提示）。
+
+**判定到哪一层**：请求没到主进程 —— 渲染层这一颗「保存」没有触发 `saveCurrent`，或者触发了但提前返回。
+**下一步**：查 `SettingsModal.tsx` 里 `configPaneRef.current?.saveCurrent()` 的 ref 是否挂到 Pi 配置面板（`ConfigModalShell` 用的是 `onSaveCurrent` 入参，两条路径可能只接了一条）；必要时给保存按钮加 `data-testid` 再点。
+
 ## 下一批待办
 
 | 用例 | 现象 | 已经查到哪一步 / 下一步 |
 |---|---|---|
 | `process-group-display`（1 条：同行文本共基线） | `expect.poll` 拿到的基线组不足 3 项，10s 后以 `NaN` 收尾（不是极差超限） | 组头的实时详情只在 `running && !open` 时渲染（`ProcessGroupStep.tsx:201`：`detail = props.running && !props.open ? lastToolDetail(...) : undefined`）。流式中折叠栏默认展开（`expandInterimDuringStream`），此时 `[data-row-text]` 只有 1 个子元素 → 永远凑不满 3 项。下一步：在「运行中 + 组头收起」状态下取一次 DOM 快照，确认 3 个子元素都出现后再改断言（要么先收起折叠栏，要么把断言降到 2 项并说明理由） |
-| `provider-model-setup:10` | 设置里找不到 `tab[Pi 配置管理]` | 配置管理的二级 tab 名改过；下一步在 ConfigModal 里列一次可见 tab 的文本再改定位 |
-| `provider-model-setup:63` | `.model-thinking` 的 popover 里没有 `getByTitle("选择模型")` | 模型选择器的入口/标题改过；下一步 dump popover 内的按钮 title |
+| `provider-model-setup:10` | 添加供应商后点「保存」没反应（可疑产品缺陷，见下节） | 已按前缀修正 tab 名（实际可访问名是「Pi 配置管理 本机」），卡在保存 |
 | `tab-font-size:33` | `.session-tab[role=tab]` 期望 2 实际 3 | 多出来的一般是空草稿 tab；先确认这第三个 tab 的 `aria-selected`/标题，再决定计数改成「已选中的 2 个」还是等草稿回收 |
 | `visual-session:22` | `.composer-bar-btn.stop` 不存在 | 合成器的发送/停止控件换过类名；下一步按 aria-label「停止」定位 |
 | `web-service:62` | 找不到 `text=推理：先分析文件结构...` | mock 的思考帧内容或渲染分层改过；先用同一句发一条 THINK 看 DOM 里思考卡片落在哪个类下 |

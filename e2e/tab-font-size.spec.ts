@@ -11,12 +11,15 @@ test.use({
 
 /** 同时断言激活/非激活 Tab 和其标题，禁止在没有 Tab 时静默跳过消费链验证。 */
 async function expectTabFontSize(window: Page, fontSize: string, lineHeight: string): Promise<void> {
-	const tabs = window.locator('.session-tabs-bar .session-tab[role="tab"]');
+	// 打开「设置」会在 Tab 栏里多一个「设置」tab（实测第三个就是它），
+	// 这里只数会话 tab：可见 + 排除设置页。
+	const tabs = window.locator('.session-tabs-bar .session-tab[role="tab"]:visible').filter({ hasNotText: "设置" });
 	const titles = tabs.locator("strong");
 	await expect(tabs).toHaveCount(2);
 	await expect(titles).toHaveCount(2);
-	await expect(window.locator('.session-tabs-bar .session-tab[aria-selected="true"]')).toHaveCount(1);
-	await expect(window.locator('.session-tabs-bar .session-tab[aria-selected="false"]')).toHaveCount(1);
+	// 这里不再断言「一个选中一个未选中」：打开设置后选中态会落到「设置」tab 上，
+	// 两个聊天 tab 一律变成未选中（实测）。会话 tab 的选中契约由用例开头
+	// （openSettings 之前）那两条 aria-selected 断言覆盖；本函数只管字体度量。
 	for (let index = 0; index < 2; index += 1) {
 		await expect(tabs.nth(index)).toHaveCSS("font-size", fontSize);
 		await expect(titles.nth(index)).toHaveCSS("font-size", fontSize);
