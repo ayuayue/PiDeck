@@ -61,6 +61,9 @@ func (a *app) gitConflictsDialog() core.Node {
 			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 2}, Children: rows}}}},
 			Footer: []core.Node{
+				ui.Button{Text: T("中止合并…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "git-abort-merge",
+					Disabled: busy, OnPress: a.gitAbortOperation},
+				core.View{Style: core.Style{FlexGrow: 1}},
 				ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-conflicts-close",
 					OnPress: func() { a.gitConflictsOpen.Set(false) }},
 			},

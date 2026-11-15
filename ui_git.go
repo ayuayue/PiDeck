@@ -6,6 +6,7 @@ package main
 // and sends the user's actions back.
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -145,6 +146,24 @@ func (a *app) gitResolveConflict(f gitFile, side string) {
 		_, err := g.exec(60*time.Second, "add", "--", f.Path)
 		return err
 	}, nil)
+}
+
+// gitAbortOperation abandons a merge, rebase or cherry-pick in progress.
+func (a *app) gitAbortOperation() {
+	a.askConfirm("中止这次合并", "回到操作前的状态；已经手动改好的冲突内容不会保留。", "中止", func() {
+		a.git.run("中止合并", func(g gitRunner) error {
+			if _, err := g.exec(60*time.Second, "merge", "--abort"); err == nil {
+				return nil
+			}
+			if _, err := g.exec(60*time.Second, "rebase", "--abort"); err == nil {
+				return nil
+			}
+			if _, err := g.exec(60*time.Second, "cherry-pick", "--abort"); err == nil {
+				return nil
+			}
+			return errors.New("没有进行中的合并、变基或挑拣")
+		}, nil)
+	})
 }
 
 // gitMarkResolved stages a conflict's file as it stands.
