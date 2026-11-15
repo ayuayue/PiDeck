@@ -138,6 +138,7 @@ func TestImageDialog(t *testing.T) {
 	t.Setenv("PIDECK_LITE_PI_CONFIG", cfgDir)
 	app := openApp(t, workspace, 1280, 860)
 	app.Press("id:rail-palette")
+	waitApp(app, "label:命令", 10*time.Second)
 	app.Type("label:命令", "生成图片")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:生成图片…")) > 0 })
 	app.Press("role:option 生成图片…")

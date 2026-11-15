@@ -24,7 +24,8 @@ func TestGitCommitAndPush(t *testing.T) {
 
 	app := startGitApp(t, dir)
 	app.WaitFor("id:git-commit-push", 20*time.Second)
-	app.Type("id:git-commit-message", "push me")
+	app.Focus("id:git-commit-message")
+	typeAll(t, app, "id:git-commit-message", "push me")
 	app.Press("id:git-commit-push")
 
 	deadline := time.Now().Add(30 * time.Second)

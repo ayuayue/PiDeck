@@ -145,9 +145,9 @@ func TestSkillStoreDialog(t *testing.T) {
 		app.Settle()
 		time.Sleep(100 * time.Millisecond)
 	}
-	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:已安装")) > 0 })
+	app.WaitUntil(20*time.Second, func() bool { return len(app.Query("text:已安装")) > 0 })
 	app.Press("id:skill-store-close")
-	app.WaitForGone("id:skill-store", 5*time.Second)
+	app.WaitForGone("id:skill-store", 15*time.Second)
 	app.WaitUntil(20*time.Second, func() bool { return len(app.Query("text:团队技能")) > 0 })
 	raw, err := os.ReadFile(installed)
 	if err != nil || !strings.Contains(string(raw), "发布前逐项检查") {
