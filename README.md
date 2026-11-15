@@ -277,6 +277,8 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
   也是一条命令（「设置 · 名称」），搜索后回车直达对应分区
 - 模型与认证：供应商列表（模型数、API、BaseURL）、`pi auth check` 的就绪状态、
   复制登录命令、常用模型（收藏）管理
+- pi 凭据：列出 `auth.json` 里的供应商、类型与掩码密钥，可替换 `api_key`、添加或删除；
+  只写该供应商的 `type`/`key`，OAuth 等其他字段保持原样，文件权限 0600
 - 供应商配置：点供应商右侧的设置按钮改 `api` / `baseUrl` / `apiKey`（只写这三个字段，
   其余保持原样），可一键测试连接（先探 `/models`，再退到一次最小 chat 请求），
   也可查询余额（OpenRouter / Moonshot / DeepSeek / SiliconFlow 按 BaseURL 或供应商 ID 识别；

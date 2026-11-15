@@ -582,6 +582,7 @@ func (a *app) settingsModels() core.Node {
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
 				setGroup("常用模型", core.View{Style: core.Style{Gap: 1}, Children: favRows}),
 				setGroup("供应商与认证", rows...),
+				a.authGroup(),
 				a.piSettingsGroup(),
 				core.Text{Content: "凭据由 pi 管理（~/.pi/agent/auth.json）。在终端里执行登录命令后，点下方的「重新检测」。",
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
@@ -1364,3 +1365,43 @@ func (a *app) settingsAbout() core.Node {
 // ensure os is used for the folder pickers the sections offer.
 var _ = os.Getenv
 var _ = filepath.Join
+
+// authGroup lists pi's credentials file with a way to replace a key.
+func (a *app) authGroup() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		entries := a.authEntries.Get()
+		errText := a.authErr.Get()
+		var rows []core.Node
+		for _, e := range entries {
+			e := e
+			detail := e.Type
+			if detail == "" {
+				detail = T("未声明类型")
+			}
+			if e.Hint != "" {
+				detail += " · " + e.Hint
+			}
+			var controls []core.Node
+			if e.Editable {
+				controls = append(controls, ui.Button{Text: T("替换密钥"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					TestID: "auth-replace-" + e.Provider, OnPress: func() { a.openAuthKey(e.Provider) }})
+			}
+			controls = append(controls, ui.Button{Text: T("删除"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				TestID: "auth-delete-" + e.Provider, OnPress: func() { a.dropAuthEntry(e.Provider) }})
+			rows = append(rows, setRow(e.Provider, detail, core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: controls}))
+		}
+		if len(entries) == 0 && errText == "" {
+			rows = append(rows, setRow(T("还没有凭据"), T("在终端里登录 pi，或在这里添加一个 API key。"), nil))
+		}
+		if errText != "" {
+			rows = append(rows, core.Text{Content: errText, Style: core.Style{FontSize: 10.5, Padding: core.Symmetric(3, 6)},
+				StyleFunc: ui.Colored(colors.Danger)})
+		}
+		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{
+			ui.Button{Text: T("添加密钥…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "auth-add",
+				OnPress: func() { a.openAuthKey("") }},
+		}})
+		return setGroup(T("pi 凭据"), rows...)
+	})
+}

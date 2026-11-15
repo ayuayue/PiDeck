@@ -52,6 +52,7 @@ func (a *app) view() core.Node {
 		a.gitUnpushedDialog(),
 		a.archiveDialog(),
 		a.outlineDialog(),
+		a.authKeyDialog(),
 		a.gitFileHistoryDialog(),
 		a.gitBlameDialog(),
 		a.terminalRenameDialog(),

@@ -477,6 +477,11 @@ type app struct {
 	archiveRev      *core.Signal[int]
 	archiveOpen     *core.Signal[bool]
 	outlineOpen     *core.Signal[bool]
+	authEntries     *core.Signal[[]authEntry]
+	authErr         *core.Signal[string]
+	authKeyOpen     *core.Signal[bool]
+	authKeyProvider *core.Signal[string]
+	authKeyText     *core.Signal[string]
 	chatFindText    *core.Signal[string]
 	pluginNewOpen   *core.Signal[bool]
 	pluginNewID     *core.Signal[string]
@@ -654,6 +659,11 @@ func newApp(cx *core.Scope) *app {
 		archiveRev:             core.NewSignal(cx, 0),
 		archiveOpen:            core.NewSignal(cx, false),
 		outlineOpen:            core.NewSignal(cx, false),
+		authEntries:            core.NewSignalFunc(cx, []authEntry(nil), nil),
+		authErr:                core.NewSignal(cx, ""),
+		authKeyOpen:            core.NewSignal(cx, false),
+		authKeyProvider:        core.NewSignal(cx, ""),
+		authKeyText:            core.NewSignal(cx, ""),
 		chatFindText:           core.NewSignal(cx, ""),
 		pluginNewOpen:          core.NewSignal(cx, false),
 		pluginNewID:            core.NewSignal(cx, ""),
@@ -778,6 +788,7 @@ func newApp(cx *core.Scope) *app {
 	a.st = st
 	a.initDiag()
 	a.cfg = st.config()
+	a.loadAuth()
 	a.chatWidth.Set(a.cfg.ChatWidth)
 	a.editorWrap.Set(a.cfg.EditorWrap)
 	if a.cfg.TerminalFont > 0 {
@@ -1224,6 +1235,61 @@ func (a *app) toggleArchive(s *session) {
 	} else {
 		a.toast(ui.ToastSuccess, T("已归档"), s.title.GetUntracked())
 	}
+}
+
+// loadAuth reads pi's credentials file into the settings page.
+func (a *app) loadAuth() {
+	go func() {
+		entries, err := readAuthEntries()
+		a.cx.Post(func() {
+			if err != nil {
+				a.authErr.Set(err.Error())
+				return
+			}
+			a.authErr.Set("")
+			a.authEntries.Set(entries)
+		})
+	}()
+}
+
+// openAuthKey asks for one provider's api key.
+func (a *app) openAuthKey(provider string) {
+	a.authKeyProvider.Set(provider)
+	a.authKeyText.Set("")
+	a.authKeyOpen.Set(true)
+}
+
+// saveAuthKey writes the key that was typed and reloads the list.
+func (a *app) saveAuthKey() {
+	provider := a.authKeyProvider.GetUntracked()
+	key := strings.TrimSpace(a.authKeyText.GetUntracked())
+	if key == "" {
+		a.toast(ui.ToastWarning, "还没有填密钥", "粘贴 API key 再保存。")
+		return
+	}
+	if err := replaceAuthKey(provider, key); err != nil {
+		a.toast(ui.ToastError, "写不了 auth.json", err.Error())
+		return
+	}
+	a.authKeyOpen.Set(false)
+	a.authKeyText.Set("")
+	a.toast(ui.ToastSuccess, "密钥已更新", provider)
+	a.loadAuth()
+}
+
+// dropAuthEntry removes a provider after asking.
+func (a *app) dropAuthEntry(provider string) {
+	if strings.TrimSpace(provider) == "" {
+		return
+	}
+	a.askConfirm("删除凭据", "从 auth.json 里删掉「"+provider+"」的凭据？", "删除", func() {
+		if err := removeAuthEntry(provider); err != nil {
+			a.toast(ui.ToastError, "写不了 auth.json", err.Error())
+			return
+		}
+		a.toast(ui.ToastSuccess, "已删除凭据", provider)
+		a.loadAuth()
+	})
 }
 
 // findSession is a session by id, loaded or only listed in its project.

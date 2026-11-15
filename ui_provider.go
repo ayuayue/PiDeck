@@ -238,6 +238,7 @@ func (a *app) removeProviderModel(id string) {
 // refreshProviders reads models.json again and probes auth in the
 // background.
 func (a *app) refreshProviders() {
+	a.loadAuth()
 	go func() {
 		list := readProviders()
 		probed := probeProviders(a.piPath(), list)
