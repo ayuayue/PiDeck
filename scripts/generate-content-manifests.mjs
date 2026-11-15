@@ -58,8 +58,21 @@ export function serializeJson(value) {
 	return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+/**
+ * 行尾归一：Windows 工作树是 CRLF，CI 检出是 LF，两份内容相同、字节不同。
+ * 哈希落在字节上，同一个 commit 在两边就会得出不同结论——这条已经让 CI 红过三次。
+ * 判据要的是「内容有没有变」，不是「工作树用哪种行尾」，所以先归一再算。
+ * 含 NUL 字节的按二进制处理，原样参与哈希。
+ */
+export function normalizeEol(buf) {
+	const bytes = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+	if (bytes.includes(0)) return bytes;
+	const CRLF = String.fromCharCode(13, 10);
+	const LF = String.fromCharCode(10);
+	return Buffer.from(bytes.toString("utf8").split(CRLF).join(LF), "utf8");
+}
 export function sha256(content) {
-	return createHash("sha256").update(content).digest("hex");
+	return createHash("sha256").update(normalizeEol(content)).digest("hex");
 }
 
 /**
@@ -90,7 +103,7 @@ export function computeBundleSha256(files, contentDir) {
 	for (const file of files) {
 		hash.update(file, "utf8");
 		hash.update("\0", "utf8");
-		hash.update(readFileSync(join(contentDir, file)));
+		hash.update(normalizeEol(readFileSync(join(contentDir, file))));
 		hash.update("\0", "utf8");
 	}
 	return hash.digest("hex");
