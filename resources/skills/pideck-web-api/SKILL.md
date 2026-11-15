@@ -107,7 +107,7 @@ curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"    # 我派
 `/messages` 返回 `{messages, total, windowStart, truncated}`，**是有界窗口不是全部历史**：
 
 - `messages` 按时间**从旧到新**排，最后一条是最新的。要末尾 N 条就 `messages.slice(-N)`。
-- `total` 是活动分支的消息**条目**数，不是 `messages` 数组的条数：一条条目可能展开成多条消息，所以 `messages.length` 可以比 `total` 大（本机实测 total=293、messages 294 条）。
+- `total` 是活动分支的**条目**数，不是 `messages` 的条数。两者基数不同，展开和合并都会发生，别拿它推「该有多少条消息」；下面翻页那段给了实测与源码依据。
 - `windowStart` 是这一截第一条的**条目**序号（从 0 数，和 `total` 数的是同一类东西）。`windowStart: 0` 表示从最早那条开始，也就是没截断。
 - `truncated: true` 表示还有更早的没拿到，翻页用下面那个端点。
 
