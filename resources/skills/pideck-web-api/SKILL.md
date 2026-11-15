@@ -1,0 +1,507 @@
+---
+name: pideck-web-api
+description: "用 PiDeck 的 HTTP 服务读自己的状态、给别的窗口发消息、让别的会话重启自己。要用脚本或别的 agent 控制 PiDeck、查会话状态时用。不用于改 PiDeck 源码。Use for PiDeck web API, SSE."
+---
+
+# PiDeck Web API
+
+**PiDeck 每个窗口背后跑一个 pi 进程，同时开一个只监听本机的 HTTP 服务。用这个服务，你能读自己的状态、给别的窗口发消息、让另一个会话把自己重启。**
+
+下面每条命令都在 2026-11 的 Windows 发行版上跑过，写了期望返回。返回形状不符说明版本变了，以源码里的 `src/main/web/WebApiRoutes.ts` 为准（`/api/health` 例外，它在 `WebServiceManager.ts:497`）。
+
+要看源码就看你自己的那份克隆。技能本身不依赖它，只有想确认「这个端点源码里到底怎么写的」时才需要。
+
+**下面所有 bash 都按 Git Bash 写**（PiDeck 在 Windows 上附带的那套）。别在 cmd 或 PowerShell 里跑：`$VAR` 不展开，`%APPDATA%` 在 bash 里不展开。怎么确认：`echo $APPDATA` 有值就是对的 shell。
+
+**前提：服务默认关闭，要人先在 PiDeck 的「设置 → Web 服务」里打开。** 没开就没有令牌，下面所有命令都会连不上或返回 401。
+
+## 0 先确定你要做什么
+
+| 想做的事 | 会打断别人吗 | 读哪节 |
+|---|---|---|
+| 读自己的时间线、todo、子 agent、运行状态 | 不会 | 第 3 节 |
+| 找别的会话、发消息、读回复 | 不会停它，但消息会插进它的对话 | 第 8 节、第 4 节、第 5 节 |
+| 重启某个会话（自己或别人） | 会，目标被停 | 第 6 节 |
+| 单独停、启、中止 | 会，目标被停 | 第 7 节 |
+
+第 2 节是所有节的前提。第 8 节是动别的会话之前必须满足的条件，第 9 节是使用边界，第 10 节是验收标准，第 11 节只对改这个技能的人有用。第 5.5 节讲怎么等对方干完、什么时候该新开会话。
+
+**先读第 2 节的一条注意事项**：每段 bash 都是独立 shell，变量不跨段保留。后面几节的命令都假设 `$AUTH`、`$BASE` 已经在**同一次**调用里设好。
+
+## 1 几个词
+
+下面三个是这套接口的骨架，最后两个是本文反复用的说法。
+
+
+- **会话**：PiDeck 侧边栏里的一行。会话可以存在，但此刻没在跑。
+- **运行时**：为某个会话在后台跑的那个 pi 进程。会话是记录，运行时是进程。
+- **运行时代号**（`runtimeGeneration`）与 `agentId`：同一会话每起一次进程，代号加一，服务端同时发一个新的 `agentId` uuid。两个一起变，都在 `runtimes[]` 里，验「换没换进程」看哪个都行。
+- 代号不是操作系统的 PID（进程号），那个不对外暴露。请求里这两个字段都要传当前值：多数命令传错直接拒，唯独 `stop` 只认 `agentId`，代号传什么都不拦。两种语义的分界见第 7.1 节。
+- **判据**（判断对错的依据）：本文里指某一项能返回真假的检查，例如「发一条 ping，没有 error 帧就是送到了」。
+- **口径**（一条判据管到哪为止）：口径之外它给不出答案，不是它判错了。
+
+
+## 2 连上：地址、令牌、自己的会话 id
+
+**服务默认关闭**，在 PiDeck 的「设置 → Web 服务」里打开。端口默认 8765。
+
+令牌和端口都存在设置文件里。Dev 通道的设置文件在 `PiDeck Dev` 目录，下面这段两个都试：
+
+这段一次把三件事做完：从设置文件读出令牌和端口、检查令牌不是空的、把它们设成 `$AUTH` 和 `$BASE` 供后面用。
+
+```bash
+# 取端口和令牌，同时确认不是空值
+eval "$(node -e 'const fs=require("fs"),p=require("path");const base=process.env.APPDATA;for(const d of ["PiDeck","PiDeck Dev"]){try{const s=JSON.parse(fs.readFileSync(p.join(base,d,"settings.json"),"utf8"));if(s.webServiceToken){console.log("export TOKEN="+s.webServiceToken);console.log("export PORT="+(s.webServicePort||8765));break}}catch{}}')"
+[ -n "$TOKEN" ] || echo "令牌为空：服务没开，或设置文件不在预期位置"
+export AUTH="Authorization: Bearer $TOKEN"
+export BASE="http://127.0.0.1:$PORT"
+echo "port=$PORT token长度=${#TOKEN}"
+```
+
+期望：`port=<设置里那个值，默认 8765> token长度=36`。长度是 0 说明上面那行提示已经打了，先去设置页把服务打开。
+
+自己的会话 id 是 PiDeck 启动会话时注入的环境变量，不用猜：
+
+```bash
+echo $PIDECK_SESSION_ID
+```
+
+为空说明你不在 PiDeck 里跑（比如终端里的 TUI），后面各节都不适用。
+
+**别拿错变量**：`$PI_SESSION_ID` 是 pi 自己的会话 id，不是 PiDeck 的身份。分辨办法：`$PIDECK_SESSION_ID` 能在 `/api/state` 的 `sessions[]` 里找到，`$PI_SESSION_ID` 找不到。
+
+**别用 `grep ^PI_` 找它。** `PIDECK_SESSION_ID` 不以 `PI_` 开头，那个 grep 会把它整条漏掉，剩下唯一像身份的 `$PI_SESSION_ID` 是 pi 自己的会话 id，看起来对，坐标系是错的。
+
+找身份就一条命令：`echo $PIDECK_SESSION_ID`，不要从 env 里筛。
+
+**取不到时别停。** 2026-11-14 在另一台发行版上实测：`echo $PIDECK_SESSION_ID` 打印空行，同一个进程里 `$PIDECK_SECURITY_CONFIG` 却有值——同一段注入代码里断了一半。所以这条路失败就往下走，不要以为「文档说的必对」。
+
+**兜底：拿 `$PI_SESSION_FILE` 去 `runtimes[]` 里认自己。** 这个变量是 pi 自己的会话文件路径，本机有值（2026-11-14 实测），而 `runtimes[].sessionPath` 指向同一个文件：
+
+```bash
+curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" |
+  node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));const s=j.runtimes.find(r=>r.sessionPath===process.env.PI_SESSION_FILE);console.log(s?s.sessionId:"没找到")'
+```
+
+打印出一个 uuid 就是你的 sessionId；打印「没找到」说明你不在这台 PiDeck 里跑。这个匹配区分大小写。
+
+**第三条线索要先验证再用。** `$PIDECK_LINKED_SESSIONS_URL` 形如 `http://127.0.0.1:<port>/linked/<某 id>`，但那一段**不是** PiDeck 会话 id——同一时刻 `$PIDECK_SESSION_ID` 在 `sessions[]` 里查得到，这个 URL 尾段查不到。只在 `sessions[]` 里查得到才算数：
+
+```bash
+curl -s -H "$AUTH" "$BASE/api/state" | grep -c "$PIDECK_SESSION_ID"                # 期望 >=1
+curl -s -H "$AUTH" "$BASE/api/state" | grep -c "${PIDECK_LINKED_SESSIONS_URL##*/}"  # 本机实测 0
+```
+
+**认错的后果比「找错人」重。** 第 6 节第 0 步用这个 id 判断「目标是不是我自己」：拿一个查不到的 id 去比，结论必然是「不是我」，于是停掉自己——被停之后没有进程发 activate，就是永久停着。所以查不到就**当它不存在**。
+
+### 连通性自检：四条，一次跑完
+
+四条**放在同一次调用里跑**，因为变量不跨段：
+
+```bash
+curl -s -o /dev/null -w 'health=%{http_code}\n' "$BASE/api/health"              # 期望 200。除 health 外不带令牌一律 401
+curl -s -o /dev/null -w 'state有令牌=%{http_code}\n' -H "$AUTH" "$BASE/api/state"  # 期望 200
+curl -s -o /dev/null -w 'state无令牌=%{http_code}\n' "$BASE/api/state"             # 期望 401
+curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300                    # 期望 {"runtimes":[...]}
+```
+
+前三条不对就别往下走：health 不是 200 说明服务没开或端口不对（与令牌无关）；state 有令牌还是 401 说明令牌错。第四条形状不对说明服务版本变了，去查源码。
+
+### 令牌有寿命，settings.json 是活的
+
+`settings.json` 的 `webServiceToken` 旁边有 `webServiceTokenGeneratedAt` 与 `webServiceTokenExpiresIn`——令牌是生成的，不是手填的。这个文件在使用期间会被改写，而**字节数可能一个都不变**（同一份 11041 B 的文件两次读哈希不同；变的是窗口位置、最近会话这类时间戳）。
+
+- **别拿它的哈希或字节数当判据。** 会漂，红了也不代表配置被改。要判「服务还在不在」，用上面那四条 HTTP 自检。
+- **每段脚本重新读一遍令牌。** 主题切换、开窗口会写这个文件；令牌重置后旧值全变 401，而 401 与「服务没开」长得一样。
+
+## 3 读自己的状态（只读）
+
+```bash
+curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/messages"   # 我的时间线
+curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/todo"       # 我的 todo
+curl -s -H "$AUTH" "$BASE/api/sessions/$PIDECK_SESSION_ID/subagents"  # 子 agent
+curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300        # 我的进程活着没有
+```
+
+第四条给的是所有进程，按 `sessionId` 筛出自己那一行：`running` 表示正在生成，`idle` 表示闲着。字段解释在第 4 节。
+
+`/messages` 返回 `{messages, total, windowStart, truncated}`，**是有界窗口，不是全部历史**：
+
+- `messages` 从旧到新排，要末尾 N 条用 `messages.slice(-N)`。
+- `total` 数的是**文件里的条目**，`messages` 是转换后的消息，两者基数不同（工具记录、压缩卡片、分支展开的进出各不一样），**别相减，也别拿它推该有多少条**。
+- `windowStart: 0` 表示没截断；`truncated: true` 表示还有更早的。
+
+**单次 `/messages` 不吃 `?before`**（传了也不生效）。翻历史用另一个端点：
+
+```bash
+curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&before=<nextBefore>"
+```
+
+`pageSize` 的单位是**一轮问答**（默认 3），一轮多少条从 3 到几十不等，所以别用条数推轮数。翻页只做一件事：把上一页的 `nextBefore` 传给 `before`，直到它是 `null`——那就是拿全了。**判据只看 `nextBefore`**，不要用「累计条数等于 `total`」：本机十个会话翻到底，没有一个相等。
+
+`nextBefore` 不为 `null` 时返回 7 个键，为 `null` 时 6 个（最后一页没有 `nextBeforeEntryId`），按字段名取。`before` / `pageSize` 不校验：非整数当没传；负数 `before` 返回空 `messages` 且 `nextBefore: null`（看起来像翻到底，其实是参数错）；`pageSize` 给 0 或负数退成 1 轮。
+
+**每次返回整个窗口**，`?limit` 之类一律无视：1653 条的会话一次 226 KB，`pageSize=100` 能到 15 MB。所以**别拿它轮询**——判断消息送没送到，看 SSE 有没有 `error` 帧。
+
+单条消息字段 `{id, agentId, role, text, timestamp, meta}`，assistant 多 `thinking`、`model`、`stopReason`。正文在 `text` 不在 `parts`（`parts` 只在 `/api/chat` 的请求里用）。
+
+要原始工具调用参数只能读磁盘 jsonl（路径取 `runtimes[]` 的 `sessionPath`）：
+
+```bash
+node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\n").forEach(l=>{if(!l.trim())return;const j=JSON.parse(l);if(j.role)console.log(j.role+": "+String(j.text||"").slice(0,120))})' "<sessionPath>"
+```
+
+## 4 找别的会话
+
+```bash
+curl -s -H "$AUTH" "$BASE/api/state"
+```
+
+返回里至少四个数组：`sessions[]`、`runtimes[]`、`projects[]`、`pendingUiRequests[]`。
+
+- `sessions[]`：**所有会话**，含没在跑的。字段 `{id, projectId, title, status, model, thinkingLevel, updatedAt, createdAt}`。
+- `runtimes[]`：**此刻正在跑的进程**。字段 `{sessionId, agentId, runtimeGeneration, projectId, cwd, status, sessionPath, createdAt, deckSessionId}`。
+
+**两个数组答的不是同一个问题。** `sessions[]` 说有哪些会话，`runtimes[]` 说哪些进程活着。进程活着不代表有活在跑——刚 activate 起来的会话 `status` 是 `idle`（进程在，闲着），有回合在跑才是 `running`。
+
+反过来，不在 `runtimes[]` 里只是说明进程没起，消息照样送得到——服务端会替你 `activate` 一次。实测发完那一刻它已经出现在 `runtimes[]` 里，`status` 是 `running`。所以别为了发消息先起进程。
+
+**`GET /api/sessions` 不存在**，猜它会拿到 `{"code":"webError.apiNotFound"}`——列会话用上面的 `/api/state`。**`POST /api/sessions` 存在**，用来新建会话，见第 6 节。别把这两个方法混成一个「端点不存在」。
+
+`/api/sessions/runtimes` 和 `/api/state` 的 `runtimes[]` **是同一份数据**（字段逐个比对一致），用哪个都行。
+
+列表里找不到某个会话，不等于它不存在：先确认 `projects[]` 里有它所属的项目。
+
+## 5 发消息
+
+**发之前再认一次自己**：`echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息——消息插进你自己的对话，然后你自己等自己回。别用 `env | grep ^PI_` 找身份（`PIDECK_SESSION_ID` 不以 `PI_` 开头，会被整条漏掉）；标题、`updatedAt`、`model` 都不是身份。
+
+### 5.1 首选 `/prompt`：同步返回 accepted，不必回读
+
+```bash
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"requestId":"'"$(date +%s)"'","message":"只回两个字：收到"}' \
+  "$BASE/api/sessions/<目标>/prompt"
+```
+
+期望：`{"result":{"accepted":true,"sessionId":"...","requestId":"...","agentId":"...","sessionPath":"C:\\...jsonl","runtimeGeneration":3}}`。
+
+`accepted: true` 就是送到了，不必回读任何东西。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
+
+### 5.2 要看流式才用 `/api/chat`
+
+请求体不是 `{message: "..."}`，是完整消息数组；`id` 是**目标会话的 sessionId**，不是 `agentId`：
+
+```bash
+curl -N -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"id":"<目标 sessionId>","messages":[{"role":"user","parts":[{"type":"text","text":"ping"}]}]}' \
+  "$BASE/api/chat"
+```
+
+返回 SSE，一行一帧。典型顺序 `start` → `reasoning-delta`（有思考时才有）→ `text-start` → `text-delta` → `text-end` → `finish` → `[DONE]`；带工具调用还有 `tool-input-start` / `tool-output-available`。不认识的帧按类型过滤，别当错误，也别等某个特定帧——**只认 `finish` 或 `[DONE]`**。`-N` 必须加，否则看不到流式。
+
+### 5.3 判「送到没有」只有一条
+
+**看 `error` 帧，不看 `total`，也不看有没有 data 帧。** 没有 `error` 帧就是送到了（哪怕 0 个 data 帧、`total` 当场没变）；有就是没送到，原因写在 `errorText` 里。
+
+参数错误不进流：缺 `id`、没有 role 为 user 的项、text 为空，直接 400 加 JSON。所以分三处看——400 是没进队列；200 加 `error` 帧是进了但找不到会话；200 加无 `error` 帧才是送到。
+
+**会话记录存在时，对端进程死没死都能送到**：服务端会替你 activate 一次。反过来，对端忙的时候整条连接可能只有 `: ping` 心跳，`total` 也不当场变大，而消息确实进了它的对话——拿 `total` 当判据会判成没送到，重发一次就变成两条重复消息。
+
+### 5.4 对方在 goal 模式时
+
+发完消息立刻补一条 `/goal on`，**单独成一条，正文一个字都不带**。
+
+- 对方收到 `/goal` 加一段文字会进入自动续跑，一轮结束后接着做原来那件事；普通消息不会触发续跑。
+- `/goal 新目标` 是覆盖，会把它的活换成你写的那句。所以只发斜杠加两个词，不带参数，也别等它先回复。
+- 后面跟一段话，那段话会被当成你的指令读——等于你替用户改了对方的目标。
+
+发送前能机器核的一条：
+
+```bash
+[ "$(cat msg.txt)" = "/goal on" ] || { echo "只发 /goal on，不带正文"; exit 1; }
+```
+
+用 `printf` 写 msg.txt，别用 `echo`（后者会补换行或解释反斜杠，你真发出去的就不是你以为的那串）。
+
+## 5.5 等对方干完：订阅、复用还是新开、什么时候算结束
+
+**两个流别搞混。** `/api/sessions/<id>/stream` 推这个会话的消息帧（`start` / `text-delta` / `finish`）；`/api/events` 推全局状态快照（`event: state` 加一份 `sessions`/`runtimes` 的 JSON），不推消息文本，也没有心跳帧和 `id:` 行——连接静默不等于断了，重连只能拿全量。
+
+**首选订阅对方的流**，一次连接把它的 `start` / `text-delta` / `finish` 实时推过来：
+
+```bash
+curl -sN --max-time 600 -H "$AUTH" "$BASE/api/sessions/<目标>/stream"
+```
+
+`--max-time` 必须设：到点断开不影响对端继续干活，重连接着看。订阅一个不存在的 id，第一帧仍是全局 `event: state`——**别把这一帧当成「对方说话了」**，消息帧一定带 `"type"`。
+
+**只有 `finish` 和 `data: [DONE]` 是结束证据。** 连接自己断了、被 `--max-time` 掐了、或者一直只有 `: ping` 心跳，都不算跑完——对方可能正在跑一个长工具调用。要判断它此刻在不在动，用 7.1 的 `state` 动作看 `isStreaming` 和 `isTurnActive`。
+
+**退路是轮询**：长 sleep 会撞上工具自己的超时。把第 5 节那条 curl 重定向到文件后台跑，然后每轮查一次、立刻返回：
+
+```bash
+stat -c %s /tmp/reply.txt
+tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
+```
+
+**复用旧会话还是新开，判据只有一条：目标会话里有没有关于被审对象的结论。** 有就新开——它记得自己上次的判断，你说「这些已经修了」，它会顺着那个结论找理由，不再独立看（审查、验证、要第二意见都属于这类）；没有就复用——同一件事的下一轮执行、换个小需求，上下文有用。新开之后旧会话不要停，它可能还有没跑完的活。
+
+**什么时候算结束：对方明确写出它那边也没有了，或者逐条回应了你提的每一条。** 回一句「收到」「我看看」不算。代价不对称——你多等一轮只花一轮；早停一轮则它下一轮的修复找不到人复核。
+
+## 6 重启：你关不掉自己，让别人关
+
+**重启 = 停止进程 + 重新启动进程。你自己发不出这两个请求**：stop 杀掉的就是发请求的那个进程，没有进程去发 activate。
+
+让别人做。最简单的办法：**新建一个普通会话**，把技能名和下面这段一起贴给它。
+
+建普通会话用这条（`projectId` 从 `/api/state` 的 `projects[]` 里取，常见的是 `builtin-chat`）：
+
+```bash
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"projectId":"builtin-chat"}' "$BASE/api/sessions"
+```
+
+返回 `{"session":{"id":"...", ...}}`，取 `session.id`。新建的是草稿态，`status` 是 `draft`，也没有 `sessionPath`。
+
+直接发消息它就自己起来，不需要先 `activate`。
+
+**别用 `/api/sessions/anonymous` 建执行者。** 它 `noSession: true`、没有自己的 `sessionPath`，认「我是谁」时会拿到目标的路径，结论必然是「目标就是我」，于是拒绝执行；而且 stop 之后整条记录被删，`activate` 返回 `SESSION_NOT_FOUND`（HTTP 仍是 200）。
+
+> 用 `/skill:pideck-web-api`。把会话 `<目标 sessionId>` 重启，先跑完该技能的第 2 节，再按第 0 步到第 5 步做，每步把输出贴回来。
+>
+> 0. **先认自己是谁**：`echo $PIDECK_SESSION_ID`。
+>
+>    它为空就用第 2 节那两条兜底：`$PI_SESSION_FILE` 去 `runtimes[].sessionPath` 里对，或者取 `$PIDECK_LINKED_SESSIONS_URL` 的尾段（必须先在 `sessions[]` 里查到，见第 2 节）。
+>
+>    拿到自己的 id 之后比对：等于 `<目标 sessionId>` 就停下——停掉的就是你自己，没有进程去发 activate。**三条路都拿不到自己的 id 也停下，别赌。**
+> 1. **取 target**：`curl -s -H "$AUTH" "$BASE/api/sessions/runtimes"`。在 `runtimes[]` 里找 `sessionId` 等于目标的那一项，记下 `agentId` 和 `runtimeGeneration`（下面叫它 `N`）。
+> 找不到说明目标没在跑，直接跳到第 3 步。
+> 2. **停**：
+>    ```bash
+>    curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
+>      -d '{"target":{"sessionId":"<目标>","agentId":"<上一步的 agentId>","runtimeGeneration":<N>}}' \
+>      "$BASE/api/sessions/<目标>/runtime/stop"
+>    ```
+>    `<N>` 要连尖括号一起换成上一步输出的真实数字（例如 `runtimeGeneration":3`）。URL 里的 `<目标>` 和 body 里的 `sessionId` **必须是同一个值**，不一致会返回 400 `webError.runtimeTargetRequired`。
+> 3. **启**：
+>    ```bash
+>    curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
+>      "$BASE/api/sessions/<目标>/runtime/activate"
+>    ```
+> 4. **验**：`activate` 的返回里直接有 `runtimeGeneration` 和 `agentId`，不用再读一次 `runtimes[]`。
+>
+>    - 第 1 步找到了 target（目标在跑）：新代号必须比 `N` 大 1，例如 `N=3` 重启后返回 `4`。等于 `N` 说明没换进程（stop 没生效）。
+>    - 第 1 步没找到 target（目标本来就没在跑）：**没有 `N` 可比**，此时改看另一个条件：「返回里有 `agentId` 且 `status` 是 `running`」——只看它起没起来，不跟一个不存在的代号比。
+> 5. **发一条消息，证明它能接活**：
+>    ```bash
+>    curl -s -H "$AUTH" -H "Content-Type: application/json" \
+>      -d '{"id":"<目标>","messages":[{"role":"user","parts":[{"type":"text","text":"重启结束，这条消息用来验证你能接活"}]}]}' \
+>      "$BASE/api/chat"
+>    ```
+>    送达看 HTTP 200 且流里没有 `error` 帧，帧数与 `total` 都不是判据（`total` 一次加 3：你发的那条、assistant 的回复、一条注入）。第 5 节说过，这条请求是异步入队，可能一个帧都不吐。
+>
+>    **别把「没吐帧」当成「没送到」。** 回 200 之后一帧不吐是正常的，重复发送会真的入队多条——实测同一段正文在一个会话里出现 3 次（`GET /messages` 里三条 user 记录逐字相同），对方要多花一轮读重复内容。两条判据都在发送那一步就能拿到：
+>
+>    ```bash
+>    curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" -H "Content-Type: application/json" -d @msg.json "$BASE/api/chat"
+>    # 200 = 已入队；400 = 没进队列（缺 id 或空 text，body 里有 error 字段）
+>    ```
+>
+>    回 200 之后唯一的失败信号是流里出现 `error` 帧；没出现就是送到了，别再发一次。要看某一条进没进历史，数 `GET /messages` 里 `role: "user"` 的条数，不要用 `total`——它还会因对方的回复与注入而变大。
+
+**第 0 步不能省，也别换成别的判法。** 别拿 `sessionPath` 或磁盘写入时间去推断自己是谁——匿名会话没有 `sessionPath`，会拿目标的路径认自己，结论正好反过来。只有 `echo $PIDECK_SESSION_ID` 可靠。
+
+**HTTP 200 不代表做成了，必须看 body。** 三个实测形状：
+
+| 情况 | HTTP | body |
+|---|---|---|
+| 停成了 | 200 | `{"result":{"ok":true,"value":{...}}}` |
+| 目标本来就没在跑 | 200 | `{"result":{"ok":false,"error":{"code":"SESSION_RUNTIME_UNAVAILABLE"}}}` |
+| URL 与 body 的 sessionId 不一致 / 没给 target | 400 | `{"code":"webError.runtimeTargetRequired","error":"A matching Session runtime target is required"}` |
+
+**`runtimeGeneration` 有两种语义，`stop` 与其余命令相反。**
+
+`restart`、`model`、`thinking` 这类命令走 `requireBoundTarget`：代号与绑定都比，传错返回 `SESSION_RUNTIME_CHANGED`，命令不执行（实测 `restart` 传 999 被拒，进程代号没变）。
+
+`stop` 走另一条路 `resolveStopTarget`：只要有 live 绑定的 `agentId`，它就取当前代号，请求里传什么代号都不拦。实测传 999 返回 `ok:true`，目标真被停下。所以 `stop` 唯一的闸是 `agentId`，而且它比路径里的 sessionId 更权威，见第 7.1 节。
+
+**为什么不用等目标回合结束**：如果目标正在写回复，stop 会让它断在半句。判断它忙不忙没有可靠办法——问用户最快。新开的空会话天然空闲，这是它最省事的地方。
+
+**重启之后你是新进程**：不记得上一个进程在干什么。会话历史仍在同一个 jsonl（`runtimes[].sessionPath`），上下文不丢，但「成没成」只能由重启后的一方重读 `runtimes[]` 确认。
+
+### 6.1 几种会让你判断错的行为
+
+下面每条都是「看起来对、实际错」的形状。照第 6 节做之前先读一遍。
+
+**`stop` 只认 `agentId`，`runtimeGeneration` 传错也照停。** 其余 20 个运行时动作走 `requireBoundTarget`，代号与绑定都比，传错返回 `SESSION_RUNTIME_CHANGED`。两种语义的分界见 7.1。
+
+**第一次 `activate` 要几秒**，那是服务端拉起 pi 进程的时间，不是卡住。其余各步是百毫秒级，`发消息` 要等模型回一轮。这些是量级不是常量，换机器会变。
+
+**空会话被 stop 会整个消失，不是变闲。** 新建 → activate → 直接 stop（中间没发过消息），3 秒后它从 `sessions[]` 里没了，之后 `activate` 返回 `SESSION_NOT_FOUND`，`/messages` 仍返回 200 加空数组。所以别拿刚建好的空会话试 stop。发过消息的会话不受影响。
+
+**匿名会话会在空闲几分钟后自己消失。** `POST /api/sessions/anonymous` 建的会话（标题「匿名聊天 - Chat」），消失后 `activate` 返回 `SESSION_NOT_FOUND`。PiDeck 里正常新建的会话不受影响。
+
+**`/messages` 对不存在的会话不返回 404。** 返回 200 加 `{"messages":[],"total":0,"windowStart":0,"truncated":false}`，与「存在但没消息」一模一样。要区分就看 `/api/state` 的 `sessions[]` 里有没有这个 id。
+
+**代号与 `agentId` 一起变**，任一个变了就是换了进程，别去猜 pid。
+
+**`total` 一次加 3 不是 1**：你发的 + assistant 的回复 + 一条注入。这是现象不是判据；判据只有 HTTP 200 加「流里没有 `error` 帧」。
+
+**别做这两件事**：建完会话反复轮询 `runtimes[]` 等它出现（`activate` 返回时进程已经在里面）；为了拿 `total` 反复拉 `/messages`（一次几十 KB 起）。
+
+**用完把执行者删掉**，别留在侧边栏：
+
+```bash
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
+  "$BASE/api/sessions/<执行者 id>/delete"
+```
+
+返回 `{"deleted":true}`。删除只走 `POST .../delete`，`DELETE /api/sessions/<id>` 不存在（404 `webError.apiNotFound`）。先 stop 再 delete，否则进程还占着。删一个已经不存在的 id 返回 `{"deleted":false}`，HTTP 仍是 200，那不是失败。
+
+
+## 7 动作：运行时 21 个，记录层 8 个
+
+两套东西别混：**运行时动作**动的是活着的进程，**记录层动作**只改会话记录。改记录不会让正在跑的进程换模型，停进程也不会删掉记录。
+
+### 7.1 运行时动作：`/api/sessions/<id>/runtime/<action>`
+
+全部 21 个，从源码 `WebApiRoutes.ts` 的路由正则逐条抄出：
+
+| action | 额外 body 字段 | 作用 |
+|---|---|---|
+| `activate` | 无（body 传 `{}`） | 冷会话拉起进程 |
+| `stop` | — | 停进程，会话记录留着 |
+| `abort` | — | 只中止当前回合，进程留着 |
+| `restart` | — | 停完接着启；等待期间每 2 秒回一次心跳 |
+| `compact` | `prompt?` | 压缩上下文 |
+| `state` | — | 读运行时状态 |
+| `commands` | — | 列该运行时的命令 |
+| `models` | — | 列可用模型 |
+| `model` | `provider` `modelId` `modelName?` | 给活着的进程换模型 |
+| `thinking` | `level` | 换思考档 |
+| `permission` | `preset` | 换权限预设 |
+| `edit-message` | `messageId` `newText` | 改历史里某条消息 |
+| `delete-message` | `messageId` | 删历史里某条消息 |
+| `prepare-resend` | `messageId` | 准备重发 |
+| `clone` | — | 克隆运行时 |
+| `fork` | `entryId` `mutationFork?` `branchMode?` | 从某一轮分叉出新会话 |
+| `get-fork-messages` | — | 分叉点候选消息 |
+| `rewind-list` | `limit?` `beforeTimestamp?` | 检查点列表，可翻页 |
+| `rewind-diff` | `checkpointId` | 某个检查点改了什么 |
+| `rewind-restore` | `checkpointId` `scope` | 回滚到某检查点 |
+| `export-html` | — | 导出成 HTML |
+
+`activate` 是唯一不要 target 的——它要做的正是「这个冷会话现在起来」，没有 target 可回传。其余 20 个都要 `body.target.sessionId` 与路径里的 id 完全相同，不一致返回 400 `webError.runtimeTargetRequired`。
+
+`target.agentId` 在所有命令上都是真闸；`target.runtimeGeneration` 只在非 `stop` 的命令上是真闸（`stop` 用 live 绑定，见本节前面那段）。两个字段被拒时返回的不是同一个码：
+
+`agentId` 给不存在的 uuid，或它与路径里的 sessionId 对不上，返回 `SESSION_RUNTIME_UNAVAILABLE`。`agentId` 对、`runtimeGeneration` 漏传或给错（实测给 999），返回 `SESSION_RUNTIME_CHANGED`。
+
+依据是 `runtime/runtimeBinding.ts` 的 `requireBoundTarget`：它先核对 sessionId 与 agentId 的绑定，再比代号，两步抛的码不同。
+
+**`agentId` 会随进程换，抓完立刻用。** 隔着几分钟拿旧 `agentId` 去请求，先撞的是第一步「绑定对不上」，返回 `SESSION_RUNTIME_UNAVAILABLE`。看起来像会话没了，其实是身份过期。
+
+这两个码里 `SESSION_RUNTIME_CHANGED` 容易被读成「运行时代号变了」，实际意思是「你传的值不对」，别据此判断会话被重启过。三个字段都传当前值最稳，取法见第 6 节第 1 步。
+
+**`activate` 是冷启动，别按毫秒算。** 本机实测（Windows 发行版，进程完全没起）一次 3556 毫秒；别人机器上记过一次 45 毫秒，那是进程已经预热的情况。给它设超时按 5 秒以上给。
+
+```bash
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
+  "$BASE/api/sessions/<sessionId>/runtime/activate"
+```
+
+**`state` 是唯一能一次问清「它现在在干嘛」的动作。** 返回体套两层：`{result:{ok, value:{target, value:{...}}}}`，真正的字段在里层：
+
+| 字段 | 读出来的意思 |
+|---|---|
+| `modelId` / `provider` / `thinkingLevel` | 它此刻实际在用的模型与思考档，不是记录里那份 |
+| `isStreaming` / `isTurnActive` | 正在生成 / 有回合没结束 |
+| `isExecutingTool` / `isCompacting` | 正在跑工具 / 正在压缩上下文 |
+| `contextTokens` / `contextWindow` / `contextPercent` | 上下文用掉多少 |
+| `toolStateSequence` | 工具状态序号。只在工具状态切换时跳变，同一工具执行期间读多少次都不变；三轮实测 486 → 496 → 530，增量不固定。判断「有没有在动」看两次读是否不同，别拿差值当调用次数 |
+
+**换模型会把思考档重置成新模型的默认值。** 本机实测：`thinking=low` 的时候调 `model` 换到另一个模型，`thinkingLevel` 变回 `high`。所以这两步要按顺序发——先 `model`，再 `thinking`。反过来先设了思考档再换模型，等于没设。
+
+**`permission` 在 pi 后端一定失败。** 源码里只给 DSH 后端注册了这个能力，pi 会话发过去返回 `SESSION_COMMAND_FAILED`（本机实测）。要改 pi 会话的权限，走记录层的 `update` 或者界面。
+
+**鉴权规则**：写操作（POST）只认请求头。`?token=` 查询参数只对 GET 和 SSE 开放，因为浏览器的 EventSource 不能自定义请求头；写操作开这个口子会把令牌漏进代理日志和浏览器历史。
+
+
+### 7.2 记录层动作：改记录，不碰进程
+
+`check-doc.mjs` 会同时比路径与方法：它抓「源码里没有这条完整路由」和「方法列写错」。能力上限是源码里用模板串拼出来的路由切不出整条，那种情况它报红而不是静默放过。
+
+| 端点 | 方法 | body / 查询 | 作用 |
+|---|---|---|---|
+| `/api/sessions` | POST | `projectId`（必填）`title` `model` `welcomeModel` `thinkingLevel` `backend` `agentPreset` `acpToolId` `sideTask` | 建一份草稿，返回 `{session}` |
+| `/api/sessions/anonymous` | POST | `projectId` `title` `backend` `model` `thinkingLevel` | 不写会话文件的一次性运行时 |
+| `/api/sessions/<id>/update` | POST | `title` `model` `thinkingLevel` `permissionPreset` `agentPreset` `backend` `acpToolId` `proxy` `sideTask` | 改会话记录 |
+| `/api/sessions/<id>/delete` | POST | — | 删记录 |
+| `/api/sessions/<id>/copy` | POST | — | 复制 |
+| `/api/sessions/<id>/export-html` | GET | — | 导出 |
+| `/api/sessions/<id>/reference-messages` | GET | — | 取被引用的消息 |
+| `/api/sessions/<id>/security-level` | POST | `levelId`（字符串或 `null`） | 换安全等级，`null` 表示跟全局默认 |
+
+`update` 把 `model` / `thinkingLevel` 传 `null` 当作「清掉覆盖、回到默认」。它**只改记录**：改标题立刻生效（下一次 `/api/state` 就能看到），但改模型对已经活着的进程不起作用，要换活进程的模型得用 7.1 的 `model`。
+
+**首条消息会改写标题。** 新会话建好时标题是你给的那个，第一轮对话结束后 pi 的命名扩展会用模型重新起一个（`titleOrigin` 字段记录「这条标题是谁取的」）。所以拿标题认会话会认错，认会话只认 id。
+
+**删除不等于停进程。** `delete` 删的是记录，界面上那份条目要到下一次状态推送才消失，偶尔会看到几秒残影，刷新即无。
+
+## 8 动别的会话之前先问
+
+这个技能能读别人的时间线、往别人的对话里发消息、停掉别人的运行时。三件事的后果都落在**另一个窗口**上。
+
+- **读别的会话**：也要先说一声。理由不是隐私，是读取会刷新目标窗口的界面，用户会看到自己的窗口在动。
+- **给别的会话发消息**：等于替用户对它说话。只在用户明确讲了「去让某个会话做某事」之后才发。
+- **停或重启别的会话**：会让目标当前回合中断。发出前要拿到用户对**那一个会话**的明确同意。
+
+没有「agent 自己重启自己」的捷径。曾经有过 `self-restart.mjs`：起一个脱离进程树的守卫替你 stop 再 activate。2026-11-14 删掉了——理由不是它跑不起来，是它和「不许自己停」这句冲突：两句话同时在，agent 会挑省事的那句执行。
+
+**别做「守卫替你停」这种设计。** 它会死在两处：stop 的 body 没带 `target` 时返回 400 `webError.runtimeTargetRequired`；用 `runtimes[].status` 判断「停了吗」时，空闲进程的 status 是 `idle`，于是判定已停。
+
+要停掉自己，stop 必须带齐 `sessionId` + `agentId` + `runtimeGeneration` 三件；能发出这个请求的应该是**另一个活着的进程**，不是守卫。让别的会话替你重启的完整任务书见本节第 0~5 步，关键就一句：目标会话不能是执行者自己。
+
+## 9 边界
+
+- 只读 pi 的会话文件，不要改 `~/.pi/agent/sessions/*.jsonl`。
+- 端点全集以源码 `WebApiRoutes.ts` 为准；本文是 2026-11 的实测记录，不一致时信源码。比对用第 11 节的 `check-doc.mjs`，它读的是源码里的路由表。
+- 没有第二个活着的窗口能接，就别停：被停之后没人发 activate，就是永久停着。
+- **改了这个技能，已经在跑的会话看不到新版。** 技能是进程启动时用 `--skill <目录>` 注入的（源码 `PiProcess.ts:379`），内容在启动那一刻就进了内存。要让它生效，只能重启那个会话（第 6 节）或者新开一个。
+
+## 10 验收：三级别
+
+按你做到哪一级说哪一级。
+
+1. **能观察自己**（只读）：`echo $PIDECK_SESSION_ID` 非空，且这个 id 出现在 `/api/state` 的 `sessions[]` 里。
+2. **能读别人**（只读）：`sessions[]` 里看得到别的会话标题。这是**会话记录**那一层；要看别人的**进程**活着没有，用 `runtimes[]`（第 4 节讲过两个数组答的不是同一个问题），那两件事别混成一句验收。
+3. **能驱动别人**（会改动别人）：对目标发一条 `ping`，**没有 `error` 帧**就是送到了（别拿 `total` 或帧数当判据——对方忙的时候整条连接可能只有一行 `: ping`，而消息确实进了它的对话，见第 5 节）。要验「真进程」，走一次第 6 节，`runtimeGeneration` 变了才算。
+
+## 11 改这个技能之前
+
+**这一节只对改这个技能的人有用。用技能的人跳过。**
+
+`SKILL.md` 在盘上有四份，改错地方等于没改：
+
+| 位置 | 谁读 | 改了会留吗 |
+| --- | --- | --- |
+| `<仓库>/resources/skills/pideck-web-api/` | 打包与测试 | 留，但**不生效** |
+| `<userData>/skills-overlay/pideck-web-api/` | `installTemplate` 优先读 | 留，**且生效**——要改就改这里 |
+| `~/.pi/agent/pideck-skills/pideck-web-api/` | PiDeck spawn 时 `--skill` 注入 | 每次启动被覆盖，手改白费 |
+| `~/.agents/skills/pideck-web-api/` | 终端里直接起的 pi | 留，但 PiDeck 不读 |
+
+`installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile`，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。唯一例外：frontmatter 的 `disable-model-invocation: true` 会被记住并写回（`SkillManager.ts:438-449`）。
+
+**四个判据在源码克隆根目录跑，rc 都得是 0：**
+
+```bash
+node resources/skills/pideck-web-api/check-doc.mjs     # 第 7 节动作表、端点数、字段
+node resources/skills/pideck-web-api/check-paths.mjs   # 全文每个 /api 路径逐段对源码
+node resources/skills/pideck-web-api/check-format.mjs  # 表格列数、加粗成对、代码块配对、$ 变量
+node resources/skills/pideck-web-api/check-fields.mjs  # 反引号标识符逐词对源码
+```
+
+前三个带 `--selftest`，能脱离源码单独验「判据自己还对不对」（装了 PiDeck 的机器上只有这份副本，没有 `src/main`）。`check-doc` 没有这个开关：它每条判据都要真的路由表，源码不在就报 rc=2——那是环境不全，不是判据失败。
+
+口径上限写在各自文件头：`check-paths` 只按段比对、抓不到顺序错；`check-doc` 抓不到模板串拼出来的路由；`check-fields` 要读全量 src，克隆不完整时用 `--src=<完整 src 目录>` 指过去，别删它求绿。

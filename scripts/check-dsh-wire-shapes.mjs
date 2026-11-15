@@ -9,6 +9,9 @@
  * 权威形状一次性打出来对照。
  *
  * 运行：node scripts/check-dsh-wire-shapes.mjs
+ *
+ * **手动工具，不在 CI 里跑**：它只把 schema 形状打出来给人对照，不判红不判绿，
+ * 名字以 check- 开头容易误认成判据。机器判据是 check-dsh-wire-payloads（已挂 dev-guard）。
  * 实现说明：描述符数组引用模块顶层 zod 常量，需整体求值（与 dump-typert-endpoints 同款）。
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";

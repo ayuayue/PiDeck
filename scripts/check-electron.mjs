@@ -1,4 +1,10 @@
 /**
+ * **这是一条本地发版闸门的一部分，CI 不跑**：调用者是 scripts/release-preflight.mjs 的 release 泳道
+ * （`npm run preflight`，人手动跑，流程见 docs/release-process.md）。
+ * 名字以 check- 开头，但没有任何 workflow 调用它——不要把它当「每 PR 守卫」，
+ * 也不要因为「没人跑」而删：二进制坏掉的表现是 `npm run dev` 打完构建日志后静默退出 127，
+ * 看起来像代码问题（2026-09-21 实测）。
+ *
  * Electron 二进制体检 / 修复。
  *
  *   node scripts/check-electron.mjs            体检（退出码非 0 = 二进制起不来）

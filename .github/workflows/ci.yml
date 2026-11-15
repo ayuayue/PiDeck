@@ -48,6 +48,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Skill docs and judges
+        # 内置技能自带的四个判据（check-fields / check-doc / check-paths / check-format）跑起来是一秒级，
+        # 但之前没有任何闸门调用它们——写了判据没人跑，等于没有。2026-11-15 接进 CI。
+        run: npm run test:skills
+
       - name: Check generated artifacts drift
         # check:* 守卫（--check 模式只校验不写盘）：改了 announcements-md / 扩展 /
         # 提示词 / 技能 / pi-ai 目录源但忘跑对应 generate/build 时红灯，挡住漂移直入
