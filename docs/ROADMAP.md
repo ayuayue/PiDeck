@@ -16,7 +16,7 @@
 | A5 | 设置 schema | ✅ | 插件设置声明式；配置版本迁移/校验；设置索引、分区搜索与命令面板直达；应用设置结构（键/类型/默认值/范围）随诊断包导出 |
 | A6 | 后端抽象 | 🟡 | ACP 会话可用：预设（3 个内置 + 图形化管理自定义）与项目默认、工具类型/路径投影、权限记忆、归档、session/load、搜索、命令菜单、模式切换、重连、通知 |
 | A7 | 事件总线 | ✅ | 9 个事件：turn.start/done、session.created/opened/deleted、theme.changed、plan.finished、git.commit、image.generated；订阅者与插件 hooks（url/command/theme，防递归） |
-| A8 | i18n 文案层 | 🟡 | 源文本目录、系统语言匹配、运行时切换；桌面端与手机端可见文案已覆盖并由测试守护；toast 等提示消息待迁移 |
+| A8 | i18n 文案层 | 🟡 | 源文本目录、系统语言匹配、运行时切换；桌面端与手机端可见文案、toast 标题已覆盖并由测试守护；toast 说明文字待迁移 |
 | A9 | 崩溃与诊断 | ✅ | 进程/日志面板、诊断报告与脱敏诊断包；根级 `core.Catch` 错误边界写崩溃日志并可重载界面，main 兜底记录；启动提示上次崩溃 |
 | A10 | 自动更新 | ✅ | EdDSA 签名 appcast、检查更新入口、CI 密钥注入；stable/dev 渠道待拆 |
 

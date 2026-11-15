@@ -39,3 +39,31 @@ func TestVisibleStringsTranslated(t *testing.T) {
 		}
 	}
 }
+
+var toastTitle = regexp.MustCompile(`a\.toast(?:Action)?\(ui\.Toast\w+, "([^"\n]*\p{Han}[^"\n]*)"`)
+
+func TestToastTitlesTranslated(t *testing.T) {
+	entries, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	en := messages[langEnUS]
+	for _, path := range entries {
+		if strings.HasSuffix(path, "_test.go") || path == "i18n.go" {
+			continue
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range toastTitle.FindAllStringSubmatch(string(raw), -1) {
+			key := m[1]
+			if strings.HasSuffix(key, " ") {
+				continue // a prefix the caller completes
+			}
+			if strings.TrimSpace(en[key]) == "" {
+				t.Errorf("%s toasts %q without an en-US translation", path, key)
+			}
+		}
+	}
+}
