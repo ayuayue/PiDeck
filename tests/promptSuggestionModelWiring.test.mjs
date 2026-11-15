@@ -8,8 +8,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionComposerControllerSource } from "./helpers/sessionComposerControllerSources.mjs";
 
-const controllerSource = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+const controllerSource = sessionComposerControllerSource;
 const atomSource = readFileSync("src/renderer/src/atoms/composer-atoms.ts", "utf8");
 
 test("预测目标模型来自独立的 promptSuggestionModel 设置，不复用增强模型", () => {

@@ -31,7 +31,6 @@ type PersistedState = {
 	proposals: LinkedSessionProposal[];
 };
 
-const LINK_STATES: readonly LinkedSessionState[] = ["starting", "running", "idle", "failed", "stopped"];
 const PROPOSAL_STATUSES: readonly LinkedSessionProposalStatus[] = ["pending", "started", "here", "dismissed", "expired"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,8 +63,10 @@ function normalizeLink(value: unknown): LinkedSessionLink | null {
 	const projectId = str(value.projectId, 500);
 	if (!childSessionId || !parentSessionId || !projectId || childSessionId === parentSessionId) return null;
 	const rawState = value.state as LinkedSessionState;
-	// 重启后运行时都没了：落盘时的 starting/running 一律视为已停止，避免侧栏永远转圈。
-	const state: LinkedSessionState = LINK_STATES.includes(rawState) ? (rawState === "starting" || rawState === "running" ? "stopped" : rawState) : "stopped";
+	// 重启后运行时都没了：落盘状态一律归为已停止，只有 failed 是上一轮的结论、可以跨重启保留。
+	// 留着 starting/running 会让侧栏永远转圈，留着 idle 会让子会话行挂着「等待中」和活着的蓝点
+	// （用户读成「子会话还在跑」），回合数与最近回报照旧保留。
+	const state: LinkedSessionState = rawState === "failed" ? "failed" : "stopped";
 	return {
 		childSessionId,
 		parentSessionId,

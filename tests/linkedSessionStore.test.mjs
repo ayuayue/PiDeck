@@ -218,7 +218,7 @@ test("会话行消失时，它作父会话挂着的提议一并清掉；批量�
 	assert.deepEqual(plain(store.snapshot()), { links: [], proposals: [] });
 });
 
-test("落盘可重入：重启后运行中状态归为已停止、挂起的 offer 归为过期，坏条目丢弃", async () => {
+test("落盘可重入：重启后 running/idle 归为已停止、failed 保留、挂起的 offer 归为过期，坏条目丢弃", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "linked-sessions-"));
 	try {
 		const file = join(dir, "linked-sessions.json");
@@ -226,6 +226,11 @@ test("落盘可重入：重启后运行中状态归为已停止、挂起的 offe
 		await first.load();
 		await first.addLink({ childSessionId: "c1", parentSessionId: "p", projectId: "proj", title: "子" });
 		await first.setState("c1", "running");
+		// idle = 进程活着但这一轮跑完了：重启后进程没了，侧栏不该再挂蓝点「等待中」。
+		await first.addLink({ childSessionId: "c2", parentSessionId: "p", projectId: "proj", title: "子二" });
+		await first.setState("c2", "idle");
+		await first.addLink({ childSessionId: "c3", parentSessionId: "p", projectId: "proj", title: "子三" });
+		await first.setState("c3", "failed");
 		await first.addProposal({ parentSessionId: "p", projectId: "proj", title: "卡片", prompt: "简报", initiation: "offer" });
 		const raw = JSON.parse(readFileSync(file, "utf8"));
 		raw.links.push({ childSessionId: "bad" }, { childSessionId: "same", parentSessionId: "same", projectId: "proj" });
@@ -233,8 +238,11 @@ test("落盘可重入：重启后运行中状态归为已停止、挂起的 offe
 		const second = new LinkedSessionStore(file);
 		await second.load();
 		const snapshot = second.snapshot();
-		assert.equal(snapshot.links.length, 1);
-		assert.equal(snapshot.links[0].state, "stopped");
+		assert.deepEqual(plain(snapshot.links.map((link) => [link.childSessionId, link.state])), [
+			["c1", "stopped"],
+			["c2", "stopped"],
+			["c3", "failed"],
+		]);
 		assert.equal(snapshot.proposals[0].status, "expired");
 		// 再载一次收敛到同一状态
 		const third = new LinkedSessionStore(file);

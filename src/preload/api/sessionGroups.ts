@@ -10,7 +10,6 @@ import type { AnswerLinkedSessionProposalInput, AnswerLinkedSessionProposalResul
 import type { SessionGroup } from "../../shared/types/sessionGroups";
 
 export const sessionGroupsApi = {
-
 	// ── 会话分组（userData/session-groups.json）：侧栏只读消费，写入方是插件页 ──
 	sessionGroups: {
 		list: () => ipcRenderer.invoke(ipcChannels.sessionGroupsList) as Promise<SessionGroup[]>,

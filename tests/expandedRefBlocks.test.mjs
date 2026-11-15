@@ -46,7 +46,7 @@ test("every plain-text surface folds self-contained reference blocks", () => {
 		// 断言的是同一条规则仍然经过共享折叠函数，不是文件位置本身。
 		"子代理转录（pi）": "src/renderer/src/components/session/sessionSubagentTranscript.ts",
 		"子代理转录（DSH）": "src/renderer/src/components/session/DshAgentToolsPanel.tsx",
-		会话定位轴标题: "src/renderer/src/components/app/AppUtils.ts",
+		会话定位轴标题: "src/renderer/src/components/app/appUtils/outline.ts",
 		"侧栏会话 preview（主进程）": "src/main/sessions/SessionScanner.ts",
 		"Web 端消息渲染（主进程）": "src/main/web/WebHttpResponders.ts",
 	};

@@ -6,10 +6,22 @@
 import { ipcRenderer } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { subscribe } from "./ipcHelpers";
-import type { CloudSyncExportResult, CloudSyncGithubPollResult, CloudSyncGoogleFlowStart, CloudSyncImportInput, CloudSyncImportResult, CloudSyncMissingExtension, CloudSyncOneDriveFlowStart, CloudSyncProviderConfigInput, CloudSyncSelectionTree, CloudSyncSelectionUpdate, CloudSyncStateSnapshot, ProviderAccount } from "../../shared/types";
+import type {
+	CloudSyncExportResult,
+	CloudSyncGithubPollResult,
+	CloudSyncGoogleFlowStart,
+	CloudSyncImportInput,
+	CloudSyncImportResult,
+	CloudSyncMissingExtension,
+	CloudSyncOneDriveFlowStart,
+	CloudSyncProviderConfigInput,
+	CloudSyncSelectionTree,
+	CloudSyncSelectionUpdate,
+	CloudSyncStateSnapshot,
+	ProviderAccount,
+} from "../../shared/types";
 
 export const cloudSyncApi = {
-
 	// ── 云同步：主进程持有密码/密钥/Provider 凭据；渲染层只拿状态快照与选择树 ──
 	cloudSync: {
 		getState: () => ipcRenderer.invoke(ipcChannels.cloudSyncGetState) as Promise<CloudSyncStateSnapshot>,

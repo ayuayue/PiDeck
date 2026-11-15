@@ -1,0 +1,166 @@
+# e2e 已知失败清单
+
+**用途**：进不了 CI、又暂时不修的 e2e 失败集中记在这里，避免每次重新调查。
+**纪律**：新增条目必须写「现象 / 证据 / 根因判定到哪一层 / 下一步」；修好后连同条目一起删。
+**判定口径**：先在**重构前的基线 commit**上复跑，确认不是近期改动引入的，再登记。
+
+复跑单条：`npx playwright test "e2e/<file>.spec.ts:<line>" --retries=0 --workers=1 --reporter=line`
+需要看主进程日志：加 `PIDECK_E2E_KEEP=1`，产物目录会打印在日志里（`profile/logs/app-*.log`）。
+
+## 2026-11-14 全量体检基线
+
+88 个使用 mock-pi fixture 的 spec（排除需真实 DSH/SSH 的 `dsh-restart`、`remote*Acceptance`）：
+
+| 项 | 数字 |
+|---|---|
+| 用例总数 | 215 |
+| passed | 173 |
+| failed | 40 |
+| skipped | 2 |
+| 耗时 | 14.9 分钟（`--workers=3`） |
+
+失败分布（28 个 spec）：`session-history-agent-states` 4 / `terminal-first-open` 3（**已修**，见下）/ `favorites-bulk`、`file-link-repro`、`layout-terminal`、`provider-model-setup`、`retry-status-card`、`settle-reposition`、`visual-tune-surfaces` 各 2 / 其余 18 个各 1。
+
+两类签名占绝大多数，**与 pi/fork 无关**：
+
+1. `.conversation` 种子行找不到（`file-link-repro`、`imagegen-composer-layout`、`branch-tree-panel`、`agent-market-bulk`）——预置会话行没渲染，属种子数据/侧栏结构变化。
+2. 布局与视觉度量（`content-width`、`settle-reposition`、`tab-font-size`、`process-group-display`、`typewriter`、`visual-*`、`tmp-table-menu`）——像素/字号/间距断言，随样式迭代腐烂最快。
+
+**mock 改动的回归对照**（2026-11-14 为 mock 补 fork 仿真时做的）：把 `e2e/mock-pi.cjs` 换回改动前版本，重跑 8 个代表 spec 的 17 个用例，结果逐条一致（14 failed / 3 passed）→ mock 改动无回归。
+
+---
+
+## 已修复（留档，便于同类问题快速定位）
+
+| 日期 | 用例 | 原因 | 修法 |
+|---|---|---|---|
+| 2026-11-14 | `session-history-mutation`（3 条） | 删除确认文案按 running/idle 分变体、编辑/重发已改 fork 语义 | 对齐断言；mock 补真 fork |
+| 2026-11-14 | `tab-context-menu:16` | `getByText("复制会话")` 子串同时命中「复制会话文件路径」 | 加 `exact: true` |
+| 2026-11-14 | `visual-session` / `tab-font-size` / `provider-model-setup:63` | 合成器的发送/停止是同一颗主钮 `.composer-send-primary`（旧 `.composer-bar-btn.stop/send` 都已删）；模型与思考档位并进 `.model-thinking` 芯片（旧的 `.composer-bar-btn.model/thinking` 与 `.thinking-picker` 不存在）；打开「设置」会在 Tab 栏多一个「设置」tab 并抢走选中态；模型芯片可能直接开选择器，不再夹一层「选择模型」popover | 改定位器；tab 计数统一排除「设置」tab，删掉设置打开后不再成立的选中态断言（会话 tab 的选中契约在打开设置前已断言）；主题改为直切 `dataset.theme` |
+| 2026-11-14 | `session-history-agent-states`（种子行 + 遮罩 2 条） | 预置项目行按**项目名**匹配（不是临时目录名 `pideck-seed-*`）、侧栏默认在「聊天」分段要先切「项目」；「重启」入口从 Tab 栏右键菜单改为会话头部运行控制钮（从未启动的会话是「启动 Agent」） | 改定位器与前置步骤 |
+| 2026-11-14 | `layout-terminal`（2 条）/ `content-width` / `math-delimiters` / `visual-tune-surfaces`（2 条）/ `typewriter`（1 条，burst） | 终端入口从 outline 悬浮条并入「更多运行操作」菜单；solo 会话栏类名换成 `.session-v-timeline` 且空会话不渲染时间线；状态词「空闲」移进状态点、不再进会话行按钮的可访问名；抽屉打开时 Tab 栏的 drawer 开关会隐藏（并入活动栏左端）；BURST 合并帧上限过紧 | 前四条改定位器/时机；`typewriter` 把「合并帧 ≤3 帧」放宽到 ≤6 帧（实测该模式单帧落 4–5 字符，守卫目标是 10+ 的整段蹦出） |
+| 2026-11-14 | `file-link-repro`/`imagegen-composer-layout`/`branch-tree-panel`/`agent-market-bulk`（5 条，同一批） | 侧栏行显示**项目名**（seed 里是 `link-repro` 等），不是临时目录名 `pideck-*`；抽屉「添加常驻面板」只把面板加进常驻栏、不自动选中；分支树压缩点行改为显示摘要正文；低频入口（智能体/收藏）收进「更多」折叠组 | hasText 改 seed 项目名、先展开「更多」、勾选后补点 rail 按钮、断言改为摘要 |
+| 2026-11-14 | `favorites-bulk`（2 条） | 收藏入口收进侧栏「更多」折叠组（定时任务/智能体/收藏），且页面内还有同名「收藏」按钮 | 先展开「更多」，再用 `#sidebar-more-actions` 精确定位入口 |
+| 2026-11-14 | `terminal-first-open`（3 条） | 会话操作菜单从 Tab 栏「更多操作」并入会话头部「更多运行操作」（`SessionActionsControl`） | 定位器改到新入口；**功能本身没坏**（#333 仍可用） |
+
+### 已废弃用例（fixme）
+
+| 用例 | 原因 |
+|---|---|
+| `tmp-table-menu`（整条删除） | 2026-08 的临时验证脚本：只有截图 + `console.log` 几何，唯一断言是「复制菜单项可见」，从未断言过菜单是否压住表格。表格工具栏与 i18n 都变过两轮，维护成本大于价值，直接删文件（它想守的重叠问题需要真实像素断言才有意义，见下方待办） |
+| `settle-reposition` 的 2 条（mouse move + typing / holds its landing spot） | settle 后的「重新定位」在实现里被刻意移除——`SessionMessageTimeline` 的「运行中 → 停转」边沿注释写明「仅用于让旧的 settled 流水线失效；不再调度任何定位」，只保留「1.5s 阅读停顿 → 自动收起最新轮」。这两条断言的是不存在的契约，用 `test.fixme` 标记（若哪天定位被重新引入，会报 unexpectedly passed） |
+
+---
+
+## `retry-status-card`（2 条）— 重试卡行为与产品要求不一致
+
+**状态**：已知失败，`test.fixme` 标记。**存量问题，不是重构引入**：在重构前基线 `78b911154` 的独立 worktree 上跑，两条失败现象逐条一致。
+
+| 用例 | 现象 | 判定 |
+|---|---|---|
+| 连续重试只挂一张卡，成功后卡片消失 | `自动重试成功` 卡仍留在时间线（期望 0，实际 1） | spec 编码的是产品要求「成功后卡片消失」，实测未消失 |
+| 重试最终失败保留失败卡留痕 | 进行中卡 `正在自动重试` 拿不到（期望 1，实际 0） | 进行中/失败卡的时序同样与 spec 不一致 |
+
+**待决策**：以 spec（产品要求）为准去修主进程的重试卡生命周期（`src/main/pi/retryStatusMessages.ts`），还是确认现状即新契约、改断言。动手前需要产品侧拍板。
+
+---
+
+## `session-history-agent-states.spec.ts:53` — 流式中删除取到 idle 文案
+
+**状态**：已知失败，`test.fail()` 标记（修好后会报「unexpectedly passed」，提醒去掉标记）。
+
+**现象**：流式进行中删除历史消息，确认框显示 idle 变体（`删除消息会先停止 Agent…`）而不是 running 变体（`会话正在运行。删除消息会先停止 Agent…`）。功能本身正常（能停、能删），只是**文案口径偏保守**。
+
+**已排除的三层**（都有实测）：
+
+| 层 | 结论 | 证据 |
+|---|---|---|
+| 主进程 → preload → 渲染层的桥 | ✅ 通 | 窗口内直接订阅 `sessions.onRuntimeEvent`，流式中收到 7 条 `agents:runtime-state`、17 条 `agents:text-stream` |
+| `runtimeStateReader.emitRuntimeState` 全量快照覆盖 `isStreaming` | ✅ **已修**（`6a3365610`） | 原来只给工具字段保留本地真值，`get_state` 不返回流式标志 → 每次刷新把 50ms 节流补丁的 `true` 打回 `false` |
+| `replaceSessionRuntimesAtom` 列表快照覆盖 live 状态 | ❌ 不是它 | 整段时间只写一次，且写之前 atom 已经是 `idle` / `isStreaming=false` |
+
+**当前卡点**：点删除那一刻，插桩打印的四路数据**全部指向空闲**——
+
+```
+{rStatus:"idle", streaming:false, turn:false, agentStatus:"idle", send:undefined}
+```
+
+而**同一时刻** composer 按钮是「停止」、时间线在流式输出。能显示「停止」的只有
+`useSessionRuntimeController.isAgentBusy`：
+
+```ts
+isAgentBusy = hasActiveConversation && (activeConversationStatus === "running" || activeRuntimeState?.isStreaming)
+// currentSessionRuntime 来自 sessionRuntimeBySessionIdAtomFamily(sessionKey)
+// sessionKey = boundSessionIdOption ?? focusedSessionId
+```
+
+**头号嫌疑**：`boundSessionIdOption`（分栏绑定会话）与 `focusedSessionId`（聚焦会话）不是同一个 —— composer 读的是「在跑的那个」，`isAgentCurrentlyBusy()` 读的是「聚焦的那个」。
+
+**下一步**：在 `useSessionRuntimeController` 里措桩打印 `sessionKey / currentSessionRuntime / activeRuntimeState`，与删除流程的 `currentSessionId` 对比；
+若确认两者不同，则让 `isAgentCurrentlyBusy` 与 composer 同源（注入 controller 的 `isAgentBusy` 或读同一 `sessionKey`）。
+
+**为排查做过的临时改动**（均已回退，无遗留）：`stopIfRunning` 后等待运行时解绑、`isTurnActive` 判据、agent tab status 判据。
+
+### 同一 spec 的其余三条（本轮已处理）
+
+| 用例 | 结果 |
+|---|---|
+| `content-area loading overlay › never-started session…` | **已修绿**：项目行改按项目名匹配 + 先切「项目」分段（侧栏默认在「聊天」）；「重启」入口早已不在 Tab 栏，改为会话头部运行控制钮——从未启动的历史会话那颗钮的 title 是「启动 Agent」 |
+| `never-started session: delete confirms, edit applies directly…` | 种子行部分已修（同上）；**剩余失败是另一个根因**，见下节，已 `test.fail()` |
+| `after agent crash: delete and edit apply directly…` | 同一根因，已 `test.fail()` |
+
+## 非 live 会话编辑：旧行不消失（根因已定位并修掉 mock 侧，2026-11-15）
+
+**结论先行**：先前记录的「会话文件重复追加同 id 条目」是**探针里提交了两次**造成的假象（两次点击各写一轮）。真正的缺陷在 **e2e mock 的 fork 语义与真实 pi 不一致**。
+
+**真实 pi 语义**（`pi-coding-agent/dist/core/agent-session-runtime.js` 的 `fork()`）：
+
+```js
+const position = options?.position ?? "before";
+if (position === "at") targetLeafId = selectedEntry.id;
+else { …; targetLeafId = selectedEntry.parentId; selectedText = extractUserMessageText(…) }
+```
+
+fork 默认 **before**：新会话的 leaf 是锚点的**父节点**，锚点这条 user 消息**不进新分支**，它的文本由 RPC 回给客户端去重发。
+
+**mock 原来的两处不一致**（都已修在 `e2e/mock-pi.cjs`）：
+
+1. `slice(0, cut + 1)` —— 把锚点也留在分叉里（等于 position `at`）→ 重发/编辑后新分支里「旧消息 + 新消息」并存，时间线出现两份。
+2. `get_fork_messages` 只报**本进程收到过**的 prompt；历史会话里落盘的 user 条目没有锚点 → fork 拿不到 entryId，编辑退化成「同文件追加」，连 fork 都没发生（种子文件因此被写脏）。
+
+**修完实测**：种子文件不再被追加（保持 e1–e3），fork 出的新文件里已排除锚点；`session-history-agent-states` + `session-history-mutation` 共 7 passed。
+
+**仍红的 2 条是另外的漂移（产品行为待拍板，已 `test.fail()`）**：
+
+| 用例 | 现象 |
+|---|---|
+| `after agent crash: delete and edit…` | 编辑已落盘的 assistant 回复后旧回复仍在，且多出一条以编辑文本为正文的 **user 消息** —— 这条路径把新文本当新提问重发了，而不是原地改条目 |
+| `never-started session: delete / edit / resend…` | user 消息操作里已经没有「用同一条用户消息再次发送给 AI」，取而代之是「从此消息 fork 为新会话（可改后重发）」；用例的重发段仍按旧钮写 |
+
+---
+
+## 配置管理的保存点了没反应（疑似产品缺陷，未查完）
+
+**现象**：设置 → 配置管理 → Pi 配置管理 → 模型 → 「+ 添加供应商」填完（名称/Base URL/手动加模型）→ 点「添加」回到列表 → 点右上角「保存」：**什么都没发生**，按钮 title 仍是「有未保存的修改」，供应商没有落盘。
+
+**证据**（一次性探针 + `PIDECK_E2E_KEEP=1` 的 `profile/logs/app-*.log`）：
+
+- 点保存后按钮 title 仍为 `config.dirtyTooltip`（「有未保存的修改」），说明 dirty 没清；
+- 主进程日志里**没有任何** config 保存类调用（连失败都没有）；
+- `piDesktop.config.getModels().parsed.providers` 为空，磁盘上也搜不到「中文供应商」；
+- 没有 alertdialog、没有错误 toast（只有一条「已按模型能力目录填充 gpt-4o 的规格」的提示）。
+
+**判定到哪一层**：请求没到主进程 —— 渲染层这一颗「保存」没有触发 `saveCurrent`，或者触发了但提前返回。
+**下一步**：查 `SettingsModal.tsx` 里 `configPaneRef.current?.saveCurrent()` 的 ref 是否挂到 Pi 配置面板（`ConfigModalShell` 用的是 `onSaveCurrent` 入参，两条路径可能只接了一条）；必要时给保存按钮加 `data-testid` 再点。
+
+## 下一批待办
+
+| 用例 | 现象 | 已经查到哪一步 / 下一步 |
+|---|---|---|
+| `process-group-display`（1 条：同行文本共基线） | `expect.poll` 拿到的基线组不足 3 项，10s 后以 `NaN` 收尾（不是极差超限） | 组头的实时详情只在 `running && !open` 时渲染（`ProcessGroupStep.tsx:201`：`detail = props.running && !props.open ? lastToolDetail(...) : undefined`）。流式中折叠栏默认展开（`expandInterimDuringStream`），此时 `[data-row-text]` 只有 1 个子元素 → 永远凑不满 3 项。下一步：在「运行中 + 组头收起」状态下取一次 DOM 快照，确认 3 个子元素都出现后再改断言（要么先收起折叠栏，要么把断言降到 2 项并说明理由） |
+| `provider-model-setup:10` | 添加供应商后点「保存」没反应（可疑产品缺陷，见下节） | 已按前缀修正 tab 名（实际可访问名是「Pi 配置管理 本机」），卡在保存 |
+| `tab-font-size:33` | `.session-tab[role=tab]` 期望 2 实际 3 | 多出来的一般是空草稿 tab；先确认这第三个 tab 的 `aria-selected`/标题，再决定计数改成「已选中的 2 个」还是等草稿回收 |
+| `visual-session:22` | `.composer-bar-btn.stop` 不存在 | 合成器的发送/停止控件换过类名；下一步按 aria-label「停止」定位 |
+| `web-service:62` | 找不到 `text=推理：先分析文件结构...` | mock 的思考帧内容或渲染分层改过；先用同一句发一条 THINK 看 DOM 里思考卡片落在哪个类下 |
+| `history-restore:43` | 重启后时间线只有种子提问 + 「正在启动…预热环境…」，没有 mock 回复 | 恢复后会先跑一轮「预热环境」（两个同文案节点），断言等的是原回复；下一步确认预热轮是否吞掉了恢复的历史回复 |
+| 表格工具栏菜单与表格重叠 | 之前的 `tmp-table-menu` 只截图不断言 | 需要一条真实几何断言：菜单 `boundingBox` 底边 ≤ 表格顶边，或菜单不覆盖任意 `td` 文本；菜单是 portal 渲染，定位要从页面级取而不是 `.message-timeline` 内 |

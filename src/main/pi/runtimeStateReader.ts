@@ -355,6 +355,10 @@ export class RuntimeStateReader {
 			state.isExecutingTool = !!this.toolExecutingByAgent.get(agentId);
 			state.executingToolName = this.toolExecutingByAgent.get(agentId) ?? undefined;
 			state.toolStateSequence = latestToolSequence;
+			// isStreaming 同属本地真值：pi 的 get_state 不返回流式标志（恒 false），原样转发会把
+			// 50ms 节流的流式补丁打回 false，使渲染层「流式中」判定在 true/false 之间来回翻。
+			// 用户可见后果：流式中删除/编辑拿到「会话未运行」的确认文案（甚至按错分支处理）。
+			state.isStreaming = this.streamingAgents.has(agentId);
 			this.emit(agentEventTags.agentsRuntimeState, { agentId, state });
 		} catch {
 			// 运行态刷新失败不影响主流程；下一次轮询或事件会继续同步。

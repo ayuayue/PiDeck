@@ -448,7 +448,8 @@ test("ACP 事件源未注入时退化为纯 pi 行为（fail-safe，不抛不订
 test("index.ts 把 ACP manager 接到 Web 的 ACP 事件源（不订 compositeAgentGateway）", () => {
 	assert.match(indexSource, /subscribeAcpChannelEvents:/);
 	const wiring = indexSource.slice(indexSource.indexOf("subscribeAcpChannelEvents:"));
-	assert.match(wiring.slice(0, 600), /acpAgentManager\?\.onOutput\(/, "必须只订 ACP 网关，订 composite 会与 pi 事件源重复推帧");
+	// Web 服务的 deps 已迁到 startup/webServiceDeps*：acpAgentManager 经 getAcpAgentManager() 访问器读取
+	assert.match(wiring.slice(0, 600), /(?:getAcpAgentManager\(\)|acpAgentManager)\?\.onOutput\(/, "必须只订 ACP 网关，订 composite 会与 pi 事件源重复推帧");
 	assert.doesNotMatch(wiring.slice(0, 600), /compositeAgentGateway/);
 	// ACP 工具清单只下发 id/name（command/args/env 可能含凭据）
 	const tools = indexSource.slice(indexSource.indexOf("listAcpTools:"));

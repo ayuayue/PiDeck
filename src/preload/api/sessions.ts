@@ -6,7 +6,43 @@
 import { ipcRenderer } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { subscribe } from "./ipcHelpers";
-import type { AgentRuntimeState, AvailableModel, ChatMessage, CreateAnonymousSessionInput, CreateAnonymousSessionResult, CreateSessionDraftInput, DshModelDiscoveryInput, FetchedModel, ImageContent, ModelListReport, PiCommand, ResolveLaunchDefaultsInput, ResolvedLaunchDefaults, RewindCheckpointPage, RewindCheckpointPageParams, RewindRestoreResult, RewindRestoreScope, RuntimePromptTemplate, SendSessionPromptInput, SendSessionPromptResult, SessionBranchTree, SessionCommandResult, SessionFactsResult, SessionOutlineSnapshot, SessionRecord, SessionRuntimeEvent, SessionRuntimeInfo, SessionRuntimeModelSelection, SessionRuntimeReplacement, SessionRuntimeTarget, SessionSearchResult, SessionSummary, SessionTargetedValue, SessionUiResponseInput, UpdateSessionRecordInput } from "../../shared/types";
+import type {
+	AgentRuntimeState,
+	AvailableModel,
+	ChatMessage,
+	CreateAnonymousSessionInput,
+	CreateAnonymousSessionResult,
+	CreateSessionDraftInput,
+	DshModelDiscoveryInput,
+	FetchedModel,
+	ImageContent,
+	ModelListReport,
+	PiCommand,
+	ResolveLaunchDefaultsInput,
+	ResolvedLaunchDefaults,
+	RewindCheckpointPage,
+	RewindCheckpointPageParams,
+	RewindRestoreResult,
+	RewindRestoreScope,
+	RuntimePromptTemplate,
+	SendSessionPromptInput,
+	SendSessionPromptResult,
+	SessionBranchTree,
+	SessionCommandResult,
+	SessionFactsResult,
+	SessionOutlineSnapshot,
+	SessionRecord,
+	SessionRuntimeEvent,
+	SessionRuntimeInfo,
+	SessionRuntimeModelSelection,
+	SessionRuntimeReplacement,
+	SessionRuntimeTarget,
+	SessionSearchResult,
+	SessionSummary,
+	SessionTargetedValue,
+	SessionUiResponseInput,
+	UpdateSessionRecordInput,
+} from "../../shared/types";
 import type { DshHomeSharingState } from "../../shared/types/dshHome";
 import type { DshRunnerNodeInfo, DshRunnerNodeInstallResult } from "../../shared/types/dshRunnerNode";
 import type { DshRuntimeInstallProgress, DshRuntimeStatus } from "../../shared/types/dshRuntime";
@@ -236,7 +272,8 @@ export const sessionsApi = {
 				}>
 			>,
 		/** DSH 子代理历史（subagent.history 只读 transcript）。 */
-		readDshSubagentHistory: (agentId: string, childSessionId: string, beforeSeq?: number, maxMessages?: number) => ipcRenderer.invoke(ipcChannels.dshSubagentHistory, agentId, childSessionId, beforeSeq, maxMessages) as Promise<{ messages: import("../../shared/types").ChatMessage[]; hasMore: boolean; oldestSeq?: number }>,
+		readDshSubagentHistory: (agentId: string, childSessionId: string, beforeSeq?: number, maxMessages?: number) =>
+			ipcRenderer.invoke(ipcChannels.dshSubagentHistory, agentId, childSessionId, beforeSeq, maxMessages) as Promise<{ messages: import("../../shared/types").ChatMessage[]; hasMore: boolean; oldestSeq?: number }>,
 		/** pi-subagents 扩展子代理列表（record + 子会话回填）。 */
 		listSessionSubagents: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsListSubagents, sessionId) as Promise<import("../../shared/types").PiSubagentEntry[]>,
 		/** 会话级 todo 快照（pi-deck-todo custom 条目重建，历史会话任务 tab）。 */

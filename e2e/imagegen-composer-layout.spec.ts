@@ -83,7 +83,7 @@ test("imagegen history keeps composer controls on one row in a narrow normal tab
 
 	const projectRow = window
 		.locator(".conversation", {
-			hasText: "pideck-seed-imagegen-composer-layout-",
+			hasText: imageHistoryProject.name,
 		})
 		.first();
 	await expect(projectRow).toBeVisible({ timeout: 30_000 });

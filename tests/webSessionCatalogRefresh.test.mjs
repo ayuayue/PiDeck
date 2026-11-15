@@ -57,12 +57,12 @@ test("broadcastCatalogRefreshed：空 projectId 不发脏事件", () => {
 const indexSource = mainIpcSource;
 test("Web API 四个会话写操作都在落库后广播 catalog 刷新（#436）", () => {
 	// deleteSessionRecord：必须等 removeWithDescendants 成功后再发，早发会把刚删的行重拉回来。
-	assert.match(indexSource, /await sessionCatalog\.removeWithDescendants\(sessionId\);[\s\S]{0,240}?notifyCatalogRefreshed\(\[entry\.projectId\]\);\s*return true;/);
+	assert.match(indexSource, /await (?:getSessionCatalog\(\)|sessionCatalog)\.removeWithDescendants\(sessionId\);[\s\S]{0,240}?notifyCatalogRefreshed\(\[entry\.projectId\]\);\s*return true;/);
 	// createSessionDraft：Web 建的草稿不是渲染进程发的，不推侧栏就一直看不到这一行。
 	// standby 预热只对 pi 会话有意义，dsh/acp 草稿不预热（锚点随之更新，断言强度不变）。
 	assert.match(indexSource, /if \(draft\.backend !== "dsh" && draft\.backend !== "acp"\) agentManager\.ensureStandbyAgent\(draft\.projectId\);[\s\S]{0,200}?notifyCatalogRefreshed\(\[draft\.projectId\]\);/);
 	// updateSessionRecord：改名/换模型后侧栏标题要跟着变。
-	assert.match(indexSource, /const updated = await sessionCatalog\.update\(sessionId, \{[\s\S]{0,400}?notifyCatalogRefreshed\(\[updated\.projectId\]\);\s*return updated;/);
+	assert.match(indexSource, /const updated = await (?:getSessionCatalog\(\)|sessionCatalog)\.update\(sessionId, \{[\s\S]{0,400}?notifyCatalogRefreshed\(\[updated\.projectId\]\);\s*return updated;/);
 	// copySessionRecord：副本要立刻出现在侧栏。
 	assert.match(indexSource, /copySessionRecord: async \(sessionId\) => \{[\s\S]{0,400}?if \(projectId\) notifyCatalogRefreshed\(\[projectId\]\);/);
 });

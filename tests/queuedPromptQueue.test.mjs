@@ -2,6 +2,7 @@ import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionComposerControllerSource } from "./helpers/sessionComposerControllerSources.mjs";
 import { readRendererStyles } from "./helpers/rendererStyles.mjs";
 
 import { mergeAgentRuntimeState } from "../src/renderer/src/utils/agentRuntimeState.ts";
@@ -26,7 +27,7 @@ const webApiRoutesSource = readFileSync("src/main/web/WebApiRoutes.ts", "utf8");
 const sharedTypesSource = [readFileSync("src/shared/types.ts", "utf8"), readFileSync("src/shared/types/session.ts", "utf8")].join("\n");
 // Queue ownership now lives in useQueuedPrompt.
 const queuedPromptHookSource = readFileSync("src/renderer/src/hooks/useQueuedPrompt.ts", "utf8");
-const composerControllerSource = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+const composerControllerSource = sessionComposerControllerSource;
 const sessionSendSource = readFileSync("src/renderer/src/hooks/useSessionSend.ts", "utf8");
 const sessionRuntimeBridgeSource = readFileSync("src/renderer/src/hooks/useSessionRuntimeBridge.ts", "utf8");
 const sessionRuntimeControllerSource = readFileSync("src/renderer/src/hooks/useSessionRuntimeController.ts", "utf8");

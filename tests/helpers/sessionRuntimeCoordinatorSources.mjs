@@ -9,7 +9,14 @@ import { readFileSync } from "node:fs";
  * 而不是「规则还写在哪一个文件里」——拆文件不该被误读成行为消失。
  * 因此断言内容一个字都不改，只把读取面从单文件换成这份聚合。
  */
-export const SESSION_RUNTIME_COORDINATOR_SOURCE_FILES = ["src/main/sessions/SessionRuntimeCoordinator.ts", "src/main/sessions/runtime/sessionRuntimeGateways.ts", "src/main/sessions/runtime/sessionRuntimePreferences.ts"];
+export const SESSION_RUNTIME_COORDINATOR_SOURCE_FILES = [
+	"src/main/sessions/SessionRuntimeCoordinator.ts",
+	"src/main/sessions/runtime/sessionRuntimeGateways.ts",
+	"src/main/sessions/runtime/sessionRuntimePreferences.ts",
+	"src/main/sessions/runtime/sessionRuntimeCommandError.ts",
+	"src/main/sessions/runtime/remoteMessageMutation.ts",
+	"src/main/sessions/runtime/runtimeBinding.ts",
+];
 
 /** 整片域的源码文本（按固定顺序拼接；用于正则/包含判定）。 */
 export function readSessionRuntimeCoordinatorSources() {

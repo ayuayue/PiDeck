@@ -80,6 +80,16 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	// 不驱动 hook 本体；缺这两条时 loader 会回落到以 tests/ 为基准的 nodeRequire 解析 .ts 失败。
 	"./session/timeline/useTimelineHistoryPaging": {},
 	"./session/timeline/useTimelineScrollAnchor": {},
+	// 跳转落位/收敛与滚动所有权（2026-12 从控制器提出）：本测试不驱动 hook 本体，给空实现即可。
+	"./session/timeline/useTimelineJumpNavigation": {},
+	"./session/timeline/useTimelineScrollOwnership": {},
+	// 纯策略模块（2026-12 从控制器提出：贴底判定 / 顶部补偿 / 浏览钉选择 / 首屏读盘跳过）。
+	// 里面有纯函数行为用例（assert 直接打控制器导出的这些函数），编译真模块而不是 stub。
+	"./session/timeline/timelineSurfacePolicy": compile("src/renderer/src/hooks/session/timeline/timelineSurfacePolicy.ts", {
+		"../../timeline/browsePin": browsePin,
+		"../../timeline/useVisibleTimelineRows": visibleRowsModule,
+		"../../../components/session/timeline/turnRenderWindow": { TIMELINE_SCROLLED_TURN_LIMIT: 3 },
+	}),
 	// SendScrollPositioner（612bb51c1 从 controller 迁出）：真实模块自身只依赖
 	// ../../lib/pinTurnScroll，与 ../lib/pinTurnScroll 同名 mock 共享即可。
 	"./timeline/sendScroll": compile("src/renderer/src/hooks/timeline/sendScroll.ts", {

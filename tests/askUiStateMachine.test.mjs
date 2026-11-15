@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 
 /**
  * Ask 提问 UI 状态机与应答构造（#ask-ui）：
@@ -333,7 +334,7 @@ test("AgentManager/飞书 envelope 白名单接受 multi_select 批量问题", (
 	const askCard = readFileSync("src/main/feishu/AskCard.ts", "utf8");
 	// 渲染端 toAgentUiRequest 白名单也必须同构放行，否则 multi_select 选项不渲染
 	// （2026-09 回归：主进程放行、渲染端过滤导致选项组件整体消失）。
-	const sessionAtoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+	const sessionAtoms = sessionAtomsSource;
 	const whiteList = /\["select", "multi_select", "confirm", "input", "editor"\]\.includes\(String\(typed\.type\)\)/;
 	assert.match(uiGate, whiteList);
 	assert.match(askCard, whiteList);

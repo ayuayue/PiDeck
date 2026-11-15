@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { preloadSource } from "./helpers/preloadSources.mjs";
+import { gitPanelSource } from "./helpers/gitPanelSources.mjs";
 
 const host = readFileSync("src/renderer/src/components/workspace/GitDrawerHost.tsx", "utf8");
 const scope = readFileSync("src/renderer/src/hooks/useGitRepoScope.ts", "utf8");
@@ -9,7 +10,7 @@ const drawer = readFileSync("src/renderer/src/components/workspace/DrawerSurface
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 const preload = preloadSource;
 const gitIpc = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
-const panel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+const panel = gitPanelSource;
 const graph = readFileSync("src/renderer/src/components/app/git/GitGraph.tsx", "utf8");
 const resourceTree = readFileSync("src/renderer/src/components/app/git/GitResourceTree.tsx", "utf8");
 const gitService = readFileSync("src/main/git/GitService.ts", "utf8");

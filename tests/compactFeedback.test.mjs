@@ -2,6 +2,7 @@ import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { dshAgentManagerSource } from "./helpers/dshAgentManagerSources.mjs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
@@ -191,7 +192,7 @@ test("pi compact failure resolves the cancel source instead of swallowing it", (
 
 test("context overflow is carried through the main and DSH runtime paths", () => {
 	const pi = agentManagerSource;
-	const dsh = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
+	const dsh = dshAgentManagerSource;
 	assert.match(pi, /isContextOverflowError\(errorMsg\)/);
 	assert.match(pi, /contextOverflowByAgent/);
 	assert.match(dsh, /isContextOverflowError\(reasonMessage\)/);
@@ -202,7 +203,7 @@ test("pi and dsh compact throw already compacting instead of returning success",
 	const pi = agentManagerSource;
 	assert.match(pi, /throw new Error\("already compacting"\)/);
 	assert.doesNotMatch(pi, /Compact skipped: already compacting[\s\S]{0,120}return this\.getRuntimeState\(agentId\)/);
-	const dsh = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
+	const dsh = dshAgentManagerSource;
 	assert.match(dsh, /if \(runtime\.isCompacting\) \{\s*\n\s*throw new Error\("already compacting"\)/);
 });
 

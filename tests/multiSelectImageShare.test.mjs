@@ -1,29 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { readRendererStyles } from "./helpers/rendererStyles.mjs";
-import ts from "typescript";
-import vm from "node:vm";
 
+// AppUtils 已是纯转发 barrel（实现按域拆到 appUtils/*），用能递归解析生产依赖图的加载器；
+// chips 仍显式桩掉（只用到 formatFilePathRef 的直通语义）。
 function loadAppUtils() {
-	const source = readFileSync("src/renderer/src/components/app/AppUtils.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
+	return loadTsCommonJs("src/renderer/src/components/app/AppUtils.ts", {
+		stubs: { "../../session/composer/chips": { formatFilePathRef: (p) => p } },
 	});
-	// AppUtils 引用 session/composer/chips；vm 沙箱不会解析相对模块，显式桩掉。
-	const sandbox = {
-		exports: {},
-		location: { href: "file:///Users/test/app" },
-		require: (id) => {
-			if (id === "../session/composer/chips") return { formatFilePathRef: (p) => p };
-			return {};
-		},
-	};
-	vm.runInNewContext(outputText, sandbox, { filename: "AppUtils.ts" });
-	return sandbox.exports;
 }
 
 test("multi-select image export stays renderable for html-to-image", () => {

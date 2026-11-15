@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { configModalSource } from "./helpers/configModalSources.mjs";
+import { gitPanelSource } from "./helpers/gitPanelSources.mjs";
 
 const rendererRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "renderer", "src");
 
@@ -94,7 +95,7 @@ test("Toast 单通道：迁移清单内的组件不再直接 import sonner（Wav
 });
 
 test("z-layer 语义 token：不再新增 9999 旁路（Wave 2 §5）", () => {
-	const gitPanel = read("components/app/GitPanel.tsx");
+	const gitPanel = gitPanelSource;
 	assert.doesNotMatch(gitPanel, /zIndex: 9999/, "GitPanel 分支下拉须用 --z-popover");
 	assert.match(gitPanel, /var\(--z-popover\)/, "GitPanel 分支下拉用语义 token");
 	const popoverMorph = read("components/motion/popover-morph.tsx");

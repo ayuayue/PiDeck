@@ -56,7 +56,7 @@ const crypto = require("node:crypto");
 // 关联会话 e2e 在同一项目里同时跑父/子两个会话：按 cwd 哈希会让两者共用一个会话文件。
 // 该用例设 PIDECK_MOCK_SESSION_PER_DECK=1，按 PiDeck 注入的会话身份（PIDECK_SESSION_ID）再区分一次。
 const deckSessionKey = process.env.PIDECK_MOCK_SESSION_PER_DECK === "1" ? process.env.PIDECK_SESSION_ID : undefined;
-const sessionId =
+let sessionId =
 	"mock-" +
 	crypto
 		.createHash("md5")
@@ -81,6 +81,9 @@ let currentThinking = "medium";
 let contextPercent = 45;
 // 记录收到的用户 prompt：fork 用例的 get_fork_messages 按文本匹配 entryId。
 const userPrompts = [];
+// 每条 prompt 写进会话文件后的真实 entry id：get_fork_messages 必须返回文件里真实存在的 id，
+// 否则 fork 拿到的锚点在文件里查不到（旧实现回 entry-N 假 id，掩盖了 mock 没实现 fork 这件事）。
+const userEntryIds = [];
 // 内存消息列表：get_messages 在 fork/reload 后需要返回真实对话，
 // 否则 refreshRuntimeAfterSessionReplacement 会把时间线清空。
 const conversationMessages = [];
@@ -101,7 +104,7 @@ function encodeSessionDir(cwd) {
 let sessionFile = resumeSessionPath;
 let sessionHeaderWritten = false;
 const PROJECT_SESSIONS_DIR = path.join(process.cwd(), ".pi", "sessions");
-const PROJECT_SESSION_FILE_PATH = path.join(PROJECT_SESSIONS_DIR, sessionId + ".jsonl");
+let PROJECT_SESSION_FILE_PATH = path.join(PROJECT_SESSIONS_DIR, sessionId + ".jsonl");
 // Session identity tests need the RPC-reported file and scanner file to be the same,
 // as with real pi; retain the older dual-file fixture for existing recovery tests.
 const TMP_SESSION_FILE_PATH = process.env.PIDECK_MOCK_SESSION_IN_PROJECT === "1" ? PROJECT_SESSION_FILE_PATH : path.join(require("node:os").tmpdir(), sessionId + ".jsonl");
@@ -308,6 +311,14 @@ if (sessionFile && fs.existsSync(sessionFile)) {
 							: (entry.message.content ?? "");
 						if (text) {
 							conversationMessages.push({ role, content: [{ type: "text", text }] });
+							// fork 锚点也要覆盖**落盘过的历史** user 条目：真实 pi 的
+							// get_fork_messages 直接读会话文件，不依赖「本进程收到过哪些 prompt」。
+							// 缺这一步时，在历史会话里编辑/重发 → fork 拿不到锚点 → 静默退化，
+							// mock 把新消息追加到同一文件，时间线出现「旧 + 新」两份。
+							if (role === "user" && typeof entry.id === "string") {
+								userPrompts.push(text);
+								userEntryIds.push(entry.id);
+							}
 						}
 					}
 				}
@@ -352,6 +363,7 @@ function appendSessionMessages(userText, assistantText, startedAt, finishedAt) {
 	}
 	const userParent = lastEntryId;
 	const userId = `e${nextEntrySeq++}`;
+	userEntryIds.push(userId);
 	lines.push(
 		JSON.stringify({
 			type: "message",
@@ -573,7 +585,11 @@ function startStream(userText, options = {}) {
 	// startedAt+durationMs 冻结（见 AgentManager.upsertAssistantMessage）。
 	const turnStartedAt = Date.now();
 	const slow = userText.includes("SLOW");
-	streamIntervalMs = slow ? 220 : 80;
+	// SLOWDRIP：给「必须在流式中完成的交互」用的超长慢流（600ms × 40 ≈ 24s）。
+	// 普通 SLOW（220ms × ~15 ≈ 3.3s）在这台机器上常在两三秒内就结算，测试点到一半
+	// agent 已经 idle，断言到的是结算后的状态（session-history-agent-states 流中删除用例曾因此误判）。
+	const slowLong = userText.includes("SLOWDRIP");
+	streamIntervalMs = slowLong ? 600 : slow ? 220 : 80;
 	// BURST 模式：模拟真实 LLM 突发输出——前 6 个 chunk 慢速（250ms），
 	// 之后 15ms 密集推送（复现「开头吐字、后面蹦字」）。
 	const burst = userText.includes("BURST");
@@ -637,7 +653,7 @@ function startStream(userText, options = {}) {
 									"\n",
 								)
 							: `Mock 回复：「${userText.slice(0, 40)}」流式渲染验证完成。`;
-	const chunkCount = slow ? 18 : burst ? 24 : 12;
+	const chunkCount = slowLong ? 40 : slow ? 18 : burst ? 24 : 12;
 	const per = Math.max(1, Math.ceil(reply.length / chunkCount));
 	streamChunks = [];
 	for (let i = 0; i < reply.length; i += per) streamChunks.push(reply.slice(i, i + per));
@@ -913,11 +929,71 @@ function handleCommand(cmd) {
 			return;
 		case "get_fork_messages":
 			respond(cmd, {
-				messages: userPrompts.map((text, i) => ({ entryId: `entry-${i + 1}`, text })),
+				messages: userPrompts.map((text, i) => ({ entryId: userEntryIds[i], text })),
 			});
 			return;
 		case "fork": {
-			const found = userPrompts.find((_, i) => `entry-${i + 1}` === cmd.entryId);
+			const index = userEntryIds.indexOf(cmd.entryId);
+			const found = index >= 0 ? userPrompts[index] : undefined;
+			// 仿真真实 pi 的 fork：从锚点截出新会话文件（旧文件保持不动）+ 进程切到新会话，
+			// 之后的 get_state 必须报新 sessionFile/sessionId——桌面端 replaceLiveSession
+			// 靠它推导 targetSessionId 才做尾部替换。只回 text 不切会话时，桌面端会在原会话里
+			// 直接重发同一条 prompt，时间线出现两遍（e2e resend「不产生重复」用例因此恒红）。
+			if (index >= 0 && sessionFile) {
+				try {
+					const newId = "mock-" + crypto.randomBytes(5).toString("hex");
+					const newPath = path.join(path.dirname(sessionFile), newId + ".jsonl");
+					const lines = fs.readFileSync(sessionFile, "utf8").split("\n").filter(Boolean);
+					let cut = -1;
+					for (let i = 0; i < lines.length; i++) {
+						try {
+							if (JSON.parse(lines[i]).id === cmd.entryId) {
+								cut = i;
+								break;
+							}
+						} catch {
+							/* 跳过坏行 */
+						}
+					}
+					// 真实 pi 的 fork 默认 position:"before"（agent-session-runtime.js）：
+					// 新会话的 leaf 是锚点的**父节点**，锚点这条 user 消息本身不进分支，
+					// 它的文本由 RPC 回给客户端去重发。旧实现 slice(0, cut + 1) 把锚点也留了下来，
+					// 于是重发/编辑后新分支里「旧消息 + 重发的新消息」并存（时间线出现两份）。
+					const keepCount = cut > 0 ? cut : 0;
+					const kept = keepCount > 0 ? lines.slice(0, keepCount).join("\n") + "\n" : "";
+					fs.writeFileSync(newPath, kept);
+					let newLeafId = null;
+					for (let i = keepCount - 1; i >= 0; i -= 1) {
+						try {
+							const keptEntry = JSON.parse(lines[i]);
+							if (keptEntry.type !== "deleted" && typeof keptEntry.id === "string") {
+								newLeafId = keptEntry.id;
+								break;
+							}
+						} catch {
+							/* 跳过坏行 */
+						}
+					}
+					// 内存态随 fork 截断：锚点（含）之后全部丢弃
+					userPrompts.length = index;
+					userEntryIds.length = index;
+					conversationMessages.length = Math.min(conversationMessages.length, index * 2);
+					sessionFile = newPath;
+					sessionId = newId;
+					sessionHeaderWritten = keepCount > 0;
+					lastEntryId = newLeafId;
+					const projectMirror = path.join(PROJECT_SESSIONS_DIR, newId + ".jsonl");
+					try {
+						fs.mkdirSync(PROJECT_SESSIONS_DIR, { recursive: true });
+						fs.writeFileSync(projectMirror, kept);
+						PROJECT_SESSION_FILE_PATH = projectMirror;
+					} catch {
+						/* 镜像写失败不影响 runtime 语义 */
+					}
+				} catch {
+					/* 落盘失败时退回「只回 text」，由用例自己暴露 */
+				}
+			}
 			// 桌面端读取 result.text 预填回输入框；cancelled 为空对象语义
 			respond(cmd, { text: found ?? "" });
 			return;

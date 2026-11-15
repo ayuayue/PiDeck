@@ -1,34 +1,30 @@
-import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
-import { Loader2, ArchiveRestore, ChevronDown, Cpu, FileCode2, FolderOpen, LayoutDashboard, LoaderCircle, Power, PowerOff, Puzzle, RefreshCw, ShieldCheck } from "lucide-react";
+import { ChevronDown, LoaderCircle, RefreshCw } from "lucide-react";
 import { desktopApi } from "../desktopApi";
-import { t, type TranslationKey } from "../i18n";
+import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
-import { refreshDshAgentPresets } from "../utils/dshAgentPresets";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
 import { Switch } from "../components/ui-shadcn/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
-import { AgentPresetLogo, DshLogo } from "../components/session/SessionSourceBadge";
 import { DSH_PERMISSION_PRESETS } from "../components/session/DshPermissionMenu";
-import { ConfirmDialog } from "../components/ui-shadcn/ConfirmDialog";
 import { Collapsible, CollapsibleContent } from "../components/ui-shadcn/collapsible";
-import { CodeMirrorEditor } from "../components/app/CodeMirrorEditor";
 import { useSaveRegistry } from "../hooks/useSaveRegistry";
 import { DshSchemaForm, type DshNamespaceView } from "./DshSchemaForm";
-import { DshRuntimeSection } from "./DshRuntimeSection";
-import { DshHomeSharingNotice } from "./DshHomeSharingNotice";
 import { dshRuntimeStatusAtom } from "../atoms/dsh-atoms";
 import { isDshPluginNamespace, dshPluginNamespaceTitleKey, dshPluginNamespaceDescriptionKey } from "./dshPluginNamespaces";
 import { DshPluginSection, PluginInventoryView } from "./DshPluginSection";
 import { DshPluginMarketSection } from "./DshPluginMarketSection";
 import { DeepseekRouteCard, PiAiProvidersCard } from "./DshProviderCards";
 import { collectCredentialRefsWithValue, normalizeDshSchema, type DshSectionApi } from "./dshSchema";
-import { presetDisplayDescription, presetDisplayName } from "./dshPresetDisplay";
 import { credentialRefFor } from "./dshCredentialRef";
-import { managerArchivedDshLabel } from "../sessionManagerModel";
-import type { ArchivedDshSession } from "../../../shared/types";
-import type { DshHomeSharingState } from "../../../shared/types/dshHome";
+import { DshConfigEmpty } from "./dsh/DshConfigEmpty";
+import { DshConfigOverview } from "./dsh/DshConfigOverview";
+import { DshConfigPresetsTab } from "./dsh/DshConfigPresetsTab";
+import { DshConfigRawTab } from "./dsh/DshConfigRawTab";
+import { NAV_ITEMS, loadDshLastPluginPane, loadDshLastTab, rememberDshLastPluginPane, rememberDshLastTab } from "./dsh/dshConfigNav";
+import type { CredentialState, DshStatus } from "./dsh/dshConfigTypes";
 import { isDshManuallyStoppedErrorMessage } from "../../../shared/dshManualStop";
 
 /**
@@ -41,66 +37,13 @@ function dshConfigErrorMessage(error: unknown): string {
 	return isDshManuallyStoppedErrorMessage(raw) ? t("config.dsh.manuallyStoppedDesc") : raw;
 }
 
-type DshStatus = {
-	started: boolean;
-	homeDir: string;
-	/** 最近一次 host boot 失败的真实原因（host-error 详情/stderr 尾部）；无失败为 null。 */
-	bootError?: string | null;
-	/** DSH_HOME 共享/冲突状态（issue #189）；旧主进程未回传时缺省。 */
-	sharing?: DshHomeSharingState;
-	/** 用户是否手动停止了 host（true 时不会自动启动）；旧主进程未回传时缺省。 */
-	manuallyStopped?: boolean;
-};
-type CredentialState = {
-	configured: boolean;
-	source?: string;
-	writable: boolean;
-};
-
 /** 模型配置相关的 namespace：llm-deepseek（官方 DeepSeek 路由）+ llm-pi-ai（pi-ai providers dict）。 */
 const MODEL_NS = new Set(["llm-deepseek", "llm-pi-ai"]);
-
-/** 配置目录 + 文件名 → 平台路径（F9：统一拼接，避免散落的 replace 兜底）。 */
-function joinConfigPath(homeDir: string, fileName: string): string {
-	return `${homeDir.replace(/[\\/]+$/, "")}/${fileName}`;
-}
 
 /** 剥离 Electron IPC 包装前缀（"Error invoking remote method 'x': "），只保留主进程真实错误。
  *  与 GitPanel/useSessionActions 等处的清洗同一语义，这里收敛成本页局部 helper。 */
 function stripIpcErrorPrefix(message: string): string {
 	return message.replace(/^Error invoking remote method ['"][^'"]+['"]:\s*/i, "");
-}
-
-const NAV_ITEMS: Array<{ id: string; labelKey: TranslationKey; icon: ReactNode }> = [
-	{ id: "overview", labelKey: "config.dsh.tab.overview", icon: <LayoutDashboard className="size-3.5" aria-hidden="true" /> },
-	{ id: "models", labelKey: "config.dsh.tab.models", icon: <Cpu className="size-3.5" aria-hidden="true" /> },
-	{ id: "presets", labelKey: "config.dsh.tab.presets", icon: <AgentPresetLogo className="size-3.5" aria-hidden="true" /> },
-	{ id: "plugins", labelKey: "config.dsh.tab.plugins", icon: <Puzzle className="size-3.5" aria-hidden="true" /> },
-	{ id: "security", labelKey: "config.dsh.tab.security", icon: <ShieldCheck className="size-3.5" aria-hidden="true" /> },
-	{ id: "raw", labelKey: "config.dsh.tab.raw", icon: <FileCode2 className="size-3.5" aria-hidden="true" /> },
-];
-
-/** localStorage 键：DSH 配置页上次打开的导航子页（重开配置弹窗/应用重启后恢复位置，与 Pi 管理页同款记忆）。 */
-const DSH_LAST_TAB_KEY = "pideck-dsh-config-last-tab";
-const DSH_LAST_PLUGIN_PANE_KEY = "pideck-dsh-config-plugin-pane";
-
-/** 读取上次打开的 DSH 导航 id；无记录或值已失效时回退概览。 */
-function loadDshLastTab(): string {
-	try {
-		const raw = localStorage.getItem(DSH_LAST_TAB_KEY);
-		return raw && NAV_ITEMS.some((item) => item.id === raw) ? raw : "overview";
-	} catch {
-		return "overview";
-	}
-}
-
-/** 读取上次打开的插件子页（插件配置/插件列表）；默认插件配置。 */
-function loadDshLastPluginPane(): "config" | "list" {
-	try {
-		return localStorage.getItem(DSH_LAST_PLUGIN_PANE_KEY) === "list" ? "list" : "config";
-	} catch {
-		return "config";
-	}
 }
 
 /** DSH 配置页统一保存句柄（ConfigModal 顶部保存按钮经 ref 调用）。 */
@@ -166,21 +109,13 @@ export const DshConfigTab = forwardRef<
 	/** 切换导航子页并持久化：退出配置弹窗/重启应用后再进入，回到上次选定的界面。 */
 	const selectTab = useCallback((id: string) => {
 		setActiveTab(id);
-		try {
-			localStorage.setItem(DSH_LAST_TAB_KEY, id);
-		} catch {
-			// 隐私模式等 localStorage 不可用：仅本次会话生效
-		}
+		rememberDshLastTab(id);
 	}, []);
 
 	/** 切换插件子页并持久化（与 selectTab 同款记忆）。 */
 	const selectPluginPane = useCallback((pane: "config" | "list") => {
 		setPluginPane(pane);
-		try {
-			localStorage.setItem(DSH_LAST_PLUGIN_PANE_KEY, pane);
-		} catch {
-			// 同上：不可用时仅本次生效
-		}
+		rememberDshLastPluginPane(pane);
 	}, []);
 
 	/** 子分区保存注册表（C22：公共 hook，instanceId → save；顶部保存按钮统一遍历调用）。
@@ -488,7 +423,7 @@ export const DshConfigTab = forwardRef<
 					<>
 						{/* tab 切换用 hidden 而非卸载：子分区草稿跨 tab 保留（统一保存语义） */}
 						<div hidden={activeTab !== "overview"}>
-							<Overview
+							<DshConfigOverview
 								status={status}
 								hasDocument={hasDocument}
 								onOpenFolder={openFolder}
@@ -506,7 +441,7 @@ export const DshConfigTab = forwardRef<
 									<div className="p-4">
 										<p className="mb-3 text-micro text-muted-foreground">{t("config.dsh.modelsHint")}</p>
 										{modelNamespaces.length === 0 ? (
-											<Empty text={t("config.dsh.namespacesEmpty")} />
+											<DshConfigEmpty text={t("config.dsh.namespacesEmpty")} />
 										) : (
 											<div className="grid gap-4">
 												{modelNamespaces.map((ns) => (
@@ -554,7 +489,7 @@ export const DshConfigTab = forwardRef<
 								</div>
 								<div hidden={activeTab !== "presets"}>
 									<div className="p-4">
-										<PresetsTab
+										<DshConfigPresetsTab
 											writable={writable}
 											namespace={namespaces.find((ns) => ns.ns === "agent-preset-registry")}
 											onSave={async (id) => {
@@ -586,7 +521,7 @@ export const DshConfigTab = forwardRef<
 											<div className="grid gap-2">
 												<p className="text-micro text-muted-foreground">{t("config.dsh.pluginsHint")}</p>
 												{pluginNamespaces.length === 0 ? (
-													<Empty text={t("config.dsh.namespacesEmpty")} />
+													<DshConfigEmpty text={t("config.dsh.namespacesEmpty")} />
 												) : (
 													<div className="grid gap-2">
 														{pluginNamespaces.map((ns) => (
@@ -617,7 +552,7 @@ export const DshConfigTab = forwardRef<
 								</div>
 								<div hidden={activeTab !== "raw"} className="flex min-h-0 flex-1 flex-col">
 									<div className="flex min-h-0 flex-1 flex-col p-4">
-										<RawTab homeDir={status?.homeDir ?? ""} sectionApi={sectionApi} instanceKey="dsh:raw" />
+										<DshConfigRawTab homeDir={status?.homeDir ?? ""} sectionApi={sectionApi} instanceKey="dsh:raw" />
 									</div>
 								</div>
 							</>
@@ -629,293 +564,10 @@ export const DshConfigTab = forwardRef<
 	);
 });
 
-function Overview(props: { status: DshStatus | null; hasDocument: boolean; onOpenFolder: (path: string) => void; onOpenDocument: () => void; onChanged: () => void }) {
-	const { status } = props;
-	const [picking, setPicking] = useState(false);
-	const [switching, setSwitching] = useState(false);
-	/** runtime 安装态（全局同步）：概览页顶部 runtime 管理区块（未装→安装引导，已装→版本/目录/卸载）。 */
-	const runtimeStatus = useAtomValue(dshRuntimeStatusAtom);
-	/** G14：归档区 DSH 会话清单（目录已移入 .pideck-archive 的 host 会话；恢复入口用，含标题）。 */
-	const [archived, setArchived] = useState<ArchivedDshSession[]>([]);
-	/** G14：正在恢复的 dshSessionId（按钮转圈防重复点击）。 */
-	const [restoring, setRestoring] = useState<string | null>(null);
-	/** 启动时是否自动导入外部会话：原设置页 DSH tab 独有项，收口到配置管理概览。 */
-	const [autoImport, setAutoImport] = useState(true);
-	const [autoImportLoaded, setAutoImportLoaded] = useState(false);
-
-	useEffect(() => {
-		let cancelled = false;
-		void desktopApi.sessions
-			.listArchivedDshSessions()
-			.then((items) => {
-				if (!cancelled) setArchived(items);
-			})
-			.catch(() => undefined);
-		void desktopApi.settings
-			.get()
-			.then((settings) => {
-				if (!cancelled) {
-					setAutoImport(settings.dshAutoImportSessions !== false);
-					setAutoImportLoaded(true);
-				}
-			})
-			.catch(() => {
-				if (!cancelled) setAutoImportLoaded(true);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	/** 启动自动导入：即时写入设置，下次启动生效；关闭后侧栏不再收录外部会话。 */
-	const toggleAutoImport = async (checked: boolean) => {
-		const prev = autoImport;
-		setAutoImport(checked);
-		try {
-			await desktopApi.settings.update({ dshAutoImportSessions: checked });
-			showNotice(t(checked ? "config.dsh.autoImportOn" : "config.dsh.autoImportOff"), 3000);
-		} catch (saveError) {
-			setAutoImport(prev);
-			showNotice(saveError instanceof Error ? saveError.message : String(saveError), 4000);
-		}
-	};
-
-	/** G14：恢复归档的 DSH 会话（主进程移回 sessions 树并重建 catalog 记录）。 */
-	const restoreArchived = async (dshSessionId: string) => {
-		if (restoring) return;
-		setRestoring(dshSessionId);
-		try {
-			await desktopApi.sessions.unarchiveDshSession(dshSessionId);
-			showNotice(t("config.dsh.restored"), 3000);
-			setArchived((current) => current.filter((item) => item.dshSessionId !== dshSessionId));
-			props.onChanged();
-		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 4000);
-		} finally {
-			setRestoring(null);
-		}
-	};
-
-	/**
-	 * 切换 DSH_HOME 目录：选目录 → 写设置 → 立即重启 host 生效。
-	 * 主进程 restartDshHost 会先自动停掉活跃 DSH 会话（catalog 保留，重新打开时 attach）。
-	 */
-	const pickHomeDir = async () => {
-		if (picking) return;
-		setPicking(true);
-		try {
-			const picked = await desktopApi.dialog.pickFiles({ title: t("config.dsh.pickHomeTitle"), includeDirectories: true });
-			const dir = picked?.[0];
-			if (!dir) return;
-			setSwitching(true);
-			await desktopApi.settings.update({ dshHomeDir: dir });
-			if (status?.started) {
-				const restarted = await desktopApi.sessions.restartDshHost();
-				if (restarted) {
-					showNotice(t("config.dsh.homeChangeApplied"), 4000);
-				} else {
-					// 兑底：stopAll/restart 异常（正常路径不会走到这里）
-					showNotice(t("config.dsh.homeChangeFailed"), 6000);
-				}
-			} else {
-				showNotice(t("config.dsh.homeChangeNextBoot"), 4000);
-			}
-			props.onChanged();
-		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 4000);
-		} finally {
-			setPicking(false);
-			setSwitching(false);
-		}
-	};
-
-	/** 恢复默认：清空 dshHomeDir，回到自动解析（~/.dsh 优先，不存在则应用私有目录）。 */
-	const resetHomeDir = async () => {
-		setSwitching(true);
-		try {
-			await desktopApi.settings.update({ dshHomeDir: "" });
-			if (status?.started) {
-				const restarted = await desktopApi.sessions.restartDshHost();
-				showNotice(restarted ? t("config.dsh.homeResetApplied") : t("config.dsh.homeChangeFailed"), restarted ? 4000 : 6000);
-			} else {
-				showNotice(t("config.dsh.homeReset"), 4000);
-			}
-			props.onChanged();
-		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 4000);
-		} finally {
-			setSwitching(false);
-		}
-	};
-
-	/**
-	 * 手动恢复 host：复用设置切换时的完整重启链路，确保先终止旧 mux，
-	 * 再等待新 host ready，不能只杀 utilityProcess 留下运行会话。
-	 */
-	const restartHost = async () => {
-		if (switching) return;
-		setSwitching(true);
-		try {
-			const restarted = await desktopApi.sessions.restartDshHost();
-			showNotice(restarted ? t("config.dsh.hostRestarted") : t("config.dsh.hostRestartFailed"), restarted ? 4000 : 6000);
-		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 4000);
-		} finally {
-			setSwitching(false);
-			props.onChanged();
-		}
-	};
-
-	/**
-	 * 手动停止 host（用户不想让它运行）：主进程先停活跃 DSH 会话，再 dispose host，
-	 * 并持久化 dshManualStopped=true——之后预热/按需兕底/崩溃自动重启都不会再拉起，
-	 * 只有点「启动」才恢复。停止后配置读写（settings.describe 等）也会失败——这是
-	 * 预期行为，概览页会显示「已手动停止」徽标而不是错误态。
-	 */
-	const stopHost = async () => {
-		if (switching) return;
-		setSwitching(true);
-		try {
-			const stopped = await desktopApi.sessions.stopDshHost();
-			showNotice(stopped ? t("config.dsh.hostStopped") : t("config.dsh.hostStopFailed"), stopped ? 4000 : 6000);
-		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 6000);
-		} finally {
-			setSwitching(false);
-			props.onChanged();
-		}
-	};
-
-	/** 手动启动 host（唯一能恢复运行的方式）：主进程清停止标记后 boot。 */
-	const startHost = async () => {
-		if (switching) return;
-		setSwitching(true);
-		try {
-			const started = await desktopApi.sessions.startDshHost();
-			showNotice(started ? t("config.dsh.hostStarted") : t("config.dsh.hostStartFailed"), started ? 4000 : 6000);
-		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 6000);
-		} finally {
-			setSwitching(false);
-			props.onChanged();
-		}
-	};
-
-	return (
-		<div className="grid gap-4 p-4">
-			{/* DSH 后端运行时管理区块：未装→安装引导，已装→版本/目录/卸载/导入。 */}
-			<DshRuntimeSection status={runtimeStatus} onOpenFolder={props.onOpenFolder} />
-			<section className="grid gap-2">
-				<h3 className="flex items-center gap-2 text-caption font-semibold text-muted-foreground">
-					<DshLogo className="size-4" />
-					{t("config.dsh.title")}
-				</h3>
-				<div className="flex items-center gap-2">
-					{status?.started ? (
-						<span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-micro font-medium text-success  ">{t("config.dsh.started")}</span>
-					) : status?.manuallyStopped ? (
-						// 手动停止是用户的主动选择，用中性徽标而非错误红：区别于 boot 失败。
-						<span className="rounded-full border border-border-subtle bg-bg-panel px-2 py-0.5 text-micro text-muted-foreground">{t("config.dsh.manuallyStopped")}</span>
-					) : (
-						<span className="rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">{t("config.dsh.notStarted")}</span>
-					)}
-					{/* 停止/启动互斥：运行中→停止；已手动停止→启动（唯一恢复入口）。重启仅在运行中可用。 */}
-					{status?.started ? (
-						<Button type="button" variant="secondary" size="sm" className="h-7 gap-1" disabled={switching} onClick={() => void stopHost()}>
-							{switching ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <PowerOff className="size-3.5" aria-hidden="true" />}
-							{t("config.dsh.stopHost")}
-						</Button>
-					) : (
-						<Button type="button" variant="secondary" size="sm" className="h-7 gap-1" disabled={switching} onClick={() => void startHost()}>
-							{switching ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <Power className="size-3.5" aria-hidden="true" />}
-							{t("config.dsh.startHost")}
-						</Button>
-					)}
-					{status?.started ? (
-						<Button type="button" variant="secondary" size="sm" className="h-7 gap-1" disabled={switching} onClick={() => void restartHost()}>
-							<RefreshCw className="size-3.5" aria-hidden="true" />
-							{t("config.dsh.restartHost")}
-						</Button>
-					) : null}
-				</div>
-			</section>
-			{/* 跨工具兼容只留开关：开=启动只读扫盘入侧栏；关=不收录。不提供手动导入。 */}
-			<section className="grid gap-2">
-				<div className="flex items-center justify-between gap-4 rounded-md border border-border-subtle bg-bg-panel px-3.5 py-2.5">
-					<div className="grid gap-0.5">
-						<span className="text-caption font-semibold text-foreground">{t("config.dsh.autoImportForeign")}</span>
-						<p className="text-micro text-muted-foreground">{t("config.dsh.autoImportForeignHint")}</p>
-					</div>
-					<Switch checked={autoImport} disabled={!autoImportLoaded} onCheckedChange={(checked) => void toggleAutoImport(checked)} />
-				</div>
-			</section>
-			<section className="grid gap-2">
-				<h3 className="text-caption font-semibold text-muted-foreground">{t("config.dsh.directories")}</h3>
-				{/* 共享/并发冲突提示（issue #189）：默认 ~/.dsh 与 dsh CLI 共用（中性说明），
-				    或锁文件里有另一个存活的 PiDeck host（升级为警告）。显式覆盖过目录时不提示。 */}
-				<DshHomeSharingNotice sharing={status?.sharing} />
-				{/* DSH_HOME 即唯一配置目录：settings.yaml / .credentials.yaml / sessions / storages 全在同一目录 */}
-				<DirRow label={t("config.dsh.homeDir")} path={status?.homeDir ?? ""} onOpen={props.onOpenFolder} />
-				<div className="flex items-center gap-2">
-					<Button type="button" variant="secondary" size="sm" className="h-7" disabled={picking || switching} onClick={() => void pickHomeDir()}>
-						{picking ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <FolderOpen className="size-3.5" aria-hidden="true" />}
-						{t("config.dsh.changeHome")}
-					</Button>
-					<Button type="button" variant="ghost" size="sm" className="h-7 text-muted-foreground" disabled={switching} onClick={() => void resetHomeDir()}>
-						{t("config.dsh.resetHome")}
-					</Button>
-				</div>
-				<p className="text-micro text-muted-foreground">{t("config.dsh.homeHint")}</p>
-			</section>
-			{/* G14：DSH 归档区（归档动作在会话列表右键；恢复入口在这里） */}
-			<section className="grid gap-2">
-				<h3 className="text-caption font-semibold text-muted-foreground">{t("config.dsh.archived")}</h3>
-				{archived.length === 0 ? (
-					<p className="text-micro text-muted-foreground">{t("config.dsh.archivedEmpty")}</p>
-				) : (
-					<div className="grid gap-1.5">
-						{archived.map((item) => (
-							<div key={item.dshSessionId} className="flex items-center gap-2 rounded-md border border-border-subtle bg-bg-panel px-2 py-1.5">
-								<span className="min-w-0 flex-1 truncate text-control text-foreground" title={item.cwd || item.dshSessionId}>
-									{/* 标题（manifest/日志折叠）> cwd 末段 > host id：与会话管理弹窗归档视图同一策略 */}
-									<span className="font-medium">{managerArchivedDshLabel({ kind: "dsh", item })}</span>
-									<span className="ml-2 text-caption text-text-secondary">{item.cwd}</span>
-								</span>
-								<Button type="button" variant="secondary" size="sm" className="h-6 shrink-0" disabled={restoring === item.dshSessionId} onClick={() => void restoreArchived(item.dshSessionId)}>
-									{restoring === item.dshSessionId ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <ArchiveRestore className="size-3.5" aria-hidden="true" />}
-									{t("config.dsh.restore")}
-								</Button>
-							</div>
-						))}
-					</div>
-				)}
-				<p className="text-micro text-muted-foreground">{t("config.dsh.archivedHint")}</p>
-			</section>
-			{props.hasDocument && (
-				<section>
-					<Button type="button" variant="secondary" size="sm" onClick={props.onOpenDocument}>
-						<FolderOpen className="size-3.5" aria-hidden="true" />
-						{t("config.dsh.openDocument")}
-					</Button>
-				</section>
-			)}
-			<p className="text-micro text-muted-foreground">{t("config.dsh.overviewHint")}</p>
-		</div>
-	);
-}
-
 /** settings.openDocument：让 host 把配置文档交给平台打开。 */
 function openDocument() {
 	void desktopApi.sessions.openDshDocument?.().catch(() => undefined);
 }
-
-type DshAgentPreset = {
-	id: string;
-	isDefault: boolean;
-	name?: string;
-	description?: string;
-	broken?: string;
-};
 
 /**
  * 插件配置卡片（对齐 dsh-web 的插件设置分区）：收起时一行展示插件名称、描述与
@@ -951,176 +603,6 @@ function PluginCard(props: {
 					<DshSchemaForm namespace={props.ns} writable={props.writable} onSave={props.onSave} sectionApi={props.sectionApi} instanceKey={props.instanceKey} />
 				</CollapsibleContent>
 			</Collapsible>
-		</div>
-	);
-}
-
-/**
- * 预设设置 tab（对齐 dsh-web 的 agent preset 选择/管理）：列出 host 可组合的会话
- * Agent 预设（standard/ptc/minimal/cordis 等），标记当前默认，并支持把任一预设
- * 设为新会话默认（profile 中 agent-preset-registry.selectedDefault，与 dsh-web 的
- * General 设置行同一写入目标；仅对之后新建的会话生效，运行中会话保持原组合）。
- * 保存语义与 Pi 管理页一致：点击「设为默认」只暂存选择，由顶部统一保存提交。
- */
-function PresetsTab(props: { writable: boolean; namespace?: DshNamespaceView; onSave: (id: string) => Promise<void>; sectionApi?: DshSectionApi; instanceKey?: string }) {
-	const generatedId = useId();
-	const instanceId = props.instanceKey ?? generatedId;
-	const [presets, setPresets] = useState<DshAgentPreset[]>([]);
-	const [loading, setLoading] = useState(true);
-	/** 暂存的新默认预设 id（未保存；顶部统一保存时提交）。 */
-	const [pendingDefault, setPendingDefault] = useState<string | null>(null);
-	const [saving, setSaving] = useState(false);
-	/** agent-team 实验预设（PiDeck 侧设置项，默认关）：即时写入不入统一保存；
-	 *  变更只影响之后 fork 的 host，运行中的 DSH 会话需重启才换到新组合。 */
-	const [agentTeam, setAgentTeam] = useState(false);
-	const [agentTeamLoaded, setAgentTeamLoaded] = useState(false);
-
-	useEffect(() => {
-		void desktopApi.settings
-			.get()
-			.then((settings) => {
-				setAgentTeam(settings.dshAgentTeamPreset === true);
-				setAgentTeamLoaded(true);
-			})
-			.catch(() => setAgentTeamLoaded(true));
-	}, []);
-
-	/** 切换 agent-team 预设：乐观更新 UI，写设置失败回滚；重启 host 后生效。 */
-	const toggleAgentTeam = async (checked: boolean) => {
-		const prev = agentTeam;
-		setAgentTeam(checked);
-		try {
-			await desktopApi.settings.update({ dshAgentTeamPreset: checked });
-			showNotice(t(checked ? "config.dsh.agentTeamPresetOn" : "config.dsh.agentTeamPresetOff"), 4000);
-		} catch (saveError) {
-			setAgentTeam(prev);
-			showNotice(saveError instanceof Error ? saveError.message : String(saveError), 4000);
-		}
-	};
-
-	const reload = useCallback(async () => {
-		try {
-			const list = await desktopApi.sessions.listDshAgentPresets();
-			setPresets(list);
-			setLoading(false);
-		} catch {
-			setLoading(false);
-		}
-	}, []);
-
-	useEffect(() => {
-		let cancelled = false;
-		void desktopApi.sessions
-			.listDshAgentPresets()
-			.then((list) => {
-				if (!cancelled) {
-					setPresets(list);
-					setLoading(false);
-				}
-			})
-			.catch(() => {
-				if (!cancelled) setLoading(false);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	/** 当前默认预设 id：点选「当前默认」不算修改（与改回原值同语义）。 */
-	const currentDefaultId = presets.find((preset) => preset.isDefault)?.id;
-	const dirty = pendingDefault !== null;
-
-	useEffect(() => {
-		props.sectionApi?.onDirtyChange(instanceId, dirty);
-		// 卸载时清掉本实例的脏来源，避免收起/切换后残留黄点
-		return () => props.sectionApi?.onDirtyChange(instanceId, false);
-	}, [props.sectionApi, instanceId, dirty]);
-
-	/** 统一保存：提交暂存的新默认预设（settings 文档，host 热重载）。 */
-	const save = useCallback(async (): Promise<boolean> => {
-		if (pendingDefault === null) return true;
-		setSaving(true);
-		try {
-			await props.onSave(pendingDefault);
-			setPendingDefault(null);
-			await reload();
-			// 会话头胶囊读的是共享目录缓存（utils/dshAgentPresets）：不主动刷新的话，
-			// 改完默认预设后新建会话仍显示旧默认，发出去才变成新组合。这里 force 重拉，
-			// 让已挂载的胶囊立即同步（失败不影响保存结果，胶囊侧保留重试）。
-			void refreshDshAgentPresets();
-			return true;
-		} catch (error) {
-			showNotice(error instanceof Error ? error.message : t("config.dsh.presetSetDefaultFailed"), 4000);
-			return false;
-		} finally {
-			setSaving(false);
-		}
-	}, [pendingDefault, props, reload]);
-	useEffect(() => {
-		if (!props.sectionApi) return;
-		props.sectionApi.registerSave(instanceId, save);
-		return () => props.sectionApi?.unregisterSave(instanceId);
-	}, [props.sectionApi, instanceId, save]);
-
-	if (loading) {
-		return (
-			<div className="flex min-h-32 items-center justify-center gap-2 text-control text-muted-foreground">
-				<LoaderCircle className="size-4 animate-pideck-spin" aria-hidden="true" />
-				{t("common.loading")}
-			</div>
-		);
-	}
-	return (
-		<div className="grid gap-4">
-			<p className="text-micro text-muted-foreground">{t("config.dsh.presetsHint")}</p>
-			{/* agent-team 实验预设（默认关）：PiDeck 侧开关，即时写入；组合变更需重启 host 生效 */}
-			<section className="rounded-md border border-border-subtle bg-bg-panel px-3.5 py-2.5">
-				<div className="flex items-center justify-between gap-4">
-					<div className="grid gap-0.5">
-						<span className="text-caption font-semibold text-foreground">{t("config.dsh.agentTeamPreset")}</span>
-						<p className="text-micro text-muted-foreground">{t("config.dsh.agentTeamPresetHint")}</p>
-					</div>
-					<Switch checked={agentTeam} disabled={!agentTeamLoaded} onCheckedChange={(checked) => void toggleAgentTeam(checked)} />
-				</div>
-			</section>
-			{presets.length === 0 ? (
-				<Empty text={t("config.dsh.presetsEmpty")} />
-			) : (
-				presets.map((preset) => {
-					const name = presetDisplayName(preset, t);
-					const description = presetDisplayDescription(preset, t);
-					const canSetDefault = props.writable && !preset.broken;
-					const isPending = pendingDefault === preset.id;
-					const isDefault = preset.isDefault || isPending;
-					return (
-						<section key={preset.id} className="rounded-md border border-border-subtle bg-bg-panel px-3.5 py-2.5">
-							<div className="flex items-center gap-2">
-								<span className="min-w-0 flex-1 truncate font-mono text-control font-semibold text-foreground">{name}</span>
-								{isDefault && <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-micro font-medium text-success  ">{t("config.dsh.presetDefault")}</span>}
-								{canSetDefault && (
-									<Button
-										type="button"
-										variant="secondary"
-										size="sm"
-										className="h-7"
-										disabled={saving}
-										onClick={() => {
-											const target = isPending ? null : preset.id;
-											// 选回当前默认 = 无实际变化，清掉待保存选择而不是标记脏
-											setPendingDefault(target === currentDefaultId ? null : target);
-										}}
-									>
-										{isPending ? t("config.dsh.presetPending") : t("config.dsh.presetSetDefault")}
-									</Button>
-								)}
-							</div>
-							{description && <p className="mt-1 text-micro text-muted-foreground">{description}</p>}
-							{preset.broken && <p className="mt-1 text-micro text-danger">{t("config.dsh.presetBroken", { reason: preset.broken })}</p>}
-							{!props.writable && !preset.isDefault && <p className="mt-1 text-micro text-muted-foreground">{t("config.dsh.presetNotWritable")}</p>}
-						</section>
-					);
-				})
-			)}
 		</div>
 	);
 }
@@ -1251,199 +733,4 @@ function SecurityTab(props: { namespace?: DshNamespaceView; writable: boolean; o
 			</section>
 		</div>
 	);
-}
-
-const RAW_FILES = ["settings.yaml", ".credentials.yaml"];
-
-/** 源文件 tab：与 Pi 管理 RawTab 同款——顶部文件下拉 + 编辑器。
- *  保存语义与 Pi 管理页一致：草稿变化上报脏状态，顶部统一保存提交。 */
-function RawTab(props: { homeDir: string; sectionApi?: DshSectionApi; instanceKey?: string }) {
-	const generatedId = useId();
-	const instanceId = props.instanceKey ?? generatedId;
-	const [fileName, setFileName] = useState(RAW_FILES[0]);
-	const [content, setContent] = useState("");
-	const [loaded, setLoaded] = useState(false);
-	const [dirty, setDirty] = useState(false);
-	const [saving, setSaving] = useState(false);
-	/** 当前文件从磁盘读到的内容基准：编辑改回原文即算干净，避免只记「编辑过」造成假脏。 */
-	const loadedContentRef = useRef("");
-	/** 读失败状态：区分「文件不存在/读取失败」与「空文件」，给重试入口而不是空编辑器。 */
-	const [readError, setReadError] = useState<string | null>(null);
-	/** 待切换的文件名：当前文件有未保存草稿时先弹确认，确认丢弃后才真正切换。 */
-	const [pendingFile, setPendingFile] = useState<string | null>(null);
-	/** 读失败重试计数：自增触发重读 useEffect（与切换文件同一加载链路）。 */
-	const [retryTick, setRetryTick] = useState(0);
-
-	/** 切换源文件：有未保存草稿时先确认（丢弃草稿才能切），避免静默丢失编辑。 */
-	const handleFileChange = useCallback(
-		(next: string) => {
-			if (next === fileName) return;
-			if (dirty) {
-				setPendingFile(next);
-				return;
-			}
-			setFileName(next);
-		},
-		[dirty, fileName],
-	);
-
-	// 脏状态上报（顶部统一保存/关闭确认）
-	useEffect(() => {
-		props.sectionApi?.onDirtyChange(instanceId, dirty);
-		// 卸载时清掉本实例的脏来源，避免收起/切换后残留黄点
-		return () => props.sectionApi?.onDirtyChange(instanceId, false);
-	}, [props.sectionApi, instanceId, dirty]);
-
-	/** 统一保存：写当前文件；成功返回 true。 */
-	const save = useCallback(async (): Promise<boolean> => {
-		if (!dirty) return true;
-		setSaving(true);
-		try {
-			const filePath = joinConfigPath(props.homeDir, fileName);
-			await desktopApi.files.writeContent(filePath, content);
-			// 保存成功：把基准推进到已写盘内容，后续再编辑改回它就自动变干净
-			loadedContentRef.current = content;
-			setDirty(false);
-			return true;
-		} catch (error) {
-			console.error(`[dsh-config] write ${fileName} failed:`, error);
-			showNotice(t("config.dsh.rawSaveFailed", { file: fileName, error: error instanceof Error ? error.message : String(error) }), 6000);
-			return false;
-		} finally {
-			setSaving(false);
-		}
-	}, [dirty, content, fileName, props.homeDir]);
-	useEffect(() => {
-		if (!props.sectionApi) return;
-		props.sectionApi.registerSave(instanceId, save);
-		return () => props.sectionApi?.unregisterSave(instanceId);
-	}, [props.sectionApi, instanceId, save]);
-
-	// 切换文件/目录时重新加载
-	useEffect(() => {
-		if (!props.homeDir) return;
-		let cancelled = false;
-		setLoaded(false);
-		setDirty(false);
-		setReadError(null);
-		const filePath = joinConfigPath(props.homeDir, fileName);
-		// 读取带版本号：目录被外部切换（DSH_HOME 变更）后旧目录读失败不该污染新状态
-		void desktopApi.files
-			.readContent(filePath)
-			.then((next) => {
-				if (!cancelled) {
-					setContent(next);
-					loadedContentRef.current = next;
-					setLoaded(true);
-				}
-			})
-			.catch((error: unknown) => {
-				// 读失败 ≠ 空文件：显示错误与重试入口，而不是空编辑器（空编辑器一保存就会把文件清空）
-				if (!cancelled) {
-					console.error(`[dsh-config] read ${fileName} failed:`, error);
-					setReadError(error instanceof Error ? error.message : String(error));
-					setLoaded(true);
-				}
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [props.homeDir, fileName, retryTick]);
-
-	return (
-		<div className="flex min-h-0 flex-1 flex-col gap-3">
-			<div className="flex shrink-0 items-center gap-2">
-				<Select value={fileName} onValueChange={handleFileChange}>
-					<SelectTrigger size="sm" className="w-48 font-mono">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						{RAW_FILES.map((name) => (
-							<SelectItem key={name} value={name} className="font-mono">
-								{name}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-				{dirty && <span className="size-2 rounded-full bg-warning" aria-hidden="true" />}
-				{saving && <span className="text-micro text-muted-foreground">{t("common.saving")}</span>}
-			</div>
-			{loaded ? (
-				readError ? (
-					<div className="grid gap-2 rounded-sm border border-danger/20 bg-danger-soft px-3.5 py-2.5" role="alert">
-						<p className="text-control font-medium text-danger">{t("config.dsh.rawReadFailed", { file: fileName })}</p>
-						{/* scroll-ok: transient —— 原始配置读失败的错误预览，max-h-32 封顶，重试成功即消失；错误文本通常几行，无需虚拟化 */}
-						<pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-sm border border-danger/20 bg-bg-panel/60 px-2.5 py-2 text-micro leading-relaxed text-danger/90">{readError}</pre>
-						<div>
-							<Button type="button" variant="secondary" size="sm" className="h-7" onClick={() => setRetryTick((tick) => tick + 1)}>
-								<RefreshCw className="size-3.5" aria-hidden="true" />
-								{t("config.dsh.retry")}
-							</Button>
-						</div>
-					</div>
-				) : (
-					<CodeMirrorEditor
-						value={content}
-						language="yaml"
-						height="100%"
-						onChange={(value) => {
-							setContent(value);
-							// 改回磁盘原文即算干净：脏状态按内容对比，而不是「编辑过就脏」
-							setDirty(value !== loadedContentRef.current);
-						}}
-					/>
-				)
-			) : (
-				<div className="flex h-72 items-center justify-center gap-2 text-control text-muted-foreground">
-					<LoaderCircle size={14} className="animate-pideck-spin" aria-hidden="true" />
-					{t("common.loading")}
-				</div>
-			)}
-			{/* 切文件确认：当前文件有未保存草稿时，切换下拉会丢弃草稿，必须显式确认 */}
-			{pendingFile && (
-				<ConfirmDialog
-					title={t("config.rawSwitchTitle")}
-					message={t("config.rawSwitchMessage")}
-					confirmLabel={t("config.rawSwitchConfirm")}
-					danger
-					onConfirm={() => {
-						const next = pendingFile;
-						setPendingFile(null);
-						if (next) setFileName(next);
-					}}
-					onCancel={() => setPendingFile(null)}
-				/>
-			)}
-			{/* 编辑位置说明：展示当前正在编辑的具体文件（随下拉切换），保存后由 DSH host 读取 */}
-			<div className="flex shrink-0 flex-col gap-1 rounded-md border border-border-subtle bg-bg-panel px-3 py-2">
-				<div className="flex items-baseline gap-1.5 text-micro text-muted-foreground">
-					<span className="shrink-0">{t("config.dsh.rawEditingAt")}</span>
-					<span className="min-w-0 truncate font-mono text-foreground/80" title={joinConfigPath(props.homeDir, fileName)}>
-						{joinConfigPath(props.homeDir, fileName)}
-					</span>
-				</div>
-				<span className="text-micro text-muted-foreground">{t("config.dsh.rawHostReads")}</span>
-			</div>
-		</div>
-	);
-}
-
-function DirRow(props: { label: string; path: string; onOpen: (path: string) => void }) {
-	return (
-		<div className="flex items-center gap-2 rounded-sm border border-border-subtle bg-bg-panel px-3 py-2">
-			<span className="shrink-0 text-caption text-muted-foreground">{props.label}</span>
-			<span className="min-w-0 flex-1 truncate font-mono text-micro text-foreground" title={props.path}>
-				{props.path || "—"}
-			</span>
-			{props.path && (
-				<Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 rounded-md px-2 text-control" onClick={() => props.onOpen(props.path)}>
-					{t("config.dsh.openFolder")}
-				</Button>
-			)}
-		</div>
-	);
-}
-
-function Empty(props: { text: string }) {
-	return <div className="rounded-sm border border-border-subtle bg-bg-panel px-3.5 py-8 text-center text-control text-muted-foreground">{props.text}</div>;
 }

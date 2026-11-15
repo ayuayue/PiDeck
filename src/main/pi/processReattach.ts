@@ -39,10 +39,7 @@ export interface ProcessReattachHost {
 	/** 远端重连要用当前会话文件重新 prepare 计划；缺省 = 本机产品（远端以稳定码 fail-closed）。 */
 	readonly remoteRuntime?: RemoteRuntimePort;
 	readonly remoteLaunchByAgent: Map<string, { plan: RemoteSshPiRuntimeLaunchPlan; launcher: PiRuntimeLauncher }>;
-	handshakePiProcess(
-		agentId: string,
-		options: { projectPath: string; sessionPath?: string; deckSessionId?: string; onExit: (payload: ProcessExitPayload) => void },
-	): Promise<ReattachHandshake>;
+	handshakePiProcess(agentId: string, options: { projectPath: string; sessionPath?: string; deckSessionId?: string; onExit: (payload: ProcessExitPayload) => void }): Promise<ReattachHandshake>;
 	reportSessionPathFromPi(reported: string | undefined, projectId: string, environment: SessionEnvironment, fallbackBase: string): string | undefined;
 	readonly rpcCompactingAgents: Set<string>;
 	readonly autoRestartAttempted: Set<string>;
@@ -58,13 +55,7 @@ export interface ProcessReattachHost {
 	startupHandshakeTimeoutMs(): number;
 	loadMessages(agentId: string, skipEntries?: boolean, earlyMessagesPromise?: Promise<RpcResponse>, options?: { preserveMessagesAfter?: number }): Promise<unknown>;
 	addMessage(agentId: string, role: ChatMessage["role"], text: string, meta?: Record<string, unknown>): void;
-	addLocalizedMessage(
-		agentId: string,
-		role: ChatMessage["role"],
-		i18nKey: string,
-		fallbackText: string,
-		options?: { params?: I18nParams; debugDetails?: string; meta?: Record<string, unknown> },
-	): void;
+	addLocalizedMessage(agentId: string, role: ChatMessage["role"], i18nKey: string, fallbackText: string, options?: { params?: I18nParams; debugDetails?: string; meta?: Record<string, unknown> }): void;
 	clearAgentState(agentId: string): void;
 	emitState(): void;
 }

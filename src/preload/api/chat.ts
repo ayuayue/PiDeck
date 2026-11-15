@@ -13,7 +13,6 @@ import type { QuickMessagesSaveResult, QuickMessagesSnapshot } from "../../share
 import type { ReplyActionRule, ReplyActionsSaveResult, ReplyActionsSnapshot } from "../../shared/types/replyActions";
 
 export const chatApi = {
-
 	// ── 快捷消息（独立配置文件 userData/quick-messages.json，可直接编辑） ──
 	quickMessages: {
 		get: () => ipcRenderer.invoke(ipcChannels.quickMessagesGet) as Promise<QuickMessagesSnapshot>,

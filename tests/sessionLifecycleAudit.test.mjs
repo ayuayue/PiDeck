@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { readSessionCatalogSources } from "./helpers/sessionCatalogSources.mjs";
+import { readSessionScannerSources } from "./helpers/sessionScannerSources.mjs";
 import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
@@ -92,7 +93,7 @@ test("second-wave audit: proxy, single-instance, catalog, clone/fork", () => {
 	const desktopProxy = read("main/settings/DesktopProxy.ts");
 	const singleInstance = read("main/singleInstance.ts");
 	const sessionCatalog = readSessionCatalogSources();
-	const sessionScanner = read("main/sessions/SessionScanner.ts");
+	const sessionScanner = readSessionScannerSources();
 	const visionConfig = read("main/settings/visionBridgeConfig.ts");
 	const gitIpc = read("main/ipc/gitIpc.ts");
 	const index = read("main/index.ts");

@@ -258,3 +258,269 @@
 2. **断言边界会反过来约束域边界**：timeline 的 4 个测试把两个域的正则钉死在源码文本上，正确解法是聚合 helper（`sessionTimelineControllerSources`）而不是改断言；若某条正则跨两个函数，就把这两个函数留在同一文件，域边界服从断言边界。
 3. **嵌套引号的 grep 会挂死 bash**（不是管道问题）：`grep -rn "readFileSync(\"x.ts\")\|readFileSync('x.ts')"` 引号没闭合，bash 等续行永不返回。需要匹配带引号的代码时把模式写进 `.tmp/pat.txt` 再 `grep -f`。
 4. **上游 merge 会让门禁「假红」**：`a16b7e704` 合入 origin/dev 后，`WebTimeline 935→990`、`webApi 777→790`、`WebEventStream 694→697` 与 `tests/webLayout` 新增的只读源码块全被门禁抓到。这是基线快照过期，不是本轮改动——已把这三条额度对齐当前值与 `testShapeBaseline` 刷新（在单独 commit 里注明）。
+
+## 第五轮并行波次（2026-11-13 晚，5 个子代理）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `main/index.ts` | 6131 | **6019** | `startup/appUpdate.ts 188`（更新器/扩展热更/AtomGit bypass/交付分支），`updateService` 经 `ctx.assign` 回填 |
+| `useSessionComposerController.ts` | 2767 | **1859** | `hooks/session/composer/` 四个子 hook：Generation 349 / SendInteraction 313 / DraftAssist 231 / Paste 337 |
+| `SessionScanner.ts` | 2475 | **1575** | `sessions/scanner/` 七个协作者（摘要 388 / 标题探针 260 / 消息读 196 / 根枚举 142 / 路径推导 122 / 导出 73 / 信息追加 64） |
+| `ConfigModal.tsx` | 2492 | **1899** | 改抽**子组件**：Shell / NavSidebar / Dialogs / McpTab / SkillsTab + `useConfigLoader` + `configModalStorage` |
+| `DshAgentManager.ts` | 2863 | **2382** | `dsh/manager/`：runtime 86 / projectionFrames 166 / muxFrames 268 |
+
+### 本轮的三个实测结论
+
+1. **「抽 hook」vs「抽子组件」的回收率差 3 倍**：ConfigModal 第四轮抽 hook 搬走 400+ 行宿主只减 204 行；第五轮改抽子组件，同样搬走约 600 行宿主减了 593 行。**状态 hook 适合主进程/无 JSX 的域；带 JSX 的 Tab 一律抽子组件。**
+2. **子代理写盘会带 CRLF**：`ConfigModal.tsx` 被写成 1899 行 CRLF（HEAD 是 LF，`.gitattributes` 要求 `eol=lf`），导致所有跨行正则（`\{\n`）全红，被误判成「断言漂移」。收尾时统一 `\r\n → \n` 后 1 个测试立刻恢复。**验收时要先查行尾**再改断言。
+3. **超时 ≠ 没干活**：本轮 ConfigModal 的子代理 30 分钟超时，但实际把 2492 减到 1899（超出目标），typecheck 全绿；反过来 DshAgentManager 的子代理顺利「完成」但只到 2382（目标 2200）。**行数目标只是参考，门禁与测试才是判据。**
+
+## 第六轮：首次用「关联子会话」跑拆分（2026-11-13）
+
+用 `start_session` 开了两个用户可见的关联会话（而不是 fire-and-forget 的 worker 子代理），各领一波、按轮回报：
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `main/index.ts` | 6019 | **5570** | `startup/{weChatBridge 62, soundsAndAnnouncements 75, remoteAccess 67, webService 55, webServiceContext 91, webServiceDepsRuntime 146, webServiceDepsWeb 323}` |
+| `pi/SessionHistoryReader.ts` | 2106 | **1471** | `pi/sessionReader/{sessionCardProjection 236, sessionDisplayPaging 327, sessionSubagentProjection 231}` |
+
+### 关联子会话 vs 一次性子代理（实测对比）
+
+- **更早暴露算术问题**：`index.ts` 那个会话在第一轮就回来说「四块原文只有 116 行、净减 82，离 5400 差 537」，并列出剩余可搬块、给出 (a)/(b)/(c) 三个选项让我裁决。worker 子代理通常只会默默做到超时。
+- **可见可接管**：两个会话在侧栏里能点进去看进度、能直接接管；出问题时不用猜它卡在哪。
+- **代价**：它们拿不到本会话上下文，简报必须自足（我这次每份都写了禁 codemod、禁管道、域内 tsc、边界清单）。
+- **一条纪律仍然成立**：两个会话同时在跑时**不要再开第三个写者**。我这轮刻意没有自己动手搬代码，只做验证与提交。
+
+### 本轮的三条经验
+
+1. **源码契约会反向钉住搬迁位置**：飞书 IPC 注册最终**留在了 index.ts**——`tests/portableUserData.test.mjs` 断言 `registerFeishuIpc({` 出现在入口文件里（启动序语义）。子会话把微信搬走、飞书留下，并在新文件注释里写清了原因。这是对的：域边界服从契约边界。
+2. **`check:format` 必须进每轮验证清单**：前几轮子代理用 `npx biome`（解析到 v10 错包）写盘，16 个文件不符合仓库 biome 2.3.11 的格式，CI 的 `check:format` 会红。本轮补了一个 `style:` commit 统一重排。以后门禁固定为：typecheck + check:ipc-wiring + check:test-shape + check:file-size + **check:format**。
+3. **基线要为「已合并的他人增长」单独对齐**：`7ed47961e fix(sidebar)` 把 `AgentManager` +5、`SessionTree` +1 顶过基线。处理方式与上游 merge 相同——把这两条额度对齐当前值，并在 commit message 里注明来源提交，而不是放宽整个规则。
+
+## 第七轮：关联子会话拆 FeishuBridge / CloudSyncManager（2026-11-13 深夜）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `feishu/FeishuBridge.ts` | 2349 | **1492** | `feishu/bridge/` 11 个协作者（`media 168` / `askCenter 161` / `sessionMirror 273` / `commands` / `bindings` / `outbound` / `bridgeLog` …），全部 ≤400 |
+| `cloudSync/CloudSyncManager.ts` | 2267 | **1322** | `cloudSync/manager/` 6 个协作者（`providerOAuthFlows 343` / `backupTransfer 296` / `localIndexBuilder 240` / `sessionObjectTransfer 184` / `objectIo 173` / `githubDeviceFlow 87`） |
+
+两个会话都先读了同目录的兄弟模块（feishu 已有 CardRenderer/CardStream/AskCard，cloudSync 已有 merge/EncryptionService/adapters），没有重复造轮子；FeishuBridge 那波顺带建了 `tests/helpers/feishuBridgeSources.mjs` 并迁移 5 个契约测试的读取行（断言未改），CloudSync 那波不需要新 helper。
+
+### 关联子会话第 2、3 次使用的观察
+
+- **两个会话并行、文件域完全不相交时，这条链路很稳**：两轮下来没有一次互相踩文件，也没有一次需要我在中途叫停。
+- **它们会自己发现「哪些东西不能搬」**：Feishu 那轮把 `bridgeLog` 这种宿主与协作者共用的极小工具单独抽出来（18 行），而不是硬塞进某个域；CloudSync 那轮把 provider OAuth 流程整块切走（343 行，接近上限），说明「单文件 ≤400」这个约束被当成了硬边界而不是建议。
+- 仍然成立的纪律：**并行会话期间主会话不写代码**，只做验证与提交；两个会话都 idle 之后才跑全量 tsc / 全量测试。
+
+## 第八轮：index.ts 继续外移（关联子会话，2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `main/index.ts` | 5570 | **4964** | `startup/` 新增 `acpAgents`、`dshAgents`、`dshRuntime`、`cloudSync`、`sessionRuntime`、`selectionTools`、`resourceMigration` + `window/browserPanelHost`（8 个文件，全部 ≤420） |
+
+**累计**：`index.ts` 8307 → **4964**（−40%），从全仓第 1 大降到与 `AgentManager 5859` 互换位置。
+
+### 本轮唯一一次「微调新代码去迁就既有断言」
+
+`tests/rpcLogViewer.test.mjs:426` 把这段钉成字面：
+`mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);`
+
+子会话于是在回调入口写成 `const mainWindow = currentMainWindow();` 再原样接上那句。**行为等价**（同一时机读一次窗口），我保留了它，只把当时写歪的注释改成真实原因。
+
+判断标准写在下面，供后面几轮参考：
+- ✅ **可接受**：加一行本地绑定/别名，让搬走的代码保持原有形态，行为完全不变。
+- ❌ **不可接受**：为迁就正则去改生产结构（拆函数、改参数、加转发层）。那种情况必须**改测试**（断言锁语义不锁形态），而不是改代码。
+
+### 现在的 `index.ts` 还剩什么
+
+4964 行里约一半仍是 `app.whenReady().then(...)` 装配体（`createWindow` 之后的窗口/托盘/桥接/remote-access 已经搬走，剩下的是把各个 `startXxx` 串起来的顺序代码 + `registerIpc` 的 387 行 + 若干顶层 helper：`sessionMessageSearchInFile 220`、`resolveImSessionLaunchPreferences 219`、`replaceAgentSession 201`）。继续拆的收益开始递减——剩下的多是「装配顺序」本身，抽出去只会得到一层薄转发。下一轮更适合转 `AgentManager 5859` / `session-atoms 2213` / `GitPanel 1960`。
+
+## 第九轮：AgentManager 创建域 + GitPanel 逻辑层拆分（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `pi/AgentManager.ts` | 5859 | **5259** | `agentFactoryHost 92`（窄接口，32 成员）+ `agentFactoryLocal 334` + `agentFactoryRemote 360` + `promptDispatch`；`createUnlocked` / `createRemoteUnlocked` 的实现搬走，宿主留同名薄包装（测试按实例属性替换它） |
+| `renderer/components/app/GitPanel.tsx` | 1960 | **1191** | `components/app/git/` 新增 14 个文件（≤120 行）：`gitPaneLayout` / `GitPaneSash` / `gitPanelStorage` / `gitPanelToasts` / `changeGroupSpecs` + 8 个 `useGit*` hook |
+
+### 本轮撞到的两道墙（都很典型，记下来）
+
+1. **「真渲染型」契约测试会挡住组件搬迁**：`tests/gitPanelCapabilityGate.test.mjs` 用 `loadTsCommonJs` + `stubs` 真渲染 GitPanel，stub 的 key 是「相对 `components/app/` 的模块说明符」。JSX 一搬进 `app/git/`，说明符变成 `../../ui-shadcn/*`、`../AppParts`，stub 全失配 → vm 里去加载真实模块直接崩（`window is not defined`、TS 转译 `Debug Failure`）。叠加多条顺序敏感切片（分支栏要在 `<section` 之前、三个 toolbar 的先后、PaneHeader 切片要含 `changesViewToolbar`），JSX 层**搬不动**。
+   → 应对：**逻辑层搬迁**——纯模块与 hook 搬走，JSX / DOM / testid / i18n / 依赖数组一字不动。新建的 helper 必须用**显式文件清单**，不能目录扫描整个 `git/`，否则 `GitGraph` / `GitResourceTree` 混进聚合面会打坏 `font-mono` 计数=1 那条断言。
+2. **又一个「切片锚点失效」**：`agentHistoryLoadFreeze` 用 `private async createUnlocked` → `\n\tasync rename(` 切片；搬迁后宿主只剩**非 async** 的薄包装、实现在 `agentFactoryLocal.ts`，`indexOf` 返回 -1，`slice(-1, …)` 得到空串，断言报 `actual: ''`。
+   → 修法：锚**实现**起点，再切到「下一个文件边界」（聚合面用 `// <path>` 分隔）。这类「切到下一个函数名」的断言在拆分语境下天然脆弱，以后一律改成文件边界切片。
+
+## 第十轮：SessionRuntimeCoordinator 与 AgentManager 再切（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `pi/AgentManager.ts` | 5259 | **4785** | `bashCommandRunner` / `retryStatusMessages` / `sessionFileWriter` / `sessionMessageEditor` 四个域文件 |
+| `sessions/SessionRuntimeCoordinator.ts` | 2407 | **2162** | `runtime/remoteMessageMutation`（远端消息变更 + 命令失败分类）、`runtime/runtimeBinding`（绑定与代数判定）、`runtime/sessionRuntimeCommandError`；与既有 `sessionRuntimeGateways` / `sessionRuntimePreferences` 并列 |
+
+### 两条本轮学到的
+
+1. **父代理给的「方法行数」只是参考，子会话按实读代码有权改方案**。我的扫描把字段声明算进相邻方法，于是 `hasActiveStreaming 285`、`constructor 263` 都不准（前者没那么大，后者是纯装配、无可抽初始化逻辑）。AgentManager 那个会话据此自选了 `bashCommandRunner` / `retryStatusMessages` / `sessionFileWriter` / `sessionMessageEditor` 四个中型方法组，并在报告里明确更正了我的前提。**结论：行数用来排优先级，不用来指定搬哪块。**
+2. **Coordinator 只降到 2162（目标 1800，缺口 362）**：两个域搬走后，host 侧要新增薄包装与 host 接口成员，净减被吃掉一部分。剩下的质量集中在 `activate 167` / `sendOnce 131` / `restartSession 61` 这些编排方法上——**它们和 `AgentManager.handlePiEvent` 同性质，继续硬拆只会得到转发层**。建议该文件就停在 2162 这个量级，转而处理 `session-atoms 2213` / `DshAgentManager 2382`。
+
+本轮两个会话都没有改动任何测试文件（只各改了自己的 helper 一行），全量 17384 条测试 0 失败——说明前面九轮铺的聚合 helper 网已经把「拆分就要改测试」这件事基本消掉了。
+
+## 第十一轮：DshAgentManager 拆分 + 冒烟 e2e 的连带收获（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `dsh/DshAgentManager.ts` | 2382 | **1788** | `manager/` 新增 `dshRuntimePumps 256`（控制面泵）、`dshHistoryReads 190`（历史分页/子代理历史/进程事件）、`dshModelControl 157`、`dshImageHydration 84`、`dshRuntimeState`、`dshSessionExport`；与既有 `dshMuxFrames 268` / `dshProjectionFrames 166` / `dshAgentRuntime 86` 并列 |
+
+### 本轮真正的收获不在行数上，而是冒烟 e2e 兑现了价值
+
+「先冒烟一次再继续拆」这个决定直接换来三件事：
+
+1. **发现一个存量一年多的用户可见缺陷**：预热历史接管时，父层会用「语义相同、字符串不同」的草稿 value 重渲染一次，`useTipTapComposerEditor` 的受控同步于是无条件 `setContent` + 光标兜底回文末 —— 用户在输入框中段打字会被追加到末尾。修复见 `665ccbaba`：**只有 editor 当前序列化 JSON 与目标 value 真的不同才重写内容**，文末兜底只在真重写后执行。守护测试是 `e2e/session-prewarm-history`。
+2. **确认它不是重构引入的**：在隔离 worktree 里 checkout 到 `c19bdc678^`（composer 拆分之前）重新 build 跑同一 spec，一样红（而且红得更早）。这一步很关键——没有它就只能靠猜。
+3. **把 CI 的 e2e 覆盖面从 1/133 提到 3 条整链路**（`ab776cf16`）：markdown 图片链路、启动→首发提升、预热历史+光标。本地实测 4 个 case / 26s。
+
+**教训（值得单独记）**：仓库有 133 条 e2e，CI 只跑 1 条 —— 这就是那个光标 bug 红了大半年没人发现的**唯一原因**。拆分再勤，也补不上「整链路没人跑」这个洞。
+
+## 第十二轮：session-atoms 与 App.tsx 收尾（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `atoms/session-atoms.ts` | 2213 | **896** | `session-atoms-types 129`（纯类型）、`session-cache-policy 136`（纯策略）、`session-state-atoms` / `session-message-cache-atoms` / `session-timeline-atoms` / `session-history-atoms` / `session-runtime-ui-atoms`（均 ≤400） |
+| `renderer/App.tsx` | 2762 | **2169** | `hooks/app/` 新增八个域：useAppSessionCreation 177 / useAppSessionEntrypoints 290 / useAppSettingsMirrors / useAppHistoryMutations / useAppGitBranchActions / useAppActiveProjectSync / useAppProjectScanEffects / useAppStartupWiring |
+
+### 本轮唯一容易致命的地方：atom 身份
+
+atom / atomFamily **只能整体搬家**，入口文件用 `export { x } from "./..."` 转发。一旦在新文件里重新 `atom(...)` 一份同名 atom，就会出现「两套状态」：读写方各连一份，症状是「改了 A 处 B 处不刷新」，而且 100% 没有报错——这是这批文件里唯一不能靠 typecheck 兜住的错误类型。本轮所有 atom 均为整体搬迁，未新建任何 `atom` 调用。
+
+### 十二轮之后的位置
+
+`App.tsx` 4065 → **2169**（−47%）、`session-atoms` 2213 → **896**（−60%）。剩下的大头只剩两个并行的「编排内核」：`main/index.ts 4964`、`pi/AgentManager.ts 4785`——两者的剩余质量主要是装配顺序与事件编排，继续硬拆只会得到转发壳（`SessionRuntimeCoordinator` 停在 2162 就是这个结论）。**拆分主线到这里可以收了**；后续按 `AGENTS.md` 的「谁改到哪块就拆哪块」增量执行即可。
+
+## 第十三轮：PiLocator 与 AppUtils（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/pi/PiLocator.ts` | 1464 | **885** | `piLocator/`：`piCustomPath`（自定义路径校验）、`piSearchDirs`（包管理器全局 bin / PATH / WSL 候选枚举）、`piWindowsShim 174`（`.cmd` 垫片识别、`node-direct` 还原、`cmd-shim` 回退、引号与 8k 命令行预算）、`piLaunchEnv`、`piVersionCheck 178` |
+| `renderer/components/app/AppUtils.ts` | 1379 | **48** | `appUtils/` 十二个子模块（groupMessages 376 / suggestionItems 200 / renderTypes / toolArgs / textFormat / pathMatch / outline / reconcileRuns / renderEquality / commandMenu / composerTrigger / fileNodeDrag），入口只留 `export ... from` 转发 |
+
+### 这两块的共性：都是「零风险的机械搬迁」
+
+`PiLocator` 决定「用什么命令启动 pi」，`AppUtils` 是无状态纯函数，两者都没有隐藏的时序依赖，所以能用「搬定义 + 入口转发」的方式做到 import 说明符零改动：`AppUtils.ts` 留成纯 barrel、`PiLocator` 的五份实现被入口按需引用。目标文件从「实现体量」变成「域名录」。
+
+### 顺带发现（未改，留记录）
+
+`PiLocator.wslExePath` getter **零调用方**（`SessionScanner` 有一份自己的同名实现）。存量死代码，与拆分无关；清理与否另议——按「发现但不阻塞任务的问题记录后留在原处」处理。
+
+### 一条经验：源码契约测试的引用面要跟着搬
+
+`PiLocator` 有 29 个测试引用（多个直接读源码断言命令形状），`AppUtils` 有 17 个。两轮都靠「新建 `xxxSources.mjs` 显式文件清单 + 只改读取面 + 断言一字不动」过关。**搬函数必须同时搬「断言看得见的位置」**，否则就会为了迁就正则去改生产结构——那是上一批拆分踩过的坑。
+
+## 第十四轮：RemoteHostConnectionService 与 ConfigModal（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/remote/RemoteHostConnectionService.ts` | 1821 | **1351** | `remoteHostConnectionGuards 93`（状态集 / HOST_ID / NONCE / 校验小函数）、`RemoteHostConnectionFacts 198`、`RemoteHostSecrets`、`RemotePiSessionFacts`、`RemoteProjectSessionBinding 128`、`RemoteSecurityPolicySnapshot` |
+| `src/renderer/src/ConfigModal.tsx` | 1887 | **1386** | `configModal/` 新增 11 个：`useConfigSaveOrchestration 257`（保存/关闭/丢弃编排）、`useConfigDirtyMarks`、`useConfigWriteFlow`、`useConfigLoadEffects`、`useConfigPaneBridge`、`useConfigBackendPane`、`useConfigDeepLinkFocus`、`useConfigTargetAutoSelect`、`useConfigUiPreferences`、`useModelBaseUrlAutofix`、`ConfigStatusBlock` |
+
+### 闭包工厂的拆分上限（本轮最值得记的一条）
+
+`RemoteHostConnectionService` 是「所有状态在闭包里 + 对外类型靠 `ReturnType<typeof createRemoteHostConnectionService>` 推导」的形状。这类文件的拆法有天然上限：**只要还有方法要读同一批闭包状态，外提就得先给它们开 ctx，而 ctx 一开就动到返回对象的形状**——`ReturnType` 会跟着变，那是契约变更，不在「纯搬迁」允许范围内。
+
+所以它停在 **1351**（目标 ≤1100）是对的取舍：再往下只有两条路——(a) 把 `ReturnType` 换成手写 interface 后再拆（契约变更，需要单独评估）；(b) 硬塞转发层（只得到壳）。**遇到同类形状（`ReturnType` + 巨型闭包）先看这一步，别把行数目标当硬指标。**
+
+### 一个省事的细节
+
+`tests/helpers/configModalSources.mjs` 用的是 `readdirSync(目录)` 而非显式清单，所以本轮新增 11 个文件**不用改 helper** 就自动纳入契约面。巨型「域目录」类目标优先用目录扫描；只有包含不该被断言的邻居文件（如 GitPanel 的 GitGraph）时才退回显式清单。
+
+## 第十五轮：SessionFileEditor 与 useSessionTimelineController（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/pi/SessionFileEditor.ts` | 1496 | **940** | `sessionFile/`：`sessionFileEditorError 61`（错误码 + Error 类，做成叶子解开循环依赖）、`sessionFileJsonl 175`、`sessionFileEntryTargets`、`sessionFileStorage` |
+| `renderer/hooks/useSessionTimelineController.ts` | 1813 | **1122** | `session/timeline/` 新增 4 个：`sessionTimelineControllerContract`、`timelineSurfacePolicy`、`useTimelineJumpNavigation`、`useTimelineScrollOwnership 363`（加上原有 `useTimelineHistoryPaging` / `useTimelineScrollAnchor`） |
+
+### 本轮最有价值的一条：读写用户数据的搬迁要「差分验证」
+
+`SessionFileEditor` 负责改写 **pi 正在使用的会话 JSONL**，行为差异会直接毁数据。这轮的做法是：拆完后用脚本把**旧实现（`git show HEAD:` 版）与新实现**同时跑 24 个场景，逐项比对**输出文件字节 / 备份文件名 / 错误码 / 错误消息**，全部一致才算过。
+
+这比「测试绿」强得多——现有测试覆盖不到的组合（空文件、只有 header、重复 entryId、WSL 路径、写一半失败）正是差分脚本能兜住的地方。**以后任何「读写用户数据 / 落盘 / 迁移」类的搬迁，都该用这个动作收尾**，而不是只跑单测。
+
+### 一条断言的处置方式（与「断言锁语义不锁形态」一致）
+
+`scrollToLatestOnSend` 那条 gate 的源码断言差点逼着去改生产形状（把 store 引用改成闭包捕获）。子代理的处理是对的：**保持原形态——注入 `store` + atom keys**，一个字没动断言。反过来（为了迁就正则改生产结构）就是上一批拆分踩过的坑。
+
+## 第十六轮：ConfigManager 与 DshConfigTab（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/config/ConfigManager.ts` | 1560 | **966** | `configModelTypes 85`（纯类型，宿主 `export type ... from` 转发）、`providerUsageEndpoint`、`providerUsageHost`、`providerUsageProbes`、`providerUsageQueries`（用量与探测域整体外提） |
+| `renderer/src/config/DshConfigTab.tsx` | 1449 | **736** | `config/dsh/` 六个：`DshConfigOverview`（原 `Overview` 子组件整段）、`dshConfigNav`（NAV_ITEMS + localStorage 记忆）、`dshConfigTypes`、`DshConfigEmpty`、`DshConfigPresetsTab`、`DshConfigRawTab` |
+
+### 边界案例：把内联语句抽成具名函数，算不算纯搬迁
+
+`DshConfigTab` 里原来有两处内联写：
+
+```ts
+const selectTab = useCallback((id: string) => {
+	setActiveTab(id);
+	try { localStorage.setItem(DSH_LAST_TAB_KEY, id); } catch { /* 隐私模式 */ }
+}, []);
+```
+
+搬迁时它把 try/catch 抽成了 `rememberDshLastTab(id)` 具名函数。判定标准是三条**同时**满足才算等价、可以接受：
+
+1. **同步调用**（没变成异步 / 没加防抖节流 / 没延后到 effect）
+2. **key 与值相同**（`DSH_LAST_TAB_KEY` + 同一个 id）
+3. **时机与顺序相同**（仍在 `setActiveTab` 之后紧邻执行）
+
+三条里任一不成立就必须打回。这条写在这里是因为「为了搬得干净，顺手把内联代码抽成函数」是很容易越界的一步——它看着无害，但把「同步写」悄悄变成「effect 里写」就会改变可观察行为。
+
+## 第十七轮（收尾）：AcpAgentManager 与 DshHost（2026-11-13）
+
+| 目标 | 前 | 后 | 落地形态 |
+|---|---:|---:|---|
+| `src/main/acp/AcpAgentManager.ts` | 1289 | **941** | `acpRuntimeDiagnostics`（stderr 尾部 / 超时常量）、`AcpRuntimeLifecycle`（bootstrap/respawn）、`AcpConfigOptions`、`acpRuntimeTeardown`、`acpSessionMessages`；`acpAgentRuntime.ts` 新增 `buildAcpAgentRuntime`（原类内联 runtime 字面量） |
+| `src/main/dsh/DshHost.ts` | 1212 | **808** | `dshHostEnv 35`（纯 helper 第一刀）、`dshHostSettings 238`、`dshHostCatalog 121`、`dshHostArchive 162`、`dshHostPlugins 155`、`dshHostSessions 78` |
+
+### 一条核对方法：类内联字面量外提成 builder
+
+`AcpAgentManager` 里 `const runtime: AcpAgentRuntime = { … }` 有 30 个字段，外提成 `buildAcpAgentRuntime(args)` 时逐项比对过 HEAD 版本：字段名、字段顺序、默认值（`""` / `0` / `null` / `false` / 空 Map/Set/数组）全部一致；唯一差别是 `permissions: new AcpPermissionRequests(...)` 改由调用方构造传入——构造函数依赖 `this.emit` 与 `this.deps`，只能留在宿主。
+
+**判据**：字面量外提只要保证「字段清单 + 默认值 + 构造时机」三点一致就等价；把依赖注入进 builder 时，必须在注释里写明「由谁构造、为什么不能在里面造」，否则下一个人会以为可以在里面 new。
+
+### 拆分要连带修文档指针
+
+`docs/acp-replay-batching-plan.md` 与 `docs/maintenance-domains.md` 里有 `AcpAgentManager.bootstrapRuntime` / `AcpAgentManager.ts:598` 这类**指向实现位置的指针**。方法搬到 `AcpRuntimeLifecycle.ts` 后指针立刻失效——文档比代码更不可信，比没有文档更糟。本轮把这类指针一并改到新文件。**以后凡是搬走被文档点名的函数，同批扫一遍 `docs/` 里的 `文件名:行号`。**
+
+---
+
+## 专项波次到此关闭
+
+十七轮做完的真实数字（据基线首版与当前对比，别拿文件个数当成绩）：
+
+| 口径 | 基线首版 | 现在 |
+|---|---:|---:|
+| `>600 行` 文件数（hard 基线条数） | 108 | 107 |
+| `≥2000 行` | 14 | **4** |
+| `1200–1999` | 19 | 19 |
+| `600–1199` | 75 | 84 |
+| 基线内总行数 | 132,817 | **109,420（−17.6%）** |
+
+**文件个数几乎没动，是因为大部分文件是「缩到下一档」而不是「跌出 600」**——真正的成绩是大文件塌方（`≥2000` 从 14 降到 4）与基线内总行数少了 2.3 万行。剩下 `≥1200` 的 23 个已全部属于三类：
+
+1. **编排内核**：`main/index.ts 4964`、`pi/AgentManager.ts 4785`、`App.tsx 2169`、`SessionRuntimeCoordinator 2162`、`SessionCatalog/SessionScanner/SessionHistoryReader/DshAgentManager/FeishuBridge/CloudSyncManager`——再拆只剩转发壳或得改契约。
+2. **契约单点**：`shared/ipc.ts 1508`、`shared/types/settings.ts 1344`——铁律要求一处定义，拆开即破。
+3. **桶文件**：`SessionTabsBar 1537`、`SurfaceComponents 1532`、`ComposerComponents 1402`、`SidebarComponents 1349`、`SessionMessageTimeline 1223`——能用 `loadTsCommonJs` + 相对说明符 stub 真渲染，搬 JSX 会让 stub 全失配，单文件成本翻倍。
+
+后续**不再开专项波次**，改按 `AGENTS.md` 的增量规则执行：改到哪个文件就把新逻辑放进新模块，让行数只降不升（`check:file-size` 基线已收紧到当前水位，回涨会被 pre-commit 与 CI 同时挡住）。
+
+### 文档里的「文件:行号」指针：活动文档改符号，记录保持原样
+
+拆分会让 `docs/` 里的 `Foo.ts:123` 一类实现指针成片失效。2026-11-13 用只读脚本扫了一遍：`docs/` 共 924 处指针，**22 处行号已超出文件实际行数**（必然失效）。
+
+处置分两类，别一刀切：
+
+| 文档类型 | 处置 | 理由 |
+|---|---|---|
+| **活动文档**（设计稿、计划、维护域说明） | 改成**符号或文件名**，不钉行号 | 行号是移动靶；写 `acpMessagePage`（`src/main/acp/acpMessagePage.ts`）比写 `sessionIpc.ts:1638` 寿命长得多 |
+| **归档与记录**（`docs/archive/**`、验收日志、验证记录、review 记录） | **保持原样不动** | 它们是"某时点看到的是这行"的证据；改掉等于篡改历史 |
+
+判定失效的最省事办法：`行号 > 文件当前行数` 必定失效（脚本几十行，扫完 924 处约 0.5 秒）。行号仍在范围内但不指原内容的，只能靠人读——所以活动文档干脆别钉行号。

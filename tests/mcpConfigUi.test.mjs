@@ -11,7 +11,10 @@ test("ConfigModal wires an MCP tab without bloating loadConfig into MCP CRUD", (
 	assert.match(modal, /id: "mcp"/);
 	assert.match(modal, /CONFIG_TABS: readonly ConfigTab\[] = \["models", "auth", "oauth", "settings", "trust", "mcp", "raw"\]/);
 	// MCP 页固定全局作用域：父层只传导入扫描的项目来源 + 脏回调，不再下发项目列表/作用域
-	assert.match(modal, /<McpTab[\s\S]{0,160}?activeProjectId=\{projectId\}[\s\S]{0,160}?onDirtyChange=\{handleMcpDirtyChange\}/);
+	// MCP 页整块已迁入 config/configModal/ConfigMcpTab：脏回调在子组件内以 onDirtyChange 透传，
+	// 父层（ConfigModal）仍然注入 handleMcpDirtyChange —— 串起来看两跳，语义不变。
+	assert.match(modal, /<McpTab[\s\S]{0,160}?activeProjectId=\{projectId\}[\s\S]{0,160}?onDirtyChange=\{onDirtyChange\}/);
+	assert.match(modal, /<ConfigMcpTab[\s\S]{0,900}?onDirtyChange=\{handleMcpDirtyChange\}/);
 	assert.match(modal, /case "config:mcp":/);
 	assert.match(modal, /api\.config\.getMcp/);
 	assert.match(modal, /rawFileName === "mcp\.json"/);

@@ -6,7 +6,26 @@
 import { ipcRenderer } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { subscribe } from "./ipcHelpers";
-import type { AppLogEntry, AppLogPage, AppLogQuery, NpmAvailabilityResult, PiCliUpdateResult, PiInstallExecResult, PiInstallStatus, PiInstallation, PiReleaseNotesPayload, PiRuntimeNodeInstallResult, PiRuntimeNodeStatus, PiUpdateCheckResult, SessionRuntimeTarget, TerminalDataEvent, TerminalExitEvent, TerminalShell, TerminalTab, TerminalTarget } from "../../shared/types";
+import type {
+	AppLogEntry,
+	AppLogPage,
+	AppLogQuery,
+	NpmAvailabilityResult,
+	PiCliUpdateResult,
+	PiInstallExecResult,
+	PiInstallStatus,
+	PiInstallation,
+	PiReleaseNotesPayload,
+	PiRuntimeNodeInstallResult,
+	PiRuntimeNodeStatus,
+	PiUpdateCheckResult,
+	SessionRuntimeTarget,
+	TerminalDataEvent,
+	TerminalExitEvent,
+	TerminalShell,
+	TerminalTab,
+	TerminalTarget,
+} from "../../shared/types";
 import type { AcpToolConfig, AcpToolInput, AcpToolValidation } from "../../shared/types/acp";
 import type { ModelTraceRecord } from "../../shared/types/modelTrace";
 import type { RpcLogBatch, RpcLogEntry } from "../../shared/types/rpcLog";

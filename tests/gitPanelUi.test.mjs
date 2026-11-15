@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import { readRendererStyles } from "./helpers/rendererStyles.mjs";
+import { gitPanelSource } from "./helpers/gitPanelSources.mjs";
 
 import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
 import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
-const panel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+const panel = gitPanelSource;
 const resourceTree = readFileSync("src/renderer/src/components/app/git/GitResourceTree.tsx", "utf8");
 const graph = readFileSync("src/renderer/src/components/app/git/GitGraph.tsx", "utf8");
 const panelControls = readFileSync("src/renderer/src/components/app/git/GitPanelControls.tsx", "utf8");

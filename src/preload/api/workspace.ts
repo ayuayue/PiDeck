@@ -7,7 +7,26 @@ import { ipcRenderer, webUtils } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { subscribe, clipboardSync } from "./ipcHelpers";
 import type { CustomThemeListItem } from "../../shared/customThemes";
-import type { AvailableModel, CreateProjectSkillInput, FileContentSearchResult, FileManagerInfo, FileTreeNode, ModelListReport, ModelSpec, PasteFileWriteInput, PasteFileWriteResult, PiSkillSummary, Project, ProjectFileAccessScope, ProjectFileTarget, ProjectInheritedResourceToggleInput, ProjectResourceDirectoryKind, ProjectResourceDiscoveryResult, ProjectResourceListResult, ProjectResourceOverrides } from "../../shared/types";
+import type {
+	AvailableModel,
+	CreateProjectSkillInput,
+	FileContentSearchResult,
+	FileManagerInfo,
+	FileTreeNode,
+	ModelListReport,
+	ModelSpec,
+	PasteFileWriteInput,
+	PasteFileWriteResult,
+	PiSkillSummary,
+	Project,
+	ProjectFileAccessScope,
+	ProjectFileTarget,
+	ProjectInheritedResourceToggleInput,
+	ProjectResourceDirectoryKind,
+	ProjectResourceDiscoveryResult,
+	ProjectResourceListResult,
+	ProjectResourceOverrides,
+} from "../../shared/types";
 import type { NoticeHistoryFileEntry, NoticeHistoryRecordInput } from "../../shared/types/noticeHistory";
 import type { UserDataNameMigrationNotice } from "../../shared/types/userDataMigration";
 import type { WallpaperEngineItem, WallpaperEngineListResult } from "../../shared/wallpaperEngine";

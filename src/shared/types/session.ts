@@ -24,8 +24,8 @@ export type ChatMessage = {
 	images?: ImageContent[]; // 用户消息附件 / 工具结果里内联的图片
 	/** 生视频产物（meta.videoGen 消息）：只有落盘 ref 形态，展示走 pideck-video:// 协议 */
 	videos?: VideoContent[];
-	/** 思考内容：来自 thinking 内容块，用于展示模型推理过程 */
-	thinking?: string;
+	/** 思考内容：来自 thinking 内容块，用于展示模型推理过程 */ thinking?: string;
+	/** 去掉思考副本的正文（assistant 且带思考时提供）；`text` 自带 `<thinking>` 副本，保持原样 */ textWithoutThinking?: string;
 	/** 思考段开始时间（可选；缺省回退 message.timestamp） */
 	thinkingStartedAt?: number;
 	/** 思考段结束时间（可选；缺省回退 message.timestamp） */
@@ -634,15 +634,7 @@ export type SessionUiResponseInput = {
 	response: AgentUiResponse;
 };
 
-/**
- * 会话分支树的**扁平**节点（pi get_tree RPC 的瘦身投影）：主进程在 IPC 边界截断预览文本，
- * 渲染层按 `parentId` 自行重组 children。
- *
- * 为什么扁平：退化链（无分叉的长会话）的嵌套深度 = 条目数，实测 2467 层。嵌套对象过
- * `ipcRenderer.invoke` 时 Electron 的结构化克隆会栈溢出，回复发不出去、Promise 既不 resolve
- * 也不 reject，面板永久停在 loading（#553）。扁平表把深度挡在传输层之外；渲染层重组用的是
- * 普通 JS 递归，2467 层实测安全。
- */
+/** 分支树节点（扁平投影：不再带 children；为何扁平与 2467 层实测见 branchTreeView.hydrateBranchTree，#553）。 */
 export type SessionBranchNode = {
 	id: string;
 	parentId: string | null;
@@ -657,8 +649,7 @@ export type SessionBranchNode = {
 };
 
 export type SessionBranchTree = {
-	/** 全量节点，按文件追加顺序（同父兄弟的相对顺序即数组顺序）。 */
-	nodes: SessionBranchNode[];
+	/** 全量节点，按文件追加顺序（同父兄弟的相对顺序即数组顺序）。 */ nodes: SessionBranchNode[];
 	/** 当前叶子（活跃分支末端）；空会话为 null。 */
 	leafId: string | null;
 };

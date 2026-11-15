@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { gitPanelSource } from "./helpers/gitPanelSources.mjs";
 
 const gitIpc = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
 const mainIndex = mainIpcSource;
@@ -9,7 +10,7 @@ const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8")
 const settingsTypes = readFileSync("src/shared/types/settings.ts", "utf8");
 const settingsModal = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
 const gitTab = readFileSync("src/renderer/src/components/app/settings/GitTab.tsx", "utf8");
-const gitPanel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+const gitPanel = gitPanelSource;
 const gitAtoms = readFileSync("src/renderer/src/atoms/git-atoms.ts", "utf8");
 const gitTypes = readFileSync("src/shared/types/git.ts", "utf8");
 const gitService = readFileSync("src/main/git/GitService.ts", "utf8");

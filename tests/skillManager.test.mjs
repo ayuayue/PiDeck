@@ -295,14 +295,14 @@ test("installUsageProbeTemplate copies the bundled template into the PiDeck-only
 	await withTemporaryHome(async (home) => {
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
-		const result = await manager.installUsageProbeTemplate();
+		const result = await manager.installTemplate("usage-probe");
 		assert.equal(result.success, true);
 		const target = join(home, ".pi", "agent", "pideck-skills", "usage-probe", "SKILL.md");
 		const written = readFileSync(target, "utf8");
 		assert.match(written, /name: usage-probe/);
 		assert.match(written, /usage-probes\.json/);
 		// 幂等覆盖：重复安装不报错、内容一致（用户自定义配置在 usage-probes.json，不在此模板文件）
-		const again = await manager.installUsageProbeTemplate();
+		const again = await manager.installTemplate("usage-probe");
 		assert.equal(again.success, true);
 		assert.equal(readFileSync(target, "utf8"), written);
 	});
@@ -313,7 +313,7 @@ test("installTemplate 保留用户对内置技能的禁用标记（重启覆盖�
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
 		// 1. 首次启动安装模板
-		const first = await manager.installUsageProbeTemplate();
+		const first = await manager.installTemplate("usage-probe");
 		assert.equal(first.success, true);
 		const target = join(home, ".pi", "agent", "pideck-skills", "usage-probe", "SKILL.md");
 		const settings = { disabledSkills: [] };
@@ -328,7 +328,7 @@ test("installTemplate 保留用户对内置技能的禁用标记（重启覆盖�
 		await manager.toggle(target, false);
 		assert.deepEqual(settings.disabledSkills, ["usage-probe"]);
 		// 3. 模拟重启：main/index.ts 启动时 fire-and-forget 再次安装模板
-		const second = await manager.installUsageProbeTemplate();
+		const second = await manager.installTemplate("usage-probe");
 		assert.equal(second.success, true);
 		// 4. PiDeck settings 禁用列表在模板覆盖后仍保留。
 		const { skills } = await manager.list();
@@ -343,19 +343,36 @@ test("installImageGenTemplate copies the bundled image-gen skill into the PiDeck
 	await withTemporaryHome(async (home) => {
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
-		const result = await manager.installImageGenTemplate();
+		const result = await manager.installTemplate("image-gen");
 		assert.equal(result.success, true);
 		const target = join(home, ".pi", "agent", "pideck-skills", "image-gen", "SKILL.md");
 		const written = readFileSync(target, "utf8");
 		assert.match(written, /name: image-gen/);
 		assert.match(written, /images\/generations/);
 		// 幂等覆盖：重复安装不报错、内容一致
-		const again = await manager.installImageGenTemplate();
+		const again = await manager.installTemplate("image-gen");
 		assert.equal(again.success, true);
 		assert.equal(readFileSync(target, "utf8"), written);
 	});
 });
 
+test("installPideckWebApiTemplate copies the bundled web-api skill into the PiDeck-only skills dir", async () => {
+	await withTemporaryHome(async (home) => {
+		const { SkillManager } = loadSkillManagerModule();
+		const manager = new SkillManager(home);
+		const result = await manager.installTemplate("pideck-web-api");
+		assert.equal(result.success, true);
+		const target = join(home, ".pi", "agent", "pideck-skills", "pideck-web-api", "SKILL.md");
+		const written = readFileSync(target, "utf8");
+		// 名字与端点锚：技能讲的是 PiDeck 独有的 web 服务，装错文件这两条立刻红。
+		assert.match(written, /name: pideck-web-api/);
+		assert.match(written, /\/api\/chat/);
+		// 幂等覆盖：重复安装不报错、内容一致
+		const again = await manager.installTemplate("pideck-web-api");
+		assert.equal(again.success, true);
+		assert.equal(readFileSync(target, "utf8"), written);
+	});
+});
 test("legacy 内置技能整目录迁到 PiDeck 目录：旧位置消失、附加文件保留", async () => {
 	await withTemporaryHome(async (home) => {
 		const { SkillManager } = loadSkillManagerModule();
@@ -364,7 +381,7 @@ test("legacy 内置技能整目录迁到 PiDeck 目录：旧位置消失、附�
 		await createSkillFile(join(legacyDir, "SKILL.md"), "image-gen");
 		await writeFile(join(legacyDir, "notes.txt"), "keep me", "utf8");
 
-		const result = await manager.installImageGenTemplate();
+		const result = await manager.installTemplate("image-gen");
 		assert.equal(result.success, true);
 		assert.equal(existsSync(legacyDir), false);
 		const migratedDir = join(home, ".pi", "agent", "pideck-skills", "image-gen");
@@ -394,7 +411,7 @@ test("legacy 内置技能是软链时不动用户的链接与库文件", async (
 
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
-		const result = await manager.installImageGenTemplate();
+		const result = await manager.installTemplate("image-gen");
 		assert.equal(result.success, true);
 		// 链接与库文件原样保留（不是 PiDeck 建的东西），新副本落在 PiDeck 目录
 		assert.equal(lstatSync(legacyLink).isSymbolicLink(), true);
@@ -407,8 +424,8 @@ test("getBundledSkillLoadPaths 只返回存在且已启用的内置技能目录"
 	await withTemporaryHome(async (home) => {
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
-		await manager.installUsageProbeTemplate();
-		await manager.installImageGenTemplate();
+		await manager.installTemplate("usage-probe");
+		await manager.installTemplate("image-gen");
 		// 跨 vm realm 的数组原型不同，先复制成本 realm 数组再比较
 		assert.deepEqual(
 			Array.from(manager.getBundledSkillLoadPaths(), (path) => basename(path)),

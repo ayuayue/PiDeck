@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { dshAgentManagerSource as dshManagerSource } from "./helpers/dshAgentManagerSources.mjs";
 
 /**
  * DSH 会话统计挂载护栏：host 必须挂官方 dsh-session-stats（dsh-web StatsLine 同源），
@@ -32,7 +33,7 @@ test("hostEntry composition inserts the session-stats plugin row", () => {
 });
 
 test("runtime state falls back to message-derived turns when sessionStats is missing", () => {
-	const src = readFileSync(join(repoRoot, "src/main/dsh/DshAgentManager.ts"), "utf8");
+	const src = dshManagerSource;
 	assert.match(src, /deriveSessionStatsFallback/);
 	assert.match(src, /sessionStatsRaw = runtime\.sessionStats \?\? deriveSessionStatsFallback\(runtime\.messages\)/);
 	assert.match(src, /this\.emitRuntimeState\(agentId\)/);

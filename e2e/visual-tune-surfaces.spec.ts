@@ -95,8 +95,9 @@ async function runSurfaces(window: Page, prefix: string) {
 	await window.waitForTimeout(800);
 	await shot(window, `${prefix}32-drawer-browser`);
 
-	// 收起抽屉再截弹窗，避免右侧内容干扰
-	await window.locator(".header-drawer-toggle").first().click();
+	// 收起抽屉再截弹窗，避免右侧内容干扰。
+	// 抽屉打开时 Tab 栏的开关会隐藏（开关并入抽屉活动栏左端），再点一次激活的 rail tab 收回。
+	await window.getByTestId("drawer-rail-browser").click();
 	await window.waitForTimeout(300);
 
 	// 4. 设置弹窗

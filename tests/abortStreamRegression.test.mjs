@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 
 /**
  * 回归护栏：手动停止后不应再把“系统状态”写进时间线，
@@ -42,7 +43,7 @@ test("abort feedback is toast-only and seals stream generation", () => {
 
 	// 5) 前端 notice 走 runtime bridge toast；abort 后 live 思考由 agents:thinking done 清通道
 	const bridge = readFileSync("src/renderer/src/hooks/useSessionRuntimeBridge.ts", "utf8");
-	const atoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+	const atoms = sessionAtomsSource;
 	assert.match(bridge, /agents:notice/);
 	assert.match(bridge, /showNotice\(/);
 	assert.match(atoms, /agents:thinking/);

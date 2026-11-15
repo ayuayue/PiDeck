@@ -3,6 +3,7 @@ import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 import test from "node:test";
 
 const scrollerSource = readFileSync("src/renderer/src/components/agents/message-scroller.tsx", "utf8");
@@ -196,7 +197,7 @@ test("TurnRow liveInterimId requires an active text stream", () => {
 	const liveMountSource = readFileSync("src/renderer/src/components/session/timeline/liveMount.ts", "utf8");
 	assert.match(liveMountSource, /if \(!input\.liveTextActive\) return undefined;/);
 	// 派生 atom 输出 streaming 或 held 位（session 级单槽）
-	const atomsSource = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+	const atomsSource = sessionAtomsSource;
 	assert.match(atomsSource, /liveTextStreamingBySessionAtom = atomFamily/);
 	assert.match(atomsSource, /liveTextActiveBySessionAtom = atomFamily/);
 	assert.match(atomsSource, /map\[sessionId\]\?\.streaming === true \|\| map\[sessionId\]\?\.held === true/);

@@ -113,6 +113,22 @@ export function compareProjectChildren(left: ProjectChildItem, right: ProjectChi
 }
 
 /**
+ * 关联子会话的运行时行不能在顶层再出现一次：它的唯一视觉入口是父会话下面那一行。
+ * 首选 `agent.deckSessionId`；它缺失时（standby 认领的池化进程曾漏带这份身份）用 catalog 的
+ * `sessionId → agentId` 绑定兜底，否则同一子会话会被画成「父会话下的子行 + 顶层 agent 行」两条。
+ * 父会话不在列表里的子会话仍按普通行为（此处只处理能确认属于子会话的运行时行）。
+ */
+export function filterLinkedChildAgents(agents: readonly AgentTab[], linkedChildIds: ReadonlySet<string>, runtimeBySessionId: Readonly<Record<string, { agentId?: string } | undefined>>): AgentTab[] {
+	if (linkedChildIds.size === 0) return [...agents];
+	const boundChildAgentIds = new Set<string>();
+	for (const childId of linkedChildIds) {
+		const agentId = runtimeBySessionId[childId]?.agentId;
+		if (agentId) boundChildAgentIds.add(agentId);
+	}
+	return agents.filter((agent) => !boundChildAgentIds.has(agent.id) && (!agent.deckSessionId || !linkedChildIds.has(agent.deckSessionId)));
+}
+
+/**
  * 统一列表（Agent/历史会话行）已占用的 catalog Session ID。
  * draft 区块必须排除这些 ID，否则启动后会出现「draft 标题行 + Agent 行」重复入口。
  */

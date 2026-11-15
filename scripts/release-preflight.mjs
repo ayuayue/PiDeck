@@ -54,6 +54,10 @@ export function parsePreflightArgs(argv) {
 	return args;
 }
 
+/** 走 PATH 的命令行工具（biome 等）。Windows 上 npm 装的是 .cmd shim，所以用 shell。 */
+function cliStep(label, cmd, args = []) {
+	return { label, file: cmd, args, shell: true };
+}
 function scriptStep(label, scriptPath, args = []) {
 	return { label, file: process.execPath, args: [scriptPath, ...args] };
 }
@@ -107,7 +111,9 @@ export function buildLanes({ testConcurrency, e2e }) {
 			id: "format",
 			label: "biome 格式检查",
 			timeoutMs: 5 * MIN,
-			steps: [scriptStep("biome format（check 模式）", join(ROOT, "node_modules/@biomejs/biome/bin/biome"), ["format", "src", "tests", "scripts", "e2e"])],
+			// 2026-11-15：原写法硬编码 node_modules/@biomejs/biome/bin/biome，依赖不全的克隆上恒红，
+			// 而 npm run check:format 走 PATH 是绿的——同一个检查两套入口，一处绿一处红。改成走 PATH。
+			steps: [cliStep("biome format（check 模式）", "biome", ["format", "src", "tests", "scripts", "e2e"])],
 		},
 		{ id: "release", label: "发布一致性", timeoutMs: 10 * MIN, steps: releaseSteps() },
 	];
@@ -318,8 +324,26 @@ async function main() {
 	writeFileSync(join(reportDir, "latest.json"), JSON.stringify(report, null, "\t"));
 
 	console.log(`\n报告：${relative(ROOT, reportFile)}（另存 latest.json）`);
-	console.log(ok ? "✅ 全部通过" : `❌ ${failures.length} 个步骤失败`);
-	process.exitCode = ok ? 0 : 1;
+	// 环境不全 vs 检查不合格：两者都是「没通过」，但读的人要做的事相反。
+	// 2026-11-15 实测：node_modules 空的克隆上 release 泳道三步全红，原因全是 Cannot find module，
+	// 而失败长相与「代码不合格」完全一样（都是 rc=1）。判法是看失败输出是否命中依赖缺失的特征文本。
+	// 白名单只有三种：宁可把依赖问题当代码问题（假红），也不反过来（假绿）。
+	// 第四条是实测补的：把 node_modules/@earendil-works 改名后，pi-ai 那步报的是
+	// 「pi-ai package.json not found: …\node_modules\@earendil-works\pi-ai\package.json」，
+	// 前三条一条都不命中，于是 rc 仍是 1——坏样本把这个白名单打回去了一次。
+	const ENV_MISSING = [/Cannot find module '([^']+)'/, /MODULE_NOT_FOUND/, /ENOENT[^\n]*node_modules/, /not found[^\n]*node_modules/i];
+	const envGaps = failures.map(({ lane, step }) => {
+		const hit = ENV_MISSING.map((re) => String(step.output || "").match(re)).find(Boolean);
+		return hit ? { lane, step, hit } : null;
+	});
+	const allEnv = failures.length > 0 && envGaps.every(Boolean);
+	if (allEnv) {
+		console.log("\n⚠ 环境不全（这些步骤没跑成，不是代码不合格）：");
+		for (const g of envGaps) console.log("  " + g.lane + " / " + g.step.label + " → 缺 " + (g.hit[1] || "依赖"));
+		console.log("先修环境再跑：npx -y npm@11.6.2 ci（本机 npm 主版本与 engines 不一致时用这个）");
+	}
+	console.log(allEnv ? "⚠ 环境不全" : ok ? "✅ 全部通过" : "❌ " + failures.length + " 个步骤失败");
+	process.exitCode = ok ? 0 : allEnv ? 2 : 1;
 }
 
 // Ctrl+C / SIGTERM 时清理全部子树再退出，不留孤儿测试进程

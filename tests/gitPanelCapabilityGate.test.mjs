@@ -13,8 +13,9 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { gitPanelSource } from "./helpers/gitPanelSources.mjs";
 
-const source = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+const source = gitPanelSource;
 const h = React.createElement;
 
 /** Observable stubs: the panel renders for real, its heavy children are recorded instead. */

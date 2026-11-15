@@ -9,8 +9,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { gitPanelSource } from "./helpers/gitPanelSources.mjs";
 
-const panel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+const panel = gitPanelSource;
 const policy = readFileSync("src/renderer/src/hooks/git/useGitAutoRefresh.ts", "utf8");
 // 策略 hook 在前、面板在后：旧测试的「readAheadBehind / refresh」切片仍落在面板段。
 const source = policy + panel;

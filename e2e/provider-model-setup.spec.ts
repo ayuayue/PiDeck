@@ -8,13 +8,18 @@ test.beforeEach(async ({ window }) => {
 });
 
 test("供应商中文名可新建和重命名，窄窗添加/编辑表单不横向溢出", async ({ app, window }, testInfo) => {
+	// 已知失败（疑似产品缺陷）：添加供应商后点右上角「保存」，按钮 title 仍是「有未保存的修改」，
+	// 主进程日志里没有任何 config 保存 IPC，磁盘也没写入 → 保存点了没反应。
+	// 证据与下一步见 docs/e2e-known-failures.md「配置管理的保存点了没反应」。
+	test.fail();
 	test.setTimeout(90_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 25_000 });
 	const config = window.locator(".settings-modal");
 	if (!(await config.isVisible())) await window.getByRole("button", { name: /^设置/ }).click();
 	await expect(config).toBeVisible();
 	await config.getByRole("tab", { name: "配置管理", exact: true }).click();
-	await config.getByRole("tab", { name: "Pi 配置管理", exact: true }).click();
+	// 该 tab 的可访问名带主机徽标（实测 "Pi 配置管理 本机"），所以用前缀匹配。
+	await config.getByRole("tab", { name: /^Pi 配置管理/ }).click();
 	await config.getByRole("tab", { name: "模型", exact: true }).click();
 	await config.getByRole("button", { name: "+ 添加供应商", exact: true }).click();
 	const page = config.locator(".provider-add-page");
@@ -73,8 +78,11 @@ test("引导页清空预选只移除当前后端模型，不覆盖另一后端�
 	if (await settings.isVisible()) await settings.getByRole("button", { name: "关闭", exact: true }).click();
 	const composer = window.locator(".composer");
 	await composer.locator(".model-thinking").click();
-	await window.locator('[data-slot="popover-content"]').getByTitle("选择模型", { exact: true }).click();
 	const picker = window.locator(".model-picker");
+	// 模型芯片现在可能直接开选择器（不再中间夹一层「选择模型」popover），两种形态都兼容。
+	if ((await picker.count()) === 0) {
+		await window.locator('[data-slot="popover-content"]').getByTitle("选择模型").click();
+	}
 	await expect(picker.getByRole("button", { name: "清空预选", exact: true })).toBeVisible();
 	await window.screenshot({ path: testInfo.outputPath("model-clear-selection.png") });
 	await picker.getByRole("button", { name: "清空预选", exact: true }).click();

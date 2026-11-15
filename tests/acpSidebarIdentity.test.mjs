@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 
 /**
  * ACP 会话身份回归（tab/侧栏 logo 丢失 + 运行态 backend 被渲染层丢弃）：
@@ -14,7 +15,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
-const sessionAtoms = read("src/renderer/src/atoms/session-atoms.ts");
+const sessionAtoms = sessionAtomsSource;
 const sessionRecordDisplay = read("src/renderer/src/utils/sessionRecordDisplay.ts");
 const sourceBadge = read("src/renderer/src/components/session/SessionSourceBadge.tsx");
 const tabsBar = read("src/renderer/src/components/session/SessionTabsBar.tsx");

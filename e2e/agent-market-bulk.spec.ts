@@ -12,7 +12,10 @@ test("智能体批量删除：跳过内置，删除自定义", async ({ window }
 		await window.piDesktop.agentProfiles.create({ name: "批量乙", description: "第二个", systemPrompt: "你是乙" });
 	});
 
-	await window.getByRole("button", { name: "智能体" }).click();
+	// 智能体入口在侧栏「更多」折叠组里（与定时任务/收藏同组），默认收起，先展开。
+	const more = window.getByRole("button", { name: "更多", exact: true });
+	if ((await more.count()) && (await more.first().getAttribute("aria-expanded")) !== "true") await more.first().click();
+	await window.locator("#sidebar-more-actions").getByRole("button", { name: "智能体" }).click();
 	await expect(window.getByRole("heading", { name: "智能体" })).toBeVisible();
 	await expect(window.getByText("批量甲")).toBeVisible();
 

@@ -1,5 +1,5 @@
 /**
- * ACP 会话 runtime 的形状定义（纯类型模块）。
+ * ACP 会话 runtime 的形状定义 + 构造/状态投影。
  *
  * 从 AcpAgentManager 抽出：看门狗/快照存储/握手等协作者模块需要引用同一 runtime
  * 结构，集中放此处避免循环 import（manager → 协作者 → 类型 ← manager）。
@@ -7,11 +7,11 @@
  */
 import type { ChildProcess } from "node:child_process";
 import type { AcpAgentInfo, AcpToolConfig } from "../../shared/types/acp";
-import type { AgentRuntimeState, AgentStatus, AgentTab } from "../../shared/types/agent";
-import type { AcpConfigOption } from "./acpProtocol";
+import type { AgentRuntimeState, AgentStatus, AgentTab, CreateAgentInput } from "../../shared/types/agent";
+import { ACP_PROTOCOL_VERSION, type AcpConfigOption } from "./acpProtocol";
 import type { AcpConnection } from "./AcpConnection";
 import type { AcpPermissionRequests } from "./AcpPermissionRequests";
-import type { AcpProjectionState } from "./AcpEventProjector";
+import { initialAcpProjection, type AcpProjectionState } from "./AcpEventProjector";
 import { acpSessionTps, type AcpUsageTotals } from "./acpUsageMetrics";
 
 /** cancel 发起方:user_stop=用户主动停止(空白收口属正常);stall=看门狗代发(按失败收口)。 */
@@ -108,6 +108,55 @@ export type AcpAgentRuntime = {
 
 /** AcpAgentManager 的注入依赖（超时类字段供测试注入短值验证定时器路径）。 */
 export type AcpManagerLogger = { info(channel: string, message: string, meta?: Record<string, unknown>): void; warn(channel: string, message: string, meta?: Record<string, unknown>): void };
+
+/**
+ * 新建 runtime（create 的唯一构造点）：把 spawn 结果与审批入口装成 runtime 初始态。
+ * 审批对象由 manager 构造并传入（弹窗回包走 agents:ui-request 通道），
+ * 其余字段全是初始值；字段顺序与原字面量一致，无隐式默认。
+ */
+export function buildAcpAgentRuntime(args: { agentId: string; input: CreateAgentInput; tool: AcpToolConfig; cwd: string; proc: ChildProcess | null; conn: AcpConnection; permissions: AcpPermissionRequests }): AcpAgentRuntime {
+	const { agentId, input, tool, cwd, proc, conn, permissions } = args;
+	return {
+		tab: {
+			id: agentId,
+			projectId: input.projectId,
+			cwd,
+			title: input.title ?? `${tool.name} 会话`,
+			status: "starting",
+			deckSessionId: input.deckSessionId,
+			backend: "acp",
+			agentPreset: tool.id,
+			noSession: input.noSession,
+			createdAt: Date.now(),
+		},
+		acpSessionId: "",
+		tool,
+		proc,
+		conn,
+		projection: initialAcpProjection(),
+		updateChain: Promise.resolve(),
+		agentInfo: { capabilities: { loadSession: false, agentThought: false, sessionList: false, promptImage: false }, protocolVersion: ACP_PROTOCOL_VERSION },
+		status: "starting",
+		turnActive: false,
+		permissions,
+		cancelling: false,
+		cancelReason: null,
+		reloading: false,
+		loadedSession: false,
+		flushTimer: null,
+		flushPending: false,
+		windowStart: 0,
+		abortEscalateTimer: null,
+		stallTimer: null,
+		lastUpdateAt: 0,
+		turnDeadlineRefresh: null,
+		inFlightToolCalls: new Set<string>(),
+		escalatedStop: null,
+		turnSawActivity: false,
+		turnUpdateKinds: new Map<string, number>(),
+		stderrTail: [],
+	};
+}
 
 /** runtime → agentsRuntimeState 通道载荷（底栏状态/上下文仪表数据源）。纯映射，无副作用。 */
 export function buildAgentRuntimeState(runtime: AcpAgentRuntime): AgentRuntimeState {

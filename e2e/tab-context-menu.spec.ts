@@ -43,7 +43,8 @@ test("session tab: context menu opens on right click", async ({ window }) => {
 	// 会话操作组（2026-10-02 需求：右键菜单与 ⋯ 菜单结合）：刚发消息的 live 会话
 	// 非草稿、有会话文件 → 重命名/复制会话/导出 HTML/路径组都应出现。
 	await expect(menu.getByText("重命名")).toBeVisible();
-	await expect(menu.getByText("复制会话")).toBeVisible();
+	// exact: 「复制会话」是「复制会话文件路径」的子串，不加 exact 会 strict mode 命中 2 个节点
+	await expect(menu.getByText("复制会话", { exact: true })).toBeVisible();
 	await expect(menu.getByText("导出 HTML")).toBeVisible();
 	await expect(menu.getByText("复制会话文件路径")).toBeVisible();
 
