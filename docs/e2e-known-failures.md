@@ -19,7 +19,7 @@
 | skipped | 2 |
 | 耗时 | 14.9 分钟（`--workers=3`） |
 
-失败分布（28 个 spec）：`session-history-agent-states` 4 / `terminal-first-open` 3 / `favorites-bulk`、`file-link-repro`、`layout-terminal`、`provider-model-setup`、`retry-status-card`、`settle-reposition`、`visual-tune-surfaces` 各 2 / 其余 18 个各 1。
+失败分布（28 个 spec）：`session-history-agent-states` 4 / `terminal-first-open` 3（**已修**，见下）/ `favorites-bulk`、`file-link-repro`、`layout-terminal`、`provider-model-setup`、`retry-status-card`、`settle-reposition`、`visual-tune-surfaces` 各 2 / 其余 18 个各 1。
 
 两类签名占绝大多数，**与 pi/fork 无关**：
 
@@ -27,6 +27,16 @@
 2. 布局与视觉度量（`content-width`、`settle-reposition`、`tab-font-size`、`process-group-display`、`typewriter`、`visual-*`、`tmp-table-menu`）——像素/字号/间距断言，随样式迭代腐烂最快。
 
 **mock 改动的回归对照**（2026-11-14 为 mock 补 fork 仿真时做的）：把 `e2e/mock-pi.cjs` 换回改动前版本，重跑 8 个代表 spec 的 17 个用例，结果逐条一致（14 failed / 3 passed）→ mock 改动无回归。
+
+---
+
+## 已修复（留档，便于同类问题快速定位）
+
+| 日期 | 用例 | 原因 | 修法 |
+|---|---|---|---|
+| 2026-11-14 | `session-history-mutation`（3 条） | 删除确认文案按 running/idle 分变体、编辑/重发已改 fork 语义 | 对齐断言；mock 补真 fork |
+| 2026-11-14 | `tab-context-menu:16` | `getByText("复制会话")` 子串同时命中「复制会话文件路径」 | 加 `exact: true` |
+| 2026-11-14 | `terminal-first-open`（3 条） | 会话操作菜单从 Tab 栏「更多操作」并入会话头部「更多运行操作」（`SessionActionsControl`） | 定位器改到新入口；**功能本身没坏**（#333 仍可用） |
 
 ---
 
