@@ -449,6 +449,15 @@ type app struct {
 	gotoOpen       *core.Signal[bool]
 	gotoLine       *core.Signal[string]
 	quickOpen      *core.Signal[bool]
+	fileSearchOpen *core.Signal[bool]
+	// fileSearchQuery, fileSearchBusy and fileSearchRev drive the content
+	// search; its hits and sequence live beside them.
+	fileSearchQuery *core.Signal[string]
+	fileSearchBusy  *core.Signal[bool]
+	fileSearchRev   *core.Signal[int]
+	fileSearchMu    sync.Mutex
+	fileSearchHits  []fileHit
+	fileSearchSeq   int
 	// gitDiffHash is the commit the diff dialog shows, empty for a file.
 	gitDiffHash string
 	// closedTabs are the sessions whose tabs were closed, newest last.
@@ -594,6 +603,10 @@ func newApp(cx *core.Scope) *app {
 		gotoOpen:               core.NewSignal(cx, false),
 		gotoLine:               core.NewSignal(cx, ""),
 		quickOpen:              core.NewSignal(cx, false),
+		fileSearchOpen:         core.NewSignal(cx, false),
+		fileSearchQuery:        core.NewSignal(cx, ""),
+		fileSearchBusy:         core.NewSignal(cx, false),
+		fileSearchRev:          core.NewSignal(cx, 0),
 		gitNewBranchName:       core.NewSignal(cx, ""),
 		gitDiffOpen:            core.NewSignal(cx, false),
 		gitDiffTitle:           core.NewSignal(cx, ""),

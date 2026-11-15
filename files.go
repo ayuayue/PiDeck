@@ -245,9 +245,9 @@ func (a *app) fileIndexBusy(root string) bool {
 	return a.fileIdx.root == root && a.fileIdx.loading
 }
 
-// scanWorkspaceFiles walks a workspace, skipping the folders that never
-// belong in a prompt, and announces the list.
-func (a *app) scanWorkspaceFiles(root string) {
+// walkWorkspaceFiles lists a workspace's files, skipping the folders that
+// never belong in a prompt.
+func walkWorkspaceFiles(root string) []string {
 	var files []string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -269,6 +269,13 @@ func (a *app) scanWorkspaceFiles(root string) {
 		}
 		return nil
 	})
+	return files
+}
+
+// scanWorkspaceFiles walks a workspace, skipping the folders that never
+// belong in a prompt, and announces the list.
+func (a *app) scanWorkspaceFiles(root string) {
+	files := walkWorkspaceFiles(root)
 	sort.Strings(files)
 	a.fileIdx.mu.Lock()
 	if a.fileIdx.root == root {

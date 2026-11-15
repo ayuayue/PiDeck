@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/oneo-me/nsgo/base/editor"
 	"github.com/oneo-me/nsgo/core"
@@ -236,6 +237,37 @@ func (a *app) openEditorFile(root, path string) {
 		root = a.files.root.GetUntracked()
 	}
 	a.editor.openFile(root, path)
+}
+
+// openFileAt shows a file and puts the caret on a line, once its text is
+// in: the editor's ref is not ready before the load lands.
+func (a *app) openFileAt(root, path string, line int) {
+	a.openEditorFile(root, path)
+	f := a.editor.activeFile()
+	if f == nil || line < 1 {
+		return
+	}
+	a.jumpWhenLoaded(f, line, 60)
+}
+
+// jumpWhenLoaded retries a jump for a while, so a large file has time to
+// load.
+func (a *app) jumpWhenLoaded(f *editorFile, line, tries int) {
+	a.cx.AfterFunc(50*time.Millisecond, func() {
+		if f.Loading.GetUntracked() {
+			if tries > 0 {
+				a.jumpWhenLoaded(f, line, tries-1)
+			}
+			return
+		}
+		if f.ref == nil || f.Err.GetUntracked() != "" {
+			return
+		}
+		at := line - 1
+		f.ref.SetSelections([]editor.Selection{{Anchor: editor.Position{Line: at}, Head: editor.Position{Line: at}}})
+		f.ref.ScrollToLine(at)
+		f.ref.Focus()
+	})
 }
 
 // saveActiveFile writes the file on screen.

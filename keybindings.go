@@ -26,6 +26,7 @@ func defaultKeybindings() []keyBinding {
 		{Command: "save-file", Key: "mod+s"},
 		{Command: "go-to-line", Key: "mod+g"},
 		{Command: "quick-open", Key: "mod+p"},
+		{Command: "search-files", Key: "mod+alt+f"},
 		{Command: "save-all-files", Key: "mod+alt+s"},
 		{Command: "appearance-cycle", Key: "mod+shift+l"},
 		{Command: "next-tab", Key: "ctrl+tab"},

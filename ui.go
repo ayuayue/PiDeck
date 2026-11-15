@@ -50,6 +50,7 @@ func (a *app) view() core.Node {
 		a.terminalRenameDialog(),
 		a.gotoLineDialog(),
 		a.quickOpenDialog(),
+		a.fileSearchDialog(),
 		a.providerDialog(),
 		a.promptDialog(),
 		a.promptImportDialog(),
