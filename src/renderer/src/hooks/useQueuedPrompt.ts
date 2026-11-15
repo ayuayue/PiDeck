@@ -181,7 +181,14 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 		const before = queuedPromptsRef.current[sessionId]?.length ?? 0;
 		if (before >= QUEUED_PROMPT_LIMIT) return false;
 		updateQueuedPrompts((current) => enqueuePrompt(current, sessionId, queuedPrompt));
-		return (queuedPromptsRef.current[sessionId]?.length ?? 0) > before;
+		const added = (queuedPromptsRef.current[sessionId]?.length ?? 0) > before;
+		// steer 入队即派发。此前只有「工具结束」「改投递方式」「点名发送」三处会叫醒
+		// flushQueuedSteerPrompts，首次入队这条路径谁都没叫——于是「加入当前回合」在长调用里
+		// 一直等到下一次 tool-end 才进 pi 队列，时间线上不出现消息，看着像被打断还没反应。
+		// 延后一拍再派发：同一拍里调用方可能还要设抑制（停止回合）或换运行时，
+		// 立即派发会抢在它们前面，把消息插进用户正要中止的回合。
+		if (added && queuedPrompt.behavior === "steer") queueMicrotask(() => void flushQueuedSteerPrompts(sessionId));
+		return added;
 	}
 
 	function appendUnknownQueuedPrompt(sessionId: string, queuedPrompt: QueuedPrompt, error?: string) {
