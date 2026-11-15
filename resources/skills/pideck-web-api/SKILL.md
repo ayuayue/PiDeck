@@ -146,13 +146,8 @@ curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages/page?pageSize=100&befor
 
 翻页只把上一页的 `nextBefore` 传回去，别自己造值。
 
-只有这个端点也满足不了需求时（比如要原始的工具调用参数），才去读磁盘上的 jsonl：
+`windowStart` 是个数字（例如 5516），不是消息 id。
 
-```bash
-node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\n").forEach(l=>{if(!l.trim())return;const j=JSON.parse(l);if(j.role)console.log(j.role+": "+String(j.text||"").slice(0,120))})' "<runtimes[] 里的 sessionPath>"
-```
-
-首行 `type: session`，其余每行一条消息。`windowStart` 是个数字（例如 5516），不是消息 id。
 
 **这个接口每次返回整个窗口，`?limit` 之类的参数一律无视。** 实测传 `limit=1` 和 `tail=1`，返回字节数与不传时完全相同。
 
@@ -171,6 +166,14 @@ curl -s -o /dev/null -w '%{size_download} %{time_total}\n' -H "$AUTH" "$BASE/api
 单条消息的字段是 `{id, agentId, role, text, timestamp, meta}`，assistant 还多 `thinking`、`thinkingStartedAt`、`thinkingEndedAt`、`model`、`stopReason`。
 
 注意正文在 `text`，不在 `parts`——`parts` 只在 `/api/chat` 的**请求**里用。
+
+要到原始工具调用参数，只能读磁盘上的 jsonl（路径取 `runtimes[]` 里的 `sessionPath`）：
+
+```bash
+node -e 'const fs=require("fs");fs.readFileSync(process.argv[1],"utf8").split("\n").forEach(l=>{if(!l.trim())return;const j=JSON.parse(l);if(j.role)console.log(j.role+": "+String(j.text||"").slice(0,120))})' "<runtimes[] 里的 sessionPath>"
+```
+
+首行 `type: session`，其余每行一条消息。
 
 ## 4 找别的会话
 
