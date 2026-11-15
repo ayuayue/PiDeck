@@ -6,14 +6,15 @@ package main
 
 import (
 	"fmt"
-	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 )
+
+// sessionNotificationPrefix names the session a notification opens.
+const sessionNotificationPrefix = "session:"
 
 // setupDesktop gives the app its tray and its close-to-tray behaviour,
 // where the platform has a desktop. The phone build has neither.
@@ -27,8 +28,35 @@ func (a *app) setupDesktop() {
 		Tooltip: "PiDeck Lite",
 		Menu:    a.trayMenu,
 	})
+	a.setupNotifications()
 	a.updateTray()
 	a.setupPet()
+	// A second launch hands over to this instance instead of opening
+	// another window and another phone server.
+	desktop.OnReopen(a.cx, a.showMainWindow)
+}
+
+// setupNotifications opens the session a pressed notification names.
+func (a *app) setupNotifications() {
+	a.cx.OnNotificationPress(func(id string) {
+		if strings.HasPrefix(id, sessionNotificationPrefix) {
+			a.openSessionByID(strings.TrimPrefix(id, sessionNotificationPrefix))
+			return
+		}
+		a.showMainWindow()
+	})
+}
+
+// openSessionByID brings the window back and selects a session a
+// notification named, when it is still loaded.
+func (a *app) openSessionByID(id string) {
+	for _, s := range a.all {
+		if s != nil && s.ID == id {
+			a.showMainWindow()
+			a.selectSession(s)
+			return
+		}
+	}
 }
 
 // attachMainWindow hooks the window's close once the platform has made
@@ -54,7 +82,7 @@ func (a *app) attachMainWindow() {
 		w.Hide()
 		if !a.trayHinted {
 			a.trayHinted = true
-			notifyDesktop("PiDeck Lite 仍在运行", "点托盘图标可以重新打开窗口。")
+			a.notifyDesktop("pideck:tray-hint", "PiDeck Lite 仍在运行", "点托盘图标可以重新打开窗口。", nil)
 		}
 	})
 }
@@ -128,8 +156,10 @@ func (a *app) quitApp() {
 	a.cx.Quit()
 }
 
-// updateTray puts the running count in the tooltip.
+// updateTray puts the running count in the tooltip, keeps the computer
+// awake and shows the task's progress while an agent runs.
 func (a *app) updateTray() {
+	a.syncRunState()
 	if a.tray == nil {
 		return
 	}
@@ -139,6 +169,26 @@ func (a *app) updateTray() {
 		tip = fmt.Sprintf("PiDeck Lite · %d 个会话运行中", n)
 	}
 	a.tray.SetTooltip(tip)
+}
+
+// syncRunState holds the computer awake and shows the icon's progress
+// while an agent runs, and releases both when none does.
+func (a *app) syncRunState() {
+	if mobileMode() || !a.cx.Env().Desktop() {
+		return
+	}
+	if len(a.runningSessions()) > 0 {
+		if a.keepAwake == nil {
+			a.keepAwake = a.cx.KeepAwake("PiDeck Lite: an agent is running", core.KeepAwakeOptions{})
+		}
+		a.cx.SetTaskProgress(core.TaskProgress{State: core.TaskProgressIndeterminate})
+		return
+	}
+	if a.keepAwake != nil {
+		a.keepAwake()
+		a.keepAwake = nil
+	}
+	a.cx.SetTaskProgress(core.TaskProgress{State: core.TaskProgressNone})
 }
 
 // shouldNotify says whether a finished turn posts a notification.
@@ -169,49 +219,44 @@ func (a *app) notifyTurnDone(s *session) {
 	if body == "" {
 		body = "这一轮已完成。"
 	}
-	notifyDesktop("PiDeck Lite · "+s.title.GetUntracked(), body)
+	a.notifyDesktop(sessionNotificationPrefix+s.ID, "PiDeck Lite · "+s.title.GetUntracked(), body, nil)
 }
 
-// notifyDesktop posts a system notification with the platform's own
-// tool. It is best effort: a platform without one, or a refused toast,
-// leaves the in-app toast as the only notice.
-func notifyDesktop(title, body string) {
-	title = firstLine(title, 120)
-	body = firstLine(body, 200)
-	switch runtime.GOOS {
-	case "darwin":
-		script := fmt.Sprintf("display notification %s with title %s", appleScriptString(body), appleScriptString(title))
-		cmd := exec.Command("osascript", "-e", script)
-		hideWindow(cmd)
-		_ = cmd.Start()
-	case "linux":
-		cmd := exec.Command("notify-send", "-a", "PiDeck Lite", title, body)
-		hideWindow(cmd)
-		_ = cmd.Start()
-	case "windows":
-		cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", toastScript(title, body))
-		hideWindow(cmd)
-		_ = cmd.Start()
+// notifyDesktop posts a system notification, asking for the notification
+// permission the first time one is needed. The ID is what a press reports
+// to setupNotifications' handler. It is best effort: a platform that
+// refuses the notification leaves the in-app toast as the only notice.
+func (a *app) notifyDesktop(id, title, body string, done func(shown bool)) {
+	if id == "" {
+		return
 	}
-}
-
-// toastScript is the PowerShell that posts a Windows toast without any
-// module: the WinRT notifier is part of Windows 10 and later.
-func toastScript(title, body string) string {
-	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
-	return "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null; " +
-		"$t=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); " +
-		"$n=$t.GetElementsByTagName('text'); " +
-		"$n.Item(0).AppendChild($t.CreateTextNode(" + q(title) + ")) > $null; " +
-		"$n.Item(1).AppendChild($t.CreateTextNode(" + q(body) + ")) > $null; " +
-		"[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('PiDeck Lite').Show([Windows.UI.Notifications.ToastNotification]::new($t))"
-}
-
-// appleScriptString quotes a string for AppleScript.
-func appleScriptString(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return `"` + s + `"`
+	notify := core.Notification{ID: id, Title: firstLine(title, 120), Body: firstLine(body, 200)}
+	post := func() {
+		err := a.cx.ShowNotification(notify, done)
+		if err != nil && done != nil {
+			done(false)
+		}
+	}
+	a.cx.NotificationPermission(func(p core.NotificationPermission) {
+		switch p {
+		case core.NotificationsGranted:
+			post()
+		case core.NotificationsNotAsked:
+			a.cx.RequestNotificationPermission(func(p core.NotificationPermission) {
+				if p == core.NotificationsGranted {
+					post()
+					return
+				}
+				if done != nil {
+					done(false)
+				}
+			})
+		default:
+			if done != nil {
+				done(false)
+			}
+		}
+	})
 }
 
 // trayIdle is how often the tray's tooltip follows the running count.

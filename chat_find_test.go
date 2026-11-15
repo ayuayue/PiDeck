@@ -79,6 +79,7 @@ func TestChatFind(t *testing.T) {
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:部署到生产环境")) == 0 })
 	app.WaitFor("text:给这个项目写测试", 5*time.Second)
 	app.WaitFor("text:1 条匹配", 5*time.Second)
+	app.WaitFor("text:1 处", 5*time.Second)
 
 	app.Press("id:chat-find-close")
 	app.WaitFor("text:部署到生产环境", 5*time.Second)

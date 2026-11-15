@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/nsgo/base"
+	"github.com/nsgo-dev/nsgo/base/diagram"
+	"github.com/nsgo-dev/nsgo/base/formula"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/base/textview/highlight"
 	"github.com/nsgo-dev/nsgo/core"
@@ -90,41 +92,9 @@ func (a *app) setChatWidth(w int) {
 func (a *app) composerStack(s *session) core.Node {
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(core.Points(a.contentWidth())), MinWidth: core.Pt(0)}, Children: []core.Node{
-			a.mentionBar(s), a.trustBar(s), a.todoBar(s), a.composer(s),
+			a.trustBar(s), a.todoBar(s), a.composer(s),
 		}},
 	}}
-}
-
-// mentionBar suggests files while a draft ends with a partial @path.
-func (a *app) mentionBar(s *session) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		_ = a.filesRev.Get()
-		token, ok := mentionToken(s.draft.Get())
-		if !ok {
-			return nil
-		}
-		files := mentionMatches(a.workspaceFiles(s.WS), token, 8)
-		if len(files) == 0 {
-			return nil
-		}
-		var chips []core.Node
-		for i, rel := range files {
-			rel := rel
-			chips = append(chips, core.View{
-				OnPress: func(core.PressEvent) { a.insertMention(s, rel) },
-				Role:    core.RoleButton, Label: rel, TestID: fmt.Sprintf("mention-%d", i),
-				StyleFunc: func() core.Style {
-					return core.Style{Height: core.Pt(24), Padding: core.Symmetric(0, 8), CornerRadius: 12,
-						BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Surface(),
-						Hover: &core.Style{Background: colors.Hover()}}
-				},
-				Children: []core.Node{core.Text{Content: rel, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-					Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)}},
-			})
-		}
-		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5, Margin: core.Edges{Bottom: 6}}, Children: chips}
-	})
 }
 
 // transcript is the keyed list of turns, bounded to a window of the newest.
@@ -296,7 +266,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			Steps: func() []chat.Step { return a.steps(s, t()) },
 			Final: func(cx *core.Scope) core.Node {
 				tt := t()
-				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{markdownView(tt.Final, func() bool { return false }, false)}}
+				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{markdownSearchView(a.chatSearch, tt.Final, func() bool { return false }, false)}}
 			},
 			HasFinal: func() bool {
 				tt := t()
@@ -423,7 +393,7 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 				children = append(children, a.toolRows(s, tools))
 			}
 			if text != "" {
-				children = append(children, markdownView(text, func() bool { return live }, live))
+				children = append(children, markdownSearchView(a.chatSearch, text, func() bool { return live }, live))
 			}
 			if len(children) == 0 {
 				return nil
@@ -483,7 +453,7 @@ func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core
 		if open {
 			body = append(body, core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Edges{Left: 17, Top: 2},
 				Borders: core.Edges{Left: 1}, BorderColors: core.EdgeColors{Left: colors.Now().Line}}, Children: []core.Node{
-				markdownView(thinking, func() bool { return live }, false),
+				markdownSearchView(a.chatSearch, thinking, func() bool { return live }, false),
 			}})
 		}
 		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 4}, Children: body}
@@ -809,18 +779,30 @@ func (a *app) errorRow(retry func(), text string) core.Node {
 // markdownView renders prose. A streaming one repairs what the text leaves
 // open and ends with a pulsing caret.
 func markdownView(text string, streaming func() bool, caret bool) core.Node {
+	return markdownSearchView(nil, text, streaming, caret)
+}
+
+// markdownSearchView is markdownView joined to a transcript search, which
+// highlights its matches.
+func markdownSearchView(search *textview.Search, text string, streaming func() bool, caret bool) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		styles := ui.TextViewStyles(cx)
 		styles[textview.PartRoot] = styles[textview.PartRoot].Merge(core.Style{Gap: 10, FontSize: 13.5, LineHeight: 22})
+		colors := ui.ColorsOf(cx)
+		styles[textview.PartSearch] = core.Style{Background: ui.Alpha(colors.Accent(), 0.18)}
+		styles[textview.PartSearchSelected] = core.Style{Background: ui.Alpha(colors.Accent(), 0.45)}
 		hl := highlight.New(cx)
 		on := streaming()
 		return ui.TextView{
 			MarkdownFunc:         func() string { return text },
 			Options:              textview.Options{Streaming: on},
 			Styles:               styles,
+			Search:               search,
 			Selectable:           true,
 			Highlighter:          hl,
 			OpenLinks:            true,
+			RenderMath:           formula.RenderMath,
+			RenderDiagram:        diagram.RenderDiagram,
 			NoCodeBlockScrollbar: true,
 			CodeBlockActions:     []textview.CodeAction{{ID: textview.CopyAction, Label: T("复制")}},
 		}
@@ -845,17 +827,29 @@ func (a *app) composer(s *session) core.Node {
 				}
 				return T("给 pi 发消息…")
 			},
-			SendLabel:   T("发送"),
-			StopLabel:   T("停止"),
-			Running:     s.busy,
-			OnSend:      a.send,
-			OnStop:      func() { a.stop(s) },
-			Glass:       true,
-			State:       s.conversation,
-			Accessory:   a.composerAccessory(s),
-			Trailing:    a.composerTrailing(s),
-			Footer:      a.composerFooter(s),
-			Attachments: a.attachments(s),
+			SendLabel: T("发送"),
+			StopLabel: T("停止"),
+			Running:   s.busy,
+			OnSend:    a.send,
+			OnStop:    func() { a.stop(s) },
+			Suggest: func(query string) []chat.Suggestion {
+				files := mentionMatches(a.workspaceFiles(s.WS), query, 8)
+				rows := make([]chat.Suggestion, 0, len(files))
+				for _, rel := range files {
+					rows = append(rows, chat.Suggestion{
+						SuggestItem: base.SuggestItem{ID: rel, Label: rel, Insert: "@" + rel + " "},
+						Icon:        lucide.File,
+					})
+				}
+				return rows
+			},
+			SuggestLabel: T("文件"),
+			Glass:        true,
+			State:        s.conversation,
+			Accessory:    a.composerAccessory(s),
+			Trailing:     a.composerTrailing(s),
+			Footer:       a.composerFooter(s),
+			Attachments:  a.attachments(s),
 			HasAttachments: func() bool {
 				return len(s.images.Get()) > 0
 			},

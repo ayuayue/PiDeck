@@ -1,12 +1,10 @@
 package main
 
-// Checks for the desktop settings, the notification decision and the
-// escaping the platform scripts need.
+// Checks for the desktop settings and the notification decision.
 
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -26,27 +24,6 @@ func TestShouldNotify(t *testing.T) {
 		if got := shouldNotify(c.cfg, c.visible); got != c.want {
 			t.Errorf("shouldNotify(%+v, %v) = %v, want %v", c.cfg, c.visible, got, c.want)
 		}
-	}
-}
-
-// TestToastScriptEscapes checks a title with a quote cannot break the
-// PowerShell that posts it.
-func TestToastScriptEscapes(t *testing.T) {
-	script := toastScript("it's done", "line 'one'")
-	if strings.Contains(script, "it's") {
-		t.Fatalf("the quote was not doubled: %s", script)
-	}
-	if !strings.Contains(script, "it''s done") || !strings.Contains(script, "line ''one''") {
-		t.Fatalf("script = %s", script)
-	}
-}
-
-// TestAppleScriptString checks quotes and backslashes are escaped.
-func TestAppleScriptString(t *testing.T) {
-	got := appleScriptString(`a "quoted" \ path`)
-	want := `"a \"quoted\" \\ path"`
-	if got != want {
-		t.Fatalf("appleScriptString = %s, want %s", got, want)
 	}
 }
 

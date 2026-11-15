@@ -1,7 +1,7 @@
 package main
 
-// Checks @ file completion in the composer: the token, the matches, and
-// the chips that insert a path.
+// Checks @ file completion in the composer: the matches and the
+// suggestion list that inserts a path.
 
 import (
 	"os"
@@ -12,24 +12,6 @@ import (
 
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
-
-func TestMentionToken(t *testing.T) {
-	if _, ok := mentionToken("没有提及"); ok {
-		t.Fatal("a draft without @ had a token")
-	}
-	if token, ok := mentionToken("看下 @src/ap"); !ok || token != "src/ap" {
-		t.Fatalf("token = %q, %v", token, ok)
-	}
-	if token, ok := mentionToken("@"); !ok || token != "" {
-		t.Fatalf("bare @ = %q, %v", token, ok)
-	}
-	if _, ok := mentionToken("a@b.com"); ok {
-		t.Fatal("an email was taken for a mention")
-	}
-	if _, ok := mentionToken("@src/app.go 已读"); ok {
-		t.Fatal("a finished mention stayed open")
-	}
-}
 
 func TestMentionMatches(t *testing.T) {
 	files := []string{"src/app.go", "src/main.go", "README.md", "docs/app.md"}
@@ -45,7 +27,7 @@ func TestMentionMatches(t *testing.T) {
 	}
 }
 
-func TestMentionBar(t *testing.T) {
+func TestMentionSuggest(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
@@ -61,7 +43,7 @@ func TestMentionBar(t *testing.T) {
 	}
 	app := startApp(t, workspace, 1280, 860)
 	app.Type("id:composer", "@app")
-	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:mention-0")) > 0 })
-	app.Press("id:mention-0")
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:composer-suggestions")) > 0 })
+	app.Key("enter")
 	app.WaitUntil(5*time.Second, func() bool { return strings.Contains(app.Find("id:composer").Text, "@src/app.go") })
 }

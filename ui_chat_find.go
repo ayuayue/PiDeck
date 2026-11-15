@@ -26,11 +26,26 @@ func (a *app) openChatFind() {
 		return
 	}
 	if a.chatFindOpen.GetUntracked() {
-		a.chatFindOpen.Set(false)
-		a.chatFindText.Set("")
+		a.closeChatFind()
 		return
 	}
 	a.chatFindOpen.Set(true)
+	a.chatSearch.SetRevealMargin(core.Edges{Top: 48, Bottom: 12})
+	a.chatSearch.Open()
+}
+
+// closeChatFind hides the find bar and stops highlighting.
+func (a *app) closeChatFind() {
+	a.chatFindOpen.Set(false)
+	a.chatFindText.Set("")
+	a.chatSearch.SetQuery("")
+	a.chatSearch.Close()
+}
+
+// setChatFind filters the transcript and highlights the matches in it.
+func (a *app) setChatFind(q string) {
+	a.chatFindText.Set(q)
+	a.chatSearch.SetQuery(strings.TrimSpace(q))
 }
 
 // turnMatches reports whether a turn's text holds the query.
@@ -72,22 +87,29 @@ func (a *app) chatFindBar(s *session) core.Node {
 		if q == "" {
 			count = T("输入关键词筛选对话")
 		}
+		hits := a.chatSearch.Count()
 		return core.View{TestID: "chat-find", Style: core.Style{Position: core.Absolute, Top: core.Pt(10), Right: core.Pt(24),
 			Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(4, 8), CornerRadius: 9,
 			Background: colors.Surface(), BorderWidth: 1, BorderColor: colors.Border()},
 			Children: []core.Node{
 				ui.Icon(lucide.Search, 12, colors.Faint),
-				core.Input{Value: a.chatFindText.Get, OnChange: a.chatFindText.Set, Placeholder: T("在会话里查找…"),
-					Label: T("在会话里查找"), TestID: "chat-find-input", AutoFocus: true,
+				core.Input{Value: a.chatFindText.Get, OnChange: a.setChatFind, OnSubmit: func(string) { a.chatSearch.Next() },
+					Placeholder: T("在会话里查找…"), Label: T("在会话里查找"), TestID: "chat-find-input", AutoFocus: true,
 					Style: core.Style{Width: core.Pt(170), Height: core.Pt(26), Padding: core.Symmetric(0, 6), CornerRadius: 6,
 						FontSize: 11.5, Color: colors.Text(), Background: colors.Field()}},
 				core.Text{Content: count, MaxLines: 1, TestID: "chat-find-count",
 					Style: core.Style{MinWidth: core.Pt(56), FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
+				core.Show{When: func() bool { return q != "" && hits > 0 }, Then: func(cx *core.Scope) core.Node {
+					return core.Group{
+						ui.Text(T("%d 处", hits), 10, ui.Regular, colors.Faint),
+						ui.IconButton{Icon: lucide.ChevronUp, Label: T("上一处"), Size: 20, IconSize: 10, TestID: "chat-find-prev",
+							OnPress: a.chatSearch.Previous},
+						ui.IconButton{Icon: lucide.ChevronDown, Label: T("下一处"), Size: 20, IconSize: 10, TestID: "chat-find-next",
+							OnPress: a.chatSearch.Next},
+					}
+				}},
 				ui.IconButton{Icon: lucide.X, Label: T("关闭查找"), Size: 22, IconSize: 11, TestID: "chat-find-close",
-					OnPress: func() {
-						a.chatFindOpen.Set(false)
-						a.chatFindText.Set("")
-					}},
+					OnPress: a.closeChatFind},
 			}}
 	})
 }

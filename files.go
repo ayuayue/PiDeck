@@ -299,27 +299,6 @@ func skipMentionDir(name string) bool {
 	return false
 }
 
-// mentionToken is the partial @path at the end of a draft, and whether
-// there is one.
-func mentionToken(text string) (string, bool) {
-	i := strings.LastIndex(text, "@")
-	if i < 0 {
-		return "", false
-	}
-	if i > 0 {
-		switch text[i-1] {
-		case ' ', '\n', '\t', '(':
-		default:
-			return "", false
-		}
-	}
-	token := text[i+1:]
-	if strings.ContainsAny(token, " \n\t") {
-		return "", false
-	}
-	return token, true
-}
-
 // mentionMatches lists the files a partial @path matches, best first.
 func mentionMatches(files []string, token string, limit int) []string {
 	token = strings.ToLower(strings.TrimSpace(token))
@@ -406,14 +385,4 @@ func pushRecent(list []string, path string, max int) []string {
 		out = append(out, p)
 	}
 	return out
-}
-
-// insertMention replaces the draft's partial @path with a file's.
-func (a *app) insertMention(s *session, rel string) {
-	text := s.draft.GetUntracked()
-	i := strings.LastIndex(text, "@")
-	if i < 0 {
-		return
-	}
-	s.draft.Set(text[:i] + "@" + rel + " ")
 }
