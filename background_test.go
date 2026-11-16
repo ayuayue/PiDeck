@@ -38,11 +38,10 @@ func TestBackgroundImageAndOpacity(t *testing.T) {
 	if math.Abs(built.backgroundOpacity()-0.35) > 0.001 {
 		t.Fatalf("opacity = %v", built.backgroundOpacity())
 	}
-	// The picture's veil follows the slider at once, while the panels' alpha
-	// waits for it to rest: a palette swap mid-drag would end the drag.
-	screen.Advance(time.Second)
-	if _, _, _, a := built.cx.Palette().Background.Components(); math.Abs(float64(a)-0.75) > 0.01 {
-		t.Fatalf("background alpha = %v, want the 0.35 setting (0.75)", a)
+	// The panels keep one alpha and the veil alone follows the slider, which
+	// is what keeps a drag live: nothing about the theme changes.
+	if _, _, _, a := built.cx.Palette().Background.Components(); math.Abs(float64(a)-0.3) > 0.01 {
+		t.Fatalf("background alpha = %v, want the wallpaper's 0.3", a)
 	}
 
 	built.setBackgroundImage("")

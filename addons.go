@@ -998,9 +998,11 @@ func (a *app) applyTheme() {
 		base.Mono = f
 	}
 	if strings.TrimSpace(a.cfg.BackgroundImage) != "" {
-		// PiDeck's wallpaper mode: panels show the picture through them,
-		// with the same alpha for every surface and a little more in inputs.
-		panel := float32(min(1, 1-a.backgroundOpacity()+0.10))
+		// PiDeck's wallpaper mode: panels show the picture through them at a
+		// fixed alpha, and the veil alone follows the opacity setting, so
+		// dragging that slider never has to swap the theme (which would end
+		// the drag under the pointer).
+		const panel = float32(0.3)
 		for _, p := range []*core.Palette{&base.Light, &base.Dark} {
 			p.Background = withAlpha(p.Background, panel)
 			p.Surface = withAlpha(p.Surface, panel)
@@ -1060,28 +1062,23 @@ func (a *app) setBackgroundImage(path string) {
 	a.applyTheme()
 }
 
-// setBackgroundOpacity stores how much of the picture shows. The veil
-// follows at once; the panels' alpha lives in the theme, and swapping the
-// theme rebuilds the window, which would end the slider's drag. So that
-// part waits for the value to rest.
+// setBackgroundOpacity stores how much of the picture shows. The veil reads
+// the signal, so the picture follows the slider as it moves; only the file
+// write waits for the value to rest.
 func (a *app) setBackgroundOpacity(v float64) {
 	v = min(1, max(0, v))
 	a.cfg.BackgroundOpacity = &v
 	a.bgOpacity.Set(v)
-	if a.st != nil {
+	a.bgOpacitySeq++
+	seq := a.bgOpacitySeq
+	a.cx.AfterFunc(300*time.Millisecond, func() {
+		if a.bgOpacitySeq != seq || a.st == nil {
+			return // still moving: the last value will be kept
+		}
 		a.st.edit(func(c *config) {
 			vv := v
 			c.BackgroundOpacity = &vv
 		})
-	}
-	a.bgOpacitySeq++
-	seq := a.bgOpacitySeq
-	a.cx.AfterFunc(450*time.Millisecond, func() {
-		if a.bgOpacitySeq != seq {
-			return // still moving: the last value will do this
-		}
-		a.applyTheme()
-		a.bumpSettings()
 	})
 }
 

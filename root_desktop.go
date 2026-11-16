@@ -46,7 +46,7 @@ func Root(cx *core.Scope) core.Node {
 						PointerEvents: core.PointerEventsNone})}
 				})
 				return core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), FontFamily: font}, Children: []core.Node{
-					core.Image{Source: core.ImageSource{URI: fileURL(img)}, ResizeMode: core.Cover,
+					core.Image{Source: core.ImageSource{URI: img}, ResizeMode: core.Cover,
 						Style: fill.Merge(core.Style{PointerEvents: core.PointerEventsNone})},
 					mask,
 					core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}, Children: []core.Node{a.view()}},

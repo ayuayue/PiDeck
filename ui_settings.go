@@ -900,7 +900,7 @@ func (a *app) backgroundGroup(colors ui.Colors) core.Node {
 	path := a.cfg.BackgroundImage
 	var preview core.Node
 	if path != "" {
-		preview = core.Image{Source: core.ImageSource{URI: fileURL(path)}, ResizeMode: core.Cover,
+		preview = core.Image{Source: core.ImageSource{URI: path}, ResizeMode: core.Cover,
 			Style: core.Style{Width: core.Pt(80), Height: core.Pt(46), CornerRadius: 6, BorderWidth: 1, BorderColor: colors.Border()}}
 	} else {
 		preview = core.View{Style: core.Style{Width: core.Pt(80), Height: core.Pt(46), CornerRadius: 6,
