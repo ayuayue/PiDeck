@@ -341,6 +341,10 @@ func (h *remoteHost) handler() http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		// The page and its wasm are public; the API below takes the token.
+		if serveWebAsset(w, r) {
+			return
+		}
 		// Feishu authenticates with its own verification token.
 		if r.URL.Path == "/api/feishu" {
 			mux.ServeHTTP(w, r)

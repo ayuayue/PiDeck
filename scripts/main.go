@@ -117,6 +117,8 @@ func main() {
 		h.android(sub)
 	case "test":
 		h.test()
+	case "web":
+		h.web()
 	case "doctor":
 		h.doctor()
 	case "dist":
@@ -399,6 +401,7 @@ func (h *helper) help() {
   go run ./scripts android status     设备、AVD 和桌面端连接状态
   go run ./scripts android link       复制模拟器要用的连接链接
   go run ./scripts test               无头 UI 与端到端测试
+  go run ./scripts web                构建浏览器端：页面进 webassets/，再编带页面的桌面程序
   go run ./scripts doctor             检查 adb / NDK / Xcode / 模拟器
 
 构建目标：windows_x64 windows_arm64 macos_arm64 macos_x64 linux_x64
@@ -451,6 +454,56 @@ func (h *helper) buildAll() {
 
 func (h *helper) test() {
 	h.report(h.nsgo("test"))
+}
+
+// web 把浏览器端页面编进 webassets/，再编一个同时发窗口、页面和 API 的二进制：
+// 浏览器的 WebAssembly 里没有进程和磁盘，pi、文件与 Git 仍由桌面端提供。
+func (h *helper) web() {
+	if err := h.nsgo("build", "-target", "web"); err != nil {
+		h.report(err)
+		return
+	}
+	site := filepath.Join(h.root, "dist", h.name+"-"+h.version+"-web")
+	dst := filepath.Join(h.root, "webassets")
+	if err := os.RemoveAll(dst); err != nil {
+		h.report(err)
+		return
+	}
+	if err := copyTree(site, dst); err != nil {
+		h.report(err)
+		return
+	}
+	out := filepath.Join(h.root, "dist", h.name+"-web-host")
+	if runtime.GOOS == "windows" {
+		out += ".exe"
+	}
+	if err := h.runEnv(nil, "go", "build", "-tags", "webassets", "-o", out, "."); err != nil {
+		h.report(err)
+		return
+	}
+	fmt.Printf("\n网页已嵌入。设置 → 远程开启后，浏览器打开 http://<地址>:<端口>/?token=<令牌> 即可。\n产物：%s\n", out)
+}
+
+// copyTree 把一个目录复制到另一个，文件逐个来；发布目录不大，够用。
+func copyTree(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
 }
 
 func (h *helper) doctor() {

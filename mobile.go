@@ -35,6 +35,13 @@ func mobileMode() bool {
 	return runtime.GOOS == "ios" || runtime.GOOS == "android"
 }
 
+// webMode is the browser build: WebAssembly has no processes and no disk,
+// so it is a client of a desktop's server, like the phone.
+func webMode() bool { return runtime.GOOS == "js" }
+
+// clientMode says the window is a remote client, not the workbench.
+func clientMode() bool { return mobileMode() || webMode() }
+
 // mobileSaved is the last connection the phone used, and the ones before
 // it so a second server is one tap away.
 type mobileSaved struct {
@@ -241,7 +248,18 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		atBottom:        core.NewSignal(cx, true),
 		notice:          core.NewSignal(cx, ""),
 	}
-	if saved := loadMobileSaved(cx); saved.Server != "" || len(saved.Recent) > 0 {
+	saved := loadMobileSaved(cx)
+	// A page is served by a desktop, so its origin is the server and a link's
+	// ?token= the token; a saved connection wins only over the origin.
+	if origin, linkToken := webStart(); origin != "" {
+		if saved.Server == "" {
+			saved.Server = origin
+		}
+		if linkToken != "" {
+			saved.Token = linkToken
+		}
+	}
+	if saved.Server != "" || len(saved.Recent) > 0 {
 		a.recent.Set(saved.Recent)
 		if saved.Server != "" {
 			a.server.Set(saved.Server)
@@ -2123,16 +2141,8 @@ func (a *mobileApp) hitRows(cx *core.Scope, query string) []core.Node {
 
 // --- saved connection ----------------------------------------------------
 
-func mobileConfigPath(cx *core.Scope) string {
-	dir := os.Getenv("PIDECK_LITE_HOME")
-	if dir == "" {
-		dir = cx.DataDir()
-	}
-	return filepath.Join(dir, "remote.json")
-}
-
 func loadMobileSaved(cx *core.Scope) mobileSaved {
-	raw, err := os.ReadFile(mobileConfigPath(cx))
+	raw, err := readMobileStore(cx)
 	if err != nil {
 		return mobileSaved{}
 	}
@@ -2157,8 +2167,6 @@ func rememberConnection(list []mobileRecent, item mobileRecent) mobileSaved {
 }
 
 func saveMobileSaved(cx *core.Scope, saved mobileSaved) {
-	path := mobileConfigPath(cx)
-	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	raw, _ := json.Marshal(saved)
-	_ = os.WriteFile(path, raw, 0o644)
+	_ = writeMobileStore(cx, raw)
 }

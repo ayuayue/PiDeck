@@ -74,6 +74,18 @@ go run ./scripts android link    # 复制 http://10.0.2.2:<端口>/?token=…
 
 `go run ./scripts android status` 会打印 SDK 路径、当前设备、AVD 和桌面端链接状态。
 
+### 浏览器（Web 端）
+
+同一份代码编译成 WebAssembly 后在浏览器里跑的是「客户端」，和手机端同一套界面：浏览器里没有进程和磁盘，`pi`、文件与 Git 仍然由桌面端提供。默认构建只发 API，要让桌面端同时把网页发出来，把 web 构建产物放进 `webassets/`，再用 `webassets` 标签编一次：
+
+```sh
+go tool nsgo build -target web                                     # 网页与 app.wasm
+go run ./scripts web                                               # 上一步 + 拷进 webassets/
+go build -tags webassets -o "dist/PiDeck Lite.exe"                 # 一个二进制：窗口 + 网页 + API
+```
+
+然后在桌面端 `设置 → 远程` 开启手机服务，浏览器打开 `http://<地址>:<端口>/?token=<令牌>`：页面与 API 同源，链接里的令牌自动填好，连过的那台电脑记在浏览器的 localStorage。`webassets/` 是生成物，不进仓库；不带上标签构建时访问 `/` 会落到令牌门禁上，和以前一样只有 API。
+
 ## 架构
 
 从下往上，五层，一层只依赖它下面那层：
@@ -403,7 +415,10 @@ go run ./scripts android link    # 复制 http://10.0.2.2:<端口>/?token=…
 | `ui_usage.go` | 设置里的用量页：累计卡片、12 周热力图、模型与项目榜 |
 | `desktop_host.go` | 系统托盘、关闭到托盘、完成通知与各平台通知命令 |
 | `remote.go` | 手机 HTTP 服务、令牌、快照/历史接口，局域网/Tailscale/EasyTier 地址探测 |
-| `remote_client.go` | 手机端 HTTP 客户端与连接串解析 |
+| `remote_client.go` | 手机端与网页端 HTTP 客户端、连接串解析 |
+| `web_serve.go` | 桌面端口上的网页路由：静态文件类型、缓存与首页回退 |
+| `web_assets_on.go` / `web_assets_off.go` | `-tags webassets` 时嵌入 `webassets/` 的网页，否则只发 API |
+| `store_js.go` / `store_other.go` | 上次连接的存放：浏览器用 localStorage，其余平台写 `remote.json` |
 | `mobile.go` | 手机端连接页、项目/会话列表、会话历史、发消息与审批 |
 | `mobile_git.go` | 手机端 Git：分支切换、改动列表、补丁、暂存、提交、同步与最近提交 |
 | `mobile_files.go` | 手机端文件浏览：项目文件列表、筛选与只读查看 |

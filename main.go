@@ -23,7 +23,7 @@ var logoPNG []byte
 // The whole interface sits under an error boundary, so a panic in one
 // screen becomes a crash screen and a crash log instead of a dead app.
 func Root(cx *core.Scope) core.Node {
-	if mobileMode() {
+	if clientMode() {
 		m := newMobileApp(cx)
 		return core.Catch{
 			Try: func(*core.Scope) core.Node { return m.view() },
@@ -76,7 +76,7 @@ func main() {
 		}
 	}()
 	var opts []nsgo.Option
-	if !mobileMode() {
+	if !clientMode() {
 		opts = append(opts, nsgo.WindowSize(1320, 860),
 			nsgo.WindowConstraints(core.WindowConstraints{MinWidth: 960, MinHeight: 640}))
 	}
