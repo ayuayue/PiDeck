@@ -1,6 +1,6 @@
 # PiDeck Lite
 
-用 [NSGo](https://oneo-me.github.io/nsgo/) 重做的 PiDeck：一个原生窗口的 pi 工作台。
+用 [NSGo](https://nsgo.dev/) 重做的 PiDeck：一个原生窗口的 pi 工作台。
 左侧项目与会话，中间标签页与对话，右侧会话面板与文件抽屉；后端直接驱动本机 `pi` 的
 RPC 模式。没有 Electron，没有浏览器内核，整个应用是一个 Go 二进制。
 
@@ -568,7 +568,7 @@ knob code info down`。
 ## 测试
 
 ```sh
-go test ./...                       # 全量（含真 pi 的端到端）
+go test ./... -timeout 20m          # 全量（含真 pi 的端到端；整套要跑约 9 分钟）
 go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/screenshots/windows
 ```
 
@@ -603,7 +603,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 供应商连接测试是轻量探测（`/models` 或一次最小 chat 请求），不等于完整模型可用性验证
 - 系统通知是尽力而为：macOS 用 `osascript`、Linux 用 `notify-send`、Windows 用 PowerShell 的 WinRT 通知；系统关掉通知权限时不会补发
 - 资源页的扩展开关只改 `settings.json`，重启 Agent 后生效；本地 `.ts` 扩展自动加载，不能在此停用
-- 翻译覆盖设置页、命令面板、托盘、键位、主界面外壳、右键菜单、常用对话框与手机端；`TestVisibleStringsTranslated`、`TestToastTitlesTranslated` 与 `TestToastDetailsTranslated` 会拦住没有英文的正文、按钮/菜单/占位/标题字段、提示标题与说明；动态错误文本（如 pi 的原始报错）原样显示
+- 翻译覆盖设置页、命令面板、托盘、键位、主界面外壳、右键菜单、常用对话框与手机端；`TestVisibleStringsTranslated`、`TestToastTitlesTranslated`、`TestToastDetailsTranslated` 与 `TestTraditionalCoversEnglish` 会拦住没有英文的正文、按钮/菜单/占位/标题字段、提示标题与说明，以及缺繁体条目的文案；动态错误文本（如 pi 的原始报错）原样显示
 - 飞书集成默认只发摘要；接收群消息需要远程服务对外可达、填 Verification Token，且只发给当前会话（没有会话时新建内置对话），回答最多回传 1500 字
 - 桌面宠物只有内置造型与状态色，不支持 petdex 社区宠物包
 - 日志文件超过 1 MB 时轮转一次（`pideck.log` → `pideck.log.1`）；没有日志级别设置

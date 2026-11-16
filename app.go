@@ -312,6 +312,8 @@ type app struct {
 	drawer     *core.Signal[bool]
 	drawerTab  *core.Signal[string]
 	theme      *core.Signal[string]
+	uiFont     *core.Signal[string]
+	monoFont   *core.Signal[string]
 
 	byID map[string]*session
 	all  []*session
@@ -549,6 +551,8 @@ func newApp(cx *core.Scope) *app {
 		drawer:                 core.NewSignal(cx, false),
 		drawerTab:              core.NewSignal(cx, "overview"),
 		theme:                  core.NewSignal(cx, "system"),
+		uiFont:                 core.NewSignal(cx, ""),
+		monoFont:               core.NewSignal(cx, ""),
 		palette:                core.NewSignal(cx, false),
 		settings:               core.NewSignal(cx, false),
 		settingsTab:            core.NewSignal(cx, "env"),
@@ -788,6 +792,8 @@ func newApp(cx *core.Scope) *app {
 	a.st = st
 	a.initDiag()
 	a.cfg = st.config()
+	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))
+	a.monoFont.Set(strings.TrimSpace(a.cfg.MonoFont))
 	a.loadAuth()
 	a.chatWidth.Set(a.cfg.ChatWidth)
 	a.editorWrap.Set(a.cfg.EditorWrap)

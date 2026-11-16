@@ -100,7 +100,7 @@ func (a *app) settingsDialog() core.Node {
 		Bare:   true,
 		TestID: "settings",
 		Style:  core.Style{Width: core.Pt(760), Height: core.Pt(560)},
-		Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+		Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 			// rail
 			core.View{StyleFunc: func() core.Style {
 				return core.Style{Width: core.Pt(176), Padding: core.All(10), Gap: 2, FlexShrink: 0,
@@ -133,7 +133,7 @@ func (a *app) settingsDialog() core.Node {
 						core.Text{Content: T(sec.Summary), Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
 					}}
 				}),
-				core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
 					a.settingsContent(),
 				}},
 				core.View{StyleFunc: func() core.Style {
@@ -672,6 +672,15 @@ func (a *app) settingsLook() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		var rows []core.Node
+		fontControl := func(value func() string, set func(string), label, testID, placeholder string) core.Node {
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+				core.Input{Value: value, OnChange: set, OnSubmit: func(string) { a.applyFonts() },
+					Placeholder: placeholder, Label: label, TestID: testID,
+					Style: core.Style{Width: core.Pt(160), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
+						Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}},
+				ui.Button{Text: T("应用"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.applyFonts},
+			}}
+		}
 		list := a.themes.Get()
 		for i, spec := range list {
 			s := spec
@@ -759,6 +768,22 @@ func (a *app) settingsLook() core.Node {
 							Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
 							StyleFunc: ui.Colored(colors.Muted)},
 					}}),
+				setDivider(),
+				setRow("界面字体", "系统已安装的字体名，如 Georgia；留空跟随主题。回车或点「应用」生效。",
+					fontControl(func() string { return a.cfg.UIFont }, func(v string) {
+						a.cfg.UIFont = strings.TrimSpace(v)
+						if a.st != nil {
+							a.st.edit(func(c *config) { c.UIFont = a.cfg.UIFont })
+						}
+					}, T("界面字体"), "ui-font", T("留空跟随主题"))),
+				setDivider(),
+				setRow("等宽字体", "编辑器使用的等宽字体名，如 JetBrains Mono；留空用系统等宽字体。",
+					fontControl(func() string { return a.cfg.MonoFont }, func(v string) {
+						a.cfg.MonoFont = strings.TrimSpace(v)
+						if a.st != nil {
+							a.st.edit(func(c *config) { c.MonoFont = a.cfg.MonoFont })
+						}
+					}, T("等宽字体"), "mono-font", T("留空用系统等宽字体"))),
 				core.Text{Content: "角色：background surface border text textMuted accent danger warning success selection focus scrollbar inset raised field line faint code info track knob。",
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 			}},
@@ -1351,8 +1376,8 @@ func (a *app) settingsAbout() core.Node {
 						a.copyText("https://github.com/badlogic/pi-mono", "链接")
 					}}),
 					setDivider(),
-					setRow("NSGo 框架", "oneo-me.github.io/nsgo", ui.Button{Text: T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
-						a.copyText("https://oneo-me.github.io/nsgo/", "链接")
+					setRow("NSGo 框架", "nsgo.dev", ui.Button{Text: T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
+						a.copyText("https://nsgo.dev/", "链接")
 					}}),
 				),
 				core.Text{Content: "MIT · 数据都在本机 · 会话由 pi 写入自己的目录",

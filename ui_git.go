@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/nsgo/base"
+	"github.com/nsgo-dev/nsgo/base/commitgraph"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -606,7 +607,7 @@ func (a *app) drawerGit() core.Node {
 				ui.Button{Text: T("重试"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.git.refreshAll() }},
 			}}
 		}
-		return core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0), Gap: 10}, Children: []core.Node{
+		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0), Gap: 10}, Children: []core.Node{
 			a.gitHeader(cx, st),
 			core.Show{When: func() bool { return st.Error != "" }, Then: func(cx *core.Scope) core.Node {
 				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
@@ -1024,7 +1025,7 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 		recentMessages(a, st),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			ui.Checkbox{Checked: a.git.amend.Get, OnChange: a.git.amend.Set, Text: T("修订上次提交"), Label: T("修订上次提交"),
-				Style: core.Style{FlexGrow: 1}},
+				Hint: T("把这次改动并入上一次提交，不新增提交"), Style: core.Style{FlexGrow: 1}},
 			ui.Button{Text: T("全部提交"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-commit-all",
 				OnPress:  func() { a.gitCommit(true, false) },
 				Disabled: func() bool { return busy() || msgEmpty() || len(st.Files) == 0 }},
@@ -1033,6 +1034,10 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 			ui.Button{Text: T("提交"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "git-commit",
 				OnPress:  func() { a.gitCommit(false, a.git.amend.Get()) },
 				Disabled: func() bool { return busy() || msgEmpty() || (st.stagedCount() == 0 && !a.git.amend.Get()) }},
+		}},
+		core.Show{When: func() bool { return a.git.amend.Get() }, Then: func(*core.Scope) core.Node {
+			return core.Text{Content: T("这次的暂存改动会并入上一次提交，不再新增提交。"),
+				Style: core.Style{FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)}
 		}},
 	}}
 }
@@ -1082,8 +1087,8 @@ func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 		query := strings.ToLower(strings.TrimSpace(a.git.logQuery.Get()))
 		var rows []core.Node
 		shown := 0
-		for _, c := range st.Commits {
-			commit := c
+		for i, c := range st.Commits {
+			i, commit := i, c
 			if query != "" {
 				hay := strings.ToLower(commit.Subject + " " + commit.Author + " " + commit.Short + " " + commit.Hash)
 				if !strings.Contains(hay, query) {
@@ -1101,7 +1106,16 @@ func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 							Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 					},
 					Children: []core.Node{
-						ui.Icon(lucide.GitCommitHorizontal, 12, colors.Faint),
+						core.Show{When: func() bool { return query == "" }, Then: func(*core.Scope) core.Node {
+							return commitgraph.Graph{History: a.git.history, Item: func() commitgraph.Item { return a.git.history.At(i) },
+								Height: 36, Lane: 10, Color: func(line int) core.Color {
+									palette := []core.Color{colors.Muted(), colors.Up(), colors.Warn(), colors.Danger(), colors.Faint()}
+									return palette[max(0, line)%len(palette)]
+								}}
+						}},
+						core.Show{When: func() bool { return query != "" }, Then: func(*core.Scope) core.Node {
+							return ui.Icon(lucide.GitCommitHorizontal, 12, colors.Faint)
+						}},
 						core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 0}, Children: []core.Node{
 							core.Text{Content: commit.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 								Style: core.Style{FontSize: 11.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)},
@@ -1139,14 +1153,15 @@ func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 						Height: core.Pt(26), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
 				}, Children: []core.Node{ui.Text(T("加载更多提交"), 10.5, ui.Regular, colors.Muted)}})
 		}
-		return core.View{Style: core.Style{Gap: 3}, Children: append([]core.Node{
+		return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 				core.Text{Content: T("历史"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.5}, StyleFunc: ui.Colored(colors.Faint)},
 				core.Text{Content: fmt.Sprint(shown), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{FlexGrow: 1}},
 				a.pressIcon(lucide.RefreshCw, T("刷新历史"), 21, 11, nil, func() { a.git.refreshAll() }, ""),
 			}},
-		}, rows...)}
+			core.View{Style: core.Style{Gap: 0}, Children: rows},
+		}}
 	})
 	return core.View{Style: core.Style{Gap: 3}, Children: []core.Node{
 		search,

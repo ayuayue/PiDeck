@@ -291,6 +291,21 @@ func builtinThemes() []themeSpec {
 		{ID: "system", Name: "跟随系统", Builtin: true},
 		{ID: "light", Name: "纸白", Builtin: true},
 		{ID: "dark", Name: "炭黑", Builtin: true},
+		{ID: "parchment", Name: "羊皮纸", Builtin: true, Appearance: "light",
+			Light: map[string]string{
+				"background": "#f2e7d3", "surface": "#faf3e4",
+				"surfaceHover": "rgba(61, 43, 26, 0.06)", "surfacePressed": "rgba(61, 43, 26, 0.12)",
+				"border": "rgba(61, 43, 26, 0.22)", "text": "#352a22", "textMuted": "#7a6653",
+				"accent": "#8a5a34", "accentHover": "#a06b40", "accentPressed": "#6e4526", "accentText": "#fff8ea",
+				"danger": "#a33a2a", "warning": "#8a5a1f", "success": "#4e6b3a",
+				"selection": "rgba(138, 90, 52, 0.20)", "focus": "rgba(138, 90, 52, 0.45)",
+				"scrollbar": "rgba(61, 43, 26, 0.28)",
+				"inset":     "#eadcc3", "raised": "#fffbf2", "field": "#fbf5e8",
+				"fieldBorder": "rgba(61, 43, 26, 0.18)", "line": "rgba(61, 43, 26, 0.12)",
+				"faint": "#a08c74", "accentFill": "#8a5a34", "light": "#352a22", "onLight": "#fff8ea",
+				"track": "rgba(61, 43, 26, 0.18)", "knob": "#fffbf2", "code": "#4a3526",
+				"info": "#4a5d7a", "down": "#a33a2a",
+			}},
 	}
 }
 
@@ -938,7 +953,21 @@ func (a *app) applyTheme() {
 			base.Mono = spec.Mono
 		}
 	}
+	if f := strings.TrimSpace(a.cfg.UIFont); f != "" {
+		base.Sans = f
+	}
+	if f := strings.TrimSpace(a.cfg.MonoFont); f != "" {
+		base.Mono = f
+	}
 	a.cx.SetTheme(base)
+}
+
+// applyFonts applies the custom families to the interface, the editor and
+// the theme's tokens.
+func (a *app) applyFonts() {
+	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))
+	a.monoFont.Set(strings.TrimSpace(a.cfg.MonoFont))
+	a.applyTheme()
 }
 
 // deleteTheme moves a user theme file to the trash and reloads the looks.

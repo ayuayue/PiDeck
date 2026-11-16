@@ -34,7 +34,12 @@ func Root(cx *core.Scope) core.Node {
 	}
 	a := newApp(cx)
 	return core.Catch{
-		Try: func(*core.Scope) core.Node { return a.view() },
+		Try: func(*core.Scope) core.Node {
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				return core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), FontFamily: a.uiFont.Get()},
+					Children: []core.Node{a.view()}}
+			})
+		},
 		Fallback: func(cx *core.Scope, err error, reset func()) core.Node {
 			return a.crashScreen(cx, err, reset)
 		},

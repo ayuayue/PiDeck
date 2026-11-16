@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nsgo-dev/nsgo/base/commitgraph"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -67,6 +68,7 @@ type gitCommit struct {
 	Author  string
 	Email   string
 	Subject string
+	Parents []string
 	Date    time.Time
 }
 
@@ -140,6 +142,7 @@ type gitRepo struct {
 	target target
 
 	state    *core.Signal[gitState]
+	history  *commitgraph.History
 	logQuery *core.Signal[string]
 	msg      *core.Signal[string]
 	amend    *core.Signal[bool]
@@ -160,7 +163,7 @@ type gitRepo struct {
 
 // newGitRepo builds the panel's state.
 func newGitRepo(cx *core.Scope) *gitRepo {
-	return &gitRepo{
+	g := &gitRepo{
 		cx:       cx,
 		state:    core.NewSignalFunc(cx, gitState{Checked: true}, nil),
 		logQuery: core.NewSignal(cx, ""),
@@ -170,6 +173,15 @@ func newGitRepo(cx *core.Scope) *gitRepo {
 		busy:     core.NewSignal(cx, ""),
 		err:      core.NewSignal(cx, ""),
 	}
+	g.history = commitgraph.NewHistory(cx, func() []commitgraph.Commit {
+		st := g.state.Get()
+		out := make([]commitgraph.Commit, 0, len(st.Commits))
+		for _, c := range st.Commits {
+			out = append(out, commitgraph.Commit{Hash: c.Hash, Parents: c.Parents})
+		}
+		return out
+	}, nil)
+	return g
 }
 
 // repo is the repository commands run in.
@@ -377,7 +389,7 @@ func readGitState(t target, dir string, logLimit int) gitState {
 		st.Root = strings.TrimSpace(out)
 	}
 	if out, _, code, err := gitRun(t, dir, 30*time.Second, "--no-pager", "log", "-n", fmt.Sprint(logLimit), "--date=iso-strict",
-		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e"); err == nil && code == 0 {
+		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%P%x1e"); err == nil && code == 0 {
 		st.Commits = parseGitLog(out)
 		st.LogLimit = logLimit
 	}
@@ -399,7 +411,7 @@ func readGitState(t target, dir string, logLimit int) gitState {
 // readUnpushedCommits lists the commits the upstream branch does not have.
 func readUnpushedCommits(t target, dir string) ([]gitCommit, error) {
 	out, stderr, code, err := gitRun(t, dir, 30*time.Second, "--no-pager", "log", "-n", "100", "--date=iso-strict",
-		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e", "@{u}..HEAD")
+		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%P%x1e", "@{u}..HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -524,7 +536,7 @@ func readFileHistory(t target, dir, path string, limit int) ([]gitCommit, error)
 		limit = 50
 	}
 	out, stderr, code, err := gitRun(t, dir, 30*time.Second, "--no-pager", "log", "-n", strconv.Itoa(limit), "--date=iso-strict",
-		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e", "--", path)
+		"--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%P%x1e", "--", path)
 	if err != nil {
 		return nil, err
 	}
@@ -676,11 +688,14 @@ func parseGitLog(out string) []gitCommit {
 		if rec == "" {
 			continue
 		}
-		parts := strings.SplitN(rec, "\x1f", 6)
+		parts := strings.SplitN(rec, "\x1f", 7)
 		if len(parts) < 6 {
 			continue
 		}
 		c := gitCommit{Hash: parts[0], Short: parts[1], Author: parts[2], Email: parts[3], Subject: parts[5]}
+		if len(parts) == 7 && strings.TrimSpace(parts[6]) != "" {
+			c.Parents = strings.Fields(parts[6])
+		}
 		if t, err := time.Parse(time.RFC3339, parts[4]); err == nil {
 			c.Date = t
 		}

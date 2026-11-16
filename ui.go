@@ -790,7 +790,8 @@ func (a *app) drawerPanel() core.Node {
 			}()...),
 		}
 	}
-	return core.View{Style: core.Style{Padding: core.All(12), Gap: 10, Width: core.Pct(100)}, Children: []core.Node{
+	return core.View{Style: core.Style{Padding: core.All(12), Gap: 10, Width: core.Pct(100),
+		FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Direction: core.Column}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
 			tab("overview", T("概览")),
 			tab("files", T("文件")),
@@ -803,16 +804,18 @@ func (a *app) drawerPanel() core.Node {
 				}}
 			}},
 		}},
-		core.Dynamic(func(cx *core.Scope) core.Node {
-			switch a.drawerTab.Get() {
-			case "files":
-				return a.drawerFiles()
-			case "git":
-				return a.drawerGit()
-			default:
-				return a.drawerOverview()
-			}
-		}),
+		core.View{Style: ui.FillRest, Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				switch a.drawerTab.Get() {
+				case "files":
+					return a.drawerFiles()
+				case "git":
+					return a.drawerGit()
+				default:
+					return a.drawerOverview()
+				}
+			}),
+		}},
 	}}
 }
 

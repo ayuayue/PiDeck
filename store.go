@@ -161,6 +161,10 @@ type config struct {
 	TerminalFont float64 `json:"terminalFont,omitempty"`
 	// EditorFont is the editor's text size; 0 keeps the default.
 	EditorFont int `json:"editorFont,omitempty"`
+	// UIFont names an installed font family for the interface; empty follows the theme.
+	UIFont string `json:"uiFont,omitempty"`
+	// MonoFont names an installed font family for the editor; empty uses the system's monospaced font.
+	MonoFont string `json:"monoFont,omitempty"`
 	// PetEnabled shows the desktop pet window.
 	PetEnabled bool `json:"petEnabled,omitempty"`
 	// EditorCommand opens files outside the app; empty detects one.

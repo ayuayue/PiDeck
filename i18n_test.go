@@ -4,6 +4,7 @@ package main
 // settings and command palette rely on.
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -155,4 +156,21 @@ func TestMainLanguageSwitch(t *testing.T) {
 	app.Key("escape")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Projects")) > 0 })
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Add workspace")) > 0 })
+}
+
+// TestTraditionalCoversEnglish keeps zh-TW from falling back to Simplified
+// on screens someone already translated into English.
+func TestTraditionalCoversEnglish(t *testing.T) {
+	en := messages[langEnUS]
+	tw := messages[langZhTW]
+	var missing []string
+	for key := range en {
+		if _, ok := tw[key]; !ok {
+			missing = append(missing, key)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Fatalf("%d keys have no zh-TW entry: %q", len(missing), missing[:min(len(missing), 12)])
+	}
 }
