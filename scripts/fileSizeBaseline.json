@@ -82,7 +82,7 @@
 		"src/renderer/src/components/sidebar/SidebarComponents.tsx": 1349,
 		"src/renderer/src/components/sidebar/SidebarContent.tsx": 1038,
 		"src/renderer/src/components/terminal/TerminalDock.tsx": 722,
-		"src/renderer/src/components/workspace/RemoteGitPanel.tsx": 702,
+		"src/renderer/src/components/workspace/RemoteGitPanel.tsx": 667,
 		"src/renderer/src/config/AddProviderDialog.tsx": 652,
 		"src/renderer/src/config/DshConfigTab.tsx": 736,
 		"src/renderer/src/config/DshProviderCards.tsx": 929,

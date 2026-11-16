@@ -308,7 +308,11 @@ export function useConfigModelRowsEditing(deps: ConfigModelRowsEditingDeps) {
 		try {
 			const result = await api.config.saveModels(prunedData, configTargetOption);
 			if (!result.valid) {
-				setError(result.error ?? t("config.saveFailed"));
+				const message = result.error ?? t("config.saveFailed");
+				setError(message);
+				// 内容区的错误条容易被忽略：dirty 不会因为一次失败清掉，顶部「保存」看起来
+				// 像点了没反应（实测被当成按钮失灵排查了两轮）。这里再给一条 toast 明说原因。
+				showNotice(message, 6000, "error");
 				return false;
 			}
 			onSaved();

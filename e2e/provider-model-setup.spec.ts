@@ -8,10 +8,6 @@ test.beforeEach(async ({ window }) => {
 });
 
 test("供应商中文名可新建和重命名，窄窗添加/编辑表单不横向溢出", async ({ app, window }, testInfo) => {
-	// 已知失败（疑似产品缺陷）：添加供应商后点右上角「保存」，按钮 title 仍是「有未保存的修改」，
-	// 主进程日志里没有任何 config 保存 IPC，磁盘也没写入 → 保存点了没反应。
-	// 证据与下一步见 docs/e2e-known-failures.md「配置管理的保存点了没反应」。
-	test.fail();
 	test.setTimeout(90_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 25_000 });
 	const config = window.locator(".settings-modal");
@@ -25,6 +21,10 @@ test("供应商中文名可新建和重命名，窄窗添加/编辑表单不横�
 	const page = config.locator(".provider-add-page");
 	await page.getByRole("textbox", { name: "供应商名称", exact: true }).fill("中文供应商");
 	await page.getByRole("textbox", { name: "Base URL", exact: true }).fill("https://example.com/v1");
+	// API 类型是必填项：缺失时主进程校验会整条拒绝（pi 会跳过该供应商），
+	// 界面表现就是「点保存没反应、一直有未保存修改」。
+	await page.locator(".config-select-trigger").first().click();
+	await window.getByRole("option", { name: /OpenAI Chat Completions/ }).click();
 	await page.getByRole("button", { name: "+ 手动添加", exact: true }).click();
 	await page.getByPlaceholder("model-id", { exact: true }).fill("test-model");
 	await expect(page.getByRole("button", { name: "添加", exact: true })).toBeEnabled();
@@ -90,4 +90,29 @@ test("引导页清空预选只移除当前后端模型，不覆盖另一后端�
 	const preferences = await window.evaluate(() => ({ pi: localStorage.getItem("pideck:welcome-model"), dsh: localStorage.getItem("pideck:welcome-dsh-model") }));
 	expect(preferences.pi).toBeNull();
 	expect(preferences.dsh).toContain("dsh-model");
+});
+
+test("保存被校验拒绝时给 toast 提示（供应商缺 API 类型）", async ({ window }) => {
+	test.setTimeout(90_000);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 25_000 });
+	const config = window.locator(".settings-modal");
+	if (!(await config.isVisible())) await window.getByRole("button", { name: /^设置/ }).click();
+	await expect(config).toBeVisible();
+	await config.getByRole("tab", { name: "配置管理", exact: true }).click();
+	await config.getByRole("tab", { name: /^Pi 配置管理/ }).click();
+	await config.getByRole("tab", { name: "模型", exact: true }).click();
+	await config.getByRole("button", { name: "+ 添加供应商", exact: true }).click();
+	const page = config.locator(".provider-add-page");
+	await page.getByRole("textbox", { name: "供应商名称", exact: true }).fill("缺协议供应商");
+	await page.getByRole("textbox", { name: "Base URL", exact: true }).fill("https://example.com/v1");
+	// 故意不选 API 类型：主进程校验会整条拒绝。
+	await page.getByRole("button", { name: "+ 手动添加", exact: true }).click();
+	await page.getByPlaceholder("model-id", { exact: true }).fill("gpt-4o");
+	await page.getByRole("button", { name: "添加", exact: true }).click();
+	await expect(page).toHaveCount(0);
+
+	await config.getByRole("button", { name: "保存", exact: true }).first().click();
+	// 关键点：失败不能只在内容区给个错误条（dirty 不清、顶部按钮看起来像没反应），
+	// 必须也弹 toast 说明原因。
+	await expect(window.locator("[data-sonner-toaster]")).toContainText("缺少 API 类型", { timeout: 10_000 });
 });
