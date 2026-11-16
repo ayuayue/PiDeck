@@ -133,6 +133,25 @@ jobs:
           path: dist/*ios_simulator*/*.app
           if-no-files-found: error
 
+  workflows:
+    name: workflows (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # A workflow file GitHub cannot parse fails in zero seconds at the tag,
+      # where nobody watches: secrets are not available in `if:`, and a bad
+      # expression is only reported by the API. Lint it on every push.
+      - name: Lint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          "$(go env GOPATH)/bin/actionlint" .github/workflows/*.yml
+
   cross:
     name: cross (${{ matrix.target }})
     strategy:
