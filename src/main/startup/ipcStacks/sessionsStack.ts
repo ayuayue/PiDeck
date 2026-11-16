@@ -12,6 +12,7 @@ import type { DshForeignSyncDeps } from "../../dsh/dshForeignSync";
 import type { createDshSessionSkillLoader } from "../../dsh/dshSessionSkillLoader";
 import { importForeignSession } from "../../dsh/dshForeignSync";
 import { registerSessionIpc } from "../../ipc/sessionIpc";
+import { registerGtdIpc } from "../../ipc/gtdIpc";
 import type { SessionIndexService } from "../../sessions/SessionIndexService";
 import type { SessionScanner } from "../../sessions/SessionScanner";
 import type { SshSessionLocator } from "../../../shared/projectLocation";
@@ -380,4 +381,6 @@ export function registerSessionsStack(ctx: SessionsStackContext): void {
 			// fork/clone 已收口 sessionForkCommands（桌面/Web 共用），这里不再单独提供
 		},
 	});
+	// GTD 分诊账本（#546）：与会话文件无关的本地意图账本，通道独立于会话 IPC。
+	registerGtdIpc();
 }

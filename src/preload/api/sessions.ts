@@ -6,6 +6,7 @@
 import { ipcRenderer } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { subscribe } from "./ipcHelpers";
+import type { GtdLedger, GtdStatePatch } from "../../shared/types/gtd";
 import type {
 	AgentRuntimeState,
 	AvailableModel,
@@ -69,6 +70,10 @@ export const sessionsApi = {
 		resolveLaunchDefaults: (input: ResolveLaunchDefaultsInput = {}) => ipcRenderer.invoke(ipcChannels.sessionsResolveLaunchDefaults, input) as Promise<ResolvedLaunchDefaults>,
 		createAnonymous: (input: CreateAnonymousSessionInput) => ipcRenderer.invoke(ipcChannels.sessionsCreateAnonymous, input) as Promise<CreateAnonymousSessionResult>,
 		updateRecord: (sessionId: string, patch: UpdateSessionRecordInput) => ipcRenderer.invoke(ipcChannels.sessionsCatalogUpdate, sessionId, patch) as Promise<SessionRecord>,
+		/** GTD 分诊账本（#546）：读取全量意图水位；分桶由渲染层用 shared/gtdProjection 实时算。 */
+		gtdState: () => ipcRenderer.invoke(ipcChannels.gtdStateGet) as Promise<GtdLedger>,
+		/** GTD 分诊账本：写入单个会话的水位；字段 null = 清除（撤销结清 / 取消稍后提醒）。 */
+		gtdPatch: (sessionId: string, patch: GtdStatePatch) => ipcRenderer.invoke(ipcChannels.gtdStatePatch, sessionId, patch) as Promise<GtdLedger>,
 		/** DSH host 级模型目录（llm.models），未装配时返回空列表。 */
 		listDshModels: () => ipcRenderer.invoke(ipcChannels.dshListModels) as Promise<AvailableModel[]>,
 		/** DSH 配置页模型发现：只返回候选，apiKey 仅本次探测使用。 */

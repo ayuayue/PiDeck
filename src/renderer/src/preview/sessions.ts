@@ -124,6 +124,9 @@ export function createSessionsPreview(): Pick<PiDesktopApi, "sessions" | "usageS
 				createdAt: now,
 				updatedAt: now,
 			}),
+			// 预览模式没有主进程账本：空意图表（所有会话按运行态分桶）。
+			gtdState: async () => ({}),
+			gtdPatch: async () => ({}),
 			deleteRecord: async () => true,
 			archiveRecord: async () => true,
 			unarchiveRecord: async () => true,
