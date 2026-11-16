@@ -188,6 +188,22 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 `accepted: true` 表示这条消息进了队列，服务端负责投递，此时可以先不读回执。**要证明对方真的看到了，用 5.6 那条片段计数**——第 5.6 节有实测：accepted 之后还会隔十几秒才出现在对方记录里。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
 
+**中文别走命令行参数。** `curl -d "中文"` 会先把这段参数交给终端代码页（Windows 上常是 GBK），对端收到的是一串 U+FFFD（替换符，表示字节解不出来）。2026-11 实测两次：中文当参数发，对端记录里 16 个替换符；把 JSON 写进文件、用 `--data-binary @file` 发，替换符归零。
+
+```bash
+node -e 'const fs=require("fs");fs.writeFileSync("msg.json",JSON.stringify({requestId:String(Date.now()),message:fs.readFileSync("msg.txt","utf8")}),"utf8")'
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json; charset=utf-8" \
+  --data-binary @msg.json "$BASE/api/sessions/<目标>/prompt"
+```
+
+两处都要：请求头带 `charset=utf-8`（不带时接收端可以按本机代码页解码），正文走文件不走参数。判据是读对端的会话记录，数替换符，期望 0：
+
+```bash
+node -e 'const fs=require("fs");const t=fs.readFileSync(process.argv[1],"utf8");console.log((t.match(/\uFFFD/g)||[]).length)' "<对端的 sessionPath>"
+```
+
+**收到乱码就直说，别猜。** 对端回复变成 `���` 这类替换符时，唯一正确的动作是回一句「读不懂，这是原文：<逐字粘贴>」，然后停下等它对。按上下文猜它的意思，猜错了在记录上看不出任何异常——你会照着猜出来的意思改出完全无关的东西。判据：自己的回复里不出现「我理解你的意思是……」这类转述，除非同时贴得出原文片段。这条与第 0 节「先定义再用」是同一件事：看不懂就停，不要边猜边做。 来源与实测见 5.1 那条：命令行参数经代码页转码会产生一串 U+FFFD，改用文件通道后归零。
+
 ### 5.2 要看流式才用 `/api/chat`
 
 请求体不是 `{message: "..."}`，是完整消息数组；`id` 是**目标会话的 sessionId**，不是 `agentId`：
@@ -281,7 +297,7 @@ tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
 
 **换边规则**：这一轮甲发现问题、甲改、乙核；下一轮乙发现、乙改、甲核。同一个人既发现又自己核完，等于这一轮没有复核。
 
-**交接用文件，不用消息正文。** 中文经过命令行参数会被代码页转码（第 6 节记过这条事故），提案超过几十行也会被截断。约定：提案写到临时目录的 proposals-rN.md，回执写 review-rN.md，发消息只发路径、md5 前 8 位、字节数。
+**交接用文件，不用消息正文。** 中文经过命令行参数会被代码页转码（5.1 末尾那段有实测与判据），提案超过几十行也会被截断。约定：提案写到临时目录的 proposals-rN.md，回执写 review-rN.md，发消息只发路径、md5 前 8 位、字节数。
 
 ```bash
 TMP="${TMPDIR:-${TEMP:-/tmp}}"
@@ -289,13 +305,7 @@ md5sum "$TMP/proposals-r1.md" | cut -c1-8; stat -c %s "$TMP/proposals-r1.md"
 [ -f "$TMP/proposals-r1.md" ] || echo "文件不在 $TMP：Windows 上 bash 的 /tmp 与 %TEMP% 不是同一个位置"
 ```
 
-**accepted:true 只代表进队列，不代表对方看到了。** 2026-11-16 实测：一条消息发送返回 accepted:true，10 秒后读对端会话记录还是 0 条，再等 12 秒才出现；这期间因为以为没送到而重发过，同一句在对端出现 4 次。判「送到了」只认对端会话记录：
-
-```bash
-curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages" | grep -c "<你那条消息里的独特片段>"   # 期望 >=1
-```
-
-为 0 时不要立刻重发，等一轮再查——重发的代价是两份都在，而你以为一份都没到。坏样本：同一句连发两次，这个计数会变成 2。
+**accepted:true 只代表进队列，不代表对方看到了。** 判「送到了」用对端会话记录数计数，方法与坏样本见 5.1 末尾「中文别走命令行参数」之后那段——这里不再重复。
 
 **证明对方真读了原文的办法**：让它在回执里贴出原文片段。行号只作定位、不当证据——插入一行行号就漂，2026-11-16 双方各错过两次（说 186 实际 188、说 3393 字节实际 5467）。行号与片段冲突时，以片段为准。只说「我看了」，与没看无法区分。
 
@@ -303,7 +313,11 @@ curl -s -H "$AUTH" "$BASE/api/sessions/<目标>/messages" | grep -c "<你那条�
 
 **动手前看，交回执时写。** 动手前跑 `git log --oneline -3` 与 `git status`：对方最近落过你要改的那一节，就先停手合并，别各写各的。核的人在回执里必须写一句「这次改动有没有第二处说同一件事」；写不出这句，算没核完——语义重复脚本抓不住，2026-11-16 实测同一件事被写了三段，四个判据全绿。
 
+**合并提交后，别拿「diff 为空」当等价判据。** 合并时若顺手改了内容，diff 必然非空：2026-11-16 实测合并四笔时顺手修了一处重复，`git diff <合并前> <合并后>` 是 1 处 +1 −1，而提出方报「空」。正确判据是「diff 里每一处都能指到来源」，不是「diff 为空」。
+
 **凭据在谁手上，就由谁执行那一行命令。** 只有对方能推送、能改 PR 正文时：发现方给命令原文，持凭据方原样执行，回贴命令、输出与执行时间；执行前双方各读一遍命令文本。对外推送不可逆，许可只能来自用户——核的人不能代用户说「可以推了」。
+
+**先验凭据能不能做成这件事，再排执行顺序。** 2026-11-16 实测两种失效：fine-grained token 对「本人不是协作者的公开仓」只有只读——`gh api repos/<owner>/<repo> -q .permissions` 得 `pull:true push:false`，建 PR 与改 PR 正文都返回 `Resource not accessible`；GCM 里存的是 OAuth 时，git 操作会弹 GUI 选账号，脚本里设了 `credential.interactive=false` 后 `git credential fill` 直接报 `Cannot prompt because user interactivity has been disabled`。要推就用显式 URL：`git push https://x-access-token:<token>@github.com/<owner>/<repo>.git <branch>`，同时设 `GIT_TERMINAL_PROMPT=0`。
 
 **收尾要两份签核文件。** 各写一份 signoff.md：对象、基准 commit、核过的文件与 md5、跑过的判据与 rc、坏样本、结论（认可或不认可）。两份都要覆盖全部安装位置——少一处，就是两个人的认可范围不一样。
 
@@ -588,3 +602,28 @@ node resources/skills/pideck-web-api/check-doc.mjs --update-routes   # 重写 ch
 `check-doc.mjs` 还要读同目录的 `check-doc-routes.json`：60 条路由的台账，生成物，别手改。源码里少了一条台账里有的路由，它逐条打印并判 rc=1，所以删路由必须连台账一起改、在提交信息里说明为什么。台账缺失也判 rc=1，那是部署不全不是环境缺失。源码新增路由只提示不判红，否则每改一次源码都会红，这条判据就没人用了。残缺串（裸 `/api`、通配 `/api/*`、带中文的注释片段）不进台账，`--update-routes` 会跳过并打印跳了几条。
 
 口径上限写在各自文件头：`check-paths` 只按段比对、抓不到顺序错；`check-doc` 抓不到模板串拼出来的路由；`check-fields` 要读全量 src，克隆不完整时用 `--src=<完整 src 目录>` 指过去，别删它求绿。
+
+### 踩过的坑（都是实测，改这个技能时会再撞上）
+
+**改了 SKILL.md 必须重跑技能清单，否则 CI 红。** 仓库 CI 有一条 skills-manifest drift，清单记录的 sha256 与文件不一致就失败（2026-11-16 实测日志：`[content-manifest:skills] artifact is stale`）。
+
+```bash
+npm run generate:skills-manifest    # 写操作：重写 resources/skills/skills-manifest.json
+npm run check:skills-manifest       # 判据：rc 必须是 0
+```
+
+**管道会吃掉退出码。** `node check-doc.mjs | tail -1` 之后取到的 rc 是 `tail` 的，不是判据的——2026-11-16 因此三次误判「判据红了」。要看真 rc，先重定向再取：
+
+```bash
+node check-doc.mjs > /tmp/o 2>&1; rc=$?; tail -1 /tmp/o; echo "rc=$rc"
+```
+
+**`git push` 失败时也可能看到 rc=0**（同一条命令后面还跟着别的命令）。推完用远端复核，别只看自己的输出：
+
+```bash
+git ls-remote <remote> refs/heads/<branch>   # 与本地 git rev-parse HEAD 对齐才算推上
+```
+
+**门禁里「后续判据依赖的前置步骤」不能写成可能静默为假的条件。** 实测：版本检查依赖先拉 base commit，而那一步的 `if` 在 fork PR 上被判 skipped，下一步直接报 `fatal: path 'package.json' exists on disk, but not in '<sha>'`——错在上一行，红在这一行。写成总是执行、取不到时回落，并把回落结果用 GITHUB_ENV 显式传下去。
+
+**插入位置在围栏内还是围栏外，比文字本身更容易错。** 2026-11-16 往代码块里插一段，围栏被破坏，判据红在「标题前缺空行」这种看不出原因的位置。改完 SKILL.md 第一件事就是跑 check-format。
