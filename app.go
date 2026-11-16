@@ -314,6 +314,11 @@ type app struct {
 	theme      *core.Signal[string]
 	uiFont     *core.Signal[string]
 	monoFont   *core.Signal[string]
+	toolRev    *core.Signal[int]
+	aiBusy     *core.Signal[string]
+	bgImage    *core.Signal[string]
+	bgOpacity  *core.Signal[float64]
+	llmFn      func(tool, system, prompt string, maxTokens int) (string, error)
 
 	byID map[string]*session
 	all  []*session
@@ -553,6 +558,10 @@ func newApp(cx *core.Scope) *app {
 		theme:                  core.NewSignal(cx, "system"),
 		uiFont:                 core.NewSignal(cx, ""),
 		monoFont:               core.NewSignal(cx, ""),
+		toolRev:                core.NewSignal(cx, 0),
+		aiBusy:                 core.NewSignal(cx, ""),
+		bgImage:                core.NewSignal(cx, ""),
+		bgOpacity:              core.NewSignal(cx, 0.8),
 		palette:                core.NewSignal(cx, false),
 		settings:               core.NewSignal(cx, false),
 		settingsTab:            core.NewSignal(cx, "env"),
@@ -794,6 +803,8 @@ func newApp(cx *core.Scope) *app {
 	a.cfg = st.config()
 	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))
 	a.monoFont.Set(strings.TrimSpace(a.cfg.MonoFont))
+	a.bgImage.Set(strings.TrimSpace(a.cfg.BackgroundImage))
+	a.bgOpacity.Set(a.backgroundOpacity())
 	a.loadAuth()
 	a.chatWidth.Set(a.cfg.ChatWidth)
 	a.editorWrap.Set(a.cfg.EditorWrap)

@@ -102,14 +102,14 @@ func (a *app) chatFindBar(s *session) core.Node {
 				core.Show{When: func() bool { return q != "" && hits > 0 }, Then: func(cx *core.Scope) core.Node {
 					return core.Group{
 						ui.Text(T("%d 处", hits), 10, ui.Regular, colors.Faint),
-						ui.IconButton{Icon: lucide.ChevronUp, Label: T("上一处"), Size: 20, IconSize: 10, TestID: "chat-find-prev",
-							OnPress: a.chatSearch.Previous},
-						ui.IconButton{Icon: lucide.ChevronDown, Label: T("下一处"), Size: 20, IconSize: 10, TestID: "chat-find-next",
-							OnPress: a.chatSearch.Next},
+						hintOf(func() string { return T("上一处") }, ui.IconButton{Icon: lucide.ChevronUp, Label: T("上一处"), Size: 20, IconSize: 10, TestID: "chat-find-prev",
+							OnPress: a.chatSearch.Previous}),
+						hintOf(func() string { return T("下一处") }, ui.IconButton{Icon: lucide.ChevronDown, Label: T("下一处"), Size: 20, IconSize: 10, TestID: "chat-find-next",
+							OnPress: a.chatSearch.Next}),
 					}
 				}},
-				ui.IconButton{Icon: lucide.X, Label: T("关闭查找"), Size: 22, IconSize: 11, TestID: "chat-find-close",
-					OnPress: a.closeChatFind},
+				hintOf(func() string { return T("关闭查找") }, ui.IconButton{Icon: lucide.X, Label: T("关闭查找"), Size: 22, IconSize: 11, TestID: "chat-find-close",
+					OnPress: a.closeChatFind}),
 			}}
 	})
 }

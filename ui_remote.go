@@ -47,8 +47,8 @@ func (a *app) settingsRemote() core.Node {
 				OnPress:  func() { a.copyText(a.remote.link(ip), "连接链接") }}
 		}
 		qrButton := func(ip string) core.Node {
-			return ui.IconButton{Icon: lucide.QrCode, Label: T("显示二维码"), Size: 24, IconSize: 13,
-				Disabled: func() bool { return !st.Running }, OnPress: func() { a.showQR(a.remote.link(ip)) }}
+			return hintOf(func() string { return T("显示二维码") }, ui.IconButton{Icon: lucide.QrCode, Label: T("显示二维码"), Size: 24, IconSize: 13,
+				Disabled: func() bool { return !st.Running }, OnPress: func() { a.showQR(a.remote.link(ip)) }})
 		}
 		addressRow := func(name, detail, ip, testID string) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30)},

@@ -527,8 +527,8 @@ func (a *app) settingsModels() core.Node {
 					}},
 				}},
 				badge(),
-				ui.IconButton{Icon: lucide.Settings2, Label: T("配置 ") + prov.ID, Size: 26, IconSize: 13,
-					TestID: "provider-configure-" + prov.ID, OnPress: func() { a.openProviderDialog(prov.ID) }},
+				hintOf(func() string { return T("配置 ") + prov.ID }, ui.IconButton{Icon: lucide.Settings2, Label: T("配置 ") + prov.ID, Size: 26, IconSize: 13,
+					TestID: "provider-configure-" + prov.ID, OnPress: func() { a.openProviderDialog(prov.ID) }}),
 				arrowButton(lucide.ArrowUpToLine, "置顶供应商", func() { a.pinProvider(prov.ID) }),
 				arrowButton(lucide.ChevronUp, "上移供应商", func() { a.moveProvider(prov.ID, -1) }),
 				arrowButton(lucide.ChevronDown, "下移供应商", func() { a.moveProvider(prov.ID, 1) }),
@@ -581,6 +581,7 @@ func (a *app) settingsModels() core.Node {
 		return core.Scroll{TestID: "settings-content", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
 				setGroup("常用模型", core.View{Style: core.Style{Gap: 1}, Children: favRows}),
+				a.toolModelsGroup(),
 				setGroup("供应商与认证", rows...),
 				a.authGroup(),
 				a.piSettingsGroup(),
@@ -597,6 +598,77 @@ func (a *app) settingsModels() core.Node {
 				}},
 			}},
 		}}
+	})
+}
+
+// toolModelsGroup gives each AI tool its own provider and model.
+func (a *app) toolModelsGroup() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = a.toolRev.Get()
+		colors := ui.ColorsOf(cx)
+		configs := readProviderConfigs()
+		tools := []struct{ ID, Name, Help string }{
+			{"commit", "提交摘要", "按暂存改动生成一条提交说明，写进提交框。"},
+			{"prompt", "提示词增强", "把输入框里的草稿改写得更清楚、更具体。"},
+			{"predict", "输入预测", "在输入框里续写草稿的下一句。"},
+		}
+		var rows []core.Node
+		for i, tool := range tools {
+			tool := tool
+			cfg := a.cfg.ToolModels[tool.ID]
+			var providerOpts []ui.Option[string]
+			for _, p := range configs {
+				providerOpts = append(providerOpts, ui.Option[string]{Value: p.ID, Label: p.ID})
+			}
+			var modelOpts []ui.Option[string]
+			for _, p := range configs {
+				if p.ID != cfg.Provider {
+					continue
+				}
+				for _, m := range p.Models {
+					label := m.Name
+					if label == "" {
+						label = m.ID
+					}
+					modelOpts = append(modelOpts, ui.Option[string]{Value: m.ID, Label: label})
+				}
+			}
+			control := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+				ui.Select[string]{Options: providerOpts, Value: func() string { return a.cfg.ToolModels[tool.ID].Provider },
+					Placeholder: T("不启用"), OnClear: func() { a.setToolModel(tool.ID, "", "") },
+					Label: T("供应商"), TestID: "tool-" + tool.ID + "-provider",
+					Style: core.Style{Width: core.Pt(108)},
+					OnChange: func(provider string) {
+						model := ""
+						for _, p := range configs {
+							if p.ID == provider && len(p.Models) > 0 {
+								model = p.Models[0].ID
+								break
+							}
+						}
+						a.setToolModel(tool.ID, provider, model)
+					}},
+				ui.Select[string]{Options: modelOpts, Value: func() string { return a.cfg.ToolModels[tool.ID].Model },
+					Placeholder: T("模型"), Disabled: func() bool { return a.cfg.ToolModels[tool.ID].Provider == "" },
+					Label: T("模型"), TestID: "tool-" + tool.ID + "-model",
+					Style: core.Style{Width: core.Pt(126)},
+					OnChange: func(model string) {
+						a.setToolModel(tool.ID, a.cfg.ToolModels[tool.ID].Provider, model)
+					}},
+				hintOf(func() string { return T("清除") + " " + T(tool.Name) }, ui.IconButton{Icon: lucide.X, Label: T("清除") + " " + T(tool.Name), Size: 22, IconSize: 10,
+					TestID: "tool-" + tool.ID + "-clear", Disabled: func() bool { return cfg.Provider == "" },
+					OnPress: func() { a.setToolModel(tool.ID, "", "") }}),
+			}}
+			rows = append(rows, setRow(tool.Name, tool.Help, control))
+			if i < len(tools)-1 {
+				rows = append(rows, setDivider())
+			}
+		}
+		if len(configs) == 0 {
+			rows = append(rows, core.Text{Content: T("还没有读到供应商；先在下面配置一个，或检查 pi 的 models.json。"),
+				Style: core.Style{FontSize: 11, LineHeight: 16, Padding: core.Symmetric(4, 2)}, StyleFunc: ui.Colored(colors.Faint)})
+		}
+		return setGroup("工具模型", rows...)
 	})
 }
 
@@ -995,11 +1067,11 @@ func (a *app) settingsAddons() core.Node {
 			}
 			if plug.Path != "" {
 				dir, path := plug.Dir, plug.Path
-				open := ui.IconButton{Icon: lucide.FileText, Label: T("查看插件清单"), Size: 24, IconSize: 12,
+				open := hintOf(func() string { return T("查看插件清单") }, ui.IconButton{Icon: lucide.FileText, Label: T("查看插件清单"), Size: 24, IconSize: 12,
 					TestID: "plugin-open-" + plug.ID, OnPress: func() {
 						a.settings.Set(false)
 						a.openEditorFile(dir, path)
-					}}
+					}})
 				control = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
 					Children: []core.Node{control, open}}
 			}

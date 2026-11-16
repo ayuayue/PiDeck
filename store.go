@@ -165,6 +165,12 @@ type config struct {
 	UIFont string `json:"uiFont,omitempty"`
 	// MonoFont names an installed font family for the editor; empty uses the system's monospaced font.
 	MonoFont string `json:"monoFont,omitempty"`
+	// ToolModels gives each AI tool its own provider and model.
+	ToolModels map[string]toolModelCfg `json:"toolModels,omitempty"`
+	// BackgroundImage is a local picture behind the app; empty uses none.
+	BackgroundImage string `json:"backgroundImage,omitempty"`
+	// BackgroundOpacity is how much of the picture shows, 0 to 1; nil reads 0.8.
+	BackgroundOpacity *float64 `json:"backgroundOpacity,omitempty"`
 	// PetEnabled shows the desktop pet window.
 	PetEnabled bool `json:"petEnabled,omitempty"`
 	// EditorCommand opens files outside the app; empty detects one.
@@ -520,6 +526,14 @@ func (s *store) config() config {
 	c.TrustedProjects = append([]string(nil), s.c.TrustedProjects...)
 	c.RecentFiles = append([]string(nil), s.c.RecentFiles...)
 	c.Archived = append([]string(nil), s.c.Archived...)
+	c.ToolModels = make(map[string]toolModelCfg, len(s.c.ToolModels))
+	for k, v := range s.c.ToolModels {
+		c.ToolModels[k] = v
+	}
+	if s.c.BackgroundOpacity != nil {
+		v := *s.c.BackgroundOpacity
+		c.BackgroundOpacity = &v
+	}
 	c.PluginSettings = make(map[string]string, len(s.c.PluginSettings))
 	for k, v := range s.c.PluginSettings {
 		c.PluginSettings[k] = v

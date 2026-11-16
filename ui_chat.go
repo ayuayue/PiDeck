@@ -871,14 +871,93 @@ func (a *app) composer(s *session) core.Node {
 // composerAccessory is the model and thinking controls.
 func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
-		plan := ui.IconButton{Icon: lucide.ClipboardList, Label: T("计划模式"), Size: 26, IconSize: 13, TestID: "plan-mode",
-			Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }}
+		plan := hintOf(func() string { return T("计划模式") }, ui.IconButton{Icon: lucide.ClipboardList, Label: T("计划模式"), Size: 26, IconSize: 13, TestID: "plan-mode",
+			Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }})
 		persona := a.personaChip(s)
-		if s.backend == "acp" {
-			return core.Group{persona, plan, a.acpBadge(s), a.acpCommandMenu(s)}
+		aiTool := func(tool string, icon func() *core.SVG, label, testID string, press func()) core.Node {
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				if a.aiBusy.Get() == tool {
+					return ui.Spinner{Size: 11}
+				}
+				return hintOf(func() string { return T(label) }, ui.IconButton{Icon: icon, Label: T(label), Size: 26, IconSize: 13,
+					TestID: testID, Disabled: func() bool {
+						return a.aiBusy.Get() != "" || strings.TrimSpace(s.draft.Get()) == ""
+					}, OnPress: press})
+			})
 		}
-		return core.Group{persona, plan, a.modelMenu(s, s.modelOpen), a.effortPicker(s)}
+		ai := core.Group{
+			aiTool("prompt", lucide.WandSparkles, "增强提示词", "prompt-enhance", func() { a.enhanceDraft(s) }),
+			aiTool("predict", lucide.Sparkles, "续写", "prompt-predict", func() { a.predictDraft(s) }),
+		}
+		if s.backend == "acp" {
+			return core.Group{persona, plan, a.acpBadge(s), a.acpCommandMenu(s), ai}
+		}
+		return core.Group{persona, plan, a.modelMenu(s, s.modelOpen), a.effortPicker(s), ai}
 	}
+}
+
+// enhanceDraft asks the prompt tool to rewrite the draft.
+func (a *app) enhanceDraft(s *session) {
+	if a.aiBusy.GetUntracked() != "" {
+		return
+	}
+	draft := strings.TrimSpace(s.draft.GetUntracked())
+	if draft == "" {
+		return
+	}
+	if !a.toolConfigured("prompt") {
+		a.toast(ui.ToastInfo, T("还没有配置提示词增强的模型"), T("到 设置 → 模型 → 工具模型 里选供应商和模型。"))
+		return
+	}
+	a.aiBusy.Set("prompt")
+	go func() {
+		text, err := a.complete("prompt",
+			"你是提示词润色助手。把用户的草稿改写成更清晰、具体、可执行的提示词；保留原意、语言和约束，不添加无关要求。只输出改写后的提示词。",
+			draft, 900)
+		a.cx.Post(func() {
+			a.aiBusy.Set("")
+			if err != nil {
+				a.toast(ui.ToastError, T("提示词增强失败"), firstLine(err.Error(), 160))
+				return
+			}
+			s.draft.Set(cleanLLMText(text))
+			a.toast(ui.ToastSuccess, T("提示词已增强"), "")
+		})
+	}()
+}
+
+// predictDraft asks the prediction tool for the draft's next sentence.
+func (a *app) predictDraft(s *session) {
+	if a.aiBusy.GetUntracked() != "" {
+		return
+	}
+	draft := s.draft.GetUntracked()
+	if strings.TrimSpace(draft) == "" {
+		return
+	}
+	if !a.toolConfigured("predict") {
+		a.toast(ui.ToastInfo, T("还没有配置输入预测的模型"), T("到 设置 → 模型 → 工具模型 里选供应商和模型。"))
+		return
+	}
+	a.aiBusy.Set("predict")
+	go func() {
+		text, err := a.complete("predict",
+			"续写用户正在输入的消息，只写接下来的一个短句或半句，与已有文字自然衔接；不要重复已有内容，不要解释。只输出续写部分。",
+			draft, 160)
+		a.cx.Post(func() {
+			a.aiBusy.Set("")
+			if err != nil {
+				a.toast(ui.ToastError, T("输入预测失败"), firstLine(err.Error(), 160))
+				return
+			}
+			text = strings.TrimSpace(cleanLLMText(text))
+			if text == "" {
+				return
+			}
+			s.draft.Set(strings.TrimRight(draft, " \n") + " " + text)
+			a.toast(ui.ToastSuccess, T("已续写"), T("可以继续改。"))
+		})
+	}()
 }
 
 // effortPicker chooses the reasoning level with the chat kit's slider: the

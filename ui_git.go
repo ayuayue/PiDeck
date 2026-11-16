@@ -1012,6 +1012,8 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 			ui.Text(T("提交"), 12, ui.Semibold, colors.Text),
 			core.View{Style: core.Style{FlexGrow: 1}},
 			ui.Text(fmt.Sprintf(T("已暂存 %d"), st.stagedCount()), 9.5, ui.Regular, colors.Faint),
+			a.pressIcon(lucide.Sparkles, T("生成提交摘要"), 21, 11,
+				func() bool { return busy() || a.aiBusy.Get() != "" }, a.generateCommitMessage, "git-summary"),
 		}},
 		core.Input{
 			Value: a.git.msg.Get, OnChange: a.git.msg.Set, Multiline: true,
@@ -1040,6 +1042,53 @@ func (a *app) commitBoxBody(cx *core.Scope, st gitState) core.Node {
 				Style: core.Style{FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)}
 		}},
 	}}
+}
+
+// generateCommitMessage asks the commit tool's model for a message from
+// the staged diff and puts it in the box.
+func (a *app) generateCommitMessage() {
+	if a.aiBusy.GetUntracked() != "" || a.gitPath() == "" {
+		return
+	}
+	if !a.toolConfigured("commit") {
+		a.toast(ui.ToastInfo, T("还没有配置提交摘要的模型"), T("到 设置 → 模型 → 工具模型 里选供应商和模型。"))
+		return
+	}
+	runner := a.git.runner()
+	a.aiBusy.Set("commit")
+	go func() {
+		diff, err := runner.exec(60*time.Second, "diff", "--cached", "--no-color")
+		if err == nil && strings.TrimSpace(diff) == "" {
+			diff, err = runner.exec(60*time.Second, "diff", "--no-color")
+		}
+		var recent string
+		if err == nil {
+			recent, _ = runner.exec(30*time.Second, "--no-pager", "log", "-n", "5", "--pretty=format:%s")
+		}
+		if err == nil && strings.TrimSpace(diff) == "" {
+			err = errors.New("没有可总结的改动")
+		}
+		msg := ""
+		if err == nil {
+			if len(diff) > 24000 {
+				diff = diff[:24000] + "\n…（已截断）"
+			}
+			prompt := "最近的提交标题：\n" + recent + "\n\n暂存或未暂存的改动：\n" + diff
+			msg, err = a.complete("commit",
+				"你是提交说明助手。根据 diff 写一条提交说明，风格与最近的提交标题一致；第一行是简洁的祈使句标题，不超过 72 字符，需要时再加空行和要点。若最近的标题是英文就用英文，是中文就用中文。只输出提交说明，不要代码块或解释。",
+				prompt, 400)
+		}
+		a.cx.Post(func() {
+			a.aiBusy.Set("")
+			if err != nil {
+				a.toast(ui.ToastError, T("生成提交摘要失败"), firstLine(err.Error(), 160))
+				return
+			}
+			text := cleanLLMText(msg)
+			a.git.msg.Set(text)
+			a.toast(ui.ToastSuccess, T("提交摘要已生成"), firstLine(text, 90))
+		})
+	}()
 }
 
 // recentMessages offers the last commit subjects while the box is empty.
@@ -1074,7 +1123,7 @@ func recentMessages(a *app, st gitState) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Wrap: core.Wrap}, Children: chips}
 }
 
-// gitHistory lists the latest commits.// gitHistory lists the latest commits.
+// gitHistory lists the latest commits.
 func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 	colors := ui.ColorsOf(cx)
 	search := core.Input{Value: a.git.logQuery.Get, OnChange: a.git.logQuery.Set,

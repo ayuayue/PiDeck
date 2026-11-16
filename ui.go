@@ -91,10 +91,10 @@ func (a *app) shell() core.Node {
 		SidebarFooter:  []core.Node{a.railFooter()},
 		Header:         []core.Node{a.tabBar()},
 		Actions: []core.Node{
-			ui.IconButton{Icon: lucide.SquareTerminal, Label: "终端", Size: 28, IconSize: 14, TestID: "terminal-toggle",
-				Selected: a.term.open.Get, OnPress: a.toggleTerminal},
-			ui.IconButton{Icon: lucide.GitBranch, Label: "Git", Size: 28, IconSize: 14, TestID: "git-toggle",
-				Selected: func() bool { return a.drawer.Get() && a.drawerTab.Get() == "git" }, OnPress: a.openGit},
+			hint("终端", ui.IconButton{Icon: lucide.SquareTerminal, Label: "终端", Size: 28, IconSize: 14, TestID: "terminal-toggle",
+				Selected: a.term.open.Get, OnPress: a.toggleTerminal}),
+			hint("Git", ui.IconButton{Icon: lucide.GitBranch, Label: "Git", Size: 28, IconSize: 14, TestID: "git-toggle",
+				Selected: func() bool { return a.drawer.Get() && a.drawerTab.Get() == "git" }, OnPress: a.openGit}),
 		},
 		Content:   []core.Node{a.workArea()},
 		Right:     []core.Node{a.drawerPanel()},
@@ -145,7 +145,7 @@ func (a *app) mainPane() core.Node {
 // railActions are the rail header's buttons.
 func (a *app) railActions() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.SquarePen, Label: "新建会话", Size: 30, IconSize: 15, OnPress: func() {
+		hint("新建会话", ui.IconButton{Icon: lucide.SquarePen, Label: "新建会话", Size: 30, IconSize: 15, OnPress: func() {
 			ws := a.activeWS.Get()
 			if ws == "" {
 				if list := a.workspaces.Get(); len(list) > 0 {
@@ -153,9 +153,9 @@ func (a *app) railActions() core.Node {
 				}
 			}
 			a.newSession(ws)
-		}},
-		ui.IconButton{Icon: lucide.FolderPlus, Label: "添加工作区", Size: 30, IconSize: 15, OnPress: func() { a.pickNative("workspace") }},
-		ui.IconButton{Icon: lucide.Command, Label: "命令面板", Size: 30, IconSize: 15, TestID: "rail-palette", OnPress: func() { a.palette.Set(true) }},
+		}}),
+		hint("添加工作区", ui.IconButton{Icon: lucide.FolderPlus, Label: "添加工作区", Size: 30, IconSize: 15, OnPress: func() { a.pickNative("workspace") }}),
+		hint("命令面板", ui.IconButton{Icon: lucide.Command, Label: "命令面板", Size: 30, IconSize: 15, TestID: "rail-palette", OnPress: func() { a.palette.Set(true) }}),
 	}}
 }
 
@@ -637,13 +637,13 @@ func (a *app) railFooter() core.Node {
 		return colors.Up()
 	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Width: core.Pct(100)}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.Settings, Label: "设置", Size: 28, IconSize: 14.5, OnPress: func() { a.settings.Set(true) }},
-		ui.IconButton{IconFunc: func() *core.SVG {
+		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: "设置", Size: 28, IconSize: 14.5, OnPress: func() { a.settings.Set(true) }}),
+		hint("切换外观", ui.IconButton{IconFunc: func() *core.SVG {
 			if a.cx.Dark() {
 				return lucide.Sun()
 			}
 			return lucide.Moon()
-		}, Label: "切换外观", Size: 28, IconSize: 14.5, OnPress: a.cycleTheme},
+		}, Label: "切换外观", Size: 28, IconSize: 14.5, OnPress: a.cycleTheme}),
 		core.View{Style: core.Style{FlexGrow: 1}},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Edges{Right: 4}}, Children: []core.Node{
 			core.View{StyleFunc: func() core.Style {
@@ -662,9 +662,9 @@ func (a *app) tabBar() core.Node {
 				core.Each(a.tabs.Get, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
 					return a.tab(id)
 				}),
-				ui.IconButton{Icon: lucide.Plus, Label: "新建会话", Size: 26, IconSize: 13, OnPress: func() {
+				hint("新建会话", ui.IconButton{Icon: lucide.Plus, Label: "新建会话", Size: 26, IconSize: 13, OnPress: func() {
 					a.newSession(a.activeWS.Get())
-				}},
+				}}),
 			}},
 		}},
 	}}
@@ -799,8 +799,8 @@ func (a *app) drawerPanel() core.Node {
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Show{When: func() bool { return a.drawerTab.Get() == "files" }, Then: func(cx *core.Scope) core.Node {
 				return core.View{Style: core.Style{Direction: core.Row, Gap: 2}, Children: []core.Node{
-					ui.IconButton{Icon: lucide.RefreshCw, Label: T("刷新文件"), Size: 26, IconSize: 12.5, OnPress: func() { a.files.reload() }},
-					ui.IconButton{Icon: lucide.Eye, Label: T("显示隐藏文件"), Size: 26, IconSize: 12.5, OnPress: func() { a.files.setHidden(!a.files.hidden.Get()) }},
+					hintOf(func() string { return T("刷新文件") }, ui.IconButton{Icon: lucide.RefreshCw, Label: T("刷新文件"), Size: 26, IconSize: 12.5, OnPress: func() { a.files.reload() }}),
+					hintOf(func() string { return T("显示隐藏文件") }, ui.IconButton{Icon: lucide.Eye, Label: T("显示隐藏文件"), Size: 26, IconSize: 12.5, OnPress: func() { a.files.setHidden(!a.files.hidden.Get()) }}),
 				}}
 			}},
 		}},
@@ -1327,10 +1327,10 @@ func (a *app) pickerDialog() core.Node {
 							},
 						},
 					}},
-					ui.IconButton{Icon: lucide.ArrowUp, Label: T("上一级"), Size: 28, IconSize: 14, OnPress: p.up},
-					ui.IconButton{Icon: lucide.RefreshCw, Label: T("刷新"), Size: 28, IconSize: 13, OnPress: func() { p.load(p.path.GetUntracked()) }},
-					ui.IconButton{Icon: lucide.Eye, Label: T("显示隐藏文件"), Size: 28, IconSize: 13,
-						Selected: p.hidden.Get, OnPress: func() { p.hidden.Update(func(v bool) bool { return !v }) }},
+					hintOf(func() string { return T("上一级") }, ui.IconButton{Icon: lucide.ArrowUp, Label: T("上一级"), Size: 28, IconSize: 14, OnPress: p.up}),
+					hintOf(func() string { return T("刷新") }, ui.IconButton{Icon: lucide.RefreshCw, Label: T("刷新"), Size: 28, IconSize: 13, OnPress: func() { p.load(p.path.GetUntracked()) }}),
+					hintOf(func() string { return T("显示隐藏文件") }, ui.IconButton{Icon: lucide.Eye, Label: T("显示隐藏文件"), Size: 28, IconSize: 13,
+						Selected: p.hidden.Get, OnPress: func() { p.hidden.Update(func(v bool) bool { return !v }) }}),
 				}},
 				core.View{Style: core.Style{Height: core.Pt(300), MinHeight: core.Pt(0), BorderWidth: 1, BorderColor: colors.Border(),
 					CornerRadius: ui.RadiusControl, Overflow: core.Hidden, Background: colors.Background()}, Children: []core.Node{

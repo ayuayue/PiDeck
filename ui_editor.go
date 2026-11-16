@@ -99,11 +99,11 @@ func (a *app) editorActions() core.Node {
 		return enabled() && f.Dirty.Get()
 	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.Save, Label: T("保存"), Size: 28, IconSize: 14, TestID: "editor-save",
-			Disabled: func() bool { return !dirty() }, OnPress: func() { a.saveActiveFile() }},
-		ui.IconButton{Icon: lucide.TextWrap, Label: T("自动换行"), Size: 28, IconSize: 14, TestID: "editor-wrap",
-			Selected: a.editorWrap.Get, OnPress: a.toggleEditorWrap},
-		ui.IconButton{Icon: lucide.SaveAll, Label: T("保存所有文件"), Size: 28, IconSize: 14, TestID: "editor-save-all",
+		hintOf(func() string { return T("保存") }, ui.IconButton{Icon: lucide.Save, Label: T("保存"), Size: 28, IconSize: 14, TestID: "editor-save",
+			Disabled: func() bool { return !dirty() }, OnPress: func() { a.saveActiveFile() }}),
+		hintOf(func() string { return T("自动换行") }, ui.IconButton{Icon: lucide.TextWrap, Label: T("自动换行"), Size: 28, IconSize: 14, TestID: "editor-wrap",
+			Selected: a.editorWrap.Get, OnPress: a.toggleEditorWrap}),
+		hintOf(func() string { return T("保存所有文件") }, ui.IconButton{Icon: lucide.SaveAll, Label: T("保存所有文件"), Size: 28, IconSize: 14, TestID: "editor-save-all",
 			Disabled: func() bool {
 				for _, f := range a.editor.files.GetUntracked() {
 					if f != nil && f.Dirty.GetUntracked() {
@@ -111,20 +111,20 @@ func (a *app) editorActions() core.Node {
 					}
 				}
 				return true
-			}, OnPress: func() { a.saveAllFiles() }},
-		ui.IconButton{Icon: lucide.RotateCcw, Label: T("重新读取"), Size: 28, IconSize: 14, TestID: "editor-reload",
-			Disabled: func() bool { return !enabled() }, OnPress: func() { a.reloadActiveFile() }},
-		ui.IconButton{Icon: lucide.ExternalLink, Label: T("在文件管理器中显示"), Size: 28, IconSize: 14,
+			}, OnPress: func() { a.saveAllFiles() }}),
+		hintOf(func() string { return T("重新读取") }, ui.IconButton{Icon: lucide.RotateCcw, Label: T("重新读取"), Size: 28, IconSize: 14, TestID: "editor-reload",
+			Disabled: func() bool { return !enabled() }, OnPress: func() { a.reloadActiveFile() }}),
+		hintOf(func() string { return T("在文件管理器中显示") }, ui.IconButton{Icon: lucide.ExternalLink, Label: T("在文件管理器中显示"), Size: 28, IconSize: 14,
 			Disabled: func() bool { return !enabled() }, OnPress: func() {
 				if f := a.editor.activeFile(); f != nil {
 					if err := revealFile(localTarget, f.Path); err != nil {
 						a.toast(ui.ToastError, "打不开位置", err.Error())
 					}
 				}
-			}},
+			}}),
 		core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(18), Background: colors.Line(), Margin: core.Symmetric(0, 4)}},
-		ui.IconButton{Icon: lucide.X, Label: T("回到对话"), Size: 28, IconSize: 14, TestID: "editor-close",
-			OnPress: a.closeEditorPane},
+		hintOf(func() string { return T("回到对话") }, ui.IconButton{Icon: lucide.X, Label: T("回到对话"), Size: 28, IconSize: 14, TestID: "editor-close",
+			OnPress: a.closeEditorPane}),
 	}}
 }
 

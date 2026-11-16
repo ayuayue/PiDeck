@@ -117,13 +117,13 @@ func (a *app) promptDialog() core.Node {
 										Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
 										Color: colors.Text(), FontSize: 12}},
 							}},
-							ui.IconButton{Icon: lucide.BookmarkPlus, Label: T("保存当前草稿为提示词"), Size: 32, IconSize: 14,
-								TestID: "prompt-save-draft", OnPress: func() { a.saveDraftPrompt() }},
-							ui.IconButton{Icon: lucide.FolderOpen, Label: T("打开提示词目录"), Size: 32, IconSize: 14,
+							hintOf(func() string { return T("保存当前草稿为提示词") }, ui.IconButton{Icon: lucide.BookmarkPlus, Label: T("保存当前草稿为提示词"), Size: 32, IconSize: 14,
+								TestID: "prompt-save-draft", OnPress: func() { a.saveDraftPrompt() }}),
+							hintOf(func() string { return T("打开提示词目录") }, ui.IconButton{Icon: lucide.FolderOpen, Label: T("打开提示词目录"), Size: 32, IconSize: 14,
 								TestID: "prompt-open-dir", OnPress: func() {
 									a.promptOpen.Set(false)
 									a.openResourcesDir(a.promptsDir())
-								}},
+								}}),
 						}},
 						core.Scroll{Style: ui.FillRest, Children: []core.Node{
 							core.View{Style: core.Style{Gap: 2}, Children: rows},
