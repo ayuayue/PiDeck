@@ -43,6 +43,29 @@ jobs:
           # Tests drive the app headless; no window or GPU is needed.
           CGO_ENABLED: "0"
 
+  android:
+    name: android (arm64 apk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The APK is written by NSGo itself (no SDK, no NDK for arm64), so this
+      # catches an Android build breaking before a tag does. It stays out of
+      # the release until a stable signing key is configured.
+      - name: Build APK
+        run: go tool nsgo build -target android_arm64 -version 0.0.1-ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pideck-lite-android-arm64
+          path: dist/releases/*.apk
+          if-no-files-found: error
+
   cross:
     name: cross (${{ matrix.target }})
     strategy:
