@@ -94,6 +94,9 @@ export type AcpAgentInfo = {
 		/** promptCapabilities.image：会话可接收图片附件；未声明时发送图片必须拒收
 		 * （给不支持图片的 agent 发 image 块只会得到整回合协议错误）。 */
 		promptImage: boolean;
+		/** sessionCapabilities.additionalDirectories（#560）：会话接受额外根目录列表；
+		 *  未声明时不得携带该字段，否则会被 zod 校验拒成 -32602。 */
+		additionalDirectories: boolean;
 	};
 	/** agent 声明的协议版本。 */
 	protocolVersion: number;

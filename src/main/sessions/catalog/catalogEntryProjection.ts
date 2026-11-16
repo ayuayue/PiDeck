@@ -175,6 +175,7 @@ export function recordFromEntry(entry: SessionCatalogEntry, summary?: SessionSum
 		permissionPreset: entry.permissionPreset,
 		agentPreset: entry.agentPreset,
 		acpToolId: entry.acpToolId,
+		additionalDirectories: entry.additionalDirectories ? [...entry.additionalDirectories] : undefined,
 		dshSessionId: entry.dshSessionId,
 		acpSessionId: entry.acpSessionId,
 		proxy: entry.proxy ? { ...entry.proxy } : undefined,

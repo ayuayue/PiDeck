@@ -9,6 +9,7 @@ import { canonicalizeSessionPath } from "../../shared/sessionIdentity";
 import { runForScatteredSubtreeFiles } from "../sessions/sessionSubtreeFiles";
 import { sendAgentsNotice } from "./agentsNotice";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
+import { normalizeAcpAdditionalDirectories } from "../../shared/acpAdditionalDirectories";
 import { modelThinkingLevelOf } from "../../shared/modelThinkingLevels";
 import { isDshAgentPresetLocked } from "../../shared/dshAgentPresetLock";
 import type { AvailableModel, CreateSessionDraftInput, CreateAnonymousSessionInput, UpdateSessionRecordInput, SessionCommandError, SessionModelPreference, ResolveLaunchDefaultsInput, ResolvedLaunchDefaults } from "../../shared/types";
@@ -201,6 +202,10 @@ export function registerSessionCatalogWriteIpc(deps: SessionCatalogWriteIpcDeps)
 		}
 		if (patch.model !== undefined) {
 			patch = { ...patch, model: normalizedModel };
+		}
+		// ACP 附加根目录（#560）：渲染层输入不可信——只收绝对路径、去重、限量；null/空 = 清空。
+		if (patch.additionalDirectories !== undefined) {
+			patch = { ...patch, additionalDirectories: normalizeAcpAdditionalDirectories(patch.additionalDirectories) ?? [] };
 		}
 		const entry = sessionCatalog.get(sessionId);
 		if (!entry) throw new Error(mainCopy("session.notFound"));

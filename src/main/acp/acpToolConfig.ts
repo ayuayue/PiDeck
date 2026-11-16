@@ -244,3 +244,25 @@ export function acpBypassUnavailableNotice(toolName: string, availableModes: rea
 		message: `"${toolName}" offers no bypass mode (available: ${modes || "none"}); its "bypass permissions" setting has no effect.`,
 	};
 }
+
+/**
+ * 会话配了附加根目录、但工具在 initialize 里没声明 `sessionCapabilities.additionalDirectories`
+ * 时的用户提示（#560）：配置不会下发，必须说出来，不能静默丢弃。
+ */
+export type AcpAdditionalDirectoriesIgnoredNotice = {
+	i18nKey: "notice.acpAdditionalDirectoriesIgnored";
+	i18nParams: { tool: string; count: number };
+	kind: "warning";
+	duration: number;
+	message: string;
+};
+
+export function acpAdditionalDirectoriesIgnoredNotice(toolName: string, count: number): AcpAdditionalDirectoriesIgnoredNotice {
+	return {
+		i18nKey: "notice.acpAdditionalDirectoriesIgnored",
+		i18nParams: { tool: toolName, count },
+		kind: "warning",
+		duration: 8_000,
+		message: `"${toolName}" does not declare additional directories support; ${count} configured director(ies) were not sent.`,
+	};
+}

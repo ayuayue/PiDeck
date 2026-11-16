@@ -105,17 +105,15 @@ export type SessionCatalogEntry = {
 	/** 子会话标记：扫描时从 SessionSummary 继承，持久化供 getRecord/listEntries 重建（不丢树形） */
 	parentSessionPath?: string;
 	/**
-	 * fork 会话标记（pi fork/clone 产物，文件头带 parentSession）：
-	 * 与 parentSessionPath 独立（后者=子代理折叠关系），仅作 fork 身份元数据——
-	 * (fork) 标题后缀由 fork 完成时物理写入会话名（sessionForkTitle.ts），不靠该标记拼装。
+	 * fork 会话标记（pi fork/clone 产物，文件头带 parentSession）：与 parentSessionPath 独立
+	 * （后者=子代理折叠关系），仅作身份元数据——(fork) 后缀在 fork 完成时物理写入会话名。
 	 */
 	forked?: boolean;
 	/** 重发/编辑 fork 化替换标记：本会话已被 fork 出的子会话接替（值=子会话稳定 id），列表默认过滤。 */
 	supersededBy?: string;
 	/**
-	 * #354 身份归并别名：启动期修复把历史重复身份记录并入本条目时，被吸收记录的历史稳定 ID。
-	 * settings 置顶与渲染层持久化的 Tab 置顶/最近活动仍按旧 ID 存引用，靠本字段迁移到存活 id
-	 * （shared/sessionIdAliases.ts）。缺省 = 无归并历史，旧 catalog 数据无需迁移。
+	 * #354 身份归并别名：启动期修复把历史重复身份记录并入本条目时，被吸收记录的历史稳定 ID；这些 ID
+	 * 仍被 settings 置顶与渲染层持久化的 Tab 置顶/最近活动引用，渲染层据此迁移到存活 id。
 	 */
 	mergedSessionIds?: string[];
 	model?: SessionModelPreference;
@@ -131,6 +129,7 @@ export type SessionCatalogEntry = {
 	agentPreset?: string;
 	/** ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI；激活时由 AcpAgentManager 消费。 */
 	acpToolId?: string;
+	additionalDirectories?: string[]; // ACP 附加根目录（#560）：session/new 与 session/load 都按它下发
 	/** 会话级代理覆盖（缺省 = 跟随全局）。DSH 会话的设置在 host 启动时被聚合应用。 */
 	proxy?: SessionProxyOverride;
 	/**
@@ -1029,7 +1028,7 @@ export class SessionCatalog implements HostRebindStorePort {
 
 	async update(
 		id: string,
-		patch: Partial<Pick<SessionCatalogEntry, "title" | "backend" | "updatedAt">> & {
+		patch: Partial<Pick<SessionCatalogEntry, "title" | "backend" | "updatedAt" | "additionalDirectories">> & {
 			model?: SessionModelPreference | null;
 			thinkingLevel?: string | null;
 			permissionPreset?: string | null;
@@ -1086,6 +1085,7 @@ export class SessionCatalog implements HostRebindStorePort {
 			if (patch.permissionPreset !== undefined) nextEntry.permissionPreset = patch.permissionPreset ?? undefined;
 			if (patch.agentPreset !== undefined) nextEntry.agentPreset = patch.agentPreset ?? undefined;
 			if (patch.acpToolId !== undefined) nextEntry.acpToolId = patch.acpToolId ?? undefined;
+			if (patch.additionalDirectories !== undefined) nextEntry.additionalDirectories = patch.additionalDirectories.length > 0 ? [...patch.additionalDirectories] : undefined;
 			if (patch.acpSessionId !== undefined) nextEntry.acpSessionId = patch.acpSessionId ?? undefined;
 			if (patch.backend !== undefined) nextEntry.backend = patch.backend;
 			if (patch.filePath !== undefined || patch.backend === "dsh" || patch.backend === "imagegen") {

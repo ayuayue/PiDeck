@@ -26,6 +26,8 @@ export type AcpAgentRuntime = {
 	acpSessionId: string;
 	/** 使用的工具配置快照(会话期工具被删/改不影响运行中进程)。 */
 	tool: AcpToolConfig;
+	/** 会话级附加根目录（#560）：握手时按工具能力下发给 session/new 与 session/load。 */
+	additionalDirectories?: string[];
 	proc: ChildProcess | null;
 	conn: AcpConnection | null;
 	projection: AcpProjectionState;
@@ -131,11 +133,12 @@ export function buildAcpAgentRuntime(args: { agentId: string; input: CreateAgent
 		},
 		acpSessionId: "",
 		tool,
+		additionalDirectories: input.additionalDirectories,
 		proc,
 		conn,
 		projection: initialAcpProjection(),
 		updateChain: Promise.resolve(),
-		agentInfo: { capabilities: { loadSession: false, agentThought: false, sessionList: false, promptImage: false }, protocolVersion: ACP_PROTOCOL_VERSION },
+		agentInfo: { capabilities: { loadSession: false, agentThought: false, sessionList: false, promptImage: false, additionalDirectories: false }, protocolVersion: ACP_PROTOCOL_VERSION },
 		status: "starting",
 		turnActive: false,
 		permissions,

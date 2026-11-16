@@ -393,6 +393,11 @@ export type CreateAgentInput = {
 	 */
 	acpSessionId?: string;
 	/**
+	 * ACP 附加根目录（#560）：会话级完整列表，经 session/new 与 session/load 下发。
+	 * 只有该工具在 initialize 里声明了 `sessionCapabilities.additionalDirectories` 时才携带。
+	 */
+	additionalDirectories?: string[];
+	/**
 	 * PiDeck 会话身份（SessionRecord.id，可能为 UUID 或会话文件路径）。
 	 * 会话级安全覆盖（SecurityStore.sessionOverrides）与 PIDECK_SESSION_ID 注入都使用这个 key；
 	 * 与 pi 进程自身的 sessionId（AgentTab.sessionId / piSessionId）语义不同，不可混用。

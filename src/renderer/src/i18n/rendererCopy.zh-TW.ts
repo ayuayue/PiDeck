@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 73dd64be49e7053b0fd016d753767fd2fbbcc3a1830a33b09c6304c9e8c14468（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 6cd2a28c4e88325d02c6d37d158376872bd0ebfb9c8a01cc17d41419cc4ee396（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -341,6 +341,11 @@ export const zhTW: Record<TranslationKey, string> = {
 	"acp.bypassPermissionsLabel": "預設自動批准工具（Bypass 權限）",
 	"acp.bypassPermissionsHint": "握手後把權限模式切到該 CLI 自帶的 bypass 檔（如 Claude 的 bypassPermissions），恢復歷史會話時同樣生效；CLI 沒有這一檔時自動跳過，仍可在會話裡手動選擇",
 	"acp.configOptionRejected": "ACP 設定未生效（{option} → {value}）：{reason}。多數是該 CLI 版本的缺陷——可先升級 CLI；也可以把該模式寫進 設定 → ACP 工具 → 啟動引數（如 --permission-mode bypass_permissions），重開會話後即按該模式啟動",
+	"acp.additionalDirectoriesTitle": "附加根目錄",
+	"acp.additionalDirectoriesDesc": "每行一個絕對路徑。列表是該會話的完整範圍——留空表示只有會話所在目錄；改動後重開會話生效（僅對聲明瞭該能力的 ACP 工具下發）。",
+	"acp.additionalDirectoriesCount": "附加根目錄（{count} 個）",
+	"acp.additionalDirectoriesSaved": "已儲存 {count} 個附加目錄，重開會話後生效。",
+	"acp.additionalDirectoriesCleared": "已清空附加目錄，重開會話後生效。",
 	"acp.toolNameRequired": "名稱必填",
 	"acp.toolCommandRequired": "命令必填",
 	"acp.toolDuplicateName": "名稱與現有工具重複",
@@ -1558,6 +1563,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"notice.acpBypassUnavailable": "「{tool}」沒有提供 bypass 模式檔（可選：{modes}），工具級「bypass 權限」對該 agent 不生效。請改用它的免確認啟動引數，或切換模式檔。",
 	"notice.subtreeArchiveLeftover": "父會話已歸檔，但有 {count} 個平鋪子會話檔案未能一併歸檔，仍留在原目錄（詳情見日誌）。",
 	"notice.subtreeDeleteLeftover": "父會話已刪除，但有 {count} 個平鋪子會話檔案未能一併刪除，仍在原位置（詳情見日誌）。",
+	"notice.acpAdditionalDirectoriesIgnored": "「{tool}」沒有宣告附加目錄能力，已配置的 {count} 個目錄不會下發。",
 	// toast 通知历史面板（设置页「通知」区与详情弹窗共用同一入口打开）
 	"notice.historyTitle": "通知歷史",
 	"notice.historyDesc": "彈出的全部通知（已落盤存檔，重啟後仍可回看）。可複製全文或重新彈出。",

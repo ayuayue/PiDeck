@@ -1550,7 +1550,7 @@ export class SessionRuntimeCoordinator {
 				// ACP：acpSessionId 存在则 session/load 恢复旧会话；工具选择复用 agentPreset
 				// 字段（AcpToolConfig.id），草稿预选优先 acpToolId。
 				acpSessionId: entry.backend === "acp" ? entry.acpSessionId : undefined,
-				...(entry.backend === "acp" ? { agentPreset: entry.acpToolId ?? entry.agentPreset } : {}),
+				...(entry.backend === "acp" ? { agentPreset: entry.acpToolId ?? entry.agentPreset, additionalDirectories: entry.additionalDirectories } : {}),
 				wslDistro: entry.wslDistro,
 				wslUser: entry.wslUser,
 				importedSourceId: entry.importedSourceId,
