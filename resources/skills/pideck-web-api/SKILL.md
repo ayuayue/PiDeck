@@ -562,7 +562,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 **这一节只对改这个技能的人有用。用技能的人跳过。**
 
-`SKILL.md` 在盘上有六处，改错地方等于没改：
+`SKILL.md` 在盘上有七处，改错地方等于没改：
 
 | 位置 | 谁读 | 改了会留吗 |
 | --- | --- | --- |
