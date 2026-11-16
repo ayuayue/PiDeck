@@ -743,6 +743,7 @@ func (a *app) settingsKeys() core.Node {
 func (a *app) settingsLook() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
+		_ = a.bgImage.Get()
 		var rows []core.Node
 		fontControl := func(value func() string, set func(string), label, testID, placeholder string) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
@@ -753,8 +754,15 @@ func (a *app) settingsLook() core.Node {
 				ui.Button{Text: T("应用"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.applyFonts},
 			}}
 		}
-		list := a.themes.Get()
-		for i, spec := range list {
+		visible := make([]themeSpec, 0, len(a.themes.Get()))
+		for _, spec := range a.themes.Get() {
+			// 纸白/炭黑 只是默认配色的明暗两半；不选它们时收起来，避免和跟随系统重复。
+			if (spec.ID == "light" || spec.ID == "dark") && a.theme.Get() != spec.ID {
+				continue
+			}
+			visible = append(visible, spec)
+		}
+		for i, spec := range visible {
 			s := spec
 			on := func() bool { return a.theme.Get() == s.ID }
 			var note string
@@ -802,13 +810,14 @@ func (a *app) settingsLook() core.Node {
 					}},
 				},
 			})
-			if i < len(list)-1 {
+			if i < len(visible)-1 {
 				rows = append(rows, setDivider())
 			}
 		}
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("配色", rows...),
+				a.backgroundGroup(colors),
 				setRow("主题文件", "放在数据目录的 themes 里：JSON 或 YAML，写角色色、tokens、字体与圆角；也读 shadcn/ui 主题文件。",
 					ui.Button{Text: T("打开目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 						a.openThemesDir()
@@ -861,6 +870,60 @@ func (a *app) settingsLook() core.Node {
 			}},
 		}}
 	})
+}
+
+// backgroundGroup edits the picture behind the app and how much of it
+// shows.
+func (a *app) backgroundGroup(colors ui.Colors) core.Node {
+	path := a.cfg.BackgroundImage
+	var preview core.Node
+	if path != "" {
+		preview = core.Image{Source: core.ImageSource{URI: fileURL(path)}, ResizeMode: core.Cover,
+			Style: core.Style{Width: core.Pt(80), Height: core.Pt(46), CornerRadius: 6, BorderWidth: 1, BorderColor: colors.Border()}}
+	} else {
+		preview = core.View{Style: core.Style{Width: core.Pt(80), Height: core.Pt(46), CornerRadius: 6,
+			BorderWidth: 1, BorderColor: colors.Border(), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+			Children: []core.Node{ui.Text("—", 12, ui.Regular, colors.Faint)}}
+	}
+	choose := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+		preview,
+		ui.Button{Text: T("选择图片"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "bg-image-choose",
+			OnPress: func() {
+				a.cx.PickFiles(core.PickFilesOptions{Types: []string{".png", ".jpg", ".jpeg", ".webp", ".gif"}, Limit: 1},
+					func(files []core.File, err error) {
+						if err != nil {
+							a.toast(ui.ToastError, T("选择图片失败"), err.Error())
+							return
+						}
+						if len(files) > 0 {
+							a.setBackgroundImage(files[0].Path)
+						}
+					})
+			}},
+		core.Show{When: func() bool { return a.cfg.BackgroundImage != "" }, Then: func(*core.Scope) core.Node {
+			return ui.Button{Text: T("清除"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "bg-image-clear",
+				OnPress: func() { a.setBackgroundImage("") }}
+		}},
+	}}
+	opacity := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(200)}, Children: []core.Node{
+		core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+			ui.Slider{Min: 0, Max: 100, Step: 1, Value: func() float64 { return a.backgroundOpacity() * 100 },
+				Label: T("背景透明度"), ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
+				TestID: "bg-opacity", OnChange: func(v float64) {
+					a.setBackgroundOpacity(v / 100)
+				}},
+		}},
+		core.Dynamic(func(*core.Scope) core.Node {
+			return core.Text{Content: fmt.Sprintf("%.0f%%", a.bgOpacity.Get()*100),
+				Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
+				StyleFunc: ui.Colored(colors.Muted)}
+		}),
+	}}
+	return setGroup("背景",
+		setRow("背景图片", "从本机选一张图片铺满窗口，只保存路径。", choose),
+		setDivider(),
+		setRow("背景透明度", "0% 完全遮住图片，100% 完全显示；面板会一起变透明。", opacity),
+	)
 }
 
 // settingsEnv shows what the probe found on every machine.

@@ -42,15 +42,19 @@ func Root(cx *core.Scope) core.Node {
 					return core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), FontFamily: font},
 						Children: []core.Node{a.view()}}
 				}
-				mask := core.RGBA(0xffffff, float32(1-a.bgOpacity.Get()))
-				if cx.Env().Dark() {
-					mask = core.RGBA(0x000000, float32(1-a.bgOpacity.Get()))
-				}
 				fill := core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0)}
+				mask := core.Dynamic(func(cx *core.Scope) core.Node {
+					base := uint32(0xffffff)
+					if cx.Env().Dark() {
+						base = 0x000000
+					}
+					return core.View{Style: fill.Merge(core.Style{Background: core.RGBA(base, float32(1-a.bgOpacity.Get())),
+						PointerEvents: core.PointerEventsNone})}
+				})
 				return core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), FontFamily: font}, Children: []core.Node{
 					core.Image{Source: core.ImageSource{URI: fileURL(img)}, ResizeMode: core.Cover,
 						Style: fill.Merge(core.Style{PointerEvents: core.PointerEventsNone})},
-					core.View{Style: fill.Merge(core.Style{Background: mask, PointerEvents: core.PointerEventsNone})},
+					mask,
 					core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}, Children: []core.Node{a.view()}},
 				}}
 			})

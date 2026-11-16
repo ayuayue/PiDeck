@@ -293,6 +293,16 @@ func normalizeConfig(c *config) bool {
 	trim(&c.ProxyApp)
 	trim(&c.ProxyAgent)
 	trim(&c.ProxyBypass)
+	trim(&c.Theme)
+	switch c.Theme {
+	case "classic":
+		c.Theme = "system"
+		changed = true
+	case "warm-beige":
+		// 暖阳米与羊皮纸太接近，合并到羊皮纸。
+		c.Theme = "parchment"
+		changed = true
+	}
 	switch c.SessionSort {
 	case "", "updated", "name":
 	default:

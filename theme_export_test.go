@@ -168,3 +168,22 @@ func TestDeleteTheme(t *testing.T) {
 	}
 	app.WaitForGone("id:theme-delete-user-team", 10*time.Second)
 }
+
+// TestPiDeckThemes checks every palette PiDeck ships has both sides.
+func TestPiDeckThemes(t *testing.T) {
+	want := []string{"system", "fresh-green", "graphite", "sea-blue", "parchment", "tui"}
+	byID := map[string]themeSpec{}
+	for _, s := range builtinThemes() {
+		byID[s.ID] = s
+	}
+	for _, id := range want {
+		s, ok := byID[id]
+		if !ok {
+			t.Errorf("missing theme %q", id)
+			continue
+		}
+		if id != "system" && (s.Light["background"] == "" || s.Dark["background"] == "") {
+			t.Errorf("theme %q has no light or dark background", id)
+		}
+	}
+}

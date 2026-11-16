@@ -315,7 +315,6 @@ func paletteOf(bg, side, panel, input, hover, active, text, muted, faint, border
 func builtinThemes() []themeSpec {
 	return []themeSpec{
 		{ID: "system", Name: "跟随系统", Builtin: true},
-		{ID: "classic", Name: "经典（出厂）", Builtin: true},
 		{ID: "light", Name: "纸白", Builtin: true},
 		{ID: "dark", Name: "炭黑", Builtin: true},
 		{ID: "fresh-green", Name: "森系绿", Builtin: true,
@@ -333,11 +332,6 @@ func builtinThemes() []themeSpec {
 				"#1c2e3d", "#3f586b", "#8a97a8", "#d3e1ec", "#dbe7f0", "#2563eb", "#1d4ed8", "#ffffff", "#373737"),
 			Dark: paletteOf("#101a24", "#15212d", "#182634", "#182634", "#21303f", "#2a3a4b",
 				"#e7eef6", "#b6c5d4", "#8ba0b3", "#36495c", "#2c3d4e", "#60a5fa", "#3b82f6", "#0b1420", "#d6e2ee")},
-		{ID: "warm-beige", Name: "暖阳米", Builtin: true,
-			Light: paletteOf("#f7f2ea", "#f0e9dd", "#fffdf8", "#fffdf8", "#f0e9dd", "#e8dfd0",
-				"#33291c", "#5d5140", "#94907f", "#ded2bf", "#e6dccb", "#b45309", "#92400e", "#ffffff", "#4a3526"),
-			Dark: paletteOf("#1e1a15", "#26211a", "#2b251d", "#2b251d", "#352e24", "#3e362b",
-				"#f0e9dd", "#c2b6a2", "#ab9f8a", "#51473a", "#453c2f", "#fbbf24", "#f59e0b", "#1d1608", "#e6d8bf")},
 		{ID: "parchment", Name: "羊皮纸", Builtin: true,
 			Light: paletteOf("#f5f4ed", "#ece9df", "#faf9f5", "#faf9f5", "#eae7dc", "#dedacb",
 				"#141413", "#3d3d3a", "#87867f", "#dcd8ca", "#e8e5d9", "#b0562f", "#96482a", "#fffaf4", "#8a3f24"),
@@ -1033,6 +1027,48 @@ func (a *app) backgroundOpacity() float64 {
 func withAlpha(c core.Color, alpha float32) core.Color {
 	r, g, b, _ := c.Components()
 	return core.RGBA(uint32(r*255+0.5)<<16|uint32(g*255+0.5)<<8|uint32(b*255+0.5), alpha)
+}
+
+// setBackgroundImage stores the picture behind the app and applies its
+// transparency.
+func (a *app) setBackgroundImage(path string) {
+	path = strings.TrimSpace(path)
+	a.cfg.BackgroundImage = path
+	if path == "" {
+		a.cfg.BackgroundOpacity = nil
+	} else if a.cfg.BackgroundOpacity == nil {
+		v := 0.8
+		a.cfg.BackgroundOpacity = &v
+	}
+	a.bgImage.Set(path)
+	a.bgOpacity.Set(a.backgroundOpacity())
+	if a.st != nil {
+		image, opacity := a.cfg.BackgroundImage, a.cfg.BackgroundOpacity
+		a.st.edit(func(c *config) {
+			c.BackgroundImage = image
+			if opacity == nil {
+				c.BackgroundOpacity = nil
+			} else {
+				v := *opacity
+				c.BackgroundOpacity = &v
+			}
+		})
+	}
+	a.applyTheme()
+}
+
+// setBackgroundOpacity stores how much of the picture shows.
+func (a *app) setBackgroundOpacity(v float64) {
+	v = min(1, max(0, v))
+	a.cfg.BackgroundOpacity = &v
+	a.bgOpacity.Set(v)
+	if a.st != nil {
+		a.st.edit(func(c *config) {
+			vv := v
+			c.BackgroundOpacity = &vv
+		})
+	}
+	a.applyTheme()
 }
 
 // applyFonts applies the custom families to the interface, the editor and

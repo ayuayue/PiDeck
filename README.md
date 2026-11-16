@@ -293,7 +293,7 @@ go run ./scripts android link    # 复制 http://10.0.2.2:<端口>/?token=…
 - pi 设置：设置 → 模型与认证 里可直接改 pi 的 `settings.json` 常用项——隐藏思考块、安静启动、
   折叠更新日志、默认思考档、自动重试与次数、自动压缩与两个 token 阈值；其余字段原样保留
 - 原始配置：直接在内置编辑器里打开 `models.json` / `settings.json` / `auth.json`
-- 外观：配色（跟随系统/纸白/炭黑/羊皮纸/用户主题，每项带一张配色缩略图）、界面字体与等宽字体、打开主题目录、
+- 外观：配色（跟随系统/森系绿/石墨灰/海盐蓝/羊皮纸/终端，每项带一张配色缩略图；纸白/炭黑只在当前选中时出现）、背景图片与透明度（面板一起变透明）、界面字体与等宽字体、打开主题目录、
   把当前配色导出成主题文件（含 tokens、字体与圆角）、删除用户主题（移到回收站）；`Ctrl+Shift+L` 或命令面板「切换深浅色」
   在跟随系统/纸白/炭黑之间轮换
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区；网络代理分「应用请求」与「Agent 进程」两栏，另可填直连名单
@@ -316,7 +316,7 @@ go run ./scripts android link    # 复制 http://10.0.2.2:<端口>/?token=…
 
 **外观与扩展（可写文件，不跑代码）**
 - 资源页：pi 的 skills 与 extensions；技能点开看 `SKILL.md`，扩展可开关（写 `settings.json`）
-- 主题：内置跟随系统 / 纸白 / 炭黑 / 羊皮纸；用户主题放 `themes/*.json|*.yaml`，按调色板角色覆盖，
+- 主题：内置跟随系统 / 森系绿 / 石墨灰 / 海盐蓝 / 羊皮纸 / 终端；纸白/炭黑作为单档明暗仍保留，但不在列表里与跟随系统重复；用户主题放 `themes/*.json|*.yaml`，按调色板角色覆盖，
   可带 `tokens`（字体、圆角）与 `appearance`（仅浅色/仅深色）；也读 shadcn/ui 主题文件
 - 插件：`plugins/*.json`（或 `plugins/<名字>/plugin.json`），`contributes.commands` 加命令面板命令，
   `contributes.themes` 加主题，`contributes.keybindings` 声明键位；可整体启用/禁用
