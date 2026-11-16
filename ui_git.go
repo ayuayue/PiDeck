@@ -434,6 +434,21 @@ func (a *app) gitCheckoutRemote(remote string) {
 	}, nil)
 }
 
+// gitDeleteRemoteBranch deletes a branch on its remote after asking.
+func (a *app) gitDeleteRemoteBranch(name string) {
+	name = strings.TrimSpace(name)
+	remote, branch, ok := strings.Cut(name, "/")
+	if !ok || remote == "" || branch == "" || branch == "HEAD" {
+		return
+	}
+	a.askConfirm("删除远程分支", fmt.Sprintf(T("会在「%s」上删除分支「%s」，其他人也会看不到它。"), remote, branch), "删除", func() {
+		a.git.run(T("删除远程分支"), func(g gitRunner) error {
+			_, err := g.exec(120*time.Second, "push", remote, "--delete", branch)
+			return err
+		}, nil)
+	})
+}
+
 // gitCreateBranch makes the named branch and checks it out.
 func (a *app) gitCreateBranch() {
 	name := strings.TrimSpace(a.gitNewBranchName.GetUntracked())
@@ -750,6 +765,13 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 							Children: []core.Node{ui.Icon(lucide.Cloud, 11, colors.Faint)}},
 						core.Text{Content: b, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12}, StyleFunc: ui.Colored(colors.Muted)},
+						core.View{OnPress: func(core.PressEvent) { a.gitDeleteRemoteBranch(b) },
+							Role: core.RoleButton, Label: T("删除远程分支") + " " + b, TestID: "git-remote-delete-" + b,
+							StyleFunc: func() core.Style {
+								return core.Style{Width: core.Pt(20), Height: core.Pt(20), CornerRadius: 5, AlignItems: core.AlignCenter,
+									JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
+							},
+							Children: []core.Node{ui.Icon(lucide.Trash, 10, colors.Faint)}},
 					},
 				})
 			}
