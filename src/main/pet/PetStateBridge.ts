@@ -1,6 +1,7 @@
 import type { BrowserWindow } from "electron";
 import type { AgentStatus, AgentTab, AgentUiRequest, PetAggregateState, PetMode, PetNotification } from "../../shared/types";
 import { ipcChannels } from "../../shared/ipc";
+import { clampNotificationTitle } from "../notifications/notificationText";
 
 /**
  * PetStateBridge —— 多 Agent 状态聚合为一个宠物动画状态，并驱动头顶提醒气泡。
@@ -220,14 +221,14 @@ export class PetStateBridge {
 
 	private sendWaitingNotif() {
 		const agentId = this.latestPendingAgentId();
-		const title = agentId ? this.currentTabs.find((t) => t.id === agentId)?.title : undefined;
+		const title = clampNotificationTitle((agentId ? this.currentTabs.find((t) => t.id === agentId)?.title : undefined) || "Agent");
 		this.notify({
 			type: "waiting",
-			text: this.translate("pet.waitingNotification", { title: title || "Agent" }),
+			text: this.translate("pet.waitingNotification", { title }),
 			agentId: agentId ?? undefined,
 			timestamp: Date.now(),
 			persistent: true,
-			title: title || "Agent",
+			title,
 			status: this.translate("pet.waitingSuffix"),
 		});
 	}
@@ -242,12 +243,13 @@ export class PetStateBridge {
 		const now = Date.now();
 		if (now < (this.doneCooldownUntil.get(info.agentId) ?? 0)) return;
 		this.doneCooldownUntil.set(info.agentId, now + DONE_COOLDOWN_MS);
+		const title = clampNotificationTitle(info.title || "Agent");
 		this.notify({
 			type: "done",
-			text: this.translate("pet.doneNotification", { title: info.title || "Agent" }),
+			text: this.translate("pet.doneNotification", { title }),
 			agentId: info.agentId,
 			timestamp: now,
-			title: info.title || "Agent",
+			title,
 			status: this.translate("pet.doneSuffix"),
 		});
 	}
@@ -266,12 +268,13 @@ export class PetStateBridge {
 			seen.add(tab.id);
 			const prev = this.lastTabsByAgent.get(tab.id);
 			if (prev !== "error" && tab.status === "error") {
+				const title = clampNotificationTitle(tab.title || "Agent");
 				this.notify({
 					type: "error",
-					text: this.translate("pet.agentError", { title: tab.title || "Agent" }),
+					text: this.translate("pet.agentError", { title }),
 					agentId: tab.id,
 					timestamp: Date.now(),
-					title: tab.title || "Agent",
+					title,
 					status: this.translate("pet.errorSuffix"),
 				});
 			}
