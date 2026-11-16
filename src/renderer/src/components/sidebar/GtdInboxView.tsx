@@ -14,7 +14,7 @@ import { hasPendingAskForSession } from "../../utils/askUi";
 import type { SidebarActions } from "./SidebarContent";
 import type { SidebarController } from "../../hooks/useSidebarController";
 import type { ActiveSessionRow } from "./activitySessionsModel";
-import { bucketGtdRows } from "./gtdInboxModel";
+import { GTD_ROW_DRAG_MIME, bucketGtdRows, gtdDropIntent, shouldHandleGtdUndoKey, undoSettleTarget } from "./gtdInboxModel";
 import { SidebarStatusDot } from "./SidebarStatusDot";
 import { Button } from "../ui-shadcn/button";
 import { SESSION_ROW_CLASS } from "./sidebarRowStyles";
@@ -41,6 +41,8 @@ export function GtdInboxView(props: { controller: SidebarController; actions: Si
 	const activityAt = useSessionActivityAt();
 	const [ledger, setLedger] = useState<GtdLedger>({});
 	const [collapsed, setCollapsed] = useState<ReadonlySet<GtdBucket>>(() => new Set(GTD_COLLAPSED_BUCKETS));
+	/** 刚结清的会话：5 秒内 Ctrl/Cmd+Z 可撤销（阶段 3）。 */
+	const [pendingSettle, setPendingSettle] = useState<{ sessionId: string; at: number } | null>(null);
 	useEffect(() => {
 		void desktopApi.sessions
 			.gtdState()
@@ -88,6 +90,7 @@ export function GtdInboxView(props: { controller: SidebarController; actions: Si
 	const settle = (sessionId: string) => {
 		const now = Date.now();
 		void patch(sessionId, { settledAt: now });
+		setPendingSettle({ sessionId, at: now });
 		showNotice(t("gtd.settled"), 5000, "info", undefined, {
 			action: {
 				label: t("gtd.undo"),
@@ -95,6 +98,22 @@ export function GtdInboxView(props: { controller: SidebarController; actions: Si
 			},
 		});
 	};
+
+	// 结清后 5 秒内 Ctrl/Cmd+Z 撤销：只在分诊视图挂着时生效；输入框/可编辑区里的撤销不抢。
+	useEffect(() => {
+		if (!pendingSettle) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (!shouldHandleGtdUndoKey({ key: event.key, ctrlKey: event.ctrlKey, metaKey: event.metaKey, targetTagName: target?.tagName, targetEditable: target?.isContentEditable === true })) return;
+			const sessionId = undoSettleTarget(pendingSettle, Date.now());
+			if (!sessionId) return;
+			event.preventDefault();
+			setPendingSettle(null);
+			void patch(sessionId, { settledAt: null });
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [pendingSettle]);
 
 	return (
 		<div className="gtd-inbox-pane flex h-full min-h-0 flex-col">
@@ -108,11 +127,25 @@ export function GtdInboxView(props: { controller: SidebarController; actions: Si
 				{groups.length === 0 ? <div className="px-2 py-1.5 text-caption text-muted-foreground">{t("gtd.empty")}</div> : null}
 				{groups.map((group) => {
 					const folded = collapsed.has(group.bucket);
+					// 拖拽改桶（阶段 3）：只有用户可决定的桶能接住拖拽；运行态决定的桶返回 null。
+					const dropIntent = gtdDropIntent(group.bucket, Date.now());
 					return (
 						<section key={group.bucket} className="gtd-bucket mt-2 first:mt-1">
 							<button
 								type="button"
 								className={cn("flex w-full items-center gap-1.5 px-2 py-1 text-caption", group.bucket === "needs-you" ? "font-medium text-[var(--color-accent)]" : "text-text-tertiary")}
+								onDragOver={(event) => {
+									if (!dropIntent) return;
+									event.preventDefault();
+									event.dataTransfer.dropEffect = "move";
+								}}
+								onDrop={(event) => {
+									if (!dropIntent) return;
+									const sessionId = event.dataTransfer.getData(GTD_ROW_DRAG_MIME);
+									if (!sessionId) return;
+									event.preventDefault();
+									void patch(sessionId, dropIntent);
+								}}
 								onClick={() =>
 									setCollapsed((current) => {
 										const next = new Set(current);
@@ -134,7 +167,19 @@ export function GtdInboxView(props: { controller: SidebarController; actions: Si
 									const selected = sessionId === props.currentSessionId;
 									return (
 										<div key={row.agent.id} className="group/row relative flex min-h-8 items-center">
-											<button type="button" className={cn(SESSION_ROW_CLASS, "pr-7", selected && "bg-bg-active text-foreground")} onClick={() => open(row)} title={title}>
+											<button
+												type="button"
+												className={cn(SESSION_ROW_CLASS, "pr-7", selected && "bg-bg-active text-foreground")}
+												onClick={() => open(row)}
+												title={title}
+												draggable={Boolean(sessionId)}
+												onDragStart={(event) => {
+													if (!sessionId) return;
+													// 专用 MIME：不带 text/plain，避免拖到聊天区边缘被当成分屏拆分。
+													event.dataTransfer.effectAllowed = "move";
+													event.dataTransfer.setData(GTD_ROW_DRAG_MIME, sessionId);
+												}}
+											>
 												<SidebarStatusDot status={row.agent.status} />
 												<span className="conversation-body min-w-0 flex-1 truncate">{title}</span>
 												{unread && <span className="size-1.5 shrink-0 rounded-full bg-[var(--color-accent)]" aria-label={t("gtd.unread")} />}

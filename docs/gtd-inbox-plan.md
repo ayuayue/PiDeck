@@ -43,11 +43,14 @@ GTD 模式的定位是把同一批会话按**是否需要人介入**重新分桶
 
 ## 三、分阶段
 
-1. **阶段 1（本次）**：类型 + 投影 + 账本 + IPC（`gtd:state-get` / `gtd:state-patch`）+ 单测。
-2. **阶段 2**：活动页的模式切换与分桶渲染（虚拟列表、未读圆点、hover 结清）。
-3. **阶段 3**：5 秒 `Ctrl+Z` 撤回、跨区拖拽。
-4. **阶段 4**：Snooze 定时（单次 `setTimeout` + `powerMonitor` 唤醒补偿）与冷启动隔离
-   （只纳入有 runtime 或近期访问过的会话）。
+1. **阶段 1（已完成）**：类型 + 投影 + 账本 + IPC（`gtd:state-get` / `gtd:state-patch`）+ 单测。
+2. **阶段 2（已完成）**：活动页的模式切换与分桶渲染（折叠组、未读圆点、hover 结清）。
+3. **阶段 3（已完成）**：5 秒内 `Ctrl/Cmd+Z` 撤销结清（输入框里的撤销不抢）；
+   跨桶拖拽只接受**用户可决定**的目标——`settled`（结清）、`active`（撤销结清/取消提醒）、
+   `snoozed`（默认 1 小时后提醒）；`needs-you` / `working` 由运行时决定、`pinned` 走
+   settings，均不接拖拽。
+4. **阶段 4（未做）**：Snooze 到点自动回 active（单次 `setTimeout` + `powerMonitor`
+   唤醒补偿）与冷启动隔离（只纳入有 runtime 或近期访问过的会话）。
 
 ## 四、与现有结构的边界
 

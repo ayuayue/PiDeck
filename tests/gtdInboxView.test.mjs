@@ -5,7 +5,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 /**
  * #546 阶段 2：活动行的分桶（组顺序、空桶省略、未读标记）与视图模式读取。
  */
-const { bucketGtdRows, readGtdMode, writeGtdMode } = loadTsCommonJs("src/renderer/src/components/sidebar/gtdInboxModel.ts");
+const { GTD_ROW_DRAG_MIME, GTD_SNOOZE_DEFAULT_MS, bucketGtdRows, gtdDropIntent, readGtdMode, shouldHandleGtdUndoKey, undoSettleTarget, writeGtdMode } = loadTsCommonJs("src/renderer/src/components/sidebar/gtdInboxModel.ts");
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 const NOW = 1_760_000_000_000;
@@ -79,4 +79,33 @@ test("视图模式：没有 localStorage 时默认传统视图，写入失败也
 	assert.equal(readGtdMode(), false);
 	assert.doesNotThrow(() => writeGtdMode(true));
 	assert.equal(readGtdMode(), false);
+});
+
+test("拖拽改桶：只有用户可决定的桶能接住，运行态桶返回 null", () => {
+	assert.deepEqual(plain(gtdDropIntent("settled", NOW)), { settledAt: NOW });
+	assert.deepEqual(plain(gtdDropIntent("active", NOW)), { settledAt: null, snoozeUntil: null });
+	assert.deepEqual(plain(gtdDropIntent("snoozed", NOW)), { snoozeUntil: NOW + GTD_SNOOZE_DEFAULT_MS });
+	assert.equal(gtdDropIntent("needs-you", NOW), null);
+	assert.equal(gtdDropIntent("working", NOW), null);
+	assert.equal(gtdDropIntent("pinned", NOW), null);
+	assert.equal(GTD_SNOOZE_DEFAULT_MS, 60 * 60 * 1000, "默认稍后提醒 1 小时");
+	assert.equal(GTD_ROW_DRAG_MIME.includes("gtd"), true, "与分屏拖拽的 MIME 区分");
+});
+
+test("5 秒内可撤销；超时不再命中", () => {
+	assert.equal(undoSettleTarget({ sessionId: "s1", at: NOW }, NOW + 4999), "s1");
+	assert.equal(undoSettleTarget({ sessionId: "s1", at: NOW }, NOW + 5000), "s1");
+	assert.equal(undoSettleTarget({ sessionId: "s1", at: NOW }, NOW + 5001), undefined);
+	assert.equal(undoSettleTarget(null, NOW), undefined);
+});
+
+test("Ctrl/Cmd+Z 只在非输入区接管", () => {
+	const base = { key: "z", ctrlKey: true, metaKey: false };
+	assert.equal(shouldHandleGtdUndoKey(base), true);
+	assert.equal(shouldHandleGtdUndoKey({ ...base, ctrlKey: false, metaKey: true }), true);
+	assert.equal(shouldHandleGtdUndoKey({ ...base, key: "Z" }), true);
+	assert.equal(shouldHandleGtdUndoKey({ ...base, ctrlKey: false }), false, "不带修饰键的 z 是输入");
+	assert.equal(shouldHandleGtdUndoKey({ ...base, targetTagName: "INPUT" }), false, "输入框撤销留给浏览器");
+	assert.equal(shouldHandleGtdUndoKey({ ...base, targetTagName: "TEXTAREA" }), false);
+	assert.equal(shouldHandleGtdUndoKey({ ...base, targetEditable: true }), false, "contenteditable 同理");
 });
