@@ -33,9 +33,13 @@ test("契约: SecurityLevelMenu 自身仍以 props.disabled 为准（不做运�
 
 test("契约: ACP 后端不渲染安全控制位（权限由 agent CLI 的 request_permission 接管，m01733）", () => {
 	const control = readFileSync("src/renderer/src/components/session/SecurityControl.tsx", "utf8");
-	// 空白容忍：acp 分支必须先于 pi 兑底分支出现，否则会被兑底的 SecurityLevelMenu 接住
-	const acpBranch = control.match(/if\s*\(props\.backend === "acp"\)\s*\{[\s\S]*?return null;[\s\S]*?\}/);
-	assert.ok(acpBranch, "SecurityControl 需对 backend=acp 显式 return null");
+	// 空白容忍：acp 分支必须先于 pi 兑底分支出现，否则会被兑底的 SecurityLevelMenu 接住。
+	// #560 起这一格对 ACP 渲染「附加根目录」入口（session/new 的 additionalDirectories），
+	// 所以判据从「return null」改成「渲染附加目录、不再渲染任何权限档」——权限归 agent CLI。
+	const acpBranch = control.match(/if\s*\(props\.backend === "acp"\)\s*\{[\s\S]*?\n\t\}/);
+	assert.ok(acpBranch, "SecurityControl 需对 backend=acp 显式分支");
+	assert.match(acpBranch[0], /return <AcpAdditionalDirectoriesControl/, "acp 分支要给附加根目录入口（#560）");
+	assert.doesNotMatch(acpBranch[0], /<SecurityLevelMenu|<DshPermissionMenu/, "acp 不得渲染权限档");
 	const acpIndex = acpBranch.index ?? -1;
 	const fallbackIndex = control.indexOf("<SecurityLevelMenu");
 	assert.ok(acpIndex >= 0 && fallbackIndex >= 0 && acpIndex < fallbackIndex, "acp 分支必须排在 SecurityLevelMenu 兑底之前");

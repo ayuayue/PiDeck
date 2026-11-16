@@ -6,12 +6,15 @@
  * （FIND-2 方案 a）：门面按组做 Pick 视图，缺失方法静默缺席（S3：不 throw）。
  *
  * 方法名全集与 src/preload/index.ts 的 sessions/config 命名空间逐一核对
- * （sessions 115、config 48，探针快照 tests/unifiedApiChannelSnapshot.test.mjs 锚定通道数）。
+ * （sessions 122、config 54，探针快照 tests/unifiedApiChannelSnapshot.test.mjs 锚定通道数）。
  */
 import type { ConfigSubstoreId, SessionSubdomainId } from "./domainTypes";
 
 /**
- * sessions 命名空间 115 方法 → 四子域。
+ * sessions 命名空间 122 方法 → 四子域。
+ *
+ * 裁决（#546）：GTD 分诊账本两法（gtdState / gtdPatch）归 catalog——按会话 id 读写的
+ * 记录层水位（已结清 / 稍后提醒），不碰运行时进程，与安全分享三法同型。
  *
  * 裁决（S5，沉默清单，PLAN.md:202）：DSH 方法按语义分组——运行时查询面
  * （listDshModels / discoverDshModels / listDshProviders / listDshAgentPresets / getDshDefaultModel /
@@ -31,6 +34,8 @@ export const SESSIONS_SUBDOMAINS = {
 		"deleteRecord",
 		"editCatalogMessage",
 		"exportRecordHtml",
+		"gtdPatch",
+		"gtdState",
 		"prepareShareExport",
 		"saveShareExport",
 		"releaseShareExport",

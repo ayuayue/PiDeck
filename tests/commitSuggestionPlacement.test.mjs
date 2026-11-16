@@ -76,7 +76,9 @@ function renderComposer(run, options = {}) {
 			"./SessionPaneServices": { useSessionPaneServices: () => ({ hiddenComposerFeatures: [] }) },
 			"../../desktopApi": { desktopApi: {} },
 			"../../rendererUtils": { COMPOSER_TEXT_MAX_HEIGHT: 320 },
-			"./ComposerStatsLine": { ComposerStatsLine: hidden },
+			// ComposerArea 还从 ComposerStatsLine 取 resolveComposerUsageProvider（供应商余额徽章，PR #555）：
+			// 统计行本身被拦成 hidden，这里的解析函数只要给 undefined（不产生用量查询）即可。
+			"./ComposerStatsLine": { ComposerStatsLine: hidden, resolveComposerUsageProvider: () => undefined },
 			"./ComposerWidgetLayout": {
 				ComposerWidgetLayoutProvider: passthrough,
 				useComposerWidgetLayoutValue: () => ({}),

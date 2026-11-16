@@ -57,8 +57,13 @@ test("buildLanes：全部步骤脚本真实存在（脚本改名/删除时这里
 	for (const lane of buildLanes({ testConcurrency: 4, e2e: false })) {
 		for (const step of lane.steps) {
 			if (step.skipReason) continue; // 条件跳过步骤（DSH 归档缺失）不查存在性
-			assert.ok(existsSync(step.file), `${lane.id}/${step.label} 的脚本不存在：${step.file}`);
 			assert.ok(Array.isArray(step.args), `${lane.id}/${step.label} 参数必须是数组`);
+			// cliStep 走 PATH（biome 等）：文件不是仓库内路径，存在性由 PATH 决定，这里只挡写错成相对路径。
+			if (step.shell) {
+				assert.doesNotMatch(step.file, /[\\/]/, `${lane.id}/${step.label}：走 PATH 的步骤不该带路径分隔符`);
+				continue;
+			}
+			assert.ok(existsSync(step.file), `${lane.id}/${step.label} 的脚本不存在：${step.file}`);
 		}
 	}
 });

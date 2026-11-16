@@ -4,8 +4,8 @@
  * 纯契约层：只描述「域 → 分组 / Manager / main 侧注册文件 / preload 命名空间 / 通道前缀」
  * 的静态映射，不 import 运行时代码。行数据由通道面探针推导（锚定数字见 TEST-PLAN §0），非手写臆测。
  * 守卫测试 tests/unifiedApiDomainCatalog.test.mjs
- * 校验：id 唯一且 kebab-case、69 行、每行 channelPrefix ⊆ shared/ipc.ts 实际 94 前缀、
- * 两表并集认领全部 94 前缀与 83 命名空间（F1-4/5/6）、红线行 aggregation === "redline"（F1-7）。
+ * 校验：id 唯一且 kebab-case、69 行、每行 channelPrefix ⊆ shared/ipc.ts 实际 96 前缀、
+ * 两表并集认领全部 96 前缀与 84 命名空间（F1-4/5/6）、红线行 aggregation === "redline"（F1-7）。
  * 2026-10-16 合并刷新：随 dev 演进补 acp/wechat/host-plugins/pideck-mcp/videogen/notice-history
  * 六行（+7 前缀 +6 命名空间，探针口径同 §0），sessions/config 收口组同步补新方法。
  * 2026-10-18 远端合并刷新：补 remote 行（remote:* 前缀 + remoteHosts/probeRemoteModels/
@@ -28,14 +28,16 @@ export const DOMAIN_CATALOG = [
 	// 裁决：agents:* 运行时事件
 	// 总线经 sessions:runtime-event 信封（sourceChannel 字段）推送给 sessions.onRuntimeEvent，
 	// 故 agents 前缀由本行认领；例外 agents:rpc-log 由 rpc-logs 行认领。
+	// gtd:*（#546 分诊账本）渲染面是 sessions.gtdState / sessions.gtdPatch，无独立命名空间，
+	// 同样由本行伴生认领（与 agents 同型）。
 	{
 		id: "sessions",
 		group: "core",
 		subdomains: ["catalog", "runtime", "import", "rewind"],
 		manager: "SessionCatalog + SessionScanner + SessionRuntimeCoordinator + SessionFileEditor/SessionHistoryReader/RewindCheckpointCoordinator",
-		ipcFile: ["ipc/sessionIpc.ts", "ipc/sessionShareExportIpc.ts", "index.ts"],
+		ipcFile: ["ipc/sessionIpc.ts", "ipc/sessionShareExportIpc.ts", "ipc/gtdIpc.ts", "index.ts"],
 		preloadNamespaces: ["sessions"],
-		channelPrefix: ["sessions", "agents"],
+		channelPrefix: ["sessions", "agents", "gtd"],
 		aggregation: "consolidate",
 	},
 	// 裁决（伴生行）：DSH 插件体系红线（RESEARCH §4.7：DSH 域既有能力，非 PiDeck 自有扩展
