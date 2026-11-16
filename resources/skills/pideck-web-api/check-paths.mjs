@@ -97,10 +97,13 @@ function selftest() {
 
 if (process.argv.includes("--selftest")) selftest();
 
-const SKILL = process.argv[2] || path.join(here, "SKILL.md");
-const SRC = path.resolve(here, "../../../src/main/web/WebApiRoutes.ts");
-const srcFiles = [SRC, path.resolve(here, "../../../src/main/web/WebServiceManager.ts")].filter((f) => fs.existsSync(f));
-if (!srcFiles.length) { console.log("FAIL 找不到源码（找过 " + SRC + "）。判据自己还对不对，用 --selftest 验"); process.exit(2); }
+const srcArg = process.argv.find((a) => a.startsWith("--src="));
+const pick = (base) => fs.existsSync(path.join(base, "web/WebApiRoutes.ts")) ? base : (fs.existsSync(path.join(base, "main/web/WebApiRoutes.ts")) ? path.join(base, "main") : base);
+const SRC_BASE = pick(srcArg ? path.resolve(srcArg.slice(6)) : path.resolve(here, "../../../src/main"));
+const SKILL = process.argv.slice(2).find((a) => !a.startsWith("--")) || path.join(here, "SKILL.md");
+const SRC = path.join(SRC_BASE, "web/WebApiRoutes.ts");
+const srcFiles = [SRC, path.join(SRC_BASE, "web/WebServiceManager.ts")].filter((f) => fs.existsSync(f));
+if (!srcFiles.length) { console.log("FAIL 找不到源码（找过 " + SRC + "）。用 --src= 指向完整 src 目录，或用 --selftest 只验判据自己"); process.exit(2); }
 const src = srcFiles.map((p) => fs.readFileSync(p, "utf8")).join(String.fromCharCode(10)).split(BS + "/").join("/");
 
 const srcSegs = segsFromSource(src);

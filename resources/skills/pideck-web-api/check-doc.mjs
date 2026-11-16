@@ -18,10 +18,13 @@ import { fileURLToPath } from "node:url";
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SKILL = process.argv[2] || path.join(here, "SKILL.md");
-const SRC = path.resolve(here, "../../../src/main/web/WebApiRoutes.ts");
-const EXTRA = path.resolve(here, "../../../src/main/web/WebServiceManager.ts");
-if (!fs.existsSync(SRC)) { console.log("FAIL 找不到源码 " + SRC); process.exit(1); }
+const srcArg = process.argv.find((a) => a.startsWith("--src="));
+const pick = (base) => fs.existsSync(path.join(base, "web/WebApiRoutes.ts")) ? base : (fs.existsSync(path.join(base, "main/web/WebApiRoutes.ts")) ? path.join(base, "main") : base);
+const SRC_BASE = pick(srcArg ? path.resolve(srcArg.slice(6)) : path.resolve(here, "../../../src/main"));
+const SKILL = process.argv.slice(2).find((a) => !a.startsWith("--")) || path.join(here, "SKILL.md");
+const SRC = path.join(SRC_BASE, "web/WebApiRoutes.ts");
+const EXTRA = path.join(SRC_BASE, "web/WebServiceManager.ts");
+if (!fs.existsSync(SRC)) { console.log("FAIL 找不到源码 " + SRC + "（用 --src= 指向完整 src 目录）"); process.exit(1); }
 const skill = fs.readFileSync(SKILL, "utf8");
 const BS = String.fromCharCode(92);
 const QUOTE = String.fromCharCode(34);
