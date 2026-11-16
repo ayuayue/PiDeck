@@ -476,6 +476,28 @@ direct 构建从 GitHub Release 的 `appcast-<目标>.xml` 检查更新：
 - CI 的 `release` 在发布前逐个检查 `appcast-<目标>.xml`：漏掉一个，那个目标的更新会一直 404 到下次发布
 - 打 tag 即发布：`git tag v0.2.1 && git push origin v0.2.1`，`release.yml` 编六个桌面目标（安装包里嵌了网页）、汇总校验和、上传 Release
 
+## 发布
+
+打 tag 即出全套包：`git tag v0.2.1 && git push origin v0.2.1`（也可以在 Actions 里手动跑 `release` 并填版本）。
+
+| 平台 | 产物 |
+| --- | --- |
+| Windows x64 / arm64 | `*-setup.exe`（NSIS 安装程序，内嵌浏览器端页面） |
+| macOS arm64 / x64 | `*.dmg` |
+| Linux x64 / arm64 | `*.deb`、`*.pkg.tar.gz`、`*.AppImage` |
+| Android arm64 | `*.apk`（手机客户端，9 MB）与 `appcast-android_arm64.xml` |
+| iOS | 真机 `*.ipa` 与模拟器用的 `.app`（zip） |
+| 网页 | `*-web.zip`（要单独部署时才用，桌面安装包已经带页面） |
+
+Release 里的 `SHA256SUMS` 覆盖全部产物。除了 `NSGO_UPDATES_KEY`（签 appcast），手机包用到的 secrets 都是可选的：
+
+| secret | 没有时 |
+| --- | --- |
+| `ANDROID_KEYSTORE_B64`（配 `NSGO_KEYSTORE_PASSWORD`、`NSGO_KEY_PASSWORD`） | APK 用 NSGo 的调试密钥签，能装能跑，但装过调试签名的手机无法用正式包覆盖升级 |
+| `IOS_PROFILE_B64`、`IOS_CERT_P12_B64`（配 `IOS_CERT_PASSWORD`、`IOS_KEYCHAIN_PASSWORD`、`IOS_TEAM`） | 出未签名 IPA，需要自己重签才能装；模拟器 `.app` 不受影响 |
+
+`ci` 在每次 push 和 PR 上跑：三平台测试、Android APK、iOS 模拟器包、Windows/Linux/macOS 交叉编译、网页（带 12 MB 体积上限）。
+
 ## 提示词库
 
 首次启动会往数据目录的 `prompts/starter.json` 写一份起步提示词（代码理解、修改、调试、文档、计划、

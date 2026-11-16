@@ -1,4 +1,4 @@
-//go:build webassets && !js
+//go:build webassets && !js && !android && !ios
 
 package main
 

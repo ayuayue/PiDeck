@@ -111,9 +111,125 @@ jobs:
           path: out
           if-no-files-found: warn
 
+  android:
+    name: android (arm64 apk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          v="${{ github.event.inputs.version }}"
+          if [ -z "$v" ]; then v="${GITHUB_REF_NAME#v}"; fi
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+
+      # NSGo writes the APK itself: arm64 needs no Android SDK and no NDK.
+      # Without a keystore it signs with a debug key, which cannot update an
+      # installed build, so a release should set ANDROID_KEYSTORE_B64.
+      - name: Build APK
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          NSGO_KEYSTORE_PASSWORD: ${{ secrets.NSGO_KEYSTORE_PASSWORD }}
+          NSGO_KEY_PASSWORD: ${{ secrets.NSGO_KEY_PASSWORD }}
+        run: |
+          args=(-target android_arm64 -version "${{ steps.version.outputs.value }}")
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            args+=(-keystore "$RUNNER_TEMP/release.p12")
+          else
+            echo "::warning::ANDROID_KEYSTORE_B64 is not set: this APK is debug-signed and cannot update an installed one"
+          fi
+          go tool nsgo build "${args[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pideck-lite-android-arm64
+          path: |
+            dist/releases/*.apk
+            dist/releases/appcast-android_arm64.xml
+          if-no-files-found: error
+
+  ios:
+    name: ios (simulator app, ipa)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          v="${{ github.event.inputs.version }}"
+          if [ -z "$v" ]; then v="${GITHUB_REF_NAME#v}"; fi
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+
+      # The same code the phone build uses: it is a client of a desktop's
+      # server. The simulator app needs nothing from Apple; an IPA that
+      # installs on a device needs a profile and a certificate, which come
+      # from IOS_PROFILE_B64 and IOS_CERT_P12_B64. Without them NSGo writes
+      # an unsigned IPA and says so.
+      - name: Build iOS packages
+        shell: bash
+        env:
+          PROFILE_B64: ${{ secrets.IOS_PROFILE_B64 }}
+          CERT_B64: ${{ secrets.IOS_CERT_P12_B64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          TEAM: ${{ secrets.IOS_TEAM }}
+        run: |
+          set -euo pipefail
+          args=(-target ios_simulator,ios -version "${{ steps.version.outputs.value }}")
+          if [ -n "$PROFILE_B64" ] && [ -n "$CERT_B64" ]; then
+            echo "$CERT_B64" | base64 -d > "$RUNNER_TEMP/cert.p12"
+            echo "$PROFILE_B64" | base64 -d > "$RUNNER_TEMP/app.mobileprovision"
+            keychain="$RUNNER_TEMP/build.keychain-db"
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+            security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            mkdir -p ~/Library/MobileDevice/"Provisioning Profiles"
+            cp "$RUNNER_TEMP/app.mobileprovision" ~/Library/MobileDevice/"Provisioning Profiles/app.mobileprovision"
+            args+=(-profile "$RUNNER_TEMP/app.mobileprovision")
+            if [ -n "${TEAM:-}" ]; then args+=(-team "$TEAM"); fi
+          else
+            echo "::warning::no IOS_PROFILE_B64/IOS_CERT_P12_B64: the IPA is unsigned and installs only after re-signing"
+          fi
+          go tool nsgo build "${args[@]}"
+
+      # The simulator build stays in its own directory, so it is zipped here.
+      - name: Pack the simulator app
+        shell: bash
+        run: |
+          cd dist
+          app=$(ls -d *ios_simulator*/*.app | head -1)
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/ios-simulator.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pideck-lite-ios
+          path: |
+            dist/releases/*.ipa
+            ${{ runner.temp }}/ios-simulator.zip
+          if-no-files-found: error
+
   publish:
     name: publish
-    needs: build
+    needs: [build, android, ios]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -126,11 +242,16 @@ jobs:
       # release that leaves one out answers 404 for that target's updates
       # until a later release carries it again.
       - name: Appcasts
-        if: ${{ secrets.NSGO_UPDATES_KEY != '' }}
         shell: bash
+        env:
+          NSGO_UPDATES_KEY: ${{ secrets.NSGO_UPDATES_KEY }}
         run: |
+          if [ -z "$NSGO_UPDATES_KEY" ]; then
+            echo "::warning::NSGO_UPDATES_KEY is not set, so no release carries appcasts and no app can update itself"
+            exit 0
+          fi
           missing=""
-          for target in windows_x64 windows_arm64 macos_arm64 macos_x64 linux_x64 linux_arm64; do
+          for target in windows_x64 windows_arm64 macos_arm64 macos_x64 linux_x64 linux_arm64 android_arm64; do
             test -f "artifacts/appcast-$target.xml" || missing="$missing $target"
           done
           if [ -n "$missing" ]; then

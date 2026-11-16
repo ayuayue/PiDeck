@@ -109,6 +109,30 @@ jobs:
           path: dist/releases/*.apk
           if-no-files-found: error
 
+  ios:
+    name: ios (simulator app)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The phone build is the client half of the app; without this job an
+      # iOS break shows up first in a release run. The simulator needs no
+      # Apple account, and the device package signs only when nsgo.yaml
+      # names a profile.
+      - name: Build for the simulator
+        run: go tool nsgo build -target ios_simulator -version 0.0.1-ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pideck-lite-ios-simulator
+          path: dist/*ios_simulator*/*.app
+          if-no-files-found: error
+
   cross:
     name: cross (${{ matrix.target }})
     strategy:
