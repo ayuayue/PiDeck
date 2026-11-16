@@ -124,16 +124,10 @@ jobs:
         # 环境依赖型 spec（dsh-restart、remote*Acceptance）刻意不进：它们要真实 DSH/SSH 环境。
         # Windows runner 自带桌面会话，不需要 xvfb。
         timeout-minutes: 15
-        run: |
-          npx playwright test \
-            e2e/smoke.spec.ts \
-            e2e/session-bootstrap-tabs.spec.ts \
-            e2e/session-prewarm-history.spec.ts \
-            e2e/markdown-image-layout.spec.ts \
-            e2e/git-panel.spec.ts \
-            e2e/settings.spec.ts \
-            e2e/drawer.spec.ts \
-            e2e/file-tree-dom-budget.spec.ts
+        # 单行：windows-latest 的默认 shell 是 pwsh，bash 风格的反斜杠续行会被当成字面量
+        # （2026-11-16 实测：`Invalid regular expression: /\/gi` + 整步 exit 1，单测全绿也红）。
+        # 再加 spec 就往后接，不要改回多行续行。
+        run: npx playwright test e2e/smoke.spec.ts e2e/session-bootstrap-tabs.spec.ts e2e/session-prewarm-history.spec.ts e2e/markdown-image-layout.spec.ts e2e/git-panel.spec.ts e2e/settings.spec.ts e2e/drawer.spec.ts e2e/file-tree-dom-budget.spec.ts
 
       - name: Verify packaging config
         run: npm run pack
