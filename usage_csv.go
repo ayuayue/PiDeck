@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Usage as CSV: the days, models and projects the usage page draws, for

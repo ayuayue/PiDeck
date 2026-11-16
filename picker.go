@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // A small folder browser for adding workspaces and importing pi session

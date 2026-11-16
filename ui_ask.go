@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The parallel inquiry dialog: a question, optional background from the

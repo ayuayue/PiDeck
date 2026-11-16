@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The stash list: every entry git keeps, with pop, apply and drop.

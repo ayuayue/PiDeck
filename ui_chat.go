@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The chat: turns with their tools, the composer, and the empty state.
@@ -9,10 +11,6 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/nsgo/base"
-	"github.com/nsgo-dev/nsgo/base/diagram"
-	"github.com/nsgo-dev/nsgo/base/formula"
-	"github.com/nsgo-dev/nsgo/base/textview"
-	"github.com/nsgo-dev/nsgo/base/textview/highlight"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -342,6 +340,8 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 						}
 						a.copyText(text, "回复")
 					}},
+					chat.IconAction{Label: T("收藏这条回复"), Icon: lucide.Star, TestID: "turn-favorite",
+						OnPress: func() { a.favoriteReply(s, t()) }},
 					chat.IconAction{Label: T("从这里分叉"), Icon: lucide.GitBranch, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() { a.forkSession(s, tt.ID) }},
 					chat.IconAction{Label: T("重试"), Icon: lucide.RefreshCw, OnPress: func() { a.retry(s, tt) }},
@@ -773,39 +773,6 @@ func (a *app) errorRow(retry func(), text string) core.Node {
 				StyleFunc: ui.Colored(colors.Text)},
 			ui.Button{Text: T("重试"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: retry},
 		}}
-	})
-}
-
-// markdownView renders prose. A streaming one repairs what the text leaves
-// open and ends with a pulsing caret.
-func markdownView(text string, streaming func() bool, caret bool) core.Node {
-	return markdownSearchView(nil, text, streaming, caret)
-}
-
-// markdownSearchView is markdownView joined to a transcript search, which
-// highlights its matches.
-func markdownSearchView(search *textview.Search, text string, streaming func() bool, caret bool) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		styles := ui.TextViewStyles(cx)
-		styles[textview.PartRoot] = styles[textview.PartRoot].Merge(core.Style{Gap: 10, FontSize: 13.5, LineHeight: 22})
-		colors := ui.ColorsOf(cx)
-		styles[textview.PartSearch] = core.Style{Background: ui.Alpha(colors.Accent(), 0.18)}
-		styles[textview.PartSearchSelected] = core.Style{Background: ui.Alpha(colors.Accent(), 0.45)}
-		hl := highlight.New(cx)
-		on := streaming()
-		return ui.TextView{
-			MarkdownFunc:         func() string { return text },
-			Options:              textview.Options{Streaming: on},
-			Styles:               styles,
-			Search:               search,
-			Selectable:           true,
-			Highlighter:          hl,
-			OpenLinks:            true,
-			RenderMath:           formula.RenderMath,
-			RenderDiagram:        diagram.RenderDiagram,
-			NoCodeBlockScrollbar: true,
-			CodeBlockActions:     []textview.CodeAction{{ID: textview.CopyAction, Label: T("复制")}},
-		}
 	})
 }
 

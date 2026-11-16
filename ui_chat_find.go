@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Finding a turn in the open conversation: a floating field over the

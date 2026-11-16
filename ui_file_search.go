@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The find-in-files dialog: a query, the matches under their files, and a

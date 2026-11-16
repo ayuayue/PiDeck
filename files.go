@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The workspace file tree in the right drawer: a lazily expanded listing

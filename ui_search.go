@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The session search dialog: one field over every session's title and

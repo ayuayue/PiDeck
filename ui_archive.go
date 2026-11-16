@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The archived sessions dialog: what the rail hides, with ways back.

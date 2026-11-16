@@ -434,11 +434,11 @@ func TestSessionMenuPinAndRename(t *testing.T) {
 	waitApp(app, "id:pi-ready", 90*time.Second)
 	for i := 0; i < 4; i++ {
 		app.RightClick("id:session-row")
-		if waitQuiet(app, "text:收藏", 2*time.Second) {
+		if waitQuiet(app, "text:置顶会话", 2*time.Second) {
 			break
 		}
 	}
-	app.Press("text:收藏")
+	app.Press("text:置顶会话")
 	app.WaitFor("text:置顶", 10*time.Second)
 	// Pinning moves the row; try the press until its menu is up.
 	for i := 0; i < 4; i++ {

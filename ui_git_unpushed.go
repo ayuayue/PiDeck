@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The commits the upstream branch does not have yet.

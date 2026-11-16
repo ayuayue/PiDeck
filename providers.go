@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Providers and their credentials, for the settings page: which providers

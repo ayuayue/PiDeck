@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The window: a rail of projects and sessions, a bar of session tabs, the
@@ -68,6 +70,10 @@ func (a *app) view() core.Node {
 		a.acpDialog(),
 		a.acpPresetManagerDialog(),
 		a.agentDialog(),
+		a.agentManagerDialog(),
+		a.favoritesDialog(),
+		a.tasksDialog(),
+		a.taskFormDialog(),
 		a.projectGroupDialog(),
 		a.workspaceRenameDialog(),
 		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: "关闭", TestID: "toasts"},
@@ -644,6 +650,12 @@ func (a *app) railFooter() core.Node {
 			}
 			return lucide.Moon()
 		}, Label: "切换外观", Size: 28, IconSize: 14.5, OnPress: a.cycleTheme}),
+		hint(T("定时任务"), ui.IconButton{Icon: lucide.CalendarClock, Label: T("定时任务"), Size: 28, IconSize: 14.5,
+			TestID: "rail-tasks", OnPress: func() { a.openTaskDialog() }}),
+		hint(T("智能体"), ui.IconButton{Icon: lucide.Bot, Label: T("智能体"), Size: 28, IconSize: 14.5,
+			TestID: "rail-agents", OnPress: func() { a.openAgentManager() }}),
+		hint(T("收藏夹"), ui.IconButton{Icon: lucide.Star, Label: T("收藏夹"), Size: 28, IconSize: 14.5,
+			TestID: "rail-favorites", OnPress: func() { a.openFavorites() }}),
 		core.View{Style: core.Style{FlexGrow: 1}},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Edges{Right: 4}}, Children: []core.Node{
 			core.View{StyleFunc: func() core.Style {

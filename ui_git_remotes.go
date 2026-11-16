@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Git remotes: the named URLs, adding one, and removing one.

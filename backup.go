@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // A settings backup: config and the add-on folders in one zip. Sessions,

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The small LLM calls behind the app's tools: a commit message, a stronger

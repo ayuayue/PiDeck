@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Image generation through a provider's OpenAI-compatible

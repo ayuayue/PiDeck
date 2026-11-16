@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The session outline: one row per prompt, a press jumps to that turn.

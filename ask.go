@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Parallel inquiry: ask a question in a session of its own while the main

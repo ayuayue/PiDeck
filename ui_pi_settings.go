@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // pi's own settings, as controls in the models section: the few fields

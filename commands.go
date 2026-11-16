@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // One place for every command. The palette, the menus and the keyboard
@@ -54,7 +56,35 @@ func builtinCommands() []appCommand {
 		{ID: "chat-session", Label: "新建对话（不绑定项目）", Group: "会话", Shortcut: "mod+shift+n", Icon: lucide.MessageCircle,
 			Run: func(a *app) { a.openChat() }},
 		{ID: "agent-session", Label: "用智能体新建会话…", Group: "会话", Icon: lucide.Bot,
-			Run: func(a *app) { a.agentOpen.Set(true) }},
+			Run: func(a *app) { a.agentApply.Set(false); a.agentOpen.Set(true) }},
+		{ID: "agent-bind", Label: "给当前会话选智能体…", Group: "会话", Icon: lucide.Bot,
+			When: func(a *app) bool { return a.active() != nil },
+			Run:  func(a *app) { a.agentApply.Set(true); a.agentOpen.Set(true) }},
+		{ID: "agent-manage", Label: "管理智能体…", Group: "扩展", Icon: lucide.Settings,
+			Run: func(a *app) { a.openAgentManager() }},
+		{ID: "tasks", Label: "定时任务…", Group: "自动化", Icon: lucide.CalendarClock,
+			Run: func(a *app) { a.openTaskDialog() }},
+		{ID: "task-new", Label: "新建定时任务…", Group: "自动化", Icon: lucide.CalendarPlus,
+			Run: func(a *app) { a.openTaskForm() }},
+		{ID: "favorites", Label: "收藏夹…", Group: "会话", Icon: lucide.Star,
+			Run: func(a *app) { a.openFavorites() }},
+		{ID: "favorite-reply", Label: "收藏最后回复", Group: "会话", Icon: lucide.Star,
+			When: func(a *app) bool { s := a.active(); return s != nil && len(s.turns.GetUntracked()) > 0 },
+			Run: func(a *app) {
+				s := a.active()
+				if s == nil {
+					return
+				}
+				ts := s.turns.GetUntracked()
+				if len(ts) == 0 {
+					a.toast(ui.ToastInfo, "还没有可收藏的回复", "")
+					return
+				}
+				a.favoriteReply(s, ts[len(ts)-1])
+			}},
+		{ID: "favorite-session", Label: "收藏当前会话", Group: "会话", Icon: lucide.Star,
+			When: func(a *app) bool { return a.active() != nil },
+			Run:  func(a *app) { a.favoriteSession(a.active()) }},
 		{ID: "image-gen", Label: "生成图片…", Group: "工具", Icon: lucide.Image,
 			Run: func(a *app) { a.openImageDialog() }},
 		{ID: "vision-image", Label: "描述图片…", Group: "工具", Icon: lucide.Eye,

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The desktop pet: a small floating window that shows what the agents are

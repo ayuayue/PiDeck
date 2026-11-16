@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Git tags: the list, a tag at HEAD, and deleting one.

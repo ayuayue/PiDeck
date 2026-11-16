@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Searching every session's title and text. The index is built once from

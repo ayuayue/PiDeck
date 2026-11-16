@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The rail's project groups: pinned projects first, then the groups the

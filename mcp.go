@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // MCP servers, through pi's own CLI: pi mcp list/add/remove. The app only

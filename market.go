@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The plugin market: a JSON index of single-file plugin manifests. The

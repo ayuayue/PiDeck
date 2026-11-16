@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The Git drawer: the branch and its upstream, changed files with their

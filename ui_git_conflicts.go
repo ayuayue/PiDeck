@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Resolving a merge's conflicts: keep one side, or stage the file as it is.

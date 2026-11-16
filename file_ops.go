@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // File operations from the drawer's tree: a new file or folder, and a

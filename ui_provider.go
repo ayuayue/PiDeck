@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The provider editor: the fields of one entry in pi's models.json, a

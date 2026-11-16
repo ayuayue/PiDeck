@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // ACP (Agent Client Protocol): one external coding agent CLI per session,

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Who last touched each run of lines in a file.

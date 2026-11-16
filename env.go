@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Where agents run. A target is this machine, a WSL distribution, or a host

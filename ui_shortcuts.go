@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The keyboard cheat sheet: every command with a key, grouped, searchable,

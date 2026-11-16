@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // A support bundle: one zip with the diagnostic report, a redacted

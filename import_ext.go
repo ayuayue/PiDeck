@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Importing sessions from other agents: Codex's rollout files and Claude

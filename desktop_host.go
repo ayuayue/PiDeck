@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Desktop integration: the tray icon, closing to it, and the system

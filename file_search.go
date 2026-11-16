@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Searching inside the workspace's files.

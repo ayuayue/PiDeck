@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The ACP preset manager: the built-ins for reference, the presets the

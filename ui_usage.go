@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The usage page: totals, a 12-week heatmap, and the models and projects

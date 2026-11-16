@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The app's state and the actions the screen calls. Signals hold what the
@@ -188,9 +190,38 @@ type app struct {
 	env       *core.Signal[envInfo]
 	pinned    *core.Signal[[]string]
 	favModels *core.Signal[[]string]
-	themes    *core.Signal[[]themeSpec]
-	plugins   *core.Signal[[]plugin]
-	providers *core.Signal[[]providerInfo]
+	// Favorites are local snapshots of answers and references to sessions;
+	// favMu guards the list the dialog reads.
+	favOpen   *core.Signal[bool]
+	favKind   *core.Signal[string]
+	favQuery  *core.Signal[string]
+	favRev    *core.Signal[int]
+	favMu     sync.Mutex
+	favorites []favoriteEntry
+
+	// Scheduled tasks: the list, run history and the editor's fields.
+	// taskMu guards the list the ticker and the UI both touch.
+	taskMu       sync.Mutex
+	tasks        []*scheduledTask
+	taskRuns     []taskRun
+	taskRunning  map[string]bool
+	taskOpen     *core.Signal[bool]
+	taskFormOpen *core.Signal[bool]
+	taskRev      *core.Signal[int]
+	taskErr      *core.Signal[string]
+	taskEditID   *core.Signal[string]
+	taskName     *core.Signal[string]
+	taskCron     *core.Signal[string]
+	taskPrompt   *core.Signal[string]
+	taskProject  *core.Signal[string]
+	taskBackend  *core.Signal[string]
+	taskPreset   *core.Signal[string]
+	taskPersona  *core.Signal[string]
+	taskEnabled  *core.Signal[bool]
+	taskTimeout  *core.Signal[string]
+	themes       *core.Signal[[]themeSpec]
+	plugins      *core.Signal[[]plugin]
+	providers    *core.Signal[[]providerInfo]
 	// usage is the local statistics report, read from the session files
 	// the first time the usage page opens.
 	usage        *core.Signal[usageReport]
@@ -232,6 +263,20 @@ type app struct {
 	acpManageErr  *core.Signal[string]
 	acpManageRev  *core.Signal[int]
 	agentOpen     *core.Signal[bool]
+	// The agent manager: the list, the edit form and which agent is being
+	// edited. agentBackend picks what a new agent session runs on, and
+	// agentApply binds the picked agent to the active session instead of
+	// starting a new one.
+	agentManageOpen *core.Signal[bool]
+	agentManageRev  *core.Signal[int]
+	agentManageErr  *core.Signal[string]
+	agentEditID     *core.Signal[string]
+	agentEditKey    *core.Signal[string]
+	agentEditName   *core.Signal[string]
+	agentEditDesc   *core.Signal[string]
+	agentEditPrompt *core.Signal[string]
+	agentBackend    *core.Signal[string]
+	agentApply      *core.Signal[bool]
 
 	// The keyboard cheat sheet.
 	shortcutsOpen  *core.Signal[bool]
@@ -700,6 +745,24 @@ func newApp(cx *core.Scope) *app {
 		env:                    core.NewSignalFunc(cx, envInfo{Probing: true}, nil),
 		pinned:                 core.NewSignalFunc(cx, []string(nil), nil),
 		favModels:              core.NewSignalFunc(cx, []string(nil), nil),
+		favOpen:                core.NewSignal(cx, false),
+		favKind:                core.NewSignal(cx, ""),
+		favQuery:               core.NewSignal(cx, ""),
+		favRev:                 core.NewSignal(cx, 0),
+		taskOpen:               core.NewSignal(cx, false),
+		taskFormOpen:           core.NewSignal(cx, false),
+		taskRev:                core.NewSignal(cx, 0),
+		taskErr:                core.NewSignal(cx, ""),
+		taskEditID:             core.NewSignal(cx, ""),
+		taskName:               core.NewSignal(cx, ""),
+		taskCron:               core.NewSignal(cx, ""),
+		taskPrompt:             core.NewSignal(cx, ""),
+		taskProject:            core.NewSignal(cx, ""),
+		taskBackend:            core.NewSignal(cx, "pi"),
+		taskPreset:             core.NewSignal(cx, ""),
+		taskPersona:            core.NewSignal(cx, ""),
+		taskEnabled:            core.NewSignal(cx, true),
+		taskTimeout:            core.NewSignal(cx, "30"),
 		themes:                 core.NewSignalFunc(cx, []themeSpec(nil), nil),
 		plugins:                core.NewSignalFunc(cx, []plugin(nil), nil),
 		providers:              core.NewSignalFunc(cx, []providerInfo(nil), nil),
@@ -721,6 +784,16 @@ func newApp(cx *core.Scope) *app {
 		acpManageErr:           core.NewSignal(cx, ""),
 		acpManageRev:           core.NewSignal(cx, 0),
 		agentOpen:              core.NewSignal(cx, false),
+		agentManageOpen:        core.NewSignal(cx, false),
+		agentManageRev:         core.NewSignal(cx, 0),
+		agentManageErr:         core.NewSignal(cx, ""),
+		agentEditID:            core.NewSignal(cx, ""),
+		agentEditKey:           core.NewSignal(cx, ""),
+		agentEditName:          core.NewSignal(cx, ""),
+		agentEditDesc:          core.NewSignal(cx, ""),
+		agentEditPrompt:        core.NewSignal(cx, ""),
+		agentBackend:           core.NewSignal(cx, "pi"),
+		agentApply:             core.NewSignal(cx, false),
 		projectGroupOpen:       core.NewSignal(cx, false),
 		projectGroupPath:       core.NewSignal(cx, ""),
 		projectGroupText:       core.NewSignal(cx, ""),
@@ -845,6 +918,8 @@ func newApp(cx *core.Scope) *app {
 
 	a.pinned.Set(a.cfg.Pinned)
 	a.favModels.Set(a.cfg.FavModels)
+	a.favorites = a.loadFavorites()
+	a.loadTasks()
 
 	metas := st.scanSessions(a.cfg.Titles)
 	byKey := map[string][]sessionMeta{}
@@ -933,6 +1008,7 @@ func newApp(cx *core.Scope) *app {
 		a.newTerminalTab()
 	}
 	a.setupDesktop()
+	a.startTaskScheduler()
 	return a
 }
 

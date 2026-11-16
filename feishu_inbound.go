@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Feishu inbound: the group bot's event callback. Feishu posts a message

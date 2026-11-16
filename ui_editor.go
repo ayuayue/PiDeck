@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The editor's face: a strip of open files over the text, the file's

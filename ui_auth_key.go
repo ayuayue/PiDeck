@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The dialog that replaces one provider's api key in pi's auth.json.

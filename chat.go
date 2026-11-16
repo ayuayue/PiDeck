@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The built-in chat: a real folder under the app's data that holds

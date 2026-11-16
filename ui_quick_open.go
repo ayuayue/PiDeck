@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Quick open: a workspace file by name, from the keyboard.

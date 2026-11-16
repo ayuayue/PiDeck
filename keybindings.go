@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Keyboard shortcuts. Every command can be bound once, from the app's

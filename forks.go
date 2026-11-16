@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The fork tree: a session and every fork that grew out of it. The rail

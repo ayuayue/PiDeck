@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The bottom terminal panel: real shells on a target, each tab a

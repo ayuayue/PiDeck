@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Step-by-step plan execution: a plan's numbered steps are sent one at a

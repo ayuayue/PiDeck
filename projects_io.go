@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Sharing a project list: the rail's projects as JSON, and adding the

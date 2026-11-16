@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The app's event bus: internal subscribers and plugin hooks. Events are

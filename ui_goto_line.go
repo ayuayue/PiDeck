@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Go to a line in the editor.

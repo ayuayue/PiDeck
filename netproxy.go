@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Network proxies. The app's own HTTP requests and the agent processes it

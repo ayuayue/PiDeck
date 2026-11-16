@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Built-in agents: ways of working that a session keeps. An agent is a
@@ -181,10 +183,46 @@ func (a *app) setPersona(s *session, id string) {
 	}
 }
 
-// newPersonaSession starts a session that works with an agent.
+// newPersonaSession starts a session that works with an agent. The
+// backend switch decides between pi and the project's default ACP
+// preset; when the picker was opened to bind the active session, it
+// only changes that session's agent.
 func (a *app) newPersonaSession(p agentPersona) {
+	if a.agentApply.GetUntracked() {
+		s := a.active()
+		if s == nil {
+			a.toast(ui.ToastInfo, "先打开一个会话", "再给它选智能体。")
+			return
+		}
+		a.setPersona(s, p.ID)
+		a.agentApply.Set(false)
+		a.agentOpen.Set(false)
+		a.toast(ui.ToastInfo, T("已启用 ")+T(p.Name), T(p.Description))
+		return
+	}
 	var s *session
-	if ws := a.activeWorkspace(); ws != nil {
+	if a.agentBackend.GetUntracked() == "acp" {
+		ws := a.activeWorkspace()
+		if ws == nil {
+			a.toast(ui.ToastInfo, "先选一个项目", "ACP 会话要在项目里运行。")
+			return
+		}
+		var preset *acpPreset
+		if ws.ACPPreset != "" {
+			preset = a.acpPresetByID(ws.ACPPreset)
+		}
+		if preset == nil {
+			list := a.acpPresetList()
+			if len(list) > 0 {
+				preset = &list[0]
+			}
+		}
+		if preset == nil {
+			a.toast(ui.ToastError, "没有 ACP 预设", "先在设置里添加一个 ACP 命令。")
+			return
+		}
+		s = a.newACPSession(ws, *preset)
+	} else if ws := a.activeWorkspace(); ws != nil {
 		s = a.newSession(ws.Path)
 	} else {
 		// No project yet: the built-in chat is a fine place to start.
@@ -204,6 +242,68 @@ func (a *app) newPersonaSession(p agentPersona) {
 		})
 	}
 	a.toast(ui.ToastInfo, T("已启用 ")+T(p.Name), T(p.Description))
+}
+
+// openAgentManager shows the editable list of agents.
+func (a *app) openAgentManager() {
+	a.resetAgentForm()
+	a.agentManageErr.Set("")
+	a.agentManageOpen.Set(true)
+}
+
+// resetAgentForm clears the manager's edit fields.
+func (a *app) resetAgentForm() {
+	a.agentEditID.Set("")
+	a.agentEditKey.Set("")
+	a.agentEditName.Set("")
+	a.agentEditDesc.Set("")
+	a.agentEditPrompt.Set("")
+}
+
+// editAgent loads one agent into the manager's form.
+func (a *app) editAgent(id string) {
+	p := a.agentByID(id)
+	if p == nil {
+		a.agentManageErr.Set("找不到这个智能体")
+		return
+	}
+	a.agentEditID.Set(p.ID)
+	a.agentEditKey.Set(p.ID)
+	a.agentEditName.Set(p.Name)
+	a.agentEditDesc.Set(p.Description)
+	a.agentEditPrompt.Set(p.Prompt)
+	a.agentManageErr.Set("")
+}
+
+// saveAgentForm writes the form's agent.
+func (a *app) saveAgentForm() {
+	err := a.upsertAgent(a.agentEditID.GetUntracked(), a.agentEditKey.GetUntracked(), a.agentEditName.GetUntracked(),
+		a.agentEditDesc.GetUntracked(), a.agentEditPrompt.GetUntracked())
+	if err != nil {
+		a.agentManageErr.Set(err.Error())
+		return
+	}
+	a.agentManageErr.Set("")
+	a.resetAgentForm()
+	a.toast(ui.ToastSuccess, "已保存智能体", "")
+}
+
+// deleteAgent removes one the manager owns.
+func (a *app) deleteAgent(id string) {
+	p := a.agentByID(id)
+	if p == nil {
+		return
+	}
+	a.askConfirm("删除智能体", "「"+p.Name+"」会从智能体列表里移除；已经绑定它的会话仍保留记录。", "删除", func() {
+		if err := a.removeCustomAgent(id); err != nil {
+			a.toast(ui.ToastError, "删除失败", err.Error())
+			return
+		}
+		if a.agentEditID.GetUntracked() == id {
+			a.resetAgentForm()
+		}
+		a.toast(ui.ToastInfo, "已删除智能体", p.Name)
+	})
 }
 
 // personaChip names the session's agent and clears it.
@@ -266,6 +366,10 @@ func (a *app) agentDialog() core.Node {
 							return core.Text{Content: T("插件") + " · " + agent.Plugin, MaxLines: 1,
 								Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 						}},
+						core.Show{When: func() bool { return agent.Plugin == "" && a.isCustomAgent(agent.ID) }, Then: func(*core.Scope) core.Node {
+							return core.Text{Content: T("自定义"), MaxLines: 1,
+								Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+						}},
 					}},
 				},
 			})
@@ -278,17 +382,51 @@ func (a *app) agentDialog() core.Node {
 					a.agentOpen.Set(false)
 				}})
 		}
+		footer = append(footer, ui.Button{Text: T("管理智能体…"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			TestID: "agent-manage",
+			OnPress: func() {
+				a.agentOpen.Set(false)
+				a.openAgentManager()
+			}})
 		footer = append(footer, ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 			OnPress: func() { a.agentOpen.Set(false) }})
+		apply := a.agentApply.Get()
+		headline := T("选择后会新建一个会话；它的工作方式会放在每个提问前面。")
+		if apply {
+			headline = T("点一个智能体，把它绑定到当前会话。")
+		}
+		backendChip := func(id, label string) core.Node {
+			on := func() bool { return a.agentBackend.Get() == id }
+			return core.View{OnPress: func(core.PressEvent) { a.agentBackend.Set(id) }, Role: core.RoleRadio,
+				Label: label, TestID: "agent-backend-" + id,
+				StyleFunc: func() core.Style {
+					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(24),
+						Padding: core.Symmetric(0, 10), CornerRadius: 12, Hover: &core.Style{Background: colors.Hover()}}
+					if on() {
+						st.Background = colors.Pressed()
+					}
+					return st
+				},
+				Children: []core.Node{ui.Text(T(label), 10.5, ui.Medium, colors.Text)}}
+		}
+		header := []core.Node{
+			core.Text{Content: headline, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
+		}
+		if !apply {
+			header = append(header, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+				ui.Text(T("新会话后端"), 10, ui.Regular, colors.Faint),
+				backendChip("pi", "pi"),
+				backendChip("acp", "ACP"),
+			}})
+		}
 		return ui.Dialog{
 			Open:         a.agentOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.agentOpen.Set(open) },
 			Title:        T("选择智能体"),
 			TestID:       "agent-dialog",
-			Style:        core.Style{Width: core.Pt(520)},
+			Style:        core.Style{Width: core.Pt(560)},
 			Children: []core.Node{
-				core.Text{Content: T("选择后会新建一个会话；它的工作方式会放在每个提问前面。"),
-					Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
+				core.View{Style: core.Style{Gap: 6}, Children: header},
 				core.View{Style: core.Style{Gap: 2, Margin: core.Edges{Top: 4}}, Children: rows},
 				core.Text{Content: T("自定义智能体放在数据目录的 agents/ 里；插件也可以在 contributes.agents 里带智能体。"),
 					Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},

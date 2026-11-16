@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The skill store: a JSON index of shared SKILL.md files. Installing one

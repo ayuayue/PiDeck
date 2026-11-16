@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The skill store's dialog: a link to an index of shared SKILL.md files,

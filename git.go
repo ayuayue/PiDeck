@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The Git panel's backend. It reads a project's repository with the git

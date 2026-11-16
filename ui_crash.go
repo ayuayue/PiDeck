@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The crash screen: what replaces the interface when something under it

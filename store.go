@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Config and session storage. The app keeps its own JSON config beside a

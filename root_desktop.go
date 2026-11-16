@@ -1,0 +1,56 @@
+//go:build !js
+
+package main
+
+// The desktop and phone builds' entry: the workbench, or the remote client
+// when the target is iOS, Android or a preview (PIDECK_LITE_MOBILE=1). The
+// whole interface sits under an error boundary, so a panic in one screen
+// becomes a crash screen and a crash log instead of a dead app.
+
+import (
+	"github.com/nsgo-dev/nsgo/core"
+)
+
+// Root builds the app once; signals drive everything after that.
+func Root(cx *core.Scope) core.Node {
+	if clientMode() {
+		m := newMobileApp(cx)
+		return core.Catch{
+			Try: func(*core.Scope) core.Node { return m.view() },
+			Fallback: func(cx *core.Scope, err error, reset func()) core.Node {
+				return crashScreenFor(cx, err, reset, "", nil, nil)
+			},
+		}
+	}
+	a := newApp(cx)
+	return core.Catch{
+		Try: func(*core.Scope) core.Node {
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				font := a.uiFont.Get()
+				img := a.bgImage.Get()
+				if img == "" {
+					return core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), FontFamily: font},
+						Children: []core.Node{a.view()}}
+				}
+				fill := core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0)}
+				mask := core.Dynamic(func(cx *core.Scope) core.Node {
+					base := uint32(0xffffff)
+					if cx.Env().Dark() {
+						base = 0x000000
+					}
+					return core.View{Style: fill.Merge(core.Style{Background: core.RGBA(base, float32(1-a.bgOpacity.Get())),
+						PointerEvents: core.PointerEventsNone})}
+				})
+				return core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), FontFamily: font}, Children: []core.Node{
+					core.Image{Source: core.ImageSource{URI: fileURL(img)}, ResizeMode: core.Cover,
+						Style: fill.Merge(core.Style{PointerEvents: core.PointerEventsNone})},
+					mask,
+					core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}, Children: []core.Node{a.view()}},
+				}}
+			})
+		},
+		Fallback: func(cx *core.Scope, err error, reset func()) core.Node {
+			return a.crashScreen(cx, err, reset)
+		},
+	}
+}

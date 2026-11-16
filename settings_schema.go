@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The app's settings as a schema: every field the app writes, its type,

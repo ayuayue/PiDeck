@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Diagnostics: a small in-memory log, a rotating file, and a snapshot of

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Looks and add-ons. A theme is a set of palette roles and design tokens

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Renaming a project: a display name over its folder, kept in config.

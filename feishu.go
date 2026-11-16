@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Feishu group bots: a finished turn can post its title, status and a

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Project trust: a folder the user added may hold anything, and the agent

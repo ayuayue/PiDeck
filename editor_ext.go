@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Opening files in an editor outside the app: the one the user names, or

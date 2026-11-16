@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The dialog that starts a plugin.

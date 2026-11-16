@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The "Remote" settings section: the phone server's switch, port and

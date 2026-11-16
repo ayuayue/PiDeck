@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The plugin market's dialog: a link to an index, the plugins it lists,

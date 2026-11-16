@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The project group dialog: a name, with the groups already in use as

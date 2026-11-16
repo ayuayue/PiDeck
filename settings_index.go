@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // A searchable index of the settings rows. Each entry names the section
@@ -57,6 +59,9 @@ var settingsIndex = []settingEntry{
 	{"integrations", "把回答发回群", "feishu reply answer group"},
 	{"integrations", "自定义预设", "acp preset custom"},
 	{"integrations", "管理预设", "acp preset manage add remove"},
+	{"integrations", "定时任务", "cron schedule automation task 定时 调度"},
+	{"integrations", "智能体", "agent persona prompt 智能体"},
+	{"integrations", "收藏夹", "favorite saved reply session 收藏"},
 	{"diagnostics", "导出诊断包", "diagnostics bundle zip"},
 	{"diagnostics", "复制诊断信息", "diagnostics report copy"},
 	{"diagnostics", "打开日志目录", "logs directory"},

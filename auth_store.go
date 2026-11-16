@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // pi's own credentials file, as the settings page shows it: each provider,

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // pi's skills and extensions, for the resources page: what is installed,

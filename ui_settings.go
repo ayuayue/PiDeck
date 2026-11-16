@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The settings window: a rail of sections beside the section's rows. Each
@@ -1353,6 +1355,19 @@ func (a *app) settingsIntegrations() core.Node {
 					setRow("自定义预设", "内置 Claude / Gemini / Codex；也可以在这里加任何 ACP 命令，写进数据目录的 acp/presets.json。",
 						ui.Button{Text: T("管理预设…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-manage-open",
 							OnPress: func() { a.openACPPresetManager() }}),
+				),
+				setGroup("自动化与整理",
+					setRow("定时任务", "按 cron 在后台开始新会话并发送提示词；可选 pi 或 ACP，运行记录写进数据目录 tasks.json。",
+						ui.Button{Text: T("打开定时任务…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "tasks-open",
+							OnPress: func() { a.openTaskDialog() }}),
+					setDivider(),
+					setRow("智能体", "把一段工作方式放在每个提问前面；内置、自定义与插件带来的智能体都能管理，ACP 会话同样适用。",
+						ui.Button{Text: T("管理智能体…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "agents-open",
+							OnPress: func() { a.openAgentManager() }}),
+					setDivider(),
+					setRow("收藏夹", "回复保存为正文快照，会话保存为引用；写进数据目录 favorites.json。",
+						ui.Button{Text: T("打开收藏夹…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "favorites-open",
+							OnPress: func() { a.openFavorites() }}),
 				),
 				core.Text{Content: "默认只发会话标题、状态与一句摘要；开启「把回答发回群」后，回答最多发 1500 字。", Style: core.Style{FontSize: 11, LineHeight: 17},
 					StyleFunc: ui.Colored(colors.Faint)},

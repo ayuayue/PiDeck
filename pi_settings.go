@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // pi's own settings.json, for the fields the app can show as controls.

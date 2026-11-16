@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The built-in file editor: the app's own view of a file, with the text

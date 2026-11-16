@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The image generator's dialog: pick a provider and model, write a

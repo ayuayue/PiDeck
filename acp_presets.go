@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Custom ACP presets: the three built-ins, plus any JSON file under the

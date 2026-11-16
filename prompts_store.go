@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The prompt store: a JSON index of shared prompt packs. Installing one

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // A self-contained HTML export of a session, for the sessions pi cannot

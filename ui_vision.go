@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The vision bridge's dialog: an image, a question, and a vision model

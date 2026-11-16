@@ -66,36 +66,6 @@ func (u usageInfo) add(v usageInfo) usageInfo {
 		CacheWrite: u.CacheWrite + v.CacheWrite, Total: u.Total + v.Total, Cost: u.Cost + v.Cost}
 }
 
-// credits renders a cost the way a footer does.
-func credits(c float64) string {
-	switch {
-	case c <= 0:
-		return "$0"
-	case c < 0.01:
-		return fmt.Sprintf("$%.4f", c)
-	default:
-		return fmt.Sprintf("$%.2f", c)
-	}
-}
-
-// tokens shortens a token count.
-func tokens(n int) string {
-	switch {
-	case n >= 999_500:
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
-	case n >= 1000:
-		return fmt.Sprintf("%.0fk", float64(n)/1e3)
-	}
-	return fmt.Sprint(n)
-}
-
-// promptImage is an image sent with a prompt.
-type promptImage struct {
-	Data     []byte
-	MimeType string
-	Name     string
-}
-
 // toolRun is one executed tool call.
 type toolRun struct {
 	CallID string

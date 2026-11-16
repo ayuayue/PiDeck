@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Creating a plugin: a folder whose manifest already works, so every

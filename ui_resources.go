@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The resources page: pi's skills, each opening its SKILL.md, and the

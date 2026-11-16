@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // ACP sessions: an external agent CLI in place of pi. Updates are

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The prompt store's dialog: a link to an index of shared packs, the packs

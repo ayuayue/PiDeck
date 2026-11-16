@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The prompt library dialog: categories on the left, a search field and

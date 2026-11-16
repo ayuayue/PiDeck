@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // A pi RPC client: spawns `pi --mode rpc` for one session and speaks its

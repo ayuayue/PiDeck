@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The terminal panel and the actions its header, menus and the palette

@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // ACP session archives: the transcript the app drew is kept under
@@ -161,6 +163,7 @@ func (a *app) loadACPArchiveFile(path string) *session {
 	s.updated.Set(arch.Updated)
 	s.turns.Set(arch.Turns)
 	s.acpPerm = arch.Permissions
+	s.personaID = a.cfg.SessionPersonas[s.ID]
 	s.loaded.Set(true)
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	return s

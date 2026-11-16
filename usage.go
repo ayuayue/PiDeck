@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Local usage statistics: what the session files say about tokens, cost,

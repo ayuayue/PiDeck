@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Menus and popovers: one card style for every right-click menu, and the
@@ -573,6 +575,7 @@ func (a *app) sessionMenuItems(sess func() *session) []core.Node {
 	_ = colors
 	return []core.Node{
 		a.menuRow(a.cx, lucide.Star, pinLabel(a, sess), "", false, func() { a.togglePin(sess()) }),
+		a.menuRow(a.cx, lucide.Star, sessionFavoriteLabel(a, sess), "", false, func() { a.toggleSessionFavorite(sess()) }),
 		a.menuRow(a.cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(sess()) }),
 		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(sess().ID, "会话 ID") }),
 		a.menuRow(a.cx, lucide.CopyPlus, "复制会话", "", false, func() { a.duplicateSession(sess()) }),
@@ -603,9 +606,17 @@ func showArchivedLabel(a *app) string {
 // pinLabel names the pin action for the state a session is in.
 func pinLabel(a *app, sess func() *session) string {
 	if a.isPinned(sess().ID) {
-		return "取消收藏"
+		return T("取消置顶会话")
 	}
-	return "收藏"
+	return T("置顶会话")
+}
+
+// sessionFavoriteLabel names the favorites action for the state.
+func sessionFavoriteLabel(a *app, sess func() *session) string {
+	if a.isSessionFavorite(sess().ID) {
+		return T("移出收藏夹")
+	}
+	return T("存入收藏夹")
 }
 
 // sortLabel names the sort action for the current order.

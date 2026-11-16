@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // Opening things the app does not draw: a folder in the system's file

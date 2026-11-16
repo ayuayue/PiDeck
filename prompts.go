@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The prompt library: a folder of JSON or YAML packs the app seeds once
