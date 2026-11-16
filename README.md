@@ -18,6 +18,10 @@ go tool nsgo build -target windows_x64
 
 前置：PATH 里有 `pi`。应用用 `pi --mode rpc` 启动它，会话放在应用自己的目录里。
 
+命令不用记，`go run ./scripts` 会列出所有常用操作：开发、构建单个或全部平台、启动 Android
+模拟器、安装 APK、测试和 doctor，挑个数字就行。也可以直接跑某一项，例如
+`go run ./scripts dev`、`go run ./scripts build macos_arm64`。
+
 ### 手机端
 
 同一份代码的 Android/iOS 目标会显示连接页，而不是桌面工作台：
@@ -58,17 +62,17 @@ go tool nsgo doctor                          # 应显示 ✓ Android NDK 与 and
 1. 桌面端打开 `设置 → 远程`，开启「允许手机连接」；这一栏里有「Android 模拟器」一行
 2. 在仓库里运行：
 
-```powershell
-pwsh -File scripts/android.ps1 up      # 起模拟器（已在跑就跳过）
-pwsh -File scripts/android.ps1 app     # 构建 x86_64 包、安装、打开
-pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=…
+```sh
+go run ./scripts android up      # 起模拟器（已在跑就跳过）
+go run ./scripts android app     # 构建 x86_64 包、安装、打开
+go run ./scripts android link    # 复制 http://10.0.2.2:<端口>/?token=…
 ```
 
 3. 在模拟器窗口里点「连接地址」输入框，`Ctrl+V` 粘贴，点「连接」
 
 模拟器和宿主机共享剪贴板，所以复制链接后直接粘贴即可；地址里已经带了令牌，令牌框可以留空。
 
-`scripts/android.ps1 status` 会打印 SDK 路径、当前设备、AVD 和桌面端链接状态。
+`go run ./scripts android status` 会打印 SDK 路径、当前设备、AVD 和桌面端链接状态。
 
 ## 架构
 
@@ -403,7 +407,7 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 | `mobile_git.go` | 手机端 Git：分支切换、改动列表、补丁、暂存、提交、同步与最近提交 |
 | `mobile_files.go` | 手机端文件浏览：项目文件列表、筛选与只读查看 |
 | `ui_remote.go` | 桌面设置里的远程访问面板 |
-| `scripts/android.ps1` | 模拟器日常操作：启动、装包、复制连接链接、看状态 |
+| `scripts/main.go` | 开发助手：菜单里的开发、构建、模拟器与 APK、测试（`go run ./scripts`） |
 | `ui.go` | 侧栏、标签、抽屉、命令面板、目标/重命名/确认/扩展对话框 |
 | `ui_menu.go` | 统一的菜单卡片、会话/项目右键菜单、模型/用量/项目弹层 |
 | `ui_settings.go` | 设置窗口：左栏分类 + 分节行（通用/模型与认证/外观/环境/扩展/数据/关于） |
@@ -420,13 +424,14 @@ pwsh -File scripts/android.ps1 link    # 复制 http://10.0.2.2:<端口>/?token=
 - `release.yml`：打 `v*` 标签时构建六个目标——`windows_x64` / `windows_arm64` /
   `macos_arm64` / `macos_x64` / `linux_x64` / `linux_arm64`，上传产物并发布 Release（附 `SHA256SUMS`，下载后可 `sha256sum -c` 校验）
 - 本机打包：`go tool nsgo build -target <目标> -version <版本>`，产物在 `dist/`
+- 本机一次构建六个发布目标：`go run ./scripts build all`（不含安装器；正式包仍由 CI 出）
 - `.github/dependabot.yml`：每周检查 Go 依赖、每月检查 Actions 版本，开 PR 由 CI 验证
 
 ## 自动更新
 
 direct 构建从 GitHub Release 的 `appcast-<目标>.xml` 检查更新：
 
-- `updates.pub` 是公钥，已提交；私钥 `updates.key` 不入库，CI 用 `NSGO_UPDATES_KEY`
+- 公钥写在 `nsgo.yaml` 的 `updates.key` 里（`updates.pub` 是同一份，方便查看）；私钥 `updates.key` 不入库，CI 用 `NSGO_UPDATES_KEY`
 - 生成密钥：`go tool nsgo keygen updates`
 - 打包：`go tool nsgo build` 用私钥签安装程序并写出 appcast；把 `dist/releases` 整个上传到 Release
 - 应用内：设置 → 关于 → 检查更新，或命令面板「检查更新」；macOS/Windows 由 Sparkle/WinSparkle 下载并安装，

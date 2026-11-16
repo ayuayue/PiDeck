@@ -4,11 +4,11 @@ version: 0.2.0
 appearance: light
 
 # Direct updates: the app reads appcast-<target>.xml next to the release
-# and verifies its EdDSA signature with updates.pub. The private key
-# (updates.key) stays out of the repository; CI gets it as
-# NSGO_UPDATES_KEY.
+# and verifies its EdDSA signature with the public key below; updates.pub
+# holds the same value for humans. The private key (updates.key) stays out
+# of the repository; CI gets it as NSGO_UPDATES_KEY.
 updates:
-  key: updates.pub
+  key: EHRrpwXBqCbUcC53NQZXBFa2C1D4EhF9BQ8FxMqieIY=
   feed: https://github.com/ayuayue/PiDeck-Lite/releases/latest/download/
   automatic: true
 
