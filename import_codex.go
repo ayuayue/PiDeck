@@ -53,6 +53,7 @@ type codexLine struct {
 
 // scanCodex lists the rollouts under one root.
 func scanCodex(root string) ([]importCandidate, error) {
+	names := codexIndex(root)
 	var files []string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
@@ -98,8 +99,8 @@ func scanCodex(root string) ([]importCandidate, error) {
 				cand.Cwd = e.Payload.Cwd
 			case e.Type == "response_item" && e.Payload.Type == "message" && e.Payload.Role == "user":
 				cand.Count++
-				if cand.Title == "" {
-					cand.Title = firstLine(codexMessageText(e.Payload.Content), 60)
+				if text := codexUserText(e.Payload.Content); text != "" && cand.Title == "" {
+					cand.Title = firstLine(text, 60)
 				}
 			case e.Type == "response_item" && e.Payload.Type == "message":
 				cand.Count++
@@ -107,6 +108,9 @@ func scanCodex(root string) ([]importCandidate, error) {
 		}
 		if cand.ID == "" {
 			return importCandidate{}, false
+		}
+		if name := names[cand.ID]; name != "" {
+			cand.Title = importTitle(name)
 		}
 		cand.Source = "codex"
 		cand.Path = path
@@ -210,11 +214,8 @@ func readCodex(path string) (importedSession, error) {
 			out.Messages = append(out.Messages, importMessage{Role: role, Timestamp: at, Blocks: blocks,
 				Model: e.Payload.Model, Provider: e.Payload.Provider, StopReason: importStopReason("", false)})
 			if role == "user" && out.Title == "" {
-				for _, b := range blocks {
-					if b.Kind == "text" && strings.TrimSpace(b.Text) != "" {
-						out.Title = firstLine(b.Text, 60)
-						break
-					}
+				if text := codexUserText(e.Payload.Content); text != "" {
+					out.Title = firstLine(text, 60)
 				}
 			}
 		case "reasoning":
@@ -327,4 +328,61 @@ func codexHeadOf(path string) (importCandidate, bool) {
 		}
 	}
 	return importCandidate{}, false
+}
+
+// codexIndex reads Codex's own name index: a rollout carries no title, and
+// the app keeps one line per session, appended again when it is renamed.
+func codexIndex(root string) map[string]string {
+	names := map[string]string{}
+	path := filepath.Join(filepath.Dir(root), "session_index.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		return names
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(io.LimitReader(f, 8<<20))
+	sc.Buffer(make([]byte, 0, 64<<10), 2<<20)
+	for sc.Scan() {
+		var entry struct {
+			ID   string `json:"id"`
+			Name string `json:"thread_name"`
+		}
+		if json.Unmarshal(sc.Bytes(), &entry) == nil && entry.ID != "" && entry.Name != "" {
+			names[entry.ID] = entry.Name
+		}
+	}
+	return names
+}
+
+// codexUserText is the user's own words from a message, with Codex's
+// scaffolding dropped: the environment block and the instruction header are
+// not something the user said.
+func codexUserText(raw json.RawMessage) string {
+	var items []map[string]any
+	if json.Unmarshal(raw, &items) != nil {
+		return ""
+	}
+	var parts []string
+	for _, item := range items {
+		kind := asString(item["type"])
+		if kind != "input_text" && kind != "text" {
+			continue
+		}
+		text := strings.TrimSpace(asString(item["text"]))
+		if text == "" || codexScaffold(text) {
+			continue
+		}
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, "\n")
+}
+
+// codexScaffold reports whether a message is one Codex writes itself.
+func codexScaffold(text string) bool {
+	for _, head := range []string{"<environment_context", "<user_instructions", "<turn_aborted", "<permissions", "<system"} {
+		if strings.HasPrefix(text, head) {
+			return true
+		}
+	}
+	return false
 }

@@ -112,6 +112,14 @@ func readMinimaxWorkdir(path string) string {
 		return ""
 	}
 	dir := strings.TrimSpace(string(m[1]))
+	// The prompt is JSON-escaped text: a literal backslash-n ends the line.
+	if i := strings.Index(dir, "\\n"); i >= 0 {
+		dir = dir[:i]
+	}
+	if i := strings.Index(dir, "\\r"); i >= 0 {
+		dir = dir[:i]
+	}
+	dir = strings.TrimSpace(dir)
 	if !strings.HasPrefix(dir, "/") && !(len(dir) > 2 && dir[1] == ':') {
 		return ""
 	}
