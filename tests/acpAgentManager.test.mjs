@@ -82,7 +82,7 @@ function fakeAgentProcess(t, { handler = () => undefined, spawnError = undefined
 }
 
 function harness(t, cliOptions, depsExtra = {}) {
-	const events = { uiRequests: [], messages: [], runtimeStates: [] };
+	const events = { uiRequests: [], messages: [], runtimeStates: [], notices: [] };
 	const procs = [];
 	const spawnCalls = [];
 	const { AcpAgentManager } = loadTsCommonJs("src/main/acp/AcpAgentManager.ts", {
@@ -117,12 +117,13 @@ function harness(t, cliOptions, depsExtra = {}) {
 		if (channel === "agents:ui-request") events.uiRequests.push(payload);
 		if (channel === "agents:message") events.messages.push(payload);
 		if (channel === "agents:runtime-state") events.runtimeStates.push(payload);
+		if (channel === "agents:notice") events.notices.push(payload);
 	});
 	t.after(() => {
 		unsubscribe();
 		void manager.stopAll();
 	});
-	const createAgent = async (preset = "gemini") => manager.create({ projectId: "p1", title: "t", deckSessionId: "deck-1", backend: "acp", agentPreset: preset });
+	const createAgent = async (preset = "gemini", extra = {}) => manager.create({ projectId: "p1", title: "t", deckSessionId: "deck-1", backend: "acp", agentPreset: preset, ...extra });
 	const lastProc = () => procs[procs.length - 1];
 	return { manager, events, spawnCalls, createAgent, procs, lastProc };
 }
@@ -170,6 +171,10 @@ test("握手:initialize → session/new;工具命令与项目 cwd 传给 spawn",
 	const newParams = lastProc().methodFrames("session/new")[0]?.params;
 	assert.ok(String(newParams?.cwd).endsWith("proj-p1"), "session/new cwd 指向项目");
 	assert.deepEqual(newParams?.mcpServers, [], "session/new 必须携带 mcpServers: []");
+	// #560 ③：逐次模型调用指标要显式 opt-in，否则 CodeBuddy 会把 usage.model_calls 剥掉。
+	const initMeta = lastProc().methodFrames("initialize")[0]?.params?.clientCapabilities?._meta?.["codebuddy.ai"];
+	assert.equal(initMeta?.mainAgentSupport, true, "mainAgentSupport 不能被新 opt-in 覆盖");
+	assert.equal(initMeta?.modelCallMetrics, true, "modelCallMetrics 必须声明");
 	assert.equal(spawnCalls[0].command, "gemini");
 	assert.deepEqual(spawnCalls[0].args, ["--experimental-acp"]);
 	assert.ok(spawnCalls[0].options.cwd.endsWith("proj-p1"));
@@ -2438,4 +2443,33 @@ test("断线重连:重连握手失败 → 按原失败收口，历史投影还�
 	const retryCards = messages.filter((message) => String(message.meta?.i18nKey ?? "").startsWith("diagnostic.retry"));
 	assert.equal(retryCards.length, 1, "重试卡保留并收口为失败");
 	assert.equal(retryCards[0].meta.status, "error");
+});
+
+test("附加根目录：工具声明能力时随 session/new 下发（#560）", async (t) => {
+	const { createAgent, lastProc } = harness(t, {
+		handler: (frame) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: { loadSession: false, sessionCapabilities: { additionalDirectories: {} } } };
+			if (frame.method === "session/new") return { sessionId: "sess-dirs" };
+			return {};
+		},
+	});
+	await createAgent("gemini", { additionalDirectories: ["D:/demo/shared-lib", "D:/demo/docs"] });
+	const params = lastProc().methodFrames("session/new")[0]?.params;
+	assert.deepEqual(params?.additionalDirectories, ["D:/demo/shared-lib", "D:/demo/docs"], "声明了能力就必须带上完整列表");
+});
+
+test("附加根目录：工具未声明能力时不下发该字段，并提示配置不生效（#560）", async (t) => {
+	const { createAgent, lastProc, events } = harness(t, {
+		handler: (frame) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: { loadSession: false } };
+			if (frame.method === "session/new") return { sessionId: "sess-nodirs" };
+			return {};
+		},
+	});
+	await createAgent("gemini", { additionalDirectories: ["D:/demo/shared-lib"] });
+	const params = lastProc().methodFrames("session/new")[0]?.params;
+	assert.equal(params?.additionalDirectories, undefined, "未声明能力时多带字段会被 agent 拒成 -32602");
+	assert.equal(events.notices.length, 1, "静默丢弃配置等于骗用户");
+	assert.equal(events.notices[0].i18nKey, "notice.acpAdditionalDirectoriesIgnored");
+	assert.equal(events.notices[0].i18nParams?.count, 1);
 });

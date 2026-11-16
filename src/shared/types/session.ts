@@ -331,6 +331,7 @@ export type SessionRecord = {
 	sideTask?: boolean;
 	/** 运行时后端（pi/dsh）；缺省 "pi"，旧 catalog 数据无需迁移。 */
 	backend?: import("./agent").AgentBackend;
+	additionalDirectories?: string[]; // ACP 附加根目录（#560）：会话级完整列表，session/new 与 session/load 都按它下发
 	/** Canonical file-backed location; absent for DSH, imagegen, and anonymous sessions. */
 	locator?: SessionLocator;
 	/** Local-only compatibility path; use locator for history routing. */
@@ -341,17 +342,15 @@ export type SessionRecord = {
 	parentSessionId?: string;
 	parentSessionPath?: string;
 	/**
-	 * fork 会话标记（pi fork/clone 产物）：fork 身份元数据；(fork) 标题后缀已由主进程
-	 * 物理写入会话名（见 main/sessions/sessionForkTitle.ts），展示层不再按标记拼装。
+	 * fork 会话标记（pi fork/clone 产物）：fork 身份元数据；(fork) 后缀已由主进程物理写入会话名。
 	 * 与「子代理/嵌套子会话」（parentSessionPath 会被侧栏折叠到父行下）语义不同，两者独立存储。
 	 */
 	forked?: boolean;
 	/** 同 SessionSummary.supersededBy：重发/编辑 fork 化替换后指向子会话 id，列表默认过滤。 */
 	supersededBy?: string;
 	/**
-	 * #354 身份归并别名：启动期修复把历史重复身份记录并入本条时，被吸收记录的历史稳定 ID。
-	 * 这些 ID 仍被 settings 置顶 / 渲染层持久化的 Tab 置顶与最近活动引用，渲染层据此把引用
-	 * 迁移到本条 id（解析入口见 shared/sessionIdAliases.ts）。缺省 = 无归并历史，旧数据无需迁移。
+	 * #354 身份归并别名：启动期修复把历史重复身份记录并入本条时，被吸收记录的历史稳定 ID；这些 ID
+	 * 仍被 settings 置顶 / Tab 置顶与最近活动引用，渲染层据此迁移到本条 id（shared/sessionIdAliases.ts）。
 	 */
 	mergedSessionIds?: string[];
 	projectPath?: string;
@@ -465,6 +464,7 @@ export type UpdateSessionRecordInput = {
 	backend?: import("./agent").AgentBackend;
 	/** ACP 工具预选（AcpToolConfig.id）：与 backend:"acp" 配套，仅草稿期可改；null = 清除预选。 */
 	acpToolId?: string | null;
+	additionalDirectories?: string[]; // ACP 附加根目录（#560）：缺省 = 不改；[] = 清空
 	/** 会话级代理覆盖；null = 恢复跟随全局（清除已保存覆盖）。 */
 	proxy?: SessionProxyOverride | null;
 	/** 侧边任务标记：true = 收进侧边任务面板，null = 释放回普通会话（面板不再列出，会话本身保留）。 */

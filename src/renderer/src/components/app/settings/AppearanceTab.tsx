@@ -11,7 +11,7 @@ import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { SettingsSection } from "./SettingsStorageTab";
-import { DirtyMarker, SettingRow, SettingSwitchRow } from "./SettingRows";
+import { ChatLineHeightRow, DirtyMarker, SettingRow, SettingSwitchRow } from "./SettingRows";
 import { BrandingSection } from "./BrandingSection";
 import { ModuleVisibilitySection } from "./ModuleVisibilitySection";
 import { ComposerFeaturesSection } from "./ComposerFeaturesSection";
@@ -164,8 +164,7 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 						onPick={(id) => {
 							if (id === "custom") return;
 							const preset = PALETTE_PRESETS.find((p) => p.id === id);
-							// 配色自带推荐主色：选配色时联动写入 accent，保证「一套配色 = 完整颜色方案」；
-							// 切到内置配色时同时清掉自定义主题包快照（快照仅在 themePalette=custom 时生效，双保险防残留）
+							// 配色自带推荐主色：选配色即联动写 accent；切内置配色时清掉自定义主题快照（快照仅对 custom 生效，双保险防残留）
 							updateDraft({ themePalette: id, accent: preset?.accent ?? draft.accent, customTheme: undefined });
 						}}
 					/>
@@ -398,6 +397,7 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 								</SelectContent>
 							</Select>
 						</SettingRow>
+						<ChatLineHeightRow value={draft.chatLineHeight} dirty={isDirty("chatLineHeight")} onChange={(chatLineHeight) => updateDraft({ chatLineHeight })} />
 						<SettingRow
 							title={
 								<>

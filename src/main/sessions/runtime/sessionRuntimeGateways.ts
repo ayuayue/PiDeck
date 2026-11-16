@@ -177,6 +177,11 @@ export interface SessionAgentGateway {
 	 * 被跳过，本次沿用 runtime 当前模型。DSH 后端不需要（降级无提示）。
 	 */
 	notifyModelPreferenceIgnored?(agentId: string, provider: string, modelId: string): void;
+	/**
+	 * 可选能力：catalog 保存的权限预设重放失败（host 拒绝 / 投影迟迟不落地）时告知用户，
+	 * 本次沿用 host 当前策略继续投递消息、不阻断发送（#548）。DSH 实现；pi 无权限预设。
+	 */
+	notifyPermissionPreferenceIgnored?(agentId: string, preset: string): void;
 	/** 主动推送一次完整 runtime state（get_state）给渲染层：懒启动/重启链路在偏好应用后调用。 */
 	publishRuntimeState(agentId: string): Promise<void>;
 	getForkMessages(agentId: string): Promise<Array<{ entryId: string; text: string }>>;

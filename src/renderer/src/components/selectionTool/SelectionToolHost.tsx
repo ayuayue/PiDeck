@@ -12,7 +12,7 @@ import { SelectionInlineToolbar } from "./SelectionInlineToolbar";
 
 export type SelectionToolHostProps = {
 	/**
-	 * 「发送到会话」：由 App 装配层实现（新建草稿会话 + agentMessage 隐藏通道注入角色设定）。
+	 * 「发送到会话」：由 App 装配层实现（新建草稿会话 + 注入角色设定：pi 隐藏 / dsh 可见前缀）。
 	 * 返回 false 表示宿主已 toast 过具体失败原因；工具栏只在 Promise reject 时补通用错误。
 	 */
 	onSendToSession: (input: { agentId: string; text: string }) => Promise<boolean>;

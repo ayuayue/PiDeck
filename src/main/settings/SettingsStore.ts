@@ -37,12 +37,15 @@ import { normalizeTpsDisplayMode } from "../../shared/tps";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
 import { normalizeEnhanceModel } from "../../shared/enhanceModelPreference";
+import { applyEnhanceSystemPromptPatch, sanitizeEnhanceSystemPrompt } from "../../shared/enhanceSystemPrompt";
 import { normalizeQuickMessages } from "../../shared/quickMessages";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
+import { sanitizeOptionalPositiveIntMs, sanitizeOptionalRetryCount } from "./settingsSanitizers";
 import { sanitizeCustomThemeSnapshot } from "../../shared/customThemes";
 import { normalizeThemeAppearance } from "../../shared/themeSkinMigration";
 import { sanitizeAcpToolConfigDefaults, sanitizeAcpTools } from "../acp/acpToolConfig";
 import { normalizeFontSizeMode, normalizeOptionalFontSizeMode } from "../../shared/fontSize";
+import { normalizeChatLineHeightMode } from "../../shared/chatLineHeight";
 import { clampSessionTabMaxWidth, SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import { getAppLogger } from "../logging/sharedLogger";
 import { normalizeRemoteProjectTrustRecords } from "../remote/RemoteProjectTrust";
@@ -419,6 +422,7 @@ Gitmoji 对应关系：
 	tabBarFontSize: null,
 	chatFontSize: null,
 	inputFontSize: null,
+	chatLineHeight: "default", // 会话正文行距（#547）：基线档 = 当前出厂观感，升级不改变既有排版
 	zoomFactor: 1,
 	fontFamilyBase: "system",
 	fontFamilyBaseCustom: "",
@@ -526,22 +530,6 @@ function buildMergeBaseline(settings: AppSettings, diskParsed: Partial<AppSettin
 function stripShowThinking(settings: AppSettings): Omit<AppSettings, "showThinking"> {
 	const { showThinking: _unused, ...persistable } = settings;
 	return persistable;
-}
-
-function sanitizeOptionalPositiveIntMs(value: unknown): number | undefined {
-	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-	const n = Math.floor(value);
-	return n > 0 && n <= 86_400_000 ? n : undefined;
-}
-
-/**
- * ACP 自动重试次数清洗：0 在这里是有意义的值（= 只试一次），因此不能复用
- * sanitizeOptionalPositiveIntMs；上限 10（与 acpTurnRetry.ACP_TURN_RETRY_LIMITS 同口径）。
- */
-function sanitizeOptionalRetryCount(value: unknown): number | undefined {
-	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-	const n = Math.floor(value);
-	return n >= 0 && n <= 10 ? n : undefined;
 }
 
 export class SettingsStore {
@@ -687,6 +675,8 @@ export class SettingsStore {
 			this.settings.tabBarFontSize = normalizeOptionalFontSizeMode(this.settings.tabBarFontSize);
 			this.settings.chatFontSize = normalizeOptionalFontSizeMode(this.settings.chatFontSize);
 			this.settings.inputFontSize = normalizeOptionalFontSizeMode(this.settings.inputFontSize);
+			// 会话正文行距（#547）：旧 JSON 没有该字段/存了已删除的档位，都回落基线档。
+			this.settings.chatLineHeight = normalizeChatLineHeightMode(this.settings.chatLineHeight);
 			// 声音提醒来自旧 JSON 时可能缺字段/非法；统一归一化（旧数据自动获得默认配置）。
 			this.settings.soundAlert = normalizeSoundAlertSettings(parsed.soundAlert);
 			// git 可执行文件路径来自旧 JSON 时可能是脏值（非字符串）；回落空串（自动解析），
@@ -740,6 +730,8 @@ export class SettingsStore {
 			this.settings.webRemoteEasyTierPeers = parsedPeers.length > 0 ? parsedPeers : undefined;
 			// 旧设置或脏值不能隐式打开向增强模型发送会话正文的开关。
 			this.settings.enhanceIncludeContext = parsed.enhanceIncludeContext === true;
+			// 自定义增强模板：空白/超长/非字符串一律视为未自定义，回落内置模板。
+			this.settings.enhanceSystemPrompt = sanitizeEnhanceSystemPrompt(parsed.enhanceSystemPrompt) ?? null;
 			// 输入预测只有显式 false 才关闭：老设置缺字段按默认开启处理。
 			this.settings.promptSuggestionEnabled = parsed.promptSuggestionEnabled !== false;
 			// 发送后回底同规则：老 settings.json 缺字段 = 开启（保持现有行为，零迁移）。
@@ -1216,6 +1208,8 @@ export class SettingsStore {
 			else if (Array.isArray(safePatch.webRemoteEasyTierPeers)) safePatch.webRemoteEasyTierPeers = undefined;
 			else delete safePatch.webRemoteEasyTierPeers;
 		}
+		// 自定义增强模板来自渲染层，入参不可信；归一规则与读盘同源（shared/enhanceSystemPrompt）。
+		applyEnhanceSystemPromptPatch(safePatch);
 		this.settings = { ...this.settings, ...safePatch };
 		// 生图字段来自渲染层，非法值丢掉，避免下次请求带坏 size/watermark。
 		if ("imageGenSize" in safePatch) {

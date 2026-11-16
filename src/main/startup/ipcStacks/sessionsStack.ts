@@ -12,6 +12,7 @@ import type { DshForeignSyncDeps } from "../../dsh/dshForeignSync";
 import type { createDshSessionSkillLoader } from "../../dsh/dshSessionSkillLoader";
 import { importForeignSession } from "../../dsh/dshForeignSync";
 import { registerSessionIpc } from "../../ipc/sessionIpc";
+import { registerGtdIpc } from "../../ipc/gtdIpc";
 import type { SessionIndexService } from "../../sessions/SessionIndexService";
 import type { SessionScanner } from "../../sessions/SessionScanner";
 import type { SshSessionLocator } from "../../../shared/projectLocation";
@@ -130,8 +131,8 @@ export function registerSessionsStack(ctx: SessionsStackContext): void {
 		sessionScanner,
 		resolveWslSessionScanner: (identity) => wslSessionScannerFor(identity),
 		sessionCatalog,
-		// 会话 ↔ 智能体绑定：绑定的会话每次发送注入角色设定（pi/acp 隐藏 agentMessage，
-		// dsh 退化为可见前缀，由 sessionIpc 的 composeAgentInstruction 统一组合）。
+		// 会话 ↔ 智能体绑定：绑定的会话每次发送注入角色设定（pi 隐藏 agentMessage，
+		// dsh/acp 退化为可见前缀，由 sessionIpc 的 composeAgentInstruction 统一组合）。
 		resolveSessionAgentInstruction: (sessionId) => agentProfileStore?.getBoundAgent(sessionId)?.systemPrompt,
 		sessionRuntimeCoordinator,
 		agentManager,
@@ -380,4 +381,6 @@ export function registerSessionsStack(ctx: SessionsStackContext): void {
 			// fork/clone 已收口 sessionForkCommands（桌面/Web 共用），这里不再单独提供
 		},
 	});
+	// GTD 分诊账本（#546）：与会话文件无关的本地意图账本，通道独立于会话 IPC。
+	registerGtdIpc();
 }

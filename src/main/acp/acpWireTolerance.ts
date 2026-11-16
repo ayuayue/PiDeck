@@ -15,6 +15,7 @@
  * 投影器（AcpEventProjector）是唯一消费方。
  */
 import type { PiCommand } from "../../shared/types/app";
+import type { AcpModelCallMetric } from "../../shared/types/acp";
 
 /** usage_update 的宽容读取：字段位形在实现间不完全一致（顶层 or usage 子对象）。 */
 export type AcpSessionUsage = {
@@ -22,7 +23,36 @@ export type AcpSessionUsage = {
 	size?: number;
 	costAmount?: number;
 	costCurrency?: string;
+	/** 逐次模型调用明细（#560 ③）：CodeBuddy ≥2.184 放在 `update._meta.usage.model_calls`。 */
+	modelCalls?: AcpModelCallMetric[];
 };
+
+/** 读 `_meta.usage.model_calls`：非数组/空数组/坏条目一律按「agent 没给」处理。 */
+function readModelCalls(update: Record<string, unknown>): AcpModelCallMetric[] | undefined {
+	const meta = update._meta && typeof update._meta === "object" ? (update._meta as Record<string, unknown>) : undefined;
+	const usage = meta?.usage && typeof meta.usage === "object" ? (meta.usage as Record<string, unknown>) : undefined;
+	const raw = usage?.model_calls;
+	if (!Array.isArray(raw)) return undefined;
+	const calls: AcpModelCallMetric[] = [];
+	for (const item of raw) {
+		if (!item || typeof item !== "object") continue;
+		const record = item as Record<string, unknown>;
+		const num = (key: string): number | undefined => (typeof record[key] === "number" && Number.isFinite(record[key]) ? (record[key] as number) : undefined);
+		const text = (key: string): string | undefined => (typeof record[key] === "string" && record[key] ? (record[key] as string) : undefined);
+		const metric: AcpModelCallMetric = {
+			...(num("attempt_no") !== undefined ? { attempt: num("attempt_no") } : {}),
+			...(num("duration_ms") !== undefined ? { durationMs: num("duration_ms") } : {}),
+			...(num("time_to_first_token_ms") !== undefined ? { firstTokenMs: num("time_to_first_token_ms") } : {}),
+			...(text("model") ? { model: text("model") } : {}),
+			...(text("result") ? { result: text("result") } : {}),
+			...(text("finish_reason") ? { finishReason: text("finish_reason") } : {}),
+			...(num("output_tokens") !== undefined ? { outputTokens: num("output_tokens") } : {}),
+		};
+		// 一个字段都解析不出来的条目（脏形状）直接丢，别在 UI 里留一行全是未知的空调用。
+		if (Object.keys(metric).length > 0) calls.push(metric);
+	}
+	return calls.length > 0 ? calls : undefined;
+}
 
 export function parseUsageUpdate(update: Record<string, unknown>): AcpSessionUsage | undefined {
 	const nested = typeof update.usage === "object" && update.usage !== null ? (update.usage as Record<string, unknown>) : undefined;
@@ -44,7 +74,9 @@ export function parseUsageUpdate(update: Record<string, unknown>): AcpSessionUsa
 	if (typeof size === "number" && Number.isFinite(size) && size > 0) usage.size = size;
 	if (costAmount !== undefined) usage.costAmount = costAmount;
 	if (costCurrency) usage.costCurrency = costCurrency;
-	return usage.used !== undefined || usage.size !== undefined || usage.costAmount !== undefined ? usage : undefined;
+	const modelCalls = readModelCalls(update);
+	if (modelCalls) usage.modelCalls = modelCalls;
+	return usage.used !== undefined || usage.size !== undefined || usage.costAmount !== undefined || usage.modelCalls !== undefined ? usage : undefined;
 }
 
 /** available_commands_update 的命令数组双键读：commands（规范）| availableCommands（opencode 实测）。 */

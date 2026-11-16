@@ -60,6 +60,9 @@
    * 不要对 CJK 正文设负 letter-spacing。
    */
   --line-height-chat: 1.6;
+  /* 代码块/表格的行距基线（#547）：正文倍率可由设置调整，这两块必须钉住不跟随。
+     用独立 token 而不是重复写字面量，基线变化时只需改这一处。 */
+  --line-height-chat-fixed: 1.6;
   /*
    * 过程层字号：**派生自会话正文**，只分两档（标题 / 详情），不随界面字号变化。
    * 为什么派生：字号属于「可读性设置」——用户调大正文是因为看不清，那同样看不清的过程行
@@ -562,6 +565,15 @@
 }
 :root[data-chat-font-size="xlarge"] {
   --font-size-chat: 20px;
+}
+
+/* 会话正文行距（#547，全局一份）：只调正文倍率；代码块/表格用 --line-height-chat-fixed。
+   基线档（default）不写覆盖，保持 :root 的 1.6。 */
+:root[data-chat-line-height="relaxed"] {
+  --line-height-chat: 1.75;
+}
+:root[data-chat-line-height="loose"] {
+  --line-height-chat: 1.9;
 }
 
 :root[data-input-font-size="compact"] {

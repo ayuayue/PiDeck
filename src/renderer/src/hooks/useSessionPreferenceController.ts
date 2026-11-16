@@ -14,7 +14,7 @@ import { SessionCommandFailure, requireSessionCommand, sessionCommandFailureToas
 import { resolveComposerLiveModel } from "../utils/modelPendingDisplay";
 import { clampThinkingLevelToAllowed } from "../utils/thinkingDisplay";
 import { modelKey, pickCycleModel, pickCycleThinkingLevel, resolveFavoriteCycleCandidates, type CycleDirection } from "../utils/preferenceCycle";
-import { WELCOME_DSH_MODEL_KEY, WELCOME_MODEL_KEY, WELCOME_THINKING_KEY } from "../utils/chatSessionBootstrap";
+import { WELCOME_DSH_MODEL_KEY, WELCOME_MODEL_KEY, WELCOME_THINKING_KEY, readWelcomeThinkingPreference } from "../utils/chatSessionBootstrap";
 
 /** 目录加载前的按键意图仍属于发起栏及绑定，不能转交随后呈现的会话/后端。 */
 type PendingCycle = {
@@ -276,6 +276,12 @@ export function useSessionPreferenceController(options: {
 		if (!record) {
 			try {
 				localStorage.setItem(isDshSession ? WELCOME_DSH_MODEL_KEY : WELCOME_MODEL_KEY, JSON.stringify(selectedModelPreference(model)));
+				// 换模型后旧档位可能不被支持：按新模型的 thinkingLevels 收敛，否则首次创建会话会把
+				// xhigh 带进 catalog，底栏显示与 pi 收敛后的实际档位不一致，点开选择器才跳变（#545）。
+				// 选择器打开时目录已加载，这里拿到的就是该模型的权威档位。
+				const welcomeThinking = readWelcomeThinkingPreference()?.thinkingLevel;
+				const clampedThinking = clampThinkingLevelToAllowed(welcomeThinking, model.thinkingLevels);
+				if (welcomeThinking && clampedThinking && clampedThinking !== welcomeThinking) localStorage.setItem(WELCOME_THINKING_KEY, clampedThinking);
 			} catch {
 				// localStorage 不可用时静默；创建会话回退到各后端自己的默认模型
 			}

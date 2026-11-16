@@ -7,7 +7,9 @@ import { ipcChannels } from "../../shared/ipc";
 import { resolveProjectWslIdentity } from "../wsl/WslProjectEnvironment";
 import { canonicalizeSessionPath } from "../../shared/sessionIdentity";
 import { runForScatteredSubtreeFiles } from "../sessions/sessionSubtreeFiles";
+import { sendAgentsNotice } from "./agentsNotice";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
+import { normalizeAcpAdditionalDirectories } from "../../shared/acpAdditionalDirectories";
 import { modelThinkingLevelOf } from "../../shared/modelThinkingLevels";
 import { isDshAgentPresetLocked } from "../../shared/dshAgentPresetLock";
 import type { AvailableModel, CreateSessionDraftInput, CreateAnonymousSessionInput, UpdateSessionRecordInput, SessionCommandError, SessionModelPreference, ResolveLaunchDefaultsInput, ResolvedLaunchDefaults } from "../../shared/types";
@@ -201,6 +203,10 @@ export function registerSessionCatalogWriteIpc(deps: SessionCatalogWriteIpcDeps)
 		if (patch.model !== undefined) {
 			patch = { ...patch, model: normalizedModel };
 		}
+		// ACP 附加根目录（#560）：渲染层输入不可信——只收绝对路径、去重、限量；null/空 = 清空。
+		if (patch.additionalDirectories !== undefined) {
+			patch = { ...patch, additionalDirectories: normalizeAcpAdditionalDirectories(patch.additionalDirectories) ?? [] };
+		}
 		const entry = sessionCatalog.get(sessionId);
 		if (!entry) throw new Error(mainCopy("session.notFound"));
 		// 后端锁定（草稿期可改，激活后禁止）：pi 会话文件（JSONL）与 DSH 会话
@@ -280,7 +286,7 @@ export function registerSessionCatalogWriteIpc(deps: SessionCatalogWriteIpcDeps)
 			...(patch.backend === "imagegen" || patch.backend === "videogen" || patch.backend === "acp" ? { filePath: null, piSessionId: null } : {}),
 		});
 	});
-	ipcMain.handle(ipcChannels.sessionsCatalogDelete, async (_event, rawSessionId: unknown) => {
+	ipcMain.handle(ipcChannels.sessionsCatalogDelete, async (event, rawSessionId: unknown) => {
 		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
 		if (!entry) return false;
@@ -346,7 +352,16 @@ export function registerSessionCatalogWriteIpc(deps: SessionCatalogWriteIpcDeps)
 					environment: entry.environment,
 					run: (filePath) => sessionScanner.delete(filePath),
 				});
-				if (leftover.length > 0) void appLogger.warn("session", "Catalog session delete left scattered subtree files", { sessionId, failures: leftover });
+				if (leftover.length > 0) {
+					void appLogger.warn("session", "Catalog session delete left scattered subtree files", { sessionId, failures: leftover });
+					// 删除已成功、记录也已摘除：不能在这里抛错，但要让用户知道有文件没进回收站（#539）。
+					sendAgentsNotice(event.sender, {
+						sessionId,
+						i18nKey: "notice.subtreeDeleteLeftover",
+						i18nParams: { count: leftover.length },
+						message: `Session deleted, but ${leftover.length} flat subagent file(s) could not be moved to trash and remain in place (see logs).`,
+					});
+				}
 			}
 			// 磁盘会把 sibling `<stem>/` 一并删掉；catalog 必须同步摘掉整棵子树，
 			// 否则 mergeScanned 只增改不删，子会话会孤儿提升成顶层行。

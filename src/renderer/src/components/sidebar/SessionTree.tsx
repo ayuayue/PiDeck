@@ -163,7 +163,7 @@ export function SessionTree(props: {
 		.filter((session) => !displayedSessionIds.has(session.id))
 		.filter((session) => !linkedChildIds.has(session.id))
 		.filter((session) => matchesSearch(session.title, search))
-		.filter((session) => filter === null || filter.has(session.source))
+		.filter((session) => filterSidebarSessions([session], filter).length > 0)
 		// 草稿不参与分组隐藏：草稿行的删除入口只在项目列表的草稿行/草稿菜单里，
 		// 分组行只会弹普通会话菜单（没有「删除草稿」）。
 		.sort((left, right) => compareSessionsForSortMode(left, right, props.controller.sessionSortMode));

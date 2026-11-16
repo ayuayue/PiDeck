@@ -3,8 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-/** 用 vm 加载 PetStateBridge.ts（transpile 后仅依赖 shared/ipc 常量，mock require 即可） */
+const notificationText = loadTsCommonJs("src/main/notifications/notificationText.ts");
+
+/** 用 vm 加载 PetStateBridge.ts（transpile 后依赖 shared/ipc 常量与通知文本截断，mock require 即可） */
 function loadBridge(timers = { setTimeout, clearTimeout }) {
 	const source = readFileSync("src/main/pet/PetStateBridge.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
@@ -21,6 +24,7 @@ function loadBridge(timers = { setTimeout, clearTimeout }) {
 			if (id.endsWith("shared/ipc")) {
 				return { ipcChannels: { petState: "pet:state", petNotify: "pet:notify" } };
 			}
+			if (id.endsWith("notifications/notificationText")) return notificationText;
 			throw new Error(`unexpected require: ${id}`);
 		},
 	};
@@ -133,6 +137,18 @@ test("first error edge emits an error notification with the agent title", () => 
 	const count = notifs.filter((n) => n && n.type === "error").length;
 	bridge.pushNow([tab({ status: "error" })]);
 	assert.equal(notifs.filter((n) => n && n.type === "error").length, count);
+});
+
+test("完成提醒的标题在进入气泡前被截断", () => {
+	const { bridge, notifs } = createHarness();
+	const long = "x".repeat(500);
+	bridge.pushNow([tab({ status: "running", title: long })]);
+	notifs.length = 0;
+	bridge.onAgentSettled({ agentId: "agent-1", title: long });
+	const done = notifs.at(-1);
+	assert.equal(done.type, "done");
+	assert.ok(done.title.length <= 65, `title length ${done.title.length}`);
+	assert.ok(done.text.length <= 80, `text length ${done.text.length}`);
 });
 
 test("select request enters waiting mode with persistent notification", async () => {

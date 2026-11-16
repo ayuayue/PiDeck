@@ -27,6 +27,8 @@ export type DshAgentRuntime = {
 	planModeActive?: boolean;
 	/** /compact 命令回合进行中（命令已发出、turn/end 未到）；UI 压缩按钮显示进行态。 */
 	isCompacting?: boolean;
+	/** /compact 命令回合的结算口（#557）：command/done 的 error 文本在 turn/end 收口时交回。 */
+	compactRound?: { resolve: (errorText?: string) => void; errorText?: string };
 	/** 最近一次请求因上下文超限失败；保留压缩恢复入口，即使 host 没有 pressure 投影。 */
 	contextOverflow?: boolean;
 	/** 已投影的最大事件 seq（D6：mux 重连补帧时跳过已投影事件，避免重复）。 */

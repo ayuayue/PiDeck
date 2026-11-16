@@ -29,8 +29,8 @@ export const BUILTIN_AGENT_SEED_CREATED_AT = 1_700_000_000_000;
 /**
  * 翻译智能体的角色设定。
  *
- * 一次性调用时它是 system 消息，发送到会话时它被拼进隐藏的 agentMessage，
- * 所以这里不写「用户会看到的寒暄」，只写可被模型直接执行的行为规则：
+ * 一次性调用时它是 system 消息；发送到会话时 pi 走隐藏 agentMessage，dsh/acp 没有该通道、
+ * 退化为可见前缀——所以这段文字对用户也可能可见，不写寒暄，只写可被模型直接执行的行为规则：
  * 方向判定 / 只输出译文 / 格式保真 / 术语与标识符原样 / 语气一致 / 单词多义用分号。
  */
 const TRANSLATE_SYSTEM_PROMPT = [

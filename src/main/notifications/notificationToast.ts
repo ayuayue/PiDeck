@@ -14,6 +14,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { APP_DEEP_LINK_SCHEME } from "../utils/deepLinkScheme";
+import { clampNotificationBody, clampNotificationTitle } from "./notificationText";
 
 /** extraResources 的 `to` 名（打包态 resources/notification-logo.png；dev 态仓库 resources/） */
 export const NOTIFICATION_LOGO_FILENAME = "notification-logo.png";
@@ -53,12 +54,14 @@ export function notificationLaunchUrl(sessionId?: string): string {
  */
 export function buildToastXml(input: { title: string; body: string; launch: string; logoUri?: string | null }): string {
 	const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+	const title = clampNotificationTitle(input.title);
+	const body = clampNotificationBody(input.body);
 	const logo = input.logoUri ? `\n      <image placement="appLogoOverride" hint-crop="none" src="${esc(input.logoUri)}" />` : "";
 	return `<toast activationType="protocol" launch="${esc(input.launch)}">
   <visual>
     <binding template="ToastGeneric">
-      <text>${esc(input.title)}</text>
-      <text>${esc(input.body)}</text>${logo}
+      <text>${esc(title)}</text>
+      <text>${esc(body)}</text>${logo}
     </binding>
   </visual>
   <audio src="ms-winsoundevent:Notification.Default" />

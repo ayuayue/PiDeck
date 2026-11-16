@@ -101,7 +101,7 @@ export function useAppSessionCreation(deps: AppSessionCreationDeps): AppSessionC
 	 *   在 agentMessage 非空时**整体替换** message，因此角色设定必须与原文拼在一起提交，
 	 *   时间线仍只显示原文（与 AutomationRunCoordinator / 飞书桥接的同一写法）。
 	 * - DSH 后端没有 agentMessage 通道且会拒收整条 prompt，角色设定退化为可见前缀；
-	 *   ACP 走 acpTurnSettlement 的同名通道，可以照常隐藏。
+	 *   这里只建 pi / dsh 草稿，不涉及 ACP。
 	 * - 智能体偏好模型只在 pi 后端带入：DSH 的模型是 host route、ACP 由外部 CLI 决定，
 	 *   直接塞 pi 的 provider/modelId 会把草稿偏好写成无效值。
 	 * - 后端只保留 pi / dsh：ACP 需要用户先在草稿里点选外部 CLI 工具（这里没有该上下文，
@@ -153,8 +153,9 @@ export function useAppSessionCreation(deps: AppSessionCreationDeps): AppSessionC
 	 *
 	 * 目录由新会话页输入框上方的项目选择器决定，用户在那里换项目；待绑定智能体记在
 	 * pendingAgentBindingAtom 里，首次发送时由 ensureSessionForSend 建会话并落绑定。
-	 * 角色设定不预填：主进程在绑定会话的首次发送时把 systemPrompt 拼进 agentMessage
-	 * （对 UI 隐藏，见 src/main/ipc/sessionIpc.ts 的 resolveSessionAgentInstruction）。
+	 * 角色设定不预填：主进程在绑定会话的首次发送时把 systemPrompt 拼进本轮 prompt
+	 * （pi 走隐藏 agentMessage；dsh/acp 没有该通道，退化为可见前缀，见
+	 * src/main/agents/agentPersonaInstruction.ts）。
 	 * 留在市场页（返回 false）只有一种情形：一个项目都没有，无处可去。
 	 */
 	const handleAgentUseAgent = useCallback(

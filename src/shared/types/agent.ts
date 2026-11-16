@@ -1,3 +1,4 @@
+import type { AcpModelCallMetric } from "./acp";
 import type { ThinkingLevelMap } from "./modelSpecs";
 import type { SessionEnvironment, SessionLocator, RemoteSessionExtensions, SessionSource } from "./session";
 import type { TodoItem } from "./todo";
@@ -209,6 +210,8 @@ export type AgentRuntimeState = {
 	contextTokens?: number | null;
 	contextWindow?: number | null;
 	contextPercent?: number | null;
+	/** ACP：最近一次 usage_update 附带的逐次模型调用指标（#560 ③）；agent 未 opt-in/未给时缺省。 */
+	modelCalls?: AcpModelCallMetric[];
 	/** 最近一次请求因上下文窗口超限而失败；即使当前占用快照缺失也要保留这个恢复入口。 */
 	contextOverflow?: boolean;
 	/** 对话段 token：优先「总占用 − 系统 − 工具」差值（提供商上报的 prompt 即三段之和），
@@ -392,6 +395,11 @@ export type CreateAgentInput = {
 	 * （session/load 恢复，agent 重放历史）而非新建。与 dshSessionId 语义平行。
 	 */
 	acpSessionId?: string;
+	/**
+	 * ACP 附加根目录（#560）：会话级完整列表，经 session/new 与 session/load 下发。
+	 * 只有该工具在 initialize 里声明了 `sessionCapabilities.additionalDirectories` 时才携带。
+	 */
+	additionalDirectories?: string[];
 	/**
 	 * PiDeck 会话身份（SessionRecord.id，可能为 UUID 或会话文件路径）。
 	 * 会话级安全覆盖（SecurityStore.sessionOverrides）与 PIDECK_SESSION_ID 注入都使用这个 key；

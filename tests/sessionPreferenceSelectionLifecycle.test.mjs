@@ -419,3 +419,23 @@ test("thinking selection is committed once per closed picker, not per intermedia
 	// 同一次选择只发一条命令（不是「先 low 再 medium 再 high」的三条）
 	assert.equal(h.calls.commands.filter(([kind]) => kind === "thinking").length, 1);
 });
+
+/**
+ * #545：引导页换模型后必须按新模型的 thinkingLevels 收敛已存档位。
+ * 不收敛的话，首次创建会话会把 xhigh 写进 catalog，而 pi 实际按 high 跑——
+ * 底栏显示 xhigh、点开选择器才跳回 high。
+ */
+test("welcome model switch clamps the persisted thinking level to the new model", async () => {
+	const h = harness({ noRecord: true });
+	h.storage.set("pideck:welcome-thinking", "xhigh");
+	await h.render().applyModel({ provider: "selected", id: "chosen", name: "Chosen model", thinkingLevels: ["off", "minimal", "low", "medium", "high"] });
+	assert.equal(h.storage.get("pideck:welcome-thinking"), "high");
+	assert.deepEqual(JSON.parse(h.storage.get("pideck:welcome-model")), { provider: "selected", modelId: "chosen", modelName: "Chosen model" });
+});
+
+test("welcome model switch keeps a still-supported thinking level", async () => {
+	const h = harness({ noRecord: true });
+	h.storage.set("pideck:welcome-thinking", "xhigh");
+	await h.render().applyModel({ provider: "selected", id: "chosen", name: "Chosen model", thinkingLevels: ["off", "low", "high", "xhigh"] });
+	assert.equal(h.storage.get("pideck:welcome-thinking"), "xhigh");
+});

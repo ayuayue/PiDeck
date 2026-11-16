@@ -46,6 +46,8 @@ export type AcpRuntimeLifecycleHost = {
 	onTitleChanged?: (deckSessionId: string, title: string) => void;
 	onConfigOptionsChanged?: (tab: AgentTab, options: AcpConfigOption[]) => void;
 	mcpServers?: (cwd: string) => AcpMcpServer[];
+	/** 会话配了附加根目录但工具没声明能力（#560）：配置不生效，要告知用户。 */
+	onAdditionalDirectoriesIgnored?: (toolName: string, count: number) => void;
 	piLocator: PiLocator;
 	getProxySettings?: () => AcpProxyEnvSettings | undefined;
 	logger?: { info(channel: string, message: string, meta?: Record<string, unknown>): void; warn(channel: string, message: string, meta?: Record<string, unknown>): void };
@@ -107,6 +109,7 @@ export class AcpRuntimeLifecycle {
 			handshakeTimeoutMs: handshakeTimeoutMs ?? this.host.handshakeTimeoutMs,
 			logger: this.host.logger,
 			mcpServers: this.host.mcpServers,
+			onAdditionalDirectoriesIgnored: this.host.onAdditionalDirectoriesIgnored,
 			seedMessages: (sessionId) => this.host.seedMessages(sessionId),
 			onNotification: (rt, notification) => {
 				// 有过任何通知 = agent 已经开始干活：断线后重开会重跑工具，不再自动重连。

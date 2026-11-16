@@ -75,6 +75,37 @@ test("会话完成通知受 enableNotifications 与「仅失焦提醒」门控",
 	assert.equal(unsupported.shown.length, 0);
 });
 
+test("超长会话标题在进入通知文案前被截断（16K 标题不再撑大 toast）", () => {
+	const { mod, shown } = loadToast();
+	const settings = { enableNotifications: true, askNotificationEnabled: true, alertOnlyWhenUnfocused: false };
+	mod.notifySessionFinished(makeDeps(settings), { agentId: "a1", title: "x".repeat(16000) });
+	assert.equal(shown.length, 1);
+	assert.ok(shown[0].options.body.length < 200, `body length ${shown[0].options.body.length}`);
+	assert.match(shown[0].options.body, /…/);
+
+	mod.notifyAskPending(makeDeps(settings), { agentId: "a1", sessionId: "s1", sessionTitle: "s".repeat(16000), question: "" });
+	assert.ok(shown[1].options.body.length < 200, `ask body length ${shown[1].options.body.length}`);
+});
+
+test("完成通知在 1s 内合并，避免连续 toast 阻塞；Ask 不受限", () => {
+	const { mod, shown } = loadToast();
+	let now = 1000;
+	const settings = { enableNotifications: true, askNotificationEnabled: true, alertOnlyWhenUnfocused: false };
+	const deps = { ...makeDeps(settings), now: () => now };
+
+	mod.notifySessionFinished(deps, { agentId: "a1", title: "T1" });
+	assert.equal(shown.length, 1);
+	now += 300;
+	mod.notifySessionFinished(deps, { agentId: "a2", title: "T2" });
+	assert.equal(shown.length, 1, "1s 内第二个完成通知被节流");
+	now += 800;
+	mod.notifySessionFinished(deps, { agentId: "a3", title: "T3" });
+	assert.equal(shown.length, 2, "超过间隔后恢复");
+
+	mod.notifyAskPending(deps, { agentId: "a4", sessionId: "s1", sessionTitle: "Q", question: "q" });
+	assert.equal(shown.length, 3, "Ask 通知需要用户操作，不参与节流");
+});
+
 test("Ask 通知走独立开关，返回是否真的弹出（供每轮去重），问题文本截断 60 字符", () => {
 	const { mod, shown } = loadToast();
 	const settings = { enableNotifications: true, askNotificationEnabled: false, alertOnlyWhenUnfocused: false };

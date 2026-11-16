@@ -1,12 +1,9 @@
 /**
  * ACP agent CLI 的进程内会话管理器:backend="acp" 的 SessionAgentGateway 实现。
- *
  * 每个 agent(会话 runtime)独占一个 ACP CLI 子进程(stdio NDJSON JSON-RPC):
  * spawn → initialize → session/new(或 session/load 恢复)→ 会话期收
  * session/update 通知投影消息、应答 session/request_permission 审批。
- *
- * 结构对照 DshAgentManager(同类第三后端),但大幅简化:无共享 host、无 mux
- * 重连、无 follow 泵——进程即会话,stop 即结束。
+ * 结构对照 DshAgentManager,但大幅简化:无共享 host、无 mux 重连、无 follow 泵——进程即会话。
  *
  * 历史来源有两级:agent CLI 侧(主)与 deck 侧归档(AcpSessionArchive,userData/acp-sessions,
  * 副)。CLI 侧的 session/load 重放才是权威历史;归档只是为了「CLI 存档被清(换机器/清缓存)
@@ -18,6 +15,7 @@ import { agentEventTags } from "../../shared/ipc";
 import type { AcpAgentInfo, AcpToolConfig } from "../../shared/types/acp";
 import type { AgentGatewayCapability, AgentRuntimeState, AgentStatus, AgentTab, AvailableModel, CreateAgentInput } from "../../shared/types/agent";
 import type { ChatMessage, SendPromptInput, SendPromptResult, SessionUiResponseInput } from "../../shared/types/session";
+import { acpAdditionalDirectoriesIgnoredNotice } from "./acpToolConfig";
 import type { PiCommand } from "../../shared/types/app";
 import type { SessionAgentGateway } from "../sessions/SessionRuntimeCoordinator";
 import type { PiLocator } from "../pi/PiLocator";
@@ -182,6 +180,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 			onConfigOptionsChanged: deps.onConfigOptionsChanged,
 			rememberConfigOption: deps.rememberConfigOption,
 			getToolConfigDefaults: deps.getToolConfigDefaults,
+			notifyBypassUnavailable: (notice) => this.emit(agentEventTags.agentsNotice, notice),
 			logger: deps.logger,
 		});
 		this.lifecycle = new AcpRuntimeLifecycle({
@@ -194,6 +193,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 			seedMessages: (sessionId) => this.messageSnapshots.get(sessionId) ?? [],
 			replayToolConfigDefaults: (runtime) => this.configOptions.replayToolConfigDefaults(runtime),
 			applyBypassPermissionDefault: (runtime) => this.configOptions.applyBypassPermissionDefault(runtime),
+			onAdditionalDirectoriesIgnored: (toolName, count) => this.emit(agentEventTags.agentsNotice, acpAdditionalDirectoriesIgnoredNotice(toolName, count)),
 			wireConnection: (runtime) => this.lifecycle.wireConnection(runtime),
 			enqueueSessionUpdate: (runtime, notification) => this.updates.enqueueSessionUpdate(runtime, notification),
 			flushMessages: (runtime, immediate) => this.updates.flushMessages(runtime, immediate),
@@ -774,10 +774,9 @@ export class AcpAgentManager implements SessionAgentGateway {
 		runtime.status = "closed";
 		runtime.tab.status = "closed";
 		this.failPendingPermissions(runtime);
-		// 先摘除并推终态:stop()/abort 升级强杀都走这里,渲染层需要 closed 事件把
-		// 会话从 running 收口(删除后的 list() 不再含该 agent,不会产生逐 agent 事件;
-		// 用户主动停止另有 coordinator 的 detach 事件,此推送与其幂等)。
-		// 必须在有序停止之前:关 stdin 到 CLI 真退出最多等 gracefulExitMs，不能让 UI 干等。
+		// 先摘除并推终态:stop()/abort 升级强杀都走这里,渲染层需要 closed 事件把会话从 running
+		// 收口(删除后的 list() 不再含该 agent,不会产生逐 agent 事件;用户主动停止另有
+		// coordinator 的 detach 事件,此推送与其幂等)。必须在有序停止之前,不能让 UI 干等。
 		this.emit(agentEventTags.agentsState, this.list());
 		this.runtimes.delete(agentId);
 		this.emit(agentEventTags.agentsState, this.list());

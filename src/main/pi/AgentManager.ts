@@ -46,7 +46,7 @@ import { resolveWhitelistSkipCopy } from "./whitelistSkipNotice";
 import { APP_DISPLAY_NAME } from "../utils/appBrand";
 import { isMainWindowFocused, shouldAlertNow } from "../notifications/alertFocusGate";
 import { resolveNotificationLogoUri } from "../notifications/notificationToast";
-import { showAgentToast, type AgentToastDeps } from "../notifications/agentToast";
+import { clampNotificationTitle, showAgentToast, type AgentToastDeps } from "../notifications/agentToast";
 import type { PiCompactionOwnership } from "./compactionOwner";
 import { CompactionRunner } from "./compactionRunner";
 import { ProcessReattach } from "./processReattach";
@@ -4406,7 +4406,7 @@ export class AgentManager {
 			this.notifiedAskAgents.add(agentId);
 
 			const appName = APP_DISPLAY_NAME;
-			const title = sessionTitle || appName;
+			const title = clampNotificationTitle(sessionTitle || appName);
 			// 有具体提问内容时展示问题，否则退回通用文案（批量提问等无 title 场景）
 			const questionText = question.length > 60 ? `${question.slice(0, 60)}…` : question;
 			const body = questionText ? this.translate("mainNotification.askQuestion", { title, question: questionText }) : this.translate("mainNotification.askPending", { title });
@@ -4430,7 +4430,7 @@ export class AgentManager {
 			if (!shouldAlertNow(settings.alertOnlyWhenUnfocused, isMainWindowFocused(this.getWindow()))) return;
 			if (!Notification.isSupported()) return;
 
-			const body = this.translate("mainNotification.sessionDone", { title: sessionTitle });
+			const body = this.translate("mainNotification.sessionDone", { title: clampNotificationTitle(sessionTitle || APP_DISPLAY_NAME) });
 			// 会话结束时 runtime 一定已绑定会话；跳转目标用 record.id（renderer 按它索引会话），
 			// tab.sessionId 是 pi 侧会话 id 只能兜底（见 resolveNotificationSessionId 注释）。
 			const resolveSessionId = this.resolveSessionId;

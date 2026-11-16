@@ -148,13 +148,12 @@ export type AppSettings = {
 	useNativeTitleBar: boolean;
 	showNativeMenu: boolean;
 	sendShortcut: SendShortcutMode;
-	/**
-	 * 提示词增强用的模型；null/缺省 = 跟随会话模型（记录 > 引导页 > 部署/主进程默认）。
-	 * 非法形态（缺字段/非字符串）在 SettingsStore.update 时归一为 null。
-	 */
+	/** 提示词增强模型；null/缺省 = 跟随会话模型（记录 > 引导页 > 部署/主进程默认），非法形态在 update 时归一为 null。 */
 	enhanceModel?: { provider: string; modelId: string } | null;
 	/** 增强时携带当前会话最近正文；缺省关闭，只有显式 true 才发送。 */
 	enhanceIncludeContext?: boolean;
+	/** 自定义增强系统提示词；null/缺省/空白 = 内置模板（shared/enhanceSystemPrompt.ts），只在主进程侧注入。 */
+	enhanceSystemPrompt?: string | null;
 	/**
 	 * 输入预测：每轮答完后用一次模型调用预测用户下一句输入，空输入框里以 ghost 文案展示。
 	 * 缺省开启（老设置无此字段按开启处理）；显式 false 才关闭——关掉即完全不发请求。
@@ -661,16 +660,14 @@ export type AppSettings = {
 	fontSize: AppFontSizeMode;
 	/** UI 字号覆盖；null 表示跟随 fontSize。控制 sidebar、按钮、列表、弹窗等 */
 	uiFontSize: AppFontSizeMode | null;
-	/**
-	 * 会话 Tab 栏字号覆盖；null 表示跟随 uiFontSize（而非 fontSize）。
-	 * 为什么回落界面轨：Tab 标题历史上吃的是界面轨的 --font-size-micro，
-	 * 若回落全局字号，「只改过界面字号」的用户开启本开关后 Tab 会突变。
-	 */
+	/** 会话 Tab 栏字号覆盖；null 表示跟随 uiFontSize（而非 fontSize）——Tab 标题历史上吃界面轨的
+	 *  --font-size-micro，回落全局字号会让「只改过界面字号」的用户一开这个开关就突变。 */
 	tabBarFontSize: AppFontSizeMode | null;
 	/** 会话正文字号覆盖；null 表示跟随 fontSize。控制用户消息与助手回复 */
 	chatFontSize: AppFontSizeMode | null;
 	/** 输入框字号覆盖；null 表示跟随 fontSize。控制 composer 输入区 */
 	inputFontSize: AppFontSizeMode | null;
+	chatLineHeight: "default" | "relaxed" | "loose"; // 会话正文行距（#547，全局一份；代码块/表格不跟随）
 	/** 全局窗口缩放比例，1 为 100%；通过 webContents.setZoomFactor 生效 */
 	zoomFactor: number;
 	/** UI 基础字体预设，默认使用系统字体；system 跟随系统字体栈；custom 时使用 fontFamilyBaseCustom */
@@ -1304,6 +1301,7 @@ export function createDefaultAppSettings(): AppSettings {
 		tabBarFontSize: null,
 		chatFontSize: null,
 		inputFontSize: null,
+		chatLineHeight: "default",
 		zoomFactor: 1,
 		fontFamilyBase: "system",
 		fontFamilyBaseCustom: "",

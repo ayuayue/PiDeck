@@ -55,7 +55,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import type { SessionSummary, Project, AgentTab, ArchivedDshSession, ArchivedPiSession, RemoteArchivedSessionDeleteAnswerResult, RemoteArchivedSessionDeleteRequestResult, SessionSortModeId } from "../../../../shared/types";
 import { SESSION_SORT_MODES, resolveSessionSortMode } from "../../sessionSortModes";
 import { worktreeSlugify } from "../../../../shared/worktreeSlug";
-import { SessionSourceBadge, SessionBackendMark, SessionChannelMark, SideTaskMark, DshSourceBadge, ImageGenSourceBadge } from "../session/SessionSourceBadge";
+import { SessionSourceBadge, SessionBackendMark, SessionChannelMark, SideTaskMark, DshSourceBadge, AcpSourceBadge, ImageGenSourceBadge } from "../session/SessionSourceBadge";
+import { SOURCE_FILTER_LABELS } from "./sourceFilterLabels";
 import { Checkbox } from "../ui-shadcn/checkbox";
 import { Input } from "../ui-shadcn/input";
 import { Label } from "../../components/ui-shadcn/label";
@@ -76,6 +77,7 @@ import {
 	type ManagerArchivedRow,
 } from "../../sessionManagerModel";
 import { remoteArchivedDeleteErrorKey, remoteArchivedDeleteRowPhase } from "../../utils/remoteArchivedDeleteState";
+import { ManagerArchivedLoadErrorRow } from "./ManagerArchivedLoadErrorRow";
 import { shouldShowWorktreeMenuEntry } from "../../utils/worktreeEntryGate";
 import { useRemoteArchivedSessionDelete } from "../../hooks/useRemoteArchivedSessionDelete";
 
@@ -134,6 +136,8 @@ export function SessionManagerModal(props: {
 	// 已归档视图：true 时展示归档会话并提供恢复；数据打开弹窗时按需拉取。
 	const [showArchived, setShowArchived] = useState(false);
 	const [archivedRows, setArchivedRows] = useState<ManagerArchivedRow[] | null>(null);
+	/** 归档列表拉取失败：与「确实没有归档」区分开，给重试入口（#538 尾项）。 */
+	const [archivedError, setArchivedError] = useState(false);
 	// 已归档视图选中集合（行身份 = managerArchivedRowKey，与主列表 selected 独立）。
 	const [archivedSelected, setArchivedSelected] = useState<Set<string>>(new Set());
 	const [archivedSelectAll, setArchivedSelectAll] = useState(false);
@@ -222,8 +226,13 @@ export function SessionManagerModal(props: {
 				// 数据刷新后清空选中，避免删除/恢复后残留全选或计数。
 				setArchivedSelected(new Set());
 				setArchivedSelectAll(false);
+				setArchivedError(false);
 			})
-			.catch(() => setArchivedRows([]));
+			.catch(() => {
+				// 失败不能伪装成「没有归档会话」：给错误态与重试入口（#538 尾项）。
+				setArchivedRows([]);
+				setArchivedError(true);
+			});
 	};
 
 	// 归档视图全选/取消全选（行身份 = managerArchivedRowKey；数据刷新后置空）。
@@ -287,7 +296,7 @@ export function SessionManagerModal(props: {
 												className={`h-auto rounded-full border border-border-subtle bg-transparent px-3 py-1 text-caption font-medium text-text-tertiary transition-colors duration-fast hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]${activePills.has(pill) ? " border-[var(--color-accent)] bg-bg-active font-semibold text-[var(--color-accent)]" : ""}`}
 												onClick={() => togglePill(pill)}
 											>
-												{t(pill === "dsh" ? "sessionBackend.dsh" : pill === "imagegen" ? "sessionBackend.imagegen" : `sessionSource.${pill}`)}
+												{t(pill === "dsh" ? "sessionBackend.dsh" : pill === "acp" ? "sessionBackend.acp" : pill === "imagegen" ? "sessionBackend.imagegen" : `sessionSource.${pill}`)}
 											</Button>
 										))}
 									</div>
@@ -364,7 +373,15 @@ export function SessionManagerModal(props: {
 									</TableRow>
 								</TableHeader>
 								<TableBody>
-									{archivedRows === null ? (
+									{archivedError ? (
+										<ManagerArchivedLoadErrorRow
+											colSpan={3}
+											onRetry={() => {
+												setArchivedRows(null);
+												loadArchivedRows();
+											}}
+										/>
+									) : archivedRows === null ? (
 										<TableRow>
 											<TableCell colSpan={3} className="py-6 text-center text-caption text-muted-foreground">
 												…
@@ -627,27 +644,9 @@ function MenuShell(props: { x: number; y: number; onClose: () => void; className
 }
 
 export function SessionSourceFilterMenu(props: { menu: { projectId: string; x: number; y: number }; filter: ReadonlySet<SessionFilterPill> | null; onToggleSource: (source: SessionFilterPill) => void; onClear: () => void; onClose: () => void }) {
-	// 过滤类别 = 来源 + DSH 后端（DSH 会话 source 恒为 pi，必须按 backend 独立归类，
-	// 否则「只选 Pi」会继续显示 DSH 会话，用户无法单独过滤）。
+	// 过滤类别 = 来源 + DSH/ACP 后端（DSH/ACP 会话 source 恒为 pi，必须按 backend 独立归类，
+	// 否则「只选 Pi」会继续显示 DSH/ACP 会话，用户无法单独过滤）。
 	const sources = SESSION_FILTER_PILLS;
-	// 品牌名与图标并列展示：纯图标列用户分不清哪个徽标对应哪个来源（用户反馈）。
-	// 模块级求值与 SessionSourceBadge 的 SOURCE_LABELS 同一惯例。
-	const pillLabels: Record<SessionFilterPill, string> = {
-		pi: t("sessionSource.pi"),
-		codex: t("sessionSource.codex"),
-		claude: t("sessionSource.claude"),
-		qoder: t("sessionSource.qoder"),
-		opencode: t("sessionSource.opencode"),
-		zcode: t("sessionSource.zcode"),
-		workbuddy: t("sessionSource.workbuddy"),
-		codebuddy: t("sessionSource.codebuddy"),
-		cursor: t("sessionSource.cursor"),
-		kimi: t("sessionSource.kimi"),
-		kimiwork: t("sessionSource.kimiwork"),
-		minimax: t("sessionSource.minimax"),
-		dsh: t("sessionBackend.dsh"),
-		imagegen: t("sessionBackend.imagegen"),
-	};
 	// 过滤菜单需要连续勾选，onSelect preventDefault 保持菜单打开
 	return (
 		<MenuShell x={props.menu.x} y={props.menu.y} onClose={props.onClose} className="min-w-44">
@@ -664,8 +663,8 @@ export function SessionSourceFilterMenu(props: { menu: { projectId: string; x: n
 			<DropdownMenuSeparator />
 			{sources.map((pill) => (
 				<DropdownMenuCheckboxItem key={pill} checked={props.filter !== null && props.filter.has(pill)} onSelect={(event) => event.preventDefault()} onCheckedChange={() => props.onToggleSource(pill)}>
-					{pill === "dsh" ? <DshSourceBadge /> : pill === "imagegen" ? <ImageGenSourceBadge /> : <SessionSourceBadge source={pill} />}
-					<span className="text-body">{pillLabels[pill]}</span>
+					{pill === "dsh" ? <DshSourceBadge /> : pill === "acp" ? <AcpSourceBadge /> : pill === "imagegen" ? <ImageGenSourceBadge /> : <SessionSourceBadge source={pill} />}
+					<span className="text-body">{SOURCE_FILTER_LABELS[pill]}</span>
 				</DropdownMenuCheckboxItem>
 			))}
 		</MenuShell>

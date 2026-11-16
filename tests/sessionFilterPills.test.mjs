@@ -40,6 +40,12 @@ test("sessionPillOf: imagegen 会话按 backend 归属，不落入 Pi 类别（s
 	assert.equal(sessionPillOf({ source: undefined, backend: "imagegen" }), "imagegen");
 });
 
+test("sessionPillOf: ACP 会话按 backend 归属，不落入 Pi 类别（source 恒为 pi）", () => {
+	assert.equal(sessionPillOf({ source: "pi", backend: "acp" }), "acp");
+	assert.equal(sessionPillOf({ source: undefined, backend: "acp" }), "acp");
+	assert.equal(sessionPillOf({ source: "codex", backend: "acp" }), "acp", "backend 优先于导入来源");
+});
+
 test("sessionPillOf: 导入来源按 source 归属", () => {
 	assert.equal(sessionPillOf({ source: "codex", backend: "pi" }), "codex");
 	assert.equal(sessionPillOf({ source: "claude", backend: "pi" }), "claude");
@@ -47,22 +53,24 @@ test("sessionPillOf: 导入来源按 source 归属", () => {
 	assert.equal(sessionPillOf({ source: "cursor", backend: "pi" }), "cursor");
 });
 
-test("filterSessionsByPills: 只选 Pi 时 DSH 会话不出现（source=pi 不重复命中）", () => {
+test("filterSessionsByPills: 只选 Pi 时 DSH/ACP 会话不出现（source=pi 不重复命中）", () => {
 	const sessions = [
 		{ id: "pi-1", source: "pi", backend: "pi" },
 		{ id: "dsh-1", source: "pi", backend: "dsh" },
+		{ id: "acp-1", source: "pi", backend: "acp" },
 		{ id: "codex-1", source: "codex", backend: "pi" },
 	];
 	const onlyPi = filterSessionsByPills(sessions, new Set(["pi"]));
 	assert.equal(onlyPi.map((s) => s.id).join(","), "pi-1");
-	const onlyDsh = filterSessionsByPills(sessions, new Set(["dsh"]));
-	assert.equal(onlyDsh.map((s) => s.id).join(","), "dsh-1");
+	const onlyBackend = filterSessionsByPills(sessions, new Set(["dsh", "acp"]));
+	assert.equal(onlyBackend.map((s) => s.id).join(","), "dsh-1,acp-1");
 	const all = filterSessionsByPills(sessions, new Set([...SESSION_FILTER_PILLS]));
-	assert.equal(all.map((s) => s.id).join(","), "pi-1,dsh-1,codex-1");
+	assert.equal(all.map((s) => s.id).join(","), "pi-1,dsh-1,acp-1,codex-1");
 });
 
-test("isSessionFilterPill: 只接受已知类别（来源 + dsh + imagegen）", () => {
+test("isSessionFilterPill: 只接受已知类别（来源 + dsh/acp/imagegen）", () => {
 	assert.equal(isSessionFilterPill("dsh"), true);
+	assert.equal(isSessionFilterPill("acp"), true);
 	assert.equal(isSessionFilterPill("imagegen"), true);
 	assert.equal(isSessionFilterPill("pi"), true);
 	assert.equal(isSessionFilterPill("codex"), true);
@@ -79,12 +87,12 @@ test("v2 序列化/解析往返保持显式类别集合（含用户关掉 DSH �
 	assert.equal(state.all, null);
 });
 
-test("v1 旧格式迁移：含 pi 补 dsh（旧用户此前能看到 DSH 会话）", () => {
+test("v1 旧格式迁移：含 pi 补 dsh/acp（旧用户此前能看到 DSH/ACP 会话）", () => {
 	const state = parseSessionFilterState(JSON.stringify({ project: ["pi", "codex"] }));
-	assert.equal([...state.project].sort().join(","), "codex,dsh,pi");
+	assert.equal([...state.project].sort().join(","), "acp,codex,dsh,pi");
 });
 
-test("v1 旧格式迁移：不含 pi 不补 dsh（用户此前主动过滤掉了 pi 系会话）", () => {
+test("v1 旧格式迁移：不含 pi 不补 dsh/acp（用户此前主动过滤掉了 pi 系会话）", () => {
 	const state = parseSessionFilterState(JSON.stringify({ project: ["codex"] }));
 	assert.equal([...state.project].join(","), "codex");
 });
@@ -116,7 +124,8 @@ test("pillsPresentIn: 导入来源按 sessionPillOf 去重，无重复 pill", ()
 	const sessions = [
 		{ id: "c1", source: "codex", backend: "pi" },
 		{ id: "c2", source: "codex", backend: "pi" },
+		{ id: "acp1", source: "pi", backend: "acp" },
 		{ id: "ig1", source: "pi", backend: "imagegen" },
 	];
-	assert.equal(pillsPresentIn(sessions).join(","), "codex,imagegen");
+	assert.equal(pillsPresentIn(sessions).join(","), "codex,acp,imagegen");
 });

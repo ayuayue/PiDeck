@@ -158,6 +158,24 @@ test("modelsFromPiConfig flattens settings-page models.json", () => {
 	assert.equal(modelsFromPiConfig({ providers: {} }).length, 0);
 });
 
+test("modelsFromPiConfig derives thinking levels from thinkingLevelMap (#545)", () => {
+	// CLI 失败时这份兜底列表是唯一来源：没有 thinkingLevels，选择器就不裁剪，
+	// 旧档位（xhigh/max）会一路写进会话记录，底栏显示与 pi 收敛后的实际档位不一致。
+	const models = modelsFromPiConfig({
+		providers: {
+			custom: {
+				models: [{ id: "with-xhigh", reasoning: true, thinkingLevelMap: { xhigh: "xhigh" } }, { id: "no-xhigh", reasoning: true, thinkingLevelMap: { xhigh: null, max: null } }, { id: "plain" }],
+			},
+		},
+	});
+	const byId = Object.fromEntries(models.map((model) => [model.id, model]));
+	// 沙箱数组/对象的原型来自另一个 realm：比较前铺成本域的普通结构。
+	assert.deepEqual([...byId["with-xhigh"].thinkingLevels], ["off", "minimal", "low", "medium", "high", "xhigh"]);
+	assert.deepEqual([...byId["no-xhigh"].thinkingLevels], ["off", "minimal", "low", "medium", "high"]);
+	assert.deepEqual([...byId["plain"].thinkingLevels], ["off"], "非推理模型只有 off");
+	assert.deepEqual({ ...byId["with-xhigh"].thinkingLevelMap }, { xhigh: "xhigh" }, "映射原样保留给配置补全");
+});
+
 test("fetchModelList uses cache; refreshModelList forces reload", () => {
 	// 缓存命中短路
 	assert.match(cacheSource, /if \(cachedListModels\) return Promise\.resolve/);
@@ -249,8 +267,9 @@ test("picker flow loads models on welcome page (no record)", () => {
 	// 以便 Pi 欢迎页读取 startup capability snapshot、DSH 按 reasoningEfforts 过滤。
 	const hook = readFileSync("src/renderer/src/hooks/useBackendModelCatalog.ts", "utf8");
 	assert.match(pickerHost, /pickerOpen: props\.picker === "model" \|\| props\.picker === "thinking"/);
-	// 目录刻意懒加载：Ctrl+M/Ctrl+T 首次按下才武装（cycleArmed），避免每个会话栏开机就拉一次
-	assert.match(preferenceController, /const catalogEnabled = options\.pickerOpen \|\| options\.cycleArmed/);
+	// 目录刻意懒加载：Ctrl+M/Ctrl+T 首次按下才武装（cycleArmed），避免每个会话栏开机就拉一次；
+	// 未启动的会话（引导页/草稿）例外——底栏要在打开选择器前就拿到当前模型能力（#545）。
+	assert.match(preferenceController, /const catalogEnabled = options\.pickerOpen \|\| options\.cycleArmed \|\| !record \|\| record\.status === "draft"/);
 	assert.match(preferenceController, /useBackendModelCatalog\(\{[\s\S]*?enabled: catalogEnabled/);
 	// 后端分支收敛在 hook 内：DSH 走 host 目录，pi 走诊断报告通道（含失败原因分类）
 	// pi 目录按会话取（sessions:list-models，主进程分流远端/本机），DSH 仍走 host 目录

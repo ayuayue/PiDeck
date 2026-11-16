@@ -4,10 +4,11 @@
  * 「使用」智能体时渲染层把 sessionId → agentId 绑定写入 AgentProfileStore，
  * 之后该会话**首次**发送时由主进程把智能体的 systemPrompt 作为角色设定拼进本轮 prompt
  *（只在首轮注入：角色设定随第一条用户消息留在会话历史里，之后每轮再拼会重复）：
- * - pi（及支持隐藏通道的 ACP）：拼进 SendPromptInput.agentMessage。AgentManager 在
+ * - pi：拼进 SendPromptInput.agentMessage。AgentManager 在
  *   agentMessage 非空时**整体替换** message（只影响本轮/模型可见内容，时间线仍只显示用户原文），
  *   所以角色设定必须与真正要发的载荷拼在一起，不能单独成一个字段。
- * - DSH：DshAgentManager 显式拒绝 agentMessage，且会**拒收整条 prompt**，
+ * - DSH / ACP：都没有隐藏通道，且 host 见到 agentMessage 会拒收整条 prompt
+ *   （DshAgentManager 显式拒绝；ACP 的 resolvePromptDispatch 同样直接拒收），
  *   因此退化为可见前缀（用户能看到角色设定——这是让请求成功的唯一方式）。
  *
  * 边界：空角色设定什么都不注入（连已有的 agentMessage 都原样保留，
@@ -50,17 +51,30 @@ export function shouldInjectAgentPersona(input: AgentPersonaGateInput): boolean 
 	return input.sessionStatus === "draft" && !input.alreadyInjected;
 }
 
+/**
+ * 没有隐藏载荷通道的后端：host 见到 agentMessage 会拒收整条 prompt
+ * （DSH 显式拒绝；ACP 的 resolvePromptDispatch 同样直接拒收）。
+ * 角色设定只能作为可见前缀进入正文，隐藏载荷必须丢弃。
+ */
+function usesVisiblePrefix(backend: string | undefined): boolean {
+	return backend === "dsh" || backend === "acp";
+}
+
 export function composeAgentInstruction(input: ComposeAgentInstructionInput): ComposedAgentInstruction {
 	const persona = input.persona.trim();
 	if (!persona) {
 		return input.existingAgentMessage === undefined ? { message: input.message } : { message: input.message, agentMessage: input.existingAgentMessage };
 	}
-	if (input.backend === "dsh") {
-		// DSH 没有隐藏通道且拒收 agentMessage：角色设定只能作为可见前缀；
+	// 原生命令（pi 的 /clear、DSH 的 /goal、ACP 的 /loop…）必须保持在正文行首：
+	// 可见前缀会让 CLI 把它当普通文本，隐藏通道（agentMessage）同样替换掉行首。
+	// 命令优先：这类首轮消息跳过角色设定，让命令原样送达。
+	if (input.message.trimStart().startsWith("/")) return { message: input.message };
+	if (usesVisiblePrefix(input.backend)) {
+		// DSH/ACP 没有隐藏通道且拒收 agentMessage：角色设定只能作为可见前缀；
 		// 原有隐藏载荷也不能透传（哪怕是非空字符串），否则整条 prompt 被 host 拒绝。
 		return { message: `${persona}\n\n${input.message}` };
 	}
-	// pi / acp：隐藏通道可用。已有隐藏载荷（计划模式标记等）时前置角色设定而不是覆盖它，
+	// pi：隐藏通道可用。已有隐藏载荷（计划模式标记等）时前置角色设定而不是覆盖它，
 	// 两者都要生效；AgentManager 会把 message 整体换成这份载荷。
 	return { message: input.message, agentMessage: `${persona}\n\n${input.existingAgentMessage ?? input.message}` };
 }
@@ -90,19 +104,22 @@ export type ApplyBoundAgentPersonaResult<T extends { message: string; agentMessa
  * 判定与组合语义，只在外面各自持有一个「已注入会话」集合。
  *
  * - 角色设定只在首轮注入（`shouldInjectAgentPersona`）；
- * - DSH 没有隐藏通道，首轮和后续轮次都必须丢掉 agentMessage（host 见到就拒收整条）；
+ * - DSH/ACP 没有隐藏通道，首轮和后续轮次都必须丢掉 agentMessage（host 见到就拒收整条）；
  * - 其余后端沿用 composeAgentInstruction 的隐藏通道语义。
  */
 export function applyBoundAgentPersona<T extends { message: string; agentMessage?: string }>(input: ApplyBoundAgentPersonaInput<T>): ApplyBoundAgentPersonaResult<T> {
 	const persona = input.persona?.trim();
 	if (!persona) return { prompt: input.prompt, injected: false };
-	const injected = shouldInjectAgentPersona({ sessionStatus: input.sessionStatus, alreadyInjected: input.alreadyInjected });
+	let injected = shouldInjectAgentPersona({ sessionStatus: input.sessionStatus, alreadyInjected: input.alreadyInjected });
 	let prompt: T = input.prompt;
 	if (injected) {
 		const composed = composeAgentInstruction({ persona, message: prompt.message, existingAgentMessage: prompt.agentMessage, backend: input.backend });
+		// compose 可能主动跳过角色设定（如 ACP 首轮原生命令必须保持行首 /）；
+		// 只有实际改动了载荷才算注入成功，避免调用方把这一轮记成「已注入」。
+		injected = composed.agentMessage !== undefined || composed.message !== prompt.message;
 		prompt = { ...prompt, message: composed.message, ...(composed.agentMessage !== undefined ? { agentMessage: composed.agentMessage } : {}) };
 	}
-	if (input.backend === "dsh" && prompt.agentMessage !== undefined) {
+	if (usesVisiblePrefix(input.backend) && prompt.agentMessage !== undefined) {
 		const { agentMessage: _dropped, ...rest } = prompt;
 		prompt = rest as T;
 	}

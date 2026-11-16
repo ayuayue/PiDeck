@@ -18,7 +18,7 @@ export function createWebRuntimeDeps(ctx: WebServiceContext) {
 	const webPersonaInjectedSessions = new Set<string>();
 	return {
 		sendSessionPrompt: async (input) => {
-			// 绑定智能体的会话：仅在首轮把角色设定拼进载荷（dsh 退化为可见前缀，其余后端走隐藏通道）。
+			// 绑定智能体的会话：仅在首轮把角色设定拼进载荷（pi 走隐藏通道，dsh/acp 退化为可见前缀）。
 			// 桌面 IPC 是另一个发送入口，两边共用 applyBoundAgentPersona 的判定与组合语义；
 			// 注入点必须在 send 之前——会话首条一旦落盘，角色设定就随上下文生效。
 			const persona = getAgentProfileStore()?.getBoundAgent(input.sessionId)?.systemPrompt;
