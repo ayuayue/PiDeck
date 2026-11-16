@@ -390,7 +390,10 @@ type app struct {
 	aiBusy     *core.Signal[string]
 	bgImage    *core.Signal[string]
 	bgOpacity  *core.Signal[float64]
-	llmFn      func(tool, system, prompt string, maxTokens int) (string, error)
+	// bgOpacitySeq numbers opacity changes, so only the last one settles the
+	// theme after a drag.
+	bgOpacitySeq int
+	llmFn        func(tool, system, prompt string, maxTokens int) (string, error)
 
 	byID map[string]*session
 	all  []*session

@@ -1060,19 +1060,29 @@ func (a *app) setBackgroundImage(path string) {
 	a.applyTheme()
 }
 
-// setBackgroundOpacity stores how much of the picture shows.
+// setBackgroundOpacity stores how much of the picture shows. The veil
+// follows at once; the panels' alpha lives in the theme, and swapping the
+// theme rebuilds the window, which would end the slider's drag. So that
+// part waits for the value to rest.
 func (a *app) setBackgroundOpacity(v float64) {
 	v = min(1, max(0, v))
 	a.cfg.BackgroundOpacity = &v
 	a.bgOpacity.Set(v)
-	a.bumpSettings()
 	if a.st != nil {
 		a.st.edit(func(c *config) {
 			vv := v
 			c.BackgroundOpacity = &vv
 		})
 	}
-	a.applyTheme()
+	a.bgOpacitySeq++
+	seq := a.bgOpacitySeq
+	a.cx.AfterFunc(450*time.Millisecond, func() {
+		if a.bgOpacitySeq != seq {
+			return // still moving: the last value will do this
+		}
+		a.applyTheme()
+		a.bumpSettings()
+	})
 }
 
 // applyFonts applies the custom families to the interface, the editor and

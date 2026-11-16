@@ -932,8 +932,9 @@ func (a *app) backgroundGroup(colors ui.Colors) core.Node {
 			ui.Slider{Min: 0, Max: 100, Step: 1, Value: func() float64 { return a.backgroundOpacity() * 100 },
 				Label: T("背景透明度"), ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
 				TestID: "bg-opacity", OnChange: func(v float64) {
+					// The row redraws itself from the opacity signal; the page is
+					// bumped once the drag ends, or it would not drag at all.
 					a.setBackgroundOpacity(v / 100)
-					a.bumpSettings()
 				}},
 		}},
 		core.Dynamic(func(*core.Scope) core.Node {

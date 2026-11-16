@@ -38,8 +38,11 @@ func TestBackgroundImageAndOpacity(t *testing.T) {
 	if math.Abs(built.backgroundOpacity()-0.35) > 0.001 {
 		t.Fatalf("opacity = %v", built.backgroundOpacity())
 	}
-	if _, _, _, a := built.cx.Palette().Background.Components(); a > 0.99 {
-		t.Fatalf("background stayed opaque: alpha %v", a)
+	// The picture's veil follows the slider at once, while the panels' alpha
+	// waits for it to rest: a palette swap mid-drag would end the drag.
+	screen.Advance(time.Second)
+	if _, _, _, a := built.cx.Palette().Background.Components(); math.Abs(float64(a)-0.75) > 0.01 {
+		t.Fatalf("background alpha = %v, want the 0.35 setting (0.75)", a)
 	}
 
 	built.setBackgroundImage("")
@@ -48,5 +51,27 @@ func TestBackgroundImageAndOpacity(t *testing.T) {
 	}
 	if _, _, _, a := built.cx.Palette().Background.Components(); a < 0.99 {
 		t.Fatalf("background stayed translucent: alpha %v", a)
+	}
+}
+
+// TestBackgroundOpacityDrag drags the opacity slider and checks the value
+// follows the whole drag: a page rebuilt under the finger would drop it.
+func TestBackgroundOpacityDrag(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	home := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	var built *app
+	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
+	app := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-look")
+	app.WaitFor("id:bg-opacity-thumb", 5*time.Second)
+	before := built.backgroundOpacity()
+	app.Drag("id:bg-opacity-thumb", core.Point{X: -40}, core.Point{X: -80}, core.Point{X: -120})
+	after := built.backgroundOpacity()
+	if after >= before-0.1 {
+		t.Fatalf("the drag moved opacity %v -> %v: it stopped under the finger", before, after)
 	}
 }
