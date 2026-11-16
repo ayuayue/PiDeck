@@ -159,7 +159,7 @@ const (
 	// axisTickWidth is how long a tick is drawn, and axisStep the gap from
 	// one tick's top to the next one's, so the density and the scale's
 	// reach stay in one place.
-	axisTickWidth = 24
+	axisTickWidth = 18
 	axisTickHit   = axisTickWidth + 4
 	axisStep      = 12
 	// axisMost and axisLeast bound the ticks however tall the window is.
@@ -202,7 +202,8 @@ func axisFractions(n int) []float64 {
 
 // turnAxis is the scroll ruler at the transcript's right edge: a fine
 // scale of scroll positions across the middle of the height, and a click
-// scrolls to the fraction its tick stands for.
+// scrolls to the fraction its tick stands for. Resting on a tick names
+// the turn a jump would put in the middle.
 func (a *app) turnAxis(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		if len(s.turns.Get()) < 3 {
@@ -216,7 +217,10 @@ func (a *app) turnAxis(s *session) core.Node {
 		}
 		bandHeight := pane * axisBand / 100
 		fractions := axisFractions(axisTicks(bandHeight))
-		marks := make([]core.Node, 0, len(fractions))
+		// The bar is 2.5 tall: too thin to hover. A box one step tall
+		// takes the pointer, and points the ruler's hint at its tick.
+		box := core.Points(axisStep - 2)
+		marks := make([]core.Node, 0, len(fractions)+1)
 		for i, f := range fractions {
 			i, f := i, f
 			bar := core.View{
@@ -228,14 +232,15 @@ func (a *app) turnAxis(s *session) core.Node {
 						Hover: &core.Style{Background: colors.Text()}}
 				},
 			}
-			// The bar is 2.5 tall: too thin to hover. A box one step tall
-			// takes the pointer and carries the turn's summary as a hint.
-			marks = append(marks, hintOf(func() string { return a.axisTip(s, f) }, core.View{
-				Style: core.Style{Width: core.Pt(axisTickHit), Height: core.Pt(axisStep - 2), AlignItems: core.AlignCenter,
-					JustifyContent: core.JustifyCenter}, Children: []core.Node{bar}}))
+			marks = append(marks, core.View{
+				OnMouseEnter: func(core.MouseEvent) { a.hoverAxis(i) },
+				Style: core.Style{Width: core.Pt(axisTickHit), Height: core.Pt(box), AlignItems: core.AlignCenter,
+					JustifyContent: core.JustifyCenter}, Children: []core.Node{bar}})
 		}
+		marks = append(marks, a.axisHint(s, fractions, bandHeight, box))
 		inset := (pane - bandHeight) / 2
 		return core.View{
+			OnMouseLeave: func(core.MouseEvent) { a.axisHover.Set(-1) },
 			Style: core.Style{Position: core.Absolute, Right: core.Pt(8), Width: core.Pt(axisTickHit),
 				Direction: core.Column, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
 				PointerEvents: core.PointerEventsBoxNone},
@@ -243,6 +248,60 @@ func (a *app) turnAxis(s *session) core.Node {
 				return core.Style{Top: core.Pt(core.Points(inset)), Bottom: core.Pt(core.Points(inset))}
 			},
 			Children: marks}
+	})
+}
+
+// hoverAxis points the ruler's hint at a tick. Moving along the scale
+// moves it at once; it eases in only when it was hidden, so sliding down
+// the ruler does not blink.
+func (a *app) hoverAxis(index int) {
+	if a.axisHover.GetUntracked() == index {
+		return
+	}
+	fresh := a.axisHover.GetUntracked() < 0
+	a.axisHover.Set(index)
+	if fresh {
+		a.axisHintIn.Set(false)
+		a.cx.AfterFunc(16*time.Millisecond, func() { a.axisHintIn.Set(true) })
+	}
+}
+
+// axisHint is the summary beside the tick the pointer rests on: it sits
+// just left of the ruler, on the tick's line, and takes no presses.
+func (a *app) axisHint(s *session, fractions []float64, bandHeight float64, box core.Points) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		i := a.axisHover.Get()
+		if i < 0 || i >= len(fractions) {
+			return nil
+		}
+		tip := a.axisTip(s, fractions[i])
+		if tip == "" {
+			return nil
+		}
+		n := len(fractions)
+		centre := box / 2
+		if n > 1 {
+			centre = core.Points((bandHeight-float64(box))*float64(i)/float64(n-1)) + box/2
+		}
+		top := min(max(0.0, float64(centre)-14), math.Max(0, bandHeight-30))
+		return core.View{
+			Style: core.Style{Position: core.Absolute, Right: core.Pt(axisTickHit + 8), Top: core.Pt(core.Points(top)),
+				Width: core.Pt(260), Padding: core.Symmetric(6, 10), CornerRadius: 9, Background: colors.Surface(),
+				BorderWidth: 1, BorderColor: colors.Border(), Shadows: []core.BoxShadow{ui.Shadow(0, 10, 26, 0, ui.Black(0.16))},
+				PointerEvents: core.PointerEventsNone},
+			StyleFunc: func() core.Style {
+				st := core.Style{Opacity: core.Alpha(1), Transition: core.Transition{Duration: 120 * time.Millisecond, Easing: core.EaseOut,
+					Properties: core.TransitionOpacity | core.TransitionTransform}}
+				if !a.axisHintIn.Get() {
+					st.Opacity = core.Alpha(0)
+					st.Transform = core.Transform{TranslateY: 2}
+				}
+				return st
+			},
+			Children: []core.Node{core.Text{Content: tip, MaxLines: 3, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FontSize: 11.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Text)}},
+		}
 	})
 }
 

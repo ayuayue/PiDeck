@@ -366,6 +366,10 @@ type app struct {
 	// chatWidth is the transcript's reading width, so a slider drag
 	// rebuilds the chat without touching the stored config.
 	chatWidth *core.Signal[int]
+	// axisHover is the ruler tick the pointer rests on, -1 for none, and
+	// axisHintIn whether its summary has had its first frame to ease in.
+	axisHover  *core.Signal[int]
+	axisHintIn *core.Signal[bool]
 	// events carries app events to subscribers and plugin hooks; inHook
 	// stops a hook's own action from triggering hooks again.
 	events eventBus
@@ -856,6 +860,8 @@ func newApp(cx *core.Scope) *app {
 		termFont:               core.NewSignal(cx, 12.5),
 		editorFont:             core.NewSignal(cx, 13.0),
 		chatWidth:              core.NewSignal(cx, 0),
+		axisHover:              core.NewSignal(cx, -1),
+		axisHintIn:             core.NewSignal(cx, false),
 		providerOpen:           core.NewSignal(cx, false),
 		providerID:             core.NewSignal(cx, ""),
 		providerAPI:            core.NewSignal(cx, ""),
