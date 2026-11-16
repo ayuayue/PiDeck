@@ -1,3 +1,4 @@
+import type { AcpModelCallMetric } from "./acp";
 import type { ThinkingLevelMap } from "./modelSpecs";
 import type { SessionEnvironment, SessionLocator, RemoteSessionExtensions, SessionSource } from "./session";
 import type { TodoItem } from "./todo";
@@ -209,6 +210,8 @@ export type AgentRuntimeState = {
 	contextTokens?: number | null;
 	contextWindow?: number | null;
 	contextPercent?: number | null;
+	/** ACP：最近一次 usage_update 附带的逐次模型调用指标（#560 ③）；agent 未 opt-in/未给时缺省。 */
+	modelCalls?: AcpModelCallMetric[];
 	/** 最近一次请求因上下文窗口超限而失败；即使当前占用快照缺失也要保留这个恢复入口。 */
 	contextOverflow?: boolean;
 	/** 对话段 token：优先「总占用 − 系统 − 工具」差值（提供商上报的 prompt 即三段之和），

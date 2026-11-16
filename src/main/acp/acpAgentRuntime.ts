@@ -182,6 +182,7 @@ export function buildAgentRuntimeState(runtime: AcpAgentRuntime): AgentRuntimeSt
 		...(usage?.size !== undefined ? { contextWindow: usage.size } : {}),
 		...(usage?.used !== undefined && usage?.size !== undefined ? { contextPercent: Math.max(0, Math.min(100, Math.round((usage.used / usage.size) * 1000) / 10)) } : {}),
 		...(usage?.costAmount !== undefined ? { cost: usage.costAmount } : {}),
+		...(usage?.modelCalls !== undefined ? { modelCalls: usage.modelCalls } : {}),
 		...(totals
 			? {
 					inputTokens: totals.inputTokens,

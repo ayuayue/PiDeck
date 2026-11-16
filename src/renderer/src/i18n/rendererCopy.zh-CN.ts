@@ -1217,6 +1217,9 @@ export const zhCN = {
 	// composer 发送按钮旁的上下文占用圆环（dsh ContextMeter 移植）：
 	// 标题括号阅读（percent 插值），figures 为 ~used / window 紧凑格式
 	"sessionContext.used": "上下文已用 {percent}%",
+	"sessionContext.modelCalls": "模型调用 {count} 次",
+	"sessionContext.modelCallsFirstToken": "首 token 均 {ms}ms",
+	"sessionContext.modelCallsHint": "agent 自己上报的逐次调用明细（含重试）。缺失字段表示这次没有测量值，不按 0 处理",
 	"sessionContext.unavailable": "上下文数据暂不可用",
 	"sessionContext.overflow": "上下文已超限，建议先压缩",
 	"sessionContext.compactOverflow": "压缩以恢复发送",

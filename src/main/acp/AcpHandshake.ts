@@ -81,7 +81,10 @@ export async function performAcpHandshake(runtime: AcpAgentRuntime, resumeSessio
 				// 连 --agent ptc 与手写 codeMode 都会被拒（-32602，#447 实测）。
 				// 键归属 CB 命名空间，其他 agent 按 ACP 规范忽略未知 _meta；PiDeck 的
 				// configOptions 走通用渲染，声明后这些选项能直接落地，不需要按品牌分支。
-				_meta: { "codebuddy.ai": { mainAgentSupport: true } },
+				// #560 ③：CodeBuddy ≥2.184 的逐次模型调用指标要显式 opt-in（未声明时发射端会
+				// stripModelCallMetrics 把 usage.model_calls 去掉）；与 mainAgentSupport 同命名空间，
+				// 只补键不覆盖，其他 agent 按 ACP 规范忽略未知 _meta。
+				_meta: { "codebuddy.ai": { mainAgentSupport: true, modelCallMetrics: true } },
 			},
 		},
 		timeoutMs,

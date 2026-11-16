@@ -1221,6 +1221,9 @@ export const enUS: Record<TranslationKey, string> = {
 	// Context-occupancy ring beside the send button (dsh ContextMeter port):
 	// headline brackets the percent slot; figures is the ~used / window compact pair
 	"sessionContext.used": "{percent}% of context used",
+	"sessionContext.modelCalls": "{count} model call(s)",
+	"sessionContext.modelCallsFirstToken": "avg first token {ms}ms",
+	"sessionContext.modelCallsHint": "Per-call details reported by the agent (retries included). Missing fields mean the agent did not measure them — they are not treated as 0",
 	"sessionContext.unavailable": "Context data unavailable",
 	"sessionContext.overflow": "Context limit reached — compact before retrying",
 	"sessionContext.compactOverflow": "Compact to resume sending",

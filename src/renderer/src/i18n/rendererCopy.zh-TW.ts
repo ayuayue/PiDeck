@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 6cd2a28c4e88325d02c6d37d158376872bd0ebfb9c8a01cc17d41419cc4ee396（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 0e0760535a969b51739f41a8b16d7ba1898651941d51307feadc61ce43f1d453（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1224,6 +1224,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	// composer 发送按钮旁的上下文占用圆环（dsh ContextMeter 移植）：
 	// 标题括号阅读（percent 插值），figures 为 ~used / window 紧凑格式
 	"sessionContext.used": "上下文已用 {percent}%",
+	"sessionContext.modelCalls": "模型呼叫 {count} 次",
+	"sessionContext.modelCallsFirstToken": "首 token 均 {ms}ms",
+	"sessionContext.modelCallsHint": "agent 自己上報的逐次呼叫明細（含重試）。缺失欄位表示這次沒有測量值，不按 0 處理",
 	"sessionContext.unavailable": "上下文資料暫不可用",
 	"sessionContext.overflow": "上下文已超限，建議先壓縮",
 	"sessionContext.compactOverflow": "壓縮以恢復傳送",

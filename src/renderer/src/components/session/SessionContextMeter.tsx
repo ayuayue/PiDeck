@@ -152,6 +152,7 @@ export function SessionContextMeter(props: {
 		| "outputTokens"
 		| "isCompacting"
 		| "cost"
+		| "modelCalls"
 		| "ttftMs"
 		| "totalMs"
 		| "tps"
@@ -293,6 +294,10 @@ export function SessionContextMeter(props: {
 	// 低占用保留有效数字（1M 窗口下 408 tokens ≈ 0.04%，不显示成「0%」）
 	const reading = context !== null ? t("sessionContext.used", { percent: formatPercent(percent) }) : overflowRecovery ? t("sessionContext.overflow") : t("sessionContext.unavailable");
 	const figures = context !== null && [context.usedTokens, context.contextWindow].every((v) => v != null) ? `~${formatTokens(context.usedTokens!)} / ${formatTokens(context.contextWindow!)}` : undefined;
+	// 逐次模型调用指标（#560 ③）：只做压缩摘要，明细在会话日志里；缺失字段不补 0。
+	const modelCalls = props.state?.modelCalls ?? [];
+	const firstTokenSamples = modelCalls.map((call) => call.firstTokenMs).filter((value): value is number => typeof value === "number");
+	const avgFirstToken = firstTokenSamples.length > 0 ? Math.round(firstTokenSamples.reduce((sum, value) => sum + value, 0) / firstTokenSamples.length) : undefined;
 	// host contextBreakdown 三段占用条（dsh-web 同宽算法：各自占 breakdownTotal 份额 × percent）
 	const breakdownSegments =
 		segments?.kind === "breakdown"
@@ -364,6 +369,12 @@ export function SessionContextMeter(props: {
 							</span>
 							{available && figures !== undefined && <span className="ml-auto font-medium tabular-nums text-foreground">{figures}</span>}
 						</div>
+						{modelCalls.length > 0 && (
+							<div className="mt-1.5 flex items-center gap-1.5" title={t("sessionContext.modelCallsHint")}>
+								<span className="text-text-tertiary">{t("sessionContext.modelCalls", { count: modelCalls.length })}</span>
+								{avgFirstToken !== undefined && <span className="ml-auto tabular-nums text-foreground">{t("sessionContext.modelCallsFirstToken", { ms: avgFirstToken })}</span>}
+							</div>
+						)}
 						<div className="mt-2.5 h-1 overflow-hidden rounded-full bg-muted">
 							{segments === null ? (
 								// 无估算数据：单段总占用条（dsh breakdown 缺失时的退化路径）

@@ -171,6 +171,10 @@ test("握手:initialize → session/new;工具命令与项目 cwd 传给 spawn",
 	const newParams = lastProc().methodFrames("session/new")[0]?.params;
 	assert.ok(String(newParams?.cwd).endsWith("proj-p1"), "session/new cwd 指向项目");
 	assert.deepEqual(newParams?.mcpServers, [], "session/new 必须携带 mcpServers: []");
+	// #560 ③：逐次模型调用指标要显式 opt-in，否则 CodeBuddy 会把 usage.model_calls 剥掉。
+	const initMeta = lastProc().methodFrames("initialize")[0]?.params?.clientCapabilities?._meta?.["codebuddy.ai"];
+	assert.equal(initMeta?.mainAgentSupport, true, "mainAgentSupport 不能被新 opt-in 覆盖");
+	assert.equal(initMeta?.modelCallMetrics, true, "modelCallMetrics 必须声明");
 	assert.equal(spawnCalls[0].command, "gemini");
 	assert.deepEqual(spawnCalls[0].args, ["--experimental-acp"]);
 	assert.ok(spawnCalls[0].options.cwd.endsWith("proj-p1"));
