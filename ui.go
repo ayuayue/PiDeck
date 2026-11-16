@@ -413,6 +413,10 @@ func (a *app) searchField() core.Node {
 func (a *app) projectList() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.projectsRev.Get()
+		// The groups are built from a copy of the projects, read untracked,
+		// so the list has to watch the projects themselves: adding or
+		// removing one changes nothing the revision counts.
+		_ = a.workspaces.Get()
 		groups := a.projectGroups()
 		showHeaders := len(groups) > 1 || (len(groups) == 1 && groups[0].Name != "未分组")
 		var out []core.Node

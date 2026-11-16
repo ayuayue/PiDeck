@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -47,5 +48,59 @@ func TestProjectGroups(t *testing.T) {
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:工作")) > 0 })
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:"+name)) > 0 })
+	}
+}
+
+// TestAddingAndRemovingProjectRefreshRail checks the rail takes a new
+// project on at once, and lets a removed one go: the list watches the
+// projects, not just the revision pinning and grouping bump.
+func TestAddingAndRemovingProjectRefreshRail(t *testing.T) {
+	home := t.TempDir()
+	first := t.TempDir()
+	second := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	cfg := config{Version: 1, Theme: "system", SidebarOpen: true,
+		Workspaces: []workspaceCfg{{Path: first, Expanded: true, Added: time.Now()}}}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var built *app
+	root := func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		return built.view()
+	}
+	app := nsgotest.Start(t, root, nsgotest.Size(1200, 800))
+	app.Press("text:" + filepath.Base(first))
+
+	name := filepath.Base(second)
+	app.PickDirectories = func(core.DirectoriesRequest) []core.Directory {
+		return []core.Directory{{Name: name, Path: second}}
+	}
+	app.Press("id:add-project")
+	app.Settle()
+	rows := app.Query("id:project-row")
+	if len(rows) != 2 {
+		t.Fatalf("after adding a project the rail has %d rows, want 2", len(rows))
+	}
+	if last := rows[len(rows)-1].Props.Label; last != name {
+		t.Fatalf("the added project's row says %q, want %q", last, name)
+	}
+
+	if built == nil {
+		t.Fatal("the app was not built")
+	}
+	ws := built.workspaceOf(second)
+	if ws == nil {
+		t.Fatal("the added folder is not a workspace")
+	}
+	built.removeWorkspaceNow(ws)
+	app.Advance(300 * time.Millisecond)
+	if got := len(app.Query("id:project-row")); got != 1 {
+		t.Fatalf("after removing a project the rail has %d rows, want 1", got)
 	}
 }
