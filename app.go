@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -590,7 +591,9 @@ type app struct {
 	// closedTabs are the sessions whose tabs were closed, newest last.
 	closedTabs []string
 	// addonsGen drops a stale plugin reload that finished after a newer one.
-	addonsGen        int
+	addonsGen int
+	// piScanGen drops a pi history scan that finished after a newer one.
+	piScanGen        int
 	gitNewBranchName *core.Signal[string]
 	gitDiffOpen      *core.Signal[bool]
 	gitDiffTitle     *core.Signal[string]
@@ -969,7 +972,7 @@ func newApp(cx *core.Scope) *app {
 	metas := st.scanSessions(a.cfg.Titles)
 	byKey := map[string][]sessionMeta{}
 	for _, m := range metas {
-		key := parseTarget(m.Target).key() + "|" + filepath.Clean(m.Cwd)
+		key := parseTarget(m.Target).key() + "|" + pathKey(m.Cwd)
 		byKey[key] = append(byKey[key], m)
 	}
 	var list []*workspace
@@ -978,13 +981,13 @@ func newApp(cx *core.Scope) *app {
 		ws := &workspace{Path: wc.Path, Name: wc.Name, Group: wc.Group, Pinned: wc.Pinned, Added: wc.Added,
 			Chat:      wc.Chat,
 			Target:    parseTarget(wc.Target),
-			Expanded:  core.NewSignal(cx, wc.Expanded || len(byKey[parseTarget(wc.Target).key()+"|"+wc.Path]) > 0),
+			Expanded:  core.NewSignal(cx, wc.Expanded || len(byKey[parseTarget(wc.Target).key()+"|"+pathKey(wc.Path)]) > 0),
 			Sessions:  core.NewSignalFunc(cx, []*session{}, nil),
 			Pi:        core.NewSignalFunc(cx, []*session(nil), nil),
 			PiOpen:    core.NewSignal(cx, false),
 			PiLoading: core.NewSignal(cx, false),
 			Visible:   core.NewSignal(cx, 0)}
-		for _, m := range byKey[parseTarget(wc.Target).key()+"|"+wc.Path] {
+		for _, m := range byKey[parseTarget(wc.Target).key()+"|"+pathKey(wc.Path)] {
 			sess := a.makeSession(m, ws.Target)
 			ws.Sessions.Update(func(ss []*session) []*session { return append(ss, sess) })
 		}
@@ -1061,6 +1064,17 @@ func newApp(cx *core.Scope) *app {
 // makeSession builds the signals of one stored session.
 func (a *app) makeSession(m sessionMeta, t target) *session {
 	if existing := a.byID[m.ID]; existing != nil {
+		// pi's own session: its file is the authority, so a later reading
+		// brings the name and time it has now. The object is kept, so an
+		// open tab and the rail's row stay the same.
+		if existing.External && m.External {
+			if m.Updated.After(existing.updated.GetUntracked()) {
+				existing.updated.Set(m.Updated)
+			}
+			if m.Title != "" && m.Title != existing.title.GetUntracked() {
+				existing.title.Set(m.Title)
+			}
+		}
 		return existing
 	}
 	s := &session{
@@ -1581,7 +1595,10 @@ func sessionBuckets(list []*session, now time.Time) []sessionGroup {
 		return "更早"
 	}
 	for _, s := range list {
-		l := label(s.updated.GetUntracked())
+		// Read as the row's own time label reads it, so a heading can
+		// never say "昨天" over a row that says "刚刚": the readers of
+		// the time are what rebuilds this grouping.
+		l := label(s.updated.Get())
 		if len(out) == 0 || out[len(out)-1].label != l {
 			out = append(out, bucket{label: l})
 		}
@@ -1632,7 +1649,10 @@ func (a *app) active() *session { return a.byID[a.activeID.Get()] }
 func (a *app) workspaceFor(t target, path string) *workspace {
 	path = cleanTargetPath(t, path)
 	for _, ws := range a.workspaces.Get() {
-		if ws.Path == path && ws.Target.key() == t.key() {
+		if ws.Target.key() != t.key() {
+			continue
+		}
+		if ws.Path == path || (!t.remote() && samePath(ws.Path, path)) {
 			return ws
 		}
 	}
@@ -1653,6 +1673,31 @@ func cleanTargetPath(t target, path string) string {
 		return ""
 	}
 	return filepath.Clean(path)
+}
+
+// samePath reports whether two local folder paths name the same folder.
+// Windows folds the case of a path wherever it goes through the shell, so
+// the same folder turns up as c:\work and C:\Work; elsewhere the two
+// spellings are two folders.
+func samePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+// pathKey is a folder's identity in a map: cleaned, and case-folded on
+// Windows, where a project and the folder a session ran in may be spelled
+// in different case.
+func pathKey(path string) string {
+	p := filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(p)
+	}
+	return p
 }
 
 // allSessions lists sessions in sidebar order.
@@ -1679,6 +1724,12 @@ func (a *app) tick() {
 		if now.Sub(a.lastTray) >= trayIdle {
 			a.lastTray = now
 			a.updateTray()
+		}
+		// pi writes its sessions into its own store; a pass now and then
+		// brings in the ones started in a terminal or another app, which
+		// nothing else would ever tell the rail about.
+		if beats%piScanEvery == 0 && a.cfg.ScanPi {
+			a.rescanPi()
 		}
 		a.cx.AfterFunc(time.Second, loop)
 	}

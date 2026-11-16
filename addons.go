@@ -36,6 +36,12 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// piScanEvery is how many seconds between two background passes over pi's
+// session store. A pass reads no file that did not change, so it is a few
+// stats per session, and a session started in a terminal shows up within
+// this many seconds.
+const piScanEvery = 20
+
 // themeSpec is one look: the built-in ones, or a file of roles over them.
 type themeSpec struct {
 	ID         string
@@ -1307,10 +1313,10 @@ func (a *app) scanProject(ws *workspace) {
 		return
 	}
 	ws.PiLoading.Set(true)
-	cwd := filepath.Clean(ws.Path)
+	cwd := pathKey(ws.Path)
 	titles := a.cfg.Titles
 	go func() {
-		metas := a.st.scanPiSessions(root, titles, func(c string) bool { return filepath.Clean(c) == cwd }, 0)
+		metas := a.st.scanPiSessions(root, titles, func(c string) bool { return pathKey(c) == cwd }, 0)
 		a.cx.Post(func() {
 			ws.piLoaded = true
 			list := make([]*session, 0, len(metas))
@@ -1359,7 +1365,7 @@ func (a *app) rescanPi() {
 	allowed := map[string]bool{}
 	for _, ws := range a.workspaces.GetUntracked() {
 		if !ws.Target.remote() {
-			allowed[filepath.Clean(ws.Path)] = true
+			allowed[pathKey(ws.Path)] = true
 		}
 	}
 	scanAll := a.cfg.ScanAll
@@ -1367,52 +1373,82 @@ func (a *app) rescanPi() {
 		if scanAll {
 			return true
 		}
-		return allowed[filepath.Clean(cwd)]
+		return allowed[pathKey(cwd)]
 	}
 	titles := a.cfg.Titles
 	root := info.SessionsDir
+	// One pass at a time: the newest one answers, so a pass started before
+	// a project was added cannot put the old lists back.
+	a.piScanGen++
+	gen := a.piScanGen
 	go func() {
 		metas := a.st.scanPiSessions(root, titles, keep, 0)
 		byCwd := map[string][]sessionMeta{}
 		for _, m := range metas {
-			cwd := filepath.Clean(m.Cwd)
+			cwd := pathKey(m.Cwd)
 			byCwd[cwd] = append(byCwd[cwd], m)
 		}
-		a.cx.Post(func() { a.setPiSessions(byCwd) })
+		a.cx.Post(func() {
+			if gen != a.piScanGen {
+				return // a newer pass already answered
+			}
+			a.setPiSessions(byCwd)
+		})
 	}()
 }
 
 // setPiSessions puts pi's own sessions under the projects that own them.
 func (a *app) setPiSessions(byCwd map[string][]sessionMeta) {
 	type update struct {
-		ws   *workspace
-		list []*session
+		ws      *workspace
+		list    []*session
+		replace bool
 	}
-	var updates []update
+	updates := make([]update, 0, len(a.workspaces.GetUntracked()))
 	changed := false
 	for _, ws := range a.workspaces.GetUntracked() {
 		if ws.Target.remote() {
 			continue
 		}
-		metas := byCwd[filepath.Clean(ws.Path)]
+		metas := byCwd[pathKey(ws.Path)]
 		list := make([]*session, 0, len(metas))
 		for _, m := range metas {
 			list = append(list, a.makeSession(m, ws.Target))
 		}
-		differs := !ws.piLoaded || ws.PiLoading.GetUntracked() || len(ws.Pi.GetUntracked()) != len(list)
-		if differs {
+		// A pass that found nothing new leaves the list alone: the rows are
+		// the same sessions, and rebuilding them would drop what the rail
+		// holds about them (scroll, hover, a menu just opened).
+		replace := !ws.piLoaded || !sameSessions(ws.Pi.GetUntracked(), list)
+		if replace {
 			changed = true
 		}
-		updates = append(updates, update{ws: ws, list: list})
+		updates = append(updates, update{ws: ws, list: list, replace: replace})
 	}
 	if changed {
 		a.animateNextLayout()
 	}
 	for _, u := range updates {
-		u.ws.Pi.Set(u.list)
+		if u.replace {
+			u.ws.Pi.Set(u.list)
+		}
 		u.ws.piLoaded = true
 		u.ws.PiLoading.Set(false)
 	}
+}
+
+// sameSessions reports whether two readings of a project's pi sessions are
+// the same list in the same order. The session objects of an unchanged
+// project are reused, so the pointers tell it.
+func sameSessions(a, b []*session) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // reopenSavedTabs puts the tabs a saved config names back on screen; pi's
