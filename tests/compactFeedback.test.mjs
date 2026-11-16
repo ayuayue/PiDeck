@@ -203,8 +203,8 @@ test("pi and dsh compact throw already compacting instead of returning success",
 	const pi = agentManagerSource;
 	assert.match(pi, /throw new Error\("already compacting"\)/);
 	assert.doesNotMatch(pi, /Compact skipped: already compacting[\s\S]{0,120}return this\.getRuntimeState\(agentId\)/);
-	const dsh = dshAgentManagerSource;
-	assert.match(dsh, /if \(runtime\.isCompacting\) \{\s*\n\s*throw new Error\("already compacting"\)/);
+	const dsh = [dshAgentManagerSource, readFileSync("src/main/dsh/manager/dshCompact.ts", "utf8")].join("\n");
+	assert.match(dsh, /if \(runtime\.isCompacting\) \{\s*\n\s*throw new Error\("already compacting"\)/, "压缩守卫在 manager/dshCompact（#557 抽出的模块）");
 });
 
 test("locales keep compact feedback keys in sync", () => {

@@ -836,24 +836,40 @@ test("forkSession 拒绝非法 entryId", async () => {
 	}
 });
 
-test("compact 以 /compact 提示词触发 host 命令并返回 runtime state", async () => {
+test("compact 以 /compact 提示词触发 host 命令，turn/end 收口后才算完成", async () => {
 	const { host, client, sessions, calls, promptCalls } = makeFakeHost();
 	sessions.set("session-compact", { sessionId: "session-compact", cwd: PROJECT.path, running: false, blank: false });
 	const manager = new DshAgentManager(host, () => PROJECT);
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh", dshSessionId: "session-compact" });
-	const state = await manager.compact(tab.id);
+	const pending = manager.compact(tab.id);
+	await flush();
 	assert.equal(calls.prompt, 1);
 	assert.equal(promptCalls[0], "/compact", "无参 compact 发送裸 /compact");
-	assert.equal(state.isStreaming, false);
-	assert.equal(state.isCompacting, true);
 	await assert.rejects(() => manager.compact(tab.id, "keep focus on refactor"), /already compacting/, "压缩进行中拒绝第二次 compact，避免拼进命令回合");
 	assert.equal(calls.prompt, 1, "拒绝重复 compact 不得再发 prompt");
 	client.pushFrames(sessionEventFrame("session-compact", event("turn/end", 1)));
+	const state = await pending;
+	assert.equal(state.isStreaming, false);
+	assert.equal(state.isCompacting, false, "命令回合收口后才返回，进行态已复位");
+	// 自定义指令拼在命令后面，同样等收口。
+	const second = manager.compact(tab.id, "keep focus on refactor");
 	await flush();
-	assert.equal((await manager.getRuntimeState(tab.id)).isCompacting, false);
-	await manager.compact(tab.id, "keep focus on refactor");
-	assert.equal(calls.prompt, 2);
 	assert.equal(promptCalls[1], "/compact keep focus on refactor");
+	client.pushFrames(sessionEventFrame("session-compact", event("turn/end", 2)));
+	await second;
+});
+
+test("compact 把 command/done 的 error 文本透给调用方（#557）", async () => {
+	const { host, client, sessions } = makeFakeHost();
+	sessions.set("session-compact", { sessionId: "session-compact", cwd: PROJECT.path, running: false, blank: false });
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh", dshSessionId: "session-compact" });
+	const pending = manager.compact(tab.id);
+	await flush();
+	client.pushFrames(sessionEventFrame("session-compact", event("command/done", 1, { commandId: "c1", kind: "error", text: "Compaction is unavailable because this process has an active compaction, or the agent is not idle." })));
+	client.pushFrames(sessionEventFrame("session-compact", event("turn/end", 1)));
+	await assert.rejects(() => pending, /Compaction is unavailable/, "DSH 命令失败不能再报「压缩完成」");
+	assert.equal((await manager.getRuntimeState(tab.id)).isCompacting, false);
 });
 
 test("capabilities 声明 fork/getForkMessages/compact/getCommands/exportHtml 且不含 pi 专属能力", () => {

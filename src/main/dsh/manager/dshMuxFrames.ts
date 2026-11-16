@@ -27,6 +27,17 @@ export type DshMuxFrameHost = DshProjectionFrameHost & {
 	hydrateRuntimeDshImages(runtime: DshAgentRuntime): Promise<void>;
 };
 
+/**
+ * /compact 命令回合收口（#557）：command/done 报错就带着文本结算，其余按成功。
+ * 只在压缩等待器存在时生效；普通回合的 command/done 不影响任何状态。
+ */
+function settleCompactRound(runtime: DshAgentRuntime): void {
+	const round = runtime.compactRound;
+	if (!round) return;
+	runtime.compactRound = undefined;
+	round.resolve(round.errorText);
+}
+
 /** 共享 mux 帧按 sessionId 分发给对应 runtime。 */
 export function dispatchDshMuxFrame(host: DshMuxFrameHost, frame: { rpcId?: unknown; payload?: unknown }): void {
 	const payload = (frame?.payload ?? frame) as Record<string, unknown> | undefined;
@@ -51,6 +62,12 @@ export function dispatchDshMuxFrame(host: DshMuxFrameHost, frame: { rpcId?: unkn
 	// 但不得触发「回合完成」——否则打开历史会话会把每条历史 turn/end 都提醒一遍。
 	const replayed = payload.replay === true;
 	const event = payload.event as { type?: string; seq?: number; time?: number; data?: unknown } | undefined;
+	// 命令结果（#557）：/compact 是命令回合，成功/失败只看 command/done；busy、摘要失败等
+	// 都以 kind:"error" + text 落盘。记在等待器上，由 turn/end 收口时结算。
+	if (event?.type === "command/done" && runtime.compactRound) {
+		const data = event.data && typeof event.data === "object" ? (event.data as { kind?: unknown; text?: unknown }) : undefined;
+		if (data?.kind === "error") runtime.compactRound.errorText = typeof data.text === "string" && data.text.trim() ? data.text.trim() : "command failed";
+	}
 	// 轨迹过程事件：模型切换/权限/plan/goal/压缩命令等非对话记录
 	// （pi 会话文件过程事件的 DSH 等价物；与消息投影并行收集）。
 	runtime.processEvents = pushDshProcessEvent(runtime.processEvents, collectDshProcessEvent(runtime.processEvents, event));
@@ -91,6 +108,7 @@ export function dispatchDshMuxFrame(host: DshMuxFrameHost, frame: { rpcId?: unkn
 			if (runtime.isCompacting) {
 				runtime.isCompacting = false;
 				host.emitRuntimeState(runtime.tab.id);
+				settleCompactRound(runtime);
 			}
 		}
 		return;
@@ -182,6 +200,8 @@ export function dispatchDshMuxFrame(host: DshMuxFrameHost, frame: { rpcId?: unkn
 		// 消息兜底的轮数/步数要在 turn/end 当帧更新输入框底下的 StatsLine。
 		if (runtime.isCompacting) runtime.isCompacting = false;
 		host.emitRuntimeState(runtime.tab.id);
+		// 命令回合收口：带着 command/done 的结论结算 /compact 等待器（#557）。
+		settleCompactRound(runtime);
 		// 成功收口：通知装配层（会话完成通知 / 桌宠 done 气泡）。
 		// 用户停止、失败回合与 /compact 命令回合都不算「回答完成」（与 pi 的 settled 同口径）；
 		// 回放的历史回合同理不算——它们早就提醒过了。
