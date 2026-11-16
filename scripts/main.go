@@ -8,6 +8,7 @@
 //
 //	go run ./scripts dev                 桌面热重载
 //	go run ./scripts dev android         Android 真机或模拟器
+//	go run ./scripts dev web             浏览器端预览
 //	go run ./scripts build               构建当前平台
 //	go run ./scripts build macos_arm64   构建指定目标
 //	go run ./scripts build all           六个发布目标各构建一次
@@ -95,7 +96,7 @@ func main() {
 	case "menu":
 		h.menu()
 	case "dev":
-		if len(args) > 1 && (args[1] == "android" || args[1] == "ios_simulator") {
+		if len(args) > 1 {
 			h.devTarget(args[1])
 		} else {
 			h.devDesktop()
@@ -222,17 +223,18 @@ func (h *helper) menu() {
 			{"1", "桌面开发（热重载）", "go tool nsgo dev"},
 			{"2", "开发 Android 真机/模拟器", "go tool nsgo dev -target android"},
 			{"3", "手机页桌面预览", "PIDECK_LITE_MOBILE=1 go tool nsgo dev"},
-			{"4", "构建当前平台", "go tool nsgo build -target " + hostTarget()},
-			{"5", "构建指定平台…", "macos / linux / android / ios / web"},
-			{"6", "构建全部发布目标", "六个桌面目标，不含安装器"},
-			{"7", "Android 模拟器与 APK…", "启动、装包、状态、连接链接"},
-			{"8", "测试", "go tool nsgo test"},
-			{"9", "环境检查", "go tool nsgo doctor"},
-			{"10", "打开发布产物目录", "dist/releases"},
+			{"4", "浏览器端预览", "go tool nsgo dev -target web"},
+			{"5", "构建当前平台", "go tool nsgo build -target " + hostTarget()},
+			{"6", "构建指定平台…", "macos / linux / android / ios / web"},
+			{"7", "构建全部发布目标", "六个桌面目标，不含安装器"},
+			{"8", "Android 模拟器与 APK…", "启动、装包、状态、连接链接"},
+			{"9", "测试", "go tool nsgo test"},
+			{"10", "环境检查", "go tool nsgo doctor"},
+			{"11", "打开发布产物目录", "dist/releases"},
 			{"0", "退出", ""},
 		})
 
-		choice, ok := h.ask("\n选择 [0-10]： ")
+		choice, ok := h.ask("\n选择 [0-11]： ")
 		if !ok {
 			fmt.Println()
 			return
@@ -245,18 +247,20 @@ func (h *helper) menu() {
 		case "3":
 			h.devPreview()
 		case "4":
-			h.buildTarget(hostTarget())
+			h.devTarget("web")
 		case "5":
-			h.buildMenu()
+			h.buildTarget(hostTarget())
 		case "6":
-			h.buildAll()
+			h.buildMenu()
 		case "7":
-			h.androidMenu()
+			h.buildAll()
 		case "8":
-			h.test()
+			h.androidMenu()
 		case "9":
-			h.doctor()
+			h.test()
 		case "10":
+			h.doctor()
+		case "11":
 			h.openDist()
 		case "0", "q", "quit":
 			return
@@ -394,6 +398,7 @@ func (h *helper) help() {
   go run ./scripts                    打开菜单（推荐）
   go run ./scripts dev                桌面热重载
   go run ./scripts dev android        Android 真机或模拟器
+  go run ./scripts dev web            浏览器端预览（在浏览器里热重载）
   go run ./scripts preview            手机页桌面预览
   go run ./scripts build [目标]       构建；省略目标时用当前平台
   go run ./scripts build all          六个发布目标各构建一次

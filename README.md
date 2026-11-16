@@ -79,6 +79,7 @@ go run ./scripts android link    # 复制 http://10.0.2.2:<端口>/?token=…
 同一份代码编译成 WebAssembly 后在浏览器里跑的是「客户端」，和手机端同一套界面：浏览器里没有进程和磁盘，`pi`、文件与 Git 仍然由桌面端提供。桌面以外的代码带 `//go:build !js`，所以工作台不进 app.wasm——
 
 ```sh
+go run ./scripts dev web                # 浏览器端热重载预览
 go run ./scripts web                    # 编 web 目标、brotli 压缩、再编带页面的桌面程序
 go build -tags webassets               # 只想自己编：webassets/ 已就位时用这个
 ```
