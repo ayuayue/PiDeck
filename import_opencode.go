@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -42,9 +43,41 @@ func scanOpenCode(root string) ([]importCandidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, ok := tables["session"]; !ok {
+	hasV1, hasV2 := opencodeV1(tables), opencodeV2(tables)
+	if !hasV1 && !hasV2 {
 		return nil, nil
 	}
+	// A 2.x database still holds the sessions it wrote before upgrading, so
+	// both generations are listed; the same id from 2.x wins.
+	byID := map[string]importCandidate{}
+	if hasV1 {
+		rows, err := scanOpenCodeV1(db, path, tables)
+		if err != nil {
+			return nil, err
+		}
+		for _, cand := range rows {
+			byID[cand.ID] = cand
+		}
+	}
+	if hasV2 {
+		rows, err := scanOpenCodeV2(db, path, tables)
+		if err != nil {
+			return nil, err
+		}
+		for _, cand := range rows {
+			byID[cand.ID] = cand
+		}
+	}
+	out := make([]importCandidate, 0, len(byID))
+	for _, cand := range byID {
+		out = append(out, cand)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
+	return out, nil
+}
+
+// scanOpenCodeV1 lists the sessions of OpenCode 1.x.
+func scanOpenCodeV1(db *sql.DB, path string, tables map[string]map[string]bool) ([]importCandidate, error) {
 	counts, latest := opencodeCounts(db)
 	query := `select s.id, coalesce(s.directory,''), coalesce(cast(s.title as text),''), s.time_updated
 		from session s order by s.time_updated desc`
@@ -107,6 +140,11 @@ func readOpenCode(path string) (importedSession, error) {
 		return importedSession{}, err
 	}
 	defer db.Close()
+	if tables, err := importDBTables(db); err == nil && opencodeV2(tables) {
+		if out, ok, err := readOpenCodeV2(db, id); ok || err != nil {
+			return out, err
+		}
+	}
 	out := importedSession{}
 	row := db.QueryRow(`select coalesce(directory,''), coalesce(cast(title as text),''), time_updated from session where id = ?`, id)
 	var dir, title string
@@ -198,6 +236,244 @@ func opencodeMessages(db *sql.DB, id string) ([]opencodeMessage, error) {
 		msgs[at].parts = append(msgs[at].parts, entry)
 	}
 	return msgs, nil
+}
+
+// opencodeV2 reports whether the database carries OpenCode 2.x's tables.
+// The message table only counts when it can be ordered: an early 2.x build
+// wrote it without the seq column.
+func opencodeV2(tables map[string]map[string]bool) bool {
+	cols, ok := tables["session_message"]
+	return tables["session_v2"] != nil && ok && cols["seq"]
+}
+
+// opencodeV1 reports whether the database carries OpenCode 1.x's tables.
+func opencodeV1(tables map[string]map[string]bool) bool {
+	return tables["session"] != nil && tables["message"] != nil && tables["part"] != nil
+}
+
+// scanOpenCodeV2 lists the sessions of OpenCode 2.x, which writes only the
+// top-level conversations here.
+func scanOpenCodeV2(db *sql.DB, path string, tables map[string]map[string]bool) ([]importCandidate, error) {
+	counts, latest := opencodeV2Counts(db)
+	hasProject := tables["project"] != nil
+	query := `select s.id, coalesce(s.directory,''), coalesce(cast(s.title as text),''), s.time_updated
+		from session_v2 s where coalesce(s.parent_id,'') = '' order by s.time_updated desc`
+	if hasProject {
+		query = `select s.id, coalesce(s.directory,''), coalesce(cast(s.title as text),''), s.time_updated
+			from session_v2 s left join project p on p.id = s.project_id
+			where coalesce(s.parent_id,'') = '' order by s.time_updated desc`
+	}
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []importCandidate
+	for rows.Next() {
+		var id, dir, title string
+		var updated any
+		if rows.Scan(&id, &dir, &title, &updated) != nil {
+			continue
+		}
+		cand := importCandidate{Source: "opencode", ID: id, Path: dbSessionPath(path, id), Cwd: dir,
+			Title: importTitle(title), Count: counts[id], Size: int64(counts[id]), Updated: importDBTime(updated)}
+		if at := latest[id]; at.After(cand.Updated) {
+			cand.Updated = at
+		}
+		cand.MTime = cand.Updated
+		out = append(out, cand)
+	}
+	return out, rows.Err()
+}
+
+// opencodeV2Counts counts each 2.x session's turns and finds its last change.
+func opencodeV2Counts(db *sql.DB) (map[string]int, map[string]time.Time) {
+	counts := map[string]int{}
+	latest := map[string]time.Time{}
+	rows, err := db.Query(`select session_id, count(*), max(time_updated) from session_message group by session_id`)
+	if err != nil {
+		return counts, latest
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var n int64
+		var updated any
+		if rows.Scan(&id, &n, &updated) == nil {
+			counts[id] = int(n)
+			latest[id] = importDBTime(updated)
+		}
+	}
+	return counts, latest
+}
+
+// readOpenCodeV2 converts one 2.x session. A database may hold both
+// generations; the session says which one wrote it.
+func readOpenCodeV2(db *sql.DB, id string) (importedSession, bool, error) {
+	out := importedSession{}
+	row := db.QueryRow(`select coalesce(directory,''), coalesce(cast(title as text),''), coalesce(time_updated,0)
+		from session_v2 where id = ?`, id)
+	var dir, title string
+	var updated any
+	if err := row.Scan(&dir, &title, &updated); err != nil {
+		if err == sql.ErrNoRows {
+			return out, false, nil
+		}
+		return out, false, err
+	}
+	out.Cwd, out.Title = dir, importTitle(title)
+	out.Updated = importDBTime(updated)
+	rows, err := db.Query(`select id, type, time_created, data from session_message where session_id = ? order by seq asc`, id)
+	if err != nil {
+		return out, true, err
+	}
+	defer rows.Close()
+	names := map[string]string{}
+	for rows.Next() {
+		var mid, kind string
+		var created, data any
+		if rows.Scan(&mid, &kind, &created, &data) != nil {
+			continue
+		}
+		entry := importDBJSON(data)
+		if entry == nil {
+			continue
+		}
+		at := importDBTime(created)
+		if out.Updated.Before(at) {
+			out.Updated = at
+		}
+		switch kind {
+		case "user":
+			blocks := opencodeV2UserBlocks(entry)
+			if len(blocks) == 0 {
+				continue
+			}
+			out.Messages = append(out.Messages, importMessage{Role: "user", Timestamp: at, Blocks: blocks})
+			if out.Title == "" {
+				out.Title = firstUserBlocks(blocks)
+			}
+		case "assistant":
+			blocks, results, calls := opencodeV2AssistantBlocks(entry, mid, names)
+			if len(blocks) == 0 && len(results) == 0 {
+				continue
+			}
+			model := asMap(entry["model"])
+			msg := importMessage{Role: "assistant", Timestamp: at, Blocks: blocks,
+				Provider: asString(model["providerID"]), Model: asString(model["id"]),
+				StopReason: importStopReason(asString(entry["finish"]), calls > 0),
+				Usage:      importUsageOf(entry["tokens"])}
+			if len(blocks) > 0 {
+				out.Messages = append(out.Messages, msg)
+			}
+			out.Messages = append(out.Messages, results...)
+		}
+	}
+	out.Messages = repairToolResults(out.Messages)
+	return out, true, rows.Err()
+}
+
+// opencodeV2UserBlocks is a 2.x user turn's words and files.
+func opencodeV2UserBlocks(entry map[string]any) []importBlock {
+	var blocks []importBlock
+	if text := stripInjectedReminder(asString(entry["text"])); text != "" {
+		blocks = append(blocks, importBlock{Kind: "text", Text: text})
+	}
+	for _, file := range asList(entry["files"]) {
+		m := asMap(file)
+		if m == nil {
+			continue
+		}
+		mime := firstNonEmpty(asString(m["mime"]), asString(m["mimeType"]))
+		label := firstNonEmpty(asString(m["name"]), asString(m["filename"]), asString(m["uri"]))
+		data := asString(m["data"])
+		if data == "" {
+			if src := asMap(m["source"]); src != nil {
+				data = asString(src["data"])
+				mime = firstNonEmpty(mime, asString(src["mimeType"]))
+			}
+		}
+		if strings.HasPrefix(mime, "image/") || data != "" {
+			blocks = append(blocks, importImageBlock(data, mime, label))
+			continue
+		}
+		blocks = append(blocks, importPlaceholder("attachment", label))
+	}
+	return blocks
+}
+
+// opencodeV2AssistantBlocks maps a 2.x assistant turn.
+func opencodeV2AssistantBlocks(entry map[string]any, messageID string, names map[string]string) (blocks []importBlock, results []importMessage, calls int) {
+	for i, item := range asList(entry["content"]) {
+		m := asMap(item)
+		if m == nil {
+			continue
+		}
+		switch asString(m["type"]) {
+		case "text":
+			if t := asString(m["text"]); t != "" {
+				blocks = append(blocks, importBlock{Kind: "text", Text: t})
+			}
+		case "reasoning":
+			if t := firstNonEmpty(asString(m["text"]), asString(m["thinking"])); t != "" {
+				blocks = append(blocks, importBlock{Kind: "thinking", Thinking: t})
+			}
+		case "tool":
+			callID := firstNonEmpty(asString(m["id"]), fmt.Sprintf("%s:%d", messageID, i))
+			name := orDefault(asString(m["name"]), "tool")
+			state := asMap(m["state"])
+			blocks = append(blocks, importBlock{Kind: "toolCall", ID: callID, Name: name,
+				Arguments: importArguments(state["input"])})
+			calls++
+			names[callID] = name
+			results = append(results, importMessage{Role: "toolResult", ToolCallID: callID, ToolName: name,
+				Text: opencodeV2ToolOutput(state), IsError: asString(state["status"]) == "error"})
+		default:
+			if out, err := json.Marshal(m); err == nil {
+				blocks = append(blocks, importBlock{Kind: "text", Text: string(out)})
+			}
+		}
+	}
+	return blocks, results, calls
+}
+
+// opencodeV2ToolOutput is what a 2.x tool call left behind: its content
+// parts, or why it failed.
+func opencodeV2ToolOutput(state map[string]any) string {
+	if state == nil {
+		return ""
+	}
+	var parts []string
+	for _, item := range asList(state["content"]) {
+		m := asMap(item)
+		if m == nil {
+			continue
+		}
+		if t := asString(m["text"]); t != "" {
+			parts = append(parts, t)
+			continue
+		}
+		label := firstNonEmpty(asString(m["name"]), asString(m["uri"]))
+		if label == "" {
+			label = "attachment"
+		}
+		parts = append(parts, "[attachment: "+label+"]")
+	}
+	if text := strings.Join(parts, "\n"); text != "" {
+		return text
+	}
+	if text := importToolOutput(state["output"]); strings.TrimSpace(text) != "" {
+		return text
+	}
+	if errMap := asMap(state["error"]); errMap != nil {
+		if msg := asString(errMap["message"]); msg != "" {
+			return msg
+		}
+		if out, err := json.Marshal(errMap); err == nil {
+			return string(out)
+		}
+	}
+	return ""
 }
 
 // opencodeBlocks maps one message's parts.

@@ -440,3 +440,50 @@ func TestImportedSessionReadsBack(t *testing.T) {
 	}
 	_ = time.Now
 }
+
+// TestImportOpenCodeV2 reads a session out of OpenCode 2.x's schema, which
+// names its rows differently and orders them by sequence.
+func TestImportOpenCodeV2(t *testing.T) {
+	root := t.TempDir()
+	dbPath := opencodeDB(root)
+	createSQLite(t, dbPath,
+		`create table project (id text, worktree text)`,
+		`create table session_v2 (id text, project_id text, parent_id text, directory text, title text, time_updated integer)`,
+		`create table session_message (id text, session_id text, seq integer, type text, time_created integer, time_updated integer, data text)`,
+		`insert into project values ('p','C:/work/v2')`,
+		`insert into session_v2 values ('ses_v2','p',null,'C:/work/v2','二代会话',900)`,
+		`insert into session_v2 values ('ses_child','p','ses_v2','C:/work/v2','子代理',950)`,
+		`insert into session_message values ('sm1','ses_v2',1,'user',100,100,'{"text":"<system-reminder>ctx</system-reminder>看图","files":[{"name":"a.png","mime":"image/png","data":"aGk="}]}')`,
+		`insert into session_message values ('sm2','ses_v2',2,'assistant',200,200,'{"finish":"tool-calls","model":{"id":"m1","providerID":"prov"},"tokens":{"input":9,"output":4,"cache":{"read":2,"write":1}},"content":[{"type":"reasoning","text":"想一下"},{"type":"text","text":"看一下"},{"type":"tool","id":"call-v2","name":"view","state":{"status":"completed","input":{"path":"a.png"},"content":[{"type":"text","text":"图片内容"}]}}]}')`,
+		`insert into session_message values ('sm3','ses_v2',3,'model-switched',300,300,'{"model":"m2"}')`,
+	)
+	cands, err := scanOpenCode(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cands) != 1 || cands[0].ID != "ses_v2" || cands[0].Cwd != "C:/work/v2" {
+		t.Fatalf("candidates = %+v", cands)
+	}
+	parsed, err := sourceOpenCode.Read(cands[0].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Messages) != 3 {
+		t.Fatalf("messages = %d, want user, assistant and result: %+v", len(parsed.Messages), parsed.Messages)
+	}
+	user := parsed.Messages[0]
+	if user.Role != "user" || len(user.Blocks) != 2 || user.Blocks[0].Text != "看图" || user.Blocks[1].Kind != "image" {
+		t.Fatalf("user message = %+v", user)
+	}
+	assistant := parsed.Messages[1]
+	if assistant.Usage == nil || assistant.Usage.Input != 9 || assistant.Usage.CacheRead != 2 || assistant.Usage.CacheWrite != 1 {
+		t.Fatalf("usage = %+v", assistant.Usage)
+	}
+	if assistant.Provider != "prov" || assistant.Model != "m1" || assistant.StopReason != "toolUse" {
+		t.Fatalf("assistant = %+v", assistant)
+	}
+	result := parsed.Messages[2]
+	if result.Role != "toolResult" || result.ToolCallID != "call-v2" || result.Text != "图片内容" {
+		t.Fatalf("tool result = %+v", result)
+	}
+}

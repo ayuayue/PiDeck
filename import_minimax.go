@@ -145,8 +145,7 @@ func readMinimaxTitle(path string) string {
 		if json.Unmarshal(sc.Bytes(), &line) != nil || line.Message.Role != "user" {
 			continue
 		}
-		text := minimaxText(line.Message.Content)
-		if text != "" && !strings.HasPrefix(text, "<system-reminder") {
+		if text := stripInjectedReminder(minimaxText(line.Message.Content)); text != "" {
 			return firstLine(text, 60)
 		}
 	}
@@ -225,10 +224,11 @@ func readMinimax(path string) (importedSession, error) {
 			StopReason: importStopReason("", hasToolCall(blocks))})
 		if role == "user" && out.Title == "" {
 			for _, b := range blocks {
-				text := strings.TrimSpace(b.Text)
-				if b.Kind == "text" && text != "" && !strings.HasPrefix(text, "<system-reminder") {
-					out.Title = firstLine(text, 60)
-					break
+				if b.Kind == "text" {
+					if text := stripInjectedReminder(b.Text); text != "" {
+						out.Title = firstLine(text, 60)
+						break
+					}
 				}
 			}
 		}
@@ -255,7 +255,9 @@ func minimaxBlocks(raw json.RawMessage) ([]importBlock, []importMessage) {
 	for _, b := range items {
 		switch asString(b["type"]) {
 		case "text":
-			blocks = append(blocks, importBlock{Kind: "text", Text: asString(b["text"])})
+			if text := stripInjectedReminder(asString(b["text"])); text != "" {
+				blocks = append(blocks, importBlock{Kind: "text", Text: text})
+			}
 		case "thinking":
 			blocks = append(blocks, importBlock{Kind: "thinking", Thinking: asString(b["thinking"])})
 		case "tool_use":

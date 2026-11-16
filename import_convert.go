@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -158,7 +159,7 @@ func importStopReason(raw string, hasToolCall bool) string {
 
 // importTitle cleans a name a source gave a session.
 func importTitle(v string) string {
-	text := strings.Join(strings.Fields(v), " ")
+	text := strings.Join(strings.Fields(metaTag.ReplaceAllString(v, " ")), " ")
 	if text == "" || strings.EqualFold(text, "untitled") {
 		return ""
 	}
@@ -324,4 +325,19 @@ func importUsageOf(v any) *importUsage {
 		return nil
 	}
 	return u
+}
+
+// reminderBlock and metaTag are wrappers a tool puts around the user's own
+// words: the agent's context and a timestamp tag are not something anyone
+// typed.
+var (
+	reminderBlock = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
+	metaTag       = regexp.MustCompile(`<meta[^>]*/>`)
+)
+
+// stripInjectedReminder drops the context a tool injects into a message.
+func stripInjectedReminder(text string) string {
+	text = reminderBlock.ReplaceAllString(text, "")
+	text = metaTag.ReplaceAllString(text, "")
+	return strings.TrimSpace(text)
 }
