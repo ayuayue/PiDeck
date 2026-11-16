@@ -103,6 +103,7 @@ func TestTerminalFont(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
+	requirePi(t)
 	home := t.TempDir()
 	t.Setenv("PIDECK_LITE_HOME", home)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))

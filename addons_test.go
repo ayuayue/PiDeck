@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -41,8 +42,14 @@ func TestTargetCommands(t *testing.T) {
 		}
 	}
 
+	// WSL is a Windows host's arrangement: elsewhere the target refuses to
+	// build a command rather than pretend it could run one.
 	if _, err := (target{Kind: targetWSL, Distro: "Ubuntu"}).command("pi", "/w", "", "abc", "", []string{"--mode", "rpc"}); err != nil {
-		t.Fatalf("wsl: %v", err)
+		if runtime.GOOS == "windows" {
+			t.Fatalf("wsl: %v", err)
+		}
+	} else if runtime.GOOS != "windows" {
+		t.Fatal("a WSL target built a command off Windows")
 	}
 	cmd, err := (target{Kind: targetSSH, Host: "me@box"}).command("pi", "/srv/a b", "", "abc", "", []string{"--mode", "rpc"})
 	if err != nil {
@@ -267,6 +274,7 @@ func TestPiSessionsInRail(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
+	requirePi(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
 	piSessions := t.TempDir()
@@ -326,6 +334,7 @@ func TestSessionGroups(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
+	requirePi(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
 	piSessions := t.TempDir()
@@ -360,29 +369,63 @@ func TestSessionGroups(t *testing.T) {
 }
 
 // TestRevealCommands checks the file-manager commands each target builds.
+// Opening a folder is the platform's own program, and the WSL and SSH
+// targets only exist where a Windows host has them.
 func TestRevealCommands(t *testing.T) {
-	cmd, err := revealCmd(localTarget, `C:\proj`)
+	cmd, err := revealCmd(localTarget, "C:/proj")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cmd.Args) == 0 || !strings.Contains(strings.ToLower(cmd.Args[0]), "explorer") {
-		t.Fatalf("local reveal runs %v", cmd.Args)
+	if len(cmd.Args) == 0 {
+		t.Fatal("local reveal built no command")
 	}
-	file, err := revealFileCmd(localTarget, `C:\proj\a.jsonl`)
+	switch program := strings.ToLower(filepath.Base(cmd.Args[0])); runtime.GOOS {
+	case "windows":
+		if program != "explorer.exe" {
+			t.Fatalf("local reveal runs %v", cmd.Args)
+		}
+	case "darwin":
+		if program != "open" {
+			t.Fatalf("local reveal runs %v", cmd.Args)
+		}
+	default:
+		if program != "xdg-open" {
+			t.Fatalf("local reveal runs %v", cmd.Args)
+		}
+	}
+
+	file, err := revealFileCmd(localTarget, "C:/proj/a.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(file.Args, " ")
-	if !strings.Contains(joined, "/select,") || !strings.Contains(joined, "a.jsonl") {
+	if !strings.Contains(joined, "a.jsonl") {
 		t.Fatalf("file reveal runs %q", joined)
 	}
-	wsl, err := revealCmd(target{Kind: targetWSL, Distro: "Ubuntu"}, "/mnt/c/Users/me/p")
-	if err != nil {
-		t.Fatal(err)
+	switch runtime.GOOS {
+	case "windows":
+		if !strings.Contains(joined, "/select,") {
+			t.Fatalf("file reveal runs %q", joined)
+		}
+	case "darwin":
+		if !strings.Contains(joined, "-R") {
+			t.Fatalf("file reveal runs %q", joined)
+		}
 	}
-	wslJoined := strings.Join(wsl.Args, " ")
-	if !strings.Contains(wslJoined, "Ubuntu") || !strings.Contains(wslJoined, `C:\Users\me\p`) {
-		t.Fatalf("wsl reveal runs %q", wslJoined)
+
+	wsl, err := revealCmd(target{Kind: targetWSL, Distro: "Ubuntu"}, "/mnt/c/Users/me/p")
+	if runtime.GOOS != "windows" {
+		if err == nil {
+			t.Fatalf("wsl reveal off Windows runs %v", wsl.Args)
+		}
+	} else {
+		if err != nil {
+			t.Fatal(err)
+		}
+		wslJoined := strings.Join(wsl.Args, " ")
+		if !strings.Contains(wslJoined, "Ubuntu") || !strings.Contains(wslJoined, `C:\Users\me\p`) {
+			t.Fatalf("wsl reveal runs %q", wslJoined)
+		}
 	}
 	if _, err := revealCmd(target{Kind: targetSSH, Host: "box"}, "/srv"); err == nil {
 		t.Fatal("ssh reveal should refuse")

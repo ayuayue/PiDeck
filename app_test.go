@@ -76,6 +76,7 @@ func TestScreens(t *testing.T) {
 // TestSessionScreens opens a real session through pi and captures the
 // chat, composer and drawer.
 func TestSessionScreens(t *testing.T) {
+	requirePi(t)
 	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
 	t.Cleanup(closeAllPi)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))

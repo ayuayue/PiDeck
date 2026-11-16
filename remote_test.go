@@ -188,6 +188,14 @@ func TestRemoteSettings(t *testing.T) {
 // TestRemoteSessionActions drives the phone's write endpoints against a
 // real app: create, rename, pin and delete.
 func TestRemoteSessionActions(t *testing.T) {
+	// The app runs git itself, so the identity has to be in the environment
+	// rather than on a command line: a runner has none configured.
+	for _, env := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
+		t.Setenv(env, "PiDeck Test")
+	}
+	for _, env := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
+		t.Setenv(env, "pideck@example.com")
+	}
 	home := t.TempDir()
 	// The app keeps a watcher on the workspace; its folder is removed by
 	// hand so the test's own cleanup does not race it.

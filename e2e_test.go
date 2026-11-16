@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,16 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
+
+// requirePi skips a test that drives a real pi when it is not installed:
+// everything a session shows comes from pi, and a CI runner has none. Tests
+// that check what the app does without pi do not ask for this.
+func requirePi(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("pi"); err != nil {
+		t.Skip("pi is not on PATH: this test drives a real pi")
+	}
+}
 
 // startApp opens the app on a temp data directory and adds dir as the
 // workspace through the folder browser.
@@ -27,6 +38,7 @@ func startApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App
 // system's folder picker answering dir.
 func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App {
 	t.Helper()
+	requirePi(t)
 	// Always give the app a data folder of its own: without one it would
 	// write its config and seed files into the working directory.
 	if os.Getenv("PIDECK_LITE_HOME") == "" {
@@ -269,6 +281,7 @@ func TestLook(t *testing.T) {
 
 // TestImport copies a session file into the app and opens it.
 func TestImport(t *testing.T) {
+	requirePi(t)
 	dir := workspaceWith(t)
 	src := filepath.Join(dir, "old-session.jsonl")
 	body := `{"type":"session","version":3,"id":"11111111-2222-4333-8444-555555555555","timestamp":"2026-01-02T03:04:05.000Z","cwd":"` + filepath.ToSlash(dir) + `"}
