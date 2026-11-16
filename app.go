@@ -567,6 +567,19 @@ type app struct {
 	forkCollapsed   *core.Signal[map[string]bool]
 	archiveRev      *core.Signal[int]
 	archiveOpen     *core.Signal[bool]
+	// The import dialog: what a scan of the other agents' stores found,
+	// what the user picked, and how far a run has got.
+	impOpen     *core.Signal[bool]
+	impRows     *core.Signal[[]importRow]
+	impScanning *core.Signal[bool]
+	impBusy     *core.Signal[bool]
+	impDone     *core.Signal[int]
+	impTotal    *core.Signal[int]
+	impFailed   *core.Signal[int]
+	impQuery    *core.Signal[string]
+	impOnly     *core.Signal[string]
+	impSel      *core.Signal[[]string]
+	impGen      int
 	outlineOpen     *core.Signal[bool]
 	authEntries     *core.Signal[[]authEntry]
 	authErr         *core.Signal[string]
@@ -759,6 +772,16 @@ func newApp(cx *core.Scope) *app {
 		forkCollapsed:          core.NewSignalFunc(cx, map[string]bool{}, nil),
 		archiveRev:             core.NewSignal(cx, 0),
 		archiveOpen:            core.NewSignal(cx, false),
+		impOpen:                core.NewSignal(cx, false),
+		impRows:                core.NewSignalFunc(cx, []importRow(nil), nil),
+		impScanning:            core.NewSignal(cx, false),
+		impBusy:                core.NewSignal(cx, false),
+		impDone:                core.NewSignal(cx, 0),
+		impTotal:               core.NewSignal(cx, 0),
+		impFailed:              core.NewSignal(cx, 0),
+		impQuery:               core.NewSignal(cx, ""),
+		impOnly:                core.NewSignal(cx, ""),
+		impSel:                 core.NewSignalFunc(cx, []string(nil), nil),
 		outlineOpen:            core.NewSignal(cx, false),
 		authEntries:            core.NewSignalFunc(cx, []authEntry(nil), nil),
 		authErr:                core.NewSignal(cx, ""),
@@ -2246,29 +2269,44 @@ func (a *app) removeWorkspaceNow(ws *workspace) {
 	}
 }
 
-// importSession copies a session file into the app's store and opens it.
+// importSession imports one session file the user picked and opens it. A
+// pi file is copied as it is; another agent's log is converted by its
+// source, and lands under the folder it ran in.
 func (a *app) importSession(path string) {
 	if a.st == nil {
 		return
 	}
-	meta, err := a.st.importAnySession(path)
+	if sniffPi(readHeadBytes(path, 64<<10)) {
+		meta, err := a.st.importSession(path)
+		a.finishFileImport(meta, err)
+		return
+	}
+	source, head := sourceForFile(path)
+	if source == nil {
+		a.toast(ui.ToastError, T("导入失败"), noSourceForFile(head).Error())
+		return
+	}
+	parsed, err := source.Read(path)
 	if err != nil {
-		a.toast(ui.ToastError, "导入失败", err.Error())
+		a.toast(ui.ToastError, T("导入失败"), err.Error())
 		return
 	}
-	ws := a.workspaceOf(meta.Cwd)
-	if ws == nil {
-		a.addWorkspace(meta.Cwd)
-		ws = a.workspaceOf(meta.Cwd)
-	}
-	if ws == nil {
-		a.toast(ui.ToastError, "导入失败", "会话的工作目录不可用")
+	cwd := a.importCwdFor(importCandidate{Source: source.Key, Path: path, Cwd: parsed.Cwd})
+	meta, err := a.st.writeFileImport(*source, path, parsed, cwd)
+	a.finishFileImport(meta, err)
+}
+
+// finishFileImport puts an imported file's session in the rail and opens it.
+func (a *app) finishFileImport(meta sessionMeta, err error) {
+	if err != nil {
+		a.toast(ui.ToastError, T("导入失败"), err.Error())
 		return
 	}
-	s := a.makeSession(meta, localTarget)
-	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
-	a.selectSession(s)
-	a.toast(ui.ToastSuccess, "已导入会话", meta.Title)
+	a.addImportedSession(meta)
+	if s := a.byID[meta.ID]; s != nil {
+		a.selectSession(s)
+	}
+	a.toast(ui.ToastSuccess, T("已导入会话"), meta.Title)
 }
 
 // deleteSession moves a session out of the store.

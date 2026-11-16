@@ -298,7 +298,16 @@ go build -tags webassets               # 只想自己编：webassets/ 已就位�
 - 加载占位：项目历史与项目会话数量在读取时显示 pulse 骨架；打开历史会话时先把会话文件读到正文里
   （解析按大小+修改时间缓存，会话变长只读新尾部），pi 起来后消息数一致就不再取 `get_messages`，
   对不上（压缩过或正在跑）才回退
-- 导入会话：pi 的 `.jsonl` 直接复制；Codex rollout 与 Claude Code 日志会转换后写入应用目录；原文件不动；删除进 `trash/`
+- 导入会话（欢迎页「导入会话」或命令面板「导入会话…」）：一个对话框扫遍 Claude Code / Qoder /
+  Codex CLI / Cursor / Kimi Code / Kimi Work / MiniMax / ZCode / OpenCode / WorkBuddy / CodeBuddy
+  的会话库，按来源筛选、搜索、勾选、批量导入；每行标「新 / 已导入 / 有更新」，导入时显示进度与失败数。
+  转换保留文字、思考、工具调用与结果、图片（超过约 256KB 的图转占位），导入的会话按原目录归位
+  （原目录已不在就用当前项目）；只写本应用自己的会话目录，原文件不动。产物头部带 `*_import` 标记
+  （源路径、大小、修改时间、转换器版本），所以再导一次是幂等的，源变了才重导并覆盖同一份，
+  会话 ID 不变。pi 的 `.jsonl` 仍按原样复制；删除进 `trash/`
+- 导入源的会话库位置可用环境变量覆盖（非标准安装或测试用）：
+  `PIDECK_LITE_IMPORT_CLAUDE_DIR`、`_QODER_DIR`、`_CODEX_DIR`、`_CURSOR_DIR`、`_KIMI_DIR`、
+  `_MINIMAX_DIR`、`_ZCODE_DIR`、`_OPENCODE_DIR`、`_WORKBUDDY_DIR`、`_CODEBUDDY_DIR`
 - 配置 `config.json`：工作区（含目标）、标签、收藏、默认模型与思考等级、主题、标题、键位、停用的插件、插件设置、智能体绑定、代理、生图供应商/模型/尺寸、编辑器与终端字号；旧文件读取时自动迁移并回写，越界的枚举/尺寸/端口会重置
 - 整理数据：收藏写 `favorites.json`（回复是正文快照、会话是引用，最多 200 条），定时任务与运行历史写 `tasks.json`（历史最多 200 条），自定义智能体写 `agents/custom.json`；都是可读 JSON、原子写，坏了按空列表重建，不阻断启动
 
@@ -430,7 +439,20 @@ go build -tags webassets               # 只想自己编：webassets/ 已就位�
 | `ui_mcp.go` | MCP 设置页：服务器列表、添加对话框与移除确认 |
 | `projects.go` | 项目分组、置顶、排序与顺序持久化 |
 | `ui_projects.go` | 项目分组对话框：名称输入与已有分组建议 |
-| `import_ext.go` | 导入 Codex / Claude 会话：识别格式、提取消息、写成 pi 会话 |
+| `import_source.go` | 导入骨架：来源注册、扫描、状态（新/已导入/有更新）、原子写入与 `*_import` 标记 |
+| `import_convert.go` | 各源共用的块映射：工具参数、工具输出、stopReason、图片上限、工具结果补齐 |
+| `import_claude.go` | Claude Code / Qoder：活链重建、连续 assistant 合并、孤儿 toolResult 降级 |
+| `import_codex.go` | Codex CLI rollout：session_meta、消息、function_call/output、reasoning |
+| `import_family.go` | 按项目 slug 分目录的两个家族：编码/解码、递归收集 |
+| `import_cursor.go` | Cursor agent transcript：`<timestamp>`/`<user_query>` 提取、工具配对 |
+| `import_kimi.go` | Kimi Code（索引 + appended 去重）与 Kimi Work（loop event 聚合） |
+| `import_codebuddy.go` | WorkBuddy / CodeBuddy：reasoning 与 function_call 摊平成独立行，聚合成一条 assistant |
+| `import_minimax.go` | MiniMax：日期树目录、manifest、llm-call 里的 working directory |
+| `import_zcode.go` / `import_opencode.go` | SQLite 源：ZCode 与 OpenCode 的 session/message/part |
+| `import_db.go` | SQLite 打开（只读 + WAL）、表结构探测、时间列 |
+| `import_run.go` | 导入动作：列表筛选、勾选、并发转换、进度与结果提示 |
+| `ui_import.go` | 导入对话框：来源 chips、搜索、勾选、进度条与状态徽标 |
+| `import_ext.go` | 单文件导入：嗅探格式（pi 复制、其余交给对应来源转换） |
 | `search.go` | 全局搜索：会话索引、标题/正文匹配、片段截取与打开 |
 | `ui_search.go` | 全局搜索对话框：输入、结果列表与索引重建 |
 | `ask.go` | 并行问询：后台会话、上下文拼装、等待答案与回填 |
@@ -673,7 +695,13 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - ACP 权限记忆跟着归档走；删除归档或执行「清除 ACP 权限记忆」后重新询问
 - 项目默认 ACP 预设就是上次使用的预设；没有单独的设置页，只能在预设对话框里清除
 - ACP 进程退出后不会自动重启，需要发下一条消息或执行「重新连接 ACP」
-- Codex / Claude 导入只保留用户与助手文本；工具调用、思考与附件会丢掉，能否继续运行取决于 pi 对转换后消息的接受程度
+- 导入保留文字、思考、工具调用与结果、图片（超过约 256KB 的图转占位）；源里没有答案的工具调用会补一条空结果，
+  否则那份会话在 pi 里读不完整
+- ZCode / OpenCode 读 SQLite：只读打开并带 WAL（另一个进程正在写也能读到完整会话）；OpenCode 目前按 1.x 的
+  session/message/part 三表读，2.x 的 `session_v2` 尚未兼容；Kimi Work 的位置从
+  `%APPDATA%/kimi-desktop/daimon-storage.json` 的 `shareDir` 找，找不到才看 `daimon-share`
+- Cursor 需要 `~/.cursor/projects`（本机没有这个目录就不列）；CodeBuddy 家族的目录名对项目路径是有损编码
+  （`a-b` 与 `a/b` 同名），所以优先用会话记录里的 cwd，记录里没有才按目录名还原
 - 项目分组暂不支持拖拽；用右键菜单的上移/下移与「移动到分组…」调整
 - Git 历史一次最多读到 500 条；更早的提交需要按条件筛选或到终端查看
 - 远程分支不能新建，只能检出为本地跟踪分支，或删除远端上的分支（本地同名分支保留）
