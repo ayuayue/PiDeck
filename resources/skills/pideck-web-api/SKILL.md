@@ -208,6 +208,22 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
 
 **会话记录存在时，对端进程死没死都能送到**：服务端会替你 activate 一次。反过来，对端忙的时候整条连接可能只有 `: ping` 心跳，`total` 也不当场变大，而消息确实进了它的对话——拿 `total` 当判据会判成没送到，重发一次就变成两条重复消息。
 
+把上面的规则变成可执行的一条：
+
+```bash
+curl -sN --max-time 30 -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"id":"<目标 sessionId>","messages":[{"role":"user","parts":[{"type":"text","text":"ping"}]}]}' \
+  "$BASE/api/chat" > /tmp/chat.txt
+if grep -q '"type":"error"' /tmp/chat.txt; then
+  echo "FAIL 没送到：$(sed -n 's/.*"errorText":"\([^"]*\)".*/\1/p' /tmp/chat.txt | head -1)"; exit 1
+fi
+echo "PASS 没有 error 帧"
+```
+
+目标会话没激活时这条命令会自己拉起它（服务端替你 activate），不必先手动 activate，但第一次可能慢几秒。
+
+`--max-time 30` 到点就断，长回复收不全；判「送到没有」只看有没有 `error` 帧，不要等 `finish`。
+
 ### 5.4 对方在 goal 模式时
 
 发完消息立刻补一条 `/goal on`，**单独成一条，正文一个字都不带**。
@@ -219,7 +235,7 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
 发送前能机器核的一条：
 
 ```bash
-[ "$(cat msg.txt)" = "/goal on" ] || { echo "只发 /goal on，不带正文"; exit 1; }
+[ "$(wc -c < msg.txt)" -eq 8 ] || { echo "msg.txt 必须正好 8 字节：/goal on，无换行无正文"; exit 1; }
 ```
 
 用 `printf` 写 msg.txt，别用 `echo`（后者会补换行或解释反斜杠，你真发出去的就不是你以为的那串）。

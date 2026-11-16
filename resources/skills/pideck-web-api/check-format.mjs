@@ -185,4 +185,5 @@ if (st.total < 8) {
   console.log("FAIL 这个文件里只有 " + st.fences + " 个围栏、" + st.tableRows + " 行表格、" + st.boldPairs + " 对加粗，没有可查的结构（拿错文件了？）");
   process.exit(1);
 }
+if (!problems.length) console.log("check-format: " + path.basename(P) + " 围栏 " + st.fences + " / 表格行 " + st.tableRows + " / 加粗对 " + st.boldPairs + "，问题 0 条");
 process.exit(problems.length ? 1 : 0);
