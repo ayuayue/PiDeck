@@ -156,18 +156,25 @@ func (a *app) loadEarlier(s *session) core.Node {
 const (
 	// axisBand is the share of the height the ruler spans, centered.
 	axisBand = 46
-	// axisTickWidth is how long a tick is drawn, and axisStep the gap from
-	// one tick's top to the next one's, so the density and the scale's
-	// reach stay in one place.
-	axisTickWidth = 18
-	axisTickHit   = axisTickWidth + 4
-	axisStep      = 12
+	// axisTickWidth is how long a tick grows to under the pointer, and
+	// axisTickNarrow how long it rests; axisStep is the gap from one tick's
+	// top to the next one's, so the density and the scale's reach stay in
+	// one place.
+	axisTickWidth  = 18
+	axisTickNarrow = 6
+	axisTickHit    = axisTickWidth + 4
+	axisStep       = 12
 	// axisMost and axisLeast bound the ticks however tall the window is.
 	axisMost  = 97
 	axisLeast = 9
 	// axisChrome is what the tab bar and padding take above the chat pane.
 	axisChrome = 56
 )
+
+// axisGrow eases a tick from its resting length to the long mark under the
+// pointer; TransitionLayout is what animates a resize.
+var axisGrow = core.Transition{Duration: 140 * time.Millisecond, Easing: core.EaseOut,
+	Properties: core.TransitionLayout | core.TransitionBackground}
 
 // axisTicks is how many ticks the ruler draws for a band this tall.
 func axisTicks(height float64) int {
@@ -228,12 +235,28 @@ func (a *app) turnAxis(s *session) core.Node {
 				Role:    core.RoleButton, LabelFunc: func() string { return a.axisTip(s, f) },
 				TestID: fmt.Sprintf("axis-tick-%d", i),
 				StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(axisTickWidth), Height: core.Pt(2.5), CornerRadius: 1.25, Background: colors.Faint(),
-						Hover: &core.Style{Background: colors.Text()}}
+					// A short mark at rest; the one under the pointer grows out
+					// to its full length, so the scale does not read as a picket
+					// fence at rest.
+					st := core.Style{Width: core.Pt(axisTickNarrow), Height: core.Pt(2.5), CornerRadius: 1.25,
+						Background: colors.Faint(), Transition: axisGrow}
+					if a.axisHover.Get() == i {
+						st.Width = core.Pt(axisTickWidth)
+						st.Background = colors.Text()
+					}
+					return st
 				},
 			}
 			marks = append(marks, core.View{
 				OnMouseEnter: func(core.MouseEvent) { a.hoverAxis(i) },
+				// Leaving the box clears only its own tick, so moving from
+				// one mark to the next keeps pointing at the new one
+				// whichever of the two events arrives first.
+				OnMouseLeave: func(core.MouseEvent) {
+					if a.axisHover.GetUntracked() == i {
+						a.axisHover.Set(-1)
+					}
+				},
 				Style: core.Style{Width: core.Pt(axisTickHit), Height: core.Pt(box), AlignItems: core.AlignCenter,
 					JustifyContent: core.JustifyCenter}, Children: []core.Node{bar}})
 		}

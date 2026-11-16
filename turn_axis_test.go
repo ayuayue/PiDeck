@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,12 +40,10 @@ func TestAxisTicks(t *testing.T) {
 	}
 }
 
-// TestTurnAxis opens a stored ACP transcript with many turns, checks the
-// ruler appears, and jumps to its start with a tick.
-func TestTurnAxis(t *testing.T) {
-	if testing.Short() || nsgotest.Target() != "" {
-		t.Skip("driven headless; a platform run is for pixels")
-	}
+// openLongSession opens a stored ACP transcript with many turns and returns
+// the app with its ruler showing.
+func openLongSession(t *testing.T) *nsgotest.App {
+	t.Helper()
 	home := editorWorkspace(t)
 	workspace := editorWorkspace(t)
 	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
@@ -87,8 +86,70 @@ func TestTurnAxis(t *testing.T) {
 	app.Press("role:button 长会话 >> nth=0")
 	app.WaitFor("id:composer", 20*time.Second)
 	app.WaitFor("id:axis-tick-0", 10*time.Second)
+	return app
+}
+
+// TestTurnAxis checks the ruler appears and jumps to the start with a tick.
+func TestTurnAxis(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := openLongSession(t)
 	app.Press("id:axis-tick-0")
 	app.WaitFor("label:跳到最新消息", 5*time.Second)
+}
+
+// TestAxisTicksGrowOnHover keeps the ruler's marks short at rest and grows
+// only the one under the pointer, so the scale reads as a track instead of a
+// picket fence.
+func TestAxisTicksGrowOnHover(t *testing.T) {
+	if testing.Short() {
+		t.Skip("opens a window")
+	}
+	app := openLongSession(t)
+	// The bar's frame is what the layout transition animates, so read it
+	// after the clock has had time to land. A real window rounds lengths to
+	// its device pixels, hence the tolerance.
+	width := func(id string) float64 {
+		t.Helper()
+		app.Advance(300 * time.Millisecond)
+		return float64(app.Find(id).Frame.Size.Width)
+	}
+	near := func(got float64, want int) bool { return math.Abs(got-float64(want)) < 1 }
+
+	if got := width("id:axis-tick-0"); !near(got, axisTickNarrow) {
+		t.Fatalf("tick at rest = %v, want %v", got, axisTickNarrow)
+	}
+	shot(app, "57-axis-ticks-rest")
+
+	app.Hover("id:axis-tick-3")
+	if got := width("id:axis-tick-3"); !near(got, axisTickWidth) {
+		t.Fatalf("tick under the pointer = %v, want %v", got, axisTickWidth)
+	}
+	if got := width("id:axis-tick-0"); !near(got, axisTickNarrow) {
+		t.Fatalf("a tick away from the pointer = %v, want %v", got, axisTickNarrow)
+	}
+	shot(app, "58-axis-ticks-hover")
+
+	// Sliding down the scale shortens the mark left behind and grows the one
+	// the pointer reached.
+	app.Hover("id:axis-tick-8")
+	if got := width("id:axis-tick-3"); !near(got, axisTickNarrow) {
+		t.Fatalf("the mark left behind = %v, want %v", got, axisTickNarrow)
+	}
+	if got := width("id:axis-tick-8"); !near(got, axisTickWidth) {
+		t.Fatalf("the mark reached = %v, want %v", got, axisTickWidth)
+	}
+
+	// Leaving the scale shortens the mark again. A real window moves the
+	// pointer out of the surface as the platform reports it, which the test
+	// host cannot drive, so this runs headless.
+	if nsgotest.Target() == "" {
+		app.HoverOut()
+		if got := width("id:axis-tick-8"); !near(got, axisTickNarrow) {
+			t.Fatalf("the mark after the pointer left = %v, want %v", got, axisTickNarrow)
+		}
+	}
 }
 
 // TestTurnAtFraction checks which turn the ruler's tooltip names: the one
