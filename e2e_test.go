@@ -141,6 +141,12 @@ func shot(app *nsgotest.App, name string) {
 	}
 }
 
+// openPhoneRail opens the project rail on a phone: the sessions live in
+// the drawer there, not on the page.
+func openPhoneRail(app *nsgotest.App) {
+	app.Press("id:mobile-drawer")
+}
+
 // workspaceWith makes a temp project with a small file pi can read.
 func workspaceWith(t *testing.T) string {
 	t.Helper()

@@ -110,8 +110,11 @@ func TestMobileConnect(t *testing.T) {
 	app.Type("id:mobile-token", token)
 	app.Press("id:mobile-connect")
 	waitApp(app, "text:电脑项目", 15*time.Second)
+	shot(app, "60-mobile-home")
+	// The projects and their sessions live in the drawer.
+	openPhoneRail(app)
 	app.WaitFor("id:mobile-session", 10*time.Second)
-	shot(app, "60-mobile-sessions")
+	shot(app, "60-mobile-rail")
 	// A press can land while the list is still settling; try again.
 	for i := 0; i < 3; i++ {
 		app.Press("id:mobile-session")
@@ -502,6 +505,186 @@ func TestRemoteSessionActions(t *testing.T) {
 	}
 }
 
+// TestRemoteRailLists serves the three lists the rail opens: the agents a
+// new session can start with, the cron tasks, and the favorites.
+func TestRemoteRailLists(t *testing.T) {
+	home := t.TempDir()
+	// The app keeps a watcher on the workspace; its folder is removed by
+	// hand so the test's own cleanup does not race it.
+	workspace, err := os.MkdirTemp("", "pideck-rail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		time.Sleep(200 * time.Millisecond)
+		_ = os.RemoveAll(workspace)
+	})
+	t.Setenv("PIDECK_LITE_HOME", home)
+	setUILanguage(langZhCN)
+	t.Cleanup(func() { setUILanguage(langZhCN) })
+	write := func(name string, value any) {
+		t.Helper()
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, name), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("config.json", config{Version: 1, Workspaces: []workspaceCfg{{Path: workspace, Name: "RailProject"}},
+		Theme: "system", SidebarOpen: true, ScanPi: false})
+	write("tasks.json", map[string]any{"version": 1, "tasks": []map[string]any{{
+		"id": "t1", "name": "晨报", "prompt": "写今天的晨报", "project": workspace,
+		"cron": "0 9 * * *", "enabled": true,
+	}}})
+	write("favorites.json", map[string]any{"version": 1, "entries": []map[string]any{
+		{"id": "f1", "kind": "reply", "sessionId": "s1", "sessionTitle": "电脑上的会话",
+			"project": workspace, "prompt": "怎么跑测试", "text": "go test ./..."},
+		{"id": "f2", "kind": "session", "sessionId": "s1", "sessionTitle": "电脑上的会话"},
+	}})
+
+	var built *app
+	root := func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		return built.view()
+	}
+	screen := nsgotest.Start(t, root, nsgotest.Size(1200, 800))
+	if built == nil || built.remote == nil {
+		t.Fatal("the app did not build its remote host")
+	}
+	built.remote.mu.Lock()
+	built.remote.token = "phone-token"
+	built.remote.mu.Unlock()
+	handler := built.remote.handler()
+
+	// The handler waits for the UI thread, so each request runs in its own
+	// goroutine while this one pumps the app.
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		done := make(chan *httptest.ResponseRecorder, 1)
+		go func() {
+			req := httptest.NewRequest(method, path, strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer phone-token")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			done <- rec
+		}()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			select {
+			case rec := <-done:
+				return rec
+			default:
+				if time.Now().After(deadline) {
+					t.Fatal("request timed out")
+				}
+				screen.Settle()
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+	}
+
+	rec := call(http.MethodGet, "/api/agents", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("agents = %d: %s", rec.Code, rec.Body.String())
+	}
+	var agents remoteWireAgents
+	if err := json.Unmarshal(rec.Body.Bytes(), &agents); err != nil {
+		t.Fatalf("agents body = %s", rec.Body.String())
+	}
+	found := false
+	for _, a := range agents.Agents {
+		if a.ID == "review" && a.Name != "" && a.Description != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("agents = %+v", agents.Agents)
+	}
+
+	// A session started with an agent keeps it, and is named after it.
+	rec = call(http.MethodPost, "/api/sessions", `{"project":`+strconv.Quote(workspace)+`,"agent":"review"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create with agent = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || created.ID == "" {
+		t.Fatalf("created = %s", rec.Body.String())
+	}
+	if got := built.agentByID("review"); got == nil || created.Title != got.Name {
+		t.Fatalf("session title = %q, want the agent's name", created.Title)
+	}
+	// The UI thread is the test's own: ask it what the session kept.
+	persona := make(chan string, 1)
+	built.cx.Post(func() {
+		got := ""
+		if s := built.byID[created.ID]; s != nil {
+			got = s.personaID
+		}
+		persona <- got
+	})
+	screen.Settle()
+	if got := <-persona; got != "review" {
+		t.Fatalf("session persona = %q, want review", got)
+	}
+	rec = call(http.MethodGet, "/api/tasks", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tasks = %d: %s", rec.Code, rec.Body.String())
+	}
+	var tasks remoteWireTasks
+	if err := json.Unmarshal(rec.Body.Bytes(), &tasks); err != nil {
+		t.Fatalf("tasks body = %s", rec.Body.String())
+	}
+	if len(tasks.Tasks) != 1 || tasks.Tasks[0].Name != "晨报" || !tasks.Tasks[0].Enabled {
+		t.Fatalf("tasks = %+v", tasks.Tasks)
+	}
+	if tasks.Tasks[0].NextRunAt == 0 {
+		t.Fatalf("no next run: %+v", tasks.Tasks[0])
+	}
+
+	rec = call(http.MethodPost, "/api/tasks/t1/toggle", `{"enabled":false}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("toggle = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodGet, "/api/tasks", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &tasks); err != nil || len(tasks.Tasks) != 1 || tasks.Tasks[0].Enabled {
+		t.Fatalf("tasks after toggle = %+v, %v", tasks.Tasks, err)
+	}
+	rec = call(http.MethodPost, "/api/tasks/t1/jump", `{}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown task action = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(http.MethodPost, "/api/tasks/t1/toggle", `{}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("toggle without a value = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = call(http.MethodGet, "/api/favorites", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("favorites = %d: %s", rec.Code, rec.Body.String())
+	}
+	var favorites remoteWireFavorites
+	if err := json.Unmarshal(rec.Body.Bytes(), &favorites); err != nil {
+		t.Fatalf("favorites body = %s", rec.Body.String())
+	}
+	if len(favorites.Favorites) != 2 {
+		t.Fatalf("favorites = %+v", favorites.Favorites)
+	}
+	kinds := map[string]bool{}
+	for _, f := range favorites.Favorites {
+		kinds[f.Kind] = true
+		if f.Kind == favoriteReply && f.Text == "" {
+			t.Fatalf("reply without text: %+v", f)
+		}
+	}
+	if !kinds["reply"] || !kinds["session"] {
+		t.Fatalf("favorite kinds = %+v", kinds)
+	}
+}
+
 // TestRemoteSearch finds a word in a session's messages.
 func TestRemoteSearch(t *testing.T) {
 	home := t.TempDir()
@@ -687,7 +870,9 @@ func TestMobileRecentAfterConnect(t *testing.T) {
 	}
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
 	waitApp(app, "text:电脑项目", 15*time.Second)
-	app.Press("id:mobile-more")
+	openPhoneRail(app)
+	app.Press("id:mobile-settings")
+	app.WaitFor("id:mobile-settings-sheet", 5*time.Second)
 	app.Press("id:mobile-disconnect")
 	app.WaitFor("text:最近连接", 5*time.Second)
 	if got := len(app.Query("id:mobile-recent")); got != 1 {
@@ -756,6 +941,7 @@ func TestMobileAsk(t *testing.T) {
 	app.Type("id:mobile-token", token)
 	app.Press("id:mobile-connect")
 	waitApp(app, "text:电脑项目", 15*time.Second)
+	openPhoneRail(app)
 	app.WaitFor("id:mobile-session", 10*time.Second)
 	// The press can land while the list settles; try again.
 	for i := 0; i < 3; i++ {
