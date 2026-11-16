@@ -278,6 +278,23 @@ type app struct {
 	agentBackend    *core.Signal[string]
 	agentApply      *core.Signal[bool]
 
+	// Announcements: the feed the maintainer publishes, the entries the
+	// user has read, and when the feed was last read. announceMu guards
+	// the list the fetch and the UI both touch.
+	announceMu      sync.Mutex
+	announceItems   []announceItem
+	announceRead    map[string]bool
+	announceFetched time.Time
+	announceRev     *core.Signal[int]
+	announceOpen    *core.Signal[bool]
+	announceBusy    *core.Signal[bool]
+	announceErr     *core.Signal[string]
+
+	// The feedback dialog: what the user wrote and the report beside it.
+	feedbackOpen   *core.Signal[bool]
+	feedbackText   *core.Signal[string]
+	feedbackReport *core.Signal[string]
+
 	// The keyboard cheat sheet.
 	shortcutsOpen  *core.Signal[bool]
 	shortcutsQuery *core.Signal[string]
@@ -777,6 +794,13 @@ func newApp(cx *core.Scope) *app {
 		resourcesLoading:       core.NewSignal(cx, false),
 		askBox:                 core.NewSignal(cx, askBox{}),
 		askText:                core.NewSignal(cx, ""),
+		announceRev:            core.NewSignal(cx, 0),
+		announceOpen:           core.NewSignal(cx, false),
+		announceBusy:           core.NewSignal(cx, false),
+		announceErr:            core.NewSignal(cx, ""),
+		feedbackOpen:           core.NewSignal(cx, false),
+		feedbackText:           core.NewSignal(cx, ""),
+		feedbackReport:         core.NewSignal(cx, ""),
 		projectsRev:            core.NewSignal(cx, 0),
 		filesRev:               core.NewSignal(cx, 0),
 		filesQuery:             core.NewSignal(cx, ""),
@@ -925,6 +949,7 @@ func newApp(cx *core.Scope) *app {
 	a.favModels.Set(a.cfg.FavModels)
 	a.favorites = a.loadFavorites()
 	a.loadTasks()
+	a.loadAnnouncements()
 
 	metas := st.scanSessions(a.cfg.Titles)
 	byKey := map[string][]sessionMeta{}
@@ -1014,6 +1039,7 @@ func newApp(cx *core.Scope) *app {
 	}
 	a.setupDesktop()
 	a.startTaskScheduler()
+	a.startAnnouncements()
 	return a
 }
 

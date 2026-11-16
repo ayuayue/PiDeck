@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -142,54 +143,88 @@ func (a *app) loadEarlier(s *session) core.Node {
 	}
 }
 
-// axisTicks is the turns the ruler marks: every one of a short session,
-// and an even sample of a long one, so the ticks stay apart.
-func axisTicks(n int) []int {
-	const most = 24
+// The ruler at the transcript's right edge: a fine scale of scroll
+// positions, drawn across the middle of the height only, so it reads as
+// a track without claiming the whole conversation.
+const (
+	// axisBand is the share of the height the ruler spans, centered.
+	axisBand = 46
+	// axisStep is the gap between ticks, in points.
+	axisStep = 7
+	// axisMost and axisLeast bound the ticks however tall the window is.
+	axisMost  = 97
+	axisLeast = 9
+	// axisChrome is what the tab bar and padding take above the chat pane.
+	axisChrome = 56
+)
+
+// axisTicks is how many ticks the ruler draws for a band this tall.
+func axisTicks(height float64) int {
+	if height <= 0 {
+		return 0
+	}
+	n := int(math.Round(height/axisStep)) + 1
+	if n < axisLeast {
+		n = axisLeast
+	}
+	if n > axisMost {
+		n = axisMost
+	}
+	return n
+}
+
+// axisFractions are the scroll positions of the ticks, evenly spaced from
+// the start of the transcript to its end.
+func axisFractions(n int) []float64 {
 	if n <= 0 {
 		return nil
 	}
-	if n <= most {
-		out := make([]int, n)
-		for i := range out {
-			out[i] = i
-		}
-		return out
+	if n == 1 {
+		return []float64{0.5}
 	}
-	out := make([]int, most)
+	out := make([]float64, n)
 	for i := range out {
-		out[i] = i * (n - 1) / (most - 1)
+		out[i] = float64(i) / float64(n-1)
 	}
 	return out
 }
 
-// turnAxis is the ruler at the transcript's right edge: one tick per
-// turn, and a click scrolls to where that tick stands.
+// turnAxis is the scroll ruler at the transcript's right edge: a fine
+// scale of scroll positions across the middle of the height, and a click
+// scrolls to the fraction its tick stands for.
 func (a *app) turnAxis(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		ticks := axisTicks(len(s.turns.Get()))
-		if len(ticks) < 3 {
+		if len(s.turns.Get()) < 3 {
 			return nil
 		}
 		colors := ui.ColorsOf(cx)
-		var marks []core.Node
-		for j, i := range ticks {
-			j, i := j, i
+		window := cx.Env().Window()
+		pane := float64(window.Height) - axisChrome
+		if pane <= 0 {
+			return nil
+		}
+		bandHeight := pane * axisBand / 100
+		fractions := axisFractions(axisTicks(bandHeight))
+		marks := make([]core.Node, 0, len(fractions))
+		for i, f := range fractions {
+			i, f := i, f
 			marks = append(marks, core.View{
-				OnPress: func(core.PressEvent) { a.jumpToTurn(s, float64(j)/float64(len(ticks)-1)) },
-				Role:    core.RoleButton, Label: T("跳到第 %d 轮", i+1),
-				TestID: fmt.Sprintf("turn-tick-%d", j),
+				OnPress: func(core.PressEvent) { a.jumpToTurn(s, f) },
+				Role:    core.RoleButton, Label: T("跳到 %d%%", int(math.Round(f*100))),
+				TestID: fmt.Sprintf("axis-tick-%d", i),
 				StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(9), Height: core.Pt(4), CornerRadius: 2, Background: colors.Faint(),
+					return core.Style{Width: core.Pt(8), Height: core.Pt(2.5), CornerRadius: 1.25, Background: colors.Faint(),
 						Hover: &core.Style{Background: colors.Text()}}
 				},
 			})
 		}
-		return core.View{Style: core.Style{Position: core.Absolute, Right: core.Pt(3), Width: core.Pt(12),
-			Direction: core.Column, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
-			PointerEvents: core.PointerEventsBoxNone},
+		inset := (pane - bandHeight) / 2
+		return core.View{
+			Style: core.Style{Position: core.Absolute, Right: core.Pt(8), Width: core.Pt(12),
+				Direction: core.Column, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
+				PointerEvents: core.PointerEventsBoxNone},
 			StyleFunc: func() core.Style {
-				return core.Style{Top: core.Pt(24), Bottom: core.Pt(s.conversation.ComposerHeight() + 16)}
+				return core.Style{Top: core.Pt(core.Points(inset)), Bottom: core.Pt(core.Points(inset))}
 			},
 			Children: marks}
 	})

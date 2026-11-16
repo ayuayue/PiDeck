@@ -71,6 +71,8 @@ func (a *app) view() core.Node {
 		a.agentDialog(),
 		a.agentManagerDialog(),
 		a.favoritesDialog(),
+		a.announcementsDialog(),
+		a.feedbackDialog(),
 		a.tasksDialog(),
 		a.taskFormDialog(),
 		a.projectGroupDialog(),
@@ -172,6 +174,7 @@ func (a *app) rail() core.Node {
 		core.View{Style: core.Style{Padding: core.Edges{Top: 10, Right: 10, Bottom: 12, Left: 10}, Gap: 10}, Children: []core.Node{
 			a.brand(),
 			a.newSessionButton(),
+			a.railShortcuts(),
 			a.searchField(),
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Edges{Top: 4, Right: 8, Left: 8}},
 				Children: []core.Node{
@@ -259,24 +262,49 @@ func (a *app) piSessionRow(s *session) core.Node {
 	}
 }
 
-// brand is the wordmark, as a flat tile and a name.
+// brand is the wordmark, the tile, and the pi the app runs on.
 func (a *app) brand() core.Node {
-	colors := ui.ColorsOf(a.cx)
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Padding: core.Edges{Top: 2, Right: 4, Left: 4}}, Children: []core.Node{
-		core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
-			Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), CornerRadius: 8}},
-		core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				core.Text{Content: "PiDeck", Style: core.Style{FontFamily: ui.Mono, FontSize: 14, FontWeight: ui.Bold, LetterSpacing: 0.4},
-					StyleFunc: ui.Colored(colors.Text)},
-				core.View{StyleFunc: func() core.Style {
-					return core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, BorderWidth: 1, BorderColor: colors.Border()}
-				}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: ui.Mono, FontSize: 9},
-					StyleFunc: ui.Colored(colors.Faint)}}},
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		// Reading env keeps the wordmark in step with the probe.
+		label, tone := a.piStatus(colors)
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Padding: core.Edges{Top: 2, Right: 4, Left: 4}}, Children: []core.Node{
+			core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
+				Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), CornerRadius: 8}},
+			core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+					core.Text{Content: "PiDeck", Style: core.Style{FontFamily: ui.Mono, FontSize: 14, FontWeight: ui.Bold, LetterSpacing: 0.4},
+						StyleFunc: ui.Colored(colors.Text)},
+					core.View{StyleFunc: func() core.Style {
+						return core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, BorderWidth: 1, BorderColor: colors.Border()}
+					}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: ui.Mono, FontSize: 9},
+						StyleFunc: ui.Colored(colors.Faint)}}},
+				}},
+				// The pi the app detected, where the wordmark can be read
+				// as the app's own: probing, missing, or its version.
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
+					core.View{Style: core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: tone}},
+					core.Text{ContentFunc: func() string { return label }, Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+						StyleFunc: ui.Colored(colors.Muted)},
+				}},
 			}},
-			core.Text{Content: T("本机 pi 工作台"), Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
-		}},
-	}}
+		}}
+	})
+}
+
+// piStatus is what the brand says about pi, and the color of its dot.
+func (a *app) piStatus(colors ui.Colors) (string, core.Color) {
+	info := a.env.Get()
+	switch {
+	case info.Probing:
+		return T("检测 pi…"), colors.Muted()
+	case info.PiError != "" || info.PiPath == "":
+		return T("未找到 pi"), colors.Danger()
+	case info.PiVersion != "":
+		return "pi " + shorten(info.PiVersion, 20), colors.Up()
+	default:
+		return T("pi 就绪"), colors.Up()
+	}
 }
 
 // newSessionButton is the rail's main action.
@@ -305,6 +333,33 @@ func (a *app) newSessionButton() core.Node {
 			core.Text{Content: modKey() + "N", Style: core.Style{FontFamily: ui.Mono, FontSize: 10, Opacity: core.Alpha(0.55)}, StyleFunc: ui.Colored(colors.OnLight)},
 		},
 	}
+}
+
+// railShortcuts are the actions beside 新建会话: the agent manager, the
+// scheduled tasks and the favorites, which used to sit in the footer.
+func (a *app) railShortcuts() core.Node {
+	colors := ui.ColorsOf(a.cx)
+	item := func(icon func() *core.SVG, label, id string, on func()) core.Node {
+		return core.View{
+			OnPress: func(core.PressEvent) { on() },
+			Role:    core.RoleButton, Label: T(label), TestID: id,
+			StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 5,
+					Height: core.Pt(28), CornerRadius: ui.RadiusControl, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0),
+					Transition: pressMotion, Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+			},
+			Children: []core.Node{
+				ui.IconOf(icon, 12.5, colors.Muted),
+				core.Text{Content: T(label), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style: core.Style{FontSize: 11.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Muted)},
+			},
+		}
+	}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
+		item(lucide.Bot, "智能体", "rail-agents", func() { a.openAgentManager() }),
+		item(lucide.CalendarClock, "定时任务", "rail-tasks", func() { a.openTaskDialog() }),
+		item(lucide.Star, "收藏夹", "rail-favorites", func() { a.openFavorites() }),
+	}}
 }
 
 // searchField filters the rail.
@@ -614,54 +669,20 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 	}
 }
 
-// railFooter is the app's status and settings.
+// railFooter is the dock at the rail's bottom: settings, announcements,
+// feedback, and the theme, as PiDeck keeps them.
 func (a *app) railFooter() core.Node {
-	colors := ui.ColorsOf(a.cx)
-	piLabel := func() string {
-		info := a.env.Get()
-		if info.Probing {
-			return "检测 pi…"
-		}
-		if info.PiError != "" || info.PiPath == "" {
-			return "未找到 pi"
-		}
-		v := info.PiVersion
-		if v != "" {
-			return "pi " + shorten(v, 18)
-		}
-		return "pi 就绪"
-	}
-	piColor := func() core.Color {
-		info := a.env.Get()
-		if info.Probing {
-			return colors.Muted()
-		}
-		if info.PiError != "" || info.PiPath == "" {
-			return colors.Danger()
-		}
-		return colors.Up()
-	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Width: core.Pct(100)}, Children: []core.Node{
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
+		Width: core.Pct(100), Padding: core.Edges{Left: 2, Right: 2}}, Children: []core.Node{
 		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: "设置", Size: 28, IconSize: 14.5, OnPress: func() { a.settings.Set(true) }}),
+		a.announceButton(),
+		a.feedbackButton(),
 		hint("切换外观", ui.IconButton{IconFunc: func() *core.SVG {
 			if a.cx.Dark() {
 				return lucide.Sun()
 			}
 			return lucide.Moon()
 		}, Label: "切换外观", Size: 28, IconSize: 14.5, OnPress: a.cycleTheme}),
-		hint(T("定时任务"), ui.IconButton{Icon: lucide.CalendarClock, Label: T("定时任务"), Size: 28, IconSize: 14.5,
-			TestID: "rail-tasks", OnPress: func() { a.openTaskDialog() }}),
-		hint(T("智能体"), ui.IconButton{Icon: lucide.Bot, Label: T("智能体"), Size: 28, IconSize: 14.5,
-			TestID: "rail-agents", OnPress: func() { a.openAgentManager() }}),
-		hint(T("收藏夹"), ui.IconButton{Icon: lucide.Star, Label: T("收藏夹"), Size: 28, IconSize: 14.5,
-			TestID: "rail-favorites", OnPress: func() { a.openFavorites() }}),
-		core.View{Style: core.Style{FlexGrow: 1}},
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Edges{Right: 4}}, Children: []core.Node{
-			core.View{StyleFunc: func() core.Style {
-				return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: piColor()}
-			}},
-			core.Text{Content: piLabel(), Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
-		}},
 	}}
 }
 

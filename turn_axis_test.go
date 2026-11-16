@@ -16,19 +16,25 @@ import (
 )
 
 func TestAxisTicks(t *testing.T) {
-	if got := axisTicks(0); len(got) != 0 {
-		t.Fatalf("no turns made %d ticks", len(got))
+	if got := axisTicks(0); got != 0 {
+		t.Fatalf("no band made %d ticks", got)
 	}
-	if got := axisTicks(3); len(got) != 3 || got[0] != 0 || got[2] != 2 {
-		t.Fatalf("three turns made %v", got)
+	if got := axisTicks(10); got != axisLeast {
+		t.Fatalf("a short band made %d ticks, want %d", got, axisLeast)
 	}
-	got := axisTicks(100)
-	if len(got) != 24 || got[0] != 0 || got[23] != 99 {
-		t.Fatalf("a hundred turns made %d ticks from %d to %d", len(got), got[0], got[len(got)-1])
+	if got := axisTicks(280); got != 41 {
+		t.Fatalf("a 280 point band made %d ticks, want 41", got)
 	}
-	for i := 1; i < len(got); i++ {
-		if got[i] <= got[i-1] {
-			t.Fatalf("ticks are not ascending: %v", got)
+	if got := axisTicks(100000); got != axisMost {
+		t.Fatalf("a huge band made %d ticks, want %d", got, axisMost)
+	}
+	fs := axisFractions(5)
+	if len(fs) != 5 || fs[0] != 0 || fs[2] != 0.5 || fs[4] != 1 {
+		t.Fatalf("five ticks stand at %v", fs)
+	}
+	for i := 1; i < len(fs); i++ {
+		if fs[i] <= fs[i-1] {
+			t.Fatalf("ticks are not ascending: %v", fs)
 		}
 	}
 }
@@ -80,7 +86,7 @@ func TestTurnAxis(t *testing.T) {
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("role:button 长会话")) > 0 })
 	app.Press("role:button 长会话 >> nth=0")
 	app.WaitFor("id:composer", 20*time.Second)
-	app.WaitFor("id:turn-tick-0", 10*time.Second)
-	app.Press("id:turn-tick-0")
+	app.WaitFor("id:axis-tick-0", 10*time.Second)
+	app.Press("id:axis-tick-0")
 	app.WaitFor("label:跳到最新消息", 5*time.Second)
 }
