@@ -35,11 +35,14 @@ func Root(cx *core.Scope) core.Node {
 				}
 				fill := core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0)}
 				mask := core.Dynamic(func(cx *core.Scope) core.Node {
-					base := uint32(0xffffff)
+					// The veil keeps the picture quiet enough for the panels to
+					// read over it. A dark room needs more of it: a light picture
+					// under translucent dark panels would come out grey.
+					base, veil := uint32(0xffffff), float32(1-a.bgOpacity.Get())
 					if cx.Env().Dark() {
-						base = 0x000000
+						base, veil = 0x000000, min(1, veil+0.3)
 					}
-					return core.View{Style: fill.Merge(core.Style{Background: core.RGBA(base, float32(1-a.bgOpacity.Get())),
+					return core.View{Style: fill.Merge(core.Style{Background: core.RGBA(base, veil),
 						PointerEvents: core.PointerEventsNone})}
 				})
 				return core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), FontFamily: font}, Children: []core.Node{
