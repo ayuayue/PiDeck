@@ -200,8 +200,8 @@ func (a *app) rail() core.Node {
 		core.View{Style: core.Style{Padding: core.Edges{Top: 10, Right: 10, Bottom: 12, Left: 10}, Gap: 10}, Children: []core.Node{
 			a.brand(),
 			a.newSessionButton(),
-			a.railShortcuts(),
 			a.searchField(),
+			a.railShortcuts(),
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Edges{Top: 4, Right: 8, Left: 8}},
 				Children: []core.Node{
 					core.Text{Content: T("项目"), Style: core.Style{FontSize: 10, FontWeight: ui.Semibold, LetterSpacing: 0.6},
