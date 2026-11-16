@@ -21,8 +21,11 @@ import (
 // view is the whole window.
 func (a *app) view() core.Node {
 	return core.View{Style: ui.FillRest, Children: []core.Node{
-		core.Dynamic(func(*core.Scope) core.Node {
+		core.Dynamic(func(cx *core.Scope) core.Node {
 			_ = a.langRev.Get()
+			// Appearance is read so a system light/dark flip rebuilds the
+			// chrome too: its colors are taken when it is built.
+			_ = cx.Env().Dark()
 			return a.shell()
 		}),
 		a.paletteDialog(),

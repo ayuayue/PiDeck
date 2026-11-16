@@ -3,6 +3,9 @@
 package main
 
 import (
+	"time"
+
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -16,6 +19,23 @@ func hint(label string, n core.Node) core.Node {
 
 // hintOf is hint for a label that can change, such as a translated one or
 // one naming the session in front.
+//
+// The bubble is the app's own rather than the kit's default: that one
+// paints it in the text's color with the page's color for the words, which
+// in a dark theme leaves a bright bubble over a dark window. A surface
+// card reads the same in both themes.
 func hintOf(label func() string, n core.Node) core.Node {
-	return ui.Tooltip{TextFunc: label, Trigger: n, Style: core.Style{FlexShrink: 0}}
+	return base.Tooltip{
+		Trigger: n,
+		Style:   core.Style{FlexShrink: 0},
+		Delay:   250 * time.Millisecond,
+		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			return core.View{Style: core.Style{CornerRadius: 7, Padding: core.Symmetric(4, 8), MaxWidth: core.Pt(300),
+				Background: colors.Surface(), BorderWidth: 1, BorderColor: colors.Border(),
+				Shadows: []core.BoxShadow{ui.Shadow(0, 8, 22, 0, ui.Black(0.16))}},
+				Children: []core.Node{core.Text{ContentFunc: label, MaxLines: 3, EllipsizeMode: core.EllipsizeTail,
+					Style: core.Style{FontSize: 11.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Text)}}}
+		})},
+	}
 }
