@@ -74,11 +74,15 @@ jobs:
       # 2026-11-15 评审实测：默认 checkout 是 fetch-depth:1，本地没有 base commit 的对象，
       # 下面那句 -- <base.sha> 取不到，脚本按「显式给了却读不到」判红。这一行把那个对象拉下来。
       - name: Fetch base commit for version check
-        if: github.event.pull_request.base.sha != ''
-        run: git fetch --no-tags --depth=1 origin ${{ github.event.pull_request.base.sha }}
+        if: always()
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then BASE="$(git rev-parse refs/remotes/origin/${{ github.event.pull_request.base.ref || 'dev' }} 2>/dev/null || true)"; fi
+          echo "base=$BASE"
+          if [ -n "$BASE" ]; then echo "BASE_SHA=$BASE" >> "$GITHUB_ENV"; git fetch --no-tags --depth=1 origin "$BASE" || echo "拉不到 $BASE，版本检查将按 SKIP 处理"; fi
       - name: Check version not lower than base
         if: always()
-        run: npm run check:version-not-lower -- ${{ github.event.pull_request.base.sha }}
+        run: npm run check:version-not-lower -- "${BASE_SHA:-${{ github.event.pull_request.base.sha }}}"
       # 2026-11-15：test:skills 此前只挂在 ci.yml，而 ci.yml 只对 main 的 push 与
       # 向 main 的 PR 触发。本 PR 目标是 dev，四个判据在整个 dev 期间没有任何闸门
       # 跑——写了判据没人跑，跟没写一样。实测 1.0 秒，纯 node、不联网，符合本文件口径。

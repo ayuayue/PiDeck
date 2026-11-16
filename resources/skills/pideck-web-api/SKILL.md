@@ -109,7 +109,7 @@ curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300                  
 
 ### 令牌有寿命，settings.json 是活的
 
-`settings.json` 的 `webServiceToken` 旁边有 `webServiceTokenGeneratedAt` 与 `webServiceTokenExpiresIn`——令牌是生成的，不是手填的。这个文件在使用期间会被改写，而**字节数可能一个都不变**（同一份 11041 B 的文件两次读哈希不同；变的是窗口位置、最近会话这类时间戳）。
+`settings.json` 的 `webServiceToken` 旁边有 `webServiceTokenGeneratedAt` 与 `webServiceTokenExpiresIn`——令牌是生成的，不是手填的。这个文件在使用期间会被改写，而**字节数可能一个都不变**（同一个文件两次读，哈希就不同；变的是窗口位置、最近会话这类时间戳。具体字节数别写进判据，它自己也在变）。
 
 - **别拿它的哈希或字节数当判据。** 会漂，红了也不代表配置被改。要判「服务还在不在」，用上面那四条 HTTP 自检。
 - **每段脚本重新读一遍令牌。** 主题切换、开窗口会写这个文件；令牌重置后旧值全变 401，而 401 与「服务没开」长得一样。
@@ -176,7 +176,7 @@ curl -s -H "$AUTH" "$BASE/api/state"
 
 **发之前再认一次自己**：`echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息——消息插进你自己的对话，然后你自己等自己回。别用 `env | grep ^PI_` 找身份（`PIDECK_SESSION_ID` 不以 `PI_` 开头，会被整条漏掉）；标题、`updatedAt`、`model` 都不是身份。
 
-### 5.1 首选 `/prompt`：同步返回 accepted，不必回读
+### 5.1 首选 `/prompt`：同步返回 accepted，先不必回读
 
 ```bash
 curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
@@ -186,7 +186,23 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 期望：`{"result":{"accepted":true,"sessionId":"...","requestId":"...","agentId":"...","sessionPath":"C:\\...jsonl","runtimeGeneration":3}}`。
 
-`accepted: true` 就是送到了，不必回读任何东西。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
+`accepted: true` 表示这条消息进了队列，服务端负责投递，此时可以先不读回执。**要证明对方真的看到了，用 5.6 那条片段计数**——第 5.6 节有实测：accepted 之后还会隔十几秒才出现在对方记录里。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
+
+**中文别走命令行参数。** `curl -d "中文"` 会先把这段参数交给终端代码页（Windows 上常是 GBK），对端收到的是一串 U+FFFD（替换符，表示字节解不出来）。2026-11 实测两次：中文当参数发，对端记录里 16 个替换符；把 JSON 写进文件、用 `--data-binary @file` 发，替换符归零。
+
+```bash
+node -e 'const fs=require("fs");fs.writeFileSync("msg.json",JSON.stringify({requestId:String(Date.now()),message:fs.readFileSync("msg.txt","utf8")}),"utf8")'
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json; charset=utf-8" \
+  --data-binary @msg.json "$BASE/api/sessions/<目标>/prompt"
+```
+
+两处都要：请求头带 `charset=utf-8`（不带时接收端可以按本机代码页解码），正文走文件不走参数。判据是读对端的会话记录，数替换符，期望 0：
+
+```bash
+node -e 'const fs=require("fs");const t=fs.readFileSync(process.argv[1],"utf8");console.log((t.match(/\uFFFD/g)||[]).length)' "<对端的 sessionPath>"
+```
+
+**收到乱码就直说，别猜。** 对端回复变成 `���` 这类替换符时，唯一正确的动作是回一句「读不懂，这是原文：<逐字粘贴>」，然后停下等它对。按上下文猜它的意思，猜错了在记录上看不出任何异常——你会照着猜出来的意思改出完全无关的东西。判据：自己的回复里不出现「我理解你的意思是……」这类转述，除非同时贴得出原文片段。这条与第 0 节「先定义再用」是同一件事：看不懂就停，不要边猜边做。 来源与实测见 5.1 那条：命令行参数经代码页转码会产生一串 U+FFFD，改用文件通道后归零。
 
 ### 5.2 要看流式才用 `/api/chat`
 
@@ -198,7 +214,7 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
   "$BASE/api/chat"
 ```
 
-返回 SSE，一行一帧。典型顺序 `start` → `reasoning-delta`（有思考时才有）→ `text-start` → `text-delta` → `text-end` → `finish` → `[DONE]`；带工具调用还有 `tool-input-start` / `tool-output-available`。不认识的帧按类型过滤，别当错误，也别等某个特定帧——**只认 `finish` 或 `[DONE]`**。`-N` 必须加，否则看不到流式。
+返回 SSE，一行一帧。典型顺序 `start` → `reasoning-delta`（有思考时才有）→ `text-start` → `text-delta` → `text-end` → `finish` → `[DONE]`；带工具调用还有 `tool-input-start` / `tool-output-available`。不认识的帧按类型过滤，别当错误，也别等某个特定帧——**只认 `finish` 或 `[DONE]`**。这里说的是「流结束了没有」，不是「消息送到没有」——送达看 5.3。`-N` 必须加，否则看不到流式。
 
 ### 5.3 判「送到没有」只有一条
 
@@ -207,6 +223,26 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
 参数错误不进流：缺 `id`、没有 role 为 user 的项、text 为空，直接 400 加 JSON。所以分三处看——400 是没进队列；200 加 `error` 帧是进了但找不到会话；200 加无 `error` 帧才是送到。
 
 **会话记录存在时，对端进程死没死都能送到**：服务端会替你 activate 一次。反过来，对端忙的时候整条连接可能只有 `: ping` 心跳，`total` 也不当场变大，而消息确实进了它的对话——拿 `total` 当判据会判成没送到，重发一次就变成两条重复消息。
+
+**`finish` 不是「送到」的证据。** error 流里同样带 `data: {"type":"finish"}` 与 `data: [DONE]`——实测向不存在的 sessionId 发 `/api/chat`，200 的正文是 error 帧、再跟 finish 和 `[DONE]`。所以别拿 finish 判断送到，只看有没有 `error` 帧。
+
+把上面的规则变成可执行的一条：
+
+```bash
+curl -sN --max-time 30 -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"id":"<目标 sessionId>","messages":[{"role":"user","parts":[{"type":"text","text":"ping"}]}]}' \
+  "$BASE/api/chat" > /tmp/chat.txt
+if grep -q '"type":"error"' /tmp/chat.txt; then
+  echo "FAIL 没送到：$(sed -n 's/.*"errorText":"\([^"]*\)".*/\1/p' /tmp/chat.txt | head -1)"
+  exit 1
+fi
+grep -Eq '"type":"(start|finish)"' /tmp/chat.txt || { echo "未验证：输出里既没有 start 也没有 finish（空文件、只有 : ping 心跳、或被 --max-time 掐断）"; exit 2; }
+echo "PASS 没有 error 帧，且收到了 start 或 finish"
+```
+
+目标会话没激活时这条命令会自己拉起它（服务端替你 activate），不必先手动 activate，但第一次可能慢几秒。
+
+`--max-time 30` 到点就断，长回复收不全；判「送到没有」按上面三态：1 没送到、0 送到、2 无法判定（一条消息帧都没收到）。
 
 ### 5.4 对方在 goal 模式时
 
@@ -219,7 +255,7 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
 发送前能机器核的一条：
 
 ```bash
-[ "$(cat msg.txt)" = "/goal on" ] || { echo "只发 /goal on，不带正文"; exit 1; }
+[ "$(wc -c < msg.txt)" -eq 8 ] || { echo "msg.txt 必须正好 8 字节：/goal on，无换行无正文"; exit 1; }
 ```
 
 用 `printf` 写 msg.txt，别用 `echo`（后者会补换行或解释反斜杠，你真发出去的就不是你以为的那串）。
@@ -248,6 +284,50 @@ tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
 **复用旧会话还是新开，判据只有一条：目标会话里有没有关于被审对象的结论。** 有就新开——它记得自己上次的判断，你说「这些已经修了」，它会顺着那个结论找理由，不再独立看（审查、验证、要第二意见都属于这类）；没有就复用——同一件事的下一轮执行、换个小需求，上下文有用。新开之后旧会话不要停，它可能还有没跑完的活。
 
 **什么时候算结束：对方明确写出它那边也没有了，或者逐条回应了你提的每一条。** 回一句「收到」「我看看」不算。代价不对称——你多等一轮只花一轮；早停一轮则它下一轮的修复找不到人复核。
+
+## 5.6 与另一个会话按 PR 模式协作
+
+**两个 agent 改同一份东西时，唯一起作用的机制是「改的人」与「核的人」分开。** 一个人自己改完自己核，等于没核。
+
+| 角色 | 必须做什么 | 不许做什么 |
+| --- | --- | --- |
+| 改的人（发现方） | 发现问题就自己落盘：贴原文、贴改后原文、给一条能返回真假的判据命令；改完交对方 | 只提不改 |
+| 核的人 | 读原文、跑判据、回 accept 或 reject，附 md5 与 rc | 替对方改他的文件；只回「认可」 |
+| 双方 | 谁发现谁改，改完换手复核；文件归属对方的（对方签核、对方那份副本）只交证据与建议改法，由所有者自己改 | 发现方让对方替自己改 |
+
+**换边规则**：这一轮甲发现问题、甲改、乙核；下一轮乙发现、乙改、甲核。同一个人既发现又自己核完，等于这一轮没有复核。
+
+**交接用文件，不用消息正文。** 中文经过命令行参数会被代码页转码（5.1 末尾那段有实测与判据），提案超过几十行也会被截断。约定：提案写到临时目录的 proposals-rN.md，回执写 review-rN.md，发消息只发路径、md5 前 8 位、字节数。
+
+```bash
+TMP="${TMPDIR:-${TEMP:-/tmp}}"
+md5sum "$TMP/proposals-r1.md" | cut -c1-8; stat -c %s "$TMP/proposals-r1.md"
+[ -f "$TMP/proposals-r1.md" ] || echo "文件不在 $TMP：Windows 上 bash 的 /tmp 与 %TEMP% 不是同一个位置"
+```
+
+**accepted:true 只代表进队列，不代表对方看到了。** 判「送到了」用对端会话记录数计数，方法与坏样本见 5.1 末尾「中文别走命令行参数」之后那段——这里不再重复。
+
+**证明对方真读了原文的办法**：让它在回执里贴出原文片段。行号只作定位、不当证据——插入一行行号就漂，2026-11-16 双方各错过两次（说 186 实际 188、说 3393 字节实际 5467）。行号与片段冲突时，以片段为准。只说「我看了」，与没看无法区分。
+
+**每轮产出必须是 git commit，不能只改盘上文件。** 没有 commit 的改动没有历史：下一轮的人只看得到当前状态，看不到改了什么、也说不清谁改的。判断办法只有一条——`git log --oneline -1` 能指到这次改动。做法：在分支上改，不直接动默认分支；一次提交一件事，提交信息写清为什么；`SKILL.md` 这种装在多处的文件，先 commit、再同步副本，回执里同时给 commit 号、`git diff --stat`、各处 md5 与判据 rc；PR 正文跟着提交一起变（提交表、统计数字、判据 rc 三样都要对得上）。桌面临时复制与副本同步是部署动作，不算改动凭证。
+
+**动手前看，交回执时写。** 动手前跑 `git log --oneline -3` 与 `git status`：对方最近落过你要改的那一节，就先停手合并，别各写各的。核的人在回执里必须写一句「这次改动有没有第二处说同一件事」；写不出这句，算没核完——语义重复脚本抓不住，2026-11-16 实测同一件事被写了三段，四个判据全绿。
+
+**合并提交后，别拿「diff 为空」当等价判据。** 合并时若顺手改了内容，diff 必然非空：2026-11-16 实测合并四笔时顺手修了一处重复，`git diff <合并前> <合并后>` 是 1 处 +1 −1，而提出方报「空」。正确判据是「diff 里每一处都能指到来源」，不是「diff 为空」。
+
+**凭据在谁手上，就由谁执行那一行命令。** 只有对方能推送、能改 PR 正文时：发现方给命令原文，持凭据方原样执行，回贴命令、输出与执行时间；执行前双方各读一遍命令文本。对外推送不可逆，许可只能来自用户——核的人不能代用户说「可以推了」。
+
+**先验凭据能不能做成这件事，再排执行顺序。** 2026-11-16 实测两种失效：fine-grained token 对「本人不是协作者的公开仓」只有只读——`gh api repos/<owner>/<repo> -q .permissions` 得 `pull:true push:false`，建 PR 与改 PR 正文都返回 `Resource not accessible`；GCM 里存的是 OAuth 时，git 操作会弹 GUI 选账号，脚本里设了 `credential.interactive=false` 后 `git credential fill` 直接报 `Cannot prompt because user interactivity has been disabled`。要推就用显式 URL：`git push https://x-access-token:<token>@github.com/<owner>/<repo>.git <branch>`，同时设 `GIT_TERMINAL_PROMPT=0`。
+
+**收尾要两份签核文件。** 各写一份 signoff.md：对象、基准 commit、核过的文件与 md5、跑过的判据与 rc、坏样本、结论（认可或不认可）。两份都要覆盖全部安装位置——少一处，就是两个人的认可范围不一样。
+
+**三种失效形状，都真实发生过**：
+
+- 核的人只回「认可」、没跑判据，下一轮就发现它没读原文。
+- 改的人给的判据是恒绿的，例如用 grep 数 event: error，而真实帧是 data: {"type":"error"}。核的人必须自己造一份坏样本，确认这条判据会红。
+- 双方同时改同一个文件，提交进去的是半成品。2026-11-16 实测：同一段两人各写一版，最后三段重复、花了三笔提交合并。预防办法见上面那段「动手前看，交回执时写」。
+
+**等对方干活时**：单次 sleep 超过 40 秒容易被工具自己的超时掐断。用 15 到 20 秒一轮，每轮只查一个事实（文件出来了没有、md5 变了没有），别在等待里跑重活。
 
 ## 6 重启：你关不掉自己，让别人关
 
@@ -299,7 +379,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 >      -d '{"id":"<目标>","messages":[{"role":"user","parts":[{"type":"text","text":"重启结束，这条消息用来验证你能接活"}]}]}' \
 >      "$BASE/api/chat"
 >    ```
->    送达看 HTTP 200 且流里没有 `error` 帧，帧数与 `total` 都不是判据（`total` 一次加 3：你发的那条、assistant 的回复、一条注入）。第 5 节说过，这条请求是异步入队，可能一个帧都不吐。
+>    送达看 HTTP 200 且流里没有 `error` 帧，帧数与 `total` 都不是判据（`total` 的增量不是判据，理由见本条后面那句）。第 5 节说过，这条请求是异步入队，可能一个帧都不吐。
 >
 >    **别把「没吐帧」当成「没送到」。** 回 200 之后一帧不吐是正常的，重复发送会真的入队多条——实测同一段正文在一个会话里出现 3 次（`GET /messages` 里三条 user 记录逐字相同），对方要多花一轮读重复内容。两条判据都在发送那一步就能拿到：
 >
@@ -430,7 +510,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 ### 7.2 记录层动作：改记录，不碰进程
 
-`check-doc.mjs` 会同时比路径与方法：它抓「源码里没有这条完整路由」和「方法列写错」。能力上限是源码里用模板串拼出来的路由切不出整条，那种情况它报红而不是静默放过。
+`check-doc.mjs` 会同时比路径与方法：它抓「源码里没有这条完整路由」和「方法列写错」。源码里用模板串拼出来的路由切不出整条时，正则会在边界上截出残缺串（裸 `/api`、通配 `/api/*`、带中文标点的注释片段）——这些不进台账，`--update-routes` 会跳过它们并打印跳了几条。判据只保证「台账里有的路由，源码里还在」，别指望它替你发现残缺串。
 
 | 端点 | 方法 | body / 查询 | 作用 |
 |---|---|---|---|
@@ -482,14 +562,23 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 **这一节只对改这个技能的人有用。用技能的人跳过。**
 
-`SKILL.md` 在盘上有四份，改错地方等于没改：
+`SKILL.md` 在盘上有七处，改错地方等于没改：
 
 | 位置 | 谁读 | 改了会留吗 |
 | --- | --- | --- |
 | `<仓库>/resources/skills/pideck-web-api/` | 打包与测试 | 留，但**不生效** |
-| `<userData>/skills-overlay/pideck-web-api/` | `installTemplate` 优先读 | 留，**且生效**——要改就改这里 |
+| `<userData>/skills-overlay/pideck-web-api/` | `installTemplate` 优先读；**可能不存在**，不存在时直接用打包那份 | 建出来才生效——要改就改这里 |
 | `~/.pi/agent/pideck-skills/pideck-web-api/` | PiDeck spawn 时 `--skill` 注入 | 每次启动被覆盖，手改白费 |
 | `~/.agents/skills/pideck-web-api/` | 终端里直接起的 pi | 留，但 PiDeck 不读 |
+| `<桌面>/pideck-web-api/` | 人读，手工核判据用 | 留；不是安装位置，跑判据要给 `--src=` |
+| `~/.config/magpie/library/skills/pideck-web-api/` | magpie 技能库 | 留；副本，同步靠手工 |
+| `<桌面>/My Data oi/magpie/library/skills/pideck-web-api/` | 复刻包（备份） | 留；副本，同步靠手工 |
+
+overlay 目录本机默认不存在，要改技能就自己建一个：
+
+```bash
+mkdir -p "<userData>/skills-overlay/pideck-web-api"
+```
 
 `installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile`，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。唯一例外：frontmatter 的 `disable-model-invocation: true` 会被记住并写回（`SkillManager.ts:438-449`）。
 
@@ -502,6 +591,39 @@ node resources/skills/pideck-web-api/check-format.mjs  # 表格列数、加粗�
 node resources/skills/pideck-web-api/check-fields.mjs  # 反引号标识符逐词对源码
 ```
 
-前三个带 `--selftest`，能脱离源码单独验「判据自己还对不对」（装了 PiDeck 的机器上只有这份副本，没有 `src/main`）。`check-doc` 没有这个开关：它每条判据都要真的路由表，源码不在就报 rc=2——那是环境不全，不是判据失败。
+改了源码里的路由之后，还要重写台账。`--update-routes` 是**写操作，不是判据**——它的 rc=0 只表示写成功：
+
+```bash
+node resources/skills/pideck-web-api/check-doc.mjs --update-routes   # 重写 check-doc-routes.json，并打印跳过几条残缺串
+```
+
+带 `--selftest` 的是 `check-paths`、`check-format`、`check-fields` 三个，能脱离源码单独验「判据自己还对不对」（装了 PiDeck 的机器上只有这份副本，没有 `src/main`）。`check-doc` 没有自检：传 `--selftest` 会直接 rc=2 并打印「check-doc 没有自检」，因为它的每条判据都要真的路由表，源码不在就报 rc=2——那是环境不全，不是判据失败。
+
+`check-doc.mjs` 还要读同目录的 `check-doc-routes.json`：60 条路由的台账，生成物，别手改。源码里少了一条台账里有的路由，它逐条打印并判 rc=1，所以删路由必须连台账一起改、在提交信息里说明为什么。台账缺失也判 rc=1，那是部署不全不是环境缺失。源码新增路由只提示不判红，否则每改一次源码都会红，这条判据就没人用了。残缺串（裸 `/api`、通配 `/api/*`、带中文的注释片段）不进台账，`--update-routes` 会跳过并打印跳了几条。
 
 口径上限写在各自文件头：`check-paths` 只按段比对、抓不到顺序错；`check-doc` 抓不到模板串拼出来的路由；`check-fields` 要读全量 src，克隆不完整时用 `--src=<完整 src 目录>` 指过去，别删它求绿。
+
+### 踩过的坑（都是实测，改这个技能时会再撞上）
+
+**改了 SKILL.md 必须重跑技能清单，否则 CI 红。** 仓库 CI 有一条 skills-manifest drift，清单记录的 sha256 与文件不一致就失败（2026-11-16 实测日志：`[content-manifest:skills] artifact is stale`）。
+
+```bash
+npm run generate:skills-manifest    # 写操作：重写 resources/skills/skills-manifest.json
+npm run check:skills-manifest       # 判据：rc 必须是 0
+```
+
+**管道会吃掉退出码。** `node check-doc.mjs | tail -1` 之后取到的 rc 是 `tail` 的，不是判据的——2026-11-16 因此三次误判「判据红了」。要看真 rc，先重定向再取：
+
+```bash
+node check-doc.mjs > /tmp/o 2>&1; rc=$?; tail -1 /tmp/o; echo "rc=$rc"
+```
+
+**`git push` 失败时也可能看到 rc=0**（同一条命令后面还跟着别的命令）。推完用远端复核，别只看自己的输出：
+
+```bash
+git ls-remote <remote> refs/heads/<branch>   # 与本地 git rev-parse HEAD 对齐才算推上
+```
+
+**门禁里「后续判据依赖的前置步骤」不能写成可能静默为假的条件。** 实测：版本检查依赖先拉 base commit，而那一步的 `if` 在 fork PR 上被判 skipped，下一步直接报 `fatal: path 'package.json' exists on disk, but not in '<sha>'`——错在上一行，红在这一行。写成总是执行、取不到时回落，并把回落结果用 GITHUB_ENV 显式传下去。
+
+**插入位置在围栏内还是围栏外，比文字本身更容易错。** 2026-11-16 往代码块里插一段，围栏被破坏，判据红在「标题前缺空行」这种看不出原因的位置。改完 SKILL.md 第一件事就是跑 check-format。

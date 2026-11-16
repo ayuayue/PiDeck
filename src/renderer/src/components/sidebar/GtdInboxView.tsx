@@ -123,6 +123,8 @@ export function GtdInboxView(props: { controller: SidebarController; actions: Si
 					<List size={14} aria-hidden="true" />
 				</Button>
 			</div>
+			{/* scroll-ok: nested —— 行由 props.rows 提供（活动页已有会话），本层拿不到可虚拟化的 items 列表；
+			    真正的虚拟化要上提到调用方，属 #546 后续批次，这里先如实记下不做的理由。 */}
 			<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
 				{groups.length === 0 ? <div className="px-2 py-1.5 text-caption text-muted-foreground">{t("gtd.empty")}</div> : null}
 				{groups.map((group) => {

@@ -4,6 +4,9 @@
 // 会红的五种：文档漏动作、文档多动作、7.1/7.2 表整段被删（空集一律判红）、
 //   7.2 的某条端点在源码里没有完整路由（不是只查前缀）、7.2 的方法列与源码不一致。
 // 口径上限：源码里路由若由模板串拼接构造，切不出整条时会漏，routes.size 的下限守卫让它报红而不是静默变绿。
+// 参数：--src=路径 指定源码根（src 或 src/main 都行），前后都要带等号：写成 `--src 路径`（空格分隔）
+//   时路径会被当成 SKILL.md 位置参数，报出来的错是「找不到源码 .../src/main/...」，看不出是参数形式问题。
+// 参数：--update-routes 重写路由台账 check-doc-routes.json（改了源码路由之后跑一次）。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,10 +21,19 @@ import { fileURLToPath } from "node:url";
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SKILL = process.argv[2] || path.join(here, "SKILL.md");
-const SRC = path.resolve(here, "../../../src/main/web/WebApiRoutes.ts");
-const EXTRA = path.resolve(here, "../../../src/main/web/WebServiceManager.ts");
-if (!fs.existsSync(SRC)) { console.log("FAIL 找不到源码 " + SRC); process.exit(1); }
+// 收到 --selftest 必须报错退出：这条判据没有自检，静默照常跑会让读者以为「自检跑过了」。
+// 2026-11-16 实测：改之前 node check-doc.mjs --selftest 返回 0 且打印正常判据结果。
+if (process.argv.includes("--selftest")) {
+  console.log("FAIL check-doc 没有自检：它每条判据都要真的路由表，用 --src= 指过去。带 --selftest 的只有 check-paths / check-format / check-fields");
+  process.exit(2);
+}
+const srcArg = process.argv.find((a) => a.startsWith("--src="));
+const pick = (base) => fs.existsSync(path.join(base, "web/WebApiRoutes.ts")) ? base : (fs.existsSync(path.join(base, "main/web/WebApiRoutes.ts")) ? path.join(base, "main") : base);
+const SRC_BASE = pick(srcArg ? path.resolve(srcArg.slice(6)) : path.resolve(here, "../../../src/main"));
+const SKILL = process.argv.slice(2).find((a) => !a.startsWith("--")) || path.join(here, "SKILL.md");
+const SRC = path.join(SRC_BASE, "web/WebApiRoutes.ts");
+const EXTRA = path.join(SRC_BASE, "web/WebServiceManager.ts");
+if (!fs.existsSync(SRC)) { console.log("FAIL 找不到源码 " + SRC + "（用 --src= 指向完整 src 目录）；这是环境缺失，rc=2"); process.exit(2); }
 const skill = fs.readFileSync(SKILL, "utf8");
 const BS = String.fromCharCode(92);
 const QUOTE = String.fromCharCode(34);
@@ -123,6 +135,33 @@ function methodMismatch(ep, docMethod) {
 }
 
 let bad = 0;
+// ── 路由台账：源码里有哪些完整路由，基线存成文件 ─────────────
+// 为什么不是「源码路由 ⊆ 文档」：2026-11-16 实测这条口径不成立。文档用模板写路径
+// （/api/sessions/<id>/runtime/<action>、/api/sessions/<目标>/prompt），还有 $PIDECK_SESSION_ID 这种
+// shell 变量写法，自动比对会红 25 条，其中至少 5 条是假红（/api/sessions/:id/messages 文档里确实有）。
+// 所以这里只判一件事：源码里少了一条曾经存在过的路由。文档侧仍有 7.1 动作表与 7.2 端点表各自的正向比对。
+// 台账是生成物，别手改：node check-doc.mjs --update-routes
+const LEDGER = path.join(here, "check-doc-routes.json");
+// 残缺串不进台账：routeRe 在 `pathname === "/api"` 这类边界上会截出 "/api"，通配会截出 "/api/*"。
+// 它们不是路由，进了台账就变成「源码里少了这条就红」的假基线。
+const skipped = [];
+const routeList = [...routes].filter((r) => {
+  const segs = r.split("/").filter(Boolean);
+  const bad = /[\u4e00-\u9fa5（）「」，。]/.test(r) || segs.length < 2 || segs[1] === "*";
+  if (bad) skipped.push(r);
+  return !bad;
+}).sort();
+if (process.argv.includes("--update-routes")) {
+  if (skipped.length) console.log("跳过 " + skipped.length + " 条残缺串：" + skipped.join(" | "));
+  fs.writeFileSync(LEDGER, JSON.stringify({ updated: "2026-11-16", routes: routeList }, null, 2) + "\n");
+  console.log("已写 " + LEDGER + "（" + routeList.length + " 条）");
+  process.exit(0);
+}
+if (!fs.existsSync(LEDGER)) { console.log("FAIL 路由台账 " + LEDGER + " 不存在，先跑 node check-doc.mjs --update-routes"); process.exit(1); }
+const ledger = JSON.parse(fs.readFileSync(LEDGER, "utf8")).routes;
+for (const r of ledger) if (!routeList.includes(r)) { console.log("  源码里少了路由 " + r + "（台账基线里有；删路由要连台账一起改，并在提交信息里说清为什么）"); bad++; }
+for (const r of routeList) if (!ledger.includes(r)) console.log("  源码新增路由 " + r + "（跑 --update-routes 更新台账）");
+console.log("路由台账 " + ledger.length + " 条，源码现在 " + routeList.length + " 条");
 // 自检坏样本：方法比对必须能红。删掉比对或让它恒返回 null，这里立刻退出。
 const MM_PROBE = "/api/sessions/<id>/copy";
 if (!methodMismatch(MM_PROBE, "GET")) { console.log("FAIL 自检坏样本：方法列写错没被判出来（" + MM_PROBE + "）"); process.exit(1); }

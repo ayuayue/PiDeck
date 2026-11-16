@@ -63,7 +63,10 @@ test("提示文案在渲染层字典中可用（toast 用 t() 解析）", () => 
 	const key = acpBypassUnavailableNotice("agy", ["default"]).i18nKey;
 	const zhCN = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts").zhCN;
 	const enUS = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.en-US.ts").enUS;
-	for (const [locale, copy] of [["zh-CN", zhCN], ["en-US", enUS]]) {
+	for (const [locale, copy] of [
+		["zh-CN", zhCN],
+		["en-US", enUS],
+	]) {
 		assert.ok(Object.hasOwn(copy, key), `${locale} 缺 ${key}`);
 	}
 	assert.match(zhCN[key], /\{tool\}.*\{modes\}/, "占位符要和 agents:notice 的 i18nParams 对齐");
