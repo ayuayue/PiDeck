@@ -25,6 +25,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Format
+        if: runner.os == 'Linux'
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then echo "$out"; exit 1; fi
+
       - name: Build
         run: go build ./...
 
