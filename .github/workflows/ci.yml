@@ -43,6 +43,14 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # Tests that commit run the app's own git, and a runner has no
+      # identity configured: the commit fails with "Author identity unknown".
+      - name: Git identity
+        shell: bash
+        run: |
+          git config --global user.name "PiDeck CI"
+          git config --global user.email "ci@pideck.invalid"
+
       # -short leaves out the slowest end-to-end runs. It does not make this
       # job green on a runner: the rest drive a real pi, which is not
       # installed there, and a few unit tests assert Windows paths. Their
