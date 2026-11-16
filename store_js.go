@@ -41,3 +41,6 @@ func webStart() (server, token string) {
 	}
 	return origin.String(), token
 }
+
+// webReload loads the page the desktop serves now.
+func webReload() { js.Global().Get("location").Call("reload") }

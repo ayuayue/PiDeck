@@ -902,17 +902,6 @@ func newSessionID() string {
 		hex.EncodeToString(b[6:8]), hex.EncodeToString(b[8:10]), hex.EncodeToString(b[10:16]))
 }
 
-// firstLine shortens text to one line of at most n runes.
-func firstLine(text string, n int) string {
-	text = strings.TrimSpace(strings.SplitN(text, "\n", 2)[0])
-	text = strings.TrimSpace(strings.TrimLeft(text, "#>*-+ "))
-	runes := []rune(text)
-	if len(runes) <= n {
-		return text
-	}
-	return string(runes[:n]) + "…"
-}
-
 // shortPath shortens an absolute path for a label, keeping its end.
 func shortPath(path string, n int) string {
 	runes := []rune(path)

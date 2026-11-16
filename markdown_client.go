@@ -3,8 +3,8 @@
 package main
 
 // A page renders formulas and code colour as the workbench does, but not
-// diagrams: limu is the largest of the three dependencies, and the browser
-// downloads everything before it draws. A diagram shows as its source.
+// diagrams: limu is the largest of the three dependencies, and a browser
+// downloads the whole page before it draws. A diagram shows as its source.
 
 import (
 	"github.com/nsgo-dev/nsgo/base/formula"

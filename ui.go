@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -1175,25 +1174,6 @@ func (a *app) drawerFiles() core.Node {
 			}},
 		}}
 	})
-}
-
-// whenText is a short age for a list.
-func whenText(t time.Time, now time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	d := now.Sub(t)
-	switch {
-	case d < time.Minute:
-		return "刚刚"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	case d < 7*24*time.Hour:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
-	}
-	return t.Format("1/2")
 }
 
 // levelLabel names a thinking level in Chinese.

@@ -3,7 +3,7 @@
 package main
 
 // The workbench's prose gets the works: typeset formulas, drawn diagrams
-// and syntax colour. The browser client leaves the diagram engine out.
+// and syntax colour.
 
 import (
 	"github.com/nsgo-dev/nsgo/base/diagram"

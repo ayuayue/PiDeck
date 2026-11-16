@@ -1,8 +1,8 @@
 package main
 
-// Prose in the transcript: the desktop workbench and the phone/browser
-// client render it the same way, so this lives apart from the chat, which
-// only the workbench has. Its renderers are chosen per build in
+// Prose in the transcript: the workbench and the phone or browser client
+// render it the same way, so this lives apart from the chat, which only the
+// workbench has. The renderers it uses are chosen per build, in
 // markdown_desktop.go and markdown_client.go.
 
 import (

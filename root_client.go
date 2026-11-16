@@ -4,8 +4,8 @@ package main
 
 // A browser has no processes and no disk, so the page is a client of a
 // desktop's server: the phone's screens, under the same error boundary.
-// Nothing of the workbench is reachable from here, which keeps it out of
-// app.wasm.
+// Nothing of the workbench is reachable from here, which is what keeps it
+// out of app.wasm.
 
 import (
 	"github.com/nsgo-dev/nsgo/core"

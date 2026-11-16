@@ -1,3 +1,5 @@
+//go:build !js
+
 package main
 
 // The data the screen reads: sessions, turns, tool runs, models and usage.

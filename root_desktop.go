@@ -3,15 +3,16 @@
 package main
 
 // The desktop and phone builds' entry: the workbench, or the remote client
-// when the target is iOS, Android or a preview (PIDECK_LITE_MOBILE=1). The
-// whole interface sits under an error boundary, so a panic in one screen
-// becomes a crash screen and a crash log instead of a dead app.
+// when the target is iOS, Android or a preview (PIDECK_LITE_MOBILE=1).
 
 import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Root builds the app once; signals drive everything after that.
+// Root builds the app once; signals drive everything after that. The
+// phone build shows the remote client instead of the desktop workbench.
+// The whole interface sits under an error boundary, so a panic in one
+// screen becomes a crash screen and a crash log instead of a dead app.
 func Root(cx *core.Scope) core.Node {
 	if clientMode() {
 		m := newMobileApp(cx)

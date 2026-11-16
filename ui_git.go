@@ -10,7 +10,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -1249,13 +1248,6 @@ func gitTone(f gitFile, colors ui.Colors) core.Color {
 		return colors.Warn()
 	}
 	return colors.Muted()
-}
-
-// splitGitPath splits a repository path into its name and its folder.
-func splitGitPath(p string) (name, dir string) {
-	dir, name = path.Split(strings.ReplaceAll(p, "\\", "/"))
-	dir = strings.TrimSuffix(dir, "/")
-	return name, dir
 }
 
 // --- dialogs ------------------------------------------------------------
