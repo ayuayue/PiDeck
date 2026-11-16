@@ -38,6 +38,10 @@ type editorFile struct {
 
 	saved string
 	mode  os.FileMode
+	// crlf says the file used CRLF newlines; the editor works in LF and the
+	// file gets its CRLF back on save, so Git does not see the whole file
+	// change.
+	crlf bool
 }
 
 // editorHost is the open files and which one shows.
@@ -134,10 +138,18 @@ func (h *editorHost) load(f *editorFile) {
 			return
 		}
 		text := string(data)
+		// Only a file whose newlines are all CRLF keeps CRLF; a mixed file
+		// is left as LF rather than rewritten line by line.
+		crlf := strings.Count(text, "\r\n") > 0 &&
+			strings.Count(text, "\r\n") == strings.Count(text, "\n")
+		if crlf {
+			text = strings.ReplaceAll(text, "\r\n", "\n")
+		}
 		mode := info.Mode()
 		h.cx.Post(func() {
 			f.saved = text
 			f.mode = mode
+			f.crlf = crlf
 			f.Text.Set(text)
 			f.Dirty.Set(false)
 			f.Loading.Set(false)
@@ -156,8 +168,13 @@ func (h *editorHost) save(f *editorFile) {
 	if mode == 0 {
 		mode = 0o644
 	}
+	crlf := f.crlf
 	go func() {
-		err := os.WriteFile(path, []byte(text), mode)
+		out := text
+		if crlf {
+			out = strings.ReplaceAll(out, "\n", "\r\n")
+		}
+		err := os.WriteFile(path, []byte(out), mode)
 		h.cx.Post(func() {
 			if err != nil {
 				if h.onResult != nil {
