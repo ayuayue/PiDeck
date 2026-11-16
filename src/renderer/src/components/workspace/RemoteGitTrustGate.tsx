@@ -27,7 +27,7 @@ export function RemoteGitTrustGate({ project, onApproved }: { project: RemotePro
 		else onApproved();
 	};
 	return (
-		<div className="flex shrink-0 flex-col gap-2 px-3 pb-3 text-xs text-text-secondary">
+		<div className="flex shrink-0 flex-col gap-2 px-2.5 pb-3 text-micro text-[var(--git-desc-fg)]">
 			<p>{t("remoteGit.trustEffect")}</p>
 			<span className="select-all break-all font-mono">{project.locator.remotePath}</span>
 			<Button

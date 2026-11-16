@@ -12,13 +12,15 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const panel = readFileSync("src/renderer/src/components/workspace/RemoteGitPanel.tsx", "utf8");
+/** 变更区（提交框 + 分组列表 + 共用变更树）已拆到独立模块，契约断言跟着实现位置走。 */
+const changesSection = readFileSync("src/renderer/src/components/workspace/RemoteGitChangesSection.tsx", "utf8");
 const localPanel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
 const policy = readFileSync("src/renderer/src/hooks/git/useGitAutoRefresh.ts", "utf8");
 
 test("远端面板复用共用变更树与 diff 渲染器，不挂本机 GitPanel/GitGraph", () => {
-	assert.match(panel, /import \{ FileTree \} from "\.\.\/app\/git\/GitResourceTree"/);
+	assert.match(changesSection, /import \{ FileTree, Twistie \} from "\.\.\/app\/git\/GitResourceTree"/);
 	assert.match(panel, /const FileDiffViewer = lazy\(\(\) => import\("\.\.\/app\/FileDiffViewer"\)/);
-	assert.match(panel, /<FileTree/);
+	assert.match(changesSection, /<FileTree/);
 	assert.match(panel, /<FileDiffViewer/);
 	assert.doesNotMatch(panel, /from "\.\.\/app\/GitPanel"/);
 	assert.doesNotMatch(panel, /from "\.\.\/app\/git\/GitGraph"/);

@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: b4a481f65da2f15316187d1f8fd447e4dd8cc3aaced33ba19866592b36b48fef（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 9f0dc6d0631f82310d47d8c1152eee69e9221f97bfd1bdf3418303b8815ace93（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7396,8 +7396,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteGit.back": "返回遠端變更列表",
 	"remoteGit.committing": "正在提交…",
 	"remoteGit.commitMessage": "提交資訊",
-	"remoteGit.commitPlaceholder": "提交資訊（逐字傳送，不做 Git 註釋剝離）",
-	"remoteGit.commitAction": "提交已暫存的改動",
+	"remoteGit.commitRulesSummary": "提交規則：只提交已暫存的更改",
 	"remoteGit.commitHint": "只提交上面已確認的暫存區：不會自動暫存工作區改動（無智慧提交），也不支援批次暫存、AI 生成提交摘要、amend、force 或簽名。提交資訊按輸入原樣寫入；結果未知時不會自動重試。",
 	"remoteGit.writing": "正在更新遠端暫存區…",
 	"remoteGit.indexLocked": "遠端 index 已被其他操作鎖定，未替換暫存區。請在終端核對，不要直接刪除鎖。",
@@ -7409,9 +7408,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteGit.identityRequired": "遠端倉庫沒有可用的提交身份（user.name／user.email）。請在遠端終端裡為這個倉庫或全域設定身份；PiDeck 不會修改你的 Git 配置。",
 	"remoteGit.headChanged": "遠端 HEAD 在提交前已變化，本次沒有建立提交。請重新整理後核對再重試。",
 	"remoteGit.loading": "正在讀取遠端 Git…",
-	"remoteGit.merge": "衝突",
-	"remoteGit.index": "已暫存",
-	"remoteGit.workingTree": "工作區",
 	"remoteGit.untracked": "未跟蹤",
 	"remoteGit.detached": "游離 HEAD",
 	"remoteGit.unborn": "尚無提交",

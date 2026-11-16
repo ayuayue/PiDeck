@@ -12,7 +12,7 @@ import { gitCapabilityReasonKey } from "../../utils/remoteGitCapabilityView";
 export function RemoteGitClosedNote(props: { capability: ProjectServiceCapabilityKey; blocked?: ProjectServiceCapabilityReasons }) {
 	const reasonKey = gitCapabilityReasonKey(props.blocked?.[props.capability]);
 	return (
-		<p data-testid={`remote-git-closed-${props.capability}`} className="px-3 py-1 text-xs text-text-secondary">
+		<p data-testid={`remote-git-closed-${props.capability}`} className="px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">
 			<span>{t("remoteGit.capabilityBlocked")}</span>
 			{reasonKey === undefined ? null : <span> · {t(reasonKey)}</span>}
 		</p>

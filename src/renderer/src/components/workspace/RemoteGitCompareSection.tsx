@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { RemoteGitCompare, RemoteGitRef, RemoteGitRefs } from "../../../../shared/types/git";
 import { t } from "../../i18n";
 import { GitInlineErrorNotice } from "../app/git/GitInlineErrorNotice";
+import { PaneHeader } from "../app/git/GitPanelControls";
 import { Button } from "../ui-shadcn/button";
 import { RemoteGitCapabilityNote } from "./RemoteGitCapabilityNote";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui-shadcn/select";
@@ -47,19 +48,17 @@ export function RemoteGitCompareSection(props: RemoteGitCompareSectionProps) {
 		setOpen(!open);
 	};
 	return (
-		<section data-testid="remote-git-compare" className="pb-2">
-			<button type="button" className="flex w-full items-center gap-1 px-3 py-1 text-xs font-medium text-text-secondary" aria-expanded={open} onClick={toggle}>
-				{t("remoteGit.compareTitle")}
-			</button>
+		<section data-testid="remote-git-compare" id="git-pane-remote-compare" className="border-t border-[var(--git-panel-border)]">
+			<PaneHeader id="remote-compare" title={t("remoteGit.compareTitle")} count={props.compare?.files.length} open={open} onToggle={toggle} />
 			{open ? (
 				<>
 					{/* 说明条按答案的真实语义判断：merge-base 有 ahead/behind，不能再显示 trees-only 说明。 */}
 					<RemoteGitCapabilityNote kind="compare" context={{ compareOpen: open, compareMode: props.compare?.mode }} />
-					{props.refsLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-					{props.refsErrorCode ? <GitInlineErrorNotice message={props.errorMessage(props.refsErrorCode)} className="px-3 text-xs text-danger" /> : null}
-					<div className="flex items-center gap-2 px-3 pb-1" data-testid="remote-git-compare-pickers">
+					{props.refsLoading ? <p className="px-2.5 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.loading")}</p> : null}
+					{props.refsErrorCode ? <GitInlineErrorNotice message={props.errorMessage(props.refsErrorCode)} className="px-2.5 text-micro text-danger" /> : null}
+					<div className="flex items-center gap-2 px-2.5 pb-1" data-testid="remote-git-compare-pickers">
 						<Select value={base} onValueChange={(value) => setBaseChoice(value)} disabled={options.length === 0 || props.compareLoading}>
-							<SelectTrigger data-testid="remote-git-compare-base" aria-label={t("remoteGit.compareBase")} size="sm" className="min-w-0 flex-1 text-xs">
+							<SelectTrigger data-testid="remote-git-compare-base" aria-label={t("remoteGit.compareBase")} size="sm" className="h-6! min-w-0 flex-1 gap-1 rounded-sm border-0 bg-transparent px-1 text-micro text-[var(--git-panel-fg)] shadow-none hover:bg-[var(--git-panel-hover)] [&>svg]:size-3">
 								<SelectValue placeholder={t("remoteGit.compareBase")} />
 							</SelectTrigger>
 							<SelectContent>
@@ -71,7 +70,7 @@ export function RemoteGitCompareSection(props: RemoteGitCompareSectionProps) {
 							</SelectContent>
 						</Select>
 						<Select value={head} onValueChange={(value) => setHeadChoice(value)} disabled={options.length === 0 || props.compareLoading}>
-							<SelectTrigger data-testid="remote-git-compare-head" aria-label={t("remoteGit.compareHead")} size="sm" className="min-w-0 flex-1 text-xs">
+							<SelectTrigger data-testid="remote-git-compare-head" aria-label={t("remoteGit.compareHead")} size="sm" className="h-6! min-w-0 flex-1 gap-1 rounded-sm border-0 bg-transparent px-1 text-micro text-[var(--git-panel-fg)] shadow-none hover:bg-[var(--git-panel-hover)] [&>svg]:size-3">
 								<SelectValue placeholder={t("remoteGit.compareHead")} />
 							</SelectTrigger>
 							<SelectContent>
@@ -82,15 +81,15 @@ export function RemoteGitCompareSection(props: RemoteGitCompareSectionProps) {
 								))}
 							</SelectContent>
 						</Select>
-						<Button type="button" size="sm" data-testid="remote-git-compare-run" disabled={!pairReady || props.compareLoading} onClick={() => props.onRun(base, head)}>
+						<Button type="button" size="xs" data-testid="remote-git-compare-run" disabled={!pairReady || props.compareLoading} onClick={() => props.onRun(base, head)}>
 							{t("remoteGit.compareRun")}
 						</Button>
 					</div>
-					{!pairReady ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.compareSameRef")}</p> : null}
-					{props.compareLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-					{props.compareErrorCode ? <GitInlineErrorNotice message={props.errorMessage(props.compareErrorCode)} testId="remote-git-compare-error" className="px-3 text-xs text-danger" /> : null}
+					{!pairReady ? <p className="px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.compareSameRef")}</p> : null}
+					{props.compareLoading ? <p className="px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.loading")}</p> : null}
+					{props.compareErrorCode ? <GitInlineErrorNotice message={props.errorMessage(props.compareErrorCode)} testId="remote-git-compare-error" className="px-2.5 text-micro text-danger" /> : null}
 					{props.compare && props.compare.files.length === 0 ? (
-						<p data-testid="remote-git-compare-empty" className="px-3 text-xs text-text-secondary">
+						<p data-testid="remote-git-compare-empty" className="px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">
 							{t("remoteGit.compareEmpty")}
 						</p>
 					) : null}
@@ -102,12 +101,12 @@ export function RemoteGitCompareSection(props: RemoteGitCompareSectionProps) {
 							data-status={file.status}
 							data-path={file.path}
 							data-old-path={file.oldPath}
-							className="flex w-full items-center gap-2 px-3 py-0.5 text-left text-xs hover:bg-surface-secondary"
+							className="flex w-full items-center gap-2 px-2.5 py-0.5 text-left text-micro hover:bg-muted"
 							onClick={() => props.onOpenFile(props.compare?.base.oid ?? "", props.compare?.head.oid ?? "", file.path)}
 						>
-							<span className="font-mono text-text-secondary">{file.status}</span>
+							<span className="font-mono text-[var(--git-desc-fg)]">{file.status}</span>
 							<span className="min-w-0 flex-1 truncate">{file.path}</span>
-							{file.oldPath ? <span className="shrink-0 text-text-secondary">← {file.oldPath}</span> : null}
+							{file.oldPath ? <span className="shrink-0 text-[var(--git-desc-fg)]">← {file.oldPath}</span> : null}
 						</button>
 					))}
 				</>
