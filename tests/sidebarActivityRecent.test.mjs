@@ -266,7 +266,9 @@ describe("最近会话区渲染契约", () => {
 	test("分段顺序：活动行在上、最近会话在下，两段各自成区（下半部分常驻）", () => {
 		const paneStart = activeSessionsTree.indexOf('"active-sessions-pane');
 		const listStart = activeSessionsTree.indexOf('"active-sessions-list');
-		const activeRowsIndex = activeSessionsTree.indexOf("nestedLiveRows.map(");
+		// GTD 分诊视图（#546 阶段 2）也会把 nestedLiveRows 交给 GtdInboxView，那个出现得更早；
+		// 本条判据只关心「活动列表容器内的行渲染」，所以从 listStart 之后开始找。
+		const activeRowsIndex = activeSessionsTree.indexOf("nestedLiveRows.map(", listStart);
 		const recentPaneIndex = activeSessionsTree.indexOf('"recent-sessions-pane', activeRowsIndex);
 		const recentIndex = activeSessionsTree.indexOf("<RecentSessionsSection", activeRowsIndex);
 		const simpleStart = activeSessionsTree.indexOf("if (props.recentOnly)");

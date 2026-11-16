@@ -33,7 +33,8 @@ const FACADE_SOURCE = readFileSync("src/shared/api/facadeTypes.ts", "utf8");
  * 2026-11-03 合并刷新：config.getTokendancePriceTags 进入 tokendance 组，config 52→53。
  */
 // #520：安全分享三个方法归 catalog，117 → 120。
-const SESSIONS_METHOD_TOTAL = 120;
+// #546：GTD 分诊账本两法（gtdState / gtdPatch）归 catalog，120 → 122。
+const SESSIONS_METHOD_TOTAL = 122;
 const CONFIG_METHOD_TOTAL = 54;
 const SESSIONS_GROUP_KEYS = ["catalog", "import", "rewind", "runtime"];
 const CONFIG_GROUP_KEYS = ["auth", "maintenance", "mcp", "models", "resources", "settings", "support", "tokendance", "trust", "usageProbes", "vision"];
@@ -189,10 +190,10 @@ test("F5-1 SESSIONS_SUBDOMAINS 组键集恰为 catalog/runtime/import/rewind 四
 	assert.deepEqual(validateGroupingStructure(SESSIONS, SESSIONS_GROUP_KEYS), []);
 });
 
-test("F5-2 四组并集 ≡ preload sessions 命名空间 120 方法全集（无丢失无新增，§0 锚）", () => {
+test("F5-2 四组并集 ≡ preload sessions 命名空间 122 方法全集（无丢失无新增，§0 锚）", () => {
 	assert.equal(sessionsNames.length, SESSIONS_METHOD_TOTAL, `源码解析得 ${sessionsNames.length} 个方法`);
 	assert.deepEqual(diffGroups(SESSIONS, sessionsNames), { missing: [], extra: [] });
-	assert.equal(Object.values(SESSIONS).flat().length, SESSIONS_METHOD_TOTAL, "四组方法数之和 = 120");
+	assert.equal(Object.values(SESSIONS).flat().length, SESSIONS_METHOD_TOTAL, "四组方法数之和 = 122");
 });
 
 test("F5-3 四组两两互斥（A14）", () => {
@@ -230,7 +231,7 @@ test("F5-5 facadeTypes 视图成员与映射常量同源（源码契约，空白
 	);
 });
 
-test("F5-6 fixture 工厂按组 pick：输出键并集 ≡ 120 方法全集（SubPick 缺席静默语义）", () => {
+test("F5-6 fixture 工厂按组 pick：输出键并集 ≡ 122 方法全集（SubPick 缺席静默语义）", () => {
 	let counter = 0;
 	const fixture = {};
 	for (const name of sessionsNames) fixture[name] = () => counter++;

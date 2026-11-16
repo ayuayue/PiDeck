@@ -36,13 +36,14 @@ test("initialize reads agentInfo and object-valued session/list capabilities", a
 test("initialize declares the CodeBuddy mainAgentSupport _meta gate (#447)", async (t) => {
 	// CodeBuddy ≥2.178.1 只对声明了该扩展的宿主下发 toolMode/agent/delegate 配置项，
 	// 去掉它会让工具模式（PTC）chip 无声消失，且 set_config_option 写 codeMode 被 -32602 拒绝。
+	// modelCallMetrics（#560 ③）同为 opt-in：不声明就不下发逐次调用指标（见 shared/types/acp.ts）。
 	const { createAgent, lastProc } = harness(t, { handler: basicHandler });
 	await createAgent();
 	const [initialize] = lastProc().methodFrames("initialize");
 	assert.deepEqual(initialize.params.clientCapabilities, {
 		fs: { readTextFile: false, writeTextFile: false },
 		terminal: false,
-		_meta: { "codebuddy.ai": { mainAgentSupport: true } },
+		_meta: { "codebuddy.ai": { mainAgentSupport: true, modelCallMetrics: true } },
 	});
 });
 

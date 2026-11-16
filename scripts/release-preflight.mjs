@@ -171,6 +171,8 @@ function runStep(step, timeoutMs) {
 		let buffered = 0;
 		const child = spawn(step.file, step.args, {
 			cwd: ROOT,
+			// cliStep 走 PATH（biome）：Windows 上 npm 装的是 .cmd shim，不经 shell 直接 spawn 会 ENOENT。
+			shell: step.shell === true,
 			stdio: ["ignore", "pipe", "pipe"],
 			// POSIX 上放独立进程组：超时/中断能整组收割 node --test 自己再起的子进程
 			detached: process.platform !== "win32",

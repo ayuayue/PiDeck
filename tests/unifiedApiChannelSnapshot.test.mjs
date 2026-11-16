@@ -74,15 +74,17 @@
  *   sessions:share-prepare / share-save / share-release 三条 → 850，前缀仍 95。
  * 2026-11-10 Pi 环境（+1）：config:get-raw（源文件页统一读取，本机/WSL 回原文、ssh 回脱敏快照）
  *   ipcChannels 850→851，前缀数仍 95（config 前缀已存在）。
+ * 2026-11-16 #546 分诊账本（+2）：gtd:state-get / gtd:state-patch（读全量意图水位 / 写单个会话水位），
+ *   ipcChannels 851→853，新增 gtd 前缀（95→96）；渲染面是 sessions.gtdState / sessions.gtdPatch。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 851;
-const PREFIX_COUNT = 95;
-const CHANNEL_DIGEST = "7b3a839d22c394a5d4693dd19889140ddf9d74196d54b8ac1e6f4bacd1d5efe5";
+const CHANNEL_TOTAL = 853;
+const PREFIX_COUNT = 96;
+const CHANNEL_DIGEST = "2466f1e5975b2b71130cc2d5facfd42164bb2aae53cedf1560f00d1fed25cc0c";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -101,11 +103,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 851", () => {
+test("F3-1 通道常量总数 === 853", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 851（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 853（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 
@@ -134,7 +136,7 @@ test("F3-5 锚点抽查：appGetChannel=update:get-channel、sessionsRuntimeEven
 	assert.equal(countByPrefix("enhance"), 3);
 });
 
-test("F3-6 通道域前缀种类 === 94", () => {
+test("F3-6 通道域前缀种类 === 96", () => {
 	const prefixes = new Set(values.map((value) => value.split(":")[0]));
 	assert.equal(prefixes.size, PREFIX_COUNT);
 });
