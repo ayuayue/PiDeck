@@ -520,8 +520,11 @@ node resources/skills/pideck-web-api/check-doc.mjs     # 第 7 节动作表、�
 node resources/skills/pideck-web-api/check-paths.mjs   # 全文每个 /api 路径逐段对源码
 node resources/skills/pideck-web-api/check-format.mjs  # 表格列数、加粗成对、代码块配对、$ 变量
 node resources/skills/pideck-web-api/check-fields.mjs  # 反引号标识符逐词对源码
+node resources/skills/pideck-web-api/check-doc.mjs --update-routes  # 改了源码路由后，重写台账 check-doc-routes.json
 ```
 
 前三个带 `--selftest`，能脱离源码单独验「判据自己还对不对」（装了 PiDeck 的机器上只有这份副本，没有 `src/main`）。`check-doc` 没有这个开关：它每条判据都要真的路由表，源码不在就报 rc=2——那是环境不全，不是判据失败。
+
+`check-doc.mjs` 还要读同目录的 `check-doc-routes.json`：62 条路由的台账，生成物，别手改。源码里少了一条台账里有的路由，它逐条打印并判 rc=1，所以删路由必须连台账一起改、在提交信息里说明为什么。台账缺失也判 rc=1，那是部署不全不是环境缺失。源码新增路由只提示不判红，否则每改一次源码都会红，这条判据就没人用了。
 
 口径上限写在各自文件头：`check-paths` 只按段比对、抓不到顺序错；`check-doc` 抓不到模板串拼出来的路由；`check-fields` 要读全量 src，克隆不完整时用 `--src=<完整 src 目录>` 指过去，别删它求绿。
