@@ -68,7 +68,10 @@ type mobileApp struct {
 
 	connected  *core.Signal[bool]
 	serverName *core.Signal[string]
-	state      *core.Signal[remoteWireSnapshot]
+	// desktopVersion is what the desktop's /api/ping reports, so a page can
+	// tell when it predates the app it talks to.
+	desktopVersion *core.Signal[string]
+	state          *core.Signal[remoteWireSnapshot]
 
 	active         *core.Signal[string]
 	activeTitle    *core.Signal[string]
@@ -184,6 +187,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		err:             core.NewSignal(cx, ""),
 		connected:       core.NewSignal(cx, false),
 		serverName:      core.NewSignal(cx, "PiDeck Lite"),
+		desktopVersion:  core.NewSignal(cx, ""),
 		state:           core.NewSignalFunc(cx, remoteWireSnapshot{}, nil),
 		active:          core.NewSignal(cx, ""),
 		activeTitle:     core.NewSignal(cx, ""),
@@ -514,6 +518,7 @@ func (a *mobileApp) connect() {
 			a.server.Set(client.base)
 			a.token.Set(token)
 			a.serverName.Set(mobileServerName(ping, snap))
+			a.desktopVersion.Set(ping.Version)
 			a.state.Set(snap)
 			a.connected.Set(true)
 			a.err.Set("")
@@ -611,6 +616,12 @@ func (a *mobileApp) refreshState() {
 }
 
 // sessionsView lists the desktop's projects and their sessions.
+// pageStale says the page was built before the desktop it talks to, which
+// only a browser page can be: a reload takes the newer one.
+func (a *mobileApp) pageStale() bool {
+	return webMode() && a.desktopVersion.Get() != "" && a.desktopVersion.Get() != appVersion
+}
+
 func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
@@ -633,6 +644,21 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 					ui.Icon(lucide.TriangleAlert, 12, colors.Danger),
 					core.Text{ContentFunc: a.err.Get, MaxLines: 2, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11},
 						StyleFunc: ui.Colored(colors.Danger)},
+				}}
+		}},
+		// A page older than the desktop it talks to: a reload takes the
+		// version the app serves now, which the build's own name marks.
+		core.Show{When: func() bool { return a.pageStale() }, Then: func(cx *core.Scope) core.Node {
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(8, 14)},
+				StyleFunc: func() core.Style { return core.Style{Background: ui.Alpha(colors.Accent(), 0.10)} },
+				Children: []core.Node{
+					ui.Icon(lucide.RefreshCw, 12, colors.Accent),
+					core.Text{ContentFunc: func() string {
+						return T("这个页面是 %s，电脑上是 %s；刷新后一起用新版本", appVersion, a.desktopVersion.Get())
+					}, MaxLines: 2, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11},
+						StyleFunc: ui.Colored(colors.Text)},
+					ui.Button{Text: T("刷新页面"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						TestID: "mobile-reload", OnPress: func() { webReload() }},
 				}}
 		}},
 		core.Scroll{Style: ui.FillRest, OnRefresh: a.refreshState, Refreshing: a.refreshing.Get,

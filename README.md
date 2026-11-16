@@ -76,15 +76,20 @@ go run ./scripts android link    # 复制 http://10.0.2.2:<端口>/?token=…
 
 ### 浏览器（Web 端）
 
-同一份代码编译成 WebAssembly 后在浏览器里跑的是「客户端」，和手机端同一套界面：浏览器里没有进程和磁盘，`pi`、文件与 Git 仍然由桌面端提供。默认构建只发 API，要让桌面端同时把网页发出来，把 web 构建产物放进 `webassets/`，再用 `webassets` 标签编一次：
+同一份代码编译成 WebAssembly 后在浏览器里跑的是「客户端」，和手机端同一套界面：浏览器里没有进程和磁盘，`pi`、文件与 Git 仍然由桌面端提供。桌面以外的代码带 `//go:build !js`，所以工作台不进 app.wasm——
 
 ```sh
-go tool nsgo build -target web                                     # 网页与 app.wasm
-go run ./scripts web                                               # 上一步 + 拷进 webassets/
-go build -tags webassets -o "dist/PiDeck Lite.exe"                 # 一个二进制：窗口 + 网页 + API
+go run ./scripts web                    # 编 web 目标、brotli 压缩、再编带页面的桌面程序
+go build -tags webassets               # 只想自己编：webassets/ 已就位时用这个
 ```
 
-然后在桌面端 `设置 → 远程` 开启手机服务，浏览器打开 `http://<地址>:<端口>/?token=<令牌>`：页面与 API 同源，链接里的令牌自动填好，连过的那台电脑记在浏览器的 localStorage。`webassets/` 是生成物，不进仓库；不带上标签构建时访问 `/` 会落到令牌门禁上，和以前一样只有 API。
+浏览器端约 **40 MB 的 wasm，brotli 后 8 MB**；`scripts web` 把 `.wasm` 压成 `.wasm.br` 再删原件，桌面程序因此只增加 8 MB，页面抓下来也只走 8 MB。CI 给这个体积设了 12 MB 上限，桌面代码漏进客户端会立刻失败。
+
+然后在桌面端 `设置 → 远程` 开启手机服务，浏览器打开 `http://<地址>:<端口>/?token=<令牌>`：页面与 API 同源，链接里的令牌自动填好，连过的那台电脑记在浏览器的 localStorage。页面版本比电脑旧时，会提示刷新一下。
+
+`webassets/` 是生成物，不进仓库；不带上标签构建时访问 `/` 会落到令牌门禁上，和以前一样只有 API。手机上看到的是同一套界面，但它走原生构建，不经过这一段。
+
+新增只属于工作台的 `.go` 文件时记得以 `//go:build !js` 开头：否则它会被编进 app.wasm，CI 的 12 MB 上限会拦下来。客户端真要用的东西放进共享文件（`remote_wire.go`、`markdown.go`、`format.go` 那几个）。
 
 ## 架构
 
@@ -427,7 +432,10 @@ go build -tags webassets -o "dist/PiDeck Lite.exe"                 # 一个二�
 | `desktop_host.go` | 系统托盘、关闭到托盘、完成通知与各平台通知命令 |
 | `remote.go` | 手机 HTTP 服务、令牌、快照/历史接口，局域网/Tailscale/EasyTier 地址探测 |
 | `remote_client.go` | 手机端与网页端 HTTP 客户端、连接串解析 |
-| `web_serve.go` | 桌面端口上的网页路由：静态文件类型、缓存与首页回退 |
+| `web_serve.go` | 桌面端口上的网页路由：静态文件类型、brotli、缓存与首页回退 |
+| `root_client.go` / `root_desktop.go` | 两套入口：浏览器只有客户端，其余平台有工作台（手机端走客户端那支） |
+| `markdown.go` + `markdown_{desktop,client}.go` | 会话里的 Markdown：桌面连图表与公式一起渲染，浏览器省掉图表引擎 |
+| `remote_wire.go` | 手机与网页客户端读的那组结构：桌面填、客户端读 |
 | `web_assets_on.go` / `web_assets_off.go` | `-tags webassets` 时嵌入 `webassets/` 的网页，否则只发 API |
 | `store_js.go` / `store_other.go` | 上次连接的存放：浏览器用 localStorage，其余平台写 `remote.json` |
 | `mobile.go` | 手机端连接页、项目/会话列表、会话历史、发消息与审批 |
@@ -464,6 +472,9 @@ direct 构建从 GitHub Release 的 `appcast-<目标>.xml` 检查更新：
 - 应用内：设置 → 关于 → 检查更新，或命令面板「检查更新」；macOS/Windows 由 Sparkle/WinSparkle 下载并安装，
   Linux 和 Android 由应用下载、校验签名后交给系统安装器
 - 本地没有 `updates.key` 时不会生成 macOS/Windows 的 appcast；开发构建从不检查更新
+- 浏览器端没有更新器：页面就是桌面端发出来的，刷新即拿到新版本；`/api/ping` 报的版本和页面自己的不一致时，页面顶部会提示刷新（`pageStale`）
+- CI 的 `release` 在发布前逐个检查 `appcast-<目标>.xml`：漏掉一个，那个目标的更新会一直 404 到下次发布
+- 打 tag 即发布：`git tag v0.2.1 && git push origin v0.2.1`，`release.yml` 编六个桌面目标（安装包里嵌了网页）、汇总校验和、上传 Release
 
 ## 提示词库
 
