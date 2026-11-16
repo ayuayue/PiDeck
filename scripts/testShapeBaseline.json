@@ -881,6 +881,7 @@
 		"tests/sessionSidebar.test.mjs → session context menu exposes archive and restores refresh the manager project",
 		"tests/sessionSidebar.test.mjs → sidebar archive and delete dismiss nested subagent chats instead of leaving a composer",
 		"tests/sessionSidebar.test.mjs → worktree rows expose their child project context menu and loading projects keep a surface",
+		"tests/sessionSubtreeNotice.test.mjs → 归档/删除两条 IPC 都在 leftover 时调用提示，且失败不抛错",
 		"tests/sessionSidebar.test.mjs → sidebar expansion migration waits for authoritative settings before pruning projects",
 		"tests/sessionSidebar.test.mjs → Sidebar leaf remains independent from App and keeps RPC logging query local",
 		"tests/sessionSidebar.test.mjs → AppSidebar owns the controller while App keeps business actions as ports",

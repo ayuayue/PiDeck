@@ -11,6 +11,7 @@ import type { ArchivedRemoteSessionEntry } from "../sessions/SessionCatalog";
 import { createRemoteArchivedSessionDelete } from "../sessions/RemoteArchivedSessionDelete";
 import { REMOTE_SESSION_ARCHIVE_CODES } from "../remote/RemoteSessionArchive";
 import { runForScatteredSubtreeFiles } from "../sessions/sessionSubtreeFiles";
+import { sendAgentsNotice } from "./agentsNotice";
 import type { DshBackendIpcDeps, SessionIpcDeps } from "./sessionIpc";
 import { parseSessionId } from "./sessionIpcInputGuards";
 
@@ -64,7 +65,7 @@ export function registerSessionCatalogArchiveIpc(deps: SessionCatalogArchiveIpcD
 		return senderId;
 	}
 	const localSessionFilePath = (sessionId: string) => sessionCatalog.getLocalFilePath(sessionId);
-	ipcMain.handle(ipcChannels.sessionsCatalogArchive, async (_event, rawSessionId: unknown) => {
+	ipcMain.handle(ipcChannels.sessionsCatalogArchive, async (event, rawSessionId: unknown) => {
 		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
 		// DSH 会话归档（G14）：host 目录移入 .pideck-archive（目录移动 + manifest，不销毁数据）。
@@ -136,7 +137,17 @@ export function registerSessionCatalogArchiveIpc(deps: SessionCatalogArchiveIpcD
 			environment: entry.environment,
 			run: (filePath) => sessionScanner.archive(filePath),
 		});
-		if (leftover.length > 0) void appLogger.warn("session", "Session archive left scattered subtree files", { sessionId, failures: leftover });
+		if (leftover.length > 0) {
+			void appLogger.warn("session", "Session archive left scattered subtree files", { sessionId, failures: leftover });
+			// 归档已成功、记录也已摘除：这里不能再抛错（用户会以为整个归档失败），
+			// 但必须让用户知道有几个子会话文件没搬走（#539）。
+			sendAgentsNotice(event.sender, {
+				sessionId,
+				i18nKey: "notice.subtreeArchiveLeftover",
+				i18nParams: { count: leftover.length },
+				message: `Parent session archived, but ${leftover.length} flat subagent file(s) could not be archived and remain in place (see logs).`,
+			});
+		}
 		// scanner.archive 会把 sibling `<stem>/` 一并移走；catalog 同步清子树，避免幽灵子会话。
 		await sessionCatalog.removeWithDescendants(sessionId);
 		void appLogger.info("session", "Session archived", { sessionId, archivedPath });

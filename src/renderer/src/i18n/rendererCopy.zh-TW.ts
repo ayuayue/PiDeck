@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: d069f85c57d3af43dec5511f908a0847822ed5efd4750a399d93ecd57e8138d1（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 6f9a38232ee94602a7fa686a25e26961b3f4b66de6b3b66543f6675cba8d82c8（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1555,6 +1555,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"notice.modelPreferenceIgnored": "會話儲存的模型偏好未能應用（host 未接受該選擇），已沿用當前模型。請在模型選擇器重新選擇。",
 	"notice.permissionPreferenceIgnored": "會話儲存的權限預設未能應用（host 未確認生效），本次沿用 host 當前策略。請重新切換權限預設。",
 	"notice.acpBypassUnavailable": "「{tool}」沒有提供 bypass 模式檔（可選：{modes}），工具級「bypass 權限」對該 agent 不生效。請改用它的免確認啟動引數，或切換模式檔。",
+	"notice.subtreeArchiveLeftover": "父會話已歸檔，但有 {count} 個平鋪子會話檔案未能一併歸檔，仍留在原目錄（詳情見日誌）。",
+	"notice.subtreeDeleteLeftover": "父會話已刪除，但有 {count} 個平鋪子會話檔案未能一併刪除，仍在原位置（詳情見日誌）。",
 	// toast 通知历史面板（设置页「通知」区与详情弹窗共用同一入口打开）
 	"notice.historyTitle": "通知歷史",
 	"notice.historyDesc": "彈出的全部通知（已落盤存檔，重啟後仍可回看）。可複製全文或重新彈出。",

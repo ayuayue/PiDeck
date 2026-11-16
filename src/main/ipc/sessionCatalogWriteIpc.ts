@@ -7,6 +7,7 @@ import { ipcChannels } from "../../shared/ipc";
 import { resolveProjectWslIdentity } from "../wsl/WslProjectEnvironment";
 import { canonicalizeSessionPath } from "../../shared/sessionIdentity";
 import { runForScatteredSubtreeFiles } from "../sessions/sessionSubtreeFiles";
+import { sendAgentsNotice } from "./agentsNotice";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
 import { modelThinkingLevelOf } from "../../shared/modelThinkingLevels";
 import { isDshAgentPresetLocked } from "../../shared/dshAgentPresetLock";
@@ -280,7 +281,7 @@ export function registerSessionCatalogWriteIpc(deps: SessionCatalogWriteIpcDeps)
 			...(patch.backend === "imagegen" || patch.backend === "videogen" || patch.backend === "acp" ? { filePath: null, piSessionId: null } : {}),
 		});
 	});
-	ipcMain.handle(ipcChannels.sessionsCatalogDelete, async (_event, rawSessionId: unknown) => {
+	ipcMain.handle(ipcChannels.sessionsCatalogDelete, async (event, rawSessionId: unknown) => {
 		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
 		if (!entry) return false;
@@ -346,7 +347,16 @@ export function registerSessionCatalogWriteIpc(deps: SessionCatalogWriteIpcDeps)
 					environment: entry.environment,
 					run: (filePath) => sessionScanner.delete(filePath),
 				});
-				if (leftover.length > 0) void appLogger.warn("session", "Catalog session delete left scattered subtree files", { sessionId, failures: leftover });
+				if (leftover.length > 0) {
+					void appLogger.warn("session", "Catalog session delete left scattered subtree files", { sessionId, failures: leftover });
+					// 删除已成功、记录也已摘除：不能在这里抛错，但要让用户知道有文件没进回收站（#539）。
+					sendAgentsNotice(event.sender, {
+						sessionId,
+						i18nKey: "notice.subtreeDeleteLeftover",
+						i18nParams: { count: leftover.length },
+						message: `Session deleted, but ${leftover.length} flat subagent file(s) could not be moved to trash and remain in place (see logs).`,
+					});
+				}
 			}
 			// 磁盘会把 sibling `<stem>/` 一并删掉；catalog 必须同步摘掉整棵子树，
 			// 否则 mergeScanned 只增改不删，子会话会孤儿提升成顶层行。

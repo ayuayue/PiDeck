@@ -1582,6 +1582,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"notice.modelPreferenceIgnored": "The saved model preference could not be applied (the host rejected it); the current model is still in use. Pick a model again in the model selector.",
 	"notice.permissionPreferenceIgnored": "The saved permission preset could not be applied (the host did not confirm it); the host's current policy is still in use. Switch the preset again.",
 	"notice.acpBypassUnavailable": '"{tool}" offers no bypass mode (available: {modes}); its "bypass permissions" setting has no effect. Use the agent\'s auto-approve flag or pick a mode instead.',
+	"notice.subtreeArchiveLeftover": "Parent session archived, but {count} flat subagent file(s) could not be archived and remain in the original folder (see logs).",
+	"notice.subtreeDeleteLeftover": "Session deleted, but {count} flat subagent file(s) could not be moved to trash and remain in place (see logs).",
 	"common.delete": "Delete",
 	"common.paste": "Paste",
 	"common.deleteConfirm": "Confirm Delete",

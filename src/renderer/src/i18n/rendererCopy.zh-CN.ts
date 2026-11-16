@@ -1548,6 +1548,8 @@ export const zhCN = {
 	"notice.modelPreferenceIgnored": "会话保存的模型偏好未能应用（host 未接受该选择），已沿用当前模型。请在模型选择器重新选择。",
 	"notice.permissionPreferenceIgnored": "会话保存的权限预设未能应用（host 未确认生效），本次沿用 host 当前策略。请重新切换权限预设。",
 	"notice.acpBypassUnavailable": "「{tool}」没有提供 bypass 模式档（可选：{modes}），工具级「bypass 权限」对该 agent 不生效。请改用它的免确认启动参数，或切换模式档。",
+	"notice.subtreeArchiveLeftover": "父会话已归档，但有 {count} 个平铺子会话文件未能一并归档，仍留在原目录（详情见日志）。",
+	"notice.subtreeDeleteLeftover": "父会话已删除，但有 {count} 个平铺子会话文件未能一并删除，仍在原位置（详情见日志）。",
 	// toast 通知历史面板（设置页「通知」区与详情弹窗共用同一入口打开）
 	"notice.historyTitle": "通知历史",
 	"notice.historyDesc": "弹出的全部通知（已落盘存档，重启后仍可回看）。可复制全文或重新弹出。",
