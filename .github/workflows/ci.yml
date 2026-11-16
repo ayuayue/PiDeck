@@ -43,9 +43,10 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      # -short leaves out the end-to-end tests that drive a real window and
-      # a fake pi over seconds: a runner has neither the display nor the
-      # timing, and they failed here on every OS before this line existed.
+      # -short leaves out the slowest end-to-end runs. It does not make this
+      # job green on a runner: the rest drive a real pi, which is not
+      # installed there, and a few unit tests assert Windows paths. Their
+      # failures predate this workflow's changes and are tracked apart from it.
       - name: Test
         run: go test -short ./... -count=1 -timeout 20m
         env:
