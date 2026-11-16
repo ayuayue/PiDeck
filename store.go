@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -192,14 +193,22 @@ type store struct {
 	// parses counts the session files actually read, which lets a test
 	// see the cache doing its work.
 	parses int
+	// metaPath is where the listings are kept between runs, so a start
+	// reads no session file at all. metaDirty marks a change not yet
+	// written, and metaWriteMu keeps two writers off one temporary file.
+	metaPath    string
+	metaDirty   bool
+	metaWriteMu sync.Mutex
 }
 
-// metaCacheEntry is one file's cached listing.
+// metaCacheEntry is one file's cached listing. Partial marks a listing
+// that read only the session header, because its project was off screen.
 type metaCacheEntry struct {
-	size    int64
-	modTime time.Time
-	meta    sessionMeta
-	ok      bool
+	Size    int64       `json:"size"`
+	ModTime time.Time   `json:"mtime"`
+	Meta    sessionMeta `json:"meta"`
+	OK      bool        `json:"ok"`
+	Partial bool        `json:"partial,omitempty"`
 }
 
 func newStore(dataDir string) (*store, error) {
@@ -207,12 +216,14 @@ func newStore(dataDir string) (*store, error) {
 		dir:      dataDir,
 		sessions: filepath.Join(dataDir, "sessions"),
 		path:     filepath.Join(dataDir, "config.json"),
+		metaPath: filepath.Join(dataDir, "session-meta-cache.json"),
 		c: &config{Version: configVersion, SidebarOpen: true, Theme: "system", Titles: map[string]string{}, ScanPi: true,
 			CloseToTray: true, NotifyOnDone: true, NotifyOnlyHidden: true},
 	}
 	if err := os.MkdirAll(s.sessions, 0o755); err != nil {
 		return nil, err
 	}
+	s.loadMetaCache()
 	if raw, err := os.ReadFile(s.path); err == nil {
 		var c config
 		if json.Unmarshal(raw, &c) == nil {
@@ -576,97 +587,273 @@ func (s *store) edit(fn func(*config)) {
 }
 
 // sessionMeta is a session as the sidebar and tabs need it before its
-// process starts.
+// process starts. It is what session-meta-cache.json keeps, so its fields
+// are tagged and File travels as the map key instead.
 type sessionMeta struct {
-	ID      string
-	Cwd     string
-	File    string
-	Title   string
-	Updated time.Time
-	Count   int
-	Target  string
+	ID      string    `json:"id"`
+	Cwd     string    `json:"cwd"`
+	File    string    `json:"-"`
+	Title   string    `json:"title,omitempty"`
+	Updated time.Time `json:"updated"`
+	Count   int       `json:"count,omitempty"`
+	Target  string    `json:"target,omitempty"`
 	// External marks a session in pi's own store, which the app opens in
 	// place rather than owning.
-	External bool
+	External bool `json:"-"`
+}
+
+// metaCacheVersion is the shape of session-meta-cache.json. Bump it when a
+// field means something else, and every file is read again once.
+const metaCacheVersion = 1
+
+// metaCacheMax bounds the listings kept, as the scan itself is bounded.
+const metaCacheMax = 8000
+
+// metaCacheFile is what session-meta-cache.json holds.
+type metaCacheFile struct {
+	Version int                       `json:"version"`
+	Entries map[string]metaCacheEntry `json:"entries"`
+}
+
+// metaResult is one file's listing, or that it has none.
+type metaResult struct {
+	meta sessionMeta
+	ok   bool
+}
+
+// loadMetaCache restores the listings the last run left behind, so a
+// warm start reads no session file at all. A missing, corrupt or older
+// cache is simply a cold start.
+func (s *store) loadMetaCache() {
+	raw, err := os.ReadFile(s.metaPath)
+	if err != nil {
+		return
+	}
+	var f metaCacheFile
+	if json.Unmarshal(raw, &f) != nil || f.Version != metaCacheVersion || len(f.Entries) == 0 || len(f.Entries) > metaCacheMax {
+		return
+	}
+	for path, e := range f.Entries {
+		if e.ModTime.IsZero() {
+			delete(f.Entries, path)
+			continue
+		}
+		e.Meta.File = path
+		f.Entries[path] = e
+	}
+	s.mu.Lock()
+	s.metas = f.Entries
+	s.mu.Unlock()
+}
+
+// writeMetaCache writes the listings as they are now, atomically, so a
+// half-written cache is never read.
+func (s *store) writeMetaCache() {
+	s.metaWriteMu.Lock()
+	defer s.metaWriteMu.Unlock()
+	s.mu.Lock()
+	f := metaCacheFile{Version: metaCacheVersion, Entries: make(map[string]metaCacheEntry, len(s.metas))}
+	for path, e := range s.metas {
+		f.Entries[path] = e
+	}
+	s.metaDirty = false
+	s.mu.Unlock()
+	raw, err := json.Marshal(f)
+	if err != nil {
+		return
+	}
+	tmp := s.metaPath + ".tmp"
+	if os.WriteFile(tmp, raw, 0o644) != nil {
+		return
+	}
+	_ = os.Rename(tmp, s.metaPath)
+}
+
+// saveMetaCache writes the listings when a scan changed them, so the next
+// start reads no session file at all. A failed write costs one slow start.
+func (s *store) saveMetaCache() {
+	s.mu.Lock()
+	dirty := s.metaDirty
+	s.mu.Unlock()
+	if dirty {
+		s.writeMetaCache()
+	}
+}
+
+// sessionFiles lists every session file under root.
+func sessionFiles(root string) []string {
+	var files []string
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	return files
 }
 
 // scanSessions reads the headers and names of the session files in the
 // app's store, newest first.
 func (s *store) scanSessions(titles map[string]string) []sessionMeta {
-	var metas []sessionMeta
-	_ = filepath.WalkDir(s.sessions, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
-			return nil
-		}
-		if m, ok := s.readMeta(path, titles); ok {
-			metas = append(metas, m)
-		}
-		if len(metas) > 2000 {
-			return filepath.SkipAll
-		}
-		return nil
-	})
+	files := sessionFiles(s.sessions)
+	metas := s.readMetas(files, titles, nil)
+	s.pruneMetas(s.sessions, files)
 	sort.Slice(metas, func(i, j int) bool { return metas[i].Updated.After(metas[j].Updated) })
+	s.saveMetaCache()
 	return metas
 }
 
 // scanPiSessions reads pi's own session store, keeping the sessions of the
-// folders keep allows, at most limit of them.
+// folders keep allows, at most limit of them. Files of other folders are
+// read as far as their header only, so a large store costs what the
+// projects on screen hold, not what this machine ever ran.
 func (s *store) scanPiSessions(root string, titles map[string]string, keep func(cwd string) bool, limit int) []sessionMeta {
 	if root == "" || filepath.Clean(root) == filepath.Clean(s.sessions) {
 		return nil
 	}
-	var metas []sessionMeta
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
-			return nil
-		}
-		m, ok := s.readMeta(path, titles)
-		if !ok || (keep != nil && !keep(m.Cwd)) {
-			return nil
-		}
-		m.External = true
-		metas = append(metas, m)
-		if limit > 0 && len(metas) >= limit {
-			return filepath.SkipAll
-		}
-		return nil
-	})
+	files := sessionFiles(root)
+	metas := s.readMetas(files, titles, keep)
 	sort.Slice(metas, func(i, j int) bool { return metas[i].Updated.After(metas[j].Updated) })
+	if limit > 0 && len(metas) > limit {
+		metas = metas[:limit]
+	} else {
+		s.pruneMetas(root, files)
+	}
+	for i := range metas {
+		metas[i].External = true
+	}
+	s.saveMetaCache()
 	return metas
+}
+
+// readMetas builds the listing of each file: cached ones without a read,
+// the rest a few at a time, so a cold scan of a large store does not wait
+// on one core.
+func (s *store) readMetas(files []string, titles map[string]string, want func(cwd string) bool) []sessionMeta {
+	results := make([]metaResult, len(files))
+	var pending []int
+	for i, path := range files {
+		if r, done := s.cachedMeta(path, want); done {
+			results[i] = r
+			continue
+		}
+		pending = append(pending, i)
+	}
+	if len(pending) > 0 {
+		workers := min(len(pending), min(runtime.GOMAXPROCS(0), 8))
+		if workers < 1 {
+			workers = 1
+		}
+		queue := make(chan int)
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for w := 0; w < workers; w++ {
+			go func() {
+				defer wg.Done()
+				for i := range queue {
+					results[i] = s.readMetaFile(files[i], want)
+				}
+			}()
+		}
+		for _, i := range pending {
+			queue <- i
+		}
+		close(queue)
+		wg.Wait()
+	}
+	metas := make([]sessionMeta, 0, len(files))
+	for _, r := range results {
+		if !r.ok || (want != nil && !want(r.meta.Cwd)) {
+			continue
+		}
+		metas = append(metas, applySessionTitle(r.meta, titles))
+	}
+	return metas
+}
+
+// cachedMeta answers a file from the cache when the cache can: an
+// unchanged file needs no read, and a listing whose project is off screen
+// needs not even a stat.
+func (s *store) cachedMeta(path string, want func(cwd string) bool) (metaResult, bool) {
+	s.mu.Lock()
+	e, found := s.metas[path]
+	s.mu.Unlock()
+	if !found {
+		return metaResult{}, false
+	}
+	if want != nil && e.OK && !want(e.Meta.Cwd) {
+		// Off screen: nothing in this file can change that.
+		return metaResult{meta: e.Meta, ok: true}, true
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() != e.Size || !info.ModTime().Equal(e.ModTime) {
+		return metaResult{}, false
+	}
+	if e.Partial && (want == nil || want(e.Meta.Cwd)) {
+		// Only the header was read; its project wants the rest now.
+		return metaResult{}, false
+	}
+	return metaResult{meta: e.Meta, ok: e.OK}, true
+}
+
+// readMetaFile reads one session file and records its listing.
+func (s *store) readMetaFile(path string, want func(cwd string) bool) metaResult {
+	info, err := os.Stat(path)
+	if err != nil {
+		return metaResult{}
+	}
+	meta, partial, ok := readSessionMeta(path, want)
+	s.mu.Lock()
+	if s.metas == nil || len(s.metas) > metaCacheMax {
+		s.metas = map[string]metaCacheEntry{}
+	}
+	s.metas[path] = metaCacheEntry{Size: info.Size(), ModTime: info.ModTime(), Meta: meta, OK: ok, Partial: partial}
+	s.parses++
+	s.metaDirty = true
+	s.mu.Unlock()
+	if !ok {
+		return metaResult{}
+	}
+	return metaResult{meta: meta, ok: true}
 }
 
 // readMeta returns a session file's listing, reusing the cached one while
 // the file is unchanged. Titles come from the config and are applied on
 // every call, so a rename does not need a reparse.
 func (s *store) readMeta(path string, titles map[string]string) (sessionMeta, bool) {
-	info, err := os.Stat(path)
-	if err != nil {
+	r, done := s.cachedMeta(path, nil)
+	if !done {
+		r = s.readMetaFile(path, nil)
+		s.saveMetaCache()
+	}
+	if !r.ok {
 		return sessionMeta{}, false
 	}
-	s.mu.Lock()
-	if e, ok := s.metas[path]; ok && e.size == info.Size() && e.modTime.Equal(info.ModTime()) {
-		meta, valid := e.meta, e.ok
-		s.mu.Unlock()
-		if !valid {
-			return sessionMeta{}, false
-		}
-		return applySessionTitle(meta, titles), true
-	}
-	s.mu.Unlock()
+	return applySessionTitle(r.meta, titles), true
+}
 
-	meta, valid := readSessionMeta(path)
+// pruneMetas drops the listings of files a scan no longer finds, so a
+// deleted session does not stay in the cache for ever.
+func (s *store) pruneMetas(root string, files []string) {
+	seen := make(map[string]struct{}, len(files))
+	for _, path := range files {
+		seen[path] = struct{}{}
+	}
+	prefix := filepath.Clean(root) + string(filepath.Separator)
 	s.mu.Lock()
-	if s.metas == nil || len(s.metas) > 8000 {
-		s.metas = map[string]metaCacheEntry{}
+	changed := false
+	for path := range s.metas {
+		if _, ok := seen[path]; ok || !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		delete(s.metas, path)
+		changed = true
 	}
-	s.metas[path] = metaCacheEntry{size: info.Size(), modTime: info.ModTime(), meta: meta, ok: valid}
-	s.parses++
+	if changed {
+		s.metaDirty = true
+	}
 	s.mu.Unlock()
-	if !valid {
-		return sessionMeta{}, false
-	}
-	return applySessionTitle(meta, titles), true
 }
 
 // applySessionTitle puts the user's name, or a placeholder, on a listing.
@@ -693,11 +880,14 @@ func (s *store) countSessions() int {
 	return n
 }
 
-// readSessionMeta reads as much of one session file as a listing needs.
-func readSessionMeta(path string) (sessionMeta, bool) {
+// readSessionMeta reads as much of one session file as a listing needs:
+// its header always, and its messages when want accepts the folder it
+// belongs to. A listing that stops at the header is partial and is read in
+// full once its project is on screen.
+func readSessionMeta(path string, want func(cwd string) bool) (sessionMeta, bool, bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return sessionMeta{}, false
+		return sessionMeta{}, false, false
 	}
 	defer f.Close()
 	meta := sessionMeta{File: path}
@@ -708,8 +898,8 @@ func readSessionMeta(path string) (sessionMeta, bool) {
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	firstUser := ""
 	for sc.Scan() {
-		line := sc.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
 			continue
 		}
 		var entry struct {
@@ -724,7 +914,11 @@ func readSessionMeta(path string) (sessionMeta, bool) {
 			continue
 		}
 		if entry.Type == "session" {
-			meta.Cwd, meta.ID = entry.Cwd, entry.ID
+			meta.Cwd, meta.ID = filepath.Clean(entry.Cwd), entry.ID
+			if want != nil && meta.ID != "" && !want(meta.Cwd) {
+				// The header is all this folder's files need.
+				return meta, true, true
+			}
 			continue
 		}
 		if entry.Type == "session_info" && entry.Name != "" {
@@ -750,13 +944,12 @@ func readSessionMeta(path string) (sessionMeta, bool) {
 		}
 	}
 	if meta.ID == "" {
-		return sessionMeta{}, false
+		return sessionMeta{}, false, false
 	}
-	meta.Cwd = filepath.Clean(meta.Cwd)
 	if meta.Title == "" && firstUser != "" {
 		meta.Title = firstLine(firstUser, 48)
 	}
-	return meta, true
+	return meta, false, true
 }
 
 // importSession copies a session file into the app's own store, so it can
