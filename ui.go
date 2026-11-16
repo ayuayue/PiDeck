@@ -13,6 +13,7 @@ import (
 
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -97,28 +98,53 @@ func (a *app) shell() core.Node {
 		Sidebar:        []core.Node{a.rail()},
 		SidebarFooter:  []core.Node{a.railFooter()},
 		Header:         []core.Node{a.tabBar()},
-		Actions: []core.Node{
-			hint("终端", ui.IconButton{Icon: lucide.SquareTerminal, Label: "终端", Size: 28, IconSize: 14, TestID: "terminal-toggle",
-				Selected: a.term.open.Get, OnPress: a.toggleTerminal}),
-			hint("Git", ui.IconButton{Icon: lucide.GitBranch, Label: "Git", Size: 28, IconSize: 14, TestID: "git-toggle",
-				Selected: func() bool { return a.drawer.Get() && a.drawerTab.Get() == "git" }, OnPress: a.openGit}),
-		},
-		Content:   []core.Node{a.workArea()},
-		Right:     []core.Node{a.drawerPanel()},
-		RightOpen: a.drawer.Get,
-		OnRightOpenChange: func(open bool) {
-			a.drawer.Set(open)
-			if open && a.drawerTab.GetUntracked() == "git" {
-				a.gitAttach()
-			}
-			a.remember()
-		},
+		// The drawer's own header carries these while it shows, so they
+		// stay at the window's edge instead of sliding with the content.
+		Actions:           []core.Node{a.headActions(false)},
+		Content:           []core.Node{a.workArea()},
+		Right:             []core.Node{a.drawerPanel()},
+		RightHeader:       []core.Node{a.headActions(true)},
+		RightOpen:         a.drawer.Get,
 		RightToggleLabel:  "会话面板",
 		RightResizeLabel:  "调整面板宽度",
 		RightDefaultWidth: 316,
 		RightMinWidth:     260,
 		RightMaxWidth:     460,
 	}
+}
+
+// headActions are the content header's right end: the terminal, Git and
+// the drawer's toggle. They move into the drawer's own header while it
+// shows, so opening it no longer pushes them sideways.
+func (a *app) headActions(inDrawer bool) core.Node {
+	return core.Show{When: func() bool { return a.drawer.Get() == inDrawer }, Then: func(cx *core.Scope) core.Node {
+		row := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}
+		if inDrawer {
+			// The drawer's header has no tab bar to push them along, and it
+			// keeps clear of the window's controls as the content's does.
+			row.FlexGrow, row.JustifyContent = 1, core.JustifyEnd
+			row.Padding = core.Edges{Right: core.Insets(cx).Right + desktop.TitleBar(cx).Right}
+		}
+		return core.View{Style: row, Children: []core.Node{
+			hint("终端", ui.IconButton{Icon: lucide.SquareTerminal, Label: "终端", Size: 28, IconSize: 14, TestID: "terminal-toggle",
+				Selected: a.term.open.Get, OnPress: a.toggleTerminal}),
+			hint("Git", ui.IconButton{Icon: lucide.GitBranch, Label: "Git", Size: 28, IconSize: 14, TestID: "git-toggle",
+				Selected: func() bool { return a.drawer.Get() && a.drawerTab.Get() == "git" }, OnPress: a.openGit}),
+			hint(T("会话面板"), ui.IconButton{Icon: lucide.PanelRight, Label: T("会话面板"), Size: 32, IconSize: 16.25,
+				Selected: a.drawer.Get, TestID: "drawer-toggle", OnPress: a.toggleDrawer}),
+		}}
+	}}
+}
+
+// toggleDrawer shows or hides the session drawer, attaching Git when it
+// opens on that tab.
+func (a *app) toggleDrawer() {
+	open := !a.drawer.GetUntracked()
+	a.drawer.Set(open)
+	if open && a.drawerTab.GetUntracked() == "git" {
+		a.gitAttach()
+	}
+	a.remember()
 }
 
 // workArea is the chat, with the terminal panel under it when it shows.
@@ -335,30 +361,30 @@ func (a *app) newSessionButton() core.Node {
 	}
 }
 
-// railShortcuts are the actions beside 新建会话: the agent manager, the
-// scheduled tasks and the favorites, which used to sit in the footer.
+// railShortcuts are the ways in under 新建会话: the agent manager, the
+// scheduled tasks and the favorites, one to a row as the phone's rail and
+// PiDeck keep them.
 func (a *app) railShortcuts() core.Node {
 	colors := ui.ColorsOf(a.cx)
-	item := func(icon func() *core.SVG, label, id string, on func()) core.Node {
+	entry := func(icon func() *core.SVG, label, id string, on func()) core.Node {
 		return core.View{
 			OnPress: func(core.PressEvent) { on() },
 			Role:    core.RoleButton, Label: T(label), TestID: id,
 			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 5,
-					Height: core.Pt(28), CornerRadius: ui.RadiusControl, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0),
-					Transition: pressMotion, Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Height: core.Pt(30), Padding: core.Symmetric(0, 8),
+					CornerRadius: 7, Transition: pressMotion,
+					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 			},
 			Children: []core.Node{
-				ui.IconOf(icon, 12.5, colors.Muted),
-				core.Text{Content: T(label), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FontSize: 11.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Muted)},
+				ui.Icon(icon, 13.5, colors.Muted),
+				ui.Text(T(label), 12.5, ui.Regular, colors.Text),
 			},
 		}
 	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-		item(lucide.Bot, "智能体", "rail-agents", func() { a.openAgentManager() }),
-		item(lucide.CalendarClock, "定时任务", "rail-tasks", func() { a.openTaskDialog() }),
-		item(lucide.Star, "收藏夹", "rail-favorites", func() { a.openFavorites() }),
+	return core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
+		entry(lucide.Bot, "智能体", "rail-agents", func() { a.openAgentManager() }),
+		entry(lucide.CalendarClock, "定时任务", "rail-tasks", func() { a.openTaskDialog() }),
+		entry(lucide.Star, "收藏夹", "rail-favorites", func() { a.openFavorites() }),
 	}}
 }
 
