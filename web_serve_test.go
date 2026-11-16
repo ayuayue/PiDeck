@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/fstest"
 )
 
 // TestWebAssetNames checks the type and cache rules a release's file names
@@ -84,5 +85,47 @@ func TestWebClientPaths(t *testing.T) {
 	h.handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/state", nil))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("GET /api/state = %d, want 401 without a token", rec.Code)
+	}
+}
+
+// TestWebAssetEncoded checks the compressed wasm: the page asks for
+// app.<hash>.wasm, the file on hand is the .br beside it.
+func TestWebAssetEncoded(t *testing.T) {
+	old := webAssets
+	webAssets = fstest.MapFS{"app.0875381b2d.wasm.br": {Data: []byte("br")}}
+	defer func() { webAssets = old }()
+
+	req := httptest.NewRequest(http.MethodGet, "/app.0875381b2d.wasm", nil)
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	rec := httptest.NewRecorder()
+	if !serveWebAsset(rec, req) {
+		t.Fatal("the compressed wasm was not served")
+	}
+	for header, want := range map[string]string{
+		"Content-Encoding": "br",
+		"Content-Type":     "application/wasm",
+		"Cache-Control":    "public, max-age=31536000, immutable",
+	} {
+		if got := rec.Header().Get(header); got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
+	}
+	if body := rec.Body.String(); body != "br" {
+		t.Errorf("body = %q", body)
+	}
+
+	// A browser that cannot decompress is told, rather than handed bytes it
+	// cannot read.
+	plain := httptest.NewRequest(http.MethodGet, "/app.0875381b2d.wasm", nil)
+	plain.Header.Set("Accept-Encoding", "gzip")
+	rec = httptest.NewRecorder()
+	if !serveWebAsset(rec, plain) || rec.Code != http.StatusNotAcceptable {
+		t.Fatalf("plain client got %d, want 406", rec.Code)
+	}
+	if !webAcceptsBrotli(req) || webAcceptsBrotli(plain) {
+		t.Fatal("brotli acceptance is misread")
+	}
+	if webAcceptsBrotli(httptest.NewRequest(http.MethodGet, "/", nil)) {
+		t.Fatal("a request without Accept-Encoding was read as brotli")
 	}
 }

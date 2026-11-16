@@ -23,6 +23,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +36,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/andybalholm/brotli"
 )
 
 // appID 和 activity 是 adb 启动应用要用的；id 也从 nsgo.yaml 读，这里只是兜底。
@@ -457,7 +460,8 @@ func (h *helper) test() {
 }
 
 // web 把浏览器端页面编进 webassets/，再编一个同时发窗口、页面和 API 的二进制：
-// 浏览器的 WebAssembly 里没有进程和磁盘，pi、文件与 Git 仍由桌面端提供。
+// 浏览器的 WebAssembly 里没有进程和磁盘，pi、文件与 Git 仍由桌面端提供。wasm 先
+// brotli 压缩，页面抓下来只有原体积的两成。
 func (h *helper) web() {
 	if err := h.nsgo("build", "-target", "web"); err != nil {
 		h.report(err)
@@ -473,6 +477,10 @@ func (h *helper) web() {
 		h.report(err)
 		return
 	}
+	if err := compressWebAssets(dst); err != nil {
+		h.report(err)
+		return
+	}
 	out := filepath.Join(h.root, "dist", h.name+"-web-host")
 	if runtime.GOOS == "windows" {
 		out += ".exe"
@@ -482,6 +490,38 @@ func (h *helper) web() {
 		return
 	}
 	fmt.Printf("\n网页已嵌入。设置 → 远程开启后，浏览器打开 http://<地址>:<端口>/?token=<令牌> 即可。\n产物：%s\n", out)
+}
+
+// compressWebAssets brotli-compresses the site's wasm and drops the original:
+// the server answers <name>.wasm with the .br file, so everything embedded and
+// downloaded is the compressed one.
+func compressWebAssets(dir string) error {
+	files, err := filepath.Glob(filepath.Join(dir, "*.wasm"))
+	if err != nil {
+		return err
+	}
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		w := brotli.NewWriterLevel(&buf, 9)
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+		if err := w.Close(); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path+".br", buf.Bytes(), 0o644); err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		fmt.Printf("  %s → %.1f MB（%.1f MB）\n", filepath.Base(path), float64(buf.Len())/1e6, float64(len(data))/1e6)
+	}
+	return nil
 }
 
 // copyTree 把一个目录复制到另一个，文件逐个来；发布目录不大，够用。

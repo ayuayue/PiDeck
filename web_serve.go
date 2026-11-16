@@ -13,6 +13,20 @@ import (
 	"strings"
 )
 
+// webEncodedSuffix is how the build stores a file it compressed: the page asks
+// for app.<hash>.wasm and the file beside it is app.<hash>.wasm.br.
+const webEncodedSuffix = ".br"
+
+// webAcceptsBrotli says whether the browser can take the compressed file.
+func webAcceptsBrotli(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		if strings.TrimSpace(strings.SplitN(part, ";", 2)[0]) == "br" {
+			return true
+		}
+	}
+	return false
+}
+
 // serveWebAsset answers a request for the browser client and reports whether
 // it did. Its files are public: a page's own script and wasm fetch carry no
 // token, while every /api path keeps the token gate.
@@ -25,6 +39,14 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 		name = "index.html"
 	}
 	data, err := fs.ReadFile(webAssets, name)
+	encoded := false
+	if err != nil {
+		// A web build writes the wasm brotli-compressed and drops the raw
+		// file: a browser asks for app.wasm and gets the .br beside it.
+		if data, err = fs.ReadFile(webAssets, name+webEncodedSuffix); err == nil {
+			encoded = true
+		}
+	}
 	if err != nil {
 		// The API keeps its own answers, its 404s included.
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -38,6 +60,14 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request) bool {
 		}
 	}
 	w.Header().Set("Content-Type", webAssetType(name))
+	if encoded {
+		if !webAcceptsBrotli(r) {
+			w.WriteHeader(http.StatusNotAcceptable)
+			return true
+		}
+		w.Header().Set("Content-Encoding", "br")
+		w.Header().Add("Vary", "Accept-Encoding")
+	}
 	if webAssetHashed(name) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
