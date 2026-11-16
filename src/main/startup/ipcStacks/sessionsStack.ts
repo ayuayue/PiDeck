@@ -130,8 +130,8 @@ export function registerSessionsStack(ctx: SessionsStackContext): void {
 		sessionScanner,
 		resolveWslSessionScanner: (identity) => wslSessionScannerFor(identity),
 		sessionCatalog,
-		// 会话 ↔ 智能体绑定：绑定的会话每次发送注入角色设定（pi/acp 隐藏 agentMessage，
-		// dsh 退化为可见前缀，由 sessionIpc 的 composeAgentInstruction 统一组合）。
+		// 会话 ↔ 智能体绑定：绑定的会话每次发送注入角色设定（pi 隐藏 agentMessage，
+		// dsh/acp 退化为可见前缀，由 sessionIpc 的 composeAgentInstruction 统一组合）。
 		resolveSessionAgentInstruction: (sessionId) => agentProfileStore?.getBoundAgent(sessionId)?.systemPrompt,
 		sessionRuntimeCoordinator,
 		agentManager,

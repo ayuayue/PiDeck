@@ -374,7 +374,7 @@ export type SessionIpcDeps = {
 	/**
 	 * 会话绑定的智能体角色设定（「使用」智能体时写入 AgentProfileStore.sessionAgentBindings）：
 	 * 返回非空字符串时，sessionsSendPrompt 会在会话首轮把角色设定拼进 prompt
-	 * （pi/acp 走隐藏 agentMessage，dsh 退化为可见前缀，见 composeAgentInstruction）。
+	 * （pi 走隐藏 agentMessage；dsh/acp 没有该通道，退化为可见前缀，见 composeAgentInstruction）。
 	 * 未装配（单测 / 旧宿主）时不做任何注入，发送行为与此前完全一致。
 	 */
 	resolveSessionAgentInstruction?: (sessionId: string) => string | undefined;

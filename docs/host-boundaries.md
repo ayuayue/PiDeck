@@ -44,7 +44,7 @@
 - 三者的边界：一次性、无工具、不碰会话文件；事件按 runId 配对，终态恰好一次；fail-safe 与 pi-auth 一致（sidecar 起不来只是按钮置灰/toast，不影响 pi 会话）。禁止扩展成通用模型 API 桥，禁止把 `agent-profiles:invoke` 做成任意 systemPrompt 直通。
 - 输入预测只消费已完成的问答：当前会话存在用户消息，且末条为非空、`stopReason: "stop"` 的助手回复；新会话首发前、流式中、工具中间回复、失败/中断/截断或结束态未知均不调用，首轮正常回复完成后允许预测。不能把预热/激活的 `starting → idle` 当作回答完成；守卫 `tests/usePromptSuggestion.test.mjs`。
 - 输入预测的展示：ghost 文案是绝对定位视觉层，**不得写进 ProseMirror 文档**（不参与撤销/发送判定）；Tab / → 采纳时整体回填草稿，Esc 忽略，失败静默。开关 `settings.promptSuggestionEnabled`（缺省开，只有字面 false 能关）。
-- 智能体本身是 PiDeck 层预设：会话绑定存 `AgentMarketSettings.sessionAgentBindings`（只能经 `agent-profiles:bind-session` 改）；会话**首次**发送时 `sessionIpc` 用 `composeAgentInstruction` 把角色设定拼进 `SendPromptInput.agentMessage`（DSH 拒绝该通道，退化为可见前缀）。角色设定随第一条用户消息留在历史里，之后轮次不重复注入。PiDeck 不替 pi 写系统提示。
+- 智能体本身是 PiDeck 层预设：会话绑定存 `AgentMarketSettings.sessionAgentBindings`（只能经 `agent-profiles:bind-session` 改）；会话**首次**发送时 `sessionIpc` 用 `composeAgentInstruction` 把角色设定拼进本轮 prompt（pi 走隐藏 `agentMessage`；DSH/ACP 都没有该通道且会拒收整条 prompt，退化为可见前缀）。角色设定随第一条用户消息留在历史里，之后轮次不重复注入。PiDeck 不替 pi 写系统提示。
 
 ## 例外五：运行时控制扩展（`pi-deck-runtime.ts`，只允许 `/reload`）
 

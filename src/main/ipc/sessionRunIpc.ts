@@ -10,7 +10,7 @@ import { isDshPermissionPreset } from "../../shared/types/agent";
 import { isRewindRestoreScope } from "../../shared/types/rewind";
 import { readRuntimePromptTemplateBodies } from "../prompts/runtimeTemplateBodies";
 import type { SendSessionPromptInput, SessionUiResponseInput, SessionRuntimeTarget, SessionRecord, RewindCheckpointPageParams } from "../../shared/types";
-import { composeAgentInstruction, shouldInjectAgentPersona } from "../agents/agentPersonaInstruction";
+import { applyBoundAgentPersona } from "../agents/agentPersonaInstruction";
 import type { SettingsStore } from "../settings/SettingsStore";
 import { appendSessionForkSuffix } from "../sessions/sessionForkTitle";
 import { handleSessionCommandResult } from "./sessionIpcInputGuards";
@@ -54,26 +54,32 @@ export function registerSessionRunIpc(deps: SessionRunIpcDeps): void {
 			// 随用户消息留在会话历史里，之后再拼会让模型上下文重复；绑定只经新会话「使用」
 			// 流程建立，因此 draft = 还没成功发过首条消息。注入点是「发送前」的唯一收口，
 			// 所有来源（桌面输入框/排队投递/Web）都经过这里，渲染层无需每个入口各拼一次。
-			// 只改本轮载荷，不写会话文件：pi 的 agentMessage 对时间线不可见，dsh 退化为可见前缀。
+			// 只改本轮载荷，不写会话文件：pi 的 agentMessage 对时间线不可见，
+			// dsh/acp 没有该通道，退化为可见前缀。
 			const persona = resolveSessionAgentInstruction?.(input.sessionId);
 			const boundRecord = persona ? sessionCatalog.get(input.sessionId) : undefined;
-			const injectPersona = Boolean(persona && boundRecord && shouldInjectAgentPersona({ sessionStatus: boundRecord.status, alreadyInjected: personaInjectedSessions.has(input.sessionId) }));
 			let promptInput: SendSessionPromptInput = input;
-			if (persona && boundRecord && injectPersona) {
-				const composed = composeAgentInstruction({ persona, message: input.message, existingAgentMessage: input.agentMessage, backend: boundRecord.backend });
-				promptInput = { ...input, message: composed.message };
-				if (composed.agentMessage !== undefined) promptInput.agentMessage = composed.agentMessage;
-				// 只记 id/后端/长度，角色设定是用户内容，不进日志。
-				void appLogger.debug("session", "Bound agent persona injected", { sessionId: input.sessionId, backend: boundRecord.backend ?? "pi", personaChars: persona.length });
-			}
-			// dsh 分支没有隐藏载荷：首轮和后续轮次都要删掉调用方带的 agentMessage，否则 host 拒收整条 prompt。
-			if (persona && boundRecord?.backend === "dsh") {
-				if (promptInput === input) promptInput = { ...input };
-				delete promptInput.agentMessage;
+			let injected = false;
+			if (persona && boundRecord) {
+				// 组合判据（首轮注入 + DSH/ACP 丢弃隐藏载荷）与 Web 发送入口共用同一份纯函数，
+				// 避免两套实现漂移：ACP 曾因这里只认 DSH 而把 agentMessage 发出去被整条拒收。
+				const applied = applyBoundAgentPersona({
+					prompt: input,
+					persona,
+					sessionStatus: boundRecord.status,
+					backend: boundRecord.backend,
+					alreadyInjected: personaInjectedSessions.has(input.sessionId),
+				});
+				promptInput = applied.prompt;
+				injected = applied.injected;
+				if (injected) {
+					// 只记 id/后端/长度，角色设定是用户内容，不进日志。
+					void appLogger.debug("session", "Bound agent persona injected", { sessionId: input.sessionId, backend: boundRecord.backend ?? "pi", personaChars: persona.length });
+				}
 			}
 			const result = await sessionRuntimeCoordinator.send(promptInput);
 			// 只有被接受才算首轮已带上角色设定；失败/拒绝时下一次发送仍可补上。
-			if (result.accepted && injectPersona) personaInjectedSessions.add(input.sessionId);
+			if (result.accepted && injected) personaInjectedSessions.add(input.sessionId);
 			if (result.agentId) {
 				const tab = agentManager.list().find((candidate) => candidate.id === result.agentId);
 				if (tab) emitSessionRuntimeEvent(tab.id, agentEventTags.agentsState, tab);
