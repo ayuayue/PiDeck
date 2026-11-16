@@ -22,6 +22,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import type { EnhanceErrorKind, EnhanceRunInput } from "../../../shared/types/enhance";
+import { DEFAULT_ENHANCE_SYSTEM_PROMPT } from "../../../shared/enhanceSystemPrompt";
 import type { AppLogger } from "../../logging/AppLogger";
 import type { PiAuthHostLaunch, PiAuthHostLaunchFailureReason } from "../auth/piAuthHostLaunch";
 
@@ -45,30 +46,6 @@ const DEFAULT_RUN_TIMEOUT_MS = 5 * 60_000;
 
 /** 助手 stdout 单行缓冲硬上限：协议帧都是小 JSON，超限即按协议错误结算。 */
 export const MAX_ENHANCE_HOST_LINE_CHARS = 8 * 1024 * 1024;
-
-/**
- * 内置增强提示词（workbuddy 风格）。
- * 内容与 docs/pi-prompt-templates/enhance-prompt.md 同源（该目录是历史内置
- * 模板的归档）；打包后读不到 docs/，因此运行时以这份常量为唯一来源。
- */
-export const ENHANCE_SYSTEM_PROMPT = `你是一位提示词工程专家，专门为 AI 编程助手优化用户提示词。用户会发来一段需求草稿，你的任务是把它改写成更清晰、更具体、更可执行的增强版提示词——不是执行它，也不是回答它。
-
-## 分析流程
-1. 评估原始草稿：明确主要目标、含糊之处、缺失的上下文、已有的明确约束
-2. 应用提示词工程原则：让任务和范围清晰、补充必要上下文、明确预期输出、在有助于理解时添加示例
-3. 重写为增强版：保持原始目标不变，补齐有意义的细节、边界情况和质量要求
-
-## 硬性约束
-- 语言一致（最高优先级）：必须使用与草稿完全相同的语言输出，中文草稿 → 中文增强版，不要混入其他语言
-- 只输出增强后的提示词，不要任何前言、解释、语言标注或分析
-- 不回答草稿中的问题——把它们展开/改写为更详细的需求
-- 不请求指南/教程，不索取代码片段
-- 不推荐草稿中未提到的技术选型
-- 不解释如何做，只明确要做什么
-- 保持简洁：增强版不超过 800 字
-- 草稿已足够清晰时做轻度润色，而不是原样返回
-
-直接输出增强后的提示词。`;
 
 /** 助手 stdout 记录（协议 v1）。仅主进程侧使用，不跨进程。 */
 type HostRecord = { type: "ready"; protocolVersion?: number } | { type: "started"; id?: string } | { type: "delta"; id?: string; text?: string } | { type: "done"; id?: string; text?: string } | { type: "error"; id?: string; errorKind?: string; message?: string } | { type: "fatal"; stage?: string; message?: string };
@@ -109,6 +86,12 @@ export type EnhancePromptServiceOptions = {
 	 * 所以要按模型现求值，指纹变了再重建进程。
 	 */
 	resolveLaunch: (run?: { provider?: string; modelId?: string }) => PiAuthHostLaunch;
+	/**
+	 * 现求值用户自定义的增强模板（装配层从 settings 读取）。只在调用方未显式提供
+	 * systemPrompt 时生效：智能体市场 / 输入预测 / 记忆学习各自带主进程角色设定，
+	 * 不能因为用户改了增强模板就被换掉。
+	 */
+	resolveSystemPrompt?: () => string | undefined;
 	logger?: EnhanceLogger;
 	/** 便于单测替换 spawn；默认用 node:child_process。 */
 	spawnFn?: typeof spawn;
@@ -173,6 +156,7 @@ function parseHostRecord(line: string): HostRecord | undefined {
 
 export class EnhancePromptService {
 	private readonly resolveLaunch: (run?: { provider?: string; modelId?: string }) => PiAuthHostLaunch;
+	private readonly resolveSystemPrompt?: () => string | undefined;
 	private readonly logger?: EnhanceLogger;
 	private readonly spawnFn: typeof spawn;
 	private readonly bootTimeoutMs: number;
@@ -197,6 +181,7 @@ export class EnhancePromptService {
 
 	constructor(options: EnhancePromptServiceOptions) {
 		this.resolveLaunch = options.resolveLaunch;
+		this.resolveSystemPrompt = options.resolveSystemPrompt;
 		this.logger = options.logger;
 		this.spawnFn = options.spawnFn ?? spawn;
 		this.bootTimeoutMs = options.timeouts?.boot ?? DEFAULT_BOOT_TIMEOUT_MS;
@@ -247,7 +232,8 @@ export class EnhancePromptService {
 		// 此时错误处理会同步清理 activeRun，不能留下一个永不结算的定时器。
 		this.activeRun = { id: runId, callbacks, timer, accepted: false };
 		// 智能体的一次性调用会带自己的角色设定；空白值视作未提供，回落内置增强模板。
-		const systemPrompt = input.systemPrompt?.trim() || ENHANCE_SYSTEM_PROMPT;
+		// 优先级：调用方显式角色设定（智能体/预测/记忆）> 用户自定义增强模板 > 内置模板。
+		const systemPrompt = input.systemPrompt?.trim() || this.resolveSystemPrompt?.()?.trim() || DEFAULT_ENHANCE_SYSTEM_PROMPT;
 		// 输入预测与增强共用一条补全协议，但语义不同：sidecar 对 purpose="suggest" 不追加
 		// 「只改写最后一条草稿」约束（历史是待预测的对话，不是待改写的正文）。
 		const sent = this.sendToHelper({ cmd: "complete", id: runId, provider: input.provider, modelId: input.modelId, systemPrompt, userText: input.userText, ...(input.purpose ? { purpose: input.purpose } : {}), ...(input.context?.length ? { context: input.context } : {}) });

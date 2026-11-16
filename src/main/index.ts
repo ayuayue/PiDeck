@@ -349,8 +349,8 @@ import { startDshHostInBackground } from "./dsh/startDshHostInBackground";
 import { importForeignSession, knownForeignSessionIds, syncForeignSessions, type DshForeignSyncDeps } from "./dsh/dshForeignSync";
 import { PiLocator } from "./pi/PiLocator";
 import { PiAuthService } from "./pi/auth/PiAuthService";
-import { resolvePiAuthHostLaunch } from "./pi/auth/piAuthHostLaunch";
-import { EnhancePromptService, PI_ENHANCE_HOST_FILENAME } from "./pi/enhance/EnhancePromptService";
+import { EnhancePromptService } from "./pi/enhance/EnhancePromptService";
+import { createCompletionHelperServiceFactory } from "./startup/completionHelperService";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
 import { resolveLaunchDefaultOptions, isModelInModelsConfig, resolveImSessionLaunchDefaults } from "./sessions/launchDefaults";
@@ -2907,37 +2907,14 @@ function resolveBuiltInExtensionRoots(): BuiltInExtensionPathRoots {
 }
 
 /**
- * 一次补全侧车（pi-enhance-host）实例的公共装配：提示词增强 / 智能体调用 / 输入预测各自
- * 一个独立进程（EnhancePromptService 的单飞语义是「新 run 打断旧 run」，共用实例会互相打断）。
- * resolveLaunch 现求值：用户改自定义 pi 路径后下次调用即生效，无需重启。
+ * 一次补全侧车实例的公共装配已外移到 startup/completionHelperService.ts（巨文件归零增长）；
+ * getter 保持「调用时才读当前值」，与原先函数内的现求值语义一致。
  */
-function createCompletionHelperService(namespace: "enhance" | "agent-invoke" | "suggest" | "agent-memory"): EnhancePromptService {
-	const log = (level: "debug" | "info" | "warn" | "error", message: string) => void appLogger?.[level](namespace, message);
-	return new EnhancePromptService({
-		// 侧车是常驻单进程，env 在 spawn 时固定，所以代理只能在这里落地：
-		// 把本次要用的模型交给启动参数解析，按与 pi 会话同一套名单语义决定要不要走代理；
-		// 换模型或改代理设置后启动指纹变化，服务会重建进程而不是沿用旧出口。
-		resolveLaunch: (run) => {
-			const settings = settingsStore.get();
-			return resolvePiAuthHostLaunch({
-				settings,
-				proxyModel: run,
-				locator: piLocator as PiLocator,
-				userDataPath: app.getPath("userData"),
-				appPath: app.getAppPath(),
-				resourcesPath: process.resourcesPath,
-				isPackaged: app.isPackaged,
-				helperFilename: PI_ENHANCE_HOST_FILENAME,
-			});
-		},
-		logger: {
-			debug: (message) => log("debug", message),
-			info: (message) => log("info", message),
-			warn: (message) => log("warn", message),
-			error: (message) => log("error", message),
-		},
-	});
-}
+const createCompletionHelperService = createCompletionHelperServiceFactory({
+	getAppLogger: () => appLogger,
+	getSettingsStore: () => settingsStore,
+	getPiLocator: () => piLocator,
+});
 
 /** 读 pi settings.json 的 skills / prompts / extensions 条目；读不出来返回 null（投影降级为无规则）。 */
 async function readNativeEntries(key: "skills" | "prompts" | "extensions"): Promise<string[] | null> {

@@ -11,7 +11,8 @@ import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { EnhancePromptService, ENHANCE_SYSTEM_PROMPT, MAX_ENHANCE_HOST_LINE_CHARS } = loadTsCommonJs("src/main/pi/enhance/EnhancePromptService.ts");
+const { EnhancePromptService, MAX_ENHANCE_HOST_LINE_CHARS } = loadTsCommonJs("src/main/pi/enhance/EnhancePromptService.ts");
+const { DEFAULT_ENHANCE_SYSTEM_PROMPT } = loadTsCommonJs("src/shared/enhanceSystemPrompt.ts");
 
 const OK_LAUNCH = { ok: true, nodeExe: "node", helperPath: "/tmp/pi-enhance-host.mjs", sdkEntry: "/tmp/pi/dist/index.js", env: { PIDECK_PI_SDK_ENTRY: "/tmp/pi/dist/index.js" } };
 
@@ -68,6 +69,7 @@ function createService(overrides = {}) {
 			harnesses.push(harness);
 			return harness.child;
 		},
+		...(overrides.resolveSystemPrompt ? { resolveSystemPrompt: overrides.resolveSystemPrompt } : {}),
 		logger: overrides.logger ?? { debug: () => {}, warn: () => {}, error: () => {} },
 		timeouts: { boot: overrides.bootTimeout ?? 500, run: overrides.runTimeout ?? 5_000 },
 	});
@@ -122,7 +124,32 @@ test("角色设定：主进程内部调用可覆盖 systemPrompt，缺省/空白
 	// 空白覆盖视作未提供：提示词增强的默认行为必须逐字节不变。
 	const blank = await acceptRun(service, latest, { provider: "p", modelId: "m", userText: "草稿", systemPrompt: "  \n " });
 	assert.equal(blank.result.ok, true);
-	assert.equal(latest().commands().at(-1).systemPrompt, ENHANCE_SYSTEM_PROMPT);
+	assert.equal(latest().commands().at(-1).systemPrompt, DEFAULT_ENHANCE_SYSTEM_PROMPT);
+});
+
+test("用户自定义增强模板优先于内置模板，显式角色设定仍最高优先", async (t) => {
+	const custom = "你是自定义提示词增强器，只输出改写结果。";
+	const { service, latest } = createService({ resolveSystemPrompt: () => custom });
+	t.after(() => service.dispose());
+
+	// 输入框增强不传 systemPrompt：走用户保存的自定义模板。
+	const first = await acceptRun(service, latest);
+	assert.equal(first.result.ok, true);
+	assert.equal(latest().commands().at(-1).systemPrompt, custom);
+	latest().emitLine({ type: "done", id: first.result.runId, text: "增强结果" });
+
+	// 智能体市场等内部调用自带 role：不能被用户自定义模板替换。
+	const explicit = await acceptRun(service, latest, { provider: "p", modelId: "m", userText: "draft", systemPrompt: "你是专业翻译。" });
+	assert.equal(explicit.result.ok, true);
+	assert.equal(latest().commands().at(-1).systemPrompt, "你是专业翻译。");
+});
+
+test("自定义模板为空或空白时回落内置模板", async (t) => {
+	const { service, latest } = createService({ resolveSystemPrompt: () => " \n\t " });
+	t.after(() => service.dispose());
+	const { result } = await acceptRun(service, latest);
+	assert.equal(result.ok, true);
+	assert.equal(latest().commands().at(-1).systemPrompt, DEFAULT_ENHANCE_SYSTEM_PROMPT);
 });
 
 test("新 run 打断旧 run：先取消后台旧请求，旧回调立即 aborted，迟到记录被丢弃", async (t) => {

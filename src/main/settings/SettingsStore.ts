@@ -37,8 +37,10 @@ import { normalizeTpsDisplayMode } from "../../shared/tps";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
 import { normalizeEnhanceModel } from "../../shared/enhanceModelPreference";
+import { applyEnhanceSystemPromptPatch, sanitizeEnhanceSystemPrompt } from "../../shared/enhanceSystemPrompt";
 import { normalizeQuickMessages } from "../../shared/quickMessages";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
+import { sanitizeOptionalPositiveIntMs, sanitizeOptionalRetryCount } from "./settingsSanitizers";
 import { sanitizeCustomThemeSnapshot } from "../../shared/customThemes";
 import { normalizeThemeAppearance } from "../../shared/themeSkinMigration";
 import { sanitizeAcpToolConfigDefaults, sanitizeAcpTools } from "../acp/acpToolConfig";
@@ -528,22 +530,6 @@ function stripShowThinking(settings: AppSettings): Omit<AppSettings, "showThinki
 	return persistable;
 }
 
-function sanitizeOptionalPositiveIntMs(value: unknown): number | undefined {
-	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-	const n = Math.floor(value);
-	return n > 0 && n <= 86_400_000 ? n : undefined;
-}
-
-/**
- * ACP 自动重试次数清洗：0 在这里是有意义的值（= 只试一次），因此不能复用
- * sanitizeOptionalPositiveIntMs；上限 10（与 acpTurnRetry.ACP_TURN_RETRY_LIMITS 同口径）。
- */
-function sanitizeOptionalRetryCount(value: unknown): number | undefined {
-	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-	const n = Math.floor(value);
-	return n >= 0 && n <= 10 ? n : undefined;
-}
-
 export class SettingsStore {
 	private readonly filePath = desktopSettingsPath();
 	private settings: AppSettings = { ...defaultSettings };
@@ -740,6 +726,8 @@ export class SettingsStore {
 			this.settings.webRemoteEasyTierPeers = parsedPeers.length > 0 ? parsedPeers : undefined;
 			// 旧设置或脏值不能隐式打开向增强模型发送会话正文的开关。
 			this.settings.enhanceIncludeContext = parsed.enhanceIncludeContext === true;
+			// 自定义增强模板：空白/超长/非字符串一律视为未自定义，回落内置模板。
+			this.settings.enhanceSystemPrompt = sanitizeEnhanceSystemPrompt(parsed.enhanceSystemPrompt) ?? null;
 			// 输入预测只有显式 false 才关闭：老设置缺字段按默认开启处理。
 			this.settings.promptSuggestionEnabled = parsed.promptSuggestionEnabled !== false;
 			// 发送后回底同规则：老 settings.json 缺字段 = 开启（保持现有行为，零迁移）。
@@ -1216,6 +1204,8 @@ export class SettingsStore {
 			else if (Array.isArray(safePatch.webRemoteEasyTierPeers)) safePatch.webRemoteEasyTierPeers = undefined;
 			else delete safePatch.webRemoteEasyTierPeers;
 		}
+		// 自定义增强模板来自渲染层，入参不可信；归一规则与读盘同源（shared/enhanceSystemPrompt）。
+		applyEnhanceSystemPromptPatch(safePatch);
 		this.settings = { ...this.settings, ...safePatch };
 		// 生图字段来自渲染层，非法值丢掉，避免下次请求带坏 size/watermark。
 		if ("imageGenSize" in safePatch) {

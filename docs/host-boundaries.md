@@ -37,6 +37,7 @@
 - 常驻单进程多 run：新 run 打断旧 run、显式 cancel、boot/run 超时、进程意外退出都在服务层结算（每 run 回调恰好一次）；显式 cancel 还须作废已经排队或正在等 boot 的请求，在下发 `complete` 前核对取消代数，不能等受理返回后才补取消。渲染层按 scopeKey 隔离，切会话作废进行中的 run，结果只回填发起方输入框。入口 `enhance:run` / `enhance:cancel` / `enhance:on-event`（`src/main/ipc/enhanceIpc.ts`；provider/modelId 只挡空白/控制字符/超长，`builtin:`、`https://`、`a/b` 形态必须放行）。
 - 常驻进程的启动指纹（node / 助手脚本 / SDK 入口 / 代理 env）在**每次受理时**重新求值，任一变化即重建进程：env 在 spawn 时定格，不重建会让用户「改了代理设置却还是旧出口」。代理按 `proxyModel` 走与 pi 会话同一套名单语义（`applyPiProxyModeWithProvider` + `computeGenProxyKey`），因此名单模式下换模型会在「走代理」和「直连」之间切换进程；未传模型时跟随全局开关（pi-auth 侧车即此情形）。
 - 目标模型优先级见 `src/shared/enhanceModelPreference.ts`：设置固定模型（`settings.enhanceModel`）> 会话记录 > 引导页点选 > 部署/主进程默认；默认跟随会话模型。
+- 增强系统提示词默认取内置常量 `src/shared/enhanceSystemPrompt.ts`（设置页用它展示「当前生效模板」）。用户可在设置里保存自定义模板到 `settings.enhanceSystemPrompt`，由主进程在受理时读取并注入；渲染层仍**不能**经 `enhance:run` 传 systemPrompt。智能体一次性调用 / 输入预测 / 记忆学习各自带主进程角色设定，优先级高于用户自定义模板，不受该设置影响。
 - **三个消费者必须各用独立实例**（服务的单飞语义是「新 run 打断旧 run」，共用会互相打断）：
   - 输入框增强：`EnhancePromptService` 主实例（logger 默认命名空间），hook `usePromptEnhance`。
   - 智能体一次性调用：`src/main/agents/AgentInvokeService.ts` 注入另一个实例（logger / 退出清理名 `agent-invoke`）。入口 `agent-profiles:invoke` / `invoke-cancel` / `invoke-event`。`systemPrompt` 只能由主进程按 `agentId` 从 `AgentProfileStore`（`<userData>/agent-profiles.json`）解析，**渲染层不得传**（只传短 instruction、目标语言与 provider/modelId）。

@@ -148,13 +148,12 @@ export type AppSettings = {
 	useNativeTitleBar: boolean;
 	showNativeMenu: boolean;
 	sendShortcut: SendShortcutMode;
-	/**
-	 * 提示词增强用的模型；null/缺省 = 跟随会话模型（记录 > 引导页 > 部署/主进程默认）。
-	 * 非法形态（缺字段/非字符串）在 SettingsStore.update 时归一为 null。
-	 */
+	/** 提示词增强模型；null/缺省 = 跟随会话模型（记录 > 引导页 > 部署/主进程默认），非法形态在 update 时归一为 null。 */
 	enhanceModel?: { provider: string; modelId: string } | null;
 	/** 增强时携带当前会话最近正文；缺省关闭，只有显式 true 才发送。 */
 	enhanceIncludeContext?: boolean;
+	/** 自定义增强系统提示词；null/缺省/空白 = 内置模板（shared/enhanceSystemPrompt.ts），只在主进程侧注入。 */
+	enhanceSystemPrompt?: string | null;
 	/**
 	 * 输入预测：每轮答完后用一次模型调用预测用户下一句输入，空输入框里以 ghost 文案展示。
 	 * 缺省开启（老设置无此字段按开启处理）；显式 false 才关闭——关掉即完全不发请求。

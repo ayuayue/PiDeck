@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: b4a481f65da2f15316187d1f8fd447e4dd8cc3aaced33ba19866592b36b48fef（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: dd853def25e358b7a55b589ef5ba19b879c69421635cf0e171d8e3b596027053（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7023,6 +7023,13 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.enhance.saved": "已儲存，下次增強立即生效，無需重開會話；進行中的增強仍使用發起時的設定",
 	"settings.enhance.includeContext": "增強時攜帶會話上下文",
 	"settings.enhance.includeContextDesc": "預設關閉。開啟後將當前會話最近已載入的使用者/助手正文（最多 {messages} 條、{chars} 字元）傳送給增強模型，可能增加用量。不攜帶思考、工具結果或圖片，也不讀取附件檔案。",
+	"settings.enhance.template": "增強提示詞模板",
+	"settings.enhance.templateDesc": "這是傳送給增強模型的系統提示詞。預設使用內建模板；修改並儲存後對下一次增強生效，進行中的增強不受影響。留空或恢復預設會重新使用內建模板。",
+	"settings.enhance.templateDefault": "內建模板",
+	"settings.enhance.templateCustom": "自定義模板",
+	"settings.enhance.templateReset": "恢復預設",
+	"settings.enhance.templateSave": "儲存模板",
+	"settings.enhance.templateChars": "{count} / {max} 字元",
 	"settings.fixedModel.followSession": "跟隨會話模型",
 	"settings.fixedModel.customModel": "指定固定模型",
 	"settings.fixedModel.model": "固定模型",
