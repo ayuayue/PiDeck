@@ -139,26 +139,33 @@ fork 默认 **before**：新会话的 leaf 是锚点的**父节点**，锚点这
 
 ---
 
-## 配置管理的保存点了没反应（疑似产品缺陷，未查完）
+## 配置管理「保存点了没反应」—— 实际是必填项缺失被校验拦下（已结案）
 
-**现象**：设置 → 配置管理 → Pi 配置管理 → 模型 → 「+ 添加供应商」填完（名称/Base URL/手动加模型）→ 点「添加」回到列表 → 点右上角「保存」：**什么都没发生**，按钮 title 仍是「有未保存的修改」，供应商没有落盘。
+**结论**（先纠正前两轮的判断）：保存链路本身没坏，是**供应商缺 API 类型**导致主进程校验整条拒绝。
 
-**证据**（一次性探针 + `PIDECK_E2E_KEEP=1` 的 `profile/logs/app-*.log`）：
+探针实测（临时日志已回退）：
 
-- 点保存后按钮 title 仍为 `config.dirtyTooltip`（「有未保存的修改」），说明 dirty 没清；
-- 主进程日志里**没有任何** config 保存类调用（连失败都没有）；
-- `piDesktop.config.getModels().parsed.providers` 为空，磁盘上也搜不到「中文供应商」；
-- 没有 alertdialog、没有错误 toast（只有一条「已按模型能力目录填充 gpt-4o 的规格」的提示）。
+```text
+[probe] handleSaveCurrent {saving:false,target:"local",backendPane:"pi",section:"config",tab:"models",addingProvider:false,editingProvider:null}
+[probe] saveByKey models {addingProvider:false,editingProvider:null}
+[probe] handleSaveModels entry {providers:["中文供应商"]}
+[probe] handleSaveModels afterSpec {filledCount:1}
+[probe] handleSaveModels result {valid:false,error:"provider"中文供应商"的模型"gpt-4o"缺少 API 类型（api）：请在供应商或该模型上填写，否则 pi 会跳过整个供应商…"}
+```
 
-**判定到哪一层**：请求没到主进程 —— 渲染层这一颗「保存」没有触发 `saveCurrent`，或者触发了但提前返回。
-**下一步**：查 `SettingsModal.tsx` 里 `configPaneRef.current?.saveCurrent()` 的 ref 是否挂到 Pi 配置面板（`ConfigModalShell` 用的是 `onSaveCurrent` 入参，两条路径可能只接了一条）；必要时给保存按钮加 `data-testid` 再点。
+即：点击 → `saveCurrent` → `saveByKey("config:models")` → `saveModels` IPC 全部正常，只是返回 `valid:false`。
+
+**为什么一开始会误判成「点了没反应」**：错误走的是内容区的 `setError`（不是 toast / alertdialog），而 dirty 不会因为一次失败清除，按钮 title 一直停在「有未保存的修改」。探针只搜了 toast 与 alertdialog，于是看起来像「什么都没发生」。
+
+**修法**：spec 在「+ 添加供应商」里补选 API 类型（`openai-completions`）后再添加，两条用例转绿。
+
+**UX 改进（已做）**：保存被校验拒绝时除了内容区错误条，再弹一条 error toast（`showNotice(message, 6000, "error")`），避免用户以为「保存按钮失灵」。回归用例：`provider-model-setup.spec.ts` 的「保存被校验拒绝时给 toast 提示（供应商缺 API 类型）」。
 
 ## 下一批待办
 
 | 用例 | 现象 | 已经查到哪一步 / 下一步 |
 |---|---|---|
 | `process-group-display`（1 条：同行文本共基线） | `expect.poll` 拿到的基线组不足 3 项，10s 后以 `NaN` 收尾（不是极差超限） | 组头的实时详情只在 `running && !open` 时渲染（`ProcessGroupStep.tsx:201`：`detail = props.running && !props.open ? lastToolDetail(...) : undefined`）。流式中折叠栏默认展开（`expandInterimDuringStream`），此时 `[data-row-text]` 只有 1 个子元素 → 永远凑不满 3 项。下一步：在「运行中 + 组头收起」状态下取一次 DOM 快照，确认 3 个子元素都出现后再改断言（要么先收起折叠栏，要么把断言降到 2 项并说明理由） |
-| `provider-model-setup:10` | 添加供应商后点「保存」没反应（可疑产品缺陷，见下节） | 已按前缀修正 tab 名（实际可访问名是「Pi 配置管理 本机」），卡在保存 |
 | `tab-font-size:33` | `.session-tab[role=tab]` 期望 2 实际 3 | 多出来的一般是空草稿 tab；先确认这第三个 tab 的 `aria-selected`/标题，再决定计数改成「已选中的 2 个」还是等草稿回收 |
 | `visual-session:22` | `.composer-bar-btn.stop` 不存在 | 合成器的发送/停止控件换过类名；下一步按 aria-label「停止」定位 |
 | `web-service:62` | 找不到 `text=推理：先分析文件结构...` | mock 的思考帧内容或渲染分层改过；先用同一句发一条 THINK 看 DOM 里思考卡片落在哪个类下 |
