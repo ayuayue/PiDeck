@@ -43,10 +43,13 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # -short leaves out the end-to-end tests that drive a real window and
+      # a fake pi over seconds: a runner has neither the display nor the
+      # timing, and they failed here on every OS before this line existed.
       - name: Test
-        run: go test ./... -count=1 -timeout 20m
+        run: go test -short ./... -count=1 -timeout 20m
         env:
-          # Tests drive the app headless; no window or GPU is needed.
+          # The rest drive the app headless; no window or GPU is needed.
           CGO_ENABLED: "0"
 
   web:
