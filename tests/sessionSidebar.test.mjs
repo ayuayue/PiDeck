@@ -84,11 +84,12 @@ test("source filters preserve all sources until the user narrows a project", () 
 	assert.deepEqual([...readSidebarSourceFilters(storage).project], ["pi", "codex"]);
 });
 
-test("sidebar filter attributes DSH sessions by backend, not by their pi source", () => {
+test("sidebar filter attributes DSH/ACP sessions by backend, not by their pi source", () => {
 	const { filterSidebarSessions } = loadControllerModule();
 	const sessions = [
 		{ id: "pi-1", source: "pi", backend: "pi" },
 		{ id: "dsh-1", source: "pi", backend: "dsh" },
+		{ id: "acp-1", source: "pi", backend: "acp" },
 	];
 	assert.equal(
 		filterSidebarSessions(sessions, new Set(["pi"]))
@@ -102,16 +103,22 @@ test("sidebar filter attributes DSH sessions by backend, not by their pi source"
 			.join(","),
 		"dsh-1",
 	);
-	assert.equal(filterSidebarSessions(sessions, new Set(["pi", "dsh"])).length, 2);
+	assert.equal(
+		filterSidebarSessions(sessions, new Set(["acp"]))
+			.map((s) => s.id)
+			.join(","),
+		"acp-1",
+	);
+	assert.equal(filterSidebarSessions(sessions, new Set(["pi", "dsh", "acp"])).length, 3);
 });
 
-test("legacy v1 filter storage migrates dsh in for projects that included pi", () => {
+test("legacy v1 filter storage migrates dsh/acp in for projects that included pi", () => {
 	const { readSidebarSourceFilters } = loadControllerModule();
 	const saved = new Map();
 	const storage = { getItem: (key) => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value) };
 	// v1 格式：{ [projectId]: string[] | null }
 	storage.setItem("pideck-session-source-filter", JSON.stringify({ project: ["pi", "codex"] }));
-	assert.deepEqual([...readSidebarSourceFilters(storage).project].sort(), ["codex", "dsh", "pi"]);
+	assert.deepEqual([...readSidebarSourceFilters(storage).project].sort(), ["acp", "codex", "dsh", "pi"]);
 	storage.setItem("pideck-session-source-filter", JSON.stringify({ project: ["codex"] }));
 	assert.deepEqual([...readSidebarSourceFilters(storage).project], ["codex"]);
 });
