@@ -86,7 +86,16 @@ func TestGitResolveConflict(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	out := must("status", "--porcelain")
+	// checkout --ours rewrites the file before git add stages it, so the
+	// status can still say UU for a moment after the content changes.
+	out := ""
+	for time.Now().Before(deadline) {
+		out = must("status", "--porcelain")
+		if !strings.Contains(out, "UU") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	if strings.Contains(out, "UU") {
 		t.Fatalf("status after resolving = %q", out)
 	}
