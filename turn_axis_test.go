@@ -22,8 +22,8 @@ func TestAxisTicks(t *testing.T) {
 	if got := axisTicks(10); got != axisLeast {
 		t.Fatalf("a short band made %d ticks, want %d", got, axisLeast)
 	}
-	if got := axisTicks(280); got != 41 {
-		t.Fatalf("a 280 point band made %d ticks, want 41", got)
+	if got := axisTicks(280); got != 24 {
+		t.Fatalf("a 280 point band made %d ticks, want 24", got)
 	}
 	if got := axisTicks(100000); got != axisMost {
 		t.Fatalf("a huge band made %d ticks, want %d", got, axisMost)

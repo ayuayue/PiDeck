@@ -150,14 +150,18 @@ func (a *app) loadEarlier(s *session) core.Node {
 	}
 }
 
-// The ruler at the transcript's right edge: a fine scale of scroll
-// positions, drawn across the middle of the height only, so it reads as
-// a track without claiming the whole conversation.
+// The ruler at the transcript's right edge: a scale of scroll positions,
+// drawn across the middle of the height only, so it reads as a track
+// without claiming the whole conversation.
 const (
 	// axisBand is the share of the height the ruler spans, centered.
 	axisBand = 46
-	// axisStep is the gap between ticks, in points.
-	axisStep = 7
+	// axisTickWidth is how long a tick is drawn, and axisStep the gap from
+	// one tick's top to the next one's, so the density and the scale's
+	// reach stay in one place.
+	axisTickWidth = 24
+	axisTickHit   = axisTickWidth + 4
+	axisStep      = 12
 	// axisMost and axisLeast bound the ticks however tall the window is.
 	axisMost  = 97
 	axisLeast = 9
@@ -220,19 +224,19 @@ func (a *app) turnAxis(s *session) core.Node {
 				Role:    core.RoleButton, LabelFunc: func() string { return a.axisTip(s, f) },
 				TestID: fmt.Sprintf("axis-tick-%d", i),
 				StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(8), Height: core.Pt(2.5), CornerRadius: 1.25, Background: colors.Faint(),
+					return core.Style{Width: core.Pt(axisTickWidth), Height: core.Pt(2.5), CornerRadius: 1.25, Background: colors.Faint(),
 						Hover: &core.Style{Background: colors.Text()}}
 				},
 			}
-			// The bar is 8 by 2.5: too thin to hover. A box one step tall
+			// The bar is 2.5 tall: too thin to hover. A box one step tall
 			// takes the pointer and carries the turn's summary as a hint.
 			marks = append(marks, hintOf(func() string { return a.axisTip(s, f) }, core.View{
-				Style: core.Style{Width: core.Pt(12), Height: core.Pt(axisStep - 2), AlignItems: core.AlignCenter,
+				Style: core.Style{Width: core.Pt(axisTickHit), Height: core.Pt(axisStep - 2), AlignItems: core.AlignCenter,
 					JustifyContent: core.JustifyCenter}, Children: []core.Node{bar}}))
 		}
 		inset := (pane - bandHeight) / 2
 		return core.View{
-			Style: core.Style{Position: core.Absolute, Right: core.Pt(8), Width: core.Pt(12),
+			Style: core.Style{Position: core.Absolute, Right: core.Pt(8), Width: core.Pt(axisTickHit),
 				Direction: core.Column, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
 				PointerEvents: core.PointerEventsBoxNone},
 			StyleFunc: func() core.Style {
