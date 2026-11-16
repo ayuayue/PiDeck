@@ -29,7 +29,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           out="$(gofmt -l .)"
-          if [ -n "$out" ]; then echo "$out"; exit 1; fi
+          if [ -n "$out" ]; then
+            echo "$out"
+            # The diff, not just the names: a formatting drift is fixed in
+            # the file the log points at.
+            echo "$out" | while read -r f; do gofmt -d "$f"; done
+            exit 1
+          fi
 
       - name: Build
         run: go build ./...
