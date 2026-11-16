@@ -109,7 +109,7 @@ curl -s -H "$AUTH" "$BASE/api/sessions/runtimes" | head -c 300                  
 
 ### 令牌有寿命，settings.json 是活的
 
-`settings.json` 的 `webServiceToken` 旁边有 `webServiceTokenGeneratedAt` 与 `webServiceTokenExpiresIn`——令牌是生成的，不是手填的。这个文件在使用期间会被改写，而**字节数可能一个都不变**（同一份 11041 B 的文件两次读哈希不同；变的是窗口位置、最近会话这类时间戳）。
+`settings.json` 的 `webServiceToken` 旁边有 `webServiceTokenGeneratedAt` 与 `webServiceTokenExpiresIn`——令牌是生成的，不是手填的。这个文件在使用期间会被改写，而**字节数可能一个都不变**（同一个文件两次读，哈希就不同；变的是窗口位置、最近会话这类时间戳。具体字节数别写进判据，它自己也在变）。
 
 - **别拿它的哈希或字节数当判据。** 会漂，红了也不代表配置被改。要判「服务还在不在」，用上面那四条 HTTP 自检。
 - **每段脚本重新读一遍令牌。** 主题切换、开窗口会写这个文件；令牌重置后旧值全变 401，而 401 与「服务没开」长得一样。
@@ -176,7 +176,7 @@ curl -s -H "$AUTH" "$BASE/api/state"
 
 **发之前再认一次自己**：`echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息——消息插进你自己的对话，然后你自己等自己回。别用 `env | grep ^PI_` 找身份（`PIDECK_SESSION_ID` 不以 `PI_` 开头，会被整条漏掉）；标题、`updatedAt`、`model` 都不是身份。
 
-### 5.1 首选 `/prompt`：同步返回 accepted，不必回读
+### 5.1 首选 `/prompt`：同步返回 accepted，先不必回读
 
 ```bash
 curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
@@ -186,7 +186,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 期望：`{"result":{"accepted":true,"sessionId":"...","requestId":"...","agentId":"...","sessionPath":"C:\\...jsonl","runtimeGeneration":3}}`。
 
-`accepted: true` 就是送到了，不必回读任何东西。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
+`accepted: true` 表示这条消息进了队列，服务端负责投递，此时可以先不读回执。**要证明对方真的看到了，用 5.6 那条片段计数**——第 5.6 节有实测：accepted 之后还会隔十几秒才出现在对方记录里。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
 
 ### 5.2 要看流式才用 `/api/chat`
 
@@ -198,7 +198,7 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
   "$BASE/api/chat"
 ```
 
-返回 SSE，一行一帧。典型顺序 `start` → `reasoning-delta`（有思考时才有）→ `text-start` → `text-delta` → `text-end` → `finish` → `[DONE]`；带工具调用还有 `tool-input-start` / `tool-output-available`。不认识的帧按类型过滤，别当错误，也别等某个特定帧——**只认 `finish` 或 `[DONE]`**。`-N` 必须加，否则看不到流式。
+返回 SSE，一行一帧。典型顺序 `start` → `reasoning-delta`（有思考时才有）→ `text-start` → `text-delta` → `text-end` → `finish` → `[DONE]`；带工具调用还有 `tool-input-start` / `tool-output-available`。不认识的帧按类型过滤，别当错误，也别等某个特定帧——**只认 `finish` 或 `[DONE]`**。这里说的是「流结束了没有」，不是「消息送到没有」——送达看 5.3。`-N` 必须加，否则看不到流式。
 
 ### 5.3 判「送到没有」只有一条
 
@@ -492,7 +492,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 ### 7.2 记录层动作：改记录，不碰进程
 
-`check-doc.mjs` 会同时比路径与方法：它抓「源码里没有这条完整路由」和「方法列写错」。能力上限是源码里用模板串拼出来的路由切不出整条，那种情况它报红而不是静默放过。
+`check-doc.mjs` 会同时比路径与方法：它抓「源码里没有这条完整路由」和「方法列写错」。源码里用模板串拼出来的路由切不出整条时，正则会在边界上截出残缺串（裸 `/api`、通配 `/api/*`、带中文标点的注释片段）——这些不进台账，`--update-routes` 会跳过它们并打印跳了几条。判据只保证「台账里有的路由，源码里还在」，别指望它替你发现残缺串。
 
 | 端点 | 方法 | body / 查询 | 作用 |
 |---|---|---|---|
@@ -544,14 +544,23 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 **这一节只对改这个技能的人有用。用技能的人跳过。**
 
-`SKILL.md` 在盘上有四份，改错地方等于没改：
+`SKILL.md` 在盘上有六处，改错地方等于没改：
 
 | 位置 | 谁读 | 改了会留吗 |
 | --- | --- | --- |
 | `<仓库>/resources/skills/pideck-web-api/` | 打包与测试 | 留，但**不生效** |
-| `<userData>/skills-overlay/pideck-web-api/` | `installTemplate` 优先读 | 留，**且生效**——要改就改这里 |
+| `<userData>/skills-overlay/pideck-web-api/` | `installTemplate` 优先读；**可能不存在**，不存在时直接用打包那份 | 建出来才生效——要改就改这里 |
 | `~/.pi/agent/pideck-skills/pideck-web-api/` | PiDeck spawn 时 `--skill` 注入 | 每次启动被覆盖，手改白费 |
 | `~/.agents/skills/pideck-web-api/` | 终端里直接起的 pi | 留，但 PiDeck 不读 |
+| `<桌面>/pideck-web-api/` | 人读，手工核判据用 | 留；不是安装位置，跑判据要给 `--src=` |
+| `~/.config/magpie/library/skills/pideck-web-api/` | magpie 技能库 | 留；副本，同步靠手工 |
+| `<桌面>/My Data oi/magpie/library/skills/pideck-web-api/` | 复刻包（备份） | 留；副本，同步靠手工 |
+
+overlay 目录本机默认不存在，要改技能就自己建一个：
+
+```bash
+mkdir -p "<userData>/skills-overlay/pideck-web-api"
+```
 
 `installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile`，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。唯一例外：frontmatter 的 `disable-model-invocation: true` 会被记住并写回（`SkillManager.ts:438-449`）。
 
@@ -562,11 +571,16 @@ node resources/skills/pideck-web-api/check-doc.mjs     # 第 7 节动作表、�
 node resources/skills/pideck-web-api/check-paths.mjs   # 全文每个 /api 路径逐段对源码
 node resources/skills/pideck-web-api/check-format.mjs  # 表格列数、加粗成对、代码块配对、$ 变量
 node resources/skills/pideck-web-api/check-fields.mjs  # 反引号标识符逐词对源码
-node resources/skills/pideck-web-api/check-doc.mjs --update-routes  # 改了源码路由后，重写台账 check-doc-routes.json
 ```
 
-前三个带 `--selftest`，能脱离源码单独验「判据自己还对不对」（装了 PiDeck 的机器上只有这份副本，没有 `src/main`）。`check-doc` 没有这个开关：它每条判据都要真的路由表，源码不在就报 rc=2——那是环境不全，不是判据失败。
+改了源码里的路由之后，还要重写台账。`--update-routes` 是**写操作，不是判据**——它的 rc=0 只表示写成功：
 
-`check-doc.mjs` 还要读同目录的 `check-doc-routes.json`：62 条路由的台账，生成物，别手改。源码里少了一条台账里有的路由，它逐条打印并判 rc=1，所以删路由必须连台账一起改、在提交信息里说明为什么。台账缺失也判 rc=1，那是部署不全不是环境缺失。源码新增路由只提示不判红，否则每改一次源码都会红，这条判据就没人用了。
+```bash
+node resources/skills/pideck-web-api/check-doc.mjs --update-routes   # 重写 check-doc-routes.json，并打印跳过几条残缺串
+```
+
+带 `--selftest` 的是 `check-paths`、`check-format`、`check-fields` 三个，能脱离源码单独验「判据自己还对不对」（装了 PiDeck 的机器上只有这份副本，没有 `src/main`）。`check-doc` 没有自检：传 `--selftest` 会直接 rc=2 并打印「check-doc 没有自检」，因为它的每条判据都要真的路由表，源码不在就报 rc=2——那是环境不全，不是判据失败。
+
+`check-doc.mjs` 还要读同目录的 `check-doc-routes.json`：60 条路由的台账，生成物，别手改。源码里少了一条台账里有的路由，它逐条打印并判 rc=1，所以删路由必须连台账一起改、在提交信息里说明为什么。台账缺失也判 rc=1，那是部署不全不是环境缺失。源码新增路由只提示不判红，否则每改一次源码都会红，这条判据就没人用了。残缺串（裸 `/api`、通配 `/api/*`、带中文的注释片段）不进台账，`--update-routes` 会跳过并打印跳了几条。
 
 口径上限写在各自文件头：`check-paths` 只按段比对、抓不到顺序错；`check-doc` 抓不到模板串拼出来的路由；`check-fields` 要读全量 src，克隆不完整时用 `--src=<完整 src 目录>` 指过去，别删它求绿。

@@ -21,6 +21,12 @@ import { fileURLToPath } from "node:url";
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// 收到 --selftest 必须报错退出：这条判据没有自检，静默照常跑会让读者以为「自检跑过了」。
+// 2026-11-16 实测：改之前 node check-doc.mjs --selftest 返回 0 且打印正常判据结果。
+if (process.argv.includes("--selftest")) {
+  console.log("FAIL check-doc 没有自检：它每条判据都要真的路由表，用 --src= 指过去。带 --selftest 的只有 check-paths / check-format / check-fields");
+  process.exit(2);
+}
 const srcArg = process.argv.find((a) => a.startsWith("--src="));
 const pick = (base) => fs.existsSync(path.join(base, "web/WebApiRoutes.ts")) ? base : (fs.existsSync(path.join(base, "main/web/WebApiRoutes.ts")) ? path.join(base, "main") : base);
 const SRC_BASE = pick(srcArg ? path.resolve(srcArg.slice(6)) : path.resolve(here, "../../../src/main"));
@@ -136,8 +142,17 @@ let bad = 0;
 // 所以这里只判一件事：源码里少了一条曾经存在过的路由。文档侧仍有 7.1 动作表与 7.2 端点表各自的正向比对。
 // 台账是生成物，别手改：node check-doc.mjs --update-routes
 const LEDGER = path.join(here, "check-doc-routes.json");
-const routeList = [...routes].filter((r) => !/[\u4e00-\u9fa5（）「」，。]/.test(r)).sort();
+// 残缺串不进台账：routeRe 在 `pathname === "/api"` 这类边界上会截出 "/api"，通配会截出 "/api/*"。
+// 它们不是路由，进了台账就变成「源码里少了这条就红」的假基线。
+const skipped = [];
+const routeList = [...routes].filter((r) => {
+  const segs = r.split("/").filter(Boolean);
+  const bad = /[\u4e00-\u9fa5（）「」，。]/.test(r) || segs.length < 2 || segs[1] === "*";
+  if (bad) skipped.push(r);
+  return !bad;
+}).sort();
 if (process.argv.includes("--update-routes")) {
+  if (skipped.length) console.log("跳过 " + skipped.length + " 条残缺串：" + skipped.join(" | "));
   fs.writeFileSync(LEDGER, JSON.stringify({ updated: "2026-11-16", routes: routeList }, null, 2) + "\n");
   console.log("已写 " + LEDGER + "（" + routeList.length + " 条）");
   process.exit(0);

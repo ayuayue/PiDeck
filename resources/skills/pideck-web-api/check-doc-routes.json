@@ -1,8 +1,6 @@
 {
   "updated": "2026-11-16",
   "routes": [
-    "/api",
-    "/api/*",
     "/api/agents",
     "/api/agents/:id/use",
     "/api/chat",
