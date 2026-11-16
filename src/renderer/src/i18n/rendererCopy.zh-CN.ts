@@ -221,6 +221,7 @@ export const zhCN = {
 	"sessionManager.archiveSelected": "归档选中 ({count})",
 	"sessionManager.restore": "恢复",
 	"sessionManager.archivedEmpty": "暂无已归档会话",
+	"sessionManager.archivedLoadFailed": "归档列表加载失败。",
 	"sessionManager.archivedCount": "已归档 {count} 个",
 	"sessionManager.workspaceTag": "该会话属于工作区 {name}",
 	"sessionManager.deleteArchivedTitle": "删除已归档会话",

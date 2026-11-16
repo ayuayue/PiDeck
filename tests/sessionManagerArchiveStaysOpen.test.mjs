@@ -76,3 +76,20 @@ test("archive failures toast instead of leaking a rejected promise", () => {
 	assert.match(zh, /"app\.sessionArchiveFailed":\s*"归档会话失败"/);
 	assert.match(en, /"app\.sessionArchiveFailed":\s*"Failed to archive session"/);
 });
+
+test("archived list load failure shows an error row with retry instead of an empty list", () => {
+	// #538 尾项：失败曾被 catch 成 []，与「确实没有归档会话」同形，用户既看不到出错也没法重试。
+	const from = components.indexOf("const loadArchivedRows = () => {");
+	const to = components.indexOf("const handleToggleAllArchived =", from);
+	assert.ok(from !== -1 && to > from, "归档加载函数应仍在原处");
+	const loader = components.slice(from, to);
+	assert.match(loader, /catch\(\(\) => \{[\s\S]*?setArchivedError\(true\)/, "失败要置错误态，不能只 setArchivedRows([])");
+	assert.match(components, /archivedError \? \(\s*\n\s*<ManagerArchivedLoadErrorRow/, "错误态要渲染可重试的行");
+	assert.match(components, /onRetry=\{\(\) => \{\s*\n\s*setArchivedRows\(null\);\s*\n\s*loadArchivedRows\(\);/, "重试要先回到加载态再拉取");
+	assert.match(components, /setArchivedError\(false\)/, "成功加载后清掉错误态");
+	const row = readFileSync("src/renderer/src/components/sidebar/ManagerArchivedLoadErrorRow.tsx", "utf8");
+	assert.match(row, /sessionManager\.archivedLoadFailed/);
+	assert.match(row, /common\.retry/);
+	assert.match(zh, /"sessionManager\.archivedLoadFailed"/);
+	assert.match(en, /"sessionManager\.archivedLoadFailed"/);
+});

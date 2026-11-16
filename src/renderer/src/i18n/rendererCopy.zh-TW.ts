@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 6f9a38232ee94602a7fa686a25e26961b3f4b66de6b3b66543f6675cba8d82c8（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 73dd64be49e7053b0fd016d753767fd2fbbcc3a1830a33b09c6304c9e8c14468（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -228,6 +228,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"sessionManager.archiveSelected": "歸檔選中 ({count})",
 	"sessionManager.restore": "恢復",
 	"sessionManager.archivedEmpty": "暫無已歸檔會話",
+	"sessionManager.archivedLoadFailed": "歸檔列表載入失敗。",
 	"sessionManager.archivedCount": "已歸檔 {count} 個",
 	"sessionManager.workspaceTag": "該會話屬於工作區 {name}",
 	"sessionManager.deleteArchivedTitle": "刪除已歸檔會話",

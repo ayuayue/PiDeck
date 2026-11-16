@@ -223,6 +223,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"sessionManager.archiveSelected": "Archive selected ({count})",
 	"sessionManager.restore": "Restore",
 	"sessionManager.archivedEmpty": "No archived sessions",
+	"sessionManager.archivedLoadFailed": "Failed to load archived sessions.",
 	"sessionManager.archivedCount": "{count} archived",
 	"sessionManager.workspaceTag": "Session belongs to workspace {name}",
 	"sessionManager.deleteArchivedTitle": "Delete archived session",

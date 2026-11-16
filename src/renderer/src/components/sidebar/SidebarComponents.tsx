@@ -77,6 +77,7 @@ import {
 	type ManagerArchivedRow,
 } from "../../sessionManagerModel";
 import { remoteArchivedDeleteErrorKey, remoteArchivedDeleteRowPhase } from "../../utils/remoteArchivedDeleteState";
+import { ManagerArchivedLoadErrorRow } from "./ManagerArchivedLoadErrorRow";
 import { shouldShowWorktreeMenuEntry } from "../../utils/worktreeEntryGate";
 import { useRemoteArchivedSessionDelete } from "../../hooks/useRemoteArchivedSessionDelete";
 
@@ -135,6 +136,8 @@ export function SessionManagerModal(props: {
 	// 已归档视图：true 时展示归档会话并提供恢复；数据打开弹窗时按需拉取。
 	const [showArchived, setShowArchived] = useState(false);
 	const [archivedRows, setArchivedRows] = useState<ManagerArchivedRow[] | null>(null);
+	/** 归档列表拉取失败：与「确实没有归档」区分开，给重试入口（#538 尾项）。 */
+	const [archivedError, setArchivedError] = useState(false);
 	// 已归档视图选中集合（行身份 = managerArchivedRowKey，与主列表 selected 独立）。
 	const [archivedSelected, setArchivedSelected] = useState<Set<string>>(new Set());
 	const [archivedSelectAll, setArchivedSelectAll] = useState(false);
@@ -223,8 +226,13 @@ export function SessionManagerModal(props: {
 				// 数据刷新后清空选中，避免删除/恢复后残留全选或计数。
 				setArchivedSelected(new Set());
 				setArchivedSelectAll(false);
+				setArchivedError(false);
 			})
-			.catch(() => setArchivedRows([]));
+			.catch(() => {
+				// 失败不能伪装成「没有归档会话」：给错误态与重试入口（#538 尾项）。
+				setArchivedRows([]);
+				setArchivedError(true);
+			});
 	};
 
 	// 归档视图全选/取消全选（行身份 = managerArchivedRowKey；数据刷新后置空）。
@@ -365,7 +373,15 @@ export function SessionManagerModal(props: {
 									</TableRow>
 								</TableHeader>
 								<TableBody>
-									{archivedRows === null ? (
+									{archivedError ? (
+										<ManagerArchivedLoadErrorRow
+											colSpan={3}
+											onRetry={() => {
+												setArchivedRows(null);
+												loadArchivedRows();
+											}}
+										/>
+									) : archivedRows === null ? (
 										<TableRow>
 											<TableCell colSpan={3} className="py-6 text-center text-caption text-muted-foreground">
 												…
