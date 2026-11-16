@@ -61,6 +61,21 @@ func TestSessionFileMessagesCache(t *testing.T) {
 	if &grown[0] == &first[0] {
 		t.Fatal("a changed file came from the cache")
 	}
+	if got := grown[4].text(); got != "新的一条" {
+		t.Fatalf("appended message = %q", got)
+	}
+	// The parse kept its place, so the next append reads only its own bytes.
+	entry, ok := sessionHistory.previous(path)
+	if !ok {
+		t.Fatal("the parse was not kept")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.tail.Consumed != info.Size() {
+		t.Fatalf("parse covers %d of %d bytes", entry.tail.Consumed, info.Size())
+	}
 }
 
 // TestSessionPaintsFromFile fills a tab's transcript from the session file,

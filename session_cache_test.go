@@ -239,3 +239,90 @@ func TestPiScanReadsOnlyShownProjects(t *testing.T) {
 		}
 	}
 }
+
+// TestMetaScanReadsOnlyTheAppendedTail keeps a session in use cheap to
+// rescan: after an append only the appended bytes are read, and the listing
+// stays right.
+func TestMetaScanReadsOnlyTheAppendedTail(t *testing.T) {
+	st, err := newStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeSession(t, filepath.Join(st.sessions, "--C--work--"), "a.jsonl",
+		searchSession("a", "C:/work/shop", "部署手册", "怎么发布到生产环境"))
+	st.scanSessions(nil)
+	full := st.consumed
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full != info.Size() {
+		t.Fatalf("first scan read %d bytes of a %d byte file", full, info.Size())
+	}
+
+	line := `{"type":"message","id":"u2","timestamp":"2026-06-01T10:00:03Z","message":{"role":"user","content":"再来一条"}}` + "\n"
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(line); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	metas := st.scanSessions(nil)
+	if got := st.consumed - full; got != int64(len(line)) {
+		t.Fatalf("rescan read %d bytes after a %d byte append", got, len(line))
+	}
+	found := false
+	for _, m := range metas {
+		if m.ID != "a" {
+			continue
+		}
+		found = true
+		if m.Count != 3 || m.Title != "部署手册" {
+			t.Fatalf("appended session = %d messages, title %q; want 3 and the stored name", m.Count, m.Title)
+		}
+	}
+	if !found {
+		t.Fatal("the appended session is gone from the listing")
+	}
+
+	// A rename written at the end of the session is picked up from the tail.
+	appendLines(t, path, `{"type":"session_info","name":"发布手册","timestamp":"2026-06-01T10:00:04Z"}`)
+	for _, m := range st.scanSessions(nil) {
+		if m.ID == "a" && m.Title != "发布手册" {
+			t.Fatalf("title after a rename = %q", m.Title)
+		}
+	}
+}
+
+// TestMetaScanRereadsARewrittenFile parses a session again after it was cut
+// or rewritten, instead of trusting a tail that no longer follows.
+func TestMetaScanRereadsARewrittenFile(t *testing.T) {
+	st, err := newStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeSession(t, filepath.Join(st.sessions, "--C--work--"), "a.jsonl",
+		searchSession("a", "C:/work/shop", "部署手册", "怎么发布到生产环境"))
+	st.scanSessions(nil)
+
+	// Same size, different bytes: what a compaction looks like from afar.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[0] = 'X'
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := st.consumed
+	metas := st.scanSessions(nil)
+	if len(metas) != 0 {
+		t.Fatalf("a rewritten file still lists %d sessions", len(metas))
+	}
+	if got := st.consumed - before; got != int64(len(raw)) {
+		t.Fatalf("rewritten file read %d bytes, want all %d", got, len(raw))
+	}
+}

@@ -190,9 +190,11 @@ type store struct {
 	// metas caches the listing of each session file, keyed by path, so a
 	// rescan only reads files whose size or modification time changed.
 	metas map[string]metaCacheEntry
-	// parses counts the session files actually read, which lets a test
-	// see the cache doing its work.
-	parses int
+	// parses counts the session files actually read, and consumed the bytes
+	// those reads took, which lets a test see the cache and the tail reads
+	// doing their work.
+	parses   int
+	consumed int64
 	// metaPath is where the listings are kept between runs, so a start
 	// reads no session file at all. metaDirty marks a change not yet
 	// written, and metaWriteMu keeps two writers off one temporary file.
@@ -209,6 +211,9 @@ type metaCacheEntry struct {
 	Meta    sessionMeta `json:"meta"`
 	OK      bool        `json:"ok"`
 	Partial bool        `json:"partial,omitempty"`
+	// Tail is how much of the file the listing covers, so an appended file
+	// is read from there instead of from the top.
+	Tail parsedTail `json:"tail,omitempty"`
 }
 
 func newStore(dataDir string) (*store, error) {
@@ -604,7 +609,7 @@ type sessionMeta struct {
 
 // metaCacheVersion is the shape of session-meta-cache.json. Bump it when a
 // field means something else, and every file is read again once.
-const metaCacheVersion = 1
+const metaCacheVersion = 2
 
 // metaCacheMax bounds the listings kept, as the scan itself is bounded.
 const metaCacheMax = 8000
@@ -803,19 +808,24 @@ func (s *store) readMetaFile(path string, want func(cwd string) bool) metaResult
 	if err != nil {
 		return metaResult{}
 	}
-	meta, partial, ok := readSessionMeta(path, want)
+	s.mu.Lock()
+	prev := s.metas[path]
+	s.mu.Unlock()
+	read := readSessionMeta(path, prev, want)
 	s.mu.Lock()
 	if s.metas == nil || len(s.metas) > metaCacheMax {
 		s.metas = map[string]metaCacheEntry{}
 	}
-	s.metas[path] = metaCacheEntry{Size: info.Size(), ModTime: info.ModTime(), Meta: meta, OK: ok, Partial: partial}
+	s.metas[path] = metaCacheEntry{Size: info.Size(), ModTime: info.ModTime(), Meta: read.meta,
+		OK: read.ok, Partial: read.partial, Tail: read.tail}
 	s.parses++
+	s.consumed += read.tail.Consumed - read.start
 	s.metaDirty = true
 	s.mu.Unlock()
-	if !ok {
+	if !read.ok {
 		return metaResult{}
 	}
-	return metaResult{meta: meta, ok: true}
+	return metaResult{meta: read.meta, ok: true}
 }
 
 // readMeta returns a session file's listing, reusing the cached one while
@@ -880,27 +890,43 @@ func (s *store) countSessions() int {
 	return n
 }
 
+// metaRead is what reading one session file produced.
+type metaRead struct {
+	meta    sessionMeta
+	ok      bool
+	partial bool
+	start   int64 // where the read began, 0 when the whole file was read
+	tail    parsedTail
+}
+
 // readSessionMeta reads as much of one session file as a listing needs:
 // its header always, and its messages when want accepts the folder it
 // belongs to. A listing that stops at the header is partial and is read in
 // full once its project is on screen.
-func readSessionMeta(path string, want func(cwd string) bool) (sessionMeta, bool, bool) {
-	f, err := os.Open(path)
-	if err != nil {
-		return sessionMeta{}, false, false
-	}
-	defer f.Close()
+//
+// prev is what the last read of this file left behind: a file that only
+// grew is read from where that one stopped, which is what keeps a start from
+// re-reading a long session that was used yesterday.
+func readSessionMeta(path string, prev metaCacheEntry, want func(cwd string) bool) metaRead {
 	meta := sessionMeta{File: path}
-	if info, err := f.Stat(); err == nil {
+	size := int64(0)
+	if info, err := os.Stat(path); err == nil {
+		size = info.Size()
 		meta.Updated = info.ModTime()
 	}
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	start := int64(0)
+	if prev.OK && !prev.Partial && prev.Meta.Title != "" {
+		start = prev.Tail.resumeAt(path, size)
+	}
+	if start > 0 {
+		meta = prev.Meta
+		meta.File = path
+	}
 	firstUser := ""
-	for sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
+	partial := false
+	tail, err := readTail(path, start, func(line []byte) error {
 		if len(line) == 0 {
-			continue
+			return nil
 		}
 		var entry struct {
 			Type      string          `json:"type"`
@@ -911,15 +937,16 @@ func readSessionMeta(path string, want func(cwd string) bool) (sessionMeta, bool
 			Message   json.RawMessage `json:"message"`
 		}
 		if json.Unmarshal(line, &entry) != nil {
-			continue
+			return nil
 		}
 		if entry.Type == "session" {
 			meta.Cwd, meta.ID = filepath.Clean(entry.Cwd), entry.ID
-			if want != nil && meta.ID != "" && !want(meta.Cwd) {
+			if start == 0 && want != nil && meta.ID != "" && !want(meta.Cwd) {
 				// The header is all this folder's files need.
-				return meta, true, true
+				partial = true
+				return errStopTail
 			}
-			continue
+			return nil
 		}
 		if entry.Type == "session_info" && entry.Name != "" {
 			meta.Title = entry.Name
@@ -928,11 +955,11 @@ func readSessionMeta(path string, want func(cwd string) bool) (sessionMeta, bool
 			meta.Updated = t
 		}
 		if entry.Type != "message" || len(entry.Message) == 0 {
-			continue
+			return nil
 		}
 		var msg piMessage
 		if json.Unmarshal(entry.Message, &msg) != nil {
-			continue
+			return nil
 		}
 		meta.Count++
 		if msg.Role == "user" && firstUser == "" {
@@ -942,14 +969,24 @@ func readSessionMeta(path string, want func(cwd string) bool) (sessionMeta, bool
 				firstUser = text
 			}
 		}
+		return nil
+	})
+	read := metaRead{start: start, tail: tail}
+	if err != nil && err != errStopTail {
+		return read
+	}
+	if partial {
+		read.meta, read.ok, read.partial = meta, true, true
+		return read
 	}
 	if meta.ID == "" {
-		return sessionMeta{}, false, false
+		return read
 	}
 	if meta.Title == "" && firstUser != "" {
 		meta.Title = firstLine(firstUser, 48)
 	}
-	return meta, false, true
+	read.meta, read.ok = meta, true
+	return read
 }
 
 // importSession copies a session file into the app's own store, so it can

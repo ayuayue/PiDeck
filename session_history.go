@@ -9,7 +9,6 @@ package main
 // scrolling, re-opening a tab or polling from the phone reads the file once.
 
 import (
-	"bufio"
 	"encoding/json"
 	"os"
 	"sync"
@@ -23,11 +22,13 @@ const historyBudget = 64 << 20
 // historyCacheMax bounds how many files are kept, however small they are.
 const historyCacheMax = 8
 
-// historyEntry is one file's parsed messages.
+// historyEntry is one file's parsed messages, and how much of the file that
+// parse covers.
 type historyEntry struct {
 	size    int64
 	modTime time.Time
 	msgs    []piMessage
+	tail    parsedTail
 }
 
 // sessionHistoryCache keeps the last few parses, newest last.
@@ -51,8 +52,17 @@ func (c *sessionHistoryCache) get(path string, info os.FileInfo) []piMessage {
 	return entry.msgs
 }
 
+// previous returns what the last parse of a file left behind, so an append
+// can be read from where it stopped.
+func (c *sessionHistoryCache) previous(path string) (historyEntry, bool) {
+	c.Lock()
+	defer c.Unlock()
+	entry, ok := c.items[path]
+	return entry, ok
+}
+
 // put remembers a parse, dropping the oldest until it fits.
-func (c *sessionHistoryCache) put(path string, info os.FileInfo, msgs []piMessage) {
+func (c *sessionHistoryCache) put(path string, info os.FileInfo, entry historyEntry) {
 	c.Lock()
 	defer c.Unlock()
 	if old, ok := c.items[path]; ok {
@@ -67,7 +77,8 @@ func (c *sessionHistoryCache) put(path string, info os.FileInfo, msgs []piMessag
 		}
 	}
 	c.order = append(kept, path)
-	c.items[path] = historyEntry{size: info.Size(), modTime: info.ModTime(), msgs: msgs}
+	entry.size, entry.modTime = info.Size(), info.ModTime()
+	c.items[path] = entry
 	c.bytes += info.Size()
 	for len(c.order) > 1 && (c.bytes > historyBudget || len(c.items) > historyCacheMax) {
 		oldest := c.order[0]
@@ -80,7 +91,8 @@ func (c *sessionHistoryCache) put(path string, info os.FileInfo, msgs []piMessag
 }
 
 // sessionFileMessages reads the messages of a pi session file, reusing the
-// parse while the file is unchanged. Callers treat the slice as read-only.
+// parse while the file is unchanged and reading only the new tail when it
+// grew. Callers treat the slice as read-only.
 func sessionFileMessages(path string) ([]piMessage, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -89,39 +101,47 @@ func sessionFileMessages(path string) ([]piMessage, error) {
 	if msgs := sessionHistory.get(path, info); msgs != nil {
 		return msgs, nil
 	}
-	msgs, err := readSessionMessages(path)
+	prev, seen := sessionHistory.previous(path)
+	start := int64(0)
+	if seen {
+		start = prev.tail.resumeAt(path, info.Size())
+	}
+	msgs, tail, err := readSessionMessages(path, start)
 	if err != nil {
 		return nil, err
 	}
-	sessionHistory.put(path, info, msgs)
+	if start > 0 {
+		joined := make([]piMessage, 0, len(prev.msgs)+len(msgs))
+		joined = append(joined, prev.msgs...)
+		msgs = append(joined, msgs...)
+	}
+	sessionHistory.put(path, info, historyEntry{msgs: msgs, tail: tail})
 	return msgs, nil
 }
 
-// readSessionMessages reads the message entries of a pi session file.
-func readSessionMessages(path string) ([]piMessage, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
+// readSessionMessages reads the message entries of a pi session file from
+// start, and reports where it stopped.
+func readSessionMessages(path string, start int64) ([]piMessage, parsedTail, error) {
 	var msgs []piMessage
-	for sc.Scan() {
+	tail, err := readTail(path, start, func(line []byte) error {
+		if len(line) == 0 {
+			return nil
+		}
 		var entry struct {
 			Type    string          `json:"type"`
 			Message json.RawMessage `json:"message"`
 		}
-		if json.Unmarshal(sc.Bytes(), &entry) != nil || entry.Type != "message" || len(entry.Message) == 0 {
-			continue
+		if json.Unmarshal(line, &entry) != nil || entry.Type != "message" || len(entry.Message) == 0 {
+			return nil
 		}
 		var msg piMessage
 		if json.Unmarshal(entry.Message, &msg) == nil {
 			msgs = append(msgs, msg)
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, tail, err
 	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	return msgs, nil
+	return msgs, tail, nil
 }
