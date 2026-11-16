@@ -69,6 +69,17 @@ type importMessage struct {
 	ToolCallID string
 	ToolName   string
 	IsError    bool
+	// Usage is what the source counted, when it counted anything: the
+	// session panel's token and context numbers come from it.
+	Usage *importUsage
+}
+
+// importUsage is a source's token counts.
+type importUsage struct {
+	Input      int
+	Output     int
+	CacheRead  int
+	CacheWrite int
 }
 
 // importedSession is a foreign transcript, parsed into pi's terms.
@@ -542,8 +553,13 @@ func piMessageLine(m importMessage, lineID, msgID, parent string, ts time.Time) 
 		msg["provider"] = orDefault(m.Provider, "import")
 		msg["model"] = orDefault(m.Model, "import")
 		msg["stopReason"] = orDefault(m.StopReason, "stop")
-		msg["usage"] = map[string]any{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
-			"cost": map[string]any{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}
+		in, out, read, write := 0, 0, 0, 0
+		if m.Usage != nil {
+			in, out, read, write = m.Usage.Input, m.Usage.Output, m.Usage.CacheRead, m.Usage.CacheWrite
+		}
+		msg["usage"] = map[string]any{"input": in, "output": out, "cacheRead": read, "cacheWrite": write,
+			"totalTokens": in + out + read + write,
+			"cost":        map[string]any{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}
 	}
 	return line
 }

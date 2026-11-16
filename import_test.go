@@ -181,7 +181,7 @@ func TestImportKimiSkipsTheSecondWriting(t *testing.T) {
 	body := strings.Join([]string{
 		`{"type":"context.append_message","message":{"id":"m1","role":"user","content":[{"type":"text","text":"帮我看下测试"}]}}`,
 		`{"type":"agent.message.appended","message":{"message":{"id":"m1","role":"user","content":[{"type":"text","text":"帮我看下测试"}]},"meta":{}}}`,
-		`{"type":"agent.message.appended","message":{"message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"好"}]},"meta":{"finish":{"finishReason":"stop"}}}}`,
+		`{"type":"agent.message.appended","message":{"message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"好"}]},"meta":{"finish":{"finishReason":"stop"},"usage":{"inputOther":11,"output":7,"inputCacheRead":5,"inputCacheCreation":3}}}}`,
 	}, "\n") + "\n"
 	meta := importFixture(t, sourceKimi, dir, "wire.jsonl", body, "C:/work/k")
 	text := importText(t, meta.File)
@@ -190,6 +190,13 @@ func TestImportKimiSkipsTheSecondWriting(t *testing.T) {
 	}
 	if filepath.Clean(meta.Cwd) != filepath.Clean("C:/work/k") {
 		t.Fatalf("cwd = %q", meta.Cwd)
+	}
+	// The source's token counts survive: the session panel reads them.
+	file := importText(t, meta.File)
+	for _, want := range []string{`"input":11`, `"output":7`, `"cacheRead":5`, `"cacheWrite":3`, `"totalTokens":26`} {
+		if !strings.Contains(file, want) {
+			t.Errorf("imported usage lacks %q:\n%s", want, file)
+		}
 	}
 }
 

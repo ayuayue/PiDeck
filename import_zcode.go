@@ -154,6 +154,7 @@ func readZCodeSession(dbPath, id string) (importedSession, error) {
 			if role == "assistant" {
 				msg.Provider = asString(data["providerID"])
 				msg.Model = asString(data["modelID"])
+				msg.Usage = importUsageOf(data["tokens"])
 				msg.StopReason = importStopReason(asString(data["finish"]), len(calls) > 0)
 			}
 			if out.Title == "" && role == "user" {
@@ -303,4 +304,3 @@ func firstUserBlocks(blocks []importBlock) string {
 	}
 	return ""
 }
-

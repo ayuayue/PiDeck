@@ -293,3 +293,35 @@ func repairToolResults(msgs []importMessage) []importMessage {
 	}
 	return out
 }
+
+// importUsageOf reads token counts in the shapes the sources use: Kimi's
+// inputOther/inputCacheRead naming, or input/output with a cache object.
+func importUsageOf(v any) *importUsage {
+	m := asMap(v)
+	if m == nil {
+		return nil
+	}
+	count := func(m map[string]any, keys ...string) int {
+		for _, key := range keys {
+			if n := int(asFloat(m[key])); n > 0 {
+				return n
+			}
+		}
+		return 0
+	}
+	u := &importUsage{Input: count(m, "input", "inputOther", "inputTokens"), Output: count(m, "output", "outputTokens")}
+	if cache := asMap(m["cache"]); cache != nil {
+		u.CacheRead = count(cache, "read", "cacheRead")
+		u.CacheWrite = count(cache, "write", "cacheWrite")
+	}
+	if n := count(m, "inputCacheRead", "cacheRead"); n > u.CacheRead {
+		u.CacheRead = n
+	}
+	if n := count(m, "inputCacheCreation", "cacheWrite"); n > u.CacheWrite {
+		u.CacheWrite = n
+	}
+	if u.Input+u.Output+u.CacheRead+u.CacheWrite == 0 {
+		return nil
+	}
+	return u
+}

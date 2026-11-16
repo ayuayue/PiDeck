@@ -2069,6 +2069,11 @@ func (a *app) newSession(path string) *session {
 // openPicker shows the app's own folder browser for a workspace or a
 // session file.
 func (a *app) openPicker(mode string) {
+	if mode == "import" {
+		// One dialog at a time: the import dialog is a modal, and leaving it
+		// up would put its backdrop over the browser it just opened.
+		a.impOpen.Set(false)
+	}
 	a.pick.show(mode)
 }
 

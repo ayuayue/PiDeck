@@ -204,7 +204,7 @@ func readKimi(path string) (importedSession, error) {
 	seen := map[string]bool{}
 	names := map[string]string{}
 	err := walkKimiWire(path, func(rec map[string]any) {
-		entry, key := kimiEntry(rec)
+		entry, key, meta := kimiEntry(rec)
 		if entry == nil {
 			return
 		}
@@ -218,7 +218,7 @@ func readKimi(path string) (importedSession, error) {
 			return
 		}
 		seen[key] = true
-		kimiMessage(entry, &out, names)
+		kimiMessage(entry, meta, &out, names)
 	})
 	out.Messages = repairToolResults(out.Messages)
 	return out, err
@@ -241,6 +241,7 @@ func readKimiWork(path string) (importedSession, error) {
 		calls  []string
 		at     time.Time
 		model  string
+		usage  *importUsage
 	}
 	steps := map[string]*step{}
 	order := []string{}
@@ -258,14 +259,14 @@ func readKimiWork(path string) (importedSession, error) {
 		if len(s.blocks) > 0 {
 			out.Messages = append(out.Messages, importMessage{Role: "assistant", Blocks: s.blocks, Timestamp: s.at,
 				Provider: "kimi-work", Model: orDefault(s.model, "kimi-work-import"),
-				StopReason: importStopReason(finish, len(s.calls) > 0)})
+				StopReason: importStopReason(finish, len(s.calls) > 0), Usage: s.usage})
 		}
 		delete(steps, uuid)
 	}
 	err := walkKimiWire(path, func(rec map[string]any) {
 		if asString(rec["type"]) != "context.append_loop_event" {
-			if entry, _ := kimiEntry(rec); entry != nil {
-				kimiMessage(entry, &out, names)
+			if entry, _, meta := kimiEntry(rec); entry != nil {
+				kimiMessage(entry, meta, &out, names)
 			}
 			return
 		}
@@ -294,6 +295,9 @@ func readKimiWork(path string) (importedSession, error) {
 				s.model = m
 			}
 		case "step.end":
+			if s, ok := steps[uuid]; ok {
+				s.usage = importUsageOf(event["usage"])
+			}
 			emit(uuid, asString(event["finishReason"]))
 		}
 	})
@@ -344,7 +348,7 @@ func kimiAppendedKeys(path string) map[string]bool {
 		if asString(rec["type"]) != "agent.message.appended" {
 			return
 		}
-		if entry, key := kimiEntry(rec); entry != nil {
+		if entry, key, _ := kimiEntry(rec); entry != nil {
 			keys[key] = true
 		}
 	})
@@ -353,42 +357,45 @@ func kimiAppendedKeys(path string) map[string]bool {
 
 // kimiEntry reads one message record, with the key that tells two writings
 // of it apart.
-func kimiEntry(rec map[string]any) (map[string]any, string) {
+func kimiEntry(rec map[string]any) (map[string]any, string, map[string]any) {
 	kind := asString(rec["type"])
-	var msg map[string]any
+	var msg, meta map[string]any
 	switch kind {
 	case "context.append_message":
 		msg = asMap(rec["message"])
 	case "agent.message.appended":
 		envelope := asMap(rec["message"])
 		if envelope == nil {
-			return nil, ""
+			return nil, "", nil
 		}
+		meta = asMap(envelope["meta"])
 		msg = asMap(envelope["message"])
 		if msg == nil {
 			msg = envelope
 		}
-		rec = envelope
 	default:
-		return nil, ""
+		return nil, "", nil
 	}
 	if msg == nil {
-		return nil, ""
+		return nil, "", nil
+	}
+	if meta == nil {
+		meta = asMap(msg["meta"])
 	}
 	id := asString(msg["id"])
 	if id != "" {
-		return msg, "id:" + id
+		return msg, "id:" + id, meta
 	}
 	role := asString(msg["role"])
 	callID := asString(msg["toolCallId"])
 	sig := mustJSON(msg["content"])
 	tools := mustJSON(msg["toolCalls"])
 	sum := importToken(role + string(sig) + string(tools))
-	return msg, "sig:" + role + ":" + callID + ":" + sum
+	return msg, "sig:" + role + ":" + callID + ":" + sum, meta
 }
 
 // kimiMessage writes one Kimi message into the session.
-func kimiMessage(msg map[string]any, out *importedSession, names map[string]string) {
+func kimiMessage(msg, envMeta map[string]any, out *importedSession, names map[string]string) {
 	role := asString(msg["role"])
 	at := importTimeValue{}
 	if meta := asMap(msg["meta"]); meta != nil {
@@ -424,19 +431,23 @@ func kimiMessage(msg map[string]any, out *importedSession, names map[string]stri
 		if len(blocks) == 0 {
 			return
 		}
-		finish := ""
-		model := ""
-		if meta := asMap(msg["meta"]); meta != nil {
-			if finish == "" {
-				finish = asString(asMap(meta["finish"])["finishReason"])
-			}
-			if m := asString(meta["model"]); m != "" {
-				model = m
-			}
+		finish, model := "", ""
+		var usage *importUsage
+		meta := envMeta
+		if meta == nil {
+			meta = asMap(msg["meta"])
+		}
+		if meta != nil {
+			finish = asString(asMap(meta["finish"])["finishReason"])
+			model = asString(meta["model"])
+			usage = importUsageOf(meta["usage"])
+		}
+		if usage == nil {
+			usage = importUsageOf(msg["usage"])
 		}
 		out.Messages = append(out.Messages, importMessage{Role: "assistant", Blocks: blocks, Timestamp: when,
 			Provider: "kimi", Model: orDefault(model, "kimi-import"),
-			StopReason: importStopReason(finish, len(callIDs) > 0)})
+			StopReason: importStopReason(finish, len(callIDs) > 0), Usage: usage})
 	}
 }
 

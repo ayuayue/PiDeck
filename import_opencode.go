@@ -135,6 +135,7 @@ func readOpenCode(path string) (importedSession, error) {
 				msg.Provider = asString(m.data["providerID"])
 				msg.Model = asString(m.data["modelID"])
 				msg.StopReason = importStopReason(asString(m.data["finish"]), len(calls) > 0)
+				msg.Usage = importUsageOf(m.data["tokens"])
 			} else if out.Title == "" {
 				out.Title = firstUserBlocks(blocks)
 			}
