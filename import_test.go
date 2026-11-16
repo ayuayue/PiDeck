@@ -137,6 +137,43 @@ func TestImportCodex(t *testing.T) {
 	}
 }
 
+// TestImportCodexMergesAndDropsScaffolding checks the shape Codex needs:
+// its own context messages are not the user's words, a reasoning line and
+// consecutive assistant entries become one turn, and a result with no call
+// is kept as text.
+func TestImportCodexMergesAndDropsScaffolding(t *testing.T) {
+	dir := t.TempDir()
+	body := strings.Join([]string{
+		`{"timestamp":"2026-06-01T10:00:00Z","type":"session_meta","payload":{"id":"c7","cwd":"C:/work/s"}}`,
+		`{"timestamp":"2026-06-01T10:00:01Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>ignore"}]}}`,
+		`{"timestamp":"2026-06-01T10:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for C:/work/s"},{"type":"input_text","text":"<environment_context>cwd here</environment_context>"}]}}`,
+		`{"timestamp":"2026-06-01T10:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"## My request: 请修一下构建"}]}}`,
+		`{"timestamp":"2026-06-01T10:00:04Z","type":"response_item","payload":{"type":"reasoning","summary":[{"text":"先想一下"}]}}`,
+		`{"timestamp":"2026-06-01T10:00:05Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"先看日志"}]}}`,
+		`{"timestamp":"2026-06-01T10:00:06Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"cmd\":\"go build\"}","call_id":"call-7"}}`,
+		`{"timestamp":"2026-06-01T10:00:07Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-7","output":"build failed"}}`,
+		`{"timestamp":"2026-06-01T10:00:08Z","type":"response_item","payload":{"type":"function_call_output","call_id":"gone","output":"失联输出"}}`,
+	}, "\n") + "\n"
+	meta := importFixture(t, sourceCodex, dir, "rollout-c7.jsonl", body, "")
+	text := importText(t, meta.File)
+	if strings.Contains(text, "environment_context") || strings.Contains(text, "AGENTS.md") {
+		t.Errorf("Codex's own context was imported as the user's words:\n%s", text)
+	}
+	for _, want := range []string{"请修一下构建", "先想一下", "先看日志", `"toolCallId":"call-7"`, "build failed", "失联输出"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("imported session lacks %q:\n%s", want, text)
+		}
+	}
+	// The reasoning line and the assistant text around one tool call are a
+	// single turn.
+	if got := strings.Count(text, `"role":"assistant"`); got != 1 {
+		t.Errorf("assistant messages = %d, want 1 merged turn:\n%s", got, text)
+	}
+	if !strings.HasPrefix(meta.Title, "Codex CLI · ") || !strings.Contains(meta.Title, "请修一下构建") {
+		t.Fatalf("title = %q", meta.Title)
+	}
+}
+
 // TestImportKimiSkipsTheSecondWriting checks the dedupe Kimi Code needs: a
 // message is written twice, and only one copy may be imported.
 func TestImportKimiSkipsTheSecondWriting(t *testing.T) {

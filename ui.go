@@ -29,7 +29,6 @@ func (a *app) view() core.Node {
 			return a.shell()
 		}),
 		a.paletteDialog(),
-		a.pickerDialog(),
 		a.targetDialog(),
 		a.settingsDialog(),
 		a.renameDialog(),
@@ -57,6 +56,9 @@ func (a *app) view() core.Node {
 		a.gitUnpushedDialog(),
 		a.archiveDialog(),
 		a.importDialog(),
+		// The file browser opens on top of the import dialog, which asks for
+		// one more file.
+		a.pickerDialog(),
 		a.outlineDialog(),
 		a.authKeyDialog(),
 		a.gitFileHistoryDialog(),

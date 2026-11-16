@@ -8,9 +8,11 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -30,25 +32,41 @@ func sniffCodex(head []byte) bool {
 }
 
 // codexLine is one rollout line.
+// codexPayload is what one rollout entry carries.
+type codexPayload struct {
+	Type          string          `json:"type"`
+	Role          string          `json:"role"`
+	Cwd           string          `json:"cwd"`
+	ID            string          `json:"id"`
+	Model         string          `json:"model"`
+	Provider      string          `json:"provider"`
+	ModelProvider string          `json:"model_provider"`
+	Content       json.RawMessage `json:"content"`
+	Name          string          `json:"name"`
+	Arguments     string          `json:"arguments"`
+	Input         json.RawMessage `json:"input"`
+	Output        any             `json:"output"`
+	CallID        string          `json:"call_id"`
+	Summary       []any           `json:"summary"`
+	Message       string          `json:"message"`
+	Images        json.RawMessage `json:"images"`
+	IsError       bool            `json:"is_error"`
+	Result        string          `json:"result"`
+	Prompt        string          `json:"prompt"`
+	RevisedPrompt string          `json:"revised_prompt"`
+	Author        string          `json:"author"`
+	Recipient     string          `json:"recipient"`
+	Action        json.RawMessage `json:"action"`
+	Meta          *struct {
+		ContentItemKinds []string `json:"content_item_kinds"`
+	} `json:"internal_chat_message_metadata_passthrough"`
+}
+
+// codexLine is one line of a rollout.
 type codexLine struct {
-	Timestamp string `json:"timestamp"`
-	Type      string `json:"type"`
-	Payload   struct {
-		Type      string          `json:"type"`
-		Role      string          `json:"role"`
-		Cwd       string          `json:"cwd"`
-		ID        string          `json:"id"`
-		Model     string          `json:"model"`
-		Provider  string          `json:"provider"`
-		Content   json.RawMessage `json:"content"`
-		Name      string          `json:"name"`
-		Arguments string          `json:"arguments"`
-		Input     json.RawMessage `json:"input"`
-		Output    any             `json:"output"`
-		CallID    string          `json:"call_id"`
-		Summary   []any           `json:"summary"`
-		Message   string          `json:"message"`
-	} `json:"payload"`
+	Timestamp string       `json:"timestamp"`
+	Type      string       `json:"type"`
+	Payload   codexPayload `json:"payload"`
 }
 
 // scanCodex lists the rollouts under one root.
@@ -56,7 +74,16 @@ func scanCodex(root string) ([]importCandidate, error) {
 	names := codexIndex(root)
 	var files []string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == "rollouts" {
+				return filepath.SkipDir // agent traces, not sessions
+			}
+			return nil
+		}
+		if !strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
 			return nil
 		}
 		files = append(files, path)
@@ -165,7 +192,10 @@ func codexMessageText(raw json.RawMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-// readCodex converts one rollout into pi's terms.
+// readCodex converts one rollout into pi's terms. Codex writes one entry
+// per content piece (a message, a reasoning line, a tool call), and pi keeps
+// a turn whole, so consecutive assistant entries are merged; a tool result
+// ends the run and follows it.
 func readCodex(path string) (importedSession, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -173,7 +203,58 @@ func readCodex(path string) (importedSession, error) {
 	}
 	defer f.Close()
 	out := importedSession{}
+	names := map[string]string{}
 	pending := map[string]bool{}
+	var thinking []string
+	var buf []importBlock
+	var calls []string
+	var bufAt time.Time
+	var bufModel, bufProvider string
+
+	flush := func() {
+		if len(thinking) > 0 {
+			buf = append([]importBlock{{Kind: "thinking", Thinking: strings.Join(thinking, "\n\n")}}, buf...)
+			thinking = nil
+		}
+		if len(buf) > 0 {
+			out.Messages = append(out.Messages, importMessage{Role: "assistant", Timestamp: bufAt, Blocks: buf,
+				Provider: orDefault(bufProvider, "codex"), Model: orDefault(bufModel, "codex"),
+				StopReason: importStopReason("", len(calls) > 0)})
+		}
+		pending = map[string]bool{}
+		for _, id := range calls {
+			pending[id] = true
+		}
+		buf, calls = nil, nil
+		bufModel, bufProvider = "", ""
+	}
+	addCall := func(id, name string, args json.RawMessage, at time.Time) {
+		if id == "" {
+			id = importToken(name + at.String())
+		}
+		if bufAt.IsZero() {
+			bufAt = at
+		}
+		buf = append(buf, importBlock{Kind: "toolCall", ID: id, Name: name, Arguments: args})
+		calls = append(calls, id)
+		names[id] = name
+	}
+	result := func(id, name, text string, isError bool, at time.Time) {
+		if id != "" && pending[id] {
+			delete(pending, id)
+			out.Messages = append(out.Messages, importMessage{Role: "toolResult", Text: text, Timestamp: at,
+				ToolCallID: id, ToolName: orDefault(names[id], orDefault(name, "tool")), IsError: isError})
+			return
+		}
+		if strings.TrimSpace(text) == "" {
+			return
+		}
+		// The call is gone: keep what the tool said rather than lose it.
+		out.Messages = append(out.Messages, importMessage{Role: "user", Timestamp: at, Blocks: []importBlock{{
+			Kind: "text", Text: "[" + orDefault(name, "tool") + " result, detached from its tool call in the source transcript, kept as text]\n" + text,
+		}}})
+	}
+
 	sc := newImportScanner(f)
 	for sc.Scan() {
 		line := sc.Bytes()
@@ -188,83 +269,324 @@ func readCodex(path string) (importedSession, error) {
 		if out.Updated.Before(at) {
 			out.Updated = at
 		}
-		switch e.Type {
-		case "session_meta":
+		if e.Type == "session_meta" {
 			out.Cwd = e.Payload.Cwd
+			bufProvider = firstNonEmpty(e.Payload.Provider, e.Payload.ModelProvider)
+			bufModel = e.Payload.Model
 			continue
-		case "turn_context":
-			if out.Cwd == "" {
-				out.Cwd = e.Payload.Cwd
-			}
-			continue
-		case "response_item":
-		default:
+		}
+		if e.Type != "response_item" {
 			continue
 		}
 		switch e.Payload.Type {
 		case "message":
-			role := e.Payload.Role
-			if role != "user" && role != "assistant" {
-				continue
-			}
-			blocks := codexBlocks(e.Payload.Content, role)
-			if len(blocks) == 0 {
-				continue
-			}
-			out.Messages = append(out.Messages, importMessage{Role: role, Timestamp: at, Blocks: blocks,
-				Model: e.Payload.Model, Provider: e.Payload.Provider, StopReason: importStopReason("", false)})
-			if role == "user" && out.Title == "" {
-				if text := codexUserText(e.Payload.Content); text != "" {
+			switch e.Payload.Role {
+			case "user":
+				text, images := codexUserBlocks(e.Payload)
+				flush()
+				if text == "" && len(images) == 0 {
+					continue
+				}
+				blocks := make([]importBlock, 0, len(images)+1)
+				if text != "" {
+					blocks = append(blocks, importBlock{Kind: "text", Text: text})
+				}
+				blocks = append(blocks, images...)
+				out.Messages = append(out.Messages, importMessage{Role: "user", Timestamp: at, Blocks: blocks})
+				if out.Title == "" && text != "" {
 					out.Title = firstLine(text, 60)
 				}
+			case "assistant":
+				blocks := codexBlocks(e.Payload.Content, "assistant")
+				if len(blocks) == 0 {
+					continue
+				}
+				if bufAt.IsZero() {
+					bufAt = at
+				}
+				bufModel = firstNonEmpty(e.Payload.Model, bufModel)
+				bufProvider = firstNonEmpty(e.Payload.Provider, bufProvider)
+				buf = append(buf, blocks...)
 			}
 		case "reasoning":
-			// Codex's own thinking: kept as the turn's thinking, only when
-			// it actually said something.
 			text := codexMessageText(e.Payload.Content)
 			if strings.TrimSpace(text) == "" {
 				text = codexSummaryText(e.Payload.Summary)
 			}
-			if strings.TrimSpace(text) == "" {
-				continue
+			if strings.TrimSpace(text) != "" {
+				thinking = append(thinking, text)
 			}
-			out.Messages = append(out.Messages, importMessage{Role: "assistant", Timestamp: at,
-				Blocks: []importBlock{{Kind: "thinking", Thinking: text}}, Provider: e.Payload.Provider})
-		case "function_call", "custom_tool_call", "local_shell_call":
-			name := e.Payload.Name
-			if name == "" {
-				name = e.Payload.Type
+		case "function_call":
+			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), orDefault(e.Payload.Name, "tool"),
+				importArguments(e.Payload.Arguments), at)
+		case "custom_tool_call":
+			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), orDefault(e.Payload.Name, "tool"),
+				codexCustomArguments(e.Payload.Input), at)
+		case "local_shell_call":
+			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), orDefault(e.Payload.Name, "shell"),
+				importArguments(e.Payload.Arguments), at)
+		case "web_search_call":
+			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "web_search", codexSearchArguments(e.Payload.Action), at)
+			result(e.Payload.CallID, "web_search", "（Codex 未在会话文件中保存联网检索结果正文）", false, at)
+		case "tool_search_call":
+			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "tool_search",
+				importArguments(e.Payload.Arguments), at)
+		case "image_generation_call":
+			args := importArguments(map[string]any{"prompt": firstNonEmpty(e.Payload.RevisedPrompt, e.Payload.Prompt)})
+			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "image_generation", args, at)
+			result(e.Payload.CallID, "image_generation", codexGeneratedImage(e.Payload.Result), false, at)
+		case "agent_message":
+			addCall(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "agent_message",
+				importArguments(map[string]any{"author": e.Payload.Author, "recipient": e.Payload.Recipient}), at)
+			if text := codexMessageText(e.Payload.Content); strings.TrimSpace(text) != "" {
+				result(e.Payload.CallID, "agent_message", text, false, at)
 			}
-			args := importArguments(e.Payload.Arguments)
-			if len(e.Payload.Input) > 0 {
-				args = importArguments(string(e.Payload.Input))
-			}
-			id := e.Payload.CallID
-			if id == "" {
-				id = e.Payload.ID
-			}
-			out.Messages = append(out.Messages, importMessage{Role: "assistant", Timestamp: at,
-				Blocks:     []importBlock{{Kind: "toolCall", ID: id, Name: name, Arguments: args}},
-				Provider:   e.Payload.Provider,
-				StopReason: "toolUse"})
-			pending[id] = true
 		case "function_call_output", "custom_tool_call_output", "local_shell_call_output":
-			id := e.Payload.CallID
-			if id == "" {
-				id = e.Payload.ID
-			}
-			text := importToolOutput(e.Payload.Output)
-			delete(pending, id)
-			out.Messages = append(out.Messages, importMessage{Role: "toolResult", Text: text, Timestamp: at,
-				ToolCallID: id, ToolName: "tool"})
+			id := firstNonEmpty(e.Payload.CallID, e.Payload.ID)
+			flush()
+			result(id, "tool", importToolOutput(e.Payload.Output), e.Payload.IsError, at)
+		case "tool_search_output":
+			flush()
+			result(firstNonEmpty(e.Payload.CallID, e.Payload.ID), "tool_search",
+				codexToolSearchText(e.Payload.Output), false, at)
 		}
+	}
+	flush()
+	if len(thinking) > 0 {
+		out.Messages = append(out.Messages, importMessage{Role: "assistant", Timestamp: out.Updated,
+			Blocks:   []importBlock{{Kind: "thinking", Thinking: strings.Join(thinking, "\n\n")}},
+			Provider: "codex", Model: "codex", StopReason: "stop"})
 	}
 	if out.Cwd == "" {
 		if cand, ok := codexHeadOf(path); ok {
 			out.Cwd = cand.Cwd
 		}
 	}
+	if out.Title == "" {
+		out.Title = codexDateTitle(out.Updated)
+	}
+	out.Messages = repairToolResults(out.Messages)
 	return out, sc.Err()
+}
+
+// codexScaffoldTags are the wrappers Codex writes around context it gives
+// itself; none of it is something the user said.
+var codexScaffoldTags = []string{"recommended_plugins", "environment_context",
+	"permissions[_-]?instructions", "user_instructions", "app[_-]?context",
+	"codex_internal_context", "turn_aborted", "INSTRUCTIONS", "send_user_message_question_reply"}
+
+// codexScaffoldBlocks matches one wrapped block of each tag: Go's regexp has
+// no backreferences, so each tag gets its own pattern.
+var codexScaffoldBlocks = func() []*regexp.Regexp {
+	var out []*regexp.Regexp
+	for _, tag := range codexScaffoldTags {
+		out = append(out, regexp.MustCompile(`(?s)<`+tag+`[^>]*>.*?</`+tag+`>`))
+	}
+	return out
+}()
+
+// codexScaffoldTag matches a stray open or close tag of any of them.
+var codexScaffoldTag = regexp.MustCompile(`</?(?:` + strings.Join(codexScaffoldTags, "|") + `)[^>]*>`)
+
+// codexScaffoldPrefixes are the lines that say the text is context, not the
+// user's words.
+var codexScaffoldPrefixes = []string{
+	"# AGENTS.md instructions", "# In app browser:", "# Response annotations:",
+	"## Code review guidelines:", "The following is the Codex agent history",
+	"[Request interrupted by user", "<command-name>", "<send_user_message_question_reply>",
+}
+
+// codexRequestMark is where the user's own words start, inside a message
+// that also carries context.
+const codexRequestMark = "## My request:"
+
+// codexSanitize drops Codex's own scaffolding from a user message, and
+// returns "" when nothing the user wrote is left.
+func codexSanitize(text string) string {
+	for _, block := range codexScaffoldBlocks {
+		text = block.ReplaceAllString(text, "")
+	}
+	text = codexScaffoldTag.ReplaceAllString(text, "")
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	if i := strings.Index(text, codexRequestMark); i >= 0 {
+		text = strings.TrimSpace(text[i+len(codexRequestMark):])
+	}
+	for _, prefix := range codexScaffoldPrefixes {
+		if strings.HasPrefix(text, prefix) {
+			return ""
+		}
+	}
+	if strings.HasPrefix(text, "# Files pasted by the user:") || strings.HasPrefix(text, "# Files mentioned by the user:") {
+		return ""
+	}
+	return text
+}
+
+// codexUserBlocks is a user message's words and pictures.
+func codexUserBlocks(p codexPayload) (string, []importBlock) {
+	// Codex marks what a message carries; when it says there is no user
+	// text, the message is context only.
+	if p.Meta != nil && len(p.Meta.ContentItemKinds) > 0 {
+		found := false
+		for _, kind := range p.Meta.ContentItemKinds {
+			if kind == "user.text" {
+				found = true
+			}
+		}
+		if !found {
+			return "", nil
+		}
+	}
+	var texts []string
+	var images []importBlock
+	addImages := func(raw json.RawMessage) {
+		var items []map[string]any
+		if json.Unmarshal(raw, &items) != nil {
+			return
+		}
+		for _, item := range items {
+			if b := codexImageBlock(item); b != nil {
+				images = append(images, *b)
+			}
+		}
+	}
+	var items []map[string]any
+	if json.Unmarshal(p.Content, &items) == nil {
+		for _, item := range items {
+			kind := asString(item["type"])
+			if kind == "input_image" || kind == "image" || kind == "file" {
+				if b := codexImageBlock(item); b != nil {
+					images = append(images, *b)
+				}
+				continue
+			}
+			if text := strings.TrimSpace(asString(item["text"])); text != "" {
+				texts = append(texts, text)
+			}
+		}
+	} else {
+		var text string
+		if json.Unmarshal(p.Content, &text) == nil {
+			texts = append(texts, text)
+		}
+	}
+	addImages(p.Images)
+	return codexSanitize(strings.Join(texts, "\n")), images
+}
+
+// codexImageBlock reads an image-shaped content item.
+func codexImageBlock(item map[string]any) *importBlock {
+	kind := asString(item["type"])
+	mime := firstNonEmpty(asString(item["mime_type"]), asString(item["mimeType"]))
+	if kind == "file" && !strings.HasPrefix(mime, "image/") {
+		return nil
+	}
+	label := firstNonEmpty(asString(item["filename"]), asString(item["name"]), asString(item["url"]))
+	data := asString(item["data"])
+	if data == "" {
+		if src := asMap(item["source"]); src != nil {
+			data = asString(src["data"])
+			mime = firstNonEmpty(mime, asString(src["media_type"]), asString(src["mimeType"]))
+		}
+	}
+	if data == "" {
+		data = asString(item["image_url"])
+	}
+	if data == "" {
+		data = asString(item["url"])
+	}
+	b := importImageBlock(data, mime, label)
+	return &b
+}
+
+// codexCustomArguments reads a custom tool call's input, which may be a
+// JSON object or a bare patch body.
+func codexCustomArguments(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage("{}")
+	}
+	var obj map[string]any
+	if json.Unmarshal(raw, &obj) == nil {
+		return importArguments(obj)
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		if strings.HasPrefix(strings.TrimSpace(text), "{") {
+			var inner map[string]any
+			if json.Unmarshal([]byte(text), &inner) == nil {
+				return importArguments(inner)
+			}
+		}
+		return importArguments(map[string]any{"input": text})
+	}
+	return importArguments(raw)
+}
+
+// codexSearchArguments reads what a web search asked for.
+func codexSearchArguments(raw json.RawMessage) json.RawMessage {
+	var action map[string]any
+	if json.Unmarshal(raw, &action) != nil {
+		return json.RawMessage("{}")
+	}
+	args := map[string]any{}
+	for _, key := range []string{"query", "queries"} {
+		if v, ok := action[key]; ok && v != nil {
+			args[key] = v
+		}
+	}
+	return importArguments(args)
+}
+
+// codexGeneratedImage is what an image generation left behind.
+func codexGeneratedImage(result string) string {
+	data := stripDataURL(result)
+	if data == "" {
+		return "（Codex 没有把生成的图片留在会话文件里）"
+	}
+	if len(data) > importImageMax {
+		return "[image: generated]"
+	}
+	return "（生成了一张图片，见会话附件）"
+}
+
+// codexToolSearchText names the tools a search matched.
+func codexToolSearchText(output any) string {
+	var items []any
+	switch v := output.(type) {
+	case []any:
+		items = v
+	case map[string]any:
+		if list, ok := v["tools"].([]any); ok {
+			items = list
+		}
+	}
+	if len(items) == 0 {
+		return "（无匹配工具）"
+	}
+	lines := []string{fmt.Sprintf("匹配到 %d 个工具：", len(items))}
+	for _, item := range items {
+		switch v := item.(type) {
+		case string:
+			lines = append(lines, "- "+v)
+		case map[string]any:
+			name := firstNonEmpty(asString(v["name"]), asString(v["namespace"]))
+			if name != "" {
+				lines = append(lines, "- "+name)
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// codexDateTitle names a session the index does not know.
+func codexDateTitle(at time.Time) string {
+	if at.IsZero() {
+		return "Codex 会话"
+	}
+	return "Codex 会话 " + at.Format("2006-01-02")
 }
 
 // codexSummaryText joins a reasoning entry's summary lines.
@@ -368,21 +690,9 @@ func codexUserText(raw json.RawMessage) string {
 		if kind != "input_text" && kind != "text" {
 			continue
 		}
-		text := strings.TrimSpace(asString(item["text"]))
-		if text == "" || codexScaffold(text) {
-			continue
-		}
-		parts = append(parts, text)
-	}
-	return strings.Join(parts, "\n")
-}
-
-// codexScaffold reports whether a message is one Codex writes itself.
-func codexScaffold(text string) bool {
-	for _, head := range []string{"<environment_context", "<user_instructions", "<turn_aborted", "<permissions", "<system"} {
-		if strings.HasPrefix(text, head) {
-			return true
+		if text := strings.TrimSpace(asString(item["text"])); text != "" {
+			parts = append(parts, text)
 		}
 	}
-	return false
+	return codexSanitize(strings.Join(parts, "\n"))
 }
