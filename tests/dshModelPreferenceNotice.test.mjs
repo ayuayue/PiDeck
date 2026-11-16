@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 
 /**
  * issue #253 的收尾：DSH 模型偏好被 host 拒绝时必须让用户看得见。
@@ -20,8 +21,9 @@ import test from "node:test";
  * agentEventTags.agentsNotice（渲染层 useSessionRuntimeBridge → showNotice）。
  */
 
-const dshManager = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
-const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+const dshNoticeSources = readFileSync("src/main/dsh/dshPreferenceNotices.ts", "utf8");
+const dshManager = [readFileSync("src/main/dsh/DshAgentManager.ts", "utf8"), dshNoticeSources].join("\n");
+const coordinator = readSessionRuntimeCoordinatorSources();
 const bridge = readFileSync("src/renderer/src/hooks/useSessionRuntimeBridge.ts", "utf8");
 const zhCopy = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const enCopy = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
@@ -62,4 +64,27 @@ test("Coordinator 对 DSH 的降级路径调用该提示（pi 与 DSH 同语义�
 test("toast 通道确实把 agents:notice 渲染成提示（契约锚点）", () => {
 	assert.match(bridge, /event\.sourceChannel === "agents:notice"/);
 	assert.match(bridge, /showNotice\(/);
+});
+
+/**
+ * #548：DSH 权限预设重放失败必须「降级 + 提示」，不能把用户真实消息挡掉。
+ * 与模型偏好同一通道（agentsNotice），理由相同：会话内消息会被 host projection 冲掉。
+ */
+test("DSH 实现 notifyPermissionPreferenceIgnored（权限预设重放失败要提示用户）", () => {
+	assert.match(dshManager, /notifyPermissionPreferenceIgnored\s*\(/, "DSH 未实现该 gateway 可选方法 → 权限降级时用户看不到任何提示");
+	assert.match(dshManager, /permissionPreferenceIgnoredNotice\(agentId, preset\)/, "提示载荷应走 dshPreferenceNotices 的纯函数");
+});
+
+test("Coordinator 在 DSH 权限重放失败时降级并提示（不阻断发送）", () => {
+	const applyBlock = coordinator.slice(coordinator.indexOf("private async applyPreferences("), coordinator.indexOf("private isModelGoneError("));
+	assert.match(applyBlock, /DSH permission preference ignored/, "找不到 DSH 权限降级分支（测试锚点失效，请更新）");
+	assert.match(applyBlock, /if \(!isDsh\) throw error;/, "只有 DSH 降级；其它后端的权限失败必须照旧抛出");
+	assert.match(applyBlock, /notifyPermissionPreferenceIgnored\?\.\(agentId, entry\.permissionPreset\)/, "降级后没有告知用户（静默的权限不一致）");
+});
+
+test("权限提示文案在渲染层字典中可用且无占位符", () => {
+	const key = "notice.permissionPreferenceIgnored";
+	assert.match(zhCopy, new RegExp(`"${key.replace(".", "\.")}"`), `渲染层中文缺 ${key}：toast 的 t() 找不到键会原样显示 key`);
+	assert.match(enCopy, new RegExp(`"${key.replace(".", "\.")}"`), `渲染层英文缺 ${key}`);
+	assert.doesNotMatch(zhCopy, new RegExp(`"${key.replace(".", "\.")}"[^\n]*\{`));
 });

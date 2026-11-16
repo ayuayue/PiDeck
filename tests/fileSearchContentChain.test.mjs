@@ -10,6 +10,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const read = (path) => readFileSync(new URL(path, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"), "utf8");
 
 test("shared/ipc.ts：通道常量 files:search-content 已定义", () => {
@@ -40,17 +44,17 @@ test("filesIpc.ts：名字搜索优先走索引、失败回退目录扫描（行
 });
 
 test("preload/index.ts：files.searchContent 暴露在白名单", () => {
-	const source = read("../src/preload/index.ts");
+	const source = preloadSource;
 	assert.match(source, /searchContent:\s*\(projectId:\s*string,\s*query:\s*string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.filesSearchContent/);
 });
 
 test("previewApi.ts：预览模式降级 stub 返回 null", () => {
-	const source = read("../src/renderer/src/previewApi.ts");
+	const source = previewApiSource;
 	assert.match(source, /files:\s*\{[\s\S]{0,600}?searchContent:\s*async\s*\(\)\s*=>\s*null/);
 });
 
 test("main/index.ts：装配 FileIndexService + 注册 quitCleanup + 注入 getter", () => {
-	const source = read("../src/main/index.ts");
+	const source = mainIpcSource;
 	assert.match(source, /new FileIndexService\(\{/);
 	assert.match(source, /quitCleanup\.register\(["']file-index["']/);
 	assert.match(source, /getFileIndexService:\s*\(\)\s*=>\s*fileIndexService/);

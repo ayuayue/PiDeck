@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
-const source = readFileSync("src/main/index.ts", "utf8");
-
+const source = mainIpcSource;
 test("main window has load and timeout fallbacks for showing the hidden window", () => {
 	assert.match(source, /function showMainWindowOnce\(/);
 	assert.match(source, /mainWindow\.once\("ready-to-show", showMainWindowOnce\)/);

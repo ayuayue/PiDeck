@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
+const appSource = rendererAppSource;
 const desktopApiSource = readFileSync("src/renderer/src/desktopApi.ts", "utf8");
-const mainSource = readFileSync("src/main/index.ts", "utf8");
-const systemIpcSource = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+const mainSource = mainIpcSource;
 const petWindowSource = readFileSync("src/main/pet/PetWindow.ts", "utf8");
 const preloadPathSource = readFileSync("src/main/preloadPath.ts", "utf8");
-const preloadSource = readFileSync("src/preload/index.ts", "utf8");
 const ipcSource = readFileSync("src/shared/ipc.ts", "utf8");
 
 test("Electron renderer does not fall back to preview browser API when preload is missing", () => {

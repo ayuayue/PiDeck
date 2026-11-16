@@ -256,3 +256,19 @@ export const ACP_ERROR_CODE = {
 	/** kimi acp 等用 -32000 表示 AUTH_REQUIRED（未登录）。 */
 	authRequired: -32000,
 } as const;
+
+/**
+ * 单项配置的锁定原因（agent 明确声明「这一项现在不能改」）。
+ *
+ * 目前只有 CodeBuddy 声明：`_meta["codebuddy.ai/locked"]` 是非空**字符串**（不是 boolean），
+ * 值就是给用户看的原因（`output style is pinned by --output-style X`）。锁定由 agent 在
+ * `session/new` / `config_option_update` 时计算，setter 会以 invalidParams 拒绝——客户端提前
+ * 置灰可以省掉一次注定失败的写入，但写入侧的回滚与错误提示仍要保留（解锁是运行期事件）。
+ *
+ * 只认这一条已知 key：厂商 `_meta` 是开放命名空间，把未知 key 一律当锁定会把正常项误禁用。
+ */
+export function readAcpLockedReason(meta: Record<string, unknown> | undefined): string | undefined {
+	if (meta === undefined) return undefined;
+	const value = meta["codebuddy.ai/locked"];
+	return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}

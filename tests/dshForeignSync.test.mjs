@@ -6,6 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /** 加载 dshForeignSync 与真实 SessionCatalog；相对 import 由 helper 按源文件目录解析。 */
 function loadModules() {
 	const { SessionCatalog } = loadTsCommonJs("src/main/sessions/SessionCatalog.ts", {
@@ -141,7 +143,7 @@ test("resolveFallbackTitle defers function evaluation until use", () => {
 test("index foreignSyncDeps must not call mainCopy at module load", () => {
 	// 回归：eager fallbackTitle: mainCopy(...) 在 settingsStore 赋值前求值，
 	// 启动即 TypeError: Cannot read properties of undefined (reading 'get')。
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	assert.match(source, /fallbackTitle:\s*\(\)\s*=>\s*mainCopy\(/, "fallbackTitle 必须惰性取 i18n，不能在对象字面量里直接 mainCopy");
 	assert.doesNotMatch(source, /fallbackTitle:\s*mainCopy\(/);
 	assert.match(source, /getExistingDraft:\s*\(dshSessionId\)/, "纠正归属时必须能读到已有标题，才能用官方投影覆盖 cwd 占位名");
@@ -149,7 +151,7 @@ test("index foreignSyncDeps must not call mainCopy at module load", () => {
 });
 
 test("foreign session IPC hides dismissed host sessions from the import list", () => {
-	const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const sessionIpc = sessionIpcSource;
 	assert.match(sessionIpc, /listDismissedDshSessionIds\(\)[\s\S]*!dismissed\.has\(item\.dshSessionId\)/);
 	assert.match(sessionIpc, /restoreDismissed: true/);
 });

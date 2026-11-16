@@ -46,7 +46,7 @@ test("every plain-text surface folds self-contained reference blocks", () => {
 		// 断言的是同一条规则仍然经过共享折叠函数，不是文件位置本身。
 		"子代理转录（pi）": "src/renderer/src/components/session/sessionSubagentTranscript.ts",
 		"子代理转录（DSH）": "src/renderer/src/components/session/DshAgentToolsPanel.tsx",
-		会话定位轴标题: "src/renderer/src/components/app/AppUtils.ts",
+		会话定位轴标题: "src/renderer/src/components/app/appUtils/outline.ts",
 		"侧栏会话 preview（主进程）": "src/main/sessions/SessionScanner.ts",
 		"Web 端消息渲染（主进程）": "src/main/web/WebHttpResponders.ts",
 	};
@@ -104,7 +104,8 @@ test("session title surfaces strip reference block bodies", () => {
 		// H1 把「从行文本推断标题」的纯函数抽到 sessionNameLine.ts（本地扫描与远端按需标题共用一份），
 		// 这个标题出口随之搬家；断言的是同一条规则仍然经过共享剥块函数，不是文件位置本身。
 		"历史扫描回退（主进程）": ["src/main/sessions/sessionNameLine.ts", /textForSessionTitle/],
-		"catalog 脏标题识别": ["src/main/sessions/SessionCatalog.ts", /looksLikeExpandedRefBlockTitle/],
+		// catalog 的脏标题判据随标题所有权拆进 catalog/catalogTitleOwnership.ts（拆分不改规则）。
+		"catalog 脏标题识别": ["src/main/sessions/catalog/catalogTitleOwnership.ts", /looksLikeExpandedRefBlockTitle/],
 		"异步总结标题（内置扩展）": ["resources/extensions/pi-deck-session-title.ts", /titleTextFromUserInput/],
 	};
 	for (const [label, [file, pattern]] of Object.entries(surfaces)) {

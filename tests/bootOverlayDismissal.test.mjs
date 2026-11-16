@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 启动遮罩撤除的行为与契约守卫。
@@ -13,7 +14,7 @@ import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
  */
 
 const mainSource = readFileSync("src/renderer/src/main.tsx", "utf8");
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 const hookSource = readFileSync("src/renderer/src/hooks/app/useBootOverlayReady.ts", "utf8");
 
 /** 极简遮罩替身：记录 class、监听器与移除状态。 */

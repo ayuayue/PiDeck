@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 // 与 sessionComposer.test.mjs 同一套 vm 编译模式：
 // 直接加载真实实现，只桩掉外部依赖，保证测的是行为而不是复制逻辑。
@@ -38,8 +39,10 @@ function loadChips() {
 }
 
 function loadAppUtils(chips) {
-	return compile("src/renderer/src/components/app/AppUtils.ts", {
-		"../session/composer/chips": chips,
+	// AppUtils 已是纯转发 barrel：解释时它会 require 各域文件，所以改用能递归解析
+	// 生产依赖图的加载器（stub 键随域文件的下掉深度改成 ../../session/composer/chips）。
+	return loadTsCommonJs("src/renderer/src/components/app/AppUtils.ts", {
+		stubs: { "../../session/composer/chips": chips },
 	});
 }
 

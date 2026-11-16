@@ -266,8 +266,8 @@ function remoteSessionsHarness(api) {
 	let registerResult = { ok: true, sessionId: "s-1", created: true, remoteSessionId: "ws-a/1.jsonl", remotePath: "ws-a/1.jsonl" };
 	const liveApi = api ?? {
 		remoteSessions: {
-			scan: async (hostId) => {
-				calls.scan.push(hostId);
+			scan: async (hostId, projectId) => {
+				calls.scan.push({ hostId, projectId });
 				if (scanResult instanceof Error) throw scanResult;
 				return scanResult;
 			},
@@ -278,7 +278,7 @@ function remoteSessionsHarness(api) {
 			},
 		},
 	};
-	const options = { hostId: "host-a", onImported: (result) => imported.push(result) };
+	const options = { hostId: "host-a", projectId: "project-a", onImported: (result) => imported.push(result) };
 	const { useRemoteSessions } = loadTsCommonJs("src/renderer/src/hooks/useRemoteSessions.ts", {
 		stubs: { react: host.react, jotai, "../atoms/remote-sessions-atoms": atoms },
 	});
@@ -304,7 +304,8 @@ test("扫描落地三态：有结果 / 成功但为空 / 失败与 reject 分开
 	await h.render().scan();
 	assert.equal(h.render().state.phase, "entries");
 	assert.equal(h.render().state.entries[0].remoteSessionId, "ws-a/1.jsonl");
-	assert.equal(h.calls.scan[0], "host-a");
+	assert.equal(h.calls.scan[0].hostId, "host-a");
+	assert.equal(h.calls.scan[0].projectId, "project-a", "扫描必须带项目作用域（同主机两个项目不共享列表）");
 
 	h.setScanResult({ ok: true, entries: [] });
 	await h.render().scan();
@@ -333,9 +334,9 @@ test("切主机后，上一个主机迟到的扫描结果不写入任何状态",
 	const snapshots = h.store.get(h.atoms.remoteSessionScanByHostAtom);
 	// 迟到结果不得推进状态：离开的主机停在 scanning 快照（并在切主机时归一到 idle），
 	// 新主机完全没有被写入——旧结果绝不能算成新主机的列表。
-	assert.equal(snapshots["host-a"].phase, "idle", "旧主机的迟到结果不得落地");
-	assert.equal([...snapshots["host-a"].entries].length, 0);
-	assert.equal(snapshots["host-b"], undefined, "也不得被算成新主机的结果");
+	assert.equal(snapshots["host-a::project-a"].phase, "idle", "旧主机的迟到结果不得落地");
+	assert.equal([...snapshots["host-a::project-a"].entries].length, 0);
+	assert.equal(snapshots["host-b::project-a"], undefined, "也不得被算成新主机的结果");
 });
 
 test("导入：created=true / created=false 都有明确回执，且都通知宿主刷新选中", async () => {

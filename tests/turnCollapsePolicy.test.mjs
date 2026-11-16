@@ -1,13 +1,16 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 
 const turnExecution = readFileSync("src/renderer/src/components/session/turn/useTurnExecution.ts", "utf8");
 // dispatchPromptSnapshot 已迁入 useSessionPromptDispatch（App 只保留接线）。
 const app = readFileSync("src/renderer/src/hooks/session/useSessionPromptDispatch.ts", "utf8");
 const appUiAtoms = readFileSync("src/renderer/src/atoms/app-ui-atoms.ts", "utf8");
 const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
-const sessionAtoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+const sessionAtoms = sessionAtomsSource;
 const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
 
 test("non-live runs mount collapsed even without a final answer (interrupted rounds)", () => {
@@ -51,7 +54,7 @@ test("new-turn collapse is unconditional: the switch is gone from every layer", 
 		["CommonTab", readFileSync("src/renderer/src/components/app/settings/CommonTab.tsx", "utf8")],
 		["unsavedChangesSummary", readFileSync("src/renderer/src/components/app/settings/unsavedChangesSummary.ts", "utf8")],
 		["settingsFieldAnchors", readFileSync("src/renderer/src/utils/settingsFieldAnchors.ts", "utf8")],
-		["previewApi", readFileSync("src/renderer/src/previewApi.ts", "utf8")],
+		["previewApi", previewApiSource],
 		["i18n zh-CN", readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8")],
 		["i18n en-US", readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8")],
 	];
@@ -103,7 +106,7 @@ test("manual/streaming expansion is remembered across remounts (session-scoped)"
 // 「发送后动画先向上再向下」根因回归（2026-10）：折叠信号在置顶动画途中到达，
 // 上一轮执行过程从新消息上方骤缩，动画中的视口补偿把 scrollTop 往回带。
 test("send-pin animation defers the new-turn collapse until it settles", () => {
-	const controller = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controller = sessionTimelineControllerSource;
 	const sendScroll = readFileSync("src/renderer/src/hooks/timeline/sendScroll.ts", "utf8");
 	// 折叠延后判据（effect 在动画标记落回 false 后会重跑并消费同一个 tick）
 	assert.match(turnExecution, /if \(opts\.sendPinAnimating\) return;/);

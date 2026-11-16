@@ -17,11 +17,11 @@ import type { SidebarController } from "../../hooks/useSidebarController";
 import { useSessionActivityAt } from "../../hooks/sidebar/useSessionActivityClock";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
-import { formatRelativeTime } from "../../utils/relativeTime";
 import { Button } from "../ui-shadcn/button";
 import type { SidebarActions } from "./SidebarContent";
 import { projectDirectoryLabel, type SessionGroupNode } from "./sessionGroupsModel";
 import { openSessionRowMenu } from "./sessionRowMenu";
+import { SidebarRowTime } from "./SidebarRowTime";
 import { SessionRuntimeStatusDot } from "./SidebarStatusDot";
 import { ROW_CONTAINER_CLASS, ROW_MORE_ACTIONS_CLASS, SESSION_ROW_CLASS, SESSION_ROW_SELECTED_CLASS } from "./sidebarRowStyles";
 
@@ -110,6 +110,7 @@ export function SessionGroupsSection(props: { nodes: readonly SessionGroupNode[]
 														// 多项目分组才标项目名：单项目组里重复同一个名字只是噪音（tooltip 始终给完整路径）。
 														title={projectCount > 1 ? `${session.title}\n${[projectLabel.name, projectLabel.path].filter(Boolean).join(" · ")}` : session.title}
 														onClick={() => void props.actions.sessions.open(session.projectId, session.id)}
+														onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => void props.actions.sessions.open(session.projectId, session.id, "permanent")}
 													>
 														<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 															<div className="conversation-title flex min-w-0 items-center gap-1.5">
@@ -117,13 +118,8 @@ export function SessionGroupsSection(props: { nodes: readonly SessionGroupNode[]
 																<SessionRuntimeStatusDot status={props.controller.catalog.runtimeBySessionId[session.id]?.status} />
 																<span className="min-w-0 flex-1 truncate">{session.title}</span>
 																{projectCount > 1 && <span className="max-w-24 shrink-0 truncate text-micro text-muted-foreground/70">{projectLabel.name}</span>}
-																{/* 时间 hover 时让位给「⋯」：与项目树会话行同一策略，避免瞬时消失导致行尾跳动。 */}
-																<span
-																	className="w-max shrink-0 overflow-hidden whitespace-nowrap text-micro tabular-nums text-muted-foreground transition-[width,opacity] [interpolate-size:allow-keywords] group-hover/row:w-0 group-hover/row:opacity-0 group-focus-within/row:w-0 group-focus-within/row:opacity-0"
-																	title={formatRelativeTime(activityAt(session.id, session.updatedAt))}
-																>
-																	{formatRelativeTime(activityAt(session.id, session.updatedAt))}
-																</span>
+																{/* 时间 hover 时让位给「⋯」：与项目树会话行同一策略（收拢细节见 SidebarRowTime）。 */}
+																<SidebarRowTime at={activityAt(session.id, session.updatedAt)} />
 															</div>
 														</div>
 													</button>

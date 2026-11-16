@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 跨会话正文搜索（session-index sidecar）的扫描根解析回归。
  *
@@ -139,7 +139,7 @@ test("WSL 模式下项目级根与全局根都为空（宿主 Go 读 UNC 不可�
 });
 
 test("装配侧契约：正文搜索闭包与预热都走组合根，并过滤 WSL 项目", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	// 项目来源抽成模块级函数（闭包在 registerSessionIpc 前、5s 预热在装配尾部，两处都要用）
 	assert.match(source, /function\s+projectPathsForContentSearch\(\)\s*:\s*string\[\]\s*\{/);
 	assert.match(source, /\.filter\(\(project\)\s*=>\s*project\.environment\s*!==\s*"wsl"\)/);

@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -12,7 +13,7 @@ import test from "node:test";
  * 50ms 消息 flush 时顺带推送轻量 isStreaming 补丁（无 RPC）。
  */
 test("streaming signal: text_delta sets isStreaming locally, flush pushes lightweight patch", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 
 	// 1) 本地流式标志集合存在，并在 getRuntimeState 里并入（轮询兜底）
 	assert.match(agentManager, /private readonly streamingAgents = new Set<string>\(\)/);

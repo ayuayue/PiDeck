@@ -14,6 +14,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const panel = readFileSync("src/renderer/src/components/workspace/RemoteGitPanel.tsx", "utf8");
+/**
+ * 变更区（提交框 + 分组列表）已拆到独立模块：面板是受行数门禁约束的存量文件，新排版不能让它净增长。
+ * 仍属于同一条契约的断言按「面板 + 变更区」两块合起来验证，不把行为预算拆成两份。
+ */
+const changesSection = readFileSync("src/renderer/src/components/workspace/RemoteGitChangesSection.tsx", "utf8");
+const panelAndChanges = panel + "\n" + changesSection;
 const view = loadTsCommonJs("src/renderer/src/utils/remoteGitCapabilityView.ts");
 const { describeGitCapabilityBanner, gitCapabilityReasonKey, normalizeGitCapabilities, ALL_GIT_CAPABILITIES, REMOTE_GIT_BANNER_ITEM_IDS, SHARED_GIT_BANNER_ITEM_IDS } = view;
 const { RemoteGitCapabilityBanner } = loadTsCommonJs("src/renderer/src/components/workspace/RemoteGitCapabilityBanner.tsx", { stubs: { react: React } });
@@ -33,9 +39,9 @@ test("全可用时不渲染能力条（只在有入口被关闭时解释原因�
 });
 
 test("干净态与本机同一套文案与图标，不再各写一句", () => {
-	assert.match(panel, /t\("git\.noPendingChanges"\)/, "必须复用本机那句 copy");
-	assert.match(panel, /<CheckCircle2/, "图标与本机一致（勾）");
-	assert.ok(!panel.includes('t("remoteGit.clean")'), "自造文案必须退场");
+	assert.match(panelAndChanges, /t\("git\.noPendingChanges"\)/, "必须复用本机那句 copy");
+	assert.match(panelAndChanges, /<CheckCircle2/, "图标与本机一致（勾）");
+	assert.ok(!panelAndChanges.includes('t("remoteGit.clean")'), "自造文案必须退场");
 });
 
 test("分支选择在顶栏：branchRead 门禁，refs 关闭也有入口，打开下拉才加载列表", () => {
@@ -208,10 +214,12 @@ test("所有写/同步/分支/恢复/历史/引用/对比/初始化入口都看�
 	]) {
 		assert.ok(panel.includes(gate), gate + " must gate its entry on the capability table");
 	}
-	assert.ok(panel.includes("const writable = capabilities.write"));
+	// 写能力不再只留在面板内的局部变量：它经 writeEnabled 交给变更区，整区（输入框 + 逐文件入口）一起门禁。
 	assert.match(panel, /disabled=\{!capabilities\.read \|\| state\.loading/);
 	assert.match(panel, /void refresh\(capabilities\.forceRefresh\)/, "force refresh degrades to an ordinary read, it never disables refresh");
-	assert.match(panel, /disabled=\{busy \|\| !capabilities\.write\}/);
+	// 提交框在拆出的变更区里：写能力经 writeEnabled 传下去，输入框仍按「忙 / 无写能力」禁用。
+	assert.match(panel, /writeEnabled=\{capabilities\.write\}/, "the changes section is gated by the write capability");
+	assert.match(changesSection, /disabled=\{props\.busy \|\| !props\.writeEnabled\}/, "the commit box stays disabled without the write capability");
 	assert.match(panel, /disabled=\{busy \|\| !capabilities\.branchWrite\}/);
 	assert.match(panel, /\(state\.errorCode === "GIT_NOT_REPOSITORY" \|\| state\.initializing \|\| state\.initNotice !== undefined\) && capabilities\.init/);
 	assert.match(panel, /\{capabilities\.compare \? \(/);
@@ -245,9 +253,10 @@ test("分区展开 effect 先过能力闸门，且没有任何 effect 调用 fet
 test("refs 轮询串上 refsWatch；确认流程与 unknown 语义仍在", () => {
 	assert.match(panel, /active: refsOpen && capabilities\.refsWatch/);
 	assert.match(panel, /active: refsOpen && capabilities\.refsWatch,\s*refsLoaded: state\.refs !== undefined,\s*hostReady,/);
-	for (const id of ["remote-git-sync-push-confirm-bar", "remote-git-discard-confirm-bar", "remote-git-init-confirm", "remote-git-recovery-drop-confirm-bar"]) {
+	for (const id of ["remote-git-sync-push-confirm-bar", "remote-git-init-confirm", "remote-git-recovery-drop-confirm-bar"]) {
 		assert.ok(panel.includes('data-testid="' + id + '"'), id + " confirmation flow must survive the capability rewrite");
 	}
+	assert.ok(panelAndChanges.includes('data-testid="remote-git-discard-confirm-bar"'), "remote-git-discard-confirm-bar confirmation flow must survive the capability rewrite");
 	// unknown 结果不自动重放：状态层只展示稳定码，面板不做重试（重试入口即显式刷新）。
 	assert.ok(panel.includes("remoteGitErrorMessage(state.errorCode)"));
 	assert.ok(!panel.includes("setTimeout"), "no delayed replay of a write");

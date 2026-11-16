@@ -26,7 +26,7 @@ import { listRemoteInjectableExtensionNames } from "../extensions/remoteExtensio
 import type { RemoteSessionRegistration } from "../sessions/SessionCatalog";
 // 会话根解析与文件名 stem 都从 scanner 转出：远端会话身份的两个既有判定（根在哪、暂定标题取什么）
 // 只允许有一份实现。
-import { createRemoteSessionScanner, REMOTE_SESSION_MAX_ID_LENGTH, REMOTE_SESSION_MAX_PATH_LENGTH, titleFromRemoteSessionId, type RemoteSessionCatalogPort, type RemoteSessionCommandTransportPort, type RemoteSessionScannerPort } from "../sessions/RemoteSessionScanner";
+import { createRemoteSessionScanner, titleFromRemoteSessionId, type RemoteSessionCatalogPort, type RemoteSessionCommandTransportPort, type RemoteSessionScannerPort } from "../sessions/RemoteSessionScanner";
 import type { PiRuntimeLauncher, RemoteSshPiRuntimeLaunchPlan } from "./PiSpawnHandle";
 import { buildRemotePiRuntimePlan } from "./piRemoteRuntimePlan";
 import { remoteSecurityPolicyPath } from "../remote/RemoteSecurityPolicyArtifact";
@@ -107,6 +107,8 @@ export type RemoteRuntimePrepareInput = {
 export type RemoteSessionRegistrationRequest = {
 	readonly hostId: string;
 	readonly projectId: string;
+	/** 项目根（远端绝对 POSIX）：项目级 `sessionDir` 按它解析（pi 的相对路径就是相对会话 cwd）。 */
+	readonly projectRemotePath: string;
 	readonly remotePath: string;
 	readonly title?: string;
 	readonly updatedAt?: number;
@@ -240,36 +242,6 @@ async function resolveOrUnavailable<Value>(resolve: () => Value | undefined | Pr
 	return resolved;
 }
 
-/** 远端路径里的控制字节与远端 helper 的路径域同判据（出现即拒绝，不回显）。 */
-const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
-
-/**
- * pi 上报的远端会话文件 → `remoteSessionId`（相对会话根的 POSIX 路径），折不出来返回 undefined。
- *
- * **只做一件事：去掉根前缀。** pi 的两种布局都由此得到正确的 id：默认根是
- * `<root>/--<encoded-cwd>--/<file>.jsonl`（id 带一层工作区目录），user-level `sessionDir` 是平铺
- * `<root>/<file>.jsonl`。所以按 `/` 切出文件名是错的（丢掉一层身份），复刻 pi 的 cwd 编码更是把它的
- * 实现细节抄进 PiDeck——两者都明确不做。
- *
- * 判据是**逐段严格**而不是「规范化后再比较」：`.` / `..` / 空段 / 尾斜杠一律拒绝，于是不存在「规范化
- * 之后才落回根内」的中间态（`<root>/../elsewhere/x.jsonl` 在这里根本不合法）。根前缀按 `root + "/"`
- * 比，因此 `/srv/sessions-extra/x.jsonl` 不属于 `/srv/sessions` 这类误匹配不会被当成命中。
- * 反斜杠同样拒绝：`remoteSessionId` 的既有判据（scanner 的 `readRemoteSessionId`）不接受它，
- * 放进来会造出一条别的远端路径永远读不到的记录。
- */
-function remoteSessionIdWithinRoot(root: string, remotePath: string): string | undefined {
-	if (typeof remotePath !== "string" || remotePath.length === 0 || remotePath.length > REMOTE_SESSION_MAX_PATH_LENGTH) return undefined;
-	if (!remotePath.startsWith("/") || remotePath.includes("\\") || CONTROL_CHARS.test(remotePath)) return undefined;
-	const prefix = root.endsWith("/") ? root : root + "/";
-	if (!remotePath.startsWith(prefix)) return undefined;
-	const relative = remotePath.slice(prefix.length);
-	if (relative.length === 0 || relative.length > REMOTE_SESSION_MAX_ID_LENGTH) return undefined;
-	for (const segment of relative.split("/")) {
-		if (segment.length === 0 || segment === "." || segment === "..") return undefined;
-	}
-	return relative;
-}
-
 /**
  * 解析这一次 spawn 的 trust 决策。
  *
@@ -399,20 +371,19 @@ export function createRemoteRuntimePort(deps: RemoteRuntimePortDeps): RemoteRunt
 			// 与 prepare() 同一口径：服务与 catalog 都按调用时才解析（门禁/装配状态都可能变）。
 			const service = await resolveOrUnavailable(() => deps.resolveService());
 			const catalog = await resolveOrUnavailable(() => deps.resolveCatalog());
-			// 会话根解析**复用 scanner 的导出入口**（默认 `<home>/.pi/agent/sessions` vs user-level
-			// `settings.json` 的 `sessionDir` 覆盖）：失败原样转述它的稳定码，不在这里折叠。
-			const resolvedRoot = await createRemoteSessionScanner({ port: service, transport: deps.resolveRemoteTransport?.() }).resolveSessionRoot(input.hostId);
-			if (!resolvedRoot.ok) throw new Error(resolvedRoot.code);
-			const remoteSessionId = remoteSessionIdWithinRoot(resolvedRoot.root, input.remotePath);
-			if (remoteSessionId === undefined) throw new Error(REMOTE_RUNTIME_CODES.locatorUnresolved);
+			// 会话身份推导**复用 scanner 的导出入口**（默认根 vs user-level `sessionDir` vs 项目级 `sessionDir`）：
+			// 失败原样转述它的稳定码，不在这里折叠。扫描登记与运行时登记必须是同一份推导，否则同一文件两条记录。
+			const scanner = createRemoteSessionScanner({ port: service, transport: deps.resolveRemoteTransport?.() });
+			const identity = await scanner.identityForPath({ hostId: input.hostId, projectId: input.projectId, projectRemotePath: input.projectRemotePath, remotePath: input.remotePath });
+			if (!identity.ok) throw new Error(identity.code);
 			// catalog 写入只走这一条正门（`ensureRemoteSession`：幂等、两遍匹配、稳定 id）。
 			return catalog.ensureRemoteSession({
 				projectId: input.projectId,
 				hostId: input.hostId,
-				remoteSessionId,
+				remoteSessionId: identity.remoteSessionId,
 				remotePath: input.remotePath,
 				// title 在 catalog 的协议形状里必填：调用方没给就用文件名 stem（与 scanner 的登记路径同一取值）。
-				title: input.title ?? titleFromRemoteSessionId(remoteSessionId),
+				title: input.title ?? titleFromRemoteSessionId(identity.remoteSessionId),
 				// 未知 mtime 用 0（catalog 的判据是「> 0 才算已知时间」）：不拿本机 now 冒充远端文件时间。
 				updatedAt: input.updatedAt ?? 0,
 			});

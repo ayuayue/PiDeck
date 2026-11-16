@@ -261,3 +261,49 @@ test("远端 runtime 是可寻址、可停、可出现在列表里的真 runtime
 	assert.equal(state.tabs.length, 0);
 	assert.equal(coordinator.getTarget("session-a"), undefined);
 });
+
+test("启动失败时必须先读错误卡再 stop：稳定码与 debugDetails 不得被 messages.delete 吞掉", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness(SessionRuntimeCoordinator, {
+		entries: [{ id: "draft-a", projectId: "project-a", title: "新会话", source: "pi", environment: "native", status: "draft", createdAt: 1, updatedAt: 1 }],
+	});
+	const { coordinator, agents, calls, state } = harness;
+
+	// 现场形状：create 返回 error 终态，并且有一条带 debugDetails 的 error 卡；stop() 会删掉它。
+	const messages = new Map();
+	const debugDetails = "⚠️ Pi RPC 启动失败\n\nREMOTE_SESSION_LOCATOR_UNRESOLVED\n\nplatform=linux";
+	agents.create = async (input) => {
+		const tab = {
+			id: "agent-failed",
+			projectId: input.projectId,
+			cwd: REMOTE_CWD,
+			title: "新会话",
+			status: "error",
+			sessionId: "pi-failed",
+			sessionPath: ".pi/sessions/failed.jsonl",
+			sessionEnvironment: "native",
+			sessionSource: "pi",
+			createdAt: 1,
+		};
+		state.tabs.push(tab);
+		messages.set(tab.id, [{ role: "error", text: "远端会话登记失败", meta: { debugDetails } }]);
+		return tab;
+	};
+	agents.getMessages = (agentId) => messages.get(agentId) ?? [];
+	agents.stop = async (agentId) => {
+		calls.stop += 1;
+		messages.delete(agentId);
+		const index = state.tabs.findIndex((tab) => tab.id === agentId);
+		if (index >= 0) state.tabs.splice(index, 1);
+	};
+
+	const result = await coordinator.activateRuntime("draft-a");
+
+	assert.equal(result.ok, false, "error 终态的 runtime 必须让本次激活失败");
+	// 关键断言：用户看到的必须是真实原因，而不是「Failed to start session runtime (error)」。
+	assert.match(result.error.debugDetails, /REMOTE_SESSION_LOCATOR_UNRESOLVED/);
+	assert.doesNotMatch(result.error.debugDetails, /Failed to start session runtime \(error\)/);
+	// 失败清理照旧：进程被停掉，不留影子 runtime。
+	assert.equal(calls.stop, 1);
+	assert.equal(state.tabs.length, 0);
+});

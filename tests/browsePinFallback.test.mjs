@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -5,7 +6,7 @@ import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 const load = createTsSandbox();
 const browsePin = load("src/renderer/src/hooks/timeline/browsePin.ts");
-const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+const controllerSource = sessionTimelineControllerSource;
 
 test("不在扩窗在途时不做高度差兜底", () => {
 	assert.equal(browsePin.resolvePinnedRowFallback({ expanding: false, previousHeight: 100, nextHeight: 300, viewportHeight: 800 }), null);

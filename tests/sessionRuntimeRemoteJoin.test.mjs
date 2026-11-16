@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 远端会话的**恢复链路**（Phase 4 P4.2 收口第 1、3 项）。
  *
@@ -304,7 +304,10 @@ test("端口不可用：稳定码 + 零 launch（不静默当本机会话，也�
 		const result = await coordinator.activateRuntime(registration.record.id);
 
 		assert.equal(result.ok, false);
-		assert.equal(result.error.code, "SESSION_COMMAND_FAILED");
+		// 启动错误卡现在会在 stop() 之前被读走（否则 messages.delete 抹掉它），所以真实稳定码
+		// 能传到这一层：它是「远端运行时不可用」，比以前的泛化 COMMAND_FAILED 更精确。
+		assert.equal(result.error.code, "SESSION_RUNTIME_UNAVAILABLE");
+		assert.match(result.error.debugDetails, new RegExp(REMOTE_RUNTIME_CODES.unavailable));
 		assert.equal(record.launches.length, 0, "拿不到端口时零启动动作");
 		assert.deepEqual(record.forbidden, [], "拒绝必须发生在任何本机准备之前");
 		// 稳定码来自链路深处（会话内错误卡，经 renderer 通道展示给用户）：是「远端运行时不可用」，
@@ -359,7 +362,7 @@ test("单一记录：新远端会话（draft）激活后同一远端会话恰好
 });
 
 test("装配守卫：main/index.ts 把项目位置解析器注入会话协调器（远端 draft 收敛的判据来源）", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	// 空白容忍的定位（不改格式就把断言语义弄丢）：构造点 → 项目存储读值 → locator → 本地分支判定。
 	assert.match(main, /new SessionRuntimeCoordinator\([\s\S]{0,400}?projectStore\.get\(projectId\)[\s\S]{0,400}?\.locator/);
 	assert.match(main, /new SessionRuntimeCoordinator\([\s\S]{0,400}?isLocalProject\(project\)/);

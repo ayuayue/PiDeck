@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 // loadTsCommonJs 在 vm 沙箱里执行模块，返回对象带沙箱侧原型，
 // deepStrictEqual 会因「引用/原型不同」失败 —— 先 JSON 归一化再比较。
@@ -50,7 +51,7 @@ test("AddProviderDialog.handleFetchModels 必须消费 suggestedBaseUrl 写回�
 });
 
 test("ConfigModal 后台自动发现也必须消费 suggestedBaseUrl（补 /v1 不挑入口）", () => {
-	const source = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const source = configModalSource;
 	// 后台发现是静默拉取（无 fetchModels 按钮路径）：成功分支里必须应用改写建议；
 	// 用 discovered\[ 作锚点把它锚定到自动发现循环，而不是 handleFetchModels。
 	const discoveryThen = source.match(/\.then\s*\(\s*\(result\)\s*=>\s*\{[\s\S]{0,400}?discovered\[providerName\][\s\S]{0,400}?\}\s*\)/);

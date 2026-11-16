@@ -10,6 +10,9 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const { findDshSessionMatches, DSH_SESSION_FIND_MAX_MATCHES } = loadTsCommonJs("src/main/dsh/dshSessionFind.ts");
 
 let nextId = 0;
@@ -103,8 +106,8 @@ test("接线：DSH 后端在 manager/IPC/装配层各有一处，避免只修一
 	assert.match(manager, /findDshSessionMatches\(messages,\s*trimmed,\s*limit\)/);
 	assert.match(manager, /collectAllDshSessionMessages\(dshSessionId\)/);
 	assert.match(manager, /readSessionCursor\(dshSessionId\)/);
-	const wiring = readFileSync("src/main/index.ts", "utf8");
+	const wiring = mainIpcSource;
 	assert.match(wiring, /searchDshSessionMessages:\s*\(\s*dshSessionId,\s*query\s*\)\s*=>\s*dshAgentManager\.searchSessionMessages/);
-	const handler = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const handler = sessionIpcSource;
 	assert.match(handler, /dshBackend\?\.searchDshSessionMessages/);
 });

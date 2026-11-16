@@ -1,6 +1,8 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * Issue #361 回归护栏：停止不住时要给用户「能走出去」的入口，但不能替他做破坏性决定。
@@ -13,9 +15,9 @@ import test from "node:test";
  * 2. 桥必须把它解析成确认型回调，不得直接在 onClick 里杀进程（误触丢一轮回答）；
  * 3. App 必须把它接到 overlays 确认框 + 现有「重启正在运行的会话」文案上，复用同一条重启路径。
  */
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const agentManager = agentManagerSource;
 const bridge = readFileSync("src/renderer/src/hooks/useSessionRuntimeBridge.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 

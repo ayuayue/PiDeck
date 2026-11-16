@@ -22,13 +22,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const notifier = readFileSync("src/renderer/src/hooks/useAnnouncementNotifier.ts", "utf8");
 const policy = readFileSync("src/renderer/src/utils/announcementNotifyPolicy.ts", "utf8");
 const atoms = readFileSync("src/renderer/src/atoms/announcement-atoms.ts", "utf8");
 const service = readFileSync("src/main/announcements/AnnouncementService.ts", "utf8");
 const ipc = readFileSync("src/main/ipc/announcementIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 const channels = readFileSync("src/shared/ipc.ts", "utf8");
 const types = readFileSync("src/shared/types/announcement.ts", "utf8");
 
@@ -88,7 +90,7 @@ test("开关在每个 tick 内重读（运行中关闭立刻生效）", () => {
 	assert.match(notifier, /const tick = \(\) => \{[\s\S]*?if \(!getDefaultStore\(\)\.get\(announcementNotificationEnabledAtom\)\) return;/);
 	assert.match(notifier, /\}, \[\]\);\n\}/);
 	// 关掉开关弹窗也要收起（避免重新开启后残留 open=true 自动弹开）
-	const appTsx = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const appTsx = rendererAppSource;
 	assert.match(appTsx, /store\.set\(announcementCenterOpenAtom, false\);/);
 });
 

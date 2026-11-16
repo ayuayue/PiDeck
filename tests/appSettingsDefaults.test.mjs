@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 // 默认值「三处同源」契约：设置的实际默认值分布在渲染层 atom / 主进程 SettingsStore /
 // 预览 mock 三条独立通路里。任何一处漏改或写成相反值，都会出现「首屏/预览窗口与真实设置不一致」
 // 的闪变（过程组显示默认 true，任何一处漏改都会让首屏闪回平铺渲染）。
@@ -9,8 +12,8 @@ import test from "node:test";
 const read = (path) => readFileSync(path, "utf8");
 const appUiAtoms = read("src/renderer/src/atoms/app-ui-atoms.ts");
 const settingsStore = read("src/main/settings/SettingsStore.ts");
-const previewApi = read("src/renderer/src/previewApi.ts");
 
+const previewApi = previewApiSource;
 test("processGroupDisplay defaults to true in all three default-value sources", () => {
 	const sources = [
 		["src/renderer/src/atoms/app-ui-atoms.ts", appUiAtoms],
@@ -32,7 +35,7 @@ test("processGroupDisplay is part of the shared Settings and TurnFlowSettings co
 
 test("processGroupDisplay is synced from settings into turnFlowSettingsAtom with its dependency", () => {
 	// App 的同步 effect 必须带上新字段本身与依赖数组项，否则设置页改动不会即时反映到时间线。
-	const app = read("src/renderer/src/App.tsx");
+	const app = rendererAppSource;
 	const syncStart = app.indexOf("setTurnFlowSettings({");
 	assert.ok(syncStart > 0, "App 中存在 turnFlowSettingsAtom 同步 effect");
 	const syncBlock = app.slice(syncStart, syncStart + 700);
@@ -49,7 +52,7 @@ test("acpEnabled is opt-in: default false, migration and patch strictly coerce t
 	const sharedSettings = read("src/shared/types/settings.ts");
 	assert.match(sharedSettings, /acpEnabled\?:\s*boolean\s*;/, "Settings 需要 acpEnabled?: boolean");
 	// 主进程装配按开关门控注册 ACP 网关：关闭时零成本的关键路径。
-	const mainIndex = read("src/main/index.ts");
+	const mainIndex = mainIpcSource;
 	assert.match(mainIndex, /settingsStore\.get\(\)\.acpEnabled\s*===\s*true\b/, "index.ts 装配必须以 acpEnabled === true 为门");
 	// 渲染层菜单门控：关闭时隐藏 ACP 入口（acpEnabledAtom）。
 	// 真正挂载的新建会话菜单是 SessionTabsBar 内部 NewSessionMenu（sidebar/同名组件已删，历史孤儿）。

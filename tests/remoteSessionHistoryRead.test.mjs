@@ -5,6 +5,9 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * 远端会话历史的有界窗口读取（`RemoteSessionHistoryReader`）。
  *
@@ -320,9 +323,9 @@ test("the window parser drops exactly the truncated line on each side", () => {
 });
 
 test("wiring: the message-page path routes ssh locators to the remote reader", () => {
-	const ipc = readFileSync(join(repoRoot, "src/main/ipc/sessionIpc.ts"), "utf8");
-	const assembly = readFileSync(join(repoRoot, "src/main/index.ts"), "utf8");
-	const manager = readFileSync(join(repoRoot, "src/main/pi/AgentManager.ts"), "utf8");
+	const ipc = sessionIpcSource;
+	const assembly = mainIpcSource;
+	const manager = agentManagerSource;
 	// 读消息页的 handler 必须先按 locator 分流，且远端口缺失时按稳定码拒绝（绝不落回本机读空页）。
 	assert.match(ipc, /sessionsCatalogReadMessagePage[\s\S]{0,4000}?locator\?\.kind === "ssh"[\s\S]{0,600}?REMOTE_SESSION_HISTORY_UNAVAILABLE/);
 	assert.match(assembly, /readRemoteSessionHistoryPage,/);

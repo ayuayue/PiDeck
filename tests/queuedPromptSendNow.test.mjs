@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { promotePrompt } from "../src/renderer/src/utils/queuedPromptQueue.ts";
 import { queuedPrompt, queuedPromptHarness } from "./helpers/queuedPromptHarness.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // ---------------------------------------------------------------------------
 // promotePrompt
@@ -113,20 +114,21 @@ test("the row stops the turn before handing the prompt to send-now", () => {
 
 test("services and App expose the send-now path", () => {
 	const services = readFileSync("src/renderer/src/components/session/SessionPaneServices.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(services, /queueSendNow: \(sessionId: string, promptId: string\) => void;/);
 	assert.match(services, /queueStopTurn\?: \(sessionId: string\) => void;/);
 	assert.match(app, /queueSendNow: queue\.sendQueuedPromptNow,/);
 	assert.match(app, /queueStopTurn: \(sessionId: string\) => void runSessionControl\(sessionId, "abort"\),/);
 });
 
-test("ACP rows reuse the steer slot for send-now instead of adding a second icon", () => {
+test("queue rows expose one send-now action instead of a duplicate steer toggle", () => {
 	const source = readFileSync("src/renderer/src/components/session/ComposerPanels.tsx", "utf8");
 	const row = source.slice(source.indexOf("function QueuedPromptRow"), source.indexOf("export function QueuedPromptPanel"));
-	// 一个按钮元素，两处渲染：pi/dsh 与「加入当前回合」并列，ACP 独占该位置。
-	assert.equal(row.match(/<Send /g)?.length, 1, "the send icon is declared once and shared by both branches");
-	assert.match(row, /\{props\.steerSupported \? \(\s*<>/, "steer-capable backends keep the behavior buttons");
-	assert.match(row, /\{sendNowButton\}[\s\S]*?<\/>\s*\) : \(\s*sendNowButton\s*\)\}/, "ACP renders send-now alone in that slot");
-	// ACP 行为固定为下一回合：不再渲染点了没变化的投递方式按钮。
-	assert.equal(row.match(/app\.queuedSteerBackendUnsupported/g), null, "the dead backend-unsupported steer hint is gone");
+	// 一个按钮元素，两种后端共用：pi/dsh 忙时插进当前回合，ACP 忙时先停回合。
+	assert.equal(row.match(/<Send /g)?.length, 1, "the send icon is declared once and shared by both backends");
+	assert.match(row, /\{sendNowButton\}\s*\{props\.steerSupported \? \(/, "send-now is the single immediate-send entry, ahead of the follow-up toggle");
+	// #544：「立即发送」与「加入当前回合」在 pi/dsh 下都落到 steer，同效的两个入口不再并列。
+	assert.doesNotMatch(row, /onChangeBehavior\(props\.sessionId, props\.prompt\.id, "steer"\)/, "the duplicate steer button is gone");
+	assert.match(row, /onChangeBehavior\(props\.sessionId, props\.prompt\.id, "followUp"\)/, "the follow-up toggle stays");
+	assert.equal(row.match(/app\.queuedSteerUnavailable/g), null, "the dead steer-unavailable hint is gone");
 });

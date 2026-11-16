@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 功能模块新增「定时任务」「智能体」（页面式工作区）：
@@ -68,7 +69,7 @@ test("命令面板保留隐藏页面的直达路径，并标注已隐藏", () =>
 	assert.match(palette, /run: \(\) => actions\.openAgentMarketPage\(\)/);
 	assert.match(palette, /run: \(\) => actions\.openFavoritesPage\(\)/);
 
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /openAutomationPage: \(\) => openAutomationPage\(\)/, "App 装配定时任务动作");
 	assert.match(app, /openAgentMarketPage: \(\) => openAgentMarketPage\(\)/, "App 装配智能体动作");
 	assert.match(app, /const openAgentMarketPage = useSetAtom\(openAgentMarketPageAtom\)/);

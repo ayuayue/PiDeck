@@ -15,7 +15,7 @@
 import { ipcMain } from "electron";
 import { opFailFromCode, opOk } from "../../shared/op";
 import type { RemoteSessionRegisterIpcResult, RemoteSessionScanIpcResult, RemoteSessionTitleIpcResult } from "../../shared/types/remoteHost";
-import { createRemoteSessionScanner, REMOTE_SESSION_CODES, type RemoteSessionCatalogPort, type RemoteSessionCommandTransportPort, type RemoteSessionProjectResolver, type RemoteSessionScannerPort } from "../sessions/RemoteSessionScanner";
+import { createRemoteSessionScanner, REMOTE_SESSION_CODES, type RemoteSessionCatalogPort, type RemoteSessionCommandTransportPort, type RemoteSessionProjectCandidate, type RemoteSessionProjectResolver, type RemoteSessionScannerPort } from "../sessions/RemoteSessionScanner";
 
 /** 与 remoteHostIpc 同域：hostId 是 UUID 形态的稳定端点身份。 */
 const HOST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -41,6 +41,8 @@ export type RemoteSessionIpcInput = {
 	catalog?: () => RemoteSessionCatalogPort | undefined;
 	/** 远端会话归属哪个本地项目：本批不解析正文，归属只能由装配给出。 */
 	projectIdForHost?: RemoteSessionProjectResolver;
+	/** 该主机上的远端项目清单：项目级扫描根与 `project:` 身份都用它（与 projectIdForHost 同源）。 */
+	projectCandidates?: (hostId: string) => readonly RemoteSessionProjectCandidate[];
 	/** 通道名，由装配从 ipcChannels 传进来。 */
 	channels: RemoteSessionIpcChannels;
 };
@@ -97,20 +99,24 @@ export function registerRemoteSessionIpc(input: RemoteSessionIpcInput): void {
 		try {
 			const port = await input.service?.();
 			if (port === undefined) return { code: "REMOTE_CONNECTION_SERVICE_UNAVAILABLE" };
-			return { scanner: createRemoteSessionScanner({ port, transport: input.transport?.(), catalog: input.catalog?.(), projectIdForHost: input.projectIdForHost }) };
+			return { scanner: createRemoteSessionScanner({ port, transport: input.transport?.(), catalog: input.catalog?.(), projectIdForHost: input.projectIdForHost, projectCandidates: input.projectCandidates }) };
 		} catch (error) {
 			return { code: codeOf(error, "REMOTE_CONNECTION_SERVICE_UNAVAILABLE") };
 		}
 	};
 
-	ipcMain.handle(scanChannel, async (_event, hostIdValue: unknown): Promise<RemoteSessionScanIpcResult> => {
+	ipcMain.handle(scanChannel, async (_event, hostIdValue: unknown, projectIdValue: unknown): Promise<RemoteSessionScanIpcResult> => {
 		if (!input.enabled) return opFailFromCode("REMOTE_FEATURE_DISABLED");
 		const hostId = readHostId(hostIdValue);
 		if (hostId === undefined) return opFailFromCode(REMOTE_SESSION_CODES.hostIdInvalid);
+		// 项目级发现是产品口径：侧栏区块挂在某个项目下，绝不能把同主机其他项目的会话列进来。
+		// 缺省（诊断/验收探针）保留旧的主机级扫描；但错型入参不能静默当成「主机级」。
+		if (projectIdValue !== undefined && typeof projectIdValue !== "string") return opFailFromCode(REMOTE_SESSION_CODES.projectUnresolved);
+		const projectId = typeof projectIdValue === "string" && projectIdValue.length > 0 ? projectIdValue : undefined;
 		const resolved = await resolveScanner();
 		if ("code" in resolved) return opFailFromCode(resolved.code);
 		try {
-			const result = await resolved.scanner.scan(hostId);
+			const result = await resolved.scanner.scan(hostId, projectId);
 			if (!result.ok) return opFailFromCode(result.code);
 			// 墓碑只在**这次列举**生效：已「移除记录」的会话不再出现在「可导入」列表里。
 			// 远端一个字节都不改（也不会额外发任何帧：扫到的条目本身就是列表的全部输入）。

@@ -20,7 +20,8 @@ import { createRemoteSessionListController, readRegisterResponse, readScanRespon
 export const REMOTE_SESSION_UNWIRED_CODE = "REMOTE_SESSION_UNWIRED";
 
 export type RemoteSessionPort = {
-	scan: (hostId: string) => Promise<unknown>;
+	/** 项目级发现：同一主机上的两个项目不得看到彼此的会话（第二参数是本地项目 id）。 */
+	scan: (hostId: string, projectId: string) => Promise<unknown>;
 	register: (hostId: string, remoteSessionId: string) => Promise<unknown>;
 };
 
@@ -44,7 +45,7 @@ export function createRemoteSessionPort(hostApi: unknown): RemoteSessionPort {
 		const register: unknown = Reflect.get(sessions, "register");
 		if (typeof scan !== "function" || typeof register !== "function") return UNWIRED_PORT;
 		return {
-			scan: (hostId) => Promise.resolve(scan.call(sessions, hostId)),
+			scan: (hostId, projectId) => Promise.resolve(scan.call(sessions, hostId, projectId)),
 			register: (hostId, remoteSessionId) => Promise.resolve(register.call(sessions, hostId, remoteSessionId)),
 		};
 	} catch {
@@ -66,10 +67,20 @@ export type RemoteSessionsHandle = {
 	importSession: (entry: RemoteSessionEntryView) => Promise<void>;
 };
 
+/**
+ * 快照键：扫描是**项目级**的，同一主机上的两个项目各有一份列表结果，不能按 hostId 共用（否则项目 B
+ * 会看到项目 A 的会话）。反馈仍按主机记（它只描述「刚刚那次点击」）。
+ */
+function scanSnapshotKey(hostId: string, projectId: string): string {
+	return hostId + "::" + projectId;
+}
+
 export function useRemoteSessions(
 	hostApi: unknown,
 	options: {
 		hostId: string;
+		/** 该区块所属的本地项目：扫描只列这个项目的远端会话。 */
+		projectId: string;
 		/** 登记成功后的宿主动作：刷新本地会话列表并选中新会话（本 hook 不创建/不打开任何会话）。 */
 		onImported: (result: RemoteSessionImportResult) => void | Promise<void>;
 	},
@@ -85,19 +96,22 @@ export function useRemoteSessions(
 	const portRef = useRef<RemoteSessionPort>(createRemoteSessionPort(hostApi));
 	portRef.current = createRemoteSessionPort(hostApi);
 	const hostIdRef = useRef<string | null>(null);
+	const scopeKeyRef = useRef<string | null>(null);
 
-	// 切主机：作废在途扫描，并恢复该主机自己的缓存快照（没有就回 idle）。
+	// 切主机/切项目：作废在途扫描，并恢复该主机+项目自己的缓存快照（没有就回 idle）。
 	useEffect(() => {
-		if (hostIdRef.current === options.hostId) return;
-		const previousHostId = hostIdRef.current;
+		const key = scanSnapshotKey(options.hostId, options.projectId);
+		if (scopeKeyRef.current === key) return;
+		const previousKey = scopeKeyRef.current;
+		scopeKeyRef.current = key;
 		hostIdRef.current = options.hostId;
-		controller.restore(snapshotsRef.current[options.hostId]);
-		// 离开的主机若停在 scanning（在途请求已随切主机作废），atom 里的快照必须一并归一到 idle：
+		controller.restore(snapshotsRef.current[key]);
+		// 离开的范围若停在 scanning（在途请求已随切换作废），atom 里的快照必须一并归一到 idle：
 		// 否则切回来会看到一个永远转圈、却没有任何在途请求的列表。
-		if (previousHostId !== null && snapshotsRef.current[previousHostId]?.phase === "scanning") {
-			setSnapshots((previous) => ({ ...previous, [previousHostId]: idleScanStateFor(previousHostId) }));
+		if (previousKey !== null && snapshotsRef.current[previousKey]?.phase === "scanning") {
+			setSnapshots((previous) => ({ ...previous, [previousKey]: idleScanStateFor(options.hostId) }));
 		}
-	}, [options.hostId, controller, setSnapshots]);
+	}, [options.hostId, options.projectId, controller, setSnapshots]);
 
 	// 卸载：只作废在途结果，不再 setState（快照留在 atom 里）。
 	useEffect(
@@ -109,25 +123,29 @@ export function useRemoteSessions(
 
 	const scan = useCallback(async () => {
 		const hostId = optionsRef.current.hostId;
+		const projectId = optionsRef.current.projectId;
+		const key = scanSnapshotKey(hostId, projectId);
 		const generation = controller.start(hostId);
-		setSnapshots((previous) => ({ ...previous, [hostId]: controller.getState() }));
+		setSnapshots((previous) => ({ ...previous, [key]: controller.getState() }));
 		let outcome: RemoteSessionScanOutcome;
 		try {
-			outcome = readScanResponse(await portRef.current.scan(hostId));
+			outcome = readScanResponse(await portRef.current.scan(hostId, projectId));
 		} catch {
 			// IPC reject：连失败形状都没有，只能报「请求失败」，不编造远端码。
 			outcome = { kind: "rejected" };
 		}
 		// 代次已作废（切主机、重扫）时整体丢弃：迟到的结果绝不能覆盖新状态。
 		if (!controller.settle(generation, outcome)) return;
-		setSnapshots((previous) => ({ ...previous, [hostId]: controller.getState() }));
+		setSnapshots((previous) => ({ ...previous, [key]: controller.getState() }));
 	}, [controller, setSnapshots]);
 
 	const importSession = useCallback(
 		async (entry: RemoteSessionEntryView) => {
 			const hostId = optionsRef.current.hostId;
+			// 反馈也按「主机 + 项目」记：同主机两个项目的区块各自显示自己那次点击的结果。
+			const scope = scanSnapshotKey(hostId, optionsRef.current.projectId);
 			setImportingRemoteSessionId(entry.remoteSessionId);
-			setFeedbackByHost((previous) => ({ ...previous, [hostId]: undefined }));
+			setFeedbackByHost((previous) => ({ ...previous, [scope]: undefined }));
 			try {
 				let raw: unknown;
 				try {
@@ -137,16 +155,16 @@ export function useRemoteSessions(
 				}
 				const outcome = readRegisterResponse(raw, entry.remoteSessionId);
 				if (outcome.kind !== "ok") {
-					setFeedbackByHost((previous) => ({ ...previous, [hostId]: { remoteSessionId: entry.remoteSessionId, kind: "failed", code: outcome.kind === "failed" ? outcome.code : null } }));
+					setFeedbackByHost((previous) => ({ ...previous, [scope]: { remoteSessionId: entry.remoteSessionId, kind: "failed", code: outcome.kind === "failed" ? outcome.code : null } }));
 					return;
 				}
 				// 登记写盘与清单刷新是两个阶段。刷新尚未完成时，不能提前宣称「已选中」。
 				try {
 					await optionsRef.current.onImported({ sessionId: outcome.sessionId, created: outcome.created, remoteSessionId: outcome.remoteSessionId });
-					setFeedbackByHost((previous) => ({ ...previous, [hostId]: { remoteSessionId: entry.remoteSessionId, kind: "imported", sessionId: outcome.sessionId, created: outcome.created } }));
+					setFeedbackByHost((previous) => ({ ...previous, [scope]: { remoteSessionId: entry.remoteSessionId, kind: "imported", sessionId: outcome.sessionId, created: outcome.created } }));
 				} catch {
 					// 记录已保存，不把刷新失败误报为登记失败，也不透传异常中的本机路径。
-					setFeedbackByHost((previous) => ({ ...previous, [hostId]: { remoteSessionId: entry.remoteSessionId, kind: "refresh-failed", sessionId: outcome.sessionId, created: outcome.created } }));
+					setFeedbackByHost((previous) => ({ ...previous, [scope]: { remoteSessionId: entry.remoteSessionId, kind: "refresh-failed", sessionId: outcome.sessionId, created: outcome.created } }));
 				}
 			} finally {
 				setImportingRemoteSessionId(null);
@@ -155,5 +173,6 @@ export function useRemoteSessions(
 		[setFeedbackByHost],
 	);
 
-	return { state: snapshots[options.hostId] ?? idleScanStateFor(options.hostId), feedback: feedbackByHost[options.hostId] ?? null, importingRemoteSessionId, scan, importSession };
+	const scopeKey = scanSnapshotKey(options.hostId, options.projectId);
+	return { state: snapshots[scopeKey] ?? idleScanStateFor(options.hostId), feedback: feedbackByHost[scopeKey] ?? null, importingRemoteSessionId, scan, importSession };
 }

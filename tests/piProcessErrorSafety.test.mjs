@@ -1,9 +1,10 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
+import { piLocatorSource } from "./helpers/piLocatorSources.mjs";
 
 function createChildProcess() {
 	const child = new EventEmitter();
@@ -102,7 +103,7 @@ test("PiProcess forwards spawn error to business listeners after start returns",
 });
 
 test("AgentManager attaches lifecycle listeners before process.start", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	assert.match(source, /attachPiProcessLifecycle\(/);
 	assert.match(source, /buildStartupFailureMessage\(/);
 	// spawnAndGetState：先 attach，再 await process.start（create/reattach 共用握手）
@@ -115,7 +116,7 @@ test("AgentManager attaches lifecycle listeners before process.start", () => {
 });
 
 test("macOS search dirs include Homebrew prefixes for Dock-launched PATH gaps", () => {
-	const source = readFileSync("src/main/pi/PiLocator.ts", "utf8");
+	const source = piLocatorSource;
 	assert.match(source, /\/opt\/homebrew\/bin/);
 	assert.match(source, /\/usr\/local\/bin/);
 	assert.match(source, /platform === "darwin"/);

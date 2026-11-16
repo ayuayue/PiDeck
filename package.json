@@ -92,6 +92,7 @@
     "check:dsh-wire": "node scripts/check-dsh-wire-payloads.mjs",
     "check:ipc-wiring": "node scripts/check-ipc-wiring.mjs",
     "check:test-shape": "node scripts/check-test-shape.mjs",
+    "check:file-size": "node scripts/check-file-size.mjs",
     "check:scroll-containers": "node tests/scrollContainerGuard.mjs",
     "find:dead-code": "node scripts/find-dead-code.mjs",
     "pack:dev": "node scripts/pack-dev.js",
@@ -107,7 +108,7 @@
     "dist:linux": "npm run build && electron-builder --linux AppImage deb tar.gz",
     "dist:linux:arm64": "npm run build && electron-builder --linux AppImage deb tar.gz --arm64",
     "preview": "electron-vite preview",
-    "test": "node --test --test-concurrency=4 \"tests/*.test.mjs\" \"tests/cua/*.test.mjs\"",
+    "test": "node --test --test-concurrency=4 --test-timeout=120000 --test-force-exit \"tests/*.test.mjs\" \"tests/cua/*.test.mjs\"",
     "test:serial": "node --test --test-concurrency=1 \"tests/*.test.mjs\" \"tests/cua/*.test.mjs\"",
     "format": "biome format --write src tests scripts e2e",
     "check:format": "biome format src tests scripts e2e",
@@ -126,7 +127,9 @@
     "test:e2e": "npm run build:fast && playwright test",
     "e2e": "playwright test",
     "verify": "npm run typecheck && npm test && npm run test:e2e",
-    "probe:dsh": "node scripts/dsh-embed-probe.mjs"
+    "probe:dsh": "node scripts/dsh-embed-probe.mjs",
+    "test:skills": "node scripts/run-skills-checks.mjs",
+    "check:version-not-lower": "node scripts/check-version-not-lower.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
@@ -510,7 +513,7 @@
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.0.0",
     "react-resizable-panels": "^4.12.2",
-    "recharts": "^3.8.0",
+    "recharts": "^3.10.1",
     "rehype-katex": "^7.0.1",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",

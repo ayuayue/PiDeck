@@ -21,9 +21,13 @@
  *    「工具已完成、下一段正文还没来」时是合法中间态，用它收口会把回合切断。
  *
  * 载荷约定（见 AcpAgentManager / AcpUpdatePipeline 发射点）：
- *   - agents:message：{ agentId, deckSessionId, messages: ChatMessage[], totalLength }
+ *   - agents:message：{ agentId, deckSessionId, messages: ChatMessage[], totalLength, replay?: true }
  *     工具卡是 role:"tool" 且带 meta.{toolCallId,toolName,status,args,fullText,detailText}；
  *     assistant 段 stopReason: "pending"=进行中 / "toolUse"=中间回复 / 其余=回合终态。
+ *     replay=true 表示 session/load 重放/投影重建的分块投递（flushMessagesChunked）：
+ *     整份窗口都是已结算历史，只更新基线、绝不当增量上屏（否则重放历史会同时以
+ *     「历史条目」和「新一轮回复」上屏两次，即 Web 端 ACP 文本重复渲染）；
+ *     turnActive 只在 replay 块上出现，true = 重放来自仍在跑的回合（不得收口进行中的流）。
  *   - agents:runtime-state：{ agentId, state: { isStreaming, isTurnActive, ... } }
  *
  * 快照首帧即基线：连接建立前**已经结算**的内容一律不重发（已由历史接口覆盖）；
@@ -85,9 +89,13 @@ export class AcpChannelToPiEvents {
 
 	/** 投影快照 → 增量正文/思考/工具卡事件。 */
 	private pushSnapshot(raw: unknown): PiEvent[] {
-		const messages = isRecord(raw) && Array.isArray(raw.messages) ? raw.messages : undefined;
+		const payload = isRecord(raw) ? raw : undefined;
+		const messages = payload && Array.isArray(payload.messages) ? payload.messages : undefined;
 		if (!messages) return [];
 		const lastUser = lastUserMessageIndex(messages);
+		// 激活重放（session/load 重建投影）：内容全部是历史，客户端已由历史接口拿到。
+		// 重建后的消息 id 全变，若照增量翻译会把整段历史当成新一轮回复再画一遍。
+		if (payload?.replay === true) return this.absorbReplay(messages, lastUser, payload.turnActive === true);
 		if (!this.baselineDone) {
 			this.baselineDone = true;
 			// 基线只锁「已结算」的部分；不在本轮窗口里的项照样会走翻译，
@@ -120,6 +128,22 @@ export class AcpChannelToPiEvents {
 		if (!this.runOpen) return [];
 		this.runOpen = false;
 		// 工具-only 回合没有终态段：这里统一关块，再走适配器的 agent_settled 收口。
+		for (const cursor of this.segments.values()) cursor.closed = true;
+		return [CLOSE_BLOCKS, { type: "agent_settled" }];
+	}
+
+	/**
+	 * 重放块：只把内容吸收进基线（已结算=已发过），不产任何增量。
+	 * 若此刻还有一条未收口的流（运行时重建会中断进行中的回合），先关块收口，
+	 * 让前端切回历史视图，而不是把重建后的历史追加到旧气泡上；重放来自仍在跑的
+	 * 回合时（握手期间就发了 prompt）不得收口，那一条流是活的。
+	 */
+	private absorbReplay(messages: readonly unknown[], lastUser: number, liveTurn: boolean): PiEvent[] {
+		this.baselineDone = true;
+		this.seedBaseline(messages, lastUser);
+		this.pruneCursors(messages, lastUser + 1);
+		if (liveTurn || !this.runOpen) return [];
+		this.runOpen = false;
 		for (const cursor of this.segments.values()) cursor.closed = true;
 		return [CLOSE_BLOCKS, { type: "agent_settled" }];
 	}

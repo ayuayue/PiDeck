@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { gitPanelSource } from "./helpers/gitPanelSources.mjs";
 
 const ROOT = process.cwd();
 const load = (relativePath) => loadTsCommonJs(`${ROOT}/${relativePath}`);
@@ -149,7 +150,7 @@ test("collectUnstagedResources：Changes 组只取工作区侧改动，已暂存
 });
 
 test("接线契约：变更区走 ChangesGroupsStack 单一虚拟化，视图模式持久化且默认平铺", () => {
-	const panel = readSource("src/renderer/src/components/app/GitPanel.tsx");
+	const panel = gitPanelSource;
 	const tree = readSource("src/renderer/src/components/app/git/GitResourceTree.tsx");
 
 	assert.equal((panel.match(/viewMode=\{changesViewMode\}/g) ?? []).length, 1, "变更区只挂一个 ChangesGroupsStack，视图模式集中透传一处");

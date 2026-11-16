@@ -11,6 +11,7 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 function transpile(filePath) {
 	return ts.transpileModule(readFileSync(filePath, "utf8"), {
@@ -116,7 +117,7 @@ test("nextStarReminderCheckDelayMs：最多睡 5 分钟就复查一次，且不�
 
 // ── 行为侧（hook + 装配）：源码断言，模式与 agentLoadNotice / archMismatchNotice 契约测试一致 ──
 test("useStarReminder 挂载在 App，且判定走纯函数（不把条件散落在 hook 里）", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const hook = readFileSync("src/renderer/src/hooks/useStarReminder.ts", "utf8");
 	assert.match(app, /useStarReminder\(\)/);
 	assert.match(hook, /shouldPromptStarReminder\(/);

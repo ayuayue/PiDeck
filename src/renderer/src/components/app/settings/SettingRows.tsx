@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import { ChevronsUpDown, X } from "lucide-react";
+import type { ChatLineHeightMode } from "../../../../../shared/chatLineHeight";
 import { cn } from "../../../lib/utils";
 import { t } from "../../../i18n";
 import { Button } from "../../ui-shadcn/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { Switch } from "../../ui-shadcn/switch";
 import { Textarea } from "../../ui-shadcn/textarea";
 
@@ -167,6 +169,42 @@ export function SettingTextarea(props: {
 			stacked
 		>
 			<Textarea value={props.value} rows={8} onChange={(event) => props.onChange(event.target.value)} className="min-h-24 w-full resize-y border-border-subtle bg-bg-input px-3 py-2 font-mono text-sm leading-relaxed text-foreground" />
+		</SettingRow>
+	);
+}
+
+/**
+ * 会话正文行距（#547）：全局一档，只作用于消息正文；代码块/表格在 CSS 里另有固定倍率。
+ * 收在通用设置行模块里，AppearanceTab 只保留一行接线（该文件已到行数红线）。
+ */
+export function ChatLineHeightRow(props: { value: ChatLineHeightMode; dirty?: boolean; onChange: (value: ChatLineHeightMode) => void }) {
+	const options: Array<{ value: ChatLineHeightMode; label: string }> = [
+		{ value: "default", label: t("settings.chatLineHeightDefault") },
+		{ value: "relaxed", label: t("settings.chatLineHeightRelaxed") },
+		{ value: "loose", label: t("settings.chatLineHeightLoose") },
+	];
+	return (
+		<SettingRow
+			title={
+				<>
+					<span>{t("settings.chatLineHeight")}</span>
+					<DirtyMarker dirty={Boolean(props.dirty)} label={t("settings.chatLineHeight")} />
+				</>
+			}
+			alignEnd={false}
+		>
+			<Select value={props.value} onValueChange={(value) => props.onChange(value as ChatLineHeightMode)}>
+				<SelectTrigger className="w-full">
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{options.map((option) => (
+						<SelectItem key={option.value} value={option.value}>
+							{option.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
 		</SettingRow>
 	);
 }

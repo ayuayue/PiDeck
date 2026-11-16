@@ -1,12 +1,12 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
-const agentManagerSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-const preloadSource = readFileSync("src/preload/index.ts", "utf8");
 
 test("emit 收敛为直发白名单（仅 agentsRpcLog）", () => {
 	assert.match(agentManagerSource, /export const DIRECT_EMIT_CHANNELS: ReadonlySet<string> = new Set\(\[ipcChannels\.agentsRpcLog\]\);/);

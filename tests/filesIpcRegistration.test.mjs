@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 const filesIpc = readFileSync("src/main/ipc/filesIpc.ts", "utf8");
 const filesSystemIpc = readFileSync("src/main/ipc/filesSystemIpc.ts", "utf8");
 const localFileBackend = readFileSync("src/main/files/LocalProjectFileBackend.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 const projectFileService = readFileSync("src/renderer/src/services/projectFileService.ts", "utf8");
 
 /**

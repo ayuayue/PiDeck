@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -58,7 +59,7 @@ test("活 runtime 的 message_start 照常建流（护栏：不误伤正常路�
 });
 
 test("源码契约：六个流式分支的闸门都必须同时拒绝无 runtime", () => {
-	const src = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const src = agentManagerSource;
 	const guarded = src.match(/if \(!runtime \|\| this\.isAgentStreamSealed\(agentId\)\)/g) ?? [];
 	assert.equal(guarded.length, 6, "message_start/update/end + tool_execution_start/end/update");
 	// 最小改动版：仅 :5670（handleAssistantMessageEvent 内、message_update 分支被拦后

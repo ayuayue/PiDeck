@@ -77,11 +77,11 @@ test("前台子代理 started-only 运行期间可见、completed 后同条目�
 	await expect(strip.getByText("运行中", { exact: true })).toBeVisible();
 
 	// ── 终态：同一条目迁到完成 ──
-	// 忙碌时发送的 prompt 先落本地「待发送」队列（steer 语义等本轮工具结束才投递），
-	// 点行内「加入当前回合」立即投递；mock 收到后重放 completed 帧。
+	// 忙碌时发送的 prompt 先落本地「待发送」队列；点行内「立即发送」立刻插入当前回合
+	// （pi/dsh 忙时就是 steer，#544 合并后不再有并列的「加入当前回合」），mock 收到后重放 completed 帧。
 	await fillDraft(window, composer, "SUBAGENTS_FG_DONE");
 	await submitDraft(window, composer);
-	await window.getByRole("button", { name: "加入当前回合", exact: true }).click();
+	await window.getByRole("button", { name: "立即发送", exact: true }).click();
 	await expect(strip.getByText("完成", { exact: true })).toBeVisible({ timeout: 15_000 });
 	// toolUses=5 来自终态载荷（运行期间快照为 0），证明行数据确实被终态帧刷新
 	await expect(strip).toContainText("工具调用 5");

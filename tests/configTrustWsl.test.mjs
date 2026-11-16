@@ -158,6 +158,12 @@ function loadConfigManager() {
 			if (id === "./sub2apiPanelSession") {
 				return { fetchSub2ApiPanelBalanceWithRefresh: async () => ({ ok: false, reason: "failed", tokens: { accessToken: "" } }) };
 			}
+			// 用量查询/探测域（providerUsageQueries）：ConfigManager 只把用量与探测入口转发给它，
+			// trust 测试不调用这些方法（故不会被实例化）；真实模块内部是无扩展名相对导入，
+			// 走下面的兜底 require 会被 Node 的 ESM 解析判 MODULE_NOT_FOUND。
+			if (id === "./providerUsageQueries") {
+				return { ProviderUsageQueries: class {} };
+			}
 			// 兜底：相对 specifier 指向未显式 stub 的 .ts 源文件时，按 ConfigManager 所在目录
 			// （src/main/config）解析成绝对路径再 require（node 24 类型剥离只认带扩展名的路径；
 			// ConfigManager 每加一个 import 都会走到这里）。

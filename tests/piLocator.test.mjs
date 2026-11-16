@@ -317,6 +317,22 @@ test("getSearchDirs scans fnm node-versions and scoop dirs on Windows", () => {
 	}
 });
 
+test("getSearchDirs honors FNM_DIR and the scoop LTS channel on Windows (#551)", () => {
+	const root = join(tmpdir(), `pi-desktop-locator-fnm-win-${process.pid}-${Date.now()}`);
+	// scoop 装的 fnm 把 FNM_DIR 指到 scoop\apps\fnm\current，%LOCALAPPDATA%\fnm 并不存在。
+	const fnmDir = join(root, "scoop", "apps", "fnm", "current");
+	const fnmInstall = join(fnmDir, "node-versions", "v24.22.2", "installation");
+	mkdirSync(fnmInstall, { recursive: true });
+	try {
+		const { PiLocator } = loadPiLocatorModule("win32", { FNM_DIR: fnmDir, LOCALAPPDATA: join(root, "Local"), APPDATA: join(root, "Roaming") }, root);
+		const dirs = new PiLocator().getSearchDirs();
+		assert.ok(dirs.includes(fnmInstall), "FNM_DIR 覆盖的 fnm node-versions 要被扫描");
+		assert.ok(dirs.includes(join(root, "scoop", "apps", "nodejs-lts", "current")), "scoop 的 LTS 通道目录要被扫描");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("getSearchDirs uses ~/.local/share/mise on darwin and linux", () => {
 	for (const platform of ["darwin", "linux"]) {
 		const root = join(tmpdir(), `pi-desktop-locator-mise-${platform}-${process.pid}-${Date.now()}`);

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /** 只模拟草稿存储和抽屉命令，不启动 Electron、不写真实用户草稿。 */
 function createHarness(initialPanel = null, initialDrafts) {
@@ -169,7 +170,7 @@ test("scratch pad keyboard shortcut stays global, Escape respects consumed event
 });
 
 test("scratch pad renders only inside DrawerSurface and is included in drawer restoration", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const surface = readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8");
 	const panels = readFileSync("src/renderer/src/hooks/useWorkspacePanels.ts", "utf8");
 	// 作用域由 App 从设置 + 当前项目计算后注入；workspace 继续提供抽屉可见性控制。

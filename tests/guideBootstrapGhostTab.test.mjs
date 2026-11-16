@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import { sessionComposerControllerSource } from "./helpers/sessionComposerControllerSources.mjs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { migrateAndPruneSessionTabIds } = loadTsCommonJs("src/renderer/src/hooks/useSessionWorkspaceChrome.ts", {
@@ -97,7 +98,7 @@ const between = (source, startMarker, endMarker) => {
 };
 
 test("统一发送入口：虚拟 id 不调 onPromoteSession", () => {
-	const controller = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+	const controller = sessionComposerControllerSource;
 	const promoteAndSend = between(controller, "const promoteAndSend = useCallback(", "const selectSuggestion = useCallback(");
 	assert.match(promoteAndSend, /if\s*\(\s*!isRendererVirtualSessionId\(sessionId\)\s*\)\s*options\.onPromoteSession\?\.\(sessionId\);/, "引导页首发会把这个虚拟 id 尾插成幽灵标签，必须先过滤");
 	assert.doesNotMatch(promoteAndSend, /^\s*options\.onPromoteSession\?\.\(sessionId\);$/m, "不得再有无条件晋升（漏一处就复活幽灵标签）");

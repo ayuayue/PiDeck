@@ -1,3 +1,6 @@
+import { appUtilsSource } from "./helpers/appUtilsSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -7,17 +10,17 @@ import test from "node:test";
  * 对齐 textStreamChannel.test.mjs 风格。
  */
 
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const agentManager = agentManagerSource;
 // 双通道状态机（thinking/正文缓冲、节流发射、增量基准、思考段生命周期）已随
 // Live 流域迁入 LiveStreamChannel（AgentManager 拆分 Wave 3）；装配/终态写入仍在 AgentManager。
 const liveStream = readFileSync("src/main/pi/liveStreamChannel.ts", "utf8");
-const atoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+const atoms = sessionAtomsSource;
 const agentTypes = readFileSync("src/shared/types/agent.ts", "utf8");
 const buildTurn = readFileSync("src/renderer/src/components/session/timeline/buildTurnDisplay.ts", "utf8");
 const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
 const thinkingStep = readFileSync("src/renderer/src/components/session/turn/ThinkingStep.tsx", "utf8");
 const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-const appUtils = readFileSync("src/renderer/src/components/app/AppUtils.ts", "utf8");
+const appUtils = appUtilsSource;
 
 test("ThinkingUpdate payload carries stable id + lifecycle fields", () => {
 	assert.match(agentTypes, /export type ThinkingUpdate = \{/);

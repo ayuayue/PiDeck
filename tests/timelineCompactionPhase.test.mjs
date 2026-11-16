@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -50,7 +51,7 @@ test("timeline uses turn activity for folding while retaining the compression st
 	const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
 	const cards = readFileSync("src/renderer/src/components/session/TimelineEventCards.tsx", "utf8");
 	const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 
 	assert.match(timeline, /deriveTimelineRunActivity/);
 	// 2026-08 perf：接线改身份判定，语义保留——isTurnRunning 参与 isRunStreaming

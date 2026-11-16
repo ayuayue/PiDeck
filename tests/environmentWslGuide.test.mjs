@@ -14,10 +14,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const panel = readFileSync("src/renderer/src/components/overlays/EnvironmentSetupPanel.tsx", "utf8");
 const overlay = readFileSync("src/renderer/src/components/overlays/OverlayComponents.tsx", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const zhCN = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const enUS = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 const zhTW = readFileSync("src/renderer/src/i18n/rendererCopy.zh-TW.ts", "utf8");

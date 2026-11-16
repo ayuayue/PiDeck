@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { formatPercent } from "../src/renderer/src/components/session/TimelineFormat.ts";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const meterPath = "src/renderer/src/components/session/SessionContextMeter.tsx";
 const meterSource = () => readFileSync(meterPath, "utf8");
@@ -396,7 +397,7 @@ test("usage probe dialog separates title from enable row", () => {
 test("usage probe dialog lives outside all TabsContent (tab switch must not unmount it)", () => {
 	// 回归契约：弹窗曾放在 config:models TabsContent 内，Radix Tabs 默认卸载非激活内容，
 	// 导致切到认证 tab / DSH 页时弹窗被卸载、点击柱状图按钮「没反应」。
-	const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const configModal = configModalSource;
 	const tabsClose = configModal.lastIndexOf("</Tabs>");
 	const dialog = configModal.indexOf("<UsageProbeConfigDialog");
 	assert.ok(tabsClose > 0 && dialog > tabsClose, "用量查询弹窗必须挂在最外层 Tabs（Pi/DSH 分页）之外");

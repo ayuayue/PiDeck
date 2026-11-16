@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * E2E 窗口「不打扰」摆放（e2eWindowMode.ts）：
  * 默认把 Playwright 启动的应用窗口摆到屏幕外，避免每个用例的新窗口弹到用户桌面最前、
@@ -75,7 +75,7 @@ test("E2E rendering switches keep off-screen windows painting (Playwright clicks
 });
 
 test("wiring: main process applies the plan to the main window and disables throttling in E2E", () => {
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	assert.match(main, /resolveE2EWindowPlacement\(\s*isE2E\s*,\s*process\.env\.PIDECK_E2E_WINDOW_MODE\s*\)/);
 	assert.match(main, /applyE2EWindowPlacement\(createdWindow, e2eWindowPlacement\)/);
 	assert.match(main, /for \(const switchName of E2E_RENDERING_SWITCHES\) app\.commandLine\.appendSwitch\(switchName\);/);

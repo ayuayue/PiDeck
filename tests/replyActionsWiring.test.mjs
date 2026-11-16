@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 // 回复快捷操作「配置化」的守卫测试：规则只来自资源文件与用户文件，
 // 渲染层组件不允许再内置任何规则常量；打包清单与主进程装配必须齐全。
 
@@ -44,7 +46,7 @@ test("组件不内置规则常量（配置化后写死一处就漏一处）", ()
 });
 
 test("主进程装配：规则文件来自 userData、出厂规则来自随包 resources（两个磁盘根同源）", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	assert.match(source, /new ReplyActionRuleStore\(\{/);
 	assert.match(source, /REPLY_ACTIONS_FILE_NAME/);
 	assert.match(source, /REPLY_ACTIONS_DEFAULT_RESOURCE_NAME/);
@@ -55,7 +57,7 @@ test("IPC 三通道与 preload 暴露成对（漏一处运行时就是 undefined
 	for (const channel of ["replyActionsGet", "replyActionsSave", "replyActionsOpenFile"]) {
 		assert.match(ipcSource, new RegExp(`${channel}\\s*:`), `shared/ipc.ts 缺少 ${channel}`);
 	}
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	assert.match(preload, /replyActions:\s*\{[\s\S]{0,400}?invoke\(ipcChannels\.replyActionsGet\)/, "preload 必须暴露 replyActions.get");
 	assert.match(preload, /replyActions:\s*\{[\s\S]{0,600}?invoke\(ipcChannels\.replyActionsSave/, "preload 必须暴露 replyActions.save");
 	assert.match(preload, /replyActions:\s*\{[\s\S]{0,800}?invoke\(ipcChannels\.replyActionsOpenFile/, "preload 必须暴露 replyActions.openFile");

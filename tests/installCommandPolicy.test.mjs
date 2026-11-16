@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 
 const { validateInstallCommand } = loadTsCommonJs("src/main/pi/installCommandPolicy.ts");
 
@@ -58,7 +59,7 @@ test("拒绝：动词后再次出现 global、反斜杠路径、超长命令、�
 });
 
 test("源码契约：systemIpc 处理器先校验再执行，execFile 只喂 normalized", () => {
-	const src = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const src = systemIpcSource;
 	assert.match(src, /import \{ validateInstallCommand \} from "\.\.\/pi\/installCommandPolicy"/);
 	const handler = src.match(/ipcMain\.handle\(ipcChannels\.piExecInstall,[\s\S]*?\n\t\}\);/)?.[0] ?? "";
 	assert.ok(handler, "piExecInstall 处理器存在");

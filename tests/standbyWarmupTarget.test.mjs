@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { pickStandbyWarmupProject } = loadTsCommonJs("src/main/pi/standbyWarmupTarget.ts");
 
@@ -73,7 +74,7 @@ test("非法窗口（NaN/负数）不放宽判定：等价于不预热", () => {
 test("startup wiring: pi standby warmup runs after WSL config sync and drives ensureStandbyAgent", () => {
 	// 启动期预热必须在 syncWslConfig().then 内：WSL 项目的 spawn 参数依赖 agentManager 的
 	// WSL 快照，早于它预热会用错环境；同时它不能挡在 createWindow 之前（装配只在 then 内调用）。
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	assert.match(main, /void syncWslConfig\(\)[\s\S]{0,400}warmStandbyAgentAtStartup\(\)/);
 	assert.match(main, /function warmStandbyAgentAtStartup\(\): void \{[\s\S]{0,1200}pickStandbyWarmupProject\(/);
 	assert.match(main, /function warmStandbyAgentAtStartup\(\): void \{[\s\S]{0,1600}agentManager\.ensureStandbyAgent\(target\)/);

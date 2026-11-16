@@ -1,6 +1,10 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
@@ -11,7 +15,7 @@ const read = (path) => readFileSync(path, "utf8");
  * - IPC 三处（通道常量、main handler、preload）同步，否则运行时 undefined。
  */
 test("AgentManager.reloadResources validates the extension command and uses raw RPC prompt", () => {
-	const source = read("src/main/pi/AgentManager.ts");
+	const source = agentManagerSource;
 	assert.match(source, /async\s+reloadResources\s*\(\s*agentId\s*:\s*string\s*\)/);
 	assert.match(source, /pi-deck-runtime\.ts/);
 	assert.match(source, /type:\s*"get_state"/);
@@ -25,9 +29,9 @@ test("AgentManager.reloadResources validates the extension command and uses raw 
 
 test("reloadResources IPC is wired through shared channel, main handler, and preload", () => {
 	const channel = read("src/shared/ipc.ts");
-	const main = read("src/main/ipc/sessionIpc.ts");
-	const preload = read("src/preload/index.ts");
-	const coordinator = read("src/main/sessions/SessionRuntimeCoordinator.ts");
+	const main = sessionIpcSource;
+	const preload = preloadSource;
+	const coordinator = readSessionRuntimeCoordinatorSources();
 	assert.match(channel, /sessionsRuntimeReloadResources:\s*"sessions:runtime-reload-resources"/);
 	assert.match(main, /ipcChannels\.sessionsRuntimeReloadResources[\s\S]*?sessionRuntimeCoordinator\.reloadResources\s*\(\s*target\s*\)/);
 	assert.match(preload, /reloadResources:\s*\(target:\s*SessionRuntimeTarget\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.sessionsRuntimeReloadResources/);

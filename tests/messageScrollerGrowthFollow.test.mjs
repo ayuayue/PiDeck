@@ -1,6 +1,9 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 import test from "node:test";
 
 const scrollerSource = readFileSync("src/renderer/src/components/agents/message-scroller.tsx", "utf8");
@@ -128,7 +131,7 @@ test("MessageScroller forwards restoreAt to timeline controller scroll api", () 
 });
 
 test("timeline controller restores via engine restoreAt and keeps negative offset", () => {
-	const source = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const source = sessionTimelineControllerSource;
 	// 保存锚点保留负偏移（视口顶部常被上一行底部占据，截断会导致恢复位置偏下）
 	// origin 真值：视口顶 = getBoundingClientRect().top + clientTop（IntersectionObserver 的
 	// root 相交矩形以 padding box 为界）。改回裸 viewportRect.top 或漏掉 clientTop 必须红。
@@ -149,7 +152,7 @@ test("timeline controller restores via engine restoreAt and keeps negative offse
 
 test("turn-window expansion pins the visible row instead of native scrollTop", () => {
 	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controllerSource = sessionTimelineControllerSource;
 	// 扩窗补偿走 pinBrowseRow（钉正在看的那一轮），不再用整页高度差写原生 scrollTop。
 	// 补偿之后还要通知 controller 解除「整表渲染」（endPrependSolid）：扩窗在顶部插入轮次，
 	// 虚拟化会顺手卸载视口里被推走的那一行，之后 pin 拿不到 currentTop 就补不了位移。
@@ -168,7 +171,7 @@ test("turn-window expansion pins the visible row instead of native scrollTop", (
 
 test("timeline keeps the same turn window through anchor restoration", () => {
 	const timelineSource = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
-	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controllerSource = sessionTimelineControllerSource;
 	// 保存、恢复和正常历史浏览必须都按同一个 tail-window 裁剪。恢复期若改成全量，
 	// restoreAt 后再收回小窗口会让浏览器把 scrollTop 截断到新的最大值。
 	assert.match(timelineSource, /selectTimelineTurnWindow\(reconciledRuns, turnWindowTurns\)/);
@@ -194,7 +197,7 @@ test("TurnRow liveInterimId requires an active text stream", () => {
 	const liveMountSource = readFileSync("src/renderer/src/components/session/timeline/liveMount.ts", "utf8");
 	assert.match(liveMountSource, /if \(!input\.liveTextActive\) return undefined;/);
 	// 派生 atom 输出 streaming 或 held 位（session 级单槽）
-	const atomsSource = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+	const atomsSource = sessionAtomsSource;
 	assert.match(atomsSource, /liveTextStreamingBySessionAtom = atomFamily/);
 	assert.match(atomsSource, /liveTextActiveBySessionAtom = atomFamily/);
 	assert.match(atomsSource, /map\[sessionId\]\?\.streaming === true \|\| map\[sessionId\]\?\.held === true/);
@@ -206,7 +209,7 @@ test("TurnRow liveInterimId requires an active text stream", () => {
 // stopReason 协议信号：主进程两处提取（live upsert + 历史回放），渲染层按
 // stop/toolUse 精确区分中间回复与最终回复（message_end 即确定，永不反复）。
 test("stopReason flows from RPC message_end into ChatMessage", () => {
-	const agentSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentSource = agentManagerSource;
 	// live 路径：message_end 更新真实 stopReason，骨架阶段不覆盖旧值；
 	// pending 是骨架占位值，必须被排除（否则 message_end 缺字段时消息永远停 in pending，
 	// 渲染层回退启发式失效——reviewer 指出删掉该守卫测试照样绿的漏洞，故显式断言）。

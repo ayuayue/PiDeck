@@ -46,6 +46,12 @@ test("session manager archive keeps the dialog open and archives under the ownin
 
 	// 用户主动关闭仍然要接在这一个 prop 上（X / Esc / 遮罩）
 	assert.match(manager, /onClose=\{controller\.closeSessionManager\}/);
+
+	// 归档后弹窗保持打开 ⇒ 归档视图不能复用上一次的列表缓存（#538）。
+	// 曾经用「archivedRows === null 才拉」做缓存：首次看过归档后归档一条，再切回「已归档」
+	// 仍显示旧列表（普通列表已移除该会话，用户看到的是「归档后消失」）。
+	assert.doesNotMatch(components, /archivedRows === null\)\s*loadArchivedRows\(\)/, "不得再用「缓存为 null 才加载」的判据");
+	assert.match(components, /setArchivedRows\(null\);\s*\n\s*loadArchivedRows\(\);\s*\n\s*setShowArchived\(true\);/, "进入归档视图必须清空缓存并重新拉取");
 });
 
 test("session manager archive clears the finished selection without closing", () => {
@@ -69,4 +75,21 @@ test("archive failures toast instead of leaking a rejected promise", () => {
 	assert.match(archive, /return;/);
 	assert.match(zh, /"app\.sessionArchiveFailed":\s*"归档会话失败"/);
 	assert.match(en, /"app\.sessionArchiveFailed":\s*"Failed to archive session"/);
+});
+
+test("archived list load failure shows an error row with retry instead of an empty list", () => {
+	// #538 尾项：失败曾被 catch 成 []，与「确实没有归档会话」同形，用户既看不到出错也没法重试。
+	const from = components.indexOf("const loadArchivedRows = () => {");
+	const to = components.indexOf("const handleToggleAllArchived =", from);
+	assert.ok(from !== -1 && to > from, "归档加载函数应仍在原处");
+	const loader = components.slice(from, to);
+	assert.match(loader, /catch\(\(\) => \{[\s\S]*?setArchivedError\(true\)/, "失败要置错误态，不能只 setArchivedRows([])");
+	assert.match(components, /archivedError \? \(\s*\n\s*<ManagerArchivedLoadErrorRow/, "错误态要渲染可重试的行");
+	assert.match(components, /onRetry=\{\(\) => \{\s*\n\s*setArchivedRows\(null\);\s*\n\s*loadArchivedRows\(\);/, "重试要先回到加载态再拉取");
+	assert.match(components, /setArchivedError\(false\)/, "成功加载后清掉错误态");
+	const row = readFileSync("src/renderer/src/components/sidebar/ManagerArchivedLoadErrorRow.tsx", "utf8");
+	assert.match(row, /sessionManager\.archivedLoadFailed/);
+	assert.match(row, /common\.retry/);
+	assert.match(zh, /"sessionManager\.archivedLoadFailed"/);
+	assert.match(en, /"sessionManager\.archivedLoadFailed"/);
 });

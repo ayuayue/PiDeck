@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 // 守卫：src/main/index.ts 的运行日志必须走 appLogger（AGENTS.md「日志走主进程 logging 模块」）。
 // 例外白名单：
 // - 进程级兜底（uncaughtException/unhandledRejection，此时 logging 模块未必可用）
@@ -18,7 +18,7 @@ const ALLOWED_PREFIXES = [
 	'console.error("Application startup failed:',
 ];
 
-const source = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
+const source = mainIpcSource;
 const lines = source.split(/\r?\n/);
 
 const offenders = [];

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 // 扩展列表滚动位置契约（用户反馈「停用任意一项后列表重新加载，滚动位置回到初始位置，
 // 每次都要从头滚回上次那个区间」）：
@@ -32,7 +33,7 @@ test("the refresh-vs-unmount rationale stays documented beside the list body", (
 // 开关只改 enabled，主进程缓存命中时会重算投影，因此跟随的刷新走轻量路径即可；
 // 若沿用 onRefresh()（ConfigModal.refreshExtensions(true)），每次开关都要付一次
 // 全量扫描（pi list + npm view 版本富化），开关行在此期间一直处于 pending。
-const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+const modal = configModalSource;
 
 test("toggle refresh takes the lightweight path instead of a full rescan", () => {
 	assert.match(tab, /onRefreshAfterToggle\??\s*:\s*\(\)\s*=>\s*void\s*\|\s*Promise<void>/, "ExtensionsTab must accept an optional onRefreshAfterToggle prop");

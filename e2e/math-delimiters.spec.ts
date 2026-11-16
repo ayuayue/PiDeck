@@ -41,7 +41,7 @@ test("bracket formulas render in Electron", async ({ window }, testInfo) => {
 	await expect(timeline.locator(".katex").first()).toBeVisible();
 	await window.screenshot({ path: testInfo.outputPath("math-theme.png") });
 	await window.reload();
-	await window.getByRole("button", { name: /^空闲 MATH_REPRO/ }).click();
+	await window.getByRole("button", { name: /MATH_REPRO/ }).click();
 	await expect(window.locator(".message-timeline td .katex")).toHaveCount(3, { timeout: 30_000 });
 	await expect(window.locator(".message-timeline .katex-error")).toHaveCount(0);
 	await window.screenshot({ path: testInfo.outputPath("math-history.png") });

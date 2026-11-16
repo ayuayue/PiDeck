@@ -208,22 +208,44 @@ function readSessionErrors() {
 	return [...seen];
 }
 
-test("真实会话语料：扩展改写的内容在两个运行时都必须可重试", () => {
-	const errors = readSessionErrors();
-	if (errors.length === 0) return; // 无本机会话（CI）时跳过
-	let rewrittenCount = 0;
-	for (const raw of errors) {
-		const rewritten = applyExtension({
-			role: "assistant",
-			stopReason: "error",
-			api: "openai-completions",
-			errorMessage: raw,
-		});
+/**
+ * 固化语料：真实会话里出现过的错误文案（`~/.pi/agent/sessions` 脱敏摘录）。
+ *
+ * 为什么需要它：本机语料里的错误颜色由使用者历史决定，换台机器就变——「至少救回一条」
+ * 若只挂在它上面，同一次提交在 A 机绿、B 机红（本机 3 条恰恰全是用户中断 / ECONNRESET /
+ * stream ended 这类本来就不该改写的）。所以「该救的必须被救」只在 fixture 上判。
+ *
+ * `expect: "rescue"` 表示「这条扩展必须改写」；没标的按「若被改写则必须可重试」判。
+ */
+const CORPUS_FIXTURE = readUtf8(new URL("./fixtures/piDeckRuntimeRetryCorpus.jsonl", import.meta.url))
+	.split("\n")
+	.filter((line) => line.trim())
+	.map((line) => JSON.parse(line));
+
+function assertRetryableInBothRuntimes(raw, rewritten) {
+	assert.equal(dshRetries(rewritten), true, "桌面端改写后不可重试: " + raw + " -> " + rewritten);
+	assert.equal(piRetries(rewritten), true, "pi 改写后不可重试: " + raw + " -> " + rewritten);
+}
+
+test("固化语料：标记 rescue 的必须被改写，其余若被改写也必须可重试", () => {
+	let rescued = 0;
+	for (const { errorMessage: raw, expect } of CORPUS_FIXTURE) {
+		const rewritten = applyExtension({ role: "assistant", stopReason: "error", api: "openai-completions", errorMessage: raw });
+		if (expect === "rescue") {
+			assert.ok(rewritten, "固化语料应被改写却没有: " + raw);
+			rescued += 1;
+		}
 		if (!rewritten) continue;
-		rewrittenCount += 1;
-		assert.equal(dshRetries(rewritten), true, `桌面端改写后不可重试: ${raw} → ${rewritten}`);
-		assert.equal(piRetries(rewritten), true, `pi 改写后不可重试: ${raw} → ${rewritten}`);
+		assertRetryableInBothRuntimes(raw, rewritten);
 	}
-	// 语料存在时至少应救回一条，否则说明语料/解析变了
-	assert.ok(rewrittenCount > 0, `扫描 ${errors.length} 条错误文案，却没有一条被改写`);
+	assert.ok(rescued > 0, "固化语料里没有任何标记 rescue 的样本——判据已失效");
+});
+
+test("本机会话语料：被改写的每一条都必须在两个运行时可重试", () => {
+	for (const raw of readSessionErrors()) {
+		const rewritten = applyExtension({ role: "assistant", stopReason: "error", api: "openai-completions", errorMessage: raw });
+		// 本机语料只作补充：它不参与「必须救回几条」，否则红线由使用者历史决定。
+		if (!rewritten) continue;
+		assertRetryableInBothRuntimes(raw, rewritten);
+	}
 });

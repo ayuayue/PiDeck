@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * standby 预热状态机（standbyWarmup.ts）+ AgentManager 接入契约。
  *
@@ -19,7 +20,6 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { STANDBY_CLAIM_WAIT_MS, StandbyWarmupTracker } = loadTsCommonJs("src/main/pi/standbyWarmup.ts");
 const { AgentManager } = loadTsCommonJs("src/main/pi/AgentManager.ts");
-const agentManagerSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
 const standbyWarmupSource = readFileSync("src/main/pi/standbyWarmup.ts", "utf8");
 
 /** 等到「微任务 + 下一轮事件循环」都跑完（预热 settle → 唤醒等待者 → 接力都在微任务里推进）。 */
@@ -270,6 +270,9 @@ test("claimStandbyAgent：匹配的进行中预热存在时等待并认领，绝
 	const result = await claimPromise;
 	assert.equal(result?.id, "agent-standby");
 	assert.equal(claimed?.standby, undefined, "认领后必须清 standby 标记（否则 list() 永远看不到）");
+	// 池化进程 spawn 时不带会话身份（CreateAgentInput.standby）：认领后必须补上，
+	// 否则渲染层 agent 行配不上 catalog 会话行——侧栏同一会话会画成两条（关联子会话重复）。
+	assert.equal(claimed?.deckSessionId, "session-1", "认领后 deckSessionId 必须是本次绑定的 PiDeck 会话身份");
 	assert.equal(manager.standbyPool.status(), null, "认领后池条目被消费");
 	assert.equal(spawns.length, 1, "认领成功路径不得再 spawn");
 });

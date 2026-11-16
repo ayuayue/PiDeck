@@ -6,13 +6,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+
 const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
 const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-const indexSource = readFileSync("src/main/index.ts", "utf8");
-const agent = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const preload = preloadSource;
+const systemIpc = systemIpcSource;
+const indexSource = mainIpcSource;
+const agent = agentManagerSource;
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 const devTab = readFileSync("src/renderer/src/components/app/settings/DevTab.tsx", "utf8");
@@ -43,7 +48,8 @@ test("main process wires DiagnosticsMonitor before IPC and records agent timings
 	assert.ok(agentAt >= 0 && monitorAt > agentAt);
 	assert.ok(ipcCallAt > monitorAt, "monitor must exist before registerIpc() runs");
 	assert.match(agent, /this\.recordTiming\("agent.create"/);
-	assert.match(agent, /this\.recordTiming\("session.history.load"/);
+	// 历史加载已迁到协作者（runtimeHistoryLoader.ts），打点经 host 转发：只断言打点名，不绑调用形态。
+	assert.match(agent, /recordTiming\("session\.history\.load"/);
 });
 
 test("settings UI and i18n expose the diagnostics toggle", () => {

@@ -1758,6 +1758,43 @@ test("removeWithDescendants drops nested subagent catalog entries with the paren
 	}
 });
 
+test("listSubtreeEntries reports flat subagent files so the disk side can carry them (#539)", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-flat-subtree-"));
+	const filePath = join(dir, "sessions.json");
+	try {
+		const catalog = new SessionCatalog(filePath);
+		await catalog.load();
+		const parentPath = await realSessionFile(dir, "parent.jsonl");
+		// 平铺布局：与父会话同目录，靠会话头 parentSession 指回父文件（@tintinweb/pi-subagents）
+		const flatPath = await realSessionFile(dir, "parent-flat-agent.jsonl");
+		const nestedPath = await realSessionFile(dir, "parent/child.jsonl");
+		const otherPath = await realSessionFile(dir, "other.jsonl");
+		const records = await catalog.mergeScanned("project-1", [
+			summary({ filePath: parentPath, id: parentPath, name: "Parent" }),
+			summary({ filePath: flatPath, id: flatPath, name: "Flat agent", parentSessionPath: parentPath }),
+			summary({ filePath: nestedPath, id: nestedPath, name: "Nested child", parentSessionPath: parentPath }),
+			summary({ filePath: otherPath, id: otherPath, name: "Unrelated" }),
+		]);
+		const parent = records.find((record) => record.title === "Parent");
+		const flat = records.find((record) => record.title === "Flat agent");
+		assert.ok(parent && flat);
+
+		const subtree = catalog.listSubtreeEntries(parent.id);
+		const titles = subtree.map((entry) => entry.title).sort();
+		assert.equal(titles.join(","), "Flat agent,Nested child,Parent", "子树读取必须包含平铺与嵌套两种子代理，且不得带无关会话");
+		assert.ok(
+			subtree.every((entry) => typeof entry.id === "string"),
+			"返回条目要能拿到 id（磁盘侧再用 getLocalFilePath 取路径）",
+		);
+		assert.equal(catalog.getLocalFilePath(flat.id), flatPath, "平铺子代理应有本机文件路径");
+		// 只读：不得把条目摘掉
+		assert.ok(catalog.get(parent.id), "listSubtreeEntries 不得删除记录");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("external connection channel sticks to the session and unknown channel values are dropped on load", async () => {
 	const { SessionCatalog } = loadCatalog();
 	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-channel-"));

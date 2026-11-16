@@ -112,6 +112,8 @@ test("hover yield classes survive tailwind-merge", () => {
 
 test("subagent pill never lands on the row ⋯ while the timestamp yields", () => {
 	const src = read("src/renderer/src/components/sidebar/SessionTree.tsx");
+	// 时间戳的收拢细节收敛在 SidebarRowTime（历史会话行 / 关联子会话行 / 分组行共用一份 markup）
+	const rowTime = read("src/renderer/src/components/sidebar/SidebarRowTime.tsx");
 	// 2027-02 用户反馈：胶囊右移到时间戳旁边后，hover 时行尾的「⋯」看不到/被压住。
 	// 实测成因（真实 Chromium + 编译后 CSS 量测）：时间戳 display:none 是瞬时生效的，
 	// 而 hover 让位 padding 要走 150ms，中间那段胶囊正落在「⋯」的 28px 槽位上（重叠 19px，
@@ -120,8 +122,10 @@ test("subagent pill never lands on the row ⋯ while the timestamp yields", () =
 	//   ② 有时间戳时把「消失」换成与 padding 同步的宽度收拢，胶囊缓慢滑过去而不是跳过去。
 	// 量测结论：会话行全程胶囊右缘 ≤ 1360（「⋯」盒左缘 1372），Agent 行恒 ≥ 9px 间距，任意帧都不重叠。
 	assert.match(src, /subagent-inline-toggle\s+px-1\s+py-0\.5\s+last:mr-7/);
-	assert.match(src, /w-max\s+shrink-0\s+overflow-hidden\s+whitespace-nowrap[^"]*transition-\[width,opacity\][^"]*\[interpolate-size:allow-keywords\]/);
-	assert.match(src, /group-hover\/row:w-0[^"]*group-hover\/row:opacity-0/);
+	assert.match(rowTime, /w-max\s+shrink-0\s+overflow-hidden\s+whitespace-nowrap[^"]*transition-\[width,opacity\][^"]*\[interpolate-size:allow-keywords\]/);
+	assert.match(rowTime, /group-hover\/row:w-0[^"]*group-hover\/row:opacity-0/);
 	// 时间戳不得回退成 display:none：瞬时消失 = 胶囊一步跳到行尾压在「⋯」上
-	assert.doesNotMatch(src, /text-muted-foreground group-hover\/row:hidden/);
+	assert.doesNotMatch(rowTime, /group-hover\/row:hidden/);
+	// 会话行确实在用这个组件（不是另写了一份 span）
+	assert.match(src, /<SidebarRowTime at=\{activityAt\(child\.session\.id, child\.session\.updatedAt\)\} \/>/);
 });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { load } from "js-yaml";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { dshHostSource } from "./helpers/dshHostSources.mjs";
 
 const { readUserPatchRows, isUserPluginEntry, classifyStaticPlugins, removeUserPatchRow, normalizeModuleName, resolveManagedPluginDir, withArrayDocumentFallback, dropEmptyArrayMarker, ensureUserPatchLayerIsArrayDocument, USER_PATCH_FILENAME } = loadTsCommonJs("src/main/dsh/dshUserPlugins.ts");
 
@@ -230,7 +231,7 @@ test("ensureUserPatchLayerIsArrayDocument：就地修复注释-only 文件；缺
 });
 
 test("DshHost 接线：启动前自愈补丁层，卸载写盘也走 [] 兜底", () => {
-	const source = readFileSync("src/main/dsh/DshHost.ts", "utf8");
+	const source = dshHostSource;
 	assert.match(source, /ensureUserPatchLayerIsArrayDocument\(join\([\s\S]{0,80}?USER_PATCH_FILENAME\)\)/);
 	assert.match(source, /writeFileSync\(\s*patchPath,\s*withArrayDocumentFallback\(removed\.text\)/);
 	// 自愈必须发生在 host fork 之前（acquireHostLock 同段之前），否则补丁错误照旧致命。

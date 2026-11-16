@@ -18,6 +18,9 @@ export const mainProcessZhCN = {
 	"remote.piTooOld": "该主机的 pi 版本低于 PiDeck 支持的下限。请升级该主机的 pi 后重试。",
 	"remote.piVersionUnreadable": "读不到该主机 pi 的版本（命令没有返回可解析的版本号）。请在该主机手动执行 pi --version 确认。",
 	"remote.piVersionUnverified": "该主机 pi 的版本号无法核验（返回内容与预期形态不符）。请手动确认该主机的 pi 版本。",
+	// 会话身份两个稳定码：都是「pi 把会话放到了 PiDeck 读不到的位置」，必须给出可执行的下一步。
+	"remote.sessionLocatorUnresolved": "远端 pi 把会话文件写到了 PiDeck 无法识别的目录（常见原因：用 --session-dir 或 PI_CODING_AGENT_SESSION_DIR 指定了会话目录），因此这条会话无法登记。请检查该主机上 pi 的会话目录配置。",
+	"remote.sessionDirInvalid": "该主机 pi 的 user-level settings.json 里的 sessionDir 不可用（相对路径、越出 home 或含非法字符），PiDeck 拒绝扫描以免展示一份错的会话列表。请改成 home 之内的绝对路径。",
 	// 两种成因：回退只作用于本次运行（不写入设置），设置开关则是每个新会话都会复现的持续成因。
 	"diagnostic.extensionsDisabledFallback": "扩展加载失败，本次运行已临时禁用扩展（不写入设置，「禁用扩展启动」开关保持原样），下次启动会重新尝试加载扩展。可在本会话把下面的错误信息发给 AI，协助排查扩展问题。",
 	"diagnostic.extensionsDisabledBySetting": "本次启动未加载任何扩展：设置 → 开发设置 的「禁用扩展启动」处于开启状态，todo/plan/ask 等扩展能力不可用。如非排查扩展问题需要，请关闭该开关后重启会话。",
@@ -329,6 +332,8 @@ export const mainProcessEnUS: Record<MainProcessTranslationKey, string> = {
 	"remote.piTooOld": "The pi version on that host is below the minimum PiDeck supports. Upgrade pi on that host and retry.",
 	"remote.piVersionUnreadable": "Could not read the pi version on that host (no parseable version in the output). Run pi --version on that host to check.",
 	"remote.piVersionUnverified": "The pi version on that host could not be verified (output shape differs from the expected form). Confirm the pi version manually.",
+	"remote.sessionLocatorUnresolved": "Remote pi wrote the session file into a directory PiDeck cannot recognise (commonly because --session-dir or PI_CODING_AGENT_SESSION_DIR points elsewhere), so this session cannot be registered. Check the pi session directory configuration on that host.",
+	"remote.sessionDirInvalid": "The sessionDir in that host's user-level pi settings.json is unusable (relative path, outside home, or invalid characters), so PiDeck refuses to scan rather than show a wrong session list. Use an absolute path inside home.",
 	"diagnostic.extensionsDisabledFallback":
 		"Extensions failed to load, so extensions are disabled for this run only (nothing was written to settings — the “Disable extensions on start” switch stays as it is). Extensions will load again on the next start. Paste the error details below into this chat and ask the AI to help diagnose them.",
 	"diagnostic.extensionsDisabledBySetting": "No extension was loaded this run: “Disable extensions on start” is still enabled in Settings → Developer settings, so todo/plan/ask and other extension capabilities are unavailable. Turn that switch off and restart the session unless you are debugging extensions.",

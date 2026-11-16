@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -8,7 +9,7 @@ import test from "node:test";
  * abort settled 兜底定时器（AbortStreamGateController.hasSettledFallback 命中）不得触发 notifyAgentSettled。
  */
 
-const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const source = agentManagerSource;
 
 test("settled branch distinguishes abort settled from real completion", () => {
 	assert.match(source, /const isAbortSettled\s*=\s*[\s\S]{0,120}recentlyAborted\.has\(agentId\)[\s\S]{0,120}abortGate\.hasSettledFallback\(agentId\)/);

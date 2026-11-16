@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -56,7 +57,7 @@ test("窗口封顶：到顶不再涨，但已超出的值不被缩回去", () =>
 test("每次扩窗都必须真的排下一帧，不允许在 while 里同步消费完", () => {
 	// 纯函数测试证明不了「是否真的分帧」：把 planWindowExpandBatch 写对、调用方却用
 	// while 循环同步跑完，测试照样全绿而界面照样卡一帧。所以钉消费端的形状。
-	const source = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const source = sessionTimelineControllerSource;
 	const start = source.indexOf("const consumeExpandBatch = useCallback(");
 	assert.ok(start > 0, "找不到 consumeExpandBatch");
 	const end = source.indexOf("}, [", start);

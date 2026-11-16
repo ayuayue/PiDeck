@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "../helpers/loadTsCommonJs.mjs";
+import { previewApiSource } from "../helpers/previewApiSources.mjs";
 
 const { createDefaultAppSettings } = loadTsCommonJs("src/shared/types/settings.ts");
 
@@ -72,7 +73,7 @@ test("non-boolean IPC values never enable the browser agent and keep the auto-ap
 });
 
 test("preview, settings UI, anchors and i18n agree on the browser agent keys", () => {
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const preview = previewApiSource;
 	assert.match(preview, /browserAgentEnabled\s*:\s*false\b/);
 	assert.match(preview, /browserAgentAutoApprove\s*:\s*true\b/);
 

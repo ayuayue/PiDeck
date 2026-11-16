@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
-const entry = readFileSync("src/main/index.ts", "utf8");
+const entry = mainIpcSource;
 const projectsIpc = readFileSync("src/main/ipc/projectsIpc.ts", "utf8");
 const projectResourceIpc = readFileSync("src/main/ipc/projectResourceIpc.ts", "utf8");
 

@@ -9,6 +9,9 @@ import { createRequire } from "node:module";
 import { describe, test } from "node:test";
 import vm from "node:vm";
 
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 
@@ -116,8 +119,8 @@ describe("readClipboardFilePaths", () => {
 test("clipboard IPC is registered in main, preload, and shared channels", () => {
 	const channels = read("src/shared/ipc.ts");
 	const ipc = read("src/main/ipc/clipboardIpc.ts");
-	const preload = read("src/preload/index.ts");
-	const mainIndex = read("src/main/index.ts");
+	const preload = preloadSource;
+	const mainIndex = mainIpcSource;
 	const keys = [...channels.matchAll(/^\t(clipboard\w+):\s*"clipboard:/gm)].map((m) => m[1]);
 	assert.ok(keys.length >= 5, `expected clipboard:* channels, got ${keys.length}`);
 	assert.deepEqual(

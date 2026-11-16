@@ -21,7 +21,7 @@ test("dshSessionFilePath：workspace 目录名编码与 DSH 内部规则一致",
  * DshAgentManager 只依赖 DshHost 的 ensureStarted/getClient（InProcessApiClient），
  * 这里用同形状的假 client（sessions.list/create/history + events.mux 空流）。
  */
-function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undefined } = {}) {
+function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undefined, permissionPreset = () => "read-only" } = {}) {
 	const sessions = new Map();
 	let nextSession = 0;
 	const historyBySession = new Map();
@@ -265,7 +265,7 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 			return response;
 		},
 		async sessionsProjections({ sessionId }) {
-			return { result: { ok: true, value: { asOfSeq: historyBySession.get(sessionId)?.length ?? 0, values: { modelSelection: { lastUsed: null, next: modelSelections.get(sessionId) ?? null } } } } };
+			return { result: { ok: true, value: { asOfSeq: historyBySession.get(sessionId)?.length ?? 0, values: { modelSelection: { lastUsed: null, next: modelSelections.get(sessionId) ?? null }, permissions: { currentValue: permissionPreset() } } } } };
 		},
 		sessionsFork(...args) {
 			return client.sessions.fork(...args);
@@ -836,24 +836,40 @@ test("forkSession 拒绝非法 entryId", async () => {
 	}
 });
 
-test("compact 以 /compact 提示词触发 host 命令并返回 runtime state", async () => {
+test("compact 以 /compact 提示词触发 host 命令，turn/end 收口后才算完成", async () => {
 	const { host, client, sessions, calls, promptCalls } = makeFakeHost();
 	sessions.set("session-compact", { sessionId: "session-compact", cwd: PROJECT.path, running: false, blank: false });
 	const manager = new DshAgentManager(host, () => PROJECT);
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh", dshSessionId: "session-compact" });
-	const state = await manager.compact(tab.id);
+	const pending = manager.compact(tab.id);
+	await flush();
 	assert.equal(calls.prompt, 1);
 	assert.equal(promptCalls[0], "/compact", "无参 compact 发送裸 /compact");
-	assert.equal(state.isStreaming, false);
-	assert.equal(state.isCompacting, true);
 	await assert.rejects(() => manager.compact(tab.id, "keep focus on refactor"), /already compacting/, "压缩进行中拒绝第二次 compact，避免拼进命令回合");
 	assert.equal(calls.prompt, 1, "拒绝重复 compact 不得再发 prompt");
 	client.pushFrames(sessionEventFrame("session-compact", event("turn/end", 1)));
+	const state = await pending;
+	assert.equal(state.isStreaming, false);
+	assert.equal(state.isCompacting, false, "命令回合收口后才返回，进行态已复位");
+	// 自定义指令拼在命令后面，同样等收口。
+	const second = manager.compact(tab.id, "keep focus on refactor");
 	await flush();
-	assert.equal((await manager.getRuntimeState(tab.id)).isCompacting, false);
-	await manager.compact(tab.id, "keep focus on refactor");
-	assert.equal(calls.prompt, 2);
 	assert.equal(promptCalls[1], "/compact keep focus on refactor");
+	client.pushFrames(sessionEventFrame("session-compact", event("turn/end", 2)));
+	await second;
+});
+
+test("compact 把 command/done 的 error 文本透给调用方（#557）", async () => {
+	const { host, client, sessions } = makeFakeHost();
+	sessions.set("session-compact", { sessionId: "session-compact", cwd: PROJECT.path, running: false, blank: false });
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh", dshSessionId: "session-compact" });
+	const pending = manager.compact(tab.id);
+	await flush();
+	client.pushFrames(sessionEventFrame("session-compact", event("command/done", 1, { commandId: "c1", kind: "error", text: "Compaction is unavailable because this process has an active compaction, or the agent is not idle." })));
+	client.pushFrames(sessionEventFrame("session-compact", event("turn/end", 1)));
+	await assert.rejects(() => pending, /Compaction is unavailable/, "DSH 命令失败不能再报「压缩完成」");
+	assert.equal((await manager.getRuntimeState(tab.id)).isCompacting, false);
 });
 
 test("capabilities 声明 fork/getForkMessages/compact/getCommands/exportHtml 且不含 pi 专属能力", () => {
@@ -1356,6 +1372,42 @@ test("setPermission 拒绝未知预设，避免把非法值送进 DSH 命令桥"
 
 	await assert.rejects(() => manager.setPermission(tab.id, "project-write"), /Unsupported DSH permission preset: project-write/);
 	assert.equal(calls.prompt, 0);
+});
+
+test("setPermission 在 host 已是目标预设时不发命令：幂等 no-op 不产生事件（#548）", async () => {
+	let preset = "danger-full-access";
+	const { host, client, promptCalls } = makeFakeHost({ permissionPreset: () => preset });
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+
+	// 重启后 applyPreferences 重放同一预设：/permission 是 no-op（不 append 任何事件），
+	// 旧实现会死等 5s 并让用户消息发不出去。投影已是目标值时直接成功且不发命令。
+	const result = await manager.setPermission(tab.id, "danger-full-access");
+	// 跨 vm realm 的对象原型不同：逐字段断言，不用 deepEqual。
+	assert.equal(result.accepted, true);
+	assert.equal(result.preset, "danger-full-access");
+	assert.equal(result.unchanged, true);
+	assert.deepEqual(promptCalls, []);
+	assert.equal((await manager.getRuntimeState(tab.id)).permissionPreset, "danger-full-access");
+	client.abortAllPending();
+});
+
+test("setPermission 事件折叠不可靠时以官方投影确认（#548）", async () => {
+	let preset = "read-only";
+	const { host, client, promptCalls } = makeFakeHost({ permissionPreset: () => preset });
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+
+	const changing = manager.setPermission(tab.id, "workspace-write");
+	// host 已生效但 mux 没推 permission/preset（事件折叠延迟/丢失）：投影是唯一证据。
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	preset = "workspace-write";
+	await changing;
+	assert.deepEqual(promptCalls, ["/permission workspace-write"]);
+	assert.equal((await manager.getRuntimeState(tab.id)).permissionPreset, "workspace-write");
+	client.abortAllPending();
 });
 
 test("setModel 按官方语义使用新模型默认档位，不携带旧模型的 thinkingLevel", async () => {

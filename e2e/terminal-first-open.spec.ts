@@ -33,7 +33,9 @@ for (const scenario of [
 		await projectRow.hover();
 		await projectRow.getByRole("button", { name: "普通会话", exact: true }).click();
 		await expect(window.locator(".composer .rich-input")).toHaveAttribute("contenteditable", "true");
-		await window.locator(".session-tabs-actions").getByRole("button", { name: "更多操作", exact: true }).click();
+		// 会话操作菜单已从 Tab 栏的「更多操作」挪到会话头部的「更多运行操作」
+		// （SessionActionsControl，与运行控制/工具开关同一处）；终端入口在该菜单里。
+		await window.getByRole("button", { name: "更多运行操作", exact: true }).click();
 		await window.getByRole("menuitem", { name: "终端", exact: true }).click();
 		const dock = window.locator(".terminal-dock");
 		await expect(dock).toBeVisible();

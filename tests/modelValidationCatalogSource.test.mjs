@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * issue #340 回归：新会话首发的模型存在性校验必须与模型选择器同源。
  *
@@ -25,9 +27,8 @@ const load = createTsSandbox();
 const { resolveLaunchDefaultOptions: resolve } = load("src/main/sessions/launchDefaults.ts");
 const { mergeCatalogModels } = load("src/main/pi/catalogModelsForValidation.ts");
 
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-const mainIndex = readFileSync("src/main/index.ts", "utf8");
-
+const sessionIpc = sessionIpcSource;
+const mainIndex = mainIpcSource;
 // 名称快照由 launchDefaults.test.mjs 单独验证，这里只比身份。
 const plain = (value) => {
 	if (!value || typeof value !== "object" || !("modelName" in value)) return value;

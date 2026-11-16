@@ -31,7 +31,7 @@ function compile(filePath) {
 	return module.exports;
 }
 
-const { boundTurnWindowStart, findTurnPageStart } = compile("src/main/pi/SessionHistoryReader.ts");
+const { boundTurnWindowStart, findTurnPageStart } = compile("src/main/pi/sessionReader/sessionTurnWindow.ts");
 
 /** 构造轮次：每个 user 后面跟 steps 条造轮内容，角色序列决定轮次边界。 */
 function buildTurns(turns, stepsPerTurn) {

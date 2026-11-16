@@ -16,11 +16,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 // 项目外路径的路由（handleOpenLinkedFile）已迁入 useSessionFileLinks；弹框挂载点仍在 App。
 const appSource = read("src/renderer/src/hooks/workspace/useSessionFileLinks.ts");
-const appShellSource = read("src/renderer/src/App.tsx");
+const appShellSource = rendererAppSource;
 const gateSource = read("src/renderer/src/hooks/useExternalPathOpenGate.tsx");
 const openerSource = read("src/renderer/src/hooks/useSessionFilePathOpener.ts");
 

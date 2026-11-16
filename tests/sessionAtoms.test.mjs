@@ -5,6 +5,7 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 import { createStore } from "jotai/vanilla";
+import { sessionAtomsLoaderImports } from "./helpers/sessionAtomsSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -53,20 +54,27 @@ function loadAtoms() {
 	// 会话级 atomFamily 释放登记表（2027-02）：两个 atoms 模块都 import 它，
 	// 手写映射必须显式提供，否则 require 会以 tests/ 为基准解析失败。
 	const familyRegistry = compileModule("src/renderer/src/atoms/session-family-registry.ts");
-	const sessions = compileModule("src/renderer/src/atoms/session-atoms.ts", {
-		"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
-		"./composer-atoms": composerExports,
-		"../utils/agentRuntimeState": runtimeState,
-		"../utils/sessionRecordIdentity": sessionRecordIdentity,
-		"../utils/liveTextHandoff": liveTextHandoff,
-		"./outlineRevision": outlineRevision,
-		"./outlineProjectionCache": outlineProjectionCache,
-		"./sessionActivityAtoms": sessionActivityAtoms,
-		"../utils/sessionActivityClock": sessionActivityClock,
-		"./session-family-registry": familyRegistry,
-		// 分段计时探针（Phase 4）：关闭态是空函数，stub 掉即可，不必加载真实 perfProbe。
-		"../utils/perfProbe": { perfSpan: () => () => undefined },
-	});
+	// 域模块（session-atoms 拆出的 session-*.ts）由 helper 惰性编译，其余 specifier 仍走下面的手写桩。
+	const sessions = compileModule(
+		"src/renderer/src/atoms/session-atoms.ts",
+		sessionAtomsLoaderImports({
+			compileModule,
+			imports: {
+				"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
+				"./composer-atoms": composerExports,
+				"../utils/agentRuntimeState": runtimeState,
+				"../utils/sessionRecordIdentity": sessionRecordIdentity,
+				"../utils/liveTextHandoff": liveTextHandoff,
+				"./outlineRevision": outlineRevision,
+				"./outlineProjectionCache": outlineProjectionCache,
+				"./sessionActivityAtoms": sessionActivityAtoms,
+				"../utils/sessionActivityClock": sessionActivityClock,
+				"./session-family-registry": familyRegistry,
+				// 分段计时探针（Phase 4）：关闭态是空函数，stub 掉即可，不必加载真实 perfProbe。
+				"../utils/perfProbe": { perfSpan: () => () => undefined },
+			},
+		}),
+	);
 	const composer = compileModule("src/renderer/src/atoms/composer-atoms.ts", {
 		"./session-atoms": sessions,
 		"./session-family-registry": familyRegistry,

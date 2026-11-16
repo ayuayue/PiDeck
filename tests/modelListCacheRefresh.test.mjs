@@ -6,6 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 模型目录缓存（models-store.json）刷新：
  * 1) isModelCatalogStale：mtime 过期判断（不存在/旧 → 需要刷新；新 → 跳过）
@@ -112,7 +114,7 @@ test("pi update --models entry: args are array form (spawn safety) and startup w
 	assert.match(cacheSource, /runPiCliCommand/);
 	assert.match(cacheSource, /MODEL_CATALOG_REFRESH_ARGS/);
 	// 冷启动挂点：syncWslConfig 后、Pi capability hydration 前刷目录，与 watcher 同时生效。
-	const indexSource = readFileSync("src/main/index.ts", "utf8");
+	const indexSource = mainIpcSource;
 	assert.match(indexSource, /refreshModelCatalogIfStale\(/);
 	assert.match(indexSource, /piModelCapabilityCache\?\.watchConfigDirectory\(\)/);
 	const refreshIndex = indexSource.indexOf("await refreshModelCatalogIfStale(");
@@ -130,7 +132,7 @@ test("pi update --models entry: args are array form (spawn safety) and startup w
 test("manual picker reload (force) refreshes catalog before re-hydration", () => {
 	// 选择器“手动刷新”按钮 = listModelsReport(force=true)：先 pi update --models
 	// （force 绕过 4h 节流，官方 provider 新模型立刻可见），成功后重新 hydration。
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemIpc = systemIpcSource;
 	assert.match(systemIpc, /refreshModelCatalogStore\(piLocator, settingsStore\)/);
 	assert.match(systemIpc, /Model catalog force refresh on manual reload/);
 	// 刷新失败不阻塞：目录刷新在 hydration 之前，失败仅记日志，列表仍走读盘刷新。

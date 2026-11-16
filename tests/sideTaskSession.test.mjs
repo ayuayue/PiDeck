@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { SessionCatalog } = loadTsCommonJs("src/main/sessions/SessionCatalog.ts", {
 	stubs: { "../logging/sharedLogger": { getAppLogger: () => null } },
@@ -91,7 +92,7 @@ const drawer = readFileSync("src/renderer/src/components/workspace/DrawerSurface
 const workspaceHook = readFileSync("src/renderer/src/hooks/useWorkspacePanels.ts", "utf8");
 const tabsMenu = readFileSync("src/renderer/src/components/session/SessionTabsBar.tsx", "utf8");
 const sidebarMenu = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 
 test("侧边任务面板复用 ChatSessionPane 并抑制主区 Tab 晋升", () => {
 	assert.match(panel, /<ChatSessionPane sessionId=\{currentId\}/);

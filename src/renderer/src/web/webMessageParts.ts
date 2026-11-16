@@ -5,6 +5,33 @@ import type { UIMessage } from "ai";
  * WebTimeline 与 webForkMutation 共用；从 WebTimeline 抽出避免策略层反向依赖组件模块。
  */
 
+/** UIMessage.metadata 是 unknown：统一在这里收窄，避免各调用点各自 as。 */
+function uiMessageMetadata(message: UIMessage): Record<string, unknown> | undefined {
+	const metadata = (message as { metadata?: unknown }).metadata;
+	return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? (metadata as Record<string, unknown>) : undefined;
+}
+
+/** 消息墙钟时间（历史行由 chatMessagesToUiMessages 写入；实时消息由流帧/本地发送时补上）。 */
+export function uiMessageTimestamp(message: UIMessage): number | undefined {
+	const value = uiMessageMetadata(message)?.timestamp;
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** 消息结束时间：优先主进程写入的 meta.endedAt（pi 终态实测耗时），缺失回退时间戳。 */
+export function uiMessageEndedAt(message: UIMessage): number | undefined {
+	const endedAt = uiMessageMetadata(message)?.endedAt;
+	if (typeof endedAt === "number" && Number.isFinite(endedAt) && endedAt > 0) return endedAt;
+	return uiMessageTimestamp(message);
+}
+
+/** 本条 assistant 消息实际使用的模型（历史消息自带；实时链路结算后由历史重拉补齐）。 */
+export function uiMessageModel(message: UIMessage): { provider: string; modelId: string } | undefined {
+	const value = uiMessageMetadata(message)?.model;
+	if (!value || typeof value !== "object") return undefined;
+	const { provider, modelId } = value as { provider?: unknown; modelId?: unknown };
+	return typeof provider === "string" && provider && typeof modelId === "string" && modelId ? { provider, modelId } : undefined;
+}
+
 /** 从 UIMessage 提取纯文本（复制/重发用）。 */
 export function uiMessageText(message: UIMessage): string {
 	return message.parts

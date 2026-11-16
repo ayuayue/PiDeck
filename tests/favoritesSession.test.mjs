@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { parseAddFavoriteInput } = loadTsCommonJs("src/main/favorites/favoriteInput.ts");
 const { FavoritesStore } = loadTsCommonJs("src/main/favorites/FavoritesStore.ts");
@@ -105,7 +106,7 @@ test("入口接线：侧栏/标签页/收藏页共用 useFavorites 与会话导�
 	assert.match(workspace, /favoriteDetailOpenAtom, favoritesOpenSessionRequestAtom/);
 	const components = readFileSync("src/renderer/src/components/sidebar/SidebarComponents.tsx", "utf8");
 	assert.match(components, /favorites\.saveSession/);
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /favoritesOpenSessionRequestAtom/);
 	assert.match(app, /openSidebarSessionByIdWithTab\(request\.projectId, request\.sessionId, "permanent"\)/);
 	assert.match(app, /deactivateWorkspacePage\(\);/);

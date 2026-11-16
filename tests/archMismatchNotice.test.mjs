@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 架构错包提示（2026-10 用户反馈回归防护）：M1 Pro 用户装了无后缀的 x64 dmg，
@@ -60,7 +63,7 @@ test("buildLatestReleaseUrl tolerates trailing slashes", () => {
 
 // 行为侧（React hook + 装配）用源码断言，模式与 agentLoadNotice 契约测试一致
 test("useArchMismatchNotice is wired through App and shows a warning toast with both actions", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const hook = readFileSync("src/renderer/src/hooks/useArchMismatchNotice.ts", "utf8");
 	assert.match(app, /useArchMismatchNotice\(\)/);
 	// 提示为 warning 档（黄三角图标），与 Agent 数量告警同档
@@ -79,8 +82,8 @@ test("useArchMismatchNotice is wired through App and shows a warning toast with 
 
 test("IPC 三处同步：通道常量 + main handler + preload 白名单", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
-	const main = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const main = systemIpcSource;
+	const preload = preloadSource;
 	assert.match(shared, /archStatus:\s*"system:arch-status"/);
 	assert.match(main, /ipcMain\.handle\(ipcChannels\.archStatus/);
 	assert.match(main, /app\.runningUnderARM64Translation === true/);

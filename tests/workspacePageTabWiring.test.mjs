@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { stripCodeComments } from "./_sourceContract.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 页面式工作区（定时任务 / 智能体）的装配契约：
@@ -9,7 +10,7 @@ import { stripCodeComments } from "./_sourceContract.mjs";
  * 切会话只失活、关闭才卸载；标题固定走 i18n，不参与 pi 的自动会话标题。
  */
 const read = (path) => readFileSync(path, "utf8");
-const app = read("src/renderer/src/App.tsx");
+const app = rendererAppSource;
 const tabsBar = read("src/renderer/src/components/session/SessionTabsBar.tsx");
 const automationPage = read("src/renderer/src/components/automation/AutomationPage.tsx");
 const automationWorkspace = read("src/renderer/src/components/automation/AutomationWorkspace.tsx");

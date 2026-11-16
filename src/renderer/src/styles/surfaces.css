@@ -2614,7 +2614,7 @@ div.fixed.inset-0.z-50 {
 }
 
 /* sonner 全局 toast：卡片外观由 notice.ts 经 toast.custom 渲染的自定义卡片（NoticeToastCard）承担，
-   这里只保留 toaster 层的命中测试修复（详见下方两条） */
+   这里只保留 toaster 层的两条基础修复（命中测试、自定义卡片宽度，详见下方） */
 /* Radix Dialog 模态打开时会给 body 设 pointer-events:none（react-remove-scroll），
    toast 不属于 dialog 内容，必须显式恢复事件，否则弹框期间 toast 连同关闭按钮全部点不到 */
 [data-sonner-toaster],
@@ -2627,6 +2627,14 @@ div.fixed.inset-0.z-50 {
 [data-sonner-toaster],
 [data-sonner-toaster] * {
   -webkit-app-region: no-drag;
+}
+/* 自定义卡片 toast 必须自带确定宽度：sonner 只给内置样式的 toast（data-styled=true）设
+   width:var(--width)，toast.custom 渲染的 li 是 data-styled=false，宽度由绝对定位的
+   shrink-to-fit 决定。卡片正文里一旦出现无法断行的长串（base64、URL、长路径：Ask 的问题
+   标题就是典型），min-content 会远大于 --width，卡片向右对齐被撑出视口左侧——表现为整条
+   横贯窗口、开头内容被裁掉。这里把卡片钉在 Toaster 的 --width（sonner.tsx 设 420px 上限）内。 */
+[data-sonner-toaster] [data-sonner-toast][data-styled="false"] {
+  width: var(--width);
 }
 
 /* ── 渲染异常页（AppErrorBoundary）──────────────

@@ -4,6 +4,7 @@ import test from "node:test";
 import { createElement, Fragment } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { removeProjectsSequentially } = loadTsCommonJs("src/renderer/src/utils/batchProjectRemoval.ts");
 
@@ -112,7 +113,7 @@ test("侧栏 ⋯ 菜单把批量删除接到 App 的 removeMany，弹窗清单�
 	const sidebarContent = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
 	assert.match(sidebarContent, /removeMany: \(projectIds: readonly string\[\], onProgress\?: \(done: number, total: number\) => void\) => Promise<BatchProjectRemovalOutcome>;/);
 
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /removeMany: removeSidebarProjects,/);
 	// 逐项 IPC 走既有 projects.remove（主进程负责会话索引与 worktree 清理），不新开通道。
 	assert.match(app, /await removeProjectsSequentially\(/);

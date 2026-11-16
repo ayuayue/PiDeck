@@ -103,6 +103,8 @@ export function applyFontSizeAttributes(root: HTMLElement, settings: AppSettings
 	root.dataset.uiFontSize = uiFontSize;
 	root.dataset.tabFontSize = settings.tabBarFontSize ?? uiFontSize;
 	root.dataset.chatFontSize = settings.chatFontSize ?? settings.fontSize;
+	// 会话正文行距（#547）：三档 dataset，CSS 只覆盖 --line-height-chat；代码块/表格另钉固定值。
+	root.dataset.chatLineHeight = settings.chatLineHeight;
 	root.dataset.inputFontSize = settings.inputFontSize ?? settings.fontSize;
 	// 旧属性保留，兼容外部依赖或测试仍读取 dataset.fontSize 的场景
 	root.dataset.fontSize = settings.fontSize;
@@ -319,6 +321,7 @@ export function useAppAppearance({ settings, systemLanguage, settingsLoaded }: {
 		settings.uiFontSize,
 		settings.tabBarFontSize,
 		settings.chatFontSize,
+		settings.chatLineHeight,
 		settings.inputFontSize,
 		settings.fontFamilyBase,
 		settings.fontFamilyBaseCustom,

@@ -24,8 +24,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { piLocatorSource } from "./helpers/piLocatorSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+const systemIpc = systemIpcSource;
 const modelListCache = readFileSync("src/main/pi/modelListCache.ts", "utf8");
 const devTab = readFileSync("src/renderer/src/components/app/settings/DevTab.tsx", "utf8");
 const settingsModal = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
@@ -94,7 +96,7 @@ test("扩展更新/版本探测/runPi 跟随 WSL 设置", () => {
 });
 
 test("listInstallations 的 WSL 分支返回发行版内正则匹配的那一份（不再是空数组）", () => {
-	const piLocator = readFileSync("src/main/pi/PiLocator.ts", "utf8");
+	const piLocator = piLocatorSource;
 	const hit = piLocator.match(/async listInstallations\([\s\S]*?\n\t\}/);
 	assert.ok(hit, "listInstallations 未找到");
 	assert.match(hit[0], /source: "wsl"/);

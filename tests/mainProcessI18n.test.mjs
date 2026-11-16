@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -5,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { ensureI18nLocale, setI18nLocale, translateI18nDescriptor } = loadTsCommonJs("src/renderer/src/i18n.ts");
@@ -133,7 +135,7 @@ test("diagnostic renderer localizes copy while keeping raw details separate", ()
 });
 
 test("AgentManager user-visible runtime diagnostics carry i18n descriptors", () => {
-	const manager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const manager = agentManagerSource;
 	for (const key of [
 		"diagnostic.historyLoadFailed",
 		"diagnostic.compactReconnected",
@@ -188,7 +190,7 @@ test("Session command failures map stable codes to localized renderer keys", () 
 });
 
 test("delete/edit/resend IPC logs SessionCommandResult failures", () => {
-	const source = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const source = sessionIpcSource;
 	// 这些通道直接返回 SessionCommandResult，不走 sessionCommandIpcError 抛错。
 	assert.match(source, /function logSessionCommandFailure/);
 	assert.match(source, /function handleSessionCommandResult/);

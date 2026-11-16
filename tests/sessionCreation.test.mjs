@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { createSessionOnce } = loadTsCommonJs("src/renderer/src/utils/sessionCreation.ts");
 
@@ -88,7 +89,7 @@ const between = (source, startMarker, endMarker) => {
 };
 
 test("App 装配：新建会话与引导页首发共用同一份在途注册表", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const createWithTab = between(app, "const createSessionDraftWithTab = useCallback(", "const createAnonymousSessionWithTab = useCallback(");
 	assert.match(createWithTab, /createSessionOnce\(pendingDraftCreationRef\.current, targetProjectId,/, "「+」/侧栏新建必须走单一在途闸门");
 

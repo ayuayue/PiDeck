@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /*
  * G5d read-only repository scope at the view layer. The controller is created per selected repository, so every read
@@ -260,7 +261,7 @@ test("the panel exposes the scope selector and keeps init root-only", () => {
 
 test("the repository-scope API is wired through all four layers and the dictionaries", () => {
 	// Read channels carry a trailing repo argument in preload; write channels carry one too since G5e.
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	for (const signature of [
 		"remoteSnapshot: (projectId: string, repo?: string)",
 		"remoteCommitDetail: (projectId: string, oid: string, repo?: string)",

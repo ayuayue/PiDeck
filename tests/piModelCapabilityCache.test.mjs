@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const { PiModelCapabilityCache, parseAvailableModelsResponse } = loadTsCommonJs("src/main/pi/PiModelCapabilityCache.ts");
 
 function response(data) {
@@ -192,12 +195,12 @@ test("默认 hydration 走快速档（--no-extensions），只有手动刷新才
 });
 
 test("装配口径：快速档传 piRpcNoExtensions，只有刷新按钮透传 loadExtensions", () => {
-	const indexSource = readFileSync("src/main/index.ts", "utf8");
+	const indexSource = mainIpcSource;
 	// 快速档：settings 上强制 piRpcNoExtensions（含内置扩展 -e 注入一并跳过）。
 	assert.match(indexSource, /createProcess: \(\{ loadExtensions \}\) =>/);
 	assert.match(indexSource, /\.\.\.\(loadExtensions \? \{\} : \{ piRpcNoExtensions: true \}\)/);
 
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemIpc = systemIpcSource;
 	const manualReloadStart = systemIpc.indexOf("// 手动刷新（force）");
 	assert.ok(manualReloadStart >= 0, "手动刷新分支必须保留注释锚点");
 	assert.match(systemIpc.slice(manualReloadStart, manualReloadStart + 2000), /modelCapabilityCache\.refresh\(\{ loadExtensions: true \}\)/, "刷新按钮必须带 loadExtensions:true（扩展贡献模型的唯一入口）");

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /**
  * 用量统计跨层契约护栏：
@@ -11,8 +13,8 @@ import test from "node:test";
 
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 const handler = readFileSync("src/main/ipc/usageStatsIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const previewApi = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+const preload = preloadSource;
+const previewApi = previewApiSource;
 // 新架构 i18n 按语言拆分为 rendererCopy.{zh-CN,en-US}.ts（旧单文件 i18n.ts 只含类型/工具）
 const i18nZh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const i18nEn = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");

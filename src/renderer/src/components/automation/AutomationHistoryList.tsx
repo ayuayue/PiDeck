@@ -6,6 +6,7 @@ import { projectInventoryAtom } from "../../atoms/project-atoms";
 import { desktopApi } from "../../desktopApi";
 import { t } from "../../i18n";
 import { showNotice } from "../../utils/notice";
+import { formatFullDateTime } from "../../utils/relativeTime";
 import { Badge } from "../ui-shadcn/badge";
 import { Button } from "../ui-shadcn/button";
 import { Checkbox } from "../ui-shadcn/checkbox";
@@ -28,14 +29,9 @@ function formatDuration(ms?: number) {
 	return `${minutes}m ${remainingSec}s`;
 }
 
-function formatTime(timestamp?: number) {
+function formatRunTime(timestamp?: number) {
 	if (!timestamp) return "-";
-	const date = new Date(timestamp);
-	return date.toLocaleTimeString(undefined, {
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-	});
+	return formatFullDateTime(timestamp);
 }
 
 /**
@@ -256,7 +252,7 @@ export function AutomationHistoryList({ projectId, onViewSession }: AutomationHi
 							<div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/20 pt-1.5 text-micro text-muted-foreground">
 								<span className="flex items-center gap-1">
 									<Clock className="size-3 opacity-70" />
-									{formatTime(run.startedAt ?? run.queuedAt)}
+									{formatRunTime(run.startedAt ?? run.queuedAt)}
 								</span>
 								{run.durationMs != null && (
 									<span>

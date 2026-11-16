@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 引用写入的 interlock（K1 §6.2 `remoteHostReferenceInterlock` / 设计 §3.1 方案 A）。
  *
@@ -139,7 +139,7 @@ test("主机目录读不出来 ⇒ 拒绝并给出与「主机不存在」不同
 test("生产装配把门注入两个引用 store（源码级守卫，防漏接）", () => {
 	// 门不注入 = 静默失去 INV-1 保护；而单靠单测看不出来（测试自己会构造带门的 store）。
 	// 正则刻意空白容忍（仓库规则：源码级契约测试不得依赖格式化结果）。
-	const entry = readFileSync("src/main/index.ts", "utf8");
+	const entry = mainIpcSource;
 	assert.match(entry, /createRemoteReferenceWriteGuard\s*\(/, "main/index.ts 必须构造引用写入门");
 	assert.match(entry, /new ProjectStore\([\s\S]{0,400}?referenceGuard/, "ProjectStore 必须收到 referenceGuard");
 	assert.match(entry, /new SessionCatalog\([\s\S]{0,2000}?referenceGuard/, "SessionCatalog 必须收到 referenceGuard");

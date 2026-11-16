@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // 用户反馈：插件面板只能从设置页/命令面板打开，期望像定时任务一样在侧边栏
 // 「新建/搜索/定时任务」下方有直接入口，点击打开统计页面。
@@ -38,7 +39,7 @@ test("dock rows only come from enabled plugins and share the panel atom open pat
 test("page panels render as a non-modal overlay over the session column, not a dialog", () => {
 	const overlay = readFileSync("src/renderer/src/components/plugins/HostPluginPageOverlay.tsx", "utf8");
 	const host = readFileSync("src/renderer/src/components/plugins/HostPluginPanelHost.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	// 页面式：非模态覆盖层，覆盖会话列但不卸载会话树（包裹在 relative 容器里）
 	assert.match(overlay, /panel\.presentation !== "page"/);
 	assert.match(overlay, /absolute inset-0/);

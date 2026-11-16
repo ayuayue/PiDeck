@@ -4,6 +4,8 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 function loadWebServiceModule() {
 	return loadTsCommonJs("src/main/web/WebServiceManager.ts", {
@@ -276,8 +278,8 @@ test("getStatus reports running shape and clears after stop", async () => {
 
 test("web:status channel is wired across shared ipc, main handler and preload", () => {
 	const sharedIpc = readFileSync("src/shared/ipc.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const systemIpc = systemIpcSource;
+	const preload = preloadSource;
 	assert.match(sharedIpc, /webServiceStatus:\s*"web:status"/);
 	assert.match(systemIpc, /ipcMain\.handle\(ipcChannels\.webServiceStatus/);
 	assert.match(preload, /ipcChannels\.webServiceStatus/);

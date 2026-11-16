@@ -128,3 +128,42 @@ test("末段是思考块时不提升（正文全部是中间回复）", () => {
 	assert.equal(turn.liveTextId, undefined);
 	assert.equal(turn.interimCount, 1);
 });
+
+/** 给消息补 UIMessage.metadata（历史转换写入 timestamp/endedAt/model 的位置）。 */
+const withMeta = (message, metadata) => ({ ...message, metadata });
+
+test("回合时间与模型：起点取触发用户消息、终点取最后消息 endedAt、模型取最后带 model 的段", () => {
+	const frame = [
+		withMeta(user("u1", "问题"), { timestamp: 1000 }),
+		withMeta(assistant("a1", [text("中间回答")]), { timestamp: 1100, endedAt: 2500 }),
+		withMeta(assistant("a2", [tool("t2"), text("最终回答")]), { timestamp: 2600, endedAt: 4200 }),
+		withMeta(assistant("a3", [text("补充")]), { timestamp: 4300, endedAt: 6000, model: { provider: "anthropic", modelId: "claude-sonnet-4-5" } }),
+	];
+	const turn = turnOf(groupTimelineEntries(frame), 0);
+	assert.equal(turn.startedAt, 1000, "回合起点用触发它的用户消息时间，不是首条 assistant 时间");
+	assert.equal(turn.endedAt, 6000, "回合终点取最后一条消息的结束点（pi 终态 meta.endedAt）");
+	assert.deepEqual(JSON.parse(JSON.stringify(turn.model)), { provider: "anthropic", modelId: "claude-sonnet-4-5" });
+});
+
+test("回合时间在缺元数据时退化：无用户时间用首条 assistant，缺 endedAt 用 timestamp", () => {
+	// 完全没有时间元数据（旧服务端/实时帧）→ 不显示时间，也不伪造 0
+	const bare = turnOf(groupTimelineEntries([assistant("a1", [text("无提问")]), assistant("a2", [text("继续")])]), 0);
+	assert.equal(bare.startedAt, undefined);
+	assert.equal(bare.endedAt, undefined);
+	assert.equal(bare.model, undefined);
+
+	// 没有用户消息时间：起点回退第一条带时间的 assistant
+	const noUser = [withMeta(assistant("n1", [text("答")]), { timestamp: 2100 }), withMeta(assistant("n2", [text("续")]), { timestamp: 3000 })];
+	const fallback = turnOf(groupTimelineEntries(noUser), 0);
+	assert.equal(fallback.startedAt, 2100);
+	assert.equal(fallback.endedAt, 3000);
+
+	const withTimestamps = [withMeta(assistant("b1", [text("答")]), { timestamp: 5000 }), withMeta(assistant("b2", [text("续")]), { timestamp: 6800 })];
+	const timed = turnOf(groupTimelineEntries(withTimestamps), 0);
+	assert.equal(timed.startedAt, 5000);
+	assert.equal(timed.endedAt, 6800, "缺 endedAt 时回退消息时间戳");
+
+	// 模型取最后一条带 model 的 assistant（前面段有、后面段缺也保留）
+	const modelCarried = [withMeta(assistant("c1", [text("答")]), { timestamp: 1, model: { provider: "p", modelId: "m" } }), withMeta(assistant("c2", [text("续")]), { timestamp: 2 })];
+	assert.deepEqual(JSON.parse(JSON.stringify(turnOf(groupTimelineEntries(modelCarried), 0).model)), { provider: "p", modelId: "m" });
+});

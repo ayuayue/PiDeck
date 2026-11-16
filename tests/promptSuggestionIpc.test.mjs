@@ -158,7 +158,7 @@ function assertNoUserContent(lines) {
 	for (const { text } of CONTEXT) assert.equal(dumped.includes(text), false, `日志不得包含用户内容：${text}`);
 }
 
-test("日志：发起时记模型与上下文条数，完成时记字数与耗时且不含用户内容", async () => {
+test("日志：发起时记模型与上下文条数，完成时记字数、耗时与结果文本，且不含用户内容", async () => {
 	const h = registerWithLogs();
 	await h.run(createEvent().event, VALID);
 	const startLine = linesContaining(h.lines, "输入预测发起")[0];
@@ -172,7 +172,21 @@ test("日志：发起时记模型与上下文条数，完成时记字数与耗�
 	assert.equal(doneLine?.level, "info");
 	assert.match(doneLine.message, /4 字/);
 	assert.match(doneLine.message, /\d+ms/);
+	// 结果文本是排查「ghost 没出现/内容不对」的唯一依据，必须落在日志里。
+	assert.ok(doneLine.message.includes("看看测试"), doneLine.message);
 	assertNoUserContent(h.lines);
+});
+
+test("日志：结果折叠成单行并按展示上限截断，字数仍按原始文本", async () => {
+	const h = registerWithLogs();
+	await h.run(createEvent().event, VALID);
+	h.callbacks().onDone(`第一句\n${"长".repeat(300)}`);
+	const doneLine = linesContaining(h.lines, "输入预测完成")[0];
+	assert.match(doneLine.message, /304 字/);
+	assert.equal(doneLine.message.includes("\n"), false);
+	assert.ok(doneLine.message.includes("第一句"));
+	assert.ok(doneLine.message.includes(`${"长".repeat(196)}…`), "超长结果应截断并以省略号收尾");
+	assert.equal(doneLine.message.includes("长".repeat(201)), false);
 });
 
 test("日志：模型返回空内容写明 0 字，与失败区分开", async () => {
@@ -182,6 +196,7 @@ test("日志：模型返回空内容写明 0 字，与失败区分开", async ()
 	const doneLine = linesContaining(h.lines, "输入预测完成")[0];
 	assert.equal(doneLine?.level, "info");
 	assert.match(doneLine.message, /0 字（模型返回空内容）/);
+	assert.equal(doneLine.message.includes("结果「"), false);
 });
 
 test("日志：中断与失败各有独立记录（含错误分类与原因）", async () => {

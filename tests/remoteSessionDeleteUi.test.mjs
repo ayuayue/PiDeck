@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 远端归档会话永久删除的**渲染层契约**：状态机门槛、i18n 文案、CLI 入口接线。
@@ -115,10 +119,10 @@ test("zh/en copy for the irreversible confirmation exists and matches the closed
 
 test("channels, preload, main handler and preview stub stay wired; request carries only a session id", () => {
 	const channels = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
-	const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const preload = preloadSource;
+	const sessionIpc = sessionIpcSource;
+	const preview = previewApiSource;
+	const app = rendererAppSource;
 	const sidebarContent = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
 	const sidebarComponents = readFileSync("src/renderer/src/components/sidebar/SidebarComponents.tsx", "utf8");
 	assert.equal(ipcChannels.sessionsCatalogDeleteArchivedRemote, "sessions:catalog-delete-archived-remote");

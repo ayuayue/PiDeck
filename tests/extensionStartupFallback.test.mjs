@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -93,7 +94,7 @@ test("formats fallback debug that users can paste to the AI", () => {
 });
 
 test("AgentManager wires handshake fallback but never persists --no-extensions globally", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	const fallbackModule = readFileSync("src/main/pi/extensionStartupFallback.ts", "utf8");
 	// 启动期诊断队列已迁入 startupDiagnosticsQueue.ts（AgentManager 拆分 Wave 4A）
 	const diagnosticsModule = readFileSync("src/main/pi/startupDiagnosticsQueue.ts", "utf8");
@@ -171,7 +172,7 @@ test("禁用扩展启动会提示用户：每次运行一次 toast + 去设置�
 	assert.match(agent, /this\.disabledExtensionsNoticesSent\.has\(reason\)/);
 	const notifyBlock = agent.slice(agent.indexOf("notifyExtensionsDisabled(agentId: string"), agent.indexOf("notifyWhitelistSkipped"));
 	assert.equal((notifyBlock.match(/this\.queueStartupDiagnostic\(agentId, \{/g) ?? []).length, 1, "提示统一经诊断队列单点入队");
-	assert.equal((readFileSync("src/main/pi/AgentManager.ts", "utf8").match(/this\.startupDiagnostics\.notifyExtensionsDisabled\(/g) ?? []).length, 2, "创建与重连两条启动路径都要提示");
+	assert.equal((agentManagerSource.match(/this\.startupDiagnostics\.notifyExtensionsDisabled\(/g) ?? []).length, 2, "创建与重连两条启动路径都要提示");
 	// 动作只以符号 id 下发，UI 路径留在渲染层
 	assert.match(agent, /action: copy\.noticeAction/);
 

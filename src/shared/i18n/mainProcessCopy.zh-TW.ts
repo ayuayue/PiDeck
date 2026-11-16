@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 3ffeb3b05a0faf58b37f9cfcbadcf14307fbd8838f84546c9eaafc98b34a5f58（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: bff8ed61c856b2de938cdfcd3c097e0b37485a398f82c2e7230d50084d077a76（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import type { MainProcessTranslationKey } from "./mainProcessCopy";
 
@@ -23,6 +23,9 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"remote.piTooOld": "該主機的 pi 版本低於 PiDeck 支援的下限。請升級該主機的 pi 後重試。",
 	"remote.piVersionUnreadable": "讀不到該主機 pi 的版本（命令沒有返回可解析的版本號）。請在該主機手動執行 pi --version 確認。",
 	"remote.piVersionUnverified": "該主機 pi 的版本號無法核驗（返回內容與預期形態不符）。請手動確認該主機的 pi 版本。",
+	// 会话身份两个稳定码：都是「pi 把会话放到了 PiDeck 读不到的位置」，必须给出可执行的下一步。
+	"remote.sessionLocatorUnresolved": "遠端 pi 把會話檔案寫到了 PiDeck 無法識別的目錄（常見原因：用 --session-dir 或 PI_CODING_AGENT_SESSION_DIR 指定了會話目錄），因此這條會話無法登記。請檢查該主機上 pi 的會話目錄配置。",
+	"remote.sessionDirInvalid": "該主機 pi 的 user-level settings.json 裡的 sessionDir 不可用（相對路徑、越出 home 或含非法字元），PiDeck 拒絕掃描以免展示一份錯的會話列表。請改成 home 之內的絕對路徑。",
 	// 两种成因：回退只作用于本次运行（不写入设置），设置开关则是每个新会话都会复现的持续成因。
 	"diagnostic.extensionsDisabledFallback": "擴充套件載入失敗，本次執行已臨時停用擴充套件（不寫入設定，「停用擴充套件啟動」開關保持原樣），下次啟動會重新嘗試載入擴充套件。可在本會話把下面的錯誤資訊發給 AI，協助排查擴充套件問題。",
 	"diagnostic.extensionsDisabledBySetting": "本次啟動未載入任何擴充套件：設定 → 開發設定 的「停用擴充套件啟動」處於開啟狀態，todo/plan/ask 等擴充套件能力不可用。如非排查擴充套件問題需要，請關閉該開關後重啟會話。",

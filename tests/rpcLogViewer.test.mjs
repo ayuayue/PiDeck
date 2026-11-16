@@ -11,12 +11,18 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+
 const viewer = readFileSync("src/renderer/src/components/workspace/RpcLogPanel.tsx", "utf8");
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const agentManager = agentManagerSource;
 const rpcLiveLogTap = readFileSync("src/main/pi/rpcLiveLogTap.ts", "utf8");
 const rpcLogger = readFileSync("src/main/logging/RpcLogger.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const systemIpc = systemIpcSource;
+const preload = preloadSource;
 const sidebarParts = readFileSync("src/renderer/src/components/sidebar/SidebarParts.tsx", "utf8");
 const sidebarContent = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
@@ -235,7 +241,7 @@ test("RpcLogger keeps a larger live ring buffer with filtered getLive and data t
 });
 
 test("退出清理把日志缓冲刷出排在建会话进程停止之后", () => {
-	const mainIndex = readFileSync("src/main/index.ts", "utf8");
+	const mainIndex = mainIpcSource;
 	assert.match(mainIndex, /quitCleanup\.register\("rpc-logs-flush", \(\) => rpcLogger\?\.flushPending\(\)\);/);
 	// QuitCleanupRegistry.runAll 按登记顺序执行：pi-agents 必须在前（停进程时还会产生最后几条日志）
 	const piAgentsAt = mainIndex.indexOf('quitCleanup.register("pi-agents"');
@@ -352,7 +358,7 @@ test("model trace IPC: on-demand read + save path accepts the model direction", 
 });
 
 // ── 开启自动打开 + 抽屉活动栏 rpcLog 专属 Tab（默认隐藏，开启记录才显示）──
-const appTsx = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appTsx = rendererAppSource;
 const rpcLogAtoms = readFileSync("src/renderer/src/atoms/rpc-log-atoms.ts", "utf8");
 const zhCopy = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const enCopy = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
@@ -385,8 +391,8 @@ test("drawer rail gains a gated rpcLog tab: 默认隐藏，开启记录且 agent
 // ── DSH 实时 RPC 日志广播（与 pi 同面板同语义；主进程装配与分流）──
 const dshManager = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
 const liveBroadcaster = readFileSync("src/main/logging/RpcLogLiveBroadcaster.ts", "utf8");
-const mainIndex = readFileSync("src/main/index.ts", "utf8");
 
+const mainIndex = mainIpcSource;
 test("DSH 记录与实时广播共用同一次 push 截断结果，观看登记成对清理", () => {
 	// 落盘与广播共用 RpcLogger.push 返回的截断副本（与 getLive 初始历史同形态）
 	assert.match(dshManager, /const liveEntry = this\.rpcLogger\?\.push\(\{/);

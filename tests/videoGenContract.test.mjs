@@ -1,7 +1,10 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 生视频契约（对标 tests/imageGenContract.test.mjs）：
  * IPC 三处同步、pideck-video 协议装配、CSP 白名单、渲染层接线、i18n 三语对齐。
@@ -10,13 +13,13 @@ import test from "node:test";
 
 const read = (path) => readFileSync(path, "utf8");
 const ipc = read("src/shared/ipc.ts");
-const preload = read("src/preload/index.ts");
-const mainIndex = read("src/main/index.ts");
+const preload = preloadSource;
+const mainIndex = mainIpcSource;
 const videogenIpc = read("src/main/ipc/videogenIpc.ts");
 const composerComponents = read("src/renderer/src/components/session/ComposerComponents.tsx");
 const controller = read("src/renderer/src/hooks/useSessionComposerController.ts");
 const finalAnswer = read("src/renderer/src/components/session/turn/FinalAnswer.tsx");
-const timeline = read("src/renderer/src/hooks/useSessionTimelineController.ts");
+const timeline = sessionTimelineControllerSource;
 const html = read("src/renderer/index.html");
 const zh = read("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 const en = read("src/renderer/src/i18n/rendererCopy.en-US.ts");

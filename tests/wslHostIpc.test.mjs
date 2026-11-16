@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 function register(dir, references = { referencedHostIds: async () => new Set() }) {
 	const handlers = new Map();
@@ -25,7 +26,7 @@ function register(dir, references = { referencedHostIds: async () => new Set() }
 
 test("WSL host channels are declared, bridged and registered", async () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	assert.match(shared, /remoteHostsWslList:\s*"remote:wsl-hosts-list"/);
 	assert.match(shared, /remoteHostsWslRemove:\s*"remote:wsl-hosts-remove"/);
 	assert.match(preload, /listWslHosts:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteHostsWslList\)/);

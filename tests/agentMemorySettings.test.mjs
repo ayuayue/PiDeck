@@ -12,6 +12,10 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 const { createDefaultAppSettings } = loadTsCommonJs("src/shared/types/settings.ts");
 
 /** 隔离 userData/home，避免默认值测试读写真实设置或 pi 配置。 */
@@ -67,7 +71,7 @@ test("非法 IPC 入参不会打开开关（只接受布尔值）", async (t) =>
 });
 
 test("渲染层、预览、词典与锚点都接上了这个开关", () => {
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const preview = previewApiSource;
 	assert.match(preview, /agentMemoryEnabled\s*:\s*false\b/);
 
 	const memoryTab = readFileSync("src/renderer/src/components/app/settings/AgentMemoryTab.tsx", "utf8");
@@ -99,7 +103,7 @@ test("自动学习开关：默认关、依赖启用开关、四端接线齐全",
 	assert.match(store, /agentMemoryAutoLearnEnabled:\s*false/, "SettingsStore 缺默认值");
 	assert.match(store, /"agentMemoryAutoLearnEnabled" in safePatch/, "SettingsStore 缺非法入参守卫");
 
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const preview = previewApiSource;
 	assert.match(preview, /agentMemoryAutoLearnEnabled\s*:\s*false/);
 
 	const memoryTab = readFileSync("src/renderer/src/components/app/settings/AgentMemoryTab.tsx", "utf8");
@@ -110,7 +114,7 @@ test("自动学习开关：默认关、依赖启用开关、四端接线齐全",
 	assert.match(fieldAnchors, /slug: "memory-auto-learn"/);
 
 	// 学习循环必须挂在「回合结算」上，并且真的读这两个开关（否则开了也不跑）。
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	assert.match(main, /runLearnerForAgent\(/, "主进程没接带后端会话 ID 映射的学习入口");
 	assert.match(main, /!\s*settings\??\.agentMemoryEnabled\s*\|\|\s*!\s*settings\.agentMemoryAutoLearnEnabled/, "学习循环必须同时看两个开关");
 	for (const key of ["settings.agentMemoryAutoLearn", "settings.agentMemoryAutoLearnDesc"]) {
@@ -121,11 +125,11 @@ test("自动学习开关：默认关、依赖启用开关、四端接线齐全",
 });
 
 test("设置变更会触发注册/撤销（IPC 与主进程两端都接了）", () => {
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemIpc = systemIpcSource;
 	assert.match(systemIpc, /reactToAgentMemorySettings\?/);
 	assert.match(systemIpc, /"agentMemoryEnabled" in patch[\s\S]{0,120}reactToAgentMemorySettings/);
 
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const main = mainIpcSource;
 	assert.match(main, /reactToAgentMemorySettings:/);
 	// 启动时按开关注册/撤销，而不是无条件写用户 mcp.json
 	assert.match(main, /syncAgentMemoryRegistration\(\{\s*enabled:\s*settingsStore\.get\(\)\.agentMemoryEnabled/);

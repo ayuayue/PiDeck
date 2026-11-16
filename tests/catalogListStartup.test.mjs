@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+const sessionIpc = sessionIpcSource;
 const scanner = readFileSync("src/main/sessions/SessionScanner.ts", "utf8");
 const projectSync = readFileSync("src/renderer/src/hooks/useProjectSync.ts", "utf8");
 

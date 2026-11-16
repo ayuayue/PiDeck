@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 // 供应商卡片自定义顺序纯函数：应用顺序 / 拖拽落点 / 手柄方向键 / 边界
 const { buildProviderRank, applyProviderOrder, buildProviderOrderScope, moveProviderRelative, neighborProvider, moveProviderByStep } = loadTsCommonJs("src/renderer/src/utils/providerOrder.ts");
@@ -90,7 +91,7 @@ test("moveProviderByStep 在完整列表上位移，跳过隐藏项且不打乱�
 
 test("契约完整性：供应商排序在主进程设置、配置页两处、DSH 页与选择器链路都接线到位", () => {
 	const read = (path) => readFileSync(path, "utf8");
-	const configModal = read("src/renderer/src/ConfigModal.tsx");
+	const configModal = configModalSource;
 	const settingsTypes = read("src/shared/types/settings.ts");
 	const settingsStore = read("src/main/settings/SettingsStore.ts");
 	const modelsTab = read("src/renderer/src/config/ModelsTab.tsx");
@@ -151,7 +152,7 @@ test("契约完整性：供应商排序在主进程设置、配置页两处、DS
 
 test("契约完整性：「模型」「认证」两页共享同一份顺序（providerOrderScope），拖完不会互相重置", () => {
 	const read = (path) => readFileSync(path, "utf8");
-	const configModal = read("src/renderer/src/ConfigModal.tsx");
+	const configModal = configModalSource;
 	const modelsTab = read("src/renderer/src/config/ModelsTab.tsx");
 	const authTab = read("src/renderer/src/config/AuthTab.tsx");
 
@@ -174,7 +175,7 @@ test("契约完整性：「模型」「认证」两页共享同一份顺序（pr
 
 test("契约完整性：排序提示与「恢复默认顺序」在四个页都渲染，重置写空数组", () => {
 	const read = (path) => readFileSync(path, "utf8");
-	const configModal = read("src/renderer/src/ConfigModal.tsx");
+	const configModal = configModalSource;
 	const authTab = read("src/renderer/src/config/AuthTab.tsx");
 	const modelsTab = read("src/renderer/src/config/ModelsTab.tsx");
 	const dshCards = read("src/renderer/src/config/DshProviderCards.tsx");

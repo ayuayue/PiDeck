@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const loaderOptions = { globals: { Error } };
@@ -149,7 +150,7 @@ test("F4-6 懒实例化：registerAllDomains 装配完毕后所有域工厂调�
 });
 
 test("F4-7 装配点形状：registerAllDomains() 恰一次（排除 import 行）、位于 registerIpc() 之后、同层裸调用未被控制流包裹", () => {
-	const source = readFileSync(path.join(repoRoot, "src/main/index.ts"), "utf8");
+	const source = mainIpcSource;
 	const lines = source.split("\n");
 	const callIndexes = [];
 	lines.forEach((line, index) => {

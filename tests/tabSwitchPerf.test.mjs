@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 const historyReaderSource = readFileSync("src/main/pi/SessionHistoryReader.ts", "utf8");
 const fileServiceSource = readFileSync("src/main/fs/FileSystemService.ts", "utf8");
 const filesIpcSource = readFileSync("src/main/ipc/filesIpc.ts", "utf8");

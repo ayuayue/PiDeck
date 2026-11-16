@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
 test("system-wide selection is hidden and disabled by default", () => {
 	const types = read("src/shared/types/selectionTool.ts");
-	const main = read("src/main/index.ts");
+	const main = mainIpcSource;
 	const normalize = read("src/main/agents/agentProfileNormalize.ts");
 	const settings = read("src/renderer/src/components/app/settings/SelectionToolSettingsSection.tsx");
 	const shortcuts = read("src/shared/shortcuts.ts");

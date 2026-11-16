@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 
 const { resolveModelSpecFromCatalogs } = loadTsCommonJs("src/main/pi/modelCapabilityResolver.ts");
 const { buildPiAiCatalogIndex, parsePiAiCatalogArtifact } = loadTsCommonJs("src/main/pi/piAiBuiltinCatalog.ts");
@@ -139,7 +140,7 @@ test("解析链不再读 pi --list-models 的解析视图", () => {
 	const resolverSource = readFileSync("src/main/pi/modelCapabilityResolver.ts", "utf8");
 	assert.doesNotMatch(resolverSource, /getCachedModelList|pi-runtime|AvailableModel/, "resolver 不应再读取运行时模型列表");
 
-	const systemSource = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemSource = systemIpcSource;
 	const handler = /projectsGetModelSpec[\s\S]*?\n\t\}\);/.exec(systemSource)?.[0] ?? "";
 	assert.ok(handler.includes("resolveModelSpecFromCatalogs"), "systemIpc 仍应调用目录解析");
 	assert.doesNotMatch(handler, /getCachedModelList|runtimeModels/, "spec 查询不应再传运行时模型列表");

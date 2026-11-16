@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { readSessionCatalogSourceOrFile, readSessionCatalogSources } from "./helpers/sessionCatalogSources.mjs";
 
 const { HOST_REFERENCE_SOURCES } = loadTsCommonJs("src/main/remote/RemoteHostReferenceRegistry.ts");
 
@@ -95,7 +96,7 @@ const TYPE_FILES = readdirSync("src/shared/types")
 	.map((name) => `src/shared/types/${name}`);
 const CODEC_FILES = ["src/main/projects/projectStoreCodec.ts", "src/main/sessions/SessionCatalog.ts", "src/shared/projectLocation.ts"];
 
-function hostIdFields(filePath, content = readFileSync(filePath, "utf8")) {
+function hostIdFields(filePath, content = readSessionCatalogSourceOrFile(filePath)) {
 	const source = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true);
 	assert.equal(source.parseDiagnostics.length, 0, `${filePath} must parse before its references can be audited`);
 	const fields = [];
@@ -133,6 +134,6 @@ test("a new hostId field without a reference-source owner fails the contract", (
 	assert.throws(() => assertReferenceSourcesCovered(new Map([[typePath, mutatedType]])), /Every hostId field/);
 
 	const codecPath = "src/main/sessions/SessionCatalog.ts";
-	const mutatedCodec = `${readFileSync(codecPath, "utf8")}\nfunction futureDecoder() { return { hostId: "new-id" }; }\n`;
+	const mutatedCodec = `${readSessionCatalogSources()}\nfunction futureDecoder() { return { hostId: "new-id" }; }\n`;
 	assert.throws(() => assertReferenceSourcesCovered(new Map([[codecPath, mutatedCodec]])), /Every hostId field/);
 });

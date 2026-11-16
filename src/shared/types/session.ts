@@ -24,8 +24,8 @@ export type ChatMessage = {
 	images?: ImageContent[]; // 用户消息附件 / 工具结果里内联的图片
 	/** 生视频产物（meta.videoGen 消息）：只有落盘 ref 形态，展示走 pideck-video:// 协议 */
 	videos?: VideoContent[];
-	/** 思考内容：来自 thinking 内容块，用于展示模型推理过程 */
-	thinking?: string;
+	/** 思考内容：来自 thinking 内容块，用于展示模型推理过程 */ thinking?: string;
+	/** 去掉思考副本的正文（assistant 且带思考时提供）；`text` 自带 `<thinking>` 副本，保持原样 */ textWithoutThinking?: string;
 	/** 思考段开始时间（可选；缺省回退 message.timestamp） */
 	thinkingStartedAt?: number;
 	/** 思考段结束时间（可选；缺省回退 message.timestamp） */
@@ -331,6 +331,7 @@ export type SessionRecord = {
 	sideTask?: boolean;
 	/** 运行时后端（pi/dsh）；缺省 "pi"，旧 catalog 数据无需迁移。 */
 	backend?: import("./agent").AgentBackend;
+	additionalDirectories?: string[]; // ACP 附加根目录（#560）：会话级完整列表，session/new 与 session/load 都按它下发
 	/** Canonical file-backed location; absent for DSH, imagegen, and anonymous sessions. */
 	locator?: SessionLocator;
 	/** Local-only compatibility path; use locator for history routing. */
@@ -341,17 +342,15 @@ export type SessionRecord = {
 	parentSessionId?: string;
 	parentSessionPath?: string;
 	/**
-	 * fork 会话标记（pi fork/clone 产物）：fork 身份元数据；(fork) 标题后缀已由主进程
-	 * 物理写入会话名（见 main/sessions/sessionForkTitle.ts），展示层不再按标记拼装。
+	 * fork 会话标记（pi fork/clone 产物）：fork 身份元数据；(fork) 后缀已由主进程物理写入会话名。
 	 * 与「子代理/嵌套子会话」（parentSessionPath 会被侧栏折叠到父行下）语义不同，两者独立存储。
 	 */
 	forked?: boolean;
 	/** 同 SessionSummary.supersededBy：重发/编辑 fork 化替换后指向子会话 id，列表默认过滤。 */
 	supersededBy?: string;
 	/**
-	 * #354 身份归并别名：启动期修复把历史重复身份记录并入本条时，被吸收记录的历史稳定 ID。
-	 * 这些 ID 仍被 settings 置顶 / 渲染层持久化的 Tab 置顶与最近活动引用，渲染层据此把引用
-	 * 迁移到本条 id（解析入口见 shared/sessionIdAliases.ts）。缺省 = 无归并历史，旧数据无需迁移。
+	 * #354 身份归并别名：启动期修复把历史重复身份记录并入本条时，被吸收记录的历史稳定 ID；这些 ID
+	 * 仍被 settings 置顶 / Tab 置顶与最近活动引用，渲染层据此迁移到本条 id（shared/sessionIdAliases.ts）。
 	 */
 	mergedSessionIds?: string[];
 	projectPath?: string;
@@ -465,6 +464,7 @@ export type UpdateSessionRecordInput = {
 	backend?: import("./agent").AgentBackend;
 	/** ACP 工具预选（AcpToolConfig.id）：与 backend:"acp" 配套，仅草稿期可改；null = 清除预选。 */
 	acpToolId?: string | null;
+	additionalDirectories?: string[]; // ACP 附加根目录（#560）：缺省 = 不改；[] = 清空
 	/** 会话级代理覆盖；null = 恢复跟随全局（清除已保存覆盖）。 */
 	proxy?: SessionProxyOverride | null;
 	/** 侧边任务标记：true = 收进侧边任务面板，null = 释放回普通会话（面板不再列出，会话本身保留）。 */
@@ -634,7 +634,7 @@ export type SessionUiResponseInput = {
 	response: AgentUiResponse;
 };
 
-/** 会话分支树（pi get_tree RPC 的瘦身投影）：主进程在 IPC 边界截断预览文本，渲染层只拿导航所需字段。 */
+/** 分支树节点（扁平投影：不再带 children；为何扁平与 2467 层实测见 branchTreeView.hydrateBranchTree，#553）。 */
 export type SessionBranchNode = {
 	id: string;
 	parentId: string | null;
@@ -646,11 +646,10 @@ export type SessionBranchNode = {
 	timestamp: string;
 	/** 分支摘要（branch_summary / label entry 解析结果）。 */
 	label?: string;
-	children: SessionBranchNode[];
 };
 
 export type SessionBranchTree = {
-	roots: SessionBranchNode[];
+	/** 全量节点，按文件追加顺序（同父兄弟的相对顺序即数组顺序）。 */ nodes: SessionBranchNode[];
 	/** 当前叶子（活跃分支末端）；空会话为 null。 */
 	leafId: string | null;
 };

@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
 const HOST_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
@@ -54,7 +55,7 @@ test("三处同步：shared 定义通道名、main 注册同一批 handler、pre
 	assert.equal(ipcChannels.remoteTrustClear, "remote:trust-clear");
 	const handlers = createIpc({ enabled: true, trust: () => createService() });
 	assert.deepEqual([...handlers.keys()].sort(), [ipcChannels.remoteTrustList, ipcChannels.remoteTrustSet, ipcChannels.remoteTrustClear].sort());
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	for (const name of ["remoteTrustList", "remoteTrustSet", "remoteTrustClear"]) assert.match(preload, new RegExp(`ipcChannels\\.${name}`), `preload 必须经共享常量转发 ${name}`);
 });
 

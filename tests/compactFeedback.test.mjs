@@ -1,6 +1,8 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { dshAgentManagerSource } from "./helpers/dshAgentManagerSources.mjs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
@@ -109,7 +111,7 @@ test("owner takeover is classified as routed / owned-with-reason, never silent",
 });
 
 test("pi compact path consults the context owner before sending the RPC", () => {
-	const pi = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const pi = agentManagerSource;
 	const owner = readFileSync("src/main/pi/compactionOwner.ts", "utf8");
 	// 探测 + 改写/拒绝必须在发 compact RPC 之前
 	assert.match(pi, /private async resolveSessionCompactionOwnership\(/);
@@ -172,7 +174,7 @@ test("composer compact path toasts done and maps inProgress", () => {
 });
 
 test("pi compact failure resolves the cancel source instead of swallowing it", () => {
-	const pi = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const pi = agentManagerSource;
 	// 来源判定必须用真实证据：compaction_start→end 耗时 + 我们自己的 abort 时间
 	assert.match(pi, /COMPACT_CANCELLED_BY_OWNER/);
 	assert.match(pi, /COMPACT_CANCELLED_BY_USER_ABORT/);
@@ -189,8 +191,8 @@ test("pi compact failure resolves the cancel source instead of swallowing it", (
 });
 
 test("context overflow is carried through the main and DSH runtime paths", () => {
-	const pi = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-	const dsh = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
+	const pi = agentManagerSource;
+	const dsh = dshAgentManagerSource;
 	assert.match(pi, /isContextOverflowError\(errorMsg\)/);
 	assert.match(pi, /contextOverflowByAgent/);
 	assert.match(dsh, /isContextOverflowError\(reasonMessage\)/);
@@ -198,11 +200,11 @@ test("context overflow is carried through the main and DSH runtime paths", () =>
 });
 
 test("pi and dsh compact throw already compacting instead of returning success", () => {
-	const pi = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const pi = agentManagerSource;
 	assert.match(pi, /throw new Error\("already compacting"\)/);
 	assert.doesNotMatch(pi, /Compact skipped: already compacting[\s\S]{0,120}return this\.getRuntimeState\(agentId\)/);
-	const dsh = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
-	assert.match(dsh, /if \(runtime\.isCompacting\) \{\s*\n\s*throw new Error\("already compacting"\)/);
+	const dsh = [dshAgentManagerSource, readFileSync("src/main/dsh/manager/dshCompact.ts", "utf8")].join("\n");
+	assert.match(dsh, /if \(runtime\.isCompacting\) \{\s*\n\s*throw new Error\("already compacting"\)/, "压缩守卫在 manager/dshCompact（#557 抽出的模块）");
 });
 
 test("locales keep compact feedback keys in sync", () => {

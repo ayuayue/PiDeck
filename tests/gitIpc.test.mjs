@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainAssemblySource } from "./helpers/mainIpcSources.mjs";
 
-const entry = readFileSync("src/main/index.ts", "utf8");
+const entry = mainAssemblySource;
 const gitIpc = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
 
 test("Git IPC is registered through one-way service dependencies", () => {

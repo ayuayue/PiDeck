@@ -98,6 +98,9 @@ export function ProviderConnectionForm(props: {
 
 	/** 高级字段保留提示（可选 slot；草稿页无未知字段时不传）。 */
 	advancedHint?: ReactNode;
+
+	/** 该供应商的凭据在 pi 的 `auth.json` 里时的摘要（见 ProviderEndpointFields.authKeyHint）。 */
+	authKeyHint?: { length: number; tail: string } | null;
 }) {
 	// User-Agent 是「单个可输入下拉」：内置预设在下拉里挑，也能直接手写任意值。
 	// 不再拆成「下拉选预设 + 另一个输入框」——两套控件会互相打架
@@ -112,7 +115,7 @@ export function ProviderConnectionForm(props: {
 
 	return (
 		<div className="config-provider-form grid gap-2.5">
-			<ProviderEndpointFields baseUrl={props.baseUrl} api={props.api} apiKey={props.apiKey} onChangeBaseUrl={props.onChangeBaseUrl} onChangeApi={props.onChangeApi} onChangeApiKey={props.onChangeApiKey} />
+			<ProviderEndpointFields baseUrl={props.baseUrl} api={props.api} apiKey={props.apiKey} authKeyHint={props.authKeyHint} onChangeBaseUrl={props.onChangeBaseUrl} onChangeApi={props.onChangeApi} onChangeApiKey={props.onChangeApiKey} />
 			<div className="config-provider-field items-center">
 				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.userAgent")}</Label>
 				<div className="config-header-field">

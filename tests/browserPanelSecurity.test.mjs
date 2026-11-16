@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const browserPanel = readFileSync("src/renderer/src/components/app/BrowserPanel.tsx", "utf8");
 const rendererTypes = readFileSync("src/renderer/src/types.d.ts", "utf8");
-const main = readFileSync("src/main/index.ts", "utf8");
+const main = mainIpcSource;
 // #115 U4：partition/白名单已收敛到共享模块，webview 管线主进程加固与浏览器安全模块都从它导入
 const browserSecurity = readFileSync("src/main/browser/browserSecurity.ts", "utf8");
 const filesSystemIpc = readFileSync("src/main/ipc/filesSystemIpc.ts", "utf8");
@@ -83,9 +84,12 @@ test("BrowserPanel guest navigation, redirects, windows, and permissions default
 });
 
 test("webview hardening is installed before the main window loads renderer content", () => {
-	const createWindow = functionBlock(main, "async function createWindow()", "\n\nfunction shouldUseDevRendererUrl");
-	const configureIndex = createWindow.indexOf("configureBrowserPanelWebviewHost(createdWindow)");
-	const loadIndex = createWindow.indexOf("mainWindow.loadURL");
+	// 建窗实现已迁到 src/main/window/mainWindow.ts：从函数起点切一段窗口装配体，仍校验「加固先于加载」。
+	const windowStart = main.indexOf("async function createMainWindow(");
+	assert.ok(windowStart >= 0, "expected createMainWindow in the window module");
+	const createWindow = main.slice(windowStart, windowStart + 30000);
+	const configureIndex = createWindow.indexOf("configureBrowserPanelWebviewHost(");
+	const loadIndex = createWindow.indexOf(".loadURL(");
 	assert.ok(configureIndex >= 0, "expected webview hardening setup");
 	assert.ok(loadIndex >= 0, "expected renderer load");
 	assert.ok(configureIndex < loadIndex, "hardening must be installed before renderer load");

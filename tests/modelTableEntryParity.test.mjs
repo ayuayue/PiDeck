@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
@@ -72,7 +73,7 @@ test("两条入口的差异是「生效时机」而不是能力：页面按 mode
 });
 
 test("settings 回调与卡片 UA 写回在下游按 modelId 建键（不是行下标）", () => {
-	const configModal = read("src/renderer/src/ConfigModal.tsx");
+	const configModal = configModalSource;
 	const modelsTab = read("src/renderer/src/config/ModelsTab.tsx");
 	// ConfigModal：写 settings.json 与 modelOverrides 都按 modelId；空 id 直接不生效。
 	assert.match(configModal, /const handleUpdateModelThinkingLevelDefault = \(providerName: string, modelId: string, level: string\) => \{/);
@@ -85,7 +86,7 @@ test("settings 回调与卡片 UA 写回在下游按 modelId 建键（不是行�
 });
 
 test("供应商改名：按 provider 名建键的外部引用由替换写入接手（不留旧名字下的键）", () => {
-	const configModal = read("src/renderer/src/ConfigModal.tsx");
+	const configModal = configModalSource;
 	// settings.json 的 modelThinkingLevels 与 AppSettings.hiddenModels 都按 provider 名建键，
 	// 改名不处理就会静默失效（默认档位被 clamp、已隐藏模型重新出现）。供应商页交回的是
 	// 页内绝对快照，宿主按「旧名 → 最终名」替换式落盘：清旧前缀 + 写新前缀一次完成，

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const require = createRequire(import.meta.url);
 const typescript = require("typescript");
@@ -174,7 +175,7 @@ test("browser surface keeps one host node across drawer and fullscreen (no repar
 // 不能只在会话 outline 浮动按钮里 —— 否则无活跃会话时无法切到 git/browser。
 test("drawer host renders an injected activity rail while open", () => {
 	const rail = readFileSync("src/renderer/src/components/workspace/WorkspaceDrawerRail.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const shell = readFileSync("src/renderer/src/components/app/AppShell.tsx", "utf8");
 	// rail 组件：水平 tablist + 激活态（pure official：shadcn Button + 下缘指示条）
 	assert.match(rail, /role="tablist"/);

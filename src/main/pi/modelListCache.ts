@@ -29,6 +29,7 @@
 import { join } from "node:path";
 import { stat } from "node:fs/promises";
 import type { AvailableModel, ModelListFailReason, ModelListReport } from "../../shared/types";
+import { modelFromPiConfigEntry } from "./modelConfigEntry";
 import type { PiLocator } from "./PiLocator";
 import { stripAnsiCsi as stripAnsi } from "../../shared/ansiText";
 import type { SettingsStore } from "../settings/SettingsStore";
@@ -232,19 +233,8 @@ export function modelsFromPiConfig(modelsFile: unknown): AvailableModel[] {
 		const list = (config as { models?: unknown }).models;
 		if (!Array.isArray(list)) continue;
 		for (const item of list) {
-			if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-			const record = item as Record<string, unknown>;
-			if (typeof record.id !== "string" || !record.id) continue;
-			const input = record.input;
-			models.push({
-				provider,
-				id: record.id,
-				name: typeof record.name === "string" && record.name.trim() ? record.name.trim() : record.id,
-				reasoning: record.reasoning === true,
-				contextWindow: typeof record.contextWindow === "number" ? record.contextWindow : undefined,
-				maxTokens: typeof record.maxTokens === "number" ? record.maxTokens : undefined,
-				images: Array.isArray(input) ? input.includes("image") : undefined,
-			});
+			const model = modelFromPiConfigEntry(provider, item);
+			if (model) models.push(model);
 		}
 	}
 	return models;

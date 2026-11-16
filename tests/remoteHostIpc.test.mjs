@@ -4,6 +4,9 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 function handlersFor(input) {
 	const handlers = new Map();
 	const { registerRemoteHostIpc } = loadTsCommonJs("src/main/ipc/remoteHostIpc.ts", {
@@ -27,8 +30,8 @@ function handlerFor(input) {
 
 test("remote host channel is declared, bridged, and registered by the release policy", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const preload = preloadSource;
+	const main = mainIpcSource;
 	const catalog = readFileSync("src/main/remote/RemoteHostCatalogView.ts", "utf8");
 	assert.match(shared, /remoteHostsList:\s*"remote:hosts-list"/);
 	assert.match(preload, /remoteHosts:\s*\{[\s\S]*?ipcRenderer\.invoke\(ipcChannels\.remoteHostsList\)/);
@@ -44,7 +47,7 @@ test("remote host channel is declared, bridged, and registered by the release po
 
 test("connect, disconnect and diagnostics are declared, bridged and registered", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	// 三处同步：通道常量、preload 桥接、主进程 handler。漏任何一处就是运行时 undefined。
 	for (const [key, channel] of [
 		["remoteHostConnect", "remote:connect"],
@@ -459,7 +462,7 @@ test("add re-reads the revision after the draft write, so the offer is not made 
 
 test("the add-host channels are declared and bridged in all three places", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	for (const [key, channel] of [
 		["remoteHostScanConfig", "remote:scan-config"],
 		["remoteHostAdd", "remote:add"],
@@ -616,8 +619,8 @@ test("add approves the offer on the same pin store that issued it", async () => 
 
 test("the state-change channel is declared and bridged with an unsubscribe", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
-	const main = readFileSync("src/main/index.ts", "utf8");
+	const preload = preloadSource;
+	const main = mainIpcSource;
 	assert.match(shared, /remoteHostStateChanged:\s*"remote:state-changed"/);
 	assert.match(preload, /onStateChange:\s*\(callback[\s\S]{0,200}?subscribe\(ipcChannels\.remoteHostStateChanged/);
 	// 主进程必须把 manager 的每次迁移推给窗口，否则 connect 返回之后的迁移全部丢失。
@@ -1167,7 +1170,7 @@ test("switching between two projects on one host re-establishes the session with
 
 test("the legacy search channel is gone; the handle still serves files:search-page", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	// 2026-11-07 收口：renderer 只经公共 files:search-page，旧通道与 preload 方法一并下线。
 	assert.ok(!shared.includes("remoteProjectSearch:"), "旧通道常量必须已删除");
 	assert.ok(!preload.includes("searchProject:"), "preload 不再暴露旧入口");

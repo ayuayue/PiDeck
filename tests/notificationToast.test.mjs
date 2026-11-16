@@ -14,6 +14,8 @@ function loadToastModule() {
 	return loadTsCommonJs("src/main/notifications/notificationToast.ts");
 }
 
+const { NOTIFICATION_BODY_MAX_CHARS, NOTIFICATION_TITLE_MAX_CHARS } = loadTsCommonJs("src/main/notifications/notificationText.ts");
+
 test("toast XML 带品牌字标：appLogoOverride + file:// URI + 不裁圆", () => {
 	const { buildToastXml } = loadToastModule();
 	const xml = buildToastXml({
@@ -41,6 +43,22 @@ test("跳出 URL：有 sessionId 直达会话，无则只唤起应用", () => {
 	const { notificationLaunchUrl } = loadToastModule();
 	assert.equal(notificationLaunchUrl("sess-1"), "pideck://session/sess-1");
 	assert.equal(notificationLaunchUrl(undefined), "pideck://");
+});
+
+test("超长标题/正文按码点截断，避免 toast XML 膨胀", () => {
+	const { buildToastXml } = loadToastModule();
+	const xml = buildToastXml({ title: "题".repeat(1000), body: "文".repeat(5000), launch: "pideck://" });
+	const texts = [...xml.matchAll(/<text>([^<]*)<\/text>/g)].map((match) => match[1]);
+	assert.equal(Array.from(texts[0]).length, NOTIFICATION_TITLE_MAX_CHARS + 1);
+	assert.equal(Array.from(texts[1]).length, NOTIFICATION_BODY_MAX_CHARS + 1);
+	assert.ok(texts[0].endsWith("…"));
+	assert.ok(xml.length < 1000, "XML 不应随标题长度膨胀");
+});
+
+test("emoji 截断不拆代理对", () => {
+	const { buildToastXml } = loadToastModule();
+	const xml = buildToastXml({ title: "😀".repeat(100), body: "ok", launch: "pideck://" });
+	assert.doesNotMatch(xml, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
 });
 
 test("标题/正文/URL 中的 XML 元字符被转义，不破坏 XML 结构", () => {

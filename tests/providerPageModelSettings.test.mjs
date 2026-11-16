@@ -10,11 +10,12 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const dialog = readFileSync("src/renderer/src/config/AddProviderDialog.tsx", "utf8");
-const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+const modal = configModalSource;
 const table = readFileSync("src/renderer/src/config/ModelsTable.tsx", "utf8");
-const sourceFiles = ["src/renderer/src/ConfigModal.tsx", "src/renderer/src/config/AddProviderDialog.tsx", "src/renderer/src/config/ModelsTab.tsx", "src/renderer/src/config/addProviderDraft.ts"].map((path) => readFileSync(path, "utf8")).join("\n");
+const sourceFiles = [configModalSource, ...["src/renderer/src/config/AddProviderDialog.tsx", "src/renderer/src/config/ModelsTab.tsx", "src/renderer/src/config/addProviderDraft.ts"].map((path) => readFileSync(path, "utf8"))].join("\n");
 
 test("弹窗：三份页内副本按宿主当前状态预填，改 ID 时一起搬", () => {
 	// 读入口（宿主侧已保存 provider / 已加载 settings）

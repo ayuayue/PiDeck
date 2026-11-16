@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * 打开已有 pi 会话时主进程卡死（窗口关闭/最小化/设置都点不了）。
  *
@@ -63,17 +64,23 @@ function jsonlSession(turnCount) {
 }
 
 test("attaching a persisted Session never asks pi for get_messages", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-	const createUnlocked = source.slice(source.indexOf("private async createUnlocked"), source.indexOf("\n\tasync rename("));
+	const source = agentManagerSource;
+	// 创建域已迁到 pi/agentFactoryLocal.ts（宿主只留同名薄包装，不再是 async）：
+	// 从实现起点切到下一个文件边界（聚合面用 "// <path>" 分隔），避免把后续文件卷进否定断言。
+	const createStart = source.indexOf("private async createUnlocked");
+	assert.ok(createStart >= 0, "createUnlocked implementation must be in the aggregate");
+	const nextFile = source.indexOf("\n// src/main/pi/", createStart + 10);
+	const createUnlocked = source.slice(createStart, nextFile > createStart ? nextFile : undefined);
 	// 握手后历史必须走 JSONL 尾部；get_messages 单行 JSON.parse 会冻住整个 Electron。
 	assert.match(createUnlocked, /readRecentMessagesFromSessionFile/);
 	assert.doesNotMatch(createUnlocked, /client\.request\(\{\s*type:\s*"get_messages"/);
 });
 
 test("loadMessages falls back to the session file, not get_messages, when a path exists", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-	const start = source.indexOf("async loadMessages(");
-	const end = source.indexOf("private getAgentSessionIdentityDefaults");
+	const source = agentManagerSource;
+	// 聚合面里宿主只留薄包装、实现体在域协作者（runtimeHistoryLoader）后半段：从最后一个定义切。
+	const start = source.lastIndexOf("async loadMessages(");
+	const end = source.indexOf("reloadMessagesAfterCompaction(agentId: string)", start);
 	assert.ok(start >= 0 && end > start, "loadMessages slice must be non-empty");
 	const loadMessages = source.slice(start, end);
 	// 编辑/删除/重试若漏 earlyPromise，旧实现会再发 get_messages，大会话二次冻死。

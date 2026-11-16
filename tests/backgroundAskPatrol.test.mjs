@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const runtimeNotification = loadTsCommonJs("src/renderer/src/utils/runtimeNotification.ts");
 
@@ -46,7 +47,7 @@ test("源码契约：巡检收敛到单点，runtime 控制器不再订全局 Ma
 	assert.doesNotMatch(controller, /useAtomValue\(sessionRuntimeUiByIdAtom\)/, "M7：全局 UI Map 订阅移出分栏 hook");
 	assert.doesNotMatch(controller, /useAtomValue\(sessionRecordsAtom\)/, "M7：全局 records Map 订阅移出分栏 hook");
 
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /useBackgroundAskPatrol\(/, "App 级单点挂载");
 
 	const patrol = readFileSync("src/renderer/src/hooks/useBackgroundAskPatrol.ts", "utf8");

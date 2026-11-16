@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionComposerControllerSource } from "./helpers/sessionComposerControllerSources.mjs";
 import { COMPOSER_ATTACHMENT_BUDGET_BYTES, attachmentBytes, base64DataBytes, dataUrlToFile, imageMimeTypeFromPath, isImageFilePath } from "../src/renderer/src/utils/composerImages.ts";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /**
  * 会话附件两条修复的回归测试：
@@ -48,8 +50,8 @@ test("dataUrlToFile 解码 base64 字节、MIME 与文件名正确", async () =>
 
 const filesSystemIpc = readFileSync("src/main/ipc/filesSystemIpc.ts", "utf8");
 const filesIpc = readFileSync("src/main/ipc/filesIpc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const controller = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+const preload = preloadSource;
+const controller = sessionComposerControllerSource;
 
 test("附件选择器默认仅选文件，includeDirectories 才同时选目录", () => {
 	// 默认 properties 不含 openDirectory（Windows 上并存会退化为「只选文件夹」）

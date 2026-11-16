@@ -19,8 +19,9 @@ test("layout: terminal dock open/shell/collapse", async ({ window }) => {
 	await window.keyboard.press("Enter");
 	await expect(window.locator(".message-timeline")).toContainText("Mock 回复：「终端预热」流式渲染验证完成", { timeout: 20_000 });
 
-	// outline 右侧条上的终端按钮（aria-label 终端）
-	await window.getByRole("button", { name: "终端", exact: true }).first().click();
+	// 终端入口已从 outline 悬浮条挪到会话头部「更多运行操作」菜单（SessionActionsControl）
+	await window.getByRole("button", { name: "更多运行操作", exact: true }).click();
+	await window.getByRole("menuitem", { name: "终端", exact: true }).click();
 
 	const dock = window.locator(".terminal-dock");
 	await expect(dock).toBeVisible({ timeout: 8000 });
@@ -84,7 +85,8 @@ test("layout: terminal stays open while the agent streams", async ({ window }) =
 	await window.keyboard.press("Enter");
 	await expect(window.locator(".message-timeline")).toContainText("Mock 回复：「终端流式预热」流式渲染验证完成", { timeout: 20_000 });
 
-	await window.getByRole("button", { name: "终端", exact: true }).first().click();
+	await window.getByRole("button", { name: "更多运行操作", exact: true }).click();
+	await window.getByRole("menuitem", { name: "终端", exact: true }).click();
 	const dock = window.locator(".terminal-dock");
 	await expect(dock).toBeVisible({ timeout: 8_000 });
 	await expect(dock).not.toHaveClass(/collapsed/);

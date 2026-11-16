@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { nextMainWindowVisualIntent, planMainWindowReveal } = loadTsCommonJs("src/main/windowReveal.ts");
-const main = readFileSync("src/main/index.ts", "utf8");
+const main = mainIpcSource;
 const pet = readFileSync("src/main/pet/index.ts", "utf8");
 const windowState = readFileSync("src/main/windowState.ts", "utf8");
 

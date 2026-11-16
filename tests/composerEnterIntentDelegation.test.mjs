@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionComposerControllerSource } from "./helpers/sessionComposerControllerSources.mjs";
 
-const controllerSource = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+const controllerSource = sessionComposerControllerSource;
 
 test("the Session composer delegates newline and IME intent to the shared behavior helper", () => {
 	assert.match(controllerSource, /getComposerEnterIntent\(event, sendShortcut\)/);

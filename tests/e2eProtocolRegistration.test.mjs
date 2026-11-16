@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 全局 deep link 协议注册（e2eProtocolRegistration.ts / #513）：
  * 注册表按 scheme 为键且全局唯一，打包态 E2E 实例若照旧注册 pideck://，
@@ -27,7 +27,7 @@ test("打包态 E2E 实例默认不注册，显式 opt-in 才注册", () => {
 });
 
 test("index.ts 接线：协议注册经决策函数并支持 PIDECK_E2E_REGISTER_PROTOCOL", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	assert.match(source, /if \(shouldRegisterDeepLinkProtocol\(\{ isPackaged: app\.isPackaged, isE2E, optIn: process\.env\.PIDECK_E2E_REGISTER_PROTOCOL === "1" \}\)\)/);
 	// 不得回退成只看 isPackaged 的裸注册
 	assert.doesNotMatch(source, /if \(app\.isPackaged\) \{\s*app\.setAsDefaultProtocolClient/);

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { readFeishuBridgeSources } from "./helpers/feishuBridgeSources.mjs";
+
 /**
  * 飞书资源下载字节上界回归（2026-12 修复）：
  * streamToBuffer 过去无上界整流进内存，且文件型 50MiB 拦截发生在全量下载之后、
@@ -10,7 +12,7 @@ import test from "node:test";
  * #427 追加二把上界从 64MiB 提到 256MiB（配套单文件 UX 上限 200MiB），流式截断本身不变。
  * 契约用空白容忍正则（AGENTS.md：源码扫描测试必须空白容忍）。
  */
-const source = readFileSync("src/main/feishu/FeishuBridge.ts", "utf8");
+const source = readFeishuBridgeSources();
 
 function streamToBufferBody() {
 	const start = source.indexOf("private async streamToBuffer");

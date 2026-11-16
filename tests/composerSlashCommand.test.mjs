@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { classifyComposerSlashCommand } from "../src/renderer/src/utils/composerSlashCommand.ts";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * 输入框斜杠命令分类。
@@ -77,9 +78,9 @@ test("useSessionSend 拦截 /reload 并走专用热重载回调", () => {
 
 /** 契约守卫：`/login` 的入口接线（App → SessionPaneServices → ComposerArea → 控制器）不能断。 */
 test("登录弹框接线在各层都存在", () => {
-	const files = ["../src/renderer/src/App.tsx", "../src/renderer/src/components/session/ComposerArea.tsx", "../src/renderer/src/hooks/useSessionComposerController.ts", "../src/renderer/src/components/session/SessionPaneServices.tsx"];
-	for (const file of files) {
-		const source = readFileSync(new URL(file, import.meta.url), "utf8");
+	const files = ["../src/renderer/src/components/session/ComposerArea.tsx", "../src/renderer/src/hooks/useSessionComposerController.ts", "../src/renderer/src/components/session/SessionPaneServices.tsx"];
+	const checkedFiles = [["../src/renderer/src/App.tsx", rendererAppSource], ...files.map((file) => [file, readFileSync(new URL(file, import.meta.url), "utf8")])];
+	for (const [file, source] of checkedFiles) {
 		assert.match(source, /openProviderLogin|onProviderLogin/, `${file} 缺少 /login 接线`);
 	}
 });

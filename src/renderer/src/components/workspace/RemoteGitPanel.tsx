@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, CloudDownload, GitBranch, Loader2, RefreshCw } from "lucide-react";
 import type { RemoteGitRecoveryEntryView } from "../../../../shared/types/git";
 import type { ProjectFileTarget, RemoteProject } from "../../../../shared/types/project";
 import type { GitResourceGroupType } from "../../../../shared/types/git";
@@ -12,20 +12,19 @@ import { relativeTimeParts } from "../../utils/providerUsageDisplay";
 import { gitCapabilityReasonKey } from "../../utils/remoteGitCapabilityView";
 import { validRemoteGitBranchName } from "../../utils/remoteGitViewState";
 import { GitInlineErrorNotice } from "../app/git/GitInlineErrorNotice";
+import { PaneHeader } from "../app/git/GitPanelControls";
 import { Button } from "../ui-shadcn/button";
 import { Input } from "../ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui-shadcn/select";
-import { Textarea } from "../ui-shadcn/textarea";
-import { FileTree } from "../app/git/GitResourceTree";
 import { RemoteGitCapabilityBanner } from "./RemoteGitCapabilityBanner";
 import { RemoteGitCapabilityNote } from "./RemoteGitCapabilityNote";
+import { RemoteGitChangesSection } from "./RemoteGitChangesSection";
 import { RemoteGitCompareSection } from "./RemoteGitCompareSection";
 import { RemoteGitClosedNote } from "./RemoteGitClosedNote";
 import { RemoteGitTrustGate } from "./RemoteGitTrustGate";
 
 const FileDiffViewer = lazy(() => import("../app/FileDiffViewer").then((module) => ({ default: module.FileDiffViewer })));
 const GROUPS: GitResourceGroupType[] = ["merge", "index", "workingTree", "untracked"];
-const GROUP_LABELS = { merge: "remoteGit.merge", index: "remoteGit.index", workingTree: "remoteGit.workingTree", untracked: "remoteGit.untracked" } as const;
 /** Radix Select cannot carry an empty item value, so the root scope travels under this sentinel. */
 const ROOT_REPO_VALUE = ".";
 const refuseFallbackRead = async (): Promise<string> => {
@@ -89,6 +88,17 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 	// （面板的预热只刷新了面板这一份事实），选择器就永远不出现。
 	const { repos, truncated: reposTruncated, reload: reloadRepos } = useRemoteGitRepos(project, capabilities.repos);
 	const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+	// 折叠态与本机同一套：分区（更改/历史/引用/恢复）与变更分组都可点标题收起，组头带 twistie。
+	const [changesOpen, setChangesOpen] = useState(true);
+	const [openGroups, setOpenGroups] = useState<Record<GitResourceGroupType, boolean>>({ merge: true, index: true, workingTree: true, untracked: true });
+	// 目录折叠与组折叠只影响展示，不参与任何写授权。
+	const toggleCollapsedDir = (directory: string) =>
+		setCollapsedDirs((current) => {
+			const next = new Set(current);
+			if (next.has(directory)) next.delete(directory);
+			else next.add(directory);
+			return next;
+		});
 	const [message, setMessage] = useState("");
 	const [historyOpen, setHistoryOpen] = useState(false);
 	const [refsOpen, setRefsOpen] = useState(false);
@@ -171,8 +181,6 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 	const syncTracked = syncFacts?.upstream != null && syncBranch !== null && syncRemote !== undefined;
 	const canPush = capabilities.sync && !busy && syncTracked;
 	const canPull = capabilities.sync && !busy && syncTracked;
-	// The tree only offers index actions and the recoverable discard when the write capability is open.
-	const writable = capabilities.write;
 	// A blocked read carries its stable reason instead of an error code: explain it with the same dictionary key the
 	// capability banner uses, and never invent copy for a code the dictionary does not know.
 	const blockedReasonKey = state.blockedReason === undefined ? undefined : gitCapabilityReasonKey(state.blockedReason);
@@ -194,16 +202,16 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 		if (recoveryOpen && snapshot !== undefined && state.recovery === undefined && !state.recoveryLoading && state.recoveryErrorCode === undefined && !state.loading && !state.mutating) loadRecovery();
 	}, [capabilities.recovery, recoveryOpen, snapshot, state.recovery, state.recoveryLoading, state.recoveryErrorCode, state.loading, state.mutating, loadRecovery]);
 	return (
-		<div data-testid="remote-git-panel" data-project-id={project.id} className="flex min-h-0 flex-1 flex-col overflow-hidden text-sm text-text-primary">
+		<div data-testid="remote-git-panel" data-project-id={project.id} className="git-panel flex min-h-0 flex-1 flex-col overflow-hidden text-foreground" aria-label={t("git.sourceControl")}>
 			{/* G4b: the capability banner is pinned above every control; it only explains what is missing. */}
 			<RemoteGitCapabilityBanner git={capabilities} blocked={blocked} />
-			<div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+			{/* 与本机同一条仓库/分支栏：分支下拉在左，同步组与刷新在右，按钮统一 size-6（24px）。 */}
+			<div className="flex shrink-0 items-center gap-1 border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] px-2 py-1.5">
 				{viewingDiff ? (
-					<Button variant="ghost" size="icon-sm" onClick={closeDiff} disabled={state.diffLoading || state.mutating} aria-label={t("remoteGit.back")}>
+					<Button variant="ghost" size="icon-sm" className="size-6" onClick={closeDiff} disabled={state.diffLoading || state.mutating} aria-label={t("remoteGit.back")}>
 						<ArrowLeft size={14} />
 					</Button>
 				) : null}
-				<span className="min-w-0 flex-1 truncate font-medium">{t("git.sourceControl")}</span>
 				{/* G4：分支选择提到顶栏（branchRead 门禁）。原来只在「引用」折叠区里渲染，refs 一关就没有入口；
 				    分支列表按需加载——打开下拉才发 refs 请求，面板打开时不额外打主机。
 				    非仓库状态没有分支可选：摆一个 disabled 的下拉只会被读成“分离头指针”。 */}
@@ -220,7 +228,10 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 						}}
 						disabled={!capabilities.branchWrite || busy || branches.length <= 1}
 					>
-						<SelectTrigger data-testid="remote-git-branch-select" aria-label={t("remoteGit.branchName")} size="sm" className="max-w-44 text-xs">
+						{/* 触发器压成与本机同一个 chip：无边框、24px 高、小字号，分支图标在字前（尾部 chevron 由 Select 自带）。
+						    h-6! 必须带 important：基类 data-[size=sm]:h-8（32px）特定性更高，不压就叫回 32px。 */}
+						<SelectTrigger data-testid="remote-git-branch-select" aria-label={t("remoteGit.branchName")} size="sm" className="h-6! max-w-[9rem] min-w-0 gap-1 rounded-sm border-0 bg-transparent px-1 text-micro text-[var(--git-panel-fg)] shadow-none hover:bg-[var(--git-panel-hover)] [&>svg]:size-3">
+							<GitBranch size={12} aria-hidden="true" className="shrink-0 text-[var(--git-desc-fg)]" />
 							<SelectValue placeholder={t("remoteGit.detached")} />
 						</SelectTrigger>
 						<SelectContent>
@@ -232,16 +243,33 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 						</SelectContent>
 					</Select>
 				) : null}
-				<Button variant="ghost" size="icon-sm" onClick={refreshAll} disabled={!capabilities.read || state.loading || state.diffLoading || state.mutating} aria-label={t("remoteGit.refresh")}>
-					<RefreshCw size={14} />
-				</Button>
+				<div role="group" aria-label={t("git.repoSyncActions")} className="ml-auto flex shrink-0 items-center gap-0.5">
+					{state.loading ? <Loader2 size={14} aria-label={t("common.loading")} className="shrink-0 animate-pideck-spin text-[var(--git-desc-fg)]" /> : null}
+					<Button variant="ghost" size="icon-sm" className="size-6" onClick={refreshAll} disabled={!capabilities.read || state.loading || state.diffLoading || state.mutating} aria-label={t("remoteGit.refresh")} title={t("remoteGit.refresh")}>
+						<RefreshCw size={14} />
+					</Button>
+					{/* 同步组只在本机同位置提供；非仓库状态没有远端链可同步，整组不渲染（不是一排永远 disabled）。 */}
+					{repositoryMissing ? null : (
+						<>
+							<Button type="button" variant="ghost" size="icon-sm" className="size-6" data-testid="remote-git-sync-fetch" title={t("remoteGit.syncFetch")} aria-label={t("remoteGit.syncFetch")} disabled={!canFetch} onClick={() => syncRemote && fetchRemote(syncRemote)}>
+								<CloudDownload size={14} />
+							</Button>
+							<Button type="button" variant="ghost" size="icon-sm" className="size-6" data-testid="remote-git-sync-push" title={t("remoteGit.syncPush")} aria-label={t("remoteGit.syncPush")} disabled={!canPush} onClick={() => setPushConfirm(true)}>
+								<ArrowUpFromLine size={14} />
+							</Button>
+							<Button type="button" variant="ghost" size="icon-sm" className="size-6" data-testid="remote-git-sync-pull" title={t("remoteGit.syncPull")} aria-label={t("remoteGit.syncPull")} disabled={!canPull} onClick={() => syncRemote && syncBranch && pullRemote(syncRemote, syncBranch)}>
+								<ArrowDownToLine size={14} />
+							</Button>
+						</>
+					)}
+				</div>
 			</div>
 			{/* G5d/G5e repo scope: multiple/rootless repos; a nested scope reads+writes; only init stays root-only. */}
 			{showRepoScope ? (
-				<div data-testid="remote-git-repo-scope" className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1">
-					<span className="shrink-0 text-xs text-text-secondary">{t("remoteGit.repoScope")}</span>
+				<div data-testid="remote-git-repo-scope" className="flex shrink-0 items-center gap-1 border-b border-[var(--git-panel-border)] px-2.5 py-1">
+					<span className="shrink-0 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.repoScope")}</span>
 					<Select value={repoPath === "" ? ROOT_REPO_VALUE : repoPath} onValueChange={(value) => setRepoPath(value === ROOT_REPO_VALUE ? "" : value)} disabled={busy || !capabilities.repos}>
-						<SelectTrigger data-testid="remote-git-repo-select" aria-label={t("remoteGit.repoScope")} size="sm" className="min-w-0 flex-1 text-xs">
+						<SelectTrigger data-testid="remote-git-repo-select" aria-label={t("remoteGit.repoScope")} size="sm" className="h-6! min-w-0 flex-1 gap-1 rounded-sm border-0 bg-transparent px-1 text-micro text-[var(--git-panel-fg)] shadow-none hover:bg-[var(--git-panel-hover)] [&>svg]:size-3">
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
@@ -256,35 +284,26 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 			) : null}
 			<RemoteGitCapabilityNote kind="repoScope" context={{ repoCount: repos?.length ?? 0 }} />
 			{reposTruncated ? (
-				<p data-testid="remote-git-repos-truncated" className="shrink-0 border-b border-border px-3 py-1 text-xs text-text-secondary">
+				<p data-testid="remote-git-repos-truncated" className="shrink-0 border-b border-[var(--git-panel-border)] px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">
 					{t("remoteGit.repoReposTruncated")}
 				</p>
 			) : null}
 			{/* Fixed geometry on purpose: this bar never changes the height of the rows below it. */}
 			{repositoryMissing ? null : (
-				<div data-testid="remote-git-sync" className="shrink-0 space-y-1 border-b border-border px-3 py-1 text-xs">
+				<div data-testid="remote-git-sync" className="shrink-0 space-y-1 border-b border-[var(--git-panel-border)] px-2.5 py-1 text-micro">
 					<div className="flex h-6 items-center gap-1">
-						<span className="min-w-0 flex-1 truncate text-text-secondary" data-testid="remote-git-sync-facts">
+						<span className="min-w-0 flex-1 truncate text-[var(--git-desc-fg)]" data-testid="remote-git-sync-facts">
 							{syncFacts === undefined
 								? t("remoteGit.loading")
 								: `${syncFacts.branch ?? t("remoteGit.detached")}${syncFacts.upstream === null ? "" : " → " + syncFacts.upstream}${syncFacts.ahead > 0 ? " · " + t("remoteGit.syncAhead", { n: syncFacts.ahead }) : ""}${syncFacts.behind > 0 ? " · " + t("remoteGit.syncBehind", { n: syncFacts.behind }) : ""}`}
 						</span>
-						<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-fetch" disabled={!canFetch} onClick={() => syncRemote && fetchRemote(syncRemote)}>
-							{t("remoteGit.syncFetch")}
-						</Button>
-						<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-push" disabled={!canPush} onClick={() => setPushConfirm(true)}>
-							{t("remoteGit.syncPush")}
-						</Button>
-						<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-pull" disabled={!canPull} onClick={() => syncRemote && syncBranch && pullRemote(syncRemote, syncBranch)}>
-							{t("remoteGit.syncPull")}
-						</Button>
 					</div>
 					{pushConfirm && syncRemote && syncBranch ? (
 						<div data-testid="remote-git-sync-push-confirm-bar" className="flex h-6 items-center gap-2">
 							<span className="min-w-0 flex-1 truncate">{t("remoteGit.syncPushConfirm", { remote: syncRemote, branch: syncBranch })}</span>
 							<Button
 								type="button"
-								size="sm"
+								size="xs"
 								data-testid="remote-git-sync-push-confirm"
 								onClick={() => {
 									setPushConfirm(false);
@@ -293,13 +312,13 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 							>
 								{t("remoteGit.syncPushConfirmAction")}
 							</Button>
-							<Button type="button" variant="ghost" size="sm" data-testid="remote-git-sync-push-cancel" onClick={() => setPushConfirm(false)}>
+							<Button type="button" variant="ghost" size="xs" data-testid="remote-git-sync-push-cancel" onClick={() => setPushConfirm(false)}>
 								{t("remoteGit.syncCancel")}
 							</Button>
 						</div>
 					) : (
 						/* The message line is reserved whether or not it has something to say. */
-						<p data-testid="remote-git-sync-message" className="h-6 truncate leading-6 text-text-secondary" aria-live="polite">
+						<p data-testid="remote-git-sync-message" className="h-6 truncate leading-6 text-[var(--git-desc-fg)]" aria-live="polite">
 							{state.syncErrorCode && state.syncErrorCode !== state.errorCode
 								? remoteGitErrorMessage(state.syncErrorCode)
 								: state.syncNotice
@@ -313,21 +332,9 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 					)}
 				</div>
 			)}
-			{snapshot && !viewingDiff ? (
-				<div className="shrink-0 space-y-2 border-b border-border px-3 py-2">
-					<Textarea data-testid="remote-git-commit-message" aria-label={t("remoteGit.commitMessage")} placeholder={t("remoteGit.commitMessage")} value={message} rows={2} disabled={busy || !capabilities.write} onChange={(event) => setMessage(event.target.value)} />
-					<div className="flex items-center gap-2">
-						<Button type="button" size="sm" disabled={!canCommit} onClick={() => commit(message)}>
-							{t("remoteGit.commitAction")}
-						</Button>
-						{messageBytes > 0 ? <span className="text-xs text-text-secondary">{messageBytes}/4096</span> : null}
-					</div>
-					<RemoteGitCapabilityNote kind="commit" context={{ commitVisible: true }} />
-				</div>
-			) : null}
-			{state.loading || state.diffLoading || state.mutating ? (
-				<div role="status" className="flex items-center gap-2 p-3 text-text-secondary">
-					<LoaderCircle size={14} className="animate-pideck-spin" />
+			{state.mutating || state.diffLoading ? (
+				<div role="status" className="flex items-center gap-1.5 px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">
+					<Loader2 size={13} className="shrink-0 animate-pideck-spin" />
 					{t(
 						state.mutating
 							? state.mutatingKind === "init"
@@ -349,10 +356,12 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 					)}
 				</div>
 			) : null}
-			{state.errorCode ? <GitInlineErrorNotice message={nested && state.errorCode === "GIT_NOT_REPOSITORY" ? t("remoteGit.repoNotFound") : remoteGitErrorMessage(state.errorCode)} testId={!nested && state.errorCode === "GIT_NOT_REPOSITORY" ? "remote-git-not-repository" : undefined} className="p-3 text-danger" /> : null}
+			{state.errorCode ? (
+				<GitInlineErrorNotice message={nested && state.errorCode === "GIT_NOT_REPOSITORY" ? t("remoteGit.repoNotFound") : remoteGitErrorMessage(state.errorCode)} testId={!nested && state.errorCode === "GIT_NOT_REPOSITORY" ? "remote-git-not-repository" : undefined} className="px-2.5 py-1 text-micro text-danger" />
+			) : null}
 			{/* A blocked read publishes a stable reason, not an error: explain it with the shared dictionary key. */}
 			{blockedReasonKey !== undefined ? (
-				<p data-testid="remote-git-blocked" role={trustBlocked ? "alert" : "status"} className="px-3 py-2 text-xs text-text-secondary">
+				<p data-testid="remote-git-blocked" role={trustBlocked ? "alert" : "status"} className="px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">
 					{t(blockedReasonKey)}
 				</p>
 			) : null}
@@ -360,15 +369,15 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 			{/* G5c: a confirmed non-repository gets one explicit, inline-confirmed init action at the project root; nested
 			    scopes never do, and a closed init capability never offers the write at all. */}
 			{!nested && (state.errorCode === "GIT_NOT_REPOSITORY" || state.initializing || state.initNotice !== undefined) && capabilities.init ? (
-				<div className="shrink-0 space-y-1 border-b border-border px-3 py-2">
-					{state.errorCode === "GIT_NOT_REPOSITORY" ? <p className="text-xs text-text-secondary">{t("remoteGit.initHint")}</p> : null}
+				<div className="shrink-0 space-y-1 border-b border-[var(--git-panel-border)] px-2.5 py-2">
+					{state.errorCode === "GIT_NOT_REPOSITORY" ? <p className="text-micro text-[var(--git-desc-fg)]">{t("remoteGit.initHint")}</p> : null}
 					{state.errorCode === "GIT_NOT_REPOSITORY" ? (
 						initConfirm ? (
 							<div className="flex items-center gap-2">
-								<span className="min-w-0 flex-1 text-xs text-danger">{t("remoteGit.initConfirm")}</span>
+								<span className="min-w-0 flex-1 text-micro text-danger">{t("remoteGit.initConfirm")}</span>
 								<Button
 									type="button"
-									size="sm"
+									size="xs"
 									data-testid="remote-git-init-confirm"
 									disabled={busy}
 									onClick={() => {
@@ -381,27 +390,27 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 								>
 									{t("remoteGit.initConfirmAction")}
 								</Button>
-								<Button type="button" variant="ghost" size="sm" data-testid="remote-git-init-cancel" disabled={busy} onClick={() => setInitConfirm(false)}>
+								<Button type="button" variant="ghost" size="xs" data-testid="remote-git-init-cancel" disabled={busy} onClick={() => setInitConfirm(false)}>
 									{t("remoteGit.initCancel")}
 								</Button>
 							</div>
 						) : (
-							<Button type="button" size="sm" data-testid="remote-git-init" disabled={busy} onClick={() => setInitConfirm(true)}>
+							<Button type="button" size="xs" data-testid="remote-git-init" disabled={busy} onClick={() => setInitConfirm(true)}>
 								{t("remoteGit.initAction")}
 							</Button>
 						)
 					) : null}
-					<p data-testid="remote-git-init-outcome" aria-live="polite" className="text-xs text-text-secondary">
+					<p data-testid="remote-git-init-outcome" aria-live="polite" className="text-micro text-[var(--git-desc-fg)]">
 						{state.initializing ? t("remoteGit.initializing") : state.initNotice ? t("remoteGit.initCreated", { branch: state.initNotice.branch ?? t("remoteGit.detached") }) : ""}
 					</p>
 				</div>
 			) : null}
-			{state.diffErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.diffErrorCode)} className="p-3 text-danger" /> : null}
+			{state.diffErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.diffErrorCode)} className="px-2.5 py-1 text-micro text-danger" /> : null}
 			{state.diff && !state.diffLoading ? (
 				<>
-					{state.diffGroup === "merge" ? <p className="shrink-0 px-3 py-2 text-xs text-text-secondary">{t("remoteGit.conflictBaseline")}</p> : null}
+					{state.diffGroup === "merge" ? <p className="shrink-0 px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.conflictBaseline")}</p> : null}
 					<div data-testid="remote-git-diff" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-						<Suspense fallback={<p className="p-3">{t("remoteGit.loading")}</p>}>
+						<Suspense fallback={<p className="px-2.5 py-2 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.loading")}</p>}>
 							<FileDiffViewer
 								key={JSON.stringify([state.diff.target, state.diffGroup])}
 								filePath={state.diff.displayPath}
@@ -417,108 +426,76 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 					</div>
 				</>
 			) : snapshot && !viewingDiff ? (
-				// scroll-ok: nested —— 这个滚动窗里装的是「分支摘要 + 若干分组 + 每组一棵 FileTree」，
-				// 两段异质内容加两层可展开目录树，不是扁平行列表；虚拟化前要先扁平化，
-				// 而扁平化会打散目录分组语义与 FileTree 自己的展开状态和 role。
-				<div className="min-h-0 flex-1 overflow-y-auto py-2">
-					<p data-testid="remote-git-branch" className="px-3 pb-2 text-xs text-text-secondary">
-						{snapshot.branch ?? t("remoteGit.detached")}
-					</p>
-					{/* 干净态与本机同一套：同一句文案 + 同一个勾图标，不再各写一句。 */}
-					{GROUPS.every((group) => snapshot.groups[group].length === 0) ? (
-						<p data-testid="remote-git-clean" className="flex items-center gap-1.5 px-3 text-xs text-text-secondary">
-							<CheckCircle2 aria-hidden="true" size={13} className="shrink-0" />
-							{t("git.noPendingChanges")}
-						</p>
-					) : null}
-					{GROUPS.map((group) =>
-						snapshot.groups[group].length ? (
-							<section key={group} data-testid={`remote-git-${group}`} className="pb-2">
-								<h3 className="px-3 py-1 text-xs font-medium text-text-secondary">
-									{t(GROUP_LABELS[group])} ({snapshot.groups[group].length})
-								</h3>
-								<FileTree
-									readOnly={!writable}
-									stageFile={capabilities.write ? (target) => mutate("stage", group, target) : undefined}
-									unstageFile={capabilities.write ? (target) => mutate("unstage", group, target) : undefined}
-									discardFile={!canDiscard ? undefined : (target, discardGroup) => setPendingDiscard({ group: discardGroup, path: target.relativePath, target })}
-									resources={snapshot.groups[group]}
-									groupType={group}
-									mutating={!!state.mutating}
-									collapsedDirs={collapsedDirs}
-									onToggleDir={(directory) =>
-										setCollapsedDirs((current) => {
-											const next = new Set(current);
-											if (next.has(directory)) next.delete(directory);
-											else next.add(directory);
-											return next;
-										})
-									}
-									onOpenWorkspaceFileDiff={openDiff}
-								/>
-							</section>
-						) : null,
-					)}
-					{pendingDiscard ? (
-						<div data-testid="remote-git-discard-confirm-bar" className="mx-3 my-1 rounded border border-danger p-2 text-xs">
-							<p>{t(pendingDiscard.group === "untracked" ? "remoteGit.discardConfirmDelete" : "remoteGit.discardConfirm", { path: pendingDiscard.path })}</p>
-							<div className="flex items-center gap-2 pt-1">
-								<Button
-									type="button"
-									size="sm"
-									data-testid="remote-git-discard-confirm"
-									onClick={() => {
-										const pending = pendingDiscard;
-										setPendingDiscard(null);
-										if (pending) discard(pending.group, pending.target);
-									}}
-								>
-									{t("remoteGit.discardAction")}
-								</Button>
-								<Button type="button" variant="ghost" size="sm" data-testid="remote-git-discard-cancel" onClick={() => setPendingDiscard(null)}>
-									{t("remoteGit.discardCancel")}
-								</Button>
-							</div>
-						</div>
-					) : null}
-					{state.discardRecovery ? (
-						<p data-testid="remote-git-recovery-note" className="px-3 py-1 text-xs text-text-secondary">
-							{state.discardRecovery.ref === null ? t("remoteGit.discardRestored", { path: state.discardRecovery.path }) : t("remoteGit.discardRecovered", { ref: state.discardRecovery.ref, path: state.discardRecovery.path })}
-						</p>
-					) : null}
+				// scroll-ok: nested —— 一个滚动窗里装的是「提交区 + 若干分组文件树 + 恢复/历史/引用三个折叠分区」，
+				// 异质内容加两层可展开目录树，不是扁平行列表；扁平化会打散目录分组语义与 FileTree 自己的展开状态和 role。
+				<div className="min-h-0 flex-1 overflow-y-auto">
+					<RemoteGitChangesSection
+						open={changesOpen}
+						onToggle={() => setChangesOpen((open) => !open)}
+						snapshot={snapshot}
+						changeCount={changeCount}
+						writeEnabled={capabilities.write}
+						canCommit={canCommit}
+						canDiscard={canDiscard}
+						busy={!!busy}
+						mutating={!!state.mutating}
+						committing={state.mutatingKind === "commit"}
+						message={message}
+						messageBytes={messageBytes}
+						onMessageChange={setMessage}
+						onCommit={() => commit(message)}
+						collapsedDirs={collapsedDirs}
+						onToggleDir={toggleCollapsedDir}
+						openGroups={openGroups}
+						onToggleGroup={(group) =>
+							setOpenGroups((current) => ({
+								...current,
+								[group]: !current[group],
+							}))
+						}
+						onMutateFile={(kind, group, target) => mutate(kind, group, target)}
+						pendingDiscard={pendingDiscard}
+						onRequestDiscard={(group, target) => setPendingDiscard({ group, path: target.relativePath, target })}
+						onConfirmDiscard={() => {
+							const pending = pendingDiscard;
+							setPendingDiscard(null);
+							if (pending) discard(pending.group, pending.target);
+						}}
+						onCancelDiscard={() => setPendingDiscard(null)}
+						discardRecovery={state.discardRecovery}
+						onOpenDiff={openDiff}
+					/>
 					{/* G4b: the recovery store. Expanding it is the user action that loads it; drop asks once, restore does not.
-					    A closed recovery capability never sends the listing request and never offers restore/drop. */}
-					<section data-testid="remote-git-recovery" className="pb-2">
-						<button type="button" className="flex w-full items-center gap-1 px-3 py-1 text-xs font-medium text-text-secondary" aria-expanded={recoveryOpen} onClick={() => (recoveryOpen ? (state.recoveryErrorCode ? loadRecovery() : setRecoveryOpen(false)) : setRecoveryOpen(true))}>
-							{t("remoteGit.recoveryTitle")}
-						</button>
+						    A closed recovery capability never sends the listing request and never offers restore/drop. */}
+					<section data-testid="remote-git-recovery" id="git-pane-remote-recovery" className="border-b border-[var(--git-panel-border)] last:border-b-0">
+						<PaneHeader id="remote-recovery" title={t("remoteGit.recoveryTitle")} count={state.recovery?.entries.length} open={recoveryOpen} onToggle={() => (recoveryOpen ? (state.recoveryErrorCode ? loadRecovery() : setRecoveryOpen(false)) : setRecoveryOpen(true))} />
 						{recoveryOpen && capabilities.recovery ? (
 							<>
-								{state.recoveryLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-								{state.recoveryErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.recoveryErrorCode)} className="px-3 text-xs text-danger" /> : null}
-								{state.recovery && state.recovery.entries.length === 0 ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.recoveryEmpty")}</p> : null}
-								{state.recovery?.truncated ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.recoveryTruncated")}</p> : null}
+								{state.recoveryLoading ? <p className="px-2.5 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.loading")}</p> : null}
+								{state.recoveryErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.recoveryErrorCode)} className="px-2.5 text-micro text-danger" /> : null}
+								{state.recovery && state.recovery.entries.length === 0 ? <p className="px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.recoveryEmpty")}</p> : null}
+								{state.recovery?.truncated ? <p className="px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.recoveryTruncated")}</p> : null}
 								{state.recovery?.entries.map((entry) => (
-									<div key={entry.ref} data-testid="remote-git-recovery-row" className="flex items-center gap-2 px-3 py-0.5 text-xs">
+									<div key={entry.ref} data-testid="remote-git-recovery-row" className="flex items-center gap-2 px-2.5 py-0.5 text-micro hover:bg-muted">
 										<span className="min-w-0 flex-1 truncate">{entry.path}</span>
-										<span className="shrink-0 text-text-secondary">
+										<span className="shrink-0 text-[var(--git-desc-fg)]">
 											{Math.max(1, Math.round(entry.bytes / 1024))} KiB · {historyTime(entry.at)}
 										</span>
-										<Button type="button" variant="ghost" size="sm" data-testid="remote-git-recovery-restore" disabled={!canRestore} onClick={() => restoreRecovery(entry)}>
+										<Button type="button" variant="ghost" size="xs" data-testid="remote-git-recovery-restore" disabled={!canRestore} onClick={() => restoreRecovery(entry)}>
 											{t("remoteGit.recoveryRestore")}
 										</Button>
-										<Button type="button" variant="ghost" size="sm" data-testid="remote-git-recovery-drop" disabled={!canDrop} onClick={() => setPendingDrop(entry)}>
+										<Button type="button" variant="ghost" size="xs" data-testid="remote-git-recovery-drop" disabled={!canDrop} onClick={() => setPendingDrop(entry)}>
 											{t("remoteGit.recoveryDrop")}
 										</Button>
 									</div>
 								))}
 								{pendingDrop ? (
-									<div data-testid="remote-git-recovery-drop-confirm-bar" className="mx-3 my-1 rounded border border-danger p-2 text-xs">
+									<div data-testid="remote-git-recovery-drop-confirm-bar" className="mx-2.5 my-1 rounded-sm border border-danger p-2 text-micro">
 										<p>{t("remoteGit.recoveryDropConfirm", { path: pendingDrop.path })}</p>
 										<div className="flex items-center gap-2 pt-1">
 											<Button
 												type="button"
-												size="sm"
+												size="xs"
 												data-testid="remote-git-recovery-drop-confirm"
 												onClick={() => {
 													const pending = pendingDrop;
@@ -528,14 +505,14 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 											>
 												{t("remoteGit.recoveryDropAction")}
 											</Button>
-											<Button type="button" variant="ghost" size="sm" data-testid="remote-git-recovery-drop-cancel" onClick={() => setPendingDrop(null)}>
+											<Button type="button" variant="ghost" size="xs" data-testid="remote-git-recovery-drop-cancel" onClick={() => setPendingDrop(null)}>
 												{t("remoteGit.recoveryDropCancel")}
 											</Button>
 										</div>
 									</div>
 								) : null}
 								{state.recoveryNotice ? (
-									<p data-testid="remote-git-recovery-outcome" className="px-3 py-1 text-xs text-text-secondary">
+									<p data-testid="remote-git-recovery-outcome" className="px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">
 										{t(state.recoveryNotice.kind === "restored" ? "remoteGit.recoveryRestored" : "remoteGit.recoveryDropped", { path: state.recoveryNotice.path })}
 									</p>
 								) : null}
@@ -545,62 +522,52 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 						) : null}
 					</section>
 					{/* G3a: history and refs are read-only sections; there is no checkout, branch, tag or push control anywhere below. */}
-					<section data-testid="remote-git-history" className="pb-2">
-						<button type="button" className="flex w-full items-center gap-1 px-3 py-1 text-xs font-medium text-text-secondary" aria-expanded={historyOpen} onClick={() => (historyOpen ? (state.historyErrorCode ? loadHistory() : setHistoryOpen(false)) : setHistoryOpen(true))}>
-							{t("remoteGit.historyTitle")}
-						</button>
+					<section data-testid="remote-git-history" id="git-pane-remote-history" className="border-b border-[var(--git-panel-border)] last:border-b-0">
+						<PaneHeader id="remote-history" title={t("remoteGit.historyTitle")} count={state.history?.commits.length} open={historyOpen} onToggle={() => (historyOpen ? (state.historyErrorCode ? loadHistory() : setHistoryOpen(false)) : setHistoryOpen(true))} />
 						{historyOpen && capabilities.history ? (
 							<>
 								<RemoteGitCapabilityNote kind="history" context={{ historyOpen }} />
-								{state.historyLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-								{state.historyErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.historyErrorCode)} className="px-3 text-xs text-danger" /> : null}
+								{state.historyLoading ? <p className="px-2.5 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.loading")}</p> : null}
+								{state.historyErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.historyErrorCode)} className="px-2.5 text-micro text-danger" /> : null}
 								{state.history
 									? state.history.commits.map((commit) => (
-											<button
-												key={commit.oid}
-												type="button"
-												data-testid="remote-git-history-row"
-												data-oid={commit.oid}
-												aria-current={state.detailOid === commit.oid || undefined}
-												className="flex w-full items-center gap-2 px-3 py-1 text-left text-xs hover:bg-surface-secondary"
-												onClick={() => openCommitDetail(commit.oid)}
-											>
-												<span className="font-mono text-text-secondary">{commit.oid.slice(0, 8)}</span>
+											<button key={commit.oid} type="button" data-testid="remote-git-history-row" data-oid={commit.oid} aria-current={state.detailOid === commit.oid || undefined} className="flex w-full items-center gap-2 px-2.5 py-1 text-left text-micro hover:bg-muted" onClick={() => openCommitDetail(commit.oid)}>
+												<span className="font-mono text-[var(--git-desc-fg)]">{commit.oid.slice(0, 8)}</span>
 												<span className="min-w-0 flex-1 truncate">{commit.subject}</span>
-												<span className="shrink-0 text-text-secondary">
+												<span className="shrink-0 text-[var(--git-desc-fg)]">
 													{commit.authorName} · {historyTime(commit.authorTimeSec)}
 												</span>
 											</button>
 										))
 									: null}
 								{state.history?.hasMore ? (
-									<Button type="button" variant="ghost" size="sm" data-testid="remote-git-history-more" disabled={!!state.historyMoreLoading} onClick={() => loadMoreHistory()}>
+									<Button type="button" variant="ghost" size="xs" data-testid="remote-git-history-more" disabled={!!state.historyMoreLoading} onClick={() => loadMoreHistory()}>
 										{t("remoteGit.historyMore")}
 									</Button>
 								) : null}
 								{state.detailOid ? (
-									<div data-testid="remote-git-commit-detail" className="mx-3 my-1 rounded border border-border p-2">
-										{state.detailLoading ? <p className="text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-										{state.detailErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.detailErrorCode)} className="text-xs text-danger" /> : null}
+									<div data-testid="remote-git-commit-detail" className="mx-2.5 my-1 rounded-sm border border-[var(--git-panel-border)] p-2">
+										{state.detailLoading ? <p className="text-micro text-[var(--git-desc-fg)]">{t("remoteGit.loading")}</p> : null}
+										{state.detailErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.detailErrorCode)} className="text-micro text-danger" /> : null}
 										{detail ? (
 											<>
-												<p className="font-mono text-xs text-text-secondary">{detail.oid}</p>
-												<p className="whitespace-pre-wrap break-words text-xs">{detail.message}</p>
-												<p className="text-xs text-text-secondary">
+												<p className="font-mono text-micro text-[var(--git-desc-fg)]">{detail.oid}</p>
+												<p className="whitespace-pre-wrap break-words text-micro">{detail.message}</p>
+												<p className="text-micro text-[var(--git-desc-fg)]">
 													{detail.authorName} &lt;{detail.authorEmail}&gt; · {historyTime(detail.authorTimeSec)}
 												</p>
-												<h4 className="pt-1 text-xs font-medium text-text-secondary">{t("remoteGit.detailFiles")}</h4>
+												<h4 className="pt-1 text-micro font-medium text-[var(--git-desc-fg)]">{t("remoteGit.detailFiles")}</h4>
 												{detail.files.map((file) => (
 													<button
 														key={`${file.status}:${file.path}`}
 														type="button"
 														data-testid="remote-git-commit-file"
-														className="flex w-full items-center gap-2 px-1 py-0.5 text-left text-xs hover:bg-surface-secondary"
+														className="flex w-full items-center gap-2 px-1 py-0.5 text-left text-micro hover:bg-muted"
 														onClick={() => openHistoryFileDiff(detail.parents[0] ?? null, detail.oid, { projectId: project.id, relativePath: file.path })}
 													>
-														<span className="font-mono text-text-secondary">{file.status}</span>
+														<span className="font-mono text-[var(--git-desc-fg)]">{file.status}</span>
 														<span className="min-w-0 flex-1 truncate">{file.path}</span>
-														{file.oldPath ? <span className="shrink-0 text-text-secondary">← {file.oldPath}</span> : null}
+														{file.oldPath ? <span className="shrink-0 text-[var(--git-desc-fg)]">← {file.oldPath}</span> : null}
 													</button>
 												))}
 											</>
@@ -612,44 +579,65 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 							<RemoteGitClosedNote capability="git.history" blocked={blocked} />
 						) : null}
 					</section>
-					<section data-testid="remote-git-refs" className="pb-2">
-						<button type="button" className="flex w-full items-center gap-1 px-3 py-1 text-xs font-medium text-text-secondary" aria-expanded={refsOpen} onClick={() => (refsOpen ? (state.refsErrorCode ? loadRefs() : setRefsOpen(false)) : setRefsOpen(true))}>
-							{t("remoteGit.refsTitle")}
-						</button>
+					<section data-testid="remote-git-refs" id="git-pane-remote-refs" className="border-b border-[var(--git-panel-border)] last:border-b-0">
+						<PaneHeader id="remote-refs" title={t("remoteGit.refsTitle")} count={state.refs?.refs.length} open={refsOpen} onToggle={() => (refsOpen ? (state.refsErrorCode ? loadRefs() : setRefsOpen(false)) : setRefsOpen(true))} />
 						{refsOpen ? (
 							<>
-								<div className="flex items-center gap-2 px-3 pb-1">
+								<div className="flex items-center gap-2 px-2.5 pb-1">
 									<Input data-testid="remote-git-branch-name" aria-label={t("remoteGit.branchName")} placeholder={t("remoteGit.branchNamePlaceholder")} value={newBranch} disabled={busy || !capabilities.branchWrite} onChange={(event) => setNewBranch(event.target.value)} />
-									<Button type="button" size="sm" data-testid="remote-git-create-branch" disabled={!canCreateBranch} onClick={() => createBranch(newBranch)}>
+									<Button type="button" size="xs" data-testid="remote-git-create-branch" disabled={!canCreateBranch} onClick={() => createBranch(newBranch)}>
 										{t("remoteGit.createBranch")}
 									</Button>
 								</div>
 								{capabilities.refs ? (
 									<>
-										{state.refsLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-										{state.refsErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.refsErrorCode)} className="px-3 text-xs text-danger" /> : null}
+										{state.refsLoading ? <p className="px-2.5 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.loading")}</p> : null}
+										{state.refsErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.refsErrorCode)} className="px-2.5 text-micro text-danger" /> : null}
 										{state.refs
 											? state.refs.refs.map((ref) => (
-													<div key={ref.fullName} data-testid="remote-git-ref-row" className="flex items-center gap-2 px-3 py-0.5 text-xs">
-														<span className="text-text-secondary">{t(ref.kind === "branch" ? "remoteGit.refBranch" : "remoteGit.refTag")}</span>
+													<div key={ref.fullName} data-testid="remote-git-ref-row" className="flex items-center gap-2 px-2.5 py-0.5 text-micro hover:bg-muted">
+														<span className="shrink-0 text-[var(--git-desc-fg)]">{t(ref.kind === "branch" ? "remoteGit.refBranch" : "remoteGit.refTag")}</span>
 														<span className="min-w-0 flex-1 truncate font-mono">{ref.name}</span>
-														<span className="font-mono text-text-secondary">{ref.oid.slice(0, 8)}</span>
+														<span className="font-mono text-[var(--git-desc-fg)]">{ref.oid.slice(0, 8)}</span>
 														{/* Switching only ever names an existing branch; the current one has nothing to do. */}
 														{ref.kind === "branch" && ref.name !== snapshot.branch ? (
-															<Button type="button" variant="ghost" size="sm" data-testid="remote-git-switch-branch" aria-label={`${t("remoteGit.switchBranch")} ${ref.name}`} disabled={!canSwitchBranch} onClick={() => (changeCount > 0 ? setPendingSwitch(ref.name) : switchBranch(ref.name))}>
+															<Button type="button" variant="ghost" size="xs" data-testid="remote-git-switch-branch" aria-label={`${t("remoteGit.switchBranch")} ${ref.name}`} disabled={!canSwitchBranch} onClick={() => (changeCount > 0 ? setPendingSwitch(ref.name) : switchBranch(ref.name))}>
 																{t("remoteGit.switchBranch")}
 															</Button>
 														) : null}
 													</div>
 												))
 											: null}
-										<p data-testid="remote-git-refs-auto" className="px-3 pt-1 text-xs text-text-secondary">
+										<p data-testid="remote-git-refs-auto" className="px-2.5 pt-1 text-micro text-[var(--git-desc-fg)]">
 											{t("remoteGit.refsAutoRefresh")}
 										</p>
 									</>
 								) : (
 									<RemoteGitClosedNote capability="git.refs" blocked={blocked} />
 								)}
+								{pendingSwitch ? (
+									<div data-testid="remote-git-switch-confirm-bar" className="mx-2.5 my-1 rounded-sm border border-[var(--git-panel-border)] p-2 text-micro">
+										<p>{t("git.branchSwitchConfirmTitle")}</p>
+										<p className="pt-1 text-[var(--git-desc-fg)]">{t("git.branchSwitchConfirmMessage", { count: changeCount, branch: pendingSwitch })}</p>
+										<div className="flex items-center gap-2 pt-1">
+											<Button
+												type="button"
+												size="xs"
+												data-testid="remote-git-switch-confirm"
+												onClick={() => {
+													const branch = pendingSwitch;
+													setPendingSwitch(null);
+													if (branch !== null) switchBranch(branch);
+												}}
+											>
+												{t("git.branchSwitchConfirmLabel")}
+											</Button>
+											<Button type="button" variant="ghost" size="xs" data-testid="remote-git-switch-cancel" onClick={() => setPendingSwitch(null)}>
+												{t("remoteGit.discardCancel")}
+											</Button>
+										</div>
+									</div>
+								) : null}
 								{/* G5b: compare two local refs by tree; per-file content reuses the revision diff surface. */}
 								{capabilities.compare ? (
 									<RemoteGitCompareSection
@@ -669,29 +657,6 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 								) : (
 									<RemoteGitClosedNote capability="git.compare" blocked={blocked} />
 								)}
-								{pendingSwitch ? (
-									<div data-testid="remote-git-switch-confirm-bar" className="mx-3 my-1 rounded border border-border p-2 text-xs">
-										<p>{t("git.branchSwitchConfirmTitle")}</p>
-										<p className="pt-1 text-text-secondary">{t("git.branchSwitchConfirmMessage", { count: changeCount, branch: pendingSwitch })}</p>
-										<div className="flex items-center gap-2 pt-1">
-											<Button
-												type="button"
-												size="sm"
-												data-testid="remote-git-switch-confirm"
-												onClick={() => {
-													const branch = pendingSwitch;
-													setPendingSwitch(null);
-													if (branch !== null) switchBranch(branch);
-												}}
-											>
-												{t("git.branchSwitchConfirmLabel")}
-											</Button>
-											<Button type="button" variant="ghost" size="sm" data-testid="remote-git-switch-cancel" onClick={() => setPendingSwitch(null)}>
-												{t("remoteGit.discardCancel")}
-											</Button>
-										</div>
-									</div>
-								) : null}
 							</>
 						) : null}
 					</section>

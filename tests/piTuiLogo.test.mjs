@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { PI_TUI_COLORS, PI_TUI_LOGO_CELLS, PI_TUI_PIECES, resolveLogoStyle, LOGO_STYLE_STORAGE_KEY } = loadTsCommonJs("src/renderer/src/components/app/piTuiLogoData.ts");
 const { BOOT_APP_NAME_STORAGE_KEY, BOOT_CUSTOM_LOGO_STORAGE_KEY } = loadTsCommonJs("src/renderer/src/components/app/bootBrandCache.ts");
@@ -99,7 +100,7 @@ test("boot splash reads the same localStorage key and embeds the same pi-tui bit
 	assert.match(html, /html\.logo-custom \.boot-logo \.boot-logo-custom\s*\{\s*display:\s*block/);
 	assert.match(html, /html\.logo-custom \.boot-logo \.boot-logo-pi-tui\s*\{\s*display:\s*none/);
 	// App.tsx 必须写入缓存（只加开屏读取而没有写入方，开屏永远拿不到自定义品牌）
-	const appSource = readFileSync(`${repoRoot}src/renderer/src/App.tsx`, "utf8");
+	const appSource = rendererAppSource;
 	assert.match(appSource, /writeBootBrandCache\(\s*displayName,\s*customLogo\s*\)/, "App.tsx 必须写入开屏品牌缓存");
 });
 

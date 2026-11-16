@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * AgentManager userInitiatedStop 标记泄漏回归：
  *
@@ -60,7 +61,7 @@ test("行为：非标记早退分支（compacting 中）不误碰标记集", () 
 });
 
 test("源码契约：exit 监听器两个早退分支都在 return 前补删标记", () => {
-	const src = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const src = agentManagerSource;
 	// 从 exit 监听器注册处截到 options.onExit(payload)（含），这段前缀里的补删都发生在
 	// 早退分支内；handleCreateProcessExit 自己的清理在 onExit 之后，不会被计入。
 	const block = src.match(/piProcess\.on\("exit"[\s\S]*?options\.onExit\(payload\);/)?.[0] ?? "";

@@ -44,8 +44,6 @@ test("content width: 85% shared margin, composer aligns with message list", asyn
 
 	// ── 新建会话：发一条消息（mock-pi 回复）让消息列表容器渲染（宽度验证锚点）──
 	const composerInput = await openFirstSession(window);
-	const sessionPane = window.locator(".session-split-solo, .session-split-pane").first();
-	await expect(sessionPane).toBeVisible();
 	const composer = window.locator(".composer-box");
 	await expect(composer).toBeVisible({ timeout: 20_000 });
 	await composerInput.click();
@@ -54,6 +52,10 @@ test("content width: 85% shared margin, composer aligns with message list", asyn
 	// 消息列表容器（留白锚点）；空会话不渲染 .message-list，等 mock 回复挂载
 	const messageList = window.locator(".message-list");
 	await expect(messageList).toBeVisible({ timeout: 20_000 });
+	// 空会话没有时间线容器；solo 的会话栏容器是 .session-v-timeline
+	// （.session-split-panel 只在分屏时出现），发完消息后才取。
+	const sessionPane = window.locator(".session-v-timeline").first();
+	await expect(sessionPane).toBeVisible();
 
 	// ── 断言：消息区与输入框同宽，且约为当前会话栏的 85% ──
 	const paneBox = await sessionPane.boundingBox();

@@ -10,11 +10,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
 test("卸载失败 toast 附带手动卸载命令（含 project scope 的 -l）", () => {
-	const source = read("src/renderer/src/ConfigModal.tsx");
+	const source = configModalSource;
 	// 命令用用户直觉的 pi uninstall（与主进程内部执行的 pi remove 是同一命令的别名），project 加 -l
 	assert.match(source, /`pi uninstall \$\{target\.source\}\$\{target\.scope === "project" \? " -l" : ""\}`/);
 	// 正文内嵌手动命令（可直接选中复制）

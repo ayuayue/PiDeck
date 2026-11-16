@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -35,7 +36,7 @@ test("formatExtensionErrorReason: does not stringify objects as [object Object]"
 });
 
 test("AgentManager records extension_error without flipping session status", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	assert.match(source, /formatExtensionErrorReason\(typed\)/);
 	assert.match(source, /from "\.\/extensionError"/);
 	const start = source.indexOf('if (typed.type === "extension_error")');

@@ -2,13 +2,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 test("ConfigModal wires an MCP tab without bloating loadConfig into MCP CRUD", () => {
-	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const modal = configModalSource;
 	assert.match(modal, /id: "mcp"/);
 	assert.match(modal, /CONFIG_TABS: readonly ConfigTab\[] = \["models", "auth", "oauth", "settings", "trust", "mcp", "raw"\]/);
 	// MCP 页固定全局作用域：父层只传导入扫描的项目来源 + 脏回调，不再下发项目列表/作用域
-	assert.match(modal, /<McpTab[\s\S]{0,160}?activeProjectId=\{projectId\}[\s\S]{0,160}?onDirtyChange=\{handleMcpDirtyChange\}/);
+	// MCP 页整块已迁入 config/configModal/ConfigMcpTab：脏回调在子组件内以 onDirtyChange 透传，
+	// 父层（ConfigModal）仍然注入 handleMcpDirtyChange —— 串起来看两跳，语义不变。
+	assert.match(modal, /<McpTab[\s\S]{0,160}?activeProjectId=\{projectId\}[\s\S]{0,160}?onDirtyChange=\{onDirtyChange\}/);
+	assert.match(modal, /<ConfigMcpTab[\s\S]{0,900}?onDirtyChange=\{handleMcpDirtyChange\}/);
 	assert.match(modal, /case "config:mcp":/);
 	assert.match(modal, /api\.config\.getMcp/);
 	assert.match(modal, /rawFileName === "mcp\.json"/);
@@ -16,7 +22,7 @@ test("ConfigModal wires an MCP tab without bloating loadConfig into MCP CRUD", (
 
 test("McpTab 的 load 依赖必须稳定，且同名 MCP 入口只保留一个", () => {
 	const tab = readFileSync("src/renderer/src/config/McpTab.tsx", "utf8");
-	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const modal = configModalSource;
 	// 回归：作用域对象未 memo / 调用方传内联脏回调 → load 身份每次渲染都变 → effect 重跑，
 	// 用磁盘内容覆盖正在编辑的表单（用户实测：输入的内容自己消失）。
 	assert.match(tab, /const scope: McpConfigScope \| undefined = useMemo\(\(\) => \(projectId \? \{ scope: "project", projectId \} : undefined\), \[projectId\]\)/);
@@ -66,8 +72,8 @@ test("MCP service catalog stays separate from configured status; auth.provider i
 	const templateForm = readFileSync("src/renderer/src/config/McpServiceTemplateForm.tsx", "utf8");
 	const smartAdd = readFileSync("src/renderer/src/config/McpSmartAdd.tsx", "utf8");
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const preload = preloadSource;
+	const systemIpc = systemIpcSource;
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 	const advancedStart = tab.indexOf('t("config.mcp.section.advanced")');
@@ -129,9 +135,9 @@ test("dirty-mark helpers include config:mcp", () => {
 
 test("IPC, preload, and ConfigManager expose get/save/probe MCP channels", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	const manager = readFileSync("src/main/config/ConfigManager.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemIpc = systemIpcSource;
 	assert.match(ipc, /configGetMcp: "config:get-mcp"/);
 	assert.match(ipc, /configSaveMcp: "config:save-mcp"/);
 	assert.match(ipc, /configProbeMcp: "config:probe-mcp"/);
@@ -176,7 +182,7 @@ test("MCP 表单切到 pi 0.99 内置 MCP schema：exposure/timeout/enabled 替�
 	const tab = readFileSync("src/renderer/src/config/McpTab.tsx", "utf8");
 	const resourceViews = readFileSync("src/renderer/src/config/McpResourceViews.tsx", "utf8");
 	const shared = readFileSync("src/shared/types/mcp.ts", "utf8");
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemIpc = systemIpcSource;
 	// pi 0.99 不再识别 lifecycle/directTools：表单停止写入这些死字段
 	assert.doesNotMatch(tab, /LIFECYCLE_OPTIONS/);
 	assert.doesNotMatch(tab, /config\.mcp\.field\.lifecycle/);

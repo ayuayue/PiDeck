@@ -13,8 +13,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { gitPanelSource } from "./helpers/gitPanelSources.mjs";
 
-const source = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+const source = gitPanelSource;
 
 test("ahead/behind 缓存 key 按项目+仓库隔离并带版本号", () => {
 	const keyBlock = source.slice(source.indexOf("function aheadBehindStorageKey"), source.indexOf("function readAheadBehindCache"));

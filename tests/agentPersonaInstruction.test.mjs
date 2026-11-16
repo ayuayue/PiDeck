@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
 const { composeAgentInstruction, shouldInjectAgentPersona } = loadTsCommonJs("src/main/agents/agentPersonaInstruction.ts");
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+const sessionIpc = sessionIpcSource;
 
 /** 生产模块在 vm 沙箱里创建的对象原型属于另一个 realm，深度比较前转成本 realm 的普通对象。 */
 function plain(value) {
@@ -39,8 +40,16 @@ test("dsh falls back to a visible prefix and never sends agentMessage", () => {
 	assert.deepEqual(plain(composeAgentInstruction({ persona: "你是审查员", message: "看看这段代码", existingAgentMessage: "PLAN_MODE", backend: "dsh" })), { message: "你是审查员\n\n看看这段代码" });
 });
 
-test("acp keeps the hidden channel (acpTurnSettlement supports agentMessage)", () => {
-	assert.deepEqual(plain(composeAgentInstruction({ persona: "你是翻译", message: "hello", backend: "acp" })), { message: "hello", agentMessage: "你是翻译\n\nhello" });
+test("acp has no hidden channel: persona becomes a visible prefix and agentMessage is dropped", () => {
+	// ACP 的 resolvePromptDispatch 见到 agentMessage 会直接拒收整条 prompt
+	// （hostInstructionsUnsupported）；角色设定只能进可见正文，隐藏载荷必须丢弃。
+	assert.deepEqual(plain(composeAgentInstruction({ persona: "你是翻译", message: "hello", backend: "acp" })), { message: "你是翻译\n\nhello" });
+	assert.deepEqual(plain(composeAgentInstruction({ persona: "你是翻译", message: "hello", existingAgentMessage: "PLAN_MODE", backend: "acp" })), { message: "你是翻译\n\nhello" });
+	// 原生命令必须保持行首 /：可见前缀让 CLI 把它当普通文本，隐藏通道也替换掉行首。
+	// 命令优先：任何后端都跳过角色设定，让命令原样送达。
+	assert.deepEqual(plain(composeAgentInstruction({ persona: "你是翻译", message: "/loop 5m /test", backend: "acp" })), { message: "/loop 5m /test" });
+	assert.deepEqual(plain(composeAgentInstruction({ persona: "你是翻译", message: "/clear", backend: "pi" })), { message: "/clear" });
+	assert.deepEqual(plain(composeAgentInstruction({ persona: "你是翻译", message: "/goal 继续", backend: "dsh" })), { message: "/goal 继续" });
 	// 生图/生视频等非对话后端同样按「有隐藏通道」处理，由各自发送链路忽略该字段。
 	assert.equal(composeAgentInstruction({ persona: "你是翻译", message: "hello", backend: "imagegen" }).agentMessage, "你是翻译\n\nhello");
 });
@@ -67,11 +76,9 @@ test("persona is injected on the session's first turn only", () => {
 	assert.equal(shouldInjectAgentPersona({ sessionStatus: undefined, alreadyInjected: false }), false, "没有 catalog 记录时保守不注入");
 });
 
-test("sessionsSendPrompt still strips hidden payloads from every bound DSH send", () => {
-	const dshFallback = sessionIpc.match(/if \(persona && boundRecord\?\.backend === "dsh"\) \{\s*if \(promptInput === input\) promptInput = \{ \.\.\.input \};\s*delete promptInput\.agentMessage;\s*\}/);
-	assert.ok(dshFallback, "后续 DSH 发送也必须删除 agentMessage，避免 host 拒收");
-	const firstTurnComposition = sessionIpc.indexOf("if (persona && boundRecord && injectPersona) {");
-	assert.ok(firstTurnComposition >= 0 && dshFallback.index > firstTurnComposition, "隐藏载荷清理不能受首轮注入门禁限制");
+test("sessionsSendPrompt 走 applyBoundAgentPersona：隐藏载荷清理与首轮注入同源", () => {
+	assert.match(sessionIpc, /applyBoundAgentPersona\(\{/, "发送入口必须复用纯函数，不能在 IPC 里复刻一套组合/清理逻辑");
+	assert.equal(/delete promptInput\.agentMessage/.test(sessionIpc), false, "DSH/ACP 的隐藏载荷清理留在纯函数里，避免两套实现漂移");
 });
 
 /* ── 发送前收口 applyBoundAgentPersona（桌面 IPC 与 Web 服务两个入口共用） ── */
@@ -115,6 +122,25 @@ test("applyBoundAgentPersona: DSH never carries agentMessage, even after the fir
 	assert.equal(later.injected, false);
 	assert.equal("agentMessage" in later.prompt, false);
 	assert.equal(later.prompt.message, "第二轮");
+});
+
+test("applyBoundAgentPersona: ACP like DSH never carries agentMessage and uses the visible prefix", () => {
+	const composed = applyBoundAgentPersona({ prompt: { message: "正文", agentMessage: "PLAN_MARKER" }, persona: "你是审查员", sessionStatus: "draft", backend: "acp", alreadyInjected: false });
+	assert.equal(composed.injected, true);
+	assert.equal(composed.prompt.message, "你是审查员\n\n正文");
+	assert.equal("agentMessage" in composed.prompt, false, "ACP 见到 agentMessage 会拒收整条 prompt");
+
+	// 已注入过（后续轮次）也要清理调用方带来的隐藏标记
+	const later = applyBoundAgentPersona({ prompt: { message: "第二轮", agentMessage: "PLAN_MARKER" }, persona: "你是审查员", sessionStatus: "active", backend: "acp", alreadyInjected: true });
+	assert.equal(later.injected, false);
+	assert.equal("agentMessage" in later.prompt, false);
+	assert.equal(later.prompt.message, "第二轮");
+
+	// 首轮原生命令：命令原样送达，且不记「已注入」，避免状态推进后彻底丢失人设。
+	const command = applyBoundAgentPersona({ prompt: { message: "/loop 5m /test" }, persona: "你是审查员", sessionStatus: "draft", backend: "acp", alreadyInjected: false });
+	assert.equal(command.injected, false);
+	assert.equal(command.prompt.message, "/loop 5m /test");
+	assert.equal("agentMessage" in command.prompt, false);
 });
 
 test("applyBoundAgentPersona: plan-mode hidden payload survives the pi first turn", () => {

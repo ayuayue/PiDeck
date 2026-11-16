@@ -268,6 +268,19 @@ export async function fetchMessagePage(sessionId: string, before?: number, pageS
 }
 
 /**
+ * 历史消息 → UIMessage.metadata：原样保留 meta（entryId 等），再补 web 时间线需要的
+ * 墙钟时间、结束时间与模型。Web 时间线的「提问时间 / 回复时间 + 耗时 + 模型」全靠这三个字段
+ * （与桌面 TurnAuthorHeader / TurnRowActions 同源数据）。
+ */
+function historyMessageMetadata(message: ChatMessage): Record<string, unknown> {
+	return {
+		...(message.meta ?? {}),
+		timestamp: message.timestamp,
+		...(message.model ? { model: message.model } : {}),
+	};
+}
+
+/**
  * 历史 ChatMessage 列表 → useChat 的 UIMessage[]。
  * - text/thinking：同前（正文 + reasoning part）。
  * - P2：用户消息 images → file part（data URL），工具消息（role="tool"，meta 携带
@@ -307,7 +320,7 @@ export function chatMessagesToUiMessages(messages: ChatMessage[]): UIMessage[] {
 				parts.push({ type: "text", text: message.text });
 			}
 			// meta 携带 entryId/toolName 等，fork 化重发需要 metadata.entryId 解析 fork 锚点
-			result.push({ id: message.id ?? `hist-${message.timestamp ?? Math.random()}`, role: "assistant", parts, metadata: message.meta as UIMessage["metadata"] });
+			result.push({ id: message.id ?? `hist-${message.timestamp ?? Math.random()}`, role: "assistant", parts, metadata: historyMessageMetadata(message) as UIMessage["metadata"] });
 			continue;
 		}
 		if (message.thinking) {
@@ -329,8 +342,8 @@ export function chatMessagesToUiMessages(messages: ChatMessage[]): UIMessage[] {
 			id: message.id ?? `hist-${message.timestamp ?? Math.random()}`,
 			role,
 			parts,
-			// metadata 透传 meta（含 entryId）：fork 化重发/编辑的锚点解析依赖它
-			metadata: message.meta as UIMessage["metadata"],
+			// metadata 透传 meta（含 entryId）：fork 化重发/编辑的锚点解析依赖它；时间戳/模型供时间线行头与轮尾
+			metadata: historyMessageMetadata(message) as UIMessage["metadata"],
 		});
 	}
 	return result;

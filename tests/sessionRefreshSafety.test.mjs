@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const projectSync = readFileSync("src/renderer/src/hooks/useProjectSync.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const sessionActions = readFileSync("src/renderer/src/hooks/useSessionActions.ts", "utf8");
 const importFlow = readFileSync("src/renderer/src/hooks/useImportFlow.ts", "utf8");
 const i18n = [readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8"), readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8")].join("\n");

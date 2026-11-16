@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 function compile(filePath) {
 	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
@@ -64,7 +65,7 @@ test("recoveries outside the window do not count toward the limit", () => {
 });
 
 test("index.ts wires the crash recovery guard into render-process-gone", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	assert.match(source, /createRendererCrashRecoveryGuard/);
 	assert.match(source, /rendererCrashGuard\.shouldAutoReload\(details\.reason\)/);
 	assert.match(source, /mainWindow\.webContents\.reload\(\)/);

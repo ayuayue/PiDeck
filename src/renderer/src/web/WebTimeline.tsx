@@ -9,7 +9,7 @@
  * - 流式期间底部显示响应指示器；出错显示诊断卡
  */
 import { Fragment, memo, useEffect, useImperativeHandle, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { Loader2, ArrowDown, Brain, Check, ChevronDown, ChevronRight, ChevronUp, Copy, ListTree, MessagesSquare, Pencil, RefreshCw, Share2, Trash2, Wrench, X } from "lucide-react";
+import { Loader2, ArrowDown, Brain, Check, ChevronDown, ChevronRight, ChevronUp, Clock, Copy, ListTree, MessagesSquare, Pencil, RefreshCw, Share2, Trash2, Wrench, X } from "lucide-react";
 import type { UIMessage } from "ai";
 import { Button } from "@/components/ui-shadcn/button";
 import { t } from "@/i18n";
@@ -26,6 +26,7 @@ import { TimelineMarker } from "../components/session/TimelineMarker";
 import { LogoMark } from "../components/app/LogoMark";
 import { copyTextToClipboard } from "./webClipboard";
 import type { WebHistoryPhase } from "./webHistoryLoad";
+import { formatDuration, formatTime } from "../components/session/TimelineFormat";
 
 /** 命令式跳转句柄：虚拟化后离屏行没有 DOM，父组件必须走这份映射而不是 getElementById。 */
 export type WebTimelineJumpApi = {
@@ -50,7 +51,7 @@ function prettyToolValue(value: unknown, maxChars = 4000): string {
 
 // 纯函数已抽到 webMessageParts（叶子模块，vm 沙箱单测可用）；re-export 保持既有导入路径不破，
 // 本模块内部也直接使用（WebUserBubble 渲染）
-import { uiMessageText, uiMessageImages } from "./webMessageParts";
+import { uiMessageText, uiMessageImages, uiMessageTimestamp } from "./webMessageParts";
 export { uiMessageText, uiMessageImages } from "./webMessageParts";
 
 // 分组纯函数已抽到 webTimelineGrouping（叶子模块，vm 沙箱单测可用）；re-export 保持既有导入路径不破
@@ -77,6 +78,7 @@ export const WebUserBubble = memo(function WebUserBubble(props: {
 }) {
 	const text = uiMessageText(props.message);
 	const images = uiMessageImages(props.message);
+	const timestamp = uiMessageTimestamp(props.message);
 	const [editing, setEditing] = useState(false);
 	const [editDraft, setEditDraft] = useState("");
 	if (!text.trim() && images.length === 0) return null;
@@ -137,6 +139,13 @@ export const WebUserBubble = memo(function WebUserBubble(props: {
 							<div className="text-chat text-text-primary whitespace-pre-wrap break-words">{text}</div>
 						</div>
 					) : null}
+					{/* 提问时间：与桌面 UserBubble 的轮下时间行同源（message.timestamp）：
+						历史消息由 chatMessagesToUiMessages 写入 metadata，本端发送时在 sendMessage 带 timestamp。 */}
+					{timestamp ? (
+						<div className="mt-1 text-micro leading-none tabular-nums text-text-tertiary">
+							<time dateTime={new Date(timestamp).toISOString()}>{formatTime(timestamp)}</time>
+						</div>
+					) : null}
 					{/* hover 操作行：复制恒有；编辑/删除/重发需 runtime 存活；触屏无 hover，常驻显示。
 						乐观更新进行中整行换成状态指示，避免重复触发。 */}
 					{props.pendingAction ? (
@@ -194,6 +203,16 @@ function ActionButton(props: { label: string; onClick: () => void; danger?: bool
 		>
 			{props.children}
 		</button>
+	);
+}
+
+/** 轮尾元信息分区竖线（操作 | 耗时 | 模型），与桌面 TurnRowActions.ZoneDivider 同款；
+ *  只在两侧都真有内容时才画（空正文轮不能留孤立竖线）。 */
+function TurnMetaDivider() {
+	return (
+		<span aria-hidden="true" className="mx-1 select-none leading-none text-text-faint">
+			|
+		</span>
 	);
 }
 
@@ -316,6 +335,7 @@ function ToolValueBlock(props: { label: string; text: string; tone?: "error" }) 
  *   摘要条对齐桌面 ProcessSummaryToggle（ListTree + 计数）；
  * - 最后一段非空正文常驻容器外，流式中即正在生成的文本（不被折叠卸载）；
  * - 操作行（复制/分享）只挂回合尾，中间回复不再各自携带；
+ * - 行头显示回复时间、轮尾显示「耗时 | 模型」，与桌面 TurnAuthorHeader / TurnRowActions 同源同门控；
  * - 流式中过程组自动展开（实时看过程），结束回落折叠（历史紧凑），手动开合优先。
  */
 export const WebAssistantTurn = memo(function WebAssistantTurn(props: { turn: AssistantTurn; isStreaming: boolean; onOpenFile?: (path: string, line?: number) => void }) {
@@ -327,8 +347,23 @@ export const WebAssistantTurn = memo(function WebAssistantTurn(props: { turn: As
 	// 里参与计数，但容器内不再重复渲染；收尾后重分组提升为 finalText，此处自然消失。
 	const liveTextSegment = props.isStreaming && turn.liveTextId ? turn.segments.find((segment) => segment.kind === "interim" && segment.id === turn.liveTextId) : undefined;
 	const liveTextString = liveTextSegment && liveTextSegment.kind === "interim" ? liveTextSegment.text : undefined;
+	// 轮末耗时/模型与桌面同一门控（TurnRow 的 showDuration / showTurnModel）：只在本轮结束后出现。
+	// 流式中实时读数在输入框状态条，这里不重复跳动；模型名同理，回看历史轮只关心定论。
+	const duration = !props.isStreaming && turn.startedAt !== undefined && turn.endedAt !== undefined ? Math.max(0, turn.endedAt - turn.startedAt) : 0;
+	const showDuration = duration > 0;
+	const turnModel = props.isStreaming ? undefined : turn.model;
+	const showActionsRow = !props.isStreaming && Boolean(turn.finalText);
 	return (
 		<div className="group/assistant flex w-full min-w-0 flex-col gap-2">
+			{/* 回复时间：对齐桌面 TurnAuthorHeader（行头时间），只在有墙钟时间时渲染；
+			    流式中的时间来自服务端 start 帧的 messageMetadata，结算后由历史重拉的 endedAt 接管。 */}
+			{turn.endedAt ? (
+				<div className="flex items-center gap-2 text-micro leading-none text-text-tertiary">
+					<time className="tabular-nums" dateTime={new Date(turn.endedAt).toISOString()}>
+						{formatTime(turn.endedAt)}
+					</time>
+				</div>
+			) : null}
 			{hasProcess ? (
 				<div className="execution-fold" data-open={processOpen}>
 					<button
@@ -401,14 +436,34 @@ export const WebAssistantTurn = memo(function WebAssistantTurn(props: { turn: As
 					<WebAssistantText text={liveTextString} isStreaming onOpenFile={props.onOpenFile} />
 				</div>
 			) : null}
-			{!props.isStreaming && turn.finalText ? (
-				<div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/assistant:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100">
-					<ActionButton label={t("web.msgCopy")} onClick={() => void copyTextToClipboard(turn.finalText)}>
-						<Copy className="size-3.5" aria-hidden="true" />
-					</ActionButton>
-					<ActionButton label={t("web.shareReply")} onClick={() => void shareWebText(t("web.shareReply"), turn.finalText)}>
-						<Share2 className="size-3.5" aria-hidden="true" />
-					</ActionButton>
+			{showActionsRow || showDuration || turnModel ? (
+				<div className="flex min-h-6 flex-wrap items-center gap-y-0.5">
+					{showActionsRow ? (
+						<div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/assistant:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100">
+							<ActionButton label={t("web.msgCopy")} onClick={() => void copyTextToClipboard(turn.finalText)}>
+								<Copy className="size-3.5" aria-hidden="true" />
+							</ActionButton>
+							<ActionButton label={t("web.shareReply")} onClick={() => void shareWebText(t("web.shareReply"), turn.finalText)}>
+								<Share2 className="size-3.5" aria-hidden="true" />
+							</ActionButton>
+						</div>
+					) : null}
+					{showActionsRow && (showDuration || turnModel) ? <TurnMetaDivider /> : null}
+					{showDuration ? (
+						<span className="flex items-center gap-1 text-text-tertiary">
+							<Clock size={13} className="shrink-0" aria-hidden="true" />
+							{/* 固定耗时（实时读数在输入框状态条）；tabular-nums 与行头时间对齐 */}
+							<span className="text-caption leading-none tabular-nums">{formatDuration(duration)}</span>
+						</span>
+					) : null}
+					{showDuration && turnModel ? <TurnMetaDivider /> : null}
+					{turnModel ? (
+						/* 本轮实际使用的模型：同一会话常换模型，输入框只显示当前档，回看历史轮靠这里。
+						   title 带全量 provider/modelId；等宽字体与耗时读数区分，字符上限与桌面一致。 */
+						<span className="min-w-0 max-w-[16rem] truncate font-mono text-caption leading-none text-text-tertiary" title={`${turnModel.provider}/${turnModel.modelId}`} data-turn-model={turnModel.modelId}>
+							<span className="block max-w-[28ch] truncate">{turnModel.modelId}</span>
+						</span>
+					) : null}
 				</div>
 			) : null}
 		</div>

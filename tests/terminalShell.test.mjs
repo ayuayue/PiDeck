@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 // .mjs 没有 CJS require；vm 沙箱内的 fallback require 必须显式创建。
 const require = createRequire(import.meta.url);
 
@@ -300,7 +300,7 @@ test("ensure returns existing tabs for the same project identity instead of dupl
 test("terminal manager wiring resolves agent cwd through the composite gateway (multi-backend)", () => {
 	// 回归防护：终端 cwd 只从 pi agentManager 解析会让 DSH 会话（backend=dsh，runtime 在
 	// dshAgentManager）的终端在创建时抛 `Agent not found`，表现为「DSH 后端终端打不开」。
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	const start = source.indexOf("new TerminalSessionManager(");
 	assert.notEqual(start, -1);
 	const block = source.slice(start, source.indexOf('quitCleanup.register("terminal"', start));

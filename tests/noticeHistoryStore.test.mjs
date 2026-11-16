@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 通知历史持久化（NoticeHistoryStore）行为断言。
  * 覆盖：落盘编解码（常驻 Infinity ↔ -1 哨兵）、封顶丢最旧、坏载荷拒收、
@@ -159,7 +159,7 @@ it("文件缺失时 getSize 与 load 都按空处理", async () => {
 it("装配层契约：退出清理登记 notice-history flush（防抖窗口内的尾巴不随退出丢失）", async () => {
 	// 装配在 src/main/index.ts，无单测宿主；用源码扫描锁定配对不被误删
 	// （store 的 flush/防抖行为已有行为测试，这里只守装配配对）。
-	const indexSource = await readFile("src/main/index.ts", "utf8");
+	const indexSource = mainIpcSource;
 	assert.match(indexSource, /quitCleanup\.register\(\s*["']notice-history["']\s*,[\s\S]*?noticeHistoryStore\.flush\(\)/, "退出前必须 flush NoticeHistoryStore：防抖写盘（500ms 窗口）未冲盘退出会丢最后几条通知");
 	assert.match(indexSource, /registerNoticeHistoryIpc\(noticeHistoryStore\)/, "store 实例必须保留命名并传入 IPC 装配（匿名 new 会让退出清理无处挂 flush）");
 });

@@ -21,7 +21,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { cpSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -56,8 +58,21 @@ export function serializeJson(value) {
 	return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+/**
+ * 行尾归一：Windows 工作树是 CRLF，CI 检出是 LF，两份内容相同、字节不同。
+ * 哈希落在字节上，同一个 commit 在两边就会得出不同结论——这条已经让 CI 红过三次。
+ * 判据要的是「内容有没有变」，不是「工作树用哪种行尾」，所以先归一再算。
+ * 含 NUL 字节的按二进制处理，原样参与哈希。
+ */
+export function normalizeEol(buf) {
+	const bytes = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+	if (bytes.includes(0)) return bytes;
+	const CRLF = String.fromCharCode(13, 10);
+	const LF = String.fromCharCode(10);
+	return Buffer.from(bytes.toString("utf8").split(CRLF).join(LF), "utf8");
+}
 export function sha256(content) {
-	return createHash("sha256").update(content).digest("hex");
+	return createHash("sha256").update(normalizeEol(content)).digest("hex");
 }
 
 /**
@@ -88,7 +103,7 @@ export function computeBundleSha256(files, contentDir) {
 	for (const file of files) {
 		hash.update(file, "utf8");
 		hash.update("\0", "utf8");
-		hash.update(readFileSync(join(contentDir, file)));
+		hash.update(normalizeEol(readFileSync(join(contentDir, file))));
 		hash.update("\0", "utf8");
 	}
 	return hash.digest("hex");
@@ -160,7 +175,7 @@ export function generateContentManifest({ domain = null, check = false, setVersi
 	const current = existsSync(manifestPath) && readFileSync(manifestPath, "utf8") === manifestText;
 
 	if (check) {
-		return { ok: current, changed: false, manifestPath, version, fileCount: files.length, domain };
+		return { ok: current, changed: false, manifestPath, version, fileCount: files.length, domain, files, contentDir: config.contentDir };
 	}
 
 	let changed = false;
@@ -169,6 +184,37 @@ export function generateContentManifest({ domain = null, check = false, setVersi
 		changed = true;
 	}
 	return { ok: true, changed, manifestPath, version, fileCount: files.length, domain };
+}
+
+// 行尾诊断：工作树字节与仓库索引字节只差 CR 的文件。
+// 为什么要有：2026-11-15 实测，在 Windows 工作树（CRLF）上生成清单，本地 --check 绿，
+// CI（checkout 出 LF）必红，报的是「artifact is stale」——那句话把人引向「忘了重生成」，
+// 而重生成一千遍也没用：哈希落在 CRLF 字节上。判据的报错要指向能修的那一侧。
+function eolMismatchFiles({ files, contentDir }) {
+	const out = [];
+	if (!Array.isArray(files) || !contentDir) return out;
+	const norm = (b) => b.toString("utf8").split("\r\n").join("\n").split("\r").join("\n");
+	for (const name of files) {
+		const abs = join(contentDir, name);
+		let work;
+		try {
+			work = readFileSync(abs);
+		} catch {
+			continue;
+		}
+		let repo;
+		try {
+			repo = execFileSync("git", ["show", ":" + relative(PROJECT_ROOT, abs).split(path.sep).join("/")], {
+				cwd: PROJECT_ROOT,
+				maxBuffer: 64 * 1024 * 1024,
+			});
+		} catch {
+			continue;
+		}
+		if (work.equals(repo)) continue;
+		if (norm(repo) === norm(work)) out.push(relative(PROJECT_ROOT, abs).split(path.sep).join("/"));
+	}
+	return out;
 }
 
 function parseArgs(argv) {
@@ -196,11 +242,46 @@ function isMainModule() {
 	return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 }
 
+function selftest() {
+	const LF = String.fromCharCode(10);
+	const CRLF = String.fromCharCode(13, 10);
+	const lf = "alpha" + LF + "beta" + LF;
+	const crlf = "alpha" + CRLF + "beta" + CRLF;
+	const bin = Buffer.from([0, 13, 10, 1]);
+	const cases = [
+		["LF 与 CRLF 必须同哈希（行尾归一）", sha256(lf) === sha256(crlf)],
+		["CRLF 归一成 LF", normalizeEol(Buffer.from(crlf)).toString("utf8") === lf],
+		["LF 原样不动", normalizeEol(Buffer.from(lf)).toString("utf8") === lf],
+		["含 NUL 的按二进制原样", normalizeEol(bin).equals(bin)],
+	];
+	let fail = 0;
+	for (const [name, ok] of cases)
+		if (!ok) {
+			fail++;
+			console.log("FAIL 自检：" + name);
+		}
+	if (fail) {
+		console.log("自检失败 " + fail + " 条");
+		process.exit(1);
+	}
+	console.log("selftest PASS：" + cases.length + " 条");
+}
+if (process.argv.includes("--selftest")) {
+	selftest();
+	process.exit(0);
+}
 if (isMainModule()) {
 	try {
 		const result = generateContentManifest(parseArgs(process.argv.slice(2)));
 		if (!result.ok) {
 			console.error(`[content-manifest:${result.domain ?? "?"}] artifact is stale; run npm run generate:prompts-manifest / generate:skills-manifest (${result.manifestPath})`);
+			const eol = eolMismatchFiles(result);
+			if (eol.length) {
+				console.error("[content-manifest] 行尾不一致：工作树里这些文件是 CRLF，仓库索引里是 LF。");
+				console.error("  CI 用仓库字节算哈希，所以本地怎么重生成，CI 都会报 stale。");
+				console.error("  修：在 LF 内容里生成再拷回 —— git archive <rev> | tar -x -C /tmp/x && cd /tmp/x && node scripts/generate-content-manifests.mjs --domain " + (result.domain ?? "?") + "，把生成的 manifest 拷回工作树提交。");
+				for (const f of eol.slice(0, 5)) console.error("  CRLF " + f);
+			}
 			process.exitCode = 1;
 		} else {
 			console.log(`[content-manifest:${result.domain ?? "?"}] ${result.changed ? "generated" : "up to date"}: ${result.fileCount} files @ v${result.version}`);

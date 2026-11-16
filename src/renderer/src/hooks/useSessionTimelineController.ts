@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { atom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { showNotice } from "../utils/notice";
-import { latestUserMessage, SendScrollPositioner } from "./timeline/sendScroll";
-import { ROOT_ROW_SELECTOR, useVisibleTimelineRows, type VisibleTimelineRow } from "./timeline/useVisibleTimelineRows";
+import { SendScrollPositioner } from "./timeline/sendScroll";
+import { useVisibleTimelineRows, type VisibleTimelineRow } from "./timeline/useVisibleTimelineRows";
 import { capWindowTurns, planWindowExpandBatch } from "../components/session/timeline/windowExpandPlan";
-import { resolveEarlierHistoryCursor, resolveHistoryPageSize, resolvePageWindowGrowth } from "../components/session/timeline/historyPagePolicy";
+import { useTimelineHistoryPaging, type TaggedTimelinePrependAnchor } from "./session/timeline/useTimelineHistoryPaging";
+import { useTimelineScrollAnchor } from "./session/timeline/useTimelineScrollAnchor";
 import { selectAtom } from "jotai/utils";
 import { desktopApi } from "../desktopApi";
-import type { AgentRuntimeState, ChatMessage, SessionMessagePage, SessionRecord } from "../../../shared/types";
+import type { ChatMessage, SessionMessagePage } from "../../../shared/types";
 import { t } from "../i18n";
 import { sessionHistoryUnavailableState } from "../utils/sessionHistoryAvailability";
 import { sessionDiskPageCursor } from "../utils/sessionDiskPageCursor";
@@ -27,29 +28,53 @@ import {
 	sendPinAnimatingByIdAtom,
 	setSessionMessageLoadStateAtom,
 	touchSessionMessagesAtom,
-	type SessionLoadState,
 	type SessionScrollAnchor,
 } from "../atoms";
 import { clearTimelineRevealAtom, requestTimelineRevealAtom } from "../atoms/timeline-reveal-atoms";
 import type { MessageScrollerScrollApi } from "../components/agents/message-scroller";
 import { TURN_WINDOW_AUTO_EXPAND_THRESHOLD, resolveAutoExpandThreshold } from "./timeline/autoExpandThreshold";
-import { planLoadMorePinSteps, shouldAutoExpandRenderWindow, shouldApplyDelayedHistoryResult } from "./timeline/scrollHistoryPolicy";
+import { shouldAutoExpandRenderWindow } from "./timeline/scrollHistoryPolicy";
 import { beginProgrammaticScroll, clearProgrammaticScroll, createProgrammaticScrollGuard, finishProgrammaticScrollFrame, isProgrammaticScrollActive } from "./timeline/programmaticScrollGuard";
-import { browsePinScrollTop, followBrowsePinAfterUserScroll, pickVisibleRootRow, resolvePinnedRowFallback, shouldCompensateBrowsePin, type BrowsePin } from "./timeline/browsePin";
+import type { BrowsePin } from "./timeline/browsePin";
 import { countUserTurns, TIMELINE_MOUNTED_TURN_LIMIT, TIMELINE_SCROLLED_TURN_LIMIT, TIMELINE_WINDOW_EXPAND_STEP } from "../components/session/timeline/turnRenderWindow";
 import { readSessionFirstScreenPage } from "../components/session/sessionSubagentTranscript";
-import { estimateJumpExpandTurns, resolveJumpFallbackEntry, resolveJumpPendingAction } from "../components/session/timeline/jumpWindowPolicy";
+import { resolveJumpPendingAction } from "../components/session/timeline/jumpWindowPolicy";
 import { resolveMissingAnchorNextStep } from "../components/session/timeline/restoreAnchorPolicy";
 import { shouldDeferJumpUntilLoaded } from "./timeline/timelineRevealChannel";
 import { resolveJumpMessageIndex, resolveJumpScrollTarget } from "../components/session/timeline/jumpTarget";
-import { planJumpSettleStep } from "../components/session/timeline/jumpSettle";
-import { shouldIgnoreFollowReport, shouldResetExpandBudget } from "./timelineJumpGuard";
+import { shouldResetExpandBudget } from "./timelineJumpGuard";
+import { BOTTOM_THRESHOLD, deriveSessionSurfaceRuntime, findBrowsePin, isKnownEmptySessionRecord, isTimelineAtBottom, matchesTimelineOwner, resolveSessionTimelineRestoreState, resolveTimelineTopCompensation, shouldSkipInitialDiskRead, timelineViewportTop } from "./session/timeline/timelineSurfacePolicy";
+import type { SessionTimelineController } from "./session/timeline/sessionTimelineControllerContract";
+import { type TaggedTimelineJumpRequest, useTimelineJumpNavigation } from "./session/timeline/useTimelineJumpNavigation";
+import { useTimelineScrollOwnership } from "./session/timeline/useTimelineScrollOwnership";
 
-/** 滚动接近顶部自动加载历史的阈值（px，2026-11 轮次模型）：
- *  贴顶（≤8px）才触发翻页——「滑到底才翻」，避免在顶部附近任何滚动都连翻历史页。
- *  同时用作「顶部不补偿」阈值：视口顶部 prepend/展开新内容时保持原位可见，
- *  补偿会把新内容推出视口（点击「加载更多/显示更早」无反馈根因，2026-02 修复）。 */
-export const HISTORY_AUTO_LOAD_THRESHOLD = 8;
+/**
+ * 时间线控制器的**装配点**：状态归属与 hook 调用顺序都在这里，按域拆出的子 hook 负责
+ * 具体编排（历史分页 / 滚动锚点 / 跳转 / 滚动所有权），纯策略与公开契约见同目录
+ * `session/timeline/timelineSurfacePolicy.ts` 与 `sessionTimelineControllerContract.ts`。
+ */
+
+// 纯策略模块的对外导出面在拆分前就是本模块的导出面（组件与测试按此路径 import），
+// 原样再导出，避免拆文件改变调用方的 import 来源。
+export {
+	HISTORY_AUTO_LOAD_THRESHOLD,
+	canLoadSessionTimelineMore,
+	deriveSessionSurfaceRuntime,
+	findBrowsePin,
+	isKnownEmptySessionRecord,
+	isLatestTimelineRunBusy,
+	isSessionRuntimeBusy,
+	isTimelineAtBottom,
+	isUserFacingSessionStart,
+	matchesTimelineOwner,
+	measureBrowsePinViewportTop,
+	resolveSessionTimelineRestoreState,
+	resolveTimelineTopCompensation,
+	restoreTimelineAnchor,
+	shouldSkipInitialDiskLoad,
+	shouldSkipInitialDiskRead,
+} from "./session/timeline/timelineSurfacePolicy";
+export type { SessionTimelineController } from "./session/timeline/sessionTimelineControllerContract";
 /** 翻页冷却（ms）：加载完成后立即再滚到顶不连翻，需停顿后重新触发（防惯性滚动连翻多页）。 */
 const HISTORY_AUTO_LOAD_COOLDOWN_MS = 300;
 /** 自动扩窗口冷却（ms）：防惯性滚动接近顶部时连扩多轮（与翻页冷却同量级）。 */
@@ -81,12 +106,16 @@ function trackLatestLoad(sessionId: string, sequence: number) {
 	const oldest = latestLoadBySession.keys().next().value;
 	if (oldest !== undefined) latestLoadBySession.delete(oldest);
 }
+/** 首屏读盘与后续分页共用一个序号计数器：谁发起新请求，谁的旧响应就算迟到。 */
+function allocateLoadSequence(): number {
+	return ++nextLoadSequence;
+}
+function getLatestLoad(sessionId: string): number | undefined {
+	return latestLoadBySession.get(sessionId);
+}
 /** sessionId 为空时的占位 atom：恒 undefined（无会话不订缓存条目）。 */
 const NO_CACHE_ENTRY_ATOM = atom(undefined);
 
-// 用户主动向上滚超过此阈值后停止自动跟底。值设很小是为了让用户稍微滚一点就能挣脱自动滚动，
-// 避免流式消息频繁触发 ResizeObserver/MutationObserver 把用户弹回底部造成"颤抖"。
-const BOTTOM_THRESHOLD = 16;
 /** 跟底跟流时落盘阅读锚点的跳过距离。流式增长时跟随动画天然滞后（实测 SLOW 流式稳定
  *  48–93px），这段滞后仍属于「在跟底」，不能当成用户上滚：否则切回会话时
  *  anchor !== undefined → autoScroll=false → 正文继续输出却不再跟随、还冒出回底按钮。
@@ -94,342 +123,6 @@ const BOTTOM_THRESHOLD = 16;
  *  仍远小于真实上滚阅读的距离。 */
 const FOLLOWING_ANCHOR_SKIP_PX = 140;
 const LEGACY_OWNER_KEY = "legacy";
-
-type Tagged<T> = { ownerKey: string; value: T };
-type TimelineAnchor = {
-	height: number;
-	top: number;
-	/** 发起请求时的历史浏览代数：回底/切会话后到达的响应不得恢复旧锚点。 */
-	generation: number;
-	/** 保持旧视口：即使原视口在顶部也只让新历史出现在上方。 */
-	preserveAtTop?: boolean;
-	/** 这次请求是否打开过整表渲染：只有打开过的才允许在消费点调用 end。
-	 *  没打开却调 end 会 ++token 并排一帧 setPrependSolid(false)，把扩窗路径
-	 *  刚打开、还在消费中的整表渲染一并关掉。 */
-	solidOpened?: boolean;
-};
-
-export function isTimelineAtBottom(scrollTop: number, scrollHeight: number, clientHeight: number): boolean {
-	return scrollHeight - scrollTop - clientHeight < BOTTOM_THRESHOLD;
-}
-
-export function restoreTimelineAnchor(previousTop: number, heightDelta: number): number {
-	return previousTop + heightDelta;
-}
-/**
- * 视口顶基准（相对 page）：IO 的 root 相交矩形以 padding box 为界（不含 border），
- * 快路径 origin 也加了 clientTop；全量回落与 pin 测量必须同基准，否则一旦
- * .message-timeline 加 border，两条路径会差一个 border 宽度（#401 终审 P2）。
- */
-function timelineViewportTop(timeline: HTMLElement): number {
-	// clientTop 在真实 DOM 里一定是数字；替身/异常节点缺失时按 0 处理，避免 NaN 毒化整个锚点。
-	const clientTop = Number.isFinite(timeline.clientTop) ? timeline.clientTop : 0;
-	return timeline.getBoundingClientRect().top + clientTop;
-}
-
-/** 钉行相对视口顶的偏移；行未挂载时返回 null。 */
-export function measureBrowsePinViewportTop(timeline: HTMLElement | null, messageId: string): number | null {
-	if (!timeline || !messageId) return null;
-	const el = timeline.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null;
-	if (!el) return null;
-	return el.getBoundingClientRect().top - timelineViewportTop(timeline);
-}
-
-/**
- * 视口里第一条底部仍在视口内的轮根节点（user-turn / turn-row）；不要求整行都在视口里。
- * 浏览钉行用：即使物理上仍接近底部（短 3 轮窗口）也要能钉住，所以不走 isTimelineAtBottom。
- */
-export function findBrowsePin(timeline: HTMLElement | null, visibleRows?: readonly VisibleTimelineRow[]): BrowsePin | null {
-	if (!timeline) return null;
-	// 快路径：可见行已按 top 升序，取第一条还没被视口顶切掉的行即可。
-	// 命中轮根才走快路径；可见集合里没有轮根（长回答内部、只有子元素）时必须回落到
-	// 下面的全量遍历 —— 原实现会继续找「视口下方最近的轮根」，直接 return null 会丢 pin
-	// 导致插页后位置漂移（2026-10-23 评审实测回归）。
-	if (visibleRows && visibleRows.length > 0) {
-		// 与原逻辑一致：findBrowsePin 只认轮根，不做卡类降级（降级是 computeCurrentAnchor 的两级策略）
-		const row = pickVisibleRootRow(visibleRows);
-		if (row) return { messageId: row.id, expectedViewportTop: row.top };
-	}
-	const viewportTop = timelineViewportTop(timeline);
-	const rows = timeline.querySelectorAll<HTMLElement>(ROOT_ROW_SELECTOR);
-	for (const row of rows) {
-		const rect = row.getBoundingClientRect();
-		if (rect.bottom < viewportTop + 1) continue;
-		const messageId = row.dataset.messageId ?? "";
-		if (!messageId) continue;
-		return {
-			messageId,
-			expectedViewportTop: rect.top - viewportTop,
-		};
-	}
-	return null;
-}
-
-/**
- * Session switching reuses the same controller instance in the solo pane. The
- * restored anchor therefore has to initialize both follow mode and the DOM
- * window before MessageScroller commits its layout effects.
- */
-export function resolveSessionTimelineRestoreState(anchor: SessionScrollAnchor | undefined): {
-	autoScroll: boolean;
-	showScrollToBottom: boolean;
-	scrolledWindowTurns: number;
-} {
-	return {
-		autoScroll: anchor === undefined,
-		showScrollToBottom: anchor !== undefined,
-		scrolledWindowTurns: Math.max(TIMELINE_SCROLLED_TURN_LIMIT, anchor?.windowTurns ?? TIMELINE_SCROLLED_TURN_LIMIT),
-	};
-}
-
-/** 顶部补偿决策（数据 prepend / turn 窗口扩大共用，2026-02 修复）：
- *  视口在顶部（≤阈值）时不补偿，保持原位让新加载/展开的内容直接出现在视口顶部——
- *  容器 overflow-anchor:none，插入内容不会自动调整滚动位置，补偿反而把新内容推出视口，
- *  表现为「点击加载更多/显示更早无反馈」。视口中部时按高度差补偿以保持视口内容不动。
- *  返回补偿后的 scrollTop；null = 不补偿（保持原位）。 */
-export function resolveTimelineTopCompensation(previousTop: number, heightDelta: number, threshold = HISTORY_AUTO_LOAD_THRESHOLD): number | null {
-	if (previousTop <= threshold) return null;
-	return restoreTimelineAnchor(previousTop, heightDelta);
-}
-
-export function matchesTimelineOwner(taggedOwnerKey: string, currentOwnerKey: string): boolean {
-	return taggedOwnerKey === currentOwnerKey;
-}
-
-export function isSessionRuntimeBusy(status: string | undefined, state: AgentRuntimeState | undefined, backend?: string): boolean {
-	// ACP：status 只会随 tab 快照更新，可能比回合结算晚一拍；isTurnActive 已显式落回 false
-	// （此时输入预测 ghost 已经出现）却仍报 running 时，按空闲处理。否则 Tab 采纳预测后的
-	// 发送会被误判成「忙碌」排进 followUp 队列，输入框上方凭空多出一条队列行。
-	if (backend === "acp" && state?.isTurnActive === false) return false;
-	// idle/error/closed 是停止的权威边沿；旧 runtime-state 可能稍后到达，
-	// 不能让滞后的 isStreaming/isExecutingTool 把页面继续显示为运行中。
-	if (status === "idle" || status === "error" || status === "closed" || status === "detached") return false;
-	return Boolean(status === "running" || state?.isStreaming || state?.isExecutingTool);
-}
-
-/** 用户主动发送才算「正在启动」。输入预热也会把 runtime 打成 starting，但不能锁输入框。 */
-export function isUserFacingSessionStart(sendStatus: string | undefined): boolean {
-	return sendStatus === "activating";
-}
-
-/** catalog 已确认无磁盘历史：空草稿、从未落文件的 pi 会话、尚无 host id 的新 DSH。
- * 预热会写 filePath / dshSessionId，但草稿在真正开聊前仍算空——见控制器 sticky。 */
-export function isKnownEmptySessionRecord(record: Pick<SessionRecord, "status" | "filePath" | "messageCount" | "backend" | "dshSessionId" | "locator"> | undefined): boolean {
-	if (!record) return false;
-	if (record.status === "draft") return true;
-	if ((record.messageCount ?? 0) > 0) return false;
-	if (record.filePath) return false;
-	// SSH 的 messageCount=0 是未读取摘要，不是磁盘无历史；归档恢复的新记录没有内存缓存。
-	// 只要已有远端文件身份就必须读页。草稿仍由上面的 draft 分支保留空态。
-	if (record.locator?.kind === "ssh" && (record.locator.remoteSessionId || record.locator.remotePath)) return false;
-	if (record.backend === "dsh" && record.dshSessionId) return false;
-	// imagegen 会话历史独立存 ImageSessionStore，不体现在 filePath/messageCount：
-	// 已 promote 为 active 的生图会话不能判为空，否则重启后打开会跳过历史加载显示空引导页。
-	// 新建生图草稿仍为 draft，已在上面 return true，不受影响。
-	// videogen 同理（VideoSessionStore 独立存储，任务占位也不在 filePath/messageCount 里）。
-	if (record.backend === "imagegen" || record.backend === "videogen") return false;
-	return true;
-}
-
-export function deriveSessionSurfaceRuntime(
-	messageCount: number,
-	messageLoadStatus: string | undefined,
-	sendStatus: string | undefined,
-	runtimeStatus: string | undefined,
-	runtimeState: AgentRuntimeState | undefined,
-	hasCachedEntry?: boolean,
-	/**
-	 * catalog 已确认是空草稿（draft / 无会话文件且 messageCount=0）。
-	 * 不能把 undefined/loading 钉成骨架：否则新建会话先挂底部输入栏再卸掉改居中起始页
-	 * （输入框上跳），切回空会话还闪「正在加载历史」。有 filePath 的历史仍走下方规则。
-	 */
-	knownEmpty?: boolean,
-) {
-	const activating = isUserFacingSessionStart(sendStatus);
-	const status = activating ? "starting" : runtimeStatus;
-	return {
-		status,
-		isLoading:
-			!knownEmpty &&
-			messageCount === 0 &&
-			(messageLoadStatus === "loading" ||
-				// 挂载首帧 loadState 尚未写入（passive effect 在 paint 后才置 loading），
-				// undefined 一律视为加载中——否则有历史的会话会被误判为「空会话」，
-				// 闪出 SessionStartSurface 起始页（打开/切回大会话闪屏根因）。
-				messageLoadStatus === undefined ||
-				// ready 但缓存条目不存在（从未写入或被 LRU 淘汰）＝ disk 读取结果尚未到达
-				// （cacheMessages 对 disk 读取无论空/非空都会创建条目）：必须钉在骨架屏。
-				// 缓存条目已存在（即使 messages 为空）说明 disk 已返回——空会话显示起始页
-				// 是合法终态，不会进入加载死循环。读取失败（error）不在此列。
-				// 预热/发送 activating 不能再钉骨架：空会话应留在起始页，避免「输入一半整页闪骨架」。
-				(messageLoadStatus === "ready" && !hasCachedEntry)),
-		isStarting: activating,
-		isBusy: activating || sendStatus === "sending" || isSessionRuntimeBusy(status, runtimeState),
-	};
-}
-
-export function canLoadSessionTimelineMore(isStarting: boolean, messageCount: number): boolean {
-	// 只在初始加载（无消息）时隐藏按钮；runtime 创建期间已有消息则不隐藏
-	return !(isStarting && messageCount === 0);
-}
-
-/**
- * 挂载时是否可跳过初始磁盘历史读取。
- *
- * 背景（2026-10-08 fork/copy 现场）：主进程把坏路径读盘失败当「空历史」返回，
- * runtime 下发 0 条的全量 flush，渲染层写入 source="runtime"、messages=[] 的缓存
- * 条目。旧逻辑把这条**空 runtime 投影**当「已加载」跳过磁盘读取，loadState 永远停在
- * undefined，deriveSessionSurfaceRuntime 把 undefined 钉成 loading → 骨架屏永驻。
- *
- * 契约：跳过条件必须是「已拿到真实内容」——
- *   - knownEmpty（草稿/无文件无消息）→ 跳过，起始页是合法终态；
- *   - 条目非空（runtime/disk 来源都算真实内容）→ 跳过；
- *   - 条目为空但来源是 disk → 跳过（磁盘已应答，空即空会话终态）；
- *   - 条目为空且来源是 runtime → 不跳过：这是唯一能区分「会话本来就空」与
- *     「读盘还没应答/失败」的状态，必须读盘让磁盘给出 ready（起始页）或
- *     error（错误卡片 + 重试），否则失败被伪装成空历史且骨架永驻。
- */
-export function shouldSkipInitialDiskLoad(cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[]; history?: { messages: readonly unknown[] } } | undefined, knownEmpty: boolean): boolean {
-	if (knownEmpty) return true;
-	if (!cachedEntry) return false;
-	if (cachedEntry.messages.length > 0 || (cachedEntry.source === "runtime" && Boolean(cachedEntry.history?.messages.length))) return true;
-	// 空条目只有磁盘亲自返回的才算终态；runtime 空投影必须读盘核实。
-	return cachedEntry.source === "disk";
-}
-
-/**
- * 挂载 effect 是否跳过初始磁盘读取（在 shouldSkipInitialDiskLoad 之上叠加「本次挂载已经
- * 发起或拿到读盘结论」的去重条件）。
- *
- * 为什么需要去重：runtime 节流 flush 每次都重建缓存条目对象（cacheSessionMessagesAtom
- * 整体重建 entry），effect 依赖 cachedEntry 会随之重跑；不去重就会对同一会话反复读盘。
- *
- * 但「会话挂载过一次」不等于「已经读过盘」，两者必须分开：
- *   - loadState 仍是 undefined（本次挂载从未发起/拿到读盘结论）→ 不得跳过。缓存里的空
- *     runtime 投影不是终态：重启换代把旧窗口替换成空数组后，只有读盘能把它推到
- *     ready（历史/空会话）或 error（错误卡片），否则骨架屏永驻（Issue #350）。
- *   - loadState 已 settled 且缓存条目被 8-LRU 整体淘汰（undefined）→ 不得跳过，重读自愈
- *     （2026-12 回归修复）；条目仍在时以已有磁盘结论为准，不因 runtime 重写条目重读。
- *   - loadState 已是终态错误（读盘失败 / 文件缺失 / DSH 专态）→ 不得自动重读：错误态没有
- *     缓存条目，跳过条件会退化成「effect 每次重跑都读盘」，而 effect 依赖 loadStateStatus，
- *     形成 loading↔error 的读盘死循环（2026-11 现场：Windows 模式点开 WSL 路径会话，
- *     48 次/秒 IPC，页面一直闪）。错误由 UI 呈现并支持手动重试，自动恢复只靠重新挂载。
- */
-export function shouldSkipInitialDiskRead(input: { previouslyLoaded: boolean; cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[]; history?: { messages: readonly unknown[] } } | undefined; knownEmpty: boolean; loadStateStatus: SessionLoadState["status"] | undefined }): boolean {
-	if (shouldSkipInitialDiskLoad(input.cachedEntry, input.knownEmpty)) return true;
-	// 首次挂载到本会话：是否读盘完全由缓存权威性决定（与旧行为一致）。
-	if (!input.previouslyLoaded) return false;
-	// 读盘已给出终态错误：等用户手动重试，不能让 effect 自己再发一次（死循环，见函数注释）。
-	if (input.loadStateStatus === "error") return true;
-	// 从未读盘：空 runtime 投影必须核实（Issue #350 的核心）。
-	if (input.loadStateStatus === undefined) return false;
-	// 读盘在途：等结果，不重复发起（缓存条目可能已被 runtime flush 重建）。
-	if (input.loadStateStatus === "loading") return true;
-	// 已 settled：条目消失（LRU 淘汰）→ 重读自愈；条目仍在 → 以磁盘结论为准。
-	return input.cachedEntry !== undefined;
-}
-
-export function isLatestTimelineRunBusy(isAgentBusy: boolean, index: number, runCount: number): boolean {
-	return isAgentBusy && index === runCount - 1;
-}
-
-export type SessionTimelineController = {
-	timelineRef: RefObject<HTMLElement | null>;
-	messages: ChatMessage[];
-	visibleMessages: ChatMessage[];
-	totalMessageCount: number;
-	hasMoreMessages: boolean;
-	/** 下一次「加载更多」触发 disk 轮次分页（渲染窗口已耗尽且窗口前还有历史） */
-	nextLoadIsHistory: boolean;
-	isLoadingMoreMessages: boolean;
-	/** 上一次「加载更多」失败原因（原始 IPC 文案）；null = 无错误。时间线在按钮下方出失败行并允许直接重试。 */
-	loadMoreError: string | null;
-	/** 补页后保持当前视口（新历史只出现在上方）。所有入口统一，不再有「新页直接出现」的跳动。 */
-	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => void;
-	/** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制历史意图消费。
-	 *  durationMs > 0 时按时间窗口抑制（连续 smooth scroll 会派发多个 scroll 事件）。 */
-	markProgrammaticScroll: (durationMs?: number) => void;
-	/**
-	 * 顶部插入（扩窗/翻页）后钉住当前视口：走引擎 restoreAt（定位 + 解锁 + ignoreScrollToTop）。
-	 * 引擎未挂上时回退原生 scrollTop。
-	 */
-	pinViewportAfterPrepend: (nextTop: number) => void;
-	/**
-	 * 浏览态：按钉住的那一轮相对视口顶的漂移补 scrollTop。
-	 * 扩窗 / 翻页 / Markdown 后排版共用；跟随时无操作。人手滚动不会走这条。
-	 */
-	pinBrowseRow: () => void;
-	jumpToMessage: (messageId: string) => void;
-	scrollToBottom: () => void;
-	/** Receives wheel input from the sibling outline rail without bypassing timeline scroll ownership. */
-	scrollTimelineBy: (deltaY: number) => void;
-	/** 最新轮自动收起后，不再自动调整滚动位置——历史滚动只发生在「发送那一刻」，
-	 *   保持这个 API 只是为兼容旧调用处；实现为空操作。 */
-	scrollFinalAnswerToUpperMiddle: (runId: string) => void;
-	/** 滚动回调（MessageScroller viewport 接线）：维护会话切换的滚动锚点。 */
-	handleTimelineScroll: () => void;
-	autoScroll: boolean;
-	showScrollToBottom: boolean;
-	/** 由 MessageScroller 汇报用户是否仍在实时尾部，避免两套滚动监听互相抢占。 */
-	setAutoScrollFromScroller: (following: boolean) => void;
-	/**
-	 * 引擎上报的用户滚动意图（wheel/触摸/滚动条真实输入）：
-	 * 近顶部自动扩窗/预取只消费该意图，布局 resize/clamp 不算用户上滑。
-	 * source 区分真实输入与 scroll 派生：只有真实输入才终止在途定位动画。
-	 */
-	setUserScrollIntent: (intent: "up" | "down", source?: "scroll" | "input") => void;
-	/** 新 run 开始（busy 边沿）：旧实现用来取消完结定位动画；现已删除该动画，
-	 *  保留同签名避免外部调用处崩溃。 */
-	cancelSettledRepositionForNewRun: () => void;
-	/**
-	 * 挂到 MessageScroller 的 stick-to-bottom 引擎 API（回底弹簧）。
-	 * 未挂上时 scrollToBottom 退化为原生 scrollTo。
-	 */
-	scrollerScrollApiRef: RefObject<MessageScrollerScrollApi | null>;
-	/** 上滚查看历史时的渲染窗口轮数（贴底时渲染层用 TIMELINE_MOUNTED_TURN_LIMIT，忽略此值）。
-	 *  2026-08 黑屏治理：历史不再全量放开挂载，窗口随「显示更早」逐步扩大。 */
-	scrolledWindowTurns: number;
-	/** 扩大上滚渲染窗口（每次最多 +3 轮）；数据翻页与本地 DOM 扩展使用同一 cohort。 */
-	expandWindow: () => void;
-	/**
-	 * 上滚渲染窗口是否仍可扩展（由渲染层同步 turnWindowActive：已加载数据未被全部挂载）。
-	 * 滚动监听读它决定「先扩窗口」还是「翻数据页」（方案 C 渐进扩展，2026-12）。
-	 */
-	windowExpandableRef: RefObject<boolean>;
-	/**
-	 * 磁盘消息尚未就绪（含挂载首帧 loadStatus 未写入）。
-	 * SessionView 用它在历史会话加载期仍挂底部 composer，避免 1 面板 Group 吃到 2 值布局缓存。
-	 */
-	isSurfaceLoading: boolean;
-	/**
-	/**
-	 * 需要「整表真实渲染」的时机（三处，同一套机制）：
-	 * 1. 恢复锚点 / 挂起跳转在途 —— 这两条路径按 [data-message-id] 查 DOM；
-	 * 2. 顶部插入（扩窗 / 数据翻页）在途 —— 插入会把视口里的行推走、被虚拟化卸载，
-	 *    之后 pinBrowseRow 拿不到 currentTop，补不了位移（用户看到内容跳一下）；
-	 * 3. 多选导出（渲染层自己的 state，不在这里）。
-	 * 虚拟区外的行不在 DOM 里，上述场景必须整表挂载。
-	 */
-	navBlockingVirtualization: boolean;
-	/** 当前钉住行的 messageId（浏览态）；无钉行时为 null。读 ref，不触发渲染。 */
-	readPinnedMessageId: () => string | null;
-	/** 跳转在途：贴底跟随的窗口压缩要让位，否则流式期间目标轮挂不上。 */
-	jumpPending: boolean;
-	/** 顶部插入收尾：渲染层做完 pin 补偿后调用，解除整表渲染。 */
-	endPrependSolid: () => void;
-	/** 本栏粘住的空会话：预热写 filePath/dshSessionId 后仍不闪历史骨架。 */
-	knownEmpty: boolean;
-	/**
-	 * 强制从磁盘重载本会话时间线（编辑/删除/重发改 JSONL 后）。
-	 * 绕过「已加载 + 有缓存就跳过」和 runtime 缓存守卫。
-	 */
-	reloadFromDisk: () => Promise<void>;
-	/**
-	 * DSH host 被手动停止时的恢复入口：先显式启动 host（唯一能解开手动停止标记的
-	 * 路径），再重载本会话历史。返回是否启动成功；false 时调用方给用户提示。
-	 */
-	startDshHostAndReload: () => Promise<boolean>;
-};
 
 export function useSessionTimelineController(options: { sessionId?: string; messages?: ChatMessage[] }): SessionTimelineController {
 	const ownerKey = options.sessionId ?? LEGACY_OWNER_KEY;
@@ -443,41 +136,9 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	const messages = options.messages ?? cachedMessages ?? [];
 	const controllerEnabled = options.sessionId !== undefined && options.messages === undefined;
 
-	// 锚点 id 归一映射：pi 预热激活运行时会把磁盘页投影 id `_viewer-history-X` 改写为
-	// `<agentId>-history-X`（meta.entryId 不变，跨 incarnation 也稳定）。锚点按裸 id
-	// 保存/恢复会在改写后 miss，扩窗重试后降级跳顶、丢阅读位置。保存时附 entryId，
-	// 恢复 miss 时按它反查当前 id。ref 直写与 ownerKeyRef 同模式，热路径读不加依赖。
-	const anchorEntryIdMapsRef = useRef<{ byId: Map<string, string>; byEntryId: Map<string, string> }>({ byId: new Map(), byEntryId: new Map() });
-	const anchorEntryIdMaps = useMemo(() => {
-		const byId = new Map<string, string>();
-		const byEntryId = new Map<string, string>();
-		for (const message of messages) {
-			const entryId = message.meta?.entryId;
-			if (typeof entryId !== "string" || !entryId) continue;
-			byId.set(message.id, entryId);
-			// 同 entryId 短暂多 id（重投影过渡帧）时保留最后写入者：flush 顺序即最新投影。
-			byEntryId.set(entryId, message.id);
-		}
-		return { byId, byEntryId };
-	}, [messages]);
-	anchorEntryIdMapsRef.current = anchorEntryIdMaps;
-
-	// ── 会话切换滚动位置保持（状态即真相）──
-	// 滚动节流直接写 per-session atom（内容不变跳过 → 引用稳定 → 零订阅重渲染）；
-	// 恢复 = 切换时从 atom 读一次快照执行，不订阅（后续滚动写 atom 不打扰已恢复的视口）。
-	const saveScrollAnchor = useSetAtom(saveSessionScrollAnchorAtom);
-	// 最后已知锚点缓存：供 cleanup 兜底落盘（250ms 节流窗口内切走不丢）。
-	// 不能用 cleanup 读 DOM——会话切换复用同一组件实例（无 key），cleanup 执行时
-	// timeline 的 children 可能已替换为新会话消息，读 DOM 会串数据。
-	const currentAnchorRef = useRef<SessionScrollAnchor | null>(null);
 	/** 与锚点一起保存：DOM 裁剪窗口是阅读位置的一部分，而非瞬时 UI 状态。 */
 	const renderedWindowTurnsRef = useRef(TIMELINE_SCROLLED_TURN_LIMIT);
-	const scrollAnchorFrameRef = useRef<number | undefined>(undefined);
-	const bottomRestoreVerificationRef = useRef<number | undefined>(undefined);
-	const bottomRestoreRequestRef = useRef(0);
-	/** 最近一次 scroll 事件的可见行快照：rAF 里的锚点重算复用它，不再读第二遍布局。 */
-	const scrollVisibleRowsRef = useRef<readonly VisibleTimelineRow[]>([]);
-	const scrollSaveTimerRef = useRef<number | undefined>(undefined);
+	const saveScrollAnchor = useSetAtom(saveSessionScrollAnchorAtom);
 
 	// 浏览钉行元素缓存（2027-02 性能审计）：measureBrowsePinViewportTop 走全子树
 	// 属性选择器（O(挂载子树)），而浏览态 ResizeObserver 在内容每次增高（流式正文、
@@ -502,133 +163,12 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		return element.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
 	}, []);
 
-	/**
-	 * 计算当前视口锚点（纯读取，不落盘）。
-	 * 规则：在底部跟流 → null（切回继续跟底）；查看历史 → 记录
-	 * 「视口顶部的第一条消息行 + 距视口顶偏移 + 分页窗口」。
-	 * 优先选 user-turn / turn-row 根节点：工具卡、思考步骤等嵌套 data-message-id
-	 * 会在执行过程自动收起时卸载；把它们作为锚点会使切回只能降级到顶部。
-	 */
 	// 视口内的行（O(视口)）：滚动热路径只读这一份缓存，不再全量遍历 DOM
 	const { readVisibleRows } = useVisibleTimelineRows(timelineRef);
 	const readVisibleRowsRef = useRef<() => VisibleTimelineRow[]>(() => []);
 	useEffect(() => {
 		readVisibleRowsRef.current = readVisibleRows;
 	}, [readVisibleRows]);
-
-	/**
-	 * @param visibleRowsArg 本次 scroll 事件已读好的可见行快照。undefined = 自己读一次；
-	 *   同一事件里锚点与浏览钉共用一份，避免每帧两次 O(视口) 布局读取。
-	 */
-	const computeCurrentAnchor = useCallback((visibleRowsArg?: readonly VisibleTimelineRow[]): SessionScrollAnchor | null => {
-		const timeline = timelineRef.current;
-		if (!timeline) return null;
-		// 发送定位动画期间视口是被程序挪走的，不是阅读位置。
-		if (sendScrollRef.current.isAnimating) return null;
-		const distanceFromBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
-		if (distanceFromBottom < BOTTOM_THRESHOLD) return null;
-		// 跟流中的动画滞后（几十 px）不是阅读位置；真实上滚阅读的距离远大于此。
-		if (autoScrollRef.current && distanceFromBottom <= FOLLOWING_ANCHOR_SKIP_PX) return null;
-		// 快路径：只对视口内的行取布局（O(视口)）。原来这里要跑两轮 querySelectorAll +
-		// 每行 getBoundingClientRect，窗口越大越慢——「越滚越慢」的直接来源。
-		const visibleRows = visibleRowsArg ?? readVisibleRowsRef.current();
-		// 只有「视口内有轮根」才走快路径。没有轮根时必须回落到下面的全量扫描：
-		// 原实现是在**全文档**里找第一条底部进入视口的轮根（可能在视口下方）；
-		// 直接降级到视口内的任意非轮根行（系统消息、日期分隔）会改变锚点语义，
-		// 且这类行更容易被窗口裁剪，恢复时只能降级到顶部（评审 d#1）。
-		const anchorRow = pickVisibleRootRow(visibleRows);
-		if (anchorRow) {
-			return {
-				messageId: anchorRow.id,
-				entryId: anchorEntryIdMapsRef.current.byId.get(anchorRow.id),
-				offsetTop: anchorRow.top,
-				windowTurns: renderedWindowTurnsRef.current,
-				savedAt: Date.now(),
-			};
-		}
-		const viewportTop = timelineViewportTop(timeline);
-		const findAnchor = (rows: NodeListOf<HTMLElement>): SessionScrollAnchor | null => {
-			for (const row of rows) {
-				const rect = row.getBoundingClientRect();
-				if (rect.bottom < viewportTop + 1) continue;
-				const messageId = row.dataset.messageId ?? "";
-				if (!messageId) continue;
-				return {
-					messageId,
-					entryId: anchorEntryIdMapsRef.current.byId.get(messageId),
-					// 保留负偏移：视口顶部常被上一行底部占据（行顶在视口上方），
-					// 截断为 0 会导致恢复时把行顶对齐视口顶、整体位置偏下（高大行偏差明显）。
-					// 恢复侧 scrollTop = max(0, elTop - offsetTop) 已兜底负值。
-					offsetTop: rect.top - viewportTop,
-					// 当前轮次窗口必须随锚点保存。切回时只恢复 scrollTop 而不先挂回这些
-					// turn，会导致 querySelector 找不到锚点并错误降级到底部。
-					windowTurns: renderedWindowTurnsRef.current,
-					savedAt: Date.now(),
-				};
-			}
-			return null;
-		};
-		const stableAnchor = findAnchor(timeline.querySelectorAll<HTMLElement>(ROOT_ROW_SELECTOR));
-		if (stableAnchor) return stableAnchor;
-		// 诊断卡等没有稳定轮根节点时仍可恢复，避免空会话/特殊事件完全失去锚点。
-		return findAnchor(timeline.querySelectorAll<HTMLElement>("[data-message-id]"));
-	}, []);
-
-	/** 把当前锚点写入 atom（节流）。内容未变化由 atom 侧跳过，引用保持稳定。 */
-	const persistCurrentAnchor = useCallback(
-		(sessionId: string) => {
-			scrollSaveTimerRef.current = undefined;
-			saveScrollAnchor({ sessionId, anchor: currentAnchorRef.current });
-		},
-		[saveScrollAnchor],
-	);
-
-	/** 透传给 MessageScroller viewport 的滚动回调（SessionMessageTimeline 接线）。
-	 *  同步快照保证同一事件帧切走时仍有旧 DOM 的锚点；rAF 只合并后续重算与
-	 *  250ms 持久化，避免将性能节流错误地用在跨会话正确性边界上。 */
-	const handleTimelineScroll = useCallback(() => {
-		const sessionId = ownerKeyRef.current;
-		if (!sessionId || sessionId === LEGACY_OWNER_KEY) return;
-		// A tab/sidebar selection can synchronously replace this timeline before the
-		// next animation frame. Capture the old DOM while the scroll event still
-		// owns it; the layout-effect cleanup must never inspect post-switch nodes.
-		// The rAF below still coalesces the settled position and atom persistence.
-		// 同一 scroll 事件只读一次可见行：锚点与浏览钉共用这份快照，rAF 里的
-		// 第二次锚点计算也复用它，不再重复读布局。
-		// 贴底跟流时 computeCurrentAnchor 直接返回 null，此时不读缓存——流式输出的
-		// 每个 scroll 都不能为一份用不上的快照付 O(视口) 的布局读取。
-		const timeline = timelineRef.current;
-		const visibleRows = timeline && !isTimelineAtBottom(timeline.scrollTop, timeline.scrollHeight, timeline.clientHeight) ? readVisibleRowsRef.current() : [];
-		scrollVisibleRowsRef.current = visibleRows;
-		currentAnchorRef.current = computeCurrentAnchor(visibleRows);
-		// restoreAt / 扩窗补偿派发的 scroll：只更新冻住那一行的 expected，不改钉到新的第一可见行。
-		if (!isProgrammaticScrollActive(programmaticScrollGuardRef.current, performance.now()) && !autoScrollRef.current) {
-			if (browsePinFrozenRef.current && browsePinRef.current) {
-				const pinnedTimeline = timelineRef.current;
-				const top = pinnedTimeline ? measurePinnedRowTop(pinnedTimeline, browsePinRef.current.messageId) : null;
-				browsePinRef.current = followBrowsePinAfterUserScroll(browsePinRef.current, top);
-			} else {
-				browsePinRef.current = findBrowsePin(timelineRef.current, visibleRows);
-			}
-		}
-		if (scrollAnchorFrameRef.current != null) return;
-		scrollAnchorFrameRef.current = requestAnimationFrame(() => {
-			scrollAnchorFrameRef.current = undefined;
-			// 回调执行时若已切走（ownerKeyRef 已更新），丢弃——旧会话状态由 cleanup 落盘。
-			if (ownerKeyRef.current !== sessionId) return;
-			// 快照是 scroll 事件那一刻的几何；rAF 在本帧提交 / 流式增量之后才跑，行高与
-			// 插入位置可能已经变了 —— 直接复用会把过期坐标写成锚点（切回会话时位置偏）。
-			// 这里重读当前可见行；事件内「锚点 + 浏览钉共用一份快照」的优化仍然保留。
-			scrollVisibleRowsRef.current = readVisibleRowsRef.current();
-			currentAnchorRef.current = computeCurrentAnchor(scrollVisibleRowsRef.current);
-			// 节流写 atom：只排一个 timer，期间连续滚动不重复写；
-			// 内容未变时 atom 侧跳过（引用稳定，订阅者零重渲染）。
-			if (scrollSaveTimerRef.current != null) return;
-			scrollSaveTimerRef.current = window.setTimeout(() => {
-				persistCurrentAnchor(sessionId);
-			}, 250);
-		});
-	}, [computeCurrentAnchor, persistCurrentAnchor]);
 
 	// ── Load messages from disk when sessionId changes ──
 	// 只订本会话缓存条目（family selectAtom 隔离）：其它会话的消息到达/分页不拖着重渲染本栏。
@@ -641,6 +181,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	const prependHistoryPage = useSetAtom(prependSessionHistoryPageAtom);
 	const setLoadState = useSetAtom(setSessionMessageLoadStateAtom);
 	const touchMessages = useSetAtom(touchSessionMessagesAtom);
+	const clearHistory = useSetAtom(clearSessionHistoryAtom);
 	// 订阅收窄：整表订阅 sessionMessageLoadStateAtom 会让本栏在**任何**会话的加载
 	// 状态变化时重渲染（分屏下每栏各放大一次）；只取本会话 status 切片
 	// （与上方 cacheSliceAtom 同一模式，status 为原始值，Object.is 相等即不重渲染）。
@@ -724,91 +265,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			});
 	}, [options.sessionId, cachedEntry, knownEmpty, loadStateStatus]);
 
-	const reloadFromDisk = useCallback(async () => {
-		const sessionId = options.sessionId;
-		if (!sessionId) return;
-		const sequence = ++nextLoadSequence;
-		trackLatestLoad(sessionId, sequence);
-		setLoadState({ sessionId, state: { status: "loading" } });
-		try {
-			const page = await readSessionFirstScreenPage((id, before, pageSize) => desktopApi.sessions.readRecordMessagePage(id, before, pageSize), sessionId, sessionRecord?.parentSessionPath);
-			if (latestLoadBySession.get(sessionId) !== sequence) return;
-			// 与首屏同源：手动停止态下重试仍不会成功，保持专态
-			//（否则「重试」会把错误态洗成空会话，又回到用户看到的错误方向）。
-			const unavailable = sessionHistoryUnavailableState(page);
-			if (unavailable) {
-				setLoadState({ sessionId, state: unavailable });
-				return;
-			}
-			cacheMessages({
-				sessionId,
-				messages: page.messages,
-				source: "disk",
-				expectedRevision: 0,
-				page: sessionDiskPageCursor(page),
-				force: true,
-			});
-			setLoadState({ sessionId, state: { status: "ready" } });
-		} catch (error: unknown) {
-			if (latestLoadBySession.get(sessionId) !== sequence) return;
-			setLoadState({
-				sessionId,
-				state: {
-					status: "error",
-					error: error instanceof Error ? error.message : String(error),
-				},
-			});
-			throw error;
-		}
-	}, [cacheMessages, options.sessionId, setLoadState, sessionRecord]);
-
-	/**
-	 * DSH host 被手动停止时的恢复入口（时间线专态的「启动 host 并重试」）。
-	 *
-	 * 为什么不能只重试读盘：手动停止态不会自愈——预热 / 按需兜底 / 崩溃重启 /
-	 * runtime 安装恢复全被 isManualStopped 门控拒掉（见 dshManualStop），只有用户
-	 * 显式 startDshHost（主进程清标记后 boot）才能恢复。所以先启动、再重载。
-	 */
-	const startDshHostAndReload = useCallback(async () => {
-		// 启动失败不抛：保持专态等用户再点（真正原因会由后续读盘的错误态/日志暴露）。
-		const started = await desktopApi.sessions.startDshHost().catch(() => false);
-		if (!started) return false;
-		// reloadFromDisk 失败会自行写 error 态并 rethrow，这里不重复上报。
-		await reloadFromDisk().catch(() => undefined);
-		return true;
-	}, [reloadFromDisk]);
-
-	const diskPage = controllerEnabled && cachedEntry?.source === "disk" ? cachedEntry.page : undefined;
-	// 窗口前还有历史可加载：判断与「这次点击真能推进一页」必须同源，否则按钮变成死按钮
-	// （2026-12 真机：已经是第一条消息了按钮还在，点了无任何变化）。旧写法两份实现：
-	// 可见性看 `nextBefore !== null` / `windowStart > 0`，请求侧拿不到锚点就静默 return。
-	// 现在统一走 resolveEarlierHistoryCursor：拿不到游标 = 没更早历史 = 不显示按钮。
-	// 两个曾经的坑写在那个函数里（缓存页把文件头回成 nextBefore: 0、无文件会话只剩 windowStart>0）。
-	const earlierHistoryCursor = useMemo(
-		() =>
-			controllerEnabled
-				? resolveEarlierHistoryCursor({
-						runtimeHistory,
-						windowMessages: messages,
-						windowStartFilePos: cachedEntry?.windowStartFilePos,
-						// ACP 没有会话文件、消息也不带 entryId：窗口起点就是分页游标
-						windowStart: cachedEntry?.windowStart,
-					})
-				: null,
-		[controllerEnabled, runtimeHistory, messages, cachedEntry?.windowStartFilePos, cachedEntry?.windowStart],
-	);
-	const historyHasMore = controllerEnabled && cachedEntry?.source === "runtime" ? earlierHistoryCursor !== null : false;
-	// disk 页与窗口页的统一口径：游标必须是 >0 的实下标（0 = 文件头，不是「还有」。）
-	const hasEarlierPages = diskPage ? typeof diskPage.nextBefore === "number" && diskPage.nextBefore > 0 : historyHasMore;
-	// 2026-11 轮次模型：不再按 100 条分页器切片，显示数组 = 已加载全部（历史前缀 + 运行时窗口段）。
-	// 内存预算由主进程 12 轮缓存 + 回底临时历史清理承担，渲染层不再有第二道条数窗口。
-	const visibleMessages = combinedMessages;
-	const [isLoadingMessagePage, setIsLoadingMessagePage] = useState(false);
-	/**
-	 * 「加载更多对话」失败态：IPC 抛错（DSH host 不可用 / 会话文件失效）原先没人接，
-	 * finally 只复位 loading，表现为「点了没反应」。这里留原始文案给时间线出错误行。
-	 */
-	const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 	// This snapshot is intentionally read during render. In the reused solo pane,
 	// waiting for a passive effect would let MessageScroller commit the previous
 	// session's follow mode before the target session's anchor is materialized.
@@ -918,7 +374,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		[options.sessionId, store],
 	);
 	const scrollerScrollApiRef = useRef<MessageScrollerScrollApi | null>(null);
-	const loadMoreAnchorRef = useRef<Tagged<TimelineAnchor> | undefined>(undefined);
+	const loadMoreAnchorRef = useRef<TaggedTimelinePrependAnchor | undefined>(undefined);
 	/** 浏览态钉行：扩窗/翻页前冻住正在看的那一轮，布局变高时按漂移补位置。 */
 	const browsePinRef = useRef<BrowsePin | null>(null);
 	/** 钉行的 messageId 冻结中：补偿完成前不要改钉到「当前第一可见行」（那会是刚插进来的更早轮）。 */
@@ -931,7 +387,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	 * 调度 effect，第二跳时（autoScroll 已断、状态无变化）点击会完全无反应；
 	 * nonce 保证连续点击同一目标也会重跑。
 	 */
-	const [pendingJump, setPendingJump] = useState<Tagged<{ messageId: string; expandAttempts: number; loadAttempts: number; nonce: number }> | undefined>(undefined);
+	const [pendingJump, setPendingJump] = useState<TaggedTimelineJumpRequest | undefined>(undefined);
 
 	const jumpNonceRef = useRef(0);
 	/**
@@ -966,12 +422,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		if (!revealSessionId) return;
 		clearRevealWrite(revealSessionId);
 	}, [clearRevealWrite, revealSessionId]);
-	/** 旧实现中新增 run 开始的「取消完结动画并立即跟随」逻辑已随服务完结定位一起删除。
-	 *  保留同名为 no-op，防调用处崩溃；所有自动滚动只在发送那一刻。 */
-	const cancelSettledRepositionForNewRun = useCallback(() => {
-		settleScrollCancelRef.current?.();
-		settleScrollCancelRef.current = undefined;
-	}, []);
 	const highlightTimersRef = useRef(new Map<number, number>());
 	// ── 上滚渲染窗口（2026-08 黑屏治理）──
 	// 贴底和上滚初始都只挂 3 轮；每次接近顶部最多扩一个 3 轮 cohort，
@@ -986,8 +436,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	 * 即使 scrolledWindowTurns 尚未被回底 effect 复位，也不能把过期的大窗口写进锚点。
 	 */
 	const effectiveWindowTurns = autoScroll ? TIMELINE_MOUNTED_TURN_LIMIT : scrolledWindowTurns;
-	/** 保存旧 owner 时不能读已经指向新会话的 render ref，故保留最后一次 layout 提交值。 */
-	const ownerWindowTurnsRef = useRef(new Map<string, number>());
 	// owner 切换的 render 里 DOM 还是旧会话；此时把 ref 改成新会话的窗口，
 	// cleanup 保存旧会话锚点就会带错窗口（实测 9 → 3，切回只挂 3 轮，虚拟区锚点行不在 DOM）。
 	// 只在 owner 已同步时更新：ref 的语义是「当前 DOM 会话实际渲染的窗口」。
@@ -1017,8 +465,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	}
 	/** 窗口是否仍可扩展（由 SessionMessageTimeline 按 turnWindowActive 同步，渲染期写入）。 */
 	const windowExpandableRef = useRef(false);
-	/** 本次恢复已发起的历史补页次数。按锚点对象区分：会话再切一次就是新恢复。 */
-	const restoreAnchorPagingRef = useRef<{ anchor: SessionScrollAnchor | undefined; attempts: number }>({ anchor: undefined, attempts: 0 });
 	/** 自动扩窗口冷却时间戳（防惯性滚动接近顶部时连扩多轮）。 */
 	const lastWindowExpandAtRef = useRef(0);
 	/** 自动翻页冷却时间戳；回底开始新浏览事务时同步清零。 */
@@ -1240,697 +686,104 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		});
 	}, []);
 
-	const scrollToBottom = useCallback(() => {
-		const requestOwnerKey = ownerKey;
-		if (ownerKeyRef.current !== requestOwnerKey) return;
-		// 原子回底事务：旧历史浏览周期的扩窗批次、锚点与迟到分页的呈现动作全部作废。
-		// 必须同步完成，不能依赖下一帧的 state effect——回底收回 6→3 轮窗口会立刻
-		// 触发一次大幅 scrollTop clamp 并派发 scroll；若此刻仍有在途 rAF 扩窗或
-		// 待消费批次，会把刚收回的窗口又扩回去（「回底按钮连点无效」的直接根因）。
-		invalidateHistoryBrowsing();
-		settleScrollCancelRef.current?.();
-		settleScrollCancelRef.current = undefined;
-		markProgrammaticScroll();
-		autoScrollRef.current = true;
-		setAutoScroll(true);
-		setShowScrollToBottom(false);
-		const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-		const animation = reduceMotion ? "instant" : "smooth";
-		const api = scrollerScrollApiRef.current;
-		if (api) {
-			// 走 stick-to-bottom 弹簧（mergeAnimations 修好后 "smooth" = 默认弹簧）
-			void api.scrollToBottom({ animation });
-			return;
-		}
-		// 引擎尚未挂上时的兜底（会话切换首帧等）
-		const timeline = timelineRef.current;
-		if (!timeline) return;
-		timeline.scrollTo({
-			top: timeline.scrollHeight,
-			behavior: reduceMotion ? "instant" : "smooth",
-		});
-	}, [invalidateHistoryBrowsing, markProgrammaticScroll, ownerKey]);
+	// ── 滚动所有权（子 hook：回底 / 顶部插入钉行 / 引擎跟底上报 / 发送置顶）──
+	const { scrollToBottom, scrollTimelineBy, pinViewportAfterPrepend, captureBrowsePin, pinBrowseRow, setAutoScrollFromScroller } = useTimelineScrollOwnership({
+		ownerKey,
+		ownerKeyRef,
+		timelineRef,
+		messages,
+		scrollerScrollApiRef,
+		autoScrollRef,
+		setAutoScroll,
+		setShowScrollToBottom,
+		browsePinRef,
+		browsePinFrozenRef,
+		skipBrowsePinRef,
+		expandInsertedRef,
+		pinFallbackHeightRef,
+		readVisibleRowsRef,
+		measurePinnedRowTop,
+		pendingJumpRef,
+		settleScrollCancelRef,
+		sendScrollRef,
+		sendMessageBaselineRef,
+		pendingSendScrollRef,
+		positionedSendMessageRef,
+		restoreAnchor,
+		restorePhase,
+		sessionId: options.sessionId,
+		invalidateHistoryBrowsing,
+		markProgrammaticScroll,
+		clearProgrammaticTimelineScroll,
+		store,
+		scrollToLatestOnSendAtom,
+		sessionSendStateByIdAtom,
+		setSendPinAnimating,
+	});
 
-	/**
-	 * The outline rail is a sibling of the scroll viewport, so its wheel event
-	 * needs to be forwarded here for the existing scroll lifecycle to observe it.
-	 */
-	const scrollTimelineBy = useCallback(
-		(deltaY: number) => {
-			const requestOwnerKey = ownerKey;
-			if (!Number.isFinite(deltaY) || deltaY === 0 || ownerKeyRef.current !== requestOwnerKey) return;
-			const api = scrollerScrollApiRef.current;
-			if (api) {
-				api.scrollByWheel(deltaY);
-				return;
-			}
-			const timeline = timelineRef.current;
-			if (!timeline) return;
-			timeline.scrollBy({ top: deltaY });
+	// ── 历史窗口加载与分页（子 hook：请求编排 + 游标 + 失败文案）──
+	const { diskPage, earlierHistoryCursor, historyHasMore, hasEarlierPages, visibleMessages, isLoadingMessagePage, setIsLoadingMessagePage, loadMoreError, setLoadMoreError, loadMoreMessages, reloadFromDisk, startDshHostAndReload } = useTimelineHistoryPaging({
+		sessionId: options.sessionId,
+		controllerEnabled,
+		messages,
+		combinedMessages,
+		runtimeHistory,
+		cachedEntry,
+		parentSessionPath: sessionRecord?.parentSessionPath,
+		timelineRef,
+		ownerKey,
+		ownerKeyRef,
+		autoScroll,
+		autoScrollRef,
+		historyBrowseGenerationRef,
+		loadMoreAnchorRef,
+		windowExpandableRef,
+		escapeAutoScroll,
+		captureBrowsePin,
+		expandWindowBatched,
+		beginPrependSolid,
+		endPrependSolid,
+		allocateLoadSequence,
+		trackLatestLoad,
+		getLatestLoad,
+		isTimelineAtBottom,
+		ports: {
+			readRecordMessagePage: desktopApi.sessions.readRecordMessagePage,
+			startDshHost: () => desktopApi.sessions.startDshHost(),
+			setLoadState,
+			cacheMessages,
+			prependMessagePage,
+			prependHistoryPage,
+			clearHistory,
+			translate: t,
 		},
-		[ownerKey],
-	);
+	});
 
-	/**
-	 * 顶部插入内容后钉住当前视口。必须走 restoreAt：原生 scrollTop 赋值不会解锁引擎，
-	 * ResizeObserver 在 isAtBottom 时会把视口钉回底部（上滑扩窗跳到最新一轮的根因）。
-	 */
-	const pinViewportAfterPrepend = useCallback(
-		(nextTop: number) => {
-			markProgrammaticScroll(120);
-			const api = scrollerScrollApiRef.current;
-			if (api?.restoreAt) {
-				api.restoreAt(nextTop);
-				return;
-			}
-			const timeline = timelineRef.current;
-			if (timeline) timeline.scrollTop = nextTop;
-		},
-		[markProgrammaticScroll],
-	);
-
-	const captureBrowsePin = useCallback((freeze: boolean) => {
-		if (skipBrowsePinRef.current || autoScrollRef.current) return;
-		const next = findBrowsePin(timelineRef.current, readVisibleRowsRef.current());
-		if (!next) return;
-		browsePinRef.current = next;
-		if (freeze) browsePinFrozenRef.current = true;
-	}, []);
-
-	/**
-	 * 浏览态钉行：上方长高后把冻住的那一轮拉回 expectedViewportTop。
-	 * 必须走 restoreAt。人手滚动不走这里（只更新 expected，见 handleTimelineScroll）。
-	 */
-	const pinBrowseRow = useCallback(() => {
-		// 消费式读取放在最前面：本函数任何一条出口都算结算了这一帧的插入标记。
-		// 标记由 consumeExpandBatch 每帧置 true（只要有 pending），所以这里清掉不会
-		// 永久丢信号 —— 下一帧还在扩窗就会重新置上。
-		// 清在出口之外是必须的：只清某几条分支，正常路径（扩窗帧最常见）和
-		// skip/autoScroll 提前 return 都会把 true 留到下一帧，那一帧若因 Markdown 异步
-		// 长高把钉行挤出虚拟区，就会把「内容自己长高」误判成「正在扩窗插入」并补一次。
-		// 贴底（autoScroll）与 skip 本来就不该补偿，清标记正是结算这件事的写法。
-		const expanding = expandInsertedRef.current;
-		expandInsertedRef.current = false;
-		if (skipBrowsePinRef.current || autoScrollRef.current || sendScrollRef.current.isAnimating) return;
-		const pin = browsePinRef.current;
-		const timeline = timelineRef.current;
-		if (!pin || !timeline) return;
-		const currentTop = measurePinnedRowTop(timeline, pin.messageId);
-		const nextHeight = timeline.scrollHeight;
-		// 钉行不在 DOM（虚拟区外的行不渲染，扩窗分帧期间常见）：按容器高度差兜底。
-		// 必须放在 shouldCompensateBrowsePin 之前 —— 它在 currentViewportTop === null
-		// 时返回 false（browsePin.ts:shouldCompensateBrowsePin），放在后面就是死代码。
-		if (currentTop === null) {
-			const delta = resolvePinnedRowFallback({
-				expanding,
-				previousHeight: pinFallbackHeightRef.current,
-				nextHeight,
-				viewportHeight: timeline.clientHeight,
-			});
-			// 更新点必须在所有出口之前，否则 shouldCompensate 早退后高度基准停在很早的值，
-			// 下一次 null 会把已经补过的量再补一遍。
-			pinFallbackHeightRef.current = nextHeight;
-			if (delta !== null) pinViewportAfterPrepend(timeline.scrollTop + delta);
-			return;
-		}
-		pinFallbackHeightRef.current = nextHeight;
-		if (
-			!shouldCompensateBrowsePin({
-				following: autoScrollRef.current,
-				currentViewportTop: currentTop,
-				expectedViewportTop: pin.expectedViewportTop,
-			})
-		) {
-			return;
-		}
-		pinViewportAfterPrepend(browsePinScrollTop(timeline.scrollTop, currentTop, pin.expectedViewportTop));
-		const after = measurePinnedRowTop(timeline, pin.messageId);
-		if (after !== null) {
-			browsePinRef.current = { messageId: pin.messageId, expectedViewportTop: after };
-		}
-	}, [pinViewportAfterPrepend]);
-
-	/**
-	 * 最新轮结束 1.5s 且用户无操作、执行过程自动收起后，把该轮最终回答开头放到视口中上方。
-	 * - 仅用户仍在跟随时执行；已上滚阅读历史不拽回；
-	 * - 先解锁 stick-to-bottom 再滚动，避免引擎把视口钉回底部；
-	 * - 用户 wheel/pointerdown/touch/keydown 会取消在途动画（不抢用户操作）；
-	 * - 回底按钮仍走 MessageScroller 弹簧，这里只负责这次「安静收起」定位。
-	 */
-	const scrollFinalAnswerToUpperMiddle = useCallback((_runId: string) => {
-		// 旧实现的完结定位动画已被项目决策移除。保留同名 API 为 no-op，
-		// 防既有调用处崩溃；所有自动滚动都只在「发送那一刻」触发。
-		settleScrollCancelRef.current?.();
-		settleScrollCancelRef.current = undefined;
-	}, []);
-
-	const setAutoScrollFromScroller = useCallback(
-		(following: boolean) => {
-			// 跳转事务进行中：不接受引擎的跟底上报（见 pendingJumpRef 注释）。
-			// 第三维是浏览 pin：跳转落位后目标行已在 DOM、没有 pendingJump，此时若不看 pin，
-			// 引擎在流式期间的 following=true 上报会把 autoScroll 拉回 true，下一帧就滚回底部（「跳了又弹回」）。
-			if (shouldIgnoreFollowReport(following, Boolean(pendingJumpRef.current), browsePinRef.current !== null)) return;
-			// stopScroll 的迟到 onFollowChange(false) 不得覆盖发送动画的恢复跟随。
-			if (sendScrollRef.current.isAnimating) return;
-			// 从历史浏览回到跟随时，先同步关闭旧浏览事务；不能等 autoScroll effect，
-			// 否则同一帧内的扩窗 rAF 或迟到分页仍可覆盖这次重锁。
-			if (following && !autoScrollRef.current) invalidateHistoryBrowsing();
-			autoScrollRef.current = following;
-			setAutoScroll(following);
-			setShowScrollToBottom(!following);
-		},
-		[invalidateHistoryBrowsing],
-	);
-
-	const sendMessage = latestUserMessage(messages);
-	const sendMessageId = sendMessage?.id;
-	useLayoutEffect(() => {
-		const baseline = sendMessageBaselineRef.current;
-		sendMessageBaselineRef.current = { ownerKey, messageId: sendMessageId, entryId: sendMessage?.entryId };
-		if (!baseline || baseline.ownerKey !== ownerKey) return;
-		// 用户关掉「发送消息后自动滚动到最新」：发送不动视口，也不登记挂起定位。
-		// baseline 仍照常推进（上面已写），否则重新打开开关后会把这条旧发送误判成新消息再拽一次。
-		// 停在底部时仍由跟底引擎按内容增长跟随新回复——这里只禁止「发送那一刻的强制定位」。
-		// 沙箱兜底：部分单测整体 stub ../atoms（见下方 sendState 同款处理），缺该 atom 时按默认「开启」。
-		if (scrollToLatestOnSendAtom != null && store.get(scrollToLatestOnSendAtom) === false) {
-			pendingSendScrollRef.current = undefined;
-			positionedSendMessageRef.current = sendMessageId;
-			return;
-		}
-		const changed = Boolean(sendMessageId) && baseline.messageId !== sendMessageId;
-		// 预热激活后 pi 运行时首次全量 flush 会把磁盘页投影（_viewer-history-X）换成运行时投影
-		//（<agentId>-history-X）：同一条消息改写 id，不是一次新发送。若按 changed 触发发送定位，
-		// 历史会话在输入框打字预热时会整页跳动到末条消息再回底。新旧两侧都有 entryId 且相等
-		// 才判等：乐观气泡无 entryId、无 entryId 的后端（DSH 等）保持原 changed 语义。
-		const reprojectedSameMessage = sendMessageId !== undefined && Boolean(changed) && baseline.entryId !== undefined && sendMessage?.entryId !== undefined && baseline.entryId === sendMessage.entryId;
-		if (reprojectedSameMessage) {
-			// 只把既有定位/挂起状态迁到新 id，不触发 pin、不登记新挂起。
-			if (positionedSendMessageRef.current === baseline.messageId) positionedSendMessageRef.current = sendMessageId;
-			const pending = pendingSendScrollRef.current;
-			if (pending?.ownerKey === ownerKey && pending.messageId === baseline.messageId) pending.messageId = sendMessageId;
-			return;
-		}
-		// 发送态用于区分「用户提交」和「读盘/投影填充历史」：部分单测沙箱会整体 stub
-		// ../atoms 后单独加载真实模块，缺这个 atom 时按「无在途发送」处理（生产恒存在）。
-		const sendState = options.sessionId && sessionSendStateByIdAtom != null ? store.get(sessionSendStateByIdAtom)[options.sessionId] : undefined;
-		const sendingRequestId = sendState && (sendState.status === "activating" || sendState.status === "sending") ? sendState.requestId : undefined;
-		if (restorePhase !== "complete") {
-			// 恢复/激活期间的用户提交暂存，恢复完成后补定位（DSH 新会话首发就走这条窗口）。
-			// 仅在发送态 in-flight 时登记：读盘/投影填充历史也会改变末条 user id，
-			// 没有在途提交时不能误判为一次发送（否则会重播历史定位）。
-			if (sendMessageId) {
-				const pending = pendingSendScrollRef.current;
-				if (pending?.ownerKey === ownerKey) {
-					// 宿主回填把乐观 id 换成投影 id 时沿用同一条挂起项。
-					if (changed) pending.messageId = sendMessageId;
-				} else if (sendingRequestId) {
-					pendingSendScrollRef.current = { ownerKey, messageId: sendMessageId };
-				}
-			}
-			return;
-		}
-		if (!sendMessageId) {
-			pendingSendScrollRef.current = undefined;
-			return;
-		}
-		if (positionedSendMessageRef.current === sendMessageId) return;
-		const pending = pendingSendScrollRef.current;
-		const pendingMatches = Boolean(pending && pending.ownerKey === ownerKey && pending.messageId === sendMessageId);
-		// 无历史锚点的面板挂载时乐观气泡已在缓存（如引导页首发）：此前的 id 变化没人观察到，
-		// 但发送态仍 in-flight 且 requestId 就是这条 user 消息，恢复完成后补一次定位。
-		const submissionMatches = !restoreAnchor && sendingRequestId === sendMessageId && !changed;
-		if (!changed && !pendingMatches && !submissionMatches) {
-			if (pending?.ownerKey === ownerKey) pendingSendScrollRef.current = undefined;
-			return;
-		}
-		pendingSendScrollRef.current = undefined;
-		const timeline = timelineRef.current;
-		if (!timeline) return;
-		positionedSendMessageRef.current = sendMessageId;
-		sendScrollRef.current.pin(timeline, sendMessageId, {
-			onStart: () => {
-				// 先立标记再滚：TurnRow 的折叠 effect 与本动画跑在同一帧窗口里，
-				// 标记晚一步就会漏掉这次折叠。
-				setSendPinAnimating(true);
-				invalidateHistoryBrowsing();
-				scrollerScrollApiRef.current?.restoreAt(timeline.scrollTop);
-				autoScrollRef.current = false;
-				setAutoScroll(false);
-				setShowScrollToBottom(false);
-			},
-			onComplete: () => {
-				setSendPinAnimating(false);
-				if (ownerKeyRef.current !== ownerKey) return;
-				autoScrollRef.current = true;
-				setAutoScroll(true);
-				setShowScrollToBottom(false);
-				void scrollerScrollApiRef.current?.scrollToBottom({ animation: "instant" });
-			},
-			// 用户滚动 / 切会话 / 下一次 pin 打断：不留标记，否则折叠会被无限期推迟。
-			onCancel: () => setSendPinAnimating(false),
-			isFollowing: () => autoScrollRef.current,
-			markProgrammaticScroll,
-			clearProgrammaticScroll: clearProgrammaticTimelineScroll,
-		});
-		// 短会话 / 行未挂载 / 距离为 0 时 pin 可能一次都不动画就返回（不触发 onStart）：
-		// 同步结算标记，避免残留 true。
-		if (!sendScrollRef.current.isAnimating) setSendPinAnimating(false);
-	}, [clearProgrammaticTimelineScroll, invalidateHistoryBrowsing, markProgrammaticScroll, options.sessionId, ownerKey, restoreAnchor, restorePhase, sendMessageId, store, setSendPinAnimating]);
-	useEffect(
-		() => () => {
-			pendingSendScrollRef.current = undefined;
-			positionedSendMessageRef.current = undefined;
-			sendScrollRef.current.reset();
-		},
-		[],
-	);
-
-	const loadMoreMessages = useCallback(
-		(source: "scroll" | "button" | "backfill" = "scroll") => {
-			const pageSize = resolveHistoryPageSize(source);
-			const requestOwnerKey = ownerKey;
-			const timeline = timelineRef.current;
-			// 前置动作的顺序是承重结构，写在 planLoadMorePinSteps 里并由单测钉住：
-			// captureBrowsePin 在 autoScrollRef 为真时直接 return（贴底态一直是真），所以必须
-			// 先脱离跟随再抓钉行，否则贴底点按钮一个钉行都抓不到。
-			for (const step of planLoadMorePinSteps(source)) {
-				if (step === "escapeFollow") escapeAutoScroll();
-				else captureBrowsePin(true);
-			}
-			// 同上：翻页会在顶部插入，期间必须能按行测到 pin（整表渲染）。
-			if (timeline && ownerKeyRef.current === requestOwnerKey) {
-				loadMoreAnchorRef.current = {
-					ownerKey: requestOwnerKey,
-					value: {
-						height: timeline.scrollHeight,
-						top: timeline.scrollTop,
-						generation: historyBrowseGenerationRef.current,
-						...(source === "scroll" ? { preserveAtTop: true } : {}),
-						solidOpened: source === "scroll",
-					},
-				};
-			}
-			if (diskPage) {
-				const sessionId = options.sessionId;
-				const before = diskPage.nextBefore;
-				// 0 是文件头而不是「还有更早」：放过会发出一次空页请求，界面毫无变化。
-				if (!sessionId || typeof before !== "number" || before <= 0 || isLoadingMessagePage) return;
-				const browseGeneration = historyBrowseGenerationRef.current;
-				const sequence = ++nextLoadSequence;
-				trackLatestLoad(sessionId, sequence);
-				const expectedRevision = cachedEntry?.revision ?? 0;
-				// 只有 scroll（滚到顶部自动翻页）需要整表渲染：它要在 useLayoutEffect 里按 messageId
-				// 查 DOM 行做 pin 补偿（pinBrowseRow -> measurePinnedRowTop），虚拟区外的行不在
-				// DOM 里就量不到。button / backfill 走 resolveTimelineTopCompensation：补偿量 =
-				// scrollHeight 差值（虚拟区占位高度是渲染期同步算出的，两次读数即得），不查任何
-				// DOM —— 所以不必关闭虚拟化。用户点「加载更多」时把 100+ 轮全部真实挂载，正是
-				// 「点了就卡」的主因。
-				const needsSolid = source === "scroll";
-				if (needsSolid) beginPrependSolid();
-				let insertionCommitted = false;
-				setIsLoadingMessagePage(true);
-				// 重试时先清掉上一次的错误行
-				setLoadMoreError(null);
-				void desktopApi.sessions
-					.readRecordMessagePage(sessionId, before, pageSize)
-					.then((page: SessionMessagePage) => {
-						if (latestLoadBySession.get(sessionId) !== sequence) return;
-						// 翻页期间 host 被停：保留已加载内容，出可辨识的失败行（静默丢弃这一页
-						// 会让「加载更多」看起来没反应），下次点击仍可重试。
-						if (sessionHistoryUnavailableState(page)) {
-							setLoadMoreError(t("timeline.dshHostStopped"));
-							return;
-						}
-						if (prependMessagePage({ sessionId, before, expectedRevision, page })) {
-							insertionCommitted = true;
-							// 历史消息页最多只开放一个 3 轮 cohort；数据页可能按消息数返回很多轮，
-							// 不能再固定 +10 把 DOM 一次性解锁，剩余已加载数据交给本地扩窗。
-							// 回底/切会话后到达（跟随或代数过期）只写缓存，不得扩窗——否则
-							// 迟到分页会把刚回底的视口重新拉进历史模式。
-							if (
-								shouldApplyDelayedHistoryResult({
-									following: autoScrollRef.current,
-									generationAtRequest: browseGeneration,
-									currentGeneration: historyBrowseGenerationRef.current,
-									explicit: source === "button" || source === "backfill",
-								})
-							) {
-								const growth = resolvePageWindowGrowth(page.messages, pageSize);
-								if (growth > 0) expandWindowBatched(growth);
-								else if (page.messages.length === 0 && windowExpandableRef.current) {
-									// 空页 = 已经到文件头，游标不会再前进。数据没得翻，但渲染窗口
-									// 可能还压着已加载的轮次：把这次点击转成一次窗口展开，否则
-									// 按钮点了没反应、锚点也永远挂不出来（#477 e2e 真机复现）。
-									expandWindowBatched(TIMELINE_WINDOW_EXPAND_STEP);
-								}
-							}
-						} else {
-							// prepend 被拒（atom 的四个前置之一不成立）：最常见是翻页期间缓存被写入、
-							// revision 被抬高。此时游标 before 未变，再点一次即可重取同一页——不能报成
-							// 「加载失败」，那会把「可重试」说成「坏了」。
-							const revisionMoved = (cachedEntry?.revision ?? 0) !== expectedRevision;
-							setLoadMoreError(revisionMoved ? t("timeline.loadMoreRetryable") : t("timeline.loadMoreFailed"));
-						}
-					})
-					.catch((error: unknown) => {
-						// 失败必须可见：没有 catch 时 IPC 抛错被吞掉，按钮弹回但页面无提示（2026-09 反馈）。
-						if (latestLoadBySession.get(sessionId) !== sequence) return;
-						setLoadMoreError(error instanceof Error ? error.message : String(error));
-					})
-					.finally(() => {
-						if (latestLoadBySession.get(sessionId) === sequence) setIsLoadingMessagePage(false);
-						// 插入没落地（早退 / 失败 / 空页 / prepend 被拒）：useLayoutEffect 依赖 visibleMessages.length，
-						// 没插入就不跑，也就没人关整表渲染 —— 它只能等 1.5s 兜底，超时那刻虚拟化接管、
-						// 未挂载行从实测高度回退估算、总高度突变 -> 重排 -> 抖。点几次就种几次跳。
-						if (needsSolid && !insertionCommitted) endPrependSolid();
-					});
-				return;
-			}
-			// runtime 窗口会话：直接按轮次补历史（2026-11 轮次模型，不再有 100 条渲染窗口）。
-			// 首次加载以运行时窗口段首条消息的 entryId 为锚点（两个下标空间唯一的对齐点），
-			// 续页用上一页最旧条目的 entryId（nextBeforeEntryId）——主进程缓存命中路径依赖它。
-			if (earlierHistoryCursor) {
-				const sessionId = options.sessionId;
-				if (!sessionId || isLoadingMessagePage) return;
-				// 游标由 resolveEarlierHistoryCursor 统一给出（与 historyHasMore 同一判断）：
-				// 续页用上一页最旧条目的 entryId（nextBeforeEntryId），首次用窗口段首条带 entryId
-				// 的消息，大历史窗口退化为 windowStartFilePos。这里不再自己找锚点——两处各写一份
-				// 就会出现「按钮在、锚点缺、静默 return」的死按钮。
-				const { before, beforeEntryId } = earlierHistoryCursor;
-				const browseGeneration = historyBrowseGenerationRef.current;
-				const sequence = ++nextLoadSequence;
-				trackLatestLoad(sessionId, sequence);
-				const expectedRevision = cachedEntry?.revision ?? 0;
-				// 只有 scroll（滚到顶部自动翻页）需要整表渲染：它要在 useLayoutEffect 里按 messageId
-				// 查 DOM 行做 pin 补偿（pinBrowseRow -> measurePinnedRowTop），虚拟区外的行不在
-				// DOM 里就量不到。button / backfill 走 resolveTimelineTopCompensation：补偿量 =
-				// scrollHeight 差值（虚拟区占位高度是渲染期同步算出的，两次读数即得），不查任何
-				// DOM —— 所以不必关闭虚拟化。用户点「加载更多」时把 100+ 轮全部真实挂载，正是
-				// 「点了就卡」的主因。
-				const needsSolid = source === "scroll";
-				if (needsSolid) beginPrependSolid();
-				let insertionCommitted = false;
-				setIsLoadingMessagePage(true);
-				// 重试时先清掉上一次的错误行
-				setLoadMoreError(null);
-				void desktopApi.sessions
-					.readRecordMessagePage(sessionId, before ?? undefined, pageSize, { beforeEntryId })
-					.then((page: SessionMessagePage) => {
-						if (latestLoadBySession.get(sessionId) !== sequence) return;
-						// 与 disk 翻页同一语义：host 被停时不把空页当新历史，出失败行
-						if (sessionHistoryUnavailableState(page)) {
-							setLoadMoreError(t("timeline.dshHostStopped"));
-							return;
-						}
-						if (prependHistoryPage({ sessionId, expectedRevision, before, page })) {
-							insertionCommitted = true;
-							// runtime history 页与 DOM 使用同一 3 轮 cohort；缓存命中和文件回退
-							// 都只开放实际带回的轮数，避免数据 +3、窗口却 +10。
-							// 回底/切会话后到达（跟随或代数过期）只写缓存，不得扩窗。
-							if (
-								shouldApplyDelayedHistoryResult({
-									following: autoScrollRef.current,
-									generationAtRequest: browseGeneration,
-									currentGeneration: historyBrowseGenerationRef.current,
-									explicit: source === "button" || source === "backfill",
-								})
-							) {
-								const growth = resolvePageWindowGrowth(page.messages, pageSize);
-								if (growth > 0) expandWindowBatched(growth);
-								else if (page.messages.length === 0 && windowExpandableRef.current) {
-									// 空页 = 已经到文件头，游标不会再前进。数据没得翻，但渲染窗口
-									// 可能还压着已加载的轮次：把这次点击转成一次窗口展开，否则
-									// 按钮点了没反应、锚点也永远挂不出来（#477 e2e 真机复现）。
-									expandWindowBatched(TIMELINE_WINDOW_EXPAND_STEP);
-								}
-							}
-						} else {
-							// prepend 被拒（atom 的四个前置之一不成立）：最常见是翻页期间缓存被写入、
-							// revision 被抬高。此时游标 before 未变，再点一次即可重取同一页——不能报成
-							// 「加载失败」，那会把「可重试」说成「坏了」。
-							const revisionMoved = (cachedEntry?.revision ?? 0) !== expectedRevision;
-							setLoadMoreError(revisionMoved ? t("timeline.loadMoreRetryable") : t("timeline.loadMoreFailed"));
-						}
-					})
-					.catch((error: unknown) => {
-						// 失败必须可见：没有 catch 时 IPC 抛错被吞掉，按钮弹回但页面无提示（2026-09 反馈）。
-						if (latestLoadBySession.get(sessionId) !== sequence) return;
-						setLoadMoreError(error instanceof Error ? error.message : String(error));
-					})
-					.finally(() => {
-						if (latestLoadBySession.get(sessionId) === sequence) setIsLoadingMessagePage(false);
-						// 插入没落地（早退 / 失败 / 空页 / prepend 被拒）：useLayoutEffect 依赖 visibleMessages.length，
-						// 没插入就不跑，也就没人关整表渲染 —— 它只能等 1.5s 兜底，超时那刻虚拟化接管、
-						// 未挂载行从实测高度回退估算、总高度突变 -> 重排 -> 抖。点几次就种几次跳。
-						if (needsSolid && !insertionCommitted) endPrependSolid();
-					});
-				return;
-			}
-		},
-		[beginPrependSolid, cachedEntry?.revision, captureBrowsePin, diskPage, earlierHistoryCursor, escapeAutoScroll, expandWindowBatched, isLoadingMessagePage, options.sessionId, ownerKey, prependHistoryPage, prependMessagePage],
-	);
-
-	// ── 回底清理临时历史（2026-11 轮次模型）──
-	// 贴底稳定 1.5s 后清掉翻过的历史前缀（atom 只留运行时窗口段），渲染层内存回到最小；
-	// 再次上翻走「atom → 主进程缓存 → 文件」重新拉取（主进程 12 轮内命中，无感）。
-	// 上滚/加载历史中会取消待执行的清理；清理后 history 置空，后续再翻再拉。
-	const clearHistory = useSetAtom(clearSessionHistoryAtom);
-	const historyClearTimerRef = useRef<number | undefined>(undefined);
-	useEffect(() => {
-		if (!controllerEnabled) return;
-		const sessionId = options.sessionId;
-		if (!sessionId) return;
-		if (autoScroll && runtimeHistory) {
-			if (historyClearTimerRef.current != null) return;
-			const clearNow = () => {
-				historyClearTimerRef.current = undefined;
-				if (!clearHistory(sessionId)) return;
-				// 清理后丢弃在途历史页响应：迟到页会把已释放的 history 复活并携带旧滚动锚点
-				const sequence = ++nextLoadSequence;
-				trackLatestLoad(sessionId, sequence);
-				setIsLoadingMessagePage(false);
-			};
-			historyClearTimerRef.current = window.setTimeout(() => {
-				const timeline = timelineRef.current;
-				// autoScroll 只是「逻辑跟随」，可能还在平滑回底/弹簧动画途中；
-				// 物理上没到底就清历史会把用户正在看的页摘掉，延后 500ms 再确认。
-				if (timeline && !isTimelineAtBottom(timeline.scrollTop, timeline.scrollHeight, timeline.clientHeight)) {
-					historyClearTimerRef.current = window.setTimeout(clearNow, 500);
-					return;
-				}
-				clearNow();
-			}, 1500);
-			return () => {
-				if (historyClearTimerRef.current != null) {
-					window.clearTimeout(historyClearTimerRef.current);
-					historyClearTimerRef.current = undefined;
-				}
-			};
-		}
-		// 上滚看历史 / 无历史可清：取消待执行清理
-		if (historyClearTimerRef.current != null) {
-			window.clearTimeout(historyClearTimerRef.current);
-			historyClearTimerRef.current = undefined;
-		}
-	}, [autoScroll, clearHistory, controllerEnabled, options.sessionId, runtimeHistory]);
-
-	/**
-	 * 跳转落位：计算目标相对时间线的偏移并原子定位（restoreAt = 定位 + 解锁锁底
-	 * + 取消在途动画）。不用 scrollIntoView：它会级联滚动所有祖先容器，且 smooth
-	 * 动画会与贴底引擎/扩窗布局竞争——跟随态下点刻度「看似没反应、再点一次才生效」
-	 * 的直接根因就是贴底引擎把 smooth 滚动拽了回去。
-	 */
-	const scrollJumpTargetIntoView = useCallback(
-		(timeline: HTMLElement, element: HTMLElement) => {
-			const elementTop = element.getBoundingClientRect().top - timeline.getBoundingClientRect().top + timeline.scrollTop;
-			markProgrammaticScroll();
-			const api = scrollerScrollApiRef.current;
-			if (api?.restoreAt) {
-				api.restoreAt(Math.max(0, elementTop));
-			} else {
-				// 引擎尚未挂上（会话切换首帧等）时回退原生定位
-				timeline.scrollTop = Math.max(0, elementTop);
-			}
-		},
-		[markProgrammaticScroll],
-	);
-	/**
-	 * 落位之后的收敛纠偏（闭环）。
-	 *
-	 * 落位那一刻读到的位置只反映「当时的」布局：上方未挂载行的估算高度还没被实测替换、
-	 * 扩窗/补页批次还在往上插行、浏览器还把 scrollTop 截在旧的 maxScrollTop 上。
-	 * 于是用户看到的是「跳了一段、没到」，只能再点一次刻度、再点一次（真机原话：
-	 * 「都要点很多次」「我希望一次性跳转过去」）。
-	 *
-	 * 这里每帧重测目标行相对视口顶的漂移（正 = 目标在下面），偏了就把 scrollTop 加上漂移
-	 * 再落一次，直到 |漂移| <= 1px。位移量不是瞎试：每一帧都按实测值修正，误差单调收敛。
-	 * 停的判据有三条（帧数 24 / 600ms / 用户动手），判定本身是纯函数见 jumpSettle.ts。
-	 */
-	const jumpSettleCancelRef = useRef<(() => void) | null>(null);
 	/** 用户在跳转收敛期间真动手了（引擎上报的真实输入），循环下一帧就收手。 */
 	const jumpSettleInterruptedRef = useRef(false);
-	const cancelJumpSettle = useCallback(() => {
-		const cancel = jumpSettleCancelRef.current;
-		jumpSettleCancelRef.current = null;
-		cancel?.();
-	}, []);
-	const settleJumpTarget = useCallback(
-		(timeline: HTMLElement, messageId: string) => {
-			cancelJumpSettle();
-			const startedAt = performance.now();
-			let frames = 0;
-			let frame = 0;
-			// 「人动手了」只认引擎判定过的真实输入（wheel/触摸/键盘），见 setUserScrollIntent。
-			// 不在这里自己挂 wheel/pointer 监听：那是 2026-09 已经拆掉的完结定位取消链的形状，
-			// 而且分不清「用户滚了」与「浏览器为锚定自行修正了 scrollTop」——后者恰恰是本循环
-			// 要补的那种漂移，误判成用户动手就等于这次跳转不修了。
-			jumpSettleInterruptedRef.current = false;
-			// 先把浏览钉钉在目标行：钉行会被 VirtualRunList 的 pinnedRunKeys 强制挂载
-			// （rangeExtractor），收敛期间目标行不会因为视口重算被卸载 —— 卸载就等于
-			// 再也测不到漂移，这次跳转半途而废。钉的期望偏移 0 与本循环同一个不动点
-			// （目标行对齐视口顶），两者的补偿方向一致，不会互相拉扯。
-			browsePinRef.current = { messageId, expectedViewportTop: 0 };
-			browsePinFrozenRef.current = true;
-			const stop = () => {
-				if (frame) cancelAnimationFrame(frame);
-				frame = 0;
-			};
-			const step = () => {
-				frame = 0;
-				const row = timeline.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null;
-				// height <= 0 = 没被布局（折叠区里 display:none、或正在卸载）：它的 rect 全是 0，
-				// 拿去算漂移会得出一个巨大的负数，把视口滚到莫名其妙的位置。当作量不到处理。
-				const rowRect = row?.getBoundingClientRect() ?? null;
-				const driftPx = rowRect && rowRect.height > 0 ? rowRect.top - timeline.getBoundingClientRect().top : null;
-				const decision = planJumpSettleStep({
-					driftPx,
-					frames,
-					elapsedMs: performance.now() - startedAt,
-					interrupted: jumpSettleInterruptedRef.current,
-				});
-				if (decision.kind !== "scroll") {
-					if (jumpSettleCancelRef.current === stop) jumpSettleCancelRef.current = null;
-					stop();
-					// 收敛：钉留在目标行（偏移 0）——漂移修正期间行在动，钉若还指着旧偏移，
-					// 下一次布局增高就会按旧值把视口拽走。
-					if (decision.kind === "settled" && row) {
-						browsePinRef.current = { messageId, expectedViewportTop: 0 };
-						browsePinFrozenRef.current = true;
-					} else if (decision.kind === "give-up" && (decision.reason === "interrupted" || decision.reason === "target-missing")) {
-						// 两条出口都要交还钉行：
-						// - interrupted：用户自己动手停了这次跳转，钉着会把他在下一次布局增高时
-						//   （流式 token、图片加载）拽回目标行，变成「想滚不让滚」。
-						// - target-missing：落位后目标行还是从 DOM 消失，说明它挂不出来（context_edit
-						//   移出展示 / 折叠区收起）。钉一条永远挂不出来的行没有意义，反而会让
-						//   pinBrowseRow 的「按容器高度差兜底」在下次增高时把视口挪一下。
-						browsePinRef.current = null;
-						browsePinFrozenRef.current = false;
-					}
-					// frames / timeout 保留钉行：那是「没追完」而不是「追不到」，下一次点击能接上。
-					return;
-				}
-				frames += 1;
-				markProgrammaticScroll();
-				const apiAfter = scrollerScrollApiRef.current;
-				const next = Math.max(0, timeline.scrollTop + decision.delta);
-				if (apiAfter?.restoreAt) apiAfter.restoreAt(next);
-				else timeline.scrollTop = next;
-				frame = requestAnimationFrame(step);
-			};
-			jumpSettleCancelRef.current = stop;
-			frame = requestAnimationFrame(step);
-		},
-		[cancelJumpSettle, markProgrammaticScroll],
-	);
-	// 切会话/卸载时别让上一段收敛循环继续改写新会话的滚动位置。
-	useEffect(() => cancelJumpSettle, [ownerKey, cancelJumpSettle]);
-
-	const jumpToMessage = useCallback(
-		(messageId: string) => {
-			const requestOwnerKey = ownerKey;
-			const timeline = timelineRef.current;
-			if (!timeline || ownerKeyRef.current !== requestOwnerKey) return;
-			// 跟随态点击刻度必须先解锁贴底：目标已在挂载窗口内时（如最新一条）引擎
-			// 会把滚动拽回底部；目标在窗口外时 unlock 也是扩窗生效的前提。
-			escapeAutoScroll();
-			skipBrowsePinRef.current = true;
-			browsePinRef.current = null;
-			browsePinFrozenRef.current = false;
-			// 命中 id 可能是**会话文件条目 id**（会话内查找的命中）而不是投影消息 id：
-			// 先归一到当前消息列表再查 DOM，否则永远查不到节点、点击无任何反应。
-			const index = resolveJumpMessageIndex(combinedMessages, messageId);
-			const targetNodeId = index >= 0 ? combinedMessages[index].id : messageId;
-			const existing = timeline.querySelector(`[data-message-id="${CSS.escape(targetNodeId)}"]`) as HTMLElement | null;
-			if (existing) {
-				skipBrowsePinRef.current = false;
-				// 轮内中间回答在折叠区里是 display:none（几何全 0），落位退到所属轮次行
-				const target = resolveJumpScrollTarget(existing);
-				scrollJumpTargetIntoView(timeline, target);
-				settleJumpTarget(timeline, target.dataset.messageId ?? targetNodeId);
-				highlightMessage(target, requestOwnerKey);
-				clearTimelineReveal();
-				// 浏览钉交给 settleJumpTarget：它在收敛后把钉钉到目标行（偏移 0）。
-				// 这里同步建钉会用到上一帧的可见行快照（新挂载的行还没进 IO 集合），
-				// 钉错行反而会在下一次布局增高时把视口拽回跳转前的位置。
-				return;
-			}
-			// 命中可能在已完成轮的「执行过程」折叠区里：Radix 收起会把中间回答/工具整块卸载，
-			// 扩窗（只多挂轮次）永远挂不出这些节点。先请求包含它的 TurnRow 展开折叠，
-			// 再由下面的 pendingJump 重试循环完成落位。
-			if (index >= 0) requestTimelineReveal(targetNodeId);
-			const hasMorePages = hasEarlierPages;
-			// 冷会话（消息还没上屏 / 首屏仍在加载）里 index<0 不等于「目标不存在」：挂起跳转，
-			// 等数据到达后由 pendingJump effect 落位。旧实现这里直接 return，宿主插件按 entryId
-			// 导航到尚未加载完消息的会话时静默失效（#401 复审 P0）。
-			if (index < 0 && !hasMorePages && !shouldDeferJumpUntilLoaded({ targetIndex: index, messageCount: combinedMessages.length, surfaceLoading: isSurfaceLoading })) return;
-			// 目标可能在贴底 turn 窗口外（先取消跟随以展开挂载），也可能在尚未加载的
-			// 历史页里：挂起跳转，由 pendingJump effect 按策略补页/扩窗直到完成。
-			setShowScrollToBottom(true);
-			if (index >= 0) {
-				// 一次到位：按目标轮次估算窗口需求并整批排入分帧扩窗（避免单帧全量渲染）。
-				// 批次消费完前 pendingJump effect 挂起等待（见 effect 内 pendingExpandTurnsRef 守卫）。
-				expandWindowBatched(estimateJumpExpandTurns(combinedMessages, index));
-			}
-			jumpNonceRef.current += 1;
-			setPendingJump({
-				ownerKey: requestOwnerKey,
-				value: { messageId, expandAttempts: 0, loadAttempts: 0, nonce: jumpNonceRef.current },
-			});
-		},
-		[clearTimelineReveal, combinedMessages, escapeAutoScroll, expandWindowBatched, hasEarlierPages, highlightMessage, isSurfaceLoading, ownerKey, requestTimelineReveal, scrollJumpTargetIntoView, settleJumpTarget],
-	);
-
-	/**
-	 * 目标节点挂不出来时的兜底落点：在已渲染的 [data-message-id] 里找包含目标（或离它最近且
-	 * 在其之前）的那一轮，落到轮次行——折叠区没展开/超出单轮挂载预算时，至少停在正确的一轮，
-	 * 而不是弹「未能跳转」。行长取子树里最靠前的消息下标：run.id 可能是思考组 id
-	 * （msg-thinking-*）而不是消息 id，但行内渲染的节点一定是消息。
-	 */
-	const findFallbackJumpRow = useCallback(
-		(messageId: string): HTMLElement | null => {
-			const timeline = timelineRef.current;
-			if (!timeline) return null;
-			const targetIndex = resolveJumpMessageIndex(combinedMessages, messageId);
-			if (targetIndex < 0) return null;
-			const indexById = new Map<string, number>();
-			for (let index = 0; index < combinedMessages.length; index += 1) indexById.set(combinedMessages[index].id, index);
-			const rows = new Map<HTMLElement, number>();
-			for (const node of timeline.querySelectorAll<HTMLElement>("[data-message-id]")) {
-				const id = node.getAttribute("data-message-id");
-				if (!id) continue;
-				// 思考组 id = msg-thinking-<消息 id>：降级到消息本身，避免整轮缺席兜底索引。
-				const index = indexById.get(id) ?? (id.startsWith("msg-thinking-") ? indexById.get(id.slice("msg-thinking-".length)) : undefined);
-				if (index === undefined) continue;
-				const row = node.closest<HTMLElement>(".turn-row, .user-turn") ?? node;
-				const current = rows.get(row);
-				if (current === undefined || index < current) rows.set(row, index);
-			}
-			const entries = [...rows].map(([row, index]) => ({ row, index }));
-			const picked = resolveJumpFallbackEntry(entries, targetIndex);
-			return picked >= 0 ? entries[picked].row : null;
-		},
-		[combinedMessages],
-	);
+	// ── 跳转落位与收敛（子 hook：定位 → 逐帧纠偏 → 兜底落点）──
+	const { jumpToMessage, scrollJumpTargetIntoView, settleJumpTarget, findFallbackJumpRow } = useTimelineJumpNavigation({
+		ownerKey,
+		ownerKeyRef,
+		timelineRef,
+		combinedMessages,
+		scrollerScrollApiRef,
+		browsePinRef,
+		browsePinFrozenRef,
+		skipBrowsePinRef,
+		jumpSettleInterruptedRef,
+		jumpNonceRef,
+		hasEarlierPages,
+		isSurfaceLoading,
+		escapeAutoScroll,
+		markProgrammaticScroll,
+		highlightMessage,
+		requestTimelineReveal,
+		clearTimelineReveal,
+		expandWindowBatched,
+		setShowScrollToBottom,
+		setPendingJump,
+	});
 
 	useEffect(() => {
 		loadMoreAnchorRef.current = undefined;
@@ -1954,169 +807,47 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		return clearHighlightTimers;
 	}, [clearHighlightTimers, clearProgrammaticTimelineScroll, clearTimelineReveal, ownerKey]);
 
-	useEffect(
-		() => () => {
-			if (bottomRestoreVerificationRef.current !== undefined) cancelAnimationFrame(bottomRestoreVerificationRef.current);
-		},
-		[],
-	);
-
-	useLayoutEffect(() => {
-		if (ownerKey === LEGACY_OWNER_KEY) return;
-		ownerWindowTurnsRef.current.set(ownerKey, effectiveWindowTurns);
-	}, [effectiveWindowTurns, ownerKey]);
-
-	// 切走落盘：cleanup 把滚动时已算好的 ref 锚点写入 atom，不读 DOM
-	// （会话切换复用同一组件实例，cleanup 时 timeline children 可能已是新会话）。
-	// 在底部跟流时 ref 为 null → 清除锚点，切回继续跟底。
-	useLayoutEffect(() => {
-		const sessionId = ownerKey;
-		return () => {
-			if (scrollAnchorFrameRef.current != null) {
-				cancelAnimationFrame(scrollAnchorFrameRef.current);
-				scrollAnchorFrameRef.current = undefined;
-			}
-			if (scrollSaveTimerRef.current != null) {
-				window.clearTimeout(scrollSaveTimerRef.current);
-				scrollSaveTimerRef.current = undefined;
-			}
-			if (sessionId && sessionId !== LEGACY_OWNER_KEY) {
-				const anchor = currentAnchorRef.current;
-				const windowTurns = ownerWindowTurnsRef.current.get(sessionId);
-				// 锚点自带「滚动那一刻」的窗口（computeCurrentAnchor 写入）。切走瞬间，回底 effect
-				// 可能已先把 scrolledWindowTurns 复位成 3 并覆盖 map；再拿 map 覆盖锚点会让切回
-				// 只挂 3 轮——用户原来读的那一行不在 DOM，虚拟区恢复落位直接失效（#401 实测）。
-				const restoredAnchor = anchor && anchor.windowTurns === undefined && windowTurns !== undefined ? { ...anchor, windowTurns } : anchor;
-				saveScrollAnchor({
-					sessionId,
-					anchor: restoredAnchor,
-				});
-				ownerWindowTurnsRef.current.delete(sessionId);
-			}
-			currentAnchorRef.current = null;
-		};
-	}, [ownerKey, saveScrollAnchor]);
-
-	useEffect(() => {
-		if (!controllerEnabled || restorePhase !== "pending") return;
-		const anchor = restoreAnchor;
-		if (restoreAnchorPagingRef.current.anchor !== anchor) restoreAnchorPagingRef.current = { anchor, attempts: 0 };
-		if (anchor) {
-			// 上滚阅读状态必须在首个 child commit 前关闭跟随；窗口尚在读盘时先等待，
-			// 不把「锚点暂未挂载」误判成永久失效。
-			autoScrollRef.current = false;
-			setAutoScroll(false);
-			setShowScrollToBottom(true);
-		}
-		// 无锚点路径也必须等首批消息上屏：冷会话切入时 DOM 只有骨架（scrollHeight≈0），
-		// 过早 scrollTo + restorePhase=complete 会把视口永久钉在顶部第一条。
-		if (isSurfaceLoading) return;
-
-		const requestOwnerKey = ownerKey;
-		if (!anchor) {
-			// 无锚点（切走时在底部或从未保存）：默认滚到底、恢复跟底。
-			autoScrollRef.current = true;
-			setAutoScroll(true);
-			setShowScrollToBottom(false);
-			const restoreRequest = ++bottomRestoreRequestRef.current;
-			if (bottomRestoreVerificationRef.current !== undefined) cancelAnimationFrame(bottomRestoreVerificationRef.current);
-			const frame = requestAnimationFrame(() => {
-				const timeline = timelineRef.current;
-				if (!timeline || ownerKeyRef.current !== requestOwnerKey) return;
-				markProgrammaticScroll();
-				const api = scrollerScrollApiRef.current;
-				if (api?.scrollToBottom) {
-					void api.scrollToBottom({ animation: "instant" });
-				} else {
-					timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
-				}
-				// 先发起恢复再完成；提前 complete 会让 effect cleanup 取消本帧。
-				setRestorePhase("complete");
-				// 恢复被同帧内容变化/旧动画取消时，引擎可能已上报 following，DOM 却不在底部。
-				// 下一帧按真实几何对账；失败则退出跟底并露出回底按钮，避免无声卡在历史位置。
-				const verificationFrame = requestAnimationFrame(() => {
-					if (bottomRestoreVerificationRef.current === verificationFrame) bottomRestoreVerificationRef.current = undefined;
-					const current = timelineRef.current;
-					if (restoreRequest !== bottomRestoreRequestRef.current || !current || ownerKeyRef.current !== requestOwnerKey || !autoScrollRef.current) return;
-					if (!isTimelineAtBottom(current.scrollTop, current.scrollHeight, current.clientHeight)) {
-						autoScrollRef.current = false;
-						setAutoScroll(false);
-						setShowScrollToBottom(true);
-					}
-				});
-				bottomRestoreVerificationRef.current = verificationFrame;
-			});
-			return () => cancelAnimationFrame(frame);
-		}
-
-		const frame = requestAnimationFrame(() => {
-			const timeline = timelineRef.current;
-			if (!timeline || ownerKeyRef.current !== requestOwnerKey) return;
-			// 锚点 id 可能已被重投影改写（预热激活/pi 重启换投影前缀，entryId 不变）：
-			// 先按保存的裸 id 找，miss 时按 entryId 反查当前 id 再试。
-			let anchorRowId = anchor.messageId;
-			if (anchor.entryId && !timeline.querySelector(`[data-message-id="${CSS.escape(anchorRowId)}"]`)) {
-				const remapped = anchorEntryIdMapsRef.current.byEntryId.get(anchor.entryId);
-				if (remapped && timeline.querySelector(`[data-message-id="${CSS.escape(remapped)}"]`)) anchorRowId = remapped;
-			}
-			const el = timeline.querySelector(`[data-message-id="${CSS.escape(anchorRowId)}"]`) as HTMLElement | null;
-			if (el) {
-				const elTop = el.getBoundingClientRect().top - timeline.getBoundingClientRect().top + timeline.scrollTop;
-				markProgrammaticScroll();
-				// 原子恢复：定位 + 解锁锁底 + 取消在途动画一次完成。
-				// busy 会话的 ResizeObserver（instant 贴底）看到 isAtBottom=false 不再拽回。
-				const api = scrollerScrollApiRef.current;
-				const targetTop = Math.max(0, elTop - anchor.offsetTop);
-				if (api?.restoreAt) {
-					api.restoreAt(targetTop);
-				} else {
-					// 引擎未挂上（会话切换首帧等）时回退原生定位
-					timeline.scrollTop = targetTop;
-				}
-				// 恢复后的位置即当前锚点：即使恢复后用户未滚动就切走，cleanup
-				// 落盘的也是这份锚点（而不是误判为底部/空）。恢复前后的渲染窗口都
-				// 由 anchor.windowTurns 决定，因此 complete 不会再收缩 DOM 并截断 targetTop。
-				// entryId 反查命中时同步落新 id，避免下次恢复再走一遍反查。
-				currentAnchorRef.current = anchorRowId === anchor.messageId ? anchor : { ...anchor, messageId: anchorRowId };
-				// 恢复成功即接管浏览钉：锚点上方之后仍会长高（图片解码、Markdown 重排），
-				// 而 .message-timeline 是 overflow-anchor:none。没有钉行时增高只会把视口推走，
-				// 用户下次看到的就是「恢复位置差了几百像素」（#477 的漂移变体）。
-				// 期望偏移按真实几何取：targetTop 被文首夹到 0 时 elTop - targetTop 才是实际值。
-				browsePinRef.current = { messageId: anchorRowId, expectedViewportTop: elTop - targetTop };
-				pinFallbackHeightRef.current = timeline.scrollHeight;
-				setRestorePhase("complete");
-				return;
-			}
-
-			// 数据仍在 atom 但被 turn 窗口裁掉时，先扩窗重试。不能立刻回底：
-			// 这正是长历史会话切回后位置丢失的根因。窗口已覆盖当前数据后才降级。
-			// 窗口已覆盖、锚点却仍不在已加载数据里（首屏只读 9 轮 / 缓存被淘汰 / 切走
-			// 期间上游追加把锚点挤出尾部）时补历史页，补不到才放弃（#477）。
-			const paging = restoreAnchorPagingRef.current;
-			const nextStep = resolveMissingAnchorNextStep({
-				windowExpandable: windowExpandableRef.current,
-				hasEarlierPages,
-				loadingEarlier: isLoadingMessagePage,
-				loadAttempts: paging.attempts,
-			});
-			if (nextStep === "expand") {
-				setScrolledWindowTurns((turns) => turns + TIMELINE_WINDOW_EXPAND_STEP);
-				return;
-			}
-			if (nextStep === "load") {
-				paging.attempts += 1;
-				loadMoreMessages("backfill");
-				return;
-			}
-			if (nextStep === "wait") return;
-
-			// 锚点确实不可再物化（压缩/删除/补页到底）：交回无锚点恢复路径，
-			// 滚到实时尾部并跟底。不再落顶部 —— 否则用户回来看到的是历史开头，
-			// 正是 #477 的原始症状。restoreAnchor 是依赖，置空会重跑上面的无锚点分支。
-			setRestoreAnchor(undefined);
-		});
-		return () => cancelAnimationFrame(frame);
-	}, [controllerEnabled, hasEarlierPages, isLoadingMessagePage, isSurfaceLoading, loadMoreMessages, markProgrammaticScroll, ownerKey, restoreAnchor, restorePhase, scrolledWindowTurns]);
+	// ── 滚动锚点（子 hook：记录阅读位置 + 切会话恢复 + 切走兜底落盘）──
+	const { handleTimelineScroll, cancelSettledRepositionForNewRun, scrollFinalAnswerToUpperMiddle } = useTimelineScrollAnchor({
+		messages,
+		ownerKey,
+		legacyOwnerKey: LEGACY_OWNER_KEY,
+		controllerEnabled,
+		effectiveWindowTurns,
+		renderedWindowTurnsRef,
+		timelineRef,
+		ownerKeyRef,
+		autoScrollRef,
+		setAutoScroll,
+		setShowScrollToBottom,
+		restoreAnchor,
+		setRestoreAnchor,
+		restorePhase,
+		setRestorePhase,
+		scrolledWindowTurns,
+		setScrolledWindowTurns,
+		isSurfaceLoading,
+		hasEarlierPages,
+		isLoadingMessagePage,
+		loadMoreMessages,
+		markProgrammaticScroll,
+		scrollerScrollApiRef,
+		browsePinRef,
+		browsePinFrozenRef,
+		pinFallbackHeightRef,
+		programmaticScrollGuardRef,
+		sendScrollRef,
+		settleScrollCancelRef,
+		windowExpandableRef,
+		readVisibleRowsRef,
+		measurePinnedRowTop,
+		findBrowsePin,
+		isTimelineAtBottom,
+		timelineViewportTop,
+		bottomThreshold: BOTTOM_THRESHOLD,
+		followingAnchorSkipPx: FOLLOWING_ANCHOR_SKIP_PX,
+		saveScrollAnchor,
+	});
 
 	// ── 用户上滚接近顶部时自动加载历史（2026-11 轮次模型）──
 	// 历史扩窗只消费 stick 引擎确认的用户意图。普通 scroll 事件仍由

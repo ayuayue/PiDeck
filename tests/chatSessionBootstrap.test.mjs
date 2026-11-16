@@ -3,9 +3,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { resolveChatSessionBootstrap, resolveNewSessionTarget } = loadTsCommonJs("src/renderer/src/utils/chatSessionBootstrap.ts");
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 
 function resolve(input) {
 	// The TypeScript loader executes modules in a VM realm, so normalize the

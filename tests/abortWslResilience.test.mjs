@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -13,7 +14,7 @@ import test from "node:test";
  *    而不是按会话文件重连一次保住会话。
  */
 test("abort escalation is ack-aware and never double-aborts a winding-down pi", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	// abort 升级判定/补刀收口在 AbortStreamGateController；AgentManager 只保留登记与清理调用。
 	const controller = readFileSync("src/main/pi/abortStreamGateController.ts", "utf8");
 
@@ -44,7 +45,7 @@ test("abort escalation is ack-aware and never double-aborts a winding-down pi", 
 });
 
 test("process exit inside the abort window reattaches the session instead of closing it", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	const zh = readFileSync("src/shared/i18n/mainProcessCopy.ts", "utf8");
 
 	// 1) 终止窗口判定 + 单次重连保护

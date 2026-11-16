@@ -8,6 +8,8 @@ name: Dev Guard
 # 这里只挂快速检查（全程 <5 分钟），全量测试/typecheck 仍由 main CI 与 PR 承担：
 # - check:format —— biome 格式门禁（防格式漂移直入 dev）；
 # - check:ipc-wiring + check:test-shape —— 两条机械不变式（~1s，不联网）；
+# - check:skills-manifest —— 内置技能清单与实际文件对不上时红（~0.1s，不联网）；
+# - test:skills —— 技能文档四项判据（字段 / 格式 / 路径 / 方法表，~1s，不联网）；
 # - typecheck —— tsc --noEmit（~1 分钟）。
 # 刻意不跑 npm test / build：dev 是高频集成分支，45 分钟全量串行测试放在这里
 # 会让每次 push 排队半小时，收益远低于 main CI 的合并前兜底。
@@ -45,14 +47,55 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 2026-11-15：ci.yml 把 format 与 hooks 一起跑，dev-guard 只跑了 format。
+      # 改代码时 React hooks 规则（biome lint --config-path=biome.hooks.jsonc）会踩，
+      # 而 PR 期间看不到——等合并到 main 才红，与 test:skills 那次同型。1.2 秒，纯本地。
+      # 结构化不变量补 check:file-size：ci.yml 跑四项，dev-guard 只跑三项。
+      # 0.8 秒，防「把文件改大过基线」。
       - name: Check formatting
-        run: npm run check:format
+        run: npm run check:format && npm run check:hooks
 
       # 2026-11-11：三面各自独立跑完。此前 format 一红，后两步直接 skipped——
       # dev 上 test-shape 的真实违规因此连续 4 次提交不可见（a26f173 的 Dev Guard 红）。
       - name: Check structural invariants
         if: always()
-        run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:scroll-containers
+        run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:file-size && npm run check:scroll-containers
+
+      # 2026-11-15：本 PR 改了 4 个 SKILL.md 却没重生成 manifest，main CI 的
+      # check:skills-manifest 会红，而 dev-guard 没挂这一条，PR 页面三个 check 全绿。
+      # 纯 node、不联网、0.1 秒，符合本文件「秒级」的口径。
+      - name: Check skills manifest drift
+        if: always()
+        run: npm run check:skills-manifest
+
+      # 2026-11-15：PR 分支长期没 rebase 会把旧 version 带回来。本 PR 从 0.6.x 的 dev 拉出来，
+      # dev 已升到 0.12.0 而分支仍写 0.6.72——合并取 PR 侧就是降版本，Updater 会把新包判成旧包。
+      # 只比 semver 三段数字；push 事件没有 base，脚本 SKIP 不红。
+      # 2026-11-15 评审实测：默认 checkout 是 fetch-depth:1，本地没有 base commit 的对象，
+      # 下面那句 -- <base.sha> 取不到，脚本按「显式给了却读不到」判红。这一行把那个对象拉下来。
+      - name: Fetch base commit for version check
+        if: always()
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then BASE="$(git rev-parse refs/remotes/origin/${{ github.event.pull_request.base.ref || 'dev' }} 2>/dev/null || true)"; fi
+          echo "base=$BASE"
+          if [ -n "$BASE" ]; then echo "BASE_SHA=$BASE" >> "$GITHUB_ENV"; git fetch --no-tags --depth=1 origin "$BASE" || echo "拉不到 $BASE，版本检查将按 SKIP 处理"; fi
+      - name: Check version not lower than base
+        if: always()
+        run: npm run check:version-not-lower -- "${BASE_SHA:-${{ github.event.pull_request.base.sha }}}"
+      # 2026-11-15：test:skills 此前只挂在 ci.yml，而 ci.yml 只对 main 的 push 与
+      # 向 main 的 PR 触发。本 PR 目标是 dev，四个判据在整个 dev 期间没有任何闸门
+      # 跑——写了判据没人跑，跟没写一样。实测 1.0 秒，纯 node、不联网，符合本文件口径。
+      - name: Skill docs and judges
+        if: always()
+        run: npm run test:skills
+      # 2026-11-15：check:dsh-wire 此前只写在 package.json 里，任何 workflow 都没调用——
+      # 判据写了没人跑，等于没写。它静态校验 DshRemoteClient 的每个 RPC 载荷键集是否与 host
+      # 侧 typert 描述符一致（31 个调用点，不符 0 个）。纯 node、不联网、约 1 秒，符合本文件口径。
+      # 缺依赖时它报 rc=2（环境不全），不是 rc=0。
+      - name: DSH wire payloads
+        if: always()
+        run: npm run check:dsh-wire
 
       - name: Type-check
         if: always()

@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -274,6 +275,7 @@ function createHarness(editor, options = {}) {
 			sessionEnvironment: "native",
 			sessionSource: "pi",
 			createdAt: 1,
+			...(options.standby ? { standby: true } : {}),
 		},
 		process: {
 			client: {
@@ -308,7 +310,7 @@ function createHarness(editor, options = {}) {
 }
 
 test("edit/delete/resend leaf lookup uses the session file, not get_entries", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	const start = source.indexOf("private async getActiveSessionLeafId(");
 	const end = source.indexOf("private createSessionEntryTarget(");
 	assert.ok(start >= 0 && end > start, "getActiveSessionLeafId slice must be non-empty");
@@ -624,6 +626,19 @@ test("mutatePersistedSessionMessage refuses a live runtime", async () => {
 	assert.equal(called, false);
 });
 
+test("mutatePersistedSessionMessage ignores pooled standby warmup on the same path", async () => {
+	// 「停止 Agent 后立即删除」：stop 已把绑定 runtime 从 agents 移除，但 standby 池里
+	// 可能还有同一 sessionPath 的预热进程（未认领、空闲）。它不持有会话内存树，
+	// 不能被当成「会话正在运行」，否则删除会被静默拒绝（真实用户可见缺陷）。
+	const editor = { editMessage: async () => {} };
+	const { manager } = createHarness(editor, { status: "idle", standby: true });
+	const failure = await manager.mutatePersistedSessionMessage("C:/sessions/session.jsonl", "agent-1-history-a1", "edit", { newText: "changed" }).then(
+		() => null,
+		(error) => error,
+	);
+	assert.ok(!/BUSY_GENERIC/.test(String(failure?.message ?? "")), `standby 预热进程不应触发 BUSY，实际: ${failure?.message}`);
+});
+
 test("mutatePersistedSessionMessage delete accepts a message absent from the file (unpersisted turn)", async () => {
 	// 发送中/刚结束即中断后删除：渲染层先停 agent，stop 已清空内存缓存，文件定位又找不到
 	// 该消息（JSONL 尚未落盘）。删除目标是让消息从会话消失——文件里本来就没有，应返回
@@ -650,7 +665,7 @@ test("restoreCheckpoint refuses conversation scope when no fork anchor exists (n
 	// resolveForkEntryBeforeCheckpoint 返回 undefined，旧实现静默跳过 fork，
 	// UI 报「回退成功」但什么都没发生。行为级验证需要完整 runtime fixture
 	//（fork RPC/ref 解析），这里用源码断言钉住「无锚点必须拒绝」分支（空白容忍）。
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	assert.match(source, /if \(wantConversation && !forkEntryId\) \{\s*throw new Error\("Cannot locate a conversation anchor before this checkpoint/);
 	// 拒绝必须发生在 applyCheckpointRestore 之前（否则文件已回退却报错，半成功态）
 	const throwPos = source.indexOf("Cannot locate a conversation anchor");

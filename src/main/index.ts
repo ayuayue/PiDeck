@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell, Tray, Notification, webContents } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, safeStorage, session, shell, Tray, Notification, webContents } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { hostname, release as osRelease } from "node:os";
@@ -12,13 +12,8 @@ import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
 import { PetSystem, type PetSystemDeps } from "./pet";
-import { downgradeRunningStartedBefore, downgradeStaleRunning } from "./pi/derivedSubagents";
 import { SoundAlertService } from "./sounds/SoundAlertService";
-import { registerSoundIpc } from "./ipc/soundIpc";
-import { registerSoundProtocol } from "./sounds/soundProtocol";
-import { registerHtmlPreviewProtocol } from "./htmlPreviewProtocol";
 import { AnnouncementService } from "./announcements/AnnouncementService";
-import { registerAnnouncementIpc } from "./ipc/announcementIpc";
 import { CuaService } from "./cua/CuaService";
 import { BrowserAgentService } from "./browser/BrowserAgentService";
 import { AutomationStore } from "./automation/AutomationStore";
@@ -45,9 +40,8 @@ import { ClipboardSelectionWatcher } from "./selection/clipboardSelectionWatcher
 import { WindowsSelectionCapture } from "./selection/windowsSelectionCapture";
 import { resolveShortcutBindings } from "../shared/shortcuts";
 import { SYSTEM_SELECTION_TOOL_ENABLED } from "../shared/types/selectionTool";
-import { registerFeishuIpc } from "./ipc/feishuIpc";
-import { registerWeChatIpc } from "./ipc/wechatIpc";
 import { applyLinuxDisplayBackendWorkaround, isUsingLinuxXWaylandWorkaround } from "./linuxDisplayBackend";
+import { registerFeishuIpc } from "./ipc/feishuIpc";
 import { readBootPreferences } from "./settings/SettingsStore";
 import { acquireVersionSingleInstance, type FocusPayload } from "./singleInstance";
 import { mainProcessJsFlags, rendererHeapAdditionalArguments } from "./v8HeapLimits";
@@ -55,7 +49,6 @@ import { isDevToolsShortcut, toggleMainWindowDevTools } from "./devTools";
 import { isShortcutInput, refreshShortcutBindings } from "./appShortcuts";
 // 主进程复用共享的接管型扩展识别规则（与渲染层横幅单一来源；纯函数无依赖）。
 import { detectThirdPartyMcpExtensions } from "../shared/mcpThirdParty";
-import { composeAppTitle } from "../shared/appTitle";
 import { PiResourceConfigService } from "./config/PiResourceConfigService";
 import { isPackageSource, projectExtensionEnabled, projectExtensionFiltered } from "./config/PiResourceConfigService";
 import { runPackageRootRuleRepair, type PackageRootRuleRepairDeps } from "./config/piPackageRootRuleRepair";
@@ -67,10 +60,9 @@ import { runGlobalResourceMigration, runProjectResourceMigration } from "./confi
 import type { ResolvedMigrationResource } from "./config/piResourceMigration";
 import type { PiResourceScope } from "../shared/types/piResources";
 import { createWindowZoomShortcutHandler } from "./windowZoom";
-import { DEFAULT_DEV_USER_DATA_NAME, isSharedDevBranch, readDevGitBranch, resolveDevUserDataDirName } from "./devIsolation";
-import { KEEP_DEV_HTTP_CACHE_ENV, clearDevRendererCache } from "./devRendererCache";
+import { DEFAULT_DEV_USER_DATA_NAME, readDevGitBranch, resolveDevUserDataDirName } from "./devIsolation";
 import { isPortablePackagedEnv, resolveAppUserDataDir, resolvePackagedUserDataDir } from "./portableUserData";
-import { readDataEnvDecision, validateStartupDataEnv, writeDataEnvDecision } from "./dataEnv/dataEnvMarker";
+import { readDataEnvDecision } from "./dataEnv/dataEnvMarker";
 import { registerDataEnvIpc } from "./ipc/dataEnvIpc";
 import { ChannelSwitchService } from "./update/ChannelSwitchService";
 import { registerChannelSwitchIpc } from "./ipc/channelSwitchIpc";
@@ -86,10 +78,7 @@ import { extractFocusTargetFromArgv } from "./utils/focusTarget";
 import type { Project, StartupWindowMode } from "../shared/types";
 import { isLocalProject, isRemoteProject } from "../shared/projectLocation";
 import type { DataEnvMode } from "../shared/types/dataEnv";
-// 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
-// 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
-import iconPath from "../../build/icon.png?asset";
-import { applyTrayLogoStyle, applyWindowLogoStyle, resolveLogoImage } from "./appWindowLogo";
+import { applyTrayLogoStyle, applyWindowLogoStyle } from "./appWindowLogo";
 import { registerTaskbarIdentityAumid, resolveAppUserModelId, syncTaskbarShortcutIcon } from "./appTaskbarIdentity";
 
 // 构建标记：npm run dist:*:dev 打包时由 vite define 注入 true（构建期替换，非运行时环境变量）。
@@ -275,14 +264,12 @@ process.on("unhandledRejection", (reason) => {
 	console.error("Unhandled rejection:", reason);
 });
 import { agentEventTags, ipcChannels } from "../shared/ipc";
-import { RendererNoiseAggregator, classifyRendererNoise, toRendererNoiseLog } from "../shared/rendererNoise";
 import { mainProcessT, normalizeMainProcessLocale, type MainProcessLocale, type MainProcessTranslationKey } from "../shared/i18n/mainProcessCopy";
 import { buildSessionOriginKey, canonicalizeSessionPath, toAbsoluteSessionPath } from "../shared/sessionIdentity";
 import type {
 	AgentTab,
 	AgentUiRequest,
 	AppSettings,
-	AppLogLevel,
 	AppLogQuery,
 	AvailableModel,
 	ExternalEditor,
@@ -316,7 +303,6 @@ import type {
 } from "../shared/types";
 import { msUntilNextThemeBoundary, resolveAppColorScheme } from "../shared/themeSchedule";
 import { ProjectStore } from "./projects/ProjectStore";
-import { removeProjectWithSessions } from "./projects/projectRemoval";
 import { runUserDataNameMigration, recordUserDataNameMigrationNotice, type UserDataNameMigration } from "./projects/userDataNameMigration";
 import { shouldAutoRegisterForeignCwd } from "./projects/projectPathPolicy";
 import { defaultPathCheck } from "./projects/projectPresence";
@@ -344,8 +330,6 @@ import { registerAgentMemoryIpc } from "./ipc/agentMemoryIpc";
 import { AcpSessionArchive } from "./acp/AcpSessionArchive";
 import { createAcpModelRateAnnotator } from "./acp/acpModelRates";
 import { withAcpConfigDefault } from "./acp/acpToolConfig";
-import { acpMessagePage } from "./acp/acpMessagePage";
-import { findSessionMatches } from "./sessions/sessionFindMatches";
 import { broadcastCatalogRefreshed } from "./sessions/catalogRefresh";
 import { registerAcpIpc } from "./ipc/acpIpc";
 import { DshHost, resolveDshHomeDir } from "./dsh/DshHost";
@@ -365,8 +349,8 @@ import { startDshHostInBackground } from "./dsh/startDshHostInBackground";
 import { importForeignSession, knownForeignSessionIds, syncForeignSessions, type DshForeignSyncDeps } from "./dsh/dshForeignSync";
 import { PiLocator } from "./pi/PiLocator";
 import { PiAuthService } from "./pi/auth/PiAuthService";
-import { resolvePiAuthHostLaunch } from "./pi/auth/piAuthHostLaunch";
-import { EnhancePromptService, PI_ENHANCE_HOST_FILENAME } from "./pi/enhance/EnhancePromptService";
+import { EnhancePromptService } from "./pi/enhance/EnhancePromptService";
+import { createCompletionHelperServiceFactory } from "./startup/completionHelperService";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
 import { resolveLaunchDefaultOptions, isModelInModelsConfig, resolveImSessionLaunchDefaults } from "./sessions/launchDefaults";
@@ -403,7 +387,6 @@ import { DirectorySessionImporter } from "./sessions/DirectorySessionImporter";
 import { normalizeSessionPathKey } from "./sessions/directorySessionImport";
 import { SettingsStore } from "./settings/SettingsStore";
 import { SecurityStore } from "./security/SecurityStore";
-import { evaluateUserReadAccess } from "./security/policy";
 import { applyDesktopProxy } from "./settings/DesktopProxy";
 import { GitService } from "./git/GitService";
 import { GitRefsWatcher } from "./git/GitRefsWatcher";
@@ -424,8 +407,6 @@ import { WatchaEntitlementStore } from "./config/watchaEntitlement";
 import { usageProbeRequest } from "./config/usageProbeTransport";
 import { TOKENDANCE_PROVIDER } from "../shared/tokendance";
 import { TerminalSessionManager } from "./terminal/TerminalSessionManager";
-import { startTrayRegistrationVerify, type TrayRegistrationVerify } from "./tray/trayRegistrationVerify";
-import { buildTrayMenuTemplate, TRAY_RECENT_PROJECTS_LIMIT } from "./tray/trayMenuTemplate";
 import { TelemetryService } from "./telemetry/TelemetryService";
 import { collectTelemetrySnapshot } from "./telemetry/telemetrySnapshot";
 import { PromptManager } from "./prompts/PromptManager";
@@ -435,16 +416,38 @@ import { SessionIndexService } from "./sessions/SessionIndexService";
 import { deriveOrphanSweepMarkers, sweepOrphanedManagedProcesses } from "./process/orphanSweep";
 import { XuePromptDbStore } from "./prompts/XuePromptDbStore";
 import { SkillManager } from "./skills/SkillManager";
+import { autoInstallBundledSkills } from "./skills/autoInstallBundledSkills";
 import { readSkillContent } from "./skills/readSkillContent";
 import { buildSkillInstallProxyEnv } from "./skills/skillHubInstallProxy";
 import { ExtensionManager } from "./extensions/ExtensionManager";
-import { BuiltInExtensionsUpdater } from "./extensions/builtInExtensionsUpdater";
-import { readEffectiveBuiltInExtensionsVersion, resolveBuiltInExtensionsDir, resolveBuiltInExtensionsOverlayDir, resolveVendorNodeModulesDir, type BuiltInExtensionPathRoots } from "./extensions/builtInExtensions";
+import { readEffectiveBuiltInExtensionsVersion, resolveBuiltInExtensionsOverlayDir, type BuiltInExtensionPathRoots } from "./extensions/builtInExtensions";
 import { createPiProcessExtensionResolvers } from "./extensions/piProcessExtensionResolvers";
-import { registerBuiltInExtensionIpc } from "./ipc/builtInExtensionIpc";
-import { PROMPTS_STORE_CHANNELS, SKILLS_STORE_CHANNELS, registerContentStoreIpc } from "./ipc/contentStoreIpc";
-import { PromptStoreUpdater } from "./prompts/promptStoreUpdater";
-import { SkillStoreUpdater } from "./skills/skillStoreUpdater";
+import { startAcpAgents } from "./startup/acpAgents";
+import { startAppUpdate } from "./startup/appUpdate";
+import { startCloudSync } from "./startup/cloudSync";
+import { startDshAgents } from "./startup/dshAgents";
+import { startDshRuntime } from "./startup/dshRuntime";
+import { startResourceMigration } from "./startup/resourceMigration";
+import { startResourceStores } from "./startup/resourceStores";
+import { startSelectionTools } from "./startup/selectionTools";
+import { startSessionRuntime } from "./startup/sessionRuntime";
+import { startCoreServices } from "./startup/services";
+import { startSidecars } from "./startup/sidecars";
+import { registerAgentsStack } from "./startup/ipcStacks/agentsStack";
+import { registerContentStack } from "./startup/ipcStacks/contentStack";
+import { registerGitStack } from "./startup/ipcStacks/gitStack";
+import { registerHostServicesStack } from "./startup/ipcStacks/hostServicesStack";
+import { startWeChatBridge } from "./startup/weChatBridge";
+import { startRemoteAccess } from "./startup/remoteAccess";
+import { startSoundsAndAnnouncements } from "./startup/soundsAndAnnouncements";
+import { startWebService } from "./startup/webService";
+import { registerMediaSessionStack } from "./startup/ipcStacks/mediaSessionStack";
+import { registerMediaStack } from "./startup/ipcStacks/mediaStack";
+import { registerPlatformStack } from "./startup/ipcStacks/platformStack";
+import { registerRemoteStack } from "./startup/ipcStacks/remoteStack";
+import { registerSessionsStack } from "./startup/ipcStacks/sessionsStack";
+import { startPrewarm } from "./startup/sessionCatalogPrewarm";
+import { registerSystemStack } from "./startup/ipcStacks/systemStack";
 import { ProjectResourceManager } from "./projects/ProjectResourceManager";
 import { ResourceImportManager } from "./resourceImport/ResourceImportManager";
 import { toWslLinuxPath, toWindowsHostPath } from "./wsl/WslPaths";
@@ -491,9 +494,9 @@ import { createRemoteProjectTrustService, type RemoteProjectTrustService } from 
 import { createRemoteReferenceWriteGuard } from "./remote/RemoteReferenceWriteGuard";
 import { registerUsageStatsIpc } from "./ipc/usageStatsIpc";
 import { UsageStatsService } from "./usageStats/UsageStatsService";
-import { constrainWindowBoundsToWorkArea, type LastWindowBounds, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, readLastWindowBounds, saveLastWindowBounds } from "./windowState";
+import { saveLastWindowBounds } from "./windowState";
 import { type MainWindowVisualEvent, type MainWindowVisualIntent, type MainWindowVisualState, nextMainWindowVisualIntent, planMainWindowReveal } from "./windowReveal";
-import { applyE2EWindowPlacement, E2E_RENDERING_SWITCHES, resolveE2EWindowPlacement } from "./e2eWindowMode";
+import { E2E_RENDERING_SWITCHES, resolveE2EWindowPlacement } from "./e2eWindowMode";
 import { shouldRegisterDeepLinkProtocol } from "./e2eProtocolRegistration";
 import { applyChromiumFeatureFlags } from "./chromiumFeatureFlags";
 import { createRendererCrashRecoveryGuard } from "./window/rendererCrashRecovery";
@@ -511,7 +514,6 @@ import { LocalServiceRegistry } from "./localServices/LocalServiceRegistry";
 import { createLocalServiceCli, killLocalServiceProcess } from "./localServices/localServiceCli";
 import { HOST_PLUGIN_SCHEME } from "./plugins/hostPluginPolicy";
 import { hostPluginPartitionId, hostPluginWebviewBridge } from "./plugins/hostPluginWebviewPolicy";
-import { registerGitIpc } from "./ipc/gitIpc";
 import { registerRemoteGitReadIpc } from "./ipc/remoteGitReadIpc";
 import { registerStoreIpc } from "./ipc/storeIpc";
 import { registerTerminalIpc } from "./ipc/terminalIpc";
@@ -547,22 +549,15 @@ import { getWhisperModelDef } from "../shared/types/whisperRuntime";
 import { WhisperTranscriber } from "./voice/WhisperTranscriber";
 import { WhisperServerPool } from "./voice/WhisperServerPool";
 import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
-import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
+import { scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerWebRemoteAccessIpc } from "./ipc/webRemoteAccessIpc";
 import { RemoteAccessManager } from "./web/remoteAccess/RemoteAccessManager";
 import { registerSystemIpc } from "./ipc/systemIpc";
 import { registerResourceImportIpc } from "./ipc/resourceImportIpc";
 import { registerBackupIpc } from "./ipc/backupIpc";
-import { registerCatalogIpc } from "./ipc/catalogIpc";
-import { registerQuickMessagesIpc } from "./ipc/quickMessagesIpc";
 import { registerNoticeHistoryIpc } from "./ipc/noticeHistoryIpc";
 import { NoticeHistoryStore } from "./notices/NoticeHistoryStore";
-import { registerReplyActionsIpc } from "./ipc/replyActionsIpc";
-import { QuickMessageStore } from "./quickmessages/QuickMessageStore";
-import { ReplyActionRuleStore } from "./replyactions/ReplyActionRuleStore";
-import { QUICK_MESSAGES_DEFAULT_RESOURCE_NAME, QUICK_MESSAGES_FILE_NAME, REPLY_ACTIONS_DEFAULT_RESOURCE_NAME, REPLY_ACTIONS_FILE_NAME } from "../shared/quickMessages";
-import { getPiAiCatalogIndex, lookupPiAiCatalogEntry, setPiAiCatalogUserDataDir } from "./pi/piAiBuiltinCatalog";
-import { PiAiCatalogUpdater } from "./pi/PiAiCatalogUpdater";
+import { getPiAiCatalogIndex, lookupPiAiCatalogEntry } from "./pi/piAiBuiltinCatalog";
 import { fetchModelList, refreshModelCatalogIfStale, refreshModelList, getCachedModelList } from "./pi/modelListCache";
 import { registerFilesIpc } from "./ipc/filesIpc";
 import { FileIndexService } from "./files/FileIndexService";
@@ -574,9 +569,8 @@ import { registerQuickTaskIpc } from "./ipc/quickTaskIpc";
 import { registerFloatingIpc } from "./ipc/floatingIpc";
 import { FloatingController } from "./floating/FloatingController";
 import { MiniOverlayWindow } from "./floating/MiniOverlayWindow";
-import { BROWSER_PANEL_PARTITION as BROWSER_PANEL_PARTITION_SHARED, isAllowedBrowserPanelUrl as isAllowedBrowserPanelUrlShared } from "./browser/browserSecurity";
+import { BROWSER_PANEL_PARTITION as BROWSER_PANEL_PARTITION_SHARED } from "./browser/browserSecurity";
 import { WebServiceManager } from "./web/WebServiceManager";
-import { WebWorkspaceRoutes } from "./web/WebWorkspaceRoutes";
 import { preparePreloadPath } from "./preloadPath";
 import { AppLogger } from "./logging/AppLogger";
 import { setAppLogger } from "./logging/sharedLogger";
@@ -600,17 +594,33 @@ import { LogBundleExporter } from "./health/LogBundleExporter";
 import { QuitCleanupRegistry } from "./lifecycle/QuitCleanupRegistry";
 import { ensureWindowsPathFresh } from "./process/windowsPathRefresh";
 import type { FeishuChatBinding } from "../shared/types";
-import { createRealAutoUpdater } from "./update/createAutoUpdater";
-import { installAtomgitNoCacheBypass, UPDATER_PARTITION_NAME } from "./update/atomgitNoCacheBypass";
-import { createManualUpdateChecker } from "./update/macManualUpdate";
-import { resolveAppUpdateDeliveryPlan } from "./update/deliveryPlan";
-import { detectMacDeveloperIdSignature } from "./update/macCodeSignature";
-import { resolveManualUpdateTarget } from "./update/manualUpdateSelection";
-import { downloadInstallerAsset, type InstallerDownloadProgress } from "./update/installerDownload";
 import { UpdateService } from "./update/UpdateService";
-import type { AppManualUpdateRelease } from "../shared/types/app";
 
+import { getTray, refreshTrayContextMenu, setupTray, type TrayDeps } from "./window/tray";
+import { createMainWindow, type MainWindowDeps } from "./window/mainWindow";
+import { configureBrowserPanelWebviewHost, type BrowserPanelHostContext } from "./window/browserPanelHost";
 let mainWindow: BrowserWindow | null = null;
+
+// 托盘实现已搬进 src/main/window/tray.ts：托盘实例由该模块持有，其余单例仍由本文件拥有，
+// 这里只把读取入口交给它（菜单动作、更新检查、悬浮球控制器、退出标志）。
+const trayDeps: TrayDeps = {
+	appLogger: () => appLogger,
+	settings: () => settingsStore.get(),
+	projectStore: () => projectStore,
+	quitCleanup: () => quitCleanup,
+	updateService: () => updateService,
+	floatingController: () => floatingController,
+	restartApp,
+	markQuitting: () => {
+		isQuitting = true;
+	},
+	translate: (key, params) => mainCopy(key, params),
+	focusMainWindow: () => focusMainWindow(),
+	queueFocusTarget: (target) => queueFocusTarget(target),
+	getMainWindow: () => mainWindow,
+	revealMainWindow: (window) => revealMainWindow(window),
+};
+
 /**
  * 主窗口最后一次的呈现态（用户手动最大化/还原/全屏的结果）。
  * 唤起窗口时按它重新施加：Windows 上从最小化/隐藏唤回的窗口不保证仍是最大化，
@@ -662,9 +672,6 @@ const quickTaskChrome = new QuickTaskWindowChrome({
 });
 let floatingController: FloatingController | null = null;
 let miniOverlayWindow: MiniOverlayWindow | null = null;
-let tray: Tray | null = null;
-/** Linux 托盘注册验收器（见 tray/trayRegistrationVerify.ts），退出清理里与 tray 一起停 */
-let trayRegistrationVerify: TrayRegistrationVerify | null = null;
 /** 标记是否由用户主动退出（托盘菜单「退出」），区别于窗口关闭隐藏到托盘 */
 let isQuitting = false;
 /** 渲染进程崩溃自动恢复守卫（2026-08 黑屏治理，见 window/rendererCrashRecovery.ts）：
@@ -780,6 +787,8 @@ let dshRuntimeManager: DshRuntimeManager;
 /** DSH runtime 安装编排（阶段 2）：索引选版本 + 进度广播。 */
 let dshRuntimeInstaller: DshRuntimeInstaller;
 let dshAgentManager: DshAgentManager;
+/** DSH 实时 RPC 日志广播器（80ms 节流批量推送，观看登记由 rpcLogsSetWatching 驱动）。 */
+let rpcLogLiveBroadcaster: RpcLogLiveBroadcaster;
 let acpAgentManager: AcpAgentManager;
 /** ACP 模型倍率注解：读本机 magpie 缓存（缺省空表），查询/下发/推送三个出口共用同一份。 */
 const annotateAcpConfigOptions = createAcpModelRateAnnotator();
@@ -1072,7 +1081,7 @@ function broadcastVisibleProjects(): void {
 	// 直接把未检测版本写进 atom 会短暂抹掉 missing 标记，使失效目录看起来又恢复正常。
 	window.webContents.send(ipcChannels.projectsChanged, visible);
 	// 项目集变化同步重建托盘菜单（最近项目区），否则增删项目后菜单滞后。
-	refreshTrayContextMenu();
+	refreshTrayContextMenu(trayDeps);
 }
 
 /** 云同步状态变化 → 渲染层（设置页/全局状态订阅共用）。 */
@@ -2246,84 +2255,6 @@ function restartApp(): void {
 	app.quit();
 }
 
-function refreshTrayContextMenu(): void {
-	if (!tray) return;
-	// 项目取非聊天项目前 N（ProjectStore.list 已按置顶/最近打开排序）；菜单在项目集变化时重建（broadcastVisibleProjects / projectsIpc 回调）。
-	// 托盘菜单项带 path（供「在资源管理器中打开」一类动作）：远端项目没有本机 path，只列本机项目。
-	const recentProjects = projectStore
-		.list()
-		.filter(isLocalProject)
-		.filter((p) => p.kind !== "chat")
-		.slice(0, TRAY_RECENT_PROJECTS_LIMIT)
-		.map((p) => ({ id: p.id, name: p.name, path: p.path }));
-	tray.setContextMenu(
-		Menu.buildFromTemplate(
-			buildTrayMenuTemplate(mainCopy, app.getVersion(), recentProjects, {
-				showWindow: focusMainWindow,
-				checkUpdate: checkForUpdatesFromTray,
-				openProject: (projectId) => {
-					// 与桌宠/通知同一条跳转链路：窗口置前 + renderer 按 projectId 切项目
-					queueFocusTarget({ projectId });
-					focusMainWindow();
-				},
-				openDataDir: () => {
-					void openSystemPath(app.getPath("userData"));
-				},
-				openLogsDir: () => {
-					void openSystemPath(join(app.getPath("userData"), "logs"));
-				},
-				restart: restartApp,
-				quit: () => {
-					isQuitting = true;
-					app.quit();
-				},
-				toggleFloatingBall: (visible) => {
-					if (visible) {
-						void floatingController?.show();
-					} else {
-						floatingController?.hide();
-					}
-				},
-				exitFloatingBall: () => {
-					void floatingController?.exit();
-				},
-				isFloatingBallActive: () => floatingController?.isActive() ?? false,
-			}),
-		),
-	);
-}
-
-/**
- * 托盘「检查更新」：走 UpdateService.checkNow（与渲染层手动检测同一链路，结果状态也同步给窗口 UI），
- * 完成后用系统通知告知结果；点击通知聚焦主窗口（渲染层已有更新横幅/下载入口）。
- */
-function checkForUpdatesFromTray(): void {
-	void (async () => {
-		try {
-			if (updateService) {
-				await updateService.checkNow();
-				const snapshot = updateService.getSnapshot();
-				const latest = snapshot.app?.latestVersion;
-				if (snapshot.app?.hasUpdate && latest) {
-					notifyFromTray(mainCopy("tray.updateAvailableTitle"), mainCopy("tray.updateAvailableBody", { version: latest }));
-					return;
-				}
-			}
-			notifyFromTray(mainCopy("tray.upToDateTitle"), mainCopy("tray.upToDateBody", { version: app.getVersion() }));
-		} catch (error) {
-			void appLogger?.warn("update", "Tray update check failed", { error: error instanceof Error ? error.message : String(error) });
-			notifyFromTray(mainCopy("update.checkFailed"), "");
-		}
-	})();
-}
-
-/** 托盘通知：点击即聚焦主窗口（更新/最新两种结果都引导回窗口）。 */
-function notifyFromTray(title: string, body: string): void {
-	const notification = new Notification({ title, body, silent: false });
-	notification.on("click", () => focusMainWindow());
-	notification.show();
-}
-
 /**
  * 记录用户对主窗口呈现态的选择，供唤起时重新施加。
  * 逻辑走 windowReveal 的纯函数：全屏期间 Windows 会连带发 maximize/unmaximize，不能被改写成最大化。
@@ -2467,54 +2398,6 @@ function handleVersionFocusRequest(payload?: FocusPayload) {
 // 顶层锁回调延后绑定：focusMainWindow / createWindow 定义在锁申请之后。
 focusExistingWindow = handleVersionFocusRequest;
 
-function setupTray() {
-	// 托盘图标跟随设置里的「Logo 风格」；resolveLogoImage 按风格选 build/icon.png 或 icon-pi-tui.png
-	// （均由 electron-vite 的 ?asset 后缀解析，打包后也能正确定位）；custom 风格读设置里的自定义图。
-	// 资源缺失时降级回 classic iconPath：托盘必须建得出来——closeToTray 开启时它是唯一的唤回入口。
-	const trayLogoSettings = settingsStore.get();
-	const icon = resolveLogoImage(trayLogoSettings.logoStyle, trayLogoSettings.logoCustomImage)?.image ?? nativeImage.createFromPath(iconPath);
-
-	/** 创建托盘实例；首次创建与自愈重建共用同一条路径，避免两处行为漂移。 */
-	const createTrayInstance = (): Tray => {
-		const instance = new Tray(icon.resize({ width: 16, height: 16 }));
-		instance.setToolTip("PiDeck");
-		// 双击托盘图标恢复窗口（Windows 常见交互）；走统一唤起口，最小化时也会回到原呈现态
-		instance.on("double-click", () => {
-			if (mainWindow && !mainWindow.isDestroyed()) revealMainWindow(mainWindow);
-		});
-		return instance;
-	};
-
-	tray = createTrayInstance();
-	refreshTrayContextMenu();
-	// 项目集变化（增删/重命名/最近打开排序）经 ProjectStore.onChanged 统一派发，重建托盘「最近项目」区。
-	const stopTrayProjectListener = projectStore.onChanged(() => refreshTrayContextMenu());
-
-	// C12：退出清理登记（before-quit 统一 runAll）——验收器必须一起停，
-	// 否则退出阶段还会把已销毁的 tray 再重建一次。
-	quitCleanup.register("tray", () => {
-		stopTrayProjectListener();
-		trayRegistrationVerify?.stop();
-		trayRegistrationVerify = null;
-		tray?.destroy();
-		tray = null;
-	});
-
-	// Linux/GNOME 托盘注册诊断（见 tray/trayRegistrationVerify.ts）：Electron 43.3.0–43.4.1 的 SNI
-	// multiplexer 只认 well-known destination，宿主按 unique name 读属性必失败并永久放弃图标
-	// （closeToTray 默认开启时，用户点 X 隐藏后就再无唤回入口）。Electron ≥ 43.5.0 已修复
-	// （issue #521 / electron#53215，见 docs/electron-playbook.md §Linux 托盘）。
-	// 这里只验收并记日志，不做重建 —— 重建换名并不能改变宿主的读法，实测无效。
-	if (process.platform === "linux") {
-		trayRegistrationVerify = startTrayRegistrationVerify({
-			onUnregistered: (detail) => {
-				void appLogger?.warn("app", "tray verify: unregistered, see docs/electron-playbook.md §Linux 托盘", detail);
-			},
-			onLog: (message, detail) => void appLogger?.info("app", message, detail),
-		});
-	}
-}
-
 async function openExternalUrl(url: string, forceSystem = false) {
 	if (!url.startsWith("http:") && !url.startsWith("https:")) return;
 	// 更新页的发行说明和安装包必须离开内置浏览器，避免下载被 webview 的导航策略拦截。
@@ -2599,566 +2482,63 @@ async function prepareMainPreloadPath() {
 
 const BROWSER_PANEL_PARTITION = BROWSER_PANEL_PARTITION_SHARED;
 
-function isAllowedBrowserPanelUrl(targetUrl: string): boolean {
-	return isAllowedBrowserPanelUrlShared(targetUrl);
-}
+// 浏览器面板 webview 宿主管线（partition 权限/导航默认拒绝 + will/did-attach 加固与 guest 接管）
+// 已搬到 window/browserPanelHost.ts：依赖全部延迟读取（appLogger / browserAgentService 均在
+// whenReady 装配阶段才赋值）。
+const browserPanelHostDeps: BrowserPanelHostContext = {
+	getAppLogger: () => appLogger,
+	getBrowserAgentService: () => browserAgentService,
+	handleWindowZoomShortcut,
+	openExternalUrl,
+};
 
-/**
- * 浏览器面板 partition 上的导航白名单拦截是否已注册。
- * Electron webRequest 监听返回 void 且不可移除；macOS activate 重建窗口会重复调用
- * configureBrowserPanelWebviewHost，必须只注册一次，否则每次重建都在共享 partition
- * 上累积一份回调（2026-10 泄漏修复）。
- */
-let browserPanelRequestInstalled = false;
+// 建窗所需宿主状态：单例与启动装配仍归本文件，建窗实现搬进 window/mainWindow.ts。
+// 单例一律用 getter 传（settingsStore / appLogger / mainWindow 都是 let，建窗可能早于或晚于赋值）。
+const mainWindowDeps: MainWindowDeps = {
+	getSettings: () => settingsStore.get(),
+	createWindowOptions: () => settingsStore.createWindowOptions(),
+	getAppLogger: () => appLogger,
+	getIsQuitting: () => isQuitting,
+	setIsQuitting: (quitting) => {
+		isQuitting = quitting;
+	},
+	setMainWindow: (window) => {
+		mainWindow = window;
+	},
+	setMainWindowVisualIntent: (intent) => {
+		mainWindowVisualIntent = intent;
+	},
+	getFloatingController: () => floatingController,
+	isE2E,
+	e2eWindowPlacement,
+	isolateDevByGitBranch,
+	devGitBranch,
+	petEnabledAtLaunch,
+	updateChannel,
+	devDataMode,
+	bootAnchorMs,
+	quickTaskChrome,
+	rendererCrashGuard,
+	handleWindowZoomShortcut,
+	prepareMainPreloadPath,
+	openExternalUrl,
+	configureBrowserPanelWebviewHost: (window) => configureBrowserPanelWebviewHost(window, browserPanelHostDeps),
+	shouldShowMainWindowImmediately,
+	resolveStartupWindowBounds,
+	applyStartupWindowMode,
+	shouldUseDevRendererUrl,
+	applyNativeThemeSource,
+	printStartupInfo,
+	trackMainWindowVisualIntent,
+	rearmStandbyAgentOnFocus,
+	syncSelectionToolShortcut,
+	flushSelectionShortcutConflictNotice,
+	flushPendingFocusTargetOnLoad,
+};
 
-function configureBrowserPanelWebviewHost(window: BrowserWindow): void {
-	const browserPanelSession = session.fromPartition(BROWSER_PANEL_PARTITION);
-	browserPanelSession.setPermissionCheckHandler(() => false);
-	browserPanelSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-	browserPanelSession.setDevicePermissionHandler(() => false);
-	if (!browserPanelRequestInstalled) {
-		browserPanelRequestInstalled = true;
-		browserPanelSession.webRequest.onBeforeRequest((details, callback) => {
-			const isFrameNavigation = details.resourceType === "mainFrame" || details.resourceType === "subFrame";
-			if (isFrameNavigation && !isAllowedBrowserPanelUrl(details.url)) {
-				void appLogger.warn("browser", "Blocked unsafe webview frame request", {
-					resourceType: details.resourceType,
-					url: details.url,
-				});
-				callback({ cancel: true });
-				return;
-			}
-			callback({});
-		});
-	}
-
-	window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
-		// 宿主插件面板：partition 形如 host-plugin:<instanceId>，由 HostPluginViewHost 签发；
-		// 与内置浏览器不同，必须携带独立 preload（桥接 broker），其余安全档位与浏览器面板一致。
-		const hostPluginId = hostPluginPartitionId(params.partition ?? "");
-		if (hostPluginId) {
-			const bridge = hostPluginWebviewBridge();
-			if (!bridge || !bridge.hasLive(hostPluginId) || (params.src !== `${HOST_PLUGIN_SCHEME}://${hostPluginId}/` && !params.src?.startsWith(`${HOST_PLUGIN_SCHEME}://${hostPluginId}/`))) {
-				event.preventDefault();
-				void appLogger.warn("host-plugins", "Blocked host-plugin webview attachment", { instanceId: hostPluginId });
-				return;
-			}
-			webPreferences.partition = params.partition;
-			webPreferences.sandbox = true;
-			webPreferences.additionalArguments = rendererHeapAdditionalArguments();
-			webPreferences.nodeIntegration = false;
-			webPreferences.nodeIntegrationInWorker = false;
-			webPreferences.nodeIntegrationInSubFrames = false;
-			webPreferences.contextIsolation = true;
-			webPreferences.webSecurity = true;
-			webPreferences.allowRunningInsecureContent = false;
-			webPreferences.webviewTag = false;
-			delete webPreferences.preload;
-			delete (webPreferences as Record<string, unknown>).preloadURL;
-			const pluginPreload = bridge.preloadPath();
-			if (pluginPreload) webPreferences.preload = pluginPreload;
-			delete params.preload;
-			delete params.preloadURL;
-			delete params.allowfileaccess;
-			delete params.allowpopups;
-			return;
-		}
-		const sourceUrl = params.src || "about:blank";
-		if ((params.partition && params.partition !== BROWSER_PANEL_PARTITION) || !isAllowedBrowserPanelUrl(sourceUrl)) {
-			event.preventDefault();
-			void appLogger.warn("browser", "Blocked unsafe webview attachment", {
-				sourceUrl,
-				partition: params.partition,
-			});
-			return;
-		}
-
-		params.src = sourceUrl;
-		params.partition = BROWSER_PANEL_PARTITION;
-		delete params.preload;
-		delete params.preloadURL;
-		delete params.allowfileaccess;
-		delete params.allowpopups;
-
-		webPreferences.partition = BROWSER_PANEL_PARTITION;
-		webPreferences.sandbox = true;
-		// 内置浏览器是第三方页面，同样不能被主进程的 384MB 档位锁住（#213）
-		webPreferences.additionalArguments = rendererHeapAdditionalArguments();
-		webPreferences.nodeIntegration = false;
-		webPreferences.nodeIntegrationInWorker = false;
-		webPreferences.nodeIntegrationInSubFrames = false;
-		webPreferences.contextIsolation = true;
-		webPreferences.webSecurity = true;
-		webPreferences.allowRunningInsecureContent = false;
-		webPreferences.webviewTag = false;
-		delete webPreferences.preload;
-		delete (webPreferences as Record<string, unknown>).preloadURL;
-	});
-
-	window.webContents.on("did-attach-webview", (_event, guest) => {
-		// 宿主插件 guest：绑定到实例表并接管生命周期；未登记的实例立即关闭。
-		const pluginBridge = hostPluginWebviewBridge();
-		if (pluginBridge) {
-			const hostPluginId = pluginBridge.instanceForGuest(guest);
-			if (hostPluginId) {
-				pluginBridge.attachGuest(hostPluginId, guest);
-				return;
-			}
-		}
-		if (guest.session !== browserPanelSession) {
-			void appLogger.warn("browser", "Closed webview with unexpected session");
-			guest.close();
-			return;
-		}
-
-		// 浏览器 Agent 需要留住 guest 引用（快照/点击/截图）；
-		// 抽屉收起/全屏切换会销毁重建 guest，registry 允许重复登记并在 destroyed 时清理。
-		browserAgentService?.attachGuest(guest);
-
-		const blockUnsafeNavigation = (event: { url: string; preventDefault(): void }, phase: string) => {
-			if (isAllowedBrowserPanelUrl(event.url)) return;
-			event.preventDefault();
-			void appLogger.warn("browser", "Blocked unsafe webview navigation", {
-				phase,
-				url: event.url,
-			});
-		};
-
-		guest.on("will-frame-navigate", (event) => blockUnsafeNavigation(event, "navigate"));
-		guest.on("will-redirect", (event) => blockUnsafeNavigation(event, "redirect"));
-		guest.setWindowOpenHandler(({ url }) => {
-			if (url !== "about:blank" && isAllowedBrowserPanelUrl(url)) {
-				void openExternalUrl(url);
-			} else if (!isAllowedBrowserPanelUrl(url)) {
-				void appLogger.warn("browser", "Blocked unsafe webview window open", { url });
-			}
-			return { action: "deny" };
-		});
-
-		// webview guest 是独立 webContents，按键到不了主窗口的 before-input-event；
-		// 转发全局快捷键到主窗口：窗口缩放、DevTools 开关、打开设置（唤起窗口并广播），
-		// 键位按用户配置匹配（见 appShortcuts.ts / shared/shortcuts.ts）。
-		guest.on("before-input-event", (event, input) => {
-			if (isShortcutInput("openSettings", input)) {
-				event.preventDefault();
-				if (!window || window.isDestroyed()) return;
-				if (!window.isVisible()) window.show();
-				window.webContents.send(ipcChannels.appOpenSettings);
-				return;
-			}
-			// 窗口缩放：命中后直接改主窗口 zoomFactor 并持久化；仅回推新比例同步设置态
-			if (handleWindowZoomShortcut(input)) {
-				event.preventDefault();
-				return;
-			}
-			// Ctrl(+Shift)+Tab 在网页内无既有含义（浏览器里它就是切宿主 tab），
-			// 内置浏览器里同样切 PiDeck 会话标签页。
-			if (isShortcutInput("cycleSessionTabs", input)) {
-				event.preventDefault();
-				if (!window || window.isDestroyed()) return;
-				window.webContents.send(ipcChannels.appShortcutTriggered, "cycleSessionTabs");
-				return;
-			}
-			if (isShortcutInput("cycleSessionTabsReverse", input)) {
-				event.preventDefault();
-				if (!window || window.isDestroyed()) return;
-				window.webContents.send(ipcChannels.appShortcutTriggered, "cycleSessionTabsReverse");
-				return;
-			}
-			// Cmd/Ctrl+W 关闭当前会话标签页：目标会话与「回答中先弹确认」由渲染层判定，主进程只命中广播。
-			if (isShortcutInput("closeSessionTab", input)) {
-				event.preventDefault();
-				if (!window || window.isDestroyed()) return;
-				window.webContents.send(ipcChannels.appShortcutTriggered, "closeSessionTab");
-				return;
-			}
-			if (!isShortcutInput("toggleDevTools", input)) return;
-			event.preventDefault();
-			toggleMainWindowDevTools(window);
-		});
-	});
-}
-
-async function createWindow() {
-	applyNativeThemeSource(settingsStore.get());
-	const windowOptions = settingsStore.createWindowOptions();
-	// 窗口首帧图标必须在这里定：启动阶段的 applyWindowLogoStyle 早于建窗执行（那时 mainWindow 还是 null），
-	// 只靠那一处会永远落回 build/icon.png —— 冷启动时任务栏/Alt-Tab 图标跟不住 logoStyle。
-	const initialWindowLogo = resolveLogoImage(settingsStore.get().logoStyle, settingsStore.get().logoCustomImage);
-	const showMainWindowImmediately = shouldShowMainWindowImmediately();
-	const sourcePreloadPath = join(__dirname, "../preload/index.js");
-	const mainPreloadPath = await prepareMainPreloadPath();
-	void appLogger.info("app", "Main window preload configured", {
-		sourcePreloadPath,
-		preloadPath: mainPreloadPath,
-		sourceExists: existsSync(sourcePreloadPath),
-		exists: existsSync(mainPreloadPath),
-		appPath: app.getAppPath(),
-		userDataPath: app.getPath("userData"),
-		packaged: app.isPackaged,
-		isDev: is.dev,
-		electronRendererUrl: process.env.ELECTRON_RENDERER_URL ? "set" : "unset",
-	});
-
-	// 根据用户的主题设置选择窗口背景色，避免系统标题栏与暗色主题间出现浅色条带。
-	// 色值与 foundation.css 的 light/dark 基底保持一致（暖白 / 暖黑）。
-	const windowThemeSettings = settingsStore.get();
-	const isDark =
-		resolveAppColorScheme({
-			theme: windowThemeSettings.theme,
-			themeScheduleLightStart: windowThemeSettings.themeScheduleLightStart,
-			themeScheduleDarkStart: windowThemeSettings.themeScheduleDarkStart,
-			systemPrefersDark: nativeTheme.shouldUseDarkColors,
-		}) === "dark";
-	const backgroundColor = isDark ? "#121212" : "#f8f8f5";
-
-	// 按外观设置的启动预设调整初始尺寸；隐藏态先 maximize/fullscreen，减少首帧跳动。
-	// startupWindowMode="last"：读上次关闭时的窗口几何（位置/尺寸/是否最大化）；
-	// 读不到（首次启动/记录损坏）顺延默认 maximized。上次是最大化时先按记录的 normal 几何
-	// 建窗再 maximize，还原后回到原位置。
-	const requestedMode = settingsStore.get().startupWindowMode ?? "last";
-	let effectiveStartupMode = requestedMode;
-	let startupBounds: LastWindowBounds;
-	if (requestedMode === "last") {
-		const last = readLastWindowBounds(app.getPath("userData"));
-		if (last) {
-			startupBounds = last;
-			// 全屏优先于最大化：两条记录同时存在时（全屏必然也是最大化）要回到全屏。
-			if (last.fullscreen) effectiveStartupMode = "fullscreen";
-			else if (last.maximized) effectiveStartupMode = "maximized";
-		} else {
-			effectiveStartupMode = "maximized";
-			startupBounds = resolveStartupWindowBounds("maximized");
-		}
-	} else {
-		startupBounds = resolveStartupWindowBounds(requestedMode);
-	}
-
-	// 有记录位置时以该位置所在显示器为恢复目标（多屏下回到原来那块屏）；无位置（预设模式 /
-	// 旧版只存宽高的记录）以主显示器为确定目标并居中。纯逻辑负责裁尺寸、钳位置。
-	const targetDisplay = typeof startupBounds.x === "number" && typeof startupBounds.y === "number" ? screen.getDisplayMatching({ x: startupBounds.x, y: startupBounds.y, width: startupBounds.width, height: startupBounds.height }) : screen.getPrimaryDisplay();
-	const startupWindowBounds = constrainWindowBoundsToWorkArea(startupBounds, targetDisplay.workArea);
-
-	mainWindow = new BrowserWindow({
-		show: showMainWindowImmediately,
-		backgroundColor,
-		x: startupWindowBounds.x,
-		y: startupWindowBounds.y,
-		width: startupWindowBounds.width,
-		height: startupWindowBounds.height,
-		minWidth: MIN_WINDOW_WIDTH,
-		minHeight: MIN_WINDOW_HEIGHT,
-		// 多 worktree 并行 dev：标题带分支名，任务栏/Alt-Tab 一眼区分窗口；
-		// 显示名称走 composeAppTitle 与渲染层 document.title 同源（后者会覆盖此处的初值）
-		title: composeAppTitle(settingsStore.get().appDisplayName, isolateDevByGitBranch && !isSharedDevBranch(devGitBranch) ? devGitBranch : undefined),
-		icon: initialWindowLogo?.image ?? iconPath,
-		frame: windowOptions.frame,
-		titleBarStyle: windowOptions.titleBarStyle,
-		...(windowOptions.trafficLightPosition ? { trafficLightPosition: windowOptions.trafficLightPosition } : {}),
-		webPreferences: {
-			preload: mainPreloadPath,
-			sandbox: false,
-			contextIsolation: true,
-			nodeIntegration: false,
-			webviewTag: true,
-			// E2E 窗口在屏幕外/无系统焦点时也必须持续渲染：否则定时器与合成被动节流，用例会随机超时。
-			...(isE2E ? { backgroundThrottling: false } : {}),
-			// 渲染进程 V8 堆上限：必须覆盖 Chromium 透传的全局 `--js-flags`（#213）
-			additionalArguments: rendererHeapAdditionalArguments(),
-		},
-	});
-	const createdWindow = mainWindow;
-	// Windows 建窗时可能裁掉工作区外的不可见 resize border；构造参数不足以精确还原贴边外框。
-	// 显示/最大化前显式设置已解析的几何，避免重启后高度再次被原生建窗流程缩短。
-	createdWindow.setBounds(startupWindowBounds);
-	// E2E：挪到屏幕外再显示（默认），避免每个用例的新窗口弹到用户桌面最前；失败保持原摆放。
-	applyE2EWindowPlacement(createdWindow, e2eWindowPlacement);
-	configureBrowserPanelWebviewHost(createdWindow);
-	let hasShownMainWindow = false;
-	function showMainWindowOnce() {
-		if (createdWindow.isDestroyed() || hasShownMainWindow) return;
-		hasShownMainWindow = true;
-		if (isE2E) {
-			// E2E 静默：showInactive 显示但不激活，不抢用户焦点
-			createdWindow.showInactive();
-		} else {
-			createdWindow.show();
-			createdWindow.focus();
-		}
-		// 冷启动里程碑（2/2）：首窗可见（ready-to-show / did-finish-load / 3s 兜底三路共用此口）。
-		void appLogger?.info("app", "Cold start milestone: first window shown", {
-			sinceModuleLoadMs: Date.now() - bootAnchorMs,
-			processUptimeMs: Math.round(process.uptime() * 1000),
-		});
-		// 向开发者工具输出启动信息
-		printStartupInfo();
-	}
-
-	// 窗口保持隐藏时先按启动预设调整（maximize/fullscreen），再加载页面；
-	// 避免 ready-to-show 后再调整造成首帧布局跳变。
-	applyStartupWindowMode(mainWindow, effectiveStartupMode, showMainWindowImmediately);
-	// 记住本窗口的呈现态：唤起（托盘/通知/宠物）时由 revealMainWindow 重新施加。
-	mainWindowVisualIntent = effectiveStartupMode === "fullscreen" ? "fullscreen" : effectiveStartupMode === "maximized" ? "maximized" : "normal";
-	trackMainWindowVisualIntent(createdWindow);
-
-	// 所有 target="_blank" 或 window.open 的链接统一经同一入口处理，遵守用户设置的打开方式。
-	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-		void openExternalUrl(url);
-		return { action: "deny" };
-	});
-	mainWindow.webContents.on("did-start-loading", () => {
-		void appLogger.info("app", "Main window load started", {
-			url: mainWindow?.webContents.getURL(),
-		});
-	});
-	// 聚焦补热 standby：见 rearmStandbyAgentOnFocus 注释（节流 + ensure 幂等，热路径无感）。
-	mainWindow.on("focus", () => rearmStandbyAgentOnFocus());
-	mainWindow.webContents.on("did-finish-load", () => {
-		void appLogger.info("app", "Main window load finished", {
-			url: mainWindow?.webContents.getURL(),
-		});
-		// 恢复用户设置的窗口缩放；在 did-finish-load 后应用，避免早期设置被覆盖。
-		mainWindow?.webContents.setZoomFactor(settingsStore.get().zoomFactor);
-		// 系统级划词快捷键在建窗前注册失败（常见于另一个 PiDeck 实例占用）时重试并补发提示；
-		// renderer 若尚未订阅 toast，后续 focus 会再兜底一次（通知去重）。
-		syncSelectionToolShortcut();
-		flushSelectionShortcutConflictNotice();
-		// 加载期排队的通知跳转目标补发一次（renderer 挂载后还会主动拉取，幂等兜底）
-		flushPendingFocusTargetOnLoad();
-		// —— 数据环境通知（规格 §6：首帧后与渲染层对齐目录归属）——
-		// dev 打包首启未决策 → 请渲染层弹数据模式选择（本会话临时落共用目录运行）；
-		// 未打包 dev 恒走开发隔离目录，不弹。
-		if (updateChannel === "dev" && app.isPackaged && devDataMode === null) {
-			mainWindow?.webContents.send(ipcChannels.dataEnvDecisionRequired);
-		}
-		// 目录标记与通道匹配校验（存量无标记 → ok 不打扰）：stable 包落在 channel-dev 目录才 mismatch。
-		const markerInDataDir = readDataEnvDecision(app.getPath("userData"));
-		if (markerInDataDir && validateStartupDataEnv(updateChannel, markerInDataDir) === "mismatch") {
-			mainWindow?.webContents.send(ipcChannels.dataEnvMismatchDetected, { dataModeInDir: markerInDataDir.dataMode });
-		}
-		// 共用目录存量标记补写（向后兼容：无标记视为 shared，首启补一次，之后只在缺失时写）。
-		if (updateChannel === "stable" && markerInDataDir === null) {
-			writeDataEnvDecision(app.getPath("userData"), "shared", app.getVersion());
-		}
-	});
-	mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-		void appLogger.error("app", "Main window load failed", {
-			errorCode,
-			errorDescription,
-			validatedURL,
-			isMainFrame,
-		});
-	});
-	mainWindow.webContents.on("render-process-gone", (_event, details) => {
-		const level: AppLogLevel = details.reason === "clean-exit" ? "info" : "error";
-		void appLogger.log(level, "app", "Main window renderer process gone", {
-			...details,
-			platform: process.platform,
-			arch: process.arch,
-		});
-		// 黑屏治理：非正常崩溃自动 reload 恢复；clean-exit（正常退出）、用户主动退出
-		// 与崩溃风暴（窗口期内超限）不恢复。reload 前检查窗口/webContents 仍存活。
-		if (isQuitting || !rendererCrashGuard.shouldAutoReload(details.reason)) return;
-		void appLogger.warn("app", "Auto-reloading main window after renderer crash", {
-			reason: details.reason,
-			exitCode: details.exitCode,
-			recoveriesInWindow: rendererCrashGuard.recoveriesInWindow(),
-		});
-		if (mainWindow && !mainWindow.isDestroyed()) {
-			try {
-				mainWindow.webContents.reload();
-			} catch (error) {
-				// reload 抛异常（webContents 已销毁等竞态）：记日志，留给用户手动处理
-				void appLogger.error("app", "Auto-reload failed", error);
-			}
-		}
-	});
-	// 子进程（含 GPU/utility）异常退出监听已提到模块级 app.on（见 before-quit 附近）：
-	// 注册在 createWindow 内会随窗口重建（macOS activate）重复叠监听器。
-	mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
-		void appLogger.error("app", "Main window preload failed", {
-			preloadPath,
-			message: error.message,
-			stack: error.stack,
-		});
-	});
-	mainWindow.webContents.on("dom-ready", () => {
-		void mainWindow?.webContents
-			.executeJavaScript("Boolean(window.piDesktop)", true)
-			.then((hasPiDesktop) => {
-				void appLogger.info("app", "Main window preload API availability", {
-					hasPiDesktop,
-					url: mainWindow?.webContents.getURL(),
-				});
-			})
-			.catch((error) => {
-				void appLogger.warn("app", "Main window preload API check failed", error);
-			});
-	});
-	// 渲染层 console 噪音聚合（issue #376）：良性事件（ResizeObserver loop）由 renderer 自己的
-	// 全局处理器统一落盘，这里直接跳过——否则同一事件两条管道各写一遍。非良性首条即时写盘，
-	// 窗口内重复折叠成一条降档汇总（循环报错不再把「最近 7 天报错」统计灌满）。
-	const rendererConsoleNoise = new RendererNoiseAggregator();
-	mainWindow.webContents.on("console-message", (event) => {
-		if (!["warning", "error"].includes(event.level)) return;
-		// 良性噪音：renderer 的 window.onerror 已按同一聚合器写一条 ×N 的 info，此处不重复落盘。
-		if (classifyRendererNoise(event.message).benign) return;
-		// 渲染层 console 镜像只作排查线索，不参与健康统计：这里聚集的是第三方/框架的原始输出
-		// （KaTeX strict 警告、React 开发期提示等，实测 40k+ 行/天），按 error/warn 记会让
-		// EnvironmentDoctor 的「最近 7 天报错 / 警告明细」被噪音填满。降一档：error → warn、
-		// warning → info（仍按天写进日志文件，可检索）。真正的渲染层故障由 main.tsx 的
-		// rendererLog 显式上报（uncaught error / unhandled rejection），那条链路仍是 error。
-		const level: AppLogLevel = event.level === "error" ? "warn" : "info";
-		const detail = { level: event.level, message: event.message, line: event.lineNumber, sourceId: event.sourceId };
-		for (const flush of rendererConsoleNoise.record(`console|${event.level}|${event.message.slice(0, 120)}`, level, "Main window renderer console error", { detail })) {
-			const log = toRendererNoiseLog(flush);
-			void appLogger.log(log.level, "app", log.message, log.detail);
-		}
-	});
-
-	mainWindow.once("ready-to-show", showMainWindowOnce);
-	mainWindow.webContents.once("did-finish-load", showMainWindowOnce);
-	setTimeout(showMainWindowOnce, 3000);
-	if (showMainWindowImmediately) {
-		showMainWindowOnce();
-	}
-
-	// 窗口大小记忆：关闭/退出前保存 normal bounds（最大化/全屏时取恢复后的尺寸），
-	// 供下次 startupWindowMode="last" 启动使用；隐藏到托盘不记录（窗口未关闭）。
-	// 注意：mainWindow 为模块级可空变量，此处用创建后的局部引用确保非空
-	const windowForState = createdWindow;
-	windowForState.on("close", () => quickTaskChrome.saveWorkbenchBoundsOnClose(windowForState));
-	// 聚合器无定时器：窗口销毁时补齐尾部计数（「刷了一路却一条没写」会丢诊断）
-	windowForState.on("closed", () => {
-		for (const flush of rendererConsoleNoise.flushAll()) {
-			const log = toRendererNoiseLog(flush);
-			void appLogger.log(log.level, "app", log.message, log.detail);
-		}
-	});
-
-	// 关闭窗口时根据设置决定：隐藏到托盘还是正常退出
-	mainWindow.on("close", (event) => {
-		if (!isQuitting && quickTaskChrome.interceptClose(event)) return;
-		if (!isQuitting && settingsStore.get().floatingBallEnabled) {
-			// 悬浮球开启时，关闭主窗口 = 隐藏到悬浮球（不退出）
-			event.preventDefault();
-			mainWindow?.hide();
-			void floatingController?.show();
-		} else if (!isQuitting && settingsStore.get().closeToTray) {
-			event.preventDefault();
-			mainWindow?.hide();
-		} else if (!isQuitting) {
-			// 如果没有启用托盘，关闭窗口时直接退出应用
-			isQuitting = true;
-			app.quit();
-		}
-	});
-
-	// 监听全局快捷键（打开设置 / 开发者工具 / 新建会话 / 搜索会话，键位见 shared/shortcuts.ts，
-	// 可设置页自定义）；devTools 组合键的 macOS 变体与开关逻辑集中在 devTools.ts，
-	// 主窗口/webview/设置 IPC 共用。新建/搜索是渲染层 UI 动作（引导页/命令面板），
-	// 这里只做命中与广播，由渲染层按焦点状态决定是否执行（输入框聚焦时忽略）。
-	mainWindow.webContents.on("before-input-event", (event, input) => {
-		if (!mainWindow || mainWindow.isDestroyed()) return;
-		if (isShortcutInput("openSettings", input)) {
-			event.preventDefault();
-			// 快捷键可能命中在窗口隐藏（托盘）期间：先唤起窗口，再让渲染层打开设置页
-			if (!mainWindow.isVisible()) mainWindow.show();
-			mainWindow.webContents.send(ipcChannels.appOpenSettings);
-			return;
-		}
-		// 窗口缩放：主进程直接改 zoomFactor 并持久化，只回推新比例同步设置态
-		if (handleWindowZoomShortcut(input)) {
-			event.preventDefault();
-			return;
-		}
-		if (isShortcutInput("openNewSession", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "openNewSession");
-			return;
-		}
-		if (isShortcutInput("openSearch", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "openSearch");
-			return;
-		}
-		// 会话内查找：与 openSearch（跨会话）分开，默认 Ctrl/Cmd+Shift+F；由聚焦的会话栏
-		// 自己响应（分屏时只作用于用户正在看的那一栏），主进程不持有会话上下文。
-		if (isShortcutInput("findInSession", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "findInSession");
-			return;
-		}
-		if (isShortcutInput("openCommandPalette", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "openCommandPalette");
-			return;
-		}
-		// 模型/思考强度循环：目标是「当前聚焦会话」，由渲染层按聚焦栏定位会话并复用
-		// 模型选择器的应用链路（main 不持有会话上下文，也不复刻 pi 的 scoped models）。
-		if (isShortcutInput("cycleModel", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "cycleModel");
-			return;
-		}
-		if (isShortcutInput("cycleThinking", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "cycleThinking");
-			return;
-		}
-		// 快捷消息浮层：目标是「当前聚焦会话」的输入框底栏，主进程只负责转发广播，
-		// 由渲染层按聚焦栏定位会话并唤出浮层（main 不持有会话上下文，见 renderer 的
-		// useQuickMessagePopover / ownsQuickMessageShortcut）。
-		// 注意本项不受「输入框聚焦时不触发」约束：它的用途就是打字途中插口令。
-		if (isShortcutInput("openQuickMessages", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "openQuickMessages");
-			return;
-		}
-		// 语音输入开关：与快捷消息同理，输入框聚焦时仍然生效——录音恰恰发生在打字现场。
-		if (isShortcutInput("toggleVoiceRecording", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "toggleVoiceRecording");
-			return;
-		}
-		// Ctrl(+Shift)+Tab 循环切换会话标签页：Tab 顺序在渲染层 atoms，主进程只命中广播。
-		// 输入框聚焦时仍生效（浏览器同款惯例，Ctrl+Tab 无文本编辑含义）。
-		if (isShortcutInput("cycleSessionTabs", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "cycleSessionTabs");
-			return;
-		}
-		if (isShortcutInput("cycleSessionTabsReverse", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "cycleSessionTabsReverse");
-			return;
-		}
-		// Cmd/Ctrl+W 关闭当前会话标签页：与 Ctrl+Tab 同链路；「回答中先弹确认、确认后停止并关闭」
-		// 由渲染层判定（main 不持有会话上下文）。
-		if (isShortcutInput("closeSessionTab", input)) {
-			event.preventDefault();
-			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "closeSessionTab");
-			return;
-		}
-		if (isShortcutInput("toggleDevTools", input)) {
-			event.preventDefault();
-			toggleMainWindowDevTools(mainWindow);
-		}
-	});
-
-	const devRendererUrl = shouldUseDevRendererUrl() ? process.env.ELECTRON_RENDERER_URL : undefined;
-	if (devRendererUrl) {
-		// Vite 预构建 chunk 是 immutable 强缓存，重新预构建后同一 URL 内容会变但缓存键不变，
-		// 渲染层会拿到旧模块去 import 已被删除的 chunk（504）→ 动态 import 失败；dev 加载前先清一次。
-		await clearDevRendererCache({
-			session: session.defaultSession,
-			keepHttpCacheFlag: process.env[KEEP_DEV_HTTP_CACHE_ENV],
-			onLog: (outcome, detail) => void appLogger.info("app", `dev renderer http cache ${outcome}`, detail),
-		});
-		mainWindow.loadURL(devRendererUrl);
-	} else {
-		mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
-	}
+/** 薄包装：调用点（首启 / 版本激活 / 通道切换）不变，实现见 window/mainWindow.ts。 */
+async function createWindow(): Promise<void> {
+	await createMainWindow(mainWindowDeps);
 }
 
 function shouldUseDevRendererUrl() {
@@ -3527,37 +2907,14 @@ function resolveBuiltInExtensionRoots(): BuiltInExtensionPathRoots {
 }
 
 /**
- * 一次补全侧车（pi-enhance-host）实例的公共装配：提示词增强 / 智能体调用 / 输入预测各自
- * 一个独立进程（EnhancePromptService 的单飞语义是「新 run 打断旧 run」，共用实例会互相打断）。
- * resolveLaunch 现求值：用户改自定义 pi 路径后下次调用即生效，无需重启。
+ * 一次补全侧车实例的公共装配已外移到 startup/completionHelperService.ts（巨文件归零增长）；
+ * getter 保持「调用时才读当前值」，与原先函数内的现求值语义一致。
  */
-function createCompletionHelperService(namespace: "enhance" | "agent-invoke" | "suggest" | "agent-memory"): EnhancePromptService {
-	const log = (level: "debug" | "info" | "warn" | "error", message: string) => void appLogger?.[level](namespace, message);
-	return new EnhancePromptService({
-		// 侧车是常驻单进程，env 在 spawn 时固定，所以代理只能在这里落地：
-		// 把本次要用的模型交给启动参数解析，按与 pi 会话同一套名单语义决定要不要走代理；
-		// 换模型或改代理设置后启动指纹变化，服务会重建进程而不是沿用旧出口。
-		resolveLaunch: (run) => {
-			const settings = settingsStore.get();
-			return resolvePiAuthHostLaunch({
-				settings,
-				proxyModel: run,
-				locator: piLocator as PiLocator,
-				userDataPath: app.getPath("userData"),
-				appPath: app.getAppPath(),
-				resourcesPath: process.resourcesPath,
-				isPackaged: app.isPackaged,
-				helperFilename: PI_ENHANCE_HOST_FILENAME,
-			});
-		},
-		logger: {
-			debug: (message) => log("debug", message),
-			info: (message) => log("info", message),
-			warn: (message) => log("warn", message),
-			error: (message) => log("error", message),
-		},
-	});
-}
+const createCompletionHelperService = createCompletionHelperServiceFactory({
+	getAppLogger: () => appLogger,
+	getSettingsStore: () => settingsStore,
+	getPiLocator: () => piLocator,
+});
 
 /** 读 pi settings.json 的 skills / prompts / extensions 条目；读不出来返回 null（投影降级为无规则）。 */
 async function readNativeEntries(key: "skills" | "prompts" | "extensions"): Promise<string[] | null> {
@@ -3639,1429 +2996,216 @@ function registerIpc() {
 	// 远端能力与更新通道正交：正式包和 dev 包都装配；同一策略位由
 	// update:get-channel 的 remoteAvailable 下发给渲染层，避免主/渲染判据漂移。
 	// 各远端 IPC 仍保留 enabled=false 的 fail-closed 分支，供测试和后续下线策略使用。
-	const remoteFeatureEnabled = REMOTE_FEATURE_AVAILABLE;
-	let remoteHostService: import("./remote/RemoteHostConnectionService").RemoteHostConnectionService | undefined;
-	/**
-	 * 已解析的 OpenSSH 客户端（SSH 路由校验与每个 ssh/scp 子进程共用同一份）。
-	 *
-	 * 懒且单实例：`ssh -G` 形状自检把「我们用的是哪个客户端」当成整条连接的信锚，
-	 * 两处各自发现一次就有可能与实际启动的进程不是同一个客户端。失败不缓存（用户可能刚装好客户端）。
-	 */
-	let remoteSshClientPending: Promise<SshClientRuntime> | undefined;
-	const remoteSshClientIfEnabled = (): Promise<SshClientRuntime> => {
-		remoteSshClientPending ??= process.platform === "win32" ? Promise.resolve(createSshClientRuntime()) : resolvePosixSshClient();
-		remoteSshClientPending.catch(() => {
-			remoteSshClientPending = undefined;
-		});
-		return remoteSshClientPending;
-	};
-	/** Discover the verified client once; failed construction can be retried. */
-	let remoteHostServicePending: Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
-	const remoteHostServiceIfEnabled = (): Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined => {
-		if (!remoteFeatureEnabled) return undefined;
-		remoteHostServicePending ??= (async () => {
-			// Windows resolves its client internally; elsewhere the client must be discovered and proven
-			// capable before we let it answer route checks. Failing here is a stable code, not a crash.
-			const client = await remoteSshClientIfEnabled();
-			// The service resolves the host's own node itself (login shell), so no nodePath is pinned here.
-			const service = createRemoteHostConnectionService({
-				userDataDir: app.getPath("userData"),
-				client,
-				rootPooling: ROOT_POOL_DEFAULT_POLICY,
-				// 内置扩展快照的来源：与本地 `-e` 注入同一份「当前生效」字节（覆盖层优先，整份校验）。
-				builtInExtensionRoots: resolveBuiltInExtensionRoots(),
-				onDisconnect: (hostId) => {
-					remoteTerminalManager?.closeHost(hostId);
-					// helper 的 watcher 已随会话一起死：丢掉登记，不把旧 watchId 当有效。
-					remoteProjectFacts?.onHostDisconnected(hostId);
-				},
-				// Push every transition to the window: `connect()` only returns the state it reached, so
-				// anything afterwards (degradation, reconnect, the shutdown after ready) is invisible without
-				// this, and the UI ends up showing a stale state.
-				onStateChange: ({ hostId, state }) => {
-					if (!mainWindow || mainWindow.isDestroyed()) return;
-					mainWindow.webContents.send(ipcChannels.remoteHostStateChanged, { hostId, state: state.state });
-				},
-				// helper 1.24.0 的变更事件：只标脏事实，不触发装载（重读仍由读的人决定）。
-				onHelperEvent: (entry) => remoteProjectFacts?.onHelperEvent(entry),
-				// root 会话退休（TTL/LRU/latched/显式）与主机断开是两件事：只清这个 root 的登记，不关终端。
-				onRootRetired: (entry) => remoteProjectFacts?.onRootRetired(entry),
-			});
-			remoteHostService = service;
-			quitCleanup.register("remote-host", () => remoteHostService?.dispose());
-			return service;
-		})();
-		// A failed build must not be cached forever: let the next attempt re-probe (the user may have just
-		// installed a client). The pending promise is dropped on failure only.
-		remoteHostServicePending.catch(() => {
-			remoteHostServicePending = undefined;
-		});
-		return remoteHostServicePending;
-	};
-	// AgentManager 比 registerIpc 更早装配（它在下面的 whenReady 里构造），拿到的远端运行时端口只能
-	// 按需回调这个解析器：门禁表达式与连接服务单例都只允许有一份（见 remoteRuntimePort 的注释）。
-	// 未登记（本函数还没跑到）/门禁关闭时，端口一律 REMOTE_FEATURE_DISABLED，绝不回退本机。
-	remoteHostServiceResolver = remoteHostServiceIfEnabled;
-	// 远端项目 trust 决策表（P4.4b）：持久化段指向 SettingsStore（随配置备份），主机事实指向已确认 pin 的
-	// 只读目录入口（不新增 SSH 通道、不复制路径归一化）。装配处只此一份：远端运行时端口与 trust 域共用它。
-	const remoteProjectTrust = createRemoteProjectTrustService({
-		settings: {
-			read: () => settingsStore.get().remoteProjectTrust,
-			// 专用写入入口：决策不得经通用 `settings:update` 通道（那会让渲染层构造的记录替换整张表）。
-			write: (records) => settingsStore.replaceRemoteProjectTrust(records),
-		},
-		hostFacts: createRemoteProjectTrustHostFacts({ userDataDir: app.getPath("userData") }),
-	});
-	// 远端会话的 trust 解析发生在 AgentManager 的端口里（它比本函数先构造），所以实例挂在模块级变量上：
-	// 那里的 `resolveTrust` 闭包在**真正 spawn 时**才求值，不会拿到一个当时还不存在的对象。
-	remoteProjectTrustService = remoteProjectTrust;
-	const remoteHostIpc = registerRemoteHostIpc({
-		enabled: remoteFeatureEnabled,
-		userDataDir: app.getPath("userData"),
-		// 主机退役时同时清掉它的 trust 决策（与 pin 清理同一位置、同一重试语义）。
-		list: () => openRemoteHostCatalogView(app.getPath("userData"), { onHostRetired: (hostId) => remoteProjectTrustService?.forgetHost(hostId) ?? Promise.resolve() }),
-		service: remoteHostServiceIfEnabled,
-		// 移除连接与列表共用同一组退役清理：pin 删除后 trust 决策也要跟着清。
-		onHostRetired: (hostId) => remoteProjectTrustService?.forgetHost(hostId) ?? Promise.resolve(),
-		// The add-host flow holds a pin store across two IPC calls (offer, then the user's answer), so its
-		// lifetime is the process, not a call. Registering disposal here keeps the broker's timers from
-		// outliving the app.
-		registerCleanup: (cleanup) => quitCleanup.register("remote-host-stores", cleanup),
-	});
-	// 重新绑定（rebind）：与 remoteHostIpc 共用同一对 store/pin 实例；通道没有消费者之前不建。
-	remoteHostRebindIpc = registerRemoteHostRebindIpc({
-		enabled: remoteFeatureEnabled,
-		userDataDir: app.getPath("userData"),
-		openStores: remoteHostIpc.openStores,
-		projectStore: () => projectStore,
-		sessionCatalog: () => sessionCatalog,
-		// §5.5：执行前断开来源；失败直接上报（此时 tx 还没写任何东西）。
-		disconnect: async (hostId) => {
-			const service = await remoteHostServiceIfEnabled();
-			await service?.disconnect(hostId, "shutdown");
-		},
-		registerCleanup: (cleanup) => quitCleanup.register("remote-host-rebind", cleanup),
-	});
-	// 远端项目域（登记/回答/列表/读取/搜索）与 hosts 域分开注册：同一个连接服务端口，不同域的 handler。
-	// 远端 trust 域（决策表的清单/写入/撤销）同样分开：它不动 SSH，只读写桌面配置 + 已确认的 pin 事实。
-	// WSL 连接档案：只读写本机清单；移除前扫描项目/会话的 wslHostId 引用（字段在第 11/12 步接入）。
-	registerWslHostIpc({
-		userDataDir: app.getPath("userData"),
-		references: createWslHostReferenceRegistry({
-			projectsFile: join(app.getPath("userData"), "projects.json"),
-			sessionCatalogFile: join(app.getPath("userData"), "session-catalog.json"),
-		}),
-		// 档案被改名/换 distro/移除后，资源池里对应实例必须失效；闭包在 registerIpc 执行时取值，
-		// 池在稍后构造（晚绑定），调用发生在用户操作档案时，因此一定能拿到实例。
-		onProfileChanged: () => piResourcePool?.invalidate(),
-	});
-	/**
-	 * 目录事实层的失效入口（W3）：项目域注册时才创建，文本保存的注册在它之前，因此用晚绑定转发。
-	 * 只标脏、不装载——一次保存不会额外产生任何远端往返。
-	 */
-	let remoteProjectFacts:
-		| {
-				afterWrite(projectId: string, paths: readonly string[]): void;
-				onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[]; sessionKey: string }): void;
-				onHostDisconnected(hostId: string): void;
-				onRootRetired(entry: { hostId: string; root: string; sessionKey: string }): void;
-		  }
-		| undefined;
-	/** 目录与 Git 共用的事实变化通知出口（T4）：订阅按 sender + project，事件只标脏。 */
-	const remoteFactsEvents = createRemoteFactsHub(ipcChannels.remoteProjectFactsChanged);
-	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
-	const resolveRemoteSftpBinary = (): Promise<RemoteSftpBinaryIdentity | undefined> => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }));
-	const remoteSftpCapabilityCache = createRemoteSftpCapabilityCache<RemoteSftpProbe>();
-	const remoteSftpCapabilityProbe = createRemoteSftpCapabilityProbe();
-	const remoteSftpDirectoryReader = createRemoteSftpDirectoryReader({
-		binary: resolveRemoteSftpBinary,
-		cache: remoteSftpCapabilityCache,
-		probe: remoteSftpCapabilityProbe,
-	});
-	registerRemoteProjectTrustIpc({ enabled: remoteFeatureEnabled, trust: () => remoteProjectTrustService });
-	const remoteProjectIpc = registerRemoteProjectIpc({
-		enabled: remoteFeatureEnabled,
-		userDataDir: app.getPath("userData"),
-		service: remoteHostServiceIfEnabled,
-		factsEvents: remoteFactsEvents,
-		directoryReader: remoteSftpDirectoryReader,
-		// 远端项目登记端口（Phase 3 第二段）：canonical 值已由 IPC 层校验/确认，这里只做持久化
-		// 与按 projectId 取 locator。只暴露 ssh 项目，本机项目不经过这条入口。
-		projects: {
-			enroll: async ({ hostId, canonicalRemotePath }) => {
-				const project = await projectStore.addRemote({ hostId, canonicalRemotePath });
-				return { projectId: project.id };
-			},
-			locator: (projectId) => {
-				const project = projectStore.get(projectId);
-				return project && isRemoteProject(project) ? project.locator : undefined;
-			},
-		},
-	});
-	remoteProjectFacts = remoteProjectIpc;
-	quitCleanup.register("remote-project-ipc", () => remoteProjectIpc.dispose());
-	const remoteGitReads = registerRemoteGitReadIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		factsEvents: remoteFactsEvents,
-		// T4：目录与 Git 状态共用同一份工作区事实 owner（缓存实例、generation、失效矩阵都只一份）。
-		// Git 写成功/结果未知 → owner 把该仓库 status 与整树一起标脏，只发一条通知。
-		workspace: {
-			facts: remoteProjectIpc.gitStatusFacts,
-			afterGitWrite: remoteProjectIpc.afterGitWrite,
-			invalidateStatuses: remoteProjectIpc.invalidateStatuses,
-		},
-		trusted: async (target) => (await remoteProjectTrustService?.trustOverride({ hostId: target.hostId, remoteRoot: target.remotePath })) === "approve",
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-	});
-	quitCleanup.register("remote-git-reads", remoteGitReads.dispose);
-	// T6 收尾：目录页的 Git ignore 修饰接在 Git IPC 之后（仓库归因与能力门控都在那边）。
-	remoteProjectIpc.setIgnoreProbe((projectId, paths) => remoteGitReads.probeIgnore(projectId, paths));
-	const remoteProjectTextPort = registerRemoteProjectFileIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-		// T4：一次文件写只走一份 owner 的失效矩阵（目录矩阵 + 全部已缓存仓库 status，一条通知）。
-		afterWrite: (projectId, paths) => {
-			remoteProjectFacts?.afterWrite(projectId, paths);
-		},
-	});
-	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-		binary: resolveRemoteSftpBinary,
-		cache: remoteSftpCapabilityCache,
-		probe: remoteSftpCapabilityProbe,
-		// T4：上传下载完成/结果未知同样走单一 owner（目录 + Git status 一次标脏）。
-		afterWrite: (projectId, paths) => {
-			remoteProjectFacts?.afterWrite(projectId, paths);
-		},
-		afterUnknown: (projectId) => {
-			remoteProjectIpc.invalidateTree(projectId);
-		},
-	});
-	quitCleanup.register("remote-project-transfer-jobs", remoteProjectTransfers.dispose);
-	// 文件管理（Phase 5 文件面）：8 条 new/rename/delete/trash 通道 + 独立 entry 令牌表 + sender 写单飞。
-	// 与文本保存 IPC 各自持有令牌表；窗口销毁时两个模块各自撤销自己的表（冻结语义：两类令牌都不可再用）。
-	const remoteProjectEntries = registerRemoteProjectEntryIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-		// 写成功后只标脏目录事实与 Git status（T4 单一 owner）：一次写不产生任何远端往返。
-		afterWrite: (projectId, paths) => {
-			remoteProjectIpc.afterWrite(projectId, paths);
-		},
-	});
-	quitCleanup.register("remote-project-entries", remoteProjectEntries.dispose);
-	/**
-	 * 远端短命令的统一执行入口（会话读取/写入/归档/扫描四条链共用）：每次重新过 `buildPinnedSshInvocation`
-	 * （pin 文件/指纹、路由摘要、严格配置复查）。超时归传输层：`SshClientRuntime.run` 的 execFile 自带
-	 * 30 s 上限与 256 KiB 输出上限（远端历史窗口上界 128 KiB 就是为后者留的余量）。
-	 *
-	 * 定义在装配点之前（而不是就地定义）：会话扫描/登记也走它（R1a），而它们的装配代码在下面靠前的位置。
-	 */
-	const runPinnedRemoteCommand = async ({ hostId, remoteCommand }: { hostId: string; remoteCommand: string }) => {
-		const client = await remoteSshClientIfEnabled();
-		const invocation = await buildPinnedSshInvocation(app.getPath("userData"), hostId, "ssh-batch", { client, remoteCommand });
-		const result = await client.run(invocation.executable, invocation.args);
-		// stderr 也要回传：pi 对未知旗标的抱怨随版本在 stdout 或 stderr（模型目录的降级判据要用它），
-		// 丢掉就等于把「不认这个旗标」误判成「远端没有模型」。
-		return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr ?? "" };
-	};
-	/** 同一入口的端口形状：远端会话扫描/根解析/登记用它换掉 helper 会话（不切 host 的活动 root）。 */
-	remoteCommandTransport = { runRemoteCommand: runPinnedRemoteCommand };
-
-	// 远端 Session 只读发现与登记（Phase 3 第三段）。通道名由装配注入（与 contentStoreIpc 的 ChannelGroup 同一先例）。
-	registerRemoteSessionIpc({
-		enabled: remoteFeatureEnabled,
-		service: remoteHostServiceIfEnabled,
-		// R1a：扫描 / 根解析 / register / title 走一次性 pinned SSH 短命令（与读/写/归档同一条通道），
-		// 不再借 helper 会话 —— 否则每次刷新会话列表都会把用户项目的活动 root 切走再连回来。
-		transport: () => remoteCommandTransport,
-		catalog: () => sessionCatalog,
-		// 归属必须按**会话所在目录**判定：取该主机上的 ssh 项目作候选，用 pi 的目录编码与会话路径第一段比对。
-		// 判不出来（多候选且都没命中）⇒ undefined，由 scanner 以既有稳定码 REMOTE_SESSION_PROJECT_UNRESOLVED
-		// fail-closed —— 绝不猜。曾经的写法取「该主机上第一个 ssh 项目」，同主机两个项目时会把会话登记到
-		// 错误项目名下。列表刷新与侧栏投影另由 catalog IPC 和 sessionRecordToSummary 负责。
-		projectIdForHost: (hostId, remoteSessionId) =>
-			matchRemoteSessionProject(
-				projectStore
-					.list()
-					// 在同一回调里收窄（filter 的类型收窄不会传到 map）：只取该主机的 ssh 项目。
-					.flatMap((project) => (isRemoteProject(project) && project.locator.hostId === hostId ? [{ id: project.id, remotePath: project.locator.remotePath }] : [])),
-				remoteSessionId,
-			),
-		channels: { scan: ipcChannels.remoteSessionScan, register: ipcChannels.remoteSessionRegister, title: ipcChannels.remoteSessionTitle },
-	});
-	// 远端 Pi 模型目录（Phase 5 row 819）：host → ProjectStore 远端项目 → 窄 AgentManager 查找 live remote
-	// agentId → 已有 getAvailableModels RPC 一次有界请求。渲染层只能传 hostId；门禁与其它 remote 域同源。
-	const remotePiModelProbe = createRemotePiModelProbe({
-		projectIdsForHost: (hostId) => projectStore.list().flatMap((project) => (isRemoteProject(project) && project.locator.hostId === hostId ? [project.id] : [])),
-		findLiveAgentId: (projectIds) => agentManager?.findLiveRemoteAgentId(projectIds),
-		getAvailableModels: (agentId) => agentManager.getAvailableModels(agentId),
-	});
-	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, probe: remotePiModelProbe });
-	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
-	registerUsageStatsIpc(ipcMain, usageStatsService);
-	// 供应商认证（/login）：同样只做校验/适配，进程与协议在 PiAuthService
-	registerPiAuthIpc(ipcMain, piAuthService);
-	// 提示词增强（输入框增强按钮）：只做校验/适配，进程与协议在 EnhancePromptService
-	registerEnhanceIpc(ipcMain, enhancePromptService);
-	// 输入预测（回合结束预测下一句输入）：同一侧车协议、独立实例；模型指令由主进程注入。
-	// 预测不弹提示，全部结论都靠 scope=suggest 的应用日志（设置 → 日志）可查。
-	registerPromptSuggestionIpc(ipcMain, promptSuggestionService, {
-		debug: (message) => void appLogger?.debug("suggest", message),
-		info: (message) => void appLogger?.info("suggest", message),
-		warn: (message) => void appLogger?.warn("suggest", message),
-	});
-	// 智能体：配置 CRUD + 一次性调用（划词工具）。store 在 whenReady 里已 load，
-	// 这里只按域注册边界 handler；直接调用走独立侧车实例（见 agentInvokeCompletionService）。
-	if (agentProfileStore) {
-		registerAgentProfileIpc({
-			store: agentProfileStore,
-			appLogger,
-			onNotifyChanged: (event) => {
-				const win = mainWindow;
-				if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.agentProfilesChanged, event);
-			},
-		});
-	}
-	// 收藏：整条回复 / 划选片段的本地快照（userData/favorites.json）。
-	if (favoritesStore) registerFavoritesIpc({ store: favoritesStore, appLogger });
-	// 会话分组：侧栏只读消费 + 插件页写入，同一份 store（userData/session-groups.json）。
-	if (sessionGroupStore) registerSessionGroupsIpc({ store: sessionGroupStore, appLogger });
-	if (linkedSessionStore && linkedSessionService) registerLinkedSessionsIpc({ store: linkedSessionStore, service: linkedSessionService, appLogger });
-	registerAgentInvokeIpc(ipcMain, agentInvokeService);
-	// 系统级划词浮窗：状态/隐藏/「发送到 PiDeck」（文本插入主窗口当前会话输入框）。
-	registerSelectionToolIpc({
-		service: selectionToolService,
-		window: selectionToolWindow,
-		insertToMain: (text) => {
-			const win = mainWindow;
-			if (!win || win.isDestroyed()) return false;
-			win.webContents.send(ipcChannels.selectionToolInserted, { text });
-			focusMainWindow();
-			return true;
-		},
-	});
-	// 数据环境（数据模式决策 / 目录归属校验）：业务在 dataEnvService，handler 只校验/适配。
-	// relaunchApp 复用 restartApp（先停常驻服务 + isQuitting，防止 closeToTray 吞掉 relaunch）；
-	// quitApp 先置 isQuitting，与托盘「退出」菜单同一写法，避免 closeToTray 把退出吞成隐藏到托盘。
-	registerAcpIpc({
-		settingsStore,
-		// 会话级配置桥惰性取 manager:注册时(此处)尚未实例化(4786 行 opt-in 段),
-		// 与生命周期依赖同一条惰性模式。查询/下发两个出口都补模型倍率注解。
-		getSessionManager: () =>
-			acpAgentManager
-				? {
-						getSessionConfigOptions: (agentId) => annotateAcpConfigOptions(acpAgentManager?.getSessionConfigOptions(agentId)),
-						applyConfigOption: async (agentId, optionId, value) => annotateAcpConfigOptions(await acpAgentManager?.applyConfigOption(agentId, optionId, value)) ?? [],
-					}
-				: undefined,
-		// 生命周期命令编排惰性取 piLocator:注册时(2361 行附近)它尚未实例化(3484 行)。
-		// createInvocation 复用 AcpAgentManager 同一入口(Windows .cmd 垫片),spawn 带 timeout 兜底。
-		getLifecycleDeps: () => ({
-			createInvocation: (command, args) => piLocator.createInvocation(command, args),
-			spawn: (command, args, options) => spawn(command, args, { timeout: options.timeout, windowsHide: true }),
-		}),
-	});
-	registerDataEnvIpc({
-		getChannel: () => updateChannel,
-		getDecisionDir: () => channelDevDataDir,
-		getActiveDirectory: () => (devDataMode === "channel-dev" ? "channel-dev" : "shared"),
-		getAppVersion: () => app.getVersion(),
-		relaunchApp: restartApp,
-		quitApp: () => {
-			isQuitting = true;
-			app.quit();
-		},
-		// 数据导入（规格 §6 单向正式→dev）：源 = 共用目录（与 setPath 的 fallbackSharedDir 同源），目标 = dev 独立目录。
-		getSharedDataDir: () => fallbackSharedDataDir,
-		getChannelDevDataDir: () => channelDevDataDir,
-		sendProgress: (progress) => mainWindow?.webContents.send(ipcChannels.dataEnvImportProgress, progress),
-	});
-
-	// 频道切换（跨通道升级，规格 §3）：服务 electron-free，网络/临时目录/启动安装器/退出/推送在此装配。
-	// quitApp 先置 isQuitting，与 dataEnv/托盘「退出」同一写法，防 closeToTray 吞掉退出。
-	const channelSwitchService = new ChannelSwitchService({
-		currentChannel: () => updateChannel,
-		// 版本守卫数据源：目标通道最新版不高于当前版本时判「已是最新」，不提供下载。
-		currentVersion: () => app.getVersion(),
-		netFetch: (url, init) => net.fetch(url, init),
-		getTempDir: () => app.getPath("temp"),
-		spawnInstaller: (filePath) => {
-			// win：NSIS 安装器 detached 脱离父进程运行，PiDeck 退出后安装流程继续；mac/linux 由系统接管。
-			if (process.platform === "win32") {
-				const installer = spawn(filePath, [], { detached: true, stdio: "ignore" });
-				// 安装器启动失败（路径失效/杀软拦截）也要有 error 兜底，否则未处理 error 事件炸主进程。
-				installer.once("error", (error) => {
-					void appLogger.warn("update", "Installer spawn failed", {
-						filePath,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				});
-				installer.unref();
-				return;
-			}
-			void openSystemPath(filePath);
-		},
-		quitApp: () => {
-			isQuitting = true;
-			app.quit();
-		},
-		sendToRenderer: (snapshot) => {
-			const win = mainWindow;
-			if (win && !win.isDestroyed()) {
-				win.webContents.send(ipcChannels.channelSwitchStateChanged, snapshot);
-			}
-		},
-		registerQuitCleanup: (name, cleanup) => {
-			quitCleanup.register(name, cleanup);
-		},
-	});
-	// 安装包目录白名单直接用服务的 getInstallerDir()，同源不拼第二份路径。
-	registerChannelSwitchIpc({ service: channelSwitchService, getInstallerDir: () => channelSwitchService.getInstallerDir() });
-
-	if (automationStore && automationScheduler && automationRunCoordinator) {
-		registerAutomationIpc({
-			automationStore,
-			automationScheduler,
-			automationRunCoordinator,
-			appLogger,
-			onNotifyChanged: (event) => {
-				const win = mainWindow;
-				if (win && !win.isDestroyed()) {
-					win.webContents.send(ipcChannels.automationChanged, event);
-				}
-			},
-		});
-	}
-
-	const catalogIdentityContext = () => ({});
-
-	registerEditorsIpc({
-		settingsStore,
-		appLogger,
+	const { getRemoteHostService, remoteFeatureEnabled, remoteGitReads, remoteHostServiceIfEnabled, remoteProjectEntries, remoteProjectIpc, remoteProjectTextPort, remoteProjectTransfers, runPinnedRemoteCommand } = registerRemoteStack({
+		agentManager,
 		getMainWindow: () => mainWindow,
+		getPiResourcePool: () => piResourcePool,
+		getRemoteCommandTransport: () => remoteCommandTransport,
+		getRemoteTerminalManager: () => remoteTerminalManager,
+		projectStore,
+		quitCleanup,
+		resolveBuiltInExtensionRoots,
+		sessionCatalog,
+		setRemoteCommandTransport: (value) => {
+			remoteCommandTransport = value;
+		},
+		setRemoteHostRebindIpc: (value) => {
+			remoteHostRebindIpc = value;
+		},
+		setRemoteHostServiceResolver: (value) => {
+			remoteHostServiceResolver = value;
+		},
+		setRemoteProjectTrustService: (value) => {
+			remoteProjectTrustService = value;
+		},
+		settingsStore,
 	});
-	// 换肤背景图：协议服务 userData/backgrounds/，IPC 负责选图复制与删除
-	registerBackgroundImageProtocol();
-	registerBackgroundsIpc();
-	// Wallpaper Engine 视频壁纸：协议只服务设置里的工坊目录，IPC 只有选目录/列表/校验三条
-	const wallpaperEngineDeps = { getDir: () => settingsStore.get().weWorkshopDir ?? "" };
-	registerWallpaperEngineProtocol(wallpaperEngineDeps);
-	registerWallpaperEngineIpc(wallpaperEngineDeps);
-	registerThemesIpc();
+	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
+	registerAgentsStack({
+		acpAgentManager,
+		agentInvokeService,
+		agentProfileStore,
+		annotateAcpConfigOptions,
+		appLogger,
+		automationRunCoordinator,
+		automationScheduler,
+		automationStore,
+		channelDevDataDir,
+		devDataMode,
+		enhancePromptService,
+		fallbackSharedDataDir,
+		favoritesStore,
+		focusMainWindow,
+		getIsQuitting: () => isQuitting,
+		setIsQuitting: (value) => {
+			isQuitting = value;
+		},
+		linkedSessionService,
+		linkedSessionStore,
+		getMainWindow: () => mainWindow,
+		piAuthService,
+		piLocator,
+		promptSuggestionService,
+		quitCleanup,
+		restartApp,
+		selectionToolService,
+		selectionToolWindow,
+		sessionGroupStore,
+		settingsStore,
+		updateChannel,
+		usageStatsService,
+	});
 	// Desktop plugins run without AgentManager/RPC; failure leaves the rest of PiDeck untouched.
 	// 项目显示名闭包在面板挂载时才求值：此处 projectStore 尚未装配。
 	// 本地服务（宿主插件可按名启停 + 开内置浏览器）：适配器与命令全在主进程，插件只能点名。
-	const localServices = new LocalServiceRegistry([
-		new BillionContextService({
-			cli: createLocalServiceCli({
-				command: "bili",
-				// pi 子进程同一套环境清洗：代理/自定义 PATH 都跟着 PiDeck 设置走。
-				env: () => (piLocator ? piLocator.createProcessEnv() : undefined),
-			}),
-			kill: (pid) => killLocalServiceProcess(pid),
-		}),
-	]);
-	const hostPlugins = new HostPluginService(
-		app.getPath("userData"),
-		sessionCatalog,
-		join(__dirname, "../preload/hostPlugin.js"),
-		localServices,
-		(projectId) => {
-			const project = projectStore?.get(projectId);
-			if (!project) return undefined;
-			// 目录只用于「这条会话属于哪个项目」的展示；ssh 项目拿不到本机路径，给远端路径。
-			return { name: project.name, directory: "locator" in project ? project.locator.remotePath : project.path };
-		},
-		() => sessionGroupStore ?? undefined,
-	);
-	const unregisterHostPlugins = registerHostPluginsIpc(hostPlugins, () => mainWindow);
-	const mcpWarning = (code: string) => {
-		void appLogger.warn("pideck-mcp", "Optional MCP operation rejected", { code });
-	};
-	const piDeckMcp = new PiDeckMcpService({
-		configPath: join(app.getPath("userData"), "pideck-mcp.json"),
-		projects: () => projectStore.list().map(({ id, name }) => ({ id, name })),
-		sessions: new HostPluginSessions(sessionCatalog),
-		// 宿主级只读视图（settings_get / extensions_list）：settingsStore 在启动后段才装配，
-		// 闭包在请求时才求值，未就绪返回 null 而不是抛错。
-		settings: () => settingsStore?.get() ?? null,
-		builtInExtensionsVersion: () => readEffectiveBuiltInExtensionsVersion(resolveBuiltInExtensionRoots()),
-		// 运行时面：coordinator 在 whenReady 里早于 registerIpc 赋值，但闭包仍在请求时才求值，
-		// 与 settings 同样不假设装配顺序。
-		runtimes: () => sessionRuntimeCoordinator.listRuntimes(),
-		abortRuntime: (target) => sessionRuntimeCoordinator.abortRuntime(target),
-		// 智能体目录：agentProfileStore 在启动后段（见下方 load 段）才装配，闭包在请求时求值。
-		// 未就绪时读返回空列表/undefined，写统一报 operation-failed（工具层映射为安全错误码）。
-		agents: {
-			list: () => agentProfileStore?.list() ?? [],
-			get: (agentId) => agentProfileStore?.get(agentId),
-			create: async (input) => {
-				if (!agentProfileStore) throw new Error("operation-failed");
-				return agentProfileStore.create(input);
-			},
-			update: async (agentId, patch) => {
-				if (!agentProfileStore) throw new Error("operation-failed");
-				return agentProfileStore.update(agentId, patch);
-			},
-			delete: async (agentId) => {
-				if (!agentProfileStore) throw new Error("operation-failed");
-				return agentProfileStore.delete(agentId);
-			},
-			bindSession: async (input) => {
-				if (!agentProfileStore) throw new Error("operation-failed");
-				return agentProfileStore.bindSession(input);
-			},
-		},
-		// 定时任务：automationStore / runCoordinator 在启动后段才装配，闭包在请求时求值。
-		// 读接口按 projectId 过滤；写接口未就绪时统一报 operation-failed（工具层映射为安全错误码）。
-		automation: {
-			listTasks: (projectId) => automationStore?.getSnapshot().tasks.filter((task) => task.projectId === projectId) ?? [],
-			getTask: (taskId) => automationStore?.getSnapshot().tasks.find((task) => task.id === taskId),
-			listRuns: (projectId) => automationStore?.listRuns().filter((run) => run.projectId === projectId) ?? [],
-			getRun: (runId) => automationStore?.getRun(runId),
-			createTask: async (input) => {
-				if (!automationStore) throw new Error("operation-failed");
-				return automationStore.createTask(input);
-			},
-			updateTask: async (taskId, patch) => {
-				if (!automationStore) throw new Error("operation-failed");
-				return automationStore.updateTask(taskId, patch);
-			},
-			deleteTask: async (taskId) => {
-				if (!automationStore) throw new Error("operation-failed");
-				return automationStore.deleteTask(taskId);
-			},
-			runNow: async (taskId) => {
-				if (!automationRunCoordinator) throw new Error("operation-failed");
-				return automationRunCoordinator.runNow(taskId);
-			},
-			abortRun: async (runId) => {
-				if (!automationRunCoordinator) throw new Error("operation-failed");
-				return automationRunCoordinator.abortRun(runId);
-			},
-		},
-		// 收藏：favoritesStore 在启动后段才装配，闭包在请求时求值；未就绪时读为空、写报 operation-failed。
-		favorites: {
-			list: () => favoritesStore?.list() ?? [],
-			get: (favoriteId) => favoritesStore?.list().find((entry) => entry.id === favoriteId),
-			add: async (input) => {
-				if (!favoritesStore) throw new Error("operation-failed");
-				return favoritesStore.add(input);
-			},
-			remove: async (favoriteId) => {
-				if (!favoritesStore) return false;
-				return favoritesStore.remove(favoriteId);
-			},
-		},
-		// ACP 调用端口：catalog/coordinator/ACP manager 都在启动后段装配，闭包按请求时求值；未开启时工具不注册。
-		acp: new PiDeckMcpAcpSessions({
-			catalog: sessionCatalog,
-			runtime: sessionRuntimeCoordinator,
-			readMessages: (acpSessionId) => (acpAgentManager ? acpAgentManager.readMessagesWithArchive(acpSessionId) : Promise.resolve([])),
-			settings: () => settingsStore?.get() ?? null,
-			getRuntimeMessages: (sessionId) => sessionRuntimeCoordinator.getRuntimeMessages(sessionId)?.value ?? [],
-		}),
-		warn: mcpWarning,
-	});
-	const unregisterPiDeckMcp = registerPiDeckMcpIpc(piDeckMcp, () => mainWindow, mcpWarning);
-	quitCleanup.register("pideck-mcp", async () => {
-		unregisterPiDeckMcp();
-		await piDeckMcp.dispose();
-	});
-	// 智能体记忆的设置页视图：状态/清空索引/导出/导入。记忆根目录与 MCP 服务器用的是同一个
-	// （userData/memory），所以这里算出来的体积与索引规模就是 Agent 侧看到的真实值。
-	const agentMemoryRoot = () => resolveAgentMemoryDir(app.getPath("userData"));
-	// 项目键算法换过一版（slug → slug + 路径哈希）：启动时把旧的 projects/<旧键>/ 改名到新键，
-	// 否则老用户的项目记忆会失联。幂等、尽力而为；不在 PiDeck 项目列表里的路径，
-	// 会在对应会话启动时由 MCP 服务器自己补迁。
-	const memoryMigration = migrateAgentMemoryProjectKeys(
-		agentMemoryRoot(),
-		projectStore.list().map((project) => ("locator" in project ? project.locator.remotePath : project.path)),
-	);
-	if (memoryMigration.skipped.length > 0) mcpWarning(`agent-memory: 项目记忆目录迁移跳过 ${memoryMigration.skipped.length} 个：${memoryMigration.skipped.join(", ")}`);
-	const unregisterAgentMemoryIpc = registerAgentMemoryIpc({
-		getWindow: () => mainWindow,
-		readStatus: () => readAgentMemoryStatus(agentMemoryRoot()),
-		clearIndex: () => clearAgentMemoryIndex(agentMemoryRoot()),
-		exportBundle: (selection) => exportAgentMemoryBundle({ root: agentMemoryRoot(), getWindow: () => mainWindow, selection }),
-		previewBundle: (filePath) => previewAgentMemoryBundle({ root: agentMemoryRoot(), getWindow: () => mainWindow, filePath }),
-		importBundle: (options) => importAgentMemoryBundle({ root: agentMemoryRoot(), getWindow: () => mainWindow, ...options }),
-		// 项目名只用于展示：记忆键由会话 cwd 派生，要靠项目路径反查一次才认得出来。
-		listEntries: () =>
-			readAgentMemoryEntries({
-				root: agentMemoryRoot(),
-				// ssh 项目没有本机路径，用远端路径派生同一个键（与会话 cwd 的派生口径一致）。
-				projects: () => projectStore.list().map((project) => ({ name: project.name, path: "locator" in project ? project.locator.remotePath : project.path })),
-			}),
-		deleteEntry: (input) => deleteAgentMemoryEntry(agentMemoryRoot(), input),
-		deleteEntries: (items) => deleteAgentMemoryEntries(agentMemoryRoot(), items),
-		restoreEntry: (input) => restoreAgentMemoryEntry(agentMemoryRoot(), input),
-		// 打开记忆根目录：showItemInFolder 是 fire-and-forget（Linux 上 openPath 会永不 settle，#396），
-		// 包一层 Promise 让信封形态保持一致；失败只告警，不让设置页弹错误。
-		revealRoot: async () => {
-			try {
-				shell.showItemInFolder(agentMemoryRoot());
-			} catch (error) {
-				mcpWarning(error instanceof Error ? error.message : String(error));
-			}
-		},
-		readStanding: () => readStandingEntry(agentMemoryRoot()),
-		writeStanding: (content) => writeStandingEntry(agentMemoryRoot(), content),
-		renameDevice: (name) => renameDevice(agentMemoryRoot(), name),
-		warn: mcpWarning,
-	});
-	quitCleanup.register("agent-memory-ipc", () => {
-		unregisterAgentMemoryIpc();
-	});
-	quitCleanup.register("host-plugins", () => {
-		unregisterHostPlugins();
-		hostPlugins.dispose();
-	});
-	// 插件不随包：只扫描用户自己装的那些（内置示例已改为 docs/examples 下的可安装包）。
-	void hostPlugins.initialize().catch(() => appLogger.warn("host-plugins", "Optional plugin host initialization failed"));
-	registerProjectsIpc({
-		projectStore,
-		settingsStore,
-		gitService,
-		worktreeService,
+	registerHostServicesStack({
+		acpAgentManager,
 		agentManager,
+		agentProfileStore,
 		appLogger,
-		projectResourceManager,
-		sessionCatalog,
-		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
+		automationRunCoordinator,
+		automationStore,
+		setCleanupPasteFiles: (value) => {
+			cleanupPasteFiles = value;
+		},
+		favoritesStore,
+		gitService,
+		mainCopy,
 		getMainWindow: () => mainWindow,
-		userDataDir: app.getPath("userData"),
-		// 项目关闭时退订它的目录订阅；连接/窗口级清理分别在 onDisconnect 与 quitCleanup 里。
-		onProjectRemoved: async (projectId, removed) => {
-			remoteProjectTransfers.closeProject(projectId);
-			await remoteProjectIpc.closeProject(projectId);
-			if (removed && isRemoteProject(removed)) await remoteHostService?.retireProjectSession(removed.locator.hostId, removed.locator.remotePath);
-		},
-		resolveWslEnvironment: async (distro, user) => {
-			const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
-			return resolveWslEnvironment(distro, user, {
-				warn: (msg: string, detail: Record<string, unknown>) => void appLogger?.warn("wsl", msg, detail),
-			});
-		},
-	});
-	registerResourceImportIpc(resourceImportManager);
-
-	registerScratchPadIpc({ appLogger });
-
-	// 通知历史落盘：showNotice 单点记录后推送主进程，重启可回灌（渲染层环形缓冲只服务当次会话）
-	const noticeHistoryStore = new NoticeHistoryStore({
-		getFilePath: () => join(app.getPath("userData"), "notice-history.json"),
-		log: (level, message, detail) => {
-			if (level === "error") void appLogger.error("notice-history", message, detail);
-			else void appLogger.info("notice-history", message, detail);
-		},
-	});
-	registerNoticeHistoryIpc(noticeHistoryStore);
-	// C12：退出前 flush 防抖窗口内的尾巴——store 写盘是防抖合并（500ms），不冲盘就退出
-	// 会丢最后几条通知历史；runAll 会 await 异步清理，写盘完成才放行退出。
-	quitCleanup.register("notice-history", async () => {
-		await noticeHistoryStore.flush();
-	});
-
-	// 粘贴大文本 → 落盘文件（受管目录，路径校验 + 启动清理）
-	cleanupPasteFiles = registerPasteFilesIpc({
+		piLocator,
+		projectResourceManager,
 		projectStore,
-		settingsStore,
-		appLogger,
-	});
-
-	// 安全管理：配置读写 + 会话等级覆盖（SecurityStore 负责持久化与策略快照）
-	registerSecurityIpc({
+		quitCleanup,
+		resolveBuiltInExtensionRoots,
+		resourceImportManager,
 		securityStore,
-		log: (domain, message, details) => void appLogger.info(domain, message, details),
+		sessionCatalog,
+		sessionGroupStore,
+		sessionRuntimeCoordinator,
+		settingsStore,
+		worktreeService,
+		remoteHostService: getRemoteHostService(),
+		remoteProjectIpc,
+		remoteProjectTransfers,
 	});
 
 	// 视觉桥配置（~/.pi/agent/pi-deck-vision.json）界面化编辑；运行时由 pi-deck-vision 扩展消费
-	registerVisionIpc({
-		visionBridge: new VisionBridgeConfigManager(configManager),
-		log: (message, ...args) => appLogger.info("vision", message, ...args),
-	});
-
-	const whisperRuntimeRoot = join(app.getPath("userData"), "voice-runtime");
-	const whisperRuntimeManager = new WhisperRuntimeManager({
-		platform: process.platform,
-		arch: process.arch,
-		layout: { runtimeRoot: whisperRuntimeRoot, modelsRoot: join(whisperRuntimeRoot, "models"), tempRoot: join(whisperRuntimeRoot, "tmp") },
-		download: createNetDownloader((scope, message, detail) => void appLogger.warn(scope, message, detail)),
-		fetchReleaseDigests: fetchWhisperReleaseDigests,
-		log: (scope, message, detail) => void appLogger.info(scope, message, detail),
-	});
-	const whisperServerPool = new WhisperServerPool({
-		resolveServerPath: (input) => whisperRuntimeManager.resolveServerPath(input),
-		getEnv: () => (piLocator ? piLocator.createProcessEnv() : undefined),
-		log: (message, details) => void appLogger.info("voice-whisper-server", message, details),
-	});
-	// C12：退出清理登记（before-quit 统一 runAll）——常驻推理进程必须随应用回收，
-	// 否则残留的 whisper-server 会一直占着几百 MB 模型内存和监听端口。
-	quitCleanup.register("whisper-server", async () => {
-		whisperServerPool.abortAll();
-		await whisperServerPool.shutdown("quit");
-	});
-	const whisperTranscriber = new WhisperTranscriber({
-		manager: whisperRuntimeManager,
-		server: whisperServerPool,
-		getTempRoot: () => join(whisperRuntimeRoot, "tmp"),
-		// piLocator 在启动装配后段才就绪（本注册在其之前），转写发生在运行期，闭包懒取即可。
-		getEnv: () => (piLocator ? piLocator.createProcessEnv() : undefined),
-		log: (message, details) => void appLogger.info("voice-whisper", message, details),
-	});
-	const voiceTranscriptionConfigStore = new VoiceTranscriptionConfigStore({
-		getConfigPath: () => join(app.getPath("userData"), "voice-transcription.json"),
-		isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
-		protect: (plainText) => safeStorage.encryptString(plainText),
-		unprotect: (encrypted) => safeStorage.decryptString(Buffer.from(encrypted)),
-		log: (message, details) => void appLogger.info("voice-transcription", message, details),
-		isLocalReady: (config) => {
-			const status = whisperRuntimeManager.getStatus({ cliPath: config.cliPath, localModelId: undefined });
-			const selected = getWhisperModelDef(config.localModelId);
-			return status.cliReady && Boolean(selected && whisperRuntimeManager.isModelInstalled(selected.id));
+	const { imageSessionStore } = registerMediaStack({
+		getAcpImageBlobStore: () => acpImageBlobStore,
+		setAcpImageBlobStore: (value) => {
+			acpImageBlobStore = value;
 		},
-	});
-	registerVoiceTranscriptionIpc({
-		configStore: voiceTranscriptionConfigStore,
-		service: new VoiceTranscriptionService({
-			getPublicConfig: () => voiceTranscriptionConfigStore.getPublicConfig(),
-			getCredentials: () => voiceTranscriptionConfigStore.getCredentials(),
-			transcribeLocal: (input) => whisperTranscriber.transcribe(input),
-			cancelLocal: (requestId) => whisperTranscriber.cancel(requestId),
-			// 流式 2.0：主进程只负责建连与转发帧，握手/序号/收尾都在 VolcengineStreamSession 里。
-			createStreamSocket: createVolcStreamSocket,
-			emitStreamPartial: (partial) => {
-				if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(ipcChannels.voiceTranscriptionStreamPartial, partial);
-			},
-			log: (message, details) => void appLogger.info("voice-transcription", message, details),
-		}),
-		runtimeManager: whisperRuntimeManager,
-		// 删模型/换二进制前先放下常驻进程：Windows 的文件锁会让删除直接失败。
-		beforeRuntimeMutation: () => whisperServerPool.shutdown("runtime-mutation"),
-		emitRuntimeProgress: (progress) => {
-			if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(ipcChannels.voiceTranscriptionRuntimeProgress, progress);
-		},
-	});
-
-	// 生图：凭据来自独立 userData/imagegen.json，不读 pi models.json
-	const imageGenConfigStore = new ImageGenConfigStore({
-		getConfigPath: () => join(app.getPath("userData"), "imagegen.json"),
-		log: (message, ...args) => appLogger.info("imagegen", message, ...args),
-	});
-	// 生图 session 独立存储：无 pi 会话文件的纯生图草稿把历史落盘到这里（重启可恢复），
-	// 不依赖 pi 会话文件也不进 pi 的 sessions 目录（PiDeck userData/imagegen/sessions）。
-	// 图片二进制单独落 blobs：JSONL 只留引用，否则几十轮生图就能把会话文件堆到 200 MB+，
-	// 渲染进程加载即 OOM（2026-09 白屏事故）。两个根必须同源解析，各拼一次路径会漂移成
-	// 「图片写进了 A 目录、协议从 B 目录读」。
-	const imageGenRoots = resolveImageGenStorageRoots();
-	const imageBlobStore = new ImageBlobStore({ getBlobsPath: () => imageGenRoots.blobs });
-	acpImageBlobStore = imageBlobStore;
-	void imageBlobStore.ensureDir();
-	const imageSessionStore = new ImageSessionStore({
-		getStorePath: () => imageGenRoots.sessions,
-		blobs: imageBlobStore,
-	});
-	// pideck-img:// 必须在 app ready 后注册（scheme 特权声明在文件底部 ready 前完成）
-	registerImageGenImageProtocol(imageBlobStore);
-	// pideck-file://：对话内本地图片只读通道。白名单根=项目目录（含 worktree）+ 聊天工作区
-	// + userData + 专属临时图片目录。**不放行整个 %TEMP%**：安装器/解压/其它程序的临时文件
-	// 不该被消息内容当图床读（取舍见 docs/markdown-image-rendering-plan.md）。
-	// 远端项目没有本机 path（只有 locator）：它们不属于本机图片白名单，必须过滤掉，
-	// 否则 map 会产出 undefined 并让整个协议白名单失效。
-	// 对话内本地图的白名单根。除了项目/运行时目录，还包含**桌面**：人和 agent 都习惯把
-	// 截图、设计稿放在桌面（2026-10-21 实测：会话里 `~/Desktop/PiDeck-Settings-*/x.png`
-	// 全被判 403，因为桌面不在白名单）。用 `app.getPath("desktop")` 而不是拼 home/Desktop：
-	// 它跟随用户重定向（OneDrive/自定义位置），路径不存在时 realpath 失败会退回原值，
-	// 目录里也不可能有能读到的文件，不会放宽真实边界。
-	const resolveLocalImageRoots = () => [
-		app.getPath("userData"),
-		app.getPath("desktop"),
-		join(app.getPath("temp"), "pideck-shots"),
-		projectStore.getChatProjectPath(),
-		...projectStore
-			.list()
-			.filter(isLocalProject)
-			.map((project) => project.path),
-	];
-	// 协议与 IPC 共用同一份「已规范化 + 5s 缓存」的根列表：realpathSync.native 是同步调用，
-	// 一条消息几十张图时不能每次请求都把全部项目根重算一遍。
-	const canonicalLocalImageRoots = createCanonicalRootsProvider(resolveLocalImageRoots);
-	registerLocalImageProtocol(canonicalLocalImageRoots);
-	// 保存/复制要在渲染层拿字节：fetch(pideck-file://) 在该 scheme 上会被拦（corsEnabled: false），
-	// 所以字节走 IPC，白名单与体积判定跟协议同一份实现。
-	registerLocalImageIpc({ resolveRoots: canonicalLocalImageRoots, appLogger });
-	registerImageGenIpc({
-		imageGen: new ImageGenService({
-			getProviderCredentials: async (provider) => {
-				const creds = await imageGenConfigStore.getCredentials(provider);
-				if (!creds) return null;
-				return { baseUrl: creds.baseUrl, apiKey: creds.apiKey, extraParams: creds.extraParams, referenceMode: creds.provider.referenceMode, apiStyle: creds.provider.apiStyle };
-			},
-			log: (message, ...args) => appLogger.info("imagegen", message, ...args),
-		}),
-		imageGenConfig: imageGenConfigStore,
-		log: (message, ...args) => appLogger.info("imagegen", message, ...args),
-		readImageBlob: (ref) => imageBlobStore.readPayload(ref),
-		// 生图记录落盘：user 提示词 + assistant 图片两条消息写入 pi 会话文件，
-		// 让「不走 pi/dsh 直连 API」的生图结果也进会话历史（重启后可见）。
-		// DSH 会话无 pi 会话文件且 host 无消息追加 API，跳过（生图仍正常返回）。
-		// agentManager/sessionCatalog 在此处尚未初始化，闭包延迟引用（IPC 调用时已就绪）。
-		persistImageGen: async ({ sessionId, provider, model, prompt, image, size, referenceImages }) => {
-			const entry = sessionCatalog?.get(sessionId);
-			if (!entry || entry.backend === "dsh") return;
-			// 标题更新不依赖会话文件：生图 draft 会话不启动 pi agent，无 filePath，
-			// 但仍要把占位标题（Chat agent）换成首行提示词，否则历史/侧栏永远停在占位名；
-			// 用户已手动改过名（非占位标题）则不覆盖。
-			const project = projectStore.get(entry.projectId);
-			if (project && isDefaultAgentTitle(entry.title, project, mainCopy as never)) {
-				const firstLine = prompt.split(/\r?\n/, 1)[0]?.trim() ?? "";
-				if (firstLine) {
-					// 自动命名只取首行，不在存储层硬截断；标题展示由侧栏窗口负责钳制，
-					// hover 时滚动展示全文。否则 "(fork)" 或英文单词可能被写成残片。
-					// 生图没有扩展模型命名链路，首行提示词只算 fallback 所有权。
-					await sessionCatalog.applyAutomaticTitle(sessionId, firstLine, "fallback");
-					mainWindow?.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
-				}
-			}
-			const localSessionFilePath = sessionCatalog.getLocalFilePath(sessionId);
-			// 生图独立持久化：imagegen 后端会话与无 pi 会话文件的纯生图草稿，
-			// 都落盘到 ImageSession 独立存储；只有有本地 Pi locator 才写 JSONL。
-			if (entry.backend === "imagegen" || !localSessionFilePath) {
-				await imageSessionStore.append(sessionId, [
-					{
-						id: randomUUID(),
-						agentId: "",
-						role: "user",
-						text: prompt,
-						timestamp: Date.now(),
-						// 参考图随 user 消息落盘：恢复时时间线里能看到参考图
-						images: (referenceImages ?? []).map((ref) => ({
-							type: "image" as const,
-							data: ref.data,
-							mimeType: ref.mimeType,
-						})),
-					},
-					{
-						id: randomUUID(),
-						agentId: "",
-						role: "assistant",
-						text: "",
-						stopReason: "stop",
-						timestamp: Date.now(),
-						images: [{ type: "image" as const, data: image.data, mimeType: image.mimeType }],
-						// 历史恢复靠这个标记区分生图结果与普通图片附件（渲染层 ImageGenMessage）；
-						// 结构即 shared/types/imagegen 的 ImageGenMeta，渲染层读取时自行收窄
-						meta: { imageGen: { status: "complete", prompt, size } },
-					},
-				]);
-				await sessionCatalog.promoteToActive(sessionId);
-				return;
-			}
-			await agentManager?.appendLocalMessagesToSession(localSessionFilePath, [
-				{
-					role: "user",
-					// 参考图随 user 消息落盘：重启恢复历史时时间线里能看到参考图
-					content: [
-						{ type: "text", text: prompt },
-						...(referenceImages ?? []).map((ref) => ({
-							type: "image" as const,
-							source: {
-								type: "base64" as const,
-								media_type: ref.mimeType,
-								data: ref.data,
-							},
-						})),
-					],
-				},
-				{
-					role: "assistant",
-					content: [
-						{
-							type: "image",
-							source: {
-								type: "base64",
-								media_type: image.mimeType,
-								data: image.data,
-							},
-						},
-					],
-					extra: {
-						api: "openai-images",
-						provider,
-						model,
-						// 历史恢复依赖这个标记区分生图结果与普通图片附件，
-						// 否则重启后会退回普通图片渲染，丢失复制/保存操作。
-						imageGen: { status: "complete", prompt, size },
-					},
-				},
-			]);
-			// 生图消息不走 Agent 消息流，refreshAutoTitle 不会触发，标题更新已在 filePath 判断前完成。
-		},
-	});
-
-	/**
-	 * 远端会话根判定（远端读取与远端归档共用）：走**与扫描/登记同一份**实现。
-	 * pi 的 user-level `settings.json` 可以把会话根换掉，各自再拼一次 `<home>/.pi/agent/sessions` 就会在
-	 * 那些机器上读/写错文件（那是「读到了别人的历史」级别的问题，不是少一点）。
-	 */
-	const resolveRemoteSessionRoot = async (hostId: string): Promise<{ ok: true; root: string } | { ok: false; code: string }> => {
-		const port = await remoteHostServiceIfEnabled();
-		if (port === undefined) return { ok: false, code: "REMOTE_CONNECTION_SERVICE_UNAVAILABLE" };
-		return await createRemoteSessionScanner({ port, catalog: sessionCatalog, transport: remoteCommandTransport }).resolveSessionRoot(hostId);
-	};
-
-	/**
-	 * 远端会话历史的有界窗口读取（Phase 4 远端历史）。
-	 *
-	 * 传输是既有 **pinned SSH 短命令**：每次读取都重新过 `buildPinnedSshInvocation`（pin 文件/指纹、路由
-	 * 摘要、严格配置复查），命令里只有窗口上界与已校验的绝对路径——没有 helper op、没有第二条控制通道。
-	 * 实验开关关掉时端口不装配：ssh locator 记录会得到稳定码 `REMOTE_SESSION_HISTORY_UNAVAILABLE`，
-	 * 而不是落回本机路径读出一个空页。
-	 *
-	 * 相对身份（扫描登记时 `remotePath` 就是相对会话根路径）走**与扫描/登记同一份**会话根判定：
-	 * pi 的 user-level `settings.json` 可以把会话根换掉，这里再拼一次 `<home>/.pi/agent/sessions` 就会在
-	 * 那些机器上读错文件。
-	 */
-	const readRemoteSessionHistoryPage = remoteFeatureEnabled
-		? async (input: { hostId: string; locator: SshSessionLocator; before?: number }) => {
-				const reader = createRemoteSessionHistoryReader({
-					transport: { readRemoteWindow: runPinnedRemoteCommand },
-					resolveSessionRoot: resolveRemoteSessionRoot,
-					project: (rawMessages, activeEntryIds) => agentManager.projectRemoteHistoryMessages(rawMessages, activeEntryIds),
-					logger: { warn: (message, details) => appLogger.warn("session", message, details) },
-				});
-				return await reader.readPage(input);
-			}
-		: undefined;
-
-	/**
-	 * 远端主机上的 pi 模型目录（与本机 `pi --list-models` 逐字对称）。
-	 *
-	 * 为什么不是「问运行中的远端 pi 进程」：那样会话没激活就没有目录（用户必须先盲发一条消息），
-	 * 而且目录会随 runtime 重启/空闲回收一起消失。这里就是「远端算好、传回来、缓存住」：
-	 * 同一条 pinned SSH 短命令跑一次 `pi --list-models`，本机同一个纯函数解析，按主机缓存。
-	 */
-	const remotePiModelCatalog = remoteFeatureEnabled
-		? createRemoteModelCatalog({
-				resolveFacts: async (hostId: string) => {
-					const port = await remoteHostServiceIfEnabled();
-					if (!port) throw new Error("REMOTE_CONNECTION_SERVICE_UNAVAILABLE");
-					const facts = await port.remotePiRuntimeFacts(hostId);
-					return { piPath: facts.piPath, nodePath: facts.nodePath };
-				},
-				run: runPinnedRemoteCommand,
-			})
-		: undefined;
-
-	/**
-	 * 按项目取远端模型目录：非远端项目返回 null（调用方据此走本机目录）。
-	 * 失败返回失败报告而不是空成功报告——空列表和「拿不到」在 UI 上必须是两种状态。
-	 */
-	const remoteModelCatalogForProject = remotePiModelCatalog
-		? async (projectId: string, sessionId: string, force: boolean): Promise<import("../shared/types").ModelListReport | null> => {
-				// 位置真相优先取**会话自己的 locator**（host rebind 会改写它），项目 locator 只做兜底——
-				// 两者错位时按项目取值会让选择器给出另一台主机的模型。
-				const sessionLocator = sessionId.length > 0 ? sessionCatalog.getLocator(sessionId) : undefined;
-				const project = projectStore.get(projectId);
-				const projectLocator = project !== undefined && isRemoteProject(project) ? project.locator : undefined;
-				const locator = sessionLocator?.kind === "ssh" ? { hostId: sessionLocator.hostId } : projectLocator;
-				if (locator === undefined) return null;
-				const result = await remotePiModelCatalog.load({ hostId: locator.hostId, force });
-				// 两种失败在 UI 上是两条不同的引导：空目录 = 去远端配置页加 provider；
-				// 命令失败 = 查远端 pi / 连接。压成一个码会让「空」的引导永远不可达。
-				if (!result.ok) return { models: [], ok: false, reason: result.code === REMOTE_MODEL_CATALOG_CODES.empty ? "empty" : "cli-failed", version: null, detail: result.code, source: "none", at: Date.now() };
-				return { models: result.models, ok: true, reason: null, version: null, detail: "", source: "remote", at: Date.now() };
-			}
-		: undefined;
-
-	/**
-	 * 远端会话的 HTML 导出（**只读远端 + 本机写文件**）。
-	 *
-	 * 与 `readRemoteSessionHistoryPage` 同一个读端口、同一个实验开关：开关关掉时这条链整体不装配，
-	 * ssh 记录的导出因此得到稳定码 `REMOTE_SESSION_EXPORT_UNAVAILABLE`，而不是落回本机导出（本机导出
-	 * 需要本机会话文件 + 一个临时本机 pi 进程，对远端记录两样都不成立）。
-	 *
-	 * 上游 `sessions:catalog-export-html` 必须在 `getLocalFilePath` 守卫**之前**分流到本函数：那个守卫对
-	 * ssh locator 抛 UNSUPPORTED_PROJECT_LOCATION，先调它则远端导出一律失败。
-	 */
-	const exportRemoteCatalogSessionHtml = readRemoteSessionHistoryPage
-		? async (sessionId: string): Promise<Record<string, unknown> & { path: string }> => {
-				const entry = sessionCatalog.get(sessionId);
-				const locator = sessionCatalog.getLocator(sessionId);
-				// 走到这里却没有 ssh locator（记录被并发删掉/换位置）= 稳定码，不猜路径。
-				if (!entry || locator?.kind !== "ssh") throw new Error(mainCopy("session.notFound"));
-				return await exportRemoteSessionHtml({
-					sessionId,
-					title: entry.title,
-					hostId: locator.hostId,
-					locator,
-					readPage: readRemoteSessionHistoryPage,
-					resolveExportDir: resolveSessionExportDir,
-					copy: {
-						footer: mainCopy("session.exportRemoteFooter"),
-						partialNotice: mainCopy("session.exportRemotePartialNotice", { pages: REMOTE_SESSION_EXPORT_LIMITS.maxPages, messages: REMOTE_SESSION_EXPORT_LIMITS.maxMessages }),
-					},
-					logger: {
-						info: (message, details) => {
-							void appLogger.info("session", message, details);
-						},
-						warn: (message, details) => {
-							void appLogger.warn("session", message, details);
-						},
-					},
-				});
-			}
-		: undefined;
-
-	/**
-	 * 远端会话归档 / 取消归档（P4.5b）：把远端会话文件 `mv` 进 / 出**它自己所在目录旁的** `.pideck-archive/`。
-	 *
-	 * 与远端历史读同一条 pinned SSH 短命令通道（同一 pin/指纹/路由校验、同一会话根判定），零新增 helper op；
-	 * 实验开关关掉时端口不装配（`remoteSessionArchive === undefined`）⇒ 远端归档分支得到稳定码
-	 * `REMOTE_SESSION_ARCHIVE_UNAVAILABLE`，而不是落回本机路径分支。
-	 * 本机侧的归档索引与 catalog 记录由 sessionIpc 的远端分支负责（这里只管远端文件）。
-	 */
-	const remoteSessionArchive = remoteFeatureEnabled
-		? createRemoteSessionArchive({
-				transport: { runRemoteCommand: runPinnedRemoteCommand },
-				resolveSessionRoot: resolveRemoteSessionRoot,
-			})
-		: undefined;
-
-	/**
-	 * 远端归档会话永久删除（Phase 5）：pinned SSH 上的固定 Node 脚本，只 unlink 本机归档索引指向的
-	 * 那一个 .pideck-archive/*.jsonl（脚本内做 canonical containment + 身份复核）。远端 Node 路径与
-	 * 写入守卫同源（remotePiRuntimeFacts），不新增 helper op；实验开关关掉时不装配 ⇒ 请求得到
-	 * REMOTE_SESSION_DELETE_UNAVAILABLE（fail closed，绝不落回本机路径）。
-	 */
-	const remoteSessionDelete = remoteFeatureEnabled
-		? createRemoteSessionDelete({
-				transport: { runRemoteCommand: runPinnedRemoteCommand },
-				resolveNodePath: async (hostId) => {
-					const port = await remoteHostServiceIfEnabled();
-					if (!port) throw new Error("REMOTE_CONNECTION_SERVICE_UNAVAILABLE");
-					return (await port.remotePiRuntimeFacts(hostId)).nodePath;
-				},
-			})
-		: undefined;
-
-	/**
-	 * 远端会话的**受控改写**（P4.5c）：编辑消息 / 删除消息（写墓碑）/ 准备重发（截断该消息及其后继）。
-	 *
-	 * 与远端历史读、远端归档**同一条** pinned SSH 短命令通道（同一 `runPinnedRemoteCommand`：每次都
-	 * 重新过 pin/指纹/路由摘要/严格配置，同一 `resolveRemoteSessionRoot`：会话根只有一个来源），
-	 * 零新增 helper op。实验开关关掉时端口不装配 ⇒ 协调器的 ssh 分支得到稳定码
-	 * `REMOTE_SESSION_HISTORY_WRITER_UNAVAILABLE`，而**不会**落回本机路径分支（本机路径入口对 ssh
-	 * locator 抛稳定码，落回只会得到“本地文件缺失”这种错误原因）。
-	 */
-	remoteSessionMessageMutation = remoteFeatureEnabled
-		? createRemoteSessionHistoryWriter({
-				transport: { runRemoteCommand: runPinnedRemoteCommand },
-				resolveSessionRoot: resolveRemoteSessionRoot,
-				resolveNodePath: async (hostId) => {
-					const port = await remoteHostServiceIfEnabled();
-					if (!port) throw new Error("REMOTE_CONNECTION_SERVICE_UNAVAILABLE");
-					return (await port.remotePiRuntimeFacts(hostId)).nodePath;
-				},
-				project: (rawMessages, activeEntryIds) => agentManager.projectRemoteHistoryMessages(rawMessages, activeEntryIds),
-			})
-		: undefined;
-
-	// ── 生视频域：与生图平行的独立信任域（userData/videogen.json），异步任务生命周期在 VideoJobRunner ──
-	const videoGenConfigStore = new VideoGenConfigStore({
-		getConfigPath: () => join(app.getPath("userData"), "videogen.json"),
-		log: (message, ...args) => appLogger.info("videogen", message, ...args),
-	});
-	const videoGenRoots = resolveVideoGenStorageRoots();
-	const videoBlobStore = new VideoBlobStore({ getBlobsPath: () => videoGenRoots.blobs });
-	void videoBlobStore.ensureDir();
-	const videoSessionStore = new VideoSessionStore({
-		getStorePath: () => videoGenRoots.sessions,
-		blobs: videoBlobStore,
-	});
-	const videoJobStore = new VideoJobStore({
-		getJobsPath: () => videoGenRoots.jobs,
-		log: (message, ...args) => appLogger.info("videogen", message, ...args),
-	});
-	// pideck-video:// 必须在 app ready 后注册；视频产物只经协议流式吐给 <video>，不进 IPC
-	registerVideoGenProtocol(videoBlobStore);
-	const sendVideoGenEvent = (snapshot: VideoGenJobSnapshot) => {
-		const window = mainWindow;
-		if (window && !window.isDestroyed()) {
-			window.webContents.send(ipcChannels.videogenEvent, snapshot);
-		}
-	};
-	const videoJobRunner = new VideoJobRunner({
-		loadJobs: () => videoJobStore.load(),
-		saveJobs: (jobs) => videoJobStore.save(jobs),
-		getCredentials: async (providerId) => {
-			const creds = await videoGenConfigStore.getCredentials(providerId);
-			if (!creds) return null;
-			return { baseUrl: creds.baseUrl, apiKey: creds.apiKey, protocol: creds.protocol, name: creds.provider.name };
-		},
-		putVideo: (response) => videoBlobStore.putFromResponse(response),
-		persistMessages: (sessionId, messages) => videoSessionStore.append(sessionId, messages),
-		emit: sendVideoGenEvent,
-		log: (message, ...args) => appLogger.info("videogen", message, ...args),
-	});
-	registerVideoGenIpc({
-		submit: async (request) => {
-			const result = await videoJobRunner.submit(request);
-			// 与生图同策略：任务受理即把会话提升为 active + 首行命名，防 staleDrafts 清理丢入口
-			if (result.ok && request.sessionId) {
-				const entry = sessionCatalog?.get(request.sessionId);
-				if (entry) {
-					const project = projectStore.get(entry.projectId);
-					if (project && isDefaultAgentTitle(entry.title, project, mainCopy as never)) {
-						const firstLine = request.prompt.split(/\r?\n/, 1)[0]?.trim() ?? "";
-						if (firstLine) {
-							await sessionCatalog.applyAutomaticTitle(request.sessionId, firstLine, "fallback");
-							mainWindow?.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
-						}
-					}
-					await sessionCatalog.promoteToActive(request.sessionId);
-				}
-			}
-			return result;
-		},
-		cancel: (jobId) => videoJobRunner.cancel(jobId),
-		getConfig: () => videoGenConfigStore.getConfig(),
-		saveConfig: (input) => videoGenConfigStore.saveConfig(input),
-		listJobs: (sessionId) => videoJobRunner.listJobsForSession(sessionId),
-		log: (message, ...args) => appLogger.info("videogen", message, ...args),
-	});
-	// 重启恢复：24h 窗口内未终态的任务继续轮询（终态立即结清旧任务）
-	void videoJobRunner.resume();
-
-	registerSessionShareExportIpc(
-		ipcMain,
-		new SessionShareExportService({
-			load: createSessionShareSourceLoader({ catalog: sessionCatalog, projects: projectStore, pi: createPiSessionShareReader(mainCopy), dsh: dshAgentManager }),
-			resolveExportDir: resolveSessionExportDir,
-			home: () => app.getPath("home"),
-			copy: () => ({ footer: mainCopy("sessionShare.footer"), partialNotice: mainCopy("sessionShare.partialNotice"), warning: mainCopy("sessionShare.warning") }),
-		}),
-	);
-	registerSessionIpc({
-		projectStore,
-		settingsStore,
-		sessionScanner,
-		resolveWslSessionScanner: (identity) => wslSessionScannerFor(identity),
-		sessionCatalog,
-		// 会话 ↔ 智能体绑定：绑定的会话每次发送注入角色设定（pi/acp 隐藏 agentMessage，
-		// dsh 退化为可见前缀，由 sessionIpc 的 composeAgentInstruction 统一组合）。
-		resolveSessionAgentInstruction: (sessionId) => agentProfileStore?.getBoundAgent(sessionId)?.systemPrompt,
-		sessionRuntimeCoordinator,
 		agentManager,
-		configManager,
-		codexSessionImporter,
-		claudeSessionImporter,
-		qoderSessionImporter,
-		openCodeSessionImporter,
-		zcodeSessionImporter,
-		workbuddySessionImporter,
-		codebuddySessionImporter,
-		cursorSessionImporter,
-		kimiSessionImporter,
-		kimiWorkSessionImporter,
-		minimaxSessionImporter,
-		directorySessionImporter,
 		appLogger,
-		terminalManager,
-		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
+		configManager,
+		mainCopy,
 		getMainWindow: () => mainWindow,
-		visibleSessions,
-		// live 补帧按 agentId 路由：pi 与 DSH 各有自己的流式缓冲，未知 id 各自 no-op。
-		emitLiveSnapshot: (agentId) => {
-			agentManager.emitLiveSnapshot(agentId);
-			dshAgentManager.emitLiveSnapshot(agentId);
+		piLocator,
+		projectStore,
+		quitCleanup,
+		resolveImageGenStorageRoots,
+		sessionCatalog,
+	});
+	const { readRemoteSessionHistoryPage, remotePiModelCatalog, remoteModelCatalogForProject, exportRemoteCatalogSessionHtml, remoteSessionArchive, remoteSessionDelete, videoSessionStore } = registerMediaSessionStack({
+		agentManager,
+		appLogger,
+		dshAgentManager,
+		mainCopy,
+		getMainWindow: () => mainWindow,
+		projectStore,
+		remoteCommandTransport,
+		setRemoteSessionMessageMutation: (value) => {
+			remoteSessionMessageMutation = value;
 		},
-		emitSessionRuntimeEvent,
-		emitSessionRuntimeDetach,
-		emitSessionActivating,
-		emitSessionActivationFailed,
-		emitSessionActivationCancelled,
-		createAnonymousSession,
-		stopSessionRuntime,
-		emitReplacementState,
-		readCatalogSessionReferenceMessages,
-		// 无 pi 会话文件（纯生图草稿）历史读取回退：ImageSession 独立存储
-		readImageSessionMessages: (sessionId) => imageSessionStore.readMessages(sessionId),
-		readRemoteSessionHistoryPage,
-		// videogen 后端会话历史回退：VideoSession 独立存储（同生图策略）
-		readVideoSessionMessages: (sessionId) => videoSessionStore.readMessages(sessionId),
+		resolveSessionExportDir,
+		resolveVideoGenStorageRoots,
+		sessionCatalog,
+		remoteFeatureEnabled,
+		remoteHostServiceIfEnabled,
+		runPinnedRemoteCommand,
+	});
+	registerSessionsStack({
+		// 会话 ↔ 智能体绑定：绑定的会话每次发送注入角色设定（pi 隐藏 agentMessage，
+		// dsh/acp 退化为可见前缀，由 sessionIpc 的 composeAgentInstruction 统一组合）。
+		acpAgentManager,
+		agentManager,
+		agentProfileStore,
+		appLogger,
+		codebuddySessionImporter,
+		claudeSessionImporter,
+		codexSessionImporter,
+		configManager,
 		copyCatalogSession,
+		createAnonymousSession,
+		cursorSessionImporter,
+		directorySessionImporter,
+		dshAgentManager,
+		dshHost,
+		dshRuntimeErrorCopy,
+		emitReplacementState,
+		emitSessionActivating,
+		emitSessionActivationCancelled,
+		emitSessionActivationFailed,
+		emitSessionRuntimeDetach,
+		emitSessionRuntimeEvent,
 		exportCatalogSessionHtml,
 		exportRemoteCatalogSessionHtml,
-		archiveRemoteSession: remoteSessionArchive ? (input: { hostId: string; locator: SshSessionLocator }) => remoteSessionArchive.moveIntoArchive(input) : undefined,
-		unarchiveRemoteSession: remoteSessionArchive
-			? async (input: { hostId: string; originalPath: string; archivedPath: string }) => {
-					await remoteSessionArchive.moveBack(input);
-				}
-			: undefined,
-		deleteArchivedRemoteSession: remoteSessionDelete ? (input: { hostId: string; archivedPath: string }) => remoteSessionDelete.deleteArchived(input) : undefined,
+		foreignSyncDeps,
+		getDshPluginInstallService: () => dshPluginInstallService,
+		getDshRuntimeInstaller: () => dshRuntimeInstaller,
+		getDshRuntimeStatus: () => dshRuntimeStatus,
+		getDshSessionSkillLoader,
+		getMainWindow: () => mainWindow,
+		getSessionIndexService: () => sessionIndexService,
+		imageSessionStore,
+		kimiSessionImporter,
+		kimiWorkSessionImporter,
+		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
+		minimaxSessionImporter,
+		notifyCatalogRefreshed,
+		openCodeSessionImporter,
+		projectPathsForContentSearch,
+		projectStore,
+		qoderSessionImporter,
+		readCatalogSessionReferenceMessages,
+		readRemoteSessionHistoryPage,
+		remoteSessionArchive,
+		remoteSessionDelete,
 		replaceAgentSession,
-		// 模型存在性校验数据源：与模型选择器同源（capability 快照 ∪ CLI 缓存），否则
-		// auth 渠道模型被判为不存在并静默换成配置默认模型（issue #340）。
-		validationCatalogModels,
-		// fork/clone 统一命令层：重发/编辑 fork 化（mutationFork/branchMode）与 Web HTTP 同源
+		resolveWslSessionScanner: (identity) => wslSessionScannerFor(identity),
+		resolveSessionAgentInstruction: (sessionId) => agentProfileStore?.getBoundAgent(sessionId)?.systemPrompt,
+		runDshForeignSync,
+		sessionCatalog,
 		sessionForkCommands,
-		// 跨会话正文搜索适配闭包：roots 解析（全局根 + 全局 settings sessionDir + 各项目
-		// 项目级 sessionDir）+ sidecar 调用；搜索前先增量 refresh（stat 全目录毫秒级）保证
-		// 新会话可搜；任何失败返回 null，渲染层回退标题过滤，搜索入口永不报错。未就绪
-		// （冷启动首建索引/预热中）直接降级，不把渲染层请求挂到 boot 结束（首建可达数十秒）；
-		// refresh 失败但进程仍活着时继续用现有索引搜一次（transient 失败不该让本次搜索静默无内容）。
-		sessionContentSearch: async (query) => {
-			if (!sessionIndexService) return null;
-			const roots = await sessionScanner.resolveContentSearchRoots(projectPathsForContentSearch());
-			if (roots.length === 0) return null;
-			if (!sessionIndexService.isReady(roots)) {
-				// 本次降级标题过滤，但后台必须有人建索引：首次安装/roots 刚变更时
-				// 没有别处会预热，否则内容搜索会一直空着（就绪后下一次输入自然生效）
-				sessionIndexService.warmup(roots);
-				return null;
-			}
-			const refreshed = await sessionIndexService.refresh(roots);
-			if (!refreshed.ok && !sessionIndexService.isReady(roots)) return null;
-			const result = await sessionIndexService.search(roots, query);
-			return result.ok ? result.value : null;
-		},
-		// 会话内查找（Ctrl+Shift+F / 会话头部放大镜）：只扫一个会话文件、命中按时间线
-		// 返回。降级口径收口在 sessionMessageSearchInFile（与 Web 搜索弹层共用）。
-		sessionMessageSearch: async (sessionPath, query) => {
-			return sessionMessageSearchInFile(sessionPath, query);
-		},
-		// C1：DSH 后端专用 IPC 依赖按后端分组（注册表化铺路；未来新增后端各自提供一份）
-		dshBackend: {
-			listDshModels: () => dshHost.listModels(),
-			discoverDshModels: (input) => dshHost.discoverModels(input),
-			listDshProviders: () => dshHost.listProviders(),
-			listDshAgentPresets: () => dshHost.listAgentPresets(),
-			getDshDefaultModel: () => Promise.resolve(dshHost.getDefaultModelSelection()),
-			getDshStatus: () => dshHost.getStatus(),
-			// AgentRuntimeProvider 阶段 1：runtime 安装态门控（未安装时 UI 走安装引导、
-			// 新建 dsh 会话在 sessionIpc 边界被拒）。
-			getDshRuntimeStatus: () => dshRuntimeStatus.getStatus(),
-			canCreateDshSession: () => dshRuntimeStatus.canCreateDshSession(),
-			// 安装/导入/卸载后必须重探测并广播：否则 UI 还停在旧状态，
-			// 用户会看到「刚装完但仍提示未安装」。
-			installDshRuntime: async () => {
-				// 同版本重装时 host 可能仍持有 runtime 内 .node 原生模块的 DLL 句柄，
-				// 落位 rm 必报 EPERM：与卸载同一套路，先停会话 + dispose host 释放锁。
-				const wasRunning = await stopDshHostForRuntimeDiskOperation();
-				const result = await dshRuntimeInstaller.installFromIndex();
-				dshRuntimeStatus.refresh();
-				if (result.ok) await startDshHostAfterRuntimeDiskOperation(wasRunning);
-				// 与手动导入同一套文案映射：在线安装的失败原因（尤其是「发布源没有
-				// 配套版本」）必须可读，否则用户只会看到「点了安装没反应」。
-				if (!result.ok) return { ok: false, error: dshRuntimeErrorCopy(result.error) };
-				return result;
-			},
-			importDshRuntime: async (filePath: string) => {
-				const wasRunning = await stopDshHostForRuntimeDiskOperation();
-				const result = await dshRuntimeInstaller.installFromLocalFile(filePath);
-				dshRuntimeStatus.refresh();
-				if (result.ok) await startDshHostAfterRuntimeDiskOperation(wasRunning);
-				// 失败时把内部错误码映射为用户可读文案（配置页直接展示 error 字段）。
-				// 只映射已知校验码；未知错误（如磁盘满、权限）保留原始信息以便排查。
-				if (!result.ok) return { ok: false, error: dshRuntimeErrorCopy(result.error) };
-				return result;
-			},
-			uninstallDshRuntime: async () => {
-				// 卸载会删掉 host 正在用的 runtime 目录：Windows 上 host 的 .node 原生模块
-				// 已映射成 DLL 句柄，进程存活时删目录必报 EPERM（文件被占用）。所以先停
-				// 活跃会话、杀掉 host 释放文件锁，再删；删完若原本在用 DSH 就把 host 拉回
-				// 来（删失败时旧目录还在，重启 fork 仍走旧 runtime，用户可稍后重试卸载）。
-				const wasRunning = await stopDshHostForRuntimeDiskOperation();
-				const result = await dshRuntimeInstaller.uninstall();
-				dshRuntimeStatus.refresh();
-				await startDshHostAfterRuntimeDiskOperation(wasRunning);
-				return result;
-			},
-			describeDshSettings: () => dshHost.describeSettings(),
-			updateDshSettings: (ns, patch, expectedRevision) => dshHost.updateSettings(ns, patch, expectedRevision),
-			mutateDshSettings: (ns, ops, expectedRevision) => dshHost.mutateSettings(ns, ops, expectedRevision),
-			describeDshCredentials: (refs) => dshHost.describeCredentials(refs),
-			setDshCredential: (ref, value) => dshHost.setCredential(ref, value),
-			unsetDshCredential: (ref) => dshHost.unsetCredential(ref),
-			readDshCredential: (ref) => dshHost.readCredentialValue(ref),
-			openDshDocument: () => dshHost.openDocument(),
-			stopDshHost: () => stopDshHostManually(),
-			startDshHost: () => startDshHostManually(),
-			restartDshHost: async () => {
-				// 切换 DSH_HOME 前先停掉全部活跃 DSH 会话（host 侧会话仍在 $DSH_HOME
-				// 持久化，catalog 保留 dshSessionId，重新打开会话时 attach 恢复），
-				// 避免旧目录的 mux 悬挂在已 dispose 的 transport 上；再重启 host。
-				// D16：restart 后校验 host 真正拉起（boot 完成），失败返回 false 而非恒 true。
-				await dshAgentManager.stopAll();
-				await dshHost.restart();
-				try {
-					await dshHost.ensureStarted();
-					return dshHost.isHostProcessRunning() && dshHost.isHostReady();
-				} catch {
-					return false;
-				}
-			},
-			readDshHistoryPage: (dshSessionId, beforeSeq, options) => dshAgentManager.readHistoryPage(dshSessionId, beforeSeq, options),
-			// 打开 DSH 历史会话时补录 catalog 模型（host 投影冷读，不激活）：catalog 缺 model
-			// 时底栏会回退全局部署默认，看起来像「别的会话的模型也被改了」。
-			readDshSessionModel: (dshSessionId) => dshAgentManager.readSessionModelSelection(dshSessionId),
-			// ACP 异步读口：runtime 投影 → 内存快照 → 磁盘归档逐级回退（sessionIpc 的
-			// readAcpMessages 依赖已按 Promise 契约声明）。归档读失败内部降级空数组。
-			readAcpMessages: (acpSessionId) => acpAgentManager.readMessagesWithArchive(acpSessionId),
-			readDshProcessEvents: (agentId, dshSessionId) => dshAgentManager.readProcessEvents(agentId, dshSessionId),
-			readSessionFacts: (sessionPath) => agentManager.readSessionFacts(sessionPath),
-			readSessionOutline: (sessionPath, limit) => agentManager.readSessionOutline(sessionPath, limit),
-			readDshMessageFullText: (agentId, messageId) => dshAgentManager.readMessageFullText(agentId, messageId),
-			resolveDshSessionFilePath: async (sessionId) => {
-				// F5：DSH 会话没有 pi 会话文件，「复制会话文件路径」按 catalog 的
-				// dshSessionId + 项目 cwd 推导 host 持久化路径。
-				const entry = sessionCatalog.get(sessionId);
-				if (!entry?.dshSessionId) return undefined;
-				const project = projectStore.get(entry.projectId);
-				if (!project?.path) return undefined;
-				return dshAgentManager.resolveSessionFilePath(project.path, entry.dshSessionId);
-			},
-			searchDshSessions: (query) => dshHost.searchSessions(query),
-			// 会话内查找（Ctrl/Cmd+Shift+F）的 DSH 分支：DSH 会话没有 pi JSONL，
-			// 由 DshAgentManager 把 host 历史投影成消息后做词元匹配（与 pi 的 Go sidecar 同语义）。
-			searchDshSessionMessages: (dshSessionId, query) => dshAgentManager.searchSessionMessages(dshSessionId, query),
-			createDshGoal: (agentId, objective, maxGoalRounds) => dshAgentManager.createGoal(agentId, objective, maxGoalRounds),
-			runDshGoalAction: (agentId, action) => dshAgentManager.goalAction(agentId, action),
-			cancelDshQueuedMessage: (agentId, itemId) => dshAgentManager.cancelQueuedMessage(agentId, itemId),
-			listDshSubagents: (agentId) => dshAgentManager.listSubagents(agentId),
-			listDshSkills: (agentId) => dshAgentManager.listSkills(agentId),
-			// 草稿 DSH 会话：会话启动前读技能目录（懒建/复用 host 会话，不启动 agent）。
-			listDshSessionSkills: (sessionId) => getDshSessionSkillLoader()(sessionId),
-			readDshSubagentHistory: (agentId, childSessionId, beforeSeq, maxMessages) => dshAgentManager.readSubagentHistory(agentId, childSessionId, beforeSeq, maxMessages),
-			listDshOrphans: async () => {
-				// G3/D11：host 持久化会话中，catalog 无 dshSessionId 映射的视为孤儿
-				// （被删除映射的记录、匿名会话残留等）。wire 无删除 API，仅用于提示。
-				const hostIds = await dshHost.listSessionIds();
-				const known = new Set(
-					sessionCatalog
-						.listEntries()
-						.map((entry) => entry.dshSessionId)
-						.filter((id): id is string => Boolean(id)),
-				);
-				return hostIds.filter((id) => !known.has(id));
-			},
-			// 跨工具兼容（2026-12）：dsh-web 等其他工具创建的 host 根会话（含标题/cwd）；
-			// 已映射进 catalog 的在 IPC 层（sessionIpc）过滤，配置页只显示「待导入」。
-			listDshForeignSessions: () => dshHost.listForeignSessions(),
-			// 外部会话导入：把 host 会话映射进 catalog（status=active，侧栏可见可加载）。
-			// 幂等：同 dshSessionId 重复导入被 SessionCatalog.createDraft 吸收（只更新标题/归属）。
-			importDshForeignSession: async (dshSessionId) => {
-				const record = await importForeignSession(foreignSyncDeps, dshSessionId);
-				notifyCatalogRefreshed([record.projectId]);
-				void appLogger.info("session", "Foreign DSH session imported", {
-					dshSessionId,
-					projectId: record.projectId,
-					title: record.title,
-				});
-				return record;
-			},
-			// 外部会话全量同步：catalog 未映射的磁盘根会话全部导入（不启动 host）。
-			// 配置页「全部导入」与启动自动同步共用此入口。
-			syncDshForeignSessions: () => runDshForeignSync(),
-			// G14：DSH 归档/恢复（目录移动 + manifest，与 pi 归档同语义，不销毁数据）
-			archiveDshSession: (dshSessionId, cwd, title) => dshHost.archiveSession(dshSessionId, cwd, title),
-			unarchiveDshSession: (dshSessionId) => dshHost.unarchiveSession(dshSessionId),
-			listArchivedDshSessions: () => dshHost.listArchivedSessions(),
-			deleteArchivedDshSession: (dshSessionId) => dshHost.deleteArchivedSession(dshSessionId),
-			// G13 深化：动态 Cordis 插件管理（进程内临时扩展，define/run/stop/undefine）
-			listDshDynamicPlugins: () => dshHost.listDynamicPlugins(),
-			listDshStaticPlugins: () => dshHost.listStaticPlugins(),
-			uninstallDshUserPlugin: (input) => dshHost.uninstallUserPlugin(input),
-			// 用户插件市场搜索/安装/清单（安装服务视角；host 侧无此能力，主进程直连 npm 与市场 API）
-			searchDshPluginMarket: (keyword) => {
-				if (!dshPluginInstallService) throw new Error("DSH plugin install service is not available");
-				return dshPluginInstallService.searchPlugins(keyword);
-			},
-			installDshUserPlugin: (spec) => {
-				if (!dshPluginInstallService) throw new Error("DSH plugin install service is not available");
-				return dshPluginInstallService.installUserPlugin(spec);
-			},
-			listDshUserPlugins: () => {
-				if (!dshPluginInstallService) return Promise.resolve([]);
-				return dshPluginInstallService.listUserPlugins();
-			},
-			installDshPlugin: (input) => dshHost.installDynamicPlugin(input),
-			runDshPlugin: (input) => dshHost.runDynamicPlugin(input),
-			stopDshPlugin: (input) => dshHost.stopDynamicPlugin(input),
-			uninstallDshPlugin: (input) => dshHost.uninstallDynamicPlugin(input),
-			isDshAgent: (agentId) => dshAgentManager?.list().some((tab) => tab.id === agentId) === true,
-			// fork/clone 已收口 sessionForkCommands（桌面/Web 共用），这里不再单独提供
-		},
+		sessionMessageSearchInFile,
+		sessionRuntimeCoordinator,
+		sessionScanner,
+		settingsStore,
+		startDshHostAfterRuntimeDiskOperation,
+		startDshHostManually,
+		stopDshHostForRuntimeDiskOperation,
+		stopDshHostManually,
+		stopSessionRuntime,
+		terminalManager,
+		validationCatalogModels,
+		videoSessionStore,
+		visibleSessions,
+		workbuddySessionImporter,
+		wslSessionScannerFor,
+		zcodeSessionImporter,
 	});
 
-	// ── 启动预扫描（2026-08 展开项目卡顿优化）──
-	// 延迟 3s 启动、项目间错开 1.5s 逐个调度后台扫描：预热 catalog 缓存，
-	// 用户首次展开项目时直接命中缓存回显，不再同步全量扫描卡 UI。
-	// 错开 + 协调器去重/冷却（sessionIpc 内）保证不与用户触发的扫描并发重扫。
-	const prewarmTimer = setTimeout(() => {
-		const projects = projectStore.list();
-		projects.forEach((project, index) => {
-			const timer = setTimeout(() => {
-				scheduleCatalogBackgroundScan(project.id, async () => {
-					// 本机 scanner 不能扫远端项目（远端会话扫描属 Phase 4）。
-					if (!isLocalProject(project)) return;
-					try {
-						const settings = settingsStore.get();
-						const wsl = resolveProjectWslIdentity(project, settings);
-						let projectPath = project.path;
-						if (wsl !== undefined) {
-							projectPath = projectPath.replace(/^([A-Za-z]):\\/, (_: string, drive: string) => `/mnt/${drive.toLowerCase()}/`).replace(/\\/g, "/");
-						}
-						const scanner = wsl !== undefined ? await wslSessionScannerFor(wsl) : sessionScanner;
-						const summaries = await scanner.list(projectPath);
-						await sessionCatalog.mergeScanned(project.id, summaries, wsl !== undefined ? { wslDistro: wsl.distro, wslUser: wsl.user } : {});
-					} catch (error) {
-						void appLogger.warn("session", "Catalog prewarm scan failed", {
-							projectId: project.id,
-							error: error instanceof Error ? error.message : String(error),
-						});
-					}
-				});
-			}, index * 1500);
-			timer.unref?.();
-		});
-		// 扩展页关键路径预热：提前探测 pi 版本（--no-approve 判定依赖该缓存），把
-		// `pi --version` 子进程移出首次 extensions:list。尽力而为——warmPiVersionProbe
-		// 内部已吞错记日志，此处再兜一层同步异常，失败绝不会影响启动与 catalog 预热。
-		try {
-			void extensionManager?.warmPiVersionProbe();
-			// 扩展列表预热：把首次 `pi list` 子进程与磁盘扫描移出用户打开扩展页的关键路径。
-			// 与版本探测一样尽力而为（失败只记日志，不影响启动）；列表缓存自身的 in-flight
-			// 去重保证用户随后真正发起的 extensions:list 不会重复起进程。
-			void extensionManager?.list(false).catch((error) => {
-				void appLogger.warn("extension", "extension list prewarm failed", { error: error instanceof Error ? error.message : String(error) });
-			});
-		} catch (error) {
-			void appLogger.warn("extension", "pi version prewarm failed", { error: error instanceof Error ? error.message : String(error) });
-		}
-	}, 3000);
-	prewarmTimer.unref?.();
+	startPrewarm({
+		appLogger,
+		getExtensionManager: () => extensionManager,
+		getSessionScanner: () => sessionScanner,
+		projectStore,
+		sessionCatalog,
+		settingsStore,
+		wslSessionScannerFor,
+	});
 
-	registerGitIpc({
+	registerGitStack({
 		appLogger,
 		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
 		gitService,
@@ -5077,150 +3221,30 @@ function registerIpc() {
 	// Phase 3.7 拆出 systemIpc 后这些可选依赖必须显式注入；
 	// 漏传 extensionManager 会导致 pi:update-check / pi:update 根本不注册。
 	if (!piModelCapabilityCache) throw new Error("Pi model capability cache is unavailable after settings load");
-	// 模型目录更新器：设置页手动更新与 UpdateService 第三路定时检查共用同一实例。
-	// 覆盖层目录须在 catalog 初次读取前登记（getPiAiCatalogIndex 首次调用即锁定索引）；
-	// app 已 ready 后 app.getPath("userData") 才可靠，故在此提前构造。
-	setPiAiCatalogUserDataDir(app.getPath("userData"));
-	const catalogUpdater = new PiAiCatalogUpdater({
-		userDataDir: app.getPath("userData"),
-		// 目录更新/检测复用应用更新的源偏好（settings.updateSource）：
-		// github → raw 直连优先；atomgit 等 → AtomGit OpenAPI 优先，两者互为兜底。
-		source: () => settingsStore.get().updateSource,
-	});
-	// 内置扩展热更新：版本号不跟 PiDeck 应用版本走（见 resources/extensions/extensions-manifest.json），
-	// 打包态 resources 只读，更新写进 userData 覆盖层，路径解析侧覆盖层优先 → 重启会话即生效。
-	const builtInExtensionRoots = resolveBuiltInExtensionRoots();
-	const builtInExtensionsUpdater = new BuiltInExtensionsUpdater({
-		userDataDir: app.getPath("userData"),
-		builtinExtensionsDir: resolveBuiltInExtensionsDir(builtInExtensionRoots),
-		// vendored 运行时依赖（node_modules/undici 等）的源目录：覆盖层上层没有 node_modules，
-		// 缺了它 pi 会因扩展裸导入解析不到而启动失败（2026-09-15 线上事故）。
-		vendorNodeModulesDir: resolveVendorNodeModulesDir(builtInExtensionRoots),
-		// 与模型目录/应用更新共用 settings.updateSource：默认 AtomGit，切 GitHub 后 raw 直连优先。
-		source: () => settingsStore.get().updateSource,
-	});
-	// 旧覆盖层（没有 vendored 依赖的版本写的）启动自愈，不能要求用户先点一次「更新」
-	builtInExtensionsUpdater.ensureOverlayVendorDependencies();
-	// 后台更新检查：Windows / 支持自动升级的发行物走 electron-updater；
-	// macOS 当前未签 Developer ID，不能承诺稳定的替换/重启，因此只检测 Release 并交给用户手动安装。
-	// 两条路径都由同一个 UpdateService 快照推送渲染层，设置页能明确表达能力边界。
-	// AtomGit 镜像源对 query string 返回 404，而 electron-updater 检查必带 noCache 参数：
-	// 在 updater 首次发起请求前注册 webRequest 剥除器（幂等）。注意必须挂在
-	// electron-updater 的独立 partition session（"electron-updater"）上，而不是 defaultSession
-	// —— updater 的 ElectronHttpExecutor 用 session.fromPartition("electron-updater") 发请求，
-	// 挂在 defaultSession 会拦不到（0.7.5 曾因此漏修）。
-	installAtomgitNoCacheBypass(() => session.fromPartition(UPDATER_PARTITION_NAME, { cache: false }));
-	const updateServiceBase = {
+	// 更新服务、模型目录与内置扩展三件套整体搬到 startup/appUpdate.ts：交付模式分支与
+	// `updateService` 的唯一 owner 回填都在那里，这里原位调用，构造与 start() 顺序不变。
+	const { catalogUpdater, builtInExtensionsUpdater } = startAppUpdate({
+		appLogger,
+		getExtensionManager: () => extensionManager,
+		getIsQuitting: () => isQuitting,
+		getMainWindow: () => mainWindow,
+		resolveBuiltInExtensionRoots,
+		setIsQuitting: (value) => {
+			isQuitting = value;
+		},
 		settingsStore,
-		// 更新通道（dev/stable，启动时已判定）：dev 开启 allowPrerelease，更新源仍跟随设置（见 UpdateService.applyUpdateSource）。
-		channel: updateChannel,
-		checkPiUpdate: () => extensionManager.checkPiUpdate(),
-		// 模型目录：复用设置页同一检查链路（GitHub main 分支 manifest 比对），结果并入更新快照。
-		checkCatalogUpdate: () => catalogUpdater.checkRemote(),
-		// 目录自动更新：检测到新版本后由 UpdateService 按设置（catalogAutoUpdate，默认开）自动拉取，
-		// 与设置页「更新到最新」按钮共用同一 updater（含校验与备份）。
-		updateCatalog: () => catalogUpdater.update(),
-		sendToRenderer: (snapshot: import("../shared/types").AppUpdateStatusSnapshot) => {
-			if (mainWindow && !mainWindow.isDestroyed()) {
-				mainWindow.webContents.send(ipcChannels.appUpdateStatusChanged, snapshot);
-			}
+		updateChannel,
+		assign: (patch) => {
+			if (patch.updateService !== undefined) updateService = patch.updateService;
 		},
-		log: (level: "info" | "warn", message: string, details?: Record<string, unknown>) => {
-			if (level === "warn") void appLogger.warn("update", message, details ?? {});
-			else void appLogger.info("update", message, details ?? {});
-		},
-		getCurrentVersion: () => app.getVersion(),
-	};
-	// quitAndInstall 会调用 app.quit；该标记让 closeToTray 放行真正的退出。
-	let updateInstallSetQuitting = false;
-	// 交付模式按设备能力判定：Linux arm64 / deb / tar.gz 没有可靠的应用内替换链路，
-	// 与 macOS 无签名发行物一样走 manual（检查更新 + 一键下载设备匹配安装包）；
-	// macOS Developer ID 签名包由运行时 codesign 探测识别，走 electron-updater 自动替换。
-	const appUpdateDelivery = resolveAppUpdateDeliveryPlan({
-		platform: process.platform,
-		arch: process.arch,
-		isAppImage: Boolean(process.env.APPIMAGE),
-		macDeveloperIdSigned: detectMacDeveloperIdSignature({ isPackaged: app.isPackaged }),
 	});
-	const manualUpdateTarget = resolveManualUpdateTarget({
-		platform: process.platform,
-		arch: process.arch,
-		isPortable: process.env.PORTABLE_EXECUTABLE_DIR !== undefined,
-		isAppImage: Boolean(process.env.APPIMAGE),
-		execPath: process.execPath,
-		runningUnderArm64Translation: app.runningUnderARM64Translation === true,
+	registerContentStack({
+		appLogger,
+		builtInExtensionsUpdater,
+		catalogUpdater,
+		getUpdateService: () => updateService,
+		settingsStore,
 	});
-	if (appUpdateDelivery.mode === "manual") {
-		const checkManualUpdate = createManualUpdateChecker({ channel: updateChannel, target: manualUpdateTarget });
-		updateService = new UpdateService({
-			...updateServiceBase,
-			deliveryMode: "manual",
-			deliveryReason: appUpdateDelivery.reason,
-			// latestReleaseUrl（镜像源）由 UpdateService 按设置传入；null = 官方 GitHub。
-			checkManualAppUpdate: (latestReleaseUrl?: string) => checkManualUpdate(app.getVersion(), latestReleaseUrl),
-			// 手动交付的安装包落到系统下载目录；文件名/digest 来自检查阶段匹配的 release 资产。
-			downloadManualUpdate: (release: AppManualUpdateRelease, options: { signal?: AbortSignal; onProgress?: (progress: InstallerDownloadProgress) => void }) =>
-				downloadInstallerAsset({
-					assetName: release.assetName,
-					assetUrl: release.assetUrl,
-					digestSha256: release.digestSha256,
-					targetDir: app.getPath("downloads"),
-					netFetch: (url, init) => net.fetch(url, init),
-					signal: options.signal,
-					onProgress: options.onProgress,
-				}),
-			// macOS 打开 dmg 让用户拖入 Applications；其他平台只定位文件，绝不自动运行未知安装包。
-			openManualInstaller: async (filePath: string) => {
-				if (process.platform === "darwin") {
-					const error = await openSystemPath(filePath);
-					if (error) throw new Error(error);
-					return;
-				}
-				shell.showItemInFolder(filePath);
-			},
-		});
-	} else {
-		updateService = new UpdateService({
-			...updateServiceBase,
-			deliveryMode: "automatic",
-			autoUpdater: createRealAutoUpdater(),
-			// closeToTray 会吞掉普通窗口关闭；安装器必须等待真实主进程退出。
-			prepareForInstall: () => {
-				updateInstallSetQuitting = !isQuitting;
-				isQuitting = true;
-			},
-			// 同步失败或 watchdog 超时才会走这里；正常 quitAndInstall 会直接结束进程。
-			rollbackInstallPreparation: () => {
-				if (updateInstallSetQuitting) isQuitting = false;
-				updateInstallSetQuitting = false;
-			},
-		});
-	}
-	updateService.start();
-	registerCatalogIpc(catalogUpdater, {
-		// 设置页手动更新/还原后立刻用同一条链路重取结论：否则「有新版本」提示与侧栏红点
-		// 要等到下一轮定时检查（默认 2h）才消失，用户看到的是「更新成功了但状态没变」。
-		onCatalogChanged: () => void updateService?.refreshCatalogSnapshot(),
-	});
-	// 快捷消息：唯一数据源是用户配置文件（可手工编辑），出厂清单来自随包资源文件。
-	// 两个路径只在此处解析，避免“读 A 写 B”的漂移（与 extensions 覆盖层同源的教训）。
-	const quickMessageStore = new QuickMessageStore({
-		getConfigPath: () => join(app.getPath("userData"), QUICK_MESSAGES_FILE_NAME),
-		getDefaultConfigPath: () => (app.isPackaged ? join(process.resourcesPath, QUICK_MESSAGES_DEFAULT_RESOURCE_NAME) : join(app.getAppPath(), "resources", QUICK_MESSAGES_DEFAULT_RESOURCE_NAME)),
-		// 旧版本把清单存在 settings.json：仅作首次种子化来源，升级后用户的已改条目不能丢。
-		getLegacyItems: () => settingsStore.get().quickMessages,
-		log: (scope, message, detail) => void appLogger.info(scope, message, detail),
-	});
-	registerQuickMessagesIpc(quickMessageStore, (scope, message, detail) => void appLogger.info(scope, message, detail));
-	// 回复快捷操作：最新回复尾部的建议条，规则可由用户编辑（userData/reply-actions.json），
-	// 出厂规则来自随包资源 reply-actions.default.json（提交/推送/重试/继续等常用工程操作）。
-	const replyActionRuleStore = new ReplyActionRuleStore({
-		getConfigPath: () => join(app.getPath("userData"), REPLY_ACTIONS_FILE_NAME),
-		getDefaultConfigPath: () => (app.isPackaged ? join(process.resourcesPath, REPLY_ACTIONS_DEFAULT_RESOURCE_NAME) : join(app.getAppPath(), "resources", REPLY_ACTIONS_DEFAULT_RESOURCE_NAME)),
-		log: (scope, message, detail) => void appLogger.info(scope, message, detail),
-	});
-	registerReplyActionsIpc(replyActionRuleStore, (scope, message, detail) => void appLogger.info(scope, message, detail));
-	registerBuiltInExtensionIpc(builtInExtensionsUpdater);
 	// TokenDance 目录 store 是共享实例：渲染层目录展示与一键安装（写入配置）读同一份缓存。
 	const tokendanceCatalogStore = new TokendanceCatalogStore({
 		getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),
@@ -5262,339 +3286,95 @@ function registerIpc() {
 		})();
 		return watchaUserIdPromise;
 	};
-	registerSystemIpc({
-		// 设置保存后的主进程副作用：系统级划词快捷键按新键位/开关重注册（appShortcuts 同一时机）。
-		afterSettingsUpdate: () => syncSelectionToolShortcut(),
-		// WSL 来源/发行版/用户变化：立即重绑资源目录与 spawn 环境，省掉一次重启。
-		// 配置文件目录（models.json / settings.json）已经换了一套，能力快照与 watcher 一起重指向。
-		applyWslSettings: async () => {
-			await syncWslConfig();
-			piModelCapabilityCache?.invalidate();
-			piModelCapabilityCache?.watchConfigDirectory();
-		},
-		piLocator,
-		settingsStore,
-		configManager,
-		remotePiConfig,
-		projectResourceManager,
+	registerSystemStack({
 		agentManager,
-		skillManager,
-		piResourcePool,
 		appLogger,
-		rpcLogger,
-		sessionRuntimeCoordinator,
-		// 项目目录信任判定（trust.json 最近父目录语义，与 storeIpc 同源）。
-		// 漏装配会让项目作用域全部按「未信任」处理：项目 MCP 读写、项目 MCP 的 pi mcp CLI、
-		// 以及 piResources 的项目级内置扩展开关都会被拒，而与 trust.json 里实际写了什么无关。
-		// WSL 项目例外：信任判定用发行版内的 Linux 路径（trust.json 键也是 Linux 路径）。
-		isProjectTrusted: async (projectId, projectRoot) => {
-			const project = projectStore.get(projectId);
-			const settings = settingsStore.get();
-			const trustWslDistro = project?.environment === "wsl" ? (project?.wslDistro ?? settings.wslDistro) : undefined;
-			const trustPath = process.platform === "win32" && trustWslDistro ? toWslLinuxPath(projectRoot, { distro: trustWslDistro }) : projectRoot;
-			return (await configManager.getProjectTrustDecision(trustPath)) === true;
-		},
-		// pi 环境引导：便携 Node 安装器的真实 IO（下载/解压与 DSH runtime 同源，
-		// 测试里注入替身；未装配时引导安装入口降级不可用）。
-		piRuntimeNodeInstaller: {
-			download: createNetDownloader((scope, message, detail) => {
-				void appLogger.info(scope, message, detail);
-			}),
-			extract: createTarExtractor((scope, message, detail) => void appLogger.warn(scope, message, detail)),
-		},
-		// 「关于」面板读取启用中的 DSH 运行时版本
-		dshRuntimeManager: dshRuntimeManager ?? undefined,
-		// G17：RPC 日志按 backend 分流（DSH 走 DshAgentManager 领域调用记录）
-		isDshAgent: (agentId) => dshAgentManager?.list().some((tab) => tab.id === agentId) === true,
-		setDshRpcLogging: (agentId, enabled) => dshAgentManager.setRpcLogging(agentId, enabled),
-		isDshRpcLogging: (agentId) => dshAgentManager.isRpcLogging(agentId),
-		// 实时观看登记同样分流到 DSH 的广播器
-		setDshRpcLogWatching: (agentId, watching) => dshAgentManager.setRpcLogWatching(agentId, watching),
-		diagnosticsMonitor: diagnosticsMonitor ?? undefined,
-		environmentDoctor: environmentDoctor ?? undefined,
-		logBundleExporter: logBundleExporter ?? undefined,
-		// 进程监控停止 agent：按 agentId 走完整会话停止链路（含 detach 推送）
-		stopAgentFromMonitor,
-		getDshHostPid: () => dshHost.getHostPid(),
-		restartDshHost: async () => {
-			await dshAgentManager.stopAll();
-			await dshHost.restart();
-			try {
-				await dshHost.ensureStarted();
-				return dshHost.isHostProcessRunning() && dshHost.isHostReady();
-			} catch {
-				return false;
-			}
-		},
-		dshHostIsStarted: () => dshHost.isStarted(),
-		providerMigration: {
-			configManager,
-			dshHost,
-		},
-		modelCapabilityCache: piModelCapabilityCache,
-		remoteModelCatalogForProject,
-		remoteModelCatalog: remotePiModelCatalog,
-		// 内置 TokenDance 模型目录（live fetch + userData 缓存；
-		// 作为一键配置的数据源：目录模型写入 models.json 后由 pi 运行时自行解析）
-		tokendanceCatalog: tokendanceCatalogStore,
-		// 同一份报价缓存服务模型选择器徽章（折扣/免费），与目录缓存分开（不同端点）
-		tokendancePricing: tokendancePricingStore,
-		// 内置 TokenDance OAuth 授权（PKCE S256 headless；verifier 内存持有，重启失效）
-		tokendanceAuth: new TokendanceAuthStore(),
-		// 内置 TokenDance 充值：与模型调用同一个 API Key（从 models.json 解析，只在本进程使用），
-		// 创建/查询都走既有用量探针传输层（Electron net，服从系统代理与超时/字节上界）。
-		tokendancePayment: new TokendancePaymentStore({
-			resolveEndpoint: () => configManager.resolveProviderEndpoint(TOKENDANCE_PROVIDER),
-			request: usageProbeRequest,
-		}),
-		// 「请作者喝咖啡」：查余额 + 按次扣减，全部经自家边缘代理；失败不拦截用户使用。
-		watchaEntitlement: new WatchaEntitlementStore({ resolveUserId: resolveWatchaUserId, request: usageProbeRequest }),
-		// 一键安装：pi models.json + DSH llm-pi-ai 双落盘（复用迁移服务的写盘策略：
-		// host 就绪走官方 settings API，否则直写 settings.yaml/.credentials.yaml）
-		tokendanceInstall: (apiKey) =>
-			installTokendanceProvider(
-				{
-					configManager,
-					dshHost,
-					tokendanceCatalog: tokendanceCatalogStore,
-					// 能力字段补全：目录只下 id/name/context_length，maxTokens/reasoning/
-					// input/thinkingLevelMap 按模型 id 从 pi-ai 目录精确匹配（无模糊匹配，
-					// 命不中就留空不猜默认值）。
-					catalogLookup: (modelId) => lookupPiAiCatalogEntry(getPiAiCatalogIndex(), "tokendance", modelId),
-				},
-				{ apiKey },
-			),
-		listDshMonitorSessions: () => dshAgentManager.list().map((tab) => ({ title: tab.title })),
-		stopDshHostFromMonitor,
-		getMainWindow: () => mainWindow,
-		// Logo 风格切换要同时刷托盘；Tray 实例归本文件持有，按 getter 注入避免 systemIpc 直接引用。
-		getTray: () => tray,
-		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
-		// 适配层：checkForAppUpdate 直接触发 UpdateService 检查（结果经快照推送）；
-		// download/install 同样转发给 UpdateService（electron-updater 驱动）。
-		checkForAppUpdate: () => updateService?.checkNow() ?? Promise.resolve(),
-		downloadAppUpdate: () => updateService?.downloadNow() ?? Promise.resolve(),
-		installAppUpdate: () => updateService?.installNow(),
-		openExternalUrl,
-		extensionManager,
-		// 设置变更副作用（代理 / 主题 / 飞书语言 / WSL / 宠物 / Web 服务）
-		applyDesktopProxy,
-		testPiProxy,
-		// Web 服务启停后收敛外网访问渠道（隧道重建/serve 重指；见 RemoteAccessManager.syncWebService）
-		applyWebServiceSettings: async (settings) => {
-			await webServiceManager.applySettings(settings);
-			await remoteAccessManager?.syncWebService();
-		},
-		restartWebService: async (settings) => {
-			await webServiceManager.restart(settings);
-			await remoteAccessManager?.syncWebService();
-		},
-		reactToPetSettings: async (prev, next) => {
-			await petSystem?.reactToSettings(prev, next);
-		},
-		// CUA / 浏览器 Agent 开关：任一能力启用时启动进程内 MCP 端点并写入 mcp.json，
-		// 两者都关时停端点并注销；gate 在 applySettings 内按能力分别开关（host 存活 ≠ 能力启用）。
-		reactToCuaSettings: async (prev, next) => {
-			if (!cuaService) return;
-			const cuaChanged = prev.cuaEnabled !== next.cuaEnabled;
-			const browserChanged = prev.browserAgentEnabled !== next.browserAgentEnabled;
-			if (!cuaChanged && !browserChanged) return;
-			await cuaService.applySettings({
-				cuaEnabled: next.cuaEnabled,
-				browserAgentEnabled: next.browserAgentEnabled ?? false,
-			});
-		},
-		// 智能体记忆开关：开启即幂等注册、关闭只删自己那一项（与启动时同一套动作）。
-		reactToAgentMemorySettings: async (prev, next) => {
-			if (prev.agentMemoryEnabled === next.agentMemoryEnabled) return;
-			const synced = syncAgentMemoryRegistration({ enabled: next.agentMemoryEnabled, mount: createAgentMemoryMount() });
-			void appLogger?.info("memory", "agent memory MCP synced", { action: synced.action, path: synced.path });
-		},
 		applyNativeThemeSource,
-		refreshTrayContextMenu,
-		// 语言变更时按当前主进程 locale 重算，忽略 systemIpc 传入的占位参数
-		setFeishuLocale: () => {
-			feishuBridgeRef.current?.setLocale(currentFeishuLocale());
-		},
-		setFeishuConfigDefaultBotName: (_name: string) => {
-			// systemIpc 传入空串只是触发点；实际默认名必须按当前主进程 locale 重算。
-			setFeishuConfigDefaultBotName(feishuT(currentFeishuLocale(), "bridge.defaultBotName"));
-		},
-		notifyTitleBarChange: (window) => settingsStore.notifyTitleBarChange(window),
-		// 技能正文读取：注入路径白名单上下文（全局技能目录 + 已注册项目根），
-		// 由 readSkillContent 完成校验后读 SKILL.md；WSL 项目按项目档案 distro 转主机路径。
-		readSkillContent: (skillPath) =>
-			readSkillContent(skillPath, {
-				globalSkillPaths: skillManager.getLocations().map((location) => location.path),
-				projectRootPaths: projectStore
-					.list()
-					.filter(isLocalProject)
-					.map((project) => {
-						const distro = project.environment === "wsl" ? (project.wslDistro ?? settingsStore.get().wslDistro) : undefined;
-						if (process.platform === "win32" && distro !== undefined) {
-							try {
-								return toWindowsHostPath(project.path, { distro });
-							} catch {
-								return project.path;
-							}
-						}
-						return project.path;
-					}),
-			}),
-		sessionCommandIpcError,
-		// 重启路径需要同步 isQuitting / 停服务，避免 closeToTray 吞掉 relaunch
-		webServiceManager,
-		terminalManager,
-		isQuitting: {
-			get value() {
-				return isQuitting;
-			},
-			set value(next: boolean) {
-				isQuitting = next;
-			},
-		},
-		devBranch: isolateDevByGitBranch && !isSharedDevBranch(devGitBranch) ? devGitBranch : undefined,
-		updateService: updateService ?? undefined,
-	});
-
-	registerStoreIpc({
-		promptManager,
-		skillManager,
-		xuePromptManager,
+		configManager,
+		createAgentMemoryMount,
+		getCuaService: () => cuaService,
+		currentFeishuLocale,
+		devGitBranch,
+		diagnosticsMonitor,
+		dshAgentManager,
+		dshHost,
+		dshRuntimeManager,
+		environmentDoctor,
 		extensionManager,
+		feishuBridgeRef,
+		getIsQuitting: () => isQuitting,
+		setIsQuitting: (value) => {
+			isQuitting = value;
+		},
+		isolateDevByGitBranch,
+		logBundleExporter,
+		mainCopy,
+		getMainWindow: () => mainWindow,
+		openExternalUrl,
+		getPetSystem: () => petSystem,
+		piLocator,
+		piModelCapabilityCache,
 		piResourcePool,
 		projectResourceManager,
-		configManager,
-		projectTrustPath: (projectRoot, projectId) => {
-			const project = projectStore.get(projectId);
-			const settings = settingsStore.get();
-			const trustWslDistro = project?.environment === "wsl" ? (project?.wslDistro ?? settings.wslDistro) : undefined;
-			if (process.platform === "win32" && trustWslDistro !== undefined) {
-				try {
-					return toWslLinuxPath(projectRoot, { distro: trustWslDistro });
-				} catch {
-					return projectRoot;
-				}
-			}
-			return projectRoot;
-		},
-		// 商店搜索必须走 Electron net（跟随桌面代理/系统代理）；裸 fetch 在需要代理的网络上会挂到超时。
-		netFetch: (url, init) => net.fetch(url, init),
-		resolveInstallProxyEnv: async () => {
-			const settings = settingsStore.get();
-			const desktop = { enabled: settings.desktopProxyEnabled, url: settings.desktopProxyUrl, bypass: settings.desktopProxyBypass };
-			// 与 DesktopProxy 同一套语义：开关关闭/地址非法 = 交还系统，因此这里解析系统代理补上。
-			// 解决 git clone（安装链路的关键步骤）不认 Chromium 代理的问题。
-			let systemRules: string | null = null;
-			if (!desktop.enabled || !desktop.url.trim()) {
-				try {
-					systemRules = await session.defaultSession.resolveProxy("https://github.com");
-				} catch (error) {
-					// 解析失败不阻断安装：无 PAC/直连环境本就没有代理可注入，返回 undefined 即可
-					void appLogger.warn("skill-hub", "Resolve system proxy failed", { error: error instanceof Error ? error.message : String(error) });
-				}
-			}
-			return buildSkillInstallProxyEnv(desktop, systemRules);
-		},
-		sendSkillHubInstallProgress: (progress) => {
-			if (!mainWindow || mainWindow.isDestroyed()) return;
-			mainWindow.webContents.send(ipcChannels.skillHubInstallProgress, progress);
-		},
-		appLogger,
-		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
-	});
-
-	// 外网访问（web:remote-access-*）：cloudflare 隧道 / tailscale serve 启停 + EasyTier 只读状态
-	registerWebRemoteAccessIpc({ remoteAccessManager });
-
-	// 配置备份（config-backup:*）：恢复成功后重载 pideck 设置 + 刷新 pi 模型目录。
-	registerBackupIpc({
-		configBackupManager: configBackupManager!,
-		appLogger,
-		// 备份/pre-restore 前落盘在途的设置写盘合并窗口（见 backupIpc 注释）
-		flushSettings: () => settingsStore.flushPendingSave(),
-		afterRestore: async () => {
-			// 恢复写回的是磁盘文件：pideck 设置需重新 load 进内存（其它 store 仍持旧值，
-			// UI 会提示重启生效）；pi 模型目录缓存刷新，避免恢复后仍用旧模型列表。
-			await settingsStore.load();
-			// 快捷键覆盖可能随备份一起被恢复：同步刷新主进程生效绑定，无需重启
-			refreshShortcutBindings(settingsStore.get());
-			// Logo 风格也可能随备份恢复：同步刷新窗口/Dock 图标
-			applyWindowLogoStyle(settingsStore.get().logoStyle, () => mainWindow, settingsStore.get().logoCustomImage);
-			// 任务栏按钮读的是开始菜单快捷方式的图标，恢复后同样要按磁盘设置重写一次
-			syncTaskbarShortcutIcon({ style: settingsStore.get().logoStyle, customLogoDataUrl: settingsStore.get().logoCustomImage });
-			void piModelCapabilityCache?.refresh().catch(() => undefined);
-		},
-	});
-
-	remoteTerminalManager = createRemoteTerminalManager({
-		project: (id) => projectStore.get(id),
-		service: remoteHostServiceIfEnabled,
-		emit: (senderId, channel, payload) => {
-			const sender = webContents.fromId(senderId);
-			if (sender && !sender.isDestroyed()) sender.send(channel, payload);
-		},
-	});
-	quitCleanup.register("remote-terminal", () => remoteTerminalManager?.closeAll());
-	registerTerminalIpc({
-		appLogger,
 		projectStore,
+		refreshTrayContextMenu: () => refreshTrayContextMenu(trayDeps),
+		remoteAccessManager,
+		rpcLogger,
+		sessionCommandIpcError,
 		sessionRuntimeCoordinator,
-		terminalManager,
-		remoteTerminalManager,
-		projectIdForSession: (sessionId) => sessionCatalog.get(sessionId)?.projectId,
-		toSessionCommandIpcError: sessionCommandIpcError,
-	});
-
-	// ── 配置管理 ──────────────────────────────────────
-
-	// WSL 项目的文件读面在发行版内以档案用户身份执行（Wave 1a）：会话按项目身份懒建立、
-	// 跨调用复用，退出时与其它常驻资源一起回收。
-	const wslHelperPool = createWslHelperSessionPool();
-	quitCleanup.register("wsl-helper-session", () => wslHelperPool.closeAll());
-	registerFilesIpc({
-		fileSystemService,
-		projectStore,
 		settingsStore,
-		// 文件索引 sidecar 在下方 sidecar 装配区创建，这里用 getter 取（注册时序不受影响）
-		getFileIndexService: () => fileIndexService,
+		skillManager,
+		stopAgentFromMonitor,
+		stopDshHostFromMonitor,
+		syncSelectionToolShortcut,
+		syncWslConfig,
+		terminalManager,
+		getTray,
+		updateService,
+		webServiceManager,
+		remoteModelCatalogForProject,
+		remotePiConfig,
+		remotePiModelCatalog,
+		resolveWatchaUserId,
+		tokendanceCatalogStore,
+		tokendancePricingStore,
+	});
+
+	registerPlatformStack({
 		appLogger,
+		broadcastCloudSyncStateChanged,
+		cloudSyncManager,
+		configBackupManager,
+		configManager,
+		extensionManager,
+		fileIndexService,
+		fileSystemService,
+		gitService,
+		mainCopy,
+		getMainWindow: () => mainWindow,
 		openExternalUrl,
-		wslHelperPool,
-		// 本机目录页的 Git ignore 修饰（T6 收尾）：与远端 probeIgnore 同一份契约（只加修饰、失败即不填）。
-		checkIgnore: (cwd, relativePaths) => gitService.checkIgnore(cwd, relativePaths),
-		// 位置分派收口第二片：files:create / files:rename 的 ssh 分支复用 entry 写面（令牌留在 main）。
-		remoteEntries: {
-			create: (sender, projectId, parent, name, type) => remoteProjectEntries.create(sender, projectId, parent, name, type),
-			rename: (sender, projectId, source, targetPath) => remoteProjectEntries.rename(sender, projectId, source, targetPath),
-			move: (sender, projectId, source, targetDir) => remoteProjectEntries.move(sender, projectId, source, targetDir),
-			moveTo: (sender, projectId, source, targetPath) => remoteProjectEntries.moveTo(sender, projectId, source, targetPath),
-			delete: (sender, projectId, relativePath) => remoteProjectEntries.delete(sender, projectId, relativePath),
+		piModelCapabilityCache,
+		piResourcePool,
+		projectResourceManager,
+		projectStore,
+		promptManager,
+		quitCleanup,
+		remoteAccessManager,
+		getRemoteTerminalManager: () => remoteTerminalManager,
+		setRemoteTerminalManager: (value) => {
+			remoteTerminalManager = value;
 		},
-		// 公共文件读（T6）：ssh 项目的目录页与批量 stat 走只读 fs 面，不经过 entry 令牌。
-		remoteFiles: {
-			// 中央编辑器读写远端文件：与抽屉编辑器共用同一份远端文本服务与令牌表。
-			...remoteProjectTextPort,
-			directoryPage: (projectId, path, force) => remoteProjectIpc.directoryPage(projectId, path, force),
-			// 位置分派收口第一片：`files:search-page` 的 ssh 分支走项目域同一份搜索实现。
-			searchProject: (projectId, path, query) => remoteProjectIpc.searchProject(projectId, path, query),
-			pathsExist: (projectId, paths) => remoteProjectIpc.pathsExist(projectId, paths),
-			// 远端内容搜索按 hello capabilities 门控：旧 helper 返回 null（渲染层回退“仅文件名”），不发无效请求。
-			searchContent: (projectId, query) => remoteProjectIpc.searchContent(projectId, query),
-		},
-	});
-	registerClipboardIpc({ appLogger });
-	// 云同步：主进程业务在 CloudSyncManager，handler 薄层只校验入参/适配返回值
-	registerCloudSyncIpc({
-		manager: cloudSyncManager,
-		notifyStateChanged: () => broadcastCloudSyncStateChanged(),
-		listProjects: () => projectStore.list(),
-	});
-	// 资源管理器右键菜单（HKCU）：菜单显示名跟随主进程 locale（可能随设置语言切换）
-	registerShellMenuIpc({
-		appLogger,
-		menuTitle: mainCopy("shellMenu.openWithPiDeck"),
-		quickTaskTitle: mainCopy("shellMenu.quickTask"),
+		sessionCatalog,
+		sessionCommandIpcError,
+		sessionRuntimeCoordinator,
+		settingsStore,
+		skillManager,
+		terminalManager,
+		xuePromptManager,
+		remoteHostServiceIfEnabled,
+		remoteProjectEntries,
+		remoteProjectIpc,
+		remoteProjectTextPort,
 	});
 	// registerQuickTaskIpc 移至 floating/mini-overlay 装配处（依赖 expandMiniOverlay 做模式互切）。
 }
@@ -5683,193 +3463,55 @@ app
 
 		// 引用写入门（INV-1 / INV-12 写入侧）：远端项目与会话登记前复查 hostId 仍能解析到 profile、
 		// 且没有跨 store rebind 事务在跑。门自己读 remote-hosts.json，不依赖主进程缓存；构造本身不做 I/O。
-		const remoteReferenceWriteGuard = createRemoteReferenceWriteGuard({ userDataDir: app.getPath("userData") });
-		projectStore = new ProjectStore(() => mainCopy("dialog.chooseProjectFolder"), { referenceGuard: remoteReferenceWriteGuard });
-		// Agent 记忆（pideck-agent-memory）：注册时机与 CUA 同一处——settingsStore 已就绪后再按开关决定，
-		// 避免「先无条件写用户 mcp.json，再等设置加载」这类顺序依赖。
-		fileSystemService = new FileSystemService();
-		sessionScanner = new SessionScanner(mainCopy);
-		codexSessionImporter = new CodexSessionImporter(mainCopy);
-		claudeSessionImporter = new ClaudeSessionImporter(mainCopy);
-		qoderSessionImporter = new QoderSessionImporter(mainCopy);
-		openCodeSessionImporter = new OpenCodeSessionImporter(mainCopy);
-		zcodeSessionImporter = new ZCodeSessionImporter(mainCopy);
-		workbuddySessionImporter = new WorkBuddySessionImporter(mainCopy);
-		codebuddySessionImporter = new CodeBuddySessionImporter(mainCopy);
-		cursorSessionImporter = new CursorSessionImporter(mainCopy);
-		kimiSessionImporter = new KimiSessionImporter(mainCopy);
-		kimiWorkSessionImporter = new KimiWorkSessionImporter(mainCopy);
-		minimaxSessionImporter = new MinimaxSessionImporter(mainCopy);
-		// 外置目录会话导入：不复制会话文件，只把选定目录里的会话挂到当前项目（catalog 归属改写）。
-		// 候选来自 SessionScanner 的全量清单（list() 不带项目参数）——项目目录改名后，
-		// 那批会话仍然躺在 sessions 树里，只是项目过滤把它们排除了。
-		directorySessionImporter = new DirectorySessionImporter({
-			listSessions: () => sessionScanner.list(),
-			readSessionName: (filePath) => sessionScanner.inferSessionNameFromFile(filePath),
-			readDirectoryShape: async (dir) => {
-				const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-				return {
-					hasJsonl: entries.some((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".jsonl")),
-					// sessions 根形态：--D--Users-me-old-- 这样的 encoded 分组目录
-					hasEncodedGroups: entries.some((entry) => entry.isDirectory() && /^--.*--$/.test(entry.name.trim())),
-				};
-			},
-			listKnownFilePaths: () =>
-				new Set(
-					sessionCatalog
-						.listEntries()
-						.filter((entry) => Boolean(entry.filePath))
-						.map((entry) => normalizeSessionPathKey(entry.filePath!)),
-				),
-			// 第四个参数是导入选项：manualAssignment 把归属钉在当前项目（旧目录项目扫描抢不回去）。
-			mergeScanned: (projectId, summaries, options) => sessionCatalog.mergeScanned(projectId, summaries, undefined, options),
-			// 原目录是否还在磁盘上（判定「目录被移动/改名」）；stat 失败按不存在处理。
-			pathExists: async (path) => {
-				try {
-					await stat(path);
-					return true;
-				} catch {
-					return false;
-				}
-			},
-			// 会话扫描根：用于识别「用户选到了 ~/.pi 这类会话树祖先目录」，在弹窗里提示改选。
-			readSessionRoots: () => sessionScanner.getSessionScanRoots(),
-			onError: (sourcePath, error) => {
-				void appLogger?.warn("session", "Directory session import failed", {
-					sourcePath,
-					error: error instanceof Error ? error.message : String(error),
-				});
-			},
-		});
-		settingsStore = new SettingsStore();
-		// 设置写盘尾随合并的收尾（2027-02 性能治理）：退出时立即落盘在途的 150ms 合并窗口，
-		// 防止「改完设置立刻退出」丢失最后一笔（窗口 unref 不拖退出）。
-		quitCleanup.register("settings-flush", () => settingsStore.flushPendingSave());
-		// 安全管理：配置 owner + 策略快照写入（供 pi-deck-security-gate 扩展消费）
-		securityStore = new SecurityStore({
+		const referenceWriteGuard = createRemoteReferenceWriteGuard({ userDataDir: app.getPath("userData") });
+		// 平台服务骨架（项目表 / 文件 / 会话扫描 + 11 个外部会话导入器 / 设置 / 安全 / 日志 /
+		// 用量 / Git / pi 定位与认证 / 增强三侧车 / pi 配置与备份）整体搬到 startup/services.ts：
+		// 这里原位调用，构造顺序与退出清理登记次序不变。
+		({
+			projectStore,
+			fileSystemService,
+			sessionScanner,
+			codexSessionImporter,
+			claudeSessionImporter,
+			qoderSessionImporter,
+			openCodeSessionImporter,
+			zcodeSessionImporter,
+			workbuddySessionImporter,
+			codebuddySessionImporter,
+			cursorSessionImporter,
+			kimiSessionImporter,
+			kimiWorkSessionImporter,
+			minimaxSessionImporter,
+			directorySessionImporter,
 			settingsStore,
-			log: (domain, message, details) => void appLogger?.info(domain, message, details),
-			// 远端会话的安全门读的是远端副本：快照一变就热推到已连接主机（尽力而为，失败不影响本机）。
-			onSnapshotWritten: (bytes) => {
-				const pending = remoteHostServiceResolver?.();
-				if (pending === undefined) return;
-				pending.then((service) => service.pushSecurityPolicySnapshotToReadyHosts(bytes)).catch(() => undefined);
-			},
-			// 配置变更（桌面设置页 / 会话菜单 / Web 端 API 任一来源）：
-			// 桌面渲染层刷新等级菜单，Web 端经 /api/events 立即拿到新快照。
-			onConfigChanged: () => {
-				if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(ipcChannels.securityConfigChanged);
-				webServiceManager?.notifySecurityChanged();
-			},
-		});
-		appLogger = new AppLogger();
-		setAppLogger(appLogger);
-		// 冷启动里程碑（1/2）：主进程 ready。sinceModuleLoadMs 从 index.ts 模块加载起算；
-		// processUptimeMs 从 Electron 进程创建起算（含二进制启动），差值即 ready 前主进程耗时。
-		void appLogger.info("app", "Cold start milestone: app ready", {
-			sinceModuleLoadMs: Date.now() - bootAnchorMs,
-			processUptimeMs: Math.round(process.uptime() * 1000),
-		});
-		// 构建身份（通道 + 来源）：支持排障时一眼看出这个包是本机打包还是发布产物。
-		// 与更新界面的「本地构建」徽章同源（systemIpc 的 update:get-channel）。
-		void appLogger.info("app", "Build identity", {
-			channel: updateChannel,
-			buildOrigin: resolveBuildOrigin(),
-			packaged: app.isPackaged,
-		});
-		// userData 更名迁移（pi-desktop → PiDeck）在 setPath 前同步执行，当时还没有日志器；
-		// 结果在此补记，失败/回退路径必须可从日志诊断。
-		for (const result of [userDataNameMigrationResult, ...devDirectoryMigration.migrations]) {
-			if (result?.kind === "migrated") {
-				void appLogger.info("migration", "userData directory renamed to PiDeck", { from: result.oldPath, to: result.userDataPath, sessionDirs: result.migratedSessionDirs.length });
-			} else if (result?.kind === "failed") {
-				void appLogger.warn("migration", "userData migration incomplete; retry next launch", { userDataPath: result.userDataPath, reason: result.reason });
-			} else if (result?.kind === "skipped" && result.reason === "collision") {
-				void appLogger.warn("migration", "Legacy and PiDeck directories coexist; preserving both without merging", { userDataPath: result.userDataPath });
-			}
-		}
-		rpcLogger = new RpcLogger();
-		// 用量统计：pi-tracker 的 <agentDir>/analytics/usage.jsonl
-		// + dsh-bill 的 <DSH_HOME>/dsh-bill/records.jsonl（采集由插件负责，此处只读）。
-		// DSH_HOME 与 DshHost 同一套解析（设置覆盖 > ~/.dsh > 应用私有目录）。
-		usageStatsService = new UsageStatsService({
-			agentDir: join(app.getPath("home"), ".pi", "agent"),
-			getDshHomeDir: () => resolveDshHomeDir(settingsStore.get().dshHomeDir ?? "", app.getPath("userData")),
-			logger: {
-				info: (message) => void appLogger?.info("usage-stats", message),
-				warn: (message) => void appLogger?.warn("usage-stats", message),
-			},
-		});
-		gitService = new GitService();
-		gitRefsWatcher = new GitRefsWatcher({ logger: appLogger });
-		// C12：退出清理登记（before-quit 统一 runAll；disposeAll 同时清空事件订阅）
-		quitCleanup.register("git-refs-watcher", () => gitRefsWatcher.disposeAll());
-		worktreeService = new WorktreeService(mainCopy);
-		piLocator = new PiLocator(mainCopy);
-		// 认证助手（见 AGENTS.md「认证例外通道」）：每次操作现解析 pi 入口，
-		// 用户改自定义 pi 路径/代理后无需重启即可生效。
-		piAuthService = new PiAuthService({
-			resolveLaunch: () =>
-				resolvePiAuthHostLaunch({
-					settings: settingsStore.get(),
-					locator: piLocator as PiLocator,
-					userDataPath: app.getPath("userData"),
-					appPath: app.getAppPath(),
-					resourcesPath: process.resourcesPath,
-					isPackaged: app.isPackaged,
-				}),
-			logger: {
-				debug: (message) => void appLogger?.debug("pi-auth", message),
-				info: (message) => void appLogger?.info("pi-auth", message),
-				warn: (message) => void appLogger?.warn("pi-auth", message),
-				error: (message) => void appLogger?.error("pi-auth", message),
-			},
-		});
-		// 登录流程推送：弹框开着时才有接收方，窗口没了就静默丢弃（主进程仍会把结果落地）。
-		piAuthService.setFlowSink((update) => {
-			if (!mainWindow || mainWindow.isDestroyed()) return;
-			mainWindow.webContents.send(ipcChannels.piAuthFlowUpdate, update);
-		});
-		// C12：退出清理登记（before-quit 统一 runAll）——登录子进程必须随之回收。
-		quitCleanup.register("pi-auth", () => piAuthService?.dispose());
-		// 提示词增强助手（见 AGENTS.md「提示词增强例外通道」）：常驻单进程，复用认证
-		// 同一套 pi 入口解析；用户改自定义 pi 路径后下次增强生效（resolveLaunch 现求值）。
-		enhancePromptService = createCompletionHelperService("enhance");
-		// C12：增强助手是常驻子进程，退出时必须回收。
-		quitCleanup.register("enhance-prompt", () => enhancePromptService?.dispose());
-		// 输入预测：与增强同协议、独立进程；启动期只装配，首次预测才拉起侧车。
-		promptSuggestionService = createCompletionHelperService("suggest");
-		quitCleanup.register("prompt-suggestion", () => promptSuggestionService?.dispose());
-		// 记忆学习循环：只在用户开启开关后才会被调用（见 registerIpc 里的回合结算钩子），
-		// 这里只装配实例——侧车进程仍然是首次真正需要时才拉起。
-		agentMemoryLearnService = createCompletionHelperService("agent-memory");
-		quitCleanup.register("agent-memory-learn", () => agentMemoryLearnService?.dispose());
-		// DSH 用量链路（backend="dsh"）：配置落 $DSH_HOME/usage-probes.json、凭据从
-		// $DSH_HOME/.credentials.yaml 读，与 pi 侧链路（~/.pi/agent）完全同构、互不干扰。
-		// DSH_HOME 解析与 DshHost 同一套（设置覆盖 > ~/.dsh > 应用私有目录），getter 每次求值，
-		// 用户改设置立即生效；readCredential 环境层优先、文件层兜底（与 DshHost 相同优先级）。
-		configManager = new ConfigManager(undefined, mainCopy, {
-			getHomeDir: () => resolveDshHomeDir(settingsStore.get().dshHomeDir ?? "", app.getPath("userData")),
-			readCredential: async (ref) => {
-				const envValue = process.env[ref]?.trim();
-				if (envValue) return envValue;
-				try {
-					const filePath = join(resolveDshHomeDir(settingsStore.get().dshHomeDir ?? "", app.getPath("userData")), ".credentials.yaml");
-					return credentialValueFromDocument(await readFile(filePath, "utf8"), ref);
-				} catch {
-					return undefined;
-				}
-			},
-		});
-		// 配置备份：pi 配置文件 + pideck 设置的快照（手动模式：仅首次使用自动建 first-run，
-		// 之后备份/恢复都由用户在设置页手动触发）。
-		// 依赖注入生效目录与 userData，WSL 切换后跟随 configManager.getConfigDir()。
-		configBackupManager = new ConfigBackupManager({
-			getConfigDir: () => configManager.getConfigDir(),
-			getUserDataDir: () => app.getPath("userData"),
-			getAppVersion: () => app.getVersion(),
-			onError: (message, detail) => void appLogger?.warn("backup", message, { detail }),
-		});
+			securityStore,
+			appLogger,
+			rpcLogger,
+			usageStatsService,
+			gitService,
+			gitRefsWatcher,
+			worktreeService,
+			piLocator,
+			piAuthService,
+			enhancePromptService,
+			promptSuggestionService,
+			agentMemoryLearnService,
+			configManager,
+			configBackupManager,
+		} = startCoreServices({
+			mainCopy,
+			createCompletionHelperService,
+			quitCleanup,
+			referenceWriteGuard,
+			bootAnchorMs,
+			updateChannel,
+			userDataNameMigrationResult,
+			devDirectoryMigration,
+			getMainWindow: () => mainWindow,
+			getSessionCatalog: () => sessionCatalog,
+			getRemoteHostServiceResolver: () => remoteHostServiceResolver,
+			getWebServiceManager: () => webServiceManager,
+		}));
 		promptManager = new PromptManager(undefined, mainCopy);
 		// 注入旧禁用列表读写（原生服务未装配时的兜底通道；迁移后为空，仅兼容读取）。
 		promptManager.configureSettings(
@@ -5909,149 +3551,27 @@ app
 		});
 		// 提示词商店官方模板 / 内置技能热更新：与内置扩展同一套「resources 只读 → userData 覆盖层」机制。
 		// 覆盖层供查询侧（XuePromptManager / SkillManager）叠加解析：远端新增/修改的模板与技能免发版生效。
-		const promptStoreUpdater = new PromptStoreUpdater({
-			userDataDir: app.getPath("userData"),
-			// 随包根与 skills/xueprompts.db 同一约定：dev 读 app.getAppPath()/resources，
-			// 打包读 process.resourcesPath —— extraResources 的 `to` 已经把目录铺到
-			// <app>/resources/<to>，这里再拼一层 "resources" 会指向不存在的路径。
-			builtinPromptsDir: app.isPackaged ? join(process.resourcesPath, "prompts") : join(app.getAppPath(), "resources", "prompts"),
-			// 与内置扩展/模型目录共用 settings.updateSource：默认 AtomGit，切 GitHub 后 raw 直连优先。
-			source: () => settingsStore.get().updateSource,
-		});
-		const skillStoreUpdater = new SkillStoreUpdater({
-			userDataDir: app.getPath("userData"),
-			// 与 SkillManager.installTemplate 的 root 解析严格对齐：打包态 process.resourcesPath
-			// 已是 <app>/resources，再拼一层会变成 <app>/resources/resources/skills。
-			builtinSkillsDir: app.isPackaged ? join(process.resourcesPath, "skills") : join(app.getAppPath(), "resources", "skills"),
-			source: () => settingsStore.get().updateSource,
-		});
-		registerContentStoreIpc(promptStoreUpdater, PROMPTS_STORE_CHANNELS);
-		registerContentStoreIpc(skillStoreUpdater, SKILLS_STORE_CHANNELS);
-		// 提示词库双通道装配：db 远程拉取（安装包不内置 db，首次使用从 Release 资产下载缓存）
-		// + Go sidecar 检索（常驻内存，中文搜索可用；缺失/失败自动降级 sql.js，商店始终可用）。
-		xuePromptDbStore = new XuePromptDbStore({
-			userDataDir: app.getPath("userData"),
-			repoResourceDir: () => (app.isPackaged ? null : join(app.getAppPath(), "resources")),
-			log: (domain, message, details) => void appLogger.info(domain, message, details),
-			onStateChange: (state) => {
-				// 推送前判 isDestroyed（窗口销毁后 send 会抛）；下载完成/失败时渲染层据此刷新空态
-				const win = mainWindow;
-				if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.yaoPromptsDbState, state);
+		const { promptStoreUpdater, skillStoreUpdater } = startResourceStores({ getSettings: () => settingsStore.get() });
+		// 提示词库双通道（db 远程拉取 + Go xue-index 检索）与三个 Go 数据面 sidecar
+		// （session-index 正文搜索 / file-index 文件检索 / session-store 会话数据面）连同预热与退出清理
+		// 整体搬到 startup/sidecars.ts；`assign` 只回填本文件里的模块级槽位，不复制第二份实例。
+		startSidecars({
+			appLogger,
+			getMainWindow: () => mainWindow,
+			promptStoreUpdater,
+			projectPathsForContentSearch,
+			quitCleanup,
+			sessionScanner,
+			settingsStore,
+			assign: (patch) => {
+				if (patch.xuePromptDbStore !== undefined) xuePromptDbStore = patch.xuePromptDbStore;
+				if (patch.xueIndexService !== undefined) xueIndexService = patch.xueIndexService;
+				if (patch.xuePromptManager !== undefined) xuePromptManager = patch.xuePromptManager;
+				if (patch.sessionIndexService !== undefined) sessionIndexService = patch.sessionIndexService;
+				if (patch.fileIndexService !== undefined) fileIndexService = patch.fileIndexService;
+				if (patch.sessionStoreService !== undefined) sessionStoreService = patch.sessionStoreService;
 			},
 		});
-		xueIndexService = new XueIndexService({
-			resolveBinaryPath: () => {
-				// 打包后：resourcesPath/xue-index/xue-index(.exe)（extraResources）；
-				// dev：仓库构建产物 resources/xue-index/bin/（scripts/dev.js 自动 fail-open 构建）
-				const dir = app.isPackaged ? join(process.resourcesPath, "xue-index") : join(app.getAppPath(), "resources", "xue-index", "bin");
-				const name = process.platform === "win32" ? "xue-index.exe" : "xue-index";
-				const path = join(dir, name);
-				return existsSync(path) ? path : null;
-			},
-			logger: {
-				debug: (m) => appLogger.debug("xue-index", m),
-				info: (m) => void appLogger.info("xue-index", m),
-				warn: (m) => void appLogger.warn("xue-index", m),
-				error: (m) => void appLogger.error("xue-index", m),
-			},
-		});
-		xuePromptManager = new XuePromptManager(
-			undefined,
-			// 官方模板覆盖层叠加：热更新后商店列表/详情立即显示覆盖层版本
-			() => promptStoreUpdater.resolveEffectiveOverlayDir(),
-			{ dbStore: xuePromptDbStore, xueIndex: xueIndexService },
-		);
-		// 退出清理：结算在途请求并停掉 sidecar，避免退出阶段仍拉起进程
-		quitCleanup.register("xue-index", () => {
-			xueIndexService?.dispose();
-			xueIndexService = null;
-			xuePromptDbStore?.dispose();
-			xuePromptDbStore = null;
-		});
-		// 跨会话正文搜索 sidecar（Go session-index）：预提取正文语料+分片扫描，
-		// 补齐「全部历史会话正文搜词」能力；缺失/失败自动降级侧栏标题过滤。
-		// 语料落 <userData>/session-index/（与设置/缓存同生命周期，卸载重装可重建）。
-		sessionIndexService = new SessionIndexService({
-			corpusDir: join(app.getPath("userData"), "session-index"),
-			resolveBinaryPath: () => {
-				// 打包后：resourcesPath/session-index/session-index(.exe)（extraResources）；
-				// dev：仓库构建产物 resources/session-index/bin/（build 链自动 fail-open 构建）
-				const dir = app.isPackaged ? join(process.resourcesPath, "session-index") : join(app.getAppPath(), "resources", "session-index", "bin");
-				const name = process.platform === "win32" ? "session-index.exe" : "session-index";
-				const path = join(dir, name);
-				return existsSync(path) ? path : null;
-			},
-			logger: {
-				debug: (m) => appLogger.debug("session-index", m),
-				info: (m) => void appLogger.info("session-index", m),
-				warn: (m) => void appLogger.warn("session-index", m),
-				error: (m) => void appLogger.error("session-index", m),
-			},
-		});
-		quitCleanup.register("session-index", () => {
-			sessionIndexService?.dispose();
-			sessionIndexService = null;
-		});
-		// 工作区文件索引 sidecar（Go file-index）：名字检索从实时 BFS 扫盘换成内存索引打分，
-		// 并补上文件内容检索；索引在内存里不落盘（进程重启重建由 Go 侧毫秒级完成），
-		// 缺失/失败/超时自动回退现有 BFS（fail-open）。
-		fileIndexService = new FileIndexService({
-			resolveBinaryPath: () => {
-				// 打包后：resourcesPath/file-index/file-index(.exe)（extraResources）；
-				// dev：仓库构建产物 resources/file-index/bin/（build 链自动 fail-open 构建）
-				const dir = app.isPackaged ? join(process.resourcesPath, "file-index") : join(app.getAppPath(), "resources", "file-index", "bin");
-				const name = process.platform === "win32" ? "file-index.exe" : "file-index";
-				const path = join(dir, name);
-				return existsSync(path) ? path : null;
-			},
-			logger: {
-				debug: (m) => appLogger.debug("file-index", m),
-				info: (m) => void appLogger.info("file-index", m),
-				warn: (m) => void appLogger.warn("file-index", m),
-				error: (m) => void appLogger.error("file-index", m),
-			},
-		});
-		quitCleanup.register("file-index", () => {
-			fileIndexService?.dispose();
-			fileIndexService = null;
-		});
-		// 会话数据面 sidecar（Go session-store）：快照持久化 + 行边界增量扫描，Wave 2 起提供行级
-		// 条目表（get-index）。收益门禁未过（见计划 §8.10），默认不预热、由开关控制。
-		sessionStoreService = new SessionStoreService({
-			statePath: join(app.getPath("userData"), "session-store", "state.bin"),
-			// Wave 2b：条目表落盘（重启后首次打开大会话直接读表，不再重扫源文件）。
-			tablesDir: join(app.getPath("userData"), "session-store", "tables"),
-			resolveBinaryPath: () => {
-				// dev：仓库构建产物 resources/session-store/bin/（build 链自动 fail-open 构建）；
-				// 打包后需补 extraResources 才会命中 resourcesPath 分支（Wave 2 接线时加）。
-				const dir = app.isPackaged ? join(process.resourcesPath, "session-store") : join(app.getAppPath(), "resources", "session-store", "bin");
-				const name = process.platform === "win32" ? "session-store.exe" : "session-store";
-				const path = join(dir, name);
-				return existsSync(path) ? path : null;
-			},
-			logger: {
-				debug: (m) => appLogger.debug("session-store", m),
-				info: (m) => void appLogger.info("session-store", m),
-				warn: (m) => void appLogger.warn("session-store", m),
-				error: (m) => void appLogger.error("session-store", m),
-			},
-		});
-		quitCleanup.register("session-store", () => {
-			sessionStoreService?.dispose();
-			sessionStoreService = null;
-		});
-		// Wave 2 读取路径默认关（收益门禁未过，见 docs/archive/plans/session-data-plane-plan.md §8.10）。
-		// 开关打开时才预热：读者侧只在 sidecar 已就绪时问，不预热的话这条路径永远不会生效；
-		// 预热本身只拉进程 + 载入快照（毫秒级），真正的条目解析由 get-index 触发。
-		if (settingsStore.get().sessionStoreEnabled) sessionStoreService.warmup();
-		// 后台预热：首次全量建索引可达十余秒，启动后稍等即预热，避免用户首搜撞上
-		// 冷启动（预热失败静默——运行时搜索会再试）
-		setTimeout(() => {
-			void sessionScanner
-				.resolveContentSearchRoots(projectPathsForContentSearch())
-				.then((roots) => sessionIndexService?.warmup(roots))
-				.catch(() => {});
-		}, 5_000);
 		skillManager = new SkillManager(undefined, mainCopy);
 		// 内置技能覆盖层叠加：安装内置技能模板时覆盖层优先（修 bug/新增技能免发版）
 		skillManager.configureSkillOverlay(() => skillStoreUpdater.resolveEffectiveOverlayDir());
@@ -6078,35 +3598,7 @@ app
 			if (!entries) return undefined;
 			return projectResourceEnabled({ entries, value: skillPath, baseDir: dirname(skillPath) });
 		});
-		// 启动时自动安装内置 usage-probe 技能模板到 PiDeck 专属技能目录（~/.pi/agent/pideck-skills）：
-		// 该目录不在 pi 的自动发现根里，只有 PiDeck spawn 时以 --skill 注入，
-		// 终端里的 pi（TUI）不会加载；用户仍可在聊天里 /skill:usage-probe 触发。
-		// fire-and-forget：安装失败不阻塞启动，仅记日志（手动入口 configInstallUsageSkill 仍可兑底）。
-		void skillManager.installUsageProbeTemplate().then((result) => {
-			if (result.success) {
-				void appLogger?.info("skill", "Usage probe skill template auto-installed", { path: result.path });
-			} else {
-				void appLogger?.warn("skill", "Usage probe skill template auto-install failed", { error: result.error });
-			}
-		});
-		// 生图技能同样启动时落到 PiDeck 专属技能目录（只由 PiDeck 的 --skill 注入），
-		// 否则用户无法 /skill:image-gen 触发生图。fire-and-forget，失败不阻塞启动。
-		void skillManager.installImageGenTemplate().then((result) => {
-			if (result.success) {
-				void appLogger?.info("skill", "Image-gen skill template auto-installed", { path: result.path });
-			} else {
-				void appLogger?.warn("skill", "Image-gen skill template auto-install failed", { error: result.error });
-			}
-		});
-		// 环境诊断技能启动时落到 PiDeck 专属技能目录，用户可 /skill:pideck-doctor 让 pi 读诊断报告排障。
-		// fire-and-forget，失败不阻塞启动。
-		void skillManager.installPideckDoctorTemplate().then((result) => {
-			if (result.success) {
-				void appLogger?.info("skill", "Pideck-doctor skill template auto-installed", { path: result.path });
-			} else {
-				void appLogger?.warn("skill", "Pideck-doctor skill template auto-install failed", { error: result.error });
-			}
-		});
+		autoInstallBundledSkills(skillManager, appLogger);
 		// issue #450：Windows 没有进程组级联回收，强杀/异常退出会留下 npx 型 MCP 与 ACP 的
 		// 孤儿 node 进程（事故现场 195 个 / 21GB 提交内存）。启动后后台回收一次：只杀
 		// 「父进程已消失 + 命令行命中当前 MCP/ACP 配置」的 node.exe，活的进程一律不碰。
@@ -6467,193 +3959,39 @@ app
 			configManager,
 		});
 		logBundleExporter = new LogBundleExporter({ appLogger });
-		// DSH runtime 管理器（阶段 2）：外部 runtime 落在 userData/runtimes/dsh/<version>。
-		// 暂存目录与版本目录同级，便于整体清理；两者都在 userData 内，卸载应用时一并带走。
-		dshRuntimeManager = new DshRuntimeManager({
-			layout: {
-				runtimesRoot: join(app.getPath("userData"), "runtimes", "dsh"),
-				tempRoot: join(app.getPath("userData"), "runtimes", ".tmp"),
-			},
-			appVersion: () => app.getVersion(),
-			download: createNetDownloader((scope, message, detail) => void appLogger.warn(scope, message, detail)),
-			extract: createTarExtractor((scope, message, detail) => void appLogger.warn(scope, message, detail)),
-			log: (scope, message, detail) => void appLogger.info(scope, message, detail),
-		});
-		// 「本版本配套哪个 dsh runtime」只有一个事实源：状态服务的门控与安装器的挑版本
-		// 必须同源，否则会出现「门控要 0.2.0-rc.2、安装器装 0.1.5-rc.1 并报成功」的死循环。
-		const declaredDshVersion = () => readDeclaredDshVersion(app.getAppPath());
-		// DSH runtime 安装态服务先于 DshHost 装配（探测只依赖 appPath，不 fork host）。
-		// 探测顺序：外部已装 runtime 优先 → 兼容旧版 full/存量包时才回退 app 内置。
-		// 官方 lite 包与 dev 都把 runtime 获取统一到 userData 外部目录，未安装时从同一份
-		// Release 索引下载；这样开发环境验证的就是用户实际走的远程安装链路。
-		// allowBundledFallback 仅保留给显式 full/存量包兼容，不再按 app.isPackaged 区分；
-		// 新的 dev/lite 默认关闭，避免项目 node_modules 或残留资源绕过远程安装。
-		dshRuntimeStatus = new DshRuntimeStatusService(
-			() => app.getAppPath(),
-			(scope, message, detail) => void appLogger.info(scope, message, detail),
-			() => {
-				const active = dshRuntimeManager.resolveActive();
-				return active ? { nodeModules: active.nodeModules, runtimeVersion: active.manifest.runtimeVersion } : undefined;
-			},
-			// dev 不把项目 node_modules 当成「已安装 runtime」；统一走外部 Release 下载。
-			() => false,
-			// 保留构造位次供旧调用方兼容；安装入口现在由状态服务统一开放，不读取打包态。
-			() => app.isPackaged,
-			// 声明的配套 dsh 版本（package.json）：与已装 runtime 比对得出 updateAvailable，
-			// 升级 app 后旧 runtime 仍「兼容」会被一直选用，UI 需要这个信号提示更新。
-			declaredDshVersion,
-		);
-		dshRuntimeStatus.subscribe((status) => {
-			if (mainWindow && !mainWindow.isDestroyed()) {
-				mainWindow.webContents.send(ipcChannels.dshRuntimeStatusChanged, status);
-			}
-		});
-		// runtime 安装编排：索引拉取 + 选版本 + 落位，进度统一广播给渲染层。
-		// 索引地址默认指向与 app update 同一仓库的 release 资产，settings 可覆盖为镜像。
-		dshRuntimeInstaller = new DshRuntimeInstaller({
-			manager: dshRuntimeManager,
-			// 优先级：环境变量（本地/内网验证用，免改设置）> 设置项（镜像）> 当前 latest 应用 Release。
-			// 禁止独立 dsh-runtime tag：会抢走 GitHub /releases/latest。
-			indexUrl: () =>
-				resolveDshRuntimeIndexUrl({
-					indexUrl: process.env.DSH_RUNTIME_INDEX_URL || settingsStore.get().dshRuntimeIndexUrl,
-					updateSource: settingsStore.get().updateSource,
-				}),
-			updateSource: () => settingsStore.get().updateSource,
-			releaseTag: () =>
-				resolveDshRuntimeReleaseTag({
-					explicitTag: process.env.PIDECK_RELEASE_TAG,
-					isPackaged: app.isPackaged,
-					appVersion: app.getVersion(),
-				}),
-			appVersion: () => app.getVersion(),
-			// 与状态服务同源：安装只认这个配套版本，索引里没有就报错而不是退装旧版。
-			declaredVersion: declaredDshVersion,
-			fetchIndex: fetchDshRuntimeIndex,
-			// dev 与官方 lite 包统一走远程 Release；只给显式 full/存量包保留离线兼容入口。
-			// 通过显式环境变量开启，避免开发机或新包因残留资源误绕过远程下载链路。
-			bundledRuntime: () => (process.env.PIDECK_DSH_ALLOW_BUNDLED_RUNTIME === "1" ? readBundledRuntime(process.resourcesPath ? join(process.resourcesPath, DSH_BUNDLED_RUNTIME_DIRNAME) : undefined, app.getVersion()) : undefined),
-			onProgress: (progress) => {
-				if (mainWindow && !mainWindow.isDestroyed()) {
-					mainWindow.webContents.send(ipcChannels.dshRuntimeInstallProgress, progress);
-				}
-			},
-			log: (scope, message, detail) => void appLogger.info(scope, message, detail),
-		});
-		// DSH host 实例先装配；是否后台预热看 defaultAgentBackend（见 createWindow 后）。
-		// 发送/历史/配置链路仍走 ensureStarted 幂等兜底，不用 DSH 的用户不常驻 host。
-		// DSH_HOME 可用设置 dshHomeDir 覆盖（用户自己的 ~/.dsh 等），空串 = 应用私有目录。
-		dshHost = new DshHost(
-			() => app.getPath("userData"),
-			() => app.getAppPath(),
-			undefined,
-			() => settingsStore.get().dshHomeDir ?? "",
-			// 会话级代理覆盖（DSH 降级方案，用户确认的取舍）：DSH 是单一共享 host、无 per-session
-			// 通道，只能聚合所有 DSH 会话（backend=dsh）的开关应用到共享 host 的 fork env。
-			// 冲突规则 off 优先于 on（直连是安全默认）；全 follow → 不动（保持 host 现有行为）。
-			// 生效机制：buildHostProxyEnvPatch 在 on 时会额外注入 NODE_USE_ENV_PROXY=1，让 host
-			// 内部 globalThis.fetch（undici）真正按注入的 HTTP_PROXY/NO_PROXY 走代理（Node 22.21+
-			// 行为，Electron 43 内置 Node 24.18.1 已实测）；off 时剥离该开关。
-			() => {
-				const settings = settingsStore.get();
-				// DSH 共享 host 的代理需按供应商过滤逐会话计算有效模式，再聚合（与 pi 会话链路一致的 provider 感知）。
-				const dshOverrides = (sessionCatalog?.listEntries() ?? [])
-					.filter((entry) => entry.backend === "dsh")
-					.map((entry) => {
-						const effectiveMode = resolveEffectiveSessionProxyMode(entry.proxy?.mode, entry.model?.provider, entry.model?.modelId, settings.piProxyProviders, settings.piProxyModels);
-						return effectiveMode === "follow" ? undefined : ({ mode: effectiveMode } as import("../shared/types/session").SessionProxyOverride);
-					});
-				const mode = aggregateDshProxyMode(dshOverrides);
-				// 全局开关兜底：所有 DSH 会话都 follow（无显式覆盖、无名单命中）时，仍应让 host
-				// 跟随全局 pi 代理开关——否则用户在设置页只开全局开关，DSH 永远直连（与 pi 会话
-				// 「名单空时跟随全局」语义不一致）。名单非空时不做兜底（见 resolveDshHostProxyMode）。
-				const settingsSnapshot = settingsStore.get();
-				const hasProxyList = (settingsSnapshot.piProxyModels?.length ?? 0) > 0 || (settingsSnapshot.piProxyProviders?.length ?? 0) > 0;
-				const finalMode = resolveDshHostProxyMode(mode, {
-					piProxyEnabled: settingsSnapshot.piProxyEnabled,
-					hasList: hasProxyList,
-				});
-				return buildHostProxyEnvPatch(finalMode, {
-					url: settingsSnapshot.piProxyUrl,
-					bypass: settingsSnapshot.piProxyBypass,
-				});
-			},
-			// 外部 runtime 根目录；未安装时保持 undefined，随后由 canCreateDshSession 门控，
-			// 不再把 dev 项目 node_modules 当作远程 runtime 的隐式回退。
-			() => dshRuntimeStatus.resolveAppRoot(),
-			// 永久删除归档目录：统一走系统回收站（与 pi 会话删除同语义，可恢复；拒绝静默硬删）。
-			async (path) => {
-				await shell.trashItem(path);
-			},
-			() => settingsStore.get().dshRunnerNodePath ?? "",
-			// 手动停止标记（持久化）：为真时 ensureStarted 拒绝自动拉起，只有用户显式启动才 boot。
-			() => settingsStore.get().dshManualStopped === true,
-			// agent-team 实验预设（默认关）：fork 时读快照传入 hostEntry；变更需重启 host。
-			() => settingsStore.get().dshAgentTeamPreset === true,
-		);
-		// 用户插件安装服务（搜索/安装/清单；npm 走 PiLocator 的跨平台启动规格，市场 API 走 fetch）。
-		// 依赖闭包优先取 runtime node_modules（与 host 同版本）；runtime 未安装时也能装（registry 补齐）。
-		dshPluginInstallService = new DshPluginInstallService({
-			getDshHomeDir: () => dshHost.getHomeDir(),
-			getUserDataDir: () => app.getPath("userData"),
-			resolveRuntimeNodeModules: () => {
-				const appRoot = dshRuntimeStatus.resolveAppRoot();
-				return appRoot === undefined ? undefined : join(appRoot, "node_modules");
-			},
-			launcher: {
-				createInvocation: (command, args) => piLocator.createInvocation(command, args),
-				// 参数顺序陷阱：createProcessEnv 首个参数是代理设置，pathPrefix 在第二位。
-				createProcessEnv: (pathPrefix) => piLocator.createProcessEnv(undefined, pathPrefix),
-			},
-			fetchImpl: (url, init) => fetch(url, init),
-			log: (scope, message, detail) => void appLogger.info(scope, message, detail),
-		});
-		// 实时 RPC 日志广播器（DSH 后端用）：镜像 pi AgentManager 的 80ms 节流批量推送语义，
-		// 窗口销毁后静默丢弃；观看登记由 rpcLogsSetWatching IPC 按面板挂载/卸载成对驱动。
-		const rpcLogLiveBroadcaster = new RpcLogLiveBroadcaster({
-			send: (channel, payload) => {
-				if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+		// DSH runtime 三件套（管理器 → 安装态服务 → 安装编排器）搬到 startup/dshRuntime.ts：
+		// 这里原位调用，构造位次不变。
+		startDshRuntime({
+			appLogger,
+			getMainWindow: () => mainWindow,
+			settingsStore,
+			assign: (patch) => {
+				dshRuntimeManager = patch.dshRuntimeManager;
+				dshRuntimeStatus = patch.dshRuntimeStatus;
+				dshRuntimeInstaller = patch.dshRuntimeInstaller;
 			},
 		});
-		dshAgentManager = new DshAgentManager(
-			dshHost,
-			(projectId) => projectStore.get(projectId),
-			// 审批自动放行：运行时读取设置（即时生效，无需重启 host），见 settings.ts dshApprovalAutoAllow。
-			() => settingsStore.get().dshApprovalAutoAllow === true,
-			// DSH host 会话标题变化（attach 初值 / session/title 事件 / rename）写回 catalog：
-			// DSH 会话没有 pi 会话文件，标题只存在于 host（dsh-session-title fold），
-			// 不写回则侧栏/重启后一直显示 draft 占位名（如「pi-desktop DSH」）。
-			// 更新后推送 catalog-refreshed，渲染层 useProjectSync 静默重拉刷新侧栏标题。
-			(dshSessionId, title) => {
-				const entry = sessionCatalog?.findByDshSessionId(dshSessionId);
-				if (!entry || entry.title === title) return;
-				void sessionCatalog
-					.update(entry.id, { title })
-					.then(() => {
-						// index.ts 作用域用模块级 mainWindow（本文件没有 getMainWindow 助手）
-						if (mainWindow && !mainWindow.isDestroyed()) {
-							mainWindow.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
-						}
-					})
-					.catch((error: unknown) => {
-						void appLogger.warn("session", "DSH title sync to catalog failed", {
-							dshSessionId,
-							title,
-							error: error instanceof Error ? error.message : String(error),
-						});
-					});
-			},
-			// G17：DSH RPC 日志复用 RpcLogger（按 agentId=dsh:<sessionId> 分文件）
-			rpcLogger,
-			// G10：DSH 会话 HTML 导出目录（与远端会话导出同源：resolveSessionExportDir）
-			resolveSessionExportDir,
-			// 新会话无标题时的兜底标题（i18n；与外部会话导入兜底一致）
-			() => mainCopy("session.dshUntitled"),
-			rpcLogLiveBroadcaster,
-			// Ask 通知：DSH 没有 AgentManager 的通道，由装配层注入统一门控/toast。
-			{ askPending: (input) => notifyAgentAskPending(agentToastDeps(), input) },
+		// DSH 后端装配（DshHost / 插件安装服务 / RpcLogLiveBroadcaster / DshAgentManager / 退出清理）
+		// 整体搬到 startup/dshAgents.ts：这里原位调用，构造顺序与 quitCleanup 登记次序不变。
+		startDshAgents({
+			agentToastDeps,
+			appLogger,
+			getDshRuntimeStatus: () => dshRuntimeStatus,
+			getMainWindow: () => mainWindow,
+			getSessionCatalog: () => sessionCatalog,
 			mainCopy,
-		);
+			piLocator,
+			projectStore,
+			resolveSessionExportDir,
+			rpcLogger,
+			settingsStore,
+			assign: (patch) => {
+				dshHost = patch.dshHost;
+				dshPluginInstallService = patch.dshPluginInstallService;
+				dshAgentManager = patch.dshAgentManager;
+				rpcLogLiveBroadcaster = patch.rpcLogLiveBroadcaster;
+			},
+		});
 		// C12/E15：DSH 退出清理——先停全部活跃会话（清 mux/订阅/pending）再 dispose host，
 		// 顺序保证避免 host 先被杀导致会话清理路径访问已死 transport。
 		quitCleanup.register("dsh", async () => {
@@ -6666,454 +4004,66 @@ app
 		// 必须走只读磁盘扫描，不能依赖 host-ready——否则会与 dsh-web 抢同一份 DSH_HOME。
 		// Web 端 /api/chat 的「绑定智能体角色设定」已注入记账（与桌面 IPC 的 personaInjectedSessions 同语义）：
 		// 主进程内两个发送入口共用 applyBoundAgentPersona 的纯语义，各自持有本入口的已注入集合。
-		const webPersonaInjectedSessions = new Set<string>();
-		webServiceManager = new WebServiceManager({
-			// 令牌持久化回写：manager 内自动生成/轮换/手动修改后落盘，重启沿用同一令牌。
-			persistToken: (state) => {
-				void settingsStore.update({ webServiceToken: state.token, webServiceTokenGeneratedAt: state.generatedAt, webServiceTokenExpiresIn: state.expiresIn }).catch((error) => appLogger.error("[WebService] persist token failed", error));
-			},
-			// dev 模式（electron-vite dev 不产出 out/renderer 构建物）下，静态资源
-			// 代理到 vite dev server，外部 Web 端加载重构后的 React 版页面并支持热更新；
-			// 打包/正式构建走 out/renderer 构建产物，此值为空。
-			devRendererUrl: shouldUseDevRendererUrl() ? process.env.ELECTRON_RENDERER_URL : undefined,
-			// 订阅 pi agent 事件流：供 Web SSE 端点转发给浏览器（与 FeishuBridge 同源机制）。
-			subscribePiEvents: (handler) => agentManager.addLocalEventListener((agentId, event) => handler(agentId, event as never)),
-			// agentId → sessionId 路由：pi 事件只有 agentId，SSE 连接按 session 订阅。
-			getSessionIdForAgent: (agentId) => sessionRuntimeCoordinator.getSessionId(agentId),
-			// 非 pi 后端（DSH）的通道事件：正文/思考/工具卡不在 pi 事件流里。只订 DSH 网关，
-			// 不能订 compositeAgentGateway（它把 pi 的 agents:text-stream 一并转发，会与上面
-			// 的 pi 事件源重复推帧）。agents:state 是数组无 agentId，天然被过滤。
-			subscribeAgentChannelEvents: (handler) =>
-				dshAgentManager.onOutput((channel, payload) => {
-					const agentId = payload && typeof payload === "object" && "agentId" in payload ? (payload as { agentId?: unknown }).agentId : undefined;
-					if (typeof agentId !== "string") return;
-					handler(agentId, channel, payload);
-				}),
-			// ACP 后端的实时流：会话正文在 agents:message 投影快照里（全量替换），
-			// 回合终态只在 agents:runtime-state 里（settleAcpTurn 在工具-only 回合不写任何标记）。
-			// 同 DSH 只订各自的 manager，不订聚合网关（否则会把 pi 帧重复翻译一遍）。
-			subscribeAcpChannelEvents: (handler) =>
-				acpAgentManager?.onOutput((channel, payload) => {
-					const agentId = payload && typeof payload === "object" && "agentId" in payload ? (payload as { agentId?: unknown }).agentId : undefined;
-					if (typeof agentId !== "string") return;
-					handler(agentId, channel, payload);
-				}) ?? (() => {}),
-			// ACP 工具清单（只给 id/name，command/args/env 不外发）：Web 端后端选择器的 ACP 入口。
-			// 未开启 ACP 或没有启用的工具时返回空数组，Web 端就不展示 ACP 选项。
-			// EasyTier 托管配置下载：手机端「导入配置」用；未配置时返回空串（路由 404）
-			getEasyTierConfigToml: () => remoteAccessManager?.buildEasyTierConfigToml() ?? "",
-			listAcpTools: () => {
-				const settings = settingsStore.get();
-				if (settings.acpEnabled !== true) return [];
-				return (settings.acpTools ?? []).filter((tool) => tool.enabled).map((tool) => ({ id: tool.id, name: tool.name }));
-			},
-			// 宿主版本号：/api/state 的 version 投影，Web 端侧栏底栏展示。
-			getAppVersion: () => app.getVersion(),
-			listProjects: () => projectStore.list().filter(isLocalProject),
-			createProject: (path) => projectStore.add(path, undefined, settingsStore.get().wslEnabled ? "wsl" : "windows"),
-			deleteProject: async (projectId) => {
-				if (!projectStore.get(projectId) || projectStore.get(projectId)?.kind === "chat") return false;
-				const childIds = projectStore.listWorktreeChildren(projectId).map((child) => child.id);
-				// 与 IPC 同一顺序：先清 catalog 引用再删项目（见 removeProjectWithSessions）。
-				await removeProjectWithSessions({ projects: projectStore, sessions: sessionCatalog }, projectId, { childProjectIds: childIds });
-				return true;
-			},
-			listModels: async (force?: boolean) => {
-				const snapshot = force ? await piModelCapabilityCache?.refresh() : await piModelCapabilityCache?.ensure();
-				return snapshot?.models ?? (force ? refreshModelList(piLocator, settingsStore, configManager) : fetchModelList(piLocator, settingsStore, configManager));
-			},
-			listSessions: async (projectId) => {
-				const project = projectStore.get(projectId);
-				return (await sessionScannerForProject(project)).list(project?.path);
-			},
-			listCatalogSessions: async (projectId) => {
-				// 与桌面 sessionsListCatalog 同规则：重发/编辑 fork 化后被替换的旧会话
-				// （supersededBy 已打标）从列表隐藏，否则 Web 端会出现「两个重复的会话」。
-				if (!projectId) {
-					return sessionCatalog
-						.listEntries()
-						.map((entry) => sessionCatalog.getRecord(entry.id))
-						.filter((record): record is SessionRecord => Boolean(record) && !record?.supersededBy);
-				}
-				const project = projectStore.get(projectId);
-				if (!project) throw new Error(mainCopy("project.notFound"));
-				// 本地 sessionScanner 不能扫远端项目（远端会话扫描属 Phase 4）。
-				if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
-				let projectPath = project.path;
-				const settings = settingsStore.get();
-				const wsl = resolveProjectWslIdentity(project, settings);
-				if (wsl !== undefined) {
-					projectPath = projectPath.replace(/^([A-Za-z]):\\/, (_: string, drive: string) => `/mnt/${drive.toLowerCase()}/`).replace(/\\/g, "/");
-				}
-				const scanner = wsl !== undefined ? await wslSessionScannerFor(wsl) : sessionScanner;
-				const summaries = await scanner.list(projectPath);
-				const scanned = await sessionCatalog.mergeScanned(projectId, summaries, wsl !== undefined ? { wslDistro: wsl.distro, wslUser: wsl.user } : {});
-				// 同上：supersededBy 隐藏规则与桌面列表一致（mergeScanned 可能重新接上被打标的旧会话）
-				const records = scanned.filter((record) => !record.supersededBy);
-				const bindings = sessionRuntimeCoordinator.attachCatalogRuntimes(records);
-				for (const binding of bindings) {
-					const tab = agentManager.list().find((candidate) => candidate.id === binding.agentId);
-					if (tab) emitSessionRuntimeEvent(tab.id, agentEventTags.agentsState, tab);
-				}
-				return records;
-			},
-			createSessionDraft: async (input) => {
-				const project = projectStore.get(input.projectId);
-				if (!project) throw new Error(mainCopy("project.notFound"));
-				const projectWsl = resolveProjectWslIdentity(project, settingsStore.get());
-				// 后端白名单（渲染层输入不可信）：只认 dsh/acp，其余按 pi；acp 必须带工具 id。
-				const backend = input.backend === "dsh" ? "dsh" : input.backend === "acp" ? "acp" : undefined;
-				const acpToolId = backend === "acp" && typeof input.acpToolId === "string" ? input.acpToolId : undefined;
-				// ACP 的模型/思考由 agent CLI 自持（session/config options），PiDeck 的 models.json
-				// 对它无意义：与桌面 IPC（sessionIpc createDraft 的 nonPiBackend 分支）同规，不写偏好。
-				const acp = backend === "acp";
-				const draft = await sessionCatalog.createDraft({
-					projectId: input.projectId,
-					title: input.title?.trim() || mainCopy("session.newTitle"),
-					environment: projectWsl !== undefined ? "wsl" : "native",
-					...(projectWsl !== undefined ? { wslDistro: projectWsl.distro, wslUser: projectWsl.user } : {}),
-					backend,
-					acpToolId,
-					model: !acp && input.model ? createSessionModelPreference(input.model.provider, input.model.modelId, input.model.modelName) : undefined,
-					thinkingLevel: acp ? undefined : input.thinkingLevel,
-				});
-				// standby 补热：与桌面 IPC（sessionIpc createDraft）同款——Web 建草稿即「马上要开聊」，
-				// 趁用户输入空窗后台预热 pi 进程；首条消息经 activateRuntime 认领实现秒级启动。
-				// fire-and-forget；ensure 幂等且受 standbyRuntimeEnabled 设置闸。
-				if (draft.backend !== "dsh" && draft.backend !== "acp") agentManager.ensureStandbyAgent(draft.projectId);
-				// Web 建的草稿不是渲染进程发的：不广播侧栏就一直看不到这一行（issue #436 同类缺口）。
-				notifyCatalogRefreshed([draft.projectId]);
-				return draft;
-			},
+		startWebService({
+			appLogger,
+			settingsStore,
+			securityStore,
+			agentManager,
+			projectStore,
+			sessionScanner,
+			configManager,
+			piLocator,
+			dshAgentManager,
+			dshHost,
+			promptManager,
+			xuePromptManager,
+			skillManager,
+			extensionManager,
+			gitService,
+			fileSystemService,
+			wechatServiceRef,
+			sessionForkCommands,
+			getSessionCatalog: () => sessionCatalog,
+			getSessionRuntimeCoordinator: () => sessionRuntimeCoordinator,
+			getAcpAgentManager: () => acpAgentManager,
+			getAgentProfileStore: () => agentProfileStore,
+			getPiModelCapabilityCache: () => piModelCapabilityCache,
+			getTerminalManager: () => terminalManager,
+			getRemoteAccessManager: () => remoteAccessManager,
+			getWebServiceManager: () => webServiceManager,
+			mainCopy,
+			shouldUseDevRendererUrl,
+			sessionScannerForProject,
+			wslSessionScannerFor,
+			emitSessionRuntimeEvent,
+			emitSessionRuntimeDetach,
+			emitReplacementState,
+			notifyCatalogRefreshed,
 			createAnonymousSession,
-			updateSessionRecord: async (sessionId, patch) => {
-				const entry = sessionCatalog.get(sessionId);
-				if (!entry) throw new Error(mainCopy("session.notFound"));
-				const title = patch.title?.trim();
-				if (title && title !== entry.title) {
-					// Keep the same manual-over-auto ordering as the IPC domain handler.
-					await sessionCatalog.claimTitleOwnership(sessionId);
-					const target = sessionRuntimeCoordinator.getTarget(sessionId);
-					if (target) {
-						const renamed = await sessionRuntimeCoordinator.renameRuntime(target, title);
-						if (!renamed.ok) throw sessionCommandIpcError(renamed.error);
-					} else if (entry.filePath) {
-						await sessionScanner.rename(entry.filePath, title);
-					}
-				}
-				const updated = await sessionCatalog.update(sessionId, {
-					...patch,
-					...(patch.model ? { model: createSessionModelPreference(patch.model.provider, patch.model.modelId, patch.model.modelName) } : {}),
-					title: title || undefined,
-				});
-				// 改名/换模型都是从 Web 端改的，侧栏标题不重拉就一直停在旧名上（issue #436）。
-				notifyCatalogRefreshed([updated.projectId]);
-				return updated;
-			},
-			deleteSessionRecord: async (sessionId) => {
-				const entry = sessionCatalog.get(sessionId);
-				if (!entry) return false;
-				// Web 删除与桌面 IPC 同一策略：先解绑再删 catalog，agent 后台停。
-				await sessionRuntimeCoordinator.releaseRuntimeForDelete(sessionId);
-				// 微信桥的绑定指向已删会话时必须一起清掉：留着它下次收信会拿旧 sessionPath
-				// 去恢复一个刚被删掉的文件，聊天就永久卡在「会话创建失败」。
-				// （飞书侧同样存在这个悬挂，但那是既存行为，不在微信通道的改动范围内。）
-				wechatServiceRef.current?.removeBindingsForSession(sessionId);
-				// 用记录上的本机路径：getLocalFilePath 对 ssh locator 会抛 UNSUPPORTED_PROJECT_LOCATION（远端记录没有本机文件可删）。
-				if (entry.filePath) await sessionScanner.delete(entry.filePath);
-				// DSH 没有 session.delete：与 pi 端同语义删除——把 host 会话目录移入系统回收站
-				// （可恢复；trashPath 失败时抛错由 IPC 呈现，拒绝静默硬删；目录已不在=幂等成功）。
-				// cwd 取项目目录（DSH workspace 编码同源）；项目被移除过则扫 sessions 树兑底。
-				if (entry.backend === "dsh" && entry.dshSessionId) {
-					const project = projectStore.get(entry.projectId);
-					await dshHost.deleteSession(entry.dshSessionId, project?.path ?? "");
-					// 记下墓碑：host 目录已移出 sessions 树，避免刷新把残留索引/回收站路径再导回侧栏。
-					await sessionCatalog.rememberDismissedDshSession(entry.dshSessionId);
-				}
-				await sessionCatalog.removeWithDescendants(sessionId);
-				// 删除成功后才广播：渲染层收到事件会立刻重拉列表，早发会把刚删的行再拉回来一次。
-				// 缺这一句 = 通过 Web API 删会话后桌面端留下幽灵行（issue #436）。
-				notifyCatalogRefreshed([entry.projectId]);
-				return true;
-			},
-			copySessionRecord: async (sessionId) => {
-				const result = await copyCatalogSession(sessionId);
-				if (result.cancelled) return result;
-				// 副本同样是 Web 端发起的：不广播侧栏要等手动刷新才出现新行（issue #436）。
-				const projectId = (result.targetSessionId ? sessionCatalog.get(result.targetSessionId)?.projectId : undefined) ?? sessionCatalog.get(sessionId)?.projectId;
-				if (projectId) notifyCatalogRefreshed([projectId]);
-				return result;
-			},
-			exportSessionRecordHtml: (sessionId) => exportCatalogSessionHtml(sessionId),
-			readSessionReferenceMessages: (sessionId) => readCatalogSessionReferenceMessages(sessionId),
-			readSessionMessages: async (sessionId) => {
-				const entry = sessionCatalog.get(sessionId);
-				// DSH 会话没有 pi 会话文件：读 host 历史事件流的一页（有界），
-				// 与分页路径同源；未挂载 DSH 后端时返回空窗口。
-				if (entry?.backend === "dsh" && entry.dshSessionId && dshAgentManager) {
-					const page = await dshAgentManager.readHistoryPage(entry.dshSessionId, undefined, { maxMessages: 1000 });
-					return { messages: page.messages, total: page.total, windowStart: 0, truncated: false };
-				}
-				// ACP 会话同样没有 pi 会话文件：历史来自运行时投影 / 内存快照 / deck 侧归档
-				// （readMessagesWithArchive 异步读口）。没有 acpSessionId（草稿）或归档为空时
-				// 退化成空窗口，与分页接口同源（acpMessagePage 按轮次切片）。
-				if (entry?.backend === "acp" && entry.acpSessionId) {
-					const messages = await acpAgentManager.readMessagesWithArchive(entry.acpSessionId);
-					return { messages, total: messages.length, windowStart: 0, truncated: false };
-				}
-				if (!entry?.filePath) return { messages: [], total: 0, windowStart: 0, truncated: false };
-				// 有界加载窗口（9 轮 + 条目预算），不是全量历史：全量下发在大会话上会同时顶爆
-				// 主进程与渲染层（#213）。更早历史请走分页接口（Web：/messages/page）。
-				const window = await agentManager.readSessionLoadWindow(entry.filePath, sessionId, { projectId: entry.projectId });
-				return { ...window, truncated: window.windowStart > 0 };
-			},
-			readSessionMessagePage: async (sessionId, before, pageSize) => {
-				const entry = sessionCatalog.get(sessionId);
-				// DSH 会话没有 pi 会话文件：历史浏览走 host 的 session.history 事件流翻页
-				// （游标 = 事件 seq），与 pi 的磁盘分页同形状（messages/total/nextBefore）。
-				if (entry?.backend === "dsh" && entry.dshSessionId && dshAgentManager) {
-					return dshAgentManager.readHistoryPage(entry.dshSessionId, before, { turnCount: pageSize });
-				}
-				// ACP 分页：归档/投影消息按轮次切片（与桌面 IPC sessions:catalog-read-message-page 同源）。
-				if (entry?.backend === "acp" && entry.acpSessionId) {
-					return acpMessagePage(await acpAgentManager.readMessagesWithArchive(entry.acpSessionId), before, pageSize);
-				}
-				if (!entry?.filePath) return { messages: [], total: 0, nextBefore: null };
-				return agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize, undefined, { projectId: entry.projectId });
-			},
-			// 会话内全文检索（Web 搜索弹层）：与桌面 IPC sessions:search-in-session 同源口径——
-			// 入参是 SessionRecord.id，后端身份一律从 catalog 解析（Web 端传不了路径）；pi 走
-			// session-index sidecar（索引未就绪 → null，前端回退本地已加载搜索），DSH 走 host
-			// 历史投影后本地词元匹配。命中 id 是 JSONL 行 id，与 Web 消息 id 同源可直接锚定。
-			searchSessionMessages: async (sessionId, query) => {
-				const entry = sessionCatalog.get(sessionId);
-				if (!entry) return null;
-				if (entry.backend === "dsh") {
-					const dshSessionId = entry.dshSessionId;
-					const searcher = dshSessionId ? dshAgentManager : null;
-					if (!dshSessionId || !searcher) return null;
-					try {
-						const found = await searcher.searchSessionMessages(dshSessionId, query);
-						if (found.hitCount === 0) return { sessions: [], totalHitSessions: 0, truncated: false };
-						return {
-							sessions: [{ filePath: `dsh:${dshSessionId}`, updatedAtMs: entry.updatedAt, matches: found.matches, hitCount: found.hitCount }],
-							totalHitSessions: 1,
-							truncated: found.hitCount > found.matches.length,
-						};
-					} catch {
-						return null;
-					}
-				}
-				// ACP：没有 pi JSONL，历史来自运行时投影 / 内存快照 / deck 侧归档（异步读口）。
-				// 匹配规则与桌面 IPC 的 ACP 分支同源（findSessionMatches），命中 id 是投影消息 id。
-				if (entry.backend === "acp") {
-					const acpSessionId = entry.acpSessionId;
-					if (!acpSessionId) return null;
-					try {
-						const messages = await acpAgentManager.readMessagesWithArchive(acpSessionId);
-						const found = findSessionMatches(messages, query);
-						if (found.hitCount === 0) return { sessions: [], totalHitSessions: 0, truncated: false };
-						return {
-							sessions: [{ filePath: `acp:${acpSessionId}`, updatedAtMs: entry.updatedAt, matches: found.matches, hitCount: found.hitCount }],
-							totalHitSessions: 1,
-							truncated: found.hitCount > found.matches.length,
-						};
-					} catch {
-						return null;
-					}
-				}
-				if (!entry.filePath) return null;
-				return sessionMessageSearchInFile(entry.filePath, query);
-			},
-			// 供应商额度用量：与桌面圆球面板同一份 ConfigManager 探针（含凭据脱敏与「未开启」门控）。
-			fetchProviderUsage: (provider, backend) => configManager.fetchProviderUsage(provider, backend),
-			sendSessionPrompt: async (input) => {
-				// 绑定智能体的会话：仅在首轮把角色设定拼进载荷（dsh 退化为可见前缀，其余后端走隐藏通道）。
-				// 桌面 IPC 是另一个发送入口，两边共用 applyBoundAgentPersona 的判定与组合语义；
-				// 注入点必须在 send 之前——会话首条一旦落盘，角色设定就随上下文生效。
-				const persona = agentProfileStore?.getBoundAgent(input.sessionId)?.systemPrompt;
-				const record = persona ? sessionCatalog.get(input.sessionId) : undefined;
-				const applied = applyBoundAgentPersona({
-					prompt: input,
-					persona,
-					sessionStatus: record?.status,
-					backend: record?.backend,
-					alreadyInjected: webPersonaInjectedSessions.has(input.sessionId),
-				});
-				if (applied.injected) {
-					void appLogger.debug("session", "Bound agent persona injected (web)", { sessionId: input.sessionId, backend: record?.backend ?? "pi", personaChars: persona?.length ?? 0 });
-				}
-				const result = await sessionRuntimeCoordinator.send(applied.prompt);
-				if (result.accepted && applied.injected) webPersonaInjectedSessions.add(input.sessionId);
-				if (result.agentId) {
-					const tab = agentManager.list().find((candidate) => candidate.id === result.agentId);
-					if (tab) emitSessionRuntimeEvent(tab.id, agentEventTags.agentsState, tab);
-				}
-				return result;
-			},
-			// 智能体目录（只读投影）：Web 端「智能体」面板与「使用」（建会话 + 落绑定）同源。
-			// store 在启动后段才装配（闭包在请求时求值）：未装配时返回 undefined → 路由回 503，
-			// Web 端不展示一个空面板。
-			listAgentProfiles: () => (agentProfileStore ? agentProfileStore.list() : undefined),
-			getSessionAgentBindings: () => (agentProfileStore ? agentProfileStore.getSnapshot().settings.sessionAgentBindings : undefined),
-			bindSessionAgent: async (sessionId, agentId) => {
-				if (!agentProfileStore) throw new Error("agent profiles are not available");
-				await agentProfileStore.bindSession({ sessionId, agentId });
-			},
-			listSessionRuntimes: () => sessionRuntimeCoordinator.listRuntimes(),
-			listPendingUiRequests: () => sessionRuntimeCoordinator.listPendingUiRequests(),
-			respondToUi: (input) => sessionRuntimeCoordinator.respondToUi(input),
-			// S6.3：Web 端 DSH 工具面板（goals/subagents/skills）——与桌面 IPC 同源
-			listDshSubagents: (agentId) => dshAgentManager.listSubagents(agentId),
-			readDshSubagentHistory: (agentId, childSessionId, beforeSeq, maxMessages) => dshAgentManager.readSubagentHistory(agentId, childSessionId, beforeSeq, maxMessages),
-			listDshSkills: (agentId) => dshAgentManager.listSkills(agentId),
-			// S6.5：Web 端 DSH 插件管理（动态 Cordis 插件，与桌面配置页同源）
-			listDshDynamicPlugins: () => dshHost.listDynamicPlugins(),
-			listDshStaticPlugins: () => dshHost.listStaticPlugins(),
-			uninstallDshUserPlugin: (input) => dshHost.uninstallUserPlugin(input),
-			installDshPlugin: (input) => dshHost.installDynamicPlugin(input),
-			runDshPlugin: (input) => dshHost.runDynamicPlugin(input),
-			stopDshPlugin: (input) => dshHost.stopDynamicPlugin(input),
-			uninstallDshPlugin: (input) => dshHost.uninstallDynamicPlugin(input),
-			listSessionRuntimeModels: (target) => sessionRuntimeCoordinator.listRuntimeModels(target),
-			stopSessionRuntime: stopSessionRuntime,
-			abortSessionRuntime: (target) => sessionRuntimeCoordinator.abortRuntime(target),
-			restartSessionRuntime: async (target) => {
-				terminalManager.closeAgent(target.agentId);
-				const result = await sessionRuntimeCoordinator.restartRuntime(target);
-				if (result.ok) {
-					if (!result.value.session.noSession) emitSessionRuntimeDetach(target);
-					// 与桌面 IPC 同规约：新 runtime 的消息窗口在绑定前 flush 会被丢弃，
-					// 重启后必须重下发（id 已由会话级身份延续保持稳定，不触发整窗 remount）。
-					emitReplacementState(result.value.runtime, true);
-				}
-				return result;
-			},
-			compactSessionRuntime: (target, prompt) => sessionRuntimeCoordinator.compactRuntime(target, prompt),
-			getSessionRuntimeState: (target) => sessionRuntimeCoordinator.getRuntimeState(target),
-			listSessionRuntimeCommands: (target) => sessionRuntimeCoordinator.listRuntimeCommands(target),
-			exportSessionRuntimeHtml: (target) => sessionRuntimeCoordinator.exportRuntimeHtml(target),
-			editSessionRuntimeMessage: (target, messageId, newText) => sessionRuntimeCoordinator.editRuntimeMessage(target, messageId, newText),
-			deleteSessionRuntimeMessage: (target, messageId) => sessionRuntimeCoordinator.deleteRuntimeMessage(target, messageId),
-			listRewindCheckpoints: (target, params) => sessionRuntimeCoordinator.listRewindCheckpoints(target, params),
-			getRewindCheckpointDiff: (target, checkpointId) => sessionRuntimeCoordinator.getRewindCheckpointDiff(target, checkpointId),
-			restoreRewindCheckpoint: (target, checkpointId, scope) => sessionRuntimeCoordinator.restoreRewindCheckpoint(target, checkpointId, scope),
-			prepareSessionRuntimeResend: (target, messageId) => sessionRuntimeCoordinator.prepareRuntimeResend(target, messageId),
-			setSessionRuntimeModel: (target, provider, modelId, modelName) => sessionRuntimeCoordinator.setRuntimeModel(target, provider, modelId, modelName),
-			setSessionRuntimeThinking: (target, level) => sessionRuntimeCoordinator.setRuntimeThinking(target, level),
-			setSessionRuntimePermission: (target, preset) => sessionRuntimeCoordinator.setRuntimePermission(target, preset),
-			// Pi 会话安全等级：与桌面 SecurityLevelMenu 同源（SecurityStore 全局默认 + 会话覆盖），
-			// 路由层已校验会话/后端/等级，这里只做存储写入（策略快照由 SecurityStore 刷新）。
-			getSecurityConfig: () => securityStore.getConfig(),
-			setSessionSecurityLevel: (sessionId, levelId) => securityStore.setSessionLevel(sessionId, levelId),
-			// fork/clone 与桌面 IPC 同源（sessionForkCommands 统一命令层）：
-			// 重发/编辑 fork 化（mutationFork/branchMode）、supersededBy 隐藏、
-			// catalog 刷新广播都在那一层维护，两端行为必须一致。
-			cloneSessionRuntime: (target) => sessionForkCommands.cloneRuntimeSession(target),
-			getForkMessages: (target) => sessionRuntimeCoordinator.getRuntimeForkMessages(target),
-			forkRuntimeSession: (target, entryId, options) => sessionForkCommands.forkRuntimeSession(target, entryId, options),
-			// Web 重发/编辑 fork 化：冷会话（无 runtime）先激活（与桌面 activateRuntime 同源）
-			activateSessionRuntime: (sessionId) => sessionRuntimeCoordinator.activateRuntime(sessionId),
-			// 会话活动监控（第二批 strips）：与桌面 sessionIpc.ts 同源同闸门
-			listSessionSubagents: async (sessionId) => {
-				const entry = sessionCatalog.get(sessionId);
-				if (!entry?.filePath) return [];
-				// 锚点对账要在读取侧做（liveRuntimeStartedAt，同桌面 sessionIpc）：
-				// 运行中子代理只剩 start 锚点（record 完成时才写），不传对账时间会一律
-				// 合成 stopped，面板误显「已停止」（issue #300）。
-				const liveTarget = sessionRuntimeCoordinator.getTarget(sessionId);
-				const liveTab = liveTarget ? agentManager.list().find((tab) => tab.id === liveTarget.agentId) : undefined;
-				let records = await agentManager.readSessionSubagentRecords(entry.filePath, { liveRuntimeStartedAt: liveTab?.createdAt });
-				// 与桌面同款对账：无活 runtime 时把残留 running 降级（终态通知未落盘）；
-				// 活 runtime 按本代启动时间降级上一代派发的 running。
-				if (!liveTarget) {
-					if (!sessionRuntimeCoordinator.isActivating(sessionId)) {
-						records = downgradeStaleRunning(records);
-					}
-				} else {
-					if (liveTab?.createdAt) {
-						records = downgradeRunningStartedBefore(records, liveTab.createdAt);
-					}
-				}
-				return records;
-			},
-			listSessionTodo: (sessionId) => {
-				const entry = sessionCatalog.get(sessionId);
-				// DSH/生图会话无 pi 会话文件，无 todo 快照
-				if (!entry?.filePath || entry.backend === "dsh" || entry.backend === "imagegen") return Promise.resolve(undefined);
-				return agentManager.readSessionTodo(entry.filePath);
-			},
-		});
-		webServiceManager.workspaceRoutes = new WebWorkspaceRoutes({
-			listProjects: () => projectStore.list(),
-			promptTemplates: promptManager,
-			git: {
-				isGitRepo: (cwd) => gitService.isGitRepo(cwd),
-				getBranches: (cwd) => gitService.getBranches(cwd),
-				getStatus: (cwd) => gitService.getStatus(cwd),
-				getWorkspaceFileDiff: (cwd, group, filePath, maxBytes) => gitService.getWorkspaceFileDiff(cwd, group, filePath, maxBytes),
-				getCommitLog: (cwd, options) => gitService.getCommitLog(cwd, options),
-			},
-			files: {
-				listTree: (root, maxDepth, directory) => fileSystemService.listTree(root, maxDepth, directory),
-			},
-			// Web 端预览项目外文件时的用户意图门：与桌面端「项目外文件链接」同一套安全等级规则
-			// （denyDirs > 敏感文件 > 目录边界），ask 由 Web 端弹「只读查看」确认后再带 confirm=1 重请求。
-			userReadAccess: (input) => evaluateUserReadAccess(securityStore.getConfig(), input),
-			// 提示词库只在 SQLite 库可用时注入（缺库时路由返回 503，前端隐藏入口）
-			prompts: xuePromptManager
-				? {
-						list: (opts) => xuePromptManager.list(opts),
-						detail: (slug, category) => xuePromptManager.detail(slug, category),
-					}
-				: undefined,
-			// 技能/扩展资产面板（第二批）：与桌面设置页同源；列表脱敏在路由层做
-			assets: {
-				listSkills: () => skillManager.list(),
-				toggleSkill: (skillPath, enabled) => skillManager.toggle(skillPath, enabled),
-				listExtensions: () => extensionManager.list(),
-				setExtensionEnabled: (source, enabled, scope, path, projectId) => extensionManager.toggleFromUi(source, enabled, scope, path, projectId),
+			copyCatalogSession,
+			exportCatalogSessionHtml,
+			readCatalogSessionReferenceMessages,
+			sessionMessageSearchInFile,
+			sessionCommandIpcError,
+			stopSessionRuntime,
+			assign: (patch) => {
+				webServiceManager = patch.webServiceManager;
 			},
 		});
 		// C12：退出清理登记（before-quit 统一 runAll）
 		quitCleanup.register("theme-schedule", () => clearThemeScheduleTimer());
 		quitCleanup.register("update-check", () => updateService?.stop());
 		quitCleanup.register("web-service", () => webServiceManager?.stop());
-		// 外网访问编排器：状态推送直达主窗口；渠道随 Web 服务启停收敛
-		remoteAccessManager = new RemoteAccessManager({
-			logger: appLogger,
-			getWebServiceStatus: () => webServiceManager.getStatus(),
-			// 隧道参数每次 start 取最新设置；修改后重启隧道生效
-			getTunnelOptions: () => {
-				const s = settingsStore.get();
-				return { protocol: s.webRemoteCloudflaredProtocol ?? "http2", extraArgs: s.webRemoteCloudflaredExtraArgs };
-			},
-			// EasyTier 自动检测读不到虚拟 IP 时的用户兜底（设置项为空串表示未启用）
-			getEasyTierManualIp: () => settingsStore.get().webRemoteEasyTierIp ?? "",
-			// 解压版 CLI / 非默认目录安装：自动检测找不到时用用户指定的路径
-			getEasyTierCliPath: () => settingsStore.get().webRemoteEasyTierCliPath ?? "",
-			// 托管配置：三个字段齐备才接管 core；缺任意一项返回 null，退回只读探测
-			getEasyTierConfig: () => {
-				const s = settingsStore.get();
-				const networkName = s.webRemoteEasyTierNetworkName?.trim() ?? "";
-				const networkSecret = s.webRemoteEasyTierNetworkSecret?.trim() ?? "";
-				if (!networkName || !networkSecret) return null;
-				return {
-					networkName,
-					networkSecret,
-					peers: s.webRemoteEasyTierPeers ?? [],
-					bindIpv4: s.webRemoteEasyTierIp ?? "",
-					instanceName: networkName,
-				};
-			},
-			// 固定路径：服务安装时 -c 指向它，之后改配置只重写文件、不必重装服务
-			getEasyTierConfigPath: () => join(app.getPath("userData"), "easytier", "network.toml"),
-			pushState: (state) => {
-				const win = mainWindow;
-				if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.webRemoteAccessChanged, state);
+		startRemoteAccess({
+			appLogger,
+			settingsStore,
+			quitCleanup,
+			getWebServiceManager: () => webServiceManager,
+			getMainWindow: () => mainWindow,
+			assign: (patch) => {
+				if (patch.remoteAccessManager !== undefined) remoteAccessManager = patch.remoteAccessManager;
 			},
 		});
-		quitCleanup.register("web-remote-access", () => remoteAccessManager?.dispose());
 		terminalManager = new TerminalSessionManager(
 			(agentId) => {
 				// 多后端：pi 与 DSH runtime 各持自己的 tab 表，终端工作目录必须经合成网关
@@ -7205,7 +4155,7 @@ app
 				return sessionScanner.inferSessionNameAndValidity(filePath, options);
 			},
 			// 远端会话登记（ensureRemoteSession）也写 hostId 引用，用同一道门。
-			{ referenceGuard: remoteReferenceWriteGuard },
+			{ referenceGuard: referenceWriteGuard },
 		);
 		automationStore = new AutomationStore(join(app.getPath("userData"), "automation.json"));
 		const automationStorePreload = automationStore.load();
@@ -7228,120 +4178,38 @@ app
 			if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.sessionGroupsChanged, null);
 		});
 		await Promise.all([sessionCatalog.load(), automationStorePreload, agentProfileStorePreload, favoritesStorePreload, sessionGroupStorePreload]);
-		// 云同步编排：主进程唯一持有密码/派生 key/Provider 凭据；扫描与恢复都走主进程。
-		cloudSyncManager = new CloudSyncManager({
-			userDataDir: app.getPath("userData"),
-			homeDir: app.getPath("home"),
-			// DSH 会话同步：DSH_HOME 与 DshHost 同一套解析（设置覆盖 > ~/.dsh > 应用私有目录）。
-			dshHomeDir: resolveDshHomeDir(settingsStore.get().dshHomeDir ?? "", app.getPath("userData")),
-			deviceName: hostname(),
-			appVersion: app.getVersion(),
-			listProjects: () => projectStore.list(),
-			listSessionRecords: () =>
-				sessionCatalog
-					.listEntries()
-					.map((entry) => sessionCatalog.getRecord(entry.id))
-					.filter((record): record is SessionRecord => Boolean(record)),
-			getDesktopSettings: () => settingsStore.get(),
-			// filterSyncableDesktopSettings 已把未知 key 过滤掉，这里收窄为 AppSettings 字段。
-			updateDesktopSettings: async (patch) => {
-				await settingsStore.update(patch as Partial<AppSettings>);
-			},
-			// M5：包扩展安装走 ExtensionManager（pi install）；失败只记录缺失，不阻断同步。
-			installExtension: async (source) => {
-				try {
-					await extensionManager.install(source);
-					return { ok: true };
-				} catch (error) {
-					return { ok: false, error: error instanceof Error ? error.message : String(error) };
-				}
-			},
-			listExtensions: async () => {
-				try {
-					const result = await extensionManager.list(false);
-					return result.extensions.map((summary) => ({
-						source: summary.source,
-						scope: summary.scope,
-					}));
-				} catch {
-					return [];
-				}
-			},
-			onStateChanged: () => broadcastCloudSyncStateChanged(),
-			log: (domain, message, details) => void appLogger.info(domain, message, details),
-		});
-		await cloudSyncManager.initialize();
-		// C12：退出清理登记（before-quit 统一 runAll；cloud-sync 定时器与适配器随进程结束回收）
-		quitCleanup.register("cloud-sync", () => cloudSyncManager?.dispose());
-		// 智能体一次性调用（划词工具 / 市场面板）：复用提示词增强侧车协议，但**独立实例**。
-		// 侧车进程常驻、首次调用才拉起（EnhancePromptService 的现有语义），启动期只做装配。
-		agentInvokeCompletionService = createCompletionHelperService("agent-invoke");
-		// C12：常驻子进程，退出时必须回收（与 enhance-prompt 同一清理登记表）。
-		quitCleanup.register("agent-invoke", () => agentInvokeCompletionService?.dispose());
-		agentInvokeService = new AgentInvokeService({
-			profiles: agentProfileStore,
-			completion: agentInvokeCompletionService,
-			logger: {
-				warn: (message) => void appLogger.warn("agent-invoke", message),
-				error: (message) => void appLogger.error("agent-invoke", message),
+		// 云同步装配（构造 → initialize → 退出清理登记）整体搬到 startup/cloudSync.ts：
+		// 这里原位调用，构造与登记次序不变。
+		await startCloudSync({
+			appLogger,
+			broadcastCloudSyncStateChanged,
+			extensionManager,
+			projectStore,
+			quitCleanup,
+			sessionCatalog,
+			settingsStore,
+			assign: (patch) => {
+				cloudSyncManager = patch.cloudSyncManager;
 			},
 		});
-
-		// 系统级划词：独立浮窗（复用主 preload，渲染层与主窗口同一份 desktopApi）+ 服务 + 全局快捷键。
-		// 浮窗只在首次触发时创建；warmUp 预加载可把首次弹出延迟降到只剩 show。
-		const selectionToolPreloadPath = await prepareMainPreloadPath();
-		selectionToolWindow = new SelectionToolWindow({
-			preloadPath: selectionToolPreloadPath,
-			logger: appLogger,
-			devRendererUrl: process.env.ELECTRON_RENDERER_URL ?? null,
-		});
-		selectionToolService = new SelectionToolService({
-			window: selectionToolWindow,
-			logger: {
-				info: (scope, message, detail) => void appLogger.info(scope, message, detail),
-				warn: (scope, message, detail) => void appLogger.warn(scope, message, detail),
-				error: (scope, message, detail) => void appLogger.error(scope, message, detail),
+		// 智能体一次性调用 + 系统级划词（浮窗/服务/剪贴板监听/UIA 采集 + 退出清理 + 快捷键刷新接线）
+		// 搬到 startup/selectionTools.ts：这里原位调用，构造与登记次序不变。
+		await startSelectionTools({
+			agentProfileStore,
+			appLogger,
+			createCompletionHelperService,
+			flushSelectionShortcutConflictNotice,
+			prepareMainPreloadPath,
+			quitCleanup,
+			syncSelectionToolShortcut,
+			assign: (patch) => {
+				if (patch.agentInvokeCompletionService !== undefined) agentInvokeCompletionService = patch.agentInvokeCompletionService;
+				if (patch.agentInvokeService !== undefined) agentInvokeService = patch.agentInvokeService;
+				if (patch.selectionToolWindow !== undefined) selectionToolWindow = patch.selectionToolWindow;
+				if (patch.selectionToolService !== undefined) selectionToolService = patch.selectionToolService;
+				if (patch.selectionClipboardWatcher !== undefined) selectionClipboardWatcher = patch.selectionClipboardWatcher;
+				if (patch.windowsSelectionCapture !== undefined) windowsSelectionCapture = patch.windowsSelectionCapture;
 			},
-			suppressClipboardWatcher: (durationMs) => selectionClipboardWatcher?.suppressFor(durationMs),
-		});
-		// 复制即触发：外部应用复制文字 → 光标附近自动弹翻译浮窗（Magpie 式交互）。
-		// 自己的窗口有焦点时不触发：应用内复制由应用内划词处理，浮窗自己的复制也不会再弹一个。
-		selectionClipboardWatcher = new ClipboardSelectionWatcher({
-			readText: () => clipboard.readText(),
-			isOwnWindowFocused: () => BrowserWindow.getAllWindows().some((win) => !win.isDestroyed() && win.isFocused()),
-			onCaptured: (text) => {
-				void selectionToolService?.showText(text);
-			},
-			logger: { warn: (message, detail) => void appLogger.warn("selection-tool", message, detail) },
-		});
-		// Windows 原生划词：拖选/双击后直接 UIA 读选区；读不到时才靠上面的剪贴板兜底。
-		windowsSelectionCapture = new WindowsSelectionCapture({
-			onSelection: ({ text }) => {
-				selectionClipboardWatcher?.suppressFor(2500);
-				void selectionToolService?.showText(text);
-			},
-			logger: {
-				info: (message, detail) => void appLogger.info("selection-tool", message, detail),
-				warn: (message, detail) => void appLogger.warn("selection-tool", message, detail),
-			},
-		});
-		// 预热放在 registerIpc 之后（见下方 assemble 段）：浮窗加载即会 settings.get / agentProfiles.getSnapshot，
-		// 提前 warmUp 会让首帧拿到「服务未就绪」的拒绝（只是闪一下默认主题，但没必要）。
-		quitCleanup.register("selection-tool", () => {
-			selectionClipboardWatcher?.dispose();
-			selectionClipboardWatcher = null;
-			windowsSelectionCapture?.dispose();
-			windowsSelectionCapture = null;
-			selectionToolService?.dispose();
-		});
-		// 市场设置的「系统级划词」开关保存后即时生效（不必重启应用）。
-		agentProfileStore.onChanged(() => syncSelectionToolShortcut());
-		syncSelectionToolShortcut();
-		// 同一台机器可能同时跑 dev 与安装版：后启动的实例会因 globalShortcut 被前者占用而注册失败。
-		// 用户切回窗口/关掉另一个实例时重试一次，不必重启；仍失败则补发一次可执行提示。
-		app.on("browser-window-focus", () => {
-			syncSelectionToolShortcut();
-			flushSelectionShortcutConflictNotice();
 		});
 		// #354：身份归并会把被吸收的历史会话 ID 从 catalog 移除，而侧栏置顶按稳定 ID 存在
 		// settings.json 里，不迁移就是死链（用户看到置顶丢失）。必须在本行完成——它早于
@@ -7353,278 +4221,68 @@ app
 			logWarning: (cause) => void appLogger.warn("session-catalog", "Merged session id migration for pinned sessions failed", { cause }),
 		});
 
-		// ── 旧禁用记录 → pi 原生配置迁移（计划 A3/A5）──
-		// 启动期一次性执行：旧列表一旦被清理，原生过滤就是唯一生效来源。
-		// 失败/未解析时保留旧记录并记日志（下次启动幂等重试），不静默打开用户禁用的资源。
-		piResourceStateStore = new PiResourceStateStore(join(app.getPath("userData"), "pi-native-resources.json"));
-		piResourceConfigService = new PiResourceConfigService(
-			{
-				globalSettingsPath: () => join(configManager.getConfigDir(), "settings.json"),
-				resolveProject: async (projectId) => {
-					const project = projectStore.get(projectId);
-					// pi 原生资源配置作用在本机 `.pi/settings.json`：远端项目没有本机 root，按「项目不适用」返回 null。
-					if (!project || project.kind === "chat" || !isLocalProject(project)) return null;
-					const root = project.path;
-					const settings = settingsStore.get();
-					const resourceWslDistro = project.environment === "wsl" ? (project.wslDistro ?? settings.wslDistro) : undefined;
-					const trustPath = process.platform === "win32" && resourceWslDistro !== undefined ? toWslLinuxPath(root, { distro: resourceWslDistro }) : root;
-					return { root, trusted: (await configManager.getProjectTrustDecision(trustPath)) === true };
-				},
+		// 旧禁用记录 → pi 原生配置迁移（计划 A3/A5）整块搬到 startup/resourceMigration.ts：
+		// 这里原位调用，迁移在 Agent spawn 前门控的时机不变。
+		startResourceMigration({
+			agentManager,
+			appLogger,
+			configManager,
+			extensionManager,
+			projectResourceManager,
+			projectStore,
+			promptManager,
+			refreshExtensionProjection,
+			refreshPromptProjection,
+			refreshSkillProjection,
+			settingsStore,
+			skillManager,
+			assign: (patch) => {
+				if (patch.piResourceStateStore !== undefined) piResourceStateStore = patch.piResourceStateStore;
+				if (patch.piResourceConfigService !== undefined) piResourceConfigService = patch.piResourceConfigService;
+				if (patch.ensurePiResourceMigration !== undefined) ensurePiResourceMigration = patch.ensurePiResourceMigration;
 			},
-			piResourceStateStore,
-			{ projectTrust: async (projectId, _root) => (await configManager.getProjectTrustDecision(projectStore.get(projectId)?.path ?? "")) === true },
-		);
-		/**
-		 * 迁移依赖：全局与项目共用（项目迁移也需要全局资源做名称→路径映射）。
-		 * 迁移是「旧禁用记录 → 原生过滤规则」的唯一入口，必须在任何 Agent spawn 前跑完，
-		 * 否则退出白名单后旧记录不再有任何生效途径（见计划 A5）。
-		 */
-		const migrationDeps: import("./config/piResourceMigrationRunner").MigrationRunnerDeps = {
-			service: piResourceConfigService,
-			state: piResourceStateStore,
-			readSettings: () => settingsStore.get(),
-			resolveGlobalResources: async () => {
-				const settings = settingsStore.get();
-				const resources: ResolvedMigrationResource[] = [];
-				// 迁移只需要「旧禁用记录里的名字 → 原生过滤匹配值」的映射，直接用各 Manager
-				// 的列表（它们已按原生规则投影状态，但这里要的是全部条目，与启用与否无关）。
-				const extensionList = await extensionManager?.list(false).catch(() => null);
-				for (const item of extensionList?.extensions ?? []) {
-					if (!item.source || item.builtIn) continue;
-					// 包安装的扩展：`item.path` 是**包目录**，不能当顶层过滤值（写进去就是惰性规则，
-					// 让开关投影误判停用）；带 packageSource 后由规划器改成「整包停用」。
-					resources.push({ kind: "extensions", name: item.source, value: item.path ?? item.source, scope: item.scope === "project" ? "project" : "user", ...(isPackageSource(item.source) ? { packageSource: item.source } : {}) });
-				}
-				const skills = await skillManager?.list().catch(() => null);
-				for (const skill of skills?.skills ?? []) {
-					// pideck-global（自带技能）也要参与映射：老版本把它们装在 pi 的全局目录，
-					// 迁移时把旧禁用名翻成新路径的 -path 规则，用户的停用意图才不会丢。
-					if (skill.sourceId !== "pi-global" && skill.sourceId !== "agents-global" && skill.sourceId !== "pideck-global") continue;
-					resources.push({ kind: "skills", name: skill.name, value: skill.path, scope: "user" });
-				}
-				const prompts = await promptManager?.list().catch(() => null);
-				for (const template of prompts?.templates ?? []) {
-					if (template.scope === "project") continue;
-					resources.push({ kind: "prompts", name: template.name, value: template.path, scope: "user" });
-				}
-				return resources;
-			},
-			readProjectLegacyState: async (projectId) => projectResourceManager.readProjectLegacyDisables(projectId),
-			resolveProjectResources: async (projectId) => {
-				const project = projectStore.get(projectId);
-				if (!project) return [];
-				const resources: ResolvedMigrationResource[] = [];
-				for (const skill of (await projectResourceManager.list(projectId).catch(() => null))?.skills ?? []) {
-					if (typeof skill.path === "string") resources.push({ kind: "skills", name: skill.name, value: skill.path, scope: "project" });
-				}
-				return resources;
-			},
-			writeSettingsPatch: async (patch) => {
-				await settingsStore.update(patch as Parameters<typeof settingsStore.update>[0]);
-			},
-			clearProjectLegacyState: async (projectId, patch) => {
-				await projectResourceManager.clearProjectLegacyDisables(projectId, patch);
-			},
-			logger: { info: (scope, message, detail) => void appLogger.info(scope, message, detail), warn: (scope, message, detail) => void appLogger.warn(scope, message, detail) },
-		};
-		/**
-		 * 包目录路径规则清理（幂等）：历史迁移曾把「指向包安装的禁用」写成顶层 `-<包目录>`，
-		 * 对 pi 惰性却让列表投影误判停用。npm 包只装在两处：全局 install 目录与项目 `.pi/npm`。
-		 */
-		const packageRootRuleRepairDeps: PackageRootRuleRepairDeps = {
-			service: {
-				stripPackageRootResourceRules: async (scope, packageDirs) => {
-					const service = piResourceConfigService;
-					if (!service) return { ok: false, error: "pi resource service unavailable", removed: [] };
-					return service.stripPackageRootResourceRules(scope, packageDirs);
-				},
-			},
-			npmRoot: (scope) => {
-				if (scope.scope === "project") {
-					const project = projectStore.get(scope.projectId);
-					return project && isLocalProject(project) ? join(project.path, ".pi", "npm", "node_modules") : "";
-				}
-				return join(configManager.getConfigDir(), "npm", "node_modules");
-			},
-			logger: { info: (scope, message, detail) => void appLogger.info(scope, message, detail), warn: (scope, message, detail) => void appLogger.warn(scope, message, detail) },
-		};
-		/** 迁移后刷新投影缓存：否则列表仍按旧列表显示，与实际生效的原生规则不一致。 */
-		const refreshAllProjections = async (): Promise<void> => {
-			await Promise.all([refreshSkillProjection(), refreshPromptProjection(), refreshExtensionProjection()]);
-		};
-		let globalMigrationRun: Promise<void> | null = null;
-		const projectMigrationRuns = new Map<string, Promise<void>>();
-		/**
-		 * 确保该作用域的旧禁用记录已迁移（幂等、并发复用同一个 Promise）。
-		 * Agent spawn 前必须 await：迁移未完成就启动会话会把用户停用的资源重新加载。
-		 */
-		const ensureResourceMigration = async (projectId?: string): Promise<void> => {
-			if (!projectId) {
-				globalMigrationRun ??= runGlobalResourceMigration(migrationDeps).then(async (result) => {
-					// 先清历史残留的包目录规则，再刷新投影：否则开关仍会显示成停用。
-					await runPackageRootRuleRepair(packageRootRuleRepairDeps, { scope: "global" });
-					await refreshAllProjections();
-					if (result.errors.length > 0) {
-						void appLogger.warn("migration", "Global resource migration reported problems", { status: result.status, errors: result.errors });
-					}
-				});
-				return globalMigrationRun;
-			}
-			let run = projectMigrationRuns.get(projectId);
-			if (!run) {
-				run = runProjectResourceMigration(migrationDeps, projectId).then(async (result) => {
-					await runPackageRootRuleRepair(packageRootRuleRepairDeps, { scope: "project", projectId });
-					await refreshAllProjections();
-					if (result.errors.length > 0) {
-						void appLogger.warn("migration", "Project resource migration reported problems", { projectId, status: result.status, errors: result.errors });
-					}
-				});
-				projectMigrationRuns.set(projectId, run);
-			}
-			return run;
-		};
-		// 启动即开始全局迁移（不阻塞窗口创建），并把它交给 AgentManager 在 spawn 前 await。
-		void ensureResourceMigration();
-		ensurePiResourceMigration = ensureResourceMigration;
-		agentManager.configureResourceMigrationGate(ensureResourceMigration);
-		// 多后端网关装配：pi + dsh + acp（DSH 在窗口创建后后台预热，失败时按需重试）。
-		// ACP 是 opt-in（settings.acpEnabled，默认 false）：网关常驻注册，开关是运行时读的（deps.isEnabled），
-		// 关闭时 create 直接拒绝——保证「未开启的构建不 spawn 任何 ACP CLI」，
-		// 又让设置页开关立即生效（不必重启）。
-		// 不按启动时的开关决定是否注册：合成器的事件订阅（onOutput）与能力并集在启动时一次成形，
-		// 启动后才补注册的网关收不到事件转发，ACP 时间线会静默无输出；
-		// 而 AcpAgentManager 构造函数不 spawn 任何进程，常驻注册本身零运行时成本。
-		// 开启后每次 create 即 spawn 对应 CLI，无预热。
-		acpAgentManager = new AcpAgentManager({
+		});
+		// ACP 后端（opt-in）装配搬到 startup/acpAgents.ts：这里原位调用，构造位次不变；
+		// 退出清理登记留在本文件（runAll 执行次序 = 登记位置）。
+		startAcpAgents({
+			agentToastDeps,
+			annotateAcpConfigOptions,
+			appLogger,
+			createAgentMemoryMount,
+			getAcpImageBlobStore: () => acpImageBlobStore,
+			getMainWindow: () => mainWindow,
+			getSessionCatalog: () => sessionCatalog,
 			piLocator,
-			// 每次 session/new 现算：项目键依赖会话 cwd，ACP CLI 因此获得与 pi 同一套记忆工具。
-			// 开关关闭时给空数组：ACP v1 该字段必填（opencode 缺它直接 -32602），但也别把工具挂给外部 CLI。
-			mcpServers: (cwd) => (settingsStore.get().agentMemoryEnabled ? buildAcpMcpServers(createAgentMemoryMount(cwd)) : []),
-			// ACP CLI 是本机进程：远端项目没有本机 cwd，明确不适用（与 ACP 无远端运行时一致）。
-			getProject: (projectId) => {
-				const project = projectStore.get(projectId);
-				return project && isLocalProject(project) ? project : undefined;
+			projectStore,
+			settingsStore,
+			assign: (patch) => {
+				acpAgentManager = patch.acpAgentManager;
 			},
-			getTools: () => settingsStore.get().acpTools ?? [],
-			isEnabled: () => settingsStore.get().acpEnabled === true,
-			// ACP 代理：每次开会话实时读，只作用于新 spawn 的 CLI 进程（env 在启动时定格）。
-			getProxySettings: () => resolveAcpProxySettings(settingsStore.get()),
-			// 工具级配置记忆：新建会话重放；用户切换成功即写回 settings（只记思考/模式/权限，不含模型）。
-			getToolConfigDefaults: (toolId) => settingsStore.get().acpToolConfigDefaults?.[toolId],
-			rememberConfigOption: (toolId, optionId, value) => {
-				const settings = settingsStore.get();
-				// 工具已被删除/改名后不再写记忆，避免产生永不消费的孤儿条目。
-				if (!(settings.acpTools ?? []).some((tool) => tool.id === toolId)) return;
-				const next = withAcpConfigDefault(settings.acpToolConfigDefaults ?? {}, toolId, optionId, value);
-				if (next) void settingsStore.update({ acpToolConfigDefaults: next });
-			},
-			// ACP 超时口径运行时读口：每次布防/派发实时读 settings（变更后新回合生效，
-			// 不需要重启）；undefined 回落代码内默认（stall 180s / turn 15min）。
-			readAcpTimeoutSettings: () => {
-				const settings = settingsStore.get();
-				return { promptStallTimeoutMs: settings.acpPromptStallTimeoutMs, promptTurnTimeoutMs: settings.acpPromptTurnTimeoutMs };
-			},
-			// ACP 回合失败自动重试口径：与超时同源实时读，变更后新回合生效。
-			// 未设置时各项为 undefined，由 acpTurnRetry.resolveAcpTurnRetrySettings 落回代码内默认。
-			readAcpTurnRetrySettings: () => {
-				const settings = settingsStore.get();
-				return { enabled: settings.acpTurnRetryEnabled, maxRetries: settings.acpTurnRetryMaxRetries, baseDelayMs: settings.acpTurnRetryBaseDelayMs };
-			},
-			// Ask 通知：与 pi 共用同一份门控/toast；完成通知由 composite.onAgentSettled 统一补。
-			notify: { askPending: (input) => notifyAgentAskPending(agentToastDeps(), input) },
-			// configOptions 变更推送：set_config_option 响应/config_option_update 通知都走同一事件,
-			// 渲染层按 agentId 隔离(旧 agent 迟到事件写旧 atom,不再被读)。
-			onConfigOptionsChanged: (tab, options) => {
-				if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(ipcChannels.acpSessionConfigChanged, { agentId: tab.id, options: annotateAcpConfigOptions(options) ?? [] });
-			},
-			// 图片物化落盘：ACP 消息里的 base64 图复用生图 blob 存储（ref 形态回填消息；
-			// imagegen 装配在另一段完成，经模块级 ref 延迟取实例）。
-			imageStore: {
-				put: (data, mimeType) => acpImageBlobStore?.put(data, mimeType) ?? Promise.resolve(null),
-			},
-			// ACP 会话标题（session_info_update）写回 catalog：ACP 无本地文件，标题在 agent 侧。
-			onTitleChanged: (deckSessionId, title) => {
-				const entry = sessionCatalog?.get(deckSessionId);
-				if (!entry || entry.title === title) return;
-				// session_info_update.title 是 agent 侧命名而非用户手动：走 applyAgentTitle
-				// （同源 last-wins、不覆盖用户改名、拒收标记脏名）。此前直接 update() 会把 CLI
-				// 标题锁成 manual 终态，用户改名在下一个回合就被 CLI 拉回。
-				void sessionCatalog
-					.applyAgentTitle(deckSessionId, title)
-					.then((applied) => {
-						if (!applied) return;
-						if (mainWindow && !mainWindow.isDestroyed()) {
-							mainWindow.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: applied.projectId });
-						}
-					})
-					.catch((error: unknown) => {
-						void appLogger.warn("session", "ACP title sync to catalog failed", { deckSessionId, title, error: error instanceof Error ? error.message : String(error) });
-					});
-			},
-			logger: appLogger,
-			// 会话归档：投影消息按 acpSessionId 落到 userData/acp-sessions（sha1 文件名 + 原子写）。
-			// 为什么需要：ACP 历史此前只在 CLI 侧 + 内存快照（重启即空），CLI 存档被清
-			// （换机器 / 清 ~/.codebuddy）后历史就永久丢了，会话内查找也没有检索源。
-			// 写时机在 manager 内固定为「回合结算 + stop()/stopAll()」，失败只记日志。
-			archive: new AcpSessionArchive({ userDataDir: app.getPath("userData"), logger: appLogger }),
 		});
 		quitCleanup.register("acp", async () => {
 			// stopAll → stop(agent) → 归档写盘（await 到底）：退出前这份快照必须落地。
 			await acpAgentManager?.stopAll();
 		});
-		compositeAgentGateway = new CompositeAgentGateway([agentManager, dshAgentManager, acpAgentManager]);
-		// 非 pi 后端没有 AgentManager 的内部完成通知：这里统一补「会话完成」。
-		// pi 已经在自己内部发过（门控/文案一致），跳过避免双弹。
-		compositeAgentGateway.onAgentSettled((info) => {
-			const tab = compositeAgentGateway?.list().find((candidate) => candidate.id === info.agentId);
-			if (!tab || (tab.backend ?? "pi") === "pi") return;
-			notifySessionFinished(agentToastDeps(), { agentId: info.agentId, title: info.title, ...(tab.deckSessionId ? { sessionId: tab.deckSessionId } : {}) });
-		});
-		// 记忆学习循环：回合结算后按阈值尝试一次提炼（三后端统一走这里）。
-		// 与上面的完成通知不同，pi 会话也要参与——记忆是跨后端的同一份数据。
-		// 学习本身是可选增益：任何失败都只进日志，绝不让它反过来影响会话。
-		compositeAgentGateway.onAgentSettled((info) => {
-			const settings = settingsStore?.get();
-			if (!settings?.agentMemoryEnabled || !settings.agentMemoryAutoLearnEnabled) return;
-			const tab = compositeAgentGateway?.list().find((candidate) => candidate.id === info.agentId);
-			if (!tab) return;
-			const mount = createAgentMemoryMount(tab.cwd);
-			void runLearnerForAgent(
-				{
-					root: memoryDirOfMount(mount),
-					sources: sourcesOfMount(mount),
-					complete: memoryLearnComplete,
-					logger: {
-						info: (channel, message, meta) => void appLogger.info(channel, message, meta),
-						warn: (channel, message, meta) => void appLogger.warn(channel, message, meta),
-					},
-				},
-				tab,
-			).catch((error: unknown) => {
-				void appLogger.warn("agent-memory", "learn pass crashed", { error: error instanceof Error ? error.message : String(error) });
-			});
-		});
-		// 项目位置注入给会话协调器：远端会话在 pi 上报会话文件之前没有 ssh 身份，"这条会话的 runtime
-		// 在哪台机器上"只能由项目 locator 回答（AgentManager 也按它路由 runtime）。位置真相同的单一
-		// 来源仍然是 projectStore，这里只给一个只读取值器。
-		sessionRuntimeCoordinator = new SessionRuntimeCoordinator(
-			sessionCatalog,
-			compositeAgentGateway,
-			sendAgentPromptWithIntegrations,
+
+		// 合成网关 + 两个回合结算订阅 + 会话运行时协调器搬到 startup/sessionRuntime.ts：
+		// 这里原位调用，构造与订阅次序不变。
+		const sessionRuntimeHandle = startSessionRuntime({
+			acpAgentManager,
+			agentManager,
+			agentToastDeps,
 			appLogger,
-			(projectId) => {
-				const project = projectStore.get(projectId);
-				return project && !isLocalProject(project) ? project.locator : undefined;
-			},
-			// 远端会话文件改写端口（P4.5c）：调用时解析——端口在 registerIpc() 里才装配（见模块级声明）。
-			() => remoteSessionMessageMutation,
-		);
-		// 终态惰性解绑（getAgentId → unbindTerminalAgent）发生在查询路径里，必须把解绑推给渲染层：
-		// 否则渲染层快照停在 error，红点常亮且「关闭 Agent」永远对不上存在的运行实例。
-		sessionRuntimeCoordinator.setDetachedNotifier((binding) => emitSessionRuntimeDetach(binding));
-		// catalog 外部删除清理的活性探针：预热激活后 pi 可能尚未写出会话文件，
-		// 有活跃绑定的记录不得被扫描当「外部删除」剔掉。
-		sessionCatalog.setSessionLivenessProbe((sessionId) => sessionRuntimeCoordinator?.hasLiveRuntime(sessionId) === true);
+			createAgentMemoryMount,
+			dshAgentManager,
+			emitSessionRuntimeDetach,
+			getRemoteSessionMessageMutation: () => remoteSessionMessageMutation,
+			memoryLearnComplete,
+			projectStore,
+			sendAgentPromptWithIntegrations,
+			sessionCatalog,
+			settingsStore,
+		});
+		compositeAgentGateway = sessionRuntimeHandle.compositeAgentGateway;
+		sessionRuntimeCoordinator = sessionRuntimeHandle.sessionRuntimeCoordinator;
 
 		// 定时任务调度器与执行编排器装配
 		automationRunCoordinator = new AutomationRunCoordinator({
@@ -7846,36 +4504,15 @@ app
 			// 卡片思考过程跟随 pi 的 hideThinkingBlock（#425）：每次建状态时现读，用户改完立刻生效
 			getShowThinking: () => settingsStore.get().showThinking,
 		});
-		// 微信 iLink 桥接：与飞书同构，但登录方式是扫码，且必须等界面就绪才能展示二维码。
-		// 服务在这里建好并登记退出清理；启用状态下的实际连接由 start() 发起（fire-and-forget，
-		// 失败只进日志/状态，不得阻断启动）。
-		// 微信桥只在本机项目上建会话（与飞书同口径）：远端项目没有可交给本机 node:fs 的 cwd，
-		// 把远端项目放进选择器会让 /new 之类指令直接撞 UNSUPPORTED_PROJECT_LOCATION。
-		const wechatProjects = () =>
-			projectStore
-				.list()
-				.filter(isLocalProject)
-				.map((project) => ({ id: project.id, name: project.name }));
-		const wechatService = new WeChatService({
-			getProjects: wechatProjects,
-			runtimeBindings: imSessionRuntimeBindings,
-			getLocale: currentMainProcessLocale,
-			getWindow: () => mainWindow,
-			botAgent: `PiDeck/${app.getVersion()}`,
-			logger: (level, message, detail) => {
-				if (level === "warn" || level === "error") void appLogger?.warn("wechat", message, detail);
-				else void appLogger?.info("wechat", message, detail);
-			},
-		});
-		wechatServiceRef.current = wechatService;
-		registerWeChatIpc({
+		startWeChatBridge({
+			appLogger,
 			getMainWindow: () => mainWindow,
-			wechatService,
-			// 与 WeChatService 同一个只列本机项目的视图，避免 IPC 与桥看到不同的项目集。
-			getProjects: wechatProjects,
-		});
-		void wechatService.start().catch((error: unknown) => {
-			void appLogger?.warn("wechat", "WeChat bridge autostart failed", error);
+			projectStore,
+			imSessionRuntimeBindings,
+			currentMainProcessLocale,
+			assign: (patch) => {
+				if (patch.wechatService !== undefined) wechatServiceRef.current = patch.wechatService;
+			},
 		});
 		await createWindow();
 		// 配置备份（手动模式）：仅在备份目录为空（首次使用）时自动建一份 first-run，
@@ -7890,7 +4527,7 @@ app
 		// retains validated intent until the renderer subscribes or requests its snapshot.
 		const coldStartTarget = extractFocusTargetFromArgv(process.argv);
 		await quickTaskChrome.applyLaunchTarget(coldStartTarget);
-		setupTray();
+		setupTray(trayDeps);
 		// 粘贴文件启动清理：删除超过保留期的落盘文件（fire-and-forget，不挡首帧）
 		void cleanupPasteFiles?.().catch((error: unknown) => {
 			void appLogger.warn("app", "Paste file cleanup failed during startup", error);
@@ -8105,43 +4742,16 @@ app
 			void appLogger.warn("pet", "Pet system start failed", error);
 		});
 
-		// 声音提醒：纯主进程判定（settled/error 边沿/waiting 请求）+ 渲染层播放。
-		// 与宠物系统同构，独立开关，不依赖宠物是否启用。
-		registerSoundProtocol();
-		registerHtmlPreviewProtocol();
-		registerSoundIpc();
-		soundAlertService = new SoundAlertService({
+		startSoundsAndAnnouncements({
+			appLogger,
 			agentManager,
 			settingsStore,
+			quitCleanup,
 			getMainWindow: () => mainWindow,
-			isWindowFocused: () => isMainWindowFocused(mainWindow),
-			log: (domain, message, details) => void appLogger.info(domain, message, details),
-		});
-		soundAlertService.attach();
-		// 退出清理登记（before-quit 统一 runAll）
-		quitCleanup.register("sound-alert", () => {
-			soundAlertService?.detach();
-			soundAlertService = null;
-		});
-
-		// 应用公告：无服务器拉取（仓库 announcements.json，jsDelivr → 内置镜像 → raw 兜底），
-		// 2h 周期 + 启动抖动；快照变化推给主窗口，已读集合持久化在 userData。
-		announcementService = new AnnouncementService({
-			userDataDir: app.getPath("userData"),
-			appVersion: app.getVersion(),
-			log: (domain, message, details) => void appLogger.info(domain, message, details),
-			onSnapshot: (state) => {
-				// 推送前判空 + isDestroyed：窗口销毁后 send 会抛
-				const win = mainWindow;
-				if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.announcementChanged, state);
+			assign: (patch) => {
+				if (patch.soundAlertService !== undefined) soundAlertService = patch.soundAlertService;
+				if (patch.announcementService !== undefined) announcementService = patch.announcementService;
 			},
-		});
-		announcementService.start();
-		registerAnnouncementIpc(() => announcementService);
-		// 退出清理登记（before-quit 统一 runAll）：停定时器，避免退出阶段仍触发拉取
-		quitCleanup.register("announcement", () => {
-			announcementService?.stop();
-			announcementService = null;
 		});
 
 		// CUA（Computer Use Agent）：观察屏幕 + 注入鼠标/键盘输入，供 pi Agent 通过

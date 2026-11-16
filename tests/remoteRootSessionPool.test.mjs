@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { createRootSessionPool, ROOT_POOL_DEFAULT_POLICY } = loadTsCommonJs("src/main/remote/RemoteRootSessionPool.ts");
 
@@ -367,7 +368,7 @@ test("the default policy keeps the ADR's candidate values", async () => {
 });
 
 test("production assembly explicitly uses the audited default policy", async () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	assert.match(source, /import \{ ROOT_POOL_DEFAULT_POLICY \} from "\.\/remote\/RemoteRootSessionPool";/);
 	assert.match(source, /rootPooling:\s*ROOT_POOL_DEFAULT_POLICY/);
 	assert.doesNotMatch(source, /PIDECK_E2E_REMOTE_ROOT_POOLING/, "the product path must not depend on an E2E pooling override");

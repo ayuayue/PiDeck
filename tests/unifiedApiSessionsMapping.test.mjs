@@ -1,7 +1,7 @@
 /**
  * F5 · sessions/config 收口映射核对（TEST-PLAN §F5，11 例）。
  *
- * 解析 src/preload/index.ts 源码（注释与字符串骨架化 + 花括号深度扫描，空白容忍）
+ * 解析 preload 源码（组装入口 + api/*.ts 聚合；注释与字符串骨架化 + 花括号深度扫描，空白容忍）
  * 提取 sessions/config 命名空间方法全集，并与 electron stub 捕获的实际暴露面交叉印证；
  * 核对 T4 落盘的 SESSIONS_SUBDOMAINS/CONFIG_SUBSTORES（consolidations.ts）：
  * 四组并集≡117 全集（§0 锚）、两两互斥（A14）、DSH 归属按 PLAN.md S5 裁定、
@@ -13,8 +13,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource as PRELOAD_SOURCE } from "./helpers/preloadSources.mjs";
 
-const PRELOAD_SOURCE = readFileSync("src/preload/index.ts", "utf8");
 const CONSOLIDATIONS_SOURCE = readFileSync("src/shared/api/consolidations.ts", "utf8");
 const FACADE_SOURCE = readFileSync("src/shared/api/facadeTypes.ts", "utf8");
 /**

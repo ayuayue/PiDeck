@@ -7,13 +7,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { configManagerSource } from "./helpers/configManagerSources.mjs";
+
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-const previewApi = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+const preload = preloadSource;
+const systemIpc = systemIpcSource;
+const previewApi = previewApiSource;
 const sharedTypes = readFileSync("src/shared/types/providerUsage.ts", "utf8");
 const userUsageProbes = readFileSync("src/main/config/userUsageProbes.ts", "utf8");
-const configManager = readFileSync("src/main/config/ConfigManager.ts", "utf8");
+const configManager = configManagerSource;
 
 test("三条探针管理通道集中定义在 shared/ipc.ts", () => {
 	assert.match(ipc, /configGetUsageProbes: "config:get-usage-probes"/);
@@ -79,7 +85,6 @@ test("preload 暴露与 previewApi stub 三处同步", () => {
 });
 
 test("backend 维度贯通：DSH 链路 = $DSH_HOME/.pideck 配置 + DSH 凭据库", () => {
-	const configManager = readFileSync("src/main/config/ConfigManager.ts", "utf8");
 	// 配置目录按 backend 分流（pi=configDir；dsh=$DSH_HOME/.pideck —— PiDeck 特有文件统一收拢目录）。
 	assert.match(configManager, /usageProbeSettingsDir\(backend: UsageProbeBackend\)/);
 	assert.match(configManager, /pideckUsageProbesDir\(dshHome\)/);
@@ -95,7 +100,7 @@ test("backend 维度贯通：DSH 链路 = $DSH_HOME/.pideck 配置 + DSH 凭据�
 	assert.match(configManager, /effectiveDir/);
 	assert.match(configManager, /backend !== "dsh" \|\| settings\.config/);
 	// 装配层（index.ts）注入：DSH_HOME 与 DshHost 同一解析 + .credentials.yaml 环境层优先。
-	const mainIndex = readFileSync("src/main/index.ts", "utf8");
+	const mainIndex = mainIpcSource;
 	assert.match(mainIndex, /new ConfigManager\(undefined, mainCopy, \{/);
 	assert.match(mainIndex, /resolveDshHomeDir\(settingsStore\.get\(\)\.dshHomeDir/);
 	assert.match(mainIndex, /\.credentials\.yaml/);

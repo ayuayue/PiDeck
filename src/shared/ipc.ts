@@ -229,12 +229,11 @@ export const ipcChannels = {
 	sessionsCatalogArchive: "sessions:catalog-archive",
 	/** 恢复归档会话：移回原路径并重新入目录 */
 	sessionsCatalogUnarchive: "sessions:catalog-unarchive",
-	/**
-	 * 恢复**远端**归档会话（P4.5b）：入参是本机 catalog 会话 id，不是路径。
-	 * 远端文件没有本机归档路径，所以不能沿用 `sessions:catalog-unarchive` 的路径契约；
-	 * 恢复目标（归档前/后的远端绝对路径）由本机归档索引给出。
-	 */
+	/** 恢复**远端**归档会话（P4.5b）：入参是本机 catalog 会话 id，不是路径——远端没有本机归档
+	 *  路径，不能沿用 unarchive 的路径契约；恢复目标（归档前/后的远端绝对路径）由本机归档索引给出。 */
 	sessionsCatalogUnarchiveRemote: "sessions:catalog-unarchive-remote",
+	gtdStateGet: "gtd:state-get", // GTD 分诊账本（#546）：读全量意图水位；桶由渲染层实时投影
+	gtdStatePatch: "gtd:state-patch", // 写单个会话的水位；null = 清除（撤销结清 / 取消稍后提醒）
 	/** 列出已归档会话摘要（恢复 UI 用） */
 	sessionsCatalogListArchived: "sessions:catalog-list-archived",
 	/** 永久删除已归档会话：归档区文件移入系统回收站并从索引移除（区别于恢复）。 */

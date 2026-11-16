@@ -10,6 +10,9 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+import { readSessionHistoryReaderSources } from "./helpers/sessionHistoryReaderSources.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"), "utf8");
 
@@ -57,7 +60,7 @@ test("宿主服务：argv 只有 statePath（+可选 tablesDir），roots 逐请
 });
 
 test("装配：二进制定位（dev 走 resources/session-store/bin）+ statePath 落 userData + quitCleanup", () => {
-	const source = read("../src/main/index.ts");
+	const source = mainIpcSource;
 	assert.match(source, /import\s*\{\s*SessionStoreService\s*\}\s*from\s*"\.\/sessions\/SessionStoreService"/);
 	assert.match(source, /new SessionStoreService\(\{/);
 	assert.match(source, /statePath:\s*join\(app\.getPath\("userData"\),\s*"session-store",\s*"state\.bin"\)/);
@@ -128,7 +131,8 @@ test("Wave 2 TS 侧：宿主 getIndex + 读者校验分支 + 装配注入", () =
 	// 条目表可能到几十 MB：单行上限放宽到 32MiB（仍是有界）
 	assert.match(service, /MAX_SESSION_STORE_LINE_CHARS\s*=\s*32\s*\*\s*1024\s*\*\s*1024/);
 
-	const reader = read("../src/main/pi/SessionHistoryReader.ts");
+	// 断言看的是「SessionHistoryReader 这一整片域」：条目表校验/预览口径按域搬进了 sessionReader/ 协作者
+	const reader = readSessionHistoryReaderSources();
 	// 子进程输出不可信：整体校验，形状不符即回退 TS 逐行解析
 	assert.match(reader, /readIndexTable\?:\s*\(hostPath: string, version: \{ size: number; mtimeMs: number \}\) => Promise<unknown>/);
 	assert.match(reader, /function parseIndexTableRows\(value: unknown\)/);
@@ -137,11 +141,11 @@ test("Wave 2 TS 侧：宿主 getIndex + 读者校验分支 + 装配注入", () =
 	// 末尾无完整行时忽略 sidecar（残行口径不同）
 	assert.match(reader, /table\.endsWithNewline === false\) return null/);
 
-	const manager = read("../src/main/pi/AgentManager.ts");
+	const manager = agentManagerSource;
 	assert.match(manager, /setSessionStoreIndexReader\(/);
 	assert.match(manager, /readIndexTable: \(hostPath, version\) => this\.sessionStoreIndexReader\?\.\(hostPath, version\) \?\? Promise\.resolve\(null\)/);
 
-	const index = read("../src/main/index.ts");
+	const index = mainIpcSource;
 	assert.match(index, /agentManager\.setSessionStoreIndexReader\(async \(hostPath\) => \{/);
 	assert.match(index, /if \(!service \|\| !service\.isReady\(\)\) return null;/);
 	assert.match(index, /const result = await service\.getIndex\(hostPath\)/);
@@ -184,7 +188,7 @@ test("Wave 2b：条目表落盘默认开启（可闸），落盘目录与 extraR
 	const sharedSettings = read("../src/shared/types/settings.ts");
 	assert.match(sharedSettings, /sessionStoreEnabled\?:\s*boolean;/);
 	assert.match(sharedSettings, /sessionStoreEnabled:\s*true/);
-	const index = read("../src/main/index.ts");
+	const index = mainIpcSource;
 	assert.match(index, /if \(!settingsStore\.get\(\)\.sessionStoreEnabled\) return null;/);
 	// 默认开时必须预热，否则「只在已就绪时问」的读者路径永远不会生效
 	assert.match(index, /if \(settingsStore\.get\(\)\.sessionStoreEnabled\) sessionStoreService\.warmup\(\);/);

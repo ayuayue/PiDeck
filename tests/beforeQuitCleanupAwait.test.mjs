@@ -11,9 +11,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
-const src = readFileSync("src/main/index.ts", "utf8");
-
+const src = mainIpcSource;
 test("before-quit：preventDefault + 有界等待清理后再 quit，重入放行", () => {
 	const block = src.match(/^app\.on\("before-quit"[\s\S]*?^\}\);/m)?.[0] ?? "";
 	assert.ok(block, "before-quit 监听存在");

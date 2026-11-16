@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 function loadModule() {
 	return loadTsCommonJs("src/main/sessions/sessionProcessEvents.ts");
@@ -121,8 +123,8 @@ test("pi usage entries land as usage process records", () => {
 
 test("process-event IPC is wired on channel, handler, and preload", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const handler = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const handler = sessionIpcSource;
+	const preload = preloadSource;
 	assert.match(ipc, /sessionsCatalogReadProcessEvents: "sessions:catalog-read-process-events"/);
 	assert.match(handler, /sessionsCatalogReadProcessEvents/);
 	assert.match(handler, /parseSessionProcessEvents/);

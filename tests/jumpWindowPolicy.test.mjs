@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -194,7 +195,7 @@ test("补页失败不得吃掉跳转预算：失败短路必须排在 resolveJum
 	// 旧实现先 resolve 再 +
 	// 1，失败也照算 —— 用户连点几次就把保险丝烧断，之后彻底跳不动。
 	// 真值判据：失败短路（loadMoreError）必须先于 action 的计算出现。
-	const source = readFileSync(controllerPath, "utf8");
+	const source = sessionTimelineControllerSource;
 	const start = source.indexOf("const stillInData = targetIndex >= 0;");
 	assert.ok(start > 0, "找不到 pendingJump effect 主体");
 	const body = source.slice(start, start + 3000);

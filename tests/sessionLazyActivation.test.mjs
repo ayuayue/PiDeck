@@ -1,6 +1,8 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 /**
  * Batch 2A: Lazy Session activation invariants.
@@ -17,7 +19,7 @@ import test from "node:test";
 
 const sessionSendSource = readFileSync("src/renderer/src/hooks/useSessionSend.ts", "utf8");
 const sessionActionsSource = readFileSync("src/renderer/src/hooks/useSessionActions.ts", "utf8");
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 
 // ── helpers ──
 
@@ -332,7 +334,7 @@ test("TurnRow has no hook placed after an early return", () => {
 // ════════════════════════════════════════════════════════════════════
 
 test("deriveSessionSurfaceRuntime hides loading for idle non-activating Session", () => {
-	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controllerSource = sessionTimelineControllerSource;
 
 	// deriveSessionSurfaceRuntime must exist
 	const fnBody = functionBody("deriveSessionSurfaceRuntime", controllerSource);

@@ -407,6 +407,19 @@ export function DshSourceBadge(props: { className?: string }) {
 	);
 }
 
+/**
+ * ACP 过滤徽标（来源过滤菜单用）：ACP 会话 source 恒为 "pi"，按 backend 独立归类；
+ * 用通用终端图标而非某个 CLI 品牌，避免把自定义 ACP 工具误标成品牌。
+ */
+export function AcpSourceBadge(props: { className?: string }) {
+	const label = t("sessionBackend.acp");
+	return (
+		<Badge variant="outline" aria-label={label} title={label} data-source="acp" className={cn("size-5 rounded-md border-muted-foreground/40 p-0 text-muted-foreground", props.className)}>
+			<TerminalIcon className="size-3" aria-hidden="true" />
+		</Badge>
+	);
+}
+
 /** 微信品牌绿双气泡（叠形轮廓 + 白点，避免引入外部资源）。 */
 function WeChatLogo() {
 	const green = "#07C160";

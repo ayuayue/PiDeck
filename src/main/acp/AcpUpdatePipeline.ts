@@ -195,7 +195,7 @@ export class AcpUpdatePipeline {
 		const windowStart = runtime.windowStart;
 		const windowMessages = all.slice(windowStart);
 		if (windowMessages.length <= REPLAY_CHUNK_MIN_MESSAGES) {
-			this.flushMessages(runtime, true);
+			this.flushMessages(runtime, true, { replay: true });
 			return;
 		}
 		// 内存快照一次写全量：分块只是投递节奏，快照始终是完整历史
@@ -213,7 +213,9 @@ export class AcpUpdatePipeline {
 			// totalLength 按「已投递到的绝对下标」递增：渲染层按 totalLength - windowStart
 			// 校验合并长度，末块自然收敛到真实总条数。
 			const totalLength = windowStart + end;
-			const payload = sent === 0 ? { ...base, messages: windowMessages.slice(0, end), totalLength } : { ...base, messages: windowMessages.slice(sent, end), upsertFrom: windowStart + sent, totalLength };
+			// replay：告诉订阅方（Web 事件流）这份窗口是激活重放的历史，不能当增量上屏；
+			// turnActive：重放来自仍在跑的回合（握手期间就发了 prompt）时不能收口进行中的流。
+			const payload = sent === 0 ? { ...base, messages: windowMessages.slice(0, end), totalLength, replay: true, turnActive: runtime.turnActive } : { ...base, messages: windowMessages.slice(sent, end), upsertFrom: windowStart + sent, totalLength, replay: true, turnActive: runtime.turnActive };
 			emitAgentMessageMeasured("acp", runtime.tab.id, payload, (measured) => this.host.emit(agentEventTags.agentsMessage, measured));
 			sent = end;
 			if (sent < windowMessages.length) {
@@ -224,7 +226,7 @@ export class AcpUpdatePipeline {
 		emitNext();
 	}
 
-	flushMessages(runtime: AcpAgentRuntime, force: boolean): void {
+	flushMessages(runtime: AcpAgentRuntime, force: boolean, options: { replay?: boolean } = {}): void {
 		if (runtime.status === "closed" || !this.host.ownsRuntime(runtime)) return;
 		if (force && runtime.flushTimer) {
 			clearTimeout(runtime.flushTimer);
@@ -245,6 +247,7 @@ export class AcpUpdatePipeline {
 				messages: all.slice(windowStart),
 				totalLength: all.length,
 				...(windowStart > 0 ? { windowStart } : {}),
+				...(options.replay ? { replay: true, turnActive: runtime.turnActive } : {}),
 			},
 			(payload) => this.host.emit(agentEventTags.agentsMessage, payload),
 		);

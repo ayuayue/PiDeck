@@ -4,6 +4,10 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
 function setup(enabled = true) {
 	const handlers = new Map();
 	const calls = [];
@@ -59,9 +63,9 @@ test("disabled feature cannot read/write or register sender resources", async ()
 
 test("editor channels are wired through shared/preload/main/preview without local files fallback", () => {
 	const channels = readFileSync("src/shared/ipc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
-	const main = readFileSync("src/main/index.ts", "utf8");
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const preload = preloadSource;
+	const main = mainIpcSource;
+	const preview = previewApiSource;
 	for (const name of ["remoteProjectTextOpen", "remoteProjectTextSave"]) {
 		assert.match(channels, new RegExp(name + "\\s*:"));
 		assert.match(preload, new RegExp("invoke\\(ipcChannels\\." + name));

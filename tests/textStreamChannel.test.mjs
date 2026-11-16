@@ -1,3 +1,5 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -10,7 +12,7 @@ import test from "node:test";
  */
 
 test("main process: textEmitter tracks and pushes streaming text", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	// 节流常量已随消息 emit 域迁入 MessageEmitBatcher（AgentManager 拆分 Wave 2）；
 	// 双通道状态机已随 Live 流域迁入 LiveStreamChannel（Wave 3）
 	const batcher = readFileSync("src/main/pi/messageEmitBatcher.ts", "utf8");
@@ -30,7 +32,7 @@ test("main process: textEmitter tracks and pushes streaming text", () => {
 });
 
 test("main process: top-level message_start creates empty skeleton", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	assert.match(agentManager, /allowEmpty:\s*true/);
 	assert.match(agentManager, /options\?: \{ allowEmpty\?: boolean \}/);
 	// 顶层 message_start（非 assistantMessageEvent）必须 allowEmpty + flush
@@ -65,7 +67,7 @@ test("main process: message_end pushes final text with done flag", () => {
 });
 
 test("renderer: streamingTextByIdAtom updates from agents:text-stream without runtime bump", () => {
-	const atoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+	const atoms = sessionAtomsSource;
 	assert.match(atoms, /export const streamingTextByIdAtom = atom/);
 	assert.match(atoms, /Record<string, \{ content: string; streaming: boolean; held\?: boolean \}>/);
 	assert.match(atoms, /event\.sourceChannel === "agents:text-stream"/);
@@ -84,7 +86,7 @@ test("IPC channel wiring for agents:text-stream", () => {
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 	assert.match(ipc, /agentsTextStream: "agents:text-stream"/);
 
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	assert.match(agentManager, /agentEventTags\.agentsTextStream/);
 });
 

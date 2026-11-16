@@ -2,16 +2,20 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const mainSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
+
+const mainSource = agentManagerSource;
 // 信任闸已迁出 AgentManager（Wave 3/4 拆分，见 docs/agent-manager-split-plan.md）：
 // 启动诊断文案随实现落在 projectTrustGate.ts，契约测试跟随新性所。
 const trustGateSource = readFileSync("src/main/pi/projectTrustGate.ts", "utf8");
-const indexSource = readFileSync("src/main/index.ts", "utf8");
-const systemIpcSource = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-const sessionIpcSource = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-const preloadSource = readFileSync("src/preload/index.ts", "utf8");
+const indexSource = mainIpcSource;
 const ipcSource = readFileSync("src/shared/ipc.ts", "utf8");
-const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const appSource = rendererAppSource;
 const rendererMainSource = readFileSync("src/renderer/src/main.tsx", "utf8");
 // 遮罩撤除实现/时机已收口到独立模块（启动交接：内容就绪再撤，见
 // tests/bootOverlayDismissal.test.mjs），main.tsx 只留硬兼底超时。

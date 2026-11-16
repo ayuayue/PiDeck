@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 
 const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
 const trash = read("main/fs/trash.ts");
@@ -15,7 +17,7 @@ const logViewer = read("renderer/src/components/app/settings/LogViewer.tsx");
 const zh = read("renderer/src/i18n/rendererCopy.zh-CN.ts");
 const en = read("renderer/src/i18n/rendererCopy.en-US.ts");
 const sharedIpc = read("shared/ipc.ts");
-const preload = read("preload/index.ts");
+const preload = preloadSource;
 
 const TRASH_CALLERS = [
 	["main/extensions/ExtensionManager.ts", "extension:uninstall"],
@@ -81,7 +83,7 @@ test("LogViewer uses paginated listPage with table and pagination components", (
 test("listPage channel is wired across shared ipc, systemIpc, preload", () => {
 	assert.match(sharedIpc, /logsListPage: "logs:list-page"/);
 	assert.match(preload, /listPage: \(query\?: AppLogQuery\)/);
-	assert.match(read("main/ipc/systemIpc.ts"), /ipcChannels\.logsListPage/);
+	assert.match(systemIpcSource, /ipcChannels\.logsListPage/);
 });
 
 test("log viewer i18n keys exist in both locales", () => {

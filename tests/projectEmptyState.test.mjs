@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const emptyState = readFileSync("src/renderer/src/components/session/ProjectEmptyState.tsx", "utf8");
 const startSurface = readFileSync("src/renderer/src/components/session/SessionStartSurface.tsx", "utf8");
 const workspaceChrome = readFileSync("src/renderer/src/hooks/useSessionWorkspaceChrome.ts", "utf8");

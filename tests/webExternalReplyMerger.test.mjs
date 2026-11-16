@@ -128,3 +128,15 @@ test("merger tolerates deltas before start frame", () => {
 	assert.equal(typeof snapshot.message.id, "string");
 	assert.equal(snapshot.message.parts.find((part) => part.type === "text").text, "无 start 帧");
 });
+
+test("merger carries the run start time from the start frame metadata", () => {
+	const merger = new ExternalReplyMerger();
+	merger.applyFrame(frame("start", { messageId: "m1", messageMetadata: { timestamp: 1700000000000 } }));
+	merger.applyFrame(frame("text-delta", { delta: "hi" }));
+	assert.equal(merger.snapshot().message.metadata.timestamp, 1700000000000);
+
+	// 重新开流：时间必须跟着新 start 帧走，不能残留上一轮
+	merger.reset();
+	merger.applyFrame(frame("start", { messageId: "m2", messageMetadata: { timestamp: 1800000000000 } }));
+	assert.equal(merger.snapshot().message.metadata.timestamp, 1800000000000);
+});

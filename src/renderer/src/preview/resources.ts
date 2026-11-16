@@ -1,0 +1,336 @@
+import type { PiDesktopApi } from "../../../preload";
+import type { ResourceImportKind } from "../../../shared/types/resourceImport";
+import { now } from "./fixtures";
+
+/**
+ * 可安装资源域桩：技能/提示词/扩展/内容存储与资源导入（导入 kind 缓存是实例内状态）。
+ */
+export function createResourcesPreview(): Pick<PiDesktopApi, "skills" | "resourceImport" | "extensions" | "contentStore" | "prompts" | "promptStore" | "yaoPrompts" | "skillStore" | "skillHub"> {
+	const previewImportKinds = new Map<string, ResourceImportKind>();
+	return {
+		skills: {
+			list: async () => ({
+				locations: [
+					{
+						id: "pi-global" as const,
+						label: "~/.pi/agent/skills",
+						path: "C:/Users/preview/.pi/agent/skills",
+						rootMarkdownEnabled: true,
+					},
+					{
+						id: "agents-global" as const,
+						label: "~/.agents/skills",
+						path: "C:/Users/preview/.agents/skills",
+						rootMarkdownEnabled: false,
+					},
+				],
+				skills: [
+					{
+						id: "pi-global:preview-skill",
+						name: "preview-skill",
+						description: "A preview skill",
+						path: "C:/Users/preview/.pi/agent/skills/preview-skill/SKILL.md",
+						dir: "C:/Users/preview/.pi/agent/skills/preview-skill",
+						sourceId: "pi-global" as const,
+						sourceLabel: "~/.pi/agent/skills",
+						type: "directory" as const,
+						enabled: true,
+						valid: true,
+						warnings: [],
+					},
+				],
+			}),
+			readContent: async (_path) => ({
+				content: "# preview-skill\n\nPreview skill body used by the browser preview layout.",
+			}),
+			create: async (input) => ({
+				id: `pi-global:${input.name}`,
+				name: input.name,
+				description: input.description,
+				path: `C:/Users/preview/.pi/agent/skills/${input.name}/SKILL.md`,
+				dir: `C:/Users/preview/.pi/agent/skills/${input.name}`,
+				sourceId: input.locationId,
+				sourceLabel: "~/.pi/agent/skills",
+				type: "directory" as const,
+				enabled: true,
+				valid: true,
+				warnings: [],
+			}),
+			toggle: async (path, enabled) => ({
+				id: `pi-global:${path}`,
+				name: "preview-skill",
+				description: "Preview skill",
+				path,
+				dir: path.replace(/[/\\]SKILL\.md$/, ""),
+				sourceId: "pi-global" as const,
+				sourceLabel: "~/.pi/agent/skills",
+				type: "directory" as const,
+				enabled,
+				valid: true,
+				warnings: [],
+			}),
+			delete: async () => undefined,
+			openFolder: async () => undefined,
+			rename: async (_skillPath, newName) => ({
+				id: `pi-global:preview/${newName}/SKILL.md`,
+				name: newName,
+				description: "Preview skill",
+				path: `C:/Users/preview/.pi/agent/skills/${newName}/SKILL.md`,
+				dir: `C:/Users/preview/.pi/agent/skills/${newName}`,
+				sourceId: "pi-global" as const,
+				sourceLabel: "~/.pi/agent/skills",
+				type: "directory" as const,
+				enabled: true,
+				valid: true,
+				warnings: [],
+			}),
+		},
+		resourceImport: {
+			scan: async (input) => {
+				previewImportKinds.set("preview-scan", input.kind);
+				return {
+					ok: true as const,
+					result: { scanId: "preview-scan", kind: input.kind, target: input.target, sources: [], candidates: [] },
+				};
+			},
+			apply: async (input) => ({
+				ok: true as const,
+				result: {
+					scanId: input.scanId,
+					kind: previewImportKinds.get(input.scanId) ?? "mcp",
+					results: [],
+					imported: 0,
+					skipped: 0,
+					failed: 0,
+				},
+			}),
+		},
+		extensions: {
+			list: async (_forceRefresh = false) => ({
+				extensions: [
+					{
+						id: "user:npm:preview-extension",
+						source: "npm:preview-extension",
+						path: "C:/Users/preview/.pi/agent/npm/node_modules/preview-extension",
+						scope: "user" as const,
+					},
+				],
+				raw: "User packages:\n  npm:preview-extension\n    C:/Users/preview/.pi/agent/npm/node_modules/preview-extension\n",
+			}),
+			uninstall: async () => undefined,
+			install: async (_source: string) => "",
+			toggle: async () => undefined,
+			removeBuiltIn: async () => undefined,
+			restoreBuiltIn: async () => undefined,
+			update: async () => ({
+				command: "pi update --extensions --no-approve",
+				output: "Preview mode: extensions update output",
+				updated: false,
+			}),
+			updateOne: async (_source: string) => ({
+				command: "pi update <source>",
+				output: "Preview mode: extension update-one output",
+				updated: false,
+			}),
+			catalog: async () => ({
+				generatedAt: Date.now(),
+				fromCache: false,
+				items: [
+					{
+						name: "preview-extension",
+						description: "Preview mode extension",
+						author: "preview",
+						types: ["extension"],
+						downloadsPerMonth: 1,
+						publishedAt: Date.now(),
+						searchText: "preview-extension",
+						installSource: "npm:preview-extension",
+						pageUrl: "https://pi.dev/packages/preview-extension",
+					},
+				],
+				page: 1,
+				pageSize: 1,
+				total: 1,
+				lastPage: 1,
+			}),
+			// 内置扩展热更新（预览/Web 模式不联网、无覆盖层）
+			builtInStatus: async () => ({
+				builtin: { version: "1.0.0", fileCount: 13 },
+				overlay: null,
+				hasOverlayFiles: false,
+				hasBackup: false,
+				effectiveVersion: "1.0.0",
+				overlayDir: null,
+			}),
+			builtInCheck: async () => ({
+				ok: true,
+				remoteVersion: "1.0.0",
+				localVersion: "1.0.0",
+				hasUpdate: false,
+				changedFiles: [],
+			}),
+			builtInUpdate: async () => ({ ok: true, updated: false, version: "1.0.0" }),
+			builtInRestore: async () => ({ ok: true, updated: false }),
+			builtInRestorePrevious: async () => ({
+				ok: false,
+				code: "validation" as const,
+				message: "Preview mode: no previous overlay",
+				updated: false,
+			}),
+			builtInOpenDir: async () => undefined,
+		},
+		// 提示词商店官方模板 / 内置技能热更新（预览/Web 模式不联网、无覆盖层）
+		contentStore: {
+			promptsStatus: async () => ({
+				builtin: { version: "1.0.0", fileCount: 0 },
+				overlay: null,
+				hasOverlayFiles: false,
+				hasBackup: false,
+				effectiveVersion: "1.0.0",
+				overlayDir: null,
+			}),
+			promptsCheck: async () => ({
+				ok: true,
+				remoteVersion: "1.0.0",
+				localVersion: "1.0.0",
+				hasUpdate: false,
+				changedFiles: [],
+			}),
+			promptsUpdate: async () => ({ ok: true, updated: false, version: "1.0.0" }),
+			promptsRestore: async () => ({ ok: true, updated: false }),
+			promptsRestorePrevious: async () => ({
+				ok: false,
+				code: "validation" as const,
+				message: "Preview mode: no previous overlay",
+				updated: false,
+			}),
+			promptsOpenDir: async () => undefined,
+			skillsStatus: async () => ({
+				builtin: { version: "1.0.0", fileCount: 0 },
+				overlay: null,
+				hasOverlayFiles: false,
+				hasBackup: false,
+				effectiveVersion: "1.0.0",
+				overlayDir: null,
+			}),
+			skillsCheck: async () => ({
+				ok: true,
+				remoteVersion: "1.0.0",
+				localVersion: "1.0.0",
+				hasUpdate: false,
+				changedFiles: [],
+			}),
+			skillsUpdate: async () => ({ ok: true, updated: false, version: "1.0.0" }),
+			skillsRestore: async () => ({ ok: true, updated: false }),
+			skillsRestorePrevious: async () => ({
+				ok: false,
+				code: "validation" as const,
+				message: "Preview mode: no previous overlay",
+				updated: false,
+			}),
+			skillsOpenDir: async () => undefined,
+		},
+		prompts: {
+			list: async () => ({ templates: [], globalDir: "C:/Users/preview/.pi/agent/prompts" }),
+			create: async (input) => ({
+				name: input.name,
+				path: `C:/Users/preview/.pi/agent/prompts/${input.name}.md`,
+				description: input.description,
+				content: `---\ndescription: ${input.description}\n---\n`,
+				userCreated: true,
+			}),
+			delete: async () => undefined,
+			openFolder: async () => undefined,
+			edit: async (_filePath, _content?) => "---\ndescription: Preview\n---\n\nPreview content",
+			listByProject: async () => ({ templates: [], globalDir: "" }),
+			createInProject: async (_projectId, input) => ({
+				name: input.name,
+				path: `project://${_projectId}/.pi/prompts/${input.name}.md`,
+				description: input.description,
+				content: `---\ndescription: ${input.description}\n---\n`,
+				userCreated: true,
+				scope: "project",
+			}),
+			deleteFromProject: async () => undefined,
+			rename: async (_oldName, newName) => ({
+				name: newName,
+				path: `C:/Users/preview/.pi/agent/prompts/${newName}.md`,
+				description: "Renamed prompt",
+				content: `---\ndescription: Renamed prompt\n---\n`,
+				userCreated: true,
+			}),
+			renameInProject: async (_projectId, _oldName, newName) => ({
+				name: newName,
+				path: `project://${_projectId}/.pi/prompts/${newName}.md`,
+				description: "Renamed project prompt",
+				content: `---\ndescription: Renamed project prompt\n---\n`,
+				userCreated: true,
+				scope: "project",
+			}),
+			toggle: async (filePath, enabled) => ({
+				name: filePath.split("/").pop()?.replace(/\.md$/, "") ?? "prompt",
+				path: filePath,
+				description: "Preview prompt",
+				content: "",
+				userCreated: true,
+				enabled,
+			}),
+			toggleInProject: async (_projectId, name, enabled) => ({
+				name,
+				path: `project://${_projectId}/.pi/prompts/${name}.md`,
+				description: "Preview project prompt",
+				content: "",
+				userCreated: true,
+				scope: "project",
+				enabled,
+			}),
+		},
+		promptStore: {
+			search: async (_query, _opts) => ({ query: _query ?? "", count: 0, prompts: [] }),
+			get: async (_id) => ({ id: _id, title: "", description: "", content: "", type: "TEXT", author: "", category: "", tags: [], votes: 0, createdAt: "" }),
+			import: async (data) => ({
+				name: data.title.toLowerCase().replace(/[^\w-]+/g, "-"),
+				path: `C:/Users/preview/.pi/agent/prompts/${data.title.toLowerCase().replace(/[^\w-]+/g, "-")}.md`,
+				description: data.description,
+				content: data.content,
+				userCreated: true,
+			}),
+		},
+		yaoPrompts: {
+			list: async () => ({ categories: [], prompts: [], repoPath: "", dbState: "missing" }),
+			detail: async () => ({ title: "", description: "", promptContent: "", fullContent: "" }),
+			onDbStateChange: (_callback) => () => {},
+			retryDb: async () => ({ state: "missing" }),
+			import: async (_slug, _category) => ({
+				name: _slug,
+				path: `C:/Users/preview/.pi/agent/prompts/${_slug}.md`,
+				description: "Preview import",
+				content: "Preview content",
+				userCreated: true,
+			}),
+		},
+		skillStore: {
+			search: async () => ({ query: "", count: 0, prompts: [] }),
+			import: async (data, _locationId) => ({
+				name: data.title.toLowerCase().replace(/[^\w-]+/g, "-"),
+				path: `C:/Users/preview/.pi/agent/skills/${data.title.toLowerCase().replace(/[^\w-]+/g, "-")}/SKILL.md`,
+				description: data.description,
+				enabled: true,
+				valid: true,
+				warnings: [],
+				id: `pi-global:preview`,
+				dir: "",
+				sourceId: "pi-global",
+				sourceLabel: "Preview",
+				type: "directory",
+			}),
+		},
+		skillHub: {
+			search: async () => ({ query: "", total: 0, items: [] }),
+			detail: async () => null,
+			install: async (slug) => ({ success: true, slug, installDir: "", message: "Preview install" }),
+			// 预览模式无安装进程，但事件订阅形状必须完整（返回退订函数）
+			onInstallProgress: () => () => {},
+		},
+	};
+}

@@ -27,6 +27,7 @@ import { DEFAULT_ATOMGIT_REMOTE, DEFAULT_ATOMGIT_URL } from "./atomgit-mirror.mj
 
 const HOOKS_PATH = ".githooks";
 const HOOK_FILE = join(HOOKS_PATH, "pre-push");
+const PRE_COMMIT_FILE = join(HOOKS_PATH, "pre-commit");
 
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has("--check");
@@ -67,7 +68,7 @@ function main() {
 	const current = git(["config", "--local", "--get", "core.hooksPath"]);
 	const installed = current.ok && current.output === HOOKS_PATH;
 	if (installed && checkOnly) {
-		log(`✅ core.hooksPath = ${HOOKS_PATH}（pre-push → AtomGit 镜像已启用）`);
+		log(`✅ core.hooksPath = ${HOOKS_PATH}（pre-commit → 本地守卫；pre-push → AtomGit 镜像）`);
 	}
 
 	if (!installed) {
@@ -87,10 +88,13 @@ function main() {
 	}
 
 	// POSIX 需要执行位；Windows 上 git 用自带的 sh 直接跑，chmod 失败也无所谓
-	try {
-		chmodSync(HOOK_FILE, 0o755);
-	} catch {
-		// 忽略：权限模型的差异不该让安装失败
+	for (const hookFile of [HOOK_FILE, PRE_COMMIT_FILE]) {
+		if (!existsSync(hookFile)) continue;
+		try {
+			chmodSync(hookFile, 0o755);
+		} catch {
+			// 忽略：权限模型的差异不该让安装失败
+		}
 	}
 
 	// 新设备自愈：没有 atomgit 远端就补一个
@@ -106,6 +110,7 @@ function main() {
 
 	if (!checkOnly) {
 		log("");
+		log("每次 git commit 先跑本地守卫：check:file-size + check:test-shape + 暂存文件格式（跳过：PI_DECK_SKIP_PRECOMMIT=1）。");
 		log("每次 git push 会把本次推送的引用同步到 AtomGit（失败只提示，不阻断 push）。");
 		log("自检：PI_DECK_ATOMGIT_DRY_RUN=1 git push <remote> <branch>   # 只打印将执行的镜像命令");
 		log("开关：PI_DECK_SKIP_ATOMGIT=1 跳过；PI_DECK_ATOMGIT_STRICT=1 镜像失败即失败");

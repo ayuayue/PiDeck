@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { applyAppearanceWithTransition } = loadTsCommonJs("src/renderer/src/hooks/appearance/appearanceTransition.ts");
 
@@ -116,6 +117,6 @@ test("a synchronous View Transition API failure falls back to a direct update", 
 });
 
 test("App passes settings readiness into the appearance lifecycle", () => {
-	const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const appSource = rendererAppSource;
 	assert.match(appSource, /useAppAppearance\(\{\s*settings,\s*systemLanguage,\s*settingsLoaded,?\s*\}\)/);
 });

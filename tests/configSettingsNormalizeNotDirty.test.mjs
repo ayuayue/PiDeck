@@ -12,9 +12,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const settingsTab = readFileSync("src/renderer/src/config/SettingsTab.tsx", "utf8");
-const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+const configModal = configModalSource;
 
 test("SettingsTab：挂载期归一以 normalize 理由回写，用户编辑不带理由", () => {
 	assert.match(settingsTab, /onChange: \(data: SettingsFile, reason\?: "normalize"\) => void;/);

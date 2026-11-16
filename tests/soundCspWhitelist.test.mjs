@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 // 回归守卫：自定义提示音经 pideck-sound:// 协议加载，<audio> 受 CSP media-src 管。
 // 2026-xx 事故：CSP 只有 img-src 放行了 pideck-bg/pideck-img，media-src 缺失导致
 // 自定义音效被 default-src 'self' 拦截、播放静默失败（无任何报错，只有「没声音」）。
@@ -31,7 +31,7 @@ test("CSP img-src：既有自定义协议放行不得被顺手删掉", () => {
 });
 
 test("声音协议与特权声明、装配保持三处同步", () => {
-	const mainIndex = readFileSync("src/main/index.ts", "utf8");
+	const mainIndex = mainIpcSource;
 	const soundProtocol = readFileSync("src/main/sounds/soundProtocol.ts", "utf8");
 	// 特权声明必须在 ready 前（registerSchemesAsPrivileged），装配必须在 ready 后
 	assert.match(mainIndex, /scheme: "pideck-sound"/);

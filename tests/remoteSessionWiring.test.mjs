@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 远端 Session 通道的三处同步守卫（G5 集成）。
  *
@@ -11,9 +14,9 @@ import test from "node:test";
  */
 
 const shared = readFileSync("src/shared/ipc.ts", "utf8");
-const preload = readFileSync("src/preload/index.ts", "utf8");
-const previewApi = readFileSync("src/renderer/src/previewApi.ts", "utf8");
-const main = readFileSync("src/main/index.ts", "utf8");
+const preload = preloadSource;
+const previewApi = previewApiSource;
+const main = mainIpcSource;
 const scanner = readFileSync("src/main/sessions/RemoteSessionScanner.ts", "utf8");
 const sharedTypes = readFileSync("src/shared/types/remoteHost.ts", "utf8");
 
@@ -34,7 +37,7 @@ test("the project-level root status channel is declared and bridged (design (i))
 
 test("preload bridges both channels and the preview facade stubs them", () => {
 	assert.match(preload, /remoteSessions:\s*\{/);
-	assert.match(preload, /scan:\s*\(hostId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteSessionScan/);
+	assert.match(preload, /scan:\s*\(hostId: string, projectId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteSessionScan/);
 	assert.match(preload, /register:\s*\(hostId: string, remoteSessionId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteSessionRegister/);
 	// 预览/降级面必须同样暴露这两个方法，否则渲染层在非 Electron 预览下会取到 undefined。
 	assert.match(previewApi, /remoteSessions:\s*\{[\s\S]{0,300}?scan: async/);

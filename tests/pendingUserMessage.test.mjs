@@ -4,6 +4,7 @@ import test from "node:test";
 import { atom } from "jotai/vanilla";
 import { atomFamily, selectAtom } from "jotai/vanilla/utils";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
+import { sessionAtomsSource } from "./helpers/sessionAtomsSources.mjs";
 
 /**
  * 「发送失败后消息被吞」回归（2026-10 用户反馈，DSH 会话）。
@@ -92,7 +93,7 @@ test("投递被拒：按 requestId 撤掉乐观气泡（文字已回填草稿）
 });
 
 test("接线：快照两条路径都接管；发送路径写标记并在拒绝时撤销", () => {
-	const sessionAtoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+	const sessionAtoms = sessionAtomsSource;
 	const send = readFileSync("src/renderer/src/hooks/useSessionSend.ts", "utf8");
 	// 全量窗口段替换 + 增量 flush 合并都必须走同一套接管逻辑
 	assert.equal((sessionAtoms.match(/carryPendingUserMessages\(/gu) ?? []).length, 3, "函数定义 + 两条快照路径");

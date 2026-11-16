@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 function handlersFor(input) {
 	const handlers = new Map();
@@ -25,7 +26,7 @@ const base = { userDataDir: "/tmp/pideck-list-dirs-unused", list: async () => ({
 
 test("list-dirs channel is declared, bridged and registered", () => {
 	assert.match(readFileSync("src/shared/ipc.ts", "utf8"), /remoteHostListDirs:\s*"remote:list-dirs"/);
-	assert.match(readFileSync("src/preload/index.ts", "utf8"), /listDirs:\s*\(hostId: string, path\?: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteHostListDirs/);
+	assert.match(preloadSource, /listDirs:\s*\(hostId: string, path\?: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteHostListDirs/);
 	assert.ok(handlersFor({ ...base, enabled: true }).get("remote:list-dirs"));
 });
 

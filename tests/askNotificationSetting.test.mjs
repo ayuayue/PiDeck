@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * Ask 提问系统通知开关（askNotificationEnabled）的接线测试。
  * 背景：非聚焦会话收到 Ask 提问时主进程会发系统通知，此前与通用会话结束通知
@@ -7,12 +8,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 test("askNotificationEnabled 三处默认值一致且默认关闭", () => {
 	const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
 	const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const app = rendererAppSource;
+	const preview = previewApiSource;
 	assert.match(settingsType, /askNotificationEnabled: boolean/);
 	// 默认关闭：主进程持久化默认、渲染层首屏默认、预览 mock 三处同步
 	assert.match(store, /askNotificationEnabled: false/);
@@ -24,8 +27,8 @@ test("askNotificationEnabled 三处默认值一致且默认关闭", () => {
 test("autoSessionTitle 四处默认开启且设置说明提示额外 token 消耗", () => {
 	const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
 	const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
-	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const app = rendererAppSource;
+	const preview = previewApiSource;
 	const commonTab = readFileSync("src/renderer/src/components/app/settings/CommonTab.tsx", "utf8");
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
@@ -40,7 +43,7 @@ test("autoSessionTitle 四处默认开启且设置说明提示额外 token 消�
 });
 
 test("AgentManager 的 Ask 通知改由独立开关门控，与通用通知解耦", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	// 门控条件必须读新开关，而不是 enableNotifications
 	assert.match(source, /if \(!settings\.askNotificationEnabled\) return;/);
 	// 且不再引用通用开关作为 Ask 通知的条件

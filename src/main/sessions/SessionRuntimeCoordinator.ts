@@ -17,7 +17,6 @@ import type {
 	SendPromptResult,
 	SendSessionPromptInput,
 	SendSessionPromptResult,
-	SessionCommandErrorCode,
 	SessionCommandResult,
 	SessionMessageImageTarget,
 	SessionRecord,
@@ -40,178 +39,16 @@ import { descriptorFromThrownError } from "../../shared/errorI18n";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
 import { isRewindCheckpointId, isRewindRestoreScope } from "../../shared/types";
 import type { SessionCatalogEntry } from "./SessionCatalog";
-import { REMOTE_SESSION_HISTORY_WRITER_CODES, remoteSessionHistoryWriteFailure, type RemoteSessionMessageMutationPort } from "../remote/RemoteSessionHistoryWriter";
 import { StoppedMessageIdentityCache } from "../pi/stoppedMessageIdentity";
-import { sessionFileSizeMb } from "./sessionFileSizeCopy";
+import type { RemoteSessionMessageMutationResolver, SessionAgentGateway, SessionCatalogGateway, SessionProjectLocatorResolver, SessionRuntimeLogger } from "./runtime/sessionRuntimeGateways";
 
-export interface SessionCatalogGateway {
-	get(sessionId: string): SessionCatalogEntry | undefined;
-	getRecord(sessionId: string): SessionRecord | undefined;
-	getLocator(sessionId: string): SessionLocator | undefined;
-	getLocalFilePath(sessionId: string): string | undefined;
-	/**
-	 * #354：把已被身份归并掉的**历史**会话 ID 归一化为现存 ID。
-	 * 可选：测试里的极简网关可以缺它，缺失时按原 ID 处理。
-	 */
-	resolveSessionId?(sessionId: string): string;
-	update(
-		sessionId: string,
-		patch: {
-			title?: string;
-			model?: SessionModelPreference | null;
-			thinkingLevel?: string | null;
-			permissionPreset?: string | null;
-			backend?: AgentBackend;
-			updatedAt?: number;
-		},
-	): Promise<SessionCatalogEntry>;
-	attachRuntime(input: {
-		sessionId: string;
-		filePath?: string;
-		piSessionId?: string;
-		dshSessionId?: string;
-		acpSessionId?: string;
-		agentPreset?: string;
-		promoteToActive?: boolean;
-		/** 远端会话身份（ssh locator）：远端路径只以这个形状回写，绝不进本机 `filePath`（见 buildAttachPatch）。 */
-		remoteLocator?: SshSessionLocator;
-	}): Promise<unknown>;
-}
-
-/**
- * 装配注入：项目位置（远端会话路由的唯一判据来源）。
- *
- * 为什么会话链路需要项目位置：远端会话在**新建阶段还没有 ssh 身份** —— 远端 pi 的会话文件由 pi 自己
- * 选好并在握手时上报（`AgentManager.registerRemoteSessionIdentity`），而 catalog 里的 draft 只有
- * projectId。要把这条 draft 收敛成 ssh locator（远端路径绝不进本机 filePath），就必须知道
- * 「这个项目的 runtime 在哪台机器上」——这也是 `AgentManager` 路由 runtime 的判据（按项目 locator）。
- *
- * 缺省未注入 ⇒ 一律按本机语义处理，本地行为逐字不变。
- */
-export type SessionProjectLocatorResolver = (projectId: string) => ProjectLocator | undefined;
-
-/**
- * 装配注入：远端会话文件改写端口（P4.5c 的编辑 / 删除 / 重发三条链路共用一个写面）。
- *
- * 为什么是「解析器」而不是端口本身：写面依赖 pinned SSH 短命令，而那条通道只在 `registerIpc()` 的
- * 装配期才存在（协调器在更早的启动阶段构造）。解析器在**调用时**取端口，于是「实验开关关闭」与
- * 「端口尚未装配」都自然表示成 undefined ⇒ fail-closed，不需要可变字段或 setter。
- */
-export type RemoteSessionMessageMutationResolver = () => RemoteSessionMessageMutationPort | undefined;
-
-export interface SessionAgentGateway {
-	/** 本网关的运行时后端身份（pi/dsh）；CompositeAgentGateway 按它路由。 */
-	readonly backend: AgentBackend;
-	/** 本网关持有的可选能力；缺失项由 UI 按能力禁用，禁止硬造等价物。 */
-	readonly capabilities: ReadonlySet<AgentGatewayCapability>;
-	list(): AgentTab[];
-	/** 发送提示词到 agent（pi: stdio RPC；dsh: session.prompt）。 */
-	sendPrompt(input: SendPromptInput): Promise<SendPromptResult>;
-	getMessages(agentId: string): ChatMessage[];
-	create(input: CreateAgentInput): Promise<AgentTab>;
-	/** 可选能力：standby 池认领（pi 提供；dsh 无进程池概念不实现）。命中返回已握手 idle tab。 */
-	claimStandbyAgent?(input: { projectId: string; sessionId: string; noSession?: boolean }): Promise<AgentTab | null>;
-	/** 可选能力：standby 池补热（fire-and-forget，幂等）。 */
-	ensureStandbyAgent?(projectId: string): void;
-	/** 可选能力：草稿斜杠命令预览（只读查询 pi standby 进程的 get_commands；不可用返回 null，调用方回退本地发现）。 */
-	draftCommands?(projectId: string): Promise<PiCommand[] | null>;
-	restart(agentId: string): Promise<AgentTab>;
-	stop(agentId: string): Promise<void>;
-	/**
-	 * 可选能力：停止并等待进程退出（返回是否在超时内退出）。
-	 *
-	 * 删除会话必须先等 pi 释放会话文件句柄，否则 Windows 上 shell.trashItem 只会报通用的
-	 * 「Failed to perform delete operation」（issue #364）；未实现该能力的老网关退回只发 stop。
-	 */
-	stopAndWaitForExit?(agentId: string, timeoutMs?: number): Promise<boolean>;
-	rename(agentId: string, name: string): Promise<AgentTab>;
-	abort(agentId: string): Promise<void>;
-	compact(agentId: string, prompt?: string): Promise<AgentRuntimeState>;
-	getRuntimeState(agentId: string): Promise<AgentRuntimeState>;
-	/**
-	 * 可选能力：error 终态但进程仍存活时的原进程复活（error → idle，Issue #218）。
-	 * 回复级错误（API 400/模型报错/投递未知）不会杀死 pi 进程，此前被标成终态后，
-	 * 下一次激活要么抛「启动失败」、要么停掉活进程重建（扩展有问题时还会触发无插件回退）。
-	 * pi 网关实现进程存活探测；dsh 未实现则保持原终态语义。
-	 */
-	reviveIfProcessAlive?(agentId: string): boolean;
-	/** 可选能力：会话内命令列表（pi 经 get_commands RPC；dsh 经 host 命令注册表枚举桥 D15）。 */
-	getCommands?(agentId: string): Promise<unknown[]>;
-	/**
-	 * 可选能力：热重载 pi 的扩展/技能/提示词/主题/上下文文件（内部 `reload` 扩展命令）。
-	 * 只对 live idle 进程开放；返回重载后的命令表，供渲染层刷新 `/` 菜单。
-	 */
-	reloadResources?(agentId: string): Promise<PiCommand[]>;
-	getAvailableModels(agentId: string): Promise<AvailableModel[]>;
-	/** 可选能力：Pi 按当前模型返回可用 thinking levels；旧 Pi 返回 undefined 走 UI 兼容回退。 */
-	getAvailableThinkingLevels?(agentId: string): Promise<string[] | undefined>;
-	/** 可选能力：导出 HTML（pi 经 export_html RPC；dsh 投影式导出 G10）。 */
-	exportHtml?(agentId: string): Promise<unknown>;
-	/** 可选能力：checkpoint 列表（refs/pi-checkpoints；纯 git，pi 提供，dsh 暂缺）。支持分页。 */
-	listCheckpoints?(agentId: string, params?: RewindCheckpointPageParams): Promise<RewindCheckpointPage>;
-	/** 可选能力：checkpoint 与当前 index 树的 diff 摘要（回退预览）。 */
-	getCheckpointDiff?(agentId: string, checkpointId: string): Promise<string>;
-	/** 可选能力：回退到 checkpoint（scope 决定回退范围；当前仅 files 实现）。 */
-	restoreCheckpoint?(agentId: string, checkpointId: string, scope: RewindRestoreScope): Promise<RewindRestoreResult>;
-	/** 可选能力：编辑历史消息（pi 提供；dsh 缺失，capabilities 不含 editMessage）。 */
-	editMessage?(agentId: string, messageId: string, newText: string): Promise<void>;
-	/** 可选能力：删除历史消息（pi 提供；dsh 缺失，capabilities 不含 deleteMessage）。 */
-	deleteMessage?(agentId: string, messageId: string): Promise<void>;
-	/**
-	 * 可选能力：无 runtime 时直接改 pi 会话 JSONL（编辑/删除/重发截断）。
-	 * DSH 无会话文件，不得实现；运行中不得调用（先 stopRuntime）。
-	 */
-	mutatePersistedSessionMessage?(
-		sessionPath: string,
-		messageId: string,
-		operation: "edit" | "delete" | "resend" | "remove-image",
-		options?: {
-			newText?: string;
-			environment?: SessionRecord["environment"];
-			wslDistro?: string;
-			/** 渲染层消息的文件条目 id（meta.entryId），live randomUUID 的文件定位锚点。 */
-			entryId?: string;
-			imageTarget?: SessionMessageImageTarget;
-		},
-	): Promise<{ text: string; images?: ImageContent[] } | undefined>;
-	prepareResendFromMessage(agentId: string, messageId: string): Promise<{ text: string; images?: ImageContent[] }>;
-	getRuntimeModelThinkingState?(agentId: string): Promise<SessionRuntimeModelSelection | undefined>;
-	setModel(agentId: string, provider: string, modelId: string): Promise<unknown>;
-	setThinking(agentId: string, level: string): Promise<unknown>;
-	/** 可选能力：DSH 会话权限预设（/permission 命令）；pi 后端不持有。 */
-	setPermission?(agentId: string, preset: string): Promise<unknown>;
-	/**
-	 * 可选能力：会话内系统提示——catalog 保存的模型偏好已失效（模型被重命名/删除）
-	 * 被跳过，本次沿用 runtime 当前模型。DSH 后端不需要（降级无提示）。
-	 */
-	notifyModelPreferenceIgnored?(agentId: string, provider: string, modelId: string): void;
-	/** 主动推送一次完整 runtime state（get_state）给渲染层：懒启动/重启链路在偏好应用后调用。 */
-	publishRuntimeState(agentId: string): Promise<void>;
-	getForkMessages(agentId: string): Promise<Array<{ entryId: string; text: string }>>;
-	forkSession(agentId: string, entryId: string): Promise<unknown>;
-	sendUIResponse(agentId: string, requestId: string, response: SessionUiResponseInput["response"]): Promise<unknown> | unknown;
-	/** 会话收到 Ask 类 UI 请求时触发桌面通知（由 AgentManager 实现，不再区分会话是否聚焦）
-	 * 参数：agentId（去重/日志）、sessionId（点击跳转目标）、sessionTitle、question（提问内容，可空） */
-	notifyAskPending(agentId: string, sessionId: string, sessionTitle: string, question: string): void;
-	/**
-	 * 可选能力：本轮成功收口（用户停止 / 失败 / 压缩不算）。
-	 * 桌宠完成气泡与 ACP/DSH 的会话完成通知都订阅它；pi 早在 AgentManager 内部实现。
-	 */
-	onAgentSettled?(listener: (info: { agentId: string; title: string }) => void): () => void;
-	/** 统一的事件出口（agents:* 通道推送），主进程桥接进 sessions:runtime-event 用。 */
-	onOutput(listener: (channel: string, payload: unknown) => void): () => void;
-}
-
-/**
- * 会话运行时业务日志接口（AppLogger 满足该签名）。
- * 会话全周期事件（激活/停止/重启/模型切换等）经此留痕，与性能日志（session-perf scope）区分；
- * 无实例时静默跳过（启动早期/测试环境）。
- */
-export interface SessionRuntimeLogger {
-	info(scope: string, message: string, detail?: unknown): unknown;
-	warn(scope: string, message: string, detail?: unknown): unknown;
-	error(scope: string, message: string, detail?: unknown): unknown;
-}
+// 网关契约（catalog / agent / logger）搬进了 `runtime/sessionRuntimeGateways.ts`；
+// 这里只作 re-export，调用方（AgentManager / DSH / ACP / CompositeAgentGateway…）的 import 路径不变。
+export type { RemoteSessionMessageMutationResolver, SessionAgentGateway, SessionCatalogGateway, SessionProjectLocatorResolver, SessionRuntimeLogger };
+import { type AppliedSessionPreferences, SessionRuntimePreferences, snapshotPreferences } from "./runtime/sessionRuntimePreferences";
+import { RemoteMessageMutation } from "./runtime/remoteMessageMutation";
+import { RuntimeBinding } from "./runtime/runtimeBinding";
+import { SessionRuntimeCommandError } from "./runtime/sessionRuntimeCommandError";
 
 type DeliveryCacheEntry = {
 	createdAt: number;
@@ -257,18 +94,6 @@ type DispatchLease = SessionRuntimeBinding & {
 	leaseId: number;
 };
 
-class SessionRuntimeCommandError extends Error {
-	constructor(
-		readonly code: SessionCommandErrorCode,
-		message: string,
-		/** 展示参数（目前只有远端写面的体积上界）：与 `SessionFileEditorError.details` 同形状，只为文案服务。 */
-		readonly details?: Record<string, unknown>,
-	) {
-		super(message);
-		this.name = "SessionRuntimeCommandError";
-	}
-}
-
 const DELIVERY_CACHE_TTL_MS = 10 * 60_000;
 const DELIVERY_CACHE_MAX_ENTRIES = 500;
 const AGENT_READY_TIMEOUT_MS = 60_000;
@@ -295,32 +120,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isInteractiveUiMethod(method: unknown): boolean {
 	return method === "select" || method === "confirm" || method === "input" || method === "editor" || method === "batch_ask";
-}
-
-/** catalog 里会在激活后被用户改写的偏好；lastApplied 用这份快照判断要不要再 setModel。 */
-type AppliedSessionPreferences = {
-	model?: SessionModelPreference;
-	thinkingLevel?: string;
-	permissionPreset?: string;
-};
-
-function snapshotPreferences(entry: SessionCatalogEntry): AppliedSessionPreferences {
-	return {
-		...(entry.model ? { model: createSessionModelPreference(entry.model.provider, entry.model.modelId, entry.model.modelName) } : {}),
-		...(entry.thinkingLevel ? { thinkingLevel: entry.thinkingLevel } : {}),
-		...(entry.permissionPreset ? { permissionPreset: entry.permissionPreset } : {}),
-	};
-}
-
-function sameAppliedPreferences(a: AppliedSessionPreferences | undefined, b: AppliedSessionPreferences): boolean {
-	if (!a) return false;
-	const aModel = a.model;
-	const bModel = b.model;
-	if (Boolean(aModel) !== Boolean(bModel)) return false;
-	if (aModel && bModel && (aModel.provider !== bModel.provider || aModel.modelId !== bModel.modelId)) {
-		return false;
-	}
-	return a.thinkingLevel === b.thinkingLevel && a.permissionPreset === b.permissionPreset;
 }
 
 export class SessionRuntimeCoordinator {
@@ -369,6 +168,12 @@ export class SessionRuntimeCoordinator {
 	/** Serializes model/effort changes so a slower earlier get_state cannot overwrite a newer choice. */
 	private readonly preferenceMutationTails = new Map<string, Promise<void>>();
 	private readonly lastRequestedThinkingBySession = new Map<string, { agentId: string; level: string }>();
+	/** 偏好重放/降级（模型 / 思考档 / 权限预设）的协作对象；见 `runtime/sessionRuntimePreferences.ts`。 */
+	private readonly preferences: SessionRuntimePreferences;
+	/** catalog 级消息变更与命令失败分类的协作对象；见 `runtime/remoteMessageMutation.ts`。 */
+	private readonly messageMutation: RemoteMessageMutation;
+	/** 绑定表读取与代数（stale 拒绝）判定的协作对象；见 `runtime/runtimeBinding.ts`。 */
+	private readonly bindings: RuntimeBinding;
 	private detachedNotifier: SessionRuntimeDetachNotifier | undefined;
 
 	constructor(
@@ -378,7 +183,25 @@ export class SessionRuntimeCoordinator {
 		private readonly logger?: SessionRuntimeLogger,
 		private readonly resolveProjectLocator?: SessionProjectLocatorResolver,
 		private readonly resolveRemoteMessageMutation?: RemoteSessionMessageMutationResolver,
-	) {}
+	) {
+		this.preferences = new SessionRuntimePreferences(this.catalog, this.agents, this.logger, (sessionId) => this.isRemoteSession(sessionId), this.lastAppliedBySession, this.lastRequestedThinkingBySession);
+		this.messageMutation = new RemoteMessageMutation(
+			this.catalog,
+			this.agents,
+			this.logger,
+			this.resolveRemoteMessageMutation,
+			this.remoteStoppedMessageIdentities,
+			(sessionId) => this.canonicalSessionId(sessionId),
+			(sessionId) => this.getTarget(sessionId),
+			(sessionId) => this.isActivating(sessionId),
+		);
+		this.bindings = new RuntimeBinding(this.catalog, this.sessionIdByAgent, this.agentIdBySession, this.generationBySession);
+	}
+
+	/** 偏好重放留在宿主：调用点（激活/重启/换绑）只认这个方法名，实现见协作对象。 */
+	private applyLatestPreferences(sessionId: string, agentId: string): Promise<boolean> {
+		return this.preferences.applyLatestPreferences(sessionId, agentId);
+	}
 
 	/** 渲染层在 currentSessionId 变化时汇报聚焦会话（见 sessions:set-focused-session IPC）。 */
 	setFocusedSession(sessionId: string | undefined): void {
@@ -1308,23 +1131,14 @@ export class SessionRuntimeCoordinator {
 	/**
 	 * 激活前合成事件用的当前代数（bind 递增前的值）：IPC 层在激活窗口发 session 级
 	 * starting 事件时，需要与渲染层已存的代数对齐才能压住旧 runtime 的迟到事件。
+	 * 实现见 `runtime/runtimeBinding.ts`。
 	 */
 	currentRuntimeGeneration(sessionId: string): number {
-		return this.generationBySession.get(sessionId) ?? 0;
+		return this.bindings.currentRuntimeGeneration(sessionId);
 	}
 
-	getRuntimeBinding(agentId: string):
-		| {
-				sessionId: string;
-				runtimeGeneration: number;
-		  }
-		| undefined {
-		const sessionId = this.sessionIdByAgent.get(agentId);
-		if (!sessionId || this.agentIdBySession.get(sessionId) !== agentId) return undefined;
-		return {
-			sessionId,
-			runtimeGeneration: this.generationBySession.get(sessionId) ?? 0,
-		};
+	getRuntimeBinding(agentId: string): { sessionId: string; runtimeGeneration: number } | undefined {
+		return this.bindings.getRuntimeBinding(agentId);
 	}
 
 	async replaceBoundRuntime<T extends { cancelled?: boolean }>(input: {
@@ -1736,7 +1550,7 @@ export class SessionRuntimeCoordinator {
 				// ACP：acpSessionId 存在则 session/load 恢复旧会话；工具选择复用 agentPreset
 				// 字段（AcpToolConfig.id），草稿预选优先 acpToolId。
 				acpSessionId: entry.backend === "acp" ? entry.acpSessionId : undefined,
-				...(entry.backend === "acp" ? { agentPreset: entry.acpToolId ?? entry.agentPreset } : {}),
+				...(entry.backend === "acp" ? { agentPreset: entry.acpToolId ?? entry.agentPreset, additionalDirectories: entry.additionalDirectories } : {}),
 				wslDistro: entry.wslDistro,
 				wslUser: entry.wslUser,
 				importedSourceId: entry.importedSourceId,
@@ -1745,8 +1559,12 @@ export class SessionRuntimeCoordinator {
 		}
 		if (tab.status === "starting") tab = await this.waitUntilReady(tab);
 		if (isTerminalAgent(tab)) {
+			// 启动错误卡必须**先读后停**：`stop()` 会删掉该 agent 的 messages，先停会让下面的
+			// startupFailure() 取不到带 debugDetails 的错误卡，只能回落到「(error)」这种零信息文案
+			// （用户报的「远端会话失败但看不到原因」就是这条顺序造成的）。
+			const failure = this.startupFailure(tab);
 			if (created) await this.agents.stop(tab.id).catch(() => undefined);
-			throw this.startupFailure(tab);
+			throw failure;
 		}
 
 		try {
@@ -1883,179 +1701,6 @@ export class SessionRuntimeCoordinator {
 					importedSourceId: tab.importedSourceId,
 				}) === target,
 		);
-	}
-
-	/**
-	 * 重读 catalog 再应用偏好。activate 开头的 entry 是 clone，等待期间用户改模型
-	 * 不能再用那份快照。lastApplied 按 agentId+prefs 去重，避免每次 send 都 setModel。
-	 * @returns 是否真正调用了 applyPreferences（绑定路径据此决定要不要再 publish）。
-	 */
-	private async applyLatestPreferences(sessionId: string, agentId: string): Promise<boolean> {
-		const latest = this.catalog.get(sessionId);
-		if (!latest) throw new Error(`Session not found: ${sessionId}`);
-		const preferences = snapshotPreferences(latest);
-		const last = this.lastAppliedBySession.get(sessionId);
-		if (last?.agentId === agentId && sameAppliedPreferences(last.preferences, preferences)) {
-			return false;
-		}
-		await this.applyPreferences(latest, agentId);
-		// 降级路径（远端/DSH 采纳宿主模型）会在 applyPreferences 内部改写 catalog：
-		// 这里必须重读，否则会把「采纳前的旧快照」记成已应用，下次激活又重试同一个必然失败的 set_model。
-		const applied = this.catalog.get(sessionId) ?? latest;
-		this.lastAppliedBySession.set(sessionId, { agentId, preferences: snapshotPreferences(applied) });
-		this.lastRequestedThinkingBySession.delete(sessionId);
-		return true;
-	}
-
-	private async applyPreferences(entry: SessionCatalogEntry, agentId: string): Promise<void> {
-		// DSH 草稿的 entry.model 可能来自 pi 的 models.json（引导页/欢迎页选型在
-		// 创建时不知道后端，或用户切了默认后端）；host 目录没有该 provider/模型时
-		// selectModel 会拒绝。降级为「应用宿主默认模型」并告警，不让整个激活失败
-		// （否则每次重试都新建一个 host 会话 = 孤儿堆积）。pi 保持严格（模型应在 models.json）。
-		const isDsh = entry.backend === "dsh";
-		// 远端会话的偏好可能来自本机目录（引导页默认/旧版本留下的本机选择）——远端 pi 不认识这些模型
-		// 属于预期错配，不是「模型被删」。若按本机 pi 的严格语义抛错，远端会话会直接无法激活；
-		// 若弹「偏好被忽略」，用户会以为自己选错了。统一静默降级 + 把远端真实模型写回 catalog。
-		const isRemote = !isDsh && this.isRemoteSession(entry.id);
-		// DSH 的 session/selectModel 除改会话选择外，还会把选择保存成部署默认模型
-		// （host 侧 agentDefaultModel.saveSelection）。Coordinator 每次激活/重启都会重放
-		// catalog 偏好；不加判断时，「打开/切换 DSH 会话」就会悄悄改写全局默认——新建
-		// DSH 会话（以及 dsh CLI/web）继承最后一次打开会话的模型/档位。这里先读 host
-		// 会话当前选择（投影 next ?? lastUsed），已经一致的字段不再下发；真正变化
-		// （草稿期改选、host 里被外部改过）仍照常应用。pi 不读：set_model/set_thinking
-		// 的持久化与幂等由 AgentManager + lastAppliedBySession 既有链路负责。
-		//
-		// 远端不读这份 runtimeSelection：远端会话每次激活都可能是新主机上的新进程，
-		// 「已应用」由 lastAppliedBySession 与下面的降级分支各自负责，多读一次只增加
-		// 一次跨 ssh RPC 往返；DSH 才有「重放偏好会改全局默认」这个问题。
-		let runtimeSelection: SessionRuntimeModelSelection | undefined;
-		if (isDsh && (entry.model || entry.thinkingLevel)) {
-			try {
-				runtimeSelection = await this.agents.getRuntimeModelThinkingState?.(agentId);
-			} catch {
-				// 读取失败按「未知」处理：宁可照旧应用偏好，也不静默跳过用户选择。
-				runtimeSelection = undefined;
-			}
-		}
-		const modelAlreadyApplied = Boolean(runtimeSelection && entry.model && runtimeSelection.provider === entry.model.provider && runtimeSelection.modelId === entry.model.modelId);
-		const thinkingAlreadyApplied = runtimeSelection?.thinkingLevel !== undefined && runtimeSelection.thinkingLevel === entry.thinkingLevel;
-		if (entry.model && !modelAlreadyApplied) {
-			try {
-				await this.agents.setModel(agentId, entry.model.provider, entry.model.modelId);
-			} catch (error) {
-				if (isRemote) {
-					// 只有「远端确实不认识这个模型」才采纳宿主机当前模型。RPC 超时/远端进程刚退出是
-					// **瞬时故障**：那时拿 get_state 去覆盖 catalog 等于把用户显式选择的偏好静默销毁，
-					// 而用户看不到任何提示。瞬时故障保留偏好、下次激活自然重试。
-					if (/model not found/i.test(errorMessage(error))) {
-						await this.adoptRuntimeModelAfterRejection(entry.id, agentId, error);
-					} else {
-						void this.logger?.warn("session-runtime", "remote model preference deferred: runtime error", {
-							sessionId: entry.id,
-							provider: entry.model.provider,
-							modelId: entry.model.modelId,
-							error: errorMessage(error),
-						});
-					}
-				} else {
-					// pi 后端：模型既不在本地 models.json 也不在 pi 目录（AgentManager 不带
-					// needsRestart 标记地抛 "Model not found"）= 模型已被重命名/删除。与 DSH
-					// 同语义降级：保留 catalog 偏好、沿用 runtime 当前模型并给会话内系统提示，
-					// 不让整个激活/发送失败——否则每次发送都被 "Failed to apply session
-					// preferences" 挡死（2026-09 用户反馈：models.json 重命名模型后旧会话
-					// 无法再发送，报 Model not found: nacho/gpt-5.6-sol）。
-					// 带 needsRestart 的失败（模型存在但运行中 Agent 快照过期）不降级——
-					// 渲染层会引导用户重启 Agent 加载新配置。
-					// 走到这里 isRemote 恒为 false（远端分支在前面就分走了），所以这里只区分 pi / DSH。
-					const modelGoneOnPi = !isDsh && this.isModelGoneError(error);
-					if (!isDsh && !modelGoneOnPi) throw error;
-					void this.logger?.warn("session-runtime", modelGoneOnPi ? "pi model preference ignored: model no longer exists" : "DSH model preference ignored", {
-						sessionId: entry.id,
-						provider: entry.model.provider,
-						modelId: entry.model.modelId,
-						error: errorMessage(error),
-					});
-					// 降级路径两侧行为一致：保留 catalog 偏好、沿用当前模型，并**告知用户**。
-					// DSH 不提示的话，引导页点选（已作为显式 model 带入，issue #253）会在 host
-					// 拒绝时静默失效——底栏显示用户选的模型，实际跑的是部署默认。pi 侧本来就有
-					// 会话内系统消息；DSH 的 gateway 实现走 agentsNotice toast。
-					if (modelGoneOnPi || isDsh) {
-						this.agents.notifyModelPreferenceIgnored?.(agentId, entry.model.provider, entry.model.modelId);
-					}
-				}
-			}
-		}
-		if (entry.thinkingLevel && !thinkingAlreadyApplied) {
-			try {
-				await this.agents.setThinking(agentId, entry.thinkingLevel);
-			} catch (error) {
-				// 远端会话与 DSH 同语义：档位能力由后端裁决，本机偏好带到远端可能整体不适用，
-				// 降级为「沿用 runtime 当前档位」，不阻断激活。
-				if (!isDsh && !isRemote) throw error;
-				const message = errorMessage(error);
-				void this.logger?.warn("session-runtime", isDsh ? "DSH thinking preference ignored" : "remote thinking preference ignored", {
-					sessionId: entry.id,
-					thinkingLevel: entry.thinkingLevel,
-					error: message,
-				});
-				// 后端是档位能力的最终裁决者。即使本次 host 拒绝，也保留用户偏好：
-				// 目录配置、provider 或模型在之后变化时仍可重新应用，不能由 PiDeck
-				// 根据一条当前错误擅自清空用户选择。
-			}
-		}
-		// DSH 权限预设（草稿期预选 / 会话内切换回写）：激活时经 /permission 命令应用
-		if (entry.permissionPreset && this.agents.setPermission) {
-			await this.agents.setPermission(agentId, entry.permissionPreset);
-		}
-	}
-
-	/**
-	 * 远端会话的模型偏好被运行时拒绝后的收尾：不抛错、不提示，把运行时**实际**生效的模型/档位
-	 * 写回 catalog。
-	 *
-	 * 为什么必须回写：Preferences 失败分支不影响 runtime 启动，但底栏/选择器读的是 catalog
-	 * 里的 `model`。不回写就会长期显示一个远端从未用过的模型名（用户报「显示的模型跟实际跑的
-	 * 不是一回事」）。同时要刷新 lastAppliedBySession，否则之后每次激活都会重试同一个必然失败的
-	 * set_model。
-	 */
-	private async adoptRuntimeModelAfterRejection(sessionId: string, agentId: string, error: unknown): Promise<void> {
-		void this.logger?.info("session-runtime", "remote model preference not available on host; keeping host model", {
-			sessionId,
-			agentId,
-			error: errorMessage(error),
-		});
-		try {
-			const runtimeSelection = await this.agents.getRuntimeModelThinkingState?.(agentId);
-			if (!runtimeSelection) return;
-			const model = createSessionModelPreference(runtimeSelection.provider, runtimeSelection.modelId, runtimeSelection.modelName);
-			const updated = await this.catalog.update(sessionId, {
-				model,
-				...(runtimeSelection.thinkingLevel !== undefined ? { thinkingLevel: runtimeSelection.thinkingLevel } : {}),
-				updatedAt: Date.now(),
-			});
-			this.lastAppliedBySession.set(sessionId, { agentId, preferences: snapshotPreferences(updated) });
-			this.lastRequestedThinkingBySession.delete(sessionId);
-		} catch (adoptError) {
-			// 回写失败不能连带激活失败：下次用户在会话内切模型会修正展示。
-			void this.logger?.warn("session-runtime", "failed to adopt remote runtime model", {
-				sessionId,
-				agentId,
-				error: errorMessage(adoptError),
-			});
-		}
-	}
-
-	/**
-	 * set_model 失败是否为「模型已不存在」（被重命名/删除）：AgentManager.setModel
-	 * 只有在本地 models.json 与 pi 模型目录都查不到该模型时才不带 needsRestart
-	 * 标记地抛 "Model not found"。带 needsRestart 的失败（模型存在但运行中 Agent
-	 * 启动快照过期）不算——那应引导重启 Agent 而非降级。
-	 */
-	private isModelGoneError(error: unknown): boolean {
-		if ((error as { needsRestart?: unknown } | null)?.needsRestart === true) {
-			return false;
-		}
-		return /model not found/i.test(errorMessage(error));
 	}
 
 	/**
@@ -2292,11 +1937,7 @@ export class SessionRuntimeCoordinator {
 	}
 
 	private requireTarget(target: SessionRuntimeTarget): SessionRuntimeBinding {
-		// 远端 runtime 同样是可寻址的 target（模型/派生/中断都走 stdio RPC）；本机专属命令在更底层拒绝。
-		if (!this.catalog.get(target.sessionId)) {
-			throw new SessionRuntimeCommandError("SESSION_NOT_FOUND", `Session not found: ${target.sessionId}`);
-		}
-		return this.requireBoundTarget(target);
+		return this.bindings.requireTarget(target);
 	}
 
 	/**
@@ -2305,32 +1946,14 @@ export class SessionRuntimeCoordinator {
 	 * sessionId/generation 可能同时过期——只要 agentId 仍有 live 绑定就按 live 绑定停。
 	 * 真正两边都没有（无 live 绑定且 catalog 无行）才报 SESSION_NOT_FOUND；
 	 * 有 catalog 行但无绑定则报「运行实例不可用」，避免误导用户去刷新会话列表。
+	 * 实现见 `runtime/runtimeBinding.ts`。
 	 */
 	private resolveStopTarget(target: SessionRuntimeTarget): SessionRuntimeTarget {
-		// 远端 runtime 必须能停（它是个真进程）；本机专属操作不在这条链路上。
-		const live = this.getRuntimeBinding(target.agentId);
-		if (live) {
-			return {
-				sessionId: live.sessionId,
-				agentId: target.agentId,
-				runtimeGeneration: live.runtimeGeneration,
-			};
-		}
-		if (!this.catalog.get(target.sessionId)) {
-			throw new SessionRuntimeCommandError("SESSION_NOT_FOUND", `Session not found: ${target.sessionId}`);
-		}
-		throw new SessionRuntimeCommandError("SESSION_RUNTIME_UNAVAILABLE", "Session runtime is not available");
+		return this.bindings.resolveStopTarget(target);
 	}
 
 	private requireBoundTarget(target: SessionRuntimeTarget): SessionRuntimeBinding {
-		const binding = this.getRuntimeBinding(target.agentId);
-		if (!binding || this.agentIdBySession.get(target.sessionId) !== target.agentId) {
-			throw new SessionRuntimeCommandError("SESSION_RUNTIME_UNAVAILABLE", "Session runtime is not available");
-		}
-		if (binding.sessionId !== target.sessionId || binding.runtimeGeneration !== target.runtimeGeneration) {
-			throw new SessionRuntimeCommandError("SESSION_RUNTIME_CHANGED", "Session runtime binding changed");
-		}
-		return { ...target };
+		return this.bindings.requireBoundTarget(target);
 	}
 
 	private serializePreferenceMutation<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
@@ -2382,8 +2005,9 @@ export class SessionRuntimeCoordinator {
 	/**
 	 * pi 历史会话文件改写：DSH / 未落盘 / 仍在运行一律拒绝。
 	 * 运行中改文件再 switch_session 会和用户「先停再改、下次发送才激活」的产品规则冲突。
+	 * 实现见 `runtime/remoteMessageMutation.ts`（catalog 写面与错误分类同域）。
 	 */
-	private async mutateCatalogMessage(
+	private mutateCatalogMessage(
 		requestedSessionId: string,
 		messageId: string,
 		operation: "edit" | "delete" | "resend" | "remove-image",
@@ -2392,234 +2016,17 @@ export class SessionRuntimeCoordinator {
 		entryId?: string,
 		imageTarget?: SessionMessageImageTarget,
 	): Promise<SessionCommandResult<{ text: string; images?: ImageContent[] } | undefined>> {
-		try {
-			// #354：历史（已被身份归并的）会话 ID 先归一化——requireStoppedForFileMutation 是
-			// 「pi 活着禁改会话文件」的硬闸，拿旧 ID 查绑定会漏过闸门把文件写坏。
-			const sessionId = this.canonicalSessionId(requestedSessionId);
-			const entry = this.catalog.get(sessionId);
-			if (!entry) {
-				throw new SessionRuntimeCommandError("SESSION_NOT_FOUND", `Session not found: ${sessionId}`);
-			}
-			if (entry.backend === "dsh" || entry.backend === "imagegen" || entry.backend === "acp") {
-				throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", `backend "${entry.backend}" does not support persisted session message mutation`);
-			}
-			// ssh 记录：改写的是**远端** JSONL（P4.5c）。这条分支必须插在 `getLocalFilePath` **之前** ——
-			// 那个入口对 ssh locator 抛稳定码，放在它后面就是死代码（P4.5b 归档分支记过同一条账）。
-			const locator = this.catalog.getLocator(sessionId);
-			if (locator?.kind === "ssh") {
-				// remove-image 是 dev 新增的**本机会话文件**操作（SessionFileEditor 支持），远端写面只冻结了
-				// edit/delete/resend。这里显式 fail-closed：不把未实现的写操作透传给远端写面，也不偷偷降级成 delete。
-				if (operation === "remove-image") throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", REMOTE_SESSION_HISTORY_WRITER_CODES.operationInvalid);
-				const value = await this.mutateRemoteCatalogMessage(sessionId, locator, messageId, operation, newText, entryId);
-				// 只记身份与操作：远端路径、消息正文、命令行都不进日志（读写/归档同一条脱敏纪律）。
-				void this.logger?.info("session-runtime", "Remote catalog session message mutated", { sessionId, hostId: locator.hostId, operation });
-				return { ok: true, value };
-			}
-			const sessionFilePath = this.catalog.getLocalFilePath(sessionId);
-			if (!sessionFilePath) {
-				throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", "Session not persisted");
-			}
-			this.requireStoppedForFileMutation(sessionId);
-			// 必须对象调用：抽方法会丢掉 this，CompositeAgentGateway 里 this.resolveBackend 变 undefined。
-			// mutate 合法返回值可以是 undefined（edit/delete），所以不能用返回值判断方法是否存在。
-			if (typeof this.agents.mutatePersistedSessionMessage !== "function") {
-				throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", `backend "${this.agents.backend}" does not support persisted session message mutation`);
-			}
-			const value = await this.agents.mutatePersistedSessionMessage(sessionFilePath, messageId, operation, {
-				newText,
-				environment: entry.environment,
-				wslDistro: entry.wslDistro,
-				entryId,
-				imageTarget,
-			});
-			// 写文件期间若被重新激活：磁盘已改且后续激活的 pi 读的就是改后文件（编辑
-			// 实际已生效），此时报 BUSY 会让用户重试造成二次编辑。改为记录竞态日志并
-			// 按成功返回（文件状态是唯一事实源）。
-			try {
-				this.requireStoppedForFileMutation(sessionId);
-			} catch (busyError) {
-				void this.logger?.warn("session-runtime", "Session file mutated while runtime re-activated; mutation already persisted", {
-					sessionId,
-					messageId,
-					operation,
-				});
-			}
-			void this.logger?.info("session-runtime", "Catalog session message mutated", {
-				sessionId,
-				messageId,
-				operation,
-			});
-			return { ok: true, value };
-		} catch (error) {
-			return this.commandFailure(error);
-		}
+		return this.messageMutation.mutateCatalogMessage(requestedSessionId, messageId, operation, newText, entryId, imageTarget);
 	}
 
-	private requireStoppedForFileMutation(sessionId: string): void {
-		if (this.getTarget(sessionId) || this.isActivating(sessionId)) {
-			throw new SessionRuntimeCommandError("SESSION_RUNTIME_BUSY", "Stop the running agent before mutating the session file");
-		}
-	}
-
-	/** host + opaque identity + path 同时绑定，换主机/路径之后不能复用旧 runtime 摘要。 */
-	private remoteMessageIdentityKey(locator: SshSessionLocator): string {
-		return JSON.stringify([locator.hostId, locator.remoteSessionId, locator.remotePath]);
-	}
-
-	/**
-	 * ssh 记录的 catalog 级改写：整条链走远端文件写面，本机一个路径解析都不做。
-	 *
-	 * 冲突规则（docs/archive/remote/remote-write-plan.md §3，硬性）：会话有运行实例 / 正在激活 ⇒ **先判后发**，一个远端
-	 * 命令都不发，抛与本机链路同一个拒绝（`SESSION_RUNTIME_BUSY`，渲染层已有「先停止 Agent」文案）；
-	 * 装配没提供写端口（实验开关关闭）时给稳定码，绝不落回本机路径分支。不确定是否在写 ⇒ fail-closed：
-	 * 宁可拒绝，也不排队等待或与远端 pi 并发写。
-	 */
-	private async mutateRemoteCatalogMessage(sessionId: string, locator: SshSessionLocator, messageId: string, operation: "edit" | "delete" | "resend", newText?: string, entryId?: string): Promise<{ text: string; images?: ImageContent[] } | undefined> {
-		this.requireStoppedForFileMutation(sessionId);
-		const port = this.resolveRemoteMessageMutation?.();
-		if (!port) throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", REMOTE_SESSION_HISTORY_WRITER_CODES.unavailable);
-		let value: { text: string; images?: ImageContent[] } | undefined;
-		try {
-			value = await port.mutate({
-				hostId: locator.hostId,
-				locator,
-				operation,
-				messageId,
-				stoppedIdentity: this.remoteStoppedMessageIdentities.get(this.remoteMessageIdentityKey(locator), messageId),
-				...(newText === undefined ? {} : { newText }),
-				...(entryId === undefined ? {} : { entryId }),
-			});
-		} catch (error) {
-			throw this.remoteMessageMutationCommandError(error);
-		}
-		// 写期间若被重新激活：远端已改但内存是旧树——拒绝让调用方感知竞态（与本机分支同一步）。
-		this.requireStoppedForFileMutation(sessionId);
-		return value;
-	}
-
-	/**
-	 * 远端写面的稳定码 → 会话命令错误码。
-	 *
-	 * 为什么按码显式映射，而不是沿用 `commandFailure` 的文案匹配：远端写面本来就只回稳定码（路径、
-	 * 命令行、stderr 都不外传），匹配自由文本既不稳也没必要。体积参数必须跟着错误一起走 —— 远端的
-	 * 整读上界（默认 256 KiB）远小于本机 32MB，用本机兜底数字渲染文案就是骗人。
-	 */
-	private remoteMessageMutationCommandError(error: unknown): SessionRuntimeCommandError {
-		const failure = remoteSessionHistoryWriteFailure(error);
-		if (failure.code === REMOTE_SESSION_HISTORY_WRITER_CODES.fileTooLarge) return new SessionRuntimeCommandError("SESSION_FILE_TOO_LARGE", failure.code, failure.details);
-		if (failure.code === REMOTE_SESSION_HISTORY_WRITER_CODES.messageNotFound) return new SessionRuntimeCommandError("MESSAGE_NOT_FOUND", failure.code);
-		// F5：提交 rename 已发生但回执丢失（REMOTE_SESSION_HISTORY_WRITER_RESULT_UNCONFIRMED）也落在这里，
-		// 但 debugDetails 保留独立稳定码——渲染层必须据此显示「结果未确认，重新加载核对，不自动重试」，
-		// 不能显示通用的「会话操作失败，请重试」（与远端 Git / 远端文本保存同一条产品口径）。
-		// 语义方向：本机不知道远端是否已经替换，宁可让用户核对，也不谎报成功或提示重试。
-		return new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", failure.code);
-	}
-
+	/** 命令失败分类（文案匹配 + SessionFileEditorError 稳定码 + 远端写面稳定码）见 `runtime/remoteMessageMutation.ts`。 */
 	private commandFailure<T>(error: unknown): SessionCommandResult<T> {
-		if (error instanceof SessionRuntimeCommandError) {
-			return {
-				ok: false,
-				error: {
-					code: error.code,
-					debugDetails: error.message,
-					// 远端整读上界自带体积参数（见 remoteMessageMutationCommandError）：文案里的两个占位符
-					// 必须用真实上界，而不是本机 32MB 的兜底数字。
-					...(error.code === "SESSION_FILE_TOO_LARGE" ? { params: this.sessionFileSizeParams(error) } : {}),
-				},
-			};
-		}
-		// 模型在本地 models.json 存在但运行中 Agent 未加载：标记 needsRestart，
-		// 渲染层据此弹出「重启 Agent 生效」引导（而非误报会话不存在）。
-		if (error instanceof Error && (error as Error & { needsRestart?: boolean }).needsRestart) {
-			return {
-				ok: false,
-				error: {
-					code: "SESSION_MODEL_NOT_FOUND",
-					debugDetails: error.message,
-					needsRestart: true,
-					// 提取 "Model not found: xxx" 中的模型标识，让 i18n 文案 {model} 有值
-					params: { model: this.extractModelFromNotFound(error.message) ?? error.message },
-				},
-			};
-		}
-		const message = errorMessage(error);
-		const lower = message.toLowerCase();
-		const model = this.extractModelFromNotFound(message);
-		const editorCode = this.sessionFileEditorErrorCode(error);
-		const code: SessionCommandErrorCode =
-			// 会话文件超编辑上限：大文件已改走流式路径，这条只剩「流式分流不可用」的兜底。
-			// 仍单独成一类——一旦发生，用户看到的就是「这个会话现在改不了」，而不是泛化的
-			// 「会话操作失败，请重试」（文案里的两个体积占位符需要真实值）。
-			editorCode === "SESSION_FILE_TOO_LARGE"
-				? "SESSION_FILE_TOO_LARGE"
-				: // SessionFileEditor 的 SESSION_ENTRY_NOT_FOUND 包括「不在活动分支」/
-					// 「leaf 不在文件里」/「已删除」，文案并不都带 "message not found"。
-					// 按 code 识别，避免历史会话删消息落到 SESSION_COMMAND_FAILED
-					//（用户只看到「会话操作失败，请重试」且主进程没日志）。
-					editorCode === "SESSION_ENTRY_NOT_FOUND" || lower.includes("message not found") || lower.includes("not found on the active session branch") || lower.includes("not part of the active session branch") || lower.includes("already been deleted") || lower.includes("no longer present in the file")
-					? "MESSAGE_NOT_FOUND"
-					: // Agent 运行实例已不存在（stop/restart 后立即操作、崩溃清理等）：是
-						// 「没有可用的运行实例」而非「会话不存在」——泛化 not found 会误报成
-						// 「会话已不存在，请刷新会话列表后重试」，用户刷新后依然复现（2026-08
-						// 用户反馈：删除消息报会话已不存在）。
-						lower.includes("agent not found")
-						? "SESSION_RUNTIME_UNAVAILABLE"
-						: // set_model 的 "Model not found: provider/model"（本地 models.json 也没有该模型，
-							// 如手误/列表错位产生的假模型）是「模型不存在」而非「会话不存在」——
-							// 若落到泛化 "not found" 分支会误报成「会话已不存在」误导排查。
-							lower.includes("model not found")
-							? "SESSION_MODEL_NOT_FOUND"
-							: lower.includes("not found")
-								? "SESSION_NOT_FOUND"
-								: lower.includes("busy") || lower.includes("in progress") || lower.includes("stream")
-									? "SESSION_RUNTIME_BUSY"
-									: lower.includes("binding") || lower.includes("generation") || lower.includes("changed")
-										? "SESSION_RUNTIME_CHANGED"
-										: lower.includes("runtime") && lower.includes("available")
-											? "SESSION_RUNTIME_UNAVAILABLE"
-											: "SESSION_COMMAND_FAILED";
-		return {
-			ok: false,
-			error: {
-				code,
-				debugDetails: message,
-				// 模型不存在带 model、文件过大带体积：文案里的 {model} / {sizeMb} 占位
-				...(code === "SESSION_MODEL_NOT_FOUND" && model ? { params: { model } } : {}),
-				...(code === "SESSION_FILE_TOO_LARGE" ? { params: this.sessionFileSizeParams(error) } : {}),
-			},
-		};
+		return this.messageMutation.commandFailure(error);
 	}
 
-	/**
-	 * 从 SessionFileEditorError.details 取「文件过大」的展示参数。
-	 *
-	 * 两个占位符缺一不可：文案里写的是「{sizeMb}MB，上限 {limitMb}MB」——
-	 * 只给 size 会让 {limitMb} 原样显示成 `{limitMb}`。编辑器已带 details，
-	 * 这里只做取值与取整；取不到时给保守默认，至少不把原始占位符漏给用户。
-	 */
-	private sessionFileSizeParams(error: unknown): Record<string, number> {
-		const details = (error as { details?: Record<string, unknown> } | null)?.details;
-		const size = typeof details?.size === "number" ? details.size : undefined;
-		const limit = typeof details?.limit === "number" ? details.limit : undefined;
-		const { sizeMb, limitMb } = sessionFileSizeMb({ size, limit });
-		return { sizeMb, limitMb };
-	}
-
-	/**
-	 * 从 "Model not found: <provider/model>" 类错误消息提取模型标识。
-	 * 支持 "Model not found: xxx" / "model not found:xxx" 两种分隔；
-	 * 未匹配返回 undefined（由调用方决定兜底）。
-	 */
-	private extractModelFromNotFound(message: string): string | undefined {
-		const match = /model not found\s*:?\s*(.+)$/i.exec(message);
-		return match?.[1]?.trim() || undefined;
-	}
-
-	/** SessionFileEditorError.code；非编辑器错误或缺字段返回 undefined。 */
-	private sessionFileEditorErrorCode(error: unknown): string | undefined {
-		if (!error || typeof error !== "object" || !("code" in error)) return undefined;
-		const code = (error as { code?: unknown }).code;
-		return typeof code === "string" && code.startsWith("SESSION_") ? code : undefined;
+	/** 远端会话摘要的键仍在停止路径上使用（stop 会先捕获、再销毁 gateway 消息缓存）。 */
+	private remoteMessageIdentityKey(locator: SshSessionLocator): string {
+		return this.messageMutation.remoteMessageIdentityKey(locator);
 	}
 
 	private acquireDispatchLease(sessionId: string, agentId: string): DispatchLease {

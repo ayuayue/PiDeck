@@ -75,6 +75,8 @@ export type AcpSessionConfigOption = {
 	options?: Array<{ value: string; name: string; description?: string; rate?: AcpModelRate } | { group: string; name: string; options: Array<{ value: string; name: string; description?: string; rate?: AcpModelRate }> }>;
 	/** 语义类别(mode/model/model_config/thought_level):渲染层按它分组呈现。 */
 	category?: string;
+	/** agent 声明这一项当前不可改（原因原样透出,由 agent 给出,不翻译）;渲染层据此置灰。 */
+	lockedReason?: string;
 };
 
 /** configOptions 变更事件载荷(按 agentId 隔离,渲染层按当前 runtime 过滤迟到结果)。 */
@@ -92,7 +94,27 @@ export type AcpAgentInfo = {
 		/** promptCapabilities.image：会话可接收图片附件；未声明时发送图片必须拒收
 		 * （给不支持图片的 agent 发 image 块只会得到整回合协议错误）。 */
 		promptImage: boolean;
+		/** sessionCapabilities.additionalDirectories（#560）：会话接受额外根目录列表；
+		 *  未声明时不得携带该字段，否则会被 zod 校验拒成 -32602。 */
+		additionalDirectories: boolean;
 	};
 	/** agent 声明的协议版本。 */
 	protocolVersion: number;
+};
+
+/**
+ * 单次模型调用的指标（#560 ③）：CodeBuddy ≥2.184 在 usage 的 `model_calls` 里给出。
+ *
+ * 只在客户端于 initialize 的 `_meta["codebuddy.ai"].modelCallMetrics` 显式 opt-in 时下发；
+ * 字段缺失表示 agent 没给（展示为未知，不补 0）。值原样透传，不翻译 result/finishReason。
+ */
+export type AcpModelCallMetric = {
+	/** 第几次尝试（agent 的 attempt_no，重试时 >1）。 */
+	attempt?: number;
+	durationMs?: number;
+	firstTokenMs?: number;
+	model?: string;
+	result?: string;
+	finishReason?: string;
+	outputTokens?: number;
 };

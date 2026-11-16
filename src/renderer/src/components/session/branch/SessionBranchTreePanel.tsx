@@ -7,8 +7,8 @@ import { currentSessionIdAtom } from "../../../atoms/session-atoms";
 import { sessionRecordByIdAtomFamily } from "../../../atoms/session-selectors";
 import { desktopApi } from "../../../desktopApi";
 import { t } from "../../../i18n";
-import { buildBranchRows, childRowId, collectAllIds, collectRunIds, defaultCollapsedIds, indentUnits, MAX_INDENT_DEPTH, moveRowFocus, prepareTree, rowHasDisclosure } from "./branchTreeView";
-import type { BranchRow } from "./branchTreeView";
+import { buildBranchRows, childRowId, collectAllIds, collectRunIds, defaultCollapsedIds, hydrateBranchTree, indentUnits, MAX_INDENT_DEPTH, moveRowFocus, prepareTree, rowHasDisclosure } from "./branchTreeView";
+import type { BranchRow, BranchTree } from "./branchTreeView";
 import { VirtualStack, VIRTUAL_STACK_MIN_ROWS } from "../../ui-shadcn/virtual-stack";
 
 /**
@@ -22,6 +22,13 @@ import { VirtualStack, VIRTUAL_STACK_MIN_ROWS } from "../../ui-shadcn/virtual-st
  */
 
 type PanelState = { kind: "loading" } | { kind: "empty" } | { kind: "tree"; tree: SessionBranchTree } | { kind: "error"; message: string };
+
+/**
+ * 读取超时：主进程的 IPC 没有超时，读索引/预览若卡住，面板会永远停在 loading
+ * （issue #553）。这里只负责让用户看到一个可恢复的错误；请求本身不取消，
+ * 真在 30s 后返回时仍会用结果覆盖错误。
+ */
+const BRANCH_TREE_TIMEOUT_MS = 30_000;
 
 function nodeRoleIcon(role: string | undefined): ReactNode {
 	if (role === "user") return <User size={12} strokeWidth={1.8} aria-hidden="true" />;
@@ -79,21 +86,28 @@ export function SessionBranchTreePanel(props: { forkAtEntry: (entryId: string, f
 		}
 		const seq = ++fetchSeqRef.current;
 		setState({ kind: "loading" });
+		const timer = window.setTimeout(() => {
+			if (!aliveRef.current || seq !== fetchSeqRef.current) return;
+			setState({ kind: "error", message: t("session.branchTree.timeout") });
+		}, BRANCH_TREE_TIMEOUT_MS);
 		desktopApi.sessions
 			.getBranchTree(sessionId)
 			.then((tree) => {
 				if (!aliveRef.current || seq !== fetchSeqRef.current) return;
-				setState(tree && tree.roots.length > 0 ? { kind: "tree", tree } : { kind: "empty" });
+				setState(tree && tree.nodes.length > 0 ? { kind: "tree", tree } : { kind: "empty" });
 			})
 			.catch((error: unknown) => {
 				if (!aliveRef.current || seq !== fetchSeqRef.current) return;
 				setState({ kind: "error", message: error instanceof Error ? error.message : String(error) });
-			});
+			})
+			.finally(() => window.clearTimeout(timer));
+		return () => window.clearTimeout(timer);
 	}, [sessionId, unsupported, refreshKey]);
 
 	const { tree, activeIds, nodeCount } = useMemo(() => {
-		if (state.kind !== "tree") return { tree: null as SessionBranchTree | null, activeIds: new Set<string>(), nodeCount: 0 };
-		return prepareTree(state.tree);
+		if (state.kind !== "tree") return { tree: null as BranchTree | null, activeIds: new Set<string>(), nodeCount: 0 };
+		// wire 是扁平表（#553：嵌套 2000+ 层过不了 IPC），这里才重组成 children 树。
+		return prepareTree(hydrateBranchTree(state.tree));
 	}, [state]);
 
 	const rows = useMemo(() => (tree ? buildBranchRows(tree, { collapsedIds, expandedRuns }) : []), [tree, collapsedIds, expandedRuns]);

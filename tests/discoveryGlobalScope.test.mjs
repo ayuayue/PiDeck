@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 const scopeModel = loadTsCommonJs("src/renderer/src/config/resourceScopeModel.ts");
@@ -120,7 +121,7 @@ test("全局 discovery 行保持只读：行组件不含编辑/重命名/删除/
 });
 
 test("ConfigModal 三处 discovery 调用都总是请求（无项目时传 undefined）", () => {
-	const modal = read("src/renderer/src/ConfigModal.tsx");
+	const modal = configModalSource;
 	const calls = modal.match(/api\.projectResources\.discovery\(\s*projectIdHere\s*\)/g) ?? [];
 	assert.equal(calls.length, 3, "技能/提示词/扩展三处刷新都必须请求 discovery");
 	assert.doesNotMatch(modal, /Promise\.resolve\(\s*emptyDiscoveryData\(\)\s*\)/, "不得再用空数据短路 discovery");

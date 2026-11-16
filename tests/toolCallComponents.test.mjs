@@ -178,7 +178,7 @@ test("ACP title-like tool names never repeat the argument on the tool row", () =
 });
 
 // 2026-10 过程行排版：主标签 = 语义动词，作用对象进等宽 chip 单行截断，
-// 原始工具名/完整参数/完成耗时撤到行 tooltip——行内只留扫读锚点，细节 hover 可达。
+// 原始工具名/完整参数撤到行 tooltip；完成耗时留在行内（running 秒表 / 完成定值）。
 test("tool trigger shows verb label with mono object chip; details move to row tooltip", () => {
 	// 主标签走 toolPhrase 的动词（不再直接渲染原始工具名）
 	assert.match(toolCalls, /isAskCard \? t\("ask\.toolName"\) : phrase\.verb/);
@@ -189,7 +189,8 @@ test("tool trigger shows verb label with mono object chip; details move to row t
 	// 行 tooltip 承接撤下的信息：工具名 + 参数摘要 + 完成耗时
 	assert.match(toolCalls, /const rowTitleParts = \[isSkillRead \? `skill:\$\{skillName\}` : toolName, subtitle\]\.filter\(Boolean\);/);
 	assert.match(toolCalls, /t\("tool\.durationTitle"\)\} \$\{formatDuration\(durationMs\)\}/);
-	// 耗时只在 running 有行内意义（活秒表）；完成后的秒数不再常驻行内
-	assert.match(toolCalls, /\{status === "running" && \(\s*<span className="shrink-0 text-chat-detail tabular-nums text-text-tertiary"/);
-	assert.doesNotMatch(toolCalls, /formatDuration\(durationMs \?\? 0\)/);
+	// 耗时是工具行的一等信息：running 走活秒表，完成后钉住落盘的 durationMs 常驻行内
+	// （2026-11 用户反馈「工具调用没有时间」：此前完成态只把秒数放进行 tooltip）。
+	assert.match(toolCalls, /\(status === "running" \|\| \(!isAskCard && durationMs !== undefined\)\)/);
+	assert.match(toolCalls, /formatDuration\(durationMs as number\)/);
 });

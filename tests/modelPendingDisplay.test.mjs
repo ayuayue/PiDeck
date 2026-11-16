@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 const { computeModelDisplay, formatModelName, formatModelRef, resolveComposerLiveModel, resolveGuideDisplayModel } = loadTsCommonJs("src/renderer/src/utils/modelPendingDisplay.ts");
 
@@ -138,8 +140,8 @@ test("契约: 运行中优先直接切换模型，后端 busy 时才排到下一
 	const picker = [readFileSync("src/renderer/src/hooks/useSessionPreferenceState.ts", "utf8"), readFileSync("src/renderer/src/hooks/useSessionPreferenceController.ts", "utf8")].join("\n");
 	const hook = readFileSync("src/renderer/src/hooks/usePendingModelApply.ts", "utf8");
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
-	const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const sessionIpc = sessionIpcSource;
+	const preload = preloadSource;
 
 	assert.match(area, /modelDisabled=\{composer\.isStarting\}/);
 	assert.match(area, /modelPending=\{modelPendingMap\[props\.sessionId\]\}/);

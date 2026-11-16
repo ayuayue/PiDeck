@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
 
 const scanner = readFileSync("src/main/sessions/SessionScanner.ts", "utf8");
-const ipc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+const ipc = sessionIpcSource;
 
 test("session file deletion treats an already missing local file as success", () => {
 	// 幂等分支：文件已不在时跳过回收站、只留痕（行为由 tests/sessionScannerDelete.test.mjs 的

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { KEEP_DEV_HTTP_CACHE_ENV, shouldClearDevRendererCache, clearDevRendererCache } = loadTsCommonJs("src/main/devRendererCache.ts");
 
@@ -63,7 +64,7 @@ test("清理失败只记录，不抛出挡住宿主窗口创建", async () => {
 // 装配契约：护栏必须 await 在加载 dev renderer 之前——放在 loadURL 之后清一次等于没清，
 // 首个模块图仍然来自旧缓存。这里守住「先清后载」的时序，不靠人工 review。
 test("createWindow 在加载 dev renderer 之前 await 缓存清理", () => {
-	const source = readFileSync("src/main/index.ts", "utf8");
+	const source = mainIpcSource;
 	const clearAt = source.search(/await\s+clearDevRendererCache\s*\(/);
 	const loadAt = source.search(/mainWindow\s*\.\s*loadURL\s*\(\s*devRendererUrl\s*\)/);
 	assert.ok(clearAt > -1, "index.ts 未调用 clearDevRendererCache");

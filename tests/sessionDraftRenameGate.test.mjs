@@ -4,13 +4,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 function read(path) {
 	return readFileSync(path, "utf8");
 }
 
 test("tab ⋯ menu hides rename for draft sessions", () => {
-	const app = read("src/renderer/src/App.tsx");
+	const app = rendererAppSource;
 	// 与 canCopySession/canExportHtml 同款草稿闸门：草稿态直接不传 onRenameSession。
 	// 闸门形态随 ⋯ 菜单工厂演进为 canRename（record.status !== "draft"）+ onRename 三元；
 	// 草稿态仍显式给 undefined（菜单项因此不渲染）。

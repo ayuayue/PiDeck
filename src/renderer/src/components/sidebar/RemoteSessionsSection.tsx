@@ -112,8 +112,8 @@ function RemoteSessionRow(props: { entry: RemoteSessionEntryView; title: RemoteS
 }
 
 /** 侧栏「远端会话」区块主体：header（标题 + 扫描/重扫） + 三态 + 列表 + 登记反馈。 */
-export function RemoteSessionsSection(props: { hostId: string; importedRemoteSessionIds: ReadonlySet<string>; onImported: (result: RemoteSessionImportResult) => void | Promise<void> }) {
-	const sessions = useRemoteSessions(desktopApi, { hostId: props.hostId, onImported: props.onImported });
+export function RemoteSessionsSection(props: { hostId: string; projectId: string; importedRemoteSessionIds: ReadonlySet<string>; onImported: (result: RemoteSessionImportResult) => void | Promise<void> }) {
+	const sessions = useRemoteSessions(desktopApi, { hostId: props.hostId, projectId: props.projectId, onImported: props.onImported });
 	const titles = useRemoteSessionTitles(desktopApi, props.hostId);
 	const { state } = sessions;
 	const importing = sessions.importingRemoteSessionId !== null;

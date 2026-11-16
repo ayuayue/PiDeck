@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 
 test("过滤式安装徽标只服务全局安装行；项目行/发现行不参与", () => {
-	const modal = read("src/renderer/src/ConfigModal.tsx");
+	const modal = configModalSource;
 	const rows = read("src/renderer/src/config/extensionsTableRows.tsx");
 	const projectManager = read("src/main/projects/ProjectResourceManager.ts");
 	// 全局列表（pi list）里的项目作用域行必须丢掉：否则它们会把 pi 的 object=filtered 粗标记带进列表，
@@ -20,7 +22,7 @@ test("过滤式安装徽标只服务全局安装行；项目行/发现行不参�
 });
 
 test("configuration resources share one global/project scope owner", () => {
-	const modal = read("src/renderer/src/ConfigModal.tsx");
+	const modal = configModalSource;
 	const scopeModel = read("src/renderer/src/config/resourceScopeModel.ts");
 	const mcp = read("src/renderer/src/config/McpTab.tsx");
 	// 主配置页资源作用域是派生值：非 resourceOnly 固定 global（全局/用户自装/内置），
@@ -46,7 +48,9 @@ test("configuration resources share one global/project scope owner", () => {
 	assert.ok(globalMountMatch, "ConfigModal 未挂载全局 McpTab");
 	const globalMount = globalMountMatch[0];
 	assert.match(globalMount, /activeProjectId=\{projectId\}/);
-	assert.match(globalMount, /onDirtyChange=\{handleMcpDirtyChange\}/);
+	// 全局 McpTab 挂在 ConfigMcpTab 里（脏回调透传），父层注入 handleMcpDirtyChange
+	assert.match(globalMount, /onDirtyChange=\{onDirtyChange\}/);
+	assert.match(modal, /<ConfigMcpTab[\s\S]{0,900}?onDirtyChange=\{handleMcpDirtyChange\}/);
 	assert.doesNotMatch(globalMount, /projectId=\{/);
 	assert.doesNotMatch(globalMount, /projects=/);
 	// 项目资源管理器里的 McpTab 固定项目作用域
@@ -93,7 +97,7 @@ test("project resource views group inherited globals and use project-only overri
 });
 
 test("project resource file operations retain the registered project scope", () => {
-	const modal = read("src/renderer/src/ConfigModal.tsx");
+	const modal = configModalSource;
 	const extensions = read("src/renderer/src/config/ExtensionsTab.tsx");
 	assert.match(modal, /isProjectSkill\(skill\) && effectiveProjectId \? \{ projectId: effectiveProjectId \} : undefined/);
 	assert.match(modal, /isProjectSkill\(editingGlobalSkill\) && effectiveProjectId \? \{ projectId: effectiveProjectId \} : undefined/);
@@ -105,7 +109,7 @@ test("project resource file operations retain the registered project scope", () 
 test("inherited override IPC is exposed through shared, main, and preload layers", () => {
 	const channels = read("src/shared/ipc.ts");
 	const main = read("src/main/ipc/projectResourceIpc.ts");
-	const preload = read("src/preload/index.ts");
+	const preload = preloadSource;
 	assert.match(channels, /projectResourcesOpenDirectory: "project-resources:open-directory"/);
 	assert.match(channels, /projectResourcesToggleInherited: "project-resources:toggle-inherited"/);
 	assert.match(main, /ipcChannels\.projectResourcesToggleInherited/);

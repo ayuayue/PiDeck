@@ -14,6 +14,15 @@ import { ChartContainer, ChartTooltipContent } from "../../ui-shadcn/chart";
 import { formatTokens } from "./format";
 import { barMinPointSize, buildBuckets, type RangeMode } from "./usageDailyChartModel";
 
+/**
+ * Y 轴刻度格式化固定为模块级常量：Recharts 按引用比较轴 props，内联箭头每次渲染换新身份会让
+ * YAxis 重渲染，并从轴设置同步的 layout effect 再 dispatch 一次内部 store；设置面板在会话流式
+ * 输出时会高频重渲染，这类嵌套 dispatch 叠起来会把 React 的 nested update 计数顶到上限（#185）。
+ */
+function formatTokenTick(value: number): string {
+	return formatTokens(Number(value));
+}
+
 /** 堆叠列对缺失 provider 填 0；tooltip 只列出实际有用量的供应商。 */
 function UsageChartTooltip(props: ComponentProps<typeof ChartTooltipContent>) {
 	const payload = (props.payload ?? []).filter((item) => Number(item.value) > 0);
@@ -57,7 +66,7 @@ export function UsageDailyChart(props: { data: UsageAggregated }) {
 					<BarChart data={chartData} margin={{ top: 12, right: 16, left: 12, bottom: 4 }} barCategoryGap="28%">
 						<CartesianGrid vertical={false} stroke="var(--color-border-subtle)" />
 						<XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
-						<YAxis tickLine={false} axisLine={false} width={58} tickFormatter={(value: number) => formatTokens(Number(value))} />
+						<YAxis tickLine={false} axisLine={false} width={58} tickFormatter={formatTokenTick} />
 						<Tooltip cursor={{ fill: "var(--color-muted)", opacity: 0.35 }} content={<UsageChartTooltip />} />
 						{providerKeys.map(({ provider, key }) => (
 							<Bar key={provider} dataKey={key} stackId="usage" fill={`var(--color-${key})`} radius={2} minPointSize={barMinPointSize} />

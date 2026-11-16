@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const { DEFAULT_DEV_USER_DATA_NAME, DEFAULT_DEV_VITE_PORT, sanitizeDevBranchSegment, isSharedDevBranch, resolveDevUserDataDirName, resolveDevVitePort, readDevGitBranch } = loadTsCommonJs("src/main/devIsolation.ts");
 
@@ -35,7 +36,7 @@ test("electron-vite renderer 用同一套端口解析，避免和主进程 userD
 });
 
 test("主进程未打包时按分支解析 userData；打包态（含 dev 通道安装包）走共用正式目录", () => {
-	const src = readFileSync("src/main/index.ts", "utf8");
+	const src = mainIpcSource;
 	assert.match(src, /from "\.\/devIsolation"/);
 	assert.match(src, /const isolateDevByGitBranch = !app\.isPackaged/);
 	assert.match(src, /resolveDevUserDataDirName\(devGitBranch\)/);

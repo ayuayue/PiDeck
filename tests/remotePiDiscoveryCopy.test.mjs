@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * 远端 pi 探测稳定码的 i18n 契约（P4.1 接线，2026-10）。
  *
@@ -37,7 +38,7 @@ test("认不出码时返回 undefined（调用方回落通用文案，不误报�
 });
 
 test("接线守卫：远端准备失败的 catch 真的用了这个映射", () => {
-	const src = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const src = agentManagerSource;
 	assert.match(src, /remotePiDiscoveryCopyKey\(rawMessage\)/);
 	assert.match(src, /addLocalizedMessage\(\s*id,\s*"error",\s*discoveryKey \?\? "diagnostic\.agentStartFailed"/);
 });

@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +8,9 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
+import { readSessionRuntimeCoordinatorSources } from "./helpers/sessionRuntimeCoordinatorSources.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -62,8 +66,8 @@ test("extension reads the same env vars the main process injects", () => {
 test("PIDECK_SESSION_ID is keyed on catalog session id, not sessionPath", () => {
 	// 回归：SecurityLevelMenu 用 SessionRecord.id（UUID）保存会话级覆盖，
 	// 否则扩展按 sessionLevels[sessionId] 永远查不到覆盖而回落到全局默认等级。
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-	const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
+	const agentManager = agentManagerSource;
+	const coordinator = readSessionRuntimeCoordinatorSources();
 	const agentTypes = readFileSync("src/shared/types/agent.ts", "utf8");
 	assert.match(agentManager, /securitySessionId: securitySessionKey \?\? sessionPath/);
 	// 运行时创建 agent 时把 catalog 会话身份透传给 AgentManager
@@ -90,14 +94,14 @@ test("extension reads tool_call input fields that PiDeck built-in tools emit", (
 });
 
 test("AgentManager passes security snapshot + session id to PiProcess options", () => {
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const agentManager = agentManagerSource;
 	assert.match(agentManager, /securitySnapshotPath:/);
 	assert.match(agentManager, /securitySessionId:/);
 	assert.match(agentManager, /ensureSnapshotWritten\(\)/);
 });
 
 test("preload exposes security namespace with three IPC methods", () => {
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 	assert.match(preload, /security:\s*\{/);
 	assert.match(preload, /securityGetConfig/);
@@ -122,7 +126,7 @@ test("安全管理 tab 必须 forceMount：切 tab 不能卸载草稿（allow/as
 	// SecuritySection 的草稿（enabled / defaultLevelId / 各等级 toolActions 等）只存在组件内部 state，
 	// Radix Tabs 默认卸载非激活 TabsContent → 切走再回来草稿归零；
 	// 更隐蔽的是它卸载时会上抛 onDirtyChange(false)，把父级黄点清掉，连关闭时的保存确认也不弹。
-	const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const configModal = configModalSource;
 	const securityTabTag = configModal.match(/<TabsContent value="security"[^>]*>/);
 	assert.ok(securityTabTag, "ConfigModal 必须直接用 TabsContent 承载安全管理页");
 	assert.match(securityTabTag[0], /forceMount/, "安全管理 TabsContent 必须 forceMount 常挂");

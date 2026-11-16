@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
@@ -542,7 +543,7 @@ test("注入 trust 解析器后：决策能落到 plan.args（这条断言不是
  *   参数构造器只在**显式传了决策**时追加 flag（缺省 = 不加，见 tests/remoteTrustFlagContract.test.mjs）。
  */
 test("只有远端分支写 remoteTrustUnhandled：本机 tab 不带、远端分支不拼 trust flag", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const source = agentManagerSource;
 	/** 取锚点之后、下一次 `const t1 = Date.now();` 之前的那一个 `const tab: AgentTab = {…};` 字面量。 */
 	const tabLiteral = (marker) => {
 		const slice = source.slice(source.indexOf(marker));

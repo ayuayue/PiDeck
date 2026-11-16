@@ -1,0 +1,8 @@
+{"errorMessage":"Error Code server_is_overloaded","expect":"rescue"}
+{"errorMessage":"service unavailable","expect":"rescue"}
+{"errorMessage":"This operation was aborted"}
+{"errorMessage":"terminated"}
+{"errorMessage":"Connection error."}
+{"errorMessage":"zuiapi: 服务繁忙，请稍后重试或切换其他模型。 (429: you can retry your request)"}
+{"errorMessage":"Provider finish_reason: error"}
+{"errorMessage":"zuiapi: connection lost mid-reply (stream error: stream ID 29; INTERNAL_ERROR; received from peer) (connection error)"}

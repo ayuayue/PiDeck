@@ -1,3 +1,4 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -7,7 +8,7 @@ import test from "node:test";
 // 因此这三个指标完全由 PiDeck 计算——此处静态断言计算与展示链路完整。
 // 计时域收口在 src/main/pi/messagePerfTracker.ts（2026-03 从 AgentManager 迁出，行为零变化）。
 
-const readAgentManager = () => readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const readAgentManager = () => agentManagerSource;
 const readTracker = () => readFileSync("src/main/pi/messagePerfTracker.ts", "utf8");
 
 test("AgentManager keeps per-agent streaming perf timers", () => {

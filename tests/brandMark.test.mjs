@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const mark = readFileSync("src/renderer/src/components/app/LogoMark.tsx", "utf8");
 const lockup = readFileSync("src/renderer/src/components/app/AppParts.tsx", "utf8");
 const canvas = readFileSync("src/renderer/src/components/app/PiLogoCanvas.tsx", "utf8");
 const about = readFileSync("src/renderer/src/components/app/AboutPopover.tsx", "utf8");
 const shimmer = readFileSync("src/renderer/src/components/motion/text-shimmer.tsx", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const boot = readFileSync("src/renderer/index.html", "utf8");
 const webBrand = readFileSync("src/renderer/src/web/WebBrandLockup.tsx", "utf8");
 const webTimeline = readFileSync("src/renderer/src/web/WebTimeline.tsx", "utf8");

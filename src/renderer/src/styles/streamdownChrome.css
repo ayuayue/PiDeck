@@ -154,6 +154,14 @@
 }
 
 /* ── 代码块 ─────────────────────────────────────────────── */
+/* 正文行距可调（#547）不带动代码与表格：它们属于等宽/网格排版，行距变化只挤压信息密度。
+   用固定 token 覆盖数据集倍率，设置切换时这两块保持原观感。 */
+[data-streamdown="code-block"] pre,
+[data-streamdown="code-block"] code,
+[data-streamdown="table-wrapper"] table {
+  line-height: var(--line-height-chat-fixed);
+}
+
 [data-streamdown="code-block"] {
   position: relative;
   display: flex;

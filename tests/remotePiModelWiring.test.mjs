@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * Remote model catalog v1 wiring contract: one new IPC channel, one preload method, host-only input, main
  * assembly from ProjectStore -> narrow AgentManager finder -> getAvailableModels, and the renderer models-panel
@@ -10,14 +14,12 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  */
 
 const IPC = "src/shared/ipc.ts";
-const PRELOAD = "src/preload/index.ts";
 const MAIN_INDEX = "src/main/index.ts";
 const AGENT_MANAGER = "src/main/pi/AgentManager.ts";
 const PROBE = "src/main/pi/RemotePiModelProbe.ts";
 const IPC_MODULE = "src/main/ipc/remotePiModelIpc.ts";
 const SECTION = "src/renderer/src/config/RemoteModelCatalogSection.tsx";
 const PANEL = "src/renderer/src/config/RemoteConfigPanel.tsx";
-const PREVIEW = "src/renderer/src/previewApi.ts";
 
 const read = (path) => readFileSync(path, "utf8");
 
@@ -28,7 +30,7 @@ test("the new channel exists exactly once and stays in the remote: namespace", (
 });
 
 test("preload exposes probeRemoteModels(hostId) forwarding only the host id", () => {
-	const preload = read(PRELOAD);
+	const preload = preloadSource;
 	assert.match(preload, /probeRemoteModels:\s*\(hostId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remotePiModels, hostId\)/);
 	assert.match(preload, /RemoteModelProbeResult/);
 	// No renderer-visible agentId/path parameter is added anywhere near the method.
@@ -47,7 +49,7 @@ test("the IPC handler is a gate + single forward; disabled means unavailable, no
 });
 
 test("assembly resolves host -> ProjectStore remote projects -> narrow live-agent finder -> getAvailableModels", () => {
-	const main = read(MAIN_INDEX);
+	const main = mainIpcSource;
 	assert.match(main, /createRemotePiModelProbe\(\{/);
 	assert.match(main, /projectIdsForHost:\s*\(hostId\)\s*=>[\s\S]{0,400}?isRemoteProject\(project\) && project\.locator\.hostId === hostId/);
 	assert.match(main, /findLiveAgentId:\s*\(projectIds\)\s*=>[\s\S]{0,120}?findLiveRemoteAgentId\(projectIds\)/);
@@ -56,7 +58,7 @@ test("assembly resolves host -> ProjectStore remote projects -> narrow live-agen
 });
 
 test("the AgentManager finder is narrow: live remote runtime -> agentId only", () => {
-	const manager = read(AGENT_MANAGER);
+	const manager = agentManagerSource;
 	assert.match(manager, /findLiveRemoteAgentId\(projectIds: readonly string\[\]\): string \| undefined/);
 	const method = manager.slice(manager.indexOf("findLiveRemoteAgentId("));
 	const body = method.slice(0, method.indexOf("\n\t}\n"));
@@ -103,7 +105,7 @@ test("the renderer models panel exposes the real catalog action and keeps settin
 });
 
 test("preview mode reports the closed unavailable code instead of a fake catalog", () => {
-	const preview = read(PREVIEW);
+	const preview = previewApiSource;
 	assert.match(preview, /probeRemoteModels:\s*async \(\) => \(\{ ok: false as const, code: "REMOTE_MODEL_PROBE_UNAVAILABLE" \}\)/);
 });
 

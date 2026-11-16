@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 /**
  * 模型列表实时性 v2（--list-models 加速 + 缓存刷新策略）：
  * 1) parsePiListModels 解析表格输出（provider/model/thinking）
@@ -14,11 +19,11 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  */
 
 const { parsePiListModels, parseTokenSize, modelsFromPiConfig, isUnknownCliOption, classifyModelListFailure, MODEL_LIST_FAST_ARGS, MODEL_LIST_EXT_ARGS, MODEL_LIST_COMPAT_ARGS } = loadTsCommonJs("src/main/pi/modelListCache.ts");
-const preload = readFileSync("src/preload/index.ts", "utf8");
+const preload = preloadSource;
 const cacheSource = readFileSync("src/main/pi/modelListCache.ts", "utf8");
-const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-const indexSource = readFileSync("src/main/index.ts", "utf8");
+const systemIpc = systemIpcSource;
+const agentManager = agentManagerSource;
+const indexSource = mainIpcSource;
 const pickerHost = readFileSync("src/renderer/src/components/session/ComposerPickerHost.tsx", "utf8");
 /** 模型/思考域逻辑分两半：读侧目录/档位在 state hook，写侧应用与循环在 controller
  * （选择器与 Ctrl+M/Ctrl+T 快捷键共用同一实现）。 */
@@ -153,6 +158,24 @@ test("modelsFromPiConfig flattens settings-page models.json", () => {
 	assert.equal(modelsFromPiConfig({ providers: {} }).length, 0);
 });
 
+test("modelsFromPiConfig derives thinking levels from thinkingLevelMap (#545)", () => {
+	// CLI 失败时这份兜底列表是唯一来源：没有 thinkingLevels，选择器就不裁剪，
+	// 旧档位（xhigh/max）会一路写进会话记录，底栏显示与 pi 收敛后的实际档位不一致。
+	const models = modelsFromPiConfig({
+		providers: {
+			custom: {
+				models: [{ id: "with-xhigh", reasoning: true, thinkingLevelMap: { xhigh: "xhigh" } }, { id: "no-xhigh", reasoning: true, thinkingLevelMap: { xhigh: null, max: null } }, { id: "plain" }],
+			},
+		},
+	});
+	const byId = Object.fromEntries(models.map((model) => [model.id, model]));
+	// 沙箱数组/对象的原型来自另一个 realm：比较前铺成本域的普通结构。
+	assert.deepEqual([...byId["with-xhigh"].thinkingLevels], ["off", "minimal", "low", "medium", "high", "xhigh"]);
+	assert.deepEqual([...byId["no-xhigh"].thinkingLevels], ["off", "minimal", "low", "medium", "high"]);
+	assert.deepEqual([...byId["plain"].thinkingLevels], ["off"], "非推理模型只有 off");
+	assert.deepEqual({ ...byId["with-xhigh"].thinkingLevelMap }, { xhigh: "xhigh" }, "映射原样保留给配置补全");
+});
+
 test("fetchModelList uses cache; refreshModelList forces reload", () => {
 	// 缓存命中短路
 	assert.match(cacheSource, /if \(cachedListModels\) return Promise\.resolve/);
@@ -244,8 +267,9 @@ test("picker flow loads models on welcome page (no record)", () => {
 	// 以便 Pi 欢迎页读取 startup capability snapshot、DSH 按 reasoningEfforts 过滤。
 	const hook = readFileSync("src/renderer/src/hooks/useBackendModelCatalog.ts", "utf8");
 	assert.match(pickerHost, /pickerOpen: props\.picker === "model" \|\| props\.picker === "thinking"/);
-	// 目录刻意懒加载：Ctrl+M/Ctrl+T 首次按下才武装（cycleArmed），避免每个会话栏开机就拉一次
-	assert.match(preferenceController, /const catalogEnabled = options\.pickerOpen \|\| options\.cycleArmed/);
+	// 目录刻意懒加载：Ctrl+M/Ctrl+T 首次按下才武装（cycleArmed），避免每个会话栏开机就拉一次；
+	// 未启动的会话（引导页/草稿）例外——底栏要在打开选择器前就拿到当前模型能力（#545）。
+	assert.match(preferenceController, /const catalogEnabled = options\.pickerOpen \|\| options\.cycleArmed \|\| !record \|\| record\.status === "draft"/);
 	assert.match(preferenceController, /useBackendModelCatalog\(\{[\s\S]*?enabled: catalogEnabled/);
 	// 后端分支收敛在 hook 内：DSH 走 host 目录，pi 走诊断报告通道（含失败原因分类）
 	// pi 目录按会话取（sessions:list-models，主进程分流远端/本机），DSH 仍走 host 目录
@@ -257,7 +281,7 @@ test("picker flow loads models on welcome page (no record)", () => {
 test("welcome page explicit model/thinking selections persist and are promoted into the first session", () => {
 	const picker = preferenceController;
 	const components = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const actions = readFileSync("src/renderer/src/hooks/useSessionActions.ts", "utf8");
 	const bootstrap = readFileSync("src/renderer/src/utils/chatSessionBootstrap.ts", "utf8");
 	// 无 record 的引导页仍是一个可交互 composer：用户点选必须覆盖静态默认值，

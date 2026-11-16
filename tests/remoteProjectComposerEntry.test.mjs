@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // 远端项目空态与本地同构：先给输入页，文件浏览是同一页的次级视图。
 // 同时锁定后端门控：远端项目只能跑主机上的 pi，不能把本地 dsh/acp runtime 绑上去。
@@ -9,7 +10,7 @@ const emptyState = readFileSync("src/renderer/src/components/session/ProjectEmpt
 const startSurface = readFileSync("src/renderer/src/components/session/SessionStartSurface.tsx", "utf8");
 const panel = readFileSync("src/renderer/src/components/session/RemoteProjectPanel.tsx", "utf8");
 const controller = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 
 test("remote empty state is the composer first, files second", () => {
 	assert.match(emptyState, /const \[remoteFilesOpen, setRemoteFilesOpen\] = useState\(false\)/);

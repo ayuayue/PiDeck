@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
+import { readFeishuBridgeSources } from "./helpers/feishuBridgeSources.mjs";
 
 /**
  * 飞书附件落盘契约（issue #427 追加一/追加二）。
@@ -15,7 +16,7 @@ import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 const load = createTsSandbox({});
 const { MAX_ATTACHMENT_BYTES, PENDING_ATTACHMENT_MAX_BYTES, PENDING_ATTACHMENT_MAX_COUNT, formatAttachmentSize, safeAttachmentFileName } = load("src/main/feishu/attachmentFiles.ts");
 
-const bridge = readFileSync("src/main/feishu/FeishuBridge.ts", "utf8");
+const bridge = readFeishuBridgeSources();
 const i18n = readFileSync("src/main/feishu/FeishuI18n.ts", "utf8");
 
 test("file attachments are written to disk and the prompt carries the absolute path", () => {

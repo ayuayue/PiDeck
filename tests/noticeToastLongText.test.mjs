@@ -21,6 +21,7 @@ const toaster = readFileSync("src/renderer/src/components/ui-shadcn/sonner.tsx",
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 const notice = readFileSync("src/renderer/src/utils/notice.ts", "utf8");
+const surfacesCss = readFileSync("src/renderer/src/styles/surfaces.css", "utf8");
 
 test("toast card clamps long title/description and detects overflow", () => {
 	// 标题最多 3 行（leading-5 → 60px），正文最多 4 行（leading-4 → 64px）
@@ -39,6 +40,13 @@ test("sonner and fallback toasts share a bounded responsive width", () => {
 	assert.match(notice, /"width:100%"/);
 	assert.match(card, /min-w-0/);
 	assert.match(card, /break-words/);
+});
+
+test("custom-card toast keeps a definite width inside the toaster bound", () => {
+	// sonner 只给 data-styled=true 的内置 toast 设 width:var(--width)；toast.custom 渲染的
+	// li 是 data-styled=false，没有确定宽度时会按 min-content 被超长不可断串（base64/URL）
+	// 撑出视口。回归：必须显式给自定义卡片 li 补宽度。
+	assert.match(surfacesCss, /\[data-sonner-toaster\] \[data-sonner-toast\]\[data-styled="false"\] \{\s*width: var\(--width\);\s*\}/);
 });
 
 test("truncated card offers view-details and dismisses toast before opening the dialog", () => {

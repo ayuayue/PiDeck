@@ -1,5 +1,5 @@
 import { recentSessionActivityAtom } from "../../atoms/recent-session-atoms";
-import { CornerDownRight, Ellipsis } from "lucide-react";
+import { CornerDownRight, Ellipsis, Inbox } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import { sessionRecordToSummary } from "../../atoms";
@@ -23,6 +23,8 @@ import { RecentSessionsSection } from "./RecentSessionsSection";
 import { SidebarStatusDot } from "./SidebarStatusDot";
 import { SESSION_ROW_CLASS, ROW_MORE_ACTIONS_CLASS } from "./sidebarRowStyles";
 import { RemovalList, RemovalRow } from "../removal/RemovalList";
+import { GtdInboxView } from "./GtdInboxView";
+import { readGtdMode, writeGtdMode } from "./gtdInboxModel";
 
 /** 活动页行样式：与 SessionTree 会话行同尺寸同圆角，但选中底不需要（活动页行不持久）。 */
 const activeRowClass = SESSION_ROW_CLASS;
@@ -69,6 +71,8 @@ export function ActiveSessionsTree(props: { controller: SidebarController; actio
 	// 「最近会话」可见条数：默认 10 条，手动「加载更多」每次 +10；「收起」回到首页大小。
 	// 行数受控是性能要求——侧栏一次性渲染几百行历史会明显卡顿（用户反馈）。
 	const [recentVisibleCount, setRecentVisibleCount] = useState(RECENT_SESSIONS_INITIAL_VISIBLE);
+	/** GTD 分诊视图开关（#546）：localStorage 偏好，默认传统视图，只影响侧栏排序方式。 */
+	const [gtdMode, setGtdMode] = useState(readGtdMode);
 	const recentActivity = useAtomValue(recentSessionActivityAtom);
 	// 两种模式共用同一份「最近会话」收集逻辑：数据源是用户实际启动过的会话访问记录。
 	// 差异只在去重——本页渲染活动行时排除其中已出现的会话；简洁模式（recentOnly）不渲染
@@ -118,6 +122,22 @@ export function ActiveSessionsTree(props: { controller: SidebarController; actio
 			</div>
 		);
 
+	// GTD 分诊视图（#546 阶段 2）：同一批活动行按「是否需要人介入」重新分组，
+	// 传统视图零改动——不经过这里就没有任何行为差异。
+	if (gtdMode) {
+		return (
+			<GtdInboxView
+				controller={controller}
+				actions={props.actions}
+				currentSessionId={props.currentSessionId}
+				rows={nestedLiveRows.map(({ row }) => row)}
+				onExit={() => {
+					writeGtdMode(false);
+					setGtdMode(false);
+				}}
+			/>
+		);
+	}
 	// 两段都空才是真正的空态；只有活动区空时用一行提示顶替，
 	// 不能让 h-full 空态占满高度把下方「最近」挤出视野。
 	if (liveRows.length === 0 && !hasRecent) {
@@ -135,6 +155,20 @@ export function ActiveSessionsTree(props: { controller: SidebarController; actio
 			{/* scroll-ok: flip —— 行是 RemovalRow，退场走 AnimatePresence 的 FLIP 淡出：行被卸载就没有锚点可淡出。
 			    要虚拟化必须先给退场动画设计「离场占位行」，属于独立改动，不是接一个 VirtualStack 就完。 */}
 			<div className="active-sessions-list flex min-h-0 flex-1 flex-col gap-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+				<div className="flex shrink-0 items-center justify-end px-2 pt-1">
+					<Button
+						variant="ghost"
+						size="icon-xs"
+						title={t("gtd.switchToInbox")}
+						aria-label={t("gtd.switchToInbox")}
+						onClick={() => {
+							writeGtdMode(true);
+							setGtdMode(true);
+						}}
+					>
+						<Inbox size={14} aria-hidden="true" />
+					</Button>
+				</div>
 				{liveRows.length === 0 ? <div className="px-2 py-1.5 text-caption text-muted-foreground">{t("app.sidebarActiveEmpty")}</div> : null}
 				{/* 关闭/删除会话时行淡出 + 下方行滑位（与 SessionTree 同一原语）；活动行按
 				    最近活动排序，顺序随消息实时变化不是用户动作，不开顺序敏感测量——

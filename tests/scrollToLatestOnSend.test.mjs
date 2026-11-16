@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -78,7 +79,7 @@ it("两处默认值同口径：主进程 defaultSettings 与渲染层 createDefa
 });
 
 it("发送定位 effect：关闭时提前返回，不 pin、不强制回底", () => {
-	const controller = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controller = sessionTimelineControllerSource;
 	const gate = controller.indexOf("store.get(scrollToLatestOnSendAtom) === false");
 	const pin = controller.indexOf("sendScrollRef.current.pin(");
 	assert.ok(gate > 0, "controller 必须读开关");

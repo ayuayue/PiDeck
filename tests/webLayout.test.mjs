@@ -117,11 +117,34 @@ test("Web timeline groups assistant messages into collapsible execution folds", 
 	assert.ok(turnStart >= 0 && turnEnd > turnStart, "WebAssistantTurn component must be found");
 	const turnCopyUses = turnSource.match(/web\.msgCopy/g) ?? [];
 	assert.equal(turnCopyUses.length, 1, "copy/share actions belong to the final reply of a turn only");
-	assert.match(turnSource, /!props\.isStreaming && turn\.finalText/, "actions render only after the final reply settles");
+	assert.match(turnSource, /const showActionsRow = !props\.isStreaming && Boolean\(turn\.finalText\)/, "actions render only after the final reply settles");
 	// 流式时过程组默认展开、结束回落折叠；手动开合优先。
 	assert.match(webTimeline, /manualOpen \?\? props\.isStreaming/);
 	// 过程组样式：左导轨缩进明细存在（css）。
 	assert.match(webCss, /\.web-app \.execution-fold-details\s*\{[\s\S]*?border-left:/);
+});
+
+// 回归（2027-03 用户反馈）：Web 端提问/回复缺时间、耗时与模型信息。与桌面同一套数据源：
+// 历史行 metadata（chatMessagesToUiMessages 写入 timestamp/endedAt/model）→ 分组计算轮时间
+// → 用户气泡下时间、回复行头时间、轮尾「耗时 | 模型」。
+test("Web timeline shows question time and reply time/duration/model like the desktop", () => {
+	const webGrouping = readFileSync("src/renderer/src/web/webTimelineGrouping.ts", "utf8");
+	// 分组层：回合起点取触发用户消息时间、终点取最后一条消息结束点、模型最后一条带 model 的段
+	assert.match(webGrouping, /lastUserTimestamp = uiMessageTimestamp\(message\)/);
+	assert.match(webGrouping, /turnStartedAt = lastUserTimestamp \?\? messageTimestamp/);
+	assert.match(webGrouping, /turnEndedAt === undefined \|\| messageEndedAt > turnEndedAt/);
+	assert.match(webGrouping, /if \(messageModel\) turnModel = messageModel/);
+	// 用户气泡：气泡下方时间行（桌面 UserBubble 同款），数据来自 metadata.timestamp
+	assert.match(webTimeline, /const timestamp = uiMessageTimestamp\(props\.message\)/);
+	assert.match(webTimeline, /<time dateTime=\{new Date\(timestamp\)\.toISOString\(\)\}>\{formatTime\(timestamp\)\}<\/time>/);
+	// 助手回合：行头时间 + 轮尾耗时/模型（与桌面 TurnAuthorHeader / TurnRowActions 同款门控）
+	assert.match(webTimeline, /<time className="tabular-nums" dateTime=\{new Date\(turn\.endedAt\)\.toISOString\(\)\}>/);
+	assert.match(webTimeline, /const duration = !props\.isStreaming && turn\.startedAt !== undefined && turn\.endedAt !== undefined/);
+	assert.match(webTimeline, /\{formatDuration\(duration\)\}/);
+	assert.match(webTimeline, /data-turn-model=\{turnModel\.modelId\}/);
+	assert.match(webTimeline, /title=\{`\$\{turnModel\.provider\}\/\$\{turnModel\.modelId\}`\}/);
+	// 与桌面同一时机：耗时/模型只在本轮结束后出现，流式中不跳动
+	assert.match(webTimeline, /const turnModel = props\.isStreaming \? undefined : turn\.model/);
 });
 
 // 回归：头部运行态用紧凑「小圆点+文字」，手机与标题同排且禁止状态文字换行，

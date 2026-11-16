@@ -335,7 +335,7 @@ export function ProjectTree(props: {
 							<>
 								{/* 已导入本地的远端会话仍在 SessionTree 里；下面这块是远端侧的「发现」列表（只读扫描 + 导入）。 */}
 								<SessionTree project={project} sessions={rootProjectSessions} groupedSessionIds={groupedSessionIds} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />
-								<RemoteSessionsSection hostId={project.locator.hostId} importedRemoteSessionIds={collectRegisteredRemoteSessionIds(rootProjectSessions, project.locator.hostId)} onImported={(result) => props.actions.sessions.importRemoteSession(project.id, result.sessionId)} />
+								<RemoteSessionsSection hostId={project.locator.hostId} projectId={project.id} importedRemoteSessionIds={collectRegisteredRemoteSessionIds(rootProjectSessions, project.locator.hostId)} onImported={(result) => props.actions.sessions.importRemoteSession(project.id, result.sessionId)} />
 							</>
 						) : (
 							<SessionTree project={project} sessions={rootProjectSessions} groupedSessionIds={groupedSessionIds} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />

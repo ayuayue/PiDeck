@@ -2,13 +2,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
 
 // 默认值三处来源 + manager 兜底都必须是 0.0.0.0，确保任意路径默认对外可访问。
-const DEFAULT_HOST_SOURCES = ["src/main/settings/SettingsStore.ts", "src/shared/types/settings.ts", "src/renderer/src/previewApi.ts"];
+// previewApi.ts 只是组装入口，默认设置落在 preview/settings.ts，所以这里读聚合源码。
+const DEFAULT_HOST_SOURCES = {
+	"src/main/settings/SettingsStore.ts": () => readFileSync("src/main/settings/SettingsStore.ts", "utf8"),
+	"src/shared/types/settings.ts": () => readFileSync("src/shared/types/settings.ts", "utf8"),
+	"src/renderer/src/previewApi.ts": () => previewApiSource,
+};
 
 test("web service default host is 0.0.0.0 in every default-settings site", () => {
-	for (const file of DEFAULT_HOST_SOURCES) {
-		const source = readFileSync(file, "utf8");
+	for (const [file, readSource] of Object.entries(DEFAULT_HOST_SOURCES)) {
+		const source = readSource();
 		assert.match(source, /webServiceHost:\s*"0\.0\.0\.0"/, `${file} must default webServiceHost to 0.0.0.0`);
 	}
 	const managerSource = readFileSync("src/main/web/WebServiceManager.ts", "utf8");

@@ -31,6 +31,11 @@ export type AcpHandshakeDeps = {
 	 * 传函数是为了每次握手现算：挂载内容依赖会话 cwd（项目记忆键）。
 	 */
 	mcpServers?: (cwd: string) => AcpMcpServer[];
+	/**
+	 * 会话配置了附加根目录、但该工具没有声明 `sessionCapabilities.additionalDirectories`（#560）：
+	 * 配置不会生效，必须告诉用户，不能静默丢弃。
+	 */
+	onAdditionalDirectoriesIgnored?: (toolName: string, count: number) => void;
 };
 
 /** load 失败回退 / 无 loadSession 能力时的播种:用本进程内快照保住显示连续性。 */
@@ -76,7 +81,10 @@ export async function performAcpHandshake(runtime: AcpAgentRuntime, resumeSessio
 				// 连 --agent ptc 与手写 codeMode 都会被拒（-32602，#447 实测）。
 				// 键归属 CB 命名空间，其他 agent 按 ACP 规范忽略未知 _meta；PiDeck 的
 				// configOptions 走通用渲染，声明后这些选项能直接落地，不需要按品牌分支。
-				_meta: { "codebuddy.ai": { mainAgentSupport: true } },
+				// #560 ③：CodeBuddy ≥2.184 的逐次模型调用指标要显式 opt-in（未声明时发射端会
+				// stripModelCallMetrics 把 usage.model_calls 去掉）；与 mainAgentSupport 同命名空间，
+				// 只补键不覆盖，其他 agent 按 ACP 规范忽略未知 _meta。
+				_meta: { "codebuddy.ai": { mainAgentSupport: true, modelCallMetrics: true } },
 			},
 		},
 		timeoutMs,
@@ -91,6 +99,8 @@ export async function performAcpHandshake(runtime: AcpAgentRuntime, resumeSessio
 			agentThought: agentCaps.promptCapabilities?.agentThought === true,
 			sessionList: typeof agentCaps.sessionCapabilities?.list === "object" && agentCaps.sessionCapabilities.list !== null,
 			promptImage: agentCaps.promptCapabilities?.image === true,
+			// 规范里是空对象 `{}`（存在即支持），null/undefined = 不支持。
+			additionalDirectories: agentCaps.sessionCapabilities?.additionalDirectories !== undefined && agentCaps.sessionCapabilities?.additionalDirectories !== null,
 		},
 		protocolVersion: ACP_PROTOCOL_VERSION,
 	};
@@ -99,6 +109,12 @@ export async function performAcpHandshake(runtime: AcpAgentRuntime, resumeSessio
 	// mcpServers 必传(哪怕是空数组): ACP v1 规范该字段必填, opencode 的 zod 校验缺它直接
 	// -32602 Invalid params(实测), 会话创建即失败冒泡成首条消息发送失败。
 	const mcpServers = deps.mcpServers?.(cwd) ?? [];
+	// 附加根目录（#560）：只有 agent 声明了 sessionCapabilities.additionalDirectories 才能带
+	// （未声明时多带一个字段会被 zod 拒成 -32602）；声明了不传 = 没有额外根目录。
+	const configuredDirectories = runtime.additionalDirectories ?? [];
+	const supportsDirectories = runtime.agentInfo.capabilities.additionalDirectories;
+	const directoryParams = supportsDirectories && configuredDirectories.length > 0 ? { additionalDirectories: configuredDirectories } : {};
+	if (!supportsDirectories && configuredDirectories.length > 0) deps.onAdditionalDirectoriesIgnored?.(runtime.tool.name, configuredDirectories.length);
 	let setup: AcpSessionLoadResult | undefined;
 	if (resumeSessionId && runtime.agentInfo.capabilities.loadSession) {
 		// ACP 规范:agent 先经 session/update 重放历史、再回 load 响应。重放期 client
@@ -107,7 +123,7 @@ export async function performAcpHandshake(runtime: AcpAgentRuntime, resumeSessio
 		runtime.acpSessionId = resumeSessionId;
 		runtime.reloading = true;
 		try {
-			const loaded = (await conn.request("session/load", { sessionId: resumeSessionId, cwd, mcpServers }, timeoutMs)) as AcpSessionLoadResult;
+			const loaded = (await conn.request("session/load", { sessionId: resumeSessionId, cwd, mcpServers, ...directoryParams }, timeoutMs)) as AcpSessionLoadResult;
 			await runtime.updateChain;
 			// 标准 load 响应无 sessionId；保留请求身份。兼容明确回传身份的旧 CLI。
 			setup = { ...loaded, sessionId: typeof loaded?.sessionId === "string" && loaded.sessionId ? loaded.sessionId : resumeSessionId };
@@ -131,7 +147,7 @@ export async function performAcpHandshake(runtime: AcpAgentRuntime, resumeSessio
 		seedProjectionFromSnapshot(runtime, deps, resumeSessionId);
 	}
 	if (!setup?.sessionId) {
-		setup = (await conn.request("session/new", { cwd, mcpServers }, timeoutMs)) as AcpSessionSetupResult;
+		setup = (await conn.request("session/new", { cwd, mcpServers, ...directoryParams }, timeoutMs)) as AcpSessionSetupResult;
 	}
 	if (!setup?.sessionId || typeof setup.sessionId !== "string") throw new Error("ACP session/new returned no sessionId");
 	runtime.acpSessionId = setup.sessionId;

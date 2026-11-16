@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { preloadSource } from "./helpers/preloadSources.mjs";
 
 /**
  * terminalIpc 边界回归测试。
@@ -95,7 +96,7 @@ test("源码契约：terminalFonts 通道在三处同步注册", () => {
 	// 漏一处渲染层拿到 undefined。此守卫防 fonts 通道重蹈 shells 漏注册的覆辙。
 	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 	assert.match(ipc, /terminalFonts:\s*"terminal:fonts"/);
-	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const preload = preloadSource;
 	assert.match(preload, /terminalFonts/);
 });
 

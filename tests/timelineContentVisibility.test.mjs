@@ -1,3 +1,4 @@
+import { sessionTimelineControllerSource } from "./helpers/sessionTimelineControllerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -20,7 +21,7 @@ test("message-list no longer estimates offscreen row height via content-visibili
 test("long-session window governance stays via turn-based history loading", () => {
 	// 2026-11 轮次模型：100 条分页器已删除，长会话治理改由
 	// 「贴底挂载窗口 + 按轮补历史（主进程缓存优先/文件兜底）」承担。
-	const controller = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	const controller = sessionTimelineControllerSource;
 	assert.doesNotMatch(controller, /useMessagePagination/);
 	assert.match(controller, /resolveHistoryPageSize\(source\)/);
 	assert.match(controller, /const \{ before, beforeEntryId \} = earlierHistoryCursor;/);

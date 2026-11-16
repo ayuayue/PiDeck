@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * DSH 会话模型补录（catalog 真值同步）契约。
  *
@@ -48,7 +50,7 @@ test("dshSessionModelPatch: 无需更新 / 无 host 选择时返回 undefined", 
 });
 
 test("契约: 打开 DSH 历史会话时主进程冷读 host 投影并补录 catalog", () => {
-	const ipc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
+	const ipc = sessionIpcSource;
 	assert.match(ipc, /readDshSessionModel\?:/, "DshBackendIpcDeps 必须声明冷读依赖");
 	assert.match(ipc, /const backfillDshSessionModel = async \(sessionId: string\)/, "补录入口必须存在于 sessionIpc");
 	assert.match(ipc, /if \(!entry \|\| entry\.backend !== "dsh" \|\| !entry\.dshSessionId\) return;/, "只对 DSH 会话补录");
@@ -59,7 +61,7 @@ test("契约: 打开 DSH 历史会话时主进程冷读 host 投影并补录 cat
 });
 
 test("契约: main 装配把 DSH host 投影冷读注入 IPC 依赖", () => {
-	const index = readFileSync("src/main/index.ts", "utf8");
+	const index = mainIpcSource;
 	assert.match(index, /readDshSessionModel:\s*\(dshSessionId\)\s*=>\s*dshAgentManager\.readSessionModelSelection\(dshSessionId\)/);
 });
 

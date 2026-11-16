@@ -2,19 +2,20 @@ import type { AgentBackend, SessionSource } from "../../shared/types";
 
 /**
  * 会话过滤类别模型（侧栏来源过滤菜单与会话管理弹窗共用）：
- * 来源（pi/codex/claude/opencode/zcode）+ DSH 后端。
+ * 来源（pi/codex/claude/opencode/zcode）+ 后端（DSH/ACP/生图）。
  *
  * 背景：DSH 会话没有 pi 会话文件（数据在 $DSH_HOME，catalog 只存映射），
- * 其 source 恒为 "pi"、backend 为 "dsh"。因此过滤不能只按来源维度，
- * 必须让每个会话唯一归属一个类别（DSH 按 backend 优先判定），否则
- * DSH 会话会同时命中 Pi 类别造成过滤重复计数或「关掉 Pi 还在」。
+ * 其 source 恒为 "pi"、backend 为 "dsh"。ACP 会话同理：source 恒为 "pi"，
+ * 身份在 backend/acpToolId。因此过滤不能只按来源维度，必须让每个会话唯一归属
+ * 一个类别（DSH/ACP 按 backend 优先判定），否则它们会同时命中 Pi 类别，
+ * 表现为「只选 Pi 时 DSH/ACP 还在」或「没法单独筛掉 ACP」。
  */
 
-/** 会话过滤类别：来源、DSH 后端或生图后端。 */
-export type SessionFilterPill = SessionSource | "dsh" | "imagegen";
+/** 会话过滤类别：来源、DSH/ACP 后端或生图后端。 */
+export type SessionFilterPill = SessionSource | "dsh" | "acp" | "imagegen";
 
-/** 类别渲染顺序：来源顺序不变，dsh/imagegen 追加在末尾（视觉上不打断既有布局）。 */
-export const SESSION_FILTER_PILLS: readonly SessionFilterPill[] = ["pi", "codex", "claude", "qoder", "opencode", "zcode", "workbuddy", "codebuddy", "cursor", "kimi", "kimiwork", "minimax", "dsh", "imagegen"];
+/** 类别渲染顺序：来源顺序不变，dsh/acp/imagegen 追加在末尾（视觉上不打断既有布局）。 */
+export const SESSION_FILTER_PILLS: readonly SessionFilterPill[] = ["pi", "codex", "claude", "qoder", "opencode", "zcode", "workbuddy", "codebuddy", "cursor", "kimi", "kimiwork", "minimax", "dsh", "acp", "imagegen"];
 
 /** 字符串是否为合法的过滤类别（持久化数据校验用）。 */
 export function isSessionFilterPill(value: unknown): value is SessionFilterPill {
@@ -22,11 +23,12 @@ export function isSessionFilterPill(value: unknown): value is SessionFilterPill 
 }
 
 /**
- * 会话归属的类别：DSH/生图会话按 backend 判定（生图 source 恒为 "pi"、无 pi 文件，
- * 若不优先判定会同时命中 Pi 类别），否则按来源（缺省 "pi"）。
+ * 会话归属的类别：DSH/ACP/生图会话按 backend 判定（这类会话 source 恒为 "pi"、
+ * 无 pi 文件，若不优先判定会同时命中 Pi 类别），否则按来源（缺省 "pi"）。
  */
 export function sessionPillOf(session: { source?: SessionSource; backend?: AgentBackend }): SessionFilterPill {
 	if (session.backend === "dsh") return "dsh";
+	if (session.backend === "acp") return "acp";
 	if (session.backend === "imagegen") return "imagegen";
 	return session.source ?? "pi";
 }
@@ -51,12 +53,14 @@ export function pillsPresentIn<T extends { source?: SessionSource; backend?: Age
  *
  * v2：{ v: 2, filters: { [projectId]: string[] | null } }，数组为 5 个类别。
  * v3：{ v: 3, filters: { [projectId]: string[] | null } }，数组为 6 个类别（追加 imagegen）。
- * zcode / workbuddy / codebuddy / cursor 类别于 v3 后追加，不升版本号：v3 解析路径按 isSessionFilterPill 动态校验，
+ * zcode / workbuddy / codebuddy / cursor / acp 类别于 v3 后追加，不升版本号：v3 解析路径按 isSessionFilterPill 动态校验，
  * 新类别写入的存量数据读回时天然兼容，无需迁移。
- * v1（旧版）：{ [projectId]: string[] | null }，数组只有 4 个来源，DSH 会话按
- *   source=pi 显示。读取时迁移：集合含 "pi" 则补 "dsh"——旧用户此前能看到
- *   DSH 会话，升级后必须保持可见，不能静默隐藏；不含 "pi" 说明用户主动
- *   关掉了 pi，DSH 此前也不可见，不补。
+ * 注意 acp 不自动补进存量 v2/v3 过滤器：ACP 会话此前一直混在 Pi 类别里，
+ * 用户「只选 Pi」却仍看到 ACP，正是这次要修的行为；自动补 acp 会让问题原样保留。
+ * v1（旧版）：{ [projectId]: string[] | null }，数组只有 4 个来源，DSH/ACP 会话按
+ *   source=pi 显示。读取时迁移：集合含 "pi" 则补 "dsh"/"acp"——旧用户此前能看到
+ *   这两类会话，升级后必须保持可见，不能静默隐藏；不含 "pi" 说明用户主动
+ *   关掉了 pi，DSH/ACP 此前也不可见，不补。
  *
  * 版本化还保证新代码不会把用户「显式关掉 DSH」的状态（v2 集合无 dsh）
  * 在下次读取时误迁移成「dsh 已启用」。
@@ -100,7 +104,9 @@ export function parseSessionFilterState(raw: string | null | undefined): Session
 			}
 			if (!Array.isArray(value)) continue;
 			const pills = value.filter(isSessionFilterPill);
-			if (pills.includes("pi") && !pills.includes("dsh")) pills.push("dsh");
+			if (pills.includes("pi")) {
+				for (const backendPill of ["dsh", "acp"] as const) if (!pills.includes(backendPill)) pills.push(backendPill);
+			}
 			state[projectId] = new Set(pills);
 		}
 		return state;

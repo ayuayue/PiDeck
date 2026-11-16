@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -193,7 +194,7 @@ test("PiDeck catalog uses dedicated consent panel, native logo and localized con
 	const mcpViews = read("src/renderer/src/config/McpResourceViews.tsx");
 	assert.match(mcpViews, /entry\.id\s*===\s*"pideck"\s*&&\s*customLogo\s*\?\s*\(?\s*<img src=\{customLogo\}/, "pideck 目录条目必须优先用自定义品牌图");
 	assert.match(mcpViews, /entry\.id\s*===\s*"pideck"\s*&&\s*logoStyle\s*===\s*"pi-tui"\s*\?\s*\(?\s*<PiTuiLogoMark/, "pideck 目录条目在 pi-tui 风格下用官方三色标");
-	const preview = read("src/renderer/src/previewApi.ts");
+	const preview = previewApiSource;
 	assert.match(preview, /piDeckMcp:\s*\{[\s\S]*?getState:\s*async\s*\(\)\s*=>\s*\(\{\s*ok:\s*false,\s*code:\s*"desktop-only"/);
 	for (const locale of ["zh-CN", "en-US", "zh-TW"]) assert.match(read(`src/renderer/src/i18n/rendererCopy.${locale}.ts`), /"config\.mcp\.pideck\.warning"\s*:/);
 	// 一键授权入口：按钮文案必须来自 i18n 词典，删掉按钮或硬编码文案都会红。

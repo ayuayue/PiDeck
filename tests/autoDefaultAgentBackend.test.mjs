@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { createDefaultAppSettings } = loadTsCommonJs("src/shared/types/settings.ts");
 
@@ -70,13 +71,13 @@ test("设置页手选后端会同时置 manual，保住用户的选择", () => {
 });
 
 test("App 把「pi 是否已装」喂给自动选择 hook（含持久化缓存，避免启动时误判）", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /useAutoDefaultAgentBackend\(\{/);
 	assert.match(app, /piInstalled:\s*piStatus \? piStatus\.installed : Boolean\(settings\.piInstall\)/);
 	assert.match(app, /dshState:\s*dshRuntimeStatus\.state/);
 });
 
 test("默认后端已是可用 DSH 时，启动检测不再弹「没有 pi」", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /defaultAgentBackend === "dsh" && store\.get\(dshRuntimeStatusAtom\)\.state === "installed"/);
 });

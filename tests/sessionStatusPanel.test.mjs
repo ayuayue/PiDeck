@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const dir = "src/renderer/src/components/session/statusPanel";
 const panel = readFileSync(`${dir}/SessionStatusPanel.tsx`, "utf8");
@@ -66,7 +67,7 @@ test("SessionView/SessionStartSurface：只看设置就隐藏待办/子代理两
 });
 
 test("App 按显示位置装配 drawerFooter：只有 sidebar 挂下半区，composer 时右侧边栏保持单区抽屉", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	assert.match(app, /const sessionStatusPlacement = parseSessionStatusPlacement\(settings\.sessionStatusPlacement\);/);
 	// 横栏显隐的真值来自设置：写入 atom 后与面板展开/收起解耦
 	assert.match(app, /setSessionStatusInSidebar\(placementShowsSidebarPanel\(sessionStatusPlacement\)\)/);

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 function loadModule() {
 	const source = readFileSync("src/renderer/src/components/session/trajectory/buildTrajectory.ts", "utf8");
@@ -150,7 +151,7 @@ test("trajectory lives in the right drawer, not the session surface", () => {
 	const sessionView = readFileSync("src/renderer/src/components/session/SessionView.tsx", "utf8");
 	const stage = readFileSync("src/renderer/src/components/session/SessionSurfaceStage.tsx", "utf8");
 	const header = readFileSync("src/renderer/src/components/session/SessionHeader.tsx", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const drawer = readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8");
 	const hook = readFileSync("src/renderer/src/hooks/useWorkspacePanels.ts", "utf8");
 	assert.match(sessionView, /SessionSurfaceStage/);

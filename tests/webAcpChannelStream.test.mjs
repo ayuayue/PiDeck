@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * Web + ACP 流式链路（回归）：ACP 会话在 Web 端的两个现场症状
  *   1) 正文/工具卡不实时出现（只能靠状态轮询 + 磁盘重拉）；
@@ -17,8 +17,8 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const webServiceSource = readFileSync("src/main/web/WebServiceManager.ts", "utf8");
 const webEventStreamSource = readFileSync("src/main/web/WebEventStream.ts", "utf8");
-const indexSource = readFileSync("src/main/index.ts", "utf8");
 
+const indexSource = mainIpcSource;
 const { AcpChannelToPiEvents } = loadTsCommonJs("src/main/web/AcpChannelToPiEvents.ts");
 const { WebEventStreamRouter, PiEventToUiMessageStream } = loadTsCommonJs("src/main/web/WebEventStream.ts");
 
@@ -44,9 +44,9 @@ function collectFrames(batches) {
 	return frames;
 }
 
-/** 投影快照载荷（与 AcpUpdatePipeline.flushMessages 同形）。 */
-function snapshot(messages) {
-	return { agentId: AGENT, deckSessionId: "session-1", messages, totalLength: messages.length };
+/** 投影快照载荷（与 AcpUpdatePipeline.flushMessages 同形）。replay=激活重放（历史）。 */
+function snapshot(messages, extra = {}) {
+	return { agentId: AGENT, deckSessionId: "session-1", messages, totalLength: messages.length, ...extra };
 }
 
 function user(id, text) {
@@ -215,6 +215,104 @@ test("ACP 历史（上一个用户消息之前）与已结算内容不进增量"
 	assert.equal(next[0].message.id, "a1");
 });
 
+test("ACP 激活重放不把历史当增量重画：重放块（含分块 upsertFrom）零帧，重放后的新回合照常出字", () => {
+	const translator = new AcpChannelToPiEvents();
+	// 先经一个真实回合建立基线与游标（会话重建前）
+	translator.push(MESSAGE, snapshot([user("u1", "旧问题")]));
+	translator.push(MESSAGE, snapshot([user("u1", "旧问题"), assistant("a1", "旧回答", { stopReason: "stop" })]));
+
+	// session/load 重建投影：消息 id 全变，分块投递带 replay 标记——整份是历史，不得上屏
+	const rebuilt = [user("h1", "旧问题"), assistant("h2", "旧回答", { stopReason: "stop" }), user("h3", "更早的问题")];
+	const firstReplay = translator.push(MESSAGE, snapshot(rebuilt.slice(0, 2), { replay: true }));
+	// 上一轮没见过 runtime-state 收口，重放只负责关块收口（done）；重放的历史本身一个 delta 都不能发
+	assert.deepEqual(plain(firstReplay.map((event) => event.type + (event.assistantMessageEvent?.type ? `:${event.assistantMessageEvent.type}` : ""))), ["message_update:done", "agent_settled"]);
+	assert.deepEqual(plain(translator.push(MESSAGE, snapshot(rebuilt.slice(2), { upsertFrom: 2, totalLength: 3, replay: true }))), [], "重放增量块同样不能上屏");
+
+	// 重放后的新回合：只发新内容，旧历史不能重画
+	const live = translator.push(MESSAGE, snapshot([...rebuilt, user("h4", "新问题"), assistant("h5", "新回答")]));
+	assert.deepEqual(plain(live.map((event) => event.assistantMessageEvent?.delta).filter((delta) => typeof delta === "string")), ["新回答"], "重放后的实时回合只发本轮增量");
+});
+
+test("ACP 重放不误杀仍在跑的回合：turnActive 的重放块只吸收历史，不发 finish", () => {
+	const frames = collectFrames([
+		[MESSAGE, snapshot([user("u1", "握手期发的问题")])],
+		[RUNTIME_STATE, { agentId: AGENT, state: { isStreaming: true } }],
+		[MESSAGE, snapshot([user("h1", "握手期发的问题"), assistant("h2", "已结算的历史", { stopReason: "stop" })], { replay: true, turnActive: true })],
+		[MESSAGE, snapshot([user("h1", "握手期发的问题"), assistant("h2", "已结算的历史", { stopReason: "stop" }), assistant("h3", "实时回答")])],
+		[RUNTIME_STATE, { agentId: AGENT, state: { isStreaming: false } }],
+	]);
+	assert.deepEqual(textDeltas(frames), ["实时回答"], "重放历史不上屏，实时增量照发");
+	assert.equal(frames.filter((frame) => frame.type === "finish").length, 1, "只有回合真结束才收口");
+	assert.equal(frames.filter((frame) => frame.type === "start").length, 1, "进行中的流不能被重放拆成两轮");
+});
+
+test("ACP 重放不污染回放源：手机在重放之后接入看不到被当成实时回复的历史", () => {
+	const received = [];
+	const router = new WebEventStreamRouter(() => "session-1");
+	let handler = null;
+	router.bindAcpChannelSource((next) => {
+		handler = next;
+		return () => {};
+	});
+
+	// 激活重放（长会话分块）发生在手机连上之前：帧会进会话级回放源，绝不能是历史正文
+	handler(AGENT, MESSAGE, snapshot([user("h1", "旧问题"), assistant("h2", "旧回答", { stopReason: "stop" })], { replay: true }));
+	handler(AGENT, MESSAGE, snapshot([user("h3", "更早的问题")], { upsertFrom: 2, totalLength: 3, replay: true }));
+	router.add(
+		"session-1",
+		(wire) => {
+			received.push(wire);
+			return true;
+		},
+		() => {},
+		undefined,
+		{ keepAlive: true },
+	);
+	assert.equal(received.length, 0, "重放历史不能进回放源，也不能写给随后接入的手机");
+
+	// 重放后真正开一轮：start + 新正文
+	handler(AGENT, RUNTIME_STATE, { agentId: AGENT, state: { isStreaming: true } });
+	handler(AGENT, MESSAGE, snapshot([user("h1", "旧问题"), assistant("h2", "旧回答", { stopReason: "stop" }), user("h3", "更早的问题"), user("h4", "新问题"), assistant("h5", "新回答")]));
+	const live = received.join("");
+	assert.match(live, /"type":"start"/);
+	assert.match(live, /新回答/);
+	assert.doesNotMatch(live, /旧回答/, "重放历史不能作为本轮正文回放给客户端");
+	router.unbindAcpChannelSource();
+});
+
+test("ACP 重放打断未收口的流：先给 finish，重放历史不追加到旧气泡", () => {
+	const received = [];
+	const router = new WebEventStreamRouter(() => "session-1");
+	router.add(
+		"session-1",
+		(wire) => {
+			received.push(wire);
+			return true;
+		},
+		() => {},
+		undefined,
+		{ keepAlive: true },
+	);
+	let handler = null;
+	router.bindAcpChannelSource((next) => {
+		handler = next;
+		return () => {};
+	});
+
+	handler(AGENT, RUNTIME_STATE, { agentId: AGENT, state: { isStreaming: true } });
+	handler(AGENT, MESSAGE, snapshot([user("u1", "断线前的问题"), assistant("a1", "断线前的回答")]));
+	assert.match(received.join(""), /断线前的回答/);
+
+	received.length = 0;
+	// 运行时重建（新投影 id 全变）：旧回合已不存在，重放块只负责收口
+	handler(AGENT, MESSAGE, snapshot([user("h1", "旧问题"), assistant("h2", "旧回答", { stopReason: "stop" })], { replay: true }));
+	const tail = received.join("");
+	assert.match(tail, /"type":"finish"/, "未收口的旧流要收口");
+	assert.match(tail, /\[DONE\]/, "finish 后跟 [DONE]，客户端才能结束本轮");
+	assert.doesNotMatch(tail, /旧回答/, "重建后的历史不能追加进旧气泡");
+	router.unbindAcpChannelSource();
+});
+
 test("ACP 无关通道/畸形载荷不抛异常、不产帧", () => {
 	const translator = new AcpChannelToPiEvents();
 	assert.deepEqual(plain(translator.push("agents:text-stream", { text: "x" })), []);
@@ -350,7 +448,8 @@ test("ACP 事件源未注入时退化为纯 pi 行为（fail-safe，不抛不订
 test("index.ts 把 ACP manager 接到 Web 的 ACP 事件源（不订 compositeAgentGateway）", () => {
 	assert.match(indexSource, /subscribeAcpChannelEvents:/);
 	const wiring = indexSource.slice(indexSource.indexOf("subscribeAcpChannelEvents:"));
-	assert.match(wiring.slice(0, 600), /acpAgentManager\?\.onOutput\(/, "必须只订 ACP 网关，订 composite 会与 pi 事件源重复推帧");
+	// Web 服务的 deps 已迁到 startup/webServiceDeps*：acpAgentManager 经 getAcpAgentManager() 访问器读取
+	assert.match(wiring.slice(0, 600), /(?:getAcpAgentManager\(\)|acpAgentManager)\?\.onOutput\(/, "必须只订 ACP 网关，订 composite 会与 pi 事件源重复推帧");
 	assert.doesNotMatch(wiring.slice(0, 600), /compositeAgentGateway/);
 	// ACP 工具清单只下发 id/name（command/args/env 可能含凭据）
 	const tools = indexSource.slice(indexSource.indexOf("listAcpTools:"));

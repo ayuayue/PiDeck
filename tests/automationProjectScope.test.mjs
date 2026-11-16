@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const sidebar = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
 const projectMenu = readFileSync("src/renderer/src/components/sidebar/SidebarComponents.tsx", "utf8");
 const workspace = readFileSync("src/renderer/src/components/automation/AutomationWorkspace.tsx", "utf8");
@@ -16,7 +17,10 @@ test("a project menu opens its own automation task table", () => {
 	assert.match(sidebar, /onManageAutomations=\{\s*automationHidden\s*\?\s*undefined\s*:\s*\(\) => \{[\s\S]{0,200}?actions\.projects\.manageAutomations\(menuProject\.id\)/);
 	assert.match(projectMenu, /onManageAutomations\?: \(\) => void/);
 	assert.match(projectMenu, /<Clock className="size-3\.5"/);
-	assert.match(app, /manageAutomations: \(projectId\) => openAutomationPage\(projectId\)/);
+	// 侧栏动作已迁入 hooks/app/useAppSidebarActions：项目菜单经注入的 openAutomations 打开该项目自动化页，
+	// 注入源是 atom 入口 openAutomationPage（在 App 里接线）。
+	assert.match(app, /manageAutomations: \(projectId\) => openAutomations\(projectId\)/);
+	assert.match(app, /openAutomations: openAutomationPage,/);
 });
 
 test("project scope filters tasks and runs and locks new task ownership", () => {
@@ -26,4 +30,9 @@ test("project scope filters tasks and runs and locks new task ownership", () => 
 	assert.match(history, /run\.projectId === projectId/);
 	assert.match(editor, /defaultProjectId\?: string/);
 	assert.match(editor, /lockProject\?: boolean/);
+});
+
+test("run history shows the execution date, not just the time of day", () => {
+	assert.match(history, /formatFullDateTime/);
+	assert.doesNotMatch(history, /toLocaleTimeString/, "运行历史必须带日期，不能只渲染时分秒");
 });

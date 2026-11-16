@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { previewApiSource } from "./helpers/previewApiSources.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 收藏功能装配契约（页面式 Tab + 本地快照）。
  *
@@ -10,15 +14,15 @@ import test from "node:test";
  */
 const read = (path) => readFileSync(path, "utf8");
 const ipc = read("src/shared/ipc.ts");
-const preload = read("src/preload/index.ts");
-const previewApi = read("src/renderer/src/previewApi.ts");
-const mainIndex = read("src/main/index.ts");
+const preload = preloadSource;
+const previewApi = previewApiSource;
+const mainIndex = mainIpcSource;
 const store = read("src/main/favorites/FavoritesStore.ts");
 const storeInput = read("src/main/favorites/favoriteInput.ts");
 const favoritesIpc = read("src/main/ipc/favoritesIpc.ts");
 const catalog = read("src/shared/api/domainCatalog.ts");
 const pageTabs = read("src/renderer/src/utils/workspacePageTabs.ts");
-const app = read("src/renderer/src/App.tsx");
+const app = rendererAppSource;
 const sidebar = read("src/renderer/src/components/sidebar/SidebarContent.tsx");
 const favoritesPage = read("src/renderer/src/components/favorites/FavoritesPage.tsx");
 const favoritesWorkspace = read("src/renderer/src/components/favorites/FavoritesWorkspace.tsx");

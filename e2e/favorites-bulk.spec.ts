@@ -13,8 +13,23 @@ const SEED_FAVORITES = [
 ];
 test.use({ seedFavorites: async ({}, use) => use(SEED_FAVORITES) });
 
+/**
+ * 打开收藏页：入口在侧栏「更多」折叠组里（低频入口：定时任务 / 智能体 / 收藏），
+ * 默认收起，必须先展开——否则 getByRole("button", {name:"收藏"}) 永远等不到。
+ */
+async function openFavorites(window: import("@playwright/test").Page) {
+	const more = window.getByRole("button", { name: "更多", exact: true });
+	if (await more.count()) {
+		const expanded = (await more.first().getAttribute("aria-expanded")) === "true";
+		if (!expanded) await more.first().click();
+	}
+	// 页面上有多个名字含「收藏」的按钮（侧栏入口 + 卡片内的收藏动作），
+	// 按折叠组容器 #sidebar-more-actions 精确定位入口，避免 strict mode 命中多个。
+	await window.locator("#sidebar-more-actions").getByRole("button", { name: "收藏" }).click();
+}
+
 test("收藏详情用右侧抽屉渲染，Esc 只关抽屉不关页面", async ({ window }) => {
-	await window.getByRole("button", { name: "收藏" }).click();
+	await openFavorites(window);
 	await expect(window.getByRole("heading", { name: "收藏" })).toBeVisible();
 
 	// 卡片 aria-label 固定为「查看详情」，正文不在可访问名里（列表里两条卡片同名）。
@@ -36,7 +51,7 @@ test("收藏详情用右侧抽屉渲染，Esc 只关抽屉不关页面", async (
 });
 
 test("批量删除：全选当前列表 → 确认 → 清空", async ({ window }) => {
-	await window.getByRole("button", { name: "收藏" }).click();
+	await openFavorites(window);
 	await expect(window.getByRole("heading", { name: "收藏" })).toBeVisible();
 
 	await window.getByRole("button", { name: "批量", exact: true }).click();
@@ -59,6 +74,6 @@ test("批量删除：全选当前列表 → 确认 → 清空", async ({ window 
 	await expect(window.getByRole("group", { name: "批量选择" })).toHaveCount(0);
 
 	// 落盘也清了：重开页面仍是空态（刷新数据源）
-	await window.getByRole("button", { name: "收藏" }).click();
+	await openFavorites(window);
 	await expect(window.getByText("还没有收藏")).toBeVisible();
 });

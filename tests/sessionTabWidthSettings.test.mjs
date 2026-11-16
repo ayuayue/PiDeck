@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 // 会话 Tab 宽度上限可配置契约：shared 纯函数 → SettingsStore 归一化 →
 // SessionTabsBar CSS 变量 → AppearanceTab 滑杆 → i18n 文案。
@@ -8,7 +9,7 @@ const shared = readFileSync("src/shared/sessionTabWidth.ts", "utf8");
 const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
 const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 const tabsBar = readFileSync("src/renderer/src/components/session/SessionTabsBar.tsx", "utf8");
-const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const app = rendererAppSource;
 const appearance = readFileSync("src/renderer/src/components/app/settings/AppearanceTab.tsx", "utf8");
 const unsaved = readFileSync("src/renderer/src/components/app/settings/unsavedChangesSummary.ts", "utf8");
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");

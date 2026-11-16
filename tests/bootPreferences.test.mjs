@@ -2,14 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 // 回归（2026-10 流畅度审计）：index.ts 模块顶层的沙箱/单实例/宠物三个启动偏好
 // 曾各自 readFileSync+JSON.parse 同一份 settings.json，现在经 readBootPreferences
 // 一次读取共享快照；启动后调用方（PetWindow/EnvironmentDoctor）仍走各 helper 的
 // 独立读取（默认参数兜底），实时语义不变。
 const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
-const mainIndex = readFileSync("src/main/index.ts", "utf8");
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
 
+const mainIndex = mainIpcSource;
+const sessionIpc = sessionIpcSource;
 test("boot preferences share one settings snapshot instead of three reads", () => {
 	assert.match(settingsStore, /export function readBootPreferences\(\) \{/, "readBootPreferences 应存在");
 	for (const name of ["readElectronChromiumSandboxPreference", "readSingleInstancePreference", "readPetEnabledPreference"]) {

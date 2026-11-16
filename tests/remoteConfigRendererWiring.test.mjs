@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { preloadSource } from "./helpers/preloadSources.mjs";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
+import { remoteHostConnectionSource } from "./helpers/remoteHostConnectionSources.mjs";
 
 /**
  * 环境切换的渲染层契约（本次重构后）：
@@ -13,19 +17,17 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * 源码扫描对空白容错；行为由 remoteConfigModel / configEnvironmentModel 的纯函数测试覆盖。
  */
 
-const CONFIG_MODAL = "src/renderer/src/ConfigModal.tsx";
 const SWITCH = "src/renderer/src/config/ConfigEnvironmentSwitch.tsx";
 const PANEL = "src/renderer/src/config/RemoteConfigPanel.tsx";
 const HOOK = "src/renderer/src/config/useRemotePiConfigPanel.ts";
 const MODEL = "src/renderer/src/config/remoteConfigModel.ts";
-const PRELOAD = "src/preload/index.ts";
 
-const modal = readFileSync(CONFIG_MODAL, "utf8");
+const modal = configModalSource;
 const envSwitch = readFileSync(SWITCH, "utf8");
 const panel = readFileSync(PANEL, "utf8");
 const hook = readFileSync(HOOK, "utf8");
 const model = readFileSync(MODEL, "utf8");
-const preload = readFileSync(PRELOAD, "utf8");
+const preload = preloadSource;
 
 test("只有一个环境入口：Pi 分页上的下拉，页内不再渲染目标选择器", () => {
 	assert.match(modal, /import \{ ConfigBackendSwitch, ConfigEnvironmentStatus \} from "\.\/config\/ConfigEnvironmentSwitch"/);
@@ -68,7 +70,8 @@ test("每个配置页按环境取内容：ssh 面板 ×4，wsl 走该发行版�
 	assert.match(modal, /api\.config\.getRaw\(fileName, configTargetOption\)/);
 	assert.match(modal, /showFileSelector=\{false\}/);
 	// provider 探针只从本机网络出口发起：非本机环境即使读到 key 也不发发现请求。
-	assert.match(modal, /configTarget\.kind === "local" && authRes/);
+	// 读盘链路已迁入 useConfigLoader：同一处判定改用 targetKind（它的值就是 configTarget.kind）
+	assert.match(modal, /targetKind === "local" && authRes/);
 	// ssh 目标下 loadConfig 一次本地读盘都不走。
 	assert.match(modal, /if \(configTarget\.kind === "ssh"\) return;/);
 	// 环境切换必须驱动一次整页重读：local↔ssh 的 target 选项都是 undefined，只靠 loadConfig 身份变化不够。
@@ -98,7 +101,7 @@ test("环境菜单自己会跟：分区重新可见时重读主机清单，连�
 	const settings = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
 	assert.match(settings, /active=\{pane === "config"\}/, "宿主必须告知分区可见性");
 	// 连接失败的推送在池化路径也要发（不建 manager 的那条分支）：否则另一视图停在旧的成功态。
-	const service = readFileSync("src/main/remote/RemoteHostConnectionService.ts", "utf8");
+	const service = remoteHostConnectionSource;
 	assert.match(service, /publishPooledState\(\{ hostId, state: \{ hostId, generation: entry\.generation, state: "offline"/);
 });
 
@@ -200,7 +203,7 @@ test("preload forwards the file-level channel with target options and keeps the 
 });
 
 test("ssh 认证读取在 IPC 边界只有派生视图（remoteAuth），从不把原文当成 raw", () => {
-	const ipc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const ipc = systemIpcSource;
 	assert.match(ipc, /routed\.kind === "remote-auth"\) return \{ raw: "", remoteAuth: routed \}/);
 	assert.match(preload, /remoteAuth\?: import\("\.\.\/shared\/piConfig"\)\.RemotePiAuthSnapshot/);
 });

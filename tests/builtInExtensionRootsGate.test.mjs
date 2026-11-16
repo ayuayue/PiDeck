@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 /**
  * 内置扩展磁盘根统一守卫（AGENTS 领域速查「内置扩展热更新」第三条）：
  * 内置扩展的磁盘根必须统一走 index.ts 的 resolveBuiltInExtensionRoots() →
@@ -63,6 +63,6 @@ test("收口完整性：roots 解析器与目录名常量仍然存在且被 inde
 	assert.match(builtIn, /export function resolveBuiltInExtensionsDir\(/, "resolveBuiltInExtensionsDir 解析器必须存在");
 	assert.match(builtIn, /export function resolveVendorNodeModulesDir\(/, "vendored 依赖解析器必须存在");
 	assert.match(builtIn, /export function listActiveBuiltInExtensionPaths\(/, "注入路径列表解析器必须存在");
-	const index = readFileSync("src/main/index.ts", "utf8");
+	const index = mainIpcSource;
 	assert.match(index, /resolveBuiltInExtensionRoots\(\)/, "index.ts 必须保留唯一装配点");
 });

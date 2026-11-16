@@ -108,3 +108,22 @@ test("maps historical user images to file parts and skips oversized ones (P2)", 
 	assert.equal(fileParts[0].mediaType, "image/png");
 	assert.equal(fileParts[0].data, "data:image/png;base64,abc");
 });
+
+test("carries timestamp/endedAt/model in UIMessage metadata for the timeline", () => {
+	const result = chatMessagesToUiMessages([
+		message({ id: "u1", role: "user", text: "问题", timestamp: 1000, meta: { entryId: "e-user" } }),
+		message({ id: "a1", role: "assistant", text: "回答", timestamp: 1100, meta: { entryId: "e-a", endedAt: 2600 }, model: { provider: "anthropic", modelId: "claude-sonnet-4-5" } }),
+		message({ id: "t1", role: "tool", text: "bash", timestamp: 1300, meta: { toolName: "bash" } }),
+	]);
+	const [userMessage, assistantMessage, toolMessage] = result;
+	// 用户提问时间 + 原 meta（entryId 供 fork/编辑）
+	assert.equal(userMessage.metadata.timestamp, 1000);
+	assert.equal(userMessage.metadata.entryId, "e-user");
+	// 助手回复时间 / 结束点（耗时）/ 本轮模型
+	assert.equal(assistantMessage.metadata.timestamp, 1100);
+	assert.equal(assistantMessage.metadata.endedAt, 2600);
+	assert.deepEqual(JSON.parse(JSON.stringify(assistantMessage.metadata.model)), { provider: "anthropic", modelId: "claude-sonnet-4-5" });
+	// 工具条目也带时间戳：轮末耗时要把工具动作算进结束点
+	assert.equal(toolMessage.metadata.timestamp, 1300);
+	assert.equal("model" in toolMessage.metadata, false);
+});

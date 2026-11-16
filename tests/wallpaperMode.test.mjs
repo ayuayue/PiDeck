@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { readRendererStyles } from "./helpers/rendererStyles.mjs";
+import { configModalSource } from "./helpers/configModalSources.mjs";
 
 const css = readRendererStyles();
 const shell = readFileSync("src/renderer/src/components/app/AppShell.tsx", "utf8");
@@ -63,7 +64,7 @@ test("large settings dialogs inherit page wallpaper transparency", () => {
 });
 
 test("Pi management and feedback dialogs inherit page wallpaper transparency", () => {
-	const piSource = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const piSource = configModalSource;
 	const environmentSource = readFileSync("src/renderer/src/components/overlays/OverlayComponents.tsx", "utf8");
 	const feedbackSource = readFileSync("src/renderer/src/features/feedback/FeedbackDialog.tsx", "utf8");
 

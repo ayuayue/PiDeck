@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
-const mainIndex = readFileSync("src/main/index.ts", "utf8");
+import { sessionIpcSource } from "./helpers/sessionIpcSources.mjs";
+import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
+
+const sessionIpc = sessionIpcSource;
+const mainIndex = mainIpcSource;
 const hook = readFileSync("src/renderer/src/hooks/useSessionHistoryMutations.ts", "utf8");
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");

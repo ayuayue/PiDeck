@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 const { loadProjectFileTree, shouldApplyFileTreeResult } = loadTsCommonJs("src/renderer/src/utils/fileTreeLazy.ts");
 
@@ -72,12 +73,12 @@ test("missing project directories clear stale files and refresh project presence
 	assert.match(app, /if \(projectDirectoryMissing\) void refreshProjectsRef\.current\(\)\.catch\(\(\) => undefined\);/);
 	// presence 已标缺失时不再重复弹：切回缺目录项目不该每次都刷一遍 toast。
 	assert.match(app, /if \(projectDirectoryMissing && activeProjectMissingRef\.current\) return;/);
-	assert.match(readFileSync("src/renderer/src/App.tsx", "utf8"), /activeProjectMissing: activeProject\?\.missing === true/);
+	assert.match(rendererAppSource, /activeProjectMissing: activeProject\?\.missing === true/);
 	assert.match(i18n, /"app\.projectDirectoryMissing"/);
 });
 
 test("file deletion failures are shown to the user instead of only logged", () => {
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 	const deleteBlock = app.match(/await api\.files\.delete\(target, true\);[\s\S]*?\n\s*}\n\s*},/);
 	assert.ok(deleteBlock, "file drawer delete handler should be discoverable");
 	// 实参可能被格式化换行：容忍 showToast( 与 t(...) 之间的空白。
@@ -91,7 +92,7 @@ test("project file tree effect does not retrigger on an unstable toast helper", 
 	// 文件树切换 effect 已迁入 useProjectFileTreeController；showToast 由 App 的
 	// useCallback 传入，但 effect deps 仍不得包含它。
 	const app = readFileSync("src/renderer/src/hooks/files/useProjectFileTreeController.ts", "utf8");
-	const appShell = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const appShell = rendererAppSource;
 	// 文件树 effect 只应跟当前项目走。showToast 若是每次 render 新建的函数
 	// 又写进 deps，会每帧 setFiles([]) 把 React 更新深度打满——点击会话后
 	// 设置/关窗点不动，正是 applog 里 Maximum update depth 的根因。

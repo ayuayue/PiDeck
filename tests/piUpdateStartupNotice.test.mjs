@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 test("startup Pi update check is removed", () => {
 	const hook = readFileSync("src/renderer/src/hooks/usePiUpdate.ts", "utf8");
-	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const app = rendererAppSource;
 
 	// 回归：启动时不再自动检查 pi CLI 更新（曾在应用打开 1.2s 后弹
 	// 「Pi 不是最新版本」toast 打扰启动流程）；版本检测只保留设置页手动入口。
@@ -88,7 +90,7 @@ test("Pi CLI update notice is anchored to its controls", () => {
 });
 
 test("pi version changes feed back into the background update snapshot (sidebar dot)", () => {
-	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const systemIpc = systemIpcSource;
 	const updateService = readFileSync("src/main/update/UpdateService.ts", "utf8");
 
 	// 回归：后台快照每 2h 才刷一轮；应用内「更新 pi」成功后圆点仍停在

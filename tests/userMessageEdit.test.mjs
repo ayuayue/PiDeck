@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 
 test("user message edit handler does not keep the initial empty active agent", () => {
-	const source = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const source = rendererAppSource;
 	// setPromptForAgent（draft 权威源写入）已迁入 useSessionPromptDispatch。
 	const promptDispatch = readFileSync("src/renderer/src/hooks/session/useSessionPromptDispatch.ts", "utf8");
 

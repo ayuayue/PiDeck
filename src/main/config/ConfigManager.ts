@@ -9,58 +9,29 @@ import { loadMcpConfigSnapshot, mcpDocsUrl, probeMcpServer, saveMcpConfigFile, v
 import { ensureOpenAiVersionPath, needsSessionBaseUrlVersionHint, suggestNormalizedBaseUrl } from "./baseUrlPath";
 import { mainProcessT, type MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import type { FetchedModel } from "../../shared/types/fetchedModel";
-import type { ProviderUsageResult, UsageProbeBackend, UsageProbeProviderConfig, UsageProbeRecognition, UsageProbeSettingsResult, UsageProbeProviderState, UsageProbeStatesResult, UsageProbeTestInput } from "../../shared/types/providerUsage";
-import { credentialRefFor } from "../../shared/dshCredentialRef";
-import { normalizeDshDeepseekProvider } from "../../shared/dshProviderNames";
+import type { ProviderUsageResult, UsageProbeBackend, UsageProbeRecognition, UsageProbeSettingsResult, UsageProbeStatesResult, UsageProbeTestInput } from "../../shared/types/providerUsage";
 import { parseProviderModelsResponse } from "./parseProviderModels";
-import { isSafeProviderName, piBuiltinSnapshotFromCatalog, resolvePiApiKey } from "./providerMigration";
+import { isSafeProviderName } from "./providerMigration";
 import { stripBom, writePiConfigFile } from "./piConfigFileStore";
 import { mergeSettingsFormPayload } from "./settingsFormPayload";
 import { ensureTokendanceAttribution } from "./tokendanceAttribution";
 import { getAppLogger } from "../logging/sharedLogger";
-import { buildProbeFailureDetail, buildProbeHeaders, candidateApplies, getByPath, parseUsageResponseBody, USAGE_PROBE_CANDIDATES, usageProbeUrls } from "./providerUsageProbe";
-import { fetchSub2ApiPanelBalanceWithRefresh, type Sub2ApiPanelTokens } from "./sub2apiPanelSession";
-import type { UsageProbeAttempt, UsageProbeCandidate } from "./providerUsageProbe";
-import { resolveProviderUsageEndpoint } from "./providerUsageResolver";
-import { buildDeclarativeUsageProbeTemplate, isDeclarativeTemplateId, USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID } from "./usageProbeTemplates";
-import { loadUsageProbeProviderConfigs, loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed, updateUsageProbeSub2ApiTokens } from "./userUsageProbes";
-import type { UserUsageProbe, UsageProbeSettingsLoadResult } from "./userUsageProbes";
 import { modelHttpRequest } from "../modelHttp/request";
-import { usageProbeRequest } from "./usageProbeTransport";
-import { pideckUsageProbesDir } from "../dsh/pideckDshHome";
 import { getPiAiCatalogIndex, lookupPiAiCatalogProviderApi } from "../pi/piAiBuiltinCatalog";
-import { loadDshUsageProviderProfile } from "./dshUsageEndpoint";
 import type { ConfigProxyTarget } from "../sessions/sessionProxyPolicy";
 import type { WslEnvironment } from "../wsl/WslPaths";
+import { ProviderUsageQueries } from "./providerUsageQueries";
+
+import type { ConfigCopy, ConfigValidationResult, DshUsageLookup, PiAuthFile, PiModelsFile, PiProviderConfig, PiModelItem, PiSettings, TestRequest } from "./configModelTypes";
+
+// 结构类型与公共契约搬到 configModelTypes.ts；此处保留原路径转发，既有 import 方无需改动。
+export type { ConfigValidationResult, DshUsageLookup, PiAuthFile, PiAuthItem, PiModelItem, PiModelsFile, PiProviderConfig, PiSettings } from "./configModelTypes";
 
 /** pi 全局配置目录：~/.pi/agent/ */
 const PI_AGENT_DIR = join(homedir(), ".pi", "agent");
 
-/** DSH 用量链路的外部读取能力（装配层注入；见 ConfigManager 构造注释）。 */
-export type DshUsageLookup = {
-	/** 生效 DSH_HOME（设置覆盖 > ~/.dsh > 应用私有目录，与 DshHost/resolveDshHomeDir 同一解析）。 */
-	getHomeDir: () => string;
-	/** 按 credential ref 读 DSH 凭据（$DSH_HOME/.credentials.yaml，环境层兜底）；无值返回 undefined。 */
-	readCredential: (ref: string) => Promise<string | undefined>;
-};
-
-// ── models.json 结构 ──────────────────────────────────
-// { providers: { [providerName]: { baseUrl, api, apiKey, models: [...] } } }
-
 // Provider 用量/连接探测面对的是第三方网关，首包可能慢于普通模型；放宽超时避免误判。
 const PROVIDER_TEST_TIMEOUT_MS = 45_000;
-
-/**
- * Sub2API 面板登录态的续期上下文（仅 sub2api 模板的余额段使用）。
- * persist=true 时续期成功的新 token 对会写回 configDir 下的 usage-probes.json；
- * 弹窗「测试」路径 persist=false（用户还没保存，不能静默改盘上的配置）。
- */
-type Sub2ApiPanelContext = {
-	provider: string;
-	configDir: string;
-	refreshToken?: string;
-	persist: boolean;
-};
 
 // 模型列表请求超时：网络不通时避免长时间卡住。
 const MODEL_LIST_TIMEOUT_MS = 10_000;
@@ -68,13 +39,6 @@ const MODEL_LIST_TIMEOUT_MS = 10_000;
 const MODEL_LIST_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 // 用量查询默认超时（10 秒；可被 per-provider 配置覆盖）。
 const USAGE_PROBE_DEFAULT_TIMEOUT_MS = 10_000;
-
-// 用量查询默认自动间隔（5 分钟；可被 per-provider 配置覆盖，0 = 不自动）。
-const USAGE_PROBE_DEFAULT_INTERVAL_MINUTES = 5;
-
-// Provider 用量探针响应体上限：用量接口返回 JSON，正常远小于此值；超限截断
-// （而非整体丢弃），防止恶意/异常网关用超大响应体拖垮内存，同时保留诊断信息。
-const MAX_USAGE_RESPONSE_BYTES = 64 * 1024;
 
 // 模型 id 长度上限：过长 id 往往是误填，且可能撑爆某些网关/日志。
 const MODEL_ID_MAX_LENGTH = 256;
@@ -144,70 +108,6 @@ function normalizeModelCostForPi(cost: NonNullable<PiModelItem["cost"]> & { tier
 	}
 	return normalized;
 }
-
-export type PiModelItem = {
-	id: string;
-	name?: string;
-	/** 模型级 API 协议；缺省时继承 provider 或 pi 内置默认。 */
-	api?: string;
-	reasoning?: boolean;
-	input?: string[];
-	contextWindow?: number;
-	maxTokens?: number;
-	cost?: {
-		input?: number;
-		output?: number;
-		cacheRead?: number;
-		cacheWrite?: number;
-	};
-	[key: string]: unknown;
-};
-
-export type PiProviderConfig = {
-	baseUrl?: string;
-	api?: string;
-	apiKey?: string;
-	models: PiModelItem[];
-	[key: string]: unknown;
-};
-
-export type PiModelsFile = {
-	providers: Record<string, PiProviderConfig>;
-};
-
-// ── auth.json 结构 ────────────────────────────────────
-// { [providerName]: { type: "api_key", key: "..." } }
-
-export type PiAuthItem = {
-	type?: string;
-	key?: string;
-	[key: string]: unknown;
-};
-
-export type PiAuthFile = Record<string, PiAuthItem>;
-
-// ── settings.json ─────────────────────────────────────
-
-export type PiSettings = Record<string, unknown>;
-
-export type ConfigValidationResult = {
-	valid: boolean;
-	error?: string;
-	debugDetails?: string;
-	/** 乐观锁冲突：磁盘内容与页面快照不一致（调用方应提示重新加载）。 */
-	conflict?: boolean;
-	/** 写入成功后的新 revision；冲突时为磁盘当前 revision。 */
-	revision?: string;
-};
-
-type ConfigCopy = (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
-
-type TestRequest = {
-	url: string;
-	headers: Record<string, string>;
-	body?: string;
-	method?: "GET" | "POST";
-};
 
 /**
  * 管理 pi 全局配置文件（~/.pi/agent/ 下的 models.json、auth.json、settings.json、mcp.json）。
@@ -1007,554 +907,60 @@ export class ConfigManager {
 		return { valid: true };
 	}
 
+	// ── 用量查询 / 探测 ────────────────────────────────────
+	// 域实现在 providerUsage* 协作者（端点解析 / 探测执行 / 对外编排）；此处只留同名薄包装。
+
+	/** 用量查询协作者：注入窄端口；configDir 每次现取（WSL 切换后仍指向正确目录）。 */
+	private providerUsage(): ProviderUsageQueries {
+		return new ProviderUsageQueries({
+			getConfigDir: () => this.configDir,
+			translate: this.translate,
+			dshUsage: this.dshUsage,
+			getModelsConfig: () => this.getModelsConfig(),
+			getAuthConfig: () => this.getAuthConfig(),
+			normalizeApiType: (apiType) => this.normalizeApiType(apiType),
+			ensureVersionPath: (baseUrl) => this.ensureVersionPath(baseUrl),
+			normalizeRequestHeaders: (headers) => this.normalizeRequestHeaders(headers),
+			withOpenAiSdkUserAgent: (headers) => this.withOpenAiSdkUserAgent(headers),
+			redactSecret: (value, apiKey) => this.redactSecret(value, apiKey),
+		});
+	}
+
 	/**
 	 * 解析 provider 端点，供主进程内其它链路复用（TokenDance 充值取 baseUrl/apiKey）。
 	 * 只在本进程内使用，API Key 不回传渲染层；未命中返回 matched=false。
 	 */
 	async resolveProviderEndpoint(provider: string, backend: UsageProbeBackend = "pi") {
-		return this.resolveUsageEndpoint(provider, backend);
+		return this.providerUsage().resolveProviderEndpoint(provider, backend);
 	}
 
-	/**
-	 * 查询 provider 用量/余额（三层模型，全部按 provider 名路由）：
-	 * 1. 门控：providers[name].enabled === false → 不查（返回「未启用」结构化结果，
-	 *    UI 据此显示小按钮引导配置）；
-	 * 2. 模板路由：配置了声明式模板（general/newapi）→ 用模板构建候选（覆盖字段生效）；
-	 *    未配置 → 内置候选表 + 旧 probes 数组按 baseUrl/apiType 自动匹配（内置默认开）；
-	 * 3. 超时：per-provider timeoutSecs（默认 10s）。
-	 * backend="dsh" 时配置/凭据走 DSH 链路（$DSH_HOME）：DSH 侧已配置则该配置为准；
-	 * 未配置时回退 Pi 侧同 provider 配置（display parity，见 loadUsageSettingsWithFallback）。
-	 * 全部失败时返回结构化错误，并对响应做密钥脱敏，避免把 token 回传给渲染层。
-	 */
+	/** 查询 provider 用量/余额（实现在 providerUsageQueries.ts）。 */
 	async fetchProviderUsage(provider: string, backend: UsageProbeBackend = "pi"): Promise<ProviderUsageResult> {
-		// DSH 官方 DeepSeek 的 provider 名归一化：llm.models 组 id（deepseek-official）与
-		// 配置面规范名（deepseek）不一致，不归一就读不到 DSH 卡片保存的探针配置/端点。
-		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
-		const settingsDir = this.usageProbeSettingsDir(backend);
-		// 1) 门控：未显式开启（enabled !== true）→ 快速返回，不发请求。
-		// 「默认关」是刻意设计：内置识别/已配模板只表示有可查询路径，自动查询必须用户显式开启；
-		// DSH 未单独配置时回退 Pi 同 provider 配置（display parity：Pi 已配置并显示 → DSH 卡片默认也显示）。
-		const { settings, effectiveDir } = await this.loadUsageSettingsWithFallback(backend, provider, settingsDir);
-		for (const error of settings.errors) {
-			void getAppLogger()?.warn("config", "Usage probe config ignored", { error });
-		}
-		if (settings.config?.enabled !== true) {
-			return {
-				success: false,
-				disabled: true,
-				error: this.translate("mainConfig.providerUsageDisabled"),
-			};
-		}
-
-		// 2) 解析 provider 端点（models.json → catalog 兜底；DSH backend 额外读 DSH 凭据库）。
-		const resolved = await this.resolveUsageEndpoint(provider, backend);
-		if (!resolved.matched || !resolved.baseUrl) {
-			return { success: false, error: this.translate("mainConfig.providerUsageUnsupported") };
-		}
-		// 属性收窄在 await 后失效：立即取局部 const 供后续模板路由使用。
-		const resolvedBaseUrl = resolved.baseUrl;
-		const resolvedApiKey = resolved.apiKey ?? "";
-		const api = this.normalizeApiType(resolved.apiType);
-		const timeoutMs = (settings.config?.timeoutSecs ?? 10) * 1000;
-		const intervalMinutes = settings.config?.intervalMinutes ?? USAGE_PROBE_DEFAULT_INTERVAL_MINUTES;
-		// 面板登录态续期上下文：续期成功后把新 token 对写回「本次实际读取的配置目录」
-		// （回退到 Pi 侧配置时 effectiveDir 指向 Pi 目录，回来仍读同一份）。
-		const panelContext: Sub2ApiPanelContext = {
-			provider,
-			configDir: effectiveDir,
-			...(settings.config?.panelRefreshToken ? { refreshToken: settings.config.panelRefreshToken } : {}),
-			persist: true,
-		};
-
-		// 3) 模板路由：声明式模板优先（用户显式选择），否则内置 + 旧探针自动匹配。
-		const template = settings.config?.template;
-		if (template !== undefined && isDeclarativeTemplateId(template)) {
-			const built = buildDeclarativeUsageProbeTemplate(template, settings.config ?? {}, {
-				baseUrl: resolvedBaseUrl,
-				apiKey: resolvedApiKey,
-			});
-			if ("error" in built) {
-				return { success: false, error: built.error };
-			}
-			// candidates 而不是 candidate：火山方舟是双 Action 候选（Agent Plan / Coding Plan
-			// 自动探测），其余模板 candidates 长度也是 1，走同一条执行路径。
-			return this.runProviderUsageProbes(built.baseUrl, built.apiKey, resolved.headers, built.candidates, timeoutMs, intervalMinutes, panelContext);
-		}
-
-		const userProbes = await loadUserUsageProbes(effectiveDir);
-		for (const error of userProbes.errors) {
-			void getAppLogger()?.warn("config", "User usage probe config ignored", { error });
-		}
-		const applicable = [...USAGE_PROBE_CANDIDATES, ...userProbes.candidates].filter((c) => candidateApplies(c, resolvedBaseUrl, api));
-		if (applicable.length === 0) {
-			return { success: false, error: this.translate("mainConfig.providerUsageUnsupported") };
-		}
-		return this.runProviderUsageProbes(resolvedBaseUrl, resolvedApiKey, resolved.headers, applicable, timeoutMs, intervalMinutes, panelContext);
+		return this.providerUsage().fetchProviderUsage(provider, backend);
 	}
 
-	/**
-	 * 打开探针配置弹窗时的数据：该 provider 已保存配置 + 内置模板自动识别结果。
-	 * 识别 = 解析端点后按 baseUrl/apiType 匹配内置候选（带 templateId 的），
-	 * 未命中返回 null（弹窗回落到声明式模板选择）。backend 决定配置目录（pi/dsh）。
-	 */
+	/** 打开探针配置弹窗时的数据（实现在 providerUsageQueries.ts）。 */
 	async getUsageProbeSettings(provider: string, backend: UsageProbeBackend = "pi"): Promise<UsageProbeSettingsResult> {
-		// 同 fetchProviderUsage：DSH 组 id 别名先归一，才能读回以规范名保存的配置。
-		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
-		const { settings: loaded, effectiveDir } = await this.loadUsageSettingsWithFallback(backend, provider, this.usageProbeSettingsDir(backend));
-		// 旧版 probes 数组命中回显：手写/历史探针没有声明式配置，弹窗据此预填 Cookie 模板字段迁移。
-		// 回退语义下旧版 probes 也来自 effectiveDir（Pi 目录），弹窗看到的迁移源与实际查询一致。
-		const legacyProbes = await this.matchLegacyProbesForProvider(provider, backend, effectiveDir);
-		return {
-			...(loaded.config ? { config: loaded.config } : {}),
-			recognized: await this.recognizeUsageTemplate(provider, backend),
-			templates: [],
-			errors: loaded.errors,
-			...(legacyProbes.length > 0 ? { legacyProbes } : {}),
-		};
+		return this.providerUsage().getUsageProbeSettings(provider, backend);
 	}
 
-	/**
-	 * 按 provider 查找命中的旧版探针（usage-probes.json 的 probes 数组）。
-	 * 匹配规则与运行时合并探测一致（candidateApplies：baseUrlContains / apiTypes），
-	 * 保证「弹窗看到的迁移源」与「实际查询时生效的探针」是同一批。
-	 */
-	private async matchLegacyProbesForProvider(provider: string, backend: UsageProbeBackend = "pi", dir = this.usageProbeSettingsDir(backend)): Promise<UserUsageProbe[]> {
-		const resolved = await this.resolveUsageEndpoint(provider, backend);
-		if (!resolved.matched || !resolved.baseUrl) return [];
-		const api = this.normalizeApiType(resolved.apiType);
-		const loaded = await loadUserUsageProbesDetailed(dir);
-		const hits: UserUsageProbe[] = [];
-		for (let index = 0; index < loaded.candidates.length; index += 1) {
-			const probe = loaded.probes[index];
-			const candidate = loaded.candidates[index];
-			if (probe && candidate && candidateApplies(candidate, resolved.baseUrl, api)) {
-				hits.push(probe);
-			}
-		}
-		return hits;
-	}
-
-	/** 内置模板自动识别（零配置生效路径）：命中返回 templateId + 面向用户的类别。 */
+	/** 内置模板自动识别（实现在 providerUsageQueries.ts）。 */
 	async recognizeUsageTemplate(provider: string, backend: UsageProbeBackend = "pi"): Promise<UsageProbeRecognition | null> {
-		const resolved = await this.resolveUsageEndpoint(provider, backend);
-		if (!resolved.matched || !resolved.baseUrl) return null;
-		return this.matchBuiltinRecognition(resolved.baseUrl, resolved.apiType);
+		return this.providerUsage().recognizeUsageTemplate(provider, backend);
 	}
 
-	/**
-	 * 由已解析的端点判定内置候选命中（recognizeUsageTemplate 与批量状态表共用同一规则，
-	 * 避免两处各自维护一份「哪些算内置」而漂移）。
-	 */
-	private matchBuiltinRecognition(baseUrl: string, apiType: string | undefined): UsageProbeRecognition | null {
-		const api = this.normalizeApiType(apiType);
-		for (const candidate of USAGE_PROBE_CANDIDATES) {
-			if (!candidate.templateId) continue;
-			if (candidateApplies(candidate, baseUrl, api)) {
-				const category = USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID[candidate.templateId];
-				return { templateId: candidate.templateId, category: category ?? "balance" };
-			}
-		}
-		return null;
-	}
-
-	/**
-	 * 批量读取用量查询状态表（徽章开关 + 启动预热选源）：
-	 * 每个 provider 给出「生效开关 / 是否已配置 / 是否内置识别 / 生效模板 / 生效间隔」。
-	 *
-	 * 生效开关 = 显式 enabled ?? false（默认关，显式开启才真正查询）：
-	 * - 内置识别/已配模板只说明「有可查询路径」，不代表自动开；
-	 * - 只有用户自己打开（徽章里的开关或用量查询弹窗的「是否启用」）才写 enabled=true；
-	 * - 好处：升级后不会因为内置识别命中而默默对一批网关扇出请求。
-	 * 只回状态，绝不回传 apiKey/accessToken/cookie。
-	 */
+	/** 批量读取用量查询状态表（实现在 providerUsageQueries.ts）。 */
 	async listUsageProbeStates(backend: UsageProbeBackend = "pi", providers: string[] = []): Promise<UsageProbeStatesResult> {
-		const settingsDir = this.usageProbeSettingsDir(backend);
-		const [saved, modelsRes, authRes] = await Promise.all([loadUsageProbeProviderConfigs(settingsDir), this.getModelsConfig(), this.getAuthConfig()]);
-		// DSH 未单独配置时回退 Pi 侧同 provider 配置（与 loadUsageSettingsWithFallback 同语义，
-		// 否则 DSH 卡片会显示「未配置/关闭」而实际查询走 Pi 配置——两处不一致）。
-		const piSaved = backend === "dsh" ? (await loadUsageProbeProviderConfigs(this.configDir)).providers : undefined;
-
-		const names = new Set<string>();
-		if (backend === "pi") {
-			// 卡片来源 = 模型页（models.json）+ 认证页（auth.json）并集，两边都要有徽章状态。
-			for (const name of Object.keys(modelsRes.parsed?.providers ?? {})) names.add(name);
-			for (const name of Object.keys(authRes.parsed ?? {})) names.add(name);
-		}
-		for (const name of Object.keys(saved.providers)) names.add(name);
-		for (const name of providers) {
-			const trimmed = name.trim();
-			if (trimmed) names.add(trimmed);
-		}
-
-		// pi 侧一次读盘喂给全部 provider 的端点解析，避免逐条重复读 models/auth。
-		const catalog = getPiAiCatalogIndex();
-		const lookup = {
-			getModelsConfig: async () => modelsRes,
-			getAuthConfig: async () => authRes,
-			catalogProvider: (name: string) => piBuiltinSnapshotFromCatalog(name, undefined, catalog),
-		};
-
-		const states: Record<string, UsageProbeProviderState> = {};
-		for (const name of names) {
-			const config = saved.providers[name] ?? piSaved?.[name];
-			let recognized: UsageProbeRecognition | null;
-			if (backend === "pi") {
-				const resolved = await resolveProviderUsageEndpoint(lookup, name);
-				recognized = resolved.matched && resolved.baseUrl ? this.matchBuiltinRecognition(resolved.baseUrl, resolved.apiType) : null;
-			} else {
-				recognized = await this.recognizeUsageTemplate(name, backend);
-			}
-			const template = config?.template ?? recognized?.templateId;
-			states[name] = {
-				enabled: config?.enabled ?? false,
-				configured: config != null,
-				recognized: recognized != null,
-				...(template ? { template } : {}),
-				intervalMinutes: config?.intervalMinutes ?? USAGE_PROBE_DEFAULT_INTERVAL_MINUTES,
-			};
-		}
-		return { providers: states, errors: saved.errors };
+		return this.providerUsage().listUsageProbeStates(backend, providers);
 	}
 
-	/**
-	 * 单条模板测试（配置弹窗「测试」按钮）：按模板 id 构建候选后直接探测。
-	 * template 省略 = 自动识别内置模板；无内置且未给模板时返回错误。
-	 * 密钥只在主进程发请求（配置覆盖字段经 buildDeclarativeUsageProbeTemplate 合并）。
-	 */
+	/** 单条模板测试（实现在 providerUsageQueries.ts）。 */
 	async testUsageProbe(input: UsageProbeTestInput): Promise<ProviderUsageResult> {
-		const backend = input.backend ?? "pi";
-		const resolved = await this.resolveUsageEndpoint(input.provider, backend);
-		if (!resolved.matched || !resolved.baseUrl) {
-			return { success: false, error: this.translate("mainConfig.providerUsageUnsupported") };
-		}
-		// 属性收窄在 await 后失效：立即取局部 const。
-		const resolvedBaseUrl = resolved.baseUrl;
-		const resolvedApiKey = resolved.apiKey ?? "";
-		const timeoutMs = (input.timeoutSecs ?? 10) * 1000;
-
-		// 显式模板优先；否则走内置自动识别（测「识别命中」这条零配置路径）。
-		// 注意 backend 必须透传：DSH 弹窗测的是 DSH 链路的识别结果。
-		const template = input.template?.trim() || (await this.recognizeUsageTemplate(input.provider, backend))?.templateId;
-		if (!template) {
-			return { success: false, error: this.translate("mainConfig.providerUsageUnsupported") };
-		}
-
-		// 声明式模板（general/newapi/cookie/volcengine/sub2api）：构建候选时可携带覆盖字段。
-		if (template !== undefined && isDeclarativeTemplateId(template)) {
-			const built = buildDeclarativeUsageProbeTemplate(
-				template,
-				{
-					apiKey: input.apiKey,
-					baseUrl: input.baseUrl,
-					accessToken: input.accessToken,
-					userId: input.userId,
-					cookie: input.cookie,
-					cookiePath: input.cookiePath,
-					valuePath: input.valuePath,
-					currencyPath: input.currencyPath,
-					accessKeyId: input.accessKeyId,
-					secretAccessKey: input.secretAccessKey,
-					// 面板登录态不做主用量鉴权，但弹窗测试也要能看到钱包余额段（否则测出来总比真实查少一段）。
-					// refresh token 不经过模板构建（模板只管挂 panelBalance 候选），由 panelContext 传给执行层。
-					panelJwt: input.panelJwt,
-				},
-				{ baseUrl: resolvedBaseUrl, apiKey: resolvedApiKey },
-			);
-			if ("error" in built) {
-				return { success: false, error: built.error };
-			}
-			// candidates：火山方舟双 Action 探测（Agent Plan / Coding Plan）依次尝试。
-			// 弹窗测试也允许面板登录态就地续期，但 persist=false：用户未保存前不得静默改盘上的配置。
-			const panelContext: Sub2ApiPanelContext = {
-				provider: input.provider,
-				configDir: "",
-				...(input.panelRefreshToken ? { refreshToken: input.panelRefreshToken } : {}),
-				persist: false,
-			};
-			return this.runProviderUsageProbes(built.baseUrl, built.apiKey, resolved.headers, built.candidates, timeoutMs, 0, panelContext);
-		}
-
-		// 内置模板：按 templateId 找候选（不可改写结构，测的是零配置路径本身）。
-		const candidate = USAGE_PROBE_CANDIDATES.find((c) => c.templateId === template);
-		if (!candidate) {
-			return { success: false, error: this.translate("mainConfig.providerUsageUnsupported") };
-		}
-		return this.runProviderUsageProbes(resolvedBaseUrl, resolvedApiKey, resolved.headers, [candidate], timeoutMs, 0);
+		return this.providerUsage().testUsageProbe(input);
 	}
 
-	/**
-	 * 用量查询配置目录：pi = ~/.pi/agent；dsh = $DSH_HOME（与 DSH 自己的配置/凭据同目录，
-	 * 文件名仍为 usage-probes.json，与 pi 侧同构）。
-	 */
-	private usageProbeSettingsDir(backend: UsageProbeBackend): string {
-		if (backend === "dsh") {
-			// DSH 链路配置统一落 $DSH_HOME/.pideck/（PiDeck 特有文件收拢目录）。
-			const dshHome = this.dshUsage?.getHomeDir() ?? this.configDir;
-			return pideckUsageProbesDir(dshHome);
-		}
-		return this.configDir;
-	}
-
-	/** 供 IPC 保存路径使用：backend 对应的用量查询配置目录。 */
+	/** 供 IPC 保存路径使用：backend 对应的用量查询配置目录（实现在 providerUsageEndpoint.ts）。 */
 	getUsageProbeConfigDir(backend: UsageProbeBackend = "pi"): string {
-		return this.usageProbeSettingsDir(backend);
-	}
-
-	/**
-	 * 读单 provider 用量配置；backend="dsh" 且 DSH 侧未配置时回退 Pi 侧同名 provider 配置。
-	 *
-	 * 显示对齐（display parity）规则：Pi 里已配置并显示用量 → DSH 卡片同一 provider 默认也显示，
-	 * 无需在 DSH 侧重复配置；DSH 一旦显式保存过（含 enabled=false 关闭）即接管、不再回退。
-	 * 回退取「配置 + 旧版 probes 数组」（effectiveDir 指向 Pi 目录），端点与凭据仍走 DSH 链路
-	 * （DSH profile / 凭据库），不会拿 Pi 的 key 去查 DSH 端点。provider 名按两侧一致匹配
-	 * （deepseek 已由 normalizeDshDeepseekProvider 统一为规范名）。
-	 */
-	private async loadUsageSettingsWithFallback(backend: UsageProbeBackend, provider: string, settingsDir: string): Promise<{ settings: UsageProbeSettingsLoadResult; effectiveDir: string }> {
-		const settings = await loadUsageProbeSettings(settingsDir, provider);
-		if (backend !== "dsh" || settings.config) {
-			return { settings, effectiveDir: settingsDir };
-		}
-		// DSH 无配置：尝试 Pi 侧同名 provider（仅配置级回退，凭据复用 DSH 链路解析）。
-		const piSettings = await loadUsageProbeSettings(this.configDir, provider);
-		if (!piSettings.config) return { settings, effectiveDir: settingsDir };
-		return {
-			settings: { config: piSettings.config, errors: [...settings.errors, ...piSettings.errors] },
-			effectiveDir: this.configDir,
-		};
-	}
-
-	/**
-	 * 解析 provider 端点（models.json 精确命中 → pi-ai catalog 兜底；API key 不出主进程）。
-	 * backend="dsh" 时以 DSH 自身 profile（settings.yaml 的 llm-pi-ai.providers / llm-deepseek）
-	 * 为准——自定义 route 的 baseURL/api/headers 与 pi 侧或 catalog 默认可能不同，只靠兜底
-	 * 会出现「时而查得对、时而判不支持」；凭据优先 DSH 凭据库（.credentials.yaml，
-	 * ref = profile.apiKeyEnv 或 <ROUTE>_API_KEY），缺省回退 pi auth（迁移/同步场景兼容）。
-	 * 无 DSH profile（文件缺失/无该 route）时回落 models.json → pi-ai catalog 兜底。
-	 */
-	private async resolveUsageEndpoint(provider: string, backend: UsageProbeBackend = "pi") {
-		// DSH 官方 DeepSeek 统一用规范名 deepseek：llm.models 组 id（deepseek-official）
-		// 只能命中 pi/catalog 兜底，loadDshUsageProviderProfile 的特判会漏掉它。
-		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
-		const catalog = getPiAiCatalogIndex();
-		if (backend === "dsh") {
-			const home = this.dshUsage?.getHomeDir();
-			if (home) {
-				const profile = await loadDshUsageProviderProfile(home, provider);
-				if (profile) {
-					const catalogSnapshot = piBuiltinSnapshotFromCatalog(provider, undefined, catalog);
-					const [modelsRes, authRes] = await Promise.all([this.getModelsConfig(), this.getAuthConfig()]);
-					const fromDsh = this.dshUsage ? await this.dshUsage.readCredential(profile.credentialRef) : undefined;
-					const baseUrl = profile.baseUrl ?? catalogSnapshot?.baseUrl;
-					const piKey = resolvePiApiKey(modelsRes.parsed?.providers?.[provider], authRes.parsed?.[provider]);
-					return {
-						provider,
-						// profile 缺 baseURL/api（如 opencode route 未写）时由 pi-ai catalog 兜底。
-						...(baseUrl ? { baseUrl } : {}),
-						...((fromDsh ?? piKey) ? { apiKey: fromDsh ?? piKey } : {}),
-						apiType: profile.api ?? catalogSnapshot?.api ?? "openai-completions",
-						headers: profile.headers,
-						matched: baseUrl != null,
-					};
-				}
-			}
-		}
-		const lookup = {
-			getModelsConfig: () => this.getModelsConfig(),
-			getAuthConfig: () => this.getAuthConfig(),
-			catalogProvider: (name: string) => piBuiltinSnapshotFromCatalog(name, undefined, catalog),
-		};
-		const resolved = await resolveProviderUsageEndpoint(lookup, provider);
-		// DSH 兜底路径（settings.yaml 无该 route）：DSH 凭据库仍然是本链路的优先密钥来源
-		// （路由的 key 状态点以它为准，pi auth 只是迁移/同步场景的回退）。
-		if (backend === "dsh" && this.dshUsage) {
-			const fromDsh = await this.dshUsage.readCredential(credentialRefFor({}, provider));
-			if (fromDsh) resolved.apiKey = fromDsh;
-		}
-		return resolved;
-	}
-
-	/** 带统一错误包装的探测执行：无 key 快速失败，其余走 runUsageProbes；成功时带上生效间隔。 */
-	private async runProviderUsageProbes(baseUrl: string, apiKey: string, requestHeaders: Record<string, string> | undefined, candidates: UsageProbeCandidate[], timeoutMs: number, intervalMinutes: number, panel?: Sub2ApiPanelContext): Promise<ProviderUsageResult> {
-		// 无 key 时只可能 401，快速失败并给出提示。
-		if (!apiKey) {
-			return { success: false, error: this.translate("mainConfig.providerUsageNoKey") };
-		}
-		const result = (await this.runUsageProbes(baseUrl, apiKey, this.normalizeRequestHeaders(requestHeaders), candidates, timeoutMs, panel)) ?? {
-			success: false,
-			error: this.translate("mainConfig.providerUsageFailed"),
-		};
-		return result.success ? { ...result, intervalMinutes } : result;
-	}
-
-	/**
-	 * 逐候选、逐 URL 尝试探测；命中的首个成功结果即返回，全部未命中返回 undefined
-	 * （文案由调用方决定：整体查询 vs 单条测试）。链式 preflight、64KB 响应截断、
-	 * redirect:"error" fail-closed 与单候选异常捕获都在此层，探测行为对两条入口完全一致。
-	 * timeoutMs 由 per-provider 配置（默认 10s）传入：用量查询首包超时按用户设定收紧，
-	 * 不再固定 45s（那只对模型连接探测合理）。
-	 */
-	private async runUsageProbes(baseUrl: string, apiKey: string, extraHeaders: Record<string, string>, candidates: UsageProbeCandidate[], timeoutMs: number, panel?: Sub2ApiPanelContext): Promise<ProviderUsageResult | undefined> {
-		const startedAt = Date.now();
-		// 收集每次失败尝试，全部未命中时拼进 detail（URL + 状态码 + 摘要 + 归纳提示），
-		// 让用户在弹窗里能直接排查（地址对不对 / 鉴权失效 / 接口变更）。
-		const attempts: UsageProbeAttempt[] = [];
-		// 逐候选、逐 URL 尝试；命中的首个成功即返回。
-		for (const candidate of candidates) {
-			// 链式预检（如 xAI 需先查 identity 拿 userId）：先请求预检端点，把响应里
-			// 的字段注入主请求头（x-userid）。预检失败（不可达/非 JSON/无字段）则整个候选跳过。
-			const preflightHeaders: Record<string, string> = {};
-			if (candidate.preflight) {
-				const preflightUrls = usageProbeUrls({ path: candidate.preflight.path, absoluteUrl: candidate.preflight.absoluteUrl, rootPath: false }, baseUrl, (url) => this.ensureVersionPath(url));
-				let captured: unknown;
-				for (const preflightUrl of preflightUrls) {
-					const preflightResult = await usageProbeRequest(preflightUrl, {
-						method: "GET",
-						headers: this.withOpenAiSdkUserAgent(buildProbeHeaders(candidate.preflight.headers, apiKey)),
-						timeoutMs,
-						maxBytes: MAX_USAGE_RESPONSE_BYTES,
-					});
-					if ("error" in preflightResult) continue;
-					if (preflightResult.status < 200 || preflightResult.status >= 300) continue;
-					let preflightBody: unknown = null;
-					try {
-						preflightBody = JSON.parse(preflightResult.raw);
-					} catch {
-						// 非 JSON：不是预期的预检端点，换下一个 URL。
-					}
-					captured = getByPath(preflightBody, candidate.preflight.capture.path);
-					if (typeof captured === "string" && captured.trim() !== "") break;
-				}
-				if (typeof captured !== "string" || captured.trim() === "") continue;
-				preflightHeaders[candidate.preflight.capture.header] = captured.trim();
-			}
-
-			const urls = usageProbeUrls(candidate, baseUrl, (url) => this.ensureVersionPath(url));
-			for (const requestUrl of urls) {
-				const result = await usageProbeRequest(requestUrl, {
-					method: candidate.method ?? "GET",
-					headers: this.withOpenAiSdkUserAgent({
-						...buildProbeHeaders(candidate.headers, apiKey, {
-							// 候选自带 Cookie 等独立鉴权时不能自动补 Bearer（双凭证可能被服务端拒绝，
-							// 如 Token Rhythm 的 AMBIGUOUS_CREDENTIALS 400），由候选/用户探针显式声明。
-							noBearer: candidate.noBearer === true,
-						}),
-						...preflightHeaders,
-						...extraHeaders,
-					}),
-					...(candidate.method === "POST" && candidate.body !== undefined ? { body: JSON.stringify(candidate.body) } : {}),
-					timeoutMs,
-					maxBytes: MAX_USAGE_RESPONSE_BYTES,
-				});
-				if ("error" in result) {
-					// 网络错误/超时/重定向拒绝：单个候选失败不阻断其它候选，记录后继续。
-					// usageProbeRequest 已按 AbortError/TimeoutError 归一为 timeout，其余为 network。
-					attempts.push({
-						url: requestUrl,
-						method: candidate.method ?? "GET",
-						error: result.error,
-					});
-					continue;
-				}
-				const safeRaw = this.redactSecret(result.raw, apiKey);
-				if (result.status < 200 || result.status >= 300) {
-					// 非 2xx：可能是端点不存在，换下一个 URL/候选继续；记一笔尝试明细供失败时归因。
-					attempts.push({
-						url: requestUrl,
-						method: candidate.method ?? "GET",
-						status: result.status,
-						// 只留前 240 字符的脱敏响应摘要，足够定位「路径不对/非法请求」类问题。
-						...(safeRaw ? { body: safeRaw.slice(0, 240) } : {}),
-					});
-					continue;
-				}
-				let body: unknown;
-				try {
-					body = JSON.parse(result.raw);
-				} catch {
-					body = null;
-				}
-				const parsed = parseUsageResponseBody(body, safeRaw, candidate.parse);
-				if (parsed.matched) {
-					const result: ProviderUsageResult = {
-						success: true,
-						kind: parsed.kind,
-						periods: parsed.periods,
-						balance: parsed.balance,
-						credits: parsed.credits,
-						booster: parsed.booster,
-						at: startedAt,
-					};
-					// Sub2API 面板余额合并：主端点 /v1/usage 解析出 credits（订阅/Key 额度形态，
-					// 无钱包余额）且候选带面板 JWT 时，追加请求 /api/v1/auth/me 把账户钱包余额
-					// 并进结果（与已用并列展示）；JWT 过期/接口异常只丢余额段，主结果照常返回，
-					// 但带上失败原因（401=过期最常见），UI 显式提示而不是无感消失。
-					if (candidate.panelBalance && parsed.kind !== "balance" && !parsed.balance) {
-						// 面板 JWT 可能在两次查询之间过期：按 exp/401 就地续期（不后台定时转 token，
-						// 上游 refresh 是单次轮转的），续期成功的新 token 对由 fetchSub2ApiPanelBalance 回写。
-						const merged = await this.fetchSub2ApiPanelBalance(baseUrl, { accessToken: candidate.panelBalance.token, ...(panel?.refreshToken ? { refreshToken: panel.refreshToken } : {}) }, timeoutMs, panel);
-						if (merged.ok) result.balance = merged.balance;
-						else result.panelBalanceError = merged.reason;
-					}
-					return result;
-				}
-				// 2xx 但结构不匹配：不是预期的 usage 端点，继续探测；记一笔供失败归因（接口变更信号）。
-				attempts.push({ url: requestUrl, method: candidate.method ?? "GET", kind: "shape" });
-			}
-		}
-
-		// 全部候选未命中：拼上尝试明细返回失败结果（比通用文案多给「试了哪些 URL、为什么失败」），
-		// 无任何尝试（如 preflight 全部失败）时仍返回 undefined 交由调用方决定最终文案。
-		if (attempts.length === 0) {
-			return undefined;
-		}
-		return {
-			success: false,
-			error: this.translate("mainConfig.providerUsageFailed"),
-			detail: buildProbeFailureDetail(attempts, (key) => this.translate(key)),
-		};
-	}
-
-	/**
-	 * Sub2API 面板余额：GET {origin}/api/v1/auth/me（网页后台 JWT 鉴权，上游通用路由
-	 * auth_handler.GetCurrentUser → userProfileResponse 内嵌 dto.User，余额在 data.balance）。
-	 * 管理面挂在网关 host 根而非 OpenAI 兼容 base（/v1），故 rootPath 只取 origin；
-	 * 请求头以 JWT 作为 Bearer 凭据（与 apiKey 同一形式）。
-	 *
-	 * 登录态过期由 sub2apiPanelSession 处理：本地 JWT exp 到点或 /auth/me 返 401 时，用
-	 * refresh token 调 POST /api/v1/auth/refresh 换新令牌再重试一次，成功后（只有在 persist
-	 * 上下文下）把轮转后的 token 对写回 usage-probes.json。失败时返回 { ok:false, reason }：
-	 * 401 归因为 unauthorized（续期不可用 = 登录态真失效，需用户重贴），其余归为 failed；
-	 * 面板余额是锦上添花段，绝不能拖垮主用量结果。
-	 */
-	private async fetchSub2ApiPanelBalance(baseUrl: string, tokens: Sub2ApiPanelTokens, timeoutMs: number, panel?: Sub2ApiPanelContext): Promise<{ ok: true; balance: ProviderUsageResult["balance"] } | { ok: false; reason: "unauthorized" | "failed" }> {
-		// rootPath：跳过版本化补齐与路径段拼接，只取 origin + /api/v1/...。
-		const balanceUrls = usageProbeUrls({ path: "/api/v1/auth/me", rootPath: true }, baseUrl, (url) => this.ensureVersionPath(url));
-		const refreshUrls = usageProbeUrls({ path: "/api/v1/auth/refresh", rootPath: true }, baseUrl, (url) => this.ensureVersionPath(url));
-		const outcome = await fetchSub2ApiPanelBalanceWithRefresh({
-			balanceUrls,
-			refreshUrls,
-			tokens,
-			timeoutMs,
-			maxBytes: MAX_USAGE_RESPONSE_BYTES,
-			request: usageProbeRequest,
-			// 凭据一律走 Bearer（noBearer 不适用）；UA 仍由 OpenAI SDK 伪装，避免被网关拦截。
-			buildAuthHeaders: (accessToken) => this.withOpenAiSdkUserAgent(buildProbeHeaders(undefined, accessToken)),
-			refreshHeaders: () => this.withOpenAiSdkUserAgent({}),
-			...(panel?.persist
-				? {
-						onTokensRefreshed: async (pair) => {
-							// 上游轮转：旧 refresh token 已作废，不立即落盘就会把用户的登录态彻底弄丢。
-							const saved = await updateUsageProbeSub2ApiTokens(panel.configDir, panel.provider, {
-								panelJwt: pair.accessToken,
-								...(pair.refreshToken ? { panelRefreshToken: pair.refreshToken } : {}),
-							});
-							if (!saved.ok) void getAppLogger()?.warn("config", "Sub2API panel token refresh not persisted", { provider: panel.provider, error: saved.error });
-							else void getAppLogger()?.info("config", "Sub2API panel token refreshed", { provider: panel.provider });
-						},
-					}
-				: {}),
-		});
-		if (outcome.ok) return { ok: true, balance: outcome.balance };
-		return { ok: false, reason: outcome.reason };
+		return this.providerUsage().getUsageProbeConfigDir(backend);
 	}
 }

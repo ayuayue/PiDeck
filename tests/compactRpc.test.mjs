@@ -1,10 +1,11 @@
+import { agentManagerSource } from "./helpers/agentManagerSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { createCompactRpcRequest } = loadTsCommonJs("src/main/pi/compactRpc.ts");
-const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+const agentManager = agentManagerSource;
 
 test("compact custom instructions are sent under both old and new pi field names", () => {
 	assert.deepEqual(JSON.parse(JSON.stringify(createCompactRpcRequest("  summarize the API changes  "))), {
