@@ -43,6 +43,49 @@ jobs:
           # Tests drive the app headless; no window or GPU is needed.
           CGO_ENABLED: "0"
 
+  web:
+    name: web (browser client)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The page is this same code compiled to WebAssembly: a browser has no
+      # processes or disk, so it drives a desktop over the phone API. The
+      # desktop-side build tags keep the workbench out of app.wasm.
+      - name: Build the site and embed it
+        run: go run ./scripts web
+
+      - name: Budget the wasm
+        shell: bash
+        run: |
+          size=$(stat -c%s webassets/*.wasm.br)
+          echo "app.wasm.br: $size bytes"
+          # A page downloads this before it draws anything, so it has to stay
+          # small: 12 MB is a few seconds over a phone's connection.
+          if [ "$size" -gt 12582912 ]; then
+            echo "::error::app.wasm.br is $size bytes, over the 12 MB budget"
+            exit 1
+          fi
+
+      - name: Serve tests
+        run: go test -tags webassets -count=1 -run 'WebAsset|WebClient' .
+
+      # vet reads the tests too, and those drive the workbench; a build is
+      # what proves the client's file set is coherent.
+      - name: Build the client
+        run: GOOS=js GOARCH=wasm go build ./...
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webassets
+          path: webassets
+          if-no-files-found: error
+
   android:
     name: android (arm64 apk)
     runs-on: ubuntu-latest

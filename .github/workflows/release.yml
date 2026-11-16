@@ -13,8 +13,32 @@ permissions:
   contents: write
 
 jobs:
+  web:
+    name: web client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # One page serves every platform: it is Go compiled to WebAssembly and
+      # talks to a desktop over the phone API. Compressed, it is what the
+      # desktop binaries embed.
+      - name: Build the site and embed it
+        run: go run ./scripts web
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webassets
+          path: webassets
+          if-no-files-found: error
+
   build:
     name: build (${{ matrix.target }})
+    needs: web
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +72,13 @@ jobs:
           if [ -z "$v" ]; then v="${GITHUB_REF_NAME#v}"; fi
           echo "value=$v" >> "$GITHUB_OUTPUT"
 
+      # -tags webassets embeds webassets/ into the binary, so every desktop
+      # build also serves the browser client on the remote port.
+      - uses: actions/download-artifact@v4
+        with:
+          name: webassets
+          path: webassets
+
       - name: Install NSIS (Windows installer)
         if: runner.os == 'Windows'
         run: choco install nsis -y --no-progress
@@ -62,6 +93,7 @@ jobs:
         shell: bash
         env:
           NSGO_UPDATES_KEY: ${{ secrets.NSGO_UPDATES_KEY }}
+          GOFLAGS: -tags=webassets
         run: go tool nsgo build -target ${{ matrix.target }} -version ${{ steps.version.outputs.value }}
 
       - name: Collect
@@ -89,6 +121,23 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+
+      # The feed is releases/latest/download/appcast-<target>.xml, so a
+      # release that leaves one out answers 404 for that target's updates
+      # until a later release carries it again.
+      - name: Appcasts
+        if: ${{ secrets.NSGO_UPDATES_KEY != '' }}
+        shell: bash
+        run: |
+          missing=""
+          for target in windows_x64 windows_arm64 macos_arm64 macos_x64 linux_x64 linux_arm64; do
+            test -f "artifacts/appcast-$target.xml" || missing="$missing $target"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::no appcast for:$missing (NSGO_UPDATES_KEY signs them)"
+            exit 1
+          fi
+          ls -1 artifacts/appcast-*.xml
 
       - name: Checksums
         shell: bash
