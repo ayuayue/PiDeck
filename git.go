@@ -421,6 +421,61 @@ func readUnpushedCommits(t target, dir string) ([]gitCommit, error) {
 	return parseGitLog(out), nil
 }
 
+// diffPathValue reads the path after "+++ ": Git may quote it and escape
+// non-ASCII bytes, and may follow it with a tab and a timestamp.
+func diffPathValue(line string) string {
+	v := strings.TrimPrefix(line, "+++ ")
+	if strings.HasPrefix(v, "\"") {
+		for i := 1; i < len(v); i++ {
+			if v[i] == '\\' {
+				i++
+				continue
+			}
+			if v[i] == '"' {
+				return unquoteGitPath(v[1:i])
+			}
+		}
+		return ""
+	}
+	if i := strings.IndexByte(v, '\t'); i >= 0 {
+		v = v[:i]
+	}
+	return strings.TrimSpace(v)
+}
+
+// unquoteGitPath decodes the C-style escapes Git writes for unusual names.
+func unquoteGitPath(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c != '\\' || i+1 >= len(s) {
+			b.WriteByte(c)
+			continue
+		}
+		i++
+		switch s[i] {
+		case 'n':
+			b.WriteByte('\n')
+		case 't':
+			b.WriteByte('\t')
+		case 'r':
+			b.WriteByte('\r')
+		case '\\', '"':
+			b.WriteByte(s[i])
+		case '0', '1', '2', '3', '4', '5', '6', '7':
+			v := int(s[i] - '0')
+			for n := 1; n < 3 && i+1 < len(s) && s[i+1] >= '0' && s[i+1] <= '7'; n++ {
+				i++
+				v = v*8 + int(s[i]-'0')
+			}
+			b.WriteByte(byte(v))
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
 // diffFiles lists the paths a patch touches, in order and once each.
 func diffFiles(patch string) []string {
 	var out []string
@@ -429,11 +484,7 @@ func diffFiles(patch string) []string {
 		if !strings.HasPrefix(line, "+++ ") {
 			continue
 		}
-		fields := strings.Fields(strings.TrimPrefix(line, "+++ "))
-		if len(fields) == 0 {
-			continue
-		}
-		path := strings.Trim(strings.TrimPrefix(fields[0], "b/"), "\"")
+		path := strings.TrimPrefix(diffPathValue(line), "b/")
 		if path == "" || path == "/dev/null" || seen[path] {
 			continue
 		}

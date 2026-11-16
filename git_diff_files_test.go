@@ -24,6 +24,21 @@ func TestDiffFiles(t *testing.T) {
 	}
 }
 
+// TestDiffFilesUnusualNames covers spaces, C-quoted non-ASCII bytes and the
+// tab Git can put after a path.
+func TestDiffFilesUnusualNames(t *testing.T) {
+	nl := "\n"
+	q := "\""
+	bs := "\\"
+	patch := "+++ b/with space.txt" + nl +
+		"+++ " + q + "b/" + bs + "344" + bs + "270" + bs + "255" + q + nl +
+		"+++ b/tabbed.txt" + "\t" + "(2026-06-01)" + nl
+	want := []string{"with space.txt", "中", "tabbed.txt"}
+	if got := diffFiles(patch); !slices.Equal(got, want) {
+		t.Fatalf("diffFiles = %q, want %q", got, want)
+	}
+}
+
 // TestCommitDiffFiles opens a file from a commit's patch.
 func TestCommitDiffFiles(t *testing.T) {
 	if nsgotest.Target() != "" {
@@ -46,4 +61,27 @@ func TestCommitDiffFiles(t *testing.T) {
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:git-diff-file")) == 2 })
 	app.Press("id:git-diff-file >> nth=0")
 	app.WaitFor("text:aaa", 10*time.Second)
+}
+
+// TestCommitDiffFileUnusualName opens a commit file whose name has a space
+// and Chinese characters, which Git quotes differently in the patch.
+func TestCommitDiffFileUnusualName(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	dir, run := gitFixture(t)
+	name := "设计 说明.txt"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("中文内容\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "unusual name")
+
+	app := startGitApp(t, dir)
+	waitApp(app, "id:git-commit-row", 20*time.Second)
+	app.Press("id:git-commit-row >> nth=0")
+	app.WaitFor("id:git-diff", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:git-diff-file")) == 1 })
+	app.Press("id:git-diff-file >> nth=0")
+	app.WaitFor("text:中文内容", 10*time.Second)
 }
