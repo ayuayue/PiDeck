@@ -116,3 +116,43 @@ func TestACPPresetManager(t *testing.T) {
 		t.Fatalf("after removing: %s", raw)
 	}
 }
+
+// TestAcpPresetList checks the built-in presets are distinct and carry the
+// metadata the settings page shows.
+func TestAcpPresetList(t *testing.T) {
+	list := acpPresets()
+	if len(list) < 12 {
+		t.Fatalf("only %d built-in presets", len(list))
+	}
+	seen := map[string]bool{}
+	for _, p := range list {
+		if p.ID == "" || p.Name == "" || p.Command == "" {
+			t.Errorf("incomplete preset %+v", p)
+		}
+		if seen[p.ID] {
+			t.Errorf("duplicate preset id %q", p.ID)
+		}
+		seen[p.ID] = true
+		if p.Homepage == "" {
+			t.Errorf("%s has no homepage", p.ID)
+		}
+		if p.Npx && p.Install != "" {
+			t.Errorf("%s is npx and names a package to install", p.ID)
+		}
+		if cmd := acpPresetInstall(p); p.Npx && cmd != "" {
+			t.Errorf("%s: npx preset suggests installing %q", p.ID, cmd)
+		}
+		if state, _ := acpPresetState(p); state == "" {
+			t.Errorf("%s has no state line", p.ID)
+		}
+	}
+	// The Qoder presets must start in bypass permissions: the adapter
+	// refuses to set that option after launch.
+	for _, p := range list {
+		if p.ID == "qoder" || p.ID == "qoder-cn" {
+			if strings.Join(p.Args, " ") != "--acp --permission-mode bypass_permissions" {
+				t.Errorf("%s args = %v", p.ID, p.Args)
+			}
+		}
+	}
+}

@@ -41,6 +41,11 @@ func (a *app) acpPresetManagerDialog() core.Node {
 			if args != "" {
 				meta += " " + args
 			}
+			state, ready := acpPresetState(p)
+			ink := colors.Up()
+			if !ready {
+				ink = colors.Warn()
+			}
 			children := []core.Node{
 				ui.Icon(lucide.Bot, 13, colors.Muted),
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
@@ -48,7 +53,18 @@ func (a *app) acpPresetManagerDialog() core.Node {
 						Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: meta, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+					core.Text{Content: state, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+						Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(func() core.Color { return ink })},
 				}},
+			}
+			if cmd := acpPresetInstall(p); cmd != "" {
+				children = append(children, ui.Button{Text: T("复制安装命令"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					TestID: "acp-preset-install-" + p.ID, OnPress: func() { a.copyText(cmd, T("安装命令")) }})
+			}
+			if p.Homepage != "" {
+				url := p.Homepage
+				children = append(children, ui.Button{Text: T("文档"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					TestID: "acp-preset-docs-" + p.ID, OnPress: func() { a.cx.OpenURL(url, nil) }})
 			}
 			if editable {
 				id := p.ID
@@ -75,6 +91,8 @@ func (a *app) acpPresetManagerDialog() core.Node {
 				StyleFunc: ui.Colored(colors.Faint)})
 		}
 		body := []core.Node{
+			core.Text{Content: T("预设只是一条启动命令：标着 npx 的第一次运行会自己下载；其余需要本机装好并登录该 CLI。状态按本机 PATH 检查。"),
+				Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
 			ui.Text(T("内置"), 10.5, ui.Medium, colors.Muted),
 			core.View{Style: core.Style{Gap: 1}, Children: builtinRows},
 			ui.Text(T("自定义"), 10.5, ui.Medium, colors.Muted),

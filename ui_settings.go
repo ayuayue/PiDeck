@@ -205,7 +205,7 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 				},
 			})
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}
 	})
 }
 
@@ -375,7 +375,7 @@ func (a *app) settingsGeneral() core.Node {
 				a.st.edit(func(c *config) { c.Thinking = lv })
 			}))
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
 				setGroup("界面",
 					setRow("语言", "界面文案；切换后立即生效，未翻译的条目保留中文。",
@@ -743,7 +743,7 @@ func (a *app) settingsKeys() core.Node {
 			conflicts = append(conflicts, core.Text{Content: "· " + c, Style: core.Style{FontSize: 10.5, LineHeight: 16},
 				StyleFunc: ui.Colored(colors.Warn)})
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 6}, Children: []core.Node{
 				setGroup("命令", rows...),
 				core.Text{Content: "写法：mod（Mac 的 Command / 其他平台的 Ctrl）、ctrl、alt、shift、meta 加键名，例如 mod+shift+g、ctrl+tab、f5。回车保存，留空取消绑定。",
@@ -836,7 +836,7 @@ func (a *app) settingsLook() core.Node {
 				rows = append(rows, setDivider())
 			}
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("配色", rows...),
 				a.backgroundGroup(colors),
@@ -1049,7 +1049,7 @@ func (a *app) settingsEnv() core.Node {
 			targets = append(targets, core.Text{Content: "没有读到 WSL 发行版或 SSH Host。",
 				Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Faint)})
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 2}, Children: []core.Node{
 				setGroup("本机", rows...),
 				setGroup("网络代理", proxyRows...),
@@ -1229,7 +1229,7 @@ func (a *app) settingsAddons() core.Node {
 				rows = append(rows, setDivider())
 			}
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("插件", rows...),
 				core.Text{Content: "插件只声明命令与主题，不运行代码：命令的动作是填入提示词、执行内置命令、打开链接或切换主题。",
@@ -1308,7 +1308,7 @@ func (a *app) settingsIntegrations() core.Node {
 			fn(&a.cfg)
 			a.st.edit(fn)
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("飞书",
 					setRow("飞书机器人", "一轮结束时，把会话标题、状态和一句摘要发到群里的自定义机器人。",
@@ -1442,7 +1442,7 @@ func (a *app) settingsDiagnostics() core.Node {
 		} else {
 			crashRows = append(crashRows, setRow("崩溃日志", "还没有崩溃记录；panic 时自动写到数据目录的 crashes/。", nil))
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("运行",
 					setRow("版本", fmt.Sprintf("%s · %s/%s · Go %s", appVersion, runtime.GOOS, runtime.GOARCH, runtime.Version()), nil),
@@ -1504,7 +1504,7 @@ func (a *app) settingsData() core.Node {
 		for _, ws := range a.workspaces.Get() {
 			piCount += len(ws.Pi.Get())
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 2}, Children: []core.Node{
 				setGroup("位置",
 					setRow("数据目录", dir, ui.Button{Text: T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
@@ -1554,7 +1554,7 @@ func (a *app) settingsAbout() core.Node {
 		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		info := a.env.Get()
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 8, Bottom: 20, Right: 2}, Gap: 12}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
 					core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",

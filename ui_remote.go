@@ -131,7 +131,7 @@ func (a *app) settingsRemote() core.Node {
 				Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 		}
 
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 0}, Children: []core.Node{
 				setGroup("服务",
 					setRow("远程访问", "让手机端连接这台电脑上的项目和会话；关闭后所有手机连接立即断开。",

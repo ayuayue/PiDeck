@@ -124,7 +124,7 @@ func (a *app) settingsResources() core.Node {
 					a.loadResources(true)
 				}},
 			}})
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: children},
 		}}
 	})

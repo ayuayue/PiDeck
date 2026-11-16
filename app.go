@@ -373,16 +373,20 @@ type app struct {
 	// settingsRev changes after a setting is switched, so the page shows
 	// the value it now holds.
 	settingsRev *core.Signal[int]
-	settingsTab *core.Signal[string]
-	addWS       *core.Signal[bool]
-	addTarget   *core.Signal[bool]
-	addKind     *core.Signal[int]
-	addWhere    *core.Signal[string]
-	addPath     *core.Signal[string]
-	importOpen  *core.Signal[bool]
-	renameOpen  *core.Signal[bool]
-	renameText  *core.Signal[string]
-	renameID    string
+	// settingsScroll and settingsOffset remember where a settings page was
+	// scrolled, so redrawing it after a switch keeps the reader's place.
+	settingsScroll *core.Ref
+	settingsOffset core.Point
+	settingsTab    *core.Signal[string]
+	addWS          *core.Signal[bool]
+	addTarget      *core.Signal[bool]
+	addKind        *core.Signal[int]
+	addWhere       *core.Signal[string]
+	addPath        *core.Signal[string]
+	importOpen     *core.Signal[bool]
+	renameOpen     *core.Signal[bool]
+	renameText     *core.Signal[string]
+	renameID       string
 	// The file name dialog: new file, new folder or rename.
 	fileOpOpen   *core.Signal[bool]
 	fileOpTitle  *core.Signal[string]
@@ -614,6 +618,7 @@ func newApp(cx *core.Scope) *app {
 		settings:               core.NewSignal(cx, false),
 		settingsTab:            core.NewSignal(cx, "env"),
 		settingsRev:            core.NewSignal(cx, 0),
+		settingsScroll:         &core.Ref{},
 		addWS:                  core.NewSignal(cx, false),
 		addTarget:              core.NewSignal(cx, false),
 		addKind:                core.NewSignal(cx, int(targetWSL)),
@@ -1156,11 +1161,33 @@ func (a *app) settingsTick() {
 	}
 }
 
-// bumpSettings redraws the settings page after a value changed.
+// bumpSettings redraws the settings page after a value changed, and puts
+// the reader back where they were: the redraw makes a new scroll view.
 func (a *app) bumpSettings() {
-	if a.settingsRev != nil {
-		a.settingsRev.Update(func(n int) int { return n + 1 })
+	if a.settingsRev == nil {
+		return
 	}
+	a.settingsRev.Update(func(n int) int { return n + 1 })
+	a.restoreSettingsScroll()
+}
+
+// settingsScrolled remembers the settings page's offset.
+func (a *app) settingsScrolled(e core.ScrollEvent) {
+	if e.Offset.Y >= 0 {
+		a.settingsOffset = e.Offset
+	}
+}
+
+// restoreSettingsScroll scrolls a redrawn page back to where it was.
+func (a *app) restoreSettingsScroll() {
+	if a.settingsOffset.Y <= 0 || a.settingsScroll == nil {
+		return
+	}
+	at := a.settingsOffset
+	a.cx.Post(func() {
+		a.settingsScroll.ScrollTo(at, false)
+		a.cx.Post(func() { a.settingsScroll.ScrollTo(at, false) })
+	})
 }
 
 // toggleSessionSort flips a project's session order.

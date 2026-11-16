@@ -108,20 +108,77 @@ type acpMessage struct {
 	Error   *acpError       `json:"error,omitempty"`
 }
 
-// ACP presets are the external CLIs the app can drive.
+// ACP presets are the external CLIs the app can drive. A preset is only a
+// launch command: the app runs it in the project and speaks ACP over its
+// stdio. Npx presets download their package on first use; the others need
+// the CLI installed here, signed in, before the preset works.
 type acpPreset struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
+	// Homepage is the CLI's documentation.
+	Homepage string `json:"homepage,omitempty"`
+	// Install is the npm package that provides the command, empty when the
+	// CLI installs from its own site.
+	Install string `json:"install,omitempty"`
+	// Npx marks presets npx fetches on demand: they need Node.js, not the
+	// CLI itself.
+	Npx bool `json:"npx,omitempty"`
 }
 
-// acpPresets is a small, curated list: any command can be added later.
+// acpPresets is the built-in list, checked against each CLI's ACP docs:
+//
+//	gemini --acp                       @google/gemini-cli
+//	npx -y @agentclientprotocol/claude-agent-acp
+//	npx -y @agentclientprotocol/codex-acp
+//	kimi acp                           @moonshot-ai/kimi-code
+//	qwen --acp                         @qwen-code/qwen-code
+//	opencode acp                       opencode-ai
+//	agent acp                          Cursor, its own installer
+//	npx -y @tencent-ai/codebuddy-code --acp
+//	npx -y @minimax-ai/code acp
+//	mimo acp                           @mimo-ai/cli
+//	copilot --acp                      @github/copilot
+//	kilo acp                           @kilocode/cli
+//	cline --acp                        cline
+//	qodercli --acp --permission-mode bypass_permissions
+//	qoderclicn --acp --permission-mode bypass_permissions
+//
+// Qoder's adapter lists bypass permissions as a config option but refuses
+// to set it, so the flag has to be given at launch.
 func acpPresets() []acpPreset {
 	return []acpPreset{
-		{ID: "claude", Name: "Claude Agent", Command: "npx", Args: []string{"-y", "@zed-industries/claude-code-acp"}},
-		{ID: "gemini", Name: "Gemini CLI", Command: "npx", Args: []string{"-y", "@google/gemini-cli", "--experimental-acp"}},
-		{ID: "codex", Name: "Codex CLI", Command: "npx", Args: []string{"-y", "@zed-industries/codex-acp"}},
+		{ID: "gemini", Name: "Gemini CLI", Command: "gemini", Args: []string{"--acp"},
+			Homepage: "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/acp-mode.md", Install: "@google/gemini-cli"},
+		{ID: "claude", Name: "Claude Agent", Command: "npx", Args: []string{"-y", "@agentclientprotocol/claude-agent-acp"},
+			Homepage: "https://github.com/agentclientprotocol/claude-agent-acp", Npx: true},
+		{ID: "codex", Name: "Codex CLI", Command: "npx", Args: []string{"-y", "@agentclientprotocol/codex-acp"},
+			Homepage: "https://github.com/agentclientprotocol/codex-acp", Npx: true},
+		{ID: "kimi", Name: "Kimi CLI", Command: "kimi", Args: []string{"acp"},
+			Homepage: "https://github.com/moonshotai/kimi-code", Install: "@moonshot-ai/kimi-code"},
+		{ID: "qwen", Name: "Qwen Code", Command: "qwen", Args: []string{"--acp"},
+			Homepage: "https://github.com/QwenLM/qwen-code", Install: "@qwen-code/qwen-code"},
+		{ID: "opencode", Name: "OpenCode", Command: "opencode", Args: []string{"acp"},
+			Homepage: "https://opencode.ai/docs/cli/acp", Install: "opencode-ai"},
+		{ID: "cursor-agent", Name: "Cursor Agent", Command: "agent", Args: []string{"acp"},
+			Homepage: "https://cursor.com/docs/cli/acp"},
+		{ID: "codebuddy", Name: "CodeBuddy", Command: "npx", Args: []string{"-y", "@tencent-ai/codebuddy-code", "--acp"},
+			Homepage: "https://codebuddy.ai/docs/cli/acp", Npx: true},
+		{ID: "minimax", Name: "MiniMax Code", Command: "npx", Args: []string{"-y", "@minimax-ai/code", "acp"},
+			Homepage: "https://agent.minimax.io/docs/cli/integrations", Npx: true},
+		{ID: "mimo", Name: "MiMo Code", Command: "mimo", Args: []string{"acp"},
+			Homepage: "https://github.com/XiaomiMiMo/MiMo-Code", Install: "@mimo-ai/cli"},
+		{ID: "copilot", Name: "Copilot CLI", Command: "copilot", Args: []string{"--acp"},
+			Homepage: "https://github.com/github/copilot-cli", Install: "@github/copilot"},
+		{ID: "kilo", Name: "Kilo Code", Command: "kilo", Args: []string{"acp"},
+			Homepage: "https://github.com/Kilo-Org/kilocode", Install: "@kilocode/cli"},
+		{ID: "cline-cli", Name: "Cline", Command: "cline", Args: []string{"--acp"},
+			Homepage: "https://github.com/cline/cline", Install: "cline"},
+		{ID: "qoder", Name: "Qoder CLI", Command: "qodercli", Args: []string{"--acp", "--permission-mode", "bypass_permissions"},
+			Homepage: "https://docs.qoder.com/cli/acp"},
+		{ID: "qoder-cn", Name: "Qoder CLI CN", Command: "qoderclicn", Args: []string{"--acp", "--permission-mode", "bypass_permissions"},
+			Homepage: "https://docs.qoder.cn/cli/acp"},
 	}
 }
 

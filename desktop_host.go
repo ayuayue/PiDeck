@@ -13,6 +13,7 @@ import (
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // sessionNotificationPrefix names the session a notification opens.
@@ -224,20 +225,42 @@ func (a *app) notifyTurnDone(s *session) {
 	a.notifyDesktop(sessionNotificationPrefix+s.ID, "PiDeck Lite · "+s.title.GetUntracked(), body, nil)
 }
 
-// notifyDesktop posts a system notification, asking for the notification
-// permission the first time one is needed. The ID is what a press reports
-// to setupNotifications' handler. It is best effort: a platform that
-// refuses the notification leaves the in-app toast as the only notice.
+// notifyDesktop posts a system notification. The ID is what a press reports
+// to setupNotifications' handler. Desktops post straight away: Windows
+// answers a permission query with "unavailable" until a toast has gone
+// through, so asking first would refuse notifications that work. Phones and
+// the web are asked first, as their systems gate them. It is best effort: a
+// refused notification falls back to an in-app toast with the same text.
 func (a *app) notifyDesktop(id, title, body string, done func(shown bool)) {
 	if id == "" {
 		return
 	}
 	notify := core.Notification{ID: id, Title: firstLine(title, 120), Body: firstLine(body, 200)}
 	post := func() {
-		err := a.cx.ShowNotification(notify, done)
-		if err != nil && done != nil {
-			done(false)
+		err := a.cx.ShowNotification(notify, func(shown bool) {
+			if !shown {
+				// The platform took the notification and dropped it, or
+				// refused it: say so where the app can be seen.
+				a.toast(ui.ToastInfo, title, "系统没有显示这条通知："+body)
+			}
+			if done != nil {
+				done(shown)
+			}
+		})
+		if err != nil {
+			a.toast(ui.ToastInfo, title, body)
+			if done != nil {
+				done(false)
+			}
 		}
+	}
+	// Desktops report a permission the app cannot trust — Windows answers
+	// "unavailable" until a toast has gone through — while posting works
+	// regardless. Post there, and ask only where the system really gates it
+	// (phones and the web).
+	if a.cx.Env().Desktop() {
+		post()
+		return
 	}
 	a.cx.NotificationPermission(func(p core.NotificationPermission) {
 		switch p {

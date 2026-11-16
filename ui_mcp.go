@@ -155,7 +155,7 @@ func (a *app) settingsMCP() core.Node {
 		if len(rows) == 0 {
 			rows = append(rows, setRow("还没有 MCP 服务器", "添加一个 HTTP 地址或启动命令，pi 会连接它。", nil))
 		}
-		return core.Scroll{Style: ui.FillRest, Children: []core.Node{
+		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("服务器", rows...),
 				core.Text{Content: "列表来自 pi mcp list；服务器配置由 pi 保存在 mcp.json 里。",

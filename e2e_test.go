@@ -46,9 +46,11 @@ func openApp(t *testing.T, dir string, width, height core.Points) *nsgotest.App 
 		time.Sleep(50 * time.Millisecond)
 	}
 	app.WaitFor("text:选择这个文件夹", 30*time.Second)
-	app.Clear("label:文件夹路径")
-	app.Type("label:文件夹路径", dir)
-	for i := 0; i < 3 && len(app.Query("text:note.txt")) == 0; i++ {
+	// The picker can still be settling under load and take the field's text
+	// with it, so type the path again before each submit.
+	for i := 0; i < 4 && len(app.Query("text:note.txt")) == 0; i++ {
+		app.Clear("label:文件夹路径")
+		app.Type("label:文件夹路径", dir)
 		app.Submit("label:文件夹路径")
 		app.Settle()
 		time.Sleep(50 * time.Millisecond)

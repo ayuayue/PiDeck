@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -192,4 +193,42 @@ func (a *app) removeACPPreset(id string) {
 	}
 	a.acpManageRev.Update(func(n int) int { return n + 1 })
 	a.toast(ui.ToastInfo, "已删除预设", id)
+}
+
+// acpPresetInstall is what the user runs to get a preset's CLI here.
+func acpPresetInstall(p acpPreset) string {
+	if p.Npx || p.Install == "" {
+		return ""
+	}
+	return "npm install -g " + p.Install
+}
+
+// acpPresetReady says whether a preset can start here: npx presets need
+// Node.js' npx, the others their own command on the path.
+func acpPresetReady(p acpPreset) (string, bool) {
+	want := p.Command
+	if p.Npx {
+		want = "npx"
+	}
+	path, err := exec.LookPath(want)
+	if err != nil {
+		return "", false
+	}
+	return path, true
+}
+
+// acpPresetState is a preset's readiness as one line.
+func acpPresetState(p acpPreset) (string, bool) {
+	path, ok := acpPresetReady(p)
+	switch {
+	case ok && p.Npx:
+		return "npx 已就绪 · 首次运行会下载它", true
+	case ok:
+		return "已安装 · " + shorten(filepath.Base(path), 40), true
+	case p.Npx:
+		return "需要 Node.js：找不到 npx", false
+	case p.Install != "":
+		return "未安装 · " + acpPresetInstall(p), false
+	}
+	return "未安装 · 按官网说明安装", false
 }
