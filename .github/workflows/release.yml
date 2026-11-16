@@ -181,7 +181,11 @@ jobs:
       # installs on a device needs a profile and a certificate, which come
       # from IOS_PROFILE_B64 and IOS_CERT_P12_B64. Without them NSGo writes
       # an unsigned IPA and says so.
-      - name: Build iOS packages
+      - name: Build for the simulator
+        shell: bash
+        run: go tool nsgo build -target ios_simulator -version "${{ steps.version.outputs.value }}"
+
+      - name: Build the device package
         shell: bash
         env:
           PROFILE_B64: ${{ secrets.IOS_PROFILE_B64 }}
@@ -191,7 +195,7 @@ jobs:
           TEAM: ${{ secrets.IOS_TEAM }}
         run: |
           set -euo pipefail
-          args=(-target ios_simulator,ios -version "${{ steps.version.outputs.value }}")
+          args=(-target ios -version "${{ steps.version.outputs.value }}")
           if [ -n "$PROFILE_B64" ] && [ -n "$CERT_B64" ]; then
             echo "$CERT_B64" | base64 -d > "$RUNNER_TEMP/cert.p12"
             echo "$PROFILE_B64" | base64 -d > "$RUNNER_TEMP/app.mobileprovision"
@@ -201,7 +205,7 @@ jobs:
             security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
             security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
             security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
-            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            security list-keychains -d user -s "$keychain"
             mkdir -p ~/Library/MobileDevice/"Provisioning Profiles"
             cp "$RUNNER_TEMP/app.mobileprovision" ~/Library/MobileDevice/"Provisioning Profiles/app.mobileprovision"
             args+=(-profile "$RUNNER_TEMP/app.mobileprovision")
@@ -216,8 +220,9 @@ jobs:
         shell: bash
         run: |
           cd dist
-          app=$(ls -d *ios_simulator*/*.app | head -1)
-          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/ios-simulator.zip"
+          shopt -s nullglob
+          apps=(./*ios_simulator*/*.app)
+          ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" "$RUNNER_TEMP/ios-simulator.zip"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -266,7 +271,8 @@ jobs:
           cd artifacts
           # One line per file so a download can be checked with
           # sha256sum -c SHA256SUMS
-          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/sums"
+          mv "$RUNNER_TEMP/sums" SHA256SUMS
           cat SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
