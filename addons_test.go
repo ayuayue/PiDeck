@@ -722,3 +722,28 @@ func TestPluginManifestOpen(t *testing.T) {
 	app.WaitFor("id:editor", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:团队插件")) > 0 })
 }
+
+// TestSettingsToggles checks the settings switches actually change and show
+// their new state: their value lives in the config, not a signal, so the
+// page has to redraw itself after a switch.
+func TestSettingsToggles(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
+	app.Press("label:设置")
+	app.Press("id:settings-tab-general")
+	app.WaitFor("id:close-to-tray", 5*time.Second)
+	for _, id := range []string{"close-to-tray", "notify-done", "notify-hidden"} {
+		for round := 0; round < 2; round++ {
+			before := app.Find("id:" + id).Props.Checked
+			app.Press("id:" + id)
+			app.Advance(100 * time.Millisecond)
+			after := app.Find("id:" + id).Props.Checked
+			if before == after {
+				t.Fatalf("%s round %d: the switch stayed at %v after pressing it", id, round, before)
+			}
+		}
+	}
+}

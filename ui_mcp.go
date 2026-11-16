@@ -113,6 +113,7 @@ func (a *app) removeMCPServer(s mcpServer) {
 // settingsMCP lists the servers with add and remove.
 func (a *app) settingsMCP() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		list := a.mcpServers.Get()
 		busy := a.mcpBusy.Get()

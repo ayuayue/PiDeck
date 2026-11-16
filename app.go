@@ -323,8 +323,11 @@ type app struct {
 	byID map[string]*session
 	all  []*session
 
-	palette     *core.Signal[bool]
-	settings    *core.Signal[bool]
+	palette  *core.Signal[bool]
+	settings *core.Signal[bool]
+	// settingsRev changes after a setting is switched, so the page shows
+	// the value it now holds.
+	settingsRev *core.Signal[int]
 	settingsTab *core.Signal[string]
 	addWS       *core.Signal[bool]
 	addTarget   *core.Signal[bool]
@@ -565,6 +568,7 @@ func newApp(cx *core.Scope) *app {
 		palette:                core.NewSignal(cx, false),
 		settings:               core.NewSignal(cx, false),
 		settingsTab:            core.NewSignal(cx, "env"),
+		settingsRev:            core.NewSignal(cx, 0),
 		addWS:                  core.NewSignal(cx, false),
 		addTarget:              core.NewSignal(cx, false),
 		addKind:                core.NewSignal(cx, int(targetWSL)),
@@ -1066,6 +1070,21 @@ func (a *app) isPinned(id string) bool {
 		}
 	}
 	return false
+}
+
+// settingsTick subscribes the caller to settings changes; pages call it so a
+// switch redraws with the value it now holds.
+func (a *app) settingsTick() {
+	if a.settingsRev != nil {
+		a.settingsRev.Get()
+	}
+}
+
+// bumpSettings redraws the settings page after a value changed.
+func (a *app) bumpSettings() {
+	if a.settingsRev != nil {
+		a.settingsRev.Update(func(n int) int { return n + 1 })
+	}
 }
 
 // toggleSessionSort flips a project's session order.
@@ -4020,6 +4039,7 @@ func (a *app) setTerminalFont(size float64) {
 		size = 20
 	}
 	a.termFont.Set(size)
+	a.bumpSettings()
 	stored := size
 	if size == 12.5 {
 		stored = 0
@@ -4039,6 +4059,7 @@ func (a *app) setEditorFont(size float64) {
 		size = 20
 	}
 	a.editorFont.Set(size)
+	a.bumpSettings()
 	stored := int(size + 0.5)
 	if stored == 13 {
 		stored = 0

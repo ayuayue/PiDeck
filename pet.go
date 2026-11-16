@@ -84,6 +84,7 @@ func (a *app) setupPet() {
 // togglePet opens or closes the pet window.
 func (a *app) togglePet(on bool) {
 	a.cfg.PetEnabled = on
+	a.bumpSettings()
 	if a.st != nil {
 		a.st.edit(func(c *config) { c.PetEnabled = on })
 	}

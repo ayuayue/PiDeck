@@ -1042,6 +1042,7 @@ func (a *app) setBackgroundImage(path string) {
 	}
 	a.bgImage.Set(path)
 	a.bgOpacity.Set(a.backgroundOpacity())
+	a.bumpSettings()
 	if a.st != nil {
 		image, opacity := a.cfg.BackgroundImage, a.cfg.BackgroundOpacity
 		a.st.edit(func(c *config) {
@@ -1062,6 +1063,7 @@ func (a *app) setBackgroundOpacity(v float64) {
 	v = min(1, max(0, v))
 	a.cfg.BackgroundOpacity = &v
 	a.bgOpacity.Set(v)
+	a.bumpSettings()
 	if a.st != nil {
 		a.st.edit(func(c *config) {
 			vv := v

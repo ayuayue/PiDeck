@@ -97,6 +97,7 @@ func (a *app) setLanguage(code string) {
 		a.st.edit(func(c *config) { c.Language = code })
 	}
 	a.applyLanguage()
+	a.bumpSettings()
 }
 
 // languageName is a language's name in itself.

@@ -14,6 +14,7 @@ import (
 // settingsResources shows pi's skills and extensions.
 func (a *app) settingsResources() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		if a.resourcesLoading.Get() && !a.resourcesLoaded {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},

@@ -210,8 +210,12 @@ func (a *app) settingsRail(nav []core.Node) core.Node {
 // settingsContent picks the section's body.
 func (a *app) settingsContent() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		// The language revision makes every page rebuild after a switch.
+		// The language and settings revisions make every page rebuild after
+		// a switch.
 		_ = a.langRev.Get()
+		if a.settingsRev != nil {
+			a.settingsTick()
+		}
 		switch a.settingsTab.Get() {
 		case "models":
 			return a.settingsModels()
@@ -322,6 +326,8 @@ func setDivider() core.Node {
 // settingsGeneral says what a new session starts with.
 func (a *app) settingsGeneral() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		var modelChips []core.Node
 		addChip := func(label string, on func() bool, fn func()) core.Node {
@@ -383,7 +389,10 @@ func (a *app) settingsGeneral() core.Node {
 									Label:     T("对话内容宽度"),
 									ValueText: func(v float64) string { return fmt.Sprintf("%.0f pt", v) },
 									TestID:    "chat-width",
-									OnChange:  func(v float64) { a.setChatWidth(int(v)) }},
+									OnChange: func(v float64) {
+										a.setChatWidth(int(v))
+										a.bumpSettings()
+									}},
 							}},
 							core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", float64(a.contentWidth())) },
 								Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
@@ -407,17 +416,8 @@ func (a *app) settingsGeneral() core.Node {
 						}, func() string { return a.cfg.SessionSort }, func(v string) {
 							a.cfg.SessionSort = v
 							a.st.edit(func(c *config) { c.SessionSort = v })
+							a.bumpSettings()
 						})),
-					setDivider(),
-					setRow("扫描所有项目", "默认只读打开过的项目；打开后每个项目都会读一遍 pi 的会话，会话多时更慢。",
-						ui.Switch{Checked: func() bool { return a.cfg.ScanAll }, Label: T("扫描所有项目"), OnChange: func(on bool) {
-							a.cfg.ScanAll = on
-							a.st.edit(func(c *config) { c.ScanAll = on })
-							for _, ws := range a.workspaces.GetUntracked() {
-								ws.piLoaded = false
-							}
-							a.reloadFrameworks()
-						}}),
 				),
 				setGroup("侧栏",
 					setRow("列出 pi 本地会话", "在项目下显示终端里 pi 用过的会话，点开即继续。",
@@ -425,6 +425,8 @@ func (a *app) settingsGeneral() core.Node {
 							a.cfg.ScanPi = on
 							a.st.edit(func(c *config) { c.ScanPi = on })
 							a.reloadFrameworks()
+
+							a.bumpSettings()
 						}}),
 					setDivider(),
 					setRow("扫描所有项目", "连没有添加为项目的文件夹也读，会话多时会更慢。",
@@ -432,6 +434,8 @@ func (a *app) settingsGeneral() core.Node {
 							a.cfg.ScanAll = on
 							a.st.edit(func(c *config) { c.ScanAll = on })
 							a.reloadFrameworks()
+
+							a.bumpSettings()
 						}}),
 				),
 				setGroup("桌面",
@@ -440,6 +444,8 @@ func (a *app) settingsGeneral() core.Node {
 							OnChange: func(on bool) {
 								a.cfg.CloseToTray = on
 								a.st.edit(func(c *config) { c.CloseToTray = on })
+
+								a.bumpSettings()
 							}}),
 					setDivider(),
 					setRow("一轮完成时通知", "用系统通知告诉你回答好了；运行中的会话也会显示在托盘菜单里。",
@@ -447,6 +453,8 @@ func (a *app) settingsGeneral() core.Node {
 							OnChange: func(on bool) {
 								a.cfg.NotifyOnDone = on
 								a.st.edit(func(c *config) { c.NotifyOnDone = on })
+
+								a.bumpSettings()
 							}}),
 					setDivider(),
 					setRow("只在窗口隐藏时通知", "窗口在前台时不再弹系统通知。",
@@ -454,6 +462,8 @@ func (a *app) settingsGeneral() core.Node {
 							OnChange: func(on bool) {
 								a.cfg.NotifyOnlyHidden = on
 								a.st.edit(func(c *config) { c.NotifyOnlyHidden = on })
+
+								a.bumpSettings()
 							}}),
 					setDivider(),
 					setRow("桌面宠物", "用一个小窗口显示运行中/出错的会话数；点它回到主窗口。",
@@ -477,6 +487,8 @@ func (a *app) settingsGeneral() core.Node {
 // settingsModels lists the providers, their credentials and favourites.
 func (a *app) settingsModels() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		list := a.providers.Get()
 		rank := map[string]int{}
@@ -647,6 +659,8 @@ func (a *app) toolModelsGroup() core.Node {
 							}
 						}
 						a.setToolModel(tool.ID, provider, model)
+
+						a.bumpSettings()
 					}},
 				ui.Select[string]{Options: modelOpts, Value: func() string { return a.cfg.ToolModels[tool.ID].Model },
 					Placeholder: T("模型"), Disabled: func() bool { return a.cfg.ToolModels[tool.ID].Provider == "" },
@@ -654,6 +668,8 @@ func (a *app) toolModelsGroup() core.Node {
 					Style: core.Style{Width: core.Pt(126)},
 					OnChange: func(model string) {
 						a.setToolModel(tool.ID, a.cfg.ToolModels[tool.ID].Provider, model)
+
+						a.bumpSettings()
 					}},
 				hintOf(func() string { return T("清除") + " " + T(tool.Name) }, ui.IconButton{Icon: lucide.X, Label: T("清除") + " " + T(tool.Name), Size: 22, IconSize: 10,
 					TestID: "tool-" + tool.ID + "-clear", Disabled: func() bool { return cfg.Provider == "" },
@@ -676,6 +692,8 @@ func (a *app) toolModelsGroup() core.Node {
 // an empty field unbinds, and "默认" puts the default back.
 func (a *app) settingsKeys() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		var rows []core.Node
 		cmds := a.keybindingCommands()
@@ -742,6 +760,8 @@ func (a *app) settingsKeys() core.Node {
 // settingsLook picks the palette.
 func (a *app) settingsLook() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		_ = a.bgImage.Get()
 		var rows []core.Node
@@ -911,6 +931,7 @@ func (a *app) backgroundGroup(colors ui.Colors) core.Node {
 				Label: T("背景透明度"), ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
 				TestID: "bg-opacity", OnChange: func(v float64) {
 					a.setBackgroundOpacity(v / 100)
+					a.bumpSettings()
 				}},
 		}},
 		core.Dynamic(func(*core.Scope) core.Node {
@@ -929,6 +950,8 @@ func (a *app) backgroundGroup(colors ui.Colors) core.Node {
 // settingsEnv shows what the probe found on every machine.
 func (a *app) settingsEnv() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		info := a.env.Get()
 		piOK := info.PiPath != "" && info.PiError == ""
@@ -959,6 +982,8 @@ func (a *app) settingsEnv() core.Node {
 				OnChange: func(v string) {
 					a.cfg.EditorCommand = v
 					a.st.edit(func(c *config) { c.EditorCommand = v })
+
+					a.bumpSettings()
 				},
 				Style: core.Style{Width: core.Pt(170), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
 					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
@@ -1097,6 +1122,8 @@ func piVersionLine(info envInfo) string {
 // settingsAddons lists the plugins, what each adds, and whether it runs.
 func (a *app) settingsAddons() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		list := a.plugins.Get()
 		var rows []core.Node
@@ -1123,6 +1150,8 @@ func (a *app) settingsAddons() core.Node {
 					TestID:  "plugin-toggle-" + plug.ID,
 					OnChange: func(on bool) {
 						a.setPluginEnabled(plug.ID, on)
+
+						a.bumpSettings()
 					},
 				}
 			} else {
@@ -1228,21 +1257,30 @@ func (a *app) pluginSettingControl(p plugin, s pluginSetting) core.Node {
 		case "bool":
 			return ui.Switch{Checked: func() bool { return a.pluginSetting(p.ID, s.Key) == "true" },
 				Label: s.Label, Size: ui.SizeSmall, TestID: testID,
-				OnChange: func(on bool) { a.setPluginSetting(p.ID, s.Key, settingText(on)) }}
+				OnChange: func(on bool) {
+					a.setPluginSetting(p.ID, s.Key, settingText(on))
+					a.bumpSettings()
+				}}
 		case "select":
 			var radios []core.Node
 			for _, opt := range s.Options {
 				value := opt
 				radios = append(radios, ui.Radio{Text: opt, TestID: testID + "-" + value,
-					Checked:  func() bool { return a.pluginSetting(p.ID, s.Key) == value },
-					OnChange: func(bool) { a.setPluginSetting(p.ID, s.Key, value) }})
+					Checked: func() bool { return a.pluginSetting(p.ID, s.Key) == value },
+					OnChange: func(bool) {
+						a.setPluginSetting(p.ID, s.Key, value)
+						a.bumpSettings()
+					}})
 			}
 			return ui.RadioGroup{Horizontal: true, Children: radios, Label: s.Label}
 		default:
 			return core.Input{
 				Value: func() string { return a.pluginSetting(p.ID, s.Key) }, Label: s.Label, TestID: testID,
 				Placeholder: settingText(s.Default),
-				OnChange:    func(v string) { a.setPluginSetting(p.ID, s.Key, v) },
+				OnChange: func(v string) {
+					a.setPluginSetting(p.ID, s.Key, v)
+					a.bumpSettings()
+				},
 				Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
 					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), MinWidth: core.Pt(150)},
@@ -1254,6 +1292,8 @@ func (a *app) pluginSettingControl(p plugin, s pluginSetting) core.Node {
 // settingsIntegrations configures the Feishu group bot.
 func (a *app) settingsIntegrations() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		field := func(value func() string, set func(string), placeholder, label, testID string, masked bool) core.Node {
 			return core.Input{Value: value, OnChange: set, Placeholder: placeholder, Label: label, Masked: masked,
@@ -1271,7 +1311,10 @@ func (a *app) settingsIntegrations() core.Node {
 				setGroup("飞书",
 					setRow("飞书机器人", "一轮结束时，把会话标题、状态和一句摘要发到群里的自定义机器人。",
 						ui.Switch{Checked: func() bool { return a.cfg.FeishuEnabled }, Label: T("飞书机器人"), TestID: "feishu-enabled",
-							OnChange: func(on bool) { setCfg(func(c *config) { c.FeishuEnabled = on }) }}),
+							OnChange: func(on bool) {
+								setCfg(func(c *config) { c.FeishuEnabled = on })
+								a.bumpSettings()
+							}}),
 					setDivider(),
 					setRow("Webhook 地址", "飞书群 → 设置 → 群机器人 → 自定义机器人，复制它的 Webhook 地址。",
 						field(func() string { return a.cfg.FeishuWebhook }, func(v string) {
@@ -1285,7 +1328,10 @@ func (a *app) settingsIntegrations() core.Node {
 					setDivider(),
 					setRow("接收群消息", "飞书开放平台的「事件订阅」地址填 http://<本机地址>:<远程端口>/api/feishu；先在「远程」里开启服务。",
 						ui.Switch{Checked: func() bool { return a.cfg.FeishuInbound }, Label: T("接收群消息"), TestID: "feishu-inbound",
-							OnChange: func(on bool) { setCfg(func(c *config) { c.FeishuInbound = on }) }}),
+							OnChange: func(on bool) {
+								setCfg(func(c *config) { c.FeishuInbound = on })
+								a.bumpSettings()
+							}}),
 					setDivider(),
 					setRow("验证 Token", "飞书应用「事件订阅」里的 Verification Token；不填就不接收。",
 						field(func() string { return a.cfg.FeishuVerifyToken }, func(v string) {
@@ -1294,7 +1340,10 @@ func (a *app) settingsIntegrations() core.Node {
 					setDivider(),
 					setRow("把回答发回群", "收到群消息后，把这一轮的回答也发到群里（用上面的 Webhook）。",
 						ui.Switch{Checked: func() bool { return a.cfg.FeishuReply }, Label: T("把回答发回群"), TestID: "feishu-reply",
-							OnChange: func(on bool) { setCfg(func(c *config) { c.FeishuReply = on }) }}),
+							OnChange: func(on bool) {
+								setCfg(func(c *config) { c.FeishuReply = on })
+								a.bumpSettings()
+							}}),
 					setDivider(),
 					setRow("测试", "发一条测试消息，确认地址与签名都对。",
 						ui.Button{Text: T("发一条"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "feishu-test",
@@ -1315,6 +1364,8 @@ func (a *app) settingsIntegrations() core.Node {
 // settingsDiagnostics shows what is running and what went wrong.
 func (a *app) settingsDiagnostics() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		_ = a.clock.Get()
 		var mem runtime.MemStats
@@ -1423,6 +1474,8 @@ func detectedEditorsText() string {
 // settingsData shows the folders the app writes.
 func (a *app) settingsData() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		dir, sessions := "", ""
 		if a.st != nil {
@@ -1482,6 +1535,8 @@ func (a *app) settingsData() core.Node {
 // settingsAbout is the version and where it comes from.
 func (a *app) settingsAbout() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Redrawn when any setting changes: their values live in the config.
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		info := a.env.Get()
 		return core.Scroll{Style: ui.FillRest, Children: []core.Node{

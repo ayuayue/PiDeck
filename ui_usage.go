@@ -14,6 +14,7 @@ import (
 // settingsUsage shows the local statistics.
 func (a *app) settingsUsage() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		if a.usageLoading.Get() && !a.usageLoaded {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},

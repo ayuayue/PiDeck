@@ -186,6 +186,7 @@ func (a *app) setKeybinding(command, key string) bool {
 	})
 	a.cfg = a.st.config()
 	a.applyKeybindings()
+	a.bumpSettings()
 	return true
 }
 
@@ -200,6 +201,7 @@ func (a *app) resetKeybinding(command string) {
 	})
 	a.cfg = a.st.config()
 	a.applyKeybindings()
+	a.bumpSettings()
 }
 
 // resetKeybindings clears every user binding.
@@ -210,6 +212,7 @@ func (a *app) resetKeybindings() {
 	a.st.edit(func(c *config) { c.Keybindings = nil })
 	a.cfg = a.st.config()
 	a.applyKeybindings()
+	a.bumpSettings()
 	a.toast(ui.ToastInfo, "键位已恢复默认", "")
 }
 

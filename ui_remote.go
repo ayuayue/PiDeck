@@ -18,6 +18,7 @@ import (
 // settingsRemote draws the remote access section.
 func (a *app) settingsRemote() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		if a.remote == nil {
 			return core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{

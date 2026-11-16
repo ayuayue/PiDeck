@@ -105,6 +105,7 @@ func (a *app) saveProjects() {
 		c.Workspaces = out
 	})
 	a.projectsRev.Update(func(n int) int { return n + 1 })
+	a.bumpSettings()
 }
 
 // toggleProjectPin keeps a project at the top of the rail.
