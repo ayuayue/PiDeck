@@ -131,9 +131,10 @@ type session struct {
 	liveTools      *core.Signal[[]toolRun]
 
 	conversation *chat.ConversationState
-	// tops is where each rendered turn sits in the transcript, for the
-	// scroll ruler's tooltips. Only the interface thread touches it.
-	tops map[int]float64
+	// tops is where each rendered turn sits in the transcript, by turn ID,
+	// so the ruler can scroll to the turn it stands for. Only the interface
+	// thread touches it.
+	tops map[string]float64
 
 	engine *piClient
 	// personaID binds the session to a built-in or custom agent.
@@ -3019,7 +3020,8 @@ func (a *app) submitTurn(s *session, text string, images []promptImage, plan boo
 		}
 		turnID := fmt.Sprintf("t%d", a.cx.Now().UnixNano())
 		s.turns.Update(func(ts []turn) []turn {
-			return append(ts, turn{ID: turnID, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(), Plan: plan})
+			return append(ts, turn{ID: turnID, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(),
+				Model: s.model.GetUntracked().ID, Plan: plan})
 		})
 		s.status.Set(statusStarting)
 		s.runningSig.Set(true)
@@ -3720,6 +3722,9 @@ func (a *app) commitAssistant(s *session, msg piMessage) {
 		}
 		i := len(ts) - 1
 		t := &ts[i]
+		if msg.Model != "" {
+			t.Model = msg.Model
+		}
 		step := turnStep{ID: stepID(t, t.Msgs), Start: a.cx.Now()}
 		t.Msgs++
 		if strings.TrimSpace(thinking.String()) != "" {
@@ -4091,11 +4096,20 @@ func turnsFromMessages(msgs []piMessage) []turn {
 		}
 	}
 	now := time.Now()
+	// A turn begins when its prompt was sent and ends with its last
+	// message; a file that lost its timestamps falls back to now.
+	at := func(m piMessage) time.Time {
+		if m.Timestamp > 0 {
+			return time.UnixMilli(m.Timestamp)
+		}
+		return now
+	}
 	for _, m := range msgs {
+		ts := at(m)
 		switch m.Role {
 		case "user":
 			flush()
-			cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Prompt: m.text(), Status: chat.Completed, Start: now, End: now}
+			cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Prompt: m.text(), Status: chat.Completed, Start: ts, End: ts}
 			for _, b := range m.blocks() {
 				if b.Type == "image" {
 					cur.Images = append(cur.Images, promptImage{Name: "图片"})
@@ -4103,7 +4117,10 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			}
 		case "assistant":
 			if cur == nil {
-				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: now, End: now}
+				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts}
+			}
+			if m.Model != "" {
+				cur.Model = m.Model
 			}
 			step := turnStep{ID: fmt.Sprintf("h%d-%d", len(turns), len(cur.Steps))}
 			var prose strings.Builder
@@ -4167,7 +4184,7 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			results[m.ToolCallID] = run
 		case "bashExecution":
 			if cur == nil {
-				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: now, End: now}
+				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts}
 			}
 			run := toolRun{CallID: "bash-" + fmt.Sprint(len(cur.Steps)), Name: "bash", Action: "运行", Detail: firstLine(m.Command, 90),
 				Output: strings.TrimSpace(m.Output), Status: chat.Completed, IsError: m.ExitCode != nil && *m.ExitCode != 0}
@@ -4178,18 +4195,21 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			cur.Tools++
 		case "compactionSummary", "branchSummary":
 			if cur == nil {
-				turns = append(turns, turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: now, End: now,
+				turns = append(turns, turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts,
 					Steps: []turnStep{{ID: "summary", Note: "上下文摘要", Text: m.Summary}}})
 			} else {
 				cur.Steps = append(cur.Steps, turnStep{ID: fmt.Sprintf("h%d-sum", len(turns)), Note: "上下文摘要", Text: m.Summary})
 			}
 		case "custom":
 			if cur == nil {
-				turns = append(turns, turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: now, End: now,
+				turns = append(turns, turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts,
 					Steps: []turnStep{{ID: "custom", Note: m.CustomType, Text: m.text()}}})
 			} else {
 				cur.Steps = append(cur.Steps, turnStep{ID: fmt.Sprintf("h%d-custom%d", len(turns), len(cur.Steps)), Note: m.CustomType, Text: m.text()})
 			}
+		}
+		if cur != nil && ts.After(cur.End) {
+			cur.End = ts
 		}
 	}
 	flush()

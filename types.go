@@ -205,22 +205,26 @@ type turnStep struct {
 
 // turn is one request and everything pi did for it.
 type turn struct {
-	ID      string
-	Prompt  string
-	Images  []promptImage
-	Status  chat.Status
-	Start   time.Time
-	End     time.Time
-	Steps   []turnStep
-	Final   string
-	Err     string
-	Usage   usageInfo
-	Tools   int
+	ID     string
+	Prompt string
+	Images []promptImage
+	Status chat.Status
+	Start  time.Time
+	End    time.Time
+	Steps  []turnStep
+	Final  string
+	Err    string
+	Usage  usageInfo
+	Tools  int
+	// Model is the model that answered this turn, as pi names it.
+	Model   string
 	Msgs    int    // messages committed, for the next step's ID
 	Noticed string // a live status note, such as a retry
 	// Plan marks a turn that asked for a plan first; its answer is a
-	// plan the user can execute or edit.
+	// plan the user can execute or edit. Goal marks a turn of a goal that
+	// carries itself on.
 	Plan bool
+	Goal bool
 }
 
 // running reports whether the turn can still change.

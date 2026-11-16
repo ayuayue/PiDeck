@@ -18,8 +18,15 @@ func (a *app) jumpToTurnIndex(s *session, i int) {
 	if s == nil {
 		return
 	}
-	n := len(s.turns.GetUntracked())
+	turns := s.turns.GetUntracked()
+	n := len(turns)
 	if n <= 1 || i < 0 || i >= n {
+		return
+	}
+	// Where the turn was last laid out is where the jump should land; until
+	// it has been, its share of the length is the best guess there is.
+	if y, ok := s.tops[turns[i].ID]; ok {
+		a.scrollToOffset(s, y)
 		return
 	}
 	a.jumpToTurn(s, float64(i)/float64(n-1))

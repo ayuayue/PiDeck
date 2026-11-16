@@ -119,13 +119,13 @@ func (a *app) transcript(s *session) core.Node {
 				}
 				return list
 			}, func(t turn) string { return t.ID }, func(cx *core.Scope, t func() turn, ix func() int) core.Node {
-				// Each turn reports where it sits, so a tick on the ruler can
-				// say which one a jump would put in the middle.
+				// Each turn reports where it sits, so a mark on the ruler can
+				// scroll to the turn it stands for.
 				return core.View{OnLayout: func(b core.Bounds) {
 					if s.tops == nil {
-						s.tops = map[int]float64{}
+						s.tops = map[string]float64{}
 					}
-					s.tops[ix()] = float64(b.Origin.Y)
+					s.tops[t().ID] = float64(b.Origin.Y)
 				}, Children: []core.Node{a.turnView(s, t, ix)}}
 			}),
 		}},
@@ -157,18 +157,17 @@ const (
 	// axisBand is the share of the height the ruler spans, centered.
 	axisBand = 46
 	// axisTickWidth is how long a tick grows to under the pointer, and
-	// axisTickNarrow how long it rests; axisStep is the gap from one tick's
-	// top to the next one's, so the density and the scale's reach stay in
-	// one place.
+	// axisTickNarrow how long it rests.
 	axisTickWidth  = 18
 	axisTickNarrow = 6
 	axisTickHit    = axisTickWidth + 4
-	axisStep       = 12
-	// axisMost and axisLeast bound the ticks however tall the window is.
-	axisMost  = 97
-	axisLeast = 9
-	// axisChrome is what the tab bar and padding take above the chat pane.
+	// axisStep is the most air one mark has above the next, and axisChrome
+	// what the tab bar and padding take above the chat pane.
+	axisStep   = 12
 	axisChrome = 56
+	// axisTickGapMin is the tightest pitch that still leaves a mark
+	// pressable; closer than this, the ruler drops turns instead.
+	axisTickGapMin = 4.0
 )
 
 // axisGrow eases a tick from its resting length to the long mark under the
@@ -176,44 +175,36 @@ const (
 var axisGrow = core.Transition{Duration: 140 * time.Millisecond, Easing: core.EaseOut,
 	Properties: core.TransitionLayout | core.TransitionBackground}
 
-// axisTicks is how many ticks the ruler draws for a band this tall.
-func axisTicks(height float64) int {
-	if height <= 0 {
-		return 0
-	}
-	n := int(math.Round(height/axisStep)) + 1
-	if n < axisLeast {
-		n = axisLeast
-	}
-	if n > axisMost {
-		n = axisMost
-	}
-	return n
-}
-
-// axisFractions are the scroll positions of the ticks, evenly spaced from
-// the start of the transcript to its end.
-func axisFractions(n int) []float64 {
-	if n <= 0 {
+// planAxisTicks picks the turns that get a mark: one per turn while they fit,
+// and otherwise an even sample that keeps the first and the last, so both
+// ends of a long session stay a click away.
+func planAxisTicks(turns int, bandHeight float64) []int {
+	if turns <= 0 || bandHeight <= 0 {
 		return nil
 	}
-	if n == 1 {
-		return []float64{0.5}
+	fit := int(bandHeight/axisTickGapMin) + 1
+	if fit >= turns {
+		marks := make([]int, turns)
+		for i := range marks {
+			marks[i] = i
+		}
+		return marks
 	}
-	out := make([]float64, n)
-	for i := range out {
-		out[i] = float64(i) / float64(n-1)
+	fit = max(2, fit)
+	marks := make([]int, 0, fit)
+	for slot := 0; slot < fit; slot++ {
+		marks = append(marks, int(math.Round(float64(slot)*float64(turns-1)/float64(fit-1))))
 	}
-	return out
+	return marks
 }
 
-// turnAxis is the scroll ruler at the transcript's right edge: a fine
-// scale of scroll positions across the middle of the height, and a click
-// scrolls to the fraction its tick stands for. Resting on a tick names
-// the turn a jump would put in the middle.
+// turnAxis is the ruler at the transcript's right edge: one mark per turn
+// across the middle of the height, a click scrolls to that turn, and resting
+// on a mark names it.
 func (a *app) turnAxis(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		if len(s.turns.Get()) < 3 {
+		turns := len(s.turns.Get())
+		if turns < 3 {
 			return nil
 		}
 		colors := ui.ColorsOf(cx)
@@ -223,24 +214,28 @@ func (a *app) turnAxis(s *session) core.Node {
 			return nil
 		}
 		bandHeight := pane * axisBand / 100
-		fractions := axisFractions(axisTicks(bandHeight))
-		// The bar is 2.5 tall: too thin to hover. A box one step tall
-		// takes the pointer, and points the ruler's hint at its tick.
-		box := core.Points(axisStep - 2)
-		marks := make([]core.Node, 0, len(fractions)+1)
-		for i, f := range fractions {
-			i, f := i, f
+		shown := planAxisTicks(turns, bandHeight)
+		// A mark rests at 2.5 but takes the pointer in a box as tall as the
+		// pitch allows, so a crowded ruler still hits the mark it shows.
+		pitch := float64(axisStep)
+		if len(shown) > 1 {
+			pitch = math.Min(pitch, bandHeight/float64(len(shown)-1))
+		}
+		box := core.Points(math.Max(4, pitch-2))
+		marks := make([]core.Node, 0, len(shown)+1)
+		for pos, turn := range shown {
+			pos, turn := pos, turn
 			bar := core.View{
-				OnPress: func(core.PressEvent) { a.jumpToTurn(s, f) },
-				Role:    core.RoleButton, LabelFunc: func() string { return a.axisTip(s, f) },
-				TestID: fmt.Sprintf("axis-tick-%d", i),
+				OnPress: func(core.PressEvent) { a.jumpToTurnIndex(s, turn) },
+				Role:    core.RoleButton, LabelFunc: func() string { return a.axisTip(s, turn) },
+				TestID: fmt.Sprintf("axis-tick-%d", pos),
 				StyleFunc: func() core.Style {
 					// A short mark at rest; the one under the pointer grows out
 					// to its full length, so the scale does not read as a picket
 					// fence at rest.
 					st := core.Style{Width: core.Pt(axisTickNarrow), Height: core.Pt(2.5), CornerRadius: 1.25,
 						Background: colors.Faint(), Transition: axisGrow}
-					if a.axisHover.Get() == i {
+					if a.axisHover.Get() == pos {
 						st.Width = core.Pt(axisTickWidth)
 						st.Background = colors.Text()
 					}
@@ -248,19 +243,19 @@ func (a *app) turnAxis(s *session) core.Node {
 				},
 			}
 			marks = append(marks, core.View{
-				OnMouseEnter: func(core.MouseEvent) { a.hoverAxis(i) },
+				OnMouseEnter: func(core.MouseEvent) { a.hoverAxis(pos) },
 				// Leaving the box clears only its own tick, so moving from
 				// one mark to the next keeps pointing at the new one
 				// whichever of the two events arrives first.
 				OnMouseLeave: func(core.MouseEvent) {
-					if a.axisHover.GetUntracked() == i {
+					if a.axisHover.GetUntracked() == pos {
 						a.axisHover.Set(-1)
 					}
 				},
 				Style: core.Style{Width: core.Pt(axisTickHit), Height: core.Pt(box), AlignItems: core.AlignCenter,
 					JustifyContent: core.JustifyCenter}, Children: []core.Node{bar}})
 		}
-		marks = append(marks, a.axisHint(s, fractions, bandHeight, box))
+		marks = append(marks, a.axisHint(s, shown, bandHeight, box))
 		inset := (pane - bandHeight) / 2
 		return core.View{
 			OnMouseLeave: func(core.MouseEvent) { a.axisHover.Set(-1) },
@@ -291,18 +286,18 @@ func (a *app) hoverAxis(index int) {
 
 // axisHint is the summary beside the tick the pointer rests on: it sits
 // just left of the ruler, on the tick's line, and takes no presses.
-func (a *app) axisHint(s *session, fractions []float64, bandHeight float64, box core.Points) core.Node {
+func (a *app) axisHint(s *session, shown []int, bandHeight float64, box core.Points) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		i := a.axisHover.Get()
-		if i < 0 || i >= len(fractions) {
+		if i < 0 || i >= len(shown) {
 			return nil
 		}
-		tip := a.axisTip(s, fractions[i])
+		tip := a.axisTip(s, shown[i])
 		if tip == "" {
 			return nil
 		}
-		n := len(fractions)
+		n := len(shown)
 		centre := box / 2
 		if n > 1 {
 			centre = core.Points((bandHeight-float64(box))*float64(i)/float64(n-1)) + box/2
@@ -328,82 +323,37 @@ func (a *app) axisHint(s *session, fractions []float64, bandHeight float64, box 
 	})
 }
 
-// jumpToTurn scrolls the transcript to a fraction of its scrollable
-// length, where the ruler's tick stands.
+// jumpToTurn scrolls the transcript to a fraction of its scrollable length.
 func (a *app) jumpToTurn(s *session, fraction float64) {
-	ref := s.conversation.Scroll()
-	frame, ok := ref.Frame()
-	content, hasContent := ref.ContentBounds()
+	a.scrollToOffset(s, float64(a.scrollRoom(s))*fraction)
+}
+
+// scrollRoom is how far the transcript can scroll, 0 when it fits.
+func (a *app) scrollRoom(s *session) core.Points {
+	frame, ok := s.conversation.Scroll().Frame()
+	content, hasContent := s.conversation.Scroll().ContentBounds()
 	if !ok || !hasContent {
-		return
+		return 0
 	}
-	maxY := content.Size.Height - frame.Size.Height
-	if maxY <= 0 {
-		return
+	if maxY := content.Size.Height - frame.Size.Height; maxY > 0 {
+		return maxY
 	}
-	ref.ScrollTo(core.Point{Y: core.Points(float64(maxY) * fraction)}, true)
+	return 0
 }
 
-// turnAtFraction is the turn standing in the middle of the transcript
-// when it is scrolled to a fraction of its length. tops is where each
-// rendered turn sits, so the nearest one at or above the middle wins; a
-// transcript that has not been measured yet falls back to turn order.
-func turnAtFraction(tops map[int]float64, count int, fraction, content, frame float64) int {
-	if count <= 0 {
-		return -1
+// scrollToOffset puts the top of the transcript at a content offset.
+func (a *app) scrollToOffset(s *session, y float64) {
+	room := float64(a.scrollRoom(s))
+	if room <= 0 {
+		return
 	}
-	byOrder := func() int {
-		i := int(math.Round(fraction * float64(count-1)))
-		return max(0, min(count-1, i))
-	}
-	if len(tops) == 0 || content <= frame {
-		return byOrder()
-	}
-	middle := fraction*(content-frame) + frame/2
-	best, bestY := -1, 0.0
-	for i, y := range tops {
-		if i < 0 || i >= count {
-			continue
-		}
-		if y <= middle && (best == -1 || y > bestY) {
-			best, bestY = i, y
-		}
-	}
-	if best >= 0 {
-		return best
-	}
-	// Above every measured turn, as a leading one scrolled past is: the
-	// first turn still stands for the place.
-	for i, y := range tops {
-		if i < 0 || i >= count {
-			continue
-		}
-		if best == -1 || y < bestY {
-			best, bestY = i, y
-		}
-	}
-	if best == -1 {
-		return byOrder()
-	}
-	return best
+	s.conversation.Scroll().ScrollTo(core.Point{Y: core.Points(math.Min(math.Max(0, y), room))}, true)
 }
 
-// axisTip is what the ruler says over a tick: the turn a jump would put
-// in the middle, and the start of its prompt.
-func (a *app) axisTip(s *session, fraction float64) string {
+// axisTip is what the ruler says over a mark: the turn it stands for, and
+// the start of its prompt.
+func (a *app) axisTip(s *session, i int) string {
 	turns := s.turns.GetUntracked()
-	if len(turns) == 0 {
-		return ""
-	}
-	var content, frame float64
-	ref := s.conversation.Scroll()
-	if b, ok := ref.ContentBounds(); ok {
-		content = float64(b.Size.Height)
-	}
-	if b, ok := ref.Frame(); ok {
-		frame = float64(b.Size.Height)
-	}
-	i := turnAtFraction(s.tops, len(turns), fraction, content, frame)
 	if i < 0 || i >= len(turns) {
 		return ""
 	}
@@ -427,23 +377,30 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 		now := func() time.Time { return a.clock.Get() }
 		return chat.Turn{
 			Status: func() chat.Status { return t().Status },
+			// The fold row says what the process did; the duration sits at
+			// the end of the turn instead, so it is not read twice.
 			Summary: func() string {
 				tt := t()
-				parts := []string{"用时 " + duration(tt.elapsed(now()))}
+				var parts []string
+				if tt.Plan {
+					parts = append(parts, T("计划"))
+				}
+				if tt.Goal {
+					parts = append(parts, T("目标"))
+				}
 				if tt.Tools > 0 {
-					parts = append(parts, fmt.Sprintf("%d 个工具调用", tt.Tools))
+					parts = append(parts, T("%d 个工具调用", tt.Tools))
 				}
 				switch tt.Status {
 				case chat.Cancelled:
-					parts[0] = "已停止 · " + parts[0]
+					parts = append(parts, T("已停止"))
 				case chat.Failed:
-					parts[0] = "出错 · " + parts[0]
+					parts = append(parts, T("出错"))
 				}
-				summary := strings.Join(parts, " · ")
-				if tt.Plan {
-					summary = T("计划") + " · " + summary
+				if len(parts) == 0 {
+					parts = append(parts, T("过程"))
 				}
-				return summary
+				return strings.Join(parts, " · ")
 			},
 			Working: func() string {
 				tt := t()
@@ -464,7 +421,16 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 						children = append(children, core.Text{Content: tt.Prompt, Selectable: core.SelectableOn,
 							Style: core.Style{FontSize: 13, LineHeight: 20, Color: colors.Text()}})
 					}
-					return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: children}
+					return core.View{Style: core.Style{Direction: core.Column, AlignItems: core.AlignEnd, Gap: 3},
+						Children: []core.Node{
+							core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: children},
+							// When it was sent, inside the bubble's foot, as a
+							// chat shows its own messages.
+							core.Show{When: func() bool { return !t().Start.IsZero() }, Then: func(cx *core.Scope) core.Node {
+								return core.Text{Content: clockTime(t().Start),
+									Style: core.Style{FontSize: 10.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Muted)}
+							}},
+						}}
 				})
 			},
 			Steps: func() []chat.Step { return a.steps(s, t()) },
@@ -523,7 +489,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 							OnPress:  func() { a.editPlan(s, tt) }},
 					)
 				}
-				return core.Group(append(planActions, []core.Node{
+				actions := append(planActions, []core.Node{
 					chat.IconAction{Label: T("重新发送"), Icon: lucide.RefreshCw,
 						Disabled: func() bool { return tt.Prompt == "" || t().running() },
 						OnPress:  func() { a.resendTurn(s, tt) }},
@@ -551,7 +517,10 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					chat.IconAction{Label: T("从这里分叉"), Icon: lucide.GitBranch, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() { a.forkSession(s, tt.ID) }},
 					chat.IconAction{Label: T("重试"), Icon: lucide.RefreshCw, OnPress: func() { a.retry(s, tt) }},
-				}...))
+				}...)
+				// The reply's own line closes the row: when it came back, how
+				// long it took and which model answered.
+				return core.Group(append(actions, a.turnMeta(t, now)))
 			},
 			ShowActions: func() bool {
 				tt := t()
@@ -560,6 +529,40 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			Conversation: s.conversation,
 		}
 	})
+}
+
+// turnMeta ends a finished reply: when it came back, how long the turn took
+// and the model that gave it. PiDeck puts the same line at the end of its
+// actions row, where the eye already is.
+func (a *app) turnMeta(t func() turn, now func() time.Time) core.Node {
+	return core.Show{
+		When: func() bool { tt := t(); return !tt.running() && (!tt.End.IsZero() || tt.Model != "") },
+		Then: func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			tt := t()
+			faint := core.Style{FontSize: 11, LineHeight: 16}
+			var row []core.Node
+			dot := func() {
+				if len(row) > 0 {
+					row = append(row, core.Text{Content: "·", Style: faint, StyleFunc: ui.Colored(colors.Faint)})
+				}
+			}
+			if !tt.End.IsZero() {
+				row = append(row, core.Text{Content: clockTime(tt.End), Style: faint, StyleFunc: ui.Colored(colors.Faint)})
+			}
+			if d := tt.elapsed(now()); d >= time.Second {
+				dot()
+				row = append(row, ui.Icon(lucide.Clock, 11, colors.Faint),
+					core.Text{Content: duration(d), Style: faint, StyleFunc: ui.Colored(colors.Faint)})
+			}
+			if tt.Model != "" {
+				dot()
+				row = append(row, core.Text{Content: tt.Model, Style: faint, StyleFunc: ui.Colored(colors.Faint)})
+			}
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
+				Padding: core.Edges{Left: 4}}, Children: row}
+		},
+	}
 }
 
 // steps is a turn's work: one step per assistant message, streaming or
@@ -1401,6 +1404,15 @@ func (a *app) welcome() core.Node {
 				}},
 			}}
 	})
+}
+
+// clockTime is when a prompt went out or an answer came back: the date and
+// the time, so a session read days later still reads right.
+func clockTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("01-02 15:04")
 }
 
 // duration renders an elapsed time for a turn.

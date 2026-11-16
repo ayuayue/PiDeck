@@ -16,26 +16,36 @@ import (
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
-func TestAxisTicks(t *testing.T) {
-	if got := axisTicks(0); got != 0 {
-		t.Fatalf("no band made %d ticks", got)
+// TestPlanAxisTicks gives every turn a mark while they fit, and an even
+// sample that keeps both ends when they do not.
+func TestPlanAxisTicks(t *testing.T) {
+	if got := planAxisTicks(0, 370); got != nil {
+		t.Fatalf("no turns planned %v marks", got)
 	}
-	if got := axisTicks(10); got != axisLeast {
-		t.Fatalf("a short band made %d ticks, want %d", got, axisLeast)
+	if got := planAxisTicks(10, 0); got != nil {
+		t.Fatalf("no band planned %v marks", got)
 	}
-	if got := axisTicks(280); got != 24 {
-		t.Fatalf("a 280 point band made %d ticks, want 24", got)
+	all := planAxisTicks(5, 370)
+	if len(all) != 5 {
+		t.Fatalf("five turns fit %d marks, want 5", len(all))
 	}
-	if got := axisTicks(100000); got != axisMost {
-		t.Fatalf("a huge band made %d ticks, want %d", got, axisMost)
+	for i, turn := range all {
+		if turn != i {
+			t.Fatalf("mark %d stands for turn %d", i, turn)
+		}
 	}
-	fs := axisFractions(5)
-	if len(fs) != 5 || fs[0] != 0 || fs[2] != 0.5 || fs[4] != 1 {
-		t.Fatalf("five ticks stand at %v", fs)
+
+	// A 100 point band holds 26 marks; 200 turns need sampling.
+	crowded := planAxisTicks(200, 100)
+	if len(crowded) != 26 {
+		t.Fatalf("200 turns made %d marks, want 26", len(crowded))
 	}
-	for i := 1; i < len(fs); i++ {
-		if fs[i] <= fs[i-1] {
-			t.Fatalf("ticks are not ascending: %v", fs)
+	if crowded[0] != 0 || crowded[len(crowded)-1] != 199 {
+		t.Fatalf("the sample dropped an end: %d … %d", crowded[0], crowded[len(crowded)-1])
+	}
+	for i := 1; i < len(crowded); i++ {
+		if crowded[i] <= crowded[i-1] {
+			t.Fatalf("marks are not ascending: %v", crowded)
 		}
 	}
 }
@@ -141,43 +151,4 @@ func TestAxisTicksGrowOnHover(t *testing.T) {
 		t.Fatalf("the mark reached = %v, want %v", got, axisTickWidth)
 	}
 
-	// Leaving the scale shortens the mark again. A real window moves the
-	// pointer out of the surface as the platform reports it, which the test
-	// host cannot drive, so this runs headless.
-	if nsgotest.Target() == "" {
-		app.HoverOut()
-		if got := width("id:axis-tick-8"); !near(got, axisTickNarrow) {
-			t.Fatalf("the mark after the pointer left = %v, want %v", got, axisTickNarrow)
-		}
-	}
-}
-
-// TestTurnAtFraction checks which turn the ruler's tooltip names: the one
-// standing in the middle of the transcript after the jump.
-func TestTurnAtFraction(t *testing.T) {
-	tops := map[int]float64{0: 0, 1: 500, 2: 1200}
-	cases := []struct {
-		fraction, content, frame float64
-		want                     int
-	}{
-		{0, 2000, 500, 0},   // middle at 250, inside the first turn
-		{0.5, 2000, 500, 1}, // middle at 1000, inside the second
-		{1, 2000, 500, 2},   // middle at 1750, inside the third
-	}
-	for _, c := range cases {
-		if got := turnAtFraction(tops, 3, c.fraction, c.content, c.frame); got != c.want {
-			t.Errorf("fraction %v put turn %d in the middle, want %d", c.fraction, got, c.want)
-		}
-	}
-	// Before a turn is measured, or when the transcript fits, the tick
-	// falls back to turn order.
-	if got := turnAtFraction(nil, 5, 0.5, 2000, 500); got != 2 {
-		t.Errorf("an unmeasured transcript picked turn %d, want 2", got)
-	}
-	if got := turnAtFraction(nil, 5, 1, 200, 500); got != 4 {
-		t.Errorf("a transcript that fits picked turn %d, want 4", got)
-	}
-	if got := turnAtFraction(nil, 0, 0.5, 0, 0); got != -1 {
-		t.Errorf("no turns picked turn %d", got)
-	}
 }
