@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 0e0760535a969b51739f41a8b16d7ba1898651941d51307feadc61ce43f1d453（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 288d551a01ed260803f89686393c079575810dae36b9c7447773e556ae6af458（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -252,6 +252,20 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.sidebarActiveSessions": "執行中",
 	"app.sidebarActive": "活動",
 	"app.sidebarActiveEmpty": "暫無執行中的 Agent 會話",
+	"gtd.title": "分診收件箱",
+	"gtd.switchToInbox": "切換到分診檢視",
+	"gtd.switchToList": "返回列表檢視",
+	"gtd.bucketNeedsYou": "需你拍板",
+	"gtd.bucketPinned": "置頂",
+	"gtd.bucketActive": "活躍 / 待驗收",
+	"gtd.bucketWorking": "後臺進行中",
+	"gtd.bucketSnoozed": "稍後提醒",
+	"gtd.bucketSettled": "已結清",
+	"gtd.settle": "結清",
+	"gtd.settled": "已結清（5 秒內可撤銷）",
+	"gtd.undo": "撤銷",
+	"gtd.unread": "未讀",
+	"gtd.empty": "暫時沒有需要分診的會話",
 	"app.sidebarRecentSessions": "最近會話",
 	"app.sidebarRecentTotal": "共 {count} 條",
 	"app.sidebarRecentShownPartial": "顯示前 {shown} 項",
