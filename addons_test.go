@@ -399,16 +399,18 @@ func TestRevealCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(file.Args, " ")
-	if !strings.Contains(joined, "a.jsonl") {
-		t.Fatalf("file reveal runs %q", joined)
-	}
 	switch runtime.GOOS {
 	case "windows":
-		if !strings.Contains(joined, "/select,") {
+		if !strings.Contains(joined, "/select,") || !strings.Contains(joined, "a.jsonl") {
 			t.Fatalf("file reveal runs %q", joined)
 		}
 	case "darwin":
-		if !strings.Contains(joined, "-R") {
+		if !strings.Contains(joined, "-R") || !strings.Contains(joined, "a.jsonl") {
+			t.Fatalf("file reveal runs %q", joined)
+		}
+	default:
+		// No file manager protocol selects a file here: its folder opens.
+		if !strings.Contains(joined, "C:/proj") {
 			t.Fatalf("file reveal runs %q", joined)
 		}
 	}
