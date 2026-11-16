@@ -43,7 +43,7 @@ function sameAppliedPreferences(a: AppliedSessionPreferences | undefined, b: App
 export class SessionRuntimePreferences {
 	constructor(
 		private readonly catalog: Pick<SessionCatalogGateway, "get" | "update">,
-		private readonly agents: Pick<SessionAgentGateway, "setModel" | "setThinking" | "getRuntimeModelThinkingState" | "setPermission" | "notifyModelPreferenceIgnored">,
+		private readonly agents: Pick<SessionAgentGateway, "setModel" | "setThinking" | "getRuntimeModelThinkingState" | "setPermission" | "notifyModelPreferenceIgnored" | "notifyPermissionPreferenceIgnored">,
 		private readonly logger: SessionRuntimeLogger | undefined,
 		/** 宿主判定（含 ssh locator / 远端项目草稿），见 `SessionRuntimeCoordinator.isRemoteSession`。 */
 		private readonly isRemoteSession: (sessionId: string) => boolean,
@@ -105,9 +105,12 @@ export class SessionRuntimePreferences {
 		}
 		const modelAlreadyApplied = Boolean(runtimeSelection && entry.model && runtimeSelection.provider === entry.model.provider && runtimeSelection.modelId === entry.model.modelId);
 		const thinkingAlreadyApplied = runtimeSelection?.thinkingLevel !== undefined && runtimeSelection.thinkingLevel === entry.thinkingLevel;
+		/** 本次是否真的把偏好下发给了 runtime（失败但被降级吞掉的不算）。 */
+		let deliveredToRuntime = false;
 		if (entry.model && !modelAlreadyApplied) {
 			try {
 				await this.agents.setModel(agentId, entry.model.provider, entry.model.modelId);
+				deliveredToRuntime = true;
 			} catch (error) {
 				if (isRemote) {
 					// 只有「远端确实不认识这个模型」才采纳宿主机当前模型。RPC 超时/远端进程刚退出是
@@ -154,6 +157,7 @@ export class SessionRuntimePreferences {
 		if (entry.thinkingLevel && !thinkingAlreadyApplied) {
 			try {
 				await this.agents.setThinking(agentId, entry.thinkingLevel);
+				deliveredToRuntime = true;
 			} catch (error) {
 				// 远端会话与 DSH 同语义：档位能力由后端裁决，本机偏好带到远端可能整体不适用，
 				// 降级为「沿用 runtime 当前档位」，不阻断激活。
@@ -169,9 +173,52 @@ export class SessionRuntimePreferences {
 				// 根据一条当前错误擅自清空用户选择。
 			}
 		}
-		// DSH 权限预设（草稿期预选 / 会话内切换回写）：激活时经 /permission 命令应用
+		// 落点校准（仅本机 pi）：pi 会按目标模型的 thinkingLevelMap 收敛档位（xhigh→high），
+		// catalog 里留的却是收敛前的选择。不回读就会长期「记录 xhigh、实际 high」——底栏
+		// 显示与实际不一致，点开选择器才跳变（#545）。只在本次真的下发过偏好时读一次；
+		// 远端会话按既有纪律不加跨 ssh 往返，DSH 由 host 自己的选择投影兜底。
+		if (deliveredToRuntime && entry.thinkingLevel && !isDsh && !isRemote) {
+			await this.calibrateThinkingLevel(entry, agentId);
+		}
+		// DSH 权限预设（草稿期预选 / 会话内切换回写）：激活时经 /permission 命令应用。
+		// 这是「尽力应用」的偏好：host 拒绝、或投影迟迟不落地时，不能连带把用户真实消息一起挡掉
+		// （#548：幂等 no-op 等不到事件，5s 超时让该会话每次发送都失败）。沿用 host 当前策略并
+		// 明确告知——权限语义静默不一致比报错更危险。其它后端没有这个能力面，失败照旧抛。
 		if (entry.permissionPreset && this.agents.setPermission) {
-			await this.agents.setPermission(agentId, entry.permissionPreset);
+			try {
+				await this.agents.setPermission(agentId, entry.permissionPreset);
+			} catch (error) {
+				if (!isDsh) throw error;
+				void this.logger?.warn("session-runtime", "DSH permission preference ignored", {
+					sessionId: entry.id,
+					permissionPreset: entry.permissionPreset,
+					error: errorMessage(error),
+				});
+				this.agents.notifyPermissionPreferenceIgnored?.(agentId, entry.permissionPreset);
+			}
+		}
+	}
+
+	/**
+	 * 回读运行态真实档位并写回 catalog（调用点见 applyPreferences）。
+	 * 失败只记日志：这是展示修正，不能连带激活失败。
+	 */
+	private async calibrateThinkingLevel(entry: SessionCatalogEntry, agentId: string): Promise<void> {
+		try {
+			const runtimeSelection = await this.agents.getRuntimeModelThinkingState?.(agentId);
+			const effective = runtimeSelection?.thinkingLevel;
+			if (!effective || effective === entry.thinkingLevel) return;
+			await this.catalog.update(entry.id, { thinkingLevel: effective, updatedAt: Date.now() });
+			void this.logger?.info("session-runtime", "thinking level clamped by runtime; catalog updated", {
+				sessionId: entry.id,
+				requestedLevel: entry.thinkingLevel,
+				thinkingLevel: effective,
+			});
+		} catch (error) {
+			void this.logger?.warn("session-runtime", "failed to calibrate thinking level", {
+				sessionId: entry.id,
+				error: errorMessage(error),
+			});
 		}
 	}
 

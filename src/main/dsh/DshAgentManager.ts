@@ -30,6 +30,8 @@ import { buildDshRuntimeState } from "./manager/dshRuntimeState";
 import { DshRuntimePumps, initialDshControl } from "./manager/dshRuntimePumps";
 import { hydrateDshImageRefs as hydrateDshImageRefsOnMessages } from "./manager/dshImageHydration";
 import { setDshModel, setDshPermission, setDshThinking, type DshModelControlHost } from "./manager/dshModelControl";
+import { modelPreferenceIgnoredNotice, permissionPreferenceIgnoredNotice } from "./dshPreferenceNotices";
+import { compactDshSession, type DshCompactHost } from "./manager/dshCompact";
 import { exportDshAgentHtml, exportDshSessionHtml, readDshSessionExportMessages, type DshSessionExportHost } from "./manager/dshSessionExport";
 
 /**
@@ -130,6 +132,8 @@ export class DshAgentManager implements SessionAgentGateway {
 	private readonly historyReadHost: DshHistoryReadHost;
 	/** 模型/思考档/权限预设的宿主出口：runtime 查表与 idle 串行化留在宿主。 */
 	private readonly modelControlHost: DshModelControlHost;
+	/** 会话压缩的宿主出口（命令回合结算在 mux，见 manager/dshCompact）。 */
+	private readonly compactHost: DshCompactHost;
 	/** 会话 HTML 导出的宿主出口：runtime 查表、host 拉起与导出目录注入留在宿主。 */
 	private readonly sessionExportHost: DshSessionExportHost;
 	constructor(
@@ -180,6 +184,13 @@ export class DshAgentManager implements SessionAgentGateway {
 			getRuntime: (agentId) => this.runtime(agentId),
 			requireClient: () => this.requireClient(),
 			waitForIdle: (agentId) => this.waitForIdle(agentId),
+		};
+		this.compactHost = {
+			getRuntime: (agentId) => this.runtime(agentId),
+			requireClient: () => this.requireClient(),
+			waitForIdle: (agentId) => this.waitForIdle(agentId),
+			emitRuntimeState: (agentId) => this.emitRuntimeState(agentId),
+			getRuntimeState: (agentId) => this.getRuntimeState(agentId),
 		};
 		this.sessionExportHost = {
 			getRuntime: (agentId) => this.runtime(agentId),
@@ -929,30 +940,8 @@ export class DshAgentManager implements SessionAgentGateway {
 	}
 
 	async compact(agentId: string, prompt?: string): Promise<AgentRuntimeState> {
-		// DSH 的压缩走 host 侧 /compact 命令注册表（dsh-command-compact），
-		// wire 上没有显式 compact RPC（计划 D11）：以 queue 提示词触发，随后返回当前 runtime 状态。
-		const runtime = this.runtime(agentId);
-		// 与 pi 一致：压缩中拒绝重复请求，避免第二次 /compact 拼进命令回合。
-		if (runtime.isCompacting) {
-			throw new Error("already compacting");
-		}
-		const client = this.requireClient();
-		// 与 sendPrompt 同一串行化约束：上一回合（含命令回合）idle 后才发 /compact，
-		// 避免压缩指令被 host 拼进运行中回合（D4）。
-		await this.waitForIdle(agentId);
-		const commandText = prompt && prompt.trim() ? `/compact ${prompt.trim()}` : "/compact";
-		const sent = await client.sessionsPrompt({
-			sessionId: runtime.sessionId,
-			mode: "queue",
-			content: [{ type: "text", text: commandText }],
-		});
-		if (!sent.result.ok) {
-			throw new Error(`dsh /compact failed: ${JSON.stringify(sent.result.error)}`);
-		}
-		// 压缩进行态：turn/end（命令回合收口）到达后由 mux 复位（D4）。
-		runtime.isCompacting = true;
-		this.emitRuntimeState(agentId);
-		return this.getRuntimeState(agentId);
+		// 实现见 manager/dshCompact：等命令回合收口，command/done 报错就透出原文（#557）。
+		return compactDshSession(this.compactHost, agentId, prompt);
 	}
 
 	async getRuntimeState(agentId: string): Promise<AgentRuntimeState> {
@@ -1329,33 +1318,22 @@ export class DshAgentManager implements SessionAgentGateway {
 
 	/**
 	 * 会话保存的模型偏好被 host 拒绝时的用户提示（issue #253 的「选了但没生效」）。
-	 *
-	 * 引导页/草稿期的 DSH 点选已作为显式 model 传给 host（sessions.selectModel）；
-	 * host 是模型与档位能力的最终裁决者，拒绝时 applyPreferences 会降级到部署默认并
-	 * 保留 catalog 偏好——但不告知的话，用户会看到底栏显示自己选的模型，实际跑的却是
-	 * 另一个模型（比修复前的「选不动」更难排查）。
-	 *
-	 * 为什么用 toast（agentsNotice）而不是像 pi 那样插会话内系统消息：DSH 的
-	 * runtime.messages 是 host projection 的整段替换（history/回填等多处
-	 * `runtime.messages = projection.messages`），本地插入的消息在下一次投影时会被冲掉；
-	 * toast 通道（useSessionRuntimeBridge → showNotice）不依赖消息列表，可靠可见。
+	 * 通道选择与文案背景见 dshPreferenceNotices。
 	 */
 	notifyModelPreferenceIgnored(agentId: string, provider: string, modelId: string): void {
 		if (!this.runtimes.has(agentId)) return;
-		this.emit(agentEventTags.agentsNotice, {
-			agentId,
-			i18nKey: "notice.modelPreferenceIgnored",
-			kind: "warning",
-			duration: 8000,
-			// 渲染层 t() 支持 i18nParams？——不支持（bridge 只传 key），所以主文案里不放占位符，
-			// 模型身份放进 message 供 i18n 未命中时的兜底显示。
-			message: `模型偏好 ${provider}/${modelId} 未能应用（DSH host 未接受），已沿用当前模型。请重新选择。`,
-		});
+		this.emit(agentEventTags.agentsNotice, modelPreferenceIgnoredNotice(agentId, provider, modelId));
 	}
 
 	/** 权限预设切换（实现在 manager/dshModelControl：`/permission` 命令 + 投影落地等待）。 */
 	async setPermission(agentId: string, preset: string): Promise<unknown> {
 		return setDshPermission(this.modelControlHost, agentId, preset);
+	}
+
+	/** 权限预设重放失败时的用户提示（#548）：沿用 host 当前策略但不静默，载荷见 dshPreferenceNotices。 */
+	notifyPermissionPreferenceIgnored(agentId: string, preset: string): void {
+		if (!this.runtimes.has(agentId)) return;
+		this.emit(agentEventTags.agentsNotice, permissionPreferenceIgnoredNotice(agentId, preset));
 	}
 
 	async publishRuntimeState(agentId: string): Promise<void> {

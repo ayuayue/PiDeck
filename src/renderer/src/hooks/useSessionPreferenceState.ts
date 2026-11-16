@@ -106,7 +106,9 @@ export function useSessionPreferenceState(options: {
 	// 切到 dsh 后模型/思考选择器展示 DSH 目录而非 pi 目录。
 	const isDshSession = record?.backend === "dsh" || runtime?.backend === "dsh" || (sessionId === GUIDE_BOOTSTRAP_SESSION_ID && options.backend === "dsh");
 	// 目录刻意懒加载：选择器打开、或快捷键首次按下（cycleArmed）才拉，避免每个会话栏开机各拉一次。
-	const catalogEnabled = options.pickerOpen || options.cycleArmed;
+	// 例外是还没跑起来的会话（引导页/草稿）：底栏在打开选择器之前就要按当前模型的
+	// thinkingLevels 收敛档位，否则旧档位（xhigh）会一直显示、点开选择器才被 clamp（#545）。
+	const catalogEnabled = options.pickerOpen || options.cycleArmed || !record || record.status === "draft";
 	const {
 		models,
 		report,
