@@ -208,6 +208,8 @@ curl -N -H "$AUTH" -H "Content-Type: application/json" \
 
 **会话记录存在时，对端进程死没死都能送到**：服务端会替你 activate 一次。反过来，对端忙的时候整条连接可能只有 `: ping` 心跳，`total` 也不当场变大，而消息确实进了它的对话——拿 `total` 当判据会判成没送到，重发一次就变成两条重复消息。
 
+**`finish` 不是「送到」的证据。** error 流里同样带 `data: {"type":"finish"}` 与 `data: [DONE]`——实测向不存在的 sessionId 发 `/api/chat`，200 的正文是 error 帧、再跟 finish 和 `[DONE]`。所以别拿 finish 判断送到，只看有没有 `error` 帧。
+
 把上面的规则变成可执行的一条：
 
 ```bash
@@ -215,14 +217,16 @@ curl -sN --max-time 30 -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"id":"<目标 sessionId>","messages":[{"role":"user","parts":[{"type":"text","text":"ping"}]}]}' \
   "$BASE/api/chat" > /tmp/chat.txt
 if grep -q '"type":"error"' /tmp/chat.txt; then
-  echo "FAIL 没送到：$(sed -n 's/.*"errorText":"\([^"]*\)".*/\1/p' /tmp/chat.txt | head -1)"; exit 1
+  echo "FAIL 没送到：$(sed -n 's/.*"errorText":"\([^"]*\)".*/\1/p' /tmp/chat.txt | head -1)"
+  exit 1
 fi
-echo "PASS 没有 error 帧"
+grep -Eq '"type":"(start|finish)"' /tmp/chat.txt || { echo "未验证：输出里既没有 start 也没有 finish（空文件、只有 : ping 心跳、或被 --max-time 掐断）"; exit 2; }
+echo "PASS 没有 error 帧，且收到了 start 或 finish"
 ```
 
 目标会话没激活时这条命令会自己拉起它（服务端替你 activate），不必先手动 activate，但第一次可能慢几秒。
 
-`--max-time 30` 到点就断，长回复收不全；判「送到没有」只看有没有 `error` 帧，不要等 `finish`。
+`--max-time 30` 到点就断，长回复收不全；判「送到没有」按上面三态：1 没送到、0 送到、2 无法判定（一条消息帧都没收到）。
 
 ### 5.4 对方在 goal 模式时
 
