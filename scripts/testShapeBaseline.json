@@ -472,6 +472,7 @@
 		"tests/chatDirectoryButton.test.mjs → SessionPaneServices declares changeChatPath contract",
 		"tests/chatDirectoryButton.test.mjs → chat directory i18n keys exist in zh-CN and en-US",
 		"tests/chatSectionCollapseAffordance.test.mjs → chat empty-state copy exists in every dictionary",
+		"tests/chatLineHeight.test.mjs → 接线与 CSS：全局 dataset + 正文倍率可调 + 代码块/表格钉住基线",
 		"tests/clipboardPaste.test.mjs → clipboard helper exposes consistent html read with whitespace-normalized comparison",
 		"tests/clipboardPaste.test.mjs → composer and git commit input paste through the consistent html read",
 		"tests/clipboardPaste.test.mjs → Ctrl+V composer paste inserts clipboard text/plain, never TipTap HTML",

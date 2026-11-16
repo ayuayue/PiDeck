@@ -660,16 +660,14 @@ export type AppSettings = {
 	fontSize: AppFontSizeMode;
 	/** UI 字号覆盖；null 表示跟随 fontSize。控制 sidebar、按钮、列表、弹窗等 */
 	uiFontSize: AppFontSizeMode | null;
-	/**
-	 * 会话 Tab 栏字号覆盖；null 表示跟随 uiFontSize（而非 fontSize）。
-	 * 为什么回落界面轨：Tab 标题历史上吃的是界面轨的 --font-size-micro，
-	 * 若回落全局字号，「只改过界面字号」的用户开启本开关后 Tab 会突变。
-	 */
+	/** 会话 Tab 栏字号覆盖；null 表示跟随 uiFontSize（而非 fontSize）——Tab 标题历史上吃界面轨的
+	 *  --font-size-micro，回落全局字号会让「只改过界面字号」的用户一开这个开关就突变。 */
 	tabBarFontSize: AppFontSizeMode | null;
 	/** 会话正文字号覆盖；null 表示跟随 fontSize。控制用户消息与助手回复 */
 	chatFontSize: AppFontSizeMode | null;
 	/** 输入框字号覆盖；null 表示跟随 fontSize。控制 composer 输入区 */
 	inputFontSize: AppFontSizeMode | null;
+	chatLineHeight: "default" | "relaxed" | "loose"; // 会话正文行距（#547，全局一份；代码块/表格不跟随）
 	/** 全局窗口缩放比例，1 为 100%；通过 webContents.setZoomFactor 生效 */
 	zoomFactor: number;
 	/** UI 基础字体预设，默认使用系统字体；system 跟随系统字体栈；custom 时使用 fontFamilyBaseCustom */
@@ -1303,6 +1301,7 @@ export function createDefaultAppSettings(): AppSettings {
 		tabBarFontSize: null,
 		chatFontSize: null,
 		inputFontSize: null,
+		chatLineHeight: "default",
 		zoomFactor: 1,
 		fontFamilyBase: "system",
 		fontFamilyBaseCustom: "",

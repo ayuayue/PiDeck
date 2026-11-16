@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: eb0cb0cc10b643620ce9d65e86ee32e8048e6eeff8361b8ea6f353f9bf7aa89e（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: d069f85c57d3af43dec5511f908a0847822ed5efd4750a399d93ecd57e8138d1（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5413,6 +5413,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.uiFontSize": "介面字號",
 	"settings.tabBarFontSize": "會話 Tab 欄字號",
 	"settings.chatFontSize": "會話正文字號",
+	"settings.chatLineHeight": "會話正文行距",
+	"settings.chatLineHeightDefault": "標準",
+	"settings.chatLineHeightRelaxed": "舒展",
+	"settings.chatLineHeightLoose": "寬鬆",
 	"settings.inputFontSize": "輸入框字號",
 	"settings.fontFamilyBase": "介面字型",
 	"settings.fontFamilyBaseDesc": "介面正文、按鈕、列表、輸入框等主體字型。",

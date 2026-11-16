@@ -111,6 +111,7 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "uiFontSize", tab: "appearance", itemKey: "settings.uiFontSize" },
 	{ field: "tabBarFontSize", tab: "appearance", itemKey: "settings.tabBarFontSize" },
 	{ field: "chatFontSize", tab: "appearance", itemKey: "settings.chatFontSize" },
+	{ field: "chatLineHeight", tab: "appearance", itemKey: "settings.chatLineHeight" },
 	{ field: "inputFontSize", tab: "appearance", itemKey: "settings.inputFontSize" },
 	{ field: "fontFamilyBase", tab: "appearance", itemKey: "settings.fontFamilyBase" },
 	{ field: "fontFamilyBaseCustom", tab: "appearance", itemKey: "settings.fontFamilyBaseCustomField" },

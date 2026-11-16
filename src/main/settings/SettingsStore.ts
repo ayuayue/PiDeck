@@ -45,6 +45,7 @@ import { sanitizeCustomThemeSnapshot } from "../../shared/customThemes";
 import { normalizeThemeAppearance } from "../../shared/themeSkinMigration";
 import { sanitizeAcpToolConfigDefaults, sanitizeAcpTools } from "../acp/acpToolConfig";
 import { normalizeFontSizeMode, normalizeOptionalFontSizeMode } from "../../shared/fontSize";
+import { normalizeChatLineHeightMode } from "../../shared/chatLineHeight";
 import { clampSessionTabMaxWidth, SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import { getAppLogger } from "../logging/sharedLogger";
 import { normalizeRemoteProjectTrustRecords } from "../remote/RemoteProjectTrust";
@@ -421,6 +422,7 @@ Gitmoji 对应关系：
 	tabBarFontSize: null,
 	chatFontSize: null,
 	inputFontSize: null,
+	chatLineHeight: "default", // 会话正文行距（#547）：基线档 = 当前出厂观感，升级不改变既有排版
 	zoomFactor: 1,
 	fontFamilyBase: "system",
 	fontFamilyBaseCustom: "",
@@ -673,6 +675,8 @@ export class SettingsStore {
 			this.settings.tabBarFontSize = normalizeOptionalFontSizeMode(this.settings.tabBarFontSize);
 			this.settings.chatFontSize = normalizeOptionalFontSizeMode(this.settings.chatFontSize);
 			this.settings.inputFontSize = normalizeOptionalFontSizeMode(this.settings.inputFontSize);
+			// 会话正文行距（#547）：旧 JSON 没有该字段/存了已删除的档位，都回落基线档。
+			this.settings.chatLineHeight = normalizeChatLineHeightMode(this.settings.chatLineHeight);
 			// 声音提醒来自旧 JSON 时可能缺字段/非法；统一归一化（旧数据自动获得默认配置）。
 			this.settings.soundAlert = normalizeSoundAlertSettings(parsed.soundAlert);
 			// git 可执行文件路径来自旧 JSON 时可能是脏值（非字符串）；回落空串（自动解析），

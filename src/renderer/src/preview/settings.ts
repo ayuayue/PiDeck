@@ -140,6 +140,7 @@ export function createSettingsPreview(): Pick<PiDesktopApi, "editors" | "setting
 		tabBarFontSize: null,
 		chatFontSize: null,
 		inputFontSize: null,
+		chatLineHeight: "default",
 		zoomFactor: 1,
 		fontFamilyBase: "system",
 		fontFamilyBaseCustom: "",
