@@ -9,7 +9,7 @@
 import type { AgentTab } from "../../shared/types/agent";
 import type { AcpConfigOption } from "./acpProtocol";
 import type { AcpAgentRuntime } from "./acpAgentRuntime";
-import { findAcpBypassModeValue, findAcpModeOption, isAcpBypassModeValue, isRememberedAcpConfigOption, planAcpConfigReplay } from "./acpToolConfig";
+import { acpBypassUnavailableNotice, acpConfigOptionValues, findAcpBypassModeValue, findAcpModeOption, isAcpBypassModeValue, isRememberedAcpConfigOption, planAcpConfigReplay, type AcpBypassUnavailableNotice } from "./acpToolConfig";
 
 export type AcpConfigOptionsHost = {
 	/** 取 runtime（缺失时抛 "No ACP runtime: <id>"，与 manager 的公共契约一致）。 */
@@ -19,10 +19,15 @@ export type AcpConfigOptionsHost = {
 	onConfigOptionsChanged?: (tab: AgentTab, options: AcpConfigOption[]) => void;
 	rememberConfigOption?: (toolId: string, optionId: string, value: string | boolean) => void;
 	getToolConfigDefaults?: (toolId: string) => Record<string, string | boolean> | undefined;
+	/** 工具勾了 bypass、但它的模式枚举里没有 bypass 档（#556）：载荷见 acpToolConfig。 */
+	notifyBypassUnavailable?: (notice: AcpBypassUnavailableNotice) => void;
 	logger?: { info(channel: string, message: string, meta?: Record<string, unknown>): void; warn(channel: string, message: string, meta?: Record<string, unknown>): void };
 };
 
 export class AcpConfigOptions {
+	/** 已提示过「无 bypass 档」的工具：同一进程只提示一次，避免每次开会话都弹。 */
+	private readonly bypassUnavailableNotified = new Set<string>();
+
 	constructor(private readonly host: AcpConfigOptionsHost) {}
 
 	/** 下发配置选择并返回 agent 回传的完整 configOptions(规范:响应必带整表)。 */
@@ -102,13 +107,27 @@ export class AcpConfigOptions {
 		const mode = findAcpModeOption(runtime.configOptions);
 		if (!mode) return;
 		const bypass = findAcpBypassModeValue(mode);
-		if (!bypass || mode.currentValue === bypass) return;
+		if (!bypass) {
+			// #556：agy 这类 agent 只暴露 default / accept-edits / plan，勾了工具级 bypass 也是
+			// 空操作。静默不动会让用户以为已经放行（每次工具调用仍弹确认），必须明说一次。
+			this.notifyBypassUnavailableOnce(runtime, acpConfigOptionValues(mode));
+			return;
+		}
+		if (mode.currentValue === bypass) return;
 		try {
 			await this.enqueueConfigOption(runtime.tab.id, mode.id, bypass, false);
 		} catch (error) {
 			// 记忆里不落这条：用户没主动选过，写进去会污染后续会话的默认值
 			this.host.logger?.warn("acp", `[${runtime.tool.name}] bypass permission mode rejected: ${error instanceof Error ? error.message : String(error)}`);
 		}
+	}
+
+	/** 「无 bypass 档」提示的一次性闸门：同工具只发一次，跨会话不重复打扰。 */
+	private notifyBypassUnavailableOnce(runtime: AcpAgentRuntime, availableModes: string[]): void {
+		const toolId = runtime.tool.id;
+		if (this.bypassUnavailableNotified.has(toolId)) return;
+		this.bypassUnavailableNotified.add(toolId);
+		this.host.notifyBypassUnavailable?.(acpBypassUnavailableNotice(runtime.tool.name, availableModes));
 	}
 
 	/**

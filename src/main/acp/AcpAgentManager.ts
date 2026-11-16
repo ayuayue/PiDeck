@@ -182,6 +182,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 			onConfigOptionsChanged: deps.onConfigOptionsChanged,
 			rememberConfigOption: deps.rememberConfigOption,
 			getToolConfigDefaults: deps.getToolConfigDefaults,
+			notifyBypassUnavailable: (notice) => this.emit(agentEventTags.agentsNotice, notice),
 			logger: deps.logger,
 		});
 		this.lifecycle = new AcpRuntimeLifecycle({
@@ -774,10 +775,9 @@ export class AcpAgentManager implements SessionAgentGateway {
 		runtime.status = "closed";
 		runtime.tab.status = "closed";
 		this.failPendingPermissions(runtime);
-		// 先摘除并推终态:stop()/abort 升级强杀都走这里,渲染层需要 closed 事件把
-		// 会话从 running 收口(删除后的 list() 不再含该 agent,不会产生逐 agent 事件;
-		// 用户主动停止另有 coordinator 的 detach 事件,此推送与其幂等)。
-		// 必须在有序停止之前:关 stdin 到 CLI 真退出最多等 gracefulExitMs，不能让 UI 干等。
+		// 先摘除并推终态:stop()/abort 升级强杀都走这里,渲染层需要 closed 事件把会话从 running
+		// 收口(删除后的 list() 不再含该 agent,不会产生逐 agent 事件;用户主动停止另有
+		// coordinator 的 detach 事件,此推送与其幂等)。必须在有序停止之前,不能让 UI 干等。
 		this.emit(agentEventTags.agentsState, this.list());
 		this.runtimes.delete(agentId);
 		this.emit(agentEventTags.agentsState, this.list());

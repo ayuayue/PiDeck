@@ -219,3 +219,28 @@ export function sanitizeAcpTools(value: unknown): AcpToolConfig[] {
 	}
 	return tools;
 }
+
+/**
+ * 工具勾了「bypass 权限」但 agent 的模式枚举里没有 bypass 档时的用户提示（#556）。
+ *
+ * 这是配置无效的告知，不是错误：会话照常开，只是放行不会发生。载荷走 agents:notice，
+ * 渲染层用 i18nKey + i18nParams 翻译；message 是兜底文案（key 缺失或非渲染端消费时可读）。
+ */
+export type AcpBypassUnavailableNotice = {
+	i18nKey: "notice.acpBypassUnavailable";
+	i18nParams: { tool: string; modes: string };
+	kind: "warning";
+	duration: number;
+	message: string;
+};
+
+export function acpBypassUnavailableNotice(toolName: string, availableModes: readonly string[]): AcpBypassUnavailableNotice {
+	const modes = availableModes.join(" / ");
+	return {
+		i18nKey: "notice.acpBypassUnavailable",
+		i18nParams: { tool: toolName, modes },
+		kind: "warning",
+		duration: 8000,
+		message: `"${toolName}" offers no bypass mode (available: ${modes || "none"}); its "bypass permissions" setting has no effect.`,
+	};
+}
