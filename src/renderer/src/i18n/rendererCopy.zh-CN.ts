@@ -1171,14 +1171,15 @@ export const zhCN = {
 	"app.queuedOrder": "第 {n} 条",
 	"app.sendFollowUpDesc": "followUp · agent 停止后发送",
 	"app.sendFollowUpTitle": "排队到下一轮",
+	"app.sendFollowUpHint": "排队到下一轮：等当前回答结束再发，不打断",
 	"app.sendAskDesc": "并行 · 独立会话后台处理，不打断当前输出",
 	"app.sendAskTitle": "并行发送",
 	"app.sendShortcutSaved": "发送快捷键设置已保存。",
 	"app.sendSteerDesc": "steer · 下一次 LLM 调用前生效",
 	"app.sendSteerTitle": "加入当前回合",
-	"app.queuedSteerUnavailable": "仅运行中可插入当前回合",
 	"app.queuedBehaviorLocked": "发送中或结果未知时不能改投递方式",
 	"app.queuedSendNow": "立即发送",
+	"app.queuedSendNowInsertTurn": "立即发送（插入当前回合，不结束当前回答）",
 	"app.queuedSendNowStopTurn": "立即发送（会先停止当前回合）",
 	"app.queuedSendNowUnavailable": "会话未运行，暂时无法发送",
 	"app.queuedBehaviorSteerShort": "插入",
@@ -1545,6 +1546,8 @@ export const zhCN = {
 	// 注意：agentsNotice 通道的 t() 不支持占位符（与 app.abortSlow 等既有 key 同约定），
 	// 被拒绝的具体模型由调用方放在 message 里兜底展示。
 	"notice.modelPreferenceIgnored": "会话保存的模型偏好未能应用（host 未接受该选择），已沿用当前模型。请在模型选择器重新选择。",
+	"notice.permissionPreferenceIgnored": "会话保存的权限预设未能应用（host 未确认生效），本次沿用 host 当前策略。请重新切换权限预设。",
+	"notice.acpBypassUnavailable": "「{tool}」没有提供 bypass 模式档（可选：{modes}），工具级「bypass 权限」对该 agent 不生效。请改用它的免确认启动参数，或切换模式档。",
 	// toast 通知历史面板（设置页「通知」区与详情弹窗共用同一入口打开）
 	"notice.historyTitle": "通知历史",
 	"notice.historyDesc": "弹出的全部通知（已落盘存档，重启后仍可回看）。可复制全文或重新弹出。",

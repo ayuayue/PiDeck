@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: dd853def25e358b7a55b589ef5ba19b879c69421635cf0e171d8e3b596027053（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: eb0cb0cc10b643620ce9d65e86ee32e8048e6eeff8361b8ea6f353f9bf7aa89e（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1178,14 +1178,15 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.queuedOrder": "第 {n} 條",
 	"app.sendFollowUpDesc": "followUp · agent 停止後傳送",
 	"app.sendFollowUpTitle": "排隊到下一輪",
+	"app.sendFollowUpHint": "排隊到下一輪：等當前回答結束再發，不打斷",
 	"app.sendAskDesc": "並行 · 獨立會話後臺處理，不打斷當前輸出",
 	"app.sendAskTitle": "並行傳送",
 	"app.sendShortcutSaved": "傳送快捷鍵設定已儲存。",
 	"app.sendSteerDesc": "steer · 下一次 LLM 呼叫前生效",
 	"app.sendSteerTitle": "加入當前回合",
-	"app.queuedSteerUnavailable": "僅執行中可插入當前回合",
 	"app.queuedBehaviorLocked": "傳送中或結果未知時不能改投遞方式",
 	"app.queuedSendNow": "立即傳送",
+	"app.queuedSendNowInsertTurn": "立即傳送（插入當前回合，不結束當前回答）",
 	"app.queuedSendNowStopTurn": "立即傳送（會先停止當前回合）",
 	"app.queuedSendNowUnavailable": "會話未執行，暫時無法傳送",
 	"app.queuedBehaviorSteerShort": "插入",
@@ -1552,6 +1553,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	// 注意：agentsNotice 通道的 t() 不支持占位符（与 app.abortSlow 等既有 key 同约定），
 	// 被拒绝的具体模型由调用方放在 message 里兜底展示。
 	"notice.modelPreferenceIgnored": "會話儲存的模型偏好未能應用（host 未接受該選擇），已沿用當前模型。請在模型選擇器重新選擇。",
+	"notice.permissionPreferenceIgnored": "會話儲存的權限預設未能應用（host 未確認生效），本次沿用 host 當前策略。請重新切換權限預設。",
+	"notice.acpBypassUnavailable": "「{tool}」沒有提供 bypass 模式檔（可選：{modes}），工具級「bypass 權限」對該 agent 不生效。請改用它的免確認啟動引數，或切換模式檔。",
 	// toast 通知历史面板（设置页「通知」区与详情弹窗共用同一入口打开）
 	"notice.historyTitle": "通知歷史",
 	"notice.historyDesc": "彈出的全部通知（已落盤存檔，重啟後仍可回看）。可複製全文或重新彈出。",

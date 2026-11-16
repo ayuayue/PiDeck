@@ -730,7 +730,7 @@
 		"tests/queuedPromptQueue.test.mjs → prompt acceptance is explicit across the main and renderer boundary",
 		"tests/queuedPromptSendNow.test.mjs → the row stops the turn before handing the prompt to send-now",
 		"tests/queuedPromptSendNow.test.mjs → services and App expose the send-now path",
-		"tests/queuedPromptSendNow.test.mjs → ACP rows reuse the steer slot for send-now instead of adding a second icon",
+		"tests/queuedPromptSendNow.test.mjs → queue rows expose one send-now action instead of a duplicate steer toggle",
 		"tests/readSkillContent.test.mjs → 截断必须发生在读盘阶段（句柄定位读，不整文件进内存）",
 		"tests/rebindPanelUi.test.mjs → i18n 三种语言都有入口文案（zh-TW 为生成物）",
 		"tests/reconcileRuns.test.mjs → timeline wires reconcileRuns and TurnRow memo fast path",
