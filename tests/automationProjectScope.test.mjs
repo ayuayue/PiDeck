@@ -31,3 +31,8 @@ test("project scope filters tasks and runs and locks new task ownership", () => 
 	assert.match(editor, /defaultProjectId\?: string/);
 	assert.match(editor, /lockProject\?: boolean/);
 });
+
+test("run history shows the execution date, not just the time of day", () => {
+	assert.match(history, /formatFullDateTime/);
+	assert.doesNotMatch(history, /toLocaleTimeString/, "运行历史必须带日期，不能只渲染时分秒");
+});
