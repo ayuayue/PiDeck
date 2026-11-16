@@ -168,6 +168,6 @@ fork 默认 **before**：新会话的 leaf 是锚点的**父节点**，锚点这
 | `process-group-display`（1 条：同行文本共基线） | `expect.poll` 拿到的基线组不足 3 项，10s 后以 `NaN` 收尾（不是极差超限） | 组头的实时详情只在 `running && !open` 时渲染（`ProcessGroupStep.tsx:201`：`detail = props.running && !props.open ? lastToolDetail(...) : undefined`）。流式中折叠栏默认展开（`expandInterimDuringStream`），此时 `[data-row-text]` 只有 1 个子元素 → 永远凑不满 3 项。下一步：在「运行中 + 组头收起」状态下取一次 DOM 快照，确认 3 个子元素都出现后再改断言（要么先收起折叠栏，要么把断言降到 2 项并说明理由） |
 | `tab-font-size:33` | `.session-tab[role=tab]` 期望 2 实际 3 | 多出来的一般是空草稿 tab；先确认这第三个 tab 的 `aria-selected`/标题，再决定计数改成「已选中的 2 个」还是等草稿回收 |
 | `visual-session:22` | `.composer-bar-btn.stop` 不存在 | 合成器的发送/停止控件换过类名；下一步按 aria-label「停止」定位 |
-| `web-service:62` | 找不到 `text=推理：先分析文件结构...` | mock 的思考帧内容或渲染分层改过；先用同一句发一条 THINK 看 DOM 里思考卡片落在哪个类下 |
-| `history-restore:43` | 重启后时间线只有种子提问 + 「正在启动…预热环境…」，没有 mock 回复 | 恢复后会先跑一轮「预热环境」（两个同文案节点），断言等的是原回复；下一步确认预热轮是否吞掉了恢复的历史回复 |
+| `web-service:62` | **已登记 `test.fixme`**：Web 前端换成了新的单页（`.app` / `textarea#prompt` / `.chat-list-pane` / `.assistant-text` 这些锚点都能对上），思考卡片不再以原始文本节点呈现，旧的 `text=推理：先分析文件结构...` 必然找不到 | 这份 Web 前端源码不在仓库里（`src/main/web/webPageTemplate.ts` 是旧的内联页，没有这些类名），下一步先定位构建产物来源，再按新 DOM 改断言 |
+| `history-restore:43` | **已登记 `test.fixme`（flaky）**：两次 `PIDECK_E2E_KEEP=1` 复跑失败位置不同——一次是第二轮恢复后卡在「正在启动…预热环境…」，一次连第一轮 mock 回复都没到（同样卡在激活态） | 两侧都指向 **runtime 激活**，不是会话文件持久化/扫描（第一轮落盘正常）。下一步在无 fixture 的裸 electron 启动下给 activation 状态机打点 |
 | 表格工具栏菜单与表格重叠 | 之前的 `tmp-table-menu` 只截图不断言 | 需要一条真实几何断言：菜单 `boundingBox` 底边 ≤ 表格顶边，或菜单不覆盖任意 `td` 文本；菜单是 portal 渲染，定位要从页面级取而不是 `.message-timeline` 内 |
