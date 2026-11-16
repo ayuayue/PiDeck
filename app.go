@@ -96,10 +96,13 @@ type session struct {
 	stats      *core.Signal[sessionStats]
 	updated    *core.Signal[time.Time]
 	loaded     *core.Signal[bool]
-	notice     *core.Signal[string]
-	queued     *core.Signal[int]
-	ask        *core.Signal[*extensionAsk]
-	window     *core.Signal[int]
+	// histFile is how many messages the transcript was painted from the
+	// session file, so pi is not asked for a copy already on screen.
+	histFile int
+	notice   *core.Signal[string]
+	queued   *core.Signal[int]
+	ask      *core.Signal[*extensionAsk]
+	window   *core.Signal[int]
 	// todos is the agent's task list, and todoOpen whether the bar above
 	// the composer shows all of it.
 	todos    *core.Signal[[]todoItem]
@@ -2635,17 +2638,20 @@ func (a *app) startEngine(s *session) {
 	a.cx.Post(func() {
 		a.engineReady(s, c, state.Model, state.ThinkingLevel, state.SessionFile, state.MessageCount, state.IsStreaming)
 	})
-	if state.MessageCount > 0 {
-		var msgs struct {
-			Messages []piMessage `json:"messages"`
-		}
-		if err := c.call(map[string]any{"type": "get_messages"}, &msgs, 40*time.Second); err == nil {
-			a.cx.Post(func() { a.historyReady(s, msgs.Messages) })
-		} else {
-			a.cx.Post(func() { a.historyReady(s, nil) })
-		}
+	if state.MessageCount == 0 {
+		a.cx.Post(func() { a.historyReady(s) })
 	} else {
-		a.cx.Post(func() { a.historyReady(s, nil) })
+		// A session file already on screen is not fetched again: pi counts
+		// the same messages, so the tab is showing what get_messages would
+		// send. A mismatch (a compacted session, a file lagging behind a
+		// running turn) falls back to pi's copy.
+		a.cx.Post(func() {
+			if s.histFile == state.MessageCount {
+				a.historyReady(s)
+				return
+			}
+			go a.fetchHistory(s, c)
+		})
 	}
 	var models struct {
 		Models []modelInfo `json:"models"`
@@ -2691,22 +2697,11 @@ func (a *app) engineReady(s *session, c *piClient, model *modelInfo, thinking, f
 	a.startStats(s)
 }
 
-// historyReady fills the transcript from pi, then lets queued actions run.
-func (a *app) historyReady(s *session, msgs []piMessage) {
+// historyReady lets a session's queued actions run, now that its transcript
+// can be seen. The messages came from the file or from get_messages.
+func (a *app) historyReady(s *session) {
 	if !s.loaded.GetUntracked() && a.activeID.GetUntracked() == s.ID {
 		a.animateNextLayout()
-	}
-	if len(msgs) > 0 && !s.loaded.GetUntracked() {
-		history := turnsFromMessages(msgs)
-		// A message can arrive from the phone before the history is in;
-		// it stays after what the session already had.
-		if pending := s.turns.GetUntracked(); len(pending) > 0 {
-			history = append(history, pending...)
-		}
-		s.turns.Set(history)
-		if items := todosFromMessages(msgs); len(items) > 0 {
-			s.todos.Set(items)
-		}
 	}
 	s.loaded.Set(true)
 	waiters := s.waiters
@@ -2717,6 +2712,71 @@ func (a *app) historyReady(s *session, msgs []piMessage) {
 	if a.activeID.GetUntracked() == s.ID {
 		s.conversation.JumpToLatest()
 	}
+}
+
+// historyFromPi replaces the transcript with pi's copy, which is what a
+// compacted session (whose file holds more than its context) needs.
+func (a *app) historyFromPi(s *session, msgs []piMessage) {
+	if len(msgs) > 0 {
+		a.fillHistory(s, msgs, true)
+		s.histFile = 0 // the screen is pi's copy now, not the file's
+	}
+	a.historyReady(s)
+}
+
+// fetchHistory asks pi for a transcript the file could not stand in for.
+func (a *app) fetchHistory(s *session, c *piClient) {
+	var msgs struct {
+		Messages []piMessage `json:"messages"`
+	}
+	if err := c.call(map[string]any{"type": "get_messages"}, &msgs, 40*time.Second); err == nil {
+		a.cx.Post(func() { a.historyFromPi(s, msgs.Messages) })
+		return
+	}
+	a.cx.Post(func() { a.historyReady(s) })
+}
+
+// fillHistory shows a session's messages, keeping anything that arrived
+// while they were loading.
+func (a *app) fillHistory(s *session, msgs []piMessage, replace bool) {
+	history := turnsFromMessages(msgs)
+	if !replace {
+		// A message can arrive from the phone before the history is in; it
+		// stays after what the session already had.
+		if pending := s.turns.GetUntracked(); len(pending) > 0 {
+			history = append(history, pending...)
+		}
+	}
+	s.turns.Set(history)
+	if items := todosFromMessages(msgs); len(items) > 0 {
+		s.todos.Set(items)
+	}
+}
+
+// loadHistoryFromFile paints a session's transcript from its file, so a tab
+// shows its history while pi is still starting.
+func (a *app) loadHistoryFromFile(s *session) {
+	if s == nil || s.File == "" || s.backend == "acp" || s.Target.remote() || s.loaded.GetUntracked() {
+		return
+	}
+	file := s.File
+	go func() {
+		msgs, err := sessionFileMessages(file)
+		if err != nil || len(msgs) == 0 {
+			return
+		}
+		a.cx.Post(func() {
+			if s.loaded.GetUntracked() || s.File != file {
+				return // pi answered first, or the tab moved on
+			}
+			if a.activeID.GetUntracked() == s.ID {
+				a.animateNextLayout()
+			}
+			a.fillHistory(s, msgs, false)
+			s.histFile = len(msgs)
+			a.historyReady(s)
+		})
+	}()
 }
 
 // failSession ends a session that could not start.
@@ -3319,7 +3379,8 @@ func (a *app) touch(s *session) {
 	})
 }
 
-// openSessionEager starts a session's engine when its tab opens.
+// openSessionEager starts a session's engine when its tab opens, and paints
+// its transcript from the file in the meantime.
 func (a *app) openSessionEager(s *session) {
 	if s == nil {
 		return
@@ -3327,6 +3388,7 @@ func (a *app) openSessionEager(s *session) {
 	if !s.Target.remote() {
 		a.files.watch(s.WS)
 	}
+	a.loadHistoryFromFile(s)
 	a.ensureEngine(s, nil)
 }
 

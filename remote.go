@@ -1764,30 +1764,12 @@ func (a *app) remoteTranscript(id string) (remoteWireTranscript, error) {
 	return out, nil
 }
 
-// readSessionTurns reads the messages of a pi session file.
+// readSessionTurns reads the messages of a pi session file, from the parse
+// the desktop keeps, so a phone polling a long session does not read it
+// again on every request.
 func readSessionTurns(path string) ([]turn, error) {
-	f, err := os.Open(path)
+	msgs, err := sessionFileMessages(path)
 	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
-	var msgs []piMessage
-	for sc.Scan() {
-		var entry struct {
-			Type    string          `json:"type"`
-			Message json.RawMessage `json:"message"`
-		}
-		if json.Unmarshal(sc.Bytes(), &entry) != nil || entry.Type != "message" || len(entry.Message) == 0 {
-			continue
-		}
-		var msg piMessage
-		if json.Unmarshal(entry.Message, &msg) == nil {
-			msgs = append(msgs, msg)
-		}
-	}
-	if err := sc.Err(); err != nil {
 		return nil, err
 	}
 	if len(msgs) > 4000 {
