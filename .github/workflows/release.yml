@@ -90,6 +90,15 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Checksums
+        shell: bash
+        run: |
+          cd artifacts
+          # One line per file so a download can be checked with
+          # sha256sum -c SHA256SUMS
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          cat SHA256SUMS
+
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**
