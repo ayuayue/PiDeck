@@ -127,6 +127,9 @@ type session struct {
 	liveTools      *core.Signal[[]toolRun]
 
 	conversation *chat.ConversationState
+	// tops is where each rendered turn sits in the transcript, for the
+	// scroll ruler's tooltips. Only the interface thread touches it.
+	tops map[int]float64
 
 	engine *piClient
 	// personaID binds the session to a built-in or custom agent.

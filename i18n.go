@@ -1505,6 +1505,9 @@ var messages = map[string]map[string]string{
 		"诊断报告已复制，粘贴到正文即可。":     "The report is on the clipboard; paste it into the issue body.",
 		"问题反馈：%s":              "Feedback: %s",
 		"完整报告已在剪贴板，粘贴到下方即可。":   "The full report is on the clipboard; paste it below.",
+		// The scroll ruler's tooltips.
+		"第 %d 轮":      "Turn %d",
+		"第 %d 轮 · %s": "Turn %d · %s",
 	},
 	langZhTW: {
 		"HEAD 不在分支上":           "HEAD 不在分支上",
@@ -2928,5 +2931,8 @@ var messages = map[string]map[string]string{
 		"诊断报告已复制，粘贴到正文即可。":     "診斷報告已複製，貼到正文即可。",
 		"问题反馈：%s":              "問題回饋：%s",
 		"完整报告已在剪贴板，粘贴到下方即可。":   "完整報告已在剪貼簿，貼到下方即可。",
+		// The scroll ruler's tooltips.
+		"第 %d 轮":      "第 %d 輪",
+		"第 %d 轮 · %s": "第 %d 輪 · %s",
 	},
 }

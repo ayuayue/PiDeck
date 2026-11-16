@@ -90,3 +90,33 @@ func TestTurnAxis(t *testing.T) {
 	app.Press("id:axis-tick-0")
 	app.WaitFor("label:跳到最新消息", 5*time.Second)
 }
+
+// TestTurnAtFraction checks which turn the ruler's tooltip names: the one
+// standing in the middle of the transcript after the jump.
+func TestTurnAtFraction(t *testing.T) {
+	tops := map[int]float64{0: 0, 1: 500, 2: 1200}
+	cases := []struct {
+		fraction, content, frame float64
+		want                     int
+	}{
+		{0, 2000, 500, 0},   // middle at 250, inside the first turn
+		{0.5, 2000, 500, 1}, // middle at 1000, inside the second
+		{1, 2000, 500, 2},   // middle at 1750, inside the third
+	}
+	for _, c := range cases {
+		if got := turnAtFraction(tops, 3, c.fraction, c.content, c.frame); got != c.want {
+			t.Errorf("fraction %v put turn %d in the middle, want %d", c.fraction, got, c.want)
+		}
+	}
+	// Before a turn is measured, or when the transcript fits, the tick
+	// falls back to turn order.
+	if got := turnAtFraction(nil, 5, 0.5, 2000, 500); got != 2 {
+		t.Errorf("an unmeasured transcript picked turn %d, want 2", got)
+	}
+	if got := turnAtFraction(nil, 5, 1, 200, 500); got != 4 {
+		t.Errorf("a transcript that fits picked turn %d, want 4", got)
+	}
+	if got := turnAtFraction(nil, 0, 0.5, 0, 0); got != -1 {
+		t.Errorf("no turns picked turn %d", got)
+	}
+}

@@ -119,7 +119,14 @@ func (a *app) transcript(s *session) core.Node {
 				}
 				return list
 			}, func(t turn) string { return t.ID }, func(cx *core.Scope, t func() turn, ix func() int) core.Node {
-				return a.turnView(s, t, ix)
+				// Each turn reports where it sits, so a tick on the ruler can
+				// say which one a jump would put in the middle.
+				return core.View{OnLayout: func(b core.Bounds) {
+					if s.tops == nil {
+						s.tops = map[int]float64{}
+					}
+					s.tops[ix()] = float64(b.Origin.Y)
+				}, Children: []core.Node{a.turnView(s, t, ix)}}
 			}),
 		}},
 	}}
@@ -208,15 +215,20 @@ func (a *app) turnAxis(s *session) core.Node {
 		marks := make([]core.Node, 0, len(fractions))
 		for i, f := range fractions {
 			i, f := i, f
-			marks = append(marks, core.View{
+			bar := core.View{
 				OnPress: func(core.PressEvent) { a.jumpToTurn(s, f) },
-				Role:    core.RoleButton, Label: T("跳到 %d%%", int(math.Round(f*100))),
+				Role:    core.RoleButton, LabelFunc: func() string { return a.axisTip(s, f) },
 				TestID: fmt.Sprintf("axis-tick-%d", i),
 				StyleFunc: func() core.Style {
 					return core.Style{Width: core.Pt(8), Height: core.Pt(2.5), CornerRadius: 1.25, Background: colors.Faint(),
 						Hover: &core.Style{Background: colors.Text()}}
 				},
-			})
+			}
+			// The bar is 8 by 2.5: too thin to hover. A box one step tall
+			// takes the pointer and carries the turn's summary as a hint.
+			marks = append(marks, hintOf(func() string { return a.axisTip(s, f) }, core.View{
+				Style: core.Style{Width: core.Pt(12), Height: core.Pt(axisStep - 2), AlignItems: core.AlignCenter,
+					JustifyContent: core.JustifyCenter}, Children: []core.Node{bar}}))
 		}
 		inset := (pane - bandHeight) / 2
 		return core.View{
@@ -244,6 +256,79 @@ func (a *app) jumpToTurn(s *session, fraction float64) {
 		return
 	}
 	ref.ScrollTo(core.Point{Y: core.Points(float64(maxY) * fraction)}, true)
+}
+
+// turnAtFraction is the turn standing in the middle of the transcript
+// when it is scrolled to a fraction of its length. tops is where each
+// rendered turn sits, so the nearest one at or above the middle wins; a
+// transcript that has not been measured yet falls back to turn order.
+func turnAtFraction(tops map[int]float64, count int, fraction, content, frame float64) int {
+	if count <= 0 {
+		return -1
+	}
+	byOrder := func() int {
+		i := int(math.Round(fraction * float64(count-1)))
+		return max(0, min(count-1, i))
+	}
+	if len(tops) == 0 || content <= frame {
+		return byOrder()
+	}
+	middle := fraction*(content-frame) + frame/2
+	best, bestY := -1, 0.0
+	for i, y := range tops {
+		if i < 0 || i >= count {
+			continue
+		}
+		if y <= middle && (best == -1 || y > bestY) {
+			best, bestY = i, y
+		}
+	}
+	if best >= 0 {
+		return best
+	}
+	// Above every measured turn, as a leading one scrolled past is: the
+	// first turn still stands for the place.
+	for i, y := range tops {
+		if i < 0 || i >= count {
+			continue
+		}
+		if best == -1 || y < bestY {
+			best, bestY = i, y
+		}
+	}
+	if best == -1 {
+		return byOrder()
+	}
+	return best
+}
+
+// axisTip is what the ruler says over a tick: the turn a jump would put
+// in the middle, and the start of its prompt.
+func (a *app) axisTip(s *session, fraction float64) string {
+	turns := s.turns.GetUntracked()
+	if len(turns) == 0 {
+		return ""
+	}
+	var content, frame float64
+	ref := s.conversation.Scroll()
+	if b, ok := ref.ContentBounds(); ok {
+		content = float64(b.Size.Height)
+	}
+	if b, ok := ref.Frame(); ok {
+		frame = float64(b.Size.Height)
+	}
+	i := turnAtFraction(s.tops, len(turns), fraction, content, frame)
+	if i < 0 || i >= len(turns) {
+		return ""
+	}
+	summary := firstLine(turns[i].Prompt, 60)
+	if summary == "" {
+		summary = firstLine(turns[i].Final, 60)
+	}
+	if summary == "" {
+		return T("第 %d 轮", i+1)
+	}
+	return T("第 %d 轮 · %s", i+1, summary)
 }
 
 // turnView is one prompt and everything pi answered.
