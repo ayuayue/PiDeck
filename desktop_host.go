@@ -128,7 +128,7 @@ func (a *app) trayMenu() []desktop.MenuItem {
 	}
 	items = append(items,
 		desktop.MenuItem{Separator: true},
-		desktop.MenuItem{Label: T("设置…"), OnSelect: func() { a.showMainWindow(); a.settings.Set(true) }},
+		desktop.MenuItem{Label: T("设置…"), OnSelect: func() { a.showMainWindow(); a.openSettingsPane() }},
 		desktop.MenuItem{Label: T("退出"), OnSelect: a.quitApp},
 	)
 	return items

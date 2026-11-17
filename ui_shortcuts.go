@@ -90,8 +90,8 @@ func (a *app) shortcutsDialog() core.Node {
 				ui.Button{Text: T("打开键位设置"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "shortcuts-settings",
 					OnPress: func() {
 						a.shortcutsOpen.Set(false)
-						a.settingsTab.Set("keys")
-						a.settings.Set(true)
+						a.openSettingsPane()
+						a.openSettingsSection("keys")
 					}},
 				ui.Button{Text: T("关闭"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "shortcuts-close",
 					OnPress: func() { a.shortcutsOpen.Set(false) }},

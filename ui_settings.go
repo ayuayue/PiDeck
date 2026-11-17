@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -51,8 +50,8 @@ func settingsSections() []settingsSection {
 	}
 }
 
-// settingsDialog is the settings window.
-func (a *app) settingsDialog() core.Node {
+// settingsPane is the settings page: its rail beside the section's rows.
+func (a *app) settingsPane() core.Node {
 	colors := ui.ColorsOf(a.cx)
 	nav := make([]core.Node, 0, len(settingsSections()))
 	for _, sec := range settingsSections() {
@@ -91,64 +90,60 @@ func (a *app) settingsDialog() core.Node {
 			}
 		}))
 	}
-	return ui.Dialog{
-		Open: a.settings.Get,
-		OnOpenChange: func(open bool, _ base.Reason) {
-			a.settings.Set(open)
-			if !open {
-				a.settingsQuery.Set("")
-			}
-		},
-		Bare:   true,
-		TestID: "settings",
-		Style:  core.Style{Width: core.Pt(760), Height: core.Pt(560)},
-		Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
-			// rail
-			core.View{StyleFunc: func() core.Style {
-				return core.Style{Width: core.Pt(176), Padding: core.All(10), Gap: 2, FlexShrink: 0,
-					Background: colors.Inset(), Borders: core.Edges{Right: 1}, BorderColors: core.EdgeColors{Right: colors.Now().Line}}
-			}, Children: []core.Node{
-				core.View{Style: core.Style{Padding: core.Edges{Left: 9, Top: 4, Bottom: 8}}, Children: []core.Node{
-					ui.Text("设置", 13, ui.Semibold, colors.Text),
-				}},
-				core.View{Style: core.Style{Padding: core.Edges{Left: 1, Right: 1, Bottom: 8}}, Children: []core.Node{
-					core.Input{Value: a.settingsQuery.Get, OnChange: a.settingsQuery.Set, Placeholder: T("搜索设置"),
-						Label: T("搜索设置"), TestID: "settings-search",
-						Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), FontSize: 11, Color: colors.Text(),
-							Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
-							PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
-				}},
-				a.settingsRail(nav),
+	return core.View{TestID: "settings", StyleFunc: func() core.Style {
+		return core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),
+			Background: colors.Background()}
+	}, Children: []core.Node{
+		// rail
+		core.View{StyleFunc: func() core.Style {
+			return core.Style{Width: core.Pt(176), Padding: core.All(10), Gap: 2, FlexShrink: 0,
+				Background: colors.Inset(), Borders: core.Edges{Right: 1}, BorderColors: core.EdgeColors{Right: colors.Now().Line}}
+		}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Left: 9, Top: 4, Bottom: 8}}, Children: []core.Node{
+				ui.Text("设置", 13, ui.Semibold, colors.Text),
 			}},
-			// content
-			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), Direction: core.Column}, Children: []core.Node{
-				core.Dynamic(func(cx *core.Scope) core.Node {
-					_ = a.langRev.Get()
-					sec := settingsSections()[0]
-					for _, s := range settingsSections() {
-						if s.ID == a.settingsTab.Get() {
-							sec = s
-						}
+			core.View{Style: core.Style{Padding: core.Edges{Left: 1, Right: 1, Bottom: 8}}, Children: []core.Node{
+				core.Input{Value: a.settingsQuery.Get, OnChange: a.settingsQuery.Set, Placeholder: T("搜索设置"),
+					Label: T("搜索设置"), TestID: "settings-search",
+					Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), FontSize: 11, Color: colors.Text(),
+						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
+						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
+			}},
+			a.settingsRail(nav),
+		}},
+		// content
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), Direction: core.Column}, Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = a.langRev.Get()
+				sec := settingsSections()[0]
+				for _, s := range settingsSections() {
+					if s.ID == a.settingsTab.Get() {
+						sec = s
 					}
-					return core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Top: 16, Right: 20, Bottom: 8, Left: 20}}, Children: []core.Node{
-						ui.Text(T(sec.Title), 15, ui.Semibold, colors.Text),
-						core.Text{Content: T(sec.Summary), Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
-					}}
-				}),
-				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
-					a.settingsContent(),
-				}},
-				core.View{StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(10, 16),
-						FlexShrink: 0, Borders: core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: colors.Now().Line}}
-				}, Children: []core.Node{
-					ui.Button{Text: T("重新检测"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.reloadFrameworks},
-					core.View{Style: core.Style{FlexGrow: 1}},
-					ui.Button{Text: T("完成"), Variant: ui.ButtonPrimary, TestID: "settings-done", OnPress: func() { a.settings.Set(false) }},
-				}},
+				}
+				return core.View{Style: core.Style{MaxWidth: core.Pt(900), Gap: 2, Padding: core.Edges{Top: 16, Right: 20, Bottom: 8, Left: 20}}, Children: []core.Node{
+					ui.Text(T(sec.Title), 15, ui.Semibold, colors.Text),
+					core.Text{Content: T(sec.Summary), Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
+				}}
+			}),
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MaxWidth: core.Pt(900), MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
+				a.settingsContent(),
 			}},
-		}}},
-	}
+			core.View{StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(10, 16),
+					FlexShrink: 0, Borders: core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: colors.Now().Line}}
+			}, Children: []core.Node{
+				ui.Button{Text: T("重新检测"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.reloadFrameworks},
+				core.View{Style: core.Style{FlexGrow: 1}},
+				ui.Button{Text: T("完成"), Variant: ui.ButtonPrimary, TestID: "settings-done", OnPress: func() { a.closePane(paneSettings) }},
+			}},
+		}},
+	}}
+}
+
+// openSettingsPane shows the settings page in the work area.
+func (a *app) openSettingsPane() {
+	a.openPane(paneSettings)
 }
 
 // openSettingsSection switches to a section and runs its loader.
@@ -1070,11 +1065,11 @@ func (a *app) settingsEnv() core.Node {
 				setGroup("其它机器", targets...),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: T("添加 WSL 工作区"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
-						a.settings.Set(false)
+						a.closePane(paneSettings)
 						a.openTargetDialog(targetWSL)
 					}},
 					ui.Button{Text: T("添加 SSH 工作区"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
-						a.settings.Set(false)
+						a.closePane(paneSettings)
 						a.openTargetDialog(targetSSH)
 					}},
 				}},

@@ -30,7 +30,6 @@ func (a *app) view() core.Node {
 		}),
 		a.paletteDialog(),
 		a.targetDialog(),
-		a.settingsDialog(),
 		a.renameDialog(),
 		a.fileOpDialog(),
 		a.exportDialog(),
@@ -76,11 +75,8 @@ func (a *app) view() core.Node {
 		a.acpDialog(),
 		a.acpPresetManagerDialog(),
 		a.agentDialog(),
-		a.agentManagerDialog(),
-		a.favoritesDialog(),
 		a.announcementsDialog(),
 		a.feedbackDialog(),
-		a.tasksDialog(),
 		a.taskFormDialog(),
 		a.projectGroupDialog(),
 		a.workspaceRenameDialog(),
@@ -172,8 +168,18 @@ func (a *app) workArea() core.Node {
 	}
 }
 
-// mainPane is the editor when a file is open, the chat otherwise.
+// mainPane is the editor when a file is open, the chat otherwise; a split
+// pane, when one shows, takes the whole area.
 func (a *app) mainPane() core.Node {
+	return core.Show{
+		When: a.paneVisible,
+		Then: func(*core.Scope) core.Node { return a.paneView() },
+		Else: func(*core.Scope) core.Node { return a.sessionPane() },
+	}
+}
+
+// sessionPane is the editor when a file is open, the chat otherwise.
+func (a *app) sessionPane() core.Node {
 	return core.Show{
 		When: func() bool { return a.editor.open.Get() },
 		Then: func(*core.Scope) core.Node { return a.editorPane() },
@@ -372,14 +378,20 @@ func (a *app) newSessionButton() core.Node {
 // PiDeck keep them.
 func (a *app) railShortcuts() core.Node {
 	colors := ui.ColorsOf(a.cx)
-	entry := func(icon func() *core.SVG, label, id string, on func()) core.Node {
+	// entry is one way in; pane names the split pane it opens, so the row
+	// shows while that pane fills the work area.
+	entry := func(icon func() *core.SVG, label, id, pane string, on func()) core.Node {
 		return core.View{
 			OnPress: func(core.PressEvent) { on() },
 			Role:    core.RoleButton, Label: T(label), TestID: id,
 			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Height: core.Pt(30), Padding: core.Symmetric(0, 8),
+				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Height: core.Pt(30), Padding: core.Symmetric(0, 8),
 					CornerRadius: 7, Transition: pressMotion,
 					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+				if a.paneVisible() && a.activePane.Get() == pane {
+					st.Background = colors.Pressed()
+				}
+				return st
 			},
 			Children: []core.Node{
 				ui.Icon(icon, 13.5, colors.Muted),
@@ -388,9 +400,9 @@ func (a *app) railShortcuts() core.Node {
 		}
 	}
 	return core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
-		entry(lucide.Bot, "智能体", "rail-agents", func() { a.openAgentManager() }),
-		entry(lucide.CalendarClock, "定时任务", "rail-tasks", func() { a.openTaskDialog() }),
-		entry(lucide.Star, "收藏夹", "rail-favorites", func() { a.openFavorites() }),
+		entry(lucide.Bot, "智能体", "rail-agents", paneAgents, func() { a.openAgentManager() }),
+		entry(lucide.CalendarClock, "定时任务", "rail-tasks", paneTasks, func() { a.openTaskDialog() }),
+		entry(lucide.Star, "收藏夹", "rail-favorites", paneFavorites, func() { a.openFavorites() }),
 	}}
 }
 
@@ -710,7 +722,8 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 func (a *app) railFooter() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
 		Width: core.Pct(100), Padding: core.Edges{Left: 2, Right: 2}}, Children: []core.Node{
-		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: "设置", Size: 28, IconSize: 14.5, OnPress: func() { a.settings.Set(true) }}),
+		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: "设置", Size: 28, IconSize: 14.5,
+			Selected: func() bool { return a.paneVisible() && a.activePane.Get() == paneSettings }, OnPress: a.openSettingsPane}),
 		a.announceButton(),
 		a.feedbackButton(),
 		hint("切换外观", ui.IconButton{IconFunc: func() *core.SVG {
@@ -722,7 +735,8 @@ func (a *app) railFooter() core.Node {
 	}}
 }
 
-// tabBar is the open sessions, above the chat.
+// tabBar is the open sessions, above the chat, and the split panes' tabs
+// at its end.
 func (a *app) tabBar() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 		core.Scroll{Horizontal: true, HideIndicator: true, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
@@ -733,6 +747,18 @@ func (a *app) tabBar() core.Node {
 				hint("新建会话", ui.IconButton{Icon: lucide.Plus, Label: "新建会话", Size: 26, IconSize: 13, OnPress: func() {
 					a.newSession(a.activeWS.Get())
 				}}),
+				// A line keeps the panes' tabs apart from the sessions'.
+				core.Show{When: func() bool { return len(a.openPaneIDs()) > 0 }, Then: func(cx *core.Scope) core.Node {
+					return core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(16), FlexShrink: 0, Margin: core.Symmetric(0, 3)},
+						StyleFunc: ui.Filled(ui.ColorsOf(cx).Line)}
+				}},
+				core.Each(a.openPaneIDs, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
+					def, ok := a.pane(id())
+					if !ok {
+						return nil
+					}
+					return a.paneTab(def)
+				}),
 			}},
 		}},
 	}}

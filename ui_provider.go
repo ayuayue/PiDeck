@@ -255,7 +255,7 @@ func (a *app) openPiConfigFile(name string) {
 		a.toast(ui.ToastError, "找不到 pi 的配置目录", "")
 		return
 	}
-	a.settings.Set(false)
+	a.closePane(paneSettings)
 	a.providerOpen.Set(false)
 	a.openEditorFile(dir, filepath.Join(dir, name))
 }

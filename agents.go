@@ -244,11 +244,11 @@ func (a *app) newPersonaSession(p agentPersona) {
 	a.toast(ui.ToastInfo, T("已启用 ")+T(p.Name), T(p.Description))
 }
 
-// openAgentManager shows the editable list of agents.
+// openAgentManager shows the editable list of agents in the work area.
 func (a *app) openAgentManager() {
 	a.resetAgentForm()
 	a.agentManageErr.Set("")
-	a.agentManageOpen.Set(true)
+	a.openPane(paneAgents)
 }
 
 // resetAgentForm clears the manager's edit fields.

@@ -97,8 +97,14 @@ func builtinCommands() []appCommand {
 		{ID: "reopen-tab", Label: "恢复关闭的标签", Group: "会话", Shortcut: "mod+alt+t", Icon: lucide.RotateCcw,
 			Run: func(a *app) { a.reopenTab() }},
 		{ID: "close-tab", Label: "关闭当前标签", Group: "会话", Shortcut: "mod+w", Icon: lucide.X, Hidden: true,
-			When: func(a *app) bool { return a.editorOpen() || a.activeID.GetUntracked() != "" },
+			When: func(a *app) bool {
+				return a.editorOpen() || a.activeID.GetUntracked() != "" || a.paneVisible()
+			},
 			Run: func(a *app) {
+				if a.paneVisible() {
+					a.closePane(a.activePane.GetUntracked())
+					return
+				}
 				if a.editorOpen() {
 					a.closeEditorPane()
 					return
@@ -325,7 +331,7 @@ func builtinCommands() []appCommand {
 		{ID: "theme-export", Label: "导出当前主题…", Group: "外观", Icon: lucide.Palette,
 			Run: func(a *app) { a.exportTheme() }},
 		{ID: "settings", Label: "设置", Group: "应用", Shortcut: "mod+,", Icon: lucide.Settings,
-			Run: func(a *app) { a.settings.Set(true) }},
+			Run: func(a *app) { a.openSettingsPane() }},
 	}
 }
 
@@ -486,7 +492,7 @@ func (a *app) runCommand(id string) {
 	}
 	if rest, ok := strings.CutPrefix(id, "setting:"); ok {
 		if ix, err := strconv.Atoi(rest); err == nil && ix >= 0 && ix < len(settingsIndex) {
-			a.settings.Set(true)
+			a.openSettingsPane()
 			a.openSettingsSection(settingsIndex[ix].Section)
 		}
 		return

@@ -2,7 +2,7 @@
 
 package main
 
-// The favorites dialog: saved answers and saved conversations, with a
+// The favorites page: saved answers and saved conversations, with a
 // kind filter and a search field. A saved answer can be copied; either
 // kind can jump back to its conversation.
 
@@ -10,15 +10,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// openFavorites shows the list.
+// openFavorites shows the list in the work area.
 func (a *app) openFavorites() {
-	a.favOpen.Set(true)
+	a.openPane(paneFavorites)
 }
 
 // filterFavorites keeps the entries matching the kind and the query.
@@ -40,8 +39,8 @@ func filterFavorites(list []favoriteEntry, kind, query string) []favoriteEntry {
 	return out
 }
 
-// favoritesDialog draws the list.
-func (a *app) favoritesDialog() core.Node {
+// favoritesPane draws the list.
+func (a *app) favoritesPane() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		_ = a.favRev.Get()
@@ -147,36 +146,12 @@ func (a *app) favoritesDialog() core.Node {
 					StyleFunc: ui.Colored(colors.Faint)},
 			}}
 		} else {
-			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
+			body = core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}}
 		}
 
-		return ui.Dialog{
-			Open:         a.favOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.favOpen.Set(open) },
-			Title:        T("收藏夹"),
-			Description:  T("回复保存的是当时的正文快照；会话保存的是引用，点开会回到原对话。"),
-			TestID:       "favorites-dialog",
-			Style:        core.Style{Width: core.Pt(680), MaxHeight: core.Pt(580)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
-					chip("", "全部", len(list)),
-					chip(favoriteReply, "回复", replyCount),
-					chip(favoriteSession, "会话", sessionCount),
-					core.View{Style: core.Style{FlexGrow: 1}},
-					core.View{Style: core.Style{Width: core.Pt(190)}, Children: []core.Node{
-						core.Input{Value: a.favQuery.Get, OnChange: a.favQuery.Set, Placeholder: T("搜索收藏…"), Label: T("搜索收藏"),
-							TestID: "favorite-search", AutoFocus: false,
-							Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5,
-								Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()}},
-					}},
-				}},
-				body,
-				core.Text{ContentFunc: func() string {
-					return T("共 %d 条收藏。", len(list))
-				}, Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
-			}}},
-			Footer: []core.Node{
+		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+			a.paneHeader("收藏夹", "回复保存的是当时的正文快照；会话保存的是引用，点开会回到原对话。",
 				ui.Button{Text: T("清空收藏"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "favorite-clear",
 					Disabled: func() bool { return len(list) == 0 },
 					OnPress: func() {
@@ -184,11 +159,27 @@ func (a *app) favoritesDialog() core.Node {
 							a.clearFavorites()
 							a.toast(ui.ToastInfo, "已清空收藏", "")
 						})
+					}}),
+			core.View{Style: core.Style{Direction: core.Column, Gap: 8, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
+				Padding: core.Edges{Top: 12, Left: 18, Right: 18, Bottom: 10}}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+					chip("", "全部", len(list)),
+					chip(favoriteReply, "回复", replyCount),
+					chip(favoriteSession, "会话", sessionCount),
+					core.View{Style: core.Style{FlexGrow: 1}},
+					core.Text{ContentFunc: func() string {
+						return T("共 %d 条收藏。", len(list))
+					}, Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+					core.View{Style: core.Style{Width: core.Pt(210)}, Children: []core.Node{
+						core.Input{Value: a.favQuery.Get, OnChange: a.favQuery.Set, Placeholder: T("搜索收藏…"), Label: T("搜索收藏"),
+							TestID: "favorite-search", AutoFocus: false,
+							Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5,
+								Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 					}},
-				ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.favOpen.Set(false) }},
-			},
-		}
+				}},
+				body,
+			}},
+		}}
 	})
 }
 

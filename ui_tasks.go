@@ -2,12 +2,11 @@
 
 package main
 
-// The scheduled tasks dialog and its editor. The list shows what will run
+// The scheduled tasks page and its editor. The list shows what will run
 // next and how the last run went; the editor keeps the prompt, the
 // project, the backend and the cron expression in one place.
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/nsgo-dev/nsgo/base"
@@ -29,8 +28,8 @@ func taskStatusColor(colors ui.Colors, status string) core.Color {
 	return colors.Faint()
 }
 
-// tasksDialog lists tasks and recent runs.
-func (a *app) tasksDialog() core.Node {
+// tasksPane lists tasks and recent runs.
+func (a *app) tasksPane() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		_ = a.taskRev.Get()
@@ -85,14 +84,14 @@ func (a *app) tasksDialog() core.Node {
 		}
 		var body core.Node
 		if len(rows) == 0 {
-			body = core.View{Style: core.Style{Padding: core.Symmetric(30, 8), AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
+			body = core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Padding: core.Symmetric(30, 8), Gap: 5}, Children: []core.Node{
 				ui.Icon(lucide.CalendarClock, 20, colors.Faint),
 				core.Text{Content: T("还没有定时任务。按 cron 建一个，应用在后台按时开会话并发送提示词。"),
 					MaxLines: 2, Style: core.Style{FontSize: 11.5, TextAlign: core.TextAlignCenter},
 					StyleFunc: ui.Colored(colors.Faint)},
 			}}
 		} else {
-			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(330)}, Children: []core.Node{
+			body = core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}}
 		}
 		// Recent runs, newest first.
@@ -129,7 +128,7 @@ func (a *app) tasksDialog() core.Node {
 					}},
 				}})
 		}
-		history := core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 3}, Children: []core.Node{
+		history := core.View{Style: core.Style{FlexShrink: 0, MinWidth: core.Pt(0), Gap: 3}, Children: []core.Node{
 			ui.Text(T("运行历史"), 10, ui.Semibold, colors.Faint),
 			core.Show{When: func() bool { return len(runRows) > 0 }, Then: func(*core.Scope) core.Node {
 				return core.Scroll{Style: core.Style{MaxHeight: core.Pt(150)}, Children: []core.Node{
@@ -141,28 +140,13 @@ func (a *app) tasksDialog() core.Node {
 			}},
 		}}
 
-		return ui.Dialog{
-			Open:         a.taskOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.taskOpen.Set(open) },
-			Title:        T("定时任务"),
-			Description:  T("按 cron 在后台开始一个新会话并发送提示词；pi 与 ACP 都能跑，运行记录留在本机。"),
-			TestID:       "tasks-dialog",
-			Style:        core.Style{Width: core.Pt(820), MaxHeight: core.Pt(680)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-					ui.Text(fmt.Sprintf(T("%d 个任务"), len(list)), 11, ui.Medium, colors.Text),
-					core.View{Style: core.Style{FlexGrow: 1}},
-					ui.Button{Text: T("新建任务"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "task-new",
-						OnPress: a.openTaskForm},
-				}},
-				body,
-				history,
-			}}},
-			Footer: []core.Node{
-				ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.taskOpen.Set(false) }},
-			},
-		}
+		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+			a.paneHeader("定时任务", "按 cron 在后台开始一个新会话并发送提示词；pi 与 ACP 都能跑，运行记录留在本机。",
+				ui.Button{Text: T("新建任务"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "task-new",
+					OnPress: a.openTaskForm}),
+			core.View{Style: core.Style{Direction: core.Column, Gap: 10, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
+				Padding: core.Edges{Top: 12, Left: 18, Right: 18, Bottom: 14}}, Children: []core.Node{body, history}},
+		}}
 	})
 }
 
@@ -173,7 +157,6 @@ func (a *app) openTaskRunSession(run taskRun) {
 		a.toast(ui.ToastWarning, "找不到这次运行的会话", "它可能已经被删除。")
 		return
 	}
-	a.taskOpen.Set(false)
 	a.selectSession(s)
 }
 

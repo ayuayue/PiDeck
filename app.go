@@ -395,6 +395,9 @@ type app struct {
 	activeWS   *core.Signal[string]
 	tabs       *core.Signal[[]string]
 	activeID   *core.Signal[string]
+	// activePane is the split pane filling the work area, "" for the
+	// session's own view.
+	activePane *core.Signal[string]
 	filter     *core.Signal[string]
 	sidebar    *core.Signal[bool]
 	drawer     *core.Signal[bool]
@@ -664,6 +667,7 @@ func newApp(cx *core.Scope) *app {
 		activeWS:               core.NewSignal(cx, ""),
 		tabs:                   core.NewSignalFunc(cx, []string{}, nil),
 		activeID:               core.NewSignal(cx, ""),
+		activePane:             core.NewSignal(cx, ""),
 		filter:                 core.NewSignal(cx, ""),
 		sidebar:                core.NewSignal(cx, true),
 		drawer:                 core.NewSignal(cx, false),
@@ -1090,6 +1094,7 @@ func newApp(cx *core.Scope) *app {
 	a.qrOpen = core.NewSignal(cx, false)
 	a.qrLink = core.NewSignal(cx, "")
 	a.bindKeys()
+	a.bindPaneEscape()
 	a.tick()
 	// A terminal panel left open comes back with a tab to show.
 	if a.term.open.GetUntracked() && len(a.term.tabs.GetUntracked()) == 0 {
@@ -1851,6 +1856,7 @@ func (a *app) selectSession(s *session) {
 	if a.editor != nil {
 		a.editor.open.Set(false)
 	}
+	a.activePane.Set("")
 	a.activeID.Set(s.ID)
 	a.activeWS.Set(s.WS)
 	if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !ws.Expanded.GetUntracked() {
