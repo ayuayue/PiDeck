@@ -174,7 +174,7 @@ curl -s -H "$AUTH" "$BASE/api/state"
 
 ## 5 发消息
 
-**发之前再认一次自己**：`echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息——消息插进你自己的对话，然后你自己等自己回。别用 `env | grep ^PI_` 找身份（`PIDECK_SESSION_ID` 不以 `PI_` 开头，会被整条漏掉）；标题、`updatedAt`、`model` 都不是身份。
+**发之前再认一次自己**：`echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息——消息插进你自己的对话，然后你自己等自己回。标题、`updatedAt`、`model` 都不是身份——为什么不能用 `grep ^PI_` 找，见第 2 节。
 
 ### 5.1 首选 `/prompt`：同步返回 accepted，先不必回读
 
@@ -186,7 +186,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 期望：`{"result":{"accepted":true,"sessionId":"...","requestId":"...","agentId":"...","sessionPath":"C:\\...jsonl","runtimeGeneration":3}}`。
 
-`accepted: true` 表示这条消息进了队列，服务端负责投递，此时可以先不读回执。**要证明对方真的看到了，用 5.6 那条片段计数**——第 5.6 节有实测：accepted 之后还会隔十几秒才出现在对方记录里。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
+`accepted: true` 表示这条消息进了队列，服务端负责投递，此时可以先不读回执。**要证明对方真的看到了，按 5.6 的做法让它贴原文片段**——第 5.6 节有实测：accepted 之后还会隔十几秒才出现在对方记录里。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
 
 **中文别走命令行参数。** `curl -d "中文"` 会先把这段参数交给终端代码页（Windows 上常是 GBK），对端收到的是一串 U+FFFD（替换符，表示字节解不出来）。2026-11 实测两次：中文当参数发，对端记录里 16 个替换符；把 JSON 写进文件、用 `--data-binary @file` 发，替换符归零。
 
@@ -202,7 +202,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json; charset=utf-8" \
 node -e 'const fs=require("fs");const t=fs.readFileSync(process.argv[1],"utf8");console.log((t.match(/\uFFFD/g)||[]).length)' "<对端的 sessionPath>"
 ```
 
-**收到乱码就直说，别猜。** 对端回复变成 `���` 这类替换符时，唯一正确的动作是回一句「读不懂，这是原文：<逐字粘贴>」，然后停下等它对。按上下文猜它的意思，猜错了在记录上看不出任何异常——你会照着猜出来的意思改出完全无关的东西。判据：自己的回复里不出现「我理解你的意思是……」这类转述，除非同时贴得出原文片段。这条与第 0 节「先定义再用」是同一件事：看不懂就停，不要边猜边做。 来源与实测见 5.1 那条：命令行参数经代码页转码会产生一串 U+FFFD，改用文件通道后归零。
+**收到乱码就直说，别猜。** 对端回复变成 `���` 这类替换符时，唯一正确的动作是回一句「读不懂，这是原文：<逐字粘贴>」，然后停下等它对。按上下文猜它的意思，猜错了在记录上看不出任何异常——你会照着猜出来的意思改出完全无关的东西。判据：自己的回复里不出现「我理解你的意思是……」这类转述，除非同时贴得出原文片段。这条没有例外：看不懂就停，不要边猜边做。 来源与实测见 5.1 那条：命令行参数经代码页转码会产生一串 U+FFFD，改用文件通道后归零。
 
 ### 5.2 要看流式才用 `/api/chat`
 
@@ -305,7 +305,7 @@ md5sum "$TMP/proposals-r1.md" | cut -c1-8; stat -c %s "$TMP/proposals-r1.md"
 [ -f "$TMP/proposals-r1.md" ] || echo "文件不在 $TMP：Windows 上 bash 的 /tmp 与 %TEMP% 不是同一个位置"
 ```
 
-**accepted:true 只代表进队列，不代表对方看到了。** 判「送到了」用对端会话记录数计数，方法与坏样本见 5.1 末尾「中文别走命令行参数」之后那段——这里不再重复。
+**accepted:true 只代表进队列，不代表对方看到了。** 判「送到了」按 5.6 的做法：让它在回执里贴原文片段。要数替换符，用 5.1 末尾那条 node 命令。
 
 **证明对方真读了原文的办法**：让它在回执里贴出原文片段。行号只作定位、不当证据——插入一行行号就漂，2026-11-16 双方各错过两次（说 186 实际 188、说 3393 字节实际 5467）。行号与片段冲突时，以片段为准。只说「我看了」，与没看无法区分。
 
@@ -315,11 +315,22 @@ md5sum "$TMP/proposals-r1.md" | cut -c1-8; stat -c %s "$TMP/proposals-r1.md"
 
 **合并提交后，别拿「diff 为空」当等价判据。** 合并时若顺手改了内容，diff 必然非空：2026-11-16 实测合并四笔时顺手修了一处重复，`git diff <合并前> <合并后>` 是 1 处 +1 −1，而提出方报「空」。正确判据是「diff 里每一处都能指到来源」，不是「diff 为空」。
 
-**凭据在谁手上，就由谁执行那一行命令。** 只有对方能推送、能改 PR 正文时：发现方给命令原文，持凭据方原样执行，回贴命令、输出与执行时间；执行前双方各读一遍命令文本。对外推送不可逆，许可只能来自用户——核的人不能代用户说「可以推了」。
+**凭据在谁手上，就由谁执行那一行命令。** 只有对方能推送、能改 PR 正文时：发现方给命令原文，持凭据方原样执行，回贴命令、输出与执行时间；执行前双方各读一遍命令文本。对外推送不可逆，许可只能来自用户——核的人不能代用户说「可以推了」。 别人的仓只 pull 与建 PR，合并是仓主的事：`permissions.push:false` 就不要试 merge（实测返回 404 而不是 403，容易被误读成「PR 不存在」），也不要用 `--admin` 绕过。
 
-**先验凭据能不能做成这件事，再排执行顺序。** 2026-11-16 实测两种失效：fine-grained token 对「本人不是协作者的公开仓」只有只读——`gh api repos/<owner>/<repo> -q .permissions` 得 `pull:true push:false`，建 PR 与改 PR 正文都返回 `Resource not accessible`；GCM 里存的是 OAuth 时，git 操作会弹 GUI 选账号，脚本里设了 `credential.interactive=false` 后 `git credential fill` 直接报 `Cannot prompt because user interactivity has been disabled`。要推就用显式 URL：`git push https://x-access-token:<token>@github.com/<owner>/<repo>.git <branch>`，同时设 `GIT_TERMINAL_PROMPT=0`。
+**先验凭据能不能做成这件事，再排执行顺序。** 2026-11-16 实测两种失效：fine-grained token 对「本人不是协作者的公开仓」只有只读——`gh api repos/<owner>/<repo> -q .permissions` 得 `pull:true push:false`，建 PR 与改 PR 正文都返回 `Resource not accessible`；GCM 里存的是 OAuth 时，git 操作会弹 GUI 选账号，脚本里设了 `credential.interactive=false` 后 `git credential fill` 直接报 `Cannot prompt because user interactivity has been disabled`。修法（2026-11-17 实测）：
 
-**收尾要两份签核文件。** 各写一份 signoff.md：对象、基准 commit、核过的文件与 md5、跑过的判据与 rc、坏样本、结论（认可或不认可）。两份都要覆盖全部安装位置——少一处，就是两个人的认可范围不一样。
+```bash
+P=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')
+GIT_TERMINAL_PROMPT=0 git -c credential.helper= push \
+  "https://x-access-token:$P@github.com/<owner>/<repo>.git" <branch>
+unset P
+```
+
+两个细节都必须：`-c credential.helper=` 断开凭据管理器，否则它会把你写的 `x-access-token` 当成新账号存下，下次取凭据多一个候选、开始弹窗；`GIT_TERMINAL_PROMPT=0` 保证失败立刻返回。判据：push 前后各跑一次 `git credential-manager github list`，行数必须相同。
+
+改 PR 正文不走 `gh pr edit`：它的 GraphQL 查询自带 `login` / `name` / `slug`，OAuth token 常见 scopes 缺 `read:org` 就整条失败。走 REST `PATCH /repos/<owner>/<repo>/pulls/<n>`，判据是回读一次确认 `title` 与 `body` 首行。
+
+**收尾要两份签核文件，适用于一切改动——本机同步、判据改动、清理都算，不是只对 PR。** 各写一份 signoff.md：对象、基准 commit、核过的文件与 md5、跑过的判据与 rc、坏样本、结论。两份都要覆盖全部安装位置。判据：每份里必须出现 `md5`、`rc=`、至少一条坏样本，缺一样按未签计。
 
 **三种失效形状，都真实发生过**：
 
@@ -560,27 +571,22 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 ## 11 改这个技能之前
 
-**这一节只对改这个技能的人有用。用技能的人跳过。**
+**这一节分三类读者，按你需要的那段看：用技能的人 / 改技能的人 / 想在本机先试的人。**
 
-`SKILL.md` 在盘上有七处，改错地方等于没改：
+用技能的人：PiDeck 只用这一处 `~/.pi/agent/pideck-skills/pideck-web-api/`——每次启动从安装包写过去，装上就能用，不是给手改的地方（改了下次启动被覆盖）。终端里直接起的 pi 读 `~/.agents/skills/pideck-web-api/`，两处内容相同，不用分开维护。
 
-| 位置 | 谁读 | 改了会留吗 |
-| --- | --- | --- |
-| `<仓库>/resources/skills/pideck-web-api/` | 打包与测试 | 留，但**不生效** |
-| `<userData>/skills-overlay/pideck-web-api/` | `installTemplate` 优先读；**可能不存在**，不存在时直接用打包那份 | 建出来才生效——要改就改这里 |
-| `~/.pi/agent/pideck-skills/pideck-web-api/` | PiDeck spawn 时 `--skill` 注入 | 每次启动被覆盖，手改白费 |
-| `~/.agents/skills/pideck-web-api/` | 终端里直接起的 pi | 留，但 PiDeck 不读 |
-| `<桌面>/pideck-web-api/` | 人读，手工核判据用 | 留；不是安装位置，跑判据要给 `--src=` |
-| `~/.config/magpie/library/skills/pideck-web-api/` | magpie 技能库 | 留；副本，同步靠手工 |
-| `<桌面>/My Data oi/magpie/library/skills/pideck-web-api/` | 复刻包（备份） | 留；副本，同步靠手工 |
+改这个技能的人：只有一处算数——`<仓库>/resources/skills/pideck-web-api/`。改完打包发版，用户装上就是新版。
 
-overlay 目录本机默认不存在，要改技能就自己建一个：
+不想等发版、要在本机先试：
 
 ```bash
-mkdir -p "<userData>/skills-overlay/pideck-web-api"
+mkdir -p "<userData>/skills-overlay"
+cp -r <仓库>/resources/skills/* "<userData>/skills-overlay"/
 ```
 
-`installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile`，内容取自 overlay（有就读 overlay，没有才读打包的 resources）。唯一例外：frontmatter 的 `disable-model-invocation: true` 会被记住并写回（`SkillManager.ts:438-449`）。
+**整包才生效。**overlay 必须自带 `skills-manifest.json`，清单里列的全部文件都在，且逐个哈希对得上。只放本技能那几个文件也能过本技能的校验，但其余技能在 overlay 里找不到，安装会被跳过。
+
+`installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile`，内容取自 overlay——**条件不是「有目录」，而是「overlay 自带清单且逐文件哈希对得上」**，任一不符就回落到打包的那份。唯一例外：frontmatter 的 `disable-model-invocation: true` 会被记住并写回（`SkillManager.ts:438-449`）。
 
 **四个判据在源码克隆根目录跑，rc 都得是 0：**
 
