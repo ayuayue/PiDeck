@@ -38,6 +38,19 @@ const PUSH_WORDS = ["等你改", "按规则归你", "本轮由你改", "不越�
 
 const clean = (s) => String(s || "").replace(/\*\*/g, "").trim().split(/[\s（(]/)[0];
 
+// 同一事实只允许出现一处。2026-11-17 实测：一份签核里两行「未改」，签核那行写「无」、
+// 正文末尾那段写「没动」——改字段时只替换了签核那行，另一处没动，两条真值当场分叉。
+// 前 1200 字符读不到正文末尾，所以这条必须扫全文，不能只看 head。
+const COUNT_FIELDS = ["已改", "未改", "交付", "发现者", "修改者", "复核者", "提出者"];
+export function dupFields(text) {
+  const all = String(text || "");
+  const dup = [];
+  for (const k of COUNT_FIELDS) {
+    const n = (all.match(new RegExp("^\\s*\\**" + k + "\\**\\s*[:：]", "gm")) || []).length;
+    if (n > 1) dup.push(k + " ×" + n);
+  }
+  return dup;
+}
 export function parseOne(text) {
   const head = String(text || "").slice(0, 1200);
   const r = RE_ROUND.exec(head);
@@ -57,6 +70,7 @@ export function parseOne(text) {
     posReview: pos(RE_REVIEW), posDone: pos(RE_DONE),
     reviewer: pick(RE_REV),
     delivered: pickRaw(RE_DELIVER),
+    dup: dupFields(text),
   };
 }
 
@@ -70,6 +84,7 @@ export function check(entries) {
   const bad = [];
   for (const e of entries.slice().sort((a, b) => a.round - b.round)) {
     const tag = "R" + e.round + (e.file ? " " + e.file : "");
+    if (e.dup && e.dup.length) bad.push(tag + " 同一字段出现多次（" + e.dup.join("、") + "）：同一事实两个来源，迟早分叉");
     if (!e.discoverer) bad.push(tag + " 缺「发现者」");
     if (!e.modifier) bad.push(tag + " 缺「修改者」");
     if (!e.reviewer) bad.push(tag + " 缺「复核者」");
@@ -140,6 +155,9 @@ function selftest() {
       docs: [doc({ r: 9, d: "甲", m: "甲", v: "乙" }), doc({ r: 8, d: "甲", m: "甲", v: "乙" })], want: 0 },
     { name: "好样本：换边后乙发现乙改甲核",
       docs: [doc({ r: 9, d: "甲", m: "甲", v: "乙" }), doc({ r: 2, d: "乙", m: "乙", v: "甲" })], want: 0 },
+    // 坏样本：正文末尾又写一段「未改」，与签核那行冲突（判据只读前 1200 字符，看不见它）。
+    { name: "坏样本：两行「未改」——签核写「无」，正文末尾写「没动」", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n## 已改 / 未改\n\n未改: 那份文件没动", want: 1 },
+    { name: "坏样本：两行「已改」——同一事实写了两次", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n已改: x 再写一遍", want: 1 },
     { name: "解析层：没有轮次的文件不被当成签核", doc: "# 随便一份文件\n修改者: 甲", want: 0, skip: true },
   ];
   let pass = 0, fail = 0;
