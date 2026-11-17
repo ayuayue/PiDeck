@@ -163,7 +163,10 @@ func (a *app) trustBar(s *session) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{TestID: "trust-bar", StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(7, 12),
-				Background: ui.Alpha(colors.Warn(), 0.10),
+				// Opaque under the tint: the bar floats over the transcript,
+				// and a wallpaper's see-through panels would let it read
+				// through the words.
+				Background: ui.Mix(ui.Alpha(colors.Surface(), 1), colors.Warn(), 0.10),
 				Borders:    core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: ui.Alpha(colors.Warn(), 0.30)}}
 		}, Children: []core.Node{
 			ui.Icon(lucide.ShieldAlert, 13, colors.Warn),

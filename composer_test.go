@@ -167,8 +167,8 @@ func composerApp(t *testing.T) *nsgotest.App {
 	}
 	t.Setenv("PIDECK_LITE_HOME", home)
 	app := openApp(t, workspace, 1280, 860)
-	for _, id := range []string{"id:composer", "id:backend-picker", "id:composer-add", "id:model-picker",
-		"id:effort-picker", "id:context-meter", "id:send-behavior"} {
+	for _, id := range []string{"id:composer", "id:composer-card", "id:backend-picker", "id:composer-add",
+		"id:model-picker", "id:context-meter", "id:send-behavior"} {
 		app.Find(id)
 	}
 	return app

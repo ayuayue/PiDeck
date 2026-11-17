@@ -279,7 +279,7 @@ func (a *app) terminalFindBar(cx *core.Scope) core.Node {
 		if st.Total == 0 && !st.Searching {
 			text = T("无结果")
 		}
-		return core.Text{Content: text, Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+		return core.Text{Content: text, Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 			StyleFunc: ui.Colored(colors.Faint)}
 	})
 	return core.View{StyleFunc: func() core.Style {

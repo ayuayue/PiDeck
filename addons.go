@@ -1003,6 +1003,12 @@ func (a *app) applyTheme() {
 	if f := strings.TrimSpace(a.cfg.MonoFont); f != "" {
 		base.Mono = f
 	}
+	// Every view that names a monospaced family goes through monoFont, so
+	// the setting reaches the app's own text as the theme's does.
+	monoFamily = base.Mono
+	if monoFamily == "" {
+		monoFamily = core.FontMonospace
+	}
 	if strings.TrimSpace(a.cfg.BackgroundImage) != "" {
 		// PiDeck's wallpaper mode: panels show the picture through them at a
 		// fixed alpha, and the veil alone follows the opacity setting, so
@@ -1093,6 +1099,9 @@ func (a *app) setBackgroundOpacity(v float64) {
 func (a *app) applyFonts() {
 	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))
 	a.monoFont.Set(strings.TrimSpace(a.cfg.MonoFont))
+	a.chatFont.Set(a.cfg.ChatFont)
+	a.chatLine.Set(a.cfg.ChatLine)
+	a.inputFont.Set(a.cfg.InputFont)
 	a.applyTheme()
 }
 

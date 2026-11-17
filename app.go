@@ -133,7 +133,6 @@ type session struct {
 
 	modelOpen    *core.Signal[bool]
 	modelQuery   *core.Signal[string]
-	thinkingOpen *core.Signal[bool]
 	backendOpen  *core.Signal[bool]
 	modeOpen     *core.Signal[bool]
 	imageOpen2   *core.Signal[bool]
@@ -145,7 +144,7 @@ type session struct {
 	streamThinking *core.Signal[string]
 	liveTools      *core.Signal[[]toolRun]
 
-	conversation *chat.ConversationState
+	conversation *chatScroll
 	// tops is where each rendered turn sits in the transcript, by turn ID,
 	// so the ruler can scroll to the turn it stands for. Only the interface
 	// thread touches it.
@@ -405,6 +404,11 @@ type app struct {
 	theme      *core.Signal[string]
 	uiFont     *core.Signal[string]
 	monoFont   *core.Signal[string]
+	// chatFont, chatLine and inputFont are the reading and writing sizes;
+	// 0 follows the built-in defaults.
+	chatFont  *core.Signal[float64]
+	chatLine  *core.Signal[float64]
+	inputFont *core.Signal[float64]
 	toolRev    *core.Signal[int]
 	aiBusy     *core.Signal[string]
 	bgImage    *core.Signal[string]
@@ -678,6 +682,9 @@ func newApp(cx *core.Scope) *app {
 		theme:                  core.NewSignal(cx, "system"),
 		uiFont:                 core.NewSignal(cx, ""),
 		monoFont:               core.NewSignal(cx, ""),
+		chatFont:               core.NewSignal(cx, 0.0),
+		chatLine:               core.NewSignal(cx, 0.0),
+		inputFont:              core.NewSignal(cx, 0.0),
 		toolRev:                core.NewSignal(cx, 0),
 		aiBusy:                 core.NewSignal(cx, ""),
 		bgImage:                core.NewSignal(cx, ""),
@@ -973,6 +980,9 @@ func newApp(cx *core.Scope) *app {
 	a.cfg = st.config()
 	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))
 	a.monoFont.Set(strings.TrimSpace(a.cfg.MonoFont))
+	a.chatFont.Set(a.cfg.ChatFont)
+	a.chatLine.Set(a.cfg.ChatLine)
+	a.inputFont.Set(a.cfg.InputFont)
 	a.bgImage.Set(strings.TrimSpace(a.cfg.BackgroundImage))
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.loadAuth()
@@ -1161,7 +1171,6 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
 		modelQuery:     core.NewSignal(a.cx, ""),
-		thinkingOpen:   core.NewSignal(a.cx, false),
 		backendOpen:    core.NewSignal(a.cx, false),
 		modeOpen:       core.NewSignal(a.cx, false),
 		imageOpen2:     core.NewSignal(a.cx, false),
@@ -1182,7 +1191,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 	if id := a.cfg.SessionPersonas[m.ID]; id != "" {
 		s.personaID = id
 	}
-	s.conversation = chat.NewConversationState(a.cx)
+	s.conversation = newChatScroll(a.cx)
 	a.byID[s.ID] = s
 	a.all = append(a.all, s)
 	return s
@@ -2048,7 +2057,6 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
 		modelQuery:     core.NewSignal(a.cx, ""),
-		thinkingOpen:   core.NewSignal(a.cx, false),
 		backendOpen:    core.NewSignal(a.cx, false),
 		modeOpen:       core.NewSignal(a.cx, false),
 		imageOpen2:     core.NewSignal(a.cx, false),
@@ -2066,7 +2074,7 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		acpModes:       core.NewSignalFunc(a.cx, []acpMode(nil), nil),
 		acpModeOpen:    core.NewSignal(a.cx, false),
 	}
-	s.conversation = chat.NewConversationState(a.cx)
+	s.conversation = newChatScroll(a.cx)
 	a.byID[s.ID] = s
 	a.all = append(a.all, s)
 	return s

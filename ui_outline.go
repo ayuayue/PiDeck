@@ -62,13 +62,13 @@ func (a *app) outlineDialog() core.Node {
 				},
 				Children: []core.Node{
 					core.Text{Content: fmt.Sprint(i + 1), Style: core.Style{Width: core.Pt(28), TextAlign: core.TextAlignEnd,
-						FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					ui.Icon(lucide.MessageSquare, 11, colors.Faint),
 					core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.Show{When: func() bool { return !t.Start.IsZero() }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: t.Start.Format("15:04"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
+						return core.Text{Content: t.Start.Format("15:04"), Style: core.Style{FontFamily: monoFont(), FontSize: 9.5},
 							StyleFunc: ui.Colored(colors.Faint)}
 					}},
 				}})

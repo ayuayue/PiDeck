@@ -126,7 +126,7 @@ func (a *app) feedbackDialog() core.Node {
 					}},
 					core.Scroll{TestID: "feedback-report", Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
 						core.View{Style: field.Merge(core.Style{Padding: core.All(9)}), Children: []core.Node{
-							core.Text{Content: report, Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5, LineHeight: 15},
+							core.Text{Content: report, Style: core.Style{FontFamily: monoFont(), FontSize: 10.5, LineHeight: 15},
 								StyleFunc: ui.Colored(colors.Muted)},
 						}},
 					}},

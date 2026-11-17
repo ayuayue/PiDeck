@@ -364,7 +364,7 @@ func (a *app) agentDialog() core.Node {
 							Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Muted)},
 						core.Show{When: func() bool { return agent.Plugin != "" }, Then: func(*core.Scope) core.Node {
 							return core.Text{Content: T("插件") + " · " + agent.Plugin, MaxLines: 1,
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+								Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 						}},
 						core.Show{When: func() bool { return agent.Plugin == "" && a.isCustomAgent(agent.ID) }, Then: func(*core.Scope) core.Node {
 							return core.Text{Content: T("自定义"), MaxLines: 1,

@@ -630,7 +630,7 @@ func (a *app) drawerGit() core.Node {
 						}
 						return shortPath(st.Root, 48)
 					}, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}},
 		}}
@@ -652,7 +652,7 @@ func (a *app) gitNotRepo(cx *core.Scope, st gitState) core.Node {
 		ui.Icon(lucide.FolderGit, 22, colors.Faint),
 		ui.Text(T("这个项目还不是 Git 仓库"), 13, ui.Semibold, colors.Text),
 		core.Text{ContentFunc: a.gitPath, MaxLines: 3, EllipsizeMode: core.EllipsizeMiddle,
-			Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+			Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 		ui.Button{Text: T("初始化 Git 仓库"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, OnPress: a.gitInit},
 		core.Show{When: func() bool { return st.Error != "" }, Then: func(cx *core.Scope) core.Node {
 			return core.Text{Content: st.Error, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Danger)}
@@ -750,7 +750,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 		}
 		if len(st.RemoteBranches) > 0 {
 			rows = append(rows, core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Symmetric(4, 4)}, StyleFunc: ui.Filled(colors.Line)})
-			rows = append(rows, core.Text{Content: T("远程分支"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9,
+			rows = append(rows, core.Text{Content: T("远程分支"), Style: core.Style{FontFamily: monoFont(), FontSize: 9,
 				Padding: core.Edges{Left: 8, Top: 4, Bottom: 2}}, StyleFunc: ui.Colored(colors.Faint)})
 			for _, name := range st.RemoteBranches {
 				b := name
@@ -848,7 +848,7 @@ func (a *app) gitHeader(cx *core.Scope, st gitState) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
 				ui.Icon(lucide.Cloud, 11, colors.Faint),
 				core.Text{Content: st.Upstream, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-					Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Faint)},
+					Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, FlexShrink: 1, MinWidth: core.Pt(0)}, StyleFunc: ui.Colored(colors.Faint)},
 			}}
 		}),
 	}}
@@ -893,8 +893,8 @@ func (a *app) gitChanges(cx *core.Scope, st gitState) core.Node {
 	}
 	row := func(title, count string, actions ...core.Node) core.Node {
 		children := []core.Node{
-			core.Text{Content: title, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.5}, StyleFunc: ui.Colored(colors.Faint)},
-			core.Text{Content: count, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+			core.Text{Content: title, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LetterSpacing: 0.5}, StyleFunc: ui.Colored(colors.Faint)},
+			core.Text{Content: count, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 			core.View{Style: core.Style{FlexGrow: 1}},
 		}
 		children = append(children, actions...)
@@ -986,7 +986,7 @@ func (a *app) gitFileRow(cx *core.Scope, f gitFile, staged bool) core.Node {
 					Style: core.Style{FontSize: 11.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)},
 				core.Show{When: func() bool { return dir != "" }, Then: func(cx *core.Scope) core.Node {
 					return core.Text{Content: dir, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)}
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)}
 				}},
 			}},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 0, FlexShrink: 0}, Children: actions},
@@ -1170,7 +1170,7 @@ func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 							core.Text{Content: commit.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 								Style: core.Style{FontSize: 11.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)},
 							core.Text{Content: commitLine(commit), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
+								Style: core.Style{FontFamily: monoFont(), FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
 						}},
 						ui.Icon(lucide.ChevronRight, 10, colors.Faint),
 					},
@@ -1205,8 +1205,8 @@ func (a *app) gitHistory(cx *core.Scope, st gitState) core.Node {
 		}
 		return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				core.Text{Content: T("历史"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.5}, StyleFunc: ui.Colored(colors.Faint)},
-				core.Text{Content: fmt.Sprint(shown), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: T("历史"), Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LetterSpacing: 0.5}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: fmt.Sprint(shown), Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{FlexGrow: 1}},
 				a.pressIcon(lucide.RefreshCw, T("刷新历史"), 21, 11, nil, func() { a.git.refreshAll() }, ""),
 			}},
@@ -1297,7 +1297,7 @@ func (a *app) gitDiffDialog() core.Node {
 							Children: []core.Node{
 								ui.Icon(lucide.FileText, 10, colors.Faint),
 								core.Text{Content: f, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-									Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
+									Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
 							}})
 					}
 					head = append(head, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5}, Children: chips})

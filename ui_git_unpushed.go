@@ -36,7 +36,7 @@ func (a *app) gitUnpushedDialog() core.Node {
 				},
 				Children: []core.Node{
 					ui.Icon(lucide.GitCommitHorizontal, 12, colors.Muted),
-					core.Text{Content: c.Short, Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+					core.Text{Content: c.Short, Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					core.Text{Content: c.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5},
 						StyleFunc: ui.Colored(colors.Text)},

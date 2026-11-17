@@ -63,7 +63,7 @@ func (a *app) shortcutsDialog() core.Node {
 								}
 								return core.Style{Padding: core.Symmetric(1, 7), CornerRadius: 5, Background: colors.Inset(),
 									BorderWidth: 1, BorderColor: colors.Line()}
-							}, Children: []core.Node{core.Text{Content: keyLabel(key), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+							}, Children: []core.Node{core.Text{Content: keyLabel(key), Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 								StyleFunc: ui.Colored(func() core.Color {
 									if key == "" {
 										return colors.Faint()

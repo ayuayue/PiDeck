@@ -111,11 +111,11 @@ func (a *mobileApp) railBrand(cx *core.Scope) core.Node {
 				Style: core.Style{Width: core.Pt(32), Height: core.Pt(32), CornerRadius: 9}},
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
-					core.Text{Content: "PiDeck", Style: core.Style{FontFamily: ui.Mono, FontSize: 14.5, FontWeight: ui.Bold, LetterSpacing: 0.4},
+					core.Text{Content: "PiDeck", Style: core.Style{FontFamily: monoFont(), FontSize: 14.5, FontWeight: ui.Bold, LetterSpacing: 0.4},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, BorderWidth: 1, BorderColor: colors.Border()}
-					}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: ui.Mono, FontSize: 9},
+					}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: monoFont(), FontSize: 9},
 						StyleFunc: ui.Colored(colors.Faint)}}},
 				}},
 				core.Text{ContentFunc: func() string {
@@ -173,7 +173,7 @@ func (a *mobileApp) railProjects(cx *core.Scope) core.Node {
 					StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{FlexGrow: 1}},
 				core.Text{ContentFunc: func() string { return fmt.Sprint(len(a.state.Get().Projects)) },
-					Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+					Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 				a.pressIcon(lucide.FolderPlus, T("添加项目"), 28, 13, nil, func() {
 					a.addPath.Set("")
 					a.addOpen.Set(true)
@@ -224,7 +224,7 @@ func (a *mobileApp) railProject(cx *core.Scope, index int, p remoteWireProject) 
 				core.Text{Content: p.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, FontWeight: ui.Medium},
 					StyleFunc: ui.Colored(colors.Text)},
-				core.Text{Content: fmt.Sprint(len(p.Sessions)), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
+				core.Text{Content: fmt.Sprint(len(p.Sessions)), Style: core.Style{FontFamily: monoFont(), FontSize: 9.5},
 					StyleFunc: ui.Colored(colors.Faint)},
 				a.pressIcon(lucide.Ellipsis, T("项目操作"), 28, 14, nil, func() { a.projectOpen.Set(p.Path) },
 					fmt.Sprintf("mobile-project-more-%d", index)),
@@ -308,7 +308,7 @@ func (a *mobileApp) pageHeader(cx *core.Scope, title, subtitle string, actions .
 			Style: core.Style{FontSize: 15, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
 		core.Show{When: func() bool { return subtitle != "" }, Then: func(*core.Scope) core.Node {
 			return core.Text{Content: subtitle, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+				Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 		}},
 	}})
 	children = append(children, core.Dynamic(func(*core.Scope) core.Node {
@@ -549,7 +549,7 @@ func (a *mobileApp) settingsSheet() core.Node {
 				return core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
 					ui.Text(label, 10.5, ui.Medium, colors.Faint),
 					core.Text{Content: value, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
 				}}
 			}
 			version := a.desktopVersion.Get()
@@ -732,7 +732,7 @@ func (a *mobileApp) projectSheet() core.Node {
 					core.Text{Content: name, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
 						Style: core.Style{FontSize: 14, FontWeight: ui.Semibold, LineHeight: 20}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: path, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 				a.sheetRow(lucide.GitBranch, T("查看 Git"), colors.Text, func() {
 					a.projectOpen.Set("")

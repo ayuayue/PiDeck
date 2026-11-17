@@ -1596,6 +1596,23 @@ var messages = map[string]map[string]string{
 		"图片太大，上限 6 MB":      "That picture is too large; the limit is 6 MB",
 		"搜会话标题，也搜消息正文":      "Search titles and message text",
 
+		// Fonts: reading and writing sizes.
+		"聊天字号": "Chat text size",
+		"会话正文与提问的字号；标题、代码和列表按同一比例放大。": "The transcript's prose and prompts; headings, code and lists scale with it.",
+		"聊天行高": "Chat line height",
+		"正文的行距；宽松一些更好读。": "The prose's line spacing; looser reads better.",
+		"输入框字号": "Composer text size",
+		"输入框里的文字大小；「跟随聊天」与聊天字号一致。": "The composer's text size; Follow chat keeps it the same as the prose.",
+		"紧凑": "Compact",
+		"标准": "Standard",
+		"大": "Large",
+		"特大": "Extra large",
+		"宽松": "Loose",
+		"舒展": "Airy",
+		"跟随聊天": "Follow chat",
+		"整个界面的字体（代码与等宽处除外）；系统已安装的字体名，如 Georgia。留空跟随主题，回车、失焦或点「应用」生效。": "The whole interface's family (code and mono places aside); a font installed on the system, such as Georgia. Empty follows the theme; Return, leaving the field, or Apply sets it.",
+		"代码、工具输出、编辑器与终端的字体；如 JetBrains Mono。留空用系统等宽字体。": "The family of code, tool output, the editor and the terminal, such as JetBrains Mono. Empty uses the system's monospaced font.",
+
 		// Composer modes, delivery and the queue.
 		"%d 条在排队":               "%d queued",
 		"ACP · %s（启动中）":         "ACP · %s (starting)",
@@ -3215,6 +3232,23 @@ var messages = map[string]map[string]string{
 		"图片读不出来":            "圖片讀不出來",
 		"图片太大，上限 6 MB":      "圖片太大，上限 6 MB",
 		"搜会话标题，也搜消息正文":      "搜尋工作階段標題與訊息內容",
+
+		// Fonts: reading and writing sizes.
+		"聊天字号": "聊天字號",
+		"会话正文与提问的字号；标题、代码和列表按同一比例放大。": "會話正文與提問的字號；標題、程式碼與清單按同一比例放大。",
+		"聊天行高": "聊天行高",
+		"正文的行距；宽松一些更好读。": "正文的行距；寬鬆一些更好讀。",
+		"输入框字号": "輸入框字號",
+		"输入框里的文字大小；「跟随聊天」与聊天字号一致。": "輸入框裡的文字大小；「跟隨聊天」與聊天字號一致。",
+		"紧凑": "緊湊",
+		"标准": "標準",
+		"大": "大",
+		"特大": "特大",
+		"宽松": "寬鬆",
+		"舒展": "舒展",
+		"跟随聊天": "跟隨聊天",
+		"整个界面的字体（代码与等宽处除外）；系统已安装的字体名，如 Georgia。留空跟随主题，回车、失焦或点「应用」生效。": "整個介面的字型（程式碼與等寬處除外）；系統已安裝的字型名稱，如 Georgia。留空跟隨主題，Enter、離開欄位或點「套用」生效。",
+		"代码、工具输出、编辑器与终端的字体；如 JetBrains Mono。留空用系统等宽字体。": "程式碼、工具輸出、編輯器與終端的字型；如 JetBrains Mono。留空使用系統等寬字型。",
 
 		// Composer modes, delivery and the queue.
 		"%d 条在排队":               "%d 則在排隊",

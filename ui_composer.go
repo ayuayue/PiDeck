@@ -280,39 +280,37 @@ func (a *app) composerModeChip(s *session) core.Node {
 	})
 }
 
-// thinkingMenu picks the reasoning level: the levels the current model
-// accepts, one row each.
-func (a *app) thinkingMenu(s *session) core.Node {
-	label := func() string {
-		if level := s.thinking.Get(); level != "" {
-			return levelLabel(level)
-		}
-		return T("思考")
-	}
-	hint := func() string {
-		if len(s.levels.Get()) == 1 {
-			return T("思考等级 · %s（该模型只有这一档）", levelLabel(s.thinking.Get()))
-		}
-		return T("思考等级 · %s", levelLabel(s.thinking.Get()))
-	}
-	trigger := hintOf(hint, composerChip{Icon: lucide.Brain, Label: label, Caret: true, TestID: "effort-picker",
-		OnPress: func() { s.thinkingOpen.Update(func(v bool) bool { return !v }) }}.node())
-	return a.popoverCard(s.thinkingOpen, core.PlaceTop, core.AlignStart, 216, trigger, func(cx *core.Scope) core.Node {
+// effortPicker is the reasoning level: the chat kit's slider, whose levels
+// are the ones the current model accepts. It is rebuilt when the model
+// changes, because each model has its own levels.
+func (a *app) effortPicker(s *session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
 		levels := s.levels.Get()
-		current := s.thinking.Get()
-		rows := []core.Node{composerPanelTitle(cx, T("思考等级"))}
-		for _, l := range levels {
-			level := l
-			rows = append(rows, composerRow(cx, nil, levelLabel(level), "", level == current, false, func() {
-				a.applyThinking(s, level, true)
-			}))
-		}
 		if len(levels) == 0 {
-			rows = append(rows, core.Text{Content: T("等 pi 起来后再选"), MaxLines: 1,
-				Style: core.Style{FontSize: 11, Padding: core.All(8)}, StyleFunc: ui.Colored(ui.ColorsOf(cx).Faint)})
+			return nil
 		}
-		return core.View{Style: core.Style{Gap: 1}, Children: rows}
-	}, "thinking-menu")
+		options := make([]chat.Option, 0, len(levels))
+		for _, l := range levels {
+			options = append(options, chat.Option{ID: l, Label: levelLabel(l)})
+		}
+		return chat.EffortPicker{
+			Label:  T("思考"),
+			Icon:   lucide.Brain,
+			Levels: options,
+			Selected: func() string {
+				return s.thinking.Get()
+			},
+			OnChange: func(id string) { a.applyThinking(s, id, true) },
+			Off:      true,
+			Tooltip: func() string {
+				if len(levels) == 1 {
+					return T("思考等级 · %s（该模型只有这一档）", levelLabel(s.thinking.Get()))
+				}
+				return T("思考等级 · %s", levelLabel(s.thinking.Get()))
+			},
+			TestID: "effort-picker",
+		}
+	})
 }
 
 // composerImageOptions is picture mode's settings: the provider, the model

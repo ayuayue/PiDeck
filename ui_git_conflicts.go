@@ -41,7 +41,7 @@ func (a *app) gitConflictsDialog() core.Node {
 							Style: core.Style{FontSize: 11.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)},
 						core.Show{When: func() bool { return dir != "" }, Then: func(*core.Scope) core.Node {
 							return core.Text{Content: dir, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)}
+								Style: core.Style{FontFamily: monoFont(), FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)}
 						}},
 					}},
 					button(T("用我的版本"), false, func() { a.gitResolveConflict(f, "ours") }, fmt.Sprintf("git-ours-%d", i)),

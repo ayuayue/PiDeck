@@ -22,7 +22,7 @@ import (
 // 720 points wide, and narrower reads better on wide screens.
 const (
 	chatWidthMin = 520
-	chatWidthMax = 720
+	chatWidthMax = 1000
 )
 
 // chatPane is the conversation and its composer.
@@ -37,13 +37,7 @@ func (a *app) chatPane() core.Node {
 			return core.View{StyleFunc: func() core.Style {
 				return ui.FillRest.Merge(core.Style{Background: colors.Background(), Color: colors.Text()})
 			}, Children: []core.Node{
-				chat.FloatingConversation{
-					State:     s.conversation,
-					JumpLabel: T("跳到最新消息"),
-					TestID:    "transcript",
-					Children:  []core.Node{a.transcript(s)},
-					Composer:  []core.Node{a.composerStack(s)},
-				},
+				a.chatSurface(s),
 				a.turnAxis(s),
 				core.Show{When: a.chatFindOpen.Get, Then: func(cx *core.Scope) core.Node { return a.chatFindBar(s) }},
 				core.Show{When: func() bool {
@@ -419,7 +413,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					}
 					if tt.Prompt != "" {
 						children = append(children, core.Text{Content: tt.Prompt, Selectable: core.SelectableOn,
-							Style: core.Style{FontSize: 13, LineHeight: 20, Color: colors.Text()}})
+							Style: core.Style{FontSize: a.readingFont(), LineHeight: a.readingLine(), Color: colors.Text()}})
 					}
 					return core.View{Style: core.Style{Direction: core.Column, AlignItems: core.AlignEnd, Gap: 3},
 						Children: []core.Node{
@@ -436,7 +430,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			Steps: func() []chat.Step { return a.steps(s, t()) },
 			Final: func(cx *core.Scope) core.Node {
 				tt := t()
-				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{markdownSearchView(a.chatSearch, tt.Final, func() bool { return false }, false)}}
+				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{markdownSearchView(a.chatSearch, tt.Final, func() bool { return false }, false, a.readingFont(), a.readingLine())}}
 			},
 			HasFinal: func() bool {
 				tt := t()
@@ -526,7 +520,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 				tt := t()
 				return !tt.running() && (tt.Final != "" || tt.Err != "")
 			},
-			Conversation: s.conversation,
+			Conversation: s.conversation.Kit(),
 		}
 	})
 }
@@ -593,7 +587,7 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 				text = s.streamText.Get()
 			}
 			if st.Note != "" {
-				children = append(children, noteBlock(st.Note, st.Text))
+				children = append(children, a.noteBlock(st.Note, st.Text))
 			}
 			if strings.TrimSpace(thinking) != "" {
 				children = append(children, a.thinkRow(s, st, thinking, live))
@@ -602,7 +596,7 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 				children = append(children, a.toolRows(s, tools))
 			}
 			if text != "" {
-				children = append(children, markdownSearchView(a.chatSearch, text, func() bool { return live }, live))
+				children = append(children, markdownSearchView(a.chatSearch, text, func() bool { return live }, live, a.readingFont(), a.readingLine()))
 			}
 			if len(children) == 0 {
 				return nil
@@ -644,7 +638,7 @@ func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core
 				}
 				return shorten(thinking, 90)
 			}, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5, FontFamily: ui.Mono},
+				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5, FontFamily: monoFont()},
 				StyleFunc: ui.Colored(colors.Faint)},
 		}
 		if live {
@@ -662,7 +656,7 @@ func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core
 		if open {
 			body = append(body, core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Edges{Left: 17, Top: 2},
 				Borders: core.Edges{Left: 1}, BorderColors: core.EdgeColors{Left: colors.Now().Line}}, Children: []core.Node{
-				markdownSearchView(a.chatSearch, thinking, func() bool { return live }, false),
+				markdownSearchView(a.chatSearch, thinking, func() bool { return live }, false, a.readingFont(), a.readingLine()),
 			}})
 		}
 		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 4}, Children: body}
@@ -703,9 +697,9 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 		}
 		if added > 0 || removed > 0 {
 			header = append(header,
-				core.Text{Content: fmt.Sprintf("+%d", added), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
+				core.Text{Content: fmt.Sprintf("+%d", added), Style: core.Style{FontFamily: monoFont(), FontSize: 10.5},
 					StyleFunc: ui.Colored(colors.Up)},
-				core.Text{Content: fmt.Sprintf("−%d", removed), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
+				core.Text{Content: fmt.Sprintf("−%d", removed), Style: core.Style{FontFamily: monoFont(), FontSize: 10.5},
 					StyleFunc: ui.Colored(colors.Danger)})
 		}
 		header = append(header, ui.IconOf(func() *core.SVG {
@@ -735,15 +729,15 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 					},
 					Children: []core.Node{
 						core.Text{Content: change.Path, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11},
+							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11},
 							StyleFunc: ui.Colored(colors.Muted)},
 					},
 				}
 				if change.Added > 0 || change.Removed > 0 {
 					row.Children = append(row.Children,
-						core.Text{Content: fmt.Sprintf("+%d", change.Added), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+						core.Text{Content: fmt.Sprintf("+%d", change.Added), Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 							StyleFunc: ui.Colored(colors.Up)},
-						core.Text{Content: fmt.Sprintf("−%d", change.Removed), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+						core.Text{Content: fmt.Sprintf("−%d", change.Removed), Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 							StyleFunc: ui.Colored(colors.Danger)})
 				}
 				rows = append(rows, row)
@@ -769,7 +763,7 @@ func (a *app) openChangeFile(s *session, path string) {
 }
 
 // noteBlock is a system note, such as a compaction summary.
-func noteBlock(title, body string) core.Node {
+func (a *app) noteBlock(title, body string) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		children := []core.Node{
@@ -779,7 +773,7 @@ func noteBlock(title, body string) core.Node {
 			}},
 		}
 		if body != "" {
-			children = append(children, markdownView(body, func() bool { return false }, false))
+			children = append(children, markdownSized(body, func() bool { return false }, false, a.readingFont(), a.readingLine()))
 		}
 		return core.View{StyleFunc: func() core.Style {
 			return core.Style{Gap: 8, Padding: core.Symmetric(8, 12), CornerRadius: ui.RadiusControl,
@@ -814,28 +808,28 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 			core.Text{Content: run.Action, MaxLines: 1, Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Text)},
 			core.Text{Content: shorten(run.Detail, 120), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11.5},
+				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11.5},
 				StyleFunc: ui.Colored(colors.Muted)},
 		}
 		if run.Added > 0 || run.Removed > 0 {
 			header = append(header, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, FlexShrink: 0},
 				Children: []core.Node{
-					core.Text{Content: fmt.Sprintf("+%d", run.Added), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
+					core.Text{Content: fmt.Sprintf("+%d", run.Added), Style: core.Style{FontFamily: monoFont(), FontSize: 10.5},
 						StyleFunc: ui.Colored(colors.Up)},
-					core.Text{Content: fmt.Sprintf("−%d", run.Removed), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
+					core.Text{Content: fmt.Sprintf("−%d", run.Removed), Style: core.Style{FontFamily: monoFont(), FontSize: 10.5},
 						StyleFunc: ui.Colored(colors.Danger)},
 				}})
 		}
 		if len(run.Nested) > 0 {
 			header = append(header, core.Text{Content: fmt.Sprintf("内含 %d 次调用", len(run.Nested)), MaxLines: 1,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
+				Style: core.Style{FontFamily: monoFont(), FontSize: 10, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		switch {
 		case running:
 			header = append(header, ui.Spinner{Size: 10})
 		case run.DurationMs > 0:
 			header = append(header, core.Text{Content: fmt.Sprintf("%d ms", run.DurationMs),
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
+				Style: core.Style{FontFamily: monoFont(), FontSize: 10, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		if run.IsError {
 			header = append(header, core.Text{Content: "失败", Style: core.Style{FontSize: 10.5, FontWeight: ui.Medium, FlexShrink: 0},
@@ -949,7 +943,7 @@ func toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
 			}
 			ink := c
 			lines = append(lines, core.Text{Content: line, Selectable: core.SelectableOn,
-				Style:     core.Style{FontFamily: ui.Mono, FontSize: 11.5, LineHeight: 17, Background: bg, Width: core.Pct(100)},
+				Style:     core.Style{FontFamily: monoFont(), FontSize: 11.5, LineHeight: 17, Background: bg, Width: core.Pct(100)},
 				StyleFunc: ui.Colored(func() core.Color { return ink })})
 		}
 		return lines
@@ -957,14 +951,14 @@ func toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
 	var nodes []core.Node
 	for _, line := range run.Nested {
 		nodes = append(nodes, core.Text{Content: "· " + line, Selectable: core.SelectableOn,
-			Style: core.Style{FontFamily: ui.Mono, FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)})
+			Style: core.Style{FontFamily: monoFont(), FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)})
 	}
 	out := run.Output
 	if out == "" {
 		out = "（没有输出）"
 	}
 	nodes = append(nodes, core.Text{Content: out, Selectable: core.SelectableOn,
-		Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Code)})
+		Style: core.Style{FontFamily: monoFont(), FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Code)})
 	return nodes
 }
 
@@ -982,76 +976,6 @@ func (a *app) errorRow(retry func(), text string) core.Node {
 				StyleFunc: ui.Colored(colors.Text)},
 			ui.Button{Text: T("重试"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: retry},
 		}}
-	})
-}
-
-// composer is the input card under the transcript. It reads nothing while
-// building: the draft, the images and the run state are functions, so
-// typing never rebuilds the field and never loses the caret.
-func (a *app) composer(s *session) core.Node {
-	return core.Func(func(cx *core.Scope) core.Node {
-		return chat.Composer{
-			Draft:         s.draft.Get,
-			OnDraftChange: s.draft.Set,
-			Label:         T("消息"),
-			PlaceholderFunc: func() string {
-				switch {
-				case modeOn(s, modeImage):
-					return T("描述要画的画面…")
-				case s.busyNow() && delivery(s) == deliveryFollowUp:
-					return T("运行中：回车排到这一轮结束后")
-				case s.busyNow():
-					return T("运行中：回车插入引导，或点停止")
-				case backendOf(s) == "acp" && !s.readySig.Get():
-					return T("正在启动 agent…")
-				case !s.readySig.Get():
-					return T("正在启动 pi…")
-				case modeOn(s, modePlan):
-					return T("写下要计划的事…")
-				case modeOn(s, modeGoal):
-					return T("写下目标，它会自己往下做…")
-				}
-				return T("给 pi 发消息…")
-			},
-			SendDisabled: func() bool { return a.aiBusy.Get() == "image" },
-			SendLabel: T("发送"),
-			StopLabel: T("停止"),
-			Running:   s.busy,
-			OnSend:    a.send,
-			OnStop:    func() { a.stop(s) },
-			Suggest: func(query string) []chat.Suggestion {
-				files := mentionMatches(a.workspaceFiles(s.WS), query, 8)
-				rows := make([]chat.Suggestion, 0, len(files))
-				for _, rel := range files {
-					rows = append(rows, chat.Suggestion{
-						SuggestItem: base.SuggestItem{ID: rel, Label: rel, Insert: "@" + rel + " "},
-						Icon:        lucide.File,
-					})
-				}
-				return rows
-			},
-			SuggestLabel: T("文件"),
-			Glass:        true,
-			State:        s.conversation,
-			Accessory:    a.composerAccessory(s),
-			Trailing:     a.composerTrailing(s),
-			Footer:       a.composerFooter(s),
-			Attachments:  a.attachments(s),
-			HasAttachments: func() bool {
-				return len(s.images.Get()) > 0
-			},
-			OnDropFiles: func(uris []string) { a.dropFiles(s, uris) },
-			OnPaste: func(e core.PasteEvent) {
-				for _, f := range e.Files {
-					if strings.HasPrefix(f.MIME, "image/") && len(f.Data) > 0 {
-						a.addImage(s, promptImage{Data: f.Data, MimeType: f.MIME, Name: f.Name})
-					}
-				}
-				for _, uri := range e.URIs {
-					a.dropFiles(s, []string{uri})
-				}
-			},
-		}
 	})
 }
 
@@ -1081,7 +1005,7 @@ func (a *app) composerAccessory(s *session) chat.View {
 					}
 					return T("选择模型")
 				}, a.modelMenu(s, s.modelOpen)))
-				parts = append(parts, a.thinkingMenu(s))
+				parts = append(parts, a.effortPicker(s))
 			}
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0),
 				FlexShrink: 1, Overflow: core.Hidden}, Children: parts}
@@ -1214,7 +1138,7 @@ func (a *app) composerFooter(s *session) chat.View {
 			a.personaChip(s),
 			core.Show{When: func() bool { return s.notice.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 				return core.Text{ContentFunc: func() string { return shorten(s.notice.Get(), 40) }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FlexShrink: 1, FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)}
+					Style: core.Style{FlexShrink: 1, FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)}
 			}},
 			core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}},
 			hintOf(func() string { return T("用量与上下文") }, a.usageMenu(s, s.usageOpen)),
@@ -1263,7 +1187,7 @@ func (a *app) historySkeleton(s *session) core.Node {
 		Style: core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0),
 			AlignItems: core.AlignCenter, PointerEvents: core.PointerEventsBoxNone},
 		StyleFunc: func() core.Style { return core.Style{Bottom: core.Pt(s.conversation.ComposerHeight())} },
-		Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, Width: core.Pct(100), MaxWidth: core.Pt(720), MinHeight: core.Pt(0),
+		Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, Width: core.Pct(100), MaxWidth: core.Pt(core.Points(a.contentWidth())), MinHeight: core.Pt(0),
 			JustifyContent: core.JustifyCenter, Padding: core.Symmetric(32, 24), Gap: 22}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
 				ui.Spinner{Size: 11, Label: T("正在读取历史会话")},
@@ -1312,7 +1236,7 @@ func (a *app) emptyChat(s *session) core.Node {
 								a.suggestion(T("修一个小问题"), T("看看最近的改动，指出最可能出问题的地方并修掉。")),
 							}},
 							core.Text{Content: T("Enter 发送 · Shift+Enter 换行 · ⌘K 命令面板"),
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
+								Style: core.Style{FontFamily: monoFont(), FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
 						}},
 					}},
 				}},
@@ -1360,7 +1284,7 @@ func (a *app) welcome() core.Node {
 				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 14, MaxWidth: core.Pt(420)}, Children: []core.Node{
 					core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
 						Style: core.Style{Width: core.Pt(64), Height: core.Pt(64), CornerRadius: 18}},
-					core.Text{Content: "PiDeck Lite", Style: core.Style{FontFamily: ui.Mono, FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
+					core.Text{Content: "PiDeck Lite", Style: core.Style{FontFamily: monoFont(), FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: sub, Style: core.Style{FontSize: 13, TextAlign: core.TextAlignCenter, LineHeight: 20}, StyleFunc: ui.Colored(colors.Muted)},
 					core.View{Style: core.Style{Direction: core.Row, Gap: 8}, Children: []core.Node{
@@ -1382,7 +1306,7 @@ func (a *app) welcome() core.Node {
 						ui.Button{Text: T("导入会话"), Variant: ui.ButtonSecondary, TestID: "welcome-secondary", OnPress: func() { a.openImportDialog() }},
 					}},
 					core.Text{Content: T("NSGo 原生窗口 · 不是 Electron · 会话由本机 pi 的 RPC 模式驱动"),
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 10, TextAlign: core.TextAlignCenter, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 10, TextAlign: core.TextAlignCenter, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}}
 	})
@@ -1446,7 +1370,7 @@ func (a *app) todoBar(s *session) core.Node {
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32),
 					Padding: core.Symmetric(0, 10), CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Border(),
-					Background: colors.Surface(), Hover: &core.Style{Background: colors.Hover()},
+					Background: ui.Alpha(colors.Surface(), 1), Hover: &core.Style{Background: colors.Hover()},
 					Transition: pressMotion}
 			},
 			Children: []core.Node{

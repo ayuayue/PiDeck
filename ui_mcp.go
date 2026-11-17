@@ -184,7 +184,7 @@ func (a *app) mcpDialog() core.Node {
 			return core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				ui.Text(label, 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: value.Get, OnChange: value.Set, Placeholder: placeholder, Label: label, TestID: testID,
-					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: ui.Mono, Color: colors.Text(),
+					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: monoFont(), Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 			}}
 		}

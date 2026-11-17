@@ -266,7 +266,7 @@ func (a *app) providerDialog() core.Node {
 		colors := ui.ColorsOf(cx)
 		fieldStyle := core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), CornerRadius: 7,
 			Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
-			Color: colors.Text(), FontSize: 12, FontFamily: ui.Mono}
+			Color: colors.Text(), FontSize: 12, FontFamily: monoFont()}
 		field := func(label, hint string, input core.Node) core.Node {
 			return core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
@@ -378,7 +378,7 @@ func (a *app) providerDialog() core.Node {
 								core.Input{Value: a.providerModelID.Get, OnChange: a.providerModelID.Set, Placeholder: "gpt-4o-mini",
 									Label: T("模型 ID"), TestID: "provider-model-id",
 									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-										FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+										FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 							}},
 							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
@@ -394,14 +394,14 @@ func (a *app) providerDialog() core.Node {
 								core.Input{Value: a.providerModelContext.Get, OnChange: a.providerModelContext.Set, Placeholder: "128000",
 									Label: T("上下文"), TestID: "provider-model-context",
 									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-										FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+										FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 							}},
 							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 								core.Input{Value: a.providerModelMax.Get, OnChange: a.providerModelMax.Set, Placeholder: "8192",
 									Label: T("最大输出"), TestID: "provider-model-max",
 									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-										FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+										FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 							}},
 							ui.Switch{Checked: a.providerModelReasoning.Get, Label: T("推理"), TestID: "provider-model-reasoning",

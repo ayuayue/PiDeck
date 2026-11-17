@@ -68,7 +68,7 @@ func (a *app) gitStashDialog() core.Node {
 					Padding: core.Symmetric(4, 6)}, Children: []core.Node{
 					ui.Icon(lucide.Archive, 12, colors.Muted),
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
-						core.Text{Content: item.Ref, Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
+						core.Text{Content: item.Ref, Style: core.Style{FontFamily: monoFont(), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
 						core.Text{Content: item.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 							Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
 					}},

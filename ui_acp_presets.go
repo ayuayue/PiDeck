@@ -30,7 +30,7 @@ func (a *app) acpPresetManagerDialog() core.Node {
 		colors := ui.ColorsOf(cx)
 		_ = a.acpManageRev.Get()
 		fieldStyle := core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-			FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+			FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 			BorderWidth: 1, BorderColor: colors.FieldBorder()}
 		field := func(value func() string, set func(string), placeholder, label, testID string) core.Node {
 			return core.Input{Value: value, OnChange: set, Placeholder: placeholder, Label: label, TestID: testID, Style: fieldStyle}
@@ -52,7 +52,7 @@ func (a *app) acpPresetManagerDialog() core.Node {
 					core.Text{Content: p.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: meta, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					core.Text{Content: state, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 						Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(func() core.Color { return ink })},
 				}},

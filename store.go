@@ -164,6 +164,12 @@ type config struct {
 	TerminalFont float64 `json:"terminalFont,omitempty"`
 	// EditorFont is the editor's text size; 0 keeps the default.
 	EditorFont int `json:"editorFont,omitempty"`
+	// ChatFont is the transcript's text size in points, and ChatLine its
+	// line height as a multiple of it; 0 keeps the defaults. InputFont is
+	// the composer's text size; 0 follows ChatFont.
+	ChatFont  float64 `json:"chatFont,omitempty"`
+	ChatLine  float64 `json:"chatLine,omitempty"`
+	InputFont float64 `json:"inputFont,omitempty"`
 	// UIFont names an installed font family for the interface; empty follows the theme.
 	UIFont string `json:"uiFont,omitempty"`
 	// MonoFont names an installed font family for the editor; empty uses the system's monospaced font.
@@ -393,6 +399,18 @@ func normalizeConfig(c *config) bool {
 	}
 	if c.EditorFont != 0 && (c.EditorFont < 11 || c.EditorFont > 20) {
 		c.EditorFont = 0
+		changed = true
+	}
+	if c.ChatFont != 0 && (c.ChatFont < chatFontMin || c.ChatFont > chatFontMax) {
+		c.ChatFont = 0
+		changed = true
+	}
+	if c.ChatLine != 0 && (c.ChatLine < chatLineMin || c.ChatLine > chatLineMax) {
+		c.ChatLine = 0
+		changed = true
+	}
+	if c.InputFont != 0 && (c.InputFont < chatFontMin || c.InputFont > chatFontMax) {
+		c.InputFont = 0
 		changed = true
 	}
 

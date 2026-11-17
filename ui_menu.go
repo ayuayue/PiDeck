@@ -27,8 +27,11 @@ func (a *app) menuCard(cx *core.Scope) core.Style {
 		CornerRadius: 10,
 		BorderWidth:  1,
 		BorderColor:  colors.Border(),
-		Background:   colors.Surface(),
-		Shadows:      []core.BoxShadow{ui.Shadow(0, 12, 32, 0, ui.Black(0.14))},
+		// Opaque, whatever the theme: a menu floats over the transcript,
+		// and a wallpaper's see-through panels would let the words behind
+		// read through it.
+		Background: ui.Alpha(colors.Surface(), 1),
+		Shadows:    []core.BoxShadow{ui.Shadow(0, 12, 32, 0, ui.Black(0.14))},
 	}
 }
 
@@ -55,7 +58,7 @@ func (a *app) menuRow(cx *core.Scope, icon func() *core.SVG, label, hint string,
 	children = append(children, core.Text{Content: label, Style: core.Style{FontSize: 12.5, FlexGrow: 1},
 		StyleFunc: func() core.Style { return core.Style{Color: ink} }})
 	if hint != "" {
-		children = append(children, core.Text{Content: hint, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
+		children = append(children, core.Text{Content: hint, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5},
 			StyleFunc: ui.Colored(colors.Faint)})
 	}
 	return base.MenuItem{
@@ -102,7 +105,7 @@ func (a *app) menuTrigger(text func() string, icon func() *core.SVG, badge func(
 		}
 		if badge != nil {
 			children = append(children, core.Text{ContentFunc: badge, MaxLines: 1,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)})
+				Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5},
 			Children: children}
@@ -148,7 +151,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 		}
 		children := []core.Node{ui.Icon(lucide.Sparkles, 12, colors.Muted)}
 		if provider != "" {
-			children = append(children, core.Text{Content: provider, Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+			children = append(children, core.Text{Content: provider, Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 				StyleFunc: ui.Colored(colors.Faint)})
 			children = append(children, core.Text{Content: "·", Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)})
 		}
@@ -225,9 +228,9 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 							core.Text{Content: modelLabel(m), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 								Style: core.Style{FontSize: 12.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)},
 							core.Text{Content: modelPath(m), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LineHeight: 13}, StyleFunc: ui.Colored(colors.Faint)},
+								Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LineHeight: 13}, StyleFunc: ui.Colored(colors.Faint)},
 						}},
-						core.Text{Content: tokens(m.ContextWindow), Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexShrink: 0},
+						core.Text{Content: tokens(m.ContextWindow), Style: core.Style{FontFamily: monoFont(), FontSize: 10, FlexShrink: 0},
 							StyleFunc: ui.Colored(colors.Faint)},
 						core.View{OnPress: func(core.PressEvent) { a.toggleFavModel(m) }, Role: core.RoleButton, Label: T("收藏模型"),
 							StyleFunc: func() core.Style {
@@ -263,7 +266,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 			groupHeader := func(text string) core.Node {
 				return core.View{Style: core.Style{Padding: core.Symmetric(6, 8), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 					Children: []core.Node{
-						core.Text{Content: text, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.6},
+						core.Text{Content: text, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LetterSpacing: 0.6},
 							StyleFunc: ui.Colored(colors.Faint)},
 						core.View{Style: core.Style{FlexGrow: 1, Height: core.Pt(1)}, StyleFunc: ui.Filled(colors.Line)},
 					}}
@@ -317,7 +320,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 					lead,
 					core.Text{Content: T("刷新模型"), Style: core.Style{FontSize: 11.5, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
 					core.Text{ContentFunc: func() string { return fmt.Sprintf("%d 个", len(s.models.Get())) },
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 				},
 			}
 		})
@@ -407,8 +410,8 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 			},
 			Children: []core.Node{
 				ui.Icon(lucide.Gauge, 12, colors.Muted),
-				core.Text{Content: total, Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
-				core.Text{Content: credits(u.Cost), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: total, Style: core.Style{FontFamily: monoFont(), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
+				core.Text{Content: credits(u.Cost), Style: core.Style{FontFamily: monoFont(), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
 			}}
 	})
 	return a.popoverCard(open, core.PlaceTop, core.AlignEnd, 300, trigger, func(cx *core.Scope) core.Node {
@@ -427,7 +430,7 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 		row := func(label, value string, accent func() core.Color) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(24)}, Children: []core.Node{
 				core.Text{Content: label, Style: core.Style{FontSize: 12, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
-				core.Text{Content: value, Style: core.Style{FontFamily: ui.Mono, FontSize: 11}, StyleFunc: ui.Colored(accent)},
+				core.Text{Content: value, Style: core.Style{FontFamily: monoFont(), FontSize: 11}, StyleFunc: ui.Colored(accent)},
 			}}
 		}
 		turns, tools := 0, 0
@@ -540,7 +543,7 @@ func (a *app) projectMenu(s *session, open *core.Signal[bool]) core.Node {
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
 						core.Text{Content: w.label(), MaxLines: 1, Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
 						core.Text{Content: shortPath(w.Path, 40), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+							Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 					core.Show{When: sel, Then: func(*core.Scope) core.Node { return ui.Icon(lucide.Check, 12, colors.Text) }},
 				},

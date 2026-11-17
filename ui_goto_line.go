@@ -27,7 +27,7 @@ func (a *app) gotoLineDialog() core.Node {
 					TestID: "goto-line-input", AutoFocus: true, OnSubmit: func(string) { a.jumpToLine() },
 					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), CornerRadius: 7,
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
-						Color: colors.Text(), FontSize: 12.5, FontFamily: ui.Mono}},
+						Color: colors.Text(), FontSize: 12.5, FontFamily: monoFont()}},
 			}}},
 			Footer: []core.Node{
 				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,

@@ -220,7 +220,7 @@ func (a *app) rail() core.Node {
 						StyleFunc: ui.Colored(colors.Faint)},
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{ContentFunc: func() string { return fmt.Sprint(len(a.workspaces.Get())) },
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					core.View{OnPress: func(core.PressEvent) { a.pickNative("workspace") }, Role: core.RoleButton, Label: "添加项目",
 						TestID: "add-project",
 						StyleFunc: func() core.Style {
@@ -248,7 +248,7 @@ func (a *app) groupLabel(text string) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Padding: core.Edges{Top: 6, Right: 8, Bottom: 1, Left: 8}}, Children: []core.Node{
-			core.Text{Content: text, Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LetterSpacing: 0.5},
+			core.Text{Content: text, Style: core.Style{FontFamily: monoFont(), FontSize: 9, LetterSpacing: 0.5},
 				StyleFunc: ui.Colored(colors.Faint)},
 		}}
 	})
@@ -288,7 +288,7 @@ func (a *app) piSessionRow(s *session) core.Node {
 					core.Text{ContentFunc: func() string { return s.title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{FontSize: 12, LineHeight: 16}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{ContentFunc: func() string { return shorten(filepath.Base(s.WS), 34) }, MaxLines: 1,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			},
 		},
@@ -311,18 +311,18 @@ func (a *app) brand() core.Node {
 				Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), CornerRadius: 8}},
 			core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-					core.Text{Content: "PiDeck", Style: core.Style{FontFamily: ui.Mono, FontSize: 14, FontWeight: ui.Bold, LetterSpacing: 0.4},
+					core.Text{Content: "PiDeck", Style: core.Style{FontFamily: monoFont(), FontSize: 14, FontWeight: ui.Bold, LetterSpacing: 0.4},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, BorderWidth: 1, BorderColor: colors.Border()}
-					}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: ui.Mono, FontSize: 9},
+					}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: monoFont(), FontSize: 9},
 						StyleFunc: ui.Colored(colors.Faint)}}},
 				}},
 				// The pi the app detected, where the wordmark can be read
 				// as the app's own: probing, missing, or its version.
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: tone}},
-					core.Text{ContentFunc: func() string { return label }, Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+					core.Text{ContentFunc: func() string { return label }, Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 						StyleFunc: ui.Colored(colors.Muted)},
 				}},
 			}},
@@ -368,7 +368,7 @@ func (a *app) newSessionButton() core.Node {
 		Children: []core.Node{
 			ui.Icon(lucide.Plus, 14, colors.OnLight),
 			core.Text{Content: T("新建会话"), Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, FlexGrow: 1}, StyleFunc: ui.Colored(colors.OnLight)},
-			core.Text{Content: modKey() + "N", Style: core.Style{FontFamily: ui.Mono, FontSize: 10, Opacity: core.Alpha(0.55)}, StyleFunc: ui.Colored(colors.OnLight)},
+			core.Text{Content: modKey() + "N", Style: core.Style{FontFamily: monoFont(), FontSize: 10, Opacity: core.Alpha(0.55)}, StyleFunc: ui.Colored(colors.OnLight)},
 		},
 	}
 }
@@ -590,7 +590,7 @@ func (a *app) projectCount(ws *workspace) core.Node {
 				Children: []core.Node{ui.SkeletonBlock{Width: core.Pt(13), Height: core.Pt(8)}}}
 		}
 		return core.View{TestID: "project-count", Children: []core.Node{
-			core.Text{Content: fmt.Sprint(projectSessionTotal(ws)), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+			core.Text{Content: fmt.Sprint(projectSessionTotal(ws)), Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 				StyleFunc: ui.Colored(colors.Faint)}}}
 	})
 }
@@ -706,7 +706,7 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 					return ui.Icon(lucide.Archive, 10.5, colors.Faint)
 				}},
 				core.Text{ContentFunc: func() string { return whenText(s().updated.Get(), a.cx.Now()) }, MaxLines: 1,
-					Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
+					Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
 			},
 		},
 		Children:   a.sessionMenuItems(s),
@@ -980,7 +980,7 @@ func (a *app) drawerOverview() core.Node {
 					core.Text{ContentFunc: func() string { return s.title.Get() }, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, LineHeight: 19}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{ContentFunc: func() string { return shortPath(s.WS, 44) }, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 				core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24)}, Children: []core.Node{
@@ -1008,7 +1008,7 @@ func (a *app) drawerOverview() core.Node {
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24)}, Children: []core.Node{
 						core.Text{Content: T("会话 ID"), Style: core.Style{FontSize: 12, Width: core.Pt(74)}, StyleFunc: ui.Colored(colors.Muted)},
 						core.Text{ContentFunc: func() string { return s.ID }, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Text)},
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Text)},
 						core.View{OnPress: func(core.PressEvent) { a.copyText(s.ID, "会话 ID") }, Role: core.RoleButton, Label: T("复制会话 ID"),
 							TestID: "overview-copy-id",
 							StyleFunc: func() core.Style {
@@ -1061,7 +1061,7 @@ func (a *app) drawerOverview() core.Node {
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
 						ui.Text(T("上下文"), 12, ui.Regular, colors.Muted),
 						core.View{Style: core.Style{FlexGrow: 1}},
-						core.Text{ContentFunc: contextText, Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						core.Text{ContentFunc: contextText, Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 					bar(),
 				}},
@@ -1093,7 +1093,7 @@ func (a *app) drawerOverview() core.Node {
 				}},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap}, Children: []core.Node{
 					core.Text{ContentFunc: func() string { return shortPath(s.File, 46) }, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}},
 		}}
@@ -1117,7 +1117,7 @@ func (a *app) drawerFiles() core.Node {
 		head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			ui.Icon(lucide.Folder, 12, colors.Muted),
 			core.Text{Content: filepath.Base(root), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FlexGrow: 1, FontSize: 11.5, FontFamily: ui.Mono}, StyleFunc: ui.Colored(colors.Muted)},
+				Style: core.Style{FlexGrow: 1, FontSize: 11.5, FontFamily: monoFont()}, StyleFunc: ui.Colored(colors.Muted)},
 		}}
 		empty := func() core.Node {
 			return core.View{Style: core.Style{Padding: core.Symmetric(10, 4)}, Children: []core.Node{
@@ -1193,7 +1193,7 @@ func (a *app) drawerFiles() core.Node {
 						mark := marks[node.Path].mark()
 						return core.View{TestID: "file-git-mark", Accessible: true, Label: mark,
 							Style: core.Style{Width: core.Pt(12), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-							Children: []core.Node{core.Text{Content: mark, Style: core.Style{FontFamily: ui.Mono,
+							Children: []core.Node{core.Text{Content: mark, Style: core.Style{FontFamily: monoFont(),
 								FontSize: 9.5, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(func() core.Color { return markColor(mark) })}}}
 					}},
 				},
@@ -1208,7 +1208,7 @@ func (a *app) drawerFiles() core.Node {
 		search := core.Input{Value: a.filesQuery.Get, OnChange: a.filesQuery.Set, Placeholder: T("筛选文件…"),
 			Label: T("筛选文件"), TestID: "files-search",
 			Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-				FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+				FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 				BorderWidth: 1, BorderColor: colors.FieldBorder()}}
 		hits := func() core.Node {
 			var rows []core.Node
@@ -1228,7 +1228,7 @@ func (a *app) drawerFiles() core.Node {
 					Children: []core.Node{
 						ui.Icon(lucide.FileText, 12, colors.Faint),
 						core.Text{Content: rel, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11},
+							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11},
 							StyleFunc: ui.Colored(colors.Text)},
 					},
 				})
@@ -1346,7 +1346,7 @@ func (a *app) pickerDialog() core.Node {
 					core.Text{Content: e.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
 					core.Show{When: func() bool { return !e.Dir && importing }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: T("会话"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+						return core.Text{Content: T("会话"), Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 					}},
 				},
 			}
@@ -1522,7 +1522,7 @@ func (a *app) targetDialog() core.Node {
 						OnSubmit: func(string) { a.addRemoteWorkspace() },
 						StyleFunc: func() core.Style {
 							return core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 10), CornerRadius: 7, Background: colors.Field(),
-								BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), FontSize: 12.5, FontFamily: ui.Mono}
+								BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), FontSize: 12.5, FontFamily: monoFont()}
 						},
 					},
 				}},

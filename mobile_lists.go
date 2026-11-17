@@ -409,7 +409,7 @@ func (a *mobileApp) taskRow(cx *core.Scope, t remoteWireTask) core.Node {
 						core.Text{Content: t.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 							Style: core.Style{FontSize: 13.5, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Text)},
 						core.Text{Content: taskScheduleLine(t), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-							Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+							Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 				}},
 			ui.Switch{Checked: func() bool { return t.Enabled }, OnChange: func(on bool) { a.setTaskEnabled(t.ID, on) },
@@ -590,7 +590,7 @@ func (a *mobileApp) favoriteRow(cx *core.Scope, f remoteWireFavorite) core.Node 
 					ui.Text(mobileWhen(f.CreatedAt), 9.5, ui.Regular, colors.Faint),
 					core.Show{When: func() bool { return f.Project != "" }, Then: func(*core.Scope) core.Node {
 						return core.Text{Content: f.Project, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+							Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 					}},
 				}},
 			}},

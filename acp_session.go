@@ -464,7 +464,7 @@ func (a *app) acpBadge(s *session) core.Node {
 						core.Text{Content: label, Style: core.Style{FontSize: 10.5, Width: core.Pt(64), FlexShrink: 0},
 							StyleFunc: ui.Colored(colors.Faint)},
 						core.Text{Content: value, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle, Selectable: core.SelectableOn,
-							Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+							Style: core.Style{FontFamily: monoFont(), FontSize: 10.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 							StyleFunc: ui.Colored(colors.Muted)},
 					}}
 			}
@@ -688,7 +688,7 @@ func (a *app) acpDialog() core.Node {
 							}},
 						}},
 						core.Text{Content: preset.Command + " " + strings.Join(preset.Args, " "), MaxLines: 1,
-							EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
+							EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5},
 							StyleFunc: ui.Colored(colors.Faint)},
 					}},
 				},

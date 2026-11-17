@@ -80,7 +80,7 @@ func (a *app) announcementsDialog() core.Node {
 						Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: announcePublished(it).Format("2006-01-02"),
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}
 			if it.Body != "" {
@@ -104,7 +104,7 @@ func (a *app) announcementsDialog() core.Node {
 		case failure != "":
 			body = core.View{Style: core.Style{Gap: 4, Padding: core.All(8)}, Children: []core.Node{
 				core.Text{Content: T("没能读到公告。"), Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
-				core.Text{Content: failure, Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: failure, Style: core.Style{FontFamily: monoFont(), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
 			}}
 		default:
 			body = core.Text{Content: T("还没有公告。"), Style: core.Style{FontSize: 11.5, Padding: core.All(8)},

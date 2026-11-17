@@ -101,7 +101,7 @@ func (a *app) importRowView(row importRow, here bool) core.Node {
 						return ui.Badge{Text: T("本项目"), Variant: ui.BadgeInfo}
 					}},
 					core.Text{Content: where, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style:     core.Style{FontFamily: ui.Mono, FontSize: 9.5, FlexShrink: 1, MinWidth: core.Pt(0)},
+						Style:     core.Style{FontFamily: monoFont(), FontSize: 9.5, FlexShrink: 1, MinWidth: core.Pt(0)},
 						StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}},
@@ -109,7 +109,7 @@ func (a *app) importRowView(row importRow, here bool) core.Node {
 				return ui.IconOf(lucide.CircleAlert, 12, colors.Danger)
 			}},
 			core.Text{Content: whenText(row.Updated, a.cx.Now()), MaxLines: 1,
-				Style:     core.Style{Width: core.Pt(56), TextAlign: core.TextAlignRight, FontFamily: ui.Mono, FontSize: 9.5},
+				Style:     core.Style{Width: core.Pt(56), TextAlign: core.TextAlignRight, FontFamily: monoFont(), FontSize: 9.5},
 				StyleFunc: ui.Colored(colors.Faint)},
 			importStateBadge(row.State),
 		}}

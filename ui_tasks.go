@@ -57,7 +57,7 @@ func (a *app) tasksPane() core.Node {
 								ui.Text(a.taskBackendLabel(t), 9, ui.Regular, colors.Faint)}},
 						}},
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-							core.Text{Content: t.Cron, MaxLines: 1, Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+							core.Text{Content: t.Cron, MaxLines: 1, Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 								StyleFunc: ui.Colored(colors.Muted)},
 							core.Text{Content: a.taskScheduleText(t), MaxLines: 1, Style: core.Style{FontSize: 10.5},
 								StyleFunc: ui.Colored(colors.Faint)},
@@ -111,7 +111,7 @@ func (a *app) tasksPane() core.Node {
 					core.Text{Content: taskStatusLabel(run.Status), MaxLines: 1,
 						Style: core.Style{Width: core.Pt(52), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
 					core.Text{Content: run.StartedAt.Format("01-02 15:04"), MaxLines: 1,
-						Style: core.Style{Width: core.Pt(76), FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{Width: core.Pt(76), FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					core.Text{Content: run.Error, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10},
 						StyleFunc: ui.Colored(colors.Faint)},
@@ -234,7 +234,7 @@ func (a *app) taskFormDialog() core.Node {
 						core.Input{Value: a.taskCron.Get, OnChange: a.taskCron.Set, Placeholder: "0 9 * * *",
 							Label: T("cron 表达式"), TestID: "task-field-cron",
 							Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5,
-								FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+								FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 								BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 					}},
 					core.View{Style: core.Style{Width: core.Pt(86)}, Children: []core.Node{

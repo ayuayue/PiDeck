@@ -479,7 +479,7 @@ func (a *mobileApp) recentList() core.Node {
 						core.Text{Content: r.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 							Style: core.Style{FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
 						core.Text{Content: host, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+							Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 					ui.Icon(lucide.ChevronRight, 13, colors.Faint),
 				}})
@@ -1295,7 +1295,7 @@ func (a *mobileApp) toolBlock(cx *core.Scope, lines []remoteWireMessage) core.No
 			Children: []core.Node{
 				ui.Icon(lucide.Terminal, 12, colors.Faint),
 				core.Text{Content: header, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 10.5},
+					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 10.5},
 					StyleFunc: ui.Colored(colors.Faint)},
 				ui.Icon(map[bool]func() *core.SVG{true: lucide.ChevronUp, false: lucide.ChevronDown}[open], 12, colors.Faint),
 			}},
@@ -1304,7 +1304,7 @@ func (a *mobileApp) toolBlock(cx *core.Scope, lines []remoteWireMessage) core.No
 		inner := make([]core.Node, 0, len(lines))
 		for _, line := range lines {
 			inner = append(inner, core.Text{Content: line.Text, MaxLines: 12,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)})
+				Style: core.Style{FontFamily: monoFont(), FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)})
 		}
 		children = append(children, core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Left: 18, Top: 2, Bottom: 4}},
 			Children: inner})
@@ -1399,7 +1399,7 @@ func (a *mobileApp) messageBody(cx *core.Scope, m remoteWireMessage) core.Node {
 	case "tool":
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(2, 4)}, Children: []core.Node{
 			ui.Icon(lucide.Terminal, 12, colors.Faint),
-			core.Text{Content: m.Text, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 10.5, LineHeight: 16},
+			core.Text{Content: m.Text, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 10.5, LineHeight: 16},
 				StyleFunc: ui.Colored(colors.Faint)},
 		}}
 	case "note":
@@ -1866,7 +1866,7 @@ func (a *mobileApp) usageChip() core.Node {
 		}
 		return core.View{TestID: "mobile-usage", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
 			ui.Icon(lucide.Gauge, 10, colors.Faint),
-			core.Text{Content: label, MaxLines: 1, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+			core.Text{Content: label, MaxLines: 1, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 		}}
 	})
 }

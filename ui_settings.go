@@ -250,7 +250,7 @@ func setGroup(title string, rows ...core.Node) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Gap: 6, Margin: core.Edges{Bottom: 14}}, Children: []core.Node{
-			core.Text{Content: T(title), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.6},
+			core.Text{Content: T(title), Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LetterSpacing: 0.6},
 				StyleFunc: ui.Colored(colors.Faint)},
 			core.View{StyleFunc: func() core.Style {
 				return core.Style{Gap: 2, Padding: core.Symmetric(4, 10), CornerRadius: 9,
@@ -392,7 +392,7 @@ func (a *app) settingsGeneral() core.Node {
 									}},
 							}},
 							core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", float64(a.contentWidth())) },
-								Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
+								Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
 								StyleFunc: ui.Colored(colors.Muted)},
 						}}),
 				),
@@ -534,15 +534,15 @@ func (a *app) settingsModels() core.Node {
 				Padding: core.Symmetric(4, 2)}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-						core.Text{Content: prov.ID, Style: core.Style{FontFamily: ui.Mono, FontSize: 12.5, FontWeight: ui.Semibold},
+						core.Text{Content: prov.ID, Style: core.Style{FontFamily: monoFont(), FontSize: 12.5, FontWeight: ui.Semibold},
 							StyleFunc: ui.Colored(colors.Text)},
 						ui.Text(fmt.Sprintf("%d 个模型", prov.Models), 10.5, ui.Regular, colors.Faint),
 						ui.Text(prov.API, 10, ui.Regular, colors.Faint),
 					}},
 					core.Text{Content: shorten(prov.BaseURL, 70), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					core.Show{When: func() bool { return prov.Reason != "" && prov.Auth != "ready" }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: prov.Reason, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
+						return core.Text{Content: prov.Reason, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5},
 							StyleFunc: ui.Colored(colors.Danger)}
 					}},
 				}},
@@ -725,7 +725,7 @@ func (a *app) settingsKeys() core.Node {
 					}
 				},
 				Style: core.Style{Width: core.Pt(150), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 			}
 			reset := ui.Button{Text: T("默认"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
@@ -775,7 +775,7 @@ func (a *app) settingsLook() core.Node {
 		var rows []core.Node
 		fontControl := func(value func() string, set func(string), label, testID, placeholder string) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				core.Input{Value: value, OnChange: set, OnSubmit: func(string) { a.applyFonts() },
+				core.Input{Value: value, OnChange: set, OnSubmit: func(string) { a.applyFonts() }, OnBlur: func() { a.applyFonts() },
 					Placeholder: placeholder, Label: label, TestID: testID,
 					Style: core.Style{Width: core.Pt(160), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
 						Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}},
@@ -863,7 +863,7 @@ func (a *app) settingsLook() core.Node {
 								TestID: "term-font", OnChange: a.setTerminalFont},
 						}},
 						core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", a.termFont.Get()) },
-							Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
+							Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
 							StyleFunc: ui.Colored(colors.Muted)},
 					}}),
 				setRow("编辑器字号", "中间编辑器的文字大小，11–20 pt；改完立即重绘。",
@@ -874,11 +874,26 @@ func (a *app) settingsLook() core.Node {
 								TestID: "editor-font", OnChange: a.setEditorFont},
 						}},
 						core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", a.editorFont.Get()) },
-							Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
+							Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
 							StyleFunc: ui.Colored(colors.Muted)},
 					}}),
 				setDivider(),
-				setRow("界面字体", "系统已安装的字体名，如 Georgia；留空跟随主题。回车或点「应用」生效。",
+				setRow("聊天字号", "会话正文与提问的字号；标题、代码和列表按同一比例放大。",
+					choiceChips([]choice[float64]{
+						{12.5, T("紧凑")}, {13.5, T("标准")}, {15, T("大")}, {17, T("特大")},
+					}, func() float64 { return a.chatFont.Get() }, a.setChatFont)),
+				setDivider(),
+				setRow("聊天行高", "正文的行距；宽松一些更好读。",
+					choiceChips([]choice[float64]{
+						{1.45, T("紧凑")}, {chatLineDefault, T("标准")}, {1.85, T("宽松")}, {2.05, T("舒展")},
+					}, func() float64 { return a.chatLine.Get() }, a.setChatLine)),
+				setDivider(),
+				setRow("输入框字号", "输入框里的文字大小；「跟随聊天」与聊天字号一致。",
+					choiceChips([]choice[float64]{
+						{0, T("跟随聊天")}, {12.5, T("紧凑")}, {13.5, T("标准")}, {15, T("大")},
+					}, func() float64 { return a.inputFont.Get() }, a.setInputFont)),
+				setDivider(),
+				setRow("界面字体", "整个界面的字体（代码与等宽处除外）；系统已安装的字体名，如 Georgia。留空跟随主题，回车、失焦或点「应用」生效。",
 					fontControl(func() string { return a.cfg.UIFont }, func(v string) {
 						a.cfg.UIFont = strings.TrimSpace(v)
 						if a.st != nil {
@@ -886,7 +901,7 @@ func (a *app) settingsLook() core.Node {
 						}
 					}, T("界面字体"), "ui-font", T("留空跟随主题"))),
 				setDivider(),
-				setRow("等宽字体", "编辑器使用的等宽字体名，如 JetBrains Mono；留空用系统等宽字体。",
+				setRow("等宽字体", "代码、工具输出、编辑器与终端的字体；如 JetBrains Mono。留空用系统等宽字体。",
 					fontControl(func() string { return a.cfg.MonoFont }, func(v string) {
 						a.cfg.MonoFont = strings.TrimSpace(v)
 						if a.st != nil {
@@ -945,7 +960,7 @@ func (a *app) backgroundGroup(colors ui.Colors) core.Node {
 		}},
 		core.Dynamic(func(*core.Scope) core.Node {
 			return core.Text{Content: fmt.Sprintf("%.0f%%", a.bgOpacity.Get()*100),
-				Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
+				Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
 				StyleFunc: ui.Colored(colors.Muted)}
 		}),
 	}}
@@ -995,7 +1010,7 @@ func (a *app) settingsEnv() core.Node {
 					a.bumpSettings()
 				},
 				Style: core.Style{Width: core.Pt(170), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 			}),
 		)
@@ -1003,7 +1018,7 @@ func (a *app) settingsEnv() core.Node {
 			return core.Input{Value: value, Placeholder: placeholder, Label: label, TestID: testID,
 				OnChange: set,
 				Style: core.Style{Width: core.Pt(190), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}}
 		}
 		proxyRows := []core.Node{
@@ -1098,7 +1113,7 @@ func targetStatusRow(kind, name, status string, ok bool) core.Node {
 			core.Text{Content: name, Style: core.Style{FlexGrow: 0, FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Text{Content: shorten(status, 52), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5},
+				Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5},
 				StyleFunc: ui.Colored(func() core.Color { return ink })},
 		}}
 	})
@@ -1224,7 +1239,7 @@ func (a *app) settingsAddons() core.Node {
 						a.pluginSettingControl(plug, setting)))
 				}
 				rows = append(rows, core.View{Style: core.Style{Padding: core.Edges{Left: 4, Bottom: 6}, Gap: 3}, Children: []core.Node{
-					core.Text{Content: "设置", Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LetterSpacing: 0.5},
+					core.Text{Content: "设置", Style: core.Style{FontFamily: monoFont(), FontSize: 9, LetterSpacing: 0.5},
 						StyleFunc: ui.Colored(colors.Faint)},
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Gap: 1, Padding: core.Symmetric(3, 8), CornerRadius: 7,
@@ -1291,7 +1306,7 @@ func (a *app) pluginSettingControl(p plugin, s pluginSetting) core.Node {
 					a.bumpSettings()
 				},
 				Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), MinWidth: core.Pt(150)},
 			}
 		}
@@ -1308,7 +1323,7 @@ func (a *app) settingsIntegrations() core.Node {
 			return core.Input{Value: value, OnChange: set, Placeholder: placeholder, Label: label, Masked: masked,
 				TestID: testID,
 				Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder()}}
 		}
 		setCfg := func(fn func(*config)) {
@@ -1427,7 +1442,7 @@ func (a *app) settingsDiagnostics() core.Node {
 				color = colors.Warn
 			}
 			logRows = append(logRows, core.Text{Content: ev.Time.Format("15:04:05") + "  " + ev.Text, MaxLines: 2,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(color)})
+				Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(color)})
 		}
 		if len(logRows) == 0 {
 			logRows = append(logRows, core.Text{Content: "还没有日志。", Style: core.Style{FontSize: 10.5},
