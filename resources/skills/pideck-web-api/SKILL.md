@@ -659,7 +659,7 @@ npm run generate:skills-manifest   # 改了任何技能文件之后跑一次（�
 npm run check:skills-manifest      # rc 必须是 0，与下面五条一起过
 ```
 
-**本地绿、CI 绿、能合，是三件事。** 本机这五条判据、`npm run check`、远端 CI 各跑各的，任何一组绿都不代表另外两组。PR 的检查结果要主动取：`gh pr view <n> --json statusCheckRollup`，或者 `gh run list --branch <分支>`；`mergeStateStatus` 显示 `UNSTABLE` 就是有检查红了。用户不提就没人查，这正是「把描述交付物的那句话当成交付物」的第二种形态——这次连描述都没写，直接没看。
+**本地绿、CI 绿、能合，是三件事。** 本机这五条判据、`npm run check`、远端 CI 各跑各的，任何一组绿都不代表另外两组。PR 的检查结果要主动取：`gh pr view <n> --json statusCheckRollup`，或者 `gh run list --branch <分支>`；mergeStateStatus 显示 `UNSTABLE` 就是有检查红了。用户不提就没人查，这正是「把描述交付物的那句话当成交付物」的第二种形态——这次连描述都没写，直接没看。
 **五个判据在源码克隆根目录跑，rc 都得是 0：**
 
 ```bash
