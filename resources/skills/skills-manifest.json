@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "d56c14dc16d8f051cb056a70491d8730b7b4d77bfb2812dc7c80a25e42fa120d",
+  "bundleSha256": "75a46f56368829f4adb80ff4c96963807a242154093df790c5a16e0ed9e41d9f",
   "fileCount": 12,
   "files": [
     {
@@ -46,8 +46,8 @@
     },
     {
       "name": "pideck-web-api/check-round-robin.mjs",
-      "sha256": "dfbc103690431ef4481ba70c648b559f9021a949b4d83f1c449c1d7b976e195b",
-      "bytes": 19793
+      "sha256": "df402136d828954eeb9b37af7e14de4d17e4a80f6f0cef0126fac638ad26f1b9",
+      "bytes": 20874
     },
     {
       "name": "pideck-web-api/check-self-contained.mjs",
