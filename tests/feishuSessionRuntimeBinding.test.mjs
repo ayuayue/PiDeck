@@ -168,7 +168,13 @@ function compileBridge(loadBindings = [], options = {}) {
 	const module = { exports: {} };
 	const feishuI18n = compileFeishuI18n();
 	const askCard = compileAskCard(feishuI18n);
-	const richText = { chooseMessageMode: () => "text", buildPostMessages: () => [], buildMarkdownCards: () => [] };
+	// docActions 是纯函数域：正文清洗与切片必须走真实现，否则「兜底发出去的到底是什么」无从断言。
+	const docActions = createTsSandbox()("src/main/feishu/docActions.ts");
+	const richText = {
+		chooseMessageMode: options.chooseMessageMode ?? (() => "text"),
+		buildPostMessages: () => [],
+		buildMarkdownCards: options.buildMarkdownCards ?? (() => []),
+	};
 	const cardState = {
 		createInitialState: () => ({ terminal: "running", outputText: "" }),
 		reduceFromPiEvent: (state) => state,
@@ -210,7 +216,13 @@ function compileBridge(loadBindings = [], options = {}) {
 		"node:os": { tmpdir: () => osModule.tmpdir() },
 		"./rich-text": richText,
 		"./CardStream": { CardStream: { open: async () => ({}) } },
-		"./docActions": { buildFeishuTextChildren: () => [], stripFeishuActionMarkers: (text) => text, wantsFeishuDoc: () => undefined },
+		"./docActions": {
+			buildFeishuTextChildren: () => [],
+			stripFeishuActionMarkers: (text) => text,
+			wantsFeishuDoc: () => undefined,
+			sanitizeFeishuUserVisibleText: docActions.sanitizeFeishuUserVisibleText,
+			splitDocTextBlocks: docActions.splitDocTextBlocks,
+		},
 		"./fileIntent": { hasExplicitFeishuFileSendIntent: () => false },
 		"./CardRunState": cardState,
 		"./CardRenderer": { renderRunCard: () => ({}) },
@@ -259,8 +271,8 @@ function makeAgent(id, projectId = "p", sessionPath = `/sessions/${id}.json`) {
 	return { id, projectId, sessionPath, title: id, cwd: ".", status: "idle", createdAt: 1 };
 }
 
-function makeBridge(agents, gateway, calls = {}) {
-	const { FeishuBridge } = compileBridge();
+function makeBridge(agents, gateway, calls = {}, bridgeOptions = {}) {
+	const { FeishuBridge } = compileBridge([], bridgeOptions);
 	const manager = {
 		list: () => agents,
 		create: async () => {
@@ -1146,4 +1158,39 @@ test("渠道新建会话带上与桌面端同源的默认模型与思考档位",
 	const helper = mainSource.match(/async function resolveImSessionLaunchPreferences[\s\S]*?\n\}/)?.[0] ?? "";
 	assert.match(helper, /catalogModels: validationCatalogModels\(\)/);
 	assert.match(helper, /lastUsedModel: settingsStore\.get\(\)\.lastUsedModel/);
+});
+
+// 用户反馈「飞书手机端看不到回复」：pi 会话的正文只经流式卡片交付，卡片更新被拒时
+// 旧实现只 return false，用户端一行字都收不到。富文本/卡片失败必须退到纯文本。
+test("富文本/卡片发送被拒时退到纯文本，回复不得整条丢失", async () => {
+	const { bridge } = makeBridge(
+		[makeAgent("A")],
+		{},
+		{},
+		{
+			chooseMessageMode: () => "interactive",
+			buildMarkdownCards: () => [{ elements: [{ tag: "markdown", content: "卡片的回答" }] }],
+		},
+	);
+	const sent = [];
+	bridge.connection.client = {
+		im: {
+			message: {
+				create: async ({ data }) => {
+					sent.push({ type: data.msg_type, content: JSON.parse(data.content) });
+					if (data.msg_type === "interactive") throw new Error("bot lacks card scope");
+					return { data: { message_id: `om_${sent.length}` } };
+				},
+			},
+		},
+	};
+	const delivered = await bridge.sendSmartMessage("chat", "第一段回答\n\n第二段回答");
+	assert.equal(delivered, true, "兜底成功必须回报送达");
+	assert.deepEqual(
+		sent.map((entry) => entry.type),
+		["interactive", "text"],
+		"卡片被拒后必须补一条纯文本",
+	);
+	assert.match(sent[1].content.text, /第一段回答/);
+	assert.match(sent[1].content.text, /第二段回答/);
 });
