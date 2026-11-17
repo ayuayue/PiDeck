@@ -7856,8 +7856,6 @@ export const zhCN = {
 	"config.resourceTarget.errorDistroUnavailable": "WSL 发行版不可用：确认发行版已启动后重试",
 	"config.resourceTarget.errorUnavailable": "无法解析开发设置里那个 WSL 发行版的 HOME，本次操作未执行",
 	"config.target.wslUnsupported": "{label} 的这部分配置暂未接入 WSL：本页只支持 models.json 与 settings.json，切回本机可继续编辑",
-	"config.windowsOnly.title": "当前仅编辑 Windows 配置",
-	"config.windowsOnly.body": "WSL 发行版配置暂未接入：本页只读写本机（Windows）的{page}，不会改动 WSL 发行版内的内容。",
 	"remoteConfig.title": "远端 {file}",
 	"remoteConfig.host": "主机",
 	"remoteConfig.version": "版本",

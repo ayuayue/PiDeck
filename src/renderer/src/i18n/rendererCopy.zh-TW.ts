@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: b391a95a2ded8e610ddc557e9f86d3e77852c949f7f8d30a0bbc7f1784bac864（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 4b645b087014a79ff47eb33d5707725b7811369664e70d0ea32a39c2bc1674f8（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7863,8 +7863,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.resourceTarget.errorDistroUnavailable": "WSL 發行版不可用：確認發行版已啟動後重試",
 	"config.resourceTarget.errorUnavailable": "無法解析開發設定裡那個 WSL 發行版的 HOME，本次操作未執行",
 	"config.target.wslUnsupported": "{label} 的這部分配置暫未接入 WSL：本頁只支援 models.json 與 settings.json，切回本機可繼續編輯",
-	"config.windowsOnly.title": "當前僅編輯 Windows 配置",
-	"config.windowsOnly.body": "WSL 發行版配置暫未接入：本頁只讀寫本機（Windows）的{page}，不會改動 WSL 發行版內的內容。",
 	"remoteConfig.title": "遠端 {file}",
 	"remoteConfig.host": "主機",
 	"remoteConfig.version": "版本",

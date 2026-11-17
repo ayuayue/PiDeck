@@ -7891,8 +7891,6 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.resourceTarget.errorDistroUnavailable": "The WSL distribution is unavailable. Start it and try again.",
 	"config.resourceTarget.errorUnavailable": "Could not resolve the WSL distribution HOME configured in Developer settings; nothing was changed.",
 	"config.target.wslUnsupported": "This part of the config is not wired for WSL yet ({label}): only models.json and settings.json are supported; switch back to the local target to edit it",
-	"config.windowsOnly.title": "Editing Windows configuration only",
-	"config.windowsOnly.body": "WSL distribution config is not wired yet: this page only reads/writes the local (Windows) {page} and never touches data inside the WSL distribution.",
 	"remoteConfig.title": "Remote {file}",
 	"remoteConfig.host": "Host",
 	"remoteConfig.version": "Version",
