@@ -30,10 +30,11 @@ test("WSL 环境：含凭据与源文件，但不含 OAuth / 安全策略", () =
 	assert.equal(model.resourcePagesSupported(WSL), true, "资源三页已按 WSL 目标路由");
 });
 
-test("SSH 环境：五个文件页（认证为只读派生视图），OAuth/源文件与资源、安全策略都不出现", () => {
-	assert.deepEqual([...model.configTabsForTarget(SSH)], ["models", "auth", "settings", "trust", "mcp"]);
+test("SSH 环境：共享编辑页与四个源文件，认证仍为只读派生视图", () => {
+	assert.deepEqual([...model.configTabsForTarget(SSH)], ["models", "auth", "settings", "trust", "mcp", "raw"]);
 	assert.equal(model.isConfigTabSupported(SSH, "auth"), true, "只读派生视图：页面在，输入不在");
-	for (const tab of ["oauth", "raw"]) assert.equal(model.isConfigTabSupported(SSH, tab), false, tab);
+	assert.equal(model.isConfigTabSupported(SSH, "raw"), true);
+	assert.equal(model.isConfigTabSupported(SSH, "oauth"), false);
 	assert.equal(model.securityPageSupported(SSH), false);
 	assert.equal(model.resourcePagesSupported(SSH), false, "远端资源管理未路由：不给死入口");
 });
@@ -41,7 +42,7 @@ test("SSH 环境：五个文件页（认证为只读派生视图），OAuth/源�
 test("切环境后的落点：仍支持就留在原地，否则回到该环境第一页", () => {
 	assert.equal(model.resolveConfigTabForTarget(SSH, "trust"), "trust");
 	assert.equal(model.resolveConfigTabForTarget(SSH, "auth"), "auth");
-	assert.equal(model.resolveConfigTabForTarget(SSH, "raw"), "models");
+	assert.equal(model.resolveConfigTabForTarget(SSH, "raw"), "raw");
 	assert.equal(model.resolveConfigTabForTarget(WSL, "auth"), "auth");
 	assert.equal(model.firstConfigTabForTarget(SSH), "models");
 	assert.equal(model.firstConfigTabForTarget({ kind: "ssh", hostId: "unlisted" }), "models");

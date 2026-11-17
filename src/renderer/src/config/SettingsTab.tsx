@@ -15,10 +15,8 @@ import { defaultToolsDisablesAll, mergeCodemodeSetting, normalizeCodemodeInlineB
 import { COMPACT_REFERENCE_WINDOW_TOKENS, COMPACTION_SLIDER_MAX_PERCENT, COMPACTION_SLIDER_MIN_PERCENT, compactionPercentToTokens, compactionTokensToPercent } from "../../../shared/compactionSlider";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui-shadcn/popover";
 import { Slider } from "../components/ui-shadcn/slider";
-import { desktopApi } from "../desktopApi";
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "../components/ui-shadcn/command";
-
-// ── 可用模型列表聚合（含供应商信息，供 enabledModels 多选用） ──
+import { useConfigEditor } from "./useConfigEditorApi";
 
 interface ModelRecord {
 	id: string;
@@ -108,6 +106,7 @@ export function SettingsTab(props: {
 	onChange: (data: SettingsFile, reason?: "normalize") => void;
 	onSave: () => void;
 }) {
+	const { api: desktopApi } = useConfigEditor();
 	const { data, saving } = props;
 	const entries = Object.entries(data);
 	// enabledModels 已配置时合并到 entries 前端展示，未配置时通过「添加」按钮单独显示
@@ -241,7 +240,7 @@ export function SettingsTab(props: {
 		return () => {
 			cancelled = true;
 		};
-	}, [defaultProvider, defaultModel, explicitContextWindow]);
+	}, [defaultProvider, defaultModel, explicitContextWindow, desktopApi]);
 	// 识别不到模型窗口时也始终提供滑条：按参考窗口换算（业界最常见 200k；pi 默认值 16384/20000 恰为 8%/10%）。
 	// token 数始终如实展示，百分比只是编辑手感。
 	const hasModelWindow = typeof explicitContextWindow === "number" || typeof catalogContextWindow === "number";

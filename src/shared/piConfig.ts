@@ -1,16 +1,16 @@
 /**
  * Shared contract for the target-routed Pi config backend (Phase 5, plan §6.4.1).
  *
- * The local surface keeps its existing DTOs; this module adds only the pieces both the main process and a
- * later renderer batch need to name a target and branch on stable codes. No secret value ever travels in
- * these types: a remote snapshot carries secret positions as configured/missing plus a path list.
+ * The local surface keeps its existing DTOs. Target routing and stable codes are shared with the renderer.
+ * Remote reads carry only configured/missing secret positions. Writes may supply replacement credentials;
+ * existing secret values remain on the host.
  */
 
 /**
  * Which allowlisted agent file a request names. Never a path, never auth.json.
  *
- * trust.json 与 mcp.json 与 models/settings 走**同一条** sanitize/patch 通道：秘密键仍只回
- * configured/missing，补丁可以写入新值、但删不掉秘密键。auth.json 结构性不可达（凭据永不跨机回传），
+ * trust.json 与 mcp.json 与 models/settings 走**同一条**脱敏配置通道：秘密键只回 configured/missing，
+ * 写入可提供新值，占位符保留远端原值。auth.json 文档结构性不可达（凭据永不跨机回传），
  * 因此不在这张表里，也不该被渲染层当成「ssh 可编辑」的文件。
  */
 export const PI_CONFIG_FILES = ["models", "settings", "trust", "mcp"] as const;
@@ -27,7 +27,7 @@ export type WslPiConfigFileKey = (typeof WSL_PI_CONFIG_FILES)[number];
 /**
  * The ssh helper's **read** allowlist. auth.json only appears here: the helper answers a derived provider list
  * (name / credential type / configured) and never a value or the raw document, so the credential itself stays on
- * the host. `PI_CONFIG_FILES` remains the patch allowlist and stays at four files.
+ * the host. `PI_CONFIG_FILES` remains the write allowlist and stays at four files.
  */
 export const SSH_PI_CONFIG_READ_FILES = ["models", "settings", "trust", "mcp", "auth"] as const;
 export type SshPiConfigReadFileKey = (typeof SSH_PI_CONFIG_READ_FILES)[number];
@@ -70,7 +70,7 @@ export function piConfigFileKeyFromName(name: unknown): WslPiConfigFileKey | und
 export type PiConfigTarget = { kind: "local" } | { kind: "ssh"; hostId: string } | { kind: "wsl" };
 
 /**
- * Which files a target can **write**. The ssh helper's patch allowlist excludes auth.json; local and WSL write
+ * Which files a target can **write**. The ssh helper's write allowlist excludes auth.json; local and WSL write
  * the real directory (Windows HOME / distribution HOME) and therefore cover every file pi reads.
  */
 export function piConfigFilesForTarget(target: PiConfigTarget): readonly WslPiConfigFileKey[] {
@@ -141,7 +141,7 @@ export const REMOTE_CONFIG_CODES = {
 	versionConflict: "REMOTE_CONFIG_VERSION_CONFLICT",
 	/** the write may or may not have landed and its receipt was not trustworthy; never retried. */
 	resultUnconfirmed: "REMOTE_CONFIG_RESULT_UNCONFIRMED",
-	/** provider connection test / model catalog fetch / usage query is explicitly deferred for remote targets. */
+	/** Provider endpoint probes and usage queries are unavailable remotely; SSH listing uses the host catalog. */
 	providerOperationUnsupported: "REMOTE_CONFIG_PROVIDER_OPERATION_UNSUPPORTED",
 } as const;
 export type RemoteConfigCode = (typeof REMOTE_CONFIG_CODES)[keyof typeof REMOTE_CONFIG_CODES];
@@ -169,13 +169,15 @@ export type RemotePiConfigSnapshot = {
 export type PiConfigReadOptions = { target?: PiConfigTarget };
 
 /**
- * Write options for the existing save IPC. local ignores expectedVersion/patch (existing body-only callers
- * keep working); ssh requires both: patch is the RFC 7396 merge patch and expectedVersion is the version the
- * renderer last read.
+ * Remote credential mappings refer to object paths within the same file, never a filesystem path or a value.
  */
-export type PiConfigWriteOptions = PiConfigReadOptions & { expectedVersion?: string; patch?: Record<string, unknown> };
+export type RemoteConfigSecretSource = { from: string[]; to: string[] };
+/** Full-document writes preserve redacted credentials on the host; mappings stay within this one file. */
+export type RemoteConfigDocument = { data: Record<string, unknown>; secretSources: RemoteConfigSecretSource[] };
+/** SSH requires expectedVersion and either a document or a legacy patch. Local/WSL reject SSH-only fields. */
+export type PiConfigWriteOptions = PiConfigReadOptions & { expectedVersion?: string; patch?: Record<string, unknown>; document?: RemoteConfigDocument };
 
-/** Successful remote write receipt: a new version the caller can use for the next patch. */
+/** Successful remote write receipt: the verified version after the write. */
 export type RemotePiConfigWriteReceipt = { kind: "remote"; hostId: string; file: PiConfigFileKey; version: string; sha256: string };
 
 /**

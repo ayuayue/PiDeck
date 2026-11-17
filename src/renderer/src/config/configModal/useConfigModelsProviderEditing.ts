@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useRef, type Dispatch, type SetStateAction } from "react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { PiConfigWriteOptions } from "../../../../shared/piConfig";
 import type { FetchedModel, ConfigProxyMode } from "../../../../shared/types/fetchedModel";
@@ -13,8 +13,10 @@ import { replaceProviderHiddenIds, sameHiddenModelEntries } from "../hiddenModel
 
 type ConfigModelsProviderEditingDeps = {
 	api: PiDesktopApi;
-	/** WSL 目标的写选项：`undefined` = 本机（SSH 各自另走分支）。 */
+	/** 当前 Pi 环境写选项。 */
 	configTargetOption: PiConfigWriteOptions | undefined;
+	copyProviderSecrets?: (from: string, to: string) => void;
+	fetchRemoteProviderModels?: (provider: string) => ReturnType<PiDesktopApi["config"]["fetchModels"]>;
 	modelsData: ModelsFile;
 	setModelsData: Dispatch<SetStateAction<ModelsFile>>;
 	authData: AuthFile;
@@ -59,10 +61,7 @@ type ConfigModelsProviderEditingDeps = {
 	testProxyModeByProvider: Record<string, ConfigProxyMode>;
 };
 
-/**
- * 根据 API 类型返回对应的获取模型提示。
- * 不同服务对 /models 端点的支持不同，提供针对性的指导。
- */
+/** 根据 API 类型解释 /models 端点的支持方式。 */
 function getFetchModelsHintByApi(api: string | undefined, baseUrl: string): string {
 	switch (api) {
 		case "openai-completions":
@@ -91,14 +90,13 @@ function getFetchModelsHintByApi(api: string | undefined, baseUrl: string): stri
 	}
 }
 
-/**
- * 模型页的「供应商级」动作：新增/编辑/删除/复制/批量删除供应商、拉取模型列表、测试连接。
- * 只搬数据与 IPC 动作，不渲染；列表级动作（模型行的增删改）在 useConfigModelRowsEditing。
- */
+/** 模型页供应商级动作；列表级模型行操作在 useConfigModelRowsEditing。 */
 export function useConfigModelsProviderEditing(deps: ConfigModelsProviderEditingDeps) {
 	const {
 		api,
 		configTargetOption,
+		copyProviderSecrets,
+		fetchRemoteProviderModels,
 		modelsData,
 		setModelsData,
 		authData,
@@ -124,6 +122,8 @@ export function useConfigModelsProviderEditing(deps: ConfigModelsProviderEditing
 		testModelIdByProvider,
 		testProxyModeByProvider,
 	} = deps;
+	const activeApi = useRef(api);
+	activeApi.current = api;
 
 	/**
 	 * 供应商页确认后落盘两项「按 provider/modelId 建键」的设置（新增与编辑共用）。
@@ -194,10 +194,11 @@ export function useConfigModelsProviderEditing(deps: ConfigModelsProviderEditing
 		const provider = mergeProviderDraft(modelsData.providers[oldName], draft);
 		const providers = { ...modelsData.providers };
 		if (newName !== oldName) {
+			copyProviderSecrets?.(oldName, newName);
 			// 改名：新 key 承接旧 provider，删旧 key；auth.json 同步（pi 按新名称查认证）。
 			providers[newName] = provider;
 			delete providers[oldName];
-			if (authData[oldName]) {
+			if (!copyProviderSecrets && authData[oldName]) {
 				const updatedAuth = { ...authData };
 				updatedAuth[newName] = updatedAuth[oldName];
 				delete updatedAuth[oldName];
@@ -245,6 +246,7 @@ export function useConfigModelsProviderEditing(deps: ConfigModelsProviderEditing
 
 		// 深拷贝 provider 配置，包括 models 数组（含 apiKey）。
 		const duplicatedProvider = structuredClone(sourceProvider);
+		copyProviderSecrets?.(name, newName);
 
 		setModelsData({
 			...modelsData,
@@ -254,9 +256,8 @@ export function useConfigModelsProviderEditing(deps: ConfigModelsProviderEditing
 			},
 		});
 		markDirty("config:models");
-		// 同步 auth.json：复制后的 provider 若有独立 auth key，也需要复制，
-		// 否则 pi 按新名称查不到认证 → 模型列表加载为空。
-		if (authData[name]) {
+		// 本机/WSL 同步独立 auth key；SSH 只保留 models.json 内凭据，不编辑认证文件。
+		if (!copyProviderSecrets && authData[name]) {
 			setAuthData({ ...authData, [newName]: { ...authData[name] } });
 			markDirty("config:auth");
 		}
@@ -290,7 +291,7 @@ export function useConfigModelsProviderEditing(deps: ConfigModelsProviderEditing
 	// 从 provider 的 baseUrl + apiKey 拉取可用模型列表
 	const handleFetchModels = async (providerName: string) => {
 		const provider = modelsData.providers[providerName];
-		if (!provider?.baseUrl || !provider?.apiKey) {
+		if (!provider || (!copyProviderSecrets && (!provider.baseUrl || !provider.apiKey))) {
 			setFetchModelsErrorByProvider((prev) => ({
 				...prev,
 				[providerName]: t("config.missingBaseUrlApiKey"),
@@ -303,14 +304,17 @@ export function useConfigModelsProviderEditing(deps: ConfigModelsProviderEditing
 			[providerName]: undefined,
 		}));
 		try {
-			const result = await api.config.fetchModels(
-				provider.baseUrl,
-				provider.apiKey,
-				provider.api as string | undefined,
-				getProviderHeaders(provider.headers),
-				// 拉取列表与测试同用 per-provider 代理选择（海外网关需代理时不用改全局开关）。
-				testProxyModeByProvider[providerName] ?? "follow",
-			);
+			const result = await (fetchRemoteProviderModels
+				? fetchRemoteProviderModels(providerName)
+				: api.config.fetchModels(
+						provider.baseUrl ?? "",
+						provider.apiKey ?? "",
+						provider.api as string | undefined,
+						getProviderHeaders(provider.headers),
+						// 拉取列表与测试同用 per-provider 代理选择（海外网关需代理时不用改全局开关）。
+						testProxyModeByProvider[providerName] ?? "follow",
+					));
+			if (activeApi.current !== api) return;
 			if (result.success && result.models) {
 				setFetchedModels((prev) => ({
 					...prev,
@@ -332,19 +336,20 @@ export function useConfigModelsProviderEditing(deps: ConfigModelsProviderEditing
 				}
 			} else {
 				// 根据 API 类型提供不同的错误提示
-				const apiTypeHint = getFetchModelsHintByApi(provider.api as string | undefined, provider.baseUrl);
+				const apiTypeHint = getFetchModelsHintByApi(provider.api as string | undefined, provider.baseUrl ?? "");
 				setFetchModelsErrorByProvider((prev) => ({
 					...prev,
 					[providerName]: (result.error ?? t("config.fetchModelsFailed")) + "\n" + apiTypeHint,
 				}));
 			}
 		} catch (e) {
+			if (activeApi.current !== api) return;
 			setFetchModelsErrorByProvider((prev) => ({
 				...prev,
 				[providerName]: e instanceof Error ? e.message : String(e),
 			}));
 		} finally {
-			setFetchingProvider(null);
+			if (activeApi.current === api) setFetchingProvider(null);
 		}
 	};
 

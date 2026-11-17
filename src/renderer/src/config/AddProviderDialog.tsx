@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
 import { Label } from "../components/ui-shadcn/label";
 import { t } from "../i18n";
 import { isValidProviderName } from "../../../shared/providerName";
-import { desktopApi } from "../desktopApi";
 import { FetchedModelCombobox } from "./FetchedModelCombobox";
 import { buildModelsFromFetchedSelection } from "./modelsUtils";
 import { showNotice } from "../utils/notice";
@@ -20,16 +19,9 @@ import { countSelectedModelIndexes, invertModelIndexes, removeSelectedModelIndex
 import { withModelThinkingLevelEnabled } from "../../../shared/modelThinkingLevels";
 import { getModelUserAgentOverride, readModelOverrides, setModelUserAgentOverride } from "./providerHeaders";
 import { pickProviderHiddenIds } from "./hiddenModels";
+import { useConfigEditor } from "./useConfigEditorApi";
 
-/**
- * 新增/编辑供应商页（Pi 模型页的「下一页」）：
- * - 新增：点「+ 添加供应商」进入，填名字 + 服务商配置 + 获取模型，一步加入；
- * - 编辑：卡片「修改名称」按钮进入，预填现有配置（名字可改，走 rename 语义），
- *   同时可重新拉取 /models 勾选保存模型。
- * 以整页形式呈现（非弹窗），左上角返回按钮回到模型列表；获取模型与配置在同一页内完成。
- * 草稿类型与草稿 → models.json 转换共用 config/addProviderDraft（单一来源，避免两处结构漂移）。
- */
-
+/** 共享供应商表单：页内草稿交给宿主统一保存，取消不落盘。 */
 /** 页面模式：add=新增空草稿；edit=预填现有 provider（含改名）。 */
 export type ProviderDialogMode = "add" | "edit";
 
@@ -46,10 +38,7 @@ export type ProviderDialogInitial = {
 	modelOverrides?: Record<string, Record<string, unknown>>;
 };
 
-/**
- * 页内「每模型默认档位」副本：按该供应商**当前模型列表**逐个问宿主。
- * 列表外的键（历史遗留的孤儿）不回填，保存时的替换写入自然把它们清掉（设置跟着模型走）。
- */
+/** 按当前模型列表读取默认档位；孤儿键不回填，随保存时的替换写入清除。 */
 function readProviderThinkingDefaults(initial: ProviderDialogInitial | undefined, read: ((providerName: string, modelId: string) => string) | undefined): Record<string, string> {
 	if (!initial?.name || !read) return {};
 	const defaults: Record<string, string> = {};
@@ -72,12 +61,9 @@ export function AddProviderDialog(props: {
 	/** 提交当前页草稿；页面状态由宿主在成功后切换回列表。 */
 	onConfirm: (draft: AddProviderDraft) => void;
 	/** 设置窗口标题栏保存时触发当前页提交；由父级注入稳定的外部保存入口。 */
-	onRequestSave?: (save: (() => void) | undefined) => void;
-	/**
-	 * 供应商页的模型设置约定：**页内改，点保存才生效**（与 baseUrl / API Key 同一层），取消就全丢。
-	 * 下面这组是「读当前状态」的入口（宿主侧已保存 provider / 已加载 settings）；写回走 onConfirm
-	 * 的草稿，由宿主按最终名字替换式落盘（见 ConfigModal 的 handleAddProvider / handleEditProvider）。
-	 */
+	onRequestSave?: (save: (() => boolean) | undefined) => void;
+	onDirtyChange: (dirty: boolean) => void;
+	/** 模型设置由宿主读取，页内编辑与连接字段一同进入 onConfirm 草稿，保存时按最终供应商名替换。 */
 	/** AppSettings.hiddenModels 全量条目：过滤出本供应商的隐藏集合；宿主不给则不渲染眼睛按钮。 */
 	hiddenModels?: string[];
 	/** 读取某模型当前的默认思考档位（settings.json）；宿主不给则不渲染默认档位入口。 */
@@ -85,6 +71,7 @@ export function AddProviderDialog(props: {
 	/** Pi 已确认的可用思考档位（只读参考）。 */
 	getModelAvailableThinkingLevels?: (providerName: string, modelId: string) => readonly string[] | undefined;
 }) {
+	const { api: desktopApi, remote, fetchRemoteProviderModels } = useConfigEditor();
 	const [name, setName] = useState("");
 	const [baseUrl, setBaseUrl] = useState("");
 	const [api, setApi] = useState("");
@@ -96,11 +83,7 @@ export function AddProviderDialog(props: {
 	});
 	/** 页内维护的模型草稿：新增=空，编辑=现有模型；获取模型勾选后追加。 */
 	const [models, setModels] = useState<ModelItem[]>([]);
-	/**
-	 * 逐模型 UA 覆盖草稿（与 baseUrl / apiKey 同一层：页内编辑，确认时随 provider 一起落盘）。
-	 * 始终持有对象：清掉最后一个覆盖时写入方返回 undefined，必须归一成 `{}` 才能表达
-	 * 「清空」——undefined 在 mergeProviderDraft 里是「表单没管这项」，会让清掉的覆盖复活。
-	 */
+	/** UA 覆盖始终持有对象：{} 表达清空；undefined 在 mergeProviderDraft 中表示未编辑，会保留原值。 */
 	const [modelOverrides, setModelOverrides] = useState<Record<string, Record<string, unknown>>>({});
 	/** 该供应商已隐藏的模型 id（AppSettings.hiddenModels 的页内副本，确认时才落盘）。 */
 	const [hiddenModelIds, setHiddenModelIds] = useState<string[]>([]);
@@ -110,10 +93,8 @@ export function AddProviderDialog(props: {
 	const [resettingModelKey, setResettingModelKey] = useState<string | null>(null);
 	/** 手动添加模型后待聚焦的新行 key，ModelsTable 聚焦完成后回调清空。 */
 	const [pendingModelFocusKey, setPendingModelFocusKey] = useState<string | null>(null);
-	/** 模型批量删除模式（与展开卡片同款勾选列 + 删除选中）。 */
 	const [modelBatchMode, setModelBatchMode] = useState(false);
 	const [selectedModelIndexes, setSelectedModelIndexes] = useState<Set<number>>(() => new Set());
-	// 快速测试连接（草稿级：配置不落盘，走临时 agent 目录探针）
 	const [testModelId, setTestModelId] = useState("");
 	const [testProxyMode, setTestProxyMode] = useState<ConfigProxyMode>("follow");
 	const [testing, setTesting] = useState(false);
@@ -123,12 +104,9 @@ export function AddProviderDialog(props: {
 	const [fetchError, setFetchError] = useState<string | null>(null);
 	const [fetchedModels, setFetchedModels] = useState<FetchedModel[] | null>(null);
 	const [selectedFetchedIds, setSelectedFetchedIds] = useState<string[]>([]);
+	const initialValues = useRef("");
 
-	// 每次进入页面重置草稿：add=空表单；edit=预填现有配置（含模型列表）。
-	// 重置只按 resetKey（模式 + 编辑对象身份）触发：ModelsTab 在 JSX 内联构造预填对象，
-	// 父组件刷新会传内容相同、引用不同的 initial，按引用做依赖会把未保存的
-	// API 类型 / User-Agent 草稿和测试结果整体冲回旧配置（issue #311）；切换供应商、
-	// add/edit 模式切换或重新进入页面（重新挂载）时 resetKey 变化，照常初始化。
+	// 只按模式与供应商身份重置；initial 每次渲染都换引用，依赖它会冲掉未保存草稿（#311）。
 	const resetKey = providerDialogResetKey(props.mode, props.initial);
 	useEffect(() => {
 		const initial = props.initial;
@@ -137,7 +115,7 @@ export function AddProviderDialog(props: {
 		setApi(initial?.api ?? "");
 		setApiKey(initial?.apiKey ?? "");
 		setUserAgent(initial?.userAgent ?? "");
-		setCompat({
+		const initialCompat = {
 			supportsDeveloperRole: initial?.compat?.supportsDeveloperRole ?? false,
 			supportsReasoningEffort: initial?.compat?.supportsReasoningEffort ?? false,
 			// 三态默认值统一由草稿域判定（见 resolveInitialReasoningContentReplay 注释）
@@ -150,6 +128,19 @@ export function AddProviderDialog(props: {
 			forceAdaptiveThinking: initial?.compat?.forceAdaptiveThinking,
 			supportsTemperature: initial?.compat?.supportsTemperature,
 			supportsStore: initial?.compat?.supportsStore,
+		};
+		setCompat(initialCompat);
+		initialValues.current = JSON.stringify({
+			name: initial?.name ?? "",
+			baseUrl: initial?.baseUrl ?? "",
+			api: initial?.api ?? "",
+			apiKey: initial?.apiKey ?? "",
+			userAgent: initial?.userAgent ?? "",
+			compat: initialCompat,
+			models: initial?.models ?? [],
+			modelOverrides: readModelOverrides(initial?.modelOverrides) ?? {},
+			hiddenModelIds: pickProviderHiddenIds(props.hiddenModels, initial?.name ?? ""),
+			thinkingDefaults: readProviderThinkingDefaults(initial, props.getModelThinkingLevelDefault),
 		});
 		setModels(initial?.models ? initial.models.map((model) => ({ ...model })) : []);
 		// 三份页内副本按宿主当前状态预填：UA 读 provider，隐藏读 AppSettings，默认档位读 settings.json
@@ -166,6 +157,10 @@ export function AddProviderDialog(props: {
 		setTestModelId("");
 		setTestResult(null);
 	}, [resetKey]);
+	useEffect(() => {
+		props.onDirtyChange(initialValues.current !== JSON.stringify({ name, baseUrl, api, apiKey, userAgent, compat, models, modelOverrides, hiddenModelIds, thinkingDefaults }));
+	}, [name, baseUrl, api, apiKey, userAgent, compat, models, modelOverrides, hiddenModelIds, thinkingDefaults, props.onDirtyChange]);
+	useEffect(() => () => props.onDirtyChange(false), [props.onDirtyChange]);
 
 	const trimmedName = name.trim();
 	const nameValid = isValidProviderName(trimmedName);
@@ -174,23 +169,25 @@ export function AddProviderDialog(props: {
 
 	/** 获取模型用当前草稿的 baseUrl/apiKey/api（不依赖已保存的 provider）。 */
 	const handleFetchModels = async () => {
-		if (!baseUrl.trim() || !apiKey.trim()) {
+		if (!remote && (!baseUrl.trim() || !apiKey.trim())) {
 			setFetchError(t("config.missingBaseUrlApiKey"));
 			return;
 		}
 		setFetching(true);
 		setFetchError(null);
 		try {
-			const result = await desktopApi.config.fetchModels(
-				baseUrl.trim(),
-				apiKey.trim(),
-				api || undefined,
-				userAgent.trim() ? { "User-Agent": userAgent.trim() } : undefined,
-				// 「获取模型」必须带上代理选择：此前这里漏传 proxyMode，导致下拉框选了 pi/desktop
-				// 代理也仍然走 follow（跟随全局开关）→ 全局关闭时直连→需要代理的网关直接 TLS 握手失败。
-				// 同一个对话框里「测试连接」已正确接线，两个按钮共用同一个 testProxyMode。
-				testProxyMode,
-			);
+			const result = await (fetchRemoteProviderModels
+				? fetchRemoteProviderModels(props.initial?.name ?? name.trim())
+				: desktopApi.config.fetchModels(
+						baseUrl.trim(),
+						apiKey.trim(),
+						api || undefined,
+						userAgent.trim() ? { "User-Agent": userAgent.trim() } : undefined,
+						// 「获取模型」必须带上代理选择：此前这里漏传 proxyMode，导致下拉框选了 pi/desktop
+						// 代理也仍然走 follow（跟随全局开关）→ 全局关闭时直连→需要代理的网关直接 TLS 握手失败。
+						// 同一个对话框里「测试连接」已正确接线，两个按钮共用同一个 testProxyMode。
+						testProxyMode,
+					));
 			if (result.success && result.models) {
 				setFetchedModels(result.models);
 				setSelectedFetchedIds([]);
@@ -410,7 +407,7 @@ export function AddProviderDialog(props: {
 
 	/** 统一组装当前页草稿，供页内按钮与宿主标题栏保存共用，避免两条保存路径状态不一致。 */
 	const submit = useCallback(() => {
-		if (!canConfirm) return;
+		if (!canConfirm) return false;
 		props.onConfirm({
 			name: trimmedName,
 			baseUrl: baseUrl.trim(),
@@ -425,6 +422,7 @@ export function AddProviderDialog(props: {
 			...(props.getModelThinkingLevelDefault ? { modelThinkingLevelDefaults: thinkingDefaults } : {}),
 			...(props.hiddenModels ? { hiddenModelIds } : {}),
 		});
+		return true;
 	}, [api, apiKey, baseUrl, canConfirm, compat, hiddenModelIds, modelOverrides, models, props.getModelThinkingLevelDefault, props.hiddenModels, props.onConfirm, thinkingDefaults, trimmedName, userAgent]);
 
 	// 保存按钮在 SettingsModal 标题栏，表单页自身不可直接接收点击；
@@ -510,7 +508,7 @@ export function AddProviderDialog(props: {
 							<Button type="button" variant="outline" size="sm" className="h-7" onClick={handleAddModel}>
 								{t("config.addModelManual")}
 							</Button>
-							<Button type="button" variant="outline" size="sm" className="h-7" onClick={() => void handleFetchModels()} disabled={fetching || !baseUrl.trim() || !apiKey.trim()}>
+							<Button type="button" variant="outline" size="sm" className="h-7" onClick={() => void handleFetchModels()} disabled={fetching || (!remote && (!baseUrl.trim() || !apiKey.trim()))}>
 								<RefreshCw size={13} className={fetching ? "animate-pideck-spin" : ""} aria-hidden="true" />
 								{fetching ? t("config.fetchingModels") : t("config.fetchModels")}
 							</Button>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { desktopApi } from "../desktopApi";
+import { useConfigEditor } from "./useConfigEditorApi";
 import { modelThinkingLevelsKey } from "../../../shared/modelThinkingLevels";
 
 /**
@@ -12,10 +12,11 @@ import { modelThinkingLevelsKey } from "../../../shared/modelThinkingLevels";
  * 加载失败静默为空表，不阻塞配置页其余功能。
  */
 export function useAvailableThinkingLevels(): ReadonlyMap<string, readonly string[]> {
+	const { api } = useConfigEditor();
 	const [levels, setLevels] = useState<ReadonlyMap<string, readonly string[]>>(() => new Map());
 	useEffect(() => {
 		let cancelled = false;
-		void desktopApi.projects
+		void api.projects
 			.listModels(undefined)
 			.then((models) => {
 				if (cancelled) return;
@@ -33,6 +34,6 @@ export function useAvailableThinkingLevels(): ReadonlyMap<string, readonly strin
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [api]);
 	return levels;
 }

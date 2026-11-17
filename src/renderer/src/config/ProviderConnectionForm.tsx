@@ -9,6 +9,7 @@ import { CompatLabelHint, ConfigComboboxInput, ConfigSelect } from "./ConfigShar
 import { ProviderEndpointFields } from "./ProviderEndpointFields";
 import { getUserAgentOptions, isUserAgentOverriddenByApiType, isValidUserAgent } from "./userAgentPresets";
 import type { ConfigProxyMode } from "../../../shared/types/fetchedModel";
+import { useConfigEditor } from "./useConfigEditorApi";
 
 export type ProviderTestResult = {
 	success: boolean;
@@ -99,9 +100,10 @@ export function ProviderConnectionForm(props: {
 	/** 高级字段保留提示（可选 slot；草稿页无未知字段时不传）。 */
 	advancedHint?: ReactNode;
 
-	/** 该供应商的凭据在 pi 的 `auth.json` 里时的摘要（见 ProviderEndpointFields.authKeyHint）。 */
+	/** 本机 auth.json 凭据摘要；SSH 仅提供已配置/未设置状态。 */
 	authKeyHint?: { length: number; tail: string } | null;
 }) {
+	const { remote } = useConfigEditor();
 	// User-Agent 是「单个可输入下拉」：内置预设在下拉里挑，也能直接手写任意值。
 	// 不再拆成「下拉选预设 + 另一个输入框」——两套控件会互相打架
 	// （选完预设后输入框里还是旧值、手写值又不在下拉选项里），用户报告过这个体验问题。
@@ -115,7 +117,8 @@ export function ProviderConnectionForm(props: {
 
 	return (
 		<div className="config-provider-form grid gap-2.5">
-			<ProviderEndpointFields baseUrl={props.baseUrl} api={props.api} apiKey={props.apiKey} authKeyHint={props.authKeyHint} onChangeBaseUrl={props.onChangeBaseUrl} onChangeApi={props.onChangeApi} onChangeApiKey={props.onChangeApiKey} />
+			<ProviderEndpointFields baseUrl={props.baseUrl} api={props.api} apiKey={remote && ["configured", "missing"].includes(props.apiKey) ? "" : props.apiKey} authKeyHint={props.authKeyHint} onChangeBaseUrl={props.onChangeBaseUrl} onChangeApi={props.onChangeApi} onChangeApiKey={props.onChangeApiKey} />
+			{remote && <p className="text-micro text-muted-foreground">{t("remoteConfig.documentHint")}</p>}
 			<div className="config-provider-field items-center">
 				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.userAgent")}</Label>
 				<div className="config-header-field">
@@ -134,36 +137,40 @@ export function ProviderConnectionForm(props: {
 			</div>
 
 			{/* 快速测试连接 */}
-			<div className="config-provider-field items-center">
-				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.testModel")}</Label>
-				<div className="config-test-controls">
-					<Input
-						value={props.testModelId}
-						className="h-8 min-w-0 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none transition-[border-color,box-shadow,background-color] duration-fast focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
-						onChange={(e) => props.onChangeTestModelId(e.target.value)}
-						placeholder={props.firstModelId ?? t("config.testModelPlaceholder")}
-					/>
-					<Button size="sm" variant="default" onClick={props.onTest} disabled={props.testing}>
-						{props.testing ? t("config.testingConnection") : t("config.testConnection")}
-					</Button>
+			{!remote && (
+				<div className="config-provider-field items-center">
+					<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.testModel")}</Label>
+					<div className="config-test-controls">
+						<Input
+							value={props.testModelId}
+							className="h-8 min-w-0 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none transition-[border-color,box-shadow,background-color] duration-fast focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
+							onChange={(e) => props.onChangeTestModelId(e.target.value)}
+							placeholder={props.firstModelId ?? t("config.testModelPlaceholder")}
+						/>
+						<Button size="sm" variant="default" onClick={props.onTest} disabled={props.testing}>
+							{props.testing ? t("config.testingConnection") : t("config.testConnection")}
+						</Button>
+					</div>
 				</div>
-			</div>
+			)}
 
 			{/* 测试/拉取模型的代理选择：需要代理才能访问的供应商（海外网关等）不用改全局代理开关。
 			    刻意不渲染右侧代理说明小字：选项文案已自解释，保持界面干净。 */}
-			<div className="config-provider-field items-center">
-				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.testProxy")}</Label>
-				<ConfigSelect
-					value={props.testProxyMode}
-					onChange={(value) => props.onChangeTestProxyMode((value || "follow") as ConfigProxyMode)}
-					options={[
-						{ value: "follow", label: t("config.proxyFollow") },
-						{ value: "pi", label: t("config.proxyPi") },
-						{ value: "desktop", label: t("config.proxyDesktop") },
-						{ value: "off", label: t("config.proxyOff") },
-					]}
-				/>
-			</div>
+			{!remote && (
+				<div className="config-provider-field items-center">
+					<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.testProxy")}</Label>
+					<ConfigSelect
+						value={props.testProxyMode}
+						onChange={(value) => props.onChangeTestProxyMode((value || "follow") as ConfigProxyMode)}
+						options={[
+							{ value: "follow", label: t("config.proxyFollow") },
+							{ value: "pi", label: t("config.proxyPi") },
+							{ value: "desktop", label: t("config.proxyDesktop") },
+							{ value: "off", label: t("config.proxyOff") },
+						]}
+					/>
+				</div>
+			)}
 
 			{/* 测试结果 */}
 			{props.testResult && (

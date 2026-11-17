@@ -2,6 +2,7 @@ import { app, ipcMain, protocol } from "electron";
 import type { BrowserWindow } from "electron";
 import { join } from "node:path";
 import { registerSessionShareExportIpc } from "../../ipc/sessionShareExportIpc";
+import { registerRemotePiModelIpc } from "../../ipc/remotePiModelIpc";
 import { SessionShareExportService } from "../../sessions/SessionShareExportService";
 import { createSessionShareSourceLoader } from "../../sessions/sessionShareSource";
 import { createPiSessionShareReader } from "../../pi/piSessionShareReader";
@@ -129,6 +130,7 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 			})
 		: undefined;
 
+	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, catalog: remotePiModelCatalog });
 	/**
 	 * 按项目取远端模型目录：非远端项目返回 null（调用方据此走本机目录）。
 	 * 失败返回失败报告而不是空成功报告——空列表和「拿不到」在 UI 上必须是两种状态。

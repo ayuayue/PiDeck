@@ -15,7 +15,7 @@ export type ConfigModalShellProps = {
 	sizeClass: string;
 	saving: boolean;
 	hasDirty: boolean;
-	/** ssh 目标禁用本机保存/导出/导入：按钮置灰并说明原因。 */
+	/** 保存经当前环境路由，导出/导入仍限本机。 */
 	targetKind: PiConfigTarget["kind"];
 	backendPane: "dsh" | "pi";
 	section: ConfigSection;
@@ -39,7 +39,7 @@ export function ConfigModalShell({ open, onRequestClose, sizeClass, saving, hasD
 					<div className="flex items-center gap-1.5">
 						{/* 顶部统一保存：各 tab 内部保存按钮可能被滚动藏住，这里常驻可见；
 						    有未保存修改时按钮带黄点标记；无修改也放开再次保存，不再禁用 */}
-						<Button variant="default" size="sm" onClick={onSaveCurrent} disabled={saving || targetKind === "ssh"} title={targetKind === "ssh" ? t("config.target.remoteSaveHint") : hasDirty ? t("config.dirtyTooltip") : undefined}>
+						<Button variant="default" size="sm" onClick={onSaveCurrent} disabled={saving} title={hasDirty ? t("config.dirtyTooltip") : undefined}>
 							{hasDirty && <span className="size-2 rounded-full bg-warning" aria-hidden="true" />}
 							{saving ? t("common.saving") : t("common.save")}
 						</Button>

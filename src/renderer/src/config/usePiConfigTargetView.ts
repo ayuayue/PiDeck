@@ -11,7 +11,7 @@ import { localEditorTargetOption, providerOpsAllowed, wslTargetHostOf, type PiCo
  */
 export function usePiConfigTargetView(hosts: readonly PiConfigTargetHost[], target: PiConfigTarget) {
 	const wslHost: WslConfigTargetHost | undefined = useMemo(() => wslTargetHostOf(hosts, target), [hosts, target]);
-	/** 本地 models/settings 编辑器要带的选项：只有 wsl 目标需要（ssh 由远端面板接管）。 */
+	/** 共享编辑器的非本机选项；SSH API 按主机绑定，禁止失败后回本机。 */
 	const option = useMemo(() => localEditorTargetOption(target), [target]);
 	/** provider 探针只对本机开放：非本机目标提前拦下并说明（主进程同样会拒绝，界面不能假装能点）。 */
 	const guardProviderOp = useCallback(

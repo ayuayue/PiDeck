@@ -8,7 +8,7 @@ import type { ConfigTab } from "./configTypes";
  * 三件事必须同一个判定来源。散在 JSX 里就会出现「导航里没了、tab state 还停在那一页」这类半截状态。
  *
  * 边界来自后端事实，不是 UI 口味：
- * - ssh：只经 helper 的 config.read/config.patch（models/settings/trust/mcp），auth.json 只能读**派生视图**
+ * - ssh：经 helper 读写 models/settings/trust/mcp，复用表单与源文件页；auth.json 只读派生视图
  *   （provider / 凭据类型 / 已配置），因此认证页存在但只读；OAuth 登录/源文件字节级编辑/技能等资源都只在本机执行；
  * - wsl：本机 UNC 读 + 发行版内原子替换，因此连 auth.json 也能编辑；但 OAuth 登录仍走本机 pi 进程，
  *   安全策略页编辑的是 PiDeck 自己的宿主设置，两者都只在本机。
@@ -19,7 +19,7 @@ export type ConfigNavSection = "config" | "security" | "skills" | "prompts" | "e
 const CONFIG_TABS_BY_TARGET: Record<PiConfigTarget["kind"], readonly ConfigTab[]> = {
 	local: ["models", "auth", "oauth", "settings", "trust", "mcp", "raw"],
 	wsl: ["models", "auth", "settings", "trust", "mcp", "raw"],
-	ssh: ["models", "auth", "settings", "trust", "mcp"],
+	ssh: ["models", "auth", "settings", "trust", "mcp", "raw"],
 };
 
 /** 该环境可管理的配置页（含顺序）。 */

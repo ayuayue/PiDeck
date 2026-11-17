@@ -4,7 +4,6 @@ import { Separator } from "../components/ui-shadcn/separator";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUpDown, ChevronDown, ChevronRight, Copy, Eye, EyeOff, ExternalLink, GripVertical, Search, SquarePen, Trash2, X } from "lucide-react";
 import { t } from "../i18n";
-import { desktopApi } from "../desktopApi";
 import type { ModelItem, ModelsFile, ProviderConfig } from "./configTypes";
 import { openDocsInSystemBrowser } from "./ConfigShared";
 import { getHeaderValue, readModelOverrides, setHeaderValue } from "./providerHeaders";
@@ -39,8 +38,8 @@ import { useAvailableThinkingLevels } from "./useAvailableThinkingLevels";
 import { modelThinkingLevelsKey } from "../../../shared/modelThinkingLevels";
 import type { ModelThinkingLevel } from "../../../shared/modelThinkingLevels";
 import type { MutableRefObject } from "react";
+import { useConfigEditor } from "./useConfigEditorApi";
 
-/** 把现有 provider 配置转成编辑弹窗的预填值（名字/字段/模型列表）。 */
 function providerDialogInitial(provider: ProviderConfig | undefined, name: string): ProviderDialogInitial | undefined {
 	if (!provider) return undefined;
 	return {
@@ -68,7 +67,8 @@ export function ModelsTab(props: {
 	/** 新增供应商弹窗开关（由父级持有，确认/取消回调走 props）。 */
 	addingProvider: boolean;
 	/** 新增/编辑供应商页向设置窗口标题栏暴露的保存入口。 */
-	providerPageSaveRef: MutableRefObject<(() => void) | undefined>;
+	providerPageSaveRef: MutableRefObject<(() => boolean) | undefined>;
+	onProviderDraftDirty: (dirty: boolean) => void;
 	/** 编辑弹窗目标 provider key（修改名称按钮打开；null = 无编辑弹窗）。 */
 	editingProvider: string | null;
 	/** 用户隐藏的供应商 key 列表（模型页主列表过滤 + 底部已隐藏区展示）。 */
@@ -105,10 +105,7 @@ export function ModelsTab(props: {
 	testModelIdByProvider: Record<string, string>;
 	/** 每个 provider 的测试/拉取代理选择：follow=跟随全局，pi/desktop=强制走对应代理，off=强制直连。 */
 	testProxyModeByProvider: Record<string, ConfigProxyMode>;
-	/**
-	 * 每个供应商在 pi `auth.json` 里已有 api_key 凭据时的掩码摘要（#537）。
-	 * models.json 的 `apiKey` 只是覆盖层：空着不代表没配。不传/缺项 = 无凭据。
-	 */
+	/** 本机 auth.json 的 API Key 掩码摘要；SSH 认证仅提供配置状态。 */
 	authKeyHints?: Record<string, { length: number; tail: string }>;
 	saving: boolean;
 	onToggleProvider: (name: string) => void;
@@ -151,13 +148,19 @@ export function ModelsTab(props: {
 	onChangeProvider: (name: string, field: string, value: unknown) => void;
 }) {
 	const { data, expandedProvider, saving } = props;
-	// Pi 已确认的可用思考档位目录（只读事实）：每模型默认档位的编辑入口据此给选项/禁用，
-	// 与欢迎页/会话内选择器同源（capability snapshot）。
+	const { api: editorApi, remote } = useConfigEditor();
+	const activeApi = useRef<typeof editorApi | null>(editorApi);
+	activeApi.current = editorApi;
+	useEffect(() => {
+		activeApi.current = editorApi;
+		return () => {
+			activeApi.current = null;
+		};
+	}, [editorApi]);
+	// 每模型档位来自当前环境的目录；未知仍允许手动配置。
 	const availableThinkingLevels = useAvailableThinkingLevels();
 	const providerNames = Object.keys(data.providers);
-	// 隐藏开关：主列表只显示未隐藏项，隐藏项进页面底部「已隐藏」折叠区（设置页隐藏开关）
-	// 自定义排序只作用于展示：先按用户拖拽/方向键结果重排完整列表，再切分可见/隐藏。
-	// 用完整列表而非仅可见列表：隐藏区也遵循同一顺序，恢复显示时不会突然跳到列表最前。
+	// 排序先作用于完整列表，再切分可见/隐藏，恢复显示时顺序不跳变。
 	const orderedProviderNames = applyProviderOrder(providerNames, props.providerOrder);
 	const { visible: visibleProviderNames, hidden: hiddenProviderNames } = splitVisibleAndHiddenProviders(orderedProviderNames, props.hiddenProviders ?? []);
 	// 供应商多时逐个翻卡片太慢：顶部关键词过滤（只认 provider 名）；排序与隐藏逻辑不变。
@@ -167,18 +170,15 @@ export function ModelsTab(props: {
 	const [hiddenSectionOpen, setHiddenSectionOpen] = useState(false);
 	// 自动获取后的待保存选择：与 provider 分开存储，避免多个 provider 同时展开时选中状态互相污染。
 	const [selectedFetchedModelIds, setSelectedFetchedModelIds] = useState<Record<string, string[]>>({});
-	// 计费弹框状态（costDialogKey/tierEditor）已内聚到共享组件 ModelsTable，这里不再持有。
 
-	/**
-	 * 模型 ID/名称失焦时按端点元数据、当前 Pi 目录和内置目录补齐空字段。
-	 * 未命中就保持空，手填值不覆盖；匹配结果直接填进对应输入框，不再展示来源。
-	 */
+	/** 模型 ID/名称失焦时按当前环境的目录补齐空字段；未命中保持空，手填值不覆盖。 */
 	const applyModelSpecAutoFill = async (providerName: string, index: number, modelId: string) => {
 		const trimmed = modelId.trim();
 		if (!trimmed) return;
 		const model = data.providers[providerName]?.models[index];
 		if (!model) return;
-		const spec = await desktopApi.projects.getModelSpec(providerName, trimmed, model.name);
+		const spec = await editorApi.projects.getModelSpec(providerName, trimmed, model.name);
+		if (activeApi.current !== editorApi) return;
 		const updates = computeModelSpecPatches(model, spec);
 		for (const [field, value] of updates) {
 			props.onUpdateModel(providerName, index, field, value);
@@ -247,11 +247,7 @@ export function ModelsTab(props: {
 	// 深链聚焦：滚动到目标供应商卡片并短暂高亮（展开由父级 ConfigModalContent 处理）。
 	const providerCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-	/**
-	 * 拖拽/手柄方向键的统一出口：算出新的完整顺序交给父级持久化。
-	 * 顺序无变化时（拖回原位）也照常上报，由主进程 SettingsStore 的「值未变则剔除」拦下写盘，
-	 * 避免这里再维护一份比较逻辑。
-	 */
+	/** 拖拽/键盘排序统一上报完整顺序；无变化时由 SettingsStore 拦下写盘。 */
 	const reorderProviders = useCallback(
 		(nextOrder: string[]) => {
 			props.onReorderProviders?.(nextOrder);
@@ -259,11 +255,7 @@ export function ModelsTab(props: {
 		[props.onReorderProviders],
 	);
 
-	// 拖动排序的状态机（落点判定、拖动中视觉、插入指示线、FLIP 落位动画、手柄方向键）内聚在共享 hook，
-	// DSH 模型页的供应商卡片复用同一份，避免两页规则漂移。
-	// 拖拽的作用域是「模型 + 认证」两页的并集（providerOrderScope）：认证页独有的供应商也要参与
-	// 同一份顺序，否则在认证页排一次会在并集里丢掉它们，模型页的顺序跟着回到默认。
-	// visibleNames 传过滤后的列表：手柄 ↑/↓ 只以看得见的邻居为锚点；排序仍写进完整顺序。
+	// 复用 DSH 的排序状态机；作用域覆盖模型与认证的供应商并集，键盘以可见邻居为锚点。
 	const providerReorder = useProviderReorder({ names: props.providerOrderScope?.length ? props.providerOrderScope : orderedProviderNames, visibleNames: searchedProviderNames, onReorder: reorderProviders });
 	const [highlightProvider, setHighlightProvider] = useState<string | null>(null);
 	useEffect(() => {
@@ -517,9 +509,11 @@ export function ModelsTab(props: {
 												<span className="min-w-0 truncate text-control font-semibold text-text-primary">{name}</span>
 												{/* 折叠态把「N 模型」和用量收进标题行，避免底部再占一条 h-9 空行。用量拦截点击，避免点刷新时误折叠卡片。 */}
 												<span className="shrink-0 rounded-full border border-border-subtle px-1.5 py-px font-mono text-micro tabular-nums text-muted-foreground">{t("config.count.models", { count: provider.models.length })}</span>
-												<span onClick={(event) => event.stopPropagation()}>
-													<ProviderUsageInline provider={name} variant="card" />
-												</span>
+												{!remote && (
+													<span onClick={(event) => event.stopPropagation()}>
+														<ProviderUsageInline provider={name} variant="card" />
+													</span>
+												)}
 											</div>
 
 											<div className="flex shrink-0 items-center gap-1" onClick={(event) => event.stopPropagation()}>
@@ -548,9 +542,9 @@ export function ModelsTab(props: {
 												>
 													<Eye size={14} />
 												</Button>
-												<ProviderMigrationButton direction="pi-to-dsh" provider={name} />
+												{!remote && <ProviderMigrationButton direction="pi-to-dsh" provider={name} />}
 												{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染；其余可配通用/New API 模板） */}
-												<UsageQueryEntryButton provider={name} onOpen={() => props.onOpenUsageProbeDialog(name)} />
+												{!remote && <UsageQueryEntryButton provider={name} onOpen={() => props.onOpenUsageProbeDialog(name)} />}
 												<Button
 													variant="ghost"
 													size="icon-sm"
@@ -718,7 +712,8 @@ export function ModelsTab(props: {
 																	// listing 已带容量的字段直接写入；其余空字段再按 pi-ai 目录补，仍缺则空着
 																	const baseModels = buildModelsFromFetchedSelection(props.fetchedModels[name], selectedIds, currentProvider.models);
 																	if (baseModels.length === 0) return;
-																	const results = await Promise.all(baseModels.map((m) => desktopApi.projects.getModelSpec(name, m.id, m.name).catch(() => null)));
+																	const results = await Promise.all(baseModels.map((m) => editorApi.projects.getModelSpec(name, m.id, m.name).catch(() => null)));
+																	if (activeApi.current !== editorApi) return;
 																	let filledCount = 0;
 																	const newModels = baseModels.map((m, i) => {
 																		const updates = computeModelSpecPatches(m, results[i]);
@@ -785,7 +780,7 @@ export function ModelsTab(props: {
 														const model = provider.models[i];
 														const modelId = model?.id?.trim();
 														if (!modelId) return null;
-														const spec = await desktopApi.projects.getModelSpec(name, modelId, model.name).catch(() => null);
+														const spec = await editorApi.projects.getModelSpec(name, modelId, model.name).catch(() => null);
 														const flags = pickManagedCompatFlags(spec?.compat);
 														return Object.keys(flags).length > 0 ? { matchedId: spec?.matchedId, flags } : null;
 													}}
@@ -867,6 +862,7 @@ export function ModelsTab(props: {
 			   整个内容区切换成配置表单页，左上角返回按钮回列表，获取模型也在页内。 */}
 			{(props.addingProvider || props.editingProvider) && (
 				<AddProviderDialog
+					onDirtyChange={props.onProviderDraftDirty}
 					mode={props.editingProvider ? "edit" : "add"}
 					initial={props.editingProvider ? providerDialogInitial(data.providers[props.editingProvider], props.editingProvider) : undefined}
 					existingNames={props.editingProvider ? providerNames.filter((name) => name !== props.editingProvider) : providerNames}

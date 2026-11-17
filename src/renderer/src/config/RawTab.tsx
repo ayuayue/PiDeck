@@ -1,6 +1,7 @@
 import { CodeMirrorEditor } from "../components/app/CodeMirrorEditor";
 import { t } from "../i18n";
 import { ConfigSelect } from "./ConfigShared";
+import { useConfigEditor } from "./useConfigEditorApi";
 
 // ── Raw Tab ─────────────────────────────────────────────
 
@@ -24,13 +25,14 @@ export function RawTab(props: {
 	onChangeContent: (content: string) => void;
 	onSave: () => void;
 }) {
+	const { remote } = useConfigEditor();
 	// 与 DSH joinConfigPath 一致：去尾斜杠后拼接文件名（平台路径，避免 /\ 混用）。
 	const rawFilePath = props.configDir ? `${props.configDir.replace(/[\\/]+$/, "")}/${props.fileName}` : "";
 	return (
 		<div className="config-raw-tab flex min-h-0 flex-1 flex-col gap-3">
 			{props.showFileSelector === false ? null : (
 				<div className="flex shrink-0 items-center justify-between gap-3">
-					<ConfigSelect value={props.fileName} options={RAW_FILE_OPTIONS} onChange={props.onChangeFileName} />
+					<ConfigSelect value={props.fileName} options={remote ? RAW_FILE_OPTIONS.filter((file) => file.value !== "auth.json") : RAW_FILE_OPTIONS} onChange={props.onChangeFileName} />
 				</div>
 			)}
 			{/* 源文件都是 JSON：CodeMirror 提供语法高亮/折叠/括号匹配，JSON 语法错误即时提示（lint）。 */}
@@ -45,7 +47,7 @@ export function RawTab(props: {
 						</span>
 					</div>
 				)}
-				<span className="text-micro text-muted-foreground">{t("config.rawHostReads")}</span>
+				<span className="text-micro text-muted-foreground">{t(remote ? "remoteConfig.documentHint" : "config.rawHostReads")}</span>
 			</div>
 		</div>
 	);

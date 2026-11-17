@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: c4b58e11d40a97142dbbd6f255eff822eae39f60054b17187f5ddef29acf78b5（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 17b6e0136c50b5818332a0f206265ede574b2680112053c7f6f1f2289fb6c088（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7803,8 +7803,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.validating": "校驗中...",
 	"settings.webQrEnableHint": "開啟 Web 服務後生成二維碼",
 	"remoteModel.title": "遠端模型目錄",
-	"remoteModel.probeAction": "拉取遠端模型目錄（測試連線）",
-	"remoteModel.probeHint": "通過該主機上執行中的遠端 pi 會話讀取；只回傳脫敏目錄，單次請求不重試。",
+	"remoteModel.probeAction": "重新整理模型目錄",
+	"remoteModel.probeHint": "讀取這臺主機上 Pi 可用的模型；儲存配置後重新整理即可更新。",
 	"remoteModel.probing": "正在通過遠端 pi 讀取模型目錄…",
 	"remoteModel.readySummary": "共 {count} 個模型 · {providers} 個供應商",
 	"remoteModel.providerCount": "{count} 個模型",
@@ -7847,7 +7847,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.env.currentMark": "當前",
 	"config.env.scopeLocal": "本機環境：模型、憑據、信任、MCP、原始檔與資源都可編輯",
 	"config.env.scopeWsl": "WSL 環境：讀寫落在開發設定裡那個發行版的 HOME（.pi/agent）；OAuth 登入與安全策略仍在本機",
-	"config.env.scopeSsh": "SSH 環境：可編輯 models / settings / trust / mcp（金鑰只顯示狀態）；認證頁只讀（credential 不跨機），原始檔與技能/擴充套件仍在本機",
+	"config.env.scopeSsh": "正在編輯 SSH 主機的 Pi 配置；支援表單和原始檔編輯，認證憑據只顯示狀態。",
 	"config.env.switchDirtyTitle": "切換 Pi 環境",
 	"config.env.switchDirtyMessage": "當前環境還有 {count} 項未儲存的修改。切換後整個面板會按新環境重新載入。",
 	"config.env.switchDirtyRemote": "遠端頁籤還有未應用的 patch。切換環境會丟棄它。",
@@ -7883,6 +7883,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteConfig.patchReservedKey": "patch 不能包含 __proto__ / constructor / prototype 等保留鍵",
 	"remoteConfig.patchEmpty": "還沒有要提交的欄位",
 	"remoteConfig.reload": "重新讀取",
+	"remoteConfig.documentHint": "編輯這臺 SSH 主機的 JSON 配置。金鑰顯示 configured / missing；保留原樣或留空會沿用遠端金鑰，輸入新值可替換。",
+	"remoteConfig.reloadTitle": "重新讀取遠端配置？",
+	"remoteConfig.reloadDrafts": "這會丟棄當前 SSH 環境各配置頁的未儲存更改，並讀取遠端最新內容。",
 	"remoteConfig.resetPatch": "清空 patch",
 	"remoteConfig.save": "應用 patch",
 	"remoteConfig.saving": "應用中…",
@@ -7892,7 +7895,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteConfig.connectFailed": "無法連線遠端主機：本次讀取未執行。",
 	"remoteConfig.reconnect": "重新連線",
 	"remoteConfig.conflictTitle": "版本衝突：遠端配置已被其他寫入改變",
-	"remoteConfig.conflictBody": "你的 patch 仍保留。請重新讀取最新版本後再提交，或先核對內容。",
+	"remoteConfig.conflictBody": "未儲存的更改仍保留。請先複製需要保留的內容，再重新讀取遠端最新版本。",
 	"remoteConfig.unconfirmedTitle": "寫入結果未確認",
 	"remoteConfig.unconfirmedBody": "遠端可能已經寫入，但回執不可信；不會自動重試。請重新讀取確認實際內容。",
 	"remoteConfig.failedTitle": "遠端配置操作失敗",
