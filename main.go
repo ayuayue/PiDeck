@@ -13,7 +13,8 @@ import (
 // appVersion is the version the about page and diagnostics report.
 const appVersion = "0.2.0"
 
-// logoPNG is PiDeck's mark, drawn in the wordmark and the welcome screen.
+// logoPNG is PiDeck's classic silver mark. Branding defaults to the TUI
+// color vector; this remains the classic preset and the desktop tray icon.
 //
 //go:embed assets/logo.png
 var logoPNG []byte

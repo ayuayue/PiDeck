@@ -857,6 +857,7 @@ func (a *app) settingsLook() core.Node {
 		}
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+				a.brandingGroup(colors),
 				setGroup("配色", rows...),
 				a.backgroundGroup(colors),
 				setRow("主题文件", "放在数据目录的 themes 里：JSON 或 YAML，写角色色、tokens、字体与圆角；也读 shadcn/ui 主题文件。",
@@ -1592,11 +1593,12 @@ func (a *app) settingsAbout() core.Node {
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 8, Bottom: 20, Right: 2}, Gap: 12}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
-					core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
-						Style: core.Style{Width: core.Pt(44), Height: core.Pt(44), CornerRadius: 12}},
+					a.brandMark(44, "about-logo"),
 					core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
-						ui.Text("PiDeck Lite", 15, ui.Semibold, colors.Text),
-						ui.Text("0.2.0 · NSGo 原生窗口 · 只做 pi", 11, ui.Regular, colors.Muted),
+						core.Text{ContentFunc: func() string { _ = a.brandRev.Get(); return resolveBrandName(a.cfg.AppDisplayName) },
+							Style: core.Style{FontSize: 15, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
+						ui.Text("PiDeck Lite · v"+brandVersion(), 11, ui.Regular, colors.Muted),
+						ui.Text(T("NSGo 原生窗口 · 只做 pi"), 11, ui.Regular, colors.Muted),
 					}},
 				}},
 				setGroup("运行",
@@ -1612,6 +1614,9 @@ func (a *app) settingsAbout() core.Node {
 							OnPress: func() { updater.Check(a.cx) }}),
 				),
 				setGroup("链接",
+					setRow("项目主页", "github.com/ayuayue/PiDeck-Lite", ui.Button{Text: T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+						OnPress: func() { a.cx.OpenURL(appRepoURL, nil) }}),
+					setDivider(),
 					setRow("pi 项目", "github.com/badlogic/pi-mono", ui.Button{Text: T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						a.copyText("https://github.com/badlogic/pi-mono", "链接")
 					}}),

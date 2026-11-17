@@ -302,36 +302,6 @@ func (a *app) piSessionRow(s *session) core.Node {
 	}
 }
 
-// brand is the wordmark, the tile, and the pi the app runs on.
-func (a *app) brand() core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		// Reading env keeps the wordmark in step with the probe.
-		label, tone := a.piStatus(colors)
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Padding: core.Edges{Top: 2, Right: 4, Left: 4}}, Children: []core.Node{
-			core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
-				Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), CornerRadius: 8}},
-			core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-					core.Text{Content: "PiDeck", Style: core.Style{FontFamily: monoFont(), FontSize: 14, FontWeight: ui.Bold, LetterSpacing: 0.4},
-						StyleFunc: ui.Colored(colors.Text)},
-					core.View{StyleFunc: func() core.Style {
-						return core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, BorderWidth: 1, BorderColor: colors.Border()}
-					}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: monoFont(), FontSize: 9},
-						StyleFunc: ui.Colored(colors.Faint)}}},
-				}},
-				// The pi the app detected, where the wordmark can be read
-				// as the app's own: probing, missing, or its version.
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
-					core.View{Style: core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: tone}},
-					core.Text{ContentFunc: func() string { return label }, Style: core.Style{FontFamily: monoFont(), FontSize: 10},
-						StyleFunc: ui.Colored(colors.Muted)},
-				}},
-			}},
-		}}
-	})
-}
-
 // piStatus is what the brand says about pi, and the color of its dot.
 func (a *app) piStatus(colors ui.Colors) (string, core.Color) {
 	info := a.env.Get()

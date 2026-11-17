@@ -65,9 +65,6 @@ const (
 	askEditor      = "editor"
 )
 
-// askMethodBatch is the method the window uses for a batch envelope.
-const askMethodBatch = "batch_ask"
-
 // askEnvelopeMarker is the placeholder pi carries for a batch envelope,
 // so the window can tell it from a plain input request without parsing.
 const askEnvelopeMarker = "__piDeckBatchAsk__"

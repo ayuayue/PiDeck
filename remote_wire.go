@@ -5,6 +5,10 @@ package main
 // them. They live here, apart from the server, so a browser build that has
 // no server still knows what it receives.
 
+// askMethodBatch is shared with the phone, which can dismiss a batch
+// request even though its questions are answered in the desktop card.
+const askMethodBatch = "batch_ask"
+
 // remoteWireFile is one file in a project's list.
 type remoteWireFile struct {
 	Path string `json:"path"`

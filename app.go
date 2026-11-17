@@ -441,7 +441,13 @@ type app struct {
 	settings *core.Signal[bool]
 	// settingsRev changes after a setting is switched, so the page shows
 	// the value it now holds.
-	settingsRev *core.Signal[int]
+	settingsRev   *core.Signal[int]
+	brandOpen     *core.Signal[bool]
+	brandRev      *core.Signal[int]
+	brandBusy     *core.Signal[bool]
+	brandError    *core.Signal[string]
+	customBrand   brandImage
+	brandImageSeq int
 	// settingsScroll and settingsOffset remember where a settings page was
 	// scrolled, so redrawing it after a switch keeps the reader's place.
 	settingsScroll *core.Ref
@@ -717,6 +723,10 @@ func newApp(cx *core.Scope) *app {
 		settings:               core.NewSignal(cx, false),
 		settingsTab:            core.NewSignal(cx, "env"),
 		settingsRev:            core.NewSignal(cx, 0),
+		brandOpen:              core.NewSignal(cx, false),
+		brandRev:               core.NewSignal(cx, 0),
+		brandBusy:              core.NewSignal(cx, false),
+		brandError:             core.NewSignal(cx, ""),
 		settingsScroll:         &core.Ref{},
 		addWS:                  core.NewSignal(cx, false),
 		addTarget:              core.NewSignal(cx, false),
@@ -1006,6 +1016,7 @@ func newApp(cx *core.Scope) *app {
 	askExtensionPath = installAskExtension(st.dir)
 	a.initDiag()
 	a.cfg = st.config()
+	a.applyBrand()
 	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))
 	a.monoFont.Set(strings.TrimSpace(a.cfg.MonoFont))
 	a.chatFont.Set(a.cfg.ChatFont)

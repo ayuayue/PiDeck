@@ -57,16 +57,21 @@ type windowCfg struct {
 
 // config is everything the app restores at startup.
 type config struct {
-	Version     int               `json:"version"`
-	Workspaces  []workspaceCfg    `json:"workspaces"`
-	LastSession string            `json:"lastSession,omitempty"`
-	Tabs        []string          `json:"tabs,omitempty"`
-	Theme       string            `json:"theme,omitempty"` // system, light, dark
-	SidebarOpen bool              `json:"sidebarOpen"`
-	DrawerOpen  bool              `json:"drawerOpen"`
-	Model       modelChoice       `json:"model"`
-	Thinking    string            `json:"thinking,omitempty"`
-	Titles      map[string]string `json:"titles,omitempty"`
+	Version     int            `json:"version"`
+	Workspaces  []workspaceCfg `json:"workspaces"`
+	LastSession string         `json:"lastSession,omitempty"`
+	Tabs        []string       `json:"tabs,omitempty"`
+	Theme       string         `json:"theme,omitempty"` // system, light, dark
+	// Branding is shared by the rail, welcome and about views. The custom
+	// image is inline data so settings backups carry it with them.
+	LogoStyle       string            `json:"logoStyle,omitempty"` // pi-tui (default), classic, custom
+	LogoCustomImage string            `json:"logoCustomImage,omitempty"`
+	AppDisplayName  string            `json:"appDisplayName,omitempty"`
+	SidebarOpen     bool              `json:"sidebarOpen"`
+	DrawerOpen      bool              `json:"drawerOpen"`
+	Model           modelChoice       `json:"model"`
+	Thinking        string            `json:"thinking,omitempty"`
+	Titles          map[string]string `json:"titles,omitempty"`
 	// Pinned are the sessions kept at the top of the rail, and FavModels
 	// the "provider/id" of the models offered first.
 	Pinned    []string `json:"pinned,omitempty"`
@@ -331,7 +336,7 @@ func migrateConfig(c *config, raw []byte) bool {
 // normalizeConfig resets values a hand-edited file could have got wrong:
 // unknown choices, out-of-range sizes, and duplicate projects or tabs.
 func normalizeConfig(c *config) bool {
-	changed := false
+	changed := normalizeBrandConfig(c)
 	trim := func(s *string) {
 		if v := strings.TrimSpace(*s); v != *s {
 			*s = v

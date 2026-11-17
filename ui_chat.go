@@ -1252,8 +1252,7 @@ func (a *app) emptyChat(s *session) core.Node {
 						core.View{Style: core.Style{FlexGrow: 1, JustifyContent: core.JustifyCenter, Padding: core.Symmetric(24, 20), Gap: 22,
 							MinHeight: core.Pt(0)}, Children: []core.Node{
 							core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
-								core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
-									Style: core.Style{Width: core.Pt(56), Height: core.Pt(56), CornerRadius: 16}},
+								a.brandMark(56, "empty-chat-logo"),
 								core.Text{Content: T("在 %s 里做点什么", name), Style: core.Style{FontSize: 20, FontWeight: ui.Semibold, LineHeight: 27},
 									StyleFunc: ui.Colored(colors.Text)},
 								core.Text{ContentFunc: func() string {
@@ -1318,8 +1317,7 @@ func (a *app) welcome() core.Node {
 			StyleFunc: func() core.Style { return core.Style{Background: colors.Background()} },
 			Children: []core.Node{
 				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 14, MaxWidth: core.Pt(420)}, Children: []core.Node{
-					core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
-						Style: core.Style{Width: core.Pt(64), Height: core.Pt(64), CornerRadius: 18}},
+					a.brandMark(64, "welcome-logo"),
 					core.Text{Content: "PiDeck Lite", Style: core.Style{FontFamily: monoFont(), FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: sub, Style: core.Style{FontSize: 13, TextAlign: core.TextAlignCenter, LineHeight: 20}, StyleFunc: ui.Colored(colors.Muted)},

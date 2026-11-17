@@ -194,6 +194,7 @@ func (a *app) importSettings(path string) {
 				return
 			}
 			a.cfg = a.st.config()
+			a.applyBrand()
 			a.chatWidth.Set(a.cfg.ChatWidth)
 			a.applyLanguage()
 			a.applyFonts()
