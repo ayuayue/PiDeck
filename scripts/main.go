@@ -122,7 +122,10 @@ func main() {
 	case "test":
 		h.test()
 	case "web":
-		h.web()
+		if err := h.web(); err != nil {
+			h.report(err)
+			os.Exit(1)
+		}
 	case "doctor":
 		h.doctor()
 	case "dist":
@@ -467,34 +470,30 @@ func (h *helper) test() {
 // web 把浏览器端页面编进 webassets/，再编一个同时发窗口、页面和 API 的二进制：
 // 浏览器的 WebAssembly 里没有进程和磁盘，pi、文件与 Git 仍由桌面端提供。wasm 先
 // brotli 压缩，页面抓下来只有原体积的两成。
-func (h *helper) web() {
+func (h *helper) web() error {
 	if err := h.nsgo("build", "-target", "web"); err != nil {
-		h.report(err)
-		return
+		return err
 	}
 	site := filepath.Join(h.root, "dist", h.name+"-"+h.version+"-web")
 	dst := filepath.Join(h.root, "webassets")
 	if err := os.RemoveAll(dst); err != nil {
-		h.report(err)
-		return
+		return err
 	}
 	if err := copyTree(site, dst); err != nil {
-		h.report(err)
-		return
+		return err
 	}
 	if err := compressWebAssets(dst); err != nil {
-		h.report(err)
-		return
+		return err
 	}
 	out := filepath.Join(h.root, "dist", h.name+"-web-host")
 	if runtime.GOOS == "windows" {
 		out += ".exe"
 	}
 	if err := h.runEnv(nil, "go", "build", "-tags", "webassets", "-o", out, "."); err != nil {
-		h.report(err)
-		return
+		return err
 	}
 	fmt.Printf("\n网页已嵌入。设置 → 远程开启后，浏览器打开 http://<地址>:<端口>/?token=<令牌> 即可。\n产物：%s\n", out)
+	return nil
 }
 
 // compressWebAssets brotli-compresses the site's wasm and drops the original:

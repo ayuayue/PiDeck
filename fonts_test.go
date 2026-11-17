@@ -85,7 +85,9 @@ func TestChatFontSetting(t *testing.T) {
 	})
 	// The reading surface picks the size up at once: the composer's line
 	// height grows with it.
-	app.Key("escape")
+	// A missing pi can leave an error toast, which takes Escape before the
+	// pane does. Close settings through its own action.
+	app.Press("id:settings-done")
 	app.WaitForGone("id:settings", 5*time.Second)
 	app.WaitFor("id:composer", 5*time.Second)
 }

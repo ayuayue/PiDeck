@@ -66,7 +66,14 @@ func TestMCPSection(t *testing.T) {
 	app.Press("label:设置")
 	app.Press("id:settings-tab-mcp")
 	app.WaitFor("id:mcp-add", 5*time.Second)
-	app.Press("id:mcp-add")
+	// The list can finish loading between finding the button and pressing
+	// it, replacing that view. Retry until the form is open.
+	for i := 0; i < 3; i++ {
+		app.Press("id:mcp-add")
+		if waitQuiet(app, "id:mcp-dialog", 200*time.Millisecond) {
+			break
+		}
+	}
 	app.WaitFor("id:mcp-dialog", 5*time.Second)
 	app.Type("id:mcp-name", "demo")
 	app.Type("id:mcp-url", "https://example.com/mcp")

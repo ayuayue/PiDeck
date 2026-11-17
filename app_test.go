@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +18,9 @@ func TestMain(m *testing.M) {
 	// Tests drive the Chinese source strings; a language switch test sets
 	// the config itself, which wins over this.
 	os.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	// UI tests must not scan the developer's real session library in the
+	// background. Tests of external sessions supply their own fixtures.
+	os.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(os.TempDir(), fmt.Sprintf("pideck-lite-test-%d", os.Getpid()), "pi-sessions"))
 	nsgotest.Main(m)
 }
 

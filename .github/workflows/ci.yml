@@ -51,10 +51,9 @@ jobs:
           git config --global user.name "PiDeck CI"
           git config --global user.email "ci@pideck.invalid"
 
-      # -short leaves out the slowest end-to-end runs. It does not make this
-      # job green on a runner: the rest drive a real pi, which is not
-      # installed there, and a few unit tests assert Windows paths. Their
-      # failures predate this workflow's changes and are tracked apart from it.
+      # -short leaves out the slowest end-to-end runs. Tests that drive a
+      # real pi skip when it is not installed on the runner; the remaining
+      # unit and headless UI tests run on all three platforms.
       - name: Test
         run: go test -short ./... -count=1 -timeout 20m
         env:

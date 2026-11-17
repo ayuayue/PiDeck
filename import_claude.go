@@ -50,7 +50,7 @@ func claudeSource(f claudeFamily) *importSource {
 		Scan: func(root string) ([]importCandidate, error) {
 			return scanClaudeFamily(root, f)
 		},
-		Read: func(path string) (importedSession, error) { return readClaudeFamily(path, f) },
+		Read:  func(path string) (importedSession, error) { return readClaudeFamily(path, f) },
 		Sniff: sniffClaudeFamily,
 	}
 }
@@ -431,6 +431,7 @@ func convertClaude(path string, f claudeFamily, chain map[string]bool, filtered 
 	}
 	return out, sc.Err()
 }
+
 // claudeCwd reads a transcript's working folder, from its first line that
 // names one.
 func claudeCwd(path string) string {
