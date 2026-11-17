@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { createSessionModelPreference } from "../../../shared/modelDisplayName";
-import { buildSummaryOriginKey, canonicalizeSessionPath, getImportedSessionSourceId, getSessionEnvironment, isInSubagentArtifactsDir } from "../../../shared/sessionIdentity";
+import { buildSummaryOriginKey, canonicalizeSessionPath, getImportedSessionSourceId, getSessionEnvironment, isInSubagentArtifactsDir, looksLikeToolMarkerTitle } from "../../../shared/sessionIdentity";
 import type { SessionRecord, SessionSummary } from "../../../shared/types";
 import type { SessionCatalogContext, SessionCatalogEntry, SessionTitleFetcher } from "../SessionCatalog";
 import { type CatalogMutation, recordFromEntry, setLocalSessionFilePath } from "./catalogEntryProjection";
@@ -210,7 +210,11 @@ export async function mergeScannedIntoCatalog(host: ScannedMergeHost, projectId:
 					// #488 存量自愈：fallback 标题若被旧版本锁成 thinking 原文，笼统可读后原地纠正（origin 保持 fallback）。
 					// 排在权威名升级之后：真有 pi/用户写下的名字时以它为准。
 					const thinkingFallbackRepair = fetchedThinkingFallbackRepairs.get(originKey);
-					const nextTitle = legacyRepair || (canAbsorbTitle ? initialTitle : undefined) || thinkingFallbackRepair || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
+					// 标记脏名自愈：存量条目的标题本身就是控制标记（`<｜｜DSML｜｜ calls>`）时，
+					// 用这一轮探测到的弱兜底（首条消息）换掉；探测不到就落占位名等后续命名，
+					// 绝不让一段模型标记长期占住侧栏标题。
+					const junkTitleRepair = looksLikeToolMarkerTitle(entry.title) ? catalogDisplayTitle(fetched?.fallbackName) : undefined;
+					const nextTitle = legacyRepair || junkTitleRepair || (canAbsorbTitle ? initialTitle : undefined) || thinkingFallbackRepair || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
 					// rollout 文件名标题（历史导入兑底）不锁定：留一次被真实标题覆盖的机会；
 					// 真实标题一旦落库即锁定，后续 pi /name 或 JSONL 变化不再反向改写。
 					// 未锁定条目吸收的新标题按来源升级：权威 session_info → manual，首条消息弱回退 → fallback。

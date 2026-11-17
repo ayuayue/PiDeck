@@ -603,8 +603,18 @@ test("扩展自带的标记标题判定与 shared 逐条一致", () => {
 		"修复登录流程",
 		"Pi 机理与应用：90分钟课程规划 (fork)",
 		"Untitled",
+		// 控制标记块：中转站漏成文本的工具调用被写成 session_info 名（2027-02 现场）。
+		"<｜｜DSML｜｜ calls>",
+		"<|DSML|tool_calls>",
+		"<|tool_use|>",
+		// 普通标题里的尖括号/代码片段不得被误判成标记行。
+		"<Button>",
+		"修复 <Button> 对齐",
 	];
 	for (const sample of samples) {
 		assert.equal(extensionLooks(sample), sharedLooks(sample), `diverged on: ${sample}`);
 	}
+	// 行为本身也要钉住：区分「标记块」与「标题里带尖括号」。
+	for (const marker of ["<｜｜DSML｜｜ calls>", "<|DSML|tool_calls>", "<|tool_use|>"]) assert.equal(sharedLooks(marker), true, marker);
+	for (const title of ["<Button>", "修复 <Button> 对齐", "修复登录流程"]) assert.equal(sharedLooks(title), false, title);
 });

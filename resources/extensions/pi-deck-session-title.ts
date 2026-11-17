@@ -379,9 +379,18 @@ const MARKER_PICTOGRAPH_PREFIX = /^[\p{Extended_Pictographic}\uFE0F\u200D]+[ \t]
  */
 const MARKER_TAG_TITLE = /^\[[A-Z][A-Z0-9_-]{1,11}\][ \t]+[\x20-\x7E]*[:_]/;
 
+/**
+ * 控制标记块形态的标题（与宿主侧同语义）：整条内容就是一个 `<|…|>` / `<｜…｜>` 标记。
+ * 现场（2027-02）：中转站不认 strict 时工具调用漏成纯文本，模型把那段标记当标题返回，
+ * 写进 session_info 后侧栏显示 `<｜｜DSML｜｜ calls>`。
+ */
+const CONTROL_TOKEN_TITLE = /^[<＜][^<>＜＞]{0,120}[>＞]$/;
+const CONTROL_TOKEN_HINT = /[|｜]|DSML|tool[_\s-]?(?:calls?|use)/i;
+
 export function looksLikeToolMarkerTitle(title: string): boolean {
 	const trimmed = title.replace(/\s+/g, " ").trim().replace(MARKER_PICTOGRAPH_PREFIX, "");
-	return MARKER_TAG_TITLE.test(trimmed);
+	if (MARKER_TAG_TITLE.test(trimmed)) return true;
+	return CONTROL_TOKEN_TITLE.test(trimmed) && CONTROL_TOKEN_HINT.test(trimmed);
 }
 
 /**
