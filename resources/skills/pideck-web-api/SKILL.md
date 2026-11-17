@@ -21,8 +21,27 @@ description: "用 PiDeck 的 HTTP 服务读自己的状态、给别的窗口发�
 | 找别的会话、发消息、读回复 | 不会停它，但消息会插进它的对话 | 第 4、5、8 节 |
 | 重启某个会话（自己或别人） | 会，目标被停 | 第 6 节 |
 | 单独停、启、中止 | 会，目标被停 | 第 7 节 |
+| 不知道该让对方知道什么 | 不会 | 0.4 |
 
 第 2 节是所有节的前提。**每段 bash 都是独立 shell，变量不跨段保留**——后面各节的命令都假设 `$AUTH`、`$BASE` 已经在**同一次**调用里设好。
+
+## 0.4 子非鱼：你不知道对方知不知道
+
+**先假定对方什么都不知道。**「子非鱼，安知鱼之乐」——你读得到对方落盘的文件，读不到它脑子里有什么：它可能没读过这个技能、读到的是旧版、刚重启、上下文被压缩过。它没坐在你的屏幕前。
+
+所以凡是**离开这个文件的文字**——发给别的会话的消息、签核、PR 正文、写进注入面的规则——一律按最差读者写：
+
+| 判据 | 怎么验 |
+| --- | --- |
+| 自包含 | 给一个从没读过任何技能的新会话，它不问「X 是什么」就能跑出 rc |
+| 不引用 | 不写「见第 6 节」「按 9.2 办」「上文」。要它遵守的规则，把原文抄进消息 |
+| 可复算 | 结论挂一条它自己能跑的命令与返回值；复算不出的断言，按未验证计 |
+
+**本文件内部的节号引用不受这条限制**：同一个文件里跳转，读者手里有全文。受限的是离开文件的那些字。
+
+机器判据 `node check-self-contained.mjs <文件>` 扫的就是前两行；第四种红是空对空——文件不到 40 个非空字符，什么要求都没提，判它自包含等于没判。
+
+**第一步不是问「你读过技能吗」，是假定它没读过，把要它做的事连同做这件事需要的全部命令一次贴全。** 问一轮要一分钟，贴全只要十秒；而且它答「读过」你也无法验证——那正是子非鱼。
 
 ## 1 几个词
 
@@ -494,7 +513,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 **对另一个会话说话，也是说话。** 它不记得上一轮、上下文随时被压缩、可能刚重启。跨会话消息与任务书一律自包含四件：要它做什么（一句）；依据（绝对路径、md5、字节）；算完成的标志；它可以拒绝的方式。不用「上一条」「刚才那个」指代前情。
 
-**引用节号不算交代。** 写「按 5.6 办」对方可能根本没读过这个技能、读到的是旧版、或上下文已被压缩。要它遵守的规则，把那几句原文抄进消息；提案与回执这类长文件仍走文件路径。判据：把这条消息给一个从没读过技能的新会话，它不问「5.6 是什么」就能开始干活。
+**离开本文件的文字按 0.4 写。** 提案与回执这类长文件仍走文件路径；规则原文抄进消息，不写「按 5.6 办」。
 
 ## 9.3 一切改动都进 git
 
@@ -555,13 +574,14 @@ cp -r <仓库>/resources/skills/* "<userData>/skills-overlay"/
 
 `installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile`，内容取自 overlay——**条件不是「有目录」，而是「overlay 自带清单且逐文件哈希对得上」**，任一不符就回落到打包的那份。唯一例外：frontmatter 的 `disable-model-invocation: true` 会被记住并写回（`SkillManager.ts:438-449`）。
 
-**四个判据在源码克隆根目录跑，rc 都得是 0：**
+**五个判据在源码克隆根目录跑，rc 都得是 0：**
 
 ```bash
 node resources/skills/pideck-web-api/check-doc.mjs     # 第 7 节动作表、端点数、字段
 node resources/skills/pideck-web-api/check-paths.mjs   # 全文每个 /api 路径逐段对源码
 node resources/skills/pideck-web-api/check-format.mjs  # 表格列数、加粗成对、代码块配对、$ 变量
 node resources/skills/pideck-web-api/check-fields.mjs  # 反引号标识符逐词对源码
+node resources/skills/pideck-web-api/check-self-contained.mjs --selftest  # 判据自己；给文件参数时扫的是「离开文件的文字」
 ```
 
 改了源码里的路由之后，还要重写台账。`--update-routes` 是**写操作，不是判据**——它的 rc=0 只表示写成功：
@@ -570,7 +590,7 @@ node resources/skills/pideck-web-api/check-fields.mjs  # 反引号标识符逐�
 node resources/skills/pideck-web-api/check-doc.mjs --update-routes   # 重写 check-doc-routes.json，并打印跳过几条残缺串
 ```
 
-带 `--selftest` 的是 `check-paths`、`check-format`、`check-fields` 三个，能脱离源码单独验「判据自己还对不对」（装了 PiDeck 的机器上只有这份副本，没有 `src/main`）。`check-doc` 没有自检：传 `--selftest` 会直接 rc=2 并打印「check-doc 没有自检」，因为它的每条判据都要真的路由表，源码不在就报 rc=2——那是环境不全，不是判据失败。
+带 `--selftest` 的是 `check-paths`、`check-format`、`check-fields`、`check-self-contained` 四个，能脱离源码单独验「判据自己还对不对」（装了 PiDeck 的机器上只有这份副本，没有 `src/main`）。`check-doc` 没有自检：传 `--selftest` 会直接 rc=2 并打印「check-doc 没有自检」，因为它的每条判据都要真的路由表，源码不在就报 rc=2——那是环境不全，不是判据失败。
 
 `check-doc.mjs` 还要读同目录的 `check-doc-routes.json`：60 条路由的台账，生成物，别手改。源码里少了一条台账里有的路由，它逐条打印并判 rc=1，所以删路由必须连台账一起改、在提交信息里说明为什么。台账缺失也判 rc=1，那是部署不全不是环境缺失。源码新增路由只提示不判红，否则每改一次源码都会红，这条判据就没人用了。残缺串（裸 `/api`、通配 `/api/*`、带中文的注释片段）不进台账，`--update-routes` 会跳过并打印跳了几条。
 
