@@ -94,6 +94,32 @@ function conflictingRoles(lines) {
   return out;
 }
 
+
+/** 节号引用必须落地：正文写「第 7 节」「见 5.6」时，同文件必须真有那个标题。
+ *  2026-11-17 实测：全文压缩时把 ## 5.6 与 ## 7 两个标题当空行一起删了，
+ *  正文四处引用（第 7 节 x2、见 5.6、见 7.1、见 9.1）全部落空，
+ *  而四个 check（doc / paths / format / fields）全是绿的——它们没有一条判导航。
+ *  标题是导航，不是叙述：压行数时它最先被误删，所以要有一条判据专门看着它。 */
+function danglingRefs(lines) {
+  const out = [];
+  const heads = new Set();
+  for (const line of lines) {
+    const m = /^##+\s+([0-9]+(?:\.[0-9]+)?)/.exec(line);
+    if (m) heads.add(m[1]);
+  }
+  const seen = new Set();
+  lines.forEach((line, i) => {
+    if (isFence(line)) return;
+    const text = line.replace(INLINE_CODE, "");
+    for (const m of text.matchAll(/第\s*([0-9]+(?:\.[0-9]+)?)\s*节/g)) seen.add([m[1], i + 1]);
+    for (const m of text.matchAll(/见\s*([0-9]+(?:\.[0-9]+)?)(?![0-9])/g)) seen.add([m[1], i + 1]);
+  });
+  for (const [num, line] of seen) {
+    if (!heads.has(num)) out.push({ line, msg: "引用第 " + num + " 节，但同文件没有这个标题", sample: "" });
+  }
+  return out;
+}
+
 /** 全部结构判据作用在一份 lines 上，返回问题列表。
  *  抽成纯函数只为一个目的：--selftest 能在内存里喂坏样本，证明每条判据都会红，
  *  而不是只证明脚本能跑完。 */
@@ -119,6 +145,7 @@ function scan(lines) {
   const fences = lines.filter(isFence).length;
   if (fences % 2) out.push({ line: 0, msg: "代码块围栏一共 " + fences + " 个，没配对", sample: "" });
   out.push(...conflictingRoles(lines));
+  out.push(...danglingRefs(lines));
   return out;
 }
 
@@ -152,6 +179,12 @@ function selftest() {
     ["跨小节的同类表述不算矛盾",
       ["## 1 发送", "", "送达看 " + TICK + "total" + TICK + "。", "", "## 2 边界", "", "不要用 " + TICK + "total" + TICK + " 判断别的事。"],
       "两句互相否定", 0],
+    ["节号引用落空：标题被删掉，正文还指着它",
+      ["## 1 甲", "", "见第 2 节。", "", "## 2 乙", "", "见第 3 节。"],
+      "引用第", 1],
+    ["节号引用落地：标题都在",
+      ["## 1 甲", "", "见第 2 节。", "", "## 2 乙", "", "第 2 节讲过了。"],
+      "引用第", 0],
     ["带日期的历史记录不算矛盾",
       ["## 1 发送", "", "20xx 年改前送达看 " + TICK + "total" + TICK + "。", "不要用 " + TICK + "total" + TICK + "。"],
       "两句互相否定", 0],
