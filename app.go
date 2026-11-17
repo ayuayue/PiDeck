@@ -131,14 +131,14 @@ type session struct {
 	// readySig is whether pi answered for this session.
 	readySig *core.Signal[bool]
 
-	modelOpen    *core.Signal[bool]
-	modelQuery   *core.Signal[string]
-	backendOpen  *core.Signal[bool]
-	modeOpen     *core.Signal[bool]
-	imageOpen2   *core.Signal[bool]
-	sendOpen     *core.Signal[bool]
-	usageOpen    *core.Signal[bool]
-	projectOpen  *core.Signal[bool]
+	modelOpen   *core.Signal[bool]
+	modelQuery  *core.Signal[string]
+	backendOpen *core.Signal[bool]
+	modeOpen    *core.Signal[bool]
+	imageOpen2  *core.Signal[bool]
+	sendOpen    *core.Signal[bool]
+	usageOpen   *core.Signal[bool]
+	projectOpen *core.Signal[bool]
 
 	streamText     *core.Signal[string]
 	streamThinking *core.Signal[string]
@@ -409,10 +409,10 @@ type app struct {
 	chatFont  *core.Signal[float64]
 	chatLine  *core.Signal[float64]
 	inputFont *core.Signal[float64]
-	toolRev    *core.Signal[int]
-	aiBusy     *core.Signal[string]
-	bgImage    *core.Signal[string]
-	bgOpacity  *core.Signal[float64]
+	toolRev   *core.Signal[int]
+	aiBusy    *core.Signal[string]
+	bgImage   *core.Signal[string]
+	bgOpacity *core.Signal[float64]
 	// bgOpacitySeq numbers opacity changes, so only the last one settles the
 	// theme after a drag.
 	bgOpacitySeq int
