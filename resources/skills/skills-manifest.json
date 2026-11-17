@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "aa0ace711cbb40dc19f9d2995717e17a85c6c47dd5679913edf4bc3c6d540875",
+  "bundleSha256": "4b4d7ccc18e0ee7435f95e5e1de81b9bd58c8e114f1d5819f4f87c0eae68a26b",
   "fileCount": 10,
   "files": [
     {
@@ -46,8 +46,8 @@
     },
     {
       "name": "pideck-web-api/SKILL.md",
-      "sha256": "885fb6d503bcb2395763c55bc680693e7aa3bede9deac771c5cb9d4c51234066",
-      "bytes": 60305
+      "sha256": "ddf72d5da98d05447edc267d0ae9e86700bddecc2f9668ba72f2dc166232f47d",
+      "bytes": 60801
     },
     {
       "name": "usage-probe/SKILL.md",
