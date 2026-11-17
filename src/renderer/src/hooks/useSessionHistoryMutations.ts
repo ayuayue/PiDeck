@@ -36,7 +36,7 @@ export interface SessionHistoryMutationsDeps {
 	openReplacedRuntimeSession: (projectId: string | undefined, targetSessionId: string | undefined) => Promise<void>;
 	setPromptForAgent: (sessionId: string, text: string) => void;
 	setCurrentSessionIdRef: (sessionId: string) => void;
-	isAgentCurrentlyBusy: () => boolean;
+	isAgentCurrentlyBusy: (sessionId?: string) => boolean;
 	resolveProjectId: (sessionId: string) => string | undefined;
 	/** 有会话文件才走 catalog JSONL；匿名会话没有文件，仍用 runtime 命令。 */
 	hasPersistedSessionFile: (sessionId: string) => boolean;
@@ -53,9 +53,8 @@ export interface SessionHistoryMutationsDeps {
 }
 
 /**
- * pi 历史消息改写：编辑/重发走 fork 化重试（fork 到目标 entry → 子会话立即重发，旧分支
- * 完整保留在原文件，旧会话记录打 supersededBy 从列表隐藏）；删除仍走文件墓碑（无 runtime
- * 直接改 JSONL，有 runtime 先停再改）。DSH 不迁移（策略层返回 catalog legacy，且入口按
+ * pi 历史消息改写：用户消息编辑/重发走 fork 化重试（fork 到目标 entry → 子会话立即重发，旧分支完整保留在原文件，旧会话记录打 supersededBy 从列表隐藏）；
+ * 删除与 assistant 编辑走 catalog 追加 context_edit（有 runtime 先停 writer）；DSH 不迁移（策略层返回 catalog legacy，且入口按
  * backend 隐藏）。**远端 SSH 会话也不迁移**：会话文件在主机上，编辑/重发走 catalog →
  * RemoteSessionHistoryWriter 原地改写与外部改动冲突检测；pi 的 fork RPC 只接受 user 条目，
  * 编辑目标（assistant 回复）走 fork 化会被 pi 拒绝。匿名会话无文件：编辑/删除明确不支持，
@@ -316,6 +315,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 			// “Session not persisted”，旧逻辑调必然失败的 runtime 命令。这里改为明确告知不支持。
 			const path = resolveHistoryMutationPath({
 				kind: "edit",
+				messageRole: message.role,
 				live: latest.isSessionRuntimeLive(sessionId),
 				persisted: latest.hasPersistedSessionFile(sessionId),
 				isDshSession: latest.isDshSession?.(sessionId),
@@ -343,12 +343,12 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 				}
 				return;
 			}
-			// legacy 文件路径（DSH 兜底，策略上仅 DSH 会落到这里）：行为与迁移前一致
+			// assistant 编辑及 DSH/远端走 catalog；live 时先停 writer，再由主进程按后端契约追加编辑。
 			confirmStopIfRunning(
 				sessionId,
 				{
 					title: t("message.historyStopToEditTitle"),
-					message: latest.isAgentCurrentlyBusy() ? t("message.historyStopToEditBody") : t("message.historyStopToEditBodyIdle"),
+					message: latest.isAgentCurrentlyBusy(sessionId) ? t("message.historyStopToEditBody") : t("message.historyStopToEditBodyIdle"),
 					confirmLabel: t("app.stop"),
 				},
 				async () => {
@@ -396,7 +396,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 			const live = latest.isSessionRuntimeLive(sessionId);
 			latest.showConfirm({
 				title: t("message.deleteTitle"),
-				message: live ? (latest.isAgentCurrentlyBusy() ? t("message.historyStopToDeleteBody") : t("message.historyStopToDeleteBodyIdle")) : t("message.deleteReloadPrompt"),
+				message: live ? (latest.isAgentCurrentlyBusy(sessionId) ? t("message.historyStopToDeleteBody") : t("message.historyStopToDeleteBodyIdle")) : t("message.deleteReloadPrompt"),
 				danger: true,
 				confirmLabel: live ? t("app.stop") : t("common.delete"),
 				onConfirm: async () => {
@@ -523,7 +523,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 				sessionId,
 				{
 					title: t("message.historyStopToResendTitle"),
-					message: latest.isAgentCurrentlyBusy() ? t("message.historyStopToResendBody") : t("message.historyStopToResendBodyIdle"),
+					message: latest.isAgentCurrentlyBusy(sessionId) ? t("message.historyStopToResendBody") : t("message.historyStopToResendBodyIdle"),
 					confirmLabel: t("app.stop"),
 				},
 				run,
@@ -537,7 +537,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 		async (entryOrMessage: string | ChatMessage, fallbackText: string, busyKey: string, images?: ImageContent[]) => {
 			const latest = depsRef.current;
 			const sessionId = latest.currentSessionId;
-			if (!sessionId || latest.isAgentCurrentlyBusy() || forkingRef.current) return;
+			if (!sessionId || latest.isAgentCurrentlyBusy(sessionId) || forkingRef.current) return;
 			// state 只负责呈现；首次 await 前同步加锁，覆盖冷启动、锚点解析和同一轮重复点击。
 			forkingRef.current = true;
 			beginPending(sessionId, busyKey, "fork");

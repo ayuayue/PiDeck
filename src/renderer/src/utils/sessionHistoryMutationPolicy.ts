@@ -1,15 +1,15 @@
 /**
  * 历史消息改写的路径分类（编辑/删除/重发）。
  *
- * 核心策略：pi 会话的编辑/重发走「fork 到该消息 entry 重试」（与 zcode retryTurn 同构），
- * 删除没有 fork 语义仍走文件墓碑；DSH 先不动保持 legacy 路径。
- * - persisted + pi + 编辑/重发 → fork-mutation：fork 到目标 entry（旧分支完整留在原文件），
+ * 核心策略：pi 的用户消息编辑/重发走「fork 到该消息 entry 重试」；assistant 编辑
+ * 走 catalog 追加 context_edit，删除使用同一条 catalog 路径；DSH 保持 legacy 路径。
+ * - persisted + pi + 用户消息编辑/重发 → fork-mutation：fork 到目标 entry（旧分支完整留在原文件），
  *   子会话立即重发（原文或新文本）。activate=!live：冷会话先激活（standby 池摊薄成本），
  *   live 会话无需先停（pi fork 会中断当前运行）。
  * - persisted + 远端 SSH 会话 + 编辑/重发 → catalog：会话文件在主机上，由 RemoteSessionHistoryWriter
  *   原地改写（带外部改动冲突检测）。**不能走 fork**：pi 的 fork RPC 只接受 user 条目（assistant 条目
  *   直接 "Invalid entry ID for forking"），而编辑入口的目标是 assistant 回复。
- * - persisted + 删除 → catalog：文件墓碑（live 时先停）。
+ * - persisted + assistant 编辑/删除 → catalog：追加 context_edit（live 时先停）。
  * - persisted + DSH → catalog：legacy 行为不变（主进程本就拒绝 DSH 编辑，行为兜底）。
  * - 匿名（--no-session，无文件）：pi 的 edit/delete/resend 三条命令在 AgentManager 里
  *   都要求 runtime.tab.sessionPath，缺失即抛 "Session not persisted"——编辑/删除只能明确
@@ -24,13 +24,13 @@ export type HistoryMutationKind = "edit" | "delete" | "resend";
 
 export type HistoryMutationPath = { path: "unsupported-anonymous"; reason: Exclude<HistoryMutationKind, "resend"> } | { path: "runtime-anonymous-resend" } | { path: "imagegen-resend" } | { path: "fork-mutation"; activate: boolean } | { path: "catalog"; live: boolean };
 
-export function resolveHistoryMutationPath(options: { kind: HistoryMutationKind; live: boolean; persisted: boolean; isImageGenSession?: boolean; isDshSession?: boolean; isRemoteSession?: boolean }): HistoryMutationPath {
-	const { kind, live, persisted, isImageGenSession, isDshSession, isRemoteSession } = options;
+export function resolveHistoryMutationPath(options: { kind: HistoryMutationKind; live: boolean; persisted: boolean; messageRole?: string; isImageGenSession?: boolean; isDshSession?: boolean; isRemoteSession?: boolean }): HistoryMutationPath {
+	const { kind, live, persisted, messageRole, isImageGenSession, isDshSession, isRemoteSession } = options;
 	if (persisted) {
-		// 编辑/重发 fork 化；删除、DSH 与远端 SSH 会话保持 legacy 文件路径。
+		// 仅用户消息可 fork；assistant 编辑、删除、DSH 与远端保持文件路径。
 		// 远端必须走 catalog：RemoteSessionHistoryWriter 在主机上原地改写并检测外部改动；
 		// pi 的 fork RPC 只接受 user 条目，编辑目标却是 assistant 回复，走 fork 化必然失败。
-		if (kind !== "delete" && !isDshSession && !isRemoteSession) {
+		if (kind !== "delete" && !(kind === "edit" && messageRole && messageRole !== "user") && !isDshSession && !isRemoteSession) {
 			return { path: "fork-mutation", activate: !live };
 		}
 		return { path: "catalog", live };

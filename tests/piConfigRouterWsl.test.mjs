@@ -121,6 +121,29 @@ test("SSH 整文档保存只进入指定主机，拒绝混合 patch 与本机 do
 	assert.deepEqual(h.wslCalls, []);
 });
 
+test("SSH 文档校验拒绝异常形状与凭据映射路径，拒绝前不调用任何存储", async () => {
+	const h = harness();
+	const options = { target: { kind: "ssh", hostId: HOST }, expectedVersion: VERSION };
+	const mapping = { from: ["providers", "original"], to: ["providers", "copy"] };
+	for (const document of [
+		null,
+		{},
+		{ data: [], secretSources: [] },
+		{ data: {}, secretSources: "invalid" },
+		{ data: {}, secretSources: [], path: "/other" },
+		{ data: {}, secretSources: Array(201).fill(mapping) },
+		...[null, {}, { ...mapping, path: "/other" }, { ...mapping, from: [] }, { ...mapping, to: [42] }, { ...mapping, from: Array(33).fill("x") }, { ...mapping, to: ["x".repeat(513)] }, { ...mapping, from: ["__proto__"] }].map((entry) => ({ data: {}, secretSources: [entry] })),
+	]) {
+		assert.equal(await rejectionCode(() => h.router.writeRaw("models", "{}", { ...options, document })), shared.REMOTE_CONFIG_CODES.fileInvalid);
+	}
+	assert.equal(await rejectionCode(() => h.router.writeRaw("models", "{}", { ...options, expectedVersion: "bad", document: { data: {}, secretSources: [] } })), shared.REMOTE_CONFIG_CODES.versionConflict);
+	assert.deepEqual(h.remoteCalls, []);
+	assert.deepEqual(h.localCalls, []);
+	assert.deepEqual(h.wslCalls, []);
+	await h.router.writeRaw("models", "{}", { ...options, document: { data: { providers: {} }, secretSources: [mapping] } });
+	assert.deepEqual(JSON.parse(JSON.stringify(h.remoteCalls[0][1].secretSources)), [mapping]);
+});
+
 test("wsl 目标只走 WslPiConfigStore：不落本机 ConfigManager，也不走 ssh 后端", async () => {
 	const h = harness();
 	const models = await h.router.readModels({ target: { kind: "wsl" } });

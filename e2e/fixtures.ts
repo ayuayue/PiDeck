@@ -120,6 +120,7 @@ export const test = base.extend<AppFixture & { seedProjects: SeedProject[] | und
 			CI: "1",
 		};
 		delete env.ELECTRON_RENDERER_URL;
+		delete env.ELECTRON_RUN_AS_NODE;
 		const packagedExecutablePath = process.env.PIDEK_E2E_EXECUTABLE_PATH ? resolve(process.env.PIDEK_E2E_EXECUTABLE_PATH) : undefined;
 		if (packagedExecutablePath && !existsSync(packagedExecutablePath)) {
 			throw new Error(`Packaged E2E executable does not exist: ${packagedExecutablePath}`);

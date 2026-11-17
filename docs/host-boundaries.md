@@ -92,6 +92,8 @@
 
 ## 侧车通用规则
 
+SSH Pi 配置编辑沿用现有 helper 控制连接。`config.replace` 只接受 models/settings/trust/mcp 文件键、读入版本、完整文档与同文件的凭据映射；主进程拒绝混合 patch/document 及异常映射，远端统一复验大小、秘密字段、版本和原子写入回执。旧凭据值不回传，`config.readAuth` 仍只读派生认证状态。模型目录沿用 pinned SSH 的固定 `pi --list-models` 命令。验证入口：`piConfigRouterWsl`、`remoteConfigDocument`、`remotePiConfigBackend` 与 `remoteConfigContract` 测试。
+
 - 所有随包 sidecar 必须列进 `extraResources`，stdout 只放协议数据（日志走 stderr 或主进程 logger）。
 - 宿主侧必须结算：boot 超时、单 run 超时、进程意外退出、显式 cancel——每个请求的回调恰好一次。
 - 每个 sidecar 在退出清单里登记清理名；stop / restart / 删会话 / 应用退出都要有对应注销路径。

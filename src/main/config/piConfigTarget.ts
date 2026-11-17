@@ -5,7 +5,7 @@
  * session is touched, and an invalid shape fails with a stable code instead of being coerced to local.
  */
 
-import { REMOTE_CONFIG_CODES, WSL_CONFIG_CODES, type PiConfigReadOptions, type PiConfigTarget, type PiConfigWriteOptions } from "../../shared/piConfig";
+import { REMOTE_CONFIG_CODES, WSL_CONFIG_CODES, type PiConfigReadOptions, type PiConfigTarget, type PiConfigWriteOptions, type RemoteConfigDocument } from "../../shared/piConfig";
 import { PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -14,6 +14,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stable(code: string): Error {
 	return new Error(code);
+}
+
+/** 这里只解析 IPC 文档形状；秘密字段、重复目标及内容预算仍由远端配置后端统一复验。 */
+function isRemoteDocument(value: unknown): value is RemoteConfigDocument {
+	if (!isRecord(value) || Object.keys(value).sort().join(",") !== "data,secretSources" || !isRecord(value.data) || !Array.isArray(value.secretSources) || value.secretSources.length > 200) return false;
+	const isObjectPath = (parts: unknown): boolean => Array.isArray(parts) && parts.length > 0 && parts.length <= 32 && parts.every((part) => typeof part === "string" && part.length <= 512 && !["__proto__", "constructor", "prototype"].includes(part));
+	return value.secretSources.every((mapping: unknown) => isRecord(mapping) && Object.keys(mapping).sort().join(",") === "from,to" && isObjectPath(mapping.from) && isObjectPath(mapping.to));
 }
 
 export function readPiConfigTarget(value: unknown): PiConfigTarget {
@@ -43,19 +50,23 @@ export function readPiConfigReadOptions(value: unknown): PiConfigReadOptions {
 }
 
 /**
- * Write options: local keeps the old body-only contract, so expectedVersion/patch must be absent for it;
- * ssh requires both (a remote write without a version guard would be an unguarded overwrite); wsl writes the
+ * Write options: local keeps the old body-only contract, so SSH guard fields must be absent for it;
+ * ssh requires a version plus exactly one of patch/document; wsl writes the
  * whole file like local, so it also refuses the ssh-only guard fields instead of silently ignoring them.
  */
 export function readPiConfigWriteOptions(value: unknown): PiConfigWriteOptions {
 	if (value === undefined || value === null) return { target: { kind: "local" } };
-	if (!isRecord(value) || Object.keys(value).some((key) => key !== "target" && key !== "expectedVersion" && key !== "patch")) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+	if (!isRecord(value) || Object.keys(value).some((key) => !["target", "expectedVersion", "patch", "document"].includes(key))) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
 	const target = readPiConfigTarget(value.target);
 	if (target.kind !== "ssh") {
-		if (value.expectedVersion !== undefined || value.patch !== undefined) throw stable(target.kind === "wsl" ? WSL_CONFIG_CODES.targetInvalid : REMOTE_CONFIG_CODES.targetInvalid);
+		if (value.expectedVersion !== undefined || value.patch !== undefined || value.document !== undefined) throw stable(target.kind === "wsl" ? WSL_CONFIG_CODES.targetInvalid : REMOTE_CONFIG_CODES.targetInvalid);
 		return { target };
 	}
 	if (typeof value.expectedVersion !== "string" || !/^[0-9a-f]{64}$/.test(value.expectedVersion)) throw stable(REMOTE_CONFIG_CODES.versionConflict);
+	if (value.document !== undefined) {
+		if (value.patch !== undefined || !isRemoteDocument(value.document)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+		return { target, expectedVersion: value.expectedVersion, document: value.document };
+	}
 	if (!isRecord(value.patch)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
 	return { target, expectedVersion: value.expectedVersion, patch: value.patch };
 }

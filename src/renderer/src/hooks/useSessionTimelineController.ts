@@ -116,12 +116,6 @@ function getLatestLoad(sessionId: string): number | undefined {
 /** sessionId 为空时的占位 atom：恒 undefined（无会话不订缓存条目）。 */
 const NO_CACHE_ENTRY_ATOM = atom(undefined);
 
-/** 跟底跟流时落盘阅读锚点的跳过距离。流式增长时跟随动画天然滞后（实测 SLOW 流式稳定
- *  48–93px），这段滞后仍属于「在跟底」，不能当成用户上滚：否则切回会话时
- *  anchor !== undefined → autoScroll=false → 正文继续输出却不再跟随、还冒出回底按钮。
- *  取跟底引擎回底窗口（followState STICK_TO_BOTTOM_OFFSET_PX = 70）的两倍，
- *  仍远小于真实上滚阅读的距离。 */
-const FOLLOWING_ANCHOR_SKIP_PX = 140;
 const LEGACY_OWNER_KEY = "legacy";
 
 export function useSessionTimelineController(options: { sessionId?: string; messages?: ChatMessage[] }): SessionTimelineController {
@@ -845,7 +839,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		isTimelineAtBottom,
 		timelineViewportTop,
 		bottomThreshold: BOTTOM_THRESHOLD,
-		followingAnchorSkipPx: FOLLOWING_ANCHOR_SKIP_PX,
 		saveScrollAnchor,
 	});
 

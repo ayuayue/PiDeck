@@ -30,9 +30,9 @@ test("目标相等判定：local 只对 local；ssh 同 hostId 才算同一个�
 	assert.equal(model.samePiConfigTarget({ kind: "wsl" }, local), false);
 });
 
-test("本地编辑器只对 wsl 目标带 target 选项（ssh 由远端面板接管，local 是缺省）", () => {
+test("共享编辑器对所有非本机目标携带 target 选项", () => {
 	assert.equal(model.localEditorTargetOption({ kind: "local" }), undefined);
-	assert.equal(model.localEditorTargetOption({ kind: "ssh", hostId: HOST }), undefined);
+	assert.deepEqual(JSON.parse(JSON.stringify(model.localEditorTargetOption({ kind: "ssh", hostId: HOST }))), { target: { kind: "ssh", hostId: HOST } });
 	assert.deepEqual(JSON.parse(JSON.stringify(model.localEditorTargetOption({ kind: "wsl" }))), { target: { kind: "wsl" } });
 });
 

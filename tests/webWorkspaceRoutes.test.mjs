@@ -1,3 +1,4 @@
+import { mkdtemp } from "./helpers/tempDir.mjs";
 /**
  * Web 工作区只读路由单测（P3）：git status/diff/log、files 列表、file-content
  * 沙箱与有界读取、prompts 列表/详情。直接实例化 WebWorkspaceRoutes，
@@ -6,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
-import { mkdtemp, writeFile, realpath, mkdir } from "node:fs/promises";
+import { writeFile, realpath, mkdir } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 // 注：期望值里的项目内路径用 join 构造，避免 Windows 分隔符差异

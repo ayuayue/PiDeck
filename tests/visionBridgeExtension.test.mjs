@@ -1,3 +1,4 @@
+import { mkdtempSync } from "./helpers/tempDir.mjs";
 /**
  * pi-deck-vision 扩展纯逻辑测试。
  *
@@ -6,7 +7,7 @@
  * 测行为不测实现：只断言配置解析、图片收集、替换、端点解析、请求构造、响应解析。
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { join } from "node:path";

@@ -61,7 +61,9 @@ export function buildTurnDisplay(
 		});
 	};
 
-	run.items.forEach((item, index) => {
+	// 防御旧缓存中的成功 retry-group：隐藏后不能占用 run 的收尾位置。
+	const visibleItems = run.items.filter((item) => item.kind !== "retry-group" || item.message.meta?.i18nKey !== "diagnostic.retrySucceeded");
+	visibleItems.forEach((item, index) => {
 		if (item.kind === "thinking-group") {
 			pushThinking(item, false);
 			return;
@@ -133,7 +135,7 @@ export function buildTurnDisplay(
 		//   message_end 时即确定、永不反复（steer 排队的中间回复恒为 toolUse，不会误提升）；
 		// - 无 stopReason / pending（骨架占位残留）：回退启发式（历史旧数据兼容）。
 		// 位置守卫防御异常数据（stop 消息后仍有条目）：保证每 run 至多一个 final-answer。
-		const isRunTail = isComplete && index === run.items.length - 1;
+		const isRunTail = isComplete && index === visibleItems.length - 1;
 		const isFinal = isRunTail && (item.message.stopReason === "stop" || !item.message.stopReason || item.message.stopReason === "pending");
 		if (isFinal) {
 			items.push({ kind: "final-answer", id: item.message.id, message: item.message });

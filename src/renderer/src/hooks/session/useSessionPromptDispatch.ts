@@ -5,7 +5,8 @@ import { desktopApi as api } from "../../desktopApi";
 import { applyDshGoalSendTransform, buildComposerPromptSubmission } from "../../composerBehavior";
 import { resolveBusySendDelivery } from "../../../../shared/busySendDelivery";
 import { PromptDeliveryUnknownError } from "../../utils/promptErrors";
-import { busySendDeliveryAtom, bumpNewTurnCollapseTickAtom, currentSessionRuntimeAtom, sessionDraftByIdAtom, sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily } from "../../atoms";
+import { busySendDeliveryAtom, bumpNewTurnCollapseTickAtom, sessionDraftByIdAtom, sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily } from "../../atoms";
+import { isSessionRuntimeBusy } from "./timeline/timelineSurfacePolicy";
 import type { ImageContent, ComposerAgentMode } from "../../../../shared/types";
 
 export interface SessionPromptDispatchDeps {
@@ -53,15 +54,15 @@ export function useSessionPromptDispatch({ store, setSessionDraft, currentSessio
 	}
 
 	// isAgentBusy: synchronous store read (steer logic is callback-only, not render-time).
-	const isAgentCurrentlyBusy = useCallback(() => {
-		if (!currentSessionId) return false;
-		const rt = store.get(currentSessionRuntimeAtom);
-		// ACP 的 tab status 可能滞后于回合结算：isTurnActive=false 时已空闲（与 composer 同口径），
-		// 否则重发/编辑会被无谓带上 followUp，排进输入框上方的队列。
-		if (store.get(sessionRecordByIdAtomFamily(currentSessionId))?.backend === "acp" && rt?.state?.isTurnActive === false) return false;
-		// 与 composer isBusy 对齐（含 isExecutingTool）：DSH 工具执行期间 steer 也应可用。
-		return rt?.status === "running" || Boolean(rt?.state?.isStreaming) || Boolean(rt?.state?.isExecutingTool);
-	}, [currentSessionId, store]);
+	const isAgentCurrentlyBusy = useCallback(
+		(sessionId = currentSessionId) => {
+			if (!sessionId) return false;
+			// 多栏与历史动作按目标会话读状态，不能借全局焦点会话的 idle/running。
+			const rt = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
+			return isSessionRuntimeBusy(rt?.status, rt?.state, store.get(sessionRecordByIdAtomFamily(sessionId))?.backend);
+		},
+		[currentSessionId, store],
+	);
 
 	const dispatchPromptSnapshot = useCallback(
 		async (sessionId: string, message: string, images?: ImageContent[], streamingBehavior?: "steer" | "followUp", agentMode: ComposerAgentMode = "normal", templateDescription?: string, options?: { requireAppliedModel?: boolean }) => {
@@ -121,7 +122,7 @@ export function useSessionPromptDispatch({ store, setSessionDraft, currentSessio
 			// 非队列入口：当前选中 agent 忙碌时按「忙碌时投递行为」设置决定投递语义
 			//（pi/dsh 统一；ACP 协议无 steer，resolve 内部恒收敛为 followUp）；空闲直发（undefined）。
 			// 客户端队列 drain 直接调用 dispatchPromptSnapshot，并显式指定其投递语义。
-			const behavior = resolveBusySendDelivery(sessionId === currentSessionId && isAgentCurrentlyBusy(), store.get(busySendDeliveryAtom), store.get(sessionRecordByIdAtomFamily(sessionId))?.backend);
+			const behavior = resolveBusySendDelivery(isAgentCurrentlyBusy(sessionId), store.get(busySendDeliveryAtom), store.get(sessionRecordByIdAtomFamily(sessionId))?.backend);
 			try {
 				await dispatchPromptSnapshot(sessionId, message, images, behavior, "normal", undefined, options);
 				return true;

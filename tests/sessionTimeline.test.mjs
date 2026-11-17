@@ -117,15 +117,6 @@ test("anchor restoration preserves its effective tail window and expands only wh
 	assert.doesNotMatch(source, /api\.restoreAt\(0\)/);
 });
 
-test("scroll events synchronously retain an anchor before a same-task session switch", () => {
-	// rAF remains the coalesced persistence path, but the last DOM snapshot must
-	// exist before React can commit a tab change and cancel the pending frame.
-	assert.match(source, /currentAnchorRef\.current = computeCurrentAnchor\(visibleRows\);[\s\S]*?if \(scrollAnchorFrameRef\.current != null\) return;\s*scrollAnchorFrameRef\.current = requestAnimationFrame/);
-	// 同一 scroll 事件只读一次可见行：锚点与浏览钉共用快照，rAF 重算复用最近一份。
-	assert.match(source, /scrollVisibleRowsRef\.current = visibleRows;/);
-	assert.match(source, /currentAnchorRef\.current = computeCurrentAnchor\(scrollVisibleRowsRef\.current\);/);
-});
-
 test("scroll anchors stay restorable across pi reprojection (entryId normalization)", () => {
 	// pi 预热重投影把投影 id 前缀 `_viewer-history-X` 改写为 `<agentId>-history-X`（entryId
 	// 不变）：锚点保存必须附带 entryId，恢复 miss 时按它反查当前 id，而不是扩窗后降级跳顶。

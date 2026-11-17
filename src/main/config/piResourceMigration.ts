@@ -12,15 +12,14 @@
  * 本模块分两步：
  * 1. `planResourceMigration`（纯函数）：把旧记录映射到已解析资源，输出可直接执行的
  *    写入动作与无法解析的条目；
- * 2. `applyResourceMigration`：调用 PiResourceConfigService 写入原生配置，成功后
- *    记录迁移完成；任一步失败都不清理旧记录（下次幂等重试）。
+ * 2. `applyResourceMigration`：调用 PiResourceConfigService 写入原生配置；
+ *    runner 在旧记录清理成功且没有 unresolved 后才记录迁移完成。
  *
  * 迁移期间旧记录仍是「用户意图」的唯一可靠来源，因此先规划、后写入、最后才清理。
  */
 
 import type { PiResourceConfigService } from "./PiResourceConfigService";
 import type { PiResourceKind } from "../../shared/types/piResources";
-import type { PiResourceStateStore } from "./PiResourceStateStore";
 
 /** 旧设置里的禁用扩展条目（scope + source 身份）。 */
 export type LegacyDisabledExtension = { scope: "user" | "project" | "unknown"; source: string };
@@ -131,7 +130,8 @@ export function planResourceMigration(options: {
 			const source = entry.source.trim();
 			if (!source) continue;
 			if (entry.scope === "project") {
-				// 项目级扩展禁用：项目不迁移全局配置；交给项目侧处理。
+				// 旧应用字段没有 projectId，不能把它清掉或扩大成全局规则。
+				unresolved.push({ kind: "extension", name: source, scope: "global", reason: "历史项目禁用记录缺少项目身份，保留原记录等待确认。" });
 				continue;
 			}
 			if (entry.scope === "unknown") {
@@ -239,40 +239,45 @@ export type MigrationApplyReport = {
 	revisions: Record<string, string>;
 };
 
+/** 稳定动作身份仅用于迁移断点续跑，不作为资源启停真值。 */
+export function migrationActionKey(action: MigrationWriteAction): string {
+	return JSON.stringify([action.scope.scope, action.scope.scope === "project" ? action.scope.projectId : "", action.kind, action.packageSource ?? "", action.value]);
+}
+
 /**
- * 执行迁移计划：逐条写原生配置，任一条失败都保持旧记录不动（调用方据此提示）。
- * 全部成功才由调用方清理旧记录（见 markMigrationComplete）。
+ * 执行迁移计划：逐条写原生配置。旧记录清理与完成标记由 runner 排序，避免把
+ * 仅写入成功误当作整个迁移已完成。
  */
 export async function applyResourceMigration(options: {
 	plan: MigrationPlan;
 	service: Pick<PiResourceConfigService, "setFileResourceEnabled" | "setPackageEnabled">;
-	state: PiResourceStateStore;
-	/** 迁移记录 key（作用域标识）。 */
-	migrationKey: string;
+	alreadyApplied?: ReadonlySet<string>;
+	/** 每次成功写入后持久化进度；失败立即停止，旧输入仍保留。 */
+	onApplied?: (action: MigrationWriteAction, revisions: Record<string, string>) => void;
 }): Promise<MigrationApplyReport> {
-	const { plan, service, state, migrationKey } = options;
+	const { plan, service } = options;
 	const failed: MigrationApplyReport["failed"] = [];
 	const revisions: Record<string, string> = {};
 	let applied = 0;
 	// 动作按作用域分组后按顺序写入；同一文件内的多个 action 由服务的锁内重读保证不互相覆盖。
 	for (const action of plan.actions) {
-		// 整包停用写 packages 条目（带 packageSource 的动作），其余写顶层精确规则。
-		const result = action.packageSource ? await service.setPackageEnabled({ scope: action.scope, resourceId: action.packageSource, enabled: false }) : await service.setFileResourceEnabled({ scope: action.scope, kind: action.kind, resourceId: action.value, enabled: false });
-		if (!result.ok) {
-			failed.push({ action, error: result.error ?? "unknown error" });
-			continue;
+		if (options.alreadyApplied?.has(migrationActionKey(action))) continue;
+		try {
+			// 整包停用写 packages 条目（带 packageSource 的动作），其余写顶层精确规则。
+			const result = action.packageSource ? await service.setPackageEnabled({ scope: action.scope, resourceId: action.packageSource, enabled: false }) : await service.setFileResourceEnabled({ scope: action.scope, kind: action.kind, resourceId: action.value, enabled: false });
+			if (!result.ok) {
+				failed.push({ action, error: result.error ?? "unknown error" });
+				continue;
+			}
+			applied += 1;
+			if (result.revision) revisions[`${action.scope.scope}:${action.scope.scope === "project" ? action.scope.projectId : "global"}`] = result.revision;
+			options.onApplied?.(action, revisions);
+		} catch (error) {
+			failed.push({ action, error: error instanceof Error ? error.message : String(error) });
+			break;
 		}
-		applied += 1;
-		if (result.revision) revisions[`${action.scope.scope}:${action.scope.scope === "project" ? action.scope.projectId : "global"}`] = result.revision;
 	}
 	const ok = failed.length === 0;
-	if (ok) {
-		state.recordMigration(migrationKey, {
-			completedAt: Date.now(),
-			revisions,
-			unresolved: plan.unresolved.map((item) => `${item.kind} ${item.name} (${item.scope}): ${item.reason}`),
-		});
-	}
 	return { ok, applied, failed, unresolved: plan.unresolved, archived: plan.archived, revisions };
 }
 

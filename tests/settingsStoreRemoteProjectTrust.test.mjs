@@ -1,3 +1,4 @@
+import { mkdtempSync } from "./helpers/tempDir.mjs";
 /**
  * SettingsStore 的远端项目 trust 段（P4.4b）。
  *
@@ -11,7 +12,7 @@
  * - 渲染层的通用 `settings:update` 通道**碰不到**这一段（否则等于绕过 trust 域用一条构造的记录替换整张表）。
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";

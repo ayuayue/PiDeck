@@ -4,7 +4,7 @@ import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
 
 /** Run the real controller, geometry and rAF animation without Electron or a model request. */
-function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = height - 140, startLoading = false, startWithOptimistic = false, startWithAnchor = false, bottomScrollSucceeds = true, viewerProjection = false } = {}) {
+function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = height - 140, startLoading = false, startWithOptimistic = false, startWithAnchor = false, deferBottomScroll = false, viewerProjection = false } = {}) {
 	const host = quickMessageHookHost();
 	let now = 0;
 	let nextFrame = 0;
@@ -76,7 +76,7 @@ function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = he
 		},
 		scrollToBottom() {
 			calls.push("bottom");
-			if (bottomScrollSucceeds) viewport.scrollTop = viewport.scrollHeight - viewportHeight;
+			if (!deferBottomScroll) viewport.scrollTop = viewport.scrollHeight - viewportHeight;
 		},
 	};
 	const atoms = {
@@ -171,6 +171,10 @@ function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = he
 		calls,
 		render,
 		advance,
+		completeBottomScroll() {
+			viewport.scrollTop = viewport.scrollHeight - viewportHeight;
+			render();
+		},
 		get controller() {
 			return controller;
 		},
@@ -373,14 +377,22 @@ test("a live-edge restore survives the commit before its first animation frame",
 	}
 });
 
-test("a failed live-edge restore exposes go-bottom instead of silently losing follow", () => {
-	const h = sendScrollHarness({ bottomScrollSucceeds: false });
+test("a pending live-edge scroll keeps following until the scroller reports browsing", () => {
+	const h = sendScrollHarness({ deferBottomScroll: true });
 	try {
 		h.switchSession();
 		h.returnToSourceAtLiveEdge();
 		h.advance();
 		h.advance();
-		assert.equal(h.viewport.scrollTop, 0, "the injected restore failure must remain observable");
+		assert.equal(h.viewport.scrollTop, 0, "the engine has not completed its deferred position update");
+		assert.equal(h.controller.autoScroll, true);
+		assert.equal(h.controller.showScrollToBottom, false);
+		h.stream();
+		h.completeBottomScroll();
+		h.advance();
+		assert.equal(h.viewport.scrollTop, h.viewport.scrollHeight - h.viewport.clientHeight);
+		assert.equal(h.controller.autoScroll, true);
+		h.browse();
 		assert.equal(h.controller.autoScroll, false);
 		assert.equal(h.controller.showScrollToBottom, true);
 	} finally {

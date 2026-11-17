@@ -48,9 +48,8 @@ export interface TimelineScrollAnchorOptions {
 	findBrowsePin: (timeline: HTMLElement | null, visibleRows?: readonly VisibleTimelineRow[]) => BrowsePin | null;
 	isTimelineAtBottom: (scrollTop: number, scrollHeight: number, clientHeight: number) => boolean;
 	timelineViewportTop: (timeline: HTMLElement) => number;
-	/** 贴底判定与「跟流滞后」阈值：判定归主 hook 所有，子 hook 不复制字面量。 */
+	/** 贴底判定归主 hook 所有，子 hook 不复制字面量。 */
 	bottomThreshold: number;
-	followingAnchorSkipPx: number;
 	saveScrollAnchor: (input: { sessionId: string; anchor: SessionScrollAnchor | null }) => void;
 }
 
@@ -104,7 +103,6 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 		isTimelineAtBottom,
 		timelineViewportTop,
 		bottomThreshold,
-		followingAnchorSkipPx,
 		saveScrollAnchor,
 	} = options;
 
@@ -133,10 +131,6 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 	// timeline 的 children 可能已替换为新会话消息，读 DOM 会串数据。
 	const currentAnchorRef = useRef<SessionScrollAnchor | null>(null);
 	const scrollAnchorFrameRef = useRef<number | undefined>(undefined);
-	const bottomRestoreVerificationRef = useRef<number | undefined>(undefined);
-	const bottomRestoreRequestRef = useRef(0);
-	/** 最近一次 scroll 事件的可见行快照：rAF 里的锚点重算复用它，不再读第二遍布局。 */
-	const scrollVisibleRowsRef = useRef<readonly VisibleTimelineRow[]>([]);
 	const scrollSaveTimerRef = useRef<number | undefined>(undefined);
 	/** 本次恢复已发起的历史补页次数。按锚点对象区分：会话再切一次就是新恢复。 */
 	const restoreAnchorPagingRef = useRef<{ anchor: SessionScrollAnchor | undefined; attempts: number }>({ anchor: undefined, attempts: 0 });
@@ -160,10 +154,11 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 			if (!timeline) return null;
 			// 发送定位动画期间视口是被程序挪走的，不是阅读位置。
 			if (sendScrollRef.current.isAnimating) return null;
+			// 跟随态由引擎的用户输入/显式命令决定；流式增高与动画滞后不是上滚阅读。
+			// 按距底阈值推断浏览，会在切走时把仍在跟随的会话错误保存成历史锚点。
+			if (autoScrollRef.current) return null;
 			const distanceFromBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
 			if (distanceFromBottom < bottomThreshold) return null;
-			// 跟流中的动画滞后（几十 px）不是阅读位置；真实上滚阅读的距离远大于此。
-			if (autoScrollRef.current && distanceFromBottom <= followingAnchorSkipPx) return null;
 			// 快路径：只对视口内的行取布局（O(视口)）。原来这里要跑两轮 querySelectorAll +
 			// 每行 getBoundingClientRect，窗口越大越慢——「越滚越慢」的直接来源。
 			const visibleRows = visibleRowsArg ?? readVisibleRowsRef.current();
@@ -208,7 +203,7 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 			// 诊断卡等没有稳定轮根节点时仍可恢复，避免空会话/特殊事件完全失去锚点。
 			return findAnchor(timeline.querySelectorAll<HTMLElement>("[data-message-id]"));
 		},
-		[autoScrollRef, bottomThreshold, followingAnchorSkipPx, readVisibleRowsRef, renderedWindowTurnsRef, sendScrollRef, timelineRef, timelineViewportTop],
+		[autoScrollRef, bottomThreshold, readVisibleRowsRef, renderedWindowTurnsRef, sendScrollRef, timelineRef, timelineViewportTop],
 	);
 
 	/** 把当前锚点写入 atom（节流）。内容未变化由 atom 侧跳过，引用保持稳定。 */
@@ -230,13 +225,12 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 		// next animation frame. Capture the old DOM while the scroll event still
 		// owns it; the layout-effect cleanup must never inspect post-switch nodes.
 		// The rAF below still coalesces the settled position and atom persistence.
-		// 同一 scroll 事件只读一次可见行：锚点与浏览钉共用这份快照，rAF 里的
-		// 第二次锚点计算也复用它，不再重复读布局。
+		// 同一 scroll 事件只读一次可见行：锚点与浏览钉共用这份快照；
+		// 下一帧仅在浏览态重读，避免保存流式增高前的旧坐标。
 		// 贴底跟流时 computeCurrentAnchor 直接返回 null，此时不读缓存——流式输出的
 		// 每个 scroll 都不能为一份用不上的快照付 O(视口) 的布局读取。
 		const timeline = timelineRef.current;
-		const visibleRows = timeline && !isTimelineAtBottom(timeline.scrollTop, timeline.scrollHeight, timeline.clientHeight) ? readVisibleRowsRef.current() : [];
-		scrollVisibleRowsRef.current = visibleRows;
+		const visibleRows = timeline && !autoScrollRef.current && !isTimelineAtBottom(timeline.scrollTop, timeline.scrollHeight, timeline.clientHeight) ? readVisibleRowsRef.current() : [];
 		currentAnchorRef.current = computeCurrentAnchor(visibleRows);
 		// restoreAt / 扩窗补偿派发的 scroll：只更新冻住那一行的 expected，不改钉到新的第一可见行。
 		if (!isProgrammaticScrollActive(programmaticScrollGuardRef.current, performance.now()) && !autoScrollRef.current) {
@@ -256,8 +250,7 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 			// 快照是 scroll 事件那一刻的几何；rAF 在本帧提交 / 流式增量之后才跑，行高与
 			// 插入位置可能已经变了 —— 直接复用会把过期坐标写成锚点（切回会话时位置偏）。
 			// 这里重读当前可见行；事件内「锚点 + 浏览钉共用一份快照」的优化仍然保留。
-			scrollVisibleRowsRef.current = readVisibleRowsRef.current();
-			currentAnchorRef.current = computeCurrentAnchor(scrollVisibleRowsRef.current);
+			currentAnchorRef.current = computeCurrentAnchor(autoScrollRef.current ? [] : readVisibleRowsRef.current());
 			// 节流写 atom：只排一个 timer，期间连续滚动不重复写；
 			// 内容未变时 atom 侧跳过（引用稳定，订阅者零重渲染）。
 			if (scrollSaveTimerRef.current != null) return;
@@ -289,13 +282,6 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 			settleScrollCancelRef.current = undefined;
 		},
 		[settleScrollCancelRef],
-	);
-
-	useEffect(
-		() => () => {
-			if (bottomRestoreVerificationRef.current !== undefined) cancelAnimationFrame(bottomRestoreVerificationRef.current);
-		},
-		[],
 	);
 
 	useLayoutEffect(() => {
@@ -355,8 +341,6 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 			autoScrollRef.current = true;
 			setAutoScroll(true);
 			setShowScrollToBottom(false);
-			const restoreRequest = ++bottomRestoreRequestRef.current;
-			if (bottomRestoreVerificationRef.current !== undefined) cancelAnimationFrame(bottomRestoreVerificationRef.current);
 			const frame = requestAnimationFrame(() => {
 				const timeline = timelineRef.current;
 				if (!timeline || ownerKeyRef.current !== requestOwnerKey) return;
@@ -369,19 +353,7 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 				}
 				// 先发起恢复再完成；提前 complete 会让 effect cleanup 取消本帧。
 				setRestorePhase("complete");
-				// 恢复被同帧内容变化/旧动画取消时，引擎可能已上报 following，DOM 却不在底部。
-				// 下一帧按真实几何对账；失败则退出跟底并露出回底按钮，避免无声卡在历史位置。
-				const verificationFrame = requestAnimationFrame(() => {
-					if (bottomRestoreVerificationRef.current === verificationFrame) bottomRestoreVerificationRef.current = undefined;
-					const current = timelineRef.current;
-					if (restoreRequest !== bottomRestoreRequestRef.current || !current || ownerKeyRef.current !== requestOwnerKey || !autoScrollRef.current) return;
-					if (!isTimelineAtBottom(current.scrollTop, current.scrollHeight, current.clientHeight)) {
-						autoScrollRef.current = false;
-						setAutoScroll(false);
-						setShowScrollToBottom(true);
-					}
-				});
-				bottomRestoreVerificationRef.current = verificationFrame;
+				// 后续增高交给引擎追底；不能按下一帧距底反推用户已退出跟随。
 			});
 			return () => cancelAnimationFrame(frame);
 		}
@@ -460,7 +432,6 @@ export function useTimelineScrollAnchor(options: TimelineScrollAnchorOptions): T
 		hasEarlierPages,
 		isLoadingMessagePage,
 		isSurfaceLoading,
-		isTimelineAtBottom,
 		loadMoreMessages,
 		markProgrammaticScroll,
 		ownerKey,

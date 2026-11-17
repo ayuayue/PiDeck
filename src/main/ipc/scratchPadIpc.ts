@@ -1,7 +1,8 @@
 import { app, dialog, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
 import { join, basename, resolve, sep } from "node:path";
-import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { migrateLegacyDraft } from "../scratchpad/legacyDraftMigration";
 
 import { ipcChannels } from "../../shared/ipc";
 import { trashPath } from "../fs/trash";
@@ -15,26 +16,17 @@ export type ScratchPadIpcDeps = {
 export function registerScratchPadIpc({ appLogger }: ScratchPadIpcDeps): void {
 	const draftsDir = join(app.getPath("userData"), "drafts");
 
-	/** 确保 drafts 目录存在，首次访问时如果旧 scratch-pad.md 存在则迁移为草稿 */
+	let migration: Promise<void> | undefined;
+	/** 并发接口共享一次迁移，失败保留源文件并允许下次访问重试。 */
 	async function ensureDraftsDir(): Promise<void> {
-		try {
-			await mkdir(draftsDir, { recursive: true });
-		} catch {
-			// 忽略目录已存在错误
-		}
-		// 迁移旧 scratch-pad.md：如果存在且有内容，移入 drafts 目录
-		const oldPath = join(app.getPath("userData"), "scratch-pad.md");
-		try {
-			const oldStat = await stat(oldPath);
-			if (oldStat.size > 0) {
-				const ts = new Date(oldStat.mtimeMs);
-				const name = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, "0")}-${String(ts.getDate()).padStart(2, "0")} ${String(ts.getHours()).padStart(2, "0")}-${String(ts.getMinutes()).padStart(2, "0")}-${String(ts.getSeconds()).padStart(2, "0")}.md`;
-				await copyFile(oldPath, join(draftsDir, name));
-			}
-			await rm(oldPath);
-		} catch {
-			// 旧文件不存在则忽略
-		}
+		migration ??= migrateLegacyDraft(app.getPath("userData"))
+			.catch((error: unknown) => {
+				void appLogger.error("scratchPad", "Legacy draft migration deferred; source retained", { error: String(error) });
+			})
+			.finally(() => {
+				migration = undefined;
+			});
+		await migration;
 	}
 
 	/** 生成以当前时间命名的默认文件名：YYYY-MM-DD HH-mm-ss.md */
@@ -106,9 +98,17 @@ export function registerScratchPadIpc({ appLogger }: ScratchPadIpcDeps): void {
 	ipcMain.handle(ipcChannels.scratchPadCreate, async (_event, scope?: ScratchPadScope): Promise<DraftMeta> => {
 		const resolved = resolveScopeDir(scope);
 		await mkdir(resolved.dir, { recursive: true });
-		const name = generateDraftName();
-		const fullPath = join(resolved.dir, name);
-		await writeFile(fullPath, "", "utf8");
+		let name = generateDraftName();
+		let fullPath = join(resolved.dir, name);
+		try {
+			await writeFile(fullPath, "", { encoding: "utf8", flag: "wx" });
+		} catch (error) {
+			if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST")) throw error;
+			// 秒级名称只用于展示，不能充当唯一身份，更不能截断已有便签。
+			name = `${name.replace(/\.md$/, "")} ${randomUUID()}.md`;
+			fullPath = join(resolved.dir, name);
+			await writeFile(fullPath, "", { encoding: "utf8", flag: "wx" });
+		}
 		const s = await stat(fullPath);
 		void appLogger.info("scratchPad", "draft created", { path: fullPath, scope: resolved.scope });
 		return {

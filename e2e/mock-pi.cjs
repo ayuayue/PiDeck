@@ -38,6 +38,7 @@ if (process.argv.includes("--list-models")) {
 const readline = require("node:readline");
 const fs = require("node:fs");
 const path = require("node:path");
+const { buildSessionProjection, parseSessionEntries } = require("../src/main/pi/sessionContextProjection.ts");
 
 // 调试：记录收到的命令/发出的响应，便于排查 E2E 状态不同步问题
 const LOG_PATH = path.join(require("node:os").tmpdir(), `mock-pi-${process.pid}.log`);
@@ -286,6 +287,9 @@ if (sessionFile && fs.existsSync(sessionFile)) {
 	try {
 		const content = fs.readFileSync(sessionFile, "utf8");
 		let maxSeq = 0;
+		const entries = parseSessionEntries(content.split("\n"));
+		const projection = buildSessionProjection(entries);
+		const projectedMessages = new Map(projection.projectedEntries.map((item) => [item.entryId, item.messages[0]]));
 		for (const rawLine of content.split("\n")) {
 			const trimmed = rawLine.trim();
 			if (!trimmed) continue;
@@ -300,15 +304,16 @@ if (sessionFile && fs.existsSync(sessionFile)) {
 					if (entry.type !== "deleted") lastEntryId = entry.id;
 				}
 				// 重建内存对话：get_messages 在 fork/reload 后要返回既有历史（对齐真实 pi 的 resume）。
-				if (entry.type === "message" && entry.message) {
-					const role = entry.message.role;
+				const effective = projectedMessages.get(entry.id);
+				if (entry.type === "message" && effective) {
+					const role = effective.role;
 					if (role === "user" || role === "assistant") {
-						const text = Array.isArray(entry.message.content)
-							? entry.message.content
+						const text = Array.isArray(effective.content)
+							? effective.content
 									.filter((b) => b && b.type === "text")
 									.map((b) => b.text)
 									.join("")
-							: (entry.message.content ?? "");
+							: (effective.content ?? "");
 						if (text) {
 							conversationMessages.push({ role, content: [{ type: "text", text }] });
 							// fork 锚点也要覆盖**落盘过的历史** user 条目：真实 pi 的

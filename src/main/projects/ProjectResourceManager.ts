@@ -8,9 +8,10 @@ import type { CreateProjectSkillInput, PiExtensionSummary, PiPromptTemplateSumma
 import { isLocalProject } from "../../shared/projectLocation";
 import type { McpConfigFile } from "../../shared/types/mcp";
 import { parseMcpConfigFile, validateMcpConfigFile } from "../config/mcpConfig";
-import { revisionOf } from "../config/piConfigFileStore";
+import { revisionOf, writePiConfigFile } from "../config/piConfigFileStore";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import { emptyProjectResourceOverrides, projectResourceOverridesFromRecord, setProjectInheritedResourceEnabled } from "./projectResourceOverrides";
+import { clearProjectResourceLegacyFields } from "./projectResourceLegacyCleanup";
 import { projectResourceEnabled } from "../config/piResourceRules";
 import { discoverExtensionEntries } from "../extensions/extensionDiscovery";
 
@@ -441,17 +442,15 @@ export class ProjectResourceManager {
 		const project = this.requireProject(projectId);
 		const settingsFile = await this.resolveProjectWritePath(project, join(this.projectRoot(project), ".pi", "settings.json"));
 		if (!existsSync(settingsFile)) return;
-		const settings = await readProjectSettingsForWrite(settingsFile, this.translate("mainConfig.invalidJson"));
-		if (patch.extensions) delete settings.disabledExtensions;
-		if (patch.skills) delete settings.disabledSkills;
-		if (patch.prompts) delete settings.disabledPrompts;
-		if (patch.inherited) {
-			delete settings.pideckDisabledGlobalExtensions;
-			delete settings.pideckDisabledGlobalSkills;
-			delete settings.pideckDisabledGlobalPrompts;
-		}
-		await mkdir(dirname(settingsFile), { recursive: true });
-		await writeFile(settingsFile, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+		const saved = await writePiConfigFile(
+			settingsFile,
+			(settings) => {
+				clearProjectResourceLegacyFields(settings, patch);
+				return settings;
+			},
+			{ precheck: async () => void (await this.resolveProjectWritePath(project, settingsFile)) },
+		);
+		if (!saved.ok) throw new Error(saved.error);
 	}
 
 	async toggleSkill(projectId: string, skillPath: string, enabled: boolean): Promise<PiSkillSummary> {
