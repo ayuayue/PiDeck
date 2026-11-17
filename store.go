@@ -176,6 +176,12 @@ type config struct {
 	BackgroundOpacity *float64 `json:"backgroundOpacity,omitempty"`
 	// PetEnabled shows the desktop pet window.
 	PetEnabled bool `json:"petEnabled,omitempty"`
+	// TelemetryEnabled is the anonymous daily heartbeat; nil keeps it on,
+	// as PiDeck ships it. TelemetryInstallID is the anonymous id it counts,
+	// and TelemetryLastHeartbeatDate the local day it last went out.
+	TelemetryEnabled           *bool  `json:"telemetryEnabled,omitempty"`
+	TelemetryInstallID         string `json:"telemetryInstallId,omitempty"`
+	TelemetryLastHeartbeatDate string `json:"telemetryLastHeartbeatDate,omitempty"`
 	// EditorCommand opens files outside the app; empty detects one.
 	EditorCommand string `json:"editorCommand,omitempty"`
 }

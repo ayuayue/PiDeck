@@ -481,6 +481,17 @@ func (a *app) settingsGeneral() core.Node {
 							})
 						}}),
 				),
+				setGroup("隐私",
+					setRow("匿名使用统计", "启动时每天最多发一次心跳，带上版本、平台、功能开关与数量统计；不含项目路径、会话内容、文件名或凭据。",
+						ui.Switch{Checked: func() bool { return telemetryEnabled(a.cfg) }, Label: T("匿名使用统计"), TestID: "telemetry-enabled",
+							OnChange: func(on bool) {
+								value := on
+								a.cfg.TelemetryEnabled = &value
+								a.st.edit(func(c *config) { c.TelemetryEnabled = &value })
+
+								a.bumpSettings()
+							}}),
+				),
 			}},
 		}}
 	})

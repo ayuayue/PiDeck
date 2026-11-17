@@ -27,6 +27,7 @@ var settingsIndex = []settingEntry{
 	{"general", "一轮完成时通知", "notification done turn"},
 	{"general", "只在窗口隐藏时通知", "notify hidden focus"},
 	{"general", "桌面宠物", "pet window"},
+	{"general", "匿名使用统计", "telemetry analytics posthog usage privacy 遥测 统计"},
 	{"general", "测试通知", "test notification"},
 	{"models", "供应商与认证", "provider model auth api key"},
 	{"models", "pi 凭据", "auth credentials api key token 凭据 密钥"},

@@ -1098,6 +1098,7 @@ func newApp(cx *core.Scope) *app {
 	a.setupDesktop()
 	a.startTaskScheduler()
 	a.startAnnouncements()
+	a.startTelemetry()
 	return a
 }
 

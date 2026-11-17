@@ -45,6 +45,7 @@ var appSettingFields = []settingField{
 	{Key: "notifyOnDone", Type: "bool", Default: false},
 	{Key: "notifyOnlyHidden", Type: "bool", Default: false},
 	{Key: "petEnabled", Type: "bool", Default: false},
+	{Key: "telemetryEnabled", Type: "bool", Default: true},
 	{Key: "feishuEnabled", Type: "bool", Default: false},
 	{Key: "feishuInbound", Type: "bool", Default: false},
 	{Key: "feishuReply", Type: "bool", Default: false},
