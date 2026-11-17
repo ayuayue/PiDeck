@@ -162,7 +162,7 @@ type session struct {
 
 	conversation *chatScroll
 	// tops is where each rendered turn sits in the transcript, by turn ID,
-	// so the ruler can scroll to the turn it stands for. Only the interface
+	// so the ruler can scroll to the one it stands for. Only the interface
 	// thread touches it.
 	tops map[string]float64
 
