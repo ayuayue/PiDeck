@@ -174,7 +174,7 @@ curl -s -H "$AUTH" "$BASE/api/state"
 
 ## 5 发消息
 
-**发之前再认一次自己**：`echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息——消息插进你自己的对话，然后你自己等自己回。标题、`updatedAt`、`model` 都不是身份——为什么不能用 `grep ^PI_` 找，见第 2 节。
+**发之前再认一次自己**：`echo $PIDECK_SESSION_ID`，目标 id 等于它，你就是在给自己发消息——消息插进你自己的对话，然后你自己等自己回。标题、`updatedAt`、`model` 都不是身份，身份只认 `$PIDECK_SESSION_ID`。
 
 ### 5.1 首选 `/prompt`：同步返回 accepted，先不必回读
 
@@ -186,7 +186,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 期望：`{"result":{"accepted":true,"sessionId":"...","requestId":"...","agentId":"...","sessionPath":"C:\\...jsonl","runtimeGeneration":3}}`。
 
-`accepted: true` 表示这条消息进了队列，服务端负责投递，此时可以先不读回执。**要证明对方真的看到了，按 5.6 的做法让它贴原文片段**——第 5.6 节有实测：accepted 之后还会隔十几秒才出现在对方记录里。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
+`accepted: true` 表示这条消息进了队列，服务端负责投递，此时可以先不读回执。**要证明对方真的看到了，让它在回执里贴原文片段**（做法见 5.6）；accepted 之后还会隔十几秒才出现在对方记录里。字段名是 `message` 不是 `text`（写错 400 `webError.messageRequired`）；`requestId` 必填（缺了 400 `webError.requestIdRequired`）。返回里的 `runtimeGeneration` 是对端当前代号——比你发之前记的大，说明服务端刚替你拉起过它。要 jsonl 路径直接看返回里的 `sessionPath`，省一次 `runtimes[]` 查询。
 
 **中文别走命令行参数。** `curl -d "中文"` 会先把这段参数交给终端代码页（Windows 上常是 GBK），对端收到的是一串 U+FFFD（替换符，表示字节解不出来）。2026-11 实测两次：中文当参数发，对端记录里 16 个替换符；把 JSON 写进文件、用 `--data-binary @file` 发，替换符归零。
 
@@ -202,7 +202,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json; charset=utf-8" \
 node -e 'const fs=require("fs");const t=fs.readFileSync(process.argv[1],"utf8");console.log((t.match(/\uFFFD/g)||[]).length)' "<对端的 sessionPath>"
 ```
 
-**收到乱码就直说，别猜。** 对端回复变成 `���` 这类替换符时，唯一正确的动作是回一句「读不懂，这是原文：<逐字粘贴>」，然后停下等它对。按上下文猜它的意思，猜错了在记录上看不出任何异常——你会照着猜出来的意思改出完全无关的东西。判据：自己的回复里不出现「我理解你的意思是……」这类转述，除非同时贴得出原文片段。这条没有例外：看不懂就停，不要边猜边做。 来源与实测见 5.1 那条：命令行参数经代码页转码会产生一串 U+FFFD，改用文件通道后归零。
+**收到乱码就直说，别猜。** 对端回复变成 `���` 这类替换符时，唯一正确的动作是回一句「读不懂，这是原文：<逐字粘贴>」，然后停下等它对。按上下文猜它的意思，猜错了在记录上看不出任何异常——你会照着猜出来的意思改出完全无关的东西。判据：自己的回复里不出现「我理解你的意思是……」这类转述，除非同时贴得出原文片段。这条没有例外：看不懂就停，不要边猜边做。命令行参数经代码页转码会产生那串 U+FFFD，改用文件通道后归零。
 
 ### 5.2 要看流式才用 `/api/chat`
 
@@ -301,15 +301,23 @@ tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
 
 判据写进签核，两条都要：`改法作者` 与 `执行者` 是不同的人；`git diff` 里每一处 `+` 行都能指到发现方给的原文，多出一个它没写过的字，就是执行方在改措辞。缺一条按未签计。实时例子：2026-11-17 对端列出 5 处缺陷并明写「第 4 条要用户定，不是我们能定的」，我方把 5 处都自己改了并推送，退回时发现方已被我的措辞污染。
 
-**交接用文件，不用消息正文。** 中文经过命令行参数会被代码页转码（5.1 末尾那段有实测与判据），提案超过几十行也会被截断。约定：提案写到临时目录的 proposals-rN.md，回执写 review-rN.md，发消息只发路径、md5 前 8 位、字节数。
+**交接用文件，不用消息正文。** 中文经过命令行参数会被代码页转码（5.1 末尾那段有实测与判据），提案超过几十行也会被截断。约定：提案写到临时目录的 proposals-rN.md，回执写 review-rN.md。
+
+**每条消息第一行必须署名，四样缺一样对端只能猜。** 格式固定成一行：
+
+```
+[<发送者> · <对象> <md5前8位> · <字节>B · <行数>L · <时间>]
+```
+
+数字用命令现取，不凭记忆：`md5sum f | cut -c1-8`、`stat -c %s f`、`wc -l < f`。接收方第一步拿这一行的 md5 与自己盘上的比：不一致就回「你这条基于旧版，我盘上是 <自己的 md5>」，不要先去猜内容差在哪。正文里再出现的任何 md5、字节、行数，都必须与第一行相同；对不上就是没署。
+
+2026-11-17 实测白争一轮：我方消息写「技能 634 行」，对端核到 638，双方为「文件是哪一个」核了一整轮——真实值 `wc -l` = 638，两个人盘上的文件本来就是同一个，错的只是消息里那个凭记忆写的数字。
 
 ```bash
 TMP="${TMPDIR:-${TEMP:-/tmp}}"
 md5sum "$TMP/proposals-r1.md" | cut -c1-8; stat -c %s "$TMP/proposals-r1.md"
 [ -f "$TMP/proposals-r1.md" ] || echo "文件不在 $TMP：Windows 上 bash 的 /tmp 与 %TEMP% 不是同一个位置"
 ```
-
-**accepted:true 只代表进队列，不代表对方看到了。** 判「送到了」按 5.6 的做法：让它在回执里贴原文片段。要数替换符，用 5.1 末尾那条 node 命令。
 
 **证明对方真读了原文的办法**：让它在回执里贴出原文片段。行号只作定位、不当证据——插入一行行号就漂，2026-11-16 双方各错过两次（说 186 实际 188、说 3393 字节实际 5467）。行号与片段冲突时，以片段为准。只说「我看了」，与没看无法区分。
 
@@ -575,8 +583,6 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 
 ## 11 改这个技能之前
 
-**这一节分三类读者，按你需要的那段看：用技能的人 / 改技能的人 / 想在本机先试的人。**
-
 用技能的人：PiDeck 只用这一处 `~/.pi/agent/pideck-skills/pideck-web-api/`——每次启动从安装包写过去，装上就能用，不是给手改的地方（改了下次启动被覆盖）。终端里直接起的 pi 读 `~/.agents/skills/pideck-web-api/`，两处内容相同，不用分开维护。
 
 改这个技能的人：只有一处算数——`<仓库>/resources/skills/pideck-web-api/`。改完打包发版，用户装上就是新版。
@@ -588,7 +594,7 @@ mkdir -p "<userData>/skills-overlay"
 cp -r <仓库>/resources/skills/* "<userData>/skills-overlay"/
 ```
 
-**整包才生效。**overlay 必须自带 `skills-manifest.json`，清单里列的全部文件都在，且逐个哈希对得上。只放本技能那几个文件也能过本技能的校验，但其余技能在 overlay 里找不到，安装会被跳过。
+**整包才生效。** overlay 必须自带 `skills-manifest.json`，清单里列的全部文件都在，且逐个哈希对得上。只放本技能那几个文件也能过本技能的校验，但其余技能在 overlay 里找不到，安装会被跳过。
 
 `installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile`，内容取自 overlay——**条件不是「有目录」，而是「overlay 自带清单且逐文件哈希对得上」**，任一不符就回落到打包的那份。唯一例外：frontmatter 的 `disable-model-invocation: true` 会被记住并写回（`SkillManager.ts:438-449`）。
 
