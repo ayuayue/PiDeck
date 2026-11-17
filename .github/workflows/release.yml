@@ -74,7 +74,7 @@ jobs:
 
       # -tags webassets embeds webassets/ into the binary, so every desktop
       # build also serves the browser client on the remote port.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: webassets
           path: webassets
@@ -238,7 +238,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
