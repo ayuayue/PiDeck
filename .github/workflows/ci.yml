@@ -97,7 +97,7 @@ jobs:
       - name: Build the client
         run: GOOS=js GOARCH=wasm go build ./...
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: webassets
           path: webassets
@@ -120,7 +120,7 @@ jobs:
       - name: Build APK
         run: go tool nsgo build -target android_arm64 -version 0.0.1-ci
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pideck-lite-android-arm64
           path: dist/releases/*.apk
@@ -144,7 +144,7 @@ jobs:
       - name: Build for the simulator
         run: go tool nsgo build -target ios_simulator -version 0.0.1-ci
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pideck-lite-ios-simulator
           path: dist/*ios_simulator*/*.app
