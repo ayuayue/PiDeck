@@ -85,6 +85,7 @@ func (a *app) executePlanSteps(s *session, t turn) {
 		return
 	}
 	s.planSteps, s.planIndex, s.planActive = steps, 0, true
+	a.bumpSessionUI(s)
 	a.runPlanStep(s)
 }
 
@@ -109,12 +110,14 @@ func (a *app) onPlanTurn(ev appEvent) {
 	case planStopped:
 		s.planActive = false
 		s.planSteps = nil
+		a.bumpSessionUI(s)
 		a.emit(eventPlanFinished, appEvent{Session: s, Data: map[string]string{"status": "stopped"}})
 		a.toast(ui.ToastWarning, "逐步执行已停止", "这一轮没有完成。")
 	case planFinished:
 		steps := s.planIndex + 1
 		s.planActive = false
 		s.planSteps = nil
+		a.bumpSessionUI(s)
 		a.emit(eventPlanFinished, appEvent{Session: s, Data: map[string]string{"status": "finished", "steps": fmt.Sprintf("%d", steps)}})
 		a.toast(ui.ToastSuccess, "计划执行完毕", fmt.Sprintf("共 %d 步。", steps))
 	case planGoOn:
@@ -132,6 +135,7 @@ func (a *app) continuePlan() {
 		return
 	}
 	s.planIndex++
+	a.bumpSessionUI(s)
 	a.runPlanStep(s)
 }
 
@@ -140,6 +144,7 @@ func (a *app) stopPlan() {
 	if s := a.planAskSession; s != nil {
 		s.planActive = false
 		s.planSteps = nil
+		a.bumpSessionUI(s)
 	}
 	a.planAskSession = nil
 	a.planAskOpen.Set(false)

@@ -1650,6 +1650,16 @@ func remoteAskOf(s *session) *remoteWireAsk {
 	if ask == nil {
 		return nil
 	}
+	if ask.Method == askMethodBatch {
+		// The phone has no card for several questions: it can only let the
+		// request go, and the desktop answers it.
+		title := T("批量提问")
+		if len(ask.Questions) > 0 {
+			title += " · " + firstLine(ask.Questions[0].Question, 60)
+		}
+		return &remoteWireAsk{Method: ask.Method, Title: title,
+			Message: T("共 %d 题，请到桌面端回答。", len(ask.Questions))}
+	}
 	return &remoteWireAsk{Method: ask.Method, Title: ask.Title, Message: ask.Message,
 		Options: append([]string(nil), ask.Options...)}
 }

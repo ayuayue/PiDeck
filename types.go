@@ -254,15 +254,26 @@ type sessionStats struct {
 	Known             bool
 }
 
-// extensionAsk is an extension dialog waiting for the user.
+// extensionAsk is an extension dialog waiting for the user. A batch ask
+// carries the questions the extension packed into one input request;
+// Answers is how far the card got before it was answered or closed.
 type extensionAsk struct {
 	ID      string
-	Method  string // select, confirm, input, editor
+	Method  string // select, confirm, input, editor, batch_ask
 	Title   string
 	Message string
 	Options []string
 	Default string
 	Timeout time.Duration
+	// Choices are rich options: label, value and a line of description.
+	// They come from the batch envelope and from selects the extension
+	// wrote with a description; Options stays the label list the phone
+	// shows.
+	Choices     []askOption
+	AllowOther  bool
+	Placeholder string
+	Questions   []askQuestion
+	Review      bool
 }
 
 // todoItem is one line of the agent's task list, as its todo tool reports

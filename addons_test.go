@@ -801,7 +801,9 @@ func TestSettingsKeepScroll(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	app := startApp(t, dir, 1280, 800)
+	// A window close to the dialog's old height: the settings page has to
+	// be taller than the page area for the scroll to mean anything.
+	app := startApp(t, dir, 1280, 620)
 	app.Press("label:设置")
 	app.WaitFor("id:settings-tab-general", 5*time.Second)
 	app.Press("id:settings-tab-general")

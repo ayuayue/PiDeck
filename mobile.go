@@ -1038,6 +1038,10 @@ func (a *mobileApp) askBar(cx *core.Scope) core.Node {
 				actions = append(actions, button(opt, false, fmt.Sprintf("mobile-ask-option-%d", i), map[string]any{"value": opt}))
 			}
 			actions = append(actions, button(T("取消"), false, "mobile-ask-cancel", map[string]any{"cancelled": true}))
+		case askMethodBatch:
+			// Several questions are the desktop's card; the phone can let
+			// the request go but not answer it.
+			actions = append(actions, button(T("取消"), false, "mobile-ask-cancel", map[string]any{"cancelled": true}))
 		default:
 			actions = append(actions, core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 				core.Input{Value: a.askText.Get, OnChange: a.askText.Set, Placeholder: T("输入回答"), Label: T("回答"), TestID: "mobile-ask-input",

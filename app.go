@@ -106,12 +106,26 @@ type session struct {
 	// the turn.
 	steering *core.Signal[[]string]
 	sending  *core.Signal[[]queuedMessage]
-	ask      *core.Signal[*extensionAsk]
+	// ask is the request the card shows; asks wait behind it, oldest
+	// first, and askPending counts them all for the rail's badge. askUI
+	// holds what the card has typed and answered.
+	ask        *core.Signal[*extensionAsk]
+	asks       []*extensionAsk
+	askPending *core.Signal[int]
+	askUI      *core.Signal[askUIState]
+	// askTexts is what the card's fields hold. Typing writes only this, so
+	// a keystroke redraws the field and not the card around it.
+	askTexts *core.Signal[map[string]string]
 	window   *core.Signal[int]
 	// todos is the agent's task list, and todoOpen whether the bar above
 	// the composer shows all of it.
 	todos    *core.Signal[[]todoItem]
 	todoOpen *core.Signal[bool]
+	// todoDismissed is the list the strip was closed on: it stays away
+	// until the list changes again. extWidgets holds what extensions
+	// publish with setWidget, by key.
+	todoDismissed string
+	extWidgets    map[string][]string
 	// runningSig is whether a turn is in flight. It changes twice a turn,
 	// so the composer's controls are not rebuilt by every streamed delta.
 	runningSig *core.Signal[bool]
@@ -124,6 +138,8 @@ type session struct {
 	// user stops, until they ask it to go on.
 	goalRounds int
 	goalPaused *core.Signal[bool]
+	// goalText is the objective the user wrote, for the goal strip.
+	goalText string
 	// Step-by-step plan execution.
 	planSteps  []string
 	planIndex  int
@@ -522,11 +538,10 @@ type app struct {
 	confirmBody    *core.Signal[string]
 	confirmWhy     *core.Signal[string]
 	confirmFn      func()
+	// askSeq redraws the ask card when its request changes.
+	askSeq *core.Signal[int]
 
 	pick *pickerState
-
-	askEdit *core.Signal[string]
-	askSeq  *core.Signal[int]
 
 	files      *fileTree
 	filesRev   *core.Signal[int]
@@ -772,7 +787,6 @@ func newApp(cx *core.Scope) *app {
 		confirmHead:            core.NewSignal(cx, ""),
 		confirmBody:            core.NewSignal(cx, ""),
 		confirmWhy:             core.NewSignal(cx, ""),
-		askEdit:                core.NewSignal(cx, ""),
 		askSeq:                 core.NewSignal(cx, 0),
 		gitBranches:            core.NewSignal(cx, false),
 		gitNewBranchOpen:       core.NewSignal(cx, false),
@@ -987,6 +1001,9 @@ func newApp(cx *core.Scope) *app {
 		return a
 	}
 	a.st = st
+	// The ask extension travels with the app: pi loads it with -e, and its
+	// questions reach the card.
+	askExtensionPath = installAskExtension(st.dir)
 	a.initDiag()
 	a.cfg = st.config()
 	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))
@@ -1185,9 +1202,13 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		steering:       core.NewSignalFunc(a.cx, []string(nil), nil),
 		sending:        core.NewSignalFunc(a.cx, []queuedMessage(nil), nil),
 		ask:            core.NewSignalFunc(a.cx, (*extensionAsk)(nil), nil),
+		askPending:     core.NewSignal(a.cx, 0),
+		askUI:          core.NewSignalFunc(a.cx, askUIState{}, nil),
+		askTexts:       core.NewSignalFunc(a.cx, map[string]string(nil), nil),
 		window:         core.NewSignal(a.cx, 24),
 		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
 		todoOpen:       core.NewSignal(a.cx, false),
+		extWidgets:     map[string][]string{},
 		runningSig:     core.NewSignal(a.cx, false),
 		agentMode:      core.NewSignal(a.cx, modeNormal),
 		sendMode:       core.NewSignal(a.cx, ""),
@@ -2071,9 +2092,13 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		steering:       core.NewSignalFunc(a.cx, []string(nil), nil),
 		sending:        core.NewSignalFunc(a.cx, []queuedMessage(nil), nil),
 		ask:            core.NewSignalFunc(a.cx, (*extensionAsk)(nil), nil),
+		askPending:     core.NewSignal(a.cx, 0),
+		askUI:          core.NewSignalFunc(a.cx, askUIState{}, nil),
+		askTexts:       core.NewSignalFunc(a.cx, map[string]string(nil), nil),
 		window:         core.NewSignal(a.cx, 24),
 		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
 		todoOpen:       core.NewSignal(a.cx, false),
+		extWidgets:     map[string][]string{},
 		runningSig:     core.NewSignal(a.cx, false),
 		agentMode:      core.NewSignal(a.cx, modeNormal),
 		sendMode:       core.NewSignal(a.cx, ""),
@@ -3078,6 +3103,9 @@ func (a *app) submitTurn(s *session, text string, images []promptImage, plan boo
 	if goal {
 		s.goalRounds = max(1, s.goalRounds)
 		s.goalPaused.Set(false)
+		if strings.TrimSpace(original) != "" {
+			s.goalText = original
+		}
 		text = goalPrompt(text)
 	}
 	a.cx.Batch(func() {
@@ -3233,6 +3261,8 @@ func (a *app) stop(s *session) {
 		s.goalPaused.Set(true)
 	}
 	s.sending.Set(nil)
+	// A question the run waits on is let go too: stopping means stopping.
+	a.cancelAsks(s)
 	if s.backend == "acp" {
 		if !s.busyNow() {
 			return
@@ -4088,25 +4118,98 @@ func (a *app) onPiUI(s *session, req uiRequest) {
 		})
 	case "set_editor_text":
 		a.cx.Post(func() { s.draft.Set(req.Text) })
-	case "setTitle", "setWidget":
-		// The window has its own title, and widgets have no place here.
+	case "setWidget":
+		a.cx.Post(func() {
+			if s.extWidgets == nil {
+				s.extWidgets = map[string][]string{}
+			}
+			if len(req.WidgetLines) == 0 {
+				delete(s.extWidgets, req.WidgetKey)
+			} else {
+				s.extWidgets[req.WidgetKey] = append([]string(nil), req.WidgetLines...)
+			}
+			a.bumpSessionUI(s)
+		})
+	case "setTitle":
+		// The window has its own title.
 	case "select", "confirm", "input", "editor":
 		a.cx.Post(func() {
-			ask := &extensionAsk{ID: req.ID, Method: req.Method, Title: req.Title, Message: req.Message,
-				Options: req.Options, Default: req.Prefill, Timeout: time.Duration(req.Timeout) * time.Millisecond}
-			s.ask.Set(ask)
-			a.askEdit.Set(req.Prefill)
-			a.askSeq.Update(func(n int) int { return n + 1 })
-			if ask.Timeout > 0 {
-				a.cx.AfterFunc(ask.Timeout+500*time.Millisecond, func() {
-					if cur := s.ask.GetUntracked(); cur != nil && cur.ID == ask.ID {
-						s.ask.Set(nil)
-						a.askSeq.Update(func(n int) int { return n + 1 })
-					}
-				})
-			}
+			ask := askFromPi(req)
+			a.enqueueAsk(s, ask)
+			a.watchAsk(s, ask)
 		})
+	default:
+		// A dialog method the window does not know: answer it so pi's
+		// extension never blocks on a response that will not come.
+		a.cx.Post(func() { s.engine.uiResponse(req.ID, map[string]any{"cancelled": true}) })
 	}
+}
+
+// askFromPi builds the card's request from an extension's dialog call. A
+// batch envelope in the title is the extension asking several questions in
+// one call.
+func askFromPi(req uiRequest) *extensionAsk {
+	if env, ok := parseBatchAsk(req.Title); ok {
+		ask := &extensionAsk{ID: req.ID, Method: askMethodBatch, Timeout: time.Duration(req.Timeout) * time.Millisecond,
+			Questions: env.Questions, Review: env.Review, Placeholder: req.Placeholder}
+		ask.Options = askQuestionLabels(env.Questions)
+		return ask
+	}
+	ask := &extensionAsk{ID: req.ID, Method: req.Method, Title: req.Title, Message: req.Message,
+		Default: req.Prefill, Placeholder: req.Placeholder, Options: req.Options,
+		Timeout: time.Duration(req.Timeout) * time.Millisecond}
+	if req.Method == "select" {
+		choices, other := askOptionsFromStrings(req.Options)
+		ask.Choices = choices
+		ask.AllowOther = other || req.AllowOther
+		ask.Options = askOptionValues(choices)
+		if len(choices) == 0 {
+			// Nothing to pick: ask for text, as the extension does.
+			ask.Method = "input"
+		}
+	}
+	return ask
+}
+
+// askQuestionLabels is the label list the phone shows for a batch: the
+// first question's options, which is what a phone can answer.
+func askQuestionLabels(questions []askQuestion) []string {
+	if len(questions) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(questions[0].Options))
+	for _, opt := range questions[0].Options {
+		out = append(out, opt.Label)
+	}
+	return out
+}
+
+// askOptionValues is a choice list's values, for the phone.
+func askOptionValues(choices []askOption) []string {
+	out := make([]string, 0, len(choices))
+	for _, opt := range choices {
+		out = append(out, opt.Label)
+	}
+	return out
+}
+
+// watchAsk lets a request go when its timeout passes: the extension's own
+// when it set one, else the window's fallback, which also tells pi so its
+// call does not hang.
+func (a *app) watchAsk(s *session, ask *extensionAsk) {
+	wait := askAutoTimeout
+	answer := true
+	if ask.Timeout > 0 {
+		wait = ask.Timeout + 2*time.Second
+		answer = false
+	}
+	a.cx.AfterFunc(wait, func() {
+		if answer {
+			a.respondAsk(s, ask, map[string]any{"cancelled": true})
+			return
+		}
+		a.dropAsk(s, ask)
+	})
 }
 
 // refreshExtStatus joins the extension statuses into the notice line.
@@ -4127,13 +4230,22 @@ func (a *app) refreshExtStatus(s *session) {
 	s.notice.Set(strings.Join(parts, " · "))
 }
 
-// answerAsk replies to the extension dialog in front.
+// answerAsk replies to the request the card shows.
 func (a *app) answerAsk(s *session, value map[string]any) {
 	if s == nil {
 		return
 	}
-	ask := s.ask.GetUntracked()
+	ask := s.showingAsk()
 	if ask == nil {
+		return
+	}
+	a.respondAsk(s, ask, value)
+}
+
+// answerAskFor replies to one request: to ACP when it is an ACP
+// permission, else to pi by the request's id.
+func (a *app) answerAskFor(s *session, ask *extensionAsk, value map[string]any) {
+	if s == nil || ask == nil {
 		return
 	}
 	if s.acpReply != nil {
@@ -4143,8 +4255,6 @@ func (a *app) answerAsk(s *session, value map[string]any) {
 		}
 		reply := s.acpReply
 		s.acpReply = nil
-		s.ask.Set(nil)
-		a.askSeq.Update(func(n int) int { return n + 1 })
 		reply(name)
 		return
 	}
@@ -4152,8 +4262,6 @@ func (a *app) answerAsk(s *session, value map[string]any) {
 		return
 	}
 	s.engine.uiResponse(ask.ID, value)
-	s.ask.Set(nil)
-	a.askSeq.Update(func(n int) int { return n + 1 })
 }
 
 // pendingAsk is the extension dialog any session is waiting on.

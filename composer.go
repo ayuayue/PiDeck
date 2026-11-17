@@ -195,11 +195,12 @@ func (a *app) onGoalTurn(ev appEvent) {
 		s.goalRounds = 0
 		s.goalPaused.Set(false)
 		a.setAgentMode(s, modeNormal)
+		a.bumpSessionUI(s)
 		a.toast(ui.ToastSuccess, "目标已完成", "已切回普通模式，可以接着聊。")
 		a.emit(eventPlanFinished, appEvent{Session: s, Data: map[string]string{"status": "finished", "mode": modeGoal}})
 	case goalBlockedState:
 		s.goalPaused.Set(true)
-		s.uiSeq.Update(func(v int) int { return v + 1 })
+		a.bumpSessionUI(s)
 		a.toast(ui.ToastInfo, "目标已暂停", "这一轮没推进完，或到了轮次上限；点目标标签继续。")
 	case goalGoOnState:
 		// A queued message goes first: the user asked for it.
@@ -223,7 +224,7 @@ func (a *app) submitGoalTurn(s *session) {
 		return
 	}
 	s.goalRounds++
-	s.uiSeq.Update(func(v int) int { return v + 1 })
+	a.bumpSessionUI(s)
 	a.submitTurn(s, goalContinuePrompt(s.goalRounds), nil, false)
 }
 
@@ -233,6 +234,7 @@ func (a *app) resumeGoal(s *session) {
 		return
 	}
 	s.goalPaused.Set(false)
+	a.bumpSessionUI(s)
 	if !s.busyNow() {
 		a.submitGoalTurn(s)
 	}
@@ -244,6 +246,7 @@ func (a *app) pauseGoal(s *session) {
 		return
 	}
 	s.goalPaused.Set(true)
+	a.bumpSessionUI(s)
 	a.toast(ui.ToastInfo, "目标已暂停", "点目标标签继续，或按停止结束这一轮。")
 }
 

@@ -85,7 +85,16 @@ func (a *app) setChatWidth(w int) {
 func (a *app) composerStack(s *session) core.Node {
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(core.Points(a.contentWidth())), MinWidth: core.Pt(0)}, Children: []core.Node{
-			a.trustBar(s), a.todoBar(s), a.queuePanel(s), a.composer(s),
+			a.trustBar(s), a.goalStrip(s), a.todoBar(s),
+			// An ask takes the composer's place while it waits: the answer
+			// is the only thing to send then.
+			core.Show{
+				When: func() bool { return s.showingAsk() != nil },
+				Then: func(*core.Scope) core.Node { return a.askPanel(s) },
+				Else: func(*core.Scope) core.Node {
+					return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.composer(s)}}
+				},
+			},
 		}},
 	}}
 }
@@ -1365,35 +1374,26 @@ func duration(d time.Duration) string {
 // keep base imported for menu items built here as the UI grows.
 var _ = base.ReasonSelect
 
-// todoBar is the agent's task list above the composer: a progress line
-// that opens to the items. It stays out of the way when there is no list.
+// todoBar is the agent's task list above the composer: a line saying what
+// waits that opens to the items. It stays out of the way when there is no
+// list, and a dismissed strip stays away until the list changes.
 func (a *app) todoBar(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = s.uiSeq.Get()
 		colors := ui.ColorsOf(cx)
-		items := s.todos.Get()
+		items := a.sessionTodos(s)
 		if len(items) == 0 {
 			return nil
 		}
-		done, total := todoCounts(items)
+		fingerprint := todoFingerprint(items)
+		if s.todoDismissed != "" && s.todoDismissed == fingerprint {
+			return nil
+		}
 		open := s.todoOpen.Get()
-		current := ""
-		for _, it := range items {
-			if it.Status == "in_progress" {
-				current = it.Text
-				break
-			}
-		}
-		if current == "" && done < total {
-			for _, it := range items {
-				if it.Status == "pending" {
-					current = it.Text
-					break
-				}
-			}
-		}
+		current := currentTodoText(items)
 		head := core.View{
 			OnPress: func(core.PressEvent) { s.todoOpen.Update(func(v bool) bool { return !v }) },
-			Role:    core.RoleButton, Label: T("任务列表"), TestID: "todo-bar",
+			Role:    core.RoleButton, Label: T("待办"), TestID: "todo-bar",
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32),
 					Padding: core.Symmetric(0, 10), CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Border(),
@@ -1402,34 +1402,24 @@ func (a *app) todoBar(s *session) core.Node {
 			},
 			Children: []core.Node{
 				ui.Icon(lucide.ListChecks, 13, colors.Muted),
-				core.Text{ContentFunc: func() string {
-					d, t := todoCounts(s.todos.Get())
-					return fmt.Sprintf("任务 %d/%d", d, t)
-				}, Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
-				core.View{Style: core.Style{Width: core.Pt(84), Height: core.Pt(4), CornerRadius: 2, Background: colors.Track()}, Children: []core.Node{
-					core.View{StyleFunc: func() core.Style {
-						d, t := todoCounts(s.todos.Get())
-						p := float32(0)
-						if t > 0 {
-							p = float32(d) / float32(t)
-						}
-						return core.Style{Width: core.Pct(p * 100), Height: core.Pt(4), CornerRadius: 2, Background: colors.Up()}
-					}},
-				}},
-				core.Text{ContentFunc: func() string {
-					if current == "" {
-						return "全部完成"
-					}
-					return shorten(current, 54)
-				}, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Muted)},
+				ui.Text(T("待办"), 11.5, ui.Medium, colors.Text),
+				core.Text{ContentFunc: func() string { return todoProgressText(a.sessionTodos(s)) },
+					MaxLines: 1, Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+				core.Text{Content: firstLine(current, 60), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11, TextAlign: core.TextAlignEnd},
+					StyleFunc: ui.Colored(colors.Muted)},
 				ui.IconOf(func() *core.SVG {
 					if open {
 						return lucide.ChevronDown()
 					}
 					return lucide.ChevronUp()
 				}, 12, colors.Faint),
-				core.View{OnPress: func(core.PressEvent) { s.todos.Set(nil) }, Role: core.RoleButton, Label: T("清除任务列表"),
+				// Closing the strip leaves the list with the agent; it comes
+				// back when the list changes.
+				core.View{OnPress: func(core.PressEvent) {
+					s.todoDismissed = todoFingerprint(a.sessionTodos(s))
+					a.bumpSessionUI(s)
+				}, Role: core.RoleButton, Label: T("关闭待办"), TestID: "todo-dismiss",
 					StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(20), Height: core.Pt(20), CornerRadius: 5, AlignItems: core.AlignCenter,
 							JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
@@ -1469,10 +1459,9 @@ func (a *app) todoBar(s *session) core.Node {
 		}
 		return core.View{Style: core.Style{Padding: core.Edges{Left: 12, Right: 12, Bottom: 6}, Gap: 3}, Children: []core.Node{
 			head,
-			core.View{Style: core.Style{Direction: core.Column, Gap: 1, MaxHeight: core.Pt(168)},
-				Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(168)}, Children: []core.Node{
-					core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows},
-				}}}},
+			core.Scroll{Style: core.Style{MaxHeight: core.Pt(168)}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows},
+			}},
 		}}
 	})
 }

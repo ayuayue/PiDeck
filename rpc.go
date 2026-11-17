@@ -205,6 +205,7 @@ type uiRequest struct {
 	Placeholder string   `json:"placeholder"`
 	Prefill     string   `json:"prefill"`
 	Options     []string `json:"options"`
+	AllowOther  bool     `json:"allowOther"`
 	Timeout     int      `json:"timeout"`
 	NotifyType  string   `json:"notifyType"`
 	StatusKey   string   `json:"statusKey"`
@@ -252,7 +253,11 @@ func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent
 			return nil, err
 		}
 	}
-	cmd, err := t.command(piPath, dir, appSessions, id, sessionFile, []string{"--mode", "rpc"})
+	args := []string{"--mode", "rpc"}
+	if !t.remote() && askExtensionPath != "" {
+		args = append(args, "-e", askExtensionPath)
+	}
+	cmd, err := t.command(piPath, dir, appSessions, id, sessionFile, args)
 	if err != nil {
 		return nil, err
 	}

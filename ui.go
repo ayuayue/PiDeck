@@ -44,7 +44,6 @@ func (a *app) view() core.Node {
 		a.imageDialog(),
 		a.visionDialog(),
 		a.confirmDialog(),
-		a.askDialog(),
 		a.remoteQRDialog(),
 		a.gitDiffDialog(),
 		a.gitNewBranchDialog(),
@@ -707,6 +706,24 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 				}},
 				core.Show{When: func() bool { return a.sessionArchived(s().ID) }, Then: func(*core.Scope) core.Node {
 					return ui.Icon(lucide.Archive, 10.5, colors.Faint)
+				}},
+				// A question waits: say so where the session is listed, as a
+				// session can wait in the background.
+				core.Show{When: func() bool {
+					n := 0
+					if s().askPending != nil {
+						n = s().askPending.Get()
+					}
+					return n > 0
+				}, Then: func(cx *core.Scope) core.Node {
+					return core.View{TestID: "ask-badge", StyleFunc: func() core.Style {
+						c := ui.ColorsOf(cx)
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3, Padding: core.Symmetric(1, 5),
+							CornerRadius: 5, Background: ui.Alpha(c.Accent(), 0.16), FlexShrink: 0}
+					}, Children: []core.Node{
+						ui.IconOf(lucide.BadgeQuestionMark, 9, func() core.Color { return ui.ColorsOf(cx).Accent() }),
+						ui.Textf(func() string { return T("待确认") }, 9, ui.Medium, func() core.Color { return ui.ColorsOf(cx).Accent() }),
+					}}
 				}},
 				core.Text{ContentFunc: func() string { return whenText(s().updated.Get(), a.cx.Now()) }, MaxLines: 1,
 					Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
@@ -1622,71 +1639,6 @@ func (a *app) confirmDialog() core.Node {
 					Color:   func() core.Color { return colors.Danger() },
 					OnPress: func() { a.confirm() }},
 			},
-		}
-	})
-}
-
-// askDialog answers an extension's confirm, select, input or editor.
-func (a *app) askDialog() core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		a.askSeq.Get()
-		colors := ui.ColorsOf(cx)
-		s, ask := a.pendingAsk()
-		if ask == nil {
-			return nil
-		}
-		cancel := func() { a.answerAsk(s, map[string]any{"cancelled": true}) }
-		title := ask.Title
-		if title == "" {
-			title = T(map[string]string{"confirm": "确认", "select": "选择一个选项", "input": "输入", "editor": "编辑内容"}[ask.Method])
-		}
-		switch ask.Method {
-		case "confirm":
-			body := ask.Message
-			if body == "" {
-				body = T("pi 扩展请求确认。")
-			}
-			return ui.Dialog{
-				Open: func() bool { return true }, OnOpenChange: func(bool, base.Reason) {}, Title: title, Description: body, TestID: "ask",
-				NoCloseOnBackdropPress: true, NoCloseOnEscape: true,
-				Footer: []core.Node{
-					ui.Button{Text: T("拒绝"), Variant: ui.ButtonSecondary, OnPress: func() {
-						a.answerAsk(s, map[string]any{"confirmed": false})
-					}},
-					ui.Button{Text: T("允许"), Variant: ui.ButtonPrimary, OnPress: func() {
-						a.answerAsk(s, map[string]any{"confirmed": true})
-					}},
-				},
-			}
-		case "select":
-			var buttons []core.Node
-			for _, opt := range ask.Options {
-				value := opt
-				buttons = append(buttons, ui.Button{Text: value, Variant: ui.ButtonSecondary, OnPress: func() {
-					a.answerAsk(s, map[string]any{"value": value})
-				}})
-			}
-			buttons = append(buttons, ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, OnPress: cancel})
-			return ui.Dialog{Open: func() bool { return true }, OnOpenChange: func(bool, base.Reason) {}, Title: title, Description: ask.Message,
-				TestID: "ask", NoCloseOnBackdropPress: true, NoCloseOnEscape: true,
-				Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: buttons}}}
-		default:
-			return ui.Dialog{Open: func() bool { return true }, OnOpenChange: func(bool, base.Reason) {}, Title: title, Description: ask.Message,
-				TestID: "ask", NoCloseOnBackdropPress: true, NoCloseOnEscape: true,
-				Children: []core.Node{core.Input{
-					Value: a.askEdit.Get, OnChange: a.askEdit.Set, Placeholder: ask.Default, Label: title, AutoFocus: true,
-					Multiline: ask.Method == "editor",
-					StyleFunc: func() core.Style {
-						return core.Style{MinHeight: core.Pt(34), Padding: core.Symmetric(8, 10), CornerRadius: 7, Background: colors.Field(),
-							BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), FontSize: 13}
-					},
-				}},
-				Footer: []core.Node{
-					ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, OnPress: cancel},
-					ui.Button{Text: T("确定"), Variant: ui.ButtonPrimary, OnPress: func() {
-						a.answerAsk(s, map[string]any{"value": a.askEdit.Get()})
-					}},
-				}}
 		}
 	})
 }
