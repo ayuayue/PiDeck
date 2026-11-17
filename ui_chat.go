@@ -209,13 +209,13 @@ func (a *app) turnAxis(s *session) core.Node {
 		}
 		bandHeight := pane * axisBand / 100
 		shown := planAxisTicks(turns, bandHeight)
-		// A mark rests at 2.5 but takes the pointer in a box as tall as the
-		// pitch allows, so a crowded ruler still hits the mark it shows.
-		pitch := float64(axisStep)
-		if len(shown) > 1 {
-			pitch = math.Min(pitch, bandHeight/float64(len(shown)-1))
-		}
-		box := core.Points(math.Max(4, pitch-2))
+		// The marks keep a fixed pitch at most and stack as one compact
+		// scale, centered in the band: four turns are four short marks
+		// together, not four dashes spread over a third of the window. A
+		// crowded ruler tightens the pitch instead of overflowing the band.
+		pitch := math.Min(float64(axisStep), bandHeight/float64(max(1, len(shown))))
+		box := core.Points(math.Max(4, pitch))
+		stack := core.Points(pitch * float64(len(shown)))
 		marks := make([]core.Node, 0, len(shown)+1)
 		for pos, turn := range shown {
 			pos, turn := pos, turn
@@ -249,15 +249,16 @@ func (a *app) turnAxis(s *session) core.Node {
 				Style: core.Style{Width: core.Pt(axisTickHit), Height: core.Pt(box), AlignItems: core.AlignCenter,
 					JustifyContent: core.JustifyCenter}, Children: []core.Node{bar}})
 		}
-		marks = append(marks, a.axisHint(s, shown, bandHeight, box))
+		marks = append(marks, a.axisHint(s, shown, box, pitch))
 		inset := (pane - bandHeight) / 2
+		top := inset + (bandHeight-float64(stack))/2
 		return core.View{
 			OnMouseLeave: func(core.MouseEvent) { a.axisHover.Set(-1) },
-			Style: core.Style{Position: core.Absolute, Right: core.Pt(8), Width: core.Pt(axisTickHit),
-				Direction: core.Column, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
+			Style: core.Style{Position: core.Absolute, Right: core.Pt(8), Width: core.Pt(axisTickHit), Height: core.Pt(stack),
+				Direction: core.Column, AlignItems: core.AlignCenter, JustifyContent: core.JustifyStart,
 				PointerEvents: core.PointerEventsBoxNone},
 			StyleFunc: func() core.Style {
-				return core.Style{Top: core.Pt(core.Points(inset)), Bottom: core.Pt(core.Points(inset))}
+				return core.Style{Top: core.Pt(core.Points(top))}
 			},
 			Children: marks}
 	})
@@ -280,7 +281,7 @@ func (a *app) hoverAxis(index int) {
 
 // axisHint is the summary beside the tick the pointer rests on: it sits
 // just left of the ruler, on the tick's line, and takes no presses.
-func (a *app) axisHint(s *session, shown []int, bandHeight float64, box core.Points) core.Node {
+func (a *app) axisHint(s *session, shown []int, box core.Points, pitch float64) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		i := a.axisHover.Get()
@@ -291,12 +292,10 @@ func (a *app) axisHint(s *session, shown []int, bandHeight float64, box core.Poi
 		if tip == "" {
 			return nil
 		}
-		n := len(shown)
-		centre := box / 2
-		if n > 1 {
-			centre = core.Points((bandHeight-float64(box))*float64(i)/float64(n-1)) + box/2
-		}
-		top := min(max(0.0, float64(centre)-14), math.Max(0, bandHeight-30))
+		// The hint rides the tick's line inside the stack, so it never
+		// drifts to another mark's height.
+		centre := box/2 + core.Points(pitch*float64(i))
+		top := math.Max(0, float64(centre)-14)
 		return core.View{
 			Style: core.Style{Position: core.Absolute, Right: core.Pt(axisTickHit + 8), Top: core.Pt(core.Points(top)),
 				Width: core.Pt(260), Padding: core.Symmetric(6, 10), CornerRadius: 9, Background: colors.Surface(),
@@ -422,7 +421,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 							// chat shows its own messages.
 							core.Show{When: func() bool { return !t().Start.IsZero() }, Then: func(cx *core.Scope) core.Node {
 								return ui.Tabular(core.Text{Content: clockTime(t().Start),
-									Style: core.Style{FontSize: a.readingDetailFont(), LineHeight: a.readingDetailLine()},
+									Style:     core.Style{FontSize: a.readingDetailFont(), LineHeight: a.readingDetailLine()},
 									StyleFunc: ui.Colored(colors.Faint)})
 							}},
 						}}
@@ -830,10 +829,10 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 				return colors.Muted()
 			}),
 			core.Text{Content: run.Action, MaxLines: 1,
-				Style: core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0},
+				Style:     core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Muted)},
 			core.Text{Content: shorten(run.Detail, 140), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: detailSize},
+				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: detailSize},
 				StyleFunc: ui.Colored(colors.Faint)},
 		}
 		if run.Added > 0 || run.Removed > 0 {
