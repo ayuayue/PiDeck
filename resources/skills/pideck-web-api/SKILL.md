@@ -547,6 +547,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
 gh api repos/<head.repo>/contents/<path>?ref=<head.sha> --jq .content | base64 -d | md5sum
 ```
 
+**这条要整条跑，别拆成两步。** `B=$(gh api ... | base64 -d)` 会吃掉末尾换行，`printf "%s" "$B"` 不补回来，于是稳定少 1 字节——差 1 字节看起来像「不一致」，实际是量它的工具改了它。`echo "$B"` 侥幸对（它会补一个换行），所以同一个错法两种写法给出两种结论。2026-11-17 实测：五个文件里两个按拆两步的写法判 DIFF，改直管道重跑全 SAME。
 回执里写「已交付」而没贴这条输出的，按未交付算。
 
 **这三句不算署名**：「实测」「已验证」「我看了」——不写命令、文件名、md5，与没说是同一件事。
