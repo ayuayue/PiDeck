@@ -287,6 +287,10 @@ tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
 
 ## 5.6 与另一个会话按 PR 模式协作
 
+**适用范围：一切改动。**这不是「只对 PR」的流程。本机同步、判据改动、文档修改、清理，只要还有第二个人能核，就走同一套：改的人落盘证据（md5、rc、坏样本），核的人跑一遍并验「改回去会红」，两边各签一份。
+
+判据：每份签核里必须出现 `md5`、`rc=`、至少一条坏样本。缺任何一样，按未签计。
+
 **两个 agent 改同一份东西时，唯一起作用的机制是「改的人」与「核的人」分开。** 一个人自己改完自己核，等于没核。
 
 | 角色 | 必须做什么 | 不许做什么 |
@@ -317,7 +321,20 @@ md5sum "$TMP/proposals-r1.md" | cut -c1-8; stat -c %s "$TMP/proposals-r1.md"
 
 **凭据在谁手上，就由谁执行那一行命令。** 只有对方能推送、能改 PR 正文时：发现方给命令原文，持凭据方原样执行，回贴命令、输出与执行时间；执行前双方各读一遍命令文本。对外推送不可逆，许可只能来自用户——核的人不能代用户说「可以推了」。
 
-**先验凭据能不能做成这件事，再排执行顺序。** 2026-11-16 实测两种失效：fine-grained token 对「本人不是协作者的公开仓」只有只读——`gh api repos/<owner>/<repo> -q .permissions` 得 `pull:true push:false`，建 PR 与改 PR 正文都返回 `Resource not accessible`；GCM 里存的是 OAuth 时，git 操作会弹 GUI 选账号，脚本里设了 `credential.interactive=false` 后 `git credential fill` 直接报 `Cannot prompt because user interactivity has been disabled`。要推就用显式 URL：`git push https://x-access-token:<token>@github.com/<owner>/<repo>.git <branch>`，同时设 `GIT_TERMINAL_PROMPT=0`。
+**别人的仓只 pull 与建 PR，合并是仓主的事。** 动手前先看 `gh api repos/<owner>/<repo> -q .permissions`：`push:false` 就是没有合并权，不要尝试 merge（实测返回 404 而不是 403，容易被误读成「PR 不存在」），也不要用 `--admin` 之类绕过。PR 写完交给仓主，自己只保持它 clean：CI 绿、mergeable、双方签核齐。
+
+**先验凭据能不能做成这件事，再排执行顺序。** 2026-11-16 实测两种失效：fine-grained token 对「本人不是协作者的公开仓」只有只读——`gh api repos/<owner>/<repo> -q .permissions` 得 `pull:true push:false`，建 PR 与改 PR 正文都返回 `Resource not accessible`；GCM 里存的是 OAuth 时，git 操作会弹 GUI 选账号，脚本里设了 `credential.interactive=false` 后 `git credential fill` 直接报 `Cannot prompt because user interactivity has been disabled`。修法（2026-11-17 实测）：
+
+```bash
+P=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')
+GIT_TERMINAL_PROMPT=0 git -c credential.helper= push \
+  "https://x-access-token:$P@github.com/<owner>/<repo>.git" <branch>
+unset P
+```
+
+两个细节都必须，少一个就出问题：`-c credential.helper=` 断开凭据管理器，否则它会把你写的 `x-access-token` 当成新账号存下来，下次取凭据时多一个候选、开始弹窗；`GIT_TERMINAL_PROMPT=0` 保证失败立刻返回，不挂在交互提示上。判据：push 前后各跑一次 `git credential-manager github list`，行数必须相同。
+
+改 PR 正文不能走 `gh pr edit`：它的 GraphQL 查询自带 `login` / `name` / `slug` 字段，OAuth token 常见 scopes（`gist` `repo` `workflow`）缺 `read:org`，整条失败。走 REST：`curl -X PATCH -H "Authorization: token $P" -H "Content-Type: application/json; charset=utf-8" --data-binary @pr.json https://api.github.com/repos/<owner>/<repo>/pulls/<n>`。判据是回读一次，确认 `title` 与 `body` 首行是你写的。
 
 **收尾要两份签核文件。** 各写一份 signoff.md：对象、基准 commit、核过的文件与 md5、跑过的判据与 rc、坏样本、结论（认可或不认可）。两份都要覆盖全部安装位置——少一处，就是两个人的认可范围不一样。
 
