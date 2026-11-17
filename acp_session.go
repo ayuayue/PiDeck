@@ -388,14 +388,16 @@ func (a *app) flushACP(s *session) {
 	})
 }
 
-// acpBadge names the ACP preset and its current mode; with modes on
-// offer it opens the mode picker.
+// acpBadge names the ACP preset, its state and its mode, and opens the
+// agent's own panel: the mode list, what it was started with, its commands
+// and the way to reconnect.
 func (a *app) acpBadge(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
+		preset := a.acpPresetByID(s.acpPreset)
 		name := "ACP"
-		if p := a.acpPresetByID(s.acpPreset); p != nil {
-			name = p.Name
+		if preset != nil {
+			name = preset.Name
 		}
 		modes := s.acpModes.Get()
 		label := name
@@ -403,61 +405,106 @@ func (a *app) acpBadge(s *session) core.Node {
 			label += " · " + acpModeLabel(modes, mode)
 		}
 		dot := colors.Faint
-		if s.status.Get() == statusFailed {
+		switch {
+		case s.status.Get() == statusFailed:
 			dot = colors.Danger
-		} else if s.readySig.Get() {
+		case s.starting && !s.readySig.Get():
+			dot = colors.Warn
+		case s.readySig.Get():
 			dot = colors.Up
 		}
-		chip := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
-			Padding: core.Symmetric(0, 7), CornerRadius: 12, Background: colors.Inset()}, Children: []core.Node{
-			core.View{StyleFunc: func() core.Style {
-				return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: dot()}
-			}},
-			core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
-		}}
-		if len(modes) == 0 {
-			return chip
-		}
-		chip.OnPress = func(core.PressEvent) { s.acpModeOpen.Update(func(v bool) bool { return !v }) }
-		chip.Role = core.RoleButton
-		chip.Label = "切换 ACP 模式"
-		chip.TestID = "acp-mode-badge"
-		chip.Style.Hover = &core.Style{Background: colors.Hover()}
-		return a.popoverCard(s.acpModeOpen, core.PlaceTop, core.AlignStart, 260, chip, func(cx *core.Scope) core.Node {
-			colors := ui.ColorsOf(cx)
-			current := s.acpMode.Get()
-			var rows []core.Node
-			for _, m := range modes {
-				mode := m
-				title := mode.Name
-				if title == "" {
-					title = mode.ID
-				}
-				rows = append(rows, core.View{
-					OnPress: func(core.PressEvent) { a.setACPMode(s, mode.ID) },
-					Role:    core.RoleButton, Label: "切换到 " + title, TestID: "acp-mode-" + mode.ID,
-					StyleFunc: func() core.Style {
-						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(32),
-							Padding: core.Symmetric(3, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
-					},
-					Children: []core.Node{
-						core.View{Style: core.Style{Width: core.Pt(14)},
-							Children: []core.Node{core.Show{When: func() bool { return mode.ID == current }, Then: func(*core.Scope) core.Node {
-								return ui.Icon(lucide.Check, 12, colors.Accent)
-							}}}},
-						core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
-							core.Text{Content: title, Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
-							core.Show{When: func() bool { return mode.Description != "" }, Then: func(*core.Scope) core.Node {
-								return core.Text{Content: mode.Description, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
-									Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)}
-							}},
-						}},
-					},
-				})
+		chip := core.View{OnPress: func(core.PressEvent) { s.acpModeOpen.Update(func(v bool) bool { return !v }) },
+			Role: core.RoleButton, Label: T("ACP · %s", label), TestID: "acp-mode-badge",
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(26), FlexShrink: 0,
+				Padding: core.Symmetric(0, 8), CornerRadius: 7, Background: colors.Inset(),
+				Hover: &core.Style{Background: colors.Hover()}},
+			Children: []core.Node{
+				core.View{StyleFunc: func() core.Style {
+					return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: dot()}
+				}},
+				core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style: core.Style{FontSize: 11.5, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
+				ui.Icon(lucide.ChevronDown, 9.5, colors.Faint),
+			}}
+		trigger := hintOf(func() string {
+			if s.readySig.Get() {
+				return T("ACP · %s（点一下看模式与启动参数）", name)
 			}
+			return T("ACP · %s（启动中）", name)
+		}, chip)
+		return a.popoverCard(s.acpModeOpen, core.PlaceTop, core.AlignStart, 300, trigger, func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			var rows []core.Node
+			if len(modes) > 0 {
+				current := s.acpMode.Get()
+				rows = append(rows, composerPanelTitle(cx, T("模式")))
+				for _, m := range modes {
+					mode := m
+					title := mode.Name
+					if title == "" {
+						title = mode.ID
+					}
+					rows = append(rows, composerRow(cx, nil, title, mode.Description, mode.ID == current, false, func() {
+						a.setACPMode(s, mode.ID)
+					}))
+				}
+				rows = append(rows, composerDivider(cx))
+			}
+			if s.starting && !s.readySig.Get() {
+				rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+					Padding: core.Symmetric(4, 8)}, Children: []core.Node{
+					ui.Spinner{Size: 11},
+					ui.Text(T("正在启动 agent…"), 11, ui.Regular, colors.Muted),
+				}})
+			}
+			rows = append(rows, composerPanelTitle(cx, T("启动参数")))
+			param := func(label, value string) core.Node {
+				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, Padding: core.Symmetric(2, 8)},
+					Children: []core.Node{
+						core.Text{Content: label, Style: core.Style{FontSize: 10.5, Width: core.Pt(64), FlexShrink: 0},
+							StyleFunc: ui.Colored(colors.Faint)},
+						core.Text{Content: value, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle, Selectable: core.SelectableOn,
+							Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+							StyleFunc: ui.Colored(colors.Muted)},
+					}}
+			}
+			cmd, args := "", ""
+			if preset != nil {
+				cmd, args = preset.Command, strings.Join(preset.Args, " ")
+			}
+			sessionID := s.acpSID
+			if sessionID == "" {
+				sessionID = T("（还没有建立）")
+			}
+			rows = append(rows,
+				param(T("命令"), firstNonEmpty(cmd, "—")),
+				param(T("参数"), firstNonEmpty(args, "—")),
+				param(T("工作目录"), s.WS),
+				param(T("会话"), sessionID),
+			)
+			if cmds := s.acpCommands.Get(); len(cmds) > 0 {
+				rows = append(rows, composerDivider(cx), composerPanelTitle(cx, T("命令（插入输入框）")))
+				for _, c := range cmds {
+					cmd := c
+					rows = append(rows, composerRow(cx, lucide.Command, "/"+cmd.Name, cmd.Description, false, false, func() {
+						draft := s.draft.GetUntracked()
+						if draft != "" && !strings.HasSuffix(draft, " ") && !strings.HasSuffix(draft, "\n") {
+							draft += " "
+						}
+						s.draft.Set(draft + "/" + cmd.Name + " ")
+						s.acpModeOpen.Set(false)
+					}))
+				}
+			}
+			rows = append(rows, composerDivider(cx), core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(2, 0)},
+				Children: []core.Node{
+					ui.Button{Text: T("重连"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-reconnect",
+						OnPress: func() { s.acpModeOpen.Set(false); a.reconnectACP(s) }},
+					ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+						OnPress: func() { s.acpModeOpen.Set(false) }},
+				}})
 			return core.View{Style: core.Style{Gap: 1}, Children: rows}
-		}, "acp-mode-menu")
+		}, "acp-info-menu")
 	})
 }
 
@@ -491,48 +538,6 @@ func (a *app) setACPMode(s *session, modeID string) {
 			s.acpMode.Set(modeID)
 		})
 	}()
-}
-
-// acpCommandMenu lists the commands an ACP agent offers.
-func (a *app) acpCommandMenu(s *session) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		cmds := s.acpCommands.Get()
-		if len(cmds) == 0 {
-			return nil
-		}
-		trigger := a.pressIcon(lucide.Command, "ACP 命令", 26, 13, nil, func() {
-			s.acpCmdOpen.Update(func(v bool) bool { return !v })
-		}, "acp-commands")
-		return a.popoverCard(s.acpCmdOpen, core.PlaceTop, core.AlignStart, 300, trigger, func(cx *core.Scope) core.Node {
-			colors := ui.ColorsOf(cx)
-			var rows []core.Node
-			for _, c := range cmds {
-				cmd := c
-				rows = append(rows, core.View{
-					OnPress: func(core.PressEvent) {
-						draft := s.draft.GetUntracked()
-						if draft != "" && !strings.HasSuffix(draft, " ") && !strings.HasSuffix(draft, "\n") {
-							draft += " "
-						}
-						s.draft.Set(draft + "/" + cmd.Name + " ")
-						s.acpCmdOpen.Set(false)
-					},
-					Role: core.RoleButton, Label: cmd.Name,
-					StyleFunc: func() core.Style {
-						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30),
-							Padding: core.Symmetric(2, 8), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
-					},
-					Children: []core.Node{
-						core.Text{Content: "/" + cmd.Name, Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5, Width: core.Pt(110)},
-							StyleFunc: ui.Colored(colors.Text)},
-						core.Text{Content: cmd.Description, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
-					},
-				})
-			}
-			return core.View{Style: core.Style{Gap: 1}, Children: rows}
-		}, "acp-command-menu")
-	})
 }
 
 // askACPPermission turns an agent's permission request into the app's
@@ -683,7 +688,7 @@ func (a *app) acpDialog() core.Node {
 							}},
 						}},
 						core.Text{Content: preset.Command + " " + strings.Join(preset.Args, " "), MaxLines: 1,
-							EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
+							EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5},
 							StyleFunc: ui.Colored(colors.Faint)},
 					}},
 				},

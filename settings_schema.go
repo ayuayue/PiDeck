@@ -45,6 +45,7 @@ var appSettingFields = []settingField{
 	{Key: "notifyOnDone", Type: "bool", Default: false},
 	{Key: "notifyOnlyHidden", Type: "bool", Default: false},
 	{Key: "petEnabled", Type: "bool", Default: false},
+	{Key: "telemetryEnabled", Type: "bool", Default: true},
 	{Key: "feishuEnabled", Type: "bool", Default: false},
 	{Key: "feishuInbound", Type: "bool", Default: false},
 	{Key: "feishuReply", Type: "bool", Default: false},
@@ -57,6 +58,9 @@ var appSettingFields = []settingField{
 	{Key: "editorWrap", Type: "bool", Default: false},
 	{Key: "terminalFont", Type: "number", Default: 0, Min: intPtr(8), Max: intPtr(20)},
 	{Key: "editorFont", Type: "number", Default: 0, Min: intPtr(11), Max: intPtr(20)},
+	{Key: "chatFont", Type: "number", Default: 0, Min: intPtr(chatFontMin), Max: intPtr(chatFontMax)},
+	{Key: "chatLine", Type: "number", Default: 0, Min: intPtr(int(chatLineMin * 10)), Max: intPtr(int(chatLineMax * 10))},
+	{Key: "inputFont", Type: "number", Default: 0, Min: intPtr(chatFontMin), Max: intPtr(chatFontMax)},
 }
 
 // settingsSchema is the schema as the diagnostics bundle carries it.

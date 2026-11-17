@@ -43,11 +43,15 @@ func webMode() bool { return runtime.GOOS == "js" }
 func clientMode() bool { return mobileMode() || webMode() }
 
 // mobileSaved is the last connection the phone used, and the ones before
-// it so a second server is one tap away.
+// it so a second server is one tap away, beside the look, the language and
+// the project it was left on.
 type mobileSaved struct {
-	Server string         `json:"server"`
-	Token  string         `json:"token"`
-	Recent []mobileRecent `json:"recent,omitempty"`
+	Server     string         `json:"server"`
+	Token      string         `json:"token"`
+	Recent     []mobileRecent `json:"recent,omitempty"`
+	Language   string         `json:"language,omitempty"`
+	Appearance string         `json:"appearance,omitempty"`
+	Project    string         `json:"project,omitempty"`
 }
 
 type mobileRecent struct {
@@ -116,6 +120,39 @@ type mobileApp struct {
 	client *remoteClient
 	gen    int
 
+	// drawer is the rail over the page on a phone; initProject, initDraft
+	// and initPending are the new-session page's choices, and railCollapsed
+	// the projects folded in the rail.
+	drawerOpen    *core.Signal[bool]
+	railHidden    *core.Signal[bool]
+	initProject   *core.Signal[string]
+	initDraft     *core.Signal[string]
+	initPending   *core.Signal[[]promptImage]
+	initSending   *core.Signal[bool]
+	railCollapsed *core.Signal[[]string]
+	settingsOpen  *core.Signal[bool]
+	projectOpen   *core.Signal[string]
+	appearance    *core.Signal[string]
+	language      *core.Signal[string]
+
+	// The rail's lists: the ways of working a session can start with, the
+	// desktop's cron tasks and its favorites.
+	agents        *core.Signal[[]remoteWireAgent]
+	agentsBusy    *core.Signal[bool]
+	agentsErr     *core.Signal[string]
+	agentsOpen    *core.Signal[bool]
+	tasks         *core.Signal[[]remoteWireTask]
+	tasksBusy     *core.Signal[bool]
+	tasksErr      *core.Signal[string]
+	tasksOpen     *core.Signal[bool]
+	taskOpen      *core.Signal[string]
+	taskBusy      *core.Signal[string]
+	favorites     *core.Signal[[]remoteWireFavorite]
+	favoritesBusy *core.Signal[bool]
+	favoritesErr  *core.Signal[string]
+	favoritesOpen *core.Signal[bool]
+	favOpen       *core.Signal[string]
+
 	// query filters the session list, findText the open transcript.
 	query      *core.Signal[string]
 	searchOpen *core.Signal[bool]
@@ -142,7 +179,6 @@ type mobileApp struct {
 	addPath    *core.Signal[string]
 	addOpen    *core.Signal[bool]
 	removePath *core.Signal[string]
-	moreOpen   *core.Signal[bool]
 
 	// options are the open session's models and thinking levels, shown in
 	// the sheet over optionsOpen.
@@ -241,7 +277,6 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		addPath:         core.NewSignal(cx, ""),
 		addOpen:         core.NewSignal(cx, false),
 		removePath:      core.NewSignal(cx, ""),
-		moreOpen:        core.NewSignal(cx, false),
 		options:         core.NewSignalFunc(cx, remoteWireOptions{}, nil),
 		optionsOpen:     core.NewSignal(cx, false),
 		toolOpen:        core.NewSignal(cx, ""),
@@ -251,8 +286,43 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		scroll:          &core.Ref{},
 		atBottom:        core.NewSignal(cx, true),
 		notice:          core.NewSignal(cx, ""),
+		drawerOpen:      core.NewSignal(cx, false),
+		railHidden:      core.NewSignal(cx, false),
+		initProject:     core.NewSignal(cx, ""),
+		initDraft:       core.NewSignal(cx, ""),
+		initPending:     core.NewSignalFunc(cx, []promptImage(nil), nil),
+		initSending:     core.NewSignal(cx, false),
+		railCollapsed:   core.NewSignalFunc(cx, []string(nil), nil),
+		settingsOpen:    core.NewSignal(cx, false),
+		projectOpen:     core.NewSignal(cx, ""),
+		appearance:      core.NewSignal(cx, appearanceSystem),
+		language:        core.NewSignal(cx, langZhCN),
+		agents:          core.NewSignalFunc(cx, []remoteWireAgent(nil), nil),
+		agentsBusy:      core.NewSignal(cx, false),
+		agentsErr:       core.NewSignal(cx, ""),
+		agentsOpen:      core.NewSignal(cx, false),
+		tasks:           core.NewSignalFunc(cx, []remoteWireTask(nil), nil),
+		tasksBusy:       core.NewSignal(cx, false),
+		tasksErr:        core.NewSignal(cx, ""),
+		tasksOpen:       core.NewSignal(cx, false),
+		taskOpen:        core.NewSignal(cx, ""),
+		taskBusy:        core.NewSignal(cx, ""),
+		favorites:       core.NewSignalFunc(cx, []remoteWireFavorite(nil), nil),
+		favoritesBusy:   core.NewSignal(cx, false),
+		favoritesErr:    core.NewSignal(cx, ""),
+		favoritesOpen:   core.NewSignal(cx, false),
+		favOpen:         core.NewSignal(cx, ""),
 	}
 	saved := loadMobileSaved(cx)
+	// The saved look, language and last project win over the system's:
+	// the user chose them here, not on this boot.
+	if saved.Language != "" {
+		setUILanguage(resolveLanguage(saved.Language, cx.Env().Locale()))
+	}
+	a.language.Set(resolveLanguage(setting, cx.Env().Locale()))
+	a.appearance.Set(saved.Appearance)
+	cx.SetAppearance(appearanceOf(saved.Appearance))
+	a.initProject.Set(saved.Project)
 	// A page is served by a desktop, so its origin is the server and a link's
 	// ?token= the token; a saved connection wins only over the origin.
 	if origin, linkToken := webStart(); origin != "" {
@@ -272,6 +342,10 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		}
 	}
 	cx.OnBackPress(func() bool {
+		if a.drawerOpen.GetUntracked() {
+			a.openDrawer(false)
+			return true
+		}
 		if a.active.GetUntracked() != "" {
 			a.closeSession()
 			return true
@@ -281,26 +355,31 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	return a
 }
 
-// view is the whole phone screen, with the sheets over it.
+// view is the whole phone screen, with the drawer and the sheets over it.
 func (a *mobileApp) view() core.Node {
 	return core.View{Style: ui.FillRest, Children: []core.Node{
 		core.Dynamic(func(cx *core.Scope) core.Node {
 			if a.connected.Get() {
-				if a.active.Get() != "" {
-					return a.transcriptView(cx)
-				}
-				return a.sessionsView(cx)
+				return a.shell(cx)
 			}
 			return a.connectView(cx)
 		}),
+		a.drawer(),
 		a.actionSheet(),
 		a.renameSheet(),
+		a.deleteSheet(),
 		a.newSessionSheet(),
 		a.optionsSheet(),
 		a.noticePill(),
 		a.addProjectSheet(),
 		a.removeProjectSheet(),
-		a.moreSheet(),
+		a.projectSheet(),
+		a.settingsSheet(),
+		a.searchSheet(),
+		a.agentsSheet(),
+		a.tasksSheet(),
+		a.favoritesSheet(),
+		a.favoriteTextSheet(),
 		a.gitSheet(),
 		a.gitDiffSheet(),
 		a.gitBranchesSheet(),
@@ -400,7 +479,7 @@ func (a *mobileApp) recentList() core.Node {
 						core.Text{Content: r.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 							Style: core.Style{FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
 						core.Text{Content: host, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+							Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 					ui.Icon(lucide.ChevronRight, 13, colors.Faint),
 				}})
@@ -525,8 +604,10 @@ func (a *mobileApp) connect() {
 			saved := rememberConnection(a.recent.GetUntracked(), mobileRecent{
 				Server: client.base, Token: token, Name: a.serverName.Get(), At: time.Now().UnixMilli(),
 			})
-			saveMobileSaved(a.cx, saved)
 			a.recent.Set(saved.Recent)
+			// The look, the language and the last project are kept beside the
+			// connection, so saveLook writes all of them.
+			a.saveLook()
 			a.startPolling()
 		})
 	}()
@@ -615,28 +696,17 @@ func (a *mobileApp) refreshState() {
 	}()
 }
 
-// sessionsView lists the desktop's projects and their sessions.
 // pageStale says the page was built before the desktop it talks to, which
 // only a browser page can be: a reload takes the newer one.
 func (a *mobileApp) pageStale() bool {
 	return webMode() && a.desktopVersion.Get() != "" && a.desktopVersion.Get() != appVersion
 }
 
-func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
+// appNotice is the thin bar under a page's header: the connection's error,
+// or a browser page older than the desktop it talks to.
+func (a *mobileApp) appNotice(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
-		PaddingEnv: core.EnvAll(core.EnvSafeArea)}, Children: []core.Node{
-		core.Dynamic(func(cx *core.Scope) core.Node {
-			if a.searchOpen.Get() {
-				return a.searchHeader(cx)
-			}
-			return a.mobileHeader(cx, a.serverName.Get(), a.server.Get(), false,
-				a.pressIcon(lucide.Search, T("搜索会话"), 34, 16, nil, func() { a.searchOpen.Set(true) }, "mobile-search"),
-				a.pressIcon(lucide.Plus, T("新建会话"), 34, 18, nil, a.startNewSession, "mobile-new"),
-				a.pressIcon(lucide.RefreshCw, T("刷新"), 34, 16, nil, a.refreshState, "mobile-refresh"),
-				a.pressIcon(lucide.Ellipsis, "更多", 34, 18, nil, func() { a.moreOpen.Set(true) }, "mobile-more"),
-			)
-		}),
+	return core.View{Style: core.Style{FlexShrink: 0}, Children: []core.Node{
 		core.Show{When: func() bool { return a.err.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(8, 14)},
 				StyleFunc: func() core.Style { return core.Style{Background: ui.Alpha(colors.Danger(), 0.07)} },
@@ -661,104 +731,43 @@ func (a *mobileApp) sessionsView(cx *core.Scope) core.Node {
 						TestID: "mobile-reload", OnPress: func() { webReload() }},
 				}}
 		}},
-		core.Scroll{Style: ui.FillRest, OnRefresh: a.refreshState, Refreshing: a.refreshing.Get,
-			Children: []core.Node{
-				core.Dynamic(func(cx *core.Scope) core.Node {
-					snap := a.state.Get()
-					query := strings.ToLower(strings.TrimSpace(a.query.Get()))
-					var sections []core.Node
-					for pi, project := range snap.Projects {
-						p := project
-						matched := make([]remoteWireSession, 0, len(p.Sessions))
-						for _, session := range p.Sessions {
-							if query == "" || strings.Contains(strings.ToLower(session.Title), query) {
-								matched = append(matched, session)
-							}
-						}
-						if len(matched) == 0 {
-							continue
-						}
-						rows := make([]core.Node, 0, len(matched))
-						for _, session := range matched {
-							rows = append(rows, a.mobileSessionRow(cx, session))
-						}
-						sections = append(sections, core.View{Style: core.Style{Gap: 2, Margin: core.Edges{Bottom: 14}}, Children: []core.Node{
-							core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(8, 16)}, Children: []core.Node{
-								ui.Icon(lucide.Folder, 13, colors.Muted),
-								core.Text{Content: p.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-									Style: core.Style{FlexGrow: 1, FontSize: 12, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
-								ui.Text(fmt.Sprint(len(matched)), 10, ui.Regular, colors.Faint),
-								a.pressIcon(lucide.GitBranch, "查看 Git", 30, 14, nil, func() {
-									a.openGit(p.Path, p.Name)
-								}, fmt.Sprintf("mobile-git-%d", pi)),
-							}},
-							core.View{Style: core.Style{Gap: 1}, Children: rows},
-						}})
-					}
-					if query != "" {
-						if hits := a.hitRows(cx, query); len(hits) > 0 {
-							sections = append(sections, hits...)
-						}
-					}
-					switch {
-					case len(sections) > 0:
-					case query != "":
-						sections = append(sections, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-							ui.Icon(lucide.SearchX, 28, colors.Faint),
-							ui.Text(T("没有匹配的会话"), 13, ui.Medium, colors.Muted),
-							ui.Text(T("换个词试试，或者新建一个会话。"), 11.5, ui.Regular, colors.Faint),
-						}})
-					default:
-						sections = append(sections, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-							ui.Icon(lucide.Laptop, 30, colors.Faint),
-							ui.Text(T("电脑上还没有会话"), 13, ui.Medium, colors.Muted),
-							ui.Text(T("点右上角的新建，直接在手机上开始。"), 11.5, ui.Regular, colors.Faint),
-							core.View{Style: core.Style{Margin: core.Edges{Top: 6}}, Children: []core.Node{
-								ui.Button{Text: T("新建会话"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "mobile-new-empty",
-									OnPress: a.startNewSession},
-							}},
-						}})
-					}
-					if query == "" {
-						sections = append(sections, core.View{Style: core.Style{Padding: core.Edges{Left: 8, Top: 2}}, Children: []core.Node{
-							a.sheetRow(lucide.FolderPlus, "添加项目", colors.Faint, func() {
-								a.addPath.Set("")
-								a.addOpen.Set(true)
-							}, "mobile-add-project-row"),
-						}})
-					}
-					return core.View{Style: core.Style{Padding: core.Edges{Top: 10, Bottom: 24, Left: 8, Right: 8}, Gap: 0}, Children: sections}
-				}),
-			}},
 	}}
 }
 
-// mobileSessionRow is one session in the phone's list.
+// mobileSessionRow is one session in the rail: a status dot, its title,
+// and when it last did something.
 func (a *mobileApp) mobileSessionRow(cx *core.Scope, s remoteWireSession) core.Node {
 	colors := ui.ColorsOf(cx)
 	tone := remoteStatusColor(s.Status, colors)
 	if s.Ask != nil {
 		tone = colors.Warn()
 	}
-	return core.View{OnPress: func(core.PressEvent) { a.openSession(s.ID, s.Title) },
-		Role: core.RoleButton, Label: s.Title, TestID: "mobile-session",
+	return core.View{OnPress: func(core.PressEvent) {
+		a.openDrawer(false)
+		a.openSession(s.ID, s.Title)
+	}, Role: core.RoleButton, Label: s.Title, TestID: "mobile-session",
 		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(52), Padding: core.Edges{Left: 8, Right: 2},
-				CornerRadius: 9, Transition: pressMotion, Active: &core.Style{Background: colors.Pressed()}}
+			st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(44),
+				Padding: core.Edges{Left: 8, Right: 2}, CornerRadius: 8, Transition: pressMotion,
+				Active: &core.Style{Background: colors.Pressed()}}
+			if a.active.Get() == s.ID {
+				st.Background = colors.Pressed()
+			}
+			return st
 		},
 		Children: []core.Node{
-			core.View{Style: core.Style{Width: core.Pt(7), Height: core.Pt(7), CornerRadius: 4, Background: tone, FlexShrink: 0}},
-			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+			core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: tone, FlexShrink: 0}},
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 0}, Children: []core.Node{
 				core.Text{Content: s.Title, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FontSize: 14, LineHeight: 19}, StyleFunc: ui.Colored(colors.Text)},
+					Style: core.Style{FontSize: 13, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
-					core.Text{Content: mobileWhen(s.Updated), MaxLines: 1, Style: core.Style{FontSize: 10.5},
+					core.Text{Content: mobileWhen(s.Updated), MaxLines: 1, Style: core.Style{FontSize: 10},
 						StyleFunc: ui.Colored(colors.Faint)},
 					core.Show{When: func() bool { return s.Running }, Then: func(*core.Scope) core.Node {
-						return ui.Text(T("运行中"), 10, ui.Medium, colors.Accent)
+						return ui.Text(T("运行中"), 9.5, ui.Medium, colors.Accent)
 					}},
 					core.Show{When: func() bool { return s.Ask != nil }, Then: func(*core.Scope) core.Node {
-						return ui.Text(T("待确认"), 10, ui.Medium, colors.Warn)
+						return ui.Text(T("待确认"), 9.5, ui.Medium, colors.Warn)
 					}},
 				}},
 			}},
@@ -767,9 +776,9 @@ func (a *mobileApp) mobileSessionRow(cx *core.Scope, s remoteWireSession) core.N
 					Children: []core.Node{ui.Text("pi", 9, ui.Medium, colors.Faint)}}
 			}},
 			core.Show{When: func() bool { return s.Pinned }, Then: func(*core.Scope) core.Node {
-				return ui.Icon(lucide.Pin, 12, colors.Faint)
+				return ui.Icon(lucide.Pin, 11, colors.Faint)
 			}},
-			a.pressIcon(lucide.Ellipsis, "会话操作", 32, 16, nil, func() { a.actionID.Set(s.ID) }, "mobile-session-actions"),
+			a.pressIcon(lucide.Ellipsis, T("会话操作"), 30, 15, nil, func() { a.actionID.Set(s.ID) }, "mobile-session-actions"),
 		}}
 }
 
@@ -808,61 +817,6 @@ func (a *mobileApp) pressIcon(icon func() *core.SVG, label string, size, iconSiz
 		},
 		Children: []core.Node{ui.Icon(icon, iconSize, colors.Muted)},
 	}
-}
-
-// mobileHeader is the bar over the list and the transcript; actions sit at
-// its end.
-func (a *mobileApp) mobileHeader(cx *core.Scope, title, subtitle string, back bool, actions ...core.Node) core.Node {
-	colors := ui.ColorsOf(cx)
-	var leading []core.Node
-	if back {
-		leading = append(leading, a.pressIcon(lucide.ChevronLeft, "返回", 36, 20, nil, a.closeSession, "mobile-back"))
-	}
-	children := append(leading, core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 0}, Children: []core.Node{
-		core.Text{Content: title, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-			Style: core.Style{FontSize: 15, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
-		core.Show{When: func() bool { return subtitle != "" }, Then: func(*core.Scope) core.Node {
-			return core.Text{Content: subtitle, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
-		}},
-	}})
-	children = append(children, core.Dynamic(func(*core.Scope) core.Node {
-		if a.transcriptBusy.Get() || a.refreshing.Get() {
-			return ui.Spinner{Size: 12, Label: T("刷新")}
-		}
-		return nil
-	}))
-	children = append(children, actions...)
-	return core.View{StyleFunc: func() core.Style {
-		return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(52), Padding: core.Symmetric(0, 12),
-			Background: colors.Surface(), Borders: core.Edges{Bottom: 1}, BorderColors: core.EdgeColors{Bottom: colors.Line()}}
-	}, Children: children}
-}
-
-// searchHeader replaces the title with a search field over the list.
-func (a *mobileApp) searchHeader(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	return core.View{StyleFunc: func() core.Style {
-		return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(52), Padding: core.Symmetric(0, 8),
-			Background: colors.Surface(), Borders: core.Edges{Bottom: 1}, BorderColors: core.EdgeColors{Bottom: colors.Line()}}
-	}, Children: []core.Node{
-		a.pressIcon(lucide.X, "关闭搜索", 34, 16, nil, func() {
-			a.searchOpen.Set(false)
-			a.query.Set("")
-			a.hits.Set(nil)
-		}, "mobile-search-close"),
-		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-			core.Input{
-				Value: a.query.Get, OnChange: func(v string) {
-					a.query.Set(v)
-					a.scheduleSearch()
-				}, Placeholder: T("搜索会话标题和消息"), Label: T("搜索会话"), TestID: "mobile-search-input",
-				Style: core.Style{Height: core.Pt(38), Padding: core.Symmetric(0, 10), FontSize: 14, Color: colors.Text(),
-					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 9,
-					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection},
-			},
-		}},
-	}}
 }
 
 // openSession downloads a session's transcript.
@@ -929,16 +883,16 @@ func (a *mobileApp) refreshTranscript() {
 // under them.
 func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
-		PaddingEnv: core.EnvAll(core.EnvSafeArea)}, Children: []core.Node{
-		a.mobileHeader(cx, a.activeTitle.Get(), "", true,
+	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+		a.pageHeader(cx, a.activeTitle.Get(), "",
 			a.pressIcon(lucide.FolderOpen, T("浏览文件"), 34, 16, nil, a.openSessionFiles, "mobile-files"),
 			a.pressIcon(lucide.Search, T("搜索会话内容"), 34, 16, nil, func() {
 				a.findText.Set("")
 				a.findOpen.Update(func(v bool) bool { return !v })
 			}, "mobile-find"),
-			a.pressIcon(lucide.RefreshCw, T("刷新"), 34, 16, nil, a.refreshTranscript, "mobile-refresh"),
+			a.pressIcon(lucide.Ellipsis, T("会话操作"), 34, 16, nil, func() { a.actionID.Set(a.active.Get()) }, "mobile-active-actions"),
 		),
+		a.appNotice(cx),
 		core.Show{When: a.findOpen.Get, Then: func(cx *core.Scope) core.Node { return a.findBar(cx) }},
 		core.Show{When: func() bool { return a.transcriptErr.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(8, 14)},
@@ -1196,23 +1150,21 @@ func (a *mobileApp) composer(cx *core.Scope) core.Node {
 
 // pendingStrip shows the pictures waiting to be sent; tapping one drops it.
 func (a *mobileApp) pendingStrip(cx *core.Scope) core.Node {
+	return a.pendingThumbs(cx, func() []promptImage { return a.pending.Get() }, func(index int) {
+		a.pending.Update(func(list []promptImage) []promptImage { return withoutImage(list, index) })
+	})
+}
+
+// pendingThumbs is the strip both composers show, each with its own list.
+func (a *mobileApp) pendingThumbs(cx *core.Scope, images func() []promptImage, drop func(index int)) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.Show{When: func() bool { return len(a.pending.Get()) > 0 }, Then: func(*core.Scope) core.Node {
-		images := a.pending.Get()
-		thumbs := make([]core.Node, 0, len(images))
-		for i, img := range images {
+	return core.Show{When: func() bool { return len(images()) > 0 }, Then: func(*core.Scope) core.Node {
+		list := images()
+		thumbs := make([]core.Node, 0, len(list))
+		for i, img := range list {
 			index := i
-			thumbs = append(thumbs, core.View{OnPress: func(core.PressEvent) {
-				a.pending.Update(func(list []promptImage) []promptImage {
-					out := make([]promptImage, 0, len(list))
-					for j, item := range list {
-						if j != index {
-							out = append(out, item)
-						}
-					}
-					return out
-				})
-			}, Role: core.RoleButton, Label: T("移除图片"), TestID: "mobile-pending",
+			thumbs = append(thumbs, core.View{OnPress: func(core.PressEvent) { drop(index) },
+				Role: core.RoleButton, Label: T("移除图片"), TestID: "mobile-pending",
 				Style: core.Style{Width: core.Pt(46), Height: core.Pt(46), CornerRadius: 9, Overflow: core.Hidden,
 					BorderWidth: 1, BorderColor: colors.Border()},
 				Children: []core.Node{core.Image{Source: core.ImageSource{Data: img.Data}, ResizeMode: core.Cover,
@@ -1221,6 +1173,33 @@ func (a *mobileApp) pendingStrip(cx *core.Scope) core.Node {
 		}
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: thumbs}
 	}}
+}
+
+// withoutImage drops one picture from a list.
+func withoutImage(list []promptImage, index int) []promptImage {
+	out := make([]promptImage, 0, len(list))
+	for i, img := range list {
+		if i != index {
+			out = append(out, img)
+		}
+	}
+	return out
+}
+
+// readImageFile reads one picture from the phone, ready to send.
+func readImageFile(path string) (promptImage, error) {
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
+		return promptImage{}, errors.New(T("图片读不出来"))
+	}
+	if len(data) > 6<<20 {
+		return promptImage{}, errors.New(T("图片太大，上限 6 MB"))
+	}
+	mime := http.DetectContentType(data)
+	if !strings.HasPrefix(mime, "image/") {
+		mime = "image/png"
+	}
+	return promptImage{Data: data, MimeType: mime, Name: filepath.Base(path)}, nil
 }
 
 // pickImage adds pictures from the phone to the next message.
@@ -1234,19 +1213,11 @@ func (a *mobileApp) pickImage() {
 			return
 		}
 		for _, file := range files {
-			data, readErr := os.ReadFile(file.Path)
-			if readErr != nil || len(data) == 0 {
+			img, readErr := readImageFile(file.Path)
+			if readErr != nil {
+				a.flash(readErr.Error())
 				continue
 			}
-			if len(data) > 6<<20 {
-				a.flash("图片太大（上限 6 MB）")
-				continue
-			}
-			mime := http.DetectContentType(data)
-			if !strings.HasPrefix(mime, "image/") {
-				mime = "image/png"
-			}
-			img := promptImage{Data: data, MimeType: mime, Name: filepath.Base(file.Path)}
 			a.pending.Update(func(list []promptImage) []promptImage { return append(list, img) })
 		}
 	})
@@ -1324,7 +1295,7 @@ func (a *mobileApp) toolBlock(cx *core.Scope, lines []remoteWireMessage) core.No
 			Children: []core.Node{
 				ui.Icon(lucide.Terminal, 12, colors.Faint),
 				core.Text{Content: header, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 10.5},
+					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 10.5},
 					StyleFunc: ui.Colored(colors.Faint)},
 				ui.Icon(map[bool]func() *core.SVG{true: lucide.ChevronUp, false: lucide.ChevronDown}[open], 12, colors.Faint),
 			}},
@@ -1333,7 +1304,7 @@ func (a *mobileApp) toolBlock(cx *core.Scope, lines []remoteWireMessage) core.No
 		inner := make([]core.Node, 0, len(lines))
 		for _, line := range lines {
 			inner = append(inner, core.Text{Content: line.Text, MaxLines: 12,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)})
+				Style: core.Style{FontFamily: monoFont(), FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)})
 		}
 		children = append(children, core.View{Style: core.Style{Gap: 4, Padding: core.Edges{Left: 18, Top: 2, Bottom: 4}},
 			Children: inner})
@@ -1428,7 +1399,7 @@ func (a *mobileApp) messageBody(cx *core.Scope, m remoteWireMessage) core.Node {
 	case "tool":
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(2, 4)}, Children: []core.Node{
 			ui.Icon(lucide.Terminal, 12, colors.Faint),
-			core.Text{Content: m.Text, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 10.5, LineHeight: 16},
+			core.Text{Content: m.Text, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 10.5, LineHeight: 16},
 				StyleFunc: ui.Colored(colors.Faint)},
 		}}
 	case "note":
@@ -1495,7 +1466,15 @@ func (a *mobileApp) actionSheet() core.Node {
 						Style: core.Style{FontSize: 14, FontWeight: ui.Semibold, LineHeight: 20}, StyleFunc: ui.Colored(colors.Text)},
 					ui.Text(mobileWhen(s.Updated), 10.5, ui.Regular, colors.Faint),
 				}},
-				a.sheetRow(lucide.SquarePen, "重命名", colors.Text, func() {
+			}
+			if a.active.Get() == id {
+				rows = append(rows, a.sheetRow(lucide.PanelLeft, T("回到新建页"), colors.Text, func() {
+					a.actionID.Set("")
+					a.closeSession()
+				}, "mobile-act-home"))
+			}
+			rows = append(rows,
+				a.sheetRow(lucide.SquarePen, T("重命名"), colors.Text, func() {
 					a.actionID.Set("")
 					a.renameText.Set(s.Title)
 					a.renameID.Set(id)
@@ -1504,7 +1483,7 @@ func (a *mobileApp) actionSheet() core.Node {
 					a.actionID.Set("")
 					a.setPinned(id, !s.Pinned)
 				}, "mobile-act-pin"),
-			}
+			)
 			if s.External {
 				rows = append(rows, core.Text{Content: "pi 自己的会话只能在电脑上删除",
 					Style: core.Style{FontSize: 11, Padding: core.Symmetric(8, 8)}, StyleFunc: ui.Colored(colors.Faint)})
@@ -1567,7 +1546,7 @@ func (a *mobileApp) deleteSheet() core.Node {
 	}
 }
 
-// newSessionSheet picks the project a new session belongs to.
+// newSessionSheet picks the project the new session page starts in.
 func (a *mobileApp) newSessionSheet() core.Node {
 	return ui.Dialog{
 		Open: func() bool { return a.newOpen.Get() },
@@ -1581,13 +1560,30 @@ func (a *mobileApp) newSessionSheet() core.Node {
 		Style:  core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
+			chosen := a.initProjectPath()
 			var rows []core.Node
 			for _, p := range a.state.Get().Projects {
 				project := p
-				rows = append(rows, a.sheetRow(lucide.Folder, project.Name, colors.Text, func() {
+				on := project.Path == chosen
+				row := core.View{OnPress: func(core.PressEvent) {
 					a.newOpen.Set(false)
-					a.createSessionIn(project.Path)
-				}, "mobile-new-project"))
+					a.initProject.Set(project.Path)
+					a.saveLook()
+				}, Role: core.RoleButton, Label: project.Name, TestID: "mobile-new-project",
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinHeight: core.Pt(46),
+							Padding: core.Symmetric(0, 8), CornerRadius: 8, Transition: pressMotion,
+							Active: &core.Style{Background: colors.Pressed()}}
+					},
+					Children: []core.Node{
+						ui.Icon(lucide.Folder, 17, colors.Muted),
+						core.Text{Content: project.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+							Style: core.Style{FlexGrow: 1, FontSize: 14}, StyleFunc: ui.Colored(colors.Text)},
+						core.Show{When: func() bool { return on }, Then: func(*core.Scope) core.Node {
+							return ui.Icon(lucide.Check, 15, colors.Text)
+						}},
+					}}
+				rows = append(rows, row)
 			}
 			if len(rows) == 0 {
 				rows = append(rows, core.Text{Content: "电脑上还没有项目，先添加一个文件夹。", Style: core.Style{FontSize: 12, Padding: core.Symmetric(8, 6)},
@@ -1601,31 +1597,6 @@ func (a *mobileApp) newSessionSheet() core.Node {
 				}, "mobile-add-project"),
 			}})
 			return core.View{Style: core.Style{Gap: 2}, Children: rows}
-		})},
-	}
-}
-
-// moreSheet holds the list's less used actions.
-func (a *mobileApp) moreSheet() core.Node {
-	return ui.Dialog{
-		Open:         func() bool { return a.moreOpen.Get() },
-		OnOpenChange: func(open bool, _ base.Reason) { a.moreOpen.Set(open) },
-		Title:        T("更多"),
-		TestID:       "mobile-more-sheet",
-		Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
-		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			colors := ui.ColorsOf(cx)
-			return core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
-				a.sheetRow(lucide.FolderPlus, "添加项目…", colors.Text, func() {
-					a.moreOpen.Set(false)
-					a.addPath.Set("")
-					a.addOpen.Set(true)
-				}, "mobile-add-project"),
-				a.sheetRow(lucide.Unplug, "断开连接", colors.Danger, func() {
-					a.moreOpen.Set(false)
-					a.disconnect()
-				}, "mobile-disconnect"),
-			}}
 		})},
 	}
 }
@@ -1713,43 +1684,11 @@ func (a *mobileApp) changeProject(path string, remove bool) {
 	}()
 }
 
-// startNewSession creates a session, asking for the project when there are
-// several.
+// startNewSession goes back to the new-session page, which is where a
+// session starts: pick a project, write the first line.
 func (a *mobileApp) startNewSession() {
-	if a.creating.GetUntracked() {
-		return
-	}
-	projects := a.state.GetUntracked().Projects
-	switch len(projects) {
-	case 0:
-		a.err.Set("电脑上还没有项目，先在电脑端添加一个工作区")
-	case 1:
-		a.createSessionIn(projects[0].Path)
-	default:
-		a.newOpen.Set(true)
-	}
-}
-
-// createSessionIn starts a session in one project and opens it.
-func (a *mobileApp) createSessionIn(path string) {
-	client := a.client
-	if client == nil || a.creating.GetUntracked() {
-		return
-	}
-	a.creating.Set(true)
-	go func() {
-		id, title, err := client.createSession(path)
-		a.cx.Post(func() {
-			a.creating.Set(false)
-			if err != nil {
-				a.err.Set(remoteErrorText(err))
-				return
-			}
-			a.err.Set("")
-			a.openSession(id, title)
-			a.refreshState()
-		})
-	}()
+	a.openDrawer(false)
+	a.closeSession()
 }
 
 // saveRename applies the rename sheet.
@@ -1927,7 +1866,7 @@ func (a *mobileApp) usageChip() core.Node {
 		}
 		return core.View{TestID: "mobile-usage", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
 			ui.Icon(lucide.Gauge, 10, colors.Faint),
-			core.Text{Content: label, MaxLines: 1, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+			core.Text{Content: label, MaxLines: 1, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 		}}
 	})
 }

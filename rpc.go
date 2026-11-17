@@ -55,6 +55,8 @@ type piMessage struct {
 	Role       string          `json:"role"`
 	Content    json.RawMessage `json:"content"`
 	Timestamp  int64           `json:"timestamp"`
+	Model      string          `json:"model"`
+	Provider   string          `json:"provider"`
 	Usage      *piUsage        `json:"usage"`
 	StopReason string          `json:"stopReason"`
 	ErrorMsg   string          `json:"errorMessage"`

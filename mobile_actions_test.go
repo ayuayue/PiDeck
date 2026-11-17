@@ -88,7 +88,8 @@ func TestMobileSessionActions(t *testing.T) {
 	app.Press("id:mobile-connect")
 	waitApp(app, "text:电脑项目", 15*time.Second)
 
-	// Search narrows the list.
+	// Search narrows the titles and the messages.
+	openPhoneRail(app)
 	app.Press("id:mobile-search")
 	app.Type("id:mobile-search-input", "电脑")
 	app.Advance(300 * time.Millisecond)
@@ -96,7 +97,8 @@ func TestMobileSessionActions(t *testing.T) {
 	app.WaitFor("id:mobile-session >> nth=0", 5*time.Second)
 	app.Press("id:mobile-search-close")
 
-	// A new session opens its transcript with a composer.
+	// A new session starts on the new-session page, with its composer.
+	openPhoneRail(app)
 	app.Press("id:mobile-new")
 	waitApp(app, "id:mobile-draft", 10*time.Second)
 	app.Type("id:mobile-draft", "手机发来的第一条")
@@ -107,8 +109,8 @@ func TestMobileSessionActions(t *testing.T) {
 		return len(prompted) == 1 && prompted[0] == "手机发来的第一条"
 	})
 
-	// Back to the list, then rename through the action sheet.
-	app.Press("id:mobile-back")
+	// Back to the rail, then rename through the action sheet.
+	openPhoneRail(app)
 	waitApp(app, "id:mobile-session >> nth=0", 10*time.Second)
 	app.Press("id:mobile-session-actions >> nth=0")
 	waitApp(app, "id:mobile-act-rename", 5*time.Second)

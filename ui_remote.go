@@ -57,7 +57,7 @@ func (a *app) settingsRemote() core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30)},
 				Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
-						core.Text{Content: ip, MaxLines: 1, Style: core.Style{FontFamily: ui.Mono, FontSize: 11},
+						core.Text{Content: ip, MaxLines: 1, Style: core.Style{FontFamily: monoFont(), FontSize: 11},
 							StyleFunc: ui.Colored(colors.Text)},
 						core.Text{Content: detail, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 							Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
@@ -101,7 +101,7 @@ func (a *app) settingsRemote() core.Node {
 				core.Text{Content: note, Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
 			}
 			if ch.Detail != "" {
-				children = append(children, core.Text{Content: ch.Detail, MaxLines: 1, Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+				children = append(children, core.Text{Content: ch.Detail, MaxLines: 1, Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 					StyleFunc: ui.Colored(colors.Muted)})
 			}
 			if ch.Error != "" {
@@ -148,7 +148,7 @@ func (a *app) settingsRemote() core.Node {
 						setRow("访问令牌", "手机端连接时需要；重新生成会让旧手机失效。", nil),
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							core.Text{Content: token, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
+								Style: core.Style{FontFamily: monoFont(), FontSize: 10, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
 							ui.Button{Text: T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Disabled: func() bool { return emptyToken },
 								OnPress: func() { a.copyText(a.remote.state.GetUntracked().Token, "访问令牌") }},
 							ui.Button{Text: T("重新生成"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
@@ -223,7 +223,7 @@ func (a *app) remoteQRDialog() core.Node {
 					Children: []core.Node{core.Image{Source: core.ImageSource{Data: png}, ResizeMode: core.Contain,
 						Label: T("连接二维码"), Style: core.Style{Width: core.Pt(240), Height: core.Pt(240)}}}},
 				core.Text{Content: a.qrLink.Get(), MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
-					Style: core.Style{FontFamily: ui.Mono, FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
+					Style: core.Style{FontFamily: monoFont(), FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
 			}}
 		})},
 	}

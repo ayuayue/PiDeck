@@ -29,8 +29,10 @@ func TestSettingsPageScrolls(t *testing.T) {
 	}
 	var built *app
 	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
-	screen := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
-	built.settings.Set(true)
+	// A window close to the dialog's old height: the About page has to be
+	// taller than the page area for the scroll to mean anything.
+	screen := nsgotest.Start(t, root, nsgotest.Size(1280, 620))
+	built.openSettingsPane()
 	screen.Advance(200 * time.Millisecond)
 	screen.Press("id:settings-tab-about")
 	screen.Advance(200 * time.Millisecond)

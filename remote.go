@@ -322,6 +322,10 @@ func (h *remoteHost) handler() http.Handler {
 	mux.HandleFunc("/api/state", h.handleState)
 	mux.HandleFunc("/api/session/", h.handleSession)
 	mux.HandleFunc("/api/sessions", h.handleCreateSession)
+	mux.HandleFunc("/api/agents", h.handleAgents)
+	mux.HandleFunc("/api/tasks", h.handleTasks)
+	mux.HandleFunc("/api/tasks/", h.handleTaskAction)
+	mux.HandleFunc("/api/favorites", h.handleFavorites)
 	mux.HandleFunc("/api/search", h.handleSearch)
 	mux.HandleFunc("/api/projects", h.handleProject)
 	mux.HandleFunc("/api/files", h.handleFiles)
@@ -660,12 +664,14 @@ func (h *remoteHost) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	var body struct {
 		Project string `json:"project"`
 		Title   string `json:"title"`
+		Agent   string `json:"agent"`
 	}
 	if err := decodeRemoteBody(r, &body); err != nil {
 		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	project := strings.TrimSpace(body.Project)
+	agent := strings.TrimSpace(body.Agent)
 	var id, title string
 	var failure error
 	ok := h.app.withUI(func() {
@@ -678,6 +684,19 @@ func (h *remoteHost) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		if s == nil {
 			failure = errors.New("新建会话失败")
 			return
+		}
+		if agent != "" {
+			// An agent is the way of working the phone picked; a name the
+			// desktop does not know leaves the session as it is.
+			if persona := h.app.agentByID(agent); persona != nil {
+				h.app.setPersona(s, persona.ID)
+				if strings.TrimSpace(body.Title) == "" {
+					s.title.Set(T(persona.Name))
+					if h.app.st != nil {
+						h.app.st.edit(func(c *config) { c.Titles[s.ID] = T(persona.Name) })
+					}
+				}
+			}
 		}
 		if name := strings.TrimSpace(body.Title); name != "" {
 			s.title.Set(name)
@@ -695,6 +714,137 @@ func (h *remoteHost) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	default:
 		writeRemoteJSON(w, http.StatusOK, map[string]string{"id": id, "title": title})
 	}
+}
+
+// handleAgents lists the ways of working a new session can start with.
+func (h *remoteHost) handleAgents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	out := remoteWireAgents{Agents: []remoteWireAgent{}}
+	ok := h.app.withUI(func() {
+		for _, p := range h.app.agentList() {
+			out.Agents = append(out.Agents, remoteWireAgent{ID: p.ID, Name: T(p.Name), Description: T(p.Description)})
+		}
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	writeRemoteJSON(w, http.StatusOK, out)
+}
+
+// handleTasks lists the cron tasks with when they ran last and when they
+// fire next, so the phone can say both without a cron parser.
+func (h *remoteHost) handleTasks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	out := remoteWireTasks{Tasks: []remoteWireTask{}}
+	ok := h.app.withUI(func() {
+		now := time.Now()
+		newest := map[string]string{}
+		for _, run := range h.app.taskRunList() {
+			if run.SessionID == "" {
+				continue
+			}
+			if _, seen := newest[run.TaskID]; seen {
+				continue
+			}
+			newest[run.TaskID] = run.SessionID
+		}
+		for _, t := range h.app.taskList() {
+			item := remoteWireTask{ID: t.ID, Name: t.Name, Prompt: t.Prompt, Project: t.Project, Cron: t.Cron,
+				Backend: t.Backend, Agent: t.Persona, Enabled: t.Enabled, LastStatus: t.LastStatus,
+				LastRunAt: remoteMillis(t.LastRunAt), SessionID: newest[t.ID]}
+			if next := taskNextRun(t, now); !next.IsZero() {
+				item.NextRunAt = next.UnixMilli()
+			}
+			out.Tasks = append(out.Tasks, item)
+		}
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	writeRemoteJSON(w, http.StatusOK, out)
+}
+
+// remoteMillis is a time as the phone reads it, 0 when unset.
+func remoteMillis(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixMilli()
+}
+
+// handleTaskAction switches one task on or off, or runs it now.
+func (h *remoteHost) handleTaskAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+	parts := strings.SplitN(rest, "/", 2)
+	id, err := url.PathUnescape(parts[0])
+	if err != nil || id == "" {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少任务 ID"})
+		return
+	}
+	action := ""
+	if len(parts) == 2 {
+		action = strings.Trim(parts[1], "/")
+	}
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	switch action {
+	case "toggle":
+		if err := decodeRemoteBody(r, &body); err != nil || body.Enabled == nil {
+			writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "要说明是开启还是关闭"})
+			return
+		}
+	case "run":
+	default:
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "没有这个操作"})
+		return
+	}
+	ok := h.app.withUI(func() {
+		if action == "toggle" {
+			h.app.toggleTask(id, *body.Enabled)
+			return
+		}
+		h.app.runTaskNow(id)
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	writeRemoteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleFavorites lists the answers and sessions in the desktop's
+// favorites.
+func (h *remoteHost) handleFavorites(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	out := remoteWireFavorites{Favorites: []remoteWireFavorite{}}
+	ok := h.app.withUI(func() {
+		for _, e := range h.app.favoriteList() {
+			out.Favorites = append(out.Favorites, remoteWireFavorite{ID: e.ID, Kind: e.Kind, SessionID: e.SessionID,
+				SessionTitle: e.SessionTitle, Project: e.Project, Prompt: e.Prompt, Text: e.Text,
+				CreatedAt: remoteMillis(e.CreatedAt)})
+		}
+	})
+	if !ok {
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+		return
+	}
+	writeRemoteJSON(w, http.StatusOK, out)
 }
 
 // handleSessionAction runs one operation on a session.
@@ -1614,30 +1764,12 @@ func (a *app) remoteTranscript(id string) (remoteWireTranscript, error) {
 	return out, nil
 }
 
-// readSessionTurns reads the messages of a pi session file.
+// readSessionTurns reads the messages of a pi session file, from the parse
+// the desktop keeps, so a phone polling a long session does not read it
+// again on every request.
 func readSessionTurns(path string) ([]turn, error) {
-	f, err := os.Open(path)
+	msgs, err := sessionFileMessages(path)
 	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
-	var msgs []piMessage
-	for sc.Scan() {
-		var entry struct {
-			Type    string          `json:"type"`
-			Message json.RawMessage `json:"message"`
-		}
-		if json.Unmarshal(sc.Bytes(), &entry) != nil || entry.Type != "message" || len(entry.Message) == 0 {
-			continue
-		}
-		var msg piMessage
-		if json.Unmarshal(entry.Message, &msg) == nil {
-			msgs = append(msgs, msg)
-		}
-	}
-	if err := sc.Err(); err != nil {
 		return nil, err
 	}
 	if len(msgs) > 4000 {

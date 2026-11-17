@@ -32,11 +32,11 @@ func crashScreenFor(cx *core.Scope, err error, reset func(), logPath string, ope
 		card = append(card, core.Scroll{Style: core.Style{MaxHeight: core.Pt(180), Width: core.Pct(100), Padding: core.All(9),
 			Background: colors.Inset(), CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Border()}, Children: []core.Node{
 			core.Text{Content: detail, Selectable: core.SelectableOn,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 10, LineHeight: 15}, StyleFunc: ui.Colored(colors.Danger)},
+				Style: core.Style{FontFamily: monoFont(), FontSize: 10, LineHeight: 15}, StyleFunc: ui.Colored(colors.Danger)},
 		}})
 	}
 	card = append(card, core.Text{Content: logged, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
-		Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)})
+		Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)})
 	buttons := []core.Node{
 		ui.Button{Text: T("重新加载界面"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "crash-reset", OnPress: reset},
 	}

@@ -166,7 +166,7 @@ func (a *app) editorBody() core.Node {
 				},
 				Language:   f.Lang,
 				AutoFocus:  true,
-				FontFamily: a.monoFont.Get(),
+				FontFamily: monoFont(),
 				FontSize:   core.Points(a.editorFont.Get()),
 				LineHeight: core.Points(a.editorFont.Get() * 1.62),
 				SoftWrap:   a.editorWrap.Get(),
@@ -192,7 +192,7 @@ func (a *app) editorStatus() core.Node {
 				return core.Text{Content: "", Style: core.Style{FlexGrow: 1}}
 			}
 			return core.Text{Content: shortPath(f.Path, 70), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Faint)}
+				Style: core.Style{FontFamily: monoFont(), FontSize: 10, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Faint)}
 		}),
 		core.Dynamic(func(*core.Scope) core.Node {
 			f := a.editor.activeFile()
@@ -211,7 +211,7 @@ func (a *app) editorStatus() core.Node {
 				core.Text{Content: T("%d 行", strings.Count(f.Text.Get(), "\n")+1), Style: core.Style{FontSize: 9.5},
 					StyleFunc: ui.Colored(colors.Faint), TestID: "editor-lines"},
 				core.View{Style: core.Style{FlexGrow: 1}},
-				core.Text{ContentFunc: func() string { return f.caret.Get() }, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
+				core.Text{ContentFunc: func() string { return f.caret.Get() }, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5},
 					StyleFunc: ui.Colored(colors.Faint)},
 			}}
 		}),

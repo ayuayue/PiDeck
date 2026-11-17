@@ -48,7 +48,7 @@ func (a *app) settingsResources() core.Node {
 								Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Muted)}
 						}},
 						core.Text{Content: shortPath(sk.Dir, 58), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style: core.Style{FontFamily: ui.Mono, FontSize: 9}, StyleFunc: ui.Colored(colors.Faint)},
+							Style: core.Style{FontFamily: monoFont(), FontSize: 9}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 					ui.Icon(lucide.FileText, 12, colors.Faint),
 				},
@@ -83,12 +83,12 @@ func (a *app) settingsResources() core.Node {
 				ui.Icon(lucide.Blocks, 13, colors.Muted),
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
 					core.Text{Content: ex.Source, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 11}, StyleFunc: ui.Colored(colors.Text)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 11}, StyleFunc: ui.Colored(colors.Text)},
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 						ui.Text(badge, 9.5, ui.Regular, colors.Faint),
 						core.Show{When: func() bool { return ex.Path != "" }, Then: func(*core.Scope) core.Node {
 							return core.Text{Content: shortPath(ex.Path, 52), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 9}, StyleFunc: ui.Colored(colors.Faint)}
+								Style: core.Style{FontFamily: monoFont(), FontSize: 9}, StyleFunc: ui.Colored(colors.Faint)}
 						}},
 					}},
 				}},

@@ -13,6 +13,7 @@ import (
 
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -20,14 +21,15 @@ import (
 // view is the whole window.
 func (a *app) view() core.Node {
 	return core.View{Style: ui.FillRest, Children: []core.Node{
-		core.Dynamic(func(*core.Scope) core.Node {
+		core.Dynamic(func(cx *core.Scope) core.Node {
 			_ = a.langRev.Get()
+			// Appearance is read so a system light/dark flip rebuilds the
+			// chrome too: its colors are taken when it is built.
+			_ = cx.Env().Dark()
 			return a.shell()
 		}),
 		a.paletteDialog(),
-		a.pickerDialog(),
 		a.targetDialog(),
-		a.settingsDialog(),
 		a.renameDialog(),
 		a.fileOpDialog(),
 		a.exportDialog(),
@@ -52,6 +54,10 @@ func (a *app) view() core.Node {
 		a.gitConflictsDialog(),
 		a.gitUnpushedDialog(),
 		a.archiveDialog(),
+		a.importDialog(),
+		// The file browser opens on top of the import dialog, which asks for
+		// one more file.
+		a.pickerDialog(),
 		a.outlineDialog(),
 		a.authKeyDialog(),
 		a.gitFileHistoryDialog(),
@@ -69,9 +75,8 @@ func (a *app) view() core.Node {
 		a.acpDialog(),
 		a.acpPresetManagerDialog(),
 		a.agentDialog(),
-		a.agentManagerDialog(),
-		a.favoritesDialog(),
-		a.tasksDialog(),
+		a.announcementsDialog(),
+		a.feedbackDialog(),
 		a.taskFormDialog(),
 		a.projectGroupDialog(),
 		a.workspaceRenameDialog(),
@@ -86,7 +91,8 @@ func (a *app) shell() core.Node {
 		Open:           a.sidebar.Get,
 		OnOpenChange:   func(open bool) { a.sidebar.Set(open); a.remember() },
 		ToggleLabel:    "侧栏",
-		Width:          nil,
+		Width:          a.railWidth.Get,
+		OnWidthChange:  a.setRailWidth,
 		DefaultWidth:   292,
 		MinWidth:       240,
 		MaxWidth:       400,
@@ -95,28 +101,55 @@ func (a *app) shell() core.Node {
 		Sidebar:        []core.Node{a.rail()},
 		SidebarFooter:  []core.Node{a.railFooter()},
 		Header:         []core.Node{a.tabBar()},
-		Actions: []core.Node{
+		// The drawer's own header carries these while it shows, so they
+		// stay at the window's edge instead of sliding with the content.
+		Actions:            []core.Node{a.headActions(false)},
+		Content:            []core.Node{a.workArea()},
+		Right:              []core.Node{a.drawerPanel()},
+		RightHeader:        []core.Node{a.headActions(true)},
+		RightOpen:          a.drawer.Get,
+		RightToggleLabel:   "会话面板",
+		RightResizeLabel:   "调整面板宽度",
+		RightWidth:         a.drawerWidth.Get,
+		OnRightWidthChange: a.setDrawerWidth,
+		RightDefaultWidth:  316,
+		RightMinWidth:      260,
+		RightMaxWidth:      460,
+	}
+}
+
+// headActions are the content header's right end: the terminal, Git and
+// the drawer's toggle. They move into the drawer's own header while it
+// shows, so opening it no longer pushes them sideways.
+func (a *app) headActions(inDrawer bool) core.Node {
+	return core.Show{When: func() bool { return a.drawer.Get() == inDrawer }, Then: func(cx *core.Scope) core.Node {
+		row := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}
+		if inDrawer {
+			// The drawer's header has no tab bar to push them along, and it
+			// keeps clear of the window's controls as the content's does.
+			row.FlexGrow, row.JustifyContent = 1, core.JustifyEnd
+			row.Padding = core.Edges{Right: core.Insets(cx).Right + desktop.TitleBar(cx).Right}
+		}
+		return core.View{Style: row, Children: []core.Node{
 			hint("终端", ui.IconButton{Icon: lucide.SquareTerminal, Label: "终端", Size: 28, IconSize: 14, TestID: "terminal-toggle",
 				Selected: a.term.open.Get, OnPress: a.toggleTerminal}),
 			hint("Git", ui.IconButton{Icon: lucide.GitBranch, Label: "Git", Size: 28, IconSize: 14, TestID: "git-toggle",
 				Selected: func() bool { return a.drawer.Get() && a.drawerTab.Get() == "git" }, OnPress: a.openGit}),
-		},
-		Content:   []core.Node{a.workArea()},
-		Right:     []core.Node{a.drawerPanel()},
-		RightOpen: a.drawer.Get,
-		OnRightOpenChange: func(open bool) {
-			a.drawer.Set(open)
-			if open && a.drawerTab.GetUntracked() == "git" {
-				a.gitAttach()
-			}
-			a.remember()
-		},
-		RightToggleLabel:  "会话面板",
-		RightResizeLabel:  "调整面板宽度",
-		RightDefaultWidth: 316,
-		RightMinWidth:     260,
-		RightMaxWidth:     460,
+			hint(T("会话面板"), ui.IconButton{Icon: lucide.PanelRight, Label: T("会话面板"), Size: 32, IconSize: 16.25,
+				Selected: a.drawer.Get, TestID: "drawer-toggle", OnPress: a.toggleDrawer}),
+		}}
+	}}
+}
+
+// toggleDrawer shows or hides the session drawer, attaching Git when it
+// opens on that tab.
+func (a *app) toggleDrawer() {
+	open := !a.drawer.GetUntracked()
+	a.drawer.Set(open)
+	if open && a.drawerTab.GetUntracked() == "git" {
+		a.gitAttach()
 	}
+	a.remember()
 }
 
 // workArea is the chat, with the terminal panel under it when it shows.
@@ -138,8 +171,18 @@ func (a *app) workArea() core.Node {
 	}
 }
 
-// mainPane is the editor when a file is open, the chat otherwise.
+// mainPane is the editor when a file is open, the chat otherwise; a split
+// pane, when one shows, takes the whole area.
 func (a *app) mainPane() core.Node {
+	return core.Show{
+		When: a.paneVisible,
+		Then: func(*core.Scope) core.Node { return a.paneView() },
+		Else: func(*core.Scope) core.Node { return a.sessionPane() },
+	}
+}
+
+// sessionPane is the editor when a file is open, the chat otherwise.
+func (a *app) sessionPane() core.Node {
 	return core.Show{
 		When: func() bool { return a.editor.open.Get() },
 		Then: func(*core.Scope) core.Node { return a.editorPane() },
@@ -173,13 +216,14 @@ func (a *app) rail() core.Node {
 			a.brand(),
 			a.newSessionButton(),
 			a.searchField(),
+			a.railShortcuts(),
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Edges{Top: 4, Right: 8, Left: 8}},
 				Children: []core.Node{
 					core.Text{Content: T("项目"), Style: core.Style{FontSize: 10, FontWeight: ui.Semibold, LetterSpacing: 0.6},
 						StyleFunc: ui.Colored(colors.Faint)},
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{ContentFunc: func() string { return fmt.Sprint(len(a.workspaces.Get())) },
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					core.View{OnPress: func(core.PressEvent) { a.pickNative("workspace") }, Role: core.RoleButton, Label: "添加项目",
 						TestID: "add-project",
 						StyleFunc: func() core.Style {
@@ -207,7 +251,7 @@ func (a *app) groupLabel(text string) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Padding: core.Edges{Top: 6, Right: 8, Bottom: 1, Left: 8}}, Children: []core.Node{
-			core.Text{Content: text, Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LetterSpacing: 0.5},
+			core.Text{Content: text, Style: core.Style{FontFamily: monoFont(), FontSize: 9, LetterSpacing: 0.5},
 				StyleFunc: ui.Colored(colors.Faint)},
 		}}
 	})
@@ -247,7 +291,7 @@ func (a *app) piSessionRow(s *session) core.Node {
 					core.Text{ContentFunc: func() string { return s.title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{FontSize: 12, LineHeight: 16}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{ContentFunc: func() string { return shorten(filepath.Base(s.WS), 34) }, MaxLines: 1,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9, LineHeight: 12}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			},
 		},
@@ -259,24 +303,49 @@ func (a *app) piSessionRow(s *session) core.Node {
 	}
 }
 
-// brand is the wordmark, as a flat tile and a name.
+// brand is the wordmark, the tile, and the pi the app runs on.
 func (a *app) brand() core.Node {
-	colors := ui.ColorsOf(a.cx)
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Padding: core.Edges{Top: 2, Right: 4, Left: 4}}, Children: []core.Node{
-		core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
-			Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), CornerRadius: 8}},
-		core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				core.Text{Content: "PiDeck", Style: core.Style{FontFamily: ui.Mono, FontSize: 14, FontWeight: ui.Bold, LetterSpacing: 0.4},
-					StyleFunc: ui.Colored(colors.Text)},
-				core.View{StyleFunc: func() core.Style {
-					return core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, BorderWidth: 1, BorderColor: colors.Border()}
-				}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: ui.Mono, FontSize: 9},
-					StyleFunc: ui.Colored(colors.Faint)}}},
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		// Reading env keeps the wordmark in step with the probe.
+		label, tone := a.piStatus(colors)
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Padding: core.Edges{Top: 2, Right: 4, Left: 4}}, Children: []core.Node{
+			core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
+				Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), CornerRadius: 8}},
+			core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+					core.Text{Content: "PiDeck", Style: core.Style{FontFamily: monoFont(), FontSize: 14, FontWeight: ui.Bold, LetterSpacing: 0.4},
+						StyleFunc: ui.Colored(colors.Text)},
+					core.View{StyleFunc: func() core.Style {
+						return core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, BorderWidth: 1, BorderColor: colors.Border()}
+					}, Children: []core.Node{core.Text{Content: "lite", Style: core.Style{FontFamily: monoFont(), FontSize: 9},
+						StyleFunc: ui.Colored(colors.Faint)}}},
+				}},
+				// The pi the app detected, where the wordmark can be read
+				// as the app's own: probing, missing, or its version.
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
+					core.View{Style: core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: tone}},
+					core.Text{ContentFunc: func() string { return label }, Style: core.Style{FontFamily: monoFont(), FontSize: 10},
+						StyleFunc: ui.Colored(colors.Muted)},
+				}},
 			}},
-			core.Text{Content: T("本机 pi 工作台"), Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
-		}},
-	}}
+		}}
+	})
+}
+
+// piStatus is what the brand says about pi, and the color of its dot.
+func (a *app) piStatus(colors ui.Colors) (string, core.Color) {
+	info := a.env.Get()
+	switch {
+	case info.Probing:
+		return T("检测 pi…"), colors.Muted()
+	case info.PiError != "" || info.PiPath == "":
+		return T("未找到 pi"), colors.Danger()
+	case info.PiVersion != "":
+		return "pi " + shorten(info.PiVersion, 20), colors.Up()
+	default:
+		return T("pi 就绪"), colors.Up()
+	}
 }
 
 // newSessionButton is the rail's main action.
@@ -302,9 +371,42 @@ func (a *app) newSessionButton() core.Node {
 		Children: []core.Node{
 			ui.Icon(lucide.Plus, 14, colors.OnLight),
 			core.Text{Content: T("新建会话"), Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, FlexGrow: 1}, StyleFunc: ui.Colored(colors.OnLight)},
-			core.Text{Content: modKey() + "N", Style: core.Style{FontFamily: ui.Mono, FontSize: 10, Opacity: core.Alpha(0.55)}, StyleFunc: ui.Colored(colors.OnLight)},
+			core.Text{Content: modKey() + "N", Style: core.Style{FontFamily: monoFont(), FontSize: 10, Opacity: core.Alpha(0.55)}, StyleFunc: ui.Colored(colors.OnLight)},
 		},
 	}
+}
+
+// railShortcuts are the ways in under 新建会话: the agent manager, the
+// scheduled tasks and the favorites, one to a row as the phone's rail and
+// PiDeck keep them.
+func (a *app) railShortcuts() core.Node {
+	colors := ui.ColorsOf(a.cx)
+	// entry is one way in; pane names the split pane it opens, so the row
+	// shows while that pane fills the work area.
+	entry := func(icon func() *core.SVG, label, id, pane string, on func()) core.Node {
+		return core.View{
+			OnPress: func(core.PressEvent) { on() },
+			Role:    core.RoleButton, Label: T(label), TestID: id,
+			StyleFunc: func() core.Style {
+				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, Height: core.Pt(30), Padding: core.Symmetric(0, 8),
+					CornerRadius: 7, Transition: pressMotion,
+					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+				if a.paneVisible() && a.activePane.Get() == pane {
+					st.Background = colors.Pressed()
+				}
+				return st
+			},
+			Children: []core.Node{
+				ui.Icon(icon, 13.5, colors.Muted),
+				ui.Text(T(label), 12.5, ui.Regular, colors.Text),
+			},
+		}
+	}
+	return core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
+		entry(lucide.Bot, "智能体", "rail-agents", paneAgents, func() { a.openAgentManager() }),
+		entry(lucide.CalendarClock, "定时任务", "rail-tasks", paneTasks, func() { a.openTaskDialog() }),
+		entry(lucide.Star, "收藏夹", "rail-favorites", paneFavorites, func() { a.openFavorites() }),
+	}}
 }
 
 // searchField filters the rail.
@@ -329,6 +431,10 @@ func (a *app) searchField() core.Node {
 func (a *app) projectList() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.projectsRev.Get()
+		// The groups are built from a copy of the projects, read untracked,
+		// so the list has to watch the projects themselves: adding or
+		// removing one changes nothing the revision counts.
+		_ = a.workspaces.Get()
 		groups := a.projectGroups()
 		showHeaders := len(groups) > 1 || (len(groups) == 1 && groups[0].Name != "未分组")
 		var out []core.Node
@@ -487,7 +593,7 @@ func (a *app) projectCount(ws *workspace) core.Node {
 				Children: []core.Node{ui.SkeletonBlock{Width: core.Pt(13), Height: core.Pt(8)}}}
 		}
 		return core.View{TestID: "project-count", Children: []core.Node{
-			core.Text{Content: fmt.Sprint(projectSessionTotal(ws)), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
+			core.Text{Content: fmt.Sprint(projectSessionTotal(ws)), Style: core.Style{FontFamily: monoFont(), FontSize: 10},
 				StyleFunc: ui.Colored(colors.Faint)}}}
 	})
 }
@@ -603,7 +709,7 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 					return ui.Icon(lucide.Archive, 10.5, colors.Faint)
 				}},
 				core.Text{ContentFunc: func() string { return whenText(s().updated.Get(), a.cx.Now()) }, MaxLines: 1,
-					Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
+					Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)},
 			},
 		},
 		Children:   a.sessionMenuItems(s),
@@ -614,58 +720,26 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 	}
 }
 
-// railFooter is the app's status and settings.
+// railFooter is the dock at the rail's bottom: settings, announcements,
+// feedback, and the theme, as PiDeck keeps them.
 func (a *app) railFooter() core.Node {
-	colors := ui.ColorsOf(a.cx)
-	piLabel := func() string {
-		info := a.env.Get()
-		if info.Probing {
-			return "检测 pi…"
-		}
-		if info.PiError != "" || info.PiPath == "" {
-			return "未找到 pi"
-		}
-		v := info.PiVersion
-		if v != "" {
-			return "pi " + shorten(v, 18)
-		}
-		return "pi 就绪"
-	}
-	piColor := func() core.Color {
-		info := a.env.Get()
-		if info.Probing {
-			return colors.Muted()
-		}
-		if info.PiError != "" || info.PiPath == "" {
-			return colors.Danger()
-		}
-		return colors.Up()
-	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Width: core.Pct(100)}, Children: []core.Node{
-		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: "设置", Size: 28, IconSize: 14.5, OnPress: func() { a.settings.Set(true) }}),
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
+		Width: core.Pct(100), Padding: core.Edges{Left: 2, Right: 2}}, Children: []core.Node{
+		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: "设置", Size: 28, IconSize: 14.5,
+			Selected: func() bool { return a.paneVisible() && a.activePane.Get() == paneSettings }, OnPress: a.openSettingsPane}),
+		a.announceButton(),
+		a.feedbackButton(),
 		hint("切换外观", ui.IconButton{IconFunc: func() *core.SVG {
 			if a.cx.Dark() {
 				return lucide.Sun()
 			}
 			return lucide.Moon()
 		}, Label: "切换外观", Size: 28, IconSize: 14.5, OnPress: a.cycleTheme}),
-		hint(T("定时任务"), ui.IconButton{Icon: lucide.CalendarClock, Label: T("定时任务"), Size: 28, IconSize: 14.5,
-			TestID: "rail-tasks", OnPress: func() { a.openTaskDialog() }}),
-		hint(T("智能体"), ui.IconButton{Icon: lucide.Bot, Label: T("智能体"), Size: 28, IconSize: 14.5,
-			TestID: "rail-agents", OnPress: func() { a.openAgentManager() }}),
-		hint(T("收藏夹"), ui.IconButton{Icon: lucide.Star, Label: T("收藏夹"), Size: 28, IconSize: 14.5,
-			TestID: "rail-favorites", OnPress: func() { a.openFavorites() }}),
-		core.View{Style: core.Style{FlexGrow: 1}},
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Edges{Right: 4}}, Children: []core.Node{
-			core.View{StyleFunc: func() core.Style {
-				return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: piColor()}
-			}},
-			core.Text{Content: piLabel(), Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
-		}},
 	}}
 }
 
-// tabBar is the open sessions, above the chat.
+// tabBar is the open sessions, above the chat, and the split panes' tabs
+// at its end.
 func (a *app) tabBar() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 		core.Scroll{Horizontal: true, HideIndicator: true, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
@@ -676,6 +750,18 @@ func (a *app) tabBar() core.Node {
 				hint("新建会话", ui.IconButton{Icon: lucide.Plus, Label: "新建会话", Size: 26, IconSize: 13, OnPress: func() {
 					a.newSession(a.activeWS.Get())
 				}}),
+				// A line keeps the panes' tabs apart from the sessions'.
+				core.Show{When: func() bool { return len(a.openPaneIDs()) > 0 }, Then: func(cx *core.Scope) core.Node {
+					return core.View{Style: core.Style{Width: core.Pt(1), Height: core.Pt(16), FlexShrink: 0, Margin: core.Symmetric(0, 3)},
+						StyleFunc: ui.Filled(ui.ColorsOf(cx).Line)}
+				}},
+				core.Each(a.openPaneIDs, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
+					def, ok := a.pane(id())
+					if !ok {
+						return nil
+					}
+					return a.paneTab(def)
+				}),
 			}},
 		}},
 	}}
@@ -761,7 +847,7 @@ func (a *app) drawerPanel() core.Node {
 				if a.drawerTab.Get() != name {
 					a.animateNextLayout()
 				}
-				a.drawerTab.Set(name)
+				a.setDrawerTab(name)
 				if name == "git" {
 					a.gitAttach()
 				}
@@ -897,7 +983,7 @@ func (a *app) drawerOverview() core.Node {
 					core.Text{ContentFunc: func() string { return s.title.Get() }, MaxLines: 2, EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, LineHeight: 19}, StyleFunc: ui.Colored(colors.Text)},
 					core.Text{ContentFunc: func() string { return shortPath(s.WS, 44) }, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 				core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24)}, Children: []core.Node{
@@ -925,7 +1011,7 @@ func (a *app) drawerOverview() core.Node {
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24)}, Children: []core.Node{
 						core.Text{Content: T("会话 ID"), Style: core.Style{FontSize: 12, Width: core.Pt(74)}, StyleFunc: ui.Colored(colors.Muted)},
 						core.Text{ContentFunc: func() string { return s.ID }, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Text)},
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Text)},
 						core.View{OnPress: func(core.PressEvent) { a.copyText(s.ID, "会话 ID") }, Role: core.RoleButton, Label: T("复制会话 ID"),
 							TestID: "overview-copy-id",
 							StyleFunc: func() core.Style {
@@ -978,7 +1064,7 @@ func (a *app) drawerOverview() core.Node {
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
 						ui.Text(T("上下文"), 12, ui.Regular, colors.Muted),
 						core.View{Style: core.Style{FlexGrow: 1}},
-						core.Text{ContentFunc: contextText, Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						core.Text{ContentFunc: contextText, Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
 					bar(),
 				}},
@@ -1010,7 +1096,7 @@ func (a *app) drawerOverview() core.Node {
 				}},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap}, Children: []core.Node{
 					core.Text{ContentFunc: func() string { return shortPath(s.File, 46) }, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}},
 		}}
@@ -1034,7 +1120,7 @@ func (a *app) drawerFiles() core.Node {
 		head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			ui.Icon(lucide.Folder, 12, colors.Muted),
 			core.Text{Content: filepath.Base(root), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style: core.Style{FlexGrow: 1, FontSize: 11.5, FontFamily: ui.Mono}, StyleFunc: ui.Colored(colors.Muted)},
+				Style: core.Style{FlexGrow: 1, FontSize: 11.5, FontFamily: monoFont()}, StyleFunc: ui.Colored(colors.Muted)},
 		}}
 		empty := func() core.Node {
 			return core.View{Style: core.Style{Padding: core.Symmetric(10, 4)}, Children: []core.Node{
@@ -1110,7 +1196,7 @@ func (a *app) drawerFiles() core.Node {
 						mark := marks[node.Path].mark()
 						return core.View{TestID: "file-git-mark", Accessible: true, Label: mark,
 							Style: core.Style{Width: core.Pt(12), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-							Children: []core.Node{core.Text{Content: mark, Style: core.Style{FontFamily: ui.Mono,
+							Children: []core.Node{core.Text{Content: mark, Style: core.Style{FontFamily: monoFont(),
 								FontSize: 9.5, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(func() core.Color { return markColor(mark) })}}}
 					}},
 				},
@@ -1125,7 +1211,7 @@ func (a *app) drawerFiles() core.Node {
 		search := core.Input{Value: a.filesQuery.Get, OnChange: a.filesQuery.Set, Placeholder: T("筛选文件…"),
 			Label: T("筛选文件"), TestID: "files-search",
 			Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-				FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+				FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 				BorderWidth: 1, BorderColor: colors.FieldBorder()}}
 		hits := func() core.Node {
 			var rows []core.Node
@@ -1145,7 +1231,7 @@ func (a *app) drawerFiles() core.Node {
 					Children: []core.Node{
 						ui.Icon(lucide.FileText, 12, colors.Faint),
 						core.Text{Content: rel, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11},
+							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11},
 							StyleFunc: ui.Colored(colors.Text)},
 					},
 				})
@@ -1263,7 +1349,7 @@ func (a *app) pickerDialog() core.Node {
 					core.Text{Content: e.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
 					core.Show{When: func() bool { return !e.Dir && importing }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: T("会话"), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+						return core.Text{Content: T("会话"), Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 					}},
 				},
 			}
@@ -1439,7 +1525,7 @@ func (a *app) targetDialog() core.Node {
 						OnSubmit: func(string) { a.addRemoteWorkspace() },
 						StyleFunc: func() core.Style {
 							return core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 10), CornerRadius: 7, Background: colors.Field(),
-								BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), FontSize: 12.5, FontFamily: ui.Mono}
+								BorderWidth: 1, BorderColor: colors.FieldBorder(), Color: colors.Text(), FontSize: 12.5, FontFamily: monoFont()}
 						},
 					},
 				}},

@@ -295,7 +295,6 @@ func (a *app) openFavorite(f favoriteEntry) {
 		a.toast(ui.ToastWarning, "找不到原来的会话", "会话可能已经被删除；收藏的回复仍留在收藏夹里。")
 		return
 	}
-	a.favOpen.Set(false)
 	a.selectSession(s)
 }
 
