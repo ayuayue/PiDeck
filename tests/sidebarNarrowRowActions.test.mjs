@@ -61,10 +61,13 @@ test("project menu pins text clearance with the same state that keeps its action
 
 test("session rows yield to hover actions on narrow sidebar", () => {
 	const src = read("src/renderer/src/components/sidebar/SessionTree.tsx");
-	// agent 行、运行中会话行、历史会话行、普通会话行、关联子会话行共 5 处 conversation-body 全部接入
-	// （一个 size-6 更多按钮 → 28px 留白）
-	const matches = src.match(/conversation-body min-w-0 flex-1 transition-\[padding-right\] group-hover\/row:pr-7 group-focus-within\/row:pr-7/g);
-	assert.ok(matches && matches.length === 5, `expected 5 row bodies, got ${matches?.length ?? 0}`);
+	// 父行（agent / 会话 / 草稿）在 SessionTree，子项行（关联子会话 / 子智能体）收敛到 SessionChildRows；
+	// 两文件合计 4 处 conversation-body（子项行合并成一份 markup，覆盖原来的两类子行）。
+	const childRows = read("src/renderer/src/components/sidebar/SessionChildRows.tsx");
+	const pattern = /conversation-body min-w-0 flex-1 transition-\[padding-right\] group-hover\/row:pr-7 group-focus-within\/row:pr-7/g;
+	const total = (src.match(pattern) ?? []).length + (childRows.match(pattern) ?? []).length;
+	assert.equal(total, 4, `expected 4 row bodies, got ${total}`);
+	assert.equal((childRows.match(pattern) ?? []).length, 1, "子项行只允许一份 markup");
 	// 浮层模式不变
 	const rowStyles = read("src/renderer/src/components/sidebar/sidebarRowStyles.ts");
 	assert.match(rowStyles, /row-more-actions pointer-events-none absolute top-1\/2 right-1/);
@@ -111,7 +114,8 @@ test("hover yield classes survive tailwind-merge", () => {
 });
 
 test("subagent pill never lands on the row ⋯ while the timestamp yields", () => {
-	const src = read("src/renderer/src/components/sidebar/SessionTree.tsx");
+	const src = read("src/renderer/src/components/sidebar/SessionChildRows.tsx");
+	const sessionTree = read("src/renderer/src/components/sidebar/SessionTree.tsx");
 	// 时间戳的收拢细节收敛在 SidebarRowTime（历史会话行 / 关联子会话行 / 分组行共用一份 markup）
 	const rowTime = read("src/renderer/src/components/sidebar/SidebarRowTime.tsx");
 	// 2027-02 用户反馈：胶囊右移到时间戳旁边后，hover 时行尾的「⋯」看不到/被压住。
@@ -121,11 +125,12 @@ test("subagent pill never lands on the row ⋯ while the timestamp yields", () =
 	//   ① 胶囊后面没有时间戳时（运行中 Agent 行）由胶囊自己 last:mr-7 预留槽位——它本来就是行内最后一个元素；
 	//   ② 有时间戳时把「消失」换成与 padding 同步的宽度收拢，胶囊缓慢滑过去而不是跳过去。
 	// 量测结论：会话行全程胶囊右缘 ≤ 1360（「⋯」盒左缘 1372），Agent 行恒 ≥ 9px 间距，任意帧都不重叠。
-	assert.match(src, /subagent-inline-toggle\s+px-1\s+py-0\.5\s+last:mr-7/);
+	assert.match(src, /child-toggle child-toggle-slot px-1 py-0\.5 last:mr-7/);
 	assert.match(rowTime, /w-max\s+shrink-0\s+overflow-hidden\s+whitespace-nowrap[^"]*transition-\[width,opacity\][^"]*\[interpolate-size:allow-keywords\]/);
 	assert.match(rowTime, /group-hover\/row:w-0[^"]*group-hover\/row:opacity-0/);
 	// 时间戳不得回退成 display:none：瞬时消失 = 胶囊一步跳到行尾压在「⋯」上
 	assert.doesNotMatch(rowTime, /group-hover\/row:hidden/);
 	// 会话行确实在用这个组件（不是另写了一份 span）
-	assert.match(src, /<SidebarRowTime at=\{activityAt\(child\.session\.id, child\.session\.updatedAt\)\} \/>/);
+	assert.match(src, /<SidebarRowTime at=\{props\.timeAt\} \/>/);
+	assert.match(sessionTree, /<SidebarRowTime at=\{activityAt\(child\.session\.id, child\.session\.updatedAt\)\} \/>/);
 });

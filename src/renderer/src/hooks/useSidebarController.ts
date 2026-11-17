@@ -6,6 +6,7 @@ import { migrateLegacyCollapsedProjects, sameProjectIdSet, writeExpandedSidebarP
 import { parseSidebarNavTab, writeSidebarNavTab, type SidebarNavTab } from "../utils/sidebarNavTab";
 import { SESSION_FILTER_PILLS, parseSessionFilterState, serializeSessionFilterState, sessionPillOf, type SessionFilterPill, type SessionFilterState } from "../sessionFilterPills";
 import { resolveSessionSortMode } from "../sessionSortModes";
+import { childGroupOverrideKey, resolveChildGroupExpanded, type ChildGroupKind } from "../utils/childGroupState";
 import { useProjectSortMode, type ProjectSortModeOptions } from "./sidebar/useProjectSortMode";
 
 export const SIDEBAR_PROJECT_CHILD_PAGE_SIZE = 5;
@@ -81,8 +82,9 @@ export type SidebarController = {
 	collapseChildren: (projectId: string) => void;
 	/** 该项目是否展开过「查看更多」（存在显式计数即视为展开过）。 */
 	hasExpandedChildren: (projectId: string) => boolean;
-	expandedSubagentGroups: ReadonlySet<string>;
-	toggleSubagentGroup: (groupId: string) => void;
+	/** 子项分组的展开态：显式覆盖优先，否则按 childGroupState 的默认规则（会话多时默认收起）。 */
+	childGroupExpanded: (groupKey: string, kind: ChildGroupKind, count: number) => boolean;
+	toggleChildGroup: (groupKey: string, kind: ChildGroupKind, count: number) => void;
 	expandedWorktreeProjectIds: ReadonlySet<string>;
 	toggleWorktreeSessions: (projectId: string) => void;
 	expandWorktreeSessions: (projectId: string) => void;
@@ -218,7 +220,7 @@ export function useSidebarController(
 	const [sourceFilters, setSourceFilters] = useState<SidebarSourceFilters>(() => readSidebarSourceFilters(options.storage ?? (typeof window === "undefined" ? undefined : window.localStorage)));
 	const [visibleChildCountByProject, setVisibleChildCountByProject] = useState<Record<string, number>>({});
 	const [sourceFilterMenu, setSourceFilterMenu] = useState<SidebarSourceFilterMenu>();
-	const [expandedSubagentGroups, setExpandedSubagentGroups] = useState<Set<string>>(() => new Set());
+	const [childGroupOverrides, setChildGroupOverrides] = useState<Map<string, boolean>>(() => new Map());
 	const [expandedWorktreeProjectIds, setExpandedWorktreeProjectIds] = useState<Set<string>>(() => new Set());
 	const [drag, setDrag] = useState<{ sourceProjectId?: string; overProjectId?: string; overPosition?: "before" | "after" }>({});
 	const [menu, setMenu] = useState<SidebarMenuTarget | null>(null);
@@ -496,11 +498,12 @@ export function useSidebarController(
 		});
 	}, []);
 	const hasExpandedChildren = useCallback((projectId: string) => visibleChildCountByProject[projectId] !== undefined, [visibleChildCountByProject]);
-	const toggleSubagentGroup = useCallback((groupId: string) => {
-		setExpandedSubagentGroups((current) => {
-			const next = new Set(current);
-			if (next.has(groupId)) next.delete(groupId);
-			else next.add(groupId);
+	const childGroupExpanded = useCallback((groupKey: string, kind: ChildGroupKind, count: number) => resolveChildGroupExpanded(childGroupOverrides, groupKey, kind, count), [childGroupOverrides]);
+	const toggleChildGroup = useCallback((groupKey: string, kind: ChildGroupKind, count: number) => {
+		setChildGroupOverrides((current) => {
+			const key = childGroupOverrideKey(groupKey, kind);
+			const next = new Map(current);
+			next.set(key, !resolveChildGroupExpanded(current, groupKey, kind, count));
 			return next;
 		});
 	}, []);
@@ -563,8 +566,8 @@ export function useSidebarController(
 		showMoreChildren,
 		collapseChildren,
 		hasExpandedChildren,
-		expandedSubagentGroups,
-		toggleSubagentGroup,
+		childGroupExpanded,
+		toggleChildGroup,
 		expandedWorktreeProjectIds,
 		toggleWorktreeSessions,
 		expandWorktreeSessions,

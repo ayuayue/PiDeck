@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 4b645b087014a79ff47eb33d5707725b7811369664e70d0ea32a39c2bc1674f8（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 2343c11e9a2e70ff6abda90602a5a5cb3654e375de721e5af94874e3e6048126（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -443,6 +443,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"sidebar.sessionGroups": "分組",
 	"sidebar.sessionGroupsEmpty": "組內沒有可用會話",
 	"sidebar.sessionsOnlyInGroups": "會話都在分組裡",
+	"sidebar.childGroupLinked": "關聯會話",
+	"sidebar.childGroupAgents": "子智慧體",
+	"sidebar.childGroupToggle": "展開或收起{group}（{count}）",
+	"sidebar.childGroupCollapse": "收起這個分組",
 	"sidebar.hoverCard.workspace": "所屬空間: {name}",
 	"sidebar.hoverCard.updatedAt": "更新於 {time}",
 	"sidebar.hoverCard.emptyPreview": "暫無內容摘要",

@@ -2066,7 +2066,6 @@ select:focus-visible {
 }
 .project-group.worktree-enabled > .conversation.agent-row,
 .project-group.worktree-enabled > .conversation.session-row,
-.project-group.worktree-enabled > .codex-subagent-sidebar-group,
 .project-group.worktree-enabled > .session-more-row,
 .project-group.worktree-enabled > .project-session-loading {
   margin-left: 30px;
@@ -2337,8 +2336,9 @@ select:focus-visible {
   color: var(--color-text-secondary);
 }
 /* 会话来源统一使用组件级 Badge，避免旧版来源胶囊样式在不同容器中重复维护。 */
-/* 父行内的占位保留标题布局，同行按钮锚定在其位置，避免 button 嵌套。 */
-.subagent-inline-toggle {
+/* 父行内的分组计数占位：保留布局，真实按钮锚定在其位置，避免 button 嵌套。
+   两类子项各有自己的锚点（--linked-toggle / --agent-toggle），互不影响。 */
+.child-toggle {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -2353,59 +2353,40 @@ select:focus-visible {
   flex-shrink: 0;
 }
 .session-toggle-row {
-  anchor-scope: --session-toggle;
+  anchor-scope: --linked-toggle, --agent-toggle;
 }
-.subagent-toggle-slot {
-  anchor-name: --session-toggle;
+.child-toggle-slot {
   opacity: 0;
   pointer-events: none;
 }
-.session-toggle-row .subagent-toggle-button {
+.child-toggle-slot[data-kind="linked"] {
+  anchor-name: --linked-toggle;
+}
+.child-toggle-slot[data-kind="agents"] {
+  anchor-name: --agent-toggle;
+}
+.session-toggle-row .child-toggle-button {
   position: absolute;
-  position-anchor: --session-toggle;
   top: anchor(top);
-  left: anchor(left);
   margin-left: 0;
   border: 0;
   background: transparent;
 }
-.subagent-toggle-button:hover {
+.child-toggle-button[data-kind="linked"] {
+  position-anchor: --linked-toggle;
+  left: anchor(left);
+}
+.child-toggle-button[data-kind="agents"] {
+  position-anchor: --agent-toggle;
+  left: anchor(left);
+}
+.child-toggle-button:hover {
   color: var(--color-text-secondary);
   background: var(--color-bg-hover);
-}
-.subagent-inline-toggle svg {
-  transform: rotate(-90deg);
-  transition: transform 0.12s ease;
-}
-.subagent-inline-toggle svg.expanded {
-  transform: rotate(0deg);
-}
-.subagent-inline-count {
-  font-family: var(--font-family-business);
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  background: var(--color-bg-hover);
-  line-height: 1;
 }
 .session-row.active .conversation-title strong {
   color: var(--color-text-primary);
   font-weight: 600;
-}
-.codex-subagent-sidebar-group {
-  display: grid;
-  gap: 1px;
-  /* 缩进由 SessionTree 的 tailwind utility（ml-3）控制，避免 legacy 层覆盖 */
-  margin: 0 0 2px 0;
-}.codex-subagent-sidebar-row{
-  margin: 0;
-  padding-left: 18px;
-  min-height: 24px;
-}.codex-subagent-sidebar-row:hover{
-  background: var(--color-bg-hover);
-  color: var(--color-text-secondary);
-}
-.codex-subagent-sidebar-row .conversation-title strong {
-  color: var(--color-text-tertiary);
 }
 .project-session-loading {
   display: flex;

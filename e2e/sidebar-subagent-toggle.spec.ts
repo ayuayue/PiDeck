@@ -45,8 +45,8 @@ test("侧栏子会话折叠按钮可键盘操作且不嵌套在会话按钮内",
 
 	// 隐形布局占位与真实按钮几何重合，确保鼠标命中区域没有从原来的行尾漂移。
 	const alignment = await parentRow.evaluate((row) => {
-		const slot = row.querySelector(".subagent-toggle-slot")?.getBoundingClientRect();
-		const button = row.querySelector(".subagent-toggle-button")?.getBoundingClientRect();
+		const slot = row.querySelector('.child-toggle-slot[data-kind="agents"]')?.getBoundingClientRect();
+		const button = row.querySelector('.child-toggle-button[data-kind="agents"]')?.getBoundingClientRect();
 		if (!slot || !button) return null;
 		return { dx: Math.abs(slot.left - button.left), dy: Math.abs(slot.top - button.top), width: button.width, height: button.height };
 	});
@@ -61,9 +61,9 @@ test("侧栏子会话折叠按钮可键盘操作且不嵌套在会话按钮内",
 	await expect(toggle).toBeFocused();
 	await toggle.press("Enter");
 	await expect(toggle).toHaveAttribute("aria-expanded", "true");
-	await expect(window.locator(".codex-subagent-sidebar-group", { hasText: "Explore" })).toBeVisible();
+	await expect(window.locator('[data-testid="session-child-branch"]', { hasText: "Explore" })).toBeVisible();
 	const hitTest = await parentRow.evaluate((row) => {
-		const button = row.querySelector<HTMLButtonElement>(".subagent-toggle-button");
+		const button = row.querySelector<HTMLButtonElement>('.child-toggle-button[data-kind="agents"]');
 		const more = row.querySelector<HTMLElement>(".row-more-actions");
 		if (!button || !more) return null;
 		const rect = button.getBoundingClientRect();

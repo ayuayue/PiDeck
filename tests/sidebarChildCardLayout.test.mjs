@@ -11,6 +11,7 @@ import { readRendererStyles } from "./helpers/rendererStyles.mjs";
 const styles = readRendererStyles();
 const titleScrollText = readFileSync("src/renderer/src/components/sidebar/TitleScrollText.tsx", "utf8");
 const sessionTree = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
+const childRows = readFileSync("src/renderer/src/components/sidebar/SessionChildRows.tsx", "utf8");
 const activeSessionsTree = readFileSync("src/renderer/src/components/sidebar/ActiveSessionsTree.tsx", "utf8");
 const recentSessionSection = readFileSync("src/renderer/src/components/sidebar/RecentSessionsSection.tsx", "utf8");
 const dshSearchResults = readFileSync("src/renderer/src/components/sidebar/DshSearchResults.tsx", "utf8");
@@ -88,7 +89,7 @@ test("session status indicators stay on the concrete session row", () => {
 	// SessionTree 不再渲染带文本的状态徽标；无 runtime 的历史记录不显示状态点。
 	assert.doesNotMatch(sessionTree, /\/agent-status-indicator/);
 	// 状态点已收口到共享组件 SessionRuntimeStatusDot（Tab 与侧栏同一套颜色映射）。
-	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{dotStatus\} \/>/);
+	assert.match(childRows, /<SessionRuntimeStatusDot status=\{props\.status\} \/>/);
 	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{child\.agent\.status\} \/>/);
 	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{runtimeSnapshot\?\.status\} \/>/);
 	// Tab 同样未启动不显示徽章，已启动按状态映射渲染（beui AnimatedBadge 替换裸圆点）。
@@ -179,7 +180,7 @@ test("sidebar session rows put backend/source marks left of the title (like tabs
 	assertMarkBeforeTitle(sessionTree, /<AcpBackendMark acpToolId=\{agentSession\?\.acpToolId\}/, /<TitleScrollText text=\{displayTitle\}/, "SessionTree 运行中 Agent 行");
 	assertMarkBeforeTitle(sessionTree, /<AcpBackendMark acpToolId=\{child\.session\.acpToolId\}/, /<TitleScrollText text=\{child\.session\.name/, "SessionTree 历史会话行");
 	assertMarkBeforeTitle(sessionTree, /<AcpBackendMark acpToolId=\{session\.acpToolId\}/, /<TitleScrollText text=\{session\.title/, "SessionTree 草稿行");
-	assertMarkBeforeTitle(sessionTree, /\{badge\}/, /<TitleScrollText text=\{title\} \/>/, "SessionTree 子会话行");
+	assertMarkBeforeTitle(childRows, /\{props\.icon\}/, /<TitleScrollText text=\{props\.title\}/, "SessionChildRows 子项行");
 	// 历史会话行的来源徽标（codex 等）同样在标题左侧
 	assertMarkBeforeTitle(sessionTree, /<SessionSourceBadge source=\{child\.session\.source\}/, /<TitleScrollText text=\{child\.session\.name/, "SessionTree 历史会话来源标");
 	// 活动树与最近会话区

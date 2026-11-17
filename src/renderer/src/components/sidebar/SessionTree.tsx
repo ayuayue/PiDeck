@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
-import { ChevronDown, ChevronUp, CornerDownRight, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
 import { useAtomValue } from "jotai";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
 import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, filterLinkedChildAgents, getProjectAgentSessionDisplay, type ProjectChildItem } from "../../agentListDisplay";
@@ -8,7 +8,6 @@ import { compareSessionsForSortMode } from "../../sessionSortModes";
 import { sessionRecordToSummary } from "../../atoms";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
 import { linkedSessionLinkByChildIdAtom } from "../../atoms/linked-session-atoms";
-import type { LinkedSessionLink, LinkedSessionState } from "../../../../shared/types/linkedSessions";
 import { t } from "../../i18n";
 import { hasPendingAskForSession } from "../../utils/askUi";
 import { filterSidebarSessions, getBoundSidebarRuntimeAgent, type SidebarController } from "../../hooks/useSidebarController";
@@ -22,7 +21,8 @@ import { SessionHoverCard } from "./SessionHoverCard";
 import { SidebarRowTime } from "./SidebarRowTime";
 import { TitleScrollText } from "./TitleScrollText";
 import { SESSION_ROW_CLASS, SESSION_ROW_SELECTED_CLASS, ROW_MORE_ACTIONS_CLASS, ROW_CONTAINER_CLASS } from "./sidebarRowStyles";
-import { LINKED_NEST_MAX_DEPTH, groupLinkedChildren, resolveBoundSession } from "./activitySessionsModel";
+import { groupLinkedChildren, resolveBoundSession } from "./activitySessionsModel";
+import { ChildGroupToggle, SessionChildBranch, type SessionChildRowContext } from "./SessionChildRows";
 import { shouldHideGroupedSession } from "./sessionGroupsModel";
 import { openSessionRowMenu } from "./sessionRowMenu";
 import { cn } from "../../lib/utils";
@@ -58,43 +58,6 @@ const rowContainerClass = ROW_CONTAINER_CLASS;
 
 function matchesSearch(value: string, search: string) {
 	return !search || value.toLowerCase().includes(search.toLowerCase());
-}
-
-function formatCodexSubagentName(session: SessionSummary) {
-	return [session.codexAgentNickname, session.codexAgentRole].filter(Boolean).join(" · ") || session.name || t("app.codexSubagent");
-}
-
-/** 关联子会话的展示状态 → 状态点语义（与 Tab 栏同一套颜色）；有活着的运行时时以运行时为准。 */
-const LINKED_STATE_DOT: Record<LinkedSessionState, string | undefined> = {
-	starting: "starting",
-	running: "running",
-	idle: "idle",
-	failed: "error",
-	stopped: undefined,
-};
-
-function linkedStateLabel(state: LinkedSessionState): string {
-	switch (state) {
-		case "starting":
-			return t("linkedSessions.state.starting");
-		case "running":
-			return t("linkedSessions.state.running");
-		case "idle":
-			return t("linkedSessions.state.idle");
-		case "failed":
-			return t("linkedSessions.state.failed");
-		case "stopped":
-			return t("linkedSessions.state.stopped");
-	}
-}
-
-function linkedChildTooltip(link: LinkedSessionLink): string {
-	const head = `${linkedStateLabel(link.state)} · ${t("linkedSessions.turns", { count: link.turnCount })}`;
-	return link.lastReport ? `${head}\n${t("linkedSessions.lastReport")}：${link.lastReport}` : head;
-}
-
-function formatPiSubagentName(session: SessionSummary) {
-	return session.name || t("app.piSubagent");
 }
 
 export function SessionTree(props: {
@@ -242,131 +205,16 @@ export function SessionTree(props: {
 			y: event.clientY,
 		});
 	};
-	const renderSubagent = (session: SessionSummary, title: string, badge?: ReactNode) => {
-		return (
-			<div key={session.id} className={rowContainerClass} onContextMenu={(event) => openContext(event, session, false)}>
-				<SessionHoverCard session={session} title={title} projectName={props.project.name} disabled={Boolean(props.controller.menu)}>
-					<button
-						type="button"
-						className={cn(sessionRowClass, "session-row codex-subagent-sidebar-row pl-2", session.id === props.currentSessionId && selectedRowClass)}
-						onClick={() => openSession(session.id)}
-						onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(session.id, "permanent")}
-						{...sessionDragProps(session.id)}
-					>
-						<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
-							<div className="conversation-title flex min-w-0 items-center gap-1.5">
-								{/* 来源/后端标放标题左侧（与顶部 Tab 一致，用户反馈原先在标题右侧）。 */}
-								{badge}
-								<TitleScrollText text={title} />
-							</div>
-						</div>
-					</button>
-				</SessionHoverCard>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-xs"
-					className={rowMoreMenuActiveClass(props.controller.menu?.kind === "session" && props.controller.menu.sessionId === session.id)}
-					aria-label={t("sidebar.moreActions")}
-					title={t("sidebar.moreActions")}
-					onClick={(event) => {
-						event.stopPropagation();
-						openContext(event, session, false);
-					}}
-				>
-					<Ellipsis size={14} aria-hidden="true" />
-				</Button>
-			</div>
-		);
-	};
-	const renderLinkedChild = (record: SessionRecord, depth: number) => {
-		const link = linkByChildId.get(record.id);
-		if (!link) return null;
-		const summary = sessionRecordToSummary(record);
-		const liveStatus = props.controller.catalog.runtimeBySessionId[record.id]?.status;
-		const dotStatus = link.state === "failed" ? "error" : (liveStatus ?? LINKED_STATE_DOT[link.state]);
-		const title = record.title || t("common.untitled");
-		return (
-			<Fragment key={record.id}>
-				<div className={rowContainerClass} onContextMenu={summary ? (event) => openContext(event, summary, false) : undefined}>
-					<button
-						type="button"
-						className={cn(sessionRowClass, "session-row linked-session-sidebar-row pl-2", record.id === props.currentSessionId && selectedRowClass)}
-						title={`${title}\n${linkedChildTooltip(link)}`}
-						data-linked-state={link.state}
-						onClick={() => openSession(record.id)}
-						onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(record.id, "permanent")}
-						{...sessionDragProps(record.id)}
-					>
-						<CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />
-						<SessionRuntimeStatusDot status={dotStatus} />
-						<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
-							<div className="conversation-title flex min-w-0 items-center gap-1.5">
-								<TitleScrollText text={title} className={cn(liveStatus ? "font-medium" : "font-normal text-muted-foreground/90")} />
-								{hasPendingAskForSession(record.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}
-								{/* 行尾与普通会话行一致显示「多久前用过」，不再内联状态文案（状态只留在点与 tooltip 里）。 */}
-								<SidebarRowTime at={activityAt(record.id, record.updatedAt)} />
-							</div>
-						</div>
-					</button>
-					{summary && (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							className={rowMoreMenuActiveClass(props.controller.menu?.kind === "session" && props.controller.menu.sessionId === record.id)}
-							aria-label={t("sidebar.moreActions")}
-							title={t("sidebar.moreActions")}
-							onClick={(event) => {
-								event.stopPropagation();
-								openContext(event, summary, false);
-							}}
-						>
-							<Ellipsis size={14} aria-hidden="true" />
-						</Button>
-					)}
-				</div>
-				{renderLinkedChildren(record.id, depth + 1)}
-			</Fragment>
-		);
-	};
-	const renderLinkedChildren = (parentSessionId: string | undefined, depth = 1) => {
-		const children = parentSessionId ? linkedChildrenByParent.get(parentSessionId) : undefined;
-		if (!children?.length) return null;
-		// 缩进随层数累加，到 LINKED_NEST_MAX_DEPTH 为止（侧栏宽度有限）；关系成环的行在 groupLinkedChildren 里已摘出。
-		return <div className={cn("linked-session-sidebar-group", depth <= LINKED_NEST_MAX_DEPTH && (depth > 1 || !props.nested) && "ml-3")}>{children.map((child) => renderLinkedChild(child, depth))}</div>;
-	};
-	const renderSubagents = (parentKey: string, codex: SessionSummary[], pi: SessionSummary[]) => {
-		if (codex.length + pi.length === 0 || !props.controller.expandedSubagentGroups.has(parentKey)) return null;
-		// 主侧栏子会话组缩进走 tailwind utility（ml-3），避免 legacy 层 v3-braun 规则覆盖；
-		// worktree（nested）子树保留其自身布局规则
-		return (
-			<div className={cn("codex-subagent-sidebar-group", !props.nested && "ml-3")}>
-				{codex.map((session) => renderSubagent(session, formatCodexSubagentName(session), <SessionSourceBadge source="codex" label={t("app.codexSubagent")} />))}
-				{pi.map((session) => renderSubagent(session, formatPiSubagentName(session)))}
-			</div>
-		);
-	};
-	/** 父行是 button，行内占位保留标题/时间戳布局；同行独立按钮锚定占位位置，供键盘操作。 */
-	const renderToggle = (key: string, count: number, slot = false) => {
-		if (count === 0) return null;
-		const label = t("app.piSubagentCount", { count });
-		const expanded = props.controller.expandedSubagentGroups.has(key);
-		const content = (
-			<>
-				<ChevronDown size={8} className={expanded ? "expanded" : ""} aria-hidden="true" />
-				<span className="subagent-inline-count inline-flex h-3.5 shrink-0 items-center rounded-full px-1 text-micro font-medium tabular-nums">{count}</span>
-			</>
-		);
-		return slot ? (
-			<span className="subagent-inline-toggle px-1 py-0.5 last:mr-7 subagent-toggle-slot" aria-hidden="true">
-				{content}
-			</span>
-		) : (
-			<button type="button" className="subagent-inline-toggle subagent-toggle-button px-1 py-0.5 focus-visible:ring-1 focus-visible:ring-ring" aria-label={label} aria-expanded={expanded} title={label} onClick={() => props.controller.toggleSubagentGroup(key)}>
-				{content}
-			</button>
-		);
+	const childCtx: SessionChildRowContext = {
+		project: props.project,
+		currentSessionId: props.currentSessionId,
+		controller: props.controller,
+		actions: props.actions,
+		activityAt,
+		dragProps: sessionDragProps,
+		openSession,
+		openContext,
+		sessionRuntimeUiById,
 	};
 
 	// main 语义：项目下直接展示统一列表（drafts + 会话/Agent 按时间混排），不分组标题；
@@ -379,11 +227,16 @@ export function SessionTree(props: {
 			// Catalog owns the display title. AgentTab.title may reflect a transient pi/TUI
 			// session_info event, so only use it for an unbound runtime with no record.
 			const displayTitle = (agentSession ? ("title" in agentSession ? agentSession.title : agentSession.name || child.agent.title) : child.agent.title) || t("common.untitled");
+			// 父行只做汇总：关联子会话 + 子智能体各一个计数，具体内容交给子项分组标题。
+			const linkedChildren = agentSession ? linkedChildrenByParent.get(agentSession.id) : undefined;
+			const linkedCount = linkedChildren?.length ?? 0;
+			const linkedExpanded = props.controller.childGroupExpanded(groupKey, "linked", linkedCount);
+			const agentsExpanded = props.controller.childGroupExpanded(groupKey, "agents", childCount);
 			return (
 				<SidebarRemovalRow key={child.key} itemId={agentSession?.id ?? child.agent.id}>
 					{/* 运行中 Agent 行：标题常被 truncate（如 "JZSSC40..."），悬浮展示完整标题 */}
 					<div
-						className={cn(rowContainerClass, childCount > 0 && "session-toggle-row")}
+						className={cn(rowContainerClass, childCount + linkedCount > 0 && "session-toggle-row")}
 						onContextMenu={(event) => {
 							event.preventDefault();
 							void props.controller.openMenu({ kind: "agent", agentId: child.agent.id, x: event.clientX, y: event.clientY });
@@ -421,12 +274,14 @@ export function SessionTree(props: {
 												<HatGlasses size={11} aria-hidden="true" />
 											</span>
 										)}
-										{renderToggle(groupKey, childCount, true)}
+										<ChildGroupToggle kind="linked" slot groupKey={groupKey} count={linkedCount} expanded={linkedExpanded} onToggle={props.controller.toggleChildGroup} />
+										<ChildGroupToggle kind="agents" slot groupKey={groupKey} count={childCount} expanded={agentsExpanded} onToggle={props.controller.toggleChildGroup} />
 									</div>
 								</div>
 							</button>
 						</SessionHoverCard>
-						{renderToggle(groupKey, childCount)}
+						<ChildGroupToggle kind="linked" groupKey={groupKey} count={linkedCount} expanded={linkedExpanded} onToggle={props.controller.toggleChildGroup} />
+						<ChildGroupToggle kind="agents" groupKey={groupKey} count={childCount} expanded={agentsExpanded} onToggle={props.controller.toggleChildGroup} />
 						<Button
 							type="button"
 							variant="ghost"
@@ -443,17 +298,31 @@ export function SessionTree(props: {
 							<Ellipsis size={14} aria-hidden="true" />
 						</Button>
 					</div>
-					{renderSubagents(groupKey, child.codexSubagents, child.piSubagents)}
-					{renderLinkedChildren(agentSession?.id)}
+					<SessionChildBranch
+						ctx={childCtx}
+						childrenByParent={linkedChildrenByParent}
+						linkByChildId={linkByChildId}
+						linkedExpanded={linkedExpanded}
+						agentsExpanded={agentsExpanded}
+						onToggle={props.controller.toggleChildGroup}
+						groupKey={groupKey}
+						linkedChildren={linkedChildren}
+						codexSubagents={child.codexSubagents}
+						piSubagents={child.piSubagents}
+					/>
 				</SidebarRemovalRow>
 			);
 		}
 		const runtime = getBoundSidebarRuntimeAgent(props.controller.catalog, child.session.id);
 		const runtimeSnapshot = props.controller.catalog.runtimeBySessionId[child.session.id];
 		const pinned = props.controller.isSessionPinned(child.session.id);
+		const linkedChildren = linkedChildrenByParent.get(child.session.id);
+		const linkedCount = linkedChildren?.length ?? 0;
+		const linkedExpanded = props.controller.childGroupExpanded(groupKey, "linked", linkedCount);
+		const agentsExpanded = props.controller.childGroupExpanded(groupKey, "agents", childCount);
 		return (
 			<SidebarRemovalRow key={child.session.id} itemId={child.session.id}>
-				<div className={cn(rowContainerClass, childCount > 0 && "session-toggle-row")} onContextMenu={(event) => openContext(event, child.session)}>
+				<div className={cn(rowContainerClass, childCount + linkedCount > 0 && "session-toggle-row")} onContextMenu={(event) => openContext(event, child.session)}>
 					<SessionHoverCard session={child.session} title={child.session.name} projectName={props.project.name} status={runtimeSnapshot?.status} disabled={Boolean(props.controller.menu)}>
 						<button
 							type="button"
@@ -488,7 +357,8 @@ export function SessionTree(props: {
 									{child.session.backend !== "imagegen" && child.session.hasImageGen && <ImageIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
 									{child.session.channel && <SessionChannelMark channel={child.session.channel} />}
 									{child.session.sideTask && <SideTaskMark />}
-									{renderToggle(groupKey, childCount, true)}
+									<ChildGroupToggle kind="linked" slot groupKey={groupKey} count={linkedCount} expanded={linkedExpanded} onToggle={props.controller.toggleChildGroup} />
+									<ChildGroupToggle kind="agents" slot groupKey={groupKey} count={childCount} expanded={agentsExpanded} onToggle={props.controller.toggleChildGroup} />
 									{/* 相对时间常显：多久前用过一目了然；hover 行时让位给右侧「⋯」按钮。
                   基准是「计时点」而不是文件 mtime（见 hooks/sidebar/useSessionActivityClock）：
                   本轮开始（用户输入）与 turn 结束各算一次，流式期间不会一直被重置成「刚刚」。
@@ -498,7 +368,8 @@ export function SessionTree(props: {
 							</div>
 						</button>
 					</SessionHoverCard>
-					{renderToggle(groupKey, childCount)}
+					<ChildGroupToggle kind="linked" groupKey={groupKey} count={linkedCount} expanded={linkedExpanded} onToggle={props.controller.toggleChildGroup} />
+					<ChildGroupToggle kind="agents" groupKey={groupKey} count={childCount} expanded={agentsExpanded} onToggle={props.controller.toggleChildGroup} />
 					<Button
 						type="button"
 						variant="ghost"
@@ -514,8 +385,18 @@ export function SessionTree(props: {
 						<Ellipsis size={14} aria-hidden="true" />
 					</Button>
 				</div>
-				{renderSubagents(groupKey, child.codexSubagents, child.piSubagents)}
-				{renderLinkedChildren(child.session.id)}
+				<SessionChildBranch
+					ctx={childCtx}
+					childrenByParent={linkedChildrenByParent}
+					linkByChildId={linkByChildId}
+					linkedExpanded={linkedExpanded}
+					agentsExpanded={agentsExpanded}
+					onToggle={props.controller.toggleChildGroup}
+					groupKey={groupKey}
+					linkedChildren={linkedChildren}
+					codexSubagents={child.codexSubagents}
+					piSubagents={child.piSubagents}
+				/>
 			</SidebarRemovalRow>
 		);
 	};

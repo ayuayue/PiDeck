@@ -113,7 +113,7 @@ function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: st
 						</div>
 					</div>
 				</button>
-				{/* 子代理会话折叠胶囊：数量徽标 + 展开箭头，与桌面 SessionTree 的 subagent-inline-toggle 同语义 */}
+				{/* 子代理会话折叠胶囊：数量徽标 + 展开箭头，与桌面 SessionTree 的 child-toggle 同语义 */}
 				{subagentCount > 0 ? (
 					<button
 						type="button"

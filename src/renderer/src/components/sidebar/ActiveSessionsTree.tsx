@@ -1,5 +1,5 @@
 import { recentSessionActivityAtom } from "../../atoms/recent-session-atoms";
-import { CornerDownRight, Ellipsis, Inbox } from "lucide-react";
+import { Ellipsis, Inbox, Link2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import { sessionRecordToSummary } from "../../atoms";
@@ -215,7 +215,7 @@ export function ActiveSessionsTree(props: { controller: SidebarController; actio
 										}}
 										onDragEnd={() => props.actions.sessions.endDrag?.()}
 									>
-										{linkedChild && <CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />}
+										{linkedChild && <Link2 className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />}
 										{/* 终态（closed/detached/未知）不留空色点占位，见 SidebarStatusDot。 */}
 										<SidebarStatusDot status={agent.status} />
 										<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">

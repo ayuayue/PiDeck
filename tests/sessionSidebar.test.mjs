@@ -59,6 +59,12 @@ function loadSessionSortModesModule() {
 	});
 }
 
+function loadChildGroupStateModule() {
+	return loadTsModule("src/renderer/src/utils/childGroupState.ts", "childGroupState.ts", (specifier) => {
+		throw new Error(`Unexpected import: ${specifier}`);
+	});
+}
+
 function loadControllerModule() {
 	return loadTsModule("src/renderer/src/hooks/useSidebarController.ts", "useSidebarController.ts", (specifier) => {
 		if (specifier === "react") return {};
@@ -68,6 +74,7 @@ function loadControllerModule() {
 		if (specifier === "../utils/sidebarNavTab") return loadNavTabModule();
 		if (specifier === "../sessionFilterPills") return loadPillsModule();
 		if (specifier === "../sessionSortModes") return loadSessionSortModesModule();
+		if (specifier === "../utils/childGroupState") return loadChildGroupStateModule();
 		if (specifier === "./sidebar/useProjectSortMode") return {};
 		throw new Error(`Unexpected import: ${specifier}`);
 	});
@@ -133,8 +140,11 @@ test("Sidebar controller derives catalog data from canonical atoms without a wri
 
 test("Session tree keys use catalog SessionRecord identity, including child rows", () => {
 	const source = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
-	assert.match(source, /key=\{session\.id\}/);
+	const childRows = readFileSync("src/renderer/src/components/sidebar/SessionChildRows.tsx", "utf8");
 	assert.match(source, /key=\{child\.session\.id\}/);
+	// 子项身份同样按 catalog 会话 id，不用文件路径（路径在重命名/移动后会变）。
+	assert.match(childRows, /key=\{record\.id\}/);
+	assert.match(childRows, /key=\{`codex:\$\{session\.id\}`\}/);
 	assert.doesNotMatch(source, /key=\{session\.filePath\}/);
 	assert.doesNotMatch(source, /key=\{child\.session\.filePath\}/);
 });
@@ -468,7 +478,8 @@ test("sidebar uses one persisted project accordion without duplicating current p
 	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{child\.agent\.status\} \/>/);
 	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{runtimeSnapshot\?\.status\} \/>/);
 	assert.match(sessionTree, /display\.visibleChildren\.map\(renderChild\)/);
-	assert.match(sessionTree, /renderSubagents\(groupKey, child\.codexSubagents, child\.piSubagents\)/);
+	// 子项分组（关联子会话 + 子智能体）统一交给 SessionChildRows，父行不再各自渲染两套。
+	assert.match(sessionTree, /<SessionChildBranch[\s\S]*?codexSubagents=\{child\.codexSubagents\}[\s\S]*?piSubagents=\{child\.piSubagents\}/);
 });
 
 test("sidebar splits Chats/Projects by navTab without duplicating list logic", () => {
@@ -514,6 +525,7 @@ test("sidebar splits Chats/Projects by navTab without duplicating list logic", (
 
 test("分组隐藏覆盖运行时 agent 行，分组行展示运行状态", () => {
 	const sessionTree = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
+	const childRows = readFileSync("src/renderer/src/components/sidebar/SessionChildRows.tsx", "utf8");
 	const groups = readFileSync("src/renderer/src/components/sidebar/SessionGroupsSection.tsx", "utf8");
 	const statusDot = readFileSync("src/renderer/src/components/sidebar/SidebarStatusDot.tsx", "utf8");
 
@@ -522,7 +534,8 @@ test("分组隐藏覆盖运行时 agent 行，分组行展示运行状态", () =
 	assert.match(sessionTree, /\.filter\(\(agent\) => !shouldHideGroupedSession\(agent\.deckSessionId, props\.groupedSessionIds, search\)\)/);
 	// 状态点只有一套实现（项目树 / 分组树共用），不在 SessionTree 内重复。
 	assert.equal((sessionTree.match(/renderRuntimeStatusDot/g) ?? []).length, 0, "状态点实现应已提取到 SidebarStatusDot");
-	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{dotStatus\} \/>/);
+	// 子项行的状态点同样只走共享组件（关联子会话可能带失败/运行态）。
+	assert.match(childRows, /<SessionRuntimeStatusDot status=\{props\.status\} \/>/);
 	assert.match(statusDot, /export function SessionRuntimeStatusDot/);
 	// agent 行被隐藏后，分组行就是该会话唯一的运行态入口。
 	assert.match(groups, /<SessionRuntimeStatusDot status=\{props\.controller\.catalog\.runtimeBySessionId\[session\.id\]\?\.status\} \/>/);
