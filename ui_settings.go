@@ -141,9 +141,12 @@ func (a *app) settingsPane() core.Node {
 	}}
 }
 
-// openSettingsPane shows the settings page in the work area.
+// openSettingsPane shows the settings page in the work area, on the section
+// it was last left on: its loader runs here, since a restored section never
+// went through openSettingsSection.
 func (a *app) openSettingsPane() {
 	a.openPane(paneSettings)
+	a.loadSettingsSection(a.settingsTab.GetUntracked())
 }
 
 // openSettingsSection switches to a section and runs its loader.
@@ -154,6 +157,12 @@ func (a *app) openSettingsSection(id string) {
 		a.st.edit(func(c *config) { c.SettingsTab = id })
 	}
 	a.settingsQuery.Set("")
+	a.loadSettingsSection(id)
+}
+
+// loadSettingsSection runs the loader a section needs before it can show
+// anything.
+func (a *app) loadSettingsSection(id string) {
 	switch id {
 	case "remote":
 		if a.remote != nil {

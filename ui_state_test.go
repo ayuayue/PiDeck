@@ -48,8 +48,8 @@ func TestPanelAndPageStatePersist(t *testing.T) {
 		built = newApp(cx)
 		return built.view()
 	}
-	app := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
-	app.Settle()
+	first := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
+	first.Settle()
 	if built == nil {
 		t.Fatal("the app was not built")
 	}
@@ -58,8 +58,8 @@ func TestPanelAndPageStatePersist(t *testing.T) {
 	built.setDrawerTab("files")
 	built.setRailWidth(318)
 	built.setDrawerWidth(344)
-	app.Advance(500 * time.Millisecond)
-	app.Settle()
+	first.Advance(500 * time.Millisecond)
+	first.Settle()
 
 	saved := readConfig(t, home)
 	if saved.SettingsTab != "models" {
@@ -80,6 +80,33 @@ func TestPanelAndPageStatePersist(t *testing.T) {
 	cfg := again.config()
 	if cfg.SettingsTab != "models" || cfg.DrawerTab != "files" || cfg.RailWidth != 318 {
 		t.Fatalf("the config does not read back: %+v", cfg)
+	}
+
+	var rebuilt *app
+	root2 := func(cx *core.Scope) core.Node {
+		rebuilt = newApp(cx)
+		return rebuilt.view()
+	}
+	screen := nsgotest.Start(t, root2, nsgotest.Size(1280, 860))
+	screen.Settle()
+	if rebuilt == nil {
+		t.Fatal("the second app was not built")
+	}
+	if got := rebuilt.settingsTab.GetUntracked(); got != "models" {
+		t.Fatalf("the restored settings tab = %q, want models", got)
+	}
+	if got := rebuilt.drawerTab.GetUntracked(); got != "files" {
+		t.Fatalf("the restored drawer tab = %q, want files", got)
+	}
+	if got := rebuilt.railWidth.GetUntracked(); got != 318 {
+		t.Fatalf("the restored rail width = %v", got)
+	}
+	// Opening the page runs the restored section's loader instead of
+	// falling back to the first one.
+	rebuilt.openSettingsPane()
+	screen.Settle()
+	if got := rebuilt.settingsTab.GetUntracked(); got != "models" {
+		t.Fatalf("opening settings switched to %q", got)
 	}
 }
 
