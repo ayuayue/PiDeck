@@ -91,7 +91,7 @@ func (a *app) setChatWidth(w int) {
 func (a *app) composerStack(s *session) core.Node {
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(core.Points(a.contentWidth())), MinWidth: core.Pt(0)}, Children: []core.Node{
-			a.trustBar(s), a.todoBar(s), a.composer(s),
+			a.trustBar(s), a.todoBar(s), a.queuePanel(s), a.composer(s),
 		}},
 	}}
 }
@@ -995,14 +995,25 @@ func (a *app) composer(s *session) core.Node {
 			OnDraftChange: s.draft.Set,
 			Label:         T("消息"),
 			PlaceholderFunc: func() string {
-				if s.busyNow() {
+				switch {
+				case modeOn(s, modeImage):
+					return T("描述要画的画面…")
+				case s.busyNow() && delivery(s) == deliveryFollowUp:
+					return T("运行中：回车排到这一轮结束后")
+				case s.busyNow():
 					return T("运行中：回车插入引导，或点停止")
-				}
-				if !s.readySig.Get() {
+				case backendOf(s) == "acp" && !s.readySig.Get():
+					return T("正在启动 agent…")
+				case !s.readySig.Get():
 					return T("正在启动 pi…")
+				case modeOn(s, modePlan):
+					return T("写下要计划的事…")
+				case modeOn(s, modeGoal):
+					return T("写下目标，它会自己往下做…")
 				}
 				return T("给 pi 发消息…")
 			},
+			SendDisabled: func() bool { return a.aiBusy.Get() == "image" },
 			SendLabel: T("发送"),
 			StopLabel: T("停止"),
 			Running:   s.busy,
@@ -1044,31 +1055,37 @@ func (a *app) composer(s *session) core.Node {
 	})
 }
 
-// composerAccessory is the model and thinking controls.
+// composerAccessory is the row of controls inside the card: where the
+// session runs, what this prompt asks for, and the model that answers it.
 func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
-		plan := hintOf(func() string { return T("计划模式") }, ui.IconButton{Icon: lucide.ClipboardList, Label: T("计划模式"), Size: 26, IconSize: 13, TestID: "plan-mode",
-			Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }})
-		persona := a.personaChip(s)
-		aiTool := func(tool string, icon func() *core.SVG, label, testID string, press func()) core.Node {
-			return core.Dynamic(func(cx *core.Scope) core.Node {
-				if a.aiBusy.Get() == tool {
-					return ui.Spinner{Size: 11}
-				}
-				return hintOf(func() string { return T(label) }, ui.IconButton{Icon: icon, Label: T(label), Size: 26, IconSize: 13,
-					TestID: testID, Disabled: func() bool {
-						return a.aiBusy.Get() != "" || strings.TrimSpace(s.draft.Get()) == ""
-					}, OnPress: press})
-			})
-		}
-		ai := core.Group{
-			aiTool("prompt", lucide.WandSparkles, "增强提示词", "prompt-enhance", func() { a.enhanceDraft(s) }),
-			aiTool("predict", lucide.Sparkles, "续写", "prompt-predict", func() { a.predictDraft(s) }),
-		}
-		if s.backend == "acp" {
-			return core.Group{persona, plan, a.acpBadge(s), a.acpCommandMenu(s), ai}
-		}
-		return core.Group{persona, plan, a.modelMenu(s, s.modelOpen), a.effortPicker(s), ai}
+		return core.Dynamic(func(cx *core.Scope) core.Node {
+			// Follow the mode, the backend and the agent's own changes, which
+			// live outside signals.
+			s.agentMode.Get()
+			s.uiSeq.Get()
+			var parts []core.Node
+			parts = append(parts, a.composerBackendPicker(s), a.composerAddMenu(s))
+			if chip := a.composerModeChip(s); chip != nil {
+				parts = append(parts, chip)
+			}
+			switch {
+			case modeOn(s, modeImage):
+				parts = append(parts, a.composerImageOptions(s))
+			case backendOf(s) == "acp":
+				parts = append(parts, a.acpBadge(s))
+			default:
+				parts = append(parts, hintOf(func() string {
+					if m := s.model.Get(); m.ID != "" {
+						return T("模型 · %s", modelLabel(m))
+					}
+					return T("选择模型")
+				}, a.modelMenu(s, s.modelOpen)))
+				parts = append(parts, a.thinkingMenu(s))
+			}
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0),
+				FlexShrink: 1, Overflow: core.Hidden}, Children: parts}
+		})
 	}
 }
 
@@ -1136,53 +1153,20 @@ func (a *app) predictDraft(s *session) {
 	}()
 }
 
-// effortPicker chooses the reasoning level with the chat kit's slider: the
-// levels the current model accepts, dragged or pressed. It is rebuilt when
-// the model changes, because each model has its own levels.
-func (a *app) effortPicker(s *session) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		levels := s.levels.Get()
-		if len(levels) == 0 {
-			return nil
-		}
-		var options []chat.Option
-		for _, l := range levels {
-			options = append(options, chat.Option{ID: l, Label: levelLabel(l)})
-		}
-		return chat.EffortPicker{
-			Label:  T("思考"),
-			Icon:   lucide.Brain,
-			Levels: options,
-			Selected: func() string {
-				return s.thinking.Get()
-			},
-			OnChange: func(id string) { a.applyThinking(s, id, true) },
-			Off:      true,
-			Tooltip: func() string {
-				if len(levels) == 1 {
-					return "思考等级 · " + levelLabel(s.thinking.Get()) + "（该模型只有这一档）"
-				}
-				return "思考等级 · " + levelLabel(s.thinking.Get())
-			},
-			TestID: "effort-picker",
-		}
-	})
-}
-
-// composerTrailing is the attach button and context gauge, and the mark
-// that says pi answered for this session.
+// composerTrailing is the tools, the attach button, the context gauge and
+// the way messages are sent.
 func (a *app) composerTrailing(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
-		return core.Group{
-			chat.IconAction{Label: T("粘贴图片"), Icon: lucide.ImagePlus, OnPress: func() { a.pasteImage(s) }},
-			chat.ContextMeter{
-				Label: T("上下文"), Title: T("上下文用量"),
-				Tooltip:  func() string { return "上下文 · " + a.contextValue(s) },
-				Value:    func() string { return a.contextValue(s) },
-				Fraction: func() float64 { return a.contextFraction(s) },
-				TestID:   "context-meter",
-			},
-		}
+		return core.Dynamic(func(cx *core.Scope) core.Node {
+			s.sendMode.Get()
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
+				a.aiToolButton(s, "prompt", lucide.WandSparkles, "增强提示词", "prompt-enhance", func() { a.enhanceDraft(s) }),
+				a.aiToolButton(s, "predict", lucide.Sparkles, "续写", "prompt-predict", func() { a.predictDraft(s) }),
+				a.attachButton(s),
+				a.contextMeterNode(s),
+				a.sendMenu(s),
+			}}
+		})
 	}
 }
 
@@ -1214,8 +1198,8 @@ func (a *app) contextFraction(s *session) float64 {
 	return -1
 }
 
-// composerFooter is the row of chips under the input: the project the
-// session runs in, what is queued or failing, and the usage panel.
+// composerFooter is the row under the card: where the session runs, which
+// agent it carries, what is failing, and the usage panel.
 func (a *app) composerFooter(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
@@ -1226,16 +1210,14 @@ func (a *app) composerFooter(s *session) chat.View {
 						return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: colors.Up()}
 					}}
 			}},
-			a.projectMenu(s, s.projectOpen),
-			core.Show{When: func() bool { return s.queued.Get() > 0 }, Then: func(cx *core.Scope) core.Node {
-				return chat.Chip{TextFunc: func() string { return fmt.Sprintf("排队 %d", s.queued.Get()) }, Icon: lucide.ListOrdered}
-			}},
+			hintOf(func() string { return T("项目 · 点一下换") }, a.projectMenu(s, s.projectOpen)),
+			a.personaChip(s),
 			core.Show{When: func() bool { return s.notice.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 				return core.Text{ContentFunc: func() string { return shorten(s.notice.Get(), 40) }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 					Style: core.Style{FlexShrink: 1, FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)}
 			}},
 			core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}},
-			a.usageMenu(s, s.usageOpen),
+			hintOf(func() string { return T("用量与上下文") }, a.usageMenu(s, s.usageOpen)),
 		}}
 	}
 }

@@ -30,12 +30,19 @@ func hintOf(label func() string, n core.Node) core.Node {
 		Style:   core.Style{FlexShrink: 0},
 		Delay:   250 * time.Millisecond,
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			colors := ui.ColorsOf(cx)
-			return core.View{Style: core.Style{CornerRadius: 7, Padding: core.Symmetric(4, 8), MaxWidth: core.Pt(300),
-				Background: colors.Surface(), BorderWidth: 1, BorderColor: colors.Border(),
-				Shadows: []core.BoxShadow{ui.Shadow(0, 8, 22, 0, ui.Black(0.16))}},
-				Children: []core.Node{core.Text{ContentFunc: label, MaxLines: 3, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FontSize: 11.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Text)}}}
+			return hintCard(cx, label)
 		})},
 	}
+}
+
+// hintCard is what a hint is written on: an opaque card, so a theme that
+// sees through its panels (a wallpaper) never leaves the words over the
+// page with nothing behind them.
+func hintCard(cx *core.Scope, label func() string) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{CornerRadius: 7, Padding: core.Symmetric(4, 8), MaxWidth: core.Pt(300),
+		Background: ui.Alpha(colors.Surface(), 1), BorderWidth: 1, BorderColor: colors.Border(),
+		Shadows: []core.BoxShadow{ui.Shadow(0, 8, 22, 0, ui.Black(0.16))}},
+		Children: []core.Node{core.Text{ContentFunc: label, MaxLines: 3, EllipsizeMode: core.EllipsizeTail,
+			Style: core.Style{FontSize: 11.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Text)}}}
 }

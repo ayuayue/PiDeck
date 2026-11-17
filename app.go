@@ -101,7 +101,11 @@ type session struct {
 	// session file, so pi is not asked for a copy already on screen.
 	histFile int
 	notice   *core.Signal[string]
-	queued   *core.Signal[int]
+	// steering mirrors pi's queue: messages that take effect before its
+	// next call. sending holds the follow-ups this app keeps for the end of
+	// the turn.
+	steering *core.Signal[[]string]
+	sending  *core.Signal[[]queuedMessage]
 	ask      *core.Signal[*extensionAsk]
 	window   *core.Signal[int]
 	// todos is the agent's task list, and todoOpen whether the bar above
@@ -111,8 +115,15 @@ type session struct {
 	// runningSig is whether a turn is in flight. It changes twice a turn,
 	// so the composer's controls are not rebuilt by every streamed delta.
 	runningSig *core.Signal[bool]
-	// planMode asks the next prompt for a plan instead of edits.
-	planMode *core.Signal[bool]
+	// agentMode is what the next prompt asks for: normal work, a plan, an
+	// auto-continued goal, or an image. sendMode is how a message reaches a
+	// running turn: steer before its next call, or a follow-up after it ends.
+	agentMode *core.Signal[string]
+	sendMode  *core.Signal[string]
+	// goalRounds counts a goal's turns, and goalPaused holds it after the
+	// user stops, until they ask it to go on.
+	goalRounds int
+	goalPaused *core.Signal[bool]
 	// Step-by-step plan execution.
 	planSteps  []string
 	planIndex  int
@@ -123,6 +134,10 @@ type session struct {
 	modelOpen    *core.Signal[bool]
 	modelQuery   *core.Signal[string]
 	thinkingOpen *core.Signal[bool]
+	backendOpen  *core.Signal[bool]
+	modeOpen     *core.Signal[bool]
+	imageOpen2   *core.Signal[bool]
+	sendOpen     *core.Signal[bool]
 	usageOpen    *core.Signal[bool]
 	projectOpen  *core.Signal[bool]
 
@@ -150,7 +165,6 @@ type session struct {
 	acpFlushDue bool
 	acpReply    func(string)
 	acpCommands *core.Signal[[]acpCommand]
-	acpCmdOpen  *core.Signal[bool]
 	acpMode     *core.Signal[string]
 	acpModes    *core.Signal[[]acpMode]
 	acpModeOpen *core.Signal[bool]
@@ -1068,6 +1082,8 @@ func newApp(cx *core.Scope) *app {
 	a.ensureAddonDirs()
 	a.ensurePromptLibrary()
 	a.on(eventTurnDone, a.onPlanTurn)
+	a.on(eventTurnDone, a.onGoalTurn)
+	a.on(eventTurnDone, a.onQueuedTurn)
 	a.on(eventTurnDone, a.onFeishuTurn)
 	a.remote = newRemoteHost(a)
 	a.remote.init()
@@ -1122,17 +1138,24 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		updated:        core.NewSignal(a.cx, m.Updated),
 		loaded:         core.NewSignal(a.cx, false),
 		notice:         core.NewSignal(a.cx, ""),
-		queued:         core.NewSignal(a.cx, 0),
+		steering:       core.NewSignalFunc(a.cx, []string(nil), nil),
+		sending:        core.NewSignalFunc(a.cx, []queuedMessage(nil), nil),
 		ask:            core.NewSignalFunc(a.cx, (*extensionAsk)(nil), nil),
 		window:         core.NewSignal(a.cx, 24),
 		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
 		todoOpen:       core.NewSignal(a.cx, false),
 		runningSig:     core.NewSignal(a.cx, false),
-		planMode:       core.NewSignal(a.cx, false),
+		agentMode:      core.NewSignal(a.cx, modeNormal),
+		sendMode:       core.NewSignal(a.cx, ""),
+		goalPaused:     core.NewSignal(a.cx, false),
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
 		modelQuery:     core.NewSignal(a.cx, ""),
 		thinkingOpen:   core.NewSignal(a.cx, false),
+		backendOpen:    core.NewSignal(a.cx, false),
+		modeOpen:       core.NewSignal(a.cx, false),
+		imageOpen2:     core.NewSignal(a.cx, false),
+		sendOpen:       core.NewSignal(a.cx, false),
 		usageOpen:      core.NewSignal(a.cx, false),
 		projectOpen:    core.NewSignal(a.cx, false),
 		streamText:     core.NewSignal(a.cx, ""),
@@ -1142,7 +1165,6 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		openTools:      map[string]bool{},
 		uiSeq:          core.NewSignal(a.cx, 0),
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
-		acpCmdOpen:     core.NewSignal(a.cx, false),
 		acpMode:        core.NewSignal(a.cx, ""),
 		acpModes:       core.NewSignalFunc(a.cx, []acpMode(nil), nil),
 		acpModeOpen:    core.NewSignal(a.cx, false),
@@ -2002,17 +2024,24 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		updated:        core.NewSignal(a.cx, a.cx.Now()),
 		loaded:         core.NewSignal(a.cx, false),
 		notice:         core.NewSignal(a.cx, ""),
-		queued:         core.NewSignal(a.cx, 0),
+		steering:       core.NewSignalFunc(a.cx, []string(nil), nil),
+		sending:        core.NewSignalFunc(a.cx, []queuedMessage(nil), nil),
 		ask:            core.NewSignalFunc(a.cx, (*extensionAsk)(nil), nil),
 		window:         core.NewSignal(a.cx, 24),
 		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
 		todoOpen:       core.NewSignal(a.cx, false),
 		runningSig:     core.NewSignal(a.cx, false),
-		planMode:       core.NewSignal(a.cx, false),
+		agentMode:      core.NewSignal(a.cx, modeNormal),
+		sendMode:       core.NewSignal(a.cx, ""),
+		goalPaused:     core.NewSignal(a.cx, false),
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
 		modelQuery:     core.NewSignal(a.cx, ""),
 		thinkingOpen:   core.NewSignal(a.cx, false),
+		backendOpen:    core.NewSignal(a.cx, false),
+		modeOpen:       core.NewSignal(a.cx, false),
+		imageOpen2:     core.NewSignal(a.cx, false),
+		sendOpen:       core.NewSignal(a.cx, false),
 		usageOpen:      core.NewSignal(a.cx, false),
 		projectOpen:    core.NewSignal(a.cx, false),
 		streamText:     core.NewSignal(a.cx, ""),
@@ -2022,7 +2051,6 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		openTools:      map[string]bool{},
 		uiSeq:          core.NewSignal(a.cx, 0),
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
-		acpCmdOpen:     core.NewSignal(a.cx, false),
 		acpMode:        core.NewSignal(a.cx, ""),
 		acpModes:       core.NewSignalFunc(a.cx, []acpMode(nil), nil),
 		acpModeOpen:    core.NewSignal(a.cx, false),
@@ -2417,18 +2445,6 @@ func lastAnswer(s *session) string {
 	return ""
 }
 
-// togglePlanMode flips the next turn between planning and doing.
-func (a *app) togglePlanMode(s *session) {
-	if s == nil {
-		return
-	}
-	on := !s.planMode.GetUntracked()
-	s.planMode.Set(on)
-	if on {
-		a.toast(ui.ToastInfo, "计划模式已开启", "下一轮会先给计划，确认后再执行。")
-	}
-}
-
 // executePlan asks pi to carry out the plan it just gave.
 func (a *app) executePlan(s *session, t turn) {
 	if s == nil || t.running() {
@@ -2446,7 +2462,7 @@ func (a *app) editPlan(s *session, t turn) {
 	if text == "" {
 		return
 	}
-	s.planMode.Set(false)
+	a.setAgentMode(s, modeNormal)
 	s.draft.Set(text)
 	a.toast(ui.ToastInfo, "计划已放回输入框", "改完可以直接发。")
 }
@@ -2993,41 +3009,6 @@ func (a *app) startStats(s *session) {
 	}()
 }
 
-// send submits the draft: a prompt when idle, a steer when busy.
-func (a *app) send() {
-	s := a.active()
-	if s == nil {
-		return
-	}
-	text := strings.TrimSpace(s.draft.GetUntracked())
-	images := s.images.GetUntracked()
-	if text == "" && len(images) == 0 {
-		return
-	}
-	if ws := a.workspaceOf(s.WS); ws != nil && !a.projectTrusted(ws) {
-		a.askTrust(ws, func() {
-			s.draft.Set(text)
-			s.images.Set(images)
-			a.send()
-		})
-		return
-	}
-	if s.busyNow() && s.engine != nil {
-		s.draft.Set("")
-		s.images.Set(nil)
-		a.steer(s, text, images)
-		return
-	}
-	s.draft.Set("")
-	s.images.Set(nil)
-	a.submit(s, text, images)
-}
-
-// submit starts a turn and asks pi to answer it, as plan mode says.
-func (a *app) submit(s *session, text string, images []promptImage) {
-	a.submitTurn(s, text, images, s.planMode.GetUntracked())
-}
-
 // planPrompt wraps a request so pi plans before it edits.
 func planPrompt(text string) string {
 	return T("请先不要改任何文件。先给出一个可执行的计划：") + "\n" +
@@ -3050,6 +3031,12 @@ func (a *app) submitTurn(s *session, text string, images []promptImage, plan boo
 	if plan {
 		text = planPrompt(text)
 	}
+	goal := modeOn(s, modeGoal)
+	if goal {
+		s.goalRounds = max(1, s.goalRounds)
+		s.goalPaused.Set(false)
+		text = goalPrompt(text)
+	}
 	a.cx.Batch(func() {
 		if s.title.GetUntracked() == "新会话" || s.title.GetUntracked() == "" || s.title.GetUntracked() == "未命名会话" {
 			name := firstLine(text, 28)
@@ -3064,7 +3051,7 @@ func (a *app) submitTurn(s *session, text string, images []promptImage, plan boo
 		turnID := fmt.Sprintf("t%d", a.cx.Now().UnixNano())
 		s.turns.Update(func(ts []turn) []turn {
 			return append(ts, turn{ID: turnID, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(),
-				Model: s.model.GetUntracked().ID, Plan: plan})
+				Model: s.model.GetUntracked().ID, Plan: plan, Goal: goal})
 		})
 		s.status.Set(statusStarting)
 		s.runningSig.Set(true)
@@ -3198,6 +3185,11 @@ func (a *app) stop(s *session) {
 	if s == nil {
 		return
 	}
+	// A goal the user stops waits for them: it is not the agent failing.
+	if modeOn(s, modeGoal) && s.goalPaused != nil {
+		s.goalPaused.Set(true)
+	}
+	s.sending.Set(nil)
 	if s.backend == "acp" {
 		if !s.busyNow() {
 			return
@@ -3212,7 +3204,6 @@ func (a *app) stop(s *session) {
 		return
 	}
 	if !s.busyNow() {
-		println("DEBUG stop: not busy")
 		return
 	}
 	c := s.engine
@@ -3224,6 +3215,9 @@ func (a *app) stop(s *session) {
 		if err := c.call(map[string]any{"type": "abort"}, nil, 60*time.Second); err != nil {
 			a.cx.Post(func() { a.toast(ui.ToastError, "停止失败", err.Error()) })
 		}
+		a.cx.Post(func() {
+			s.steering.Set(nil)
+		})
 	}()
 	s.status.Set(statusWaiting)
 }
@@ -3661,7 +3655,9 @@ func (a *app) applyEvent(s *session, ev piEvent) {
 		}
 		a.startStats(s)
 	case "queue_update":
-		s.queued.Set(len(ev.Steering) + len(ev.FollowUp))
+		s.steering.Update(func(list []string) []string {
+			return append([]string(nil), ev.Steering...)
+		})
 	case "session_info_changed":
 		if ev.Name != "" {
 			s.title.Set(ev.Name)
@@ -3923,7 +3919,7 @@ func (a *app) settled(s *session, ev piEvent) {
 		s.streamThinking.Set("")
 		s.liveTools.Set(nil)
 		s.notice.Set("")
-		s.queued.Set(0)
+		s.steering.Set(nil)
 		s.turns.Update(func(ts []turn) []turn {
 			for i := len(ts) - 1; i >= 0; i-- {
 				if !ts[i].running() && !(ts[i].Status == chat.Failed && ts[i].End.IsZero()) {
