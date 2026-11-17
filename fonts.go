@@ -9,15 +9,17 @@ const (
 	// chatFontMin and chatFontMax bound the reading size in points.
 	chatFontMin = 11.0
 	chatFontMax = 20.0
-	// chatFontDefault is the transcript's size until the user picks one.
-	chatFontDefault = 13.5
+	// chatFontDefault is the transcript's size until the user picks one:
+	// 15 points, close to PiDeck's 16 with this app's narrower column.
+	chatFontDefault = 15.0
 	// chatLineMin and chatLineMax bound the line height, as a multiple of
-	// the reading size; chatLineDefault is 22 points at the default size.
+	// the reading size; chatLineDefault is PiDeck's 1.6 (24 points at the
+	// default size).
 	chatLineMin     = 1.3
 	chatLineMax     = 2.2
-	chatLineDefault = 1.63
+	chatLineDefault = 1.6
 	// inputFontDefault is the composer's size until the user picks one.
-	inputFontDefault = 13.5
+	inputFontDefault = 15.0
 )
 
 // monoFamily is the family monospaced text is drawn in: the one the user

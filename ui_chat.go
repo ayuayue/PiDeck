@@ -421,8 +421,9 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 							// When it was sent, inside the bubble's foot, as a
 							// chat shows its own messages.
 							core.Show{When: func() bool { return !t().Start.IsZero() }, Then: func(cx *core.Scope) core.Node {
-								return core.Text{Content: clockTime(t().Start),
-									Style: core.Style{FontSize: 10.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Muted)}
+								return ui.Tabular(core.Text{Content: clockTime(t().Start),
+									Style: core.Style{FontSize: a.readingDetailFont(), LineHeight: a.readingDetailLine()},
+									StyleFunc: ui.Colored(colors.Faint)})
 							}},
 						}}
 				})
@@ -430,7 +431,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			Steps: func() []chat.Step { return a.steps(s, t()) },
 			Final: func(cx *core.Scope) core.Node {
 				tt := t()
-				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{markdownSearchView(a.chatSearch, tt.Final, func() bool { return false }, false, a.readingFont(), a.readingLine())}}
+				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{markdownSearchView(a.chatSearch, tt.Final, func() bool { return false }, false, a.readingFont(), a.readingLine(), core.Style{})}}
 			},
 			HasFinal: func() bool {
 				tt := t()
@@ -534,7 +535,7 @@ func (a *app) turnMeta(t func() turn, now func() time.Time) core.Node {
 		Then: func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
 			tt := t()
-			faint := core.Style{FontSize: 11, LineHeight: 16}
+			faint := core.Style{FontSize: a.readingDetailFont(), LineHeight: a.readingDetailLine(), FontVariant: core.FontTabularNums}
 			var row []core.Node
 			dot := func() {
 				if len(row) > 0 {
@@ -551,7 +552,8 @@ func (a *app) turnMeta(t func() turn, now func() time.Time) core.Node {
 			}
 			if tt.Model != "" {
 				dot()
-				row = append(row, core.Text{Content: tt.Model, Style: faint, StyleFunc: ui.Colored(colors.Faint)})
+				row = append(row, core.Text{Content: tt.Model, Style: core.Style{FontSize: a.readingDetailFont(),
+					LineHeight: a.readingDetailLine(), FontFamily: monoFont()}, StyleFunc: ui.Colored(colors.Faint)})
 			}
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
 				Padding: core.Edges{Left: 4}}, Children: row}
@@ -596,7 +598,7 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 				children = append(children, a.toolRows(s, tools))
 			}
 			if text != "" {
-				children = append(children, markdownSearchView(a.chatSearch, text, func() bool { return live }, live, a.readingFont(), a.readingLine()))
+				children = append(children, markdownSearchView(a.chatSearch, text, func() bool { return live }, live, a.readingFont(), a.readingLine(), core.Style{}))
 			}
 			if len(children) == 0 {
 				return nil
@@ -606,9 +608,19 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 	}}
 }
 
-// thinkRow is what pi reasoned, folded to one line until opened. While it
-// streams it stays open and counts; once the message is done it folds to a
-// summary the user can reopen.
+// thinkingTone is the identity color of the thinking row: indigo, apart
+// from the accent, so the reasoning reads as a process of its own.
+func thinkingTone(cx *core.Scope) core.Color {
+	if c, ok := cx.Palette().Colors["thinking"]; ok {
+		return c
+	}
+	return ui.ColorsOf(cx).Muted()
+}
+
+// thinkRow is what pi reasoned, folded to one line until opened. It sits a
+// step below the answer: row-sized text in the muted ink, a mono preview
+// for the folded line, and the duration in the faint detail size. While it
+// streams it stays open and counts.
 func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
@@ -621,25 +633,31 @@ func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core
 		}
 		label := "思考"
 		if live {
-			label = "思考中 · " + duration(a.cx.Now().Sub(started))
+			label = "思考中"
 		}
+		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
 		header := []core.Node{
-			ui.IconOf(func() *core.SVG {
-				if open {
-					return lucide.ChevronDown()
-				}
-				return lucide.ChevronRight()
-			}, 11, colors.Faint),
-			core.Text{ContentFunc: func() string { return label }, MaxLines: 1,
-				Style: core.Style{FontSize: 12, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)},
-			core.Text{ContentFunc: func() string {
-				if open {
-					return ""
-				}
-				return shorten(thinking, 90)
-			}, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5, FontFamily: monoFont()},
-				StyleFunc: ui.Colored(colors.Faint)},
+			ui.Icon(lucide.Brain, 13, func() core.Color { return thinkingTone(cx) }),
+			core.Text{Content: label, MaxLines: 1,
+				Style: core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)},
+		}
+		if live {
+			header = append(header, ui.Tabular(core.Text{Content: "· " + duration(a.cx.Now().Sub(started)), MaxLines: 1,
+				Style: core.Style{FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}))
+		}
+		header = append(header, ui.IconOf(func() *core.SVG {
+			if open {
+				return lucide.ChevronDown()
+			}
+			return lucide.ChevronRight()
+		}, 11.5, colors.Faint))
+		if open {
+			header = append(header, core.View{Style: core.Style{FlexGrow: 1}})
+		} else {
+			header = append(header, core.Text{Content: shorten(thinking, 160), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: detailSize,
+					LineHeight: a.readingDetailLine(), FontFamily: monoFont()},
+				StyleFunc: ui.Colored(colors.Faint)})
 		}
 		if live {
 			header = append(header, ui.Spinner{Size: 10})
@@ -648,18 +666,20 @@ func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core
 			OnPress: func(core.PressEvent) { s.toggleThink(key, live) },
 			Role:    core.RoleButton, Label: label,
 			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(24), Padding: core.Symmetric(0, 2),
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(26), Padding: core.Symmetric(0, 2),
 					Hover: &core.Style{Background: colors.Hover()}, CornerRadius: 5}
 			},
 			Children: header,
 		}}
 		if open {
-			body = append(body, core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Edges{Left: 17, Top: 2},
-				Borders: core.Edges{Left: 1}, BorderColors: core.EdgeColors{Left: colors.Now().Line}}, Children: []core.Node{
-				markdownSearchView(a.chatSearch, thinking, func() bool { return live }, false, a.readingFont(), a.readingLine()),
+			body = append(body, core.View{Style: core.Style{MinWidth: core.Pt(0), Margin: core.Edges{Left: 18},
+				Padding: core.Edges{Left: 12, Top: 4, Bottom: 2}, Borders: core.Edges{Left: 2},
+				BorderColors: core.EdgeColors{Left: colors.Now().Line}}, Children: []core.Node{
+				markdownSearchView(a.chatSearch, thinking, func() bool { return live }, false, rowSize, a.readingRowLine(),
+					core.Style{Color: colors.Muted(), FontWeight: core.FontWeight(350)}),
 			}})
 		}
-		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 4}, Children: body}
+		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 2}, Children: body}
 	})
 }
 
@@ -690,24 +710,25 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 			added += c.Added
 			removed += c.Removed
 		}
+		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
 		header := []core.Node{
-			ui.Icon(lucide.FileDiff, 12, colors.Muted),
-			core.Text{Content: fmt.Sprintf("修改 %d 个文件", len(changes)), Style: core.Style{FontSize: 12},
-				StyleFunc: ui.Colored(colors.Muted)},
+			ui.Icon(lucide.FileDiff, 13, colors.Muted),
+			core.Text{Content: fmt.Sprintf("修改 %d 个文件", len(changes)),
+				Style: core.Style{FontSize: rowSize, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Muted)},
 		}
 		if added > 0 || removed > 0 {
 			header = append(header,
-				core.Text{Content: fmt.Sprintf("+%d", added), Style: core.Style{FontFamily: monoFont(), FontSize: 10.5},
-					StyleFunc: ui.Colored(colors.Up)},
-				core.Text{Content: fmt.Sprintf("−%d", removed), Style: core.Style{FontFamily: monoFont(), FontSize: 10.5},
-					StyleFunc: ui.Colored(colors.Danger)})
+				ui.Tabular(core.Text{Content: fmt.Sprintf("+%d", added), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+					StyleFunc: ui.Colored(colors.Up)}),
+				ui.Tabular(core.Text{Content: fmt.Sprintf("−%d", removed), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+					StyleFunc: ui.Colored(colors.Danger)}))
 		}
 		header = append(header, ui.IconOf(func() *core.SVG {
 			if open {
 				return lucide.ChevronDown()
 			}
 			return lucide.ChevronRight()
-		}, 11, colors.Faint))
+		}, 11.5, colors.Faint))
 		rows := []core.Node{core.View{
 			OnPress: func(core.PressEvent) { s.toggleOpen(key) },
 			Role:    core.RoleButton, Label: T("修改摘要"), TestID: "turn-changes",
@@ -729,16 +750,17 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 					},
 					Children: []core.Node{
 						core.Text{Content: change.Path, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11},
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(),
+								FontSize: a.readingDetailFont()},
 							StyleFunc: ui.Colored(colors.Muted)},
 					},
 				}
 				if change.Added > 0 || change.Removed > 0 {
 					row.Children = append(row.Children,
-						core.Text{Content: fmt.Sprintf("+%d", change.Added), Style: core.Style{FontFamily: monoFont(), FontSize: 10},
-							StyleFunc: ui.Colored(colors.Up)},
-						core.Text{Content: fmt.Sprintf("−%d", change.Removed), Style: core.Style{FontFamily: monoFont(), FontSize: 10},
-							StyleFunc: ui.Colored(colors.Danger)})
+						ui.Tabular(core.Text{Content: fmt.Sprintf("+%d", change.Added), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+							StyleFunc: ui.Colored(colors.Up)}),
+						ui.Tabular(core.Text{Content: fmt.Sprintf("−%d", change.Removed), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+							StyleFunc: ui.Colored(colors.Danger)}))
 				}
 				rows = append(rows, row)
 			}
@@ -768,12 +790,13 @@ func (a *app) noteBlock(title, body string) core.Node {
 		colors := ui.ColorsOf(cx)
 		children := []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
-				ui.Icon(lucide.Minimize2, 12, colors.Faint),
-				ui.Text(title, 12, ui.Medium, colors.Muted),
+				ui.Icon(lucide.Minimize2, 13, colors.Faint),
+				core.Text{Content: title, Style: core.Style{FontSize: a.readingRowFont(), FontWeight: ui.Medium},
+					StyleFunc: ui.Colored(colors.Muted)},
 			}},
 		}
 		if body != "" {
-			children = append(children, markdownSized(body, func() bool { return false }, false, a.readingFont(), a.readingLine()))
+			children = append(children, markdownSized(body, func() bool { return false }, false, a.readingRowFont(), a.readingRowLine(), core.Style{Color: colors.Muted()}))
 		}
 		return core.View{StyleFunc: func() core.Style {
 			return core.Style{Gap: 8, Padding: core.Symmetric(8, 12), CornerRadius: ui.RadiusControl,
@@ -795,44 +818,46 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 		running := run.Status == chat.Running
 		open := s.toolOpen(key, running)
 		body := toolBodyText(run)
+		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
 		header := []core.Node{
-			ui.IconOf(func() *core.SVG { return toolIcon(run) }, 13, func() core.Color {
+			ui.IconOf(func() *core.SVG { return toolIcon(run) }, 14, func() core.Color {
 				switch {
 				case run.IsError:
 					return colors.Danger()
 				case running:
-					return colors.Accent()
+					return colors.Info()
 				}
 				return colors.Muted()
 			}),
-			core.Text{Content: run.Action, MaxLines: 1, Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold, FlexShrink: 0},
-				StyleFunc: ui.Colored(colors.Text)},
-			core.Text{Content: shorten(run.Detail, 120), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11.5},
+			core.Text{Content: run.Action, MaxLines: 1,
+				Style: core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Muted)},
+			core.Text{Content: shorten(run.Detail, 140), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: detailSize},
+				StyleFunc: ui.Colored(colors.Faint)},
 		}
 		if run.Added > 0 || run.Removed > 0 {
 			header = append(header, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, FlexShrink: 0},
 				Children: []core.Node{
-					core.Text{Content: fmt.Sprintf("+%d", run.Added), Style: core.Style{FontFamily: monoFont(), FontSize: 10.5},
-						StyleFunc: ui.Colored(colors.Up)},
-					core.Text{Content: fmt.Sprintf("−%d", run.Removed), Style: core.Style{FontFamily: monoFont(), FontSize: 10.5},
-						StyleFunc: ui.Colored(colors.Danger)},
+					ui.Tabular(core.Text{Content: fmt.Sprintf("+%d", run.Added), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+						StyleFunc: ui.Colored(colors.Up)}),
+					ui.Tabular(core.Text{Content: fmt.Sprintf("−%d", run.Removed), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+						StyleFunc: ui.Colored(colors.Danger)}),
 				}})
 		}
 		if len(run.Nested) > 0 {
 			header = append(header, core.Text{Content: fmt.Sprintf("内含 %d 次调用", len(run.Nested)), MaxLines: 1,
-				Style: core.Style{FontFamily: monoFont(), FontSize: 10, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
+				Style: core.Style{FontFamily: monoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		switch {
 		case running:
 			header = append(header, ui.Spinner{Size: 10})
 		case run.DurationMs > 0:
-			header = append(header, core.Text{Content: fmt.Sprintf("%d ms", run.DurationMs),
-				Style: core.Style{FontFamily: monoFont(), FontSize: 10, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
+			header = append(header, ui.Tabular(core.Text{Content: fmt.Sprintf("%d ms", run.DurationMs),
+				Style: core.Style{FontFamily: monoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}))
 		}
 		if run.IsError {
-			header = append(header, core.Text{Content: "失败", Style: core.Style{FontSize: 10.5, FontWeight: ui.Medium, FlexShrink: 0},
+			header = append(header, core.Text{Content: "失败", Style: core.Style{FontSize: detailSize, FontWeight: ui.Medium, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Danger)})
 		}
 		if body != "" {
@@ -841,15 +866,15 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 					return lucide.ChevronDown()
 				}
 				return lucide.ChevronRight()
-			}, 11, colors.Faint))
+			}, 12, colors.Faint))
 		}
 		rows := []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(28),
-			Padding: core.Symmetric(2, 9), MinWidth: core.Pt(0)}, Children: header}}
+			Padding: core.Symmetric(2, 6), MinWidth: core.Pt(0)}, Children: header}}
 		if open && body != "" {
 			rows = append(rows, core.View{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320), Borders: core.Edges{Top: 1},
 				BorderColors: core.EdgeColors{Top: colors.Now().Line}}, Children: []core.Node{
 				core.Scroll{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
-					core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 4}, Children: toolBodyNodes(cx, run)},
+					core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 4}, Children: a.toolBodyNodes(cx, run)},
 				}},
 			}})
 		}
@@ -862,10 +887,12 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 			},
 			Role: core.RoleButton, Label: strings.TrimSpace(run.Action + " " + run.Detail),
 			StyleFunc: func() core.Style {
-				st := core.Style{MinWidth: core.Pt(0), CornerRadius: 9, BorderWidth: 1, BorderColor: colors.Now().Line,
-					Background: ui.Mix(colors.Background(), colors.Text(), 0.03), Overflow: core.Hidden}
+				st := core.Style{MinWidth: core.Pt(0), CornerRadius: 8, Background: core.Transparent, Overflow: core.Hidden}
 				if body != "" {
-					st.Hover = &core.Style{Background: ui.Mix(colors.Background(), colors.Text(), 0.06)}
+					st.Hover = &core.Style{Background: ui.Mix(colors.Background(), colors.Text(), 0.04)}
+				}
+				if open {
+					st.Background = ui.Mix(colors.Background(), colors.Text(), 0.03)
 				}
 				return st
 			},
@@ -926,8 +953,9 @@ func toolBodyText(run toolRun) string {
 
 // toolBodyNodes is an open row's body: a diff colored by its signs, or the
 // output as it came.
-func toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
+func (a *app) toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
 	colors := ui.ColorsOf(cx)
+	size, rowLine := a.readingDetailFont(), a.readingDetailLine()
 	if run.Diff != "" {
 		var lines []core.Node
 		for _, line := range strings.Split(run.Diff, "\n") {
@@ -943,7 +971,7 @@ func toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
 			}
 			ink := c
 			lines = append(lines, core.Text{Content: line, Selectable: core.SelectableOn,
-				Style:     core.Style{FontFamily: monoFont(), FontSize: 11.5, LineHeight: 17, Background: bg, Width: core.Pct(100)},
+				Style:     core.Style{FontFamily: monoFont(), FontSize: size, LineHeight: rowLine, Background: bg, Width: core.Pct(100)},
 				StyleFunc: ui.Colored(func() core.Color { return ink })})
 		}
 		return lines
@@ -951,14 +979,14 @@ func toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
 	var nodes []core.Node
 	for _, line := range run.Nested {
 		nodes = append(nodes, core.Text{Content: "· " + line, Selectable: core.SelectableOn,
-			Style: core.Style{FontFamily: monoFont(), FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)})
+			Style: core.Style{FontFamily: monoFont(), FontSize: size, LineHeight: rowLine}, StyleFunc: ui.Colored(colors.Faint)})
 	}
 	out := run.Output
 	if out == "" {
 		out = "（没有输出）"
 	}
 	nodes = append(nodes, core.Text{Content: out, Selectable: core.SelectableOn,
-		Style: core.Style{FontFamily: monoFont(), FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Code)})
+		Style: core.Style{FontFamily: monoFont(), FontSize: size, LineHeight: rowLine}, StyleFunc: ui.Colored(colors.Code)})
 	return nodes
 }
 

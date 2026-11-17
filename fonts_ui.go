@@ -48,6 +48,41 @@ func (a *app) composerLine() core.Points {
 	return core.Points(float64(a.composerFont()) * 1.48)
 }
 
+// The process layer is derived from the reading size, as in PiDeck: rows
+// and details stay two and four points behind the prose, with a floor so a
+// small setting keeps them readable, and a line height that stays legible.
+func (a *app) readingRowFont() core.Points {
+	return readingRowSize(a.readingFont())
+}
+
+// readingRowSize is readingRowFont's rule: two points under the prose,
+// floored so a small setting stays readable and capped so the kit's fold
+// row (13.5) stays the larger line at the biggest settings.
+func readingRowSize(chat core.Points) core.Points {
+	return min(core.Points(13.5), max(core.Points(12.5), chat-2))
+}
+
+// readingRowLine is a process row's line height.
+func (a *app) readingRowLine() core.Points {
+	return core.Points(float64(a.readingRowFont()) * 1.54)
+}
+
+// readingDetailFont is the size of previews, durations and mono details.
+func (a *app) readingDetailFont() core.Points {
+	return readingDetailSize(a.readingFont())
+}
+
+// readingDetailSize is readingDetailFont's rule: four points under the
+// prose, with the same floor and cap.
+func readingDetailSize(chat core.Points) core.Points {
+	return min(core.Points(12.5), max(core.Points(11.5), chat-4))
+}
+
+// readingDetailLine is a detail's line height.
+func (a *app) readingDetailLine() core.Points {
+	return core.Points(float64(a.readingDetailFont()) * 1.48)
+}
+
 // setChatFont stores the transcript's text size and redraws the app with
 // it: the root reads the signal, so every prose rebuilds at the new size.
 func (a *app) setChatFont(v float64) {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -28,6 +29,26 @@ func TestTextSizesNormalized(t *testing.T) {
 	}
 	if c.ChatFont != 15 || c.ChatLine != 1.8 || c.InputFont != 14 {
 		t.Fatalf("sizes in range changed to %+v", c)
+	}
+}
+
+// TestProcessSizesDerived checks the process layer follows the reading
+// size, floored and capped so it stays under the fold row.
+func TestProcessSizesDerived(t *testing.T) {
+	cases := []struct{ chat, row, detail core.Points }{
+		{11, 12.5, 11.5},
+		{15, 13, 11.5},
+		{16, 13.5, 12},
+		{19, 13.5, 12.5},
+		{20, 13.5, 12.5},
+	}
+	for _, c := range cases {
+		if got := readingRowSize(c.chat); got != c.row {
+			t.Errorf("readingRowSize(%v) = %v, want %v", c.chat, got, c.row)
+		}
+		if got := readingDetailSize(c.chat); got != c.detail {
+			t.Errorf("readingDetailSize(%v) = %v, want %v", c.chat, got, c.detail)
+		}
 	}
 }
 
@@ -60,7 +81,7 @@ func TestChatFontSetting(t *testing.T) {
 		if json.Unmarshal(raw, &c) != nil {
 			return false
 		}
-		return c.ChatFont == 17
+		return c.ChatFont == 19
 	})
 	// The reading surface picks the size up at once: the composer's line
 	// height grows with it.
