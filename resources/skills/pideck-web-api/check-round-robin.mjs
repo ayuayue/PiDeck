@@ -84,6 +84,18 @@ export function quotedFields(text) {
   }
   return hits;
 }
+// 表格里的签核字段：行首是竖线，dupFields 与 quotedFields 的正则都不匹配。
+// 2026-11-17 实测：表格里写两行字段，三条判据都不红——第四种藏法。
+export function tableFields(text) {
+  const hits = [];
+  for (const l of String(text || "").split("\n")) {
+    if (!/^\s*\|/.test(l)) continue;
+    for (const k of COUNT_FIELDS) {
+      if (new RegExp("^\\s*\\|\\s*\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
+    }
+  }
+  return hits;
+}
 export function parseOne(text) {
   const head = String(text || "").slice(0, 1200);
   const r = RE_ROUND.exec(head);
@@ -106,6 +118,7 @@ export function parseOne(text) {
     dup: dupFields(text),
     fenced: fencedFields(text),
     quoted: quotedFields(text),
+    table: tableFields(text),
   };
 }
 
@@ -123,6 +136,7 @@ export function check(entries) {
     // 真危险的是把整个签核块贴进围栏——那样围栏外那份与围栏内那份会分叉，而 dupFields 数不到里面。
     if (e.fenced && e.fenced.length >= 2) bad.push(tag + " 签核字段成块写进了代码块（" + e.fenced.join("、") + "）：围栏内的重复数不到，签核必须落在围栏外");
     if (e.quoted && e.quoted.length >= 2) bad.push(tag + " 签核字段成块写在引用块里（" + e.quoted.join("、") + "）：行首带 > 的字段 dupFields 数不到，第二处真值就藏在里面");
+    if (e.table && e.table.length >= 2) bad.push(tag + " 签核字段成块写在表格里（" + e.table.join("、") + "）：行首是竖线的字段三条判据都数不到");
     if (e.dup && e.dup.length) bad.push(tag + " 同一字段出现多次（" + e.dup.join("、") + "）：同一事实两个来源，迟早分叉");
     if (!e.discoverer) bad.push(tag + " 缺「发现者」");
     if (!e.modifier) bad.push(tag + " 缺「修改者」");
@@ -203,6 +217,8 @@ function selftest() {
     { name: "坏样本：围栏内贴签核块（四反引号包三反引号）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n````\n```\n轮次: R9\n未改: 没动\n```\n````", want: 1 },
     { name: "坏样本：引用块里两行字段——dupFields 的正则要求行首，看不见 > 前缀", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n> 未改: 那份没动\n> 已改: 又写一遍", want: 1 },
     { name: "好样本：引用块里只有一行字段（回执引规则原文的形态）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n> 未改: 只在引用里提了一句", want: 0 },
+    { name: "坏样本：表格里两行字段——行首是竖线，三条判据都不匹配", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n| 未改: 那份没动 |\n| 已改: 又写一遍 |", want: 1 },
+    { name: "好样本：表格里只有一行字段（表格里提一句的形态）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n| 未改: 只在表里提一句 |", want: 0 },
     { name: "坏样本：两行「已改」——同一事实写了两次", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n已改: x 再写一遍", want: 1 },
     { name: "解析层：没有轮次的文件不被当成签核", doc: "# 随便一份文件\n修改者: 甲", want: 0, skip: true },
   ];
