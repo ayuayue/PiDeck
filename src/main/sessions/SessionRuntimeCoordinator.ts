@@ -38,6 +38,7 @@ import type { SshSessionLocator } from "../../shared/projectLocation";
 import { descriptorFromThrownError } from "../../shared/errorI18n";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
 import { isRewindCheckpointId, isRewindRestoreScope } from "../../shared/types";
+import { resolveSupersededSessionId } from "./supersededSession";
 import type { SessionCatalogEntry } from "./SessionCatalog";
 import { StoppedMessageIdentityCache } from "../pi/stoppedMessageIdentity";
 import type { RemoteSessionMessageMutationResolver, SessionAgentGateway, SessionCatalogGateway, SessionProjectLocatorResolver, SessionRuntimeLogger } from "./runtime/sessionRuntimeGateways";
@@ -539,9 +540,8 @@ export class SessionRuntimeCoordinator {
 	}
 
 	async activateRuntime(sessionId: string): Promise<SessionCommandResult<SessionRuntimeInfo>> {
-		// #354：别名归一化必须覆盖返回值构造——ensureRuntime 内部归一化只保证 runtime 建在
-		// 现存 ID 上，runtimeInfo 仍拿旧 ID 查询就会误报 SESSION_RUNTIME_CHANGED。
-		const canonicalSessionId = this.canonicalSessionId(sessionId);
+		// #354 别名归一化 + 被接替会话重定向：runtimeInfo 拿旧 ID 查询会误报 SESSION_RUNTIME_CHANGED；supersededBy 的旧会话先换成接替者，否则残留标签让它复活、侧栏多一行同名会话。
+		const canonicalSessionId = this.canonicalSessionId(resolveSupersededSessionId(sessionId, (id) => this.catalog.get(id)) ?? sessionId);
 		try {
 			const tab = await this.ensureRuntime(canonicalSessionId);
 			const resolvedSessionId = this.canonicalSessionId(canonicalSessionId);
