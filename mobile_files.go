@@ -144,7 +144,7 @@ func (a *mobileApp) filesSheet() core.Node {
 							Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
 						core.Show{When: func() bool { return dir != "" }, Then: func(*core.Scope) core.Node {
 							return core.Text{Content: dir, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+								Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 						}},
 					}},
 					ui.Text(fileSizeText(f.Size), 9.5, ui.Regular, colors.Faint),
@@ -227,7 +227,7 @@ func (a *mobileApp) fileBody(colors ui.Colors) core.Node {
 	text := a.fileText.Get()
 	if q == "" {
 		return core.Scroll{Style: core.Style{MaxHeight: core.Pt(520)}, Children: []core.Node{
-			core.Text{Content: text, Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5, LineHeight: 17},
+			core.Text{Content: text, Style: core.Style{FontFamily: monoFont(), FontSize: 11.5, LineHeight: 17},
 				StyleFunc: ui.Colored(colors.Text)}}}
 	}
 	var rows []core.Node
@@ -238,7 +238,7 @@ func (a *mobileApp) fileBody(colors ui.Colors) core.Node {
 		}
 		matched++
 		rows = append(rows, core.Text{Content: fmt.Sprintf("%4d  %s", i+1, line), TestID: "mobile-file-line",
-			Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)})
+			Style: core.Style{FontFamily: monoFont(), FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Text)})
 		if matched >= 300 {
 			break
 		}

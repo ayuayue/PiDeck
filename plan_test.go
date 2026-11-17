@@ -42,8 +42,13 @@ func TestPlanModeButton(t *testing.T) {
 	}
 	t.Setenv("PIDECK_LITE_HOME", home)
 	app := openApp(t, workspace, 1280, 860)
-	app.WaitFor("id:plan-mode", 5*time.Second)
-	app.Press("id:plan-mode")
+	app.WaitFor("id:composer-add", 5*time.Second)
+	app.Press("id:composer-add")
+	app.WaitFor("text:计划模式", 5*time.Second)
+	app.Press("text:计划模式")
+	app.WaitFor("id:agent-mode-chip", 5*time.Second)
+	app.Press("id:agent-mode-exit")
+	app.WaitForGone("id:agent-mode-chip", 5*time.Second)
 	app.WaitFor("id:composer", 5*time.Second)
 }
 

@@ -540,10 +540,10 @@ func (a *app) taskScheduleText(t *scheduledTask) string {
 
 // --- task editor ---
 
-// openTaskDialog shows the list.
+// openTaskDialog shows the list in the work area.
 func (a *app) openTaskDialog() {
 	a.taskErr.Set("")
-	a.taskOpen.Set(true)
+	a.openPane(paneTasks)
 }
 
 // openTaskForm starts a new task with the active project filled in.

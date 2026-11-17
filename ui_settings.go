@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -51,8 +50,8 @@ func settingsSections() []settingsSection {
 	}
 }
 
-// settingsDialog is the settings window.
-func (a *app) settingsDialog() core.Node {
+// settingsPane is the settings page: its rail beside the section's rows.
+func (a *app) settingsPane() core.Node {
 	colors := ui.ColorsOf(a.cx)
 	nav := make([]core.Node, 0, len(settingsSections()))
 	for _, sec := range settingsSections() {
@@ -91,70 +90,79 @@ func (a *app) settingsDialog() core.Node {
 			}
 		}))
 	}
-	return ui.Dialog{
-		Open: a.settings.Get,
-		OnOpenChange: func(open bool, _ base.Reason) {
-			a.settings.Set(open)
-			if !open {
-				a.settingsQuery.Set("")
-			}
-		},
-		Bare:   true,
-		TestID: "settings",
-		Style:  core.Style{Width: core.Pt(760), Height: core.Pt(560)},
-		Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
-			// rail
-			core.View{StyleFunc: func() core.Style {
-				return core.Style{Width: core.Pt(176), Padding: core.All(10), Gap: 2, FlexShrink: 0,
-					Background: colors.Inset(), Borders: core.Edges{Right: 1}, BorderColors: core.EdgeColors{Right: colors.Now().Line}}
-			}, Children: []core.Node{
-				core.View{Style: core.Style{Padding: core.Edges{Left: 9, Top: 4, Bottom: 8}}, Children: []core.Node{
-					ui.Text("设置", 13, ui.Semibold, colors.Text),
-				}},
-				core.View{Style: core.Style{Padding: core.Edges{Left: 1, Right: 1, Bottom: 8}}, Children: []core.Node{
-					core.Input{Value: a.settingsQuery.Get, OnChange: a.settingsQuery.Set, Placeholder: T("搜索设置"),
-						Label: T("搜索设置"), TestID: "settings-search",
-						Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), FontSize: 11, Color: colors.Text(),
-							Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
-							PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
-				}},
-				a.settingsRail(nav),
+	return core.View{TestID: "settings", StyleFunc: func() core.Style {
+		return core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),
+			Background: colors.Background()}
+	}, Children: []core.Node{
+		// rail
+		core.View{StyleFunc: func() core.Style {
+			return core.Style{Width: core.Pt(176), Padding: core.All(10), Gap: 2, FlexShrink: 0,
+				Background: colors.Inset(), Borders: core.Edges{Right: 1}, BorderColors: core.EdgeColors{Right: colors.Now().Line}}
+		}, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Left: 9, Top: 4, Bottom: 8}}, Children: []core.Node{
+				ui.Text("设置", 13, ui.Semibold, colors.Text),
 			}},
-			// content
-			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), Direction: core.Column}, Children: []core.Node{
-				core.Dynamic(func(cx *core.Scope) core.Node {
-					_ = a.langRev.Get()
-					sec := settingsSections()[0]
-					for _, s := range settingsSections() {
-						if s.ID == a.settingsTab.Get() {
-							sec = s
-						}
+			core.View{Style: core.Style{Padding: core.Edges{Left: 1, Right: 1, Bottom: 8}}, Children: []core.Node{
+				core.Input{Value: a.settingsQuery.Get, OnChange: a.settingsQuery.Set, Placeholder: T("搜索设置"),
+					Label: T("搜索设置"), TestID: "settings-search",
+					Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), FontSize: 11, Color: colors.Text(),
+						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6,
+						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
+			}},
+			a.settingsRail(nav),
+		}},
+		// content
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), Direction: core.Column}, Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = a.langRev.Get()
+				sec := settingsSections()[0]
+				for _, s := range settingsSections() {
+					if s.ID == a.settingsTab.Get() {
+						sec = s
 					}
-					return core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Top: 16, Right: 20, Bottom: 8, Left: 20}}, Children: []core.Node{
-						ui.Text(T(sec.Title), 15, ui.Semibold, colors.Text),
-						core.Text{Content: T(sec.Summary), Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
-					}}
-				}),
-				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
-					a.settingsContent(),
-				}},
-				core.View{StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(10, 16),
-						FlexShrink: 0, Borders: core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: colors.Now().Line}}
-				}, Children: []core.Node{
-					ui.Button{Text: T("重新检测"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.reloadFrameworks},
-					core.View{Style: core.Style{FlexGrow: 1}},
-					ui.Button{Text: T("完成"), Variant: ui.ButtonPrimary, TestID: "settings-done", OnPress: func() { a.settings.Set(false) }},
-				}},
+				}
+				return core.View{Style: core.Style{MaxWidth: core.Pt(900), Gap: 2, Padding: core.Edges{Top: 16, Right: 20, Bottom: 8, Left: 20}}, Children: []core.Node{
+					ui.Text(T(sec.Title), 15, ui.Semibold, colors.Text),
+					core.Text{Content: T(sec.Summary), Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
+				}}
+			}),
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MaxWidth: core.Pt(900), MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
+				a.settingsContent(),
 			}},
-		}}},
-	}
+			core.View{StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(10, 16),
+					FlexShrink: 0, Borders: core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: colors.Now().Line}}
+			}, Children: []core.Node{
+				ui.Button{Text: T("重新检测"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.reloadFrameworks},
+				core.View{Style: core.Style{FlexGrow: 1}},
+				ui.Button{Text: T("完成"), Variant: ui.ButtonPrimary, TestID: "settings-done", OnPress: func() { a.closePane(paneSettings) }},
+			}},
+		}},
+	}}
+}
+
+// openSettingsPane shows the settings page in the work area, on the section
+// it was last left on: its loader runs here, since a restored section never
+// went through openSettingsSection.
+func (a *app) openSettingsPane() {
+	a.openPane(paneSettings)
+	a.loadSettingsSection(a.settingsTab.GetUntracked())
 }
 
 // openSettingsSection switches to a section and runs its loader.
 func (a *app) openSettingsSection(id string) {
 	a.settingsTab.Set(id)
+	if a.st != nil && a.cfg.SettingsTab != id {
+		a.cfg.SettingsTab = id
+		a.st.edit(func(c *config) { c.SettingsTab = id })
+	}
 	a.settingsQuery.Set("")
+	a.loadSettingsSection(id)
+}
+
+// loadSettingsSection runs the loader a section needs before it can show
+// anything.
+func (a *app) loadSettingsSection(id string) {
 	switch id {
 	case "remote":
 		if a.remote != nil {
@@ -255,7 +263,7 @@ func setGroup(title string, rows ...core.Node) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Gap: 6, Margin: core.Edges{Bottom: 14}}, Children: []core.Node{
-			core.Text{Content: T(title), Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LetterSpacing: 0.6},
+			core.Text{Content: T(title), Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LetterSpacing: 0.6},
 				StyleFunc: ui.Colored(colors.Faint)},
 			core.View{StyleFunc: func() core.Style {
 				return core.Style{Gap: 2, Padding: core.Symmetric(4, 10), CornerRadius: 9,
@@ -397,7 +405,7 @@ func (a *app) settingsGeneral() core.Node {
 									}},
 							}},
 							core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", float64(a.contentWidth())) },
-								Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
+								Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
 								StyleFunc: ui.Colored(colors.Muted)},
 						}}),
 				),
@@ -481,6 +489,17 @@ func (a *app) settingsGeneral() core.Node {
 							})
 						}}),
 				),
+				setGroup("隐私",
+					setRow("匿名使用统计", "启动时每天最多发一次心跳，带上版本、平台、功能开关与数量统计；不含项目路径、会话内容、文件名或凭据。",
+						ui.Switch{Checked: func() bool { return telemetryEnabled(a.cfg) }, Label: T("匿名使用统计"), TestID: "telemetry-enabled",
+							OnChange: func(on bool) {
+								value := on
+								a.cfg.TelemetryEnabled = &value
+								a.st.edit(func(c *config) { c.TelemetryEnabled = &value })
+
+								a.bumpSettings()
+							}}),
+				),
 			}},
 		}}
 	})
@@ -528,15 +547,15 @@ func (a *app) settingsModels() core.Node {
 				Padding: core.Symmetric(4, 2)}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-						core.Text{Content: prov.ID, Style: core.Style{FontFamily: ui.Mono, FontSize: 12.5, FontWeight: ui.Semibold},
+						core.Text{Content: prov.ID, Style: core.Style{FontFamily: monoFont(), FontSize: 12.5, FontWeight: ui.Semibold},
 							StyleFunc: ui.Colored(colors.Text)},
 						ui.Text(fmt.Sprintf("%d 个模型", prov.Models), 10.5, ui.Regular, colors.Faint),
 						ui.Text(prov.API, 10, ui.Regular, colors.Faint),
 					}},
 					core.Text{Content: shorten(prov.BaseURL, 70), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					core.Show{When: func() bool { return prov.Reason != "" && prov.Auth != "ready" }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: prov.Reason, Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5},
+						return core.Text{Content: prov.Reason, Style: core.Style{FontFamily: monoFont(), FontSize: 9.5},
 							StyleFunc: ui.Colored(colors.Danger)}
 					}},
 				}},
@@ -719,7 +738,7 @@ func (a *app) settingsKeys() core.Node {
 					}
 				},
 				Style: core.Style{Width: core.Pt(150), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 			}
 			reset := ui.Button{Text: T("默认"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
@@ -769,7 +788,7 @@ func (a *app) settingsLook() core.Node {
 		var rows []core.Node
 		fontControl := func(value func() string, set func(string), label, testID, placeholder string) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				core.Input{Value: value, OnChange: set, OnSubmit: func(string) { a.applyFonts() },
+				core.Input{Value: value, OnChange: set, OnSubmit: func(string) { a.applyFonts() }, OnBlur: func() { a.applyFonts() },
 					Placeholder: placeholder, Label: label, TestID: testID,
 					Style: core.Style{Width: core.Pt(160), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
 						Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}},
@@ -857,7 +876,7 @@ func (a *app) settingsLook() core.Node {
 								TestID: "term-font", OnChange: a.setTerminalFont},
 						}},
 						core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", a.termFont.Get()) },
-							Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
+							Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
 							StyleFunc: ui.Colored(colors.Muted)},
 					}}),
 				setRow("编辑器字号", "中间编辑器的文字大小，11–20 pt；改完立即重绘。",
@@ -868,11 +887,26 @@ func (a *app) settingsLook() core.Node {
 								TestID: "editor-font", OnChange: a.setEditorFont},
 						}},
 						core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f pt", a.editorFont.Get()) },
-							Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
+							Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
 							StyleFunc: ui.Colored(colors.Muted)},
 					}}),
 				setDivider(),
-				setRow("界面字体", "系统已安装的字体名，如 Georgia；留空跟随主题。回车或点「应用」生效。",
+				setRow("聊天字号", "会话正文与提问的字号；标题、代码和列表按同一比例放大。",
+					choiceChips([]choice[float64]{
+						{13, T("紧凑")}, {chatFontDefault, T("标准")}, {17, T("大")}, {19, T("特大")},
+					}, func() float64 { return a.chatFont.Get() }, a.setChatFont)),
+				setDivider(),
+				setRow("聊天行高", "正文的行距；宽松一些更好读。",
+					choiceChips([]choice[float64]{
+						{1.45, T("紧凑")}, {chatLineDefault, T("标准")}, {1.8, T("宽松")}, {2.0, T("舒展")},
+					}, func() float64 { return a.chatLine.Get() }, a.setChatLine)),
+				setDivider(),
+				setRow("输入框字号", "输入框里的文字大小；「跟随聊天」与聊天字号一致。",
+					choiceChips([]choice[float64]{
+						{0, T("跟随聊天")}, {13, T("紧凑")}, {chatFontDefault, T("标准")}, {17, T("大")},
+					}, func() float64 { return a.inputFont.Get() }, a.setInputFont)),
+				setDivider(),
+				setRow("界面字体", "整个界面的字体（代码与等宽处除外）；系统已安装的字体名，如 Georgia。留空跟随主题，回车、失焦或点「应用」生效。",
 					fontControl(func() string { return a.cfg.UIFont }, func(v string) {
 						a.cfg.UIFont = strings.TrimSpace(v)
 						if a.st != nil {
@@ -880,7 +914,7 @@ func (a *app) settingsLook() core.Node {
 						}
 					}, T("界面字体"), "ui-font", T("留空跟随主题"))),
 				setDivider(),
-				setRow("等宽字体", "编辑器使用的等宽字体名，如 JetBrains Mono；留空用系统等宽字体。",
+				setRow("等宽字体", "代码、工具输出、编辑器与终端的字体；如 JetBrains Mono。留空用系统等宽字体。",
 					fontControl(func() string { return a.cfg.MonoFont }, func(v string) {
 						a.cfg.MonoFont = strings.TrimSpace(v)
 						if a.st != nil {
@@ -900,7 +934,7 @@ func (a *app) backgroundGroup(colors ui.Colors) core.Node {
 	path := a.cfg.BackgroundImage
 	var preview core.Node
 	if path != "" {
-		preview = core.Image{Source: core.ImageSource{URI: fileURL(path)}, ResizeMode: core.Cover,
+		preview = core.Image{Source: core.ImageSource{URI: path}, ResizeMode: core.Cover,
 			Style: core.Style{Width: core.Pt(80), Height: core.Pt(46), CornerRadius: 6, BorderWidth: 1, BorderColor: colors.Border()}}
 	} else {
 		preview = core.View{Style: core.Style{Width: core.Pt(80), Height: core.Pt(46), CornerRadius: 6,
@@ -932,13 +966,14 @@ func (a *app) backgroundGroup(colors ui.Colors) core.Node {
 			ui.Slider{Min: 0, Max: 100, Step: 1, Value: func() float64 { return a.backgroundOpacity() * 100 },
 				Label: T("背景透明度"), ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
 				TestID: "bg-opacity", OnChange: func(v float64) {
+					// The row redraws itself from the opacity signal; the page is
+					// bumped once the drag ends, or it would not drag at all.
 					a.setBackgroundOpacity(v / 100)
-					a.bumpSettings()
 				}},
 		}},
 		core.Dynamic(func(*core.Scope) core.Node {
 			return core.Text{Content: fmt.Sprintf("%.0f%%", a.bgOpacity.Get()*100),
-				Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
+				Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5, MinWidth: core.Pt(38), TextAlign: core.TextAlignRight},
 				StyleFunc: ui.Colored(colors.Muted)}
 		}),
 	}}
@@ -988,7 +1023,7 @@ func (a *app) settingsEnv() core.Node {
 					a.bumpSettings()
 				},
 				Style: core.Style{Width: core.Pt(170), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 			}),
 		)
@@ -996,7 +1031,7 @@ func (a *app) settingsEnv() core.Node {
 			return core.Input{Value: value, Placeholder: placeholder, Label: label, TestID: testID,
 				OnChange: set,
 				Style: core.Style{Width: core.Pt(190), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}}
 		}
 		proxyRows := []core.Node{
@@ -1058,11 +1093,11 @@ func (a *app) settingsEnv() core.Node {
 				setGroup("其它机器", targets...),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: T("添加 WSL 工作区"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
-						a.settings.Set(false)
+						a.closePane(paneSettings)
 						a.openTargetDialog(targetWSL)
 					}},
 					ui.Button{Text: T("添加 SSH 工作区"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
-						a.settings.Set(false)
+						a.closePane(paneSettings)
 						a.openTargetDialog(targetSSH)
 					}},
 				}},
@@ -1091,7 +1126,7 @@ func targetStatusRow(kind, name, status string, ok bool) core.Node {
 			core.Text{Content: name, Style: core.Style{FlexGrow: 0, FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Text{Content: shorten(status, 52), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style:     core.Style{FontFamily: ui.Mono, FontSize: 10.5},
+				Style:     core.Style{FontFamily: monoFont(), FontSize: 10.5},
 				StyleFunc: ui.Colored(func() core.Color { return ink })},
 		}}
 	})
@@ -1217,7 +1252,7 @@ func (a *app) settingsAddons() core.Node {
 						a.pluginSettingControl(plug, setting)))
 				}
 				rows = append(rows, core.View{Style: core.Style{Padding: core.Edges{Left: 4, Bottom: 6}, Gap: 3}, Children: []core.Node{
-					core.Text{Content: "设置", Style: core.Style{FontFamily: ui.Mono, FontSize: 9, LetterSpacing: 0.5},
+					core.Text{Content: "设置", Style: core.Style{FontFamily: monoFont(), FontSize: 9, LetterSpacing: 0.5},
 						StyleFunc: ui.Colored(colors.Faint)},
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Gap: 1, Padding: core.Symmetric(3, 8), CornerRadius: 7,
@@ -1284,7 +1319,7 @@ func (a *app) pluginSettingControl(p plugin, s pluginSetting) core.Node {
 					a.bumpSettings()
 				},
 				Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), MinWidth: core.Pt(150)},
 			}
 		}
@@ -1301,7 +1336,7 @@ func (a *app) settingsIntegrations() core.Node {
 			return core.Input{Value: value, OnChange: set, Placeholder: placeholder, Label: label, Masked: masked,
 				TestID: testID,
 				Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-					FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+					FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder()}}
 		}
 		setCfg := func(fn func(*config)) {
@@ -1420,7 +1455,7 @@ func (a *app) settingsDiagnostics() core.Node {
 				color = colors.Warn
 			}
 			logRows = append(logRows, core.Text{Content: ev.Time.Format("15:04:05") + "  " + ev.Text, MaxLines: 2,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(color)})
+				Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(color)})
 		}
 		if len(logRows) == 0 {
 			logRows = append(logRows, core.Text{Content: "还没有日志。", Style: core.Style{FontSize: 10.5},

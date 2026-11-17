@@ -142,7 +142,7 @@ func (a *mobileApp) gitSheet() core.Node {
 					core.View{Style: core.Style{Width: core.Pt(18), AlignItems: core.AlignCenter, FlexShrink: 0}, Children: []core.Node{
 						ui.Text(file.Mark, 11, ui.Semibold, markColor)}},
 					core.Text{Content: file.Path, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11.5},
+						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11.5},
 						StyleFunc: ui.Colored(colors.Text)},
 				}
 				if file.Staged {
@@ -179,7 +179,7 @@ func (a *mobileApp) gitSheet() core.Node {
 								core.Text{Content: commit.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 									Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
 								core.Text{Content: commit.Short + " · " + commit.Author + " · " + commit.When, MaxLines: 1,
-									Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+									Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 							}},
 						}})
 				}
@@ -336,7 +336,7 @@ func (a *mobileApp) gitBranchesSheet() core.Node {
 			row := []core.Node{
 				ui.Icon(lucide.GitBranch, 13, colors.Muted),
 				core.Text{Content: branch, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 12},
+					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 12},
 					StyleFunc: ui.Colored(colors.Text)},
 			}
 			if branch == st.Branch {
@@ -379,7 +379,7 @@ func (a *mobileApp) gitDiffSheet() core.Node {
 		} else {
 			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(430)}, Children: []core.Node{
 				core.Text{Content: a.gitDiffText.Get(), Selectable: core.SelectableOn,
-					Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)}}}
+					Style: core.Style{FontFamily: monoFont(), FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Text)}}}
 		}
 		return ui.Dialog{
 			Open:         a.gitDiffOpen.Get,

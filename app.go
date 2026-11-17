@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -96,10 +97,17 @@ type session struct {
 	stats      *core.Signal[sessionStats]
 	updated    *core.Signal[time.Time]
 	loaded     *core.Signal[bool]
-	notice     *core.Signal[string]
-	queued     *core.Signal[int]
-	ask        *core.Signal[*extensionAsk]
-	window     *core.Signal[int]
+	// histFile is how many messages the transcript was painted from the
+	// session file, so pi is not asked for a copy already on screen.
+	histFile int
+	notice   *core.Signal[string]
+	// steering mirrors pi's queue: messages that take effect before its
+	// next call. sending holds the follow-ups this app keeps for the end of
+	// the turn.
+	steering *core.Signal[[]string]
+	sending  *core.Signal[[]queuedMessage]
+	ask      *core.Signal[*extensionAsk]
+	window   *core.Signal[int]
 	// todos is the agent's task list, and todoOpen whether the bar above
 	// the composer shows all of it.
 	todos    *core.Signal[[]todoItem]
@@ -107,8 +115,15 @@ type session struct {
 	// runningSig is whether a turn is in flight. It changes twice a turn,
 	// so the composer's controls are not rebuilt by every streamed delta.
 	runningSig *core.Signal[bool]
-	// planMode asks the next prompt for a plan instead of edits.
-	planMode *core.Signal[bool]
+	// agentMode is what the next prompt asks for: normal work, a plan, an
+	// auto-continued goal, or an image. sendMode is how a message reaches a
+	// running turn: steer before its next call, or a follow-up after it ends.
+	agentMode *core.Signal[string]
+	sendMode  *core.Signal[string]
+	// goalRounds counts a goal's turns, and goalPaused holds it after the
+	// user stops, until they ask it to go on.
+	goalRounds int
+	goalPaused *core.Signal[bool]
 	// Step-by-step plan execution.
 	planSteps  []string
 	planIndex  int
@@ -116,17 +131,24 @@ type session struct {
 	// readySig is whether pi answered for this session.
 	readySig *core.Signal[bool]
 
-	modelOpen    *core.Signal[bool]
-	modelQuery   *core.Signal[string]
-	thinkingOpen *core.Signal[bool]
-	usageOpen    *core.Signal[bool]
-	projectOpen  *core.Signal[bool]
+	modelOpen   *core.Signal[bool]
+	modelQuery  *core.Signal[string]
+	backendOpen *core.Signal[bool]
+	modeOpen    *core.Signal[bool]
+	imageOpen2  *core.Signal[bool]
+	sendOpen    *core.Signal[bool]
+	usageOpen   *core.Signal[bool]
+	projectOpen *core.Signal[bool]
 
 	streamText     *core.Signal[string]
 	streamThinking *core.Signal[string]
 	liveTools      *core.Signal[[]toolRun]
 
-	conversation *chat.ConversationState
+	conversation *chatScroll
+	// tops is where each rendered turn sits in the transcript, by turn ID,
+	// so the ruler can scroll to the turn it stands for. Only the interface
+	// thread touches it.
+	tops map[string]float64
 
 	engine *piClient
 	// personaID binds the session to a built-in or custom agent.
@@ -142,7 +164,6 @@ type session struct {
 	acpFlushDue bool
 	acpReply    func(string)
 	acpCommands *core.Signal[[]acpCommand]
-	acpCmdOpen  *core.Signal[bool]
 	acpMode     *core.Signal[string]
 	acpModes    *core.Signal[[]acpMode]
 	acpModeOpen *core.Signal[bool]
@@ -278,6 +299,23 @@ type app struct {
 	agentBackend    *core.Signal[string]
 	agentApply      *core.Signal[bool]
 
+	// Announcements: the feed the maintainer publishes, the entries the
+	// user has read, and when the feed was last read. announceMu guards
+	// the list the fetch and the UI both touch.
+	announceMu      sync.Mutex
+	announceItems   []announceItem
+	announceRead    map[string]bool
+	announceFetched time.Time
+	announceRev     *core.Signal[int]
+	announceOpen    *core.Signal[bool]
+	announceBusy    *core.Signal[bool]
+	announceErr     *core.Signal[string]
+
+	// The feedback dialog: what the user wrote and the report beside it.
+	feedbackOpen   *core.Signal[bool]
+	feedbackText   *core.Signal[string]
+	feedbackReport *core.Signal[string]
+
 	// The keyboard cheat sheet.
 	shortcutsOpen  *core.Signal[bool]
 	shortcutsQuery *core.Signal[string]
@@ -343,6 +381,10 @@ type app struct {
 	// chatWidth is the transcript's reading width, so a slider drag
 	// rebuilds the chat without touching the stored config.
 	chatWidth *core.Signal[int]
+	// axisHover is the ruler tick the pointer rests on, -1 for none, and
+	// axisHintIn whether its summary has had its first frame to ease in.
+	axisHover  *core.Signal[int]
+	axisHintIn *core.Signal[bool]
 	// events carries app events to subscribers and plugin hooks; inHook
 	// stops a hook's own action from triggering hooks again.
 	events eventBus
@@ -352,6 +394,9 @@ type app struct {
 	activeWS   *core.Signal[string]
 	tabs       *core.Signal[[]string]
 	activeID   *core.Signal[string]
+	// activePane is the split pane filling the work area, "" for the
+	// session's own view.
+	activePane *core.Signal[string]
 	filter     *core.Signal[string]
 	sidebar    *core.Signal[bool]
 	drawer     *core.Signal[bool]
@@ -359,11 +404,19 @@ type app struct {
 	theme      *core.Signal[string]
 	uiFont     *core.Signal[string]
 	monoFont   *core.Signal[string]
-	toolRev    *core.Signal[int]
-	aiBusy     *core.Signal[string]
-	bgImage    *core.Signal[string]
-	bgOpacity  *core.Signal[float64]
-	llmFn      func(tool, system, prompt string, maxTokens int) (string, error)
+	// chatFont, chatLine and inputFont are the reading and writing sizes;
+	// 0 follows the built-in defaults.
+	chatFont  *core.Signal[float64]
+	chatLine  *core.Signal[float64]
+	inputFont *core.Signal[float64]
+	toolRev   *core.Signal[int]
+	aiBusy    *core.Signal[string]
+	bgImage   *core.Signal[string]
+	bgOpacity *core.Signal[float64]
+	// bgOpacitySeq numbers opacity changes, so only the last one settles the
+	// theme after a drag.
+	bgOpacitySeq int
+	llmFn        func(tool, system, prompt string, maxTokens int) (string, error)
 
 	byID map[string]*session
 	all  []*session
@@ -535,6 +588,31 @@ type app struct {
 	forkCollapsed   *core.Signal[map[string]bool]
 	archiveRev      *core.Signal[int]
 	archiveOpen     *core.Signal[bool]
+	// The import dialog: what a scan of the other agents' stores found,
+	// what the user picked, and how far a run has got.
+	impOpen     *core.Signal[bool]
+	impRows     *core.Signal[[]importRow]
+	impScanning *core.Signal[bool]
+	impBusy     *core.Signal[bool]
+	impDone     *core.Signal[int]
+	impTotal    *core.Signal[int]
+	impFailed   *core.Signal[int]
+	impQuery    *core.Signal[string]
+	impOnly     *core.Signal[string]
+	// impProject is the project the dialog was opened for: what is imported
+	// goes there whatever folder it ran in. Empty means "where it ran".
+	impProject *core.Signal[string]
+	impSel     *core.Signal[[]string]
+	// impSelSet is impSel as a set, so a row's checked state is a lookup.
+	impSelSet map[string]bool
+	impGen    int
+	// railWidth and drawerWidth are the side panels' widths, saved when a
+	// drag rests; the seq counters drop a save a newer drag replaced.
+	railWidth       *core.Signal[core.Points]
+	drawerWidth     *core.Signal[core.Points]
+	railSeq         int
+	drawerSeq       int
+	winSeq          int
 	outlineOpen     *core.Signal[bool]
 	authEntries     *core.Signal[[]authEntry]
 	authErr         *core.Signal[string]
@@ -560,7 +638,9 @@ type app struct {
 	// closedTabs are the sessions whose tabs were closed, newest last.
 	closedTabs []string
 	// addonsGen drops a stale plugin reload that finished after a newer one.
-	addonsGen        int
+	addonsGen int
+	// piScanGen drops a pi history scan that finished after a newer one.
+	piScanGen        int
 	gitNewBranchName *core.Signal[string]
 	gitDiffOpen      *core.Signal[bool]
 	gitDiffTitle     *core.Signal[string]
@@ -603,6 +683,7 @@ func newApp(cx *core.Scope) *app {
 		activeWS:               core.NewSignal(cx, ""),
 		tabs:                   core.NewSignalFunc(cx, []string{}, nil),
 		activeID:               core.NewSignal(cx, ""),
+		activePane:             core.NewSignal(cx, ""),
 		filter:                 core.NewSignal(cx, ""),
 		sidebar:                core.NewSignal(cx, true),
 		drawer:                 core.NewSignal(cx, false),
@@ -610,6 +691,9 @@ func newApp(cx *core.Scope) *app {
 		theme:                  core.NewSignal(cx, "system"),
 		uiFont:                 core.NewSignal(cx, ""),
 		monoFont:               core.NewSignal(cx, ""),
+		chatFont:               core.NewSignal(cx, 0.0),
+		chatLine:               core.NewSignal(cx, 0.0),
+		inputFont:              core.NewSignal(cx, 0.0),
 		toolRev:                core.NewSignal(cx, 0),
 		aiBusy:                 core.NewSignal(cx, ""),
 		bgImage:                core.NewSignal(cx, ""),
@@ -725,6 +809,19 @@ func newApp(cx *core.Scope) *app {
 		forkCollapsed:          core.NewSignalFunc(cx, map[string]bool{}, nil),
 		archiveRev:             core.NewSignal(cx, 0),
 		archiveOpen:            core.NewSignal(cx, false),
+		impOpen:                core.NewSignal(cx, false),
+		impRows:                core.NewSignalFunc(cx, []importRow(nil), nil),
+		impScanning:            core.NewSignal(cx, false),
+		impBusy:                core.NewSignal(cx, false),
+		impDone:                core.NewSignal(cx, 0),
+		impTotal:               core.NewSignal(cx, 0),
+		impFailed:              core.NewSignal(cx, 0),
+		impQuery:               core.NewSignal(cx, ""),
+		impOnly:                core.NewSignal(cx, ""),
+		impProject:             core.NewSignal(cx, ""),
+		impSel:                 core.NewSignalFunc(cx, []string(nil), nil),
+		railWidth:              core.NewSignal(cx, core.Points(0)),
+		drawerWidth:            core.NewSignal(cx, core.Points(0)),
 		outlineOpen:            core.NewSignal(cx, false),
 		authEntries:            core.NewSignalFunc(cx, []authEntry(nil), nil),
 		authErr:                core.NewSignal(cx, ""),
@@ -777,6 +874,13 @@ func newApp(cx *core.Scope) *app {
 		resourcesLoading:       core.NewSignal(cx, false),
 		askBox:                 core.NewSignal(cx, askBox{}),
 		askText:                core.NewSignal(cx, ""),
+		announceRev:            core.NewSignal(cx, 0),
+		announceOpen:           core.NewSignal(cx, false),
+		announceBusy:           core.NewSignal(cx, false),
+		announceErr:            core.NewSignal(cx, ""),
+		feedbackOpen:           core.NewSignal(cx, false),
+		feedbackText:           core.NewSignal(cx, ""),
+		feedbackReport:         core.NewSignal(cx, ""),
 		projectsRev:            core.NewSignal(cx, 0),
 		filesRev:               core.NewSignal(cx, 0),
 		filesQuery:             core.NewSignal(cx, ""),
@@ -826,6 +930,8 @@ func newApp(cx *core.Scope) *app {
 		termFont:               core.NewSignal(cx, 12.5),
 		editorFont:             core.NewSignal(cx, 13.0),
 		chatWidth:              core.NewSignal(cx, 0),
+		axisHover:              core.NewSignal(cx, -1),
+		axisHintIn:             core.NewSignal(cx, false),
 		providerOpen:           core.NewSignal(cx, false),
 		providerID:             core.NewSignal(cx, ""),
 		providerAPI:            core.NewSignal(cx, ""),
@@ -885,6 +991,9 @@ func newApp(cx *core.Scope) *app {
 	a.cfg = st.config()
 	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))
 	a.monoFont.Set(strings.TrimSpace(a.cfg.MonoFont))
+	a.chatFont.Set(a.cfg.ChatFont)
+	a.chatLine.Set(a.cfg.ChatLine)
+	a.inputFont.Set(a.cfg.InputFont)
 	a.bgImage.Set(strings.TrimSpace(a.cfg.BackgroundImage))
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.loadAuth()
@@ -923,13 +1032,27 @@ func newApp(cx *core.Scope) *app {
 
 	a.pinned.Set(a.cfg.Pinned)
 	a.favModels.Set(a.cfg.FavModels)
+	if a.cfg.RailWidth > 0 {
+		a.railWidth.Set(core.Points(a.cfg.RailWidth))
+	}
+	if a.cfg.DrawerWidth > 0 {
+		a.drawerWidth.Set(core.Points(a.cfg.DrawerWidth))
+	}
+	if a.cfg.DrawerTab != "" {
+		a.drawerTab.Set(a.cfg.DrawerTab)
+	}
+	if a.cfg.SettingsTab != "" {
+		a.settingsTab.Set(a.cfg.SettingsTab)
+	}
+	a.impOnly.Set(a.cfg.ImportSource)
 	a.favorites = a.loadFavorites()
 	a.loadTasks()
+	a.loadAnnouncements()
 
 	metas := st.scanSessions(a.cfg.Titles)
 	byKey := map[string][]sessionMeta{}
 	for _, m := range metas {
-		key := parseTarget(m.Target).key() + "|" + filepath.Clean(m.Cwd)
+		key := parseTarget(m.Target).key() + "|" + pathKey(m.Cwd)
 		byKey[key] = append(byKey[key], m)
 	}
 	var list []*workspace
@@ -938,13 +1061,13 @@ func newApp(cx *core.Scope) *app {
 		ws := &workspace{Path: wc.Path, Name: wc.Name, Group: wc.Group, Pinned: wc.Pinned, Added: wc.Added,
 			Chat:      wc.Chat,
 			Target:    parseTarget(wc.Target),
-			Expanded:  core.NewSignal(cx, wc.Expanded || len(byKey[parseTarget(wc.Target).key()+"|"+wc.Path]) > 0),
+			Expanded:  core.NewSignal(cx, wc.Expanded || len(byKey[parseTarget(wc.Target).key()+"|"+pathKey(wc.Path)]) > 0),
 			Sessions:  core.NewSignalFunc(cx, []*session{}, nil),
 			Pi:        core.NewSignalFunc(cx, []*session(nil), nil),
 			PiOpen:    core.NewSignal(cx, false),
 			PiLoading: core.NewSignal(cx, false),
 			Visible:   core.NewSignal(cx, 0)}
-		for _, m := range byKey[parseTarget(wc.Target).key()+"|"+wc.Path] {
+		for _, m := range byKey[parseTarget(wc.Target).key()+"|"+pathKey(wc.Path)] {
 			sess := a.makeSession(m, ws.Target)
 			ws.Sessions.Update(func(ss []*session) []*session { return append(ss, sess) })
 		}
@@ -1001,12 +1124,15 @@ func newApp(cx *core.Scope) *app {
 	a.ensureAddonDirs()
 	a.ensurePromptLibrary()
 	a.on(eventTurnDone, a.onPlanTurn)
+	a.on(eventTurnDone, a.onGoalTurn)
+	a.on(eventTurnDone, a.onQueuedTurn)
 	a.on(eventTurnDone, a.onFeishuTurn)
 	a.remote = newRemoteHost(a)
 	a.remote.init()
 	a.qrOpen = core.NewSignal(cx, false)
 	a.qrLink = core.NewSignal(cx, "")
 	a.bindKeys()
+	a.bindPaneEscape()
 	a.tick()
 	// A terminal panel left open comes back with a tab to show.
 	if a.term.open.GetUntracked() && len(a.term.tabs.GetUntracked()) == 0 {
@@ -1014,12 +1140,25 @@ func newApp(cx *core.Scope) *app {
 	}
 	a.setupDesktop()
 	a.startTaskScheduler()
+	a.startAnnouncements()
+	a.startTelemetry()
 	return a
 }
 
 // makeSession builds the signals of one stored session.
 func (a *app) makeSession(m sessionMeta, t target) *session {
 	if existing := a.byID[m.ID]; existing != nil {
+		// pi's own session: its file is the authority, so a later reading
+		// brings the name and time it has now. The object is kept, so an
+		// open tab and the rail's row stay the same.
+		if existing.External && m.External {
+			if m.Updated.After(existing.updated.GetUntracked()) {
+				existing.updated.Set(m.Updated)
+			}
+			if m.Title != "" && m.Title != existing.title.GetUntracked() {
+				existing.title.Set(m.Title)
+			}
+		}
 		return existing
 	}
 	s := &session{
@@ -1043,17 +1182,23 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		updated:        core.NewSignal(a.cx, m.Updated),
 		loaded:         core.NewSignal(a.cx, false),
 		notice:         core.NewSignal(a.cx, ""),
-		queued:         core.NewSignal(a.cx, 0),
+		steering:       core.NewSignalFunc(a.cx, []string(nil), nil),
+		sending:        core.NewSignalFunc(a.cx, []queuedMessage(nil), nil),
 		ask:            core.NewSignalFunc(a.cx, (*extensionAsk)(nil), nil),
 		window:         core.NewSignal(a.cx, 24),
 		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
 		todoOpen:       core.NewSignal(a.cx, false),
 		runningSig:     core.NewSignal(a.cx, false),
-		planMode:       core.NewSignal(a.cx, false),
+		agentMode:      core.NewSignal(a.cx, modeNormal),
+		sendMode:       core.NewSignal(a.cx, ""),
+		goalPaused:     core.NewSignal(a.cx, false),
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
 		modelQuery:     core.NewSignal(a.cx, ""),
-		thinkingOpen:   core.NewSignal(a.cx, false),
+		backendOpen:    core.NewSignal(a.cx, false),
+		modeOpen:       core.NewSignal(a.cx, false),
+		imageOpen2:     core.NewSignal(a.cx, false),
+		sendOpen:       core.NewSignal(a.cx, false),
 		usageOpen:      core.NewSignal(a.cx, false),
 		projectOpen:    core.NewSignal(a.cx, false),
 		streamText:     core.NewSignal(a.cx, ""),
@@ -1063,7 +1208,6 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		openTools:      map[string]bool{},
 		uiSeq:          core.NewSignal(a.cx, 0),
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
-		acpCmdOpen:     core.NewSignal(a.cx, false),
 		acpMode:        core.NewSignal(a.cx, ""),
 		acpModes:       core.NewSignalFunc(a.cx, []acpMode(nil), nil),
 		acpModeOpen:    core.NewSignal(a.cx, false),
@@ -1071,7 +1215,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 	if id := a.cfg.SessionPersonas[m.ID]; id != "" {
 		s.personaID = id
 	}
-	s.conversation = chat.NewConversationState(a.cx)
+	s.conversation = newChatScroll(a.cx)
 	a.byID[s.ID] = s
 	a.all = append(a.all, s)
 	return s
@@ -1540,7 +1684,10 @@ func sessionBuckets(list []*session, now time.Time) []sessionGroup {
 		return "更早"
 	}
 	for _, s := range list {
-		l := label(s.updated.GetUntracked())
+		// Read as the row's own time label reads it, so a heading can
+		// never say "昨天" over a row that says "刚刚": the readers of
+		// the time are what rebuilds this grouping.
+		l := label(s.updated.Get())
 		if len(out) == 0 || out[len(out)-1].label != l {
 			out = append(out, bucket{label: l})
 		}
@@ -1591,7 +1738,10 @@ func (a *app) active() *session { return a.byID[a.activeID.Get()] }
 func (a *app) workspaceFor(t target, path string) *workspace {
 	path = cleanTargetPath(t, path)
 	for _, ws := range a.workspaces.Get() {
-		if ws.Path == path && ws.Target.key() == t.key() {
+		if ws.Target.key() != t.key() {
+			continue
+		}
+		if ws.Path == path || (!t.remote() && samePath(ws.Path, path)) {
 			return ws
 		}
 	}
@@ -1612,6 +1762,31 @@ func cleanTargetPath(t target, path string) string {
 		return ""
 	}
 	return filepath.Clean(path)
+}
+
+// samePath reports whether two local folder paths name the same folder.
+// Windows folds the case of a path wherever it goes through the shell, so
+// the same folder turns up as c:\work and C:\Work; elsewhere the two
+// spellings are two folders.
+func samePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+// pathKey is a folder's identity in a map: cleaned, and case-folded on
+// Windows, where a project and the folder a session ran in may be spelled
+// in different case.
+func pathKey(path string) string {
+	p := filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(p)
+	}
+	return p
 }
 
 // allSessions lists sessions in sidebar order.
@@ -1638,6 +1813,12 @@ func (a *app) tick() {
 		if now.Sub(a.lastTray) >= trayIdle {
 			a.lastTray = now
 			a.updateTray()
+		}
+		// pi writes its sessions into its own store; a pass now and then
+		// brings in the ones started in a terminal or another app, which
+		// nothing else would ever tell the rail about.
+		if beats%piScanEvery == 0 && a.cfg.ScanPi {
+			a.rescanPi()
 		}
 		a.cx.AfterFunc(time.Second, loop)
 	}
@@ -1712,6 +1893,7 @@ func (a *app) selectSession(s *session) {
 	if a.editor != nil {
 		a.editor.open.Set(false)
 	}
+	a.activePane.Set("")
 	a.activeID.Set(s.ID)
 	a.activeWS.Set(s.WS)
 	if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !ws.Expanded.GetUntracked() {
@@ -1886,17 +2068,23 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		updated:        core.NewSignal(a.cx, a.cx.Now()),
 		loaded:         core.NewSignal(a.cx, false),
 		notice:         core.NewSignal(a.cx, ""),
-		queued:         core.NewSignal(a.cx, 0),
+		steering:       core.NewSignalFunc(a.cx, []string(nil), nil),
+		sending:        core.NewSignalFunc(a.cx, []queuedMessage(nil), nil),
 		ask:            core.NewSignalFunc(a.cx, (*extensionAsk)(nil), nil),
 		window:         core.NewSignal(a.cx, 24),
 		todos:          core.NewSignalFunc(a.cx, []todoItem(nil), nil),
 		todoOpen:       core.NewSignal(a.cx, false),
 		runningSig:     core.NewSignal(a.cx, false),
-		planMode:       core.NewSignal(a.cx, false),
+		agentMode:      core.NewSignal(a.cx, modeNormal),
+		sendMode:       core.NewSignal(a.cx, ""),
+		goalPaused:     core.NewSignal(a.cx, false),
 		readySig:       core.NewSignal(a.cx, false),
 		modelOpen:      core.NewSignal(a.cx, false),
 		modelQuery:     core.NewSignal(a.cx, ""),
-		thinkingOpen:   core.NewSignal(a.cx, false),
+		backendOpen:    core.NewSignal(a.cx, false),
+		modeOpen:       core.NewSignal(a.cx, false),
+		imageOpen2:     core.NewSignal(a.cx, false),
+		sendOpen:       core.NewSignal(a.cx, false),
 		usageOpen:      core.NewSignal(a.cx, false),
 		projectOpen:    core.NewSignal(a.cx, false),
 		streamText:     core.NewSignal(a.cx, ""),
@@ -1906,12 +2094,11 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		openTools:      map[string]bool{},
 		uiSeq:          core.NewSignal(a.cx, 0),
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
-		acpCmdOpen:     core.NewSignal(a.cx, false),
 		acpMode:        core.NewSignal(a.cx, ""),
 		acpModes:       core.NewSignalFunc(a.cx, []acpMode(nil), nil),
 		acpModeOpen:    core.NewSignal(a.cx, false),
 	}
-	s.conversation = chat.NewConversationState(a.cx)
+	s.conversation = newChatScroll(a.cx)
 	a.byID[s.ID] = s
 	a.all = append(a.all, s)
 	return s
@@ -1953,6 +2140,11 @@ func (a *app) newSession(path string) *session {
 // openPicker shows the app's own folder browser for a workspace or a
 // session file.
 func (a *app) openPicker(mode string) {
+	if mode == "import" {
+		// One dialog at a time: the import dialog is a modal, and leaving it
+		// up would put its backdrop over the browser it just opened.
+		a.impOpen.Set(false)
+	}
 	a.pick.show(mode)
 }
 
@@ -2153,29 +2345,44 @@ func (a *app) removeWorkspaceNow(ws *workspace) {
 	}
 }
 
-// importSession copies a session file into the app's store and opens it.
+// importSession imports one session file the user picked and opens it. A
+// pi file is copied as it is; another agent's log is converted by its
+// source, and lands under the folder it ran in.
 func (a *app) importSession(path string) {
 	if a.st == nil {
 		return
 	}
-	meta, err := a.st.importAnySession(path)
+	if sniffPi(readHeadBytes(path, 64<<10)) {
+		meta, err := a.st.importSession(path)
+		a.finishFileImport(meta, err)
+		return
+	}
+	source, head := sourceForFile(path)
+	if source == nil {
+		a.toast(ui.ToastError, T("导入失败"), noSourceForFile(head).Error())
+		return
+	}
+	parsed, err := source.Read(path)
 	if err != nil {
-		a.toast(ui.ToastError, "导入失败", err.Error())
+		a.toast(ui.ToastError, T("导入失败"), err.Error())
 		return
 	}
-	ws := a.workspaceOf(meta.Cwd)
-	if ws == nil {
-		a.addWorkspace(meta.Cwd)
-		ws = a.workspaceOf(meta.Cwd)
-	}
-	if ws == nil {
-		a.toast(ui.ToastError, "导入失败", "会话的工作目录不可用")
+	cwd := a.importCwdFor(importCandidate{Source: source.Key, Path: path, Cwd: parsed.Cwd})
+	meta, err := a.st.writeFileImport(*source, path, parsed, cwd)
+	a.finishFileImport(meta, err)
+}
+
+// finishFileImport puts an imported file's session in the rail and opens it.
+func (a *app) finishFileImport(meta sessionMeta, err error) {
+	if err != nil {
+		a.toast(ui.ToastError, T("导入失败"), err.Error())
 		return
 	}
-	s := a.makeSession(meta, localTarget)
-	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
-	a.selectSession(s)
-	a.toast(ui.ToastSuccess, "已导入会话", meta.Title)
+	a.addImportedSession(meta)
+	if s := a.byID[meta.ID]; s != nil {
+		a.selectSession(s)
+	}
+	a.toast(ui.ToastSuccess, T("已导入会话"), meta.Title)
 }
 
 // deleteSession moves a session out of the store.
@@ -2281,18 +2488,6 @@ func lastAnswer(s *session) string {
 	return ""
 }
 
-// togglePlanMode flips the next turn between planning and doing.
-func (a *app) togglePlanMode(s *session) {
-	if s == nil {
-		return
-	}
-	on := !s.planMode.GetUntracked()
-	s.planMode.Set(on)
-	if on {
-		a.toast(ui.ToastInfo, "计划模式已开启", "下一轮会先给计划，确认后再执行。")
-	}
-}
-
 // executePlan asks pi to carry out the plan it just gave.
 func (a *app) executePlan(s *session, t turn) {
 	if s == nil || t.running() {
@@ -2310,7 +2505,7 @@ func (a *app) editPlan(s *session, t turn) {
 	if text == "" {
 		return
 	}
-	s.planMode.Set(false)
+	a.setAgentMode(s, modeNormal)
 	s.draft.Set(text)
 	a.toast(ui.ToastInfo, "计划已放回输入框", "改完可以直接发。")
 }
@@ -2606,17 +2801,20 @@ func (a *app) startEngine(s *session) {
 	a.cx.Post(func() {
 		a.engineReady(s, c, state.Model, state.ThinkingLevel, state.SessionFile, state.MessageCount, state.IsStreaming)
 	})
-	if state.MessageCount > 0 {
-		var msgs struct {
-			Messages []piMessage `json:"messages"`
-		}
-		if err := c.call(map[string]any{"type": "get_messages"}, &msgs, 40*time.Second); err == nil {
-			a.cx.Post(func() { a.historyReady(s, msgs.Messages) })
-		} else {
-			a.cx.Post(func() { a.historyReady(s, nil) })
-		}
+	if state.MessageCount == 0 {
+		a.cx.Post(func() { a.historyReady(s) })
 	} else {
-		a.cx.Post(func() { a.historyReady(s, nil) })
+		// A session file already on screen is not fetched again: pi counts
+		// the same messages, so the tab is showing what get_messages would
+		// send. A mismatch (a compacted session, a file lagging behind a
+		// running turn) falls back to pi's copy.
+		a.cx.Post(func() {
+			if s.histFile == state.MessageCount {
+				a.historyReady(s)
+				return
+			}
+			go a.fetchHistory(s, c)
+		})
 	}
 	var models struct {
 		Models []modelInfo `json:"models"`
@@ -2662,22 +2860,11 @@ func (a *app) engineReady(s *session, c *piClient, model *modelInfo, thinking, f
 	a.startStats(s)
 }
 
-// historyReady fills the transcript from pi, then lets queued actions run.
-func (a *app) historyReady(s *session, msgs []piMessage) {
+// historyReady lets a session's queued actions run, now that its transcript
+// can be seen. The messages came from the file or from get_messages.
+func (a *app) historyReady(s *session) {
 	if !s.loaded.GetUntracked() && a.activeID.GetUntracked() == s.ID {
 		a.animateNextLayout()
-	}
-	if len(msgs) > 0 && !s.loaded.GetUntracked() {
-		history := turnsFromMessages(msgs)
-		// A message can arrive from the phone before the history is in;
-		// it stays after what the session already had.
-		if pending := s.turns.GetUntracked(); len(pending) > 0 {
-			history = append(history, pending...)
-		}
-		s.turns.Set(history)
-		if items := todosFromMessages(msgs); len(items) > 0 {
-			s.todos.Set(items)
-		}
 	}
 	s.loaded.Set(true)
 	waiters := s.waiters
@@ -2688,6 +2875,71 @@ func (a *app) historyReady(s *session, msgs []piMessage) {
 	if a.activeID.GetUntracked() == s.ID {
 		s.conversation.JumpToLatest()
 	}
+}
+
+// historyFromPi replaces the transcript with pi's copy, which is what a
+// compacted session (whose file holds more than its context) needs.
+func (a *app) historyFromPi(s *session, msgs []piMessage) {
+	if len(msgs) > 0 {
+		a.fillHistory(s, msgs, true)
+		s.histFile = 0 // the screen is pi's copy now, not the file's
+	}
+	a.historyReady(s)
+}
+
+// fetchHistory asks pi for a transcript the file could not stand in for.
+func (a *app) fetchHistory(s *session, c *piClient) {
+	var msgs struct {
+		Messages []piMessage `json:"messages"`
+	}
+	if err := c.call(map[string]any{"type": "get_messages"}, &msgs, 40*time.Second); err == nil {
+		a.cx.Post(func() { a.historyFromPi(s, msgs.Messages) })
+		return
+	}
+	a.cx.Post(func() { a.historyReady(s) })
+}
+
+// fillHistory shows a session's messages, keeping anything that arrived
+// while they were loading.
+func (a *app) fillHistory(s *session, msgs []piMessage, replace bool) {
+	history := turnsFromMessages(msgs)
+	if !replace {
+		// A message can arrive from the phone before the history is in; it
+		// stays after what the session already had.
+		if pending := s.turns.GetUntracked(); len(pending) > 0 {
+			history = append(history, pending...)
+		}
+	}
+	s.turns.Set(history)
+	if items := todosFromMessages(msgs); len(items) > 0 {
+		s.todos.Set(items)
+	}
+}
+
+// loadHistoryFromFile paints a session's transcript from its file, so a tab
+// shows its history while pi is still starting.
+func (a *app) loadHistoryFromFile(s *session) {
+	if s == nil || s.File == "" || s.backend == "acp" || s.Target.remote() || s.loaded.GetUntracked() {
+		return
+	}
+	file := s.File
+	go func() {
+		msgs, err := sessionFileMessages(file)
+		if err != nil || len(msgs) == 0 {
+			return
+		}
+		a.cx.Post(func() {
+			if s.loaded.GetUntracked() || s.File != file {
+				return // pi answered first, or the tab moved on
+			}
+			if a.activeID.GetUntracked() == s.ID {
+				a.animateNextLayout()
+			}
+			a.fillHistory(s, msgs, false)
+			s.histFile = len(msgs)
+			a.historyReady(s)
+		})
+	}()
 }
 
 // failSession ends a session that could not start.
@@ -2800,41 +3052,6 @@ func (a *app) startStats(s *session) {
 	}()
 }
 
-// send submits the draft: a prompt when idle, a steer when busy.
-func (a *app) send() {
-	s := a.active()
-	if s == nil {
-		return
-	}
-	text := strings.TrimSpace(s.draft.GetUntracked())
-	images := s.images.GetUntracked()
-	if text == "" && len(images) == 0 {
-		return
-	}
-	if ws := a.workspaceOf(s.WS); ws != nil && !a.projectTrusted(ws) {
-		a.askTrust(ws, func() {
-			s.draft.Set(text)
-			s.images.Set(images)
-			a.send()
-		})
-		return
-	}
-	if s.busyNow() && s.engine != nil {
-		s.draft.Set("")
-		s.images.Set(nil)
-		a.steer(s, text, images)
-		return
-	}
-	s.draft.Set("")
-	s.images.Set(nil)
-	a.submit(s, text, images)
-}
-
-// submit starts a turn and asks pi to answer it, as plan mode says.
-func (a *app) submit(s *session, text string, images []promptImage) {
-	a.submitTurn(s, text, images, s.planMode.GetUntracked())
-}
-
 // planPrompt wraps a request so pi plans before it edits.
 func planPrompt(text string) string {
 	return T("请先不要改任何文件。先给出一个可执行的计划：") + "\n" +
@@ -2857,6 +3074,12 @@ func (a *app) submitTurn(s *session, text string, images []promptImage, plan boo
 	if plan {
 		text = planPrompt(text)
 	}
+	goal := modeOn(s, modeGoal)
+	if goal {
+		s.goalRounds = max(1, s.goalRounds)
+		s.goalPaused.Set(false)
+		text = goalPrompt(text)
+	}
 	a.cx.Batch(func() {
 		if s.title.GetUntracked() == "新会话" || s.title.GetUntracked() == "" || s.title.GetUntracked() == "未命名会话" {
 			name := firstLine(text, 28)
@@ -2870,7 +3093,8 @@ func (a *app) submitTurn(s *session, text string, images []promptImage, plan boo
 		}
 		turnID := fmt.Sprintf("t%d", a.cx.Now().UnixNano())
 		s.turns.Update(func(ts []turn) []turn {
-			return append(ts, turn{ID: turnID, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(), Plan: plan})
+			return append(ts, turn{ID: turnID, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(),
+				Model: s.model.GetUntracked().ID, Plan: plan, Goal: goal})
 		})
 		s.status.Set(statusStarting)
 		s.runningSig.Set(true)
@@ -3004,6 +3228,11 @@ func (a *app) stop(s *session) {
 	if s == nil {
 		return
 	}
+	// A goal the user stops waits for them: it is not the agent failing.
+	if modeOn(s, modeGoal) && s.goalPaused != nil {
+		s.goalPaused.Set(true)
+	}
+	s.sending.Set(nil)
 	if s.backend == "acp" {
 		if !s.busyNow() {
 			return
@@ -3018,7 +3247,6 @@ func (a *app) stop(s *session) {
 		return
 	}
 	if !s.busyNow() {
-		println("DEBUG stop: not busy")
 		return
 	}
 	c := s.engine
@@ -3030,6 +3258,9 @@ func (a *app) stop(s *session) {
 		if err := c.call(map[string]any{"type": "abort"}, nil, 60*time.Second); err != nil {
 			a.cx.Post(func() { a.toast(ui.ToastError, "停止失败", err.Error()) })
 		}
+		a.cx.Post(func() {
+			s.steering.Set(nil)
+		})
 	}()
 	s.status.Set(statusWaiting)
 }
@@ -3290,7 +3521,8 @@ func (a *app) touch(s *session) {
 	})
 }
 
-// openSessionEager starts a session's engine when its tab opens.
+// openSessionEager starts a session's engine when its tab opens, and paints
+// its transcript from the file in the meantime.
 func (a *app) openSessionEager(s *session) {
 	if s == nil {
 		return
@@ -3298,6 +3530,7 @@ func (a *app) openSessionEager(s *session) {
 	if !s.Target.remote() {
 		a.files.watch(s.WS)
 	}
+	a.loadHistoryFromFile(s)
 	a.ensureEngine(s, nil)
 }
 
@@ -3465,7 +3698,9 @@ func (a *app) applyEvent(s *session, ev piEvent) {
 		}
 		a.startStats(s)
 	case "queue_update":
-		s.queued.Set(len(ev.Steering) + len(ev.FollowUp))
+		s.steering.Update(func(list []string) []string {
+			return append([]string(nil), ev.Steering...)
+		})
 	case "session_info_changed":
 		if ev.Name != "" {
 			s.title.Set(ev.Name)
@@ -3569,6 +3804,9 @@ func (a *app) commitAssistant(s *session, msg piMessage) {
 		}
 		i := len(ts) - 1
 		t := &ts[i]
+		if msg.Model != "" {
+			t.Model = msg.Model
+		}
 		step := turnStep{ID: stepID(t, t.Msgs), Start: a.cx.Now()}
 		t.Msgs++
 		if strings.TrimSpace(thinking.String()) != "" {
@@ -3724,7 +3962,7 @@ func (a *app) settled(s *session, ev piEvent) {
 		s.streamThinking.Set("")
 		s.liveTools.Set(nil)
 		s.notice.Set("")
-		s.queued.Set(0)
+		s.steering.Set(nil)
 		s.turns.Update(func(ts []turn) []turn {
 			for i := len(ts) - 1; i >= 0; i-- {
 				if !ts[i].running() && !(ts[i].Status == chat.Failed && ts[i].End.IsZero()) {
@@ -3940,11 +4178,20 @@ func turnsFromMessages(msgs []piMessage) []turn {
 		}
 	}
 	now := time.Now()
+	// A turn begins when its prompt was sent and ends with its last
+	// message; a file that lost its timestamps falls back to now.
+	at := func(m piMessage) time.Time {
+		if m.Timestamp > 0 {
+			return time.UnixMilli(m.Timestamp)
+		}
+		return now
+	}
 	for _, m := range msgs {
+		ts := at(m)
 		switch m.Role {
 		case "user":
 			flush()
-			cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Prompt: m.text(), Status: chat.Completed, Start: now, End: now}
+			cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Prompt: m.text(), Status: chat.Completed, Start: ts, End: ts}
 			for _, b := range m.blocks() {
 				if b.Type == "image" {
 					cur.Images = append(cur.Images, promptImage{Name: "图片"})
@@ -3952,7 +4199,10 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			}
 		case "assistant":
 			if cur == nil {
-				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: now, End: now}
+				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts}
+			}
+			if m.Model != "" {
+				cur.Model = m.Model
 			}
 			step := turnStep{ID: fmt.Sprintf("h%d-%d", len(turns), len(cur.Steps))}
 			var prose strings.Builder
@@ -4016,7 +4266,7 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			results[m.ToolCallID] = run
 		case "bashExecution":
 			if cur == nil {
-				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: now, End: now}
+				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts}
 			}
 			run := toolRun{CallID: "bash-" + fmt.Sprint(len(cur.Steps)), Name: "bash", Action: "运行", Detail: firstLine(m.Command, 90),
 				Output: strings.TrimSpace(m.Output), Status: chat.Completed, IsError: m.ExitCode != nil && *m.ExitCode != 0}
@@ -4027,18 +4277,21 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			cur.Tools++
 		case "compactionSummary", "branchSummary":
 			if cur == nil {
-				turns = append(turns, turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: now, End: now,
+				turns = append(turns, turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts,
 					Steps: []turnStep{{ID: "summary", Note: "上下文摘要", Text: m.Summary}}})
 			} else {
 				cur.Steps = append(cur.Steps, turnStep{ID: fmt.Sprintf("h%d-sum", len(turns)), Note: "上下文摘要", Text: m.Summary})
 			}
 		case "custom":
 			if cur == nil {
-				turns = append(turns, turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: now, End: now,
+				turns = append(turns, turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts,
 					Steps: []turnStep{{ID: "custom", Note: m.CustomType, Text: m.text()}}})
 			} else {
 				cur.Steps = append(cur.Steps, turnStep{ID: fmt.Sprintf("h%d-custom%d", len(turns), len(cur.Steps)), Note: m.CustomType, Text: m.text()})
 			}
+		}
+		if cur != nil && ts.After(cur.End) {
+			cur.End = ts
 		}
 	}
 	flush()
@@ -4228,3 +4481,53 @@ func (a *app) revealSession(s *session) {
 
 // bindKeys is in keybindings.go: it binds each key to a router so a
 // binding can change without leaving a stale handler behind.
+
+// setRailWidth resizes the sidebar and remembers the width once the drag
+// rests.
+func (a *app) setRailWidth(width core.Points) {
+	a.railWidth.Set(width)
+	a.railSeq++
+	seq := a.railSeq
+	a.cx.AfterFunc(300*time.Millisecond, func() {
+		if seq != a.railSeq || a.st == nil {
+			return
+		}
+		w := float64(width)
+		a.st.edit(func(c *config) { c.RailWidth = w })
+	})
+}
+
+// setDrawerWidth resizes the right panel and remembers the width.
+func (a *app) setDrawerWidth(width core.Points) {
+	a.drawerWidth.Set(width)
+	a.drawerSeq++
+	seq := a.drawerSeq
+	a.cx.AfterFunc(300*time.Millisecond, func() {
+		if seq != a.drawerSeq || a.st == nil {
+			return
+		}
+		w := float64(width)
+		a.st.edit(func(c *config) { c.DrawerWidth = w })
+	})
+}
+
+// setDrawerTab switches the right panel and remembers which tab it is.
+func (a *app) setDrawerTab(name string) {
+	if name == "" || a.drawerTab.GetUntracked() == name {
+		return
+	}
+	a.drawerTab.Set(name)
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.DrawerTab = name })
+	}
+}
+
+// setImportSel replaces the import dialog's picks and their lookup set.
+func (a *app) setImportSel(list []string) {
+	set := make(map[string]bool, len(list))
+	for _, key := range list {
+		set[key] = true
+	}
+	a.impSelSet = set
+	a.impSel.Set(list)
+}

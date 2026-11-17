@@ -96,6 +96,7 @@ func (a *app) redactedConfig() []byte {
 	c.RemoteToken = "***"
 	c.FeishuSecret = "***"
 	c.FeishuWebhook = "***"
+	c.TelemetryInstallID = "***"
 	c.ProxyApp = redactProxy(c.ProxyApp)
 	c.ProxyAgent = redactProxy(c.ProxyAgent)
 	if c.PluginSettings != nil {

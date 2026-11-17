@@ -178,6 +178,7 @@ func TestMobileFiles(t *testing.T) {
 	app.Type("id:mobile-token", token)
 	app.Press("id:mobile-connect")
 	waitApp(app, "text:电脑项目", 15*time.Second)
+	openPhoneRail(app)
 	app.Press("id:mobile-session >> nth=0")
 	waitApp(app, "id:mobile-files", 15*time.Second)
 	app.Press("id:mobile-files")

@@ -42,7 +42,7 @@ func (a *app) fileSearchDialog() core.Node {
 					Children: []core.Node{
 						ui.Icon(lucide.FileText, 12, colors.Muted),
 						core.Text{Content: hit.File, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11},
+							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11},
 							StyleFunc: ui.Colored(colors.Muted)},
 						core.Text{Content: fmt.Sprintf("%d", counts[hit.File]), Style: core.Style{FontSize: 9.5},
 							StyleFunc: ui.Colored(colors.Faint)},
@@ -65,9 +65,9 @@ func (a *app) fileSearchDialog() core.Node {
 				},
 				Children: []core.Node{
 					core.Text{Content: fmt.Sprintf("%d", hit.Line), Style: core.Style{Width: core.Pt(42), TextAlign: core.TextAlignEnd,
-						FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 					core.Text{Content: hit.Text, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11},
+						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11},
 						StyleFunc: ui.Colored(colors.Text)},
 				}})
 		}

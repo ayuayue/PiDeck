@@ -74,7 +74,7 @@ func TestToolModelsPerTool(t *testing.T) {
 	var built *app
 	root := func(cx *core.Scope) core.Node { built = newApp(cx); return built.view() }
 	screen := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
-	built.settings.Set(true)
+	built.openSettingsPane()
 	built.settingsTab.Set("models")
 	screen.Advance(300 * time.Millisecond)
 	screen.WaitFor("id:tool-commit-provider", 5*time.Second)

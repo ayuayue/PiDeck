@@ -143,7 +143,7 @@ func (a *app) visionDialog() core.Node {
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.visionPath.Get, OnChange: a.visionPath.Set, Placeholder: T("图片路径，或从项目里选"),
 							Label: T("图片路径"), TestID: "vision-path",
-							Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 11.5, FontFamily: ui.Mono, Color: colors.Text(),
+							Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 11.5, FontFamily: monoFont(), Color: colors.Text(),
 								Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 					}},
 					ui.Button{Text: T("选择…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "vision-pick",
@@ -164,7 +164,7 @@ func (a *app) visionDialog() core.Node {
 				ui.Text("视觉模型", 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: a.visionModel.Get, OnChange: a.visionModel.Set, Placeholder: T("支持图片输入的模型名，如 gpt-4o-mini"),
 					Label: T("视觉模型"), TestID: "vision-model",
-					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: ui.Mono, Color: colors.Text(),
+					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: monoFont(), Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 			}},
 		)

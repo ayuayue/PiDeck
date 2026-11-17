@@ -324,7 +324,7 @@ func (a *app) openSkill(skill skillInfo) {
 		a.toast(ui.ToastInfo, "这个技能没有 SKILL.md", skill.Dir)
 		return
 	}
-	a.settings.Set(false)
+	a.closePane(paneSettings)
 	a.openEditorFile(skill.Dir, skill.File)
 }
 

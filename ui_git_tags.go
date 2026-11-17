@@ -69,7 +69,7 @@ func (a *app) gitTagsDialog() core.Node {
 					Padding: core.Symmetric(3, 6)}, Children: []core.Node{
 					ui.Icon(lucide.Tag, 12, colors.Muted),
 					core.Text{Content: name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11.5},
+						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: 11.5},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.View{OnPress: func(core.PressEvent) { a.copyText(name, "标签") }, Role: core.RoleButton, Label: T("复制标签") + " " + name,
 						StyleFunc: func() core.Style {
@@ -102,7 +102,7 @@ func (a *app) gitTagsDialog() core.Node {
 						core.Input{Value: a.gitTagText.Get, OnChange: a.gitTagText.Set, Placeholder: "v1.0.0", Label: T("标签名"),
 							TestID: "git-tag-name", OnSubmit: func(string) { a.createGitTag() },
 							Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5,
-								FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+								FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 								BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 					}},
 					ui.Button{Text: T("在当前提交打标签"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "git-tag-create",

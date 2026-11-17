@@ -24,7 +24,7 @@ func (a *app) piSettingsGroup() core.Node {
 				onSubmit(n)
 			},
 			Style: core.Style{Width: core.Pt(96), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
-				FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+				FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 				BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}}
 	}
 	var thinking []choice[string]
