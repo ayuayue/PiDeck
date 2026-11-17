@@ -45,6 +45,9 @@ const COUNT_FIELDS = ["轮次", "已改", "未改", "交付", "发现者", "修�
 // 行首前缀：列表符号（- * +）或有序列表（1. ）或加粗。三处判据共用同一个形状，
 // 否则容器与前缀会相乘出 4×2=8 种组合，各写各的正则必然漏（2026-11-17 实测：引用块里的列表项、表格里的列表项，两条都漏）。
 const LIST = "(?:[-*+]\\s+|\\d+\\.\\s+)?";
+// 行首可以叠任意多个容器（> 引用、| 表格、<!-- 注释）与任意多个列表前缀，吃干净再判字段名。
+// 2026-11-17 实测：只吃一个容器会漏掉组合——引用块里的表格、表格里的引用、双层引用、列表里的引用，四条都漏。
+const PREFIX = "^[\\s>|]*(?:[-*+\\s]*|\\d+\\.\\s*)*\\**";
 export function dupFields(text) {
   // 跳过围栏代码块：正文里引用「未改: ...」这种示例会被数成真字段（R16 实测误报）。
   let fence = false;
@@ -69,32 +72,23 @@ export function fencedFields(text) {
     if (/^\s*```/.test(l)) { fence = !fence; continue; }
     if (!fence) continue;
     for (const k of COUNT_FIELDS) {
-      if (new RegExp("^\\s*" + LIST + "\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
+      if (new RegExp(PREFIX + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
     }
   }
   return hits;
 }
-// 引用块里的签核字段：dupFields 的正则要求行首（可带 **），`> 未改:` 这种前缀它看不见。
-// 2026-11-17 实测：引用块里写两行字段，dupFields 与 fencedFields 都不红——两条判据之间还有一条缝。
-// 阈值同围栏：单行是引用示例（回执里引规则原文常见），成块才是分叉。
-export function quotedFields(text) {
+// 容器里的签核字段：行首出现引用符号或表格竖线，且含签核字段。
+// 2026-11-17 实测：容器只有一个符号的宽容度时，两个容器叠起来就漏——引用块里的表格、表格里的引用、
+// 双层引用、列表里的引用，四条都漏。所以这里吃「任意多个容器符号与列表前缀的混合序列」，不再为每种组合单开一条。
+// 阈值同围栏：单行是引用示例（回执里引规则原文常见），成块才是第二份签核。
+const CONTAINER_HEAD = /^(?:[\s>|<*+-]|\d+\.\s)*(?:[>|<])/;
+const CONTAINER_PREFIX = "^(?:[\\s>|<*+!-]|\\d+\\.\\s)*\\**";
+export function containerFields(text) {
   const hits = [];
   for (const l of String(text || "").split("\n")) {
-    if (!/^\s*>/.test(l)) continue;
+    if (!CONTAINER_HEAD.test(l)) continue;
     for (const k of COUNT_FIELDS) {
-      if (new RegExp("^\\s*>\\s*" + LIST + "\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
-    }
-  }
-  return hits;
-}
-// 表格里的签核字段：行首是竖线，dupFields 与 quotedFields 的正则都不匹配。
-// 2026-11-17 实测：表格里写两行字段，三条判据都不红——第四种藏法。
-export function tableFields(text) {
-  const hits = [];
-  for (const l of String(text || "").split("\n")) {
-    if (!/^\s*\|/.test(l)) continue;
-    for (const k of COUNT_FIELDS) {
-      if (new RegExp("^\\s*\\|\\s*" + LIST + "\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
+      if (new RegExp(CONTAINER_PREFIX + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
     }
   }
   return hits;
@@ -120,8 +114,8 @@ export function parseOne(text) {
     delivered: pickRaw(RE_DELIVER),
     dup: dupFields(text),
     fenced: fencedFields(text),
-    quoted: quotedFields(text),
-    table: tableFields(text),
+    container: containerFields(text),
+    
   };
 }
 
@@ -138,9 +132,8 @@ export function check(entries) {
     // 单行示例不判红：正文里教改法的代码块常引用一行「未改: ...」（R16 实测），那不是签核。
     // 真危险的是把整个签核块贴进围栏——那样围栏外那份与围栏内那份会分叉，而 dupFields 数不到里面。
     if (e.fenced && e.fenced.length >= 2) bad.push(tag + " 签核字段成块写进了代码块（" + e.fenced.join("、") + "）：围栏内的重复数不到，签核必须落在围栏外");
-    if (e.quoted && e.quoted.length >= 2) bad.push(tag + " 签核字段成块写在引用块里（" + e.quoted.join("、") + "）：行首带 > 的字段 dupFields 数不到，第二处真值就藏在里面");
-    if (e.table && e.table.length >= 2) bad.push(tag + " 签核字段成块写在表格里（" + e.table.join("、") + "）：行首是竖线的字段三条判据都数不到");
-    if (e.dup && e.dup.length) bad.push(tag + " 同一字段出现多次（" + e.dup.join("、") + "）：同一事实两个来源，迟早分叉");
+    if (e.container && e.container.length >= 2) bad.push(tag + " 签核字段成块写在容器里（" + e.container.join("、") + "）：引用块或表格里的重复数不到，签核必须落在普通行");
+        if (e.dup && e.dup.length) bad.push(tag + " 同一字段出现多次（" + e.dup.join("、") + "）：同一事实两个来源，迟早分叉");
     if (!e.discoverer) bad.push(tag + " 缺「发现者」");
     if (!e.modifier) bad.push(tag + " 缺「修改者」");
     if (!e.reviewer) bad.push(tag + " 缺「复核者」");
@@ -216,7 +209,9 @@ function selftest() {
     // 坏样本：重复藏在围栏里。dupFields 跳过围栏，所以必须另有一条判据抓它。
     { name: "坏样本：签核块整块贴进围栏——围栏内的字段数不到", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n```\n轮次: R9\n未改: 那份没动\n```", want: 1 },
     { name: "好样本：围栏内只有一行示例，不算签核（R16 形态）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n改法一行：\n\n```\n未改: 那份无凭据\n```", want: 0 },
-    { name: "坏样本：列表项形式的两行字段——行首是短横线，原正则不匹配", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n- 未改: 第一处\n- 未改: 第二处", want: 1 },
+    { name: "坏样本：引用块里的表格——两个容器叠起来，只吃一个符号的判据都漏", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n> | 未改: 第一处\n> | 未改: 第二处", want: 1 },
+    { name: "坏样本：列表里嵌引用——前缀在容器之前", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n- > 未改: 第一处\n- > 未改: 第二处", want: 1 },
+    { name: "坏样本：双层引用", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n> > 未改: 第一处\n> > 未改: 第二处", want: 1 },
     { name: "坏样本：围栏内同一个字段写两行——种类数只有一种，行数才是两种", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n```\n未改: 第一处\n未改: 第二处\n```", want: 1 },
     { name: "坏样本：围栏内贴签核块（四反引号包三反引号）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n````\n```\n轮次: R9\n未改: 没动\n```\n````", want: 1 },
     { name: "坏样本：引用块里两行字段——dupFields 的正则要求行首，看不见 > 前缀", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n> 未改: 那份没动\n> 已改: 又写一遍", want: 1 },
