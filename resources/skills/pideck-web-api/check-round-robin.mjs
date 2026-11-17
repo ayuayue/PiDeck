@@ -60,16 +60,16 @@ export function dupFields(text) {
 // 围栏内的签核字段：dupFields 跳过围栏，所以写进代码块的重复它数不到。
 // 这不是可以放进文档去自律的事——签核字段必须落在围栏外，落进去就判红。
 export function fencedFields(text) {
-  const hit = new Set();
+  const hits = [];
   let fence = false;
   for (const l of String(text || "").split("\n")) {
     if (/^\s*```/.test(l)) { fence = !fence; continue; }
     if (!fence) continue;
     for (const k of COUNT_FIELDS) {
-      if (new RegExp("^\\s*\\**" + k + "\\**\\s*[:：]").test(l)) hit.add(k);
+      if (new RegExp("^\\s*\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
     }
   }
-  return [...hit];
+  return hits;
 }
 export function parseOne(text) {
   const head = String(text || "").slice(0, 1200);
@@ -184,6 +184,7 @@ function selftest() {
     // 坏样本：重复藏在围栏里。dupFields 跳过围栏，所以必须另有一条判据抓它。
     { name: "坏样本：签核块整块贴进围栏——围栏内的字段数不到", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n```\n轮次: R9\n未改: 那份没动\n```", want: 1 },
     { name: "好样本：围栏内只有一行示例，不算签核（R16 形态）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n改法一行：\n\n```\n未改: 那份无凭据\n```", want: 0 },
+    { name: "坏样本：围栏内同一个字段写两行——种类数只有一种，行数才是两种", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n```\n未改: 第一处\n未改: 第二处\n```", want: 1 },
     { name: "坏样本：围栏内贴签核块（四反引号包三反引号）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n````\n```\n轮次: R9\n未改: 没动\n```\n````", want: 1 },
     { name: "坏样本：两行「已改」——同一事实写了两次", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n已改: x 再写一遍", want: 1 },
     { name: "解析层：没有轮次的文件不被当成签核", doc: "# 随便一份文件\n修改者: 甲", want: 0, skip: true },
