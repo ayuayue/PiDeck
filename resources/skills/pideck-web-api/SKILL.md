@@ -652,6 +652,14 @@ cp -r <仓库>/resources/skills/* "<userData>/skills-overlay"/
 
 `installTemplate`（`src/main/skills/SkillManager.ts`）每次启动无条件 `writeFile`，内容取自 overlay——**条件不是「有目录」，而是「overlay 自带清单且逐文件哈希对得上」**，任一不符就回落到打包的那份。唯一例外：frontmatter 的 `disable-model-invocation: true` 会被记住并写回（`SkillManager.ts:438-449`）。
 
+**这五条全绿也不等于 PR 能合——远端还有第六道闸，它不在你本机。** 上游仓的 `Dev Guard` 工作流里有一步「Check skills manifest drift」：`resources/skills/skills-manifest.json` 记着每个技能文件的 sha256 与字节数，你改了 `resources/skills/**` 下任何一个文件却没重生成，它就判红，PR 状态变成 `UNSTABLE`。2026-11-17 实测：连着推两次都红着，中间隔了十几轮回执，没人看过 PR 的检查结果——所有人核的都是本机那五条，全绿。
+
+```bash
+npm run generate:skills-manifest   # 改了任何技能文件之后跑一次（写操作）
+npm run check:skills-manifest      # rc 必须是 0，与下面五条一起过
+```
+
+**本地绿、CI 绿、能合，是三件事。** 本机这五条判据、`npm run check`、远端 CI 各跑各的，任何一组绿都不代表另外两组。PR 的检查结果要主动取：`gh pr view <n> --json statusCheckRollup`，或者 `gh run list --branch <分支>`；`mergeStateStatus` 显示 `UNSTABLE` 就是有检查红了。用户不提就没人查，这正是「把描述交付物的那句话当成交付物」的第二种形态——这次连描述都没写，直接没看。
 **五个判据在源码克隆根目录跑，rc 都得是 0：**
 
 ```bash
