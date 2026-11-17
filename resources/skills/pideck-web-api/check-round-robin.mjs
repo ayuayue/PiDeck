@@ -71,6 +71,19 @@ export function fencedFields(text) {
   }
   return hits;
 }
+// 引用块里的签核字段：dupFields 的正则要求行首（可带 **），`> 未改:` 这种前缀它看不见。
+// 2026-11-17 实测：引用块里写两行字段，dupFields 与 fencedFields 都不红——两条判据之间还有一条缝。
+// 阈值同围栏：单行是引用示例（回执里引规则原文常见），成块才是分叉。
+export function quotedFields(text) {
+  const hits = [];
+  for (const l of String(text || "").split("\n")) {
+    if (!/^\s*>/.test(l)) continue;
+    for (const k of COUNT_FIELDS) {
+      if (new RegExp("^\\s*>\\s*\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
+    }
+  }
+  return hits;
+}
 export function parseOne(text) {
   const head = String(text || "").slice(0, 1200);
   const r = RE_ROUND.exec(head);
@@ -92,6 +105,7 @@ export function parseOne(text) {
     delivered: pickRaw(RE_DELIVER),
     dup: dupFields(text),
     fenced: fencedFields(text),
+    quoted: quotedFields(text),
   };
 }
 
@@ -108,6 +122,7 @@ export function check(entries) {
     // 单行示例不判红：正文里教改法的代码块常引用一行「未改: ...」（R16 实测），那不是签核。
     // 真危险的是把整个签核块贴进围栏——那样围栏外那份与围栏内那份会分叉，而 dupFields 数不到里面。
     if (e.fenced && e.fenced.length >= 2) bad.push(tag + " 签核字段成块写进了代码块（" + e.fenced.join("、") + "）：围栏内的重复数不到，签核必须落在围栏外");
+    if (e.quoted && e.quoted.length >= 2) bad.push(tag + " 签核字段成块写在引用块里（" + e.quoted.join("、") + "）：行首带 > 的字段 dupFields 数不到，第二处真值就藏在里面");
     if (e.dup && e.dup.length) bad.push(tag + " 同一字段出现多次（" + e.dup.join("、") + "）：同一事实两个来源，迟早分叉");
     if (!e.discoverer) bad.push(tag + " 缺「发现者」");
     if (!e.modifier) bad.push(tag + " 缺「修改者」");
@@ -186,6 +201,8 @@ function selftest() {
     { name: "好样本：围栏内只有一行示例，不算签核（R16 形态）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n改法一行：\n\n```\n未改: 那份无凭据\n```", want: 0 },
     { name: "坏样本：围栏内同一个字段写两行——种类数只有一种，行数才是两种", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n```\n未改: 第一处\n未改: 第二处\n```", want: 1 },
     { name: "坏样本：围栏内贴签核块（四反引号包三反引号）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n````\n```\n轮次: R9\n未改: 没动\n```\n````", want: 1 },
+    { name: "坏样本：引用块里两行字段——dupFields 的正则要求行首，看不见 > 前缀", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n> 未改: 那份没动\n> 已改: 又写一遍", want: 1 },
+    { name: "好样本：引用块里只有一行字段（回执引规则原文的形态）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n> 未改: 只在引用里提了一句", want: 0 },
     { name: "坏样本：两行「已改」——同一事实写了两次", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n已改: x 再写一遍", want: 1 },
     { name: "解析层：没有轮次的文件不被当成签核", doc: "# 随便一份文件\n修改者: 甲", want: 0, skip: true },
   ];
