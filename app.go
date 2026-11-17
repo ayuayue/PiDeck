@@ -601,9 +601,18 @@ type app struct {
 	impOnly     *core.Signal[string]
 	// impProject is the project the dialog was opened for: what is imported
 	// goes there whatever folder it ran in. Empty means "where it ran".
-	impProject      *core.Signal[string]
-	impSel          *core.Signal[[]string]
-	impGen          int
+	impProject *core.Signal[string]
+	impSel     *core.Signal[[]string]
+	// impSelSet is impSel as a set, so a row's checked state is a lookup.
+	impSelSet map[string]bool
+	impGen    int
+	// railWidth and drawerWidth are the side panels' widths, saved when a
+	// drag rests; the seq counters drop a save a newer drag replaced.
+	railWidth       *core.Signal[core.Points]
+	drawerWidth     *core.Signal[core.Points]
+	railSeq         int
+	drawerSeq       int
+	winSeq          int
 	outlineOpen     *core.Signal[bool]
 	authEntries     *core.Signal[[]authEntry]
 	authErr         *core.Signal[string]
@@ -811,6 +820,8 @@ func newApp(cx *core.Scope) *app {
 		impOnly:                core.NewSignal(cx, ""),
 		impProject:             core.NewSignal(cx, ""),
 		impSel:                 core.NewSignalFunc(cx, []string(nil), nil),
+		railWidth:              core.NewSignal(cx, core.Points(0)),
+		drawerWidth:            core.NewSignal(cx, core.Points(0)),
 		outlineOpen:            core.NewSignal(cx, false),
 		authEntries:            core.NewSignalFunc(cx, []authEntry(nil), nil),
 		authErr:                core.NewSignal(cx, ""),
@@ -1021,6 +1032,19 @@ func newApp(cx *core.Scope) *app {
 
 	a.pinned.Set(a.cfg.Pinned)
 	a.favModels.Set(a.cfg.FavModels)
+	if a.cfg.RailWidth > 0 {
+		a.railWidth.Set(core.Points(a.cfg.RailWidth))
+	}
+	if a.cfg.DrawerWidth > 0 {
+		a.drawerWidth.Set(core.Points(a.cfg.DrawerWidth))
+	}
+	if a.cfg.DrawerTab != "" {
+		a.drawerTab.Set(a.cfg.DrawerTab)
+	}
+	if a.cfg.SettingsTab != "" {
+		a.settingsTab.Set(a.cfg.SettingsTab)
+	}
+	a.impOnly.Set(a.cfg.ImportSource)
 	a.favorites = a.loadFavorites()
 	a.loadTasks()
 	a.loadAnnouncements()
@@ -4457,3 +4481,53 @@ func (a *app) revealSession(s *session) {
 
 // bindKeys is in keybindings.go: it binds each key to a router so a
 // binding can change without leaving a stale handler behind.
+
+// setRailWidth resizes the sidebar and remembers the width once the drag
+// rests.
+func (a *app) setRailWidth(width core.Points) {
+	a.railWidth.Set(width)
+	a.railSeq++
+	seq := a.railSeq
+	a.cx.AfterFunc(300*time.Millisecond, func() {
+		if seq != a.railSeq || a.st == nil {
+			return
+		}
+		w := float64(width)
+		a.st.edit(func(c *config) { c.RailWidth = w })
+	})
+}
+
+// setDrawerWidth resizes the right panel and remembers the width.
+func (a *app) setDrawerWidth(width core.Points) {
+	a.drawerWidth.Set(width)
+	a.drawerSeq++
+	seq := a.drawerSeq
+	a.cx.AfterFunc(300*time.Millisecond, func() {
+		if seq != a.drawerSeq || a.st == nil {
+			return
+		}
+		w := float64(width)
+		a.st.edit(func(c *config) { c.DrawerWidth = w })
+	})
+}
+
+// setDrawerTab switches the right panel and remembers which tab it is.
+func (a *app) setDrawerTab(name string) {
+	if name == "" || a.drawerTab.GetUntracked() == name {
+		return
+	}
+	a.drawerTab.Set(name)
+	if a.st != nil {
+		a.st.edit(func(c *config) { c.DrawerTab = name })
+	}
+}
+
+// setImportSel replaces the import dialog's picks and their lookup set.
+func (a *app) setImportSel(list []string) {
+	set := make(map[string]bool, len(list))
+	for _, key := range list {
+		set[key] = true
+	}
+	a.impSelSet = set
+	a.impSel.Set(list)
+}

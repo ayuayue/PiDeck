@@ -359,6 +359,20 @@ func (a *app) scanImports() {
 			}
 			a.impScanning.Set(false)
 			a.impRows.Set(rows)
+			// A remembered tab whose store now holds nothing falls back to
+			// the list of everything.
+			if only := a.impOnly.GetUntracked(); only != "" {
+				found := false
+				for _, row := range rows {
+					if row.Source == only {
+						found = true
+						break
+					}
+				}
+				if !found {
+					a.impOnly.Set("")
+				}
+			}
 			a.animateNextLayout()
 		})
 	}()

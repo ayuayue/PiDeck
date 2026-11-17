@@ -33,7 +33,7 @@ func (a *app) openGit() {
 		a.animateNextLayout()
 	}
 	a.drawer.Set(true)
-	a.drawerTab.Set("git")
+	a.setDrawerTab("git")
 	a.gitAttach()
 	a.remember()
 }
@@ -44,7 +44,7 @@ func (a *app) openGitFor(ws *workspace) {
 		a.animateNextLayout()
 	}
 	a.drawer.Set(true)
-	a.drawerTab.Set("git")
+	a.setDrawerTab("git")
 	a.git.attach(ws)
 	a.remember()
 }

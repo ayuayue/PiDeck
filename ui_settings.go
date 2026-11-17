@@ -149,6 +149,10 @@ func (a *app) openSettingsPane() {
 // openSettingsSection switches to a section and runs its loader.
 func (a *app) openSettingsSection(id string) {
 	a.settingsTab.Set(id)
+	if a.st != nil && a.cfg.SettingsTab != id {
+		a.cfg.SettingsTab = id
+		a.st.edit(func(c *config) { c.SettingsTab = id })
+	}
 	a.settingsQuery.Set("")
 	switch id {
 	case "remote":

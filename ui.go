@@ -91,7 +91,8 @@ func (a *app) shell() core.Node {
 		Open:           a.sidebar.Get,
 		OnOpenChange:   func(open bool) { a.sidebar.Set(open); a.remember() },
 		ToggleLabel:    "侧栏",
-		Width:          nil,
+		Width:          a.railWidth.Get,
+		OnWidthChange:  a.setRailWidth,
 		DefaultWidth:   292,
 		MinWidth:       240,
 		MaxWidth:       400,
@@ -102,16 +103,18 @@ func (a *app) shell() core.Node {
 		Header:         []core.Node{a.tabBar()},
 		// The drawer's own header carries these while it shows, so they
 		// stay at the window's edge instead of sliding with the content.
-		Actions:           []core.Node{a.headActions(false)},
-		Content:           []core.Node{a.workArea()},
-		Right:             []core.Node{a.drawerPanel()},
-		RightHeader:       []core.Node{a.headActions(true)},
-		RightOpen:         a.drawer.Get,
-		RightToggleLabel:  "会话面板",
-		RightResizeLabel:  "调整面板宽度",
-		RightDefaultWidth: 316,
-		RightMinWidth:     260,
-		RightMaxWidth:     460,
+		Actions:            []core.Node{a.headActions(false)},
+		Content:            []core.Node{a.workArea()},
+		Right:              []core.Node{a.drawerPanel()},
+		RightHeader:        []core.Node{a.headActions(true)},
+		RightOpen:          a.drawer.Get,
+		RightToggleLabel:   "会话面板",
+		RightResizeLabel:   "调整面板宽度",
+		RightWidth:         a.drawerWidth.Get,
+		OnRightWidthChange: a.setDrawerWidth,
+		RightDefaultWidth:  316,
+		RightMinWidth:      260,
+		RightMaxWidth:      460,
 	}
 }
 
@@ -844,7 +847,7 @@ func (a *app) drawerPanel() core.Node {
 				if a.drawerTab.Get() != name {
 					a.animateNextLayout()
 				}
-				a.drawerTab.Set(name)
+				a.setDrawerTab(name)
 				if name == "git" {
 					a.gitAttach()
 				}

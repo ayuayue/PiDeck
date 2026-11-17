@@ -483,7 +483,7 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 				ui.Button{Text: T("会话面板"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
 					open.Set(false)
 					a.drawer.Set(true)
-					a.drawerTab.Set("overview")
+					a.setDrawerTab("overview")
 				}},
 			}},
 		}}

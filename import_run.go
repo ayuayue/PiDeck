@@ -35,7 +35,7 @@ func (a *app) openImportDialogFor(ws *workspace) {
 // showImportDialog opens the dialog and scans the sources behind it.
 func (a *app) showImportDialog() {
 	a.impOpen.Set(true)
-	a.impSel.Set(nil)
+	a.setImportSel(nil)
 	a.impQuery.Set("")
 	if !a.impScanning.GetUntracked() {
 		a.scanImports()
@@ -80,12 +80,19 @@ func (a *app) importRowFor(key string) *importRow {
 
 // isImportSelected reports whether a row is picked.
 func (a *app) isImportSelected(key string) bool {
-	for _, k := range a.impSel.GetUntracked() {
-		if k == key {
-			return true
-		}
+	return a.impSelSet[key]
+}
+
+// setImportTab opens one source's tab and remembers it for next time.
+func (a *app) setImportTab(key string) {
+	if a.impOnly.GetUntracked() == key {
+		return
 	}
-	return false
+	a.impOnly.Set(key)
+	if a.st != nil && a.cfg.ImportSource != key {
+		a.cfg.ImportSource = key
+		a.st.edit(func(c *config) { c.ImportSource = key })
+	}
 }
 
 // toggleImportRow picks or unpicks one row.
@@ -93,11 +100,11 @@ func (a *app) toggleImportRow(key string) {
 	sel := append([]string(nil), a.impSel.GetUntracked()...)
 	for i, k := range sel {
 		if k == key {
-			a.impSel.Set(append(sel[:i], sel[i+1:]...))
+			a.setImportSel(append(sel[:i], sel[i+1:]...))
 			return
 		}
 	}
-	a.impSel.Set(append(sel, key))
+	a.setImportSel(append(sel, key))
 }
 
 // selectImportRows picks every row the list shows that is not up to date,
@@ -115,7 +122,7 @@ func (a *app) selectImportRows() {
 		}
 	}
 	if all {
-		a.impSel.Set(nil)
+		a.setImportSel(nil)
 		return
 	}
 	var sel []string
@@ -124,7 +131,7 @@ func (a *app) selectImportRows() {
 			sel = append(sel, row.key())
 		}
 	}
-	a.impSel.Set(sel)
+	a.setImportSel(sel)
 }
 
 // importPicked is how many picked rows a run would convert.

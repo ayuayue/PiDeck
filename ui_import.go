@@ -25,7 +25,7 @@ func (a *app) importTab(label, key string, count, pending int) core.Node {
 	if key != "" {
 		testID = "import-tab-" + key
 	}
-	return core.View{OnPress: func(core.PressEvent) { a.impOnly.Set(key) },
+	return core.View{OnPress: func(core.PressEvent) { a.setImportTab(key) },
 		Role: core.RoleTab, Label: label, TestID: testID,
 		StyleFunc: func() core.Style {
 			st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(30),
@@ -214,19 +214,49 @@ func (a *app) importFooter() []core.Node {
 	}, elsewhere...)
 }
 
-// importDialog is the whole dialog.
+// importDialog is the dialog's shell. Only opening and closing it rebuilds
+// this: the body, the tabs and the footer are their own readers, so picking
+// a tab or a row never remounts the dialog (which would replay its fade and
+// pop).
 func (a *app) importDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
 		_ = a.langRev.Get()
-		// The dialog follows what the scan found, which tab is open, what is
-		// picked, and how a run is going.
-		_ = a.impRows.Get()
-		_ = a.impSel.Get()
-		_ = a.impScanning.Get()
+		return ui.Dialog{
+			Open:         a.impOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) { a.impOpen.Set(open) },
+			Title:        T("导入会话"),
+			Description:  T("从 Claude Code、Codex、Cursor 等工具的历史里挑出会话，转换后复制到本应用自己的会话目录：原文件不动。"),
+			TestID:       "import-dialog",
+			Style:        core.Style{Width: core.Pt(760), MaxHeight: core.Pt(640)},
+			Children:     []core.Node{a.importBody()},
+			Footer:       []core.Node{a.importFooterBar()},
+		}
+	})
+}
+
+// importFooterBar is the footer as one row that follows the run.
+func (a *app) importFooterBar() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.impBusy.Get()
 		_ = a.impDone.Get()
 		_ = a.impTotal.Get()
+		_ = a.impFailed.Get()
+		_ = a.impSel.Get()
+		_ = a.impRows.Get()
+		_ = a.impOnly.Get()
+		_ = a.impQuery.Get()
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+			Width: core.Pct(100)}, Children: a.importFooter()}
+	})
+}
+
+// importBody follows the scan, the open tab, the search and the picks.
+func (a *app) importBody() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		_ = a.impRows.Get()
+		_ = a.impSel.Get()
+		_ = a.impScanning.Get()
 		_ = a.impOnly.Get()
 		_ = a.impQuery.Get()
 		_ = a.impProject.Get()
@@ -234,11 +264,11 @@ func (a *app) importDialog() core.Node {
 		total, pending := a.importSourceCounts()
 
 		tabs := []core.Node{a.importTab(T("全部"), "", len(a.impRows.Get()), 0)}
-		for _, s := range importSources {
-			if total[s.Key] == 0 {
+		for _, src := range importSources {
+			if total[src.Key] == 0 {
 				continue
 			}
-			tabs = append(tabs, a.importTab(s.Label, s.Key, total[s.Key], pending[s.Key]))
+			tabs = append(tabs, a.importTab(src.Label, src.Key, total[src.Key], pending[src.Key]))
 		}
 		target := strings.TrimSpace(a.impProject.Get())
 
@@ -254,57 +284,39 @@ func (a *app) importDialog() core.Node {
 				}},
 		}}
 
-		var body []core.Node
+		var list []core.Node
 		if len(rows) == 0 {
-			body = append(body, a.importEmpty(rows))
+			list = append(list, a.importEmpty(rows))
 		} else {
 			const limit = 400
 			shown := rows
 			if len(shown) > limit {
 				shown = shown[:limit]
 			}
-			list := make([]core.Node, 0, len(shown))
+			nodes := make([]core.Node, 0, len(shown))
 			for _, row := range shown {
-				list = append(list, a.importRowView(row, target != "" && pathKey(row.Cwd) == pathKey(target)))
+				nodes = append(nodes, a.importRowView(row, target != "" && pathKey(row.Cwd) == pathKey(target)))
 			}
 			if hidden := len(rows) - len(shown); hidden > 0 {
-				list = append(list, core.Text{Content: fmt.Sprintf(T("还有 %d 个未列出，用搜索或来源筛选"), hidden),
+				nodes = append(nodes, core.Text{Content: fmt.Sprintf(T("还有 %d 个未列出，用搜索或来源筛选"), hidden),
 					Style: core.Style{FontSize: 10.5, Padding: core.All(6)}, StyleFunc: ui.Colored(colors.Faint)})
 			}
-			body = append(body, core.Scroll{Style: core.Style{MaxHeight: core.Pt(340)}, Children: []core.Node{
-				core.View{Style: core.Style{Gap: 1}, Children: list}}})
+			list = append(list, core.Scroll{Style: core.Style{MaxHeight: core.Pt(340)}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 1}, Children: nodes}}})
 		}
 
-		pendingCount := 0
-		for _, n := range pending {
-			pendingCount += n
-		}
-		desc := T("从 Claude Code、Codex、Cursor 等工具的历史里挑出会话，转换后复制到本应用自己的会话目录：原文件不动，导入的会话按原目录归位。")
-		if !a.impScanning.Get() && pendingCount == 0 && len(a.impRows.Get()) > 0 {
-			desc = T("都导入了。有更新的会话会重新导入，覆盖之前那一份。")
-		}
-
-		return ui.Dialog{
-			Open:         a.impOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.impOpen.Set(open) },
-			Title:        T("导入会话"),
-			Description:  desc,
-			TestID:       "import-dialog",
-			Style:        core.Style{Width: core.Pt(760), MaxHeight: core.Pt(640)},
-			Children: []core.Node{
-				a.importTargetLine(),
-				// One tab per tool: each store is picked and imported on its
-				// own, rather than every tool's sessions in one heap.
-				core.Scroll{Horizontal: true, HideIndicator: true, Children: []core.Node{
-					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: tabs}}},
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-					search,
-					ui.Button{Text: T("全选"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "import-select-all",
-						OnPress: func() { a.selectImportRows() }},
-				}},
-				core.View{Style: core.Style{Gap: 2}, Children: body},
-			},
-			Footer: a.importFooter(),
-		}
+		return core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
+			a.importTargetLine(),
+			// One tab per tool: each store is picked and imported on its own,
+			// rather than every tool's sessions in one heap.
+			core.Scroll{Horizontal: true, HideIndicator: true, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: tabs}}},
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+				search,
+				ui.Button{Text: T("全选"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "import-select-all",
+					OnPress: func() { a.selectImportRows() }},
+			}},
+			core.View{Style: core.Style{Gap: 2}, Children: list},
+		}}
 	})
 }

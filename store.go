@@ -45,6 +45,16 @@ type modelChoice struct {
 	ID       string `json:"id,omitempty"`
 }
 
+// windowCfg is where the window was and how big, and whether it was
+// maximized. A zero W and H keep the default size.
+type windowCfg struct {
+	X         float64 `json:"x,omitempty"`
+	Y         float64 `json:"y,omitempty"`
+	W         float64 `json:"w,omitempty"`
+	H         float64 `json:"h,omitempty"`
+	Maximized bool    `json:"maximized,omitempty"`
+}
+
 // config is everything the app restores at startup.
 type config struct {
 	Version     int               `json:"version"`
@@ -74,6 +84,17 @@ type config struct {
 	// ProjectSort orders the rail's projects: "" or "manual" keeps the
 	// stored order; "recent", "created" and "title" sort them.
 	ProjectSort string `json:"projectSort,omitempty"`
+	// Window is the window's last frame: where it was, how big, maximized.
+	Window windowCfg `json:"window"`
+	// RailWidth and DrawerWidth are the two side panels' widths in points;
+	// 0 keeps their defaults.
+	RailWidth   float64 `json:"railWidth,omitempty"`
+	DrawerWidth float64 `json:"drawerWidth,omitempty"`
+	// DrawerTab is the right panel's last tab, SettingsTab the settings
+	// section last open, and ImportSource the import dialog's last tab.
+	DrawerTab    string `json:"drawerTab,omitempty"`
+	SettingsTab  string `json:"settingsTab,omitempty"`
+	ImportSource string `json:"importSource,omitempty"`
 	// TerminalOpen and TerminalHeight restore the bottom terminal panel.
 	TerminalOpen   bool    `json:"terminalOpen,omitempty"`
 	TerminalHeight float64 `json:"terminalHeight,omitempty"`
