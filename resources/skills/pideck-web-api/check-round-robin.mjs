@@ -159,6 +159,12 @@ if (process.argv.includes("--selftest")) process.exit(selftest());
 
 const dir = arg || process.cwd();
 if (!fs.existsSync(dir)) { console.log("目录不存在：" + dir); process.exit(2); }
+// 传单文件进来时 readdirSync 会抛 ENOTDIR（未捕获），把用法错伪装成崩溃。
+// 用法错是 rc=2，判据红是 rc=1，两个码分开：混成崩溃就分不清机器坏还是代码坏。
+if (!fs.statSync(dir).isDirectory()) {
+  console.log("用法：node check-round-robin.mjs <目录> | --selftest（它扫目录下所有 .md，不接单文件）");
+  process.exit(2);
+}
 const entries = scanDir(dir);
 if (!entries.length) {
   console.log("check-round-robin: " + dir + " 下没有带「轮次」的签核，跳过（口径：只管写了轮次的文件）");
