@@ -42,6 +42,9 @@ const clean = (s) => String(s || "").replace(/\*\*/g, "").trim().split(/[\s（(]
 // 正文末尾那段写「没动」——改字段时只替换了签核那行，另一处没动，两条真值当场分叉。
 // 前 1200 字符读不到正文末尾，所以这条必须扫全文，不能只看 head。
 const COUNT_FIELDS = ["轮次", "已改", "未改", "交付", "发现者", "修改者", "复核者", "提出者"];
+// 行首前缀：列表符号（- * +）或有序列表（1. ）或加粗。三处判据共用同一个形状，
+// 否则容器与前缀会相乘出 4×2=8 种组合，各写各的正则必然漏（2026-11-17 实测：引用块里的列表项、表格里的列表项，两条都漏）。
+const LIST = "(?:[-*+]\\s+|\\d+\\.\\s+)?";
 export function dupFields(text) {
   // 跳过围栏代码块：正文里引用「未改: ...」这种示例会被数成真字段（R16 实测误报）。
   let fence = false;
@@ -51,7 +54,7 @@ export function dupFields(text) {
   }).join("\n");
   const dup = [];
   for (const k of COUNT_FIELDS) {
-    const n = (all.match(new RegExp("^\\s*(?:[-*+]\\s+|\\d+\\.\\s+)?\\**" + k + "\\**\\s*[:：]", "gm")) || []).length;
+    const n = (all.match(new RegExp("^\\s*" + LIST + "\\**" + k + "\\**\\s*[:：]", "gm")) || []).length;
     if (n > 1) dup.push(k + " ×" + n);
   }
   return dup;
@@ -66,7 +69,7 @@ export function fencedFields(text) {
     if (/^\s*```/.test(l)) { fence = !fence; continue; }
     if (!fence) continue;
     for (const k of COUNT_FIELDS) {
-      if (new RegExp("^\\s*(?:[-*+]\\s+|\\d+\\.\\s+)?\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
+      if (new RegExp("^\\s*" + LIST + "\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
     }
   }
   return hits;
@@ -79,7 +82,7 @@ export function quotedFields(text) {
   for (const l of String(text || "").split("\n")) {
     if (!/^\s*>/.test(l)) continue;
     for (const k of COUNT_FIELDS) {
-      if (new RegExp("^\\s*>\\s*\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
+      if (new RegExp("^\\s*>\\s*" + LIST + "\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
     }
   }
   return hits;
@@ -91,7 +94,7 @@ export function tableFields(text) {
   for (const l of String(text || "").split("\n")) {
     if (!/^\s*\|/.test(l)) continue;
     for (const k of COUNT_FIELDS) {
-      if (new RegExp("^\\s*\\|\\s*\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
+      if (new RegExp("^\\s*\\|\\s*" + LIST + "\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
     }
   }
   return hits;
@@ -220,6 +223,9 @@ function selftest() {
     { name: "好样本：引用块里只有一行字段（回执引规则原文的形态）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n> 未改: 只在引用里提了一句", want: 0 },
     { name: "坏样本：表格里两行字段——行首是竖线，三条判据都不匹配", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n| 未改: 那份没动 |\n| 已改: 又写一遍 |", want: 1 },
     { name: "好样本：表格里只有一行字段（表格里提一句的形态）", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n| 未改: 只在表里提一句 |", want: 0 },
+    // 容器 × 前缀的组合：光有容器判据或光有前缀都不够（2026-11-17 实测两处都漏）。
+    { name: "坏样本：引用块里的列表项两行——容器加前缀组合", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n> - 未改: 第一处\n> - 未改: 第二处", want: 1 },
+    { name: "坏样本：表格里的列表项两行——容器加前缀组合", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n| - 未改: 第一处 |\n| - 未改: 第二处 |", want: 1 },
     { name: "坏样本：两行「已改」——同一事实写了两次", doc: "# 签核\n轮次: R9\n提出者: 用户\n发现者: 甲\n修改者: 甲\n复核者: 乙\n交付: 14:00\n已改: x\n未改: 无\n\n已改: x 再写一遍", want: 1 },
     { name: "解析层：没有轮次的文件不被当成签核", doc: "# 随便一份文件\n修改者: 甲", want: 0, skip: true },
   ];
