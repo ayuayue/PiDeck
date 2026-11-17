@@ -43,7 +43,12 @@ const clean = (s) => String(s || "").replace(/\*\*/g, "").trim().split(/[\s（(]
 // 前 1200 字符读不到正文末尾，所以这条必须扫全文，不能只看 head。
 const COUNT_FIELDS = ["已改", "未改", "交付", "发现者", "修改者", "复核者", "提出者"];
 export function dupFields(text) {
-  const all = String(text || "");
+  // 跳过围栏代码块：正文里引用「未改: ...」这种示例会被数成真字段（R16 实测误报）。
+  let fence = false;
+  const all = String(text || "").split("\n").map((l) => {
+    if (/^\s*```/.test(l)) { fence = !fence; return ""; }
+    return fence ? "" : l;
+  }).join("\n");
   const dup = [];
   for (const k of COUNT_FIELDS) {
     const n = (all.match(new RegExp("^\\s*\\**" + k + "\\**\\s*[:：]", "gm")) || []).length;
