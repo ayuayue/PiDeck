@@ -207,5 +207,5 @@ func TestSearchEnterOpensFirst(t *testing.T) {
 	app.Submit("id:search-input")
 	app.WaitForGone("id:session-search", 5*time.Second)
 	app.WaitFor("id:composer", 10*time.Second)
-	app.WaitFor("text:部署手册", 10*time.Second)
+	app.WaitFor("id:tab >> text:部署手册", 10*time.Second)
 }

@@ -89,7 +89,9 @@ func TestChatWidthSlider(t *testing.T) {
 		return stored >= chatWidthMin && stored < chatWidthMax
 	})
 
-	app.Key("escape")
+	// A missing pi can leave an error toast, which takes Escape before the
+	// pane does. Close settings through its own action.
+	app.Press("id:settings-done")
 	app.WaitForGone("id:settings", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool {
 		cols := app.Query("id:composer-column")

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestSessionMetaCache reuses a listing until its file changes, and still
@@ -307,6 +308,10 @@ func TestMetaScanRereadsARewrittenFile(t *testing.T) {
 	path := writeSession(t, filepath.Join(st.sessions, "--C--work--"), "a.jsonl",
 		searchSession("a", "C:/work/shop", "部署手册", "怎么发布到生产环境"))
 	st.scanSessions(nil)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Same size, different bytes: what a compaction looks like from afar.
 	raw, err := os.ReadFile(path)
@@ -315,6 +320,12 @@ func TestMetaScanRereadsARewrittenFile(t *testing.T) {
 	}
 	raw[0] = 'X'
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A same-size rewrite is detected by its mtime. Two immediate writes
+	// can share one timestamp on Windows, so give this rewrite a distinct one.
+	changed := info.ModTime().Add(2 * time.Second)
+	if err := os.Chtimes(path, changed, changed); err != nil {
 		t.Fatal(err)
 	}
 	before := st.consumed

@@ -59,7 +59,7 @@ var appSettingFields = []settingField{
 	{Key: "terminalFont", Type: "number", Default: 0, Min: intPtr(8), Max: intPtr(20)},
 	{Key: "editorFont", Type: "number", Default: 0, Min: intPtr(11), Max: intPtr(20)},
 	{Key: "chatFont", Type: "number", Default: 0, Min: intPtr(chatFontMin), Max: intPtr(chatFontMax)},
-	{Key: "chatLine", Type: "number", Default: 0, Min: intPtr(int(chatLineMin*10)), Max: intPtr(int(chatLineMax*10))},
+	{Key: "chatLine", Type: "number", Default: 0, Min: intPtr(int(chatLineMin * 10)), Max: intPtr(int(chatLineMax * 10))},
 	{Key: "inputFont", Type: "number", Default: 0, Min: intPtr(chatFontMin), Max: intPtr(chatFontMax)},
 }
 
