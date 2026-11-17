@@ -61,6 +61,13 @@ jobs:
         if: always()
         run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:file-size && npm run check:scroll-containers
 
+      # 2026-11-15：直推 dev 的 e6d7eb3ba 把 `"dependencies": {` 段头删了，JSON 仍合法、
+      # npm ci 也不报错（只是不装运行时依赖），三笔 macOS Signing 全红在
+      # ERR_MODULE_NOT_FOUND（caf7b87a8 修）。JSON.parse 通过不是结构完整的证据。
+      - name: Check package.json structure
+        if: always()
+        run: npm run check:package-json
+
       # 2026-11-15：本 PR 改了 4 个 SKILL.md 却没重生成 manifest，main CI 的
       # check:skills-manifest 会红，而 dev-guard 没挂这一条，PR 页面三个 check 全绿。
       # 纯 node、不联网、0.1 秒，符合本文件「秒级」的口径。
