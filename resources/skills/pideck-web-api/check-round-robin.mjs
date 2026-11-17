@@ -51,7 +51,7 @@ export function dupFields(text) {
   }).join("\n");
   const dup = [];
   for (const k of COUNT_FIELDS) {
-    const n = (all.match(new RegExp("^\\s*\\**" + k + "\\**\\s*[:：]", "gm")) || []).length;
+    const n = (all.match(new RegExp("^\\s*(?:[-*+]\\s+|\\d+\\.\\s+)?\\**" + k + "\\**\\s*[:：]", "gm")) || []).length;
     if (n > 1) dup.push(k + " ×" + n);
   }
   return dup;
@@ -66,7 +66,7 @@ export function fencedFields(text) {
     if (/^\s*```/.test(l)) { fence = !fence; continue; }
     if (!fence) continue;
     for (const k of COUNT_FIELDS) {
-      if (new RegExp("^\\s*\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
+      if (new RegExp("^\\s*(?:[-*+]\\s+|\\d+\\.\\s+)?\\**" + k + "\\**\\s*[:：]").test(l)) { hits.push(k); break; }
     }
   }
   return hits;
