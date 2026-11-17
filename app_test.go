@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +18,9 @@ func TestMain(m *testing.M) {
 	// Tests drive the Chinese source strings; a language switch test sets
 	// the config itself, which wins over this.
 	os.Setenv("PIDECK_LITE_LANG", "zh-CN")
+	// UI tests must not scan the developer's real session library in the
+	// background. Tests of external sessions supply their own fixtures.
+	os.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(os.TempDir(), fmt.Sprintf("pideck-lite-test-%d", os.Getpid()), "pi-sessions"))
 	nsgotest.Main(m)
 }
 
@@ -76,6 +80,7 @@ func TestScreens(t *testing.T) {
 // TestSessionScreens opens a real session through pi and captures the
 // chat, composer and drawer.
 func TestSessionScreens(t *testing.T) {
+	requirePi(t)
 	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
 	t.Cleanup(closeAllPi)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1320, 860))
@@ -105,7 +110,7 @@ func TestSessionScreens(t *testing.T) {
 func TestRebuild(t *testing.T) {
 	raw := `[
 	 {"role":"user","content":"看看目录","timestamp":1},
-	 {"role":"assistant","content":[{"type":"thinking","thinking":"先列目录"},{"type":"text","text":"我先看看。"},{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"ls -la"}}],"usage":{"input":10,"output":5,"totalTokens":15,"cost":{"total":0.001}},"stopReason":"toolUse","timestamp":2},
+	 {"role":"assistant","model":"gpt-5.5","content":[{"type":"thinking","thinking":"先列目录"},{"type":"text","text":"我先看看。"},{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"ls -la"}}],"usage":{"input":10,"output":5,"totalTokens":15,"cost":{"total":0.001}},"stopReason":"toolUse","timestamp":2},
 	 {"role":"toolResult","toolCallId":"c1","toolName":"bash","content":[{"type":"text","text":"a.txt\nb.txt"}],"isError":false,"timestamp":3},
 	 {"role":"assistant","content":[{"type":"text","text":"目录里有两个文件。"}],"usage":{"input":20,"output":6,"totalTokens":26,"cost":{"total":0.002}},"stopReason":"stop","timestamp":4}
 	]`
@@ -135,6 +140,14 @@ func TestRebuild(t *testing.T) {
 	}
 	if tt.Usage.Total != 41 {
 		t.Fatalf("usage = %d", tt.Usage.Total)
+	}
+	// The turn carries when it ran and what answered it, so the transcript
+	// can stamp both.
+	if !tt.Start.Equal(time.UnixMilli(1)) || !tt.End.Equal(time.UnixMilli(4)) {
+		t.Fatalf("turn ran %v → %v, want the messages' own stamps", tt.Start, tt.End)
+	}
+	if tt.Model != "gpt-5.5" {
+		t.Fatalf("model = %q", tt.Model)
 	}
 }
 

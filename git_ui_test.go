@@ -19,6 +19,7 @@ func TestGitDrawer(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
 	}
+	requirePi(t)
 	// Identity and an English locale make the commit deterministic.
 	t.Setenv("GIT_AUTHOR_NAME", "PiDeck Test")
 	t.Setenv("GIT_AUTHOR_EMAIL", "pideck@example.com")

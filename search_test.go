@@ -15,7 +15,13 @@ import (
 
 // searchSession builds one session file with a title and two messages.
 func searchSession(id, cwd, name, prompt string) string {
-	head := `{"type":"session","version":3,"id":"` + id + `","timestamp":"2026-06-01T10:00:00Z","cwd":"` + filepath.ToSlash(cwd) + `"}
+	// A Windows path holds backslashes, which JSON needs escaped: writing it
+	// raw made the whole session line unreadable off Windows.
+	quoted, err := json.Marshal(filepath.ToSlash(cwd))
+	if err != nil {
+		panic(err)
+	}
+	head := `{"type":"session","version":3,"id":"` + id + `","timestamp":"2026-06-01T10:00:00Z","cwd":` + string(quoted) + `}
 `
 	if name != "" {
 		head += `{"type":"session_info","name":"` + name + `","timestamp":"2026-06-01T10:00:00Z"}
@@ -201,5 +207,5 @@ func TestSearchEnterOpensFirst(t *testing.T) {
 	app.Submit("id:search-input")
 	app.WaitForGone("id:session-search", 5*time.Second)
 	app.WaitFor("id:composer", 10*time.Second)
-	app.WaitFor("text:部署手册", 10*time.Second)
+	app.WaitFor("id:tab >> text:部署手册", 10*time.Second)
 }

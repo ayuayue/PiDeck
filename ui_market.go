@@ -101,7 +101,7 @@ func (a *app) pluginMarketDialog() core.Node {
 			}
 			if meta != "" {
 				texts = append(texts, core.Text{Content: meta, MaxLines: 1,
-					Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)})
+					Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)})
 			}
 			row := []core.Node{
 				ui.Icon(lucide.Bot, 14, colors.Muted),
@@ -155,7 +155,7 @@ func (a *app) pluginMarketDialog() core.Node {
 						core.Input{Value: a.marketURL.Get, OnChange: a.marketURL.Set, Placeholder: "https://…/plugins.json",
 							Label: T("索引链接"), TestID: "market-url", AutoFocus: true,
 							OnSubmit: func(string) { a.loadPluginIndex() },
-							Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 11.5, FontFamily: ui.Mono, Color: colors.Text(),
+							Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 11.5, FontFamily: monoFont(), Color: colors.Text(),
 								Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 					}},
 					ui.Button{Text: T("加载"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "market-load",

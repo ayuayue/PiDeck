@@ -83,6 +83,7 @@ func pideckTheme() *core.Theme {
 		"knob":        core.RGB(0xffffff),
 		"code":        core.RGB(0x373737),
 		"info":        core.RGB(0x1d4ed8),
+		"thinking":    thinking,
 		"down":        danger,
 	}
 	dark := map[string]core.Color{
@@ -91,7 +92,7 @@ func pideckTheme() *core.Theme {
 		"field":       core.RGB(0x171717),
 		"fieldBorder": core.RGBA(0xffffff, 0.14),
 		"line":        core.RGBA(0xffffff, 0.08),
-		"faint":       core.RGB(0x6f6f6f),
+		"faint":       core.RGB(0x949494),
 		"accentFill":  core.RGB(0xe7e7e7),
 		"light":       core.RGB(0xe7e7e7),
 		"onLight":     core.RGB(0x121212),
@@ -99,6 +100,7 @@ func pideckTheme() *core.Theme {
 		"knob":        core.RGB(0xfafafa),
 		"code":        core.RGB(0xd6d6d6),
 		"info":        core.RGB(0x7aa2ff),
+		"thinking":    core.RGB(0x818cf8),
 		"down":        core.RGB(0xf0958f),
 	}
 	for name, c := range light {

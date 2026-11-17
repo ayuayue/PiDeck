@@ -128,6 +128,7 @@ func TestSaveAllFiles(t *testing.T) {
 	if nsgotest.Target() != "" {
 		t.Skip("driven headless; a platform run is for pixels")
 	}
+	requirePi(t)
 	dir := editorWorkspace(t)
 	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)

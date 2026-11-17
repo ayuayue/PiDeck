@@ -117,3 +117,56 @@ type remoteWireTranscript struct {
 	Ask      *remoteWireAsk      `json:"ask,omitempty"`
 	Error    string              `json:"error,omitempty"`
 }
+
+// remoteWireAgent is one way of working the phone can start a session with.
+// The name and description come translated by the desktop, so the phone
+// shows them in the language the desktop runs in.
+type remoteWireAgent struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// remoteWireAgents is /api/agents' reply.
+type remoteWireAgents struct {
+	Agents []remoteWireAgent `json:"agents"`
+}
+
+// remoteWireTask is one cron task on the desktop, as the phone lists it.
+type remoteWireTask struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Prompt     string `json:"prompt,omitempty"`
+	Project    string `json:"project,omitempty"`
+	Cron       string `json:"cron"`
+	Backend    string `json:"backend,omitempty"`
+	Agent      string `json:"agent,omitempty"`
+	Enabled    bool   `json:"enabled"`
+	LastStatus string `json:"lastStatus,omitempty"`
+	LastRunAt  int64  `json:"lastRunAt,omitempty"`
+	NextRunAt  int64  `json:"nextRunAt,omitempty"`
+	// SessionID is the session the newest run made, for a jump back.
+	SessionID string `json:"sessionId,omitempty"`
+}
+
+// remoteWireTasks is /api/tasks' reply.
+type remoteWireTasks struct {
+	Tasks []remoteWireTask `json:"tasks"`
+}
+
+// remoteWireFavorite is one saved answer or session reference.
+type remoteWireFavorite struct {
+	ID           string `json:"id"`
+	Kind         string `json:"kind"`
+	SessionID    string `json:"sessionId,omitempty"`
+	SessionTitle string `json:"sessionTitle,omitempty"`
+	Project      string `json:"project,omitempty"`
+	Prompt       string `json:"prompt,omitempty"`
+	Text         string `json:"text,omitempty"`
+	CreatedAt    int64  `json:"createdAt,omitempty"`
+}
+
+// remoteWireFavorites is /api/favorites' reply.
+type remoteWireFavorites struct {
+	Favorites []remoteWireFavorite `json:"favorites"`
+}

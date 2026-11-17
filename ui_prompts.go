@@ -215,7 +215,7 @@ func (a *app) promptImportDialog() core.Node {
 				core.Input{Value: a.promptImportURL.Get, OnChange: a.promptImportURL.Set, Placeholder: "https://…/prompts.json",
 					Label: T("提示词包链接"), TestID: "prompt-import-url", AutoFocus: true,
 					OnSubmit: func(string) { a.importPromptURL() },
-					Style: core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), FontSize: 12, FontFamily: ui.Mono, Color: colors.Text(),
+					Style: core.Style{Height: core.Pt(34), Padding: core.Symmetric(0, 10), FontSize: 12, FontFamily: monoFont(), Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 				status,
 			}}},
