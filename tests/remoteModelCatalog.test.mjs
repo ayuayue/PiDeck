@@ -282,6 +282,25 @@ test("invalidate 与在途查询赛跑时，旧结果不会写回缓存", async 
 	assert.equal(h.calls.length, 2, "invalidate 之后不能被在途结果复活缓存");
 });
 
+test("保存使目录失效后立即查询，不复用仍在途的旧目录请求", async () => {
+	const h = createHarness({
+		pending: true,
+		responses: [
+			{ exitCode: 0, stdout: LIST_OUTPUT },
+			{ exitCode: 0, stdout: LIST_OUTPUT.replaceAll("deepseek-flash", "new-model") },
+		],
+	});
+	const old = h.catalog.load({ hostId: "h1" });
+	await Promise.resolve();
+	h.catalog.invalidate("h1");
+	const fresh = h.catalog.load({ hostId: "h1" });
+	h.releaseAll();
+	await old;
+	assert.equal((await fresh).models[0].id, "new-model");
+	assert.equal((await h.catalog.load({ hostId: "h1" })).models[0].id, "new-model");
+	assert.equal(h.calls.length, 2);
+});
+
 test("退出 0 但输出里混着 unknown option 噪音时，能解析出模型就照常接受", async () => {
 	const h = createHarness({ responses: [{ exitCode: 0, stdout: LIST_OUTPUT + "\n# note: unknown option --offline is ignored\n" }] });
 	const result = await h.catalog.load({ hostId: "h1" });

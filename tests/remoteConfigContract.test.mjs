@@ -19,6 +19,8 @@ const shared = loadTsCommonJs("src/shared/piConfig.ts");
 test("config methods, capabilities and error codes are the same vocabulary on both sides", () => {
 	assert.equal(contract.REMOTE_HELPER_METHOD_CONFIG_READ, "config.read");
 	assert.equal(contract.REMOTE_HELPER_METHOD_CONFIG_PATCH, "config.patch");
+	assert.equal(contract.REMOTE_HELPER_METHOD_CONFIG_REPLACE, "config.replace");
+	assert.ok(contract.REMOTE_HELPER_CAPABILITIES.includes("config.replace"));
 	assert.equal(contract.REMOTE_HELPER_METHOD_CONFIG_READ_AUTH, "config.readAuth");
 	assert.ok(contract.REMOTE_HELPER_CAPABILITIES.includes("config.read"));
 	assert.ok(contract.REMOTE_HELPER_CAPABILITIES.includes("config.patch"));
@@ -32,7 +34,7 @@ test("config methods, capabilities and error codes are the same vocabulary on bo
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"config.patch"'));
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"config.readAuth"'));
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('from"./config.mjs"'), "the entry imports the config artifact");
-	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"config.read", "config.patch", "config.readAuth"]'), "capabilities literal carries all three methods");
+	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"config.read", "config.patch", "config.readAuth", "config.replace"]'), "capabilities literal carries every config method");
 });
 
 test("the secret-key pattern and the public bounds are one source of truth", () => {

@@ -54,31 +54,6 @@ test("导航按环境能力表过滤：ssh 只剩文件页（含只读认证）�
 	assert.match(modal, /setTab\(\(current\) => resolveConfigTabForTarget\(next, current\)\)/);
 });
 
-test("每个配置页按环境取内容：ssh 面板 ×4，wsl 走该发行版目录，本机保持原编辑器", () => {
-	// ssh：四个页都是自加载面板（导航已保证不会渲染本机编辑器）。
-	for (const file of ["models", "settings", "trust", "mcp"]) {
-		assert.match(modal, new RegExp('file="' + file + '" hostId=\\{remoteTargetHostId\\}'), file);
-	}
-	// ssh 没有源文件页：raw 分支不再有 remoteTargetHostId 的禁用副本。
-	assert.doesNotMatch(modal, /remote-config-unsupported-raw|remote-config-unsupported-trust|remote-config-unsupported-mcp/);
-	// ssh 的认证页存在但只读：派生视图面板，不是本机 AuthTab（否则会把本机凭据当成那台主机的）。
-	assert.match(modal, /<RemoteAuthPanel key=\{"remote-auth-" \+ remoteTargetHostId\} hostId=\{remoteTargetHostId\} hostLabel=\{remoteHostLabel\} \/>/);
-	// wsl：auth/trust 读该发行版原文，mcp 是文件编辑，raw 覆盖五个文件。
-	assert.match(modal, /api\.config\.getRaw\("auth\.json", configTargetOption\)/);
-	assert.match(modal, /api\.config\.getRaw\("trust\.json", configTargetOption\)/);
-	assert.match(modal, /api\.config\.getRaw\("mcp\.json", configTargetOption\)/);
-	assert.match(modal, /api\.config\.getRaw\(fileName, configTargetOption\)/);
-	assert.match(modal, /showFileSelector=\{false\}/);
-	// provider 探针只从本机网络出口发起：非本机环境即使读到 key 也不发发现请求。
-	// 读盘链路已迁入 useConfigLoader：同一处判定改用 targetKind（它的值就是 configTarget.kind）
-	assert.match(modal, /targetKind === "local" && authRes/);
-	// ssh 目标下 loadConfig 一次本地读盘都不走。
-	assert.match(modal, /if \(configTarget\.kind === "ssh"\) return;/);
-	// 环境切换必须驱动一次整页重读：local↔ssh 的 target 选项都是 undefined，只靠 loadConfig 身份变化不够。
-	assert.match(modal, /const configTargetIdentity = configTargetKey\(configTarget\)/);
-	assert.match(modal, /bumpResourceGeneration, resourceTarget, configTargetIdentity\]\)/);
-});
-
 test("ssh 认证面板：只读派生视图，没有任何写入/凭据值通道", () => {
 	const authPanel = readFileSync("src/renderer/src/config/RemoteAuthPanel.tsx", "utf8");
 	assert.match(authPanel, /data-testid="remote-auth-panel"/);
@@ -103,20 +78,6 @@ test("环境菜单自己会跟：分区重新可见时重读主机清单，连�
 	// 连接失败的推送在池化路径也要发（不建 manager 的那条分支）：否则另一视图停在旧的成功态。
 	const service = remoteHostConnectionSource;
 	assert.match(service, /publishPooledState\(\{ hostId, state: \{ hostId, generation: entry\.generation, state: "offline"/);
-});
-
-test("切环境有显式确认：保存并切换 / 放弃并切换 / 取消，远端 patch 不给假保存", () => {
-	assert.match(modal, /const \[pendingEnvSwitch, setPendingEnvSwitch\] = useState/);
-	assert.match(modal, /data-testid="config-env-switch-confirm"/);
-	assert.match(modal, /data-testid="config-env-switch-save"/);
-	assert.match(modal, /data-testid="config-env-switch-discard"/);
-	assert.match(modal, /t\("config\.env\.switchDirtyMessage", \{ count: pendingEnvSwitch\.dirtyKeys\.length \}\)/);
-	assert.match(modal, /t\("config\.env\.switchDirtyRemote"\)/);
-	// 纯远端 patch 时只能丢弃（本机保存链路到不了远端）。
-	assert.match(modal, /pendingEnvSwitch\.dirtyKeys\.every\(\(key\) => key\.startsWith\("remote:"\)\) \? null :/);
-	// 关闭窗口：本机草稿优先走保存确认，其次才是远端 patch 的丢弃确认。
-	assert.match(modal, /else if \(remoteConfigDirty\) \{[\s\S]{0,120}?setRemoteDiscardConfirmOpen\(true\);/);
-	assert.match(modal, /if \(dirtyTabs\.size === 0 && remoteConfigDirty\) return false;/);
 });
 
 test("远端面板：四个文件同一套脱敏快照 + patch 编辑器，模型/设置保留各自附加块", () => {
@@ -224,32 +185,11 @@ test("A1 reserved-key refusal is aligned across renderer, main and the frozen he
 	assert.doesNotMatch(panel, /REMOTE_CONFIG_SECRET_KEY_PATTERN/);
 });
 
-test("authored e2e drives the environment dropdown and the trust/mcp panels", () => {
-	const spec = readFileSync("e2e/remoteSessionAcceptance.spec.ts", "utf8");
-	const helper = readFileSync("e2e/remote-config.ts", "utf8");
-	assert.match(spec, /import \{ verifyRemoteConfig \} from "\.\/remote-config"/);
-	assert.match(spec, /await test\.step\("远端配置：Pi 环境下拉选中主机 → 脱敏读取（version\/密钥徽标）→ 一次非密钥 patch → 信任\/MCP 同套面板"/);
-	assert.match(spec, /verifyRemoteConfig\(\{ window: remoteWindow, credentials: creds, runId: paths\.runId, timeoutMs: timeouts\.helperMs \}\)/);
-	assert.match(helper, /getByTestId\("config-env-trigger"\)/);
-	assert.match(helper, /getByTestId\("config-environment-status"\)/);
-	assert.match(helper, /getByTestId\("remote-config-version"\)/);
-	assert.match(helper, /getByTestId\("remote-config-secret-badge"\)/);
-	assert.match(helper, /getByTestId\("remote-config-patch"\)/);
-	assert.match(helper, /getByTestId\("remote-config-save"\)/);
-	assert.match(helper, /data-file", "trust"/);
-	assert.match(helper, /data-file", "mcp"/);
-	assert.match(helper, /pideckE2eMarker/);
-	assert.match(helper, /base64 < "\$d\/models\.json"/);
-	assert.match(helper, /const restoreCommand = wasPresent[\s\S]{0,300}?base64 -d < /);
-	assert.match(helper, /finally \{[\s\S]{0,300}?runRemoteCommand\(credentials, restoreCommand/);
-	assert.match(helper, /finally 必须把远端 models\.json 还原成测试前的字节/);
-});
-
 test("远端项目打开配置管理时默认落在它那台主机，但不经手一次静默写", () => {
 	assert.match(modal, /preferredConfigTargetForProject\(activeProjectForTarget, remoteConfigHosts, configTarget\)/);
 	assert.match(modal, /const activeProjectForTarget = useAtomValue\(projectByIdAtomFamily\(props\.projectId \?\? ""\)\)/);
 	assert.match(modal, /if \(autoConfigTargetAppliedRef\.current\) return;/);
 	assert.match(modal, /if \(!configSurfaceOpen\) \{\s*autoConfigTargetAppliedRef\.current = false;/);
-	assert.match(modal, /if \(hasUnsavedConfigDrafts\(dirtyTabsRef\.current\) \|\| remoteConfigDirty\) return;/);
+	assert.match(modal, /if \(hasUnsavedConfigDrafts\(dirtyTabsRef\.current\)\) return;/);
 	assert.doesNotMatch(modal, /preferredConfigTargetForProject[\s\S]{0,200}saveModels/);
 });

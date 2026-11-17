@@ -120,7 +120,7 @@ export const remoteApi = {
 	 * 远端项目并找一台存活的远端 runtime；返回的是脱敏 allowlist，不含 apiKey/baseUrl/agentId。
 	 * 功能未启用或探测服务未装配时返回稳定码。
 	 */
-	probeRemoteModels: (hostId: string) => ipcRenderer.invoke(ipcChannels.remotePiModels, hostId) as Promise<import("../../shared/types/remoteModel").RemoteModelProbeResult>,
+	probeRemoteModels: (hostId: string, force = false) => ipcRenderer.invoke(ipcChannels.remotePiModels, hostId, force) as Promise<import("../../shared/types/remoteModel").RemoteModelProbeResult>,
 	remoteTrust: {
 		/** 只读：列出已记录决策（含因 endpoint 变更已作废的条目）。功能未启用时返回稳定码。 */
 		list: () => ipcRenderer.invoke(ipcChannels.remoteTrustList) as Promise<import("../../shared/types/remoteTrust").RemoteProjectTrustListResult>,

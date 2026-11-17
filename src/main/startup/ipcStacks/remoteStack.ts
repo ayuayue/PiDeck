@@ -7,7 +7,6 @@ import type { BuiltInExtensionPathRoots } from "../../extensions/builtInExtensio
 import { registerRemoteGitReadIpc } from "../../ipc/remoteGitReadIpc";
 import { registerRemoteHostIpc } from "../../ipc/remoteHostIpc";
 import { registerRemoteHostRebindIpc } from "../../ipc/remoteHostRebindIpc";
-import { registerRemotePiModelIpc } from "../../ipc/remotePiModelIpc";
 import { registerRemoteProjectEntryIpc } from "../../ipc/remoteProjectEntryIpc";
 import { registerRemoteProjectFileIpc } from "../../ipc/remoteProjectFileIpc";
 import { registerRemoteProjectIpc } from "../../ipc/remoteProjectIpc";
@@ -17,7 +16,6 @@ import { registerRemoteSessionIpc } from "../../ipc/remoteSessionIpc";
 import { registerWslHostIpc } from "../../ipc/wslHostIpc";
 import { QuitCleanupRegistry } from "../../lifecycle/QuitCleanupRegistry";
 import type { AgentManager } from "../../pi/AgentManager";
-import { createRemotePiModelProbe } from "../../pi/RemotePiModelProbe";
 import type { ProjectStore } from "../../projects/ProjectStore";
 import { createRemoteFactsHub } from "../../remote/RemoteFactsNotifications";
 import { createRemoteHostConnectionService, type RemoteHostConnectionService } from "../../remote/RemoteHostConnectionService";
@@ -351,14 +349,6 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 		projectCandidates: remoteProjectCandidates,
 		channels: { scan: ipcChannels.remoteSessionScan, register: ipcChannels.remoteSessionRegister, title: ipcChannels.remoteSessionTitle },
 	});
-	// 远端 Pi 模型目录（Phase 5 row 819）：host → ProjectStore 远端项目 → 窄 AgentManager 查找 live remote
-	// agentId → 已有 getAvailableModels RPC 一次有界请求。渲染层只能传 hostId；门禁与其它 remote 域同源。
-	const remotePiModelProbe = createRemotePiModelProbe({
-		projectIdsForHost: (hostId) => projectStore.list().flatMap((project) => (isRemoteProject(project) && project.locator.hostId === hostId ? [project.id] : [])),
-		findLiveAgentId: (projectIds) => agentManager?.findLiveRemoteAgentId(projectIds),
-		getAvailableModels: (agentId) => agentManager.getAvailableModels(agentId),
-	});
-	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, probe: remotePiModelProbe });
 	return {
 		getRemoteHostService: () => remoteHostService,
 		remoteFeatureEnabled,

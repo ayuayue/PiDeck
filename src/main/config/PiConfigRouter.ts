@@ -7,13 +7,12 @@
  * Two families of methods:
  * - structured (readModels/readSettings): the rich editors' shape, extended incrementally;
  * - file-level (readRaw/writeRaw): one channel for the source-file page and the file-level editors
- *   (trust/mcp/auth under wsl, the remote patch panels over ssh). The file set is per-target:
+ *   (trust/mcp/auth under wsl, sanitized documents over ssh). The file set is per-target:
  *   ssh writes = models/settings/trust/mcp and reads those plus the derived auth view (never the credential
  *   file itself); wsl/local = those plus auth.
  *
- * Provider connection tests, model catalog fetches and usage queries are NOT routed here: they are explicitly
- * deferred for every non-local target (ssh and wsl alike), so their handlers call rejectRemotePiConfigTarget and
- * answer the stable PROVIDER_OPERATION_UNSUPPORTED code without any network/helper/wsl.exe request.
+ * Provider endpoint probes and usage queries are not routed here. Their handlers reject non-local targets
+ * before I/O; SSH model listing uses the separate host catalog and never a local credential probe.
  */
 
 import { REMOTE_CONFIG_CODES, WSL_CONFIG_CODES, piConfigFilesForTarget, piConfigReadFilesForTarget, type PiConfigTarget, type PiConfigReadOptions, type PiConfigWriteOptions, type RemotePiAuthSnapshot, type WslPiConfigFileKey } from "../../shared/piConfig";
@@ -93,6 +92,11 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 		if (typeof options.expectedVersion !== "string" || options.patch === undefined) throw stable(REMOTE_CONFIG_CODES.versionConflict);
 		return { expectedVersion: options.expectedVersion, patch: options.patch };
 	}
+	/** The same routed save channel accepts either a legacy patch or a versioned document. */
+	function writeRemote(file: Exclude<WslPiConfigFileKey, "auth">, target: Extract<PiConfigTarget, { kind: "ssh" }>, options: PiConfigWriteOptions) {
+		if (options.document && options.expectedVersion) return remoteBackend().replace({ hostId: target.hostId, file, expectedVersion: options.expectedVersion, ...options.document });
+		return remoteBackend().patch({ hostId: target.hostId, file, ...requireSshGuard(options) });
+	}
 	/** A target that cannot address this file must refuse before any I/O (never "read the local one instead"). */
 	function requireFileForTarget(target: PiConfigTarget, file: WslPiConfigFileKey, files: readonly WslPiConfigFileKey[]): void {
 		if (!files.includes(file)) {
@@ -116,8 +120,7 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 		async saveModels(data: PiModelsFile, options?: unknown): Promise<PiConfigWriteRoute> {
 			const parsed = writeOptions(options);
 			if (parsed.target.kind === "ssh") {
-				const guard = requireSshGuard(parsed);
-				return await remoteBackend().patch({ hostId: parsed.target.hostId, file: "models", ...guard });
+				return await writeRemote("models", parsed.target, parsed);
 			}
 			if (parsed.target.kind === "wsl") return { kind: "wsl", value: await wslStore().saveModels({ data }) };
 			return { kind: "local", value: await ports.local.saveModelsConfig(data) };
@@ -125,8 +128,7 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 		async saveSettings(data: PiSettings, options?: unknown): Promise<PiConfigWriteRoute> {
 			const parsed = writeOptions(options);
 			if (parsed.target.kind === "ssh") {
-				const guard = requireSshGuard(parsed);
-				return await remoteBackend().patch({ hostId: parsed.target.hostId, file: "settings", ...guard });
+				return await writeRemote("settings", parsed.target, parsed);
 			}
 			if (parsed.target.kind === "wsl") return { kind: "wsl", value: await wslStore().saveSettings({ settings: data }) };
 			return { kind: "local", value: await ports.local.saveSettingsConfig(data) };
@@ -149,8 +151,8 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 			return { kind: "local", value: await ports.local.getRawConfig(file) };
 		},
 		/**
-		 * File-level write. local/wsl write the whole document; ssh requires the merge-patch guard
-		 * (expectedVersion + patch) exactly like the structured save path — the body argument is ignored there,
+		 * File-level write. local/wsl write the whole document; ssh requires expectedVersion plus a document
+		 * or legacy patch, exactly like the structured save path — the body argument is ignored there,
 		 * mirroring saveModels/saveSettings so an accidental remote call can never write the local file.
 		 */
 		async writeRaw(fileValue: unknown, body: unknown, options?: unknown): Promise<PiConfigWriteRoute> {
@@ -158,8 +160,8 @@ export function createPiConfigRouter(ports: PiConfigRouterPorts) {
 			const parsed = writeOptions(options);
 			requireFileForTarget(parsed.target, file, piConfigFilesForTarget(parsed.target));
 			if (parsed.target.kind === "ssh") {
-				const guard = requireSshGuard(parsed);
-				return await remoteBackend().patch({ hostId: parsed.target.hostId, file: file as Exclude<WslPiConfigFileKey, "auth">, ...guard });
+				if (file === "auth") throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+				return await writeRemote(file, parsed.target, parsed);
 			}
 			if (typeof body !== "string") throw stable(WSL_CONFIG_CODES.fileInvalid);
 			if (parsed.target.kind === "wsl") return { kind: "wsl", value: await wslStore().saveRaw({ file, raw: body }) };

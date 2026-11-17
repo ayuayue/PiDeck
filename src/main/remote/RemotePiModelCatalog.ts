@@ -16,9 +16,7 @@
  * `--no-extensions`，所以「默认看不到某插件贡献的模型」是设计取舍，不是 bug；点刷新就该出来。
  * 同理，快速档解析为空时也会继续降档（可能是「模型全来自扩展」的假空），只有全部档位都空才是真空。
  *
- * 注意与 `src/main/pi/RemotePiModelProbe.ts` 的区别：那个是设置页的「测试连接」，语义是
- * 「有一台活的远端 pi 回答了」（必须已有 live runtime）；本模块是**选择器数据**，与 runtime 无关。
- * 两者故意保留：连接测试要证明进程能起来，目录不该被进程存活性绑架。
+ * 配置页与选择器共用这份主机目录；RemotePiModelProbe 只保留旧运行时探测及 DTO 脱敏规则。
  *
  * 失败语义：返回稳定码，**不**抛异常、不伪造空列表——调用方据此回退到 runtime 或如实报错。
  */
@@ -118,7 +116,7 @@ export function createRemoteModelCatalog(deps: RemoteModelCatalogDeps): RemoteMo
 			const hit = cache.get(input.hostId);
 			if (hit !== undefined && now() - hit.at < REMOTE_MODEL_CATALOG_TTL_MS) return { ok: true, models: hit.models, cached: true };
 		}
-		const key = `${input.hostId}\u0000${force ? "force" : "default"}`;
+		const key = `${input.hostId}\u0000${force ? "force" : "default"}\u0000${epoch}`;
 		const pending = inflight.get(key);
 		if (pending !== undefined) return pending;
 		// 代次必须在**发起查询时**捕获：放在 resolveFacts 之后会让「查询途中被 invalidate」这件事

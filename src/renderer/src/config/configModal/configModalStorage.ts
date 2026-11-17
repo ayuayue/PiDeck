@@ -161,5 +161,5 @@ export function normalizeModelsFile(value: unknown): ModelsFile {
 			models: Array.isArray(rawModels) ? rawModels.filter((model): model is ModelItem | string => Boolean(model) && ((typeof model === "object" && !Array.isArray(model)) || typeof model === "string")).map((model) => (typeof model === "string" ? { id: model } : model)) : [],
 		};
 	}
-	return { providers };
+	return { ...(typeof value === "object" && value !== null && !Array.isArray(value) ? value : {}), providers };
 }

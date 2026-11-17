@@ -78,7 +78,7 @@ export function useConfigLoadEffects(deps: ConfigLoadEffectsDeps) {
 		};
 	}, [open, paneVisible]);
 
-	/** 环境的稳定身份：切换时用它驱动一次整页重读（local↔ssh 的 target 选项都是 undefined，必须单独判）。 */
+	/** 环境的稳定身份：切换目标时驱动整页重读。 */
 	const configTargetIdentity = configTargetKey(configTarget);
 	// 资源页在进入/scope/project 变化时刷新；generation 变化让在途旧响应失效。
 	useEffect(() => {
@@ -99,7 +99,6 @@ export function useConfigLoadEffects(deps: ConfigLoadEffectsDeps) {
 			return;
 		}
 		void loadConfig(tab);
-		// 环境切换必须触发一次重读：local↔ssh 时 configTargetOption 都是 undefined，只靠 loadConfig 的
-		// 身份变化不会重新取数（例如在 ssh 上停过信任页，切回本机后 trustData 还是未加载的空对象）。
+		// 显式跟随环境身份，避免页面回到另一台机器时仍显示未加载的空快照。
 	}, [open, section, tab, loadConfig, resourceScope, effectiveProjectId, bumpResourceGeneration, resourceTarget, configTargetIdentity]);
 }

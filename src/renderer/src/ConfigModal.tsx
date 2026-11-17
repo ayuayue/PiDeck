@@ -7,15 +7,14 @@ import { WORKBENCH_DIALOG_SIZE_CLASS } from "./components/common/workbenchDialog
 import { deepClone } from "./utils/deepEqual";
 import { showNotice } from "./utils/notice";
 import { formatIpcError } from "./utils/ipcError";
-import { applyAdaptiveTemplateReset, collectModelSpecPatches, deriveProviderCompat, mergeAdaptiveModelTemplate } from "./utils/modelSpecAutoFill";
 import type { FetchedModel, ConfigProxyMode } from "../../shared/types/fetchedModel";
 import { Component, forwardRef, useRef, useState, useEffect, useCallback, useMemo, type ReactNode, type Ref } from "react";
-import type { PiDesktopApi } from "../../preload";
 import { OAuthTab } from "./config/OAuthTab";
 import { ConfigBackendSwitch, ConfigEnvironmentStatus } from "./config/ConfigEnvironmentSwitch";
 import { configTabsForTarget, firstConfigTabForTarget, isConfigTabSupported, resourcePagesSupported, securityPageSupported } from "./config/configEnvironmentModel";
 import type { PiConfigTargetHost } from "./config/piConfigTargetModel";
-import { RemoteConfigPanel } from "./config/RemoteConfigPanel";
+import { RemoteModelCatalogSection } from "./config/RemoteModelCatalogSection";
+import { ConfigEditorContext, useConfigEditorApi } from "./config/useConfigEditorApi";
 import { ConfigDiagnosticCard } from "./config/ConfigDiagnosticCard";
 import { WslConfigSourceHint } from "./config/WslConfigSourceHint";
 import { usePiConfigDir } from "./config/usePiConfigDir";
@@ -26,9 +25,7 @@ import type { PiConfigTarget } from "../../shared/piConfig";
 import { ModelsTab } from "./config/ModelsTab";
 import { TokenDancePanel } from "./config/TokenDancePanel";
 import { UsageProbeConfigDialog } from "./config/UsageProbeConfigDialog";
-import { removeSelectedModelIndexes } from "./config/modelBatchSelection";
 import { openDocsInSystemBrowser } from "./config/ConfigShared";
-import { RawTab } from "./config/RawTab";
 import { McpTab, type McpTabHandle } from "./config/McpTab";
 import { PromptsTab } from "./config/PromptsTab";
 import { SkillsTab } from "./config/SkillsTab";
@@ -43,7 +40,7 @@ import { ConfigTrustTab, useConfigTrustEditing } from "./config/configModal/Conf
 import { ConfigRawTab, useConfigRawEditing } from "./config/configModal/ConfigRawTab";
 import { useConfigEnvSwitch, type PendingEnvSwitch } from "./config/configModal/ConfigEnvSwitch";
 import { ConfigModalDialogs, type ConfigDeleteConfirm } from "./config/configModal/ConfigModalDialogs";
-import { loadLastConfigTab, loadLastConfigTarget, normalizeModelsFile, parseJsonObject, parseSectionTabValue, rememberConfigTab, rememberConfigTarget, sectionTabValue, type ConfigSection } from "./config/configModal/configModalStorage";
+import { loadLastConfigTab, loadLastConfigTarget, parseSectionTabValue, rememberConfigTab, rememberConfigTarget, sectionTabValue, type ConfigSection } from "./config/configModal/configModalStorage";
 import { ConfigNavSidebar, type ConfigNavItem } from "./config/configModal/ConfigNavSidebar";
 import { useConfigLoader } from "./config/configModal/useConfigLoader";
 import { ConfigSkillsTab } from "./config/configModal/ConfigSkillsTab";
@@ -73,21 +70,17 @@ import type { AuthFile, ConfigTab, ModelItem, ModelsFile, SettingsFile } from ".
 import type { ConfigFileDiagnostic, PiExtensionListResult, PiExtensionSummary, PiSkillListResult, PiSkillLocation, PiSkillSummary, Project, ProjectResourceDiscoveryResult, ProjectResourceListResult } from "../../shared/types";
 import { isGlobalSkillSourceId } from "../../shared/resourceIdentity";
 import { emptyDiscoveryData, emptyProjectResourceData, GLOBAL_SKILL_SOURCES, isGlobalSkill, isProjectExtension, isProjectSkill, PROJECT_SKILL_SOURCES, type ResourceScope } from "./config/resourceScopeModel";
-import { getModelUserAgentOverride, getProviderHeaders, KNOWN_PROVIDER_ENDPOINTS, pruneModelOverrides, readModelOverrides, setModelUserAgentOverride } from "./config/providerHeaders";
+import { getModelUserAgentOverride } from "./config/providerHeaders";
 import { TOKENDANCE_PROVIDER } from "../../shared/tokendance";
-import { ALL_CONFIG_DIRTY_KEYS, dirtyKeysClearedByReload, dirtyKeysPreservedOnReload, orderDirtyKeysForSave, reconcileConfigDirty } from "./config/configDirtyMarks";
-import { modelThinkingLevelOf, replaceModelThinkingLevels, withModelThinkingLevelDefault, withModelThinkingLevelEnabled } from "../../shared/modelThinkingLevels";
+import { ALL_CONFIG_DIRTY_KEYS, reconcileConfigDirty } from "./config/configDirtyMarks";
+import { modelThinkingLevelOf } from "../../shared/modelThinkingLevels";
 import type { ModelThinkingLevel } from "../../shared/modelThinkingLevels";
-import { replaceProviderHiddenIds, sameHiddenModelEntries } from "./config/hiddenModels";
 import type { ProviderModelIdIndex } from "../../shared/types/modelSpecs";
 import { DirtyMarker } from "./components/app/settings/SettingRows";
-import { isValidProviderName } from "../../shared/providerName";
-import { mergeProviderDraft, type AddProviderDraft } from "./config/addProviderDraft";
+import type { AddProviderDraft } from "./config/addProviderDraft";
 import { useAtomValue } from "jotai";
 import { dshRuntimeStatusAtom } from "./atoms";
 import { dshUiVisibilityFor } from "../../shared/types/dshRuntime";
-
-const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi }).piDesktop;
 
 type ConfigModalProps = {
 	open: boolean;
@@ -337,30 +330,18 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	 */
 	// 项目资源管理器只管理入口项目的本地资源：不继承「上次的 Pi 环境」，否则资源会被写到某个发行版里。
 	const [configTarget, setConfigTarget] = useState<PiConfigTarget>(() => (resourceOnly ? { kind: "local" } : loadLastConfigTarget()));
+	const editor = useConfigEditorApi(configTarget, window.piDesktop);
+	const api = editor.api;
 	const [remoteConfigHosts, setRemoteConfigHosts] = useState<PiConfigTargetHost[]>([]);
 	/** 主机清单是否已回来（用来区分「没加载」与「确实一个都没有」）。 */
 	const [remoteConfigHostsLoaded, setRemoteConfigHostsLoaded] = useState(false);
-	/** SSH 页签的未应用 patch：按文件聚合（多个远端面板可能同时挂载，例如 mcp 的 forceMount 页）。 */
-	const [remoteDirtyFiles, setRemoteDirtyFiles] = useState<Set<string>>(new Set());
-	const remoteConfigDirty = remoteDirtyFiles.size > 0;
-	const markRemoteDirty = useCallback((file: string, dirty: boolean) => {
-		setRemoteDirtyFiles((prev) => {
-			if (prev.has(file) === dirty) return prev;
-			const next = new Set(prev);
-			if (dirty) next.add(file);
-			else next.delete(file);
-			return next;
-		});
-	}, []);
-	const resetRemoteDirty = useCallback(() => setRemoteDirtyFiles(new Set()), []);
 	/** 带草稿切换环境时的确认（保存并切换 / 放弃并切换 / 取消）。 */
 	const [pendingEnvSwitch, setPendingEnvSwitch] = useState<PendingEnvSwitch | null>(null);
-	const [remoteDiscardConfirmOpen, setRemoteDiscardConfirmOpen] = useState(false);
 	const remoteTargetHostId = configTarget.kind === "ssh" ? configTarget.hostId : null;
 	const remoteHostLabel = remoteTargetHostId ? remoteConfigHosts.find((host) => host.kind === "ssh" && host.id === remoteTargetHostId)?.label : undefined;
 	// 目标视图派生：WSL 档案（来源提示/未接入页说明）、本地编辑器 target 选项、provider 探针门禁。
 	const { wslHost: wslTargetHost, option: configTargetOption, guardProviderOp } = usePiConfigTargetView(remoteConfigHosts, configTarget);
-	/** WSL 环境的 mcp.json 文本（该环境的 MCP 页按文件编辑；探测/登录仍只在本机执行）。 */
+	/** SSH/WSL 的 mcp.json 文本（远端环境按文件编辑，探测/登录只在本机执行）。 */
 	const [wslMcpRaw, setWslMcpRaw] = useState("");
 	const baselineWslMcpRef = useRef("");
 	// 资源三页（技能/提示词/扩展）的目标视图：本机/WSL 档案选择、IPC options、本轮只读门禁（W1）。
@@ -538,6 +519,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		fileName: "models.json",
 		content: "",
 	});
+	const [providerPageDirty, setProviderPageDirty] = useState(false);
 
 	/**
 	 * Pi 配置脏状态由数据与基准的真实差异推导（models/auth/settings/trust/raw 这 5 个
@@ -550,17 +532,18 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		const before = new Set(dirtyTabsRef.current);
 		const next = new Set(dirtyTabsRef.current);
 		reconcileConfigDirty(next, "config:models", modelsData, baselineModelsRef.current);
+		if (providerPageDirty) next.add("config:models");
 		reconcileConfigDirty(next, "config:auth", authData, baselineAuthRef.current);
 		reconcileConfigDirty(next, "config:settings", settingsData, baselineSettingsRef.current);
 		reconcileConfigDirty(next, "config:trust", trustData, baselineTrustRef.current);
 		reconcileConfigDirty(next, "config:raw", { fileName: rawFileName, content: rawContent }, baselineRawRef.current);
 		// WSL 环境的 MCP 页是文本编辑：草稿按文本比较（本机 MCP 页由 McpTab 自己维护同一个 key）。
-		if (configTarget.kind === "wsl") reconcileConfigDirty(next, "config:mcp", wslMcpRaw, baselineWslMcpRef.current);
+		if (configTarget.kind !== "local") reconcileConfigDirty(next, "config:mcp", wslMcpRaw, baselineWslMcpRef.current);
 		dirtyTabsRef.current = next;
 		// 只有真正增删了 key 才提交 state，避免每次键入都重建相同 Set 触发无关重渲染
 		const changed = next.size !== before.size || [...next].some((key) => !before.has(key));
 		if (changed) setDirtyTabs(next);
-	}, [modelsData, authData, settingsData, trustData, rawContent, rawFileName, wslMcpRaw, configTarget.kind]);
+	}, [modelsData, authData, settingsData, trustData, rawContent, rawFileName, wslMcpRaw, configTarget.kind, providerPageDirty]);
 
 	// 展开的 auth 项
 	const [expandedAuth, setExpandedAuth] = useState<string | null>(null);
@@ -569,9 +552,9 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	/** 正在编辑的 provider key（编辑弹窗目标）；null = 无编辑弹窗。 */
 	const [editingProvider, setEditingProvider] = useState<string | null>(null);
 	/** 新增/编辑供应商页的当前草稿保存入口，由设置窗口标题栏按钮调用。 */
-	const providerPageSaveRef = useRef<(() => void) | undefined>(undefined);
+	const providerPageSaveRef = useRef<(() => boolean) | undefined>(undefined);
 	/** 标题栏保存触发页内提交后，等待下一轮 state 更新再执行 models.json 落盘。 */
-	const providerPageSavePendingRef = useRef(false);
+	const providerPageSavePendingRef = useRef<((saved: boolean) => void) | null>(null);
 	/** 用户隐藏的供应商 / 模型与卡片排序偏好（搬迁到 config/configModal/useConfigUiPreferences，行为不变）。 */
 	const {
 		hiddenProviders,
@@ -617,13 +600,28 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const [testProxyModeByProvider, setTestProxyModeByProvider] = useState<Record<string, ConfigProxyMode>>({});
 	// 删除确认对话框
 	const [deleteConfirm, setDeleteConfirm] = useState<ConfigDeleteConfirm | null>(null);
+	useEffect(() => {
+		setFetchedModels({});
+		setFetchModelsErrorByProvider({});
+		setFetchingProvider(null);
+		setTestingProvider(null);
+		setTestResult(null);
+		setResettingModelKey(null);
+		setTestModelIdByProvider({});
+		setTestProxyModeByProvider({});
+		setPendingRawFile(null);
+		setDeleteConfirm(null);
+		setProviderPageDirty(false);
+	}, [api]);
 
 	// 检测后的 baseUrl 自动补全（搬迁到 config/configModal/useModelBaseUrlAutofix，行为不变）。
 	const applySuggestedBaseUrl = useModelBaseUrlAutofix({ setModelsData, markDirty });
 
 	// 读盘链路（搬迁到 config/configModal/useConfigLoader，行为不变）。
-	const { loadConfig } = useConfigLoader({
+	const { loadConfig, resetDrafts } = useConfigLoader({
 		api,
+		rawApi: editor.rawApi,
+		loadRemoteModels: editor.loadRemoteModels,
 		tab,
 		targetKind: configTarget.kind,
 		configTargetOption,
@@ -684,6 +682,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// 模型页的供应商级动作（搬迁到 config/configModal/useConfigModelsProviderEditing，行为不变）。
 	const { handleAddProvider, handleEditProvider, handleDeleteProvider, handleDuplicateProvider, handleApplyModelsTransfer, handleDeleteProviders, handleFetchModels, handleTestProvider } = useConfigModelsProviderEditing({
 		api,
+		copyProviderSecrets: editor.copyProviderSecrets,
+		fetchRemoteProviderModels: editor.fetchRemoteProviderModels,
 		configTargetOption,
 		modelsData,
 		setModelsData,
@@ -714,6 +714,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// 模型页的模型行级动作（搬迁到 config/configModal/useConfigModelRowsEditing，行为不变）。
 	const { handleAddModel, handleUpdateModel, handleResetModelToAdaptive, handleUpdateModelUserAgent, handleUpdateModelThinkingLevel, handleUpdateModelThinkingLevelDefault, handleDeleteModel, handleDeleteModels, handleSaveModels } = useConfigModelRowsEditing({
 		api,
+		baselineModelsRef,
 		configTargetOption,
 		modelsData,
 		setModelsData,
@@ -762,19 +763,19 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	});
 
 	// 信任页的保存动作（搬迁到 config/configModal/ConfigTrustTab.tsx，行为不变）。
-	const { handleSaveTrust } = useConfigTrustEditing({ api, configTargetOption, trustData, saveAndReload, reloadConfig: loadConfig });
+	const { handleSaveTrust } = useConfigTrustEditing({ api, configTargetOption, trustData, baselineTrustRef, saveAndReload, reloadConfig: loadConfig });
 
 	/** WSL 环境的 MCP 页：整份 mcp.json 文本保存（探测/登录仍只在本机执行）。 */
 	const handleSaveWslMcp = async (): Promise<boolean> => {
 		const ok = await saveAndReload(() => api.config.saveRaw("mcp.json", wslMcpRaw, configTargetOption), undefined, "config:mcp");
 		if (ok) baselineWslMcpRef.current = wslMcpRaw;
-		await loadConfig("mcp", { force: true });
+		if (ok) await loadConfig("mcp");
 		return ok;
 	};
 
 	// 源文件页的保存与换文件动作（搬迁到 config/configModal/ConfigRawTab.tsx，行为不变）。
 	const { handleSaveRaw, handleRawFileChange, applyRawFileChange } = useConfigRawEditing({
-		api,
+		api: editor.rawApi,
 		configTargetOption,
 		rawContent,
 		setRawContent,
@@ -846,9 +847,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		dshConfigRef,
 		mcpTabRef,
 		resourceMcpTabRef,
-		remoteConfigDirty,
 		setCloseConfirmOpen,
-		setRemoteDiscardConfirmOpen,
 		onClose: props.onClose,
 	});
 
@@ -867,9 +866,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const { commitTargetSwitch, handleConfigTargetChange, discardDraftsAndSwitch, saveDraftsAndSwitch } = useConfigEnvSwitch({
 		pendingEnvSwitch,
 		setPendingEnvSwitch,
-		remoteConfigDirty,
-		remoteDirtyFiles,
-		resetRemoteDirty,
 		configTarget,
 		setConfigTarget,
 		dirtyTabsRef,
@@ -882,6 +878,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		baselineTrustRef,
 		baselineRawRef,
 		baselineWslMcpRef,
+		setSettingsLoaded,
+		setDiscoveredModels,
 		setModelsData,
 		setAuthData,
 		setSettingsData,
@@ -900,10 +898,10 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		saveByKey,
 	});
 	// 打开时的目标选择（默认项目所在主机 / 记住的环境失效则回本机）：搬迁到 config/configModal/useConfigTargetAutoSelect，行为不变。
-	useConfigTargetAutoSelect({ props, open, embedded, resourceOnly, remoteConfigHosts, remoteConfigHostsLoaded, configTarget, remoteConfigDirty, commitTargetSwitch, dirtyTabsRef });
+	useConfigTargetAutoSelect({ props, open, embedded, resourceOnly, remoteConfigHosts, remoteConfigHostsLoaded, configTarget, commitTargetSwitch, dirtyTabsRef });
 
 	// 嵌入分区句柄与状态上报（搬迁到 config/configModal/useConfigPaneBridge，行为不变）。
-	useConfigPaneBridge({ paneRef: props.paneRef, onPaneStateChange: props.onPaneStateChange, handleSaveCurrent, handleExport, handleImport, saveByKey, dirtyTabs, remoteConfigDirty, saving, hasDirty, configTarget, configUnsavedSummary, providerPageSavePendingRef, addingProvider, editingProvider, handleSaveModels });
+	useConfigPaneBridge({ paneRef: props.paneRef, onPaneStateChange: props.onPaneStateChange, handleSaveCurrent, handleExport, handleImport, saveByKey, dirtyTabs, dirtyTabsRef, saving, hasDirty, configTarget, configUnsavedSummary, providerPageSavePendingRef, addingProvider, editingProvider });
 
 	// 导航 = 该环境的能力表（configTabsForTarget）：不在表里的页不出现在导航里，
 	// 也就不会出现「点进去显示不支持」的死页。能力边界由状态条一句话说明。
@@ -922,7 +920,20 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const showResourcePages = resourcePagesSupported(configTarget);
 
 	// 加载态/错误提示：每个 TabsContent 顶部共用（Tabs 会卸载非激活内容，不能只挂一处）。
-	const statusBlock = <ConfigStatusBlock loading={loading} error={error} />;
+	const statusBlock = (
+		<ConfigStatusBlock
+			loading={loading}
+			error={error}
+			hasDrafts={hasPiDirty || addingProvider || !!editingProvider}
+			onReload={() => {
+				editor.reload?.();
+				resetDrafts();
+				setAddingProvider(false);
+				setEditingProvider(null);
+				void loadConfig(tab, { force: true });
+			}}
+		/>
+	);
 
 	// 配置诊断卡：config 组 5 个子页顶部共用（任意子页打开时都显示）。
 	const configDiagnosticBlock = configDiagnostic ? <ConfigDiagnosticCard diagnostic={configDiagnostic} onOpenDocs={() => api.app.openExternal(configDiagnostic.docsUrl, true)} onOpenRaw={() => setTab("raw")} /> : null;
@@ -932,7 +943,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	// 对话框主体（后端分页 + 各种确认弹窗）：独立 ConfigModal 与嵌入分区共用同一份，
 	// 唯一的差别是外壳（Dialog/标题栏按钮）由谁提供——embedded 时宿主 SettingsModal 承担。
 	const modalBody = (
-		<>
+		<ConfigEditorContext.Provider value={editor}>
 			{/* 顶层分页：Pi 配置管理（带环境下拉，默认在左）/ DSH 配置管理（在右）。
 			    环境下拉挂在 Pi 分页上：整个 Pi 面板按所选环境加载，页内不再有第二个选择器。 */}
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -967,16 +978,15 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						className="config-layout grid min-h-0 flex-1 gap-0 bg-transparent"
 					>
 						<ConfigNavSidebar resourceOnly={resourceOnly} items={configNavItems} dirtyTabs={dirtyTabs} showSecurityPage={showSecurityPage} showResourcePages={showResourcePages} />
-						<TabsContent value="config:models" className="config-main min-w-0">
+						<TabsContent value="config:models" forceMount={addingProvider || !!editingProvider ? true : undefined} className="config-main min-w-0 data-[state=inactive]:hidden">
 							<div className="config-content">
 								{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="models" /> : null}
-								{remoteTargetHostId ? (
-									<RemoteConfigPanel key={"remote-models-" + remoteTargetHostId} file="models" hostId={remoteTargetHostId} hostLabel={remoteHostLabel} onDirtyChange={(dirty) => markRemoteDirty("models", dirty)} />
-								) : (
+								{remoteTargetHostId ? <RemoteModelCatalogSection key={remoteTargetHostId} hostId={remoteTargetHostId} /> : null}
+								{
 									<>
 										{statusBlock}
 										{configDiagnosticBlock}
-										{!loading && (
+										{(!loading || addingProvider || editingProvider) && (
 											<>
 												{/* TokenDance：安装写的是本机 models.json + DSH 目录，非本机环境不提供该入口 */}
 												{configTarget.kind === "local" ? <TokenDancePanel configured={!!modelsData.providers[TOKENDANCE_PROVIDER]} onInstalled={handleTokendanceInstalled} /> : null}
@@ -987,6 +997,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 													onOpenUsageProbeDialog={(provider) => guardProviderOp(() => openUsageProbeDialogFor(provider, "pi"))}
 													addingProvider={addingProvider}
 													providerPageSaveRef={providerPageSaveRef}
+													onProviderDraftDirty={setProviderPageDirty}
 													hiddenProviders={hiddenProviders}
 													onToggleHiddenProvider={handleToggleHiddenProvider}
 													providerOrder={providerOrder}
@@ -1029,7 +1040,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 													onDeleteModels={handleDeleteModels}
 													onResetModel={handleResetModelToAdaptive}
 													resettingModelKey={resettingModelKey}
-													onFetchModels={(name) => guardProviderOp(() => handleFetchModels(name))}
+													onFetchModels={(name) => (configTarget.kind === "ssh" ? void handleFetchModels(name) : guardProviderOp(() => handleFetchModels(name)))}
 													onTestProvider={(name) => guardProviderOp(() => handleTestProvider(name))}
 													onChangeTestModelId={(providerName, modelId) =>
 														setTestModelIdByProvider((current) => ({
@@ -1061,7 +1072,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 											</>
 										)}
 									</>
-								)}
+								}
 							</div>
 						</TabsContent>
 						<TabsContent value="config:auth" className="config-main min-w-0">
@@ -1109,9 +1120,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						<TabsContent value="config:settings" className="config-main min-w-0">
 							<ConfigSettingsTab
 								wslTargetHost={wslTargetHost}
-								remoteTargetHostId={remoteTargetHostId}
-								remoteHostLabel={remoteHostLabel}
-								onRemoteDirtyChange={(dirty) => markRemoteDirty("settings", dirty)}
 								statusBlock={statusBlock}
 								configDiagnosticBlock={configDiagnosticBlock}
 								loading={loading}
@@ -1253,8 +1261,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						<TabsContent value="config:mcp" forceMount className="config-main min-w-0 data-[state=inactive]:hidden">
 							<ConfigMcpTab
 								remoteTargetHostId={remoteTargetHostId}
-								remoteHostLabel={remoteHostLabel}
-								onRemoteDirtyChange={(dirty) => markRemoteDirty("mcp", dirty)}
 								wslTargetHost={wslTargetHost}
 								statusBlock={statusBlock}
 								configDiagnosticBlock={configDiagnosticBlock}
@@ -1284,9 +1290,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						) : null}
 						<TabsContent value="config:trust" className="config-main min-w-0">
 							<ConfigTrustTab
-								remoteTargetHostId={remoteTargetHostId}
-								remoteHostLabel={remoteHostLabel}
-								onRemoteDirtyChange={(dirty) => markRemoteDirty("trust", dirty)}
 								wslTargetHost={wslTargetHost}
 								statusBlock={statusBlock}
 								configDiagnosticBlock={configDiagnosticBlock}
@@ -1361,14 +1364,11 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 				pendingRawFile={pendingRawFile}
 				setPendingRawFile={setPendingRawFile}
 				applyRawFileChange={applyRawFileChange}
-				remoteDiscardConfirmOpen={remoteDiscardConfirmOpen}
-				setRemoteDiscardConfirmOpen={setRemoteDiscardConfirmOpen}
-				resetRemoteDirty={resetRemoteDirty}
 				onClose={props.onClose}
 				deleteConfirm={deleteConfirm}
 				setDeleteConfirm={setDeleteConfirm}
 			/>
-		</>
+		</ConfigEditorContext.Provider>
 	);
 
 	if (embedded) {

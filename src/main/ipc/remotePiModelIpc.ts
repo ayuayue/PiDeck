@@ -9,13 +9,20 @@
 import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { REMOTE_MODEL_PROBE_CODES, type RemoteModelProbeResult } from "../../shared/types/remoteModel";
-import type { RemotePiModelProbe } from "../pi/RemotePiModelProbe";
+import { maskRemoteModelCatalog, type RemotePiModelProbe } from "../pi/RemotePiModelProbe";
+import { PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
+import { REMOTE_MODEL_CATALOG_CODES, type RemoteModelCatalog } from "../remote/RemotePiModelCatalog";
 
-export function registerRemotePiModelIpc(input: { enabled: boolean; probe?: RemotePiModelProbe }): void {
-	ipcMain.handle(ipcChannels.remotePiModels, async (_event, hostId: unknown): Promise<RemoteModelProbeResult> => {
-		if (!input.enabled || input.probe === undefined) return { ok: false, code: REMOTE_MODEL_PROBE_CODES.unavailable };
+export function registerRemotePiModelIpc(input: { enabled: boolean; probe?: RemotePiModelProbe; catalog?: RemoteModelCatalog }): void {
+	ipcMain.handle(ipcChannels.remotePiModels, async (_event, hostId: unknown, force: unknown = false): Promise<RemoteModelProbeResult> => {
+		if (!input.enabled) return { ok: false, code: REMOTE_MODEL_PROBE_CODES.unavailable };
+		if (typeof hostId !== "string" || !PROJECT_HOST_ID_PATTERN.test(hostId) || typeof force !== "boolean") return { ok: false, code: REMOTE_MODEL_PROBE_CODES.targetInvalid };
 		try {
-			return await input.probe.probe(hostId);
+			if (input.catalog) {
+				const result = await input.catalog.load({ hostId, force });
+				return result.ok ? maskRemoteModelCatalog(hostId, result.models) : { ok: false, code: result.code === REMOTE_MODEL_CATALOG_CODES.empty ? REMOTE_MODEL_PROBE_CODES.empty : REMOTE_MODEL_PROBE_CODES.failed };
+			}
+			return input.probe ? await input.probe.probe(hostId) : { ok: false, code: REMOTE_MODEL_PROBE_CODES.unavailable };
 		} catch {
 			// Last-resort boundary: even an unexpected service throw must be one of the closed codes, never a raw IPC rejection.
 			return { ok: false, code: REMOTE_MODEL_PROBE_CODES.failed };

@@ -1,4 +1,4 @@
-import type { ComponentProps, Dispatch, ReactNode, RefObject, SetStateAction } from "react";
+import { useRef, useEffect, type ComponentProps, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { PiConfigTarget } from "../../../../shared/piConfig";
 import type { ConfigFileDiagnostic } from "../../../../shared/types";
@@ -8,6 +8,7 @@ import type { ConfigTab } from "../configTypes";
 import { RawTab } from "../RawTab";
 import { WslConfigSourceHint } from "../WslConfigSourceHint";
 import type { WslConfigTargetHost } from "../piConfigTargetModel";
+import { useConfigEditor } from "../useConfigEditorApi";
 
 type ConfigRawEditingDeps = {
 	api: PiDesktopApi;
@@ -34,15 +35,24 @@ type ConfigRawEditingDeps = {
  */
 export function useConfigRawEditing(deps: ConfigRawEditingDeps) {
 	const { api, configTargetOption, rawContent, setRawContent, rawFileName, setRawFileName, baselineRawRef, hasRawDraft, setPendingRawFile, setLoading, setError, setConfigDiagnostic, saveAndReload, reloadConfig } = deps;
+	const active = useRef(api);
+	active.current = api;
+	const generation = useRef(0);
+	useEffect(
+		() => () => {
+			generation.current += 1;
+		},
+		[],
+	);
 
 	const handleSaveRaw = async (): Promise<boolean> => {
+		const targetTab: ConfigTab = rawFileName === "models.json" ? "models" : rawFileName === "settings.json" ? "settings" : rawFileName === "auth.json" ? "auth" : rawFileName === "trust.json" ? "trust" : "mcp";
 		const isModelsFile = rawFileName === "models.json";
 		const ok = await saveAndReload(() => api.config.saveRaw(rawFileName, rawContent, configTargetOption), isModelsFile ? t("config.modelsSaved") : undefined, "config:raw");
-		if (rawFileName === "models.json") await reloadConfig("models", { force: true });
-		else if (rawFileName === "auth.json") await reloadConfig("auth", { force: true });
-		else if (rawFileName === "trust.json") await reloadConfig("trust", { force: true });
-		else if (rawFileName === "mcp.json") await reloadConfig("mcp", { force: true });
-		else await reloadConfig("settings", { force: true });
+		if (!ok) return false;
+		baselineRawRef.current = { fileName: rawFileName, content: rawContent };
+		await reloadConfig(targetTab);
+		await reloadConfig("raw");
 		return ok;
 	};
 
@@ -58,17 +68,20 @@ export function useConfigRawEditing(deps: ConfigRawEditingDeps) {
 
 	/** 确认丢弃草稿后（或本就无草稿）真正切换源文件并重新加载内容。 */
 	const applyRawFileChange = async (fileName: string) => {
+		const request = ++generation.current;
+		const current = () => request === generation.current && active.current === api;
 		setLoading(true);
 		try {
 			const res = await api.config.getRaw(fileName, configTargetOption);
+			if (!current()) return;
 			setRawFileName(fileName);
 			setRawContent(res.raw);
 			baselineRawRef.current = { fileName, content: res.raw };
 			setConfigDiagnostic(res.diagnostic ?? null);
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			if (current()) setError(e instanceof Error ? e.message : String(e));
 		} finally {
-			setLoading(false);
+			if (current()) setLoading(false);
 		}
 	};
 
@@ -88,12 +101,13 @@ export type ConfigRawTabProps = {
 
 /** 源文件页内容（`config:raw` TabsContent 整块）。 */
 export function ConfigRawTab({ wslTargetHost, statusBlock, configDiagnosticBlock, loading, piConfigDir, ...rawTabProps }: ConfigRawTabProps) {
+	const { remote } = useConfigEditor();
 	return (
 		<div className="config-content flex min-h-0 flex-col">
 			{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="raw" /> : null}
 			{statusBlock}
 			{configDiagnosticBlock}
-			{!loading && <RawTab {...rawTabProps} configDir={wslTargetHost ? undefined : (piConfigDir ?? undefined)} />}
+			{!loading && <RawTab {...rawTabProps} configDir={wslTargetHost || remote ? undefined : (piConfigDir ?? undefined)} />}
 		</div>
 	);
 }

@@ -3,11 +3,8 @@
  * Types and limits only — parsing, framing and validation live in the modules that own them, so this
  * file stays the single place both sides agree on.
  *
- * The read-only workspace batch (`fs.stat`, `fs.list`, `fs.read`, `fs.searchNames`) is declared here in the same spirit:
- * the method name, the exact result fields and every bound are literals in this file, and the frozen
- * helper body — which cannot import anything — repeats those literals under test (§7.1). A result shape
- * that is not stated here is not part of the protocol, and a bound that is not stated here is not
- * enforced on both sides.
+ * Method names, result fields and bounds are literals here, repeated by the frozen helper under test (§7.1).
+ * Only declared result shapes and bounds belong to the protocol and are enforced on both sides.
  */
 
 /** Wire protocol version. A helper with a different version must not be used (structured refusal). */
@@ -397,6 +394,7 @@ export const REMOTE_HELPER_CAPABILITIES = [
 	"config.read",
 	"config.patch",
 	"config.readAuth",
+	"config.replace",
 ] as const;
 export type RemoteHelperCapability = (typeof REMOTE_HELPER_CAPABILITIES)[number];
 /**
@@ -648,8 +646,9 @@ export type RemoteHelperReadResult = { chunk: string; bytes: number; eof: boolea
  * test, exactly like the Git worker. Adding a file means editing the frozen artifact, bumping the helper build
  * identity and re-pinning both digests — never a path parameter.
  */
-export const REMOTE_HELPER_METHOD_CONFIG_READ = "config.read";
-export const REMOTE_HELPER_METHOD_CONFIG_PATCH = "config.patch";
+export const REMOTE_HELPER_METHOD_CONFIG_READ = "config.read",
+	REMOTE_HELPER_METHOD_CONFIG_PATCH = "config.patch",
+	REMOTE_HELPER_METHOD_CONFIG_REPLACE = "config.replace";
 /** Read-only, value-free view of auth.json; never a patch source (auth.json is not in the patch allowlist). */
 export const REMOTE_HELPER_METHOD_CONFIG_READ_AUTH = "config.readAuth";
 export type RemoteConfigFileKey = "models" | "settings" | "trust" | "mcp";

@@ -8,7 +8,8 @@
 import { app, ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import type { ModelsVerifyResult } from "../../shared/types";
-import { PI_CONFIG_FILE_NAMES, piConfigFileKeyFromName } from "../../shared/piConfig";
+import { PI_CONFIG_FILE_NAMES, REMOTE_CONFIG_CODES, remotePiConfigCodeFromError, piConfigFileKeyFromName } from "../../shared/piConfig";
+import { readPiConfigWriteOptions } from "../config/piConfigTarget";
 import type { ProviderMigrationDirection } from "../../shared/types/providerMigration";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { RemotePiConfigBackend } from "../config/RemotePiConfigBackend";
@@ -92,6 +93,18 @@ export function registerSystemConfigIpc(deps: SystemConfigIpcDeps): void {
 		}
 		void appLogger.info("config", "WSL config written", { file });
 		return routed.value.valid ? { valid: true, wsl: routed.value.receipt } : routed.value;
+	};
+	/** A lost write receipt can still mean the host changed; invalidate that host's model catalog. */
+	const writeConfig = async (run: () => Promise<PiConfigWriteRoute>, options: unknown, affectsModels: boolean) => {
+		const target = readPiConfigWriteOptions(options).target;
+		try {
+			const routed = await run();
+			if (affectsModels && routed.kind === "remote") remoteModelCatalog?.invalidate(routed.hostId);
+			return routed;
+		} catch (error) {
+			if (affectsModels && target?.kind === "ssh" && remotePiConfigCodeFromError(error) === REMOTE_CONFIG_CODES.resultUnconfirmed) remoteModelCatalog?.invalidate(target.hostId);
+			throw error;
+		}
 	};
 
 	/**
@@ -189,10 +202,9 @@ export function registerSystemConfigIpc(deps: SystemConfigIpcDeps): void {
 	ipcMain.handle(ipcChannels.configGetDir, () => configManager.getConfigDir());
 
 	ipcMain.handle(ipcChannels.configSaveModels, async (_event, data, options?: unknown) => {
-		const routed = await piConfigRouter.saveModels(data, options);
+		const routed = await writeConfig(() => piConfigRouter.saveModels(data, options), options, true);
 		if (routed.kind !== "local") {
 			// ssh 写回执必须让那台主机的目录缓存失效（否则新加的 provider/模型要等 TTL 才可见）；wsl 只改发行版配置。
-			if (routed.kind === "remote") remoteModelCatalog?.invalidate(routed.hostId);
 			return configWriteDto(routed, "models.json");
 		}
 		const result = routed.value;
@@ -224,7 +236,7 @@ export function registerSystemConfigIpc(deps: SystemConfigIpcDeps): void {
 		return result;
 	});
 	ipcMain.handle(ipcChannels.configSaveSettings, async (_event, settings, options?: unknown) => {
-		const routed = await piConfigRouter.saveSettings(settings, options);
+		const routed = await writeConfig(() => piConfigRouter.saveSettings(settings, options), options, true);
 		if (routed.kind !== "local") return configWriteDto(routed, "settings.json");
 		const result = routed.value;
 		void appLogger.info("config", "Pi settings config saved", { keys: Object.keys(settings ?? {}) });
@@ -236,9 +248,12 @@ export function registerSystemConfigIpc(deps: SystemConfigIpcDeps): void {
 	 */
 	ipcMain.handle(ipcChannels.configSaveRaw, async (_event, fileName: unknown, rawJson: unknown, options?: unknown) => {
 		const file = piConfigFileKeyFromName(fileName);
-		if (!file) return await configManager.saveRawConfig(String(fileName), String(rawJson));
+		if (!file) {
+			if (readPiConfigWriteOptions(options).target?.kind !== "local") throw new Error(REMOTE_CONFIG_CODES.targetInvalid);
+			return await configManager.saveRawConfig(String(fileName), String(rawJson));
+		}
 		if (typeof rawJson !== "string") return { valid: false, error: "raw content must be a string" };
-		const routed = await piConfigRouter.writeRaw(file, rawJson, options);
+		const routed = await writeConfig(() => piConfigRouter.writeRaw(file, rawJson, options), options, file === "models" || file === "settings");
 		if (routed.kind !== "local") {
 			const dto = configWriteDto(routed, PI_CONFIG_FILE_NAMES[file]);
 			void appLogger.info("config", "Raw config saved", { file, bytes: Buffer.byteLength(rawJson, "utf8"), target: routed.kind });

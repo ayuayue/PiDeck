@@ -21,29 +21,23 @@ export function useConfigDirtyMarks() {
 		return ids;
 	}, [dirtyTabs]);
 	const hasDshDirty = dshDirtyNavIds.size > 0;
-	const hasPiDirty = dirtyTabs.size > 0 && !hasDshDirty;
+	const hasPiDirty = [...dirtyTabs].some((key) => key !== "dsh" && !key.startsWith("dsh:"));
 	/** 关闭确认摘要：列出全部脏 tab（不再只点第一条），供 AlertDialog 逐条展示。 */
 	const configUnsavedSummary = useMemo(() => summarizeConfigUnsavedChanges(dirtyTabs), [dirtyTabs]);
 	const configUnsavedMessage = useMemo(() => formatConfigUnsavedMessage(configUnsavedSummary, t), [configUnsavedSummary]);
 
 	/** 标记某 tab 存在未保存修改（幂等；只用 setDirtyTabs 函数式更新，引用稳定） */
 	const markDirty = useCallback((tabKey: string) => {
-		setDirtyTabs((prev) => {
-			if (prev.has(tabKey)) return prev;
-			const next = new Set(prev).add(tabKey);
-			dirtyTabsRef.current = next;
-			return next;
-		});
+		if (dirtyTabsRef.current.has(tabKey)) return;
+		dirtyTabsRef.current = new Set(dirtyTabsRef.current).add(tabKey);
+		setDirtyTabs(dirtyTabsRef.current);
 	}, []);
 
 	/** 清除某 tab 的未保存修改标记（保存成功或主动放弃编辑时调用） */
 	const clearDirty = useCallback((tabKey: string) => {
-		setDirtyTabs((prev) => {
-			if (!prev.has(tabKey)) return prev;
-			const next = new Set([...prev].filter((k) => k !== tabKey));
-			dirtyTabsRef.current = next;
-			return next;
-		});
+		if (!dirtyTabsRef.current.has(tabKey)) return;
+		dirtyTabsRef.current = new Set([...dirtyTabsRef.current].filter((key) => key !== tabKey));
+		setDirtyTabs(dirtyTabsRef.current);
 	}, []);
 
 	/** DSH 页脏状态：保留聚合 "dsh" 给保存按钮，同时记下 dsh:<nav> 供侧栏黄点/关闭文案。 */

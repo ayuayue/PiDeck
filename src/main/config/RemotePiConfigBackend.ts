@@ -17,7 +17,7 @@
  * inject a fake port; no method in this module starts a process or reads a file.
  */
 
-import { REMOTE_CONFIG_CODES, isPiConfigFileKey, type PiConfigFileKey, type RemotePiAuthProvider, type RemotePiAuthSnapshot, type RemotePiConfigSecretEntry, type RemotePiConfigSnapshot, type RemotePiConfigWriteReceipt } from "../../shared/piConfig";
+import { REMOTE_CONFIG_CODES, isPiConfigFileKey, type RemoteConfigDocument, type PiConfigFileKey, type RemotePiAuthProvider, type RemotePiAuthSnapshot, type RemotePiConfigSecretEntry, type RemotePiConfigSnapshot, type RemotePiConfigWriteReceipt } from "../../shared/piConfig";
 import { REMOTE_CONFIG_AUTH_PROVIDER_PATTERN, REMOTE_CONFIG_MAX_AUTH_PROVIDERS, REMOTE_CONFIG_MAX_DEPTH, REMOTE_CONFIG_MAX_FILE_BYTES, REMOTE_CONFIG_MAX_NODES, REMOTE_CONFIG_SECRET_KEY_PATTERN } from "../remote/RemoteHelperContract";
 import { PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
 
@@ -31,6 +31,7 @@ export type RemotePiConfigBackend = {
 	/** Derived, value-free view of the host's auth.json (never a document and never a credential). */
 	readAuth(input: { hostId: string }): Promise<RemotePiAuthSnapshot>;
 	patch(input: { hostId: string; file: PiConfigFileKey; expectedVersion: string; patch: Record<string, unknown> }): Promise<RemotePiConfigWriteReceipt>;
+	replace(input: { hostId: string; file: PiConfigFileKey; expectedVersion: string } & RemoteConfigDocument): Promise<RemotePiConfigWriteReceipt>;
 };
 
 const HELPER_METHOD_READ = "config.read";
@@ -202,11 +203,40 @@ export function createRemotePiConfigBackend(transport: RemotePiConfigTransportPo
 		try {
 			return await transport.request(hostId, method, params);
 		} catch (error) {
-			throw stable(mapHelperCode(errorCode(error)));
+			const code = errorCode(error);
+			const mapped = mapHelperCode(code);
+			// A transport loss after dispatch cannot prove whether a replacement reached rename.
+			if (method === "config.replace" && (mapped === REMOTE_CONFIG_CODES.hostNotReady || (mapped === REMOTE_CONFIG_CODES.unavailable && code !== "CONFIG_UNAVAILABLE"))) throw stable(REMOTE_CONFIG_CODES.resultUnconfirmed);
+			throw stable(mapped);
 		}
 	}
 
 	return {
+		async replace(input) {
+			if (!isPiConfigFileKey(input.file)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+			if (typeof input.expectedVersion !== "string" || !HEX64.test(input.expectedVersion)) throw stable(REMOTE_CONFIG_CODES.versionConflict);
+			if (!isRecord(input.data) || !Array.isArray(input.secretSources) || input.secretSources.length > 200) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+			const destinations = new Set<string>();
+			for (const source of input.secretSources) {
+				if (!isRecord(source) || Object.keys(source).sort().join(",") !== "from,to") throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+				for (const parts of [source.from, source.to]) {
+					if (!Array.isArray(parts) || parts.length < 1 || parts.length > REMOTE_CONFIG_MAX_DEPTH || parts.some((part) => typeof part !== "string" || part.length > 512 || ["__proto__", "constructor", "prototype"].includes(part) || REMOTE_CONFIG_SECRET_KEY_PATTERN.test(part)))
+						throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+				}
+				const destination = JSON.stringify(source.to);
+				if (destinations.has(destination)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+				destinations.add(destination);
+			}
+			validatePatch({ data: input.data, secretSources: input.secretSources });
+			const result = await call(input.hostId, "config.replace", { file: input.file, expectedVersion: input.expectedVersion, data: input.data, secretSources: input.secretSources });
+			let snapshot: RemotePiConfigSnapshot;
+			try {
+				snapshot = validateSnapshot(input.file, input.hostId, result);
+			} catch {
+				throw stable(REMOTE_CONFIG_CODES.resultUnconfirmed);
+			}
+			return { kind: "remote", hostId: snapshot.hostId, file: snapshot.file, version: snapshot.version, sha256: snapshot.sha256 };
+		},
 		async read(input) {
 			if (!isPiConfigFileKey(input.file)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
 			return validateSnapshot(input.file, input.hostId, await call(input.hostId, HELPER_METHOD_READ, { file: input.file }));

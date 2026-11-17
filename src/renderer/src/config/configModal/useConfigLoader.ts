@@ -1,4 +1,4 @@
-import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { PiConfigTarget } from "../../../../shared/piConfig";
 import type { ConfigFileDiagnostic } from "../../../../shared/types";
@@ -11,11 +11,13 @@ import { normalizeModelsFile, parseJsonObject } from "./configModalStorage";
 
 type ConfigLoaderDeps = {
 	api: PiDesktopApi;
+	rawApi: PiDesktopApi;
+	loadRemoteModels?: () => Promise<Array<{ provider: string; id: string; name?: string }>>;
 	/** 当前配置分页：raw 分页按它决定要读哪个源文件。 */
 	tab: ConfigTab;
-	/** 当前环境的稳定身份：ssh 目标不走本机读盘链路。 */
+	/** 当前环境的稳定身份：SSH 经主机绑定适配器读取。 */
 	targetKind: PiConfigTarget["kind"];
-	/** WSL 目标的本地编辑器选项（undefined = 本机或 ssh）。 */
+	/** 非本机环境必须携带目标选项。 */
 	configTargetOption: { target: PiConfigTarget } | undefined;
 	/** 各 tab 的实时脏集合：带草稿的分页不被磁盘内容覆盖。 */
 	dirtyTabsRef: RefObject<Set<string>>;
@@ -45,12 +47,13 @@ type ConfigLoaderDeps = {
 
 /**
  * Pi 配置分页的读盘链路（搬迁自 ConfigModal，行为不变）：
- * 本机与 WSL 目标共用同一套分支，带草稿的分页（dirtyKeysPreservedOnReload）不被磁盘内容覆盖，
- * force 才整页对齐磁盘；ssh 目标的所有分页由远端面板自加载，这里直接返回。
+ * 所有环境共用分支；带草稿的视图不重读，保留其内容与版本。显式 force 才对齐磁盘。
  */
 export function useConfigLoader(deps: ConfigLoaderDeps) {
 	const {
 		api,
+		rawApi,
+		loadRemoteModels,
 		tab,
 		targetKind,
 		configTargetOption,
@@ -77,14 +80,48 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 		baselineRawRef,
 		baselineWslMcpRef,
 	} = deps;
+	const generation = useRef(0);
+	const activeApi = useRef(api);
+	activeApi.current = api;
+	const identity = JSON.stringify(configTargetOption?.target ?? { kind: "local" });
+	const activeIdentity = useRef(identity);
+	activeIdentity.current = identity;
+	useEffect(
+		() => () => {
+			generation.current += 1;
+		},
+		[],
+	);
+	/** Explicit refresh replaces this environment's drafts only after the shared confirmation. */
+	const resetDrafts = () => {
+		baselineModelsRef.current = { providers: {} };
+		baselineAuthRef.current = {};
+		baselineSettingsRef.current = {};
+		baselineTrustRef.current = {};
+		baselineRawRef.current = { fileName: baselineRawRef.current.fileName, content: "" };
+		baselineWslMcpRef.current = "";
+		setModelsData({ providers: {} });
+		setAuthData({});
+		setSettingsData({});
+		setSettingsLoaded(false);
+		setTrustData({});
+		setRawContent("");
+		setWslMcpRaw("");
+		setDiscoveredModels({});
+		for (const key of [...dirtyTabsRef.current]) if (key.startsWith("config:")) clearDirty(key);
+	};
 
 	const loadConfig = useCallback(
 		async (target: ConfigTab, options?: { force?: boolean; silent?: boolean }) => {
 			// OAuth 页的数据来自 pi 认证服务（listProviders）而不是配置文件：不走这条读盘链路。
 			if (target === "oauth") return;
-			// SSH 环境的所有配置页都是自加载的远端面板（脱敏快照 + patch 编辑）：本机读盘链路一次都不走，
-			// 否则会把 Windows HOME 的配置当成那台主机的配置显示出来。
-			if (targetKind === "ssh") return;
+			// SSH uses the host-bound editor API; auth retains its separate derived, read-only panel.
+			if (targetKind === "ssh" && target === "auth") {
+				setLoading(false);
+				return;
+			}
+			const request = ++generation.current;
+			const current = () => request === generation.current && api === activeApi.current && identity === activeIdentity.current;
 			// silent：测试连接成功后回读磁盘用——不置 loading，避免 ModelsTab 在
 			// `!loading && ...` 条件下被卸载重建、滚动容器内容塔缩后 scrollTop 归零。
 			if (!options?.silent) setLoading(true);
@@ -99,13 +136,16 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 				const skipTrust = preserved.has("config:trust");
 				const skipMcp = preserved.has("config:mcp");
 				const skipRaw = preserved.has("config:raw");
+				const readModels = (): ReturnType<typeof api.config.getModels> => (skipModels ? Promise.resolve({ raw: "", parsed: baselineModelsRef.current }) : api.config.getModels(configTargetOption));
+				const readSettings = (): ReturnType<typeof api.config.getSettings> => (skipSettings ? Promise.resolve({ raw: "", parsed: baselineSettingsRef.current }) : api.config.getSettings(configTargetOption));
 				if (target === "models") {
 					// 模型页也要 settingsData：每模型默认思考档位写的就是 settings.json 的
 					// modelThinkingLevels（与全局默认档位同一条写入链路）。
 					// settings 读失败只降级（本页主数据是 models.json），settingsLoaded 保持 false
 					// 让编辑入口不渲染，避免空对象被当成磁盘内容保存。
-					/** models 页数据落内存：本机与 WSL 目标共用同一条路径（settings 读失败只降级，settingsLoaded 保持 false）。 */
+					/** 各环境共用模型表单；settings 读失败只降级，settingsLoaded 保持 false。 */
 					const applyModelsTab = (res: Awaited<ReturnType<typeof api.config.getModels>>, settingsRes: Awaited<ReturnType<typeof api.config.getSettings>> | null) => {
+						if (!current()) return;
 						if (!skipModels) {
 							const parsed = normalizeModelsFile(res.parsed);
 							setModelsData(parsed);
@@ -117,7 +157,7 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 								baselineSettingsRef.current = deepClone(settingsRes.parsed as SettingsFile);
 							}
 							setSettingsLoaded(true);
-						}
+						} else if (!skipSettings) setSettingsLoaded(false);
 						if (!skipRaw) {
 							setRawContent(res.raw);
 							setRawFileName("models.json");
@@ -125,18 +165,13 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 						}
 						setConfigDiagnostic(res.diagnostic ?? null);
 					};
-					if (configTargetOption) {
-						// WSL 目标：读该档案的发行版 HOME（models/settings 走结构化通道；auth/trust/mcp 各自按文件读）。
-						const [res, settingsRes] = await Promise.all([api.config.getModels(configTargetOption), api.config.getSettings(configTargetOption).catch(() => null)]);
-						applyModelsTab(res, settingsRes);
-					} else {
-						const [res, settingsRes] = await Promise.all([api.config.getModels(), api.config.getSettings().catch(() => null)]);
-						applyModelsTab(res, settingsRes);
-					}
+					const [res, settingsRes] = await Promise.all([readModels(), readSettings().catch(() => null)]);
+					applyModelsTab(res, settingsRes);
 				} else if (target === "auth") {
 					// 本机用 ConfigManager 的 parsed 结果；WSL 走该发行版 HOME 的 auth.json 原文（同一份 JSON 形状）。
 					const authRaw = configTargetOption ? await api.config.getRaw("auth.json", configTargetOption) : null;
 					const parsed = configTargetOption && authRaw ? parseJsonObject<AuthFile>(authRaw.raw, {}) : ((await api.config.getAuth()).parsed as AuthFile);
+					if (!current()) return;
 					if (!skipAuth) {
 						setAuthData(parsed);
 						baselineAuthRef.current = deepClone(parsed);
@@ -152,10 +187,11 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 					// 同时加载 settings、auth 和 models 数据，确保 defaultProvider / defaultModel 下拉能聚合所有可用信息。
 					// WSL 的 auth.json 也属于该作用域（本机 UNC 读），但 provider 探针仍只在本机执行——见下面的发现循环门禁。
 					const [settingsRes, authRes, modelsRes] = await Promise.all([
-						api.config.getSettings(configTargetOption),
-						configTargetOption ? api.config.getRaw("auth.json", configTargetOption).then((res) => ({ raw: res.raw, parsed: parseJsonObject<AuthFile>(res.raw, {}) })) : api.config.getAuth(),
-						api.config.getModels(configTargetOption),
+						readSettings(),
+						targetKind === "ssh" ? api.config.getAuth() : configTargetOption ? api.config.getRaw("auth.json", configTargetOption).then((res) => ({ raw: res.raw, parsed: parseJsonObject<AuthFile>(res.raw, {}) })) : api.config.getAuth(),
+						readModels(),
 					]);
+					if (!current()) return;
 					if (!skipSettings) {
 						setSettingsData(settingsRes.parsed as SettingsFile);
 						baselineSettingsRef.current = deepClone(settingsRes.parsed as SettingsFile);
@@ -176,6 +212,16 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 						baselineRawRef.current = { fileName: "settings.json", content: settingsRes.raw };
 					}
 					setConfigDiagnostic(settingsRes.diagnostic ?? null);
+					if (loadRemoteModels) {
+						void loadRemoteModels()
+							.then((models) => {
+								if (!current()) return;
+								const remote: Record<string, Array<{ id: string; name?: string }>> = {};
+								for (const model of models) (remote[model.provider] ??= []).push({ id: model.id, name: model.name });
+								setDiscoveredModels(remote);
+							})
+							.catch(() => undefined);
+					}
 
 					// 对于 auth 中有但 models 中没有模型的供应商，自动尝试获取模型列表。
 					// provider 探针只从本机网络出口发起：非本机环境即便读到 key 也不发请求（否则会把该环境的 key 用在本机网络上）。
@@ -204,7 +250,7 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 							api.config
 								.fetchModels(baseUrl, apiKey, apiType, getProviderHeaders(modelsProvider?.headers))
 								.then((result) => {
-									if (result.success && result.models) {
+									if (current() && result.success && result.models) {
 										discovered[providerName] = result.models;
 										// 后台发现与手动「获取模型」同源：检测走通了 /v1 而 models.json 仍是根路径时
 										// 同步改写表单 baseUrl（仅内存 + markDirty，用户保存才落盘），
@@ -222,14 +268,16 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 					if (fetchPromises.length > 0) {
 						// 不 await，在后台获取后更新状态即可
 						void Promise.allSettled(fetchPromises).then(() => {
-							if (Object.keys(discovered).length > 0) {
+							if (current() && Object.keys(discovered).length > 0) {
 								setDiscoveredModels(discovered);
 							}
 						});
 					}
 				} else if (target === "trust") {
+					if (skipTrust) return;
 					const trustRaw = configTargetOption ? await api.config.getRaw("trust.json", configTargetOption) : null;
 					const parsed = configTargetOption && trustRaw ? parseJsonObject<Record<string, boolean>>(trustRaw.raw, {}) : ((await api.config.getTrust()).parsed as Record<string, boolean>);
+					if (!current()) return;
 					if (!skipTrust) {
 						setTrustData(parsed);
 						baselineTrustRef.current = deepClone(parsed);
@@ -243,8 +291,10 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 					setConfigDiagnostic(trustRaw?.diagnostic ?? null);
 				} else if (target === "mcp") {
 					if (configTargetOption) {
-						// WSL：MCP 页是「该发行版 mcp.json 的文本编辑」（探测/登录/模板仍在本机执行）。
+						if (skipMcp) return;
+						// SSH/WSL 的 MCP 页编辑所属环境的 mcp.json；探测/登录/模板只在本机执行。
 						const res = await api.config.getRaw("mcp.json", configTargetOption);
+						if (!current()) return;
 						if (!skipMcp) {
 							setWslMcpRaw(res.raw);
 							baselineWslMcpRef.current = res.raw;
@@ -259,6 +309,7 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 						// 本机：MCP 页自己拉盘；这里只同步源文件编辑器和 force 重载。
 						if (!skipRaw) {
 							const res = await api.config.getMcp();
+							if (!current()) return;
 							setRawContent(res.writableRaw);
 							setRawFileName("mcp.json");
 							baselineRawRef.current = { fileName: "mcp.json", content: res.writableRaw };
@@ -266,11 +317,13 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 						if (options?.force && !skipMcp) void mcpTabRef.current?.reload();
 					}
 				} else if (target === "raw") {
-					// 源文件 tab 复用当前 tab 对应的文件；读取统一走 config:get-raw（本机/WSL 回原文，mcp 取可写层）。
-					const fileName = tab === "models" ? "models.json" : tab === "auth" ? "auth.json" : tab === "trust" ? "trust.json" : tab === "mcp" ? "mcp.json" : "settings.json";
+					if (skipRaw) return;
+					// 源文件统一走 config:get-raw：本机/WSL 回原文，SSH 回脱敏 JSON 文档。
+					const fileName = baselineRawRef.current.fileName === "auth.json" && targetKind === "ssh" ? "models.json" : baselineRawRef.current.fileName;
 					if (!skipRaw) setRawFileName(fileName);
 					// 基准快照随内容一起更新：切文件后新旧草稿都以新文件为比较基准
-					const res = await api.config.getRaw(fileName, configTargetOption);
+					const res = await rawApi.config.getRaw(fileName, configTargetOption);
+					if (!current()) return;
 					if (!skipRaw) {
 						setRawContent(res.raw);
 						baselineRawRef.current = { fileName, content: res.raw };
@@ -278,17 +331,18 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 					setConfigDiagnostic(res.diagnostic ?? null);
 				}
 				// 被跳过的脏草稿保持黄点；其余被磁盘覆盖的 key 必须清掉，否则保存后假脏。
+				if (!current()) return;
 				for (const key of dirtyKeysClearedByReload(target)) {
 					if (!preserved.has(key)) clearDirty(key);
 				}
 			} catch (e) {
-				setError(e instanceof Error ? e.message : String(e));
+				if (current()) setError(e instanceof Error ? e.message : String(e));
 			} finally {
-				setLoading(false);
+				if (current()) setLoading(false);
 			}
 		},
-		[tab, targetKind, clearDirty, applySuggestedBaseUrl, configTargetOption],
+		[tab, targetKind, clearDirty, applySuggestedBaseUrl, configTargetOption, api, rawApi, identity, loadRemoteModels],
 	);
 
-	return { loadConfig };
+	return { loadConfig, resetDrafts };
 }
