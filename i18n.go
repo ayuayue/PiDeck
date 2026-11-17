@@ -6,7 +6,10 @@ package main
 // later. Plugins bring their own words and stay as they are.
 
 import (
+	"embed"
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -17,11 +20,28 @@ const (
 	langZhCN   = "zh-CN"
 	langZhTW   = "zh-TW"
 	langEnUS   = "en-US"
+	langKoKR   = "ko-KR"
+	langJaJP   = "ja-JP"
+	langRuRU   = "ru-RU"
+	langFrFR   = "fr-FR"
 )
 
+// supportedLanguages is shared by the desktop and mobile language pickers.
+var supportedLanguages = []string{langZhCN, langEnUS, langZhTW, langKoKR, langJaJP, langRuRU, langFrFR}
+
+func supportedLanguage(code string) bool {
+	for _, lang := range supportedLanguages {
+		if lang == code {
+			return true
+		}
+	}
+	return false
+}
+
 var (
-	uiLangMu sync.RWMutex
-	uiLang   = langZhCN
+	uiLangMu        sync.RWMutex
+	uiLang          = langZhCN
+	formatDirective = regexp.MustCompile(`%(?:\[[0-9]+\])?[-+#0]*(?:[0-9]+|\*)?(?:\.(?:[0-9]+|\*))?(?:\[[0-9]+\])?[bcdeEfFgGopqstTUVwxX]`)
 )
 
 // setUILanguage makes code the language T reads.
@@ -49,7 +69,7 @@ func T(message string, args ...any) string {
 			message = s
 		}
 	}
-	if len(args) == 0 {
+	if len(args) == 0 || !formatDirective.MatchString(message) {
 		return message
 	}
 	return fmt.Sprintf(message, args...)
@@ -58,20 +78,41 @@ func T(message string, args ...any) string {
 // resolveLanguage picks the language to show: the user's choice, else the
 // system's, else Chinese.
 func resolveLanguage(setting, system string) string {
-	switch setting {
-	case langZhCN, langZhTW, langEnUS:
+	if supportedLanguage(setting) {
 		return setting
 	}
-	s := strings.ToLower(system)
-	switch {
-	case strings.HasPrefix(s, "zh"):
-		if strings.Contains(s, "tw") || strings.Contains(s, "hk") || strings.Contains(s, "mo") ||
-			strings.Contains(s, "hant") || strings.Contains(s, "traditional") {
+	// Accept BCP 47 and POSIX locales, including zh_TW.UTF-8 and fr_CA.
+	s := strings.ToLower(strings.TrimSpace(system))
+	s = strings.ReplaceAll(s, "_", "-")
+	s, _, _ = strings.Cut(s, ".")
+	base, _, _ := strings.Cut(s, "-")
+	base, _, _ = strings.Cut(base, "@")
+	switch base {
+	case "zh":
+		// An explicit script takes precedence over the region.
+		if strings.Contains(s, "hans") {
+			return langZhCN
+		}
+		if strings.Contains(s, "hant") || strings.Contains(s, "traditional") {
 			return langZhTW
 		}
+		for _, part := range strings.Split(s, "-")[1:] {
+			part, _, _ = strings.Cut(part, "@")
+			if part == "tw" || part == "hk" || part == "mo" {
+				return langZhTW
+			}
+		}
 		return langZhCN
-	case strings.HasPrefix(s, "en"):
+	case "en":
 		return langEnUS
+	case "ko":
+		return langKoKR
+	case "ja":
+		return langJaJP
+	case "ru":
+		return langRuRU
+	case "fr":
+		return langFrFR
 	}
 	return langZhCN
 }
@@ -79,18 +120,141 @@ func resolveLanguage(setting, system string) string {
 // languageName is a language's name in itself.
 func languageName(code string) string {
 	switch code {
+	case langSystem:
+		return T("跟随系统")
 	case langZhTW:
 		return "繁體中文"
 	case langEnUS:
 		return "English"
+	case langKoKR:
+		return "한국어"
+	case langJaJP:
+		return "日本語"
+	case langRuRU:
+		return "Русский"
+	case langFrFR:
+		return "Français"
 	}
 	return "简体中文"
+}
+
+// New catalogs are embedded so every target works offline.
+//
+//go:embed locales/*.json
+var localeCatalogs embed.FS
+
+func readMessageCatalog(code string) map[string]string {
+	raw, err := localeCatalogs.ReadFile("locales/" + code + ".json")
+	if err != nil {
+		panic(err)
+	}
+	var catalog map[string]string
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		panic(fmt.Errorf("language %s: %w", code, err))
+	}
+	return catalog
 }
 
 // messages are the translations, by source text. zh-CN is the source and
 // needs no table.
 var messages = map[string]map[string]string{
+	langKoKR: readMessageCatalog(langKoKR),
+	langJaJP: readMessageCatalog(langJaJP),
+	langRuRU: readMessageCatalog(langRuRU),
+	langFrFR: readMessageCatalog(langFrFR),
 	langEnUS: {
+		"还没有用量":                   "No usage yet",
+		"未选择":                     "Not selected",
+		"已就绪":                     "Ready",
+		"未配置":                     "Not configured",
+		"已失效":                     "Invalid",
+		"未知":                      "Unknown",
+		"找不到 pi":                  "pi not found",
+		"检测中…":                    "Checking…",
+		"刚刚":                      "Just now",
+		"今天":                      "Today",
+		"昨天":                      "Yesterday",
+		"本周":                      "This week",
+		"更早":                      "Earlier",
+		"已停止 · 用时 %s":             "Stopped · took %s",
+		"没找到：":                    "Not found: ",
+		"展开全文（%d 字）":              "Expand full message (%d characters)",
+		"PiDeck Lite · %d 个会话运行中": "PiDeck Lite · %d sessions running",
+		"English":                 "English",
+		"调整侧栏宽度":                  "Resize sidebar",
+		"调整面板宽度":                  "Resize panel",
+		"调整终端高度":                  "Resize terminal",
+		"命令面板":                    "Command palette",
+		"切换外观":                    "Switch appearance",
+		"这个页面是 %s，电脑上是 %s；刷新后一起用新版本": "This page is %s and the desktop is %s; refresh to use the new version together",
+		"移除项目…":   "Remove project…",
+		"SSH 主机":  "SSH host",
+		"WSL 发行版": "WSL distribution",
+		"复制安装命令":  "Copy install command",
+		"安装命令":    "Install command",
+		"文档":      "Documentation",
+		"预设只是一条启动命令：标着 npx 的第一次运行会自己下载；其余需要本机装好并登录该 CLI。状态按本机 PATH 检查。": "A preset is a launch command. Commands marked npx download on first run; other CLIs must be installed and signed in locally. Availability is checked against the local PATH.",
+		"ACP 智能体": "ACP agents",
+		"发送方式":    "Message delivery",
+		"从 Claude Code、Codex、Cursor 等工具的历史里挑出会话，转换后复制到本应用自己的会话目录：原文件不动。": "Pick sessions from Claude Code, Codex, Cursor and other tools. They are converted and copied into this app's session folder; the originals stay unchanged.",
+		"服务":   "Service",
+		"端口":   "Port",
+		"连接方式": "Connection methods",
+		"手机端":  "Mobile client",
+		"让手机端连接这台电脑上的项目和会话；关闭后所有手机连接立即断开。": "Let mobile clients connect to projects and sessions on this computer. Turning this off disconnects all mobile clients immediately.",
+		"手机连接地址里的端口，需在防火墙中放行。":             "The port in the mobile connection address must be allowed through the firewall.",
+		"手机端连接时需要；重新生成会让旧手机失效。":            "Required to connect a mobile client. Regenerating it invalidates previous connections.",
+		"没有读到供应商":      "No providers found",
+		"常用模型":         "Favorite models",
+		"供应商与认证":       "Providers and authentication",
+		"冲突":           "Conflicts",
+		"主题文件":         "Theme files",
+		"pi 可执行文件":     "pi executable",
+		"pi 会话目录":      "pi session folder",
+		"pi 配置目录":      "pi config folder",
+		"应用请求代理":       "App request proxy",
+		"Agent 代理":     "Agent proxy",
+		"直连名单":         "Proxy bypass list",
+		"本机":           "This computer",
+		"网络代理":         "Network proxies",
+		"其它机器":         "Other computers",
+		"还没有插件":        "No plugins yet",
+		"验证 Token":     "Verification token",
+		"位置":           "Location",
+		"数据目录":         "Data folder",
+		"会话目录":         "Session folder",
+		"pi 的会话目录":     "pi's session folder",
+		"本应用的会话":       "This app's sessions",
+		"项目下的 pi 本地会话": "Local pi sessions in projects",
+		"配置版本":         "Config version",
+		"操作系统":         "Operating system",
+		"链接":           "Links",
+		"pi 项目":        "pi project",
+		"NSGo 框架":      "NSGo framework",
+		"pi 的 models.json 里没有自定义供应商，或者还没探测完。":                                   "No custom providers in pi's models.json, or detection has not finished yet.",
+		"放在数据目录的 themes 里：JSON 或 YAML，写角色色、tokens、字体与圆角；也读 shadcn/ui 主题文件。":     "Place JSON or YAML theme files in the data folder under themes. They define role colors, tokens, fonts and corner radii; shadcn/ui themes are also supported.",
+		"供应商测试/余额、飞书与 Git 的网络请求；留空直连。":                                          "Network requests for provider tests and balances, Feishu and Git; leave empty for a direct connection.",
+		"启动 pi 与 ACP 时写入 HTTP(S)_PROXY；重启 Agent 后生效。":                           "Sets HTTP(S)_PROXY when launching pi and ACP; takes effect after restarting the agent.",
+		"NO_PROXY，逗号分隔域名或网段；两侧共用。":                                              "NO_PROXY: comma-separated domains or networks, shared by the app and agents.",
+		"在数据目录的 plugins 里放一个 plugin.json，就能给命令面板加命令、给外观加主题。":                    "Place a plugin.json under plugins in the data folder to add palette commands and themes.",
+		"飞书开放平台的「事件订阅」地址填 http://<本机地址>:<远程端口>/api/feishu；先在「远程」里开启服务。":         "Set the Feishu event subscription URL to http://<local-address>:<remote-port>/api/feishu. Enable the service in Remote first.",
+		"飞书应用「事件订阅」里的 Verification Token；不填就不接收。":                               "The Verification Token from the Feishu app's event subscription settings; messages are not received if empty.",
+		"收到群消息后，把这一轮的回答也发到群里（用上面的 Webhook）。":                                    "Send the answer back to the group after receiving a group message, using the webhook above.",
+		"发一条测试消息，确认地址与签名都对。":                                                    "Send a test message to check the address and signature.",
+		"内置 Claude / Gemini / Codex；也可以在这里加任何 ACP 命令，写进数据目录的 acp/presets.json。": "Includes Claude, Gemini and Codex. Add any ACP command here; presets are saved to acp/presets.json in the data folder.",
+		"pi --mode rpc（会话、工具、模型都由 pi 提供）":                                       "pi --mode rpc (sessions, tools and models are provided by pi)",
+		"从 GitHub Release 的 appcast 检查；direct 构建会下载、校验并安装。":                     "Checks the GitHub Release appcast; direct builds download, verify and install updates.",
+		"累计":          "Total",
+		"最近 12 周":     "Last 12 weeks",
+		"正在读取会话数量":    "Reading session count",
+		"工具权限：":       "Tool permission: ",
+		"%s · 手机端 %s": "%s · Mobile %s",
+		"界面字体":        "Interface font",
+		"等宽字体":        "Monospace font",
+		"留空跟随主题":      "Leave empty to follow the theme",
+		"留空用系统等宽字体":   "Leave empty to use the system monospace font",
+		"系统已安装的字体名，如 Georgia；留空跟随主题。回车或点「应用」生效。":  "An installed font name, such as Georgia; leave empty to follow the theme. Press Enter or Apply to use it.",
+		"编辑器使用的等宽字体名，如 JetBrains Mono；留空用系统等宽字体。": "A monospace font for the editor, such as JetBrains Mono; leave empty to use the system monospace font.",
 		"品牌":             "Branding",
 		"Logo 风格":        "Logo style",
 		"pi TUI 彩色":      "pi TUI color",
@@ -1783,6 +1947,92 @@ var messages = map[string]map[string]string{
 		"共 %d 题，请到桌面端回答。": "%d questions: answer them on the desktop.",
 	},
 	langZhTW: {
+		"还没有用量":                   "尚無用量",
+		"未选择":                     "未選擇",
+		"已就绪":                     "已就緒",
+		"未配置":                     "未設定",
+		"已失效":                     "已失效",
+		"未知":                      "未知",
+		"找不到 pi":                  "找不到 pi",
+		"检测中…":                    "檢查中…",
+		"刚刚":                      "剛剛",
+		"今天":                      "今天",
+		"昨天":                      "昨天",
+		"本周":                      "本週",
+		"更早":                      "更早",
+		"已停止 · 用时 %s":             "已停止 · 用時 %s",
+		"没找到：":                    "找不到：",
+		"展开全文（%d 字）":              "展開全文（%d 字）",
+		"PiDeck Lite · %d 个会话运行中": "PiDeck Lite · %d 個工作階段執行中",
+		"English":                 "英文",
+		"调整侧栏宽度":                  "調整側欄寬度",
+		"调整面板宽度":                  "調整面板寬度",
+		"调整终端高度":                  "調整終端機高度",
+		"命令面板":                    "命令面板",
+		"切换外观":                    "切換外觀",
+		"这个页面是 %s，电脑上是 %s；刷新后一起用新版本": "這個頁面是 %s，電腦上是 %s；重新整理後一起使用新版本",
+		"移除项目…":   "移除專案…",
+		"SSH 主机":  "SSH 主機",
+		"WSL 发行版": "WSL 發行版",
+		"复制安装命令":  "複製安裝命令",
+		"安装命令":    "安裝命令",
+		"文档":      "文件",
+		"预设只是一条启动命令：标着 npx 的第一次运行会自己下载；其余需要本机装好并登录该 CLI。状态按本机 PATH 检查。": "預設是一條啟動命令：標示 npx 的首次執行會自動下載；其他 CLI 需在本機安裝並登入。狀態依本機 PATH 檢查。",
+		"ACP 智能体": "ACP 智慧代理",
+		"发送方式":    "傳送方式",
+		"从 Claude Code、Codex、Cursor 等工具的历史里挑出会话，转换后复制到本应用自己的会话目录：原文件不动。": "從 Claude Code、Codex、Cursor 等工具的歷史中挑選工作階段，轉換後複製到本應用程式的工作階段目錄：原始檔案不變。",
+		"服务":   "服務",
+		"端口":   "連接埠",
+		"连接方式": "連線方式",
+		"手机端":  "手機端",
+		"让手机端连接这台电脑上的项目和会话；关闭后所有手机连接立即断开。": "讓手機端連線至這台電腦上的專案與工作階段；關閉後所有手機連線會立即中斷。",
+		"手机连接地址里的端口，需在防火墙中放行。":             "手機連線位址中的連接埠，需在防火牆中放行。",
+		"手机端连接时需要；重新生成会让旧手机失效。":            "手機端連線時需要；重新產生後舊的連線會失效。",
+		"没有读到供应商":      "找不到供應商",
+		"常用模型":         "常用模型",
+		"供应商与认证":       "供應商與驗證",
+		"冲突":           "衝突",
+		"主题文件":         "主題檔案",
+		"pi 可执行文件":     "pi 執行檔",
+		"pi 会话目录":      "pi 工作階段目錄",
+		"pi 配置目录":      "pi 設定目錄",
+		"应用请求代理":       "應用程式請求代理",
+		"Agent 代理":     "Agent 代理",
+		"直连名单":         "直接連線清單",
+		"本机":           "本機",
+		"网络代理":         "網路代理",
+		"其它机器":         "其他電腦",
+		"还没有插件":        "尚無外掛",
+		"验证 Token":     "驗證 Token",
+		"位置":           "位置",
+		"数据目录":         "資料目錄",
+		"会话目录":         "工作階段目錄",
+		"pi 的会话目录":     "pi 的工作階段目錄",
+		"本应用的会话":       "本應用程式的工作階段",
+		"项目下的 pi 本地会话": "專案中的 pi 本機工作階段",
+		"配置版本":         "設定版本",
+		"操作系统":         "作業系統",
+		"链接":           "連結",
+		"pi 项目":        "pi 專案",
+		"NSGo 框架":      "NSGo 框架",
+		"pi 的 models.json 里没有自定义供应商，或者还没探测完。":                                   "pi 的 models.json 中沒有自訂供應商，或尚未完成偵測。",
+		"放在数据目录的 themes 里：JSON 或 YAML，写角色色、tokens、字体与圆角；也读 shadcn/ui 主题文件。":     "放在資料目錄中的 themes：JSON 或 YAML，可設定角色色彩、tokens、字型與圓角；也支援 shadcn/ui 主題檔案。",
+		"供应商测试/余额、飞书与 Git 的网络请求；留空直连。":                                          "供應商測試與餘額、飛書及 Git 的網路請求；留空則直接連線。",
+		"启动 pi 与 ACP 时写入 HTTP(S)_PROXY；重启 Agent 后生效。":                           "啟動 pi 與 ACP 時設定 HTTP(S)_PROXY；重新啟動 Agent 後生效。",
+		"NO_PROXY，逗号分隔域名或网段；两侧共用。":                                              "NO_PROXY：以逗號分隔網域或網段，應用程式與 Agent 共用。",
+		"在数据目录的 plugins 里放一个 plugin.json，就能给命令面板加命令、给外观加主题。":                    "在資料目錄的 plugins 中放入 plugin.json，即可新增命令面板命令與外觀主題。",
+		"飞书开放平台的「事件订阅」地址填 http://<本机地址>:<远程端口>/api/feishu；先在「远程」里开启服务。":         "飛書開放平台的「事件訂閱」位址填入 http://<本機位址>:<遠端連接埠>/api/feishu；先在「遠端」中開啟服務。",
+		"飞书应用「事件订阅」里的 Verification Token；不填就不接收。":                               "飛書應用程式「事件訂閱」中的 Verification Token；留空則不接收。",
+		"收到群消息后，把这一轮的回答也发到群里（用上面的 Webhook）。":                                    "收到群組訊息後，使用上方的 Webhook 將這一輪的回答傳回群組。",
+		"发一条测试消息，确认地址与签名都对。":                                                    "傳送測試訊息，確認位址與簽章皆正確。",
+		"内置 Claude / Gemini / Codex；也可以在这里加任何 ACP 命令，写进数据目录的 acp/presets.json。": "內建 Claude / Gemini / Codex；也可在此新增任何 ACP 命令，儲存至資料目錄的 acp/presets.json。",
+		"pi --mode rpc（会话、工具、模型都由 pi 提供）":                                       "pi --mode rpc（工作階段、工具與模型皆由 pi 提供）",
+		"从 GitHub Release 的 appcast 检查；direct 构建会下载、校验并安装。":                     "檢查 GitHub Release 的 appcast；direct 版本會下載、驗證並安裝更新。",
+		"累计":             "累計",
+		"最近 12 周":        "最近 12 週",
+		"正在读取会话数量":       "正在讀取工作階段數量",
+		"工具权限：":          "工具權限：",
+		"%s · 手机端 %s":    "%s · 手機端 %s",
 		"品牌":             "品牌",
 		"Logo 风格":        "Logo 風格",
 		"pi TUI 彩色":      "pi TUI 彩色",

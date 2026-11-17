@@ -446,7 +446,7 @@ func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
-					ui.Text("上下文", 12, ui.Regular, colors.Muted),
+					ui.Text(T("上下文"), 12, ui.Regular, colors.Muted),
 					core.View{Style: core.Style{FlexGrow: 1}},
 					ui.Textf(func() string {
 						if ctxWindow == 0 {

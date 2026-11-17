@@ -14,7 +14,7 @@ import (
 // ui.IconButton take a Label for assistive technology only, so the app
 // wraps what has no words of its own.
 func hint(label string, n core.Node) core.Node {
-	return hintOf(func() string { return label }, n)
+	return hintOf(func() string { return T(label) }, n)
 }
 
 // hintOf is hint for a label that can change, such as a translated one or

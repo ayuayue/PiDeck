@@ -20,7 +20,7 @@ func (a *app) settingsResources() core.Node {
 		colors := ui.ColorsOf(cx)
 		if a.resourcesLoading.Get() && !a.resourcesLoaded {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-				Children: []core.Node{ui.Spinner{Size: 16}, ui.Text("正在读取技能与扩展…", 11.5, ui.Regular, colors.Muted)}}
+				Children: []core.Node{ui.Spinner{Size: 16}, ui.Text(T("正在读取技能与扩展…"), 11.5, ui.Regular, colors.Muted)}}
 		}
 		r := a.resources.Get()
 		var skillRows []core.Node
@@ -55,7 +55,7 @@ func (a *app) settingsResources() core.Node {
 			})
 		}
 		if len(skillRows) == 0 {
-			skillRows = append(skillRows, core.Text{Content: "没有读到技能；技能放在 pi 配置目录的 skills 下。",
+			skillRows = append(skillRows, core.Text{Content: T("没有读到技能；技能放在 pi 配置目录的 skills 下。"),
 				Style: core.Style{FontSize: 11, Padding: core.Symmetric(6, 2)}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		var extRows []core.Node
@@ -76,7 +76,7 @@ func (a *app) settingsResources() core.Node {
 					Size: ui.SizeSmall, TestID: "extension-toggle-" + strings.ReplaceAll(ex.Bare, ":", "-"),
 					OnChange: func(on bool) { a.toggleExtension(ex.Bare, on) }}
 			} else {
-				control = ui.Text("自动加载", 10, ui.Regular, colors.Faint)
+				control = ui.Text(T("自动加载"), 10, ui.Regular, colors.Faint)
 			}
 			extRows = append(extRows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9,
 				MinHeight: core.Pt(38), Padding: core.Symmetric(3, 2)}, Children: []core.Node{
@@ -96,7 +96,7 @@ func (a *app) settingsResources() core.Node {
 			}})
 		}
 		if len(extRows) == 0 {
-			extRows = append(extRows, core.Text{Content: "没有读到扩展。",
+			extRows = append(extRows, core.Text{Content: T("没有读到扩展。"),
 				Style: core.Style{FontSize: 11, Padding: core.Symmetric(6, 2)}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		children := []core.Node{

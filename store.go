@@ -162,7 +162,7 @@ type config struct {
 	NotifyOnDone     bool `json:"notifyOnDone"`
 	NotifyOnlyHidden bool `json:"notifyOnlyHidden"`
 	// Language is the interface's language: "" follows the system, else
-	// zh-CN, zh-TW or en-US.
+	// one of supportedLanguages.
 	Language string `json:"language,omitempty"`
 	// Feishu posts a finished turn to a group bot. The webhook is the
 	// bot's URL; Secret is its signing key, when it has one. Inbound
@@ -371,9 +371,7 @@ func normalizeConfig(c *config) bool {
 		c.ProjectSort = ""
 		changed = true
 	}
-	switch c.Language {
-	case "", langZhCN, langZhTW, langEnUS:
-	default:
+	if c.Language != langSystem && !supportedLanguage(c.Language) {
 		c.Language = ""
 		changed = true
 	}

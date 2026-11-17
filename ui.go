@@ -22,7 +22,7 @@ import (
 func (a *app) view() core.Node {
 	return core.View{Style: ui.FillRest, Children: []core.Node{
 		core.Dynamic(func(cx *core.Scope) core.Node {
-			_ = a.langRev.Get()
+			a.langRev.Get()
 			// Appearance is read so a system light/dark flip rebuilds the
 			// chrome too: its colors are taken when it is built.
 			_ = cx.Env().Dark()
@@ -79,7 +79,7 @@ func (a *app) view() core.Node {
 		a.taskFormDialog(),
 		a.projectGroupDialog(),
 		a.workspaceRenameDialog(),
-		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: "关闭", TestID: "toasts"},
+		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: T("关闭"), TestID: "toasts"},
 	}}
 }
 
@@ -89,13 +89,13 @@ func (a *app) shell() core.Node {
 		TestID:         "shell",
 		Open:           a.sidebar.Get,
 		OnOpenChange:   func(open bool) { a.sidebar.Set(open); a.remember() },
-		ToggleLabel:    "侧栏",
+		ToggleLabel:    T("侧栏"),
 		Width:          a.railWidth.Get,
 		OnWidthChange:  a.setRailWidth,
 		DefaultWidth:   292,
 		MinWidth:       240,
 		MaxWidth:       400,
-		ResizeLabel:    "调整侧栏宽度",
+		ResizeLabel:    T("调整侧栏宽度"),
 		SidebarActions: []core.Node{a.railActions()},
 		Sidebar:        []core.Node{a.rail()},
 		SidebarFooter:  []core.Node{a.railFooter()},
@@ -107,8 +107,8 @@ func (a *app) shell() core.Node {
 		Right:              []core.Node{a.drawerPanel()},
 		RightHeader:        []core.Node{a.headActions(true)},
 		RightOpen:          a.drawer.Get,
-		RightToggleLabel:   "会话面板",
-		RightResizeLabel:   "调整面板宽度",
+		RightToggleLabel:   T("会话面板"),
+		RightResizeLabel:   T("调整面板宽度"),
 		RightWidth:         a.drawerWidth.Get,
 		OnRightWidthChange: a.setDrawerWidth,
 		RightDefaultWidth:  316,
@@ -130,7 +130,7 @@ func (a *app) headActions(inDrawer bool) core.Node {
 			row.Padding = core.Edges{Right: core.Insets(cx).Right + desktop.TitleBar(cx).Right}
 		}
 		return core.View{Style: row, Children: []core.Node{
-			hint("终端", ui.IconButton{Icon: lucide.SquareTerminal, Label: "终端", Size: 28, IconSize: 14, TestID: "terminal-toggle",
+			hint("终端", ui.IconButton{Icon: lucide.SquareTerminal, Label: T("终端"), Size: 28, IconSize: 14, TestID: "terminal-toggle",
 				Selected: a.term.open.Get, OnPress: a.toggleTerminal}),
 			hint("Git", ui.IconButton{Icon: lucide.GitBranch, Label: "Git", Size: 28, IconSize: 14, TestID: "git-toggle",
 				Selected: func() bool { return a.drawer.Get() && a.drawerTab.Get() == "git" }, OnPress: a.openGit}),
@@ -156,7 +156,7 @@ func (a *app) workArea() core.Node {
 	return base.ResizablePanelGroup{
 		Axis:                 base.Vertical,
 		TestID:               "work-area",
-		HandleLabel:          "调整终端高度",
+		HandleLabel:          T("调整终端高度"),
 		Style:                core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0)},
 		HandleStyleFunc:      ui.HandleLine(a.cx),
 		HandleThumbStyle:     ui.HandleThumb(a.cx),
@@ -192,7 +192,7 @@ func (a *app) sessionPane() core.Node {
 // railActions are the rail header's buttons.
 func (a *app) railActions() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-		hint("新建会话", ui.IconButton{Icon: lucide.SquarePen, Label: "新建会话", Size: 30, IconSize: 15, OnPress: func() {
+		hint("新建会话", ui.IconButton{Icon: lucide.SquarePen, Label: T("新建会话"), Size: 30, IconSize: 15, OnPress: func() {
 			ws := a.activeWS.Get()
 			if ws == "" {
 				if list := a.workspaces.Get(); len(list) > 0 {
@@ -201,8 +201,8 @@ func (a *app) railActions() core.Node {
 			}
 			a.newSession(ws)
 		}}),
-		hint("添加工作区", ui.IconButton{Icon: lucide.FolderPlus, Label: "添加工作区", Size: 30, IconSize: 15, OnPress: func() { a.pickNative("workspace") }}),
-		hint("命令面板", ui.IconButton{Icon: lucide.Command, Label: "命令面板", Size: 30, IconSize: 15, TestID: "rail-palette", OnPress: func() { a.palette.Set(true) }}),
+		hint("添加工作区", ui.IconButton{Icon: lucide.FolderPlus, Label: T("添加工作区"), Size: 30, IconSize: 15, OnPress: func() { a.pickNative("workspace") }}),
+		hint("命令面板", ui.IconButton{Icon: lucide.Command, Label: T("命令面板"), Size: 30, IconSize: 15, TestID: "rail-palette", OnPress: func() { a.palette.Set(true) }}),
 	}}
 }
 
@@ -223,18 +223,18 @@ func (a *app) rail() core.Node {
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{ContentFunc: func() string { return fmt.Sprint(len(a.workspaces.Get())) },
 						Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
-					core.View{OnPress: func(core.PressEvent) { a.pickNative("workspace") }, Role: core.RoleButton, Label: "添加项目",
+					core.View{OnPress: func(core.PressEvent) { a.pickNative("workspace") }, Role: core.RoleButton, Label: T("添加项目"),
 						TestID: "add-project",
 						StyleFunc: func() core.Style {
 							return core.Style{Direction: core.Row, Padding: core.Symmetric(1, 4), CornerRadius: 4,
 								Hover: &core.Style{Background: colors.Hover()}}
 						}, Children: []core.Node{ui.Icon(lucide.Plus, 11, colors.Muted)}},
-					core.View{OnPress: func(core.PressEvent) { a.openTargetDialog(targetWSL) }, Role: core.RoleButton, Label: "添加 WSL 工作区",
+					core.View{OnPress: func(core.PressEvent) { a.openTargetDialog(targetWSL) }, Role: core.RoleButton, Label: T("添加 WSL 工作区"),
 						StyleFunc: func() core.Style {
 							return core.Style{Direction: core.Row, Padding: core.Symmetric(1, 4), CornerRadius: 4,
 								Hover: &core.Style{Background: colors.Hover()}}
 						}, Children: []core.Node{ui.Text("WSL", 9.5, ui.Medium, colors.Faint)}},
-					core.View{OnPress: func(core.PressEvent) { a.openTargetDialog(targetSSH) }, Role: core.RoleButton, Label: "添加 SSH 工作区",
+					core.View{OnPress: func(core.PressEvent) { a.openTargetDialog(targetSSH) }, Role: core.RoleButton, Label: T("添加 SSH 工作区"),
 						StyleFunc: func() core.Style {
 							return core.Style{Direction: core.Row, Padding: core.Symmetric(1, 4), CornerRadius: 4,
 								Hover: &core.Style{Background: colors.Hover()}}
@@ -250,7 +250,7 @@ func (a *app) groupLabel(text string) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		return core.View{Style: core.Style{Padding: core.Edges{Top: 6, Right: 8, Bottom: 1, Left: 8}}, Children: []core.Node{
-			core.Text{Content: text, Style: core.Style{FontFamily: monoFont(), FontSize: 9, LetterSpacing: 0.5},
+			core.Text{Content: T(text), Style: core.Style{FontFamily: monoFont(), FontSize: 9, LetterSpacing: 0.5},
 				StyleFunc: ui.Colored(colors.Faint)},
 		}}
 	})
@@ -330,7 +330,7 @@ func (a *app) newSessionButton() core.Node {
 			}
 			a.newSession(ws)
 		},
-		Role: core.RoleButton, Label: "新建会话", TestID: "rail-new-session",
+		Role: core.RoleButton, Label: T("新建会话"), TestID: "rail-new-session",
 		StyleFunc: func() core.Style {
 			p := colors.Now()
 			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(34), Padding: core.Symmetric(0, 10),
@@ -557,7 +557,7 @@ func (a *app) projectCount(ws *workspace) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		if ws.PiLoading.Get() {
-			return core.View{TestID: "project-count-loading", Accessible: true, Label: "正在读取会话数量",
+			return core.View{TestID: "project-count-loading", Accessible: true, Label: T("正在读取会话数量"),
 				Style:    core.Style{Width: core.Pt(13), Height: core.Pt(8), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
 				Children: []core.Node{ui.SkeletonBlock{Width: core.Pt(13), Height: core.Pt(8)}}}
 		}
@@ -571,7 +571,7 @@ func (a *app) projectCount(ws *workspace) core.Node {
 func (a *app) projectLoadingRows() []core.Node {
 	rows := make([]core.Node, 0, 3)
 	for i := 0; i < 3; i++ {
-		rows = append(rows, core.View{TestID: "project-loading-row", Accessible: true, Label: "正在读取历史会话",
+		rows = append(rows, core.View{TestID: "project-loading-row", Accessible: true, Label: T("正在读取历史会话"),
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(28), Padding: core.Symmetric(0, 8)},
 			Children: []core.Node{
 				ui.SkeletonBlock{Width: core.Pt(6), Height: core.Pt(6), Round: true, Index: i * 3},
@@ -712,7 +712,7 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 func (a *app) railFooter() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
 		Width: core.Pct(100), Padding: core.Edges{Left: 2, Right: 2}}, Children: []core.Node{
-		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: "设置", Size: 28, IconSize: 14.5,
+		hint("设置", ui.IconButton{Icon: lucide.Settings, Label: T("设置"), Size: 28, IconSize: 14.5,
 			Selected: func() bool { return a.paneVisible() && a.activePane.Get() == paneSettings }, OnPress: a.openSettingsPane}),
 		a.announceButton(),
 		a.feedbackButton(),
@@ -721,7 +721,7 @@ func (a *app) railFooter() core.Node {
 				return lucide.Sun()
 			}
 			return lucide.Moon()
-		}, Label: "切换外观", Size: 28, IconSize: 14.5, OnPress: a.cycleTheme}),
+		}, Label: T("切换外观"), Size: 28, IconSize: 14.5, OnPress: a.cycleTheme}),
 	}}
 }
 
@@ -734,7 +734,7 @@ func (a *app) tabBar() core.Node {
 				core.Each(a.tabs.Get, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
 					return a.tab(id)
 				}),
-				hint("新建会话", ui.IconButton{Icon: lucide.Plus, Label: "新建会话", Size: 26, IconSize: 13, OnPress: func() {
+				hint("新建会话", ui.IconButton{Icon: lucide.Plus, Label: T("新建会话"), Size: 26, IconSize: 13, OnPress: func() {
 					a.newSession(a.activeWS.Get())
 				}}),
 				// A line keeps the panes' tabs apart from the sessions'.
@@ -797,7 +797,7 @@ func (a *app) tab(id func() string) core.Node {
 				}},
 				core.Text{ContentFunc: func() string { return sess().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 					Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
-				core.View{OnPress: func(core.PressEvent) { a.closeTab(id()) }, Role: core.RoleButton, Label: "关闭标签页",
+				core.View{OnPress: func(core.PressEvent) { a.closeTab(id()) }, Role: core.RoleButton, Label: T("关闭标签页"),
 					StyleFunc: func() core.Style {
 						return core.Style{Width: core.Pt(18), Height: core.Pt(18), CornerRadius: 5, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 							Transition: pressMotion, Hover: &core.Style{Background: colors.Pressed()}, Active: &core.Style{Background: colors.Pressed()}}
@@ -930,7 +930,7 @@ func (a *app) drawerOverview() core.Node {
 			if u.Total > 0 && m.ContextWindow > 0 {
 				return fmt.Sprintf("%s / %s", tokens(u.Total), tokens(m.ContextWindow))
 			}
-			return "还没有用量"
+			return T("还没有用量")
 		}
 		fraction := func() float64 {
 			st := s.stats.Get()
@@ -958,7 +958,7 @@ func (a *app) drawerOverview() core.Node {
 		models := func() string {
 			m := s.model.Get()
 			if m.ID == "" {
-				return "未选择"
+				return T("未选择")
 			}
 			return m.label()
 		}
@@ -974,10 +974,10 @@ func (a *app) drawerOverview() core.Node {
 				}},
 				core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24)}, Children: []core.Node{
-						core.Text{Content: "模型", Style: core.Style{FontSize: 12, Width: core.Pt(74)}, StyleFunc: ui.Colored(colors.Muted)},
+						core.Text{Content: T("模型"), Style: core.Style{FontSize: 12, Width: core.Pt(74)}, StyleFunc: ui.Colored(colors.Muted)},
 						core.Text{ContentFunc: models, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
 							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
-						core.View{OnPress: func(core.PressEvent) { a.toggleFavModel(s.model.Get()) }, Role: core.RoleButton, Label: "收藏模型",
+						core.View{OnPress: func(core.PressEvent) { a.toggleFavModel(s.model.Get()) }, Role: core.RoleButton, Label: T("收藏模型"),
 							StyleFunc: func() core.Style {
 								return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, AlignItems: core.AlignCenter,
 									JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Hover()}}
@@ -993,7 +993,7 @@ func (a *app) drawerOverview() core.Node {
 						if t := s.thinking.Get(); t != "" {
 							return levelLabel(t)
 						}
-						return "默认"
+						return T("默认")
 					}),
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24)}, Children: []core.Node{
 						core.Text{Content: T("会话 ID"), Style: core.Style{FontSize: 12, Width: core.Pt(74)}, StyleFunc: ui.Colored(colors.Muted)},

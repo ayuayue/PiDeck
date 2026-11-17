@@ -94,7 +94,7 @@ func (a *app) promptDialog() core.Node {
 		}
 		if len(rows) == 0 {
 			rows = append(rows, core.View{Style: core.Style{Padding: core.Symmetric(20, 8), AlignItems: core.AlignCenter},
-				Children: []core.Node{ui.Text("没有匹配的提示词", 12, ui.Regular, colors.Faint)}})
+				Children: []core.Node{ui.Text(T("没有匹配的提示词"), 12, ui.Regular, colors.Faint)}})
 		}
 		return ui.Dialog{
 			Open:         a.promptOpen.Get,
@@ -198,7 +198,7 @@ func (a *app) promptImportDialog() core.Node {
 		var status core.Node
 		if busy {
 			status = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-				ui.Spinner{Size: 12}, ui.Text("正在下载并导入…", 11.5, ui.Regular, colors.Muted)}}
+				ui.Spinner{Size: 12}, ui.Text(T("正在下载并导入…"), 11.5, ui.Regular, colors.Muted)}}
 		} else if a.promptImportErr.Get() != "" {
 			status = core.Text{Content: a.promptImportErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 11, LineHeight: 16},
 				StyleFunc: ui.Colored(colors.Danger)}
@@ -210,7 +210,7 @@ func (a *app) promptImportDialog() core.Node {
 			TestID:       "prompt-import-dialog",
 			Style:        core.Style{Width: core.Pt(540)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
-				core.Text{Content: "填一个 http(s) 链接：JSON 或 YAML，可以是 {prompts:[…]} 或直接一个数组；每条要有 title 和 body（或 prompt）。",
+				core.Text{Content: T("填一个 http(s) 链接：JSON 或 YAML，可以是 {prompts:[…]} 或直接一个数组；每条要有 title 和 body（或 prompt）。"),
 					Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},
 				core.Input{Value: a.promptImportURL.Get, OnChange: a.promptImportURL.Set, Placeholder: "https://…/prompts.json",
 					Label: T("提示词包链接"), TestID: "prompt-import-url", AutoFocus: true,

@@ -129,16 +129,16 @@ func (a *app) visionDialog() core.Node {
 		var body []core.Node
 		if len(providerChoices) > 0 {
 			body = append(body, core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("供应商", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("供应商"), 10.5, ui.Medium, colors.Muted),
 				choiceChips(providerChoices, func() string { return a.visionProvider.Get() }, func(v string) { a.visionProvider.Set(v) }),
 			}})
 		} else {
-			body = append(body, core.Text{Content: "还没有供应商。先在 设置 → 模型与认证 里配置一个支持图片输入的供应商。",
+			body = append(body, core.Text{Content: T("还没有供应商。先在 设置 → 模型与认证 里配置一个支持图片输入的供应商。"),
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Warn)})
 		}
 		body = append(body,
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("图片", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("图片"), 10.5, ui.Medium, colors.Muted),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.visionPath.Get, OnChange: a.visionPath.Set, Placeholder: T("图片路径，或从项目里选"),
@@ -151,7 +151,7 @@ func (a *app) visionDialog() core.Node {
 				}},
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("问题", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("问题"), 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: a.visionQuestion.Get, OnChange: a.visionQuestion.Set, Multiline: true, AutoFocus: true,
 					Placeholder: defaultVisionQuestion, Label: T("问题"), TestID: "vision-question",
 					Style: core.Style{MinHeight: core.Pt(58), MaxHeight: core.Pt(120), Padding: core.Symmetric(8, 10), FontSize: 12.5, Color: colors.Text()},
@@ -161,7 +161,7 @@ func (a *app) visionDialog() core.Node {
 					}},
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("视觉模型", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("视觉模型"), 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: a.visionModel.Get, OnChange: a.visionModel.Set, Placeholder: T("支持图片输入的模型名，如 gpt-4o-mini"),
 					Label: T("视觉模型"), TestID: "vision-model",
 					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: monoFont(), Color: colors.Text(),
@@ -171,13 +171,13 @@ func (a *app) visionDialog() core.Node {
 		switch {
 		case busy:
 			body = append(body, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(6, 0)}, Children: []core.Node{
-				ui.Spinner{Size: 14}, ui.Text("正在读图…", 11.5, ui.Regular, colors.Muted)}})
+				ui.Spinner{Size: 14}, ui.Text(T("正在读图…"), 11.5, ui.Regular, colors.Muted)}})
 		case a.visionErr.Get() != "":
 			body = append(body, core.Text{Content: a.visionErr.Get(), MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16},
 				StyleFunc: ui.Colored(colors.Danger)})
 		case a.visionText.Get() != "":
 			body = append(body, core.View{TestID: "vision-result", Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("描述", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("描述"), 10.5, ui.Medium, colors.Muted),
 				core.Scroll{Style: core.Style{MaxHeight: core.Pt(220)}, Children: []core.Node{
 					core.Text{Content: a.visionText.Get(), Selectable: core.SelectableOn,
 						Style: core.Style{FontSize: 12, LineHeight: 18, Color: colors.Text()}},

@@ -32,7 +32,7 @@ func (a *app) parallelAskDialog() core.Node {
 		var answerNode core.Node
 		if hasAnswer {
 			answerNode = core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: []core.Node{
-				ui.Text("答案", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("答案"), 10.5, ui.Medium, colors.Muted),
 				core.View{StyleFunc: func() core.Style {
 					return core.Style{MaxHeight: core.Pt(220), Padding: core.All(10), CornerRadius: 8,
 						BorderWidth: 1, BorderColor: colors.Line(), Background: colors.Inset()}
@@ -67,7 +67,7 @@ func (a *app) parallelAskDialog() core.Node {
 			Children: []core.Node{core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: 4}}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-						ui.Text("问题", 10.5, ui.Medium, colors.Muted),
+						ui.Text(T("问题"), 10.5, ui.Medium, colors.Muted),
 						core.Input{Value: a.askText.Get, OnChange: a.askText.Set,
 							Multiline: true, Placeholder: T("在另一个会话里问什么？"), Label: T("问询问题"), TestID: "ask-text",
 							Style: core.Style{Height: core.Pt(96), Padding: core.Symmetric(8, 10), CornerRadius: 8,
@@ -90,7 +90,7 @@ func (a *app) parallelAskDialog() core.Node {
 					}},
 					answerNode,
 					buttonRow,
-					core.Text{Content: "问询会新建一个会话，主会话不受影响；答完可以引用回输入框，也可以打开那个会话继续聊。",
+					core.Text{Content: T("问询会新建一个会话，主会话不受影响；答完可以引用回输入框，也可以打开那个会话继续聊。"),
 						Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}}},

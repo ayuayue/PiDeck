@@ -317,7 +317,7 @@ func (a *app) providerDialog() core.Node {
 			})
 		}
 		if len(modelRows) == 0 {
-			modelRows = append(modelRows, core.Text{Content: "这个供应商还没有模型条目。",
+			modelRows = append(modelRows, core.Text{Content: T("这个供应商还没有模型条目。"),
 				Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		status := a.providerTest.Get()
@@ -418,7 +418,7 @@ func (a *app) providerDialog() core.Node {
 					}},
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-							ui.Text("模型", 10.5, ui.Medium, colors.Muted),
+							ui.Text(T("模型"), 10.5, ui.Medium, colors.Muted),
 							ui.Text(strconv.Itoa(len(a.providerModels)), 10, ui.Regular, colors.Faint),
 						}},
 						core.View{Style: core.Style{Gap: 1}, Children: modelRows},
@@ -437,7 +437,7 @@ func (a *app) providerDialog() core.Node {
 								Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(balanceColor)},
 						}}
 					}},
-					core.Text{Content: "只写回 api、baseUrl、apiKey 三个字段；models、compat 等保持原样。保存后重启 Agent 生效。",
+					core.Text{Content: T("只写回 api、baseUrl、apiKey 三个字段；models、compat 等保持原样。保存后重启 Agent 生效。"),
 						Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}}},

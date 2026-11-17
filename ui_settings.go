@@ -100,7 +100,7 @@ func (a *app) settingsPane() core.Node {
 				Background: colors.Inset(), Borders: core.Edges{Right: 1}, BorderColors: core.EdgeColors{Right: colors.Now().Line}}
 		}, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Left: 9, Top: 4, Bottom: 8}}, Children: []core.Node{
-				ui.Text("设置", 13, ui.Semibold, colors.Text),
+				ui.Text(T("设置"), 13, ui.Semibold, colors.Text),
 			}},
 			core.View{Style: core.Style{Padding: core.Edges{Left: 1, Right: 1, Bottom: 8}}, Children: []core.Node{
 				core.Input{Value: a.settingsQuery.Get, OnChange: a.settingsQuery.Set, Placeholder: T("搜索设置"),
@@ -181,6 +181,7 @@ func (a *app) loadSettingsSection(id string) {
 // being typed.
 func (a *app) settingsRail(nav []core.Node) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		a.langRev.Get()
 		colors := ui.ColorsOf(cx)
 		query := strings.ToLower(strings.TrimSpace(a.settingsQuery.Get()))
 		if query == "" {
@@ -299,8 +300,16 @@ type choice[T comparable] struct {
 	Label string
 }
 
+func languageChoices() []choice[string] {
+	options := []choice[string]{{langSystem, languageName(langSystem)}}
+	for _, code := range supportedLanguages {
+		options = append(options, choice[string]{code, languageName(code)})
+	}
+	return options
+}
+
 // choiceChips is a row of small options, one of them chosen.
-func choiceChips[T comparable](options []choice[T], value func() T, onPick func(T)) core.Node {
+func choiceChips[V comparable](options []choice[V], value func() V, onPick func(V)) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		var chips []core.Node
@@ -309,7 +318,7 @@ func choiceChips[T comparable](options []choice[T], value func() T, onPick func(
 			on := func() bool { return value() == opt.Value }
 			chips = append(chips, core.View{
 				OnPress: func(core.PressEvent) { onPick(opt.Value) },
-				Role:    core.RoleRadio, Label: opt.Label,
+				Role:    core.RoleRadio, Label: T(opt.Label),
 				StyleFunc: func() core.Style {
 					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(24), Padding: core.Symmetric(0, 9),
 						CornerRadius: 12, BorderWidth: 1, BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}}
@@ -319,10 +328,10 @@ func choiceChips[T comparable](options []choice[T], value func() T, onPick func(
 					}
 					return st
 				},
-				Children: []core.Node{ui.Text(opt.Label, 11.5, ui.Regular, colors.Text)},
+				Children: []core.Node{ui.Text(T(opt.Label), 11.5, ui.Regular, colors.Text)},
 			})
 		}
-		return core.View{Style: core.Style{Direction: core.Row, Gap: 5}, Children: chips}
+		return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5}, Children: chips}
 	})
 }
 
@@ -356,7 +365,7 @@ func (a *app) settingsGeneral() core.Node {
 				Children: []core.Node{ui.Text(label, 11.5, ui.Regular, colors.Text)},
 			}
 		}
-		modelChips = append(modelChips, addChip("跟随 pi 当前模型", func() bool { return a.defaultModel.ID == "" }, func() {
+		modelChips = append(modelChips, addChip(T("跟随 pi 当前模型"), func() bool { return a.defaultModel.ID == "" }, func() {
 			a.defaultModel = modelChoice{}
 			a.st.edit(func(c *config) { c.Model = modelChoice{} })
 		}))
@@ -372,7 +381,7 @@ func (a *app) settingsGeneral() core.Node {
 				}))
 		}
 		var levelChips []core.Node
-		levelChips = append(levelChips, addChip("跟随会话", func() bool { return a.defaultThinking == "" }, func() {
+		levelChips = append(levelChips, addChip(T("跟随会话"), func() bool { return a.defaultThinking == "" }, func() {
 			a.defaultThinking = ""
 			a.st.edit(func(c *config) { c.Thinking = "" })
 		}))
@@ -387,9 +396,9 @@ func (a *app) settingsGeneral() core.Node {
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
 				setGroup("界面",
 					setRow("语言", "界面文案；切换后立即生效，未翻译的条目保留中文。",
-						choiceChips([]choice[string]{
-							{langSystem, "跟随系统"}, {langZhCN, "简体中文"}, {langZhTW, "繁體中文"}, {langEnUS, "English"},
-						}, func() string { return a.cfg.Language }, a.setLanguage)),
+						core.View{Style: core.Style{Width: core.Pt(300), MaxWidth: core.Pct(100)}, Children: []core.Node{
+							choiceChips(languageChoices(), func() string { return a.cfg.Language }, a.setLanguage),
+						}}),
 					setDivider(),
 					setRow("内容宽度", "对话正文与输入框的最大宽度；窄一些更好读，宽一些能放下更多代码。",
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(230)}, Children: []core.Node{
@@ -572,7 +581,7 @@ func (a *app) settingsModels() core.Node {
 							BorderWidth: 1, BorderColor: colors.Border(), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 							Hover: &core.Style{Background: colors.Hover()}}
 					},
-					Children: []core.Node{ui.Text("复制登录命令", 10.5, ui.Regular, colors.Muted)}},
+					Children: []core.Node{ui.Text(T("复制登录命令"), 10.5, ui.Regular, colors.Muted)}},
 			}}
 			rows = append(rows, row)
 			if i < len(list)-1 {
@@ -608,7 +617,7 @@ func (a *app) settingsModels() core.Node {
 			}})
 		}
 		if len(favRows) == 0 {
-			favRows = append(favRows, core.Text{Content: "在输入框的模型菜单里点星标收藏；收藏的模型排在最前，可在这里调顺序。",
+			favRows = append(favRows, core.Text{Content: T("在输入框的模型菜单里点星标收藏；收藏的模型排在最前，可在这里调顺序。"),
 				Style: core.Style{FontSize: 11, LineHeight: 16, Padding: core.Symmetric(4, 2)}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		return core.Scroll{TestID: "settings-content", Style: ui.FillRest, Children: []core.Node{
@@ -618,7 +627,7 @@ func (a *app) settingsModels() core.Node {
 				setGroup("供应商与认证", rows...),
 				a.authGroup(),
 				a.piSettingsGroup(),
-				core.Text{Content: "凭据由 pi 管理（~/.pi/agent/auth.json）。在终端里执行登录命令后，点下方的「重新检测」。",
+				core.Text{Content: T("凭据由 pi 管理（~/.pi/agent/auth.json）。在终端里执行登录命令后，点下方的「重新检测」。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{
 					ui.Button{Text: T("编辑 models.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
@@ -765,7 +774,7 @@ func (a *app) settingsKeys() core.Node {
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 6}, Children: []core.Node{
 				setGroup("命令", rows...),
-				core.Text{Content: "写法：mod（Mac 的 Command / 其他平台的 Ctrl）、ctrl、alt、shift、meta 加键名，例如 mod+shift+g、ctrl+tab、f5。回车保存，留空取消绑定。",
+				core.Text{Content: T("写法：mod（Mac 的 Command / 其他平台的 Ctrl）、ctrl、alt、shift、meta 加键名，例如 mod+shift+g、ctrl+tab、f5。回车保存，留空取消绑定。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.Show{When: func() bool { return len(conflicts) > 0 }, Then: func(*core.Scope) core.Node {
 					return setGroup("冲突", conflicts...)
@@ -847,7 +856,7 @@ func (a *app) settingsLook() core.Node {
 					}},
 					core.Show{When: on, Then: func(*core.Scope) core.Node { return ui.Icon(lucide.Check, 13, colors.Text) }},
 					core.Show{When: func() bool { return !s.Builtin }, Then: func(*core.Scope) core.Node {
-						return ui.Text("用户主题", 9.5, ui.Regular, colors.Faint)
+						return ui.Text(T("用户主题"), 9.5, ui.Regular, colors.Faint)
 					}},
 				},
 			})
@@ -922,7 +931,7 @@ func (a *app) settingsLook() core.Node {
 							a.st.edit(func(c *config) { c.MonoFont = a.cfg.MonoFont })
 						}
 					}, T("等宽字体"), "mono-font", T("留空用系统等宽字体"))),
-				core.Text{Content: "角色：background surface border text textMuted accent danger warning success selection focus scrollbar inset raised field line faint code info track knob。",
+				core.Text{Content: T("角色：background surface border text textMuted accent danger warning success selection focus scrollbar inset raised field line faint code info track knob。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 			}},
 		}}
@@ -997,7 +1006,7 @@ func (a *app) settingsEnv() core.Node {
 		rows = append(rows,
 			setRow("pi 可执行文件", func() string {
 				if !piOK {
-					return "没找到：" + firstLine(info.PiError, 80)
+					return T("没找到：") + firstLine(info.PiError, 80)
 				}
 				return info.PiPath
 			}(), ui.Text(piVersionLine(info), 10.5, ui.Regular, colors.Faint)),
@@ -1063,7 +1072,7 @@ func (a *app) settingsEnv() core.Node {
 		var targets []core.Node
 		if info.TargetsProbing {
 			targets = append(targets, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(2, 0)}, Children: []core.Node{
-				ui.Spinner{Size: 12}, ui.Text("正在检测 WSL 与 SSH…", 11.5, ui.Regular, colors.Muted)}})
+				ui.Spinner{Size: 12}, ui.Text(T("正在检测 WSL 与 SSH…"), 11.5, ui.Regular, colors.Muted)}})
 		}
 		for _, d := range info.WSL {
 			ok := d.PiPath != ""
@@ -1082,14 +1091,14 @@ func (a *app) settingsEnv() core.Node {
 			targets = append(targets, targetStatusRow("SSH", h.Name, status, ok))
 		}
 		if len(info.WSL) == 0 && len(info.SSH) == 0 && !info.TargetsProbing {
-			targets = append(targets, core.Text{Content: "没有读到 WSL 发行版或 SSH Host。",
+			targets = append(targets, core.Text{Content: T("没有读到 WSL 发行版或 SSH Host。"),
 				Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 2}, Children: []core.Node{
 				setGroup("本机", rows...),
 				setGroup("网络代理", proxyRows...),
-				core.Text{Content: "应用代理只影响应用自己发出的请求；Agent 代理在启动进程时注入环境变量。",
+				core.Text{Content: T("应用代理只影响应用自己发出的请求；Agent 代理在启动进程时注入环境变量。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				setGroup("其它机器", targets...),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
@@ -1152,9 +1161,9 @@ func piVersionLine(info envInfo) string {
 		return "pi " + info.PiVersion
 	}
 	if info.PiError != "" {
-		return "找不到 pi"
+		return T("找不到 pi")
 	}
-	return "检测中…"
+	return T("检测中…")
 }
 
 // settingsAddons lists the plugins, what each adds, and whether it runs.
@@ -1193,7 +1202,7 @@ func (a *app) settingsAddons() core.Node {
 					},
 				}
 			} else {
-				control = ui.Text("无法读取", 10.5, ui.Regular, colors.Danger)
+				control = ui.Text(T("无法读取"), 10.5, ui.Regular, colors.Danger)
 			}
 			if plug.Path != "" {
 				dir, path := plug.Dir, plug.Path
@@ -1253,7 +1262,7 @@ func (a *app) settingsAddons() core.Node {
 						a.pluginSettingControl(plug, setting)))
 				}
 				rows = append(rows, core.View{Style: core.Style{Padding: core.Edges{Left: 4, Bottom: 6}, Gap: 3}, Children: []core.Node{
-					core.Text{Content: "设置", Style: core.Style{FontFamily: monoFont(), FontSize: 9, LetterSpacing: 0.5},
+					core.Text{Content: T("设置"), Style: core.Style{FontFamily: monoFont(), FontSize: 9, LetterSpacing: 0.5},
 						StyleFunc: ui.Colored(colors.Faint)},
 					core.View{StyleFunc: func() core.Style {
 						return core.Style{Gap: 1, Padding: core.Symmetric(3, 8), CornerRadius: 7,
@@ -1268,7 +1277,7 @@ func (a *app) settingsAddons() core.Node {
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("插件", rows...),
-				core.Text{Content: "插件只声明命令与主题，不运行代码：命令的动作是填入提示词、执行内置命令、打开链接或切换主题。",
+				core.Text{Content: T("插件只声明命令与主题，不运行代码：命令的动作是填入提示词、执行内置命令、打开链接或切换主题。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: T("新建插件…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "plugin-new",
@@ -1405,7 +1414,7 @@ func (a *app) settingsIntegrations() core.Node {
 						ui.Button{Text: T("打开收藏夹…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "favorites-open",
 							OnPress: func() { a.openFavorites() }}),
 				),
-				core.Text{Content: "默认只发会话标题、状态与一句摘要；开启「把回答发回群」后，回答最多发 1500 字。", Style: core.Style{FontSize: 11, LineHeight: 17},
+				core.Text{Content: T("默认只发会话标题、状态与一句摘要；开启「把回答发回群」后，回答最多发 1500 字。"), Style: core.Style{FontSize: 11, LineHeight: 17},
 					StyleFunc: ui.Colored(colors.Faint)},
 			}},
 		}}
@@ -1459,7 +1468,7 @@ func (a *app) settingsDiagnostics() core.Node {
 				Style: core.Style{FontFamily: monoFont(), FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(color)})
 		}
 		if len(logRows) == 0 {
-			logRows = append(logRows, core.Text{Content: "还没有日志。", Style: core.Style{FontSize: 10.5},
+			logRows = append(logRows, core.Text{Content: T("还没有日志。"), Style: core.Style{FontSize: 10.5},
 				StyleFunc: ui.Colored(colors.Faint)})
 		}
 		var crashRows []core.Node
@@ -1513,13 +1522,13 @@ func (a *app) settingsDiagnostics() core.Node {
 func detectedEditorsText() string {
 	list := detectEditors()
 	if len(list) == 0 {
-		return "没有在 PATH 里找到常见编辑器；可以填一个命令。"
+		return T("没有在 PATH 里找到常见编辑器；可以填一个命令。")
 	}
 	names := make([]string, 0, len(list))
 	for _, e := range list {
 		names = append(names, e.Name)
 	}
-	return "已找到：" + strings.Join(names, "、")
+	return T("已找到：") + strings.Join(names, ", ")
 }
 
 // settingsData shows the folders the app writes.
@@ -1567,7 +1576,7 @@ func (a *app) settingsData() core.Node {
 					setRow("项目下的 pi 本地会话", fmt.Sprintf("%d 个", piCount), nil),
 					setDivider(),
 					setRow("配置版本", fmt.Sprintf("%d", a.cfg.Version),
-						ui.Text("旧文件读取时自动迁移", 10.5, ui.Regular, colors.Faint)),
+						ui.Text(T("旧文件读取时自动迁移"), 10.5, ui.Regular, colors.Faint)),
 				),
 				setGroup("备份",
 					setRow("导出设置包", "配置、插件、主题、提示词、智能体与 ACP 预设打成一个 zip；不含会话与日志。",
@@ -1625,7 +1634,7 @@ func (a *app) settingsAbout() core.Node {
 						a.copyText("https://nsgo.dev/", "链接")
 					}}),
 				),
-				core.Text{Content: "MIT · 数据都在本机 · 会话由 pi 写入自己的目录",
+				core.Text{Content: T("MIT · 数据都在本机 · 会话由 pi 写入自己的目录"),
 					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
 			}},
 		}}

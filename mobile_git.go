@@ -80,13 +80,13 @@ func (a *mobileApp) gitSheet() core.Node {
 		switch {
 		case a.gitBusy.Get() && !st.IsRepo:
 			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.All(12)}, Children: []core.Node{
-				ui.Spinner{Size: 12}, ui.Text("正在读取仓库…", 12, ui.Regular, colors.Muted)}})
+				ui.Spinner{Size: 12}, ui.Text(T("正在读取仓库…"), 12, ui.Regular, colors.Muted)}})
 		case a.gitErr.Get() != "":
 			rows = append(rows, core.Text{Content: a.gitErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 12},
 				StyleFunc: ui.Colored(colors.Danger)})
 		case !st.IsRepo:
 			rows = append(rows, core.View{Style: core.Style{Padding: core.All(12), Gap: 4}, Children: []core.Node{
-				ui.Text("这个项目不是 Git 仓库", 12.5, ui.Medium, colors.Muted),
+				ui.Text(T("这个项目不是 Git 仓库"), 12.5, ui.Medium, colors.Muted),
 				core.Text{Content: st.Error, MaxLines: 2, Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
 			}})
 		default:
@@ -123,7 +123,7 @@ func (a *mobileApp) gitSheet() core.Node {
 			}})
 			if len(st.Files) == 0 {
 				rows = append(rows, core.View{Style: core.Style{Padding: core.All(12)}, Children: []core.Node{
-					ui.Text("工作区干净", 12, ui.Regular, colors.Faint)}})
+					ui.Text(T("工作区干净"), 12, ui.Regular, colors.Faint)}})
 			}
 			for i, f := range st.Files {
 				file := f
@@ -147,7 +147,7 @@ func (a *mobileApp) gitSheet() core.Node {
 				}
 				if file.Staged {
 					row = append(row, core.View{Style: core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, Background: colors.Inset()},
-						Children: []core.Node{ui.Text("已暂存", 9, ui.Medium, colors.Faint)}})
+						Children: []core.Node{ui.Text(T("已暂存"), 9, ui.Medium, colors.Faint)}})
 				}
 				stageIcon, stageLabel := lucide.Plus, "暂存"
 				if file.Staged {
@@ -340,7 +340,7 @@ func (a *mobileApp) gitBranchesSheet() core.Node {
 					StyleFunc: ui.Colored(colors.Text)},
 			}
 			if branch == st.Branch {
-				row = append(row, ui.Text("当前", 10, ui.Medium, colors.Up))
+				row = append(row, ui.Text(T("当前"), 10, ui.Medium, colors.Up))
 			}
 			rows = append(rows, core.View{OnPress: func(core.PressEvent) { a.gitCheckout(branch) },
 				Role: core.RoleButton, Label: branch, TestID: fmt.Sprintf("mobile-git-branch-%d", i),
@@ -351,7 +351,7 @@ func (a *mobileApp) gitBranchesSheet() core.Node {
 		}
 		if len(rows) == 0 {
 			rows = append(rows, core.View{Style: core.Style{Padding: core.All(12)}, Children: []core.Node{
-				ui.Text("没有本地分支", 12, ui.Regular, colors.Faint)}})
+				ui.Text(T("没有本地分支"), 12, ui.Regular, colors.Faint)}})
 		}
 		return ui.Dialog{
 			Open:         a.gitBranchesOpen.Get,
@@ -375,7 +375,7 @@ func (a *mobileApp) gitDiffSheet() core.Node {
 		var body core.Node
 		if a.gitDiffBusy.Get() {
 			body = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.All(16)}, Children: []core.Node{
-				ui.Spinner{Size: 12}, ui.Text("正在读取改动…", 12, ui.Regular, colors.Muted)}}
+				ui.Spinner{Size: 12}, ui.Text(T("正在读取改动…"), 12, ui.Regular, colors.Muted)}}
 		} else {
 			body = core.Scroll{Style: core.Style{MaxHeight: core.Pt(430)}, Children: []core.Node{
 				core.Text{Content: a.gitDiffText.Get(), Selectable: core.SelectableOn,

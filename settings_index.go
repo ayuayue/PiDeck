@@ -17,7 +17,7 @@ type settingEntry struct {
 
 // settingsIndex lists the settings by section and search words.
 var settingsIndex = []settingEntry{
-	{"general", "语言", "language locale english chinese"},
+	{"general", "语言", "language locale english chinese traditional korean japanese russian french 简体 繁体 韩文 日文 俄语 法语 한국어 日本語 Русский Français"},
 	{"general", "内容宽度", "chat width content reading column narrow wide 宽度"},
 	{"general", "项目排序", "project sort order recent created title"},
 	{"general", "排序", "session sort name updated"},
@@ -91,7 +91,7 @@ func searchSettings(query string) []settingEntry {
 	}
 	var out []settingEntry
 	for _, e := range settingsIndex {
-		if strings.Contains(strings.ToLower(e.Label+" "+e.Keywords), q) {
+		if strings.Contains(strings.ToLower(e.Label+" "+T(e.Label)+" "+e.Keywords), q) {
 			out = append(out, e)
 			if len(out) >= 40 {
 				break

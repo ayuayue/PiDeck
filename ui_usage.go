@@ -20,15 +20,15 @@ func (a *app) settingsUsage() core.Node {
 		colors := ui.ColorsOf(cx)
 		if a.usageLoading.Get() && !a.usageLoaded {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-				Children: []core.Node{ui.Spinner{Size: 16}, ui.Text("正在统计本地会话…", 11.5, ui.Regular, colors.Muted)}}
+				Children: []core.Node{ui.Spinner{Size: 16}, ui.Text(T("正在统计本地会话…"), 11.5, ui.Regular, colors.Muted)}}
 		}
 		r := a.usage.Get()
 		if r.Replies == 0 {
 			return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 10},
 				Children: []core.Node{
 					ui.Icon(lucide.ChartColumn, 22, colors.Faint),
-					ui.Text("还没有可统计的用量", 12.5, ui.Regular, colors.Muted),
-					core.Text{Content: "发几轮消息后再来看；统计只读本地会话文件。",
+					ui.Text(T("还没有可统计的用量"), 12.5, ui.Regular, colors.Muted),
+					core.Text{Content: T("发几轮消息后再来看；统计只读本地会话文件。"),
 						Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
 					ui.Button{Text: T("重新统计"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.loadUsage(true) }},
 				}}
@@ -91,9 +91,9 @@ func (a *app) settingsUsage() core.Node {
 					core.View{Style: core.Style{Padding: core.Symmetric(6, 2), Gap: 6}, Children: []core.Node{
 						heat,
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
-							ui.Text("少", 9.5, ui.Regular, colors.Faint),
+							ui.Text(T("少"), 9.5, ui.Regular, colors.Faint),
 							heatKey(colors, 1), heatKey(colors, 2), heatKey(colors, 3), heatKey(colors, 4),
-							ui.Text("多", 9.5, ui.Regular, colors.Faint),
+							ui.Text(T("多"), 9.5, ui.Regular, colors.Faint),
 						}},
 					}}),
 				setGroup("模型", append(modelRows, usageNote(colors,

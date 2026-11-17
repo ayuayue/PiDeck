@@ -147,7 +147,7 @@ func (a *app) loadEarlier(s *session) core.Node {
 					CornerRadius: 14, BorderWidth: 1, BorderColor: colors.Border(), Hover: &core.Style{Background: colors.Hover()}}
 			}, Children: []core.Node{
 				ui.Icon(lucide.ArrowUp, 12, colors.Muted),
-				ui.Text("加载更早的对话", 12, ui.Regular, colors.Muted),
+				ui.Text(T("加载更早的对话"), 12, ui.Regular, colors.Muted),
 			}},
 		}}},
 	}
@@ -462,7 +462,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 						return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7},
 							Children: []core.Node{
 								ui.Icon(lucide.Square, 11, colors.Faint),
-								core.Text{ContentFunc: func() string { return "已停止 · 用时 " + duration(t().elapsed(now())) },
+								core.Text{ContentFunc: func() string { return T("已停止 · 用时 %s", duration(t().elapsed(now()))) },
 									Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Muted)},
 							}}
 					}},
@@ -865,7 +865,7 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 				Style: core.Style{FontFamily: monoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}))
 		}
 		if run.IsError {
-			header = append(header, core.Text{Content: "失败", Style: core.Style{FontSize: detailSize, FontWeight: ui.Medium, FlexShrink: 0},
+			header = append(header, core.Text{Content: T("失败"), Style: core.Style{FontSize: detailSize, FontWeight: ui.Medium, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Danger)})
 		}
 		if body != "" {
@@ -1141,7 +1141,7 @@ func (a *app) contextValue(s *session) string {
 	if m.ContextWindow > 0 && u.Total > 0 {
 		return fmt.Sprintf("%s / %s", tokens(u.Total), tokens(m.ContextWindow))
 	}
-	return "未测量"
+	return T("未测量")
 }
 
 // contextFraction is how full the context is, negative when unknown.
@@ -1190,7 +1190,7 @@ func (a *app) attachments(s *session) chat.View {
 		for i, img := range images {
 			idx := i
 			children = append(children, chat.AttachmentPreview{
-				Label: img.Name, RemoveLabel: "移除图片", Image: core.ImageSource{Data: img.Data},
+				Label: img.Name, RemoveLabel: T("移除图片"), Image: core.ImageSource{Data: img.Data},
 				OnRemove: func() {
 					s.images.Update(func(list []promptImage) []promptImage {
 						if idx < len(list) {
@@ -1227,7 +1227,7 @@ func (a *app) historySkeleton(s *session) core.Node {
 			JustifyContent: core.JustifyCenter, Padding: core.Symmetric(32, 24), Gap: 22}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
 				ui.Spinner{Size: 11, Label: T("正在读取历史会话")},
-				ui.Text("正在读取历史会话…", 10.5, ui.Regular, colors.Faint),
+				ui.Text(T("正在读取历史会话…"), 10.5, ui.Regular, colors.Faint),
 			}},
 			block(0), block(1), block(2),
 		}}},

@@ -27,6 +27,8 @@ func Root(cx *core.Scope) core.Node {
 	return core.Catch{
 		Try: func(*core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
+				// Rebuild dialogs as well as the shell when the language changes.
+				a.langRev.Get()
 				font := a.uiFont.Get()
 				// The reading sizes are built into the views below, so a
 				// changed size rebuilds the window.

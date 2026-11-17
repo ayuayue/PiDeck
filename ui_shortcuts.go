@@ -79,7 +79,7 @@ func (a *app) shortcutsDialog() core.Node {
 					}
 					if len(groups) == 0 {
 						groups = append(groups, core.View{Style: core.Style{Padding: core.Symmetric(20, 8), AlignItems: core.AlignCenter},
-							Children: []core.Node{ui.Text("没有匹配的快捷键", 12, ui.Regular, colors.Faint)}})
+							Children: []core.Node{ui.Text(T("没有匹配的快捷键"), 12, ui.Regular, colors.Faint)}})
 					}
 					return core.Scroll{Style: ui.FillRest, Children: []core.Node{
 						core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: 4}}, Children: groups},

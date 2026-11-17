@@ -41,7 +41,7 @@ func (a *app) searchDialog() core.Node {
 					switch {
 					case a.searchBusy.Get() && !a.searchIndexed:
 						return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
-							Children: []core.Node{ui.Spinner{Size: 16}, ui.Text("正在建立会话索引…", 11.5, ui.Regular, colors.Muted)}}
+							Children: []core.Node{ui.Spinner{Size: 16}, ui.Text(T("正在建立会话索引…"), 11.5, ui.Regular, colors.Muted)}}
 					case query == "":
 						_ = a.searchRev.Get()
 						var recent []core.Node
@@ -74,7 +74,7 @@ func (a *app) searchDialog() core.Node {
 						return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
 							Children: []core.Node{
 								ui.Icon(lucide.Search, 22, colors.Faint),
-								ui.Text("输入关键词，搜索所有会话的标题与内容", 12, ui.Regular, colors.Muted),
+								ui.Text(T("输入关键词，搜索所有会话的标题与内容"), 12, ui.Regular, colors.Muted),
 								ui.Text(fmt.Sprintf("索引里有 %d 个会话", len(a.searchDocs)), 10.5, ui.Regular, colors.Faint),
 								recentRow,
 							}}
@@ -82,7 +82,7 @@ func (a *app) searchDialog() core.Node {
 						return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
 							Children: []core.Node{
 								ui.Icon(lucide.SearchX, 22, colors.Faint),
-								ui.Text("没有匹配的会话", 12, ui.Regular, colors.Muted),
+								ui.Text(T("没有匹配的会话"), 12, ui.Regular, colors.Muted),
 							}}
 					}
 					var rows []core.Node

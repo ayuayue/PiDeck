@@ -24,7 +24,7 @@ func (a *app) settingsRemote() core.Node {
 		colors := ui.ColorsOf(cx)
 		if a.remote == nil {
 			return core.View{Style: core.Style{Padding: core.All(16)}, Children: []core.Node{
-				ui.Text("远程服务不可用", 12.5, ui.Regular, colors.Muted)}}
+				ui.Text(T("远程服务不可用"), 12.5, ui.Regular, colors.Muted)}}
 		}
 		st := a.remote.state.Get()
 		status := "未开启"
@@ -76,7 +76,7 @@ func (a *app) settingsRemote() core.Node {
 			lanRows = append(lanRows, addressRow("", detail, address.Address, fmt.Sprintf("remote-lan-%d", i)))
 		}
 		if len(lanRows) == 0 {
-			lanRows = append(lanRows, core.Text{Content: "没有可用的局域网地址", Style: core.Style{FontSize: 11, Padding: core.Symmetric(3, 2)},
+			lanRows = append(lanRows, core.Text{Content: T("没有可用的局域网地址"), Style: core.Style{FontSize: 11, Padding: core.Symmetric(3, 2)},
 				StyleFunc: ui.Colored(colors.Faint)})
 		}
 
@@ -169,7 +169,7 @@ func (a *app) settingsRemote() core.Node {
 				),
 				setGroup("连接方式",
 					core.View{Style: core.Style{Padding: core.Edges{Bottom: 4}}, Children: []core.Node{
-						ui.Text("手机与电脑需能互通；复制链接后粘贴到手机端即可。", 10.5, ui.Regular, colors.Faint)}},
+						ui.Text(T("手机与电脑需能互通；复制链接后粘贴到手机端即可。"), 10.5, ui.Regular, colors.Faint)}},
 					channel(lucide.Wifi, "局域网", "同一 Wi-Fi 或路由器下直连。", remoteChannel{Installed: true, Ready: len(st.LAN) > 0}, lanRows...),
 					channel(lucide.Smartphone, "Android 模拟器", "在电脑上的 Android 模拟器里运行时，用 10.0.2.2 指向这台电脑，不依赖局域网。",
 						remoteChannel{Installed: true, Ready: true},
@@ -186,9 +186,9 @@ func (a *app) settingsRemote() core.Node {
 				),
 				setGroup("手机端",
 					core.View{Style: core.Style{Gap: 4, Padding: core.Symmetric(4, 2)}, Children: []core.Node{
-						core.Text{Content: "手机打开 PiDeck Lite，把上面的「复制链接」粘贴到地址栏并连接。手机端当前可浏览项目和会话历史。",
+						core.Text{Content: T("手机打开 PiDeck Lite，把上面的「复制链接」粘贴到地址栏并连接。手机端当前可浏览项目和会话历史。"),
 							Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
-						core.Text{Content: "链接里包含访问令牌，不要转发给不可信的设备。", Style: core.Style{FontSize: 10.5, LineHeight: 16},
+						core.Text{Content: T("链接里包含访问令牌，不要转发给不可信的设备。"), Style: core.Style{FontSize: 10.5, LineHeight: 16},
 							StyleFunc: ui.Colored(colors.Faint)},
 					}},
 				),
@@ -216,7 +216,7 @@ func (a *app) remoteQRDialog() core.Node {
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			png := a.qrPNG
 			if len(png) == 0 {
-				return ui.Text("这个链接太长，二维码装不下；用「复制链接」吧。", 11.5, ui.Regular, colors.Faint)
+				return ui.Text(T("这个链接太长，二维码装不下；用「复制链接」吧。"), 11.5, ui.Regular, colors.Faint)
 			}
 			return core.View{Style: core.Style{Gap: 10, AlignItems: core.AlignCenter}, Children: []core.Node{
 				core.View{Style: core.Style{Padding: core.All(10), CornerRadius: 10, Background: core.RGBA(0xFFFFFF, 1)},

@@ -1874,12 +1874,12 @@ func (a *app) toast(kind ui.ToastType, title, detail string) {
 	case ui.ToastWarning:
 		a.diagf("warn", "%s：%s", title, detail)
 	}
-	a.toaster.Show(ui.ToastContent{Type: kind, Title: title, Description: detail, Duration: 4 * time.Second})
+	a.toaster.Show(ui.ToastContent{Type: kind, Title: T(title), Description: T(detail), Duration: 4 * time.Second})
 }
 
 // toastAction shows one with a button.
 func (a *app) toastAction(kind ui.ToastType, title, detail, action string, fn func()) {
-	a.toaster.Show(ui.ToastContent{Type: kind, Title: title, Description: detail, Action: action, OnAction: fn, Duration: 6 * time.Second})
+	a.toaster.Show(ui.ToastContent{Type: kind, Title: T(title), Description: T(detail), Action: T(action), OnAction: fn, Duration: 6 * time.Second})
 }
 
 // cycleTheme moves system → light → dark → system.

@@ -158,7 +158,7 @@ func (a *app) settingsMCP() core.Node {
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("服务器", rows...),
-				core.Text{Content: "列表来自 pi mcp list；服务器配置由 pi 保存在 mcp.json 里。",
+				core.Text{Content: T("列表来自 pi mcp list；服务器配置由 pi 保存在 mcp.json 里。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.Show{When: func() bool { return a.mcpErr.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 					return core.Text{Content: a.mcpErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 11, LineHeight: 16},
@@ -205,11 +205,11 @@ func (a *app) mcpDialog() core.Node {
 				field("命令与参数", "npx -y some-mcp-server", "mcp-command", a.mcpCommand),
 				field("说明", "这个服务器提供什么", "mcp-desc", a.mcpDesc),
 				core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-					ui.Text("范围", 10.5, ui.Medium, colors.Muted),
+					ui.Text(T("范围"), 10.5, ui.Medium, colors.Muted),
 					choiceChips([]choice[bool]{{Value: false, Label: T("全局")}, {Value: true, Label: T("本项目")}},
 						func() bool { return a.mcpLocal.Get() }, func(v bool) { a.mcpLocal.Set(v) }),
 				}},
-				core.Text{Content: "URL 与命令二选一；命令和参数用空格分隔。", Style: core.Style{FontSize: 11},
+				core.Text{Content: T("URL 与命令二选一；命令和参数用空格分隔。"), Style: core.Style{FontSize: 11},
 					StyleFunc: ui.Colored(colors.Faint)},
 				status,
 			}}},

@@ -567,7 +567,7 @@ func (a *app) askACPPermission(s *session, req acpPermission) string {
 			default:
 			}
 		}
-		s.ask.Set(&extensionAsk{ID: "acp", Method: "select", Title: "工具权限：" + req.Title,
+		s.ask.Set(&extensionAsk{ID: "acp", Method: "select", Title: T("工具权限：") + req.Title,
 			Message: "允许这次工具调用吗？", Options: names})
 	})
 	select {
@@ -697,18 +697,18 @@ func (a *app) acpDialog() core.Node {
 		return ui.Dialog{
 			Open:         a.acpOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.acpOpen.Set(open) },
-			Title:        "新建 ACP 会话",
+			Title:        T("新建 ACP 会话"),
 			TestID:       "acp-dialog",
 			Style:        core.Style{Width: core.Pt(520)},
 			Children:     []core.Node{core.View{Style: core.Style{Gap: 4}, Children: rows}},
 			Footer: []core.Node{
 				core.Show{When: func() bool { return def != "" }, Then: func(*core.Scope) core.Node {
-					return ui.Button{Text: "清除默认", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					return ui.Button{Text: T("清除默认"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 						OnPress: func() { a.clearACPPreset(a.activeWorkspace()) }}
 				}},
-				ui.Button{Text: "打开预设目录", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: T("打开预设目录"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 					OnPress: a.openACPDir},
-				ui.Button{Text: "取消", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 					OnPress: func() { a.acpOpen.Set(false) }},
 			},
 		}

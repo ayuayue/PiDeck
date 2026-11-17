@@ -220,16 +220,16 @@ func (a *app) imageDialog() core.Node {
 		var body []core.Node
 		if len(providerChoices) > 0 {
 			body = append(body, core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("供应商", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("供应商"), 10.5, ui.Medium, colors.Muted),
 				choiceChips(providerChoices, func() string { return a.imageProvider.Get() }, func(v string) { a.imageProvider.Set(v) }),
 			}})
 		} else {
-			body = append(body, core.Text{Content: "还没有供应商。先在 设置 → 模型与认证 里配置一个支持 /images/generations 的供应商。",
+			body = append(body, core.Text{Content: T("还没有供应商。先在 设置 → 模型与认证 里配置一个支持 /images/generations 的供应商。"),
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Warn)})
 		}
 		body = append(body,
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("画面描述", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("画面描述"), 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: a.imagePrompt.Get, OnChange: a.imagePrompt.Set, Multiline: true, AutoFocus: true,
 					Placeholder: T("例如：雨夜的霓虹街道，电影感，广角"), Label: T("画面描述"), TestID: "image-prompt",
 					Style: core.Style{MinHeight: core.Pt(72), MaxHeight: core.Pt(140), Padding: core.Symmetric(8, 10), FontSize: 12.5, Color: colors.Text()},
@@ -239,7 +239,7 @@ func (a *app) imageDialog() core.Node {
 					}},
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("参考图（可选）", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("参考图（可选）"), 10.5, ui.Medium, colors.Muted),
 				core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.imageRef.Get, OnChange: a.imageRef.Set, Placeholder: T("填了就走 /images/edits，按描述修改这张图"),
@@ -252,14 +252,14 @@ func (a *app) imageDialog() core.Node {
 				}},
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("图片模型", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("图片模型"), 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: a.imageModel.Get, OnChange: a.imageModel.Set, Placeholder: "gpt-image-1 / Kwai-Kolors/Kolors",
 					Label: T("图片模型"), TestID: "image-model",
 					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: monoFont(), Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				ui.Text("尺寸", 10.5, ui.Medium, colors.Muted),
+				ui.Text(T("尺寸"), 10.5, ui.Medium, colors.Muted),
 				choiceChips(sizeChoices, func() string { return a.imageSize.Get() }, func(v string) { a.imageSize.Set(v) }),
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
@@ -270,7 +270,7 @@ func (a *app) imageDialog() core.Node {
 		switch {
 		case busy:
 			body = append(body, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(6, 0)}, Children: []core.Node{
-				ui.Spinner{Size: 14}, ui.Text("正在生成，可能需要一会儿…", 11.5, ui.Regular, colors.Muted)}})
+				ui.Spinner{Size: 14}, ui.Text(T("正在生成，可能需要一会儿…"), 11.5, ui.Regular, colors.Muted)}})
 		case a.imageErr.Get() != "":
 			body = append(body, core.Text{Content: a.imageErr.Get(), MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16},
 				StyleFunc: ui.Colored(colors.Danger)})

@@ -7,7 +7,6 @@ package main
 // opens, so it shows the sessions running at that moment.
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -170,7 +169,7 @@ func (a *app) updateTray() {
 	n := len(a.runningSessions())
 	tip := "PiDeck Lite"
 	if n > 0 {
-		tip = fmt.Sprintf("PiDeck Lite · %d 个会话运行中", n)
+		tip = T("PiDeck Lite · %d 个会话运行中", n)
 	}
 	a.tray.SetTooltip(tip)
 }

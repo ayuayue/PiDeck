@@ -119,13 +119,13 @@ func probeProviders(piPath string, list []providerInfo) []providerInfo {
 func authLabel(p providerInfo) string {
 	switch p.Auth {
 	case "ready":
-		return "已就绪"
+		return T("已就绪")
 	case "not_ready":
-		return "未配置"
+		return T("未配置")
 	case "invalid":
-		return "已失效"
+		return T("已失效")
 	}
-	return "未知"
+	return T("未知")
 }
 
 // loginCommand is what the user runs in a terminal to sign in.

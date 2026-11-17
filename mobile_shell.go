@@ -155,12 +155,12 @@ func (a *mobileApp) railNewButton(cx *core.Scope) core.Node {
 // railEntry is one of the rail's ways in: search, agents, tasks, favorites.
 func (a *mobileApp) railEntry(icon func() *core.SVG, label, testID string, press func()) core.Node {
 	colors := ui.ColorsOf(a.cx)
-	return core.View{OnPress: func(core.PressEvent) { press() }, Role: core.RoleButton, Label: label, TestID: testID,
+	return core.View{OnPress: func(core.PressEvent) { press() }, Role: core.RoleButton, Label: T(label), TestID: testID,
 		StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, MinHeight: core.Pt(40), Padding: core.Symmetric(0, 8),
 				CornerRadius: 8, Transition: pressMotion, Active: &core.Style{Background: colors.Pressed()}}
 		},
-		Children: []core.Node{ui.Icon(icon, 15, colors.Muted), ui.Text(label, 13.5, ui.Medium, colors.Text)}}
+		Children: []core.Node{ui.Icon(icon, 15, colors.Muted), ui.Text(T(label), 13.5, ui.Medium, colors.Text)}}
 }
 
 // railProjects is the project tree: each project and the sessions under it.
@@ -563,12 +563,12 @@ func (a *mobileApp) settingsSheet() core.Node {
 						return core.Style{Gap: 7, Padding: core.All(11), CornerRadius: 10, Background: colors.Inset()}
 					}, Children: []core.Node{
 						field(T("电脑"), a.server.Get()),
-						field(T("版本"), fmt.Sprintf("%s · 手机端 %s", version, appVersion)),
+						field(T("版本"), T("%s · 手机端 %s", version, appVersion)),
 					}},
 				}},
 				core.View{Style: core.Style{Gap: 7}, Children: []core.Node{
 					ui.Text(T("语言"), 11, ui.Medium, colors.Faint),
-					a.choiceRow([]string{langZhCN, langZhTW, langEnUS}, func(code string) string { return languageName(code) },
+					a.choiceRow(supportedLanguages, languageName,
 						func() string { return a.language.Get() },
 						func(code string) { a.chooseLanguage(code) }, "mobile-lang"),
 				}},

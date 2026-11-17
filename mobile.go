@@ -319,7 +319,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	if saved.Language != "" {
 		setUILanguage(resolveLanguage(saved.Language, cx.Env().Locale()))
 	}
-	a.language.Set(resolveLanguage(setting, cx.Env().Locale()))
+	a.language.Set(currentUILanguage())
 	a.appearance.Set(saved.Appearance)
 	cx.SetAppearance(appearanceOf(saved.Appearance))
 	a.initProject.Set(saved.Project)
@@ -357,35 +357,38 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 
 // view is the whole phone screen, with the drawer and the sheets over it.
 func (a *mobileApp) view() core.Node {
-	return core.View{Style: ui.FillRest, Children: []core.Node{
-		core.Dynamic(func(cx *core.Scope) core.Node {
-			if a.connected.Get() {
-				return a.shell(cx)
-			}
-			return a.connectView(cx)
-		}),
-		a.drawer(),
-		a.actionSheet(),
-		a.renameSheet(),
-		a.deleteSheet(),
-		a.newSessionSheet(),
-		a.optionsSheet(),
-		a.noticePill(),
-		a.addProjectSheet(),
-		a.removeProjectSheet(),
-		a.projectSheet(),
-		a.settingsSheet(),
-		a.searchSheet(),
-		a.agentsSheet(),
-		a.tasksSheet(),
-		a.favoritesSheet(),
-		a.favoriteTextSheet(),
-		a.gitSheet(),
-		a.gitDiffSheet(),
-		a.gitBranchesSheet(),
-		a.filesSheet(),
-		a.fileSheet(),
-	}}
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		a.language.Get()
+		return core.View{Style: ui.FillRest, Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				if a.connected.Get() {
+					return a.shell(cx)
+				}
+				return a.connectView(cx)
+			}),
+			a.drawer(),
+			a.actionSheet(),
+			a.renameSheet(),
+			a.deleteSheet(),
+			a.newSessionSheet(),
+			a.optionsSheet(),
+			a.noticePill(),
+			a.addProjectSheet(),
+			a.removeProjectSheet(),
+			a.projectSheet(),
+			a.settingsSheet(),
+			a.searchSheet(),
+			a.agentsSheet(),
+			a.tasksSheet(),
+			a.favoritesSheet(),
+			a.favoriteTextSheet(),
+			a.gitSheet(),
+			a.gitDiffSheet(),
+			a.gitBranchesSheet(),
+			a.filesSheet(),
+			a.fileSheet(),
+		}}
+	})
 }
 
 // connectView asks for the desktop's link and token.
@@ -1379,9 +1382,9 @@ func (a *mobileApp) messageBody(cx *core.Scope, m remoteWireMessage) core.Node {
 						core.Text{Content: text, Style: core.Style{FontSize: 14, LineHeight: 20}, StyleFunc: ui.Colored(colors.OnLight)},
 						core.Text{Content: func() string {
 							if a.longOpen.Get() == key {
-								return "收起"
+								return T("收起")
 							}
-							return fmt.Sprintf("展开全文（%d 字）", len(runes))
+							return T("展开全文（%d 字）", len(runes))
 						}(), Style: core.Style{FontSize: 10.5, Padding: core.Edges{Top: 6}},
 							StyleFunc: ui.Colored(func() core.Color { return ui.Alpha(colors.OnLight(), 0.6) })},
 					}},
@@ -1434,12 +1437,12 @@ func (a *mobileApp) findSession(id string) (remoteWireSession, bool) {
 // sheetRow is one action in a phone sheet.
 func (a *mobileApp) sheetRow(icon func() *core.SVG, label string, tone func() core.Color, press func(), testID string) core.Node {
 	colors := ui.ColorsOf(a.cx)
-	return core.View{OnPress: func(core.PressEvent) { press() }, Role: core.RoleButton, Label: label, TestID: testID,
+	return core.View{OnPress: func(core.PressEvent) { press() }, Role: core.RoleButton, Label: T(label), TestID: testID,
 		StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinHeight: core.Pt(48), Padding: core.Symmetric(0, 8),
 				CornerRadius: 8, Transition: pressMotion, Active: &core.Style{Background: colors.Pressed()}}
 		},
-		Children: []core.Node{ui.Icon(icon, 17, tone), ui.Text(label, 14.5, ui.Medium, tone)}}
+		Children: []core.Node{ui.Icon(icon, 17, tone), ui.Text(T(label), 14.5, ui.Medium, tone)}}
 }
 
 // actionSheet is a session's operations: rename, pin, delete.
@@ -1489,7 +1492,7 @@ func (a *mobileApp) actionSheet() core.Node {
 				}, "mobile-act-pin"),
 			)
 			if s.External {
-				rows = append(rows, core.Text{Content: "pi 自己的会话只能在电脑上删除",
+				rows = append(rows, core.Text{Content: T("pi 自己的会话只能在电脑上删除"),
 					Style: core.Style{FontSize: 11, Padding: core.Symmetric(8, 8)}, StyleFunc: ui.Colored(colors.Faint)})
 			} else {
 				rows = append(rows, a.sheetRow(lucide.Trash, "删除会话", colors.Danger, func() {
@@ -1590,7 +1593,7 @@ func (a *mobileApp) newSessionSheet() core.Node {
 				rows = append(rows, row)
 			}
 			if len(rows) == 0 {
-				rows = append(rows, core.Text{Content: "电脑上还没有项目，先添加一个文件夹。", Style: core.Style{FontSize: 12, Padding: core.Symmetric(8, 6)},
+				rows = append(rows, core.Text{Content: T("电脑上还没有项目，先添加一个文件夹。"), Style: core.Style{FontSize: 12, Padding: core.Symmetric(8, 6)},
 					StyleFunc: ui.Colored(colors.Faint)})
 			}
 			rows = append(rows, core.View{Style: core.Style{Margin: core.Edges{Top: 6}}, Children: []core.Node{

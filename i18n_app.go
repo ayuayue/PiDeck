@@ -16,7 +16,7 @@ func (a *app) applyLanguage() {
 	if setting == "" {
 		setting = strings.TrimSpace(os.Getenv("PIDECK_LITE_LANG"))
 	}
-	setUILanguage(resolveLanguage(setting, a.cx.Env().Language()))
+	setUILanguage(resolveLanguage(setting, a.cx.Env().Locale()))
 	if a.langRev != nil {
 		a.langRev.Update(func(n int) int { return n + 1 })
 	}
