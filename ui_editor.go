@@ -166,7 +166,7 @@ func (a *app) editorBody() core.Node {
 				},
 				Language:   f.Lang,
 				AutoFocus:  true,
-				FontFamily: a.monoFont.Get(),
+				FontFamily: monoFont(),
 				FontSize:   core.Points(a.editorFont.Get()),
 				LineHeight: core.Points(a.editorFont.Get() * 1.62),
 				SoftWrap:   a.editorWrap.Get(),

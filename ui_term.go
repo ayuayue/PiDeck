@@ -347,7 +347,7 @@ func (a *app) terminalView(cx *core.Scope, tab *termTab) core.Node {
 	th := terminalTheme(cx.Palette(), cx.Dark())
 	view := sgt.View{
 		Terminal:  tab.term,
-		Font:      core.Font{Size: core.Points(a.termFont.Get())},
+		Font:      core.Font{Family: monoFont(), Size: core.Points(a.termFont.Get())},
 		Theme:     th,
 		DarkTheme: th,
 		Padding:   sgt.Padding{X: 8, Y: 6},
