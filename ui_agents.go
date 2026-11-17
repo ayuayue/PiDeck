@@ -9,14 +9,13 @@ package main
 import (
 	"strings"
 
-	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// agentManagerDialog draws the list and the form.
-func (a *app) agentManagerDialog() core.Node {
+// agentsPane is the split pane drawing the list and the form.
+func (a *app) agentsPane() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		_ = a.agentManageRev.Get()
@@ -43,7 +42,6 @@ func (a *app) agentManagerDialog() core.Node {
 				ui.Button{Text: T("使用"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "agent-use-" + agent.ID,
 					OnPress: func() {
 						a.agentApply.Set(false)
-						a.agentManageOpen.Set(false)
 						a.newPersonaSession(agent)
 					}},
 			}
@@ -76,7 +74,7 @@ func (a *app) agentManagerDialog() core.Node {
 			bodyRows = append(bodyRows, core.Text{Content: T("还没有智能体。"), Style: core.Style{FontSize: 11, Padding: core.All(8)},
 				StyleFunc: ui.Colored(colors.Faint)})
 		} else {
-			bodyRows = append(bodyRows, core.Scroll{Style: core.Style{MaxHeight: core.Pt(230)}, Children: []core.Node{
+			bodyRows = append(bodyRows, core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 1}, Children: rows}}})
 		}
 
@@ -126,25 +124,17 @@ func (a *app) agentManagerDialog() core.Node {
 			}},
 		}
 
-		return ui.Dialog{
-			Open:         a.agentManageOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.agentManageOpen.Set(open) },
-			Title:        T("智能体"),
-			Description:  T("智能体是一段放在每个提问前面的工作方式；会话绑定后一直生效，ACP 会话同样适用。"),
-			TestID:       "agent-manager",
-			Style:        core.Style{Width: core.Pt(760), MaxHeight: core.Pt(660)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: append(bodyRows,
-				core.View{Style: core.Style{Gap: 6, Padding: core.Edges{Top: 8}, Borders: core.Edges{Top: 1},
-					BorderColor: colors.Line()}, Children: form})}},
-			Footer: []core.Node{
-				ui.Button{Text: T("新建"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "agent-new",
+		formBlock := core.View{Style: core.Style{FlexShrink: 0, Gap: 6, Padding: core.Edges{Top: 10}, Borders: core.Edges{Top: 1},
+			BorderColor: colors.Line()}, Children: form}
+		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+			a.paneHeader("智能体", "智能体是一段放在每个提问前面的工作方式；会话绑定后一直生效，ACP 会话同样适用。",
+				ui.Button{Text: T("新建"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "agent-new",
 					OnPress: func() {
 						a.resetAgentForm()
 						a.agentManageErr.Set("")
-					}},
-				ui.Button{Text: T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.agentManageOpen.Set(false) }},
-			},
-		}
+					}}),
+			core.View{Style: core.Style{Direction: core.Column, Gap: 10, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
+				Padding: core.Edges{Top: 12, Left: 18, Right: 18, Bottom: 14}}, Children: append(bodyRows, formBlock)},
+		}}
 	})
 }

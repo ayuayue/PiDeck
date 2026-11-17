@@ -97,8 +97,14 @@ func builtinCommands() []appCommand {
 		{ID: "reopen-tab", Label: "恢复关闭的标签", Group: "会话", Shortcut: "mod+alt+t", Icon: lucide.RotateCcw,
 			Run: func(a *app) { a.reopenTab() }},
 		{ID: "close-tab", Label: "关闭当前标签", Group: "会话", Shortcut: "mod+w", Icon: lucide.X, Hidden: true,
-			When: func(a *app) bool { return a.editorOpen() || a.activeID.GetUntracked() != "" },
+			When: func(a *app) bool {
+				return a.editorOpen() || a.activeID.GetUntracked() != "" || a.paneVisible()
+			},
 			Run: func(a *app) {
+				if a.paneVisible() {
+					a.closePane(a.activePane.GetUntracked())
+					return
+				}
 				if a.editorOpen() {
 					a.closeEditorPane()
 					return
@@ -225,6 +231,12 @@ func builtinCommands() []appCommand {
 		{ID: "plan-mode", Label: "计划模式", Group: "会话", Icon: lucide.ClipboardList,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.togglePlanMode(a.active()) }},
+		{ID: "goal-mode", Label: "目标模式", Group: "会话", Icon: lucide.Target,
+			When: func(a *app) bool { return a.active() != nil },
+			Run:  func(a *app) { a.toggleGoalMode(a.active()) }},
+		{ID: "image-mode", Label: "生图模式", Group: "会话", Icon: lucide.Image,
+			When: func(a *app) bool { return a.active() != nil },
+			Run:  func(a *app) { a.toggleImageMode(a.active()) }},
 		{ID: "chat-outline", Label: "会话大纲…", Group: "会话", Shortcut: "mod+shift+o", Icon: lucide.ListTree,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.outlineOpen.Set(true) }},
@@ -255,8 +267,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openTargetDialog(targetWSL) }},
 		{ID: "add-ssh", Label: "在 SSH 主机上添加工作区…", Group: "工作区", Icon: lucide.Globe,
 			Run: func(a *app) { a.openTargetDialog(targetSSH) }},
-		{ID: "import", Label: "导入会话（pi / Codex / Claude）…", Group: "工作区", Icon: lucide.FileInput,
-			Run: func(a *app) { a.pickNative("import") }},
+		{ID: "import", Label: "导入会话…", Group: "工作区", Icon: lucide.FileInput,
+			Run: func(a *app) { a.openImportDialog() }},
 		{ID: "browse-import", Label: "浏览文件导入会话…", Group: "工作区", Icon: lucide.FolderOpen,
 			Run: func(a *app) { a.openPicker("import") }},
 		{ID: "open-editor", Label: "在编辑器中打开工作区", Group: "工作区", Icon: lucide.Code,
@@ -319,7 +331,7 @@ func builtinCommands() []appCommand {
 		{ID: "theme-export", Label: "导出当前主题…", Group: "外观", Icon: lucide.Palette,
 			Run: func(a *app) { a.exportTheme() }},
 		{ID: "settings", Label: "设置", Group: "应用", Shortcut: "mod+,", Icon: lucide.Settings,
-			Run: func(a *app) { a.settings.Set(true) }},
+			Run: func(a *app) { a.openSettingsPane() }},
 	}
 }
 
@@ -480,7 +492,7 @@ func (a *app) runCommand(id string) {
 	}
 	if rest, ok := strings.CutPrefix(id, "setting:"); ok {
 		if ix, err := strconv.Atoi(rest); err == nil && ix >= 0 && ix < len(settingsIndex) {
-			a.settings.Set(true)
+			a.openSettingsPane()
 			a.openSettingsSection(settingsIndex[ix].Section)
 		}
 		return

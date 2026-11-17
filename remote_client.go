@@ -151,19 +151,60 @@ func (c *remoteClient) post(path string, in, out any) error {
 	return nil
 }
 
-// createSession starts a session in a project and returns its id.
+// createSession starts a session in a project and returns its id. An
+// agent, when given, is the way of working the session keeps.
 func (c *remoteClient) createSession(project string) (string, string, error) {
+	return c.createAgentSession(project, "")
+}
+
+// createAgentSession is createSession with a way of working.
+func (c *remoteClient) createAgentSession(project, agent string) (string, string, error) {
 	var out struct {
 		ID    string `json:"id"`
 		Title string `json:"title"`
 	}
-	if err := c.post("/api/sessions", map[string]string{"project": project}, &out); err != nil {
+	body := map[string]string{"project": project}
+	if agent != "" {
+		body["agent"] = agent
+	}
+	if err := c.post("/api/sessions", body, &out); err != nil {
 		return "", "", err
 	}
 	if out.ID == "" {
 		return "", "", errors.New("电脑没有返回会话 ID")
 	}
 	return out.ID, out.Title, nil
+}
+
+// agents lists the ways of working a new session can start with.
+func (c *remoteClient) agents() ([]remoteWireAgent, error) {
+	var out remoteWireAgents
+	err := c.do("/api/agents", &out)
+	return out.Agents, err
+}
+
+// tasks lists the desktop's cron tasks.
+func (c *remoteClient) tasks() ([]remoteWireTask, error) {
+	var out remoteWireTasks
+	err := c.do("/api/tasks", &out)
+	return out.Tasks, err
+}
+
+// setTaskEnabled switches a cron task on or off on the desktop.
+func (c *remoteClient) setTaskEnabled(id string, enabled bool) error {
+	return c.post("/api/tasks/"+url.PathEscape(id)+"/toggle", map[string]bool{"enabled": enabled}, nil)
+}
+
+// runTask starts a cron task now, beside its schedule.
+func (c *remoteClient) runTask(id string) error {
+	return c.post("/api/tasks/"+url.PathEscape(id)+"/run", map[string]any{}, nil)
+}
+
+// favorites lists the answers and sessions saved on the desktop.
+func (c *remoteClient) favorites() ([]remoteWireFavorite, error) {
+	var out remoteWireFavorites
+	err := c.do("/api/favorites", &out)
+	return out.Favorites, err
 }
 
 // addProject puts a folder on the desktop's rail; remove takes one off.

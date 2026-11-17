@@ -69,7 +69,7 @@ func (a *app) archiveDialog() core.Node {
 							Style: core.Style{FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
 						core.Show{When: func() bool { return where != "" }, Then: func(*core.Scope) core.Node {
 							return core.Text{Content: where, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+								Style: core.Style{FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
 						}},
 					}},
 					ui.Button{Text: T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "archived-open",

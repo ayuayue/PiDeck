@@ -159,7 +159,7 @@ func usageBarRow(colors ui.Colors, name, sub string, total, max int, right, cost
 				Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
 			core.Show{When: func() bool { return sub != "" && sub != name }, Then: func(*core.Scope) core.Node {
 				return core.Text{Content: shortPath(sub, 46), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-					Style: core.Style{FontFamily: ui.Mono, FontSize: 9}, StyleFunc: ui.Colored(colors.Faint)}
+					Style: core.Style{FontFamily: monoFont(), FontSize: 9}, StyleFunc: ui.Colored(colors.Faint)}
 			}},
 		}},
 		core.View{Style: core.Style{FlexGrow: 1, Height: core.Pt(5), CornerRadius: 2.5, Background: colors.Track()}, Children: []core.Node{
@@ -168,9 +168,9 @@ func usageBarRow(colors ui.Colors, name, sub string, total, max int, right, cost
 					Background: ui.Alpha(colors.Accent(), 0.75)}
 			}},
 		}},
-		core.Text{Content: right, Style: core.Style{Width: core.Pt(74), FontSize: 10, FontFamily: ui.Mono},
+		core.Text{Content: right, Style: core.Style{Width: core.Pt(74), FontSize: 10, FontFamily: monoFont()},
 			StyleFunc: ui.Colored(colors.Muted)},
-		core.Text{Content: cost, Style: core.Style{Width: core.Pt(52), FontSize: 10, FontFamily: ui.Mono},
+		core.Text{Content: cost, Style: core.Style{Width: core.Pt(52), FontSize: 10, FontFamily: monoFont()},
 			StyleFunc: ui.Colored(colors.Faint)},
 	}}
 }

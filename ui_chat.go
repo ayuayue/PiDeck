@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,7 +22,7 @@ import (
 // 720 points wide, and narrower reads better on wide screens.
 const (
 	chatWidthMin = 520
-	chatWidthMax = 720
+	chatWidthMax = 1000
 )
 
 // chatPane is the conversation and its composer.
@@ -36,13 +37,7 @@ func (a *app) chatPane() core.Node {
 			return core.View{StyleFunc: func() core.Style {
 				return ui.FillRest.Merge(core.Style{Background: colors.Background(), Color: colors.Text()})
 			}, Children: []core.Node{
-				chat.FloatingConversation{
-					State:     s.conversation,
-					JumpLabel: T("跳到最新消息"),
-					TestID:    "transcript",
-					Children:  []core.Node{a.transcript(s)},
-					Composer:  []core.Node{a.composerStack(s)},
-				},
+				a.chatSurface(s),
 				a.turnAxis(s),
 				core.Show{When: a.chatFindOpen.Get, Then: func(cx *core.Scope) core.Node { return a.chatFindBar(s) }},
 				core.Show{When: func() bool {
@@ -90,7 +85,7 @@ func (a *app) setChatWidth(w int) {
 func (a *app) composerStack(s *session) core.Node {
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(core.Points(a.contentWidth())), MinWidth: core.Pt(0)}, Children: []core.Node{
-			a.trustBar(s), a.todoBar(s), a.composer(s),
+			a.trustBar(s), a.todoBar(s), a.queuePanel(s), a.composer(s),
 		}},
 	}}
 }
@@ -118,7 +113,14 @@ func (a *app) transcript(s *session) core.Node {
 				}
 				return list
 			}, func(t turn) string { return t.ID }, func(cx *core.Scope, t func() turn, ix func() int) core.Node {
-				return a.turnView(s, t, ix)
+				// Each turn reports where it sits, so a mark on the ruler can
+				// scroll to the turn it stands for.
+				return core.View{OnLayout: func(b core.Bounds) {
+					if s.tops == nil {
+						s.tops = map[string]float64{}
+					}
+					s.tops[t().ID] = float64(b.Origin.Y)
+				}, Children: []core.Node{a.turnView(s, t, ix)}}
 			}),
 		}},
 	}}
@@ -142,73 +144,220 @@ func (a *app) loadEarlier(s *session) core.Node {
 	}
 }
 
-// axisTicks is the turns the ruler marks: every one of a short session,
-// and an even sample of a long one, so the ticks stay apart.
-func axisTicks(n int) []int {
-	const most = 24
-	if n <= 0 {
+// The ruler at the transcript's right edge: a scale of scroll positions,
+// drawn across the middle of the height only, so it reads as a track
+// without claiming the whole conversation.
+const (
+	// axisBand is the share of the height the ruler spans, centered.
+	axisBand = 46
+	// axisTickWidth is how long a tick grows to under the pointer, and
+	// axisTickNarrow how long it rests.
+	axisTickWidth  = 18
+	axisTickNarrow = 6
+	axisTickHit    = axisTickWidth + 4
+	// axisStep is the most air one mark has above the next, and axisChrome
+	// what the tab bar and padding take above the chat pane.
+	axisStep   = 12
+	axisChrome = 56
+	// axisTickGapMin is the tightest pitch that still leaves a mark
+	// pressable; closer than this, the ruler drops turns instead.
+	axisTickGapMin = 4.0
+)
+
+// axisGrow eases a tick from its resting length to the long mark under the
+// pointer; TransitionLayout is what animates a resize.
+var axisGrow = core.Transition{Duration: 140 * time.Millisecond, Easing: core.EaseOut,
+	Properties: core.TransitionLayout | core.TransitionBackground}
+
+// planAxisTicks picks the turns that get a mark: one per turn while they fit,
+// and otherwise an even sample that keeps the first and the last, so both
+// ends of a long session stay a click away.
+func planAxisTicks(turns int, bandHeight float64) []int {
+	if turns <= 0 || bandHeight <= 0 {
 		return nil
 	}
-	if n <= most {
-		out := make([]int, n)
-		for i := range out {
-			out[i] = i
+	fit := int(bandHeight/axisTickGapMin) + 1
+	if fit >= turns {
+		marks := make([]int, turns)
+		for i := range marks {
+			marks[i] = i
 		}
-		return out
+		return marks
 	}
-	out := make([]int, most)
-	for i := range out {
-		out[i] = i * (n - 1) / (most - 1)
+	fit = max(2, fit)
+	marks := make([]int, 0, fit)
+	for slot := 0; slot < fit; slot++ {
+		marks = append(marks, int(math.Round(float64(slot)*float64(turns-1)/float64(fit-1))))
 	}
-	return out
+	return marks
 }
 
-// turnAxis is the ruler at the transcript's right edge: one tick per
-// turn, and a click scrolls to where that tick stands.
+// turnAxis is the ruler at the transcript's right edge: one mark per turn
+// across the middle of the height, a click scrolls to that turn, and resting
+// on a mark names it.
 func (a *app) turnAxis(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		ticks := axisTicks(len(s.turns.Get()))
-		if len(ticks) < 3 {
+		turns := len(s.turns.Get())
+		if turns < 3 {
 			return nil
 		}
 		colors := ui.ColorsOf(cx)
-		var marks []core.Node
-		for j, i := range ticks {
-			j, i := j, i
-			marks = append(marks, core.View{
-				OnPress: func(core.PressEvent) { a.jumpToTurn(s, float64(j)/float64(len(ticks)-1)) },
-				Role:    core.RoleButton, Label: T("跳到第 %d 轮", i+1),
-				TestID: fmt.Sprintf("turn-tick-%d", j),
-				StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(9), Height: core.Pt(4), CornerRadius: 2, Background: colors.Faint(),
-						Hover: &core.Style{Background: colors.Text()}}
-				},
-			})
+		window := cx.Env().Window()
+		pane := float64(window.Height) - axisChrome
+		if pane <= 0 {
+			return nil
 		}
-		return core.View{Style: core.Style{Position: core.Absolute, Right: core.Pt(3), Width: core.Pt(12),
-			Direction: core.Column, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween,
-			PointerEvents: core.PointerEventsBoxNone},
+		bandHeight := pane * axisBand / 100
+		shown := planAxisTicks(turns, bandHeight)
+		// The marks keep a fixed pitch at most and stack as one compact
+		// scale, centered in the band: four turns are four short marks
+		// together, not four dashes spread over a third of the window. A
+		// crowded ruler tightens the pitch instead of overflowing the band.
+		pitch := math.Min(float64(axisStep), bandHeight/float64(max(1, len(shown))))
+		box := core.Points(math.Max(4, pitch))
+		stack := core.Points(pitch * float64(len(shown)))
+		marks := make([]core.Node, 0, len(shown)+1)
+		for pos, turn := range shown {
+			pos, turn := pos, turn
+			bar := core.View{
+				OnPress: func(core.PressEvent) { a.jumpToTurnIndex(s, turn) },
+				Role:    core.RoleButton, LabelFunc: func() string { return a.axisTip(s, turn) },
+				TestID: fmt.Sprintf("axis-tick-%d", pos),
+				StyleFunc: func() core.Style {
+					// A short mark at rest; the one under the pointer grows out
+					// to its full length, so the scale does not read as a picket
+					// fence at rest.
+					st := core.Style{Width: core.Pt(axisTickNarrow), Height: core.Pt(2.5), CornerRadius: 1.25,
+						Background: colors.Faint(), Transition: axisGrow}
+					if a.axisHover.Get() == pos {
+						st.Width = core.Pt(axisTickWidth)
+						st.Background = colors.Text()
+					}
+					return st
+				},
+			}
+			marks = append(marks, core.View{
+				OnMouseEnter: func(core.MouseEvent) { a.hoverAxis(pos) },
+				// Leaving the box clears only its own tick, so moving from
+				// one mark to the next keeps pointing at the new one
+				// whichever of the two events arrives first.
+				OnMouseLeave: func(core.MouseEvent) {
+					if a.axisHover.GetUntracked() == pos {
+						a.axisHover.Set(-1)
+					}
+				},
+				Style: core.Style{Width: core.Pt(axisTickHit), Height: core.Pt(box), AlignItems: core.AlignCenter,
+					JustifyContent: core.JustifyCenter}, Children: []core.Node{bar}})
+		}
+		marks = append(marks, a.axisHint(s, shown, box, pitch))
+		inset := (pane - bandHeight) / 2
+		top := inset + (bandHeight-float64(stack))/2
+		return core.View{
+			OnMouseLeave: func(core.MouseEvent) { a.axisHover.Set(-1) },
+			Style: core.Style{Position: core.Absolute, Right: core.Pt(8), Width: core.Pt(axisTickHit), Height: core.Pt(stack),
+				Direction: core.Column, AlignItems: core.AlignCenter, JustifyContent: core.JustifyStart,
+				PointerEvents: core.PointerEventsBoxNone},
 			StyleFunc: func() core.Style {
-				return core.Style{Top: core.Pt(24), Bottom: core.Pt(s.conversation.ComposerHeight() + 16)}
+				return core.Style{Top: core.Pt(core.Points(top))}
 			},
 			Children: marks}
 	})
 }
 
-// jumpToTurn scrolls the transcript to a fraction of its scrollable
-// length, where the ruler's tick stands.
+// hoverAxis points the ruler's hint at a tick. Moving along the scale
+// moves it at once; it eases in only when it was hidden, so sliding down
+// the ruler does not blink.
+func (a *app) hoverAxis(index int) {
+	if a.axisHover.GetUntracked() == index {
+		return
+	}
+	fresh := a.axisHover.GetUntracked() < 0
+	a.axisHover.Set(index)
+	if fresh {
+		a.axisHintIn.Set(false)
+		a.cx.AfterFunc(16*time.Millisecond, func() { a.axisHintIn.Set(true) })
+	}
+}
+
+// axisHint is the summary beside the tick the pointer rests on: it sits
+// just left of the ruler, on the tick's line, and takes no presses.
+func (a *app) axisHint(s *session, shown []int, box core.Points, pitch float64) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		i := a.axisHover.Get()
+		if i < 0 || i >= len(shown) {
+			return nil
+		}
+		tip := a.axisTip(s, shown[i])
+		if tip == "" {
+			return nil
+		}
+		// The hint rides the tick's line inside the stack, so it never
+		// drifts to another mark's height.
+		centre := box/2 + core.Points(pitch*float64(i))
+		top := math.Max(0, float64(centre)-14)
+		return core.View{
+			Style: core.Style{Position: core.Absolute, Right: core.Pt(axisTickHit + 8), Top: core.Pt(core.Points(top)),
+				Width: core.Pt(260), Padding: core.Symmetric(6, 10), CornerRadius: 9, Background: colors.Surface(),
+				BorderWidth: 1, BorderColor: colors.Border(), Shadows: []core.BoxShadow{ui.Shadow(0, 10, 26, 0, ui.Black(0.16))},
+				PointerEvents: core.PointerEventsNone},
+			StyleFunc: func() core.Style {
+				st := core.Style{Opacity: core.Alpha(1), Transition: core.Transition{Duration: 120 * time.Millisecond, Easing: core.EaseOut,
+					Properties: core.TransitionOpacity | core.TransitionTransform}}
+				if !a.axisHintIn.Get() {
+					st.Opacity = core.Alpha(0)
+					st.Transform = core.Transform{TranslateY: 2}
+				}
+				return st
+			},
+			Children: []core.Node{core.Text{Content: tip, MaxLines: 3, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FontSize: 11.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Text)}},
+		}
+	})
+}
+
+// jumpToTurn scrolls the transcript to a fraction of its scrollable length.
 func (a *app) jumpToTurn(s *session, fraction float64) {
-	ref := s.conversation.Scroll()
-	frame, ok := ref.Frame()
-	content, hasContent := ref.ContentBounds()
+	a.scrollToOffset(s, float64(a.scrollRoom(s))*fraction)
+}
+
+// scrollRoom is how far the transcript can scroll, 0 when it fits.
+func (a *app) scrollRoom(s *session) core.Points {
+	frame, ok := s.conversation.Scroll().Frame()
+	content, hasContent := s.conversation.Scroll().ContentBounds()
 	if !ok || !hasContent {
+		return 0
+	}
+	if maxY := content.Size.Height - frame.Size.Height; maxY > 0 {
+		return maxY
+	}
+	return 0
+}
+
+// scrollToOffset puts the top of the transcript at a content offset.
+func (a *app) scrollToOffset(s *session, y float64) {
+	room := float64(a.scrollRoom(s))
+	if room <= 0 {
 		return
 	}
-	maxY := content.Size.Height - frame.Size.Height
-	if maxY <= 0 {
-		return
+	s.conversation.Scroll().ScrollTo(core.Point{Y: core.Points(math.Min(math.Max(0, y), room))}, true)
+}
+
+// axisTip is what the ruler says over a mark: the turn it stands for, and
+// the start of its prompt.
+func (a *app) axisTip(s *session, i int) string {
+	turns := s.turns.GetUntracked()
+	if i < 0 || i >= len(turns) {
+		return ""
 	}
-	ref.ScrollTo(core.Point{Y: core.Points(float64(maxY) * fraction)}, true)
+	summary := firstLine(turns[i].Prompt, 60)
+	if summary == "" {
+		summary = firstLine(turns[i].Final, 60)
+	}
+	if summary == "" {
+		return T("第 %d 轮", i+1)
+	}
+	return T("第 %d 轮 · %s", i+1, summary)
 }
 
 // turnView is one prompt and everything pi answered.
@@ -221,23 +370,30 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 		now := func() time.Time { return a.clock.Get() }
 		return chat.Turn{
 			Status: func() chat.Status { return t().Status },
+			// The fold row says what the process did; the duration sits at
+			// the end of the turn instead, so it is not read twice.
 			Summary: func() string {
 				tt := t()
-				parts := []string{"用时 " + duration(tt.elapsed(now()))}
+				var parts []string
+				if tt.Plan {
+					parts = append(parts, T("计划"))
+				}
+				if tt.Goal {
+					parts = append(parts, T("目标"))
+				}
 				if tt.Tools > 0 {
-					parts = append(parts, fmt.Sprintf("%d 个工具调用", tt.Tools))
+					parts = append(parts, T("%d 个工具调用", tt.Tools))
 				}
 				switch tt.Status {
 				case chat.Cancelled:
-					parts[0] = "已停止 · " + parts[0]
+					parts = append(parts, T("已停止"))
 				case chat.Failed:
-					parts[0] = "出错 · " + parts[0]
+					parts = append(parts, T("出错"))
 				}
-				summary := strings.Join(parts, " · ")
-				if tt.Plan {
-					summary = T("计划") + " · " + summary
+				if len(parts) == 0 {
+					parts = append(parts, T("过程"))
 				}
-				return summary
+				return strings.Join(parts, " · ")
 			},
 			Working: func() string {
 				tt := t()
@@ -256,15 +412,25 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					}
 					if tt.Prompt != "" {
 						children = append(children, core.Text{Content: tt.Prompt, Selectable: core.SelectableOn,
-							Style: core.Style{FontSize: 13, LineHeight: 20, Color: colors.Text()}})
+							Style: core.Style{FontSize: a.readingFont(), LineHeight: a.readingLine(), Color: colors.Text()}})
 					}
-					return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: children}
+					return core.View{Style: core.Style{Direction: core.Column, AlignItems: core.AlignEnd, Gap: 3},
+						Children: []core.Node{
+							core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: children},
+							// When it was sent, inside the bubble's foot, as a
+							// chat shows its own messages.
+							core.Show{When: func() bool { return !t().Start.IsZero() }, Then: func(cx *core.Scope) core.Node {
+								return ui.Tabular(core.Text{Content: clockTime(t().Start),
+									Style:     core.Style{FontSize: a.readingDetailFont(), LineHeight: a.readingDetailLine()},
+									StyleFunc: ui.Colored(colors.Faint)})
+							}},
+						}}
 				})
 			},
 			Steps: func() []chat.Step { return a.steps(s, t()) },
 			Final: func(cx *core.Scope) core.Node {
 				tt := t()
-				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{markdownSearchView(a.chatSearch, tt.Final, func() bool { return false }, false)}}
+				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{markdownSearchView(a.chatSearch, tt.Final, func() bool { return false }, false, a.readingFont(), a.readingLine(), core.Style{})}}
 			},
 			HasFinal: func() bool {
 				tt := t()
@@ -317,7 +483,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 							OnPress:  func() { a.editPlan(s, tt) }},
 					)
 				}
-				return core.Group(append(planActions, []core.Node{
+				actions := append(planActions, []core.Node{
 					chat.IconAction{Label: T("重新发送"), Icon: lucide.RefreshCw,
 						Disabled: func() bool { return tt.Prompt == "" || t().running() },
 						OnPress:  func() { a.resendTurn(s, tt) }},
@@ -345,15 +511,53 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					chat.IconAction{Label: T("从这里分叉"), Icon: lucide.GitBranch, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() { a.forkSession(s, tt.ID) }},
 					chat.IconAction{Label: T("重试"), Icon: lucide.RefreshCw, OnPress: func() { a.retry(s, tt) }},
-				}...))
+				}...)
+				// The reply's own line closes the row: when it came back, how
+				// long it took and which model answered.
+				return core.Group(append(actions, a.turnMeta(t, now)))
 			},
 			ShowActions: func() bool {
 				tt := t()
 				return !tt.running() && (tt.Final != "" || tt.Err != "")
 			},
-			Conversation: s.conversation,
+			Conversation: s.conversation.Kit(),
 		}
 	})
+}
+
+// turnMeta ends a finished reply: when it came back, how long the turn took
+// and the model that gave it. PiDeck puts the same line at the end of its
+// actions row, where the eye already is.
+func (a *app) turnMeta(t func() turn, now func() time.Time) core.Node {
+	return core.Show{
+		When: func() bool { tt := t(); return !tt.running() && (!tt.End.IsZero() || tt.Model != "") },
+		Then: func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			tt := t()
+			faint := core.Style{FontSize: a.readingDetailFont(), LineHeight: a.readingDetailLine(), FontVariant: core.FontTabularNums}
+			var row []core.Node
+			dot := func() {
+				if len(row) > 0 {
+					row = append(row, core.Text{Content: "·", Style: faint, StyleFunc: ui.Colored(colors.Faint)})
+				}
+			}
+			if !tt.End.IsZero() {
+				row = append(row, core.Text{Content: clockTime(tt.End), Style: faint, StyleFunc: ui.Colored(colors.Faint)})
+			}
+			if d := tt.elapsed(now()); d >= time.Second {
+				dot()
+				row = append(row, ui.Icon(lucide.Clock, 11, colors.Faint),
+					core.Text{Content: duration(d), Style: faint, StyleFunc: ui.Colored(colors.Faint)})
+			}
+			if tt.Model != "" {
+				dot()
+				row = append(row, core.Text{Content: tt.Model, Style: core.Style{FontSize: a.readingDetailFont(),
+					LineHeight: a.readingDetailLine(), FontFamily: monoFont()}, StyleFunc: ui.Colored(colors.Faint)})
+			}
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
+				Padding: core.Edges{Left: 4}}, Children: row}
+		},
+	}
 }
 
 // steps is a turn's work: one step per assistant message, streaming or
@@ -384,7 +588,7 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 				text = s.streamText.Get()
 			}
 			if st.Note != "" {
-				children = append(children, noteBlock(st.Note, st.Text))
+				children = append(children, a.noteBlock(st.Note, st.Text))
 			}
 			if strings.TrimSpace(thinking) != "" {
 				children = append(children, a.thinkRow(s, st, thinking, live))
@@ -393,7 +597,7 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 				children = append(children, a.toolRows(s, tools))
 			}
 			if text != "" {
-				children = append(children, markdownSearchView(a.chatSearch, text, func() bool { return live }, live))
+				children = append(children, markdownSearchView(a.chatSearch, text, func() bool { return live }, live, a.readingFont(), a.readingLine(), core.Style{}))
 			}
 			if len(children) == 0 {
 				return nil
@@ -403,9 +607,19 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 	}}
 }
 
-// thinkRow is what pi reasoned, folded to one line until opened. While it
-// streams it stays open and counts; once the message is done it folds to a
-// summary the user can reopen.
+// thinkingTone is the identity color of the thinking row: indigo, apart
+// from the accent, so the reasoning reads as a process of its own.
+func thinkingTone(cx *core.Scope) core.Color {
+	if c, ok := cx.Palette().Colors["thinking"]; ok {
+		return c
+	}
+	return ui.ColorsOf(cx).Muted()
+}
+
+// thinkRow is what pi reasoned, folded to one line until opened. It sits a
+// step below the answer: row-sized text in the muted ink, a mono preview
+// for the folded line, and the duration in the faint detail size. While it
+// streams it stays open and counts.
 func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
@@ -418,25 +632,31 @@ func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core
 		}
 		label := "思考"
 		if live {
-			label = "思考中 · " + duration(a.cx.Now().Sub(started))
+			label = "思考中"
 		}
+		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
 		header := []core.Node{
-			ui.IconOf(func() *core.SVG {
-				if open {
-					return lucide.ChevronDown()
-				}
-				return lucide.ChevronRight()
-			}, 11, colors.Faint),
-			core.Text{ContentFunc: func() string { return label }, MaxLines: 1,
-				Style: core.Style{FontSize: 12, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)},
-			core.Text{ContentFunc: func() string {
-				if open {
-					return ""
-				}
-				return shorten(thinking, 90)
-			}, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5, FontFamily: ui.Mono},
-				StyleFunc: ui.Colored(colors.Faint)},
+			ui.Icon(lucide.Brain, 13, func() core.Color { return thinkingTone(cx) }),
+			core.Text{Content: label, MaxLines: 1,
+				Style: core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Muted)},
+		}
+		if live {
+			header = append(header, ui.Tabular(core.Text{Content: "· " + duration(a.cx.Now().Sub(started)), MaxLines: 1,
+				Style: core.Style{FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}))
+		}
+		header = append(header, ui.IconOf(func() *core.SVG {
+			if open {
+				return lucide.ChevronDown()
+			}
+			return lucide.ChevronRight()
+		}, 11.5, colors.Faint))
+		if open {
+			header = append(header, core.View{Style: core.Style{FlexGrow: 1}})
+		} else {
+			header = append(header, core.Text{Content: shorten(thinking, 160), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: detailSize,
+					LineHeight: a.readingDetailLine(), FontFamily: monoFont()},
+				StyleFunc: ui.Colored(colors.Faint)})
 		}
 		if live {
 			header = append(header, ui.Spinner{Size: 10})
@@ -445,18 +665,20 @@ func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core
 			OnPress: func(core.PressEvent) { s.toggleThink(key, live) },
 			Role:    core.RoleButton, Label: label,
 			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(24), Padding: core.Symmetric(0, 2),
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(26), Padding: core.Symmetric(0, 2),
 					Hover: &core.Style{Background: colors.Hover()}, CornerRadius: 5}
 			},
 			Children: header,
 		}}
 		if open {
-			body = append(body, core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Edges{Left: 17, Top: 2},
-				Borders: core.Edges{Left: 1}, BorderColors: core.EdgeColors{Left: colors.Now().Line}}, Children: []core.Node{
-				markdownSearchView(a.chatSearch, thinking, func() bool { return live }, false),
+			body = append(body, core.View{Style: core.Style{MinWidth: core.Pt(0), Margin: core.Edges{Left: 18},
+				Padding: core.Edges{Left: 12, Top: 4, Bottom: 2}, Borders: core.Edges{Left: 2},
+				BorderColors: core.EdgeColors{Left: colors.Now().Line}}, Children: []core.Node{
+				markdownSearchView(a.chatSearch, thinking, func() bool { return live }, false, rowSize, a.readingRowLine(),
+					core.Style{Color: colors.Muted(), FontWeight: core.FontWeight(350)}),
 			}})
 		}
-		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 4}, Children: body}
+		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 2}, Children: body}
 	})
 }
 
@@ -487,24 +709,25 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 			added += c.Added
 			removed += c.Removed
 		}
+		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
 		header := []core.Node{
-			ui.Icon(lucide.FileDiff, 12, colors.Muted),
-			core.Text{Content: fmt.Sprintf("修改 %d 个文件", len(changes)), Style: core.Style{FontSize: 12},
-				StyleFunc: ui.Colored(colors.Muted)},
+			ui.Icon(lucide.FileDiff, 13, colors.Muted),
+			core.Text{Content: fmt.Sprintf("修改 %d 个文件", len(changes)),
+				Style: core.Style{FontSize: rowSize, FontWeight: ui.Medium}, StyleFunc: ui.Colored(colors.Muted)},
 		}
 		if added > 0 || removed > 0 {
 			header = append(header,
-				core.Text{Content: fmt.Sprintf("+%d", added), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
-					StyleFunc: ui.Colored(colors.Up)},
-				core.Text{Content: fmt.Sprintf("−%d", removed), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
-					StyleFunc: ui.Colored(colors.Danger)})
+				ui.Tabular(core.Text{Content: fmt.Sprintf("+%d", added), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+					StyleFunc: ui.Colored(colors.Up)}),
+				ui.Tabular(core.Text{Content: fmt.Sprintf("−%d", removed), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+					StyleFunc: ui.Colored(colors.Danger)}))
 		}
 		header = append(header, ui.IconOf(func() *core.SVG {
 			if open {
 				return lucide.ChevronDown()
 			}
 			return lucide.ChevronRight()
-		}, 11, colors.Faint))
+		}, 11.5, colors.Faint))
 		rows := []core.Node{core.View{
 			OnPress: func(core.PressEvent) { s.toggleOpen(key) },
 			Role:    core.RoleButton, Label: T("修改摘要"), TestID: "turn-changes",
@@ -526,16 +749,17 @@ func (a *app) changeSummary(s *session, t func() turn) core.Node {
 					},
 					Children: []core.Node{
 						core.Text{Content: change.Path, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11},
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(),
+								FontSize: a.readingDetailFont()},
 							StyleFunc: ui.Colored(colors.Muted)},
 					},
 				}
 				if change.Added > 0 || change.Removed > 0 {
 					row.Children = append(row.Children,
-						core.Text{Content: fmt.Sprintf("+%d", change.Added), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
-							StyleFunc: ui.Colored(colors.Up)},
-						core.Text{Content: fmt.Sprintf("−%d", change.Removed), Style: core.Style{FontFamily: ui.Mono, FontSize: 10},
-							StyleFunc: ui.Colored(colors.Danger)})
+						ui.Tabular(core.Text{Content: fmt.Sprintf("+%d", change.Added), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+							StyleFunc: ui.Colored(colors.Up)}),
+						ui.Tabular(core.Text{Content: fmt.Sprintf("−%d", change.Removed), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+							StyleFunc: ui.Colored(colors.Danger)}))
 				}
 				rows = append(rows, row)
 			}
@@ -560,17 +784,18 @@ func (a *app) openChangeFile(s *session, path string) {
 }
 
 // noteBlock is a system note, such as a compaction summary.
-func noteBlock(title, body string) core.Node {
+func (a *app) noteBlock(title, body string) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		children := []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
-				ui.Icon(lucide.Minimize2, 12, colors.Faint),
-				ui.Text(title, 12, ui.Medium, colors.Muted),
+				ui.Icon(lucide.Minimize2, 13, colors.Faint),
+				core.Text{Content: title, Style: core.Style{FontSize: a.readingRowFont(), FontWeight: ui.Medium},
+					StyleFunc: ui.Colored(colors.Muted)},
 			}},
 		}
 		if body != "" {
-			children = append(children, markdownView(body, func() bool { return false }, false))
+			children = append(children, markdownSized(body, func() bool { return false }, false, a.readingRowFont(), a.readingRowLine(), core.Style{Color: colors.Muted()}))
 		}
 		return core.View{StyleFunc: func() core.Style {
 			return core.Style{Gap: 8, Padding: core.Symmetric(8, 12), CornerRadius: ui.RadiusControl,
@@ -592,44 +817,46 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 		running := run.Status == chat.Running
 		open := s.toolOpen(key, running)
 		body := toolBodyText(run)
+		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
 		header := []core.Node{
-			ui.IconOf(func() *core.SVG { return toolIcon(run) }, 13, func() core.Color {
+			ui.IconOf(func() *core.SVG { return toolIcon(run) }, 14, func() core.Color {
 				switch {
 				case run.IsError:
 					return colors.Danger()
 				case running:
-					return colors.Accent()
+					return colors.Info()
 				}
 				return colors.Muted()
 			}),
-			core.Text{Content: run.Action, MaxLines: 1, Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold, FlexShrink: 0},
-				StyleFunc: ui.Colored(colors.Text)},
-			core.Text{Content: shorten(run.Detail, 120), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
-				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: ui.Mono, FontSize: 11.5},
+			core.Text{Content: run.Action, MaxLines: 1,
+				Style:     core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Muted)},
+			core.Text{Content: shorten(run.Detail, 140), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+				Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontFamily: monoFont(), FontSize: detailSize},
+				StyleFunc: ui.Colored(colors.Faint)},
 		}
 		if run.Added > 0 || run.Removed > 0 {
 			header = append(header, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, FlexShrink: 0},
 				Children: []core.Node{
-					core.Text{Content: fmt.Sprintf("+%d", run.Added), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
-						StyleFunc: ui.Colored(colors.Up)},
-					core.Text{Content: fmt.Sprintf("−%d", run.Removed), Style: core.Style{FontFamily: ui.Mono, FontSize: 10.5},
-						StyleFunc: ui.Colored(colors.Danger)},
+					ui.Tabular(core.Text{Content: fmt.Sprintf("+%d", run.Added), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+						StyleFunc: ui.Colored(colors.Up)}),
+					ui.Tabular(core.Text{Content: fmt.Sprintf("−%d", run.Removed), Style: core.Style{FontFamily: monoFont(), FontSize: detailSize},
+						StyleFunc: ui.Colored(colors.Danger)}),
 				}})
 		}
 		if len(run.Nested) > 0 {
 			header = append(header, core.Text{Content: fmt.Sprintf("内含 %d 次调用", len(run.Nested)), MaxLines: 1,
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
+				Style: core.Style{FontFamily: monoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		switch {
 		case running:
 			header = append(header, ui.Spinner{Size: 10})
 		case run.DurationMs > 0:
-			header = append(header, core.Text{Content: fmt.Sprintf("%d ms", run.DurationMs),
-				Style: core.Style{FontFamily: ui.Mono, FontSize: 10, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)})
+			header = append(header, ui.Tabular(core.Text{Content: fmt.Sprintf("%d ms", run.DurationMs),
+				Style: core.Style{FontFamily: monoFont(), FontSize: detailSize, FlexShrink: 0}, StyleFunc: ui.Colored(colors.Faint)}))
 		}
 		if run.IsError {
-			header = append(header, core.Text{Content: "失败", Style: core.Style{FontSize: 10.5, FontWeight: ui.Medium, FlexShrink: 0},
+			header = append(header, core.Text{Content: "失败", Style: core.Style{FontSize: detailSize, FontWeight: ui.Medium, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Danger)})
 		}
 		if body != "" {
@@ -638,15 +865,15 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 					return lucide.ChevronDown()
 				}
 				return lucide.ChevronRight()
-			}, 11, colors.Faint))
+			}, 12, colors.Faint))
 		}
 		rows := []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(28),
-			Padding: core.Symmetric(2, 9), MinWidth: core.Pt(0)}, Children: header}}
+			Padding: core.Symmetric(2, 6), MinWidth: core.Pt(0)}, Children: header}}
 		if open && body != "" {
 			rows = append(rows, core.View{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320), Borders: core.Edges{Top: 1},
 				BorderColors: core.EdgeColors{Top: colors.Now().Line}}, Children: []core.Node{
 				core.Scroll{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
-					core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 4}, Children: toolBodyNodes(cx, run)},
+					core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 4}, Children: a.toolBodyNodes(cx, run)},
 				}},
 			}})
 		}
@@ -659,10 +886,12 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 			},
 			Role: core.RoleButton, Label: strings.TrimSpace(run.Action + " " + run.Detail),
 			StyleFunc: func() core.Style {
-				st := core.Style{MinWidth: core.Pt(0), CornerRadius: 9, BorderWidth: 1, BorderColor: colors.Now().Line,
-					Background: ui.Mix(colors.Background(), colors.Text(), 0.03), Overflow: core.Hidden}
+				st := core.Style{MinWidth: core.Pt(0), CornerRadius: 8, Background: core.Transparent, Overflow: core.Hidden}
 				if body != "" {
-					st.Hover = &core.Style{Background: ui.Mix(colors.Background(), colors.Text(), 0.06)}
+					st.Hover = &core.Style{Background: ui.Mix(colors.Background(), colors.Text(), 0.04)}
+				}
+				if open {
+					st.Background = ui.Mix(colors.Background(), colors.Text(), 0.03)
 				}
 				return st
 			},
@@ -723,8 +952,9 @@ func toolBodyText(run toolRun) string {
 
 // toolBodyNodes is an open row's body: a diff colored by its signs, or the
 // output as it came.
-func toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
+func (a *app) toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
 	colors := ui.ColorsOf(cx)
+	size, rowLine := a.readingDetailFont(), a.readingDetailLine()
 	if run.Diff != "" {
 		var lines []core.Node
 		for _, line := range strings.Split(run.Diff, "\n") {
@@ -740,7 +970,7 @@ func toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
 			}
 			ink := c
 			lines = append(lines, core.Text{Content: line, Selectable: core.SelectableOn,
-				Style:     core.Style{FontFamily: ui.Mono, FontSize: 11.5, LineHeight: 17, Background: bg, Width: core.Pct(100)},
+				Style:     core.Style{FontFamily: monoFont(), FontSize: size, LineHeight: rowLine, Background: bg, Width: core.Pct(100)},
 				StyleFunc: ui.Colored(func() core.Color { return ink })})
 		}
 		return lines
@@ -748,14 +978,14 @@ func toolBodyNodes(cx *core.Scope, run toolRun) []core.Node {
 	var nodes []core.Node
 	for _, line := range run.Nested {
 		nodes = append(nodes, core.Text{Content: "· " + line, Selectable: core.SelectableOn,
-			Style: core.Style{FontFamily: ui.Mono, FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)})
+			Style: core.Style{FontFamily: monoFont(), FontSize: size, LineHeight: rowLine}, StyleFunc: ui.Colored(colors.Faint)})
 	}
 	out := run.Output
 	if out == "" {
 		out = "（没有输出）"
 	}
 	nodes = append(nodes, core.Text{Content: out, Selectable: core.SelectableOn,
-		Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Code)})
+		Style: core.Style{FontFamily: monoFont(), FontSize: size, LineHeight: rowLine}, StyleFunc: ui.Colored(colors.Code)})
 	return nodes
 }
 
@@ -776,90 +1006,37 @@ func (a *app) errorRow(retry func(), text string) core.Node {
 	})
 }
 
-// composer is the input card under the transcript. It reads nothing while
-// building: the draft, the images and the run state are functions, so
-// typing never rebuilds the field and never loses the caret.
-func (a *app) composer(s *session) core.Node {
-	return core.Func(func(cx *core.Scope) core.Node {
-		return chat.Composer{
-			Draft:         s.draft.Get,
-			OnDraftChange: s.draft.Set,
-			Label:         T("消息"),
-			PlaceholderFunc: func() string {
-				if s.busyNow() {
-					return T("运行中：回车插入引导，或点停止")
-				}
-				if !s.readySig.Get() {
-					return T("正在启动 pi…")
-				}
-				return T("给 pi 发消息…")
-			},
-			SendLabel: T("发送"),
-			StopLabel: T("停止"),
-			Running:   s.busy,
-			OnSend:    a.send,
-			OnStop:    func() { a.stop(s) },
-			Suggest: func(query string) []chat.Suggestion {
-				files := mentionMatches(a.workspaceFiles(s.WS), query, 8)
-				rows := make([]chat.Suggestion, 0, len(files))
-				for _, rel := range files {
-					rows = append(rows, chat.Suggestion{
-						SuggestItem: base.SuggestItem{ID: rel, Label: rel, Insert: "@" + rel + " "},
-						Icon:        lucide.File,
-					})
-				}
-				return rows
-			},
-			SuggestLabel: T("文件"),
-			Glass:        true,
-			State:        s.conversation,
-			Accessory:    a.composerAccessory(s),
-			Trailing:     a.composerTrailing(s),
-			Footer:       a.composerFooter(s),
-			Attachments:  a.attachments(s),
-			HasAttachments: func() bool {
-				return len(s.images.Get()) > 0
-			},
-			OnDropFiles: func(uris []string) { a.dropFiles(s, uris) },
-			OnPaste: func(e core.PasteEvent) {
-				for _, f := range e.Files {
-					if strings.HasPrefix(f.MIME, "image/") && len(f.Data) > 0 {
-						a.addImage(s, promptImage{Data: f.Data, MimeType: f.MIME, Name: f.Name})
-					}
-				}
-				for _, uri := range e.URIs {
-					a.dropFiles(s, []string{uri})
-				}
-			},
-		}
-	})
-}
-
-// composerAccessory is the model and thinking controls.
+// composerAccessory is the row of controls inside the card: where the
+// session runs, what this prompt asks for, and the model that answers it.
 func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
-		plan := hintOf(func() string { return T("计划模式") }, ui.IconButton{Icon: lucide.ClipboardList, Label: T("计划模式"), Size: 26, IconSize: 13, TestID: "plan-mode",
-			Selected: s.planMode.Get, OnPress: func() { a.togglePlanMode(s) }})
-		persona := a.personaChip(s)
-		aiTool := func(tool string, icon func() *core.SVG, label, testID string, press func()) core.Node {
-			return core.Dynamic(func(cx *core.Scope) core.Node {
-				if a.aiBusy.Get() == tool {
-					return ui.Spinner{Size: 11}
-				}
-				return hintOf(func() string { return T(label) }, ui.IconButton{Icon: icon, Label: T(label), Size: 26, IconSize: 13,
-					TestID: testID, Disabled: func() bool {
-						return a.aiBusy.Get() != "" || strings.TrimSpace(s.draft.Get()) == ""
-					}, OnPress: press})
-			})
-		}
-		ai := core.Group{
-			aiTool("prompt", lucide.WandSparkles, "增强提示词", "prompt-enhance", func() { a.enhanceDraft(s) }),
-			aiTool("predict", lucide.Sparkles, "续写", "prompt-predict", func() { a.predictDraft(s) }),
-		}
-		if s.backend == "acp" {
-			return core.Group{persona, plan, a.acpBadge(s), a.acpCommandMenu(s), ai}
-		}
-		return core.Group{persona, plan, a.modelMenu(s, s.modelOpen), a.effortPicker(s), ai}
+		return core.Dynamic(func(cx *core.Scope) core.Node {
+			// Follow the mode, the backend and the agent's own changes, which
+			// live outside signals.
+			s.agentMode.Get()
+			s.uiSeq.Get()
+			var parts []core.Node
+			parts = append(parts, a.composerBackendPicker(s), a.composerAddMenu(s))
+			if chip := a.composerModeChip(s); chip != nil {
+				parts = append(parts, chip)
+			}
+			switch {
+			case modeOn(s, modeImage):
+				parts = append(parts, a.composerImageOptions(s))
+			case backendOf(s) == "acp":
+				parts = append(parts, a.acpBadge(s))
+			default:
+				parts = append(parts, hintOf(func() string {
+					if m := s.model.Get(); m.ID != "" {
+						return T("模型 · %s", modelLabel(m))
+					}
+					return T("选择模型")
+				}, a.modelMenu(s, s.modelOpen)))
+				parts = append(parts, a.effortPicker(s))
+			}
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0),
+				FlexShrink: 1, Overflow: core.Hidden}, Children: parts}
+		})
 	}
 }
 
@@ -927,53 +1104,20 @@ func (a *app) predictDraft(s *session) {
 	}()
 }
 
-// effortPicker chooses the reasoning level with the chat kit's slider: the
-// levels the current model accepts, dragged or pressed. It is rebuilt when
-// the model changes, because each model has its own levels.
-func (a *app) effortPicker(s *session) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		levels := s.levels.Get()
-		if len(levels) == 0 {
-			return nil
-		}
-		var options []chat.Option
-		for _, l := range levels {
-			options = append(options, chat.Option{ID: l, Label: levelLabel(l)})
-		}
-		return chat.EffortPicker{
-			Label:  T("思考"),
-			Icon:   lucide.Brain,
-			Levels: options,
-			Selected: func() string {
-				return s.thinking.Get()
-			},
-			OnChange: func(id string) { a.applyThinking(s, id, true) },
-			Off:      true,
-			Tooltip: func() string {
-				if len(levels) == 1 {
-					return "思考等级 · " + levelLabel(s.thinking.Get()) + "（该模型只有这一档）"
-				}
-				return "思考等级 · " + levelLabel(s.thinking.Get())
-			},
-			TestID: "effort-picker",
-		}
-	})
-}
-
-// composerTrailing is the attach button and context gauge, and the mark
-// that says pi answered for this session.
+// composerTrailing is the tools, the attach button, the context gauge and
+// the way messages are sent.
 func (a *app) composerTrailing(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
-		return core.Group{
-			chat.IconAction{Label: T("粘贴图片"), Icon: lucide.ImagePlus, OnPress: func() { a.pasteImage(s) }},
-			chat.ContextMeter{
-				Label: T("上下文"), Title: T("上下文用量"),
-				Tooltip:  func() string { return "上下文 · " + a.contextValue(s) },
-				Value:    func() string { return a.contextValue(s) },
-				Fraction: func() float64 { return a.contextFraction(s) },
-				TestID:   "context-meter",
-			},
-		}
+		return core.Dynamic(func(cx *core.Scope) core.Node {
+			s.sendMode.Get()
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
+				a.aiToolButton(s, "prompt", lucide.WandSparkles, "增强提示词", "prompt-enhance", func() { a.enhanceDraft(s) }),
+				a.aiToolButton(s, "predict", lucide.Sparkles, "续写", "prompt-predict", func() { a.predictDraft(s) }),
+				a.attachButton(s),
+				a.contextMeterNode(s),
+				a.sendMenu(s),
+			}}
+		})
 	}
 }
 
@@ -1005,8 +1149,8 @@ func (a *app) contextFraction(s *session) float64 {
 	return -1
 }
 
-// composerFooter is the row of chips under the input: the project the
-// session runs in, what is queued or failing, and the usage panel.
+// composerFooter is the row under the card: where the session runs, which
+// agent it carries, what is failing, and the usage panel.
 func (a *app) composerFooter(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
@@ -1017,16 +1161,14 @@ func (a *app) composerFooter(s *session) chat.View {
 						return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: colors.Up()}
 					}}
 			}},
-			a.projectMenu(s, s.projectOpen),
-			core.Show{When: func() bool { return s.queued.Get() > 0 }, Then: func(cx *core.Scope) core.Node {
-				return chat.Chip{TextFunc: func() string { return fmt.Sprintf("排队 %d", s.queued.Get()) }, Icon: lucide.ListOrdered}
-			}},
+			hintOf(func() string { return T("项目 · 点一下换") }, a.projectMenu(s, s.projectOpen)),
+			a.personaChip(s),
 			core.Show{When: func() bool { return s.notice.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 				return core.Text{ContentFunc: func() string { return shorten(s.notice.Get(), 40) }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FlexShrink: 1, FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)}
+					Style: core.Style{FlexShrink: 1, FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)}
 			}},
 			core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}},
-			a.usageMenu(s, s.usageOpen),
+			hintOf(func() string { return T("用量与上下文") }, a.usageMenu(s, s.usageOpen)),
 		}}
 	}
 }
@@ -1072,7 +1214,7 @@ func (a *app) historySkeleton(s *session) core.Node {
 		Style: core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0),
 			AlignItems: core.AlignCenter, PointerEvents: core.PointerEventsBoxNone},
 		StyleFunc: func() core.Style { return core.Style{Bottom: core.Pt(s.conversation.ComposerHeight())} },
-		Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, Width: core.Pct(100), MaxWidth: core.Pt(720), MinHeight: core.Pt(0),
+		Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, Width: core.Pct(100), MaxWidth: core.Pt(core.Points(a.contentWidth())), MinHeight: core.Pt(0),
 			JustifyContent: core.JustifyCenter, Padding: core.Symmetric(32, 24), Gap: 22}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7}, Children: []core.Node{
 				ui.Spinner{Size: 11, Label: T("正在读取历史会话")},
@@ -1121,7 +1263,7 @@ func (a *app) emptyChat(s *session) core.Node {
 								a.suggestion(T("修一个小问题"), T("看看最近的改动，指出最可能出问题的地方并修掉。")),
 							}},
 							core.Text{Content: T("Enter 发送 · Shift+Enter 换行 · ⌘K 命令面板"),
-								Style: core.Style{FontFamily: ui.Mono, FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
+								Style: core.Style{FontFamily: monoFont(), FontSize: 10, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
 						}},
 					}},
 				}},
@@ -1169,7 +1311,7 @@ func (a *app) welcome() core.Node {
 				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 14, MaxWidth: core.Pt(420)}, Children: []core.Node{
 					core.Image{Source: core.ImageSource{Data: logoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
 						Style: core.Style{Width: core.Pt(64), Height: core.Pt(64), CornerRadius: 18}},
-					core.Text{Content: "PiDeck Lite", Style: core.Style{FontFamily: ui.Mono, FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
+					core.Text{Content: "PiDeck Lite", Style: core.Style{FontFamily: monoFont(), FontSize: 22, FontWeight: ui.Bold, LetterSpacing: 0.4},
 						StyleFunc: ui.Colored(colors.Text)},
 					core.Text{Content: sub, Style: core.Style{FontSize: 13, TextAlign: core.TextAlignCenter, LineHeight: 20}, StyleFunc: ui.Colored(colors.Muted)},
 					core.View{Style: core.Style{Direction: core.Row, Gap: 8}, Children: []core.Node{
@@ -1188,13 +1330,22 @@ func (a *app) welcome() core.Node {
 							return ui.Button{Text: T("添加工作区"), Variant: ui.ButtonPrimary, TestID: "welcome-primary", OnPress: func() { a.pickNative("workspace") }}
 						}),
 						ui.Button{Text: T("直接对话"), Variant: ui.ButtonSecondary, TestID: "welcome-chat", OnPress: func() { a.openChat() }},
-						ui.Button{Text: T("导入会话"), Variant: ui.ButtonSecondary, TestID: "welcome-secondary", OnPress: func() { a.openPicker("import") }},
+						ui.Button{Text: T("导入会话"), Variant: ui.ButtonSecondary, TestID: "welcome-secondary", OnPress: func() { a.openImportDialog() }},
 					}},
 					core.Text{Content: T("NSGo 原生窗口 · 不是 Electron · 会话由本机 pi 的 RPC 模式驱动"),
-						Style: core.Style{FontFamily: ui.Mono, FontSize: 10, TextAlign: core.TextAlignCenter, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
+						Style: core.Style{FontFamily: monoFont(), FontSize: 10, TextAlign: core.TextAlignCenter, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}}
 	})
+}
+
+// clockTime is when a prompt went out or an answer came back: the date and
+// the time, so a session read days later still reads right.
+func clockTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("01-02 15:04")
 }
 
 // duration renders an elapsed time for a turn.
@@ -1246,7 +1397,7 @@ func (a *app) todoBar(s *session) core.Node {
 			StyleFunc: func() core.Style {
 				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(32),
 					Padding: core.Symmetric(0, 10), CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Border(),
-					Background: colors.Surface(), Hover: &core.Style{Background: colors.Hover()},
+					Background: ui.Alpha(colors.Surface(), 1), Hover: &core.Style{Background: colors.Hover()},
 					Transition: pressMotion}
 			},
 			Children: []core.Node{

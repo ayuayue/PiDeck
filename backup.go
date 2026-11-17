@@ -196,7 +196,7 @@ func (a *app) importSettings(path string) {
 			a.cfg = a.st.config()
 			a.chatWidth.Set(a.cfg.ChatWidth)
 			a.applyLanguage()
-			a.applyTheme()
+			a.applyFonts()
 			a.prompts.Set(a.loadPrompts())
 			a.reloadAddons()
 			a.toast(ui.ToastSuccess, "已导入设置包", "插件、主题与提示词已重新读取。")

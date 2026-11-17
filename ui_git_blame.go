@@ -43,9 +43,9 @@ func (a *app) gitBlameDialog() core.Node {
 				},
 				Children: []core.Node{
 					core.Text{Content: span, Style: core.Style{Width: core.Pt(64), TextAlign: core.TextAlignEnd,
-						FontFamily: ui.Mono, FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+						FontFamily: monoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					ui.Icon(lucide.GitCommitHorizontal, 11, colors.Faint),
-					core.Text{Content: b.short(), Style: core.Style{FontFamily: ui.Mono, FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
+					core.Text{Content: b.short(), Style: core.Style{FontFamily: monoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
 					core.Text{Content: b.Subject, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5},
 						StyleFunc: ui.Colored(colors.Text)},

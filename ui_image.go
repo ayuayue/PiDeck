@@ -244,7 +244,7 @@ func (a *app) imageDialog() core.Node {
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.imageRef.Get, OnChange: a.imageRef.Set, Placeholder: T("填了就走 /images/edits，按描述修改这张图"),
 							Label: T("参考图"), TestID: "image-ref",
-							Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 11.5, FontFamily: ui.Mono, Color: colors.Text(),
+							Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 11.5, FontFamily: monoFont(), Color: colors.Text(),
 								Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 					}},
 					ui.Button{Text: T("选择…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "image-ref-pick",
@@ -255,7 +255,7 @@ func (a *app) imageDialog() core.Node {
 				ui.Text("图片模型", 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: a.imageModel.Get, OnChange: a.imageModel.Set, Placeholder: "gpt-image-1 / Kwai-Kolors/Kolors",
 					Label: T("图片模型"), TestID: "image-model",
-					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: ui.Mono, Color: colors.Text(),
+					Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), FontSize: 12, FontFamily: monoFont(), Color: colors.Text(),
 						Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 			}},
 			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{

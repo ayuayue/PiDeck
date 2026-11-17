@@ -34,6 +34,7 @@ func (a *app) setupDesktop() {
 	a.setupNotifications()
 	a.updateTray()
 	a.setupPet()
+	a.watchWindow()
 	// A second launch hands over to this instance instead of opening
 	// another window and another phone server.
 	desktop.OnReopen(a.cx, a.showMainWindow)
@@ -128,7 +129,7 @@ func (a *app) trayMenu() []desktop.MenuItem {
 	}
 	items = append(items,
 		desktop.MenuItem{Separator: true},
-		desktop.MenuItem{Label: T("设置…"), OnSelect: func() { a.showMainWindow(); a.settings.Set(true) }},
+		desktop.MenuItem{Label: T("设置…"), OnSelect: func() { a.showMainWindow(); a.openSettingsPane() }},
 		desktop.MenuItem{Label: T("退出"), OnSelect: a.quitApp},
 	)
 	return items

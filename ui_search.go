@@ -123,7 +123,7 @@ func (a *app) searchDialog() core.Node {
 					}
 					return core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Gap: 4}, Children: []core.Node{
 						core.Text{Content: T("找到 %d 个会话 · %d 处匹配", len(hits), total),
-							Style:     core.Style{FontFamily: ui.Mono, FontSize: 9.5, Padding: core.Edges{Left: 2}},
+							Style:     core.Style{FontFamily: monoFont(), FontSize: 9.5, Padding: core.Edges{Left: 2}},
 							StyleFunc: ui.Colored(colors.Faint)},
 						core.Scroll{Style: ui.FillRest, Children: []core.Node{
 							core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Right: 4}}, Children: rows},

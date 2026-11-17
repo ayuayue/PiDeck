@@ -71,7 +71,7 @@ func (a *app) gitRemotesDialog() core.Node {
 					Padding: core.Symmetric(3, 6)}, Children: []core.Node{
 					ui.Icon(lucide.Cloud, 12, colors.Muted),
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
-						core.Text{Content: item.Name, Style: core.Style{FontFamily: ui.Mono, FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
+						core.Text{Content: item.Name, Style: core.Style{FontFamily: monoFont(), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
 						core.Text{Content: item.URL, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 							Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					}},
@@ -106,14 +106,14 @@ func (a *app) gitRemotesDialog() core.Node {
 						core.Input{Value: a.gitRemoteName.Get, OnChange: a.gitRemoteName.Set, Placeholder: "origin", Label: T("远端名"),
 							TestID: "git-remote-name",
 							Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11.5,
-								FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+								FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 								BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 					}},
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.gitRemoteURL.Get, OnChange: a.gitRemoteURL.Set, Placeholder: "https://github.com/…/repo.git",
 							Label: T("远端地址"), TestID: "git-remote-url", OnSubmit: func(string) { a.addGitRemote() },
 							Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
-								FontFamily: ui.Mono, Color: colors.Text(), Background: colors.Field(),
+								FontFamily: monoFont(), Color: colors.Text(), Background: colors.Field(),
 								BorderWidth: 1, BorderColor: colors.FieldBorder()}},
 					}},
 					ui.Button{Text: T("添加远端"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "git-remote-add",
