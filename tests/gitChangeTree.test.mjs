@@ -155,7 +155,7 @@ test("接线契约：变更区走 ChangesGroupsStack 单一虚拟化，视图模
 
 	assert.equal((panel.match(/viewMode=\{changesViewMode\}/g) ?? []).length, 1, "变更区只挂一个 ChangesGroupsStack，视图模式集中透传一处");
 	assert.match(panel, /<ChangesGroupsStack\s[\s\S]{0,400}?scrollRef=\{changesScrollRef\}/, "变更区滚动容器 ref 必须传给 ChangesGroupsStack（VirtualStack 靠它算可视窗口）");
-	assert.match(panel, /ref=\{changesScrollRef\} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto/, "ChangesGroupsStack 与滚动容器共用同一个 ref");
+	assert.match(panel, /ref=\{changesScrollRef\}\s+className=\{`min-h-0\s+flex-1\s+overflow-x-hidden\s+overflow-y-auto/, "ChangesGroupsStack 与滚动容器共用同一个 ref");
 	assert.match(panel, /useState<GitChangeViewMode>\s*\(\s*\(\s*\)\s*=>\s*readChangesViewMode\(\)\s*\)/, "视图模式要能从持久化偏好初始化");
 	assert.match(panel, /localStorage\.getItem\(\s*GIT_CHANGES_VIEW_MODE_STORAGE_KEY\s*\)\s*===\s*"tree"\s*\?\s*"tree"\s*:\s*"flat"/, "非法值/无缓存回落平铺（默认与旧版一致，树形需主动开启）");
 	assert.match(panel, /writeChangesViewMode\s*\(/, "切换后要写回偏好");
