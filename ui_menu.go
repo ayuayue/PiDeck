@@ -653,6 +653,7 @@ func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 	return []core.Node{
 		a.menuRow(a.cx, lucide.SquarePen, "在此新建会话", "", false, func() { a.newSession(w().Path) }),
 		a.menuRow(a.cx, lucide.SquareTerminal, "在此打开终端", "", false, func() { a.openTerminalFor(w()) }),
+		a.menuRow(a.cx, lucide.FileInput, T("导入会话…"), "", false, func() { a.openImportDialogFor(w()) }),
 		a.menuRow(a.cx, lucide.GitBranch, "查看 Git 变更", "", false, func() { a.openGitFor(w()) }),
 		a.menuSeparator(a.cx),
 		a.menuRow(a.cx, lucide.Pin, pinProjectLabel(w()), "", false, func() { a.toggleProjectPin(w()) }),

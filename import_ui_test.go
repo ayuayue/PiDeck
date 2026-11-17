@@ -5,6 +5,7 @@ package main
 // puts the project in the rail, and shows the row as imported.
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,4 +88,113 @@ func TestImportDialogImportsSelection(t *testing.T) {
 		rows := built.impRows.GetUntracked()
 		return len(rows) == 1 && rows[0].State == importCurrent
 	})
+}
+
+// TestImportDialogFromProjectImportsThere opens the dialog for one project
+// and checks that everything it imports lands in that project, whatever
+// folder the session ran in, and that each source has its own tab.
+func TestImportDialogFromProjectImportsThere(t *testing.T) {
+	home := t.TempDir()
+	proj := t.TempDir()
+	elsewhere := t.TempDir()
+	empty := t.TempDir()
+	for _, key := range []string{"qoder", "cursor", "kimi", "minimax", "zcode", "opencode", "workbuddy", "codebuddy"} {
+		t.Setenv("PIDECK_LITE_IMPORT_"+strings.ToUpper(key)+"_DIR", empty)
+	}
+	t.Setenv("APPDATA", t.TempDir())
+
+	claudeDir := t.TempDir()
+	t.Setenv("PIDECK_LITE_IMPORT_CLAUDE_DIR", claudeDir)
+	head := `{"type":"user","sessionId":"c1","cwd":"` + filepath.ToSlash(elsewhere) + `","uuid":"u1","timestamp":"2026-06-01T10:00:00Z","message":{"role":"user","content":"别的目录里的会话"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(claudeDir, "c1.jsonl"), []byte(head), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	codexDir := t.TempDir()
+	t.Setenv("PIDECK_LITE_IMPORT_CODEX_DIR", codexDir)
+	rollout := `{"timestamp":"2026-06-01T10:00:00Z","type":"session_meta","payload":{"id":"x1","cwd":"` + filepath.ToSlash(elsewhere) + `"}}` + "\n" +
+		`{"timestamp":"2026-06-01T10:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Codex 的会话"}]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(codexDir, "rollout-x1.jsonl"), []byte(rollout), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PIDECK_LITE_HOME", home)
+	raw, err := json.Marshal(config{Version: 1, Theme: "system", SidebarOpen: true,
+		Workspaces: []workspaceCfg{{Path: proj, Expanded: true, Added: time.Now()}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var built *app
+	root := func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		return built.view()
+	}
+	app := nsgotest.Start(t, root, nsgotest.Size(1280, 860))
+	app.Settle()
+	if built == nil {
+		t.Fatal("the app was not built")
+	}
+	ws := built.workspaceOf(proj)
+	if ws == nil {
+		t.Fatal("the project is not on the rail")
+	}
+	built.openImportDialogFor(ws)
+	app.WaitFor("id:import-dialog", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("id:import-row")) == 2 })
+
+	// One tab per source, and each shows only its own sessions.
+	for _, id := range []string{"import-tab-all", "import-tab-claude", "import-tab-codex"} {
+		if len(app.Query("id:"+id)) == 0 {
+			t.Fatalf("the dialog has no %s", id)
+		}
+	}
+	app.Press("id:import-tab-claude")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:import-row")) == 1 })
+	app.Press("id:import-tab-codex")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:import-row")) == 1 })
+	app.Press("id:import-tab-all")
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("id:import-row")) == 2 })
+
+	app.Press("id:import-select-all")
+	app.Press("id:import-run")
+	app.WaitUntil(20*time.Second, func() bool {
+		rows := built.impRows.GetUntracked()
+		if len(rows) != 2 {
+			return false
+		}
+		for _, row := range rows {
+			if row.State != importCurrent {
+				return false
+			}
+		}
+		return true
+	})
+
+	// Both landed in the project, not in the folder they ran in.
+	dir := filepath.Join(home, "sessions", encodeCwd(proj))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("the project's session folder: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("imported files = %d, want 2 in %s", len(entries), dir)
+	}
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		head, ok := readSessionHead(path)
+		if !ok {
+			t.Fatalf("%s has no session header", e.Name())
+		}
+		if pathKey(head.Cwd) != pathKey(proj) {
+			t.Fatalf("%s was written for %q, want the project", e.Name(), head.Cwd)
+		}
+	}
+	// The welcome dialog's own path still imports where a session ran.
+	built.impProject.Set("")
+	if got := built.importCwdFor(importCandidate{Source: "claude", Cwd: elsewhere}); pathKey(got) != pathKey(elsewhere) {
+		t.Fatalf("without a project the import goes to %q, want %q", got, elsewhere)
+	}
 }

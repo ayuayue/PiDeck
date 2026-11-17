@@ -595,8 +595,11 @@ type app struct {
 	impFailed   *core.Signal[int]
 	impQuery    *core.Signal[string]
 	impOnly     *core.Signal[string]
-	impSel      *core.Signal[[]string]
-	impGen      int
+	// impProject is the project the dialog was opened for: what is imported
+	// goes there whatever folder it ran in. Empty means "where it ran".
+	impProject      *core.Signal[string]
+	impSel          *core.Signal[[]string]
+	impGen          int
 	outlineOpen     *core.Signal[bool]
 	authEntries     *core.Signal[[]authEntry]
 	authErr         *core.Signal[string]
@@ -799,6 +802,7 @@ func newApp(cx *core.Scope) *app {
 		impFailed:              core.NewSignal(cx, 0),
 		impQuery:               core.NewSignal(cx, ""),
 		impOnly:                core.NewSignal(cx, ""),
+		impProject:             core.NewSignal(cx, ""),
 		impSel:                 core.NewSignalFunc(cx, []string(nil), nil),
 		outlineOpen:            core.NewSignal(cx, false),
 		authEntries:            core.NewSignalFunc(cx, []authEntry(nil), nil),

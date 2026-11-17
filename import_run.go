@@ -14,10 +14,29 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// openImportDialog shows the dialog and scans the sources behind it.
+// openImportDialog shows the dialog for the whole machine: a session lands
+// in the folder it ran in.
 func (a *app) openImportDialog() {
+	a.impProject.Set("")
+	a.showImportDialog()
+}
+
+// openImportDialogFor shows the dialog for one project: everything imported
+// from it goes into that project, whatever folder it ran in.
+func (a *app) openImportDialogFor(ws *workspace) {
+	if ws == nil || ws.Target.remote() {
+		a.openImportDialog()
+		return
+	}
+	a.impProject.Set(ws.Path)
+	a.showImportDialog()
+}
+
+// showImportDialog opens the dialog and scans the sources behind it.
+func (a *app) showImportDialog() {
 	a.impOpen.Set(true)
 	a.impSel.Set(nil)
+	a.impQuery.Set("")
 	if !a.impScanning.GetUntracked() {
 		a.scanImports()
 	}
@@ -111,13 +130,38 @@ func (a *app) selectImportRows() {
 // importPicked is how many picked rows a run would convert.
 func (a *app) importPicked() []importRow {
 	var out []importRow
-	for _, row := range a.impRows.GetUntracked() {
+	for _, row := range a.importVisibleRows() {
 		if row.State == importCurrent || !a.isImportSelected(row.key()) {
 			continue
 		}
 		out = append(out, row)
 	}
 	return out
+}
+
+// importPickedElsewhere counts the picks another tab holds, so the footer
+// can say the run it is about to start is not all of them.
+func (a *app) importPickedElsewhere() int {
+	shown := map[string]bool{}
+	for _, row := range a.importVisibleRows() {
+		shown[row.key()] = true
+	}
+	n := 0
+	for _, row := range a.impRows.GetUntracked() {
+		if row.State != importCurrent && !shown[row.key()] && a.isImportSelected(row.key()) {
+			n++
+		}
+	}
+	return n
+}
+
+// importTargetProject is the project the dialog was opened for.
+func (a *app) importTargetProject() *workspace {
+	path := strings.TrimSpace(a.impProject.GetUntracked())
+	if path == "" {
+		return nil
+	}
+	return a.workspaceFor(localTarget, path)
 }
 
 // importChosen converts the picked sessions, a few at a time, and reports

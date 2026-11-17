@@ -572,10 +572,13 @@ func orDefault(s, def string) string {
 	return s
 }
 
-// importCwdFor is the folder an imported session is written for: the folder
-// it ran in when that still exists, the project the user is looking at
-// otherwise.
+// importCwdFor is the folder an imported session is written for: the
+// project the dialog was opened for when it names one, else the folder it
+// ran in when that still exists, else the project the user is looking at.
 func (a *app) importCwdFor(c importCandidate) string {
+	if target := strings.TrimSpace(a.impProject.GetUntracked()); target != "" {
+		return filepath.Clean(target)
+	}
 	if c.Cwd != "" {
 		if info, err := os.Stat(c.Cwd); err == nil && info.IsDir() {
 			return filepath.Clean(c.Cwd)
