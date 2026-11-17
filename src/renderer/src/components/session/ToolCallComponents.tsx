@@ -176,8 +176,7 @@ export const ToolActivityCard = memo(function ToolActivityCard(props: { name: st
 /**
  * 工具结果内层的限高：组体内让位（null），组外保持既有 320。
  *
- * 见 `turn/processGroupScrollContext.ts`：组体已经是「限高 + 一条滚轮」，组内再套一层
- * 限高滚动区就是用户看到的双层滚动条（内层到边即被 contain 切断，外层不动）。
+ * 组内长输出随会话自然滚动，避免另建一条纵向滚动。
  */
 const TOOL_RESULT_MAX_HEIGHT_OUTSIDE_GROUP = 320;
 
@@ -219,7 +218,7 @@ export const ToolCard = memo(function ToolCard(props: {
 	/** 通过会话工作区路由打开工具目标文件（相对路径由 App 层补齐工作目录） */
 	onOpenFile?: (path: string) => void;
 }) {
-	// 组体内：外层组体已经限高并自带滚轮，这里的内层必须让位，否则是双层滚动条。
+	// 组内长输出随会话自然展开。
 	const insideProcessGroupBody = useInsideProcessGroupBody();
 	const [expanded, setExpanded] = useState(props.defaultOpen ?? false);
 	const sticky = useProcessEntryStickyHeader(expanded);

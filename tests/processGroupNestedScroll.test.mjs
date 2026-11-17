@@ -5,9 +5,8 @@ import test from "node:test";
 /**
  * 过程组组体内「只有一条滚轮」的契约断言。
  *
- * 背景：组体本身已经是「限高 + 一条滚轮」（`data-process-group-scroller`）。组内工具卡
- * 再带一层限高滚动区（`ToolResult` 320 / `FileDiff` 200）就变成双层滚动条：内层滚到边
- * 即被 overscroll-contain 切断，外层一像素不动，观感像卡死。
+ * 组体与工具输出自然展开，纵向滚动统一归会话。这里保留组内工具限高的接线守卫，
+ * 真实滚轮传递与长输出几何由 e2e/process-fold-scroll.spec.ts 覆盖。
  *
  * 约定：组内内层让位（maxHeight=null → 不限高、不自转纵向滚轮），组外保持原值。
  * 这里用源码正则把这条约束钉住——改动任一处且忘记同步，测试即红。
@@ -29,8 +28,8 @@ test("group body provides the context only while open", () => {
 	const group = groupStepSource();
 	// Provider 必须包住整个组体，且只在 props.open 分支内（收起时不该有组内语境）。
 	assert.ok(/\{props\.open\s*&&\s*\([\s\S]*?<ProcessGroupBodyScrollContext\.Provider\s+value=\{true\}>/.test(group), "group body must open the provider inside the props.open branch");
-	assert.ok(group.indexOf("<ProcessGroupBodyScrollContext.Provider") < group.indexOf("data-process-group-scroller"), "provider must wrap the group body scroller");
-	assert.ok(group.indexOf("data-process-group-scroller") < group.indexOf("</ProcessGroupBodyScrollContext.Provider>"), "provider must close after the group body scroller");
+	assert.ok(group.indexOf("<ProcessGroupBodyScrollContext.Provider") < group.indexOf("data-process-group-content"), "provider must wrap the group content");
+	assert.ok(group.indexOf("data-process-group-content") < group.indexOf("</ProcessGroupBodyScrollContext.Provider>"), "provider must close after the group content");
 });
 
 test("tool card drops inner maxHeight inside a group body", () => {

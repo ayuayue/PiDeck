@@ -11,6 +11,7 @@ import { useReducedMotion } from "motion/react";
 import { type ComponentPropsWithRef, type Ref, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { isFollowEscapeEdge, isFollowSnapshotFresh, useStickToBottom, type ScrollToBottom, type ScrollByWheel, type StopScroll } from "@/lib/stick-to-bottom";
+import { MessageScrollerGeometryContext, useMessageScrollerGeometry } from "./message-scroller-context";
 
 /** 供时间线 controller 调用的引擎滚动 API（回底弹簧 / 原子恢复位置）。 */
 export type MessageScrollerScrollApi = {
@@ -103,6 +104,7 @@ export function MessageScroller({
 	const engineStopScroll = stick.stopScroll;
 	const engineScrollByWheel = stick.scrollByWheel;
 	const engineNoteWheel = stick.noteWheel;
+	const geometry = useMessageScrollerGeometry(viewportRef, contentRef, engineRestoreAt);
 
 	// 把引擎能力挂到外部 ref，供 SessionTimelineController 的回底按钮/历史位置恢复使用。
 	useEffect(() => {
@@ -239,7 +241,7 @@ export function MessageScroller({
 
 	return (
 		<div data-slot="message-scroller" className={cn("min-h-0", className)} {...props}>
-			{viewport}
+			<MessageScrollerGeometryContext.Provider value={geometry}>{viewport}</MessageScrollerGeometryContext.Provider>
 		</div>
 	);
 }

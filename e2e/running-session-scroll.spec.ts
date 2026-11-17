@@ -65,22 +65,21 @@ async function scrollMetrics(window: Page) {
 	});
 }
 
-test("运行中的过程组只保留外层可见滚动条，不破坏内部滚动契约", async ({ app, window }) => {
+test("运行中的过程组自然增高，纵向滚动只由会话承担", async ({ app, window }) => {
 	test.setTimeout(90_000);
 	await openRunningProject(app, window);
 	await openSeeded(window, "Running A");
 	await startTools(window, "SLOW TOOLMANY 40 running-scrollbar", 20);
 	const styles = await window
-		.locator("[data-process-group-scroller]")
+		.locator("[data-process-group-content]")
 		.first()
 		.evaluate((element) => {
 			const style = getComputedStyle(element);
 			return { scrollbarWidth: style.scrollbarWidth, overflowY: style.overflowY, maxHeight: style.maxHeight, overscrollY: style.overscrollBehaviorY };
 		});
-	expect(styles.scrollbarWidth).toBe("none");
-	expect(styles.overflowY).toBe("auto");
-	expect(styles.maxHeight).not.toBe("none");
-	expect(styles.overscrollY).toBe("contain");
+	expect(styles.overflowY).toBe("visible");
+	expect(styles.maxHeight).toBe("none");
+	expect(styles.overscrollY).toBe("auto");
 });
 
 test("两个运行中工具会话切回时持续跟随，且不误显回底按钮", async ({ app, window }) => {
@@ -122,6 +121,12 @@ test("运行中工具尾部在历史阅读切回后保持锚点与回底入口",
 	}
 	await startTools(window, "SLOW TOOLMANY 40 running-anchor-tools", 20);
 	const sourceId = await window.locator('[role="tab"][data-session-id][aria-selected="true"]').getAttribute("data-session-id");
+	// 先用真实上滚退出跟随，再精确安排阅读锚点；直接改 scrollTop 不代表用户意图，
+	// 自然高度的工具组继续增长时，引擎会按仍在跟随的状态把程序定位带回尾部。
+	const timeline = window.locator(".message-timeline");
+	await timeline.hover({ position: { x: 100, y: 100 } });
+	await window.mouse.wheel(0, -200);
+	await expect(window.locator("[data-scroll-to-bottom]")).toBeVisible();
 	const readOffset = () =>
 		window.evaluate(() => {
 			const timeline = document.querySelector<HTMLElement>(".message-timeline");

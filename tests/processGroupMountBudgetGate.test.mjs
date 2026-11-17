@@ -74,7 +74,7 @@ test("回归：单轮 123 个过程组 × 每组上限，必须被预算收敛�
 	const nodes = items(123);
 	const windowed = boundMountedSteps(nodes, PROCESS_FOLD_NODE_LIMIT);
 	assert.ok(windowed.items.length <= PROCESS_FOLD_NODE_LIMIT, "节点数必须受 PROCESS_FOLD_NODE_LIMIT 约束");
-	assert.ok(windowed.hiddenCount > 0, "123 个节点超过 120 预算时必须给出折叠入口");
+	assert.ok(windowed.hiddenCount > 0, "超过初始挂载预算的节点必须给出折叠入口");
 
 	// 单个过程组成员（实测单组最多 305 条工具结果）同样受成员预算约束
 	const members = items(305);

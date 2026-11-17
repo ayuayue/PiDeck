@@ -273,12 +273,8 @@
 /*
  * 执行过程一级节点的布局/绘制边界。
  *
- * 这一层现在是虚拟化的：ProcessFold 在内部建了一个 `max-h-[min(70vh,900px)]` 的滚动视口，
- * 超过 16 个一级节点就改走 <VirtualStack>。
- *
- * 历史（别照旧结论办）：这里原先**没有**视口（既无 max-h 也无 overflow，随页面一起滚），
- * 那时套 VirtualStack 一定算错——组体那次「展开方向反了」就是这么来的。现在视口存在，
- * 结论反转。判据是「有没有视口」，不是「这一块能不能虚拟化」。
+ * ProcessFold 随会话自然滚动，默认只挂最近 16 个一级节点，更早内容按批展开。
+ * 每个节点在组件内使用 contain:layout；这里保留折叠区直接子项的同类边界。
  *
  * 为什么也不用 `content-visibility: auto`：它靠 `contain-intrinsic-size` 给屏外节点估高，
  * 而这个折叠区就在**时间线虚拟行内部**——行高由 `@tanstack/react-virtual` 的
@@ -304,13 +300,6 @@
  * 矮节点（重试/错误行、按钮）也会带上 contain，但它们本来只有几十 px，多一层隔离无副作用。
  */
 .execution-summary-details > * {
-  contain: layout;
-}
-/*
- * 虚拟化路径的行容器同样是 `> *` 的孙辈（VirtualStack 在中间插了一层 relative 内容盒），
- * 上一行选择器够不到。这里补一条同一目的的选择器，别让虚拟化把布局边界丢掉。
- */
-.execution-summary-details [data-virtual-stack] > * {
   contain: layout;
 }
 /*

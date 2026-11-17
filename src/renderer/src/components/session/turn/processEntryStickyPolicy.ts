@@ -20,7 +20,7 @@ export function resolveProcessEntryStickyState(metrics: ProcessEntryStickyMetric
 	return { sticky, pinned: sticky && entryTop < viewportTop - 1 && entryBottom > viewportTop + headerHeight };
 }
 
-/** 原始 section 的组内偏移；已吸顶 header 的坐标不再代表本项开头。 */
+/** 原始 section 在会话视口中的偏移；已吸顶 header 的坐标不再代表本项开头。 */
 export function processEntryStartOffset(metrics: { entryTop: number; viewportTop: number; scrollTop: number }): number | null {
 	const { entryTop, viewportTop, scrollTop } = metrics;
 	return [entryTop, viewportTop, scrollTop].every(Number.isFinite) ? Math.max(0, entryTop - viewportTop + scrollTop) : null;

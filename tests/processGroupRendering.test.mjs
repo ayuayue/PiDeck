@@ -63,10 +63,9 @@ test("两级挂载预算各自落在真正会一次性挂载的那一层", () =>
 	// 两个预算是两种风险面，不是同一个数字的两份拷贝（2026-10 审查后定死）：
 	// - 组体成员：组体默认不挂载（`{props.open && (`），点开才付，风险面 = 一个被展开的组；
 	//   实测常见组只有个位数成员，32 足够覆盖，超出走「显示更早」。
-	// - 大折叠栏一级节点：造出滚动视口 + 虚拟栈后 DOM 量由虚拟化收敛，预算退化成极端保护，
-	//   于是沿用单轮档 120。
+	// - 大折叠栏一级节点：随时间线自然滚动，默认挂最近 16 个重量级节点。
 	assert.match(budgetSource, /export const PROCESS_GROUP_MEMBER_LIMIT = 32;/);
-	assert.match(budgetSource, /export const PROCESS_FOLD_NODE_LIMIT = TIMELINE_MOUNTED_STEP_LIMIT;/);
+	assert.match(budgetSource, /export const PROCESS_FOLD_NODE_LIMIT = 16;/);
 	// 反向守卫一：两者不得再并成同一个常量——那等于把「一个组」与「一轮」的风险面混为一谈。
 	assert.doesNotMatch(budgetSource, /PROCESS_GROUP_MEMBER_LIMIT = TIMELINE_MOUNTED_STEP_LIMIT/);
 	// 反向守卫二：组体预算必须真小于单轮档；相等意味着又回到「一轮全挂」口径，这层预算白设。
@@ -74,15 +73,6 @@ test("两级挂载预算各自落在真正会一次性挂载的那一层", () =>
 	// 报出来是「组体预算 32 必须小于单轮档 NaN」这种真红假因。
 	const budget = loadTsCommonJs("src/renderer/src/components/session/timeline/turnMountBudget.ts");
 	assert.ok(budget.PROCESS_GROUP_MEMBER_LIMIT > 0 && budget.PROCESS_GROUP_MEMBER_LIMIT < budget.TIMELINE_MOUNTED_STEP_LIMIT, "组体预算 " + budget.PROCESS_GROUP_MEMBER_LIMIT + " 必须小于单轮档 " + budget.TIMELINE_MOUNTED_STEP_LIMIT);
-});
-
-test("组体限高 + 内部滚轮，且子项不得被压扁", () => {
-	assert.match(groupSource, /max-h-\[min\(320px,30vh\)\]/);
-	assert.match(groupSource, /overflow-y-auto/);
-	// 组内滚轮到边才把滚轮交还外层时间线
-	assert.match(groupSource, /overscroll-contain/);
-	// AGENTS.md 记录过的高度塌陷事故：限高 flex 列的子项必须 shrink-0
-	assert.match(groupSource, /className="shrink-0"/);
 });
 
 test("TurnRow 两条渲染路径都在：开关关闭时必须保持原扁平渲染", () => {
@@ -246,43 +236,13 @@ test("组头 / 组体有稳定 DOM 锚点（e2e 依赖，不许改名）", () =>
 	assert.match(groupSource, /data-process-group-id=\{props\.group\.id\}/);
 	assert.match(groupSource, /data-process-group-head=""/);
 	assert.match(groupSource, /data-process-group-body=""/);
-	assert.match(groupSource, /data-process-group-scroller=""/);
+	assert.match(groupSource, /data-process-group-content=""/);
 });
 
 test("回到底部按钮不能被 aria-hidden 父层从辅助技术中隐藏", () => {
 	const source = readFileSync("src/renderer/src/components/session/SessionSurfaceStage.tsx", "utf8");
 	assert.match(source, /data-scroll-to-bottom=""/);
 	assert.doesNotMatch(source, /<div\s+className="pointer-events-none absolute inset-0 z-20"\s+aria-hidden="true"/);
-});
-
-test("组体内部滚轮必须自己跟底，且复用时间线同一个跟底引擎", () => {
-	// 复现的原问题：组体超过 max-height（min(320px,30vh)）后，外层时间线的 ResizeObserver
-	// 收不到增高通知，新来的思考 / 工具内容只落在**内部**滚动容器下方；内层若不自己跟底，
-	// 表现为「组体框里的滚珠停在上面、不到底」。
-	//
-	// 修法刻意**复用同一个跟底引擎**（lib/stick-to-bottom），不另写简化版：引擎里沉淀了
-	// 离散增高 instant、内容收缩不追底、clamp 不被误判为用户滚动、resizeScrollGuard 等
-	// 历史修复；自造简化版会把这些坑重踩一遍（用户反馈过的「跟底偶发跳动」正是这类问题）。
-	// 本测试同时守卫「不得把引擎内部逻辑复刻回组件」与「引擎增长贴底语义不被改坏」。
-	const engineSource = readFileSync("src/renderer/src/lib/stick-to-bottom/useStickToBottom.ts", "utf8");
-	// 必须实例化同一引擎；内层是限高小窗，取 instant（不引入弹簧变量）
-	assert.match(groupSource, /useStickToBottom\(\{\s*initial:\s*"instant",\s*resize:\s*"instant"\s*\}\)/);
-	// 引擎 ref 分别挂到滚动容器与内容包装盒（引擎观察内容盒才能感知增长）
-	assert.match(groupSource, /ref=\{stickScrollRef\}/);
-	assert.match(groupSource, /<div ref=\{stickContentRef\}/);
-	// 滚轮必须路由进引擎：引擎不注册自己的 wheel 监听，靠 noteWheel 从外部喂意图，
-	// 不路由则上滚无法逃逸（内容一增长又被拽回底部）
-	assert.match(groupSource, /onWheel=\{\(event\)\s*=>\s*stickNoteWheel\(event\.deltaY,\s*event\.target\)\}/);
-	// 展开后显式落底：挂载那一刻已有历史成员不会再产生 resize 事件，不显式定位就停在顶部
-	assert.match(groupSource, /useLayoutEffect\(\(\) => \{[\s\S]*?stickScrollToBottom\(\{\s*animation:\s*"instant"\s*\}\)/);
-	// 组内滚动不得上报外层 controller（契约 §7 已知限制 1 保持原样，不在本次修复扩大范围）
-	assert.doesNotMatch(groupSource, /onUserIntent/);
-	// 不得在本组件复刻引擎内部的 ResizeObserver / 贴底逻辑（跟底真相只能有一处）
-	assert.doesNotMatch(groupSource, /new ResizeObserver/);
-	assert.doesNotMatch(groupSource, /scrollHeight - /);
-	// 本次修复依赖的引擎语义：instant 增长在 RO 回调内同步写 scrollTop（防多一帧旧位置）
-	assert.match(engineSource, /if \(animation === "instant"\) \{/);
-	assert.match(engineSource, /state\.scrollTop = state\.calculatedTargetScrollTop;/);
 });
 
 test("组头实时详情必须在组体收起时才显示，避免与组内的运行中行重复", () => {

@@ -376,7 +376,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 						onOpenChange={setStepsVisibleFromUser}
 					>
 						<ProcessSummaryToggle summary={processSummary} expanded={stepsVisible} onToggle={toggleSteps} />
-						<CollapsibleContent className="execution-summary-details">
+						<CollapsibleContent className="execution-summary-details data-[state=open]:overflow-visible">
 							{flowSettings.processGroupDisplay ? (
 								<ProcessFold
 									nodes={processNodes}

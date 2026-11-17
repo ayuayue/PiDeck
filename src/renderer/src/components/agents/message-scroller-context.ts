@@ -1,8 +1,16 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
-import type { ProcessGroupScrollControls } from "./processGroupScrollContext";
+import { createContext, useCallback, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 
-/** 每组统一拥有几何通知：多行共用一条 scroll 监听、一份尺寸观察与一帧调度。 */
-export function useProcessGroupScrollGeometry(open: boolean, scrollRef: RefObject<HTMLElement | null>, contentRef: RefObject<HTMLElement | null>, restoreAt: (scrollTop: number) => void): ProcessGroupScrollControls {
+/** 会话内的长内容共用滚动几何与定位入口，不创建额外视口或跟随状态。 */
+export type MessageScrollerGeometry = {
+	scrollRef: RefObject<HTMLElement | null>;
+	restoreAt: (scrollTop: number) => void;
+	subscribeGeometry: (listener: () => void) => () => void;
+};
+
+export const MessageScrollerGeometryContext = createContext<MessageScrollerGeometry | null>(null);
+
+/** 一个会话共用一条 scroll 监听、一份尺寸观察与一帧调度。 */
+export function useMessageScrollerGeometry(scrollRef: RefObject<HTMLElement | null>, contentRef: RefObject<HTMLElement | null>, restoreAt: (scrollTop: number) => void): MessageScrollerGeometry {
 	const listeners = useRef(new Set<() => void>());
 	const frame = useRef<number | null>(null);
 	const active = useRef(false);
@@ -29,7 +37,7 @@ export function useProcessGroupScrollGeometry(open: boolean, scrollRef: RefObjec
 	useLayoutEffect(() => {
 		const scroll = scrollRef.current;
 		const content = contentRef.current;
-		if (!open || !scroll || !content) return;
+		if (!scroll || !content) return;
 		active.current = true;
 		const observer = new ResizeObserver(schedule);
 		observer.observe(scroll);
@@ -44,7 +52,7 @@ export function useProcessGroupScrollGeometry(open: boolean, scrollRef: RefObjec
 			if (frame.current !== null) cancelAnimationFrame(frame.current);
 			frame.current = null;
 		};
-	}, [open, scrollRef, contentRef, schedule]);
+	}, [scrollRef, contentRef, schedule]);
 
 	return useMemo(() => ({ scrollRef, restoreAt, subscribeGeometry }), [scrollRef, restoreAt, subscribeGeometry]);
 }

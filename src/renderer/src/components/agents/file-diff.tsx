@@ -74,9 +74,7 @@ export function FileDiff({ file, lines, status = "streaming", open, defaultOpen 
 	const [internalOpen, setInternalOpen] = useState(defaultOpen);
 	const currentOpen = open ?? internalOpen;
 	const streaming = status === "streaming";
-	// maxHeight 为 null（外层已自带滚轮，如过程组组体）时不做限高、不自转滚轮，直接自然铺开。
-	// 双层滚动条（内层小窗 + 外层组体）观感像卡死：内层到边即被 contain 切断，外层一像素不动。
-	// 只影响这一处容器：外层已有一条滚轮承载整组内容，内层再截断没有意义。
+	// 过程组内自然展开，纵向滚动统一交给会话；宽行仍可横向滚动。
 	const maxHeightStyle = maxHeight === null ? undefined : { maxHeight };
 	// 不限高时仍保留横向滚动：diff 行可能很宽，去掉 overflow 会让宽行顶出组体、
 	// 反而给组体套出一条横向滚动条（overflow-y:auto 会让 overflow-x 计算成 auto）。
@@ -119,14 +117,14 @@ export function FileDiff({ file, lines, status = "streaming", open, defaultOpen 
 	// ResizeObserver 争抢布局（官方原版为无 deps 的逐渲染 smooth scroll）。
 	useLayoutEffect(() => {
 		const viewport = viewportRef.current;
-		if (!viewport || !currentOpen || !streaming) return;
+		if (!viewport || maxHeight === null || !currentOpen || !streaming) return;
 
 		const frame = requestAnimationFrame(() => {
 			if (viewport.scrollHeight <= viewport.clientHeight) return;
 			viewport.scrollTop = viewport.scrollHeight;
 		});
 		return () => cancelAnimationFrame(frame);
-	}, [currentOpen, streaming, code]);
+	}, [currentOpen, streaming, code, maxHeight]);
 
 	// 单行渲染：虚拟化与全量两条路径共用，避免同一段 JSX 写两遍。
 	const renderLine = useCallback(
@@ -145,7 +143,7 @@ export function FileDiff({ file, lines, status = "streaming", open, defaultOpen 
 	);
 	/**
 	 * 只有「有纵向滚动窗」才谈得上虚拟化：maxHeight === null 时容器只让横向、纵向由外层
-	 * 过程组承担，本组件没有自己的视口可算范围，接虚拟栈反而会按外层高度全量渲染。
+	 * 会话承担，本组件没有自己的视口可算范围，接虚拟栈反而会按外层高度全量渲染。
 	 * 行高是固定的（leading-5 = 20px，且 whitespace-pre 不折行），所以 estimateHeight 即实测值。
 	 */
 	const virtualizeLines = maxHeight !== null && lines.length > VIRTUALIZE_MIN_LINES;

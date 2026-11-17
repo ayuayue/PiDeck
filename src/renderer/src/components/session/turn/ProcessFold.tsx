@@ -1,11 +1,10 @@
 import { ChevronUp } from "lucide-react";
-import { memo, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { MessageScrollerGeometryContext } from "../../agents/message-scroller-context";
 import { t } from "../../../i18n";
 import type { TurnProcessNode } from "../timeline/groupTurnProcess";
-import { useStickToBottom } from "../../../lib/stick-to-bottom";
 import { boundMountedSteps, PROCESS_FOLD_NODE_LIMIT } from "../timeline/turnMountBudget";
 import { useStableKeyedHandlers } from "../../../lib/hooks/use-render-reuse";
-import { VirtualStack } from "../../ui-shadcn/virtual-stack";
 import { ErrorStep } from "./ErrorStep";
 import { InterimAnswer } from "./InterimAnswer";
 import { ProcessGroupStep } from "./ProcessGroupStep";
@@ -45,6 +44,7 @@ export type ProcessFoldProps = {
 };
 
 export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
+	const geometry = useContext(MessageScrollerGeometryContext);
 	// 本组件由 TurnRow 按 run 挂载（SessionMessageTimeline.tsx 的 renderRunItem 的 key={item.id}），换 run 必重挂，
 	// 所以不像 TurnRow/ProcessGroupStep 那样存 id 判定：只记「展开下界」的原点与批次数。
 	// 下界锚在首次点击时的节点总数上：之后尾部追加新节点不会把已展开的旧节点挤回去。
@@ -52,22 +52,7 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 	// （#401 known limitation 2，不是本次改动引入的）。
 	const [nodeExpansion, setNodeExpansion] = useState<{ anchor: number; batches: number } | undefined>(undefined);
 	const mounted = useMemo(() => boundMountedSteps(props.nodes, PROCESS_FOLD_NODE_LIMIT, nodeExpansion), [props.nodes, nodeExpansion]);
-	// ── 折叠区自己的滚动视口 + 虚拟化 ──
-	//
-	// 这块区域原来是**跟着页面一起滚**的自由高度块，所以一直不能虚拟化（没有视口就算不出
-	// 窗口）。这一轮给它造视口：`max-h-[min(70vh,900px)] overflow-y-auto`。
-	//
-	// 上限取得很大（70vh / 900px）是有意的：绝大多数展开态一轮只有几个到十几个一级节点，
-	// 根本到不了上限，视觉与「撑高页面」完全一致；只有几十上百节点的超长回合才真正进入
-	// 内部滚动。这样「多一层滚动」的代价只在确实需要它的场合付出。
-	//
-	// 不加 `overscroll-contain`：让滚动链自然向上传递。组体（320px）滚到底后继续滚会带动
-	// 折叠区、再带动页面——这是标准嵌套滚动行为；加了 contain 反而会在组体底部形成
-	// 「滚不动也传不下去」的死区。
-	// 跟随意图由输入维护，不能拿追加后的 gap 反推；内容盒观察同时覆盖同节点增高与虚拟行实测。
-	// 运行中的折叠区展开到最新内容，静止历史仍从头阅读；内层意图不改外层时间线的跟随态。
-	const stick = useStickToBottom({ initial: props.agentRunning ? "instant" : false, resize: "instant" });
-	const scrollRef = stick.scrollRef;
+	// 自然高度由会话时间线统一滚动和跟随；这里仅用分批挂载约束长过程的 DOM。
 	// 只有本轮仍在跑、且**最后一个节点就是这个组**时它才算「运行中」（决定 shimmer 与「正在…」文案）。
 	// 用**节点 id** 而不是数组下标判定：下面渲染的是下界切片 `mounted.items`，
 	// 下标在裁剪后与 `props.nodes` 不对应，按下标比较会把「运行中」标到错误的组上。
@@ -86,19 +71,7 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 	const renderNode = (node: TurnProcessNode): ReactNode => {
 		switch (node.kind) {
 			case "group":
-				return (
-					<ProcessGroupStep
-						group={node}
-						running={node.id === runningGroupId}
-						open={isGroupOpen(props.groupState, node.id)}
-						autoOpen={props.groupState.autoGroupId === node.id}
-						onToggle={getToggle(node.id)}
-						showThinking={props.showThinking}
-						sessionId={props.sessionId}
-						onOpenFile={props.onOpenFile}
-						onOpenExternal={props.onOpenExternal}
-					/>
-				);
+				return <ProcessGroupStep group={node} running={node.id === runningGroupId} open={isGroupOpen(props.groupState, node.id)} onToggle={getToggle(node.id)} showThinking={props.showThinking} sessionId={props.sessionId} onOpenFile={props.onOpenFile} onOpenExternal={props.onOpenExternal} />;
 			case "interim":
 				// live 那一条由 TurnRow 挂在大折叠栏外，这里跳过以免同一段正文出现两份
 				if (node.id === props.liveInterimId) return null;
@@ -116,7 +89,14 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 	return (
 		// 块级流而非 flex 列：这里是无间距的一长串行，flex 的每次重排都要遍历全部 item，
 		// 而展开态下一级节点可达上百个（见 timeline.css 的 .execution-summary-details 说明）。
-		<div className="min-w-0">
+		<div
+			className="min-w-0"
+			onClickCapture={() => {
+				// 展开组/成员或加载更早内容前暂停追底，让阅读从点击位置继续。
+				const scroll = geometry?.scrollRef.current;
+				if (scroll) geometry?.restoreAt(scroll.scrollTop);
+			}}
+		>
 			{props.stepsVisible && mounted.hiddenCount > 0 && (
 				// 超出挂载预算的早期条目入口：与既有「显示更早的 N 条步骤」同款观感
 				<button
@@ -129,23 +109,12 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 					<span>{t("timeline.showEarlierSteps", { count: Math.min(PROCESS_FOLD_NODE_LIMIT, mounted.hiddenCount) })}</span>
 				</button>
 			)}
-			<div ref={scrollRef} data-process-fold-scroller="" className="max-h-[min(70vh,900px)] overflow-y-auto [overflow-anchor:none]" onWheel={(event) => stick.noteWheel(event.deltaY, event.target)}>
-				<div ref={stick.contentRef} className="flow-root min-w-0">
-					{/* 行数 <= 16 时直出全部行，超过才虚拟化。内容盒同时观测两种布局的增高；
-				    行高靠 measureElement 实测，不能用组头与长回复的固定均值替代。 */}
-					<VirtualStack
-						items={mounted.items}
-						scrollRef={scrollRef}
-						getKey={(node) => node.id}
-						estimateHeight={40}
-						renderItem={(node) => (
-							// 布局边界由 timeline.css 的 `.execution-summary-details > *` 与
-							// `[data-virtual-stack] > *` 两条子选择器统一给，这里不按节点类型标 class
-							// ——新增节点类型自动获得边界，不会漏。
-							<div className="min-w-0">{renderNode(node)}</div>
-						)}
-					/>
-				</div>
+			<div data-process-fold-content="" className="flow-root min-w-0">
+				{mounted.items.map((node) => (
+					<div key={node.id} className="min-w-0 [contain:layout]">
+						{renderNode(node)}
+					</div>
+				))}
 			</div>
 			{props.stepsVisible && (
 				<button type="button" className="execution-summary-collapse" onClick={props.onCollapse} title={t("common.collapse")}>

@@ -6,7 +6,7 @@
 - **状态**：**已实现并通过验证**（T1–T5 全部完成；`typecheck` 0 错误、针对性测试全绿、全仓 biome 格式干净）。接口在实现期间冻结；后续要改先改本文件再改代码。
 - **分支**：`research/dsh-process-display`
 - **关联文档**：[timeline-process-display-research.md](./archive/plans/timeline-process-display-research.md) §9（设计稿）、[process-group-scroll.html](./mockups/process-group-scroll.html)（视觉效果稿）
-- **已定产品决策**：组头不带步数；大折叠栏文案不动；中间回复不加视觉标记（保持正文样式）；重试/错误 = 与中间回复同级的一级行 + 截断组；组体限高 + 内部滚轮；行内容一律照抄现状。
+- **已定产品决策**：组头不带步数；大折叠栏文案不动；中间回复不加视觉标记（保持正文样式）；重试/错误 = 与中间回复同级的一级行 + 截断组；执行过程、过程组与组内输出自然展开，纵向滚动统一归会话时间线；行内容复用现状。
 
 ---
 
@@ -196,24 +196,20 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
   - `running === true`：`t(activityCategoryLabelKey(topKind, "running"))` + 若有实时详情则追加 `t("timeline.processGroup.separator")` + 详情；文案走 `<ShimmerText>`（复用 `src/renderer/src/components/session/ShimmerText.tsx`）。
   - 已结束：`topActivityKinds(group.counts, 3)` → 分别取 `done` 文案，按 `joinTwo` / `joinList` + `listSeparator` 组装；超过 3 类用 `more` 包裹；**`counts` 为空且有思考时**用 `t("timeline.processGroup.analyzed")`。
   - 实时详情仅在**最后一个成员是 `tool-entry`** 时取其工具名 + 参数 → 复用 `timeline/toolPhrase.ts` 的 `getToolPhraseFromArgs(toolName, args).object`（**只取作用对象**：命令 / 路径 / 查询词），不拼 `loadingLabel`：类别标签已经说了在做什么，再拼「正在执行 …」是同一句两个「正在」，而没有可读参数的（如 `ask_question`）只会把原始工具名重复一遍。切回思考或取不到对象时不显示详情。**且仅在组体收起时显示**：展开后组体里那条运行中的工具行已经带命令 + 状态 + 秒表，组头再报一遍同一命令等于同一行「执行 …」一屏出现两次，长命令还会铺满整行挤压右侧 chevron（2026-11 用户截图反馈）。布局分工固定：标签 `shrink-0`（状态词永远完整可读），详情 `flex-[1_1_auto] truncate`（吃剩余宽度、尾部截断）——两者不参与同一场收缩竞争，长命令不得把标签压成省略号。回归守卫：`tests/processGroupRendering.test.mjs` 的「组头实时详情必须在组体收起时才显示」「组头实时详情只取作用对象，且标签不参与收缩」。
-- **组体**：`max-h-[min(320px,30vh)] overflow-y-auto overscroll-behavior-contain`，外层 `ml-5 border-l-2 border-border-subtle pl-3`（沿用现有「思考展开正文」的缩进语言）。限高 flex 列里的子项必须 `shrink-0`（AGENTS.md 记录过的塌陷事故）。
-- **组体内部跟底（2026-08 用户报修）**：组体复用外层时间线同一套跟底引擎 `lib/stick-to-bottom`（`useStickToBottom`），不另造阈值/意图判定。要点：
-  - `scrollRef` 绑组体滚动容器，`contentRef` 绑内层内容包装盒：限高后的滚动容器不随成员增长，必须观察内容盒才能收到 `ResizeObserver` 通知；
-  - 自动展开时调用 `scrollToBottom({ animation: "instant" })`，手动展开静止历史时用 `restoreAt(0)` 从头阅读；后续增高由内容观察器在锁底状态下跟随，手动上滚则解锁内层跟随；
-  - 组体的 `noteWheel` 只改变内层跟随态；不向外层 controller 上报组内用户意图（组内滚动不改变时间线跟随态）。
-- **大折叠栏内部跟底**：`ProcessFold` 同样复用 `useStickToBottom` 并观察独立内容盒；运行中展开从最新内容开始，静止历史展开从头阅读。追加节点与同节点增高均按增高前的跟随意图处理，不能用增高后的距底距离反推是否跟随；上滚阅读后不强拉回底。回归：`tests/processFoldScroll.test.mjs`、`e2e/process-fold-scroll.spec.ts`。
-- **组内手势不得幽灵影响外层（同次审计修复）**：组体到边后滚轮/键盘一律不外溢（`overscroll-contain`），所以引擎必须按「手势到底滚了谁」判定归属 —— 详见 §7 已知限制与 `followState.ts` 的 `resolveGestureOwner`。
+- **统一滚动（2026-11 用户反馈双层滚动）**：`ProcessFold`、过程组和组内工具输出均自然增高，不再限高、不建立内部纵向视口、不拦截滚轮、不实例化独立跟底引擎。外层时间线统一处理增长跟随、上滚暂停、回到底部和历史位置恢复；宽代码/diff 仍可横向滚动。组体保留 `ml-5 border-l-2 border-border-subtle pl-3` 的缩进与折叠语义。
+- **自然高度下的 DOM 预算**：一级节点默认仅挂最近 16 个，组内成员仍为 32 个；各自提供按批显示更早内容的入口。删除 `ProcessFold` 的内部虚拟栈，避免为了虚拟化重新制造一层滚动。会话轮次的外层虚拟化保留。
+- **验证**：`tests/processFoldScroll.test.mjs` 验证自然布局、顺序、live 去重及分批挂载；`e2e/process-fold-scroll.spec.ts` 验证滚轮穿过长输出时只滚会话、流式增长跟随与上滚阅读保持。
 - **组体内容 = 复用现有组件**：`thinking-entry` → `<ThinkingStep hidden={false} .../>`；`tool-entry` → `<ToolStep stopped={!running} hidden={false} .../>`。
 - **扩展输出成员（2026-10 新增）**：appendEntry 投影卡（`meta.type === "customEntry"`）按用户决策折进过程组、不再单独成块：`groupToolMessages` 吸为 run 内 `extension-entries` 组员（连续条目合并且不拆组，run 未开始时保持独立卡兑底），`groupTurnProcess` 里与思考/工具同层入组（不截断、不计入 toolCount），组节点新增 `extensionCount` 字段。组头已结束文案追加扩展段 `t("timeline.processGroup.extension", { count })`（与工具段用 `joinTwo` 连接；纯扩展组只报扩展段、图标用 Puzzle）；组员行渲染 `turn/ExtensionEntryStep.tsx`（折叠行 + 展开看 data 字段）。`customMessage`（子代理完成通知）不受影响：仍是回合边界 + 独立通知卡。
-- **组内挂载预算（必须做，否则会 OOM 回归）**：一个组可能有几百个成员，全挂进 DOM 就是当年 `turnMountBudget` 要治的事故（2026-08 渲染进程 OOM）。所以组体必须对 `group.members` 套 `boundMountedSteps(group.members, PROCESS_GROUP_MEMBER_LIMIT)`（`timeline/turnMountBudget.ts`，limit=32，从尾部保留）。**不要复用 `TIMELINE_MOUNTED_STEP_LIMIT`（单轮档 120）**：组体默认不挂载（`{props.open && (...)}`），点开才付，风险面是「一个被展开的组」，与「一轮的全部步骤」是两种风险面；两档并成一个常量的写法已在 2026-10 审查中判定为缺陷，`tests/processGroupRendering.test.mjs` 有反向守卫钉住（运行时比较两者大小，不从源码抠字面量）。`hiddenCount > 0` 时在**组体顶部**渲染与 TurnRow 同款的 ghost 入口按钮，文案用现有键 `t("timeline.showEarlierSteps", { count })`；点击后按「下界锚点 + 批次」追加挂载，不是一把梭的 `showAll` 全量挂载。**三档预算别搞混**：`group.members` 这一档的展开态在 `ProcessGroupStep.tsx`（`useState<{ groupId, anchor, batches }>`，取用时按 `expandedMembers?.groupId === props.group.id` 判定，组 id 变化自动回到未展开）；大折叠栏一级节点那一档是 `PROCESS_FOLD_NODE_LIMIT`（= `TIMELINE_MOUNTED_STEP_LIMIT`），展开态在 `ProcessFold.tsx` 且**只存 `{ anchor, batches }`**——那里整块挂在按 run id 的 key 上，留存 id 是冗余的。
+- **组内挂载预算（必须做，否则会 OOM 回归）**：一个组可能有几百个成员，全挂进 DOM 就是当年 `turnMountBudget` 要治的事故（2026-08 渲染进程 OOM）。所以组体必须对 `group.members` 套 `boundMountedSteps(group.members, PROCESS_GROUP_MEMBER_LIMIT)`（`timeline/turnMountBudget.ts`，limit=32，从尾部保留）。**不要复用 `TIMELINE_MOUNTED_STEP_LIMIT`（单轮档 120）**：组体默认不挂载（`{props.open && (...)}`），点开才付，风险面是「一个被展开的组」，与「一轮的全部步骤」是两种风险面；两档并成一个常量的写法已在 2026-10 审查中判定为缺陷，`tests/processGroupRendering.test.mjs` 有反向守卫钉住（运行时比较两者大小，不从源码抠字面量）。`hiddenCount > 0` 时在**组体顶部**渲染与 TurnRow 同款的 ghost 入口按钮，文案用现有键 `t("timeline.showEarlierSteps", { count })`；点击后按「下界锚点 + 批次」追加挂载，不是一把梭的 `showAll` 全量挂载。**三档预算别搞混**：`group.members` 这一档的展开态在 `ProcessGroupStep.tsx`（`useState<{ groupId, anchor, batches }>`，取用时按 `expandedMembers?.groupId === props.group.id` 判定，组 id 变化自动回到未展开）；大折叠栏一级节点那一档是 `PROCESS_FOLD_NODE_LIMIT`（16），自然布局、不设内部虚拟滚动，展开态在 `ProcessFold.tsx` 且**只存 `{ anchor, batches }`**——那里整块挂在按 run id 的 key 上，留存 id 是冗余的。
 - `aria-expanded` / `aria-controls` 必须有；组体 `id` 用 `useId()`。
 
 ### 4b. 组内展开项标题吸顶
 
-- 仅对过程组内已展开、且总高度超过组体视口的工具/思考项生效；标题在本项范围内使用原生 `position: sticky`，离开本项后退场，不复制标题、不叠层、不固定到应用窗口。
+- 仅对过程组内已展开、且总高度超过会话视口的工具/思考项生效；标题在本项范围内相对会话滚动区使用原生 `position: sticky`，离开本项后退场，不复制标题、不叠层、不固定到应用窗口。
 - 吸顶时只增加一个「回到本项开头」图标；无图钉/「吸顶」提示、无右侧收起按钮、无常驻文字。悬停或键盘聚焦时显示 Tooltip，图标保留可访问名称；标题行仍负责开合，思考正文已有的底部收起入口保留。
-- 回到开头与从吸顶标题收起都经组体既有跟底引擎的 `restoreAt` 定位，不直接写 `scrollTop`，以同时解除锁底并取消在途跟随动画；不改变外层时间线跟随态。
-- 组体统一拥有滚动/尺寸通知，组内行只订阅几何变化；listener、ResizeObserver、requestAnimationFrame 必须在组体关闭/卸载时配对清理。不新增滚动容器或持久化设置。
+- 回到开头与从吸顶标题收起都经会话既有跟底引擎的 `restoreAt` 定位，不直接写 `scrollTop`，以同时解除锁底并取消在途跟随动画。
+- 会话滚动区统一拥有滚动/尺寸通知，所有展开组内的行共享订阅；listener、ResizeObserver、requestAnimationFrame 必须在卸载时配对清理。不新增滚动容器或持久化设置。
 - 工具组与思考项的祖先仅在组内让出 `overflow:hidden`，否则原生 sticky 会绑定到错误的滚动容器；组外保留原布局。扫光裁切下放标题行，不让动画外溢。
 
 ### `src/renderer/src/components/session/turn/ProcessFold.tsx`（Lead 负责）
@@ -271,7 +267,7 @@ i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale
 3. **开关两条路径都要能跑**：默认关闭 = 与改动前逐像素同款；打开 = 过程组渲染。
 4. 视觉零回归：思考行 / 工具行 / 中间回复 / 最终回复 / 重试错误行**与改动前同款**（只有外层多了缩进与竖线）。
 5. `TurnRow.tsx` 体量不得因本次改动继续膨胀（目标 ≤ 600 行；折叠区内容已抽到 `ProcessFold.tsx`）。
-6. **~~已知限制（v1 接受，需在文档中记录）~~ 已修（2026-08 审计）**：原文担心的「组体内部滚动不会产生用户意图」保持**不变且是刻意的** —— 组内滚动不改时间线跟随态（组体自己跟底，见 §4）。真正被审计揪出的相邻缺陷不是这个，而是「组内滚轮/键盘在到边后**既没滚组体也没滚时间线**，事件却照旧冒泡到时间线」，导致跟随态被静默改掉：上滚 → 弹回底按钮 + 流式不再跟随；下滚 → 提前回锁。现由引擎在手势归属层面拦掉（`followState.ts` 的 `resolveGestureOwner` + `collectScrollChain` + `isScrollChainCut`），e2e 守卫见 `e2e/process-group-display.spec.ts` 的「组内滚轮不得幽灵解锁外层」。
+6. **滚轮与跟随归属（2026-11 更新）**：组体和输出不再拥有独立纵向滚动区。鼠标在组内上滚即滚动会话并暂停跟随，返回会话底部后恢复；流式增长和手动展开均不得抢走阅读位置。`followState.ts` 的通用嵌套手势判定保留给应用其他有界滚动区。过程组回归见 `e2e/process-fold-scroll.spec.ts` 与 `e2e/process-group-display.spec.ts`。
 
 ---
 
@@ -286,7 +282,7 @@ i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale
 | 两级挂载预算 | `timeline/turnMountBudget.ts` 新增 `PROCESS_GROUP_MEMBER_LIMIT` / `PROCESS_FOLD_NODE_LIMIT` |
 | 手风琴状态机 | `turn/useProcessGroupState.ts`（纯函数 + `useProcessGroupOpenState` 窄 hook） |
 | 状态归属 | `atoms/session-atoms.ts`（`ProcessGroupOpenState` 定义在此 + family + 删会话清理） |
-| 组组件 | `turn/ProcessGroupStep.tsx`（组头 `flex w-full`、组体限高滚轮、组内预算） |
+| 组组件 | `turn/ProcessGroupStep.tsx`（组头 `flex w-full`、自然高度组体、组内预算） |
 | 大折叠栏内容 | `turn/ProcessFold.tsx` |
 | 二选一分支 | `turn/TurnRow.tsx`（`flowSettings.processGroupDisplay ? <ProcessFold/> : 原扁平渲染`） |
 | 设置开关 | `processGroupDisplay`，默认 `false`（2026-11 起改为 `true`），7 处默认值/同步 + 设置页开关行 + 未保存变更目录 |
@@ -299,22 +295,19 @@ i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale
 2. **不变量写进类型**：一级行只可能是重试/错误，用 `TurnStandaloneEntry` 表达，下游因此不需要「不可能分支」的兜底。
 3. **不用 `as` 绕类型**：类别文案 key 返回模板字面量联合（26 个真实键），本身就是 `TranslationKey` 子集。
 
-### 二次审计补丁（2026-08，用户报「组体不跟底」后同轮揪出）
+### 二次审计补丁（2026-08；滚动方案于 2026-11 更新）
 
 | 缺陷 | 现象 | 修法 | 守卫 |
 |---|---|---|---|
-| 组体不跟底 | 组体内容增长，滚珠停在上面 | 组体接入 `lib/stick-to-bottom` 引擎 | e2e「组体内部滚轮自己跟底」 |
-| 滚轮幽灵解锁（D1） | 组内滚轮到边，时间线没动却解锁跟随 | `resolveGestureOwner` + `collectScrollChain`（`followState.ts`） | e2e「组内滚轮不得幽灵解锁外层」 |
+| 过程内容增长跟随 | 组体内容增长，阅读位置与跟随状态不一致 | 删除组体独立引擎，由会话统一跟随；上滚阅读和手动展开暂停跟随 | `e2e/process-fold-scroll.spec.ts` 的增长跟随、上滚阅读、手动展开用例 |
+| 滚轮归属（D1） | 组内与会话争抢滚轮，形成两层滚动 | 组体、工具输出自然增高，纵向滚动归会话；宽 diff 仅保留横向滚动 | `e2e/process-fold-scroll.spec.ts` 的长输出、长 diff 用例 |
 | 键入手势被截胡（D2） | 焦点在组体时 PageUp 把跟随态改掉而画面没动 | `handleKeyDown` 同样走 `resolveGestureOwner` 判定归属 | `tests/stickToBottomUserIntent.test.mjs` |
 | running 判定过宽（D1'） | 尾部已追加中间回复，旧组仍转 shimmer 报「正在…」 | `running` 改为「最后一个节点就是这个组」 | `tests/groupTurnProcess.test.mjs` |
 | 运行中组头类别滞后（D2'） | 组头写「正在搜索代码」，右侧详情却是「正在读取 xx」；工具后接思考时仍报旧工具 | `lastToolCategory()` 与详情只看最后一个成员：工具取当前类别，思考退回分析中 | `tests/groupTurnProcess.test.mjs` |
 
 ### 已知限制（v1）
 
-1. **组内滚动不解锁外层跟随（刻意行为，非缺陷）**：组体内部滚动不产生「用户意图」，时间线仍保持贴底跟随。
-   - 注意与「幽灵解锁」区分：组体到边后（`overscroll-contain` 切断滚动链）滚轮/键盘**谁都不滚**，这类输入曾经照旧冒泡给引擎、被误当成「用户在滚时间线」，从而静默解锁或回锁跟随态。现由 `followState.ts` 的 `resolveGestureOwner`（配合 `collectScrollChain` 收集向外的完整滚动链）在归属层拦掉：**从手势起点沿祖先链继续往外走**，第一个「用户可滚且该方向真有余量」的环认领手势（`overflow:hidden` 不能接收滚轮，但仍可用 `overscroll-behavior` 断链）；中途遇到「已到边且 `overscroll-behavior-y: contain | none`」的环直接断链（`nobody`）；链走完没人认领才归时间线。因此「代码块到边后继续滚时间线」的既有行为保留，而嵌套容器到边的手势既不滚任何一像素、也不改跟随态。
-     - 不用「第一个 overflow 容器」代替的原因：代码块到顶时若外层组体还有余量，浏览器滚的是**组体**，只看第一环会把这次手势误判成时间线手势。
-   - 键盘同理：`handleKeyDown` 现在忽略「起点在嵌套滚动容器里」的 PageUp/PageDown/Home/End/方向键（这些键会先滚内层，而引擎看不到内层的 `scrollTop` 变化）。
-2. **组体限高用 `vh`**：`min(320px, 30vh)` 量的是窗口高度，不是阅读区高度（阅读区约为窗口的 60~70%，即实际约占 45%）。更准需给滚动容器加 `container-type: size` 用 `cqh`，但要回归一次滚动/跟随。
+1. **组内滚动归会话**：移除内部视口后，组内上滚会正常暂停会话跟随并显示回底入口。旧的「组内输入不得影响外层」契约已被统一滚动取代；滚动引擎对其他真实嵌套视口的手势归属守卫继续保留。
+2. **长过程按批阅读**：默认挂载最近 16 个一级节点，早期内容需要点「显示更早」；组内 32 成员预算与用户已展开内容的锚点语义不变。
 3. **`TurnRow.tsx` 变长**：两条渲染路径并存，文件已接近 AGENTS.md 的体量评估阈值。若后续要加第三种模式，应先把扁平路径也抽成独立组件。
 4. **`hidden={!stepsVisible}` 分支是历史遗留**：Radix 折叠时子树整体卸载，该分支在当前结构下不可达（审计已确认），保留是为了不改变既有契约测试的语义。

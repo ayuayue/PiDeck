@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, ChevronUp, FilePlus, FileText, Globe, Image, ListChecks, MessageCircleQuestion, Network, Puzzle, Search, Sparkles, SquareCode, SquarePen, Terminal, Wrench, type LucideIcon } from "lucide-react";
-import { memo, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useId, useMemo, useState, type ReactNode } from "react";
 import { getToolName } from "../../../../../shared/fileChanges";
 import { t } from "../../../i18n";
 import { ShimmerText } from "../ShimmerText";
@@ -13,9 +13,7 @@ import type { TurnProcessEntry } from "../timeline/types";
 import { ThinkingStep } from "./ThinkingStep";
 import { ToolStep } from "./ToolStep";
 import { ExtensionEntryStep } from "./ExtensionEntryStep";
-import { useStickToBottom } from "../../../lib/stick-to-bottom";
-import { ProcessGroupBodyScrollContext, ProcessGroupScrollControlsContext } from "./processGroupScrollContext";
-import { useProcessGroupScrollGeometry } from "./useProcessGroupScrollGeometry";
+import { ProcessGroupBodyScrollContext } from "./processGroupScrollContext";
 
 /**
  * 过程组（组头 + 可折叠组体）。
@@ -23,9 +21,8 @@ import { useProcessGroupScrollGeometry } from "./useProcessGroupScrollGeometry";
  * 契约见 `docs/process-group-implementation-contract.md` §4。三件事必须守住：
  * 1. **组头全宽**：`<button>` 是 `flex w-full`（绝不是 `inline-flex`/`self-start`）——
  *    用户反复强调「悬停/触控框要和流式输出同宽」，按内在宽度收缩就是返工。
- * 2. **组体限高 + 内部滚轮**：`max-h-[min(320px,30vh)] overflow-y-auto overscroll-contain`，
+ * 2. **组体自然高度**：纵向滚动与流式跟随统一交给会话，组内不再拦截手势。
  *    外层沿用现有「思考展开正文」的缩进语言（`ml-5` + 2px 竖线 + `pl-3`）。
- *    限高 flex 列的子项一律 `shrink-0`（AGENTS.md 记录过的高度塌陷事故：不写会被压扁且滚不动）。
  * 3. **组内挂载预算**：一个组可能有几百个成员，全挂 DOM 会重演 2026-08 渲染进程 OOM
  *    事故（见 `timeline/turnMountBudget.ts` 注释），故对 `group.members` 套
  *    `boundMountedSteps`，超出部分给「显示更早的 N 条步骤」入口。
@@ -39,8 +36,6 @@ export type ProcessGroupStepProps = {
 	running: boolean;
 	/** 该组当前是否展开 */
 	open: boolean;
-	/** 本次展开是否来自自动通道（流式最新组）：展开瞬间自动=落底跟底，手动=保持顶部不跟底 */
-	autoOpen: boolean;
 	onToggle: (open: boolean) => void;
 	showThinking?: boolean;
 	sessionId?: string;
@@ -145,45 +140,6 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 	const [expandedMembers, setExpandedMembers] = useState<{ groupId: string; anchor: number; batches: number } | undefined>(undefined);
 	const memberExpansion = expandedMembers?.groupId === props.group.id ? expandedMembers : undefined;
 	const mounted = useMemo(() => boundMountedSteps(props.group.members, PROCESS_GROUP_MEMBER_LIMIT, memberExpansion), [props.group.members, memberExpansion]);
-	// ── 组体内部滚轮跟底 ──
-	// 组体被 max-h 钳住后，外层时间线不再随成员增加而增高，新成员只落在**内部**滚动容器下方；
-	// 外层引擎的 ResizeObserver 因此收不到增长通知，内层必须自己跟底（否则滚珠停在上面）。
-	// 这里刻意**复用时间线同一个跟底引擎**（`lib/stick-to-bottom`，use-stick-to-bottom 本地移植），
-	// 不另写简化版：引擎里沉淀了 8 个历史修复（离散增高强制 instant 防砰抖、内容收缩不追底、
-	// clamp 不被误判为用户滚动、resizeScrollGuard 隔离布局滚动等），自造简化版会把这些坑重踩一遍——
-	// 用户反复反馈的「跟底偶发跳动」正是这类问题的表现。
-	// resize 取 instant：内层是限高小窗，直接同步贴底，不引入弹簧变量（弹簧滞后在窄视口里更显跳）。
-	// 不传用户意图回调：组内滚动不上报外层 controller，保持契约 §7 已记录的「组内滚动不解锁外层跟随」。
-	const stick = useStickToBottom({ initial: "instant", resize: "instant" });
-	// 解构出稳定引用：stick 每次渲染是新对象，effect 依赖与 ref 都得用具体字段。
-	const stickScrollRef = stick.scrollRef;
-	const stickContentRef = stick.contentRef;
-	const stickScrollToBottom = stick.scrollToBottom;
-	const stickRestoreAt = stick.restoreAt;
-	const stickNoteWheel = stick.noteWheel;
-	const scrollControls = useProcessGroupScrollGeometry(props.open, stickScrollRef, stickContentRef, stickRestoreAt);
-	// 展开（含首次挂载）后的定位按「本次展开来自哪条通道」分流（2026 用户反馈：点开组体
-	// 想从头看执行的命令，展开即拽到底反而要再滚回最前面）：
-	// - 自动通道（流式最新组）：落底并跟随——组体在长、滚珠不能停在上面（既有契约，e2e 钉住）；
-	// - 手动通道（用户点开）：restoreAt(0) 原子完成「定位到顶 + 解锁锁底 + 取消在途动画」，
-	//   后续成员到达不再拽底；用户滚回物理底仍按引擎语义重锁跟随。
-	// 定位只在「关→开」上升沿执行一次：开着期间 autoOpen 变化（如手动重开的组被 syncLatest
-	// 重新并入自动槽）不得重新定位，否则又会把浏览中的用户拽走。
-	// layout 阶段执行，绘制前完成，无可见跳动。
-	const wasOpenRef = useRef(false);
-	useLayoutEffect(() => {
-		if (!props.open) {
-			wasOpenRef.current = false;
-			return;
-		}
-		if (wasOpenRef.current) return;
-		wasOpenRef.current = true;
-		if (props.autoOpen) {
-			stickScrollToBottom({ animation: "instant" });
-		} else {
-			stickRestoreAt(0);
-		}
-	}, [props.open, props.autoOpen, stickScrollToBottom, stickRestoreAt]);
 
 	const topKind = topActivityKinds(props.group.counts, 1)[0];
 	// 运行中的「正在…」必须用**当前**工具类别，不能用 topKind（整组摘要）：
@@ -239,7 +195,7 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 			         hover 已有颜色 + 底色两重反馈。
 			    于是层级由字重（500 vs 400）+ 颜色承担，中间回复（text-chat，默认 15px / text-primary）成为正文主角。
 			    回归守卫：tests/processGroupRendering.test.mjs「组头不得靠填充/字号抢戏」。
-			    data-process-group-head 是 e2e/结构测试的稳定锚点（组头、组体、scroller 各一个）。 */}
+			    data-process-group-head 是 e2e/结构测试的稳定锚点（组头、组体、内容各一个）。 */}
 			<button
 				type="button"
 				data-process-group-head=""
@@ -279,47 +235,29 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 			</button>
 
 			{props.open && (
-				// 组体：缩进 + 竖线沿用现有展开区语言；限高交给内层 scroller，滚轮不外溢到时间线。
-				// 组体内层限高交给 ProcessGroupBodyScrollContext：组内工具卡展开后不再自带滚轮，
-				// 整组只有这一条滚轮（否则是双层滚动条，内层到边就滚不动了）。
+				// 组内输出与思考自然展开，纵向滚轮和增长跟随统一归会话时间线。
 				<ProcessGroupBodyScrollContext.Provider value={true}>
-					<ProcessGroupScrollControlsContext.Provider value={scrollControls}>
-						<div id={bodyId} data-process-group-body="" className="ml-5 mt-1 border-l-2 border-border-subtle pl-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-fast">
-							<div
-								ref={stickScrollRef}
-								data-process-group-scroller=""
-								// 滚轮交给引擎才能产生「上滚逃逸 / 回底重锁」：引擎的 wheel 意图是从外部路由进来的
-								// （noteWheel），不注册自己的 wheel 监听。虽然同一事件会冒泡到外层时间线，
-								// 但外层会先判定滚动链归属：组内有余量时由内层认领，到边后 contain 切断，
-								// 两种情况都不能改变外层跟随态。
-								onWheel={(event) => stickNoteWheel(event.deltaY, event.target)}
-								// scroll-ok: bounded —— 组体成员已有挂载预算（先挂最近 PROCESS_GROUP_MEMBER_LIMIT 行，其余按批展开），且外层内容盒被贴底引擎的 ResizeObserver 观察；虚拟化要连带替换这套预算机制，属另一批。
-								className={`flex max-h-[min(320px,30vh)] flex-col overflow-y-auto overscroll-contain ${props.running ? "[scrollbar-width:none]" : ""}`}
-							>
-								{/* 内容包装盒：引擎的 ResizeObserver 观察这一层才能感知「内容变高」——
-						    外层 scroller 被 max-height 钳住、尺寸恒定，观察它收不到增长通知。 */}
-								<div ref={stickContentRef} className="flex shrink-0 flex-col">
-									{mounted.hiddenCount > 0 && (
-										// 超出挂载预算的早期成员入口：与 TurnRow 的「显示更早的 N 条步骤」同款观感。
-										<button
-											type="button"
-											className="mt-1 inline-flex h-[26px] shrink-0 items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-chat-detail font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
-											onClick={() => setExpandedMembers((prev) => (prev?.groupId === props.group.id ? { ...prev, batches: prev.batches + 1 } : { groupId: props.group.id, anchor: props.group.members.length, batches: 1 }))}
-											title={t("timeline.showEarlierSteps", { count: Math.min(PROCESS_GROUP_MEMBER_LIMIT, mounted.hiddenCount) })}
-										>
-											<ChevronUp size={12} aria-hidden="true" />
-											<span>{t("timeline.showEarlierSteps", { count: Math.min(PROCESS_GROUP_MEMBER_LIMIT, mounted.hiddenCount) })}</span>
-										</button>
-									)}
-									{mounted.items.map((entry) => (
-										<div key={entry.id} className="shrink-0">
-											{renderMember(entry)}
-										</div>
-									))}
+					<div id={bodyId} data-process-group-body="" className="ml-5 mt-1 border-l-2 border-border-subtle pl-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-fast">
+						<div data-process-group-content="" className="flex min-w-0 flex-col">
+							{mounted.hiddenCount > 0 && (
+								// 超出挂载预算的早期成员入口：与 TurnRow 的「显示更早的 N 条步骤」同款观感。
+								<button
+									type="button"
+									className="mt-1 inline-flex h-[26px] shrink-0 items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-chat-detail font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
+									onClick={() => setExpandedMembers((prev) => (prev?.groupId === props.group.id ? { ...prev, batches: prev.batches + 1 } : { groupId: props.group.id, anchor: props.group.members.length, batches: 1 }))}
+									title={t("timeline.showEarlierSteps", { count: Math.min(PROCESS_GROUP_MEMBER_LIMIT, mounted.hiddenCount) })}
+								>
+									<ChevronUp size={12} aria-hidden="true" />
+									<span>{t("timeline.showEarlierSteps", { count: Math.min(PROCESS_GROUP_MEMBER_LIMIT, mounted.hiddenCount) })}</span>
+								</button>
+							)}
+							{mounted.items.map((entry) => (
+								<div key={entry.id} className="shrink-0">
+									{renderMember(entry)}
 								</div>
-							</div>
+							))}
 						</div>
-					</ProcessGroupScrollControlsContext.Provider>
+					</div>
 				</ProcessGroupBodyScrollContext.Provider>
 			)}
 		</div>
