@@ -122,6 +122,39 @@ test("login 透传 auth_url 事件，manual_code 回填后可成功", async () =
 	});
 });
 
+test("OpenAI OAuth 使用 pi 配置中的设备 ID 生成授权链接", async () => {
+	const deviceId = "8a0cab14-173d-43ee-9b77-a9498e80ce79";
+	const fake = await createFakePiPackage(`
+export const SettingsManager = {
+	create: () => ({ getOrCreateDeviceId: () => "${deviceId}" }),
+};
+export const ModelRuntime = {
+	async create() {
+		return {
+			getProvider: () => ({ auth: { oauth: {} } }),
+			async login(providerId, type, interaction, options) {
+				const id = options?.getDeviceId?.();
+				if (!id) throw new Error("Sign in with ChatGPT requires a device ID (UUID) for this installation");
+				const url = new URL("https://example.test/oauth/authorize");
+				url.searchParams.set("ext_agent_host_id", "urn:uuid:" + id);
+				interaction.notify({ type: "auth_url", url: url.toString() });
+			},
+		};
+	},
+};
+`);
+	try {
+		const { messages } = await runAuthHost({ entry: fake.entry, commands: [{ cmd: "login", providerId: "openai", type: "oauth" }] });
+		const result = resultOf(messages);
+		assert.equal(result.ok, true, result.error?.message);
+		const { event } = messagesOfType(messages, "event")[0];
+		assert.equal(event.type, "auth_url");
+		assert.equal(new URL(event.url).searchParams.get("ext_agent_host_id"), `urn:uuid:${deviceId}`);
+	} finally {
+		await fake.cleanup();
+	}
+});
+
 test("manual_code 回填错误时透传 pi 的失败原因，不静默成功", async () => {
 	await withFakePi(async (fake) => {
 		const { messages } = await runAuthHost({
