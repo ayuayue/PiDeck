@@ -39,6 +39,15 @@ const SRC_BASE = pick(srcArg ? path.resolve(srcArg.slice(6)) : path.resolve(here
 const SKILL = process.argv.slice(2).find((a) => !a.startsWith("--")) || path.resolve(here, "../../..", "resources/skills/pideck/references/web-api/actions.md");
 const SRC = path.join(SRC_BASE, "web/WebApiRoutes.ts");
 const EXTRA = path.join(SRC_BASE, "web/WebServiceManager.ts");
+// 路由实现按域拆在多个文件里（WebApiReadRoutes / WebApiSessionRoutes / WebApiRuntimeRoutes），
+// 只读 WebApiRoutes.ts 会漏掉 `switch (action)` 与大部分端点——2026-11-18 实测：拆完之后
+// 「源码 switch 里只切出 0 个 body 字段」，而这条判据报的是「判据自己坏了」，不是文档错。
+// 所以按前缀扫：WebApi*.ts 全体 + WebServiceManager.ts。加新 handler 文件不用再改这里。
+const SIBLINGS = fs
+	.readdirSync(path.join(SRC_BASE, "web"))
+	.filter((f) => /^WebApi.*\.ts$/.test(f))
+	.sort()
+	.map((f) => path.join(SRC_BASE, "web", f));
 if (!fs.existsSync(SRC)) {
 	console.log("FAIL 找不到源码 " + SRC + "（用 --src= 指向完整 src 目录）；这是环境缺失，rc=2");
 	process.exit(2);
@@ -47,7 +56,7 @@ const skill = fs.readFileSync(SKILL, "utf8");
 const BS = String.fromCharCode(92);
 const QUOTE = String.fromCharCode(34);
 const TICK = String.fromCharCode(96);
-const src = [SRC, EXTRA]
+const src = [SRC, ...SIBLINGS.filter((f) => f !== SRC), EXTRA]
 	.filter((f) => fs.existsSync(f))
 	.map((f) =>
 		fs
@@ -280,9 +289,11 @@ if (checked !== EXPECTED_72_ROWS) {
 console.log("7.2 端点 " + checked + " 条（路径 + 方法都比对），" + (bad ? bad + " 处与源码不符" : "全部对得上"));
 // 7.1 的「额外 body 字段」列：源码 switch 里读到的 body.X 与文档必须一一对应。
 // 少写一个字段，读者就会漏传，服务端拿 undefined 当空值——静默做错事。
-const swStart = src[0].indexOf("switch (action)");
+// switch 体在哪个文件不确定（拆文件后它跟着 runtime 路由走），按「哪个文件里有它」定位。
+const swHost = src.find((s) => s.includes("switch (action)")) ?? "";
+const swStart = swHost.indexOf("switch (action)");
 const swEnd = swStart + 8000; // switch 体约 80 行；用固定窗口比找闭合括号稳（里面有多个 return true）
-const swBody = swStart >= 0 ? src[0].slice(swStart, swEnd) : "";
+const swBody = swStart >= 0 ? swHost.slice(swStart, swEnd) : "";
 const bodyFields = new Set([...swBody.matchAll(/body\.([a-zA-Z]+)/g)].map((x) => x[1]));
 if (bodyFields.size < 8) {
 	console.log("FAIL 源码 switch 里只切出 " + bodyFields.size + " 个 body 字段，判据自己坏了");
