@@ -64,8 +64,6 @@ export class WebApiReadRoutes extends WebApiRouteContext {
 		return true;
 	}
 
-	// 「使用」智能体：先建草稿（复用 createSessionDraft 的 standby 预热/广播链路），再写会话绑定。
-	// 绑定失败时把刚建的草稿删掉——不留下“看起来用了智能体却没人设”的会话。
 	async routeSessions(match: RegExpMatchArray, url: URL, request: IncomingMessage, response: ServerResponse): Promise<boolean> {
 		const sessionsMatch = match;
 		const sessions = await this.deps.listSessions(decodeURIComponent(sessionsMatch[1]));
