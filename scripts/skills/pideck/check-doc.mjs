@@ -340,5 +340,63 @@ for (const f of docFields)
 		bad++;
 	}
 
+// ── 反方向：源码的每条路由，文档必须写到 ─────────────────────
+// 「文档里写了错端点」由 check-paths.mjs 管；这里管反方向：「源码里有、文档没写」。
+// 上游 2026-11-16 试过这条口径，因「红 25 条、至少 5 条假红」放弃。假红全部来自归一不足，
+// 三类，逐条处理：
+//   1. <目标> 这类中文占位符——路径字符集不含中文，匹配到 /api/sessions/ 就断
+//   2. $PIDECK_SESSION_ID 这类 shell 变量
+//   3. runtime 的 21 个动作共用模板 /runtime/<action>，文档只在 7.1 表里列动作名，
+//      从不重复全路径——重复 21 遍是冗余，不是遗漏
+// 三类都归一对之后 60 条 0 假红。它挡的是 2026-11-18 实测过的事故：上游把技能拆成
+// 九份，会话之外 29 条端点一条都没写，十一条判据全绿——因为每一条都只验「文档→源码」。
+const SKILL_ROOT = path.resolve(path.dirname(SKILL), "../..");
+const CORPUS = [path.join(SKILL_ROOT, "SKILL.md")]
+	.concat(fs.readdirSync(path.dirname(SKILL)).filter((f) => f.endsWith(".md")).map((f) => path.join(path.dirname(SKILL), f)))
+	.filter((f) => fs.existsSync(f));
+if (CORPUS.length < 5) {
+	console.log("FAIL 文档只找到 " + CORPUS.length + " 份，references/web-api/ 全套没读到（判据自己坏了）");
+	process.exit(1);
+}
+const PH = /<[^>\/]+>|\$[A-Za-z_][A-Za-z0-9_]*|:[A-Za-z][A-Za-z0-9]*/g;
+const normPath = (s) => {
+	let x = s.split("?")[0];
+	for (let i = 0; i < 4; i++) x = x.replace(PH, ":id");
+	return x.replace(/\/$/, "");
+};
+// 路径字符集必须放进中文：文档写 <目标>，只认 ASCII 会在 /api/sessions/ 处截断，
+// 于是 prompt 与 messages/page 两条被误报成「文档没写」。这是上游 5 条假红里的 2 条。
+const DOC_PATH_RE = /\/api\/[^\s`"'|()\[\]，。、）】]+/g;
+const docPaths = new Set();
+for (const f of CORPUS) for (const mm of fs.readFileSync(f, "utf8").matchAll(DOC_PATH_RE)) docPaths.add(normPath(mm[0]));
+// 自检：一条确定写了的、一条编造的。两条都不对，说明归一或语料读错了，后面的结论不可信。
+if (!docPaths.has(normPath("/api/sessions/<id>/messages"))) {
+	console.log("FAIL 自检坏样本：文档里明明有 /api/sessions/<id>/messages，判据没读到");
+	process.exit(1);
+}
+if (docPaths.has(normPath("/api/sessions/<id>/zzzNotARoute"))) {
+	console.log("FAIL 自检正样本：编造的路由被判成「文档写了」");
+	process.exit(1);
+}
+const runtimeTemplate = docPaths.has(normPath("/api/sessions/<id>/runtime/<action>"));
+if (!runtimeTemplate) {
+	console.log("FAIL 文档里找不到 runtime 模板 /api/sessions/<id>/runtime/<action>，21 个动作会全部误报");
+	process.exit(1);
+}
+let viaTemplate = 0;
+let uncovered = 0;
+for (const r of ledger) {
+	if (docPaths.has(normPath(r))) continue;
+	const act = r.match(/\/runtime\/([a-z-]+)$/);
+	if (act && docActions.includes(act[1])) {
+		viaTemplate++;
+		continue;
+	}
+	console.log("  文档没写这条路由 " + r + "（源码里有）");
+	uncovered++;
+	bad++;
+}
+console.log("文档覆盖：台账 " + ledger.length + " 条，直写 " + (ledger.length - viaTemplate - uncovered) + " 条 + runtime 模板 " + viaTemplate + " 条" + (uncovered ? "，缺 " + uncovered + " 条" : ""));
+
 console.log(okA && !bad ? "PASS" : "FAIL");
 process.exit(okA && !bad ? 0 : 1);
