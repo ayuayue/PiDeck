@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "e119378706ff6759728a080c6acebe655cb47908ea656646136aac7a264db897",
+  "bundleSha256": "4d175919222482a9e5de295a4d4475e2c85e3ecdbb4f383439f4ba1df73a9ab8",
   "fileCount": 13,
   "files": [
     {
@@ -26,13 +26,13 @@
     },
     {
       "name": "pideck/references/web-api/actions.md",
-      "sha256": "e6bf3527d64d376b5ddb1f6066168bb87895eaa226e993555620667e30df1ed2",
-      "bytes": 6800
+      "sha256": "2f23505ee9ce3db5a18aaa8c7e7585e7b4e180787efe8358bcdcf7a1c44ad413",
+      "bytes": 6807
     },
     {
       "name": "pideck/references/web-api/boundaries.md",
-      "sha256": "88caaabc7ab416c2a1b194061d4f02f63d2eb204703591aa5a3302ef7a595d0b",
-      "bytes": 1629
+      "sha256": "671d5ed12309a562b52416e63b586fdcbc700a0398d232bd82d855d293509650",
+      "bytes": 1711
     },
     {
       "name": "pideck/references/web-api/collaboration.md",
@@ -41,8 +41,8 @@
     },
     {
       "name": "pideck/references/web-api/connect.md",
-      "sha256": "e7b46572fd07c763f81afa1d1341ff7d707735e15f1b853c2e9f9a89f69bce45",
-      "bytes": 8775
+      "sha256": "f4e90a8fc3c54473a430f6853416f5b24cd1afa85fd9574fa2c282f0dfc216ae",
+      "bytes": 8841
     },
     {
       "name": "pideck/references/web-api/maintenance.md",
@@ -51,8 +51,8 @@
     },
     {
       "name": "pideck/references/web-api/message.md",
-      "sha256": "eb7ef716316d7170d98825951ffb7242d88bcfa036264c8b7612b235227d4693",
-      "bytes": 8388
+      "sha256": "878fa560d3cc7fa4fa36f208f3bfd0766db8e3a39451afc3951a759683cebacb",
+      "bytes": 8408
     },
     {
       "name": "pideck/references/web-api/read.md",

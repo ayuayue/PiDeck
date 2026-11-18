@@ -6,7 +6,7 @@
 
 ### 7.1 运行时动作：`/api/sessions/<id>/runtime/<action>`
 
-全部 21 个，从源码 `WebApiRoutes.ts` 的路由正则逐条抄出：
+全部 21 个，从源码 `WebApiRuntimeRoutes.ts` 的路由正则逐条抄出：
 
 | action | 额外 body 字段 | 作用 |
 |---|---|---|

@@ -121,4 +121,4 @@ tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
 
 **别做「守卫替你停」这种设计。** 它会死在两处：stop 的 body 没带 `target` 时返回 400 `webError.runtimeTargetRequired`；用 `runtimes[].status` 判断「停了吗」时，空闲进程的 status 是 `idle`，于是判定已停。
 
-要停掉自己，stop 必须带齐 `sessionId` + `agentId` + `runtimeGeneration` 三件；能发出这个请求的应该是**另一个活着的进程**，不是守卫。让别的会话替你重启的完整任务书见本节第 0~5 步，关键就一句：目标会话不能是执行者自己。
+要停掉自己，stop 必须带齐 `sessionId` + `agentId` + `runtimeGeneration` 三件；能发出这个请求的应该是**另一个活着的进程**，不是守卫。让别的会话替你重启的完整任务书见 `restart.md` 第 6 节的第 0~5 步，关键就一句：目标会话不能是执行者自己。

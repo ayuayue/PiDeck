@@ -6,7 +6,7 @@
 
 **PiDeck 每个窗口背后跑一个 pi 进程，同时开一个只监听本机的 HTTP 服务。用这个服务，你能读自己的状态、给别的窗口发消息、让另一个会话把自己重启。**
 
-下面每条命令都在 2026-11 的 Windows 发行版上跑过，写了期望返回。返回形状不符说明版本变了，以源码 `src/main/web/WebApiRoutes.ts` 为准（`/api/health` 例外，在 `WebServiceManager.ts:497`）。技能本身不依赖源码，只有想确认「这个端点源码里到底怎么写的」时才需要克隆。
+下面每条命令都在 2026-11 的 Windows 发行版上跑过，写了期望返回。返回形状不符说明版本变了，以源码 `src/main/web/WebApiRuntimeRoutes.ts` 等四个文件为准（路由按域拆在 `WebApi*Routes.ts` 里；`/api/health` 例外，在 `WebServiceManager.ts:497`）。技能本身不依赖源码，只有想确认「这个端点源码里到底怎么写的」时才需要克隆。
 
 **所有 bash 都按 Git Bash 写**（PiDeck 在 Windows 上附带的那套）。别在 cmd 或 PowerShell 里跑：`$VAR` 不展开，`%APPDATA%` 在 bash 里不展开。怎么确认：`echo $APPDATA` 有值就是对的 shell。
 

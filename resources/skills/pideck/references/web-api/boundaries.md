@@ -3,7 +3,7 @@
 ## 9 边界
 
 - 只读 pi 的会话文件，不要改 `~/.pi/agent/sessions/*.jsonl`。
-- 端点全集以源码 `WebApiRoutes.ts` 为准；本文是实测记录，不一致时信源码。比对用第 11 节的 `check-doc.mjs`。
+- 端点全集以源码 `src/main/web/WebApiRuntimeRoutes.ts` 等四个文件为准（路由按域拆在 `WebApi*Routes.ts` 里）；本文是实测记录，不一致时信源码。比对用第 11 节的 `check-doc.mjs`。
 - 没有第二个活着的窗口能接，就别停：被停之后没人发 activate，就是永久停着。
 - **改了这个技能，已经在跑的会话看不到新版。** 技能是进程启动时用 `--skill <目录>` 注入的（`PiProcess.ts:379`），内容在启动那刻进了内存。要生效只能重启（第 6 节）或新开一个。
 
