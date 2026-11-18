@@ -244,6 +244,43 @@ test("只改 CI 不算门禁自改的 block", () => {
 	assert.ok(codes(result).includes("SELF_PROTECTED_PATH"));
 });
 
+test("改技能文档判据又带产品代码 → 至少 manual（不 block，文档 PR 常同时改两者）", () => {
+	const mixed = evaluatePull(
+		pull({
+			files: [
+				{ path: "scripts/skills/pideck/check-doc.mjs", additions: 40, deletions: 2 },
+				{ path: "scripts/skills/pideck/check-doc-routes.json", additions: 15, deletions: 0 },
+				{ path: "src/main/web/WebApiRoutes.ts", additions: 3, deletions: 0 },
+			],
+			changedFiles: 3,
+		}),
+	);
+	assert.equal(mixed.verdict, "manual");
+	assert.ok(codes(mixed).includes("SELF_CRITERIA_PATH"));
+	const level = (result) => result.reasons.find((reason) => reason.code === "SELF_CRITERIA_PATH")?.level;
+	assert.equal(level(mixed), "manual");
+	// 技能文档在 resources/ 下，属产品代码：改判据同时改它也只到 manual
+	const docsOnly = evaluatePull(
+		pull({
+			files: [
+				{ path: "scripts/skills/pideck/check-paths.mjs", additions: 5, deletions: 1 },
+				{ path: "resources/skills/pideck/references/web-api/endpoints.md", additions: 5, deletions: 0 },
+			],
+			changedFiles: 2,
+		}),
+	);
+	assert.equal(level(docsOnly), "manual");
+	// 只改判据本身：note（与产品代码无关），不得升成 block
+	const solo = evaluatePull(
+		pull({
+			files: [{ path: "scripts/skills/pideck/check-format.mjs", additions: 27, deletions: 0 }],
+			changedFiles: 1,
+		}),
+	);
+	assert.equal(level(solo), "note");
+	assert.notEqual(solo.verdict, "block");
+});
+
 test("新增 e2e：自己 launch 要人看，走 fixtures 只提醒", () => {
 	const selfLaunch = evaluatePull(
 		pull({

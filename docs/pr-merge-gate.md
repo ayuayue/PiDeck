@@ -18,7 +18,7 @@
 | R3 | 破坏文件/协议边界：自定义协议直接拼接路径、CSP 放开 `allow-same-origin`、未做 realpath containment | 参照正面样例 `src/main/wallpaperEngine/wallpaperEngineLibrary.ts` 的 `resolveInsideItem` |
 | R4 | 命令注入：`shell:true` 拼接用户输入、`eval`/`new Function`、把 PR 内容当命令执行 | 新增行命中即人工复核 |
 | R5 | 会话/凭据：读写 pi 活跃 JSONL、把 key 写成字面量、新增 `.env`/私钥文件 | `src/main/` 里新增 `.jsonl` 写入且同行出现 `session`/`.pi/`/`piDir` → 人工；`apiKey/token/secret/password` 赋 16+ 字符字面量（非 `process.env`）→ 人工；新增凭据类文件 → 拒绝。参见 `AGENTS.md` 铁律 2 |
-| R6 | 门禁自改：改 `scripts/prGate.mjs`、`scripts/check-*.mjs`、`scripts/testShapeBaseline.json`、`tests/prGate.test.mjs`、`.github/workflows/`、`biome*.jsonc` **同时**改 `src/`、`resources/`、`native/` | 拒绝。规则与基线都在被审的仓库里，不拦这条就能「改产品代码顺便放宽判自己的尺子」。维护者本人确有必要时加 `--allow-protected`；只改 CI/脚本/docs（无产品代码）只留提示 |
+| R6 | 门禁自改：改 `scripts/prGate.mjs`、`scripts/check-*.mjs`、`scripts/testShapeBaseline.json`、`tests/prGate.test.mjs`、`.github/workflows/`、`biome*.jsonc` **同时**改 `src/`、`resources/`、`native/` | 拒绝。规则与基线都在被审的仓库里，不拦这条就能「改产品代码顺便放宽判自己的尺子」。维护者本人确有必要时加 `--allow-protected`；只改 CI/脚本/docs（无产品代码）只留提示。技能文档判据（`scripts/skills/*/check-*.{mjs,json}`）同带产品代码时**只判人工**（`SELF_CRITERIA_PATH`）：它只判文档内容、且技能文档本身在 `resources/skills/**`，正常文档 PR 天然两处一起改，硬拒会误伤；**人工必须确认改动是收紧而非放宽**（#576 实测：这条曾漏判） |
 | R7 | 包清单结构破坏：package.json 顶层 `scripts`/`dependencies`/`devDependencies` 段被删、依赖名混进 `scripts`、版本值不是非空字符串 | **不由 `prGate.mjs` 判定**（它只看 diff 行，看不到「段头被吞但 JSON 仍合法」）：`npm run check:package-json` 在 ci.yml 与 dev-guard 都跑，rc=1 即拒绝。教训见 §5 的 2026-11-15 条目 |
 
 判定命令（确定性首筛，退出码 1 = 命中红线）：
@@ -27,6 +27,8 @@
 node scripts/prGate.mjs --pr <编号>            # 社区 PR
 node scripts/prGate.mjs --pr <编号> --allow-protected   # 维护者本人改门禁/CI 时
 ```
+
+注意 `SELF_CRITERIA_PATH` 只产生 manual/note（不进退出码），审查者不能因为它“没红”就跳过——口径被放宽的判据脚本与红线的杀伤力在长期，不在一行 diff 上。
 
 ## 2. 尺寸与证据阈值
 
