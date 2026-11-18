@@ -14,7 +14,7 @@ description: "PiDeck 桌面端内置能力总入口：生成图片（画图/海�
 | 生成图片：画一张、海报、头像、logo、参考图、改图 | `references/image-gen.md` | 读 PiDeck 生图配置，调 OpenAI 兼容图片 API，把图存到项目目录 |
 | 供应商用量、余额、额度、点数；用量不显示；给某个供应商加用量查询 | `references/usage-probe.md` | 先判内置模板，再用四种弹窗模板，最后才写 usage-probes.json 探针 |
 | PiDeck 出问题：会话起不来、pi 连不上、应用报错、卡顿、闪退、模型列表空 | `references/pideck-doctor.md` | 让用户导出「问题反馈 → 环境诊断」报告，按故障模式定位 |
-| 查 PiDeck 会话状态、时间线、todo、子 agent；给别的窗口发消息、等它干完；重启或停启会话；改运行时与记录 | `references/web-api/connect.md` 起 | 先读连接与身份（§0–§2），再按其中索引读 read / message / collaboration / restart / actions / boundaries |
+| 查 PiDeck 会话状态、时间线、todo、子 agent；给别的窗口发消息、等它干完；重启或停启会话；改运行时与记录 | `references/web-api/connect.md` 起 | 先读连接与身份（§0–§2），再按其中索引读 read / message / collaboration / restart / actions / boundaries；项目、智能体、模型、用量、DSH 面板与插件、检索见 `references/web-api/endpoints.md` |
 
 路径都相对本 `SKILL.md` 所在目录；web-api 的节号索引写在每份文件开头。
 

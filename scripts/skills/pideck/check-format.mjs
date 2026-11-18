@@ -139,6 +139,29 @@ function danglingRefs(lines, sections = null) {
 	return out;
 }
 
+/** 标题层级必须与编号深度一致：同一个文件里，编号 N.x 的标题要比编号 N 的标题深一级。
+ *  2026-11-18 实测：`connect.md` 的 `## 0.4` 与 `message.md` 的 `## 5.5` 都写在 `## 0` / `## 5` 下面，
+ *  却用了同级标题——读者会以为 5.5 是与 5 平级的新章节。
+ *  本文件没有父节时不判：`collaboration.md` 装着 §5.6 与 §9.1–§9.4，父节在别的文件里，
+ *  那种情况下 H2 是对的，改成 H3 才会变成无父的孤儿标题。 */
+function headingLevelMismatch(lines) {
+	const out = [];
+	const heads = [];
+	lines.forEach((line, i) => {
+		if (isFence(line)) return;
+		const m = /^(#{2,4})\s+([0-9]+(?:\.[0-9]+)*)/.exec(line);
+		if (m) heads.push({ line: i + 1, lvl: m[1].length, num: m[2] });
+	});
+	for (const h of heads) {
+		const parts = h.num.split(".");
+		if (parts.length < 2) continue;
+		const parent = heads.find((x) => x.num === parts.slice(0, -1).join("."));
+		if (!parent) continue;
+		if (h.lvl !== parent.lvl + 1) out.push({ line: h.line, msg: "编号 " + h.num + " 是 " + parent.num + " 的子节，标题用了 H" + h.lvl + "，应为 H" + (parent.lvl + 1), sample: "" });
+	}
+	return out;
+}
+
 /** 全部结构判据作用在一份 lines 上，返回问题列表。
  *  抽成纯函数只为一个目的：--selftest 能在内存里喂坏样本，证明每条判据都会红，
  *  而不是只证明脚本能跑完。 */
@@ -172,6 +195,7 @@ function scan(lines, sections = null) {
 	if (fences % 2) out.push({ line: 0, msg: "代码块围栏一共 " + fences + " 个，没配对", sample: "" });
 	out.push(...conflictingRoles(lines));
 	out.push(...danglingRefs(lines, sections));
+	out.push(...headingLevelMismatch(lines));
 	return out;
 }
 
@@ -201,6 +225,9 @@ function selftest() {
 		["跨小节的同类表述不算矛盾", ["## 1 发送", "", "送达看 " + TICK + "total" + TICK + "。", "", "## 2 边界", "", "不要用 " + TICK + "total" + TICK + " 判断别的事。"], "两句互相否定", 0],
 		["节号引用落空：标题被删掉，正文还指着它", ["## 1 甲", "", "见第 2 节。", "", "## 2 乙", "", "见第 3 节。"], "引用第", 1],
 		["节号引用落地：标题都在", ["## 1 甲", "", "见第 2 节。", "", "## 2 乙", "", "第 2 节讲过了。"], "引用第", 0],
+		["子节用了与父节同级的标题", ["## 5 发消息", "", "## 5.5 等对方干完"], "是 5 的子节", 1],
+		["子节层级正确", ["## 5 发消息", "", "### 5.5 等对方干完"], "是 5 的子节", 0],
+		["本文件没有父节时不判层级（collaboration.md 的形状）", ["## 9.1 每句话带来源", "", "## 9.2 说人话"], "是 9 的子节", 0],
 		["带日期的历史记录不算矛盾", ["## 1 发送", "", "20xx 年改前送达看 " + TICK + "total" + TICK + "。", "不要用 " + TICK + "total" + TICK + "。"], "两句互相否定", 0],
 	];
 	let bad = 0;

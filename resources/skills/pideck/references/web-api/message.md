@@ -1,4 +1,4 @@
-> 节号索引：§0–§2 `connect.md` · §3–§4 `read.md` · §5–§5.5、§8 `message.md` · §5.6、§9.1–§9.4 `collaboration.md` · §6 `restart.md` · §7 `actions.md` · §9–§10 `boundaries.md` · §11 `maintenance.md`
+> 节号索引：§0–§2 `connect.md` · §3–§4 `read.md` · §5–§5.5、§8 `message.md` · §5.6、§9.1–§9.4 `collaboration.md` · §6 `restart.md` · §7 `actions.md` · §9–§10 `boundaries.md` · §11 `maintenance.md` · 其余端点 `endpoints.md`
 
 ## 5 发消息
 
@@ -81,7 +81,7 @@ echo "PASS 没有 error 帧，且收到了 start 或 finish"
 
 用 `printf` 写 msg.txt，别用 `echo`（会补换行或解释反斜杠）。
 
-## 5.5 等对方干完：订阅、复用还是新开、什么时候算结束
+### 5.5 等对方干完：订阅、复用还是新开、什么时候算结束
 
 **两个流别搞混。** `/api/sessions/<id>/stream` 推这个会话的消息帧；`/api/events` 推全局状态快照（`event: state`），不推消息文本，也没有心跳帧——连接静默不等于断了。
 
@@ -121,4 +121,4 @@ tail -c 200 /tmp/reply.txt | tr -d "\n" | tail -c 120
 
 **别做「守卫替你停」这种设计。** 它会死在两处：stop 的 body 没带 `target` 时返回 400 `webError.runtimeTargetRequired`；用 `runtimes[].status` 判断「停了吗」时，空闲进程的 status 是 `idle`，于是判定已停。
 
-要停掉自己，stop 必须带齐 `sessionId` + `agentId` + `runtimeGeneration` 三件；能发出这个请求的应该是**另一个活着的进程**，不是守卫。让别的会话替你重启的完整任务书见本节第 0~5 步，关键就一句：目标会话不能是执行者自己。
+要停掉自己，stop 必须带齐 `sessionId` + `agentId` + `runtimeGeneration` 三件；能发出这个请求的应该是**另一个活着的进程**，不是守卫。让别的会话替你重启的完整任务书见 `restart.md` 第 6 节的第 0~5 步，关键就一句：目标会话不能是执行者自己。

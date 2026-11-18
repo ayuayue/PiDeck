@@ -33,9 +33,11 @@ test("SessionHoverCard enforces 1.5s openDelay to prevent hover race condition",
 test("SessionTree wraps session rows with SessionHoverCard", () => {
 	const source = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
 	assert.match(source, /import \{ SessionHoverCard \} from "\.\/SessionHoverCard"/);
-	// 运行中 Agent 行、历史会话行、草稿行、子 Agent 行均有接入 SessionHoverCard
-	const matches = source.match(/<SessionHoverCard\b/g);
-	assert.ok(matches && matches.length >= 4, `expected at least 4 SessionHoverCard usages, got ${matches?.length ?? 0}`);
+	// 子项行骨架（子会话 / 子 Agent）在 b8d26e6f3 拆成 SessionChildRows，卡片随之搬走；
+	// 四类行都要有浮层，所以数的是两份文件的合计，不是单看 SessionTree。
+	const childRows = readFileSync("src/renderer/src/components/sidebar/SessionChildRows.tsx", "utf8");
+	const usages = [...source.matchAll(/<SessionHoverCard\b/g), ...childRows.matchAll(/<SessionHoverCard\b/g)].length;
+	assert.ok(usages >= 4, `expected at least 4 SessionHoverCard usages across SessionTree + SessionChildRows, got ${usages}`);
 	// 浮层在右键菜单激活时禁用（disabled={Boolean(props.controller.menu)}）
 	assert.match(source, /disabled=\{Boolean\(props\.controller\.menu\)\}/);
 });

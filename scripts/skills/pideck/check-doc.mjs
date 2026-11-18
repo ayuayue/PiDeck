@@ -39,6 +39,18 @@ const SRC_BASE = pick(srcArg ? path.resolve(srcArg.slice(6)) : path.resolve(here
 const SKILL = process.argv.slice(2).find((a) => !a.startsWith("--")) || path.resolve(here, "../../..", "resources/skills/pideck/references/web-api/actions.md");
 const SRC = path.join(SRC_BASE, "web/WebApiRoutes.ts");
 const EXTRA = path.join(SRC_BASE, "web/WebServiceManager.ts");
+// 路由实现按域拆在多个文件里（WebApiReadRoutes / WebApiSessionRoutes / WebApiRuntimeRoutes），
+// 只读 WebApiRoutes.ts 会漏掉 `switch (action)` 与大部分端点——2026-11-18 实测：拆完之后
+// 「源码 switch 里只切出 0 个 body 字段」，而这条判据报的是「判据自己坏了」，不是文档错。
+// 按什么筛？曾经按前缀 `WebApi*`，那条规则把 `WebWorkspaceRoutes.ts`（11 条）与
+// `WebPromptTemplateRoutes.ts`（1 条）排除在外——它们挂在 `startup/webService.ts:24`，
+// 是活路由，只是命名不以 WebApi 开头。于是台账 60 条不是全集、文档一条没写、所有判据全绿。
+// 真正的约定是后缀：路由文件都叫 *Routes.ts。按后缀筛，新增 WebXxxRoutes.ts 自动进来。
+const SIBLINGS = fs
+	.readdirSync(path.join(SRC_BASE, "web"))
+	.filter((f) => /^Web.*Routes\.ts$/.test(f))
+	.sort()
+	.map((f) => path.join(SRC_BASE, "web", f));
 if (!fs.existsSync(SRC)) {
 	console.log("FAIL 找不到源码 " + SRC + "（用 --src= 指向完整 src 目录）；这是环境缺失，rc=2");
 	process.exit(2);
@@ -47,7 +59,7 @@ const skill = fs.readFileSync(SKILL, "utf8");
 const BS = String.fromCharCode(92);
 const QUOTE = String.fromCharCode(34);
 const TICK = String.fromCharCode(96);
-const src = [SRC, EXTRA]
+const src = [SRC, ...SIBLINGS.filter((f) => f !== SRC), EXTRA]
 	.filter((f) => fs.existsSync(f))
 	.map((f) =>
 		fs
@@ -186,12 +198,15 @@ let bad = 0;
 // 台账是生成物，别手改：node check-doc.mjs --update-routes
 const LEDGER = path.join(here, "check-doc-routes.json");
 // 残缺串不进台账：routeRe 在 `pathname === "/api"` 这类边界上会截出 "/api"，通配会截出 "/api/*"。
+// 源码注释里的 `/** GET /api/files、GET /api/file-content */` 会截成 "/api/files、GET"。
+// 判据：路由不含非 ASCII 字符——源码里的路由字符串都是 ASCII，出现了就是被注释或标点污染。
+// 曾按中文字符范围过滤，漏掉全角逗号（U+FF0C）与顿号（U+3001），台账里混进 3 条假路由。
 // 它们不是路由，进了台账就变成「源码里少了这条就红」的假基线。
 const skipped = [];
 const routeList = [...routes]
 	.filter((r) => {
 		const segs = r.split("/").filter(Boolean);
-		const bad = /[\u4e00-\u9fa5（）「」，。]/.test(r) || segs.length < 2 || segs[1] === "*";
+		const bad = /[^\x20-\x7e]/.test(r) || segs.length < 2 || segs[1] === "*";
 		if (bad) skipped.push(r);
 		return !bad;
 	})
@@ -241,6 +256,21 @@ if (JSON.stringify(methodsInSource("/api/events")) !== JSON.stringify(["GET"])) 
 	process.exit(1);
 }
 
+// 标题里写死的条数必须与表格行数一致。加表格的人常常忘了改标题——
+// 2026-11-18 实测：`## 7 动作：运行时 21 个，记录层 8 个` 里的 21 改成 22，单条判据全绿，
+// 因为它只是散文里的一个数字，而表格行数才是真值。这条把两处锁在一起。
+const sec7 = skill.split(/\n## 7 /)[1] || "";
+const mRuntime = sec7.match(/运行时 ([0-9]+) 个/);
+const mLedger = sec7.match(/记录层 ([0-9]+) 个/);
+if (!mRuntime || !mLedger) {
+	console.log("FAIL §7 标题里找不到「运行时 N 个，记录层 N 个」");
+	process.exit(1);
+}
+if (Number(mRuntime[1]) !== docActions.length) {
+	console.log("FAIL §7 标题说运行时 " + mRuntime[1] + " 个，7.1 表格是 " + docActions.length + " 行");
+	process.exit(1);
+}
+
 // 7.2 表格必须有多少行。写死是必要的：没有基数就抓不到「文档少了一条端点」——
 // 2026-11-15 实测，删掉 export-html 那一行后判据照样 PASS。增删端点时同步改这个数。
 const EXPECTED_72_ROWS = 8;
@@ -272,6 +302,10 @@ for (const line of sec72.split(/\r?\n/)) {
 		bad++;
 	}
 }
+if (Number(mLedger[1]) !== checked) {
+	console.log("FAIL §7 标题说记录层 " + mLedger[1] + " 个，7.2 表格是 " + checked + " 行");
+	process.exit(1);
+}
 if (checked !== EXPECTED_72_ROWS) {
 	console.log("FAIL 7.2 表格 " + checked + " 行，基线是 " + EXPECTED_72_ROWS);
 	process.exit(1);
@@ -280,9 +314,11 @@ if (checked !== EXPECTED_72_ROWS) {
 console.log("7.2 端点 " + checked + " 条（路径 + 方法都比对），" + (bad ? bad + " 处与源码不符" : "全部对得上"));
 // 7.1 的「额外 body 字段」列：源码 switch 里读到的 body.X 与文档必须一一对应。
 // 少写一个字段，读者就会漏传，服务端拿 undefined 当空值——静默做错事。
-const swStart = src[0].indexOf("switch (action)");
+// switch 体在哪个文件不确定（拆文件后它跟着 runtime 路由走），按「哪个文件里有它」定位。
+const swHost = src.find((s) => s.includes("switch (action)")) ?? "";
+const swStart = swHost.indexOf("switch (action)");
 const swEnd = swStart + 8000; // switch 体约 80 行；用固定窗口比找闭合括号稳（里面有多个 return true）
-const swBody = swStart >= 0 ? src[0].slice(swStart, swEnd) : "";
+const swBody = swStart >= 0 ? swHost.slice(swStart, swEnd) : "";
 const bodyFields = new Set([...swBody.matchAll(/body\.([a-zA-Z]+)/g)].map((x) => x[1]));
 if (bodyFields.size < 8) {
 	console.log("FAIL 源码 switch 里只切出 " + bodyFields.size + " 个 body 字段，判据自己坏了");
@@ -309,6 +345,90 @@ for (const f of docFields)
 		console.log("  7.1 多写了字段 " + f + "（源码 switch 里没读）");
 		bad++;
 	}
+
+// ── 反方向：源码的每条路由，文档必须写到 ─────────────────────
+// 「文档里写了错端点」由 check-paths.mjs 管；这里管反方向：「源码里有、文档没写」。
+// 上游 2026-11-16 试过这条口径，因「红 25 条、至少 5 条假红」放弃。假红全部来自归一不足，
+// 三类，逐条处理：
+//   1. <目标> 这类中文占位符——路径字符集不含中文，匹配到 /api/sessions/ 就断
+//   2. $PIDECK_SESSION_ID 这类 shell 变量
+//   3. runtime 的 21 个动作共用模板 /runtime/<action>，文档只在 7.1 表里列动作名，
+//      从不重复全路径——重复 21 遍是冗余，不是遗漏
+// 三类都归一对之后 60 条 0 假红。它挡的是 2026-11-18 实测过的事故：上游把技能拆成
+// 九份，会话之外 29 条端点一条都没写，十一条判据全绿——因为每一条都只验「文档→源码」。
+const SKILL_ROOT = path.resolve(path.dirname(SKILL), "../..");
+const CORPUS = [path.join(SKILL_ROOT, "SKILL.md")]
+	.concat(
+		fs
+			.readdirSync(path.dirname(SKILL))
+			.filter((f) => f.endsWith(".md"))
+			.map((f) => path.join(path.dirname(SKILL), f)),
+	)
+	.filter((f) => fs.existsSync(f));
+if (CORPUS.length < 5) {
+	console.log("FAIL 文档只找到 " + CORPUS.length + " 份，references/web-api/ 全套没读到（判据自己坏了）");
+	process.exit(1);
+}
+const PH = /<[^>\/]+>|\$[A-Za-z_][A-Za-z0-9_]*|:[A-Za-z][A-Za-z0-9]*/g;
+const normPath = (s) => {
+	let x = s.split("?")[0];
+	for (let i = 0; i < 4; i++) x = x.replace(PH, ":id");
+	return x.replace(/\/$/, "");
+};
+// 路径字符集必须放进中文：文档写 <目标>，只认 ASCII 会在 /api/sessions/ 处截断，
+// 于是 prompt 与 messages/page 两条被误报成「文档没写」。这是上游 5 条假红里的 2 条。
+const DOC_PATH_RE = /\/api\/[^\s`"'|()\[\]，。、）】]+/g;
+const docPaths = new Set();
+for (const f of CORPUS) for (const mm of fs.readFileSync(f, "utf8").matchAll(DOC_PATH_RE)) docPaths.add(normPath(mm[0]));
+// 自检：一条确定写了的、一条编造的。两条都不对，说明归一或语料读错了，后面的结论不可信。
+if (!docPaths.has(normPath("/api/sessions/<id>/messages"))) {
+	console.log("FAIL 自检坏样本：文档里明明有 /api/sessions/<id>/messages，判据没读到");
+	process.exit(1);
+}
+if (docPaths.has(normPath("/api/sessions/<id>/zzzNotARoute"))) {
+	console.log("FAIL 自检正样本：编造的路由被判成「文档写了」");
+	process.exit(1);
+}
+const runtimeTemplate = docPaths.has(normPath("/api/sessions/<id>/runtime/<action>"));
+if (!runtimeTemplate) {
+	console.log("FAIL 文档里找不到 runtime 模板 /api/sessions/<id>/runtime/<action>，21 个动作会全部误报");
+	process.exit(1);
+}
+let viaTemplate = 0;
+let uncovered = 0;
+for (const r of ledger) {
+	if (docPaths.has(normPath(r))) continue;
+	const act = r.match(/\/runtime\/([a-z-]+)$/);
+	if (act && docActions.includes(act[1])) {
+		viaTemplate++;
+		continue;
+	}
+	console.log("  文档没写这条路由 " + r + "（源码里有）");
+	uncovered++;
+	bad++;
+}
+console.log("文档覆盖：台账 " + ledger.length + " 条，直写 " + (ledger.length - viaTemplate - uncovered) + " 条 + runtime 模板 " + viaTemplate + " 条" + (uncovered ? "，缺 " + uncovered + " 条" : ""));
+
+// ── 错误码：源码里每一个，文档都必须写到 ─────────────────────
+// 与上面路由那条同构。check-fields 只验「文档里的标识符在源码存在」，反方向没人管：
+// 源码新增一个错误码、文档不写，所有判据照样绿。2026-11-18 实测：43 个码文档只提 10 个，
+// 漏掉的 `stripsUnavailable`（subagents/todo 那一对 503）与 `requestIdRequired` 正是
+// 读者最容易撞上的两个。
+// 口径不含白名单：endpoints.md 有一张穷举码表，43 个全在。新增码就红，逼你写一行。
+const srcCodes = new Set([...src.join("\n").matchAll(/"(webError\.[A-Za-z0-9_]+)"/g)].map((mm) => mm[1]));
+if (srcCodes.size < 30) {
+	console.log("FAIL 源码里只切出 " + srcCodes.size + " 个 webError 码，判据自己坏了");
+	process.exit(1);
+}
+const docAll = CORPUS.map((f) => fs.readFileSync(f, "utf8")).join("\n");
+let missingCodes = 0;
+for (const code of srcCodes)
+	if (!docAll.includes(code)) {
+		console.log("  文档没写错误码 " + code + "（源码在用）");
+		bad++;
+		missingCodes++;
+	}
+console.log("错误码 " + srcCodes.size + " 个，文档缺 " + missingCodes + " 个");
 
 console.log(okA && !bad ? "PASS" : "FAIL");
 process.exit(okA && !bad ? 0 : 1);
