@@ -250,6 +250,21 @@ if (JSON.stringify(methodsInSource("/api/events")) !== JSON.stringify(["GET"])) 
 	process.exit(1);
 }
 
+// 标题里写死的条数必须与表格行数一致。加表格的人常常忘了改标题——
+// 2026-11-18 实测：`## 7 动作：运行时 21 个，记录层 8 个` 里的 21 改成 22，单条判据全绿，
+// 因为它只是散文里的一个数字，而表格行数才是真值。这条把两处锁在一起。
+const sec7 = skill.split(/\n## 7 /)[1] || "";
+const mRuntime = sec7.match(/运行时 ([0-9]+) 个/);
+const mLedger = sec7.match(/记录层 ([0-9]+) 个/);
+if (!mRuntime || !mLedger) {
+	console.log("FAIL §7 标题里找不到「运行时 N 个，记录层 N 个」");
+	process.exit(1);
+}
+if (Number(mRuntime[1]) !== docActions.length) {
+	console.log("FAIL §7 标题说运行时 " + mRuntime[1] + " 个，7.1 表格是 " + docActions.length + " 行");
+	process.exit(1);
+}
+
 // 7.2 表格必须有多少行。写死是必要的：没有基数就抓不到「文档少了一条端点」——
 // 2026-11-15 实测，删掉 export-html 那一行后判据照样 PASS。增删端点时同步改这个数。
 const EXPECTED_72_ROWS = 8;
@@ -280,6 +295,10 @@ for (const line of sec72.split(/\r?\n/)) {
 		console.log("  " + ep + " 文档写 " + docMethod + "，源码是 " + real.join("/"));
 		bad++;
 	}
+}
+if (Number(mLedger[1]) !== checked) {
+	console.log("FAIL §7 标题说记录层 " + mLedger[1] + " 个，7.2 表格是 " + checked + " 行");
+	process.exit(1);
 }
 if (checked !== EXPECTED_72_ROWS) {
 	console.log("FAIL 7.2 表格 " + checked + " 行，基线是 " + EXPECTED_72_ROWS);
