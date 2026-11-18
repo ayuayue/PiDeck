@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "502130e1a387fa4dbc8af56c82f7632949d8d57b543da758a648ad590dc75a8e",
-  "fileCount": 10,
+  "bundleSha256": "95e069f51918e7775ae7c0949c9fc2f75b2800161cd745857f4d3bc26916698e",
+  "fileCount": 13,
   "files": [
     {
       "name": "image-gen/SKILL.md",
@@ -26,28 +26,43 @@
     },
     {
       "name": "pideck-web-api/check-doc.mjs",
-      "sha256": "2f08d94b5a46ca2bfa4f924205e3b6114ada1a8d1120a65aa805a1a8ecca0563",
-      "bytes": 15011
+      "sha256": "75ea553b4ac000ec7771aea9b06377d6baab8c557667d2ed646657fcbc7ef326",
+      "bytes": 15963
     },
     {
       "name": "pideck-web-api/check-fields.mjs",
-      "sha256": "2871f1540576c3848cf557d566394ab2ded259f83a469323ccef82846ea8d31c",
-      "bytes": 5244
+      "sha256": "0f35fad5e50257289f3f3a9106a1a44eeff110e960bf1032ce2225ac4859a83f",
+      "bytes": 5828
     },
     {
       "name": "pideck-web-api/check-format.mjs",
-      "sha256": "fd32d48bf715724ae85a6ccefdadcd8cc1749056ae81b25b06c1d623ec30a088",
-      "bytes": 11360
+      "sha256": "01c9da57022b204a05781a99d61cafe8b2e52ef63878fbeece45b66a897bb718",
+      "bytes": 13086
     },
     {
       "name": "pideck-web-api/check-paths.mjs",
-      "sha256": "8920f0cf2eae0fb42ea22fb515222f97c264effe8cc56383fe83a68af25d0370",
-      "bytes": 7490
+      "sha256": "6a930e950363fff1bb04bbfc437f6d9f73da3ec1d8bda936011a7cad37bce3c3",
+      "bytes": 8325
+    },
+    {
+      "name": "pideck-web-api/references/collab.md",
+      "sha256": "aad2356dfa4fb4a7d6e20c3c2479a6b8a5f32e5c5f2820fce9ce1491fc3856cc",
+      "bytes": 10987
+    },
+    {
+      "name": "pideck-web-api/references/endpoints.md",
+      "sha256": "2b72a63e1a9be2ddfccbd396e692cc5daaa41806bd803e601ee3b2d52aeebff8",
+      "bytes": 5394
+    },
+    {
+      "name": "pideck-web-api/references/rewrite.md",
+      "sha256": "7cf4fe2202161cd33f1b64fa20bf9f3855bc8b9c65016c519ccea868dcf1680d",
+      "bytes": 8887
     },
     {
       "name": "pideck-web-api/SKILL.md",
-      "sha256": "7f51c5017e25263c3976eac84a9bb405469ac889b4f6cdcbd3c7da2c94611d1e",
-      "bytes": 64914
+      "sha256": "dc74762af11a83d1617890ed8c4ac01573515b6e61299840173d284b8d3295c0",
+      "bytes": 30306
     },
     {
       "name": "usage-probe/SKILL.md",

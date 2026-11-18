@@ -45,10 +45,10 @@ if (!m) { console.log("FAIL 源码里找不到 runtime 路由"); process.exit(1)
 const srcActions = m[1].split("|");
 if (srcActions.length < 10) { console.log("FAIL 源码动作数只有 " + srcActions.length); process.exit(1); }
 
-const sec71 = skill.split("### 7.1")[1];
-if (!sec71) { console.log("FAIL 文档里没有 7.1 节"); process.exit(1); }
+const sec71 = skill.split("### 5.1")[1];
+if (!sec71) { console.log("FAIL 文档里没有 5.1 节"); process.exit(1); }
 const docActions = [...sec71.matchAll(/^\| \x60([a-z-]+)\x60/gm)].map((x) => x[1]);
-if (!docActions.length) { console.log("FAIL 7.1 表格一行都没匹配到"); process.exit(1); }
+if (!docActions.length) { console.log("FAIL 5.1 表格一行都没匹配到"); process.exit(1); }
 
 const { missing, extra } = compareActions(srcActions, docActions);
 console.log("源码 " + srcActions.length + " 个，文档 " + docActions.length + " 行");
@@ -93,8 +93,8 @@ for (const [p, want] of [["/api/sessions/<id>/delete", true], ["/api/sessions/<i
   if (routes.has(docNorm(p)) !== want) { console.log("FAIL 自检坏样本 " + p + "：完整路由存在性判定与预期不符"); process.exit(1); }
 }
 
-const sec72 = skill.split("### 7.2")[1];
-if (!sec72) { console.log("FAIL 文档里没有 7.2 节"); process.exit(1); }
+const sec72 = skill.split("### 5.2")[1];
+if (!sec72) { console.log("FAIL 文档里没有 5.2 节"); process.exit(1); }
 const srcLineSets = src.map((s) => s.split(/\r?\n/));
 /** 每条归一化路由出现在哪个源码文件的哪一行（fileIndex:lineIndex）。
  *  两个源码文件都要扫：/api/health 与 /api/events 只在 WebServiceManager.ts 里注册，
@@ -193,9 +193,19 @@ for (const line of sec72.split(/\r?\n/)) {
   if (!real.length) { console.log("  " + ep + " 在源码里定不到方法（判据自己漏了路由）"); bad++; continue; }
   if (!real.includes(docMethod)) { console.log("  " + ep + " 文档写 " + docMethod + "，源码是 " + real.join("/")); bad++; }
 }
-if (checked !== EXPECTED_72_ROWS) { console.log("FAIL 7.2 表格 " + checked + " 行，基线是 " + EXPECTED_72_ROWS); process.exit(1); }
+// 标题里写死的数字必须与表格行数一致。加表格的人常常忘了改标题——
+// 2026-11-18 实测：正文写着「运行时 21 个，记录层 8 个」，把 21 改成 22 四条判据全绿，
+// 因为它只是散文里的一个数字，而表格行数才是真值。这条把两处锁在一起。
+const sec5 = skill.split(/\n## 5 /)[1] || "";
+const mRuntime = sec5.match(/运行时 ([0-9]+) 个/);
+const mLedger = sec5.match(/记录层 ([0-9]+) 个/);
+if (!mRuntime || !mLedger) { console.log("FAIL §5 标题里找不到「运行时 N 个，记录层 N 个」"); process.exit(1); }
+if (Number(mRuntime[1]) !== docActions.length) { console.log("FAIL §5 标题说运行时 " + mRuntime[1] + " 个，5.1 表格是 " + docActions.length + " 行"); process.exit(1); }
+if (Number(mLedger[1]) !== checked) { console.log("FAIL §5 标题说记录层 " + mLedger[1] + " 个，5.2 表格是 " + checked + " 行"); process.exit(1); }
 
-console.log("7.2 端点 " + checked + " 条（路径 + 方法都比对），" + (bad ? bad + " 处与源码不符" : "全部对得上"));
+if (checked !== EXPECTED_72_ROWS) { console.log("FAIL 5.2 表格 " + checked + " 行，基线是 " + EXPECTED_72_ROWS); process.exit(1); }
+
+console.log("5.2 端点 " + checked + " 条（路径 + 方法都比对），" + (bad ? bad + " 处与源码不符" : "全部对得上"));
 // 7.1 的「额外 body 字段」列：源码 switch 里读到的 body.X 与文档必须一一对应。
 // 少写一个字段，读者就会漏传，服务端拿 undefined 当空值——静默做错事。
 const swStart = src[0].indexOf("switch (action)");
@@ -206,9 +216,9 @@ if (bodyFields.size < 8) { console.log("FAIL 源码 switch 里只切出 " + body
 const docRowFields = sec71.split(/\r?\n/).filter((l) => /^\| \x60[a-z-]+\x60 \|/.test(l)).map((l) => l.split("|")[2]).join(" ");
 // 可选字段在文档里写成 `prompt?`，问号在反引号里面，所以这里要允许一个问号。
   const docFields = new Set([...docRowFields.matchAll(/\x60([a-zA-Z]+)\??\x60/g)].map((x) => x[1]));
-if (!docFields.size) { console.log("FAIL 7.1 的字段列一行都没匹配到"); process.exit(1); }
-for (const f of bodyFields) if (!docFields.has(f)) { console.log("  7.1 漏了字段 " + f + "（源码读过 body." + f + "）"); bad++; }
-for (const f of docFields) if (!bodyFields.has(f)) { console.log("  7.1 多写了字段 " + f + "（源码 switch 里没读）"); bad++; }
+if (!docFields.size) { console.log("FAIL 5.1 的字段列一行都没匹配到"); process.exit(1); }
+for (const f of bodyFields) if (!docFields.has(f)) { console.log("  5.1 漏了字段 " + f + "（源码读过 body." + f + "）"); bad++; }
+for (const f of docFields) if (!bodyFields.has(f)) { console.log("  5.1 多写了字段 " + f + "（源码 switch 里没读）"); bad++; }
 
 console.log(okA && !bad ? "PASS" : "FAIL");
 process.exit(okA && !bad ? 0 : 1);

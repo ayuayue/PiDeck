@@ -100,7 +100,14 @@ if (process.argv.includes("--selftest")) selftest();
 const srcArg = process.argv.find((a) => a.startsWith("--src="));
 const pick = (base) => fs.existsSync(path.join(base, "web/WebApiRoutes.ts")) ? base : (fs.existsSync(path.join(base, "main/web/WebApiRoutes.ts")) ? path.join(base, "main") : base);
 const SRC_BASE = pick(srcArg ? path.resolve(srcArg.slice(6)) : path.resolve(here, "../../../src/main"));
-const SKILL = process.argv.slice(2).find((a) => !a.startsWith("--")) || path.join(here, "SKILL.md");
+const argFile = process.argv.slice(2).find((a) => !a.startsWith("--"));
+// 不传参数时扫 SKILL.md 加 references/*.md。只扫主文件，搬出去的长尾就没有判据——
+// 2026-11-18 实测：references 里写错一个路径段，四条判据全绿。
+const REF_DIR = path.join(here, "references");
+const FILES = argFile
+  ? [argFile]
+  : [path.join(here, "SKILL.md"),
+     ...(fs.existsSync(REF_DIR) ? fs.readdirSync(REF_DIR).filter((f) => f.endsWith(".md")).sort().map((f) => path.join(REF_DIR, f)) : [])];
 const SRC = path.join(SRC_BASE, "web/WebApiRoutes.ts");
 const srcFiles = [SRC, path.join(SRC_BASE, "web/WebServiceManager.ts")].filter((f) => fs.existsSync(f));
 if (!srcFiles.length) { console.log("FAIL 找不到源码（找过 " + SRC + "）。用 --src= 指向完整 src 目录，或用 --selftest 只验判据自己"); process.exit(2); }
@@ -109,21 +116,26 @@ const src = srcFiles.map((p) => fs.readFileSync(p, "utf8")).join(String.fromChar
 const srcSegs = segsFromSource(src);
 if (srcSegs.size < 20) { console.log("FAIL 源码里只切出 " + srcSegs.size + " 个段，判据自己坏了"); process.exit(1); }
 
-const skill = fs.readFileSync(SKILL, "utf8");
-const found = [...skill.matchAll(/\/api\/[A-Za-z0-9_\/<>.:$\u4e00-\u9fa5-]*/g)].map((m) => m[0].replace(/[.,;:)]+$/, ""));
-const uniq = [...new Set(found)].sort();
-if (uniq.length < 10) { console.log("FAIL 只抽到 " + uniq.length + " 条路径"); process.exit(1); }
-
 for (const c of ["sessions", "runtimes", "state"]) {
   if (!srcSegs.has(c)) { console.log("FAIL 控制组段 " + c + " 在源码段集合里不存在"); process.exit(1); }
 }
 
 let bad = 0;
-for (const p of uniq) {
-  for (const s of missingSegs(p, srcSegs)) { console.log("  " + p + " 里的段「" + s + "」源码里没有"); bad++; }
+let totalPaths = 0;
+for (const file of FILES) {
+  const text = fs.readFileSync(file, "utf8");
+  const found = [...text.matchAll(/\/api\/[A-Za-z0-9_\/<>.:$\u4e00-\u9fa5-]*/g)].map((m) => m[0].replace(/[.,;:)]+$/, ""));
+  const uniq = [...new Set(found)].sort();
+  // 非主文件允许一条都没有（协作与改法那两份讲的是流程，不含端点）；主文件低于 10 条说明被截断过。
+  if (uniq.length < (path.basename(file) === "SKILL.md" ? 10 : 0)) { console.log("FAIL " + path.basename(file) + " 里只抽到 " + uniq.length + " 条路径"); bad++; continue; }
+  if (!uniq.length) continue;
+  totalPaths += uniq.length;
+  for (const q of uniq) {
+    for (const s of missingSegs(q, srcSegs)) { console.log("  " + path.basename(file) + " " + q + " 里的段「" + s + "」源码里没有"); bad++; }
+  }
+  for (const f of foreignPaths(text)) { console.log("  " + path.basename(file) + " 里写了本机路径: " + f); bad++; }
 }
-for (const f of foreignPaths(skill)) { console.log("  文档里写了本机路径: " + f); bad++; }
 
-console.log("文档里 " + uniq.length + " 条 /api 路径，" + (bad ? bad + " 处段对不上" : "每一段都在源码里"));
+console.log("文档 " + FILES.length + " 个，共 " + totalPaths + " 条 /api 路径，" + (bad ? bad + " 处对不上" : "每一段都在源码里"));
 console.log(bad ? "FAIL" : "PASS");
 process.exit(bad ? 1 : 0);

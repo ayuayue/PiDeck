@@ -15,8 +15,14 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SELFTEST = process.argv.includes("--selftest");
 const srcArg = process.argv.find((a) => a.startsWith("--src="));
-const skillArg = process.argv.slice(2).find((a) => !a.startsWith("--"));
-const SKILL = skillArg || path.join(here, "SKILL.md");
+const argFile = process.argv.slice(2).find((a) => !a.startsWith("--"));
+// 不传参数时扫 SKILL.md 加 references/*.md。只扫主文件，搬出去的长尾就没有标识符判据——
+// 2026-11-18 实测：端点表里写错一个字段名，四条判据全绿。
+const REF_DIR = path.join(here, "references");
+const FILES = argFile
+  ? [argFile]
+  : [path.join(here, "SKILL.md"),
+     ...(fs.existsSync(REF_DIR) ? fs.readdirSync(REF_DIR).filter((f) => f.endsWith(".md")).sort().map((f) => path.join(REF_DIR, f)) : [])];
 const SRC = srcArg ? srcArg.slice(6) : path.resolve(here, "../../../src/main");
 const TICK = String.fromCharCode(96);
 
@@ -78,10 +84,16 @@ const MAX_FILES = 5000;
 const { blob, files } = collect(SRC);
 if (files > MAX_FILES) { console.log("FAIL 扫到 " + files + " 个 .ts，超过上限 " + MAX_FILES + "：源码目录里是不是进了生成文件？确认后把上限调大"); process.exit(1); }
 if (files < 100) { console.log("FAIL 只读到 " + files + " 个 .ts，源码目录不完整 " + SRC + "（用 --src= 指向完整 src）"); process.exit(1); }
-const { total, miss } = check(SKILL, blob);
-if (miss.length) {
-  console.log("FAIL " + SKILL + "：反引号标识符 " + total + " 个，源码里零命中 " + miss.length + " 个");
-  for (const w of miss) console.log("  源码里找不到：" + w);
-  process.exit(1);
+let failed = 0;
+let grandTotal = 0;
+for (const file of FILES) {
+  const { total, miss } = check(file, blob);
+  grandTotal += total;
+  if (miss.length) {
+    console.log("FAIL " + path.basename(file) + "：反引号标识符 " + total + " 个，源码里零命中 " + miss.length + " 个");
+    for (const w of miss) console.log("  源码里找不到：" + w);
+    failed++;
+  }
 }
-console.log("PASS " + SKILL + "：反引号标识符 " + total + " 个，全部在源码里出现（" + files + " 个 .ts）");
+if (failed) process.exit(1);
+console.log("PASS " + FILES.map((f) => path.basename(f)).join(" + ") + "：反引号标识符 " + grandTotal + " 个，全部在源码里出现（" + files + " 个 .ts）");

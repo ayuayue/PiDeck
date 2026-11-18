@@ -171,19 +171,51 @@ function selftest() {
 
 if (process.argv.includes("--selftest")) selftest();
 
-const P = process.argv[2] || path.join(here, "SKILL.md");
-if (!fs.existsSync(P)) { console.log("FAIL 找不到 " + P + "（参数是待检查的 markdown 路径；不传就查同目录 SKILL.md；--selftest 只验判据自己）"); process.exit(2); }
-const lines = fs.readFileSync(P, "utf8").split(/\r?\n/);
-
-const problems = scan(lines);
-for (const p of problems) console.log("  行 " + p.line + " " + p.msg + (p.sample ? ": " + p.sample.slice(0, 60) : ""));
-
-// 空对空不算通过：零字节或只剩一句话的文件里没有可查的结构，上面几条会全绿。
-// 2026-11-15 实测：printf '' > x.md 与只写两行的文件都 PASS——这正是「判据恒真绿」的形状。
-const st = structure(lines);
-if (st.total < 8) {
-  console.log("FAIL 这个文件里只有 " + st.fences + " 个围栏、" + st.tableRows + " 行表格、" + st.boldPairs + " 对加粗，没有可查的结构（拿错文件了？）");
-  process.exit(1);
+const argP = process.argv[2];
+const REF_DIR = path.join(here, "references");
+// 不传参数时扫 SKILL.md 加 references/*.md。只扫主文件，搬出去的长尾就没有格式判据——
+// 2026-11-18 实测：references 里的表格少一格，四条判据全绿。
+const TARGETS = argP
+  ? [argP]
+  : [path.join(here, "SKILL.md"),
+     ...(fs.existsSync(REF_DIR) ? fs.readdirSync(REF_DIR).filter((f) => f.endsWith(".md")).sort().map((f) => path.join(REF_DIR, f)) : [])];
+for (const P of TARGETS) {
+  if (!fs.existsSync(P)) { console.log("FAIL 找不到 " + P + "（参数是待检查的 markdown 路径；不传就查 SKILL.md 与 references/*.md；--selftest 只验判据自己）"); process.exit(2); }
 }
-if (!problems.length) console.log("check-format: " + path.basename(P) + " 围栏 " + st.fences + " / 表格行 " + st.tableRows + " / 加粗对 " + st.boldPairs + "，问题 0 条");
-process.exit(problems.length ? 1 : 0);
+
+// 节号引用必须指向真的存在的节。2026-11-18 实测：正文重排成 0..8 之后，四处「见 3.2」
+// 「主干 5.1」全部落空，而这条判据此前只查结构、不查引用，四条判据全绿。
+// 拆成 references 之后引用跨了文件，这类错只会更多。
+const MAIN_PATH = path.join(here, "SKILL.md");
+const mainHeads = fs.existsSync(MAIN_PATH)
+  ? new Set([...fs.readFileSync(MAIN_PATH, "utf8").matchAll(/^#{2,4} ([0-9]+)(?:\.([0-9]+))? /gm)].map((m) => (m[2] ? m[1] + "." + m[2] : m[1])))
+  : null;
+
+let failed = 0;
+for (const P of TARGETS) {
+  const lines = fs.readFileSync(P, "utf8").split(/\r?\n/);
+  const problems = scan(lines);
+
+  if (mainHeads && mainHeads.size) {
+    const refs = new Set();
+    const joined = lines.join(String.fromCharCode(10));
+    for (const m of joined.matchAll(/第 ([0-9]+) 节/g)) refs.add(m[1]);
+    for (const m of joined.matchAll(/§([0-9]+(?:\.[0-9]+)?)/g)) refs.add(m[1]);
+    for (const m of joined.matchAll(/(?:主干|见|按|照) ([0-9]+)\.([0-9]+)/g)) refs.add(m[1] + "." + m[2]);
+    for (const r of refs) if (!mainHeads.has(r)) problems.push({ line: 1, msg: "引用了不存在的节 §" + r + "（SKILL.md 里有的节号：" + [...mainHeads].join(" ") + "）" });
+  }
+
+  for (const p of problems) console.log("  " + path.basename(P) + " 行 " + p.line + " " + p.msg + (p.sample ? ": " + p.sample.slice(0, 60) : ""));
+
+  // 空对空不算通过：零字节或只剩一句话的文件里没有可查的结构，上面几条会全绿。
+  // 2026-11-15 实测：printf '' > x.md 与只写两行的文件都 PASS——这正是「判据恒真绿」的形状。
+  const st = structure(lines);
+  if (st.total < 8) {
+    console.log("FAIL " + path.basename(P) + " 里只有 " + st.fences + " 个围栏、" + st.tableRows + " 行表格、" + st.boldPairs + " 对加粗，没有可查的结构（拿错文件了？）");
+    failed++;
+    continue;
+  }
+  if (!problems.length) console.log("check-format: " + path.basename(P) + " 围栏 " + st.fences + " / 表格行 " + st.tableRows + " / 加粗对 " + st.boldPairs + "，问题 0 条");
+  if (problems.length) failed++;
+}
+process.exit(failed ? 1 : 0);
