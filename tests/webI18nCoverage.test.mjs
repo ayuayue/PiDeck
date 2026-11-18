@@ -3,6 +3,7 @@ import test from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
  * 错误码和它的文案必须双向对上，而且是逐份对。
@@ -21,9 +22,15 @@ import { fileURLToPath } from "node:url";
  *
  * 逐份而不是拼起来查：三份字典拼成一个字符串再比对，任何一份有文案就算通过，
  * 于是「zh-CN 有、zh-TW 没有」这种最该抓的缺口会被判绿。三个 locale 是三个用户。
+ *
+ * 字典这一侧走运行时加载：`webClientDictionaries` 是三份词典的真身，
+ * 从源码文本里切只验了「文本里有这个串」，验不到「导出给前端的键就是这些」。
+ * 只有「源码在用的码」那一侧必须静态扫——那要覆盖整个 `src/main/web` 目录。
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const WEB = path.resolve(here, "../src/main/web");
+
+const { webClientDictionaries } = loadTsCommonJs(path.join(WEB, "WebI18n.ts"));
 
 const codeFiles = fs
 	.readdirSync(WEB)
@@ -37,18 +44,14 @@ function codesIn(text) {
 const usedCodes = new Set();
 for (const file of codeFiles) for (const code of codesIn(fs.readFileSync(file, "utf8"))) usedCodes.add(code);
 
-// WebI18n.ts 里两份字典按 `export const webEnUS` 分界：之前是 zh-CN，之后是 en-US。
-const i18nSource = fs.readFileSync(path.join(WEB, "WebI18n.ts"), "utf8");
-const enUSAt = i18nSource.indexOf("export const webEnUS");
-assert.ok(enUSAt > 0, "WebI18n.ts 里找不到 export const webEnUS，判据自己坏了");
-const dicts = [
-	["zh-CN", codesIn(i18nSource.slice(0, enUSAt))],
-	["en-US", codesIn(i18nSource.slice(enUSAt))],
-	["zh-TW", codesIn(fs.readFileSync(path.join(WEB, "WebI18n.zh-TW.ts"), "utf8"))],
-];
+const dicts = Object.entries(webClientDictionaries).map(([locale, copy]) => [locale, new Set(Object.keys(copy).filter((key) => key.startsWith("webError.")))]);
+
+test("三份字典都在（判据自己没坏）", () => {
+	assert.deepEqual(dicts.map(([locale]) => locale).sort(), ["en-US", "zh-CN", "zh-TW"], `webClientDictionaries 只导出 ${dicts.length} 份，缺一份时下面的逐份断言会少跑一次`);
+});
 
 test("源码里能切出足够多的错误码（判据自己没坏）", () => {
-	// 阈值守卫：正则或目录读错时下面两条会「零对零」通过，这正是恒真绿的形状。
+	// 阈值守卫：正则或目录读错时下面几条会「零对零」通过，这正是恒真绿的形状。
 	assert.ok(usedCodes.size >= 30, `只切出 ${usedCodes.size} 个错误码，判据自己坏了`);
 });
 
