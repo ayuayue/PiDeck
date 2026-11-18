@@ -5,11 +5,12 @@ Release candidate for 0.13. Session scrolling, history actions and upgrade safet
 ### 🚀 New Features
 - **Activity triage with GTD** — collect, move and settle items in the Activity view, with undo and drag across buckets (#546).
 - **ACP additional working directories** — session roots are passed through `additionalDirectories`, and CodeBuddy reports metrics for individual model calls (#560).
-- **Edit Pi configuration over SSH** — the same model, settings, trust and source editors save to the selected host with version checks. Credentials stay on that host, and authentication remains read-only.
+- **Edit Pi configuration over SSH** — the same editors cover models, settings, trust, source files and skill / prompt / extension resources, saving to the selected host with version checks. Credentials stay on that host, and authentication remains read-only.
 - **Custom prompt enhancement templates** — inspect and customize the template used to enhance prompts.
 - **Adjustable conversation line spacing** — choose one spacing setting for conversation text while keeping code blocks and tables unchanged (#547).
 
 ### ✨ Improvements
+- **Built-in skills merged into one pideck entry** — image generation, usage queries, diagnostics and the Web API reference now live behind one skill and are read on demand per task; the 65 KB Web API guide is split into eight files. The old `/skill:usage-probe` and related entries are retired in favour of `/skill:pideck`, cutting the context carried into every session.
 - **One vertical scroller for answers and execution details** — expanded process groups, tool output and diffs grow inside the conversation. Scrolling up pauses following; returning to the latest content resumes it. Wide code and diffs keep horizontal scrolling.
 - **Retry progress stays compact** — the current retry appears even before the first answer. Success leaves the timeline while its toast remains; final failure keeps its count and expandable reason.
 - **History shows answer text and run facts more clearly** — browse the response separately from thinking and retain per-turn model and duration information.
