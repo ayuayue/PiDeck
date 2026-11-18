@@ -42,10 +42,13 @@ const EXTRA = path.join(SRC_BASE, "web/WebServiceManager.ts");
 // 路由实现按域拆在多个文件里（WebApiReadRoutes / WebApiSessionRoutes / WebApiRuntimeRoutes），
 // 只读 WebApiRoutes.ts 会漏掉 `switch (action)` 与大部分端点——2026-11-18 实测：拆完之后
 // 「源码 switch 里只切出 0 个 body 字段」，而这条判据报的是「判据自己坏了」，不是文档错。
-// 所以按前缀扫：WebApi*.ts 全体 + WebServiceManager.ts。加新 handler 文件不用再改这里。
+// 按什么筛？曾经按前缀 `WebApi*`，那条规则把 `WebWorkspaceRoutes.ts`（11 条）与
+// `WebPromptTemplateRoutes.ts`（1 条）排除在外——它们挂在 `startup/webService.ts:24`，
+// 是活路由，只是命名不以 WebApi 开头。于是台账 60 条不是全集、文档一条没写、所有判据全绿。
+// 真正的约定是后缀：路由文件都叫 *Routes.ts。按后缀筛，新增 WebXxxRoutes.ts 自动进来。
 const SIBLINGS = fs
 	.readdirSync(path.join(SRC_BASE, "web"))
-	.filter((f) => /^WebApi.*\.ts$/.test(f))
+	.filter((f) => /^Web.*Routes\.ts$/.test(f))
 	.sort()
 	.map((f) => path.join(SRC_BASE, "web", f));
 if (!fs.existsSync(SRC)) {
@@ -195,12 +198,15 @@ let bad = 0;
 // 台账是生成物，别手改：node check-doc.mjs --update-routes
 const LEDGER = path.join(here, "check-doc-routes.json");
 // 残缺串不进台账：routeRe 在 `pathname === "/api"` 这类边界上会截出 "/api"，通配会截出 "/api/*"。
+// 源码注释里的 `/** GET /api/files、GET /api/file-content */` 会截成 "/api/files、GET"。
+// 判据：路由不含非 ASCII 字符——源码里的路由字符串都是 ASCII，出现了就是被注释或标点污染。
+// 曾按中文字符范围过滤，漏掉全角逗号（U+FF0C）与顿号（U+3001），台账里混进 3 条假路由。
 // 它们不是路由，进了台账就变成「源码里少了这条就红」的假基线。
 const skipped = [];
 const routeList = [...routes]
 	.filter((r) => {
 		const segs = r.split("/").filter(Boolean);
-		const bad = /[\u4e00-\u9fa5（）「」，。]/.test(r) || segs.length < 2 || segs[1] === "*";
+		const bad = /[^\x20-\x7e]/.test(r) || segs.length < 2 || segs[1] === "*";
 		if (bad) skipped.push(r);
 		return !bad;
 	})
@@ -352,7 +358,12 @@ for (const f of docFields)
 // 九份，会话之外 29 条端点一条都没写，十一条判据全绿——因为每一条都只验「文档→源码」。
 const SKILL_ROOT = path.resolve(path.dirname(SKILL), "../..");
 const CORPUS = [path.join(SKILL_ROOT, "SKILL.md")]
-	.concat(fs.readdirSync(path.dirname(SKILL)).filter((f) => f.endsWith(".md")).map((f) => path.join(path.dirname(SKILL), f)))
+	.concat(
+		fs
+			.readdirSync(path.dirname(SKILL))
+			.filter((f) => f.endsWith(".md"))
+			.map((f) => path.join(path.dirname(SKILL), f)),
+	)
 	.filter((f) => fs.existsSync(f));
 if (CORPUS.length < 5) {
 	console.log("FAIL 文档只找到 " + CORPUS.length + " 份，references/web-api/ 全套没读到（判据自己坏了）");
@@ -397,6 +408,27 @@ for (const r of ledger) {
 	bad++;
 }
 console.log("文档覆盖：台账 " + ledger.length + " 条，直写 " + (ledger.length - viaTemplate - uncovered) + " 条 + runtime 模板 " + viaTemplate + " 条" + (uncovered ? "，缺 " + uncovered + " 条" : ""));
+
+// ── 错误码：源码里每一个，文档都必须写到 ─────────────────────
+// 与上面路由那条同构。check-fields 只验「文档里的标识符在源码存在」，反方向没人管：
+// 源码新增一个错误码、文档不写，所有判据照样绿。2026-11-18 实测：43 个码文档只提 10 个，
+// 漏掉的 `stripsUnavailable`（subagents/todo 那一对 503）与 `requestIdRequired` 正是
+// 读者最容易撞上的两个。
+// 口径不含白名单：endpoints.md 有一张穷举码表，43 个全在。新增码就红，逼你写一行。
+const srcCodes = new Set([...src.join("\n").matchAll(/"(webError\.[A-Za-z0-9_]+)"/g)].map((mm) => mm[1]));
+if (srcCodes.size < 30) {
+	console.log("FAIL 源码里只切出 " + srcCodes.size + " 个 webError 码，判据自己坏了");
+	process.exit(1);
+}
+const docAll = CORPUS.map((f) => fs.readFileSync(f, "utf8")).join("\n");
+let missingCodes = 0;
+for (const code of srcCodes)
+	if (!docAll.includes(code)) {
+		console.log("  文档没写错误码 " + code + "（源码在用）");
+		bad++;
+		missingCodes++;
+	}
+console.log("错误码 " + srcCodes.size + " 个，文档缺 " + missingCodes + " 个");
 
 console.log(okA && !bad ? "PASS" : "FAIL");
 process.exit(okA && !bad ? 0 : 1);

@@ -117,7 +117,17 @@ const pick = (base) => (fs.existsSync(path.join(base, "web/WebApiRoutes.ts")) ? 
 const SRC_BASE = pick(srcArg ? path.resolve(srcArg.slice(6)) : path.resolve(here, "../../../src/main"));
 const SKILL = process.argv.slice(2).find((a) => !a.startsWith("--")) || path.resolve(here, "../../..", "resources/skills/pideck/references/web-api/actions.md");
 const SRC = path.join(SRC_BASE, "web/WebApiRoutes.ts");
-const srcFiles = [SRC, path.join(SRC_BASE, "web/WebServiceManager.ts")].filter((f) => fs.existsSync(f));
+// 段集合的来源必须覆盖所有路由文件。曾经只读 WebApiRoutes.ts + WebServiceManager.ts，
+// 于是 `WebWorkspaceRoutes.ts`/`WebPromptTemplateRoutes.ts` 里的 files/file-content/git/prompts/
+// skills/extensions 这些段被判成「源码里没有」——文档写对了反而红。与 check-doc.mjs 同一口径：
+// 按后缀 *Routes.ts 扫，新增 WebXxxRoutes.ts 自动进来。
+const srcFiles = fs
+	.readdirSync(path.join(SRC_BASE, "web"))
+	.filter((f) => /^Web.*Routes\.ts$/.test(f))
+	.sort()
+	.map((f) => path.join(SRC_BASE, "web", f))
+	.concat([path.join(SRC_BASE, "web/WebServiceManager.ts")])
+	.filter((f) => fs.existsSync(f));
 if (!srcFiles.length) {
 	console.log("FAIL 找不到源码（找过 " + SRC + "）。用 --src= 指向完整 src 目录，或用 --selftest 只验判据自己");
 	process.exit(2);
