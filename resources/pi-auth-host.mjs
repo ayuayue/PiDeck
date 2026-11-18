@@ -249,7 +249,7 @@ function makeInteraction() {
 	};
 }
 
-async function handleLogin(runtime, command) {
+async function handleLogin(runtime, command, loginOptions) {
 	const providerId = command.providerId;
 	const type = command.type === "api_key" ? "api_key" : "oauth";
 	const provider = runtime.getProvider(providerId);
@@ -269,7 +269,7 @@ async function handleLogin(runtime, command) {
 	activeAbort = new AbortController();
 	const interaction = makeInteraction();
 	try {
-		await runtime.login(providerId, type, interaction);
+		await runtime.login(providerId, type, interaction, loginOptions);
 		send({ type: "result", ok: true, cancelled: false, command: "login", providerId });
 	} catch (error) {
 		const cancelled = activeAbort.signal.aborted;
@@ -346,9 +346,10 @@ async function main() {
 	log(`boot: sdk=${sdkEntry}`);
 	const bootStartedAt = Date.now();
 	let ModelRuntime;
+	let SettingsManager;
 	let VERSION;
 	try {
-		({ ModelRuntime, VERSION } = await import(`file:///${sdkEntry.replace(/\\/g, "/")}`));
+		({ ModelRuntime, SettingsManager, VERSION } = await import(`file:///${sdkEntry.replace(/\\/g, "/")}`));
 		sdkVersion = typeof VERSION === "string" ? VERSION : null;
 	} catch (error) {
 		fatal("sdk-load", error instanceof Error ? error.message : String(error));
@@ -369,6 +370,12 @@ async function main() {
 	}
 	log(`boot: runtime created in ${Date.now() - createStartedAt}ms`);
 
+	// 与 pi CLI 共用安装级设备 ID，仅在 OAuth 实际请求时读取全局设置。
+	let deviceId;
+	const loginOptions = {
+		getDeviceId: () => (deviceId ??= SettingsManager.create(process.cwd(), undefined, { projectTrusted: false }).getOrCreateDeviceId()),
+	};
+
 	send({ type: "ready", protocolVersion: PROTOCOL_VERSION, piVersion: sdkVersion });
 	log("boot: ready sent");
 
@@ -383,7 +390,7 @@ async function main() {
 				await handleList(runtime);
 				break;
 			case "login":
-				await handleLogin(runtime, command);
+				await handleLogin(runtime, command, loginOptions);
 				break;
 			case "logout":
 				await handleLogout(runtime, command);
