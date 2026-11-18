@@ -367,6 +367,11 @@ test("installPideckWebApiTemplate copies the bundled web-api skill into the PiDe
 		// 名字与端点锚：技能讲的是 PiDeck 独有的 web 服务，装错文件这两条立刻红。
 		assert.match(written, /name: pideck-web-api/);
 		assert.match(written, /\/api\/chat/);
+		// 整目录落盘：技能带 references/ 时，只写 SKILL.md 会让正文里的指针全部落空。
+		// 2026-11-18 实测：拆成 SKILL.md + references 三份之后，装出来只剩正文。
+		const ref = join(home, ".pi", "agent", "pideck-skills", "pideck-web-api", "references", "endpoints.md");
+		assert.ok(existsSync(ref), "references/endpoints.md 应当随技能一起装上");
+		assert.match(readFileSync(ref, "utf8"), /只读端点/);
 		// 幂等覆盖：重复安装不报错、内容一致
 		const again = await manager.installTemplate("pideck-web-api");
 		assert.equal(again.success, true);

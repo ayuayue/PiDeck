@@ -430,10 +430,10 @@ export class SkillManager {
 			const targetDir = join(location.path, skillName);
 			await mkdir(targetDir, { recursive: true });
 			const targetPath = join(targetDir, SKILL_FILE);
-			// 模板正文随应用更新同步；用户自行设置的 user-only 标记仍需保留。
+			// 整个技能目录随应用更新同步（技能可带 references/）；用户自行设置的 user-only 标记仍需保留。
 			const previous = await readFile(targetPath, "utf8").catch(() => null);
 			const wasUserOnly = previous !== null && this.parseFrontmatter(previous)["disable-model-invocation"] === "true";
-			await writeFile(targetPath, content, "utf8");
+			await cp(dirname(templatePath), targetDir, { recursive: true, force: true });
 			if (wasUserOnly) {
 				await writeFile(targetPath, this.setFrontmatterBoolean(content, "disable-model-invocation", true), "utf8");
 			}
