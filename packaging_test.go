@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"go.yaml.in/yaml/v3"
+	yaml "go.yaml.in/yaml/v3"
 )
 
 // workflowMatrix is a job's matrix include list.

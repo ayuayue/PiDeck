@@ -33,7 +33,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: webassets
-          path: webassets
+          path: webassets/site
           if-no-files-found: error
 
   build:
@@ -72,12 +72,12 @@ jobs:
           if [ -z "$v" ]; then v="${GITHUB_REF_NAME#v}"; fi
           echo "value=$v" >> "$GITHUB_OUTPUT"
 
-      # -tags webassets embeds webassets/ into the binary, so every desktop
+      # -tags webassets embeds webassets/site/ into the binary, so every desktop
       # build also serves the browser client on the remote port.
       - uses: actions/download-artifact@v8
         with:
           name: webassets
-          path: webassets
+          path: webassets/site
 
       - name: Install NSIS (Windows installer)
         if: runner.os == 'Windows'

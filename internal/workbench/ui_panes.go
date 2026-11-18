@@ -1,0 +1,213 @@
+//go:build !js && !android && !ios
+
+package workbench
+
+// Split panes: the settings, the task list, the agents and the favorites
+// are pages in the work area, opened as tabs beside the sessions instead
+// of dialogs over the window. A pane is the work area's second kind of
+// tab: its own list, one showing at a time. Picking a session puts the
+// work area back on that session and leaves the pane's tab where it is,
+// the way a second document stays open.
+
+import (
+	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-lite/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"github.com/nsgo-dev/nsgo/ui"
+)
+
+// The panes, by id.
+const (
+	paneSettings  = "settings"
+	paneTasks     = "tasks"
+	paneAgents    = "agents"
+	paneFavorites = "favorites"
+)
+
+// paneDef is one split pane: its tab, whether it is open, and its page.
+type paneDef struct {
+	ID   string
+	Icon func() *core.SVG
+	// Label names the tab; Open and Set are the pane's own signal.
+	Label  string
+	Open   func() bool
+	Set    func(bool)
+	TestID string
+	Body   func() core.Node
+}
+
+// panes are the split panes, in tab order.
+func (a *app) panes() []paneDef {
+	return []paneDef{
+		{ID: paneSettings, Label: "设置", Icon: lucide.Settings, Open: a.settings.Get, Set: a.settings.Set,
+			TestID: "settings", Body: a.settingsPane},
+		{ID: paneTasks, Label: "定时任务", Icon: lucide.CalendarClock, Open: a.taskOpen.Get, Set: a.taskOpen.Set,
+			TestID: "tasks-dialog", Body: a.tasksPane},
+		{ID: paneAgents, Label: "智能体", Icon: lucide.Bot, Open: a.agentManageOpen.Get, Set: a.agentManageOpen.Set,
+			TestID: "agent-manager", Body: a.agentsPane},
+		{ID: paneFavorites, Label: "收藏夹", Icon: lucide.Star, Open: a.favOpen.Get, Set: a.favOpen.Set,
+			TestID: "favorites-dialog", Body: a.favoritesPane},
+	}
+}
+
+// pane looks a split pane up by id.
+func (a *app) pane(id string) (paneDef, bool) {
+	for _, p := range a.panes() {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return paneDef{}, false
+}
+
+// openPane shows a pane in the work area, opening its tab if it was not
+// already, and puts the file editor away as picking a session does.
+func (a *app) openPane(id string) {
+	p, ok := a.pane(id)
+	if !ok {
+		return
+	}
+	if a.editor != nil {
+		a.editor.open.Set(false)
+	}
+	p.Set(true)
+	a.activePane.Set(id)
+}
+
+// closePane closes a pane's tab and, while it shows, gives the work area
+// back to the active session.
+func (a *app) closePane(id string) {
+	p, ok := a.pane(id)
+	if !ok {
+		return
+	}
+	p.Set(false)
+	if id == paneSettings {
+		// The page's search starts empty next time, as the dialog's did.
+		a.settingsQuery.Set("")
+	}
+	if a.activePane.GetUntracked() == id {
+		a.activePane.Set("")
+	}
+}
+
+// bindPaneEscape closes the pane that shows on Escape. It is a back
+// handler, so an overlay or a modal opened from the pane takes Escape
+// first, as it did when these pages were dialogs.
+func (a *app) bindPaneEscape() {
+	a.cx.OnBackPress(func() bool {
+		if !a.paneVisible() {
+			return false
+		}
+		a.closePane(a.activePane.GetUntracked())
+		return true
+	})
+}
+
+// paneVisible reports whether a pane, not a session, fills the work area.
+func (a *app) paneVisible() bool {
+	id := a.activePane.Get()
+	if id == "" {
+		return false
+	}
+	p, ok := a.pane(id)
+	return ok && p.Open()
+}
+
+// activePaneID is the pane showing now, "" when none is.
+func (a *app) activePaneID() string {
+	if !a.paneVisible() {
+		return ""
+	}
+	return a.activePane.GetUntracked()
+}
+
+// openPaneIDs are the panes whose tabs show, in tab order.
+func (a *app) openPaneIDs() []string {
+	var ids []string
+	for _, p := range a.panes() {
+		if p.Open() {
+			ids = append(ids, p.ID)
+		}
+	}
+	return ids
+}
+
+// paneView is whichever pane shows, filling the work area. It follows
+// the active pane: switching tabs swaps the page without a frame of the
+// session behind it.
+func (a *app) paneView() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = a.langRev.Get()
+		colors := ui.ColorsOf(cx)
+		p, ok := a.pane(a.activePane.Get())
+		if !ok || !p.Open() {
+			return core.View{Style: ui.FillRest}
+		}
+		return core.View{TestID: p.TestID, StyleFunc: func() core.Style {
+			return core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),
+				Background: colors.Background()}
+		}, Children: []core.Node{p.Body()}}
+	})
+}
+
+// paneTab is one pane's tab: its icon and name, and a close button.
+func (a *app) paneTab(def paneDef) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	active := func() bool { return a.activePane.Get() == def.ID }
+	label := apptext.T(def.Label)
+	return core.View{
+		TestID:  "pane-tab-" + def.ID,
+		OnPress: func(core.PressEvent) { a.openPane(def.ID) },
+		Role:    core.RoleTab, Label: label,
+		StyleFunc: func() core.Style {
+			st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(28), MaxWidth: core.Pt(200),
+				Padding: core.Edges{Left: 9, Right: 5}, CornerRadius: 7, BorderWidth: 1, BorderColor: core.Transparent,
+				Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+			if active() {
+				st.Background = colors.Surface()
+				st.BorderColor = colors.Border()
+				st.Hover = &core.Style{Background: colors.Surface()}
+			}
+			return st
+		},
+		Children: []core.Node{
+			ui.IconOf(def.Icon, 12, func() core.Color {
+				if active() {
+					return colors.Text()
+				}
+				return colors.Muted()
+			}),
+			core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
+			core.View{TestID: "pane-tab-close-" + def.ID, OnPress: func(core.PressEvent) { a.closePane(def.ID) },
+				Role: core.RoleButton, Label: apptext.T("关闭标签页"),
+				StyleFunc: func() core.Style {
+					return core.Style{Width: core.Pt(18), Height: core.Pt(18), CornerRadius: 5, AlignItems: core.AlignCenter,
+						JustifyContent: core.JustifyCenter, Transition: viewkit.PressMotion,
+						Hover: &core.Style{Background: colors.Pressed()}, Active: &core.Style{Background: colors.Pressed()}}
+				}, Children: []core.Node{ui.Icon(lucide.X, 11, colors.Faint)}},
+		},
+	}
+}
+
+// paneHeader is a pane's head: what the page is, a line on what it does,
+// and the page's own actions at its end.
+func (a *app) paneHeader(title, summary string, actions ...core.Node) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		_ = a.langRev.Get()
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12, Height: core.Pt(56),
+			Padding: core.Edges{Left: 20, Right: 16}, FlexShrink: 0,
+			Borders: core.Edges{Bottom: 1}, BorderColors: core.EdgeColors{Bottom: colors.Line()}}, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
+				ui.Text(apptext.T(title), 14, ui.Semibold, colors.Text),
+				core.Text{Content: apptext.T(summary), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+					Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Muted)},
+			}},
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexShrink: 0},
+				Children: actions},
+		}}
+	})
+}

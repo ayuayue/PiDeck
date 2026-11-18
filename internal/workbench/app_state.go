@@ -1,0 +1,503 @@
+//go:build !js && !android && !ios
+
+package workbench
+
+// The app's state and the actions the screen calls. Signals hold what the
+// views read; pi's events are folded in here, on the UI thread.
+
+import (
+	"os"
+	"sync"
+	"time"
+
+	"example.com/pideck-lite/internal/sessionimport"
+	"github.com/nsgo-dev/nsgo/base/textview"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
+)
+
+// app is everything the window shows.
+type app struct {
+	cx      *core.Scope
+	st      *store
+	cfg     config
+	dataDir string
+	// crashShown is the panic the crash screen last logged, so it does
+	// not write a file on every render; crashPath is where it wrote.
+	crashShown string
+	crashPath  string
+	// feishuPending marks sessions a Feishu message started, so their
+	// answer goes back to the group.
+	feishuMu      sync.Mutex
+	feishuPending map[string]bool
+
+	env       *core.Signal[envInfo]
+	pinned    *core.Signal[[]string]
+	favModels *core.Signal[[]string]
+	// Favorites are local snapshots of answers and references to sessions;
+	// favMu guards the list the dialog reads.
+	favOpen   *core.Signal[bool]
+	favKind   *core.Signal[string]
+	favQuery  *core.Signal[string]
+	favRev    *core.Signal[int]
+	favMu     sync.Mutex
+	favorites []favoriteEntry
+
+	// Scheduled tasks: the list, run history and the editor's fields.
+	// taskMu guards the list the ticker and the UI both touch.
+	taskMu       sync.Mutex
+	tasks        []*scheduledTask
+	taskRuns     []taskRun
+	taskRunning  map[string]bool
+	taskOpen     *core.Signal[bool]
+	taskFormOpen *core.Signal[bool]
+	taskRev      *core.Signal[int]
+	taskErr      *core.Signal[string]
+	taskEditID   *core.Signal[string]
+	taskName     *core.Signal[string]
+	taskCron     *core.Signal[string]
+	taskPrompt   *core.Signal[string]
+	taskProject  *core.Signal[string]
+	taskBackend  *core.Signal[string]
+	taskPreset   *core.Signal[string]
+	taskPersona  *core.Signal[string]
+	taskEnabled  *core.Signal[bool]
+	taskTimeout  *core.Signal[string]
+	themes       *core.Signal[[]themeSpec]
+	plugins      *core.Signal[[]plugin]
+	providers    *core.Signal[[]providerInfo]
+	// usage is the local statistics report, read from the session files
+	// the first time the usage page opens.
+	usage        *core.Signal[usageReport]
+	usageLoading *core.Signal[bool]
+	usageLoaded  bool
+	// resources are pi's skills and extensions, read when the page opens.
+	resources        *core.Signal[resourceReport]
+	resourcesLoading *core.Signal[bool]
+	resourcesLoaded  bool
+	// Parallel inquiry: the question, its answer and the session it ran in.
+	askBox  *core.Signal[askBox]
+	askText *core.Signal[string]
+
+	// Diagnostics: the in-memory log, its file, and when the app started.
+	diagMu     sync.Mutex
+	diagEvents []diagEvent
+	diagFile   *os.File
+	diagPath   string
+	diagSize   int
+	startedAt  time.Time
+
+	// projectsRev changes when a project is pinned, grouped or moved.
+	projectsRev      *core.Signal[int]
+	projectGroupOpen *core.Signal[bool]
+	projectGroupPath *core.Signal[string]
+	projectGroupText *core.Signal[string]
+	wsRenameOpen     *core.Signal[bool]
+	wsRenameKey      *core.Signal[string]
+	wsRenameText     *core.Signal[string]
+
+	// The ACP preset picker.
+	acpOpen *core.Signal[bool]
+	// The ACP preset manager.
+	acpManageOpen *core.Signal[bool]
+	acpNewID      *core.Signal[string]
+	acpNewName    *core.Signal[string]
+	acpNewCommand *core.Signal[string]
+	acpNewArgs    *core.Signal[string]
+	acpManageErr  *core.Signal[string]
+	acpManageRev  *core.Signal[int]
+	agentOpen     *core.Signal[bool]
+	// The agent manager: the list, the edit form and which agent is being
+	// edited. agentBackend picks what a new agent session runs on, and
+	// agentApply binds the picked agent to the active session instead of
+	// starting a new one.
+	agentManageOpen *core.Signal[bool]
+	agentManageRev  *core.Signal[int]
+	agentManageErr  *core.Signal[string]
+	agentEditID     *core.Signal[string]
+	agentEditKey    *core.Signal[string]
+	agentEditName   *core.Signal[string]
+	agentEditDesc   *core.Signal[string]
+	agentEditPrompt *core.Signal[string]
+	agentBackend    *core.Signal[string]
+	agentApply      *core.Signal[bool]
+
+	// Announcements: the feed the maintainer publishes, the entries the
+	// user has read, and when the feed was last read. announceMu guards
+	// the list the fetch and the UI both touch.
+	announceMu      sync.Mutex
+	announceItems   []announceItem
+	announceRead    map[string]bool
+	announceFetched time.Time
+	announceRev     *core.Signal[int]
+	announceOpen    *core.Signal[bool]
+	announceBusy    *core.Signal[bool]
+	announceErr     *core.Signal[string]
+
+	// The feedback dialog: what the user wrote and the report beside it.
+	feedbackOpen   *core.Signal[bool]
+	feedbackText   *core.Signal[string]
+	feedbackReport *core.Signal[string]
+
+	// The keyboard cheat sheet.
+	shortcutsOpen  *core.Signal[bool]
+	shortcutsQuery *core.Signal[string]
+
+	// Global session search: its index, query and results.
+	searchOpen     *core.Signal[bool]
+	searchText     *core.Signal[string]
+	searchScope    *core.Signal[string]
+	searchRev      *core.Signal[int]
+	searchHits     *core.Signal[[]searchHit]
+	searchBusy     *core.Signal[bool]
+	searchDocs     []searchDoc
+	searchIndexed  bool
+	searchBuilding bool
+	searchGen      int
+
+	// The prompt library: its packs, the dialog's query and category.
+	prompts          *core.Signal[[]promptItem]
+	promptOpen       *core.Signal[bool]
+	promptQuery      *core.Signal[string]
+	promptImportOpen *core.Signal[bool]
+	promptImportURL  *core.Signal[string]
+	promptImportBusy *core.Signal[bool]
+	promptImportErr  *core.Signal[string]
+	promptCat        *core.Signal[string]
+
+	// The provider editor: which provider, its fields, and the result of
+	// a connection test.
+	providerOpen    *core.Signal[bool]
+	providerID      *core.Signal[string]
+	providerAPI     *core.Signal[string]
+	providerBase    *core.Signal[string]
+	providerKeySig  *core.Signal[string]
+	providerTest    *core.Signal[string]
+	providerBalance *core.Signal[string]
+	providerBalURL  *core.Signal[string]
+	providerBalPath *core.Signal[string]
+	providerBalCur  *core.Signal[string]
+	// The model editor in the provider dialog.
+	providerModelEditing   *core.Signal[string]
+	providerModelID        *core.Signal[string]
+	providerModelName      *core.Signal[string]
+	providerModelContext   *core.Signal[string]
+	providerModelMax       *core.Signal[string]
+	providerModelReasoning *core.Signal[bool]
+	providerModelsRev      *core.Signal[int]
+	// pi settings.json, as the settings page shows it.
+	piSet    piSettings
+	piSetErr string
+	piSetRev *core.Signal[int]
+	// The number fields text, so typing survives a redraw.
+	piRetryText    *core.Signal[string]
+	piReserveText  *core.Signal[string]
+	piKeepText     *core.Signal[string]
+	providerModels []modelConfig
+
+	// langRev changes when the interface language does, so pages that
+	// hold static text rebuild.
+	langRev    *core.Signal[int]
+	editorWrap *core.Signal[bool]
+	termFont   *core.Signal[float64]
+	editorFont *core.Signal[float64]
+	// chatWidthPctSig is the transcript's share of the window width, so a
+	// slider drag rebuilds the chat without touching the stored config.
+	chatWidthPctSig *core.Signal[int]
+	// axisHover is the ruler tick the pointer rests on, -1 for none, and
+	// axisHintIn whether its summary has had its first frame to ease in.
+	axisHover  *core.Signal[int]
+	axisHintIn *core.Signal[bool]
+	// events carries app events to subscribers and plugin hooks; inHook
+	// stops a hook's own action from triggering hooks again.
+	events eventBus
+	inHook bool
+
+	workspaces *core.Signal[[]*workspace]
+	activeWS   *core.Signal[string]
+	tabs       *core.Signal[[]string]
+	activeID   *core.Signal[string]
+	// activePane is the split pane filling the work area, "" for the
+	// session's own view.
+	activePane *core.Signal[string]
+	filter     *core.Signal[string]
+	sidebar    *core.Signal[bool]
+	drawer     *core.Signal[bool]
+	drawerTab  *core.Signal[string]
+	theme      *core.Signal[string]
+	uiFont     *core.Signal[string]
+	monoFont   *core.Signal[string]
+	// chatFont, chatLine and inputFont are the reading and writing sizes;
+	// 0 follows the built-in defaults.
+	chatFont  *core.Signal[float64]
+	chatLine  *core.Signal[float64]
+	inputFont *core.Signal[float64]
+	toolRev   *core.Signal[int]
+	aiBusy    *core.Signal[string]
+	bgImage   *core.Signal[string]
+	bgOpacity *core.Signal[float64]
+	// bgOpacitySeq numbers opacity changes, so only the last one settles the
+	// theme after a drag.
+	bgOpacitySeq int
+	llmFn        func(tool, system, prompt string, maxTokens int) (string, error)
+
+	byID map[string]*session
+	all  []*session
+
+	palette  *core.Signal[bool]
+	settings *core.Signal[bool]
+	// settingsRev changes after a setting is switched, so the page shows
+	// the value it now holds.
+	settingsRev   *core.Signal[int]
+	brandOpen     *core.Signal[bool]
+	brandRev      *core.Signal[int]
+	brandBusy     *core.Signal[bool]
+	brandError    *core.Signal[string]
+	customBrand   brandImage
+	brandImageSeq int
+	// settingsScroll and settingsOffset remember where a settings page was
+	// scrolled, so redrawing it after a switch keeps the reader's place.
+	settingsScroll *core.Ref
+	settingsOffset core.Point
+	settingsTab    *core.Signal[string]
+	addWS          *core.Signal[bool]
+	addTarget      *core.Signal[bool]
+	addKind        *core.Signal[int]
+	addWhere       *core.Signal[string]
+	addPath        *core.Signal[string]
+	importOpen     *core.Signal[bool]
+	renameOpen     *core.Signal[bool]
+	renameText     *core.Signal[string]
+	renameID       string
+	// The file name dialog: new file, new folder or rename.
+	fileOpOpen   *core.Signal[bool]
+	fileOpTitle  *core.Signal[string]
+	fileOpText   *core.Signal[string]
+	fileOpAction func(string)
+	// The export dialog and the session it writes.
+	exportOpen *core.Signal[bool]
+	exportID   string
+	// The trust dialog and what waits for the answer.
+	trustOpen *core.Signal[bool]
+	trustWS   *workspace
+	trustThen func()
+	// The step-by-step plan dialog.
+	planAskOpen    *core.Signal[bool]
+	planAskSession *session
+	// The fork tree dialog.
+	forksOpen *core.Signal[bool]
+	// The settings search query.
+	settingsQuery *core.Signal[string]
+	// MCP servers, read through pi's CLI.
+	mcpServers *core.Signal[[]mcpServer]
+	mcpBusy    *core.Signal[bool]
+	mcpErr     *core.Signal[string]
+	mcpLoaded  bool
+	mcpAddOpen *core.Signal[bool]
+	mcpAddBusy *core.Signal[bool]
+	mcpAddErr  *core.Signal[string]
+	mcpName    *core.Signal[string]
+	mcpURL     *core.Signal[string]
+	mcpCommand *core.Signal[string]
+	mcpDesc    *core.Signal[string]
+	mcpLocal   *core.Signal[bool]
+	// The prompt store.
+	promptStoreOpen       *core.Signal[bool]
+	promptStoreURL        *core.Signal[string]
+	promptStoreBusy       *core.Signal[bool]
+	promptStoreErr        *core.Signal[string]
+	promptStoreList       *core.Signal[[]promptIndexEntry]
+	promptStoreInstalling *core.Signal[string]
+	promptStoreDone       map[string]bool
+	// The skill store.
+	skillStoreOpen       *core.Signal[bool]
+	skillStoreURL        *core.Signal[string]
+	skillStoreBusy       *core.Signal[bool]
+	skillStoreErr        *core.Signal[string]
+	skillStoreList       *core.Signal[[]skillIndexEntry]
+	skillStoreInstalling *core.Signal[string]
+	skillStoreDone       map[string]bool
+	// The plugin market.
+	marketOpen       *core.Signal[bool]
+	marketURL        *core.Signal[string]
+	marketBusy       *core.Signal[bool]
+	marketErr        *core.Signal[string]
+	marketList       *core.Signal[[]marketEntry]
+	marketInstalling *core.Signal[string]
+	// Image generation.
+	imageOpen     *core.Signal[bool]
+	imagePrompt   *core.Signal[string]
+	imageModel    *core.Signal[string]
+	imageSize     *core.Signal[string]
+	imageProvider *core.Signal[string]
+	imageBusy     *core.Signal[bool]
+	imageErr      *core.Signal[string]
+	imageResults  *core.Signal[[][]byte]
+	imageSelected *core.Signal[int]
+	imageType     *core.Signal[string]
+	imageCount    *core.Signal[int]
+	imageRef      *core.Signal[string]
+	// The vision bridge.
+	visionOpen     *core.Signal[bool]
+	visionPath     *core.Signal[string]
+	visionQuestion *core.Signal[string]
+	visionModel    *core.Signal[string]
+	visionProvider *core.Signal[string]
+	visionBusy     *core.Signal[bool]
+	visionErr      *core.Signal[string]
+	visionText     *core.Signal[string]
+	confirmOpen    *core.Signal[bool]
+	confirmHead    *core.Signal[string]
+	confirmBody    *core.Signal[string]
+	confirmWhy     *core.Signal[string]
+	confirmFn      func()
+	// askSeq redraws the ask card when its request changes.
+	askSeq *core.Signal[int]
+
+	pick *pickerState
+
+	files      *fileTree
+	filesRev   *core.Signal[int]
+	filesQuery *core.Signal[string]
+	fileIdx    fileIndexCache
+	editor     *editorHost
+	git        *gitRepo
+	term       *terminalHost
+	remote     *remoteHost
+
+	// The QR dialog shows a connection link the phone can scan.
+	qrOpen *core.Signal[bool]
+	qrLink *core.Signal[string]
+	qrPNG  []byte
+
+	// Git dialogs: the branch menu and new-branch dialog, and the diff or
+	// commit patch in front.
+	gitBranches      *core.Signal[bool]
+	gitNewBranchOpen *core.Signal[bool]
+	// The stash list.
+	gitStashOpen   *core.Signal[bool]
+	gitStashList   *core.Signal[[]gitStashEntry]
+	gitStashBusy   *core.Signal[bool]
+	gitStashErr    *core.Signal[string]
+	gitMoreOpen    *core.Signal[bool]
+	gitTagsOpen    *core.Signal[bool]
+	gitRemotesOpen *core.Signal[bool]
+	// gitConflictsOpen shows the dialog that resolves a merge's conflicts.
+	gitConflictsOpen *core.Signal[bool]
+	// gitBlameOpen shows who last touched each run of lines.
+	gitBlameOpen *core.Signal[bool]
+	gitBlamePath *core.Signal[string]
+	gitBlameRev  *core.Signal[int]
+	gitBlameErr  *core.Signal[string]
+	gitBlame     []blameRange
+	// gitFileHistoryOpen shows the commits that touched one path.
+	gitFileHistoryOpen *core.Signal[bool]
+	gitFileHistoryPath *core.Signal[string]
+	gitFileHistoryRev  *core.Signal[int]
+	gitFileHistoryErr  *core.Signal[string]
+	gitFileHistory     []gitCommit
+	// gitUnpushedOpen shows the commits the upstream does not have.
+	gitUnpushedOpen *core.Signal[bool]
+	gitUnpushedRev  *core.Signal[int]
+	gitUnpushedErr  *core.Signal[string]
+	gitUnpushed     []gitCommit
+	gitRemoteName   *core.Signal[string]
+	gitRemoteURL    *core.Signal[string]
+	gitTagText      *core.Signal[string]
+	termRenameOpen  *core.Signal[bool]
+	termRenameID    *core.Signal[string]
+	termRenameText  *core.Signal[string]
+	gotoOpen        *core.Signal[bool]
+	gotoLine        *core.Signal[string]
+	quickOpen       *core.Signal[bool]
+	chatFindOpen    *core.Signal[bool]
+	chatSearch      *textview.Search
+	keepAwake       func()
+	forkCollapsed   *core.Signal[map[string]bool]
+	archiveRev      *core.Signal[int]
+	archiveOpen     *core.Signal[bool]
+	// The import dialog: what a scan of the other agents' stores found,
+	// what the user picked, and how far a run has got.
+	impOpen     *core.Signal[bool]
+	impRows     *core.Signal[[]sessionimport.Row]
+	impScanning *core.Signal[bool]
+	impBusy     *core.Signal[bool]
+	impDone     *core.Signal[int]
+	impTotal    *core.Signal[int]
+	impFailed   *core.Signal[int]
+	impQuery    *core.Signal[string]
+	impOnly     *core.Signal[string]
+	// impProject is the project the dialog was opened for: what is imported
+	// goes there whatever folder it ran in. Empty means "where it ran".
+	impProject *core.Signal[string]
+	impSel     *core.Signal[[]string]
+	// impSelSet is impSel as a set, so a row's checked state is a lookup.
+	impSelSet map[string]bool
+	impGen    int
+	// railWidth and drawerWidth are the side panels' widths, saved when a
+	// drag rests; the seq counters drop a save a newer drag replaced.
+	railWidth       *core.Signal[core.Points]
+	drawerWidth     *core.Signal[core.Points]
+	railSeq         int
+	drawerSeq       int
+	winSeq          int
+	outlineOpen     *core.Signal[bool]
+	authEntries     *core.Signal[[]authEntry]
+	authErr         *core.Signal[string]
+	authKeyOpen     *core.Signal[bool]
+	authKeyProvider *core.Signal[string]
+	authKeyText     *core.Signal[string]
+	chatFindText    *core.Signal[string]
+	pluginNewOpen   *core.Signal[bool]
+	pluginNewID     *core.Signal[string]
+	pluginNewName   *core.Signal[string]
+	pluginNewDesc   *core.Signal[string]
+	fileSearchOpen  *core.Signal[bool]
+	// fileSearchQuery, fileSearchBusy and fileSearchRev drive the content
+	// search; its hits and sequence live beside them.
+	fileSearchQuery *core.Signal[string]
+	fileSearchBusy  *core.Signal[bool]
+	fileSearchRev   *core.Signal[int]
+	fileSearchMu    sync.Mutex
+	fileSearchHits  []fileHit
+	fileSearchSeq   int
+	// gitDiffHash is the commit the diff dialog shows, empty for a file.
+	gitDiffHash string
+	// closedTabs are the sessions whose tabs were closed, newest last.
+	closedTabs []string
+	// addonsGen drops a stale plugin reload that finished after a newer one.
+	addonsGen int
+	// piScanGen drops a pi history scan that finished after a newer one.
+	piScanGen        int
+	gitNewBranchName *core.Signal[string]
+	gitDiffOpen      *core.Signal[bool]
+	gitDiffTitle     *core.Signal[string]
+	gitDiffSub       *core.Signal[string]
+	gitDiffPatch     *core.Signal[string]
+	gitDiffLoading   *core.Signal[bool]
+
+	toaster *ui.Toaster
+	clock   *core.Signal[time.Time]
+
+	defaultModel    modelChoice
+	defaultThinking string
+	notes           int
+
+	// keymap is key → command at this moment; boundKeys are the keys the
+	// platform already knows about, so a rebuild only binds new ones.
+	keymap       map[string]string
+	boundKeys    map[string]bool
+	keybindings  []keyBinding
+	keyConflicts []string
+
+	// Desktop: the main window, the tray icon and whether the app is
+	// really quitting rather than hiding.
+	mainWin    *core.Window
+	petWin     *core.Window
+	tray       *core.Tray
+	quitting   bool
+	trayHinted bool
+	mainHooked bool
+	mainTries  int
+	lastTray   time.Time
+}

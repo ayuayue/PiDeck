@@ -38,10 +38,17 @@ jobs:
           fi
 
       - name: Build
-        run: go build ./...
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Windows) target=windows_x64 ;;
+            macOS) target=macos_arm64 ;;
+            *) target=linux_x64 ;;
+          esac
+          go tool nsgo build -target "$target" -installers=false -version 0.0.1-ci
 
-      - name: Vet
-        run: go vet ./...
+      - name: Check
+        run: go tool nsgo check
 
       # Tests that commit run the app's own git, and a runner has no
       # identity configured: the commit fails with "Author identity unknown".
@@ -55,7 +62,7 @@ jobs:
       # real pi skip when it is not installed on the runner; the remaining
       # unit and headless UI tests run on all three platforms.
       - name: Test
-        run: go test -short ./... -count=1 -timeout 20m
+        run: go tool nsgo test -- -short -count=1 -timeout 20m
         env:
           # The rest drive the app headless; no window or GPU is needed.
           CGO_ENABLED: "0"
@@ -80,7 +87,7 @@ jobs:
       - name: Budget the wasm
         shell: bash
         run: |
-          size=$(stat -c%s webassets/*.wasm.br)
+          size=$(stat -c%s webassets/site/*.wasm.br)
           echo "app.wasm.br: $size bytes"
           # A page downloads this before it draws anything, so it has to stay
           # small: 12 MB is a few seconds over a phone's connection.
@@ -90,17 +97,17 @@ jobs:
           fi
 
       - name: Serve tests
-        run: go test -tags webassets -count=1 -run 'WebAsset|WebClient' .
+        run: go tool nsgo test -run 'WebAsset|WebClient' -- -tags webassets -count=1
 
       # vet reads the tests too, and those drive the workbench; a build is
       # what proves the client's file set is coherent.
       - name: Build the client
-        run: GOOS=js GOARCH=wasm go build ./...
+        run: go tool nsgo check -target web
 
       - uses: actions/upload-artifact@v7
         with:
           name: webassets
-          path: webassets
+          path: webassets/site
           if-no-files-found: error
 
   android:
@@ -205,8 +212,4 @@ jobs:
       # Every release target must compile from one machine, so a platform
       # break shows up in CI rather than in a tag's release run.
       - name: Build
-        run: go build -o "$RUNNER_TEMP/build/" ./...
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
+        run: go tool nsgo build -target "${{ matrix.target }}" -installers=false -version 0.0.1-ci

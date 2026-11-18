@@ -88,28 +88,37 @@ go run ./scripts android link    # 复制 http://10.0.2.2:<端口>/?token=…
 ```sh
 go run ./scripts dev web                # 浏览器端热重载预览
 go run ./scripts web                    # 编 web 目标、brotli 压缩、再编带页面的桌面程序
-go build -tags webassets               # 只想自己编：webassets/ 已就位时用这个
+GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生成时构建带页面的桌面端
 ```
 
 浏览器端约 **40 MB 的 wasm，brotli 后 8 MB**；`scripts web` 把 `.wasm` 压成 `.wasm.br` 再删原件，桌面程序因此只增加 8 MB，页面抓下来也只走 8 MB。CI 给这个体积设了 12 MB 上限，桌面代码漏进客户端会立刻失败。
 
 然后在桌面端 `设置 → 远程` 开启手机服务，浏览器打开 `http://<地址>:<端口>/?token=<令牌>`：页面与 API 同源，链接里的令牌自动填好，连过的那台电脑记在浏览器的 localStorage。页面版本比电脑旧时，会提示刷新一下。
 
-`webassets/` 是生成物，不进仓库；不带上标签构建时访问 `/` 会落到令牌门禁上，和以前一样只有 API。手机上看到的是同一套界面，但它走原生构建，不经过这一段。
+`webassets/site/` 是生成物，不进仓库；`webassets/` 下的嵌入源码属于仓库。不带上标签构建时访问 `/` 会落到令牌门禁上，和以前一样只有 API。手机上看到的是同一套界面，但它走原生构建，不经过这一段。
 
-新增只属于工作台的 `.go` 文件时记得以 `//go:build !js` 开头：否则它会被编进 app.wasm，CI 的 12 MB 上限会拦下来。客户端真要用的东西放进共享文件（`remote_wire.go`、`markdown.go`、`format.go` 那几个）。
+桌面工作台生产代码和整个会话导入包必须以 `//go:build !js && !android && !ios` 开头；共享协议放在 `internal/remotewire`，共享显示工具放在 `internal/viewkit`。`internal/architecture` 会检查标签，CI 的 12 MB wasm 上限仍负责兜底。
 
 ## 架构
 
-从下往上，五层，一层只依赖它下面那层：
+根目录只保留入口。桌面工作台、手机/Web 客户端和可复用边界分别放在 `internal/`，依赖只能朝较稳定的包走：
 
-| 层 | 文件 | 职责 | 关键约束 |
-| --- | --- | --- | --- |
-| 进程与协议 | `rpc.go`、`env.go` | 起进程、按 LF 切 JSONL、按 id 关联命令与响应、转发扩展 UI 请求 | UI 线程永不阻塞；每条命令都有超时；目标（本机/WSL/SSH）只在这里出现 |
-| 环境与目标 | `env.go`、`addons.go` | 探测 pi、WSL 发行版、SSH Host；读主题与插件 | 探测在后台跑，结果进信号；所有“在哪跑”的差异收敛成 `target.command()` |
-| 存储 | `store.go` | 配置、应用自己的会话目录、扫描/导入/删除 | 只写自己的目录；导入是复制；删除是移动；不碰别人的会话文件 |
-| 状态 | `app.go`、`types.go` | 会话与轮次的状态机、事件归并、动作（发送/引导/停止/压缩/模型/思考） | 一切都由信号驱动；一轮的“是否在跑”只有一个来源；文本增量合并后再进 UI |
-| 界面 | `ui.go`、`ui_chat.go`、`picker.go`、`files.go`、`theme.go` | 侧栏、标签、对话、输入、抽屉、对话框 | 读信号就用它；不改状态；状态在状态层构造 |
+| 包 | 职责 | 允许依赖 |
+| --- | --- | --- |
+| `.` | `main`、平台入口的 `Root`、窗口参数与退出钩子 | `client`、`crashlog`、`workbench` |
+| `internal/client` | Android、iOS、Web 和桌面手机预览 | `appinfo`、`apptext`、`remotewire`、`viewkit`、`assets` |
+| `internal/workbench` | 本机 pi/ACP 会话、文件、Git、终端和桌面界面 | `client` 之外的共享包，以及 `sessionimport`、`schedule` |
+| `internal/remotewire` | 桌面 HTTP 服务与客户端共享的 JSON DTO | 标准库 |
+| `internal/sessionimport` | Claude、Codex、Cursor、Kimi 等外部会话解析与 pi JSONL 写出 | `apptext` |
+| `internal/schedule` | cron 解析与下次触发计算 | 标准库 |
+| `internal/viewkit` | 两套界面共同使用的主题、字体、格式化和 Markdown | `apptext`、nsgo |
+| `internal/apptext` | 语言选择、翻译查找和嵌入语言目录 | 标准库 |
+| `internal/appinfo` / `internal/crashlog` | 版本常量、崩溃日志和数据目录 | 仅 `crashlog -> appinfo` |
+| `assets` / `extensions` / `webassets` | 嵌入资源及 Web 站点适配 | 自身 |
+
+`internal/architecture/structure_test.go` 解析所有平台的源码，而不只解析当前 Windows 构建；新增包若没有显式依赖规则会失败。生产 Go 文件上限 800 行、测试 1000 行，建议超过约 400 行就按职责拆分。目录按业务能力划分，不建无边界的 `utils`、`common`、`models` 或 `global` 杂货包。
+
+详细规则见 [`ARCHITECTURE.md`](ARCHITECTURE.md) 和 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 三条硬规则，来自上一版的坑：
 
@@ -120,7 +129,8 @@ go build -tags webassets               # 只想自己编：webassets/ 已就位�
 3. **热路径不做线性重算**。文本增量进 `strings.Builder`，40ms 合并一次 `Set`；工具输出按
    24k 截断；长历史按窗口（默认 24 轮）渲染，可“加载更早”。
 4. **列表只读变化的文件**。会话列表按（路径、大小、修改时间）缓存元数据，缓存在 `session-meta-cache.json` 里跨重启复用：
-   热启动只 stat、不读任何会话文件，冷启动并行解析变化的文件；pi 自己的会话库按项目读——
+   热启动只 stat、不读任何会话文件，冷启动并行解析变化的文件；pi 自己的会话库按项目读，项目
+   `.pi/settings.json` 的 `sessionDir` 与全局默认目录都会扫描——
    没显示的项目只读到首行拿到 `cwd`，全部显示（`scanAll`）才解析整个库。
    重命名走配置、不碰文件；设置页只数文件，不解析。
 
@@ -132,7 +142,7 @@ go build -tags webassets               # 只想自己编：webassets/ 已就位�
 - 项目信任：新加的项目在第一次发送前询问一次，输入区上方有提示条；旧项目迁移为已信任，内置对话始终受信任；项目右键可信任/撤销信任，手机发消息也会被拦下
 - 内置对话（`Ctrl+Shift+N` 或欢迎页「直接对话」）：不绑定项目，会话落在数据目录的 `chat/`，侧栏以对话图标置顶显示
 - 智能体：命令面板「用智能体新建会话…」选代码审查/讲解/重构/测试/文档等预设，工作方式放在每个提问前；输入区徽章可一键清除，自定义智能体放 `agents/*.json`；「管理智能体…」可增删改（写 `agents/custom.json`），也能给当前会话换智能体；新建时可选 pi 或 ACP 后端
-- 项目分组：置顶、命名分组、手动顺序；排序可按最近活动 / 创建时间 / 名称；右键项目可置顶、上移/下移、移动到分组、重命名（显示名）
+- 项目分组：置顶、命名分组、手动顺序；项目默认按最近活动排列，右键「项目排序」可选最近活动 / 创建时间 / 名称 / 手动，会话排序可选最近活动 / 名称；上移/下移会自动切到手动；右键项目还可置顶、移动到分组、重命名（显示名）
 - 会话标签页：新建、关闭（进程继续跑）、`Ctrl+Tab` 轮换、标题栏可重命名；右键标签可关闭其他、
   关闭右侧、全部关闭，或复制会话 ID；`Ctrl+Alt+T` 恢复刚关掉的标签
 - 分屏页：设置、智能体、定时任务、收藏夹在标签栏里作为一页打开，和会话标签并列；切会话不丢页，点标签切回，关标签或 `Ctrl+W` 关页
@@ -338,8 +348,8 @@ go build -tags webassets               # 只想自己编：webassets/ 已就位�
 - 匿名使用统计（通用 → 隐私）：启动时每天最多发一次心跳到 PostHog，带版本、平台、功能开关与
   数量统计，不含项目路径、会话内容、文件名或凭据；和 PiDeck 进同一个项目，事件带
   `app=pideck-lite`，按这个属性区分是哪个应用。默认开启，关掉后立即停止发送。
-- 对话内容宽度：设置 → 界面里的滑块在 520–1000 pt 之间调整正文与输入框的最大宽度，
-  拖动即生效并写进 `config.json`（720 为默认，不写入）
+- 对话内容宽度：设置 → 界面里的滑块在 50%–90% 之间调整正文与输入框占窗口宽度的比例，
+  拖动即生效并写进 `config.json`（60% 为默认，不写入）
 - 记住位置与尺寸：窗口的大小与位置（含最大化）在创建时就按上次的来，不会先开默认大小再跳；
   侧栏宽度、右侧面板宽度、右侧面板的 tab（概览/文件/Git）、设置页上次的分区、导入对话框上次的来源
   tab 都写进 `config.json`，重启后回到原处（拖动/缩放停下才写，不会每帧落盘）
@@ -402,122 +412,23 @@ go build -tags webassets               # 只想自己编：webassets/ 已就位�
 
 ## 文件
 
-| 文件 | 作用 |
+代码按包而不是按原来的根目录文件名划分。下表描述每个包内的主职责；同一包内仍保留私有类型，避免为了目录整齐而把所有 `app` 状态暴露成公共 API。
+
+| 路径 | 主要内容 |
 | --- | --- |
-| `rpc.go` | pi RPC 客户端：spawn、JSONL 分流、请求关联、扩展 UI、退出清理 |
-| `env.go` | 目标（本机/WSL/SSH）、命令拼装、环境探测、ssh config 解析 |
-| `app.go` | 状态与动作：信号、会话生命周期、事件归并、发送/引导/停止/压缩/导出 |
-| `types.go` | 轮次/步骤/工具运行/用量；消息 → 轮次的重建；工具摘要与 diff 解析 |
-| `store.go` | 配置、会话目录、扫描、导入、删除、pi 目录编码 |
-| `addons.go` | 主题与插件、外观应用、框架重新加载、pi 自身会话列表 |
-| `picker.go` | 添加工作区/导入会话的文件夹浏览器 |
-| `files.go` | 右侧文件树：懒加载、隐藏文件、插入 `@路径` |
-| `file_ops.go` | 文件操作：新建文件/文件夹、重命名的对话框与落盘 |
-| `editor_host.go` | 内置编辑器：打开的文件、读写、未保存状态、语言识别 |
-| `ui_editor.go` | 编辑器界面：文件标签、工具栏、状态栏、编辑器配色 |
-| `git.go` | Git 后端：porcelain v2 状态、日志、分支、提交/同步/贮藏等操作，本机与远端命令 |
-| `ui_git.go` | Git 抽屉：分支菜单、改动列表、提交框、历史、补丁与新建分支对话框 |
-| `term.go` | 终端会话：Ghostty 终端、本机/WSL/SSH shell、标签生命周期与搜索 |
-| `ui_term.go` | 底部终端面板：标签栏、搜索栏、右键菜单、可调高度 |
-| `acp.go` | ACP 客户端：stdio NDJSON JSON-RPC、握手、会话、提示与权限请求 |
-| `acp_session.go` | ACP 会话：预设选择、事件投影、权限对话框与停止 |
-| `export.go` | 本地导出：HTML 自包含页面与 Markdown（含工具摘要），以及导出选择对话框 |
-| `acp_presets.go` | ACP 预设：内置三个，另读数据目录 `acp/*.json` 的自定义命令 |
-| `acp_archive.go` | ACP 归档：本地投影、2000 轮/8 MB 上限、原子写与恢复 |
-| `editor_ext.go` | 外部编辑器：探测常见编辑器、按命令打开文件或项目 |
-| `diag.go` | 诊断：内存日志、滚动文件、进程列表与诊断报告 |
-| `diag_bundle.go` | 诊断包：zip 打包、配置脱敏、日志尾部、插件清单与设置结构 |
-| `telemetry.go` | 匿名统计：每日 PostHog 心跳、安装 ID、功能开关与数量快照，事件带 `app` 区分应用 |
-| `settings_schema.go` | 应用设置结构：键、类型、默认值与取值范围，随诊断包导出 |
-| `crash.go` | 崩溃日志：写入 `crashes/`、查找最近崩溃、记录数据目录 |
-| `ui_crash.go` | 错误边界界面：panic 摘要、重新加载、打开/复制日志 |
-| `imagegen.go` | 生图：OpenAI 兼容 `/images/generations`，b64/URL 两种返回 |
-| `ui_image.go` | 生图对话框：供应商/模型/尺寸、预览、插入输入框或保存项目 |
-| `vision.go` | 视觉桥：图片以 data URL 进 `/chat/completions`，解析字符串/分段回答 |
-| `ui_vision.go` | 视觉桥对话框：图片路径、问题、视觉模型、描述结果 |
-| `pet.go` | 桌面宠物：会话状态聚合、小浮窗与开关 |
-| `feishu.go` | 飞书群机器人：签名、发送与一轮完成通知 |
-| `feishu_inbound.go` | 飞书事件回调：解析 v1/v2、验证 Token、转成会话提问并把回答发回群 |
-| `netproxy.go` | 网络代理：应用请求与 Agent 进程分开，HTTP 客户端与进程环境变量 |
-| `agents.go` | 内置/自定义智能体：提示词前缀、选择对话框、会话绑定与持久化 |
-| `agents_store.go` | 自定义智能体：`agents/custom.json` 的增删改与 id 规则 |
-| `ui_agents.go` | 智能体管理对话框：列表、新建/编辑/删除与保存 |
-| `favorites.go` | 收藏：回复快照与会话引用、`favorites.json`、去重与上限 |
-| `ui_favorites.go` | 收藏夹对话框：筛选、搜索、复制、回到原会话与删除 |
-| `task_cron.go` | 定时任务 cron：五段解析、下次触发与补跑判定 |
-| `tasks.go` | 定时任务：`tasks.json`、后台调度、pi/ACP 执行、超时与运行历史 |
-| `ui_tasks.go` | 定时任务对话框：任务列表、运行历史与新建/编辑表单 |
-| `trust.go` | 项目信任：迁移、信任/撤销、发送前确认与输入区提示条 |
-| `plan_steps.go` | 计划逐步执行：步骤解析、下一步判断与继续/停止对话框 |
-| `forks.go` | 分叉树：根查找、家族遍历与树形对话框 |
-| `events.go` | 应用事件总线：订阅、插件 hooks、`${event:…}` 占位符与防递归 |
-| `market.go` | 插件市场：索引读取、单文件清单下载与安装 |
-| `ui_market.go` | 插件市场对话框：索引链接、条目列表、安装状态 |
-| `prompts_store.go` | 提示词商店：索引读取与整包导入 |
-| `ui_prompts_store.go` | 提示词商店对话框：索引链接、包列表与导入状态 |
-| `skills_store.go` | 技能商店：索引读取、SKILL.md 下载与安装到 pi 的 skills 目录 |
-| `ui_skills_store.go` | 技能商店对话框：索引链接、技能列表与安装状态 |
-| `mcp.go` | MCP：`pi mcp list/add/remove` 的调用与参数拼装 |
-| `backup.go` | 设置包：zip 导出/导入、路径校验与大小上限 |
-| `settings_index.go` | 设置索引：每个设置的分区、标题与搜索关键词 |
-| `ui_mcp.go` | MCP 设置页：服务器列表、添加对话框与移除确认 |
-| `projects.go` | 项目分组、置顶、排序与顺序持久化 |
-| `ui_projects.go` | 项目分组对话框：名称输入与已有分组建议 |
-| `import_source.go` | 导入骨架：来源注册、扫描、状态（新/已导入/有更新）、原子写入与 `*_import` 标记 |
-| `import_convert.go` | 各源共用的块映射：工具参数、工具输出、stopReason、图片上限、工具结果补齐 |
-| `import_claude.go` | Claude Code / Qoder：活链重建、连续 assistant 合并、孤儿 toolResult 降级 |
-| `import_codex.go` | Codex CLI rollout：session_meta、消息、function_call/output、reasoning |
-| `import_family.go` | 按项目 slug 分目录的两个家族：编码/解码、递归收集 |
-| `import_cursor.go` | Cursor agent transcript：`<timestamp>`/`<user_query>` 提取、工具配对 |
-| `import_kimi.go` | Kimi Code（索引 + appended 去重）与 Kimi Work（loop event 聚合） |
-| `import_codebuddy.go` | WorkBuddy / CodeBuddy：reasoning 与 function_call 摊平成独立行，聚合成一条 assistant |
-| `import_minimax.go` | MiniMax：日期树目录、manifest、llm-call 里的 working directory |
-| `import_zcode.go` / `import_opencode.go` | SQLite 源：ZCode 与 OpenCode 的 session/message/part |
-| `import_db.go` | SQLite 打开（只读 + WAL）、表结构探测、时间列 |
-| `import_run.go` | 导入动作：列表筛选、勾选、并发转换、进度与结果提示 |
-| `ui_import.go` | 导入对话框：来源 chips、搜索、勾选、进度条与状态徽标 |
-| `import_ext.go` | 单文件导入：嗅探格式（pi 复制、其余交给对应来源转换） |
-| `search.go` | 全局搜索：会话索引、标题/正文匹配、片段截取与打开 |
-| `ui_search.go` | 全局搜索对话框：输入、结果列表与索引重建 |
-| `ask.go` | 并行问询：后台会话、上下文拼装、等待答案与回填 |
-| `ui_ask.go` | 并行问询对话框：问题、背景开关、答案与操作 |
-| `ask_protocol.go` | 提问信封：批量题面、选项归一、答案 JSON |
-| `ask_panel.go` | 提问卡片的状态：排队、分题作答、跳过、审阅、关闭与回传 |
-| `ui_ask_panel.go` | 提问卡片：题签、五种题型、页脚与快捷键 |
-| `ask_extension.go` | 内置 `ask_question` 扩展：嵌入、写入数据目录、`-e` 路径 |
-| `extensions/pi-deck-ask-question.ts` | 提问扩展源码（与 PiDeck 同一份，单题与批量走同一个信封） |
-| `todo_strip.go` | 待办条数据（todo/计划/扩展 widget）与目标条 |
-| `prompts.go` | 提示词库：播种起步包、读 JSON/YAML、搜索、保存草稿与从链接导入 |
-| `ui_prompts.go` | 提示词库对话框：分类、搜索、列表与插入 |
-| `ui_shortcuts.go` | 快捷键面板：分组、搜索、键位胶囊与设置入口 |
-| `pi_resources.go` | pi 的技能与扩展：读 SKILL.md、settings.json 的扩展列表与启停 |
-| `ui_resources.go` | 设置里的资源页：技能列表、扩展开关、目录入口 |
-| `i18n.go` | 界面语言：系统语言匹配、源文本查表、设置与命令面板的翻译目录 |
-| `usage.go` | 本地用量统计：读会话文件、按天/模型/项目归并、热力图分级 |
-| `usage_csv.go` | 用量导出：按日/模型/项目三段写 CSV 到 `exports/` |
-| `ui_usage.go` | 设置里的用量页：累计卡片、12 周热力图、模型与项目榜 |
-| `desktop_host.go` | 系统托盘、关闭到托盘、完成通知与各平台通知命令 |
-| `remote.go` | 手机 HTTP 服务、令牌、快照/历史接口，局域网/Tailscale/EasyTier 地址探测 |
-| `remote_client.go` | 手机端与网页端 HTTP 客户端、连接串解析 |
-| `web_serve.go` | 桌面端口上的网页路由：静态文件类型、brotli、缓存与首页回退 |
-| `root_client.go` / `root_desktop.go` | 两套入口：浏览器只有客户端，其余平台有工作台（手机端走客户端那支） |
-| `markdown.go` + `markdown_{desktop,client}.go` | 会话里的 Markdown：桌面连图表与公式一起渲染，浏览器省掉图表引擎 |
-| `remote_wire.go` | 手机与网页客户端读的那组结构：桌面填、客户端读 |
-| `web_assets_on.go` / `web_assets_off.go` | `-tags webassets` 时嵌入 `webassets/` 的网页，否则只发 API |
-| `store_js.go` / `store_other.go` | 上次连接的存放：浏览器用 localStorage，其余平台写 `remote.json` |
-| `mobile.go` | 手机端连接页、项目/会话列表、会话历史、发消息与审批 |
-| `mobile_git.go` | 手机端 Git：分支切换、改动列表、补丁、暂存、提交、同步与最近提交 |
-| `mobile_files.go` | 手机端文件浏览：项目文件列表、筛选与只读查看 |
-| `ui_remote.go` | 桌面设置里的远程访问面板 |
-| `scripts/main.go` | 开发助手：菜单里的开发、构建、模拟器与 APK、测试（`go run ./scripts`） |
-| `ui.go` | 侧栏、标签、抽屉、命令面板、目标/重命名/确认/扩展对话框 |
-| `ui_menu.go` | 统一的菜单卡片、会话/项目右键菜单、模型/用量/项目弹层 |
-| `ui_settings.go` | 设置窗口：左栏分类 + 分节行（通用/模型与认证/外观/环境/扩展/数据/关于） |
-| `providers.go` | 读 pi 的 models.json、编辑供应商字段、`pi auth check` 探认证、连接测试与余额查询 |
-| `ui_provider.go` | 供应商配置对话框：字段、模型列表、连接测试、余额查询、原始 JSON 入口 |
-| `ui_chat.go` | 对话：轮次、思考行、工具行（diff/嵌套调用）、Markdown、输入区、空状态 |
-| `theme.go` | PiDeck 配色的 NSGo 主题，用户主题在其上覆盖 |
-| `*_test.go` | 无头 UI 测试、端到端（真 pi）、目标命令/主题/插件单测 |
+| `main.go` | 崩溃兜底、桌面窗口选项、调用 `nsgo.Run` |
+| `root_desktop.go` / `root_client.go` | 平台条件入口；只选择工作台或客户端，并接入窗口与退出钩子 |
+| `internal/workbench` | 会话状态机、pi/ACP RPC、项目与标签、设置、文件编辑、Git、终端、导入/导出、远程服务和桌面 UI |
+| `internal/client` | 连接、会话历史、发消息、审批、项目抽屉、Git、文件与设置页 |
+| `internal/remotewire` | HTTP API 的共享请求/响应结构 |
+| `internal/sessionimport` | 各外部 Agent 格式的读取、转换、去重标记和 pi JSONL 写出 |
+| `internal/viewkit` | 字体、格式、主题、Markdown 与崩溃页等跨宿主显示工具 |
+| `internal/apptext` | 七种语言的目录与 `T`；目录数据位于 `locales/*.json` |
+| `internal/schedule` | 与 UI 无关的五段 cron 算法 |
+| `internal/crashlog` / `internal/appinfo` | 崩溃日志与应用版本 |
+| `internal/architecture` | 包依赖、平台标签和文件规模的可执行约束 |
+| `assets` / `extensions` / `webassets` | 图标、起步提示词、内置扩展和嵌入 Web 站点适配 |
+| `scripts` | `go run ./scripts` 开发菜单；构建、设备与菜单各一文件 |
 
 ## 打包与发布
 
@@ -704,7 +615,8 @@ knob code info down`。
 ## 测试
 
 ```sh
-go test ./... -timeout 20m          # 全量（含真 pi 的端到端；整套要跑约 9 分钟）
+go tool nsgo test -- -timeout 20m   # 全量（含真 pi 的端到端）
+go tool nsgo test -- -short -timeout 20m
 go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/screenshots/windows
 ```
 

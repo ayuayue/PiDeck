@@ -27,4 +27,4 @@ Thumbs.db
 /updates.key
 
 # The embedded browser client (go tool nsgo build -target web)
-/webassets/
+/webassets/site/

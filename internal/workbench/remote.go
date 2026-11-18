@@ -1,0 +1,298 @@
+//go:build !js && !android && !ios
+
+package workbench
+
+// The phone server and its network channels. The desktop app can expose
+// its projects and sessions to the mobile build over HTTP; a token guards
+// every request. The same page reports the addresses the phone can use on
+// the LAN, over Tailscale or over EasyTier.
+
+import (
+	"errors"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/nsgo-dev/nsgo/core"
+)
+
+const (
+	defaultRemotePort = 8787
+	pideckVersion     = "0.2.0"
+)
+
+// remoteLANAddress is one address the phone can reach this machine at.
+type remoteLANAddress struct {
+	Address   string `json:"address"`
+	Interface string `json:"interface"`
+	Private   bool   `json:"private"`
+}
+
+// remoteChannel is what one private network can offer.
+type remoteChannel struct {
+	Installed bool   `json:"installed"`
+	Ready     bool   `json:"ready"`
+	Address   string `json:"address"`
+	Detail    string `json:"detail"`
+	Error     string `json:"error"`
+}
+
+// remoteView is the settings page's snapshot.
+type remoteView struct {
+	Enabled   bool               `json:"enabled"`
+	Running   bool               `json:"running"`
+	Port      int                `json:"port"`
+	Token     string             `json:"token"`
+	Error     string             `json:"error"`
+	Detecting bool               `json:"detecting"`
+	LAN       []remoteLANAddress `json:"lan"`
+	Tailscale remoteChannel      `json:"tailscale"`
+	EasyTier  remoteChannel      `json:"easytier"`
+}
+
+// remoteHost owns the HTTP server, the token and the network scan.
+type remoteHost struct {
+	app   *app
+	state *core.Signal[remoteView]
+
+	mu        sync.Mutex
+	srv       *http.Server
+	port      int
+	token     string
+	running   bool
+	err       string
+	detecting bool
+	search    *searchCache
+}
+
+// newRemoteHost builds the state from the config.
+func newRemoteHost(a *app) *remoteHost {
+	port := a.cfg.RemotePort
+	if port == 0 {
+		port = defaultRemotePort
+	}
+	return &remoteHost{
+		app: a,
+		state: core.NewSignalFunc(a.cx, remoteView{
+			Enabled: a.cfg.RemoteEnabled, Port: port, Token: a.cfg.RemoteToken,
+		}, nil),
+		port: port, token: a.cfg.RemoteToken,
+	}
+}
+
+// init starts the configured server and scans the networks.
+func (h *remoteHost) init() {
+	h.app.cx.Cleanup(h.close)
+	if h.app.cfg.RemoteEnabled {
+		h.ensureToken()
+		h.start()
+		h.refresh()
+	}
+}
+
+// ensureToken generates the first token and persists it.
+func (h *remoteHost) ensureToken() string {
+	h.mu.Lock()
+	token := h.token
+	h.mu.Unlock()
+	if token != "" {
+		return token
+	}
+	token = randomToken()
+	h.mu.Lock()
+	h.token = token
+	h.mu.Unlock()
+	h.app.cfg.RemoteToken = token
+	h.app.st.edit(func(c *config) { c.RemoteToken = token })
+	h.state.Update(func(v remoteView) remoteView { v.Token = token; return v })
+	return token
+}
+
+// setEnabled starts or stops the server.
+func (h *remoteHost) setEnabled(on bool) {
+	if on {
+		h.ensureToken()
+	}
+	h.app.cfg.RemoteEnabled = on
+	h.app.st.edit(func(c *config) { c.RemoteEnabled = on })
+	if on {
+		h.start()
+		h.refresh()
+	} else {
+		h.stop()
+	}
+	h.state.Update(func(v remoteView) remoteView { v.Enabled = on; return v })
+}
+
+// setPort changes the listening port and restarts a running server.
+func (h *remoteHost) setPort(port int) {
+	if port < 1024 || port > 65535 {
+		return
+	}
+	h.mu.Lock()
+	if h.port == port {
+		h.mu.Unlock()
+		return
+	}
+	h.port = port
+	restart := h.running
+	h.mu.Unlock()
+	h.app.cfg.RemotePort = port
+	h.app.st.edit(func(c *config) { c.RemotePort = port })
+	h.state.Update(func(v remoteView) remoteView { v.Port = port; return v })
+	if restart {
+		h.start()
+	}
+}
+
+// setEasyTierIP stores the address the CLI could not read.
+func (h *remoteHost) setEasyTierIP(ip string) {
+	ip = normalizeIPv4(ip)
+	h.app.cfg.RemoteEasyTierIP = ip
+	h.app.st.edit(func(c *config) { c.RemoteEasyTierIP = ip })
+	h.refresh()
+}
+
+// rotateToken replaces the token; phones with the old one lose access.
+func (h *remoteHost) rotateToken() {
+	token := randomToken()
+	h.mu.Lock()
+	h.token = token
+	h.mu.Unlock()
+	h.app.cfg.RemoteToken = token
+	h.app.st.edit(func(c *config) { c.RemoteToken = token })
+	h.state.Update(func(v remoteView) remoteView { v.Token = token; return v })
+}
+
+// currentToken is the token a request must present.
+func (h *remoteHost) currentToken() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.token
+}
+
+// endpoint is the port and token a test or the settings page can use.
+func (h *remoteHost) endpoint() (int, string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.port, h.token
+}
+
+// link is the URL a phone opens for an address on one of the channels.
+func (h *remoteHost) link(ip string) string {
+	h.mu.Lock()
+	port, token := h.port, h.token
+	h.mu.Unlock()
+	return remoteLink(ip, port, token)
+}
+
+func remoteLink(ip string, port int, token string) string {
+	host := net.JoinHostPort(ip, strconv.Itoa(port))
+	return "http://" + host + "/?token=" + url.QueryEscape(token)
+}
+
+// start listens on every interface.
+func (h *remoteHost) start() {
+	h.stop()
+	h.mu.Lock()
+	port := h.port
+	h.mu.Unlock()
+	ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	if err != nil {
+		h.mu.Lock()
+		h.running, h.err = false, "端口被占用或不可用："+err.Error()
+		h.mu.Unlock()
+		h.publish()
+		return
+	}
+	actual := port
+	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
+		actual = addr.Port
+	}
+	srv := &http.Server{
+		Handler:           h.handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       90 * time.Second,
+	}
+	h.mu.Lock()
+	h.port, h.running, h.err, h.srv = actual, true, "", srv
+	h.mu.Unlock()
+	go func() {
+		err := srv.Serve(ln)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			h.app.cx.Post(func() {
+				h.mu.Lock()
+				h.running, h.err = false, err.Error()
+				h.mu.Unlock()
+				h.publish()
+			})
+		}
+	}()
+	h.publish()
+}
+
+// stop closes the listening socket and every phone connection.
+func (h *remoteHost) stop() {
+	h.mu.Lock()
+	srv := h.srv
+	h.srv = nil
+	h.running = false
+	h.mu.Unlock()
+	if srv != nil {
+		_ = srv.Close()
+	}
+	h.publish()
+}
+
+// close ends the server without touching the UI, for the app's end.
+func (h *remoteHost) close() {
+	h.mu.Lock()
+	srv := h.srv
+	h.srv = nil
+	h.running = false
+	h.mu.Unlock()
+	if srv != nil {
+		_ = srv.Close()
+	}
+}
+
+// publish copies the server's runtime fields into the view signal.
+func (h *remoteHost) publish() {
+	h.mu.Lock()
+	running, port, token, errText := h.running, h.port, h.token, h.err
+	h.mu.Unlock()
+	h.state.Update(func(v remoteView) remoteView {
+		v.Running, v.Port, v.Token, v.Error = running, port, token, errText
+		return v
+	})
+}
+
+// refresh scans the three channels in the background.
+func (h *remoteHost) refresh() {
+	h.mu.Lock()
+	if h.detecting {
+		h.mu.Unlock()
+		return
+	}
+	h.detecting = true
+	manualIP := h.app.cfg.RemoteEasyTierIP
+	h.mu.Unlock()
+	h.state.Update(func(v remoteView) remoteView { v.Detecting = true; return v })
+	go func() {
+		lan := detectLAN()
+		ts := probeTailscale()
+		et := probeEasyTier(manualIP)
+		h.app.cx.Post(func() {
+			h.state.Update(func(v remoteView) remoteView {
+				v.LAN, v.Tailscale, v.EasyTier, v.Detecting = lan, ts, et, false
+				return v
+			})
+			h.mu.Lock()
+			h.detecting = false
+			h.mu.Unlock()
+		})
+	}()
+}

@@ -1,36 +1,28 @@
 package main
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 	"runtime/debug"
 
+	"example.com/pideck-lite/internal/client"
+	"example.com/pideck-lite/internal/crashlog"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 )
-
-// appVersion is the version the about page and diagnostics report.
-const appVersion = "0.2.0"
-
-// logoPNG is PiDeck's classic silver mark. Branding defaults to the TUI
-// color vector; this remains the classic preset and the desktop tray icon.
-//
-//go:embed assets/logo.png
-var logoPNG []byte
 
 func main() {
 	// A panic outside the interface still leaves a crash log behind.
 	defer func() {
 		if r := recover(); r != nil {
-			if path, err := writeCrashReport(crashDataDirNow(), r, debug.Stack()); err == nil {
+			if path, err := crashlog.WriteReport(crashlog.DataDir(), r, debug.Stack()); err == nil {
 				fmt.Fprintln(os.Stderr, "PiDeck Lite: crash log written to", path)
 			}
 			panic(r)
 		}
 	}()
 	var opts []nsgo.Option
-	if !clientMode() {
+	if !client.Mode() {
 		opts = append(opts, nsgo.WindowConstraints(core.WindowConstraints{MinWidth: 960, MinHeight: 640}))
 		// A window that was resized or moved opens there, at that size.
 		if frame, ok := initialWindowFrame(); ok {

@@ -1,0 +1,373 @@
+package client
+
+// The phone build: it connects to a desktop PiDeck Lite server and browses
+// its projects, sessions and transcripts. The same package builds the
+// desktop; Root picks this screen on iOS and Android (or with
+// PIDECK_LITE_MOBILE=1 for a preview on a desktop).
+
+import (
+	"bytes"
+	"errors"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"os"
+	"strings"
+	"time"
+
+	"example.com/pideck-lite/assets"
+	"example.com/pideck-lite/internal/appinfo"
+	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-lite/internal/viewkit"
+	"github.com/liyue201/goqr"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"github.com/nsgo-dev/nsgo/ui"
+)
+
+// connectView asks for the desktop's link and token.
+func (a *mobileApp) connectView(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	field := func(label, placeholder, testID string, value *core.Signal[string], submit func()) core.Node {
+		return core.View{Style: core.Style{Gap: 5}, Children: []core.Node{
+			ui.Text(label, 11, ui.Medium, colors.Muted),
+			core.Input{
+				Value: value.Get, OnChange: value.Set, Placeholder: placeholder, Label: label, TestID: testID,
+				OnSubmit: func(string) { submit() },
+				Style:    core.Style{Height: core.Pt(44), Padding: core.Symmetric(0, 12), FontSize: 14, Color: colors.Text()},
+				StyleFunc: func() core.Style {
+					return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 10,
+						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
+				},
+			},
+		}}
+	}
+	card := core.View{StyleFunc: func() core.Style {
+		return core.Style{Gap: 12, Padding: core.All(16), CornerRadius: 14, Background: colors.Surface(),
+			BorderWidth: 1, BorderColor: colors.Border()}
+	}, Children: []core.Node{
+		field(apptext.T("连接地址"), "http://192.168.1.8:8787/?token=…", "mobile-server", a.server, a.connect),
+		field(apptext.T("访问令牌"), "粘贴电脑端显示的令牌", "mobile-token", a.token, a.connect),
+		core.Show{When: func() bool { return a.err.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+			return core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(8, 9), CornerRadius: 8,
+				Background: ui.Alpha(colors.Danger(), 0.08)}, Children: []core.Node{
+				ui.Icon(lucide.TriangleAlert, 13, colors.Danger),
+				core.Text{ContentFunc: a.err.Get, MaxLines: 4, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5, LineHeight: 17},
+					StyleFunc: ui.Colored(colors.Danger)},
+			}}
+		}},
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+			core.Dynamic(func(*core.Scope) core.Node {
+				if a.busy.Get() {
+					return ui.Spinner{Size: 14, Label: apptext.T("连接中")}
+				}
+				return nil
+			}),
+			ui.Button{Text: apptext.T("连接"), Variant: ui.ButtonPrimary, Size: ui.SizeLarge, Flex: 1, TestID: "mobile-connect",
+				Disabled: func() bool { return a.busy.Get() }, OnPress: a.connect},
+		}},
+		ui.Button{Text: apptext.T("扫码连接"), Variant: ui.ButtonSecondary, Size: ui.SizeLarge, TestID: "mobile-scan",
+			OnPress: a.scanQR},
+		ui.Button{Text: apptext.T("从相册选二维码"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-scan-library",
+			OnPress: a.scanImage},
+	}}
+	column := core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(480), Gap: 16}, Children: []core.Node{
+		core.Image{Source: core.ImageSource{Data: assets.LogoPNG}, ResizeMode: core.Contain, Label: "PiDeck",
+			Style: core.Style{Width: core.Pt(64), Height: core.Pt(64), CornerRadius: 18, AlignSelf: core.AlignCenter}},
+		core.View{Style: core.Style{Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
+			ui.Text("PiDeck Lite", 24, ui.Bold, colors.Text),
+			ui.Text(apptext.T("连接电脑上的会话"), 13, ui.Regular, colors.Muted),
+		}},
+		card,
+		a.recentList(),
+		core.Text{Content: apptext.T("在电脑端打开 设置 → 远程，启用后扫码或复制连接链接；手机和电脑需要在同一局域网、Tailscale 或 EasyTier 网络里。"),
+			Style: core.Style{FontSize: 11, LineHeight: 17, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
+	}}
+	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
+		PaddingEnv: core.EnvEdges{Top: core.EnvSafeArea, Right: core.EnvSafeArea, Left: core.EnvSafeArea, Bottom: core.EnvKeyboard}},
+		Children: []core.Node{core.Scroll{Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, Padding: core.All(24), Gap: 16, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+				Children: []core.Node{column}},
+		}}}}
+}
+
+// recentList shows the servers this phone has used, newest first.
+func (a *mobileApp) recentList() core.Node {
+	return core.Show{When: func() bool { return len(a.recent.Get()) > 0 }, Then: func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
+		rows := make([]core.Node, 0, len(a.recent.Get()))
+		for _, item := range a.recent.Get() {
+			r := item
+			host := strings.TrimPrefix(strings.TrimPrefix(r.Server, "http://"), "https://")
+			rows = append(rows, core.View{OnPress: func(core.PressEvent) {
+				a.server.Set(r.Server)
+				a.token.Set(r.Token)
+				a.connect()
+			}, Role: core.RoleButton, Label: r.Name, TestID: "mobile-recent",
+				StyleFunc: func() core.Style {
+					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, MinHeight: core.Pt(46),
+						Padding: core.Symmetric(0, 10), CornerRadius: 10, Transition: viewkit.PressMotion,
+						Background: colors.Surface(), Hover: &core.Style{Background: colors.Hover()},
+						Active: &core.Style{Background: colors.Pressed()}}
+				},
+				Children: []core.Node{
+					ui.Icon(lucide.Laptop, 15, colors.Muted),
+					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+						core.Text{Content: r.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FontSize: 13}, StyleFunc: ui.Colored(colors.Text)},
+						core.Text{Content: host, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+							Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+					}},
+					ui.Icon(lucide.ChevronRight, 13, colors.Faint),
+				}})
+		}
+		return core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(480), Gap: 6}, Children: []core.Node{
+			ui.Text(apptext.T("最近连接"), 11, ui.Medium, colors.Faint),
+			core.View{Style: core.Style{Gap: 4}, Children: rows},
+		}}
+	}}
+}
+
+// scanImage reads a code from a picture already on the phone.
+func (a *mobileApp) scanImage() {
+	a.err.Set("")
+	a.cx.PickFiles(core.PickFilesOptions{Types: []string{"image/*"}, Limit: 1}, func(files []core.File, err error) {
+		if err != nil || len(files) == 0 {
+			return
+		}
+		data, readErr := os.ReadFile(files[0].Path)
+		if readErr != nil || len(data) == 0 {
+			a.err.Set("读不到这张图片")
+			return
+		}
+		a.useScanned(data)
+	})
+}
+
+// useScanned decodes a picture and connects to what it holds.
+func (a *mobileApp) useScanned(data []byte) {
+	go func() {
+		link, err := decodeQRLink(data)
+		a.cx.Post(func() {
+			if err != nil || link == "" {
+				a.err.Set("这张图里没有二维码")
+				return
+			}
+			client, token, cerr := newRemoteClient(link, "")
+			if cerr != nil {
+				a.err.Set(cerr.Error())
+				return
+			}
+			a.server.Set(client.base)
+			a.token.Set(token)
+			a.connect()
+		})
+	}()
+}
+
+// scanQR reads a connection link from a photo of the desktop's code.
+func (a *mobileApp) scanQR() {
+	if !a.cx.Env().CanTakePhoto() {
+		a.err.Set("这台设备没有可用的相机，用下面的链接和令牌连接吧")
+		return
+	}
+	a.err.Set("")
+	a.cx.TakePhoto(core.PhotoOptions{MaxDimension: 1600}, func(photo *core.PickedFile, err error) {
+		if err != nil {
+			a.err.Set("打开相机失败：" + err.Error())
+			return
+		}
+		if photo == nil || len(photo.Data) == 0 {
+			return
+		}
+		a.useScanned(photo.Data)
+	})
+}
+
+// decodeQRLink reads the first QR code in a JPEG or PNG.
+func decodeQRLink(data []byte) (string, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	codes, err := goqr.Recognize(img)
+	if err != nil {
+		return "", err
+	}
+	for _, code := range codes {
+		if len(code.Payload) > 0 {
+			return string(code.Payload), nil
+		}
+	}
+	return "", errors.New("没有二维码")
+}
+
+// connect opens the saved or entered server.
+func (a *mobileApp) connect() {
+	if a.busy.GetUntracked() {
+		return
+	}
+	client, token, err := newRemoteClient(a.server.GetUntracked(), strings.TrimSpace(a.token.GetUntracked()))
+	if err != nil {
+		a.err.Set(err.Error())
+		return
+	}
+	if token == "" {
+		a.err.Set("请填写访问令牌，或粘贴完整的连接链接")
+		return
+	}
+	a.busy.Set(true)
+	a.err.Set("")
+	go func() {
+		ping, err := client.ping()
+		var snap remotewire.Snapshot
+		if err == nil {
+			snap, err = client.state()
+		}
+		a.cx.Post(func() {
+			a.busy.Set(false)
+			if err != nil {
+				a.err.Set(remoteErrorText(err))
+				return
+			}
+			a.client = client
+			a.server.Set(client.base)
+			a.token.Set(token)
+			a.serverName.Set(mobileServerName(ping, snap))
+			a.desktopVersion.Set(ping.Version)
+			a.state.Set(snap)
+			a.connected.Set(true)
+			a.err.Set("")
+			saved := rememberConnection(a.recent.GetUntracked(), mobileRecent{
+				Server: client.base, Token: token, Name: a.serverName.Get(), At: time.Now().UnixMilli(),
+			})
+			a.recent.Set(saved.Recent)
+			// The look, the language and the last project are kept beside the
+			// connection, so saveLook writes all of them.
+			a.saveLook()
+			a.startPolling()
+		})
+	}()
+}
+
+func mobileServerName(ping remotePing, snap remotewire.Snapshot) string {
+	host := strings.TrimSpace(ping.Host)
+	if host == "" {
+		host = strings.TrimSpace(snap.Host)
+	}
+	if host == "" {
+		return "电脑"
+	}
+	return host
+}
+
+// disconnect leaves the server and stops polling.
+func (a *mobileApp) disconnect() { a.disconnectWith("") }
+
+func (a *mobileApp) disconnectWith(message string) {
+	a.gen++
+	a.client = nil
+	a.connected.Set(false)
+	a.active.Set("")
+	a.messages.Set(nil)
+	a.transcriptErr.Set("")
+	a.transcriptBusy.Set(false)
+	a.ask.Set(nil)
+	a.state.Set(remotewire.Snapshot{})
+	if message != "" {
+		a.err.Set(message)
+	}
+}
+
+// startPolling keeps the project list and the open transcript current.
+func (a *mobileApp) startPolling() {
+	a.gen++
+	gen := a.gen
+	var loop func()
+	loop = func() {
+		if gen != a.gen || !a.connected.GetUntracked() {
+			return
+		}
+		a.refreshState()
+		if a.active.GetUntracked() != "" {
+			a.refreshTranscript()
+			// The model line fills in once pi is up, without opening the
+			// sheet.
+			if a.optionsOpen.GetUntracked() || a.options.GetUntracked().Model == "" {
+				a.loadOptions(a.active.GetUntracked())
+			}
+		}
+		wait := 2500 * time.Millisecond
+		if a.running.GetUntracked() {
+			wait = 1200 * time.Millisecond
+		}
+		a.cx.AfterFunc(wait, loop)
+	}
+	loop()
+}
+
+// refreshState rereads the desktop's projects and sessions.
+func (a *mobileApp) refreshState() {
+	client := a.client
+	if client == nil || a.stateLoading {
+		return
+	}
+	a.stateLoading = true
+	a.refreshing.Set(true)
+	go func() {
+		snap, err := client.state()
+		a.cx.Post(func() {
+			a.stateLoading = false
+			a.refreshing.Set(false)
+			if err != nil {
+				if errors.Is(err, errRemoteAuth) {
+					a.disconnectWith(remoteErrorText(err))
+				} else {
+					a.err.Set(remoteErrorText(err))
+				}
+				return
+			}
+			a.state.Set(snap)
+			a.err.Set("")
+		})
+	}()
+}
+
+// pageStale says the page was built before the desktop it talks to, which
+// only a browser page can be: a reload takes the newer one.
+func (a *mobileApp) pageStale() bool {
+	return webMode() && a.desktopVersion.Get() != "" && a.desktopVersion.Get() != appinfo.Version
+}
+
+// appNotice is the thin bar under a page's header: the connection's error,
+// or a browser page older than the desktop it talks to.
+func (a *mobileApp) appNotice(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{FlexShrink: 0}, Children: []core.Node{
+		core.Show{When: func() bool { return a.err.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+			return core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(8, 14)},
+				StyleFunc: func() core.Style { return core.Style{Background: ui.Alpha(colors.Danger(), 0.07)} },
+				Children: []core.Node{
+					ui.Icon(lucide.TriangleAlert, 12, colors.Danger),
+					core.Text{ContentFunc: a.err.Get, MaxLines: 2, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11},
+						StyleFunc: ui.Colored(colors.Danger)},
+				}}
+		}},
+		// A page older than the desktop it talks to: a reload takes the
+		// version the app serves now, which the build's own name marks.
+		core.Show{When: func() bool { return a.pageStale() }, Then: func(cx *core.Scope) core.Node {
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(8, 14)},
+				StyleFunc: func() core.Style { return core.Style{Background: ui.Alpha(colors.Accent(), 0.10)} },
+				Children: []core.Node{
+					ui.Icon(lucide.RefreshCw, 12, colors.Accent),
+					core.Text{ContentFunc: func() string {
+						return apptext.T("这个页面是 %s，电脑上是 %s；刷新后一起用新版本", appinfo.Version, a.desktopVersion.Get())
+					}, MaxLines: 2, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11},
+						StyleFunc: ui.Colored(colors.Text)},
+					ui.Button{Text: apptext.T("刷新页面"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						TestID: "mobile-reload", OnPress: func() { webReload() }},
+				}}
+		}},
+	}}
+}

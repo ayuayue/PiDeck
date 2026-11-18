@@ -34,7 +34,7 @@
 
 | 编号 | 约束 | 判定方式 |
 | --- | --- | --- |
-| H1 | `internal/workbench`、`internal/sessionimport` 的**生产**文件首行必须是 `//go:build !js && !android && !ios` | `TestDesktopBuildConstraints` |
+| H1 | `internal/sessionimport` 所有 Go 文件及 `internal/workbench` 生产文件首行必须是 `//go:build !js && !android && !ios` | `TestDesktopBuildConstraints` |
 | H2 | 依赖只能朝 `ARCHITECTURE.md` 的表指向；新增包必须同时改表与 `structure_test.go` 的 `dependencies` | `TestDependencyLayers` |
 | H3 | 生产 Go 文件 ≤ 800 行，测试文件 ≤ 1000 行；超过 400 行且出现第二种职责就拆 | `TestSourceFileSize` |
 | H4 | `internal/client` 不得导入 `workbench`、`sessionimport`、SQLite、`os/exec` 或任何桌面能力 | H2 + wasm 预算 |
@@ -75,6 +75,7 @@
 - 禁止全仓库 `go build ./...`、全平台构建或会触发全量编译的门禁脚本，除非用户本次明确要求。
 - 不需要按平台验证时不要跑 `-target` 矩阵。
 - 声称"修好了""通过了"之前，只跑能直接证明该声明的最窄验证。
+- 同一工作区内的 NSGo build/check/test 必须串行；Windows 构建会在模块根临时写入并删除 `.syso`，并发会互相干扰。不同 CI job 或不同 worktree 可并行。
 
 ### 3.4 收尾
 
