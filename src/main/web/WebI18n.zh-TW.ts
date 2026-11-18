@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: a8daa83a43d04c09adb243328e4f14c8834f03ad11ae4c938119ad488bc7b965（来自 src/main/web/WebI18n.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 5aa36f1bb054765722ac7e2041b6b767b9c939132e2c88a7b12457a1e49873db（来自 src/main/web/WebI18n.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../shared/i18n/mainProcessCopy.zh-TW";
 import type { WebTranslationKey } from "./WebI18n";
@@ -51,11 +51,11 @@ export const webZhTW: Record<WebTranslationKey, string> = {
 	"webError.chatProjectProtected": "內建聊天專案不能刪除",
 	"webError.requestIdRequired": "requestId 不能為空",
 	"webError.messageRequired": "message 或 images 不能為空",
-	"webError.agentBindFailed": "綁定智能體失敗",
-	"webError.agentNotFound": "智能體不存在",
-	"webError.agentsUnavailable": "智能體設定不可用",
-	"webError.extensionsUnavailable": "擴充功能服務不可用",
-	"webError.fileAccessDenied": "安全策略拒絕存取該路徑",
+	"webError.agentBindFailed": "繫結智慧體失敗",
+	"webError.agentNotFound": "智慧體不存在",
+	"webError.agentsUnavailable": "智慧體配置不可用",
+	"webError.extensionsUnavailable": "擴充套件服務不可用",
+	"webError.fileAccessDenied": "安全策略拒絕訪問該路徑",
 	"webError.fileAccessNeedsConfirm": "讀取該路徑需要確認",
 	"webError.fileNotFound": "檔案不存在",
 	"webError.fileOutsideProject": "路徑超出專案根目錄",
@@ -63,7 +63,7 @@ export const webZhTW: Record<WebTranslationKey, string> = {
 	"webError.filesUnavailable": "檔案服務不可用",
 	"webError.gitUnavailable": "Git 服務不可用",
 	"webError.internalError": "讀取提示詞模板失敗",
-	"webError.invalidRequest": "請求參數無效",
+	"webError.invalidRequest": "請求引數無效",
 	"webError.pluginActionFailed": "外掛操作失敗",
 	"webError.pluginActionRequired": "外掛操作需要 sessionId",
 	"webError.pluginInstallFailed": "外掛安裝失敗",
