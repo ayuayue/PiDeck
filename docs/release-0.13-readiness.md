@@ -1,10 +1,10 @@
 # 0.13 发布候选检查
 
-状态：**`0.13.0-rc.1` 源码候选通过本机检查，可以进入候选包验收；尚不具备正式发布签收证据。** 检查日期：2026-11-18。
+状态：**`0.13.0-rc.1` 已通过 Windows 候选包与 0.12→0.13 升级验收，可以准备正式 0.13 发布；正式发布前仍须完成最终分支整合、跨平台和剩余真机矩阵。** 检查日期：2026-11-18。
 
 ## 基线与交付位置
 
-- 审查范围：`v0.12.0..ffccabf1c`，368 次提交、1,036 个变更文件，再加本次收尾修复。版本变化覆盖会话与滚动、活动页 GTD、ACP、SSH 配置、资源迁移、进程生命周期及发布链路。
+- 审查范围：`v0.12.0..88bb5c405`，369 次提交、1,108 个变更文件。版本变化覆盖会话与滚动、活动页 GTD、ACP、SSH 配置、资源迁移、进程生命周期及发布链路。
 - 双层滚动首轮修复为 `5116bb2e4`，已在 `origin/dev` 历史中；本次补充正文流式切换后的跟随状态修复及候选检查。
 - 最终检查在独立分支 `codex/release-0.13-rc1` 完成，worktree 为 `.tmp/rc-candidate-worktree`，基于 `ffccabf1c`。共享 `dev` 上仍有其它会话持续修改的 SSH/资源工作，本候选只复制明确归属的任务文件；新增 SSH 入参修复在隔离分支独立实现。
 - 版本、双语 CHANGELOG、README 与官网亮点已对齐 `0.13.0-rc.1`。本轮交付源码提交与分支推送，未执行 merge、tag 或 Release。
@@ -31,7 +31,7 @@
 | --- | --- |
 | 完整 `npm run preflight` | 四泳道全绿。单测 **17,563 项：17,233 通过、330 跳过、0 失败**，691.8s；typecheck、全仓格式与发布一致性通过。报告 `release-preflight/report-2026-11-17T17-05-53-199Z.json` |
 | 滚动修复后的模块回归 | 时间线控制器相关 29 个测试文件 **273/273 通过**，另有 followState/restore/freshness 等组合 **61/61 通过**（两组覆盖重叠，不累加）。包括新增 6 项行为测试，日志 `.tmp/rc-scroll-controller-tests.log`、`.tmp/rc-scroll-unit.log` |
-| 最后一次类型/格式/发布检查 | `npm run preflight -- --skip unit-tests` 全绿：typecheck 72.7s、全仓格式 3.8s、发布泳道 4.3s。报告 `release-preflight/report-2026-11-17T17-45-48-889Z.json` |
+| Windows 收尾后的类型/格式/发布检查 | `npm run preflight -- --skip unit-tests` 全绿：typecheck 67.3s、全仓格式 4.5s、发布泳道 5.5s。报告 `release-preflight/report-2026-11-18T02-31-29-878Z.json` |
 | 源码构建 | `npx electron-vite build` 的 main/preload/renderer 通过；滚动修复后 `npx electron-vite build --filter renderer` 通过。未执行含 Go sidecar/runtime 打包的全量 `npm run build` |
 | Electron 集成回归 | 17 个 spec **40/40 通过**，5.2min；含双层滚动、运行中会话切换、历史恢复/编辑/删除/重发、预热、重试、Markdown、Git、设置、抽屉与启动 smoke。日志 `.tmp/rc-scroll-final-e2e.log` |
 | 流式切换重复回归 | 原场景修复前 3 次有 2 次失败；修复后同一断言 **5/5 通过**。日志 `.tmp/rc-text-follow-repeat.log`、`.tmp/rc-scroll-follow-repeat.log` |
@@ -39,14 +39,25 @@
 | 结构与提交门禁 | IPC wiring、test-shape、file-size、package-json 与 hooks 检查通过；滚动修复后重跑 file-size/test-shape 通过，未增加源码文本断言；提交时仍执行 pre-commit |
 | DSH 归档 | 隔离目录未复制 runtime tar，preflight 明确跳过该项；对原目录现有 `dist-runtime/dsh-runtime-win32-x64.tgz` 独立运行 `check-dsh-asar` 通过：runtime 0.2.1-rc.5、minApp 0.12.0、36,987 entries、513 packages。未重打包，不能代替候选安装包验证 |
 
+## Windows 0.12 → 0.13 候选包验收
+
+- 官方基线来自 GitHub Release 的 `PiDeck-0.12.0-win.zip`（147,862,465 bytes，SHA256 `383898e4239af9fabb773b37d6afa56ae80ec9c439225673384143f9bd23eae1`）与 `PiDeck-0.12.0-setup.exe`（108,667,769 bytes，SHA256 `6c1e26ccb7e6ce4c0cee2408f1051589a7240b60a2ab51656b06c27c228e72e6`）。
+- 首个候选包启动了旧共享 `node_modules` Junction，树内 `.package-lock.json` 仍对应 0.12；`electron-builder` 因此只收集了不完整的生产闭包，依次暴露 `graceful-fs`、`brace-expansion`、`balanced-match` 和 `@aws-sdk/checksums/flexible-checksums` 缺失。把传递依赖提升为根依赖只能掩盖问题，已全部撤回。在隔离 worktree 按当前 `package-lock.json` 执行 `npm ci` 后，AWS、MCP、WebDAV、tar、`proper-lockfile` 与 `minimatch` 链路均由原依赖图正确进入 asar。
+- 最终 `candidate-clean-final/win-unpacked` 通过真实 exe smoke。`app.asar` 为 74,801,066 bytes、5,446 entries、214 个运行时包根；上述启动链的关键包均在包内。此结论要求打包机器从当前 lockfile 干净安装，不能用主工作区的旧共享安装树制造候选包。
+- `e2e/windows-upgrade.spec.ts` 在 Windows 真机 **1/1 通过**（1.4min）：官方 0.12 创建设置、项目、会话、草稿、快捷消息、飞书 Bot 与 DPAPI 密文；0.13 首启读取全部数据、保留会话原字节、续聊并启动 `node-pty`；二次启动继续保留。证据 `.tmp/windows-upgrade-20261118/run-Qj8mXN/evidence.json`，含两张候选启动截图和工具过程组阅读截图。测试同时断言工具卡内部无可滚动 overflow，会话外层可上滚、出现回底按钮并恢复跟随。
+- 实验入口只替换 `package.json.main` 并增加 lab bootstrap；原 `out/main/index.js` 与全部其他 payload 保持原字节，分别校验 4,416 / 4,417 个文件。lab 固定 `home`、`appData`、`userData`、`sessionData`、`temp`，屏蔽协议注册和开机项。它不是生产入口，不能替代正式安装包 smoke。
+- NSIS 覆盖安装使用专用 lab `appId=cc.debugtools.pideck.windows-upgrade-lab`，禁用协议、桌面和开始菜单快捷方式，在同目录从 0.12.0 静默升级到 0.13.0-rc.1。安装目录 `app.asar` 从 `6ca31430…` 替换为 `e912f233…`，版本外数据标记保留，卸载登记只有一项 0.13.0-rc.1，安装版主界面通过启动验证。实验安装器 SHA256 为 `CB5CC56CDD08D0561F9C7C823FAF8B0646A6D55944E33EAE4A2FEB95A7DCA886`。
+- Windows 候选 exe 与实验安装器均为 `NotSigned`；官方 0.12 zip 内 exe 与 setup 也是 `NotSigned`，本轮与既有发布状态一致。正式发布仍须决定是否继续不带 Authenticode，不能把 lab 覆盖安装通过误写成已验代码签名。
+- 新增 `tests/windowsUpgradeLab.test.mjs` 锁定 lab 入口的 payload 保真与嵌套输出拒绝，**2/2 通过**；修复了首版 lab 将主入口改名后导致分块回引 wrapper 的实验夹具循环初始化错误。
+
 首轮共享工作区全量单测的 4 个失败已收口：MCP 旧结构断言替换为真实 raw 保存/重载行为，helper pin 与封闭方法表对齐已提交的 1.30.0（保留 SHA 校验），SSH 模型目录消除内部滚动。共享工作区另有其它作者在途内容，因此不将它的格式/版本漂移混入隔离候选。历史 E2E 失败与结案口径见 [e2e 已知失败清单](e2e-known-failures.md)。
 
 测试契约同步：删除已下线 settle 重定位的两条预期，保留手动上滚/历史打开/启动 runtime 不重定位覆盖；把依赖已删临时 ref 的源码断言替换成同一任务内切会话的锚点保存行为；恢复时几何不再拥有退出跟随权限，原“空操作引擎后退出跟随”测试改测延迟完成与真实引擎浏览上报。
 
 ## 正式 0.13 仍需完成
 
-1. **最终分支整合与 CI**：本次核对的 `origin/dev` 为 `1217538fc`，相对候选基点还有四条独立提交：`87ac974bb` 技能规则、`b8d26e6f3` 侧栏分组、`d545da7d6` 工具标记标题、`1217538fc` superseded 会话复活/重复行（#571）。候选分支未擅自合并这些提交；正式发布须确定最终提交集合并在合入树重跑门禁。
-2. **Windows/macOS/Linux 升级**：用测试用户或 VM 从 0.12 升级，验证首/二次启动、设置/项目/已有会话续聊、凭据与飞书绑定、资源启停、草稿与旧扩展保留。Linux 须实测 `/proc` 回收；macOS 须验 Developer ID、公证、权限继承、本地网络和自动更新。
+1. **最终分支整合与 CI**：截至 2026-11-18，`origin/dev` 已到 `86c696826`，相对候选分支多 5 个提交：`87ac974bb` 技能规则、`b8d26e6f3` 侧栏分组、`d545da7d6` 工具标记标题、`1217538fc` superseded 会话复活/重复行（#571）、`86c696826` OpenAI OAuth 设备 ID 修复（#574）。本 RC 分支尚未整合这些提交；正式发布须确定最终提交集合，并在合入树重跑 typecheck、相关测试与 Windows 包 smoke。
+2. **macOS/Linux 升级**：Windows 已完成上述 0.12 升级矩阵。Linux 仍须实测 `/proc` 回收与安装包启动；macOS 须验 Developer ID、公证、权限继承、本地网络和自动更新。
 3. **真实时间线与外部链路**：完成 [时间线五条手动验收](timeline-manual-qa.md)（大历史第一条、连续 20 页、停 30 秒、小会话、流式上翻）。Pi 1.5.1 仍有 [兼容账本](pi-compatibility.md) 中的真实会话待验项；SSH 配置本轮为隔离模拟 IPC 验收，没有连接真实主机。旧 [远端发布记录](remote-release-readiness.md) 是历史基线证据。
 4. **现有未全验收范围**：未重跑所有历史 Electron spec，也未验收远端 TTL、多 host 争用、soak、硬断网、ProxyJump、大文件独立矩阵。不能用本轮 40 项定向通过覆盖这些范围。
 
