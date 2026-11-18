@@ -31,7 +31,7 @@
 | --- | --- |
 | 完整 `npm run preflight` | 四泳道全绿。单测 **17,563 项：17,233 通过、330 跳过、0 失败**，691.8s；typecheck、全仓格式与发布一致性通过。报告 `release-preflight/report-2026-11-17T17-05-53-199Z.json` |
 | 滚动修复后的模块回归 | 时间线控制器相关 29 个测试文件 **273/273 通过**，另有 followState/restore/freshness 等组合 **61/61 通过**（两组覆盖重叠，不累加）。包括新增 6 项行为测试，日志 `.tmp/rc-scroll-controller-tests.log`、`.tmp/rc-scroll-unit.log` |
-| Windows 收尾后的类型/格式/发布检查 | `npm run preflight -- --skip unit-tests` 全绿：typecheck 67.3s、全仓格式 4.5s、发布泳道 5.5s。报告 `release-preflight/report-2026-11-18T02-31-29-878Z.json` |
+| Windows 收尾后的类型/格式/发布检查 | 在干净 `b9ef71dab` 上运行 `npm run preflight -- --skip unit-tests` 全绿：typecheck 76.5s、全仓格式 4.3s、发布泳道 3.7s，脏文件 0。报告 `release-preflight/report-2026-11-18T02-34-37-227Z.json` |
 | 源码构建 | `npx electron-vite build` 的 main/preload/renderer 通过；滚动修复后 `npx electron-vite build --filter renderer` 通过。未执行含 Go sidecar/runtime 打包的全量 `npm run build` |
 | Electron 集成回归 | 17 个 spec **40/40 通过**，5.2min；含双层滚动、运行中会话切换、历史恢复/编辑/删除/重发、预热、重试、Markdown、Git、设置、抽屉与启动 smoke。日志 `.tmp/rc-scroll-final-e2e.log` |
 | 流式切换重复回归 | 原场景修复前 3 次有 2 次失败；修复后同一断言 **5/5 通过**。日志 `.tmp/rc-text-follow-repeat.log`、`.tmp/rc-scroll-follow-repeat.log` |
