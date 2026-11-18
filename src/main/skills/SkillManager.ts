@@ -9,6 +9,8 @@ import { openSystemPath } from "../fs/openPath";
 import type { AppSettings, CreatePiSkillInput, PiSkillListResult, PiSkillLocation, PiSkillSummary } from "../../shared/types";
 import type { WslEnvironment } from "../wsl/WslPaths";
 import { pideckBundledSkillsDir } from "./pideckSkillsPath";
+import { RETIRED_BUNDLED_SKILLS } from "./bundledSkills";
+import { installBundledSkillTemplate, retireBundledSkillDirs } from "./bundledSkillInstaller";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 
 const SKILL_FILE = "SKILL.md";
@@ -119,6 +121,8 @@ export class SkillManager {
 	 *
 	 * 过滤读的是 pi settings.json 的投影（与技能列表开关同源）：`--skill` 注入不受
 	 * pi 自己的自动发现/过滤规则约束，停用的内置技能必须在拼命令行时剔除。
+	 * 已退役的旧入口也在这里跳过：它们可能还没被回收站清掉（或清理失败），但仍不能注入，
+	 * 否则四个旧技能的名字与描述会继续常驻系统提示词。
 	 * 目录很小（≤ 内置技能数），不做缓存，避免开关后拿到旧值。
 	 */
 	getBundledSkillLoadPaths(): string[] {
@@ -132,7 +136,7 @@ export class SkillManager {
 		}
 		const paths: string[] = [];
 		for (const entry of entries) {
-			if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+			if (!entry.isDirectory() || entry.name.startsWith(".") || RETIRED_BUNDLED_SKILLS.includes(entry.name)) continue;
 			const dir = join(location.path, entry.name);
 			const skillFile = join(dir, SKILL_FILE);
 			if (!existsSync(skillFile)) continue;
@@ -405,61 +409,40 @@ export class SkillManager {
 	}
 
 	/**
-	 * 把随包分发的技能模板（resources/skills/<name>/SKILL.md）落到用户目录。
+	 * 把随包分发的技能模板（resources/skills/<name>/）落到用户目录。
 	 *
 	 * 目标位置分两类：
-	 * - `pideck-global`（默认）：桌面端专用技能（usage-probe / image-gen / pideck-doctor）。
-	 *   该目录不在 pi 的自动发现根里，只有 PiDeck spawn 时用 `--skill` 注入，
-	 *   终端里直接启动的 pi（TUI）不会加载。
+	 * - `pideck-global`（默认）：桌面端专用技能（pideck 路由入口）。该目录不在 pi 的
+	 *   自动发现根里，只有 PiDeck spawn 时用 `--skill` 注入，终端里直接启动的 pi（TUI）不会加载。
 	 * - `pi-global`：通用技能（mcp-setup）仍放回 pi 的全局技能目录，TUI 与 PiDeck 共用。
 	 *
-	 * 幂等覆盖：模板随应用更新同步；用户自定义配置写在各自的数据文件，不在此文件。
-	 * `disable-model-invocation` 是用户手动设置的「仅手动调用」标记，覆盖时保留。
+	 * 具体落盘（SKILL.md + references/、旧参考清理、覆盖层回落、旧目录迁移）在
+	 * bundledSkillInstaller.ts，避免本文件继续净增长。
 	 */
 	async installTemplate(skillName: string, locationId: "pideck-global" | "pi-global" = "pideck-global"): Promise<{ success: true; path: string } | { success: false; error: string }> {
 		try {
 			const location = this.requireLocation(locationId);
-			// 老版本把桌面端技能装在 pi 的自动发现根里：先迁移，TUI 才不会再加载。
-			if (locationId === "pideck-global") await this.migrateLegacyBundledSkill(skillName);
-			// 覆盖层优先：热更新把有差异的技能写进 userData/skills-overlay（结构同
-			// <builtin>/skills/<name>/SKILL.md），安装时读生效源，避免「更新成功但装旧模板」。
-			const overlayDir = this.skillOverlayProvider?.() ?? null;
-			const root = app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources");
-			const templatePath = overlayDir ? join(overlayDir, skillName, SKILL_FILE) : join(root, "skills", skillName, SKILL_FILE);
-			const content = await readFile(templatePath, "utf8");
-			const targetDir = join(location.path, skillName);
-			await mkdir(targetDir, { recursive: true });
-			const targetPath = join(targetDir, SKILL_FILE);
-			// 模板正文随应用更新同步；用户自行设置的 user-only 标记仍需保留。
-			const previous = await readFile(targetPath, "utf8").catch(() => null);
-			const wasUserOnly = previous !== null && this.parseFrontmatter(previous)["disable-model-invocation"] === "true";
-			await writeFile(targetPath, content, "utf8");
-			if (wasUserOnly) {
-				await writeFile(targetPath, this.setFrontmatterBoolean(content, "disable-model-invocation", true), "utf8");
-			}
-			// 模板落盘同样是技能根变更：列表缓存必须失效（否则安装后 1.5s 内看不到）
-			this.invalidateListCache();
-			return { success: true, path: targetPath };
+			const result = await installBundledSkillTemplate({
+				skillName,
+				targetDir: join(location.path, skillName),
+				legacyDir: locationId === "pideck-global" ? join(this.requireLocation("pi-global").path, skillName) : null,
+				overlayDir: this.skillOverlayProvider?.() ?? null,
+				resourcesRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources"),
+				parseFrontmatter: (raw) => this.parseFrontmatter(raw),
+			});
+			if (result.success) this.invalidateListCache();
+			return result;
 		} catch (error) {
 			return { success: false, error: error instanceof Error ? error.message : String(error) };
 		}
 	}
 
-	/**
-	 * 迁移旧版本装在 `~/.pi/agent/skills/<name>` 的内置技能。
-	 *
-	 * 只搬 PiDeck 自己创建的普通目录：软链（技能库工具会把库里的技能链进来）和普通文件
-	 * 都不是 PiDeck 建的，搬/删会破坏用户配置，原样留给用户处理。
-	 * 迁移失败不阻断安装：新副本照常落到内置目录，旧副本只是继续对 TUI 可见。
-	 */
-	private async migrateLegacyBundledSkill(skillName: string): Promise<void> {
-		const legacyDir = join(this.requireLocation("pi-global").path, skillName);
-		const targetDir = join(this.requireLocation("pideck-global").path, skillName);
-		if (existsSync(targetDir)) return;
-		const entry = await lstat(legacyDir).catch(() => null);
-		if (!entry || !entry.isDirectory() || entry.isSymbolicLink()) return;
-		await mkdir(dirname(targetDir), { recursive: true });
-		await rename(legacyDir, targetDir).catch(() => undefined);
+	/** 退役已并入其他技能的内置技能目录（只处理 pideck-global）；实现见 bundledSkillInstaller.ts。 */
+	async retireBundledSkills(names: readonly string[]): Promise<{ removed: string[]; failed: Array<{ name: string; error: string }> }> {
+		const location = this.locations.find((item) => item.id === "pideck-global");
+		const result = await retireBundledSkillDirs(names, location?.path ?? null);
+		if (result.removed.length) this.invalidateListCache();
+		return result;
 	}
 
 	private async scanLocation(location: PiSkillLocation): Promise<PiSkillSummary[]> {
@@ -562,20 +545,6 @@ export class SkillManager {
 			if (key) result[key] = value;
 		}
 		return result;
-	}
-
-	private setFrontmatterBoolean(raw: string, key: string, value: boolean) {
-		const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-		if (!match) return `---\n${key}: ${value}\n---\n\n${raw}`;
-		const lines = match[1].split(/\r?\n/);
-		let changed = false;
-		const nextLines = lines.map((line) => {
-			if (!line.trim().startsWith(`${key}:`)) return line;
-			changed = true;
-			return `${key}: ${value}`;
-		});
-		if (!changed) nextLines.push(`${key}: ${value}`);
-		return raw.replace(match[0], `---\n${nextLines.join("\n")}\n---`);
 	}
 
 	private validateSkill(name: string, description: string) {

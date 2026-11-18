@@ -1,8 +1,3 @@
----
-name: image-gen
-description: "要生成插画、海报、头像、示意图时用。读取生图供应商配置，调用 OpenAI 兼容图片 API（OpenAI／火山方舟／SiliconFlow 三种方言，支持参考图），存到项目目录。不用于修图、抠图、图片识别与图标检索。"
----
-
 # 图片生成（image-gen）
 
 ## 这是什么

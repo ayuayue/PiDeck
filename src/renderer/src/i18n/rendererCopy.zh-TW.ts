@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 2343c11e9a2e70ff6abda90602a5a5cb3654e375de721e5af94874e3e6048126（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: c4b58e11d40a97142dbbd6f255eff822eae39f60054b17187f5ddef29acf78b5（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3182,7 +3182,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.usageProbe.aiAssistInserted": "已把提示詞填入主會話輸入框，傳送即可讓 AI 幫你查",
 	"config.usageProbe.aiAssistCopiedOnly": "當前沒有活動會話可填入，已複製提示詞到剪貼簿；貼上給 Pi 傳送即可",
 	"config.usageProbe.aiPrompt":
-		"請幫我讓供應商「{provider}」顯示用量/餘額。usage-probe 技能已裝好，請按技能裡的流程處理：\n1. 先判斷該供應商是否已內建用量支援——內建的話直接告訴我，無需配置；\n2. 未內建時，按介面形態告訴我在「用量查詢」彈窗裡選「通用模板」「New API」還是「Cookie 登入態」、要填哪些欄位；\n3. 都覆蓋不了時，幫我寫 {configPath} 的 probes 陣列（配置裡不要寫 apiKey）。\n\n供應商名稱：{provider}\n介面 baseUrl：\n用量/餘額介面文件連結（可選）：",
+		"請幫我讓供應商「{provider}」顯示用量/餘額。PiDeck 的 pideck 技能帶用量查詢流程（references/usage-probe.md），請按它處理：\n1. 先判斷該供應商是否已內建用量支援——內建的話直接告訴我，無需配置；\n2. 未內建時，按介面形態告訴我在「用量查詢」彈窗裡選「通用模板」「New API」還是「Cookie 登入態」、要填哪些欄位；\n3. 都覆蓋不了時，幫我寫 {configPath} 的 probes 陣列（配置裡不要寫 apiKey）。\n\n供應商名稱：{provider}\n介面 baseUrl：\n用量/餘額介面文件連結（可選）：",
 	"config.usageProbe.newApiToken": "訪問令牌",
 	"config.usageProbe.newApiTokenPlaceholder": "在 New API 網站「個人設定 → 安全」裡生成",
 	"config.usageProbe.newApiTokenRequired": "請填寫訪問令牌（New API 網站「個人設定 → 安全」裡生成）",

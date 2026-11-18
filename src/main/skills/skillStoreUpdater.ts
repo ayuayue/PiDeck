@@ -1,7 +1,7 @@
 /**
  * 内置技能热更新器（技能管理页「内置技能」更新入口）。
  *
- * 随包分发的内置技能（resources/skills/<name>/SKILL.md）在应用启动时被复制到用户
+ * 随包分发的内置技能（resources/skills/<name>/，含 SKILL.md 与 references/）在应用启动时被复制到用户
  * 全局技能目录（~/.pi/agent/skills/）供 pi 发现加载；热更新把远端有差异的技能写进
  * `<userData>/skills-overlay` 覆盖层，SkillManager 安装模板时覆盖层优先——
  * 技能修 bug 或新增技能都不用等发版。

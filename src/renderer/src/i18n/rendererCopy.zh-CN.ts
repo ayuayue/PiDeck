@@ -3175,7 +3175,7 @@ export const zhCN = {
 	"config.usageProbe.aiAssistInserted": "已把提示词填入主会话输入框，发送即可让 AI 帮你查",
 	"config.usageProbe.aiAssistCopiedOnly": "当前没有活动会话可填入，已复制提示词到剪贴板；粘贴给 Pi 发送即可",
 	"config.usageProbe.aiPrompt":
-		"请帮我让供应商「{provider}」显示用量/余额。usage-probe 技能已装好，请按技能里的流程处理：\n1. 先判断该供应商是否已内置用量支持——内置的话直接告诉我，无需配置；\n2. 未内置时，按接口形态告诉我在「用量查询」弹窗里选「通用模板」「New API」还是「Cookie 登录态」、要填哪些字段；\n3. 都覆盖不了时，帮我写 {configPath} 的 probes 数组（配置里不要写 apiKey）。\n\n供应商名称：{provider}\n接口 baseUrl：\n用量/余额接口文档链接（可选）：",
+		"请帮我让供应商「{provider}」显示用量/余额。PiDeck 的 pideck 技能带用量查询流程（references/usage-probe.md），请按它处理：\n1. 先判断该供应商是否已内置用量支持——内置的话直接告诉我，无需配置；\n2. 未内置时，按接口形态告诉我在「用量查询」弹窗里选「通用模板」「New API」还是「Cookie 登录态」、要填哪些字段；\n3. 都覆盖不了时，帮我写 {configPath} 的 probes 数组（配置里不要写 apiKey）。\n\n供应商名称：{provider}\n接口 baseUrl：\n用量/余额接口文档链接（可选）：",
 	"config.usageProbe.newApiToken": "访问令牌",
 	"config.usageProbe.newApiTokenPlaceholder": "在 New API 网站「个人设置 → 安全」里生成",
 	"config.usageProbe.newApiTokenRequired": "请填写访问令牌（New API 网站「个人设置 → 安全」里生成）",

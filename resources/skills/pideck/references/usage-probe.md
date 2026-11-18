@@ -1,8 +1,3 @@
----
-name: usage-probe
-description: "PiDeck 的「用量查询」显示不对，或要给它接一个新供应商时用。先判是否内置（内置免配置），再按弹窗里的通用／New API／Cookie／火山方舟 AK-SK 模板配置，都覆盖不了时写 usage-probes.json 探针数组。不用于账户充值、密钥签发与计费对账。"
----
-
 # 用量查询辅助（usage-probe）
 
 ## 这是什么

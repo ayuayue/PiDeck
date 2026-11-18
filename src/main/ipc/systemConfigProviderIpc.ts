@@ -211,27 +211,28 @@ export function registerSystemConfigProviderIpc(deps: SystemConfigProviderIpcDep
 		});
 		return result;
 	});
-	// 安装内置「用量查询自定义」技能模板：从 app resources 复制 SKILL.md 到 PiDeck 专属技能目录
-	// （只由 PiDeck spawn 时 --skill 注入，TUI 不扫）。
+	// 安装内置技能：桌面端四个能力已合并成 pideck 路由入口（正文在 references/），
+	// 用量查询与生图都是它的一份参考。从 app resources 复制 SKILL.md + references 到 PiDeck
+	// 专属技能目录（只由 PiDeck spawn 时 --skill 注入，TUI 不扫）。
 	// 幂等：内容直接覆盖；启动时也会自动安装（见 index.ts），此处保留手动触发兑底。
 	ipcMain.handle(ipcChannels.configInstallUsageSkill, async () => {
-		const result = await skillManager.installTemplate("usage-probe");
+		const result = await skillManager.installTemplate("pideck");
 		if (result.success) {
-			void appLogger.info("skill", "Usage probe skill template installed", { path: result.path });
+			void appLogger.info("skill", "Bundled pideck skill template installed", { path: result.path, entry: "usage-probe" });
 			return { success: true, path: result.path };
 		}
-		void appLogger.warn("skill", "Failed to install usage probe skill template", { error: result.error });
+		void appLogger.warn("skill", "Failed to install bundled pideck skill template", { error: result.error, entry: "usage-probe" });
 		return { success: false, error: result.error };
 	});
 
 	// 内置生图技能手动安装入口：与 usage-probe 同理，供 UI/调试触发兑底（启动时已自动装，此处幂等覆盖）。
 	ipcMain.handle(ipcChannels.configInstallImageGenSkill, async () => {
-		const result = await skillManager.installTemplate("image-gen");
+		const result = await skillManager.installTemplate("pideck");
 		if (result.success) {
-			void appLogger.info("skill", "Image-gen skill template installed", { path: result.path });
+			void appLogger.info("skill", "Bundled pideck skill template installed", { path: result.path, entry: "image-gen" });
 			return { success: true, path: result.path };
 		}
-		void appLogger.warn("skill", "Failed to install image-gen skill template", { error: result.error });
+		void appLogger.warn("skill", "Failed to install bundled pideck skill template", { error: result.error, entry: "image-gen" });
 		return { success: false, error: result.error };
 	});
 

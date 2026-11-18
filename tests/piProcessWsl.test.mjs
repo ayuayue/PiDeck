@@ -69,7 +69,7 @@ function createLocator(invocationCalls) {
 }
 
 /** Windows UNC 路径：用 charCode 拼反斜杠，避免测试源码里的多层转义。 */
-const wslUncSkillPath = ["", "", "wsl$", "Ubuntu-24.04", "root", ".pi", "agent", "pideck-skills", "usage-probe"].join(String.fromCharCode(92));
+const wslUncSkillPath = ["", "", "wsl$", "Ubuntu-24.04", "root", ".pi", "agent", "pideck-skills", "pideck"].join(String.fromCharCode(92));
 
 const settings = {
 	wslEnabled: true,
@@ -114,7 +114,7 @@ test("injects bundled skills via --skill and converts them to Linux paths under 
 
 	await process.start();
 
-	assert.deepEqual(invocationCalls[0].args, ["--mode", "rpc", "--no-themes", "--offline", "--skill", "/root/.pi/agent/pideck-skills/usage-probe"]);
+	assert.deepEqual(invocationCalls[0].args, ["--mode", "rpc", "--no-themes", "--offline", "--skill", "/root/.pi/agent/pideck-skills/pideck"]);
 });
 
 test("skips --skill injection when the no-skills diagnostic switch is on", async () => {

@@ -1,50 +1,32 @@
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
-
-const require = createRequire(import.meta.url);
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 class SymlinkUnavailableError extends Error {}
 
-function loadSkillManagerModule() {
-	const source = readFileSync("src/main/skills/SkillManager.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-	});
-	const sandbox = {
-		exports: {},
-		process,
-		require: (id) => {
-			if (id === "electron")
-				return {
-					shell: { openPath: async () => "" },
-					// installUsageProbeTemplate 需要 app：dev 模式读 <appPath>/resources/skills/usage-probe/SKILL.md。
-					// 测试跑在项目根，该模板真实存在，用 cwd 作为 appPath 即可测通「读模板→写目标」链路。
-					app: { isPackaged: false, getAppPath: () => process.cwd() },
-				};
-			// 删除统一入口：测试环境无回收站，noop stub（本测试不触达删除路径）
-			if (id === "../fs/trash") return { trashPath: async () => {} };
-			if (id === "../logging/sharedLogger") return { getAppLogger: () => null };
+function loadSkillManagerModule({ trash = async () => {} } = {}) {
+	// createTsSandbox 按源文件目录解析相对 import：SkillManager 现在把模板安装拆到了
+	// bundledSkillInstaller.ts，手写 vm 沙箱会因为解析不到该模块而整片失败。
+	const load = createTsSandbox({
+		stubs: {
+			electron: {
+				shell: { openPath: async () => "" },
+				// installTemplate 需要 app：dev 模式读 <appPath>/resources/skills/pideck/SKILL.md 与 references/。
+				// 测试跑在项目根，该模板真实存在，用 cwd 作为 appPath 即可测通「读模板→写目标」链路。
+				app: { isPackaged: false, getAppPath: () => process.cwd() },
+			},
+			// 删除统一入口：默认 noop；退役技能的用例注入「真删」替身来观察目录消失
+			"../fs/trash": { trashPath: trash },
 			// 打开目录统一入口（issue #396）：本测试不触达打开路径，noop stub。
-			if (id === "../fs/openPath") return { openSystemPath: async () => "" };
-			if (id === "./pideckSkillsPath") return { pideckBundledSkillsDir: (home) => join(home, ".pi", "agent", "pideck-skills") };
-			return require(id);
+			"../fs/openPath": { openSystemPath: async () => "" },
+			"./pideckSkillsPath": { pideckBundledSkillsDir: (home) => join(home, ".pi", "agent", "pideck-skills") },
 		},
-	};
-	sandbox.global = sandbox;
-	vm.runInNewContext(outputText, sandbox, {
-		filename: "SkillManager.ts",
 	});
-	return sandbox.exports;
+	return load("src/main/skills/SkillManager.ts");
 }
 
 async function createSkillFile(path, name, description = `${name} description`) {
@@ -291,20 +273,48 @@ test("does not recurse forever through a directory symlink cycle", async () => {
 	});
 });
 
-test("installUsageProbeTemplate copies the bundled template into the PiDeck-only skills dir", async () => {
+test("installTemplate copies the pideck router with every reference file", async () => {
 	await withTemporaryHome(async (home) => {
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
-		const result = await manager.installTemplate("usage-probe");
+		const result = await manager.installTemplate("pideck");
 		assert.equal(result.success, true);
-		const target = join(home, ".pi", "agent", "pideck-skills", "usage-probe", "SKILL.md");
+		const targetDir = join(home, ".pi", "agent", "pideck-skills", "pideck");
+		const target = join(targetDir, "SKILL.md");
 		const written = readFileSync(target, "utf8");
-		assert.match(written, /name: usage-probe/);
-		assert.match(written, /usage-probes\.json/);
-		// 幂等覆盖：重复安装不报错、内容一致（用户自定义配置在 usage-probes.json，不在此模板文件）
-		const again = await manager.installTemplate("usage-probe");
+		assert.match(written, /name: pideck/);
+		// 路由入口必须指向 references 里的真实文件；只装 SKILL.md 时用户那边是死链。
+		for (const reference of ["references/image-gen.md", "references/usage-probe.md", "references/pideck-doctor.md", "references/web-api/connect.md", "references/web-api/actions.md", "references/web-api/maintenance.md"]) {
+			assert.equal(existsSync(join(targetDir, reference)), true, `缺少安装的参考文件 ${reference}`);
+		}
+		assert.match(readFileSync(join(targetDir, "references", "web-api", "actions.md"), "utf8"), /\/api\/sessions\/<id>\/runtime/);
+
+		// 幂等覆盖：重复安装不报错、内容一致（用户自定义配置在各自的数据文件，不在此模板文件）
+		const again = await manager.installTemplate("pideck");
 		assert.equal(again.success, true);
 		assert.equal(readFileSync(target, "utf8"), written);
+
+		// 旧版本删掉的参考文件不能留在用户目录：路由指向它时不会报错，读到的是过期内容。
+		await writeFile(join(targetDir, "references", "web-api", "obsolete.md"), "old\n", "utf8");
+		const third = await manager.installTemplate("pideck");
+		assert.equal(third.success, true);
+		assert.equal(existsSync(join(targetDir, "references", "web-api", "obsolete.md")), false);
+	});
+});
+
+test("installTemplate 覆盖层里没有该技能时回落到打包副本", async () => {
+	await withTemporaryHome(async (home) => {
+		// 远端清单换成新技能名后，旧版客户端仍按旧名安装；覆盖层是整包快照，里面没有旧目录。
+		// 此时必须回落打包模板，否则「技能热更新成功」会变成「技能全部消失」。
+		const overlay = join(home, "overlay");
+		await createSkillFile(join(overlay, "some-future-skill", "SKILL.md"), "some-future-skill");
+		const { SkillManager } = loadSkillManagerModule();
+		const manager = new SkillManager(home);
+		manager.configureSkillOverlay(() => overlay);
+		const result = await manager.installTemplate("pideck");
+		assert.equal(result.success, true);
+		const target = join(home, ".pi", "agent", "pideck-skills", "pideck", "SKILL.md");
+		assert.match(readFileSync(target, "utf8"), /name: pideck/);
 	});
 });
 
@@ -313,9 +323,9 @@ test("installTemplate 保留用户对内置技能的禁用标记（重启覆盖�
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
 		// 1. 首次启动安装模板
-		const first = await manager.installTemplate("usage-probe");
+		const first = await manager.installTemplate("pideck");
 		assert.equal(first.success, true);
-		const target = join(home, ".pi", "agent", "pideck-skills", "usage-probe", "SKILL.md");
+		const target = join(home, ".pi", "agent", "pideck-skills", "pideck", "SKILL.md");
 		const settings = { disabledSkills: [] };
 		manager.configureSettings(
 			() => settings,
@@ -326,71 +336,37 @@ test("installTemplate 保留用户对内置技能的禁用标记（重启覆盖�
 		);
 		// 2. 用户在技能页禁用：PiDeck settings 禁用列表是全禁用的唯一状态源。
 		await manager.toggle(target, false);
-		assert.deepEqual(settings.disabledSkills, ["usage-probe"]);
+		assert.deepEqual(settings.disabledSkills, ["pideck"]);
 		// 3. 模拟重启：main/index.ts 启动时 fire-and-forget 再次安装模板
-		const second = await manager.installTemplate("usage-probe");
+		const second = await manager.installTemplate("pideck");
 		assert.equal(second.success, true);
 		// 4. PiDeck settings 禁用列表在模板覆盖后仍保留。
 		const { skills } = await manager.list();
 		const skill = skills.find((item) => item.path === target);
 		assert.ok(skill);
 		assert.equal(skill.enabled, false);
-		assert.deepEqual(settings.disabledSkills, ["usage-probe"]);
+		assert.deepEqual(settings.disabledSkills, ["pideck"]);
 	});
 });
 
-test("installImageGenTemplate copies the bundled image-gen skill into the PiDeck-only skills dir", async () => {
-	await withTemporaryHome(async (home) => {
-		const { SkillManager } = loadSkillManagerModule();
-		const manager = new SkillManager(home);
-		const result = await manager.installTemplate("image-gen");
-		assert.equal(result.success, true);
-		const target = join(home, ".pi", "agent", "pideck-skills", "image-gen", "SKILL.md");
-		const written = readFileSync(target, "utf8");
-		assert.match(written, /name: image-gen/);
-		assert.match(written, /images\/generations/);
-		// 幂等覆盖：重复安装不报错、内容一致
-		const again = await manager.installTemplate("image-gen");
-		assert.equal(again.success, true);
-		assert.equal(readFileSync(target, "utf8"), written);
-	});
-});
-
-test("installPideckWebApiTemplate copies the bundled web-api skill into the PiDeck-only skills dir", async () => {
-	await withTemporaryHome(async (home) => {
-		const { SkillManager } = loadSkillManagerModule();
-		const manager = new SkillManager(home);
-		const result = await manager.installTemplate("pideck-web-api");
-		assert.equal(result.success, true);
-		const target = join(home, ".pi", "agent", "pideck-skills", "pideck-web-api", "SKILL.md");
-		const written = readFileSync(target, "utf8");
-		// 名字与端点锚：技能讲的是 PiDeck 独有的 web 服务，装错文件这两条立刻红。
-		assert.match(written, /name: pideck-web-api/);
-		assert.match(written, /\/api\/chat/);
-		// 幂等覆盖：重复安装不报错、内容一致
-		const again = await manager.installTemplate("pideck-web-api");
-		assert.equal(again.success, true);
-		assert.equal(readFileSync(target, "utf8"), written);
-	});
-});
 test("legacy 内置技能整目录迁到 PiDeck 目录：旧位置消失、附加文件保留", async () => {
 	await withTemporaryHome(async (home) => {
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
-		const legacyDir = join(home, ".pi", "agent", "skills", "image-gen");
-		await createSkillFile(join(legacyDir, "SKILL.md"), "image-gen");
+		const legacyDir = join(home, ".pi", "agent", "skills", "pideck");
+		await createSkillFile(join(legacyDir, "SKILL.md"), "pideck");
 		await writeFile(join(legacyDir, "notes.txt"), "keep me", "utf8");
 
-		const result = await manager.installTemplate("image-gen");
+		const result = await manager.installTemplate("pideck");
 		assert.equal(result.success, true);
 		assert.equal(existsSync(legacyDir), false);
-		const migratedDir = join(home, ".pi", "agent", "pideck-skills", "image-gen");
+		const migratedDir = join(home, ".pi", "agent", "pideck-skills", "pideck");
 		assert.equal(readFileSync(join(migratedDir, "notes.txt"), "utf8"), "keep me");
-		assert.match(readFileSync(join(migratedDir, "SKILL.md"), "utf8"), /name: image-gen/);
+		assert.match(readFileSync(join(migratedDir, "SKILL.md"), "utf8"), /name: pideck/);
 
 		// 列表里只剩一份，来源是 pideck-global（TUI 的扫描根里已经没有它）
 		const { skills } = await manager.list();
-		const matches = skills.filter((skill) => skill.name === "image-gen");
+		const matches = skills.filter((skill) => skill.name === "pideck");
 		assert.equal(matches.length, 1);
 		assert.equal(matches[0].sourceId, "pideck-global");
 	});
@@ -398,9 +374,9 @@ test("legacy 内置技能整目录迁到 PiDeck 目录：旧位置消失、附�
 
 test("legacy 内置技能是软链时不动用户的链接与库文件", async (t) => {
 	await withTemporaryHome(async (home) => {
-		const libraryDir = join(home, "library", "image-gen");
-		await createSkillFile(join(libraryDir, "SKILL.md"), "image-gen", "library copy");
-		const legacyLink = join(home, ".pi", "agent", "skills", "image-gen");
+		const libraryDir = join(home, "library", "pideck");
+		await createSkillFile(join(libraryDir, "SKILL.md"), "pideck", "library copy");
+		const legacyLink = join(home, ".pi", "agent", "skills", "pideck");
 		await mkdir(dirname(legacyLink), { recursive: true });
 		try {
 			await createDirectoryLink(libraryDir, legacyLink);
@@ -411,33 +387,71 @@ test("legacy 内置技能是软链时不动用户的链接与库文件", async (
 
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
-		const result = await manager.installTemplate("image-gen");
+		const result = await manager.installTemplate("pideck");
 		assert.equal(result.success, true);
 		// 链接与库文件原样保留（不是 PiDeck 建的东西），新副本落在 PiDeck 目录
 		assert.equal(lstatSync(legacyLink).isSymbolicLink(), true);
 		assert.match(readFileSync(join(libraryDir, "SKILL.md"), "utf8"), /library copy/);
-		assert.match(readFileSync(join(home, ".pi", "agent", "pideck-skills", "image-gen", "SKILL.md"), "utf8"), /name: image-gen/);
+		assert.match(readFileSync(join(home, ".pi", "agent", "pideck-skills", "pideck", "SKILL.md"), "utf8"), /name: pideck/);
 	});
 });
 
-test("getBundledSkillLoadPaths 只返回存在且已启用的内置技能目录", async () => {
+test("getBundledSkillLoadPaths 只返回存在、已启用且未退役的内置技能目录", async () => {
 	await withTemporaryHome(async (home) => {
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
-		await manager.installTemplate("usage-probe");
-		await manager.installTemplate("image-gen");
-		// 跨 vm realm 的数组原型不同，先复制成本 realm 数组再比较
+		await manager.installTemplate("pideck");
+		await manager.installTemplate("mcp-setup", "pi-global");
+		// 跨 vm realm 的数组原型不同，先复制成本 realm 数组再比较。
+		// mcp-setup 装在 pi-global（pi 的自动发现根），不在 --skill 注入范围里。
 		assert.deepEqual(
 			Array.from(manager.getBundledSkillLoadPaths(), (path) => basename(path)),
-			["image-gen", "usage-probe"],
+			["pideck"],
 		);
 
-		// 模拟 pi settings.json 投影：image-gen 被显式停用 → 不再注入
-		manager.configureNativeEnabledReader((skillPath) => (skillPath.replace(/\\/g, "/").includes("/image-gen/SKILL.md") ? false : undefined));
+		// 旧版本留下的退役入口：即使还没被回收站清掉，也不能重新注入。
+		await createSkillFile(join(home, ".pi", "agent", "pideck-skills", "usage-probe", "SKILL.md"), "usage-probe");
 		assert.deepEqual(
 			Array.from(manager.getBundledSkillLoadPaths(), (path) => basename(path)),
-			["usage-probe"],
+			["pideck"],
+			"退役名单里的技能不得注入",
 		);
+
+		// 模拟 pi settings.json 投影：pideck 被显式停用 → 不再注入
+		manager.configureNativeEnabledReader((skillPath) => (skillPath.replace(/\\/g, "/").includes("/pideck/SKILL.md") ? false : undefined));
+		assert.deepEqual(Array.from(manager.getBundledSkillLoadPaths()), []);
+	});
+});
+
+test("retireBundledSkills 只清普通目录：软链与普通文件原样保留", async (t) => {
+	await withTemporaryHome(async (home) => {
+		// 回收站替身：直接删，才能观察「目录真的没了」。生产实现走 shell.trashItem。
+		const { SkillManager } = loadSkillManagerModule({
+			trash: async (target) => {
+				await rm(target, { recursive: true, force: true });
+			},
+		});
+		const manager = new SkillManager(home);
+		const retiredDir = join(home, ".pi", "agent", "pideck-skills", "usage-probe");
+		await createSkillFile(join(retiredDir, "SKILL.md"), "usage-probe");
+
+		const libraryDir = join(home, "library", "image-gen");
+		await createSkillFile(join(libraryDir, "SKILL.md"), "image-gen", "library copy");
+		const retiredLink = join(home, ".pi", "agent", "pideck-skills", "image-gen");
+		await mkdir(dirname(retiredLink), { recursive: true });
+		try {
+			await createDirectoryLink(libraryDir, retiredLink);
+		} catch (error) {
+			if (skipUnavailable(t, error)) return;
+			throw error;
+		}
+
+		const result = await manager.retireBundledSkills(["usage-probe", "image-gen", "pideck-doctor"]);
+		assert.deepEqual(Array.from(result.removed), ["usage-probe"]);
+		assert.deepEqual(Array.from(result.failed), []);
+		assert.equal(existsSync(retiredDir), false, "普通目录必须被清掉");
+		assert.equal(lstatSync(retiredLink).isSymbolicLink(), true, "技能库链接不是 PiDeck 建的，不能动");
+		assert.match(readFileSync(join(libraryDir, "SKILL.md"), "utf8"), /library copy/);
 	});
 });
 

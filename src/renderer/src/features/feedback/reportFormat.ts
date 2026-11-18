@@ -208,7 +208,7 @@ export function formatAiPrompt(report: HealthReport, context: HealthReportContex
 			lines.push("");
 			lines.push(`项目级可用技能：${projectContext.skills.join(", ")}（如需可让 pi 执行 /skill:<名称> 获取使用说明）`);
 		}
-		lines.push(`提示：排查 PiDeck 自身问题时，可让 pi 使用全局技能 /skill:pideck-doctor 读取诊断报告与故障模式库。`);
+		lines.push(`提示：排查 PiDeck 自身问题时，可让 pi 使用全局技能 /skill:pideck 的「PiDeck 环境诊断」参考（references/pideck-doctor.md）读取诊断报告与故障模式库。`);
 	}
 	lines.push("");
 	lines.push("请输出：1) 最可能的根因（按可能性排序）；2) 每条的验证方法；3) 修复步骤；4) 修复后如何验证。");
