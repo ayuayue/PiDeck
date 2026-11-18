@@ -97,6 +97,14 @@ GitHub 的 choice 只能写死静态列表，无法动态读 tag，所以每发�
 
 ## 打包验证
 
+发版前的核心自动验收：先准备**当前代码**的 Electron 构建产物 `out/` 和本平台 `dist-runtime/dsh-runtime-<平台>-<架构>.tgz`（归档缺失时只运行 `npm run runtime:pack`；不要用旧构建/旧归档冒充本次版本），再运行：
+
+```bash
+npm run e2e -- e2e/release-core.spec.ts e2e/smoke.spec.ts e2e/session-bootstrap-tabs.spec.ts e2e/git-panel.spec.ts e2e/settings.spec.ts e2e/drawer.spec.ts e2e/file-tree-dom-budget.spec.ts
+```
+
+`release-core` 分别走 pi mock CLI、DSH 真 host + 隔离 DSH_HOME + 本机 HTTP 模型、ACP 真 stdio 子进程：每个后端都要首发、续发并显示各轮回复；DSH runtime 归档缺失/导入失败直接红灯，不跳过。其余现有 spec 覆盖启动、会话 Tab、Git、设置、抽屉与文件树。全程使用临时配置，不读取真实模型凭据；**不证明真实供应商联网/认证、SSH/WSL、安装包或自动更新可用**，仍需目标平台安装包人工 smoke。此命令只跑发版核心集；`preflight --e2e` 仍是现有全量 E2E，不能当成它的替代。
+
 时间线相关的改动（历史翻页 / 刻度跳转 / 加载更多）打包前额外过一遍 [`docs/timeline-manual-qa.md`](timeline-manual-qa.md) 的五条动作。
 
 `npm run pack`（--dir 快速验证）→ `dist:win/mac/linux`；发版前至少跑过一次目标平台完整安装包的人工 smoke，不依赖 CI 构建成功即发布。
