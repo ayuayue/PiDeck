@@ -19,7 +19,7 @@ import { t } from "../../i18n";
 import { Button } from "../ui-shadcn/button";
 import { isRemoteHostNotConnectedCode as isNotConnectedCode } from "./remoteProjectEntries";
 import { createRequestGate } from "./remoteRequestGate";
-import { RemoteFileEditor } from "../workspace/RemoteFileEditor";
+import { RemoteFilePreviewPane } from "../workspace/RemoteFileEditor";
 import { RemoteProjectEntryDialogs, type RemoteEntryDialog } from "./RemoteProjectEntryDialogs";
 import { RemoteTrashPanel } from "./RemoteTrashPanel";
 import { remoteFileEntryIsUnknown, remoteFileEntryKeepsInput } from "./remoteFileManagementState";
@@ -439,7 +439,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 				/>
 			) : null}
 			{!searching ? <RemoteTrashPanel projectId={props.projectId} open={trashOpen} reloadToken={trashReloadToken} busy={files.busy} outcome={trashOutcomeText} onRestore={restoreTrash} onRequestPrune={(ids, count) => setEntryDialog({ kind: "prune", ids, count })} /> : null}
-			{file !== null ? <RemoteFileEditor key={JSON.stringify([props.projectId, file])} services={services} path={file} canWrite={canWrite} /> : null}
+			{file !== null ? <RemoteFilePreviewPane key={JSON.stringify([props.projectId, file])} services={services} path={file} canWrite={canWrite} /> : null}
 			<RemoteProjectEntryDialogs dialog={entryDialog} busy={files.busy} errorText={dialogErrorText} onClose={() => setEntryDialog(null)} onCreate={submitNew} onRename={submitRename} onDelete={submitDelete} onPrune={submitPrune} />
 		</div>
 	);
