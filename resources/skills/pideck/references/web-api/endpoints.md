@@ -51,8 +51,20 @@
 | 端点 | 方法 | 参数 | 返回 | 注意 |
 |---|---|---|---|---|
 | `/api/health` | GET | — | 200 | 唯一不需要令牌的探活 |
-| `/api/ui-response` | POST | `{sessionId, requestId, agentId, runtimeGeneration, response}` | `{ok:true}` | 回答目标的 UI 询问。四个字段缺一个就 400；绑定过期是 409 `webError.runtimeTargetRequired` |
+| `/api/ui-response` | POST | `{sessionId, requestId, agentId, runtimeGeneration, response}` | `{ok:true}` | 回答目标的 UI 询问。四个字段缺一个就 400 `webError.requestIdRequired`；绑定过期是 409 `webError.runtimeTargetRequired` |
 | `/api/easytier/config.toml` | GET | — | TOML 文件 | 含网络密钥，所以留在鉴权链内；没生成时 404 `easytier-config-missing` |
+
+## 会 503 的那一对
+
+上游 `read.md` 用 curl 列出 `/subagents` 与 `/todo`，但没写它们会 503。**它们和 `/dsh/` 前缀下的同名端点不是一回事：**
+
+| 端点 | 能力未装配时 | 无活跃 runtime 时 |
+|---|---|---|
+| `/api/sessions/<id>/subagents` | 503 `webError.stripsUnavailable` | 照常返回 |
+| `/api/sessions/<id>/todo` | 503 `webError.stripsUnavailable` | 照常返回 |
+| `/api/sessions/<id>/dsh/subagents` | 200 `{subagents: []}` | 200 `{subagents: []}` |
+
+同一个「拿不到」，一组回 503、一组回空数组。**原因是调用方不同**：不带前缀的是桌面 IPC 同源数据，拿不到就是装配错误，该报；带 dsh 的是面板轮询，拿不到只该让面板空着。写客户端时按上表分流，别统一按 503 重试。
 
 ## 口径
 

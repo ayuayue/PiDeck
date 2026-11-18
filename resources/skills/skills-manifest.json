@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "4a580ee37fc65dae11b1412b82a954307dfd41f9049c0d7b320c00ee8f2ccffa",
+  "bundleSha256": "ae79bc2770a805bb5731b372961dc1f1f2d917878722062e6a00273e65fe330b",
   "fileCount": 14,
   "files": [
     {
@@ -46,8 +46,8 @@
     },
     {
       "name": "pideck/references/web-api/endpoints.md",
-      "sha256": "5729dd182953b42421759a65a7a54070649f96d42c3077ef9541c361b681f38c",
-      "bytes": 4400
+      "sha256": "e4a6954c01493abf9c2daac1226d8d4113bada8be9b178da52b1e74b7e622de7",
+      "bytes": 5229
     },
     {
       "name": "pideck/references/web-api/maintenance.md",
