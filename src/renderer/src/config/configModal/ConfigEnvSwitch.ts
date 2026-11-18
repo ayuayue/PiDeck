@@ -126,6 +126,10 @@ export function useConfigEnvSwitch(deps: ConfigEnvSwitchDeps) {
 			setAddingProvider(false);
 			setEditingProvider(null);
 			setAddingAuth(false);
+			setEditingGlobalSkill(null);
+			setEditGlobalContent("");
+			setEditingPrompt(null);
+			setEditPromptContent("");
 			setConfigTarget(next);
 			rememberTarget(next);
 			settleForTarget(next);
@@ -147,7 +151,7 @@ export function useConfigEnvSwitch(deps: ConfigEnvSwitchDeps) {
 				lost.push(key);
 				continue;
 			}
-			if ((key === "skills" || key === "prompts" || key === "extensions") && !resourcePagesSupported(next)) lost.push(key);
+			if (key === "skills" || key === "prompts" || key === "extensions") lost.push(key);
 			if (key === "security" && !securityPageSupported(next)) lost.push(key);
 		}
 		return lost;

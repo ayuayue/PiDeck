@@ -11,7 +11,7 @@ import { t } from "../i18n";
 import { SkillStoreTab } from "./SkillStoreTab";
 import { SkillHubStorePanel } from "./SkillHubStorePanel";
 import { ContentStoreUpdatePanel } from "./ContentStoreUpdatePanel";
-import { desktopApi } from "../desktopApi";
+import { useConfigEditor } from "./useConfigEditorApi";
 import { Input } from "../components/ui-shadcn/input";
 import { Textarea } from "../components/ui-shadcn/textarea";
 import { CreateResourceCard, CreateResourceField } from "./ConfigShared";
@@ -61,6 +61,7 @@ export function SkillsTab(props: {
 	onRename: (skill: PiSkillSummary, newName: string) => Promise<void>;
 }) {
 	const { data } = props;
+	const { api, remote } = useConfigEditor();
 	// 开关的乐观覆盖：点击立刻翻转显示，写盘 + 刷新结束后清掉（技能写盘很快，但刷新链路仍要等）。
 	const { begin, end, settle, shown } = useResourceTogglePending();
 	const handleSkillToggle = async (skill: PiSkillSummary, enabled: boolean) => {
@@ -149,22 +150,24 @@ export function SkillsTab(props: {
 			) : (
 				<>
 					{/* 内置技能热更新面板：随包技能可同步远端最新版（覆盖层优先），刷新列表即时生效 */}
-					<ContentStoreUpdatePanel
-						api={{
-							status: () => desktopApi.contentStore.skillsStatus(),
-							check: (branch) => desktopApi.contentStore.skillsCheck(branch),
-							update: (branch) => desktopApi.contentStore.skillsUpdate(branch),
-							restore: () => desktopApi.contentStore.skillsRestore(),
-							restorePrevious: () => desktopApi.contentStore.skillsRestorePrevious(),
-							openDir: () => desktopApi.contentStore.skillsOpenDir(),
-						}}
-						text={{
-							title: t("config.contentStore.skills.title"),
-							description: t("config.contentStore.skills.description"),
-							restartHint: t("config.contentStore.skills.restartHint"),
-						}}
-						onApplied={props.onRefresh}
-					/>
+					{!remote && (
+						<ContentStoreUpdatePanel
+							api={{
+								status: () => api.contentStore.skillsStatus(),
+								check: (branch) => api.contentStore.skillsCheck(branch),
+								update: (branch) => api.contentStore.skillsUpdate(branch),
+								restore: () => api.contentStore.skillsRestore(),
+								restorePrevious: () => api.contentStore.skillsRestorePrevious(),
+								openDir: () => api.contentStore.skillsOpenDir(),
+							}}
+							text={{
+								title: t("config.contentStore.skills.title"),
+								description: t("config.contentStore.skills.description"),
+								restartHint: t("config.contentStore.skills.restartHint"),
+							}}
+							onApplied={props.onRefresh}
+						/>
+					)}
 					<div className="mb-3 flex items-center justify-between gap-3">
 						<div>
 							<span className="font-mono text-xs tabular-nums text-muted-foreground">{t("config.count.skills", { count: skillRowCount })}</span>
@@ -175,9 +178,9 @@ export function SkillsTab(props: {
 							<Button variant="outline" size="sm" onClick={props.onRefresh} disabled={props.loading}>
 								{t("common.refresh")}
 							</Button>
-							<ResourceImportDialog kind="skill" sourceProjectId={props.sourceProjectId ?? props.projectId} projects={projects} fixedProjectId={props.fixedProjectId} triggerLabel={t("config.import.button")} onImported={props.onRefresh} />
+							{!remote && <ResourceImportDialog kind="skill" sourceProjectId={props.sourceProjectId ?? props.projectId} projects={projects} fixedProjectId={props.fixedProjectId} triggerLabel={t("config.import.button")} onImported={props.onRefresh} />}
 							<Button variant="outline" size="sm" onClick={props.onOpenRoot}>
-								{t("config.openFolder")}
+								{t(remote ? "common.copy" : "config.openFolder")}
 							</Button>
 						</div>
 					</div>

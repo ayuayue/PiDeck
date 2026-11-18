@@ -32,7 +32,7 @@ export function RawTab(props: {
 		<div className="config-raw-tab flex min-h-0 flex-1 flex-col gap-3">
 			{props.showFileSelector === false ? null : (
 				<div className="flex shrink-0 items-center justify-between gap-3">
-					<ConfigSelect value={props.fileName} options={remote ? RAW_FILE_OPTIONS.filter((file) => file.value !== "auth.json") : RAW_FILE_OPTIONS} onChange={props.onChangeFileName} />
+					<ConfigSelect value={props.fileName} options={RAW_FILE_OPTIONS} onChange={props.onChangeFileName} />
 				</div>
 			)}
 			{/* 源文件都是 JSON：CodeMirror 提供语法高亮/折叠/括号匹配，JSON 语法错误即时提示（lint）。 */}
@@ -47,7 +47,7 @@ export function RawTab(props: {
 						</span>
 					</div>
 				)}
-				<span className="text-micro text-muted-foreground">{t(remote ? "remoteConfig.documentHint" : "config.rawHostReads")}</span>
+				<span className="text-micro text-muted-foreground">{t(remote ? (props.fileName === "auth.json" ? "remoteResources.authSourceHint" : "remoteConfig.documentHint") : "config.rawHostReads")}</span>
 			</div>
 		</div>
 	);

@@ -68,6 +68,7 @@ const {
 	REMOTE_HELPER_ENTRY_SHA256,
 	REMOTE_HELPER_ENTRY_VERSION,
 	REMOTE_HELPER_CONFIG_SHA256,
+	REMOTE_HELPER_RESOURCE_SHA256,
 	REMOTE_HELPER_SEARCH_CONTENT_SHA256,
 	REMOTE_HELPER_UPLOAD_COMMIT_SHA256,
 	REMOTE_UPLOAD_COMMIT_FILE_NAME,
@@ -86,7 +87,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "8af27daf3a179b9906c8f6ee7ca957d650c93703495bb1e7a22a885c4ee920bb";
+const FROZEN_SHA256 = "1655f44eb95fd73df253c0d5ad2d67a27532c046771b5e4fd8dc87902716d720";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -457,11 +458,12 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 	// programs that worker imports - and each one is content-addressed and pinned on its own. A change is only
 	// legitimate together with a deliberate update of that file's digest.
 	const expected = new Map([
-		["helper.mjs", { sha256: FROZEN_SHA256, builtins: ["node:fs", "node:path", "node:crypto"], imports: ["upload-commit.mjs", "git-read.mjs", "config.mjs", "search-content.mjs"] }],
+		["helper.mjs", { sha256: FROZEN_SHA256, builtins: ["node:fs", "node:path", "node:crypto"], imports: ["upload-commit.mjs", "git-read.mjs", "config.mjs", "resources.mjs", "search-content.mjs"] }],
 		["git-read.mjs", { sha256: REMOTE_HELPER_GIT_READ_SHA256, builtins: ["node:child_process", "node:crypto"], imports: ["git-write.mjs", "git-sync.mjs"] }],
 		["git-write.mjs", { sha256: REMOTE_HELPER_GIT_WRITE_SHA256, builtins: [], imports: [] }],
 		["git-sync.mjs", { sha256: REMOTE_HELPER_GIT_SYNC_SHA256, builtins: [], imports: [] }],
 		["config.mjs", { sha256: REMOTE_HELPER_CONFIG_SHA256, builtins: [], imports: [] }],
+		["resources.mjs", { sha256: REMOTE_HELPER_RESOURCE_SHA256, builtins: [], imports: [] }],
 		["search-content.mjs", { sha256: REMOTE_HELPER_SEARCH_CONTENT_SHA256, builtins: [], imports: [] }],
 		[REMOTE_UPLOAD_COMMIT_FILE_NAME, { sha256: REMOTE_HELPER_UPLOAD_COMMIT_SHA256, builtins: [], imports: [] }],
 		["terminal-runner.mjs", { sha256: REMOTE_TERMINAL_RUNNER_ENTRY_SHA256, builtins: ["node:fs", "node:path", "node:child_process"], imports: [] }],
@@ -550,7 +552,7 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 helperTest("the exported entry identity matches the frozen source", () => {
 	assert.equal(REMOTE_HELPER_ENTRY_FILE_NAME, "helper.mjs");
 	assert.match(REMOTE_HELPER_ENTRY_VERSION, /^\d+\.\d+\.\d+$/);
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.30.0", "1.30.0 增加版本保护的 config.replace，共享表单与源文件编辑保持凭据脱敏");
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.31.0", "1.31.0 adds host-bound auth and user-resource management");
 	// The frozen source cannot import the contract, so its literals are checked against it here.
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(`"${REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report REMOTE_HELPER_ENTRY_VERSION");
 	for (const token of [REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_STAT_MANY, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) {
@@ -1842,6 +1844,10 @@ test("every declared capability is actually dispatched by the helper method tabl
 	const body = source.slice(start, end);
 	assert.ok(body.includes('refuse(identity, "METHOD_NOT_FOUND")'), "the capture must reach the fallthrough, not a truncated prefix");
 	const dispatched = new Set(Array.from(body.matchAll(/frame\.method === "([A-Za-z.]+)"/g), (match) => match[1]));
+	const arrayDispatch = /\[([^\]]*)\]\.includes\(frame\.method\)/.exec(body);
+	if (arrayDispatch) {
+		for (const match of arrayDispatch[1].matchAll(/"([A-Za-z.]+)"/g)) dispatched.add(match[1]);
+	}
 	const missing = capabilities.filter((capability) => !dispatched.has(capability));
 	assert.deepEqual(missing, [], "every declared capability must reach a handler (otherwise METHOD_NOT_FOUND)");
 });

@@ -111,10 +111,10 @@ test("SSH 失败保留版本并拒绝盲重试；重新读取后才允许再次�
 	assert.equal((await h.editor.config.saveModels(next)).valid, true);
 });
 
-test("未读取的文件、认证写入、非法 JSON 不得写任何本机或远端配置", async () => {
+test("未读取的文件或认证、非法 JSON 不得写任何本机或远端配置", async () => {
 	const h = harness();
 	await assert.rejects(() => h.editor.config.saveModels({ providers: {} }), /VERSION_CONFLICT/);
-	await assert.rejects(() => h.editor.config.saveAuth({}), /UNSUPPORTED/);
+	await assert.rejects(() => h.editor.config.saveAuth({}), /VERSION_CONFLICT/);
 	await h.editor.config.getModels();
 	assert.equal((await h.editor.config.saveRaw("models.json", "{ broken")).valid, false);
 	assert.equal(h.calls.filter((call) => call.operation === "write").length, 0);

@@ -5,6 +5,8 @@ import type { RemoteModelCatalogEntry } from "../../../shared/types/remoteModel"
 import { remoteConfigDocument } from "./remoteConfigDocument";
 import { deepEqual } from "../utils/deepEqual";
 import { readRemoteConfigSnapshot, readRemoteConfigWriteReceipt } from "./remoteConfigModel";
+import { createRemoteAuthEditor } from "./remoteAuthEditorApi";
+import { createRemoteResourceEditorApi } from "./remoteResourceEditorApi";
 
 /** One instance per selected SSH host. No configuration operation falls through to local APIs. */
 export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, ensureConnected: (hostId: string) => Promise<{ ok: boolean }>) {
@@ -26,6 +28,8 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 		catalog = [];
 		catalogPending = undefined;
 	}
+	const authEditor = createRemoteAuthEditor(api, hostId, connected, resetCatalog);
+	const resources = createRemoteResourceEditorApi(api, hostId, connected);
 	async function read(file: PiConfigFileKey, view = "form") {
 		const key = `${view}:${file}`;
 		const started = epoch;
@@ -103,6 +107,7 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 	};
 	const editor: PiDesktopApi = {
 		...api,
+		...resources,
 		probeRemoteModels: async (_host, force = false) => {
 			await connected();
 			return api.probeRemoteModels(hostId, force);
@@ -117,6 +122,7 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 		},
 		config: {
 			...api.config,
+			...resources.config,
 			getModels: async () => {
 				const result = await read("models");
 				const providers = result.parsed.providers;
@@ -125,14 +131,9 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 			},
 			getSettings: () => read("settings"),
 			getTrust: () => read("trust"),
-			getAuth: async () => {
-				await connected();
-				const result = await api.config.getRaw("auth.json", options);
-				if (result.remoteAuth?.hostId !== hostId) throw new Error(REMOTE_CONFIG_CODES.fileInvalid);
-				// Only provider names are needed by the settings selector. No fake key enters editable state.
-				return { raw: "{}", parsed: Object.fromEntries(result.remoteAuth.providers.map((entry) => [entry.provider, { type: entry.type }])) };
-			},
+			getAuth: () => authEditor.read(),
 			getRaw: async (name) => {
+				if (name === "auth.json") return authEditor.read();
 				const file = piConfigFileKeyFromName(name);
 				if (!isPiConfigFileKey(file)) throw new Error(REMOTE_CONFIG_CODES.unsupported);
 				return read(file);
@@ -140,14 +141,15 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 			saveModels: (data) => write("models", data),
 			saveSettings: (data) => write("settings", data),
 			saveRaw: async (name, raw) => {
-				const file = piConfigFileKeyFromName(name);
-				if (!isPiConfigFileKey(file)) return unsupported();
 				let data: unknown;
 				try {
 					data = JSON.parse(raw);
 				} catch {
 					return { valid: false, error: REMOTE_CONFIG_CODES.fileInvalid };
 				}
+				if (name === "auth.json") return authEditor.write(data);
+				const file = piConfigFileKeyFromName(name);
+				if (!isPiConfigFileKey(file)) return unsupported();
 				return write(file, data);
 			},
 			fetchModels: async (baseUrl) => {
@@ -162,7 +164,7 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 				const entries = await models(true);
 				return { success: true, models: entries.filter((entry) => names.includes(entry.provider)).map(({ provider: _provider, ...model }) => model) };
 			},
-			saveAuth: unsupported,
+			saveAuth: (data) => authEditor.write(data),
 			testProvider: unsupported,
 			export: unsupported,
 			import: unsupported,
@@ -184,19 +186,21 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 		config: {
 			...editor.config,
 			getRaw: async (name) => {
+				if (name === "auth.json") return authEditor.read("raw");
 				const file = piConfigFileKeyFromName(name);
 				if (!isPiConfigFileKey(file)) return unsupported();
 				return read(file, "raw");
 			},
 			saveRaw: async (name, text) => {
-				const file = piConfigFileKeyFromName(name);
-				if (!isPiConfigFileKey(file)) return unsupported();
 				let data: unknown;
 				try {
 					data = JSON.parse(text);
 				} catch {
 					return { valid: false, error: REMOTE_CONFIG_CODES.fileInvalid };
 				}
+				if (name === "auth.json") return authEditor.write(data, "raw");
+				const file = piConfigFileKeyFromName(name);
+				if (!isPiConfigFileKey(file)) return unsupported();
 				return write(file, data, "raw");
 			},
 		},
@@ -205,6 +209,8 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 		rawApi,
 		reloadRemoteConfig: () => {
 			epoch += 1;
+			authEditor.reset();
+			resources.reset();
 			snapshots.clear();
 			blocked.clear();
 			resetCatalog();

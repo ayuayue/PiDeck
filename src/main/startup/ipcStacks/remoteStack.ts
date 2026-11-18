@@ -72,7 +72,7 @@ export interface RemoteStackHandles {
 	readonly remoteProjectIpc: ReturnType<typeof registerRemoteProjectIpc>;
 	readonly remoteProjectTextPort: ReturnType<typeof registerRemoteProjectFileIpc>;
 	readonly remoteProjectTransfers: ReturnType<typeof registerRemoteProjectTransferJobIpc>;
-	readonly runPinnedRemoteCommand: (input: { hostId: string; remoteCommand: string }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+	readonly runPinnedRemoteCommand: (input: { hostId: string; remoteCommand: string; timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
 }
 
 export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles {
@@ -319,10 +319,10 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 	 *
 	 * 定义在装配点之前（而不是就地定义）：会话扫描/登记也走它（R1a），而它们的装配代码在下面靠前的位置。
 	 */
-	const runPinnedRemoteCommand = async ({ hostId, remoteCommand }: { hostId: string; remoteCommand: string }) => {
+	const runPinnedRemoteCommand = async ({ hostId, remoteCommand, timeoutMs }: { hostId: string; remoteCommand: string; timeoutMs?: number }) => {
 		const client = await remoteSshClientIfEnabled();
 		const invocation = await buildPinnedSshInvocation(app.getPath("userData"), hostId, "ssh-batch", { client, remoteCommand });
-		const result = await client.run(invocation.executable, invocation.args);
+		const result = await client.run(invocation.executable, invocation.args, timeoutMs === undefined ? undefined : { timeoutMs });
 		// stderr 也要回传：pi 对未知旗标的抱怨随版本在 stdout 或 stderr（模型目录的降级判据要用它），
 		// 丢掉就等于把「不认这个旗标」误判成「远端没有模型」。
 		return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr ?? "" };

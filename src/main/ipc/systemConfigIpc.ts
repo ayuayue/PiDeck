@@ -195,6 +195,17 @@ export function registerSystemConfigIpc(deps: SystemConfigIpcDeps): void {
 		return result;
 	});
 	ipcMain.handle(ipcChannels.configGetAuth, () => configManager.getAuthConfig());
+	ipcMain.handle(ipcChannels.configReplaceRemoteAuth, async (_event, input: import("../../shared/types/remotePiManagement").RemoteAuthReplaceInput) => {
+		if (!remotePiConfig) throw new Error(REMOTE_CONFIG_CODES.unavailable);
+		try {
+			const result = await remotePiConfig.replaceAuth(input);
+			remoteModelCatalog?.invalidate(result.remoteAuth.hostId);
+			return result;
+		} catch (error) {
+			if (input && typeof input.hostId === "string" && remotePiConfigCodeFromError(error) === REMOTE_CONFIG_CODES.resultUnconfirmed) remoteModelCatalog?.invalidate(input.hostId);
+			throw error;
+		}
+	});
 	ipcMain.handle(ipcChannels.configGetSettings, async (_event, options?: unknown) => configReadDto(await piConfigRouter.readSettings(options)));
 	ipcMain.handle(ipcChannels.configGetTrust, () => configManager.getTrustConfig());
 

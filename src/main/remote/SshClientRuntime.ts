@@ -5,7 +5,7 @@ import { parseSshResolvedRoute } from "./SshRouteDigest";
 
 export type SshCommandResult = { exitCode: number; stdout: string; stderr?: string };
 /** Per-invocation options. `signal` aborts the child process (used to cancel a running probe/upload attempt). */
-export type SshCommandOptions = { signal?: AbortSignal };
+export type SshCommandOptions = { signal?: AbortSignal; timeoutMs?: number };
 export type SshCommandRunner = (executable: string, args: string[], options?: SshCommandOptions) => Promise<SshCommandResult>;
 
 /**
@@ -130,7 +130,8 @@ function createRunner(executable: string, env: NodeJS.ProcessEnv, timeoutMs: num
 		const signal = options?.signal;
 		if (signal?.aborted === true) throw new Error("SSH_HOST_COMMAND_CANCELLED");
 		return new Promise((resolve, reject) => {
-			execFile(executable, args, { encoding: "utf8", timeout: timeoutMs, maxBuffer: 256 * 1024, windowsHide: true, shell: false, env, ...(signal === undefined ? {} : { signal }) }, (error, stdout, stderr) => {
+			const budget = options?.timeoutMs === undefined || !Number.isFinite(options.timeoutMs) ? timeoutMs : Math.min(600000, Math.max(1000, Math.trunc(options.timeoutMs)));
+			execFile(executable, args, { encoding: "utf8", timeout: budget, maxBuffer: 256 * 1024, windowsHide: true, shell: false, env, ...(signal === undefined ? {} : { signal }) }, (error, stdout, stderr) => {
 				const mapped = mapProcessError(error);
 				if (mapped) return reject(mapped);
 				resolve({ exitCode: error ? (typeof error.code === "number" ? error.code : -1) : 0, stdout, stderr });

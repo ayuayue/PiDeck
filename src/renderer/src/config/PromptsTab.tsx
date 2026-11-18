@@ -1,3 +1,4 @@
+import { useConfigEditor } from "./useConfigEditorApi";
 import { Button } from "../components/ui-shadcn/button";
 import { Switch } from "../components/ui-shadcn/switch";
 import { Badge } from "../components/ui-shadcn/badge";
@@ -106,6 +107,7 @@ export function PromptsTab(props: {
 	onChangeEditContent: (value: string) => void;
 	onSaveEdit: () => void;
 }) {
+	const { remote } = useConfigEditor();
 	const { data } = props;
 	// 开关的乐观覆盖：点击立刻翻转显示，写盘 + 刷新结束后清掉（提示词写盘很快，但刷新链路仍要等）。
 	const { begin, end, settle, shown } = useResourceTogglePending();
@@ -334,7 +336,7 @@ export function PromptsTab(props: {
 								{t("common.refresh")}
 							</Button>
 							<Button variant="outline" size="sm" onClick={props.onOpenRoot}>
-								{t("config.openFolder")}
+								{t(remote ? "common.copy" : "config.openFolder")}
 							</Button>
 						</div>
 					</div>

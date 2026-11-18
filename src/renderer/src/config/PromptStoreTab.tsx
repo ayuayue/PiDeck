@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, Check, Download, ExternalLink, Globe } from "lucide-react";
 import type { PromptStoreItem, PromptStoreSearchResult, PiPromptTemplateSummary, PiPromptTemplateListResult } from "../../../shared/types";
 import { t } from "../i18n";
-import { desktopApi } from "../desktopApi";
+import { useConfigEditor } from "./useConfigEditorApi";
+import type { PiDesktopApi } from "../../../preload";
 import { YaoPromptTab } from "./YaoPromptTab";
 import { ContentTabs } from "./ContentTabs";
 import { StoreSearchBar } from "./StoreSearchBar";
@@ -22,9 +23,9 @@ function predictImportName(title: string): string {
 }
 
 /** 获取当前作用域已安装 prompt 名称集合 */
-async function getInstalledPromptNames(projectId?: string): Promise<Set<string>> {
+async function getInstalledPromptNames(api: PiDesktopApi, projectId?: string): Promise<Set<string>> {
 	try {
-		const list: PiPromptTemplateListResult = projectId ? await desktopApi.prompts.listByProject(projectId) : await desktopApi.prompts.list();
+		const list: PiPromptTemplateListResult = projectId ? await api.prompts.listByProject(projectId) : await api.prompts.list();
 		return new Set(list.templates.filter((t) => t.userCreated).map((t) => t.name.toLowerCase()));
 	} catch {
 		return new Set();
@@ -43,6 +44,7 @@ export function PromptStoreTab(props: {
 	/** Selected project id; omitted for the global pi prompt directory. */
 	projectId?: string;
 }) {
+	const { api, remote } = useConfigEditor();
 	const [storeSubTab, setStoreSubTab] = useState<"store" | "yao">("store");
 	const [query, setQuery] = useState("");
 	const [searching, setSearching] = useState(false);
@@ -73,7 +75,7 @@ export function PromptStoreTab(props: {
 			setError(null);
 			setSearching(true);
 			try {
-				const [data, installed] = await Promise.all([desktopApi.promptStore.search(q, { limit: 20 }), getInstalledPromptNames(props.projectId)]);
+				const [data, installed] = await Promise.all([api.promptStore.search(q, { limit: 20 }), getInstalledPromptNames(api, props.projectId)]);
 				setResult(data);
 				setInstalledNames(installed);
 			} catch (err) {
@@ -84,7 +86,7 @@ export function PromptStoreTab(props: {
 				setSearching(false);
 			}
 		},
-		[props.projectId],
+		[api, props.projectId],
 	);
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -101,7 +103,7 @@ export function PromptStoreTab(props: {
 		setImportingId(item.id);
 		setError(null);
 		try {
-			await desktopApi.promptStore.import({
+			await api.promptStore.import({
 				title: item.title,
 				description: item.description,
 				content: item.content,

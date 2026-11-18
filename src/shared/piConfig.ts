@@ -10,8 +10,7 @@
  * Which allowlisted agent file a request names. Never a path, never auth.json.
  *
  * trust.json 与 mcp.json 与 models/settings 走**同一条**脱敏配置通道：秘密键只回 configured/missing，
- * 写入可提供新值，占位符保留远端原值。auth.json 文档结构性不可达（凭据永不跨机回传），
- * 因此不在这张表里，也不该被渲染层当成「ssh 可编辑」的文件。
+ * 写入可提供新值，占位符保留远端原值。auth 使用专属条目替换，凭据永不回传，不加入此白名单。
  */
 export const PI_CONFIG_FILES = ["models", "settings", "trust", "mcp"] as const;
 export type PiConfigFileKey = (typeof PI_CONFIG_FILES)[number];
@@ -19,13 +18,13 @@ export type PiConfigFileKey = (typeof PI_CONFIG_FILES)[number];
 /**
  * The WSL scope reads through the distribution's UNC path and writes inside the distribution, so the credential
  * file is editable there too (same trust level as the Windows HOME). The extra key exists only for this scope;
- * `PI_CONFIG_FILES` stays the ssh allowlist so `auth` can never be addressed over the helper.
+ * `PI_CONFIG_FILES` stays the generic SSH document allowlist; auth uses its dedicated operation.
  */
 export const WSL_PI_CONFIG_FILES = ["models", "settings", "trust", "mcp", "auth"] as const;
 export type WslPiConfigFileKey = (typeof WSL_PI_CONFIG_FILES)[number];
 
 /**
- * The ssh helper's **read** allowlist. auth.json only appears here: the helper answers a derived provider list
+ * The ssh helper's **read** allowlist. For auth.json the helper answers a derived provider list
  * (name / credential type / configured) and never a value or the raw document, so the credential itself stays on
  * the host. `PI_CONFIG_FILES` remains the write allowlist and stays at four files.
  */
@@ -88,11 +87,10 @@ export function piConfigReadFilesForTarget(target: PiConfigTarget): readonly Wsl
 /**
  * Which environment a **resource** surface (skills / prompts / extensions) reads and writes.
  *
- * Deliberately narrower than {@link PiConfigTarget}: remote (ssh) resource management is not supported in this
- * build, so an ssh target is not expressible here and the main-side validator refuses anything outside this union.
+ * SSH uses a host-bound facade and a separate closed IPC domain. Legacy local/WSL resource IPC still rejects SSH.
  * Absent target means local, the compatibility default every existing renderer call relies on.
  */
-export type PiResourceTarget = { kind: "local" } | { kind: "wsl" };
+export type PiResourceTarget = { kind: "local" } | { kind: "wsl" } | { kind: "ssh"; hostId: string };
 export type PiResourceOptions = { target?: PiResourceTarget };
 
 /**
@@ -103,7 +101,7 @@ export type PiResourceOptions = { target?: PiResourceTarget };
 export const PI_RESOURCE_CODES = {
 	/** the target object shape/hostId is not a resource target this build accepts. */
 	targetInvalid: "PI_RESOURCE_TARGET_INVALID",
-	/** ssh is a valid config target, but remote resource management is not routed there in this build. */
+	/** Legacy local/WSL resource IPC refuses SSH; it must use the host-bound resource domain. */
 	sshUnsupported: "PI_RESOURCE_SSH_UNSUPPORTED",
 	/** the channel is a local-only resource write (skill/extension mutations, prompt create/delete/rename/toggle). */
 	writeUnsupported: "PI_RESOURCE_WRITE_UNSUPPORTED",

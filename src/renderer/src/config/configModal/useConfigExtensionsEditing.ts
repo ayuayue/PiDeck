@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { PiResourceOptions } from "../../../../shared/piConfig";
 import type { PiExtensionListResult, PiExtensionSummary, ProjectResourceDiscoveryResult, ProjectResourceListResult } from "../../../../shared/types";
@@ -44,6 +44,17 @@ export function useConfigExtensionsEditing(deps: ConfigExtensionsEditingDeps) {
 	const [uninstallExtensionConfirm, setUninstallExtensionConfirm] = useState<PiExtensionSummary | null>(null);
 	/** 项目包发现行（package-project）的卸载确认：走 `pi remove <source> -l`，只删项目层记账。 */
 	const [uninstallProjectPackageConfirm, setUninstallProjectPackageConfirm] = useState<{ source: string } | null>(null);
+	const activeApi = useRef(api);
+	activeApi.current = api;
+	useEffect(() => {
+		setExtensionsData({ extensions: [], raw: "" });
+		setExtensionsLoading(false);
+		setUninstallExtensionConfirm(null);
+		setUninstallProjectPackageConfirm(null);
+		setUninstallingExtensionSource(null);
+		setDiscoveryData({ projectResourcesAllowed: false, overrides: { disabledGlobalSkills: [], disabledGlobalPrompts: [], disabledGlobalExtensions: [] }, skills: [], prompts: [], extensions: [] });
+		setProjectResourcesData(emptyProjectResourceData());
+	}, [api, resourceOptions]);
 
 	/**
 	 * Load the complete list, while project-owned rows are fetched only in project scope.
@@ -56,7 +67,7 @@ export function useConfigExtensionsEditing(deps: ConfigExtensionsEditingDeps) {
 		const projectIdHere = resourceScope === "project" ? effectiveProjectId : undefined;
 		try {
 			const [globalResult, projectResult, discoveryResult] = await Promise.all([api.extensions.list(forceRefresh, resourceOptions), projectIdHere && hasProject ? api.projectResources.list(projectIdHere) : Promise.resolve(emptyProjectResourceData()), api.projectResources.discovery(projectIdHere)]);
-			if (generation !== resourceGenerationRef.current) return;
+			if (generation !== resourceGenerationRef.current || api !== activeApi.current) return;
 			setDiscoveryData(discoveryResult);
 			const globalExtensions = globalResult.extensions.filter((extension) => !isProjectExtension(extension));
 			const projectExtensions = projectResult.extensions;
@@ -70,10 +81,11 @@ export function useConfigExtensionsEditing(deps: ConfigExtensionsEditingDeps) {
 			});
 			setExtensionsData({ ...globalResult, extensions: mergedExtensions });
 		} catch (e) {
+			if (generation !== resourceGenerationRef.current || api !== activeApi.current) return;
 			// 资源域失败给稳定码文案；其它异常保留原文。
 			setError(resourceTargetErrorMessage(e));
 		} finally {
-			if (generation === resourceGenerationRef.current) setExtensionsLoading(false);
+			if (generation === resourceGenerationRef.current && api === activeApi.current) setExtensionsLoading(false);
 		}
 	};
 
@@ -120,7 +132,7 @@ export function useConfigExtensionsEditing(deps: ConfigExtensionsEditingDeps) {
 		try {
 			await api.files.showInFolder(extension.path, extension.scope === "project" && effectiveProjectId ? { projectId: effectiveProjectId } : undefined);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
+			if (api === activeApi.current) setError(err instanceof Error ? err.message : String(err));
 		}
 	};
 
@@ -130,7 +142,7 @@ export function useConfigExtensionsEditing(deps: ConfigExtensionsEditingDeps) {
 		try {
 			await api.files.showInFolder(item.path, item.physicalScope === "project" && effectiveProjectId ? { projectId: effectiveProjectId } : undefined);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
+			if (api === activeApi.current) setError(err instanceof Error ? err.message : String(err));
 		}
 	};
 

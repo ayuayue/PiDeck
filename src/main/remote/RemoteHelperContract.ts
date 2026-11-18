@@ -1,9 +1,6 @@
 /**
  * Shared vocabulary for the remote helper protocol (plan §7) and the bootstrap contract (§168).
- * Types and limits only — parsing, framing and validation live in the modules that own them, so this
- * file stays the single place both sides agree on.
- *
- * Method names, result fields and bounds are literals here, repeated by the frozen helper under test (§7.1).
+ * Types, result fields and bounds only; the frozen helper repeats them under test (§7.1).
  * Only declared result shapes and bounds belong to the protocol and are enforced on both sides.
  */
 
@@ -113,6 +110,13 @@ export const REMOTE_HELPER_ERROR_CODES = [
 	"CONFIG_PATH_UNSUPPORTED",
 	"CONFIG_RESULT_UNCONFIRMED",
 	"CONFIG_UNAVAILABLE",
+	"RESOURCE_INPUT_INVALID",
+	"RESOURCE_UNAVAILABLE",
+	"RESOURCE_PATH_INVALID",
+	"RESOURCE_NOT_FOUND",
+	"RESOURCE_TOO_LARGE",
+	"RESOURCE_VERSION_CONFLICT",
+	"RESOURCE_RESULT_UNCONFIRMED",
 	/* SFTP-1 upload transaction: validation and token failures are deterministic; once the hard-link publish
 	 * may have happened every later failure is UNCONFIRMED and must never be replayed automatically. */
 	"FILE_UPLOAD_INPUT_INVALID",
@@ -354,49 +358,7 @@ export const REMOTE_GIT_COMMIT_MESSAGE_MAX_BYTES = 4096;
 export type RemoteGitWorkspaceDiffParams = { group: "merge" | "index" | "workingTree" | "untracked"; path: string };
 export type RemoteGitWorkspaceDiffResult = { originalContent: string; modifiedContent: string };
 
-export const REMOTE_HELPER_CAPABILITIES = [
-	"echo",
-	"fs.stat",
-	"fs.statMany",
-	"fs.list",
-	"fs.read",
-	"fs.searchNames",
-	"fs.searchContent",
-	"fs.watch",
-	"fs.unwatch",
-	"fs.uploadPrepare",
-	"fs.uploadCommit",
-	"fs.uploadAbort",
-	"git.status",
-	"git.workspaceDiff",
-	"git.stage",
-	"git.unstage",
-	"git.commit",
-	"git.log",
-	"git.commitDetail",
-	"git.refs",
-	"git.refFileDiff",
-	"git.compare",
-	"git.createBranch",
-	"git.switchBranch",
-	"git.discard",
-	"git.recoveryList",
-	"git.recoveryRestore",
-	"git.recoveryDrop",
-	"git.syncFacts",
-	"git.fetch",
-	"git.push",
-	"git.pull",
-	"git.init",
-	"git.repos",
-	"git.checkIgnore",
-	"terminal.prepare",
-	"config.read",
-	"config.patch",
-	"config.readAuth",
-	"config.replace",
-] as const;
-export type RemoteHelperCapability = (typeof REMOTE_HELPER_CAPABILITIES)[number];
+export { REMOTE_HELPER_CAPABILITIES, type RemoteHelperCapability } from "./RemoteHelperCapabilities";
 /**
  * Ceiling for one requested relative path. It is applied to the raw string before any filesystem access,
  * so an over-long path is a PROTOCOL_INVALID refusal rather than an ENAMETOOLONG round trip.
@@ -651,6 +613,8 @@ export const REMOTE_HELPER_METHOD_CONFIG_READ = "config.read",
 	REMOTE_HELPER_METHOD_CONFIG_REPLACE = "config.replace";
 /** Read-only, value-free view of auth.json; never a patch source (auth.json is not in the patch allowlist). */
 export const REMOTE_HELPER_METHOD_CONFIG_READ_AUTH = "config.readAuth";
+/** Versioned credential-set replacement. Secret values only travel main → the same verified host. */
+export const REMOTE_HELPER_METHOD_CONFIG_REPLACE_AUTH = "config.replaceAuth";
 export type RemoteConfigFileKey = "models" | "settings" | "trust" | "mcp";
 /** Upper bound for either agent file (raw bytes) and for the serialized patched result. */
 export const REMOTE_CONFIG_MAX_FILE_BYTES = 1024 * 1024;

@@ -43,7 +43,7 @@ test("只有一个环境入口：Pi 分页上的下拉，页内不再渲染目�
 	assert.match(envSwitch, /data-testid="config-environment-status"/);
 });
 
-test("导航按环境能力表过滤：ssh 只剩文件页（含只读认证），资源/安全页不给死入口", () => {
+test("导航按环境能力表过滤，不给当前环境不支持的页面入口", () => {
 	assert.match(modal, /const supportedConfigTabs = configTabsForTarget\(configTarget\)/);
 	assert.match(modal, /allConfigNavItems\.filter\(\(item\) => supportedConfigTabs\.includes\(item\.id\)\)/);
 	assert.match(modal, /const showSecurityPage = securityPageSupported\(configTarget\)/);
@@ -52,21 +52,6 @@ test("导航按环境能力表过滤：ssh 只剩文件页（含只读认证）�
 	assert.match(modal, /\{showResourcePages && \(/);
 	// 切环境后当前页若不存在，落到该环境第一页（不留在一个导航里已经没有的 tab 上）。
 	assert.match(modal, /setTab\(\(current\) => resolveConfigTabForTarget\(next, current\)\)/);
-});
-
-test("ssh 认证面板：只读派生视图，没有任何写入/凭据值通道", () => {
-	const authPanel = readFileSync("src/renderer/src/config/RemoteAuthPanel.tsx", "utf8");
-	assert.match(authPanel, /data-testid="remote-auth-panel"/);
-	assert.match(authPanel, /data-testid="remote-auth-readonly"/);
-	assert.match(authPanel, /data-testid="remote-auth-provider"/);
-	// 只走源文件级的按目标读取，不碰本机认证链路，也不发任何写入。
-	assert.match(authPanel, /desktopApi\.config\.getRaw\("auth\.json", \{ target: \{ kind: "ssh" as const, hostId \} \}\)/);
-	assert.doesNotMatch(authPanel, /saveRaw|saveAuth|saveModels|saveSettings|expectedVersion|markDirty/);
-	// 凭据值没有任何展示位（只有 configured/missing 与类型）。
-	assert.doesNotMatch(authPanel, /secret\.value|provider\.key|provider\.access/);
-	// 主机连接与「先确保在线再读」与其它远端面板同一条路径。
-	assert.match(authPanel, /const ready = await ensureConnected\(props\.hostId\)/);
-	assert.match(authPanel, /request !== generation\.current/);
 });
 
 test("环境菜单自己会跟：分区重新可见时重读主机清单，连接失败也会推送", () => {

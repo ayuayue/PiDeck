@@ -6,6 +6,9 @@ import type { PiDesktopApi } from "../../../preload";
 export function createConfigPreview(): Pick<PiDesktopApi, "config" | "configBackups"> {
 	return {
 		config: {
+			replaceRemoteAuth: async () => {
+				throw new Error("REMOTE_CONFIG_UNAVAILABLE");
+			},
 			previewProviderMigration: async () => ({ direction: "pi-to-dsh" as const, providers: [] }),
 			applyProviderMigration: async (direction, provider) => ({
 				ok: true,

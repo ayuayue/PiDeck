@@ -43,6 +43,7 @@ import { ConfigModalDialogs, type ConfigDeleteConfirm } from "./config/configMod
 import { loadLastConfigTab, loadLastConfigTarget, parseSectionTabValue, rememberConfigTab, rememberConfigTarget, sectionTabValue, type ConfigSection } from "./config/configModal/configModalStorage";
 import { ConfigNavSidebar, type ConfigNavItem } from "./config/configModal/ConfigNavSidebar";
 import { useConfigLoader } from "./config/configModal/useConfigLoader";
+import { reloadConfigSection } from "./config/configModal/reloadConfigSection";
 import { ConfigSkillsTab } from "./config/configModal/ConfigSkillsTab";
 import { ConfigModalShell } from "./config/configModal/ConfigModalShell";
 import { ConfigMcpTab } from "./config/configModal/ConfigMcpTab";
@@ -919,7 +920,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const showSecurityPage = securityPageSupported(configTarget);
 	const showResourcePages = resourcePagesSupported(configTarget);
 
-	// 加载态/错误提示：每个 TabsContent 顶部共用（Tabs 会卸载非激活内容，不能只挂一处）。
 	const statusBlock = (
 		<ConfigStatusBlock
 			loading={loading}
@@ -927,15 +927,11 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			hasDrafts={hasPiDirty || addingProvider || !!editingProvider}
 			onReload={() => {
 				editor.reload?.();
-				resetDrafts();
-				setAddingProvider(false);
-				setEditingProvider(null);
-				void loadConfig(tab, { force: true });
+				void reloadConfigSection({ section, tab, resetDrafts, setAddingProvider, setEditingProvider, setEditingGlobalSkill, setEditingPrompt, clearDirty, refreshSkills, refreshPrompts, refreshExtensions, loadConfig });
 			}}
 		/>
 	);
 
-	// 配置诊断卡：config 组 5 个子页顶部共用（任意子页打开时都显示）。
 	const configDiagnosticBlock = configDiagnostic ? <ConfigDiagnosticCard diagnostic={configDiagnostic} onOpenDocs={() => api.app.openExternal(configDiagnostic.docsUrl, true)} onOpenRaw={() => setTab("raw")} /> : null;
 
 	if (!open && !embedded) return null;

@@ -4,7 +4,6 @@ import type { PiConfigTarget } from "../../../../shared/piConfig";
 import { t } from "../../i18n";
 import { AuthTab } from "../AuthTab";
 import type { AuthFile, ConfigTab } from "../configTypes";
-import { RemoteAuthPanel } from "../RemoteAuthPanel";
 import { WslConfigSourceHint } from "../WslConfigSourceHint";
 import type { WslConfigTargetHost } from "../piConfigTargetModel";
 
@@ -86,10 +85,10 @@ export function useConfigAuthEditing(deps: ConfigAuthEditingDeps) {
 		const sourceAuth = authData[provider];
 		if (!sourceAuth) return;
 		const duplicatedAuth = structuredClone(sourceAuth);
-		let newName = `${provider} copy`;
+		let newName = `${provider}-copy`;
 		let counter = 2;
 		while (authData[newName]) {
-			newName = `${provider} copy ${counter}`;
+			newName = `${provider}-copy-${counter}`;
 			counter++;
 		}
 		setAuthData({
@@ -119,7 +118,7 @@ export function useConfigAuthEditing(deps: ConfigAuthEditingDeps) {
 	const handleSaveAuth = async (): Promise<boolean> => {
 		const save = () => (configTargetOption ? api.config.saveRaw("auth.json", JSON.stringify(authData, null, 2), configTargetOption) : api.config.saveAuth(authData));
 		const ok = await saveAndReload(save, undefined, "config:auth");
-		await reloadConfig("auth", { force: true });
+		if (ok) await reloadConfig("auth", { force: true });
 		return ok;
 	};
 
@@ -129,7 +128,7 @@ export function useConfigAuthEditing(deps: ConfigAuthEditingDeps) {
 export type ConfigAuthTabProps = {
 	/** WSL 目标的来源提示（本机/ssh 为 undefined）。 */
 	wslTargetHost: WslConfigTargetHost | undefined;
-	/** ssh 目标的主机 id：非空时整页换成只读远端面板。 */
+	/** SSH 身份由共享编辑器上下文绑定。 */
 	remoteTargetHostId: string | null;
 	remoteHostLabel: string | undefined;
 	/** 页顶部共用的加载/错误提示与诊断卡（父级同一份 element 多处复渲染）。 */
@@ -143,16 +142,9 @@ export function ConfigAuthTab({ wslTargetHost, remoteTargetHostId, remoteHostLab
 	return (
 		<div className="config-content">
 			{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="auth" /> : null}
-			{/* ssh：凭据永不跨机回传，这一页只有派生视图（provider / 类型 / 是否已配置），没有可编辑表单。 */}
-			{remoteTargetHostId ? (
-				<RemoteAuthPanel key={"remote-auth-" + remoteTargetHostId} hostId={remoteTargetHostId} hostLabel={remoteHostLabel} />
-			) : (
-				<>
-					{statusBlock}
-					{configDiagnosticBlock}
-					{!loading && <AuthTab {...authTabProps} />}
-				</>
-			)}
+			{statusBlock}
+			{configDiagnosticBlock}
+			{!loading && <AuthTab {...authTabProps} />}
 		</div>
 	);
 }

@@ -3,8 +3,11 @@ import type { PiDesktopApi } from "../../../preload";
 /**
  * 远程主机、远程会话与 WSL 执行环境的桩：预览环境一律返回 REMOTE_FEATURE_DISABLED。
  */
-export function createRemotePreview(): Pick<PiDesktopApi, "remoteHosts" | "remoteTransfers" | "remoteSessions" | "remoteTrust" | "probeRemoteModels" | "wsl"> {
+export function createRemotePreview(): Pick<PiDesktopApi, "remoteHosts" | "remoteTransfers" | "remoteSessions" | "remoteTrust" | "probeRemoteModels" | "remotePiResources" | "wsl"> {
 	return {
+		remotePiResources: async () => {
+			throw new Error("PI_RESOURCE_UNAVAILABLE");
+		},
 		remoteHosts: {
 			// 预览模式没有主进程，也没有远端主机库：返回空目录而非报错，让列表页在静态预览下可渲染。
 			// 连接类方法一律报「功能未启用」——预览环境不存在真实 SSH，静默假装成功会误导 UI。

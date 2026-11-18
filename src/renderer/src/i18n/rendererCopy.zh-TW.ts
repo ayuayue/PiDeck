@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 17b6e0136c50b5818332a0f206265ede574b2680112053c7f6f1f2289fb6c088（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 4a1cf7509b67d0f3c9a48f0ab7a11f9592aa4b228fc1a77a7f1b2e86526c5a43（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7847,7 +7847,13 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.env.currentMark": "當前",
 	"config.env.scopeLocal": "本機環境：模型、憑據、信任、MCP、原始檔與資源都可編輯",
 	"config.env.scopeWsl": "WSL 環境：讀寫落在開發設定裡那個發行版的 HOME（.pi/agent）；OAuth 登入與安全策略仍在本機",
-	"config.env.scopeSsh": "正在編輯 SSH 主機的 Pi 配置；支援表單和原始檔編輯，認證憑據只顯示狀態。",
+	"config.env.scopeSsh": "正在管理 SSH 主機的 Pi 配置與全域資源；儲存和安裝均作用於這臺主機。",
+	"remoteAuth.editHint": "支援新增、替換 API Key、複製和刪除認證。已有憑據留在遠端；保留標記會原樣保留憑據。OAuth 登入請在遠端終端執行。",
+	"remoteAuth.retained": "已配置 · 保留遠端憑據",
+	"remoteResources.pathCopied": "已複製遠端路徑",
+	"remoteResources.copyPath": "複製遠端路徑",
+	"remoteResources.source": "編輯擴充套件原始檔",
+	"remoteResources.authSourceHint": "已有憑據用 retain 和 source 標記保留；輸入 type: api_key 與 key 可替換金鑰。刪除條目會刪除該認證。",
 	"config.env.switchDirtyTitle": "切換 Pi 環境",
 	"config.env.switchDirtyMessage": "當前環境還有 {count} 項未儲存的修改。切換後整個面板會按新環境重新載入。",
 	"config.env.switchDirtyRemote": "遠端頁籤還有未應用的 patch。切換環境會丟棄它。",
@@ -7857,11 +7863,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.env.mcpFileTitle": "MCP 服務（該環境的 mcp.json）",
 	"config.env.mcpFileHint": "按檔案編輯：連線檢測、OAuth 登入與模板仍只在本機執行；儲存後由該環境的 pi 讀取。",
 	"config.resourceTarget.label": "資源目標",
-	"config.resourceTarget.readOnly": "該資源目標本輪只讀：僅支援檢視列表與提示詞讀取/儲存，切回本機後再編輯技能/擴充套件",
-	"config.resourceTarget.readOnlyHint": "當前顯示的是 WSL 發行版 HOME 下的資源；技能/提示詞/擴充套件開關會寫該發行版，擴充套件安裝/解除安裝/更新與技能正文編輯仍只支援本機",
 	"config.resourceTarget.writeUnsupported": "該操作暫只支援本機目標：先切回本機再操作",
 	"config.resourceTarget.errorTargetInvalid": "資源目標無效，請重新選擇目標",
-	"config.resourceTarget.errorSshUnsupported": "SSH 目標暫不支援資源管理，請改用本機或 WSL 環境",
+	"config.resourceTarget.errorSshUnsupported": "該資源操作沒有繫結所選 SSH 主機，已拒絕執行；請重新整理環境後重試",
 	"config.resourceTarget.errorWriteUnsupported": "該操作暫只支援本機目標：先切回本機再修改技能 / 擴充套件 / 提示詞",
 	"config.resourceTarget.errorHostNotFound": "WSL 環境未配置：請在「設定 → 開發」裡開啟 WSL 並選擇發行版/使用者",
 	"config.resourceTarget.errorDistroUnavailable": "WSL 發行版不可用：確認發行版已啟動後重試",

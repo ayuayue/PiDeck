@@ -115,11 +115,6 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 		async (target: ConfigTab, options?: { force?: boolean; silent?: boolean }) => {
 			// OAuth 页的数据来自 pi 认证服务（listProviders）而不是配置文件：不走这条读盘链路。
 			if (target === "oauth") return;
-			// SSH uses the host-bound editor API; auth retains its separate derived, read-only panel.
-			if (targetKind === "ssh" && target === "auth") {
-				setLoading(false);
-				return;
-			}
 			const request = ++generation.current;
 			const current = () => request === generation.current && api === activeApi.current && identity === activeIdentity.current;
 			// silent：测试连接成功后回读磁盘用——不置 loading，避免 ModelsTab 在
@@ -169,8 +164,8 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 					applyModelsTab(res, settingsRes);
 				} else if (target === "auth") {
 					// 本机用 ConfigManager 的 parsed 结果；WSL 走该发行版 HOME 的 auth.json 原文（同一份 JSON 形状）。
-					const authRaw = configTargetOption ? await api.config.getRaw("auth.json", configTargetOption) : null;
-					const parsed = configTargetOption && authRaw ? parseJsonObject<AuthFile>(authRaw.raw, {}) : ((await api.config.getAuth()).parsed as AuthFile);
+					const authRaw = configTargetOption && !skipAuth ? await api.config.getRaw("auth.json", configTargetOption) : null;
+					const parsed = skipAuth ? baselineAuthRef.current : configTargetOption && authRaw ? parseJsonObject<AuthFile>(authRaw.raw, {}) : ((await api.config.getAuth()).parsed as AuthFile);
 					if (!current()) return;
 					if (!skipAuth) {
 						setAuthData(parsed);
@@ -188,7 +183,7 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 					// WSL 的 auth.json 也属于该作用域（本机 UNC 读），但 provider 探针仍只在本机执行——见下面的发现循环门禁。
 					const [settingsRes, authRes, modelsRes] = await Promise.all([
 						readSettings(),
-						targetKind === "ssh" ? api.config.getAuth() : configTargetOption ? api.config.getRaw("auth.json", configTargetOption).then((res) => ({ raw: res.raw, parsed: parseJsonObject<AuthFile>(res.raw, {}) })) : api.config.getAuth(),
+						skipAuth ? Promise.resolve({ raw: "", parsed: baselineAuthRef.current }) : targetKind === "ssh" ? api.config.getAuth() : configTargetOption ? api.config.getRaw("auth.json", configTargetOption).then((res) => ({ raw: res.raw, parsed: parseJsonObject<AuthFile>(res.raw, {}) })) : api.config.getAuth(),
 						readModels(),
 					]);
 					if (!current()) return;
@@ -319,7 +314,7 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 				} else if (target === "raw") {
 					if (skipRaw) return;
 					// 源文件统一走 config:get-raw：本机/WSL 回原文，SSH 回脱敏 JSON 文档。
-					const fileName = baselineRawRef.current.fileName === "auth.json" && targetKind === "ssh" ? "models.json" : baselineRawRef.current.fileName;
+					const fileName = baselineRawRef.current.fileName;
 					if (!skipRaw) setRawFileName(fileName);
 					// 基准快照随内容一起更新：切文件后新旧草稿都以新文件为比较基准
 					const res = await rawApi.config.getRaw(fileName, configTargetOption);

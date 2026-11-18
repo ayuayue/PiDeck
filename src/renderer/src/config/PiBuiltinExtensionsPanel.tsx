@@ -18,16 +18,7 @@ import type { PiBuiltinExtension, PiResourceConfigSummary, PiResourceScope } fro
 import type { ResourceScope } from "./resourceScopeModel";
 import { isProjectUntrustedError } from "./projectResourceErrors";
 
-type PiResourcesApi = {
-	piResourcesSummary: (scope?: PiResourceScope) => Promise<PiResourceConfigSummary>;
-	piResourcesSetBuiltin: (input: { scope?: PiResourceScope; name: PiBuiltinExtension; enabled: boolean; expectedRevision?: string }) => Promise<{ ok: boolean; error?: string; revision?: string }>;
-};
-
-function api(): PiResourcesApi {
-	const desktop = (window as unknown as { piDesktop?: { config?: Partial<PiResourcesApi> } }).piDesktop;
-	if (!desktop?.config?.piResourcesSummary || !desktop.config.piResourcesSetBuiltin) throw new Error("PiDeck pi resources API is not available");
-	return desktop.config as PiResourcesApi;
-}
+import { useConfigEditor } from "./useConfigEditorApi";
 
 /** 每个内置扩展的作用说明（工具/能力影响）。 */
 const BUILTIN_HINTS: Record<PiBuiltinExtension, string> = {
@@ -43,6 +34,7 @@ export function PiBuiltinExtensionsPanel(props: {
 	/** 切换成功后通知父层刷新依赖数据（例如 MCP 提示）。 */
 	onChanged?: () => void;
 }) {
+	const { api } = useConfigEditor();
 	const scopeKind = props.scope === "project" && props.projectId ? "project" : "global";
 	const projectId = scopeKind === "project" ? props.projectId : undefined;
 	const scope: PiResourceScope = scopeKind === "project" && projectId ? { scope: "project", projectId } : { scope: "global" };
@@ -60,7 +52,7 @@ export function PiBuiltinExtensionsPanel(props: {
 		setLoading(true);
 		setError(null);
 		try {
-			const next = await api().piResourcesSummary(scope);
+			const next = await api.config.piResourcesSummary(scope);
 			if (version !== readVersion.current) return;
 			setSnapshot({ scope, summary: next });
 			setError(next.error ?? null);
@@ -71,7 +63,7 @@ export function PiBuiltinExtensionsPanel(props: {
 		} finally {
 			if (version === readVersion.current) setLoading(false);
 		}
-	}, [scopeKind, projectId]);
+	}, [api, scopeKind, projectId]);
 
 	useEffect(() => {
 		setSnapshot(null);
@@ -93,7 +85,7 @@ export function PiBuiltinExtensionsPanel(props: {
 		setToggling(name);
 		setError(null);
 		try {
-			const result = await api().piResourcesSetBuiltin({ scope, name, enabled, expectedRevision: summary.revision });
+			const result = await api.config.piResourcesSetBuiltin({ scope, name, enabled, expectedRevision: summary.revision });
 			if (version !== scopeVersion.current) return;
 			if (!result.ok) {
 				// Refresh conflicts before displaying the error, while retaining the trust-gate guidance.

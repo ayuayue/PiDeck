@@ -20,6 +20,7 @@
 import { REMOTE_CONFIG_CODES, isPiConfigFileKey, type RemoteConfigDocument, type PiConfigFileKey, type RemotePiAuthProvider, type RemotePiAuthSnapshot, type RemotePiConfigSecretEntry, type RemotePiConfigSnapshot, type RemotePiConfigWriteReceipt } from "../../shared/piConfig";
 import { REMOTE_CONFIG_AUTH_PROVIDER_PATTERN, REMOTE_CONFIG_MAX_AUTH_PROVIDERS, REMOTE_CONFIG_MAX_DEPTH, REMOTE_CONFIG_MAX_FILE_BYTES, REMOTE_CONFIG_MAX_NODES, REMOTE_CONFIG_SECRET_KEY_PATTERN } from "../remote/RemoteHelperContract";
 import { PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
+import type { RemoteAuthReplaceInput, RemoteAuthReplaceResult } from "../../shared/types/remotePiManagement";
 
 export type RemotePiConfigTransportPort = {
 	/** Send one helper request on an already-ready host; rethrows the transport's structured error. */
@@ -30,6 +31,7 @@ export type RemotePiConfigBackend = {
 	read(input: { hostId: string; file: PiConfigFileKey }): Promise<RemotePiConfigSnapshot>;
 	/** Derived, value-free view of the host's auth.json (never a document and never a credential). */
 	readAuth(input: { hostId: string }): Promise<RemotePiAuthSnapshot>;
+	replaceAuth(input: RemoteAuthReplaceInput): Promise<RemoteAuthReplaceResult>;
 	patch(input: { hostId: string; file: PiConfigFileKey; expectedVersion: string; patch: Record<string, unknown> }): Promise<RemotePiConfigWriteReceipt>;
 	replace(input: { hostId: string; file: PiConfigFileKey; expectedVersion: string } & RemoteConfigDocument): Promise<RemotePiConfigWriteReceipt>;
 };
@@ -87,7 +89,7 @@ function mapHelperCode(code: string | undefined): string {
 }
 
 /** Read the ordered secret list out of sanitized data, rejecting any value that is neither status string. */
-function collectSecrets(data: Record<string, unknown>): RemotePiConfigSecretEntry[] {
+export function collectRemoteConfigSecrets(data: Record<string, unknown>): RemotePiConfigSecretEntry[] {
 	const secrets: RemotePiConfigSecretEntry[] = [];
 	const budget = { nodes: 0 };
 	function walk(value: unknown, prefix: string, depth: number): void {
@@ -126,7 +128,7 @@ function validateSnapshot(file: PiConfigFileKey, hostId: string, result: unknown
 	if (file === "models" && !isRecord(data.providers)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
 	// Same shape rule the frozen scope enforces before it activates a write: an array/string mcpServers breaks pi.
 	if (file === "mcp" && data.mcpServers !== undefined && !isRecord(data.mcpServers)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
-	const secrets = collectSecrets(data);
+	const secrets = collectRemoteConfigSecrets(data);
 	const supplied = result.secrets;
 	if (!Array.isArray(supplied)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
 	const normalized = supplied.map((entry) => {
@@ -206,12 +208,31 @@ export function createRemotePiConfigBackend(transport: RemotePiConfigTransportPo
 			const code = errorCode(error);
 			const mapped = mapHelperCode(code);
 			// A transport loss after dispatch cannot prove whether a replacement reached rename.
-			if (method === "config.replace" && (mapped === REMOTE_CONFIG_CODES.hostNotReady || (mapped === REMOTE_CONFIG_CODES.unavailable && code !== "CONFIG_UNAVAILABLE"))) throw stable(REMOTE_CONFIG_CODES.resultUnconfirmed);
+			if ((method === "config.replace" || method === "config.replaceAuth") && (mapped === REMOTE_CONFIG_CODES.hostNotReady || (mapped === REMOTE_CONFIG_CODES.unavailable && code !== "CONFIG_UNAVAILABLE"))) throw stable(REMOTE_CONFIG_CODES.resultUnconfirmed);
 			throw stable(mapped);
 		}
 	}
 
 	return {
+		async replaceAuth(input) {
+			if (!isRecord(input) || Object.keys(input).sort().join(",") !== "entries,expectedVersion,hostId" || !HEX64.test(input.expectedVersion) || !Array.isArray(input.entries) || input.entries.length > REMOTE_CONFIG_MAX_AUTH_PROVIDERS) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+			const seen = new Set<string>();
+			for (const entry of input.entries) {
+				if (!isRecord(entry) || typeof entry.provider !== "string" || !REMOTE_CONFIG_AUTH_PROVIDER_PATTERN.test(entry.provider) || ["__proto__", "constructor", "prototype"].includes(entry.provider) || seen.has(entry.provider)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+				seen.add(entry.provider);
+				const shape = Object.keys(entry).sort().join(",");
+				if (shape === "apiKey,provider") {
+					if (!("apiKey" in entry) || typeof entry.apiKey !== "string" || entry.apiKey.length > 65536 || /[\u0000-\u001f\u007f]/.test(entry.apiKey)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+				} else if ((shape !== "provider,retain" && shape !== "provider,retain,source") || !("retain" in entry) || entry.retain !== true || (entry.source !== undefined && (typeof entry.source !== "string" || !REMOTE_CONFIG_AUTH_PROVIDER_PATTERN.test(entry.source)))) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+			}
+			validatePatch({ entries: input.entries });
+			const result = await call(input.hostId, "config.replaceAuth", { expectedVersion: input.expectedVersion, entries: input.entries });
+			try {
+				return { valid: true, remoteAuth: validateAuthSnapshot(input.hostId, result) };
+			} catch {
+				throw stable(REMOTE_CONFIG_CODES.resultUnconfirmed);
+			}
+		},
 		async replace(input) {
 			if (!isPiConfigFileKey(input.file)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
 			if (typeof input.expectedVersion !== "string" || !HEX64.test(input.expectedVersion)) throw stable(REMOTE_CONFIG_CODES.versionConflict);

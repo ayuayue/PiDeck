@@ -25,6 +25,8 @@ test("config methods, capabilities and error codes are the same vocabulary on bo
 	assert.ok(contract.REMOTE_HELPER_CAPABILITIES.includes("config.read"));
 	assert.ok(contract.REMOTE_HELPER_CAPABILITIES.includes("config.patch"));
 	assert.ok(contract.REMOTE_HELPER_CAPABILITIES.includes("config.readAuth"));
+	assert.ok(contract.REMOTE_HELPER_CAPABILITIES.includes("config.replaceAuth"));
+	for (const operation of ["list", "read", "create", "write", "rename", "delete", "toggle", "togglePackage", "builtin"]) assert.ok(contract.REMOTE_HELPER_CAPABILITIES.includes("resources." + operation));
 	for (const code of ["CONFIG_FILE_INVALID", "CONFIG_FILE_TOO_LARGE", "CONFIG_VERSION_CONFLICT", "CONFIG_PATH_UNSUPPORTED", "CONFIG_RESULT_UNCONFIRMED", "CONFIG_UNAVAILABLE"]) {
 		assert.ok(contract.REMOTE_HELPER_ERROR_CODES.includes(code), code + " must be a declared helper error code");
 		assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"' + code + '"'), code + " must be a literal of the frozen entry");
@@ -34,7 +36,8 @@ test("config methods, capabilities and error codes are the same vocabulary on bo
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"config.patch"'));
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"config.readAuth"'));
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('from"./config.mjs"'), "the entry imports the config artifact");
-	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"config.read", "config.patch", "config.readAuth", "config.replace"]'), "capabilities literal carries every config method");
+	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('from"./resources.mjs"'), "the entry imports the resource artifact");
+	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"config.read", "config.patch", "config.readAuth", "config.replace", "config.replaceAuth"'), "capabilities literal carries every config method");
 });
 
 test("the secret-key pattern and the public bounds are one source of truth", () => {
@@ -85,10 +88,13 @@ test("the entry re-pins the new artifact and reports the declared build", () => 
 	// 不写死版本号：hello 报的版本必须等于源码声明的常量，bump 时只改一处。
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes(`"${entry.REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report the declared build");
 	const artifacts = Array.from(entry.REMOTE_HELPER_ARTIFACTS, (artifact) => artifact.name);
-	assert.deepEqual(artifacts, ["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "search-content.mjs", "upload-commit.mjs", "terminal-runner.mjs"]);
+	assert.deepEqual(artifacts, ["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "resources.mjs", "search-content.mjs", "upload-commit.mjs", "terminal-runner.mjs"]);
 	const packed = entry.REMOTE_HELPER_ARTIFACTS.find((artifact) => artifact.name === "config.mjs");
 	assert.equal(packed.sha256, config.REMOTE_HELPER_CONFIG_SHA256);
 	assert.equal(packed.source, config.REMOTE_CONFIG_SOURCE);
+	const resources = entry.REMOTE_HELPER_ARTIFACTS.find((artifact) => artifact.name === "resources.mjs");
+	assert.equal(resources.sha256, entry.REMOTE_HELPER_RESOURCE_SHA256);
+	assert.equal(resources.sha256, createHash("sha256").update(resources.source, "utf8").digest("hex"));
 	assert.equal(entry.REMOTE_HELPER_ENTRY_SHA256, createHash("sha256").update(entry.REMOTE_HELPER_INLINE_SOURCE, "utf8").digest("hex"));
 });
 

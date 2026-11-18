@@ -5,6 +5,7 @@
 
 import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
+import { convertStoreVarsToPiVars } from "../../shared/promptStoreVariables";
 import type { CreatePiPromptTemplateInput, PiPromptTemplateSummary, PromptStoreItem, PromptStoreRawItem, PromptStoreSearchResponse, PromptStoreSearchResult, SkillHubInstallProgress, SkillHubSearchOptions } from "../../shared/types";
 import type { AppLogger } from "../logging/AppLogger";
 import type { PromptManager } from "../prompts/PromptManager";
@@ -225,47 +226,6 @@ export function registerStoreIpc({ promptManager, skillManager, xuePromptManager
 			votes: raw.voteCount ?? 0,
 			createdAt: raw.createdAt,
 		};
-	}
-
-	/** 将 prompts.chat 的命名变量转换为 pi 的位置参数 */
-	function convertStoreVarsToPiVars(content: string): { converted: string; argumentHint: string; varCount: number } {
-		const varMap = new Map<string, { index: number; hasDefault: boolean; defaultVal?: string }>();
-		let nextIndex = 1;
-		const scanRegex = /\$\{([a-zA-Z_]\w*)(?::(.*?))?\}/g;
-		let scanMatch: RegExpExecArray | null;
-		while ((scanMatch = scanRegex.exec(content)) !== null) {
-			const varName = scanMatch[1];
-			if (!varMap.has(varName)) {
-				varMap.set(varName, {
-					index: nextIndex++,
-					hasDefault: scanMatch[2] !== undefined,
-					defaultVal: scanMatch[2],
-				});
-			}
-		}
-		if (varMap.size === 0) {
-			return { converted: content, argumentHint: "", varCount: 0 };
-		}
-		let converted = content.replace(/\$\{([a-zA-Z_]\w*)(?::(.*?))?\}/g, (_match, varName: string, defaultVal?: string) => {
-			const info = varMap.get(varName)!;
-			if (defaultVal !== undefined) {
-				return `\${${info.index}:-${defaultVal}}`;
-			}
-			return `$${info.index}`;
-		});
-		const hints: string[] = [];
-		for (let i = 1; i < nextIndex; i++) {
-			const entry = Array.from(varMap.entries()).find(([, v]) => v.index === i);
-			if (!entry) continue;
-			const [varName, info] = entry;
-			if (info.hasDefault) {
-				hints.push(`[${varName}:${info.defaultVal}]`);
-			} else {
-				hints.push(`<${varName}>`);
-			}
-		}
-		const argumentHint = hints.length > 0 ? hints.join(" ") : "";
-		return { converted, argumentHint, varCount: varMap.size };
 	}
 
 	ipcMain.handle(

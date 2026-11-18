@@ -6,11 +6,12 @@ import type { PromptStoreItem, PromptStoreSearchResult, PiSkillSummary } from ".
 import { t } from "../i18n";
 import { StoreSearchBar } from "./StoreSearchBar";
 
-const api = (window as unknown as { piDesktop: { skillStore: { search: (q: string) => Promise<PromptStoreSearchResult>; import: (item: PromptStoreItem, locationId?: string, projectId?: string) => Promise<PiSkillSummary> } } }).piDesktop;
+import { useConfigEditor } from "./useConfigEditorApi";
 
 const SUGGESTED_SEARCHES = ["code review", "testing", "react", "python", "git", "docker", "security", "refactoring", "typescript", "node"];
 
 export function SkillStoreTab(props: { onImported?: () => void; locationId?: string; projectId?: string }) {
+	const { api } = useConfigEditor();
 	const [query, setQuery] = useState("");
 	const [searching, setSearching] = useState(false);
 	const [error, setError] = useState<string | null>(null);

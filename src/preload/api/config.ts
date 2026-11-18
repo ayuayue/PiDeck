@@ -13,6 +13,7 @@ import type { WatchaAccessResult } from "../../shared/watcha";
 
 export const configApi = {
 	config: {
+		replaceRemoteAuth: (input: import("../../shared/types/remotePiManagement").RemoteAuthReplaceInput) => ipcRenderer.invoke(ipcChannels.configReplaceRemoteAuth, input) as Promise<import("../../shared/types/remotePiManagement").RemoteAuthReplaceResult>,
 		previewProviderMigration: (direction: import("../../shared/types/providerMigration").ProviderMigrationDirection) => ipcRenderer.invoke(ipcChannels.configPreviewProviderMigration, direction) as Promise<import("../../shared/types/providerMigration").ProviderMigrationPreview>,
 		applyProviderMigration: (direction: import("../../shared/types/providerMigration").ProviderMigrationDirection, provider: string) => ipcRenderer.invoke(ipcChannels.configApplyProviderMigration, direction, provider) as Promise<import("../../shared/types/providerMigration").ProviderMigrationResult>,
 		/** 目标路由（Batch B）：options 缺省 = 本机，shape/返回值与旧调用逐字兼容；ssh 目标返回 remote 元数据。 */

@@ -30,13 +30,13 @@ test("WSL 环境：含凭据与源文件，但不含 OAuth / 安全策略", () =
 	assert.equal(model.resourcePagesSupported(WSL), true, "资源三页已按 WSL 目标路由");
 });
 
-test("SSH 环境：共享编辑页与四个源文件，认证仍为只读派生视图", () => {
+test("SSH 环境：共享配置、认证与资源管理页，OAuth 登录仍在远端终端", () => {
 	assert.deepEqual([...model.configTabsForTarget(SSH)], ["models", "auth", "settings", "trust", "mcp", "raw"]);
-	assert.equal(model.isConfigTabSupported(SSH, "auth"), true, "只读派生视图：页面在，输入不在");
+	assert.equal(model.isConfigTabSupported(SSH, "auth"), true, "认证编辑复用共享表单");
 	assert.equal(model.isConfigTabSupported(SSH, "raw"), true);
 	assert.equal(model.isConfigTabSupported(SSH, "oauth"), false);
 	assert.equal(model.securityPageSupported(SSH), false);
-	assert.equal(model.resourcePagesSupported(SSH), false, "远端资源管理未路由：不给死入口");
+	assert.equal(model.resourcePagesSupported(SSH), true, "资源操作绑定所选主机");
 });
 
 test("切环境后的落点：仍支持就留在原地，否则回到该环境第一页", () => {

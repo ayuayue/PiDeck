@@ -5,6 +5,9 @@ import { Copy, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
 import type { PiExtensionSummary } from "../../../shared/types";
 import { isActionableProjectPackageItem } from "./resourceScopeModel";
 import { t, type TranslationKey } from "../i18n";
+import { useConfigEditor } from "./useConfigEditorApi";
+import { RemoteExtensionSourceButton } from "./RemoteExtensionSourceButton";
+import { isPackageSource } from "../../../shared/piPackageSource";
 
 /**
  * 内置扩展 source → 简介 key（i18n 双语，见 rendererCopy 的 builtInExtDesc.*）。
@@ -61,6 +64,7 @@ export function ExtensionTableRow(props: {
 	onShowInFolder: (extension: PiExtensionSummary) => void;
 }) {
 	const { extension, effectiveEnabled, inherited } = props;
+	const { remote } = useConfigEditor();
 	const gitHubName = extension.source.match(/^(?:git:github\.com\/|github:|git:https:\/\/github\.com\/|https:\/\/github\.com\/)[^/]+\/([^/#@]+?)(?:\.git)?(?:[/@].+)?$/i)?.[1];
 	const name = gitHubName ?? extension.source.replace(/^(?:npm|file|github|git):/i, "");
 	const disabled = extension.enabled === false;
@@ -110,7 +114,7 @@ export function ExtensionTableRow(props: {
 							})}
 				{extension.hasUpdate && <span className="ml-1 text-text-primary">{t("config.extensionUpdateAvailable")}</span>}
 				{/* 有更新时提供单扩展更新与复制更新指令（npm 包专属；内置扩展走包级热更新面板） */}
-				{extension.hasUpdate && !extension.builtIn && (
+				{(extension.hasUpdate || (remote && isPackageSource(extension.source))) && !extension.builtIn && (
 					<div className="mt-1.5 flex items-center gap-1.5">
 						<Button size="xs" variant="outline" onClick={() => props.onUpdateOne(extension)} disabled={props.updatingOne} aria-busy={props.updatingOne}>
 							{props.updatingOne ? t("config.extensionUpdatingOne") : t("config.extensionUpdateOne")}
@@ -125,8 +129,9 @@ export function ExtensionTableRow(props: {
 			</TableCell>
 			<TableCell className="text-right">
 				<div className="flex justify-end gap-1">
+					{remote && extension.local && !isPackageSource(extension.source) && extension.path && <RemoteExtensionSourceButton path={extension.path} onSaved={() => {}} />}
 					{/* 文件位置：真实安装路径（主进程按项目边界授权打开） */}
-					<Button variant="ghost" size="icon-sm" className="size-7" disabled={!extension.path} onClick={() => props.onShowInFolder(extension)} title={t("config.openExtensionLocation")}>
+					<Button variant="ghost" size="icon-sm" className="size-7" disabled={!extension.path} onClick={() => props.onShowInFolder(extension)} title={t(remote ? "remoteResources.copyPath" : "config.openExtensionLocation")}>
 						<FolderOpen size={14} strokeWidth={1.8} />
 					</Button>
 					{/* 启停开关：Switch 轨道着色（启用 = 主题色填充），避免 Toggle 图标几乎无视觉差;

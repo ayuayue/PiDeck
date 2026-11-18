@@ -4,15 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, ArrowLeft, Check, ChevronLeft, ChevronRight, Download, RotateCcw } from "lucide-react";
 import type { YaoPromptListResult, YaoPromptItem, YaoPromptDetailResult, PiPromptTemplateSummary, PiPromptTemplateListResult, YaoPromptDbSnapshot } from "../../../shared/types";
 import { t } from "../i18n";
-import { desktopApi } from "../desktopApi";
+import { useConfigEditor } from "./useConfigEditorApi";
+import type { PiDesktopApi } from "../../../preload";
 import { StoreSearchBar } from "./StoreSearchBar";
 import { ContentStoreUpdatePanel } from "./ContentStoreUpdatePanel";
 import { Pagination } from "../components/ui-shadcn/pagination";
 const PAGE_SIZE = 20;
 
-async function getInstalledPromptNames(projectId?: string): Promise<Set<string>> {
+async function getInstalledPromptNames(api: PiDesktopApi, projectId?: string): Promise<Set<string>> {
 	try {
-		const list: PiPromptTemplateListResult = projectId ? await desktopApi.prompts.listByProject(projectId) : await desktopApi.prompts.list();
+		const list: PiPromptTemplateListResult = projectId ? await api.prompts.listByProject(projectId) : await api.prompts.list();
 		return new Set(list.templates.filter((template) => template.userCreated).map((template) => template.name.toLowerCase()));
 	} catch {
 		return new Set();
@@ -20,6 +21,7 @@ async function getInstalledPromptNames(projectId?: string): Promise<Set<string>>
 }
 
 export function YaoPromptTab(props: { onImported?: () => void; projectId?: string }) {
+	const { api, remote } = useConfigEditor();
 	const [initialLoading, setInitialLoading] = useState(true);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export function YaoPromptTab(props: { onImported?: () => void; projectId?: strin
 
 	// db 状态推送：下载完成（ready）时若当前无数据自动重拉（首次使用/离线重试成功场景）
 	useEffect(() => {
-		const unsubscribe = desktopApi.yaoPrompts.onDbStateChange((snapshot) => {
+		const unsubscribe = api.yaoPrompts.onDbStateChange((snapshot) => {
 			setDbSnapshot(snapshot);
 			if (snapshot.state === "ready" && (dataRef.current == null || dataRef.current.categories.length === 0)) {
 				reloadRef.current();
@@ -58,7 +60,7 @@ export function YaoPromptTab(props: { onImported?: () => void; projectId?: strin
 	// 首次加载分类（全量，数据量小）
 	useEffect(() => {
 		void loadCategories();
-	}, [props.projectId]);
+	}, [api, props.projectId]);
 
 	useEffect(() => {
 		if (!initialLoading) void loadPrompts();
@@ -71,7 +73,7 @@ export function YaoPromptTab(props: { onImported?: () => void; projectId?: strin
 		try {
 			// 只要分类栏（2027-02）：原先无参 list() 会触发「全量」形态——主进程逐条读
 			// description BLOB 并 gunzip，再经 IPC 传 ≈0.9MB JSON，而这里只用 categories。
-			const [result, installed] = await Promise.all([desktopApi.yaoPrompts.list({ categoriesOnly: true }), getInstalledPromptNames(props.projectId)]);
+			const [result, installed] = await Promise.all([api.yaoPrompts.list({ categoriesOnly: true }), getInstalledPromptNames(api, props.projectId)]);
 			setData(result);
 			if (result.dbState) setDbSnapshot((previous) => (previous?.state === "ready" ? previous : ({ state: result.dbState } as YaoPromptDbSnapshot)));
 			setInstalledNames(installed);
@@ -92,7 +94,7 @@ export function YaoPromptTab(props: { onImported?: () => void; projectId?: strin
 		setLoading(true);
 		setError(null);
 		try {
-			const result = await desktopApi.yaoPrompts.list({
+			const result = await api.yaoPrompts.list({
 				category: activeCategory ?? undefined,
 				search: appliedSearch.trim() || undefined,
 				page,
@@ -128,7 +130,7 @@ export function YaoPromptTab(props: { onImported?: () => void; projectId?: strin
 		setPreviewLoading(true);
 		setPreviewDetail(null);
 		try {
-			const detail = await desktopApi.yaoPrompts.detail(item.slug, item.category);
+			const detail = await api.yaoPrompts.detail(item.slug, item.category);
 			setPreviewDetail(detail);
 		} catch (err) {
 			console.error("[YaoPrompts] Preview failed", err);
@@ -142,10 +144,10 @@ export function YaoPromptTab(props: { onImported?: () => void; projectId?: strin
 		setImportingSlug(item.slug);
 		setError(null);
 		try {
-			await desktopApi.yaoPrompts.import(item.slug, item.category, props.projectId);
+			await api.yaoPrompts.import(item.slug, item.category, props.projectId);
 			showNotice(t("config.promptStoreImported"), 2500);
 			props.onImported?.();
-			setInstalledNames(await getInstalledPromptNames(props.projectId));
+			setInstalledNames(await getInstalledPromptNames(api, props.projectId));
 		} catch (err) {
 			console.error("[YaoPrompts] Import failed", err);
 			setError(t("config.yaoImportError"));
@@ -168,7 +170,7 @@ export function YaoPromptTab(props: { onImported?: () => void; projectId?: strin
 	const handleDbRetry = async () => {
 		setDbSnapshot({ state: "missing" });
 		try {
-			const snapshot = await desktopApi.yaoPrompts.retryDb();
+			const snapshot = await api.yaoPrompts.retryDb();
 			setDbSnapshot(snapshot);
 		} catch (err) {
 			console.error("[YaoPrompts] Db retry failed", err);
@@ -233,22 +235,24 @@ export function YaoPromptTab(props: { onImported?: () => void; projectId?: strin
 	return (
 		<div className="store-sub-tab">
 			{/* 官方模板热更新面板：随包模板可同步远端最新版（覆盖层优先） */}
-			<ContentStoreUpdatePanel
-				api={{
-					status: () => desktopApi.contentStore.promptsStatus(),
-					check: (branch) => desktopApi.contentStore.promptsCheck(branch),
-					update: (branch) => desktopApi.contentStore.promptsUpdate(branch),
-					restore: () => desktopApi.contentStore.promptsRestore(),
-					restorePrevious: () => desktopApi.contentStore.promptsRestorePrevious(),
-					openDir: () => desktopApi.contentStore.promptsOpenDir(),
-				}}
-				text={{
-					title: t("config.contentStore.prompts.title"),
-					description: t("config.contentStore.prompts.description"),
-					restartHint: t("config.contentStore.prompts.restartHint"),
-				}}
-				onApplied={handleStoreApplied}
-			/>
+			{!remote && (
+				<ContentStoreUpdatePanel
+					api={{
+						status: () => api.contentStore.promptsStatus(),
+						check: (branch) => api.contentStore.promptsCheck(branch),
+						update: (branch) => api.contentStore.promptsUpdate(branch),
+						restore: () => api.contentStore.promptsRestore(),
+						restorePrevious: () => api.contentStore.promptsRestorePrevious(),
+						openDir: () => api.contentStore.promptsOpenDir(),
+					}}
+					text={{
+						title: t("config.contentStore.prompts.title"),
+						description: t("config.contentStore.prompts.description"),
+						restartHint: t("config.contentStore.prompts.restartHint"),
+					}}
+					onApplied={handleStoreApplied}
+				/>
+			)}
 			{/* 工具栏：搜索（回车 / 搜索按钮手动触发，统一 StoreSearchBar 胶囊外观） */}
 			<StoreSearchBar
 				value={searchQuery}
