@@ -315,6 +315,7 @@ export const test = base.extend<
 				...(process.platform === "win32" ? { APPDATA: userDataRoot, USERPROFILE: userDataRoot } : process.platform === "darwin" ? { HOME: userDataRoot } : { XDG_CONFIG_HOME: userDataRoot, HOME: userDataRoot }),
 			};
 			delete env.ELECTRON_RENDERER_URL;
+			delete env.ELECTRON_RUN_AS_NODE;
 			const app = await electron.launch({
 				args: [repoRoot, `--user-data-dir=${join(userDataRoot, "profile")}`, ...launchArgs],
 				env,

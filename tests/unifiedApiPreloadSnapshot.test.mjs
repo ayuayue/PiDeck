@@ -70,11 +70,11 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const NS_LIST_SHA256 = "4cf4ab783889f7e6b721914066df72c7fe191a48d772d71f87efa827fce58ada";
+const NS_LIST_SHA256 = "5809b53fe0324e549ec6fc4ffb3144a1c4dae2708659619faa769b56449781e1";
 // #520：sessions 新增安全分享 prepare/save/release 三个方法，其他命名空间不变。
 // #546：sessions 新增 gtdState / gtdPatch（GTD 分诊账本），其他命名空间不变。
-const FULL_METHODS_SHA256 = "f0914493a945c2a9ea0e67aa15933e6ba44cebb0140e7d327b2802b2c3bfa6ee";
-const NAMESPACE_COUNT = 84;
+const FULL_METHODS_SHA256 = "0849ab2a3e510b055f7d18d06cdd88072d4e56cf1b2cae0ac03ff357854f0c2e";
+const NAMESPACE_COUNT = 85;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
 function assertValidCapture(capture) {
@@ -126,9 +126,9 @@ test("F8-2 每命名空间排序方法清单摘要零漂移", () => {
 	assert.equal(sha256(methodLines.join(";")), FULL_METHODS_SHA256, "方法清单摘要漂移：任一命名空间的方法暴露面发生变化（A10 红线）");
 });
 
-test("F8-3 数量锚点：sessions 122 / config 54 / git 61 / app 32", () => {
+test("F8-3 数量锚点：sessions 122 / config 55 / git 61 / app 32", () => {
 	assert.equal(Object.keys(api.sessions).length, 122, "sessions 方法数漂移");
-	assert.equal(Object.keys(api.config).length, 54, "config 方法数漂移");
+	assert.equal(Object.keys(api.config).length, 55, "config 方法数漂移");
 	assert.equal(Object.keys(api.git).length, 61, "git 方法数漂移");
 	assert.equal(Object.keys(api.app).length, 32, "app 方法数漂移");
 });

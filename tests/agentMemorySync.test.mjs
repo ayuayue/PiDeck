@@ -1,3 +1,4 @@
+import { mkdtempSync } from "./helpers/tempDir.mjs";
 /**
  * 记忆导出/导入与设备作用域的行为守卫。
  *
@@ -9,7 +10,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 

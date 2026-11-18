@@ -1,6 +1,7 @@
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+import { mkdtempSync } from "../tests/helpers/tempDir.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SeedProject } from "./fixtures";

@@ -1,8 +1,10 @@
 import { test as base, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { openFirstSession } from "./open-session";
+import { ensureWindowsProfileSkeleton } from "./win-profile";
+import { armStartupOverlayDismissal } from "./startupOverlays";
 
 /**
  * 历史会话恢复（#113 3.2-9）：
@@ -21,17 +23,18 @@ async function startAgent(window: Page) {
 }
 
 async function launchApp(userDataRoot: string): Promise<ElectronApplication> {
-	// 与 mock-pi-fixture 一致：只隔离 APPDATA/userData，不改 HOME。
-	// 会话落盘走项目 cwd 的 .pi/sessions（mock 写 sessionDir），扫描不依赖全局 ~/.pi。
+	// 与 mock-pi-fixture 一样隔离 profile 和 home，双次启动使用同一份临时数据。
 	const env = {
 		...process.env,
 		// 自管双次 launch 也走 E2E 静默模式（屏幕外窗口），否则窗口会弹到用户桌面最前。
 		PIDECK_E2E: "1",
 		PIDECK_E2E_WINDOW_MODE: "quiet",
 		CI: "1",
-		...(process.platform === "win32" ? { APPDATA: userDataRoot } : process.platform === "darwin" ? { HOME: userDataRoot } : { XDG_CONFIG_HOME: userDataRoot, HOME: userDataRoot }),
+		PIDECK_E2E_USER_DATA_DIR: join(userDataRoot, "profile"),
+		...(process.platform === "win32" ? { APPDATA: userDataRoot, LOCALAPPDATA: userDataRoot, USERPROFILE: userDataRoot, HOME: userDataRoot } : process.platform === "darwin" ? { HOME: userDataRoot } : { XDG_CONFIG_HOME: userDataRoot, HOME: userDataRoot }),
 	};
 	delete env.ELECTRON_RENDERER_URL;
+	delete env.ELECTRON_RUN_AS_NODE;
 	return electron.launch({
 		args: [join(repoRoot, "out", "main", "index.js"), `--user-data-dir=${join(userDataRoot, "profile")}`],
 		env,
@@ -40,18 +43,18 @@ async function launchApp(userDataRoot: string): Promise<ElectronApplication> {
 
 const test = base;
 
-test.fixme("history restore: close app and reopen recovers prior session", async () => {
-	// 已知失败（flaky / 激活竞态）：两次 KEEP 复跑失败位置不同 ——
-	// 一次是第二轮恢复后时间线只有提问 + 「正在启动…预热环境…」，另一次连第一轮 mock 回复都没到
-	// （同样卡在「正在启动…」）。两侧都指向 runtime 激活，而不是会话文件持久化/扫描。
-	// 下一步：在无 fixture 的裸 electron 启动下打点 activation 状态机；见 docs/e2e-known-failures.md。
+test("history restore: close app and reopen recovers prior session", async () => {
 	test.setTimeout(180_000);
 	const userDataRoot = mkdtempSync(join(tmpdir(), "pideck-history-"));
-	const shimPath = join(userDataRoot, "mock-pi.cmd");
+	const shimPath = join(userDataRoot, process.platform === "win32" ? "mock-pi.cmd" : "mock-pi.sh");
 	const scriptPath = join(repoRoot, "e2e", "mock-pi.cjs");
-	writeFileSync(shimPath, `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`);
+	writeFileSync(shimPath, process.platform === "win32" ? `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${scriptPath}" "$@"\n`);
+	if (process.platform !== "win32") chmodSync(shimPath, 0o755);
 	mkdirSync(join(userDataRoot, "profile"), { recursive: true });
-	writeFileSync(join(userDataRoot, "profile", "settings.json"), JSON.stringify({ customPiPath: shimPath, piEnvironmentChecked: true }));
+	writeFileSync(join(userDataRoot, "profile", "settings.json"), JSON.stringify({ customPiPath: shimPath, piEnvironmentChecked: true, language: "zh-CN", dshHomeDir: join(userDataRoot, "dsh-home") }));
+	mkdirSync(join(userDataRoot, ".pi", "agent"), { recursive: true });
+	writeFileSync(join(userDataRoot, ".pi", "agent", "trust.json"), JSON.stringify({ [userDataRoot]: true }));
+	if (process.platform === "win32") ensureWindowsProfileSkeleton(userDataRoot);
 
 	let app1: ElectronApplication | undefined;
 	let app2: ElectronApplication | undefined;
@@ -60,6 +63,7 @@ test.fixme("history restore: close app and reopen recovers prior session", async
 		app1 = await launchApp(userDataRoot);
 		const window1 = await app1.firstWindow();
 		await window1.waitForLoadState("domcontentloaded");
+		await armStartupOverlayDismissal(window1);
 		await expect(window1.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
 		const composer = await startAgent(window1);
@@ -75,6 +79,7 @@ test.fixme("history restore: close app and reopen recovers prior session", async
 		app2 = await launchApp(userDataRoot);
 		const window2 = await app2.firstWindow();
 		await window2.waitForLoadState("domcontentloaded");
+		await armStartupOverlayDismissal(window2);
 		await expect(window2.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
 		// 侧栏会话行：标题来自 session_info.name（首条用户消息截断）

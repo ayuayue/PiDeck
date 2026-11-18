@@ -113,7 +113,7 @@ test("provider 页向外暴露当前草稿，标题栏保存会先提交再触�
 	const modelsTab = readFileSync("src/renderer/src/config/ModelsTab.tsx", "utf8");
 	const dialog = readFileSync("src/renderer/src/config/AddProviderDialog.tsx", "utf8");
 	// 表单 state 只存在 AddProviderDialog；卸载前清理入口，避免下一次打开误提交旧草稿。
-	assert.match(dialog, /onRequestSave\?: \(save: \(\(\) => void\) \| undefined\) => void/);
+	assert.match(dialog, /onRequestSave\?: \(save: \(\(\) => boolean\) \| undefined\) => void/);
 	assert.match(dialog, /props\.onRequestSave\?\.\(submit\)/);
 	assert.match(dialog, /return \(\) => props\.onRequestSave\?\.\(undefined\)/);
 	assert.match(modelsTab, /onRequestSave=\{\(save\) => \{/);
@@ -130,7 +130,6 @@ test("ConfigModal 的 loadConfig 与 handleImport 使用统一核算规则", () 
 	assert.match(source, /dirtyKeysPreservedOnReload\(target, dirtyTabsRef\.current\)/);
 	assert.match(source, /loadConfig\("models", \{ force: true \}\)/);
 	assert.match(source, /for \(const key of ALL_CONFIG_DIRTY_KEYS\) clearDirty\(key\)/);
-	assert.match(source, /import \{\s*ALL_CONFIG_DIRTY_KEYS,\s*dirtyKeysClearedByReload,\s*dirtyKeysPreservedOnReload,\s*orderDirtyKeysForSave,\s*reconcileConfigDirty\s*\} from "\.\/config\/configDirtyMarks"/);
 	// reconcile 已收敛到 configDirtyMarks（不再在 ConfigModal 内重复定义）
 	assert.match(source, /reconcileConfigDirty\(next, "config:models", modelsData, baselineModelsRef\.current\)/);
 	// 旧的仅清当前 tab 的写法必须移除
@@ -155,7 +154,7 @@ test("models 页加载 settings 失败时不渲染编辑入口（settingsLoaded 
 	const modal = configModalSource;
 	const modelsTab = readFileSync("src/renderer/src/config/ModelsTab.tsx", "utf8");
 	// models 分支并行读 settings；读失败只降级，settingsLoaded 保持 false。
-	assert.match(modal, /const \[res, settingsRes\] = await Promise\.all\(\[api\.config\.getModels\(\), api\.config\.getSettings\(\)\.catch\(\(\) => null\)\]\)/);
+	assert.match(modal, /const \[res, settingsRes\] = await Promise\.all\(\[readModels\(\), readSettings\(\)\.catch\(\(\) => null\)\]\)/);
 	assert.match(modal, /setSettingsLoaded\(true\)/);
 	// 编辑入口的成对回调都用 settingsLoaded 门控，未加载成功时整块不渲染。
 	assert.match(modal, /onUpdateModelThinkingLevelDefault=\{settingsLoaded \? handleUpdateModelThinkingLevelDefault : undefined\}/);

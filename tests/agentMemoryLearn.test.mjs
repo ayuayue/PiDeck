@@ -1,3 +1,4 @@
+import { mkdtempSync } from "./helpers/tempDir.mjs";
 /**
  * 学习循环的行为守卫（注入假模型，不联网、不花额度）。
  *
@@ -8,7 +9,7 @@
  * 4. 学习写入必须过工具层闸门（注入内容被拒），不能绕过扫描直接落地。
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";

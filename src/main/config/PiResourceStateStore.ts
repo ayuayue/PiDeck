@@ -10,7 +10,8 @@
  * 读取失败降级为空状态（不能因为辅助状态损坏阻塞 pi 启动）。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { PackageFilterSnapshot } from "./piResourceRules";
 
@@ -27,6 +28,11 @@ export type PackageSnapshotRecord = {
 export type ResourceMigrationRecord = {
 	/** 迁移完成时间。 */
 	completedAt: number;
+	/** 旧记录已清理且可安全跳过后续迁移。旧版记录没有此字段，读取时视为未完成。 */
+	cleanupCompleted?: boolean;
+	/** 已成功写入的精确动作，以及已完整迁移的旧输入；重试不能覆盖后来的原生配置选择。 */
+	appliedActions?: string[];
+	completedInputs?: string[];
 	/** 本次迁移写入的文件 revision（便于诊断）。 */
 	revisions: Record<string, string>;
 	/** 无法映射、留给用户处理的旧记录摘要。 */
@@ -47,6 +53,17 @@ export type PiResourceStateFile = {
  */
 function emptyState(): PiResourceStateFile {
 	return { version: 1, packageSnapshots: {}, migrations: {} };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 迁移进度损坏时禁止当作首次运行，避免重放旧禁用意图覆盖用户后来做的选择。 */
+function isMigrationRecord(value: unknown): value is ResourceMigrationRecord {
+	if (!isRecord(value) || typeof value.completedAt !== "number" || !Number.isFinite(value.completedAt) || !isRecord(value.revisions) || !Object.values(value.revisions).every((item) => typeof item === "string")) return false;
+	if (value.cleanupCompleted !== undefined && typeof value.cleanupCompleted !== "boolean") return false;
+	return [value.unresolved, value.appliedActions ?? [], value.completedInputs ?? []].every((items) => Array.isArray(items) && items.every((item) => typeof item === "string"));
 }
 
 export function packageSnapshotFingerprint(entry: unknown): string {
@@ -82,14 +99,22 @@ export class PiResourceStateStore {
 		}
 	}
 
-	private write(next: PiResourceStateFile): void {
+	private write(next: PiResourceStateFile): boolean {
+		const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
 		try {
 			if (!existsSync(dirname(this.filePath))) mkdirSync(dirname(this.filePath), { recursive: true });
-			const temporary = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
-			writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+			writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
 			renameSync(temporary, this.filePath);
+			return true;
 		} catch {
 			// 辅助状态写失败不影响主流程：下次再试。
+			return false;
+		} finally {
+			try {
+				rmSync(temporary, { force: true });
+			} catch {
+				/* 留给下次诊断，不影响主配置 */
+			}
 		}
 	}
 
@@ -136,14 +161,25 @@ export class PiResourceStateStore {
 	}
 
 	/** 迁移进度记录（A3）。 */
-	recordMigration(key: string, record: ResourceMigrationRecord): void {
+	recordMigration(key: string, record: ResourceMigrationRecord): boolean {
 		const state = this.read();
 		state.migrations[key] = record;
-		this.write(state);
+		return this.write(state);
 	}
 
 	readMigration(key: string): ResourceMigrationRecord | undefined {
-		return this.read().migrations[key];
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(readFileSync(this.filePath, "utf8"));
+		} catch (error) {
+			if (isRecord(error) && error.code === "ENOENT") return undefined;
+			throw new Error("Resource migration state cannot be read; legacy input retained");
+		}
+		if (!isRecord(parsed) || parsed.version !== 1 || !isRecord(parsed.migrations)) throw new Error("Invalid resource migration state; legacy input retained");
+		const record = parsed.migrations[key];
+		if (record === undefined) return undefined;
+		if (!isMigrationRecord(record)) throw new Error("Invalid resource migration state; legacy input retained");
+		return record;
 	}
 }
 

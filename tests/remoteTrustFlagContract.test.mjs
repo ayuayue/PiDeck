@@ -47,6 +47,12 @@ const APPROVED_FLAG_SITES = [
 		reason: "本机 pi 的 trust 映射（历史行为，本批不得改动）",
 	},
 	{
+		file: "src/main/config/RemotePiResourceBackend.ts",
+		// 远端资源命令固定忽略项目级资源（列/读写技能、扩展等），不是会话启动的 trust 决策。
+		expected: /\[facts\.nodePath, facts\.piPath, \.\.\.args, "--no-approve"\]/,
+		reason: "远端资源命令固定忽略项目资源（与会话 trust 决策无关）",
+	},
+	{
 		file: "src/main/extensions/ExtensionManager.ts",
 		// 扩展更新命令固定忽略项目级资源（`pi update --extensions`），不是会话启动的 trust 决策。
 		expected: /finalArgs\.push\("--no-approve"\);/,

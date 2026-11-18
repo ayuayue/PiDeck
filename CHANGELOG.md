@@ -1,3 +1,32 @@
+## v0.13.0-rc.1 (2026-11-17)
+
+Release candidate for 0.13. Session scrolling, history actions and upgrade safety are the focus. This candidate still requires installation and upgrade checks on Windows, macOS and Linux before a stable release.
+
+### 🚀 New Features
+- **Activity triage with GTD** — collect, move and settle items in the Activity view, with undo and drag across buckets (#546).
+- **ACP additional working directories** — session roots are passed through `additionalDirectories`, and CodeBuddy reports metrics for individual model calls (#560).
+- **Edit Pi configuration over SSH** — the same model, settings, trust and source editors save to the selected host with version checks. Credentials stay on that host, and authentication remains read-only.
+- **Custom prompt enhancement templates** — inspect and customize the template used to enhance prompts.
+- **Adjustable conversation line spacing** — choose one spacing setting for conversation text while keeping code blocks and tables unchanged (#547).
+
+### ✨ Improvements
+- **One vertical scroller for answers and execution details** — expanded process groups, tool output and diffs grow inside the conversation. Scrolling up pauses following; returning to the latest content resumes it. Wide code and diffs keep horizontal scrolling.
+- **Retry progress stays compact** — the current retry appears even before the first answer. Success leaves the timeline while its toast remains; final failure keeps its count and expandable reason.
+- **History shows answer text and run facts more clearly** — browse the response separately from thinking and retain per-turn model and duration information.
+- **Archive failures are actionable** — failed archive loads offer retry, and leftover child-session files are reported (#538, #539).
+
+### 🐛 Fixes
+- **Assistant edits update the selected response** — edits use `context_edit` after stopping a live writer; user-message edit and resend keep pi's fork behavior. Busy checks read the target session's state.
+- **Resource migration retries unfinished cleanup** — unresolved records stay pending, completed native writes are not replayed, and project cleanup uses pi's configuration lock. Invalid progress preserves legacy input.
+- **Legacy drafts and extensions keep recoverable content** — draft collisions never overwrite existing notes; source deletion failures can retry. Recognized extension copies are backed up before removal, while modified files and linked directories are retained. Creating drafts in the same second no longer truncates a previous draft.
+- **Linux managed-process recovery checks ownership** — locally launched pi and ACP descendants inherit an instance marker. Startup recovery checks user, data scope, boot and owner identity before reclaiming marked orphans (#534); older unmarked processes are retained.
+- **Tests clean up their own temporary directories** — exit cleanup covers previously leaking test fixtures, preserves the diagnostic KEEP option and skips replaced roots (#533).
+- **Markdown bold links and dragged quotes render correctly** — restores bold bare URLs and preserves the cursor when dragging consecutive quotes (#543, #564).
+- **Backend state follows the actual result** — refresh pi thinking levels on activation, tolerate DSH permission replay failures, report failed DSH compaction accurately and explain unsupported ACP bypass (#545, #548, #557, #556).
+- **Windows fnm installs are discovered** — scan `FNM_DIR` and platform defaults (#551).
+- **Feishu falls back to readable text** — rejected or oversized card updates send a plain-text response instead of leaving an empty card.
+- **Git panels accept the mouse wheel** — fixes scrolling in the multi-repository source sidebar.
+
 ## v0.12.0 (2026-11-11)
 
 This release connects PiDeck across machines: remote workspaces available in stable builds, parent/child sessions and a floating question card — plus long-due file, editor and sidebar work.

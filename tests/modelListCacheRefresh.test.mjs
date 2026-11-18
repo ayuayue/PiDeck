@@ -1,6 +1,7 @@
+import { mkdtemp } from "./helpers/tempDir.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { mkdtemp, utimes, writeFile } from "node:fs/promises";
+import { utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";

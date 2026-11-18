@@ -44,18 +44,34 @@ export function readPiConfigReadOptions(value: unknown): PiConfigReadOptions {
 
 /**
  * Write options: local keeps the old body-only contract, so expectedVersion/patch must be absent for it;
- * ssh requires both (a remote write without a version guard would be an unguarded overwrite); wsl writes the
+ * ssh requires a version and either patch or document (never an unguarded overwrite); wsl writes the
  * whole file like local, so it also refuses the ssh-only guard fields instead of silently ignoring them.
  */
 export function readPiConfigWriteOptions(value: unknown): PiConfigWriteOptions {
 	if (value === undefined || value === null) return { target: { kind: "local" } };
-	if (!isRecord(value) || Object.keys(value).some((key) => key !== "target" && key !== "expectedVersion" && key !== "patch")) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+	if (!isRecord(value) || Object.keys(value).some((key) => key !== "target" && key !== "expectedVersion" && key !== "patch" && key !== "document")) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
 	const target = readPiConfigTarget(value.target);
 	if (target.kind !== "ssh") {
-		if (value.expectedVersion !== undefined || value.patch !== undefined) throw stable(target.kind === "wsl" ? WSL_CONFIG_CODES.targetInvalid : REMOTE_CONFIG_CODES.targetInvalid);
+		if (value.expectedVersion !== undefined || value.patch !== undefined || value.document !== undefined) throw stable(target.kind === "wsl" ? WSL_CONFIG_CODES.targetInvalid : REMOTE_CONFIG_CODES.targetInvalid);
 		return { target };
 	}
 	if (typeof value.expectedVersion !== "string" || !/^[0-9a-f]{64}$/.test(value.expectedVersion)) throw stable(REMOTE_CONFIG_CODES.versionConflict);
+	if (value.document !== undefined) {
+		if (value.patch !== undefined || !isRecord(value.document) || Object.keys(value.document).sort().join(",") !== "data,secretSources" || !isRecord(value.document.data) || !Array.isArray(value.document.secretSources)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+		if (value.document.secretSources.length > 200) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+		const secretSources = value.document.secretSources.map((entry: unknown) => {
+			if (!isRecord(entry) || Object.keys(entry).sort().join(",") !== "from,to" || !Array.isArray(entry.from) || !Array.isArray(entry.to)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+			const readPath = (parts: unknown[]): string[] => {
+				if (parts.length < 1 || parts.length > 32) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+				return parts.map((part) => {
+					if (typeof part !== "string" || part.length > 512 || ["__proto__", "constructor", "prototype"].includes(part)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
+					return part;
+				});
+			};
+			return { from: readPath(entry.from), to: readPath(entry.to) };
+		});
+		return { target, expectedVersion: value.expectedVersion, document: { data: value.document.data, secretSources } };
+	}
 	if (!isRecord(value.patch)) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
 	return { target, expectedVersion: value.expectedVersion, patch: value.patch };
 }

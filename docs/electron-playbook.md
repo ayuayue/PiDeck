@@ -19,6 +19,7 @@
 - 窗口隐藏时先 `maximize()` 再加载，避免布局跳变；`zoomFactor` 在 `did-finish-load` 后应用。
 - quit 路径覆盖 pi 子进程、node-pty、watcher、锁文件；新增常驻资源必须同步登记 `QuitCleanupRegistry`（`registerQuitCleanup`）。
 - **Windows 没有 SIGTERM**：停 pi 先关 stdin 走 RPC 约定的有序退出（宽限 `WINDOWS_PI_GRACEFUL_EXIT_MS`，要短于删会话的 3s 等待），超时才 `taskkill /T /F`；启动后按当前 MCP/ACP 配置回收「父进程已消失」的孤儿 node/cmd（`src/main/process/orphanSweep.ts`，issue #450）。活的进程（父进程还在）一律不碰。
+- **Linux 托管孤儿回收只认本版本标记**（issue #534）：PiDeck 启动的本地 pi/ACP 通过 `PIDECK_PROCESS_OWNER` 继承实例作用域、PID、`/proc/<pid>/stat` 启动 ticks 和 boot ID。启动扫描仅处理同 uid、同 userData 作用域、同 boot，且 owner 已退出或 PID 已复用的记录；发信号前重读并核对目标身份。坏标记、权限不足、读取不全及超过上限都跳过，不读命令行、不记录环境内容。0.12 及更早启动的无标记孤儿不回收；Linux 实机的权限与进程生命周期仍需安装版验收。实现与假 `/proc` 回归见 `src/main/process/linuxOrphanSweep.ts`、`tests/linuxOrphanSweep.test.mjs`。
 
 ## 窗口与 webview
 

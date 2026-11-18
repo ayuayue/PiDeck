@@ -176,7 +176,8 @@ test("SSH 共享表单、模型目录、源文件保存及主机隔离", async (
 			ipcMain.handle("remote:pi-models", (_event, id: string, force: boolean) => {
 				state.probes.push({ hostId: id, force });
 				const provider = id === host ? "remote1" : "remote2";
-				return { ok: true, hostId: id, models: [{ provider, id: "remote-model", name: "SSH model", contextWindow: 32000, maxTokens: 4096 }], providers: [provider], count: 1, at: Date.now() };
+				const models = Array.from({ length: 160 }, (_, index) => ({ provider, id: `remote-model-${index}`, name: `SSH model ${index}`, contextWindow: 32000, maxTokens: 4096 }));
+				return { ok: true, hostId: id, models, providers: [provider], count: models.length, at: Date.now() };
 			});
 		},
 		{ host: HOST, other: OTHER },
@@ -202,7 +203,20 @@ test("SSH 共享表单、模型目录、源文件保存及主机隔离", async (
 	const catalog = layout.getByTestId("remote-model-catalog");
 	await expect(catalog).toHaveAttribute("data-phase", "ready");
 	await catalog.getByTestId("remote-model-probe-summary").click();
-	await expect(catalog.getByTestId("remote-model-entry")).toContainText("SSH model");
+	await expect(catalog.getByTestId("remote-model-entry").first()).toContainText("SSH model");
+	const catalogScroll = await catalog.evaluate((node) => {
+		const outer = node.closest(".config-content");
+		if (!(outer instanceof HTMLElement)) throw new Error("missing config scroll owner");
+		const nestedScrollers = Array.from(node.querySelectorAll("*")).filter((child) => /^(auto|scroll)$/.test(getComputedStyle(child).overflowY) && child.scrollHeight > child.clientHeight + 1);
+		return { top: outer.scrollTop, overflowing: outer.scrollHeight > outer.clientHeight, nested: nestedScrollers.length };
+	});
+	expect(catalogScroll.overflowing).toBe(true);
+	expect(catalogScroll.nested).toBe(0);
+	await catalog.getByTestId("remote-model-entry").first().hover();
+	await window.mouse.wheel(0, 400);
+	await expect.poll(() => catalog.evaluate((node) => node.closest(".config-content")?.scrollTop ?? 0)).toBeGreaterThan(catalogScroll.top + 100);
+	await window.screenshot({ path: testInfo.outputPath("ssh-model-catalog-scroll.png") });
+	await catalog.getByTestId("remote-model-probe-summary").click();
 	await catalog.getByTestId("remote-model-probe").click();
 	await expect(catalog).toHaveAttribute("data-phase", "ready");
 

@@ -84,7 +84,8 @@ export function RemoteModelCatalogSection(props: { hostId: string }) {
 						<ChevronDown className="size-3.5 -rotate-90 transition-transform group-data-[state=open]/catalog:rotate-0" aria-hidden="true" />
 						{t("remoteModel.readySummary", { count: state.count, providers: groups.length })}
 					</CollapsibleTrigger>
-					<CollapsibleContent className="max-h-64 overflow-y-auto pt-2">
+					{/* 展开目录沿用配置页的纵向滚动，避免模型清单与外层表单争抢滚轮。 */}
+					<CollapsibleContent className="pt-2">
 						{groups.map((group) => (
 							<section key={group.provider} className="mb-2 flex shrink-0 flex-col gap-1" data-testid="remote-model-provider" data-provider={group.provider}>
 								<div className="flex items-baseline gap-1.5">

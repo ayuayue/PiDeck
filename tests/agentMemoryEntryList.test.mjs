@@ -1,3 +1,4 @@
+import { mkdtempSync } from "./helpers/tempDir.mjs";
 /**
  * 记忆条目浏览器（设置页「记忆」tab）的读/删行为守卫。
  *
@@ -9,7 +10,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 

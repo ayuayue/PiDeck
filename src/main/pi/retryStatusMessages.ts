@@ -16,8 +16,7 @@ export interface RetryStatusMessagesHost {
 /**
  * 自动重试状态卡域（拆分第十一刀）：`auto_retry_start` / `auto_retry_end` 的卡片 upsert。
  *
- * 一次重试周期一张卡：已收敛（success/error）的卡片不再被下一轮改写，
- * 否则时间线上永远只剩最后一条「正在自动重试」。宿主保留同名薄包装（调用点不变）。
+ * 进行中的周期一张卡；成功描述符留给 renderer 的 toast 扫描，下一周期淘汰，失败保留。
  */
 export class RetryStatusMessages {
 	constructor(private readonly host: RetryStatusMessagesHost) {}
@@ -31,15 +30,9 @@ export class RetryStatusMessages {
 		return this.host.retryStatusMessageIds;
 	}
 
-	private get scheduleMessageEmit() {
-		return this.host.scheduleMessageEmit;
-	}
-
 	/**
 	 * 当前「进行中」的重试状态卡 id（仅 status=running 算数）。
-	 * 一次重试周期一张卡：已收敛成 success/error 的卡片不允许再被下一轮重试改写，
-	 * 否则时间线上永远只剩最后一条「正在自动重试」，用户看不出到底重试过几次（用户反馈）。
-	 * 同一周期内的后续事件（延迟变化等）仍会复用这张运行中卡片。
+	 * 同一周期的后续事件（延迟变化等）复用运行卡；失败卡不可被下一周期改写。
 	 */
 	activeRetryStatusMessageId(agentId: string): string | undefined {
 		const messageId = this.retryStatusMessageIds.get(agentId);
@@ -49,10 +42,12 @@ export class RetryStatusMessages {
 	}
 
 	upsertRetryStatusMessage(agentId: string, event: Record<string, unknown>, status: "running" | "success" | "error") {
-		const list = this.messages.get(agentId) ?? [];
-		// 只复用仍在推进的卡片；已收敛（成功/失败）的卡片保持原样，本轮新建一张。
+		let list = this.messages.get(agentId) ?? [];
 		let messageId = this.activeRetryStatusMessageId(agentId);
 		let message = messageId ? list.find((item) => item.id === messageId) : undefined;
+		// 成功消息驱动 toast，不能提前删掉；新周期用新 id，既避免签名去重吞 toast，
+		// 又把成功消息数量限制为一张。失败诊断仍保留供排障。
+		if (!message) list = list.filter((item) => item.meta?.i18nKey !== "diagnostic.retrySucceeded");
 		if (!message) {
 			messageId = randomUUID();
 			message = {
@@ -86,7 +81,7 @@ export class RetryStatusMessages {
 			message.text = `正在自动重试 ${countText}${delayText}`;
 		} else if (status === "success") {
 			i18nKey = "diagnostic.retrySucceeded";
-			message.text = `自动重试成功，共重试 ${attempt} 次`;
+			message.text = `自动重试成功，共重试 ${countText} 次`;
 		} else {
 			i18nKey = "diagnostic.retryFailed";
 			message.text = `自动重试失败，已重试 ${countText} 次`;
@@ -100,10 +95,10 @@ export class RetryStatusMessages {
 			errorMessage: reason,
 			i18nKey,
 			i18nParams: params,
-			...(reason && status !== "success" ? { debugDetails: reason } : {}),
+			...(reason ? { debugDetails: reason } : {}),
 		};
 
 		this.messages.set(agentId, list);
-		this.scheduleMessageEmit(agentId, true);
+		this.host.scheduleMessageEmit(agentId, true);
 	}
 }

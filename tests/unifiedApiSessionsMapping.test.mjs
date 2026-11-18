@@ -35,7 +35,7 @@ const FACADE_SOURCE = readFileSync("src/shared/api/facadeTypes.ts", "utf8");
 // #520：安全分享三个方法归 catalog，117 → 120。
 // #546：GTD 分诊账本两法（gtdState / gtdPatch）归 catalog，120 → 122。
 const SESSIONS_METHOD_TOTAL = 122;
-const CONFIG_METHOD_TOTAL = 54;
+const CONFIG_METHOD_TOTAL = 55;
 const SESSIONS_GROUP_KEYS = ["catalog", "import", "rewind", "runtime"];
 const CONFIG_GROUP_KEYS = ["auth", "maintenance", "mcp", "models", "resources", "settings", "support", "tokendance", "trust", "usageProbes", "vision"];
 

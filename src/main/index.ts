@@ -414,6 +414,8 @@ import { XuePromptManager } from "./prompts/XuePromptManager";
 import { XueIndexService } from "./prompts/XueIndexService";
 import { SessionIndexService } from "./sessions/SessionIndexService";
 import { deriveOrphanSweepMarkers, sweepOrphanedManagedProcesses } from "./process/orphanSweep";
+import { configureManagedProcessOwner } from "./process/managedProcessOwner";
+import { sweepLinuxOrphanedManagedProcesses } from "./process/linuxOrphanSweep";
 import { XuePromptDbStore } from "./prompts/XuePromptDbStore";
 import { SkillManager } from "./skills/SkillManager";
 import { autoInstallBundledSkills } from "./skills/autoInstallBundledSkills";
@@ -3599,9 +3601,8 @@ app
 			return projectResourceEnabled({ entries, value: skillPath, baseDir: dirname(skillPath) });
 		});
 		autoInstallBundledSkills(skillManager, appLogger);
-		// issue #450：Windows 没有进程组级联回收，强杀/异常退出会留下 npx 型 MCP 与 ACP 的
-		// 孤儿 node 进程（事故现场 195 个 / 21GB 提交内存）。启动后后台回收一次：只杀
-		// 「父进程已消失 + 命令行命中当前 MCP/ACP 配置」的 node.exe，活的进程一律不碰。
+		configureManagedProcessOwner(app.getPath("userData"));
+		// 启动后仅回收已确认归属的孤儿；Linux 依据实例标记，Windows 保留配置标记策略。
 		setTimeout(() => {
 			void (async () => {
 				try {
@@ -3610,7 +3611,7 @@ app
 						mcpServers: (mcp?.servers ?? []).map((server) => server.definition),
 						acpTools: settingsStore.get().acpTools ?? [],
 					});
-					const result = await sweepOrphanedManagedProcesses({ markers });
+					const result = process.platform === "linux" ? await sweepLinuxOrphanedManagedProcesses() : await sweepOrphanedManagedProcesses({ markers });
 					if (result.found > 0) void appLogger?.info("process-sweep", "Reclaimed orphaned managed processes", result);
 				} catch (error) {
 					void appLogger?.warn("process-sweep", "Orphan process sweep failed", { error: error instanceof Error ? error.message : String(error) });
@@ -4839,26 +4840,14 @@ app
 	});
 
 /**
- * 删除用户扩展目录中的 PiDeck 扩展文件（历史部署或已下线扩展）。
- * 内置扩展现改为 -e 从 app resources 加载，用户目录不应再有 pi-deck-* 副本。
- */
-async function removeStalePiDeckExtension(extensionName: string, homeDir?: string): Promise<void> {
-	const home = homeDir ?? app.getPath("home");
-	const targetPath = join(home, ".pi", "agent", "extensions", extensionName);
-	await rm(targetPath, { force: true });
-	appLogger?.info("extension", "Removed legacy/stale extension", { path: targetPath });
-}
-
-/**
- * 升级迁移：清掉历史版本复制到 ~/.pi/agent/extensions 的内置扩展与已下线扩展。
- * 覆盖 Windows home；WSL 启用时同步清理 \\wsl$ 映射 home。
+ * 只迁出可验证的随包副本，备份留在 pi agent 目录；用户修改及未知历史内容保留原位。
  */
 async function migrateLegacyBuiltInExtensions(): Promise<void> {
-	const { BUILT_IN_EXTENSIONS } = await import("./extensions/builtInExtensions");
+	const { BUILT_IN_EXTENSIONS, resolveBuiltInExtensionsDir } = await import("./extensions/builtInExtensions");
+	const { migrateLegacyExtensionCopies } = await import("./extensions/legacyBuiltInExtensions");
 	const legacyNames = [...BUILT_IN_EXTENSIONS, "pi-deck-project-trust.ts", "pi-deck-file-capture.ts"];
-	for (const name of legacyNames) {
-		await removeStalePiDeckExtension(name).catch(() => undefined);
-	}
+	const result = await migrateLegacyExtensionCopies(app.getPath("home"), resolveBuiltInExtensionsDir(resolveBuiltInExtensionRoots()), legacyNames);
+	if (result.moved || result.preserved) void appLogger?.info("extension", "Legacy extension migration checked; backups retained", result);
 }
 
 /**
