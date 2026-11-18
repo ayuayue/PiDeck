@@ -81,7 +81,7 @@ echo "PASS 没有 error 帧，且收到了 start 或 finish"
 
 用 `printf` 写 msg.txt，别用 `echo`（会补换行或解释反斜杠）。
 
-## 5.5 等对方干完：订阅、复用还是新开、什么时候算结束
+### 5.5 等对方干完：订阅、复用还是新开、什么时候算结束
 
 **两个流别搞混。** `/api/sessions/<id>/stream` 推这个会话的消息帧；`/api/events` 推全局状态快照（`event: state`），不推消息文本，也没有心跳帧——连接静默不等于断了。
 
