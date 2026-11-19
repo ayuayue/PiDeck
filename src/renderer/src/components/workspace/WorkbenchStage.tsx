@@ -8,6 +8,10 @@ export type WorkbenchStageProps = {
 	contentChrome?: ReactNode;
 	/** 无内容时只渲染 session；有内容时按 layout 分屏或占满中间栏 */
 	layout: WorkspaceContentOpenMode;
+	/**
+	 * 内容面是否在前台：false 时会话独占（内容面板 collapse）。content 仍传入并保持挂载——
+	 * 让位（点会话 Tab 把占满中间栏的文件/Diff 让开）不等于关闭，切回来不丢滚动/撤销栈。
+	 */
 	hasContent: boolean;
 	/**
 	 * 顶栏 chrome（SessionTabsBar）。必须挂在分屏之上，才能与文件 Tab
@@ -27,6 +31,7 @@ export type WorkbenchStageProps = {
  * - 无内容：会话独占（与改版前一致）
  * - split：可拖拽分屏（固定左右，不做上下分屏）
  * - maximize：内容占满中间栏；会话面板 collapse(0) 但保持挂载，避免丢滚动/流式状态
+ * - maximize + hasContent=false：内容面让位给会话（点会话 Tab 即发生），会话占满、内容不卸载
  *
  * 浏览器仍在右侧抽屉，不进入本宿主。
  */

@@ -58,6 +58,7 @@ import { wslProjectPickerAtom } from "./atoms/wsl-project-atoms";
 import { useSessionLayout } from "./hooks/useSessionLayout";
 import { useFileEditor } from "./hooks/useFileEditor";
 import { useSessionFileLinks } from "./hooks/workspace/useSessionFileLinks";
+import { useWorkbenchSurfaces } from "./hooks/workspace/useWorkbenchSurfaces";
 import { useOverlayActions } from "./hooks/useOverlayActions";
 import { useWorkspacePanels, type WorkspaceDrawerPanel, type WorkspaceExternalEditorAdapter } from "./hooks/useWorkspacePanels";
 import { useDrawerPorts } from "./hooks/useDrawerPorts";
@@ -1856,21 +1857,6 @@ export function App() {
 		</SessionPaneServicesProvider>
 	);
 
-	const workbenchTheme: "dark" | "light" = typeof document !== "undefined" && document.documentElement.dataset.theme === "dark" ? "dark" : "light";
-
-	// Git Diff 优先于文件编辑器（同一时刻只挂一份阅读面）
-	const workbenchHasGitDiff = Boolean(gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId);
-	const workbenchHasEditor = Boolean(activeTab) && !workbenchHasGitDiff;
-	const workbenchHasContent = workbenchHasGitDiff || workbenchHasEditor;
-	// 工作台内容区宽度：分屏（文件/Diff 在右）时右缘刻度轴需贴消息区右缘，
-	// 由 WorkbenchStage 实时上报（split 分屏才上报；solo/maximize 归零）。
-	const [workbenchContentWidth, setWorkbenchContentWidth] = useState(0);
-	const handleWorkbenchContentWidth = useCallback((width: number) => {
-		setWorkbenchContentWidth((current) =>
-			// 相同宽度跳过，避免拖拽分隔条时反复重渲染
-			current === width ? current : width,
-		);
-	}, []);
 	const simpleMode = settings.navigationMode === "simple";
 	// 会话状态显示位置：首屏设置未拉到 / 预览环境缺字段时按默认值处理
 	const sessionStatusPlacement = parseSessionStatusPlacement(settings.sessionStatusPlacement);
@@ -1879,19 +1865,22 @@ export function App() {
 	useEffect(() => {
 		setSessionStatusInSidebar(placementShowsSidebarPanel(sessionStatusPlacement));
 	}, [sessionStatusPlacement, setSessionStatusInSidebar]);
-	const [simpleContentExpanded, setSimpleContentExpanded] = useState(false);
-	useEffect(() => setSimpleContentExpanded(false), [activeTabId, gitDrawerDiff?.filePath, simpleMode]);
-	const workbenchLayout = simpleMode ? (simpleContentExpanded ? "maximize" : "split") : workbenchHasGitDiff ? gitDiffDisplayMode : editorMode;
-
-	// 文件/Diff Tab 挂进总 SessionTabsBar：与会话共用一条栏，内容区不再另起绿条 Tab
-	const fileTabs = editorTabs.map((tab) => ({
-		id: tab.id,
-		label: tab.label ?? tab.filePath.split(/[/\\]/).pop() ?? tab.filePath,
-		title: tab.filePath,
-		preview: tab.id === previewEditorTabId,
-		active: !workbenchHasGitDiff && tab.id === activeTabId,
-	}));
-	const workbenchEditorTabs = [...(simpleMode || !workbenchHasGitDiff ? fileTabs : []), ...(workbenchHasGitDiff && gitDrawerDiff ? [{ id: `git-diff:${gitDrawerDiff.filePath}`, label: gitDrawerDiff.label, title: gitDrawerDiff.filePath, active: true }] : [])];
+	// 中间栏内容面（文件 / Git Diff）与会话面的呈现关系收口到 useWorkbenchSurfaces：
+	// 前台面互斥、Tab 栏列表、占满/恢复开关都在那里决定（App 是存量巨文件，不再净增长）
+	const workbench = useWorkbenchSurfaces({
+		gitDiff: gitDrawerDiff,
+		activeProjectId,
+		editorTabs,
+		previewEditorTabId,
+		activeTabId,
+		activeTabPreserveDrawer: Boolean(activeTab?.preserveDrawer),
+		editorMode,
+		toggleEditorMode,
+		gitDiffDisplayMode,
+		toggleGitDiffDisplayMode,
+		simpleMode,
+		currentSessionId,
+	});
 
 	// ── 命令面板（Ctrl/Cmd+P）────────────────────────────────────────────
 	//
@@ -1918,8 +1907,9 @@ export function App() {
 	}, []);
 
 	const selectWorkbenchTab = (id: string) => {
+		workbench.revealContent();
 		if (id.startsWith("git-diff:")) return;
-		if (workbenchHasGitDiff) dismissGitDiff();
+		if (workbench.hasGitDiff) dismissGitDiff();
 		selectEditorTab(id);
 	};
 	// 文件 tab 关闭保护（Wave 5）：dirty tab 直接关闭 = 静默丢改动。自动保存有 1.5s
@@ -1949,7 +1939,6 @@ export function App() {
 			else closeGitDiff();
 		} else requestCloseEditorTab(id);
 	};
-	const toggleSimpleContent = () => setSimpleContentExpanded((value) => !value);
 	// 页面式插件面板伪 Tab：tab 模式下挂进 SessionTabsBar（打开时会话 Tab 退非选中，
 	// 点任意会话 Tab 即收起）；simple 模式不挂（插件页直接铺满会话区，由 Overlay 承担）。
 	const hostPluginPageTab = useHostPluginPageTab();
@@ -1966,18 +1955,21 @@ export function App() {
 			onSelect={(sessionId) => {
 				deactivateWorkspacePage();
 				hostPluginPageTab?.onClose();
+				// 会话面接手前台：maximize 下让占满中间栏的文件/Diff 让开（Tab 保留，点回来即还原）
+				workbench.revealSession();
 				workspaceChrome.selectTab(sessionId);
 			}}
 			sessionActions={tabsSessionActions}
 			contextSessionActions={buildTabsSessionActions}
 			toolActions={sessionToolActions}
-			editorTabs={simpleMode ? [] : workbenchEditorTabs}
+			editorTabs={simpleMode ? [] : workbench.editorTabs}
 			onSelectEditorTab={(tabId) => {
-				if (workbenchHasGitDiff) return;
+				workbench.revealContent();
+				if (workbench.hasGitDiff) return;
 				selectEditorTab(tabId);
 			}}
 			onCloseEditorTab={(tabId) => {
-				if (workbenchHasGitDiff) {
+				if (workbench.hasGitDiff) {
 					closeGitDiff();
 					return;
 				}
@@ -1987,20 +1979,20 @@ export function App() {
 		/>
 	);
 
-	const workbenchContentNode = workbenchHasContent ? (
+	const workbenchContentNode = workbench.hasContent ? (
 		<WorkbenchContent
-			theme={workbenchTheme}
+			theme={workbench.theme}
 			maxFileSizeMB={settings.maxEditorFileSizeMB}
 			editorTabs={editorTabs}
 			onDirty={promotePreviewEditorTab}
 			onDirtyChange={markEditorTabDirty}
-			gitDiff={workbenchHasGitDiff && gitDrawerDiff ? gitDrawerDiff : null}
-			gitDiffDisplayMode={simpleMode ? workbenchLayout : gitDiffDisplayMode}
-			onToggleGitDiffMode={simpleMode ? toggleSimpleContent : toggleGitDiffDisplayMode}
+			gitDiff={workbench.hasGitDiff && gitDrawerDiff ? gitDrawerDiff : null}
+			gitDiffDisplayMode={simpleMode ? workbench.layout : gitDiffDisplayMode}
+			onToggleGitDiffMode={workbench.onToggleGitDiffMode}
 			onCloseGitDiff={simpleMode ? dismissGitDiff : closeGitDiff}
 			activeTab={activeTab}
-			editorMode={simpleMode ? workbenchLayout : editorMode}
-			onToggleEditorMode={simpleMode ? toggleSimpleContent : activeTab?.preserveDrawer ? undefined : toggleEditorMode}
+			editorMode={simpleMode ? workbench.layout : editorMode}
+			onToggleEditorMode={workbench.onToggleEditorMode}
 			onCloseEditor={() => {
 				if (simpleMode && activeTab) requestCloseEditorTab(activeTab.id);
 				else closeEditor();
@@ -2015,10 +2007,10 @@ export function App() {
 	const chatPaneContentNode = (
 		<WorkbenchStage
 			simple={simpleMode}
-			contentChrome={<WorkbenchFileTabs tabs={workbenchEditorTabs} onSelect={selectWorkbenchTab} onClose={closeWorkbenchTab} onPromote={promotePreviewEditorTab} />}
+			contentChrome={<WorkbenchFileTabs tabs={workbench.editorTabs} onSelect={selectWorkbenchTab} onClose={closeWorkbenchTab} onPromote={promotePreviewEditorTab} />}
 			chrome={sessionTabsBarNode}
-			layout={workbenchLayout}
-			hasContent={workbenchHasContent}
+			layout={workbench.layout}
+			hasContent={workbench.showsContent}
 			// 插件页面式面板：以工作区会话列上的非模态覆盖层呈现（presentation:"page"），
 			// 会话树保持挂载，关闭覆盖层即原样还原（滚动/草稿/终端内存态不丢）。
 			session={
@@ -2054,7 +2046,7 @@ export function App() {
 				</div>
 			}
 			content={workbenchContentNode}
-			onContentWidthChange={handleWorkbenchContentWidth}
+			onContentWidthChange={workbench.onContentWidthChange}
 		/>
 	);
 
@@ -2131,7 +2123,7 @@ export function App() {
 				listCollapsed,
 				listWidth,
 				drawer: { workspace, drawer, drawerCollapsed, drawerWidth, drawerPorts, scratchPad, sideTasks, forkAtEntry },
-				panes: { bootstrapProps, quickTask, sessionPaneServices, chatPaneRef, terminalRowHeight, workbenchContentWidth, sidebarContentNode, chatPaneContentNode, sessionStatusPlacement },
+				panes: { bootstrapProps, quickTask, sessionPaneServices, chatPaneRef, terminalRowHeight, workbenchContentWidth: workbench.contentWidth, sidebarContentNode, chatPaneContentNode, sessionStatusPlacement },
 				rewindSupported,
 				rpcLogTabTargetAgentId,
 			}}

@@ -7,6 +7,8 @@ const app = rendererAppSource;
 const stage = readFileSync("src/renderer/src/components/workspace/WorkbenchStage.tsx", "utf8");
 const content = readFileSync("src/renderer/src/components/workspace/WorkbenchContent.tsx", "utf8");
 const fileEditor = readFileSync("src/renderer/src/hooks/useFileEditor.ts", "utf8");
+// 中间栏呈现状态（内容面存在/前台面/Tab 栏列表）已从 App 抽到独立 hook
+const workbenchSurfaces = readFileSync("src/renderer/src/hooks/workspace/useWorkbenchSurfaces.ts", "utf8");
 const drawer = readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8");
 const settings = readFileSync("src/shared/types/settings.ts", "utf8");
 const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
@@ -62,7 +64,7 @@ test("WorkbenchStage hosts session + content with collapse-safe maximize", () =>
 	assert.doesNotMatch(stage, /props\.orientation/);
 	assert.match(stage, /orientation="horizontal"/);
 	assert.match(app, /<WorkbenchStage/);
-	assert.match(app, /workbenchHasContent/);
+	assert.match(app, /useWorkbenchSurfaces/);
 	assert.match(app, /WorkbenchContent/);
 	assert.match(app, /chrome=\{sessionTabsBarNode\}/);
 	// 尺寸必须字符串百分比 + defaultSize 恒定：react-resizable-panels v4 约束派生把
@@ -132,8 +134,8 @@ test("file tabs use preview/permanent strategy owned by useFileEditor", () => {
 	assert.match(tabsBar, /editorTabs\?:/);
 	assert.match(tabsBar, /EditorWorkbenchTab/);
 	assert.match(content, /chromeTabsExternal/);
-	assert.match(app, /editorTabs=\{simpleMode \? \[\] : workbenchEditorTabs\}/);
-	assert.match(app, /<WorkbenchFileTabs tabs=\{workbenchEditorTabs\}/);
+	assert.match(app, /editorTabs=\{simpleMode \? \[\] : workbench\.editorTabs\}/);
+	assert.match(app, /<WorkbenchFileTabs tabs=\{workbench\.editorTabs\}/);
 
 	const viewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
 	// 编辑/退出编辑按钮已移除（diff 只读、view 源码即编辑），不存在退出编辑与关闭叉撞车问题
@@ -150,4 +152,16 @@ test("file tabs use preview/permanent strategy owned by useFileEditor", () => {
 	// 远端节点没有本机 path：行内点击目标回落到 fileActionTarget（target ?? path）。
 	const surface = readFileSync("src/renderer/src/components/session/FileTreeRows.tsx", "utf8");
 	assert.match(surface, /onViewFile\?\.\(fileActionTarget, "permanent"\)/);
+});
+
+test("会话 Tab 让占满中间栏的文件面让位（前台面互斥）", () => {
+	// 回归：文件面占满中间栏后点会话 Tab 只改了 currentSessionId，文件面仍铺满、点了没反应。
+	// 规则落在 useWorkbenchSurfaces：两个方向都在点击处显式上报前台面，且让位只在
+	// maximize 成立（split 下两面同屏，折叠会把正在对照的文件藏起来）。
+	assert.match(workbenchSurfaces, /front === "session" && layout === "maximize"/);
+	assert.match(app, /workbench\.revealSession\(\)/);
+	assert.match(app, /workbench\.revealContent\(\)/);
+	// 让位时内容面只折叠不卸载：Tab 列表与内容节点仍按「存在」判定
+	assert.match(app, /hasContent=\{workbench\.showsContent\}/);
+	assert.match(app, /workbench\.hasContent \? \(/);
 });
