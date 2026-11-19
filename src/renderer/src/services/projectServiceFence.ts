@@ -87,6 +87,10 @@ export function fenceProjectGitService(fence: ProjectServiceFence, service: Proj
 		stage: fenced(fence, service.stage, "unknown"),
 		unstage: fenced(fence, service.unstage, "unknown"),
 		commit: fenced(fence, service.commit, "unknown"),
+		cherryPick: fenced(fence, service.cherryPick, "unknown"),
+		revert: fenced(fence, service.revert, "unknown"),
+		reset: fenced(fence, service.reset, "unknown"),
+		dropCommit: fenced(fence, service.dropCommit, "unknown"),
 		discard: fenced(fence, service.discard, "unknown"),
 		fetch: fenced(fence, service.fetch, "unknown"),
 		pull: fenced(fence, service.pull, "unknown"),
@@ -101,5 +105,10 @@ export function fenceProjectGitService(fence: ProjectServiceFence, service: Proj
 		worktreeCreate: fenced(fence, service.worktreeCreate, "unknown"),
 		worktreeRemove: fenced(fence, service.worktreeRemove, "unknown"),
 		aheadBehind: fenced(fence, service.aheadBehind),
+		...(service.stagedDiff === undefined ? {} : { stagedDiff: fenced(fence, service.stagedDiff) }),
+		// 可选能力：provider 没实现就不出现在结果里（缺省 = 该入口不提供）。
+		...(service.generateCommitMessage === undefined ? {} : { generateCommitMessage: fenced(fence, service.generateCommitMessage, "unknown") }),
+		...(service.watchRefs === undefined ? {} : { watchRefs: fenced(fence, service.watchRefs) }),
+		...(service.unwatchRefs === undefined ? {} : { unwatchRefs: fenced(fence, service.unwatchRefs) }),
 	};
 }

@@ -26,6 +26,7 @@ const calls = {
 	changeGroups: [],
 	autoRefresh: [],
 	graph: [],
+	compare: null,
 };
 const writes = [];
 function resetCalls() {
@@ -110,6 +111,12 @@ const stubs = {
 	"./git/GitPanelControls": {
 		GitCompactFilter: () => null,
 		PaneHeader: (props) => h("div", { "data-pane-header": props.title }, props.children),
+	},
+	"./git/GitCompareChanges": {
+		CompareChanges: (props) => {
+			calls.compare = props;
+			return null;
+		},
 	},
 	"./git/GitGraph": {
 		SourceControlGraph: (props) => {

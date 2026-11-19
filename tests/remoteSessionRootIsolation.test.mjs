@@ -28,13 +28,13 @@ const { REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_ENTRY_SHA256, REMOTE_HELPER_I
 const HOST_ID = "6f1d2c3b-4a59-4e8d-9f70-1a2b3c4d5e6f";
 const HOME = "/home/dev";
 const CONTROL = String.fromCharCode(0);
-/** Current frozen build (helper 1.31.0); it was 1.6.0 when the J2 feature was verified. */
-const FROZEN_HELPER_SHA256 = "1655f44eb95fd73df253c0d5ad2d67a27532c046771b5e4fd8dc87902716d720";
+/** Current frozen build (helper 1.35.0); it was 1.6.0 when the J2 feature was verified. */
+const FROZEN_HELPER_SHA256 = "2c07768047d5f81c35134e7cbecc7f0de1975cbcb74197969d5a7581d5f48a66";
 const CONFIG_ROOT = HOME + "/.pi/agent";
 const CONFIG_PATH = "settings.json";
 const DEFAULT_ROOT = HOME + "/.pi/agent/sessions";
 const SETTINGS_READ_CEILING = 65536;
-/** The frozen helper's advertised vocabulary (build 1.31.0); the session-root code may use the fs batch only. */
+/** The frozen helper's advertised vocabulary (build 1.35.0); the session-root code may use the fs batch only. */
 const FROZEN_CAPABILITIES = [
 	"echo",
 	"fs.stat",
@@ -58,6 +58,7 @@ const FROZEN_CAPABILITIES = [
 	"git.refs",
 	"git.refFileDiff",
 	"git.compare",
+	"git.stagedDiff",
 	"git.createBranch",
 	"git.switchBranch",
 	"git.discard",
@@ -68,6 +69,10 @@ const FROZEN_CAPABILITIES = [
 	"git.fetch",
 	"git.push",
 	"git.pull",
+	"git.cherryPick",
+	"git.revert",
+	"git.reset",
+	"git.drop",
 	"git.init",
 	"git.repos",
 	"git.checkIgnore",
@@ -88,8 +93,8 @@ const FROZEN_CAPABILITIES = [
 	"resources.builtin",
 ];
 
-test("the helper protocol is byte-for-byte the frozen 1.31.0 artifact", () => {
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.31.0", "the helper version must match the frozen artifact");
+test("the helper protocol is byte-for-byte the frozen 1.35.0 artifact", () => {
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.35.0", "the helper version must match the frozen artifact");
 	assert.equal(REMOTE_HELPER_ENTRY_SHA256, FROZEN_HELPER_SHA256, "the declared digest must stay the frozen one");
 	const recomputed = createHash("sha256").update(Buffer.from(REMOTE_HELPER_INLINE_SOURCE, "utf8")).digest("hex");
 	assert.equal(recomputed, REMOTE_HELPER_ENTRY_SHA256, "the uploaded body must hash to the declared digest");

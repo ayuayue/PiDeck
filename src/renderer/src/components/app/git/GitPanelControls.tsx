@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { Twistie } from "./GitResourceTree";
+import { t } from "../../../i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { cn } from "../../../lib/utils";
 
@@ -72,4 +73,12 @@ export function GitCompactFilter(props: { value: string; options: { value: strin
 			</SelectContent>
 		</Select>
 	);
+}
+/**
+ * 源代码管理图的分支过滤器。`hidden` 表示这个位置的历史没有分支维度（远端只有 HEAD 游标分页）：
+ * 与其显示一个“全部分支”却永远只返回 HEAD 的过滤器，不如不渲染。
+ */
+export function GitGraphFilter(props: { value: string; branches: string[]; onChange: (value: string) => void; hidden?: boolean }) {
+	if (props.hidden === true) return null;
+	return <GitCompactFilter value={props.value} ariaLabel={t("git.filterReference")} compact options={[{ value: "", label: t("common.all") }, ...props.branches.map((branch) => ({ value: branch, label: branch }))]} onChange={props.onChange} />;
 }

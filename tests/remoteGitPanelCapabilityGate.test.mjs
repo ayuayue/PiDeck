@@ -14,16 +14,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const panel = readFileSync("src/renderer/src/components/workspace/RemoteGitPanel.tsx", "utf8");
+const localPanel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+const bridge = readFileSync("src/renderer/src/components/workspace/remoteGitPanelBridge.ts", "utf8");
+const recoverySection = readFileSync("src/renderer/src/components/workspace/RemoteGitRecoverySection.tsx", "utf8");
 /**
- * 变更区（提交框 + 分组列表）已拆到独立模块：面板是受行数门禁约束的存量文件，新排版不能让它净增长。
- * 仍属于同一条契约的断言按「面板 + 变更区」两块合起来验证，不把行为预算拆成两份。
  */
-const changesSection = readFileSync("src/renderer/src/components/workspace/RemoteGitChangesSection.tsx", "utf8");
-const panelAndChanges = panel + "\n" + changesSection;
 const view = loadTsCommonJs("src/renderer/src/utils/remoteGitCapabilityView.ts");
 const { describeGitCapabilityBanner, gitCapabilityReasonKey, normalizeGitCapabilities, ALL_GIT_CAPABILITIES, REMOTE_GIT_BANNER_ITEM_IDS, SHARED_GIT_BANNER_ITEM_IDS } = view;
 const { RemoteGitCapabilityBanner } = loadTsCommonJs("src/renderer/src/components/workspace/RemoteGitCapabilityBanner.tsx", { stubs: { react: React } });
-const { RemoteGitClosedNote } = loadTsCommonJs("src/renderer/src/components/workspace/RemoteGitClosedNote.tsx", { stubs: { react: React } });
 const { zhCN } = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 
 const allOpen = ALL_GIT_CAPABILITIES;
@@ -38,46 +36,75 @@ test("全可用时不渲染能力条（只在有入口被关闭时解释原因�
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen, { "git.write": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" })), []);
 });
 
-test("干净态与本机同一套文案与图标，不再各写一句", () => {
-	assert.match(panelAndChanges, /t\("git\.noPendingChanges"\)/, "必须复用本机那句 copy");
-	assert.match(panelAndChanges, /<CheckCircle2/, "图标与本机一致（勾）");
-	assert.ok(!panelAndChanges.includes('t("remoteGit.clean")'), "自造文案必须退场");
+/** 共用面板契约：远端面板只做“位置相关”的装配，入口门禁由 GitPanel + 能力表统一执行。 */
+test("远端把能力快照与阻塞原因原样交给共用面板（能力条只剩一份）", () => {
+	assert.match(panel, /gitCapabilities=\{git\}/);
+	assert.match(panel, /blockedReasons=\{blocked\}/);
+	assert.match(localPanel, /<RemoteGitCapabilityBanner git=\{gitCapabilities\} blocked=\{props\.blockedReasons\}/);
 });
 
-test("分支选择在顶栏：branchRead 门禁，refs 关闭也有入口，打开下拉才加载列表", () => {
-	// 原来切换按钮只长在「引用」折叠区里：refs 能力一关，即使 branchWrite 开着也没有切分支入口。
-	assert.match(panel, /data-testid="remote-git-branch-select"/);
-	assert.match(panel, /capabilities\.branchRead && !repositoryMissing \? \(/, "顶栏分支选择按 branchRead 渲染（非仓库状态不摆一个空下拉）");
-	assert.match(panel, /disabled=\{!capabilities\.branchWrite \|\| busy \|\| branches\.length <= 1\}/, "没有可切目标时禁用，而不是假装能给选项");
-	// 列表按需加载：打开下拉才发 refs 请求（面板打开时不额外打主机）。
-	assert.match(panel, /onOpenChange=\{\(open\) => \{[\s\S]{0,240}loadRefs\(\)/, "打开下拉才加载分支列表");
-	// refs 关闭时仍显示当前分支，区块不会整块消失。
-	assert.match(panel, /const branches = branchNames\.length > 0 \? branchNames : snapshot\?\.branch \? \[snapshot\.branch\] : \[\]/);
-});
-
-test("脏工作区切分支先确认，干净时直接切", () => {
-	// 切换会带着未提交更改过去；失败时只回一个稳定码，所以先问一句（与本机同一条规则）。
-	assert.match(panel, /changeCount > 0 \? setPendingSwitch\(ref\.name\) : switchBranch\(ref\.name\)/, "切换入口必须区分脏/干净两种路径");
-	assert.match(panel, /remote-git-switch-confirm-bar/);
-	assert.match(panel, /remote-git-switch-confirm/);
-	assert.match(panel, /remote-git-switch-cancel/);
-	// 未提交更改总数只用于提示，不参与任何写授权判定。
-	assert.match(panel, /const changeCount = snapshot === undefined \? 0 : GROUPS\.reduce/);
-});
-
-test("能力关闭时区块不消失：保留标题并就地说明原因", () => {
-	// 依据 ui-commercialization-plan「disabled 是必查态」：整块隐藏会让人以为功能不存在，
-	// 也分不清是「没做」还是「这台主机/这个 helper 不行」。
-	for (const key of ["git.recovery", "git.history", "git.refs", "git.compare"]) {
-		assert.match(panel, new RegExp('<RemoteGitClosedNote capability="' + key + '"'), "缺少关闭占位：" + key);
+test("写/同步/分支/对比/初始化入口由共用面板按能力位门禁，远端不再自建一套", () => {
+	for (const gate of [
+		"const canCommit = gitCapabilities.write",
+		"disabled={!gitCapabilities.sync || pushing",
+		"disabled={!gitCapabilities.sync || pulling",
+		"enabled={gitCapabilities.compare}",
+		"if (!props.gitInit || !gitCapabilitiesRef.current.init) return;",
+		"if (!gitCapabilitiesRef.current.branchWrite) return;",
+		"disabled={!gitCapabilities.branchWrite}",
+	]) {
+		assert.ok(localPanel.includes(gate), gate + " must gate its entry on the capability table");
 	}
-	const html = renderToStaticMarkup(React.createElement(RemoteGitClosedNote, { capability: "git.history", blocked: { "git.history": "PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN" } }));
-	assert.match(html, /data-testid="remote-git-closed-git\.history"/);
-	assert.match(html, /检测/, "占位要给出可读原因，而不是只说不可用");
-	// 未知原因码不猜文案：只保留「不可用」，不编造自由文本。
-	const bare = renderToStaticMarkup(React.createElement(RemoteGitClosedNote, { capability: "git.refs", blocked: { "git.refs": "SOMETHING_ELSE" } }));
-	assert.match(bare, /data-testid="remote-git-closed-git\.refs"/);
-	assert.ok(!bare.includes("SOMETHING_ELSE"), "未知原因码不得出现在 UI 上");
+	// 面板本身不写门禁判定：它只透传能力与数据。
+	assert.ok(!panel.includes("const canCommit"), "远端面板不得复制写门禁");
+	assert.match(panel, /gitInit=\{/);
+});
+
+test("脏工作区切分支先确认：远端复用本机同一条确认，不再有第二套行内确认条", () => {
+	assert.match(localPanel, /setPendingBranchSwitch\(branch\)/);
+	assert.match(localPanel, /git\.branchSwitchConfirmMessage/);
+	assert.ok(!panel.includes("remote-git-switch-confirm-bar"), "远端不得复活第二套切分支确认");
+});
+
+test("远端专属入口同样按能力位：恢复区展开才读，关闭时只说明原因", () => {
+	assert.match(recoverySection, /if \(open && props\.enabled && listing === undefined && !loading\) void load\(\)/);
+	assert.match(recoverySection, /\{open \? \(\s*props\.enabled \?/);
+	assert.match(recoverySection, /recoveryDropConfirm/);
+	assert.match(panel, /enabled=\{git\.recovery\}/);
+});
+
+test("没有任何 effect 触发写/网络：fetch、push、pull、commit 只来自用户动作", () => {
+	const effects = panel
+		.split("useEffect(")
+		.slice(1)
+		.map((chunk) => chunk.slice(0, 900));
+	for (const effect of effects) {
+		for (const verb of ["fetch(", "push(", "pull(", "commit(", "discard(", "createBranch("]) {
+			assert.ok(!effect.includes(verb), "no effect may call " + verb);
+		}
+	}
+	// 桥只暴露动词，不主动调用；面板把它们挂成 props。
+	assert.match(panel, /fetch=\{bridge\.fetch\}/);
+	assert.match(panel, /push=\{bridge\.push\}/);
+	assert.match(panel, /pull=\{bridge\.pull\}/);
+	assert.doesNotMatch(panel, /setInterval|setTimeout/, "no delayed replay of a write");
+});
+
+test("远端与本机同形的入口都在，但新协议入口按 helper 声明降级", () => {
+	// 这一批（暂存 diff / 分支过滤与总数 / refs 订阅）随 helper 1.32.0 一起发布：
+	// 旧 helper 上入口必须缺席，而不是点了才报错。
+	for (const prop of ["generateCommitMessage=", "deleteFiles=", "watchRefs=", "unwatchRefs=", "onRefsChanged=", "commitCount="]) {
+		assert.ok(panel.includes(prop), prop + " must ride on the shared panel");
+	}
+	assert.match(panel, /historyRefFilter=\{upgraded\}/, "the history filter is gated by the same protocol marker");
+	assert.match(panel, /git\.stagedDiff/, "the marker is the helper declaration of the new protocol batch");
+	// helper 1.35.0 起有图谱写动词：四个入口挂上共享面板，同样由 helper 的声明守门。
+	for (const prop of ["cherryPick=", "revert=", "reset=", "dropCommit="]) assert.ok(panel.includes(prop), prop + " must ride on the shared panel");
+	assert.match(panel, /git\.cherryPick/, "the graph-write gate is the helper declaration of the new verbs");
+	assert.match(panel, /cherryPick=\{historyWrite \? bridge\.cherryPick : undefined\}/, "an old helper keeps the entry absent");
+	// unknown 结果只展示稳定码、不自动重放；文案仍走同一份远端错误字典。
+	assert.match(bridge, /remoteGitErrorMessage\(code\)/);
+	assert.match(bridge, /outcome/);
 });
 
 test("能力未知说「正在检测」，不冒充「不支持」", () => {
@@ -185,79 +212,4 @@ test("能力条只渲染文本，不渲染任何按钮或假入口", () => {
 	assert.doesNotMatch(html, /onClick/);
 	const worktree = renderBanner({ ...allOpen, worktree: false });
 	assert.equal(worktree, "", "worktree 关闭不渲染能力条（入口本来就不提供）");
-});
-
-/** The panel source contract: every entry and every on-demand load is gated by the capability table. */
-function effectBodies() {
-	return panel
-		.split("useEffect(")
-		.slice(1)
-		.map((chunk) => chunk.slice(0, 900));
-}
-
-test("面板把能力条固定在顶部，并把能力/原因传给组件", () => {
-	assert.match(panel, /<RemoteGitCapabilityBanner git=\{capabilities\} blocked=\{blocked\} \/>/);
-	assert.match(panel, /const \{\s*state,\s*capabilities,\s*blocked,/);
-});
-
-test("所有写/同步/分支/恢复/历史/引用/对比/初始化入口都看能力位，不再看令牌", () => {
-	for (const gate of [
-		"const canCommit = capabilities.write",
-		"const canCreateBranch = capabilities.branchWrite",
-		"const canSwitchBranch = capabilities.branchWrite",
-		"const canDiscard = capabilities.write",
-		"const canRestore = capabilities.recovery",
-		"const canDrop = capabilities.recovery",
-		"const canFetch = capabilities.sync",
-		"const canPush = capabilities.sync",
-		"const canPull = capabilities.sync",
-	]) {
-		assert.ok(panel.includes(gate), gate + " must gate its entry on the capability table");
-	}
-	// 写能力不再只留在面板内的局部变量：它经 writeEnabled 交给变更区，整区（输入框 + 逐文件入口）一起门禁。
-	assert.match(panel, /disabled=\{!capabilities\.read \|\| state\.loading/);
-	assert.match(panel, /void refresh\(capabilities\.forceRefresh\)/, "force refresh degrades to an ordinary read, it never disables refresh");
-	// 提交框在拆出的变更区里：写能力经 writeEnabled 传下去，输入框仍按「忙 / 无写能力」禁用。
-	assert.match(panel, /writeEnabled=\{capabilities\.write\}/, "the changes section is gated by the write capability");
-	assert.match(changesSection, /disabled=\{props\.busy \|\| !props\.writeEnabled\}/, "the commit box stays disabled without the write capability");
-	assert.match(panel, /disabled=\{busy \|\| !capabilities\.branchWrite\}/);
-	assert.match(panel, /\(state\.errorCode === "GIT_NOT_REPOSITORY" \|\| state\.initializing \|\| state\.initNotice !== undefined\) && capabilities\.init/);
-	assert.match(panel, /\{capabilities\.compare \? \(/);
-	for (const token of ["commitToken", "mutationToken", "branchToken", "switchToken", "discardToken", "restoreToken", "dropToken", "fetchToken", "pushToken", "pullToken"]) {
-		assert.ok(!panel.includes(token), token + " must not come back: the service contract has no authorization tokens");
-	}
-	assert.ok(!panel.includes("snapshot.head"), "the snapshot no longer carries head; branch===null is the detached display");
-});
-
-test("分区展开 effect 先过能力闸门，且没有任何 effect 调用 fetch/push/pull", () => {
-	const effects = effectBodies();
-	for (const [capability, loader] of [
-		["history", "loadHistory()"],
-		["refs", "loadRefs()"],
-		["recovery", "loadRecovery()"],
-	]) {
-		const body = effects.find((chunk) => chunk.includes(loader));
-		assert.ok(body, capability + " must load on expansion");
-		const gate = body.indexOf("if (!capabilities." + capability + ") return;");
-		const call = body.indexOf(loader);
-		assert.ok(gate >= 0, capability + " must check its capability first");
-		assert.ok(gate < call, capability + " must not send a request before the capability gate");
-	}
-	for (const effect of effects) {
-		for (const verb of ["fetchRemote(", "pushRemote(", "pullRemote(", "commit(", "mutate(", "discard(", "createBranch(", "switchBranch(", "initRepository("]) {
-			assert.ok(!effect.includes(verb), "no effect may call " + verb);
-		}
-	}
-});
-
-test("refs 轮询串上 refsWatch；确认流程与 unknown 语义仍在", () => {
-	assert.match(panel, /active: refsOpen && capabilities\.refsWatch/);
-	assert.match(panel, /active: refsOpen && capabilities\.refsWatch,\s*refsLoaded: state\.refs !== undefined,\s*hostReady,/);
-	for (const id of ["remote-git-sync-push-confirm-bar", "remote-git-init-confirm", "remote-git-recovery-drop-confirm-bar"]) {
-		assert.ok(panel.includes('data-testid="' + id + '"'), id + " confirmation flow must survive the capability rewrite");
-	}
-	assert.ok(panelAndChanges.includes('data-testid="remote-git-discard-confirm-bar"'), "remote-git-discard-confirm-bar confirmation flow must survive the capability rewrite");
-	// unknown 结果不自动重放：状态层只展示稳定码，面板不做重试（重试入口即显式刷新）。
-	assert.ok(panel.includes("remoteGitErrorMessage(state.errorCode)"));
-	assert.ok(!panel.includes("setTimeout"), "no delayed replay of a write");
 });

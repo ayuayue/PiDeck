@@ -66,8 +66,14 @@ function readAll(dir) {
 		.join("\n");
 }
 
+/**
+ * `ipcChannels` 由一个模块展开组装（Git 面板通道集中在那里，见文件体量门禁）。展开在运行时不丢任何键，
+ * 但文本解析看不到——所以这里显式把被展开的模块一起解析，覆盖率与拆分前完全一致。
+ */
+const CHANNEL_MODULES = [{ file: "src/shared/ipcGitPanelChannels.ts", exportName: "gitPanelChannels" }];
+
 const source = readFileSync(IPC_FILE, "utf8");
-const channels = parseEntries(extractObject(source, "ipcChannels"));
+const channels = [...parseEntries(extractObject(source, "ipcChannels")), ...CHANNEL_MODULES.flatMap(({ file, exportName }) => parseEntries(extractObject(readFileSync(join(ROOT, file), "utf8"), exportName)))];
 const tags = parseEntries(extractObject(source, "agentEventTags"));
 
 const mainBlob = readAll(join(ROOT, "src/main"));

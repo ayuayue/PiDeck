@@ -7,6 +7,7 @@ import type { RunGitOptions } from "./gitProcess";
 import { execGit, GitOutputOverflowError, runGitCommand } from "./gitRun";
 import { resolveWslGitTarget, toHostGitOutputPath } from "./gitWsl";
 import { parsePorcelainStatus } from "./gitStatusParser";
+import { snapshotRecoveryFile, snapshotRecoveryFiles } from "./LocalGitRecovery";
 import type { GitBranchInfo, CommitEntry, GitRef, GitFileStatus, GitResourceGroupType, GitAheadBehind } from "../../shared/types";
 import { GitStatus } from "../../shared/types";
 import type { LocalGitBranchDiffResult, LocalGitChangedFile, LocalGitCommitDetail, LocalGitCommitFileDiff, LocalGitResource, LocalGitResourceGroups, LocalGitWorkspaceFileDiff, LocalGitDiscardResource } from "./localGitTypes";
@@ -727,10 +728,8 @@ export class GitService {
 		}
 	}
 
-	/**
-	 * 丢弃单个未暂存资源。Tracked 文件只恢复 worktree 到 index，因此 MM/AM 文件的暂存内容不会丢失；
-	 * untracked 资源只允许删除 status 明确列出的单个文件或符号链接，目录必须由用户在文件管理器中处理。
-	 */
+	/** 丢弃单个未暂存资源：tracked 只恢复 worktree（暂存内容不丢），untracked 只删 status 里列出的文件。
+	 * 真正覆盖/删除之前先写可还原快照（`refs/pideck/recovery/*`）：写不进去就失败，绝不做「没快照的丢弃」。 */
 	async discardFile(cwd: string, group: "workingTree" | "untracked", filePath: string): Promise<void> {
 		if (group !== "workingTree" && group !== "untracked") {
 			throw new Error("Git resource group cannot be discarded");
@@ -747,23 +746,21 @@ export class GitService {
 				throw new Error("Only individual untracked files can be discarded");
 			}
 			// 符号链接：unlink 只删链接自身（不跟随目标），无用户数据风险，保持轻量删除；
-			// 普通文件：丢弃未跟踪 = 删除用户内容，走系统回收站（可恢复）；回收站不可用时抛错。
+			// 普通文件：先写快照（可还原），再进系统回收站（可恢复）。
 			if (metadata.isSymbolicLink()) {
 				await unlink(resource.path);
 				return;
 			}
+			await snapshotRecoveryFile(repoRoot, resource.path);
 			await trashPath(resource.path, { source: "git:discard-file" });
 			return;
 		}
 
+		await snapshotRecoveryFile(repoRoot, resource.path);
 		await this.git(["--literal-pathspecs", "restore", "--worktree", "--", resource.path], { cwd: repoRoot, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
 	}
 
-	/**
-	 * 批量丢弃同一目录下的未暂存资源。
-	 * 先用一次状态快照校验分组和路径，再合并 tracked restore；未跟踪文件逐个进回收站，
-	 * 这样既保持单文件回滚语义，也避免渲染层并发发送多个相互覆盖的 Git 操作。
-	 */
+	/** 批量丢弃同一目录下的未暂存资源：先校验分组与路径、为每个目标写快照，再合并 restore / 逐个进回收站。 */
 	async discardFiles(cwd: string, resources: LocalGitDiscardResource[]): Promise<void> {
 		if (resources.length === 0) return;
 		const { groups, repoRoot } = await this.getStatusContext(cwd);
@@ -784,6 +781,7 @@ export class GitService {
 				trackedPaths.push(match.path);
 			}
 		}
+		await snapshotRecoveryFiles(repoRoot, [...new Set([...trackedPaths, ...untrackedPaths])]);
 		if (trackedPaths.length > 0) {
 			await this.git(["--literal-pathspecs", "restore", "--worktree", "--", ...[...new Set(trackedPaths)]], { cwd: repoRoot, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
 		}

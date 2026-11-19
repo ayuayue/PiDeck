@@ -14,6 +14,7 @@ const splitDirectory = "src/renderer/src/components/app/git";
  * 文件不存在时按空处理：拆走最后一个文件也不会让读源失败。
  */
 const splitFiles = [
+	"GitCompareChanges.tsx",
 	"GitPaneSash.tsx",
 	"changeGroupSpecs.ts",
 	"gitPaneLayout.ts",

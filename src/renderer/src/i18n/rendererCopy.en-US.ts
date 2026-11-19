@@ -957,6 +957,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"git.commitFailed": "Commit failed",
 	"git.operationFailed": "Git operation failed",
 	"git.compareFailed": "Branch comparison failed",
+	"git.recoveryFailed": "Recoverable discard failed",
 	"git.pushNoUpstreamTitle": "Push failed: no upstream branch",
 	"git.pushNoUpstreamDesc": "Branch {branch} has no upstream. Run the command below in your terminal to set one, then push again:\n{command}",
 	"git.deleteFile": "Delete File",

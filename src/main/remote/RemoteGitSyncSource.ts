@@ -86,12 +86,19 @@ export const REMOTE_GIT_SYNC_SOURCE = String.raw`export function createGitSyncPr
 		return { applied: true, upToDate: updated.length === 0, updated: updated };
 	}
 	/* Push is never forced and never sets an upstream: the argv carries no '+', no --force and no config write. */
+	/* Push is never forced: the argv carries no '+', no --force and no config write. An explicit remote names exactly
+	   <remote> <branch>; without one it follows the branch's configured upstream / push.default, like plain git push. */
 	async function push(ctx, params, first, firstHead) {
 		await gates(ctx);
-		const remote = await known(ctx, remoteName(params.remote)), branch = branchName(params.branch), current = await port.head(ctx);
-		if (current.branch !== branch) throw fail("GIT_RESULT_INVALID");
+		const explicit = params.remote !== null, current = await port.head(ctx);
+		const remote = explicit ? await known(ctx, remoteName(params.remote)) : null;
+		const branch = explicit ? branchName(params.branch) : current.branch;
+		if (branch === null || current.branch !== branch) throw fail("GIT_RESULT_INVALID");
 		await assertConfirmed(ctx, params, first, firstHead);
-		const result = await port.execute(ctx, ["push", "--porcelain", remote, branch], 65536, [1]);
+		/* Upstream mode still refuses a branch with no upstream before any network verb: that is a configuration
+		   fact, not a transient failure, and local git would refuse it too. */
+		if (!explicit && (await upstream(ctx, branch)) === null) throw fail("GIT_SYNC_REMOTE_UNKNOWN");
+		const result = await port.execute(ctx, explicit ? ["push", "--porcelain", remote, branch] : ["push", "--porcelain"], 65536, [1]);
 		const output = utf8(result.bytes);
 		if (result.exitCode !== 0) {
 			for (const line of lines(output)) {
@@ -102,10 +109,12 @@ export const REMOTE_GIT_SYNC_SOURCE = String.raw`export function createGitSyncPr
 			throw fail("GIT_SYNC_FAILED");
 		}
 		let outcome = null, refspec = null;
+		const localRef = "refs/heads/" + branch + ":refs/heads/";
 		for (const line of lines(output)) {
 			const fields = line.split("\t");
 			if (fields.length < 3 || !/^[ =*+-]$/.test(fields[0])) continue;
-			if (fields[1].indexOf("refs/heads/" + branch + ":refs/heads/" + branch) < 0) continue;
+			/* The pushed side is the local branch; the remote-side name may differ when an upstream rename is configured. */
+			if (fields[1].indexOf(localRef) !== 0 || !/^[A-Za-z0-9._/-]{1,1024}$/.test(fields[1].slice(localRef.length))) continue;
 			refspec = fields[1];
 			outcome = fields[0] === "=" ? "up-to-date" : fields[0] === "*" ? "new" : "pushed";
 		}
@@ -116,21 +125,25 @@ export const REMOTE_GIT_SYNC_SOURCE = String.raw`export function createGitSyncPr
 	/* Pull fetches first, then decides: a divergence without a configured strategy is refused, never guessed. */
 	async function pull(ctx, params, first, firstHead) {
 		await gates(ctx);
-		const remote = await known(ctx, remoteName(params.remote)), branch = branchName(params.branch);
+		const explicit = params.remote !== null, before = await port.head(ctx);
+		const remote = explicit ? await known(ctx, remoteName(params.remote)) : null;
+		const branch = explicit ? branchName(params.branch) : before.branch;
 		await assertConfirmed(ctx, params, first, firstHead);
 		const current = await port.head(ctx);
-		if (current.branch !== branch || current.head === null) throw fail("GIT_RESULT_INVALID");
-		if ((await upstream(ctx, branch)) !== "refs/remotes/" + remote + "/" + branch) throw fail("GIT_SYNC_REMOTE_UNKNOWN");
+		if (branch === null || current.branch !== branch || current.head === null) throw fail("GIT_RESULT_INVALID");
+		const tracking = await upstream(ctx, branch);
+		if (tracking === null) throw fail("GIT_SYNC_REMOTE_UNKNOWN");
+		if (explicit && tracking !== "refs/remotes/" + remote + "/" + branch) throw fail("GIT_SYNC_REMOTE_UNKNOWN");
 		if (dirty(await port.rawStatus(ctx))) throw fail("GIT_SYNC_DIRTY");
-		const before = parseTracking(await tracking(ctx, remote));
-		await network(ctx, ["fetch", "--no-tags", remote]);
+		await network(ctx, explicit ? ["fetch", "--no-tags", remote] : ["fetch", "--no-tags"]);
 		await assertConfirmed(ctx, params, first, firstHead);
 		const value = await counts(ctx, branch);
 		if (value.ahead > 0 && value.behind > 0 && !(await configured(ctx, "pull.rebase")) && !(await configured(ctx, "pull.ff"))) throw fail("GIT_PULL_STRATEGY_REQUIRED");
-		const upstreamRef = parseTracking(await tracking(ctx, remote)).get("refs/remotes/" + remote + "/" + branch);
+		const probe = await port.execute(ctx, ["rev-parse", branch + "@{upstream}"], 1024, [1, 128]);
+		const upstreamRef = probe.exitCode === 0 ? utf8(probe.bytes).trim() : null;
 		/* No lock of ours here: git pull writes the index itself, and our own lock would block it. Git's index lock
 		protects the rewrite, and the confirmed revision was checked before the fetch and after it. */
-		const result = await port.execute(ctx, ["pull", "--no-edit", remote, branch], 65536, [1]);
+		const result = await port.execute(ctx, explicit ? ["pull", "--no-edit", remote, branch] : ["pull", "--no-edit"], 65536, [1]);
 		if (result.exitCode !== 0) {
 			let conflicted = false;
 			try { fs.lstatSync(ctx.cwd + "/.git/MERGE_HEAD"); conflicted = true; } catch (error) { if (error.code !== "ENOENT") throw error; }
@@ -143,5 +156,6 @@ export const REMOTE_GIT_SYNC_SOURCE = String.raw`export function createGitSyncPr
 		ctx.check();
 		return { applied: true, mode: mode, head: after.head };
 	}
+
 	return { facts: facts, fetch: fetch, push: push, pull: pull };
 }`.replace(/\r?\n[\t ]*/g, "");

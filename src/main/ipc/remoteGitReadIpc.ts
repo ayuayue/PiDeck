@@ -24,16 +24,21 @@ import type {
 	RemoteGitPullOutcomeResult,
 	RemoteGitPushOutcomeResult,
 	RemoteGitSyncFactsResult,
+	RemoteGitStagedDiffResult,
 } from "../../shared/types/git";
 import type { ProjectFileTarget } from "../../shared/types/project";
 import type { RemoteProjectFactsScope } from "../../shared/types/remoteHost";
 import { opFailFromCode, opOk } from "../../shared/op";
 import { createRemoteGitService, remoteGitFailureCode, remoteGitRepoScope, validateRemoteGitPath, validateRemoteGitRepoPath, type RemoteGitLocator, type RemoteGitReadSnapshot } from "../git/RemoteGitService";
 import { createRemoteGitMutationTokens } from "../git/RemoteGitMutationTokens";
+import { failureEnvelope } from "./remoteGitFailureEnvelope";
+import { createRemoteGitHistoryIpc } from "./remoteGitHistoryIpc";
+import { issueRemoteGitTokens, remoteGitSnapshotFacts } from "./remoteGitTokenIssue";
+import { createRemoteGitStagedDiffIpc } from "./remoteGitStagedDiffIpc";
+import { toCompareValue, toHistoryPage } from "./remoteGitReadMapping";
 import { createSnapshotFactsCache, type SnapshotFactsCache } from "../git/RemoteGitSnapshotFacts";
 import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
 import { DIRECTORY_IGNORE_BATCH_SIZE, DIRECTORY_IGNORE_MAX_PATHS, DIRECTORY_IGNORE_REPOS_TTL_MS, repoRelativePathOf, repoScopeOfPath } from "../files/DirectoryIgnore";
-
 /**
  * 工作区事实 owner 的 Git 侧接口（T4）：由 `remoteProjectIpc` 的 handle 提供。
  *
@@ -48,7 +53,6 @@ export type RemoteWorkspaceFactsPort = {
 };
 import { REMOTE_GIT_COMMIT_MESSAGE_MAX_BYTES } from "../remote/RemoteHelperContract";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
-
 function record(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -176,7 +180,7 @@ export function registerRemoteGitReadIpc(input: {
 	async function directoryIgnoreReposOf(projectId: string): Promise<readonly string[]> {
 		const locator = input.locator(projectId);
 		if (locator === undefined) return [];
-		const scope = `${locator.hostId} ${locator.remotePath} ${await generationFor(projectId)}`;
+		const scope = `${locator.hostId}\u0000${locator.remotePath}\u0000${await generationFor(projectId)}`;
 		const cached = directoryIgnoreRepos.get(projectId);
 		const now = Date.now();
 		if (cached !== undefined && cached.scope === scope && now - cached.at < DIRECTORY_IGNORE_REPOS_TTL_MS) return cached.repos;
@@ -334,42 +338,19 @@ export function registerRemoteGitReadIpc(input: {
 			if (mode !== undefined && mode !== "facts" && mode !== "snapshot") throw new Error("GIT_RESULT_INVALID");
 			const repoPath = validateRemoteGitRepoPath(repo);
 			const factsOnly = mode === "facts";
-			if (!factsOnly) tokens.revoke(event.sender.id, typeof projectId === "string" ? projectId : "");
+			// 只撤这个仓库的旧授权：多仓并排时，A 仓的刷新不能把 B 仓刚签的令牌一起清掉。
+			if (!factsOnly) tokens.revoke(event.sender.id, typeof projectId === "string" ? projectId : "", repoPath);
 			// 事实可缓存（同键并发合并成一次往返）；令牌每次现签，绑定的是这份事实的 revision。
 			const readSnapshot = (await readFacts(event, projectId, repoPath, force === true)).facts;
-			const { writeExpectation, commitExpectation, branchExpectation, switchExpectation, discardExpectation, restoreExpectation, dropExpectation, fetchExpectation, pushExpectation, pullExpectation, ...snapshot } = readSnapshot;
 			// 纯事实：事实之外什么都不带（尤其没有授权令牌），让渲染层可以“只看事实”地强刷一次。
-			if (factsOnly) return { ok: true, snapshot };
-			// Every confirmed scope mints grants bound to itself (G5e): a nested snapshot's tokens carry its repoPath, so
-			// the token layer refuses them against another repository.
-			if (typeof projectId === "string") {
-				if (writeExpectation) snapshot.mutationToken = tokens.issue(event.sender.id, projectId, writeExpectation);
-				if (commitExpectation) snapshot.commitToken = tokens.issue(event.sender.id, projectId, commitExpectation);
-				if (branchExpectation) snapshot.branchToken = tokens.issue(event.sender.id, projectId, branchExpectation);
-				if (switchExpectation) snapshot.switchToken = tokens.issue(event.sender.id, projectId, switchExpectation);
-				if (discardExpectation) snapshot.discardToken = tokens.issue(event.sender.id, projectId, discardExpectation);
-				if (restoreExpectation) snapshot.restoreToken = tokens.issue(event.sender.id, projectId, restoreExpectation);
-				if (dropExpectation) snapshot.dropToken = tokens.issue(event.sender.id, projectId, dropExpectation);
-				if (fetchExpectation) snapshot.fetchToken = tokens.issue(event.sender.id, projectId, fetchExpectation);
-				if (pushExpectation) snapshot.pushToken = tokens.issue(event.sender.id, projectId, pushExpectation);
-				if (pullExpectation) snapshot.pullToken = tokens.issue(event.sender.id, projectId, pullExpectation);
-				if (
-					snapshot.mutationToken !== undefined ||
-					snapshot.commitToken !== undefined ||
-					snapshot.branchToken !== undefined ||
-					snapshot.switchToken !== undefined ||
-					snapshot.discardToken !== undefined ||
-					snapshot.restoreToken !== undefined ||
-					snapshot.dropToken !== undefined ||
-					snapshot.fetchToken !== undefined ||
-					snapshot.pushToken !== undefined ||
-					snapshot.pullToken !== undefined
-				)
-					watchSender(event.sender);
-			}
-			return { ok: true, snapshot };
+			if (factsOnly) return { ok: true, snapshot: remoteGitSnapshotFacts(readSnapshot) };
+			// 令牌只按 (发送者, 项目, 动作种类, 仓库) 签发：跨窗口、跨仓库都用不了，多仓并排也不互撤。
+			if (typeof projectId !== "string") return { ok: true, snapshot: remoteGitSnapshotFacts(readSnapshot) };
+			const granted = issueRemoteGitTokens(event.sender.id, projectId, tokens, readSnapshot);
+			if (granted.issued) watchSender(event.sender);
+			return { ok: true, snapshot: granted.snapshot };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteMutateIndex, async (event, projectId: unknown, operation: unknown, group: unknown, value: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<GitIndexMutationResult> => {
@@ -393,7 +374,7 @@ export function registerRemoteGitReadIpc(input: {
 			);
 			return { ok: true };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteCommit, async (event, projectId: unknown, message: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<GitCommitResult> => {
@@ -405,7 +386,7 @@ export function registerRemoteGitReadIpc(input: {
 			await read(event, projectId, repoPath, (id, signal) => git.commit(id, message, tokens.take(event.sender.id, id, "commit", repoPath, token), repoPath, signal), true);
 			return { ok: true };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteCreateBranch, async (event, projectId: unknown, name: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<RemoteGitBranchMutationResult> => {
@@ -416,7 +397,7 @@ export function registerRemoteGitReadIpc(input: {
 			await read(event, projectId, repoPath, (id, signal) => git.createBranch(id, name, tokens.take(event.sender.id, id, "branch", repoPath, token), repoPath, signal), true);
 			return { ok: true };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteSwitchBranch, async (event, projectId: unknown, name: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<RemoteGitBranchMutationResult> => {
@@ -427,7 +408,7 @@ export function registerRemoteGitReadIpc(input: {
 			await read(event, projectId, repoPath, (id, signal) => git.switchBranch(id, name, tokens.take(event.sender.id, id, "switch", repoPath, token), repoPath, signal), true);
 			return { ok: true };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteDiscard, async (event, projectId: unknown, group: unknown, value: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<RemoteGitDiscardResult> => {
@@ -438,7 +419,7 @@ export function registerRemoteGitReadIpc(input: {
 			const result = await read(event, projectId, repoPath, (id, signal) => git.discard(id, group, fileTarget(id, value), tokens.take(event.sender.id, id, "discard", repoPath, token), repoPath, signal), true);
 			return { ok: true, recoveryRef: result.recoveryRef };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteRecoveryList, async (event, projectId: unknown, repo: unknown): Promise<RemoteGitRecoveryListResult> => {
@@ -447,7 +428,7 @@ export function registerRemoteGitReadIpc(input: {
 			const listing = await read(event, projectId, repoPath, (id, signal) => git.recoveryList(id, repoPath, signal));
 			return { ok: true, entries: listing.entries, truncated: listing.truncated };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteRecoveryRestore, async (event, projectId: unknown, ref: unknown, oid: unknown, path: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<RemoteGitRecoveryRestoreResult> => {
@@ -458,7 +439,7 @@ export function registerRemoteGitReadIpc(input: {
 			const restored = await read(event, projectId, repoPath, (id, signal) => git.recoveryRestore(id, ref, oid, path, tokens.take(event.sender.id, id, "restore", repoPath, token), repoPath, signal), true);
 			return { ok: true, path: restored.path, bytes: restored.bytes };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteRecoveryDrop, async (event, projectId: unknown, ref: unknown, oid: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<RemoteGitRecoveryDropResult> => {
@@ -469,7 +450,7 @@ export function registerRemoteGitReadIpc(input: {
 			await read(event, projectId, repoPath, (id, signal) => git.recoveryDrop(id, ref, oid, tokens.take(event.sender.id, id, "drop", repoPath, token), repoPath, signal), true);
 			return { ok: true };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	/* G5a sync: facts are a read, the three verbs are network writes with their own grants. */
@@ -478,7 +459,7 @@ export function registerRemoteGitReadIpc(input: {
 			const repoPath = validateRemoteGitRepoPath(repo);
 			return { ok: true, facts: await read(event, projectId, repoPath, (id, signal) => git.syncFacts(id, repoPath, signal)) };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteFetch, async (event, projectId: unknown, remote: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<RemoteGitFetchOutcomeResult> => {
@@ -488,7 +469,7 @@ export function registerRemoteGitReadIpc(input: {
 			if (extra.length) throw new Error("GIT_RESULT_INVALID");
 			return { ok: true, outcome: await read(event, projectId, repoPath, (id, signal) => git.fetch(id, remote, tokens.take(event.sender.id, id, "fetch", repoPath, token), repoPath, signal), true) };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemotePush, async (event, projectId: unknown, remote: unknown, branch: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<RemoteGitPushOutcomeResult> => {
@@ -498,7 +479,7 @@ export function registerRemoteGitReadIpc(input: {
 			if (extra.length) throw new Error("GIT_RESULT_INVALID");
 			return { ok: true, outcome: await read(event, projectId, repoPath, (id, signal) => git.push(id, remote, branch, tokens.take(event.sender.id, id, "push", repoPath, token), repoPath, signal), true) };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemotePull, async (event, projectId: unknown, remote: unknown, branch: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<RemoteGitPullOutcomeResult> => {
@@ -508,7 +489,7 @@ export function registerRemoteGitReadIpc(input: {
 			if (extra.length) throw new Error("GIT_RESULT_INVALID");
 			return { ok: true, outcome: await read(event, projectId, repoPath, (id, signal) => git.pull(id, remote, branch, tokens.take(event.sender.id, id, "pull", repoPath, token), repoPath, signal), true) };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteCommitDetail, async (event, projectId: unknown, oid: unknown, repo: unknown): Promise<RemoteGitCommitDetailResult> => {
@@ -517,7 +498,7 @@ export function registerRemoteGitReadIpc(input: {
 			const detail = await read(event, projectId, repoPath, (id, signal) => git.commitDetail(id, oid, repoPath, signal));
 			return { ok: true, detail };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	ipcMain.handle(ipcChannels.gitRemoteRefs, async (event, projectId: unknown, repo: unknown): Promise<RemoteGitRefsResult> => {
@@ -526,7 +507,7 @@ export function registerRemoteGitReadIpc(input: {
 			const refs = await read(event, projectId, repoPath, (id, signal) => git.refs(id, repoPath, signal));
 			return { ok: true, refs };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	/*
@@ -542,16 +523,18 @@ export function registerRemoteGitReadIpc(input: {
 			const created = await read(event, projectId, undefined, (id, signal) => git.init(id, signal), true);
 			return { ok: true, branch: created.branch };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
+	const stagedDiffIpc = createRemoteGitStagedDiffIpc({ read, git, compatRepo });
+	createRemoteGitHistoryIpc({ read, git, tokens, repoScope: compatRepo });
 	ipcMain.handle(ipcChannels.gitRemoteRefFileDiff, async (event, projectId: unknown, base: unknown, head: unknown, value: unknown, repo: unknown): Promise<RemoteGitRefFileDiffResult> => {
 		try {
 			const repoPath = validateRemoteGitRepoPath(repo);
 			const diff = await read(event, projectId, repoPath, (id, signal) => git.refFileDiff(id, base, head, fileTarget(id, value), repoPath, signal));
 			return { ok: true, diff };
 		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
+			return failureEnvelope(error);
 		}
 	});
 	return {
@@ -588,6 +571,7 @@ export function registerRemoteGitReadIpc(input: {
 			const refs = await read(event, projectId, repoPath, (id, signal) => git.refs(id, repoPath, signal));
 			return refs.refs.map((ref) => ({ name: ref.name, fullName: ref.fullName, hash: ref.oid, type: ref.kind === "tag" ? "tag" : "head" }));
 		},
+		stagedDiff: (event: IpcMainInvokeEvent, projectId: unknown, repo: unknown): Promise<string> => stagedDiffIpc.stagedDiff(event, projectId, repo),
 		async listRepositories(event: IpcMainInvokeEvent, projectId: unknown): Promise<GitRepoInfo[]> {
 			const listing = await read(event, projectId, "", (id, signal) => git.listRepositories(id, signal));
 			const owner = typeof projectId === "string" ? projectId : "";
@@ -616,30 +600,23 @@ export function registerRemoteGitReadIpc(input: {
 				return opFailFromCode(remoteGitFailureCode(error));
 			}
 		},
-		/** 公共历史页（T7）：远端 HEAD-only，不编造 totalCount/过滤能力。 */
+		/** 公共历史页（T7）：ref/全部分支/总数都有对应 helper 参数；都不传时保持 HEAD-only 旧语义。 */
 		async historyPage(event: IpcMainInvokeEvent, projectId: unknown, options: unknown, repo: unknown): Promise<GitHistoryPageResult> {
 			try {
 				const repoPath = remoteGitRepoScope(typeof projectId === "string" ? projectId : "", repo);
 				const page = await read(event, projectId, repoPath, (id, signal) => git.log(id, options, repoPath, signal));
-				return opOk({
-					commits: page.commits.map((commit) => ({ oid: commit.oid, parents: [...commit.parents], subject: commit.subject, authorName: commit.authorName, authorEmail: commit.authorEmail, authorTimeMs: commit.authorTimeSec * 1000 })),
-					hasMore: page.hasMore,
-				});
+				return opOk(toHistoryPage(page));
 			} catch (error) {
 				return opFailFromCode(remoteGitFailureCode(error));
 			}
 		},
-		/** 公共比较（T7）：远端是两树比较（trees），不返还 ahead/behind。 */
-		async compareRefs(event: IpcMainInvokeEvent, projectId: unknown, base: unknown, head: unknown, repo: unknown): Promise<GitCompareRefsResult> {
+		/** 公共比较（T7）：`mode` 决定两树还是三点；三点才有 ahead/behind。 */
+		async compareRefs(event: IpcMainInvokeEvent, projectId: unknown, base: unknown, head: unknown, repo: unknown, mode?: unknown): Promise<GitCompareRefsResult> {
 			try {
+				if (mode !== undefined && mode !== "trees" && mode !== "threeDot") return opFailFromCode("GIT_RESULT_INVALID");
 				const repoPath = remoteGitRepoScope(typeof projectId === "string" ? projectId : "", repo);
-				const compare = await read(event, projectId, repoPath, (id, signal) => git.compare(id, base, head, repoPath, signal));
-				return opOk({
-					mode: "trees",
-					base: { ref: compare.base.ref, oid: compare.base.oid },
-					head: { ref: compare.head.ref, oid: compare.head.oid },
-					files: compare.files.map((file) => ({ status: file.status, path: file.path, ...(file.oldPath === undefined ? {} : { oldPath: file.oldPath }) })),
-				});
+				const compare = await read(event, projectId, repoPath, (id, signal) => git.compare(id, base, head, repoPath, signal, mode));
+				return opOk(toCompareValue(compare));
 			} catch (error) {
 				return opFailFromCode(remoteGitFailureCode(error));
 			}

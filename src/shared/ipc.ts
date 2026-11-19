@@ -1,4 +1,8 @@
+import { gitPanelChannels } from "./ipcGitPanelChannels";
+
 export const ipcChannels = {
+	// Git 面板的通道（远端 Git 全部 + 本机可还原丢弃）集中在 ipcGitPanelChannels.ts。
+	...gitPanelChannels,
 	remoteHostsList: "remote:hosts-list",
 	/** 连接一台已 pin 的主机（会启动真实 SSH；失败返回稳定码）。 */
 	remoteHostConnect: "remote:connect",
@@ -668,26 +672,6 @@ export const ipcChannels = {
 	gitCommitFileDiff: "git:commit-file-diff",
 	gitDiffFileBetween: "git:diff-file-between",
 	gitStatus: "git:status",
-	/** SSH root repository facts plus SCM groups; writes/history/sync remain capability-blocked. */
-	gitRemoteSnapshot: "git:remote-snapshot",
-	gitRemoteMutateIndex: "git:remote-mutate-index",
-	gitRemoteCommit: "git:remote-commit",
-	gitRemoteCommitDetail: "git:remote-commit-detail",
-	gitRemoteRefs: "git:remote-refs",
-	gitRemoteRefFileDiff: "git:remote-ref-file-diff",
-	/** Explicit init at the project root; no token because there is no confirmed repository state to bind. */
-	gitRemoteInit: "git:remote-init",
-	gitRemoteCreateBranch: "git:remote-create-branch",
-	gitRemoteSwitchBranch: "git:remote-switch-branch",
-	gitRemoteDiscard: "git:remote-discard",
-	gitRemoteRecoveryList: "git:remote-recovery-list",
-	gitRemoteRecoveryRestore: "git:remote-recovery-restore",
-	gitRemoteRecoveryDrop: "git:remote-recovery-drop",
-	gitRemoteSyncFacts: "git:remote-sync-facts",
-	gitRemoteFetch: "git:remote-fetch",
-	gitRemotePush: "git:remote-push",
-	gitRemotePull: "git:remote-pull",
-	gitRemoteCancelReads: "git:remote-cancel-reads",
 	gitWorkspaceFileDiff: "git:workspace-file-diff",
 	gitStage: "git:stage",
 	gitUnstage: "git:unstage",

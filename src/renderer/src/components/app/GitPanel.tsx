@@ -1,5 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { VirtualStack } from "../ui-shadcn/virtual-stack";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useAtom, useSetAtom } from "jotai";
 import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCircle2, ChevronDown, ChevronsDownUp, ChevronsUpDown, ClipboardPaste, FileCode2, FolderGit2, GitBranch, List, ListTree, Loader2, Plus, RefreshCw, RotateCcw, Sparkles, TriangleAlert } from "lucide-react";
@@ -13,20 +12,19 @@ import { showNotice, dismissNotice } from "../../utils/notice";
 import { commitGenNoticeText, commitGenToastId, COMMIT_GEN_TIMEOUT_MS, gitErrorToastId, showCommitGenProgressToast } from "./git/gitPanelToasts";
 import { htmlToPlainText, readClipboardHtmlConsistent, readClipboardText } from "../../utils/clipboard";
 import { deepEqual } from "../../utils/deepEqual";
-import type { BranchDiffResult, CommitDetail, CommitEntry, GitAheadBehind, GitChangedFile, GitDiscardResource, GitResource, GitResourceGroupType, GitResourceGroups, ProjectFileTarget } from "../../../../shared/types";
-import { GitStatus } from "../../../../shared/types";
+import type { CommitDetail, CommitEntry, GitAheadBehind, GitChangedFile, GitDiscardResource, GitResource, GitResourceGroupType, GitResourceGroups, ProjectFileTarget } from "../../../../shared/types";
 import { EMPTY_GIT_COMMIT_COMPOSER, gitCommitComposerByScopeAtom, gitCommitScopeKey, openSettingsAtom, patchGitCommitComposer, type GitCommitComposerState } from "../../atoms";
 import { t } from "../../i18n";
-import { fileNameOnly, ChangesGroupsStack, getCollapsibleChangeDirs, ResourceRow, type ChangesGroupSpec } from "./git/GitResourceTree";
+import { fileNameOnly, ChangesGroupsStack, getCollapsibleChangeDirs, type ChangesGroupSpec } from "./git/GitResourceTree";
 import { collectChangeTreeDirPaths, collectUnstagedResources, type GitChangeViewMode } from "./git/changeTree";
 import { buildChangesGroupSpecs } from "./git/changeGroupSpecs";
-import { GitCompactFilter, PaneHeader } from "./git/GitPanelControls";
+import { PaneHeader } from "./git/GitPanelControls";
 import { SourceControlGraph } from "./git/GitGraph";
+import { CompareChanges, type CompareChangesResult } from "./git/GitCompareChanges";
 import { Input } from "../ui-shadcn/input";
 import { Progress } from "../ui-shadcn/progress";
 import { Textarea } from "../ui-shadcn/textarea";
-import { Label } from "../../components/ui-shadcn/label";
-import type { ProjectGitCapabilities } from "../../services/projectServiceContracts";
+import type { ProjectGitCapabilities, ProjectServiceCapabilityReasons } from "../../services/projectServiceContracts";
 import { localGitOperationErrorText } from "../../utils/gitErrorPresentation";
 import { normalizeGitCapabilities, SHARED_GIT_BANNER_ITEM_IDS } from "../../utils/remoteGitCapabilityView";
 import { RemoteGitCapabilityBanner } from "../workspace/RemoteGitCapabilityBanner";
@@ -77,15 +75,29 @@ export type GitPanelProps = {
 	historyRepoOptions?: { value: string; label: string }[];
 	onSelectHistoryRepo?: (path: string) => void;
 	commitLog: (projectId: string, options?: { maxEntries?: number; ref?: string; allBranches?: boolean }) => Promise<CommitEntry[]>;
-	/** 与当前图谱过滤一致的提交总数（不分页），供源代码管理图标题徽章使用。 */
-	commitCount: (projectId: string, options?: { ref?: string; allBranches?: boolean }) => Promise<number>;
+	/**
+	 * 与当前图谱过滤一致的提交总数（不分页），供源代码管理图标题徽章使用。
+	 * 位置不支持总数（远端只有 HEAD 游标分页）时缺省：徽章退回已加载页长度，不编造全仓总数。
+	 */
+	commitCount?: (projectId: string, options?: { ref?: string; allBranches?: boolean }) => Promise<number>;
+	/**
+	 * 图谱的分支 / 全部分支过滤。缺省可用；远端历史只有 HEAD 分页，关掉过滤器而不是让“过滤”静默失效。
+	 */
+	historyRefFilter?: boolean;
+	/** 分支栏起始位置的宿主槽位（远端仓库范围选择器）。 */
+	branchBarExtra?: ReactNode;
+	/** 面板底部追加的宿主分区（远端恢复区）。 */
+	footer?: ReactNode;
+	/** 能力阻塞原因：与远端面板同一条能力条解释“缺什么、第一条原因”。 */
+	blockedReasons?: ProjectServiceCapabilityReasons;
 	commitDetail: (projectId: string, ref: string) => Promise<CommitDetail | null>;
 	onOpenCommitFileDiff: (commit: CommitEntry, file: GitChangedFile) => void | Promise<void>;
 	onOpenWorkspaceFileDiff: (group: GitResourceGroupType, target: ProjectFileTarget) => void | Promise<void>;
 	/** 行内“打开文件”按钮：在编辑器面板打开该文件 */
 	onOpenFile?: (target: ProjectFileTarget) => void;
-	branchCompare: (projectId: string, base: string, target: string) => Promise<BranchDiffResult>;
-	getStatus: (projectId: string) => Promise<GitResourceGroups>;
+	branchCompare: (projectId: string, base: string, target: string) => Promise<CompareChangesResult>;
+	/** `force` 只在显式刷新时置位：远端据此走纯事实强刷，静默轮询读事实缓存。 */
+	getStatus: (projectId: string, options?: { force?: boolean }) => Promise<GitResourceGroups>;
 	stageFiles: (projectId: string, targets: ProjectFileTarget[]) => Promise<void>;
 	unstageFiles: (projectId: string, targets: ProjectFileTarget[]) => Promise<void>;
 	discardFile: (projectId: string, group: "workingTree" | "untracked", target: ProjectFileTarget) => Promise<void>;
@@ -297,7 +309,7 @@ export function GitPanel(props: GitPanelProps) {
 				setError(null);
 			}
 			try {
-				const next = await getStatusRef.current(projectId);
+				const next = await getStatusRef.current(projectId, { force: !silent });
 				if (current()) {
 					// 内容未变保留原引用（2027-02 性能审计）：status 每次返回全新对象树，
 					// 直接 set 会让 FileTree（浅比较 memo）每 5 秒对整棵变更树全量
@@ -315,18 +327,21 @@ export function GitPanel(props: GitPanelProps) {
 			} catch (caught) {
 				if (current()) {
 					const msg = localGitOperationErrorText(caught);
+					// 稳定码优先：“不是仓库”在本机是 stderr 文字，在远端是 GIT_NOT_REPOSITORY 码；
+					// 同一处判定认两种来源，才能让一条面板同时服务两个位置。
+					const code = (caught as { code?: unknown } | null)?.code;
+					const notRepo = code === "GIT_NOT_REPOSITORY" || /not a git repository|fatal:/.test(msg);
+					const gitMissing = /command not found|ENOENT|spawn.*git.*ENOENT/i.test(msg);
 					// 检测"不是 Git 仓库"的错误，展示初始化提示（无论是否静默都要置位，
 					// 否则面板打开期间仓库状态变化时轮询永远停不下来）
-					if (/not a git repository|fatal:/.test(msg)) {
+					if (notRepo) {
 						setNotAGitRepo(true);
-					} else if (/command not found|ENOENT|spawn.*git.*ENOENT/i.test(msg)) {
+					} else if (gitMissing) {
 						setGitNotInstalled(true);
 					}
 					if (!silent) {
 						setGroups(EMPTY_GROUPS);
-						if (/not a git repository|fatal:/.test(msg)) {
-							setError("");
-						} else if (/command not found|ENOENT|spawn.*git.*ENOENT/i.test(msg)) {
+						if (notRepo || gitMissing) {
 							setError("");
 						} else {
 							setError(msg);
@@ -687,11 +702,12 @@ export function GitPanel(props: GitPanelProps) {
 	return (
 		<div ref={panelRef} data-pane-animating={paneAnimating || undefined} className={`git-panel flex min-h-0 flex-col overflow-hidden bg-bg-page-raised text-foreground${layout === "full" ? " h-full" : ""}`} aria-label={t("git.sourceControl")}>
 			{/* G4b：能力条置顶；只在确有入口被关闭时显示（全可用时不占一行）。 */}
-			{props.gitCapabilities === undefined ? null : <RemoteGitCapabilityBanner git={gitCapabilities} items={SHARED_GIT_BANNER_ITEM_IDS} />}
+			{props.gitCapabilities === undefined ? null : <RemoteGitCapabilityBanner git={gitCapabilities} blocked={props.blockedReasons} items={SHARED_GIT_BANNER_ITEM_IDS} />}
 			{layout !== "historyOnly" && (
 				<>
 					{/* 当前分支 + 切换下拉：无边框、宽度收窄，把空间留给仓库名和提交区。 */}
 					<div className={`flex shrink-0 items-center gap-1 border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] px-2${layout === "changesOnly" ? " py-1" : " py-1.5"}`} ref={branchBarRef}>
+						{props.branchBarExtra}
 						{layout === "changesOnly" && props.repositoryLabel && (
 							<div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-semibold text-[var(--git-panel-fg)]" title={props.repositoryLabel}>
 								<FolderGit2 size={13} className="shrink-0 text-muted-foreground" />
@@ -705,6 +721,8 @@ export function GitPanel(props: GitPanelProps) {
 							size="xs"
 							className={`inline-flex h-6 items-center gap-0.5 rounded-sm border-0 bg-transparent px-1 text-left text-micro text-[var(--git-panel-fg)] shadow-none hover:bg-[var(--git-panel-hover)]${layout === "changesOnly" ? " max-w-[26%] shrink min-w-0" : " max-w-[9rem] min-w-0"}`}
 							onClick={() => {
+								// 分支切换是写：能力关闭时连下拉都不打开（列表本身也需要 refs 读）。
+								if (!gitCapabilitiesRef.current.branchWrite) return;
 								if (!branchOpen) updateBranchDropdownPosition();
 								setBranchOpen((v) => !v);
 							}}
@@ -741,6 +759,7 @@ export function GitPanel(props: GitPanelProps) {
 											size="sm"
 											className={`h-auto flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent${branch === props.currentBranch ? " bg-accent font-semibold text-[color:var(--color-accent)]" : ""}`}
 											title={branch}
+											disabled={!gitCapabilities.branchWrite}
 											onClick={() => {
 												setBranchOpen(false);
 												// 脏工作区切分支确认（Wave 5）：git checkout 默认把未提交改动
@@ -757,8 +776,8 @@ export function GitPanel(props: GitPanelProps) {
 											<span className="truncate">{branch}</span>
 										</Button>
 									))}
-									<div className="my-1 h-px bg-border" />
-									{branchCreating ? (
+									{gitCapabilities.branchWrite && <div className="my-1 h-px bg-border" />}
+									{gitCapabilities.branchWrite && branchCreating ? (
 										<div className="flex items-center gap-1 px-1 py-1">
 											<Input
 												className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -795,12 +814,12 @@ export function GitPanel(props: GitPanelProps) {
 												<Check size={14} />
 											</Button>
 										</div>
-									) : (
+									) : gitCapabilities.branchWrite ? (
 										<Button type="button" variant="ghost" size="sm" className="h-auto flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-accent" onClick={() => setBranchCreating(true)}>
 											<Plus size={14} />
 											<span>{t("app.branchCreate")}</span>
 										</Button>
-									)}
+									) : null}
 								</div>,
 								document.body,
 							)}
@@ -921,6 +940,7 @@ export function GitPanel(props: GitPanelProps) {
 					projectId={props.projectId}
 					commitLog={props.commitLog}
 					commitCount={props.commitCount}
+					refFilter={props.historyRefFilter}
 					commitDetail={props.commitDetail}
 					onOpenCommitFileDiff={props.onOpenCommitFileDiff}
 					branches={props.branches}
@@ -956,6 +976,8 @@ export function GitPanel(props: GitPanelProps) {
 					onSelectHistoryRepo={props.onSelectHistoryRepo}
 				/>
 			)}
+
+			{props.footer}
 
 			{discardTarget &&
 				createPortal(
@@ -1053,139 +1075,5 @@ export function GitPanel(props: GitPanelProps) {
 				</AlertDialog>
 			)}
 		</div>
-	);
-}
-
-function CompareChanges(props: {
-	paneIdPrefix: string;
-	projectId: string;
-	branches: string[];
-	branchCompare: GitPanelProps["branchCompare"];
-	/** 对比能力：关闭时整块只读、不发请求（能力条解释原因）。 */
-	enabled: boolean;
-	open: boolean;
-	height: number;
-	onToggle: () => void;
-	historyRepoPath?: string;
-	historyRepoOptions?: { value: string; label: string }[];
-	onSelectHistoryRepo?: (path: string) => void;
-}) {
-	const [base, setBase] = useState("");
-	// 对比结果列表的滚动窗：交给 VirtualStack 复用（它要拿它当 getScrollElement）。
-	const compareScrollRef = useRef<HTMLDivElement>(null);
-	const [target, setTarget] = useState("");
-	const [result, setResult] = useState<BranchDiffResult | null>(null);
-	const [loading, setLoading] = useState(false);
-	const requestSequence = useRef(0);
-
-	useEffect(() => {
-		// Branch names overlap across projects; comparison state must not cross that boundary.
-		requestSequence.current += 1;
-		setBase("");
-		setTarget("");
-		setResult(null);
-		setLoading(false);
-	}, [props.projectId]);
-
-	useEffect(() => {
-		if (props.branches.length >= 2 && (!base || !target)) {
-			setTarget(props.branches[0] ?? "");
-			setBase(props.branches[1] ?? "");
-		}
-	}, [base, props.branches, target]);
-
-	const run = async () => {
-		if (!props.enabled) return;
-		if (!base || !target || base === target) return;
-		const request = ++requestSequence.current;
-		const projectId = props.projectId;
-		setLoading(true);
-		try {
-			const next = await props.branchCompare(projectId, base, target);
-			if (request === requestSequence.current && projectId === props.projectId) setResult(next);
-		} catch (caught) {
-			if (request === requestSequence.current && projectId === props.projectId) {
-				setResult(null);
-				// 对比失败（分支被删/仓库异常）不再占面板错误区，toast 用完即走。
-				showNotice(localGitOperationErrorText(caught) || t("git.compareFailed"), 8000, "error", t("git.compareFailed"));
-			}
-		} finally {
-			if (request === requestSequence.current && projectId === props.projectId) setLoading(false);
-		}
-	};
-
-	return (
-		<section
-			id={`git-pane-${props.paneIdPrefix}-compare`}
-			className={`flex min-h-0 flex-[0_0_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${props.open ? " h-[calc(var(--git-pane-height)+32px)]" : " h-[32px]"}`}
-			style={{ "--git-pane-height": `${props.height}px` } as React.CSSProperties}
-		>
-			<PaneHeader id={`${props.paneIdPrefix}-compare`} title={t("git.compareChanges")} count={result?.files.length} open={props.open} onToggle={props.onToggle}>
-				{props.historyRepoOptions && props.historyRepoOptions.length > 1 && props.onSelectHistoryRepo && <GitCompactFilter value={props.historyRepoPath ?? ""} ariaLabel={t("git.switchRepository")} options={props.historyRepoOptions} onChange={props.onSelectHistoryRepo} compact className="max-w-[8.5rem]" />}
-			</PaneHeader>
-			{/* scroll-ok: nested —— 一个滚动窗里两段：上方 base/head 选择控件 + 下方改动文件列表。虚拟器只算得出其中一段的高度，跟容器 scrollHeight 对不上，滚动位置会错。 */}
-			{props.open && (
-				<div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
-					<div className="git-compare-controls">
-						<Label>
-							<span>{t("git.base")}</span>
-							<GitCompactFilter
-								value={base}
-								ariaLabel={t("git.base")}
-								options={[
-									{ value: "", label: t("git.selectBase") },
-									...props.branches.map((branch) => ({
-										value: branch,
-										label: branch,
-									})),
-								]}
-								onChange={(value) => setBase(value)}
-							/>
-						</Label>
-						<span className="flex items-center pb-px text-[var(--git-desc-fg)]" aria-hidden="true">
-							→
-						</span>
-						<Label>
-							<span>{t("git.compare")}</span>
-							<GitCompactFilter
-								value={target}
-								ariaLabel={t("git.compare")}
-								options={[
-									{ value: "", label: t("git.selectCompare") },
-									...props.branches.map((branch) => ({
-										value: branch,
-										label: branch,
-									})),
-								]}
-								onChange={(value) => setTarget(value)}
-							/>
-						</Label>
-						<Button type="button" variant="ghost" size="sm" className=" h-auto px-2.5 text-control" disabled={!props.enabled || !base || !target || base === target || loading} onClick={() => void run()}>
-							{loading ? <Loader2 size={14} className="animate-pideck-spin" /> : t("git.compare")}
-						</Button>
-					</div>
-					{result && (
-						<>
-							<div className="flex-[0_0_auto] border-t border-[var(--git-panel-border)] px-2.5 py-1 text-micro text-[var(--git-desc-fg)]">
-								{t("git.compareSummary", {
-									ahead: result.ahead,
-									behind: result.behind,
-									count: result.files.length,
-								})}
-							</div>
-							{/*
-							     对比结果文件列表：行数 = 两次提交/分支之间改动的文件数，大重构可以上百个，
-							     而外层是 flex 填充的滚动窗 —— 正是「行数随数据增长 + 有视口」。
-							     行高固定（ResourceRow 是单行 22px 级），measureElement 实测后基本不抖动。
-							*/}
-							<div ref={compareScrollRef} className="min-h-0 flex-1 overflow-auto overscroll-contain">
-								<VirtualStack items={result.files} scrollRef={compareScrollRef} getKey={(file) => file.path} estimateHeight={22} renderItem={(file) => <ResourceRow status={0 as GitStatus} letter="" path={file.path} compareStatus={file.status} />} />
-							</div>
-						</>
-					)}
-					{!result && <div className="flex min-h-[22px] shrink-0 items-center gap-1 px-2.5 text-control text-[var(--git-desc-fg)]">{t("git.compareHint")}</div>}
-				</div>
-			)}
-		</section>
 	);
 }

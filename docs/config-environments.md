@@ -76,7 +76,7 @@ provider 连接测试和用量查询仍只在本机开放。SSH「获取模型�
   ssh 的 `readRaw("auth")` 走 `RemotePiConfigBackend.readAuth`（`config.readAuth`）；表单保存走专属
   `config:replace-remote-auth`，通用 `writeRaw("auth")` 仍被拒。
 - 远端 helper 配置域：`src/main/remote/RemoteConfigSource.ts`（冻结源码 + sha256 钉死）+
-  `RemoteHelperEntry.ts`（**当前 build 1.31.0**）。新增文件必须同时改这两处的版本/摘要与
+  `RemoteHelperEntry.ts`（**当前 build 1.35.0**）。新增文件必须同时改这两处的版本/摘要与
   `tests/remoteConfigContract.test.mjs`。
 - IPC：`config:get-raw`（新增，源文件页统一读取；ssh + auth.json 回 `remoteAuth` 派生视图且 `raw` 为空）、
   `config:save-raw`（`options`：wsl 整文件原文 / ssh `expectedVersion` + `document` 或兼容 `patch`，不含 auth）、

@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 4a1cf7509b67d0f3c9a48f0ab7a11f9592aa4b228fc1a77a7f1b2e86526c5a43（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 6b1fab657c3c917c05120b74059450864a6d9cdbdaef0185431628077feda896（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -962,6 +962,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"git.commitFailed": "提交失敗",
 	"git.operationFailed": "Git 操作失敗",
 	"git.compareFailed": "分支對比失敗",
+	"git.recoveryFailed": "可還原丟棄操作失敗",
 	"git.pushNoUpstreamTitle": "推送失敗：分支未設定上游",
 	"git.pushNoUpstreamDesc": "當前分支 {branch} 還沒有上游分支，可在終端執行以下命令建立上游後重試：\n{command}",
 	"git.deleteFile": "刪除檔案",

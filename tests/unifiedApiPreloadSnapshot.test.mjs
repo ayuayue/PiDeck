@@ -64,6 +64,10 @@
  *   命名空间 82→83；sessions 117 / config 53 / git 64 / app 32 钓点均不变。
  * 2026-11-16 #546 分诊账本：sessions 新增 gtdState / gtdPatch 两法（与 catalog 子域归属同步），
  *   命名空间 84 与 config 54 / git 61 / app 32 钓点均不变。
+ * 2026-11-18 远端 Git 面板对齐（git +6 方法）：remoteStagedDiff / remoteWatchRefs / remoteUnwatchRefs /
+ *   localRecoveryList / localRecoveryRestore / localRecoveryDrop；git 61 → 67，命名空间数与其余锚点不变。
+ * 2026-11-18 刷新：远端提交图谱写动词入场，preload 增 cherryPickRemote / revertRemote / resetRemote /
+ *   dropCommitRemote（git 67 → 71）；命名空间数与其余锚点不变。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -73,7 +77,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const NS_LIST_SHA256 = "5809b53fe0324e549ec6fc4ffb3144a1c4dae2708659619faa769b56449781e1";
 // #520：sessions 新增安全分享 prepare/save/release 三个方法，其他命名空间不变。
 // #546：sessions 新增 gtdState / gtdPatch（GTD 分诊账本），其他命名空间不变。
-const FULL_METHODS_SHA256 = "0849ab2a3e510b055f7d18d06cdd88072d4e56cf1b2cae0ac03ff357854f0c2e";
+const FULL_METHODS_SHA256 = "c2b3dd260aed06f9ee98c13e1bf2ca83b1be0366a9d134628b6c183ae2df92fd";
 const NAMESPACE_COUNT = 85;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
@@ -126,10 +130,10 @@ test("F8-2 每命名空间排序方法清单摘要零漂移", () => {
 	assert.equal(sha256(methodLines.join(";")), FULL_METHODS_SHA256, "方法清单摘要漂移：任一命名空间的方法暴露面发生变化（A10 红线）");
 });
 
-test("F8-3 数量锚点：sessions 122 / config 55 / git 61 / app 32", () => {
+test("F8-3 数量锚点：sessions 122 / config 55 / git 71 / app 32", () => {
 	assert.equal(Object.keys(api.sessions).length, 122, "sessions 方法数漂移");
 	assert.equal(Object.keys(api.config).length, 55, "config 方法数漂移");
-	assert.equal(Object.keys(api.git).length, 61, "git 方法数漂移");
+	assert.equal(Object.keys(api.git).length, 71, "git 方法数漂移");
 	assert.equal(Object.keys(api.app).length, 32, "app 方法数漂移");
 });
 

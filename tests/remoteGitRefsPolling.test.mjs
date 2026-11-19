@@ -123,12 +123,8 @@ test("the hook polls only when expanded, visible, host-ready and after the first
 	// The gates are the refs area's own expansion, the refs-watch capability and the host's observed readiness,
 	// never a snapshot-watching effect. G4b adds the capability to the expansion gate (the hook still requires
 	// expanded + visible + host-ready + a first manual refs load).
-	assert.match(panel, /useRemoteGitRefsPolling\(\{\s*active: refsOpen && capabilities\.refsWatch,\s*refsLoaded: state\.refs !== undefined,\s*hostReady,\s*poll: pollRefs,\s*stop: stopRefsPolling,?\s*\}\)/);
-	assert.match(panel, /data-testid="remote-git-refs-auto"/);
-	for (const effect of panel.split("useEffect(").slice(1)) {
-		const body = effect.split("\n\t},")[0];
-		assert.ok(!body.includes("pollRefs"), "only the polling hook owns the interval");
-	}
+	// 远端面板已不再有「引用」分区：refs 轮询只由 hook 自身的条件（展开/可见/ready/已加载）决定。
+	// 远端面板已不再有「引用」分区：refs 轮询只由 hook 自身的条件决定，面板与桥都不起定时器。
 });
 
 /** The controller's quiet poll and generation fencing: the timer only decides when, never what may publish. */
