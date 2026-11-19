@@ -62,6 +62,11 @@ export function createWebRuntimeDeps(ctx: WebServiceContext) {
 		listSessionRuntimes: () => getSessionRuntimeCoordinator().listRuntimes(),
 		listPendingUiRequests: () => getSessionRuntimeCoordinator().listPendingUiRequests(),
 		respondToUi: (input) => getSessionRuntimeCoordinator().respondToUi(input),
+		// PiDeck Lite 手机轮询 /api/session/{id}：把运行中 agent 的 live 正文带回，形成打字机效果。
+		getLiveText: (sessionId) => {
+			const target = getSessionRuntimeCoordinator().getTarget(sessionId);
+			return target ? agentManager.liveStream.getDisplayText(target.agentId) : "";
+		},
 		// S6.3：Web 端 DSH 工具面板（goals/subagents/skills）——与桌面 IPC 同源
 		listDshSubagents: (agentId) => dshAgentManager.listSubagents(agentId),
 		readDshSubagentHistory: (agentId, childSessionId, beforeSeq, maxMessages) => dshAgentManager.readSubagentHistory(agentId, childSessionId, beforeSeq, maxMessages),

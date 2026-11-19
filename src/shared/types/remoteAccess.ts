@@ -1,17 +1,46 @@
 /**
  * 外网访问（内网穿透）契约：设置页「外网访问」面板与主进程 RemoteAccessManager 的共享形状。
  *
- * 三个渠道：
+ * 三个可启停渠道 + 一个纯链接渠道：
  * - cloudflare：本机 cloudflared 免注册 quick tunnel（https://xxx.trycloudflare.com），
  *   手机零安装即可访问；域名每次启动都会变化，且流量经 Cloudflare 中转，必须保持 token 鉴权。
  * - tailscale：本机已登录的 tailscale 组网；直连地址（http://100.x.y.z:port）始终可用，
  *   serve 模式可额外提供固定 https 入口（PWA/Service Worker 需要 HTTPS）。
  * - easytier：本机已运行的 EasyTier P2P 组网；只读渠道，PiDeck 不启动/停止网络，
  *   只读取本地节点虚拟 IP 并生成直连地址（http://<virtual-ip>:port）。
+ * - 自定义公网地址：用户自己用 Cloudflare Tunnel（命名隧道）/ 反向代理 / 自有域名把本机端口
+ *   映射到公网时填写；PiDeck 不管理该隧道，只用它生成固定访问链接（重启不变）。
  *
  * 所有状态均为运行时快照，不持久化到设置：quick tunnel 域名每次都会变，
- * tailscale serve 的配置由 tailscaled 自己持久化，PiDeck 只负责反映与收口。
+ * tailscale serve 的配置由 tailscaled 自己持久化，PiDeck 只负责反映与收口；
+ * 自定义公网地址是用户填写的配置，持久化在设置里，只有拼接出的链接随 token 变化。
  */
+
+/**
+ * 规范化用户填写的自定义公网地址，返回 `scheme://host[:port]`。
+ *
+ * 规则（与 PiDeck Lite 的 remote_public.go 对齐）：
+ * - 空/非字符串 → ""；
+ * - 没有 scheme 时补 `https://`（用户常只贴域名）；
+ * - 只接受 http/https，其余协议一律拒绝；
+ * - 丢弃 path/query/hash/userinfo：转发层把本应用的 API 挂在根上，
+ *   带路径的地址只会拼出坏链接；同时避免把凭据/查询串带进二维码。
+ */
+export function normalizeRemotePublicUrl(raw: unknown): string {
+	if (typeof raw !== "string") return "";
+	let text = raw.trim();
+	if (!text) return "";
+	if (!text.includes("://")) text = `https://${text}`;
+	let parsed: URL;
+	try {
+		parsed = new URL(text);
+	} catch {
+		return "";
+	}
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+	if (!parsed.hostname) return "";
+	return `${parsed.protocol}//${parsed.host}`;
+}
 
 /**
  * 可启停渠道标识：cloudflare = 免注册公网隧道；tailscale = 私有组网（含 serve HTTPS 入口）；

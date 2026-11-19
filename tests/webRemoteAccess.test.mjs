@@ -35,6 +35,27 @@ test("isRemoteAccessChannelId 只放行两个白名单渠道", () => {
 	assert.equal(isRemoteAccessChannelId(undefined), false);
 });
 
+// ── 自定义公网地址（固定链接） ──
+
+test("normalizeRemotePublicUrl 补全 scheme、只保留 origin、拒绝非法输入", () => {
+	const { normalizeRemotePublicUrl } = loadModule("src/shared/types/remoteAccess.ts");
+	assert.equal(normalizeRemotePublicUrl(""), "");
+	assert.equal(normalizeRemotePublicUrl(null), "");
+	assert.equal(normalizeRemotePublicUrl(42), "");
+	// 只贴域名：补 https
+	assert.equal(normalizeRemotePublicUrl("pideck.example.com"), "https://pideck.example.com");
+	// 带路径/查询/锚点：只留 origin（转发层把 API 挂在根上）
+	assert.equal(normalizeRemotePublicUrl("https://pideck.example.com/app?x=1#y"), "https://pideck.example.com");
+	assert.equal(normalizeRemotePublicUrl("  https://pideck.example.com/  "), "https://pideck.example.com");
+	// 非默认端口保留
+	assert.equal(normalizeRemotePublicUrl("http://1.2.3.4:8765"), "http://1.2.3.4:8765");
+	// 非 http/https 协议拒绝
+	assert.equal(normalizeRemotePublicUrl("ftp://files.example.com"), "");
+	assert.equal(normalizeRemotePublicUrl("javascript:alert(1)"), "");
+	// 带凭据的地址丢弃 userinfo，避免把账号密码带进二维码
+	assert.equal(normalizeRemotePublicUrl("https://user:pass@host.example.com"), "https://host.example.com");
+});
+
 // ── cloudflared 纯函数 ──
 
 test("buildCloudflaredArgs 固定 quick tunnel 参数并注入目标端口", () => {
