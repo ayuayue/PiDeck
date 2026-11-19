@@ -41,6 +41,7 @@ func (a *app) view() core.Node {
 		a.visionDialog(),
 		a.confirmDialog(),
 		a.remoteQRDialog(),
+		a.reviewPatchDialog(),
 		a.gitDiffDialog(),
 		a.gitNewBranchDialog(),
 		a.gitStashDialog(),

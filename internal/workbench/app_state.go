@@ -36,12 +36,13 @@ type app struct {
 	favModels *core.Signal[[]string]
 	// Favorites are local snapshots of answers and references to sessions;
 	// favMu guards the list the dialog reads.
-	favOpen   *core.Signal[bool]
-	favKind   *core.Signal[string]
-	favQuery  *core.Signal[string]
-	favRev    *core.Signal[int]
-	favMu     sync.Mutex
-	favorites []favoriteEntry
+	favOpen    *core.Signal[bool]
+	reviewOpen *core.Signal[bool]
+	favKind    *core.Signal[string]
+	favQuery   *core.Signal[string]
+	favRev     *core.Signal[int]
+	favMu      sync.Mutex
+	favorites  []favoriteEntry
 
 	// Scheduled tasks: the list, run history and the editor's fields.
 	// taskMu guards the list the ticker and the UI both touch.
@@ -394,6 +395,7 @@ type app struct {
 	fileIdx    fileIndexCache
 	editor     *editorHost
 	git        *gitRepo
+	review     *review
 	term       *terminalHost
 	remote     *remoteHost
 

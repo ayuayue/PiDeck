@@ -194,6 +194,7 @@ func newApp(cx *core.Scope) *app {
 		pinned:                 core.NewSignalFunc(cx, []string(nil), nil),
 		favModels:              core.NewSignalFunc(cx, []string(nil), nil),
 		favOpen:                core.NewSignal(cx, false),
+		reviewOpen:             core.NewSignal(cx, false),
 		favKind:                core.NewSignal(cx, ""),
 		favQuery:               core.NewSignal(cx, ""),
 		favRev:                 core.NewSignal(cx, 0),
@@ -332,6 +333,7 @@ func newApp(cx *core.Scope) *app {
 		a.toast(ui.ToastSuccess, title, "")
 	}
 	a.git = newGitRepo(cx)
+	a.review = newReview(cx)
 	a.term = newTerminalHost(cx)
 	a.term.height.Set(defaultTerminalHeight)
 	a.git.onResult = func(label string, err error) {

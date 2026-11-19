@@ -267,6 +267,55 @@ func (c *remoteClient) promptWithImages(id, text string, images []remotewire.Ima
 }
 
 // git reads a project's repository.
+// review lists a project's pull requests or issues.
+func (c *remoteClient) review(project, kind, state, query string) (remotewire.ReviewList, error) {
+	var out remotewire.ReviewList
+	path := "/api/review?project=" + url.QueryEscape(project) + "&kind=" + url.QueryEscape(kind) + "&state=" + url.QueryEscape(state)
+	if query != "" {
+		path += "&q=" + url.QueryEscape(query)
+	}
+	err := c.do(path, &out)
+	return out, err
+}
+
+// reviewDetail reads one pull request or issue.
+func (c *remoteClient) reviewDetail(project, kind string, number int) (remotewire.ReviewDetail, error) {
+	var out remotewire.ReviewDetail
+	path := "/api/review/detail?project=" + url.QueryEscape(project) + "&kind=" + url.QueryEscape(kind) + "&number=" + fmt.Sprint(number)
+	err := c.do(path, &out)
+	return out, err
+}
+
+// reviewDiff reads a pull request's unified patch.
+func (c *remoteClient) reviewDiff(project string, number int) (string, error) {
+	var out struct {
+		Patch string `json:"patch"`
+	}
+	path := "/api/review/diff?project=" + url.QueryEscape(project) + "&kind=pr&number=" + fmt.Sprint(number)
+	err := c.do(path, &out)
+	return out.Patch, err
+}
+
+// reviewWrite posts a comment, merges, closes, reopens or submits a review.
+func (c *remoteClient) reviewWrite(project, kind string, number int, action, body, method string) error {
+	in := map[string]any{"project": project, "kind": kind, "number": number, "action": action, "body": body, "method": method}
+	return c.post("/api/review/action", in, nil)
+}
+
+// reviewEvaluate asks the desktop to hand an item to a session and
+// returns that session's id.
+func (c *remoteClient) reviewEvaluate(project, kind string, number int) (string, error) {
+	in := map[string]any{"project": project, "kind": kind, "number": number}
+	var out remotewire.ReviewEvaluation
+	if err := c.post("/api/review/evaluate", in, &out); err != nil {
+		return "", err
+	}
+	if out.Error != "" {
+		return "", errors.New(out.Error)
+	}
+	return out.Session, nil
+}
+
 func (c *remoteClient) git(project string) (remotewire.Git, error) {
 	var out remotewire.Git
 	err := c.do("/api/git?project="+url.QueryEscape(project), &out)

@@ -119,6 +119,11 @@ func (a *app) tick() {
 		if beats%4 == 0 && a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
 			a.git.poll()
 		}
+		// GitHub is not ours to push from: reread the review pane while it
+		// is in front, so a merge or comment made elsewhere shows up.
+		if beats%30 == 0 && a.paneVisible() && a.activePaneID() == paneReview {
+			a.review.poll()
+		}
 		if now.Sub(a.lastTray) >= trayIdle {
 			a.lastTray = now
 			a.updateTray()

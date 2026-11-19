@@ -40,7 +40,7 @@ PIDECK_LITE_MOBILE=1 go tool nsgo dev      # 在桌面窗口预览手机页
 ![手机端：新建会话页](assets/mobile-home.png)
 ![手机端：项目抽屉](assets/mobile-drawer.png)
 
-会话页交给电脑上的 pi 跑，手机只负责看和写：文件、在会话内搜索、模型与思考等级、审批、Git、会话操作都在标题栏和底部的输入区里。
+会话页交给电脑上的 pi 跑，手机只负责看和写：文件、在会话内搜索、模型与思考等级、审批、Git、会话操作都在标题栏和底部的输入区里。抽屉里的「评审」列出电脑那个项目的拉取请求与议题，能评论、合并、关闭或交给会话评估。
 
 Windows 上的 `nsgo doctor` 只能构建 Android 包并等待设备/模拟器；iOS 模拟器需要 Mac 和 Xcode。
 
@@ -247,6 +247,14 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
 - 其他：初始化仓库、贮藏全部改动 / 恢复最近贮藏、丢弃全部改动
 - 同一套操作跑在本机、WSL、SSH 目标上；面板每 4 秒自动刷新状态
 
+**评审**
+- 工作区里的「评审」页（标签栏里和会话并列）：项目里的拉取请求与议题各一栏，`打开 / 已关闭 / 全部` 三种筛选、标题编号标签搜索、加载更多；每行显示检查结果、评审结论与增删行数
+- 详情：描述与讨论（Markdown 渲染）、检查列表、改动文件与行数、评审结论、「查看补丁」用统一 diff 看整个补丁（可选中复制）；可发评论、提交评审（批准 / 请求修改 / 只评论，评论框里的文字随评审一起提交）、合并（压缩 / 合并提交 / 变基）、关闭或重新打开，也有一键跳到浏览器
+- 面板在前台时每 30 秒重读一次列表与打开的那一条，别处合并或评论过的变化会自己出现；读取失败时保留正在看的内容，不闪白
+- 「AI 评估」把当前条目交给新的 pi 会话：会话自动带上 `gh pr view` / `gh pr diff`（议题是 `gh issue view`）与四段式评审要求，结论落在会话里，接着说改什么就能改代码
+- 数据来自本机 GitHub CLI：`gh` 自己持有凭据，应用不存 token；没装或没登录时面板给出说明与重试，不报错。命令跑在本机 / WSL / SSH 目标上，与 Git 面板一致
+- 手机端抽屉里的「评审」是同一份能力：列表、详情、评论、提交评审、合并、关闭 / 重开、看补丁与「AI 评估」（让电脑开会话，手机直接跳到那条会话读结论）
+
 **远程访问**
 - 设置 → 远程：开启手机服务，设置端口、访问令牌；每个地址可「复制链接」或显示二维码
 - 三种连接方式：局域网（本机所有非回环 IPv4）、Tailscale（读 `tailscale status` 的 100.x 地址）、
@@ -297,6 +305,11 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
 | POST | `/api/git/commit` | `{project,message}` 提交已暂存的内容 |
 | POST | `/api/git/checkout` | `{project,branch}` 切换本地分支 |
 | POST | `/api/git/sync` | `{project,action}` 获取 / 拉取 / 推送 |
+| GET | `/api/review?project=&kind=&state=&q=&limit=` | 项目的拉取请求（`kind=pr`）或议题（`kind=issue`）；`missing` 表示这台机器没有 gh |
+| GET | `/api/review/detail?project=&kind=&number=` | 一条的描述、讨论、检查与改动文件 |
+| GET | `/api/review/diff?project=&number=` | 拉取请求的整份补丁（统一 diff） |
+| POST | `/api/review/action` | `{project,kind,number,action,body,method}` 评论 / 合并 / 关闭 / 重开 / 提交评审 |
+| POST | `/api/review/evaluate` | `{project,kind,number}` 让电脑开一个会话评估它，返回 `{session}` |
 | POST | `/api/projects` | `{path,remove}` 在电脑上添加/移除项目文件夹 |
 | POST | `/api/sessions` | `{project}` 新建会话，返回 `{id,title}` |
 | POST | `/api/sessions/{id}/prompt` | `{text,images:[{mime,data}]}` 发一条消息；运行中自动改成 steer |
@@ -598,7 +611,7 @@ knob code info down`。
 桌面端与手机端均支持七种界面语言：简体中文（`zh-CN`）、English（`en-US`）、繁體中文（`zh-TW`）、한국어（`ko-KR`）、日本語（`ja-JP`）、Русский（`ru-RU`）、Français（`fr-FR`）。全部译文随应用打包，离线可用。
 
 界面文案以中文为源文本，按源文本查翻译；没有译文的条目原样显示中文，所以新界面可以先上线再补翻译。
-当前覆盖设置页、命令面板、托盘菜单、键位页，以及主界面的侧栏、欢迎页、输入框、抽屉、空对话、右键菜单、常用对话框、Git 面板与终端面板；手机端的连接页、会话列表、对话、输入区、文件与 Git 也已迁移。按钮、菜单项、输入框占位与对话框标题/说明同样走 `T()`，并由测试拦住漏翻的直写文案。
+当前覆盖设置页、命令面板、托盘菜单、键位页，以及主界面的侧栏、欢迎页、输入框、抽屉、空对话、右键菜单、常用对话框、Git 面板、评审页与终端面板；手机端的连接页、会话列表、对话、输入区、文件、Git 与评审也已迁移。按钮、菜单项、输入框占位与对话框标题/说明同样走 `T()`，并由测试拦住漏翻的直写文案。
 切换在 设置 → 通用 → 界面 → 语言，立即生效并写入 `config.json` 的 `language`（`""` 跟随系统）。
 系统匹配接受 `zh_TW.UTF-8`、`ja_JP`、`fr-CA` 等 locale；中文优先按 Hans/Hant 区分简繁，台湾、香港、澳门默认繁体。不支持的系统语言默认简体中文。手机端的手动选择保存在 `remote.json`，重启后恢复。
 
@@ -670,6 +683,8 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - 远端目标（WSL/SSH）不列远端历史会话，只按标签恢复；文件抽屉与编辑器只处理本机文件
 - 编辑器不写远端文件；超过 4 MB 或二进制文件只提示，不打开
 - Git 的凭据提示走不了 GUI：HTTPS/SSH 需要先在终端里登录或配好密钥
+- 评审面板要有 GitHub CLI：装好 `gh` 并在**运行桌面端的那台机器**上 `gh auth login`；WSL / SSH 目标各自需要它自己那份 gh 与登录
+- 评审面板一次读 40 条（可加载到 200）；不做实时推送，只在前台时每 30 秒重读，其余时间按「刷新」
 - 供应商连接测试是轻量探测（`/models` 或一次最小 chat 请求），不等于完整模型可用性验证
 - 系统通知是尽力而为：macOS 用 `osascript`、Linux 用 `notify-send`、Windows 用 PowerShell 的 WinRT 通知；系统关掉通知权限时不会补发
 - 资源页的扩展开关只改 `settings.json`，重启 Agent 后生效；本地 `.ts` 扩展自动加载，不能在此停用

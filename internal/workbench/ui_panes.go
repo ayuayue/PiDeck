@@ -23,6 +23,7 @@ const (
 	paneTasks     = "tasks"
 	paneAgents    = "agents"
 	paneFavorites = "favorites"
+	paneReview    = "review"
 )
 
 // paneDef is one split pane: its tab, whether it is open, and its page.
@@ -48,6 +49,8 @@ func (a *app) panes() []paneDef {
 			TestID: "agent-manager", Body: a.agentsPane},
 		{ID: paneFavorites, Label: "收藏夹", Icon: lucide.Star, Open: a.favOpen.Get, Set: a.favOpen.Set,
 			TestID: "favorites-dialog", Body: a.favoritesPane},
+		{ID: paneReview, Label: "评审", Icon: lucide.GitPullRequest, Open: a.reviewOpen.Get, Set: a.reviewOpen.Set,
+			TestID: "review-pane", Body: a.reviewPane},
 	}
 }
 
@@ -73,6 +76,9 @@ func (a *app) openPane(id string) {
 	}
 	p.Set(true)
 	a.activePane.Set(id)
+	if id == paneReview {
+		a.reviewAttach()
+	}
 }
 
 // closePane closes a pane's tab and, while it shows, gives the work area

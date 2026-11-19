@@ -174,3 +174,74 @@ type Favorite struct {
 type Favorites struct {
 	Favorites []Favorite `json:"favorites"`
 }
+
+// ReviewItem is one pull request or issue as the phone lists it.
+type ReviewItem struct {
+	Kind    string   `json:"kind"`
+	Number  int      `json:"number"`
+	Title   string   `json:"title"`
+	State   string   `json:"state"`
+	Draft   bool     `json:"draft,omitempty"`
+	Author  string   `json:"author,omitempty"`
+	Branch  string   `json:"branch,omitempty"`
+	Base    string   `json:"base,omitempty"`
+	Review  string   `json:"review,omitempty"`
+	Checks  string   `json:"checks,omitempty"`
+	Adds    int      `json:"adds,omitempty"`
+	Deletes int      `json:"deletes,omitempty"`
+	Labels  []string `json:"labels,omitempty"`
+	URL     string   `json:"url,omitempty"`
+	Reason  string   `json:"reason,omitempty"`
+	// Updated is the last change, in Unix milliseconds.
+	Updated int64 `json:"updated,omitempty"`
+}
+
+// ReviewList is /api/review's reply: the rows, and why there are none.
+type ReviewList struct {
+	Repo    string       `json:"repo,omitempty"`
+	Items   []ReviewItem `json:"items"`
+	Missing bool         `json:"missing,omitempty"`
+	Error   string       `json:"error,omitempty"`
+}
+
+// ReviewComment is one entry of a conversation.
+type ReviewComment struct {
+	Author string `json:"author"`
+	Body   string `json:"body"`
+	Kind   string `json:"kind"`
+	State  string `json:"state,omitempty"`
+	// At is when it was written, in Unix milliseconds.
+	At int64 `json:"at,omitempty"`
+}
+
+// ReviewCheck is one check run or status context.
+type ReviewCheck struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+	URL   string `json:"url,omitempty"`
+}
+
+// ReviewFile is one changed path with its line counts.
+type ReviewFile struct {
+	Path    string `json:"path"`
+	Adds    int    `json:"adds"`
+	Deletes int    `json:"deletes"`
+}
+
+// ReviewDetail is /api/review/detail's reply.
+type ReviewDetail struct {
+	Item     ReviewItem      `json:"item"`
+	Body     string          `json:"body,omitempty"`
+	Merge    string          `json:"merge,omitempty"`
+	Comments []ReviewComment `json:"comments,omitempty"`
+	Checks   []ReviewCheck   `json:"checks,omitempty"`
+	Files    []ReviewFile    `json:"files,omitempty"`
+	Error    string          `json:"error,omitempty"`
+}
+
+// ReviewEvaluation is /api/review/evaluate's reply: the session the
+// desktop started, so the phone can read the answer where it lands.
+type ReviewEvaluation struct {
+	Session string `json:"session,omitempty"`
+	Error   string `json:"error,omitempty"`
+}

@@ -96,6 +96,7 @@ func (a *mobileApp) rail(cx *core.Scope) core.Node {
 				a.railNewButton(cx),
 				core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
 					a.railEntry(lucide.Search, apptext.T("搜索会话"), "mobile-search", func() { a.openSearch() }),
+					a.railEntry(lucide.GitPullRequest, apptext.T("评审"), "mobile-review", func() { a.openReview() }),
 					a.railEntry(lucide.Bot, apptext.T("智能体"), "mobile-agents", func() { a.openAgents() }),
 					a.railEntry(lucide.CalendarClock, apptext.T("定时任务"), "mobile-tasks", func() { a.openTasks() }),
 					a.railEntry(lucide.Star, apptext.T("收藏"), "mobile-favorites", func() { a.openFavorites() }),

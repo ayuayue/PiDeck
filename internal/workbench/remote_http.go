@@ -40,6 +40,11 @@ func (h *remoteHost) handler() http.Handler {
 	mux.HandleFunc("/api/git/checkout", h.handleGitCheckout)
 	mux.HandleFunc("/api/git/sync", h.handleGitSync)
 	mux.HandleFunc("/api/sessions/", h.handleSessionAction)
+	mux.HandleFunc("/api/review", h.handleReview)
+	mux.HandleFunc("/api/review/detail", h.handleReviewDetail)
+	mux.HandleFunc("/api/review/diff", h.handleReviewDiff)
+	mux.HandleFunc("/api/review/action", h.handleReviewAction)
+	mux.HandleFunc("/api/review/evaluate", h.handleReviewEvaluate)
 	mux.HandleFunc("/api/feishu", h.handleFeishu)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
