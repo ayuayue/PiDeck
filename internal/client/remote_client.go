@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,9 +129,15 @@ func (c *remoteClient) state() (remotewire.Snapshot, error) {
 	return out, err
 }
 
-func (c *remoteClient) transcript(id string) (remotewire.Transcript, error) {
+// transcript reads a page of a session: the newest turns, or the ones
+// ending at before when the client already holds the newer page.
+func (c *remoteClient) transcript(id string, before int) (remotewire.Transcript, error) {
 	var out remotewire.Transcript
-	err := c.do("/api/session/"+url.PathEscape(id), &out)
+	path := "/api/session/" + url.PathEscape(id)
+	if before > 0 {
+		path += "?before=" + strconv.Itoa(before)
+	}
+	err := c.do(path, &out)
 	return out, err
 }
 

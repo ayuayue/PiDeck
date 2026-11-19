@@ -7,6 +7,7 @@ package workbench
 import (
 	"strings"
 
+	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -60,6 +61,10 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 		})
 	}}
 }
+
+// thinkingReveal is how much of a long thinking row shows before its rest
+// is asked for: a screenful of reasoning, not the whole of it.
+const thinkingReveal = 1_500
 
 // thinkingTone is the identity color of the thinking row: indigo, apart
 // from the accent, so the reasoning reads as a process of its own.
@@ -125,12 +130,32 @@ func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core
 			Children: header,
 		}}
 		if open {
+			// Long reasoning opens to its head, so reading one thought does
+			// not push the answer off the page; the rest is one press away.
+			shown, more := viewkit.Reveal(thinking, thinkingReveal)
+			all := live || s.thinkShowsAll(key)
+			if all {
+				shown, more = thinking, false
+			}
+			rows := []core.Node{
+				viewkit.MarkdownSearch(a.chatSearch, shown, func() bool { return live }, false, rowSize, a.readingRowLine(),
+					core.Style{Color: colors.Muted(), FontWeight: core.FontWeight(350)}),
+			}
+			if more {
+				left := viewkit.LeftOver(thinking, shown)
+				rows = append(rows, core.View{OnPress: func(core.PressEvent) { s.toggleThinkFull(key) },
+					Role: core.RoleButton, Label: apptext.T("展开其余"), TestID: "chat-think-more",
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinHeight: core.Pt(22),
+							Padding: core.Symmetric(0, 2), CornerRadius: 5, Hover: &core.Style{Background: colors.Hover()}}
+					}, Children: []core.Node{
+						ui.Text(apptext.T("展开其余（还有 %d 字）", left), 10.5, ui.Medium, colors.Muted),
+						ui.Icon(lucide.ChevronDown, 11, colors.Faint),
+					}})
+			}
 			body = append(body, core.View{Style: core.Style{MinWidth: core.Pt(0), Margin: core.Edges{Left: 18},
 				Padding: core.Edges{Left: 12, Top: 4, Bottom: 2}, Borders: core.Edges{Left: 2},
-				BorderColors: core.EdgeColors{Left: colors.Now().Line}}, Children: []core.Node{
-				viewkit.MarkdownSearch(a.chatSearch, thinking, func() bool { return live }, false, rowSize, a.readingRowLine(),
-					core.Style{Color: colors.Muted(), FontWeight: core.FontWeight(350)}),
-			}})
+				BorderColors: core.EdgeColors{Left: colors.Now().Line}, Gap: 2}, Children: rows})
 		}
 		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 2}, Children: body}
 	})

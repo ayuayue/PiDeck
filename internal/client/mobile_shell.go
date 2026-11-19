@@ -133,7 +133,18 @@ func (a *mobileApp) railBrand(cx *core.Scope) core.Node {
 				}, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontSize: 10},
 					StyleFunc: ui.Colored(colors.Muted)},
 			}},
-			a.pressIcon(lucide.RefreshCw, apptext.T("刷新"), 30, 14, nil, a.refreshState, "mobile-refresh"),
+			// The list refreshes itself every couple of seconds; the button
+			// shows only while it is reading, or when the last read failed.
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				if a.refreshing.Get() {
+					return core.View{Style: core.Style{Width: core.Pt(30), Height: core.Pt(30), AlignItems: core.AlignCenter,
+						JustifyContent: core.JustifyCenter}, Children: []core.Node{ui.Spinner{Size: 11, Label: apptext.T("刷新")}}}
+				}
+				if a.err.Get() != "" {
+					return a.pressIcon(lucide.RefreshCw, apptext.T("重试"), 30, 14, nil, a.refreshState, "mobile-refresh")
+				}
+				return nil
+			}),
 		}}
 }
 

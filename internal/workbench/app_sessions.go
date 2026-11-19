@@ -144,6 +144,22 @@ func (s *session) toggleThink(key string, auto bool) {
 	}
 }
 
+// thinkShowsAll says a long thinking row was asked to show its rest.
+func (s *session) thinkShowsAll(key string) bool {
+	return s.thinkFull[key]
+}
+
+// toggleThinkFull shows the rest of a long thinking row, or folds it back.
+func (s *session) toggleThinkFull(key string) {
+	if s.thinkFull == nil {
+		s.thinkFull = map[string]bool{}
+	}
+	s.thinkFull[key] = !s.thinkFull[key]
+	if s.uiSeq != nil {
+		s.uiSeq.Update(func(n int) int { return n + 1 })
+	}
+}
+
 // pinnedSessions are the sessions the user keeps at the top, in their
 // order.
 func (a *app) pinnedSessions() []*session {

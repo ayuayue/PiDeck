@@ -2046,5 +2046,10 @@
   "正在调用电脑上的模型": "Appel du modèle de l'ordinateur",
   "正在调用电脑上的模型…": "Appel du modèle de l'ordinateur…",
   "添加与工具": "Ajouter et outils",
-  "正常": "Normal"
+  "正常": "Normal",
+  "展开其余": "Afficher la suite",
+  "展开其余（还有 %d 字）": "Afficher la suite (%d caractères)",
+  "加载更早的消息": "Charger les messages précédents",
+  "加载更早的 %d 轮": "Charger %d tours précédents",
+  "有一条消息太长，只带了前面一部分。": "Un message est trop long : seule son début est arrivé."
 }

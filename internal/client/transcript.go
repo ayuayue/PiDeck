@@ -18,6 +18,28 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
+// olderMessagesRow asks for the turns before the loaded page: a long
+// session arrives a page at a time, so its start is never lost.
+func (a *mobileApp) olderMessagesRow(colors ui.Colors) core.Node {
+	return core.View{OnPress: func(core.PressEvent) { a.loadOlderTranscript() }, Role: core.RoleButton,
+		Label: apptext.T("加载更早的消息"), TestID: "mobile-older",
+		StyleFunc: func() core.Style {
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6,
+				MinHeight: core.Pt(34), Padding: core.Symmetric(6, 10), CornerRadius: 9, Background: colors.Inset(),
+				Transition: viewkit.PressMotion, Active: &core.Style{Background: colors.Pressed()}}
+		}, Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				if a.olderBusy.Get() {
+					return ui.Spinner{Size: 11, Label: apptext.T("加载更早的消息")}
+				}
+				return ui.Icon(lucide.ArrowUp, 12, colors.Faint)
+			}),
+			core.Text{ContentFunc: func() string {
+				return apptext.T("加载更早的 %d 轮", a.messagesBefore.Get())
+			}, MaxLines: 1, Style: core.Style{FontSize: 11.5}, StyleFunc: ui.Colored(colors.Muted)},
+		}}
+}
+
 // transcriptView shows the messages of one session, with the composer
 // under them.
 func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
@@ -67,12 +89,24 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 						msgs = kept
 					}
 					var rows []core.Node
+					if query == "" && a.messagesBefore.Get() > 0 {
+						rows = append(rows, a.olderMessagesRow(colors))
+					}
+					if a.transcriptTruncated.Get() && query == "" {
+						rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+							Padding: core.Symmetric(6, 10), CornerRadius: 9, Background: colors.Inset()}, Children: []core.Node{
+							ui.Icon(lucide.Scissors, 12, colors.Faint),
+							core.Text{Content: apptext.T("有一条消息太长，只带了前面一部分。"), MaxLines: 2,
+								Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
+						}})
+					}
 					if query != "" {
 						rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							ui.Icon(lucide.Search, 12, colors.Faint),
 							ui.Text(apptext.T("匹配 %d 条", matches), 11, ui.Medium, colors.Faint),
 						}})
 					}
+					live := a.running.Get()
 					for i := 0; i < len(msgs); {
 						if msgs[i].Role == "tool" {
 							j := i
@@ -83,7 +117,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 							i = j
 							continue
 						}
-						rows = append(rows, a.message(cx, msgs[i]))
+						rows = append(rows, a.message(cx, msgs[i], live && i >= len(msgs)-2))
 						i++
 					}
 					if len(rows) == 0 || (query != "" && matches == 0) {

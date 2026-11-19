@@ -2046,5 +2046,10 @@
   "正在调用电脑上的模型": "Calling the computer's model",
   "正在调用电脑上的模型…": "Calling the computer's model…",
   "添加与工具": "Add and tools",
-  "正常": "Normal"
+  "正常": "Normal",
+  "展开其余": "Show the rest",
+  "展开其余（还有 %d 字）": "Show the rest (%d characters)",
+  "加载更早的消息": "Load earlier messages",
+  "加载更早的 %d 轮": "Load %d earlier turns",
+  "有一条消息太长，只带了前面一部分。": "One message is very long, so only its beginning came over."
 }

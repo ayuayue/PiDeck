@@ -47,3 +47,65 @@ func TestReviewPendingText(t *testing.T) {
 		}
 	}
 }
+
+// TestThoughtFolding checks the thinking blocks a loaded session folds:
+// the key stays with a block as its text grows, and folding is per block.
+func TestThoughtFolding(t *testing.T) {
+	text := "先看 remoteMessages 的预算，它按顺序累加，所以尾部的回答会被丢掉。"
+	key := thoughtKey(text)
+	if key == "" || key != thoughtKey(text+" 后面还在写") {
+		t.Fatalf("thoughtKey changed as the text grew: %q, %q", key, thoughtKey(text+" 后面还在写"))
+	}
+	if len([]rune(key)) > 24 {
+		t.Fatalf("thoughtKey = %d runes, want at most 24", len([]rune(key)))
+	}
+	if got := thoughtKey("  \n "); got != "" {
+		t.Fatalf("thoughtKey(blank) = %q", got)
+	}
+}
+
+// TestMergeMessages checks the page merge a poll does: the older turns the
+// reader loaded stay, and the newest page replaces the copy it had.
+func TestMergeMessages(t *testing.T) {
+	held := []remotewire.Message{
+		{Role: "user", Text: "t1", Turn: 1},
+		{Role: "assistant", Text: "t2 旧", Turn: 2},
+		{Role: "assistant", Text: "t3 旧", Turn: 3},
+	}
+	page := []remotewire.Message{
+		{Role: "assistant", Text: "t3 新", Turn: 3},
+		{Role: "user", Text: "t4", Turn: 4},
+	}
+	got := mergeMessages(held, page, 3)
+	// Turns 1 and 2 are older than the page; turn 3 keeps its fresh copy.
+	if len(got) != 4 || got[0].Text != "t1" || got[1].Text != "t2 旧" || got[2].Text != "t3 新" || got[3].Text != "t4" {
+		t.Fatalf("merge = %+v", got)
+	}
+	// A first page with nothing held replaces what was there, and the
+	// cursor only ever reaches further back.
+	if got := mergeMessages(held, page, 0); len(got) != 2 || got[0].Text != "t3 新" {
+		t.Fatalf("merge with no cursor = %+v", got)
+	}
+	if keepBefore(10, 30) != 10 || keepBefore(0, 30) != 30 || keepBefore(10, 0) != 0 || keepBefore(30, 30) != 30 {
+		t.Fatal("keepBefore must keep the furthest-back cursor")
+	}
+}
+
+// TestThinkingLevels checks the two lists a thinking block moves through:
+// folded, its head, all of it.
+func TestThinkingLevels(t *testing.T) {
+	key := "先看预算"
+	list := toggleKey(nil, key)
+	if !hasKey(list, key) {
+		t.Fatal("toggleKey must add a key")
+	}
+	if !hasKey(toggleKey(list, "另一个"), key) || len(toggleKey(list, "另一个")) != 2 {
+		t.Fatal("toggleKey must add another key beside the first")
+	}
+	if hasKey(toggleKey(list, key), key) {
+		t.Fatal("toggleKey must drop a key it already holds")
+	}
+	if hasKey(nil, key) {
+		t.Fatal("an empty list holds nothing")
+	}
+}

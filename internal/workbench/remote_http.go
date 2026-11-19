@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -116,7 +117,8 @@ func (h *remoteHost) handleSession(w http.ResponseWriter, r *http.Request) {
 		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少会话 ID"})
 		return
 	}
-	transcript, err := h.app.remoteTranscript(id)
+	before, _ := strconv.Atoi(r.URL.Query().Get("before"))
+	transcript, err := h.app.remoteTranscript(id, before)
 	if err != nil {
 		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return

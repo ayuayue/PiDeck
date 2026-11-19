@@ -62,8 +62,8 @@ func (a *mobileApp) toolBlock(cx *core.Scope, lines []remotewire.Message) core.N
 
 // message draws one line of a remote transcript; holding it copies its
 // text.
-func (a *mobileApp) message(cx *core.Scope, m remotewire.Message) core.Node {
-	body := a.messageBody(cx, m)
+func (a *mobileApp) message(cx *core.Scope, m remotewire.Message, live bool) core.Node {
+	body := a.messageBody(cx, m, live)
 	if strings.TrimSpace(m.Text) == "" {
 		return body
 	}
@@ -96,8 +96,71 @@ func (a *mobileApp) flash(text string) {
 	})
 }
 
+// thinkingReveal is how much of a long block shows before the rest is
+// asked for: about a phone screen of reasoning.
+const thinkingReveal = 600
+
+// thoughtKey names a thinking block for its folded state: the opening of
+// its text, which stays put as the rest grows.
+func thoughtKey(text string) string {
+	r := []rune(strings.TrimSpace(text))
+	if len(r) > 24 {
+		r = r[:24]
+	}
+	return string(r)
+}
+
+// thoughtOpened says a thinking block is unfolded.
+func (a *mobileApp) thoughtOpened(key string) bool {
+	return hasKey(a.thoughtOpen.Get(), key)
+}
+
+// toggleThought folds or unfolds one thinking block.
+func (a *mobileApp) toggleThought(key string) {
+	a.thoughtOpen.Set(toggleKey(a.thoughtOpen.GetUntracked(), key))
+}
+
+// thoughtShowsAll says the rest of a long block was asked for.
+func (a *mobileApp) thoughtShowsAll(key string) bool {
+	return hasKey(a.thoughtFull.GetUntracked(), key)
+}
+
+// expandThought shows the rest of one long block.
+func (a *mobileApp) expandThought(key string) {
+	if !a.thoughtShowsAll(key) {
+		a.thoughtFull.Set(toggleKey(a.thoughtFull.GetUntracked(), key))
+	}
+}
+
+// toggleKey adds key to list, or drops it when it is there.
+func toggleKey(list []string, key string) []string {
+	out := make([]string, 0, len(list)+1)
+	found := false
+	for _, k := range list {
+		if k == key {
+			found = true
+			continue
+		}
+		out = append(out, k)
+	}
+	if !found {
+		out = append(out, key)
+	}
+	return out
+}
+
+// hasKey says list holds key.
+func hasKey(list []string, key string) bool {
+	for _, k := range list {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
 // messageBody draws one line, without the copy gesture.
-func (a *mobileApp) messageBody(cx *core.Scope, m remotewire.Message) core.Node {
+func (a *mobileApp) messageBody(cx *core.Scope, m remotewire.Message, live bool) core.Node {
 	colors := ui.ColorsOf(cx)
 	switch m.Role {
 	case "user":
@@ -138,12 +201,59 @@ func (a *mobileApp) messageBody(cx *core.Scope, m remotewire.Message) core.Node 
 			}},
 		}}
 	case "thinking":
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 7, Padding: core.Symmetric(7, 10), CornerRadius: 10,
-			Background: colors.Inset()}, Children: []core.Node{
+		// Three levels: a line, its head, all of it. Long reasoning then
+		// costs one press rather than a screen.
+		key := thoughtKey(m.Text)
+		open := func() bool { return live || a.thoughtOpened(key) }
+		all := func() bool { return live || a.thoughtShowsAll(key) }
+		head, more := viewkit.Reveal(m.Text, thinkingReveal)
+		left := viewkit.LeftOver(m.Text, head)
+		header := []core.Node{
 			ui.Icon(lucide.Brain, 13, colors.Faint),
-			core.Text{Content: m.Text, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12, LineHeight: 18},
-				StyleFunc: ui.Colored(colors.Muted)},
-		}}
+			ui.Text(apptext.T("思考"), 11, ui.Medium, colors.Muted),
+		}
+		if !open() {
+			header = append(header, core.Text{Content: viewkit.FirstLine(m.Text, 80), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)})
+		} else {
+			header = append(header, core.View{Style: core.Style{FlexGrow: 1}})
+		}
+		header = append(header, ui.IconOf(func() *core.SVG {
+			if open() {
+				return lucide.ChevronUp()
+			}
+			return lucide.ChevronDown()
+		}, 12, colors.Faint))
+		body := []core.Node{core.View{OnPress: func(core.PressEvent) { a.toggleThought(key) }, Role: core.RoleButton,
+			Label: apptext.T("思考"), TestID: "mobile-thought",
+			StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, MinHeight: core.Pt(26),
+					CornerRadius: 6, Transition: viewkit.PressMotion, Active: &core.Style{Background: colors.Pressed()}}
+			}, Children: header}}
+		body = append(body, core.Show{When: open, Then: func(*core.Scope) core.Node {
+			var rows []core.Node
+			text := m.Text
+			if !all() {
+				text = head
+			}
+			rows = append(rows, core.Text{Content: text, Style: core.Style{FontSize: 12, LineHeight: 18},
+				StyleFunc: ui.Colored(colors.Muted)})
+			if more && !all() {
+				rows = append(rows, core.View{OnPress: func(core.PressEvent) { a.expandThought(key) }, Role: core.RoleButton,
+					Label: apptext.T("展开其余"), TestID: "mobile-thought-more",
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinHeight: core.Pt(24),
+							Padding: core.Symmetric(0, 2), CornerRadius: 5, Transition: viewkit.PressMotion,
+							Active: &core.Style{Background: colors.Pressed()}}
+					}, Children: []core.Node{
+						ui.Text(apptext.T("展开其余（还有 %d 字）", left), 10.5, ui.Medium, colors.Muted),
+						ui.Icon(lucide.ChevronDown, 11, colors.Faint),
+					}})
+			}
+			return core.View{Style: core.Style{Gap: 2}, Children: rows}
+		}})
+		return core.View{Style: core.Style{Gap: 3, Padding: core.Symmetric(7, 10), CornerRadius: 10,
+			Background: colors.Inset()}, Children: body}
 	case "tool":
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(2, 4)}, Children: []core.Node{
 			ui.Icon(lucide.Terminal, 12, colors.Faint),

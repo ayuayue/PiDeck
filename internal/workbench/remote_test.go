@@ -80,9 +80,15 @@ func TestRemoteSessionReading(t *testing.T) {
 	if len(turns) != 1 || turns[0].Prompt != "电脑上的问题" {
 		t.Fatalf("turns = %+v", turns)
 	}
-	messages := remoteMessages(turns)
+	messages, before, truncated := remoteMessages(turns, 0)
+	if before != 0 {
+		t.Fatalf("before = %d, want 0 for a one-turn session", before)
+	}
 	if len(messages) != 2 || messages[0].Role != "user" || messages[1].Text != "电脑上的回答" {
 		t.Fatalf("messages = %+v", messages)
+	}
+	if truncated {
+		t.Fatal("a two-line session should not report truncation")
 	}
 }
 
@@ -717,5 +723,85 @@ func TestRemoteGitCommits(t *testing.T) {
 	}
 	if out.Commits[0].Subject != "提交" || out.Commits[0].When != "2026-06-01" {
 		t.Fatalf("commit = %+v", out.Commits[0])
+	}
+}
+
+// TestRemoteMessagesPage checks a long session: a reply carries a page of
+// turns, says how many come before them, and the next page neither
+// repeats nor skips a turn.
+func TestRemoteMessagesPage(t *testing.T) {
+	turns := make([]turn, 0, 50)
+	for i := 0; i < 50; i++ {
+		turns = append(turns, turn{
+			Prompt: "问 " + strconv.Itoa(i),
+			Steps:  []turnStep{{Text: "答 " + strconv.Itoa(i)}},
+			Final:  "最后的回答 " + strconv.Itoa(i),
+		})
+	}
+	seen := map[string]bool{}
+	before := 0
+	pages := 0
+	for {
+		messages, start, truncated := remoteMessages(turns, before)
+		pages++
+		if truncated {
+			t.Fatal("short turns should not be cut")
+		}
+		if len(messages) == 0 {
+			t.Fatalf("page %d came back empty", pages)
+		}
+		for _, m := range messages {
+			key := m.Role + "|" + m.Text
+			if seen[key] {
+				t.Fatalf("page %d repeated %q", pages, m.Text)
+			}
+			seen[key] = true
+		}
+		if pages == 1 && messages[len(messages)-1].Text != "最后的回答 49" {
+			t.Fatalf("first page ends at %q, want the newest answer", messages[len(messages)-1].Text)
+		}
+		if start == 0 {
+			break
+		}
+		if before != 0 && start >= before {
+			t.Fatalf("page %d start %d did not move back", pages, start)
+		}
+		before = start
+	}
+	if pages != 3 {
+		t.Fatalf("50 turns in pages of %d took %d pages", remotePageTurns, pages)
+	}
+	if len(seen) != 50*3 {
+		t.Fatalf("saw %d lines, want every turn's three", len(seen))
+	}
+}
+
+// TestRemoteMessagesShrinkPage checks a page of enormous turns: it carries
+// fewer turns rather than less text, so the reply stays readable.
+func TestRemoteMessagesShrinkPage(t *testing.T) {
+	huge := strings.Repeat("x", remotePageBudget/2)
+	turns := make([]turn, 4)
+	for i := range turns {
+		turns[i] = turn{Prompt: huge, Steps: []turnStep{{Text: "答"}}}
+	}
+	messages, start, truncated := remoteMessages(turns, 0)
+	if truncated {
+		t.Fatal("a page should give up turns, not cut a message")
+	}
+	if start == 0 {
+		t.Fatal("the page kept every turn, over the budget")
+	}
+	if len(messages) == 0 || messages[len(messages)-1].Turn != len(turns)-1 {
+		t.Fatalf("the page must end on the newest turn, got %+v", messages)
+	}
+
+	// One turn bigger than a page at all: its lines are sent by the head.
+	alone := []turn{{Prompt: strings.Repeat("y", remotePageBudget*2), Steps: []turnStep{{Text: "答"}}}}
+	messages, start, truncated = remoteMessages(alone, 0)
+	if start != 0 || !truncated || len(messages) == 0 {
+		t.Fatalf("a single huge turn: start=%d truncated=%v messages=%d", start, truncated, len(messages))
+	}
+	if !strings.HasSuffix(messages[0].Text, "…") {
+		t.Fatalf("the cut line should end with an ellipsis: %q", messages[0].Text[:32])
 	}
 }

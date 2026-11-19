@@ -103,7 +103,7 @@ func remoteStatus(s sessionStatus) string {
 
 // remoteTranscript reads one session's history, from memory when it is
 // open and from its file otherwise.
-func (a *app) remoteTranscript(id string) (remotewire.Transcript, error) {
+func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, error) {
 	var out remotewire.Transcript
 	var title, file string
 	var turns []turn
@@ -143,7 +143,7 @@ func (a *app) remoteTranscript(id string) (remotewire.Transcript, error) {
 		}
 		turns = history
 	}
-	out.Messages = remoteMessages(turns)
+	out.Messages, out.Before, out.Truncated = remoteMessages(turns, before)
 	out.Running = running
 	// The live buffers are what pi is saying right now; the turns only
 	// carry what it has finished.
@@ -176,24 +176,60 @@ func readSessionTurns(path string) ([]turn, error) {
 	return turnsFromMessages(msgs), nil
 }
 
-// remoteMessages flattens turns into the phone's chat lines: what the user
-// asked, what pi thought and said, and the tools it named; output stays on
-// the desktop.
-func remoteMessages(turns []turn) []remotewire.Message {
-	var out []remotewire.Message
-	var size int
-	add := func(role, text string) {
-		text = strings.TrimSpace(text)
-		if text == "" || size > 240_000 {
-			return
-		}
-		if r := []rune(text); len(r) > 12_000 {
-			text = string(r[:12_000]) + "…"
-		}
-		out = append(out, remotewire.Message{Role: role, Text: text})
-		size += len(text)
+// remotePageTurns is how many turns one reply carries: enough to read,
+// few enough that the phone draws the page at once. Older turns come with
+// ?before=, so nothing is lost.
+const remotePageTurns = 20
+
+// remotePageBudget keeps a page under the client's read limit even when
+// its turns are huge: the page then carries fewer turns, never less text.
+const remotePageBudget = 1_500_000
+
+// remoteMessageRunes guards a page made of one enormous turn: that line
+// cannot travel whole, so it is sent by its head and the client says so.
+// Anything that fits a page is sent untouched.
+const remoteMessageRunes = 200_000
+
+// remoteMessages flattens one page of turns into the phone's chat lines:
+// the turns ending at before, at most remotePageTurns of them. It returns
+// where the page starts, which is the client's cursor for the turns
+// before it, and whether a single line had to be cut.
+func remoteMessages(turns []turn, before int) ([]remotewire.Message, int, bool) {
+	if before <= 0 || before > len(turns) {
+		before = len(turns)
 	}
-	for _, t := range turns {
+	start := before - remotePageTurns
+	if start < 0 {
+		start = 0
+	}
+	// A page of enormous turns keeps its newest turn and gives up the
+	// older ones: the client asks for those next.
+	for start < before-1 && turnTextSize(turns[start:before]) > remotePageBudget {
+		start++
+	}
+	// Only a page that is still over the budget after that — a single huge
+	// turn — has its lines cut.
+	clip := 0
+	if turnTextSize(turns[start:before]) > remotePageBudget {
+		clip = remoteMessageRunes
+	}
+	truncated := false
+	var out []remotewire.Message
+	for i := start; i < before; i++ {
+		t := turns[i]
+		add := func(role, text string) {
+			text = strings.TrimSpace(text)
+			if text == "" {
+				return
+			}
+			if clip > 0 {
+				if r := []rune(text); len(r) > clip {
+					text = string(r[:clip]) + "…"
+					truncated = true
+				}
+			}
+			out = append(out, remotewire.Message{Role: role, Text: text, Turn: i})
+		}
 		prompt := t.Prompt
 		if len(t.Images) > 0 {
 			prompt = strings.TrimSpace(prompt + " ［图片］")
@@ -203,18 +239,33 @@ func remoteMessages(turns []turn) []remotewire.Message {
 			add("note", step.Note)
 			add("thinking", step.Thinking)
 			for _, tool := range step.Tools {
-				line := strings.TrimSpace(tool.Action + " " + tool.Detail)
-				add("tool", line)
+				add("tool", strings.TrimSpace(tool.Action+" "+tool.Detail))
 			}
 			add("assistant", step.Text)
 		}
 		if t.Final != "" {
-			duplicate := len(out) > 0 && out[len(out)-1].Role == "assistant" && out[len(out)-1].Text == strings.TrimSpace(t.Final)
-			if !duplicate {
+			final := strings.TrimSpace(t.Final)
+			last := len(out) > 0 && out[len(out)-1].Role == "assistant" && out[len(out)-1].Text == final
+			if !last {
 				add("assistant", t.Final)
 			}
 		}
 		add("error", t.Err)
 	}
-	return out
+	return out, start, truncated
+}
+
+// turnTextSize is how much text a page of turns carries.
+func turnTextSize(turns []turn) int {
+	size := 0
+	for _, t := range turns {
+		size += len(t.Prompt) + len(t.Final) + len(t.Err)
+		for _, step := range t.Steps {
+			size += len(step.Note) + len(step.Thinking) + len(step.Text)
+			for _, tool := range step.Tools {
+				size += len(tool.Action) + len(tool.Detail)
+			}
+		}
+	}
+	return size
 }

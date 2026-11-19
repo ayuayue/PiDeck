@@ -219,6 +219,9 @@ func (a *mobileApp) openSession(id, title string) {
 	a.findOpen.Set(false)
 	a.findText.Set("")
 	a.transcriptErr.Set("")
+	a.transcriptTruncated.Set(false)
+	a.messagesBefore.Set(0)
+	a.olderBusy.Set(false)
 	a.sendErr.Set("")
 	a.ask.Set(nil)
 	a.askText.Set("")
@@ -237,6 +240,9 @@ func (a *mobileApp) closeSession() {
 	a.findOpen.Set(false)
 	a.findText.Set("")
 	a.transcriptErr.Set("")
+	a.transcriptTruncated.Set(false)
+	a.messagesBefore.Set(0)
+	a.olderBusy.Set(false)
 	a.sendErr.Set("")
 	a.ask.Set(nil)
 	a.askText.Set("")
@@ -245,15 +251,20 @@ func (a *mobileApp) closeSession() {
 func (a *mobileApp) refreshTranscript() {
 	client := a.client
 	id := a.active.GetUntracked()
-	if client == nil || id == "" || a.transcriptLoading {
+	if client == nil || id == "" {
 		return
 	}
-	a.transcriptLoading = true
+	// A newer read owns the page: switching sessions must not wait for the
+	// poll that was already in flight.
+	a.transcriptSeq++
+	seq := a.transcriptSeq
 	a.transcriptBusy.Set(true)
 	go func() {
-		t, err := client.transcript(id)
+		t, err := client.transcript(id, 0)
 		a.cx.Post(func() {
-			a.transcriptLoading = false
+			if seq != a.transcriptSeq {
+				return
+			}
 			a.transcriptBusy.Set(false)
 			if a.active.GetUntracked() != id {
 				return
@@ -267,10 +278,96 @@ func (a *mobileApp) refreshTranscript() {
 				return
 			}
 			a.activeTitle.Set(t.Title)
-			a.messages.Set(t.Messages)
+			a.setTranscriptMessages(mergeMessages(a.messages.GetUntracked(), t.Messages, t.Before))
+			a.messagesBefore.Set(keepBefore(a.messagesBefore.GetUntracked(), t.Before))
+			a.transcriptTruncated.Set(t.Truncated)
 			a.running.Set(t.Running)
 			a.ask.Set(t.Ask)
 			a.transcriptErr.Set(t.Error)
 		})
 	}()
+}
+
+// loadOlderTranscript reads the turns before the ones the page holds.
+func (a *mobileApp) loadOlderTranscript() {
+	client := a.client
+	id := a.active.GetUntracked()
+	before := a.messagesBefore.GetUntracked()
+	if client == nil || id == "" || before <= 0 || a.olderBusy.Get() {
+		return
+	}
+	a.olderBusy.Set(true)
+	go func() {
+		t, err := client.transcript(id, before)
+		a.cx.Post(func() {
+			a.olderBusy.Set(false)
+			if a.active.GetUntracked() != id {
+				return
+			}
+			if err != nil {
+				if errors.Is(err, errRemoteAuth) {
+					a.disconnectWith(remoteErrorText(err))
+					return
+				}
+				a.transcriptErr.Set(remoteErrorText(err))
+				return
+			}
+			held := a.messages.GetUntracked()
+			a.messages.Set(append(append([]remotewire.Message(nil), t.Messages...), held...))
+			a.messagesBefore.Set(keepBefore(a.messagesBefore.GetUntracked(), t.Before))
+			if t.Truncated {
+				a.transcriptTruncated.Set(true)
+			}
+		})
+	}()
+}
+
+// mergeMessages keeps the older pages the reader loaded and takes the
+// newest page in their place: a turn the page carries replaces the copy
+// it had, so a poll never drops what was already read.
+func mergeMessages(held, page []remotewire.Message, pageBefore int) []remotewire.Message {
+	if pageBefore <= 0 || len(held) == 0 {
+		return page
+	}
+	kept := make([]remotewire.Message, 0, len(held)+len(page))
+	for _, m := range held {
+		if m.Turn < pageBefore {
+			kept = append(kept, m)
+		}
+	}
+	return append(kept, page...)
+}
+
+// keepBefore is the cursor after a read: the one that reaches further back.
+func keepBefore(current, next int) int {
+	if current <= 0 {
+		return next
+	}
+	if next <= 0 {
+		return 0
+	}
+	if current < next {
+		return current
+	}
+	return next
+}
+
+// setTranscriptMessages publishes a read's messages only when they differ,
+// so the twice-a-second poll does not rebuild the whole page under the
+// reader.
+func (a *mobileApp) setTranscriptMessages(next []remotewire.Message) {
+	old := a.messages.GetUntracked()
+	if len(old) == len(next) {
+		same := true
+		for i := range next {
+			if old[i] != next[i] {
+				same = false
+				break
+			}
+		}
+		if same {
+			return
+		}
+	}
+	a.messages.Set(next)
 }

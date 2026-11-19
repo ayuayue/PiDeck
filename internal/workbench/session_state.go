@@ -147,5 +147,8 @@ type session struct {
 	// closed, by key; uiSeq changes so the rows redraw.
 	openTools map[string]bool
 	openThink map[string]bool
+	// thinkFull holds the thinking rows whose rest the user asked for: a
+	// long one opens to its head first.
+	thinkFull map[string]bool
 	uiSeq     *core.Signal[int]
 }

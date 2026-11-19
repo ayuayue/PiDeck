@@ -134,6 +134,10 @@ type Snapshot struct {
 type Message struct {
 	Role string `json:"role"`
 	Text string `json:"text"`
+	// Turn is the turn this line belongs to, counted from the session's
+	// start. A client keeps the older pages it loaded by it while it
+	// refreshes the newest one.
+	Turn int `json:"turn,omitempty"`
 }
 
 type Transcript struct {
@@ -143,6 +147,12 @@ type Transcript struct {
 	Messages []Message `json:"messages"`
 	Ask      *Ask      `json:"ask,omitempty"`
 	Error    string    `json:"error,omitempty"`
+	// Before is how many turns come before the first one sent: the client
+	// asks for them with ?before=, so a long session pages instead of
+	// losing its start.
+	Before int `json:"before,omitempty"`
+	// Truncated says one message was too big to send whole.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // remoteWireAgent is one way of working the phone can start a session with.
