@@ -9,9 +9,16 @@ import (
 // the phone: the same artwork the installer and the store icons show.
 //
 // logo.png is Icon.png — the packaged icon — at 512 pixels, so the app and
-// its package cannot drift apart. Regenerate it with the icon's change:
-//
-//	python -c "from PIL import Image; Image.open('assets/Icon.png').convert('RGBA').resize((512, 512), Image.LANCZOS).save('assets/logo.png', optimize=True)"
+// its package cannot drift apart. Both it and tray.png follow the icon
+// through scripts/icons.py; run that when the artwork changes.
 //
 //go:embed logo.png
 var LogoPNG []byte
+
+// TrayGlyphPNG is the same mark without its tile, for a menu bar that
+// draws its own icons in its own colors: macOS reads the alpha as the
+// shape, so a template image is the glyph alone, never the rounded square.
+// It is 44 pixels, two for each of the menu bar's 22.
+//
+//go:embed tray.png
+var TrayGlyphPNG []byte

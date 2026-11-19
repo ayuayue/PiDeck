@@ -7,6 +7,7 @@ package workbench
 // opens, so it shows the sessions running at that moment.
 
 import (
+	"runtime"
 	"strings"
 	"time"
 
@@ -28,10 +29,17 @@ func (a *app) setupDesktop() {
 		return
 	}
 	a.attachMainWindow()
+	// A menu bar draws its icons as shapes in its own colors, so it takes
+	// the glyph alone; Windows and Linux show the app's mark in color.
+	icon, template := assets.LogoPNG, false
+	if runtime.GOOS == "darwin" {
+		icon, template = assets.TrayGlyphPNG, true
+	}
 	a.tray = desktop.NewTray(a.cx, desktop.TrayOptions{
-		Icon:    assets.LogoPNG,
-		Tooltip: "PiDeck Lite",
-		Menu:    a.trayMenu,
+		Icon:     icon,
+		Template: template,
+		Tooltip:  "PiDeck Lite",
+		Menu:     a.trayMenu,
 	})
 	a.setupNotifications()
 	a.updateTray()
