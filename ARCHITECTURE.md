@@ -13,6 +13,7 @@ Dependencies point down this list. A package may import a package below it when 
 | `internal/workbench` | Desktop application and loopback server | shared packages, `sessionimport`, `schedule` |
 | `internal/sessionimport` | External transcript readers and pi JSONL writer | `apptext` |
 | `internal/alerts` | Notification sounds: embedded sounds, default per moment, one decoded player | `assets`, NSGo |
+| `internal/volcvoice` | Speech to text at Volcano Engine's flash endpoint, one WAV in and one transcript out | standard library |
 | `internal/viewkit` | Display helpers shared by the hosts | `apptext`, NSGo |
 | `internal/crashlog` | Crash reports | `appinfo` |
 | `internal/remotewire` | JSON transport types | standard library |

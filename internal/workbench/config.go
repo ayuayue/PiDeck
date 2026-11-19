@@ -179,6 +179,11 @@ type config struct {
 	SoundWaiting    string `json:"soundWaiting,omitempty"`
 	SoundCustom     string `json:"soundCustom,omitempty"`
 	SoundVolume     *int   `json:"soundVolume,omitempty"`
+	// VoiceAppID and VoiceAccessToken are Volcano Engine's speech
+	// service credentials: the phone records, this desktop transcribes.
+	// The token stays here; a phone never holds it.
+	VoiceAppID       string `json:"voiceAppId,omitempty"`
+	VoiceAccessToken string `json:"voiceAccessToken,omitempty"`
 	// Language is the interface's language: "" follows the system, else
 	// one of supportedLanguages.
 	Language string `json:"language,omitempty"`

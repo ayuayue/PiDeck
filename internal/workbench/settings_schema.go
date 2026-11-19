@@ -56,6 +56,8 @@ var appSettingFields = []settingField{
 	{Key: "soundWaiting", Type: "enum", Default: "", Values: []string{"", "chime", "bell", "pop", "buzz", "custom"}},
 	{Key: "soundCustom", Type: "text", Default: ""},
 	{Key: "soundVolume", Type: "number", Default: 70, Min: intPtr(0), Max: intPtr(100)},
+	{Key: "voiceAppId", Type: "text", Default: ""},
+	{Key: "voiceAccessToken", Type: "text", Default: ""},
 	{Key: "petEnabled", Type: "bool", Default: false},
 	{Key: "telemetryEnabled", Type: "bool", Default: true},
 	{Key: "feishuEnabled", Type: "bool", Default: false},

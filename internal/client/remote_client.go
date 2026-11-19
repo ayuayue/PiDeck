@@ -221,6 +221,15 @@ func (c *remoteClient) postWithin(path string, in, out any, limit time.Duration)
 	return nil
 }
 
+// voice sends a WAV recording to the desktop, which transcribes it; the
+// reply is what it said, empty when it held no speech.
+func (c *remoteClient) voice(wav []byte) (string, error) {
+	var out remotewire.VoiceText
+	err := c.postWithin("/api/voice", remotewire.VoiceRequest{Format: "wav", Data: base64.StdEncoding.EncodeToString(wav)},
+		&out, 60*time.Second)
+	return out.Text, err
+}
+
 // createSession starts a session in a project and returns its id. An
 // agent, when given, is the way of working the session keeps.
 func (c *remoteClient) createSession(project string) (string, string, error) {

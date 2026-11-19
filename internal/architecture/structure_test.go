@@ -38,13 +38,14 @@ var dependencies = map[string][]string{
 	"internal/schedule":      {},
 	"internal/sessionimport": {"internal/apptext"},
 	"internal/viewkit":       {"internal/apptext"},
+	"internal/volcvoice":     {},
 	"internal/client": {
 		"assets", "internal/alerts", "internal/appinfo", "internal/apptext", "internal/relaywire", "internal/remotewire", "internal/viewkit",
 	},
 	"internal/workbench": {
 		"assets", "extensions", "webassets", "internal/alerts", "internal/appinfo", "internal/apptext",
 		"internal/crashlog", "internal/relaywire", "internal/remotewire", "internal/schedule",
-		"internal/sessionimport", "internal/viewkit",
+		"internal/sessionimport", "internal/viewkit", "internal/volcvoice",
 	},
 }
 

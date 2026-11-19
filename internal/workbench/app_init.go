@@ -13,6 +13,7 @@ import (
 	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/crashlog"
 	"example.com/pideck-lite/internal/sessionimport"
+	"example.com/pideck-lite/internal/volcvoice"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -370,6 +371,7 @@ func newApp(cx *core.Scope) *app {
 	a.initDiag()
 	a.cfg = st.config()
 	a.sounds = alerts.New(cx)
+	a.speech = &volcvoice.Client{}
 	a.loadCustomSound()
 	a.applyBrand()
 	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))

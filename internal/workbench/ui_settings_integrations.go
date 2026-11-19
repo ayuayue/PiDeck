@@ -73,6 +73,22 @@ func (a *app) settingsIntegrations() core.Node {
 						ui.Button{Text: apptext.T("发一条"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "feishu-test",
 							OnPress: a.testFeishu}),
 				),
+				setGroup("语音输入",
+					setRow("火山语音", "手机端录一段话，交给这台电脑调用火山引擎识别，结果显示在手机输入框里。凭据只存在这台电脑上。",
+						nil),
+					setDivider(),
+					setRow("App ID", "火山引擎控制台 → 语音技术 → 语音识别大模型 → 应用管理里的 App ID。",
+						field(func() string { return a.cfg.VoiceAppID }, func(v string) {
+							setCfg(func(c *config) { c.VoiceAppID = v })
+						}, apptext.T("例如 1234567890"), apptext.T("火山 App ID"), "voice-app-id", false)),
+					setDivider(),
+					setRow("Access Token", "同一个应用的 Access Token；手机不会拿到它，所有识别都由这台电脑发出。",
+						field(func() string { return a.cfg.VoiceAccessToken }, func(v string) {
+							setCfg(func(c *config) { c.VoiceAccessToken = v })
+						}, apptext.T("粘贴 Access Token"), apptext.T("火山 Access Token"), "voice-access-token", true)),
+					setDivider(),
+					setRow("在手机上说话", "手机连上后，输入框那一行左边的麦克风按一次开始录音，再按一次结束并转成文字。", nil),
+				),
 				setGroup("ACP 预设",
 					setRow("自定义预设", "内置 Claude / Gemini / Codex；也可以在这里加任何 ACP 命令，写进数据目录的 acp/presets.json。",
 						ui.Button{Text: apptext.T("管理预设…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-manage-open",

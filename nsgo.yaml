@@ -36,6 +36,12 @@ apple:
   info:
     NSLocalNetworkUsageDescription: "连接同一局域网内电脑上的 PiDeck Lite。"
 
+android:
+  # 手机端用麦克风录一段话交给电脑识别：运行时的录音前台服务要写进清单，
+  # 它同时声明 RECORD_AUDIO、FOREGROUND_SERVICE、FOREGROUND_SERVICE_MICROPHONE
+  # 与 POST_NOTIFICATIONS。
+  recording: true
+
 build:
   output: dist
   # true opens the output directory after building.

@@ -131,6 +131,20 @@ type Snapshot struct {
 	Projects []Project `json:"projects"`
 }
 
+// VoiceRequest carries a recording the phone made to the desktop, which
+// transcribes it: the audio as base64, mono 16-bit PCM WAV, and its format
+// as the file says it.
+type VoiceRequest struct {
+	Format string `json:"format"`
+	Data   string `json:"data"`
+}
+
+// VoiceText is the desktop's answer: what the recording said, empty when
+// it held no speech.
+type VoiceText struct {
+	Text string `json:"text"`
+}
+
 type Message struct {
 	Role string `json:"role"`
 	Text string `json:"text"`

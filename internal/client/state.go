@@ -14,6 +14,7 @@ import (
 	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/microphone"
 )
 
 // mobileSaved is the last connection the phone used, and the ones before
@@ -154,6 +155,12 @@ type mobileApp struct {
 	soundOn   *core.Signal[bool]
 	soundName *core.Signal[string]
 	sounds    *alerts.Player
+	// voice is the microphone's state, idle, recording or busy; rec is the
+	// recording it started, and voiceInsert puts a transcript into the
+	// composer that began it.
+	voice       *core.Signal[string]
+	rec         *microphone.Recording
+	voiceInsert func(string)
 
 	// The rail's lists: the ways of working a session can start with, the
 	// desktop's cron tasks and its favorites.
@@ -365,6 +372,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		language:            core.NewSignal(cx, apptext.LangZhCN),
 		soundOn:             core.NewSignal(cx, false),
 		soundName:           core.NewSignal(cx, ""),
+		voice:               core.NewSignal(cx, voiceIdle),
 		agents:              core.NewSignalFunc(cx, []remotewire.Agent(nil), nil),
 		agentsBusy:          core.NewSignal(cx, false),
 		agentsErr:           core.NewSignal(cx, ""),

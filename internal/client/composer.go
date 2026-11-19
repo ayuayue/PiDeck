@@ -92,7 +92,7 @@ func (a *mobileApp) composerToolbar(cx *core.Scope, src composerSource) core.Nod
 				a.composerChip(lucide.Brain, a.thinkingLabel(), apptext.T("思考等级"), "mobile-thinking", src.openOptions),
 				a.usageChip())
 		}
-		left = append(left, a.composerIcon(lucide.Image, apptext.T("添加图片"), "mobile-image", src.pick))
+		left = append(left, a.voiceButton(src), a.composerIcon(lucide.Image, apptext.T("添加图片"), "mobile-image", src.pick))
 		var right []core.Node
 		right = append(right, a.composerIcon(lucide.Plus, apptext.T("添加与工具"), "mobile-plus", func() { a.composerPlusOpen.Set(true) }))
 		if src.stop != nil && src.running() {

@@ -12,6 +12,7 @@ import (
 
 	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/sessionimport"
+	"example.com/pideck-lite/internal/volcvoice"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -27,7 +28,10 @@ type app struct {
 	// file's bytes, read when the config loads and after an import, so an
 	// alert never reads the disk on the UI thread. alertVolumeSeq drops a
 	// pending write while the slider still moves.
-	sounds         *alerts.Player
+	sounds *alerts.Player
+	// speech transcribes the phone's recordings; a test points it at
+	// its own server.
+	speech         *volcvoice.Client
 	customSound    []byte
 	customSoundFor string
 	alertVolumeSeq int

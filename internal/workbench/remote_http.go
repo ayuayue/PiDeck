@@ -8,6 +8,7 @@ package workbench
 // the LAN, over Tailscale or over EasyTier.
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,6 +18,9 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-lite/internal/volcvoice"
 )
 
 // handler routes the phone's small API.
@@ -47,6 +51,7 @@ func (h *remoteHost) handler() http.Handler {
 	mux.HandleFunc("/api/review/action", h.handleReviewAction)
 	mux.HandleFunc("/api/review/evaluate", h.handleReviewEvaluate)
 	mux.HandleFunc("/api/feishu", h.handleFeishu)
+	mux.HandleFunc("/api/voice", h.handleVoice)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
@@ -130,6 +135,48 @@ func writeRemoteJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// handleVoice transcribes a recording the phone made: its WAV bytes, base64
+// in JSON, come back as the text the composer inserts.
+func (h *remoteHost) handleVoice(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req remotewire.VoiceRequest
+	if err := decodeRemoteBodyLimit(r, &req, maxVoiceBytes*4/3+1024); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if req.Format != "" && req.Format != "wav" {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "只接受 WAV 录音"})
+		return
+	}
+	wav, err := base64.StdEncoding.DecodeString(req.Data)
+	if err != nil || len(wav) == 0 {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "录音是空的"})
+		return
+	}
+	if len(wav) > maxVoiceBytes {
+		writeRemoteJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "录音太长了"})
+		return
+	}
+	text, err := h.app.transcribeVoice(r.Context(), wav)
+	switch {
+	case err == nil:
+		writeRemoteJSON(w, http.StatusOK, remotewire.VoiceText{Text: text})
+	case errors.Is(err, errVoiceNotConfigured):
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "电脑上还没配置火山语音：设置 → 集成 → 语音输入"})
+	case errors.Is(err, volcvoice.ErrAuth):
+		writeRemoteJSON(w, http.StatusBadGateway, map[string]string{"error": "火山凭据不对，检查 App ID 与 Access Token"})
+	case errors.Is(err, volcvoice.ErrSilent):
+		writeRemoteJSON(w, http.StatusOK, remotewire.VoiceText{})
+	case errors.Is(err, volcvoice.ErrRejected):
+		writeRemoteJSON(w, http.StatusBadGateway, map[string]string{"error": "火山没有接受这段录音"})
+	default:
+		writeRemoteJSON(w, http.StatusBadGateway, map[string]string{"error": "连不上火山语音服务"})
+	}
 }
 
 // decodeRemoteBody reads a small JSON request body.
