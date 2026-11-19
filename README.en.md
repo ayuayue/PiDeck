@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.13.0-blue)
+![Version](https://img.shields.io/badge/version-0.13.1-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -83,7 +83,7 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.13.0** (2026-11-18)
+> **Latest: v0.13.1** (unreleased)
 
 ### v0.13.0 Release Highlights
 - 🚀 **Activity triage with GTD**
