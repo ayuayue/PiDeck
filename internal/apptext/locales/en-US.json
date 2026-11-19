@@ -1461,6 +1461,7 @@
   "编辑器字号": "Editor text size",
   "编辑定时任务": "Edit scheduled task",
   "编辑智能体": "Edit agent",
+  "网络不稳，正在重连…": "The network dropped; reconnecting…",
   "网络代理": "Network proxies",
   "置顶": "Pinned",
   "置顶会话": "Pin session",

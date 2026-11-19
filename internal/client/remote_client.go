@@ -10,12 +10,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/relaywire"
 	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
@@ -74,7 +77,19 @@ func (c *remoteClient) close() {
 	c.http.CloseIdleConnections()
 }
 
+// do reads a path, once more when the first try never reached the desktop:
+// a phone that changed networks or came back from the background fails the
+// first read, and the next one dials the relay again.
 func (c *remoteClient) do(path string, out any) error {
+	err := c.get(path, out)
+	if err != nil && transient(err) {
+		time.Sleep(retryDelay)
+		err = c.get(path, out)
+	}
+	return err
+}
+
+func (c *remoteClient) get(path string, out any) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
@@ -147,28 +162,42 @@ func (c *remoteClient) post(path string, in, out any) error {
 }
 
 // postWithin is post with its own deadline: a model call or a generated
-// picture takes longer than a settings change.
+// picture takes longer than a settings change. A request whose tunnel could
+// not be dialed at all is sent once more, since it never left the phone.
 func (c *remoteClient) postWithin(path string, in, out any, limit time.Duration) error {
 	payload, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), limit)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(payload))
-	if err != nil {
-		return err
+	send := func() (*http.Response, context.CancelFunc, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), limit)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(payload))
+		if err != nil {
+			cancel()
+			return nil, nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Content-Type", "application/json")
+		// The client's own deadline is the short one every request shares;
+		// a model call or a drawn picture needs the one it asked for.
+		hc := *c.http
+		hc.Timeout = limit
+		resp, err := hc.Do(req)
+		if err != nil {
+			cancel()
+			return nil, nil, err
+		}
+		return resp, cancel, nil
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	// The client's own deadline is the short one every request shares; a
-	// model call or a drawn picture needs the one it asked for.
-	hc := *c.http
-	hc.Timeout = limit
-	resp, err := hc.Do(req)
+	resp, cancel, err := send()
+	if err != nil && undialed(err) {
+		time.Sleep(retryDelay)
+		resp, cancel, err = send()
+	}
 	if err != nil {
 		return fmt.Errorf("连接失败：%w", err)
 	}
+	defer cancel()
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
 		return errRemoteAuth
@@ -469,4 +498,40 @@ func remoteErrorText(err error) string {
 		return "访问令牌无效，请在电脑端设置 → 远程里复制新的连接链接"
 	}
 	return viewkit.FirstLine(err.Error(), 200)
+}
+
+// pollErrorText is what a read that failed on the way says. The phone is
+// already connected, so a dropped tunnel is a moment, not an error: the
+// next try dials again.
+func pollErrorText(err error) string {
+	if transient(err) {
+		return apptext.T("网络不稳，正在重连…")
+	}
+	return remoteErrorText(err)
+}
+
+// retryDelay is how long a read waits before its second try, long enough
+// for the transport to dial the relay again.
+const retryDelay = 300 * time.Millisecond
+
+// transient says the request failed on the way, not in the desktop's
+// answer: the tunnel dropped, the network changed, or the phone woke up
+// holding a socket the relay had already let go.
+func transient(err error) bool {
+	if err == nil || errors.Is(err, errRemoteAuth) {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNABORTED)
+}
+
+// undialed says the request never left the phone, so sending it again
+// cannot repeat a prompt: the tunnel could not be opened at all.
+func undialed(err error) bool {
+	return transient(err) && strings.Contains(err.Error(), "dial")
 }

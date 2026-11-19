@@ -377,6 +377,11 @@ func (a *mobileApp) startPolling() {
 		if a.running.GetUntracked() {
 			wait = 1200 * time.Millisecond
 		}
+		// A phone in the background is not being read; poll rarely and let
+		// the resume effect catch up.
+		if a.cx.Env().Lifecycle() == core.LifecycleBackground {
+			wait = 20 * time.Second
+		}
 		a.cx.AfterFunc(wait, loop)
 	}
 	loop()
@@ -399,7 +404,7 @@ func (a *mobileApp) refreshState() {
 				if errors.Is(err, errRemoteAuth) {
 					a.disconnectWith(remoteErrorText(err))
 				} else {
-					a.err.Set(remoteErrorText(err))
+					a.err.Set(pollErrorText(err))
 				}
 				return
 			}

@@ -334,7 +334,6 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		toolOpen:            core.NewSignal(cx, ""),
 		longOpen:            core.NewSignal(cx, ""),
 		thoughtOpen:         core.NewSignalFunc(cx, []string(nil), nil),
-		thoughtFull:         core.NewSignalFunc(cx, []string(nil), nil),
 		hits:                core.NewSignalFunc(cx, []remotewire.Hit(nil), nil),
 		hitsBusy:            core.NewSignal(cx, false),
 		scroll:              &core.Ref{},
@@ -406,6 +405,15 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 			return true
 		}
 		return false
+	})
+	// A phone that comes back reads at once: the tunnel it left is often
+	// gone, and waiting for the next poll would show a stale page.
+	cx.Effect(func() {
+		if cx.Env().Lifecycle() != core.LifecycleActive || !a.connected.Get() {
+			return
+		}
+		a.refreshState()
+		a.refreshTranscript()
 	})
 	return a
 }
