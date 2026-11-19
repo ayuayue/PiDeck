@@ -16,7 +16,8 @@ function isFile(result: RemoteResourceResult): result is RemoteResourceFile {
 	return "content" in result;
 }
 function field(content: string, key: string): string {
-	const header = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)?.[1] ?? "";
+	// 远端文件可能带 UTF-8 BOM（helper 保留原始字节，版本号是原始字节的 sha256），解析 frontmatter 前先剥掉。
+	const header = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/.exec(content)?.[1] ?? "";
 	const value = new RegExp("^" + key + ":\\s*(.*)$", "m").exec(header)?.[1]?.trim() ?? "";
 	try {
 		const parsed: unknown = JSON.parse(value);

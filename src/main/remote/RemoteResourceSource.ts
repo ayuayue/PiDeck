@@ -56,7 +56,15 @@ export function createResourceScope(home, fs, path, crypto, config) {
 			return data;
 		} finally { if (fd !== undefined) fs.closeSync(fd); }
 	}
-	function text(data) { try { return new TextDecoder("utf-8", { fatal: true }).decode(data); } catch { fail("RESOURCE_INPUT_INVALID"); } }
+	/* ignoreBOM: the version is the sha256 of the raw bytes, so the decoded string must re-encode to those same bytes.
+	   Default TextDecoder drops a leading BOM, which made every BOM-prefixed SKILL.md / prompt fail the main-side
+	   version check and took the whole resources.list down with PI_RESOURCE_FILE_INVALID (2026-11-19). */
+	function text(data) { try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data); } catch { fail("RESOURCE_INPUT_INVALID"); } }
+	/* One stray file must not take the whole domain down: an entry pi cannot read as text (invalid UTF-8, byte NUL,
+	   over the per-file cap, or gone between readdir and read) is skipped exactly like a link, and the caller still
+	   gets every other skill/prompt/extension. 2026-11-19: a single such file answered PI_RESOURCE_FILE_INVALID for
+	   resources.list, so the entire remote Agent-capability page was dead. */
+	function tolerable(run) { try { return run(); } catch (error) { const code = error !== null && typeof error === "object" ? error.message : ""; if (code === "RESOURCE_INPUT_INVALID" || code === "RESOURCE_TOO_LARGE" || code === "RESOURCE_NOT_FOUND" || code === "RESOURCE_PATH_INVALID") return null; throw error; } }
 	function read(ref) {
 		const target = locate(ref, false), data = bytes(target.absolute);
 		return { root: ref.root, path: ref.path, content: text(data), version: digest(data) };
@@ -77,7 +85,8 @@ export function createResourceScope(home, fs, path, crypto, config) {
 					if (!stats.isFile()) continue;
 					const allowed = root === "prompts" ? /\.md$/i.test(entry.name) : root === "extensions" ? /\.(?:[cm]?js|ts|json)$/i.test(entry.name) : entry.name === "SKILL.md" || depth === 0 && root === "skills" && /\.md$/i.test(entry.name);
 					if (!allowed) continue;
-					const file = read({ root: root, path: rel });
+					const file = tolerable(function () { return read({ root: root, path: rel }); });
+					if (file === null) continue;
 					budget.total += Buffer.byteLength(file.content, "utf8"); if (budget.total > MAX_TOTAL) fail("RESOURCE_TOO_LARGE");
 					files.push(file);
 				}
@@ -121,7 +130,7 @@ export function createResourceScope(home, fs, path, crypto, config) {
 			return enabled;
 		}
 		function header(content, key) {
-			const body = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content), value = body && new RegExp("^" + key + ":\\s*(.*)$", "m").exec(body[1]);
+			const body = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/.exec(content), value = body && new RegExp("^" + key + ":\\s*(.*)$", "m").exec(body[1]);
 			if (!value) return "";
 			try { const parsed = JSON.parse(value[1]); return typeof parsed === "string" ? parsed : String(parsed); } catch { return value[1].trim().replace(/^['"]|['"]$/g, ""); }
 		}
@@ -129,7 +138,8 @@ export function createResourceScope(home, fs, path, crypto, config) {
 			const identity = kind + ":" + target; if (seen.has(identity)) return;
 			if (!(kind === "skills" ? target.endsWith("/SKILL.md") || /\.md$/i.test(target) : kind === "prompts" ? /\.md$/i.test(target) : /\.(?:[cm]?js|ts)$/i.test(target))) return;
 			seen.add(identity);
-			const content = text(bytes(target)); budget.total += Buffer.byteLength(content, "utf8"); if (budget.total > MAX_TOTAL) fail("RESOURCE_TOO_LARGE");
+			const content = tolerable(function () { return text(bytes(target)); }); if (content === null) return;
+			budget.total += Buffer.byteLength(content, "utf8"); if (budget.total > MAX_TOTAL) fail("RESOURCE_TOO_LARGE");
 			const enabled = filtered(target, settings[kind], base, false) && (filters === undefined || Array.isArray(filters) && filters.length > 0 && filtered(target, filters, packageRoot, true)) && filtered(target, manifestRules, packageRoot, true);
 			const description = kind === "extensions" ? "" : header(content, "description");
 			if (kind === "skills") { const name = header(content, "name") || path.basename(path.dirname(target)); result.skills.push({ id: sourceId + ":" + target, name: name, path: target, dir: path.dirname(target), sourceId: sourceId, sourceLabel: label, description: description, userOnly: header(content, "disable-model-invocation") === "true", enabled: enabled, managed: true }); }
@@ -306,4 +316,4 @@ export function createResourceScope(home, fs, path, crypto, config) {
 `.replace(/\r?\n[\t ]*/g, "");
 
 /** Recomputed together with the helper bundle pin whenever the frozen artifact changes. */
-export const REMOTE_HELPER_RESOURCE_SHA256 = "c1d9b951dc192ddd6a10d151e0855c5073004a0cfc602f59bf421721417a8052";
+export const REMOTE_HELPER_RESOURCE_SHA256 = "2030de37f4a1deeb155ea88676b340a5807f7e4c4222c4702caa773a53e3555a";

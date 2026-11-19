@@ -5,6 +5,7 @@ import { quotePosixArgument } from "../remote/RemoteBootstrapContract";
 import { parsePiListOutput } from "../extensions/piExtensionCatalog";
 import { supportsPiSelfUpdate } from "../pi/piSelfUpdateRunner";
 import { collectRemoteConfigSecrets } from "./RemotePiConfigBackend";
+import { getAppLogger } from "../logging/sharedLogger";
 import type { ProjectResourceDiscoveryResult } from "../../shared/types/app";
 
 type Ports = {
@@ -112,7 +113,12 @@ export function createRemotePiResourceBackend(ports: Ports) {
 				if (/VERSION_CONFLICT/.test(code)) throw new Error(C.conflict);
 				if (code === "METHOD_NOT_FOUND") throw new Error(C.unsupported);
 				if (/RESULT_UNCONFIRMED/.test(code)) throw new Error(C.unconfirmed);
-				if (/^(?:RESOURCE_(?:INPUT_INVALID|PATH_INVALID|NOT_FOUND|TOO_LARGE)|CONFIG_(?:FILE_INVALID|PATH_UNSUPPORTED|FILE_TOO_LARGE))$/.test(code)) throw new Error(C.fileInvalid);
+				if (/^(?:RESOURCE_(?:INPUT_INVALID|PATH_INVALID|NOT_FOUND|TOO_LARGE)|CONFIG_(?:FILE_INVALID|PATH_UNSUPPORTED|FILE_TOO_LARGE))$/.test(code)) {
+					// 2026-11-19：这四个 helper 拒绝被映成一个码后，用户只看到 PI_RESOURCE_FILE_INVALID，
+					// 分不出「某个文件太大」与「数据形状不对」。日志里留下原始码再映射。
+					getAppLogger()?.warn("remoteResources", "Remote resource helper refused", { hostId, action, code });
+					throw new Error(C.fileInvalid);
+				}
 				if (code === "RESOURCE_UNAVAILABLE" || code === "CONFIG_UNAVAILABLE") throw new Error(C.unavailable);
 				throw new Error(mutation ? C.unconfirmed : C.unavailable);
 			}
@@ -134,7 +140,8 @@ export function createRemotePiResourceBackend(ports: Ports) {
 				if (record(input.ref) && (saved.root !== input.ref.root || (action !== "rename" && saved.path !== input.ref.path))) throw new Error(C.fileInvalid);
 				if ((action === "write" || action === "create") && saved.content !== input.content) throw new Error(C.fileInvalid);
 				return saved;
-			} catch {
+			} catch (error) {
+				getAppLogger()?.warn("remoteResources", "Remote resource result failed validation", { hostId, action, reason: error instanceof Error ? error.message : String(error) });
 				throw new Error(mutation ? C.unconfirmed : C.fileInvalid);
 			}
 		},
