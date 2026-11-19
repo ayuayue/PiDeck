@@ -226,8 +226,14 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 			// 探测在本机做，与远端不在同一个网络位置：不报“可达”误导用户，指向真正能回答的入口。
 			probeMcp: async (definition: McpServerDefinition): Promise<McpProbeResult> => ({ ok: false, transport: typeof definition.url === "string" ? "http" : "stdio", error: t("config.mcp.remoteProbeUnsupported") }),
 			mcpListStatus,
-			// 登录要流式抓授权 URL：pinned 短命令只在结束时返回，远端这一版不做半成品。
-			mcpLogin: async (): Promise<{ ok: boolean; output: string }> => ({ ok: false, output: t("config.mcp.remoteLoginUnsupported") }),
+			// 登录在主机上跑，授权 URL 由主进程按 event.sender 回推到本窗口（McpTab 已有的 onMcpLoginUrl 订阅负责展示）。
+			mcpLogin: async (server: string, timeoutSec?: number, scope?: McpConfigScope, operationId?: string): Promise<{ ok: boolean; output: string }> => {
+				globalScopeOnly(scope);
+				await connected();
+				const result = await api.remotePiMcp(hostId, { action: "login", server, timeoutSec: typeof timeoutSec === "number" && Number.isInteger(timeoutSec) && timeoutSec > 0 ? Math.min(timeoutSec, 600) : 240, ...(operationId === undefined ? {} : { operationId }) });
+				if (result.action !== "login") throw new Error(REMOTE_MCP_CODES.invalid);
+				return { ok: result.ok, output: result.output };
+			},
 			mcpLogout,
 		},
 	};

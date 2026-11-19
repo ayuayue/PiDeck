@@ -37,14 +37,22 @@ export const REMOTE_RESOURCE_CODES = {
 } as const;
 
 /** 远端 MCP 只提供固定动词：读配置 / 写配置 / `pi mcp list` / `pi mcp logout`。 */
-export type RemoteMcpRequest = { action: "facts" } | { action: "snapshot" } | { action: "save"; file: Record<string, unknown>; expectedVersion?: string } | { action: "list" } | { action: "logout"; server: string };
+export type RemoteMcpRequest =
+	| { action: "facts" }
+	| { action: "snapshot" }
+	| { action: "save"; file: Record<string, unknown>; expectedVersion?: string }
+	| { action: "list" }
+	| { action: "logout"; server: string }
+	/** OAuth 登录：授权 URL 以 mcp:login-url 事件实时推给发起它的那个窗口。 */
+	| { action: "login"; server: string; timeoutSec: number; operationId?: string };
 /** facts 给页面一个真实的远端路径用于展示；list/logout 是主机上 `pi mcp` 的结果。 */
 export type RemoteMcpResult =
 	| { action: "facts"; home: string; piVersion: string }
 	| { action: "snapshot"; snapshot: McpConfigSnapshot }
 	| { action: "save"; valid: boolean; revision?: string; error?: string; conflict?: boolean }
 	| { action: "list"; report: McpCliListResult }
-	| { action: "logout"; ok: boolean; output: string };
+	| { action: "logout"; ok: boolean; output: string }
+	| { action: "login"; ok: boolean; output: string };
 
 export const REMOTE_MCP_CODES = {
 	invalid: "REMOTE_MCP_TARGET_INVALID",

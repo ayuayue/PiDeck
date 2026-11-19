@@ -84,6 +84,11 @@ export type SshConnectionRequestOptions = {
 	 * field, not a client concern like `onRequestId`, so it is forwarded to the control client verbatim.
 	 */
 	repo?: string;
+	/**
+	 * 流式回调（登录类方法）：helper 用无 id 的 auth-url 事件帧按 requestId 回报授权 URL，客户端只把它交给
+	 * 发起该请求的调用方。与 `onRequestId` 一样是客户端关注点，所以显式透传而不是当成帧字段。
+	 */
+	onAuthUrl?: (url: string) => void;
 };
 
 export type SshConnectionManager = {
@@ -259,9 +264,13 @@ function reportRequestId(options: SshConnectionRequestOptions | undefined, reque
  * The control client's own per-call options. `onRequestId` belongs to this layer and is deliberately not
  * forwarded, so the two option surfaces cannot drift into one another; `repo` is a wire field and is forwarded.
  */
-function clientRequestOptions(options: SshConnectionRequestOptions | undefined): { timeoutMs?: number; repo?: string } | undefined {
-	if (options?.timeoutMs === undefined && options?.repo === undefined) return undefined;
-	return { ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }), ...(options.repo === undefined ? {} : { repo: options.repo }) };
+function clientRequestOptions(options: SshConnectionRequestOptions | undefined): { timeoutMs?: number; repo?: string; onAuthUrl?: (url: string) => void } | undefined {
+	if (options?.timeoutMs === undefined && options?.repo === undefined && options?.onAuthUrl === undefined) return undefined;
+	return {
+		...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+		...(options.repo === undefined ? {} : { repo: options.repo }),
+		...(options.onAuthUrl === undefined ? {} : { onAuthUrl: options.onAuthUrl }),
+	};
 }
 
 /**

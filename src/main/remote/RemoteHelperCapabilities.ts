@@ -55,5 +55,6 @@ export const REMOTE_HELPER_CAPABILITIES = [
 	"resources.toggle",
 	"resources.togglePackage",
 	"resources.builtin",
+	"mcp.login",
 ] as const;
 export type RemoteHelperCapability = (typeof REMOTE_HELPER_CAPABILITIES)[number];

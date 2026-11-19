@@ -14,6 +14,11 @@ export function registerRemotePiMcpIpc(deps: {
 }): void {
 	const mcp = createRemotePiMcpService({
 		config: () => (deps.enabled ? deps.config : undefined),
+		request: async (hostId, method, params, options) => {
+			const service = await deps.service();
+			if (!deps.enabled || !service) throw new Error(REMOTE_MCP_CODES.unavailable);
+			return service.request(hostId, method, params, options);
+		},
 		resolveFacts: async (hostId) => {
 			const service = await deps.service();
 			if (!deps.enabled || !service) throw new Error(REMOTE_MCP_CODES.unavailable);
@@ -24,8 +29,13 @@ export function registerRemotePiMcpIpc(deps: {
 		},
 		run: deps.run,
 	});
-	ipcMain.handle(ipcChannels.remotePiMcp, (_event, hostId: unknown, input: unknown) => {
+	ipcMain.handle(ipcChannels.remotePiMcp, (event, hostId: unknown, input: unknown) => {
 		if (!deps.enabled) throw new Error(REMOTE_MCP_CODES.unavailable);
-		return mcp.execute(hostId, input);
+		// 授权 URL 只回给发起登录的那个窗口：不广播、不落日志（它本身就是一次性凭据）。
+		return mcp.execute(hostId, input, (payload) => {
+			const sender = event.sender;
+			if (sender.isDestroyed()) return;
+			sender.send(ipcChannels.mcpLoginUrl, { server: payload.server, scope: { scope: "global" }, ...(payload.operationId === undefined ? {} : { operationId: payload.operationId }), url: payload.url });
+		});
 	});
 }
