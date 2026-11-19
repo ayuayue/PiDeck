@@ -70,11 +70,11 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const NS_LIST_SHA256 = "5809b53fe0324e549ec6fc4ffb3144a1c4dae2708659619faa769b56449781e1";
+const NS_LIST_SHA256 = "6932e90a8051354deb1e881b5acea04ff47ed41ebe75747e29328b79ab4f5a77";
 // #520：sessions 新增安全分享 prepare/save/release 三个方法，其他命名空间不变。
 // #546：sessions 新增 gtdState / gtdPatch（GTD 分诊账本），其他命名空间不变。
-const FULL_METHODS_SHA256 = "0849ab2a3e510b055f7d18d06cdd88072d4e56cf1b2cae0ac03ff357854f0c2e";
-const NAMESPACE_COUNT = 85;
+const FULL_METHODS_SHA256 = "1cb8bf9766c881e841b0b9a652a9d3528ab8d1ade61e0e902d6bf127779b6b90";
+const NAMESPACE_COUNT = 86;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
 function assertValidCapture(capture) {

@@ -239,10 +239,8 @@ export const ipcChannels = {
 	/** 永久删除已归档会话：归档区文件移入系统回收站并从索引移除（区别于恢复）。 */
 	sessionsCatalogDeleteArchived: "sessions:catalog-delete-archived",
 	/**
-	 * 远端归档会话「永久删除」的**请求**（Phase 5 必须）：入参只有本机 catalog 会话 id——
-	 * 远端路径永远不从渲染层传（main 只认本机归档索引）。main 校验运行态/索引后签发一次性
-	 * 确认 requestId（PendingConfirmationBroker，sender 绑定、60s 过期、消费一次即失效），
-	 * 本通道不执行任何远端命令。
+	 * 远端归档会话「永久删除」的**请求**（Phase 5）：入参只有本机 catalog 会话 id——远端路径不从渲染层传
+	 * （main 只认本机归档索引），校验后签发一次性 requestId（sender 绑定、60s 过期、消费一次）；本通道不执行远端命令。
 	 */
 	sessionsCatalogDeleteArchivedRemote: "sessions:catalog-delete-archived-remote",
 	/** 回答上一条一次性确认：requestId + approve/deny；仅 approve 才执行有界远端 rm 与索引清理。 */
@@ -888,12 +886,13 @@ export const ipcChannels = {
 	/** 只读返回 pi 全局配置目录（渲染层展示源文件实际编辑位置）。 */
 	configGetDir: "config:get-dir",
 	configSaveModels: "config:save-models",
-	/** 保存 models 后的后台 pi 验证结果：fork 真实 pi 确认配置可加载（~17s），完成后推送；
-	 *  保存动作本身即时返回（解析刚写入的配置），渲染层仅在该事件失败时提示。 */
+	/** 保存 models 后的后台 pi 验证结果：fork 真实 pi 确认配置可加载（~17s），完成才推送；保存本身即时返回。 */
 	configModelsVerifyResult: "config:models-verify-result",
 	configSaveAuth: "config:save-auth",
 	configReplaceRemoteAuth: "config:replace-remote-auth",
 	remotePiResources: "remote:pi-resources",
+	/** 远端 MCP：配置快照/保存 + 主机上的 `pi mcp list|logout`（固定动词，argv 无自由文本）。 */
+	remotePiMcp: "remote:pi-mcp",
 	configSaveSettings: "config:save-settings",
 	configSaveRaw: "config:save-raw",
 	/** 源文件页的统一读取（本机/WSL 原文 + 诊断；ssh 脱敏快照），按 target 路由。 */

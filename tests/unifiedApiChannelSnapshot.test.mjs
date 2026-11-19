@@ -76,15 +76,17 @@
  *   ipcChannels 850→851，前缀数仍 95（config 前缀已存在）。
  * 2026-11-16 #546 分诊账本（+2）：gtd:state-get / gtd:state-patch（读全量意图水位 / 写单个会话水位），
  *   ipcChannels 851→853，新增 gtd 前缀（95→96）；渲染面是 sessions.gtdState / sessions.gtdPatch。
+ * 2026-11-19 远端 MCP（+1）：remote:pi-mcp（配置快照/保存 + 主机上的 pi mcp list/logout），
+ *   ipcChannels 855→856，前缀数仍 96（remote 前缀已存在）。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 855;
+const CHANNEL_TOTAL = 856;
 const PREFIX_COUNT = 96;
-const CHANNEL_DIGEST = "44039bdbfd01aa82db44a0ed88dcc5ffb85e7613260733286202f95b65edaa17";
+const CHANNEL_DIGEST = "195d24d7872853627131c382933364d8939c4ffdccf396c57b28bcca50b0112e";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";

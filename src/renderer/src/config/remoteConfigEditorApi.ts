@@ -1,6 +1,9 @@
 import type { PiDesktopApi } from "../../../preload";
 import { PI_CONFIG_FILE_NAMES, REMOTE_CONFIG_CODES, isPiConfigFileKey, piConfigFileKeyFromName, remotePiConfigCodeFromError, type PiConfigFileKey, type RemotePiConfigSnapshot, type RemoteConfigSecretSource } from "../../../shared/piConfig";
 import type { ModelSpec } from "../../../shared/types/modelSpecs";
+import type { McpCliListResult, McpConfigFile, McpConfigScope, McpConfigSnapshot, McpProbeResult, McpServerDefinition } from "../../../shared/types/mcp";
+import { REMOTE_MCP_CODES } from "../../../shared/types/remotePiManagement";
+import { t } from "../i18n";
 import type { RemoteModelCatalogEntry } from "../../../shared/types/remoteModel";
 import { remoteConfigDocument } from "./remoteConfigDocument";
 import { deepEqual } from "../utils/deepEqual";
@@ -105,6 +108,52 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 	const unsupported = async (): Promise<never> => {
 		throw new Error(REMOTE_CONFIG_CODES.providerOperationUnsupported);
 	};
+	/** 远端只有主机 HOME 下那一层：项目 .pi/mcp.json 不在远端配置作用域里。 */
+	function globalScopeOnly(scope?: McpConfigScope): void {
+		if (scope?.scope === "project") throw new Error(REMOTE_MCP_CODES.projectScopeUnsupported);
+	}
+	let homePath: Promise<string> | undefined;
+	function home(): Promise<string> {
+		homePath ??= (async () => {
+			await connected();
+			const facts = await api.remotePiMcp(hostId, { action: "facts" });
+			if (facts.action !== "facts" || typeof facts.home !== "string" || !facts.home.startsWith("/")) {
+				homePath = undefined;
+				throw new Error(REMOTE_MCP_CODES.unavailable);
+			}
+			return facts.home;
+		})();
+		return homePath;
+	}
+	async function mcpSnapshot(scope?: McpConfigScope): Promise<McpConfigSnapshot> {
+		globalScopeOnly(scope);
+		await connected();
+		const result = await api.remotePiMcp(hostId, { action: "snapshot" });
+		if (result.action !== "snapshot" || typeof result.snapshot !== "object" || result.snapshot === null) throw new Error(REMOTE_MCP_CODES.fileInvalid);
+		return result.snapshot as McpConfigSnapshot;
+	}
+	async function mcpSave(data: McpConfigFile, scope?: McpConfigScope, expectedRevision?: string): Promise<{ valid: boolean; error?: string; conflict?: boolean }> {
+		globalScopeOnly(scope);
+		await connected();
+		const result = await api.remotePiMcp(hostId, { action: "save", file: data as Record<string, unknown>, expectedVersion: expectedRevision });
+		if (result.action !== "save") throw new Error(REMOTE_MCP_CODES.fileInvalid);
+		return result.valid ? { valid: true } : { valid: false, error: result.error, conflict: result.conflict };
+	}
+	async function mcpListStatus(scope?: McpConfigScope): Promise<McpCliListResult> {
+		globalScopeOnly(scope);
+		await connected();
+		const result = await api.remotePiMcp(hostId, { action: "list" });
+		const report = result.action === "list" ? (result.report as McpCliListResult | undefined) : undefined;
+		if (!report || !Array.isArray(report.servers)) throw new Error(REMOTE_MCP_CODES.commandFailed);
+		return report;
+	}
+	async function mcpLogout(server: string, scope?: McpConfigScope): Promise<{ ok: boolean; output: string }> {
+		globalScopeOnly(scope);
+		await connected();
+		const result = await api.remotePiMcp(hostId, { action: "logout", server });
+		if (result.action !== "logout") throw new Error(REMOTE_MCP_CODES.invalid);
+		return { ok: result.ok, output: result.output };
+	}
 	const editor: PiDesktopApi = {
 		...api,
 		...resources,
@@ -172,12 +221,14 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 			resolveExternalAgentKey: unsupported,
 			previewProviderMigration: unsupported,
 			applyProviderMigration: unsupported,
-			getMcp: unsupported,
-			saveMcp: unsupported,
-			probeMcp: unsupported,
-			mcpListStatus: unsupported,
-			mcpLogin: unsupported,
-			mcpLogout: unsupported,
+			getMcp: mcpSnapshot,
+			saveMcp: mcpSave,
+			// 探测在本机做，与远端不在同一个网络位置：不报“可达”误导用户，指向真正能回答的入口。
+			probeMcp: async (definition: McpServerDefinition): Promise<McpProbeResult> => ({ ok: false, transport: typeof definition.url === "string" ? "http" : "stdio", error: t("config.mcp.remoteProbeUnsupported") }),
+			mcpListStatus,
+			// 登录要流式抓授权 URL：pinned 短命令只在结束时返回，远端这一版不做半成品。
+			mcpLogin: async (): Promise<{ ok: boolean; output: string }> => ({ ok: false, output: t("config.mcp.remoteLoginUnsupported") }),
+			mcpLogout,
 		},
 	};
 	/** Raw and structured drafts keep separate versions so one saved view cannot overwrite the other. */
@@ -211,6 +262,7 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 			epoch += 1;
 			authEditor.reset();
 			resources.reset();
+			homePath = undefined;
 			snapshots.clear();
 			blocked.clear();
 			resetCatalog();

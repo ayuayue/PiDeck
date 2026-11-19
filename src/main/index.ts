@@ -555,6 +555,7 @@ import { scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerWebRemoteAccessIpc } from "./ipc/webRemoteAccessIpc";
 import { RemoteAccessManager } from "./web/remoteAccess/RemoteAccessManager";
 import { registerSystemIpc } from "./ipc/systemIpc";
+import { registerRemotePiMcpIpc } from "./ipc/remotePiMcpIpc";
 import { registerResourceImportIpc } from "./ipc/resourceImportIpc";
 import { registerBackupIpc } from "./ipc/backupIpc";
 import { registerNoticeHistoryIpc } from "./ipc/noticeHistoryIpc";
@@ -3340,6 +3341,14 @@ function registerIpc() {
 		resolveWatchaUserId,
 		tokendanceCatalogStore,
 		tokendancePricingStore,
+	});
+
+	// 远端 MCP：配置快照/保存走同一份 remote config backend，连接状态与登出走主机上的固定动词。
+	registerRemotePiMcpIpc({
+		enabled: remoteFeatureEnabled,
+		config: remotePiConfig,
+		service: remoteHostServiceIfEnabled,
+		run: runPinnedRemoteCommand,
 	});
 
 	registerPlatformStack({
