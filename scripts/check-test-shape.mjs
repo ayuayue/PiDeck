@@ -30,6 +30,10 @@ const UPDATE = process.argv.includes("--update");
 // 就是用这个写法躲过门禁的——三条正则都没覆盖它，于是被当成行为测试放行。
 const SOURCE_READ = [/readFileSync\(\s*["'`]src\//, /readFileSync\(\s*`\$\{root\}/, /readFileSync\(\s*join\(\s*["'`]src\//, /readFileSync\(\s*new URL\(\s*["'`]\.\.\/src\//];
 const SOURCE_ROOT_DECL = /\b(?:const|let)\s+\w*(?:root|Root|SRC|src)\w*\s*=\s*["'`]src\//;
+// 2026-11-18：根目录也可能写成 const WEB = path.resolve(here, "../src/main/web")。
+// 上面那条只认字面量以 src/ 开头，这种写法既不进 sourceOnly、也不进 sourceOnlyBlocks，
+// 判据整个看不见它，于是报「新增 0」——tests/webI18nCoverage.test.mjs 就是这样漏的。
+const SOURCE_ROOT_RESOLVE = /\b(?:const|let)\s+\w+\s*=\s*(?:path\.)?resolve\([^)]*["'`]\.\.\/src\//;
 // 说明：`loadTsCommonJs(MODULE)`（路径先存常量再传入）同样是运行时加载真模块，
 // 但字面量正则识别不到，会被误判成 sourceOnly（changelogSections / rendererVirtualization 就是如此）。
 const RUNTIME_LOAD = [
@@ -42,6 +46,10 @@ const RUNTIME_LOAD = [
 	// （const load = createTsSandbox(); load("src/…")）就是把生产 TS 编译后放进 vm 执行，
 	// 运行时断言一条不少，只是多了 stub 依赖。2026-11 曾被判成 sourceOnly —— 那是判据缺项。
 	/\b\w*[Ll]oad\w*\(\s*["'\`]src\/[^"'\`]*\.[cm]?ts["'\`]/,
+	// 参数是表达式时上面两条都中不了：loadTsCommonJs(join(process.cwd(), …))、
+	// loadTsCommonJs(resolve(import.meta.dirname, "../src/…"))、模板串。只要发生
+	// 调用就是在运行时加载真模块，路径怎么拼不影响这一点。
+	/loadTsCommonJs\s*\(/,
 ];
 
 function collectTests(dir, out = []) {
@@ -66,7 +74,7 @@ function hasRuntimeLoad(source) {
 }
 
 function isSourceOnly(source) {
-	const readsSource = SOURCE_READ.some((re) => re.test(source)) || (SOURCE_ROOT_DECL.test(source) && /readFileSync\(/.test(source));
+	const readsSource = SOURCE_READ.some((re) => re.test(source)) || ((SOURCE_ROOT_DECL.test(source) || SOURCE_ROOT_RESOLVE.test(source)) && /readFileSync\(/.test(source));
 	if (!readsSource) return false;
 	return !hasRuntimeLoad(source);
 }

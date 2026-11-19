@@ -26,6 +26,15 @@ export const LIMITS = {
  * 维护者确需改动时用 `--allow-protected` 显式放行（见 docs/pr-merge-gate.md §1 R6）。
  */
 const PROTECTED_PATHS = [/^scripts\/prGate\.mjs$/, /^tests\/prGate\.test\.mjs$/, /^scripts\/check-[\w-]+\.mjs$/, /^scripts\/testShapeBaseline\.json$/, /^\.github\/workflows\//, /^biome[.\w-]*\.jsonc?$/];
+/**
+ * 技能文档判据（`scripts/skills/<skill>/check-<name>.mjs` 与其台账 json）：决定「文档写没写全」。
+ * 与上面的门禁同源，但风险低一档——它们只判文档内容，不判产品行为；而技能文档本身在
+ * `resources/skills/...`（算产品代码），正常文档 PR 天然会同时改两者。所以不拒绝，只在
+ * 同时带产品代码时强制人工确认口径没被放宽。
+ * 2026-11-18 实测：PR #576 同时改 check-doc/check-paths/check-format 与 src/main/web/，
+ * R6 的字面 glob 抓不到这个目录，首筛只报了 SIZE_LARGE。
+ */
+const CRITERIA_PATHS = [/^scripts\/skills\/[^/]+\/check-[\w.-]+\.(?:mjs|json)$/];
 
 const TEST_PATH = /(^|\/)(tests?|e2e)\//;
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
@@ -150,9 +159,13 @@ export function evaluatePull(pull, options = {}) {
 	// 规则与基线都在被审的仓库里：不拦这一条，PR 可以「改产品代码顺便放宽判自己的尺子」。
 	// 只改 scripts/CI/docs 的 PR 不拦（一眼可看，且维护者天天发），只留一条 note。
 	const touchedPaths = [...new Set([...files.map((file) => file.path), ...sections.keys()])].filter(Boolean);
+	const appSourceTouched = touchedPaths.filter((path) => APP_SOURCE.test(path));
 	const protectedTouched = touchedPaths.filter((path) => PROTECTED_PATHS.some((re) => re.test(path)));
+	const criteriaTouched = touchedPaths.filter((path) => CRITERIA_PATHS.some((re) => re.test(path)));
+	if (!options.allowProtected && criteriaTouched.length > 0) {
+		push(appSourceTouched.length > 0 ? "manual" : "note", "SELF_CRITERIA_PATH", `改了技能文档判据（${criteriaTouched.slice(0, 3).join(", ")}）${appSourceTouched.length > 0 ? "又带产品代码" : ""}：人工确认口径是收紧不是放宽`);
+	}
 	if (!options.allowProtected && protectedTouched.length > 0) {
-		const appSourceTouched = touchedPaths.filter((path) => APP_SOURCE.test(path));
 		if (appSourceTouched.length > 0) {
 			push("block", "SELF_PROTECTED_PATH", `改了门禁/CI（${protectedTouched.slice(0, 3).join(", ")}）又带产品代码（${appSourceTouched.slice(0, 3).join(", ")}）：只能维护者本人合，确有必要加 --allow-protected`);
 		} else {

@@ -1,6 +1,6 @@
-# 0.13 发布候选收尾
+# 0.13 正式发布准备
 
-状态：`0.13.0-rc.1` 源码候选已准备，2026-11-18 复核；仍待发布门禁与安装包验收。审查基线为 `v0.12.0..5116bb2e4`，共 367 次提交、1,002 个变更文件；本轮在 `dev` 上完成修复。本文不代表已经发布。
+状态：`0.13.0` 版本号、双语 CHANGELOG、README 与官网亮点已在 `dev` 上对齐，2026-11-18 复核；Windows 0.12 → 0.13 升级已在候选包上通过，macOS / Linux 安装升级与真实时间线矩阵仍未验收。审查基线 `v0.12.0..` 截至 2026-11-18 的 `dev`。本文不代表已经发布。
 
 ## 实施边界
 
@@ -17,9 +17,24 @@
 - 用当前源码定向构建后运行会话恢复、重试、历史状态矩阵、滚动和已有 smoke E2E。
 - 保留他人工作树文件；本任务只暂存并提交明确归属的文件。不触发 tag、merge、正式发布或真实用户数据清理。
 
-## 仍须安装包验收
+## Windows 0.12 → 0.13 候选包验收
 
-Windows / macOS / Linux 从 0.12 升级、首次/第二次启动、已有会话续聊、凭据与飞书绑定；macOS 签名、公证、权限与自动更新；Linux 实际 `/proc` 进程回收。资源 native 写入与迁移进度文件之间仍有跨文件崩溃窗口；草稿发布要求文件系统支持硬链接，不支持时保留源并记录错误。真实机器证据完成前，不把候选状态写成正式可发布。
+- 官方基线来自 GitHub Release 的 `PiDeck-0.12.0-win.zip`（147,862,465 bytes，SHA256 `383898e4239af9fabb773b37d6afa56ae80ec9c439225673384143f9bd23eae1`）与 `PiDeck-0.12.0-setup.exe`（108,667,769 bytes，SHA256 `6c1e26ccb7e6ce4c0cee2408f1051589a7240b60a2ab51656b06c27c228e72e6`）。
+- 首个候选包启动了旧共享 `node_modules` junction，树内 `.package-lock.json` 仍对应 0.12；`electron-builder` 因此只收集了不完整的生产闭包，依次暴露 `graceful-fs`、`brace-expansion`、`balanced-match` 和 `@aws-sdk/checksums/flexible-checksums` 缺失。把传递依赖提升为根依赖只能掩盖问题，已全部撤回。在隔离 worktree 按当前 `package-lock.json` 执行 `npm ci` 后，AWS、MCP、WebDAV、tar、`proper-lockfile` 与 `minimatch` 链路均由原依赖图正确进入 asar。
+- 最终 `candidate-clean-final/win-unpacked` 通过真实 exe smoke：`app.asar` 为 74,801,066 bytes、5,446 entries、214 个运行时包根；上述启动链的关键包均在包内。此结论要求打包机器从当前 lockfile 干净安装，不能用主工作区的旧共享安装树制造候选包。
+- `e2e/windows-upgrade.spec.ts` 在 Windows 真机 **1/1 通过**（1.4min）：官方 0.12 创建设置、项目、会话、草稿、快捷消息、飞书 Bot 与 DPAPI 密文；0.13 首启读取全部数据、保留会话原字节、续聊并启动 `node-pty`；二次启动继续保留。测试同时断言工具卡内部无可滚动 overflow，会话外层可上滚、出现回底按钮并恢复跟随。
+- 实验入口只替换 `package.json.main` 并增加 lab bootstrap；原 `out/main/index.js` 与全部其他 payload 保持原字节，分别校验 4,416 / 4,417 个文件。lab 固定 `home`、`appData`、`userData`、`sessionData`、`temp`，屏蔽协议注册和开机项。它不是生产入口，不能替代正式安装包 smoke。`tests/windowsUpgradeLab.test.mjs` 锁定 payload 保真与嵌套输出拒绝。
+- NSIS 覆盖安装使用专用 lab `appId=cc.debugtools.pideck.windows-upgrade-lab`，禁用协议、桌面和开始菜单快捷方式，在同目录从 0.12.0 静默升级到候选版本。安装目录 `app.asar` 从 `6ca31430…` 替换为 `e912f233…`，版本外数据标记保留，卸载登记只有一项，安装版主界面通过启动验证。
+- Windows 候选 exe 与实验安装器均为 `NotSigned`；官方 0.12 zip 内 exe 与 setup 也是 `NotSigned`，与既有发布状态一致。正式发布仍须决定是否继续不带 Authenticode，不能把 lab 覆盖安装通过误写成已验代码签名。
+- 证据目录 `.tmp/windows-upgrade-20261118/`（7.1G 解包产物与 profile 副本）在本次发版准备中清理以腾磁盘；本节保留事实与哈希，需要时用同一 spec 重建。
+
+## 仍须完成
+
+1. **macOS / Linux 升级**：Windows 已完成上述 0.12 升级矩阵。Linux 仍须实测 `/proc` 回收与安装包启动；macOS 须验 Developer ID、公证、权限继承、本地网络和自动更新。
+2. **真实时间线与外部链路**：完成 [时间线五条手动验收](timeline-manual-qa.md)（大历史第一条、连续 20 页、停 30 秒、小会话、流式上翻）。Pi 1.5.1 仍有 [兼容账本](pi-compatibility.md) 中的真实会话待验项；SSH 配置为隔离模拟 IPC 验收，没有连接真实主机。旧 [远端发布记录](remote-release-readiness.md) 是历史基线证据。
+3. **现有未全验收范围**：未重跑所有历史 Electron spec，也未验收远端 TTL、多 host 争用、soak、硬断网、ProxyJump、大文件独立矩阵。不能用定向通过覆盖这些范围。
+4. **最终合入树的门禁与 CI**：`dev` 上跑完整的 `npm run preflight` 与发行构建产物（`out/`、`runtime:pack` 归档、目标平台安装包）后，再跑 `release-core` / `smoke` 核心 E2E 集。
+5. **资源迁移与草稿的已知窗口**：资源 native 写入与迁移进度文件之间仍有跨文件崩溃窗口；草稿发布要求文件系统支持硬链接，不支持时保留源并记录错误。
 
 ## 验证记录
 
@@ -31,19 +46,15 @@ Windows / macOS / Linux 从 0.12 升级、首次/第二次启动、已有会话�
 | 重试、历史与滚动 Electron E2E | 21 项各自均有通过记录；组合首轮 20 通过、1 项窗口 setup 超时，单独复跑过程组 spec 4/4 通过 |
 | CI 八 spec smoke + 有效 settle 滚动回归 | 14/14 通过；包含三条手动上滚/历史打开/启动 runtime 不重定位用例 |
 | IPC / test-shape / file-size / package-json / hooks | 通过；本轮两个旧巨文件均未净增长 |
-| 发布一致性泳道 | 12 项通过：版本、CHANGELOG、README、工作流选项、模型/扩展/提示词/技能清单、公告、提示词库、DSH payload、Electron 及 runtime 归档（按预检步骤计 12） |
-| `npm run test:serial` | 17,561 项：17,227 通过、330 跳过、4 失败。完整日志 `.tmp/rc-test-serial.log`（忽略目录，仅本机证据） |
-| 全工作区 `npm run preflight` | typecheck 与 release 泳道通过；unit-tests 与 format 泳道失败，详见下方；报告 `release-preflight/report-2026-11-17T15-05-29-289Z.json` |
+| 发布一致性泳道 | 12 项通过：版本、CHANGELOG、README、工作流选项、模型/扩展/提示词/技能清单、公告、提示词库、DSH payload、Electron 及 runtime 归档 |
+| `npm run test:serial`（候选分支） | 17,561 项：17,227 通过、330 跳过、4 失败；4 项随后全部收口（见下） |
+| 2026-11-18 全量 `npm run preflight`（`dev`） | **四泳道全绿**：typecheck 149.3s、全量单测 889.3s（rc=0）、format 10.7s、发布一致性 20.8s；报告 `release-preflight/report-2026-11-18T15-51-06-081Z.json` |
+| Windows 升级 lab 定向测试 | `tests/windowsUpgradeLab.test.mjs` 2/2 通过；两个工具提交落到 `dev` 后 typecheck / file-size / test-shape / format 均 rc=0 |
 
 本任务的 history 源码断言已同步到目标 session 的忙闲查询；fork 分支检查改为解析语法树，不再依赖 legacy 注释文字。针对性回归通过。
 
-### 并行工作区的未收口门禁
+### 候选期并行工作区的未收口项（已收口）
 
-本轮保留并行远程配置改动原样，以下失败不随本任务提交；不能把该工作区宣称为发布门禁全绿：
+候选分支上曾有三条失败与一处格式漂移来自并行远程配置工作区：`tests/mcpConfigUi.test.mjs`、`tests/remoteSessionRootIsolation.test.mjs`（两项）、`tests/scrollContainerGuard.test.mjs`。2026-11-18 的 `dev` 全量 preflight 已全部通过（含 `RemoteModelCatalogSection.tsx` 滚动边界登记），格式泳道同时转绿，因此不再作为发版阻塞项。
 
-- `tests/mcpConfigUi.test.mjs`：仍假定 `rawFileName === "mcp.json"` 的旧 ConfigModal 结构。
-- `tests/remoteSessionRootIsolation.test.mjs` 两项：冻结 helper 仍要求 1.29.0 和旧方法表，工作区已改到 1.30.0 并新增 `config.replace`。
-- `tests/scrollContainerGuard.test.mjs`：`RemoteModelCatalogSection.tsx` 新容器未登记滚动边界。
-- format：外部未跟踪的 `e2e/fixtures/git-scroll.tsx` 和 `e2e/git-scroll.spec.ts` 尚未格式化。本任务源码/测试格式检查通过。
-
-发布前须在最终合入版本上重新获得完整 CI 证据，再完成三平台安装升级验收。本轮只准备并推送候选源码，不建 tag 或公开 Release。
+发布前须在最终合入版本上重新获得完整 CI 证据，再完成 macOS / Linux 安装升级验收。本轮只准备并推送正式版源码，不建 tag 或公开 Release。

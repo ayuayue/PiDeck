@@ -10,20 +10,19 @@ description: PiDeck 每个版本的发布记录：新功能、问题修复与体
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
-## v0.13.0-rc.1
+## v0.13.0
 
-发布时间：2026-11-17
+发布时间：2026-11-18
 
 - 🚀 **活动页 GTD 分诊**
 - 🚀 **ACP 附加工作目录**
 - 🚀 **通过 SSH 编辑 Pi 配置**
 - 🚀 **自定义提示词增强模板**
 - 🚀 **会话正文行距可调**
-- ✨ **内置技能合并为 pideck 路由入口**
+- ✨ **内置技能合并成一个 pideck 入口**
+- ✨ **Web API 技能参考补全**
 - ✨ **回答与执行过程共用一条纵向滚动**
 - ✨ **重试过程保持紧凑**
-- ✨ **历史正文与运行信息更清晰**
-- ✨ **归档失败可以继续处理**
 
 ## v0.12.0
 

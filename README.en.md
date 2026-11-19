@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.13.0--rc.1-blue)
+![Version](https://img.shields.io/badge/version-0.13.0-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -83,18 +83,18 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.13.0-rc.1** (2026-11-17)
+> **Latest: v0.13.0** (2026-11-18)
 
-### v0.13.0-rc.1 Release Highlights
+### v0.13.0 Release Highlights
 - 🚀 **Activity triage with GTD**
 - 🚀 **ACP additional working directories**
 - 🚀 **Edit Pi configuration over SSH**
 - 🚀 **Custom prompt enhancement templates**
 - 🚀 **Adjustable conversation line spacing**
+- ✨ **Built-in skills merged into one pideck entry**
+- ✨ **Web API reference is complete again**
 - ✨ **One vertical scroller for answers and execution details**
 - ✨ **Retry progress stays compact**
-- ✨ **History shows answer text and run facts more clearly**
-- ✨ **Archive failures are actionable**
 
 [View Full Changelog →](CHANGELOG.md)
 

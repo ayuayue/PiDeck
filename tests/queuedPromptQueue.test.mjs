@@ -23,7 +23,7 @@ const runtimeStateSource = readFileSync("src/renderer/src/utils/agentRuntimeStat
 const queueStateSource = readFileSync("src/renderer/src/utils/queuedPromptQueue.ts", "utf8");
 const toolRuntimeStateSource = readFileSync("src/shared/toolRuntimeState.ts", "utf8");
 const webServiceSource = readFileSync("src/main/web/WebServiceManager.ts", "utf8");
-const webApiRoutesSource = readFileSync("src/main/web/WebApiRoutes.ts", "utf8");
+const webApiSessionRoutesSource = readFileSync("src/main/web/WebApiSessionRoutes.ts", "utf8");
 const sharedTypesSource = [readFileSync("src/shared/types.ts", "utf8"), readFileSync("src/shared/types/session.ts", "utf8")].join("\n");
 // Queue ownership now lives in useQueuedPrompt.
 const queuedPromptHookSource = readFileSync("src/renderer/src/hooks/useQueuedPrompt.ts", "utf8");
@@ -249,9 +249,9 @@ test("indeterminate prompt timeout never becomes a retryable rejection", () => {
 test("prompt acceptance is explicit across the main and renderer boundary", () => {
 	assert.match(agentManagerSource, /Promise<SendPromptResult>/);
 	assert.match(agentManagerSource, /accepted: false,[\s\S]{0,160}?error: errorMessage,[\s\S]{0,160}?i18nKey: "diagnostic\./);
-	// 提示词接受语义在路由表（Wave 5 从 manager 迁到 WebApiRoutes）。
-	assert.match(webApiRoutesSource, /this\.sendJson\(response, \{ result \}\)/);
-	assert.doesNotMatch(webApiRoutesSource, /sendError\(response, 409, result\.error\)/);
+	// 提示词接受语义在路由表（Wave 5 从 manager 迁到 WebApiRoutes，PR #576 再按域拆到 WebApiSessionRoutes）。
+	assert.match(webApiSessionRoutesSource, /this\.sendJson\(response, \{ result \}\)/);
+	assert.doesNotMatch(webApiSessionRoutesSource, /sendError\(response, 409, result\.error\)/);
 	assert.match(agentManagerSource, /if \(cancelled\)[\s\S]*?命令已取消[\s\S]*?return \{ accepted: true \}/);
 	// sendPrompt 的显式接受/失败判定随 dispatchPromptSnapshot 迁入 useSessionPromptDispatch。
 	const promptDispatchSource = readFileSync("src/renderer/src/hooks/session/useSessionPromptDispatch.ts", "utf8");

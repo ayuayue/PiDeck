@@ -138,8 +138,13 @@ test("memo 命中时二次校验复用上次结果：同一份清单对象且不
 test("刚写入（新鲜 mtime）的条目不进 memo", () => {
 	withFixture((fixture) => {
 		invalidateVerifiedArtifactFileHashCache();
-		// 重写一个文件让它的 mtime 落进 50ms 保护窗口（内容不变，校验仍应通过）
-		writeFileSync(join(fixture.dir, "pi-deck-vision.ts"), "export const vision = 1;\n");
+		// 重写一个文件让它的 mtime 落进 50ms 保护窗口（内容不变，校验仍应通过）。
+		// mtime 显式推到未来一刻：判据是 Date.now() - mtimeMs < 50，若只靠「写入足够快」，
+		// 全量并发跑（17645 条）时进程被调度让出 >50ms 就会假红——写死时钟与负载无关。
+		const target = join(fixture.dir, "pi-deck-vision.ts");
+		writeFileSync(target, "export const vision = 1;\n");
+		const freshMtime = new Date(Date.now() + 60_000);
+		utimesSync(target, freshMtime, freshMtime);
 		assert.ok(readVerifiedArtifact(fixture.dir), "内容未变，仍应通过校验");
 		// 计数只覆盖逐文件哈希 memo（manifest 解析 memo 是另一个 Map）：三个 .ts 里只有刚写的那个该被跳过
 		assert.equal(getVerifiedArtifactFileHashCacheSize(), 2, "新鲜 mtime 的条目不得写入 memo");

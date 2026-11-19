@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.13.0--rc.1-blue)
+![Version](https://img.shields.io/badge/version-0.13.0-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -92,18 +92,18 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.13.0-rc.1**（2026-11-17）
+> **最新版本 v0.13.0**（2026-11-18）
 
-### v0.13.0-rc.1 更新亮点
+### v0.13.0 更新亮点
 - 🚀 **活动页 GTD 分诊**
 - 🚀 **ACP 附加工作目录**
 - 🚀 **通过 SSH 编辑 Pi 配置**
 - 🚀 **自定义提示词增强模板**
 - 🚀 **会话正文行距可调**
+- ✨ **内置技能合并成一个 pideck 入口**
+- ✨ **Web API 技能参考补全**
 - ✨ **回答与执行过程共用一条纵向滚动**
 - ✨ **重试过程保持紧凑**
-- ✨ **历史正文与运行信息更清晰**
-- ✨ **归档失败可以继续处理**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

@@ -1,6 +1,6 @@
-## v0.13.0-rc.1 (2026-11-17)
+## v0.13.0 (2026-11-18)
 
-Release candidate for 0.13. Session scrolling, history actions and upgrade safety are the focus. This candidate still requires installation and upgrade checks on Windows, macOS and Linux before a stable release.
+PiDeck 0.13 focuses on conversation scrolling, history actions and upgrade data safety.
 
 ### 🚀 New Features
 - **Activity triage with GTD** — collect, move and settle items in the Activity view, with undo and drag across buckets (#546).
@@ -11,6 +11,7 @@ Release candidate for 0.13. Session scrolling, history actions and upgrade safet
 
 ### ✨ Improvements
 - **Built-in skills merged into one pideck entry** — image generation, usage queries, diagnostics and the Web API reference now live behind one skill and are read on demand per task; the 65 KB Web API guide is split into eight files. The old `/skill:usage-probe` and related entries are retired in favour of `/skill:pideck`, cutting the context carried into every session.
+- **Web API reference is complete again** — fifteen endpoints for files, Git, prompt templates, skills and extensions are documented, and all 43 error codes have an exhaustive lookup table. Judges now check source-to-docs coverage in both directions, so a new route can no longer exist on only one side.
 - **One vertical scroller for answers and execution details** — expanded process groups, tool output and diffs grow inside the conversation. Scrolling up pauses following; returning to the latest content resumes it. Wide code and diffs keep horizontal scrolling.
 - **Retry progress stays compact** — the current retry appears even before the first answer. Success leaves the timeline while its toast remains; final failure keeps its count and expandable reason.
 - **History shows answer text and run facts more clearly** — browse the response separately from thinking and retain per-turn model and duration information.
@@ -26,6 +27,8 @@ Release candidate for 0.13. Session scrolling, history actions and upgrade safet
 - **Backend state follows the actual result** — refresh pi thinking levels on activation, tolerate DSH permission replay failures, report failed DSH compaction accurately and explain unsupported ACP bypass (#545, #548, #557, #556).
 - **Windows fnm installs are discovered** — scan `FNM_DIR` and platform defaults (#551).
 - **Feishu falls back to readable text** — rejected or oversized card updates send a plain-text response instead of leaving an empty card.
+- **OpenAI OAuth sign-in sends a device ID** — the authorization request carries a stable device identifier, so sign-in yields credentials again (#574).
+- **Web errors show readable copy** — the 30 error codes behind the file drawer, Git panel, skills and extensions switches now have copy in all three languages instead of leaking raw `webError.xxx` keys.
 - **Git panels accept the mouse wheel** — fixes scrolling in the multi-repository source sidebar.
 
 ## v0.12.0 (2026-11-11)

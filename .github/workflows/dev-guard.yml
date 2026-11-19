@@ -107,3 +107,13 @@ jobs:
       - name: Type-check
         if: always()
         run: npm run typecheck
+
+      # 2026-11-18：本 PR 在 PR 阶段踩到的红，主干 CI 能拦、这里拦不住——
+      # tests/queuedPromptQueue.test.mjs 断言读 WebApiRoutes.ts 里的某一行，
+      # 拆文件后那行搬走了，而它不在 tests/web*.test.mjs 的环球里，
+      # PR 全绿、合到 dev 才红。
+      # 只加这两个前缀（约 15 秒），不跑 test:serial：那份注释写的
+      # 「不让每次 push 排队半小时」仍然成立，typecheck 本身就要 ~60 秒。
+      - name: Web route tests
+        if: always()
+        run: node --test --test-concurrency=1 tests/web*.test.mjs tests/queuedPromptQueue.test.mjs
