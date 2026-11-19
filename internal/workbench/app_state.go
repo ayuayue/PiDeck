@@ -195,6 +195,28 @@ type app struct {
 	modelCompat           map[string]bool
 	modelCompatRev        *core.Signal[int]
 	modelCompatSuggestion map[string]bool
+	// The TokenDance account: its key, its balance, the catalog pull, and
+	// the recharge session whose status the dialog keeps asking about.
+	tdKeyOpen    *core.Signal[bool]
+	tdKeyText    *core.Signal[string]
+	tdKeyErr     *core.Signal[string]
+	tdKeyBusy    *core.Signal[bool]
+	tdBusy       *core.Signal[bool]
+	tdBalance    *core.Signal[string]
+	tdBalanceErr *core.Signal[string]
+	tdModelBusy  *core.Signal[bool]
+	tdModelMsg   *core.Signal[string]
+	tdPayOpen    *core.Signal[bool]
+	tdPayAmount  *core.Signal[string]
+	tdPayErr     *core.Signal[string]
+	tdPayBusy    *core.Signal[bool]
+	tdPayStatus  *core.Signal[string]
+	tdPaySession tokenDanceSession
+	tdPayQR      []byte
+	tdPayStop    chan struct{}
+	tdWatchMu    sync.Mutex
+	tdTipOpen    *core.Signal[bool]
+	tdTipQR      []byte
 	// pi settings.json, as the settings page shows it.
 	piSet    piSettings
 	piSetErr string

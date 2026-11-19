@@ -88,6 +88,8 @@
 | --- | --- | --- |
 | models.json / auth.json / settings.json 可视化 | ✅ | 供应商三字段 + 模型条目增删改（id/名称/上下文/最大输出/推理/图片/价格/7 个 compat 开关）、余额模板、settings.json 常用项表单、pi 凭据列表（类型/来源/剩余时长、检测/掩码/替换/添加/删除/登出）、原始 JSON 编辑器 |
 | 供应商认证状态 | ✅ | 列出 models.json、auth.json 与 pi 内置目录里的供应商；`pi auth check` 的状态/原因/凭据类型，凭据来源（auth.json / models.json / 环境变量）与 OAuth 到期时间；登录走内置终端里的 `pi auth login` |
+| TokenDance 内置供应商 | ✅ | 一次配置 API Key（先查余额校验，写 pi 的 `auth.json`）；余额、目录拉取（只写 OpenAI 兼容模型，目录外的条目保留）、按元充值（支付宝聚合码 + 3 秒轮询到账） |
+| 打赏入口（爱猹收等） | ✅ | 设置 → 关于填打赏页地址，出示二维码；爱猹收的商品/权益下单流程未接 |
 | 连接测试 | ✅ | `/models` 优先，失败退到最小 chat 请求；显示状态码与耗时 |
 | 模型能力自适应 | ✅ | 读 models.json；模型菜单底部「刷新模型」重新向 pi 取模型与思考档 |
 | 供应商余额/额度查询 | ✅ | OpenRouter / Moonshot / DeepSeek / SiliconFlow 内置；其他供应商可配「余额接口 + JSON 字段 + 货币」自定义模板 |

@@ -104,6 +104,9 @@ type config struct {
 	RemotePort       int    `json:"remotePort,omitempty"`
 	RemoteToken      string `json:"remoteToken,omitempty"`
 	RemoteEasyTierIP string `json:"remoteEasyTierIP,omitempty"`
+	// SponsorURL is a page that accepts tips for the project, such as an
+	// 爱猹收 page; the about page shows it as a code to scan.
+	SponsorURL string `json:"sponsorUrl,omitempty"`
 	// DisabledPlugins are the plugin ids the user turned off; everything
 	// else under plugins/ runs.
 	DisabledPlugins []string `json:"disabledPlugins,omitempty"`

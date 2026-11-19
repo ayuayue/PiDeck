@@ -35,6 +35,8 @@ var settingsIndex = []settingEntry{
 	{"general", "测试通知", "test notification"},
 	{"models", "供应商与认证", "provider model auth api key"},
 	{"models", "pi 凭据", "auth credentials api key token 凭据 密钥"},
+	{"models", "TokenDance 账户", "tokendance 词元跳动 balance 余额充值 recharge payment 拉取模型"},
+	{"about", "打赏", "sponsor donate tip 爱猹收 打赏 收款"},
 	{"keys", "键位", "keybinding shortcut keyboard"},
 	{"look", "配色", "theme appearance color"},
 	{"look", "Logo 风格", "brand logo pi tui classic custom 品牌 图标 自定义"},

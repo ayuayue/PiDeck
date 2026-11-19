@@ -145,6 +145,7 @@ func (a *app) settingsModels() core.Node {
 				a.toolModelsGroup(),
 				setGroup("供应商与认证", rows...),
 				a.authGroup(),
+				a.tokenDanceGroup(),
 				a.piSettingsGroup(),
 				core.Text{Content: apptext.T("凭据由 pi 管理（~/.pi/agent/auth.json）。「登录…」在内置终端里跑 pi 自己的登录流程；改完点「检测全部」重新读状态。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},

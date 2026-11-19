@@ -59,6 +59,7 @@ var appSettingFields = []settingField{
 	{Key: "proxyApp", Type: "text", Default: ""},
 	{Key: "proxyAgent", Type: "text", Default: ""},
 	{Key: "proxyBypass", Type: "text", Default: ""},
+	{Key: "sponsorUrl", Type: "text", Default: ""},
 	{Key: "editorCommand", Type: "text", Default: ""},
 	{Key: "editorWrap", Type: "bool", Default: false},
 	{Key: "terminalFont", Type: "number", Default: 0, Min: intPtr(8), Max: intPtr(20)},

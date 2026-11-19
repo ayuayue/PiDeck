@@ -13,6 +13,7 @@ import (
 	"runtime"
 
 	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/updater"
@@ -59,6 +60,21 @@ func (a *app) settingsAbout() core.Node {
 					setRow("NSGo 框架", "nsgo.dev", ui.Button{Text: apptext.T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 						a.copyText("https://nsgo.dev/", "链接")
 					}}),
+					setDivider(),
+					setRow("打赏", "打赏页地址（爱猹收等）；填好后可以出示二维码。",
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+							core.Input{Value: func() string { return a.cfg.SponsorURL },
+								OnChange: func(v string) {
+									a.cfg.SponsorURL = v
+									a.st.edit(func(c *config) { c.SponsorURL = v })
+								},
+								Placeholder: "https://pay.watcha.cn/…", Label: apptext.T("打赏链接"), TestID: "sponsor-url",
+								Style: core.Style{Width: core.Pt(190), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
+									FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
+									BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}},
+							ui.Button{Text: apptext.T("打赏…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+								TestID: "sponsor-open", OnPress: a.tdOpenTip},
+						}}),
 				),
 				core.Text{Content: apptext.T("MIT · 数据都在本机 · 会话由 pi 写入自己的目录"),
 					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},

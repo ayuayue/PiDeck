@@ -163,6 +163,10 @@ func (a *app) loadSettingsSection(id string) {
 		if a.remote != nil {
 			a.remote.refresh()
 		}
+	case "models":
+		// The built-in account's balance is a network read, so it refreshes
+		// when the section opens rather than on every redraw.
+		a.tdRefresh()
 	case "usage":
 		a.loadUsage(false)
 	case "resources":
