@@ -71,7 +71,19 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 	const renderNode = (node: TurnProcessNode): ReactNode => {
 		switch (node.kind) {
 			case "group":
-				return <ProcessGroupStep group={node} running={node.id === runningGroupId} open={isGroupOpen(props.groupState, node.id)} onToggle={getToggle(node.id)} showThinking={props.showThinking} sessionId={props.sessionId} onOpenFile={props.onOpenFile} onOpenExternal={props.onOpenExternal} />;
+				return (
+					<ProcessGroupStep
+						group={node}
+						running={node.id === runningGroupId}
+						open={isGroupOpen(props.groupState, node.id)}
+						autoOpen={props.groupState.autoGroupId === node.id}
+						onToggle={getToggle(node.id)}
+						showThinking={props.showThinking}
+						sessionId={props.sessionId}
+						onOpenFile={props.onOpenFile}
+						onOpenExternal={props.onOpenExternal}
+					/>
+				);
 			case "interim":
 				// live 那一条由 TurnRow 挂在大折叠栏外，这里跳过以免同一段正文出现两份
 				if (node.id === props.liveInterimId) return null;
@@ -89,20 +101,20 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 	return (
 		// 块级流而非 flex 列：这里是无间距的一长串行，flex 的每次重排都要遍历全部 item，
 		// 而展开态下一级节点可达上百个（见 timeline.css 的 .execution-summary-details 说明）。
-		<div
-			className="min-w-0"
-			onClickCapture={() => {
-				// 展开组/成员或加载更早内容前暂停追底，让阅读从点击位置继续。
-				const scroll = geometry?.scrollRef.current;
-				if (scroll) geometry?.restoreAt(scroll.scrollTop);
-			}}
-		>
+		// 不在根节点挂 `onClickCapture`（2026-11 修正）：整块捕获等于「点一下就永久停掉会话跟随」，
+		// 点外链/划选/复制都被误伤；真正需要停的只有「显示更早」这类当场长高的动作。
+		<div className="min-w-0">
 			{props.stepsVisible && mounted.hiddenCount > 0 && (
 				// 超出挂载预算的早期条目入口：与既有「显示更早的 N 条步骤」同款观感
 				<button
 					type="button"
 					className="mt-1 inline-flex h-[26px] items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-chat-detail font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
-					onClick={() => setNodeExpansion((prev) => (prev ? { anchor: prev.anchor, batches: prev.batches + 1 } : { anchor: props.nodes.length, batches: 1 }))}
+					onClick={() => {
+						// 多挂一批一级节点就是把「上方内容」变高：先停会话跟底，否则阅读位置会被抽走。
+						const scroll = geometry?.scrollRef.current;
+						if (scroll) geometry?.restoreAt(scroll.scrollTop);
+						setNodeExpansion((prev) => (prev ? { anchor: prev.anchor, batches: prev.batches + 1 } : { anchor: props.nodes.length, batches: 1 }));
+					}}
 					title={t("timeline.showEarlierSteps", { count: Math.min(PROCESS_FOLD_NODE_LIMIT, mounted.hiddenCount) })}
 				>
 					<ChevronUp size={12} aria-hidden="true" />

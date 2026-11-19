@@ -65,21 +65,37 @@ async function scrollMetrics(window: Page) {
 	});
 }
 
-test("运行中的过程组自然增高，纵向滚动只由会话承担", async ({ app, window }) => {
+test("运行中的组体限高且滚动条隐藏，整条会话只有组体这一条内层滚轮", async ({ app, window }) => {
 	test.setTimeout(90_000);
 	await openRunningProject(app, window);
 	await openSeeded(window, "Running A");
 	await startTools(window, "SLOW TOOLMANY 40 running-scrollbar", 20);
 	const styles = await window
-		.locator("[data-process-group-content]")
+		.locator("[data-process-group-scroller]")
 		.first()
 		.evaluate((element) => {
 			const style = getComputedStyle(element);
-			return { scrollbarWidth: style.scrollbarWidth, overflowY: style.overflowY, maxHeight: style.maxHeight, overscrollY: style.overscrollBehaviorY };
+			return { scrollbarWidth: style.scrollbarWidth, overflowY: style.overflowY, maxHeight: Number.parseFloat(style.maxHeight), overscrollY: style.overscrollBehaviorY };
 		});
-	expect(styles.overflowY).toBe("visible");
-	expect(styles.maxHeight).toBe("none");
+	// 限高 ≈ min(640px, 60vh) ≈ 22 行；滚动条隐藏；不写 contain（到边把滚轮交还会话）。
+	expect(styles.overflowY).toBe("auto");
+	expect(styles.scrollbarWidth).toBe("none");
+	expect(styles.maxHeight).toBeGreaterThan(200);
+	expect(styles.maxHeight).toBeLessThanOrEqual(640);
 	expect(styles.overscrollY).toBe("auto");
+	// 组内工具输出让位（不自转纵向滚轮）：会话里溢出的滚动容器只能是组体这一个。
+	const nested = await window
+		.locator(".message-timeline")
+		.first()
+		.evaluate((element) =>
+			Array.from(element.querySelectorAll<HTMLElement>("*"))
+				.filter((child) => {
+					const style = getComputedStyle(child);
+					return /auto|scroll/.test(style.overflowY) && child.scrollHeight - child.clientHeight > 2;
+				})
+				.map((child) => child.hasAttribute("data-process-group-scroller")),
+		);
+	expect(nested).toEqual([true]);
 });
 
 test("两个运行中工具会话切回时持续跟随，且不误显回底按钮", async ({ app, window }) => {

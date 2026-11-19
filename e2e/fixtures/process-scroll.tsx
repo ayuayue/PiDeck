@@ -5,6 +5,7 @@ import { MessageScroller, type MessageScrollerScrollApi } from "../../src/render
 import { ProcessFold } from "../../src/renderer/src/components/session/turn/ProcessFold";
 import { ProcessSummaryToggle } from "../../src/renderer/src/components/session/turn/ProcessSummaryToggle";
 import { EMPTY_PROCESS_GROUP_STATE, advanceAutoGroup, toggleGroupByUser } from "../../src/renderer/src/components/session/turn/useProcessGroupState";
+import { revealInNestedScrollers } from "../../src/renderer/src/components/session/timeline/nestedScrollerReveal";
 import type { TurnProcessNode } from "../../src/renderer/src/components/session/timeline/groupTurnProcess";
 import { TooltipProvider } from "../../src/renderer/src/components/ui-shadcn/tooltip";
 import { Collapsible, CollapsibleContent } from "../../src/renderer/src/components/ui-shadcn/collapsible";
@@ -65,6 +66,17 @@ function Fixture() {
 					}}
 				>
 					回到底部
+				</button>
+				<button
+					data-testid="reveal"
+					onClick={() => {
+						// 复刻时间线跳转的落位前一步：先把组内目标露出来（走组体注册的引擎定位入口）。
+						const timeline = document.querySelector<HTMLElement>(".message-timeline");
+						const row = document.querySelector<HTMLElement>('.tool-card[data-message-id="tool-5"]');
+						if (timeline && row) revealInNestedScrollers(row, timeline);
+					}}
+				>
+					露出组内目标
 				</button>
 				<output data-testid="following">{String(following)}</output>
 			</div>

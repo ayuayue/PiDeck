@@ -45,7 +45,7 @@ test("过程组组头必须全宽：占满内容列，不许按文字宽度收�
 
 test("组体默认不挂载——这是两级挂载预算成立的前提", () => {
 	// 组体容器必须在 props.open 条件内渲染
-	const bodyIndex = groupSource.indexOf('className="ml-5 mt-1 border-l-2');
+	const bodyIndex = groupSource.indexOf('className="relative ml-5 mt-1 border-l-2');
 	assert.ok(bodyIndex > 0, "组体容器必须存在");
 	const guardIndex = groupSource.lastIndexOf("{props.open && (", bodyIndex);
 	assert.ok(guardIndex > 0, "组体必须在 `{props.open && (` 条件内渲染；改成常驻挂载会让预算失效");

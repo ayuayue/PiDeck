@@ -3,18 +3,25 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 /**
- * 过程组组体内「只有一条滚轮」的契约断言。
+ * 过程组组体的“只有一条滚轮”契约断言。
  *
- * 组体与工具输出自然展开，纵向滚动统一归会话。这里保留组内工具限高的接线守卫，
- * 真实滚轮传递与长输出几何由 e2e/process-fold-scroll.spec.ts 覆盖。
+ * 2026-11 两次转向，别再拨回去：
+ * - 曾经：组体 `max-h-[min(320px,30vh)]` + `overscroll-contain` + 自带跟底 → 「双层滚动条」
+ *   （组内工具卡也限高）与「到边死区」（组体到底、会话一像素不动）；
+ * - 中间版：组体自然高度、滚动全交会话 → 一个组几十条时一轮正文被抛在后面；
+ * - 现在：组体限高（≈ 22 行，`min(640px,60vh)`）+ 组内一条滚轮（滚动条隐藏）+ **不 contain**。
+ *   到边后滚轮继续交给会话；外层时间线按 `resolveGestureOwner` 判定归属，
+ *   组内还有余量时不动外层跟随态。组内工具卡继续让位（maxHeight=null），整组只有一条滚轮。
  *
- * 约定：组内内层让位（maxHeight=null → 不限高、不自转纵向滚轮），组外保持原值。
- * 这里用源码正则把这条约束钉住——改动任一处且忘记同步，测试即红。
+ * 组体的行为（限高、方向提示、暂停点、引擎接线、展开分流）由
+ * `tests/processGroupStepBody.test.mjs` 渲染真组件断言；本文件只保留「上下文接线」
+ * 这类无法在无 DOM 环境里观察的结构断言。
  */
 const toolResultSource = () => readFileSync("src/renderer/src/components/agents/tool-result.tsx", "utf8");
 const fileDiffSource = () => readFileSync("src/renderer/src/components/agents/file-diff.tsx", "utf8");
 const groupStepSource = () => readFileSync("src/renderer/src/components/session/turn/ProcessGroupStep.tsx", "utf8");
 const contextSource = () => readFileSync("src/renderer/src/components/session/turn/processGroupScrollContext.ts", "utf8");
+const stickySource = () => readFileSync("src/renderer/src/components/session/turn/useProcessEntryStickyHeader.ts", "utf8");
 const toolCardSource = () => readFileSync("src/renderer/src/components/session/ToolCallComponents.tsx", "utf8");
 
 test("scroll context exists and defaults to false outside a group body", () => {

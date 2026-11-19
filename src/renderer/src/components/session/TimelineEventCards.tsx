@@ -96,9 +96,9 @@ export const ThinkingBlock = memo(
 		const [expanded, setExpanded] = useState(props.defaultExpanded ?? false);
 		const sticky = useProcessEntryStickyHeader(expanded);
 		const toggleExpanded = useCallback(() => {
-			sticky.prepareCollapse();
+			sticky.prepareToggle(!expanded);
 			setExpanded((value) => !value);
-		}, [sticky.prepareCollapse]);
+		}, [expanded, sticky.prepareToggle]);
 		const collapse = useCallback(() => {
 			sticky.prepareCollapse();
 			setExpanded(false);

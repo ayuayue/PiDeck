@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, ChevronUp, FilePlus, FileText, Globe, Image, ListChecks, MessageCircleQuestion, Network, Puzzle, Search, Sparkles, SquareCode, SquarePen, Terminal, Wrench, type LucideIcon } from "lucide-react";
-import { memo, useId, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getToolName } from "../../../../../shared/fileChanges";
 import { t } from "../../../i18n";
 import { ShimmerText } from "../ShimmerText";
@@ -13,7 +13,12 @@ import type { TurnProcessEntry } from "../timeline/types";
 import { ThinkingStep } from "./ThinkingStep";
 import { ToolStep } from "./ToolStep";
 import { ExtensionEntryStep } from "./ExtensionEntryStep";
-import { ProcessGroupBodyScrollContext } from "./processGroupScrollContext";
+import { usePauseSessionFollow } from "../../agents/message-scroller-context";
+import { useStickToBottom } from "../../../lib/stick-to-bottom";
+import { registerNestedScrollerRestore } from "../timeline/nestedScrollerReveal";
+import { ProcessGroupBodyScrollContext, ProcessGroupScrollControlsContext } from "./processGroupScrollContext";
+import { useProcessGroupBodyOverflow } from "./useProcessGroupBodyOverflow";
+import { useProcessGroupScrollGeometry } from "./useProcessGroupScrollGeometry";
 
 /**
  * 过程组（组头 + 可折叠组体）。
@@ -21,8 +26,16 @@ import { ProcessGroupBodyScrollContext } from "./processGroupScrollContext";
  * 契约见 `docs/process-group-implementation-contract.md` §4。三件事必须守住：
  * 1. **组头全宽**：`<button>` 是 `flex w-full`（绝不是 `inline-flex`/`self-start`）——
  *    用户反复强调「悬停/触控框要和流式输出同宽」，按内在宽度收缩就是返工。
- * 2. **组体自然高度**：纵向滚动与流式跟随统一交给会话，组内不再拦截手势。
- *    外层沿用现有「思考展开正文」的缩进语言（`ml-5` + 2px 竖线 + `pl-3`）。
+ * 2. **组体限高 + 组内一条滚轮（滚动条隐藏）**：`max-h-[min(640px,60vh)]`（行高 28px
+ *    ≈ 22 行）`overflow-y-auto [scrollbar-width:none]`，外层沿用现有「思考展开正文」的
+ *    缩进语言（`ml-5` + 2px 竖线 + `pl-3`）。限高 flex 列里的子项必须 `shrink-0`
+ *    （AGENTS.md 记录过的塌陷事故）。**刻意不写 `overscroll-behavior: contain`**：
+ *    到边后浏览器把滚轮继续交给会话，外层时间线的 `resolveGestureOwner` 按
+ *    「内层有余量 → nested（不动外层跟随态）／内层到边 → timeline（正常滚会话）」判定，
+ *    不会出现旧版「到边后谁都不滚」的死区。组内工具卡/差分继续让位
+ *    （`ProcessGroupBodyScrollContext`），保证整组只有这一条滚轮。
+ *    隐藏滚动条后没有「下面还有」的线索，所以左侧竖线上带上下两条渐隐提示
+ *    （见 `useProcessGroupBodyOverflow`）。
  * 3. **组内挂载预算**：一个组可能有几百个成员，全挂 DOM 会重演 2026-08 渲染进程 OOM
  *    事故（见 `timeline/turnMountBudget.ts` 注释），故对 `group.members` 套
  *    `boundMountedSteps`，超出部分给「显示更早的 N 条步骤」入口。
@@ -36,6 +49,14 @@ export type ProcessGroupStepProps = {
 	running: boolean;
 	/** 该组当前是否展开 */
 	open: boolean;
+	/**
+	 * 本次展开是否来自自动通道（流式最新组）。
+	 *
+	 * 组体是限高视口，展开瞬间必须决定停在哪儿：自动通道 = 落底并保持跟随
+	 * （长起来时滚珠不能停在上面）；手动通道 = 从头读（点开组体想看的通常是
+	 * 一开始执行了什么，展开就拽到底反而要再滚回最前面）。
+	 */
+	autoOpen: boolean;
 	onToggle: (open: boolean) => void;
 	showThinking?: boolean;
 	sessionId?: string;
@@ -141,6 +162,58 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 	const memberExpansion = expandedMembers?.groupId === props.group.id ? expandedMembers : undefined;
 	const mounted = useMemo(() => boundMountedSteps(props.group.members, PROCESS_GROUP_MEMBER_LIMIT, memberExpansion), [props.group.members, memberExpansion]);
 
+	// ── 组体限高视口（滚动条隐藏）──
+	//
+	// 组头之外的成员默认只显示最近的一屏（行高 28px，`min(640px,60vh)` ≈ 22 行），
+	// 其余在组内滚动到达。回到这个形状的原因：一个组可能有几十条，全铺开会把
+	// 一轮正文抛在后面，用户真正关心的“结论”要翻几屏才看得到。
+	//
+	// 跟底：视口被限高后外层时间线就收不到增高通知了，所以组体必须自己贴底
+	// （复用时间线同一个引擎 `lib/stick-to-bottom`，不另写简化版：引擎里沉淀的
+	// 离散增高/弹簧滞后/clamp 误判等修复重新踩一遍就是“跟底偶发跳动”的回归）。
+	// 刻意**不传** `reportUserIntent`：组内滚动不改变外层时间线的跟随态；
+	// 外层自己做手势归属判定（见 followState.resolveGestureOwner）。
+	const stick = useStickToBottom({ initial: "instant", resize: "instant" });
+	// 解构出稳定引用：stick 每次渲染是新对象，effect 依赖与 ref 都得用具体字段。
+	const stickScrollRef = stick.scrollRef;
+	const stickContentRef = stick.contentRef;
+	const stickScrollToBottom = stick.scrollToBottom;
+	const stickRestoreAt = stick.restoreAt;
+	const stickNoteWheel = stick.noteWheel;
+	// 组内行的吸顶/回到开头要相对**组体视口**，不能再用会话视口（见 useProcessEntryStickyHeader）。
+	const scrollControls = useProcessGroupScrollGeometry(props.open, stickScrollRef, stickContentRef, stickRestoreAt);
+	// 会话跳转落位前要先把目标从组体里露出来，且必须走引擎的 restoreAt（裸写 scrollTop 不解锁锁底，
+	// 下一帧增长又会把视口拽回底部）。注册到「嵌套窗口露出」表里，由跳转侧按需调用。
+	useLayoutEffect(() => {
+		const scroll = props.open ? stickScrollRef.current : null;
+		return scroll ? registerNestedScrollerRestore(scroll, stickRestoreAt) : undefined;
+	}, [props.open, stickScrollRef, stickRestoreAt]);
+	// 隐藏滚动条后的方向线索（只有两个布尔量，不写文字、不占高度）；复用组体同一套几何订阅。
+	const overflow = useProcessGroupBodyOverflow(props.open, scrollControls);
+	// 组头的展开、以及「显示更早」都会当场长高（组体本身还没到限高时连会话一起撑高）：
+	// 这两处先停两层跟底。组头按钮在外层上下文里（不在 ProcessGroupBodyScrollContext 内），
+	// 所以这里直接用组体引擎的 restoreAt + 会话暂停（组内成员走 useProcessEntryStickyHeader
+	// 的 pauseFollowForGrowth，那边在 Provider 里面）。
+	const pauseSessionFollow = usePauseSessionFollow();
+	const pauseFollowForGrowth = useCallback(() => {
+		const scroll = stickScrollRef.current;
+		if (scroll) stickRestoreAt(scroll.scrollTop);
+		pauseSessionFollow();
+	}, [pauseSessionFollow, stickRestoreAt, stickScrollRef]);
+	// 展开定位只在“关→开”上升沿执行一次：开着期间 autoOpen 变化（手动开的组又被
+	// 自动槽接走）不得重新定位，否则会把正在阅读的用户拽走。layout 阶段执行，无可见跳动。
+	const wasOpenRef = useRef(false);
+	useLayoutEffect(() => {
+		if (!props.open) {
+			wasOpenRef.current = false;
+			return;
+		}
+		if (wasOpenRef.current) return;
+		wasOpenRef.current = true;
+		if (props.autoOpen) stickScrollToBottom({ animation: "instant" });
+		else stickRestoreAt(0);
+	}, [props.open, props.autoOpen, stickScrollToBottom, stickRestoreAt]);
+
 	const topKind = topActivityKinds(props.group.counts, 1)[0];
 	// 运行中的「正在…」必须用**当前**工具类别，不能用 topKind（整组摘要）：
 	// 组内从搜索切到读取后，摘要仍是搜索 → 组头写「正在搜索代码」，右侧实时详情却是
@@ -202,7 +275,11 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 				className="flex min-h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md pl-0.5 pr-2 text-left text-chat-row font-medium text-text-tertiary transition-colors duration-fast hover:bg-[color:color-mix(in_srgb,var(--color-text-primary)_4%,transparent)] hover:text-text-secondary focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
 				aria-expanded={props.open}
 				aria-controls={bodyId}
-				onClick={() => props.onToggle(!props.open)}
+				onClick={() => {
+					// 只会变大时才停：收起不会把读者拽走，停了反而要多点一次回底。
+					if (!props.open) pauseFollowForGrowth();
+					props.onToggle(!props.open);
+				}}
 			>
 				{/* 类别图标：① 不填色——运行中 = 工具身份色图标，已结束 = 中性灰，
 				    两者都不再有底色（底色曾是整屏唯一的实心块，正是「喧宾夺主」的来源） */}
@@ -235,29 +312,57 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 			</button>
 
 			{props.open && (
-				// 组内输出与思考自然展开，纵向滚轮和增长跟随统一归会话时间线。
+				// 组体：缩进 + 竖线沿用现有展开区语言；限高交给内层 scroller。
+				// 滚轮交给引擎才能产生“上滚逃逸 / 回底重锁”：引擎的 wheel 意图从外部路由进来
+				// （noteWheel），它不自己注册 wheel 监听。同一事件会冒泡到外层时间线，外层
+				// 会先判定滚动链归属：组内有余量时由组体认领，到边后继续滚会话。
 				<ProcessGroupBodyScrollContext.Provider value={true}>
-					<div id={bodyId} data-process-group-body="" className="ml-5 mt-1 border-l-2 border-border-subtle pl-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-fast">
-						<div data-process-group-content="" className="flex min-w-0 flex-col">
-							{mounted.hiddenCount > 0 && (
-								// 超出挂载预算的早期成员入口：与 TurnRow 的「显示更早的 N 条步骤」同款观感。
-								<button
-									type="button"
-									className="mt-1 inline-flex h-[26px] shrink-0 items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-chat-detail font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
-									onClick={() => setExpandedMembers((prev) => (prev?.groupId === props.group.id ? { ...prev, batches: prev.batches + 1 } : { groupId: props.group.id, anchor: props.group.members.length, batches: 1 }))}
-									title={t("timeline.showEarlierSteps", { count: Math.min(PROCESS_GROUP_MEMBER_LIMIT, mounted.hiddenCount) })}
-								>
-									<ChevronUp size={12} aria-hidden="true" />
-									<span>{t("timeline.showEarlierSteps", { count: Math.min(PROCESS_GROUP_MEMBER_LIMIT, mounted.hiddenCount) })}</span>
-								</button>
-							)}
-							{mounted.items.map((entry) => (
-								<div key={entry.id} className="shrink-0">
-									{renderMember(entry)}
+					<ProcessGroupScrollControlsContext.Provider value={scrollControls}>
+						<div id={bodyId} data-process-group-body="" className="relative ml-5 mt-1 border-l-2 border-border-subtle pl-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-fast">
+							{/* 不加 `overscroll-contain`：到边后让浏览器把滚轮继续交给会话。
+							   加了就是旧版的死区——组体到底、会话一像素不动。
+							   scroll-ok: bounded —— 组体成员已有挂载预算（最近 32 条，其余按批展开），
+							   内容盒又被跟底引擎的 ResizeObserver 观察；上虚拟化要连带替换这套预算 + 跟底机制，属另一批。 */}
+							<div
+								ref={stickScrollRef}
+								data-process-group-scroller=""
+								className="flex max-h-[min(640px,60vh)] flex-col overflow-y-auto [scrollbar-width:none] focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
+								onWheel={(event) => stickNoteWheel(event.deltaY, event.target)}
+								// 隐藏滚动条后键盘是另一条入口：仅当真有可滚内容时才能 Tab 进来（不占无谓标签位）。
+								tabIndex={overflow.up || overflow.down ? 0 : undefined}
+							>
+								{/* 内容包装盒：引擎的 ResizeObserver 观察这一层才能感知“内容变高”——
+								    限高后的 scroller 尺寸不随成员增长，观察它收不到通知。 */}
+								<div ref={stickContentRef} data-process-group-content="" className="flex min-w-0 flex-col">
+									{mounted.hiddenCount > 0 && (
+										// 超出挂载预算的早期成员入口：与 TurnRow 的「显示更早的 N 条步骤」同款观感。
+										<button
+											type="button"
+											className="mt-1 inline-flex h-[26px] shrink-0 items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-chat-detail font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
+											onClick={() => {
+												// 这是真实的长高动作（下方多挂一批成员）：先停组体跟底，阅读位置才不会被抽走。
+												pauseFollowForGrowth();
+												setExpandedMembers((prev) => (prev?.groupId === props.group.id ? { ...prev, batches: prev.batches + 1 } : { groupId: props.group.id, anchor: props.group.members.length, batches: 1 }));
+											}}
+											title={t("timeline.showEarlierSteps", { count: Math.min(PROCESS_GROUP_MEMBER_LIMIT, mounted.hiddenCount) })}
+										>
+											<ChevronUp size={12} aria-hidden="true" />
+											<span>{t("timeline.showEarlierSteps", { count: Math.min(PROCESS_GROUP_MEMBER_LIMIT, mounted.hiddenCount) })}</span>
+										</button>
+									)}
+									{mounted.items.map((entry) => (
+										<div key={entry.id} className="shrink-0">
+											{renderMember(entry)}
+										</div>
+									))}
 								</div>
-							))}
+							</div>
+							{/* 方向提示：只沿左侧竖线画两条渐隐，不盖文字、不占高度、不报数字。
+							    上/下各自独立——自动贴底时只露上面一条，短组两条都不画。 */}
+							{overflow.up && <span aria-hidden="true" data-process-group-overflow="up" className="pointer-events-none absolute -left-[2px] top-1 h-3 w-[2px] rounded-full bg-[linear-gradient(to_bottom,color-mix(in_srgb,var(--color-text-tertiary)_75%,transparent),transparent)]" />}
+							{overflow.down && <span aria-hidden="true" data-process-group-overflow="down" className="pointer-events-none absolute -left-[2px] bottom-0 h-3 w-[2px] rounded-full bg-[linear-gradient(to_top,color-mix(in_srgb,var(--color-text-tertiary)_75%,transparent),transparent)]" />}
 						</div>
-					</div>
+					</ProcessGroupScrollControlsContext.Provider>
 				</ProcessGroupBodyScrollContext.Provider>
 			)}
 		</div>

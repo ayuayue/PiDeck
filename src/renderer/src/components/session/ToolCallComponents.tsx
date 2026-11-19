@@ -223,9 +223,9 @@ export const ToolCard = memo(function ToolCard(props: {
 	const [expanded, setExpanded] = useState(props.defaultOpen ?? false);
 	const sticky = useProcessEntryStickyHeader(expanded);
 	const toggleExpanded = useCallback(() => {
-		sticky.prepareCollapse();
+		sticky.prepareToggle(!expanded);
 		setExpanded((value) => !value);
-	}, [sticky.prepareCollapse]);
+	}, [expanded, sticky.prepareToggle]);
 	const messageStatus = getToolStatus(props.message);
 	const status = props.stopped && messageStatus === "running" ? "stopped" : messageStatus;
 	const toolName = getToolName(props.message);

@@ -6,7 +6,7 @@
 - **状态**：**已实现并通过验证**（T1–T5 全部完成；`typecheck` 0 错误、针对性测试全绿、全仓 biome 格式干净）。接口在实现期间冻结；后续要改先改本文件再改代码。
 - **分支**：`research/dsh-process-display`
 - **关联文档**：[timeline-process-display-research.md](./archive/plans/timeline-process-display-research.md) §9（设计稿）、[process-group-scroll.html](./mockups/process-group-scroll.html)（视觉效果稿）
-- **已定产品决策**：组头不带步数；大折叠栏文案不动；中间回复不加视觉标记（保持正文样式）；重试/错误 = 与中间回复同级的一级行 + 截断组；执行过程、过程组与组内输出自然展开，纵向滚动统一归会话时间线；行内容复用现状。
+- **已定产品决策**：组头不带步数；大折叠栏文案不动；中间回复不加视觉标记（保持正文样式）；重试/错误 = 与中间回复同级的一级行 + 截断组；**组体限高 `min(640px,60vh)` + 组内一条滚轮（滚动条隐藏）**，大折叠栏保持自然高度；行内容复用现状。
 
 ---
 
@@ -196,8 +196,15 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
   - `running === true`：`t(activityCategoryLabelKey(topKind, "running"))` + 若有实时详情则追加 `t("timeline.processGroup.separator")` + 详情；文案走 `<ShimmerText>`（复用 `src/renderer/src/components/session/ShimmerText.tsx`）。
   - 已结束：`topActivityKinds(group.counts, 3)` → 分别取 `done` 文案，按 `joinTwo` / `joinList` + `listSeparator` 组装；超过 3 类用 `more` 包裹；**`counts` 为空且有思考时**用 `t("timeline.processGroup.analyzed")`。
   - 实时详情仅在**最后一个成员是 `tool-entry`** 时取其工具名 + 参数 → 复用 `timeline/toolPhrase.ts` 的 `getToolPhraseFromArgs(toolName, args).object`（**只取作用对象**：命令 / 路径 / 查询词），不拼 `loadingLabel`：类别标签已经说了在做什么，再拼「正在执行 …」是同一句两个「正在」，而没有可读参数的（如 `ask_question`）只会把原始工具名重复一遍。切回思考或取不到对象时不显示详情。**且仅在组体收起时显示**：展开后组体里那条运行中的工具行已经带命令 + 状态 + 秒表，组头再报一遍同一命令等于同一行「执行 …」一屏出现两次，长命令还会铺满整行挤压右侧 chevron（2026-11 用户截图反馈）。布局分工固定：标签 `shrink-0`（状态词永远完整可读），详情 `flex-[1_1_auto] truncate`（吃剩余宽度、尾部截断）——两者不参与同一场收缩竞争，长命令不得把标签压成省略号。回归守卫：`tests/processGroupRendering.test.mjs` 的「组头实时详情必须在组体收起时才显示」「组头实时详情只取作用对象，且标签不参与收缩」。
-- **统一滚动（2026-11 用户反馈双层滚动）**：`ProcessFold`、过程组和组内工具输出均自然增高，不再限高、不建立内部纵向视口、不拦截滚轮、不实例化独立跟底引擎。外层时间线统一处理增长跟随、上滚暂停、回到底部和历史位置恢复；宽代码/diff 仍可横向滚动。组体保留 `ml-5 border-l-2 border-border-subtle pl-3` 的缩进与折叠语义。
-- **自然高度下的 DOM 预算**：一级节点默认仅挂最近 16 个，组内成员仍为 32 个；各自提供按批显示更早内容的入口。删除 `ProcessFold` 的内部虚拟栈，避免为了虚拟化重新制造一层滚动。会话轮次的外层虚拟化保留。
+- **组体限高视口（2026-11 回归，用户决策）**：组体是 `max-h-[min(640px,60vh)] overflow-y-auto [scrollbar-width:none]` 的限高窗（行高 28px ≈ 22 行，滚动条隐藏），外层仍包 `ml-5 border-l-2 border-border-subtle pl-3` 的缩进与折叠语义。三条约束不可拆：
+  1. **禁止 `overscroll-behavior: contain`**：到边后让浏览器把滚轮继续交给会话。外层时间线的 `resolveGestureOwner` 已按「内层有余量 → nested（不动外层跟随态）／内层到边 → timeline（正常滚会话）」判定归属，所以既没有旧版「组体到底、会话一像素不动」的死区，也不会幽灵改写跟随态。
+  2. **整组只有一条滚轮**：组内工具卡/差分继续通过 `ProcessGroupBodyScrollContext` 让位（`maxHeight=null` → 不限高、不自转纵向滚轮），宽代码/diff 仍可横向滚动。
+  3. **限高 flex 列里的子项一律 `shrink-0`**（AGENTS.md 记录过的高度塌陷事故）。
+- **组内跟底与展开定位**：视口限高后外层 ResizeObserver 收不到增高通知，所以组体复用会话同一个跟底引擎（`lib/stick-to-bottom`，`{ initial: "instant", resize: "instant" }`），**不传** `reportUserIntent`（组内滚动不改外层跟随态）。展开定位只在「关 → 开」沿执行一次：自动通道（流式最新组）`scrollToBottom({animation:"instant"})` 落底并继续跟随；手动通道 `restoreAt(0)` 从头读。
+- **暂停跟底只挂在「会当场长高」的动作上（2026-11 修正）**：不在组体/折叠栏根节点挂 `onClickCapture`——整块捕获等于「点一下就永久停掉实时跟随」，点外链、划选、复制都被误伤。现在的暂停点是：组体「显示更早的 N 条步骤」（`usePauseGroupFollow`）、大折叠栏「显示更早」（停会话跟随）、以及成员展开（`ToolCard` / `ThinkingBlock` / `ExtensionEntryRow`）。三处都调各自的 `restoreAt`（定位 + 解锁 + 取消在途动画），不裸写 `scrollTop`。
+- **可发现性（滚动条隐藏后）**：组体左侧竖线上带上下两条渐隐提示（`data-process-group-overflow="up|down"`，只有方向、没有文字/计数、不占高度），由 `useProcessGroupBodyOverflow` 从组体既有几何订阅派生；仅当确有可滚内容时组体进入 Tab 顺序（隐藏滚动条的键盘入口）。
+- **跳转落位要先露出组内目标（2026-11）**：会话跳转只移动会话这一层，组内成员可能被组体裁掉（Chromium 实测可见高度 0px，`getClientRects()` 非空所以不会退到轮次行 → 「跳到一条空白」）。因此 `scrollJumpTargetIntoView` 在算会话偏移**之前**调 `revealInNestedScrollers`（nearest 对齐、由内向外），收敛帧也每帧重露一次；内层必须走组体注册的 `restoreAt`（`registerNestedScrollerRestore`），裸写 `scrollTop` 不解锁锁底、下一帧增长又会拽回底部。
+- **DOM 预算**：一级节点默认仅挂最近 16 个，组内成员 32 个；各自提供按批显示更早内容的入口。`ProcessFold` 保持自然高度、不设内部虚拟栈。会话轮次的外层虚拟化保留。
 - **验证**：`tests/processFoldScroll.test.mjs` 验证自然布局、顺序、live 去重及分批挂载；`e2e/process-fold-scroll.spec.ts` 验证滚轮穿过长输出时只滚会话、流式增长跟随与上滚阅读保持。
 - **组体内容 = 复用现有组件**：`thinking-entry` → `<ThinkingStep hidden={false} .../>`；`tool-entry` → `<ToolStep stopped={!running} hidden={false} .../>`。
 - **扩展输出成员（2026-10 新增）**：appendEntry 投影卡（`meta.type === "customEntry"`）按用户决策折进过程组、不再单独成块：`groupToolMessages` 吸为 run 内 `extension-entries` 组员（连续条目合并且不拆组，run 未开始时保持独立卡兑底），`groupTurnProcess` 里与思考/工具同层入组（不截断、不计入 toolCount），组节点新增 `extensionCount` 字段。组头已结束文案追加扩展段 `t("timeline.processGroup.extension", { count })`（与工具段用 `joinTwo` 连接；纯扩展组只报扩展段、图标用 Puzzle）；组员行渲染 `turn/ExtensionEntryStep.tsx`（折叠行 + 展开看 data 字段）。`customMessage`（子代理完成通知）不受影响：仍是回合边界 + 独立通知卡。
@@ -206,10 +213,10 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 
 ### 4b. 组内展开项标题吸顶
 
-- 仅对过程组内已展开、且总高度超过会话视口的工具/思考项生效；标题在本项范围内相对会话滚动区使用原生 `position: sticky`，离开本项后退场，不复制标题、不叠层、不固定到应用窗口。
+- 仅对过程组内已展开、且总高度超过**组体视口**（`data-process-group-scroller`，而非会话视口）的工具/思考项生效；标题在本项范围内相对组体使用原生 `position: sticky`，离开本项后退场，不复制标题、不叠层、不固定到应用窗口。
 - 吸顶时只增加一个「回到本项开头」图标；无图钉/「吸顶」提示、无右侧收起按钮、无常驻文字。悬停或键盘聚焦时显示 Tooltip，图标保留可访问名称；标题行仍负责开合，思考正文已有的底部收起入口保留。
-- 回到开头与从吸顶标题收起都经会话既有跟底引擎的 `restoreAt` 定位，不直接写 `scrollTop`，以同时解除锁底并取消在途跟随动画。
-- 会话滚动区统一拥有滚动/尺寸通知，所有展开组内的行共享订阅；listener、ResizeObserver、requestAnimationFrame 必须在卸载时配对清理。不新增滚动容器或持久化设置。
+- 回到开头与从吸顶标题收起都经组体跟底引擎的 `restoreAt` 定位，不直接写 `scrollTop`，以同时解除锁底并取消在途跟随动画；组体收起时退回会话几何（`ProcessGroupScrollControlsContext` 为 null）。
+- 组体统一拥有滚动/尺寸通知（`useProcessGroupScrollGeometry`），组内所有行共享订阅；listener、ResizeObserver、requestAnimationFrame 必须在组体收起/卸载时配对清理。不新增持久化设置。
 - 工具组与思考项的祖先仅在组内让出 `overflow:hidden`，否则原生 sticky 会绑定到错误的滚动容器；组外保留原布局。扫光裁切下放标题行，不让动画外溢。
 
 ### `src/renderer/src/components/session/turn/ProcessFold.tsx`（Lead 负责）
@@ -267,7 +274,7 @@ i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale
 3. **开关两条路径都要能跑**：默认关闭 = 与改动前逐像素同款；打开 = 过程组渲染。
 4. 视觉零回归：思考行 / 工具行 / 中间回复 / 最终回复 / 重试错误行**与改动前同款**（只有外层多了缩进与竖线）。
 5. `TurnRow.tsx` 体量不得因本次改动继续膨胀（目标 ≤ 600 行；折叠区内容已抽到 `ProcessFold.tsx`）。
-6. **滚轮与跟随归属（2026-11 更新）**：组体和输出不再拥有独立纵向滚动区。鼠标在组内上滚即滚动会话并暂停跟随，返回会话底部后恢复；流式增长和手动展开均不得抢走阅读位置。`followState.ts` 的通用嵌套手势判定保留给应用其他有界滚动区。过程组回归见 `e2e/process-fold-scroll.spec.ts` 与 `e2e/process-group-display.spec.ts`。
+6. **滚轮与跟随归属（2026-11 回）**：组体是限高视口，但**不写 `overscroll-contain`**：组内还有余量时滚轮只滚组体（会话跟随态不变），到边后由浏览器把滚轮交还会话。组内工具输出继续让位，整组只有一条滚轮。`ProcessFold`（大折叠栏）保持自然高度。回归见 `e2e/process-fold-scroll.spec.ts`、`e2e/process-group-display.spec.ts`、`e2e/running-session-scroll.spec.ts`。
 
 ---
 
@@ -282,7 +289,8 @@ i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale
 | 两级挂载预算 | `timeline/turnMountBudget.ts` 新增 `PROCESS_GROUP_MEMBER_LIMIT` / `PROCESS_FOLD_NODE_LIMIT` |
 | 手风琴状态机 | `turn/useProcessGroupState.ts`（纯函数 + `useProcessGroupOpenState` 窄 hook） |
 | 状态归属 | `atoms/session-atoms.ts`（`ProcessGroupOpenState` 定义在此 + family + 删会话清理） |
-| 组组件 | `turn/ProcessGroupStep.tsx`（组头 `flex w-full`、自然高度组体、组内预算） |
+| 组组件 | `turn/ProcessGroupStep.tsx`（组头 `flex w-full`、组体限高视口 + 隐藏滚动条、组内预算） |
+| 组体几何/跟底 | `turn/useProcessGroupScrollGeometry.ts`（组内一条 scroll 监听 + 尺寸观察）、`turn/processGroupScrollContext.ts`（让位标记 + 组体几何 context） |
 | 大折叠栏内容 | `turn/ProcessFold.tsx` |
 | 二选一分支 | `turn/TurnRow.tsx`（`flowSettings.processGroupDisplay ? <ProcessFold/> : 原扁平渲染`） |
 | 设置开关 | `processGroupDisplay`，默认 `false`（2026-11 起改为 `true`），7 处默认值/同步 + 设置页开关行 + 未保存变更目录 |
@@ -299,15 +307,20 @@ i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale
 
 | 缺陷 | 现象 | 修法 | 守卫 |
 |---|---|---|---|
-| 过程内容增长跟随 | 组体内容增长，阅读位置与跟随状态不一致 | 删除组体独立引擎，由会话统一跟随；上滚阅读和手动展开暂停跟随 | `e2e/process-fold-scroll.spec.ts` 的增长跟随、上滚阅读、手动展开用例 |
-| 滚轮归属（D1） | 组内与会话争抢滚轮，形成两层滚动 | 组体、工具输出自然增高，纵向滚动归会话；宽 diff 仅保留横向滚动 | `e2e/process-fold-scroll.spec.ts` 的长输出、长 diff 用例 |
+| 双层滚动条（2026-08） | 组体一层 + 组内工具卡/差分各一层，内层到边后像卡死 | 组内内层让位（`ProcessGroupBodyScrollContext` → `maxHeight=null`），整组只留组体一条滚轮 | `tests/processGroupNestedScroll.test.mjs`、`e2e/process-fold-scroll.spec.ts` |
+| 到边死区（2026-11） | 组体写 `overscroll-contain`，到底后谁都不滚 | 去掉 `contain`，到边交还会话；外层按 `resolveGestureOwner` 判定归属 | `tests/processGroupNestedScroll.test.mjs`（禁 contain）、`e2e/process-fold-scroll.spec.ts` |
+| 组体跟底（2026-11 回归） | 限高后外层收不到增高通知，新成员不再自动可见 | 组体复用同一跟底引擎（instant）；点击成员先 `restoreAt(当前)` | `e2e/process-fold-scroll.spec.ts` 的运行中贴底、展开不拽底用例 |
+| 吸顶几何（2026-11 回归） | 组体有视口后，标题还按会话视口算就会错位 | 组内几何（`ProcessGroupScrollControlsContext`）优先于会话几何 | `tests/processGroupNestedScroll.test.mjs`、`e2e/process-fold-scroll.spec.ts` |
+| 滚轮归属（D1） | 组内滚轮被误当成会话手势 | 组体只认领有余量的手势，到边后续由会话处理；宽 diff 仅保留横向滚动 | `e2e/process-fold-scroll.spec.ts` 的长输出、长 diff 用例 |
 | 键入手势被截胡（D2） | 焦点在组体时 PageUp 把跟随态改掉而画面没动 | `handleKeyDown` 同样走 `resolveGestureOwner` 判定归属 | `tests/stickToBottomUserIntent.test.mjs` |
 | running 判定过宽（D1'） | 尾部已追加中间回复，旧组仍转 shimmer 报「正在…」 | `running` 改为「最后一个节点就是这个组」 | `tests/groupTurnProcess.test.mjs` |
 | 运行中组头类别滞后（D2'） | 组头写「正在搜索代码」，右侧详情却是「正在读取 xx」；工具后接思考时仍报旧工具 | `lastToolCategory()` 与详情只看最后一个成员：工具取当前类别，思考退回分析中 | `tests/groupTurnProcess.test.mjs` |
 
 ### 已知限制（v1）
 
-1. **组内滚动归会话**：移除内部视口后，组内上滚会正常暂停会话跟随并显示回底入口。旧的「组内输入不得影响外层」契约已被统一滚动取代；滚动引擎对其他真实嵌套视口的手势归属守卫继续保留。
-2. **长过程按批阅读**：默认挂载最近 16 个一级节点，早期内容需要点「显示更早」；组内 32 成员预算与用户已展开内容的锚点语义不变。
-3. **`TurnRow.tsx` 变长**：两条渲染路径并存，文件已接近 AGENTS.md 的体量评估阈值。若后续要加第三种模式，应先把扁平路径也抽成独立组件。
-4. **`hidden={!stepsVisible}` 分支是历史遗留**：Radix 折叠时子树整体卸载，该分支在当前结构下不可达（审计已确认），保留是为了不改变既有契约测试的语义。
+1. **组体是唯一的内层视口**：组内还有余量时滚轮只滚组体（会话跟随态不变）；组体到边后继续滚才交还会话。`TurnRow` 的大折叠栏（`ProcessFold`）仍是自然高度，不放内部视口。
+2. **长过程按批阅读**：默认挂载最近 16 个一级节点、每组 32 个成员，早期内容需要点「显示更早」；用户已展开内容的锚点语义不变。
+3. **组体内目标的跳转**：`revealInNestedScrollers` 负责先把目标从组体露出（会话偏移在露出之后算、收敛帧每帧重露）；但目标若在**收起**的组里，仍按既有契约退到轮次行——不为了跳转一次展开几十个成员。
+4. **隐藏滚动条的代价**：方向提示只有左侧竖线上的两条渐隐，没有「还有 N 条」这类定量信息；组体仅在确有可滚内容时进入 Tab 顺序，鼠标用户靠滚轮本身。
+5. **`TurnRow.tsx` 变长**：两条渲染路径并存，文件已接近 AGENTS.md 的体量评估阈值。若后续要加第三种模式，应先把扁平路径也抽成独立组件。
+6. **`hidden={!stepsVisible}` 分支是历史遗留**：Radix 折叠时子树整体卸载，该分支在当前结构下不可达（审计已确认），保留是为了不改变既有契约测试的语义。

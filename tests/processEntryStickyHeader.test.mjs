@@ -45,41 +45,54 @@ function reactHost() {
 }
 
 /** 几何与滚动引擎均为替身；重点断言 hook 订阅、恢复与卸载的公开效果。 */
-function entryHarness() {
+function entryHarness(options = {}) {
 	const host = reactHost();
-	const subscribers = new Set();
-	const restored = [];
 	const focusCalls = [];
 	let belongsToGroup = true;
 	const scroll = { clientTop: 0, clientHeight: 200, scrollTop: 400, getBoundingClientRect: () => ({ top: 100 }), contains: () => belongsToGroup };
-	const control = {
+	const makeControl = (sink) => ({
 		scrollRef: { current: scroll },
-		restoreAt: (offset) => restored.push(offset),
+		restoreAt: (offset) => sink.restored.push(offset),
 		subscribeGeometry: (listener) => {
-			subscribers.add(listener);
-			return () => subscribers.delete(listener);
+			sink.subscribers.add(listener);
+			return () => sink.subscribers.delete(listener);
 		},
-	};
-	let insideGroup = true;
-	const load = createTsSandbox({ stubs: { react: { ...host.react, useContext: () => control }, "../../agents/message-scroller-context": { MessageScrollerGeometryContext: {} }, "./processGroupScrollContext": { useInsideProcessGroupBody: () => insideGroup } } });
+	});
+	const groupSink = { subscribers: new Set(), restored: [] };
+	const sessionSink = { subscribers: new Set(), restored: [] };
+	const groupControl = makeControl(groupSink);
+	const sessionControl = makeControl(sessionSink);
+	// hasGroupControls=false 模拟「组外 / 组体不提供几何」：此时才退回会话几何。
+	const state = { insideGroup: true, hasGroupControls: options.hasGroupControls ?? true };
+	const load = createTsSandbox({
+		stubs: {
+			react: { ...host.react, useContext: () => sessionControl },
+			// 生产实现读会话几何后 restoreAt(当前位移) 解锁锁底；这里用同一个替身上报。
+			"../../agents/message-scroller-context": { MessageScrollerGeometryContext: {}, usePauseSessionFollow: () => () => sessionControl.restoreAt(scroll.scrollTop) },
+			"./processGroupScrollContext": { useInsideProcessGroupBody: () => state.insideGroup, useProcessGroupScrollControls: () => (state.hasGroupControls ? groupControl : null) },
+		},
+	});
 	const { useProcessEntryStickyHeader } = load(`${TURN_PATH}useProcessEntryStickyHeader.ts`);
 	const render = (expanded = true) => host.render(() => useProcessEntryStickyHeader(expanded));
 	const initial = render();
 	initial.entryRef.current = { offsetHeight: 800, getBoundingClientRect: () => ({ top: 40, bottom: 840 }) };
 	initial.headerRef.current = { offsetHeight: 28, querySelector: () => ({ focus: (options) => focusCalls.push(options) }) };
 	const notify = () => {
-		for (const listener of subscribers) listener();
+		for (const listener of [...groupSink.subscribers, ...sessionSink.subscribers]) listener();
 	};
 	notify();
 	return {
 		render,
 		notify,
-		subscribers,
-		restored,
 		focusCalls,
 		unmount: host.unmount,
+		groupSubscribers: groupSink.subscribers,
+		sessionSubscribers: sessionSink.subscribers,
+		groupRestored: groupSink.restored,
+		sessionRestored: sessionSink.restored,
 		leaveGroup: () => {
-			insideGroup = false;
+			state.insideGroup = false;
+			state.hasGroupControls = false;
 		},
 		detachEntry: () => {
 			belongsToGroup = false;
@@ -87,45 +100,80 @@ function entryHarness() {
 	};
 }
 
-test("行订阅会话视口的几何变化，滚动不直接驱动整个过程组重渲染", () => {
+test("组内行订阅组体视口的几何变化（不是会话视口），滚动不直接驱动整个过程组重渲染", () => {
 	const h = entryHarness();
-	assert.equal(h.subscribers.size, 1);
+	assert.equal(h.groupSubscribers.size, 1);
+	assert.equal(h.sessionSubscribers.size, 0, "组体有几何时不得再订会话视口");
 	assert.equal(h.render().pinned, true);
 	assert.equal(h.render().sticky, true);
 	h.unmount();
-	assert.equal(h.subscribers.size, 0);
+	assert.equal(h.groupSubscribers.size, 0);
+});
+
+test("组体不提供几何时退回会话视口", () => {
+	const h = entryHarness({ hasGroupControls: false });
+	assert.equal(h.sessionSubscribers.size, 1);
+	assert.equal(h.groupSubscribers.size, 0);
+	assert.equal(h.render().pinned, true);
+	h.unmount();
 });
 
 test("回到开头经 restoreAt 解锁跟底，并把键盘焦点留在原标题", () => {
 	const h = entryHarness();
 	h.render().returnToStart();
-	assert.deepEqual(h.restored, [340]);
+	assert.deepEqual(h.groupRestored, [340]);
+	assert.deepEqual(h.sessionRestored, [], "组内定位只能改组体滚动，不得动会话视口");
 	assert.deepEqual(normalize(h.focusCalls), [{ preventScroll: true }]);
 });
 
 test("在标题已滚走时收起，先恢复本项锚点", () => {
 	const h = entryHarness();
 	h.render().prepareCollapse();
-	assert.deepEqual(h.restored, [340]);
+	assert.deepEqual(h.groupRestored, [340]);
 });
 
 test("未展开时没有几何订阅，也不改变滚动位置", () => {
 	const h = entryHarness();
 	const row = h.render(false);
 	row.prepareCollapse();
-	assert.equal(h.subscribers.size, 0);
-	assert.deepEqual(h.restored, []);
+	assert.equal(h.groupSubscribers.size, 0);
+	assert.deepEqual(h.groupRestored, []);
 	assert.equal(h.render(false).sticky, false);
+});
+
+test("开合成员：只在变大时停跟底，且组体与会话两层都停", () => {
+	const h = entryHarness();
+	const api = h.render();
+	// 本用例只看「暂停跟底」这一层：把标题挪到视口下方，免得 prepareCollapse 顺手回到本项开头。
+	api.entryRef.current = { offsetHeight: 800, getBoundingClientRect: () => ({ top: 120, bottom: 920 }) };
+	api.prepareToggle(true);
+	assert.deepEqual(h.groupRestored, [400]);
+	assert.deepEqual(h.sessionRestored, [400], "组体还没到限高时，成员展开会把会话也一起撑高");
+	api.prepareToggle(false);
+	assert.deepEqual(h.groupRestored, [400], "收起不会把读者拽走，不得再停一次");
+	assert.deepEqual(h.sessionRestored, [400]);
+	h.unmount();
+});
+
+test("组外开合成员不动任何滚动位置（扁平路径保持既有行为）", () => {
+	const h = entryHarness({ hasGroupControls: false });
+	h.leaveGroup();
+	h.render().prepareToggle(true);
+	assert.deepEqual(h.groupRestored, []);
+	assert.deepEqual(h.sessionRestored, []);
+	h.unmount();
 });
 
 test("移出过程组后不残留吸顶状态和订阅", () => {
 	const h = entryHarness();
 	h.leaveGroup();
 	h.render();
-	assert.equal(h.subscribers.size, 0);
+	assert.equal(h.groupSubscribers.size, 0);
+	assert.equal(h.sessionSubscribers.size, 0);
 	assert.equal(h.render().sticky, false);
 	h.render().returnToStart();
-	assert.deepEqual(h.restored, []);
+	assert.deepEqual(h.groupRestored, []);
+	assert.deepEqual(h.sessionRestored, []);
 });
 
 test("已经脱离当前组体的迟到几何通知不得显示吸顶或恢复位置", () => {
@@ -134,7 +182,7 @@ test("已经脱离当前组体的迟到几何通知不得显示吸顶或恢复�
 	h.notify();
 	assert.equal(h.render().pinned, false);
 	h.render().returnToStart();
-	assert.deepEqual(h.restored, []);
+	assert.deepEqual(h.groupRestored, []);
 });
 
 /** 一个会话只有一组监听和 ResizeObserver；多个组的行共享一帧通知。 */
