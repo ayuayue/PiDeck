@@ -6,7 +6,6 @@ package workbench
 // key, a recharge that waits for the payment, and the tip page.
 
 import (
-	"strings"
 	"time"
 
 	"example.com/pideck-lite/internal/apptext"
@@ -50,6 +49,8 @@ func (a *app) tokenDanceGroup() core.Node {
 			setRow("API Key", apptext.T("在 tokendance.space 的「API 密钥」页创建；只写进 pi 的 auth.json。"),
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					ui.Text(keyState, 10.5, ui.Medium, tone),
+					ui.Button{Text: apptext.T("登录…"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "td-login",
+						OnPress: a.tdLogin},
 					ui.Button{Text: apptext.T("填入密钥…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "td-key-open",
 						OnPress: a.tdOpenKey},
 				}}),
@@ -169,14 +170,18 @@ func (a *app) tdRechargeDialog() core.Node {
 					expiry = apptext.T("这个会话已经过期，重新创建一次。")
 				}
 			}
-			body = append(body, core.View{Style: core.Style{Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
-				code,
+			notes := []core.Node{code,
 				ui.Text(apptext.T("%d 元 · %s", session.Amount, a.tdPayStatus.Get()), 11.5, ui.Medium, colors.Text),
 				core.Text{Content: expiry, Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
 				core.Text{Content: session.PaymentURL, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
 					Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, TextAlign: core.TextAlignCenter},
 					StyleFunc: ui.Colored(colors.Faint)},
-			}})
+			}
+			if a.tdPayKeyHint != "" {
+				notes = append(notes, core.Text{Content: apptext.T("充值记到这个 Key：%s", a.tdPayKeyHint),
+					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)})
+			}
+			body = append(body, core.View{Style: core.Style{Gap: 8, AlignItems: core.AlignCenter}, Children: notes})
 		}
 		title := apptext.T("充值 TokenDance")
 		description := apptext.T("钱进入这个 API Key 所属的账户；选一个金额后生成支付码。")
@@ -212,34 +217,26 @@ func (a *app) tdRechargeDialog() core.Node {
 	})
 }
 
-// tdTipDialog shows the tip page as a code, so a phone can pay for it.
-func (a *app) tdTipDialog() core.Node {
+// tdLoginDialog shows what the authorization is waiting for.
+func (a *app) tdLoginDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
-		url := strings.TrimSpace(a.cfg.SponsorURL)
-		png := a.tdTipQR
-		var body []core.Node
-		if len(png) > 0 {
-			body = append(body, core.View{Style: core.Style{Padding: core.All(10), CornerRadius: 10, Background: core.RGBA(0xFFFFFF, 1)},
-				Children: []core.Node{core.Image{Source: core.ImageSource{Data: png}, ResizeMode: core.Contain,
-					Label: apptext.T("打赏二维码"), Style: core.Style{Width: core.Pt(220), Height: core.Pt(220)}}}})
-		}
-		body = append(body, core.Text{Content: url, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
-			Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, TextAlign: core.TextAlignCenter},
-			StyleFunc: ui.Colored(colors.Faint)})
 		return ui.Dialog{
-			Open:         a.tdTipOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.tdTipOpen.Set(open) },
-			Title:        apptext.T("打赏作者"),
-			Description:  apptext.T("扫码或打开链接支持这个项目，金额随意。"),
-			TestID:       "td-tip",
-			Style:        core.Style{Width: core.Pt(400)},
-			Children:     []core.Node{core.View{Style: core.Style{Gap: 10, AlignItems: core.AlignCenter}, Children: body}},
+			Open:         a.tdLoginOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) { a.tdLoginStop() },
+			Title:        apptext.T("登录 TokenDance"),
+			Description:  apptext.T("浏览器里确认一次，应用会自动拿到 Key 并写进 models.json。"),
+			TestID:       "td-login-dialog",
+			Style:        core.Style{Width: core.Pt(420)},
+			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+				ui.Spinner{Size: 14},
+				core.Text{ContentFunc: func() string { return a.tdLoginState.Get() }, MaxLines: 3,
+					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11, LineHeight: 16},
+					StyleFunc: ui.Colored(colors.Muted)},
+			}}},
 			Footer: []core.Node{
-				ui.Button{Text: apptext.T("复制链接"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "td-tip-copy",
-					OnPress: func() { a.copyText(url, apptext.T("打赏链接")) }},
-				ui.Button{Text: apptext.T("打开链接"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "td-tip-open",
-					OnPress: func() { a.cx.OpenURL(url, nil) }},
+				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "td-login-cancel",
+					OnPress: a.tdLoginStop},
 			},
 		}
 	})

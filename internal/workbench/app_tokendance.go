@@ -50,8 +50,8 @@ func (a *app) tdOpenKey() {
 	a.tdKeyOpen.Set(true)
 }
 
-// tdSaveKey checks the key against the account, then stores it in pi's
-// credentials and makes sure models.json describes the provider.
+// tdSaveKey checks the key against the account, then stores it beside the
+// provider in models.json, which is where pi's own editor puts it.
 func (a *app) tdSaveKey() {
 	key := strings.TrimSpace(a.tdKeyText.GetUntracked())
 	if key == "" {
@@ -67,12 +67,7 @@ func (a *app) tdSaveKey() {
 				a.tdKeyErr.Set(apptext.T("校验没通过：%s", err.Error()))
 				return
 			}
-			if err := ensureTokenDanceProvider(); err != nil {
-				a.tdKeyBusy.Set(false)
-				a.tdKeyErr.Set(err.Error())
-				return
-			}
-			if err := replaceAuthKey(tokenDanceProvider, key); err != nil {
+			if err := ensureTokenDanceProvider(key); err != nil {
 				a.tdKeyBusy.Set(false)
 				a.tdKeyErr.Set(err.Error())
 				return
@@ -89,7 +84,7 @@ func (a *app) tdSaveKey() {
 	}()
 }
 
-// tdPullModels writes the platform's chat models into models.json.
+// tdPullModels writes the platform's catalog into models.json.
 func (a *app) tdPullModels() {
 	a.tdModelBusy.Set(true)
 	a.tdModelMsg.Set(apptext.T("正在读取模型目录…"))
@@ -102,7 +97,7 @@ func (a *app) tdPullModels() {
 				return
 			}
 			chat := chatModels(catalog)
-			if err := ensureTokenDanceProvider(); err != nil {
+			if err := ensureTokenDanceProvider(""); err != nil {
 				a.tdModelBusy.Set(false)
 				a.tdModelMsg.Set(err.Error())
 				return
@@ -114,7 +109,7 @@ func (a *app) tdPullModels() {
 					break
 				}
 			}
-			merged, added, updated, kept := tokenDanceMerge(existing, chat)
+			merged, added, updated, kept := tokenDanceMerge(existing, catalog)
 			if err := saveProviderModels(tokenDanceProvider, merged); err != nil {
 				a.tdModelBusy.Set(false)
 				a.tdModelMsg.Set(apptext.T("写入失败：%s", err.Error()))
@@ -135,6 +130,7 @@ func (a *app) tdOpenRecharge() {
 	a.tdPayErr.Set("")
 	a.tdPayStatus.Set("")
 	a.tdPaySession = tokenDanceSession{}
+	a.tdPayKeyHint = ""
 	a.tdPayQR = nil
 	a.tdPayOpen.Set(true)
 }
@@ -158,8 +154,10 @@ func (a *app) tdStartPayment() {
 			return
 		}
 		session, err := createTokenDanceSession(key, amount)
+		hint := maskKey(key)
 		a.cx.Post(func() {
 			a.tdPayBusy.Set(false)
+			a.tdPayKeyHint = hint
 			if err != nil {
 				a.tdPayErr.Set(apptext.T("创建支付会话失败：%s", err.Error()))
 				return
@@ -274,13 +272,65 @@ func (a *app) tdCloseRecharge() {
 	a.tdPayOpen.Set(false)
 }
 
-// tdOpenTip shows the author's tip page as a code to scan.
-func (a *app) tdOpenTip() {
-	url := strings.TrimSpace(a.cfg.SponsorURL)
-	if url == "" {
-		a.toast(ui.ToastWarning, apptext.T("还没有打赏链接"), apptext.T("在「关于 → 链接」里填一个打赏页地址。"))
-		return
+// tdLogin runs TokenDance's authorization: the browser confirms, the code
+// comes back on a loopback port, and the key it buys is written beside the
+// provider. No long-lived key is typed by hand.
+func (a *app) tdLogin() {
+	a.tdLoginState.Set(apptext.T("正在打开浏览器…"))
+	a.tdLoginOpen.Set(true)
+	go func() {
+		verifier, challenge, err := pkcePair()
+		if err != nil {
+			a.cx.Post(func() { a.tdLoginState.Set(err.Error()) })
+			return
+		}
+		callback, err := listenTokenDanceCode()
+		if err != nil {
+			a.cx.Post(func() {
+				a.tdLoginState.Set(apptext.T("开不了本地回调端口；改用「填入密钥…」。"))
+			})
+			return
+		}
+		defer callback.close()
+		a.cx.Post(func() {
+			a.tdLoginCancel = callback.close
+			a.tdLoginState.Set(apptext.T("在浏览器里确认授权，回来就会自动填好。"))
+			a.cx.OpenURL(tokenDanceAuthURL(challenge, callback.URL), nil)
+		})
+		code, err := callback.wait(tokenDanceAuthWait)
+		if err != nil {
+			a.cx.Post(func() { a.tdLoginState.Set(err.Error()) })
+			return
+		}
+		key, err := exchangeAuthCode(code, verifier)
+		if err != nil {
+			a.cx.Post(func() { a.tdLoginState.Set(err.Error()) })
+			return
+		}
+		if _, err := fetchTokenDanceBalance(key); err != nil {
+			a.cx.Post(func() { a.tdLoginState.Set(apptext.T("授权拿到的 Key 用不了：%s", err.Error())) })
+			return
+		}
+		if err := ensureTokenDanceProvider(key); err != nil {
+			a.cx.Post(func() { a.tdLoginState.Set(err.Error()) })
+			return
+		}
+		a.cx.Post(func() {
+			a.tdLoginCancel = nil
+			a.tdLoginOpen.Set(false)
+			a.toast(ui.ToastSuccess, "TokenDance 已就绪", apptext.T("授权完成，Key 已写入 models.json。"))
+			a.tdRefresh()
+			a.refreshProviders()
+		})
+	}()
+}
+
+// tdLoginStop cancels a login that is waiting on the browser.
+func (a *app) tdLoginStop() {
+	if a.tdLoginCancel != nil {
+		cancel := a.tdLoginCancel
+		a.tdLoginCancel = nil
+		cancel()
 	}
-	a.tdTipQR = qrPNGFor(url)
-	a.tdTipOpen.Set(true)
+	a.tdLoginOpen.Set(false)
 }

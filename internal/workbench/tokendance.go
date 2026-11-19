@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -33,6 +34,11 @@ const (
 	// platform also serves Anthropic, image, video and speech models,
 	// which this provider cannot call.
 	tokenDanceOpenAI = "openai:chat-completions"
+	// tokenDanceSessionsPath is where the platform keeps payment sessions,
+	// and the only path a status URL may point at.
+	tokenDanceSessionsPath = "/portal/api/v1/payment/sessions"
+	// tokenDanceAppURL is what the platform attributes calls to.
+	tokenDanceAppURL = "https://pideck.caoayu.top/"
 )
 
 // tokenDanceRoot is the platform's address; a test points it elsewhere.
@@ -186,7 +192,30 @@ func createTokenDanceSession(key string, amount int) (tokenDanceSession, error) 
 		Session tokenDanceSession `json:"session"`
 	}
 	err := tokenDanceDo(ctx, http.MethodPost, tokenDanceRoot+"/portal/api/v1/payment/sessions", key, map[string]any{"amount": amount}, &res)
+	res.Session.StatusURL = tokenDanceStatusURL(res.Session.StatusURL, res.Session.ID)
 	return res.Session, err
+}
+
+// tokenDanceStatusURL keeps the session's own query address on the
+// platform: the key goes with that request, so another host is refused.
+func tokenDanceStatusURL(raw, id string) string {
+	if u, err := url.Parse(strings.TrimSpace(raw)); err == nil && u.Scheme == "https" &&
+		u.Host == "tokendance.space" && strings.HasPrefix(u.Path, tokenDanceSessionsPath) {
+		return u.String()
+	}
+	if id == "" {
+		return ""
+	}
+	return tokenDanceRoot + tokenDanceSessionsPath + "/" + url.PathEscape(id)
+}
+
+// idFromStatusURL is the session id at the end of its query address.
+func idFromStatusURL(statusURL string) string {
+	u, err := url.Parse(strings.TrimSpace(statusURL))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(u.Path[strings.LastIndex(u.Path, "/")+1:], "/")
 }
 
 // fetchTokenDanceSession reads a session's status from its own URL.
@@ -200,6 +229,10 @@ func fetchTokenDanceSession(key, statusURL string) (tokenDanceSession, error) {
 		Session tokenDanceSession `json:"session"`
 	}
 	err := tokenDanceDo(ctx, http.MethodGet, statusURL, key, nil, &res)
+	if res.Session.ID == "" {
+		res.Session.ID = idFromStatusURL(statusURL)
+	}
+	res.Session.StatusURL = tokenDanceStatusURL(statusURL, res.Session.ID)
 	return res.Session, err
 }
 
@@ -261,7 +294,7 @@ func tokenDanceKey() string {
 // ensureTokenDanceProvider adds the built-in provider to models.json when
 // it is not described there yet, with the compatibility flags this gateway
 // needs. An existing entry is left exactly as the user has it.
-func ensureTokenDanceProvider() error {
+func ensureTokenDanceProvider(apiKey string) error {
 	path := modelsJSONPath()
 	if path == "" {
 		return fmt.Errorf("找不到 pi 的配置目录")
@@ -281,19 +314,32 @@ func ensureTokenDanceProvider() error {
 		providers = map[string]any{}
 		root["providers"] = providers
 	}
-	if _, ok := providers[tokenDanceProvider]; ok {
-		return nil
+	apiKey = strings.TrimSpace(apiKey)
+	entry, _ := providers[tokenDanceProvider].(map[string]any)
+	changed := false
+	if entry == nil {
+		entry = map[string]any{
+			"api":     "openai-completions",
+			"baseUrl": tokenDanceGateway,
+			"compat": map[string]any{
+				"supportsDeveloperRole":                       false,
+				"supportsReasoningEffort":                     true,
+				"requiresReasoningContentOnAssistantMessages": true,
+			},
+			"headers": map[string]any{"X-App-URL": tokenDanceAppURL},
+			"models":  []any{},
+		}
+		providers[tokenDanceProvider] = entry
+		changed = true
 	}
-	providers[tokenDanceProvider] = map[string]any{
-		"api":     "openai-completions",
-		"baseUrl": tokenDanceGateway,
-		"compat": map[string]any{
-			"supportsDeveloperRole":                       false,
-			"supportsReasoningEffort":                     true,
-			"requiresReasoningContentOnAssistantMessages": true,
-		},
-		"headers": map[string]any{"X-App-URL": appRepoURL},
-		"models":  []any{},
+	// The key lives beside the provider, as pi's own editor writes it; a
+	// blank one leaves whatever is stored alone.
+	if apiKey != "" && strings.TrimSpace(strField(entry["apiKey"])) != apiKey {
+		entry["apiKey"] = apiKey
+		changed = true
+	}
+	if !changed {
+		return nil
 	}
 	data, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
@@ -328,7 +374,11 @@ func tokenDanceMerge(existing []modelConfig, catalog []tokenDanceModel) (merged 
 		}
 		seen[m.ID] = true
 		if _, ok := byID[m.ID]; !ok {
-			merged = append(merged, modelConfig{ID: m.ID, Name: m.Name, ContextWindow: m.ContextLength})
+			fresh := modelConfig{ID: m.ID, Name: m.Name}
+			if m.ContextLength > 0 {
+				fresh.ContextWindow = m.ContextLength
+			}
+			merged = append(merged, fresh)
 			added++
 			continue
 		}

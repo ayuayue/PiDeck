@@ -68,7 +68,7 @@ func TestTokenDanceKeySource(t *testing.T) {
 func TestEnsureTokenDanceProvider(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
-	if err := ensureTokenDanceProvider(); err != nil {
+	if err := ensureTokenDanceProvider(""); err != nil {
 		t.Fatal(err)
 	}
 	cfgs := readProviderConfigs()
@@ -94,7 +94,7 @@ func TestEnsureTokenDanceProvider(t *testing.T) {
 
 	// A second call keeps the file as it is.
 	before := string(raw)
-	if err := ensureTokenDanceProvider(); err != nil {
+	if err := ensureTokenDanceProvider(""); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.ReadFile(filepath.Join(dir, "models.json"))
