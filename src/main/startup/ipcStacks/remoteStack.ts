@@ -5,6 +5,7 @@ import { isRemoteProject } from "../../../shared/projectLocation";
 import type { PiResourceManagerPool } from "../../config/PiResourceManagerPool";
 import type { BuiltInExtensionPathRoots } from "../../extensions/builtInExtensions";
 import { registerRemoteGitReadIpc } from "../../ipc/remoteGitReadIpc";
+import { registerRemoteGitRefWatchIpc } from "../../ipc/remoteGitRefWatchIpc";
 import { registerRemoteHostIpc } from "../../ipc/remoteHostIpc";
 import { registerRemoteHostRebindIpc } from "../../ipc/remoteHostRebindIpc";
 import { registerRemoteProjectEntryIpc } from "../../ipc/remoteProjectEntryIpc";
@@ -117,6 +118,7 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 					ctx.getRemoteTerminalManager()?.closeHost(hostId);
 					// helper 的 watcher 已随会话一起死：丢掉登记，不把旧 watchId 当有效。
 					remoteProjectFacts?.onHostDisconnected(hostId);
+					remoteGitRefWatch?.forgetHost(hostId);
 				},
 				// Push every transition to the window: `connect()` only returns the state it reached, so
 				// anything afterwards (degradation, reconnect, the shutdown after ready) is invisible without
@@ -127,9 +129,16 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 					mainWindow.webContents.send(ipcChannels.remoteHostStateChanged, { hostId, state: state.state });
 				},
 				// helper 1.24.0 的变更事件：只标脏事实，不触发装载（重读仍由读的人决定）。
-				onHelperEvent: (entry) => remoteProjectFacts?.onHelperEvent(entry),
+				// 目录订阅与 refs 订阅各自有登记表：先给目录，再给 refs（同一个 watchId 不会同时命中两边）。
+				onHelperEvent: (entry) => {
+					remoteProjectFacts?.onHelperEvent(entry);
+					remoteGitRefWatch?.onHelperEvent(entry);
+				},
 				// root 会话退休（TTL/LRU/latched/显式）与主机断开是两件事：只清这个 root 的登记，不关终端。
-				onRootRetired: (entry) => remoteProjectFacts?.onRootRetired(entry),
+				onRootRetired: (entry) => {
+					remoteProjectFacts?.onRootRetired(entry);
+					remoteGitRefWatch?.forgetSession(entry.hostId, entry.sessionKey);
+				},
 			});
 			remoteHostService = service;
 			quitCleanup.register("remote-host", () => remoteHostService?.dispose());
@@ -213,6 +222,11 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 				onRootRetired(entry: { hostId: string; root: string; sessionKey: string }): void;
 		  }
 		| undefined;
+	/**
+	 * 远端 refs 变化订阅（`git:remote-watch-refs`）：上面两个回调在连接服务构造时就已绑好，而本模块在
+	 * Git IPC 之后才能建（要复用它的 facts hub 与 trust/locator），因此同样晚绑定。
+	 */
+	let remoteGitRefWatch: ReturnType<typeof registerRemoteGitRefWatchIpc> | undefined;
 	/** 目录与 Git 共用的事实变化通知出口（T4）：订阅按 sender + project，事件只标脏。 */
 	const remoteFactsEvents = createRemoteFactsHub(ipcChannels.remoteProjectFactsChanged);
 	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
@@ -264,6 +278,23 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 		},
 	});
 	quitCleanup.register("remote-git-reads", remoteGitReads.dispose);
+	// 远端 refs 变化订阅（只标脏、不装载）：在 Git 读之后建（共用 facts hub / trust / locator），
+	// 事件由上面的 onHelperEvent 扇出；项目集变化时清掉已关闭项目的登记。
+	remoteGitRefWatch = registerRemoteGitRefWatchIpc({
+		enabled: remoteFeatureEnabled,
+		service: remoteHostServiceIfEnabled,
+		factsEvents: remoteFactsEvents,
+		trusted: async (target) => (await remoteProjectTrustService?.trustOverride({ hostId: target.hostId, remoteRoot: target.remotePath })) === "approve",
+		locator: (projectId) => {
+			const project = projectStore.get(projectId);
+			return project && isRemoteProject(project) ? project.locator : undefined;
+		},
+	});
+	quitCleanup.register("remote-git-ref-watch", () => remoteGitRefWatch?.dispose());
+	quitCleanup.register(
+		"remote-git-ref-watch-prune",
+		projectStore.onChanged(() => void remoteGitRefWatch?.pruneClosed()),
+	);
 	// T6 收尾：目录页的 Git ignore 修饰接在 Git IPC 之后（仓库归因与能力门控都在那边）。
 	remoteProjectIpc.setIgnoreProbe((projectId, paths) => remoteGitReads.probeIgnore(projectId, paths));
 	const remoteProjectTextPort = registerRemoteProjectFileIpc({

@@ -15,6 +15,8 @@ import {
 } from "./projectServiceContracts";
 import type { ProjectServiceFence } from "./projectServiceContracts";
 import { assertProjectTarget, assertProjectTargets, assertRepoScope, fenceProjectGitService } from "./projectServiceFence";
+import { createLocalGitHistoryMethods, createRemoteGitHistoryMethods } from "./projectGitHistoryExtras";
+import { createRemoteProjectGitExtras, remoteSyncTarget } from "./remoteProjectGitExtras";
 import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitReadSnapshot, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceFileDiff, RemoteGitCommitDetail, RemoteGitRefFileDiff, WorktreeEntry } from "../../../shared/types/git";
 
 const GIT_UNSUPPORTED = {
@@ -31,12 +33,12 @@ const GIT_UNSUPPORTED = {
 } as const;
 
 function unsupported(detail: string): ProjectServiceError {
-	return new ProjectServiceError(PROJECT_SERVICE_CODES.unsupported, "rejected", detail);
+	return new ProjectServiceError(PROJECT_SERVICE_CODES.unsupported, "rejected", undefined, detail);
 }
 
-/** 远端通道的失败信封只有稳定码：outcome 由闭集推出，GIT_WRITE_RESULT_UNCONFIRMED 是 unknown（禁止重放）。 */
-function remoteFailure(code: string, detail: string): ProjectServiceError {
-	return new ProjectServiceError(code, opOutcomeOf(code), detail);
+/** 远端通道的失败信封只有稳定码（outcome 由闭集推出，GIT_WRITE_RESULT_UNCONFIRMED 是 unknown，禁止重放）；两条文本通道的边界见 ProjectServiceError。 */
+function remoteFailure(code: string, internal: string, message?: string): ProjectServiceError {
+	return new ProjectServiceError(code, opOutcomeOf(code), message !== undefined && message.length > 0 ? message : undefined, internal);
 }
 
 /** 远端写缺授权：helper 没有声明该动作，快照里就没有对应令牌——在触达写通道之前拒绝。 */
@@ -62,15 +64,15 @@ function createReadFace(projectId: string, api: ProjectServicesApi): Pick<Projec
 			assertRepoScope(projectId, repoPath);
 			return api.git.refs(projectId, repoPath);
 		},
-		async compare(base, head, repoPath): Promise<GitCompareRefsValue> {
+		async compare(base, head, repoPath, mode): Promise<GitCompareRefsValue> {
 			assertRepoScope(projectId, repoPath);
-			return unwrapOp(await api.git.compareRefs(projectId, base, head, repoPath), PROJECT_SERVICE_CODES.failed);
+			return unwrapOp(await api.git.compareRefs(projectId, base, head, repoPath, mode), PROJECT_SERVICE_CODES.failed);
 		},
 		async workspaceDiff(group, file, repoPath): Promise<GitWorkspaceFileDiff> {
 			assertProjectTarget(projectId, file);
 			assertRepoScope(projectId, repoPath);
 			const diff = await api.git.workspaceFileDiff(projectId, group, file, repoPath);
-			if (diff === null) throw new ProjectServiceError(PROJECT_SERVICE_CODES.failed, "rejected", "workspace diff returned no result");
+			if (diff === null) throw new ProjectServiceError(PROJECT_SERVICE_CODES.failed, "rejected", undefined, "workspace diff returned no result");
 			return diff;
 		},
 	};
@@ -80,6 +82,7 @@ function createReadFace(projectId: string, api: ProjectServicesApi): Pick<Projec
 export function createLocalProjectGitService(projectId: string, api: ProjectServicesApi, fence: ProjectServiceFence): ProjectGitService {
 	const service: ProjectGitService = {
 		...createReadFace(projectId, api),
+		...createLocalGitHistoryMethods({ api, projectId, fence }),
 		async refresh(repoPath): Promise<GitResourceGroups> {
 			assertRepoScope(projectId, repoPath);
 			// 本机 status 是直接读子进程，没有跨请求的事实缓存，因此 refresh 与 status 同源。
@@ -183,7 +186,7 @@ export function createLocalProjectGitService(projectId: string, api: ProjectServ
 }
 
 /** 快照里的令牌字段；每个动作只能消费自己那一张。 */
-type RemoteGrantKey = "mutationToken" | "commitToken" | "branchToken" | "switchToken" | "discardToken" | "restoreToken" | "dropToken" | "fetchToken" | "pushToken" | "pullToken";
+type RemoteGrantKey = "mutationToken" | "commitToken" | "branchToken" | "switchToken" | "discardToken" | "restoreToken" | "dropToken" | "fetchToken" | "pushToken" | "pullToken" | "cherryPickToken" | "revertToken" | "resetToken" | "dropCommitToken";
 
 type StageGroup = "merge" | "workingTree" | "untracked";
 
@@ -247,7 +250,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 		// 先推进序号：main 在读到事实之前就撤销了旧令牌，即使这次读抛错（IPC 异常），旧桶也必须失效。
 		const sequence = ++issued;
 		const result = await api.git.remoteSnapshot(projectId, scopeOf(repoPath));
-		if (!result.ok) throw remoteFailure(result.code, "remote git snapshot refused");
+		if (!result.ok) throw remoteFailure(result.code, "remote git snapshot refused", result.message);
 		buckets.set(key, { snapshot: result.snapshot, sequence });
 		return result.snapshot;
 	}
@@ -271,9 +274,17 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 		buckets.delete(key);
 	}
 
+	/** 取令牌 → 执行 → 无论成败都作废这份事实（写一旦发出，桶就旧了）。 */
+	function withGrant<T>(repoPath: ProjectFileTarget | undefined, key: RemoteGrantKey, action: string, task: (token: string) => Promise<T>): Promise<T> {
+		const scope = keyOf(repoPath);
+		return grantFor(repoPath)
+			.then((snapshot) => task(grantToken(snapshot, key, action)))
+			.finally(() => dropBucket(scope));
+	}
+
 	async function readBranches(repoPath: ProjectFileTarget | undefined): Promise<GitBranchInfo> {
 		const result = await api.git.remoteRefs(projectId, scopeOf(repoPath));
-		if (!result.ok) throw remoteFailure(result.code, "remote git refs refused");
+		if (!result.ok) throw remoteFailure(result.code, "remote git refs refused", result.message);
 		return { current: result.refs.branch, branches: result.refs.refs.filter((ref) => ref.kind === "branch").map((ref) => ref.name) };
 	}
 
@@ -283,7 +294,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 			const snapshot = await grantFor(repoPath);
 			const token = grantToken(snapshot, "branchToken", "create branch");
 			const result = await api.git.createRemoteBranch(projectId, name, token, scopeOf(repoPath));
-			if (!result.ok) throw remoteFailure(result.code, "remote git create branch failed");
+			if (!result.ok) throw remoteFailure(result.code, "remote git create branch failed", result.message);
 		} finally {
 			dropBucket(key);
 		}
@@ -295,7 +306,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 			const snapshot = await grantFor(repoPath);
 			const token = grantToken(snapshot, "switchToken", "switch branch");
 			const result = await api.git.switchRemoteBranch(projectId, name, token, scopeOf(repoPath));
-			if (!result.ok) throw remoteFailure(result.code, "remote git switch branch failed");
+			if (!result.ok) throw remoteFailure(result.code, "remote git switch branch failed", result.message);
 		} finally {
 			dropBucket(key);
 		}
@@ -303,7 +314,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 
 	async function readSyncFacts(repoPath: ProjectFileTarget | undefined): Promise<ProjectGitSyncFacts> {
 		const result = await api.git.syncFacts(projectId, scopeOf(repoPath));
-		if (!result.ok) throw remoteFailure(result.code, "remote git sync facts refused");
+		if (!result.ok) throw remoteFailure(result.code, "remote git sync facts refused", result.message);
 		const facts = result.facts;
 		return { branch: facts.branch, upstream: facts.upstream, ahead: facts.ahead, behind: facts.behind, remotes: [...facts.remotes] };
 	}
@@ -311,27 +322,22 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 	async function readCommitDetail(oid: string, repoPath: ProjectFileTarget | undefined): Promise<RemoteGitCommitDetail> {
 		assertProjectServiceCurrent(fence);
 		const result = await api.git.remoteCommitDetail(projectId, oid, scopeOf(repoPath));
-		if (!result.ok) throw remoteFailure(result.code, "remote git commit detail refused");
+		if (!result.ok) throw remoteFailure(result.code, "remote git commit detail refused", result.message);
 		return result.detail;
 	}
 
 	async function readRefFileDiff(base: string | null, head: string, target: ProjectFileTarget, repoPath: ProjectFileTarget | undefined): Promise<RemoteGitRefFileDiff> {
 		assertProjectServiceCurrent(fence);
 		const result = await api.git.remoteRefFileDiff(projectId, base, head, target, scopeOf(repoPath));
-		if (!result.ok) throw remoteFailure(result.code, "remote git ref file diff refused");
+		if (!result.ok) throw remoteFailure(result.code, "remote git ref file diff refused", result.message);
 		return result.diff;
 	}
 
 	/** 契约缺口：同步方法没有 remote 参数。0 个 remote 是确定失败；>1 个无法替用户选，显式 unsupported。 */
 	function resolveRemote(facts: ProjectGitSyncFacts): string {
-		if (facts.remotes.length === 0) throw new ProjectServiceError("GIT_SYNC_REMOTE_UNKNOWN", "rejected", "remote git has no configured remote");
+		if (facts.remotes.length === 0) throw new ProjectServiceError("GIT_SYNC_REMOTE_UNKNOWN", "rejected", undefined, "remote git has no configured remote");
 		if (facts.remotes.length > 1) throw unsupported(GIT_UNSUPPORTED.remoteSyncAmbiguous);
 		return facts.remotes[0];
-	}
-
-	function resolveBranch(facts: ProjectGitSyncFacts): string {
-		if (facts.branch === null || facts.branch.length === 0) throw unsupported(GIT_UNSUPPORTED.remoteSyncBranch);
-		return facts.branch;
 	}
 
 	const service: ProjectGitService = {
@@ -351,13 +357,13 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 				const factsOnly = api.git.refreshRemoteGitFacts;
 				if (typeof factsOnly === "function") {
 					const result = await factsOnly.call(api.git, projectId, scopeOf(repoPath));
-					if (!result.ok) throw remoteFailure(result.code, "remote git force refresh refused");
+					if (!result.ok) throw remoteFailure(result.code, "remote git force refresh refused", result.message);
 					return result.snapshot.groups;
 				}
 				const result = await api.git.refreshRemoteSnapshot(projectId, scopeOf(repoPath));
 				const sequence = ++issued;
 				// 失败绝不返回空 groups 冒充“干净仓库”；main 已撤销旧令牌，旧桶也随序号失效。
-				if (!result.ok) throw remoteFailure(result.code, "remote git force refresh refused");
+				if (!result.ok) throw remoteFailure(result.code, "remote git force refresh refused", result.message);
 				buckets.set(key, { snapshot: result.snapshot, sequence });
 				return result.snapshot.groups;
 			});
@@ -365,15 +371,6 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 		branches(repoPath): Promise<GitBranchInfo> {
 			assertRepoScope(projectId, repoPath);
 			return readBranches(repoPath);
-		},
-		async commitDetail(oid, repoPath): Promise<RemoteGitCommitDetail> {
-			assertRepoScope(projectId, repoPath);
-			return readCommitDetail(oid, repoPath);
-		},
-		async refFileDiff(base, head, target, repoPath): Promise<RemoteGitRefFileDiff> {
-			assertProjectTarget(projectId, target);
-			assertRepoScope(projectId, repoPath);
-			return readRefFileDiff(base, head, target, repoPath);
 		},
 		async cancelRemoteReads(): Promise<void> {
 			assertProjectServiceCurrent(fence);
@@ -417,7 +414,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 						const snapshot = await grantFor(repoPath);
 						const token = grantToken(snapshot, "mutationToken", "stage/unstage");
 						const result = await api.git.mutateRemoteIndex(projectId, "stage", stageGroupOf(snapshot, target), target, token, scopeOf(repoPath));
-						if (!result.ok) throw remoteFailure(result.code, "remote git stage failed");
+						if (!result.ok) throw remoteFailure(result.code, "remote git stage failed", result.message);
 					} finally {
 						dropBucket(key);
 					}
@@ -435,7 +432,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 						const snapshot = await grantFor(repoPath);
 						const token = grantToken(snapshot, "mutationToken", "stage/unstage");
 						const result = await api.git.mutateRemoteIndex(projectId, "unstage", "index", target, token, scopeOf(repoPath));
-						if (!result.ok) throw remoteFailure(result.code, "remote git unstage failed");
+						if (!result.ok) throw remoteFailure(result.code, "remote git unstage failed", result.message);
 					} finally {
 						dropBucket(key);
 					}
@@ -450,7 +447,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 					const snapshot = await grantFor(repoPath);
 					const token = grantToken(snapshot, "commitToken", "commit");
 					const result = await api.git.commitRemote(projectId, message, token, scopeOf(repoPath));
-					if (!result.ok) throw remoteFailure(result.code, "remote git commit failed");
+					if (!result.ok) throw remoteFailure(result.code, "remote git commit failed", result.message);
 				} finally {
 					dropBucket(key);
 				}
@@ -470,7 +467,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 						const snapshot = await grantFor(repoPath);
 						const token = grantToken(snapshot, "discardToken", "discard");
 						const result = await api.git.discardRemote(projectId, resource.group, resource.target, token, scopeOf(repoPath));
-						if (!result.ok) throw remoteFailure(result.code, "remote git discard failed");
+						if (!result.ok) throw remoteFailure(result.code, "remote git discard failed", result.message);
 						// 批量回滚只有一张收据：保留最后一个非空恢复快照；null 原样表示该次无需快照。
 						if (result.recoveryRef !== null) recoveryRef = result.recoveryRef;
 					} finally {
@@ -490,7 +487,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 					const snapshot = await grantFor(repoPath);
 					const token = grantToken(snapshot, "fetchToken", "fetch");
 					const result = await api.git.fetchRemote(projectId, remote, token, scopeOf(repoPath));
-					if (!result.ok) throw remoteFailure(result.code, "remote git fetch failed");
+					if (!result.ok) throw remoteFailure(result.code, "remote git fetch failed", result.message);
 				} finally {
 					dropBucket(key);
 				}
@@ -501,13 +498,12 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 			const key = keyOf(repoPath);
 			await enqueue(key, async () => {
 				const facts = await readSyncFacts(repoPath);
-				const remote = resolveRemote(facts);
-				const branch = resolveBranch(facts);
+				const { remote, branch } = remoteSyncTarget(facts);
 				try {
 					const snapshot = await grantFor(repoPath);
 					const token = grantToken(snapshot, "pullToken", "pull");
 					const result = await api.git.pullRemote(projectId, remote, branch, token, scopeOf(repoPath));
-					if (!result.ok) throw remoteFailure(result.code, "remote git pull failed");
+					if (!result.ok) throw remoteFailure(result.code, "remote git pull failed", result.message);
 				} finally {
 					dropBucket(key);
 				}
@@ -518,13 +514,12 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 			const key = keyOf(repoPath);
 			await enqueue(key, async () => {
 				const facts = await readSyncFacts(repoPath);
-				const remote = resolveRemote(facts);
-				const branch = resolveBranch(facts);
+				const { remote, branch } = remoteSyncTarget(facts);
 				try {
 					const snapshot = await grantFor(repoPath);
 					const token = grantToken(snapshot, "pushToken", "push");
 					const result = await api.git.pushRemote(projectId, remote, branch, token, scopeOf(repoPath));
-					if (!result.ok) throw remoteFailure(result.code, "remote git push failed");
+					if (!result.ok) throw remoteFailure(result.code, "remote git push failed", result.message);
 				} finally {
 					dropBucket(key);
 				}
@@ -537,7 +532,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 		async recoveryList(repoPath): Promise<ProjectGitRecoveryListing> {
 			assertRepoScope(projectId, repoPath);
 			const result = await api.git.recoveryList(projectId, scopeOf(repoPath));
-			if (!result.ok) throw remoteFailure(result.code, "remote git recovery list refused");
+			if (!result.ok) throw remoteFailure(result.code, "remote git recovery list refused", result.message);
 			return { entries: result.entries.map((entry) => ({ ref: entry.ref, oid: entry.oid, path: entry.path, bytes: entry.bytes, at: entry.at })), truncated: result.truncated };
 		},
 		async recoveryRestore(entry, repoPath) {
@@ -548,7 +543,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 					const snapshot = await grantFor(repoPath);
 					const token = grantToken(snapshot, "restoreToken", "recovery restore");
 					const result = await api.git.recoveryRestore(projectId, entry.ref, entry.oid, entry.path, token, scopeOf(repoPath));
-					if (!result.ok) throw remoteFailure(result.code, "remote git recovery restore failed");
+					if (!result.ok) throw remoteFailure(result.code, "remote git recovery restore failed", result.message);
 				} finally {
 					dropBucket(key);
 				}
@@ -562,7 +557,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 					const snapshot = await grantFor(repoPath);
 					const token = grantToken(snapshot, "dropToken", "recovery drop");
 					const result = await api.git.recoveryDrop(projectId, entry.ref, entry.oid, token, scopeOf(repoPath));
-					if (!result.ok) throw remoteFailure(result.code, "remote git recovery drop failed");
+					if (!result.ok) throw remoteFailure(result.code, "remote git recovery drop failed", result.message);
 				} finally {
 					dropBucket(key);
 				}
@@ -576,16 +571,13 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 				if (!result.ok) {
 					// 结果未知时仓库可能已经建好：旧快照的令牌随之失效，必须重新确认（未知绝不重放）。
 					if (opOutcomeOf(result.code) === "unknown") buckets.clear();
-					throw remoteFailure(result.code, "remote git init failed");
+					throw remoteFailure(result.code, "remote git init failed", result.message);
 				}
 				// 新仓库让此前的事实与令牌全部失效；桶一律作废（最坏只多一次确认）。
 				buckets.clear();
 				return result.branch;
 			});
 			return { branch };
-		},
-		async deleteFiles(): Promise<void> {
-			throw unsupported(GIT_UNSUPPORTED.remoteDeleteFiles);
 		},
 		async worktreeList(): Promise<WorktreeEntry[]> {
 			throw unsupported(GIT_UNSUPPORTED.remoteWorktree);
@@ -602,6 +594,9 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 			// 没有上游就没有“领先/落后”这件事实；null 比 0/0 更诚实。
 			return facts.upstream === null ? null : { ahead: facts.ahead, behind: facts.behind };
 		},
+
+		...createRemoteProjectGitExtras({ api, projectId, fence, scopeOf, remoteFailure }),
+		...createRemoteGitHistoryMethods({ api, projectId, scopeOf, remoteFailure, withGrant }),
 	};
 	return fenceProjectGitService(fence, service);
 }

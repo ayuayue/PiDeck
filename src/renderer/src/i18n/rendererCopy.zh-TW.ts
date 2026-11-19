@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 4a1cf7509b67d0f3c9a48f0ab7a11f9592aa4b228fc1a77a7f1b2e86526c5a43（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 1c81aad077f27455458ab7ff665b0cbfaa27b01e12ae37529e158afbe26e4f4a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -962,6 +962,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"git.commitFailed": "提交失敗",
 	"git.operationFailed": "Git 操作失敗",
 	"git.compareFailed": "分支對比失敗",
+	"git.recoveryFailed": "可還原丟棄操作失敗",
 	"git.pushNoUpstreamTitle": "推送失敗：分支未設定上游",
 	"git.pushNoUpstreamDesc": "當前分支 {branch} 還沒有上游分支，可在終端執行以下命令建立上游後重試：\n{command}",
 	"git.deleteFile": "刪除檔案",
@@ -2474,6 +2475,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.mcp.draftBlocked": "有未儲存的 MCP 修改。檢測與登入讀取的是磁碟配置，請先儲存再執行。",
 	"config.mcp.disableInstead": "停用",
 	"config.mcp.probe": "檢查可達性",
+	"config.mcp.remoteProbeUnsupported": "SSH 主機上的伺服器不在本機網路內，本機探測的結論會失真。換用「檢測連線」：它在那臺主機上真實執行。",
 	"config.mcp.probing": "檢查中…",
 	"config.mcp.probeOk": "可達",
 	"config.mcp.smartAdd.title": "新增 MCP 伺服器",
@@ -6303,6 +6305,17 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.remote.cf.desc": "生成臨時公網地址，手機無需安裝任何客戶端即可訪問；地址每次啟動會變化",
 	"settings.remote.cf.starting": "正在等待 Cloudflare 分配地址…",
 	"settings.remote.cf.urlHint": "任何裝置瀏覽器直接開啟即可；每次重啟地址會變，重啟後請複製新地址",
+	"settings.remote.pub.title": "自定義公網地址（固定連結）",
+	"settings.remote.pub.desc": "已用 Cloudflare 命名隧道、反向代理或自有域名把本機埠對映到公網時填寫，生成的訪問連結重啟後不變",
+	"settings.remote.pub.statusUnset": "未設定",
+	"settings.remote.pub.statusReady": "固定連結",
+	"settings.remote.pub.urlLabel": "公網地址",
+	"settings.remote.pub.urlPlaceholder": "https://pideck.example.com",
+	"settings.remote.pub.inputHint": "只填域名根地址（補全 https，路徑會被忽略）；該地址必須已轉發到本機 Web 服務的監聽埠，儲存後生效",
+	"settings.remote.pub.linkHint": "固定連結，重啟不變；拿到連結的人可訪問你的會話，請妥善保管",
+	"settings.remote.pub.emptyHint": "填寫並儲存後生成固定訪問連結",
+	"settings.remote.lite.title": "移動端相容（PiDeck Lite）",
+	"settings.remote.lite.desc": "開啟後，PiDeck Lite 手機 App 可用本頁任一地址與令牌連線：瀏覽專案/會話/對話，傳送訊息、即時查看回復、切換模型與思考、停止/改名/刪除、回答確認；瀏覽器訪問不受影響",
 	"settings.remote.ts.title": "Tailscale（私有組網）",
 	"settings.remote.ts.desc": "端到端加密的虛擬區域網，手機安裝 Tailscale 並登入同一帳號後訪問；不暴露公網",
 	"settings.remote.ts.loginRequired": "已檢測到 tailscale，但尚未登入或未連線。請先在系統 Tailscale 客戶端登入，然後點「重新檢測」。",

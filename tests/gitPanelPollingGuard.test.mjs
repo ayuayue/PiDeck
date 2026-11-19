@@ -118,7 +118,7 @@ test("非 git 仓库 / 未安装 git 时暂停 5 分钟 fetch 远程轮询", () 
 test("外层 render 重新包装 Git API 时不触发额外 status 刷新", () => {
 	const refreshBlock = panel.slice(panel.indexOf("const refresh = useCallback"), panel.indexOf("// 打开 Git drawer 时首次加载"));
 	// getStatus 通过 ref 读取，refresh 的身份只随项目/仓库作用域变化。
-	assert.match(refreshBlock, /getStatusRef\.current\(projectId\)/);
+	assert.match(refreshBlock, /getStatusRef\.current\(projectId, \{ force: !silent \}\)/);
 	assert.match(refreshBlock, /\[props\.projectId, repoScopeKey, refreshAheadBehind\]/);
 	assert.doesNotMatch(refreshBlock, /props\.getStatus\(projectId\)/);
 });

@@ -12,6 +12,22 @@ import { Button } from "../ui-shadcn/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
 
 /**
+ * 远端文件预览/编辑的宿主外框（抽屉文件栏的底部区域）。
+ *
+ * 为什么它必须自己拿高度而不能只写 `flex-1`：宿主以前是滚动区（`.files-panel`）里 `basis:0` 的 flex-1
+ * 兄弟，目录树一旦超过抽屉高度，负剩余空间就把它压成 0 高——用户点远端文件看到的是「什么都没发生」。
+ * 贴底悬挂（sticky）+ 自带占比与下限后，树再长也总能看见预览；不透明底色避免滑过的树行透出来。
+ */
+export function RemoteFilePreviewPane(props: { services: ProjectServices; path: string; canWrite?: boolean }) {
+	// scroll-ok: bounded —— 单文件预览宿主，内部只有一个 CodeMirror 编辑器，没有行列表可虚拟化；高度是固定占比 + 下限。
+	return (
+		<div data-testid="remote-file-preview" className="sticky bottom-0 z-20 flex h-[40%] min-h-40 shrink-0 flex-col overflow-y-auto border-t border-border/40 bg-bg-page-raised pt-2">
+			<RemoteFileEditor services={props.services} path={props.path} canWrite={props.canWrite} />
+		</div>
+	);
+}
+
+/**
  * 复用CodeMirror的远端编辑宿主；不触达本机files API，不自动保存或自动丢弃冲突草稿。
  *
  * 图片走独立预览：远端文本通道拒绝非 UTF-8 内容，把 PNG 喂给草稿编辑器只会得到

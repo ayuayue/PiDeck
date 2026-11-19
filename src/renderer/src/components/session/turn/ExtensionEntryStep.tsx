@@ -6,6 +6,7 @@ import { SingleLinePreview } from "../SingleLinePreview";
 import { formatTime } from "../TimelineFormat";
 import { formatExtensionEntryFields } from "../extensionEntry";
 import { Collapsible, CollapsibleContent } from "../../ui-shadcn/collapsible";
+import { useProcessEntryStickyHeader } from "./useProcessEntryStickyHeader";
 
 /**
  * ExtensionEntryStep — 过程组内的扩展输出成员行。
@@ -28,6 +29,7 @@ export const ExtensionEntryStep = memo(function ExtensionEntryStep(props: { mess
 
 function ExtensionEntryRow(props: { message: ChatMessage }) {
 	const [expanded, setExpanded] = useState(false);
+	const sticky = useProcessEntryStickyHeader(expanded);
 	const meta = props.message.meta ?? {};
 	const customType = String(meta.customType ?? "");
 	const fields = formatExtensionEntryFields(meta.data);
@@ -38,7 +40,10 @@ function ExtensionEntryRow(props: { message: ChatMessage }) {
 			<button
 				type="button"
 				className="flex min-h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-0.5 py-1 text-left text-chat-row text-text-tertiary transition-colors duration-fast hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,transparent)] hover:text-text-secondary focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
-				onClick={() => setExpanded((value) => !value)}
+				onClick={() => {
+					sticky.prepareToggle(!expanded);
+					setExpanded((value) => !value);
+				}}
 				aria-expanded={expanded}
 				title={expanded ? t("notify.collapse") : t("notify.expand")}
 			>

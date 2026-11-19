@@ -96,7 +96,8 @@ export const LOCAL_PROJECT_SERVICE_METHODS: ProjectServiceMethodSupport = {
 	gitBranchCreateMode: "create-and-checkout",
 	gitSync: true,
 	gitSyncFacts: false,
-	gitRecovery: false,
+	// 本机丢弃现在也在改写工作区前留快照（refs/pideck/recovery/*），与远端同一套恢复语义。
+	gitRecovery: true,
 	gitWorktree: true,
 	gitInit: true,
 	gitForceRefresh: true,
@@ -109,8 +110,8 @@ export const LOCAL_PROJECT_SERVICE_METHODS: ProjectServiceMethodSupport = {
 /**
  * 远端：文件读写由既有 helper 通道承担；Git 读/强刷由 main 路由，写面走 main 逐操作签发的令牌。
  * 能力只决定 UI 入口，不替代 main 的授权：每一项在 helper 未声明时仍由 helperBlock 关闭。
- * autoFetch 恒 false（远端只在显式同步时联网）；worktree/deleteFiles 保持不可用（远端无本机 .git 目录，
- * 删除归文件服务回收站路径）。
+ * autoFetch 与本机同节奏（面板打开后 5 分钟一次 fetch，失败静默）；worktree 保持不可用（远端没有本机
+ * .git 目录）；删除走文件服务回收站，所以 deleteFiles 同样开放。
  */
 export const REMOTE_PROJECT_SERVICE_METHODS: ProjectServiceMethodSupport = {
 	systemOpen: false,
@@ -131,10 +132,13 @@ export const REMOTE_PROJECT_SERVICE_METHODS: ProjectServiceMethodSupport = {
 	gitWorktree: false,
 	gitInit: true,
 	gitForceRefresh: true,
-	gitAutoFetch: false,
+	// 与本机同一节奏：打开面板后每 5 分钟一次 fetch（只改远程跟踪引用，不合并、不改工作区）。
+	// 失败静默：离线/无 remote 时保留上一次 behind，不把网络故障变成面板错误。
+	gitAutoFetch: true,
 	gitStatusPoll: true,
 	gitRefsWatch: true,
-	gitDeleteFiles: false,
+	// 远端删除走文件服务回收站（files.trash），不是 git discard：面板的「删除」入口因此同样开放。
+	gitDeleteFiles: true,
 };
 
 function declares(facts: ProjectServiceFacts, method: string): boolean {

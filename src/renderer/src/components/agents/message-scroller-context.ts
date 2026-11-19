@@ -1,4 +1,4 @@
-import { createContext, useCallback, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 
 /** 会话内的长内容共用滚动几何与定位入口，不创建额外视口或跟随状态。 */
 export type MessageScrollerGeometry = {
@@ -8,6 +8,21 @@ export type MessageScrollerGeometry = {
 };
 
 export const MessageScrollerGeometryContext = createContext<MessageScrollerGeometry | null>(null);
+
+/**
+ * 「布局即将当场长高」的操作前暂停会话跟底（展开执行过程 / 展开过程组等）。
+ *
+ * 只用于这些明确的增高入口，不要在容器上挂 `onClickCapture`：整块捕获等于
+ * 「点一下就永久停掉实时跟随」，点外链/划选/复制都被误伤（2026-11 修正）。
+ * 会话外（无几何）时为 no-op。
+ */
+export function usePauseSessionFollow(): () => void {
+	const geometry = useContext(MessageScrollerGeometryContext);
+	return useCallback(() => {
+		const scroll = geometry?.scrollRef.current;
+		if (scroll) geometry?.restoreAt(scroll.scrollTop);
+	}, [geometry]);
+}
 
 /** 一个会话共用一条 scroll 监听、一份尺寸观察与一帧调度。 */
 export function useMessageScrollerGeometry(scrollRef: RefObject<HTMLElement | null>, contentRef: RefObject<HTMLElement | null>, restoreAt: (scrollTop: number) => void): MessageScrollerGeometry {

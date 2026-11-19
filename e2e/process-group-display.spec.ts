@@ -113,7 +113,7 @@ async function expectSharedTextBaseline(row: import("@playwright/test").Locator,
 test.describe("开关开启：过程组显示", () => {
 	test.use({ seedSettings: { processGroupDisplay: true } });
 
-	test("组头与内容列同宽，且组体随会话自然展开", async ({ window }) => {
+	test("组头与内容列同宽，组体限高且滚动条隐藏", async ({ window }) => {
 		test.setTimeout(90_000);
 		await runProcessTurn(window);
 
@@ -134,16 +134,28 @@ test.describe("开关开启：过程组显示", () => {
 		expect(headMetrics.parentWidth).toBeGreaterThan(0);
 		expect(headMetrics.selfWidth).toBeGreaterThan(headMetrics.parentWidth - 2);
 
-		// ② 组体自然展开，不再限高、拦截纵向滚轮或另设追底视口。
-		const scroller = window.locator("[data-process-group-content]").first();
+		// ② 组体是限高视口：≈ min(640px,60vh)（行高 28px ≈ 22 行）、滚动条隐藏、到边不切断滚动链。
+		//    限高只在这一层，内容盒必须保持自然高度（否则就是双层滚动条）。
+		const scroller = window.locator("[data-process-group-scroller]").first();
 		await expect(scroller).toBeVisible({ timeout: 10_000 });
 		const scrollerStyle = await scroller.evaluate((el) => {
 			const style = getComputedStyle(el);
-			return { maxHeight: style.maxHeight, overflowY: style.overflowY, overscrollY: style.overscrollBehaviorY };
+			return { maxHeight: Number.parseFloat(style.maxHeight), overflowY: style.overflowY, scrollbarWidth: style.scrollbarWidth, overscrollY: style.overscrollBehaviorY };
 		});
-		expect(scrollerStyle.overflowY).toBe("visible");
-		expect(scrollerStyle.maxHeight).toBe("none");
+		expect(scrollerStyle.overflowY).toBe("auto");
+		expect(scrollerStyle.scrollbarWidth).toBe("none");
+		expect(scrollerStyle.maxHeight).toBeGreaterThan(200);
+		expect(scrollerStyle.maxHeight).toBeLessThanOrEqual(640);
 		expect(scrollerStyle.overscrollY).toBe("auto");
+		const contentStyle = await window
+			.locator("[data-process-group-content]")
+			.first()
+			.evaluate((el) => {
+				const style = getComputedStyle(el);
+				return { maxHeight: style.maxHeight, overflowY: style.overflowY };
+			});
+		expect(contentStyle.overflowY).toBe("visible");
+		expect(contentStyle.maxHeight).toBe("none");
 
 		// ③ 组体里必须是**既有的**工具行（复用 ToolCard，不新造行样）
 		await expect(window.locator("[data-process-group-body] .tool-card").first()).toBeVisible({ timeout: 15_000 });
@@ -173,7 +185,7 @@ test.describe("开关开启：过程组显示", () => {
 		await expectSharedTextBaseline(toolRow, 3);
 	});
 
-	test("组内上滚交给会话并暂停跟随，回底入口恢复最新内容", async ({ app, window }) => {
+	test("组内先滚组体，到顶后上滚交给会话，回底入口恢复最新内容", async ({ app, window }) => {
 		test.setTimeout(90_000);
 		await app.evaluate(({ BrowserWindow }) => {
 			const win = BrowserWindow.getAllWindows()[0];
@@ -185,14 +197,40 @@ test.describe("开关开启：过程组显示", () => {
 		await composer.fill("SLOW TOOLMANY 30 unified-scroll");
 		await window.keyboard.press("Enter");
 		const timeline = window.locator(".message-timeline").first();
-		const content = window.locator("[data-process-group-content]").first();
-		await expect.poll(() => content.locator(".tool-card").count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(20);
-		await content.locator(".tool-card").last().hover();
-		await window.mouse.wheel(0, -180);
+		const body = window.locator("[data-process-group-scroller]").first();
+		await expect.poll(() => body.locator(".tool-card").count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(20);
 		const bottomGap = () => timeline.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+		const innerGap = () => body.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+		// 运行中的最新组自动展开并贴底（外层时间线收不到增高通知，跟底在组体内部）。
+		await expect.poll(innerGap, { timeout: 20_000 }).toBeLessThanOrEqual(4);
+
+		// 不用 locator.hover：组体比视口高时 Playwright 会先把组体顶滚进视口，那一下就把
+		// 会话位置改掉了，测的就不是「滚轮归属」。这里只把鼠标移到组体可见区域内。
+		const pointInsideBody = () =>
+			body.evaluate((element) => {
+				const rect = element.getBoundingClientRect();
+				const top = Math.max(rect.top, 0);
+				const bottom = Math.min(rect.bottom, window.innerHeight);
+				return { x: rect.left + 60, y: (top + bottom) / 2 };
+			});
+
+		// ① 组内还有余量：上滚只动组体，会话一像素不动，跟随态不变（没有“幽灵解锁”）。
+		const inside = await pointInsideBody();
+		await window.mouse.move(inside.x, inside.y);
+		const timelineBefore = await timeline.evaluate((element) => element.scrollTop);
+		await window.mouse.wheel(0, -180);
+		await expect.poll(innerGap).toBeGreaterThan(80);
+		expect(await timeline.evaluate((element) => element.scrollTop)).toBe(timelineBefore);
+		expect(await bottomGap()).toBeLessThanOrEqual(28);
+
+		// ② 组体到顶后继续上滚：手势交还会话，回底入口出现。
+		await body.evaluate((element) => {
+			element.scrollTop = 0;
+		});
+		await body.hover({ position: { x: 60, y: 60 }, force: true });
+		await window.mouse.wheel(0, -200);
 		await expect.poll(bottomGap).toBeGreaterThan(80);
 		await expect(window.locator("[data-scroll-to-bottom]")).toBeVisible();
-		expect(await content.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(2);
 		await window.locator("[data-scroll-to-bottom]").click();
 		await expect.poll(bottomGap).toBeLessThanOrEqual(28);
 	});

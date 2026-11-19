@@ -34,7 +34,7 @@ import { showNotice } from "../../utils/notice";
 
 import { isBinaryExtension, isImageFile, isPdfFile } from "../../utils/isTextFile";
 import { updateInstallPreflightTasksAtom } from "../../atoms/update-install-preflight";
-import { encodeHtmlPreviewUrl } from "../../../../shared/htmlPreview";
+import { HtmlPreview, openPreviewExternal } from "./preview/HtmlPreview";
 import { fileLoadErrorMessage } from "./fileLoadErrorMessage";
 
 /** 内容指纹（与主进程 localTextRevision 同一算法）：保存时带上它做乐观锁。 */
@@ -51,7 +51,6 @@ type ViewMode = "view" | "diff";
 const FILE_PREVIEW_REMARK_PLUGINS = [remarkGfmNoSingleTilde, remarkRecoverBoldAutolinks];
 // 文件预览同样渲染不可信内容（模型写的 .md 就可能是当前打开的文件）：复用统一净化序列，KaTeX 产物在 sanitize 之后生成
 const FILE_PREVIEW_REHYPE_PLUGINS = [...UNTRUSTED_MARKDOWN_REHYPE_PLUGINS, rehypeKatex];
-const noopOpenExternal = (): void => undefined;
 
 export function FileDiffViewer(props: {
 	active?: boolean;
@@ -747,11 +746,11 @@ export function FileDiffViewer(props: {
 							// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 							<div className="markdown-body markdown-preview-chrome h-full overflow-y-auto px-6 py-6 text-body text-text-primary font-sans">
 								<FileLinkBaseProvider baseDir={markdownPreviewBaseDir} projectId={props.fileTarget?.projectId ?? fileLinkContext.scope?.projectId} projectRoot={markdownPreviewProjectRoot} sessionId={fileLinkContext.sessionId}>
-									<MarkdownStream text={content} onOpenExternal={noopOpenExternal} remarkPlugins={FILE_PREVIEW_REMARK_PLUGINS} rehypePlugins={FILE_PREVIEW_REHYPE_PLUGINS} urlTransform={defaultUrlTransform} />
+									<MarkdownStream text={content} onOpenExternal={openPreviewExternal} remarkPlugins={FILE_PREVIEW_REMARK_PLUGINS} rehypePlugins={FILE_PREVIEW_REHYPE_PLUGINS} urlTransform={defaultUrlTransform} />
 								</FileLinkBaseProvider>
 							</div>
 						)}
-						{!isDiffMode && preview && isHtml && <HtmlPreview content={content} />}
+						{!isDiffMode && preview && isHtml && <HtmlPreview content={content} onOpenExternal={openPreviewExternal} />}
 						{/* view 模式、非预览：常规编辑器（CodeMirror 6）；有专属预览的二进制/表格文件不挂编辑器 */}
 						{!isDiffMode && !preview && !dedicatedPreview && (
 							<div style={{ height: "100%", flexDirection: "column" }}>
@@ -816,19 +815,4 @@ export function FileDiffViewer(props: {
 	}
 
 	return <div className="file-diff-viewer">{headerContent}</div>;
-}
-
-/**
- * HTML previews intentionally use an opaque-origin iframe. This restores the
- * dev preview interaction without giving project HTML the renderer's origin,
- * Electron bridge, popups, or file-system navigation privileges.
- */
-
-function HtmlPreview({ content }: { content: string }) {
-	// 走 pideck-html: 协议而非 srcDoc：srcdoc 会继承主窗口 CSP，把文件里的内联脚本整段拦掉（#377）。
-	// 协议文档的 CSP 由主进程响应头下发，与主窗口策略解耦，内联 <script> 才能正常执行。
-	const src = useMemo(() => encodeHtmlPreviewUrl(content), [content]);
-	// 超大文件不为跑脚本把整份内容塞进 URL：退回 srcDoc，至少能看到静态内容
-	const source = src ? { src } : { srcDoc: content };
-	return <iframe className="h-full w-full border-0 bg-[var(--color-bg-panel)]" {...source} title={t("editor.htmlPreview")} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", border: "none" }} />;
 }

@@ -70,9 +70,11 @@ test("a grant is bound to the repository scope it was minted for, and a scope mi
 	const nested = grants.issue(3, "project", nestedExpected);
 	assert.throws(() => grants.take(3, "project", "index", "", nested), /GIT_WRITE_SNAPSHOT_EXPIRED/, "a nested grant cannot drive the root scope");
 	assert.equal(grants.take(3, "project", "index", "packages/nested", nested).repoPath, "packages/nested");
-	// The same sender+project+kind refresh replaces the older scope's grant, so switching scope cannot leave a stale grant.
+	// 同 sender+project+kind 的刷新只替换**本仓库**的旧授权：多仓并排时另一仓的授权保持有效。
 	const rootAgain = grants.issue(4, "project", expected),
-		nestedAgain = grants.issue(4, "project", nestedExpected);
-	assert.throws(() => grants.take(4, "project", "index", "", rootAgain), /GIT_WRITE_SNAPSHOT_EXPIRED/, "a scope refresh replaces the same kind");
-	assert.equal(grants.take(4, "project", "index", "packages/nested", nestedAgain).repoPath, "packages/nested");
+		nestedAgain = grants.issue(4, "project", nestedExpected),
+		rootFresh = grants.issue(4, "project", expected);
+	assert.throws(() => grants.take(4, "project", "index", "", rootAgain), /GIT_WRITE_SNAPSHOT_EXPIRED/, "本仓刷新替换本仓同种授权");
+	assert.equal(grants.take(4, "project", "index", "packages/nested", nestedAgain).repoPath, "packages/nested", "另一仓的授权不被顶掉");
+	assert.equal(grants.take(4, "project", "index", "", rootFresh).repoPath, "");
 });

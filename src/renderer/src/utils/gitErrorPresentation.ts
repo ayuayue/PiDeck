@@ -49,3 +49,23 @@ export function remoteGitErrorMessage(code: string): string {
 	if (code === "REQUEST_TIMEOUT" || code === "TOO_MANY_REQUESTS") return t("remoteGit.timeout");
 	return t("remoteGit.failed");
 }
+
+/**
+ * 远端 Git 失败的**唯一文案出口**：每个面板、提示、toast 都走这里，不要自己拼。
+ *
+ * 顺序是硬约束：
+ * 1. `detail`（helper 带回来的 git/hook 原文）——与本机一样能看到真正的原因；
+ * 2. 闭集码词典；
+ * 3. 没有稳定码 = 不是远端失败信封（编程错误或非远端异常），保留原文便于定位。
+ *
+ * `ProjectServiceError.internal` 永远不参与：它是内部说明，上屏就是一句英文实现细节。
+ * `ProjectServiceError.message` 对一个有码的失败也不参与：那里存的就是稳定码本身。
+ */
+export function remoteGitErrorText(caught: unknown): string {
+	const error = caught as { code?: unknown; detail?: unknown } | null;
+	const detail = typeof error?.detail === "string" ? error.detail.trim() : "";
+	if (detail.length > 0) return detail;
+	const code = typeof error?.code === "string" && error.code.length > 0 ? error.code : undefined;
+	if (code !== undefined) return remoteGitErrorMessage(code);
+	return caught instanceof Error ? caught.message : String(caught);
+}

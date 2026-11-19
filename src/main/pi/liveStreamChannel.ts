@@ -77,6 +77,11 @@ export class LiveStreamChannel {
 		return this.streamingText.get(agentId);
 	}
 
+	/** 展示用实时正文：与 emit 同口径剥 ANSI（手机轮询接口直接消费，避免把控制字符带进 UI）。 */
+	getDisplayText(agentId: string): string {
+		return stripAnsi(this.streamingText.get(agentId) ?? "");
+	}
+
 	/**
 	 * 终态（message_end/settled/顶层 message_update done）：推一次最终累积文本
 	 * （done=true，渲染层由历史消息接管）后清整个正文通道。

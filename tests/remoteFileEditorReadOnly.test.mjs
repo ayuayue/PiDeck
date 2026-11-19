@@ -64,7 +64,7 @@ const stubs = {
 	},
 };
 
-const { RemoteFileEditor, remoteFileSaveShortcut, remoteFileEditorReadOnly } = loadTsCommonJs("src/renderer/src/components/workspace/RemoteFileEditor.tsx", { stubs });
+const { RemoteFileEditor, RemoteFilePreviewPane, remoteFileSaveShortcut, remoteFileEditorReadOnly } = loadTsCommonJs("src/renderer/src/components/workspace/RemoteFileEditor.tsx", { stubs });
 
 function render({ canWrite, draft = baseDraft(), dirty = false, loadError = null } = {}) {
 	editorProps.length = 0;
@@ -104,6 +104,24 @@ test("canWrite 缺省与显式 true 行为不变：脏草稿可保存、编辑�
 	assert.equal(render({ draft: baseDraft({ blocked: true }), dirty: true }).save.disabled, true);
 });
 
+test("预览外框自带高度并贴底悬挂：长目录树不会把它压成 0 高", () => {
+	draftState = { draft: baseDraft(), loadError: null, dirty: false };
+	const markup = renderToStaticMarkup(h(RemoteFilePreviewPane, { services: { projectId: "project" }, path: "calc.cjs", canWrite: true }));
+	// 回归根因（2027-02 反馈「点远端文件什么都没发生」）：宿主曾是文件栏滚动容器里 `flex-1` + `basis:0`
+	// 的普通子项，目录树一超过抽屉高度，负剩余空间就把它压成 0 高。外框必须自带高度占比并贴底悬挂。
+	const host = /<div[^>]*data-testid="remote-file-preview"[^>]*>/.exec(markup);
+	assert.ok(host, "预览宿主必须渲染出 remote-file-preview 容器");
+	const classAttribute = /class="([^"]*)"/.exec(host[0]);
+	assert.ok(classAttribute, "预览宿主必须带 className");
+	const classes = classAttribute[1].split(" ");
+	for (const name of ["sticky", "bottom-0", "min-h-40", "shrink-0"]) assert.ok(classes.includes(name), `预览宿主需要 ${name}，否则长目录树会把它挤没`);
+	const heightShare = classes.filter((name) => /^h-\[\d+%\]$/.test(name));
+	assert.equal(heightShare.length, 1, "预览宿主必须自带高度占比（h-[40%]）");
+	assert.ok(!classes.includes("flex-1"), "预览宿主不能再是 flex-1：basis:0 的兄弟在滚动容器里会被压成 0 高");
+	// 外框只负责尺寸：真正的编辑宿主仍在里面（同一个 canWrite 能力位原样下传）。
+	assert.match(markup, /aria-label="remoteFile\.editor"/);
+});
+
 test("Ctrl/Cmd+S：只读只吞默认动作、绝不保存；可写时才走保存", () => {
 	const key = (overrides = {}) => ({ ctrlKey: false, metaKey: false, key: "s", ...overrides });
 	assert.equal(remoteFileSaveShortcut(key({ ctrlKey: true }), true), "save");
@@ -123,5 +141,8 @@ test("Ctrl/Cmd+S：只读只吞默认动作、绝不保存；可写时才走保�
 test("远端面板把已有的 canWrite 能力位传给编辑器（门禁只有一处真值）", () => {
 	const panel = readFileSync("src/renderer/src/components/session/RemoteProjectPanel.tsx", "utf8");
 	assert.match(panel, /const canWrite = services\.capabilities\.files\.write;/);
-	assert.match(panel, /<RemoteFileEditor[^>]*canWrite=\{canWrite\}/);
+	// 预览宿主经 RemoteFilePreviewPane 承载（外框负责尺寸），能力位仍由面板这一处真值下传、原样转发给编辑器。
+	assert.match(panel, /<RemoteFilePreviewPane[^>]*canWrite=\{canWrite\}/);
+	const editor = readFileSync("src/renderer/src/components/workspace/RemoteFileEditor.tsx", "utf8");
+	assert.match(editor, /<RemoteFileEditor services=\{props\.services\} path=\{props\.path\} canWrite=\{props\.canWrite\}/);
 });

@@ -955,7 +955,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			getMainWindow()?.webContents.setZoomFactor(settings.zoomFactor);
 		}
 		// EasyTier 手动 IP / CLI 路径变更也走同一收敛入口：Web 服务配置没变时 applySettings 早退，syncWebService 会重新探测只读渠道。
-		if ("webServiceEnabled" in patch || "webServiceHost" in patch || "webServicePort" in patch || "webServiceRequiresAuth" in patch || "webRemoteEasyTierIp" in patch || "webRemoteEasyTierCliPath" in patch) {
+		if ("webServiceEnabled" in patch || "webServiceHost" in patch || "webServicePort" in patch || "webServiceRequiresAuth" in patch || "webLiteCompatEnabled" in patch || "webRemoteEasyTierIp" in patch || "webRemoteEasyTierCliPath" in patch) {
 			try {
 				if (applyWebServiceSettings) await applyWebServiceSettings(settings);
 			} catch (error) {

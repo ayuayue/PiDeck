@@ -9,6 +9,10 @@ import type { RemoteProjectTrustRecord } from "./remoteTrust";
 import type { SecurityConfig } from "./security";
 import type { CustomThemeSnapshot } from "../customThemes";
 import { createDefaultSoundAlertSettings, type SoundAlertSettings } from "./soundAlert";
+import type { WebRemoteSettings } from "./webRemoteSettings";
+
+// 外网访问族的字段与枚举在独立子契约里（settings.ts 是存量巨文件，只准降不准升）。
+export { WEB_REMOTE_CLOUDFLARED_PROTOCOLS, type WebRemoteCloudflaredProtocol, type WebRemoteSettings } from "./webRemoteSettings";
 
 export type SendShortcutMode = "enter-send" | "ctrl-enter-send" | "shift-enter-send";
 /** TPS 展示口径：流式生成速度 / 含首 token 等待的单次模型调用速度。 */
@@ -144,7 +148,8 @@ export type DisabledExtensionEntry = {
 	source: string;
 };
 
-export type AppSettings = {
+/** 外网访问（Web 服务 / 隧道 / 组网 / Lite 兼容）字段见 webRemoteSettings.ts。 */
+export type AppSettings = WebRemoteSettings & {
 	useNativeTitleBar: boolean;
 	showNativeMenu: boolean;
 	sendShortcut: SendShortcutMode;
@@ -384,55 +389,6 @@ export type AppSettings = {
 
 	/** 是否发送匿名、低频、最小字段的使用统计 */
 	telemetryEnabled: boolean;
-	/** 是否开启局域网 Web 服务 */
-	webServiceEnabled: boolean;
-	/**
-	 * Web 服务监听地址。默认 0.0.0.0（绑定到所有网卡）：同网段任意主机可访问，
-	 * 需配合 webServiceRequiresAuth 强制令牌校验，避免未授权调用。
-	 */
-	webServiceHost: string;
-	/** Web 服务监听端口 */
-	webServicePort: number;
-	/**
-	 * 鉴权开关。开 = 所有 /api/*（/api/health 除外）需携带访问令牌，环回地址也不例外；
-	 * 默认 true，与默认 0.0.0.0 绑定配合，阻断局域网未授权访问。
-	 */
-	webServiceRequiresAuth: boolean;
-	/**
-	 * 固定访问令牌。持久化：重启服务/应用不换新，远程设备已保存的链接不失效；
-	 * 缺省时首次启动自动生成并回写。可由设置页手动修改或重新生成。
-	 */
-	webServiceToken?: string;
-	/** 令牌生成/最后修改时刻（epoch ms），过期计时的基准；不随重启重置 */
-	webServiceTokenGeneratedAt?: number;
-	/** 令牌有效期（ms），0 = 永不过期（默认）；从 generatedAt 起算，到期后请求 401 */
-	webServiceTokenExpiresIn?: number;
-	/**
-	 * cloudflared 隧道传输协议：http2 = TCP 443（默认，规避国内 UDP QoS 限速）、
-	 * quic = UDP、auto = cloudflared 自行回退。用户环境差异大，允许调整。
-	 */
-	webRemoteCloudflaredProtocol?: WebRemoteCloudflaredProtocol;
-	/** cloudflared 额外启动参数（空白切分后数组直传子进程，无 shell 注入面）；如 "--edge-ip-version 6" */
-	webRemoteCloudflaredExtraArgs?: string;
-	/**
-	 * EasyTier 虚拟 IPv4 手动兜底：EasyTier GUI 默认模式不开放本地管理端口时，
-	 * easytier-cli 读不到节点，由用户从客户端抄写虚拟 IP；空 = 不启用手动地址。
-	 */
-	webRemoteEasyTierIp?: string;
-	/**
-	 * 用户指定的 easytier-cli 可执行文件路径（解压版 CLI / 非默认目录安装时自动检测可能找不到）；
-	 * 空 = 只用自动检测。填写后优先使用该路径。
-	 */
-	webRemoteEasyTierCliPath?: string;
-	/**
-	 * 由 PiDeck 托管的 EasyTier 网络标识。三者齐备时组件接管 core 的启动与配置生成，
-	 * 缺任意一项都退回只读探测（网络仍由用户自己的客户端管理）。
-	 */
-	webRemoteEasyTierNetworkName?: string;
-	/** 由 PiDeck 托管的 EasyTier 网络密钥；明文存储，仅在本机 settings.json 中，不经 Web API 投影。 */
-	webRemoteEasyTierNetworkSecret?: string;
-	/** 共享节点列表（tcp/udp/ws/wss 等 URL）；可为空，为空时只能与局域网内节点互联。 */
-	webRemoteEasyTierPeers?: string[];
 	/** 本地生成的匿名安装标识，不包含账号、路径或机器名 */
 	telemetryInstallId?: string;
 	/** 最近一次发送 app_heartbeat 的本地日期，格式 YYYY-MM-DD */
@@ -1019,10 +975,6 @@ export type AppSettings = {
  */
 export const WEB_TOKEN_EXPIRES_IN_CHOICES = [0, 3_600_000, 86_400_000, 604_800_000, 2_592_000_000] as const;
 
-/** cloudflared 隧道传输协议枚举（webRemoteCloudflaredProtocol）；默认 http2（TCP，规避 UDP QoS 限速）。 */
-export const WEB_REMOTE_CLOUDFLARED_PROTOCOLS = ["auto", "quic", "http2"] as const;
-export type WebRemoteCloudflaredProtocol = (typeof WEB_REMOTE_CLOUDFLARED_PROTOCOLS)[number];
-
 /**
  * 清洗用户输入的 cloudflared 额外参数：允许空格分隔多参数，但仅限可打印 ASCII（拒绝控制字符/非 ASCII），
  * 长度 ≤500；切分后 argv 直传子进程，无 shell 注入面。非法输入整体置空回退默认。
@@ -1252,6 +1204,7 @@ export function createDefaultAppSettings(): AppSettings {
 		webServiceHost: "0.0.0.0",
 		webServicePort: 8765,
 		webServiceRequiresAuth: true,
+		webLiteCompatEnabled: false,
 		rpcTimeout: 600_000,
 		linkOpenMode: "external",
 		workspaceContentOpenMode: "split",

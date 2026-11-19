@@ -56,7 +56,7 @@ test("helper 能力未知 ≠ helper 缺方法：两种事实、两种原因码"
 	assert.equal(empty.blocked["git.read"], PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing);
 });
 
-test("本机项目：读写/Git 全开，但回收站、恢复与同步事实不假装存在", () => {
+test("本机项目：读写/Git 全开（含可还原丢弃），但文件回收站与同步事实不假装存在", () => {
 	const capabilities = resolve(localFacts(), LOCAL_PROJECT_SERVICE_METHODS);
 	assert.deepEqual(plain(capabilities.files), { read: true, search: true, write: true, upload: false, download: false, trash: false, textVersion: "none", contentSearch: true, systemOpen: true, watch: "full" });
 	assert.deepEqual(plain(capabilities.git), {
@@ -73,7 +73,8 @@ test("本机项目：读写/Git 全开，但回收站、恢复与同步事实不
 		syncFacts: false,
 		aheadBehind: true,
 		compare: true,
-		recovery: false,
+		// 本机丢弃在改写工作区前留 refs/pideck/recovery/* 快照，恢复区不再是远端专属。
+		recovery: true,
 		worktree: true,
 		init: true,
 		forceRefresh: true,
@@ -85,11 +86,10 @@ test("本机项目：读写/Git 全开，但回收站、恢复与同步事实不
 	assert.equal(capabilities.blocked["files.trash"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
 	assert.equal(capabilities.blocked["files.upload"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
 	assert.equal(capabilities.blocked["files.download"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
-	assert.equal(capabilities.blocked["git.recovery"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
 	assert.equal(capabilities.blocked["git.syncFacts"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
 });
 
-test("远端 ready + trust approved + 完整 helper：Git 读写/分支/同步/恢复/强刷/轮询可用；autoFetch/worktree/deleteFiles 保持关闭", () => {
+test("远端 ready + trust approved + 完整 helper：Git 读写/分支/同步/恢复/强刷/轮询/删除/自动 fetch 可用；worktree 保持关闭", () => {
 	const capabilities = resolve(remoteFacts(), REMOTE_PROJECT_SERVICE_METHODS);
 	assert.deepEqual(plain(capabilities.files), { read: true, search: true, write: true, upload: true, download: true, trash: true, textVersion: "required", contentSearch: true, systemOpen: false, watch: "full" });
 	assert.equal(capabilities.git.read, true);
@@ -103,11 +103,14 @@ test("远端 ready + trust approved + 完整 helper：Git 读写/分支/同步/�
 		assert.equal(capabilities.git[key], true, key);
 	}
 	assert.equal(capabilities.git.branchCreateMode, "both");
-	// 远端仍不得自动联网、无本机 worktree、删除走文件服务：这三项保持关闭并带 provider 原因。
-	for (const key of ["autoFetch", "worktree", "deleteFiles"]) {
-		assert.equal(capabilities.git[key], false, key);
-		assert.equal(capabilities.blocked["git." + key], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported, key);
-	}
+	// 自动 fetch 与本机同节奏（5 分钟）；只剩 worktree 不可用，并带 provider 原因。
+	assert.equal(capabilities.git.autoFetch, true);
+	assert.equal(capabilities.blocked["git.autoFetch"], undefined);
+	assert.equal(capabilities.git.worktree, false);
+	assert.equal(capabilities.blocked["git.worktree"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
+	// 删除归文件服务回收站（files.trash 已开），面板入口因此同样开放。
+	assert.equal(capabilities.git.deleteFiles, true);
+	assert.equal(capabilities.blocked["git.deleteFiles"], undefined);
 	assert.equal(capabilities.blocked["git.write"], undefined);
 	assert.equal(capabilities.blocked["git.forceRefresh"], undefined);
 });

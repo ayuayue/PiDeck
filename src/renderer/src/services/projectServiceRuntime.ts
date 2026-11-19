@@ -5,7 +5,7 @@ import type { ProjectServiceFactInput } from "./projectServiceFacts";
 import { collectProjectServiceFacts } from "./projectServiceFacts";
 import { acquireProjectFactSubscription } from "./projectServiceFactSubscription";
 import { createProjectServices, localProjectServiceFacts, unprovisionedRemoteProjectServiceFacts } from "./projectServices";
-import type { ProjectServiceFacts, ProjectServiceFenceSlot, ProjectServices, ProjectServicesApi } from "./projectServiceContracts";
+import type { ProjectServiceFacts, ProjectServiceFenceSlot, ProjectFactScope, ProjectServices, ProjectServicesApi } from "./projectServiceContracts";
 
 /**
  * 面板服务 runtime（非 React）：项目事实、连接代与订阅的唯一所有者。
@@ -51,7 +51,13 @@ export function createProjectServiceRuntime(project: Project, api: ProjectServic
 	const hostId = remoteProject?.locator.hostId;
 	let facts = remoteProject === undefined ? localProjectServiceFacts(project) : unprovisionedRemoteProjectServiceFacts(project);
 	const slot: ProjectServiceFenceSlot = { current: facts.generation };
-	let services = createProjectServices(project, api, { facts, fence: slot, refresh });
+	/** scope 级订阅者：由 runtime 持有，不随 services 重建丢失。 */
+	const scopeListeners = new Set<(scope: ProjectFactScope) => void>();
+	const subscribeFacts = (listener: (scope: ProjectFactScope) => void): (() => void) => {
+		scopeListeners.add(listener);
+		return () => scopeListeners.delete(listener);
+	};
+	let services = createProjectServices(project, api, { facts, fence: slot, refresh, subscribeFacts });
 	let disposed = false;
 	let started = false;
 	let epoch = 0;
@@ -80,7 +86,7 @@ export function createProjectServiceRuntime(project: Project, api: ProjectServic
 		const changed = !sameFacts(facts, next);
 		if (changed) {
 			facts = next;
-			services = createProjectServices(project, api, { facts, fence: slot, refresh });
+			services = createProjectServices(project, api, { facts, fence: slot, refresh, subscribeFacts });
 		}
 		// 代数槽在每轮都对齐最新代：即使 facts 没变，旧实例也必须看到新槽值。
 		slot.current = facts.generation;
@@ -101,6 +107,8 @@ export function createProjectServiceRuntime(project: Project, api: ProjectServic
 
 	function handleFactsChange(change: RemoteProjectFactsChange): void {
 		if (disposed || change.projectId !== project.id) return;
+		// scope 级扇出先于代数判定：同代事件不重建 services，但活跃面板仍要据此重读自己那部分。
+		if (scopeListeners.size > 0) for (const scope of change.scopes) for (const listener of scopeListeners) listener(scope);
 		const candidate = typeof change.generation === "string" && change.generation.length > 0 ? change.generation : undefined;
 		if (candidate === undefined) {
 			// 主进程当时不持有稳定身份：仍按“这个项目有一次失效”换一代，旧结果一律丢弃。

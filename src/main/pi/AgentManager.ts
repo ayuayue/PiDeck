@@ -260,8 +260,8 @@ export class AgentManager {
 	/** 会话文件版本（mtime:size）：随消息载荷下发，渲染层据此检测压缩改写并丢弃 disk 前缀。 */
 	private readonly sessionFileVersionByAgent = new Map<string, string>();
 	/** Live 双通道（thinking/正文）流式状态机（Wave 3 拆分）：缓冲/节流发射/增量基准/思考段生命周期见 liveStreamChannel.ts；
-	 *  100ms 合并窗口（2026-08 占用治理）与 delta 基准治理（2026-08 IPC 治理）的历史注释随域迁往该模块。 */
-	private readonly liveStream = new LiveStreamChannel({
+	 *  100ms 合并窗口（2026-08 占用治理）与 delta 基准治理（2026-08 IPC 治理）的历史注释随域迁往该模块；公开只读：Web 轮询经 getDisplayText 读实时正文，写入仍只在本类内。 */
+	readonly liveStream = new LiveStreamChannel({
 		emit: (channel, payload) => this.emit(channel, payload),
 		onTextStreamPushed: (agentId) => this.emitStreamingStatePatch(agentId),
 		streamRuntimeTriple: (agentId) => this.streamRuntimeTriple(agentId),

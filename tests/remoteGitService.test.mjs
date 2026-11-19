@@ -32,6 +32,59 @@ function fixture(overrides = {}) {
 	return { calls, ports, session, service: createRemoteGitService(ports) };
 }
 
+/**
+ * push/pull 的 upstream 模式：与本机 `git push` / `git pull` 一致——不给 remote/branch 就跟随分支已配置的
+ * 上游（多 remote 或 detached HEAD 时不再替用户拒绝）。显式模式仍然是「恰好 <remote> <branch>」。
+ */
+test("push/pull upstream mode sends null remote/branch and accepts a renamed remote-side refspec", async () => {
+	const calls = [];
+	const session = {
+		// 授权绑定的是「读出快照时的那一代」；假会话必须报同一代，否则 run 会先拒绝。
+		hostRevision: 1,
+		request: async (method, params) => {
+			calls.push({ method, params });
+			if (method === "hello") return { protocolVersion: 1, root: locator.remotePath, capabilities: ["git.push", "git.pull"] };
+			if (method === "git.push") return { applied: true, outcome: "pushed", refspec: "refs/heads/main:refs/heads/release" };
+			if (method === "git.pull") return { applied: true, mode: "fast-forward", head: oid };
+			throw new Error("unexpected method " + method);
+		},
+		cancel: async () => {},
+	};
+	const service = createRemoteGitService({ locator: () => locator, trusted: async () => true, withProject: async (target, task) => task(session) });
+	const pushed = await service.push(projectId, null, null, expectation("push"), "");
+	assert.equal(pushed.refspec, "refs/heads/main:refs/heads/release");
+	assert.deepEqual(plain(calls.find((call) => call.method === "git.push").params), { remote: null, branch: null, expectedRevision: expectation("push").revision });
+	const pulled = await service.pull(projectId, null, null, expectation("pull"), "");
+	assert.equal(pulled.mode, "fast-forward");
+	assert.deepEqual(plain(calls.find((call) => call.method === "git.pull").params), { remote: null, branch: null, expectedRevision: expectation("pull").revision });
+	// 混合 null/字符串是调用方 bug：在触达会话之前就拒绝。
+	await assert.rejects(async () => service.push(projectId, null, "main", expectation("push"), ""), /GIT_RESULT_INVALID/);
+	await assert.rejects(async () => service.pull(projectId, "origin", null, expectation("pull"), ""), /GIT_RESULT_INVALID/);
+});
+
+test("push 拒绝非法 refspec：显式模式必须同名，upstream 模式只允许合法的 refs/heads 形态", async () => {
+	const make = (refspec) =>
+		createRemoteGitService({
+			locator: () => locator,
+			trusted: async () => true,
+			withProject: async (target, task) =>
+				task({
+					hostRevision: 1,
+					request: async (method) => {
+						if (method === "hello") return { protocolVersion: 1, root: locator.remotePath, capabilities: ["git.push"] };
+						return { applied: true, outcome: "pushed", refspec };
+					},
+					cancel: async () => {},
+				}),
+		});
+	// 显式模式只接受同名 refspec；答案不可解析时同样只能报 UNCONFIRMED（写已发出）。
+	await assert.rejects(async () => make("refs/heads/other:refs/heads/other").push(projectId, "origin", "main", expectation("push"), ""), /GIT_WRITE_RESULT_UNCONFIRMED/);
+	// upstream 模式允许远端侧重命名；答案不可解析时写已经发出，只能是 UNCONFIRMED（绝不重放）。
+	await assert.rejects(async () => make("main:release").push(projectId, null, null, expectation("push"), ""), /GIT_WRITE_RESULT_UNCONFIRMED/);
+	await assert.rejects(async () => make("refs/heads/main").push(projectId, null, null, expectation("push"), ""), /GIT_WRITE_RESULT_UNCONFIRMED/);
+	assert.equal((await make("refs/heads/main:refs/heads/release").push(projectId, null, null, expectation("push"), "")).refspec, "refs/heads/main:refs/heads/release");
+});
+
 test("remote status reuses local SCM semantics and emits only project-relative targets", () => {
 	const result = readRemoteGitStatus(encode("MM tracked.txt\0R  current.txt\0old.txt\0?? 中文 file.txt\0UU conflict.txt\0"), projectId);
 	assert.equal(result.groups.index.length, 2);

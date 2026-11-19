@@ -166,6 +166,10 @@ export const REMOTE_HELPER_METHOD_FS_UPLOAD_COMMIT = "fs.uploadCommit";
 /** Token-authorized cleanup for a staged upload that failed before commit; it can never name an arbitrary path. */
 export const REMOTE_HELPER_METHOD_FS_UPLOAD_ABORT = "fs.uploadAbort";
 /** 一个 helper 会话同时允许的 watcher 数；超出直接拒绝而不是排队。 */
+/** OAuth 登录可以在主机上等多久（秒）；helper 侧同一上限。 */
+export const REMOTE_HELPER_MAX_MCP_LOGIN_TIMEOUT_SEC = 600;
+/** MCP server 名的闭集：与主进程 isMcpServerName 同一形态，且限长。 */
+export const REMOTE_HELPER_MAX_MCP_SERVER_NAME = 128;
 export const REMOTE_HELPER_MAX_WATCHES = 4;
 /** 一次订阅里最多几个目录。 */
 export const REMOTE_HELPER_MAX_WATCH_PATHS = 32;
@@ -213,8 +217,8 @@ export type RemoteGitReposResult = { repos: readonly RemoteGitRepoEntry[]; trunc
  * child is started. A test pins the three method lists against each other.
  */
 export const REMOTE_GIT_REPO_PATH_MAX_BYTES = 4096;
-export const REMOTE_GIT_REPO_READ_METHODS = ["git.status", "git.workspaceDiff", "git.log", "git.commitDetail", "git.refs", "git.refFileDiff", "git.compare", "git.recoveryList", "git.syncFacts", "git.checkIgnore"] as const;
-export const REMOTE_GIT_REPO_WRITE_METHODS = ["git.stage", "git.unstage", "git.commit", "git.createBranch", "git.switchBranch", "git.discard", "git.recoveryRestore", "git.recoveryDrop", "git.fetch", "git.push", "git.pull"] as const;
+export const REMOTE_GIT_REPO_READ_METHODS = ["git.status", "git.workspaceDiff", "git.log", "git.commitDetail", "git.refs", "git.refFileDiff", "git.compare", "git.stagedDiff", "git.recoveryList", "git.syncFacts", "git.checkIgnore"] as const;
+export const REMOTE_GIT_REPO_WRITE_METHODS = ["git.stage", "git.unstage", "git.commit", "git.createBranch", "git.switchBranch", "git.discard", "git.recoveryRestore", "git.recoveryDrop", "git.fetch", "git.push", "git.pull", "git.cherryPick", "git.revert", "git.reset", "git.drop"] as const;
 export const REMOTE_GIT_STATUS_MAX_BYTES = 1024 * 1024;
 export const REMOTE_GIT_MAX_RESOURCES = 4096;
 export const REMOTE_GIT_TEXT_MAX_BYTES = 256 * 1024;
@@ -282,9 +286,10 @@ export const REMOTE_HELPER_METHOD_GIT_PULL = "git.pull";
 export type RemoteGitSyncFacts = { branch: string | null; upstream: string | null; ahead: number; behind: number; remotes: readonly string[] };
 export type RemoteGitFetchParams = { remote: string; expectedRevision: string };
 export type RemoteGitFetchResult = { applied: true; upToDate: boolean; updated: readonly { ref: string; before: string | null; after: string }[] };
-export type RemoteGitPushParams = { remote: string; branch: string; expectedRevision: string };
+/** Both name exactly `<remote> <branch>`; both `null` follows the branch upstream / push.default, like plain `git push`. */
+export type RemoteGitPushParams = { remote: string | null; branch: string | null; expectedRevision: string };
 export type RemoteGitPushResult = { applied: true; outcome: "up-to-date" | "pushed" | "new"; refspec: string };
-export type RemoteGitPullParams = { remote: string; branch: string; expectedRevision: string };
+export type RemoteGitPullParams = { remote: string | null; branch: string | null; expectedRevision: string };
 export type RemoteGitPullResult = { applied: true; mode: "up-to-date" | "fast-forward" | "merge"; head: string };
 export type RemoteGitDiscardParams = { path: string; group: "workingTree" | "untracked"; expectedRevision: string };
 /**
@@ -304,11 +309,26 @@ export type RemoteGitSwitchBranchResult = { applied: true; branch: string; head:
 
 /** One history row; `parents` is bounded and `subject` is the first line only. */
 export type RemoteGitLogEntry = { oid: string; parents: readonly string[]; authorName: string; authorEmail: string; authorTimeSec: number; subject: string };
-export type RemoteGitLogParams = { maxCount?: number; skip?: number };
-export type RemoteGitLogResult = { commits: readonly RemoteGitLogEntry[]; hasMore: boolean };
+/**
+ * A page names one history; the optional fields narrow it instead of replacing it — `ref` is one full local ref
+ * (`refs/heads/*` or `refs/tags/*`), checked by the same rule `git.compare` uses;
+ * - `all`: every local branch and tag instead of HEAD; `ref` and `all` together are refused as ambiguous;
+ * - `withCount`: also answer `total`, from `rev-list --count` under exactly the page's filter, so a badge and a
+ *   list can never describe two different histories.
+ */
+export type RemoteGitLogParams = { maxCount?: number; skip?: number; ref?: string; all?: boolean; withCount?: boolean };
+/** `total` is present exactly when the caller asked for it; it is absent, never 0, for an uncounted page. */
+export type RemoteGitLogResult = { commits: readonly RemoteGitLogEntry[]; hasMore: boolean; total?: number };
 /** The commit's full message and its changed files against its first parent (a root commit lists all files). */
 export type RemoteGitCommitDetailParams = { oid: string };
-export type RemoteGitCommitFile = { status: string; path: string; oldPath?: string };
+/**
+ * `additions`/`deletions` come from the same commit's `diff-tree --numstat` pass, so they describe the same file
+ * list. A binary (or otherwise unnumerable) record answers `-` in numstat and therefore has neither field: absent
+ * means "not counted", never 0. A rename keeps its pre-image in `oldPath` and its numbers on the new path.
+ */
+export type RemoteGitCommitFile = { status: string; path: string; oldPath?: string; additions?: number; deletions?: number };
+/** Whole-commit line totals: only the counts that were read are summed, so a binary-only commit reports 0/0. */
+export type RemoteGitShortStat = { files: number; insertions: number; deletions: number };
 export type RemoteGitCommitDetailResult = {
 	oid: string;
 	parents: readonly string[];
@@ -321,6 +341,7 @@ export type RemoteGitCommitDetailResult = {
 	subject: string;
 	message: string;
 	files: readonly RemoteGitCommitFile[];
+	shortStat?: RemoteGitShortStat;
 };
 export type RemoteGitRefsParams = Record<string, never>;
 /** Local branches and tags only: remote-tracking refs would imply sync state this batch does not deliver. */
@@ -332,16 +353,36 @@ export type RemoteGitRefFileDiffResult = { originalContent: string; modifiedCont
 /**
  * G5b refs compare: both inputs are full local ref names (refs/heads/* or refs/tags/*) — the same
  * `fullName` values the refs read returns — and both sides are resolved to commits before the diff.
- * The comparison is the direct tree diff of the two commits (two-dot), not a merge-base or three-dot
- * view: there is no common-ancestor discovery to fail or to disagree with the per-file read.
+ * `mode` picks the semantics and is part of the answer, never inferred:
+ * - `trees` (default, backward compatible): the direct tree diff of the two commits (two-dot), no merge-base
+ *   discovery to fail or to disagree with the per-file read;
+ * - `threeDot`: one merge base is resolved (`merge-base`), ahead/behind are counted over `base...head`, and the
+ *   file list is the `--diff-filter=ADMR` diff of merge-base..head — the same semantics the local compare uses.
+ *   Unrelated histories have no merge base and are refused (GIT_RESULT_INVALID) instead of faking an empty answer.
  */
 export const REMOTE_GIT_COMPARE_MAX_FILES = 4096;
 export const REMOTE_HELPER_METHOD_GIT_COMPARE = "git.compare";
-export type RemoteGitCompareParams = { base: string; head: string };
+export type RemoteGitCompareMode = "trees" | "threeDot";
+export type RemoteGitCompareParams = { base: string; head: string; mode?: RemoteGitCompareMode };
 /** The OID a ref resolved to at read time; a later ref move cannot rewrite this answer. */
 export type RemoteGitCompareSide = { ref: string; oid: string };
 export type RemoteGitCompareFile = { status: string; path: string; oldPath?: string };
-export type RemoteGitCompareResult = { base: RemoteGitCompareSide; head: RemoteGitCompareSide; files: readonly RemoteGitCompareFile[] };
+/**
+ * `trees` answers base/head/files only. `threeDot` adds `mode: "merge-base"` and `mergeBase` (the OID the file
+ * list and the counts were derived from) plus `ahead`/`behind`; those three are absent, never 0, on a tree diff.
+ */
+export type RemoteGitCompareResult = { base: RemoteGitCompareSide; head: RemoteGitCompareSide; files: readonly RemoteGitCompareFile[]; mode?: "merge-base"; mergeBase?: string; ahead?: number; behind?: number };
+/**
+ * `git.stagedDiff` (build 1.32.0): the staged unified diff the commit-summary prompt reads. No parameter exists —
+ * the repository scope is the frame's. An empty index is ""; a diff past REMOTE_GIT_STAGED_DIFF_MAX_CHARS is cut
+ * and the marker appended, so a bounded answer always says so.
+ */
+export const REMOTE_HELPER_METHOD_GIT_STAGED_DIFF = "git.stagedDiff";
+/** Character ceiling of the answered text, counted after decoding (the local read uses the same 100 KiB bound). */
+export const REMOTE_GIT_STAGED_DIFF_MAX_CHARS = 100 * 1024;
+export const REMOTE_GIT_STAGED_DIFF_TRUNCATION_MARKER = "\n\n... (diff truncated)";
+export type RemoteGitStagedDiffParams = Record<string, never>;
+export type RemoteGitStagedDiffResult = { diff: string };
 /** Managed single-resource index mutations. The expectation is main-owned, never renderer authority. */
 export type RemoteGitMutationParams = { path: string; group: "index" | "workingTree" | "untracked"; expectedRevision: string };
 export type RemoteGitMutationResult = { applied: true };
@@ -468,7 +509,6 @@ export const REMOTE_HELPER_MAX_QUEUED_REQUESTS = 64;
 export const REMOTE_HELPER_MAX_ECHO_DELAY_MS = 5_000;
 
 export type RemoteHelperHelloResult = RemoteHelperHandshake & { helperVersion: string; nodeVersion: string; pid: number };
-
 export type RemoteHelperRequestFrame = {
 	v: number;
 	hostId: string;

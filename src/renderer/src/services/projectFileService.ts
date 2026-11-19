@@ -35,7 +35,7 @@ function parentOf(relativePath: string): string {
 }
 
 function unsupported(detail: string): ProjectServiceError {
-	return new ProjectServiceError(PROJECT_SERVICE_CODES.unsupported, "rejected", detail);
+	return new ProjectServiceError(PROJECT_SERVICE_CODES.unsupported, "rejected", undefined, detail);
 }
 
 function childTarget(parent: ProjectFileTarget, name: string): ProjectFileTarget {
@@ -97,7 +97,7 @@ function createProjectStat(projectId: string, api: ProjectServicesApi): ProjectF
 }
 
 function assertTextVersion(expectedVersion: string | undefined): string {
-	if (typeof expectedVersion !== "string" || expectedVersion.length === 0) throw new ProjectServiceError(PROJECT_SERVICE_CODES.versionRequired, "rejected", "readText must return a text version before saving");
+	if (typeof expectedVersion !== "string" || expectedVersion.length === 0) throw new ProjectServiceError(PROJECT_SERVICE_CODES.versionRequired, "rejected", undefined, "readText must return a text version before saving");
 	return expectedVersion;
 }
 
@@ -153,7 +153,7 @@ export function remoteProjectFilePorts(projectId: string, api: ProjectServicesAp
 			// 绝不 statProjectEntry 取 entry 令牌、也不重新 open 覆盖原版本语义。
 			const version = assertTextVersion(expectedVersion);
 			const saved = unwrapOp(await api.remoteHosts.saveProjectText(projectId, target.relativePath, content, version), PROJECT_SERVICE_CODES.failed);
-			if (typeof saved.version !== "string" || saved.version.length === 0) throw new ProjectServiceError(PROJECT_SERVICE_CODES.failed, "unknown", "save returned no text version");
+			if (typeof saved.version !== "string" || saved.version.length === 0) throw new ProjectServiceError(PROJECT_SERVICE_CODES.failed, "unknown", undefined, "save returned no text version");
 			return { version: saved.version };
 		},
 		async uploadFiles(target, source, options) {

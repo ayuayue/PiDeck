@@ -9,6 +9,7 @@ import { timelineRevealRequestsAtom, type TimelineRevealRequest } from "../../..
 import { turnFlowSettingsAtom } from "../../../atoms/app-ui-atoms";
 import { t } from "../../../i18n";
 import { useStreamSelectionPreserve } from "../../../hooks/useStreamSelectionPreserve";
+import { usePauseSessionFollow } from "../../agents/message-scroller-context";
 import { Collapsible, CollapsibleContent } from "../../ui-shadcn/collapsible";
 import { stripMarkdown } from "../SurfaceComponents";
 import { favoriteMessageKey } from "../../favorites/favoriteIdentity";
@@ -229,6 +230,9 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 		},
 		[props.sessionId, run.id, setRunStepsMemoryAtom],
 	);
+	// 展开「执行过程」会当场把会话内容撑高：先停会话跟底，否则跟底引擎会把刚展开的
+	// 折叠头拽出视口（2026-11 用户反馈「点开就跑到下面去了」）。收起不产生增高，不停。
+	const pauseSessionFollow = usePauseSessionFollow();
 	const { stepsVisible, setStepsVisibleFromUser, toggleSteps } = useTurnExecution({
 		runId: run.id,
 		agentRunning: props.agentRunning,
@@ -373,9 +377,19 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 						className="execution-summary"
 						open={stepsVisible}
 						// Radix 传入目标 open；必须 set 而非 toggle，否则受控更新会把状态打反。
-						onOpenChange={setStepsVisibleFromUser}
+						onOpenChange={(open) => {
+							if (open) pauseSessionFollow();
+							setStepsVisibleFromUser(open);
+						}}
 					>
-						<ProcessSummaryToggle summary={processSummary} expanded={stepsVisible} onToggle={toggleSteps} />
+						<ProcessSummaryToggle
+							summary={processSummary}
+							expanded={stepsVisible}
+							onToggle={() => {
+								if (!stepsVisible) pauseSessionFollow();
+								toggleSteps();
+							}}
+						/>
 						<CollapsibleContent className="execution-summary-details data-[state=open]:overflow-visible">
 							{flowSettings.processGroupDisplay ? (
 								<ProcessFold

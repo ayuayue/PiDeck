@@ -555,6 +555,8 @@ const SETTINGS_ROW_ANCHORS = [
 		labelKey: "settings.remote.guideRowTitle",
 		keywords: ["外网访问", "远程访问指南", "cloudflared", "tailscale", "easytier", "穿透", "隧道", "虚拟IP", "组网"],
 	},
+	// PiDeck Lite 移动端兼容：同一端口/令牌，只对 Go 默认 UA 返回 Lite 形状（默认关闭）。
+	{ tab: "web", slug: "web-lite-compat", labelKey: "settings.remote.lite.title", keywords: ["PiDeck Lite", "lite 兼容", "手机 App", "移动端兼容", "go 客户端"] },
 
 	// ── 代理 ─────────────────────────────────────────────────────────
 	{

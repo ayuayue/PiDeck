@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+
+const remotePanelSource = readFileSync("src/renderer/src/components/workspace/RemoteGitPanel.tsx", "utf8");
+const remoteBridgeSource = readFileSync("src/renderer/src/components/workspace/remoteGitPanelBridge.ts", "utf8");
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
@@ -233,30 +236,25 @@ test("every write API receives the controller's exact repository scope", async (
 	assert.deepEqual(plain(await driveWrites("")), expectedWriteCalls(""), "a root controller must name the root scope explicitly");
 });
 
-test("the panel exposes the scope selector and keeps init root-only", () => {
-	const panel = readFileSync("src/renderer/src/components/workspace/RemoteGitPanel.tsx", "utf8");
-	for (const id of ["remote-git-repo-scope", "remote-git-repo-select", "remote-git-repos-truncated"]) assert.match(panel, new RegExp('data-testid="' + id + '"'), id);
+test("共用面板里多仓并排：每仓一份桥与分支，Graph/Compare 只挂一份并带仓库切换", () => {
+	const panel = remotePanelSource;
+	const bridge = remoteBridgeSource;
+	assert.match(panel, /data-testid="remote-git-repos-truncated"/, "discovery truncation stays visible");
+	assert.ok(!panel.includes("remote-git-repo-select"), "the single active-scope selector is gone: every repository gets its own panel");
 	assert.ok(!panel.includes("remote-git-repo-readonly-note"), "the G5d read-only note is gone: a nested scope writes its own repository");
-	assert.ok(!panel.includes("remoteGit.repoReadOnlyNote"), "no dictionary key for a removed note may remain in the panel");
-	assert.match(panel, /useRemoteGitView\(project, repoPath\)/, "the selected scope must key the controller");
-	assert.match(panel, /repos\.length > 1[\s\S]{0,120}?!rootRepoPresent/, "the selector is shown for multi-repo projects and rootless nested ones");
-	// The write controls depend on the scope-bound capability alone; only init keeps an explicit root-only condition.
-	for (const gate of ["canCommit", "canCreateBranch", "canSwitchBranch", "canDiscard", "canRestore", "canDrop", "canFetch", "canPush", "canPull"]) {
-		assert.match(panel, new RegExp("const " + gate + " = (?! !nested)"), gate + " exists");
-		assert.ok(!new RegExp("const " + gate + " = !nested").test(panel), gate + " must not be disabled for a nested scope");
-	}
-	assert.ok(!/disabled=\{nested \|\|/.test(panel), "no write control may still be disabled by the nested flag");
-	assert.match(panel, /!nested && \(state\.errorCode === "GIT_NOT_REPOSITORY"/, "init is offered only from the root scope");
-	assert.match(panel, /void initRepository\(\)\.then/, "a successful init re-discovers the repository list");
-	const hook = readFileSync("src/renderer/src/hooks/useRemoteGitView.ts", "utf8");
-	assert.match(hook, /JSON\.stringify\(\[project\.id, project\.locator\.hostId, project\.locator\.remotePath, repoPath, services\.generation\]\)/, "the scope and the connection generation are part of the controller identity key");
-	assert.match(hook, /createRemoteGitViewController\(project\.id, projectKey, api, publish, repoPath, capabilities\)/, "the controller is built from the project-bound api and the service capabilities");
-	// G 追加：换代时把“在途写的未知结果”带到下一代（身份 key 不含连接代），只有成功的事实读能解除。
-	assert.match(hook, /if \(uncertainWrites\.has\(identityKey\)\) reads\.setUncertain\(\)/, "an unknown in-flight write survives the generation change");
-	assert.match(hook, /\[project\.id, project\.locator\.hostId, projectKey, repoPath, api, capabilities, blocked, identityKey, publish\]/, "switching scope/generation disposes the old controller");
-	const reposHook = readFileSync("src/renderer/src/hooks/useRemoteGitRepos.ts", "utf8");
-	assert.match(reposHook, /services\.git\.repos\(\)/, "discovery goes through the project service");
-	assert.ok(!/remoteSnapshot|loadSync|remoteRepos|desktopApi/.test(reposHook), "discovery never reads repository facts, sync facts or a preload channel");
+	// 多仓判定与并排布局：每个仓一个 changesOnly，Graph/Compare 只有 historyOnly 那一份。
+	assert.match(panel, /repos\.length > 1[\s\S]{0,160}?repos\.some\(\(repo\) => repo\.path === ""\)/, "multi-repo is true for several repositories or rootless nested ones");
+	assert.match(panel, /layout="changesOnly"/);
+	assert.match(panel, /layout="historyOnly"/);
+	assert.match(panel, /history=\{\{ path: historyRepo\.path/, "the single graph carries the repository switcher");
+	// 每个仓一份桥：作用域绑死在那个仓，切换仓库不是换全局选中项。
+	assert.match(panel, /createRemoteGitPanelBridge\(services, repoTarget\)/);
+	assert.match(panel, /repoScopeKey=\{repoPath\}/, "each panel resets its own state with its own scope");
+	assert.match(bridge, /services\.git\.(status|refresh)\(repo\)/);
+	assert.match(bridge, /services\.git\.commit\(message, repo\)/);
+	// init 没有 repo 参数：嵌套 scope 不允许把初始化打到子仓。
+	assert.match(bridge, /services\.git\.init\(\)/);
+	assert.ok(!bridge.includes("services.git.init(repo)"), "init is offered only from the root scope");
 });
 
 test("the repository-scope API is wired through all four layers and the dictionaries", () => {

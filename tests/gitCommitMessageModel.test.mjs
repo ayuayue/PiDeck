@@ -4,7 +4,9 @@ import test from "node:test";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 import { gitPanelSource } from "./helpers/gitPanelSources.mjs";
 
-const gitIpc = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
+// 摘要子系统（QuickGen + 通道）已按文件体量门禁拆到独立模块；这里把两处源码当同一块读，
+// 断言仍是「这套行为存在」，不把搬文件当成行为变化。
+const gitIpc = [readFileSync("src/main/ipc/gitIpc.ts", "utf8"), readFileSync("src/main/ipc/gitCommitMessageIpc.ts", "utf8")].join("\n");
 const mainIndex = mainIpcSource;
 const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 const settingsTypes = readFileSync("src/shared/types/settings.ts", "utf8");

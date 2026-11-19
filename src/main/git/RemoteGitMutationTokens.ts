@@ -8,15 +8,21 @@ type Entry = { senderId: number; projectId: string; expires: number; expected: R
 /** Bounded, memory-only capabilities: a snapshot grants one index action to one window/project. */
 export function createRemoteGitMutationTokens(now = Date.now) {
 	const entries = new Map<string, Entry>();
-	function revoke(senderId: number, projectId?: string) {
-		for (const [token, entry] of entries) if (entry.senderId === senderId && (projectId === undefined || entry.projectId === projectId)) entries.delete(token);
+	/** 撤销一个窗口的全部或部分授权；给了 repository scope 就只清那个仓库（多仓并排不互相作废）。 */
+	function revoke(senderId: number, projectId?: string, repoPath?: string) {
+		for (const [token, entry] of entries) {
+			if (entry.senderId !== senderId) continue;
+			if (projectId !== undefined && entry.projectId !== projectId) continue;
+			if (repoPath !== undefined && entry.expected.repoPath !== repoPath) continue;
+			entries.delete(token);
+		}
 	}
 	return {
 		revoke,
 		issue(senderId: number, projectId: string, expected: RemoteGitWriteExpectation) {
-			// A refresh replaces the grant of the same action kind only: one snapshot hands out both an index
-			// grant and a commit grant, and issuing the second must not revoke the first.
-			for (const [token, entry] of entries) if (entry.senderId === senderId && entry.projectId === projectId && entry.expected.kind === expected.kind) entries.delete(token);
+			// 一个快照里每个 (动作种类, 仓库) 只保留一张令牌：多仓并排时，B 仓的 stage 令牌
+			// 不能把 A 仓刚签的 stage 令牌顶掉（否则两个面板会互相撤销对方的写授权）。
+			for (const [token, entry] of entries) if (entry.senderId === senderId && entry.projectId === projectId && entry.expected.kind === expected.kind && entry.expected.repoPath === expected.repoPath) entries.delete(token);
 			for (const [token, entry] of entries) if (entry.expires <= now()) entries.delete(token);
 			while (entries.size >= 128) {
 				const oldest = entries.keys().next().value;

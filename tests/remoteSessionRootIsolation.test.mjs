@@ -28,13 +28,13 @@ const { REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_ENTRY_SHA256, REMOTE_HELPER_I
 const HOST_ID = "6f1d2c3b-4a59-4e8d-9f70-1a2b3c4d5e6f";
 const HOME = "/home/dev";
 const CONTROL = String.fromCharCode(0);
-/** Current frozen build (helper 1.31.0); it was 1.6.0 when the J2 feature was verified. */
-const FROZEN_HELPER_SHA256 = "1655f44eb95fd73df253c0d5ad2d67a27532c046771b5e4fd8dc87902716d720";
+/** Current frozen build (helper 1.36.0); it was 1.6.0 when the J2 feature was verified. */
+const FROZEN_HELPER_SHA256 = "f99048d8aa8141d781b6e2237f5f6943e72a3a6f62ce1e2f7b98bc407a485214";
 const CONFIG_ROOT = HOME + "/.pi/agent";
 const CONFIG_PATH = "settings.json";
 const DEFAULT_ROOT = HOME + "/.pi/agent/sessions";
 const SETTINGS_READ_CEILING = 65536;
-/** The frozen helper's advertised vocabulary (build 1.31.0); the session-root code may use the fs batch only. */
+/** The frozen helper's advertised vocabulary (build 1.36.0); the session-root code may use the fs batch only. */
 const FROZEN_CAPABILITIES = [
 	"echo",
 	"fs.stat",
@@ -58,6 +58,7 @@ const FROZEN_CAPABILITIES = [
 	"git.refs",
 	"git.refFileDiff",
 	"git.compare",
+	"git.stagedDiff",
 	"git.createBranch",
 	"git.switchBranch",
 	"git.discard",
@@ -68,6 +69,10 @@ const FROZEN_CAPABILITIES = [
 	"git.fetch",
 	"git.push",
 	"git.pull",
+	"git.cherryPick",
+	"git.revert",
+	"git.reset",
+	"git.drop",
 	"git.init",
 	"git.repos",
 	"git.checkIgnore",
@@ -86,21 +91,23 @@ const FROZEN_CAPABILITIES = [
 	"resources.toggle",
 	"resources.togglePackage",
 	"resources.builtin",
+	"mcp.login",
 ];
 
-test("the helper protocol is byte-for-byte the frozen 1.31.0 artifact", () => {
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.31.0", "the helper version must match the frozen artifact");
+test("the helper protocol is byte-for-byte the frozen 1.36.0 artifact", () => {
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.36.0", "the helper version must match the frozen artifact");
 	assert.equal(REMOTE_HELPER_ENTRY_SHA256, FROZEN_HELPER_SHA256, "the declared digest must stay the frozen one");
 	const recomputed = createHash("sha256").update(Buffer.from(REMOTE_HELPER_INLINE_SOURCE, "utf8")).digest("hex");
 	assert.equal(recomputed, REMOTE_HELPER_ENTRY_SHA256, "the uploaded body must hash to the declared digest");
 	assert.equal(recomputed, FROZEN_HELPER_SHA256, "the uploaded body must still be the frozen artifact");
 });
 
-test("the frozen helper body loads exactly three builtins and exposes exactly the frozen operations", () => {
+test("the frozen helper body loads exactly four builtins and exposes exactly the frozen operations", () => {
 	const body = REMOTE_HELPER_INLINE_SOURCE;
 	const builtins = Array.from(body.matchAll(/getBuiltinModule\("([^"]+)"\)/g), (match) => match[1]).sort();
-	// node:crypto arrived with the config scope the merged branch ships; the entry still loads no package.
-	assert.deepEqual(builtins, ["node:crypto", "node:fs", "node:path"], "the body may load no fourth builtin");
+	// node:crypto arrived with the config scope; node:child_process 1.36.0 起用于 `pi mcp login` 的流式登录
+	// （数组 argv、无 shell、单一在途、退出/取消即 kill）。四者之外仍不得加载任何模块。
+	assert.deepEqual(builtins, ["node:child_process", "node:crypto", "node:fs", "node:path"], "the body may load no fifth builtin");
 	const capabilities = /const CAPABILITIES = \[([^\]]*)\]/.exec(body);
 	assert.ok(capabilities !== null, "the capability list must stay declarative");
 	assert.deepEqual(

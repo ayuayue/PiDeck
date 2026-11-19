@@ -23,7 +23,7 @@ export function localProjectServiceFacts(project: Project): ProjectServiceFacts 
 
 /** 远端项目在事实尚未取得时：没有事实就不宣称任何能力（不是“默认 ready”）。 */
 export function unprovisionedRemoteProjectServiceFacts(project: Project): ProjectServiceFacts {
-	if (!isRemoteProject(project)) throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", "expected a remote project");
+	if (!isRemoteProject(project)) throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", undefined, "expected a remote project");
 	return {
 		projectId: project.id,
 		locationKind: "ssh",
@@ -42,6 +42,8 @@ export type CreateProjectServicesInput = {
 	fence?: ProjectServiceFenceSlot;
 	/** 只读事实重采集（trust 决策没有推送事件）；缺省 no-op。 */
 	refresh?: () => Promise<void>;
+	/** scope 级事实订阅（runtime 持有，跨 services 重建不丢）；缺省无事件源。 */
+	subscribeFacts?: ProjectServices["subscribeFacts"];
 };
 
 /**
@@ -53,10 +55,10 @@ export type CreateProjectServicesInput = {
 export function createProjectServices(project: Project, api: ProjectServicesApi, input: CreateProjectServicesInput = {}): ProjectServices {
 	const remote = isRemoteProject(project);
 	const facts = input.facts ?? (remote ? unprovisionedRemoteProjectServiceFacts(project) : localProjectServiceFacts(project));
-	if (facts.projectId !== project.id) throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", "facts projectId does not match the project");
-	if (remote && facts.locationKind !== "ssh") throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", "remote project cannot use local facts");
-	if (!remote && facts.locationKind !== "local") throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", "local project cannot use ssh facts");
-	if (remote && facts.hostId !== project.locator.hostId) throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", "facts hostId does not match the project locator");
+	if (facts.projectId !== project.id) throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", undefined, "facts projectId does not match the project");
+	if (remote && facts.locationKind !== "ssh") throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", undefined, "remote project cannot use local facts");
+	if (!remote && facts.locationKind !== "local") throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", undefined, "local project cannot use ssh facts");
+	if (remote && facts.hostId !== project.locator.hostId) throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", undefined, "facts hostId does not match the project locator");
 	const slot = input.fence ?? { current: facts.generation };
 	const fence: ProjectServiceFence = { generation: facts.generation, slot };
 	const methods = remote ? REMOTE_PROJECT_SERVICE_METHODS : LOCAL_PROJECT_SERVICE_METHODS;
@@ -74,5 +76,6 @@ export function createProjectServices(project: Project, api: ProjectServicesApi,
 		capabilities,
 		isCurrent: () => isProjectServiceCurrent(fence),
 		refresh: input.refresh ?? (async () => undefined),
+		...(input.subscribeFacts === undefined ? {} : { subscribeFacts: input.subscribeFacts }),
 	};
 }

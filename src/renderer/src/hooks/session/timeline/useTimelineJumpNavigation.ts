@@ -4,6 +4,7 @@ import type { MessageScrollerScrollApi } from "../../../components/agents/messag
 import { estimateJumpExpandTurns, resolveJumpFallbackEntry } from "../../../components/session/timeline/jumpWindowPolicy";
 import { planJumpSettleStep } from "../../../components/session/timeline/jumpSettle";
 import { resolveJumpMessageIndex, resolveJumpScrollTarget } from "../../../components/session/timeline/jumpTarget";
+import { revealInNestedScrollers } from "../../../components/session/timeline/nestedScrollerReveal";
 import type { BrowsePin } from "../../timeline/browsePin";
 import { shouldDeferJumpUntilLoaded } from "../../timeline/timelineRevealChannel";
 
@@ -81,9 +82,15 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 	 * + 取消在途动画）。不用 scrollIntoView：它会级联滚动所有祖先容器，且 smooth
 	 * 动画会与贴底引擎/扩窗布局竞争——跟随态下点刻度「看似没反应、再点一次才生效」
 	 * 的直接根因就是贴底引擎把 smooth 滚动拽了回去。
+	 *
+	 * 但「不走 scrollIntoView」不等于「可以忽略嵌套窗口」：过程组组体是限高视口，目标行
+	 * 即使布局正常也可能被组体裁掉（实测可见高度 0px）。所以先由内向外把目标露出来，
+	 * 再算会话偏移——否则就是「跳到一条空白」。内层必须走它自己注册的 restoreAt（见
+	 * nestedScrollerReveal 的头注释），不能裸写 scrollTop。
 	 */
 	const scrollJumpTargetIntoView = useCallback(
 		(timeline: HTMLElement, element: HTMLElement) => {
+			revealInNestedScrollers(element, timeline);
 			const elementTop = element.getBoundingClientRect().top - timeline.getBoundingClientRect().top + timeline.scrollTop;
 			markProgrammaticScroll();
 			const api = scrollerScrollApiRef.current;
@@ -138,6 +145,9 @@ export function useTimelineJumpNavigation(options: TimelineJumpNavigationOptions
 			const step = () => {
 				frame = 0;
 				const row = timeline.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null;
+				// 每帧先重露内层：收敛期间组体里的内容可能长高，把目标重新顶出可视窗；
+				// 只改外层 scrollTop 修不了「被组体裁掉」，那会停在一个漂移为 0 的空白上。
+				if (row) revealInNestedScrollers(row, timeline);
 				// height <= 0 = 没被布局（折叠区里 display:none、或正在卸载）：它的 rect 全是 0，
 				// 拿去算漂移会得出一个巨大的负数，把视口滚到莫名其妙的位置。当作量不到处理。
 				const rowRect = row?.getBoundingClientRect() ?? null;

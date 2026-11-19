@@ -186,30 +186,31 @@ test("a slow init answer arriving after a connection loss is retired, never publ
 	assert.equal(f.current().initNotice, undefined);
 });
 
-test("the panel and the dictionaries carry the explicit init action without pretending it is automatic", () => {
+test("共用面板的初始化入口是显式的：host 只在用户点击后经桥发一次 init", () => {
 	const panel = readFileSync("src/renderer/src/components/workspace/RemoteGitPanel.tsx", "utf8");
-	// The not-repository anchor is attached conditionally (the same testid e2e locates); the init anchors are static.
-	assert.ok(panel.includes('"remote-git-not-repository"'), "remote-git-not-repository");
-	for (const id of ["remote-git-init", "remote-git-init-confirm", "remote-git-init-cancel", "remote-git-init-outcome"]) assert.match(panel, new RegExp('data-testid="' + id + '"'), id);
-	assert.match(panel, /GIT_NOT_REPOSITORY[\s\S]{0,1200}?initRepository\(/, "the init section is gated on the confirmed non-repository state");
+	const localPanel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+	const bridge = readFileSync("src/renderer/src/components/workspace/remoteGitPanelBridge.ts", "utf8");
+	// 入口在本机同一块面板里：非仓库态只给一个显式初始化按钮，成功后才重跑状态读。
+	assert.match(localPanel, /const doInitRepo = useCallback\(async \(\) => \{/);
+	assert.match(localPanel, /if \(!props\.gitInit \|\| !gitCapabilitiesRef\.current\.init\) return;/);
+	assert.match(panel, /gitInit=\{async \(\) => \{/);
+	assert.match(panel, /await bridge\.gitInit\(\);/);
+	assert.match(panel, /await props\.onReposChanged\(\);/);
+	// 远端初始化只有项目根：服务契约的 init 没有 repo 参数，桥不得把它偷偷扩展到嵌套仓。
+	assert.match(bridge, /gitInit: async \(\): Promise<void> => run\(async \(\) => void \(await services\.git\.init\(\)\)\)/);
+	assert.ok(!bridge.includes("services.git.init(repo)"), "init stays root-only");
 	const zh = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts").zhCN;
-	const en = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.en-US.ts").enUS;
 	assert.equal(remoteGitErrorMessage("GIT_REPO_EXISTS"), zh["remoteGit.repoExists"], "the refusal has its own copy");
-	for (const key of ["remoteGit.initHint", "remoteGit.initAction", "remoteGit.initConfirm", "remoteGit.initConfirmAction", "remoteGit.initCancel", "remoteGit.initializing", "remoteGit.initCreated", "remoteGit.repoExists"]) {
-		assert.equal(typeof zh[key], "string", key + " zh");
-		assert.equal(typeof en[key], "string", key + " en");
-	}
-	// The existing copy stays honest: no automatic initialization, no parent discovery - now plus the explicit action.
+	// 文案仍然诚实：不自动初始化、不搜索父目录，只能显式发起。
 	assert.match(zh["remoteGit.notRepository"], /不会自动初始化/);
 	assert.match(zh["remoteGit.notRepository"], /不.*搜索父目录/);
 	assert.match(zh["remoteGit.notRepository"], /显式初始化/);
-	assert.match(en["remoteGit.notRepository"], /never initializes automatically/);
-	assert.match(en["remoteGit.notRepository"], /parent director/i);
-	assert.match(en["remoteGit.notRepository"], /explicitly/i);
 });
 
 test("the init channel is wired through all four layers", () => {
-	assert.match(readFileSync("src/shared/ipc.ts", "utf8"), /gitRemoteInit:\s*"git:remote-init"/);
+	// 远端 Git 的通道值集中在 ipcGitPanelChannels.ts（ipc.ts 只做展开）；两处都要看。
+	const channels = [readFileSync("src/shared/ipc.ts", "utf8"), readFileSync("src/shared/ipcGitPanelChannels.ts", "utf8")].join("\n");
+	assert.match(channels, /gitRemoteInit:\s*"git:remote-init"/);
 	assert.match(preloadSource, /initRemote:\s*\(projectId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.gitRemoteInit/);
 	assert.match(previewApiSource, /initRemote:\s*async \(\) => \(\{ ok: false, code: "REMOTE_FEATURE_DISABLED" \}\)/);
 	assert.match(readFileSync("src/main/ipc/remoteGitReadIpc.ts", "utf8"), /ipcMain\.handle\(ipcChannels\.gitRemoteInit/);

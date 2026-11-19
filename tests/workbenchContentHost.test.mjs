@@ -62,7 +62,7 @@ test("WorkbenchStage hosts session + content with collapse-safe maximize", () =>
 	assert.doesNotMatch(stage, /props\.orientation/);
 	assert.match(stage, /orientation="horizontal"/);
 	assert.match(app, /<WorkbenchStage/);
-	assert.match(app, /workbenchHasContent/);
+	assert.match(app, /useWorkbenchSurfaces/);
 	assert.match(app, /WorkbenchContent/);
 	assert.match(app, /chrome=\{sessionTabsBarNode\}/);
 	// 尺寸必须字符串百分比 + defaultSize 恒定：react-resizable-panels v4 约束派生把
@@ -132,8 +132,8 @@ test("file tabs use preview/permanent strategy owned by useFileEditor", () => {
 	assert.match(tabsBar, /editorTabs\?:/);
 	assert.match(tabsBar, /EditorWorkbenchTab/);
 	assert.match(content, /chromeTabsExternal/);
-	assert.match(app, /editorTabs=\{simpleMode \? \[\] : workbenchEditorTabs\}/);
-	assert.match(app, /<WorkbenchFileTabs tabs=\{workbenchEditorTabs\}/);
+	assert.match(app, /editorTabs=\{simpleMode \? \[\] : workbench\.editorTabs\}/);
+	assert.match(app, /<WorkbenchFileTabs tabs=\{workbench\.editorTabs\}/);
 
 	const viewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
 	// 编辑/退出编辑按钮已移除（diff 只读、view 源码即编辑），不存在退出编辑与关闭叉撞车问题

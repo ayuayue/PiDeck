@@ -1,6 +1,21 @@
 import type { Op } from "../../../shared/op";
 import type { HostConnectionStateLike } from "../../../shared/projectCapabilities";
-import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, RemoteGitCommitDetail, RemoteGitRefFileDiff, WorktreeEntry } from "../../../shared/types/git";
+import type {
+	GitAheadBehind,
+	GitBranchInfo,
+	GitCompareRefsValue,
+	GitDiscardResource,
+	GitGenerateCommitMessageResult,
+	GitHistoryPage,
+	GitRef,
+	GitRepositoryListing,
+	GitResourceGroups,
+	GitWorkspaceDiffGroup,
+	GitWorkspaceFileDiff,
+	RemoteGitCommitDetail,
+	RemoteGitRefFileDiff,
+	WorktreeEntry,
+} from "../../../shared/types/git";
 import type { Project, ProjectFileTarget } from "../../../shared/types";
 import type { ProjectDirectoryPage, ProjectFileSearchPage } from "../../../shared/types/projectFiles";
 import type { RemoteProjectDownloadResult, RemoteProjectSearchEntry, RemoteProjectUploadResult } from "../../../shared/types/remoteHost";
@@ -45,18 +60,30 @@ export const PROJECT_SERVICE_CODES = {
 
 export type ProjectServiceErrorCode = (typeof PROJECT_SERVICE_CODES)[keyof typeof PROJECT_SERVICE_CODES];
 
-/** 服务层的失败：稳定码 + 二阶语义（unknown 只可能来自远端写），并允许带一句内部说明（不直接展示）。 */
+/**
+ * 服务层的失败：稳定码 + 二阶语义（unknown 只可能来自远端写）。
+ *
+ * 两条文本通道必须分清，混淆一次就会把英文实现细节漏到用户界面上：
+ * - `detail`：**远端原文**（helper 带回来的 git/hook stderr 摘要）。面板会原样展示，
+ *   所以只有真正来自 git 的一句话才允许写进来；没有原文就留空，由闭集码词典出文案。
+ * - `internal`：**只给我们自己看**的内部说明（英文、含实现细节，如 “remote git refs refused”）。
+ *   它不进任何展示层，只用于调试与日志。
+ */
 export class ProjectServiceError extends Error {
 	readonly code: string;
 	readonly outcome: "rejected" | "unknown";
+	/** 可上屏：远端原文；缺席 = 没有原文。 */
 	readonly detail?: string;
+	/** 不上屏：内部说明。 */
+	readonly internal?: string;
 
-	constructor(code: string, outcome: "rejected" | "unknown" = "rejected", detail?: string) {
+	constructor(code: string, outcome: "rejected" | "unknown" = "rejected", detail?: string, internal?: string) {
 		super(code);
 		this.name = "ProjectServiceError";
 		this.code = code;
 		this.outcome = outcome;
 		this.detail = detail;
+		this.internal = internal;
 	}
 }
 
@@ -111,7 +138,7 @@ export function isProjectServiceCurrent(fence: ProjectServiceFence): boolean {
  * 调用方不能按“确定没发生”自动重试。
  */
 export function assertProjectServiceCurrent(fence: ProjectServiceFence, outcome: "rejected" | "unknown" = "rejected"): void {
-	if (!isProjectServiceCurrent(fence)) throw new ProjectServiceError(PROJECT_SERVICE_CODES.generationStale, outcome, outcome === "unknown" ? "write might have been applied on an expired generation" : undefined);
+	if (!isProjectServiceCurrent(fence)) throw new ProjectServiceError(PROJECT_SERVICE_CODES.generationStale, outcome, undefined, outcome === "unknown" ? "write might have been applied on an expired generation" : undefined);
 }
 
 // ── 文件结果 ────────────────────────────────────────────────────────────
@@ -200,6 +227,8 @@ export type ProjectFileUploadSource = { kind: "picker" } | { kind: "paths"; path
 
 /** 创建分支的显式模式：绝不把“仅创建”暗中追加成“创建并切换”。 */
 export type ProjectGitBranchMode = "create" | "create-and-checkout";
+/** reset 的三种模式，与本机 `git reset --<mode>` 的白名单一致。 */
+export type ProjectGitResetMode = "soft" | "mixed" | "hard";
 
 export type ProjectGitDiscardReceipt = {
 	/** 远端可恢复丢弃返回 recoveryRef；本机 discardFiles 没有恢复快照。 */
@@ -226,10 +255,19 @@ export type ProjectGitService = {
 	status(repoPath?: ProjectFileTarget): Promise<GitResourceGroups>;
 	/** 纯事实强制刷新：越过事实缓存，但不签/不撤授权令牌（远端用 main 的 facts-only 入口，缺省回落带授权副作用的强刷）。 */
 	refresh(repoPath?: ProjectFileTarget): Promise<GitResourceGroups>;
-	history(options?: { maxCount?: number; skip?: number }, repoPath?: ProjectFileTarget): Promise<GitHistoryPage>;
+	/**
+	 * 历史页：`ref`/`all` 决定图谱范围，`withCount` 让结果带与列表同一过滤条件的总数。
+	 * 不支持的 provider 拒绝而不是静默忽略（静默忽略会把「全部」显示成 HEAD）。
+	 */
+	history(options?: { maxCount?: number; skip?: number; ref?: string; all?: boolean; withCount?: boolean }, repoPath?: ProjectFileTarget): Promise<GitHistoryPage>;
 	repos(): Promise<GitRepositoryListing>;
 	refs(repoPath?: ProjectFileTarget): Promise<GitRef[]>;
-	compare(base: string, head: string, repoPath?: ProjectFileTarget): Promise<GitCompareRefsValue>;
+	/** `mode` 缺省 trees（两树）；threeDot 才带 ahead/behind 与 merge-base。 */
+	compare(base: string, head: string, repoPath?: ProjectFileTarget, mode?: "trees" | "threeDot"): Promise<GitCompareRefsValue>;
+	/** 暂存区 unified diff 全文：只有远端有独立读口（helper git.stagedDiff）；本机 provider 不实现。 */
+	stagedDiff?(repoPath?: ProjectFileTarget): Promise<string>;
+	/** AI 提交摘要：远端把暂存 diff 交给本机生成入口（模型仍在本机跑）；本机面板直接用本机通道。 */
+	generateCommitMessage?(stagedDiff: string, repoPath?: ProjectFileTarget): Promise<GitGenerateCommitMessageResult>;
 	/** 单个提交的完整消息与变更文件；失败抛稳定码，不返回伪造的空详情。 */
 	commitDetail(oid: string, repoPath?: ProjectFileTarget): Promise<RemoteGitCommitDetail>;
 	/** 两个 revision 的单文件两侧内容；`base: null` 表示该侧不存在。 */
@@ -243,6 +281,11 @@ export type ProjectGitService = {
 	stage(targets: ProjectFileTarget[], repoPath?: ProjectFileTarget): Promise<void>;
 	unstage(targets: ProjectFileTarget[], repoPath?: ProjectFileTarget): Promise<void>;
 	commit(message: string, repoPath?: ProjectFileTarget): Promise<void>;
+	/** 提交图谱写动词：cherry-pick / revert / reset / drop，语义与本机一致。 */
+	cherryPick(hash: string, repoPath?: ProjectFileTarget): Promise<void>;
+	revert(hash: string, repoPath?: ProjectFileTarget): Promise<void>;
+	reset(hash: string, mode: ProjectGitResetMode, repoPath?: ProjectFileTarget): Promise<void>;
+	dropCommit(hash: string, repoPath?: ProjectFileTarget): Promise<void>;
 	discard(resources: GitDiscardResource[], repoPath?: ProjectFileTarget): Promise<ProjectGitDiscardReceipt>;
 	fetch(repoPath?: ProjectFileTarget): Promise<void>;
 	pull(repoPath?: ProjectFileTarget): Promise<void>;
@@ -258,6 +301,9 @@ export type ProjectGitService = {
 	worktreeRemove(target: ProjectFileTarget): Promise<boolean>;
 	/** 当前分支相对上游的差距（本机通道；远端由 provider 从 syncFacts 派生）。 */
 	aheadBehind(repoPath?: ProjectFileTarget): Promise<GitAheadBehind | null>;
+	/** refs 变化订阅（远端是 `.git` 目录族 fs.watch；本机是主进程签名轮询）。返回 watchId 供事件过滤。 */
+	watchRefs?(repoPath?: ProjectFileTarget): Promise<string>;
+	unwatchRefs?(watchId: string): Promise<void>;
 };
 
 // ── 能力 ────────────────────────────────────────────────────────────────
@@ -360,6 +406,9 @@ export type ProjectServiceCapabilities = {
 	blocked: ProjectServiceCapabilityReasons;
 };
 
+/** 项目事实的 scope：与 main 的 RemoteProjectFactsScope 同形，渲染层只消费不发明。 */
+export type ProjectFactScope = { kind: "status"; repoPath: string } | { kind: "dir"; path: string } | { kind: "repos" } | { kind: "tree" };
+
 export type ProjectServices = {
 	projectId: string;
 	kind: "local" | "remote";
@@ -372,6 +421,12 @@ export type ProjectServices = {
 	isCurrent(): boolean;
 	/** 只读重新采集 host/root/trust 事实（trust 决策没有推送事件）。 */
 	refresh(): Promise<void>;
+	/**
+	 * 项目事实的 scope 级订阅（directory/Git status 标脏）：
+	 * 传的是「哪个仓库的 status 旧了」，不触发任何远端读——重读由活跃面板自己决定。
+	 * 订阅身份绑定项目，不随 services 重建而丢失（runtime 持有同一份扇出）。本机不产生此类事件。
+	 */
+	subscribeFacts?(listener: (scope: ProjectFactScope) => void): () => void;
 };
 
 export type { Project, ProjectFileTarget };

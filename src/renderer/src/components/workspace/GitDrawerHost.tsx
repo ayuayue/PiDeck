@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BranchDiffResult, CommitDetail, CommitEntry, GitAheadBehind, GitBranchInfo, GitChangedFile, GitDiscardResource, GitGenerateCommitMessageResult, GitRepoInfo, GitResourceGroups, GitResourceGroupType, ProjectFileTarget } from "../../../../shared/types";
+import type { BranchDiffResult, CommitDetail, CommitEntry, GitAheadBehind, GitBranchInfo, GitChangedFile, GitDiscardResource, GitGenerateCommitMessageResult, GitRecoveryListing, GitRepoInfo, GitResourceGroups, GitResourceGroupType, ProjectFileTarget } from "../../../../shared/types";
 import { GitPanel } from "../app/GitPanel";
+import { LocalGitRecoverySection } from "./LocalGitRecoverySection";
 import { useGitRepoScope } from "../../hooks/useGitRepoScope";
 import { t } from "../../i18n";
 import { showNotice } from "../../utils/notice";
@@ -35,6 +36,10 @@ export type GitDrawerApi = {
 	/** refs 变化推送订阅（返回值退订）；payload 为 watchId */
 	onRefsChanged: (listener: (watchId: string) => void) => () => void;
 	deleteFiles: (projectId: string, paths: ProjectFileTarget[], repoPath?: ProjectFileTarget) => Promise<void>;
+	/** 本机可还原丢弃：列表只读；restore/drop 各自校验 ref 前缀与路径。 */
+	localRecoveryList: (projectId: string, repoPath?: ProjectFileTarget) => Promise<GitRecoveryListing>;
+	localRecoveryRestore: (projectId: string, entry: { ref: string; oid: string; path: string }, repoPath?: ProjectFileTarget) => Promise<{ path: string; bytes: number }>;
+	localRecoveryDrop: (projectId: string, entry: { ref: string; oid: string }, repoPath?: ProjectFileTarget) => Promise<void>;
 	branches: (projectId: string, repoPath?: ProjectFileTarget) => Promise<GitBranchInfo>;
 	checkout: (projectId: string, branch: string, repoPath?: ProjectFileTarget) => Promise<GitBranchInfo>;
 	createBranch: (projectId: string, branchName: string, repoPath?: ProjectFileTarget) => Promise<GitBranchInfo>;
@@ -98,6 +103,9 @@ function createScopedGitApi(gitApi: GitDrawerApi, repoPath: ProjectFileTarget | 
 		unwatchRefs: (watchId: string) => gitApi.unwatchRefs(watchId),
 		onRefsChanged: gitApi.onRefsChanged,
 		deleteFiles: (id: string, paths: ProjectFileTarget[]) => gitApi.deleteFiles(id, paths, repoPath),
+		localRecoveryList: (id: string) => gitApi.localRecoveryList(id, repoPath),
+		localRecoveryRestore: (id: string, entry: { ref: string; oid: string; path: string }) => gitApi.localRecoveryRestore(id, entry, repoPath),
+		localRecoveryDrop: (id: string, entry: { ref: string; oid: string }) => gitApi.localRecoveryDrop(id, entry, repoPath),
 	};
 }
 
@@ -292,6 +300,11 @@ export function GitDrawerHost(props: GitDrawerHostProps) {
 				unwatchRefs={scopedApi.unwatchRefs}
 				onRefsChanged={scopedApi.onRefsChanged}
 				deleteFiles={scopedApi.deleteFiles}
+				footer={
+					layout === "changesOnly" ? undefined : (
+						<LocalGitRecoverySection list={() => scopedApi.localRecoveryList(projectId)} restore={(entry) => scopedApi.localRecoveryRestore(projectId, entry)} drop={(entry) => scopedApi.localRecoveryDrop(projectId, entry)} reloadKey={`${projectId}:${repoKey ?? ""}`} enabled={gitCapabilities?.recovery !== false} />
+					)
+				}
 			/>
 		);
 	};

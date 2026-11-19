@@ -78,6 +78,10 @@ function snapshot(overrides = {}) {
 		fetchToken: "fetch-token",
 		pushToken: "push-token",
 		pullToken: "pull-token",
+		cherryPickToken: "cherry-pick-token",
+		revertToken: "revert-token",
+		resetToken: "reset-token",
+		dropCommitToken: "drop-commit-token",
 		...overrides,
 	};
 }
@@ -207,6 +211,22 @@ function makeApi(options = {}) {
 				record("git.pushRemote", args);
 				return options.pushResult ?? { ok: true, outcome: { outcome: "pushed", refspec: "refs/heads/main:refs/heads/main" } };
 			},
+			cherryPickRemote: async (...args) => {
+				record("git.cherryPickRemote", args);
+				return options.cherryPickResult ?? { ok: true };
+			},
+			revertRemote: async (...args) => {
+				record("git.revertRemote", args);
+				return options.revertResult ?? { ok: true };
+			},
+			resetRemote: async (...args) => {
+				record("git.resetRemote", args);
+				return options.resetResult ?? { ok: true };
+			},
+			dropCommitRemote: async (...args) => {
+				record("git.dropCommitRemote", args);
+				return options.dropCommitResult ?? { ok: true };
+			},
 			syncFacts: async (projectId, repo) => {
 				record("git.syncFacts", [projectId, repo]);
 				return options.syncFactsResult ?? { ok: true, facts: SYNC_FACTS };
@@ -296,7 +316,13 @@ function makeApi(options = {}) {
 				throw new Error("remote provider must not call the local aheadBehind channel");
 			},
 		},
-		files: {},
+		// 删除归文件服务：远端 provider 会逐目标调用这里（回收站收据）。
+		files: {
+			delete: async (target) => {
+				record("files.delete", [target]);
+				return { ok: true, value: { trashId: "trash-1" } };
+			},
+		},
 		remoteHosts: {},
 		remoteTrust: {},
 	};
@@ -617,7 +643,7 @@ test("授权拒绝：trust 未批准 → rejected（不是 unknown）且零写�
 	assert.deepEqual(names(onSnapshot.calls), ["git.remoteSnapshot"]);
 });
 
-test("fetch/pull/push 只在显式调用时联网；remotes 为空/多个或分支未知时拒绝且零写", async () => {
+test("fetch/pull/push 只在显式调用时联网；多 remote / detached 走 upstream 模式，0 remote 拒绝", async () => {
 	const idle = makeApi();
 	const idleService = services(idle.api);
 	await idleService.git.status(REPO);
@@ -633,21 +659,19 @@ test("fetch/pull/push 只在显式调用时联网；remotes 为空/多个或分�
 
 	const none = makeApi({ syncFactsResult: { ok: true, facts: { ...SYNC_FACTS, remotes: [] } } });
 	await assert.rejects(() => services(none.api).git.fetch(REPO), rejectsWith("GIT_SYNC_REMOTE_UNKNOWN", "rejected"));
-	assert.deepEqual(names(none.calls), ["git.syncFacts"], "没有 remote 时不得发网络写");
+	await assert.rejects(() => services(none.api).git.push(REPO), rejectsWith("GIT_SYNC_REMOTE_UNKNOWN", "rejected"));
+	assert.deepEqual(names(none.calls), ["git.syncFacts", "git.syncFacts"], "没有 remote 时不得发网络写");
 
+	// 多 remote / detached HEAD：与本机 `git push` / `git pull` 一致，交给 git 自己的上游规则（null/null）。
 	const many = makeApi({ syncFactsResult: { ok: true, facts: { ...SYNC_FACTS, remotes: ["origin", "upstream"] } } });
-	await assert.rejects(
-		() => services(many.api).git.push(REPO),
-		(error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported,
-	);
-	assert.deepEqual(names(many.calls), ["git.syncFacts"], "多个 remote 是契约缺口：显式 unsupported，不替用户选");
+	await services(many.api).git.push(REPO);
+	assert.deepEqual(names(many.calls), ["git.syncFacts", "git.remoteSnapshot", "git.pushRemote"]);
+	assert.deepEqual(many.calls[2].args, ["p2", null, null, "push-token", ""]);
 
 	const detached = makeApi({ syncFactsResult: { ok: true, facts: { ...SYNC_FACTS, branch: null } } });
-	await assert.rejects(
-		() => services(detached.api).git.pull(REPO),
-		(error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported,
-	);
-	assert.deepEqual(names(detached.calls), ["git.syncFacts"], "没有当前分支时 pull 不可命名");
+	await services(detached.api).git.pull(REPO);
+	assert.deepEqual(names(detached.calls), ["git.syncFacts", "git.remoteSnapshot", "git.pullRemote"]);
+	assert.deepEqual(detached.calls[2].args, ["p2", null, null, "pull-token", ""]);
 
 	const explicit = makeApi();
 	const explicitService = services(explicit.api);
@@ -740,19 +764,56 @@ test("强刷与同 scope 的写串行：写未完成时 refresh 不会插入并�
 	assert.deepEqual(names(calls), ["git.remoteSnapshot", "git.mutateRemoteIndex", "git.refreshRemoteSnapshot"], "写完成后强刷才执行");
 });
 
-test("worktree/deleteFiles 在远端仍显式 unsupported 且零调用", async () => {
+test("worktree 在远端仍显式 unsupported 且零调用；删除走文件服务回收站", async () => {
 	const { api, calls } = makeApi();
 	const service = services(api);
-	for (const action of [() => service.git.worktreeList(), () => service.git.worktreeCreate("topic"), () => service.git.worktreeRemove({ projectId: "p2", relativePath: "wt" }), () => service.git.deleteFiles([TARGET], REPO)]) {
+	for (const action of [() => service.git.worktreeList(), () => service.git.worktreeCreate("topic"), () => service.git.worktreeRemove({ projectId: "p2", relativePath: "wt" })]) {
 		await assert.rejects(action, (error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported);
 	}
 	assert.deepEqual(calls, []);
+	await service.git.deleteFiles([TARGET], REPO);
+	assert.deepEqual(
+		calls.map((entry) => entry.name),
+		["files.delete"],
+		"删除必须是文件服务的回收站动作，不是 git 动词",
+	);
 });
 
-test("能力位：远端 Git 写/分支/同步/恢复/强刷/轮询可用，autoFetch/worktree/deleteFiles 仍关", () => {
+test("能力位：远端 Git 写/分支/同步/恢复/强刷/轮询/删除/自动 fetch 可用；worktree 仍关", () => {
 	const { api } = makeApi();
 	const git = services(api).capabilities.git;
-	for (const key of ["write", "branchWrite", "sync", "syncFacts", "branchRead", "aheadBehind", "recovery", "init", "forceRefresh", "statusPoll", "refsWatch"]) assert.equal(git[key], true, key);
+	for (const key of ["write", "branchWrite", "sync", "syncFacts", "branchRead", "aheadBehind", "recovery", "init", "forceRefresh", "statusPoll", "refsWatch", "deleteFiles"]) assert.equal(git[key], true, key);
 	assert.equal(git.branchCreateMode, "both");
-	for (const key of ["autoFetch", "deleteFiles", "worktree"]) assert.equal(git[key], false, key);
+	for (const key of ["worktree"]) assert.equal(git[key], false, key);
+	assert.equal(git.autoFetch, true, "自动 fetch 与本机同节奏");
+});
+
+test("图谱写动词各自用自己那枚令牌，写完即作废这份事实（下一次写重新确认）", async () => {
+	const { api, calls } = makeApi();
+	const git = services(api).git;
+	await git.cherryPick(OID, REPO);
+	const cherry = calls.find((call) => call.name === "git.cherryPickRemote");
+	assert.ok(cherry, "the panel action must reach its own channel");
+	assert.equal(cherry.args[0], "p2");
+	assert.equal(cherry.args[1], OID);
+	assert.equal(cherry.args[2], "cherry-pick-token", "the grant for this action kind, not another one");
+	// 写一旦发出，桶就旧了：下一次写必须重新读快照，而不是带着旧令牌去试。
+	const before = names(calls).filter((name) => name === "git.remoteSnapshot").length;
+	await git.reset(OID, "hard", REPO);
+	const reset = calls.find((call) => call.name === "git.resetRemote");
+	assert.equal(reset.args[2], "hard");
+	assert.equal(reset.args[3], "reset-token");
+	const after = names(calls).filter((name) => name === "git.remoteSnapshot").length;
+	assert.equal(after, before + 1, "a second write re-confirms its own facts");
+});
+
+test("写动词的失败保留稳定码与原文，且缺失的授权在触达通道前就被拒", async () => {
+	const { api: failing } = makeApi({ revertResult: { ok: false, code: "GIT_COMMAND_FAILED", message: "error: could not revert" } });
+	await assert.rejects(services(failing).git.revert(OID, REPO), (error) => error.code === "GIT_COMMAND_FAILED" && String(error.detail).includes("could not revert"));
+	// 快照里没有这枚令牌（helper 未声明能力 → main 不签发）：入口天然缺席，不发请求。
+	const bare = snapshot();
+	bare.dropCommitToken = undefined;
+	const { api: bareApi, calls: bareCalls } = makeApi({ remoteSnapshotResult: { ok: true, snapshot: bare } });
+	await assert.rejects(services(bareApi).git.dropCommit(OID, REPO), (error) => error.code === PROJECT_SERVICE_CODES.unsupported);
+	assert.equal(names(bareCalls).includes("git.dropCommitRemote"), false);
 });

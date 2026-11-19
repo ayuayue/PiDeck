@@ -76,15 +76,25 @@
  *   ipcChannels 850→851，前缀数仍 95（config 前缀已存在）。
  * 2026-11-16 #546 分诊账本（+2）：gtd:state-get / gtd:state-patch（读全量意图水位 / 写单个会话水位），
  *   ipcChannels 851→853，新增 gtd 前缀（95→96）；渲染面是 sessions.gtdState / sessions.gtdPatch。
+ * 2026-11-18 远端 Git 面板对齐（helper 1.32.0，+6，855 → 861；git 前缀 59 → 65，前缀总数不变）：
+ *   gitRemoteStagedDiff（暂存区 diff，AI 摘要的远端输入）、gitRemoteWatchRefs / gitRemoteUnwatchRefs
+ *   （`.git` 目录族订阅，只标脏）、gitRecoveryList / gitRecoveryRestore / gitRecoveryDrop（本机可还原丢弃）。
+ * 2026-11-19 远端 MCP（+1）：remote:pi-mcp（配置快照/保存 + 主机上的 pi mcp list/logout），
+ *   ipcChannels 855→856，前缀数仍 96（remote 前缀已存在）。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 855;
+/**
+ * 2026-11-18 显式刷新（+4 通道，均附领域正当理由）：远端提交图谱写动词与本机同形——
+ *   gitRemoteCherryPick / gitRemoteRevert / gitRemoteReset / gitRemoteDropCommit（git 前缀 65 → 69），
+ *   每个动作一枚 main 签发、按 (窗口, 项目, 动作, 仓库) 绑定的令牌；helper 未声明能力时不签发，入口缺席。
+ */
+const CHANNEL_TOTAL = 866;
 const PREFIX_COUNT = 96;
-const CHANNEL_DIGEST = "44039bdbfd01aa82db44a0ed88dcc5ffb85e7613260733286202f95b65edaa17";
+const CHANNEL_DIGEST = "c0657e1008284e6dfe6f54429b507280fda38d74cdbfc7accb4776bc56355c28";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -103,11 +113,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 853", () => {
+test("F3-1 通道常量总数 === 865", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 853（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 865（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 
@@ -128,11 +138,11 @@ test("F3-7 agentEventTags 单独锚定：8 个标签 + 摘要（与 ipcChannels 
 	for (const [key, value] of tagEntries) assert.ok(!channelValues.has(value), `事件标签 ${key}=${value} 与 IPC 通道同名`);
 });
 
-test("F3-5 锚点抽查：appGetChannel=update:get-channel、sessionsRuntimeEvent=sessions:runtime-event、git=59、enhance=3", () => {
+test("F3-5 锚点抽查：appGetChannel=update:get-channel、sessionsRuntimeEvent=sessions:runtime-event、git=69、enhance=3", () => {
 	assert.equal(ipcChannels.appGetChannel, "update:get-channel");
 	assert.equal(ipcChannels.sessionsRuntimeEvent, "sessions:runtime-event");
 	const countByPrefix = (prefix) => values.filter((value) => value.startsWith(`${prefix}:`)).length;
-	assert.equal(countByPrefix("git"), 59);
+	assert.equal(countByPrefix("git"), 69);
 	assert.equal(countByPrefix("enhance"), 3);
 });
 
