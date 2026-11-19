@@ -27,6 +27,7 @@ var dependencies = map[string][]string{
 	"webassets":              {},
 	"scripts":                {},
 	"cmd/pideck-relay":       {"internal/relay"},
+	"internal/alerts":        {"assets"},
 	"internal/architecture":  {},
 	"internal/appinfo":       {},
 	"internal/apptext":       {},
@@ -38,10 +39,10 @@ var dependencies = map[string][]string{
 	"internal/sessionimport": {"internal/apptext"},
 	"internal/viewkit":       {"internal/apptext"},
 	"internal/client": {
-		"assets", "internal/appinfo", "internal/apptext", "internal/relaywire", "internal/remotewire", "internal/viewkit",
+		"assets", "internal/alerts", "internal/appinfo", "internal/apptext", "internal/relaywire", "internal/remotewire", "internal/viewkit",
 	},
 	"internal/workbench": {
-		"assets", "extensions", "webassets", "internal/appinfo", "internal/apptext",
+		"assets", "extensions", "webassets", "internal/alerts", "internal/appinfo", "internal/apptext",
 		"internal/crashlog", "internal/relaywire", "internal/remotewire", "internal/schedule",
 		"internal/sessionimport", "internal/viewkit",
 	},

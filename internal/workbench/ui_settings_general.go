@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 
+	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
@@ -167,6 +168,81 @@ func (a *app) settingsGeneral() core.Node {
 								}
 							})
 						}}),
+				),
+				setGroup("提示音",
+					setRow("提示音", "一轮结束、出错或等待你确认时，用一段短声音提醒。",
+						ui.Switch{Checked: func() bool { return a.cfg.SoundEnabled }, Label: apptext.T("提示音"), TestID: "sound-enabled",
+							OnChange: func(on bool) {
+								a.cfg.SoundEnabled = on
+								a.st.edit(func(c *config) { c.SoundEnabled = on })
+
+								a.bumpSettings()
+							}}),
+					setDivider(),
+					setRow("只在窗口隐藏时出声", "窗口在屏幕上时不响，免得正看着还被提醒。",
+						ui.Switch{Checked: func() bool { return a.cfg.SoundOnlyHidden }, Label: apptext.T("只在窗口隐藏时出声"), TestID: "sound-hidden",
+							OnChange: func(on bool) {
+								a.cfg.SoundOnlyHidden = on
+								a.st.edit(func(c *config) { c.SoundOnlyHidden = on })
+
+								a.bumpSettings()
+							}}),
+					setDivider(),
+					setRow("完成时", "一轮回答完成时播放的声音。",
+						core.View{Style: core.Style{Width: core.Pt(300), MaxWidth: core.Pct(100)}, Children: []core.Node{
+							choiceChips(a.alertSoundChoices(), func() string { return a.alertChoice(alerts.KindDone) },
+								func(v string) { a.setAlertKind(alerts.KindDone, v) }),
+						}}),
+					setDivider(),
+					setRow("出错时", "一轮以失败结束时播放的声音。",
+						core.View{Style: core.Style{Width: core.Pt(300), MaxWidth: core.Pct(100)}, Children: []core.Node{
+							choiceChips(a.alertSoundChoices(), func() string { return a.alertChoice(alerts.KindError) },
+								func(v string) { a.setAlertKind(alerts.KindError, v) }),
+						}}),
+					setDivider(),
+					setRow("等待确认时", "Agent 停下来等你允许或回答时播放的声音。",
+						core.View{Style: core.Style{Width: core.Pt(300), MaxWidth: core.Pct(100)}, Children: []core.Node{
+							choiceChips(a.alertSoundChoices(), func() string { return a.alertChoice(alerts.KindWaiting) },
+								func(v string) { a.setAlertKind(alerts.KindWaiting, v) }),
+						}}),
+					setDivider(),
+					setRow("音量", "提示音的音量，0 为静音。",
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(230)}, Children: []core.Node{
+							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+								ui.Slider{Min: 0, Max: 100, Step: 5,
+									Value:     func() float64 { return float64(a.alertVolumePct()) },
+									Label:     apptext.T("提示音音量"),
+									ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
+									TestID:    "sound-volume",
+									OnChange: func(v float64) {
+										a.setAlertVolume(int(v))
+										a.bumpSettings()
+									}},
+							}},
+							core.Text{ContentFunc: func() string { return fmt.Sprintf("%d%%", a.alertVolumePct()) },
+								Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
+								StyleFunc: ui.Colored(colors.Muted)},
+						}}),
+					setDivider(),
+					setRow("自定义提示音", "导入一个 wav、mp3、m4a 或 aac 文件（不超过 2 MB），再在上面三行里选“自定义”。",
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+							core.Show{When: func() bool { return a.cfg.SoundCustom != "" }, Then: func(*core.Scope) core.Node {
+								return core.Text{ContentFunc: func() string { return a.cfg.SoundCustom },
+									MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+									Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11, MaxWidth: core.Pt(150)},
+									StyleFunc: ui.Colored(colors.Faint)}
+							}},
+							ui.Button{Text: apptext.T("导入…"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+								TestID: "sound-import", OnPress: a.pickAlertSound},
+							core.Show{When: func() bool { return a.cfg.SoundCustom != "" }, Then: func(*core.Scope) core.Node {
+								return ui.Button{Text: apptext.T("移除"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+									TestID: "sound-clear", OnPress: a.clearAlertSound}
+							}},
+						}}),
+					setDivider(),
+					setRow("试听", "按现在的设置播放一次完成音。",
+						ui.Button{Text: apptext.T("试听"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "sound-preview",
+							OnPress: func() { a.soundAlert(alerts.KindDone) }}),
 				),
 				setGroup("隐私",
 					setRow("匿名使用统计", "启动时每天最多发一次心跳，带上版本、平台、功能开关与数量统计；不含项目路径、会话内容、文件名或凭据。",

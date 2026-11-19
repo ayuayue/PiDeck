@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/appinfo"
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/viewkit"
@@ -222,10 +223,12 @@ func (a *app) acpFinish(s *session, turnID, stop string, err error) {
 	a.saveACPArchive(s)
 	switch {
 	case err != nil:
+		a.playAlert(alerts.KindError)
 		a.notifyFeishu(s, "失败", err.Error())
 	case stop == "cancelled":
 		a.notifyFeishu(s, "已停止", "")
 	default:
+		a.playAlert(alerts.KindDone)
 		a.notifyTurnDone(s)
 		a.notifyFeishu(s, "完成", lastAnswer(s))
 	}
@@ -572,6 +575,7 @@ func (a *app) askACPPermission(s *session, req acpPermission) string {
 		}
 		s.ask.Set(&extensionAsk{ID: "acp", Method: "select", Title: apptext.T("工具权限：") + req.Title,
 			Message: "允许这次工具调用吗？", Options: names})
+		a.playAlert(alerts.KindWaiting)
 	})
 	select {
 	case name := <-answer:

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -62,6 +63,7 @@ func (a *app) showAsk(s *session, ask *extensionAsk) {
 	s.askUI.Set(state)
 	s.ask.Set(ask)
 	a.bumpAsk()
+	a.playAlert(alerts.KindWaiting)
 }
 
 // countAsks keeps the rail's badge in step with what is waiting.

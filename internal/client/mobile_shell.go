@@ -587,6 +587,24 @@ func (a *mobileApp) settingsSheet() core.Node {
 						func() string { return a.appearance.Get() },
 						func(code string) { a.chooseAppearance(code) }, "mobile-look"),
 				}},
+				core.View{Style: core.Style{Gap: 7}, Children: []core.Node{
+					ui.Text(apptext.T("提示音"), 11, ui.Medium, colors.Faint),
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
+						core.Text{ContentFunc: func() string {
+							if a.soundOn.Get() {
+								return apptext.T("一轮结束或等你确认时，手机会响一声。")
+							}
+							return apptext.T("关闭时不出声。")
+						}, MaxLines: 2, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5, LineHeight: 17},
+							StyleFunc: ui.Colored(colors.Muted)},
+						ui.Switch{Checked: func() bool { return a.soundOn.Get() }, Label: apptext.T("提示音"),
+							TestID: "mobile-sound", OnChange: a.setSoundOn},
+					}},
+					core.Show{When: func() bool { return a.soundOn.Get() }, Then: func(*core.Scope) core.Node {
+						return a.choiceRow(phoneSoundChoices(), phoneSoundName,
+							func() string { return a.soundName.Get() }, a.setSoundName, "mobile-sound-name")
+					}},
+				}},
 				core.View{Style: core.Style{Gap: 2, Margin: core.Edges{Top: 2}}, Children: []core.Node{
 					a.sheetRow(lucide.RefreshCw, apptext.T("刷新"), colors.Text, func() {
 						a.settingsOpen.Set(false)
@@ -692,7 +710,7 @@ func (a *mobileApp) chooseLanguage(code string) {
 func (a *mobileApp) saveLook() {
 	saveMobileSaved(a.cx, mobileSaved{Server: a.server.GetUntracked(), Token: a.token.GetUntracked(),
 		Recent: a.recent.GetUntracked(), Language: a.language.GetUntracked(), Appearance: a.appearance.GetUntracked(),
-		Project: a.initProject.GetUntracked()})
+		Project: a.initProject.GetUntracked(), Sound: a.soundOn.GetUntracked(), SoundName: a.soundName.GetUntracked()})
 }
 
 // projectCollapsed says the project's sessions are folded in the rail.

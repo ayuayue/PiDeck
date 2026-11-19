@@ -166,6 +166,19 @@ type config struct {
 	CloseToTray      bool `json:"closeToTray"`
 	NotifyOnDone     bool `json:"notifyOnDone"`
 	NotifyOnlyHidden bool `json:"notifyOnlyHidden"`
+	// SoundEnabled plays a short sound when a turn finishes, fails or
+	// waits for an answer, and SoundOnlyHidden keeps it quiet while the
+	// window shows. SoundDone, SoundError and SoundWaiting name the sound
+	// of each moment: empty for its default, a built-in name, or "custom"
+	// for SoundCustom's file in sounds/. SoundVolume is a percentage, and
+	// nil plays at 70.
+	SoundEnabled    bool   `json:"soundEnabled"`
+	SoundOnlyHidden bool   `json:"soundOnlyHidden"`
+	SoundDone       string `json:"soundDone,omitempty"`
+	SoundError      string `json:"soundError,omitempty"`
+	SoundWaiting    string `json:"soundWaiting,omitempty"`
+	SoundCustom     string `json:"soundCustom,omitempty"`
+	SoundVolume     *int   `json:"soundVolume,omitempty"`
 	// Language is the interface's language: "" follows the system, else
 	// one of supportedLanguages.
 	Language string `json:"language,omitempty"`

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
@@ -25,6 +26,12 @@ type mobileSaved struct {
 	Language   string         `json:"language,omitempty"`
 	Appearance string         `json:"appearance,omitempty"`
 	Project    string         `json:"project,omitempty"`
+	// Sound is the phone's own alert: whether it plays when a turn ends or
+	// waits for an answer, and which built-in it plays. It is a device
+	// preference, like the ring volume, so it stays here rather than
+	// following the desktop's config.
+	Sound     bool   `json:"sound,omitempty"`
+	SoundName string `json:"soundName,omitempty"`
 }
 
 type mobileRecent struct {
@@ -142,6 +149,11 @@ type mobileApp struct {
 	projectOpen       *core.Signal[string]
 	appearance        *core.Signal[string]
 	language          *core.Signal[string]
+	// soundOn and soundName are the phone's alert settings, kept in
+	// remote.json beside the look; sounds plays them.
+	soundOn   *core.Signal[bool]
+	soundName *core.Signal[string]
+	sounds    *alerts.Player
 
 	// The rail's lists: the ways of working a session can start with, the
 	// desktop's cron tasks and its favorites.
@@ -351,6 +363,8 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		projectOpen:         core.NewSignal(cx, ""),
 		appearance:          core.NewSignal(cx, appearanceSystem),
 		language:            core.NewSignal(cx, apptext.LangZhCN),
+		soundOn:             core.NewSignal(cx, false),
+		soundName:           core.NewSignal(cx, ""),
 		agents:              core.NewSignalFunc(cx, []remotewire.Agent(nil), nil),
 		agentsBusy:          core.NewSignal(cx, false),
 		agentsErr:           core.NewSignal(cx, ""),
@@ -377,6 +391,9 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	a.appearance.Set(saved.Appearance)
 	cx.SetAppearance(appearanceOf(saved.Appearance))
 	a.initProject.Set(saved.Project)
+	a.soundOn.Set(saved.Sound)
+	a.soundName.Set(saved.SoundName)
+	a.sounds = alerts.New(cx)
 	// A page is served by a desktop, so its origin is the server and a link's
 	// ?token= the token; a saved connection wins only over the origin.
 	if origin, linkToken := webStart(); origin != "" {

@@ -21,7 +21,7 @@ import (
 )
 
 // backupItems are the data folder's entries a settings backup carries.
-var backupItems = []string{"config.json", "plugins", "themes", "prompts", "agents", "acp"}
+var backupItems = []string{"config.json", "plugins", "themes", "prompts", "agents", "acp", "sounds"}
 
 const (
 	backupFileLimit  = 10 << 20

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/sessionimport"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
@@ -22,6 +23,14 @@ type app struct {
 	st      *store
 	cfg     config
 	dataDir string
+	// sounds plays the notification sounds; customSound is the imported
+	// file's bytes, read when the config loads and after an import, so an
+	// alert never reads the disk on the UI thread. alertVolumeSeq drops a
+	// pending write while the slider still moves.
+	sounds         *alerts.Player
+	customSound    []byte
+	customSoundFor string
+	alertVolumeSeq int
 	// crashShown is the panic the crash screen last logged, so it does
 	// not write a file on every render; crashPath is where it wrote.
 	crashShown string

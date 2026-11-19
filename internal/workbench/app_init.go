@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/crashlog"
 	"example.com/pideck-lite/internal/sessionimport"
 	"github.com/nsgo-dev/nsgo/base/textview"
@@ -368,6 +369,8 @@ func newApp(cx *core.Scope) *app {
 	askExtensionPath = installAskExtension(st.dir)
 	a.initDiag()
 	a.cfg = st.config()
+	a.sounds = alerts.New(cx)
+	a.loadCustomSound()
 	a.applyBrand()
 	a.uiFont.Set(strings.TrimSpace(a.cfg.UIFont))
 	a.monoFont.Set(strings.TrimSpace(a.cfg.MonoFont))

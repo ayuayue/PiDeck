@@ -9,9 +9,10 @@ Dependencies point down this list. A package may import a package below it when 
 | Package | Role | Local dependencies |
 | --- | --- | --- |
 | module root | NSGo bootstrap, platform-specific `Root`, window frame and shutdown | `client`, `crashlog`, `workbench` |
-| `internal/client` | Android, iOS, Web and desktop mobile preview | `assets`, `appinfo`, `apptext`, `remotewire`, `viewkit` |
+| `internal/client` | Android, iOS, Web and desktop mobile preview | `alerts`, `assets`, `appinfo`, `apptext`, `remotewire`, `viewkit` |
 | `internal/workbench` | Desktop application and loopback server | shared packages, `sessionimport`, `schedule` |
 | `internal/sessionimport` | External transcript readers and pi JSONL writer | `apptext` |
+| `internal/alerts` | Notification sounds: embedded sounds, default per moment, one decoded player | `assets`, NSGo |
 | `internal/viewkit` | Display helpers shared by the hosts | `apptext`, NSGo |
 | `internal/crashlog` | Crash reports | `appinfo` |
 | `internal/remotewire` | JSON transport types | standard library |

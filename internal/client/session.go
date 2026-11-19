@@ -9,6 +9,7 @@ import (
 	"errors"
 	"time"
 
+	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
@@ -281,8 +282,19 @@ func (a *mobileApp) refreshTranscript() {
 			a.setTranscriptMessages(mergeMessages(a.messages.GetUntracked(), t.Messages, t.Before))
 			a.messagesBefore.Set(keepBefore(a.messagesBefore.GetUntracked(), t.Before))
 			a.transcriptTruncated.Set(t.Truncated)
+			// The phone cannot watch the desktop's events, so it hears the
+			// change between two polls: a turn that just ended, or a
+			// question that just appeared.
+			wasRunning := a.running.GetUntracked()
+			wasAsk := a.ask.GetUntracked() != nil
 			a.running.Set(t.Running)
 			a.ask.Set(t.Ask)
+			switch {
+			case wasRunning && !t.Running:
+				a.playAlert(alerts.KindDone)
+			case !wasAsk && t.Ask != nil:
+				a.playAlert(alerts.KindWaiting)
+			}
 			a.transcriptErr.Set(t.Error)
 		})
 	}()

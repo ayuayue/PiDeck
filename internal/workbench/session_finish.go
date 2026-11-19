@@ -6,6 +6,7 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"example.com/pideck-lite/internal/alerts"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
@@ -58,8 +59,10 @@ func (a *app) settled(s *session, ev piEvent) {
 	case ev.Aborted:
 		a.notifyFeishu(s, "已停止", "")
 	case s.status.GetUntracked() == statusFailed:
+		a.playAlert(alerts.KindError)
 		a.notifyFeishu(s, "失败", s.notice.GetUntracked())
 	default:
+		a.playAlert(alerts.KindDone)
 		a.notifyTurnDone(s)
 		a.notifyFeishu(s, "完成", lastAnswer(s))
 	}

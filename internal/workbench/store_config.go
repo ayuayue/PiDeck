@@ -78,6 +78,10 @@ func (s *store) config() config {
 		v := *s.c.BackgroundOpacity
 		c.BackgroundOpacity = &v
 	}
+	if s.c.SoundVolume != nil {
+		v := *s.c.SoundVolume
+		c.SoundVolume = &v
+	}
 	c.PluginSettings = make(map[string]string, len(s.c.PluginSettings))
 	for k, v := range s.c.PluginSettings {
 		c.PluginSettings[k] = v
