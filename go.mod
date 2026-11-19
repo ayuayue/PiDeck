@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/andybalholm/brotli v1.3.0
 	github.com/liyue201/goqr v0.0.0-20200803022322-df443203d4ea
-	github.com/nsgo-dev/nsgo v0.1.1-0.20261117160323-0d5b51b32e46
+	github.com/nsgo-dev/nsgo v0.1.1-0.20261117180649-a4a00f7f38b3
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/image v0.48.0
