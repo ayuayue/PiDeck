@@ -74,7 +74,7 @@ func TestTunnelPairsBothEnds(t *testing.T) {
 }
 
 // TestTunnelRefusals checks the pre-upgrade answers a wrong key and a
-// missing or busy desktop get.
+// missing desktop get.
 func TestTunnelRefusals(t *testing.T) {
 	srv := New(Config{Keepalive: time.Second, IdleDesktop: 5 * time.Second})
 	ts := httptest.NewServer(srv.Handler())
@@ -106,14 +106,61 @@ func TestTunnelRefusals(t *testing.T) {
 	defer desktop.Close()
 	desktop.SetDeadline(time.Now().Add(3 * time.Second))
 
-	if got := status(httpURL(link, relaywire.RoleDesktop)); got != http.StatusConflict {
-		t.Fatalf("second desktop = %d, want 409", got)
-	}
-
 	wrong := link
 	wrong.Key = strings.Repeat("j", 32)
+	if got := status(httpURL(wrong, relaywire.RoleDesktop)); got != http.StatusUnauthorized {
+		t.Fatalf("wrong key = %d, want 401", got)
+	}
 	if got := status(httpURL(wrong, relaywire.RolePhone)); got != http.StatusUnauthorized {
 		t.Fatalf("wrong key = %d, want 401", got)
+	}
+}
+
+// TestTunnelReplacesStaleEnds reconnects each end while the old socket is
+// still open, as a phone that changed networks does: the new socket takes
+// the slot instead of waiting for the old one to time out.
+func TestTunnelReplacesStaleEnds(t *testing.T) {
+	srv := New(Config{Keepalive: time.Second, IdleDesktop: 5 * time.Second})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer srv.Close()
+	link := testLink(t, ts.URL)
+
+	first, err := websocket.Dial(link.URL(relaywire.RoleDesktop), "", "http://localhost")
+	if err != nil {
+		t.Fatalf("first desktop dial: %v", err)
+	}
+	defer first.Close()
+
+	second, err := websocket.Dial(link.URL(relaywire.RoleDesktop), "", "http://localhost")
+	if err != nil {
+		t.Fatalf("a desktop that redialed was refused: %v", err)
+	}
+	defer second.Close()
+	second.SetDeadline(time.Now().Add(5 * time.Second))
+
+	phone, err := websocket.Dial(link.URL(relaywire.RolePhone), "", "http://localhost")
+	if err != nil {
+		t.Fatalf("phone dial after the desktop redialed: %v", err)
+	}
+	defer phone.Close()
+
+	next, err := websocket.Dial(link.URL(relaywire.RolePhone), "", "http://localhost")
+	if err != nil {
+		t.Fatalf("a phone that reconnected was refused: %v", err)
+	}
+	defer next.Close()
+	next.SetDeadline(time.Now().Add(5 * time.Second))
+
+	if _, err := next.Write([]byte("after-reconnect")); err != nil {
+		t.Fatalf("phone write: %v", err)
+	}
+	buf := make([]byte, len("after-reconnect"))
+	if _, err := io.ReadFull(second, buf); err != nil {
+		t.Fatalf("desktop read: %v", err)
+	}
+	if string(buf) != "after-reconnect" {
+		t.Fatalf("desktop read %q", buf)
 	}
 }
 
@@ -196,6 +243,62 @@ func TestExternalRelay(t *testing.T) {
 		t.Fatalf("desktop read: %v", err)
 	}
 	if string(buf) != "through-the-edge" {
+		t.Fatalf("desktop read %q", buf)
+	}
+}
+
+// TestExternalRelayReplacesStaleEnds reconnects each end while the old
+// socket is still open, as a phone that changed networks does. The relay
+// must take the new one instead of holding the slot for the old.
+func TestExternalRelayReplacesStaleEnds(t *testing.T) {
+	base := strings.TrimSpace(os.Getenv("PIDECK_RELAY_TEST_URL"))
+	if base == "" {
+		t.Skip("PIDECK_RELAY_TEST_URL is not set")
+	}
+	link := relaywire.Link{
+		Relay:       base,
+		Env:         fmt.Sprintf("env-%d", time.Now().UnixNano()),
+		Key:         strings.Repeat("k", 32),
+		Fingerprint: strings.Repeat("f", 43),
+		Token:       "token",
+	}
+
+	first, err := websocket.Dial(link.URL(relaywire.RoleDesktop), "", "http://localhost")
+	if err != nil {
+		t.Fatalf("first desktop dial: %v", err)
+	}
+	defer first.Close()
+
+	second, err := websocket.Dial(link.URL(relaywire.RoleDesktop), "", "http://localhost")
+	if err != nil {
+		t.Fatalf("a desktop that redialed was refused: %v", err)
+	}
+	defer second.Close()
+	second.SetDeadline(time.Now().Add(10 * time.Second))
+
+	phone, err := websocket.Dial(link.URL(relaywire.RolePhone), "", "http://localhost")
+	if err != nil {
+		t.Fatalf("phone dial after the desktop redialed: %v", err)
+	}
+	defer phone.Close()
+	phone.SetDeadline(time.Now().Add(10 * time.Second))
+
+	// A phone that reconnects takes the slot back at once.
+	phone2, err := websocket.Dial(link.URL(relaywire.RolePhone), "", "http://localhost")
+	if err != nil {
+		t.Fatalf("a phone that reconnected was refused: %v", err)
+	}
+	defer phone2.Close()
+	phone2.SetDeadline(time.Now().Add(10 * time.Second))
+
+	if _, err := phone2.Write([]byte("after-reconnect")); err != nil {
+		t.Fatalf("phone write: %v", err)
+	}
+	buf := make([]byte, len("after-reconnect"))
+	if _, err := io.ReadFull(second, buf); err != nil {
+		t.Fatalf("desktop read: %v", err)
+	}
+	if string(buf) != "after-reconnect" {
 		t.Fatalf("desktop read %q", buf)
 	}
 }

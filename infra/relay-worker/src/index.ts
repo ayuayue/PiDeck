@@ -55,9 +55,6 @@ export class Tunnel implements DurableObject {
     const key = url.searchParams.get("key") ?? "";
     const hash = await sha256(key);
 
-    if (this.state.getWebSockets(role).length > 0) {
-      return new Response("busy", { status: 409 });
-    }
     if (role === "phone") {
       const desktop = this.state.getWebSockets("desktop")[0];
       if (!desktop) {
@@ -66,6 +63,18 @@ export class Tunnel implements DurableObject {
       const attachment = desktop.deserializeAttachment() as Attachment | null;
       if (!attachment || attachment.hash !== hash) {
         return new Response("wrong key", { status: 401 });
+      }
+    }
+
+    // A phone that changed networks, or a desktop that redialed, leaves a
+    // socket the edge has not reaped yet. The new one takes the slot, as a
+    // reconnect should, instead of being refused until the old one times
+    // out. Replaced sockets close with 4000, which keeps their peer.
+    for (const old of this.state.getWebSockets(role)) {
+      try {
+        old.close(4000, "replaced");
+      } catch {
+        // Already closed.
       }
     }
 
@@ -89,6 +98,13 @@ export class Tunnel implements DurableObject {
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    // A replaced phone's desktop keeps its own connection: the phone that
+    // took the slot over is the one it talks to now. A replaced desktop
+    // does close its phone, which then pairs with the new one.
+    const attachment = ws.deserializeAttachment() as Attachment | null;
+    if (code === 4000 && attachment?.role === "phone") {
+      return;
+    }
     const peer = this.peerOf(ws);
     if (!peer) {
       return;
@@ -114,8 +130,17 @@ export class Tunnel implements DurableObject {
     if (!attachment) {
       return undefined;
     }
-    const role = attachment.role === "desktop" ? "phone" : "desktop";
-    return this.state.getWebSockets(role)[0];
+    return this.openSocket(attachment.role === "desktop" ? "phone" : "desktop");
+  }
+
+  /**
+   * The socket of a role that still takes messages: a socket closed by a
+   * replacement stays listed until its close completes, and writing to it
+   * would drop what the other end is waiting for.
+   */
+  private openSocket(role: Attachment["role"]): WebSocket | undefined {
+    const sockets = this.state.getWebSockets(role);
+    return sockets.find((s) => s.readyState === 1) ?? sockets[sockets.length - 1];
   }
 }
 

@@ -58,7 +58,9 @@ type environment struct {
 	phone   *websocket.Conn
 	paired  chan struct{}
 	done    chan struct{}
-	seen    time.Time
+	// stop ends the desktop's wait when a newer desktop takes the slot.
+	stop chan struct{}
+	seen time.Time
 }
 
 // New builds a relay. A zero Config takes DefaultConfig.
@@ -152,18 +154,12 @@ func (s *Server) check(envID string, hash [32]byte, role string) error {
 		if !sameKey(env.key, hash) {
 			return errWrongKey
 		}
-		if env.desktop != nil {
-			return errBusy
-		}
 	case relaywire.RolePhone:
 		if env == nil || env.desktop == nil {
 			return errNoHost
 		}
 		if !sameKey(env.key, hash) {
 			return errWrongKey
-		}
-		if env.phone != nil {
-			return errBusy
 		}
 	}
 	return nil
@@ -174,7 +170,7 @@ func (s *Server) attach(envID string, hash [32]byte, role string, conn *websocke
 	s.mu.Lock()
 	env := s.envs[envID]
 	if role == relaywire.RoleDesktop {
-		if env != nil && (!sameKey(env.key, hash) || env.desktop != nil) {
+		if env != nil && !sameKey(env.key, hash) {
 			s.mu.Unlock()
 			_ = conn.Close()
 			return
@@ -183,43 +179,66 @@ func (s *Server) attach(envID string, hash [32]byte, role string, conn *websocke
 			env = &environment{key: hash}
 			s.envs[envID] = env
 		}
+		// A desktop that redialed takes its slot back at once: the socket
+		// it left is one the network dropped without a close.
+		old, oldStop := env.desktop, env.stop
 		env.desktop = conn
 		env.paired = make(chan struct{})
-		env.done = make(chan struct{})
+		env.done = nil
+		env.stop = make(chan struct{})
 		env.seen = time.Now()
-		paired, done := env.paired, env.done
+		paired, stop := env.paired, env.stop
 		s.mu.Unlock()
-		s.serveDesktop(envID, env, conn, paired, done)
+		if oldStop != nil {
+			close(oldStop)
+		}
+		if old != nil {
+			_ = old.Close()
+		}
+		s.serveDesktop(envID, env, conn, paired, stop)
 		return
 	}
 
-	if env == nil || env.desktop == nil || env.phone != nil || !sameKey(env.key, hash) {
+	if env == nil || env.desktop == nil || !sameKey(env.key, hash) {
 		s.mu.Unlock()
 		_ = conn.Close()
 		return
 	}
+	// A phone that changed networks reconnects the same way. Its pipe gets
+	// a channel of its own, so the one it left ending does not end this.
+	oldPhone := env.phone
+	done := make(chan struct{})
 	env.phone = conn
+	env.done = done
 	env.seen = time.Now()
-	paired, done := env.paired, env.done
+	paired := env.paired
 	desktop := env.desktop
-	close(paired)
+	select {
+	case <-paired:
+		// A phone paired with this desktop before; its timer is off.
+	default:
+		close(paired)
+	}
 	s.mu.Unlock()
+	if oldPhone != nil {
+		_ = oldPhone.Close()
+	}
 
 	s.logf("pair env=%s", short(envID))
 	s.pipe(desktop, conn, done)
 
 	s.mu.Lock()
-	if current := s.envs[envID]; current == env {
-		env.phone, env.desktop, env.paired, env.done = nil, nil, nil, nil
+	if current := s.envs[envID]; current == env && env.phone == conn {
+		env.phone, env.done = nil, nil
 		env.seen = time.Now()
 	}
 	s.mu.Unlock()
 	s.logf("unpair env=%s", short(envID))
 }
 
-// serveDesktop holds the desktop's slot open, keeps it alive while it
-// waits, and returns once the phone's tunnel ends or the wait expires.
-func (s *Server) serveDesktop(envID string, env *environment, conn *websocket.Conn, paired, done chan struct{}) {
+// serveDesktop holds the desktop's slot open and keeps it alive until it
+// is replaced, its socket fails, or no phone reaches it in time.
+func (s *Server) serveDesktop(envID string, env *environment, conn *websocket.Conn, paired, stop chan struct{}) {
 	keep := time.NewTicker(s.cfg.Keepalive)
 	defer keep.Stop()
 	idle := time.NewTimer(s.cfg.IdleDesktop)
@@ -227,31 +246,32 @@ func (s *Server) serveDesktop(envID string, env *environment, conn *websocket.Co
 
 	for {
 		select {
-		case <-paired:
-			// The phone owns the pipe; wait for it to end.
-			<-done
-			s.release(envID, env)
+		case <-stop:
+			// A newer desktop holds the slot.
 			return
+		case <-paired:
+			// A phone reached it, so it may stay as long as it likes.
+			idle.Stop()
 		case <-keep.C:
 			if _, err := conn.Write([]byte{}); err != nil {
-				s.release(envID, env)
+				s.release(envID, env, conn)
 				_ = conn.Close()
 				return
 			}
 		case <-idle.C:
 			s.logf("idle env=%s", short(envID))
-			s.release(envID, env)
+			s.release(envID, env, conn)
 			_ = conn.Close()
 			return
 		}
 	}
 }
 
-// release clears a desktop that never paired.
-func (s *Server) release(envID string, env *environment) {
+// release clears the desktop's slot when it is still the one holding it.
+func (s *Server) release(envID string, env *environment, conn *websocket.Conn) {
 	s.mu.Lock()
-	if current := s.envs[envID]; current == env && env.phone == nil {
-		env.desktop, env.paired, env.done = nil, nil, nil
+	if current := s.envs[envID]; current == env && env.desktop == conn {
+		env.desktop, env.paired, env.done, env.stop = nil, nil, nil, nil
 		env.seen = time.Now()
 	}
 	s.mu.Unlock()
@@ -263,14 +283,17 @@ func (s *Server) pipe(a, b *websocket.Conn, done chan struct{}) {
 	var once sync.Once
 	finish := func() { once.Do(func() { close(stop) }) }
 
+	// The keepalive shares each socket with a copy; a WebSocket's frame
+	// writer is not safe for two goroutines, so writes take turns.
+	var muA, muB sync.Mutex
 	go func() {
 		keep := time.NewTicker(s.cfg.Keepalive)
 		defer keep.Stop()
 		for {
 			select {
 			case <-keep.C:
-				_, _ = a.Write([]byte{})
-				_, _ = b.Write([]byte{})
+				_, _ = writeFrame(&muA, a, nil)
+				_, _ = writeFrame(&muB, b, nil)
 			case <-stop:
 				return
 			}
@@ -278,11 +301,12 @@ func (s *Server) pipe(a, b *websocket.Conn, done chan struct{}) {
 	}()
 
 	copied := make(chan struct{}, 2)
-	go func() { _, _ = copyBytes(a, b); copied <- struct{}{} }()
-	go func() { _, _ = copyBytes(b, a); copied <- struct{}{} }()
+	go func() { _, _ = copyBytes(&muB, b, a); copied <- struct{}{} }()
+	go func() { _, _ = copyBytes(&muA, a, b); copied <- struct{}{} }()
 	<-copied
 	finish()
-	_ = a.Close()
+	// Only the phone ends here: the desktop keeps its slot for the next
+	// phone, and its own keepalive closes it when the desktop is gone.
 	_ = b.Close()
 	<-copied
 	close(done)
@@ -290,13 +314,13 @@ func (s *Server) pipe(a, b *websocket.Conn, done chan struct{}) {
 
 // copyBytes is io.Copy with a bounded buffer, kept apart so the direction
 // is obvious at each call.
-func copyBytes(dst, src *websocket.Conn) (int64, error) {
+func copyBytes(mu *sync.Mutex, dst, src *websocket.Conn) (int64, error) {
 	buf := make([]byte, 32<<10)
 	var total int64
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
-			if _, werr := dst.Write(buf[:n]); werr != nil {
+			if _, werr := writeFrame(mu, dst, buf[:n]); werr != nil {
 				return total, werr
 			}
 			total += int64(n)
@@ -305,6 +329,13 @@ func copyBytes(dst, src *websocket.Conn) (int64, error) {
 			return total, err
 		}
 	}
+}
+
+// writeFrame writes one message while holding the socket's write lock.
+func writeFrame(mu *sync.Mutex, conn *websocket.Conn, p []byte) (int, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	return conn.Write(p)
 }
 
 // Sweep drops environments that have been idle with neither end attached.

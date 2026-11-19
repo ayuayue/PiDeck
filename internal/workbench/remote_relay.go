@@ -296,6 +296,20 @@ func (h *remoteHost) relayLoop(stop chan struct{}) {
 	}
 }
 
+// relaySocket is the tunnel's WebSocket with its writes serialized: the
+// TLS layer and the keepalive both write, and a WebSocket's frame writer
+// interleaves two goroutines into a stream the far end cannot read.
+type relaySocket struct {
+	*websocket.Conn
+	mu sync.Mutex
+}
+
+func (s *relaySocket) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Conn.Write(p)
+}
+
 // relayOnce opens one tunnel and serves HTTP over it until it closes.
 func (h *remoteHost) relayOnce(stop chan struct{}) error {
 	h.mu.Lock()
@@ -329,7 +343,9 @@ func (h *remoteHost) relayOnce(stop chan struct{}) error {
 	h.publishAsync()
 
 	// An empty frame keeps the edge from closing an idle tunnel; the TLS
-	// stream above it skips empty frames.
+	// stream above it skips empty frames. The frame writer is not safe for
+	// two goroutines, so the keepalive and the TLS layer share one lock.
+	sock := &relaySocket{Conn: ws}
 	keepDone := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
@@ -337,7 +353,7 @@ func (h *remoteHost) relayOnce(stop chan struct{}) error {
 		for {
 			select {
 			case <-ticker.C:
-				if _, err := ws.Write([]byte{}); err != nil {
+				if _, err := sock.Write(nil); err != nil {
 					return
 				}
 			case <-keepDone:
@@ -347,7 +363,7 @@ func (h *remoteHost) relayOnce(stop chan struct{}) error {
 	}()
 	defer close(keepDone)
 
-	tunnel := tls.Server(ws, &tls.Config{
+	tunnel := tls.Server(sock, &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS13,
 	})
