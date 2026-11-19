@@ -86,7 +86,8 @@
 
 | 功能 | 状态 | 计划 |
 | --- | --- | --- |
-| models.json / auth.json / settings.json 可视化 | ✅ | 供应商三字段 + 模型条目增删改、余额模板、settings.json 常用项表单、pi 凭据列表（掩码/替换/添加/删除）、原始 JSON 编辑器 |
+| models.json / auth.json / settings.json 可视化 | ✅ | 供应商三字段 + 模型条目增删改（id/名称/上下文/最大输出/推理/图片/价格/7 个 compat 开关）、余额模板、settings.json 常用项表单、pi 凭据列表（类型/来源/剩余时长、检测/掩码/替换/添加/删除/登出）、原始 JSON 编辑器 |
+| 供应商认证状态 | ✅ | 列出 models.json、auth.json 与 pi 内置目录里的供应商；`pi auth check` 的状态/原因/凭据类型，凭据来源（auth.json / models.json / 环境变量）与 OAuth 到期时间；登录走内置终端里的 `pi auth login` |
 | 连接测试 | ✅ | `/models` 优先，失败退到最小 chat 请求；显示状态码与耗时 |
 | 模型能力自适应 | ✅ | 读 models.json；模型菜单底部「刷新模型」重新向 pi 取模型与思考档 |
 | 供应商余额/额度查询 | ✅ | OpenRouter / Moonshot / DeepSeek / SiliconFlow 内置；其他供应商可配「余额接口 + JSON 字段 + 货币」自定义模板 |
@@ -185,8 +186,8 @@
 
 | 能力 | 状态 | 计划 |
 | --- | --- | --- |
-| OAuth 订阅登录页（pi `/login` 全供应商，登录 / 登出 / 筛选） | ⬜ | 现在只能手改 `auth.json`；先做只读列表再谈登录 |
-| 模型兼容性可视化编辑（7 个布尔三态 + 官方建议） | ⬜ | 只写 `compat` 内这几个键，其余字段保持原样 |
+| OAuth 订阅登录页（pi `/login` 全供应商，登录 / 登出 / 筛选） | 🟡 | 登录/登出走 `pi auth login` / `pi auth logout`，在应用内置终端里完成；浏览器回调与供应商筛选页未做 |
+| 模型兼容性可视化编辑（7 个布尔三态 + 官方建议） | ✅ | 供应商配置里逐项「自动/打开/关闭」，读出 `models-store.json` 的建议；只写这 7 个键 |
 | 模型目录后台自动刷新（可关闭）+ Pi CLI 独立更新检查 | ⬜ | 现在只有手动「刷新模型」 |
 | 供应商余额多账号 / 独立端点 | 🟡 | 单套模板已可用 |
 

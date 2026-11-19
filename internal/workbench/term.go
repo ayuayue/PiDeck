@@ -55,6 +55,10 @@ type termTab struct {
 	// named says the user named the tab, so the shell's title stops
 	// changing it.
 	named bool
+	// startCommand runs in place of the shell, for a tab that runs one
+	// command; afterExit is called once it ends.
+	startCommand []string
+	afterExit    func()
 }
 
 // terminalHost is the panel's state: its tabs, the one in front, the
@@ -162,6 +166,22 @@ func newTerminalHost(cx *core.Scope) *terminalHost {
 
 // newTab adds a tab and starts its shell.
 func (h *terminalHost) newTab(cwd string, t target) *termTab {
+	return h.addTab(cwd, t, nil)
+}
+
+// newCommandTab adds a tab that runs one command instead of a shell, and
+// calls after on the UI thread once it ends.
+func (h *terminalHost) newCommandTab(cwd string, t target, title string, cmd []string, after func()) *termTab {
+	return h.addTab(cwd, t, func(tab *termTab) {
+		tab.Title.Set(title)
+		tab.named = true
+		tab.startCommand = cmd
+		tab.afterExit = after
+	})
+}
+
+// addTab creates a tab and starts it, letting setup adjust it first.
+func (h *terminalHost) addTab(cwd string, t target, setup func(*termTab)) *termTab {
 	h.count++
 	title := fmt.Sprintf("终端 %d", h.count)
 	if name := lastPathPart(cwd); name != "" {
@@ -178,6 +198,9 @@ func (h *terminalHost) newTab(cwd string, t target) *termTab {
 		errMsg: core.NewSignal(h.cx, ""),
 		find:   core.NewSignal(h.cx, sgt.SearchStatus{}),
 		ref:    &sgt.Ref{},
+	}
+	if setup != nil {
+		setup(tab)
 	}
 	h.tabs.Update(func(list []*termTab) []*termTab { return append(list, tab) })
 	h.active.Set(tab.ID)
@@ -221,6 +244,9 @@ func (h *terminalHost) start(tab *termTab) {
 				if !tab.closed && tab.run == run {
 					tab.state.Set(termExited)
 					tab.exit.Set(code)
+					if tab.afterExit != nil {
+						tab.afterExit()
+					}
 				}
 			})
 		},
@@ -242,6 +268,9 @@ func (h *terminalHost) start(tab *termTab) {
 		opts.Dir = ""
 	default:
 		opts.Dir = tab.Cwd
+		if len(tab.startCommand) > 0 {
+			opts.Command = tab.startCommand
+		}
 	}
 	go func() {
 		term, err := sgt.New(opts)

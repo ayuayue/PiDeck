@@ -8,6 +8,7 @@ package workbench
 // kept as it was.
 
 import (
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -53,10 +54,16 @@ func (a *app) openProviderDialog(id string) {
 // saveProvider writes the dialog's fields back to models.json.
 func (a *app) saveProvider() {
 	id := a.providerID.GetUntracked()
-	err := saveProviderConfig(id, a.providerAPI.GetUntracked(), a.providerBase.GetUntracked(), a.providerKeySig.GetUntracked())
-	if err != nil {
-		a.toast(ui.ToastError, "保存失败", err.Error())
-		return
+	api := strings.TrimSpace(a.providerAPI.GetUntracked())
+	base := strings.TrimSpace(a.providerBase.GetUntracked())
+	key := strings.TrimSpace(a.providerKeySig.GetUntracked())
+	// A provider pi's catalog already describes needs no entry of its own:
+	// writing one would mirror the catalog into models.json.
+	if api != "" || base != "" || key != "" || providerConfigured(id) {
+		if err := saveProviderConfig(id, api, base, key); err != nil {
+			a.toast(ui.ToastError, "保存失败", err.Error())
+			return
+		}
 	}
 	spec := balanceSpec{
 		URL:      strings.TrimSpace(a.providerBalURL.GetUntracked()),
@@ -146,6 +153,14 @@ func (a *app) resetModelForm() {
 	a.providerModelContext.Set("")
 	a.providerModelMax.Set("")
 	a.providerModelReasoning.Set(false)
+	a.providerModelImages.Set(false)
+	a.providerModelCostIn.Set("")
+	a.providerModelCostOut.Set("")
+	a.providerModelCostRead.Set("")
+	a.providerModelCostWrite.Set("")
+	a.modelCompat = nil
+	a.modelCompatSuggestion = nil
+	a.modelCompatRev.Update(func(n int) int { return n + 1 })
 }
 
 // editProviderModel loads one model into the editor.
@@ -156,6 +171,34 @@ func (a *app) editProviderModel(m modelConfig) {
 	a.providerModelContext.Set(modelNumber(m.ContextWindow))
 	a.providerModelMax.Set(modelNumber(m.MaxTokens))
 	a.providerModelReasoning.Set(m.Reasoning)
+	a.providerModelImages.Set(m.Images)
+	a.providerModelCostIn.Set(priceNumber(m.Cost.Input))
+	a.providerModelCostOut.Set(priceNumber(m.Cost.Output))
+	a.providerModelCostRead.Set(priceNumber(m.Cost.CacheRead))
+	a.providerModelCostWrite.Set(priceNumber(m.Cost.CacheWrite))
+	a.modelCompat = map[string]bool{}
+	for flag, value := range m.Compat {
+		a.modelCompat[flag] = value
+	}
+	a.modelCompatSuggestion = catalogCompat(a.providerID.GetUntracked(), m.ID)
+	a.modelCompatRev.Update(func(n int) int { return n + 1 })
+}
+
+// priceNumber is a price per million tokens as text, or empty.
+func priceNumber(v float64) string {
+	if v <= 0 {
+		return ""
+	}
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// modelPrice reads a price typed into the editor.
+func modelPrice(text string) float64 {
+	v, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
 }
 
 // modelNumber is a positive count as text, or empty.
@@ -186,7 +229,19 @@ func (a *app) saveProviderModel() {
 	model := modelConfig{ID: id, Name: strings.TrimSpace(a.providerModelName.GetUntracked()),
 		ContextWindow: modelCount(a.providerModelContext.GetUntracked()),
 		MaxTokens:     modelCount(a.providerModelMax.GetUntracked()),
-		Reasoning:     a.providerModelReasoning.GetUntracked()}
+		Reasoning:     a.providerModelReasoning.GetUntracked(),
+		Images:        a.providerModelImages.GetUntracked(),
+		Cost: modelCost{
+			Input:      modelPrice(a.providerModelCostIn.GetUntracked()),
+			Output:     modelPrice(a.providerModelCostOut.GetUntracked()),
+			CacheRead:  modelPrice(a.providerModelCostRead.GetUntracked()),
+			CacheWrite: modelPrice(a.providerModelCostWrite.GetUntracked()),
+		},
+		Compat: map[string]bool{},
+	}
+	for flag, value := range a.modelCompat {
+		model.Compat[flag] = value
+	}
 	list := append([]modelConfig(nil), a.providerModels...)
 	if editing != "" && editing != id {
 		out := list[:0]
@@ -239,13 +294,12 @@ func (a *app) removeProviderModel(id string) {
 	a.toast(ui.ToastInfo, "已删除模型", id)
 }
 
-// refreshProviders reads models.json again and probes auth in the
-// background.
+// refreshProviders reads pi's providers and credentials again and asks
+// pi about each one, off the UI thread.
 func (a *app) refreshProviders() {
 	a.loadAuth()
 	go func() {
-		list := readProviders()
-		probed := probeProviders(a.piPath(), list)
+		probed := readProviderStatus(a.piPath())
 		a.cx.Post(func() { a.providers.Set(probed) })
 	}()
 }
@@ -278,6 +332,15 @@ func (a *app) providerDialog() core.Node {
 				input,
 			}}
 		}
+		// money is one price field, narrow enough for four in a row.
+		money := func(value *core.Signal[string], label, testID string) core.Node {
+			return core.View{Style: core.Style{Width: core.Pt(64)}, Children: []core.Node{
+				core.Input{Value: value.Get, OnChange: value.Set, Placeholder: "0", Label: label, TestID: testID,
+					Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 7), CornerRadius: 6, FontSize: 11,
+						FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
+						BorderWidth: 1, BorderColor: colors.FieldBorder()}},
+			}}
+		}
 		_ = a.providerModelsRev.Get()
 		_ = a.providerModelEditing.Get()
 		var modelRows []core.Node
@@ -286,15 +349,21 @@ func (a *app) providerDialog() core.Node {
 			if name == "" {
 				name = m.ID
 			}
-			meta := ""
+			var meta []string
 			if m.ContextWindow > 0 {
-				meta = viewkit.Tokens(m.ContextWindow) + " 上下文"
+				meta = append(meta, viewkit.Tokens(m.ContextWindow)+apptext.T("上下文"))
+			}
+			if m.MaxTokens > 0 {
+				meta = append(meta, apptext.T("最大输出")+" "+viewkit.Tokens(m.MaxTokens))
 			}
 			if m.Reasoning {
-				if meta != "" {
-					meta += " · "
-				}
-				meta += apptext.T("推理")
+				meta = append(meta, apptext.T("推理"))
+			}
+			if m.Images {
+				meta = append(meta, apptext.T("图片"))
+			}
+			if m.Cost.priceSet() {
+				meta = append(meta, fmt.Sprintf("$%g/$%g", m.Cost.Input, m.Cost.Output))
 			}
 			modelRows = append(modelRows, core.View{
 				OnPress: func(core.PressEvent) { a.editProviderModel(m) },
@@ -307,7 +376,7 @@ func (a *app) providerDialog() core.Node {
 					ui.Icon(lucide.Cpu, 11, colors.Faint),
 					core.Text{Content: name, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5}, StyleFunc: ui.Colored(colors.Text)},
-					core.Text{Content: meta, Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+					core.Text{Content: strings.Join(meta, " · "), Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 					core.View{OnPress: func(core.PressEvent) { a.removeProviderModel(m.ID) }, Role: core.RoleButton,
 						Label: apptext.T("删除模型") + " " + name, TestID: "provider-model-remove-" + m.ID,
 						StyleFunc: func() core.Style {
@@ -319,8 +388,12 @@ func (a *app) providerDialog() core.Node {
 			})
 		}
 		if len(modelRows) == 0 {
-			modelRows = append(modelRows, core.Text{Content: apptext.T("这个供应商还没有模型条目。"),
-				Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)})
+			note := apptext.T("这个供应商还没有模型条目。")
+			if info, _ := a.providerInfoOf(a.providerID.Get()); info.Builtin {
+				note = apptext.T("这个供应商的模型来自 pi 的内置目录（%d 个），不需要写进 models.json；在这里加的条目会覆盖同 ID 的模型。", info.Models)
+			}
+			modelRows = append(modelRows, core.Text{Content: note, MaxLines: 3,
+				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		status := a.providerTest.Get()
 		statusColor := colors.Up
@@ -340,6 +413,8 @@ func (a *app) providerDialog() core.Node {
 			Style:        core.Style{Width: core.Pt(580), MaxHeight: core.Pt(620)},
 			Children: []core.Node{core.Scroll{TestID: "provider-scroll", Style: core.Style{MaxHeight: core.Pt(470)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: 6}}, Children: []core.Node{
+					a.providerAuthBlock(),
+					setDivider(),
 					field("API", "pi 的适配器名", core.Input{
 						Value: a.providerAPI.Get, OnChange: a.providerAPI.Set,
 						Placeholder: "openai-completions / anthropic-messages", Label: "API", TestID: "provider-api",
@@ -408,7 +483,18 @@ func (a *app) providerDialog() core.Node {
 							}},
 							ui.Switch{Checked: a.providerModelReasoning.Get, Label: apptext.T("推理"), TestID: "provider-model-reasoning",
 								OnChange: a.providerModelReasoning.Set},
+							ui.Switch{Checked: a.providerModelImages.Get, Label: apptext.T("图片输入"), TestID: "provider-model-images",
+								OnChange: a.providerModelImages.Set},
 						}},
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+							ui.Text(apptext.T("费用"), 10.5, ui.Medium, colors.Muted),
+							core.Text{Content: apptext.T("每百万 token 的美元价"), Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+							money(a.providerModelCostIn, apptext.T("输入"), "provider-model-cost-in"),
+							money(a.providerModelCostOut, apptext.T("输出"), "provider-model-cost-out"),
+							money(a.providerModelCostRead, apptext.T("缓存读"), "provider-model-cost-read"),
+							money(a.providerModelCostWrite, apptext.T("缓存写"), "provider-model-cost-write"),
+						}},
+						a.modelCompatEditor(),
 						core.View{Style: core.Style{Direction: core.Row, JustifyContent: core.JustifyEnd, Gap: 6}, Children: []core.Node{
 							core.Show{When: func() bool { return a.providerModelEditing.Get() != "" }, Then: func(*core.Scope) core.Node {
 								return ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "provider-model-cancel",
@@ -439,7 +525,7 @@ func (a *app) providerDialog() core.Node {
 								Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(balanceColor)},
 						}}
 					}},
-					core.Text{Content: apptext.T("只写回 api、baseUrl、apiKey 三个字段；models、compat 等保持原样。保存后重启 Agent 生效。"),
+					core.Text{Content: apptext.T("只写回这里能改的字段：api、baseUrl、apiKey 与模型条目；其余内容保持原样。保存后重启 Agent 生效。"),
 						Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 			}}},

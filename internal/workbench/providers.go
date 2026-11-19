@@ -14,15 +14,14 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
 )
 
 // providerInfo is one provider pi can talk to.
@@ -31,21 +30,15 @@ type providerInfo struct {
 	API     string
 	BaseURL string
 	Models  int
+	// Builtin says pi's own catalog knows the provider, so models.json
+	// does not have to describe it.
+	Builtin bool
 	// Auth is "ready", "not_ready", "invalid", or "" while unknown.
 	Auth     string
 	AuthType string
 	Reason   string
-}
-
-// modelsFile is pi's own model configuration: providers with their models.
-type modelsFile struct {
-	Providers map[string]struct {
-		API     string `json:"api"`
-		BaseURL string `json:"baseUrl"`
-		Models  []struct {
-			ID string `json:"id"`
-		} `json:"models"`
-	} `json:"providers"`
+	// Credential is where the key comes from, as the settings page says.
+	Credential credentialInfo
 }
 
 // piConfigDir is pi's own configuration folder. PIDECK_LITE_PI_CONFIG
@@ -61,61 +54,38 @@ func piConfigDir() string {
 	return filepath.Join(home, ".pi", "agent")
 }
 
-// readProviders lists the providers in pi's models.json.
-func readProviders() []providerInfo {
-	dir := piConfigDir()
-	if dir == "" {
-		return nil
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "models.json"))
-	if err != nil {
-		return nil
-	}
-	var f modelsFile
-	if json.Unmarshal(raw, &f) != nil {
-		return nil
-	}
-	out := make([]providerInfo, 0, len(f.Providers))
-	for id, p := range f.Providers {
-		out = append(out, providerInfo{ID: id, API: p.API, BaseURL: p.BaseURL, Models: len(p.Models)})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
-}
-
-// probeProviderAuth asks pi whether a provider's credentials resolve.
-func probeProviderAuth(piPath, provider string) (status, authType, reason string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	args := []string{"auth", "check", "--provider", provider, "--json"}
-	var cmd *exec.Cmd
-	if isBatch(piPath) {
-		cmd = exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", batchLine(piPath, args))
-	} else {
-		cmd = exec.CommandContext(ctx, piPath, args...)
-	}
-	hideWindow(cmd)
-	out, _ := cmd.Output()
-	var res struct {
-		Status   string `json:"status"`
-		AuthType string `json:"authType"`
-		Reason   string `json:"reason"`
-	}
-	if json.Unmarshal(out, &res) == nil && res.Status != "" {
-		return res.Status, res.AuthType, res.Reason
-	}
-	return "", "", viewkit.FirstLine(strings.TrimSpace(string(out)), 120)
-}
-
-// probeProviders fills in the auth state of each provider, one at a time.
+// probeProviders fills in the auth state of each provider, one process
+// each. Four run at a time so a long catalog does not take a minute.
 func probeProviders(piPath string, list []providerInfo) []providerInfo {
 	out := make([]providerInfo, len(list))
 	copy(out, list)
-	for i := range out {
-		status, kind, reason := probeProviderAuth(piPath, out[i].ID)
-		out[i].Auth, out[i].AuthType, out[i].Reason = status, kind, reason
+	if strings.TrimSpace(piPath) == "" {
+		return out
 	}
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for i := range out {
+		i := i
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			out[i].Auth, out[i].AuthType, out[i].Reason = probeOneProvider(piPath, out[i].ID)
+		}()
+	}
+	wg.Wait()
 	return out
+}
+
+// probeOneProvider asks pi about one provider. A failure to answer at all
+// is reported as the row's reason, not as a missing credential.
+func probeOneProvider(piPath, provider string) (status, authType, reason string) {
+	res, err := checkAuth(piPath, provider, true)
+	if err != nil {
+		return "", "", err.Error()
+	}
+	return res.Status, res.AuthType, res.Reason
 }
 
 // authLabel names an auth state for the UI.
@@ -131,6 +101,36 @@ func authLabel(p providerInfo) string {
 	return apptext.T("未知")
 }
 
+// authReason turns pi's reason code into a line to read.
+func authReason(code string) string {
+	switch code {
+	case "":
+		return ""
+	case "provider_not_found":
+		return apptext.T("pi 不认识这个供应商")
+	case "credentials_not_configured":
+		return apptext.T("没有可用的凭据")
+	case "credential_not_available":
+		return apptext.T("凭据解析不出来")
+	case "invalid_state":
+		return apptext.T("凭据已失效")
+	}
+	return code
+}
+
+// credentialLabel names a credential's source for the UI.
+func credentialLabel(info credentialInfo) string {
+	switch info.Kind {
+	case credentialAuth:
+		return apptext.T("auth.json")
+	case credentialModels:
+		return apptext.T("models.json")
+	case credentialEnv:
+		return apptext.T("环境变量")
+	}
+	return apptext.T("没有凭据")
+}
+
 // loginCommand is what the user runs in a terminal to sign in.
 func loginCommand(p providerInfo) string {
 	return fmt.Sprintf("pi auth login %s", p.ID)
@@ -143,7 +143,10 @@ type providerConfig struct {
 	API     string
 	BaseURL string
 	APIKey  string
-	Models  []modelConfig
+	// Models are the provider's entries; the catalog's when Builtin.
+	Models []modelConfig
+	// Builtin says the entry came from pi's catalog, not models.json.
+	Builtin bool
 }
 
 // modelConfig is one model's line in a provider.
@@ -153,6 +156,21 @@ type modelConfig struct {
 	ContextWindow int
 	MaxTokens     int
 	Reasoning     bool
+	// Images says the model takes image input; pi's input lists "text"
+	// and, when this is set, "image".
+	Images bool
+	Cost   modelCost
+	// Compat holds the compatibility flags the editor shows. A flag the
+	// file does not name is absent, which pi reads as auto-detect.
+	Compat map[string]bool
+}
+
+// modelCost is a model's price per million tokens, in USD.
+type modelCost struct {
+	Input      float64
+	Output     float64
+	CacheRead  float64
+	CacheWrite float64
 }
 
 // modelsJSONPath is pi's model file.
@@ -201,6 +219,9 @@ func readProviderConfigs() []providerConfig {
 				mc.ContextWindow = intField(m["contextWindow"])
 				mc.MaxTokens = intField(m["maxTokens"])
 				mc.Reasoning, _ = m["reasoning"].(bool)
+				mc.Images = inputHasImage(m["input"])
+				mc.Cost = readModelCost(m["cost"])
+				mc.Compat = readCompat(m["compat"], compatFlags)
 				cfg.Models = append(cfg.Models, mc)
 			}
 		}
@@ -290,16 +311,16 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 func providerKey(cfg providerConfig) string {
 	key := strings.TrimSpace(cfg.APIKey)
 	if key != "" {
-		if ref, ok := strings.CutPrefix(key, "${"); ok {
-			return strings.TrimSpace(os.Getenv(strings.TrimSuffix(ref, "}")))
-		}
-		if ref, ok := strings.CutPrefix(key, "$"); ok {
-			return strings.TrimSpace(os.Getenv(ref))
+		if source, name := keyOrigin(key); source == keyEnv {
+			return strings.TrimSpace(os.Getenv(name))
 		}
 		return key
 	}
 	id := strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(cfg.ID))
-	for _, name := range []string{id + "_API_KEY", id + "_KEY", "OPENAI_API_KEY"} {
+	for _, name := range []string{envVarOf(cfg.ID), id + "_API_KEY", id + "_KEY", "OPENAI_API_KEY"} {
+		if name == "" {
+			continue
+		}
 		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
 			return v
 		}
@@ -632,26 +653,7 @@ func saveProviderModels(id string, models []modelConfig) error {
 		if entry == nil {
 			entry = map[string]any{"id": m.ID}
 		}
-		if m.Name != "" {
-			entry["name"] = m.Name
-		} else {
-			delete(entry, "name")
-		}
-		if m.ContextWindow > 0 {
-			entry["contextWindow"] = m.ContextWindow
-		} else {
-			delete(entry, "contextWindow")
-		}
-		if m.MaxTokens > 0 {
-			entry["maxTokens"] = m.MaxTokens
-		} else {
-			delete(entry, "maxTokens")
-		}
-		if m.Reasoning {
-			entry["reasoning"] = true
-		} else {
-			delete(entry, "reasoning")
-		}
+		applyModelEntry(entry, m)
 		out = append(out, entry)
 	}
 	p["models"] = out
@@ -660,4 +662,15 @@ func saveProviderModels(id string, models []modelConfig) error {
 		return err
 	}
 	return writeFileAtomic(path, append(data, '\n'), 0o600)
+}
+
+// providerConfigured says models.json describes the provider itself, as
+// opposed to pi's catalog knowing it.
+func providerConfigured(id string) bool {
+	for _, cfg := range readProviderConfigs() {
+		if cfg.ID == id {
+			return true
+		}
+	}
+	return false
 }

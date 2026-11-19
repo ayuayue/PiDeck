@@ -184,7 +184,17 @@ type app struct {
 	providerModelContext   *core.Signal[string]
 	providerModelMax       *core.Signal[string]
 	providerModelReasoning *core.Signal[bool]
+	providerModelImages    *core.Signal[bool]
+	providerModelCostIn    *core.Signal[string]
+	providerModelCostOut   *core.Signal[string]
+	providerModelCostRead  *core.Signal[string]
+	providerModelCostWrite *core.Signal[string]
 	providerModelsRev      *core.Signal[int]
+	// modelCompat is the flags the compatibility editor set for the model
+	// being edited; modelCompatRev redraws it.
+	modelCompat           map[string]bool
+	modelCompatRev        *core.Signal[int]
+	modelCompatSuggestion map[string]bool
 	// pi settings.json, as the settings page shows it.
 	piSet    piSettings
 	piSetErr string

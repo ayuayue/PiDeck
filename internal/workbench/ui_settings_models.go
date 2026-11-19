@@ -56,36 +56,51 @@ func (a *app) settingsModels() core.Node {
 					ui.Text(authLabel(prov), 10.5, ui.Medium, func() core.Color { return c }),
 				}}
 			}
+			// Where the key comes from, and why pi cannot resolve it when it
+			// cannot: the two things a login fixes.
+			credential := credentialLabel(prov.Credential)
+			if prov.Credential.Detail != "" {
+				credential += " · " + prov.Credential.Detail
+			}
+			if prov.Credential.Kind != "" && !prov.Credential.Ready {
+				credential += " · " + apptext.T("未配置")
+			}
+			meta := fmt.Sprintf("%d 个模型", prov.Models)
 			row := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinHeight: core.Pt(44),
 				Padding: core.Symmetric(4, 2)}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 						core.Text{Content: prov.ID, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 12.5, FontWeight: ui.Semibold},
 							StyleFunc: ui.Colored(colors.Text)},
-						ui.Text(fmt.Sprintf("%d 个模型", prov.Models), 10.5, ui.Regular, colors.Faint),
+						ui.Text(meta, 10.5, ui.Regular, colors.Faint),
 						ui.Text(prov.API, 10, ui.Regular, colors.Faint),
+						core.Show{When: func() bool { return prov.Builtin }, Then: func(*core.Scope) core.Node {
+							return ui.Text(apptext.T("内置"), 9.5, ui.Regular, colors.Faint)
+						}},
 					}},
 					core.Text{Content: shorten(prov.BaseURL, 70), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
+					core.Text{Content: credential, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5},
+						StyleFunc: ui.Colored(func() core.Color {
+							if prov.Credential.Kind != "" && !prov.Credential.Ready {
+								return colors.Warn()
+							}
+							return colors.Faint()
+						})},
 					core.Show{When: func() bool { return prov.Reason != "" && prov.Auth != "ready" }, Then: func(*core.Scope) core.Node {
-						return core.Text{Content: prov.Reason, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5},
+						return core.Text{Content: authReason(prov.Reason), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5},
 							StyleFunc: ui.Colored(colors.Danger)}
 					}},
 				}},
 				badge(),
+				hintOf(func() string { return apptext.T("登录") + " " + prov.ID }, ui.IconButton{Icon: lucide.LogIn, Label: apptext.T("登录") + " " + prov.ID, Size: 26, IconSize: 13,
+					TestID: "provider-login-" + prov.ID, OnPress: func() { a.authLogin(prov.ID) }}),
 				hintOf(func() string { return apptext.T("配置 ") + prov.ID }, ui.IconButton{Icon: lucide.Settings2, Label: apptext.T("配置 ") + prov.ID, Size: 26, IconSize: 13,
 					TestID: "provider-configure-" + prov.ID, OnPress: func() { a.openProviderDialog(prov.ID) }}),
 				arrowButton(lucide.ArrowUpToLine, "置顶供应商", func() { a.pinProvider(prov.ID) }),
 				arrowButton(lucide.ChevronUp, "上移供应商", func() { a.moveProvider(prov.ID, -1) }),
 				arrowButton(lucide.ChevronDown, "下移供应商", func() { a.moveProvider(prov.ID, 1) }),
-				core.View{OnPress: func(core.PressEvent) { a.copyText(loginCommand(prov), "登录命令") }, Role: core.RoleButton,
-					Label: apptext.T("复制登录命令"),
-					StyleFunc: func() core.Style {
-						return core.Style{Height: core.Pt(24), Padding: core.Symmetric(0, 8), CornerRadius: 6,
-							BorderWidth: 1, BorderColor: colors.Border(), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
-							Hover: &core.Style{Background: colors.Hover()}}
-					},
-					Children: []core.Node{ui.Text(apptext.T("复制登录命令"), 10.5, ui.Regular, colors.Muted)}},
 			}}
 			rows = append(rows, row)
 			if i < len(list)-1 {
@@ -131,7 +146,7 @@ func (a *app) settingsModels() core.Node {
 				setGroup("供应商与认证", rows...),
 				a.authGroup(),
 				a.piSettingsGroup(),
-				core.Text{Content: apptext.T("凭据由 pi 管理（~/.pi/agent/auth.json）。在终端里执行登录命令后，点下方的「重新检测」。"),
+				core.Text{Content: apptext.T("凭据由 pi 管理（~/.pi/agent/auth.json）。「登录…」在内置终端里跑 pi 自己的登录流程；改完点「检测全部」重新读状态。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{
 					ui.Button{Text: apptext.T("编辑 models.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
@@ -140,7 +155,7 @@ func (a *app) settingsModels() core.Node {
 						OnPress: func() { a.openPiConfigFile("settings.json") }},
 					ui.Button{Text: apptext.T("编辑 auth.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 						OnPress: func() { a.openPiConfigFile("auth.json") }},
-					ui.Button{Text: apptext.T("重新检测"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.refreshProviders},
+					ui.Button{Text: apptext.T("检测全部"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.refreshProviders},
 				}},
 			}},
 		}}

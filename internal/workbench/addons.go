@@ -37,7 +37,7 @@ func (a *app) reloadFrameworks() {
 		info := probeLocal(envInfo{AppDir: dataDir, Probing: true, TargetsProbing: true})
 		plugins := a.loadPlugins()
 		themes := a.loadThemes(plugins)
-		providers := probeProviders(info.PiPath, readProviders())
+		providers := readProviderStatus(info.PiPath)
 		a.cx.Post(func() {
 			a.env.Set(info)
 			if gen != a.addonsGen {
