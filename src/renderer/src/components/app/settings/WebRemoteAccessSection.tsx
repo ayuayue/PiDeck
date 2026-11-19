@@ -6,8 +6,9 @@
  * 状态全部来自主进程 RemoteAccessManager（invoke + web:remote-access-changed 推送），本组件不自持渠道状态。
  */
 import { memo, useCallback, useEffect, useState } from "react";
-import { Cloud, Copy, Check, LifeBuoy, Globe, Lock, Network, RefreshCw, RotateCw, Square, Loader2 } from "lucide-react";
+import { Cloud, Copy, Check, LifeBuoy, Globe, Lock, Network, RefreshCw, RotateCw, Square, Loader2, Link2 } from "lucide-react";
 import type { AppSettings, RemoteAccessChannelId, RemoteAccessState, WebNetworkAddress } from "../../../../../shared/types";
+import { normalizeRemotePublicUrl } from "../../../../../shared/types";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { Button } from "../../ui-shadcn/button";
@@ -16,7 +17,7 @@ import { Label } from "../../ui-shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { SettingsSection } from "./SettingsStorageTab";
 import { SecretValueInput } from "./SecretValueInput";
-import { SettingRow } from "./SettingRows";
+import { SettingRow, SettingSwitchRow } from "./SettingRows";
 import { appendTokenToUrl, bracketIpv6Host } from "./webAccessUrl";
 import { useQrDataUrl } from "./useQrDataUrl";
 import { WebRemoteAccessGuideDialog, type RemoteAccessGuideTab } from "./WebRemoteAccessGuideDialog";
@@ -168,6 +169,10 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 	const token = state?.webToken ?? "";
 	const requiresAuth = state?.webRequiresAuth ?? true;
 
+	// 自定义公网地址：用户自建映射（Cloudflare 命名隧道/反代/自有域名）提供的固定入口。
+	// 链接由草稿里的地址 + 当前运行 token 现拼，保存后即成为稳定链接；未配置时不出链接。
+	const pubUrl = normalizeRemotePublicUrl(props.draft.webRemotePublicUrl ?? "");
+	const pubLink = pubUrl ? appendTokenToUrl(pubUrl, token, requiresAuth) : "";
 	// cloudflare 渠道展示地址：运行中的公网 URL（拼 token）
 	const cfAccessUrl = cf?.publicUrl ? appendTokenToUrl(cf.publicUrl, token, requiresAuth) : "";
 	// tailscale 直连地址（HTTP，虚拟 IP）
@@ -193,6 +198,9 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 			: cf.starting
 				? { text: t("settings.remote.status.starting"), tone: "warn" as const }
 				: { text: t("settings.remote.status.ready"), tone: "off" as const };
+
+	// 自定义公网地址没有启停生命周期：未填 = 未设置；填了但 Web 服务没开 = 待就绪；都满足 = 固定链接可用。
+	const pubBadge = !pubUrl ? { text: t("settings.remote.pub.statusUnset"), tone: "off" as const } : webReady ? { text: t("settings.remote.pub.statusReady"), tone: "ok" as const } : { text: t("settings.remote.status.notRunning"), tone: "warn" as const };
 
 	const tsBadge = !ts?.installed
 		? { text: t("settings.remote.status.notInstalled"), tone: "warn" as const }
@@ -283,6 +291,25 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 						<small className="text-micro text-text-tertiary">{t("settings.remote.cf.paramsHint")}</small>
 					</div>
 				) : null}
+			</ChannelCard>
+
+			{/* ── 自定义公网地址（用户自建映射，固定链接）── */}
+			<ChannelCard icon={<Link2 size={15} aria-hidden="true" />} title={t("settings.remote.pub.title")} badge={pubBadge.text} badgeTone={pubBadge.tone} description={t("settings.remote.pub.desc")}>
+				<div className="grid gap-2">
+					<div className="grid items-center gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
+						<Label className="text-xs font-bold text-text-tertiary">{t("settings.remote.pub.urlLabel")}</Label>
+						<Input
+							className="h-8 w-full font-mono text-xs"
+							placeholder={t("settings.remote.pub.urlPlaceholder")}
+							value={props.draft.webRemotePublicUrl ?? ""}
+							onChange={(event) => props.updateDraft({ webRemotePublicUrl: event.target.value })}
+							// 离开即归一（补 https、丢路径）：链接展示与落盘口径一致，避免用户看到带路径的坏地址
+							onBlur={(event) => props.updateDraft({ webRemotePublicUrl: normalizeRemotePublicUrl(event.target.value) })}
+						/>
+					</div>
+					<small className="text-micro text-text-tertiary">{t("settings.remote.pub.inputHint")}</small>
+					{pubLink ? <AccessUrlBlock url={pubLink} showQr hint={t("settings.remote.pub.linkHint")} /> : pubUrl && !webReady ? <p className="text-caption text-warning">{t("settings.remote.webServiceRequired")}</p> : <small className="text-micro text-text-tertiary">{t("settings.remote.pub.emptyHint")}</small>}
+				</div>
 			</ChannelCard>
 
 			{/* ── Tailscale ── */}
@@ -487,6 +514,9 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 				) : null}
 				{et?.error ? <p className="text-caption text-warning">{et.error}</p> : null}
 			</ChannelCard>
+
+			{/* PiDeck Lite 移动端兼容（只读）：同一端口/令牌复用上面任一地址 */}
+			<SettingSwitchRow anchor="web-lite-compat" title={t("settings.remote.lite.title")} description={t("settings.remote.lite.desc")} checked={props.draft.webLiteCompatEnabled ?? false} onChange={(checked) => props.updateDraft({ webLiteCompatEnabled: checked })} />
 
 			{/* 底部：总入口的操作指南 */}
 			<SettingRow anchor="web-remote-access-guide" title={t("settings.remote.guideRowTitle")} description={t("settings.remote.guideRowDesc")}>

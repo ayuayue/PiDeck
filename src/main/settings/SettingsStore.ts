@@ -5,27 +5,7 @@ import { join } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
 import { APP_DISPLAY_NAME_MAX_LENGTH, CUSTOM_LOGO_DATA_URL_MAX_LENGTH } from "../../shared/types/settings";
 import { DEFAULT_IMAGE_GEN_OUTPUT_FORMAT, DEFAULT_IMAGE_GEN_SIZE, DEFAULT_IMAGE_GEN_WATERMARK, parseImageGenOutputFormat, parseImageGenSize, parseImageGenWatermark } from "../../shared/imageGenParams";
-import {
-	createDefaultExternalEditorSettings,
-	createDefaultSoundAlertSettings,
-	DEFAULT_PET_SCALE,
-	DEFAULT_TOAST_DURATION_MS,
-	TOAST_DURATION_STICKY_MS,
-	normalizeSoundAlertSettings,
-	WEB_TOKEN_EXPIRES_IN_CHOICES,
-	WEB_REMOTE_CLOUDFLARED_PROTOCOLS,
-	isValidWebTokenShape,
-	sanitizeCloudflaredExtraArgs,
-	sanitizeEasyTierVirtualIp,
-	sanitizeEasyTierCliPath,
-	sanitizeEasyTierNetworkName,
-	sanitizeEasyTierNetworkSecret,
-	sanitizeEasyTierPeers,
-	type AppSettings,
-	type TerminalConfirmCloseMode,
-	type TerminalCursorStyle,
-	type TerminalThemeId,
-} from "../../shared/types";
+import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS, TOAST_DURATION_STICKY_MS, normalizeSoundAlertSettings, type AppSettings, type TerminalConfirmCloseMode, type TerminalCursorStyle, type TerminalThemeId } from "../../shared/types";
 import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { normalizeSessionSortMode } from "../../shared/sessionSort";
 import { normalizeProjectSortMode } from "../../shared/projectSort";
@@ -41,6 +21,7 @@ import { applyEnhanceSystemPromptPatch, sanitizeEnhanceSystemPrompt } from "../.
 import { normalizeQuickMessages } from "../../shared/quickMessages";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
 import { sanitizeOptionalPositiveIntMs, sanitizeOptionalRetryCount } from "./settingsSanitizers";
+import { applyWebRemoteSettingsFromDisk, sanitizeWebRemoteSettingsPatch } from "./webRemoteSettingsSanitize";
 import { sanitizeCustomThemeSnapshot } from "../../shared/customThemes";
 import { normalizeThemeAppearance } from "../../shared/themeSkinMigration";
 import { sanitizeAcpToolConfigDefaults, sanitizeAcpTools } from "../acp/acpToolConfig";
@@ -267,6 +248,7 @@ Gitmoji 对应关系：
 	webServiceHost: "0.0.0.0",
 	webServicePort: 8765,
 	webServiceRequiresAuth: true,
+	webLiteCompatEnabled: false,
 	rpcTimeout: 600_000,
 	linkOpenMode: "external",
 	workspaceContentOpenMode: "split",
@@ -703,31 +685,7 @@ export class SettingsStore {
 			// 避免把脏值当成迁移种子写进配置文件；缺字段回落空数组（“没有旧数据”），
 			// 不要在这里注入出厂清单——出厂清单改由随包资源文件提供。
 			this.settings.quickMessages = normalizeQuickMessages(parsed.quickMessages);
-			// Web 服务 host 脏值/旧版缺字段回落到 0.0.0.0，与默认监听所有网卡保持一致。
-			this.settings.webServiceHost = typeof parsed.webServiceHost === "string" ? parsed.webServiceHost.trim() || defaultSettings.webServiceHost : defaultSettings.webServiceHost;
-			// 新增鉴权开关：旧 settings.json 缺字段或脏值回落 true，默认强制 token 校验。
-			if (typeof this.settings.webServiceRequiresAuth !== "boolean") {
-				this.settings.webServiceRequiresAuth = defaultSettings.webServiceRequiresAuth;
-			}
-			// 固定令牌机制：旧 JSON 无该字段 = 尚未生成，留给 WebServiceManager 首次启动生成并回写；
-			// 有值则清洗为 trim 后的 8-128 可打印字符（与设置页/IPC 入口同一约束），越界视为未设置。
-			const parsedToken = typeof parsed.webServiceToken === "string" ? parsed.webServiceToken.trim() : "";
-			this.settings.webServiceToken = isValidWebTokenShape(parsedToken) ? parsedToken : undefined;
-			this.settings.webServiceTokenGeneratedAt = typeof parsed.webServiceTokenGeneratedAt === "number" && Number.isFinite(parsed.webServiceTokenGeneratedAt) && parsed.webServiceTokenGeneratedAt > 0 ? parsed.webServiceTokenGeneratedAt : undefined;
-			const parsedExpiresIn = parsed.webServiceTokenExpiresIn;
-			this.settings.webServiceTokenExpiresIn = typeof parsedExpiresIn === "number" && (WEB_TOKEN_EXPIRES_IN_CHOICES as readonly number[]).includes(parsedExpiresIn) ? parsedExpiresIn : undefined;
-			const parsedProtocol = parsed.webRemoteCloudflaredProtocol;
-			this.settings.webRemoteCloudflaredProtocol = parsedProtocol && (WEB_REMOTE_CLOUDFLARED_PROTOCOLS as readonly string[]).includes(parsedProtocol) ? parsedProtocol : undefined;
-			this.settings.webRemoteCloudflaredExtraArgs = sanitizeCloudflaredExtraArgs(parsed.webRemoteCloudflaredExtraArgs) || undefined;
-			// EasyTier 手动兜底 IP：严格 IPv4，脏值/历史缺字段一律视为未设置。
-			this.settings.webRemoteEasyTierIp = sanitizeEasyTierVirtualIp(parsed.webRemoteEasyTierIp) || undefined;
-			// EasyTier CLI 路径：解压版/非默认目录安装时的显式入口，脏值视为未设置。
-			this.settings.webRemoteEasyTierCliPath = sanitizeEasyTierCliPath(parsed.webRemoteEasyTierCliPath) || undefined;
-			// 托管网络的三个字段：缺任意一项都由 UI/主进程退回只读探测，脏值一并视为未设置。
-			this.settings.webRemoteEasyTierNetworkName = sanitizeEasyTierNetworkName(parsed.webRemoteEasyTierNetworkName) || undefined;
-			this.settings.webRemoteEasyTierNetworkSecret = sanitizeEasyTierNetworkSecret(parsed.webRemoteEasyTierNetworkSecret) || undefined;
-			const parsedPeers = sanitizeEasyTierPeers(parsed.webRemoteEasyTierPeers);
-			this.settings.webRemoteEasyTierPeers = parsedPeers.length > 0 ? parsedPeers : undefined;
+			applyWebRemoteSettingsFromDisk(this.settings, parsed, defaultSettings);
 			// 旧设置或脏值不能隐式打开向增强模型发送会话正文的开关。
 			this.settings.enhanceIncludeContext = parsed.enhanceIncludeContext === true;
 			// 自定义增强模板：空白/超长/非字符串一律视为未自定义，回落内置模板。
@@ -1177,37 +1135,8 @@ export class SettingsStore {
 		if ("scrollToLatestOnSend" in safePatch && typeof safePatch.scrollToLatestOnSend !== "boolean") {
 			delete safePatch.scrollToLatestOnSend;
 		}
-		// EasyTier 手动 IP：空串表示清除（undefined 会随 JSON 序列化消失）；非法值不覆盖既有设置。
-		if ("webRemoteEasyTierIp" in safePatch) {
-			const raw = safePatch.webRemoteEasyTierIp;
-			const sanitized = sanitizeEasyTierVirtualIp(raw);
-			if (sanitized) safePatch.webRemoteEasyTierIp = sanitized;
-			else if (typeof raw === "string" && raw.trim() === "") safePatch.webRemoteEasyTierIp = undefined;
-			else delete safePatch.webRemoteEasyTierIp;
-		}
-		// EasyTier CLI 路径：同一口径——空串清除，非法值不覆盖既有设置。
-		if ("webRemoteEasyTierCliPath" in safePatch) {
-			const raw = safePatch.webRemoteEasyTierCliPath;
-			const sanitized = sanitizeEasyTierCliPath(raw);
-			if (sanitized) safePatch.webRemoteEasyTierCliPath = sanitized;
-			else if (typeof raw === "string" && raw.trim() === "") safePatch.webRemoteEasyTierCliPath = undefined;
-			else delete safePatch.webRemoteEasyTierCliPath;
-		}
-		// 托管网络字段：空串清除，非法值不覆盖既有设置；peers 清洗后为空数组同样视为清除。
-		for (const key of ["webRemoteEasyTierNetworkName", "webRemoteEasyTierNetworkSecret"] as const) {
-			if (!(key in safePatch)) continue;
-			const raw = safePatch[key];
-			const sanitized = key === "webRemoteEasyTierNetworkName" ? sanitizeEasyTierNetworkName(raw) : sanitizeEasyTierNetworkSecret(raw);
-			if (sanitized) safePatch[key] = sanitized;
-			else if (typeof raw === "string" && raw.trim() === "") safePatch[key] = undefined;
-			else delete safePatch[key];
-		}
-		if ("webRemoteEasyTierPeers" in safePatch) {
-			const peers = sanitizeEasyTierPeers(safePatch.webRemoteEasyTierPeers);
-			if (peers.length > 0) safePatch.webRemoteEasyTierPeers = peers;
-			else if (Array.isArray(safePatch.webRemoteEasyTierPeers)) safePatch.webRemoteEasyTierPeers = undefined;
-			else delete safePatch.webRemoteEasyTierPeers;
-		}
+		// 外网访问族（Lite 开关 / EasyTier / 自定义公网地址）的门禁规则见 webRemoteSettingsSanitize。
+		sanitizeWebRemoteSettingsPatch(safePatch);
 		// 自定义增强模板来自渲染层，入参不可信；归一规则与读盘同源（shared/enhanceSystemPrompt）。
 		applyEnhanceSystemPromptPatch(safePatch);
 		this.settings = { ...this.settings, ...safePatch };

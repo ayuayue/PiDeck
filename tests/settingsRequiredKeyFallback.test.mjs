@@ -10,7 +10,10 @@ import { readFileSync } from "node:fs";
  * 可选键（?:）按设计允许缺省，消费侧自行 ?? 兜底。
  */
 const TYPES = readFileSync("src/shared/types/settings.ts", "utf8");
+const REMOTE_TYPES = readFileSync("src/shared/types/webRemoteSettings.ts", "utf8");
 const STORE = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
+// 外网访问族的归一化搬到了独立模块（SettingsStore 只留一行调用），守卫要跟着读那份源码。
+const REMOTE_SANITIZE = readFileSync("src/main/settings/webRemoteSettingsSanitize.ts", "utf8");
 
 /** 按花括号深度提取字面量/类型体，剥掉注释后再计数，避免嵌套截断（正则法在这里裁过跟头）。 */
 function extractBody(source, marker) {
@@ -37,11 +40,20 @@ function topLevelKeys(body) {
 	return [...body.matchAll(/^\t([A-Za-z_][A-Za-z0-9_]*)(\?)?:/gm)].map((m) => ({ name: m[1], optional: Boolean(m[2]) }));
 }
 
+/**
+ * AppSettings 由 `WebRemoteSettings & { ... }` 组成（外网访问族字段在子契约文件里）：
+ * 必填键必须把两段都算上，否则拆文件就等于绕过守卫。
+ */
+function appSettingsTypeKeys() {
+	return [...topLevelKeys(stripComments(extractBody(TYPES, "export type AppSettings = WebRemoteSettings & {"))), ...topLevelKeys(stripComments(extractBody(REMOTE_TYPES, "export type WebRemoteSettings = {")))];
+}
+
 test("AppSettings 每个必填键都有 defaultSettings 兜底或 load 归一化显式赋值", () => {
-	const typeKeys = topLevelKeys(stripComments(extractBody(TYPES, "export type AppSettings = {")));
+	const typeKeys = appSettingsTypeKeys();
 	const defaultKeys = new Set(topLevelKeys(stripComments(extractBody(STORE, "const defaultSettings: AppSettings = {"))).map((k) => k.name));
-	// load 路径里的显式归一：this.settings.x = ... 与 this.settings.x ??= ...（惰性生成）
-	const normalized = new Set([...STORE.matchAll(/this\.settings\.([A-Za-z_][A-Za-z0-9_]*)\s*(?:\?\?=|=[^=])/g)].map((m) => m[1]));
+	// load 路径里的显式归一：this.settings.x = ... 与 this.settings.x ??= ...（惰性生成）；
+	// 外网访问族在独立模块里用 target.x = ... 写回同一份 settings。
+	const normalized = new Set([...STORE.matchAll(/this\.settings\.([A-Za-z_][A-Za-z0-9_]*)\s*(?:\?\?=|=[^=])/g), ...REMOTE_SANITIZE.matchAll(/target\.([A-Za-z_][A-Za-z0-9_]*)\s*(?:\?\?=|=[^=])/g)].map((m) => m[1]));
 	assert.ok(typeKeys.length > 150, `fixture sanity: AppSettings should have many keys, got ${typeKeys.length}`);
 	assert.ok(defaultKeys.size > 100, `fixture sanity: defaultSettings should be substantial, got ${defaultKeys.size}`);
 	const uncovered = typeKeys.filter((k) => !k.optional && !defaultKeys.has(k.name) && !normalized.has(k.name)).map((k) => k.name);
@@ -49,7 +61,7 @@ test("AppSettings 每个必填键都有 defaultSettings 兜底或 load 归一化
 });
 
 test("AppSettings 必填键的缺失会在此测试红灯（自检：人为删除一个默认键的模拟）", () => {
-	const typeKeys = topLevelKeys(stripComments(extractBody(TYPES, "export type AppSettings = {")));
+	const typeKeys = appSettingsTypeKeys();
 	// 抽一个真实必填键验证守卫逻辑本身能抓到缺失（不修改生产文件，只在内存里模拟）
 	const probe = typeKeys.find((k) => !k.optional);
 	assert.ok(probe, "fixture sanity: AppSettings must have required keys");
