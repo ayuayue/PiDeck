@@ -69,6 +69,7 @@ const {
 	REMOTE_HELPER_ENTRY_VERSION,
 	REMOTE_HELPER_CONFIG_SHA256,
 	REMOTE_HELPER_RESOURCE_SHA256,
+	REMOTE_HELPER_MCP_LOGIN_SHA256,
 	REMOTE_HELPER_SEARCH_CONTENT_SHA256,
 	REMOTE_HELPER_UPLOAD_COMMIT_SHA256,
 	REMOTE_UPLOAD_COMMIT_FILE_NAME,
@@ -87,7 +88,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "2c07768047d5f81c35134e7cbecc7f0de1975cbcb74197969d5a7581d5f48a66";
+const FROZEN_SHA256 = "f99048d8aa8141d781b6e2237f5f6943e72a3a6f62ce1e2f7b98bc407a485214";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -458,12 +459,13 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 	// programs that worker imports - and each one is content-addressed and pinned on its own. A change is only
 	// legitimate together with a deliberate update of that file's digest.
 	const expected = new Map([
-		["helper.mjs", { sha256: FROZEN_SHA256, builtins: ["node:fs", "node:path", "node:crypto"], imports: ["upload-commit.mjs", "git-read.mjs", "config.mjs", "resources.mjs", "search-content.mjs"] }],
+		["helper.mjs", { sha256: FROZEN_SHA256, builtins: ["node:fs", "node:path", "node:crypto", "node:child_process"], imports: ["upload-commit.mjs", "git-read.mjs", "config.mjs", "resources.mjs", "mcp-login.mjs", "search-content.mjs"] }],
 		["git-read.mjs", { sha256: REMOTE_HELPER_GIT_READ_SHA256, builtins: ["node:child_process", "node:crypto"], imports: ["git-write.mjs", "git-sync.mjs"] }],
 		["git-write.mjs", { sha256: REMOTE_HELPER_GIT_WRITE_SHA256, builtins: [], imports: [] }],
 		["git-sync.mjs", { sha256: REMOTE_HELPER_GIT_SYNC_SHA256, builtins: [], imports: [] }],
 		["config.mjs", { sha256: REMOTE_HELPER_CONFIG_SHA256, builtins: [], imports: [] }],
 		["resources.mjs", { sha256: REMOTE_HELPER_RESOURCE_SHA256, builtins: [], imports: [] }],
+		["mcp-login.mjs", { sha256: REMOTE_HELPER_MCP_LOGIN_SHA256, builtins: [], imports: [] }],
 		["search-content.mjs", { sha256: REMOTE_HELPER_SEARCH_CONTENT_SHA256, builtins: [], imports: [] }],
 		[REMOTE_UPLOAD_COMMIT_FILE_NAME, { sha256: REMOTE_HELPER_UPLOAD_COMMIT_SHA256, builtins: [], imports: [] }],
 		["terminal-runner.mjs", { sha256: REMOTE_TERMINAL_RUNNER_ENTRY_SHA256, builtins: ["node:fs", "node:path", "node:child_process"], imports: [] }],
@@ -552,7 +554,7 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 helperTest("the exported entry identity matches the frozen source", () => {
 	assert.equal(REMOTE_HELPER_ENTRY_FILE_NAME, "helper.mjs");
 	assert.match(REMOTE_HELPER_ENTRY_VERSION, /^\d+\.\d+\.\d+$/);
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.35.0", "1.33.0 added upstream push/pull; 1.34.0 relays stderr; 1.35.0 adds the four commit-graph write verbs");
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.36.0", "1.33.0 added upstream push/pull; 1.34.0 relays stderr; 1.35.0 adds the four commit-graph write verbs; 1.36.0 streams the MCP login authorization URL");
 	// The frozen source cannot import the contract, so its literals are checked against it here.
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(`"${REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report REMOTE_HELPER_ENTRY_VERSION");
 	for (const token of [REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_STAT_MANY, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) {

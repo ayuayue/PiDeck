@@ -34,9 +34,8 @@ test("远端域注册开关只有一个来源，且不允许写死", () => {
 	assert.equal([...main.matchAll(/const remoteFeatureEnabled\s*=\s*REMOTE_FEATURE_AVAILABLE;/g)].length, 1, "策略位应只在装配层派生一次");
 	const registrations = [...main.matchAll(/registerRemote\w+Ipc\(\{/g)].length;
 	const switches = [...main.matchAll(/enabled:\s*remoteFeatureEnabled\b/g)].length;
-	// 第 12 个注册点是远端 refs 变化订阅（`git:remote-watch-refs`）：它只标脏、不装载，但同样是远端域的一个
-	// 开关入口，必须与其它域共用同一个策略位。
-	assert.equal(registrations, 12, "远端域注册点数量变化时，同步更新本条断言与 docs/remote-release-readiness.md 的口径");
+	// 第 13 个注册点是远端 MCP（`remote:pi-mcp`）：配置快照/保存与主机上固定动词的 mcp 命令。
+	assert.equal(registrations, 13, "远端域注册点数量变化时，同步更新本条断言与 docs/remote-release-readiness.md 的口径");
 	assert.equal(switches, registrations, "每个远端注册点都必须用同一个开关，否则翻策略位只关掉一部分域");
 	assert.doesNotMatch(main, /enabled:\s*true\b/, "不允许出现写死的 enabled: true（策略位会形同虚设）");
 });

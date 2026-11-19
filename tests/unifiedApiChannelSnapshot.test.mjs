@@ -79,6 +79,8 @@
  * 2026-11-18 远端 Git 面板对齐（helper 1.32.0，+6，855 → 861；git 前缀 59 → 65，前缀总数不变）：
  *   gitRemoteStagedDiff（暂存区 diff，AI 摘要的远端输入）、gitRemoteWatchRefs / gitRemoteUnwatchRefs
  *   （`.git` 目录族订阅，只标脏）、gitRecoveryList / gitRecoveryRestore / gitRecoveryDrop（本机可还原丢弃）。
+ * 2026-11-19 远端 MCP（+1）：remote:pi-mcp（配置快照/保存 + 主机上的 pi mcp list/logout），
+ *   ipcChannels 855→856，前缀数仍 96（remote 前缀已存在）。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -90,9 +92,9 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  *   gitRemoteCherryPick / gitRemoteRevert / gitRemoteReset / gitRemoteDropCommit（git 前缀 65 → 69），
  *   每个动作一枚 main 签发、按 (窗口, 项目, 动作, 仓库) 绑定的令牌；helper 未声明能力时不签发，入口缺席。
  */
-const CHANNEL_TOTAL = 865;
+const CHANNEL_TOTAL = 866;
 const PREFIX_COUNT = 96;
-const CHANNEL_DIGEST = "b804029b5aa3aafaf9ccc71a3d4f6f280d60f6b1086ae5b342f1043104c3a1c1";
+const CHANNEL_DIGEST = "c0657e1008284e6dfe6f54429b507280fda38d74cdbfc7accb4776bc56355c28";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";

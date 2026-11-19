@@ -40,7 +40,7 @@ export type RemoteProjectSession = {
 	withTerminalInvocation<T>(remoteCommand: string, launch: (invocation: PinnedSshInvocation, assertCurrent: () => Promise<void>) => T): Promise<T>;
 	/** Build and consume one SFTP subsystem invocation; renderer never supplies SSH flags or paths. */
 	withSftpInvocation<T>(launch: (invocation: PinnedSshInvocation, assertCurrent: () => Promise<void>) => T): Promise<T>;
-	request(method: string, params?: unknown, options?: { timeoutMs?: number; onRequestId?: (requestId: string) => void; repo?: string }): Promise<unknown>;
+	request(method: string, params?: unknown, options?: { timeoutMs?: number; onRequestId?: (requestId: string) => void; repo?: string; onAuthUrl?: (url: string) => void }): Promise<unknown>;
 	cancel(requestId: string, options?: { timeoutMs?: number }): Promise<unknown>;
 };
 

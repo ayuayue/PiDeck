@@ -85,7 +85,13 @@ export type RemoteControlScheduler = {
 	clearTimeout(handle: ReturnType<typeof setTimeout>): void;
 };
 
-export type RemoteControlRequestOptions = { timeoutMs?: number /** Optional project-relative repository scope; main validates the shape before it gets here. */; repo?: string };
+export type RemoteControlRequestOptions = {
+	timeoutMs?: number;
+	/** Optional project-relative repository scope; main validates the shape before it gets here. */
+	repo?: string;
+	/** 流式回调：登录类方法在通话未结束时就能拿到授权 URL；只有发起它的那次请求能收到。 */
+	onAuthUrl?: (url: string) => void;
+};
 
 export type RemoteControlClientOptions = {
 	hostId: string;
@@ -146,6 +152,7 @@ export class RemoteControlError extends Error {
 const RETRYABLE_CODES = new Set<string>(["REQUEST_TIMEOUT", "REMOTE_CONNECTION_LOST", "REMOTE_REQUEST_LIMIT"]);
 
 /** watchId 由 helper 生成（"w<n>-<requestId>"）；这里只按长度与控制字节设界。 */
+const MAX_AUTH_URL_LENGTH = 2048;
 const MAX_WATCH_ID_LENGTH = 128;
 
 const DEFAULT_SCHEDULER: RemoteControlScheduler = {
@@ -168,6 +175,8 @@ type PendingEntry = {
 	/** Counted early-wake re-arms, bounded by MAX_DEADLINE_REARMS. */
 	rearms: number;
 	timer: TimerHandle | undefined;
+	/** 仅登录类请求会带：URL 事件按 id 回到这里。 */
+	onAuthUrl?: (url: string) => void;
 	settle(error: RemoteControlError | null, result: unknown): void;
 };
 
@@ -175,6 +184,8 @@ type PendingEntry = {
 type InboundRead =
 	| { kind: "invalid"; id?: string }
 	| { kind: "event"; hostId: string; generation: number; watchId: string; paths: string[] }
+	/** 登录授权 URL：id 缺省，但带 requestId（发起登录的那次请求），所以只会回到它的调用方。 */
+	| { kind: "auth-url"; hostId: string; generation: number; requestId: string; url: string }
 	| { kind: "ok"; hostId: string; generation: number; id: string; result: unknown }
 	| { kind: "error"; hostId: string; generation: number; id: string; error: RemoteHelperErrorBody }
 	| { kind: "error-body-invalid"; hostId: string; generation: number; id: string };
@@ -218,8 +229,18 @@ function readFrameId(record: Record<string, unknown>): string | undefined {
 	return typeof id === "string" && ID_PATTERN.test(id) ? id : undefined;
 }
 
+/** 授权 URL 事件：绑定到发起登录的那次请求（requestId），不认识的 id 由调用方按未知帧丢弃。 */
+function readAuthUrlFrame(value: Record<string, unknown>, hostId: string, generation: number): InboundRead {
+	const requestId = value.requestId;
+	if (typeof requestId !== "string" || !ID_PATTERN.test(requestId)) return { kind: "invalid" };
+	const url = value.url;
+	if (typeof url !== "string" || url.length < 8 || url.length > MAX_AUTH_URL_LENGTH || CONTROL_CHARS.test(url) || !/^https?:\/\//.test(url)) return { kind: "invalid" };
+	return { kind: "auth-url", hostId, generation, requestId, url };
+}
+
 /** 变更事件帧（无 id）：与请求应答靠「没有 id」区分，所以两者永远不会互相冒充。 */
 function readEventFrame(value: Record<string, unknown>, hostId: string, generation: number): InboundRead {
+	if (value.event === "auth-url") return readAuthUrlFrame(value, hostId, generation);
 	const watchId = value.watchId;
 	if (typeof watchId !== "string" || watchId.length === 0 || watchId.length > MAX_WATCH_ID_LENGTH || CONTROL_CHARS.test(watchId)) return { kind: "invalid" };
 	if (value.event !== "changed") return { kind: "invalid" };
@@ -449,8 +470,8 @@ export function createRemoteControlClient(options: RemoteControlClientOptions): 
 		if (isPromiseLike(outcome)) void outcome.then(undefined, () => onSendFailure(entry));
 	}
 
-	function createPending(id: string, timeoutMs: number, kind: PendingEntry["kind"], settle: (error: RemoteControlError | null, result: unknown) => void): PendingEntry {
-		const entry: PendingEntry = { id, kind, deadlineAt: now() + timeoutMs, rearms: 0, timer: undefined, settle };
+	function createPending(id: string, timeoutMs: number, kind: PendingEntry["kind"], settle: (error: RemoteControlError | null, result: unknown) => void, onAuthUrl?: (url: string) => void): PendingEntry {
+		const entry: PendingEntry = { id, kind, deadlineAt: now() + timeoutMs, rearms: 0, timer: undefined, settle, ...(onAuthUrl === undefined ? {} : { onAuthUrl }) };
 		pending.set(id, entry);
 		armDeadline(entry, timeoutMs);
 		return entry;
@@ -515,8 +536,8 @@ export function createRemoteControlClient(options: RemoteControlClientOptions): 
 			diagnose(REMOTE_FRAME_DIAGNOSTIC_CODES.invalid, read.id);
 			return;
 		}
-		// 事件帧没有 id：诊断只带 id 时用 undefined，绝不为了「有个 id」去编造一个。
-		const frameId = read.kind === "event" ? undefined : read.id;
+		// 事件帧（含授权 URL）没有 id：诊断只带 id 时用 undefined，绝不为了「有个 id」去编造一个。
+		const frameId = read.kind === "event" || read.kind === "auth-url" ? undefined : read.id;
 		if (read.hostId !== hostId) {
 			diagnose(REMOTE_FRAME_DIAGNOSTIC_CODES.wrongHost, frameId);
 			return;
@@ -525,6 +546,19 @@ export function createRemoteControlClient(options: RemoteControlClientOptions): 
 			// Frames of a closed connection and frames of a superseded generation are equally unusable and
 			// must never touch the live generation's requests (§7.1 fencing rule).
 			diagnose(REMOTE_FRAME_DIAGNOSTIC_CODES.staleGeneration, frameId);
+			return;
+		}
+		if (read.kind === "auth-url") {
+			const target = pending.get(read.requestId);
+			if (target === undefined || target.onAuthUrl === undefined) {
+				diagnose(REMOTE_FRAME_DIAGNOSTIC_CODES.unknownId, read.requestId);
+				return;
+			}
+			try {
+				target.onAuthUrl(read.url);
+			} catch {
+				/* ignore: an observer must never break framing */
+			}
 			return;
 		}
 		if (read.kind === "event") {
@@ -589,10 +623,17 @@ export function createRemoteControlClient(options: RemoteControlClientOptions): 
 		};
 		const line = encodeFrame(frame);
 		const deferred = createDeferred<unknown>();
-		const entry = createPending(id, timeoutMs, "request", (error, result) => {
-			if (error !== null) deferred.reject(error);
-			else deferred.resolve(result);
-		});
+		const onAuthUrl = typeof options?.onAuthUrl === "function" ? options.onAuthUrl : undefined;
+		const entry = createPending(
+			id,
+			timeoutMs,
+			"request",
+			(error, result) => {
+				if (error !== null) deferred.reject(error);
+				else deferred.resolve(result);
+			},
+			onAuthUrl,
+		);
 		deliver(line, entry);
 		return deferred.promise;
 	}

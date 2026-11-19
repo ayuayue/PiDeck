@@ -1224,7 +1224,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * contract; the service owns the session) and it is what main-only callers use for one-off pinned
 		 * commands. The manager already refuses anything but a ready host with a live protocol client.
 		 */
-		request(hostId: string, method: string, params?: unknown, options?: { timeoutMs?: number; onRequestId?: (requestId: string) => void; repo?: string }): Promise<unknown> {
+		request(hostId: string, method: string, params?: unknown, options?: { timeoutMs?: number; onRequestId?: (requestId: string) => void; repo?: string; onAuthUrl?: (url: string) => void }): Promise<unknown> {
 			// Host configuration has no project root. Its helper occupies the same bounded pool.
 			if (rootPool !== undefined)
 				return withPooledProjectSession(hostId, "", (session) => session.request(method, params, options), { requireReady: true }).then((result) => {

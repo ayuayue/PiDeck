@@ -3108,6 +3108,21 @@ function registerIpc() {
 		resolveImageGenStorageRoots,
 		sessionCatalog,
 	});
+	/**
+	 * Phase 5 remote config scope (Batch A)：每个 ssh 目标都是某台就绪主机的一次 helper 请求，主机经与远端其它面
+	 * 相同的服务解析，断连/被替换时 fail closed 成 HOST_NOT_READY 而不是读本机；这一批只做路由与校验。
+	 */
+	const remotePiConfig = remoteFeatureEnabled
+		? createRemotePiConfigBackend({
+				request: async (hostId, method, params) => {
+					const pending = remoteHostServiceIfEnabled();
+					if (pending === undefined) throw new Error("REMOTE_CONFIG_UNAVAILABLE");
+					const service = await pending;
+					return service.request(hostId, method, params, { timeoutMs: 15_000 });
+				},
+			})
+		: undefined;
+
 	const { readRemoteSessionHistoryPage, remotePiModelCatalog, remoteModelCatalogForProject, exportRemoteCatalogSessionHtml, remoteSessionArchive, remoteSessionDelete, videoSessionStore } = registerMediaSessionStack({
 		agentManager,
 		appLogger,
@@ -3124,6 +3139,7 @@ function registerIpc() {
 		sessionCatalog,
 		remoteFeatureEnabled,
 		remoteHostServiceIfEnabled,
+		remotePiConfig,
 		runPinnedRemoteCommand,
 	});
 	registerSessionsStack({
@@ -3258,22 +3274,6 @@ function registerIpc() {
 		getCachePath: () => join(app.getPath("userData"), "tokendance-pricing.json"),
 		log: (message, detail) => void appLogger.info("tokendance", message, detail),
 	});
-	/**
-	 * Phase 5 remote config scope (Batch A): every ssh target is one ready host's helper request. The host is
-	 * resolved through the same service the rest of the remote surface uses, so a disconnected/replaced host
-	 * fails closed with HOST_NOT_READY instead of reading anything local. Batch B adds the renderer selector; this
-	 * batch only routes and validates.
-	 */
-	const remotePiConfig = remoteFeatureEnabled
-		? createRemotePiConfigBackend({
-				request: async (hostId, method, params) => {
-					const pending = remoteHostServiceIfEnabled();
-					if (pending === undefined) throw new Error("REMOTE_CONFIG_UNAVAILABLE");
-					const service = await pending;
-					return service.request(hostId, method, params, { timeoutMs: 15_000 });
-				},
-			})
-		: undefined;
 
 	// 「请作者喝咖啡」按次付费：桌面端只调自家边缘代理（平台服务端 Key 在代理里，不进客户端）。
 	// 用户标识首次查询时生成并落盘；并发首查共用一个 Promise，避免生成两个 ID 把余额拆到两处。

@@ -32,6 +32,7 @@ import type { SkillHubSearchOptions } from "../../shared/types/skills";
 
 export const resourcesApi = {
 	remotePiResources: (hostId: string, input: import("../../shared/types/remotePiManagement").RemoteResourceRequest) => ipcRenderer.invoke(ipcChannels.remotePiResources, hostId, input) as Promise<import("../../shared/types/remotePiManagement").RemoteResourceResult>,
+	remotePiMcp: (hostId: string, input: import("../../shared/types/remotePiManagement").RemoteMcpRequest) => ipcRenderer.invoke(ipcChannels.remotePiMcp, hostId, input) as Promise<import("../../shared/types/remotePiManagement").RemoteMcpResult>,
 	skills: {
 		list: (options?: import("../../shared/piConfig").PiResourceOptions) => ipcRenderer.invoke(ipcChannels.skillsList, options) as Promise<PiSkillListResult>,
 		// 读技能 SKILL.md 正文（白名单校验在主进程完成），技能选择器详情/全文插入用。
