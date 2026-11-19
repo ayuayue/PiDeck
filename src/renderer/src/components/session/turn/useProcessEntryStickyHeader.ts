@@ -1,10 +1,13 @@
 import { useCallback, useContext, useLayoutEffect, useRef, useState } from "react";
-import { ProcessGroupScrollControlsContext } from "./processGroupScrollContext";
+import { MessageScrollerGeometryContext } from "../../agents/message-scroller-context";
+import { useInsideProcessGroupBody } from "./processGroupScrollContext";
 import { processEntryStartOffset, resolveProcessEntryStickyState, type ProcessEntryStickyState } from "./processEntryStickyPolicy";
 
-/** 工具与思考共用标题吸顶状态；行只订阅组体，不另建滚动/尺寸监听。 */
+/** 工具与思考共用会话视口的标题吸顶状态，不另建滚动/尺寸监听。 */
 export function useProcessEntryStickyHeader(expanded: boolean) {
-	const controls = useContext(ProcessGroupScrollControlsContext);
+	const geometry = useContext(MessageScrollerGeometryContext);
+	const insideProcessGroup = useInsideProcessGroupBody();
+	const controls = insideProcessGroup ? geometry : null;
 	const entryRef = useRef<HTMLElement | null>(null);
 	const headerRef = useRef<HTMLDivElement | null>(null);
 	const [state, setState] = useState<ProcessEntryStickyState>({ sticky: false, pinned: false });
@@ -43,5 +46,5 @@ export function useProcessEntryStickyHeader(expanded: boolean) {
 		if (expanded && scroll && entry && entry.getBoundingClientRect().top < scroll.getBoundingClientRect().top + scroll.clientTop) returnToStart();
 	}, [expanded, controls, returnToStart]);
 
-	return { ...state, entryRef, headerRef, returnToStart, prepareCollapse, insideProcessGroup: controls !== null };
+	return { ...state, entryRef, headerRef, returnToStart, prepareCollapse, insideProcessGroup };
 }

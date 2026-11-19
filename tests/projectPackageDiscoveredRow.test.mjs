@@ -39,7 +39,7 @@ test("DiscoveredExtensionRow：可操作行渲染开关与卸载，徽标按物�
 
 test("ExtensionsTab：项目包开关走原生 toggle（scope=project、path=undefined）+ 乐观刷新", () => {
 	const source = read("src/renderer/src/config/ExtensionsTab.tsx");
-	assert.match(source, /await getExtensionsApi\(\)\.toggle\(item\.source, enabled, "project", undefined, props\.projectId\)/, "包源 path 无意义必须传 undefined；projectId 缺失后端会拒绝项目层写入");
+	assert.match(source, /await api\.extensions\.toggle\(item\.source, enabled, "project", undefined, props\.projectId\)/, "包源 path 无意义必须传 undefined；projectId 缺失后端会拒绝项目层写入");
 	assert.match(source, /await \(props\.onRefreshAfterToggle \?\? props\.onRefresh\)\(\)/, "必须等刷新落地再清乐观覆盖，否则开关弹回旧值");
 	assert.match(source, /onToggle=\{handleDiscoveredPackageToggle\}/, "发现行开关必须接统一 handler");
 	assert.match(source, /onUninstall=\{props\.onUninstallProjectPackage\}/, "发现行卸载必须由 ConfigModal 弹确认");

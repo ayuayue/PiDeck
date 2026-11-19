@@ -14,7 +14,6 @@ import { ipcChannels } from "../../shared/ipc";
 import type { FeishuBotConfig, FeishuBridgeStatus, FeishuChatBinding, FeishuChatMessage, FeishuTestResult, ImageContent, AvailableModel, AgentTab, ChatMessage, ImChannelBackend, LocalProject } from "../../shared/types";
 import type { FeishuImageAttachment, FeishuFileAttachment, FeishuMessageContext, FeishuCardActionEvent } from "./types";
 import { setPersistentChatId } from "./FeishuConfig";
-import { chooseMessageMode, buildPostMessages, buildMarkdownCards } from "./rich-text";
 import { CardStream } from "./CardStream";
 import { FeishuConnection } from "./FeishuConnection";
 import { sanitizeFeishuUserVisibleText, stripFeishuActionMarkers, wantsFeishuDoc } from "./docActions";
@@ -23,7 +22,7 @@ import { renderRunCard } from "./CardRenderer";
 import { parseModelActionValue } from "./ModelPickerCard";
 import { normalizeAskOption, parseAskActionValue, parseAskInputValue } from "./AskCard";
 import { MAX_ATTACHMENT_BYTES, PENDING_ATTACHMENT_MAX_BYTES, PENDING_ATTACHMENT_MAX_COUNT, formatAttachmentSize, safeAttachmentFileName } from "./attachmentFiles";
-import { feishuLanguage, feishuT, normalizeFeishuLocale, type FeishuLocale } from "./FeishuI18n";
+import { feishuT, normalizeFeishuLocale, type FeishuLocale } from "./FeishuI18n";
 import { log, logErr } from "./bridge/bridgeLog";
 import { FeishuMedia } from "./bridge/media";
 import { FeishuAskCenter, type PendingAsk } from "./bridge/askCenter";
@@ -1032,6 +1031,15 @@ export class FeishuBridge {
 				} else {
 					// 终态：先预占，避免 agent_end 抢先触发重复纯文本同步。
 					this.cardTerminalSucceeded.add(agentId);
+					// 卡片没有任何可见正文（事件流没给 text_delta、正文全是动作标记等）时，
+					// 手机端只剩轨迹和「✅ 完成」——用户反馈的「看不到它回复的内容」。
+					// 卡片已经是空的，再 patch 也没内容，只能从时间线补发一条。
+					if (nextState.terminal === "done" && !cleanText.trim()) {
+						const chatIdForFallback = this.getBestChatId(agentId);
+						if (chatIdForFallback && this.connection.client) {
+							void this.syncPiMessageToFeishu(agentId, chatIdForFallback).catch((e) => logErr("[Feishu Bridge] empty-card fallback sync failed:", e));
+						}
+					}
 					// 强制 flush + close，记录失败以便降级补发纯文本
 					void cardStream
 						.flush(card)
@@ -1392,28 +1400,9 @@ export class FeishuBridge {
 
 	// ===== 飞书消息发送（智能模式） =====
 
-	/** 发送智能消息；返回是否送达（吞错但上报结果，同步去重依赖真实结果决定是否记指纹） */
-	private async sendSmartMessage(chatId: string, text: string): Promise<boolean> {
-		if (!this.connection.client) return false;
-		const mode = chooseMessageMode(text);
-		const language = feishuLanguage(this.locale);
-		try {
-			if (mode === "interactive") {
-				for (const card of buildMarkdownCards(text, language)) {
-					await this.connection.client.im.message.create({ params: { receive_id_type: "chat_id" }, data: { receive_id: chatId, msg_type: "interactive", content: JSON.stringify(card) } });
-				}
-			} else if (mode === "post") {
-				for (const post of buildPostMessages(text, language)) {
-					await this.connection.client.im.message.create({ params: { receive_id_type: "chat_id" }, data: { receive_id: chatId, msg_type: "post", content: JSON.stringify(post) } });
-				}
-			} else {
-				await this.connection.client.im.message.create({ params: { receive_id_type: "chat_id" }, data: { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text }) } });
-			}
-			return true;
-		} catch (e) {
-			logErr("[飞书 Bridge] 发送消息失败:", e);
-			return false;
-		}
+	/** 智能分诊与纯文本兜底在 outbound 域；这里只保留调用点，返回是否送达。 */
+	private sendSmartMessage(chatId: string, text: string): Promise<boolean> {
+		return this.outbound.sendSmartMessage(chatId, text);
 	}
 
 	// ===== 文件发送 & 文档创建 =====

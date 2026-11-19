@@ -7,7 +7,9 @@
 复跑单条：`npx playwright test "e2e/<file>.spec.ts:<line>" --retries=0 --workers=1 --reporter=line`
 需要看主进程日志：加 `PIDECK_E2E_KEEP=1`，产物目录会打印在日志里（`profile/logs/app-*.log`）。
 
-## 2026-11-14 全量体检基线
+## 2026-11-14 历史全量体检快照
+
+以下数字是当日旧分支状态的历史快照，**不是当前 HEAD 的结果**；2026-11-17 起的修复与定向复跑见各条结案记录和 0.13 发布候选记录。
 
 88 个使用 mock-pi fixture 的 spec（排除需真实 DSH/SSH 的 `dsh-restart`、`remote*Acceptance`）：
 
@@ -43,71 +45,22 @@
 | 2026-11-14 | `favorites-bulk`（2 条） | 收藏入口收进侧栏「更多」折叠组（定时任务/智能体/收藏），且页面内还有同名「收藏」按钮 | 先展开「更多」，再用 `#sidebar-more-actions` 精确定位入口 |
 | 2026-11-14 | `terminal-first-open`（3 条） | 会话操作菜单从 Tab 栏「更多操作」并入会话头部「更多运行操作」（`SessionActionsControl`） | 定位器改到新入口；**功能本身没坏**（#333 仍可用） |
 
-### 已废弃用例（fixme）
+### 已废弃用例（已删除）
 
 | 用例 | 原因 |
 |---|---|
 | `tmp-table-menu`（整条删除） | 2026-08 的临时验证脚本：只有截图 + `console.log` 几何，唯一断言是「复制菜单项可见」，从未断言过菜单是否压住表格。表格工具栏与 i18n 都变过两轮，维护成本大于价值，直接删文件（它想守的重叠问题需要真实像素断言才有意义，见下方待办） |
-| `settle-reposition` 的 2 条（mouse move + typing / holds its landing spot） | settle 后的「重新定位」在实现里被刻意移除——`SessionMessageTimeline` 的「运行中 → 停转」边沿注释写明「仅用于让旧的 settled 流水线失效；不再调度任何定位」，只保留「1.5s 阅读停顿 → 自动收起最新轮」。这两条断言的是不存在的契约，用 `test.fixme` 标记（若哪天定位被重新引入，会报 unexpectedly passed） |
+| `settle-reposition` 的 2 条（mouse move + typing / holds its landing spot） | settle 后重新定位已被移除；两条断言已删除，保留手动上滚和历史打开行为覆盖 |
 
 ---
 
-## `retry-status-card`（2 条）— 重试卡行为与产品要求不一致
+## 重试与历史状态 E2E（已修复，2026-11-17）
 
-**状态**：已知失败，`test.fixme` 标记。**存量问题，不是重构引入**：在重构前基线 `78b911154` 的独立 worktree 上跑，两条失败现象逐条一致。
-
-| 用例 | 现象 | 判定 |
-|---|---|---|
-| 连续重试只挂一张卡，成功后卡片消失 | `自动重试成功` 卡仍留在时间线（期望 0，实际 1） | spec 编码的是产品要求「成功后卡片消失」，实测未消失 |
-| 重试最终失败保留失败卡留痕 | 进行中卡 `正在自动重试` 拿不到（期望 1，实际 0） | 进行中/失败卡的时序同样与 spec 不一致 |
-
-**待决策**：以 spec（产品要求）为准去修主进程的重试卡生命周期（`src/main/pi/retryStatusMessages.ts`），还是确认现状即新契约、改断言。动手前需要产品侧拍板。
-
----
-
-## `session-history-agent-states.spec.ts:53` — 流式中删除取到 idle 文案
-
-**状态**：已知失败，`test.fail()` 标记（修好后会报「unexpectedly passed」，提醒去掉标记）。
-
-**现象**：流式进行中删除历史消息，确认框显示 idle 变体（`删除消息会先停止 Agent…`）而不是 running 变体（`会话正在运行。删除消息会先停止 Agent…`）。功能本身正常（能停、能删），只是**文案口径偏保守**。
-
-**已排除的三层**（都有实测）：
-
-| 层 | 结论 | 证据 |
-|---|---|---|
-| 主进程 → preload → 渲染层的桥 | ✅ 通 | 窗口内直接订阅 `sessions.onRuntimeEvent`，流式中收到 7 条 `agents:runtime-state`、17 条 `agents:text-stream` |
-| `runtimeStateReader.emitRuntimeState` 全量快照覆盖 `isStreaming` | ✅ **已修**（`6a3365610`） | 原来只给工具字段保留本地真值，`get_state` 不返回流式标志 → 每次刷新把 50ms 节流补丁的 `true` 打回 `false` |
-| `replaceSessionRuntimesAtom` 列表快照覆盖 live 状态 | ❌ 不是它 | 整段时间只写一次，且写之前 atom 已经是 `idle` / `isStreaming=false` |
-
-**当前卡点**：点删除那一刻，插桩打印的四路数据**全部指向空闲**——
-
-```
-{rStatus:"idle", streaming:false, turn:false, agentStatus:"idle", send:undefined}
-```
-
-而**同一时刻** composer 按钮是「停止」、时间线在流式输出。能显示「停止」的只有
-`useSessionRuntimeController.isAgentBusy`：
-
-```ts
-isAgentBusy = hasActiveConversation && (activeConversationStatus === "running" || activeRuntimeState?.isStreaming)
-// currentSessionRuntime 来自 sessionRuntimeBySessionIdAtomFamily(sessionKey)
-// sessionKey = boundSessionIdOption ?? focusedSessionId
-```
-
-**头号嫌疑**：`boundSessionIdOption`（分栏绑定会话）与 `focusedSessionId`（聚焦会话）不是同一个 —— composer 读的是「在跑的那个」，`isAgentCurrentlyBusy()` 读的是「聚焦的那个」。
-
-**下一步**：在 `useSessionRuntimeController` 里措桩打印 `sessionKey / currentSessionRuntime / activeRuntimeState`，与删除流程的 `currentSessionId` 对比；
-若确认两者不同，则让 `isAgentCurrentlyBusy` 与 composer 同源（注入 controller 的 `isAgentBusy` 或读同一 `sessionKey`）。
-
-**为排查做过的临时改动**（均已回退，无遗留）：`stopIfRunning` 后等待运行时解绑、`isTurnActive` 判据、agent tab status 判据。
-
-### 同一 spec 的其余三条（本轮已处理）
-
-| 用例 | 结果 |
-|---|---|
-| `content-area loading overlay › never-started session…` | **已修绿**：项目行改按项目名匹配 + 先切「项目」分段（侧栏默认在「聊天」）；「重启」入口早已不在 Tab 栏，改为会话头部运行控制钮——从未启动的历史会话那颗钮的 title 是「启动 Agent」 |
-| `never-started session: delete confirms, edit applies directly…` | 种子行部分已修（同上）；**剩余失败是另一个根因**，见下节，已 `test.fail()` |
-| `after agent crash: delete and edit apply directly…` | 同一根因，已 `test.fail()` |
+- `retry-status-card.spec.ts` 2/2 通过：成功周期退出时间线，进行中只显示当前周期，最终失败保留原因。
+- `session-history-agent-states.spec.ts` 4/4 通过：运行中停止后删除、崩溃/未启动状态的历史编辑删除、发送激活及加载遮罩。
+- 运行中历史操作现在明确以被操作的 session runtime 为忙闲来源；正在输出时编辑/删除隐藏，停止后可继续操作。
+- assistant 编辑遵循 `context_edit`/catalog 路径，user 编辑和 resend 遵循真实 pi 默认 before-fork 语义。相应用例使用真实投影解析，未把后续编辑错误注入早期 fork。
+- `history-restore.spec.ts` 已补 Windows 隔离环境、信任与配置种子、平台 shim；重启恢复验证通过，移除了旧 `fixme`。`process-group-display.spec.ts` 的当前 4 条回归也已通过。
 
 ## 非 live 会话编辑：旧行不消失（根因已定位并修掉 mock 侧，2026-11-15）
 
@@ -129,15 +82,6 @@ fork 默认 **before**：新会话的 leaf 是锚点的**父节点**，锚点这
 2. `get_fork_messages` 只报**本进程收到过**的 prompt；历史会话里落盘的 user 条目没有锚点 → fork 拿不到 entryId，编辑退化成「同文件追加」，连 fork 都没发生（种子文件因此被写脏）。
 
 **修完实测**：种子文件不再被追加（保持 e1–e3），fork 出的新文件里已排除锚点；`session-history-agent-states` + `session-history-mutation` 共 7 passed。
-
-**仍红的 2 条是另外的漂移（产品行为待拍板，已 `test.fail()`）**：
-
-| 用例 | 现象 |
-|---|---|
-| `after agent crash: delete and edit…` | 编辑已落盘的 assistant 回复后旧回复仍在，且多出一条以编辑文本为正文的 **user 消息** —— 这条路径把新文本当新提问重发了，而不是原地改条目 |
-| `never-started session: delete / edit / resend…` | user 消息操作里已经没有「用同一条用户消息再次发送给 AI」，取而代之是「从此消息 fork 为新会话（可改后重发）」；用例的重发段仍按旧钮写 |
-
----
 
 ## 配置管理「保存点了没反应」—— 实际是必填项缺失被校验拦下（已结案）
 
@@ -165,9 +109,7 @@ fork 默认 **before**：新会话的 leaf 是锚点的**父节点**，锚点这
 
 | 用例 | 现象 | 已经查到哪一步 / 下一步 |
 |---|---|---|
-| `process-group-display`（1 条：同行文本共基线） | `expect.poll` 拿到的基线组不足 3 项，10s 后以 `NaN` 收尾（不是极差超限） | 组头的实时详情只在 `running && !open` 时渲染（`ProcessGroupStep.tsx:201`：`detail = props.running && !props.open ? lastToolDetail(...) : undefined`）。流式中折叠栏默认展开（`expandInterimDuringStream`），此时 `[data-row-text]` 只有 1 个子元素 → 永远凑不满 3 项。下一步：在「运行中 + 组头收起」状态下取一次 DOM 快照，确认 3 个子元素都出现后再改断言（要么先收起折叠栏，要么把断言降到 2 项并说明理由） |
 | `tab-font-size:33` | `.session-tab[role=tab]` 期望 2 实际 3 | 多出来的一般是空草稿 tab；先确认这第三个 tab 的 `aria-selected`/标题，再决定计数改成「已选中的 2 个」还是等草稿回收 |
 | `visual-session:22` | `.composer-bar-btn.stop` 不存在 | 合成器的发送/停止控件换过类名；下一步按 aria-label「停止」定位 |
 | `web-service:62` | **已登记 `test.fixme`**：Web 前端换成了新的单页（`.app` / `textarea#prompt` / `.chat-list-pane` / `.assistant-text` 这些锚点都能对上），思考卡片不再以原始文本节点呈现，旧的 `text=推理：先分析文件结构...` 必然找不到 | 这份 Web 前端源码不在仓库里（`src/main/web/webPageTemplate.ts` 是旧的内联页，没有这些类名），下一步先定位构建产物来源，再按新 DOM 改断言 |
-| `history-restore:43` | **已登记 `test.fixme`（flaky）**：两次 `PIDECK_E2E_KEEP=1` 复跑失败位置不同——一次是第二轮恢复后卡在「正在启动…预热环境…」，一次连第一轮 mock 回复都没到（同样卡在激活态） | 两侧都指向 **runtime 激活**，不是会话文件持久化/扫描（第一轮落盘正常）。下一步在无 fixture 的裸 electron 启动下给 activation 状态机打点 |
 | 表格工具栏菜单与表格重叠 | 之前的 `tmp-table-menu` 只截图不断言 | 需要一条真实几何断言：菜单 `boundingBox` 底边 ≤ 表格顶边，或菜单不覆盖任意 `td` 文本；菜单是 portal 渲染，定位要从页面级取而不是 `.message-timeline` 内 |

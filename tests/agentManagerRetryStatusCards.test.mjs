@@ -7,9 +7,7 @@ const { AgentManager } = loadTsCommonJs("src/main/pi/AgentManager.ts");
 /**
  * 自动重试状态卡：一次重试周期（auto_retry_start → auto_retry_end）一张卡。
  *
- * 旧行为是「每个 agent 只保留一条重试消息」并原地改写：第二轮重试会把上一轮已经
- * 收敛成「自动重试成功」的卡片重新刷成「正在自动重试」，时间线上永远只剩最后一条，
- * 用户看不出到底重试过几次（用户反馈：不知道重试了）。
+ * 进行中显示一张，成功消息只供 toast 使用，下一周期淘汰，失败保留次数与原因。
  */
 
 function createManager() {
@@ -41,28 +39,43 @@ function retryMessages(manager) {
 	return manager.messages.get("agent-1") ?? [];
 }
 
-test("第二轮重试新建卡片：已收敛的成功卡不被改写", () => {
+test("重试成功保留 toast 描述符，下一周期淘汰成功消息且只显示一张进行中卡", () => {
 	const manager = createManager();
 
 	// 第一轮：调度重试 → 成功收敛
 	manager.upsertRetryStatusMessage("agent-1", { attempt: 1, maxAttempts: 3, errorMessage: "HTTP 429" }, "running");
 	manager.upsertRetryStatusMessage("agent-1", { attempt: 1, maxAttempts: 3, success: true }, "success");
+	assert.equal(retryMessages(manager).length, 1, "成功描述符需保留给 renderer 的 toast 扫描");
+	const succeededId = retryMessages(manager)[0].id;
+	assert.equal(retryMessages(manager)[0].meta.i18nKey, "diagnostic.retrySucceeded");
+	assert.equal(retryMessages(manager)[0].meta.status, "success");
 
 	// 第二轮：用户继续对话再次失败，pi 重新调度重试
 	manager.upsertRetryStatusMessage("agent-1", { attempt: 1, maxAttempts: 3, delayMs: 5000, errorMessage: "HTTP 500" }, "running");
 
 	const list = retryMessages(manager);
-	assert.equal(list.length, 2, "每个重试周期应各留一张卡片");
-	assert.equal(list[0].meta.status, "success");
-	assert.equal(list[0].meta.i18nKey, "diagnostic.retrySucceeded");
-	assert.equal(list[1].meta.status, "running");
-	assert.equal(list[1].meta.i18nKey, "diagnostic.retryScheduledAfterDelay");
-	assert.notEqual(list[0].id, list[1].id);
+	assert.equal(list.length, 1);
+	assert.notEqual(list[0].id, succeededId, "新的重试周期拥有独立 toast 签名");
+	assert.equal(list[0].meta.status, "running");
+	assert.equal(list[0].meta.i18nKey, "diagnostic.retryScheduledAfterDelay");
 
 	// 同一周期内的后续事件（退避时间变化）继续复用运行中的卡片，不新增
 	manager.upsertRetryStatusMessage("agent-1", { attempt: 1, maxAttempts: 3, delayMs: 30000 }, "running");
-	assert.equal(retryMessages(manager).length, 2);
-	assert.equal(list[1].meta.delayMs, 30000);
+	assert.equal(retryMessages(manager).length, 1);
+	assert.equal(list[0].meta.delayMs, 30000);
+});
+
+test("同轮连续成功重试不积累消息，最终失败仍保留", () => {
+	const manager = createManager();
+	for (let cycle = 0; cycle < 20; cycle += 1) {
+		manager.upsertRetryStatusMessage("agent-1", { attempt: 1, maxAttempts: 3 }, "running");
+		manager.upsertRetryStatusMessage("agent-1", { attempt: 1, maxAttempts: 3 }, "success");
+		assert.equal(retryMessages(manager).length, 1);
+	}
+	manager.upsertRetryStatusMessage("agent-1", { attempt: 3, maxAttempts: 3, finalError: "HTTP 429" }, "error");
+	manager.upsertRetryStatusMessage("agent-1", { attempt: 1, maxAttempts: 3 }, "running");
+	assert.equal(retryMessages(manager).filter((message) => message.meta.status === "error").length, 1);
+	assert.equal(retryMessages(manager).filter((message) => message.meta.status === "running").length, 1);
 });
 
 test("周期以失败收敛：卡片改写为 retryFailed，后续失败诊断仍带重试次数", () => {

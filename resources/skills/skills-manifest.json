@@ -1,58 +1,78 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "2846683b04011a95927ac701a8671806d1936338c93fdf04207a29912b01501e",
-  "fileCount": 10,
+  "bundleSha256": "74879bf40843e1ac8bdaee29c2ba4cb42f4120a4a3b0d3ce6ff711794a90de30",
+  "fileCount": 14,
   "files": [
-    {
-      "name": "image-gen/SKILL.md",
-      "sha256": "44be5e6782d1665b32801a20de92f4f1ccba20a26f0e6134f505ded36a1b6862",
-      "bytes": 8177
-    },
     {
       "name": "mcp-setup/SKILL.md",
       "sha256": "5e786339e2af6defbcbf7a047e8cee662b88afc25930f46b01e1c1002c102329",
       "bytes": 4767
     },
     {
-      "name": "pideck-doctor/SKILL.md",
-      "sha256": "18f79100a9ae5b8800cb9d3970ef11fee2049db88b9f299e1f5c72c478d2e81d",
-      "bytes": 4784
+      "name": "pideck/references/image-gen.md",
+      "sha256": "fac43e159d5a71da31c47520d65c0143da6dd1018cc8cf8ba14556d3a6362889",
+      "bytes": 7867
     },
     {
-      "name": "pideck-web-api/check-doc-routes.json",
-      "sha256": "5d635c9c9ef194157196f6408747a9e265d7e9a2fd7ff1914770f1daf240dee0",
-      "bytes": 2144
+      "name": "pideck/references/pideck-doctor.md",
+      "sha256": "aa145a6d42d172fc3ea56086531183b43e23456160fcc12506e305878a8b4188",
+      "bytes": 4735
     },
     {
-      "name": "pideck-web-api/check-doc.mjs",
-      "sha256": "2f08d94b5a46ca2bfa4f924205e3b6114ada1a8d1120a65aa805a1a8ecca0563",
-      "bytes": 15011
+      "name": "pideck/references/usage-probe.md",
+      "sha256": "9fcd418d042ee2f5d2252be7b9160175b0863526b73d50397249eaab3e802f59",
+      "bytes": 8860
     },
     {
-      "name": "pideck-web-api/check-fields.mjs",
-      "sha256": "2871f1540576c3848cf557d566394ab2ded259f83a469323ccef82846ea8d31c",
-      "bytes": 5244
+      "name": "pideck/references/web-api/actions.md",
+      "sha256": "5e586e622e36e2e30a00254f5a8b134226093448e5207ee62c35fa1f744831a1",
+      "bytes": 6838
     },
     {
-      "name": "pideck-web-api/check-format.mjs",
-      "sha256": "fd32d48bf715724ae85a6ccefdadcd8cc1749056ae81b25b06c1d623ec30a088",
-      "bytes": 11360
+      "name": "pideck/references/web-api/boundaries.md",
+      "sha256": "60e0f134e342f44af1845eebab1a3d0e5d44c69d0c76373dd8a24bd91a032212",
+      "bytes": 1742
     },
     {
-      "name": "pideck-web-api/check-paths.mjs",
-      "sha256": "8920f0cf2eae0fb42ea22fb515222f97c264effe8cc56383fe83a68af25d0370",
-      "bytes": 7490
+      "name": "pideck/references/web-api/collaboration.md",
+      "sha256": "f631b048e370eeb047f15bffb9807544e2f53d0a956b93f15e9aed0f2f897a6d",
+      "bytes": 20834
     },
     {
-      "name": "pideck-web-api/SKILL.md",
-      "sha256": "2cf4eb763868e3d0efc57ae56fbe5313c6c3580f565a661fe71ccf19670d66f0",
-      "bytes": 51075
+      "name": "pideck/references/web-api/connect.md",
+      "sha256": "d77e5fa4d8d45e323673a29af0a8c550d05904933c56732c1f5ce1c286becb68",
+      "bytes": 8873
     },
     {
-      "name": "usage-probe/SKILL.md",
-      "sha256": "65d2668bb3f599868d206c39f956113a685d76bae5e408c311886a3a646b547e",
-      "bytes": 9154
+      "name": "pideck/references/web-api/endpoints.md",
+      "sha256": "3bf9c407f8962d5fe69fbd835ca7add9e1b69156ee95f2ebadc5718c6189e007",
+      "bytes": 13083
+    },
+    {
+      "name": "pideck/references/web-api/maintenance.md",
+      "sha256": "578a8291720fae87220ce03a36fb1f45ff4926c83b4194a9704176b8f9ab6793",
+      "bytes": 7632
+    },
+    {
+      "name": "pideck/references/web-api/message.md",
+      "sha256": "f1945c6ae2e7189fdea51758be0290cae4fbcd5b502130d32a941764e224cddd",
+      "bytes": 8440
+    },
+    {
+      "name": "pideck/references/web-api/read.md",
+      "sha256": "3540a9dacfddbe540018891dec20fa6584f4af9ee974d0932712b407cf5c9107",
+      "bytes": 3778
+    },
+    {
+      "name": "pideck/references/web-api/restart.md",
+      "sha256": "a7f5421d47e01791f88f4080c7e9bbcecb8aa6db6e3feea21bc4f5986b81b642",
+      "bytes": 6134
+    },
+    {
+      "name": "pideck/SKILL.md",
+      "sha256": "44650ada3e3b61903cff03f145612197d03ebb68420cb031914932c5e5427e7a",
+      "bytes": 2988
     }
   ]
 }

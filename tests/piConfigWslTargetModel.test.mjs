@@ -30,9 +30,9 @@ test("目标相等判定：local 只对 local；ssh 同 hostId 才算同一个�
 	assert.equal(model.samePiConfigTarget({ kind: "wsl" }, local), false);
 });
 
-test("本地编辑器只对 wsl 目标带 target 选项（ssh 由远端面板接管，local 是缺省）", () => {
+test("共享编辑器对所有非本机目标携带 target 选项", () => {
 	assert.equal(model.localEditorTargetOption({ kind: "local" }), undefined);
-	assert.equal(model.localEditorTargetOption({ kind: "ssh", hostId: HOST }), undefined);
+	assert.deepEqual(JSON.parse(JSON.stringify(model.localEditorTargetOption({ kind: "ssh", hostId: HOST }))), { target: { kind: "ssh", hostId: HOST } });
 	assert.deepEqual(JSON.parse(JSON.stringify(model.localEditorTargetOption({ kind: "wsl" }))), { target: { kind: "wsl" } });
 });
 
@@ -69,15 +69,17 @@ test("provider 探针（测试连接/拉取模型/用量）只对本机开放", 
 test("WSL 目标新增的词典键在中英文两侧齐备且占位符一致", () => {
 	const zh = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts").zhCN;
 	const en = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.en-US.ts").enUS;
-	const keys = Object.keys(zh).filter((key) => key.startsWith("config.target.wsl") || key.startsWith("config.windowsOnly"));
-	assert.ok(keys.length >= 7, "unexpected WSL key count " + keys.length);
+	// 2026-11-17：`config.windowsOnly.*` 已随 W1（67b481182）目标路由一起下线，兜底提示由
+	// `config.target.wsl*` 承担；资源三页的「仅编辑 Windows 配置」组件（零引用）同时删除。
+	const keys = Object.keys(zh).filter((key) => key.startsWith("config.target.wsl"));
+	assert.ok(keys.length >= 5, "unexpected WSL key count " + keys.length);
 	for (const key of keys) {
 		assert.ok(Object.prototype.hasOwnProperty.call(en, key), "en-US missing " + key);
 		const zhPlaceholders = [...zh[key].matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
 		const enPlaceholders = [...en[key].matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
 		assert.deepEqual(zhPlaceholders, enPlaceholders, key);
 	}
-	assert.ok(zh["config.windowsOnly.body"].includes("{page}"));
+	assert.ok(zh["config.target.wslUnsupported"].includes("{label}"));
 });
 
 test("打开配置管理的默认目标：远端项目落在它那台主机，本机项目与未知主机不被改写", () => {

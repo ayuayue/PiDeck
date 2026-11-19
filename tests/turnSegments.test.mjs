@@ -206,7 +206,10 @@ function loadAppUtils() {
 		stubs: {
 			"../../session/composer/chips": { formatFilePathRef: (p) => p },
 			"../../../../../shared/ansiText": { stripAnsiCsi },
-			"../../session/timelineFailureNotice": { isRetryStatusMessage: (message) => RETRY_KEYS.has(message?.meta?.i18nKey) },
+			"../../session/timelineFailureNotice": {
+				isRetryStatusMessage: (message) => RETRY_KEYS.has(message?.meta?.i18nKey),
+				isTransientRetryCard: (message) => message?.meta?.i18nKey === "diagnostic.retrySucceeded",
+			},
 		},
 	});
 }
@@ -562,28 +565,28 @@ test("重试状态消息收进当前 run 过程序列：不拆 run、紧跟触�
 	assert.equal(JSON.stringify(outlineRuns(rendered)), JSON.stringify(["card:user", "run[assistant:阶段回复|assistant:最终回答]"]), "重试消息不得拆 run/独立成卡");
 	const run = rendered.find((item) => item.kind === "agent-run");
 	const retries = run.items.filter((item) => item.kind === "retry-group");
-	// 两条重试状态都按原始时序保留在 run 内（同 id upsert 的收敛卡与运行卡各占一条）
-	assert.equal(retries.length, 2);
+	// 成功消息只供 toast 扫描；进行中的状态仍按原始时序留在 run 内。
+	assert.equal(retries.length, 1);
 	assert.equal(retries[0].id, "r1");
-	assert.equal(retries[1].id, "r2");
 	// 时序：retry 行位于 assistant 消息之间（紧跟阶段回复之后）
 	const kinds = run.items.map((item) => item.kind);
-	assert.equal(JSON.stringify(kinds), JSON.stringify(["message", "retry-group", "retry-group", "message"]));
+	assert.equal(JSON.stringify(kinds), JSON.stringify(["message", "retry-group", "message"]));
 });
 
-test("重试状态消息在 run 未开始时保持独立条目：不凭空造空 run", () => {
+test("首轮立即重试可独立显示过程，并与恢复后的回答保持同一 run", () => {
 	const { groupToolMessages } = loadAppUtils();
-	// 场景：首轮请求立即失败（无任何工具/思考/回答），重试卡无所属 run，保持独立卡片。
 	const retryRunning = { id: "r1", agentId: "a", role: "system", text: "正在自动重试 1/8", timestamp: 2, meta: { i18nKey: "diagnostic.retryScheduled", status: "running" } };
 	const a1 = { id: "a1", agentId: "a", role: "assistant", text: "恢复后的回答", timestamp: 3, stopReason: "stop" };
+	const pending = groupToolMessages([retryRunning]);
+	assert.equal(pending[0].kind, "agent-run");
+	assert.deepEqual(outline(buildTurnDisplay(pending[0])), ["retry:diagnostic.retryScheduled"]);
 	const rendered = groupToolMessages([retryRunning, a1]);
-	// 重试卡独立落盘在 run 之前；assistant 正常成 run（不把重试卡卷进去）
-	assert.equal(rendered[0].kind, "message");
-	assert.equal(rendered[0].message.meta.i18nKey, "diagnostic.retryScheduled");
-	const run = rendered[1];
+	assert.equal(rendered.length, 1);
+	const run = rendered[0];
 	assert.equal(run.kind, "agent-run");
-	assert.equal(run.items.length, 1);
-	assert.equal(run.items[0].kind, "message");
+	assert.equal(run.items.length, 2);
+	assert.equal(run.items[0].kind, "retry-group");
+	assert.equal(run.items[1].kind, "message");
 });
 
 test("非重试 system 消息仍走旧路径：askQuestion/customMessage 边界不受影响", () => {
@@ -619,15 +622,26 @@ test("buildTurnDisplay：error-group 映射为 error-entry 过程行，时序原
 	assert.deepEqual(buildProcessSummary(items), { toolCount: 1, thinkingCount: 0, interimCount: 0, retryCount: 0, errorCount: 1 });
 });
 
-test("buildTurnDisplay：仅重试行的 run 也有折叠内容；summary retryCount 驱动汇总按钮", () => {
+test("buildTurnDisplay：成功重试不产生过程行或汇总，也不把最终回复降为中间回复", () => {
 	const retryMsg = { id: "r1", agentId: "a", role: "system", text: "自动重试成功，共重试 1 次", timestamp: 3, meta: { i18nKey: "diagnostic.retrySucceeded", status: "success" } };
 	const run = runOf([{ kind: "retry-group", id: retryMsg.id, message: retryMsg }]);
 	const items = buildTurnDisplay(run, { showThinking: true });
-	assert.deepEqual(outline(items), ["retry:diagnostic.retrySucceeded"]);
-	assert.equal(hasFoldableContent(items), true);
+	assert.deepEqual(outline(items), []);
+	assert.equal(hasFoldableContent(items), false);
 	const summary = buildProcessSummary(items);
-	assert.equal(summary.retryCount, 1);
-	assert.equal((summary.toolCount | summary.thinkingCount | summary.interimCount) === 0 && summary.retryCount > 0, true, "仅重试行也应显示汇总（避免重试痕迹被折叠头吞掉）");
+	assert.equal(summary.retryCount, 0);
+	const final = assistantMessage("最终回答", undefined, "stop");
+	assert.deepEqual(outline(buildTurnDisplay(runOf([{ kind: "message", message: final }, ...run.items]))), ["final:最终回答"]);
+});
+
+test("回合已结束后开始重试，重试不并入上一轮最终回答", () => {
+	const { groupToolMessages } = loadAppUtils();
+	const final = assistantMessage("上一轮完成", undefined, "stop");
+	const retry = { id: "r1", agentId: "a", role: "system", text: "正在自动重试", timestamp: 20, meta: { i18nKey: "diagnostic.retryScheduled", status: "running" } };
+	const rendered = groupToolMessages([final, retry]);
+	assert.equal(rendered.length, 2);
+	assert.deepEqual(outline(buildTurnDisplay(rendered[0])), ["final:上一轮完成"]);
+	assert.deepEqual(outline(buildTurnDisplay(rendered[1])), ["retry:diagnostic.retryScheduled"]);
 });
 
 test("重试行时序：retry 到来时未成组的工具先 flush，重试行严格晚于前面的工具", () => {

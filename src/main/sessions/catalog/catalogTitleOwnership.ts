@@ -150,6 +150,9 @@ export function repairedThinkingFallbackTitle(lockedTitle: string, probe: { fall
  * "auto"/"manual"/"legacy" 是终态（legacy 只能被指纹修复改写），第二个自动结果一律丢弃。
  */
 export function claimAutomaticTitle(entry: SessionCatalogEntry, nextTitle: string, source: "auto" | "fallback"): boolean {
+	// 标记形态的脏名（上下文代理确认行 / 漏成文本的工具调用标记 `<｜｜DSML｜｜ calls>`）
+	// 任何来源都不得写入：它是模型/代理的日志，不是任何人起的会话名。
+	if (looksLikeToolMarkerTitle(nextTitle)) return false;
 	const origin = resolveTitleOrigin(entry);
 	if (source === "fallback" ? origin !== undefined : origin !== undefined && origin !== "fallback") return false;
 	entry.title = nextTitle;

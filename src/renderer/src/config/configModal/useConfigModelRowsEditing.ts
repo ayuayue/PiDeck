@@ -1,4 +1,5 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { deepClone } from "../../utils/deepEqual";
 import type { PiDesktopApi } from "../../../../preload";
 import type { PiConfigWriteOptions } from "../../../../shared/piConfig";
 import type { FetchedModel, ConfigProxyMode } from "../../../../shared/types/fetchedModel";
@@ -15,9 +16,10 @@ import { modelIdIndex } from "./modelIdIndex";
 
 type ConfigModelRowsEditingDeps = {
 	api: PiDesktopApi;
-	/** WSL 目标的写选项：`undefined` = 本机（SSH 各自另走分支）。 */
+	/** 当前环境写选项；undefined 表示本机，SSH 由主机绑定 API 路由。 */
 	configTargetOption: PiConfigWriteOptions | undefined;
 	modelsData: ModelsFile;
+	baselineModelsRef: RefObject<ModelsFile>;
 	setModelsData: Dispatch<SetStateAction<ModelsFile>>;
 	setSettingsData: Dispatch<SetStateAction<SettingsFile>>;
 	hiddenModels: string[];
@@ -48,7 +50,18 @@ type ConfigModelRowsEditingDeps = {
  * 只搬数据与 IPC 动作，不渲染；供应商级动作在 useConfigModelsProviderEditing。
  */
 export function useConfigModelRowsEditing(deps: ConfigModelRowsEditingDeps) {
-	const { api, configTargetOption, modelsData, setModelsData, setSettingsData, hiddenModels, setHiddenModels, markDirty, clearDirty, onSaved, notify: showToast, setError, setSaving, reloadConfig, setDeleteConfirm, setResettingModelKey, testProxyModeByProvider } = deps;
+	const { api, configTargetOption, modelsData, baselineModelsRef, setModelsData, setSettingsData, hiddenModels, setHiddenModels, markDirty, clearDirty, onSaved, notify: showToast, setError, setSaving, reloadConfig, setDeleteConfirm, setResettingModelKey, testProxyModeByProvider } = deps;
+	const identity = JSON.stringify(configTargetOption?.target ?? { kind: "local" });
+	const active = useRef({ api, identity });
+	active.current = { api, identity };
+	const mounted = useRef(true);
+	useEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+		};
+	}, []);
+	const current = () => mounted.current && active.current.api === api && active.current.identity === identity;
 
 	const handleAddModel = (providerName: string) => {
 		const provider = modelsData.providers[providerName];
@@ -99,7 +112,7 @@ export function useConfigModelRowsEditing(deps: ConfigModelRowsEditingDeps) {
 		setResettingModelKey(`${providerName}\u0000${index}`);
 		try {
 			let listing: FetchedModel | undefined;
-			if (provider.baseUrl && provider.apiKey) {
+			if (provider.baseUrl && provider.apiKey && configTargetOption?.target?.kind !== "ssh") {
 				const result = await api.config.fetchModels(
 					provider.baseUrl,
 					provider.apiKey,
@@ -112,7 +125,9 @@ export function useConfigModelRowsEditing(deps: ConfigModelRowsEditingDeps) {
 					listing = result.models.find((item) => item.id === model.id);
 				}
 			}
+			if (!current()) return;
 			const spec = await api.projects.getModelSpec(providerName, model.id, model.name).catch(() => null);
+			if (!current()) return;
 			const template = mergeAdaptiveModelTemplate(listing, spec, model.id);
 			const nextModel = applyAdaptiveTemplateReset(model, template);
 			const models = [...provider.models];
@@ -127,7 +142,7 @@ export function useConfigModelRowsEditing(deps: ConfigModelRowsEditingDeps) {
 			markDirty("config:models");
 			showNotice(template.matchedId ? t("config.modelResetAdaptiveDone", { model: template.matchedId }) : t("config.modelResetAdaptiveKept"), 3000);
 		} finally {
-			setResettingModelKey(null);
+			if (current()) setResettingModelKey(null);
 		}
 	};
 
@@ -262,51 +277,53 @@ export function useConfigModelRowsEditing(deps: ConfigModelRowsEditingDeps) {
 	};
 
 	const handleSaveModels = async (): Promise<boolean> => {
-		// 保存前按能力目录批量补全空字段（端点/用户值不覆盖；未命中留空）。
-		const { providers: filledProviders, filledCount } = await collectModelSpecPatches(modelsData, (providerName, modelId, modelName) => api.projects.getModelSpec(providerName, modelId, modelName));
-		const base = filledCount > 0 ? { ...modelsData, providers: filledProviders } : modelsData;
-		// 保存前规范化所有供应商的 compat 字段，确保布尔值显式写入而不依赖后端默认值；
-		// supportsReasoningEffort 联动档位映射、requiresReasoningContentOnAssistantMessages
-		// 按 DeepSeek 特征判定（均见 deriveProviderCompat，传名字以便按 provider 名识别）。
-		// 显式标注 providers：铺开的字面量会丢掉 ProviderConfig 的索引签名，后面读 modelOverrides 等
-		// 高级字段就拿不到了（不靠 as 强转，靠变量标注把类型钉死）。
-		const normalizedProviders: ModelsFile["providers"] = Object.fromEntries(
-			Object.entries(base.providers).map(([name, provider]) => [
-				name,
-				{
-					...provider,
-					compat: deriveProviderCompat(provider, name),
-				},
-			]),
-		);
-		const normalizedData: ModelsFile = { ...base, providers: normalizedProviders };
-		// 设置跟着模型走：保存前清掉「模型已不在列表里」的孤儿（改过模型 ID / 删过模型之后）。
-		// 只清 models.json 里存在的供应商；pi 内置 provider 的高级覆盖一律不碰。
-		const prunedProviders = Object.fromEntries(
-			Object.entries(normalizedData.providers).map(([name, provider]) => {
-				const current = readModelOverrides(provider.modelOverrides);
-				if (!current) return [name, provider];
-				const pruned = pruneModelOverrides(
-					current,
-					provider.models.map((model) => model.id),
-				);
-				if (pruned === current) return [name, provider];
-				const nextProvider = { ...provider };
-				if (pruned) nextProvider.modelOverrides = pruned;
-				else delete nextProvider.modelOverrides;
-				return [name, nextProvider];
-			}),
-		);
-		const prunedData = { ...normalizedData, providers: prunedProviders };
-		const prunedHidden = pruneHiddenModelOrphans(hiddenModels, modelIdIndex(prunedProviders));
-		if (!sameHiddenModelEntries(hiddenModels, prunedHidden)) {
-			setHiddenModels(prunedHidden);
-			void api.settings.update({ hiddenModels: prunedHidden }).catch(() => undefined);
-		}
 		setSaving(true);
 		setError(null);
 		try {
+			// 保存前按能力目录批量补全空字段（端点/用户值不覆盖；未命中留空）。
+			const { providers: filledProviders, filledCount } = await collectModelSpecPatches(modelsData, (providerName, modelId, modelName) => api.projects.getModelSpec(providerName, modelId, modelName));
+			if (!current()) return false;
+			const base = filledCount > 0 ? { ...modelsData, providers: filledProviders } : modelsData;
+			// 保存前规范化所有供应商的 compat 字段，确保布尔值显式写入而不依赖后端默认值；
+			// supportsReasoningEffort 联动档位映射、requiresReasoningContentOnAssistantMessages
+			// 按 DeepSeek 特征判定（均见 deriveProviderCompat，传名字以便按 provider 名识别）。
+			// 显式标注 providers：铺开的字面量会丢掉 ProviderConfig 的索引签名，后面读 modelOverrides 等
+			// 高级字段就拿不到了（不靠 as 强转，靠变量标注把类型钉死）。
+			const normalizedProviders: ModelsFile["providers"] = Object.fromEntries(
+				Object.entries(base.providers).map(([name, provider]) => [
+					name,
+					{
+						...provider,
+						compat: deriveProviderCompat(provider, name),
+					},
+				]),
+			);
+			const normalizedData: ModelsFile = { ...base, providers: normalizedProviders };
+			// 设置跟着模型走：保存前清掉「模型已不在列表里」的孤儿（改过模型 ID / 删过模型之后）。
+			// 只清 models.json 里存在的供应商；pi 内置 provider 的高级覆盖一律不碰。
+			const prunedProviders = Object.fromEntries(
+				Object.entries(normalizedData.providers).map(([name, provider]) => {
+					const current = readModelOverrides(provider.modelOverrides);
+					if (!current) return [name, provider];
+					const pruned = pruneModelOverrides(
+						current,
+						provider.models.map((model) => model.id),
+					);
+					if (pruned === current) return [name, provider];
+					const nextProvider = { ...provider };
+					if (pruned) nextProvider.modelOverrides = pruned;
+					else delete nextProvider.modelOverrides;
+					return [name, nextProvider];
+				}),
+			);
+			const prunedData = { ...normalizedData, providers: prunedProviders };
+			const prunedHidden = pruneHiddenModelOrphans(hiddenModels, modelIdIndex(prunedProviders));
+			if (!sameHiddenModelEntries(hiddenModels, prunedHidden)) {
+				setHiddenModels(prunedHidden);
+				void api.settings.update({ hiddenModels: prunedHidden }).catch(() => undefined);
+			}
 			const result = await api.config.saveModels(prunedData, configTargetOption);
+			if (!current()) return false;
 			if (!result.valid) {
 				const message = result.error ?? t("config.saveFailed");
 				setError(message);
@@ -316,11 +333,9 @@ export function useConfigModelRowsEditing(deps: ConfigModelRowsEditingDeps) {
 				return false;
 			}
 			onSaved();
+			baselineModelsRef.current = deepClone(prunedData);
+			setModelsData(prunedData);
 			clearDirty("config:models");
-			// 保存成功后才把补全值写回 UI：失败时保留原值，下次保存会重新补全（幂等）
-			if (filledCount > 0) {
-				setModelsData(base);
-			}
 			// 即时反馈：主进程已解析刚写入的 models.json（0 fork），count 是本地配置的模型数。
 			// fork 真实 pi 的完整验证在主进程后台进行（~17-21s），失败时由全局
 			// useModelsVerifyNotifier 弹 toast——保存动作本身不再被验证阻塞。
@@ -328,13 +343,13 @@ export function useConfigModelRowsEditing(deps: ConfigModelRowsEditingDeps) {
 			if (result.modelLoadOk) showToast(t("config.modelsSavedVerified", { count: result.modelCount ?? 0 }));
 			else if (configTargetOption) showToast(t("config.saved"));
 			else showNotice(t("config.modelsSavedButEmpty"), 6000, "warning");
-			await reloadConfig("models", { force: true });
+			await reloadConfig("models");
 			return true;
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			if (current()) setError(e instanceof Error ? e.message : String(e));
 			return false;
 		} finally {
-			setSaving(false);
+			if (current()) setSaving(false);
 		}
 	};
 

@@ -1,12 +1,12 @@
 /**
  * Remote provider model catalog v1 (Phase 5 row 819): host-executed, masked and closed-code.
  *
- * The catalog is the live remote pi runtime's own get_available_models answer, so it uses the host's
- * credentials and network exactly like the host's model picker would. Main masks it to this allowlist before
+ * Configuration uses the host's pi --list-models catalog, without requiring a project or live session.
+ * Legacy runtime probes share the same DTO. Main masks both to this allowlist before
  * it leaves the process: no apiKey/baseUrl/raw runtime payload and no agentId is ever part of the DTO.
  *
  * The per-provider synthetic HTTP connection probe is NOT part of v1 (its request templates can carry
- * arbitrary URLs/headers); the live-runtime catalog is the only "connection test" remote targets get.
+ * arbitrary URLs/headers); catalog refresh is separate from provider connection testing.
  */
 
 /** Closed code set for remote model probe answers. */

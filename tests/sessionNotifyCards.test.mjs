@@ -1,3 +1,4 @@
+import { mkdtempSync } from "./helpers/tempDir.mjs";
 /**
  * SessionHistoryReader 的 custom_message（扩展通知）卡片合成。
  *
@@ -14,7 +15,7 @@
  *   是否画卡片由渲染层白名单决定
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";

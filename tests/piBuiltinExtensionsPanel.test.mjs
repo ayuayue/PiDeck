@@ -42,7 +42,7 @@ function setup(config) {
 			"../components/ui-shadcn/button": { Button },
 			"../components/ui-shadcn/switch": { Switch },
 		},
-		globals: { window: { piDesktop: { config } } },
+		globals: { window: { location: { search: "" }, localStorage: { getItem: () => null }, piDesktop: { config } }, navigator: { userAgent: "" } },
 	});
 	const { PiBuiltinExtensionsPanel } = load("src/renderer/src/config/PiBuiltinExtensionsPanel.tsx");
 	const render = (props = { scope: "global" }) => host.render(() => PiBuiltinExtensionsPanel(props));

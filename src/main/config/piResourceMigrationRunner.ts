@@ -17,7 +17,8 @@
 import type { AppSettings } from "../../shared/types";
 import type { PiResourceConfigService } from "./PiResourceConfigService";
 import type { PiResourceStateStore } from "./PiResourceStateStore";
-import { applyResourceMigration, buildLegacyStateCleanup, planResourceMigration, type LegacyDisabledState, type MigrationPlan, type ResolvedMigrationResource } from "./piResourceMigration";
+import { applyResourceMigration, buildLegacyStateCleanup, migrationActionKey, planResourceMigration, type LegacyDisabledState, type MigrationPlan, type ResolvedMigrationResource } from "./piResourceMigration";
+import { completedMigrationInputs, markResolvedMigrationInputs, pendingMigrationLegacy } from "./piResourceMigrationProgress";
 
 export type LegacySettingsReader = () => Pick<AppSettings, "disabledExtensions" | "disabledSkills" | "disabledPrompts">;
 
@@ -53,6 +54,10 @@ export type MigrationRunResult = {
 	errors: string[];
 };
 
+function canSkipMigration(record: ReturnType<PiResourceStateStore["readMigration"]>): boolean {
+	return Boolean(record?.cleanupCompleted && Array.isArray(record.unresolved) && record.unresolved.length === 0);
+}
+
 const EMPTY_PROJECT_STATE: ProjectLegacyState = { disabledExtensions: [], disabledSkills: [], disabledPrompts: [], inheritedExtensions: [], inheritedSkills: [], inheritedPrompts: [] };
 
 function legacyStateFrom(deps: MigrationRunnerDeps, project?: ProjectLegacyState): LegacyDisabledState {
@@ -79,84 +84,101 @@ function hasAnyLegacyDisable(legacy: LegacyDisabledState): boolean {
 
 /** 全局迁移：启动时调用一次（已完成后直接跳过）。 */
 export async function runGlobalResourceMigration(deps: MigrationRunnerDeps): Promise<MigrationRunResult> {
-	const key = `global:${deps.service && "settings"}`;
-	if (deps.state.readMigration(key)) return { status: "skipped", errors: [] };
-	const legacy = legacyStateFrom(deps);
-	const errors: string[] = [];
-	if (!hasAnyLegacyDisable(legacy)) {
-		// 没有旧记录也要登记，避免每次启动都重新探测资源。
-		deps.state.recordMigration(key, { completedAt: Date.now(), revisions: {}, unresolved: [] });
-		return { status: "skipped", errors: [] };
-	}
-	let resources: ResolvedMigrationResource[];
-	try {
-		resources = await deps.resolveGlobalResources();
-	} catch (error) {
-		errors.push(`resolve resources: ${error instanceof Error ? error.message : String(error)}`);
-		return { status: "failed", errors };
-	}
-	const plan = planResourceMigration({ legacy, resources });
-	const report = await applyResourceMigration({ plan, service: deps.service, state: deps.state, migrationKey: key });
-	if (report.failed.length > 0) {
-		errors.push(...report.failed.map((item) => `${item.action.kind} ${item.action.value}: ${item.error}`));
-		deps.logger?.warn("migration", "Resource migration incomplete; legacy disables kept", { failed: report.failed.length, unresolved: plan.unresolved.length });
-		return { status: report.applied > 0 ? "partial" : "failed", plan, applied: report.applied, errors };
-	}
-	const cleanup = buildLegacyStateCleanup({ legacy, report });
-	try {
-		await deps.writeSettingsPatch(cleanup as { disabledExtensions?: unknown[]; disabledSkills?: string[]; disabledPrompts?: string[] });
-	} catch (error) {
-		// 清理失败不影响已写入的原生配置（下次启动幂等重试清理）。
-		errors.push(`cleanup: ${error instanceof Error ? error.message : String(error)}`);
-	}
-	deps.logger?.info("migration", "Global resource migration completed", { applied: report.applied, unresolved: plan.unresolved.length, archived: plan.archived.length });
-	return { status: "completed", plan, applied: report.applied, errors };
+	return runResourceMigration(deps);
 }
 
 /** 项目迁移：打开项目资源页/启动该项目 Agent 前调用（幂等）。 */
 export async function runProjectResourceMigration(deps: MigrationRunnerDeps, projectId: string): Promise<MigrationRunResult> {
-	const key = `project:${projectId}`;
-	if (deps.state.readMigration(key)) return { status: "skipped", errors: [] };
+	return runResourceMigration(deps, projectId);
+}
+
+/** 一个作用域一个提交顺序：每条 native 写入落进度 → 清理旧输入 → 发布完成标记。 */
+async function runResourceMigration(deps: MigrationRunnerDeps, projectId?: string): Promise<MigrationRunResult> {
+	const key = projectId ? `project:${projectId}` : "global:settings";
+	let previous: ReturnType<PiResourceStateStore["readMigration"]>;
+	try {
+		previous = deps.state.readMigration(key);
+	} catch (error) {
+		return { status: "failed", errors: [String(error)] };
+	}
+	if (canSkipMigration(previous)) return { status: "skipped", errors: [] };
 	const errors: string[] = [];
 	let project: ProjectLegacyState | null = null;
 	try {
-		project = await deps.readProjectLegacyState(projectId);
+		if (projectId) project = await deps.readProjectLegacyState(projectId);
 	} catch (error) {
 		errors.push(`read project legacy: ${error instanceof Error ? error.message : String(error)}`);
 		return { status: "failed", errors };
 	}
 	const legacy = legacyStateFrom(deps, project ?? undefined);
+	// 全局旧输入由全局门控拥有，项目只把全局资源用作继承规则的解析来源。
+	if (projectId) legacy.global = { disabledExtensions: [], disabledSkills: [], disabledPrompts: [], disableExtensionWhitelist: false };
+	const completedInputs = completedMigrationInputs(legacy, previous);
+	const appliedActions = new Set(previous?.appliedActions ?? []);
+	const revisions = { ...previous?.revisions };
+	let plan: MigrationPlan = { actions: [], unresolved: [], archived: [] };
+	const saveProgress = (cleanupCompleted: boolean) => {
+		if (
+			!deps.state.recordMigration(key, {
+				completedAt: Date.now(),
+				cleanupCompleted,
+				revisions,
+				appliedActions: [...appliedActions],
+				completedInputs: [...completedInputs],
+				unresolved: plan.unresolved.map((item) => `${item.kind} ${item.name} (${item.scope}): ${item.reason}`),
+			})
+		)
+			throw new Error("migration state write failed; legacy input retained");
+	};
 	if (!hasAnyLegacyDisable(legacy)) {
-		deps.state.recordMigration(key, { completedAt: Date.now(), revisions: {}, unresolved: [] });
+		try {
+			saveProgress(true);
+		} catch (error) {
+			return { status: "failed", errors: [String(error)] };
+		}
 		return { status: "skipped", errors: [] };
 	}
 	let resources: ResolvedMigrationResource[];
 	try {
-		resources = [...(await deps.resolveGlobalResources()), ...(await deps.resolveProjectResources(projectId))];
+		resources = [...(await deps.resolveGlobalResources()), ...(projectId ? await deps.resolveProjectResources(projectId) : [])];
 	} catch (error) {
 		errors.push(`resolve resources: ${error instanceof Error ? error.message : String(error)}`);
 		return { status: "failed", errors };
 	}
-	const plan = planResourceMigration({ legacy, resources, projectId });
-	const report = await applyResourceMigration({ plan, service: deps.service, state: deps.state, migrationKey: key });
+	plan = planResourceMigration({ legacy: pendingMigrationLegacy(legacy, completedInputs), resources, projectId });
+	const report = await applyResourceMigration({
+		plan,
+		service: deps.service,
+		alreadyApplied: appliedActions,
+		onApplied: (action, writtenRevisions) => {
+			appliedActions.add(migrationActionKey(action));
+			Object.assign(revisions, writtenRevisions);
+			saveProgress(false);
+		},
+	});
 	if (report.failed.length > 0) {
 		errors.push(...report.failed.map((item) => `${item.action.kind} ${item.action.value}: ${item.error}`));
-		deps.logger?.warn("migration", "Project resource migration incomplete; legacy disables kept", { projectId, failed: report.failed.length });
+		deps.logger?.warn("migration", "Resource migration incomplete; legacy disables kept", { projectId, failed: report.failed.length });
 		return { status: report.applied > 0 ? "partial" : "failed", plan, applied: report.applied, errors };
 	}
-	// 全局旧记录在项目迁移里也可能被读到（resolveGlobalResources 提供全局资源）：
-	// 项目侧只清理项目文件，全局侧由 runGlobalResourceMigration 负责。
-	const projectUnresolved = plan.unresolved.filter((item) => item.scope === "project");
+	markResolvedMigrationInputs(legacy, plan, completedInputs);
 	try {
-		await deps.clearProjectLegacyState(projectId, {
-			extensions: !projectUnresolved.some((item) => item.kind === "extension") && report.failed.every((item) => item.action.kind !== "extensions"),
-			skills: !projectUnresolved.some((item) => item.kind === "skill"),
-			prompts: !projectUnresolved.some((item) => item.kind === "prompt"),
-			inherited: projectUnresolved.length === 0,
-		});
+		saveProgress(false);
+		if (projectId) {
+			await deps.clearProjectLegacyState(projectId, {
+				extensions: !plan.unresolved.some((item) => item.kind === "extension"),
+				skills: !plan.unresolved.some((item) => item.kind === "skill"),
+				prompts: !plan.unresolved.some((item) => item.kind === "prompt"),
+				inherited: plan.unresolved.length === 0,
+			});
+		} else {
+			await deps.writeSettingsPatch(buildLegacyStateCleanup({ legacy, report }));
+		}
+		if (plan.unresolved.length === 0) saveProgress(true);
 	} catch (error) {
-		errors.push(`cleanup: ${error instanceof Error ? error.message : String(error)}`);
+		errors.push(`cleanup/state: ${error instanceof Error ? error.message : String(error)}`);
 	}
-	deps.logger?.info("migration", "Project resource migration completed", { projectId, applied: report.applied, unresolved: projectUnresolved.length });
-	return { status: "completed", plan, applied: report.applied, errors };
+	const complete = errors.length === 0 && plan.unresolved.length === 0;
+	deps.logger?.info("migration", complete ? "Resource migration completed" : "Resource migration pending", { projectId, applied: report.applied, unresolved: plan.unresolved.length });
+	return { status: complete ? "completed" : report.applied > 0 || appliedActions.size > 0 || errors.length > 0 ? "partial" : "failed", plan, applied: report.applied, errors };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { PiResourceOptions } from "../../../../shared/piConfig";
 import type { PiSkillListResult, PiSkillLocation, PiSkillSummary, ProjectResourceDiscoveryResult, ProjectResourceListResult } from "../../../../shared/types";
@@ -58,6 +58,20 @@ export function useConfigSkillsEditing(deps: ConfigSkillsEditingDeps) {
 	const [editGlobalLoading, setEditGlobalLoading] = useState(false);
 	const [editGlobalSaving, setEditGlobalSaving] = useState(false);
 	const [editGlobalSaved, setEditGlobalSaved] = useState(false);
+	const activeApi = useRef(api);
+	activeApi.current = api;
+	useEffect(() => {
+		setSkillsData({ locations: [], skills: [] });
+		setEditingGlobalSkill(null);
+		setEditGlobalContent("");
+		setEditGlobalLoading(false);
+		setEditGlobalSaving(false);
+		setEditGlobalSaved(false);
+		setDeleteSkillConfirm(null);
+		setCreatingSkill(false);
+		setNewSkillName("");
+		setNewSkillDescription("");
+	}, [api, resourceOptions]);
 
 	/**
 	 * Refresh global resources and, when in project scope, project-owned resources plus overrides.
@@ -67,7 +81,7 @@ export function useConfigSkillsEditing(deps: ConfigSkillsEditingDeps) {
 		const generation = resourceGenerationRef.current;
 		const projectIdHere = resourceScope === "project" ? effectiveProjectId : undefined;
 		const [globalResult, projectResult, discoveryResult] = await Promise.all([api.skills.list(resourceOptions), projectIdHere && hasProject ? api.projectResources.list(projectIdHere) : Promise.resolve(emptyProjectResourceData()), api.projectResources.discovery(projectIdHere)]);
-		if (generation !== resourceGenerationRef.current) return;
+		if (generation !== resourceGenerationRef.current || api !== activeApi.current) return;
 		setDiscoveryData(discoveryResult);
 		setProjectResourcesData(projectResult);
 		const locations = [...globalResult.locations, ...projectResult.skillLocations];
@@ -93,15 +107,17 @@ export function useConfigSkillsEditing(deps: ConfigSkillsEditingDeps) {
 			} else {
 				await api.skills.create({ name: newSkillName, description: newSkillDescription, locationId: newSkillLocationId }, resourceOptions);
 			}
+			if (api !== activeApi.current) return;
 			setNewSkillName("");
 			setNewSkillDescription("");
+			if (api !== activeApi.current) return;
 			bumpResourceGeneration();
 			await refreshSkills();
 			showToast(t("config.skillCreatedToast"));
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			if (api === activeApi.current) setError(e instanceof Error ? e.message : String(e));
 		} finally {
-			setCreatingSkill(false);
+			if (api === activeApi.current) setCreatingSkill(false);
 		}
 	};
 
@@ -129,11 +145,12 @@ export function useConfigSkillsEditing(deps: ConfigSkillsEditingDeps) {
 			} else {
 				await api.skills.toggle(skill.path, enabled, resourceOptions);
 			}
+			if (api !== activeApi.current) return;
 			bumpResourceGeneration();
 			await refreshSkills();
 			showToast(enabled ? t("config.skillEnabledToast") : t("config.skillDisabledToast"));
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			if (api === activeApi.current) setError(e instanceof Error ? e.message : String(e));
 		}
 	};
 
@@ -150,11 +167,12 @@ export function useConfigSkillsEditing(deps: ConfigSkillsEditingDeps) {
 			} else {
 				await api.skills.delete(target.path, resourceOptions);
 			}
+			if (api !== activeApi.current) return;
 			bumpResourceGeneration();
 			await refreshSkills();
 			showToast(t("config.skillDeletedToast"));
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			if (api === activeApi.current) setError(e instanceof Error ? e.message : String(e));
 		}
 	};
 
@@ -172,11 +190,12 @@ export function useConfigSkillsEditing(deps: ConfigSkillsEditingDeps) {
 			} else {
 				await api.skills.rename(skill.path, newName, resourceOptions);
 			}
+			if (api !== activeApi.current) return;
 			bumpResourceGeneration();
 			await refreshSkills();
 			showToast(t("config.skillRenamedToast"));
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			if (api === activeApi.current) setError(e instanceof Error ? e.message : String(e));
 		}
 	};
 
@@ -191,15 +210,18 @@ export function useConfigSkillsEditing(deps: ConfigSkillsEditingDeps) {
 		setEditGlobalContent("");
 		setEditGlobalLoading(true);
 		setError(null);
+		const generation = resourceGenerationRef.current;
 		try {
 			const accessScope = isProjectSkill(skill) && effectiveProjectId ? { projectId: effectiveProjectId } : undefined;
 			const content = await api.files.readContent(skill.path, undefined, accessScope);
+			if (generation !== resourceGenerationRef.current || api !== activeApi.current) return;
 			setEditGlobalContent(content);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
+			if (generation !== resourceGenerationRef.current || api !== activeApi.current) return;
+			if (api === activeApi.current) setError(err instanceof Error ? err.message : String(err));
 			setEditingGlobalSkill(null);
 		} finally {
-			setEditGlobalLoading(false);
+			if (generation === resourceGenerationRef.current && api === activeApi.current) setEditGlobalLoading(false);
 		}
 	};
 
@@ -224,17 +246,19 @@ export function useConfigSkillsEditing(deps: ConfigSkillsEditingDeps) {
 		try {
 			const accessScope = isProjectSkill(editingGlobalSkill) && effectiveProjectId ? { projectId: effectiveProjectId } : undefined;
 			await api.files.writeContent(editingGlobalSkill.path, editGlobalContent, accessScope);
+			if (api !== activeApi.current) return false;
 			clearDirty("skills");
 			setEditGlobalSaved(true);
 			scheduleUiTimer(() => setEditGlobalSaved(false), 2000);
+			if (api !== activeApi.current) return false;
 			bumpResourceGeneration();
 			await refreshSkills();
 			return true;
 		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
+			if (api === activeApi.current) setError(err instanceof Error ? err.message : String(err));
 			return false;
 		} finally {
-			setEditGlobalSaving(false);
+			if (api === activeApi.current) setEditGlobalSaving(false);
 		}
 	};
 

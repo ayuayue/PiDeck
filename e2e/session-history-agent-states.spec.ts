@@ -6,7 +6,7 @@ import { makeSeedProject } from "./open-session";
  * 历史消息编辑/删除/重发 × Agent 状态矩阵 E2E（2026-11 追加）。
  *
  * 与 session-history-mutation.spec.ts（运行中 idle / 已停止）互补，补齐三种状态：
- * - 流式中（streaming）：删除已落盘的前一轮消息 → 弹「先停止 Agent」→ 停止生效；
+ * - 流式中（streaming）：隐藏会改写历史的编辑/删除入口；停止后删除已落盘的前一轮消息；
  *   且正在流式、未落盘的尾部随停止被丢弃（无残留重复）。
  * - 崩溃后（closed/detached）：agent 进程异常退出后，runtime target 不存在 →
  *   删除/编辑不再要求「先停止」，直接改 JSONL 立即生效。
@@ -50,11 +50,7 @@ async function waitIdle(window: Page) {
 // ──────────────────────────────────────────────────────────────
 // 状态一：流式中（streaming）删除 → 先停止，立即生效，流式尾巴不残留
 // ──────────────────────────────────────────────────────────────
-test("delete while streaming: stops agent first, applies immediately, no partial tail", async ({ window }) => {
-	// 已知失败：流式中删除取到 idle 变体文案（功能正常，文案口径偏保守）。
-	// 根因链与已排除项见 docs/e2e-known-failures.md。这里用 test.fail() 而不是 skip：
-	// 用例照常执行，修好后 Playwright 会报「unexpectedly passed」，提醒删掉这行标记。
-	test.fail();
+test("streaming hides history mutations; stop then delete applies immediately without partial tail", async ({ window }) => {
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await startAgent(window);
@@ -71,12 +67,18 @@ test("delete while streaming: stops agent first, applies immediately, no partial
 	// 慢流每 600ms 只推 2 个字符，这里只等「开始吐字」这一小段，不要等整句
 	await expect(timeline).toContainText("Mock 回复：「SL", { timeout: 10_000 });
 
-	// 流式中删除 → 弹「先停止 Agent」确认
+	// 运行中整条时间线隐藏历史写入口。旧测试会一直等 click，直到流结束才点中，
+	// 因而错误地把合法的 idle 确认文案当成 busy 状态丢失。
 	const firstTurn = timeline.locator(".turn-row").filter({ hasText: reply1 });
+	await expect(window.locator(".composer-send-primary")).toHaveAttribute("aria-label", "停止");
+	await expect(firstTurn.getByTitle("删除", { exact: true })).toHaveCount(0);
+	await expect(firstTurn.getByTitle("编辑", { exact: true })).toHaveCount(0);
+	await window.locator(".composer-send-primary").click();
+	await waitIdle(window);
 	await firstTurn.getByTitle("删除").click();
 	const dialog = window.getByRole("alertdialog");
 	await expect(dialog).toBeVisible({ timeout: 10_000 });
-	await expect(dialog).toContainText("会话正在运行。删除消息会先停止 Agent");
+	await expect(dialog).toContainText("删除消息会先停止 Agent，再改会话文件");
 	await dialog.getByRole("button", { name: "停止" }).click();
 
 	// 停止 + 删除立即生效：第一轮回复消失；流式中的第二轮未落盘，随停止丢弃
@@ -99,10 +101,6 @@ async function sendTurnBegin(window: Page, text: string) {
 // 状态二：崩溃后（closed）→ 不要求先停止，删除/编辑直接改文件生效
 // ──────────────────────────────────────────────────────────────
 test("after agent crash: delete and edit apply directly without stop prompt", async ({ window }) => {
-	// 已知失败（产品行为待拍板）：编辑一条已落盘的 assistant 回复后，旧回复仍留在时间线，
-	// 同时多出一条以编辑文本为正文的 **user 消息** —— 说明这条路径没走「原地改条目」，
-	// 而是把新文本当新提问重发了。证据见 docs/e2e-known-failures.md「非 live 会话编辑：旧行不消失」。
-	test.fail();
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await startAgent(window);
@@ -111,7 +109,7 @@ test("after agent crash: delete and edit apply directly without stop prompt", as
 	const reply1 = await sendTurn(window, "崩溃前完整轮");
 	// 触发 mock pi 崩溃（推一个 chunk 后 process.exit(1)，无 agent_end/settled）
 	await sendTurnBegin(window, "CRASH 崩溃触发");
-	await expect(timeline).toContainText("崩溃前最后输出", { timeout: 10_000 });
+	await expect(timeline).toContainText("pi 进程退出 code=1", { timeout: 10_000 });
 	// 等桌面端识别进程退出并清理 runtime（发送键回归「发送」）
 	await waitIdle(window);
 
@@ -190,9 +188,6 @@ test.use({
 });
 
 test("never-started session: delete confirms, edit applies directly, resend auto-activates runtime", async ({ window }) => {
-	// 已知失败（产品行为待拍板）：user 消息操作里已经没有「用同一条用户消息再次发送给 AI」
-	// 这颗钮，取而代之的是「从此消息 fork 为新会话（可改后重发）」；本用例的重发段仍按旧钮写。
-	test.fail();
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
@@ -241,9 +236,10 @@ test("never-started session: delete confirms, edit applies directly, resend auto
 	const fullReply = "Mock 回复：「未启动第二问」流式渲染验证完成。";
 	await expect(timeline.getByText(fullReply)).toHaveCount(1, { timeout: 45_000 });
 	await window.waitForTimeout(1500);
-	// 前一轮内容保留且唯一
-	await expect(timeline.getByText("未启动编辑后的回复")).toHaveCount(1, { timeout: 10_000 });
-	await expect(timeline.getByText("未启动回复一")).toHaveCount(0, { timeout: 10_000 });
+	// pi fork 取锚点父链的当时状态；后来追加在 leaf 的 context_edit 留在源分支。
+	// 因此新分支保留第一轮原文（不是把源分支后来的编辑偷偷带进较早锚点）。
+	await expect(timeline.getByText("未启动回复一", { exact: true })).toHaveCount(1, { timeout: 10_000 });
+	await expect(timeline.getByText("未启动编辑后的回复", { exact: true })).toHaveCount(0, { timeout: 10_000 });
 	// 旧回复（已被删除）绝不再出现
 	await expect(timeline.getByText("未启动回复二")).toHaveCount(0, { timeout: 10_000 });
 

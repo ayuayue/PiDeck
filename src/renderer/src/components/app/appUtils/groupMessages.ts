@@ -5,7 +5,7 @@
 
 import type { ChatMessage } from "../../../../../shared/types";
 import { stripAnsiCsi as stripAnsi } from "../../../../../shared/ansiText";
-import { isRetryStatusMessage } from "../../session/timelineFailureNotice";
+import { isRetryStatusMessage, isTransientRetryCard } from "../../session/timelineFailureNotice";
 import type { AgentRunItem, ErrorGroupItem, ExtensionEntryGroupItem, MessageItem, RenderMessage, RetryGroupItem, ThinkingGroupItem, ToolGroupItem } from "./renderTypes";
 import { stripThinkingTags } from "./textFormat";
 
@@ -189,6 +189,8 @@ export function groupToolMessages(messages: ChatMessage[], options: { agentBusy?
 	}
 
 	for (const message of messages) {
+		// 完整消息列表仍供 toast 扫描；成功提示不参与回合边界、耗时或过程汇总。
+		if (isTransientRetryCard(message)) continue;
 		if (isThinkingOnly(message)) {
 			flushTools();
 			// 上一回合已收尾（末尾 assistant 带 stop）：这个 thinking 属于新回合，先断开
@@ -238,20 +240,18 @@ export function groupToolMessages(messages: ChatMessage[], options: { agentBusy?
 			// 独立大卡片插在工具与后续回答之间（旧形态的割裂/错序根因）。
 			// 先冲刷未成组的工具/思考（flushTools 内含 flushThinking），保证重试行
 			// 在 run 内严格晚于它之前的工具——否则工具会在 retry 之后才成组、顺序颠倒。
-			// 边界：run 尚未开始（如首轮请求立即失败、无任何工具/思考/回答）时保持
-			// 独立条目不硬塞——否则会凭空造出一个只有重试行的空 run。
+			// 首轮请求可能尚未输出就重试：重试本身就是可见过程，允许单独成 run。
+			// 已完成的上一轮须先冲刷，否则重试会把上一轮最终回答降为中间回答。
+			flushRunForTurnBoundary();
 			flushTools();
 			if (pendingRun && currentRun.length === 0) {
 				currentRun.push(...pendingRun);
 				pendingRun = null;
 				restorePendingHidden();
 			}
-			if (currentRun.length === 0) {
-				result.push({ kind: "message", message });
-			} else {
-				currentRun.push({ kind: "retry-group", id: message.id, message });
-				runEndedAt = message.timestamp;
-			}
+			if (currentRun.length === 0) runStartedAt = message.timestamp;
+			currentRun.push({ kind: "retry-group", id: message.id, message });
+			runEndedAt = message.timestamp;
 		} else if (message.role === "system" && message.meta?.type === "customEntry") {
 			// 扩展输出条目（appendEntry 投影卡）：与重试/错误同策略收进当前 run 的过程序列，
 			// 折进过程组（用户决策 2026-10：不单独成块）。先冲刷未成组的工具/思考保证时序；

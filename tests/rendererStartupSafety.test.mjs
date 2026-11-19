@@ -9,7 +9,8 @@ test("extensions settings tab does not read preload API at module load", () => {
 	// 防模块加载时直接读 preload API：仅约束顶层 `const api` 声明后紧跟的 window.piDesktop 读取
 	// （`^` + m flag 锚定行首，函数内延迟读取与 onClick 回调内的运行时访问不受此约束）
 	assert.doesNotMatch(extensionsTabSource, /^const\s+api[\s\S]*?window\.piDesktop!?\.[a-zA-Z]/m);
-	assert.match(extensionsTabSource, /function getExtensionsApi\(/);
+	// 组件已改为经 props / useConfigEditor 拿操作面，不再自己读 window.piDesktop。
+	assert.doesNotMatch(extensionsTabSource, /window\.piDesktop/);
 });
 
 test("built-in extension failures use the in-app notice instead of native alerts", () => {

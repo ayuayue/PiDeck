@@ -892,6 +892,8 @@ export const ipcChannels = {
 	 *  保存动作本身即时返回（解析刚写入的配置），渲染层仅在该事件失败时提示。 */
 	configModelsVerifyResult: "config:models-verify-result",
 	configSaveAuth: "config:save-auth",
+	configReplaceRemoteAuth: "config:replace-remote-auth",
+	remotePiResources: "remote:pi-resources",
 	configSaveSettings: "config:save-settings",
 	configSaveRaw: "config:save-raw",
 	/** 源文件页的统一读取（本机/WSL 原文 + 诊断；ssh 脱敏快照），按 target 路由。 */
@@ -960,7 +962,6 @@ export const ipcChannels = {
 	configBackupDeleteMany: "config-backup:delete-many",
 	/** 清空全部备份。 */
 	configBackupDeleteAll: "config-backup:delete-all",
-
 	// ===== 安全管理（SecurityStore + pi-deck-security-gate 扩展） =====
 	/** 拉取完整安全配置（等级/默认等级/会话覆盖） */
 	securityGetConfig: "security:get-config",

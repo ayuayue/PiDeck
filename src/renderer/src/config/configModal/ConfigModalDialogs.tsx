@@ -42,10 +42,6 @@ export type ConfigModalDialogsProps = {
 	pendingRawFile: string | null;
 	setPendingRawFile: Dispatch<SetStateAction<string | null>>;
 	applyRawFileChange: (fileName: string) => Promise<void>;
-	remoteDiscardConfirmOpen: boolean;
-	setRemoteDiscardConfirmOpen: Dispatch<SetStateAction<boolean>>;
-	resetRemoteDirty: () => void;
-	/** 远端 patch 丢弃确认后的关闭动作（由宿主提供，独立弹窗与内嵌分区各自的关闭链路）。 */
 	onClose: () => void;
 	deleteConfirm: ConfigDeleteConfirm | null;
 	setDeleteConfirm: Dispatch<SetStateAction<ConfigDeleteConfirm | null>>;
@@ -82,10 +78,6 @@ export function ConfigModalDialogs(props: ConfigModalDialogsProps) {
 		pendingRawFile,
 		setPendingRawFile,
 		applyRawFileChange,
-		remoteDiscardConfirmOpen,
-		setRemoteDiscardConfirmOpen,
-		resetRemoteDirty,
-		onClose,
 		deleteConfirm,
 		setDeleteConfirm,
 	} = props;
@@ -159,25 +151,22 @@ export function ConfigModalDialogs(props: ConfigModalDialogsProps) {
 				</AlertDialog>
 			)}
 
-			{/* 环境切换确认：本环境有配置草稿或远端未应用 patch 时，先让用户选「保存并切换 / 放弃并切换 / 取消」 */}
+			{/* 配置草稿属于当前环境；保存完成后才切换。 */}
 			{pendingEnvSwitch && (
 				<AlertDialog open onOpenChange={(open) => (!open ? setPendingEnvSwitch(null) : undefined)}>
 					<AlertDialogContent data-testid="config-env-switch-confirm">
 						<AlertDialogHeader>
 							<AlertDialogTitle>{t("config.env.switchDirtyTitle")}</AlertDialogTitle>
-							<AlertDialogDescription>{pendingEnvSwitch.dirtyKeys.every((key) => key.startsWith("remote:")) ? t("config.env.switchDirtyRemote") : t("config.env.switchDirtyMessage", { count: pendingEnvSwitch.dirtyKeys.length })}</AlertDialogDescription>
+							<AlertDialogDescription>{t("config.env.switchDirtyMessage", { count: pendingEnvSwitch.dirtyKeys.length })}</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>
 							<AlertDialogCancel>{t("config.env.switchCancel")}</AlertDialogCancel>
 							<AlertDialogAction className={buttonVariants({ variant: "destructive" })} onClick={discardDraftsAndSwitch} data-testid="config-env-switch-discard">
 								{t("config.env.switchDiscardAndGo")}
 							</AlertDialogAction>
-							{/* 只有本机保存链路能落盘草稿；纯远端 patch 时不给「保存并切换」（那会假装保存了远端） */}
-							{pendingEnvSwitch.dirtyKeys.every((key) => key.startsWith("remote:")) ? null : (
-								<AlertDialogAction onClick={() => void saveDraftsAndSwitch()} data-testid="config-env-switch-save">
-									{t("config.env.switchSaveAndGo")}
-								</AlertDialogAction>
-							)}
+							<AlertDialogAction onClick={() => void saveDraftsAndSwitch()} data-testid="config-env-switch-save">
+								{t("config.env.switchSaveAndGo")}
+							</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>
 				</AlertDialog>
@@ -192,22 +181,6 @@ export function ConfigModalDialogs(props: ConfigModalDialogsProps) {
 				}}
 				onCancel={() => setPendingRawFile(null)}
 			/>
-
-			{/* 远端草稿关闭确认：本机保存链路不会落盘远端 patch，只能显式丢弃或取消 */}
-			{remoteDiscardConfirmOpen && (
-				<ConfirmDialog
-					title={t("config.target.discardTitle")}
-					message={t("config.target.discardMessage")}
-					confirmLabel={t("config.target.discardConfirm")}
-					danger
-					onConfirm={() => {
-						setRemoteDiscardConfirmOpen(false);
-						resetRemoteDirty();
-						onClose();
-					}}
-					onCancel={() => setRemoteDiscardConfirmOpen(false)}
-				/>
-			)}
 
 			{/* toast 已改用 sonner */}
 			{deleteConfirm && <ConfirmDialog title={deleteConfirm.title} message={deleteConfirm.message} confirmLabel={t("common.delete")} danger onConfirm={deleteConfirm.onConfirm} onCancel={() => setDeleteConfirm(null)} />}

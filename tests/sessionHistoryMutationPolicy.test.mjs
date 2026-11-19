@@ -63,6 +63,12 @@ test("persisted session delete: catalog path regardless of live state (no fork s
 	expectPath(resolve("delete", { live: false, persisted: true }), { path: "catalog", live: false });
 });
 
+test("assistant edits use context_edit in the original session; user edits retain fork resend", () => {
+	expectPath(resolve("edit", { persisted: true, messageRole: "assistant" }), { path: "catalog", live: true });
+	expectPath(resolve("edit", { persisted: true, live: false, messageRole: "assistant" }), { path: "catalog", live: false });
+	expectPath(resolve("edit", { persisted: true, messageRole: "user" }), { path: "fork-mutation", activate: false });
+});
+
 test("anonymous session edit/delete: unsupported (no session file to rewrite)", () => {
 	// pi 的 editMessage/deleteMessage 都要求 sessionPath（AgentManager 抛
 	// "Session not persisted"），运行中也走不通——必须明确告知不支持，而不是

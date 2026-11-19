@@ -708,3 +708,58 @@ test("a thinking-derived fallback title is healed once the first user body is re
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+// 2027-02 现场：中转站不认 strict 工具定义，DeepSeek 系的工具调用漏成纯文本，
+// pi 把那段标记写成 session_info 名（`<｜｜DSML｜｜ calls>`），侧栏于是显示一行乱码。
+// 这类控制标记不是任何人起的名字：展示层必须当占位名，且不得锁住所有权。
+test("a control-marker session_info name never becomes the display title", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-title-marker-"));
+	try {
+		const catalog = new SessionCatalog(join(dir, "sessions.json"));
+		await catalog.load();
+		const junk = "<｜｜DSML｜｜ calls>";
+		const filePath = "C:/sessions/2026-08-22T04-22-29-162Z_abc.jsonl";
+		const [draft] = await catalog.mergeScanned("project-1", [lightSummary({ id: filePath, filePath, name: junk, nameFromSessionInfo: true })]);
+		assert.ok(!draft.title.includes("DSML"), `标记脏名不得成为标题，实际：${draft.title}`);
+
+		// 所有权没有被标记名锁死：后续权威名照样能写进来。
+		const named = await catalog.applyAutomaticTitle(draft.id, "拆分 SessionFileEditor", "auto");
+		assert.equal(named.title, "拆分 SessionFileEditor");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+// 存量 catalog 里已经落了一行 `<｜｜DSML｜｜ calls>`：下一次扫描必须把它换掉，不能永久停留。
+test("a persisted control-marker title is replaced on the next scan", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-title-marker-repair-"));
+	try {
+		const filePath = join(dir, "2026-08-22T04-22-29-162Z_abc.jsonl");
+		await writeFile(join(dir, "sessions.json"), JSON.stringify({ version: 1, sessions: [legacyHealEntry(filePath, "<｜｜DSML｜｜ calls>", { id: "marker-repair", titleOrigin: "auto" })] }), "utf8");
+		const catalog = new SessionCatalog(join(dir, "sessions.json"));
+		await catalog.load();
+		const [merged] = await catalog.mergeScanned("project-1", [lightSummary({ id: filePath, filePath })]);
+		assert.ok(!merged.title.includes("DSML"), `存量标记脏名应被替换，实际：${merged.title}`);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+// 扩展自己也不得把标记块写成标题（claimAutomaticTitle 同一道闸）。
+test("automatic titles reject control-marker text", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-title-marker-reject-"));
+	try {
+		const catalog = new SessionCatalog(join(dir, "sessions.json"));
+		await catalog.load();
+		const [draft] = await catalog.mergeScanned("project-1", [lightSummary()]);
+		const unchanged = await catalog.applyAutomaticTitle(draft.id, "<|DSML|tool_calls>", "auto");
+		assert.equal(unchanged.title, "Untitled");
+		const still = await catalog.get(draft.id);
+		assert.equal(still.title, "Untitled");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

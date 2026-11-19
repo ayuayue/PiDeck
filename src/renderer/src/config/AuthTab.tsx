@@ -15,6 +15,7 @@ import { UsageQueryEntryButton } from "../components/app/UsageQueryEntryButton";
 import { applyProviderOrder } from "../utils/providerOrder";
 import { filterIndexedRows } from "../utils/configListSearch";
 import { useProviderReorder } from "../hooks/useProviderReorder";
+import { useConfigEditor } from "./useConfigEditorApi";
 
 // 根据 pi 官方文档支持的供应商列表 (https://pi.dev/docs/latest/providers#auth-file)
 const PRESET_PROVIDERS = [
@@ -98,6 +99,7 @@ export function AuthTab(props: {
 	onOpenUsageProbeDialog: (providerName: string) => void;
 }) {
 	const { data, expandedAuth, saving, hiddenAuthProviders = [], onToggleHiddenAuthProvider } = props;
+	const { remote } = useConfigEditor();
 	// 供应商顺序沿用模型页的自定义排序：applyProviderOrder 把未列出的供应商按原序追加在后，不会漏项。
 	const allProviders = applyProviderOrder(Object.keys(data), props.providerOrder);
 	const hiddenAuthSet = new Set(hiddenAuthProviders);
@@ -134,6 +136,7 @@ export function AuthTab(props: {
 
 	return (
 		<div className="config-auth-tab">
+			{remote && <p className="mb-3 text-xs text-muted-foreground">{t("remoteAuth.editHint")}</p>}
 			{/* 搜索与计数/操作同一行（与模型页同款）：单独一行只是白占高度，关键词紧跟着「N 个认证」也更明确。 */}
 			<div className="mb-3 flex flex-wrap items-center gap-2">
 				<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.count.auth", { count: allProviders.length })}</span>
@@ -416,15 +419,29 @@ export function AuthTab(props: {
 										</Label>
 									)}
 									<span className="text-control font-semibold text-text-primary">{name}</span>
-									<span className="min-w-0 flex-1 truncate font-mono text-xs text-text-tertiary">{auth.key ? `${auth.key.slice(0, 10)}••••••${auth.key.slice(-4)}` : t("config.authKeyPreviewEmpty")}</span>
+									<span className="min-w-0 flex-1 truncate font-mono text-xs text-text-tertiary">{auth.key ? `${auth.key.slice(0, 10)}••••••${auth.key.slice(-4)}` : remote && auth.configured ? t("remoteAuth.retained") : t("config.authKeyPreviewEmpty")}</span>
 									{/* 用量徽章（与模型页同款）：只在已启用时显示数据，开关在右侧「用量查询」弹窗里。 */}
-									<span className="shrink-0" onClick={(event) => event.stopPropagation()}>
-										<ProviderUsageInline provider={name} variant="card" />
-									</span>
+									{!remote && (
+										<span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+											<ProviderUsageInline provider={name} variant="card" />
+										</span>
+									)}
 									<div className="flex items-center gap-1">
-										<ProviderMigrationButton direction="pi-to-dsh" provider={name} />
+										{!remote && <ProviderMigrationButton direction="pi-to-dsh" provider={name} />}
 										{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染） */}
-										<UsageQueryEntryButton provider={name} onOpen={() => props.onOpenUsageProbeDialog(name)} />
+										{!remote && <UsageQueryEntryButton provider={name} onOpen={() => props.onOpenUsageProbeDialog(name)} />}
+										<Button
+											variant="ghost"
+											size="icon-sm"
+											disabled={saving}
+											title={t("common.copy")}
+											onClick={(event) => {
+												event.stopPropagation();
+												props.onDuplicateAuth(name);
+											}}
+										>
+											<Copy data-icon="inline-start" />
+										</Button>
 										{onToggleHiddenAuthProvider && (
 											<Button
 												variant="ghost"
@@ -461,12 +478,14 @@ export function AuthTab(props: {
 								<CollapsibleContent className="mx-4 my-3.5 grid gap-2.5 rounded-lg border border-border-subtle bg-bg-panel p-3.5">
 									<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
 										<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.type")}</Label>
-										<ConfigSelect value={auth.type ?? "api_key"} options={AUTH_TYPE_OPTIONS} onChange={(v) => props.onUpdate(name, "type", v)} />
+										{remote ? <span className="text-xs">{auth.type ?? "api_key"}</span> : <ConfigSelect value={auth.type ?? "api_key"} options={AUTH_TYPE_OPTIONS} onChange={(v) => props.onUpdate(name, "type", v)} />}
 									</div>
-									<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-										<Label className="mb-1.5 block text-xs font-medium text-text-secondary">{t("config.field.apiKey")}</Label>
-										<SecretInput value={auth.key ?? ""} onChange={(v) => props.onUpdate(name, "key", v)} />
-									</div>
+									{(!remote || auth.type === "api_key") && (
+										<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
+											<Label className="mb-1.5 block text-xs font-medium text-text-secondary">{t("config.field.apiKey")}</Label>
+											<SecretInput value={auth.key ?? ""} onChange={(v) => props.onUpdate(name, "key", v)} />
+										</div>
+									)}
 								</CollapsibleContent>
 							</Collapsible>
 						</div>

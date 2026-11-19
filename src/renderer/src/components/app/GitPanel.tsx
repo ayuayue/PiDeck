@@ -901,9 +901,9 @@ export function GitPanel(props: GitPanelProps) {
 									</div>
 								)}
 
-								{/* 变更区：三组折成一条扁平行列表走一个 VirtualStack（行内 Radix ContextMenu +
-					    Seti SVG 的行渲染代价随变更文件数线性增长，无虚拟化时几千文件即卡顿全应用）。 */}
-								<div ref={changesScrollRef} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+								{/* 变更区：三组共用 VirtualStack，避免大量文件拖慢渲染；changesOnly 由外层仓库列表滚动，
+								不能阻断滚动链，否则自身无溢出时滚轮无法传给外层。 */}
+								<div ref={changesScrollRef} className={`min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]${layout === "changesOnly" ? "" : " overscroll-contain"}`}>
 									<ChangesGroupsStack scrollRef={changesScrollRef} groups={changeGroupSpecs} viewMode={changesViewMode} collapsedDirs={collapsedChangeDirs} onToggleDir={toggleChangeDir} mutating={mutating || committing} onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff} projectRoot={props.projectRoot} />
 								</div>
 							</div>

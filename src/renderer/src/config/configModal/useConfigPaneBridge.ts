@@ -36,15 +36,14 @@ type ConfigPaneBridgeDeps = {
 	handleImport: () => void;
 	saveByKey: (tabKey: string) => Promise<boolean>;
 	dirtyTabs: Set<string>;
-	remoteConfigDirty: boolean;
+	dirtyTabsRef: MutableRefObject<Set<string>>;
 	saving: boolean;
 	hasDirty: boolean;
 	configTarget: PiConfigTarget;
 	configUnsavedSummary: ConfigUnsavedSummary | null;
-	providerPageSavePendingRef: MutableRefObject<boolean>;
+	providerPageSavePendingRef: MutableRefObject<((saved: boolean) => void) | null>;
 	addingProvider: boolean;
 	editingProvider: string | null;
-	handleSaveModels: () => Promise<boolean>;
 };
 
 /**
@@ -52,7 +51,7 @@ type ConfigPaneBridgeDeps = {
  * 独立弹窗下 paneRef/onPaneStateChange 都是 undefined，这两段等价于空操作。
  */
 export function useConfigPaneBridge(deps: ConfigPaneBridgeDeps) {
-	const { paneRef, onPaneStateChange, handleSaveCurrent, handleExport, handleImport, saveByKey, dirtyTabs, remoteConfigDirty, saving, hasDirty, configTarget, configUnsavedSummary, providerPageSavePendingRef, addingProvider, editingProvider, handleSaveModels } = deps;
+	const { paneRef, onPaneStateChange, handleSaveCurrent, handleExport, handleImport, saveByKey, dirtyTabs, dirtyTabsRef, saving, hasDirty, configTarget, configUnsavedSummary, providerPageSavePendingRef, addingProvider, editingProvider } = deps;
 
 	// ── 嵌入模式句柄与状态上报（ConfigPane） ──
 	// 外壳标题栏的保存/导出/导入/关闭按钮直接委托给这里的同一个 handler；
@@ -66,13 +65,12 @@ export function useConfigPaneBridge(deps: ConfigPaneBridgeDeps) {
 			// 外壳统一关闭确认时调用：把配置分区全部脏来源逐个保存（dsh:<nav> 归并 dsh），
 			// 与独立 ConfigModal「保存并关闭」走同一套 saveByKey 分发，任一失败返回 false 留在窗口。
 			saveAllDirty: async () => {
-				// 只有远端 patch 时本机保存链路无事可做；返回 false 让外壳保留窗口，用户可显式丢弃/关闭。
-				if (dirtyTabs.size === 0 && remoteConfigDirty) return false;
 				const roots = new Set<string>();
 				for (const key of dirtyTabs) {
 					roots.add(key.startsWith("dsh:") ? "dsh" : key);
 				}
 				for (const key of orderDirtyKeysForSave(roots)) {
+					if (![...dirtyTabsRef.current].some((dirty) => dirty === key || dirty.startsWith(`${key}:`))) continue;
 					const ok = await saveByKey(key);
 					if (!ok) return false;
 				}
@@ -86,19 +84,22 @@ export function useConfigPaneBridge(deps: ConfigPaneBridgeDeps) {
 	useEffect(() => {
 		if (!providerPageSavePendingRef.current) return;
 		if (addingProvider || editingProvider) return;
-		if (!dirtyTabs.has("config:models")) {
-			// 表单校验未通过时没有 models 草稿可保存，避免 pending 标记污染下一次进入页面。
-			providerPageSavePendingRef.current = false;
-			return;
-		}
-		providerPageSavePendingRef.current = false;
-		void handleSaveModels();
-	}, [addingProvider, editingProvider, dirtyTabs, handleSaveModels]);
+		const finish = providerPageSavePendingRef.current;
+		providerPageSavePendingRef.current = null;
+		void saveByKey("config:models").then(finish, () => finish(false));
+	}, [addingProvider, editingProvider, saveByKey]);
+	useEffect(
+		() => () => {
+			providerPageSavePendingRef.current?.(false);
+			providerPageSavePendingRef.current = null;
+		},
+		[],
+	);
 
 	useEffect(() => {
 		onPaneStateChange?.({
 			saving,
-			hasDirty: hasDirty || remoteConfigDirty,
+			hasDirty: hasDirty,
 			exportImportAllowed: configTarget.kind === "local",
 			unsaved: configUnsavedSummary ? { totalCount: configUnsavedSummary.totalCount, items: configUnsavedSummary.items } : { totalCount: 0, items: [] },
 		});

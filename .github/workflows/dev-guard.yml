@@ -61,6 +61,13 @@ jobs:
         if: always()
         run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:file-size && npm run check:scroll-containers
 
+      # 2026-11-15：直推 dev 的 e6d7eb3ba 把 `"dependencies": {` 段头删了，JSON 仍合法、
+      # npm ci 也不报错（只是不装运行时依赖），三笔 macOS Signing 全红在
+      # ERR_MODULE_NOT_FOUND（caf7b87a8 修）。JSON.parse 通过不是结构完整的证据。
+      - name: Check package.json structure
+        if: always()
+        run: npm run check:package-json
+
       # 2026-11-15：本 PR 改了 4 个 SKILL.md 却没重生成 manifest，main CI 的
       # check:skills-manifest 会红，而 dev-guard 没挂这一条，PR 页面三个 check 全绿。
       # 纯 node、不联网、0.1 秒，符合本文件「秒级」的口径。
@@ -100,3 +107,13 @@ jobs:
       - name: Type-check
         if: always()
         run: npm run typecheck
+
+      # 2026-11-18：本 PR 在 PR 阶段踩到的红，主干 CI 能拦、这里拦不住——
+      # tests/queuedPromptQueue.test.mjs 断言读 WebApiRoutes.ts 里的某一行，
+      # 拆文件后那行搬走了，而它不在 tests/web*.test.mjs 的环球里，
+      # PR 全绿、合到 dev 才红。
+      # 只加这两个前缀（约 15 秒），不跑 test:serial：那份注释写的
+      # 「不让每次 push 排队半小时」仍然成立，typecheck 本身就要 ~60 秒。
+      - name: Web route tests
+        if: always()
+        run: node --test --test-concurrency=1 tests/web*.test.mjs tests/queuedPromptQueue.test.mjs

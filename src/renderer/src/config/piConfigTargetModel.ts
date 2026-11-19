@@ -83,11 +83,11 @@ export function preferredConfigTargetForProject(project: Project | undefined, ho
 /**
  * 本地编辑器（models/settings 表单）读写要带的 target 选项：
  * - local：缺省，不带（旧调用语义）；
- * - ssh：由远端面板接管，本地编辑器不参与；
+ * - ssh：共享编辑器使用主机绑定的远端适配器；
  * - wsl：带 target，读写落到该档案的发行版 HOME。
  */
 export function localEditorTargetOption(target: PiConfigTarget): { target: PiConfigTarget } | undefined {
-	return target.kind === "wsl" ? { target } : undefined;
+	return target.kind === "local" ? undefined : { target };
 }
 
 /** 按当前目标找 WSL 项；本机目标或当前没有 WSL 环境都返回 undefined。 */

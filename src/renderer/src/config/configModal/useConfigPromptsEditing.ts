@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { PiResourceOptions } from "../../../../shared/piConfig";
 import type { PiPromptTemplateListResult, PiPromptTemplateSummary, ProjectResourceDiscoveryResult, ProjectResourceListResult } from "../../../../shared/types";
@@ -50,6 +50,20 @@ export function useConfigPromptsEditing(deps: ConfigPromptsEditingDeps) {
 	const [deletedBuiltinNames, setDeletedBuiltinNames] = useState<Set<string>>(new Set());
 	/** 待确认删除的 Prompt 模板（删除前弹确认框） */
 	const [deletePromptConfirm, setDeletePromptConfirm] = useState<PiPromptTemplateSummary | null>(null);
+	const activeApi = useRef(api);
+	activeApi.current = api;
+	useEffect(() => {
+		setPromptsData({ templates: [], globalDir: "" });
+		setEditingPrompt(null);
+		setEditPromptContent("");
+		setEditPromptLoading(false);
+		setEditPromptSaving(false);
+		setDeletePromptConfirm(null);
+		setCreatingPrompt(false);
+		setNewPromptName("");
+		setNewPromptDescription("");
+		setDeletedBuiltinNames(new Set());
+	}, [api, resourceOptions]);
 
 	/**
 	 * 刷新 prompt templates 列表：project 自有数据仅在 project scope 拉取，旧响应不得覆盖新 scope 结果。
@@ -65,7 +79,7 @@ export function useConfigPromptsEditing(deps: ConfigPromptsEditingDeps) {
 			projectIdHere && hasProject ? api.projectResources.list(projectIdHere) : Promise.resolve(emptyProjectResourceData()),
 			api.projectResources.discovery(projectIdHere),
 		]);
-		if (generation !== resourceGenerationRef.current) return;
+		if (generation !== resourceGenerationRef.current || api !== activeApi.current) return;
 		const globalTemplates = globalResult.templates
 			.filter((template) => template.userCreated || !deletedBuiltinNames.has(template.name))
 			.map((template) => ({
@@ -94,15 +108,17 @@ export function useConfigPromptsEditing(deps: ConfigPromptsEditingDeps) {
 			} else {
 				await api.prompts.create({ name: newPromptName, description: newPromptDescription }, resourceOptions);
 			}
+			if (api !== activeApi.current) return;
 			setNewPromptName("");
 			setNewPromptDescription("");
+			if (api !== activeApi.current) return;
 			bumpResourceGeneration();
 			await refreshPrompts();
 			showToast(t("config.promptCreatedToast"));
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			if (api === activeApi.current) setError(e instanceof Error ? e.message : String(e));
 		} finally {
-			setCreatingPrompt(false);
+			if (api === activeApi.current) setCreatingPrompt(false);
 		}
 	};
 
@@ -125,7 +141,7 @@ export function useConfigPromptsEditing(deps: ConfigPromptsEditingDeps) {
 				await refreshPrompts();
 				showToast(t("config.promptDeletedToast"));
 			} catch (e) {
-				setError(e instanceof Error ? e.message : String(e));
+				if (api === activeApi.current) setError(e instanceof Error ? e.message : String(e));
 			}
 		} else {
 			// 内置模板：从显示列表中移除
@@ -153,14 +169,17 @@ export function useConfigPromptsEditing(deps: ConfigPromptsEditingDeps) {
 		setEditPromptContent("");
 		setEditPromptLoading(true);
 		setError(null);
+		const generation = resourceGenerationRef.current;
 		try {
 			const content = isProjectPrompt(template) && effectiveProjectId ? await api.files.readContent(template.path, undefined, { projectId: effectiveProjectId }) : await api.prompts.edit(template.path, undefined, resourceOptions);
+			if (generation !== resourceGenerationRef.current || api !== activeApi.current) return;
 			setEditPromptContent(content as string);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
+			if (generation !== resourceGenerationRef.current || api !== activeApi.current) return;
+			if (api === activeApi.current) setError(err instanceof Error ? err.message : String(err));
 			setEditingPrompt(null);
 		} finally {
-			setEditPromptLoading(false);
+			if (generation === resourceGenerationRef.current && api === activeApi.current) setEditPromptLoading(false);
 		}
 	};
 
@@ -186,17 +205,19 @@ export function useConfigPromptsEditing(deps: ConfigPromptsEditingDeps) {
 			} else {
 				await api.prompts.edit(editingPrompt.path, editPromptContent, resourceOptions);
 			}
+			if (api !== activeApi.current) return false;
 			clearDirty("prompts");
 			showToast(t("config.promptSavedToast"));
 			setEditingPrompt(null);
+			if (api !== activeApi.current) return false;
 			bumpResourceGeneration();
 			await refreshPrompts();
 			return true;
 		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
+			if (api === activeApi.current) setError(err instanceof Error ? err.message : String(err));
 			return false;
 		} finally {
-			setEditPromptSaving(false);
+			if (api === activeApi.current) setEditPromptSaving(false);
 		}
 	};
 
@@ -215,11 +236,12 @@ export function useConfigPromptsEditing(deps: ConfigPromptsEditingDeps) {
 			} else {
 				await api.prompts.rename(template.name, newName, resourceOptions);
 			}
+			if (api !== activeApi.current) return;
 			bumpResourceGeneration();
 			await refreshPrompts();
 			showToast(t("config.promptRenamedToast"));
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			if (api === activeApi.current) setError(e instanceof Error ? e.message : String(e));
 		}
 	};
 
@@ -246,11 +268,12 @@ export function useConfigPromptsEditing(deps: ConfigPromptsEditingDeps) {
 			} else {
 				await api.prompts.toggle(template.path, enabled, resourceOptions);
 			}
+			if (api !== activeApi.current) return;
 			bumpResourceGeneration();
 			await refreshPrompts();
 			showToast(enabled ? t("config.promptEnabledToast") : t("config.promptDisabledToast"));
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			if (api === activeApi.current) setError(e instanceof Error ? e.message : String(e));
 		}
 	};
 
@@ -267,14 +290,15 @@ export function useConfigPromptsEditing(deps: ConfigPromptsEditingDeps) {
 			} else {
 				await api.prompts.edit(editingPrompt.path, editPromptContent, resourceOptions);
 			}
+			if (api !== activeApi.current) return false;
 			clearDirty("prompts");
 			await refreshPrompts();
 			return true;
 		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
+			if (api === activeApi.current) setError(err instanceof Error ? err.message : String(err));
 			return false;
 		} finally {
-			setEditPromptSaving(false);
+			if (api === activeApi.current) setEditPromptSaving(false);
 		}
 	};
 

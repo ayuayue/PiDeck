@@ -1,3 +1,4 @@
+import { mkdtempSync } from "./helpers/tempDir.mjs";
 /**
  * 自定义增强模板的落盘语义：
  * - 合法字符串 trim 后保存；
@@ -6,7 +7,7 @@
  * 读盘与 update 两条路径必须同口径，否则手改 settings.json 或脏 IPC 会绕过校验。
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";

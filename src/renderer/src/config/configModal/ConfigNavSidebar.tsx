@@ -41,7 +41,7 @@ export function ConfigNavSidebar({ resourceOnly, items, dirtyTabs, showSecurityP
 					))}
 				</div>
 			)}
-			{/* ssh 环境没有任何「Agent 能力」页（资源未路由、安全策略只在本机）：整组连标题一起不渲染 */}
+			{/* 资源页在三种环境都可用；安全策略只在本机。没有可用项时整组连标题一起不渲染。 */}
 			{showSecurityPage || showResourcePages ? (
 				<div className="config-sidebar-group grid gap-0.5">
 					<span className="px-2 pb-1 text-micro font-semibold text-muted-foreground">{t("config.group.agent")}</span>

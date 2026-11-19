@@ -12,6 +12,7 @@ import type { AcpToolConfig } from "../../shared/types/acp";
 import type { PiLocator } from "../pi/PiLocator";
 import type { AcpProxyEnvSettings } from "../sessions/sessionProxyPolicy";
 import { AcpConnection } from "./AcpConnection";
+import { managedProcessEnv } from "../process/managedProcessOwner";
 
 export type AcpSpawnedProcess = {
 	proc: import("node:child_process").ChildProcess;
@@ -39,7 +40,7 @@ export function spawnAcpProcess(tool: AcpToolConfig, cwd: string, deps: AcpProce
 	// 代理只影响新启动的进程（HTTP_PROXY/NO_PROXY 在 spawn 时定格）：
 	// 设置页改完后需重启会话才生效；工具级 env 仍可显式覆盖。
 	// 工具级 env 叠加在基础进程 env 之上；值可能含密钥，绝不进日志。
-	const env = { ...deps.piLocator.createProcessEnv(deps.proxy), ...(tool.env ?? {}) };
+	const env = managedProcessEnv({ ...deps.piLocator.createProcessEnv(deps.proxy), ...(tool.env ?? {}) });
 	deps.logger?.info("acp", "Spawning ACP agent", { tool: tool.name, command: invocation.command, args: invocation.args });
 	// ACP 规范:client 透传 stdio 的其余输出(日志走 stderr);windowsHide 对齐全项目惯例。
 	const proc = spawn(invocation.command, invocation.args, { cwd, stdio: ["pipe", "pipe", "pipe"], shell: invocation.shell, env, windowsHide: true });

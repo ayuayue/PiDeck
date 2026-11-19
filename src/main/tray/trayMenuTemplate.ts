@@ -41,7 +41,7 @@ export function trayProjectLabel(project: TrayMenuProject): string {
  * - 版本行 disabled，只读展示 app.getVersion()；
  * - 「检查更新」走 UpdateService.checkNow + 系统通知（副作用在 index.ts）；
  * - 最近项目最多 5 个，点击 = 聚焦主窗口并跳转项目；空列表显示占位 disabled 项；
- * - 数据/日志目录直开 userData 与 userData/logs（诊断高频入口，pideck-doctor 同款路径）。
+ * - 数据/日志目录直开 userData 与 userData/logs（诊断高频入口，pideck 技能的诊断参考同款路径）。
  */
 export function buildTrayMenuTemplate(copy: (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string, version: string, projects: TrayMenuProject[], callbacks: TrayMenuCallbacks): MenuItemConstructorOptions[] {
 	const recent = projects.slice(0, TRAY_RECENT_PROJECTS_LIMIT);

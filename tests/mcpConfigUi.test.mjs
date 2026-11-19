@@ -5,6 +5,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { systemIpcSource } from "./helpers/systemIpcSources.mjs";
 import { preloadSource } from "./helpers/preloadSources.mjs";
 import { configModalSource } from "./helpers/configModalSources.mjs";
+import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
 
 test("ConfigModal wires an MCP tab without bloating loadConfig into MCP CRUD", () => {
 	const modal = configModalSource;
@@ -17,7 +18,44 @@ test("ConfigModal wires an MCP tab without bloating loadConfig into MCP CRUD", (
 	assert.match(modal, /<ConfigMcpTab[\s\S]{0,900}?onDirtyChange=\{handleMcpDirtyChange\}/);
 	assert.match(modal, /case "config:mcp":/);
 	assert.match(modal, /api\.config\.getMcp/);
-	assert.match(modal, /rawFileName === "mcp\.json"/);
+});
+
+test("保存 mcp.json 源文件会提交到当前环境并重载 MCP 与源文件分页", async () => {
+	const host = quickMessageHookHost();
+	const { useConfigRawEditing } = loadTsCommonJs("src/renderer/src/config/configModal/ConfigRawTab.tsx", {
+		stubs: { react: host.react, "../../components/ui-shadcn/ConfirmDialog": { ConfirmDialog: () => null }, "../RawTab": { RawTab: () => null }, "../WslConfigSourceHint": { WslConfigSourceHint: () => null }, "../useConfigEditorApi": { useConfigEditor: () => ({ remote: true }) } },
+	});
+	const target = { target: { kind: "ssh", hostId: "11111111-1111-4111-8111-111111111111" } };
+	const content = '{"mcpServers":{"docs":{"url":"https://docs.invalid/mcp"}}}';
+	const writes = [];
+	const reloads = [];
+	const baselineRawRef = { current: { fileName: "mcp.json", content: "{}" } };
+	const actions = host.render(() =>
+		useConfigRawEditing({
+			api: {
+				config: {
+					saveRaw: async (...args) => {
+						writes.push(args);
+						return { valid: true };
+					},
+				},
+			},
+			configTargetOption: target,
+			rawContent: content,
+			rawFileName: "mcp.json",
+			baselineRawRef,
+			saveAndReload: async (save) => (await save()).valid,
+			reloadConfig: async (tab) => {
+				reloads.push(tab);
+			},
+		}),
+	);
+	assert.equal(await actions.handleSaveRaw(), true);
+	assert.deepEqual(writes, [["mcp.json", content, target]]);
+	assert.deepEqual(reloads, ["mcp", "raw"]);
+	assert.equal(baselineRawRef.current.fileName, "mcp.json");
+	assert.equal(baselineRawRef.current.content, content);
+	host.unmount();
 });
 
 test("McpTab 的 load 依赖必须稳定，且同名 MCP 入口只保留一个", () => {

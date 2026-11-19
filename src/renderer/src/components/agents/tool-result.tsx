@@ -139,8 +139,7 @@ export function ToolResult({ tool = null, title, children, status = "running", k
 	const currentOpen = open ?? internalOpen;
 	const running = status === "running";
 	const canCopy = Boolean(copyText || onCopy);
-	// maxHeight 为 null（外层已自带滚轮，如过程组组体）时不限高、不自转滚轮：避免双层滚动条。
-	// 只影响这一处容器，外层已有滚轮承载滚动，内层再截断没有意义（详见 file-diff.tsx 同款注释）。
+	// 过程组内自然展开，纵向滚动统一交给会话。
 	const maxHeightStyle = maxHeight === null ? undefined : { maxHeight };
 	// 类名内联在容器行上、不抽常量：scrollContainerGuard 只认元素行里的 overflow-* 字面量，
 	// 抽成变量会让这个真实滚动窗从判定面里整条消失（PR #471 review 实测）。
@@ -179,7 +178,7 @@ export function ToolResult({ tool = null, title, children, status = "running", k
 
 	useLayoutEffect(() => {
 		const viewport = viewportRef.current;
-		if (!viewport || !currentOpen || !running) return;
+		if (!viewport || maxHeight === null || !currentOpen || !running) return;
 
 		const frame = requestAnimationFrame(() => {
 			if (typeof viewport.scrollTo === "function") {

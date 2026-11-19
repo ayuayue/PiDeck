@@ -16,10 +16,6 @@ export type PendingEnvSwitch = { next: PiConfigTarget; dirtyKeys: string[] };
 type ConfigEnvSwitchDeps = {
 	pendingEnvSwitch: PendingEnvSwitch | null;
 	setPendingEnvSwitch: Dispatch<SetStateAction<PendingEnvSwitch | null>>;
-	/** 远端面板已应用/未应用的 patch 是否存在（它不在本机保存链路里，切换只能丢弃）。 */
-	remoteConfigDirty: boolean;
-	remoteDirtyFiles: Set<string>;
-	resetRemoteDirty: () => void;
 	/** 当前目标（同目标直接忽略）。 */
 	configTarget: PiConfigTarget;
 	setConfigTarget: Dispatch<SetStateAction<PiConfigTarget>>;
@@ -38,6 +34,8 @@ type ConfigEnvSwitchDeps = {
 	setModelsData: Dispatch<SetStateAction<ModelsFile>>;
 	setAuthData: Dispatch<SetStateAction<AuthFile>>;
 	setSettingsData: Dispatch<SetStateAction<SettingsFile>>;
+	setSettingsLoaded: Dispatch<SetStateAction<boolean>>;
+	setDiscoveredModels: Dispatch<SetStateAction<Record<string, Array<{ id: string; name?: string }>>>>;
 	setTrustData: Dispatch<SetStateAction<Record<string, boolean>>>;
 	setRawContent: Dispatch<SetStateAction<string>>;
 	setRawFileName: Dispatch<SetStateAction<string>>;
@@ -64,9 +62,6 @@ export function useConfigEnvSwitch(deps: ConfigEnvSwitchDeps) {
 	const {
 		pendingEnvSwitch,
 		setPendingEnvSwitch,
-		remoteConfigDirty,
-		remoteDirtyFiles,
-		resetRemoteDirty,
 		configTarget,
 		setConfigTarget,
 		dirtyTabsRef,
@@ -82,6 +77,8 @@ export function useConfigEnvSwitch(deps: ConfigEnvSwitchDeps) {
 		setModelsData,
 		setAuthData,
 		setSettingsData,
+		setSettingsLoaded,
+		setDiscoveredModels,
 		setTrustData,
 		setRawContent,
 		setRawFileName,
@@ -107,15 +104,37 @@ export function useConfigEnvSwitch(deps: ConfigEnvSwitchDeps) {
 		});
 	}, []);
 
-	/** 环境切换的唯一落点：写 state + 记住选择 + 清远端 patch + 校正当前页。 */
+	/** 环境切换时先清旧环境快照，加载失败也不能显示上一台主机的数据。 */
 	const commitTargetSwitch = useCallback(
 		(next: PiConfigTarget) => {
+			// A new environment must never display or save the previous host's data, even if loading fails.
+			baselineModelsRef.current = { providers: {} };
+			baselineAuthRef.current = {};
+			baselineSettingsRef.current = {};
+			baselineTrustRef.current = {};
+			baselineRawRef.current = { fileName: "models.json", content: "" };
+			baselineWslMcpRef.current = "";
+			setModelsData({ providers: {} });
+			setAuthData({});
+			setSettingsData({});
+			setTrustData({});
+			setSettingsLoaded(false);
+			setDiscoveredModels({});
+			setRawFileName("models.json");
+			setRawContent("");
+			setWslMcpRaw("");
+			setAddingProvider(false);
+			setEditingProvider(null);
+			setAddingAuth(false);
+			setEditingGlobalSkill(null);
+			setEditGlobalContent("");
+			setEditingPrompt(null);
+			setEditPromptContent("");
 			setConfigTarget(next);
 			rememberTarget(next);
-			resetRemoteDirty();
 			settleForTarget(next);
 		},
-		[resetRemoteDirty, settleForTarget, rememberTarget],
+		[settleForTarget, rememberTarget],
 	);
 
 	/**
@@ -132,7 +151,7 @@ export function useConfigEnvSwitch(deps: ConfigEnvSwitchDeps) {
 				lost.push(key);
 				continue;
 			}
-			if ((key === "skills" || key === "prompts" || key === "extensions") && !resourcePagesSupported(next)) lost.push(key);
+			if (key === "skills" || key === "prompts" || key === "extensions") lost.push(key);
 			if (key === "security" && !securityPageSupported(next)) lost.push(key);
 		}
 		return lost;
@@ -140,17 +159,13 @@ export function useConfigEnvSwitch(deps: ConfigEnvSwitchDeps) {
 
 	/**
 	 * 切换 Pi 环境。草稿不能静默丢：先弹确认（保存并切换 / 放弃并切换 / 取消）。
-	 * 远端未应用的 patch 同样算草稿——它不在本机保存链路里，切换只能丢弃。
+	 * 各环境沿用同一条保存与草稿确认路径。
 	 */
 	const handleConfigTargetChange = (next: PiConfigTarget) => {
 		if (samePiConfigTarget(next, configTarget)) return;
 		const dirtyKeys = draftsLostBySwitch(next);
 		if (dirtyKeys.length > 0) {
 			setPendingEnvSwitch({ next, dirtyKeys });
-			return;
-		}
-		if (remoteConfigDirty) {
-			setPendingEnvSwitch({ next, dirtyKeys: [...remoteDirtyFiles].map((file) => "remote:" + file) });
 			return;
 		}
 		commitTargetSwitch(next);
@@ -195,6 +210,7 @@ export function useConfigEnvSwitch(deps: ConfigEnvSwitchDeps) {
 			roots.add(key === "mcp" ? "config:mcp" : key);
 		}
 		for (const key of orderDirtyKeysForSave(roots)) {
+			if (!draftsLostBySwitch(next).some((dirty) => dirty === key || (key === "config:mcp" && dirty === "mcp"))) continue;
 			const ok = await saveByKey(key);
 			if (!ok) return;
 		}

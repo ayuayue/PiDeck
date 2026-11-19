@@ -29,12 +29,7 @@ async function startAgent(window: Page) {
 	return composer;
 }
 
-// 已知失败（存量，非重构引入）：重构前基线 78b911154 上同样失败。
-// spec 编码的是产品要求「重试成功后卡片从时间线消失」，而实测成功卡仍在（count=1）；
-// 另一条「失败保留卡」则拿不到进行中卡（count=0）。两侧行为不一致，需要产品侧确认
-// 究竟以哪边为准，因此先 fixme——修好后会报 unexpectedly passed，提醒把断言改回来。
-// 详见 docs/e2e-known-failures.md。
-test.fixme("retry card: 连续重试只挂一张卡，成功后卡片消失且 toast 照旧", async ({ window }) => {
+test("retry card: 连续重试只挂一张卡，成功后卡片消失且 toast 照旧", async ({ window }) => {
 	test.setTimeout(120_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	const composer = await startAgent(window);
@@ -49,26 +44,29 @@ test.fixme("retry card: 连续重试只挂一张卡，成功后卡片消失且 t
 	await expect(runningCards).toHaveCount(1, { timeout: 20_000 });
 	await expect(runningCards).toContainText("正在自动重试 1/3");
 
-	// 2. 连续重试期间采样：任意时刻时间线上的诊断卡（= 重试卡）都不超过一张。
+	// 2. 连续重试期间采样：任意时刻过程区的重试行都不超过一张，成功 toast 正常出现。
 	//    旧实现每个周期各留一张成功卡，第二轮起就会采到 2～3 张（用户截图那排卡）。
 	//    必须用 count() 即时快照而不是 expect().toHaveCount()：后者会轮询到超时，
 	//    可能等到「本轮收尾后卡片被文件重读清掉」才碰上 0 而假通过。
 	const samples: number[] = [];
+	let sawSuccessToast = false;
 	for (let index = 0; index < 30; index += 1) {
-		samples.push(await timeline.locator(".diagnostic-card").count());
+		samples.push(await timeline.locator("[data-retry-step]").count());
+		sawSuccessToast ||= (await window.locator("[data-sonner-toaster]").innerText()).includes("自动重试成功");
 		await window.waitForTimeout(150);
 	}
 	expect(Math.max(...samples), `连续重试期间时间线上出现了多张卡（采样：${samples.join(",")}）`).toBeLessThanOrEqual(1);
 
 	// 3. 重试成功仍由 toast 报告（卡片不进时间线不能把 toast 一起吃掉）
-	await expect(window.locator("[data-sonner-toaster]")).toContainText("自动重试成功", { timeout: 20_000 });
+	expect(sawSuccessToast, "重试成功必须仍由 toast 报告").toBe(true);
+	expect(await timeline.locator("[data-retry-step]").count(), "最终回答前的空窗不能残留成功行").toBe(0);
 
 	// 4. 3 个重试周期全部收敛后、最终回答开始流式时（mock 在此之前保留 4s 空窗）即时断言：
 	//    成功卡不在时间线上。旧实现此处是 3 张「自动重试成功」——用户截图里的那排卡。
 	//    同样用 count() 即时快照：toHaveCount() 会轮询，可能等到渲染层中途清卡才碰上 0。
 	await expect(timeline).toContainText("Mock 回复：「SLOW RETRY_OK", { timeout: 40_000 });
 	expect(await timeline.getByText(SUCCEEDED_RETRY_TEXT).count(), "重试成功卡不应留在时间线上").toBe(0);
-	expect(await timeline.locator(".diagnostic-card").count(), "重试卡应收敛到零张").toBe(0);
+	expect(await timeline.locator("[data-retry-step]").count(), "重试卡应收敛到零张").toBe(0);
 
 	// 5. 收尾后同样干净，且会话内容不受影响
 	await expect(timeline).toContainText("流式渲染验证完成", { timeout: 30_000 });
@@ -76,8 +74,7 @@ test.fixme("retry card: 连续重试只挂一张卡，成功后卡片消失且 t
 	await expect(timeline).toContainText("RETRY_OK 连续重试三次");
 });
 
-// 已知失败：同上（进行中/失败卡的时序同样与 spec 不一致）。
-test.fixme("retry card: 重试最终失败保留失败卡留痕", async ({ window }) => {
+test("retry card: 重试最终失败保留失败卡留痕", async ({ window }) => {
 	test.setTimeout(120_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	const composer = await startAgent(window);
@@ -92,6 +89,7 @@ test.fixme("retry card: 重试最终失败保留失败卡留痕", async ({ windo
 	const failedCard = timeline.getByText(FAILED_RETRY_TEXT);
 	await expect(failedCard).toHaveCount(1, { timeout: 20_000 });
 	await expect(failedCard).toContainText("自动重试失败，已重试 1/3 次");
+	await timeline.locator('[data-retry-step][data-status="error"] button').click();
 	// 失败原因仍以错误卡呈现（留痕可排查）
 	await expect(timeline).toContainText("HTTP 429 Too Many Requests");
 });

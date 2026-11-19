@@ -1,16 +1,18 @@
 /**
- * bridge/outbound — 飞书出站消息里「不经过智能文本分诊」的那几条通道。
+ * bridge/outbound — 飞书出站消息。
  *
  * 从 FeishuBridge.ts 原样搬出的一域：⚡ 闪电确认、交互卡片、飞书文档创建、
- * 卡片降级时的纯文本补发。
+ * 智能文本分诊（chooseMessageMode → text/post/interactive）与它的纯文本兜底。
  *
- * 智能文本分诊（chooseMessageMode → text/post/interactive）与它的送达结果语义仍在宿主，
- * 因为同步去重依赖真实结果决定是否记指纹。
+ * 分诊搬到这里而不是留在宿主，是因为「卡片/富文本被拒后必须退到纯文本」属于
+ * 出站语义：卡片权限、30KB 卡片上限、卡片语法变更都会让交互卡片整条发不出去，
+ * 而 ai 会话的回复只靠这条通道交付——失败不能只 return false。
  */
 
 import type { ChatMessage } from "../../../shared/types";
-import { feishuT, type FeishuLocale } from "../FeishuI18n";
-import { buildFeishuTextChildren, sanitizeFeishuUserVisibleText, stripFeishuActionMarkers } from "../docActions";
+import { feishuLanguage, feishuT, type FeishuLocale } from "../FeishuI18n";
+import { buildFeishuTextChildren, sanitizeFeishuUserVisibleText, splitDocTextBlocks, stripFeishuActionMarkers } from "../docActions";
+import { buildMarkdownCards, buildPostMessages, chooseMessageMode, type FeishuMessageMode } from "../rich-text";
 import type { LarkClient } from "../types";
 import { logErr } from "./bridgeLog";
 
@@ -53,6 +55,56 @@ export class FeishuOutbound {
 			await this.host.client()!.im.message.create({ params: { receive_id_type: "chat_id" }, data: { receive_id: chatId, msg_type: "interactive", content: JSON.stringify(card) } });
 		} catch (e) {
 			logErr("[飞书 Bridge] 发送卡片失败:", e);
+		}
+	}
+
+	// ===== 智能文本分诊 =====
+
+	/**
+	 * 按内容选模式发送；返回是否真的送达。
+	 *
+	 * 卡片/富文本失败时退到纯文本：应用缺卡片权限、卡片超过 30KB、卡片语法变更都会
+	 * 让交互卡片整条被拒，而这是 ai 会话回复的主要交付通道——宁可丢格式，不能丢回复。
+	 */
+	async sendSmartMessage(chatId: string, text: string): Promise<boolean> {
+		const client = this.host.client();
+		if (!client) return false;
+		const mode = chooseMessageMode(text);
+		try {
+			await this.sendInMode(client, chatId, text, mode);
+			return true;
+		} catch (e) {
+			logErr("[飞书 Bridge] 发送消息失败:", e);
+			if (mode === "text") return false;
+			return this.sendPlainText(client, chatId, text);
+		}
+	}
+
+	private async sendInMode(client: LarkClient, chatId: string, text: string, mode: FeishuMessageMode): Promise<void> {
+		const language = feishuLanguage(this.host.locale());
+		if (mode === "interactive") {
+			for (const card of buildMarkdownCards(text, language)) {
+				await client.im.message.create({ params: { receive_id_type: "chat_id" }, data: { receive_id: chatId, msg_type: "interactive", content: JSON.stringify(card) } });
+			}
+		} else if (mode === "post") {
+			for (const post of buildPostMessages(text, language)) {
+				await client.im.message.create({ params: { receive_id_type: "chat_id" }, data: { receive_id: chatId, msg_type: "post", content: JSON.stringify(post) } });
+			}
+		} else {
+			await client.im.message.create({ params: { receive_id_type: "chat_id" }, data: { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text }) } });
+		}
+	}
+
+	/** 纯文本兜底：按段落切片，避免单条超长被拒；仍有失败就返回 false 交给上层。 */
+	private async sendPlainText(client: LarkClient, chatId: string, text: string): Promise<boolean> {
+		try {
+			for (const chunk of splitDocTextBlocks(text, 3000)) {
+				await client.im.message.create({ params: { receive_id_type: "chat_id" }, data: { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text: chunk }) } });
+			}
+			return true;
+		} catch (e) {
+			logErr("[飞书 Bridge] 纯文本兜底发送失败:", e);
+			return false;
 		}
 	}
 

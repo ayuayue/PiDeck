@@ -25,7 +25,7 @@
 | FE-001 | `<userData>/pi-desktop/` → `feishu/` | 飞书配置首次实际读写时解析目录；成功整目录 rename | 失败继续旧目录并重试；两目录并存用新目录、保留旧目录；没有专用完成记录 | [FeishuConfig.ts](../src/main/feishu/FeishuConfig.ts) 的 `getConfigDir`；`tests/feishuConfigDirectory.test.mjs` |
 | FE-002 | 飞书单 Bot `version:1` → 多 Bot `version:2` | 读取 `feishu.json` 时转换为 `bots[]`，后续正常保存写 v2 | 属读取兼容；读到 v2 即无需转换，没有一次性完成记录；v1 无 ID 时读取会生成 ID | [FeishuConfig.ts](../src/main/feishu/FeishuConfig.ts) 的 `readConfig`；持久 Bot ID 的跨重启验收待补 |
 | FE-003 | 飞书 runtime 身份 → 稳定 Session 绑定 | 读取 Bot 分配时把 `agentId` 键换成 `sessionId`；恢复绑定时经 runtime gateway 校验，唯一路径匹配可复用旧群 | 无总标记；保留无主绑定，身份校验失败不猜测改主；保存后的键/绑定形态作为进度 | [feishuIpc.ts](../src/main/ipc/feishuIpc.ts)、[FeishuBridge.ts](../src/main/feishu/FeishuBridge.ts)；`tests/feishuSessionRuntimeBinding.test.mjs` |
-| RS-001 | PiDeck/项目私有禁用列表 → pi 原生资源过滤 | 全局启动期、项目资源页或 Agent spawn 前；写原生 `extensions/skills/prompts/packages` 规则 | 有 `pi-native-resources.json` 作用域记录；当前记录包含 `unresolved`，且先记完成再清理旧字段，详见后文待核查项 | [piResourceMigration.ts](../src/main/config/piResourceMigration.ts)、[piResourceMigrationRunner.ts](../src/main/config/piResourceMigrationRunner.ts)、[PiResourceStateStore.ts](../src/main/config/PiResourceStateStore.ts)；`tests/piResourceMigration.test.mjs`、`tests/piResourceMigrationRunner.test.mjs` |
+| RS-001 | PiDeck/项目私有禁用列表 → pi 原生资源过滤 | 全局启动期、项目资源页或 Agent spawn 前；逐条写原生 `extensions/skills/prompts/packages` 规则、持久化动作进度，再清理对应旧输入 | 只有无 unresolved 且旧输入清理成功才记完成；清理失败下次只补清理，不重放已应用动作；状态写失败保留旧输入。native 写入与进度文件之间仍存在进程崩溃窗口，不是跨文件事务 | [piResourceMigration.ts](../src/main/config/piResourceMigration.ts)、[piResourceMigrationRunner.ts](../src/main/config/piResourceMigrationRunner.ts)、[PiResourceStateStore.ts](../src/main/config/PiResourceStateStore.ts)、[piResourceMigrationProgress.ts](../src/main/config/piResourceMigrationProgress.ts)；`tests/piResourceMigration.test.mjs`、`tests/piResourceMigrationRunner.test.mjs`、`tests/piResourceMigrationProgress.test.mjs`、`tests/projectResourceLegacyCleanup.test.mjs` |
 | RS-002 | 历史错误的顶层 `extensions: -<包安装目录>` 规则清理 | 资源迁移门禁内，扫描已安装包并删精确匹配的错误规则；无残留不写 | 幂等扫描，没有持久完成记录；读目录失败视为空，写失败报告 `failed` | [piPackageRootRuleRepair.ts](../src/main/config/piPackageRootRuleRepair.ts)；`tests/piPackageRootRuleRepair.test.mjs` |
 | ST-001 | 更新源 `github` → `atomgit`（代码注明 v0.7.5） | 持久化旧源为 github 且无标记；写新值和 `updateSourceAtomgitMigrated:true` | 后续用户改回 github 受尊重；保存失败忽略，本次内存已生效，下次仍可重试 | [SettingsStore.ts](../src/main/settings/SettingsStore.ts) 的 `migrateUpdateSourceToAtomgit`；`tests/updateSourceMigration.test.mjs` |
 | ST-002 | `contentMaxWidth` 像素 → `chatContentWidthPct` 百分比 | 新字段没有合法数值时按旧值映射 60–100%；新字段为完成判据 | 保存失败下次重试；新字段已有值不覆盖；旧字段不是清理标记 | [SettingsStore.ts](../src/main/settings/SettingsStore.ts) 的 `migrateContentWidth`；`tests/settingsContentWidthMigration.test.mjs` |
@@ -37,9 +37,10 @@
 | DS-001 | DSH_HOME 根的 PiDeck 私有文件 → `.pideck/` | DSH host 初始化前：`.pideck-archive/`、`usage-probes.json`、`.pideck-host.lock` 各自搬到新布局 | 目标存在则跳过并保留源；异常静默、无完成记录；代码称旧布局仅开发/试用存在，退役证据待确认 | [pideckDshHome.ts](../src/main/dsh/pideckDshHome.ts)、[DshHost.ts](../src/main/dsh/DshHost.ts)；`tests/pideckDshHome.test.mjs` |
 | DS-002 | 共享 `settings.yaml` → PiDeck 私有 profile patch | 首次初始化 `.pideck/profile/cordis.patch.yml`；只导入用户配置并转换旧 namespace/default 字段 | 原 settings 永远保留；同目录临时文件原子发布；已有 profile 为判据，错误不发布半截文件 | [dshProfileSettings.ts](../src/main/dsh/dshProfileSettings.ts)；`tests/dshProfileSettings.test.mjs`；[DSH 升级对照](dsh-0.2.0-migration.md) |
 | IM-001 | 生图 JSONL 内联 base64 → `blobs/<ref>` + 消息引用 | 每个会话首次读/追加时有界探测，流式转换；与追加共用文件锁 | 无完成 ledger；按格式继续探测。转换失败的图片行原样保留；原子替换并受历史预算限制，损坏行尽量保留 | [ImageSessionStore.ts](../src/main/imagegen/ImageSessionStore.ts)；`tests/imageGenLegacyMigrationNoLoss.test.mjs`、`tests/imageGenMigrationAppendRace.test.mjs`；[生图存储细则](maintenance-domains.md#生图会话存储userdataimagegensessions-索引--blobs-图片) |
-| DR-001 | 单文件 `scratch-pad.md` → `drafts/<旧mtime>.md` | 首次访问草稿接口；非空旧文件复制，之后删除旧文件 | 以旧文件消失为判据；异常静默；目标同名时现有 `copyFile` 可覆盖，专属迁移回归/冲突验收待补 | [scratchPadIpc.ts](../src/main/ipc/scratchPadIpc.ts) 的 `ensureDraftsDir`；`tests/scratchPadIpcBoundary.test.mjs` 为相邻接口校验入口 |
-| SK-001 | 内置技能 `~/.pi/agent/skills/<name>` → `~/.pi/agent/pideck-skills/<name>` | 启动安装内置技能模板前（usage-probe / image-gen / pideck-doctor）：目标不存在且源是普通目录时整目录 rename | 无完成记录，以目标目录存在为判据；软链/普通文件不动（技能库工具的东西），rename 失败保留旧副本并继续写新副本、下次启动重试 | [SkillManager.ts](../src/main/skills/SkillManager.ts) 的 `migrateLegacyBundledSkill`；`tests/skillManager.test.mjs` |
-| EX-001 | 用户扩展目录历史内置副本/已下线文件清理 | 启动时按内置扩展名单和两个历史文件名删除 `~/.pi/agent/extensions/` 副本，含已配置 WSL home | 无完成记录；逐文件失败吞掉、下次再试；按名称删除，无内容指纹确认，备份/用户修改保护待核查 | [index.ts](../src/main/index.ts) 的 `migrateLegacyBuiltInExtensions/removeStalePiDeckExtension`；扩展打包/加载测试不能替代删除安全验收 |
+| DR-001 | 单文件 `scratch-pad.md` → `drafts/<旧mtime>.md` | 首次访问草稿接口；只接受普通源文件与普通 drafts 目录，以独占发布完整副本后再删除源 | 同名目标保留两份，源变化或删除失败时保留源；重试复用同内容副本。目录链接拒绝。空旧文件保留。文件硬链接不可用时不迁移并记录错误；创建同秒草稿以 `wx` 和唯一后缀防截断 | [scratchPadIpc.ts](../src/main/ipc/scratchPadIpc.ts)、[legacyDraftMigration.ts](../src/main/scratchpad/legacyDraftMigration.ts)；`tests/scratchPadIpcBoundary.test.mjs`、`tests/scratchPadMigration.test.mjs` |
+| SK-001 | 内置技能 `~/.pi/agent/skills/<name>` → `~/.pi/agent/pideck-skills/<name>` | 启动安装内置技能模板前（0.13 之前的 usage-probe / image-gen / pideck-doctor；现仅剩 pideck）：目标不存在且源是普通目录时整目录 rename | 无完成记录，以目标目录存在为判据；软链/普通文件不动（技能库工具的东西），rename 失败保留旧副本并继续写新副本、下次启动重试 | [SkillManager.ts](../src/main/skills/SkillManager.ts) 的 `migrateLegacyBundledSkill`；`tests/skillManager.test.mjs` |
+| SK-002 | 旧内置技能目录 `~/.pi/agent/pideck-skills/{usage-probe,image-gen,pideck-doctor,pideck-web-api}` → 并入 `pideck` 路由技能 | 启动自动安装时调用 `retireBundledSkills` 把普通目录移入回收站；spawn 侧同时按 `RETIRED_BUNDLED_SKILLS` 跳过 | 软链/普通文件不是 PiDeck 建的，原样保留；回收站失败只记 warn，旧目录可能仍在盘上但不会再被 `--skill` 注入；无完成记录，每次启动幂等。`~/.pi/agent/skills` 下 0.13 之前的残留不自动删除（可能含用户手工技能），需用户在技能页自行确认。旧路径上的停用 / 仅手动调用规则不迁移到 pideck：四个能力合并成一个开关，部分停用无法一一映射 | [bundledSkills.ts](../src/main/skills/bundledSkills.ts)、[SkillManager.ts](../src/main/skills/SkillManager.ts) 的 `retireBundledSkills`、[autoInstallBundledSkills.ts](../src/main/skills/autoInstallBundledSkills.ts)；`tests/skillManager.test.mjs`、`tests/autoInstallBundledSkills.test.mjs` |
+| EX-001 | 用户扩展目录历史内置副本/已下线文件清理 | 启动时比对当前随包的同名内置扩展，仅迁移内容逐字节相同的普通文件 | 完全匹配的副本先排他复制到带 SHA-256 前缀的隔离备份，再复核后删除；未知旧版本、已下线无对照、用户修改内容均保留。pi/agent/extensions/backup 目录链接拒绝。无完成记录，失败下次重试；检查与删除之间仍有普通文件系统 TOCTOU 窗口 | [index.ts](../src/main/index.ts)、[legacyBuiltInExtensions.ts](../src/main/extensions/legacyBuiltInExtensions.ts)；`tests/legacyBuiltInExtensions.test.mjs` |
 | VC-001 | 旧语音配置缺 `enabled` 时保留已开启体验 | 读取 `voice-transcription.json`：缺 enabled 且有旧 protectedApiKey → enabled=true | 读取兼容，后续正常保存持久化；不改写/输出密钥，无专用完成记录 | [VoiceTranscriptionConfigStore.ts](../src/main/voice/VoiceTranscriptionConfigStore.ts)；`tests/voiceTranscriptionConfig.test.mjs` |
 
 ## UD-001：本次补齐的完成状态
@@ -107,14 +108,22 @@
 | 优先级 | 对应 ID | 后续工作与判定目标 |
 | --- | --- | --- |
 | 高 | UD-001 / FE-001 | 补 Linux 真实升级，再补 Windows/macOS；验收正常升级、两根冲突、重试及密钥环可用性。完成文件不能代替安装包验收 |
-| 高 | RS-001 | 复现并测试“原生写成功、清理旧记录失败”与 unresolved 后资源再次可解析：当前记录先于 cleanup，后续因已记完成而跳过。明确“写入完成/清理待重试/未解析待处理”的区别，再决定实现 |
+| 高 | RS-001 | 已补逐动作进度、cleanup 状态与失败重试回归。仍需在真实升级环境观察 native 写入成功后强制终止进程的跨文件窗口；不能据单测宣称整个迁移具备事务性 |
 | 高 | UD-001 | 并行/降级场景的真实验收：本机已见「旧根只剩 Chromium 壳、新根完整、beta 已改目录名但 header 未补」的形态；并存分支现在仍补修 header，需在真实安装上复验 |
-| 高 | DR-001 / EX-001 | 验收旧便签同名目标的保护、复制后删除的失败窗口，以及扩展文件由用户编辑后的备份/内容识别。当前按文件名删除/覆盖的事实应留在记录中，不能表述为普遍保守迁移 |
+| 高 | DR-001 / EX-001 | 冲突、复制后删除失败、源变化、用户修改扩展、未知扩展和目录链接已有针对性回归；仍需在 Windows/macOS/Linux 安装升级测试副本验证权限、文件系统硬链接支持与实际旧数据形态 |
 | 中 | FE-002 | 为 v1 缺 Bot ID 的配置补跨次读取/重启验收，确认生成 ID 与绑定文件不会漂移；读到 v2 之前不宣称磁盘迁移完成 |
 | 中 | DS-001 | 核实“只存在开发/试用旧布局”的实际版本范围，并验收 rename 失败后读取旧配置/归档的可用性；路径函数返回新布局，不能只凭注释认定有完整旧位置兜底 |
 | 中 | RS-002 / 各字段兼容 | 核实最低支持的历史版本/格式，再判断哪些需要专门完成记录、哪些保留廉价幂等探测；没有证据时不按“过了几个版本”删入口 |
 
 ## 本次验证记录
+
+0.13.0-rc.1 候选新增迁移保护（本机 Node 测试）：
+
+```bash
+node --test tests/piResourceMigration.test.mjs tests/piResourceMigrationRunner.test.mjs tests/piResourceMigrationProgress.test.mjs tests/projectResourceLegacyCleanup.test.mjs tests/scratchPadIpcBoundary.test.mjs tests/scratchPadMigration.test.mjs tests/legacyBuiltInExtensions.test.mjs
+```
+
+当前 Windows 环境的文件 symlink 用例因系统返回 EPERM 而按条件跳过；对应的目录 junction 拒绝用例通过。Linux `/proc` 进程回收及安装包数据升级仍需真实平台验收。
 
 UD-001 完成状态改动已验证：
 

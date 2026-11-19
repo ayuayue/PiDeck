@@ -80,7 +80,10 @@ test("syncPiMessageToFeishu 指纹只能发送成功后记录（先记账会永�
 });
 
 test("sendSmartMessage 必须返回送达结果", () => {
-	assert.match(source, /private async sendSmartMessage[\s\S]*?: Promise<boolean>/, "签名应返回 boolean");
+	// 分诊与纯文本兜底已搬进 bridge/outbound（卡片被拒时退纯文本）；宿主保留同名薄委托，
+	// 返回值语义不变：同步指纹仍按真实送达结果记账。
+	assert.match(source, /private (?:async )?sendSmartMessage[\s\S]*?: Promise<boolean>/, "签名应返回 boolean");
+	assert.match(source, /return this\.outbound\.sendSmartMessage\(chatId, text\)/, "必须委托给 outbound 域");
 });
 
 test("同步指纹集合需 FIFO 上限且 stop 清空（不得用 __feishuSyncFp 挂 this）", () => {

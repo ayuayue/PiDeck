@@ -43,6 +43,16 @@ const MARKER_PICTOGRAPH_PREFIX = /^[\p{Extended_Pictographic}\uFE0F\u200D]+[ \t]
 const MARKER_TAG_TITLE = /^\[[A-Z][A-Z0-9_-]{1,11}\][ \t]+[\x20-\x7E]*[:_]/;
 
 /**
+ * 控制标记块形态：整条标题就是一个 `<|…|>` / `<｜…｜>` 标记（全角竖线、重复竖线、中间空白都算）。
+ *
+ * 现场（2027-02）：中转站不认 strict 工具定义时，DeepSeek 系的工具调用会漏成纯文本，
+ * pi 的命名把这段标记写成 session_info 名（`<｜｜DSML｜｜ calls>`），侧栏于是显示一行乱码。
+ */
+const CONTROL_TOKEN_TITLE = /^[<＜][^<>＜＞]{0,120}[>＞]$/;
+/** 控制标记的特征：竖线分隔，或已知的标记词（DSML / tool_calls / tool_use）。 */
+const CONTROL_TOKEN_HINT = /[|｜]|DSML|tool[_\s-]?(?:calls?|use)/i;
+
+/**
  * 工具/上下文代理的确认标记形态标题（如 `[ACP] acp_status result`、
  * `[ACP] Compression FAILED: None of the 1 requested range(s) resolved …`）。
  *
@@ -55,7 +65,9 @@ const MARKER_TAG_TITLE = /^\[[A-Z][A-Z0-9_-]{1,11}\][ \t]+[\x20-\x7E]*[:_]/;
  */
 export function looksLikeToolMarkerTitle(title: string): boolean {
 	const trimmed = title.replace(/\s+/g, " ").trim().replace(MARKER_PICTOGRAPH_PREFIX, "");
-	return MARKER_TAG_TITLE.test(trimmed);
+	if (MARKER_TAG_TITLE.test(trimmed)) return true;
+	// 控制标记块（`<｜｜DSML｜｜ calls>`）同样不是任何人起的名字：只能当占位名。
+	return CONTROL_TOKEN_TITLE.test(trimmed) && CONTROL_TOKEN_HINT.test(trimmed);
 }
 
 /** pi-subagents 产物目录名：artifactDir="session"（默认）把子代理输入/输出/转储写进父会话同级目录。 */

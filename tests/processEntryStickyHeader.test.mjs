@@ -60,8 +60,8 @@ function entryHarness() {
 			return () => subscribers.delete(listener);
 		},
 	};
-	let currentControl = control;
-	const load = createTsSandbox({ stubs: { react: { ...host.react, useContext: () => currentControl }, "./processGroupScrollContext": { ProcessGroupScrollControlsContext: {} } } });
+	let insideGroup = true;
+	const load = createTsSandbox({ stubs: { react: { ...host.react, useContext: () => control }, "../../agents/message-scroller-context": { MessageScrollerGeometryContext: {} }, "./processGroupScrollContext": { useInsideProcessGroupBody: () => insideGroup } } });
 	const { useProcessEntryStickyHeader } = load(`${TURN_PATH}useProcessEntryStickyHeader.ts`);
 	const render = (expanded = true) => host.render(() => useProcessEntryStickyHeader(expanded));
 	const initial = render();
@@ -79,7 +79,7 @@ function entryHarness() {
 		focusCalls,
 		unmount: host.unmount,
 		leaveGroup: () => {
-			currentControl = null;
+			insideGroup = false;
 		},
 		detachEntry: () => {
 			belongsToGroup = false;
@@ -87,7 +87,7 @@ function entryHarness() {
 	};
 }
 
-test("行订阅组体的几何变化，滚动不直接驱动整个过程组重渲染", () => {
+test("行订阅会话视口的几何变化，滚动不直接驱动整个过程组重渲染", () => {
 	const h = entryHarness();
 	assert.equal(h.subscribers.size, 1);
 	assert.equal(h.render().pinned, true);
@@ -137,7 +137,7 @@ test("已经脱离当前组体的迟到几何通知不得显示吸顶或恢复�
 	assert.deepEqual(h.restored, []);
 });
 
-/** 组体只有一组监听和 ResizeObserver；多个行共享一帧通知。 */
+/** 一个会话只有一组监听和 ResizeObserver；多个组的行共享一帧通知。 */
 function geometryHarness() {
 	const host = reactHost();
 	const frames = new Map();
@@ -178,9 +178,9 @@ function geometryHarness() {
 			},
 		},
 	});
-	const { useProcessGroupScrollGeometry } = load(`${TURN_PATH}useProcessGroupScrollGeometry.ts`);
+	const { useMessageScrollerGeometry } = load("src/renderer/src/components/agents/message-scroller-context.ts");
 	const restoreAt = () => {};
-	const render = (open = true) => host.render(() => useProcessGroupScrollGeometry(open, scrollRef, contentRef, restoreAt));
+	const render = () => host.render(() => useMessageScrollerGeometry(scrollRef, contentRef, restoreAt));
 	const controls = render();
 	return {
 		render,
@@ -213,17 +213,17 @@ test("多个项和密集滚动/尺寸变化共用一帧通知", () => {
 	assert.equal(h.observers[0].targets.length, 2);
 });
 
-test("组体关闭时取消监听、尺寸观察和未结算帧", () => {
+test("会话视口卸载时取消监听、尺寸观察和未结算帧", () => {
 	const h = geometryHarness();
 	h.controls.subscribeGeometry(() => {});
 	assert.equal(h.frames.size, 1);
-	h.render(false);
+	h.unmount();
 	assert.equal(h.frames.size, 0);
 	assert.equal(h.listeners.size, 0);
 	assert.equal(h.observers[0].disconnected, true);
 });
 
-test("订阅解除后不再通知已卸载行，组体卸载释放资源", () => {
+test("订阅解除后不再通知已卸载行，会话卸载释放资源", () => {
 	const h = geometryHarness();
 	let notifications = 0;
 	const unsubscribe = h.controls.subscribeGeometry(() => notifications++);
@@ -255,7 +255,7 @@ test("父级先关闭后，子项退订不得重新排入未清理的动画帧",
 	const h = geometryHarness();
 	const first = h.controls.subscribeGeometry(() => {});
 	const second = h.controls.subscribeGeometry(() => {});
-	h.render(false);
+	h.unmount();
 	first();
 	second();
 	assert.equal(h.frames.size, 0);

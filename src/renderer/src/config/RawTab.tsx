@@ -1,6 +1,7 @@
 import { CodeMirrorEditor } from "../components/app/CodeMirrorEditor";
 import { t } from "../i18n";
 import { ConfigSelect } from "./ConfigShared";
+import { useConfigEditor } from "./useConfigEditorApi";
 
 // ── Raw Tab ─────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ export function RawTab(props: {
 	onChangeContent: (content: string) => void;
 	onSave: () => void;
 }) {
+	const { remote } = useConfigEditor();
 	// 与 DSH joinConfigPath 一致：去尾斜杠后拼接文件名（平台路径，避免 /\ 混用）。
 	const rawFilePath = props.configDir ? `${props.configDir.replace(/[\\/]+$/, "")}/${props.fileName}` : "";
 	return (
@@ -45,7 +47,7 @@ export function RawTab(props: {
 						</span>
 					</div>
 				)}
-				<span className="text-micro text-muted-foreground">{t("config.rawHostReads")}</span>
+				<span className="text-micro text-muted-foreground">{t(remote ? (props.fileName === "auth.json" ? "remoteResources.authSourceHint" : "remoteConfig.documentHint") : "config.rawHostReads")}</span>
 			</div>
 		</div>
 	);

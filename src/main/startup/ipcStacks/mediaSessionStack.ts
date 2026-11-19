@@ -2,6 +2,8 @@ import { app, ipcMain, protocol } from "electron";
 import type { BrowserWindow } from "electron";
 import { join } from "node:path";
 import { registerSessionShareExportIpc } from "../../ipc/sessionShareExportIpc";
+import { registerRemotePiModelIpc } from "../../ipc/remotePiModelIpc";
+import { registerRemotePiResourcesIpc } from "../../ipc/remotePiResourcesIpc";
 import { SessionShareExportService } from "../../sessions/SessionShareExportService";
 import { createSessionShareSourceLoader } from "../../sessions/sessionShareSource";
 import { createPiSessionShareReader } from "../../pi/piSessionShareReader";
@@ -59,7 +61,7 @@ export interface MediaSessionStackContext {
 	readonly sessionCatalog: SessionCatalog;
 	readonly remoteFeatureEnabled: boolean;
 	readonly remoteHostServiceIfEnabled: () => Promise<import("../../remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
-	readonly runPinnedRemoteCommand: ({ hostId, remoteCommand }: { hostId: string; remoteCommand: string }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+	readonly runPinnedRemoteCommand: ({ hostId, remoteCommand }: { hostId: string; remoteCommand: string; timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
 }
 
 export interface MediaSessionStackResult {
@@ -129,6 +131,8 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 			})
 		: undefined;
 
+	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, catalog: remotePiModelCatalog });
+	registerRemotePiResourcesIpc({ enabled: remoteFeatureEnabled, service: remoteHostServiceIfEnabled, run: runPinnedRemoteCommand });
 	/**
 	 * 按项目取远端模型目录：非远端项目返回 null（调用方据此走本机目录）。
 	 * 失败返回失败报告而不是空成功报告——空列表和「拿不到」在 UI 上必须是两种状态。

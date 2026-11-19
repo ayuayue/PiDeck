@@ -618,11 +618,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .draft-session-delete:focus-visible {
   background: var(--color-danger-soft);
   color: var(--color-danger);
-}.chat-list-pane.v3-braun .sidebar-body .agent-row .conversation-title strong, .chat-list-pane.v3-braun .sidebar-body .session-row .conversation-title strong, .chat-list-pane.v3-braun
-  .sidebar-body
-  .codex-subagent-sidebar-row
-  .conversation-title
-  strong{
+}.chat-list-pane.v3-braun .sidebar-body .agent-row .conversation-title strong, .chat-list-pane.v3-braun .sidebar-body .session-row .conversation-title strong{
   flex: 1;
   font-size: var(--font-size-control);
   font-weight: 500;
@@ -639,10 +635,6 @@ html[data-theme="dark"] .scratch-pad-md mark {
   strong, .chat-list-pane.v3-braun
   .sidebar-body
   .session-row.active
-  .conversation-title
-  strong, .chat-list-pane.v3-braun
-  .sidebar-body
-  .codex-subagent-sidebar-row.active
   .conversation-title
   strong{
   color: var(--color-text-primary);
@@ -684,30 +676,12 @@ html[data-theme="dark"] .scratch-pad-md mark {
   text-decoration: underline;
 }
 
-.chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-group {
-  /* 缩进由 SessionTree 的 tailwind utility（ml-3）控制，此处不再写 margin */
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}.chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-row{
-  margin: 0;
-  padding: 6px 8px 6px 20px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
-}.chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-row:hover{
-  background: var(--color-bg-hover);
-}
-
 .chat-list-pane.v3-braun .sidebar-body .worktree-children {
   margin: var(--space-1) 0 0 var(--space-6);
   border-left: 0;
   padding: 0;
   background: transparent;
-}.chat-list-pane.v3-braun .sidebar-body .worktree-children .agent-row, .chat-list-pane.v3-braun .sidebar-body .worktree-children .session-row, .chat-list-pane.v3-braun
-  .sidebar-body
-  .worktree-children
-  .codex-subagent-sidebar-row{
+}.chat-list-pane.v3-braun .sidebar-body .worktree-children .agent-row, .chat-list-pane.v3-braun .sidebar-body .worktree-children .session-row{
   margin-left: 0;
 }
 

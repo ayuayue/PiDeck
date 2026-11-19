@@ -1,9 +1,11 @@
 import { Loader2, X } from "lucide-react";
 import type { ComponentProps, Dispatch, ReactNode, SetStateAction } from "react";
+import { useEffect, useState } from "react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { PiSkillSummary, Project, ProjectResourceDiscoveryResult, ProjectResourceListResult } from "../../../../shared/types";
 import type { PiResourceOptions } from "../../../../shared/piConfig";
 import { Button } from "../../components/ui-shadcn/button";
+import { ConfirmDialog } from "../../components/ui-shadcn/ConfirmDialog";
 import { CodeMirrorEditor } from "../../components/app/CodeMirrorEditor";
 import { t } from "../../i18n";
 import { SkillsTab } from "../SkillsTab";
@@ -36,27 +38,30 @@ export type ConfigSkillsTabProps = {
 /** 技能页内容（`skills` TabsContent 整块）：列表 / 全局 SKILL.md 编辑器二选一。 */
 export function ConfigSkillsTab(props: ConfigSkillsTabProps) {
 	const { api, statusBlock, resourceScope, effectiveProjectId, resourceOnly, scopeSelector, resourceOptions, projects, projectOverrides, discoverySkills, onError, editingSkill, setEditingSkill, editContent, setEditContent, editLoading, editSaved, markDirty, clearDirty, ...skillsTabProps } = props;
+	const [changed, setChanged] = useState(false);
+	const [confirmClose, setConfirmClose] = useState(false);
+	useEffect(() => {
+		setChanged(false);
+		setConfirmClose(false);
+	}, [editingSkill?.path, editSaved]);
+	const close = () => {
+		clearDirty("skills");
+		setEditingSkill(null);
+		setConfirmClose(false);
+	};
+	const requestClose = () => (changed ? setConfirmClose(true) : close());
 
 	return (
 		<div className="config-content">
 			{statusBlock}
 			{!skillsTabProps.loading &&
 				(editingSkill ? (
-					<div className="prompts-editor-backdrop" onClick={() => setEditingSkill(null)}>
+					<div className="prompts-editor-backdrop" onClick={requestClose}>
 						<div className="prompts-editor-modal" onClick={(e) => e.stopPropagation()}>
 							<div className="file-diff-header">
 								<span className="file-diff-header-file">{editingSkill.name} · SKILL.md</span>
 								<div className="file-diff-header-actions">
-									<Button
-										variant="ghost"
-										size="icon"
-										aria-label={t("common.close")}
-										title={t("common.close")}
-										onClick={() => {
-											clearDirty("skills");
-											setEditingSkill(null);
-										}}
-									>
+									<Button variant="ghost" size="icon" aria-label={t("common.close")} title={t("common.close")} onClick={requestClose}>
 										<X size={18} strokeWidth={2.2} aria-hidden="true" />
 									</Button>
 								</div>
@@ -72,6 +77,7 @@ export function ConfigSkillsTab(props: ConfigSkillsTabProps) {
 										value={editContent}
 										onChange={(value) => {
 											setEditContent(value);
+											setChanged(true);
 											markDirty("skills");
 										}}
 									/>
@@ -100,6 +106,7 @@ export function ConfigSkillsTab(props: ConfigSkillsTabProps) {
 						}}
 					/>
 				))}
+			{confirmClose && <ConfirmDialog title={t("editor.dirtyCloseTitle")} message={t("editor.dirtyCloseMessage", { file: editingSkill?.name ?? "SKILL.md" })} onCancel={() => setConfirmClose(false)} onConfirm={close} />}
 		</div>
 	);
 }

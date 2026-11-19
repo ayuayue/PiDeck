@@ -96,7 +96,7 @@ test("delete: repeated deletes apply immediately with no duplicates", async ({ w
 	expect(await countOccurrences(window, reply2)).toBe(0);
 });
 
-test("edit: fork-based edit re-sends the new text and keeps the original branch", async ({ window }) => {
+test("edit: assistant text changes in place after stopping the live runtime", async ({ window }) => {
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await startAgent(window);
@@ -115,12 +115,13 @@ test("edit: fork-based edit re-sends the new text and keeps the original branch"
 	// 编辑态会替换掉回复正文，hasText 过滤器失效；时间线里唯一的「保存」按钮就在编辑框旁
 	await timeline.getByRole("button", { name: "保存" }).click();
 
-	// pi 会话的编辑/重发走 fork（见 src/renderer/src/utils/sessionHistoryMutationPolicy.ts）：
-	// fork 到目标 entry 后由子会话立即重发新文本，**旧分支完整留在原文件**，因此这里是
-	// 「新文本这一轮出现 + 原回复仍在」，不再是迁移前的原地改写语义（那时会要求旧文本消失）。
-	// fork 路径也不弹「先停止 Agent」确认：pi fork 会自行中断当前 turn。
+	const dialog = window.getByRole("alertdialog");
+	await expect(dialog).toContainText("编辑消息会先停止 Agent");
+	await dialog.getByRole("button", { name: "停止", exact: true }).click();
 	await expect(timeline).toContainText("这是修改后的回复内容", { timeout: 45_000 });
-	await expect(timeline).toContainText(reply1, { timeout: 10_000 });
+	await expect(timeline).not.toContainText(reply1, { timeout: 10_000 });
+	await expect(timeline.locator(".user-turn").filter({ hasText: "这是修改后的回复内容" })).toHaveCount(0);
+	await expect(timeline).toContainText("Mock 回复：「第二段问题」流式渲染验证完成。");
 });
 
 test("resend: truncates the old turn and re-sends without duplicates", async ({ window }) => {

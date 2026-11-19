@@ -16,16 +16,7 @@ import { StoreSearchBar } from "./StoreSearchBar";
  * （`pi install npm:<name>`），安装成功后通过 onInstalled 通知父级刷新已安装列表。
  */
 
-const api = (
-	window as unknown as {
-		piDesktop: {
-			extensions: {
-				catalog: (query: PiPackageCatalogQuery) => Promise<PiPackageCatalog>;
-				install: (source: string, projectId?: string) => Promise<string>;
-			};
-		};
-	}
-).piDesktop;
+import { useConfigEditor } from "./useConfigEditorApi";
 
 /** 类型过滤选项（对应目录页 type 参数；空 = 全部）。 */
 const TYPE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -69,6 +60,7 @@ export function ExtensionStoreTab(props: {
 	/** 安装成功后触发（父级刷新扩展列表） */
 	onInstalled?: () => void;
 }) {
+	const { api } = useConfigEditor();
 	const [query, setQuery] = useState("");
 	/** 已提交的搜索词：只有回车/搜索按钮触发才更新，避免每敲一个字符就打一次 pi.dev 目录 */
 	const [appliedQuery, setAppliedQuery] = useState("");

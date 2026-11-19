@@ -10,7 +10,7 @@
  *
  * prompts 域额外做「基线资源生成」：把 docs/pi-prompt-templates/*.md（唯一编辑入口，
  * 跳过 README）复制为 resources/prompts/*.md，供客户端内置基线 + 远端热更新对照。
- * skills 域资源目录（resources/skills/<name>/SKILL.md）已是仓库内容，只算清单。
+ * skills 域资源目录（resources/skills/<name>/，含 SKILL.md 与 references/）已是仓库内容，只算清单。
  *
  * 用法：
  *   node scripts/generate-content-manifests.mjs --domain prompts

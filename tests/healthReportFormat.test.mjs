@@ -142,7 +142,8 @@ test("formatAiPrompt embeds project context when provided", () => {
 	assert.ok(out.includes("项目地址（源码仓库）：https://github.com/ayuayue/PiDeck"), "should point at the GitHub repo (local source is usually absent)");
 	assert.ok(out.includes("- 禁止 any"), "should embed AGENTS.md content");
 	assert.ok(out.includes("pideck-doctor"), "should list project skills");
-	assert.ok(out.includes("/skill:pideck-doctor"), "should hint at the diagnostic skill");
+	assert.ok(out.includes("/skill:pideck"), "should hint at the bundled diagnostic reference");
+	assert.ok(out.includes("references/pideck-doctor.md"), "should point at the reference file inside the pideck skill");
 });
 
 test("formatAiPrompt marks truncated AGENTS.md and omits empty project context", () => {

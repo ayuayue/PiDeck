@@ -76,6 +76,9 @@ const COVERED_HOST_ID_FIELDS = new Map([
 	// Phase 5 模型目录探测（task-18）：结果只回显调用方的 hostId，不持久化任何引用；真正的模型
 	// catalog 数据来自远端 runtime，随会话生命周期消失。归 runtime 源（canHoldHostReferences: false）。
 	["src/shared/types/remoteModel.ts:RemoteModelProbeResult", "runtime"],
+	// 远端 Pi 资源写入口（remote:pi-resources）：hostId 是本次调用的目标主机，请求本身不落盘，
+	// 真正持久化的仍是主机档案与远端项目 locator。与 RemoteProjectEnrollRequest 同型，归 runtime。
+	["src/shared/types/remotePiManagement.ts:RemoteAuthReplaceInput", "runtime"],
 	// 远端项目 trust 决策（P4.4b）：这两个结构真的落盘（桌面 settings.json 的 remoteProjectTrust 段，
 	// 随配置备份一起走），但归 host-profiles 而不是新开一个源，理由就是它们的生命周期完全绑在主机档案上：
 	//   - hostId 之外，每条记录还绑了 pin 密码学事实的摘要（endpointDigest）与规范项目根 ⇒ 换了 endpoint

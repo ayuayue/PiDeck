@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, CornerDownRight, Ellipsis } from "lucide-react";
+import { ChevronDown, ChevronUp, Ellipsis, Link2 } from "lucide-react";
 import { useAtomValue } from "jotai";
 import { sessionRecordToSummary } from "../../atoms/session-selectors";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
@@ -180,7 +180,7 @@ function RecentSessionRowItem(props: { row: RecentSessionRow; depth: number; lin
 						<div className="conversation-title flex min-w-0 items-center gap-1.5">
 							{/* 关闭/解绑后 runtime 仍在位（closed/detached）：不能只判 runtime，否则空色点 + gap-1.5
 							    会在标题左侧留下一截空白（#390「状态小点占位没释放」）。无状态时整格不渲染。 */}
-							{props.linkedChild && <CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />}
+							{props.linkedChild && <Link2 className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />}
 							{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtime?.status} sessionId={sessionId} /> : <SidebarStatusDot status={runtime?.status} />}
 							{/* 后端/来源身份标放标题左侧（与顶部 Tab 一致，用户反馈原先在标题右侧）。 */}
 							{row.session.backend === "acp" ? <AcpBackendMark acpToolId={row.session.acpToolId} /> : (row.session.backend === "dsh" || row.session.backend === "imagegen") && <SessionBackendMark backend={row.session.backend} />}

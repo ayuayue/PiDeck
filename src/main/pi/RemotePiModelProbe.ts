@@ -88,6 +88,21 @@ function maskEntry(raw: unknown): RemoteModelCatalogEntry | undefined {
 	return entry;
 }
 
+/** Both host CLI and live-runtime answers cross the same bounded allowlist. */
+export function maskRemoteModelCatalog(hostId: string, raw: unknown, at = Date.now()): RemoteModelProbeResult {
+	if (!Array.isArray(raw)) return { ok: false, code: REMOTE_MODEL_PROBE_CODES.failed };
+	if (raw.length === 0) return { ok: false, code: REMOTE_MODEL_PROBE_CODES.empty };
+	const unique = new Map<string, RemoteModelCatalogEntry>();
+	for (const candidate of raw) {
+		const entry = maskEntry(candidate);
+		if (entry && !unique.has(`${entry.provider}\u0000${entry.id}`)) unique.set(`${entry.provider}\u0000${entry.id}`, entry);
+		if (unique.size === REMOTE_MODEL_PROBE_MAX_MODELS) break;
+	}
+	const models = [...unique.values()].sort((left, right) => left.provider.localeCompare(right.provider) || left.id.localeCompare(right.id));
+	if (!models.length) return { ok: false, code: REMOTE_MODEL_PROBE_CODES.failed };
+	return { ok: true, hostId, models, providers: [...new Set(models.map((model) => model.provider))].sort(), count: models.length, at };
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 	return new Promise<T>((resolve, reject) => {
 		const timer = setTimeout(() => reject(stable(REMOTE_MODEL_PROBE_CODES.failed)), timeoutMs);
@@ -129,25 +144,7 @@ export function createRemotePiModelProbe(deps: RemotePiModelProbeDeps): RemotePi
 				// Single attempt, no retry: RPC error and timeout are both a definite probe failure.
 				return { ok: false, code: REMOTE_MODEL_PROBE_CODES.failed };
 			}
-			if (!Array.isArray(raw)) return { ok: false, code: REMOTE_MODEL_PROBE_CODES.failed };
-			if (raw.length === 0) return { ok: false, code: REMOTE_MODEL_PROBE_CODES.empty };
-
-			const seen = new Set<string>();
-			const models: RemoteModelCatalogEntry[] = [];
-			for (const candidate of raw) {
-				const masked = maskEntry(candidate);
-				if (masked === undefined) continue;
-				const key = masked.provider + "\u0000" + masked.id;
-				if (seen.has(key)) continue;
-				seen.add(key);
-				models.push(masked);
-				if (models.length === REMOTE_MODEL_PROBE_MAX_MODELS) break;
-			}
-			// The runtime answered, but nothing survived the allowlist: treat as a failed answer, not as "empty".
-			if (models.length === 0) return { ok: false, code: REMOTE_MODEL_PROBE_CODES.failed };
-			models.sort((left, right) => (left.provider === right.provider ? (left.id < right.id ? -1 : left.id > right.id ? 1 : 0) : left.provider < right.provider ? -1 : 1));
-			const providers = Array.from(new Set(models.map((model) => model.provider))).sort();
-			return { ok: true, hostId, models, providers, count: models.length, at: deps.now ? deps.now() : Date.now() };
+			return maskRemoteModelCatalog(hostId, raw, deps.now ? deps.now() : Date.now());
 		},
 	};
 }

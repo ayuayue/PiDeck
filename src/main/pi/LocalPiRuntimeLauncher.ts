@@ -18,6 +18,7 @@
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { killProcessTree } from "../git/gitProcess";
+import { managedProcessEnv } from "../process/managedProcessOwner";
 import type { LocalPiRuntimeLaunchPlan, PiRuntimeExit, PiRuntimeLauncher, PiSpawnHandle } from "./PiSpawnHandle";
 
 /** Unix 上给进程组补 SIGKILL 的延迟：与抽取前 `PiProcess.stop()` 的 3s 逐字一致。
@@ -227,7 +228,7 @@ export class LocalPiRuntimeLauncher implements PiRuntimeLauncher {
 			stdio: ["pipe", "pipe", "pipe"],
 			shell: plan.shell,
 			detached: platform !== "win32",
-			env: plan.env,
+			env: managedProcessEnv(plan.env),
 			windowsHide: true,
 			windowsVerbatimArguments: plan.windowsVerbatimArguments,
 		});

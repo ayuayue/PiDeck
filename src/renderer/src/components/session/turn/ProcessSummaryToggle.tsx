@@ -1,5 +1,6 @@
 import { Check, ChevronDown, ChevronRight, CircleAlert, ListTree, MessagesSquare, RotateCw, Sparkles, Wrench } from "lucide-react";
-import { memo } from "react";
+import { memo, useContext } from "react";
+import { MessageScrollerGeometryContext } from "../../agents/message-scroller-context";
 import { t } from "../../../i18n";
 import type { ProcessSummary } from "../timeline/segmentSummary";
 import { isEmptySummary } from "../timeline/segmentSummary";
@@ -12,6 +13,7 @@ import { isEmptySummary } from "../timeline/segmentSummary";
  * 位置：run 开头（先看到「这轮干了什么」摘要，再看到结论；点开从上往下展开顺序自然）。
  */
 export const ProcessSummaryToggle = memo(function ProcessSummaryToggle(props: { summary: ProcessSummary; expanded: boolean; onToggle: () => void }) {
+	const geometry = useContext(MessageScrollerGeometryContext);
 	if (isEmptySummary(props.summary)) return null;
 
 	const parts: string[] = [];
@@ -43,7 +45,17 @@ export const ProcessSummaryToggle = memo(function ProcessSummaryToggle(props: { 
 	].filter((stat): stat is { icon: typeof Wrench; value: number; label: string; tone: string } => stat !== null);
 
 	return (
-		<button type="button" className="execution-summary-toggle group" onClick={props.onToggle} aria-expanded={props.expanded} title={props.expanded ? t("common.collapse") : t("common.expand")}>
+		<button
+			type="button"
+			className="execution-summary-toggle group"
+			onClick={() => {
+				const scroll = geometry?.scrollRef.current;
+				if (scroll) geometry?.restoreAt(scroll.scrollTop);
+				props.onToggle();
+			}}
+			aria-expanded={props.expanded}
+			title={props.expanded ? t("common.collapse") : t("common.expand")}
+		>
 			<span className="execution-summary-leading" aria-hidden="true">
 				<span className="execution-summary-icon">
 					<ListTree size={13} />

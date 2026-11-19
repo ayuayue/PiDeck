@@ -9,9 +9,9 @@
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
-![Electron](https://img.shields.io/badge/Electron-38-47848f)
+![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.12.0-blue)
+![Version](https://img.shields.io/badge/version-0.13.0-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -83,24 +83,18 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.12.0** (2026-11-11)
+> **Latest: v0.13.0** (2026-11-18)
 
-### v0.12.0 Release Highlights
-- 🚀 **Remote workspaces become a product capability**
-- 🚀 **Linked sessions (parent / child conversations)**
-- 🚀 **The question card floats above the timeline**
-- 🚀 **One environment switch for Pi config**
-- 🚀 **The WSL target follows Developer settings**
-- 🚀 **Remote host rebind wizard**
-- 🚀 **Remote files open in the centre editor**
-- 🚀 **Office / WPS editing, spreadsheets and video preview**
-- 🚀 **Real macOS signing and notarization, with in-app updates**
-- 🚀 **Safe-share export**
-- 🚀 **Sidebar group tree and project sorting**
-- ✨ **Word-wrap toggle for code blocks**
-- ✨ **Agent panel and composer commands on the web**
-- ✨ **Instant feedback for resend / edit / delete**
-- ✨ **Session tab tooltips only follow hover**
+### v0.13.0 Release Highlights
+- 🚀 **Activity triage with GTD**
+- 🚀 **ACP additional working directories**
+- 🚀 **Edit Pi configuration over SSH**
+- 🚀 **Custom prompt enhancement templates**
+- 🚀 **Adjustable conversation line spacing**
+- ✨ **Built-in skills merged into one pideck entry**
+- ✨ **Web API reference is complete again**
+- ✨ **One vertical scroller for answers and execution details**
+- ✨ **Retry progress stays compact**
 
 [View Full Changelog →](CHANGELOG.md)
 

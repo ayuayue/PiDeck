@@ -20,21 +20,7 @@ import { RecommendedPackagesPanel } from "./extensionsRecommendedPackages";
 import { BuiltInExtensionsUpdatePanel } from "./BuiltInExtensionsUpdatePanel";
 import { PiBuiltinExtensionsPanel } from "./PiBuiltinExtensionsPanel";
 
-type ExtensionsApi = {
-	list: () => Promise<PiExtensionListResult>;
-	uninstall: (source: string, scope?: "user" | "project" | "unknown") => Promise<void>;
-	install: (source: string, projectId?: string) => Promise<string>;
-	toggle: (source: string, enabled: boolean, scope?: "user" | "project" | "unknown", path?: string, projectId?: string) => Promise<void>;
-	removeBuiltIn: (source: string) => Promise<void>;
-	update: () => Promise<PiCliUpdateResult>;
-	updateOne: (source: string) => Promise<PiCliUpdateResult>;
-};
-
-function getExtensionsApi(): ExtensionsApi {
-	const api = (window as unknown as { piDesktop?: { extensions?: ExtensionsApi } }).piDesktop?.extensions;
-	if (!api) throw new Error("PiDeck extensions API is not available");
-	return api;
-}
+import { useConfigEditor } from "./useConfigEditorApi";
 
 /** 把 IPC/主进程异常转成可读文本，避免内置扩展操作退回原生 alert。 */
 function formatExtensionError(error: unknown): string {
@@ -83,6 +69,7 @@ export function ExtensionsTab(props: {
 	onShowDiscoveredInFolder?: (item: DiscoveredExtensionItem) => void;
 	onShowInFolder: (extension: PiExtensionSummary) => void;
 }) {
+	const { api, remote } = useConfigEditor();
 	// 一级 tab：已安装 / 扩展商店（与 SkillsTab 的「本地/商店」结构对齐）
 	const [extTab, setExtTab] = useState<"local" | "store">("local");
 	// 已安装列表搜索词：只服务本页渲染的局部 state（不过 IPC、不建全局 atom）
@@ -109,7 +96,7 @@ export function ExtensionsTab(props: {
 		if (removingBuiltIn) return;
 		setRemovingBuiltIn(extension.source);
 		try {
-			await getExtensionsApi().removeBuiltIn(extension.source);
+			await api.extensions.removeBuiltIn(extension.source);
 			props.onRefresh();
 		} catch (e) {
 			showNotice(t("config.extensionOperationFailed", { error: formatExtensionError(e) }), 4500, "error");
@@ -130,7 +117,7 @@ export function ExtensionsTab(props: {
 			} else {
 				// 回退路径也要带 path + projectId：本地文件扩展的原生规则要精确路径，项目作用域要 projectId，
 				// 缺一个就会写出 pi 匹配不上的规则（或直接报「Project scope requires a project id.」）。
-				await getExtensionsApi().toggle(extension.source, enabled, extension.scope, extension.path, props.projectId);
+				await api.extensions.toggle(extension.source, enabled, extension.scope, extension.path, props.projectId);
 			}
 			// 必须等刷新落地再往下走：清除覆盖只发生在真值已经跟上之后，否则开关会先弹回旧值。
 			// 用轻量刷新（forceRefresh=false）：开关不改结构，重扫描（pi list + npm view）只是白等。
@@ -153,7 +140,7 @@ export function ExtensionsTab(props: {
 		setUpdateResult(null);
 		setShowUpdateDialog(true);
 		try {
-			const result = await getExtensionsApi().update();
+			const result = await api.extensions.update();
 			setUpdateResult(result);
 		} catch (e) {
 			showNotice(t("config.extensionOperationFailed", { error: formatExtensionError(e) }), 4500, "error");
@@ -167,7 +154,7 @@ export function ExtensionsTab(props: {
 		if (updatingOne) return;
 		setUpdatingOne(extension.source);
 		try {
-			await getExtensionsApi().updateOne(extension.source);
+			await api.extensions.updateOne(extension.source);
 			props.onRefresh();
 			showNotice(t("config.extensionUpdatedToast", { name: extensionShortName(extension.source) }), 3000);
 		} catch (e) {
@@ -224,7 +211,7 @@ export function ExtensionsTab(props: {
 		const key = discoveredPackageToggleKey(item);
 		if (!begin(key, enabled)) return;
 		try {
-			await getExtensionsApi().toggle(item.source, enabled, "project", undefined, props.projectId);
+			await api.extensions.toggle(item.source, enabled, "project", undefined, props.projectId);
 			// 等刷新落地再清覆盖：轻量刷新会同时重拉 discovery（发现行 enabled 的真值来源），否则开关会弹回旧值。
 			await (props.onRefreshAfterToggle ?? props.onRefresh)();
 			showNotice(t(enabled ? "config.extensionEnabledToast" : "config.extensionDisabledToast", { name: extensionShortName(item.source) }), 3500);
@@ -366,7 +353,7 @@ export function ExtensionsTab(props: {
 						</div>
 						{/* 内置扩展版本 + 热更新：包级版本号（不跟应用版本走），检测走 AtomGit 清单。
 				    只放全局作用域——内置扩展是全局资源，项目视图里给「更新」入口会误导。 */}
-						{props.scope === "global" && <BuiltInExtensionsUpdatePanel onApplied={props.onRefresh} />}
+						{props.scope === "global" && !remote && <BuiltInExtensionsUpdatePanel onApplied={props.onRefresh} />}
 						{/* 刷新（停用/启用、卸载、手动刷新）期间必须保持表格挂载：loading 占位会把内容高度骤缩，
 						    浏览器随即把 .config-content 的 scrollTop 夹到 0，用户每次操作都要从头滚回原区间，
 						    聚焦的开关按钮也会随行卸载而失焦（与 ModelsTab 的 silent 回读同一类问题）。

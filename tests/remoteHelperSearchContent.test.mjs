@@ -268,7 +268,7 @@ searchTest("the entry pins the sibling, the bundle list and the frozen build", (
 	assert.equal(entry.REMOTE_HELPER_ENTRY_SHA256, createHash("sha256").update(entry.REMOTE_HELPER_INLINE_SOURCE, "utf8").digest("hex"));
 	assert.deepEqual(
 		Array.from(entry.REMOTE_HELPER_ARTIFACTS, (artifact) => artifact.name),
-		["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "search-content.mjs", "upload-commit.mjs", "terminal-runner.mjs"],
+		["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "resources.mjs", "search-content.mjs", "upload-commit.mjs", "terminal-runner.mjs"],
 	);
 	const packed = entry.REMOTE_HELPER_ARTIFACTS.find((artifact) => artifact.name === "search-content.mjs");
 	assert.equal(packed.sha256, sibling.REMOTE_HELPER_SEARCH_CONTENT_SHA256);

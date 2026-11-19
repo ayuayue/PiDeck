@@ -14,8 +14,19 @@
 import type { LarkClient } from "./types";
 import { getAppLogger } from "../logging/sharedLogger";
 
-const THROTTLE_MS = 200;
+/**
+ * 刷新间隔。飞书「更新应用发送的消息卡片」对单条消息限 5 QPS，200ms 正好顶在上限，
+ * 一旦碰上重试或网络抖动就会被限流；留一倍余量（2.5 QPS）比追求丝滑更划算——
+ * 被限流丢掉的那次往往就是带最终正文的终态更新。
+ */
+const THROTTLE_MS = 400;
 const MAX_UPDATE_RETRIES = 2;
+/**
+ * 单次更新的卡片体积上限。飞书要求更新后的卡片不超过 30KB，超限直接拒绝；
+ * 留 2KB 给转义差异。超限时**主动判失败**，让上层走纯文本补发——
+ * 否则卡片永远停在上一版（通常是还没正文的骨架），用户端看不到回答。
+ */
+export const MAX_CARD_PATCH_BYTES = 28 * 1024;
 
 export class CardStream {
 	private pendingCard: object | null = null;
@@ -121,14 +132,26 @@ export class CardStream {
 	}
 
 	private async sendUpdate(card: object): Promise<void> {
+		const content = JSON.stringify(card);
+		const bytes = Buffer.byteLength(content, "utf8");
+		if (bytes > MAX_CARD_PATCH_BYTES) {
+			this.lastPatchFailed = true;
+			this.lastPatchError = `卡片内容 ${bytes} 字节超过 ${MAX_CARD_PATCH_BYTES} 字节上限`;
+			getAppLogger()?.error("feishu", "CardStream payload too large", { messageId: this.messageId, bytes, limit: MAX_CARD_PATCH_BYTES });
+			throw new Error(`CardStream patch 跳过: ${this.lastPatchError}`);
+		}
 		let attempt = 0;
 		let lastErr: unknown;
 		while (true) {
 			try {
-				await this.client.im.v1.message.patch({
+				const response = await this.client.im.v1.message.patch({
 					path: { message_id: this.messageId },
-					data: { content: JSON.stringify(card) },
+					data: { content },
 				});
+				// SDK 只把 HTTP 错误变成异常，业务失败是 200 + code≠0；不查 code 会把
+				// 「更新被拒」当成功，上层就不会补发纯文本，回复静默丢失。
+				const rejected = describePatchRejection(response);
+				if (rejected) throw new Error(rejected);
 				this.lastPatchFailed = false;
 				this.lastPatchError = "";
 				return;
@@ -170,4 +193,12 @@ export class CardStream {
 			}
 		}
 	}
+}
+
+/** 业务失败在响应体里：`{ code, msg }`；`code === 0`（或没有 code 字段）视为成功。 */
+function describePatchRejection(response: unknown): string | undefined {
+	if (!response || typeof response !== "object") return undefined;
+	const { code, msg } = response as { code?: unknown; msg?: unknown };
+	if (typeof code !== "number" || code === 0) return undefined;
+	return `patch 被拒 code=${code}${typeof msg === "string" && msg ? ` msg=${msg}` : ""}`;
 }

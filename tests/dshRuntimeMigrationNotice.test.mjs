@@ -1,6 +1,7 @@
+import { mkdtempSync } from "./helpers/tempDir.mjs";
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";

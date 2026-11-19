@@ -202,3 +202,25 @@ test("the backend never imports the local ConfigManager or a filesystem module",
 	assert.doesNotMatch(source, /node:fs|node:child_process|node:os/);
 	assert.match(source, /transport.request/);
 });
+
+test("versioned replacement carries the document and returns a value-free receipt", async () => {
+	const h = harness();
+	const data = { providers: { copied: MODEL_DATA.providers.openai }, explicitNull: null };
+	const secretSources = [{ from: ["providers", "openai"], to: ["providers", "copied"] }];
+	const receipt = await h.backend.replace({ hostId: HOST, file: "models", expectedVersion: VERSION, data, secretSources });
+	assert.deepEqual(JSON.parse(JSON.stringify(h.calls)), [{ hostId: HOST, method: "config.replace", params: { file: "models", expectedVersion: VERSION, data, secretSources } }]);
+	assert.deepEqual(JSON.parse(JSON.stringify(receipt)), { kind: "remote", hostId: HOST, file: "models", version: VERSION, sha256: VERSION });
+});
+
+test("replacement rejects malformed secret mappings before transport and treats lost receipts as unconfirmed", async () => {
+	const h = harness();
+	for (const secretSources of [[{ from: [], to: ["providers", "p"] }], [{ from: ["providers", "p", "apiKey"], to: ["providers", "p"] }], [{ from: ["__proto__"], to: ["providers", "p"] }], [{ from: ["providers", "p"], to: ["providers", "p"], path: "other" }]]) {
+		assert.equal(await rejectionCode(() => h.backend.replace({ hostId: HOST, file: "models", expectedVersion: VERSION, data: MODEL_DATA, secretSources })), shared.REMOTE_CONFIG_CODES.fileInvalid);
+	}
+	assert.deepEqual(h.calls, []);
+	for (const reply of [snapshot({ data: {} }), Object.assign(new Error("request timed out"), { code: "REQUEST_TIMEOUT" }), new Error("connection closed")]) {
+		const lost = harness(() => reply);
+		assert.equal(await rejectionCode(() => lost.backend.replace({ hostId: HOST, file: "models", expectedVersion: VERSION, data: MODEL_DATA, secretSources: [] })), shared.REMOTE_CONFIG_CODES.resultUnconfirmed);
+		assert.equal(lost.calls.length, 1, "a write is never retried automatically");
+	}
+});

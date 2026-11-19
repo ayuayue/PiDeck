@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "./helpers/tempDir.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -112,4 +113,13 @@ test("scratchPad:load/save round-trip still works for paths inside drafts", asyn
 	assert.equal(ok, true);
 	assert.equal(readFileSync(join(userDataRoot, "export-out.md"), "utf8"), "hello draft");
 	rmSync(userDataRoot, { recursive: true, force: true });
+});
+
+test("scratchPad:create never truncates an existing timestamp draft or a concurrent new draft", async () => {
+	const { handlers } = setup();
+	const first = await handlers.get("scratch-pad:create")(null);
+	await handlers.get("scratch-pad:save")(null, first.path, "existing notes", 0);
+	const created = await Promise.all(Array.from({ length: 5 }, () => handlers.get("scratch-pad:create")(null)));
+	assert.equal(new Set([first.path, ...created.map((draft) => draft.path)]).size, 6);
+	assert.equal(readFileSync(first.path, "utf8"), "existing notes");
 });

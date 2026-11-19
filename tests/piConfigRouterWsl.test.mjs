@@ -69,6 +69,10 @@ function harness(options = {}) {
 			remoteCalls.push(["patch", input]);
 			return { kind: "remote", hostId: input.hostId, file: input.file, version: VERSION, sha256: VERSION };
 		},
+		replace: async (input) => {
+			remoteCalls.push(["replace", input]);
+			return { kind: "remote", hostId: input.hostId, file: input.file, version: VERSION, sha256: VERSION };
+		},
 	};
 	const wsl = {
 		read: async (input) => {
@@ -95,6 +99,27 @@ function harness(options = {}) {
 	const router = routerModule.createPiConfigRouter({ local, remote: options.remote === false ? undefined : remote, wsl: options.wsl === false ? undefined : wsl });
 	return { router, localCalls, remoteCalls, wslCalls };
 }
+
+test("SSH 整文档保存只进入指定主机，拒绝混合 patch 与本机 document 选项", async () => {
+	const h = harness();
+	const document = { data: { providers: {}, optional: null }, secretSources: [] };
+	const options = { target: { kind: "ssh", hostId: HOST }, expectedVersion: VERSION, document };
+	await h.router.saveModels({}, options);
+	await h.router.writeRaw("settings", "ignored", options);
+	assert.deepEqual(JSON.parse(JSON.stringify(h.remoteCalls)), [
+		["replace", { hostId: HOST, file: "models", expectedVersion: VERSION, ...document }],
+		["replace", { hostId: HOST, file: "settings", expectedVersion: VERSION, ...document }],
+	]);
+	for (const invalid of [
+		{ ...options, patch: {} },
+		{ ...options, target: { kind: "local" } },
+		{ ...options, target: { kind: "wsl" } },
+	]) {
+		assert.match(await rejectionCode(() => h.router.writeRaw("models", "{}", invalid)), /CONFIG_/);
+	}
+	assert.deepEqual(h.localCalls, []);
+	assert.deepEqual(h.wslCalls, []);
+});
 
 test("wsl 目标只走 WslPiConfigStore：不落本机 ConfigManager，也不走 ssh 后端", async () => {
 	const h = harness();

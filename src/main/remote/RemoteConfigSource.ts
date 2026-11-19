@@ -1,16 +1,10 @@
 /**
  * Frozen remote configuration scope, deployed as its own bundle file (config.mjs) and imported by helper.mjs.
  *
- * Why a separate artifact instead of growing the protocol entry: the remote half of PiDeck needs one reviewed,
- * content-addressed file for the config allowlist, exactly like the Git worker. Adding it as a sibling keeps each
- * change reviewable on its own file and keeps the entry's command-line/artifact audit surface stable.
- *
- * Security model (each item is a one-line invariant in the frozen body):
- * - four files are writable for this scope: $HOME/.pi/agent/models.json, settings.json, trust.json and mcp.json, via
- *   RFC 7396 patches. A fifth file, auth.json, is readable **only** through `readAuth`, which answers a derived
- *   provider list (name / credential type / configured) and never a value, a secret position or the document;
- *   no path parameter exists at all, so any other file under the agent dir is structurally unreachable. trust/mcp
- *   carry no extra privilege: they go through the same sanitize/patch rules as models/settings;
+ * Four files support sanitized, versioned document replacement/patch: models/settings/trust/mcp.
+ * Auth uses dedicated readAuth/replaceAuth operations: read returns provider/type/configured only;
+ * replace accepts a new API key or a host-retained source reference. No existing credential returns.
+ * Other paths are structurally unreachable.
  * - HOME comes from the handshake (absolute POSIX, bounded, no control byte). .pi and .pi/agent may be created
  *   with mode 0700 when missing; an existing symlink or non-directory there is refused before any read/write;
  * - the target file is opened with O_NOFOLLOW and must be a regular file; bytes are bounded at 1 MiB; malformed
@@ -28,7 +22,7 @@
 export const REMOTE_CONFIG_SOURCE = String.raw`"use strict";
 export function createConfigScope(home, fs, path, crypto) {
 	const FILES = { models: "models.json", settings: "settings.json", trust: "trust.json", mcp: "mcp.json" };
-	/* auth.json is deliberately absent from FILES: it is only reachable through readAuth, which returns a derived view. */
+	/* auth.json has dedicated value-free read and reference-based replacement operations. */
 	const READ_AUTH = "auth.json";
 	const DEFAULTS = { models: "{\"providers\":{}}", settings: "{}", trust: "{}", mcp: "{}", auth: "{}" };
 	const MAX_BYTES = 1048576, MAX_NODES = 20000, MAX_DEPTH = 32, MAX_AUTH_PROVIDERS = 200;
@@ -167,7 +161,7 @@ export function createConfigScope(home, fs, path, crypto) {
 		if (patch === null) return { deleted: true };
 		budget.nodes += 1;
 		if (budget.nodes > MAX_NODES) throw failure("CONFIG_FILE_INVALID");
-		if (Array.isArray(patch)) return { value: structuredClone(patch) };
+		if (Array.isArray(patch)) return { value: restoreDocument(base, patch, depth, budget, [], new Map()) };
 		if (isRecord(patch) === false) return { value: patch };
 		const target = isRecord(base) ? base : {};
 		for (const key of Object.keys(patch)) {
@@ -225,6 +219,9 @@ export function createConfigScope(home, fs, path, crypto) {
 		const target = agentDirectory() + "/" + READ_AUTH;
 		const current = readBytes(target);
 		const buffer = current === null ? defaultBytes("auth") : current;
+		return authSnapshot(buffer);
+	}
+	function authSnapshot(buffer) {
 		const data = parseData(buffer);
 		const names = Object.keys(data);
 		if (names.length > MAX_AUTH_PROVIDERS) throw failure("CONFIG_FILE_TOO_LARGE");
@@ -239,6 +236,47 @@ export function createConfigScope(home, fs, path, crypto) {
 		}
 		const digest = sha256(buffer);
 		return { version: digest, sha256: digest, providers: providers };
+	}
+	/* Credentials never leave the host. The caller submits only new API keys, keep markers, or same-file copy
+	 * references; omission deletes a provider. OAuth can only be kept or removed, never synthesized here. */
+	function replaceAuth(value) {
+		if (isRecord(value) === false || Object.keys(value).sort().join(",") !== "entries,expectedVersion" || typeof value.expectedVersion !== "string" || /^[0-9a-f]{64}$/.test(value.expectedVersion) === false || Array.isArray(value.entries) === false || value.entries.length > MAX_AUTH_PROVIDERS) throw failure("CONFIG_FILE_INVALID");
+		const target = agentDirectory() + "/" + READ_AUTH;
+		const current = readBytes(target);
+		const beforeBytes = current === null ? defaultBytes("auth") : current;
+		if (sha256(beforeBytes) !== value.expectedVersion) throw failure("CONFIG_VERSION_CONFLICT");
+		const before = parseData(beforeBytes);
+		const next = {};
+		const seen = new Set();
+		for (const entry of value.entries) {
+			if (isRecord(entry) === false) throw failure("CONFIG_FILE_INVALID");
+			const provider = entry.provider;
+			if (typeof provider !== "string" || AUTH_PROVIDER.test(provider) === false || RESERVED.test(provider) || seen.has(provider)) throw failure("CONFIG_FILE_INVALID");
+			seen.add(provider);
+			const hasKey = Object.prototype.hasOwnProperty.call(entry, "apiKey");
+			const hasRetain = Object.prototype.hasOwnProperty.call(entry, "retain");
+			const hasSource = Object.prototype.hasOwnProperty.call(entry, "source");
+			if (Object.keys(entry).some(function (key) { return key !== "provider" && key !== "apiKey" && key !== "retain" && key !== "source"; }) || hasKey && (hasSource || hasRetain)) throw failure("CONFIG_FILE_INVALID");
+			let credential;
+			if (hasKey) {
+				if (Object.keys(entry).length !== 2 || typeof entry.apiKey !== "string" || entry.apiKey.length > 64 * 1024 || CONTROL.test(entry.apiKey)) throw failure("CONFIG_FILE_INVALID");
+				credential = { type: "api_key", key: entry.apiKey };
+			} else if (hasSource) {
+				if (Object.keys(entry).length !== 3 || entry.retain !== true || typeof entry.source !== "string" || AUTH_PROVIDER.test(entry.source) === false || !Object.prototype.hasOwnProperty.call(before, entry.source) || isRecord(before[entry.source]) === false) throw failure("CONFIG_FILE_INVALID");
+				credential = structuredClone(before[entry.source]);
+			} else {
+				if (Object.keys(entry).length !== 2 || entry.retain !== true || !Object.prototype.hasOwnProperty.call(before, provider) || isRecord(before[provider]) === false) throw failure("CONFIG_FILE_INVALID");
+				credential = structuredClone(before[provider]);
+			}
+			next[provider] = credential;
+		}
+		const bytes = Buffer.from(encode(next), "utf8");
+		authSnapshot(bytes);
+		writeAtomic(target, bytes);
+		let written = null;
+		try { written = readBytes(target); } catch { throw failure("CONFIG_RESULT_UNCONFIRMED"); }
+		if (written === null || sha256(written) !== sha256(bytes)) throw failure("CONFIG_RESULT_UNCONFIRMED");
+		try { return authSnapshot(written); } catch { throw failure("CONFIG_RESULT_UNCONFIRMED"); }
 	}
 	/** Reject reserved keys anywhere in the patch (including array elements) before any merge walk. */
 	function validatePatch(value, depth, budget) {
@@ -269,15 +307,101 @@ export function createConfigScope(home, fs, path, crypto) {
 		if (isRecord(next) === false) throw failure("CONFIG_FILE_INVALID");
 		validateFile(params.file, next);
 		const bytes = Buffer.from(encode(next), "utf8");
+		snapshot(params.file, bytes);
 		writeAtomic(target, bytes);
 		let written = null;
 		try { written = readBytes(target); } catch { throw failure("CONFIG_RESULT_UNCONFIRMED"); }
 		if (written === null || sha256(written) !== sha256(bytes)) throw failure("CONFIG_RESULT_UNCONFIRMED");
-		return snapshot(params.file, written);
+		try { return snapshot(params.file, written); } catch { throw failure("CONFIG_RESULT_UNCONFIRMED"); }
 	}
-	return { read: read, patch: patch, readAuth: readAuth };
+	/* A document has replacement semantics, including explicit nulls. Redacted values are restored only here,
+	 * on the host. Array model ids are identities, never their current position after a reorder. */
+	function restoreDocument(before, after, depth, budget, parts, sources) {
+		if (depth > MAX_DEPTH || ++budget.nodes > MAX_NODES) throw failure("CONFIG_FILE_INVALID");
+		const mapped = sources.get(JSON.stringify(parts));
+		if (mapped !== undefined) before = mapped;
+		if (Array.isArray(after)) {
+			const previous = Array.isArray(before) ? before : [];
+			return after.map(function (entry, index) {
+				let original = previous[index];
+				if (isRecord(entry) && typeof entry.id === "string") {
+					const matches = previous.filter(function (item) { return isRecord(item) && item.id === entry.id; });
+					original = matches.length === 1 ? matches[0] : undefined;
+				} else if (isRecord(entry) || Array.isArray(entry)) {
+					/* An unkeyed item's old position cannot identify its credential after a reorder. Only an
+					 * exact sanitized match proves identity; edited ambiguous items must supply fresh values. */
+					const matches = previous.filter(function (item) {
+						const copy = structuredClone(item);
+						collectSecrets(copy);
+						return JSON.stringify(copy) === JSON.stringify(entry);
+					});
+					original = matches.length === 1 ? matches[0] : undefined;
+				}
+				return restoreDocument(original, entry, depth + 1, budget, parts.concat(String(index)), sources);
+			});
+		}
+		if (isRecord(after) === false) return after;
+		const prior = isRecord(before) ? before : {};
+		const result = {};
+		for (const key of new Set(Object.keys(after).concat(Object.keys(prior).filter(function (key) { return SECRET_KEY.test(key); })))) {
+			if (RESERVED.test(key)) throw failure("CONFIG_FILE_INVALID");
+			const next = after[key];
+			if (SECRET_KEY.test(key)) {
+				if (next === undefined || next === null || next === "" || next === "configured" || next === "missing") {
+					if (Object.prototype.hasOwnProperty.call(prior, key)) result[key] = structuredClone(prior[key]);
+					else if (next === "configured") throw failure("CONFIG_FILE_INVALID");
+				} else {
+					if (typeof next !== "string") throw failure("CONFIG_FILE_INVALID");
+					result[key] = next;
+				}
+			} else result[key] = restoreDocument(prior[key], next, depth + 1, budget, parts.concat(key), sources);
+		}
+		return result;
+	}
+	function atPath(data, parts) {
+		if (Array.isArray(parts) === false || parts.length < 1 || parts.length > MAX_DEPTH) throw failure("CONFIG_FILE_INVALID");
+		let value = data;
+		for (const part of parts) {
+			if (typeof part !== "string" || part.length > 512 || RESERVED.test(part) || SECRET_KEY.test(part) || (isRecord(value) === false && Array.isArray(value) === false) || Object.prototype.hasOwnProperty.call(value, part) === false) throw failure("CONFIG_FILE_INVALID");
+			value = value[part];
+		}
+		if (isRecord(value) === false) throw failure("CONFIG_FILE_INVALID");
+		return value;
+	}
+	function replace(value) {
+		const file = fileKey(value, ["file", "expectedVersion", "data", "secretSources"]);
+		if (typeof value.expectedVersion !== "string" || /^[0-9a-f]{64}$/.test(value.expectedVersion) === false) throw failure("CONFIG_VERSION_CONFLICT");
+		if (isRecord(value.data) === false || Array.isArray(value.secretSources) === false || value.secretSources.length > 200) throw failure("CONFIG_FILE_INVALID");
+		validatePatch(value.data, 0, { nodes: 0 });
+		encode(value.data);
+		const target = agentDirectory() + "/" + FILES[file];
+		const current = readBytes(target);
+		const bytes = current === null ? defaultBytes(file) : current;
+		if (sha256(bytes) !== value.expectedVersion) throw failure("CONFIG_VERSION_CONFLICT");
+		const before = parseData(bytes);
+		validateFile(file, before);
+		const sources = new Map();
+		for (const source of value.secretSources) {
+			if (isRecord(source) === false || Object.keys(source).sort().join(",") !== "from,to") throw failure("CONFIG_FILE_INVALID");
+			const original = atPath(before, source.from);
+			atPath(value.data, source.to);
+			const key = JSON.stringify(source.to);
+			if (sources.has(key)) throw failure("CONFIG_FILE_INVALID");
+			sources.set(key, original);
+		}
+		const next = restoreDocument(before, value.data, 0, { nodes: 0 }, [], sources);
+		validateFile(file, next);
+		const writtenBytes = Buffer.from(encode(next), "utf8");
+		snapshot(file, writtenBytes);
+		writeAtomic(target, writtenBytes);
+		let written = null;
+		try { written = readBytes(target); } catch { throw failure("CONFIG_RESULT_UNCONFIRMED"); }
+		if (written === null || sha256(written) !== sha256(writtenBytes)) throw failure("CONFIG_RESULT_UNCONFIRMED");
+		try { return snapshot(file, written); } catch { throw failure("CONFIG_RESULT_UNCONFIRMED"); }
+	}
+	return { read: read, patch: patch, replace: replace, readAuth: readAuth, replaceAuth: replaceAuth };
 }
 `.replace(/\r?\n[\t ]*/g, "");
 
 /** sha256 of REMOTE_CONFIG_SOURCE as UTF-8 bytes; pinned here and re-checked by the helper contract tests. */
-export const REMOTE_HELPER_CONFIG_SHA256 = "d5ffb3c91285f8168d35873c8e5fc5a328ad07c08d0d213c31bcaa31b5ac1b5e";
+export const REMOTE_HELPER_CONFIG_SHA256 = "040d221e91bc4e913d523ebcf7ed39e2eba6f031c8e0b1956bbb77a74686915b";

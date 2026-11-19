@@ -82,9 +82,9 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 853;
+const CHANNEL_TOTAL = 855;
 const PREFIX_COUNT = 96;
-const CHANNEL_DIGEST = "2466f1e5975b2b71130cc2d5facfd42164bb2aae53cedf1560f00d1fed25cc0c";
+const CHANNEL_DIGEST = "44039bdbfd01aa82db44a0ed88dcc5ffb85e7613260733286202f95b65edaa17";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";

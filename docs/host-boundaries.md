@@ -92,6 +92,14 @@
 
 ## 侧车通用规则
 
+### SSH 配置 helper 的固定文件域
+
+配置编辑只走既有 SSH helper 控制连接：`config.read` / `config.patch` / `config.replace` 仅接受 models/settings/trust/mcp 文件键，不接受路径或代码。`config.replace` 与 patch 使用同一版本检查、脱敏、大小上限、原子替换及读回确认；源文件编辑的密钥保留/同文件位置复制在远端完成，密钥原值不回传。`config.readAuth` 只回派生认证状态；专属 `config.replaceAuth` 按版本提交条目集合，允许新 API key、主机内保留/复制和删除，禁止返回原凭据或录入 OAuth token，auth 不加入通用文件白名单。模型清单复用 pinned SSH 的固定 `pi --list-models` 命令，不增加 pi 宿主桥。守卫见 `remoteConfigDocument`、`remotePiConfigBackend`、`remoteConfigContract`、`remoteConfigEditor` 与 `remoteAuthEditing` 测试。
+
+### SSH 用户资源管理
+
+技能、提示词和扩展管理复用既有 SSH 控制连接的专属 `resources.*` 域，只管理所选主机的全局用户资源。根目录枚举为 `~/.pi/agent/skills`、`~/.agents/skills`、`~/.pi/agent/prompts`、`~/.pi/agent/extensions`；不得接受任意根路径、shell、代码或项目身份。资源正文读写、创建、改名、删除与启停均校验资源引用、链接、大小和版本；删除移入该主机受控回收目录。Pi 包操作只能由主进程构造固定的 list/install/remove/update argv，使用已探测的主机 Node/Pi 与 pinned SSH，带时限、脱敏和结果核验；用户点击安装/卸载/更新即授权该次动作，禁止后台安装或自动重放不确定写入。本机随包资源和宿主更新器不在远端页面暴露；任何远端失败都不得转向本机管理器。范围与门禁见 `ssh-config-management-plan.md`，守卫为冻结资源 helper、主进程路由和远端资源编辑行为测试。
+
 - 所有随包 sidecar 必须列进 `extraResources`，stdout 只放协议数据（日志走 stderr 或主进程 logger）。
 - 宿主侧必须结算：boot 超时、单 run 超时、进程意外退出、显式 cancel——每个请求的回调恰好一次。
 - 每个 sidecar 在退出清单里登记清理名；stop / restart / 删会话 / 应用退出都要有对应注销路径。

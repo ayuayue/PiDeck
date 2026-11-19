@@ -15,7 +15,6 @@ type ConfigTargetAutoSelectDeps = {
 	remoteConfigHosts: PiConfigTargetHost[];
 	remoteConfigHostsLoaded: boolean;
 	configTarget: PiConfigTarget;
-	remoteConfigDirty: boolean;
 	commitTargetSwitch: (target: PiConfigTarget) => void;
 	/** 判「有未保存草稿」用 ref：自动落点不能因为脏集合变化就重跑决策。 */
 	dirtyTabsRef: MutableRefObject<Set<string>>;
@@ -27,7 +26,7 @@ type ConfigTargetAutoSelectDeps = {
  * 2) 记住的环境若已不存在（主机被删/禁用、档案被删）静默回本机，否则用户看到一屏连接错误。
  */
 export function useConfigTargetAutoSelect(deps: ConfigTargetAutoSelectDeps) {
-	const { props, open, embedded, resourceOnly, remoteConfigHosts, remoteConfigHostsLoaded, configTarget, remoteConfigDirty, commitTargetSwitch, dirtyTabsRef } = deps;
+	const { props, open, embedded, resourceOnly, remoteConfigHosts, remoteConfigHostsLoaded, configTarget, commitTargetSwitch, dirtyTabsRef } = deps;
 	/**
 	 * 打开配置管理时默认落在当前远端项目所在主机：「模型配置 / Pi 设置」展示的是当前环境的 pi 配置，
 	 * 远端项目里默认展示本机配置等于把用户引到错误的机器上写盘。
@@ -50,9 +49,9 @@ export function useConfigTargetAutoSelect(deps: ConfigTargetAutoSelectDeps) {
 		autoConfigTargetAppliedRef.current = true;
 		const next = preferredConfigTargetForProject(activeProjectForTarget, remoteConfigHosts, configTarget);
 		if (samePiConfigTarget(next, configTarget)) return;
-		if (hasUnsavedConfigDrafts(dirtyTabsRef.current) || remoteConfigDirty) return;
+		if (hasUnsavedConfigDrafts(dirtyTabsRef.current)) return;
 		commitTargetSwitch(next);
-	}, [configSurfaceOpen, resourceOnly, activeProjectForTarget, remoteConfigHosts, remoteConfigHostsLoaded, configTarget, remoteConfigDirty, commitTargetSwitch, dirtyTabsRef]);
+	}, [configSurfaceOpen, resourceOnly, activeProjectForTarget, remoteConfigHosts, remoteConfigHostsLoaded, configTarget, commitTargetSwitch, dirtyTabsRef]);
 	/**
 	 * 记住的环境若已不存在（主机被删/被禁用、档案被删），静默回本机：
 	 * 停在一个读不到的机器上，用户看到的是一屏连接错误，而回本机是唯一有意义的安全落点。
