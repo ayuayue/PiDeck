@@ -95,7 +95,7 @@ test("workbench: 文件预览右上角始终有关闭按钮", async ({ window })
 	await expect(window.locator(".workbench-stage-with-content")).toHaveCount(0, { timeout: 10_000 });
 });
 
-test("workbench: 点会话 Tab 让占满中间栏的文件面让位，点回文件 Tab 复原", async ({ window }) => {
+test("workbench: 点会话 Tab / 侧栏当前会话行让占满中间栏的文件面让位，点回文件 Tab 复原", async ({ window }) => {
 	// 回归点：修复前点会话 Tab 只改 currentSessionId，文件面仍旧铺满中间栏 → 点了没反应
 	await openWorkbenchFile(window, { withSession: true });
 
@@ -113,4 +113,10 @@ test("workbench: 点会话 Tab 让占满中间栏的文件面让位，点回文�
 	await expect(fileTab).toBeVisible();
 	await fileTab.click();
 	await expect.poll(() => sessionRatio(window), { timeout: 5_000 }).toBeLessThan(0.05);
+
+	// 侧栏点「已经是当前会话」的那一行：选中态不变，同样必须把会话面交回前台
+	const sidebarRow = window.locator(".session-card button.agent-row").first();
+	await expect(sidebarRow).toHaveClass(/active/);
+	await sidebarRow.click();
+	await expect.poll(() => sessionRatio(window), { timeout: 5_000 }).toBeGreaterThan(0.4);
 });

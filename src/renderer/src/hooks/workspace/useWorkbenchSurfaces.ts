@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { WorkspaceContentOpenMode } from "../../../../shared/types";
+import { type WorkbenchSurfaceState, workbenchContentFolded, workbenchShowsContent, workbenchTabActive } from "../../utils/workbenchSurfaces";
 
 /**
  * 中间栏工作台的呈现状态：内容面（文件/Git Diff）在不在、谁在前台、Tab 栏拿哪条列表。
@@ -89,8 +90,9 @@ export function useWorkbenchSurfaces(input: WorkbenchSurfacesInput): WorkbenchSu
 		revealSession();
 	}, [currentSessionId, revealSession]);
 
-	const contentFolded = !simpleMode && hasContent && front === "session" && layout === "maximize";
-	const showsContent = hasContent && !contentFolded;
+	const surfaceState: WorkbenchSurfaceState = { simpleMode, hasContent, layout, front };
+	const contentFolded = workbenchContentFolded(surfaceState);
+	const showsContent = workbenchShowsContent(surfaceState);
 
 	const theme: "dark" | "light" = typeof document !== "undefined" && document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 	const [contentWidth, setContentWidth] = useState(0);
@@ -116,9 +118,9 @@ export function useWorkbenchSurfaces(input: WorkbenchSurfacesInput): WorkbenchSu
 		title: tab.filePath,
 		preview: tab.id === previewEditorTabId,
 		// 让位给会话时文件面不在前台，Tab 不能再画选中态（否则两个 Tab 同时像当前 Tab）
-		active: !hasGitDiff && !contentFolded && tab.id === activeTabId,
+		active: workbenchTabActive(contentFolded, !hasGitDiff && tab.id === activeTabId),
 	}));
-	const barTabs: WorkbenchTabItem[] = [...(simpleMode || !hasGitDiff ? fileTabs : []), ...(hasGitDiff && gitDiff ? [{ id: `git-diff:${gitDiff.filePath}`, label: gitDiff.label, title: gitDiff.filePath, preview: false, active: !contentFolded }] : [])];
+	const barTabs: WorkbenchTabItem[] = [...(simpleMode || !hasGitDiff ? fileTabs : []), ...(hasGitDiff && gitDiff ? [{ id: `git-diff:${gitDiff.filePath}`, label: gitDiff.label, title: gitDiff.filePath, preview: false, active: workbenchTabActive(contentFolded, true) }] : [])];
 
 	return {
 		hasGitDiff,

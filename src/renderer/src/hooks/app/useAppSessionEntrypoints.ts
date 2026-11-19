@@ -42,6 +42,8 @@ export interface AppSessionEntrypointsDeps {
 	openInBrowser: (url: string) => void;
 	activeWorkspacePage: WorkspacePageId | null;
 	deactivateWorkspacePage: () => void;
+	/** 把中间栏前台面交回会话：占满中间栏的文件/Diff 让开（Tab 保留） */
+	revealSessionSurface: () => void;
 	hostPluginPanel: { pluginId: string; panelId: string } | null;
 	setHostPluginPanel: (value: { pluginId: string; panelId: string } | null) => void;
 	favoritesOpenSessionRequest: FavoritesOpenSessionRequest | null;
@@ -78,6 +80,7 @@ export function useAppSessionEntrypoints(deps: AppSessionEntrypointsDeps): AppSe
 		openInBrowser,
 		activeWorkspacePage,
 		deactivateWorkspacePage,
+		revealSessionSurface,
 		hostPluginPanel,
 		setHostPluginPanel,
 		favoritesOpenSessionRequest,
@@ -130,11 +133,14 @@ export function useAppSessionEntrypoints(deps: AppSessionEntrypointsDeps): AppSe
 	/** 侧栏/分支打开：选中成功后按 preview|permanent 登记 Tab */
 	const openSidebarSessionByIdWithTab = useCallback(
 		async (projectId: string, sessionId: string, tabMode: "preview" | "permanent" = "permanent") => {
+			// 显式「打开这个会话」= 要看会话：文件/Diff 占满中间栏时先让开。
+			// 点已在选中的那一行不会改 currentSessionId，光等选中态变化永远没有信号。
+			revealSessionSurface();
 			const openedId = await runOpenSidebarSessionById(projectId, sessionId);
 			if (openedId) workspaceChrome.registerOpenSession(openedId, tabMode);
 			return openedId;
 		},
-		[runOpenSidebarSessionById, workspaceChrome],
+		[revealSessionSurface, runOpenSidebarSessionById, workspaceChrome],
 	);
 
 	// 桌面插件发起的会话导航：broker 已验权限/归属，复用侧栏打开链路（选中 + 常驻 Tab）。

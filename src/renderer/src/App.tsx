@@ -1099,6 +1099,25 @@ export function App() {
 		t,
 	});
 
+	// 中间栏内容面（文件 / Git Diff）与会话面的呈现关系收口到 useWorkbenchSurfaces：
+	// 前台面互斥、Tab 栏列表、占满/恢复开关都在那里决定（App 是存量巨文件，不再净增长）。
+	// 必须在会话入口 hook 之前建好：侧栏点会话行也要把会话面交回前台。
+	const simpleMode = settings.navigationMode === "simple";
+	const workbench = useWorkbenchSurfaces({
+		gitDiff: gitDrawerDiff,
+		activeProjectId,
+		editorTabs,
+		previewEditorTabId,
+		activeTabId,
+		activeTabPreserveDrawer: Boolean(activeTab?.preserveDrawer),
+		editorMode,
+		toggleEditorMode,
+		gitDiffDisplayMode,
+		toggleGitDiffDisplayMode,
+		simpleMode,
+		currentSessionId,
+	});
+
 	// 会话内文件链接路由：两个口子分开——
 	// 会话文件链接域（分级打开/安全门/抽屉切换）收口到 useSessionFileLinks
 	const { openSessionFilePath, requestExternalPathOpen, externalPathOpenDialog, handleOpenLinkedFile, handleToolDrawerAction } = useSessionFileLinks({
@@ -1322,6 +1341,7 @@ export function App() {
 		pendingDraftCreationRef,
 		lastCreatedDraftIdRef,
 		guideBootstrapPromotionRef,
+		revealSessionSurface: workbench.revealSession,
 	});
 
 	/** 有效文件路径白名单：仅工作区真实存在的 @ 引用渲染为 chip */
@@ -1652,10 +1672,12 @@ export function App() {
 			const record = store.get(sessionRecordByIdAtomFamily(sessionId));
 			if (!record) return;
 			deactivateWorkspacePage();
+			// 「前往会话」= 要看会话：文件/Diff 占满中间栏时先让开（与侧栏点行同一语义）
+			workbench.revealSession();
 			workspaceChrome.registerOpenSession(sessionId, "permanent");
 			selectSessionCommand(record.projectId, sessionId, true);
 		},
-		[deactivateWorkspacePage, selectSessionCommand, store, workspaceChrome],
+		[deactivateWorkspacePage, selectSessionCommand, store, workbench.revealSession, workspaceChrome],
 	);
 
 	// M7：后台 Ask 巡检全应用单点挂载（原寄生在每栏 runtime 控制器，全局订阅拖垮分屏）
@@ -1857,7 +1879,6 @@ export function App() {
 		</SessionPaneServicesProvider>
 	);
 
-	const simpleMode = settings.navigationMode === "simple";
 	// 会话状态显示位置：首屏设置未拉到 / 预览环境缺字段时按默认值处理
 	const sessionStatusPlacement = parseSessionStatusPlacement(settings.sessionStatusPlacement);
 	// 输入框上方的待办/子代理横栏只看设置：选「右侧边栏」就始终让位，与面板此刻展开还是收起无关。
@@ -1865,22 +1886,6 @@ export function App() {
 	useEffect(() => {
 		setSessionStatusInSidebar(placementShowsSidebarPanel(sessionStatusPlacement));
 	}, [sessionStatusPlacement, setSessionStatusInSidebar]);
-	// 中间栏内容面（文件 / Git Diff）与会话面的呈现关系收口到 useWorkbenchSurfaces：
-	// 前台面互斥、Tab 栏列表、占满/恢复开关都在那里决定（App 是存量巨文件，不再净增长）
-	const workbench = useWorkbenchSurfaces({
-		gitDiff: gitDrawerDiff,
-		activeProjectId,
-		editorTabs,
-		previewEditorTabId,
-		activeTabId,
-		activeTabPreserveDrawer: Boolean(activeTab?.preserveDrawer),
-		editorMode,
-		toggleEditorMode,
-		gitDiffDisplayMode,
-		toggleGitDiffDisplayMode,
-		simpleMode,
-		currentSessionId,
-	});
 
 	// ── 命令面板（Ctrl/Cmd+P）────────────────────────────────────────────
 	//
@@ -1953,10 +1958,10 @@ export function App() {
 			// 点任意会话 Tab（含当前 Tab，sessionId 不变的场景）也要让出页面：插件页直接收起，
 			// 工作区页面只失活（Tab 保留，切回来状态还在）；Overlay 的 scope 变化兜底只覆盖「切到别的会话」。
 			onSelect={(sessionId) => {
+				// 会话面接手前台：占满中间栏的文件/Diff 让开（Tab 保留，点回来即还原）
+				workbench.revealSession();
 				deactivateWorkspacePage();
 				hostPluginPageTab?.onClose();
-				// 会话面接手前台：maximize 下让占满中间栏的文件/Diff 让开（Tab 保留，点回来即还原）
-				workbench.revealSession();
 				workspaceChrome.selectTab(sessionId);
 			}}
 			sessionActions={tabsSessionActions}
