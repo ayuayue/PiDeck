@@ -2052,5 +2052,17 @@
   "加载更早的消息": "Charger les messages précédents",
   "加载更早的 %d 轮": "Charger %d tours précédents",
   "有一条消息太长，只带了前面一部分。": "Un message est trop long : seule son début est arrivé.",
-  "网络不稳，正在重连…": "Réseau instable ; reconnexion…"
+  "网络不稳，正在重连…": "Réseau instable ; reconnexion…",
+  "全部停止": "Tout arrêter",
+  "复制连接链接": "Copier le lien de connexion",
+  "手机连接 · %s": "Téléphone · %s",
+  "手机连接": "Téléphone",
+  "打开项目": "Ouvrir un projet",
+  "显示二维码…": "Afficher le QR code…",
+  "最近会话": "Sessions récentes",
+  "检查更新…": "Rechercher des mises à jour…",
+  "管理定时任务…": "Gérer les tâches planifiées…",
+  "运行中 %d 个": "%d en cours",
+  "远程设置…": "Réglages distants…",
+  "重启": "Redémarrer"
 }

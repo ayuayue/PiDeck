@@ -2052,5 +2052,17 @@
   "展开其余（还有 %d 字）": "Show the rest (%d characters)",
   "加载更早的消息": "Load earlier messages",
   "加载更早的 %d 轮": "Load %d earlier turns",
-  "有一条消息太长，只带了前面一部分。": "One message is very long, so only its beginning came over."
+  "有一条消息太长，只带了前面一部分。": "One message is very long, so only its beginning came over.",
+  "全部停止": "Stop all",
+  "复制连接链接": "Copy the connection link",
+  "手机连接 · %s": "Phone · %s",
+  "手机连接": "Phone",
+  "打开项目": "Open a project",
+  "显示二维码…": "Show the QR code…",
+  "最近会话": "Recent sessions",
+  "检查更新…": "Check for updates…",
+  "管理定时任务…": "Manage scheduled tasks…",
+  "运行中 %d 个": "%d running",
+  "远程设置…": "Remote settings…",
+  "重启": "Restart"
 }

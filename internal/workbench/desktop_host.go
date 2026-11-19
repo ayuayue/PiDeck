@@ -117,34 +117,6 @@ func (a *app) window() *core.Window {
 	return nil
 }
 
-// trayMenu is what the tray icon's menu shows.
-func (a *app) trayMenu() []desktop.MenuItem {
-	items := []desktop.MenuItem{
-		{Label: apptext.T("显示 PiDeck Lite"), OnSelect: a.showMainWindow},
-		{Label: apptext.T("新建会话"), OnSelect: func() {
-			a.showMainWindow()
-			a.newSession(a.activeWS.GetUntracked())
-		}},
-	}
-	running := a.runningSessions()
-	if len(running) > 0 {
-		items = append(items, desktop.MenuItem{Separator: true})
-		for _, s := range running {
-			s := s
-			items = append(items, desktop.MenuItem{
-				Label:    apptext.T("运行中 · %s", s.title.GetUntracked()),
-				OnSelect: func() { a.showMainWindow(); a.selectSession(s) },
-			})
-		}
-	}
-	items = append(items,
-		desktop.MenuItem{Separator: true},
-		desktop.MenuItem{Label: apptext.T("设置…"), OnSelect: func() { a.showMainWindow(); a.openSettingsPane() }},
-		desktop.MenuItem{Label: apptext.T("退出"), OnSelect: a.quitApp},
-	)
-	return items
-}
-
 // runningSessions are the sessions with a turn in flight, newest first.
 func (a *app) runningSessions() []*session {
 	var out []*session
