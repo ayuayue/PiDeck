@@ -8,11 +8,12 @@ import { assertProjectServiceCurrent, PROJECT_SERVICE_CODES, ProjectServiceError
  * - 代数：await 之后比较 fence 槽位。读路径 stale = rejected（可丢弃后重读）；
  *   写路径 stale = unknown（写可能已落地，禁止自动重放）；
  * - 失败：raw IPC 通道只抛 Electron Error；这里只提取稳定码形状（main 的既定约定）并给出中性回退，
- *   不让“远端失败”冒充本机错误，也不猜自由文本。
+ *   不让“远端失败”冒充本机错误，也不猜自由文本。raw 包装文本只进 `internal`：它不是远端原文，
+ *   直接上屏就是一句英文 IPC 包装。
  */
 
 export function assertProjectTarget(projectId: string, target: ProjectFileTarget): void {
-	if (target.projectId !== projectId) throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", "target project does not match the service");
+	if (target.projectId !== projectId) throw new ProjectServiceError(PROJECT_SERVICE_CODES.projectMismatch, "rejected", undefined, "target project does not match the service");
 }
 
 export function assertProjectTargets(projectId: string, targets: readonly ProjectFileTarget[]): void {
@@ -33,7 +34,7 @@ export function normalizeProjectServiceError(error: unknown): ProjectServiceErro
 	const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
 	const code = attachedCode ?? STABLE_IN_MESSAGE.exec(message)?.[1] ?? PROJECT_SERVICE_CODES.failed;
 	const outcome = attached?.outcome === "unknown" || OP_UNKNOWN_CODES.has(code) ? "unknown" : "rejected";
-	return new ProjectServiceError(code, outcome, message.length > 0 ? message.slice(0, 300) : undefined);
+	return new ProjectServiceError(code, outcome, undefined, message.length > 0 ? message.slice(0, 300) : undefined);
 }
 
 /** 把一次异步实现包上代数围栏；旧代成功/失败都不能作为本次结果发布，raw 失败统一归一。 */

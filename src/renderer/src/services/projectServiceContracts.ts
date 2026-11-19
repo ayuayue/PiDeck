@@ -60,18 +60,30 @@ export const PROJECT_SERVICE_CODES = {
 
 export type ProjectServiceErrorCode = (typeof PROJECT_SERVICE_CODES)[keyof typeof PROJECT_SERVICE_CODES];
 
-/** 服务层的失败：稳定码 + 二阶语义（unknown 只可能来自远端写），并允许带一句内部说明（不直接展示）。 */
+/**
+ * 服务层的失败：稳定码 + 二阶语义（unknown 只可能来自远端写）。
+ *
+ * 两条文本通道必须分清，混淆一次就会把英文实现细节漏到用户界面上：
+ * - `detail`：**远端原文**（helper 带回来的 git/hook stderr 摘要）。面板会原样展示，
+ *   所以只有真正来自 git 的一句话才允许写进来；没有原文就留空，由闭集码词典出文案。
+ * - `internal`：**只给我们自己看**的内部说明（英文、含实现细节，如 “remote git refs refused”）。
+ *   它不进任何展示层，只用于调试与日志。
+ */
 export class ProjectServiceError extends Error {
 	readonly code: string;
 	readonly outcome: "rejected" | "unknown";
+	/** 可上屏：远端原文；缺席 = 没有原文。 */
 	readonly detail?: string;
+	/** 不上屏：内部说明。 */
+	readonly internal?: string;
 
-	constructor(code: string, outcome: "rejected" | "unknown" = "rejected", detail?: string) {
+	constructor(code: string, outcome: "rejected" | "unknown" = "rejected", detail?: string, internal?: string) {
 		super(code);
 		this.name = "ProjectServiceError";
 		this.code = code;
 		this.outcome = outcome;
 		this.detail = detail;
+		this.internal = internal;
 	}
 }
 
@@ -126,7 +138,7 @@ export function isProjectServiceCurrent(fence: ProjectServiceFence): boolean {
  * 调用方不能按“确定没发生”自动重试。
  */
 export function assertProjectServiceCurrent(fence: ProjectServiceFence, outcome: "rejected" | "unknown" = "rejected"): void {
-	if (!isProjectServiceCurrent(fence)) throw new ProjectServiceError(PROJECT_SERVICE_CODES.generationStale, outcome, outcome === "unknown" ? "write might have been applied on an expired generation" : undefined);
+	if (!isProjectServiceCurrent(fence)) throw new ProjectServiceError(PROJECT_SERVICE_CODES.generationStale, outcome, undefined, outcome === "unknown" ? "write might have been applied on an expired generation" : undefined);
 }
 
 // ── 文件结果 ────────────────────────────────────────────────────────────

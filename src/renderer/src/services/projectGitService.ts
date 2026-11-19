@@ -33,13 +33,12 @@ const GIT_UNSUPPORTED = {
 } as const;
 
 function unsupported(detail: string): ProjectServiceError {
-	return new ProjectServiceError(PROJECT_SERVICE_CODES.unsupported, "rejected", detail);
+	return new ProjectServiceError(PROJECT_SERVICE_CODES.unsupported, "rejected", undefined, detail);
 }
 
-/** 远端通道的失败信封只有稳定码：outcome 由闭集推出，GIT_WRITE_RESULT_UNCONFIRMED 是 unknown（禁止重放）。 */
-function remoteFailure(code: string, detail: string, message?: string): ProjectServiceError {
-	// 远端 helper 自带的原文优先：与本机一样能看到 git/hook 说了什么，`detail` 只是内部说明。
-	return new ProjectServiceError(code, opOutcomeOf(code), message !== undefined && message.length > 0 ? message : detail);
+/** 远端通道的失败信封只有稳定码（outcome 由闭集推出，GIT_WRITE_RESULT_UNCONFIRMED 是 unknown，禁止重放）；两条文本通道的边界见 ProjectServiceError。 */
+function remoteFailure(code: string, internal: string, message?: string): ProjectServiceError {
+	return new ProjectServiceError(code, opOutcomeOf(code), message !== undefined && message.length > 0 ? message : undefined, internal);
 }
 
 /** 远端写缺授权：helper 没有声明该动作，快照里就没有对应令牌——在触达写通道之前拒绝。 */
@@ -73,7 +72,7 @@ function createReadFace(projectId: string, api: ProjectServicesApi): Pick<Projec
 			assertProjectTarget(projectId, file);
 			assertRepoScope(projectId, repoPath);
 			const diff = await api.git.workspaceFileDiff(projectId, group, file, repoPath);
-			if (diff === null) throw new ProjectServiceError(PROJECT_SERVICE_CODES.failed, "rejected", "workspace diff returned no result");
+			if (diff === null) throw new ProjectServiceError(PROJECT_SERVICE_CODES.failed, "rejected", undefined, "workspace diff returned no result");
 			return diff;
 		},
 	};
@@ -336,7 +335,7 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 
 	/** 契约缺口：同步方法没有 remote 参数。0 个 remote 是确定失败；>1 个无法替用户选，显式 unsupported。 */
 	function resolveRemote(facts: ProjectGitSyncFacts): string {
-		if (facts.remotes.length === 0) throw new ProjectServiceError("GIT_SYNC_REMOTE_UNKNOWN", "rejected", "remote git has no configured remote");
+		if (facts.remotes.length === 0) throw new ProjectServiceError("GIT_SYNC_REMOTE_UNKNOWN", "rejected", undefined, "remote git has no configured remote");
 		if (facts.remotes.length > 1) throw unsupported(GIT_UNSUPPORTED.remoteSyncAmbiguous);
 		return facts.remotes[0];
 	}

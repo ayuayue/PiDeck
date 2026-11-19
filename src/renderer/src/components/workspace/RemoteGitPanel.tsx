@@ -4,6 +4,7 @@ import type { ProjectFileTarget, RemoteProject } from "../../../../shared/types/
 import { useProjectServices } from "../../hooks/useProjectServices";
 import { useRemoteGitRepos } from "../../hooks/useRemoteGitRepos";
 import { t } from "../../i18n";
+import { remoteGitErrorText } from "../../utils/gitErrorPresentation";
 import { gitCapabilityReasonKey } from "../../utils/remoteGitCapabilityView";
 import { showNotice } from "../../utils/notice";
 import { GitPanel } from "../app/GitPanel";
@@ -102,7 +103,7 @@ function RemoteRepoPanel(props: {
 				.checkout(branch, repoTarget)
 				.then((next) => setBranches(next))
 				.catch((error: unknown) => {
-					showNotice(error instanceof Error ? error.message : String(error), 6000, "error");
+					showNotice(remoteGitErrorText(error), 6000, "error");
 					void reloadBranches();
 				});
 		},
@@ -116,7 +117,7 @@ function RemoteRepoPanel(props: {
 				.createBranch(branchName, mode, repoTarget)
 				.then(() => reloadBranches())
 				.catch((error: unknown) => {
-					showNotice(error instanceof Error ? error.message : String(error), 6000, "error");
+					showNotice(remoteGitErrorText(error), 6000, "error");
 				});
 		},
 		[services, repoTarget, git.branchCreateMode, reloadBranches],
@@ -151,7 +152,7 @@ function RemoteRepoPanel(props: {
 						void services.git
 							.refFileDiff(commit.parents[0] ?? null, commit.hash, file.target, repoTarget)
 							.then((result) => setDiff({ key: `${result.head}:${result.path}`, filePath: result.displayPath, fileTarget: result.target, originalContent: result.originalContent, modifiedContent: result.modifiedContent }))
-							.catch((error: unknown) => showNotice(error instanceof Error ? error.message : String(error), 6000, "error"));
+							.catch((error: unknown) => showNotice(remoteGitErrorText(error), 6000, "error"));
 					}}
 					onOpenWorkspaceFileDiff={(group, target) => {
 						void services.git
@@ -163,7 +164,7 @@ function RemoteRepoPanel(props: {
 								}
 								setDiff({ key: `${group}:${result.path}`, filePath: result.displayPath, fileTarget: result.target, originalContent: result.originalContent, modifiedContent: result.modifiedContent });
 							})
-							.catch((error: unknown) => showNotice(error instanceof Error ? error.message : String(error), 6000, "error"));
+							.catch((error: unknown) => showNotice(remoteGitErrorText(error), 6000, "error"));
 					}}
 					branchCompare={bridge.branchCompare}
 					getStatus={bridge.getStatus}

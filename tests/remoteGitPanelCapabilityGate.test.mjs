@@ -102,8 +102,9 @@ test("远端与本机同形的入口都在，但新协议入口按 helper 声明
 	for (const prop of ["cherryPick=", "revert=", "reset=", "dropCommit="]) assert.ok(panel.includes(prop), prop + " must ride on the shared panel");
 	assert.match(panel, /git\.cherryPick/, "the graph-write gate is the helper declaration of the new verbs");
 	assert.match(panel, /cherryPick=\{historyWrite \? bridge\.cherryPick : undefined\}/, "an old helper keeps the entry absent");
-	// unknown 结果只展示稳定码、不自动重放；文案仍走同一份远端错误字典。
-	assert.match(bridge, /remoteGitErrorMessage\(code\)/);
+	// unknown 结果只展示稳定码、不自动重放；文案只从同一个出口出：桥不再自己读 detail 拼文案。
+	assert.match(bridge, /new Error\(remoteGitErrorText\(error\)\)/);
+	assert.doesNotMatch(bridge, /\.detail\b/, "文案走 remoteGitErrorText：内部说明与非原文文本一旦被桥直接取用就会漏上屏");
 	assert.match(bridge, /outcome/);
 });
 

@@ -17,7 +17,7 @@ export type RemoteProjectGitExtrasPorts = {
 	/** 远端通道的仓库 scope（POSIX 相对路径）。 */
 	scopeOf(repoPath?: ProjectFileTarget): string | undefined;
 	/** 稳定码 → ProjectServiceError（与 provider 其它写面同一份实现）。 */
-	remoteFailure(code: string, detail: string, message?: string): ProjectServiceError;
+	remoteFailure(code: string, internal: string, message?: string): ProjectServiceError;
 };
 
 export function createRemoteProjectGitExtras({ api, projectId, fence, scopeOf, remoteFailure }: RemoteProjectGitExtrasPorts): Pick<ProjectGitService, "stagedDiff" | "generateCommitMessage" | "watchRefs" | "unwatchRefs" | "deleteFiles" | "commitDetail" | "refFileDiff"> {
@@ -83,7 +83,7 @@ export function createRemoteProjectGitExtras({ api, projectId, fence, scopeOf, r
  * 与本机 `git push` / `git pull` 完全一致，不再替用户拒绝。
  */
 export function remoteSyncTarget(facts: ProjectGitSyncFacts): { remote: string | null; branch: string | null } {
-	if (facts.remotes.length === 0) throw new ProjectServiceError("GIT_SYNC_REMOTE_UNKNOWN", "rejected", "remote git has no configured remote");
+	if (facts.remotes.length === 0) throw new ProjectServiceError("GIT_SYNC_REMOTE_UNKNOWN", "rejected", undefined, "remote git has no configured remote");
 	const explicit = facts.remotes.length === 1 && facts.branch !== null && facts.branch.length > 0;
 	return explicit ? { remote: facts.remotes[0], branch: facts.branch } : { remote: null, branch: null };
 }

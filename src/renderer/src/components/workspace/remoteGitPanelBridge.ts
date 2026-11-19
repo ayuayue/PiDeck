@@ -2,7 +2,7 @@ import type { CommitDetail, CommitEntry, GitAheadBehind, GitChangedFile, GitDisc
 import type { GitHistoryCommit, RemoteGitCommitDetail } from "../../../../shared/types/git";
 import type { ProjectServices } from "../../services/projectServiceContracts";
 import type { CompareChangesResult } from "../app/git/GitCompareChanges";
-import { remoteGitErrorMessage } from "../../utils/gitErrorPresentation";
+import { remoteGitErrorMessage, remoteGitErrorText } from "../../utils/gitErrorPresentation";
 
 /**
  * 远端项目的 Git 面板数据面：把 `ProjectGitService`（按位置分派）接到本机 `GitPanel` 的 props 上。
@@ -43,14 +43,13 @@ export function createRemoteGitPanelBridge(services: ProjectServices, repo: Proj
 		decorationCache = undefined;
 	};
 
-	/** 远端失败只有稳定码：文案走同一份字典，`code`/`outcome` 原样带上，供面板判定不重放。 */
+	/**
+	 * 远端失败只有稳定码：文案走同一个出口（原文 → 词典 → 兜底），`code`/`outcome` 原样带上，
+	 * 供面板判定不重放；内部说明只随错误对象走调试通道，不参与文案。
+	 */
 	const fail = (error: unknown): never => {
-		const code = (error as { code?: unknown } | null)?.code;
-		// helper 自带的原文（远端 git/hook 的 stderr 摘要）优先：与本机一样能看到真正的原因；
-		// 没有原文时才回落到词典文案，闭集码仍然决定分类与重放判断。
-		const detail = (error as { detail?: unknown } | null)?.detail;
-		const text = typeof detail === "string" && detail.trim().length > 0 ? detail : typeof code === "string" && code.length > 0 ? remoteGitErrorMessage(code) : error instanceof Error ? error.message : String(error);
-		throw Object.assign(new Error(text), { code, outcome: (error as { outcome?: unknown } | null)?.outcome });
+		const source = error as { code?: unknown; outcome?: unknown; internal?: unknown } | null;
+		throw Object.assign(new Error(remoteGitErrorText(error)), { code: source?.code, outcome: source?.outcome, internal: source?.internal });
 	};
 	const run = async <T>(task: () => Promise<T>): Promise<T> => {
 		try {
