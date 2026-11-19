@@ -80,7 +80,9 @@ func (a *app) view() core.Node {
 		a.taskFormDialog(),
 		a.projectGroupDialog(),
 		a.workspaceRenameDialog(),
-		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastBottomEnd, Inset: 104, CloseLabel: apptext.T("关闭"), TestID: "toasts"},
+		// Toasts sit at the top right, 16 under the header: the header's
+		// own height is the inset, and ui.Toasts adds the margin.
+		ui.Toasts{Toaster: a.toaster, Placement: ui.ToastTopEnd, Inset: ui.HeaderHeight, CloseLabel: apptext.T("关闭"), TestID: "toasts"},
 	}}
 }
 
