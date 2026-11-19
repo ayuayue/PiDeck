@@ -1,3 +1,4 @@
+import { REMOTE_GIT_HISTORY_SOURCE } from "./RemoteGitHistorySource";
 /**
  * Managed Git writes, deployed as their own bundle file (git-write.mjs) and imported by git-read.mjs: native Git
  * runs in an owned private metadata context, never with live hooks/filters.
@@ -8,23 +9,20 @@
  *   scratch metadata context (`GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE`/`GIT_OBJECT_DIRECTORY` plus
  *   `GIT_CONFIG_NOSYSTEM`/`GIT_CONFIG_GLOBAL=/dev/null`) whose configuration is frozen and whose hooks directory
  *   is empty; effective hooks/filter/signing requirements are refused before AND after, and no gate is bypassed;
- * - `git.stage`/`git.unstage` publish validated, path-scoped index bytes only; `git.commit` publishes no index
- *   bytes at all, because the confirmed index already describes the tree about to become HEAD, and moves the ref
- *   with a native CAS (before it nothing is published, after it a failure is unconfirmed rather than a denial);
+ * - `git.stage`/`git.unstage` publish validated, path-scoped index bytes only; `git.commit` publishes no index bytes
+ *   at all (the confirmed index already describes the next HEAD) and moves the ref with a native CAS;
  * - `git.createBranch` is a create-only CAS on `refs/heads/<name>` that can never move HEAD; a name is asked of
  *   Git first (`check-ref-format --branch`) and then held to the protocol's own rules; `git.switchBranch` runs
- *   native `git switch`, where a conflicting worktree is refused rather than forced and a post-checkout hook is a
- *   refusal, not something to skip;
+ *   native `git switch`, where a conflicting worktree is refused rather than forced, and a post-checkout hook is a refusal;
  * - `git.discard` is the recoverable one: the file's raw bytes (`hash-object -w --no-filters` writes them
  *   verbatim and runs no clean filter) go into a create-only `refs/pideck/recovery/<stamp>` ref authored by a
- *   fixed PiDeck identity, the ref is read back, and the file is only touched afterwards - so a failure before
- *   that point leaves it alone and any failure after it is reported as unconfirmed. A `" D"` resource needs no
- *   snapshot (restoring it recreates the index version). Nothing prunes those refs automatically;
- * - scratch directories are 0700 with random names, are only unwound when their recorded identities still match,
- *   and unknown or externally replaced artifacts are retained instead of recursively removed;
+ *   fixed PiDeck identity, read back before the file is touched - so a failure before that leaves it alone and
+ *   any failure after it is unconfirmed. A `" D"` resource needs no snapshot; nothing prunes those refs;
+ * - scratch directories are 0700 with random names, unwound only while their identities match; unknown artifacts stay;
  * - an unreaped native writer keeps its lock, which is why cleanup waits for killed children first.
  */
-export const REMOTE_GIT_WRITE_SOURCE = String.raw`export function createGitWriteProgram(fs, port) {
+export const REMOTE_GIT_WRITE_SOURCE = (
+	String.raw`export function createGitWriteProgram(fs, port) {
 	const crypto = port.crypto;
 	const fail = port.failure, MAX_INDEX = 16777216, MAX_TEXT = 262144;
 	const CONFIG = "^(core\\.(hookspath|attributesfile|excludesfile|repositoryformatversion|filemode|ignorecase|autocrlf|eol|safecrlf|symlinks|ignorestat|trustctime|checkstat|protecthfs|protectntfs|quotepath)|commit\\.gpgsign|index\\.version|extensions\\.objectformat|status\\.renames|diff\\.(renames|renamelimit))$";
@@ -700,4 +698,5 @@ export function createGitInitProgram(fs, root, port) {
 	}
 	return { run: run };
 }
-`.replace(/\r?\n[\t ]*/g, "");
+` + REMOTE_GIT_HISTORY_SOURCE
+).replace(/\r?\n[\t ]*/g, "");

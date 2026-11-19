@@ -955,6 +955,7 @@ export const zhCN = {
 	"git.commitFailed": "提交失败",
 	"git.operationFailed": "Git 操作失败",
 	"git.compareFailed": "分支对比失败",
+	"git.recoveryFailed": "可还原丢弃操作失败",
 	"git.pushNoUpstreamTitle": "推送失败：分支未设置上游",
 	"git.pushNoUpstreamDesc": "当前分支 {branch} 还没有上游分支，可在终端运行以下命令建立上游后重试：\n{command}",
 	"git.deleteFile": "删除文件",

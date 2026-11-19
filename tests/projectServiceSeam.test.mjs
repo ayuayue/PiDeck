@@ -713,20 +713,25 @@ test("远端 Git 写与强刷：走 main 的令牌经纪；worktree*/deleteFiles
 	assert.equal(calls[9].args[3], "discard-token");
 	assert.deepEqual(plain(checkout), { current: "main", branches: ["main"] });
 
+	// 删除归文件服务回收站：逐目标走 files.delete，没有任何 git 删除动词。
+	calls.length = 0;
+	await services.git.deleteFiles([target, { projectId: "p2", relativePath: "b.ts" }], repo);
+	assert.deepEqual(names(calls), ["files.delete", "files.delete"]);
+
 	const writes = calls.length;
-	for (const action of [() => services.git.deleteFiles([target], repo), () => services.git.worktreeList(), () => services.git.worktreeCreate("topic"), () => services.git.worktreeRemove({ projectId: "p2", relativePath: "wt" })]) {
+	for (const action of [() => services.git.worktreeList(), () => services.git.worktreeCreate("topic"), () => services.git.worktreeRemove({ projectId: "p2", relativePath: "wt" })]) {
 		await assert.rejects(action, (error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported);
 	}
-	assert.equal(calls.length, writes, "worktree*/deleteFiles 必须零调用");
+	assert.equal(calls.length, writes, "worktree* 必须零调用");
 	assert.equal(services.capabilities.git.write, true);
 	assert.equal(services.capabilities.git.forceRefresh, true);
 	assert.equal(services.capabilities.git.branchCreateMode, "both");
 	assert.equal(services.capabilities.git.sync, true);
 	assert.equal(services.capabilities.git.recovery, true);
 	assert.equal(services.capabilities.git.init, true);
-	assert.equal(services.capabilities.git.autoFetch, false);
+	assert.equal(services.capabilities.git.autoFetch, true, "自动 fetch 与本机同节奏");
 	assert.equal(services.capabilities.git.worktree, false);
-	assert.equal(services.capabilities.git.deleteFiles, false);
+	assert.equal(services.capabilities.git.deleteFiles, true);
 });
 
 test("本机 Git：syncFacts/recovery 仍显式 unsupported（本机没有这些事实源）", async () => {

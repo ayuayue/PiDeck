@@ -1,6 +1,75 @@
 # GitPanel / RemoteGitPanel 组件 parity 与合并门禁
 
-Status: **Wave 0–2 completed，部分合并（2026-11-03）**。本文是组件合并的逐项行为对照；只有表中“可安全共享”一项完成并以行为测试证明后，才允许删除对应旧实现。`RemoteGitPanel` 仍保留，不能据此文宣称两个面板已完全合并。
+Status: **W4 面板合并 + W5 数据面补齐（2026-11-18）**。远端项目渲染的就是本机那一块 `GitPanel`，数据面由
+`components/workspace/remoteGitPanelBridge.ts` 从位置无关的 `ProjectGitService` 注入；`RemoteGitPanel` 只剩“位置前置条件”
+（trust 门、仓库发现截断说明、恢复区）。下面 2026-11-03 的逐项对照保留为历史记录与回退检查表；
+**任何“给远端再写一套变更区/历史/提交框”的改动都是回退**。
+
+## 当前结构（2026-11-18，W5 后）
+
+| 层 | 归属 | 说明 |
+|---|---|---|
+| 变更区 / 提交框 / 分组树 / 源代码管理图 / 比较更改 | `components/app/GitPanel.tsx` | 本机与远端同一份实现；入口一律由 `gitCapabilities` 门禁 |
+| 远端数据面 | `components/workspace/remoteGitPanelBridge.ts` | 作用域绑定、错误码→文案、结果形状映射、短 ref→全名、ref 装饰、总数；不发明能力 |
+| 远端前置条件 | `components/workspace/RemoteGitPanel.tsx` | trust 门、仓库发现截断说明、恢复区（底部插槽）；多仓与 `GitDrawerHost` 同形**并排** |
+| 本机恢复区 | `components/workspace/LocalGitRecoverySection.tsx` | 本机丢弃现在也在 `refs/pideck/recovery/*` 留快照，分区与远端同套文案 |
+| 差异渲染 | `FileDiffViewer`（由宿主提供内容） | 两端 workspace diff / 提交文件 diff 都走 `ProjectGitService` |
+
+## W5 补齐的能力（helper 1.32.0 起；1.34.0 增加原文与 upstream 语义；1.35.0 补齐图谱写操作）
+
+| 能力 | 协议/通道 | 降级 |
+|---|---|---|
+| AI 提交摘要 | helper `git.stagedDiff` → `git:remote-staged-diff` → `git:generate-commit-message` 的第三参 | helper 不声明时按钮不出现 |
+| 提交总数徽章 | `git.log { withCount }` → `totalCount` | 同上；缺省退回已加载页长度 |
+| 全分支 / 分支过滤 | `git.log { ref, all }`（ref 为全名） | 同上；缺省 HEAD-only |
+| 提交详情 `+/-` | `git.commitDetail` 的 `additions/deletions` + `shortStat` | 二进制为缺席，不填 0 |
+| 三点比较 | `git.compare { mode: "threeDot" }` → `mergeBase/ahead/behind` | 缺省两树（trees） |
+| refs 秒级刷新 | `git:remote-watch-refs`（helper `fs.watch` 订阅 `.git`/`.git/refs`/`.git/refs/heads`/`.git/refs/tags`）→ `remote:project-facts-changed` 的 `{kind:"status"}` | 订阅失败退回 5 秒轮询 |
+| 删除变更文件 | `ProjectGitService.deleteFiles` → 文件服务回收站（`files.delete`） | 与 git discard 无关 |
+
+`git.stagedDiff` 是本批唯一的“新方法名”，渲染层用它作为**整批协议是否可用**的唯一标记：旧 helper 上
+总数/过滤/三点/AI 摘要/删除入口都保持缺席，而不是点了才报错。
+
+## 代码位置（W5 拆分后）
+
+文件体量门禁要求「存量巨文件只准降不准升」，本批新逻辑因此拆成独立模块；既有 import 路径不变
+（`RemoteGitService` 继续 `export *` 形状层）。
+
+| 模块 | 内容 |
+|---|---|
+| `src/main/git/RemoteGitReadShapes.ts`（506 行） | helper 答复的形状校验 + 公共结果映射（从 `RemoteGitService` 整体搬出）。略超 400 行目标：这些都是「一个协议层的完整语义」，再拆会把同一份不变量切到两个文件，故保留并在此说明 |
+| `src/main/remote/RemoteGitReadHistorySource.ts` | 冻结 worker 的后半段（历史/比较/暂存 diff）。**只拆 TypeScript 持有方式**：与 `RemoteGitReadSource.ts` 拼接后字节不变，`REMOTE_HELPER_GIT_READ_SHA256` 未改 |
+| `src/main/ipc/remoteGitReadMapping.ts` | helper 结果 → 公共历史页/比较形状 |
+| `src/main/ipc/remoteGitStagedDiffIpc.ts` | 暂存 diff 通道（AI 摘要输入） |
+| `src/main/ipc/gitRecoveryIpc.ts` | 本机可还原丢弃的三个通道 |
+| `src/main/ipc/gitCommitMessageIpc.ts` | QuickGen（复用 pi 进程）+ 摘要通道 |
+| `src/renderer/src/services/remoteProjectGitExtras.ts` | 远端 provider 的面板扩展动作（stagedDiff / 摘要 / refs 订阅 / 删除 / commitDetail / refFileDiff） |
+| `src/main/remote/RemoteGitHistorySource.ts` | 冻结写 bundle 的「提交图谱写动词」半段（与 `RemoteGitWriteSource.ts` 拼接成同一份 `git-write.mjs`） |
+| `src/main/remote/RemoteGitHistoryContract.ts` | 四个写动词的方法名、reset 模式白名单与参数/回执类型 |
+| `src/main/git/RemoteGitHistoryService.ts` | main 侧 data plane：令牌种类核对、OID 收敛、回执形状校验 |
+| `src/main/ipc/remoteGitHistoryIpc.ts` | 四个写通道（`git:remote-cherry-pick` 等）与令牌消费 |
+| `src/main/ipc/remoteGitTokenIssue.ts` | 快照 → 令牌的唯一签发点（事实出口与令牌出口共用） |
+| `src/renderer/src/services/projectGitHistoryExtras.ts` | 两端 provider 的四个动作（本机走既有通道，远端带令牌） |
+| `src/shared/ipcGitPanelChannels.ts` | Git 面板通道集中表（由 `ipcChannels` 展开；`check-ipc-wiring` 会解析本模块，覆盖率不变） |
+
+## 仍然保留的差异（刻意，不是欠账）
+
+| 项 | 原因 |
+|---|---|
+| trust 门 / 仓库发现截断 | 远端代码执行边界与发现上限 |
+| remote-tracking refs 不参与 ref 装饰 | helper `git.refs` 只报本地分支与 tag（不暗示未交付状态） |
+
+2026-11-18 起，以下三项已按「本地有，远端也要有」补齐：
+
+| 项 | 现在的实现 |
+|---|---|
+| 远端错误原文 | helper 把被拒命令的 stderr 有界（4 KiB 摘要）随稳定码回传，main 以 `message` 放进失败信封，渲染层优先展示原文；无原文才回落到词典文案 |
+| push / pull | 恰好一个 remote + 具名分支时显式命名；多 remote 或 detached HEAD 时传 `remote/branch = null`，跟随分支既有的上游（与本机 `git push` / `git pull` 同规则） |
+| 自动 fetch | 与本机同节奏：面板打开后每 5 分钟 fetch 一次（只改远程跟踪引用，失败静默） |
+| 图谱写操作 | 远端已有 cherry-pick / revert / reset(soft·mixed·hard) / drop，走 helper `git.cherryPick` / `git.revert` / `git.reset` / `git.drop`，每个动作一枚令牌（`cherryPickToken`…）；命令与本机 `GitService` 逐字一致，冲突时先 `--abort` 再把 git 原文当失败原因，绝不留下远端无法解决的 sequencer 状态 |
+
+## 历史对照（2026-11-03，保留）
+
 
 基线行为以当前代码和定向测试为准，不以旧计划中的行数或方法数推断等价。Wave 2 完成后的目标文件行数：`GitPanel.tsx` 1956、`RemoteGitPanel.tsx` 612、`RemoteGitCompareSection.tsx` 117、`DrawerSurface.tsx` 273；`ProjectGitDrawer.tsx` 为 26 行。
 

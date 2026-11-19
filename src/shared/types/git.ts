@@ -129,16 +129,31 @@ export type GitReadSnapshot = {
 	fetchToken?: string;
 	pushToken?: string;
 	pullToken?: string;
+	/** 提交图谱写动词各自一枚：一个令牌只授权一个动作。 */
+	cherryPickToken?: string;
+	revertToken?: string;
+	resetToken?: string;
+	dropCommitToken?: string;
 };
 
 // ── G3a：远端历史／引用／提交详情／两个版本之间的单文件差异（只读、有界、超限即拒）──
 
-/** 一页历史：`commits` 有界，`hasMore` 表示还有下一页（由 main 多取一条判断，不向渲染层报告总数）。 */
+/**
+ * 一页历史：`commits` 有界，`hasMore` 表示还有下一页（由 main 多取一条判断）。
+ *
+ * `total` 只在调用方显式要总数（`withCount`）时出现：helper 用同一条 log 过滤做 `rev-list --count`，
+ * 于是徽章与列表共享一份过滤条件。没要总数时**缺席**，不填 0 冒充「空仓库」。
+ */
 export type RemoteGitCommit = { oid: string; parents: string[]; authorName: string; authorEmail: string; authorTimeSec: number; subject: string };
-export type RemoteGitLogPage = { commits: RemoteGitCommit[]; hasMore: boolean };
-export type RemoteGitLogResult = { ok: true; page: RemoteGitLogPage } | { ok: false; code: string };
-/** 提交详情：完整消息（有界 UTF-8）＋相对第一父提交的变更文件列表；根提交无 base。 */
-export type RemoteGitCommitFile = { status: string; path: string; oldPath?: string };
+export type RemoteGitLogPage = { commits: RemoteGitCommit[]; hasMore: boolean; total?: number };
+export type RemoteGitLogResult = { ok: true; page: RemoteGitLogPage } | { ok: false; code: string; message?: string };
+/**
+ * 提交详情：完整消息（有界 UTF-8）＋相对第一父提交的变更文件列表；根提交无 base。
+ *
+ * `additions`/`deletions` 来自同一次 `diff-tree --numstat`（二进制文件计数缺席）；
+ * `shortStat` 是整条提交的合计，供悬停卡显示 `+N/-M`，缺席时展示层不编造 0。
+ */
+export type RemoteGitCommitFile = { status: string; path: string; oldPath?: string; additions?: number; deletions?: number };
 export type RemoteGitCommitDetail = {
 	oid: string;
 	parents: string[];
@@ -151,15 +166,19 @@ export type RemoteGitCommitDetail = {
 	subject: string;
 	message: string;
 	files: RemoteGitCommitFile[];
+	shortStat?: { files: number; insertions: number; deletions: number };
 };
-export type RemoteGitCommitDetailResult = { ok: true; detail: RemoteGitCommitDetail } | { ok: false; code: string };
+export type RemoteGitCommitDetailResult = { ok: true; detail: RemoteGitCommitDetail } | { ok: false; code: string; message?: string };
+/** 暂存区 unified diff 全文（helper `git.stagedDiff`）：空串表示没有暂存内容，超限截断带标记。 */
+export type RemoteGitStagedDiff = { diff: string };
+export type RemoteGitStagedDiffResult = { ok: true; value: RemoteGitStagedDiff } | { ok: false; code: string; message?: string };
 /** 本地分支与 tag；不含 remote-tracking ref，避免暗示尚未交付的同步状态。 */
 export type RemoteGitRef = { fullName: string; name: string; oid: string; kind: "branch" | "tag" };
 export type RemoteGitRefs = { head: string | null; branch: string | null; refs: RemoteGitRef[] };
-export type RemoteGitRefsResult = { ok: true; refs: RemoteGitRefs } | { ok: false; code: string };
+export type RemoteGitRefsResult = { ok: true; refs: RemoteGitRefs } | { ok: false; code: string; message?: string };
 /** `base: null` 表示该侧不存在（根提交，或该侧新增文件）；两侧都不存在时拒绝。 */
 export type RemoteGitRefFileDiff = { path: string; target: ProjectFileTarget; displayPath: string; base: string | null; head: string; originalContent: string; modifiedContent: string };
-export type RemoteGitRefFileDiffResult = { ok: true; diff: RemoteGitRefFileDiff } | { ok: false; code: string };
+export type RemoteGitRefFileDiffResult = { ok: true; diff: RemoteGitRefFileDiff } | { ok: false; code: string; message?: string };
 /**
  * G5b refs compare：两个**全名本地引用**（refs/heads/* 或 refs/tags/*）之间的有界变更文件列表。
  * 结果携带解析后的 OID，逐文件两侧内容仍走既有 `remoteRefFileDiff`（同一 diff 视图），不新增内容通道。
@@ -177,20 +196,22 @@ export type RemoteGitCompare = {
 	mode?: GitCompareMode;
 	ahead?: number;
 	behind?: number;
+	/** 三点语义解析出的 merge-base（`trees` 没有，缺席）。 */
+	mergeBase?: string;
 };
-export type RemoteGitCompareResult = { ok: true; compare: RemoteGitCompare } | { ok: false; code: string };
+export type RemoteGitCompareResult = { ok: true; compare: RemoteGitCompare } | { ok: false; code: string; message?: string };
 /**
  * G5c explicit init: creates .git at the project root and reports the default branch of the new repository.
  * The renderer only sends projectId; main and the helper decide whether the root may be initialized at all.
  */
-export type RemoteGitInitResult = { ok: true; branch: string | null } | { ok: false; code: string };
+export type RemoteGitInitResult = { ok: true; branch: string | null } | { ok: false; code: string; message?: string };
 /**
  * G5d repository discovery: repositories under the project root as the remote helper found them. `path` is a
  * project-relative POSIX path ("" is the root repository) and is the only value that may become a read scope;
  * `name` is a display label. `truncated` says the helper's bounded walk was cut by a cap.
  */
 export type RemoteGitRepo = { path: string; name: string };
-export type RemoteGitReposResult = { ok: true; repos: RemoteGitRepo[]; truncated: boolean } | { ok: false; code: string };
+export type RemoteGitReposResult = { ok: true; repos: RemoteGitRepo[]; truncated: boolean } | { ok: false; code: string; message?: string };
 /**
  * 忽略判定（helper 1.23.0）：`ignored` 与请求**逐位对应**——同序、同长、不省略。
  * 由 git 自己回答（`check-ignore --no-index`），所以取反规则、嵌套 .gitignore、core.excludesFile
@@ -198,28 +219,28 @@ export type RemoteGitReposResult = { ok: true; repos: RemoteGitRepo[]; truncated
  */
 export type RemoteGitIgnoreResult = Op<{ ignored: boolean[] }>;
 /** G3b branch write face: creating and switching both move a ref the user explicitly asked for. */
-export type RemoteGitBranchMutationResult = { ok: true } | { ok: false; code: string };
+export type RemoteGitBranchMutationResult = { ok: true } | { ok: false; code: string; message?: string };
 /** G4a recoverable discard: the snapshot ref (null when the discarded change was a deletion) goes back to the panel. */
-export type RemoteGitDiscardResult = { ok: true; recoveryRef: string | null } | { ok: false; code: string };
+export type RemoteGitDiscardResult = { ok: true; recoveryRef: string | null } | { ok: false; code: string; message?: string };
 /** G4b recovery store: the list is read-only, restore and drop each need their own main-owned grant. */
 export type RemoteGitRecoveryEntryView = { ref: string; oid: string; path: string; bytes: number; at: number };
-export type RemoteGitRecoveryListResult = { ok: true; entries: RemoteGitRecoveryEntryView[]; truncated: boolean } | { ok: false; code: string };
-export type RemoteGitRecoveryRestoreResult = { ok: true; path: string; bytes: number } | { ok: false; code: string };
-export type RemoteGitRecoveryDropResult = { ok: true } | { ok: false; code: string };
+export type RemoteGitRecoveryListResult = { ok: true; entries: RemoteGitRecoveryEntryView[]; truncated: boolean } | { ok: false; code: string; message?: string };
+export type RemoteGitRecoveryRestoreResult = { ok: true; path: string; bytes: number } | { ok: false; code: string; message?: string };
+export type RemoteGitRecoveryDropResult = { ok: true } | { ok: false; code: string; message?: string };
 /** G5a sync: facts are read-only, the three verbs each need their own grant and never force anything. */
 export type RemoteGitSyncFactsView = { branch: string | null; upstream: string | null; ahead: number; behind: number; remotes: string[] };
-export type RemoteGitSyncFactsResult = { ok: true; facts: RemoteGitSyncFactsView } | { ok: false; code: string };
+export type RemoteGitSyncFactsResult = { ok: true; facts: RemoteGitSyncFactsView } | { ok: false; code: string; message?: string };
 export type RemoteGitFetchOutcome = { upToDate: boolean; updated: { ref: string; before: string | null; after: string }[] };
-export type RemoteGitFetchOutcomeResult = { ok: true; outcome: RemoteGitFetchOutcome } | { ok: false; code: string };
+export type RemoteGitFetchOutcomeResult = { ok: true; outcome: RemoteGitFetchOutcome } | { ok: false; code: string; message?: string };
 export type RemoteGitPushOutcome = { outcome: "up-to-date" | "pushed" | "new"; refspec: string };
-export type RemoteGitPushOutcomeResult = { ok: true; outcome: RemoteGitPushOutcome } | { ok: false; code: string };
+export type RemoteGitPushOutcomeResult = { ok: true; outcome: RemoteGitPushOutcome } | { ok: false; code: string; message?: string };
 export type RemoteGitPullOutcome = { mode: "up-to-date" | "fast-forward" | "merge"; head: string };
-export type RemoteGitPullOutcomeResult = { ok: true; outcome: RemoteGitPullOutcome } | { ok: false; code: string };
+export type RemoteGitPullOutcomeResult = { ok: true; outcome: RemoteGitPullOutcome } | { ok: false; code: string; message?: string };
 /** An uncertain mutation must be checked by a fresh read, never automatically replayed. */
-export type GitIndexMutationResult = { ok: true } | { ok: false; code: string };
+export type GitIndexMutationResult = { ok: true } | { ok: false; code: string; message?: string };
 /** A commit has no renderer-visible result beyond success: the new HEAD is read back through a fresh snapshot. */
-export type GitCommitResult = { ok: true } | { ok: false; code: string };
-export type GitReadSnapshotResult = { ok: true; snapshot: GitReadSnapshot } | { ok: false; code: string };
+export type GitCommitResult = { ok: true } | { ok: false; code: string; message?: string };
+export type GitReadSnapshotResult = { ok: true; snapshot: GitReadSnapshot } | { ok: false; code: string; message?: string };
 
 /** 批量回滚时保留资源组，避免同一目录中的 tracked/untracked 文件混淆。 */
 export type GitDiscardResource = {
@@ -286,6 +307,24 @@ export type GitRef = {
 	hash: string; // 对象 SHA
 	type: "head" | "remote" | "tag";
 };
+
+/**
+ * 本机可还原丢弃（与远端同一套语义）：丢弃前把文件字节写进仓库对象库，
+ * 并把一条快照 commit 挂在 `refs/pideck/recovery/<stamp>` 下；只有用户显式删除才会消失。
+ */
+export type GitRecoveryEntry = {
+	/** 快照 ref 全名（`refs/pideck/recovery/...`），删除时原样回传。 */
+	ref: string;
+	/** 快照 commit 的 OID。 */
+	oid: string;
+	/** 项目相对路径（POSIX），还原即写回这个位置。 */
+	path: string;
+	bytes: number;
+	/** 快照时间（Unix 毫秒）。 */
+	at: number;
+};
+/** 列表超出上限时 `truncated` 为真而不是把结果裁成“完整”。 */
+export type GitRecoveryListing = { entries: GitRecoveryEntry[]; truncated: boolean };
 
 /** 两个分支之间的差异概要 */
 /** 当前分支相对其上游（@{upstream}）的提交差距；无上游/非仓库时为 null。 */

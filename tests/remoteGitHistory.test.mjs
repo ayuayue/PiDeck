@@ -121,14 +121,14 @@ test("commit detail carries the byte-exact message, both identities and the chan
 	assert.equal(detail.committerName, "Fixture");
 	assert.deepEqual(Array.from(detail.parents), [f.git("rev-parse", "HEAD^").trim()]);
 	const files = Array.from(detail.files);
-	assert.deepEqual(
-		files.filter((file) => file.oldPath !== undefined),
-		[{ status: "R100", path: "renamed.txt", oldPath: "one.txt" }],
-	);
-	assert.deepEqual(
-		files.filter((file) => file.oldPath === undefined),
-		[{ status: "A", path: "two.txt" }],
-	);
+	// 文件项现在还带 numstat 行数（二进制为缺席）：这里只钉协议骨架，行数在下一段单独核对。
+	const shape = (file) => ({ status: file.status, path: file.path, ...(file.oldPath === undefined ? {} : { oldPath: file.oldPath }) });
+	assert.deepEqual(files.filter((file) => file.oldPath !== undefined).map(shape), [{ status: "R100", path: "renamed.txt", oldPath: "one.txt" }]);
+	assert.deepEqual(files.filter((file) => file.oldPath === undefined).map(shape), [{ status: "A", path: "two.txt" }]);
+	// shortStat 与逐文件行数同源：文件数一致，合计等于逐文件相加（缺席按 0 计）。
+	assert.equal(detail.shortStat.files, files.length);
+	const summed = files.reduce((total, file) => ({ insertions: total.insertions + (file.additions ?? 0), deletions: total.deletions + (file.deletions ?? 0) }), { insertions: 0, deletions: 0 });
+	assert.deepEqual({ insertions: detail.shortStat.insertions, deletions: detail.shortStat.deletions }, summed);
 	assertReadOnly(f, before);
 });
 
@@ -141,7 +141,10 @@ test("a root commit has no parents and lists its files against nothing", options
 	const oid = f.git("rev-parse", "HEAD").trim();
 	const detail = successful(await f.request("git.commitDetail", { oid }));
 	assert.deepEqual(Array.from(detail.parents), []);
-	assert.deepEqual(Array.from(detail.files), [{ status: "A", path: "first.txt" }]);
+	assert.deepEqual(
+		Array.from(detail.files).map((file) => ({ status: file.status, path: file.path })),
+		[{ status: "A", path: "first.txt" }],
+	);
 	const diff = successful(await f.request("git.refFileDiff", { base: null, head: oid, path: "first.txt" }));
 	assert.equal(diff.originalContent, "");
 	assert.equal(diff.modifiedContent, "first\n");

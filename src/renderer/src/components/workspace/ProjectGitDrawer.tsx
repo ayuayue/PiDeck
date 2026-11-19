@@ -20,7 +20,7 @@ export type ProjectGitDrawerProps = GitDrawerHostProps & {
  */
 export function ProjectGitDrawer({ project, ...props }: ProjectGitDrawerProps) {
 	if (project && project.id === props.projectId && isRemoteProject(project)) {
-		return <RemoteGitPanel key={JSON.stringify([project.id, project.locator.hostId, project.locator.remotePath])} project={project} />;
+		return <RemoteGitPanel key={JSON.stringify([project.id, project.locator.hostId, project.locator.remotePath])} project={project} onOpenFile={props.onOpenFile} />;
 	}
 	return <LocalGitDrawerHost project={project} {...props} />;
 }

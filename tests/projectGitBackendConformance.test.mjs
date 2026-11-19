@@ -115,7 +115,7 @@ test("公共仓库列表：本地不截断、远端保留 truncated；两者都�
 	}
 });
 
-test("公共历史页：本地分页 + totalCount；远端 HEAD-only 不填 totalCount，过滤器显式拒绝", async () => {
+test("公共历史页：本地分页 + totalCount；远端 ref/全部分支/总数按 helper 参数透传，path 显式拒绝", async () => {
 	const h = harness();
 	try {
 		const local = await call(h, "git:history-page", h.localProject.id, { maxCount: 2, skip: 1 });
@@ -133,9 +133,17 @@ test("公共历史页：本地分页 + totalCount；远端 HEAD-only 不填 tota
 		assert.equal("totalCount" in remote.value, false, "远端没有总数，不能填 0");
 		assert.deepEqual(plain(remote.value.commits[0]), { oid: oid("c"), parents: [], subject: "one", authorName: "F", authorEmail: "f@e.invalid", authorTimeMs: 1 });
 
-		const filtered = await call(h, "git:history-page", h.remoteProject.id, { ref: "main" });
-		assert.equal(filtered.ok, false);
-		assert.equal(filtered.code, "UNSUPPORTED_CAPABILITY", "远端不支持 ref 过滤时必须拒绝，不能静默丢掉参数");
+		// ref/全部分支/总数都有对应 helper 参数：原样透传，不静默吞掉。
+		const filtered = await call(h, "git:history-page", h.remoteProject.id, { ref: "refs/heads/main", allBranches: false, withTotal: true });
+		assert.equal(filtered.ok, true);
+		const remoteOptions = h.calls.filter((entry) => entry.kind === "remoteHistory").at(-1).options;
+		assert.equal(remoteOptions.ref, "refs/heads/main");
+		assert.equal(remoteOptions.all, false);
+		assert.equal(remoteOptions.withCount, true);
+		// path 没有 helper 参数：拒绝而不是静默丢掉。
+		const withPath = await call(h, "git:history-page", h.remoteProject.id, { path: { projectId: h.remoteProject.id, relativePath: "a.ts" } });
+		assert.equal(withPath.ok, false);
+		assert.equal(withPath.code, "UNSUPPORTED_CAPABILITY", "远端不支持 path 过滤时必须拒绝，不能静默丢掉参数");
 	} finally {
 		rmSync(h.tmp, { recursive: true, force: true });
 	}

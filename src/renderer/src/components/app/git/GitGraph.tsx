@@ -7,7 +7,7 @@ import { showNotice } from "../../../utils/notice";
 import type { CommitDetail, CommitEntry, GitChangedFile } from "../../../../../shared/types";
 import { t, type TranslationKey } from "../../../i18n";
 import { compareStatusLetter, FileIcon, fileNameOnly, statusTone, Twistie } from "./GitResourceTree";
-import { GitCompactFilter, PaneHeader } from "./GitPanelControls";
+import { GitCompactFilter, GitGraphFilter, PaneHeader } from "./GitPanelControls";
 import { Button } from "../../ui-shadcn/button";
 import { Collapsible, CollapsibleContent } from "../../ui-shadcn/collapsible";
 
@@ -21,6 +21,8 @@ export type GitGraphProps = {
 	commitDetail: (projectId: string, ref: string) => Promise<CommitDetail | null>;
 	onOpenCommitFileDiff: (commit: CommitEntry, file: GitChangedFile) => void | Promise<void>;
 	branches: string[];
+	/** 分支/全部分支过滤器：远端只有 HEAD 分页时关掉，缺省可用。 */
+	refFilter?: boolean;
 	currentBranch: string | null;
 	open: boolean;
 	height: number;
@@ -67,9 +69,8 @@ const MAX_VISIBLE_GRAPH_LANES = 8;
 const GRAPH_COLORS = ["var(--git-graph-lane-1)", "var(--git-graph-lane-2)", "var(--git-graph-lane-3)", "var(--git-graph-lane-4)", "var(--git-graph-lane-5)", "var(--git-graph-lane-6)"];
 
 /**
- * Build VS Code-style input/output swimlanes from topologically ordered commits.
- * An unseen commit intentionally starts at input.length; this preserves existing
- * lanes while refs introduced by --all enter from the right without crossing them.
+ * Build VS Code-style swimlanes from topologically ordered commits: an unseen commit starts at input.length so
+ * lanes introduced by --all enter from the right without crossing existing ones.
  */
 function buildGraphRows(commits: CommitEntry[]): GraphRow[] {
 	let colorIndex = -1;
@@ -121,9 +122,8 @@ function GraphLanes({ row, current }: { row: GraphRow; current: boolean }) {
 	const paths: GraphPath[] = [];
 	let outputIndex = 0;
 
-	// This follows renderSCMHistoryItemGraph rather than approximating it: each
-	// surviving input lane is matched to the next output lane and bent only when
-	// deleting the current commit shifts that lane to the left.
+	// Same rule as renderSCMHistoryItemGraph: surviving lanes are matched to the next output lane and bent only
+	// when deleting the current commit shifts that lane left.
 	for (let index = 0; index < input.length; index += 1) {
 		const node = input[index];
 		if (node.id === commit.hash) {
@@ -133,7 +133,7 @@ function GraphLanes({ row, current }: { row: GraphRow; current: boolean }) {
 					color: node.color,
 				});
 			} else if (commit.parents.length > 0) {
-				// 第一父提交占据当前 lane；root commit 则会删除 lane，后续 lane 需要左移匹配。
+				// 第一父提交占据当前 lane；root commit 删除 lane，后续 lane 左移匹配。
 				outputIndex += 1;
 			}
 			continue;
@@ -583,8 +583,8 @@ export function SourceControlGraph(props: GitGraphProps) {
 		setError(null);
 		resetCommitDetails();
 		try {
-			// 列表仍分页；总数单独 count，徽章显示仓库/当前分支规模而不是已加载页大小。
-			const filter = { ref: ref || undefined, allBranches: !ref };
+			// 列表仍分页；总数单独 count。没有过滤器时只能读 HEAD（不能把当前分支标成“全部分支”）。
+			const filter = props.refFilter === false ? { ref: undefined, allBranches: false } : { ref: ref || undefined, allBranches: !ref };
 			const [next, count] = await Promise.all([
 				commitLogRef.current(projectId, {
 					maxEntries: loadCount,
@@ -602,7 +602,7 @@ export function SourceControlGraph(props: GitGraphProps) {
 		} finally {
 			if (request === loadSequence.current && projectId === props.projectId) setLoading(false);
 		}
-	}, [props.open, props.projectId, ref, resetCommitDetails, loadCount]);
+	}, [props.open, props.projectId, props.refFilter, ref, resetCommitDetails, loadCount]);
 
 	useEffect(() => {
 		void load();
@@ -673,19 +673,7 @@ export function SourceControlGraph(props: GitGraphProps) {
 		>
 			<PaneHeader id={`${props.paneIdPrefix}-graph`} title={t("git.sourceControlGraph")} count={totalCount} open={props.open} onToggle={props.onToggle}>
 				{props.historyRepoOptions && props.historyRepoOptions.length > 1 && props.onSelectHistoryRepo && <GitCompactFilter value={props.historyRepoPath ?? ""} ariaLabel={t("git.switchRepository")} options={props.historyRepoOptions} onChange={props.onSelectHistoryRepo} compact className="max-w-[8.5rem]" />}
-				<GitCompactFilter
-					value={ref}
-					ariaLabel={t("git.filterReference")}
-					compact
-					options={[
-						{ value: "", label: t("common.all") },
-						...props.branches.map((branch) => ({
-							value: branch,
-							label: branch,
-						})),
-					]}
-					onChange={(value) => setRef(value)}
-				/>
+				<GitGraphFilter value={ref} branches={props.branches} onChange={setRef} hidden={props.refFilter === false} />
 				<Button type="button" variant="ghost" size="icon-sm" className="size-7" title={t("common.refresh")} aria-label={t("common.refresh")} onClick={() => void load()}>
 					<RefreshCw size={14} />
 				</Button>

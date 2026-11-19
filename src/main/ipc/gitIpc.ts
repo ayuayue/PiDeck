@@ -1,4 +1,4 @@
-import { dialog, ipcMain, type BrowserWindow } from "electron";
+import { app, dialog, ipcMain, type BrowserWindow } from "electron";
 import { relative, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { ipcChannels } from "../../shared/ipc";
@@ -14,6 +14,7 @@ import type {
 	GitRepositoryListResult,
 	GitResource,
 	GitRef,
+	GitRecoveryListing,
 	GitResourceGroups,
 	GitWorkspaceDiffGroup,
 	GitWorkspaceFileDiff,
@@ -25,6 +26,9 @@ import { isLocalProject, isRemoteProject } from "../../shared/projectLocation";
 import { codeOf, opFailFromCode, opOk } from "../../shared/op";
 import type { RemoteGitReadIpc } from "./remoteGitReadIpc";
 import { createProjectGitHandler } from "./gitProjectHandlers";
+import { dropRecovery, listRecovery, restoreRecovery } from "../git/LocalGitRecovery";
+import { registerGitCommitMessageIpc } from "./gitCommitMessageIpc";
+import { registerGitRecoveryIpc } from "./gitRecoveryIpc";
 import { parseProjectFileTarget } from "../files/projectFileTarget";
 import { GitBackendRouter, LocalGitBackend, resolveRelativeGitPath, type GitBackend, type GitRepositoryContext } from "../git/GitBackend";
 import type { LocalGitChangedFile, LocalGitCommitDetail, LocalGitCommitFileDiff, LocalGitResource, LocalGitResourceGroups, LocalGitWorkspaceFileDiff, LocalWorktreeEntry } from "../git/localGitTypes";
@@ -58,219 +62,8 @@ export type GitIpcDeps = {
 	settingsStore: SettingsStore;
 	worktreeService: WorktreeService;
 	/** Optional only for local-only callers/tests; SSH reads must never fall back to GitService. */
-	remoteGitReads?: Pick<RemoteGitReadIpc, "status" | "workspaceDiff" | "listRepositories" | "repositoryListing" | "historyPage" | "compareRefs" | "refs">;
+	remoteGitReads?: Pick<RemoteGitReadIpc, "status" | "workspaceDiff" | "stagedDiff" | "listRepositories" | "repositoryListing" | "historyPage" | "compareRefs" | "refs">;
 };
-
-// ── QuickGen：持久化轻量 pi 进程，通过 RPC 生成提交摘要 ──────────────
-
-/** 轻量 pi 进程，用 RPC 模式运行，只做文本生成，不加载 session/tools/extensions */
-let genProcess: ChildProcess | null = null;
-let genRpcClient: PiRpcClient | null = null;
-let genProcessCwd = "";
-let genModelKey = "";
-/** 当前生成进程的代理指纹：代理设置/名单命中变化且模型未变时也要重建（env 在 spawn 时定格）。 */
-let genProxyKey = "";
-let genIdleTimer: NodeJS.Timeout | null = null;
-/** 生成互斥锁：同一时刻只允许一个摘要请求，避免并发打到复用进程触发 pi 的 busy 拒绝 */
-let genBusy = false;
-
-/** 清理快速生成进程 */
-function stopGenProcess() {
-	if (genIdleTimer) {
-		clearTimeout(genIdleTimer);
-		genIdleTimer = null;
-	}
-	genRpcClient?.close();
-	genRpcClient = null;
-	if (genProcess && genProcess.exitCode === null) {
-		try {
-			genProcess.kill();
-		} catch {
-			/* ignore */
-		}
-	}
-	genProcess = null;
-	genProcessCwd = "";
-	genModelKey = "";
-	genProxyKey = "";
-}
-
-/** 重置空闲定时器：30 分钟无请求自动杀掉进程释放内存 */
-function resetGenIdleTimer() {
-	if (genIdleTimer) clearTimeout(genIdleTimer);
-	genIdleTimer = setTimeout(() => {
-		stopGenProcess();
-	}, 30 * 60_000);
-}
-
-/** 确保有一个轻量 pi RPC 进程在运行，跨项目复用 */
-async function ensureGenProcess(projectPath: string, command: string, piLocator: PiLocator, settingsStore: SettingsStore, model: { provider: string; modelId: string }, appLogger: Pick<AppLogger, "warn">, wsl?: { distro: string; user: string }): Promise<PiRpcClient> {
-	// provider/model 变化时必须重启轻量进程，避免旧进程继续持有上一组选中的模型。
-	// 代理指纹同理：HTTP_PROXY 等环境变量在 spawn 时定格，设置页改代理/名单后不重建
-	// 旧进程会一直直连（或沿用旧代理），表现为「配置了代理但生成摘要没走代理」。
-	const modelKey = `${model.provider}\0${model.modelId}`;
-	const proxyKey = computeGenProxyKey(settingsStore.get(), model.provider, model.modelId);
-	if (genProcess && genRpcClient && genProcess.exitCode === null) {
-		if (genModelKey === modelKey && genProxyKey === proxyKey) {
-			genProcessCwd = projectPath;
-			resetGenIdleTimer();
-			return genRpcClient;
-		}
-		stopGenProcess();
-	}
-
-	// 清理已死的旧进程
-	if (genProcess) stopGenProcess();
-
-	try {
-		// 首次默认带扩展启动：提交信息模型选择器允许扩展 provider（如 antigravity 插件）
-		// 贡献的模型（issue #181），进程必须能解析它们，与运行时会话保持一致。
-		// 用户开启「禁用扩展启动」诊断开关（piRpcNoExtensions）时首次也直接不带扩展。
-		const firstWithExtensions = !settingsStore.get().piRpcNoExtensions;
-		return await trySpawnGenProcess(firstWithExtensions, projectPath, command, piLocator, settingsStore, model, appLogger, wsl);
-	} catch {
-		// 带扩展启动失败（坏扩展导致崩溃/启动挂起/RPC 未就绪）：
-		// 降级为无扩展重试一次；仍失败则抛出第二轮错误（无扩展基线，更能反映真实状态）。
-		return await trySpawnGenProcess(false, projectPath, command, piLocator, settingsStore, model, appLogger, wsl);
-	}
-}
-
-/** 生成进程基础参数：默认【加载扩展】（issue #181）；withExtensions=false 时追加
- * --no-extensions 作为坏扩展场景的降级集。 */
-function buildGenArgs(withExtensions: boolean): string[] {
-	return ["--mode", "rpc", "--no-session", "--no-tools", ...(withExtensions ? [] : ["--no-extensions"]), "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-themes", "--thinking", "off"];
-}
-
-/** 启动轻量 pi RPC 生成进程并完成 set_model；withExtensions 决定是否加载扩展。
- * 失败时清理进程与全局状态并抛错，由 ensureGenProcess 决定是否降级重试。 */
-async function trySpawnGenProcess(withExtensions: boolean, projectPath: string, command: string, piLocator: PiLocator, settingsStore: SettingsStore, model: { provider: string; modelId: string }, appLogger: Pick<AppLogger, "warn">, wsl?: { distro: string; user: string }): Promise<PiRpcClient> {
-	const modelKey = `${model.provider}\0${model.modelId}`;
-	const settings = settingsStore.get();
-	// WSL pi 需要 Linux cwd（--cd）；Windows spawn 本身仍必须落在主机路径上。
-	const wslCwd = wsl !== undefined && command.startsWith("wsl://") ? toWslLinuxPath(projectPath, { distro: wsl.distro }) : undefined;
-	const invocation = piLocator.createInvocation(command, buildGenArgs(withExtensions), wslCwd ? { wslCwd } : {});
-	const spawnCwd = wslCwd !== undefined && wsl !== undefined ? toWindowsHostPath(projectPath, { distro: wsl.distro }) : projectPath;
-
-	const childProcess = spawn(invocation.command, invocation.args, {
-		cwd: spawnCwd,
-		// 与运行时会话同策略：会话 on/off 覆盖 > 模型名单命中强制走代理 > 跟随全局。
-		// 之前只按 piProxyEnabled 全局开关注入，名单内模型（全局关）生成摘要会直连失败。
-		env: piLocator.createProcessEnv(applyPiProxyModeWithProvider(settings, undefined, model.provider, model.modelId), invocation.pathPrefix, invocation.wsl),
-		stdio: ["pipe", "pipe", "pipe"],
-		shell: invocation.shell,
-		windowsHide: true,
-		windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-	});
-	genProcess = childProcess;
-	genProcessCwd = spawnCwd;
-	genProxyKey = computeGenProxyKey(settings, model.provider, model.modelId);
-
-	// spawn 失败（ENOENT/自定义 pi 路径失效/EACCES）时 'error' 事件无监听会直接崩掉主进程（AGENTS.md spawn 纪律）；
-	// 这里只做日志与清理：挂起的 set_model 由 stopGenProcess→rpcClient.close() 统一拒绝，genBusy 由 quickGenerate 的 finally 复位。
-	childProcess.on("error", (error) => {
-		void appLogger.warn("git", "QuickGen process spawn error", { message: error.message });
-		if (genProcess === childProcess) stopGenProcess();
-	});
-
-	genRpcClient = new PiRpcClient(childProcess.stdin!, childProcess.stdout!);
-
-	try {
-		const modelResponse = await genRpcClient.request({
-			type: "set_model",
-			provider: model.provider,
-			modelId: model.modelId,
-		});
-		if (!modelResponse.success) {
-			throw new Error(modelResponse.error ?? `Unable to select model ${model.provider}/${model.modelId}`);
-		}
-		genModelKey = modelKey;
-	} catch (error) {
-		stopGenProcess();
-		throw error;
-	}
-
-	// stderr 仅用于调试日志
-	genProcess.stderr!.on("data", (chunk: Buffer) => {
-		const text = chunk.toString("utf8").slice(0, 300);
-		void appLogger.warn("git", "QuickGen stderr", { text });
-	});
-
-	genProcess.on("exit", () => {
-		// 旧进程可能在模型切换后才发出 exit；只允许当前实例清理全局状态。
-		if (genProcess === childProcess) stopGenProcess();
-	});
-
-	resetGenIdleTimer();
-	return genRpcClient;
-}
-
-/** 通过持久化 RPC 进程快速生成文本，避免每次 fork 新进程 */
-async function quickGenerate(projectPath: string, prompt: string, piLocator: PiLocator, settingsStore: SettingsStore, model: { provider: string; modelId: string }, appLogger: Pick<AppLogger, "warn">, project?: LocalProject): Promise<string> {
-	// 复用进程同时只能跑一个生成；并发（连点/跨项目）直接拒绝，由 handler 转友好提示
-	if (genBusy) {
-		throw new Error("Agent is already processing");
-	}
-	genBusy = true;
-
-	const settings = settingsStore.get();
-	// 第 14 步：Git 快生成按项目档案挑发行版，不再看全局 WSL 开关。
-	const wsl = project?.environment === "wsl" ? { distro: project.wslDistro ?? settings.wslDistro, user: project.wslUser ?? settings.wslUser } : undefined;
-	if (wsl !== undefined && wsl.distro && wsl.user) await piLocator.warmWslCommand(wsl.distro, wsl.user);
-	const command = piLocator.resolveCommand(settings.customPiPath, wsl !== undefined, wsl?.distro, wsl?.user);
-
-	try {
-		const rpc = await ensureGenProcess(projectPath, command, piLocator, settingsStore, model, appLogger, wsl);
-
-		return await new Promise<string>((resolve, reject) => {
-			const collected: string[] = [];
-			let settled = false;
-			const timeout = setTimeout(() => {
-				if (!settled) {
-					void appLogger.warn("git", "QuickGen timed out", {});
-					// 超时后 pi 进程内的 agent 可能仍在处理旧请求（残留 busy 状态），
-					// 直接杀掉复用进程，下次请求重建干净的进程，避免后续请求被 busy 拒绝。
-					stopGenProcess();
-					reject(new Error("Quick generate timed out"));
-				}
-			}, 60_000);
-
-			const onEvent = (event: Record<string, unknown>) => {
-				const eventType = event.type as string;
-				if (eventType === "message_update") {
-					const ae = (event as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-					if (ae?.type === "text_delta" && typeof ae.delta === "string") {
-						collected.push(ae.delta);
-					}
-				}
-				if (eventType === "agent_settled" || eventType === "agent_end") {
-					settled = true;
-					clearTimeout(timeout);
-					rpc.off("event", onEvent);
-					resolve(collected.join(""));
-				}
-			};
-
-			rpc.on("event", onEvent);
-
-			rpc
-				.request({ type: "prompt", message: prompt })
-				.then((response) => {
-					if (!response.success) {
-						clearTimeout(timeout);
-						rpc.off("event", onEvent);
-						reject(new Error(response.error ?? "Prompt rejected"));
-					}
-				})
-				.catch((err) => {
-					clearTimeout(timeout);
-					rpc.off("event", onEvent);
-					reject(err);
-				});
-		});
-	} finally {
-		genBusy = false;
-	}
-}
 
 // ── IPC 注册 ────────────────────────────────────────────────────────
 
@@ -438,11 +231,11 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 	};
 
 	/** 公共历史页选项：分页必选语义；本地过滤器（ref/path/allBranches）保留，远端只接受分页两项。 */
-	type ParsedHistoryPageOptions = { maxCount: number; skip: number; ref?: string; path?: ProjectFileTarget; allBranches?: boolean };
+	type ParsedHistoryPageOptions = { maxCount: number; skip: number; ref?: string; path?: ProjectFileTarget; allBranches?: boolean; withTotal?: boolean };
 	const parseHistoryPageOptions = (projectId: string, value: unknown): ParsedHistoryPageOptions => {
 		if (value === undefined) return { maxCount: 50, skip: 0 };
 		if (!isRecord(value)) throw new Error("INVALID_GIT_HISTORY_OPTIONS");
-		if (Object.keys(value).some((key) => !["maxCount", "skip", "ref", "path", "allBranches"].includes(key))) throw new Error("INVALID_GIT_HISTORY_OPTIONS");
+		if (Object.keys(value).some((key) => !["maxCount", "skip", "ref", "path", "allBranches", "withTotal"].includes(key))) throw new Error("INVALID_GIT_HISTORY_OPTIONS");
 		const maxCount = value.maxCount ?? 50;
 		if (typeof maxCount !== "number" || !Number.isSafeInteger(maxCount) || maxCount < 1 || maxCount > 500) throw new Error("INVALID_GIT_HISTORY_OPTIONS");
 		const skip = value.skip ?? 0;
@@ -450,12 +243,14 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		const ref = value.ref;
 		if (ref !== undefined && (typeof ref !== "string" || !ref.trim() || ref.length > 512)) throw new Error("INVALID_GIT_HISTORY_OPTIONS");
 		if (value.allBranches !== undefined && typeof value.allBranches !== "boolean") throw new Error("INVALID_GIT_HISTORY_OPTIONS");
+		if (value.withTotal !== undefined && typeof value.withTotal !== "boolean") throw new Error("INVALID_GIT_HISTORY_OPTIONS");
 		return {
 			maxCount,
 			skip,
 			...(typeof ref === "string" ? { ref } : {}),
 			...(value.path !== undefined ? { path: parseGitProjectTarget(projectId, value.path) } : {}),
 			...(typeof value.allBranches === "boolean" ? { allBranches: value.allBranches } : {}),
+			...(typeof value.withTotal === "boolean" ? { withTotal: value.withTotal } : {}),
 		};
 	};
 
@@ -495,9 +290,20 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		const located = projectStore.get(projectId);
 		if (located && isRemoteProject(located)) {
 			if (!remoteGitReads) return opFailFromCode("UNSUPPORTED_CAPABILITY");
-			// 远端没有任意 ref/path/allBranches 或总数保证：拒绝而不是静默吞参数。
-			if (options.ref !== undefined || options.path !== undefined || options.allBranches !== undefined) return opFailFromCode("UNSUPPORTED_CAPABILITY");
-			return remoteGitReads.historyPage(event, projectId, { maxCount: options.maxCount, skip: options.skip }, repoPath);
+			// helper 没有 path 过滤：拒绝而不是静默吞参数；ref/all/总数有对应 helper 参数。
+			if (options.path !== undefined) return opFailFromCode("UNSUPPORTED_CAPABILITY");
+			return remoteGitReads.historyPage(
+				event,
+				projectId,
+				{
+					maxCount: options.maxCount,
+					skip: options.skip,
+					...(options.ref === undefined ? {} : { ref: options.ref }),
+					...(options.allBranches === undefined ? {} : { all: options.allBranches }),
+					...(options.withTotal === true ? { withCount: true } : {}),
+				},
+				repoPath,
+			);
 		}
 		if (!located) return opFailFromCode("PROJECT_NOT_FOUND");
 		try {
@@ -525,14 +331,15 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		}
 	});
 
-	/** 公共比较（T7）：本地三点（merge-base，带 ahead/behind）；远端两树（trees，无 ahead/behind）。 */
-	handleProjectGit(ipcChannels.gitCompareRefs, async (event, projectId: string, base: unknown, head: unknown, repoPath?: unknown): Promise<GitCompareRefsResult> => {
+	/** 公共比较（T7）：本地固定三点（merge-base）；远端按 `mode` 决定两树或三点。 */
+	handleProjectGit(ipcChannels.gitCompareRefs, async (event, projectId: string, base: unknown, head: unknown, repoPath?: unknown, mode?: unknown): Promise<GitCompareRefsResult> => {
 		if (typeof projectId !== "string" || !projectId.trim() || projectId.length > 256) return opFailFromCode("INVALID_PROJECT_ID");
 		if (typeof base !== "string" || base.length === 0 || base.length > 512 || typeof head !== "string" || head.length === 0 || head.length > 512) return opFailFromCode("INVALID_GIT_HISTORY_OPTIONS");
+		if (mode !== undefined && mode !== "trees" && mode !== "threeDot") return opFailFromCode("INVALID_GIT_HISTORY_OPTIONS");
 		const located = projectStore.get(projectId);
 		if (located && isRemoteProject(located)) {
 			if (!remoteGitReads) return opFailFromCode("UNSUPPORTED_CAPABILITY");
-			return remoteGitReads.compareRefs(event, projectId, base, head, repoPath);
+			return remoteGitReads.compareRefs(event, projectId, base, head, repoPath, mode);
 		}
 		if (!located) return opFailFromCode("PROJECT_NOT_FOUND");
 		try {
@@ -811,6 +618,14 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		});
 	});
 
+	registerGitRecoveryIpc({
+		handle: handleProjectGit,
+		// 只转发三个动作，不把整个 service 交给恢复区（它不该知道别的写面）。
+		recovery: { recoveryList: listRecovery, recoveryRestore: restoreRecovery, recoveryDrop: dropRecovery },
+		requireGitCwd,
+		info: (message, meta) => void appLogger.info("git", message, meta),
+	});
+
 	handleProjectGit(ipcChannels.gitCommit, async (_event, projectId: string, message: string, repoPath?: unknown) => {
 		const cwd = await requireGitCwd(projectId, repoPath);
 		await gitService.commit(cwd, message);
@@ -854,64 +669,16 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		void appLogger.warn("git", "Commit dropped", { projectId, hash, repoPath: cwd });
 	});
 
-	handleProjectGit(ipcChannels.gitGenerateCommitMessage, async (_event, projectId: string, repoPath?: unknown): Promise<GitGenerateCommitMessageResult> => {
-		const cwd = await findGitCwd(projectId, repoPath);
-		if (!cwd) {
-			// 仓库目录没解析出来不等于「模型没返回摘要」：面板刚打开/刚 init/工作树被删时都会走到这里，
-			// 误报会把用户引去查模型设置（issue #338）。
-			void appLogger.warn("git", "Generate commit message failed: repository path unresolved", { projectId, repoPath });
-			return { ok: false, code: "GIT_COMMIT_NO_REPO", message: mainCopy("git.commitMessageNoRepo") };
-		}
-
-		let diff: string;
-		try {
-			diff = await gitService.getStagedDiff(cwd);
-		} catch (err) {
-			// 读 diff 失败（cwd 失效/仓库损坏/git 超时）不能当成「空暂存区」，更不能吞成空串：
-			// 两者文案与后续动作完全不同——空 → 引导先暂存；失败 → 报 git 原始报错。
-			const msg = err instanceof Error ? err.message : String(err);
-			void appLogger.warn("git", "Read staged diff for commit message failed", { error: msg, projectId, repoPath: cwd });
-			return { ok: false, code: "GIT_COMMIT_DIFF_FAILED", message: msg };
-		}
-		if (!diff.trim()) {
-			// 以真实暂存区为准：渲染层分组可能是旧快照（issue #338 的误报场景），必须给它可判别的码
-			void appLogger.info("git", "Generate commit message skipped: nothing staged", { projectId, repoPath: cwd });
-			return { ok: false, code: "GIT_COMMIT_EMPTY_DIFF", message: mainCopy("git.commitMessageEmptyDiff") };
-		}
-
-		const settings = settingsStore.get();
-		const provider = settings.gitCommitMessageProvider.trim();
-		const modelId = settings.gitCommitMessageModel.trim();
-		if (!provider || !modelId) {
-			// 结构化错误码：渲染层识别后提供“去设置”引导，而不是只显示一行文案
-			return {
-				ok: false,
-				code: "GIT_COMMIT_MODEL_REQUIRED",
-				message: mainCopy("git.commitMessageModelRequired"),
-			};
-		}
-
-		// 从设置中读取提示词模板，替换 {diff} 为实际 diff 内容
-		const promptTemplate = settings.gitCommitMessagePrompt || "请根据以下 git diff 生成一条中文 git commit message。\n\n{diff}\n\n直接输出 commit 消息。";
-		const prompt = promptTemplate.replace("{diff}", diff.slice(0, 8000));
-
-		try {
-			const project = projectStore.get(projectId);
-			const result = await quickGenerate(cwd, prompt, piLocator, settingsStore, { provider, modelId }, appLogger, project && isLocalProject(project) ? project : undefined);
-			void appLogger.warn("git", "Generate commit message result", { length: result.length });
-			return { ok: true, message: result.trim() };
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			void appLogger.warn("git", "Generate commit message failed", { error: msg });
-			// pi 的 busy 拒绝是技术性英文，统一转成本地化提示；其余错误保留原文便于排查
-			if (/Agent is already processing/i.test(msg)) {
-				return { ok: false, code: "GIT_COMMIT_BUSY", message: mainCopy("git.commitMessageBusy") };
-			}
-			if (/timed out/i.test(msg)) {
-				return { ok: false, code: "GIT_COMMIT_TIMEOUT", message: mainCopy("git.commitMessageTimeout") };
-			}
-			return { ok: false, code: "GIT_COMMIT_GENERATE_FAILED", message: msg };
-		}
+	registerGitCommitMessageIpc({
+		handle: handleProjectGit,
+		gitService,
+		findGitCwd,
+		settingsStore,
+		projectStore,
+		piLocator,
+		appLogger,
+		mainCopy,
+		readRemoteStagedDiff: remoteGitReads === undefined ? undefined : (event, projectId, repoPath) => remoteGitReads.stagedDiff(event, projectId, repoPath),
 	});
 
 	handleProjectGit(ipcChannels.gitInit, async (_event, projectId: string) => {

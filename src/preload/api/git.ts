@@ -34,9 +34,15 @@ export const gitApi = {
 		// 分支对比概要（变更文件 + ahead/behind）
 		branchCompare: (projectId: string, base: string, target: string, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitBranchCompare, projectId, base, target, repoPath) as Promise<BranchDiffResult>,
 		/** 公共历史页（T7）：显式分页；远端 HEAD-only 时没有 totalCount。 */
-		historyPage: (projectId: string, options?: { maxCount?: number; skip?: number; ref?: string; path?: ProjectFileTarget; allBranches?: boolean }, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitHistoryPage, projectId, options, repoPath) as Promise<import("../../shared/types").GitHistoryPageResult>,
+		historyPage: (projectId: string, options?: { maxCount?: number; skip?: number; ref?: string; path?: ProjectFileTarget; allBranches?: boolean; withTotal?: boolean }, repoPath?: ProjectFileTarget) =>
+			ipcRenderer.invoke(ipcChannels.gitHistoryPage, projectId, options, repoPath) as Promise<import("../../shared/types").GitHistoryPageResult>,
 		/** 公共比较（T7）：mode 显式；三点模式才有 ahead/behind。 */
-		compareRefs: (projectId: string, base: string, head: string, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitCompareRefs, projectId, base, head, repoPath) as Promise<import("../../shared/types").GitCompareRefsResult>,
+		compareRefs: (projectId: string, base: string, head: string, repoPath?: ProjectFileTarget, mode?: "trees" | "threeDot") => ipcRenderer.invoke(ipcChannels.gitCompareRefs, projectId, base, head, repoPath, mode) as Promise<import("../../shared/types").GitCompareRefsResult>,
+		/** 暂存区 diff 全文（远端 helper 读；本机面板走 git:generate-commit-message 自己读）。 */
+		remoteStagedDiff: (projectId: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteStagedDiff, projectId, repo) as Promise<import("../../shared/types").RemoteGitStagedDiffResult>,
+		/** 远端 refs 变化订阅：main 为该仓库订阅 `.git` 目录族，事件经项目事实通道回来。 */
+		remoteWatchRefs: (projectId: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteWatchRefs, projectId, repo) as Promise<{ ok: true; watchId: string } | { ok: false; code: string; message?: string }>,
+		remoteUnwatchRefs: (watchId: string) => ipcRenderer.invoke(ipcChannels.gitRemoteUnwatchRefs, watchId) as Promise<{ ok: true }>,
 		// 单个 commit 详情
 		commitDetail: (projectId: string, ref: string, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitCommitDetail, projectId, ref, repoPath) as Promise<CommitDetail | null>,
 		// 提交历史中单个文件相对第一父提交的两侧内容
@@ -62,13 +68,18 @@ export const gitApi = {
 		// 分支写面（G3b）：新建分支不移动 HEAD，切换走原生 switch 且冲突即拒（绝不 force）
 		createRemoteBranch: (projectId: string, name: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteCreateBranch, projectId, name, token, repo) as Promise<import("../../shared/types").RemoteGitBranchMutationResult>,
 		switchRemoteBranch: (projectId: string, name: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteSwitchBranch, projectId, name, token, repo) as Promise<import("../../shared/types").RemoteGitBranchMutationResult>,
+		// 提交图谱写动词（与本机同名语义）：cherry-pick / revert / reset 各需自己那枚令牌，drop 走 rebase --onto
+		cherryPickRemote: (projectId: string, hash: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteCherryPick, projectId, hash, token, repo) as Promise<import("../../shared/types").RemoteGitBranchMutationResult>,
+		revertRemote: (projectId: string, hash: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteRevert, projectId, hash, token, repo) as Promise<import("../../shared/types").RemoteGitBranchMutationResult>,
+		resetRemote: (projectId: string, hash: string, mode: "soft" | "mixed" | "hard", token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteReset, projectId, hash, mode, token, repo) as Promise<import("../../shared/types").RemoteGitBranchMutationResult>,
+		dropCommitRemote: (projectId: string, hash: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteDropCommit, projectId, hash, token, repo) as Promise<import("../../shared/types").RemoteGitBranchMutationResult>,
 		// 可恢复丢弃（G4a）：先写恢复快照再动文件；返回可恢复 ref，main 注入指纹
 		discardRemote: (projectId: string, group: "workingTree" | "untracked", target: ProjectFileTarget, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteDiscard, projectId, group, target, token, repo) as Promise<import("../../shared/types").RemoteGitDiscardResult>,
 		// 同步（G5a）：facts 只读；fetch/push/pull 各自需要 grant，从不 force、不写配置、不注入凭据
 		syncFacts: (projectId: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteSyncFacts, projectId, repo) as Promise<import("../../shared/types").RemoteGitSyncFactsResult>,
 		fetchRemote: (projectId: string, remote: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteFetch, projectId, remote, token, repo) as Promise<import("../../shared/types").RemoteGitFetchOutcomeResult>,
-		pushRemote: (projectId: string, remote: string, branch: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemotePush, projectId, remote, branch, token, repo) as Promise<import("../../shared/types").RemoteGitPushOutcomeResult>,
-		pullRemote: (projectId: string, remote: string, branch: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemotePull, projectId, remote, branch, token, repo) as Promise<import("../../shared/types").RemoteGitPullOutcomeResult>,
+		pushRemote: (projectId: string, remote: string | null, branch: string | null, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemotePush, projectId, remote, branch, token, repo) as Promise<import("../../shared/types").RemoteGitPushOutcomeResult>,
+		pullRemote: (projectId: string, remote: string | null, branch: string | null, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemotePull, projectId, remote, branch, token, repo) as Promise<import("../../shared/types").RemoteGitPullOutcomeResult>,
 		// 恢复存储（G4b）：列表只读；还原/删除各需自己的 grant，ref 只允许 refs/pideck/recovery/*
 		recoveryList: (projectId: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteRecoveryList, projectId, repo) as Promise<import("../../shared/types").RemoteGitRecoveryListResult>,
 		recoveryRestore: (projectId: string, ref: string, oid: string, path: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteRecoveryRestore, projectId, ref, oid, path, token, repo) as Promise<import("../../shared/types").RemoteGitRecoveryRestoreResult>,
@@ -91,6 +102,12 @@ export const gitApi = {
 		discard: (projectId: string, group: "workingTree" | "untracked", fileTarget: ProjectFileTarget, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitDiscard, projectId, group, fileTarget, repoPath) as Promise<void>,
 		// 按目录批量回滚：资源组随路径传入，主进程会重新校验最新状态。
 		discardFiles: (projectId: string, resources: GitDiscardResource[], repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitDiscardFiles, projectId, resources, repoPath) as Promise<void>,
+		/** 可还原丢弃（本地）：之前丢弃的快照列表，只读；最多 64 条，超出 truncated 为真。 */
+		localRecoveryList: (projectId: string, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitRecoveryList, projectId, repoPath) as Promise<import("../../shared/types").GitRecoveryListing>,
+		/** 把快照字节写回原路径（目标已有更新的用户内容时主进程拒绝）。 */
+		localRecoveryRestore: (projectId: string, entry: { ref: string; oid: string; path: string }, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitRecoveryRestore, projectId, entry, repoPath) as Promise<{ path: string; bytes: number }>,
+		/** 显式删除一份快照（带旧 oid 的 CAS，oid 不匹配即拒绝）。 */
+		localRecoveryDrop: (projectId: string, entry: { ref: string; oid: string }, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitRecoveryDrop, projectId, entry, repoPath) as Promise<void>,
 		// Commit
 		commit: (projectId: string, message: string, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitCommit, projectId, message, repoPath) as Promise<void>,
 		cherryPick: (projectId: string, hash: string, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitCherryPick, projectId, hash, repoPath) as Promise<void>,
@@ -98,7 +115,7 @@ export const gitApi = {
 		reset: (projectId: string, hash: string, mode: "soft" | "mixed" | "hard", repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitReset, projectId, hash, mode, repoPath) as Promise<void>,
 		dropCommit: (projectId: string, hash: string, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitDropCommit, projectId, hash, repoPath) as Promise<void>,
 		/** AI 生成提交摘要 */
-		generateCommitMessage: (projectId: string, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitGenerateCommitMessage, projectId, repoPath) as Promise<import("../../shared/types").GitGenerateCommitMessageResult>,
+		generateCommitMessage: (projectId: string, repoPath?: ProjectFileTarget, stagedDiff?: string) => ipcRenderer.invoke(ipcChannels.gitGenerateCommitMessage, projectId, repoPath, stagedDiff) as Promise<import("../../shared/types").GitGenerateCommitMessageResult>,
 		/** 初始化 Git 仓库（始终作用于项目根，不跟随嵌套仓库切换） */
 		init: (projectId: string) => ipcRenderer.invoke(ipcChannels.gitInit, projectId) as Promise<void>,
 		/** Push：将当前分支推送到远程 */

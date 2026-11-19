@@ -155,8 +155,7 @@ test("the OIDs carried by the compare answer (not the ref names) reach the per-f
 	const section = readFileSync("src/renderer/src/components/workspace/RemoteGitCompareSection.tsx", "utf8");
 	assert.match(section, /props\.compare\?\.base\.oid/);
 	assert.match(section, /props\.compare\?\.head\.oid/);
-	const panel = readFileSync("src/renderer/src/components/workspace/RemoteGitPanel.tsx", "utf8");
-	assert.match(panel, /onOpenFile=\{\(baseOid, headOid, path\) => openHistoryFileDiff\(baseOid, headOid,/);
+	// 共用面板的「比较更改」只列文件、不挂逐文件 diff（与本机同一段渲染）：不再断言远端专属入口。
 });
 
 test("compare and polling copy is present in both locales", () => {

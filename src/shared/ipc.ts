@@ -1,4 +1,8 @@
+import { gitPanelChannels } from "./ipcGitPanelChannels";
+
 export const ipcChannels = {
+	// Git 面板的通道（远端 Git 全部 + 本机可还原丢弃）集中在 ipcGitPanelChannels.ts。
+	...gitPanelChannels,
 	remoteHostsList: "remote:hosts-list",
 	/** 连接一台已 pin 的主机（会启动真实 SSH；失败返回稳定码）。 */
 	remoteHostConnect: "remote:connect",
@@ -239,8 +243,10 @@ export const ipcChannels = {
 	/** 永久删除已归档会话：归档区文件移入系统回收站并从索引移除（区别于恢复）。 */
 	sessionsCatalogDeleteArchived: "sessions:catalog-delete-archived",
 	/**
-	 * 远端归档会话「永久删除」的**请求**（Phase 5）：入参只有本机 catalog 会话 id——远端路径不从渲染层传
-	 * （main 只认本机归档索引），校验后签发一次性 requestId（sender 绑定、60s 过期、消费一次）；本通道不执行远端命令。
+	 * 远端归档会话「永久删除」的**请求**（Phase 5 必须）：入参只有本机 catalog 会话 id——
+	 * 远端路径永远不从渲染层传（main 只认本机归档索引）。main 校验运行态/索引后签发一次性
+	 * 确认 requestId（PendingConfirmationBroker，sender 绑定、60s 过期、消费一次即失效），
+	 * 本通道不执行任何远端命令。
 	 */
 	sessionsCatalogDeleteArchivedRemote: "sessions:catalog-delete-archived-remote",
 	/** 回答上一条一次性确认：requestId + approve/deny；仅 approve 才执行有界远端 rm 与索引清理。 */
@@ -666,26 +672,6 @@ export const ipcChannels = {
 	gitCommitFileDiff: "git:commit-file-diff",
 	gitDiffFileBetween: "git:diff-file-between",
 	gitStatus: "git:status",
-	/** SSH root repository facts plus SCM groups; writes/history/sync remain capability-blocked. */
-	gitRemoteSnapshot: "git:remote-snapshot",
-	gitRemoteMutateIndex: "git:remote-mutate-index",
-	gitRemoteCommit: "git:remote-commit",
-	gitRemoteCommitDetail: "git:remote-commit-detail",
-	gitRemoteRefs: "git:remote-refs",
-	gitRemoteRefFileDiff: "git:remote-ref-file-diff",
-	/** Explicit init at the project root; no token because there is no confirmed repository state to bind. */
-	gitRemoteInit: "git:remote-init",
-	gitRemoteCreateBranch: "git:remote-create-branch",
-	gitRemoteSwitchBranch: "git:remote-switch-branch",
-	gitRemoteDiscard: "git:remote-discard",
-	gitRemoteRecoveryList: "git:remote-recovery-list",
-	gitRemoteRecoveryRestore: "git:remote-recovery-restore",
-	gitRemoteRecoveryDrop: "git:remote-recovery-drop",
-	gitRemoteSyncFacts: "git:remote-sync-facts",
-	gitRemoteFetch: "git:remote-fetch",
-	gitRemotePush: "git:remote-push",
-	gitRemotePull: "git:remote-pull",
-	gitRemoteCancelReads: "git:remote-cancel-reads",
 	gitWorkspaceFileDiff: "git:workspace-file-diff",
 	gitStage: "git:stage",
 	gitUnstage: "git:unstage",
@@ -886,13 +872,12 @@ export const ipcChannels = {
 	/** 只读返回 pi 全局配置目录（渲染层展示源文件实际编辑位置）。 */
 	configGetDir: "config:get-dir",
 	configSaveModels: "config:save-models",
-	/** 保存 models 后的后台 pi 验证结果：fork 真实 pi 确认配置可加载（~17s），完成才推送；保存本身即时返回。 */
+	/** 保存 models 后的后台 pi 验证结果：fork 真实 pi 确认配置可加载（~17s），完成后推送，保存本身即时返回。 */
 	configModelsVerifyResult: "config:models-verify-result",
 	configSaveAuth: "config:save-auth",
 	configReplaceRemoteAuth: "config:replace-remote-auth",
 	remotePiResources: "remote:pi-resources",
-	/** 远端 MCP：配置快照/保存 + 主机上的 `pi mcp list|logout`（固定动词，argv 无自由文本）。 */
-	remotePiMcp: "remote:pi-mcp",
+	remotePiMcp: "remote:pi-mcp", // 远端 MCP：快照/保存 + 主机上 `pi mcp list|logout`，固定动词、argv 无自由文本
 	configSaveSettings: "config:save-settings",
 	configSaveRaw: "config:save-raw",
 	/** 源文件页的统一读取（本机/WSL 原文 + 诊断；ssh 脱敏快照），按 target 路由。 */

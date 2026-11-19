@@ -42,6 +42,8 @@ export type CreateProjectServicesInput = {
 	fence?: ProjectServiceFenceSlot;
 	/** 只读事实重采集（trust 决策没有推送事件）；缺省 no-op。 */
 	refresh?: () => Promise<void>;
+	/** scope 级事实订阅（runtime 持有，跨 services 重建不丢）；缺省无事件源。 */
+	subscribeFacts?: ProjectServices["subscribeFacts"];
 };
 
 /**
@@ -74,5 +76,6 @@ export function createProjectServices(project: Project, api: ProjectServicesApi,
 		capabilities,
 		isCurrent: () => isProjectServiceCurrent(fence),
 		refresh: input.refresh ?? (async () => undefined),
+		...(input.subscribeFacts === undefined ? {} : { subscribeFacts: input.subscribeFacts }),
 	};
 }
