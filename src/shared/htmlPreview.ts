@@ -11,6 +11,10 @@
  * 安全边界：iframe 仍带 `sandbox="allow-scripts allow-forms"`（无 allow-same-origin），
  * 预览文档是独立 opaque origin，拿不到父窗口与 Electron API；协议 CSP 只放开
  * 内联脚本/样式与本地图片，网络访问一律禁止。
+ *
+ * 文档里的外链因此点不开（无 allow-popups、frame-src 也不含 https）。解法不是放宽沙箱，
+ * 而是注入 {@link withPreviewLinkBridge} 的桥接脚本：文档内 capture 阶段拦下绝对 http(s)
+ * 链接，postMessage 给宿主，宿主核对来源后复用 markdown 正文那条 openExternal 出口。
  */
 
 export const HTML_PREVIEW_SCHEME = "pideck-html";
@@ -50,6 +54,67 @@ export const HTML_PREVIEW_CSP = [
 	"form-action 'none'",
 	"base-uri 'none'",
 ].join("; ");
+
+/**
+ * 预览文档 → 宿主唯一的一条消息类型：只承载「在宿主里打开这个链接」。
+ * 不要扩成通用桥（不认命令、不认文件路径、不认 IPC 名），新用途先改 docs/host-boundaries.md。
+ */
+export const HTML_PREVIEW_OPEN_MESSAGE = "pideck-preview:open-external";
+
+/** 单条打开请求的 URL 上限（远超正常链接长度，仅用于挡住畸形/超大载荷）。 */
+export const MAX_HTML_PREVIEW_OPEN_URL_CHARS = 4096;
+
+/**
+ * 注入预览文档的链接桥：capture 阶段拦下绝对 http(s) 链接，postMessage 给宿主。
+ *
+ * - 只拦绝对 http(s)：`#anchor` 与相对路径交给文档自己（相对路径在预览里跨文件导航本来就被 CSP 挡住）。
+ * - `preventDefault` 是必要的：否则未带 target 的链接会尝试 iframe 自身导航，被 frame-src 拒绝后毫无反馈。
+ * - 不 stopPropagation：页面自己的点击处理（埋点、高亮选中项）保持原样。
+ */
+const PREVIEW_LINK_BRIDGE_SCRIPT = `(function () {
+	if (window.__pideckPreviewLinkBridge) return;
+	window.__pideckPreviewLinkBridge = true;
+	document.addEventListener("click", function (event) {
+		if (event.defaultPrevented || (typeof event.button === "number" && event.button !== 0)) return;
+		var anchor = event.target && event.target.closest ? event.target.closest("a[href]") : null;
+		if (!anchor) return;
+		var href = anchor.getAttribute("href") || "";
+		if (!/^https?:\\/\\//i.test(href)) return;
+		event.preventDefault();
+		try {
+			parent.postMessage({ type: "${HTML_PREVIEW_OPEN_MESSAGE}", url: href, forceSystem: !!(event.ctrlKey || event.metaKey) }, "*");
+		} catch (error) {}
+	}, true);
+})();`;
+
+const PREVIEW_LINK_BRIDGE_ATTR = "data-pideck-preview-bridge";
+
+/**
+ * 给预览 HTML 注入链接桥（幂等：文档里已带同名标记就不再注入，避免一次点击发两条消息）。
+ * 注入点在 `</body>` 之前，脚本解析期即注册监听，用户首次点击前一定已就位。
+ */
+export function withPreviewLinkBridge(html: string): string {
+	if (html.includes(PREVIEW_LINK_BRIDGE_ATTR)) return html;
+	const tag = `<script ${PREVIEW_LINK_BRIDGE_ATTR}>${PREVIEW_LINK_BRIDGE_SCRIPT}</script>`;
+	const bodyClose = html.toLowerCase().lastIndexOf("</body>");
+	if (bodyClose < 0) return html + tag;
+	return html.slice(0, bodyClose) + tag + html.slice(bodyClose);
+}
+
+/**
+ * 校验宿主收到的预览消息。opaque origin 下 `event.origin` 恒为 `"null"`，来源身份由调用方
+ * 比对 `event.source === iframe.contentWindow`，这里只负责形状与协议白名单。
+ */
+export function readHtmlPreviewOpenRequest(data: unknown): { url: string; forceSystem: boolean } | null {
+	if (!data || typeof data !== "object") return null;
+	const message = data as { type?: unknown; url?: unknown; forceSystem?: unknown };
+	if (message.type !== HTML_PREVIEW_OPEN_MESSAGE) return null;
+	if (typeof message.url !== "string") return null;
+	if (message.url.length === 0 || message.url.length > MAX_HTML_PREVIEW_OPEN_URL_CHARS) return null;
+	// 宿主只认 http(s)：javascript:/data:/file: 一律不交给主进程
+	if (!/^https?:\/\//i.test(message.url)) return null;
+	return { url: message.url, forceSystem: message.forceSystem === true };
+}
 
 /** UTF-8 字符串 → base64url（不依赖 Buffer，主进程与渲染层共用）。 */
 function toBase64Url(value: string): string {

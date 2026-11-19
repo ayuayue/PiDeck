@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { HTML_PREVIEW_CSP, HTML_PREVIEW_SCHEME, MAX_HTML_PREVIEW_CHARS, MAX_HTML_PREVIEW_URL_CHARS, decodeHtmlPreviewUrl, encodeHtmlPreviewUrl } = loadTsCommonJs("src/shared/htmlPreview.ts");
+const { HTML_PREVIEW_CSP, HTML_PREVIEW_OPEN_MESSAGE, HTML_PREVIEW_SCHEME, MAX_HTML_PREVIEW_CHARS, MAX_HTML_PREVIEW_URL_CHARS, decodeHtmlPreviewUrl, encodeHtmlPreviewUrl, readHtmlPreviewOpenRequest, withPreviewLinkBridge } = loadTsCommonJs("src/shared/htmlPreview.ts");
 
 test("encode/decode round-trips plain HTML", () => {
 	const html = "<!doctype html><html><body><h1>hi</h1></body></html>";
@@ -71,4 +71,46 @@ test("preview CSP allows inline scripts but blocks network egress", () => {
 	assert.ok(HTML_PREVIEW_CSP.includes("connect-src 'none'"));
 	assert.ok(HTML_PREVIEW_CSP.includes("frame-src 'none'"));
 	assert.ok(HTML_PREVIEW_CSP.includes("default-src 'none'"));
+});
+
+test("链接桥注入在 </body> 前，且脚本本身可解析", () => {
+	const html = '<!doctype html><html><body><a href="https://example.test/x">x</a></body></html>';
+	const bridged = withPreviewLinkBridge(html);
+	const open = bridged.indexOf("<script data-pideck-preview-bridge>");
+	const bodyClose = bridged.indexOf("</body>");
+	assert.ok(open > 0 && open < bodyClose, "桥接脚本应注入到 </body> 之前");
+	// 转义错误（反斜杠多/少一层）会让内嵌正则直接 SyntaxError，而这条链路只在运行时才跑得到
+	const script = bridged.slice(open, bridged.indexOf("</script>", open)).replace(/^<script data-pideck-preview-bridge>/, "");
+	assert.doesNotThrow(() => new Function(script), "注入脚本必须是合法 JS");
+	assert.ok(script.includes("/^https?:\\/\\//i.test(href)"), "只拦绝对 http(s) 链接");
+	assert.ok(script.includes(`type: "${HTML_PREVIEW_OPEN_MESSAGE}"`), "消息类型必须与宿主的校验常量一致");
+	assert.match(script, /event\.preventDefault\(\)/, "不 preventDefault 就会去撞 frame-src");
+});
+
+test("链接桥幂等：已注入的文档不重复注入", () => {
+	const html = "<html><body>hi</body></html>";
+	const once = withPreviewLinkBridge(html);
+	assert.equal(withPreviewLinkBridge(once), once);
+	// 无 </body> 的片段也要拿到桥（追加到末尾）
+	assert.match(withPreviewLinkBridge("<p>fragment</p>"), /<p>fragment<\/p><script data-pideck-preview-bridge>/);
+});
+
+test("readHtmlPreviewOpenRequest 只放行 http(s) 的打开请求", () => {
+	// 返回值来自 loadTsCommonJs 的独立上下文，不能用 deepStrictEqual 比原型
+	const ok = readHtmlPreviewOpenRequest({ type: HTML_PREVIEW_OPEN_MESSAGE, url: "https://arxiv.org/abs/1", forceSystem: true });
+	assert.equal(ok?.url, "https://arxiv.org/abs/1");
+	assert.equal(ok?.forceSystem, true);
+	assert.equal(readHtmlPreviewOpenRequest({ type: HTML_PREVIEW_OPEN_MESSAGE, url: "http://a.test" })?.forceSystem, false);
+	const bad = [
+		null,
+		"str",
+		42,
+		{},
+		{ type: "other", url: "https://a.test" },
+		{ type: HTML_PREVIEW_OPEN_MESSAGE, url: "javascript:alert(1)" },
+		{ type: HTML_PREVIEW_OPEN_MESSAGE, url: "file:///C:/x" },
+		{ type: HTML_PREVIEW_OPEN_MESSAGE, url: "" },
+		{ type: HTML_PREVIEW_OPEN_MESSAGE, url: `https://a.test/${"x".repeat(5000)}` },
+	];
+	for (const value of bad) assert.equal(readHtmlPreviewOpenRequest(value), null, JSON.stringify(value)?.slice(0, 80));
 });
