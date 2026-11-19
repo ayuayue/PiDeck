@@ -71,6 +71,19 @@ func TestTaskFavoritesAgentWindows(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "tasks.json")); err != nil {
 		t.Fatalf("tasks.json not written: %v", err)
 	}
+	// The form stays open on the task it saved, and saving again edits it
+	// instead of adding a second one.
+	if !built.taskFormOpen.GetUntracked() {
+		t.Error("saving closed the task form")
+	}
+	if got := built.taskEditID.GetUntracked(); got != list[0].ID {
+		t.Errorf("the form edits %q after saving, want %q", got, list[0].ID)
+	}
+	built.taskName.Set("每日整理（二）")
+	built.saveTaskForm()
+	if got := built.taskList(); len(got) != 1 || got[0].Name != "每日整理（二）" {
+		t.Fatalf("saving twice produced %+v", got)
+	}
 	built.openTaskDialog()
 	screen.Advance(100 * time.Millisecond)
 	if len(screen.Query("id:task-row-"+list[0].ID)) == 0 {

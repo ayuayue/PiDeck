@@ -645,9 +645,11 @@ func (a *app) saveTaskForm() {
 	edited := a.taskEditID.GetUntracked()
 	a.taskMu.Lock()
 	if edited == "" {
-		a.tasks = append(a.tasks, &scheduledTask{ID: newSessionID(), Name: name, Prompt: prompt, Project: project,
+		created := &scheduledTask{ID: newSessionID(), Name: name, Prompt: prompt, Project: project,
 			Cron: cron, Backend: backend, ACPPreset: preset, Persona: persona, Enabled: a.taskEnabled.GetUntracked(),
-			TimeoutMin: timeout, CreatedAt: now, UpdatedAt: now, LastScheduledAt: now})
+			TimeoutMin: timeout, CreatedAt: now, UpdatedAt: now, LastScheduledAt: now}
+		a.tasks = append(a.tasks, created)
+		edited = created.ID
 	} else {
 		found := false
 		for _, t := range a.tasks {
@@ -674,7 +676,9 @@ func (a *app) saveTaskForm() {
 	a.saveTasksLocked()
 	a.taskMu.Unlock()
 	a.bumpTaskRev()
-	a.taskFormOpen.Set(false)
+	// The form stays open on the task it just wrote, so saving again edits
+	// it instead of creating a duplicate.
+	a.taskEditID.Set(edited)
 	a.taskErr.Set("")
 	a.toast(ui.ToastSuccess, "已保存定时任务", name)
 }

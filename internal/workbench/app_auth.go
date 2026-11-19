@@ -46,7 +46,6 @@ func (a *app) saveAuthKey() {
 		a.toast(ui.ToastError, "写不了 auth.json", err.Error())
 		return
 	}
-	a.authKeyOpen.Set(false)
 	a.authKeyText.Set("")
 	a.toast(ui.ToastSuccess, "密钥已更新", provider)
 	a.loadAuth()

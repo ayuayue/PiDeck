@@ -73,7 +73,6 @@ func (a *app) tdSaveKey() {
 				return
 			}
 			a.tdKeyBusy.Set(false)
-			a.tdKeyOpen.Set(false)
 			a.tdKeyText.Set("")
 			a.tdBalanceErr.Set("")
 			a.tdBalance.Set(apptext.T("剩余 %s · 已用 %s / 共 %s", yuan(balance.Left), yuan(balance.Used), yuan(balance.Credits)))

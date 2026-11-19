@@ -83,7 +83,6 @@ func (a *app) saveProvider() {
 		})
 		a.cfg = a.st.config()
 	}
-	a.providerOpen.Set(false)
 	a.toast(ui.ToastSuccess, "已保存 "+id, "重启 Agent 后生效。")
 	a.refreshProviders()
 }

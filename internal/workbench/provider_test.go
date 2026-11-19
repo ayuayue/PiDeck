@@ -175,6 +175,12 @@ func TestProviderDialogSaves(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	// Saving keeps the dialog on screen so the next field can be fixed
+	// without opening it again.
+	app.Settle()
+	if len(app.Query("id:provider-dialog")) == 0 {
+		t.Error("saving closed the provider dialog")
+	}
 }
 
 // TestProviderBalance checks the four known balance endpoints and the

@@ -125,4 +125,10 @@ func TestAuthKeyDialog(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	// The dialog stays open after saving so another provider's key can be
+	// typed without reopening it.
+	app.Settle()
+	if len(app.Query("id:auth-key")) == 0 {
+		t.Error("saving closed the key dialog")
+	}
 }
