@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 77c7d272840377e99ff4f57bfd360ec1bdd329f219057cac4618b321dc9738ed（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 1c81aad077f27455458ab7ff665b0cbfaa27b01e12ae37529e158afbe26e4f4a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -2476,7 +2476,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.mcp.disableInstead": "停用",
 	"config.mcp.probe": "檢查可達性",
 	"config.mcp.remoteProbeUnsupported": "SSH 主機上的伺服器不在本機網路內，本機探測的結論會失真。換用「檢測連線」：它在那臺主機上真實執行。",
-	"config.mcp.remoteLoginUnsupported": "遠端暫不支援在客戶端完成 OAuth 登入。請在那臺主機上執行 pi mcp login <伺服器名>，登入後點「檢測連線」重新整理。",
 	"config.mcp.probing": "檢查中…",
 	"config.mcp.probeOk": "可達",
 	"config.mcp.smartAdd.title": "新增 MCP 伺服器",

@@ -2475,7 +2475,6 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.mcp.disableInstead": "Disable",
 	"config.mcp.probe": "Check reachability",
 	"config.mcp.remoteProbeUnsupported": 'Servers on an SSH host are not on this machine\'s network, so probing from here would answer the wrong question. Use "Check status" instead: it really runs on that host.',
-	"config.mcp.remoteLoginUnsupported": 'OAuth sign-in cannot be completed in the client for a remote host yet. Run pi mcp login <server> on that host, then press "Check status".',
 	"config.mcp.probing": "Checking…",
 	"config.mcp.probeOk": "Reachable",
 	"config.mcp.smartAdd.title": "Add MCP server",

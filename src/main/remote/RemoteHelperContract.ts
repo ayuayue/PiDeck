@@ -166,6 +166,10 @@ export const REMOTE_HELPER_METHOD_FS_UPLOAD_COMMIT = "fs.uploadCommit";
 /** Token-authorized cleanup for a staged upload that failed before commit; it can never name an arbitrary path. */
 export const REMOTE_HELPER_METHOD_FS_UPLOAD_ABORT = "fs.uploadAbort";
 /** 一个 helper 会话同时允许的 watcher 数；超出直接拒绝而不是排队。 */
+/** OAuth 登录可以在主机上等多久（秒）；helper 侧同一上限。 */
+export const REMOTE_HELPER_MAX_MCP_LOGIN_TIMEOUT_SEC = 600;
+/** MCP server 名的闭集：与主进程 isMcpServerName 同一形态，且限长。 */
+export const REMOTE_HELPER_MAX_MCP_SERVER_NAME = 128;
 export const REMOTE_HELPER_MAX_WATCHES = 4;
 /** 一次订阅里最多几个目录。 */
 export const REMOTE_HELPER_MAX_WATCH_PATHS = 32;

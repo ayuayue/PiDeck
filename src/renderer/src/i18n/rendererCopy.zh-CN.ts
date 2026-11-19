@@ -2469,7 +2469,6 @@ export const zhCN = {
 	"config.mcp.disableInstead": "禁用",
 	"config.mcp.probe": "检查可达性",
 	"config.mcp.remoteProbeUnsupported": "SSH 主机上的服务器不在本机网络内，本机探测的结论会失真。换用「检测连接」：它在那台主机上真实运行。",
-	"config.mcp.remoteLoginUnsupported": "远端暂不支持在客户端完成 OAuth 登录。请在那台主机上执行 pi mcp login <服务器名>，登录后点「检测连接」刷新。",
 	"config.mcp.probing": "检查中…",
 	"config.mcp.probeOk": "可达",
 	"config.mcp.smartAdd.title": "添加 MCP 服务器",
