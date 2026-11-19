@@ -320,7 +320,7 @@ func (a *app) imageDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.imageOpen.Set(open) },
 			Title:        apptext.T("生成图片"),
 			TestID:       "image-dialog",
-			Style:        core.Style{Width: core.Pt(560), MaxHeight: core.Pt(680)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(680)},
 			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(540)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12}, Children: body}}}},
 			Footer: footer,

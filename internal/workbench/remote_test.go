@@ -99,6 +99,9 @@ func TestRemoteSettings(t *testing.T) {
 	app.WaitFor("id:settings-tab-remote", 5*time.Second)
 	app.Press("id:settings-tab-remote")
 	app.WaitFor("text:连接方式", 5*time.Second)
+	app.WaitFor("text:外网访问", 5*time.Second)
+	app.WaitFor("id:remote-relay-url", 5*time.Second)
+	app.WaitFor("id:remote-public-url", 5*time.Second)
 	app.Advance(500 * time.Millisecond)
 	shot(app, "62-remote-settings")
 

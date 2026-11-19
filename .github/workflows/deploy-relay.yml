@@ -1,0 +1,37 @@
+name: deploy-relay
+
+# The relay is serverless: this workflow only runs `wrangler deploy`.
+# Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID as repository secrets.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-relay
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: infra/relay-worker/package-lock.json
+
+      - name: Install
+        working-directory: infra/relay-worker
+        run: npm ci
+
+      - name: Type-check
+        working-directory: infra/relay-worker
+        run: npm run check
+
+      - name: Deploy
+        working-directory: infra/relay-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy

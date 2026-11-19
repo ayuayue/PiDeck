@@ -123,7 +123,7 @@ func (a *app) acpPresetManagerDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.acpManageOpen.Set(open) },
 			Title:        apptext.T("管理 ACP 预设"),
 			TestID:       "acp-preset-manager",
-			Style:        core.Style{Width: core.Pt(600), MaxHeight: core.Pt(660)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(660)},
 			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(520)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 6}, Children: body}}}},
 			Footer: []core.Node{

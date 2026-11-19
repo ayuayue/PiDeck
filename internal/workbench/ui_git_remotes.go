@@ -99,7 +99,7 @@ func (a *app) gitRemotesDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.gitRemotesOpen.Set(open) },
 			Title:        apptext.T("远端"),
 			TestID:       "git-remotes",
-			Style:        core.Style{Width: core.Pt(600), MaxHeight: core.Pt(560)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
 				core.Scroll{Style: core.Style{MaxHeight: core.Pt(280)}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 1}, Children: rows}}},

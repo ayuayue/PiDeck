@@ -75,7 +75,7 @@ func (a *app) gitBlameDialog() core.Node {
 			Title:        apptext.T("追溯"),
 			Description:  a.gitBlamePath.Get(),
 			TestID:       "git-blame",
-			Style:        core.Style{Width: core.Pt(780), MaxHeight: core.Pt(560)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,

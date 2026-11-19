@@ -1,0 +1,16 @@
+name = "pideck-relay"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+# One Durable Object per environment; see src/index.ts. The relay is
+# serverless: `npx wrangler deploy` is the whole deployment.
+[[durable_objects.bindings]]
+name = "TUNNEL"
+class_name = "Tunnel"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Tunnel"]
+
+# Route it under the domain the product already owns, for example:
+# routes = [{ pattern = "relay.example.com/v1/tunnel", zone_name = "example.com" }]

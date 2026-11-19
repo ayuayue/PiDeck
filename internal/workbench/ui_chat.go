@@ -56,6 +56,12 @@ func (a *app) chatWidthPct() int {
 	return pct
 }
 
+// dialogWidth is a modal's width: the same share of the window as the
+// chat column.
+func (a *app) dialogWidth() core.Length {
+	return core.Pct(float32(a.chatWidthPct()))
+}
+
 // setChatWidthPct narrows or widens the transcript and composer, and
 // keeps the choice; the default is stored as unset.
 func (a *app) setChatWidthPct(pct int) {

@@ -196,6 +196,66 @@ func TestChatWidthStripsShareTheComposerColumn(t *testing.T) {
 	}
 }
 
+// TestPaneWidthSharesTheChatColumn checks the tab pages take their width
+// from the chat's setting too: the settings page and the tasks page are
+// as wide as the composer column, so switching tabs does not jump.
+func TestPaneWidthSharesTheChatColumn(t *testing.T) {
+	built, screen, _ := newAskApp(t)
+	built.chatWidthPctSig.Set(70)
+	screen.Advance(80 * time.Millisecond)
+	screen.WaitFor("id:composer-column", 5*time.Second)
+	want := float64(screen.Find("id:composer-column").Frame.Size.Width)
+
+	check := func(name string) {
+		t.Helper()
+		screen.WaitFor("id:pane-column", 5*time.Second)
+		got := float64(screen.Find("id:pane-column").Frame.Size.Width)
+		if diff := math.Abs(got - want); diff > 2 {
+			t.Fatalf("%s pane column is %.1f wide, want the composer column's %.1f (off by %.1f)",
+				name, got, want, diff)
+		}
+	}
+
+	built.openSettingsPane()
+	screen.Advance(80 * time.Millisecond)
+	check("settings")
+
+	built.openTaskDialog()
+	screen.Advance(80 * time.Millisecond)
+	check("tasks")
+}
+
+// TestDialogWidthSharesTheChatColumn checks a modal takes the same share
+// of the window as the chat column: the task form follows the setting
+// instead of keeping a fixed 780 points.
+func TestDialogWidthSharesTheChatColumn(t *testing.T) {
+	built, screen, _ := newAskApp(t)
+	const windowWidth = 1280
+	built.chatWidthPctSig.Set(70)
+	built.openTaskForm()
+	screen.Advance(80 * time.Millisecond)
+	screen.WaitFor("id:task-form", 5*time.Second)
+
+	at := func(pct int) float64 {
+		t.Helper()
+		want := windowWidth * float64(pct) / 100
+		got := float64(screen.Find("id:task-form").Frame.Size.Width)
+		if diff := math.Abs(got - want); diff > 2 {
+			t.Fatalf("task form at %d%% is %.1f wide, want %.1f of the window (off by %.1f)",
+				pct, got, want, diff)
+		}
+		return got
+	}
+	narrow := at(70)
+
+	built.chatWidthPctSig.Set(80)
+	screen.Advance(80 * time.Millisecond)
+	wider := at(80)
+	if wider <= narrow {
+		t.Fatalf("task form at 80%% is %.1f wide, not wider than %.1f at 70%%", wider, narrow)
+	}
+}
+
 // openChatWidthSettings finds the width row through the settings search.
 func openChatWidthSettings(app *nsgotest.App) {
 	app.Press("label:设置")

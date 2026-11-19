@@ -410,7 +410,7 @@ func (a *app) providerDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.providerOpen.Set(open) },
 			Title:        apptext.T("配置 ") + a.providerID.Get(),
 			TestID:       "provider-dialog",
-			Style:        core.Style{Width: core.Pt(580), MaxHeight: core.Pt(620)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(620)},
 			Children: []core.Node{core.Scroll{TestID: "provider-scroll", Style: core.Style{MaxHeight: core.Pt(470)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: 6}}, Children: []core.Node{
 					a.providerAuthBlock(),

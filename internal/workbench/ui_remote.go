@@ -18,6 +18,10 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
+// selfHostDocsURL is the step-by-step guide for a user's own tunnel or
+// Worker.
+const selfHostDocsURL = "https://github.com/ayuayue/PiDeck-Lite/blob/main/docs/remote-self-host.md"
+
 // settingsRemote draws the remote access section.
 func (a *app) settingsRemote() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -132,6 +136,34 @@ func (a *app) settingsRemote() core.Node {
 				Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
 		}
 
+		publicLink := a.remote.publicLink()
+		relayLink := a.remote.relayLink()
+		relayStatus, relayTone := apptext.T("未开启"), colors.Faint
+		switch {
+		case st.Relay.Address == "":
+			relayStatus = apptext.T("先填写中继地址")
+		case st.RelayOn && st.Relay.Error != "":
+			relayStatus, relayTone = st.Relay.Error, colors.Danger
+		case st.RelayOn && st.Relay.Ready:
+			relayStatus, relayTone = apptext.T("已连接中继，等待手机连接"), colors.Up
+		case st.RelayOn:
+			relayStatus, relayTone = apptext.T("正在连接中继…"), colors.Warn
+		}
+		publicInput := core.Input{
+			Value: func() string { return a.cfg.RemotePublicURL }, OnChange: func(v string) { a.cfg.RemotePublicURL = v },
+			OnSubmit:    func(v string) { a.remote.setPublicURL(v) },
+			Placeholder: "https://pideck.example.com", Label: apptext.T("自定义公网地址"), TestID: "remote-public-url",
+			Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), FontSize: 11, Color: colors.Text(),
+				Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
+		}
+		relayInput := core.Input{
+			Value: func() string { return a.cfg.RemoteRelayURL }, OnChange: func(v string) { a.cfg.RemoteRelayURL = v },
+			OnSubmit:    func(v string) { a.remote.setRelayURL(v) },
+			Placeholder: "wss://relay.example.com/v1/tunnel", Label: apptext.T("中继地址"), TestID: "remote-relay-url",
+			Style: core.Style{Height: core.Pt(30), Padding: core.Symmetric(0, 8), FontSize: 11, Color: colors.Text(),
+				Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6},
+		}
+
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 0}, Children: []core.Node{
 				setGroup("服务",
@@ -184,6 +216,77 @@ func (a *app) settingsRemote() core.Node {
 							}},
 						}},
 					),
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(4, 2)}, Children: []core.Node{
+						core.Text{Content: apptext.T("用自己的 Cloudflare Tunnel、Worker 或反向代理？"), MaxLines: 2,
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
+						ui.Button{Text: apptext.T("自建步骤"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "remote-self-host-docs",
+							OnPress: func() { a.cx.OpenURL(selfHostDocsURL, nil) }},
+					}},
+				),
+				setGroup("自定义公网地址",
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(4, 2)}, Children: []core.Node{
+						core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{publicInput}},
+						ui.Button{Text: apptext.T("应用地址"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "remote-public-apply",
+							OnPress: func() { a.remote.setPublicURL(a.cfg.RemotePublicURL) }},
+					}},
+					core.Show{When: func() bool { return publicLink != "" }, Then: func(cx *core.Scope) core.Node {
+						return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(3, 2)},
+							Children: []core.Node{
+								core.Text{Content: publicLink, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+									Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
+								ui.Button{Text: apptext.T("复制链接"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "remote-public-copy",
+									OnPress: func() { a.copyText(a.remote.publicLink(), "连接链接") }},
+								hintOf(func() string { return apptext.T("显示二维码") }, ui.IconButton{Icon: lucide.QrCode, Label: apptext.T("显示二维码"),
+									Size: 24, IconSize: 13, TestID: "remote-public-qr",
+									OnPress: func() { a.showQR(a.remote.publicLink()) }}),
+							}}
+					}},
+					core.View{Style: core.Style{Padding: core.Symmetric(2, 2)}, Children: []core.Node{
+						core.Text{Content: apptext.T("把 Cloudflare Tunnel、反向代理或自己的域名转发到上面的端口，再填这里；建议用 https。"),
+							Style: core.Style{FontSize: 10, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)}}},
+				),
+				setGroup("外网访问",
+					setRow("中继连接", "手机不用装 VPN：电脑主动连到中继，手机扫码即可；中继只转发加密流量。",
+						ui.Switch{Checked: func() bool { return st.RelayOn }, Label: apptext.T("中继连接"), TestID: "remote-relay",
+							OnChange: func(on bool) { a.remote.setRelayEnabled(on) }}),
+					setDivider(),
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(4, 2)}, Children: []core.Node{
+						core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{relayInput}},
+						ui.Button{Text: apptext.T("应用地址"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "remote-relay-apply",
+							OnPress: func() { a.remote.setRelayURL(a.cfg.RemoteRelayURL) }},
+					}},
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(3, 2)}, Children: []core.Node{
+						core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: relayTone()}},
+						core.Text{Content: relayStatus, MaxLines: 3, EllipsizeMode: core.EllipsizeTail,
+							Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 10.5, LineHeight: 15},
+							StyleFunc: ui.Colored(relayTone)},
+						ui.Button{Text: apptext.T("测试连接"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "remote-relay-test",
+							OnPress: a.testRelay},
+						core.Show{When: func() bool {
+							return defaultRelayURL != "" && normalizeRelayURL(a.cfg.RemoteRelayURL) != normalizeRelayURL(defaultRelayURL)
+						}, Then: func(*core.Scope) core.Node {
+							return ui.Button{Text: apptext.T("恢复默认"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "remote-relay-default",
+								OnPress: func() {
+									a.cfg.RemoteRelayURL = defaultRelayURL
+									a.remote.setRelayURL(defaultRelayURL)
+								}}
+						}},
+					}},
+					core.Show{When: func() bool { return relayLink != "" }, Then: func(cx *core.Scope) core.Node {
+						return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(4, 2)},
+							Children: []core.Node{
+								core.Text{Content: relayLink, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+									Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Faint)},
+								ui.Button{Text: apptext.T("复制配对链接"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "remote-relay-copy",
+									OnPress: func() { a.copyText(a.remote.relayLink(), "配对链接") }},
+								hintOf(func() string { return apptext.T("显示二维码") }, ui.IconButton{Icon: lucide.QrCode, Label: apptext.T("显示二维码"),
+									Size: 24, IconSize: 13, TestID: "remote-relay-qr",
+									OnPress: func() { a.showQR(a.remote.relayLink()) }}),
+							}}
+					}},
+					core.View{Style: core.Style{Padding: core.Symmetric(2, 2)}, Children: []core.Node{
+						core.Text{Content: apptext.T("可以换成自己的 Cloudflare Worker：部署 infra/relay-worker 后，把 wss://…/v1/tunnel 填在上面。配对链接里含访问令牌，只发给可信设备。"),
+							Style: core.Style{FontSize: 10, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)}}},
 				),
 				setGroup("手机端",
 					core.View{Style: core.Style{Gap: 4, Padding: core.Symmetric(4, 2)}, Children: []core.Node{
@@ -196,6 +299,26 @@ func (a *app) settingsRemote() core.Node {
 			}},
 		}}
 	})
+}
+
+// testRelay dials the address in the field as a throwaway desktop, so a
+// self-hosted relay can be checked before the switch is turned on.
+func (a *app) testRelay() {
+	raw := strings.TrimSpace(a.cfg.RemoteRelayURL)
+	if raw == "" {
+		a.toast(ui.ToastError, "中继不可用", "先填写中继地址")
+		return
+	}
+	go func() {
+		err := a.remote.probeRelay(raw)
+		a.cx.Post(func() {
+			if err != nil {
+				a.toast(ui.ToastError, "中继不可用", err.Error())
+				return
+			}
+			a.toast(ui.ToastSuccess, "中继可用", "已连上中继，可以打开开关了")
+		})
+	}()
 }
 
 // showQR opens the dialog with a link's QR code.

@@ -62,7 +62,7 @@ func (a *app) gitFileHistoryDialog() core.Node {
 			Title:        apptext.T("文件历史"),
 			Description:  a.gitFileHistoryPath.Get(),
 			TestID:       "git-file-history-dialog",
-			Style:        core.Style{Width: core.Pt(760), MaxHeight: core.Pt(560)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-history-close",

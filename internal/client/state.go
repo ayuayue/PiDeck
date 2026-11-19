@@ -50,10 +50,14 @@ type mobileApp struct {
 	desktopVersion *core.Signal[string]
 	state          *core.Signal[remotewire.Snapshot]
 
-	active         *core.Signal[string]
-	activeTitle    *core.Signal[string]
-	messages       *core.Signal[[]remotewire.Message]
-	transcriptErr  *core.Signal[string]
+	active        *core.Signal[string]
+	activeTitle   *core.Signal[string]
+	messages      *core.Signal[[]remotewire.Message]
+	transcriptErr *core.Signal[string]
+	// sendErr is why the phone's own send or stop did not reach the
+	// desktop. It is not the turn's error, so the transcript's refresh
+	// never clears it.
+	sendErr        *core.Signal[string]
 	transcriptBusy *core.Signal[bool]
 	// ask is the desktop's pending question, answerable from here.
 	ask        *core.Signal[*remotewire.Ask]
@@ -125,10 +129,13 @@ type mobileApp struct {
 	initPending   *core.Signal[[]remotewire.Image]
 	initSending   *core.Signal[bool]
 	railCollapsed *core.Signal[[]string]
-	settingsOpen  *core.Signal[bool]
-	projectOpen   *core.Signal[string]
-	appearance    *core.Signal[string]
-	language      *core.Signal[string]
+	// railExpandedPaths are the projects showing sessions older than the
+	// last few days, which the rail folds away by default.
+	railExpandedPaths *core.Signal[[]string]
+	settingsOpen      *core.Signal[bool]
+	projectOpen       *core.Signal[string]
+	appearance        *core.Signal[string]
+	language          *core.Signal[string]
 
 	// The rail's lists: the ways of working a session can start with, the
 	// desktop's cron tasks and its favorites.
@@ -160,6 +167,15 @@ type mobileApp struct {
 	pending *core.Signal[[]remotewire.Image]
 	sending *core.Signal[bool]
 	running *core.Signal[bool]
+	// mode is what the open session's next turn asks for, echoed from the
+	// desktop: "" for a normal prompt, else "plan", "goal" or "imagegen".
+	mode *core.Signal[string]
+	// composerPlusOpen shows the composer's add menu, aiBusy names the draft
+	// tool running for it, and filesMention makes the file list insert an
+	// @path instead of opening the file.
+	composerPlusOpen *core.Signal[bool]
+	aiBusy           *core.Signal[string]
+	filesMention     *core.Signal[bool]
 
 	// actionID is the session whose action sheet is open, renameID the one
 	// being renamed, newOpen the project chooser.
@@ -210,123 +226,129 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	setting := strings.TrimSpace(os.Getenv("PIDECK_LITE_LANG"))
 	apptext.SetLanguage(apptext.ResolveLanguage(setting, cx.Env().Locale()))
 	a := &mobileApp{
-		cx:               cx,
-		server:           core.NewSignal(cx, ""),
-		recent:           core.NewSignalFunc(cx, []mobileRecent(nil), nil),
-		token:            core.NewSignal(cx, ""),
-		busy:             core.NewSignal(cx, false),
-		err:              core.NewSignal(cx, ""),
-		connected:        core.NewSignal(cx, false),
-		serverName:       core.NewSignal(cx, "PiDeck Lite"),
-		desktopVersion:   core.NewSignal(cx, ""),
-		state:            core.NewSignalFunc(cx, remotewire.Snapshot{}, nil),
-		active:           core.NewSignal(cx, ""),
-		activeTitle:      core.NewSignal(cx, ""),
-		messages:         core.NewSignalFunc(cx, []remotewire.Message(nil), nil),
-		transcriptErr:    core.NewSignal(cx, ""),
-		transcriptBusy:   core.NewSignal(cx, false),
-		ask:              core.NewSignalFunc(cx, (*remotewire.Ask)(nil), nil),
-		askText:          core.NewSignal(cx, ""),
-		askSending:       core.NewSignal(cx, false),
-		reviewOpen:       core.NewSignal(cx, false),
-		reviewProject:    core.NewSignal(cx, ""),
-		reviewName:       core.NewSignal(cx, ""),
-		reviewKind:       core.NewSignal(cx, "pr"),
-		reviewFilter:     core.NewSignal(cx, "open"),
-		reviewQuery:      core.NewSignal(cx, ""),
-		reviewItems:      core.NewSignalFunc(cx, []remotewire.ReviewItem(nil), nil),
-		reviewBusy:       core.NewSignal(cx, false),
-		reviewErr:        core.NewSignal(cx, ""),
-		reviewMissing:    core.NewSignal(cx, false),
-		reviewDetailOpen: core.NewSignal(cx, false),
-		reviewDetail:     core.NewSignalFunc(cx, remotewire.ReviewDetail{}, nil),
-		reviewDetailBusy: core.NewSignal(cx, false),
-		reviewDetailErr:  core.NewSignal(cx, ""),
-		reviewComment:    core.NewSignal(cx, ""),
-		reviewSending:    core.NewSignal(cx, false),
-		reviewPending:    core.NewSignal(cx, ""),
-		reviewPatchOpen:  core.NewSignal(cx, false),
-		reviewPatch:      core.NewSignal(cx, ""),
-		reviewPatchBusy:  core.NewSignal(cx, false),
-		gitOpen:          core.NewSignal(cx, false),
-		gitProject:       core.NewSignal(cx, ""),
-		gitName:          core.NewSignal(cx, ""),
-		gitState:         core.NewSignalFunc(cx, remotewire.Git{}, nil),
-		gitBusy:          core.NewSignal(cx, false),
-		gitErr:           core.NewSignal(cx, ""),
-		gitDiffOpen:      core.NewSignal(cx, false),
-		gitDiffTitle:     core.NewSignal(cx, ""),
-		gitDiffText:      core.NewSignal(cx, ""),
-		gitDiffBusy:      core.NewSignal(cx, false),
-		gitMsg:           core.NewSignal(cx, ""),
-		gitSending:       core.NewSignal(cx, false),
-		gitBranchesOpen:  core.NewSignal(cx, false),
-		filesOpen:        core.NewSignal(cx, false),
-		filesProject:     core.NewSignal(cx, ""),
-		filesName:        core.NewSignal(cx, ""),
-		filesQuery:       core.NewSignal(cx, ""),
-		filesList:        core.NewSignalFunc(cx, []remotewire.File(nil), nil),
-		filesBusy:        core.NewSignal(cx, false),
-		filesErr:         core.NewSignal(cx, ""),
-		fileOpen:         core.NewSignal(cx, false),
-		fileTitle:        core.NewSignal(cx, ""),
-		fileText:         core.NewSignal(cx, ""),
-		fileBusy:         core.NewSignal(cx, false),
-		fileErr:          core.NewSignal(cx, ""),
-		fileFind:         core.NewSignal(cx, ""),
-		refreshing:       core.NewSignal(cx, false),
-		query:            core.NewSignal(cx, ""),
-		searchOpen:       core.NewSignal(cx, false),
-		findOpen:         core.NewSignal(cx, false),
-		findText:         core.NewSignal(cx, ""),
-		draft:            core.NewSignal(cx, ""),
-		pending:          core.NewSignalFunc(cx, []remotewire.Image(nil), nil),
-		sending:          core.NewSignal(cx, false),
-		running:          core.NewSignal(cx, false),
-		actionID:         core.NewSignal(cx, ""),
-		deleteID:         core.NewSignal(cx, ""),
-		renameID:         core.NewSignal(cx, ""),
-		renameText:       core.NewSignal(cx, ""),
-		newOpen:          core.NewSignal(cx, false),
-		creating:         core.NewSignal(cx, false),
-		addPath:          core.NewSignal(cx, ""),
-		addOpen:          core.NewSignal(cx, false),
-		removePath:       core.NewSignal(cx, ""),
-		options:          core.NewSignalFunc(cx, remotewire.Options{}, nil),
-		optionsOpen:      core.NewSignal(cx, false),
-		toolOpen:         core.NewSignal(cx, ""),
-		longOpen:         core.NewSignal(cx, ""),
-		hits:             core.NewSignalFunc(cx, []remotewire.Hit(nil), nil),
-		hitsBusy:         core.NewSignal(cx, false),
-		scroll:           &core.Ref{},
-		atBottom:         core.NewSignal(cx, true),
-		notice:           core.NewSignal(cx, ""),
-		drawerOpen:       core.NewSignal(cx, false),
-		railHidden:       core.NewSignal(cx, false),
-		initProject:      core.NewSignal(cx, ""),
-		initDraft:        core.NewSignal(cx, ""),
-		initPending:      core.NewSignalFunc(cx, []remotewire.Image(nil), nil),
-		initSending:      core.NewSignal(cx, false),
-		railCollapsed:    core.NewSignalFunc(cx, []string(nil), nil),
-		settingsOpen:     core.NewSignal(cx, false),
-		projectOpen:      core.NewSignal(cx, ""),
-		appearance:       core.NewSignal(cx, appearanceSystem),
-		language:         core.NewSignal(cx, apptext.LangZhCN),
-		agents:           core.NewSignalFunc(cx, []remotewire.Agent(nil), nil),
-		agentsBusy:       core.NewSignal(cx, false),
-		agentsErr:        core.NewSignal(cx, ""),
-		agentsOpen:       core.NewSignal(cx, false),
-		tasks:            core.NewSignalFunc(cx, []remotewire.Task(nil), nil),
-		tasksBusy:        core.NewSignal(cx, false),
-		tasksErr:         core.NewSignal(cx, ""),
-		tasksOpen:        core.NewSignal(cx, false),
-		taskOpen:         core.NewSignal(cx, ""),
-		taskBusy:         core.NewSignal(cx, ""),
-		favorites:        core.NewSignalFunc(cx, []remotewire.Favorite(nil), nil),
-		favoritesBusy:    core.NewSignal(cx, false),
-		favoritesErr:     core.NewSignal(cx, ""),
-		favoritesOpen:    core.NewSignal(cx, false),
-		favOpen:          core.NewSignal(cx, ""),
+		cx:                cx,
+		server:            core.NewSignal(cx, ""),
+		recent:            core.NewSignalFunc(cx, []mobileRecent(nil), nil),
+		token:             core.NewSignal(cx, ""),
+		busy:              core.NewSignal(cx, false),
+		err:               core.NewSignal(cx, ""),
+		connected:         core.NewSignal(cx, false),
+		serverName:        core.NewSignal(cx, "PiDeck Lite"),
+		desktopVersion:    core.NewSignal(cx, ""),
+		state:             core.NewSignalFunc(cx, remotewire.Snapshot{}, nil),
+		active:            core.NewSignal(cx, ""),
+		activeTitle:       core.NewSignal(cx, ""),
+		messages:          core.NewSignalFunc(cx, []remotewire.Message(nil), nil),
+		transcriptErr:     core.NewSignal(cx, ""),
+		sendErr:           core.NewSignal(cx, ""),
+		transcriptBusy:    core.NewSignal(cx, false),
+		ask:               core.NewSignalFunc(cx, (*remotewire.Ask)(nil), nil),
+		askText:           core.NewSignal(cx, ""),
+		askSending:        core.NewSignal(cx, false),
+		reviewOpen:        core.NewSignal(cx, false),
+		reviewProject:     core.NewSignal(cx, ""),
+		reviewName:        core.NewSignal(cx, ""),
+		reviewKind:        core.NewSignal(cx, "pr"),
+		reviewFilter:      core.NewSignal(cx, "open"),
+		reviewQuery:       core.NewSignal(cx, ""),
+		reviewItems:       core.NewSignalFunc(cx, []remotewire.ReviewItem(nil), nil),
+		reviewBusy:        core.NewSignal(cx, false),
+		reviewErr:         core.NewSignal(cx, ""),
+		reviewMissing:     core.NewSignal(cx, false),
+		reviewDetailOpen:  core.NewSignal(cx, false),
+		reviewDetail:      core.NewSignalFunc(cx, remotewire.ReviewDetail{}, nil),
+		reviewDetailBusy:  core.NewSignal(cx, false),
+		reviewDetailErr:   core.NewSignal(cx, ""),
+		reviewComment:     core.NewSignal(cx, ""),
+		reviewSending:     core.NewSignal(cx, false),
+		reviewPending:     core.NewSignal(cx, ""),
+		reviewPatchOpen:   core.NewSignal(cx, false),
+		reviewPatch:       core.NewSignal(cx, ""),
+		reviewPatchBusy:   core.NewSignal(cx, false),
+		gitOpen:           core.NewSignal(cx, false),
+		gitProject:        core.NewSignal(cx, ""),
+		gitName:           core.NewSignal(cx, ""),
+		gitState:          core.NewSignalFunc(cx, remotewire.Git{}, nil),
+		gitBusy:           core.NewSignal(cx, false),
+		gitErr:            core.NewSignal(cx, ""),
+		gitDiffOpen:       core.NewSignal(cx, false),
+		gitDiffTitle:      core.NewSignal(cx, ""),
+		gitDiffText:       core.NewSignal(cx, ""),
+		gitDiffBusy:       core.NewSignal(cx, false),
+		gitMsg:            core.NewSignal(cx, ""),
+		gitSending:        core.NewSignal(cx, false),
+		gitBranchesOpen:   core.NewSignal(cx, false),
+		filesOpen:         core.NewSignal(cx, false),
+		filesProject:      core.NewSignal(cx, ""),
+		filesName:         core.NewSignal(cx, ""),
+		filesQuery:        core.NewSignal(cx, ""),
+		filesList:         core.NewSignalFunc(cx, []remotewire.File(nil), nil),
+		filesBusy:         core.NewSignal(cx, false),
+		filesErr:          core.NewSignal(cx, ""),
+		fileOpen:          core.NewSignal(cx, false),
+		fileTitle:         core.NewSignal(cx, ""),
+		fileText:          core.NewSignal(cx, ""),
+		fileBusy:          core.NewSignal(cx, false),
+		fileErr:           core.NewSignal(cx, ""),
+		fileFind:          core.NewSignal(cx, ""),
+		refreshing:        core.NewSignal(cx, false),
+		query:             core.NewSignal(cx, ""),
+		searchOpen:        core.NewSignal(cx, false),
+		findOpen:          core.NewSignal(cx, false),
+		findText:          core.NewSignal(cx, ""),
+		draft:             core.NewSignal(cx, ""),
+		pending:           core.NewSignalFunc(cx, []remotewire.Image(nil), nil),
+		sending:           core.NewSignal(cx, false),
+		running:           core.NewSignal(cx, false),
+		mode:              core.NewSignal(cx, ""),
+		composerPlusOpen:  core.NewSignal(cx, false),
+		aiBusy:            core.NewSignal(cx, ""),
+		filesMention:      core.NewSignal(cx, false),
+		actionID:          core.NewSignal(cx, ""),
+		deleteID:          core.NewSignal(cx, ""),
+		renameID:          core.NewSignal(cx, ""),
+		renameText:        core.NewSignal(cx, ""),
+		newOpen:           core.NewSignal(cx, false),
+		creating:          core.NewSignal(cx, false),
+		addPath:           core.NewSignal(cx, ""),
+		addOpen:           core.NewSignal(cx, false),
+		removePath:        core.NewSignal(cx, ""),
+		options:           core.NewSignalFunc(cx, remotewire.Options{}, nil),
+		optionsOpen:       core.NewSignal(cx, false),
+		toolOpen:          core.NewSignal(cx, ""),
+		longOpen:          core.NewSignal(cx, ""),
+		hits:              core.NewSignalFunc(cx, []remotewire.Hit(nil), nil),
+		hitsBusy:          core.NewSignal(cx, false),
+		scroll:            &core.Ref{},
+		atBottom:          core.NewSignal(cx, true),
+		notice:            core.NewSignal(cx, ""),
+		drawerOpen:        core.NewSignal(cx, false),
+		railHidden:        core.NewSignal(cx, false),
+		initProject:       core.NewSignal(cx, ""),
+		initDraft:         core.NewSignal(cx, ""),
+		initPending:       core.NewSignalFunc(cx, []remotewire.Image(nil), nil),
+		initSending:       core.NewSignal(cx, false),
+		railCollapsed:     core.NewSignalFunc(cx, []string(nil), nil),
+		railExpandedPaths: core.NewSignalFunc(cx, []string(nil), nil),
+		settingsOpen:      core.NewSignal(cx, false),
+		projectOpen:       core.NewSignal(cx, ""),
+		appearance:        core.NewSignal(cx, appearanceSystem),
+		language:          core.NewSignal(cx, apptext.LangZhCN),
+		agents:            core.NewSignalFunc(cx, []remotewire.Agent(nil), nil),
+		agentsBusy:        core.NewSignal(cx, false),
+		agentsErr:         core.NewSignal(cx, ""),
+		agentsOpen:        core.NewSignal(cx, false),
+		tasks:             core.NewSignalFunc(cx, []remotewire.Task(nil), nil),
+		tasksBusy:         core.NewSignal(cx, false),
+		tasksErr:          core.NewSignal(cx, ""),
+		tasksOpen:         core.NewSignal(cx, false),
+		taskOpen:          core.NewSignal(cx, ""),
+		taskBusy:          core.NewSignal(cx, ""),
+		favorites:         core.NewSignalFunc(cx, []remotewire.Favorite(nil), nil),
+		favoritesBusy:     core.NewSignal(cx, false),
+		favoritesErr:      core.NewSignal(cx, ""),
+		favoritesOpen:     core.NewSignal(cx, false),
+		favOpen:           core.NewSignal(cx, ""),
 	}
 	saved := loadMobileSaved(cx)
 	// The saved look, language and last project win over the system's:

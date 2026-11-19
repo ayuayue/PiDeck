@@ -145,7 +145,7 @@ func (a *app) promptStoreDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.promptStoreOpen.Set(open) },
 			Title:        apptext.T("提示词商店"),
 			TestID:       "prompt-store",
-			Style:        core.Style{Width: core.Pt(560), MaxHeight: core.Pt(660)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(660)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{

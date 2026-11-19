@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/remotewire"
 )
 
@@ -179,6 +180,24 @@ func (h *remoteHost) sessionOptions(w http.ResponseWriter, id string) {
 		found = true
 		current := s.model.GetUntracked()
 		out.Model, out.Provider, out.Thinking = current.ID, current.Provider, s.thinking.GetUntracked()
+		out.Mode = remoteModeOf(s)
+		out.Backend = backendOf(s)
+		if out.Backend == "acp" {
+			out.Backend = "acp:" + s.acpPreset
+			if p := h.app.acpPresetByID(s.acpPreset); p != nil {
+				out.BackendName = p.Name
+			}
+		} else {
+			out.BackendName = "pi"
+		}
+		out.BackendLocked = h.app.backendLocked(s)
+		out.Backends = append(out.Backends, remotewire.Backend{ID: "pi", Name: "pi", Detail: apptext.T("本机 pi 会话")})
+		for _, p := range h.app.acpPresetList() {
+			out.Backends = append(out.Backends, remotewire.Backend{
+				ID: "acp:" + p.ID, Name: p.Name, Detail: strings.TrimSpace(p.Command + " " + strings.Join(p.Args, " ")),
+			})
+		}
+		out.Tools = h.app.remoteDraftTools()
 		for _, m := range s.models.GetUntracked() {
 			out.Models = append(out.Models, remotewire.Model{ID: m.ID, Name: m.label(), Provider: m.Provider, Reasoning: m.Reasoning})
 		}

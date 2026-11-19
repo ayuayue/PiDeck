@@ -78,7 +78,7 @@ func (a *app) gitDiffDialog() core.Node {
 		return ui.Dialog{
 			Open: a.gitDiffOpen.Get, OnOpenChange: func(open bool, _ base.Reason) { a.gitDiffOpen.Set(open) },
 			Title: a.gitDiffTitle.Get(), Description: a.gitDiffSub.Get(), TestID: "git-diff",
-			Style: core.Style{Width: core.Pt(900), Height: core.Pt(640)},
+			Style: core.Style{Width: a.dialogWidth(), Height: core.Pt(640)},
 			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0),
 				BorderWidth: 1, BorderColor: colors.Border(), CornerRadius: 8, Overflow: core.Hidden}, Children: []core.Node{body}}},
 			Footer: []core.Node{

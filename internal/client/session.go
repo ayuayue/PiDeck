@@ -17,6 +17,26 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
+// sessionRecentDays is how far back the rail shows a project's sessions
+// before it folds the rest behind one row.
+const sessionRecentDays = 3
+
+// splitRecentSessions divides a project's sessions into the ones the rail
+// shows by default and the older ones it folds away. A session that is
+// pinned, running, waiting on an answer, or has no time at all stays in
+// sight: hiding it would hide something the user is watching.
+func splitRecentSessions(list []remotewire.Session, now time.Time) (recent, earlier []remotewire.Session) {
+	cutoff := now.AddDate(0, 0, -sessionRecentDays).UnixMilli()
+	for _, s := range list {
+		if s.Updated <= 0 || s.Updated >= cutoff || s.Running || s.Ask != nil || s.Pinned {
+			recent = append(recent, s)
+			continue
+		}
+		earlier = append(earlier, s)
+	}
+	return recent, earlier
+}
+
 // mobileSessionRow is one session in the rail: a status dot, its title,
 // and when it last did something.
 func (a *mobileApp) mobileSessionRow(cx *core.Scope, s remotewire.Session) core.Node {
@@ -102,6 +122,94 @@ func (a *mobileApp) pressIcon(icon func() *core.SVG, label string, size, iconSiz
 	}
 }
 
+// railSessionRows is a project's sessions, throttled: the last few days'
+// worth, then the older ones behind one row that opens and closes them.
+func (a *mobileApp) railSessionRows(cx *core.Scope, path string, sessions []remotewire.Session) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		recent, earlier := splitRecentSessions(sessions, time.Now())
+		expanded := a.railExpanded(path)
+		rows := make([]core.Node, 0, len(recent)+2)
+		for _, s := range recent {
+			rows = append(rows, a.mobileSessionRow(cx, s))
+		}
+		if len(earlier) > 0 {
+			if expanded {
+				for _, s := range earlier {
+					rows = append(rows, a.mobileSessionRow(cx, s))
+				}
+				rows = append(rows, a.railMoreRow(apptext.T("收起更早的会话"), path, "mobile-sessions-fewer"))
+			} else {
+				rows = append(rows, a.railMoreRow(apptext.T("展开更早的 %d 个会话", len(earlier)), path, "mobile-sessions-more"))
+			}
+		}
+		return core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Left: 6}}, Children: rows}
+	})
+}
+
+// railMoreRow opens or closes a project's older sessions.
+func (a *mobileApp) railMoreRow(label, path, testID string) core.Node {
+	colors := ui.ColorsOf(a.cx)
+	return core.View{OnPress: func(core.PressEvent) { a.toggleRailExpanded(path) }, Role: core.RoleButton, Label: label, TestID: testID,
+		StyleFunc: func() core.Style {
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinHeight: core.Pt(34),
+				Padding: core.Edges{Left: 8, Right: 6}, CornerRadius: 8, Transition: viewkit.PressMotion,
+				Active: &core.Style{Background: colors.Pressed()}}
+		},
+		Children: []core.Node{
+			ui.Icon(lucide.Clock, 12, colors.Faint),
+			core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
+		}}
+}
+
+// railExpanded says a project shows its older sessions too.
+func (a *mobileApp) railExpanded(path string) bool {
+	for _, p := range a.railExpandedPaths.Get() {
+		if p == path {
+			return true
+		}
+	}
+	return false
+}
+
+// toggleRailExpanded opens or closes one project's older sessions.
+func (a *mobileApp) toggleRailExpanded(path string) {
+	a.railExpandedPaths.Update(func(list []string) []string {
+		out := make([]string, 0, len(list)+1)
+		found := false
+		for _, p := range list {
+			if p == path {
+				found = true
+				continue
+			}
+			out = append(out, p)
+		}
+		if !found {
+			out = append(out, path)
+		}
+		return out
+	})
+}
+
+// syncMode follows the desktop's mode for the open session: it owns what
+// the next turn asks for, the phone only echoes it.
+func (a *mobileApp) syncMode(snap remotewire.Snapshot) {
+	id := a.active.GetUntracked()
+	if id == "" {
+		return
+	}
+	for _, p := range snap.Projects {
+		for _, s := range p.Sessions {
+			if s.ID == id {
+				if a.mode.GetUntracked() != s.Mode {
+					a.mode.Set(s.Mode)
+				}
+				return
+			}
+		}
+	}
+}
+
 // openSession downloads a session's transcript.
 func (a *mobileApp) openSession(id, title string) {
 	a.active.Set(id)
@@ -111,9 +219,12 @@ func (a *mobileApp) openSession(id, title string) {
 	a.findOpen.Set(false)
 	a.findText.Set("")
 	a.transcriptErr.Set("")
+	a.sendErr.Set("")
 	a.ask.Set(nil)
 	a.askText.Set("")
 	a.options.Set(remotewire.Options{})
+	a.mode.Set("")
+	a.syncMode(a.state.GetUntracked())
 	a.refreshTranscript()
 	a.loadOptions(id)
 }
@@ -122,9 +233,11 @@ func (a *mobileApp) closeSession() {
 	a.active.Set("")
 	a.messages.Set(nil)
 	a.running.Set(false)
+	a.mode.Set("")
 	a.findOpen.Set(false)
 	a.findText.Set("")
 	a.transcriptErr.Set("")
+	a.sendErr.Set("")
 	a.ask.Set(nil)
 	a.askText.Set("")
 }

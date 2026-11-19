@@ -104,9 +104,19 @@ type config struct {
 	RemotePort       int    `json:"remotePort,omitempty"`
 	RemoteToken      string `json:"remoteToken,omitempty"`
 	RemoteEasyTierIP string `json:"remoteEasyTierIP,omitempty"`
+	// RemoteRelay is the outbound tunnel that lets a phone reach this
+	// desktop without a VPN. Env and Key identify it on the relay; the
+	// certificate lives beside the config.
+	RemoteRelay    bool   `json:"remoteRelay,omitempty"`
+	RemoteRelayURL string `json:"remoteRelayURL,omitempty"`
+	RemoteRelayEnv string `json:"remoteRelayEnv,omitempty"`
+	RemoteRelayKey string `json:"remoteRelayKey,omitempty"`
 	// WatchaUserID identifies this installation to the tip proxy, which
 	// holds the platform key. It is a random id, created on first use.
 	WatchaUserID string `json:"watchaUserId,omitempty"`
+	// RemotePublicURL is an address the user forwards to this desktop
+	// themselves, such as a Cloudflare Tunnel or a reverse proxy.
+	RemotePublicURL string `json:"remotePublicURL,omitempty"`
 	// DisabledPlugins are the plugin ids the user turned off; everything
 	// else under plugins/ runs.
 	DisabledPlugins []string `json:"disabledPlugins,omitempty"`

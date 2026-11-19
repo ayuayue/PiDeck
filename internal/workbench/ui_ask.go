@@ -65,7 +65,7 @@ func (a *app) parallelAskDialog() core.Node {
 			},
 			Title:  apptext.T("并行问询"),
 			TestID: "ask-dialog",
-			Style:  core.Style{Width: core.Pt(620), Height: core.Pt(560)},
+			Style:  core.Style{Width: a.dialogWidth(), Height: core.Pt(560)},
 			Children: []core.Node{core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12, Padding: core.Edges{Right: 4}}, Children: []core.Node{
 					core.View{Style: core.Style{Gap: 4}, Children: []core.Node{

@@ -94,7 +94,7 @@ func (a *app) archiveDialog() core.Node {
 			Title:        apptext.T("已归档的会话"),
 			Description:  apptext.T("这些会话不在侧栏里，文件仍在磁盘上。"),
 			TestID:       "archive-dialog",
-			Style:        core.Style{Width: core.Pt(620), MaxHeight: core.Pt(520)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(520)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,

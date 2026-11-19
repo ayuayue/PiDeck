@@ -52,39 +52,30 @@ func (a *mobileApp) lastPrompt() string {
 	return ""
 }
 
-// sessionBar is the model and thinking line over the composer.
-func (a *mobileApp) sessionBar(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	label := func() string {
-		opts := a.options.Get()
-		name := opts.Model
-		for _, m := range opts.Models {
-			if m.ID == opts.Model {
-				name = m.Name
-				break
-			}
+// modelLabel is the model the open session answers with, as its chip
+// shows it.
+func (a *mobileApp) modelLabel() string {
+	opts := a.options.Get()
+	name := opts.Model
+	for _, m := range opts.Models {
+		if m.ID == opts.Model {
+			name = m.Name
+			break
 		}
-		if name == "" {
-			name = "默认模型"
-		}
-		if opts.Thinking != "" {
-			name += " · " + opts.Thinking
-		}
-		return name
 	}
-	return core.View{OnPress: func(core.PressEvent) { a.openOptions() }, Role: core.RoleButton, Label: apptext.T("模型与思考等级"),
-		TestID: "mobile-options",
-		StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Symmetric(4, 12),
-				Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
-		},
-		Children: []core.Node{
-			ui.Icon(lucide.Brain, 11, colors.Faint),
-			core.Text{ContentFunc: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-				Style: core.Style{FlexShrink: 1, FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
-			ui.Icon(lucide.ChevronUp, 11, colors.Faint),
-			a.usageChip(),
-		}}
+	if name == "" {
+		return apptext.T("模型")
+	}
+	return name
+}
+
+// thinkingLabel is the open session's reasoning level, or the word for the
+// picker when it has none.
+func (a *mobileApp) thinkingLabel() string {
+	if level := strings.TrimSpace(a.options.Get().Thinking); level != "" {
+		return level
+	}
+	return apptext.T("思考")
 }
 
 // sessionStatsLabel names a session's context use and cost.
@@ -141,6 +132,46 @@ func (a *mobileApp) openOptions() {
 	a.loadOptions(id)
 }
 
+// openInitOptions is the new-session page's model chip. A model belongs to
+// a session, so the page starts the session the first message would have
+// started, keeps the draft, and then shows the choices.
+func (a *mobileApp) openInitOptions() {
+	client := a.client
+	project := a.initProjectPath()
+	switch {
+	case client == nil:
+		a.flash(apptext.T("还没连上电脑，先回到连接页"))
+		return
+	case project == "":
+		a.err.Set(apptext.T("先在抽屉里添加一个项目"))
+		return
+	case a.initSending.GetUntracked():
+		return
+	}
+	a.initSending.Set(true)
+	a.err.Set("")
+	go func() {
+		id, title, err := client.createSession(project)
+		a.cx.Post(func() {
+			a.initSending.Set(false)
+			if err != nil {
+				a.err.Set(remoteErrorText(err))
+				return
+			}
+			draft, pending := a.initDraft.GetUntracked(), a.initPending.GetUntracked()
+			a.initDraft.Set("")
+			a.initPending.Set(nil)
+			a.initProject.Set(project)
+			a.saveLook()
+			a.openSession(id, title)
+			a.draft.Set(draft)
+			a.pending.Set(pending)
+			a.refreshState()
+			a.openOptions()
+		})
+	}()
+}
+
 // loadOptions reads a session's models and thinking levels.
 func (a *mobileApp) loadOptions(id string) {
 	client := a.client
@@ -154,6 +185,7 @@ func (a *mobileApp) loadOptions(id string) {
 				return
 			}
 			a.options.Set(opts)
+			a.mode.Set(opts.Mode)
 		})
 	}()
 }
@@ -163,13 +195,16 @@ func (a *mobileApp) optionsSheet() core.Node {
 	return ui.Dialog{
 		Open:         func() bool { return a.optionsOpen.Get() },
 		OnOpenChange: func(open bool, _ base.Reason) { a.optionsOpen.Set(open) },
-		Title:        apptext.T("模型与思考"),
+		Title:        apptext.T("会话设置"),
 		TestID:       "mobile-options-sheet",
 		Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420)},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			colors := ui.ColorsOf(cx)
 			opts := a.options.Get()
 			var sections []core.Node
+			if len(opts.Backends) > 0 {
+				sections = append(sections, a.backendSection(cx, opts))
+			}
 			if len(opts.Levels) > 0 {
 				chips := make([]core.Node, 0, len(opts.Levels))
 				for _, level := range opts.Levels {
@@ -205,7 +240,7 @@ func (a *mobileApp) optionsSheet() core.Node {
 					model := m
 					on := model.ID == opts.Model
 					rows = append(rows, core.View{OnPress: func(core.PressEvent) { a.chooseModel(model) },
-						Role: core.RoleButton, Label: model.Name, TestID: "mobile-model",
+						Role: core.RoleButton, Label: model.Name, TestID: "mobile-model-row",
 						StyleFunc: func() core.Style {
 							return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(40),
 								Padding: core.Symmetric(0, 8), CornerRadius: 7, Transition: viewkit.PressMotion,
@@ -240,6 +275,55 @@ func (a *mobileApp) optionsSheet() core.Node {
 			return core.View{Style: core.Style{Gap: 14}, Children: sections}
 		})},
 	}
+}
+
+// backendSection lists where the session can run: pi, or an ACP agent the
+// desktop has installed. The first message fixes the choice.
+func (a *mobileApp) backendSection(cx *core.Scope, opts remotewire.Options) core.Node {
+	colors := ui.ColorsOf(cx)
+	rows := make([]core.Node, 0, len(opts.Backends))
+	for _, b := range opts.Backends {
+		backend := b
+		on := backend.ID == opts.Backend
+		disabled := opts.BackendLocked && !on
+		rows = append(rows, core.View{OnPress: func(core.PressEvent) {
+			if opts.BackendLocked || on {
+				return
+			}
+			a.chooseBackend(backend)
+		}, Role: core.RoleButton, Label: backend.Name, TestID: "mobile-backend-row",
+			StyleFunc: func() core.Style {
+				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(40),
+					Padding: core.Symmetric(0, 8), CornerRadius: 7, Transition: viewkit.PressMotion,
+					Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
+				if disabled {
+					st.Disabled = ui.Dimmed()
+				}
+				return st
+			},
+			Children: []core.Node{
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+					core.Text{Content: backend.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+						Style: core.Style{FontSize: 13.5}, StyleFunc: ui.Colored(colors.Text)},
+					core.Show{When: func() bool { return backend.Detail != "" }, Then: func(*core.Scope) core.Node {
+						return core.Text{Content: backend.Detail, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+							Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+					}},
+				}},
+				core.Show{When: func() bool { return on }, Then: func(*core.Scope) core.Node {
+					return ui.Icon(lucide.Check, 14, colors.Text)
+				}},
+			}})
+	}
+	head := []core.Node{ui.Text(apptext.T("后端"), 11, ui.Medium, colors.Faint)}
+	if opts.BackendLocked {
+		head = append(head, core.Text{Content: apptext.T("已经开始了：换后端要新建会话"), MaxLines: 2,
+			Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)})
+	}
+	return core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
+		core.View{Style: core.Style{Gap: 1}, Children: head},
+		core.View{Style: core.Style{Gap: 1}, Children: rows},
+	}}
 }
 
 // chooseModel switches the open session's model.

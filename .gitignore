@@ -26,5 +26,9 @@ Thumbs.db
 # Update signing key: the public half (updates.pub) is committed, this is not
 /updates.key
 
+# Relay Worker dependencies and local state
+/infra/relay-worker/node_modules/
+/infra/relay-worker/.wrangler/
+
 # The embedded browser client (go tool nsgo build -target web)
 /webassets/site/

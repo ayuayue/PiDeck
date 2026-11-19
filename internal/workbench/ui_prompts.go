@@ -103,7 +103,7 @@ func (a *app) promptDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.promptOpen.Set(open) },
 			Title:        apptext.T("提示词库"),
 			TestID:       "prompt-library",
-			Style:        core.Style{Width: core.Pt(760), Height: core.Pt(620)},
+			Style:        core.Style{Width: a.dialogWidth(), Height: core.Pt(620)},
 			Children: []core.Node{core.View{Style: core.Style{Direction: core.Row, Height: core.Pt(430), MinHeight: core.Pt(0), Gap: 10},
 				Children: []core.Node{
 					core.View{StyleFunc: func() core.Style {
@@ -210,7 +210,7 @@ func (a *app) promptImportDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.promptImportOpen.Set(open) },
 			Title:        apptext.T("导入提示词包"),
 			TestID:       "prompt-import-dialog",
-			Style:        core.Style{Width: core.Pt(540)},
+			Style:        core.Style{Width: a.dialogWidth()},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 				core.Text{Content: apptext.T("填一个 http(s) 链接：JSON 或 YAML，可以是 {prompts:[…]} 或直接一个数组；每条要有 title 和 body（或 prompt）。"),
 					Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Muted)},

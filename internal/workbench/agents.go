@@ -426,7 +426,7 @@ func (a *app) agentDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.agentOpen.Set(open) },
 			Title:        apptext.T("选择智能体"),
 			TestID:       "agent-dialog",
-			Style:        core.Style{Width: core.Pt(560)},
+			Style:        core.Style{Width: a.dialogWidth()},
 			Children: []core.Node{
 				core.View{Style: core.Style{Gap: 6}, Children: header},
 				core.View{Style: core.Style{Gap: 2, Margin: core.Edges{Top: 4}}, Children: rows},

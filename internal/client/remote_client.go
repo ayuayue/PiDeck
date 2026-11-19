@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"example.com/pideck-lite/internal/relaywire"
 	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
 )
@@ -26,14 +27,25 @@ type remoteClient struct {
 	base  string
 	token string
 	http  *http.Client
+	// source is what the connect field and the recent list keep: the
+	// address for a direct connection, the pairing link for a relay one.
+	source string
 }
 
 // newRemoteClient normalizes an address and token. A pasted connection
-// link's ?token= fills the token when the field is empty.
+// link's ?token= fills the token when the field is empty; a relay pairing
+// link carries its own address, token and pinned certificate.
 func newRemoteClient(raw, token string) (*remoteClient, string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, "", errors.New("请填写电脑的连接地址")
+	}
+	if relaywire.IsLink(raw) {
+		link, err := relaywire.Parse(raw)
+		if err != nil {
+			return nil, "", errors.New("配对链接不完整，请在电脑端重新生成")
+		}
+		return newRelayClient(link, raw)
 	}
 	if !strings.Contains(raw, "://") {
 		raw = "http://" + raw
@@ -49,7 +61,16 @@ func newRemoteClient(raw, token string) (*remoteClient, string, error) {
 		token = q
 	}
 	base := u.Scheme + "://" + u.Host
-	return &remoteClient{base: base, token: token, http: &http.Client{Timeout: 12 * time.Second}}, token, nil
+	return &remoteClient{base: base, source: base, token: token, http: &http.Client{Timeout: 12 * time.Second}}, token, nil
+}
+
+// close drops idle connections, including a relay tunnel, so switching
+// servers does not leave one open.
+func (c *remoteClient) close() {
+	if c == nil || c.http == nil {
+		return
+	}
+	c.http.CloseIdleConnections()
 }
 
 func (c *remoteClient) do(path string, out any) error {
@@ -115,11 +136,17 @@ func (c *remoteClient) transcript(id string) (remotewire.Transcript, error) {
 
 // post sends a JSON body and decodes the reply.
 func (c *remoteClient) post(path string, in, out any) error {
+	return c.postWithin(path, in, out, 20*time.Second)
+}
+
+// postWithin is post with its own deadline: a model call or a generated
+// picture takes longer than a settings change.
+func (c *remoteClient) postWithin(path string, in, out any, limit time.Duration) error {
 	payload, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(payload))
 	if err != nil {
@@ -127,7 +154,11 @@ func (c *remoteClient) post(path string, in, out any) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
+	// The client's own deadline is the short one every request shares; a
+	// model call or a drawn picture needs the one it asked for.
+	hc := *c.http
+	hc.Timeout = limit
+	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("连接失败：%w", err)
 	}
@@ -243,6 +274,38 @@ func (c *remoteClient) setModel(id, provider, modelID string) error {
 // setThinking switches a session's reasoning level.
 func (c *remoteClient) setThinking(id, level string) error {
 	return c.post("/api/sessions/"+url.PathEscape(id)+"/thinking", map[string]string{"level": level}, nil)
+}
+
+// setMode switches what the session's next turn asks for: "" for a plain
+// prompt, or "plan", "goal" or "imagegen".
+func (c *remoteClient) setMode(id, mode string) (string, error) {
+	var out struct {
+		Mode string `json:"mode"`
+	}
+	err := c.post("/api/sessions/"+url.PathEscape(id)+"/mode", map[string]string{"mode": mode}, &out)
+	return out.Mode, err
+}
+
+// setBackend switches a session that has not started between pi and an ACP
+// preset.
+func (c *remoteClient) setBackend(id, backend, preset string) error {
+	return c.post("/api/sessions/"+url.PathEscape(id)+"/backend", map[string]string{"backend": backend, "preset": preset}, nil)
+}
+
+// draftTool asks the desktop's model to rewrite or continue the text.
+func (c *remoteClient) draftTool(id, tool, text string) (string, error) {
+	var out struct {
+		Text string `json:"text"`
+	}
+	err := c.postWithin("/api/sessions/"+url.PathEscape(id)+"/tools", map[string]string{"tool": tool, "text": text}, &out, 90*time.Second)
+	return out.Text, err
+}
+
+// drawImage asks the desktop's image provider for a picture of the words.
+func (c *remoteClient) drawImage(id, prompt string) ([]remotewire.Picture, error) {
+	var out remotewire.Pictures
+	err := c.postWithin("/api/sessions/"+url.PathEscape(id)+"/image", map[string]string{"prompt": prompt}, &out, 150*time.Second)
+	return out.Images, err
 }
 
 func (c *remoteClient) prompt(id, text string) error {

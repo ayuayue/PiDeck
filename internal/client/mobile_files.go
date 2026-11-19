@@ -113,6 +113,14 @@ func fileSizeText(n int64) string {
 	return fmt.Sprintf("%d B", n)
 }
 
+// filesTitle names the file list: mention mode says what a tap does.
+func (a *mobileApp) filesTitle() string {
+	if a.filesMention.Get() {
+		return apptext.T("插入文件") + " · " + a.filesName.Get()
+	}
+	return apptext.T("文件") + " · " + a.filesName.Get()
+}
+
 // filesSheet lists a project's files, filtered by the field above.
 func (a *mobileApp) filesSheet() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -132,8 +140,14 @@ func (a *mobileApp) filesSheet() core.Node {
 			}
 			name, dir := viewkit.SplitGitPath(f.Path)
 			rows = append(rows, core.View{
-				OnPress: func(core.PressEvent) { a.openFile(f.Path) },
-				Role:    core.RoleButton, Label: f.Path, TestID: "mobile-file",
+				OnPress: func(core.PressEvent) {
+					if a.filesMention.GetUntracked() {
+						a.insertMention(f.Path)
+						return
+					}
+					a.openFile(f.Path)
+				},
+				Role: core.RoleButton, Label: f.Path, TestID: "mobile-file",
 				StyleFunc: func() core.Style {
 					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(38),
 						Padding: core.Symmetric(0, 8), CornerRadius: 6, Transition: viewkit.PressMotion,
@@ -168,7 +182,7 @@ func (a *mobileApp) filesSheet() core.Node {
 		return ui.Dialog{
 			Open:         a.filesOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) { a.filesOpen.Set(open) },
-			Title:        apptext.T("文件") + " · " + a.filesName.Get(),
+			Title:        a.filesTitle(),
 			TestID:       "mobile-files",
 			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(560)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{

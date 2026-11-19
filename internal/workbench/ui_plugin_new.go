@@ -49,7 +49,7 @@ func (a *app) pluginNewDialog() core.Node {
 			Title:        apptext.T("新建插件"),
 			Description:  apptext.T("插件文件夹里是一个 plugin.json：命令、设置、主题、键位、钩子和智能体都写在 contributes 里；保存后回到设置 → 插件点「重新加载」。"),
 			TestID:       "plugin-new",
-			Style:        core.Style{Width: core.Pt(520)},
+			Style:        core.Style{Width: a.dialogWidth()},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 				field(a.pluginNewID, apptext.T("插件 id"), "my-tools", "plugin-new-id"),
 				field(a.pluginNewName, apptext.T("插件名"), apptext.T("例如 我的工具"), "plugin-new-name"),

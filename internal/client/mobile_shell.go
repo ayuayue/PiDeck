@@ -241,11 +241,7 @@ func (a *mobileApp) railProject(cx *core.Scope, index int, p remotewire.Project)
 					ui.Text(apptext.T("还没有会话"), 11, ui.Regular, colors.Faint),
 				}}
 			}
-			rows := make([]core.Node, 0, len(p.Sessions))
-			for _, s := range p.Sessions {
-				rows = append(rows, a.mobileSessionRow(cx, s))
-			}
-			return core.View{Style: core.Style{Gap: 1, Padding: core.Edges{Left: 6}}, Children: rows}
+			return a.railSessionRows(cx, p.Path, p.Sessions)
 		}},
 	}}
 }
@@ -335,6 +331,7 @@ func (a *mobileApp) initView(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: ui.FillRest, StyleFunc: ui.Filled(colors.Background), Children: []core.Node{
 		a.pageHeader(cx, "PiDeck Lite", a.serverName.Get()),
+		a.appNotice(cx),
 		core.Scroll{Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pct(100), Padding: core.Edges{Top: 24, Right: 20, Bottom: 20, Left: 20},
 				AlignItems: core.AlignCenter}, Children: []core.Node{
@@ -391,60 +388,51 @@ func (a *mobileApp) initProjectChip(cx *core.Scope) core.Node {
 	})
 }
 
-// initComposer is the first message: writing one starts the session.
+// initComposer is the first message: writing one starts the session. It is
+// the open session's card, so the model, the thinking level, the picture
+// button and the usage sit in the same row on both pages.
 func (a *mobileApp) initComposer(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	empty := func() bool {
-		return strings.TrimSpace(a.initDraft.Get()) == "" && len(a.initPending.Get()) == 0
-	}
-	disabled := func() bool { return a.initSending.Get() || a.initProjectPath() == "" }
 	return core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(520), Gap: 8, Padding: core.Edges{Top: 10},
 		PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard}}, Children: []core.Node{
-		a.initPendingStrip(cx),
-		core.View{StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Column, Gap: 6, Padding: core.All(8), CornerRadius: 16, Background: colors.Surface(),
-				BorderWidth: 1, BorderColor: colors.FieldBorder()}
-		}, Children: []core.Node{
-			core.Input{Value: a.initDraft.Get, OnChange: a.initDraft.Set, Placeholder: apptext.T("写下第一句话…"), Label: apptext.T("消息"),
-				TestID: "mobile-draft", Multiline: true, SubmitBehavior: core.SubmitBehaviorNewline,
-				Style: core.Style{MinHeight: core.Pt(64), MaxHeight: core.Pt(180), Padding: core.Symmetric(6, 6), FontSize: 15,
-					Color: colors.Text(), Background: colors.Surface(), PlaceholderColor: colors.Faint(),
-					CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				a.pressIcon(lucide.Image, apptext.T("添加图片"), 36, 16, nil, a.pickInitImage, "mobile-image"),
-				core.View{Style: core.Style{FlexGrow: 1}},
-				core.Dynamic(func(*core.Scope) core.Node {
-					if a.initSending.Get() {
-						return ui.Spinner{Size: 14, Label: apptext.T("正在新建会话")}
-					}
-					return ui.Press{OnPress: a.sendInit, Disabled: func() bool { return empty() || disabled() }, Scale: 0.9,
-						Role: core.RoleButton, Label: apptext.T("发送"), TestID: "mobile-send",
-						StyleFunc: func() core.Style {
-							st := core.Style{Width: core.Pt(40), Height: core.Pt(40), CornerRadius: 20, AlignItems: core.AlignCenter,
-								JustifyContent: core.JustifyCenter, Background: colors.Light(), Transition: viewkit.PressMotion}
-							if empty() || disabled() {
-								st.Background = colors.Inset()
-							}
-							return st
-						},
-						Children: []core.Node{ui.Icon(lucide.Send, 16, func() core.Color {
-							if empty() || disabled() {
-								return colors.Faint()
-							}
-							return colors.OnLight()
-						})}}
-				}),
-			}},
-		}},
+		a.initProjectNotice(cx),
+		a.composerCard(cx, composerSource{
+			draft: a.initDraft.Get, setDraft: a.initDraft.Set,
+			pending: a.initPending.Get,
+			drop: func(index int) {
+				a.initPending.Update(func(list []remotewire.Image) []remotewire.Image { return withoutImage(list, index) })
+			},
+			pick: a.pickInitImage, send: a.sendInit, sending: a.initSending.Get,
+			openOptions: a.openInitOptions, placeholder: "写下第一句话…",
+		}),
 		core.Text{Content: apptext.T("新会话在电脑上跑：手机锁屏或掉线都不影响这一轮。"), Style: core.Style{FontSize: 10.5, TextAlign: core.TextAlignCenter},
 			StyleFunc: ui.Colored(colors.Faint)},
 	}}
 }
 
-// initPendingStrip shows the pictures waiting for the first message.
-func (a *mobileApp) initPendingStrip(cx *core.Scope) core.Node {
-	return a.pendingThumbs(cx, func() []remotewire.Image { return a.initPending.Get() }, func(index int) {
-		a.initPending.Update(func(list []remotewire.Image) []remotewire.Image { return withoutImage(list, index) })
+// initProjectNotice says the page has no project to start in, so the send
+// button cannot work: a disabled button alone would look broken.
+func (a *mobileApp) initProjectNotice(cx *core.Scope) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		// Follow the project list, so the notice leaves once the drawer adds
+		// one. An empty snapshot before the first answer is not a desktop
+		// without projects.
+		snap := a.state.Get()
+		if len(snap.Projects) > 0 || snap.Name == "" {
+			return nil
+		}
+		colors := ui.ColorsOf(cx)
+		return core.View{TestID: "mobile-no-project",
+			StyleFunc: func() core.Style {
+				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Padding: core.Symmetric(8, 11),
+					CornerRadius: 10, Background: ui.Alpha(colors.Warn(), 0.10),
+					BorderWidth: 1, BorderColor: ui.Alpha(colors.Warn(), 0.35)}
+			}, Children: []core.Node{
+				ui.Icon(lucide.FolderPlus, 14, colors.Warn),
+				core.Text{Content: apptext.T("先在抽屉里添加一个项目，才能新建会话。"), MaxLines: 2,
+					Style:     core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11.5, LineHeight: 16},
+					StyleFunc: ui.Colored(colors.Text)},
+			}}
 	})
 }
 
@@ -510,7 +498,11 @@ func (a *mobileApp) sendInit() {
 			a.saveLook()
 			a.openSession(id, title)
 			if sent != nil {
-				a.transcriptErr.Set(remoteErrorText(sent))
+				// The session started but the first message did not go out:
+				// put it back in the composer so nothing typed is lost.
+				a.draft.Set(text)
+				a.pending.Set(images)
+				a.sendErr.Set(remoteErrorText(sent))
 			}
 			a.refreshState()
 		})

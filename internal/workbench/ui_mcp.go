@@ -200,7 +200,7 @@ func (a *app) mcpDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.mcpAddOpen.Set(open) },
 			Title:        apptext.T("添加 MCP 服务器"),
 			TestID:       "mcp-dialog",
-			Style:        core.Style{Width: core.Pt(520)},
+			Style:        core.Style{Width: a.dialogWidth()},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 				field("名字", "server-name", "mcp-name", a.mcpName),
 				field("URL（HTTP）", "https://…/mcp", "mcp-url", a.mcpURL),

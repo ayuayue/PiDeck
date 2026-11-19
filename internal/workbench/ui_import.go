@@ -230,7 +230,7 @@ func (a *app) importDialog() core.Node {
 			Title:        apptext.T("导入会话"),
 			Description:  apptext.T("从 Claude Code、Codex、Cursor 等工具的历史里挑出会话，转换后复制到本应用自己的会话目录：原文件不动。"),
 			TestID:       "import-dialog",
-			Style:        core.Style{Width: core.Pt(760), MaxHeight: core.Pt(640)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(640)},
 			Children:     []core.Node{a.importBody()},
 			Footer:       []core.Node{a.importFooterBar()},
 		}

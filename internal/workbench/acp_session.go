@@ -702,7 +702,7 @@ func (a *app) acpDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.acpOpen.Set(open) },
 			Title:        apptext.T("新建 ACP 会话"),
 			TestID:       "acp-dialog",
-			Style:        core.Style{Width: core.Pt(520)},
+			Style:        core.Style{Width: a.dialogWidth()},
 			Children:     []core.Node{core.View{Style: core.Style{Gap: 4}, Children: rows}},
 			Footer: []core.Node{
 				core.Show{When: func() bool { return def != "" }, Then: func(*core.Scope) core.Node {

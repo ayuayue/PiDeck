@@ -52,6 +52,14 @@ func (h *remoteHost) handleSessionAction(w http.ResponseWriter, r *http.Request)
 		h.sessionDelete(w, id)
 	case "answer":
 		h.sessionAnswer(w, r, id)
+	case "mode":
+		h.sessionMode(w, r, id)
+	case "backend":
+		h.sessionBackend(w, r, id)
+	case "tools":
+		h.sessionTool(w, r, id)
+	case "image":
+		h.sessionImage(w, r, id)
 	default:
 		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "没有这个操作"})
 	}
@@ -109,6 +117,14 @@ func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id st
 		}
 		if ws := h.app.workspaceOf(s.WS); ws != nil && !h.app.projectTrusted(ws) {
 			failure = errors.New(apptext.T("这个项目还没有在电脑上被信任"))
+			return
+		}
+		// Image mode draws the words instead of prompting pi, as the
+		// desktop's composer does.
+		if modeOn(s, modeImage) {
+			if text != "" {
+				h.app.generateComposerImage(s, text)
+			}
 			return
 		}
 		// A message for a turn that is still running steers it, as the

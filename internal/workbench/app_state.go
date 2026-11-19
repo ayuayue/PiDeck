@@ -242,7 +242,6 @@ type app struct {
 	piReserveText  *core.Signal[string]
 	piKeepText     *core.Signal[string]
 	providerModels []modelConfig
-
 	// langRev changes when the interface language does, so pages that
 	// hold static text rebuild.
 	langRev    *core.Signal[int]

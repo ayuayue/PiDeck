@@ -25,7 +25,7 @@ func (a *app) searchDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.searchOpen.Set(open) },
 			Title:        apptext.T("搜索会话"),
 			TestID:       "session-search",
-			Style:        core.Style{Width: core.Pt(680), Height: core.Pt(580)},
+			Style:        core.Style{Width: a.dialogWidth(), Height: core.Pt(580)},
 			Children: []core.Node{core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
 				core.Input{Value: a.searchText.Get,
 					OnChange:    func(v string) { a.searchText.Set(v); a.scheduleSearch() },

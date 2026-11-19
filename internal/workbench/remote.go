@@ -8,6 +8,7 @@ package workbench
 // the LAN, over Tailscale or over EasyTier.
 
 import (
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"golang.org/x/net/websocket"
 )
 
 const (
@@ -51,6 +53,10 @@ type remoteView struct {
 	LAN       []remoteLANAddress `json:"lan"`
 	Tailscale remoteChannel      `json:"tailscale"`
 	EasyTier  remoteChannel      `json:"easytier"`
+	// Relay is the outbound tunnel for phones that cannot reach a LAN or a
+	// VPN address; RelayOn is the switch, which survives a failed dial.
+	Relay   remoteChannel `json:"relay"`
+	RelayOn bool          `json:"relayOn"`
 }
 
 // remoteHost owns the HTTP server, the token and the network scan.
@@ -66,6 +72,19 @@ type remoteHost struct {
 	err       string
 	detecting bool
 	search    *searchCache
+
+	relayOn    bool
+	relayURL   string
+	relayEnv   string
+	relayKey   string
+	relayCert  tls.Certificate
+	relayReady bool
+	relayErr   string
+	relayStop  chan struct{}
+	relaySrv   *http.Server
+	relayWS    *websocket.Conn
+
+	publicURL string
 }
 
 // newRemoteHost builds the state from the config.
@@ -74,12 +93,24 @@ func newRemoteHost(a *app) *remoteHost {
 	if port == 0 {
 		port = defaultRemotePort
 	}
+	relayURL := normalizeRelayURL(a.cfg.RemoteRelayURL)
+	if relayURL == "" {
+		relayURL = normalizeRelayURL(defaultRelayURL)
+		if relayURL != "" {
+			a.cfg.RemoteRelayURL = relayURL
+		}
+	}
 	return &remoteHost{
 		app: a,
 		state: core.NewSignalFunc(a.cx, remoteView{
 			Enabled: a.cfg.RemoteEnabled, Port: port, Token: a.cfg.RemoteToken,
+			RelayOn: a.cfg.RemoteRelay,
+			Relay:   remoteChannel{Installed: relayURL != "", Address: relayURL},
 		}, nil),
 		port: port, token: a.cfg.RemoteToken,
+		relayOn: a.cfg.RemoteRelay, relayURL: relayURL,
+		relayEnv: a.cfg.RemoteRelayEnv, relayKey: a.cfg.RemoteRelayKey,
+		publicURL: normalizePublicURL(a.cfg.RemotePublicURL),
 	}
 }
 
@@ -90,6 +121,9 @@ func (h *remoteHost) init() {
 		h.ensureToken()
 		h.start()
 		h.refresh()
+		if h.app.cfg.RemoteRelay && h.relayURL != "" && h.ensureRelayIdentity() {
+			h.startRelay()
+		}
 	}
 }
 
@@ -111,7 +145,8 @@ func (h *remoteHost) ensureToken() string {
 	return token
 }
 
-// setEnabled starts or stops the server.
+// setEnabled starts or stops the server. Turning it off also ends the
+// relay, because both are ways to reach the same API.
 func (h *remoteHost) setEnabled(on bool) {
 	if on {
 		h.ensureToken()
@@ -123,8 +158,24 @@ func (h *remoteHost) setEnabled(on bool) {
 		h.refresh()
 	} else {
 		h.stop()
+		if h.relayEnabled() {
+			h.stopRelay()
+			h.app.cfg.RemoteRelay = false
+			h.app.st.edit(func(c *config) { c.RemoteRelay = false })
+			h.mu.Lock()
+			h.relayOn = false
+			h.mu.Unlock()
+		}
 	}
 	h.state.Update(func(v remoteView) remoteView { v.Enabled = on; return v })
+	h.publish()
+}
+
+// relayEnabled reports the switch, not whether the tunnel is up.
+func (h *remoteHost) relayEnabled() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.relayOn
 }
 
 // setPort changes the listening port and restarts a running server.
@@ -249,6 +300,7 @@ func (h *remoteHost) stop() {
 
 // close ends the server without touching the UI, for the app's end.
 func (h *remoteHost) close() {
+	h.stopRelay()
 	h.mu.Lock()
 	srv := h.srv
 	h.srv = nil
@@ -263,9 +315,12 @@ func (h *remoteHost) close() {
 func (h *remoteHost) publish() {
 	h.mu.Lock()
 	running, port, token, errText := h.running, h.port, h.token, h.err
+	relayOn, relayURL, relayReady, relayErr := h.relayOn, h.relayURL, h.relayReady, h.relayErr
 	h.mu.Unlock()
 	h.state.Update(func(v remoteView) remoteView {
 		v.Running, v.Port, v.Token, v.Error = running, port, token, errText
+		v.RelayOn = relayOn
+		v.Relay = remoteChannel{Installed: relayURL != "", Ready: relayReady, Address: relayURL, Error: relayErr}
 		return v
 	})
 }

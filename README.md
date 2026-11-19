@@ -251,14 +251,51 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
 - 工作区里的「评审」页（标签栏里和会话并列）：项目里的拉取请求与议题各一栏，`打开 / 已关闭 / 全部` 三种筛选、标题编号标签搜索、加载更多；每行显示检查结果、评审结论与增删行数
 - 详情：描述与讨论（Markdown 渲染）、检查列表、改动文件与行数、评审结论、「查看补丁」用统一 diff 看整个补丁（可选中复制）；可发评论、提交评审（批准 / 请求修改 / 只评论，评论框里的文字随评审一起提交）、合并（压缩 / 合并提交 / 变基）、关闭或重新打开，也有一键跳到浏览器
 - 面板在前台时每 30 秒重读一次列表与打开的那一条，别处合并或评论过的变化会自己出现；读取失败时保留正在看的内容，不闪白
-- 「AI 评估」把当前条目交给新的 pi 会话：会话自动带上 `gh pr view` / `gh pr diff`（议题是 `gh issue view`）与四段式评审要求，结论落在会话里，接着说改什么就能改代码
+- 「AI 评估」把当前条目交给新的 pi 会话：会话自动带上 `gh pr view` / `gh pr diff`（议题是 `gh issue view`）与四段式评审要求，结论落在会话里，接着说要改什么就能改代码
 - 数据来自本机 GitHub CLI：`gh` 自己持有凭据，应用不存 token；没装或没登录时面板给出说明与重试，不报错。命令跑在本机 / WSL / SSH 目标上，与 Git 面板一致
 - 手机端抽屉里的「评审」是同一份能力：列表、详情、评论、提交评审、合并、关闭 / 重开、看补丁与「AI 评估」（让电脑开会话，手机直接跳到那条会话读结论）
 
 **远程访问**
 - 设置 → 远程：开启手机服务，设置端口、访问令牌；每个地址可「复制链接」或显示二维码
-- 三种连接方式：局域网（本机所有非回环 IPv4）、Tailscale（读 `tailscale status` 的 100.x 地址）、
-  EasyTier（读 `easytier-cli` 的虚拟 IP，读不到时可手动填写）
+- 连接方式：局域网（本机所有非回环 IPv4）、Tailscale（读 `tailscale status` 的 100.x 地址）、
+  EasyTier（读 `easytier-cli` 的虚拟 IP，读不到时可手动填写），以及不需要虚拟网卡的中继
+- 外网访问：电脑主动连到中继，手机扫「配对链接」即可，两端都不用装 VPN、Tailscale 或 EasyTier。
+  中继只转发字节；桌面在隧道里再跑一层 TLS，手机按配对链接里的指纹固定证书，中继看不到令牌与会话内容。
+  适合手机长期开着 VPN 或代理、不方便再加一层虚拟网卡的情况
+- 中继部署：推荐 **Cloudflare Worker**（`infra/relay-worker`），不需要服务器、不需要固定 IP，
+  也不影响用户自己的网络。本仓库当前的发布默认是 `wss://relay.caoayu.top/v1/tunnel`
+  （见 `internal/workbench/relay_default.txt`）；国内网络可能连不上 `*.workers.dev`，所以绑定自己的域名更稳：
+
+  ```sh
+  cd infra/relay-worker
+  npm install
+  npx wrangler login
+  npx wrangler deploy
+  ```
+
+  在 `wrangler.toml` 里给 `relay.example.com/v1/tunnel` 配路由（或直接用 Worker 的 `*.workers.dev`
+  地址），然后把 `internal/workbench/relay_default.txt` 里那一行改成这个地址——它会被编进
+  桌面端，手机从二维码里拿地址，用户不需要填写；也可以用
+  `-ldflags "-X example.com/pideck-lite/internal/workbench.defaultRelayURL=wss://…"` 覆盖。
+  部署也可以走 Actions：`.github/workflows/deploy-relay.yml`，配好
+  `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` 两个 secret 后手动触发。
+
+  Worker 用 Durable Object 按环境号配对一台电脑和一台手机，空闲时休眠，不存令牌、不落盘会话；
+  两端都在隧道里再跑一层 TLS，Worker 只转发密文。费用：Workers 免费额度是每天 10 万次
+  Durable Object 请求、1.3 万 GB-s，WebSocket 入站消息按 20:1 折算、出站消息和协议 ping 免费，
+  没有流量费；小规模用户通常落在免费额度内，超出后 Workers Paid 从 $5/月起。
+  也可以自建 Go 中继：`go build -o pideck-relay ./cmd/pideck-relay`，放到有公网入口的机器上，
+  前面用 Caddy 终止 TLS 并转发到 `127.0.0.1:8080`（Caddy 自动处理 WebSocket）。
+- 自定义公网地址：已经用 Cloudflare Tunnel、frp、nginx 等把远程端口映射到自己的域名时，
+  把 `https://你的域名` 填进「自定义公网地址」，它会生成带令牌的链接和二维码；路径会被忽略，
+  转发要指向服务根路径。完整步骤（含 Tunnel、Worker、反向代理和常见问题）见
+  [docs/remote-self-host.md](docs/remote-self-host.md)
+- 用户也可以用自己的 Cloudflare Worker/域名：把地址填进「中继地址」，点「测试连接」再打开开关；
+  直接粘贴 Worker 的 `https://…` 地址会自动换成 `wss://` 并补上 `/v1/tunnel`，也可以一键「恢复默认」。
+  部署步骤见 [infra/relay-worker/README.md](infra/relay-worker/README.md)。中继只转发密文，
+  换成别人的中继也不会泄露令牌
+- 中继的连接按 30 秒心跳保活；浏览器端打不开原始套接字，所以中继只在 Android/iOS App 里可用，
+  网页端继续走局域网或 Tailscale
 - 手机端连接后浏览电脑上的项目、会话和会话历史，列表每 2.5 秒刷新（会话运行中 1.2 秒）；界面支持简体中文、英文、繁體中文、韩文、日文、俄语和法语，首次跟随手机系统语言，可在设置中切换并保存，也可用 `PIDECK_LITE_LANG` 指定初始语言
 - 手机端能做的会话操作：
   - 新建：标题栏「+」，只有一个项目时直接建，多个项目时先选项目；建完直接进对话
@@ -273,7 +310,14 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
     （只从侧栏移除，文件不动）；没有会话的项目也会列出来，点一下就能在里面新建
   - 行内「…」：重命名、置顶 / 取消置顶、删除（删除会二次确认，文件进电脑的 `trash/`）
   - 发消息：底部多行输入框（自动换行长到 5 行左右，回车换行，发送键发送）；
-    运行中多一个停止键（不挡输入，pi 会排队），回复按 1.2 秒轮询流式出现
+    输入卡片下面一行是模式、模型、思考等级、图片和用量，点模型或等级打开「会话设置」
+    （模型、思考等级、后端；新会话页的这两个按钮会先建好会话，再让你选）；
+    右边的「+」是添加与工具：计划 / 目标模式、把这句话画成图、插入文件（@路径）、
+    用电脑的模型增强这句话或接着续写；有模式时卡片左侧出现一个可点掉的模式标签；
+    运行中多一个停止键（不挡输入，pi 会排队），回复按 1.2 秒轮询流式出现；
+    发出后输入框立即清空并提示「已发送」，发送失败会把文字放回并说明原因
+  - 会话列表：每个项目默认只列最近 3 天的会话（置顶、运行中、等回答的会话即使更早也留着）；
+    更早的收在「展开更早的 N 个会话」下面，点一下就展开，再点「收起更早的会话」收回
   - 审批：电脑上的 pi/ACP 在等确认或选项时，输入框上方出现提示卡，
     可直接允许/拒绝或选一项，答案回传电脑让那一轮继续
   - Git：项目标题右侧的分支按钮打开仓库面板，显示分支、上游、领先/落后与改动文件；
@@ -297,7 +341,7 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
 | GET | `/api/ping` | 主机名与版本，连接时探活 |
 | GET | `/api/state` | 项目、会话、置顶、运行状态与等待回答的问题 |
 | GET | `/api/session/{id}` | 一个会话的消息；运行中带 live 文本，等待回答时带 `ask` |
-| GET | `/api/session/{id}/options` | 模型列表、当前模型、思考等级；pi 没起会顺手拉起 |
+| GET | `/api/session/{id}/options` | 模型列表、当前模型、思考等级、后端与可用草稿工具；pi 没起会顺手拉起 |
 | GET | `/api/search?q=&project=` | 跨会话搜消息正文，返回会话、标题与片段（按文件缓存） |
 | GET | `/api/git?project=` | 项目的分支、上游、领先/落后与改动文件（只读） |
 | GET | `/api/git/diff?project=&path=` | 一个改动文件的补丁；只接受仓库已报告的路径 |
@@ -307,8 +351,8 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
 | POST | `/api/git/sync` | `{project,action}` 获取 / 拉取 / 推送 |
 | GET | `/api/review?project=&kind=&state=&q=&limit=` | 项目的拉取请求（`kind=pr`）或议题（`kind=issue`）；`missing` 表示这台机器没有 gh |
 | GET | `/api/review/detail?project=&kind=&number=` | 一条的描述、讨论、检查与改动文件 |
+| POST | `/api/review/action` | `{project,kind,number,action,body,method}` 评论 / 合并 / 关闭 / 重开 |
 | GET | `/api/review/diff?project=&number=` | 拉取请求的整份补丁（统一 diff） |
-| POST | `/api/review/action` | `{project,kind,number,action,body,method}` 评论 / 合并 / 关闭 / 重开 / 提交评审 |
 | POST | `/api/review/evaluate` | `{project,kind,number}` 让电脑开一个会话评估它，返回 `{session}` |
 | POST | `/api/projects` | `{path,remove}` 在电脑上添加/移除项目文件夹 |
 | POST | `/api/sessions` | `{project}` 新建会话，返回 `{id,title}` |
@@ -318,6 +362,10 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
 | POST | `/api/sessions/{id}/pin` | `{pinned}` 置顶或取消 |
 | POST | `/api/sessions/{id}/model` | `{provider,id}` 切模型 |
 | POST | `/api/sessions/{id}/thinking` | `{level}` 切思考等级 |
+| POST | `/api/sessions/{id}/mode` | `{mode}` 下一轮要什么：`plan` / `goal` / `imagegen`，`normal` 回到普通提问 |
+| POST | `/api/sessions/{id}/backend` | `{backend,preset}` 换 pi / ACP 后端；第一条消息之后拒绝 |
+| POST | `/api/sessions/{id}/tools` | `{tool,text}` 用电脑的工具模型改写（`prompt`）或续写（`predict`）草稿，返回 `{text}` |
+| POST | `/api/sessions/{id}/image` | `{prompt}` 用电脑的生图供应商画一张，返回 `{images:[{mime,data}]}` |
 | POST | `/api/sessions/{id}/answer` | `{confirmed}` / `{value}` / `{cancelled}` 回答电脑上等待的确认、选项或输入 |
 | POST | `/api/sessions/{id}/delete` | 删除会话（pi 自己的会话会拒绝） |
 
@@ -449,6 +497,10 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
 | `internal/workbench` | 会话状态机、pi/ACP RPC、项目与标签、设置、文件编辑、Git、终端、导入/导出、远程服务和桌面 UI |
 | `internal/client` | 连接、会话历史、发消息、审批、项目抽屉、Git、文件与设置页 |
 | `internal/remotewire` | HTTP API 的共享请求/响应结构 |
+| `internal/relaywire` | 中继配对链接的编解码，两端与中继共用 |
+| `internal/relay` | 中继服务：按环境号配对一台电脑和一台手机，只转发字节 |
+| `cmd/pideck-relay` | 自建中继的入口；发布方部署，不进桌面与手机安装包 |
+| `infra/relay-worker` | 推荐的 Cloudflare Worker 中继；无服务器、无固定 IP |
 | `internal/sessionimport` | 各外部 Agent 格式的读取、转换、去重标记和 pi JSONL 写出 |
 | `internal/viewkit` | 字体、格式、主题、Markdown 与崩溃页等跨宿主显示工具 |
 | `internal/apptext` | 七种语言的目录与 `T`；目录数据位于 `locales/*.json` |

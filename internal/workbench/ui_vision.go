@@ -203,7 +203,7 @@ func (a *app) visionDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.visionOpen.Set(open) },
 			Title:        apptext.T("描述图片"),
 			TestID:       "vision-dialog",
-			Style:        core.Style{Width: core.Pt(560), MaxHeight: core.Pt(640)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(640)},
 			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(500)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 12}, Children: body}}}},
 			Footer: footer,

@@ -27,6 +27,7 @@ func (a *mobileApp) view() core.Node {
 			a.deleteSheet(),
 			a.newSessionSheet(),
 			a.optionsSheet(),
+			a.composerPlusSheet(),
 			a.noticePill(),
 			a.addProjectSheet(),
 			a.removeProjectSheet(),

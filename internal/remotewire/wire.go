@@ -60,7 +60,8 @@ type Model struct {
 	Reasoning bool   `json:"reasoning"`
 }
 
-// remoteWireOptions is a session's model and thinking choices.
+// remoteWireOptions is a session's model and thinking choices, the backend
+// it runs on, and what the composer can do with a draft.
 type Options struct {
 	Models   []Model  `json:"models"`
 	Model    string   `json:"model"`
@@ -68,6 +69,25 @@ type Options struct {
 	Thinking string   `json:"thinking"`
 	Levels   []string `json:"levels"`
 	Ready    bool     `json:"ready"`
+	// Mode is the next turn's request, as Session.Mode spells it.
+	Mode string `json:"mode,omitempty"`
+	// Backend is the choice in force: "pi" or "acp:<preset>". It locks once
+	// the session's first message fixes where its transcript lives.
+	Backend       string    `json:"backend,omitempty"`
+	BackendName   string    `json:"backendName,omitempty"`
+	BackendLocked bool      `json:"backendLocked,omitempty"`
+	Backends      []Backend `json:"backends,omitempty"`
+	// Tools are the draft tools the desktop has a model for: "prompt"
+	// rewrites the draft, "predict" continues it.
+	Tools []string `json:"tools,omitempty"`
+}
+
+// remoteWireBackend is one place a session can run: pi, or an ACP preset
+// the desktop has installed.
+type Backend struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type Project struct {
@@ -85,6 +105,9 @@ type Session struct {
 	Pinned   bool   `json:"pinned"`
 	Running  bool   `json:"running"`
 	Ask      *Ask   `json:"ask,omitempty"`
+	// Mode is what the next turn asks for: empty for a normal prompt, else
+	// "plan", "goal" or "imagegen", as the desktop's composer names them.
+	Mode string `json:"mode,omitempty"`
 	// Tokens and context are what the phone shows above the composer.
 	Tokens        int     `json:"tokens,omitempty"`
 	Context       int     `json:"context,omitempty"`

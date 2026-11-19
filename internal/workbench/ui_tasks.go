@@ -225,7 +225,7 @@ func (a *app) taskFormDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.taskFormOpen.Set(open) },
 			Title:        title,
 			TestID:       "task-form",
-			Style:        core.Style{Width: core.Pt(780), MaxHeight: core.Pt(720)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(720)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 9}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(250)}, Children: []core.Node{

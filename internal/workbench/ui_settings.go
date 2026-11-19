@@ -116,12 +116,12 @@ func (a *app) settingsPane() core.Node {
 						sec = s
 					}
 				}
-				return core.View{Style: core.Style{MaxWidth: core.Pt(900), Gap: 2, Padding: core.Edges{Top: 16, Right: 20, Bottom: 8, Left: 20}}, Children: []core.Node{
+				return core.View{Style: core.Style{Gap: 2, Padding: core.Edges{Top: 16, Right: 20, Bottom: 8, Left: 20}}, Children: []core.Node{
 					ui.Text(apptext.T(sec.Title), 15, ui.Semibold, colors.Text),
 					core.Text{Content: apptext.T(sec.Summary), Style: core.Style{FontSize: 11.5, LineHeight: 17}, StyleFunc: ui.Colored(colors.Muted)},
 				}}
 			}),
-			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MaxWidth: core.Pt(900), MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), Padding: core.Edges{Right: 20, Left: 20}}, Children: []core.Node{
 				a.settingsContent(),
 			}},
 			core.View{StyleFunc: func() core.Style {

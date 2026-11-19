@@ -89,7 +89,7 @@ func (a *app) outlineDialog() core.Node {
 			Title:        apptext.T("会话大纲"),
 			Description:  apptext.T("每个提问一条；点一下跳到那一轮。"),
 			TestID:       "outline-dialog",
-			Style:        core.Style{Width: core.Pt(560), MaxHeight: core.Pt(560)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,

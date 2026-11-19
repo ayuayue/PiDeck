@@ -15,10 +15,17 @@ Dependencies point down this list. A package may import a package below it when 
 | `internal/viewkit` | Display helpers shared by the hosts | `apptext`, NSGo |
 | `internal/crashlog` | Crash reports | `appinfo` |
 | `internal/remotewire` | JSON transport types | standard library |
+| `internal/relaywire` | pairing link for the outbound relay | standard library |
+| `internal/relay` | WebSocket relay pairing one desktop and one phone | `relaywire` |
 | `internal/schedule` | cron parsing and occurrence calculation | standard library |
 | `internal/apptext` | language selection and embedded catalogs | standard library |
 | `internal/appinfo` | application version | standard library |
 | `assets`, `extensions`, `webassets` | embedded resources and Web asset adapter | acyclic |
+
+`cmd/pideck-relay` builds a self-hosted relay, and `infra/relay-worker` is the same protocol
+as a Cloudflare Worker (the recommended deployment: no server, no fixed IP). Neither is part
+of the desktop or phone binaries. The relay copies bytes only: the desktop's TLS lives inside the
+tunnel, so the relay never reads the token or a session.
 
 `internal/architecture/structure_test.go` is the executable version of this table. Every package under `internal/` needs an explicit rule there. Add the rule and this table together before introducing a package.
 

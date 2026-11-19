@@ -119,7 +119,7 @@ func (a *app) announcementsDialog() core.Node {
 			Title:        apptext.T("公告"),
 			Description:  apptext.T("维护者发在这里的消息，打开即已读。"),
 			TestID:       "announce-dialog",
-			Style:        core.Style{Width: core.Pt(580), MaxHeight: core.Pt(560)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "announce-refresh",

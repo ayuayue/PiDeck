@@ -11,6 +11,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"example.com/pideck-lite/assets"
 	"example.com/pideck-lite/internal/appinfo"
 	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-lite/internal/relaywire"
 	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
 	"github.com/liyue201/goqr"
@@ -29,26 +31,33 @@ import (
 // connectView asks for the desktop's link and token.
 func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	field := func(label, placeholder, testID string, value *core.Signal[string], submit func()) core.Node {
+	field := func(label, placeholder, testID string, value *core.Signal[string], submit func(), extra core.Node) core.Node {
+		input := core.Input{
+			Value: value.Get, OnChange: value.Set, Placeholder: placeholder, Label: label, TestID: testID,
+			OnSubmit: func(string) { submit() },
+			Style:    core.Style{Height: core.Pt(44), Padding: core.Symmetric(0, 12), FontSize: 14, Color: colors.Text()},
+			StyleFunc: func() core.Style {
+				return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 10,
+					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
+			},
+		}
+		row := []core.Node{core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{input}}}
+		if extra != nil {
+			row = append(row, extra)
+		}
 		return core.View{Style: core.Style{Gap: 5}, Children: []core.Node{
 			ui.Text(label, 11, ui.Medium, colors.Muted),
-			core.Input{
-				Value: value.Get, OnChange: value.Set, Placeholder: placeholder, Label: label, TestID: testID,
-				OnSubmit: func(string) { submit() },
-				Style:    core.Style{Height: core.Pt(44), Padding: core.Symmetric(0, 12), FontSize: 14, Color: colors.Text()},
-				StyleFunc: func() core.Style {
-					return core.Style{Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 10,
-						PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}
-				},
-			},
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: row},
 		}}
 	}
 	card := core.View{StyleFunc: func() core.Style {
 		return core.Style{Gap: 12, Padding: core.All(16), CornerRadius: 14, Background: colors.Surface(),
 			BorderWidth: 1, BorderColor: colors.Border()}
 	}, Children: []core.Node{
-		field(apptext.T("连接地址"), "http://192.168.1.8:8787/?token=…", "mobile-server", a.server, a.connect),
-		field(apptext.T("访问令牌"), "粘贴电脑端显示的令牌", "mobile-token", a.token, a.connect),
+		field(apptext.T("连接地址"), "http://192.168.1.8:8787/?token=…", "mobile-server", a.server, a.onConnectPress,
+			ui.Button{Text: apptext.T("连接"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "mobile-connect-inline",
+				Disabled: func() bool { return a.busy.Get() }, OnPress: a.onConnectPress}),
+		field(apptext.T("访问令牌"), "粘贴电脑端显示的令牌", "mobile-token", a.token, a.onConnectPress, nil),
 		core.Show{When: func() bool { return a.err.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(8, 9), CornerRadius: 8,
 				Background: ui.Alpha(colors.Danger(), 0.08)}, Children: []core.Node{
@@ -65,8 +74,15 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 				return nil
 			}),
 			ui.Button{Text: apptext.T("连接"), Variant: ui.ButtonPrimary, Size: ui.SizeLarge, Flex: 1, TestID: "mobile-connect",
-				Disabled: func() bool { return a.busy.Get() }, OnPress: a.connect},
+				Disabled: func() bool { return a.busy.Get() }, OnPress: a.onConnectPress},
 		}},
+		core.Show{When: func() bool { return a.busy.Get() }, Then: func(cx *core.Scope) core.Node {
+			return core.Text{Content: apptext.T("正在连接，首次可能要多等几秒…"), MaxLines: 2,
+				Style:     core.Style{FontSize: 10.5, LineHeight: 15, TextAlign: core.TextAlignCenter},
+				StyleFunc: ui.Colored(colors.Faint)}
+		}},
+		ui.Button{Text: apptext.T("粘贴并连接"), Variant: ui.ButtonSecondary, Size: ui.SizeLarge, TestID: "mobile-paste-connect",
+			OnPress: a.pasteAndConnect},
 		ui.Button{Text: apptext.T("扫码连接"), Variant: ui.ButtonSecondary, Size: ui.SizeLarge, TestID: "mobile-scan",
 			OnPress: a.scanQR},
 		ui.Button{Text: apptext.T("从相册选二维码"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mobile-scan-library",
@@ -81,13 +97,16 @@ func (a *mobileApp) connectView(cx *core.Scope) core.Node {
 		}},
 		card,
 		a.recentList(),
-		core.Text{Content: apptext.T("在电脑端打开 设置 → 远程，启用后扫码或复制连接链接；手机和电脑需要在同一局域网、Tailscale 或 EasyTier 网络里。"),
+		core.Text{Content: apptext.T("在电脑端打开 设置 → 远程，启用后扫码或复制连接链接；局域网、Tailscale、EasyTier 或中继任选其一。"),
 			Style: core.Style{FontSize: 11, LineHeight: 17, TextAlign: core.TextAlignCenter}, StyleFunc: ui.Colored(colors.Faint)},
 	}}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
 		PaddingEnv: core.EnvEdges{Top: core.EnvSafeArea, Right: core.EnvSafeArea, Left: core.EnvSafeArea, Bottom: core.EnvKeyboard}},
-		Children: []core.Node{core.Scroll{Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{FlexGrow: 1, Padding: core.All(24), Gap: 16, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+		Children: []core.Node{core.Scroll{Style: ui.FillRest, Behavior: core.ScrollBehavior{KeyboardDismissMode: core.KeyboardDismissOnDrag}, Children: []core.Node{
+			// A form taller than the phone must scroll from the top: a
+			// centered flex child that overflows hides its buttons under
+			// the keyboard.
+			core.View{Style: core.Style{Padding: core.Edges{Top: 36, Bottom: 24, Left: 24, Right: 24}, Gap: 16, AlignItems: core.AlignCenter},
 				Children: []core.Node{column}},
 		}}}}
 }
@@ -99,7 +118,7 @@ func (a *mobileApp) recentList() core.Node {
 		rows := make([]core.Node, 0, len(a.recent.Get()))
 		for _, item := range a.recent.Get() {
 			r := item
-			host := strings.TrimPrefix(strings.TrimPrefix(r.Server, "http://"), "https://")
+			host := serverHostLabel(r.Server)
 			rows = append(rows, core.View{OnPress: func(core.PressEvent) {
 				a.server.Set(r.Server)
 				a.token.Set(r.Token)
@@ -133,7 +152,11 @@ func (a *mobileApp) recentList() core.Node {
 func (a *mobileApp) scanImage() {
 	a.err.Set("")
 	a.cx.PickFiles(core.PickFilesOptions{Types: []string{"image/*"}, Limit: 1}, func(files []core.File, err error) {
-		if err != nil || len(files) == 0 {
+		if err != nil {
+			a.err.Set(apptext.T("打开相册失败") + "：" + err.Error())
+			return
+		}
+		if len(files) == 0 {
 			return
 		}
 		data, readErr := os.ReadFile(files[0].Path)
@@ -159,7 +182,7 @@ func (a *mobileApp) useScanned(data []byte) {
 				a.err.Set(cerr.Error())
 				return
 			}
-			a.server.Set(client.base)
+			a.server.Set(client.source)
 			a.token.Set(token)
 			a.connect()
 		})
@@ -219,11 +242,27 @@ func (a *mobileApp) connect() {
 	}
 	a.busy.Set(true)
 	a.err.Set("")
+	// A relay desktop may be redialing the relay right now; give it a few
+	// tries instead of failing on the first 409.
+	attempts := 1
+	if relaywire.IsLink(client.source) {
+		attempts = 2
+	}
 	go func() {
-		ping, err := client.ping()
+		var ping remotePing
 		var snap remotewire.Snapshot
-		if err == nil {
-			snap, err = client.state()
+		var err error
+		for i := 0; i < attempts; i++ {
+			ping, err = client.ping()
+			if err == nil {
+				snap, err = client.state()
+			}
+			if err == nil || errors.Is(err, errRemoteAuth) {
+				break
+			}
+			if i+1 < attempts {
+				time.Sleep(1500 * time.Millisecond)
+			}
 		}
 		a.cx.Post(func() {
 			a.busy.Set(false)
@@ -232,7 +271,7 @@ func (a *mobileApp) connect() {
 				return
 			}
 			a.client = client
-			a.server.Set(client.base)
+			a.server.Set(client.source)
 			a.token.Set(token)
 			a.serverName.Set(mobileServerName(ping, snap))
 			a.desktopVersion.Set(ping.Version)
@@ -240,7 +279,7 @@ func (a *mobileApp) connect() {
 			a.connected.Set(true)
 			a.err.Set("")
 			saved := rememberConnection(a.recent.GetUntracked(), mobileRecent{
-				Server: client.base, Token: token, Name: a.serverName.Get(), At: time.Now().UnixMilli(),
+				Server: client.source, Token: token, Name: a.serverName.Get(), At: time.Now().UnixMilli(),
 			})
 			a.recent.Set(saved.Recent)
 			// The look, the language and the last project are kept beside the
@@ -249,6 +288,41 @@ func (a *mobileApp) connect() {
 			a.startPolling()
 		})
 	}()
+}
+
+// pasteAndConnect takes the link from the clipboard, so a phone can
+// connect without opening the keyboard.
+func (a *mobileApp) pasteAndConnect() {
+	a.cx.ReadClipboard(func(text string) {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			a.err.Set(apptext.T("剪贴板里没有链接"))
+			return
+		}
+		a.server.Set(text)
+		a.connect()
+	})
+}
+
+// onConnectPress hides the keyboard and connects, so the attempt has the
+// whole screen.
+func (a *mobileApp) onConnectPress() {
+	a.cx.DismissKeyboard()
+	a.connect()
+}
+
+// serverHostLabel is the second line of a recent connection: its address,
+// or the relay a pairing link goes through.
+func serverHostLabel(server string) string {
+	if relaywire.IsLink(server) {
+		if link, err := relaywire.Parse(server); err == nil {
+			if u, err := url.Parse(link.Relay); err == nil && u.Host != "" {
+				return apptext.T("中继 · %s", u.Host)
+			}
+		}
+		return apptext.T("中继")
+	}
+	return strings.TrimPrefix(strings.TrimPrefix(server, "http://"), "https://")
 }
 
 func mobileServerName(ping remotePing, snap remotewire.Snapshot) string {
@@ -267,6 +341,7 @@ func (a *mobileApp) disconnect() { a.disconnectWith("") }
 
 func (a *mobileApp) disconnectWith(message string) {
 	a.gen++
+	a.client.close()
 	a.client = nil
 	a.connected.Set(false)
 	a.active.Set("")
@@ -329,6 +404,7 @@ func (a *mobileApp) refreshState() {
 				return
 			}
 			a.state.Set(snap)
+			a.syncMode(snap)
 			a.err.Set("")
 		})
 	}()

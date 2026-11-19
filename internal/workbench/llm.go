@@ -52,6 +52,40 @@ func (a *app) toolModel(tool string) (providerConfig, modelConfig, error) {
 	return providerConfig{}, modelConfig{}, errors.New("找不到所选的供应商")
 }
 
+// draftTools are the composer's draft tools, in the order the phone lists
+// them.
+var draftTools = []string{"prompt", "predict"}
+
+// toolSystem is the instruction a draft tool's model runs.
+func toolSystem(tool string) string {
+	switch tool {
+	case "prompt":
+		return "你是提示词润色助手。把用户的草稿改写成更清晰、具体、可执行的提示词；保留原意、语言和约束，不添加无关要求。只输出改写后的提示词。"
+	case "predict":
+		return "续写用户正在输入的消息，只写接下来的一个短句或半句，与已有文字自然衔接；不要重复已有内容，不要解释。只输出续写部分。"
+	}
+	return ""
+}
+
+// toolTokens is how much of an answer a draft tool may take.
+func toolTokens(tool string) int {
+	if tool == "predict" {
+		return 160
+	}
+	return 900
+}
+
+// remoteDraftTools lists the draft tools the desktop can run for a phone.
+func (a *app) remoteDraftTools() []string {
+	var out []string
+	for _, tool := range draftTools {
+		if a.toolConfigured(tool) {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
 // toolConfigured says whether a tool has a provider and a model to call.
 func (a *app) toolConfigured(tool string) bool {
 	_, _, err := a.toolModel(tool)

@@ -62,7 +62,7 @@ func (a *app) gitUnpushedDialog() core.Node {
 			Title:        apptext.T("未推送的提交"),
 			Description:  apptext.T("这些提交还在本机，推送到上游后才会出现在远端。"),
 			TestID:       "git-unpushed",
-			Style:        core.Style{Width: core.Pt(720), MaxHeight: core.Pt(520)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(520)},
 			Children:     []core.Node{body},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-unpushed-close",

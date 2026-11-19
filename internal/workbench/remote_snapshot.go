@@ -60,6 +60,7 @@ func (a *app) remoteSnapshot() (remotewire.Snapshot, error) {
 					ID: s.ID, Title: s.title.Get(), Status: remoteStatus(s.status.Get()),
 					Updated: s.updated.Get().UnixMilli(), External: s.External,
 					Pinned: a.isPinned(s.ID), Running: s.busyNow(), Ask: remoteAskOf(s),
+					Mode:   remoteModeOf(s),
 					Tokens: usage.Total, Context: stats.ContextTokens, ContextWindow: stats.ContextWindow, Cost: usage.Cost,
 				})
 			}
@@ -70,6 +71,20 @@ func (a *app) remoteSnapshot() (remotewire.Snapshot, error) {
 		return out, errors.New("界面正忙，请稍后再试")
 	}
 	return out, nil
+}
+
+// remoteModeOf is the session's mode as the phone names it: empty for a
+// normal prompt.
+func remoteModeOf(s *session) string {
+	switch {
+	case modeOn(s, modePlan):
+		return modePlan
+	case modeOn(s, modeGoal):
+		return modeGoal
+	case modeOn(s, modeImage):
+		return modeImage
+	}
+	return ""
 }
 
 func remoteStatus(s sessionStatus) string {

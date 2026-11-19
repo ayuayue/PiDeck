@@ -101,7 +101,7 @@ func (a *app) gitStashDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.gitStashOpen.Set(open) },
 			Title:        apptext.T("贮藏"),
 			TestID:       "git-stash-dialog",
-			Style:        core.Style{Width: core.Pt(620), MaxHeight: core.Pt(560)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
 				core.Text{Content: apptext.T("弹出会恢复并从列表移除；应用保留条目；删除只移除条目。"),
 					Style: core.Style{FontSize: 10.5, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)},

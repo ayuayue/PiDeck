@@ -61,7 +61,7 @@ func (a *app) gitConflictsDialog() core.Node {
 			Title:        apptext.T("解决冲突"),
 			Description:  apptext.T("选择保留哪一边，或手动改好后标记为已解决。"),
 			TestID:       "git-conflicts-dialog",
-			Style:        core.Style{Width: core.Pt(720), MaxHeight: core.Pt(560)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(560)},
 			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(380)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 2}, Children: rows}}}},
 			Footer: []core.Node{

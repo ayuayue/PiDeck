@@ -34,13 +34,10 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 		a.appNotice(cx),
 		core.Show{When: a.findOpen.Get, Then: func(cx *core.Scope) core.Node { return a.findBar(cx) }},
 		core.Show{When: func() bool { return a.transcriptErr.Get() != "" }, Then: func(cx *core.Scope) core.Node {
-			return core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(8, 14)},
-				StyleFunc: func() core.Style { return core.Style{Background: ui.Alpha(colors.Danger(), 0.07)} },
-				Children: []core.Node{
-					ui.Icon(lucide.TriangleAlert, 12, colors.Danger),
-					core.Text{ContentFunc: a.transcriptErr.Get, MaxLines: 3, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11},
-						StyleFunc: ui.Colored(colors.Danger)},
-				}}
+			return a.errorBar(cx, a.transcriptErr.Get)
+		}},
+		core.Show{When: func() bool { return a.sendErr.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+			return a.errorBar(cx, a.sendErr.Get)
 		}},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Position: core.Relative}, Children: []core.Node{
 			core.Scroll{Ref: a.scroll, Style: ui.FillRest, ScrollEventThrottle: 120 * time.Millisecond,
@@ -118,9 +115,21 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 		}},
 		a.retryBar(cx),
 		a.askBar(cx),
-		a.sessionBar(cx),
 		a.composer(cx),
 	}}
+}
+
+// errorBar is one failure line under the header: the turn's own error, or
+// why the phone's send did not reach the desktop.
+func (a *mobileApp) errorBar(cx *core.Scope, text func() string) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{TestID: "mobile-error", Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(8, 14)},
+		StyleFunc: func() core.Style { return core.Style{Background: ui.Alpha(colors.Danger(), 0.07)} },
+		Children: []core.Node{
+			ui.Icon(lucide.TriangleAlert, 12, colors.Danger),
+			core.Text{ContentFunc: text, MaxLines: 3, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11},
+				StyleFunc: ui.Colored(colors.Danger)},
+		}}
 }
 
 // findBar searches the loaded messages of the open session.

@@ -95,7 +95,7 @@ func (a *app) fileSearchDialog() core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) { a.fileSearchOpen.Set(open) },
 			Title:        apptext.T("在文件中搜索"),
 			TestID:       "file-search",
-			Style:        core.Style{Width: core.Pt(680), MaxHeight: core.Pt(620)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(620)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{

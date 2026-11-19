@@ -102,7 +102,7 @@ func (a *app) feedbackDialog() core.Node {
 			Title:        apptext.T("问题反馈"),
 			Description:  apptext.T("写清现象和复现步骤。报告只有环境与日志，不含对话内容。"),
 			TestID:       "feedback-dialog",
-			Style:        core.Style{Width: core.Pt(620), MaxHeight: core.Pt(620)},
+			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(620)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 12}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
 					ui.Text(apptext.T("问题描述"), 10.5, ui.Medium, colors.Muted),
