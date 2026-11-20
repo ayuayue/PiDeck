@@ -45,6 +45,21 @@ test("reply pairs both TPS values with the same usage, independently of text-onl
 	assert.deepEqual({ ...f.events[0].payload.state }, { totalMs: result.totalMs, ttftMs: result.ttftMs, tps: result.tps, endToEndTps: result.endToEndTps, sessionTps: result.sessionTps, sessionEndToEndTps: result.sessionEndToEndTps, perfAt: result.at });
 });
 
+test("a buffered reply contributes only to end-to-end throughput", () => {
+	const f = fixture();
+	const buffered = f.reply({ start: 1000, delta: 6105, end: 6138, usage: { output: 862 } });
+	assert.equal(buffered.tps, undefined);
+	assert.equal(buffered.sessionTps, undefined);
+	assert.equal(buffered.endToEndTps, 862 / 5.138);
+	assert.equal(buffered.sessionEndToEndTps, buffered.endToEndTps);
+
+	// The 200 ms decode window is measurable even in a session with a buffered reply.
+	const streamed = f.reply({ start: 7000, delta: 7800, end: 8000, usage: { output: 100 } });
+	assert.equal(streamed.tps, 500);
+	assert.equal(streamed.sessionTps, 500);
+	assert.equal(streamed.sessionEndToEndTps, 962 / 6.138);
+});
+
 test("continuation timer starts before provider waiting and excludes preceding tool execution", () => {
 	const f = fixture();
 	f.tracker.notePromptRequested("a", 1000);

@@ -5,6 +5,13 @@ export function normalizeTpsDisplayMode(value: unknown): TpsDisplayMode {
 	return value === "endToEnd" ? "endToEnd" : "streaming";
 }
 
+// 整段回复可能在结束前一次性到达；过短的首 delta → 结束间隔无法反映生成速度。
+const MIN_STREAMING_WINDOW_MS = 200;
+
+export function hasMeasurableStreamingWindow(firstDeltaAt: number | undefined, completedAt: number): firstDeltaAt is number {
+	return typeof firstDeltaAt === "number" && firstDeltaAt > 0 && Number.isFinite(completedAt) && completedAt - firstDeltaAt >= MIN_STREAMING_WINDOW_MS;
+}
+
 /** token 与耗时必须来自同一批回复；无用量或无有效耗时就不估算速度。 */
 export function calculateTokensPerSecond(outputTokens: number | undefined, durationMs: number | undefined): number | undefined {
 	if (outputTokens == null || !Number.isFinite(outputTokens) || outputTokens < 0 || durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) return undefined;
@@ -117,14 +124,13 @@ export function calculateSessionTokensPerSecond(spans: ReadonlyArray<TaskPerfSpa
 	const activeDurationMs = calculateIntervalUnionDurationMs(e2eIntervals);
 	const sessionEndToEndTps = calculateTokensPerSecond(totalOutputTokens, activeDurationMs);
 
-	// 2. 流式口径（纯生成）：有首 token delta 记录的任务 outputTokens 总和 ÷ 解码活跃时间区间并集
-	const streamingSpans = validSpans.filter((s) => typeof s.firstDeltaAt === "number" && Number.isFinite(s.firstDeltaAt) && s.firstDeltaAt > 0 && s.completedAt > s.firstDeltaAt);
-
+	// 2. 流式口径（纯生成）：有效流式窗口的 outputTokens 总和 ÷ 同一批窗口的时间区间并集
 	let streamingOutputTokens = 0;
 	const streamingIntervals: TimeInterval[] = [];
-	for (const span of streamingSpans) {
+	for (const span of validSpans) {
+		if (!hasMeasurableStreamingWindow(span.firstDeltaAt, span.completedAt)) continue;
 		streamingOutputTokens += span.outputTokens;
-		streamingIntervals.push([span.firstDeltaAt!, span.completedAt]);
+		streamingIntervals.push([span.firstDeltaAt, span.completedAt]);
 	}
 	const activeStreamingDurationMs = calculateIntervalUnionDurationMs(streamingIntervals);
 	const sessionTps = calculateTokensPerSecond(streamingOutputTokens, activeStreamingDurationMs);
