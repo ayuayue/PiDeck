@@ -20,11 +20,7 @@ func (s *store) save() error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeFileAtomic(path, raw, 0o644)
 }
 
 // reload rereads config.json after something outside the store wrote it,

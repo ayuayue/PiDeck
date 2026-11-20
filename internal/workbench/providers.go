@@ -296,16 +296,6 @@ func setOrDelete(m map[string]any, key, value string) {
 	m[key] = value
 }
 
-// writeFileAtomic replaces a file in one step, so a crash cannot leave
-// half a config behind.
-func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
-	tmp := path + ".pideck.tmp"
-	if err := os.WriteFile(tmp, data, mode); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
 // providerKey resolves the key a request to a provider uses: the field
 // itself, a $VARIABLE it names, or a variable named after the provider.
 func providerKey(cfg providerConfig) string {
