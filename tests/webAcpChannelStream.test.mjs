@@ -16,6 +16,7 @@ import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
  */
 
 const webServiceSource = readFileSync("src/main/web/WebServiceManager.ts", "utf8");
+const webServiceContract = readFileSync("src/main/web/webServiceContract.ts", "utf8");
 const webEventStreamSource = readFileSync("src/main/web/WebEventStream.ts", "utf8");
 
 const indexSource = mainIpcSource;
@@ -459,8 +460,8 @@ test("index.ts 把 ACP manager 接到 Web 的 ACP 事件源（不订 compositeAg
 });
 
 test("WebServiceManager 注册 ACP 事件源、停止时解绑、并把工具清单塞进 /api/state", () => {
-	assert.match(webServiceSource, /subscribeAcpChannelEvents\?:/);
-	assert.match(webServiceSource, /listAcpTools\?:/);
+	assert.match(webServiceContract, /subscribeAcpChannelEvents\?:/);
+	assert.match(webServiceContract, /listAcpTools\?:/);
 	assert.match(webServiceSource, /bindAcpChannelSource\(/);
 	assert.match(webServiceSource, /unbindAcpChannelSource\(\)/);
 	const bindIndex = webServiceSource.indexOf("this.eventStreamRouter.bindAcpChannelSource(");
