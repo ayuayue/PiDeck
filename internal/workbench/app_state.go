@@ -335,8 +335,9 @@ type app struct {
 	fileOpText   *core.Signal[string]
 	fileOpAction func(string)
 	// The export dialog and the session it writes.
-	exportOpen *core.Signal[bool]
-	exportID   string
+	exportOpen     *core.Signal[bool]
+	exportOriginal *core.Signal[bool]
+	exportID       string
 	// The trust dialog and what waits for the answer.
 	trustOpen *core.Signal[bool]
 	trustWS   *workspace

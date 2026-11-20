@@ -64,6 +64,7 @@ func newApp(cx *core.Scope) *app {
 		fileOpTitle:            core.NewSignal(cx, ""),
 		fileOpText:             core.NewSignal(cx, ""),
 		exportOpen:             core.NewSignal(cx, false),
+		exportOriginal:         core.NewSignal(cx, false),
 		trustOpen:              core.NewSignal(cx, false),
 		planAskOpen:            core.NewSignal(cx, false),
 		forksOpen:              core.NewSignal(cx, false),

@@ -5,12 +5,15 @@ package workbench
 // Checks the local HTML export.
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -80,6 +83,116 @@ func TestRenderSessionMarkdown(t *testing.T) {
 	}
 }
 
+func TestShareExportMasksSecretsAndDropsPrivateData(t *testing.T) {
+	project := `C:\Users\alice\src\private-project`
+	credential := "sk-proj-abcdefghijklmnopqrstuv"
+	d := exportData{
+		Title: "Private title", Project: project, Model: "private-model", When: time.Now(),
+		Turns: []turn{{
+			Prompt: "Please inspect " + project + " with API_KEY=" + credential +
+				" and ![diagram](https://private.example/image.png)",
+			Steps: []turnStep{{Thinking: "private reasoning", Text: "intermediate prose", Tools: []toolRun{{
+				Action: "运行", Detail: "private command", Output: "private tool output",
+			}}}},
+			Final: "Use token " + credential + " at " + project,
+			Err:   "private error details",
+		}},
+	}
+	shared := shareExport(d, []string{"another-private-token"})
+	if shared.Title != "分享副本" || !shared.Shared || shared.Project != "" || shared.Model != "" || !shared.When.IsZero() || shared.Usage.Total != 0 {
+		t.Fatalf("share metadata = %+v", shared)
+	}
+	if len(shared.Turns) != 1 {
+		t.Fatalf("share turns = %+v", shared.Turns)
+	}
+	output := renderSessionMarkdown(shared) + renderSessionHTML(shared)
+	for _, private := range []string{project, credential, "private-project", "private reasoning", "intermediate prose", "private command", "private tool output", "private error details", "private.example/image.png", "another-private-token", "Private title", "private-model"} {
+		if strings.Contains(output, private) {
+			t.Errorf("share output contains %q", private)
+		}
+	}
+	if !strings.Contains(output, "Please inspect") || !strings.Contains(output, "Use token") || !strings.Contains(output, shareRedacted) {
+		t.Fatalf("share output lost conversation text or redaction markers:\n%s", output)
+	}
+}
+
+func TestExportClosedSessionDefaultsToShareCopy(t *testing.T) {
+	home, project := t.TempDir(), t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", home)
+	const id = "closed-share"
+	const title = "私有会话名称"
+	const secret = "fixture-value-for-share-export"
+	dir := filepath.Join(home, "sessions", encodeCwd(project))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, id+".jsonl")
+	body := piSessionFile(id, project) + fmt.Sprintf(`{"type":"message","id":"reply","message":{"role":"assistant","content":[{"type":"thinking","thinking":"不可分享的思考"},{"type":"text","text":%q}]}}`+"\n", "保留这段回答，API_KEY="+secret)
+	cfg, err := json.Marshal(config{Version: configVersion, Theme: "system", SidebarOpen: true,
+		Workspaces: []workspaceCfg{{Path: project, Expanded: true}}, Titles: map[string]string{id: title}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), cfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var built *app
+	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		return built.view()
+	}, nsgotest.Size(1280, 860))
+	// Add the file after startup so restoring the newest session cannot load
+	// this transcript or launch pi before the export reads its file.
+	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := built.makeSession(sessionMeta{ID: id, Cwd: project, File: file, Title: title}, localTarget)
+	open := func() {
+		built.openExport(s)
+		screen.WaitFor("id:export-dialog", 5*time.Second)
+	}
+	open()
+	screen.Press("id:export-markdown")
+	screen.WaitFor("text:已导出分享副本", 5*time.Second)
+	files, err := filepath.Glob(filepath.Join(home, "exports", "*.md"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("share files = %v, %v", files, err)
+	}
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, id) || !strings.Contains(text, "保留这段回答") {
+		t.Fatalf("closed session's conversation is missing:\n%s", text)
+	}
+	for _, private := range []string{title, project, secret, "不可分享的思考"} {
+		if strings.Contains(text, private) || strings.Contains(filepath.Base(files[0]), private) {
+			t.Errorf("share copy exposes %q", private)
+		}
+	}
+
+	open()
+	screen.Press("id:export-mode-original")
+	screen.Press("id:export-copy")
+	screen.WaitUntil(5*time.Second, func() bool { return strings.Contains(screen.Clipboard, secret) })
+	if !strings.Contains(screen.Clipboard, title) {
+		t.Fatalf("original title is missing: %q", screen.Clipboard)
+	}
+	open()
+	screen.Press("id:export-copy")
+	screen.WaitUntil(5*time.Second, func() bool { return !strings.Contains(screen.Clipboard, secret) })
+	if !strings.Contains(screen.Clipboard, "保留这段回答") || strings.Contains(screen.Clipboard, title) {
+		t.Fatalf("copy did not return to share mode: %q", screen.Clipboard)
+	}
+	if s.loaded.GetUntracked() || s.engine != nil {
+		t.Fatal("export loaded or started the closed session")
+	}
+	if raw, err := os.ReadFile(file); err != nil || string(raw) != body {
+		t.Fatalf("source session changed (read error: %v)", err)
+	}
+}
+
 // TestExportDialogMarkdown writes a .md from the session header.
 func TestExportDialogMarkdown(t *testing.T) {
 	if nsgotest.Target() != "" {
@@ -98,20 +211,15 @@ func TestExportDialogMarkdown(t *testing.T) {
 	app.WaitFor("id:export-button", 5*time.Second)
 	app.Press("id:export-button")
 	app.WaitFor("id:export-dialog", 5*time.Second)
+	app.Press("id:export-mode-original")
 	app.Press("id:export-markdown")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		files, _ := filepath.Glob(filepath.Join(home, "exports", "*.md"))
-		if len(files) > 0 {
-			raw, err := os.ReadFile(files[0])
-			if err != nil || !strings.Contains(string(raw), "# 新会话") {
-				t.Fatalf("markdown = %q, %v", raw, err)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("no Markdown export was written")
-		}
-		time.Sleep(50 * time.Millisecond)
+	app.WaitFor("text:已导出 Markdown", 5*time.Second)
+	files, err := filepath.Glob(filepath.Join(home, "exports", "*.md"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("export files = %v, %v", files, err)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil || !strings.Contains(string(raw), "# 新会话") {
+		t.Fatalf("markdown = %q, %v", raw, err)
 	}
 }

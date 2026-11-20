@@ -164,11 +164,7 @@ func builtinCommands() []appCommand {
 			Run:  func(a *app) { a.openExport(a.active()) }},
 		{ID: "copy-markdown", Label: "复制会话为 Markdown", Group: "会话", Icon: lucide.Copy,
 			When: func(a *app) bool { return a.active() != nil },
-			Run: func(a *app) {
-				if s := a.active(); s != nil {
-					a.copyText(sessionMarkdown(s), "Markdown")
-				}
-			}},
+			Run:  func(a *app) { a.runSessionExport(a.active(), exportClipboard, false) }},
 		{ID: "compact", Label: "压缩上下文", Group: "会话", Icon: lucide.Minimize2,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.compact(a.active()) }},
