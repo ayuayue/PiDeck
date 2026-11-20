@@ -75,7 +75,7 @@ test("message_end/done/error settles perf and pushes a runtime-state patch", () 
 	assert.match(settle, /const totalMs = now - perf\.startedAt;/);
 	assert.match(settle, /perf\.firstTextAt > 0 \? perf\.firstTextAt : perf\.firstDeltaAt > 0 \? perf\.firstDeltaAt : 0/);
 	assert.match(settle, /const ttftMs =/);
-	assert.match(settle, /const streamingMs = perf\.firstDeltaAt > 0 \? now - perf\.firstDeltaAt : undefined;/);
+	assert.match(settle, /const streamingMs = hasMeasurableStreamingWindow\(perf\.firstDeltaAt, now\) \? now - perf\.firstDeltaAt : undefined;/);
 	assert.match(settle, /calculateTokensPerSecond\(outputTokens, streamingMs\)/);
 	assert.match(settle, /calculateTokensPerSecond\(outputTokens, totalMs\)/);
 	// 模型事实不新增调用参数：settle 自身读 AgentManager 的最近快照（流式热路径不能等 RPC）。
