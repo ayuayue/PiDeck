@@ -88,6 +88,9 @@ func (r *gitRepo) run(label string, fn func(g gitRunner) error, done func(error)
 
 // gitCommand builds the command that runs git on a target.
 func gitCommand(ctx context.Context, t target, dir string, args ...string) *exec.Cmd {
+	// Callers select concrete files from status, never patterns. Even after
+	// "--", Git would otherwise expand names such as [id] into other paths.
+	args = append([]string{"--literal-pathspecs"}, args...)
 	var cmd *exec.Cmd
 	switch t.Kind {
 	case targetWSL:
