@@ -38,6 +38,10 @@ type session struct {
 	stats      *core.Signal[sessionStats]
 	updated    *core.Signal[time.Time]
 	loaded     *core.Signal[bool]
+	// dropTail orders background file-drop batches before publishing them.
+	dropTail    <-chan struct{}
+	dropPending *core.Signal[int]
+
 	// histFile is how many messages the transcript was painted from the
 	// session file, so pi is not asked for a copy already on screen.
 	histFile int

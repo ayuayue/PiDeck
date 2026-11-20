@@ -23,6 +23,7 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		turns:          core.NewSignalFunc(a.cx, []turn{}, nil),
 		draft:          core.NewSignal(a.cx, ""),
 		images:         core.NewSignalFunc(a.cx, []remotewire.Image(nil), nil),
+		dropPending:    core.NewSignal(a.cx, 0),
 		model:          core.NewSignal(a.cx, modelInfo{}),
 		models:         core.NewSignalFunc(a.cx, []modelInfo(nil), nil),
 		modelsBusy:     core.NewSignal(a.cx, false),

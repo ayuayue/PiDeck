@@ -164,7 +164,12 @@ func (a *app) composer(s *session) core.Node {
 		focused, dragging := core.NewSignal(cx, false), core.NewSignal(cx, false)
 		empty := func() bool { return strings.TrimSpace(s.draft.Get()) == "" }
 		imageBusy := func() bool { return a.aiBusy.Get() == "image" }
-		canSend := func() bool { return !empty() && !imageBusy() }
+		canSend := func() bool {
+			if s.filesLoading() {
+				return false
+			}
+			return !empty() && !imageBusy()
+		}
 		send := func() {
 			if canSend() {
 				a.send()
@@ -231,7 +236,11 @@ func (a *app) composer(s *session) core.Node {
 						return composerPill(cx, apptext.T("停止"), nil, func() core.Color { return ui.Alpha(colors.Danger(), 0.14) },
 							func() core.Color { return colors.Danger() }, func() { a.stop(s) })
 					}
-					return composerPill(cx, apptext.T("发送"), func() bool { return !canSend() }, func() core.Color {
+					label := apptext.T("发送")
+					if s.filesLoading() {
+						label = apptext.T("正在读取")
+					}
+					return composerPill(cx, label, func() bool { return !canSend() }, func() core.Color {
 						if canSend() {
 							return colors.AccentFill()
 						}

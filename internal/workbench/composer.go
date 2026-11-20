@@ -281,13 +281,17 @@ func deliveryFor(backend, chosen string) string {
 // send submits the draft: a prompt when idle, a steer or follow-up when
 // busy, a picture in image mode.
 func (a *app) send() {
-	a.sendDraft(a.active(), "")
+	s := a.active()
+	if s.filesLoading() {
+		return
+	}
+	a.sendDraft(s, "")
 }
 
 // sendDraft sends the draft with one delivery behavior, "" for the
 // session's chosen one.
 func (a *app) sendDraft(s *session, behavior string) {
-	if s == nil {
+	if s == nil || s.filesLoading() {
 		return
 	}
 	text := strings.TrimSpace(s.draft.GetUntracked())
