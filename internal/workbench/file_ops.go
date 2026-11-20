@@ -219,7 +219,8 @@ func (a *app) moveToTrash(path string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	dest := filepath.Join(dir, time.Now().Format("20060102-150405")+"-"+filepath.Base(path))
+	name := time.Now().Format("20060102-150405") + "-" + newSessionID() + "-" + filepath.Base(path)
+	dest := filepath.Join(dir, name)
 	if err := movePath(path, dest); err != nil {
 		return "", err
 	}

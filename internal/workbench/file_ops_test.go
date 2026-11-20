@@ -128,6 +128,39 @@ func TestFileTrash(t *testing.T) {
 	}
 }
 
+func TestMoveToTrashKeepsSameNameFiles(t *testing.T) {
+	home := t.TempDir()
+	app := &app{st: &store{dir: home}}
+	first := filepath.Join(t.TempDir(), "note.txt")
+	second := filepath.Join(t.TempDir(), "note.txt")
+	for path, contents := range map[string]string{first: "first", second: "second"} {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	destinations := make(map[string]string, 2)
+	for path, want := range map[string]string{first: "first", second: "second"} {
+		dest, err := app.moveToTrash(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := destinations[dest]; exists {
+			t.Fatalf("same-name files used the same trash path %q", dest)
+		}
+		destinations[dest] = want
+	}
+	for dest, want := range destinations {
+		got, err := os.ReadFile(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Errorf("trash file %q = %q, want %q", dest, got, want)
+		}
+	}
+}
+
 // openMenu right-clicks a row until its menu item is there to press: the
 // press that expanded a folder can swallow the next one.
 func openMenu(t *testing.T, app *nsgotest.App, trigger, item string) {
