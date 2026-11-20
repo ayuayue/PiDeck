@@ -108,6 +108,21 @@ func TestLatestTaskOccurrence(t *testing.T) {
 	}
 }
 
+// TestLatestTaskOccurrenceCoversFullWeek checks a per-minute task catches up
+// to the latest missed minute across the full recovery window.
+func TestLatestTaskOccurrenceCoversFullWeek(t *testing.T) {
+	loc := time.Local
+	last := time.Date(2026, 11, 16, 8, 0, 0, 0, loc)
+	now := last.Add(7 * 24 * time.Hour)
+	at, ok := LatestOccurrence("* * * * *", last, now)
+	if !ok {
+		t.Fatal("no occurrence found in the seven-day recovery window")
+	}
+	if !at.Equal(now) {
+		t.Errorf("latest = %v, want %v", at, now)
+	}
+}
+
 // TestTaskCronNeverMatches checks an impossible date ends rather than loops.
 func TestTaskCronNeverMatches(t *testing.T) {
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)

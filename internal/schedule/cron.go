@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// maxLatestOccurrenceSteps covers every minute in the scheduler's seven-day
+// recovery window; older tasks are skipped before this helper is called.
+const maxLatestOccurrenceSteps = 7 * 24 * 60
+
 // taskCron is one parsed expression.
 type Schedule struct {
 	minutes map[int]bool
@@ -253,7 +257,7 @@ func LatestOccurrence(expr string, after, now time.Time) (time.Time, bool) {
 	if at.IsZero() || at.After(now) {
 		return time.Time{}, false
 	}
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < maxLatestOccurrenceSteps; i++ {
 		nx := c.next(at)
 		if nx.IsZero() || nx.After(now) {
 			break
