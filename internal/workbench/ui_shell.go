@@ -38,6 +38,7 @@ func (a *app) view() core.Node {
 		a.skillStoreDialog(),
 		a.mcpDialog(),
 		a.imageDialog(),
+		a.browserApprovalDialog(),
 		a.visionDialog(),
 		a.confirmDialog(),
 		a.remoteQRDialog(),
@@ -133,6 +134,8 @@ func (a *app) headActions(inDrawer bool) core.Node {
 			row.Padding = core.Edges{Right: core.Insets(cx).Right + desktop.TitleBar(cx).Right}
 		}
 		return core.View{Style: row, Children: []core.Node{
+			hint(apptext.T("浏览器"), ui.IconButton{Icon: lucide.Globe, Label: apptext.T("浏览器"), Size: 28, IconSize: 14, TestID: "browser-toggle",
+				Selected: func() bool { return a.activePane.Get() == paneBrowser }, OnPress: func() { a.openPane(paneBrowser) }}),
 			hint("终端", ui.IconButton{Icon: lucide.SquareTerminal, Label: apptext.T("终端"), Size: 28, IconSize: 14, TestID: "terminal-toggle",
 				Selected: a.term.open.Get, OnPress: a.toggleTerminal}),
 			hint("Git", ui.IconButton{Icon: lucide.GitBranch, Label: "Git", Size: 28, IconSize: 14, TestID: "git-toggle",
@@ -176,11 +179,13 @@ func (a *app) workArea() core.Node {
 // mainPane is the editor when a file is open, the chat otherwise; a split
 // pane, when one shows, takes the whole area.
 func (a *app) mainPane() core.Node {
-	return core.Show{
-		When: a.paneVisible,
-		Then: func(*core.Scope) core.Node { return a.paneView() },
-		Else: func(*core.Scope) core.Node { return a.sessionPane() },
-	}
+	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), AlignItems: core.AlignStretch}, Children: []core.Node{
+		core.Show{When: func() bool { return a.browser.open.Get() && a.activePane.Get() == paneBrowser }, Then: func(*core.Scope) core.Node { return a.browserPane() }},
+		core.Show{When: func() bool { return a.activePane.Get() != paneBrowser }, Then: func(*core.Scope) core.Node {
+			return core.Show{When: a.paneVisible, Then: func(*core.Scope) core.Node { return a.paneView() },
+				Else: func(*core.Scope) core.Node { return a.sessionPane() }}
+		}},
+	}}
 }
 
 // sessionPane is the editor when a file is open, the chat otherwise.

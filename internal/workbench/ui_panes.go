@@ -24,6 +24,7 @@ const (
 	paneAgents    = "agents"
 	paneFavorites = "favorites"
 	paneReview    = "review"
+	paneBrowser   = "browser"
 )
 
 // paneDef is one split pane: its tab, whether it is open, and its page.
@@ -51,6 +52,8 @@ func (a *app) panes() []paneDef {
 			TestID: "favorites-dialog", Body: a.favoritesPane},
 		{ID: paneReview, Label: "评审", Icon: lucide.GitPullRequest, Open: a.reviewOpen.Get, Set: a.reviewOpen.Set,
 			TestID: "review-pane", Body: a.reviewPane},
+		{ID: paneBrowser, Label: "浏览器", Icon: lucide.Globe, Open: a.browser.open.Get, Set: a.browser.open.Set,
+			TestID: "browser-pane", Body: a.browserPane},
 	}
 }
 
@@ -92,6 +95,13 @@ func (a *app) closePane(id string) {
 	if id == paneSettings {
 		// The page's search starts empty next time, as the dialog's did.
 		a.settingsQuery.Set("")
+	}
+	if id == paneBrowser {
+		a.revokeBrowser()
+		a.browser.source.Set(core.WebSource{})
+		a.browser.nav.Set(core.WebNavigation{})
+		a.browser.address.Set("")
+		a.browser.err.Set("")
 	}
 	if a.activePane.GetUntracked() == id {
 		a.activePane.Set("")

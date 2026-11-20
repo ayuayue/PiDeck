@@ -49,13 +49,15 @@ type app struct {
 	favModels *core.Signal[[]string]
 	// Favorites are local snapshots of answers and references to sessions;
 	// favMu guards the list the dialog reads.
-	favOpen    *core.Signal[bool]
-	reviewOpen *core.Signal[bool]
-	favKind    *core.Signal[string]
-	favQuery   *core.Signal[string]
-	favRev     *core.Signal[int]
-	favMu      sync.Mutex
-	favorites  []favoriteEntry
+	favOpen               *core.Signal[bool]
+	reviewOpen            *core.Signal[bool]
+	browser               browserState
+	browserToolsExtension string
+	favKind               *core.Signal[string]
+	favQuery              *core.Signal[string]
+	favRev                *core.Signal[int]
+	favMu                 sync.Mutex
+	favorites             []favoriteEntry
 
 	// Scheduled tasks: the list, run history and the editor's fields.
 	// taskMu guards the list the ticker and the UI both touch.

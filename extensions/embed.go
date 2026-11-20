@@ -11,3 +11,6 @@ import (
 //
 //go:embed pi-deck-ask-question.ts
 var AskQuestion []byte
+
+//go:embed pi-deck-browser-tools.ts
+var BrowserTools []byte

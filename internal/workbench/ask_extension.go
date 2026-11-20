@@ -15,10 +15,30 @@ import (
 
 // askExtensionName is the file pi loads.
 const askExtensionName = "pi-deck-ask-question.ts"
+const browserExtensionName = "pi-deck-browser-tools.ts"
 
 // askExtensionPath is where this run installed the extension, "" when it
 // could not be written; startPi only adds it for local pi.
 var askExtensionPath string
+
+// installBrowserToolsExtension writes the browser MCP bridge for local pi.
+func installBrowserToolsExtension(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	folder := filepath.Join(dir, "extensions")
+	path := filepath.Join(folder, browserExtensionName)
+	if cur, err := os.ReadFile(path); err == nil && string(cur) == string(extensions.BrowserTools) {
+		return path
+	}
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		return ""
+	}
+	if err := writeFileAtomic(path, extensions.BrowserTools, 0o644); err != nil {
+		return ""
+	}
+	return path
+}
 
 // installAskExtension writes the bundled extension under dir and returns
 // its path. A copy already holding what this build ships is left alone.

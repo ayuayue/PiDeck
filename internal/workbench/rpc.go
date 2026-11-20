@@ -241,10 +241,17 @@ type piClient struct {
 	exitOnce sync.Once
 }
 
+// piLocalTools is an extension and environment bundle used only by a local
+// pi process. The browser MCP endpoint is loopback-only and per session.
+type piLocalTools struct {
+	extension string
+	env       []string
+}
+
 // startPi starts pi for one session: on this machine or through a target,
 // keeping the app's sessions under appSessions. onEvent, onUI and onExit
 // run on the reader goroutine.
-func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent func(piEvent), onUI func(uiRequest), onExit func(error)) (*piClient, error) {
+func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent func(piEvent), onUI func(uiRequest), onExit func(error), local ...piLocalTools) (*piClient, error) {
 	if piPath == "" {
 		piPath = "pi"
 	}
@@ -259,11 +266,16 @@ func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent
 	if !t.remote() && askExtensionPath != "" {
 		args = append(args, "-e", askExtensionPath)
 	}
+	var env []string
+	if !t.remote() && len(local) > 0 && local[0].extension != "" {
+		args = append(args, "-e", local[0].extension)
+		env = local[0].env
+	}
 	cmd, err := t.command(piPath, dir, appSessions, id, sessionFile, args)
 	if err != nil {
 		return nil, err
 	}
-	cmd.Env = append(os.Environ(), agentProxy.env()...)
+	cmd.Env = append(append(os.Environ(), agentProxy.env()...), env...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

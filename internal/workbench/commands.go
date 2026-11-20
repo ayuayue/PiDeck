@@ -69,6 +69,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openTaskForm() }},
 		{ID: "favorites", Label: "收藏夹…", Group: "会话", Icon: lucide.Star,
 			Run: func(a *app) { a.openFavorites() }},
+		{ID: "browser", Label: "浏览器", Group: "工具", Icon: lucide.Globe,
+			Run: func(a *app) { a.openPane(paneBrowser) }},
 		{ID: "review", Label: "评审…", Group: "工作区", Icon: lucide.GitPullRequest,
 			Run: func(a *app) { a.openReviewPane() }},
 		{ID: "favorite-reply", Label: "收藏最后回复", Group: "会话", Icon: lucide.Star,

@@ -198,6 +198,7 @@ func newApp(cx *core.Scope) *app {
 		favModels:              core.NewSignalFunc(cx, []string(nil), nil),
 		favOpen:                core.NewSignal(cx, false),
 		reviewOpen:             core.NewSignal(cx, false),
+		browser:                newBrowserState(cx),
 		favKind:                core.NewSignal(cx, ""),
 		favQuery:               core.NewSignal(cx, ""),
 		favRev:                 core.NewSignal(cx, 0),
@@ -369,6 +370,7 @@ func newApp(cx *core.Scope) *app {
 	// The ask extension travels with the app: pi loads it with -e, and its
 	// questions reach the card.
 	askExtensionPath = installAskExtension(st.dir)
+	a.browserToolsExtension = installBrowserToolsExtension(st.dir)
 	a.initDiag()
 	a.cfg = st.config()
 	a.sounds = alerts.New(cx)

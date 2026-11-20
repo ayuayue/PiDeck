@@ -48,7 +48,8 @@ func (a *app) ensureEngine(s *session, then func()) {
 	}
 	s.starting = true
 	s.status.Set(statusStarting)
-	go a.startEngine(s)
+	withBrowser := !s.Target.remote() && a.browserToolsExtension != "" && a.browser.owner.GetUntracked() == s.ID
+	go a.startEngine(s, withBrowser)
 }
 
 // restartAgent stops a session's pi and starts it again: the way to pick
@@ -99,16 +100,39 @@ func (a *app) closeAgent(s *session) {
 }
 
 // startEngine spawns pi and reads its state, off the UI thread.
-func (a *app) startEngine(s *session) {
+func (a *app) startEngine(s *session, withBrowser bool) {
 	sessionFile := ""
 	if s.External {
 		sessionFile = s.File
 	}
+	var local piLocalTools
+	var stopBrowser func()
+	if withBrowser {
+		url, token, stop, startErr := a.startBrowserTools(s)
+		if startErr != nil {
+			a.cx.Post(func() { a.browser.err.Set(startErr.Error()); a.revokeBrowser() })
+			withBrowser = false
+		} else {
+			local = piLocalTools{extension: a.browserToolsExtension, env: []string{
+				"PIDECK_LITE_BROWSER_URL=" + url,
+				"PIDECK_LITE_BROWSER_TOKEN=" + token,
+			}}
+			stopBrowser = stop
+		}
+	}
 	c, err := startPi(s.Target, a.piPath(), s.WS, a.st.sessions, s.ID, sessionFile,
 		func(ev piEvent) { a.onPiEvent(s, ev) },
 		func(req uiRequest) { a.onPiUI(s, req) },
-		func(err error) { a.onPiExit(s, err) })
+		func(err error) {
+			if stopBrowser != nil {
+				stopBrowser()
+			}
+			a.onPiExit(s, err)
+		}, local)
 	if err != nil {
+		if stopBrowser != nil {
+			stopBrowser()
+		}
 		a.cx.Post(func() { a.failSession(s, err.Error()) })
 		return
 	}
