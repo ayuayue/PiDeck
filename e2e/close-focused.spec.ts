@@ -69,6 +69,22 @@ test("window-level shortcut minimizes and restores the same workbench with its d
 	await nativeWindow.dispose();
 });
 
+test("closing the last session returns focus to the workbench", async ({ window, app }) => {
+	const composer = await openFirstSession(window);
+	await composer.fill("Open a permanent tab");
+	await window.keyboard.press("Enter");
+	await expect(window.locator(".message-timeline")).toContainText("Mock 回复：「Open a permanent tab」流式渲染验证完成");
+	const tab = window.locator('.session-tabs-scroll [role="tab"][aria-selected="true"]');
+	await expect(tab).toHaveCount(1);
+	await composer.focus();
+	await pressClose(app, window);
+	await expect(tab).toHaveCount(0);
+	const nativeWindow = await app.browserWindow(window);
+	await expect.poll(() => nativeWindow.evaluate((win) => win.isVisible() && !win.isMinimized())).toBe(true);
+	await expect(window.locator("[data-close-focus-fallback]")).toBeFocused();
+	await nativeWindow.dispose();
+});
+
 test.describe("terminal shortcut", () => {
 	const project = makeSeedProject("focused-close-terminal");
 	test.use({ seedProjects: [project] });
