@@ -21,9 +21,10 @@ package workbench
 // Top-level "prompts" and "themes" are the older shape and still load.
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
+
+	"example.com/pideck-lite/internal/apptext"
 )
 
 // isThemeFile reports whether a name is one the theme loader reads.
@@ -62,16 +63,25 @@ func normalizeAppearance(v string) string {
 func pluginSummary(p plugin) string {
 	parts := []string{}
 	if n := len(p.Commands); n > 0 {
-		parts = append(parts, fmt.Sprintf("%d 个命令", n))
+		parts = append(parts, apptext.T("%d 个命令", n))
 	}
 	if n := len(p.ThemeSpecs); n > 0 {
-		parts = append(parts, fmt.Sprintf("%d 个主题", n))
+		parts = append(parts, apptext.T("%d 个主题", n))
 	}
 	if n := len(p.Contributes.Keybindings); n > 0 {
-		parts = append(parts, fmt.Sprintf("%d 个键位", n))
+		parts = append(parts, apptext.T("%d 个键位", n))
+	}
+	if n := len(p.Contributes.Settings); n > 0 {
+		parts = append(parts, apptext.T("%d 个设置", n))
+	}
+	if n := len(p.Contributes.Hooks); n > 0 {
+		parts = append(parts, apptext.T("%d 个事件", n))
+	}
+	if n := len(p.Contributes.Agents); n > 0 {
+		parts = append(parts, apptext.T("%d 个智能体", n))
 	}
 	if len(parts) == 0 {
-		return "没有可用的命令或主题"
+		return apptext.T("插件没有可用的贡献项")
 	}
 	return strings.Join(parts, " · ")
 }

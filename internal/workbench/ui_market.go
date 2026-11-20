@@ -19,7 +19,7 @@ import (
 // openPluginMarket shows the market with the last index link.
 func (a *app) openPluginMarket() {
 	a.marketURL.Set(a.cfg.PluginIndexURL)
-	a.marketList.Set(nil)
+	a.marketList.Set(builtinPluginExamples())
 	a.marketErr.Set("")
 	a.marketBusy.Set(false)
 	a.marketInstalling.Set("")
@@ -90,6 +90,9 @@ func (a *app) pluginMarketDialog() core.Node {
 			entry := e
 			installed := a.installedPlugin(entry.ID)
 			meta := entry.Version
+			if entry.Runtime != "" {
+				meta = strings.TrimSpace(meta + " · " + entry.Runtime)
+			}
 			if entry.Author != "" {
 				meta = strings.TrimSpace(meta + " · " + entry.Author)
 			}
@@ -109,7 +112,9 @@ func (a *app) pluginMarketDialog() core.Node {
 				ui.Icon(lucide.Bot, 14, colors.Muted),
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: texts},
 			}
-			if installed != nil {
+			if entry.External {
+				row = append(row, ui.Button{Text: apptext.T("打开项目"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "market-project-" + entry.ID, OnPress: func() { a.cx.OpenURL(entry.URL, nil) }})
+			} else if installed != nil {
 				label := apptext.T("已安装")
 				if installed.Version != "" {
 					label += " v" + installed.Version
@@ -152,6 +157,13 @@ func (a *app) pluginMarketDialog() core.Node {
 			TestID:       "plugin-market",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(660)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
+					ui.Button{Text: apptext.T("内置示例"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-examples", Disabled: a.marketBusy.Get,
+						OnPress: func() { a.marketErr.Set(""); a.marketList.Set(builtinPluginExamples()) }},
+					ui.Button{Text: apptext.T("官方索引"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-official", Disabled: a.marketBusy.Get, OnPress: func() { a.discoverPlugins(false) }},
+					ui.Button{Text: apptext.T("GitHub 社区"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-community", Disabled: a.marketBusy.Get, OnPress: func() { a.discoverPlugins(true) }},
+				}},
+				ui.Text(apptext.T("Lite 条目可安装声明式清单；其他运行时仅打开项目。内置示例可离线安装。"), 11, ui.Regular, colors.Muted),
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.marketURL.Get, OnChange: a.marketURL.Set, Placeholder: "https://…/plugins.json",

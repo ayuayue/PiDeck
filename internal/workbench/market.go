@@ -8,19 +8,26 @@ package workbench
 // declarative manifest is installed, never code.
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"example.com/pideck-lite/internal/apptext"
 	yaml "go.yaml.in/yaml/v3"
 )
 
 // marketEntry is one plugin in an index.
 type marketEntry struct {
+	External    bool   `json:"-" yaml:"-"`
+	Builtin     bool   `json:"-" yaml:"-"`
+	Runtime     string `json:"runtime" yaml:"runtime"`
 	ID          string `json:"id" yaml:"id"`
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description" yaml:"description"`
@@ -35,17 +42,27 @@ func fetchPluginIndex(rawURL string) ([]marketEntry, error) {
 	if !isHTTPURL(rawURL) {
 		return nil, errors.New("索引链接只支持 http(s)")
 	}
-	resp, err := appHTTPClient.Get(rawURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	raw, err := downloadCatalogData(ctx, rawURL, 1<<20)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	// Official mixed registries carry repository coordinates. Keep the
+	// original custom {plugins:[{id,name,url}]} index and bare array valid.
+	var registry struct {
+		SchemaVersion int
+		Plugins       []struct{ Repo string }
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
+	if json.Unmarshal(raw, &registry) == nil && registry.SchemaVersion != 0 {
+		if registry.SchemaVersion != 1 {
+			return parseOfficialPlugins(raw)
+		}
+		for _, entry := range registry.Plugins {
+			if entry.Repo != "" {
+				return parseOfficialPlugins(raw)
+			}
+		}
 	}
 	var index struct {
 		Plugins []marketEntry `json:"plugins" yaml:"plugins"`
@@ -66,6 +83,12 @@ func fetchPluginIndex(rawURL string) ([]marketEntry, error) {
 		if e.ID == "" || e.Name == "" || !isHTTPURL(e.URL) || seen[e.ID] {
 			continue
 		}
+		// The legacy custom index is a Lite index. A mixed index must name
+		// foreign runtimes explicitly; unknown runtimes stay discovery-only.
+		if e.Runtime == "" {
+			e.Runtime = litePluginRuntime
+		}
+		e.External = e.Runtime != litePluginRuntime
 		seen[e.ID] = true
 		out = append(out, e)
 		if len(out) >= 200 {
@@ -89,22 +112,31 @@ var marketID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // installMarketPlugin downloads one manifest and writes it into plugins/.
 func (a *app) installMarketPlugin(entry marketEntry) (plugin, error) {
 	var out plugin
+	if entry.External || (entry.Runtime != "" && entry.Runtime != litePluginRuntime) {
+		return out, errors.New(apptext.T("插件清单不兼容：%s", firstNonEmpty(entry.Runtime, "unknown")))
+	}
 	dir := a.pluginsDir()
 	if dir == "" {
 		return out, errors.New("找不到插件目录")
 	}
-	if !isHTTPURL(entry.URL) {
-		return out, errors.New("插件链接只支持 http(s)")
+	if !marketID.MatchString(entry.ID) || entry.ID == "." || entry.ID == ".." {
+		return out, errors.New("插件 id 只能有字母、数字、点、下划线和横线")
 	}
-	resp, err := appHTTPClient.Get(entry.URL)
+	path, previous, err := marketPluginTarget(dir, entry.ID)
 	if err != nil {
 		return out, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return out, fmt.Errorf("HTTP %d", resp.StatusCode)
+	if !entry.Builtin && !isHTTPURL(entry.URL) {
+		return out, errors.New("插件链接只支持 http(s)")
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	var raw []byte
+	if entry.Builtin {
+		raw, err = pluginExamples.ReadFile("plugin_examples/" + entry.ID + ".json")
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		raw, err = downloadCatalogData(ctx, entry.URL, 512<<10)
+	}
 	if err != nil {
 		return out, err
 	}
@@ -124,18 +156,35 @@ func (a *app) installMarketPlugin(entry marketEntry) (plugin, error) {
 	if !marketID.MatchString(out.ID) {
 		return out, errors.New("插件 id 只能有字母、数字、点、下划线和横线")
 	}
-	out.Dir = dir
+	if entry.Version != "" && out.Version != entry.Version {
+		return out, errors.New(apptext.T("清单版本 %s 与索引 %s 不一致", out.Version, entry.Version))
+	}
+	if len(previous) > 0 {
+		var old plugin
+		if err := yaml.Unmarshal(previous, &old); err != nil {
+			return out, err
+		}
+		if !normalizePluginIdentity(&old) {
+			return out, errors.New(old.Error)
+		}
+		if entry.Version == "" || old.Version == "" || old.Version == entry.Version {
+			return out, errors.New("已经安装过这个插件")
+		}
+	}
+	out.Dir = filepath.Dir(path)
 	normalizePlugin(&out)
-	if len(out.Commands) == 0 && len(out.ThemeSpecs) == 0 &&
-		len(out.Contributes.Settings) == 0 && len(out.Contributes.Hooks) == 0 {
-		return out, errors.New("插件没有任何命令、主题、设置或 hooks")
+	if out.Error != "" {
+		return out, errors.New(out.Error)
+	}
+	if !out.hasContributions() {
+		return out, errors.New(apptext.T("插件没有可用的贡献项"))
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return out, err
 	}
-	path := filepath.Join(dir, out.ID+".json")
-	if _, err := os.Stat(path); err == nil {
-		return out, errors.New("已经安装过这个插件")
+	current, err := readMarketManifest(path)
+	if (err != nil && !os.IsNotExist(err)) || !bytes.Equal(current, previous) {
+		return out, errors.New(apptext.T("插件文件已变化，请重新加载后重试"))
 	}
 	if err := writeFileAtomic(path, raw, 0o644); err != nil {
 		return out, err

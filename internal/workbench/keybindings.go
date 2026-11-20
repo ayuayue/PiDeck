@@ -107,7 +107,16 @@ func resolvePluginKeybindings(keyToCmd map[string]string, plugins []plugin) ([]k
 			if cmd == "" || strings.TrimSpace(kb.Key) == "" {
 				continue
 			}
-			if !strings.Contains(cmd, ":") && !isBuiltinCommand(cmd) {
+			local := false
+			for _, declared := range p.Contributes.Commands {
+				if declared.ID == cmd {
+					local = true
+					break
+				}
+			}
+			// A plugin's own command wins a name collision. Unqualified
+			// references to other built-ins keep their existing meaning.
+			if !strings.Contains(cmd, ":") && (local || !isBuiltinCommand(cmd)) {
 				cmd = pluginCommandID(p.ID, cmd)
 			}
 			nk := normalizeKey(kb.Key)

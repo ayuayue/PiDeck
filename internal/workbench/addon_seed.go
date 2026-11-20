@@ -35,7 +35,7 @@ func (a *app) ensureAddonDirs() {
 		_ = os.MkdirAll(dir, 0o755)
 		example := filepath.Join(dir, "example.json")
 		if _, err := os.Stat(example); os.IsNotExist(err) {
-			_ = os.WriteFile(example, []byte(`{
+			_ = writeFileAtomic(example, []byte(`{
   "name": "雾蓝",
   "author": "你",
   "appearance": "both",
@@ -50,7 +50,7 @@ func (a *app) ensureAddonDirs() {
 		_ = os.MkdirAll(dir, 0o755)
 		example := filepath.Join(dir, "example.json")
 		if _, err := os.Stat(example); os.IsNotExist(err) {
-			_ = os.WriteFile(example, []byte(`{
+			_ = writeFileAtomic(example, []byte(`{
   "agents": [
     {
       "id": "security",
@@ -67,7 +67,9 @@ func (a *app) ensureAddonDirs() {
 		_ = os.MkdirAll(dir, 0o755)
 		example := filepath.Join(dir, "example-plugin.json")
 		if _, err := os.Stat(example); os.IsNotExist(err) {
-			_ = os.WriteFile(example, []byte(`{
+			_ = writeFileAtomic(example, []byte(`{
+  "schemaVersion": 2,
+  "runtime": "pideck-lite",
   "id": "example",
   "name": "示例插件",
   "version": "1.0.0",

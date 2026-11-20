@@ -115,7 +115,7 @@ func TestKeybindingRouter(t *testing.T) {
 func TestPluginKeybindings(t *testing.T) {
 	base := map[string]string{"mod+k": "palette"}
 	plugins := []plugin{
-		{ID: "team", Name: "团队", Contributes: pluginContrib{Keybindings: []pluginKeybinding{
+		{ID: "team", Name: "团队", Contributes: pluginContrib{Commands: []pluginCommand{{ID: "review", Title: "团队审查"}}, Keybindings: []pluginKeybinding{
 			{Command: "review", Key: "mod+shift+r"},
 			{Command: "settings", Key: "mod+alt+s"},
 			{Command: "clash", Key: "mod+k"},

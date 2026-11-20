@@ -615,10 +615,12 @@ knob code info down`。
 主题文件也可以直接写 shadcn/ui 的 `cssVars.theme/light/dark`，其中的 `var(--name)` 会解析，
 非颜色变量进 `tokens`。
 
-插件 `plugins/team/plugin.json`：
+插件 `plugins/team/plugin.json`（完整审计、市场复用与 NSGo UI/函数插件方案见 [docs/PLUGINS.md](docs/PLUGINS.md)）：
 
 ```json
 {
+  "schemaVersion": 2,
+  "runtime": "pideck-lite",
   "id": "team",
   "name": "团队命令",
   "version": "1.0.0",
@@ -650,9 +652,13 @@ knob code info down`。
 
 - `action.type`：`prompt` / `insert` 填进输入框，`send` 直接发送，`command` 执行内置命令，
   `url` 打开 http(s) 链接，`theme` 切换主题（可写 id 或显示名）
+- `runtime: "pideck-lite"` 与 `schemaVersion: 2` 明确宿主契约；旧 Lite 清单省略时仍按 v2 读取，
+  只在内存中补齐，不回写源文件。显式的其他 runtime 或不支持的清单版本不会激活贡献项
 - `contributes.hooks` 让插件在事件上做事：`turn.start` / `turn.done` / `session.created` /
   `session.opened` / `session.deleted` / `theme.changed` / `plan.finished` / `git.commit` /
-  `image.generated`，动作只允许 `url` / `command` / `theme`（不能起新一轮，避免自激）；文本里可用
+  `image.generated`，动作只允许 `url` / `command` / `theme`；其中 `command` 只允许内置注册表
+  标记 `HookSafe` 的命令（当前为 `palette` / `chat-outline` / `git-refresh` /
+  `sidebar` / `drawer` / `shortcuts` / `settings`），不能绕到其他插件、发送、压缩或新建会话/终端。文本里可用
   `${event:session}` / `${event:title}` / `${event:project}` / `${event:status}` / `${event:answer}`
   等字段，事件各自的字段（`origin`、`plan`、`steps`、`message`、`provider` 等）也按同名取用
 - `contributes.agents` 给智能体选择器加条目：`id` / `name` / `prompt` 必填，`description` 可选；
@@ -661,17 +667,28 @@ knob code info down`。
   `select` 需要 `options`；设置显示在 设置 → 扩展 的插件条目下，值存 `config.json` 的
   `pluginSettings`（键为 `<插件 id>/<key>`）
 - 命令的 `prompt` / `command` / `url` / `theme` 里写 `${setting:key}`，执行时替换为当前值或默认值；
-  引用未声明的 key 会在设置里显示警告
+  引用未声明的 key 会在设置里显示警告。`command` 替换后仍须是内置命令，并检查其可用条件；
+  禁用或读取失败的插件不能通过命令 ID 继续执行
 - `contributes.themes` 的路径必须留在插件目录内；越界、坏命令、重复 id 会在设置里显示为警告
 - 旧格式 `{"prompts": [...], "themes": [...]}` 仍然可用，提示词会自动变成 `prompt` 命令
-- 命令 id 在插件内唯一；面板里显示为 `plugin:<插件 id>:<命令 id>`
+- 命令 id 在插件内唯一；面板里显示为 `plugin:<插件 id>:<命令 id>`。键位的局部命令与内置命令同名时，
+  优先指向该插件声明的命令；未声明为局部命令的内置目标仍按原语义处理
 - 插件可以在 设置 → 扩展 里整体启用/禁用，禁用后命令、主题、键位都不加载
 - 插件市场：设置 → 扩展 →「插件市场…」填一个索引链接（`{plugins:[{id,name,url}]}` 或数组），
   点「安装」把单文件清单下载到 `plugins/`；只安装声明式清单，不执行代码。已安装的条目显示版本，
-  索引版本不同时给「更新到 x.y」按钮；插件重新加载按代次丢弃过期结果，避免旧列表覆盖新安装
+  索引版本不同时给「更新到 x.y」按钮；更新先检查清单 ID/版本/runtime，在原清单位置原子替换，
+  下载或校验失败、下载期间本地文件变化都保留原文件。索引限制 1 MB、清单限制 512 KB。
+  支持消费带 `runtime` 的混合 registry v2；旧官方 registry v1 的未标记条目仍仅打开项目，
+  不会装入 Lite。上游市场仓库的 schema/收录校验尚需配套升级，不能直接把新字段写进现有 v1 schema
+- 市场默认显示三套「内置示例」，无需网络、手动安装；每套都覆盖六类贡献点：
+  [基础界面示例](internal/workbench/plugin_examples/lite-ui-basics.json)、
+  [代码审查工具箱](internal/workbench/plugin_examples/lite-review-kit.json)、
+  [文档工作流示例](internal/workbench/plugin_examples/lite-writing-kit.json)。四种设置控件由宿主生成，
+  不是任意自定义 UI。为便于单文件安装，主题以内联 `themes` 形式携带；相对主题文件仍需本地安装
 
-插件命令出现在命令面板里，选中后按 `action` 执行。插件不运行代码，所以一个坏插件最多是没用的，
-不会碰到项目文件。
+插件命令出现在命令面板里，选中后按 `action` 执行。声明式插件不运行自己的代码，但 `send` 可以
+启动智能体，内置命令也有各自的副作用，安装前仍应核对清单。NSGo 的签名 TSX UI/函数示例已有
+源码与独立集成测试；生产插件宿主尚未接入 TSX，不宣称已支持完整代码插件。
 
 ## 语言
 

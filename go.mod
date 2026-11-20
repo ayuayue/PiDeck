@@ -26,6 +26,7 @@ require (
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/go-typeset/bidi v0.3.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
+	github.com/google/pprof v0.0.0-20261016150608-1facf8f91b50 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.8.0 // indirect

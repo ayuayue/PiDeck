@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "runtime": "pideck-lite",
+  "id": "lite-ui-basics",
+  "name": "基础界面示例",
+  "version": "1.0.0",
+  "description": "演示宿主生成的四种设置控件、主题与命令入口；不注入自定义面板。",
+  "author": "PiDeck Lite",
+  "themes": [
+    {
+      "name": "示例雾蓝",
+      "appearance": "both",
+      "light": {"accent": "#1d4ed8", "accentHover": "#1e40af", "accentPressed": "#1e3a8a", "accentText": "#ffffff"},
+      "dark": {"accent": "#93c5fd", "accentHover": "#bfdbfe", "accentPressed": "#60a5fa", "accentText": "#172554"}
+    }
+  ],
+  "contributes": {
+    "settings": [
+      {"key": "detailed", "label": "展示详细说明", "type": "bool", "default": true},
+      {"key": "topic", "label": "说明主题", "type": "string", "default": "当前项目"},
+      {"key": "points", "label": "说明要点数", "type": "number", "default": 3},
+      {"key": "format", "label": "说明格式", "type": "select", "default": "要点", "options": ["要点", "一段话"]}
+    ],
+    "commands": [
+      {"id": "preview", "title": "界面示例：预览设置值", "icon": "list", "action": {"type": "insert", "prompt": "请介绍${setting:topic}。详细说明=${setting:detailed}，要点数=${setting:points}，格式=${setting:format}。"}},
+      {"id": "theme", "title": "界面示例：应用雾蓝主题", "icon": "palette", "action": {"type": "theme", "theme": "plugin:lite-ui-basics:0"}},
+      {"id": "reset-theme", "title": "界面示例：恢复跟随系统", "icon": "palette", "action": {"type": "theme", "theme": "system"}},
+      {"id": "shortcuts", "title": "界面示例：查看快捷键", "icon": "settings", "action": {"type": "command", "command": "shortcuts"}},
+      {"id": "docs", "title": "界面示例：打开项目文档", "icon": "globe", "action": {"type": "url", "url": "https://github.com/ayuayue/PiDeck-Lite"}}
+    ],
+    "keybindings": [{"command": "preview", "key": "mod+alt+u"}],
+    "agents": [{"id": "explainer", "name": "示例讲解员", "description": "解释设置与界面的关系。", "prompt": "你是一名项目讲解员。根据现有代码解释界面和设置的关系；区分已实现能力与设想，不声称支持任意自定义界面。"}],
+    "hooks": {"plan.finished": [{"type": "command", "command": "chat-outline"}]}
+  }
+}

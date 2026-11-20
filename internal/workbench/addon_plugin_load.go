@@ -91,6 +91,9 @@ func (a *app) loadPlugins() []plugin {
 // normalizePlugin folds the older prompts and inline themes into the
 // contributes shape and checks each command and theme path.
 func normalizePlugin(p *plugin) {
+	if !normalizePluginIdentity(p) {
+		return
+	}
 	declared := normalizePluginSettings(p)
 	normalizePluginHooks(p)
 	normalizePluginAgents(p)

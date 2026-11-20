@@ -7,7 +7,6 @@ package workbench
 // sits at its end, so a section reads top to bottom.
 
 import (
-	"fmt"
 	"sort"
 
 	"example.com/pideck-lite/internal/apptext"
@@ -99,8 +98,12 @@ func (a *app) settingsAddons() core.Node {
 			}
 			sort.Strings(hooks)
 			for _, name := range hooks {
-				lines = append(lines, core.Text{Content: fmt.Sprintf("· 事件 %s → %d 个动作", name, len(plug.Contributes.Hooks[name])),
+				lines = append(lines, core.Text{Content: apptext.T("· 事件 %s → %d 个动作", name, len(plug.Contributes.Hooks[name])),
 					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)})
+			}
+			for _, agent := range plug.Contributes.Agents {
+				lines = append(lines, core.Text{Content: apptext.T("· 智能体 %s", agent.Name),
+					Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)})
 			}
 			if len(lines) > 0 {
 				rows = append(rows, core.View{Style: core.Style{Padding: core.Edges{Left: 4, Bottom: 4}, Gap: 1}, Children: lines})
@@ -128,7 +131,7 @@ func (a *app) settingsAddons() core.Node {
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setGroup("插件", rows...),
-				core.Text{Content: apptext.T("插件只声明命令与主题，不运行代码：命令的动作是填入提示词、执行内置命令、打开链接或切换主题。"),
+				core.Text{Content: apptext.T("插件声明命令、设置、主题、键位、事件钩子和智能体；只执行宿主提供的动作，不运行插件代码。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
 				core.View{Style: core.Style{Direction: core.Row, Gap: 8, Margin: core.Edges{Top: 4}}, Children: []core.Node{
 					ui.Button{Text: apptext.T("新建插件…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "plugin-new",

@@ -1,0 +1,6 @@
+name: Lite UI Example
+id: dev.pideck.lite.examples.ui
+version: 1.0.0
+build_number: 1
+capabilities:
+  host: [context.read]

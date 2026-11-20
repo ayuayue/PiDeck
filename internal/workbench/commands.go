@@ -35,14 +35,17 @@ type appCommand struct {
 	// Hidden keeps a command out of the palette while a key still runs
 	// it: closing a tab, cycling tabs, opening the palette itself.
 	Hidden bool
-	Run    func(*app)
+	// HookSafe opts a builtin into automatic plugin events. New commands
+	// stay unavailable to hooks until their effects have been reviewed.
+	HookSafe bool
+	Run      func(*app)
 }
 
 // builtinCommands is the app's own list. Groups read as the palette's
 // sections.
 func builtinCommands() []appCommand {
 	return []appCommand{
-		{ID: "palette", Label: "打开命令面板", Group: "应用", Shortcut: "mod+k", Icon: lucide.Command, Hidden: true,
+		{ID: "palette", Label: "打开命令面板", Group: "应用", Shortcut: "mod+k", Icon: lucide.Command, Hidden: true, HookSafe: true,
 			Run: func(a *app) { a.palette.Set(true) }},
 		{ID: "browse-workspace", Label: "浏览文件夹添加工作区…", Group: "工作区", Icon: lucide.FolderOpen,
 			Run: func(a *app) { a.openPicker("workspace") }},
@@ -238,7 +241,7 @@ func builtinCommands() []appCommand {
 		{ID: "image-mode", Label: "生图模式", Group: "会话", Icon: lucide.Image,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.toggleImageMode(a.active()) }},
-		{ID: "chat-outline", Label: "会话大纲…", Group: "会话", Shortcut: "mod+shift+o", Icon: lucide.ListTree,
+		{ID: "chat-outline", Label: "会话大纲…", Group: "会话", Shortcut: "mod+shift+o", Icon: lucide.ListTree, HookSafe: true,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.outlineOpen.Set(true) }},
 		{ID: "chat-find", Label: "在会话里查找…", Group: "会话", Shortcut: "mod+f", Icon: lucide.Search,
@@ -285,7 +288,7 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.newTerminalTab() }},
 		{ID: "git", Label: "显示 Git 面板", Group: "工具", Shortcut: "mod+shift+g", Icon: lucide.GitBranch,
 			Run: func(a *app) { a.openGit() }},
-		{ID: "git-refresh", Label: "刷新 Git 状态", Group: "工具", Icon: lucide.RefreshCw,
+		{ID: "git-refresh", Label: "刷新 Git 状态", Group: "工具", Icon: lucide.RefreshCw, HookSafe: true,
 			Run: func(a *app) { a.git.refreshAll() }},
 		{ID: "git-branch", Label: "新建 Git 分支…", Group: "工具", Icon: lucide.GitBranchPlus,
 			When: func(a *app) bool { return a.git.state.GetUntracked().IsRepo },
@@ -301,12 +304,12 @@ func builtinCommands() []appCommand {
 			Run:  func(a *app) { a.saveDraftPrompt() }},
 		{ID: "appearance", Label: "切换外观（浅色 / 深色 / 跟随系统）", Group: "应用", Icon: lucide.Sun,
 			Run: func(a *app) { a.cycleTheme() }},
-		{ID: "sidebar", Label: "显示 / 隐藏侧栏", Group: "应用", Shortcut: "mod+b", Icon: lucide.PanelLeft,
+		{ID: "sidebar", Label: "显示 / 隐藏侧栏", Group: "应用", Shortcut: "mod+b", Icon: lucide.PanelLeft, HookSafe: true,
 			Run: func(a *app) {
 				a.sidebar.Update(func(v bool) bool { return !v })
 				a.remember()
 			}},
-		{ID: "drawer", Label: "显示 / 隐藏会话面板", Group: "应用", Shortcut: "mod+j", Icon: lucide.PanelRight,
+		{ID: "drawer", Label: "显示 / 隐藏会话面板", Group: "应用", Shortcut: "mod+j", Icon: lucide.PanelRight, HookSafe: true,
 			Run: func(a *app) {
 				a.drawer.Update(func(v bool) bool { return !v })
 				a.remember()
@@ -323,7 +326,7 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openPluginsDir() }},
 		{ID: "reload-addons", Label: "重新加载插件与主题", Group: "应用", Icon: lucide.RefreshCw,
 			Run: func(a *app) { a.reloadAddons() }},
-		{ID: "shortcuts", Label: "键盘快捷键", Group: "应用", Shortcut: "mod+/", Icon: lucide.Keyboard,
+		{ID: "shortcuts", Label: "键盘快捷键", Group: "应用", Shortcut: "mod+/", Icon: lucide.Keyboard, HookSafe: true,
 			Run: func(a *app) { a.shortcutsQuery.Set(""); a.shortcutsOpen.Set(true) }},
 		{ID: "check-updates", Label: "检查更新", Group: "应用", Icon: lucide.CloudDownload,
 			Run: func(a *app) { updater.Check(a.cx) }},
@@ -331,7 +334,7 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.cycleAppearance() }},
 		{ID: "theme-export", Label: "导出当前主题…", Group: "外观", Icon: lucide.Palette,
 			Run: func(a *app) { a.exportTheme() }},
-		{ID: "settings", Label: "设置", Group: "应用", Shortcut: "mod+,", Icon: lucide.Settings,
+		{ID: "settings", Label: "设置", Group: "应用", Shortcut: "mod+,", Icon: lucide.Settings, HookSafe: true,
 			Run: func(a *app) { a.openSettingsPane() }},
 	}
 }
@@ -535,8 +538,11 @@ func (a *app) rememberCommand(id string) {
 
 // runPluginCommand runs one command a plugin contributes.
 func (a *app) runPluginCommand(pluginID, commandID string) {
+	if a.plugins == nil {
+		return
+	}
 	for _, p := range a.plugins.GetUntracked() {
-		if p.ID != pluginID {
+		if p.ID != pluginID || p.Disabled || p.Error != "" {
 			continue
 		}
 		for _, c := range p.Commands {
@@ -581,11 +587,20 @@ func (a *app) runPluginActionFor(p plugin, c pluginCommand, s *session, data map
 		s.draft.Set(act.Prompt)
 		a.send()
 	case "command":
-		if act.Command == "" {
-			a.toast(ui.ToastError, "插件命令没有目标", c.Title)
-			return
+		// Resolve against the builtin registry, rather than the general
+		// palette router. Recheck after interpolation and honor availability.
+		for _, builtin := range builtinCommands() {
+			if builtin.ID == act.Command {
+				if a.inHook && !builtin.HookSafe {
+					return
+				}
+				if builtin.When == nil || builtin.When(a) {
+					builtin.Run(a)
+				}
+				return
+			}
 		}
-		a.runCommand(act.Command)
+		a.toast(ui.ToastError, apptext.T("插件只能执行内置命令：%s", act.Command), c.Title)
 	case "url":
 		if !strings.HasPrefix(act.URL, "https://") && !strings.HasPrefix(act.URL, "http://") {
 			a.toast(ui.ToastError, "插件链接不安全", act.URL)

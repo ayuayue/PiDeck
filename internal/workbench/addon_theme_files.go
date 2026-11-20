@@ -71,7 +71,7 @@ func (a *app) loadThemes(plugins []plugin) []themeSpec {
 		}
 	}
 	for _, p := range plugins {
-		if p.Disabled {
+		if p.Disabled || p.Error != "" {
 			continue
 		}
 		for _, spec := range p.ThemeSpecs {

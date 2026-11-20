@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"example.com/pideck-lite/internal/apptext"
 )
 
 // appEvents are the events a plugin hook may listen to.
@@ -94,6 +96,10 @@ func normalizePluginHooks(p *plugin) {
 				p.Warnings = append(p.Warnings, fmt.Sprintf("事件 %s：%v", name, err))
 				continue
 			}
+			if a.Type == "command" && !pluginSettingRef.MatchString(a.Command) && !pluginEventRef.MatchString(a.Command) && !pluginHookCommandAllowed(a.Command) {
+				p.Warnings = append(p.Warnings, apptext.T("事件 %s 不允许执行命令：%s", name, a.Command))
+				continue
+			}
 			kept = append(kept, a)
 		}
 		if len(kept) > 0 {
@@ -101,6 +107,15 @@ func normalizePluginHooks(p *plugin) {
 		}
 	}
 	p.Contributes.Hooks = out
+}
+
+func pluginHookCommandAllowed(id string) bool {
+	for _, command := range builtinCommands() {
+		if command.ID == id {
+			return command.HookSafe
+		}
+	}
+	return false
 }
 
 // validateAction checks a plugin command's action shape.
@@ -117,6 +132,11 @@ func validateAction(a pluginAction) error {
 	case "command":
 		if strings.TrimSpace(a.Command) == "" {
 			return fmt.Errorf("action 需要 command")
+		}
+		// References may resolve to a builtin at execution time, but never to
+		// a palette route or another plugin (which could recurse or send).
+		if !pluginSettingRef.MatchString(a.Command) && !pluginEventRef.MatchString(a.Command) && !isBuiltinCommand(a.Command) {
+			return fmt.Errorf("%s", apptext.T("插件只能执行内置命令：%s", a.Command))
 		}
 	case "url":
 		if !strings.HasPrefix(a.URL, "https://") && !strings.HasPrefix(a.URL, "http://") {

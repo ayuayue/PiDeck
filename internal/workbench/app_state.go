@@ -6,6 +6,7 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"context"
 	"os"
 	"sync"
 	"time"
@@ -20,10 +21,11 @@ import (
 
 // app is everything the window shows.
 type app struct {
-	cx      *core.Scope
-	st      *store
-	cfg     config
-	dataDir string
+	lifetime context.Context
+	cx       *core.Scope
+	st       *store
+	cfg      config
+	dataDir  string
 	// sounds plays the notification sounds; customSound is the imported
 	// file's bytes, read when the config loads and after an import, so an
 	// alert never reads the disk on the UI thread. alertVolumeSeq drops a

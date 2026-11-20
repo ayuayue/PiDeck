@@ -22,6 +22,7 @@ import (
 // newApp builds the state from the config and the session store.
 func newApp(cx *core.Scope) *app {
 	a := &app{
+		lifetime:               cx.Context(),
 		cx:                     cx,
 		byID:                   map[string]*session{},
 		workspaces:             core.NewSignalFunc(cx, []*workspace{}, nil),
