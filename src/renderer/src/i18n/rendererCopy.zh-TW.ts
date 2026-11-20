@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: efc958ef4dc7675d9072fee47fc0a28480c4fe5913b4f07922f2d621b84c305a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 95f76e63b5606133ac58b5a0759b4c673f0d22a9586793171dcd65bf1f75c9de（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5819,6 +5819,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryEntriesDesc": "逐條列出所有作用域的記憶檔案：全域、專案、本機裝置都在這裡。列表按記錄時間混排，行首徽標標明所屬作用域；懸停徽標能看到落盤檔案與該檔案預算。記憶是檢索式讀取——Agent 用 memory_search / memory_get 按需查，不會整份塞進上下文。刪除會留下墓碑，舊匯出包不會把它導回來。",
 	"settings.agentMemorySearchPlaceholder": "搜尋記憶內容或專案名",
 	"settings.agentMemorySearchClear": "清除搜尋",
+	"settings.agentMemoryScopeFilterLabel": "記憶範圍",
+	"settings.agentMemoryScopeAll": "全部範圍",
+	"settings.agentMemoryFiltersClear": "清除篩選",
 	"settings.agentMemoryTableContent": "內容",
 	"settings.agentMemorySourceAutoLearn": "自動學習",
 	"settings.agentMemoryTableUpdated": "記錄於",

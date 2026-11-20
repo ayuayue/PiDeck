@@ -19,12 +19,13 @@ function entry(target, index) {
 }
 
 function group(target, count, extra = {}) {
-	const entries = Array.from({ length: count }, (_, i) => entry(target, i + 1));
+	const { scope = "global", projectId = "", projectName = "" } = extra;
+	const entries = Array.from({ length: count }, (_, i) => ({ ...entry(target, i + 1), scope, projectId, projectName }));
 	return {
 		target,
-		scope: "global",
-		projectId: "",
-		projectName: "",
+		scope,
+		projectId,
+		projectName,
 		file: target === "failure" ? "failures.md" : "MEMORY.md",
 		bytes: 100,
 		budget: { maxChars: 32000, maxEntries: 400 },
@@ -139,28 +140,47 @@ function walk(node, predicate) {
 	return [...(predicate(node) ? [node] : []), ...walk(node.props?.children, predicate)];
 }
 
-test("列表默认新条目在前，换页与搜索仍保持倒序", async (t) => {
-	const data = group("memory", 25);
-	data.entries = data.entries.map((item) => ({ ...item, content: `${item.index % 2 ? "匹配" : "其他"} ${item.index}`, updatedAt: `2026-01-${String(item.index).padStart(2, "0")}T00:00:00.000Z` }));
+async function startMemoryList(t, groups, extraApi = {}) {
+	const total = groups.reduce((sum, group) => sum + group.entries.length, 0);
 	const host = quickMessageHookHost();
 	const { AgentMemoryEntryList } = loadTsCommonJs("src/renderer/src/components/app/settings/AgentMemoryEntryList.tsx", {
 		stubs: {
 			react: host.react,
-			"../../../desktopApi": { desktopApi: { agentMemory: { list: async () => ({ ok: true, value: { root: "/memory", total: 25, groups: [data] } }) } } },
+			"../../../desktopApi": { desktopApi: { agentMemory: { list: async () => ({ ok: true, value: { root: "/memory", total, groups } }), ...extraApi } } },
 			"../../ui-shadcn/badge": { Badge: "badge" },
 			"../../ui-shadcn/button": { Button: "button" },
+			"../../ui-shadcn/checkbox": { Checkbox: "checkbox" },
 			"../../ui-shadcn/input": { Input: "input" },
 			"../../ui-shadcn/table": { Table: "table", TableBody: "tbody", TableCell: "td", TableHead: "th", TableHeader: "thead", TableRow: "tr" },
 			"../../ui-shadcn/pagination": { Pagination: "pagination" },
+			"../../ui-shadcn/select": { Select: "select", SelectContent: "select-content", SelectGroup: "select-group", SelectItem: "select-item", SelectTrigger: "select-trigger", SelectValue: "select-value" },
 			"../../ui-shadcn/tabs": { Tabs: "tabs", TabsContent: "tabs-content", TabsList: "tabs-list", TabsTrigger: "tabs-trigger" },
 			"../../ui-shadcn/ConfirmDialog": { ConfirmDialog: "confirm-dialog" },
 		},
 	});
 	t.after(() => host.unmount());
 	const render = () => host.render(() => AgentMemoryEntryList({}));
-	const contents = (tree) => walk(tree, (node) => node.type === "button" && node.props["aria-expanded"] !== undefined).map((node) => node.props.children.at(-1).props.children);
 	render();
 	await new Promise(setImmediate);
+	return render;
+}
+
+function contents(tree) {
+	return walk(tree, (node) => node.type === "button" && node.props["aria-expanded"] !== undefined).map((node) => node.props.children.at(-1).props.children);
+}
+
+function chooseScope(tree, label) {
+	const [select] = walk(tree, (node) => node.type === "select");
+	assert.ok(select, "记忆列表应提供作用域筛选");
+	const [option] = walk(select, (node) => node.type === "select-item" && textOf(node) === label);
+	assert.ok(option, `缺少作用域选项「${label}」`);
+	select.props.onValueChange(option.props.value);
+}
+
+test("列表默认新条目在前，换页与搜索仍保持倒序", async (t) => {
+	const data = group("memory", 25);
+	data.entries = data.entries.map((item) => ({ ...item, content: `${item.index % 2 ? "匹配" : "其他"} ${item.index}`, updatedAt: `2026-01-${String(item.index).padStart(2, "0")}T00:00:00.000Z` }));
+	const render = await startMemoryList(t, [data]);
 	let tree = render();
 	assert.deepEqual(
 		contents(tree),
@@ -191,38 +211,73 @@ test("列表默认新条目在前，换页与搜索仍保持倒序", async (t) =
 	);
 });
 
+test("按作用域与关键词组合筛选，记忆和教训共用范围，清除筛选可恢复列表", async (t) => {
+	const project = { scope: "project", projectId: "alpha", projectName: "Alpha" };
+	const groups = [group("memory", 1), group("user", 1), group("memory", 1, project), group("memory", 1, { scope: "device", projectId: "device:desk", projectName: "Desk" }), group("failure", 1), group("failure", 1, project)];
+	const labels = ["全局约定", "用户偏好", "项目约定", "设备约定", "全局教训", "项目教训"];
+	const [globalMemory, preference, projectMemory, deviceMemory, globalLesson, projectLesson] = labels;
+	groups.forEach((group, index) => {
+		group.entries[0].content = labels[index];
+	});
+	const render = await startMemoryList(t, groups);
+	let tree = render();
+	assert.deepEqual(contents(tree), [globalMemory, preference, projectMemory, deviceMemory]);
+
+	const search = (value) => walk(tree, (node) => node.type === "input")[0].props.onChange({ target: { value } });
+	search("约定");
+	chooseScope(render(), "全局");
+	tree = render();
+	assert.deepEqual(contents(tree), [globalMemory], "选择全局后仍应用关键词");
+	assert.match(textOf(tree), /显示 1 \/ 2 条/, "搜索结果计数基于所选范围");
+	search("");
+	assert.deepEqual(contents(render()), [globalMemory, preference], "用户偏好也属于全局记忆");
+	chooseScope(render(), "本机设备");
+	assert.deepEqual(contents(render()), [deviceMemory]);
+	chooseScope(render(), "项目");
+	tree = render();
+	assert.deepEqual(contents(tree), [projectMemory]);
+	walk(tree, (node) => node.type === "tabs")[0].props.onValueChange("failure");
+	tree = render();
+	assert.deepEqual(contents(tree), [projectLesson]);
+
+	search("not found");
+	tree = render();
+	assert.deepEqual(contents(tree), []);
+	assert.match(textOf(tree), /没有匹配的记忆/);
+	walk(tree, (node) => node.type === "button" && textOf(node) === "清除筛选")[0].props.onClick();
+	assert.deepEqual(contents(render()), [globalLesson, projectLesson]);
+});
+
+test("切换范围回到第一页，并清掉上一范围的批量勾选", async (t) => {
+	const groups = [group("memory", 1), group("memory", 25, { scope: "project", projectId: "alpha", projectName: "Alpha" })];
+	const render = await startMemoryList(t, groups);
+	let tree = render();
+	const pagination = (tree) => walk(tree, (node) => node.type === "pagination")[0];
+	walk(tree, (node) => node.type === "button" && node.props["aria-pressed"] !== undefined)[0].props.onClick();
+	tree = render();
+	assert.equal(walk(tree, (node) => node.type === "badge").map(textOf)[0], "全局");
+	walk(tree, (node) => node.type === "checkbox")[1].props.onCheckedChange();
+	pagination(tree).props.onPageChange(2);
+	tree = render();
+	assert.match(textOf(tree), /已选 1 条/);
+
+	chooseScope(tree, "项目");
+	tree = render();
+	assert.equal(pagination(tree).props.page, 1);
+	assert.equal(contents(tree)[0], "条目 25", "范围筛选先于分页");
+	assert.match(textOf(tree), /已选 0 条/);
+	assert.equal(walk(tree, (node) => node.type === "button" && node.props.variant === "destructive")[0].props.disabled, true);
+});
+
 test("批量删除：勾选后只发一次 IPC，删除清单只带定位键，删完给撤销", async (t) => {
 	const data = group("memory", 25);
 	const calls = [];
-	const host = quickMessageHookHost();
-	const { AgentMemoryEntryList } = loadTsCommonJs("src/renderer/src/components/app/settings/AgentMemoryEntryList.tsx", {
-		stubs: {
-			react: host.react,
-			"../../../desktopApi": {
-				desktopApi: {
-					agentMemory: {
-						list: async () => ({ ok: true, value: { root: "/memory", total: 25, groups: [data] } }),
-						deleteEntries: async (items) => {
-							calls.push(items);
-							return { ok: true, value: { removed: items.length, missing: 0 } };
-						},
-					},
-				},
-			},
-			"../../ui-shadcn/badge": { Badge: "badge" },
-			"../../ui-shadcn/button": { Button: "button" },
-			"../../ui-shadcn/checkbox": { Checkbox: "checkbox" },
-			"../../ui-shadcn/input": { Input: "input" },
-			"../../ui-shadcn/table": { Table: "table", TableBody: "tbody", TableCell: "td", TableHead: "th", TableHeader: "thead", TableRow: "tr" },
-			"../../ui-shadcn/pagination": { Pagination: "pagination" },
-			"../../ui-shadcn/tabs": { Tabs: "tabs", TabsContent: "tabs-content", TabsList: "tabs-list", TabsTrigger: "tabs-trigger" },
-			"../../ui-shadcn/ConfirmDialog": { ConfirmDialog: "confirm-dialog" },
+	const render = await startMemoryList(t, [data], {
+		deleteEntries: async (items) => {
+			calls.push(items);
+			return { ok: true, value: { removed: items.length, missing: 0 } };
 		},
 	});
-	t.after(() => host.unmount());
-	const render = () => host.render(() => AgentMemoryEntryList({}));
-	render();
-	await new Promise(setImmediate);
 	let tree = render();
 
 	// 进入批量模式：工具栏那个带 aria-pressed 的图标按钮（批量删除与刷新并排）。

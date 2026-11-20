@@ -6,12 +6,12 @@
  * 想改内容就让 Agent 改，想改措辞就删掉再说一遍。
  *
  * 形态：**表格式列表**（`ui-shadcn/table` + 卡片外壳），与「进程与内存监控」等设置面板同一套视觉。
- * 卡片顶部按类型分两个 tab（记忆 / 教训），下面是工具栏（搜索 + 计数 + 批量删除 + 手动刷新）、表格与分页。
+ * 卡片顶部按类型分两个 tab（记忆 / 教训），下面是筛选与操作工具栏、表格与分页。
  * 批量删除进入后行首出现勾选框：勾选跨页保留，删除走一次 IPC（主进程按文件分组落盘），
  * 删完同样给撤销。
  * 列为内容 / 记录于 / 字数 / 删除；时间来自记忆索引（Markdown 真值不存时间戳），
  * 所以工具栏留了一个刷新按钮：Agent 在会话里刚写下的记忆不会主动推到这里。
- * 所有作用域按记录时间混排成一条列表，行首徽标标明全局 / 项目 / 本机设备——早期在时间线里
+ * 默认所有作用域按记录时间混排成一条列表，行首徽标标明全局 / 项目 / 本机设备——早期在时间线里
  * 插「分组行」时，同一组的条目被别组隔开就会反复出现同样的表头（一屏好几个「全局 通用记忆
  * MEMORY.md」）。落盘文件与预算收进徽标的 title，超预算另给一个短徽标。
  *
@@ -26,11 +26,13 @@ import { AlertTriangle, Brain, ChevronDown, ChevronRight, ListChecks, RefreshCw,
 import type { AgentMemoryEntry, AgentMemoryEntryGroup, AgentMemoryEntryList } from "../../../../../shared/types/agentMemory";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
+import { titlebarCollisionPadding } from "../../../lib/titlebarInset";
 import { Badge } from "../../ui-shadcn/badge";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui-shadcn/table";
 import { Pagination } from "../../ui-shadcn/pagination";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui-shadcn/tabs";
 import { ConfirmDialog } from "../../ui-shadcn/ConfirmDialog";
 import { Checkbox } from "../../ui-shadcn/checkbox";
@@ -44,6 +46,14 @@ const KIND_TARGETS = {
 	failure: ["failure"],
 } as const;
 type EntryKind = keyof typeof KIND_TARGETS;
+
+const SCOPE_OPTIONS = [
+	["all", "settings.agentMemoryScopeAll"],
+	["global", "settings.agentMemoryScopeGlobal"],
+	["project", "settings.agentMemoryScopeProject"],
+	["device", "settings.agentMemoryScopeDeviceShort"],
+] as const;
+type EntryScopeFilter = (typeof SCOPE_OPTIONS)[number][0];
 
 /** 行首作用域徽标：项目没有可读名字时带短键，避免一长串目录键挤掉内容。 */
 function entryScopeBadge(group: AgentMemoryEntryGroup): string {
@@ -96,6 +106,7 @@ export function AgentMemoryEntryList(props: {
 }) {
 	const [data, setData] = useState<AgentMemoryEntryList | null>(null);
 	const [query, setQuery] = useState("");
+	const [scopeFilter, setScopeFilter] = useState<EntryScopeFilter>("all");
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 	const [busyKey, setBusyKey] = useState<string | null>(null);
 	const [pending, setPending] = useState<AgentMemoryEntry | null>(null);
@@ -138,12 +149,14 @@ export function AgentMemoryEntryList(props: {
 
 	const needle = query.trim().toLowerCase();
 	// 过滤在渲染层做：记忆总量有预算封顶（几万字），一次全量拿到前端比每条搜索都往主进程跑一次稳。
-	// 先按 tab 取本类（记忆 = memory + user，教训 = failure），再套搜索词。
+	const scopedGroups = useMemo(() => {
+		const allGroups = data?.groups ?? [];
+		return scopeFilter === "all" ? allGroups : allGroups.filter((group) => group.scope === scopeFilter);
+	}, [data, scopeFilter]);
 	const kindGroups = useMemo(() => {
-		if (!data) return [];
-		const targets: readonly string[] = KIND_TARGETS[kind];
-		return data.groups.filter((group) => targets.includes(group.target));
-	}, [data, kind]);
+		const targets: readonly AgentMemoryEntry["target"][] = KIND_TARGETS[kind];
+		return scopedGroups.filter((group) => targets.includes(group.target));
+	}, [scopedGroups, kind]);
 	const groups = useMemo(() => {
 		if (!needle) return kindGroups;
 		return kindGroups
@@ -153,10 +166,10 @@ export function AgentMemoryEntryList(props: {
 			}))
 			.filter((group) => group.entries.length > 0);
 	}, [kindGroups, needle]);
-	const countOf = useCallback((targets: readonly string[]) => (data ? data.groups.filter((group) => targets.includes(group.target)).reduce((sum, group) => sum + group.entries.length, 0) : 0), [data]);
+	const countOf = (targets: readonly AgentMemoryEntry["target"][]) => scopedGroups.reduce((sum, group) => (targets.includes(group.target) ? sum + group.entries.length : sum), 0);
 	const kindTotal = countOf(KIND_TARGETS[kind]);
 	const shown = groups.reduce((sum, group) => sum + group.entries.length, 0);
-	// 页码状态保留「用户点过的页」，越界（删条目/切 tab/搜索后变短）时由分页函数夹住，不另写重置逻辑。
+	// 删条目、切 tab 或搜索时夹紧当前页；切换范围则从第一页重新浏览。
 	const totalPages = memoryTotalPages(shown, MEMORY_PAGE_SIZE);
 	const currentPage = Math.min(page, totalPages);
 	const pageEntries = useMemo(() => buildMemoryPageEntries(groups, currentPage), [groups, currentPage]);
@@ -165,7 +178,7 @@ export function AgentMemoryEntryList(props: {
 		for (const group of data?.groups ?? []) for (const entry of group.entries) map.set(memoryEntryId(entry), entry);
 		return map;
 	}, [data]);
-	// 选中项从全量数据里回填：翻页、搜索、切 tab 都不会丢勾选，也不存在「拿着已消失的键去删」。
+	// 选中项从全量数据里回填：翻页、搜索不丢勾选，已消失的条目不进入删除清单。
 	const selectedEntries = useMemo(
 		() =>
 			[...selected].flatMap((id) => {
@@ -177,6 +190,15 @@ export function AgentMemoryEntryList(props: {
 	const pageIds = useMemo(() => pageEntries.map((row) => row.key), [pageEntries]);
 	const pagePicked = pageIds.filter((id) => selected.has(id)).length;
 	const pageAll = pageIds.length > 0 && pagePicked === pageIds.length;
+
+	const changeScope = (value: string) => {
+		const option = SCOPE_OPTIONS.find(([scope]) => scope === value);
+		if (!option || option[0] === scopeFilter) return;
+		setScopeFilter(option[0]);
+		setPage(1);
+		// 换范围时丢弃先前勾选，避免误删已经隐藏的条目。
+		setSelected(new Set());
+	};
 
 	const togglePage = () => {
 		setSelected((current) => {
@@ -270,7 +292,7 @@ export function AgentMemoryEntryList(props: {
 	};
 
 	// 表格四种状态：加载中 / 完全空 / 过滤无匹配 / 有数据。前三种各自占一行跨度撑满表格，避免出现「空表格骨头」。
-	const emptyKind = !data ? "loading" : kindTotal === 0 ? "empty" : shown === 0 ? "nomatch" : null;
+	const emptyKind = !data ? "loading" : shown > 0 ? null : scopeFilter === "all" && kindTotal === 0 ? "empty" : "nomatch";
 
 	return (
 		<div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">
@@ -294,9 +316,8 @@ export function AgentMemoryEntryList(props: {
 					</TabsTrigger>
 				</TabsList>
 				<TabsContent value={kind} className="mt-0">
-					{/* 工具栏：搜索框 + 计数。与「进程与内存监控」表格同一套像素（border-b + px-3 py-2）。 */}
-					<div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
-						<div className="relative w-full max-w-xs">
+					<div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2">
+						<div className="relative min-w-32 max-w-xs flex-1">
 							<Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
 							<Input
 								size="sm"
@@ -310,6 +331,20 @@ export function AgentMemoryEntryList(props: {
 								className="pl-8"
 							/>
 						</div>
+						<Select value={scopeFilter} onValueChange={changeScope}>
+							<SelectTrigger size="sm" className="w-32" aria-label={t("settings.agentMemoryScopeFilterLabel")}>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent collisionPadding={titlebarCollisionPadding()}>
+								<SelectGroup>
+									{SCOPE_OPTIONS.map(([value, label]) => (
+										<SelectItem key={value} value={value}>
+											{t(label)}
+										</SelectItem>
+									))}
+								</SelectGroup>
+							</SelectContent>
+						</Select>
 						{/* 计数只在搜索时出现：不搜索时 tab 上的角标就是本类总数，再写一遍只是噪音；分页信息由分页条自己给。 */}
 						<span className="ml-auto shrink-0 text-micro tabular-nums text-muted-foreground">{!data ? t("common.loading") : needle ? t("settings.agentMemoryEntriesCount", { shown: String(shown), total: String(kindTotal) }) : null}</span>
 						{/* 批量删除入口：与刷新同档图标按钮；进入后行首出现勾选框，选中项在下面的选择栏里统一删除。 */}
@@ -402,8 +437,16 @@ export function AgentMemoryEntryList(props: {
 											<span className="flex size-9 items-center justify-center rounded-full bg-bg-muted text-muted-foreground">{emptyKind === "nomatch" ? <SearchX size={16} aria-hidden="true" /> : <Brain size={16} aria-hidden="true" />}</span>
 											<p className="max-w-sm text-caption leading-relaxed text-muted-foreground">{emptyKind === "loading" ? t("common.loading") : emptyKind === "empty" ? t(kind === "failure" ? "settings.agentMemoryEmptyFailure" : "settings.agentMemoryEmpty") : t("settings.agentMemoryNoMatch")}</p>
 											{emptyKind === "nomatch" ? (
-												<Button type="button" variant="ghost" size="sm" onClick={() => setQuery("")}>
-													{t("settings.agentMemorySearchClear")}
+												<Button
+													type="button"
+													variant="ghost"
+													size="sm"
+													onClick={() => {
+														setQuery("");
+														changeScope("all");
+													}}
+												>
+													{t(scopeFilter === "all" ? "settings.agentMemorySearchClear" : "settings.agentMemoryFiltersClear")}
 												</Button>
 											) : null}
 										</div>
