@@ -18,8 +18,10 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"example.com/pideck-lite/internal/viewkit"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 // targetKind is where the agent runs.
@@ -102,7 +104,7 @@ func (t target) command(piPath, dir, appSessions, id, sessionFile string, args [
 		var cmd *exec.Cmd
 		if isBatch(piPath) {
 			// A .cmd shim has no process image of its own; cmd.exe runs it.
-			cmd = exec.Command("cmd.exe", "/d", "/s", "/c", batchLine(piPath, all))
+			cmd = batchCommand(piPath, all)
 		} else {
 			cmd = exec.Command(piPath, all...)
 		}
@@ -154,6 +156,19 @@ func batchLine(path string, args []string) string {
 		parts = append(parts, `"`+strings.ReplaceAll(p, `"`, `""`)+`"`)
 	}
 	return strings.Join(parts, " ")
+}
+
+// consoleText is a child's output as text. cmd.exe writes its own
+// messages in the console code page, which is GBK on a Chinese Windows;
+// pi itself writes UTF-8, which passes through unchanged.
+func consoleText(b []byte, console bool) string {
+	if !console || utf8.Valid(b) {
+		return string(b)
+	}
+	if decoded, err := simplifiedchinese.GBK.NewDecoder().Bytes(b); err == nil {
+		return string(decoded)
+	}
+	return strings.ToValidUTF8(string(b), "�")
 }
 
 // shellQuote quotes s for a POSIX shell.
@@ -284,6 +299,7 @@ func probePi(kind, where string) (path, version string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	var cmd *exec.Cmd
+	localBatch := false
 	script := "command -v pi && pi --version"
 	switch kind {
 	case "wsl":
@@ -297,7 +313,8 @@ func probePi(kind, where string) (path, version string, err error) {
 		}
 		path = p
 		if isBatch(p) {
-			cmd = exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", batchLine(p, []string{"--version"}))
+			localBatch = true
+			cmd = batchCommandContext(ctx, p, []string{"--version"})
 		} else {
 			cmd = exec.CommandContext(ctx, p, "--version")
 		}
@@ -305,9 +322,9 @@ func probePi(kind, where string) (path, version string, err error) {
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
-		msg := strings.TrimSpace(string(out))
+		msg := strings.TrimSpace(consoleText(out, localBatch))
 		if ee, ok := err.(*exec.ExitError); ok {
-			if s := strings.TrimSpace(string(ee.Stderr)); s != "" {
+			if s := strings.TrimSpace(consoleText(ee.Stderr, localBatch)); s != "" {
 				msg = s
 			}
 		}

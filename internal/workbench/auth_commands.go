@@ -33,7 +33,7 @@ func piCommand(ctx context.Context, piPath string, args ...string) *exec.Cmd {
 		ctx = context.Background()
 	}
 	if isBatch(piPath) {
-		cmd = exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", batchLine(piPath, args))
+		cmd = batchCommandContext(ctx, piPath, args)
 	} else {
 		cmd = exec.CommandContext(ctx, piPath, args...)
 	}

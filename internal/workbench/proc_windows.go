@@ -3,6 +3,7 @@
 package workbench
 
 import (
+	"context"
 	"os/exec"
 	"syscall"
 )
@@ -18,7 +19,12 @@ func hideWindow(cmd *exec.Cmd) {
 // batchCommand runs a .bat or .cmd through cmd.exe. The line is set as
 // cmd.exe takes it, because Go escapes the quotes of a /c argument.
 func batchCommand(path string, args []string) *exec.Cmd {
-	cmd := exec.Command("cmd.exe")
+	return batchCommandContext(context.Background(), path, args)
+}
+
+// batchCommandContext is batchCommand with a deadline.
+func batchCommandContext(ctx context.Context, path string, args []string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "cmd.exe")
 	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: `/d /s /c "` + batchLine(path, args) + `"`}
 	return cmd
 }
