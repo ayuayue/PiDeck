@@ -555,7 +555,6 @@ type app struct {
 	// Desktop: the main window, the tray icon and whether the app is
 	// really quitting rather than hiding.
 	mainWin    *core.Window
-	petWin     *core.Window
 	tray       *core.Tray
 	quitting   bool
 	trayHinted bool

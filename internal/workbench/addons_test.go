@@ -313,7 +313,7 @@ func TestSettingsTabs(t *testing.T) {
 	app.Press("label:设置")
 	app.WaitFor("id:settings-tab-env", 5*time.Second)
 	app.Press("id:settings-tab-general")
-	app.WaitFor("text:桌面宠物", 5*time.Second)
+	app.WaitFor("text:一轮完成时通知", 5*time.Second)
 	app.Press("id:settings-tab-models")
 	app.WaitFor("text:供应商与认证", 5*time.Second)
 	app.Press("id:settings-tab-keys")

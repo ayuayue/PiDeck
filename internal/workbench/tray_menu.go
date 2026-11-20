@@ -5,7 +5,7 @@ package workbench
 // The tray menu: what the icon offers without opening the window. It
 // follows PiDeck's shape — the version, the update, the window, what is
 // running, the sessions and projects last used, the phone, the scheduled
-// tasks, the pet, the folders, the settings, restart and quit — and the
+// tasks, the folders, the settings, restart and quit — and the
 // platform builds it again each time the menu opens, so its lists are the
 // ones current then.
 
@@ -61,8 +61,6 @@ func (a *app) trayMenu() []desktop.MenuItem {
 		items = append(items, item)
 	}
 	items = append(items,
-		desktop.MenuItem{Label: apptext.T("桌面宠物"), Checkable: true, Checked: a.cfg.PetEnabled,
-			OnSelect: func() { a.togglePet(!a.cfg.PetEnabled) }},
 		desktop.MenuItem{Separator: true},
 		desktop.MenuItem{Label: apptext.T("打开数据目录"), OnSelect: func() { a.openDataFolder() }},
 		desktop.MenuItem{Label: apptext.T("打开日志目录"), OnSelect: func() { a.openLogsFolder() }},

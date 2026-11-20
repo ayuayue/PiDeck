@@ -63,7 +63,6 @@ type telemetrySnapshotInput struct {
 	TasksTotal      int
 	PluginsTotal    int
 	DisabledPlugins int
-	PetEnabled      bool
 	RemoteEnabled   bool
 	FeishuEnabled   bool
 	NotifyOnDone    bool
@@ -86,7 +85,7 @@ func collectTelemetrySnapshot(in telemetrySnapshotInput) map[string]any {
 		"tasks_total":            in.TasksTotal,
 		"plugins_total":          in.PluginsTotal,
 		"disabled_plugins_total": in.DisabledPlugins,
-		"feature_pet":            in.PetEnabled,
+		"feature_pet":            false, // Preserve the shared heartbeat shape while the pet is retired.
 		"feature_remote":         in.RemoteEnabled,
 		"feature_feishu":         in.FeishuEnabled,
 		"feature_notify":         in.NotifyOnDone,
@@ -268,7 +267,6 @@ func (a *app) telemetrySnapshot(startupMS int) map[string]any {
 		TasksTotal:      tasksTotal,
 		PluginsTotal:    pluginsTotal,
 		DisabledPlugins: len(cfg.DisabledPlugins),
-		PetEnabled:      cfg.PetEnabled,
 		RemoteEnabled:   cfg.RemoteEnabled,
 		FeishuEnabled:   cfg.FeishuEnabled,
 		NotifyOnDone:    cfg.NotifyOnDone,

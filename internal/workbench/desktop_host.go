@@ -43,7 +43,6 @@ func (a *app) setupDesktop() {
 	})
 	a.setupNotifications()
 	a.updateTray()
-	a.setupPet()
 	a.watchWindow()
 	// A second launch hands over to this instance instead of opening
 	// another window and another phone server.

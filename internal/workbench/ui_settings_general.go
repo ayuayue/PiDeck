@@ -156,10 +156,6 @@ func (a *app) settingsGeneral() core.Node {
 								a.bumpSettings()
 							}}),
 					setDivider(),
-					setRow("桌面宠物", "用一个小窗口显示运行中/出错的会话数；点它回到主窗口。",
-						ui.Switch{Checked: func() bool { return a.cfg.PetEnabled }, Label: apptext.T("桌面宠物"), TestID: "pet-enabled",
-							OnChange: a.togglePet}),
-					setDivider(),
 					setRow("测试通知", "发一条系统通知，确认这台机器收得到。",
 						ui.Button{Text: apptext.T("发一条"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 							a.notifyDesktop("pideck:test", "PiDeck Lite", "通知已开启，一轮完成时会这样提醒。", func(shown bool) {

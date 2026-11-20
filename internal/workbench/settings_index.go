@@ -30,7 +30,6 @@ var settingsIndex = []settingEntry{
 	{"general", "关闭窗口时留在托盘", "tray close window quit"},
 	{"general", "一轮完成时通知", "notification done turn"},
 	{"general", "只在窗口隐藏时通知", "notify hidden focus"},
-	{"general", "桌面宠物", "pet window"},
 	{"general", "匿名使用统计", "telemetry analytics posthog usage privacy 遥测 统计"},
 	{"general", "测试通知", "test notification"},
 	{"general", "提示音", "sound alert chime bell pop buzz 声音 铃声 提示音"},

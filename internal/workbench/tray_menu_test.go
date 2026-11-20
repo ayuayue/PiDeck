@@ -77,7 +77,7 @@ func TestTrayMenuShape(t *testing.T) {
 	for _, it := range items {
 		labels[it.Label] = desktopItem{disabled: it.Disabled, sub: len(it.Items)}
 	}
-	for _, want := range []string{"显示 PiDeck Lite", "新建会话", "最近会话", "打开项目", "定时任务", "桌面宠物",
+	for _, want := range []string{"显示 PiDeck Lite", "新建会话", "最近会话", "打开项目", "定时任务",
 		"打开数据目录", "打开日志目录", "设置…", "重启"} {
 		if _, ok := labels[want]; !ok {
 			t.Errorf("tray menu has no %q", want)

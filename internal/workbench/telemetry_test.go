@@ -220,7 +220,7 @@ func TestTelemetrySnapshotCounts(t *testing.T) {
 		"theme":              "dark",
 		"sessions_total":     3,
 		"projects_total":     2,
-		"feature_pet":        true,
+		"feature_pet":        false,
 		"feature_remote":     true,
 		"feature_feishu":     true,
 		"feature_notify":     true,

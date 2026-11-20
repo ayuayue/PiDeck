@@ -229,8 +229,10 @@ type config struct {
 	BackgroundImage string `json:"backgroundImage,omitempty"`
 	// BackgroundOpacity is how much of the picture shows, 0 to 1; nil reads 0.8.
 	BackgroundOpacity *float64 `json:"backgroundOpacity,omitempty"`
-	// PetEnabled shows the desktop pet window.
-	PetEnabled bool `json:"petEnabled,omitempty"`
+	// PetEnabled and PetPackage are retained for config compatibility with
+	// older builds. The retired desktop pet no longer reads these fields.
+	PetEnabled bool   `json:"petEnabled,omitempty"`
+	PetPackage string `json:"petPackage,omitempty"`
 	// TelemetryEnabled is the anonymous daily heartbeat; nil keeps it on,
 	// as PiDeck ships it. TelemetryInstallID is the anonymous id it counts,
 	// and TelemetryLastHeartbeatDate the local day it last went out.
