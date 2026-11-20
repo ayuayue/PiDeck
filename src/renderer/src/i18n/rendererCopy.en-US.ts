@@ -671,6 +671,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"app.compactNothingToDo": "Context is still small — nothing to compact yet",
 	"app.compactSessionTooSmall": "Session is too small to compact",
 	"app.compactInProgress": "Compaction already in progress",
+	"app.promptQueuedForCompaction": "The session is compacting its context. The message is queued and will be sent once compaction finishes.",
 	"app.compactCancelled": "Compaction cancelled",
 	"app.compactCancelledByOwner": "Compaction was cancelled by an extension in this session that owns context management (e.g. a context-compression plugin), so PiDeck's compact action cannot take effect",
 	"app.compactCancelledByOwnerWithReason": "Compaction is owned by an extension: {reason}",

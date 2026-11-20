@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 95f76e63b5606133ac58b5a0759b4c673f0d22a9586793171dcd65bf1f75c9de（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 289120a35dc2b23f61c7528de2290ad29a9d0d13a919dc2c57b997b49b9d6090（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -675,6 +675,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.compactNothingToDo": "上下文還很小，暫無可壓縮內容",
 	"app.compactSessionTooSmall": "會話內容過少，暫無需壓縮",
 	"app.compactInProgress": "正在壓縮，請稍候",
+	"app.promptQueuedForCompaction": "會話正在壓縮上下文，訊息已排隊，壓縮結束後自動傳送。",
 	"app.compactCancelled": "壓縮已取消",
 	"app.compactCancelledByOwner": "壓縮被會話內的擴充套件取消：該擴充套件接管了上下文管理（如上下文壓縮類外掛），PiDeck 的壓縮無法生效",
 	"app.compactCancelledByOwnerWithReason": "壓縮由擴充套件接管：{reason}",

@@ -5,7 +5,7 @@ import type { AgentTab, ComposerAgentMode, ImageContent, SessionRuntimeTarget } 
 import { currentSessionIdAtom, sessionRecordsAtom, sessionRuntimeByIdAtom } from "../atoms";
 import { acknowledgeUnknownPrompt, canChangeQueuedPromptBehavior, claimIdleHead, claimNextSteerPrompt, enqueuePrompt, promotePrompt, QUEUED_PROMPT_LIMIT, replaceSessionQueue, resolveClaimedPrompt, retractPrompt, updateQueuedPromptBehavior, type QueuedPromptSnapshot } from "../utils/queuedPromptQueue";
 import { queueDrainSuppressedByIdAtom, sessionDraftByIdAtom, setSessionDraftAtom, setSessionAttachmentsAtom, setSessionComposerModeAtom } from "../atoms/composer-atoms";
-import { PromptDeliveryUnknownError } from "../utils/promptErrors";
+import { PromptDeliveryUnknownError, PromptDeferralError } from "../utils/promptErrors";
 import { isLiveRuntimeStatus, toSessionRuntimeTarget } from "../utils/sessionCommands";
 import { t } from "../i18n";
 
@@ -73,6 +73,8 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 	const flushesRef = useRef(new Map<string, QueueFlush>());
 	const idleTimersRef = useRef(new Map<string, number>());
 	const editFramesRef = useRef(new Map<number, string>());
+	/** 会话 → 上一拍是否在压缩上下文：用于压缩 true→false 的边沿主动放行队列（见下方订阅）。 */
+	const compactingRef = useRef(new Set<string>());
 	/** 「停止响应」抑制：会话 → 是否已观测到空闲（用于判定用户重新发起回合）。 */
 	const suppressedRef = useRef(new Map<string, { sawIdle: boolean }>());
 	/** 会话 → 最近一次成功 drain 的门禁：把「accepted」和「回合已开始」分开，见 canFlushQueuedPrompt。
@@ -95,6 +97,7 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 			editFramesRef.current.delete(frame);
 		}
 		if (suppressedRef.current.delete(sessionId)) syncDrainSuppressedAtom(sessionId);
+		compactingRef.current.delete(sessionId);
 		clearDrainGate(sessionId);
 	}
 
@@ -128,6 +131,19 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 			for (const sessionId of drainGatesRef.current.keys()) {
 				const gateRuntime = runtimes[sessionId];
 				if (gateRuntime?.status === "starting" || gateRuntime?.status === "running" || gateRuntime?.state?.isStreaming || gateRuntime?.state?.isExecutingTool) clearDrainGate(sessionId);
+			}
+			// 压缩结束是队列唯一的重新放行时机：压缩期间 steer flush 与 idle drain 都被挡住，
+			// 而手动压缩常常在 idle 上结束（status 不再变一次）。没有这个边沿，消息会一直躺在
+			// 队列里等下一次无关的状态变化。
+			for (const sessionId of new Set([...Object.keys(queuedPromptsRef.current), ...compactingRef.current])) {
+				const compacting = runtimes[sessionId]?.state?.isCompacting === true;
+				if (compacting === compactingRef.current.has(sessionId)) continue;
+				if (compacting) {
+					compactingRef.current.add(sessionId);
+					continue;
+				}
+				compactingRef.current.delete(sessionId);
+				if (canFlushQueuedPrompt(sessionId)) void flushNextQueuedPrompt(sessionId);
 			}
 			const ownedIds = new Set([...Object.keys(queuedPromptsRef.current), ...flushesRef.current.keys(), ...idleTimersRef.current.keys(), ...editFramesRef.current.values(), ...suppressedRef.current.keys()]);
 			for (const sessionId of ownedIds) {
@@ -256,12 +272,22 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 		if (!liveTarget(sessionId)) return false;
 		const runtime = store.get(sessionRuntimeByIdAtom)[sessionId];
 		const record = store.get(sessionRecordsAtom)[sessionId];
+		// 压缩上下文期间不可投递：pi 的 prompt() 会无条件拒收（与 streamingBehavior 无关），
+		// 上游 TUI 也是本地缓存到 compaction_end 后再发。必须在 status 之前判定——
+		// 手动压缩在空闲会话上起跑，status 仍是 idle，只看 status 会在压缩中把队列
+		// 直接 drain 出去（错误诊断“Cannot submit a prompt while compaction is in progress”）。
+		if (runtime.state?.isCompacting === true) return true;
 		// ACP 的 tab status 可能滞后于回合结算：isTurnActive 显式 false 即回合已结束，
 		// 不能再用 displayAgents 里滞后的 running 把队列 drain 永久挡住。
 		if ((record?.backend === "acp" || runtime.backend === "acp") && runtime.state?.isTurnActive === false) return false;
 		const agent = displayAgentsRef.current.find((item) => item.id === runtime.agentId);
 		const runtimeState = runtime.state;
 		return Boolean(runtime.status === "starting" || runtime.status === "running" || agent?.status === "starting" || agent?.status === "running" || runtimeState?.isStreaming || runtimeState?.isExecutingTool);
+	}
+
+	/** 压缩上下文期间（pi 对任何 prompt 都硬拒，steer 也插不进去）。 */
+	function isSessionCompacting(sessionId: string) {
+		return store.get(sessionRuntimeByIdAtom)[sessionId]?.state?.isCompacting === true;
 	}
 
 	/** 后端是否支持「插入当前回合」：ACP 协议无 steer 通道，忙时派发只会被拒收。
@@ -361,7 +387,7 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 	async function dispatchClaimedPrompt(sessionId: string, queuedPrompt: QueuedPrompt, flush: QueueFlush): Promise<boolean> {
 		const ownsClaim = () => hasSession(sessionId) && flushesRef.current.get(sessionId) === flush;
 		// 删除、换代或卸载后的回包不写回也不弹错；本地取消只结束等待，同样不改行状态。
-		const settle = (outcome: { type: "accepted" } | { type: "failed" | "unknown"; error: string }) => {
+		const settle = (outcome: { type: "accepted" } | { type: "deferred" } | { type: "failed" | "unknown"; error: string }) => {
 			if (!mountedRef.current || !ownsClaim()) return;
 			updateQueuedPrompts((current) => resolveClaimedPrompt(current, sessionId, queuedPrompt.id, outcome));
 		};
@@ -378,6 +404,12 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 			return accepted;
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
+			// 压缩中：宿主确实没收（它不会进会话日志），但也不能算失败——退回 pending 留在队列，
+			// 压缩结束的边沿会重新 drain。不弹错：用户没做错任何事，只是撞上了压缩窗口。
+			if (error instanceof PromptDeferralError) {
+				settle({ type: "deferred" });
+				return false;
+			}
 			const deliveryUnknown = error instanceof PromptDeliveryUnknownError;
 			settle({ type: deliveryUnknown ? "unknown" : "failed", error: errorMessage });
 			if (ownsClaim() && canContinueFlush(sessionId, flush)) showToast(deliveryUnknown ? unknownDeliveryMessage : errorMessage, deliveryUnknown ? 6000 : 4000);
@@ -387,6 +419,10 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 
 	async function flushQueuedSteerPrompts(sessionId: string) {
 		if (suppressedRef.current.has(sessionId)) return; // 用户正在停止该回合：不得再插队
+		// 压缩中连 steer 也插不进去：pi 的 prompt() 不看 streamingBehavior 一律硬拒。
+		// 宿主会把这类派发退回成 deferred（见 dispatchClaimedPrompt），但这里先拦住，
+		// 省掉一次必然失败的 IPC。队列项会在压缩结束的边沿重新 drain。
+		if (isSessionCompacting(sessionId)) return;
 		if (!isSessionRuntimeBusy(sessionId)) return;
 		// ACP 协议无 steer 通道：忙碌时派发只会被 AcpAgentManager 拒收成失败队列项；
 		// steer 项保留给空闲 drain（claimIdleHead 按序发，空闲时 steer 语义≈直发）。

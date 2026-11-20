@@ -26,6 +26,11 @@ export interface PromptDispatchHost {
 	readonly translate: (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
 	requireRuntime(agentId: string): PromptRuntime;
 	piMightStillBeStreaming(agentId: string): boolean;
+	/**
+	 * 宿主是否正在压缩该 agent 的上下文（手动压缩占位 + pi 的 compaction_start 事件）。
+	 * prompt 派发只用它做「此刻不可投递」判定，见 sendPrompt 的压缩守卫。
+	 */
+	isCompacting(agentId: string): boolean;
 	settleAcceptedPrompt(agentId: string, runtime: PromptRuntime, agentMessage: string, responseData: unknown, alreadyBusy: boolean): Promise<void>;
 	addMessage(agentId: string, role: ChatMessage["role"], text: string, meta?: Record<string, unknown>, images?: ImageContent[]): void;
 	addLocalizedMessage(agentId: string, role: ChatMessage["role"], i18nKey: string, fallbackText: string, options?: { params?: I18nParams; debugDetails?: string; meta?: Record<string, unknown> }): void;
@@ -41,6 +46,17 @@ export interface PromptDispatchHost {
  */
 function isPiBusyRejection(message: string): boolean {
 	return /Agent is already processing/i.test(message);
+}
+
+/**
+ * pi 的压缩拒收文案：`prompt()` 在 `_compactionAbortController`/`_branchSummaryAbortController`
+ * 存在时**不看 streamingBehavior**直接 throw，steer / followUp 一样被拒。
+ *
+ * 与 `Agent is already processing` 区别对待：那条能靠补一次 streamingBehavior 重发解决，
+ * 这条在压缩结束前重发多少次都不会成功——只能让消息留在本地队列（见 PromptDeferral）。
+ */
+function isPiCompactionRejection(message: string): boolean {
+	return /compaction is in progress/i.test(message);
 }
 
 /** prompt 派发域（拆分第十刀 · 第二刀）：sendPrompt 编排 + 发送边界的隐藏标记降级。 */
@@ -94,6 +110,32 @@ export class PromptDispatch {
 
 	private get emitState() {
 		return this.host.emitState;
+	}
+
+	/**
+	 * 压缩期间的统一回复：保持「忙」、不写任何用户可见的错误，只把消息退回给渲染层队列。
+	 *
+	 * 为什么不是 accepted：pi 确实没收这条 prompt，标 accepted 会让队列把它当已投递删掉，
+	 * 用户的消息就静默丢了。为什么不是普通 rejected：rejected 会回填草稿 + 弹「发送失败」，
+	 * 而这里根本没失败——只要等压缩结束。
+	 */
+	private deferWhileCompacting(input: SendPromptInput, runtime: PromptRuntime, rejectionText?: string): SendPromptResult {
+		if (runtime.tab.status !== "error") {
+			runtime.tab.status = "running";
+			this.emitState();
+		}
+		void this.appLogger?.info("agent", "Prompt deferred: compaction in progress", {
+			agentId: input.agentId,
+			requestId: input.requestId,
+			...(rejectionText ? { rejection: rejectionText } : {}),
+		});
+		return {
+			accepted: false,
+			error: this.translate("diagnostic.compactionInProgress"),
+			i18nKey: "diagnostic.compactionInProgress",
+			deferral: "compaction-in-progress",
+			...(rejectionText ? { debugDetails: rejectionText } : {}),
+		};
 	}
 
 	/**
@@ -159,6 +201,15 @@ export class PromptDispatch {
 			if (command) {
 				return this.executeBashCommand(input.agentId, command, isBashExcluded);
 			}
+		}
+
+		// 压缩期间 pi 对 prompt 一律硬拒（prompt() 的 _compactionAbortController 守卫，
+		// 与 streamingBehavior 无关）。必须在宿主这一层先挡住：既不能把它写成用户的
+		// 「发送失败」，也不能写乐观用户消息——返回可重排队的拒绝（PromptDeferral），
+		// 渲染层把消息留在本地队列，压缩结束后再投递（上游 TUI 的 queueCompactionMessage 同语义）。
+		// 压缩期间状态保持 running：渲染层的可投递判据据此压住队列，不会每 2s 撞一次拒收。
+		if (this.host.isCompacting(input.agentId)) {
+			return this.deferWhileCompacting(input, runtime);
 		}
 
 		// 判断 agent 是否已在忙碌中；运行中继续发送时必须带 streamingBehavior，
@@ -246,6 +297,15 @@ export class PromptDispatch {
 			});
 			if (!response.success) {
 				const rejectionText = response.error ?? "图片消息发送失败";
+				// 压缩拒收：压缩刚开始、宿主还没收到 compaction_start 的窗口里会走到这里
+				// （isPiCompactionRejection 与上游 prompt() 的抛错文案同源）。它和「忙碌拒收」
+				// 不同——重发多少次都要等压缩结束，所以不补发、也不报失败，交给渲染层重排队。
+				// 代价：上面已按乐观路径写过用户消息（addMessage），渲染层会按 requestId 撤掉
+				// 自己的气泡，服务端这份会在压缩成功的消息重载时被盘上的真实内容覆盖。
+				if (isPiCompactionRejection(rejectionText)) {
+					if (!alreadyBusy) this.messagePerf.discardInFlight(input.agentId);
+					return this.deferWhileCompacting(input, runtime, rejectionText);
+				}
 				// 兜底重发（Issue #371）：本地判定空闲但 pi 实际仍在流式时，prompt 被
 				// "Agent is already processing" 拒收。用户点的是发送，不该收到 SDK 原文
 				// toast——按设置项 busySendDelivery 补一次带语义的 prompt（默认 steer）。

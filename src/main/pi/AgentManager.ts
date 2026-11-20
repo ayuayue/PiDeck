@@ -329,9 +329,8 @@ export class AgentManager {
 	 * 失败/中止的 compaction_end 只清标记不补发（失败已有既有提示路径）。 */
 	private readonly compactTimedOutAgents = new Set<string>();
 	/**
-	 * Pi 通过事件报告正在自动/手动压缩的 agent。
-	 * 自动压缩发生在 agent_end 之后，桌面端若不单独追踪，会过早把会话置为 idle，
-	 * 用户随后发送的新消息可能撞上 Pi 内部 compaction，表现为“会话中断”。
+	 * Pi 通过事件报告正在自动/手动压缩的 agent。自动压缩发生在 agent_end 之后，桌面端若不单独追踪，会过早把会话置为 idle，
+	 * 用户随后发送的新消息会撞上 Pi 内部 compaction（prompt 会被硬拒，因此这道追踪现在也兼做发送门禁，见 CompactionRunner.isCompacting）。
 	 */
 	private readonly rpcCompactingAgents = new Set<string>();
 	/**
@@ -793,6 +792,7 @@ export class AgentManager {
 			translate: this.translate,
 			requireRuntime: (agentId) => this.requireRuntime(agentId),
 			piMightStillBeStreaming: (agentId) => this.piMightStillBeStreaming(agentId),
+			isCompacting: (agentId) => this.compaction.isCompacting(agentId),
 			settleAcceptedPrompt: (agentId, runtime, agentMessage, responseData, alreadyBusy) => this.settleAcceptedPrompt(agentId, runtime, agentMessage, responseData, alreadyBusy),
 			addMessage: (agentId, role, text, meta, images) => this.addMessage(agentId, role, text, meta, images),
 			addLocalizedMessage: (agentId, role, i18nKey, fallbackText, options) => this.addLocalizedMessage(agentId, role, i18nKey, fallbackText, options),

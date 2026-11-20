@@ -668,6 +668,7 @@ export const zhCN = {
 	"app.compactNothingToDo": "上下文还很小，暂无可压缩内容",
 	"app.compactSessionTooSmall": "会话内容过少，暂无需压缩",
 	"app.compactInProgress": "正在压缩，请稍候",
+	"app.promptQueuedForCompaction": "会话正在压缩上下文，消息已排队，压缩结束后自动发送。",
 	"app.compactCancelled": "压缩已取消",
 	"app.compactCancelledByOwner": "压缩被会话内的扩展取消：该扩展接管了上下文管理（如上下文压缩类插件），PiDeck 的压缩无法生效",
 	"app.compactCancelledByOwnerWithReason": "压缩由扩展接管：{reason}",

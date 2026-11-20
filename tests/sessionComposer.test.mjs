@@ -38,6 +38,9 @@ function compile(filePath, stubs = {}) {
 }
 
 const sendSource = () => readFileSync("src/renderer/src/hooks/useSessionSend.ts", "utf8");
+// 纯发送守卫已拆到独立模块（useSessionSend 只再导出）：手写沙箱不解析本地 import，
+// 未桩的相对依赖会退化成 {}，因此这里直接加载真实实现并显式注入。
+const sendGuards = loadTsCommonJs("src/renderer/src/hooks/session/composerSendGuards.ts");
 const areaSource = () => readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
 const runtimeSource = () => readFileSync("src/renderer/src/components/session/ComposerRuntimeIntegrations.tsx", "utf8");
 
@@ -51,6 +54,7 @@ function loadSendHelpers() {
 		},
 		"../i18n": { translateI18nDescriptor: (_descriptor, fallback) => fallback },
 		"../utils/composerSlashCommand": { classifyComposerSlashCommand },
+		"./session/composerSendGuards": sendGuards,
 	});
 }
 
@@ -197,6 +201,7 @@ function createSendHarness(initial = {}) {
 			},
 			maybeHintMissingDshRunnerNode: () => {},
 		},
+		"./session/composerSendGuards": sendGuards,
 	});
 	return {
 		state,

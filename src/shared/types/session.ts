@@ -516,8 +516,8 @@ export type SendPromptInput = {
 	requestId?: string;
 };
 
-/** 主进程完成 pi prompt 预检后的明确接收结果。 */
-export type SendPromptResult = { accepted: true } | ({ accepted: false; error: string; delivery?: "rejected" } & I18nDescriptor) | ({ accepted: false; error: string; delivery: "unknown" } & I18nDescriptor);
+/** 主进程完成 pi prompt 预检后的明确接收结果。deferral = 宿主判定「此刻不可投递」（目前只有 pi 压缩上下文：prompt() 会无条件拒收，与 streamingBehavior 无关，见 dist/core/agent-session.js 的守卫）：消息确定没送到但也不是失败，渲染层据此退回本地队列、压缩结束后补发。 */
+export type SendPromptResult = { accepted: true } | ({ accepted: false; error: string; delivery?: "rejected"; deferral?: "compaction-in-progress" } & I18nDescriptor) | ({ accepted: false; error: string; delivery: "unknown" } & I18nDescriptor);
 
 export type SendSessionPromptInput = Omit<SendPromptInput, "agentId"> & {
 	sessionId: string;

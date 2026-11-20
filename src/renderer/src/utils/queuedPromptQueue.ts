@@ -155,12 +155,17 @@ export function claimIdleHead(current: QueuedPromptMap, sessionId: string): { qu
 	return claimPrompt(current, sessionId, head.id);
 }
 
-export function resolveClaimedPrompt(current: QueuedPromptMap, sessionId: string, promptId: string, outcome: { type: "accepted" } | { type: "failed" | "unknown"; error: string }): QueuedPromptMap {
+export function resolveClaimedPrompt(current: QueuedPromptMap, sessionId: string, promptId: string, outcome: { type: "accepted" } | { type: "deferred" } | { type: "failed" | "unknown"; error: string }): QueuedPromptMap {
 	return replaceSessionQueue(current, sessionId, (queue) => {
 		const live = queue.find((prompt) => prompt.id === promptId);
 		if (!live || live.status !== "sending") return queue;
 		if (outcome.type === "accepted") {
 			return queue.filter((prompt) => prompt.id !== promptId);
+		}
+		// deferred：宿主判定「此刻不可投递」（压缩上下文期间 pi 硬拒任何 prompt）。
+		// 消息既没进会话日志也不算失败——退回 pending 留在队列里，等可投递时由 drain 再发。
+		if (outcome.type === "deferred") {
+			return queue.map((prompt) => (prompt.id === promptId ? { ...prompt, status: "pending" as const, error: undefined } : prompt));
 		}
 		return queue.map((prompt) => (prompt.id === promptId ? { ...prompt, status: outcome.type, error: outcome.error } : prompt));
 	});

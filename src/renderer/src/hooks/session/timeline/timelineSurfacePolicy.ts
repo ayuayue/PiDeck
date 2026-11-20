@@ -110,6 +110,10 @@ export function matchesTimelineOwner(taggedOwnerKey: string, currentOwnerKey: st
 }
 
 export function isSessionRuntimeBusy(status: string | undefined, state: AgentRuntimeState | undefined, backend?: string): boolean {
+	// 压缩上下文期间会话不可投递：pi 的 prompt() 会无条件拒收（与 streamingBehavior 无关），
+	// 上游 TUI 也是本地缓存到 compaction_end 后再发。这条必须排在 idle 早退**之前**：
+	// 手动压缩在空闲会话上起跑，status 仍是 idle，只有 isCompacting 能说明不能发。
+	if (state?.isCompacting) return true;
 	// ACP：status 只会随 tab 快照更新，可能比回合结算晚一拍；isTurnActive 已显式落回 false
 	// （此时输入预测 ghost 已经出现）却仍报 running 时，按空闲处理。否则 Tab 采纳预测后的
 	// 发送会被误判成「忙碌」排进 followUp 队列，输入框上方凭空多出一条队列行。
