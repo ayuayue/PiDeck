@@ -38,6 +38,12 @@ function createBrowserPanelHarness(device = "pc") {
 			if (!sameDeps(hooks[index]?.deps, deps)) hooks[index] = { value: callback, deps };
 			return hooks[index].value;
 		},
+		useEffectEvent(callback) {
+			const index = cursor++;
+			hooks[index] ??= { invoke: (...args) => hooks[index].callback(...args) };
+			hooks[index].callback = callback;
+			return hooks[index].invoke;
+		},
 		useEffect(create, deps) {
 			const index = cursor++;
 			if (sameDeps(hooks[index]?.deps, deps)) return;
@@ -56,6 +62,7 @@ function createBrowserPanelHarness(device = "pc") {
 			"../../i18n": { t: (key) => key },
 			"../ui-shadcn/button": { Button: "button" },
 			"../ui-shadcn/input": { Input: "input" },
+			"../ui-shadcn/ConfirmDialog": { ConfirmDialog: "confirm-dialog" },
 			// Wave 5 后 BrowserPanel 引 Radix DropdownMenu（设备菜单迁共享原语）；
 			// 测试只关心导航/UA/readiness 时序，菜单原语全部平掉。
 			"../ui-shadcn/dropdown-menu": {
