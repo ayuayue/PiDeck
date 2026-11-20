@@ -722,7 +722,7 @@ go tool nsgo test -target windows   # 真实窗口，截图写到 .nsgo/test/scr
 - ACP 会话的本地归档最多 2000 轮/8 MB；重启时先试 CLI 的 `session/load`，失败则用新 CLI 会话接着聊，归档仍可浏览
 - 全局搜索对 ACP 归档每个会话只取前 16 KB 文本，和 pi 会话同一口径
 - ACP 用量是文本长度估算（CJK 每字 1 token，其他约 4 字符 1 token），不代表 CLI 的真实计费
-- 分享副本会隐藏思考、工具结果、错误与图片，并遮盖常见凭据及可识别路径；自动脱敏无法识别所有私密信息，分享前请检查内容。原始模式会完整保留导出内容；pi 会话的原始 HTML 使用 pi 自己的导出并保留其附件，本地 HTML 将 Markdown 按纯文本保留换行
+- 分享副本会隐藏思考、工具结果、错误与图片，并遮盖常见凭据及可识别路径；凭据识别包括独立出现的 Bearer 令牌、Stripe 私钥、GitLab 令牌与 Google OAuth 客户端密钥，HTML 实体还原后的正文同样会脱敏。自动脱敏无法识别所有私密信息，分享前请检查内容。原始模式会完整保留导出内容；pi 会话的原始 HTML 使用 pi 自己的导出并保留其附件，本地 HTML 将 Markdown 按纯文本保留换行
 - ACP 的模型与思考等级由该 CLI 自己管理；预设依赖 `npx` 与网络
 - 自定义 ACP 预设可用设置里的「管理预设…」图形化添加（写 `acp/presets.json`），也可手写 `acp/*.json`；格式为 `{"presets":[{"id","name","command","args"}]}` 或顶层数组
 - ACP 权限记忆跟着归档走；删除归档或执行「清除 ACP 权限记忆」后重新询问

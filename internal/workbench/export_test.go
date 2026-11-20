@@ -116,6 +116,58 @@ func TestShareExportMasksSecretsAndDropsPrivateData(t *testing.T) {
 	}
 }
 
+func TestShareExportRedactsStandaloneTokens(t *testing.T) {
+	// Synthetic credentials keep this test independent of user configuration.
+	payload := strings.Repeat("a", 24)
+	tests := []struct {
+		name, text, want string
+	}{
+		{"stripe_secret_live", "sk_live_" + payload, shareRedacted},
+		{"stripe_secret_test", "sk_test_" + payload, shareRedacted},
+		{"stripe_restricted_live", "rk_live_" + payload, shareRedacted},
+		{"stripe_restricted_test", "rk_test_" + payload, shareRedacted},
+		{"gitlab_personal", "glpat-" + payload, shareRedacted},
+		{"gitlab_deploy", "gldt-" + payload, shareRedacted},
+		{"gitlab_runner", "glrt-" + payload, shareRedacted},
+		{"gitlab_job", "glcbt-" + payload, shareRedacted},
+		{"google_oauth_client", "gocspx-" + payload, shareRedacted},
+		{"bearer", "Bearer " + payload, "Bearer " + shareRedacted},
+		{"bearer_case_tab", "bEaReR\t" + payload, "bEaReR\t" + shareRedacted},
+		{"bearer_base64", "Bearer " + payload + "+/~._-==", "Bearer " + shareRedacted},
+		{"quoted", "'sk_live_" + payload + "', preserved.", "'" + shareRedacted + "', preserved."},
+		{"multiple", "glpat-" + payload + ", sk_test_" + payload, shareRedacted + ", " + shareRedacted},
+		{"html_entity_prefix", "<span>&#115;k_live_" + payload + "</span>", shareRedacted},
+		{"html_entity_bearer", "<span>&#66;earer " + payload + "</span>", "Bearer " + shareRedacted},
+		{"plain_entity_prefix", "&#115;k_live_" + payload, shareRedacted},
+		{"plain_entity_bearer", "&#66;earer " + payload, "Bearer " + shareRedacted},
+		{"public_key", "pk_live_" + payload, "pk_live_" + payload},
+		{"short_identifier", "sk_live_field", "sk_live_field"},
+		{"ordinary_bearer_text", "bearer authentication", "bearer authentication"},
+		{"embedded_prefix", "featureglpat-" + payload, "featureglpat-" + payload},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text := "Before " + tt.text + " after"
+			want := "Before " + tt.want + " after"
+			d := exportData{Turns: []turn{{Prompt: text, Final: text}}}
+			shared := shareExport(d, nil)
+			if len(shared.Turns) != 1 || shared.Turns[0].Prompt != want || shared.Turns[0].Final != want {
+				t.Fatalf("share turns = %+v, want prompt and answer %q", shared.Turns, want)
+			}
+			if d.Turns[0].Prompt != text || d.Turns[0].Final != text {
+				t.Fatal("redaction modified the source transcript")
+			}
+			if tt.text != tt.want {
+				for _, out := range []string{renderSessionHTML(shared), renderSessionMarkdown(shared)} {
+					if strings.Contains(out, tt.text) {
+						t.Fatalf("rendered share copy contains the synthetic credential for %s", tt.name)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestExportClosedSessionDefaultsToShareCopy(t *testing.T) {
 	home, project := t.TempDir(), t.TempDir()
 	t.Setenv("PIDECK_LITE_HOME", home)
