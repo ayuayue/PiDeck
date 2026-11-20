@@ -174,7 +174,10 @@ func (r *gitRepo) poll() {
 				st.Checked, st.Loading = true, false
 				r.state.Set(st)
 			default:
+				// Status polling does not read the menus or history metadata.
 				st.Root, st.Commits, st.Branches = old.Root, old.Commits, old.Branches
+				st.RemoteBranches, st.Tags, st.Remotes = old.RemoteBranches, old.Tags, old.Remotes
+				st.LogLimit = old.LogLimit
 				st.Checked, st.Loading = true, false
 				r.state.Set(st)
 			}
