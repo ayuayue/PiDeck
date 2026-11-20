@@ -72,7 +72,10 @@ pre{background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;padding:10px;o
 				fmt.Fprintf(&b, "<details><summary>%s</summary><div class=\"think\" style=\"white-space:pre-wrap\">%s</div></details>",
 					html.EscapeString(apptext.T("思考")), html.EscapeString(st.Thinking))
 			}
-			if st.Text != "" {
+			if st.Note != "" {
+				fmt.Fprintf(&b, "<details><summary>%s</summary><div class=\"text\">%s</div></details>",
+					html.EscapeString(st.Note), html.EscapeString(st.Text))
+			} else if st.Text != "" {
 				fmt.Fprintf(&b, "<div class=\"text\">%s</div>", html.EscapeString(st.Text))
 			}
 			for _, tool := range st.Tools {
@@ -81,8 +84,8 @@ pre{background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;padding:10px;o
 					html.EscapeString(tool.Output))
 			}
 		}
-		if t.Final != "" {
-			fmt.Fprintf(&b, "<div class=\"text\">%s</div>", html.EscapeString(t.Final))
+		if final := exportFinal(t); final != "" {
+			fmt.Fprintf(&b, "<div class=\"text\">%s</div>", html.EscapeString(final))
 		}
 		if t.Err != "" {
 			fmt.Fprintf(&b, "<div class=\"err\">%s</div>", html.EscapeString(t.Err))
@@ -151,13 +154,19 @@ func renderSessionMarkdown(d exportData) string {
 		} else {
 			b.WriteString("\n---\n")
 		}
-		var tools []toolRun
 		for _, st := range t.Steps {
-			tools = append(tools, st.Tools...)
-		}
-		if len(tools) > 0 {
-			fmt.Fprintf(&b, "\n### %s\n\n", apptext.T("工具"))
-			for _, tool := range tools {
+			if st.Thinking != "" {
+				fmt.Fprintf(&b, "\n### %s\n\n%s\n", apptext.T("思考"), mdFence(st.Thinking))
+			}
+			if st.Note != "" {
+				fmt.Fprintf(&b, "\n### %s\n\n%s\n", st.Note, mdFence(st.Text))
+			} else if st.Text != "" {
+				fmt.Fprintf(&b, "\n### %s\n\n%s\n", apptext.T("回答"), st.Text)
+			}
+			if len(st.Tools) > 0 {
+				fmt.Fprintf(&b, "\n### %s\n\n", apptext.T("工具"))
+			}
+			for _, tool := range st.Tools {
 				line := "- " + tool.Action + " `" + tool.Detail + "`"
 				if tool.Added > 0 || tool.Removed > 0 {
 					line += fmt.Sprintf(" (+%d −%d)", tool.Added, tool.Removed)
@@ -166,9 +175,12 @@ func renderSessionMarkdown(d exportData) string {
 					line += " · " + label
 				}
 				b.WriteString(line + "\n")
+				if tool.Output != "" {
+					fmt.Fprintf(&b, "\n%s\n\n", mdFence(tool.Output))
+				}
 			}
 		}
-		if answer := exportAnswer(t); answer != "" {
+		if answer := exportFinal(t); strings.TrimSpace(answer) != "" {
 			if d.Shared {
 				// Shared text stays inert when pasted into a Markdown renderer.
 				answer = mdFence(answer)
@@ -182,12 +194,25 @@ func renderSessionMarkdown(d exportData) string {
 	return b.String()
 }
 
+// Some transcripts mirror the last step's prose into Final. It is already
+// rendered with that step; earlier repeated text and system notes are distinct.
+func exportFinal(t turn) string {
+	if len(t.Steps) > 0 {
+		last := t.Steps[len(t.Steps)-1]
+		if last.Note == "" && last.Text == t.Final {
+			return ""
+		}
+	}
+	return t.Final
+}
+
+// Sharing can fall back to an assistant's prose, never to a system note.
 func exportAnswer(t turn) string {
 	if answer := strings.TrimSpace(t.Final); answer != "" {
 		return answer
 	}
 	for i := len(t.Steps) - 1; i >= 0; i-- {
-		if answer := strings.TrimSpace(t.Steps[i].Text); answer != "" {
+		if answer := strings.TrimSpace(t.Steps[i].Text); answer != "" && t.Steps[i].Note == "" {
 			return answer
 		}
 	}
