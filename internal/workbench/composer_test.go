@@ -159,6 +159,42 @@ func TestSendBehaviorMenu(t *testing.T) {
 	app.WaitForGone("text:运行中发送时", 5*time.Second)
 }
 
+// TestComposerToolsMenu keeps the secondary text actions together and leaves
+// attachment in the leading add menu.
+func TestComposerToolsMenu(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := composerApp(t)
+	card := app.Find("id:composer-card").Bounds()
+	add := app.Find("id:composer-add").Bounds()
+	model := app.Find("id:composer-model-controls").Bounds()
+	tools := app.Find("id:composer-tools").Bounds()
+	backend := app.Find("id:backend-picker").Bounds()
+	if add.Origin.X >= model.Origin.X {
+		t.Fatalf("add control x = %v, model controls x = %v; add should lead the row", add.Origin.X, model.Origin.X)
+	}
+	if model.Origin.X+model.Size.Width > tools.Origin.X {
+		t.Fatalf("model controls end at %v, tools start at %v; model controls should sit between add and tools", model.Origin.X+model.Size.Width, tools.Origin.X)
+	}
+	centerOffset := model.Origin.X + model.Size.Width/2 - (card.Origin.X + card.Size.Width/2)
+	if centerOffset < -2 || centerOffset > 2 {
+		t.Fatalf("model controls center offset from composer = %v, want within 2 points", centerOffset)
+	}
+	if backend.Origin.Y <= model.Origin.Y {
+		t.Fatalf("backend y = %v, model controls y = %v; backend picker should sit in the lower status row", backend.Origin.Y, model.Origin.Y)
+	}
+	app.Press("id:composer-tools")
+	app.WaitFor("id:prompt-enhance", 5*time.Second)
+	app.WaitFor("id:prompt-predict", 5*time.Second)
+	app.Press("id:composer-tools")
+	app.Press("id:composer-add")
+	app.WaitFor("text:附加图片…", 5*time.Second)
+	if got := len(app.Query("id:attach-image")); got != 1 {
+		t.Fatalf("attachment actions in the add menu = %d, want one", got)
+	}
+}
+
 // composerApp opens the app over a project with a file, so the composer is
 // the one a session shows.
 func composerApp(t *testing.T) *nsgotest.App {

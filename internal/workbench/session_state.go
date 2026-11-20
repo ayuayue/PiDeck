@@ -93,6 +93,7 @@ type session struct {
 	backendOpen *core.Signal[bool]
 	modeOpen    *core.Signal[bool]
 	imageOpen2  *core.Signal[bool]
+	toolsOpen   *core.Signal[bool]
 	sendOpen    *core.Signal[bool]
 	usageOpen   *core.Signal[bool]
 	projectOpen *core.Signal[bool]

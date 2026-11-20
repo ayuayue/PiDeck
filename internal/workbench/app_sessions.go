@@ -67,6 +67,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		backendOpen:    core.NewSignal(a.cx, false),
 		modeOpen:       core.NewSignal(a.cx, false),
 		imageOpen2:     core.NewSignal(a.cx, false),
+		toolsOpen:      core.NewSignal(a.cx, false),
 		sendOpen:       core.NewSignal(a.cx, false),
 		usageOpen:      core.NewSignal(a.cx, false),
 		projectOpen:    core.NewSignal(a.cx, false),

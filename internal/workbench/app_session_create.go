@@ -53,6 +53,7 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		backendOpen:    core.NewSignal(a.cx, false),
 		modeOpen:       core.NewSignal(a.cx, false),
 		imageOpen2:     core.NewSignal(a.cx, false),
+		toolsOpen:      core.NewSignal(a.cx, false),
 		sendOpen:       core.NewSignal(a.cx, false),
 		usageOpen:      core.NewSignal(a.cx, false),
 		projectOpen:    core.NewSignal(a.cx, false),

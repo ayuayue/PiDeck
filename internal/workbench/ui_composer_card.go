@@ -220,29 +220,33 @@ func (a *app) composer(s *session) core.Node {
 				return nil
 			},
 			OnOpen: func() { listed.Set(true) }, OnClose: func() { listed.Set(false) }})
-		body = append(body, core.View{Style: core.Style{Direction: core.Row, MinWidth: core.Pt(0), Margin: core.Edges{Top: 8},
-			Padding: core.Symmetric(0, 10), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+		body = append(body, core.View{Style: core.Style{Position: core.Relative, Direction: core.Row, MinWidth: core.Pt(0), Margin: core.Edges{Top: 8},
+			Padding: core.Symmetric(0, 10), AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), AlignItems: core.AlignCenter, Gap: 4},
 				Children: []core.Node{core.Func(a.composerAccessory(s))}},
-			core.View{Style: core.Style{Direction: core.Row, FlexShrink: 0, AlignItems: core.AlignCenter, Gap: 8},
-				Children: []core.Node{core.Func(a.composerTrailing(s))}},
-			core.Dynamic(func(cx *core.Scope) core.Node {
-				if s.busyNow() && empty() {
-					return composerPill(cx, apptext.T("停止"), nil, func() core.Color { return ui.Alpha(colors.Danger(), 0.14) },
-						func() core.Color { return colors.Danger() }, func() { a.stop(s) })
-				}
-				return composerPill(cx, apptext.T("发送"), func() bool { return !canSend() }, func() core.Color {
-					if canSend() {
-						return colors.AccentFill()
+			core.View{Style: core.Style{Direction: core.Row, FlexShrink: 0, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+				core.Func(a.composerTrailing(s)),
+				core.Dynamic(func(cx *core.Scope) core.Node {
+					if s.busyNow() && empty() {
+						return composerPill(cx, apptext.T("停止"), nil, func() core.Color { return ui.Alpha(colors.Danger(), 0.14) },
+							func() core.Color { return colors.Danger() }, func() { a.stop(s) })
 					}
-					return colors.Hover()
-				}, func() core.Color {
-					if canSend() {
-						return colors.OnAccent()
-					}
-					return colors.Muted()
-				}, send)
-			}),
+					return composerPill(cx, apptext.T("发送"), func() bool { return !canSend() }, func() core.Color {
+						if canSend() {
+							return colors.AccentFill()
+						}
+						return colors.Hover()
+					}, func() core.Color {
+						if canSend() {
+							return colors.OnAccent()
+						}
+						return colors.Muted()
+					}, send)
+				}),
+			}},
+			core.View{TestID: "composer-model-anchor", Style: core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0),
+				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, PointerEvents: core.PointerEventsBoxNone},
+				Children: []core.Node{core.Func(a.composerModelControls(s))}},
 		}})
 		card := core.View{TestID: "composer-card", Style: core.Style{MinWidth: core.Pt(0), Padding: core.Symmetric(10, 0), CornerRadius: 14,
 			BorderWidth: 1, FlexShrink: 0, Transition: viewkit.PressMotion},

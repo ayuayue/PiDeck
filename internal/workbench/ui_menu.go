@@ -151,7 +151,7 @@ func (a *app) modelMenu(s *session, open *core.Signal[bool]) core.Node {
 		if m.ID != "" {
 			label = modelLabel(m)
 		}
-		children := []core.Node{ui.Icon(lucide.Sparkles, 12, colors.Muted)}
+		children := []core.Node{ui.Icon(lucide.Cpu, 12, colors.Muted)}
 		if provider != "" {
 			children = append(children, core.Text{Content: provider, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10},
 				StyleFunc: ui.Colored(colors.Faint)})

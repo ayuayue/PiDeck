@@ -193,10 +193,12 @@ func (a *app) composerAddMenu(s *session) core.Node {
 			a.setAgentMode(s, want)
 		}
 		rows := []core.Node{
-			composerRow(cx, lucide.ImagePlus, apptext.T("附加图片…"), apptext.T("从剪贴板读取"), false, false, func() {
-				s.modeOpen.Set(false)
-				a.pasteImage(s)
-			}),
+			core.View{TestID: "attach-image", Children: []core.Node{
+				composerRow(cx, lucide.ImagePlus, apptext.T("附加图片…"), apptext.T("从剪贴板读取"), false, false, func() {
+					s.modeOpen.Set(false)
+					a.pasteImage(s)
+				}),
+			}},
 			composerDivider(cx),
 			composerPanelTitle(cx, apptext.T("下一轮")),
 			composerRow(cx, lucide.ClipboardList, apptext.T("计划模式"), apptext.T("先给计划，确认后再动手"), mode == modePlan, false, func() { toggle(modePlan) }),
@@ -411,23 +413,30 @@ func (a *app) saveImageChoice(provider, model, size string) {
 	}
 }
 
-// aiToolButton is enhance or predict: a spinner while it works, and a hint
-// with the tool's name.
-func (a *app) aiToolButton(s *session, tool string, icon func() *core.SVG, label, testID string, press func()) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		if a.aiBusy.Get() == tool {
-			return ui.Spinner{Size: 12}
-		}
-		disabled := func() bool { return a.aiBusy.Get() != "" || strings.TrimSpace(s.draft.Get()) == "" }
-		return hintOf(func() string { return apptext.T(label) }, a.pressIcon(icon, apptext.T(label), 26, 13, disabled, press, testID))
-	})
-}
-
-// attachButton takes a picture from the clipboard.
-func (a *app) attachButton(s *session) core.Node {
-	btn := a.pressIcon(lucide.ImagePlus, apptext.T("粘贴图片"), 26, 13, func() bool { return a.aiBusy.Get() == "image" },
-		func() { a.pasteImage(s) }, "attach-image")
-	return hintOf(func() string { return apptext.T("粘贴图片") }, btn)
+// composerToolsMenu groups the two draft-only AI actions behind one
+// distinct control, keeping their neighboring icons from competing.
+func (a *app) composerToolsMenu(s *session, open *core.Signal[bool]) core.Node {
+	trigger := hintOf(func() string { return apptext.T("工具") }, composerChip{Icon: lucide.Ellipsis, Name: apptext.T("工具"),
+		TestID: "composer-tools", OnPress: func() { open.Update(func(v bool) bool { return !v }) }}.node())
+	return a.popoverCard(open, core.PlaceTop, core.AlignEnd, 204, trigger, func(cx *core.Scope) core.Node {
+		busy := a.aiBusy.Get() != ""
+		empty := strings.TrimSpace(s.draft.Get()) == ""
+		return core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
+			composerPanelTitle(cx, apptext.T("工具")),
+			core.View{TestID: "prompt-enhance", Children: []core.Node{
+				composerRow(cx, lucide.WandSparkles, apptext.T("增强提示词"), "", false, busy || empty, func() {
+					open.Set(false)
+					a.enhanceDraft(s)
+				}),
+			}},
+			core.View{TestID: "prompt-predict", Children: []core.Node{
+				composerRow(cx, lucide.TextCursorInput, apptext.T("续写"), "", false, busy || empty, func() {
+					open.Set(false)
+					a.predictDraft(s)
+				}),
+			}},
+		}}
+	}, "composer-tools-menu")
 }
 
 // sendMenu chooses how the next message joins a running turn, or starts it

@@ -12,41 +12,51 @@ import (
 	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
-// composerAccessory is the row of controls inside the card: where the
-// session runs, what this prompt asks for, and the model that answers it.
+// composerAccessory leads the control row with the add menu and the
+// active prompt mode.
 func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
 		return core.Dynamic(func(cx *core.Scope) core.Node {
-			// Follow the mode, the backend and the agent's own changes, which
-			// live outside signals.
 			s.agentMode.Get()
-			s.uiSeq.Get()
 			var parts []core.Node
-			parts = append(parts, a.composerBackendPicker(s), a.composerAddMenu(s))
+			parts = append(parts, a.composerAddMenu(s))
 			if chip := a.composerModeChip(s); chip != nil {
 				parts = append(parts, chip)
 			}
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0),
+				FlexShrink: 1, Overflow: core.Hidden}, Children: parts}
+		})
+	}
+}
+
+// composerModelControls keeps the active model and its thinking level
+// together in the center of the input controls.
+func (a *app) composerModelControls(s *session) chat.View {
+	return func(cx *core.Scope) core.Node {
+		return core.Dynamic(func(cx *core.Scope) core.Node {
+			s.agentMode.Get()
+			s.uiSeq.Get()
+			var controls []core.Node
 			switch {
 			case modeOn(s, modeImage):
-				parts = append(parts, a.composerImageOptions(s))
+				controls = append(controls, a.composerImageOptions(s))
 			case backendOf(s) == "acp":
-				parts = append(parts, a.acpBadge(s))
+				controls = append(controls, a.acpBadge(s))
 			default:
-				parts = append(parts, hintOf(func() string {
+				controls = append(controls, hintOf(func() string {
 					if m := s.model.Get(); m.ID != "" {
 						return apptext.T("模型 · %s", modelLabel(m))
 					}
 					return apptext.T("选择模型")
 				}, a.modelMenu(s, s.modelOpen)))
-				parts = append(parts, a.effortPicker(s))
+				controls = append(controls, a.effortPicker(s))
 			}
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0),
-				FlexShrink: 1, Overflow: core.Hidden}, Children: parts}
+			return core.View{TestID: "composer-model-controls",
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, FlexShrink: 0, MinWidth: core.Pt(0)}, Children: controls}
 		})
 	}
 }
@@ -111,16 +121,14 @@ func (a *app) predictDraft(s *session) {
 	}()
 }
 
-// composerTrailing is the tools, the attach button, the context gauge and
-// the way messages are sent.
+// composerTrailing holds the text tools, the context gauge and the way
+// messages are sent.
 func (a *app) composerTrailing(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
 		return core.Dynamic(func(cx *core.Scope) core.Node {
 			s.sendMode.Get()
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-				a.aiToolButton(s, "prompt", lucide.WandSparkles, "增强提示词", "prompt-enhance", func() { a.enhanceDraft(s) }),
-				a.aiToolButton(s, "predict", lucide.Sparkles, "续写", "prompt-predict", func() { a.predictDraft(s) }),
-				a.attachButton(s),
+				a.composerToolsMenu(s, s.toolsOpen),
 				a.contextMeterNode(s),
 				a.sendMenu(s),
 			}}
@@ -169,6 +177,7 @@ func (a *app) composerFooter(s *session) chat.View {
 					}}
 			}},
 			hintOf(func() string { return apptext.T("项目 · 点一下换") }, a.projectMenu(s, s.projectOpen)),
+			a.composerBackendPicker(s),
 			a.personaChip(s),
 			core.Show{When: func() bool { return s.notice.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 				return core.Text{ContentFunc: func() string { return shorten(s.notice.Get(), 40) }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
