@@ -240,6 +240,7 @@ func (a *mobileApp) connect() {
 		a.err.Set("请填写访问令牌，或粘贴完整的连接链接")
 		return
 	}
+	gen := a.gen
 	a.busy.Set(true)
 	a.err.Set("")
 	// A relay desktop may be redialing the relay right now; give it a few
@@ -265,8 +266,13 @@ func (a *mobileApp) connect() {
 			}
 		}
 		a.cx.Post(func() {
+			if gen != a.gen {
+				client.close()
+				return
+			}
 			a.busy.Set(false)
 			if err != nil {
+				client.close()
 				a.err.Set(remoteErrorText(err))
 				return
 			}
@@ -343,6 +349,9 @@ func (a *mobileApp) disconnectWith(message string) {
 	a.gen++
 	a.client.close()
 	a.client = nil
+	a.busy.Set(false)
+	a.stateLoading = false
+	a.refreshing.Set(false)
 	a.connected.Set(false)
 	a.active.Set("")
 	a.messages.Set(nil)
@@ -398,6 +407,11 @@ func (a *mobileApp) refreshState() {
 	go func() {
 		snap, err := client.state()
 		a.cx.Post(func() {
+			// The old server cannot publish data, errors or loading state
+			// after disconnecting or switching to another connection.
+			if a.client != client {
+				return
+			}
 			a.stateLoading = false
 			a.refreshing.Set(false)
 			if err != nil {
