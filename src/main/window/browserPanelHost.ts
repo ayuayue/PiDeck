@@ -188,10 +188,10 @@ export function configureBrowserPanelWebviewHost(window: BrowserWindow, ctx: Bro
 				window.webContents.send(ipcChannels.appShortcutTriggered, "cycleSessionTabsReverse");
 				return;
 			}
-			// Cmd/Ctrl+W 关闭当前会话标签页：目标会话与「回答中先弹确认」由渲染层判定，主进程只命中广播。
+			// webview 焦点同样交给宿主解析关闭目标。
 			if (isShortcutInput("closeSessionTab", input)) {
 				event.preventDefault();
-				if (!window || window.isDestroyed()) return;
+				if (input.isAutoRepeat || !window || window.isDestroyed()) return;
 				window.webContents.send(ipcChannels.appShortcutTriggered, "closeSessionTab");
 				return;
 			}

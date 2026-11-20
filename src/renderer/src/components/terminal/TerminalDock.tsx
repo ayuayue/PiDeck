@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent } from "react";
+import { useCloseShortcutAction } from "../../hooks/useCloseShortcutAction";
 import { isRemoteProject } from "../../../../shared/projectLocation";
 // xterm 主库 + addon 按需装载（首次创建终端实例才加载，不进启动 chunk）；
 // 这里只引类型供 ref 声明，值统一经 loadXtermModules 取。
@@ -153,9 +154,11 @@ export function TerminalDock(props: {
 		onClose: props.onClose,
 		onExpand: () => props.onCollapsedChange(false),
 	});
-	// 远端项目终端：SSH tab 建立前也要按远端外观渲染；主进程仍会校验每个启动目标。
-	// 项目记录由父级读取后经 props 传入——本组件不依赖 Jotai，dev 的 terminalDock harness
-	// 仅通过公开 props 渲染它（合并前本组件没有 jotai 依赖）。
+	// 远端属性在 SSH tab 建立前由父级传入，TerminalDock 的 dev harness 不依赖 Jotai。
+	useCloseShortcutAction(dockRef, open, (id) => {
+		const tab = id === undefined ? activeTab : tabs.find((item) => item.id === id);
+		if (tab) return closeTab(tab, "shortcut");
+	});
 	const targetProject = props.target.kind === "project" ? props.targetProject : undefined;
 	const remoteTerminal = (targetProject !== undefined && isRemoteProject(targetProject)) || activeTab?.location === "ssh";
 	const themeId = props.terminalSettings.themeId;
@@ -539,17 +542,16 @@ export function TerminalDock(props: {
 	// #115 U5：dock 高度由外层 react-resizable-panels 面板持有（分隔条拖拽），
 	// 手写 pointer 拖拽与 .terminal-resize-handle 已删除；这里充满父面板即可。
 	return (
-		<section ref={dockRef} className={`terminal-dock${collapsed ? " collapsed" : ""}`} data-theme={resolvedTheme.dataTheme} data-open={open} data-motion-state={props.closing || !motionOpen ? "hidden" : "visible"} style={{ height: "100%" }}>
+		<section data-close-scope="local" ref={dockRef} className={`terminal-dock${collapsed ? " collapsed" : ""}`} data-theme={resolvedTheme.dataTheme} data-open={open} data-motion-state={props.closing || !motionOpen ? "hidden" : "visible"} style={{ height: "100%" }}>
 			<header className="terminal-dock-header flex shrink-0 items-center justify-between gap-2 border-b px-2">
 				{/* Shell 下拉菜单 absolute 向上弹出会超出 terminal-tabs（overflow-hidden）而被裁剪，
 			    所以左侧整体包一层无 overflow 的容器，选择器独立于 tabs 滚动域之外 */}
 				<div className="flex min-w-0 items-center">
 					<div className="terminal-tabs flex min-w-0 items-center gap-0.5 overflow-hidden">
-						{/* 关闭 Tab 淡出 + 剩余 Tab 位移收拢（与会话 Tab 同一原语/同一手感，545161b35）；
-						    新建 Tab 不播入场（initial={false}），与侧栏/Tab 栏取舍一致。 */}
+						{/* 关闭 Tab 用 RemovalList 淡出，剩余 Tab 自动收拢。 */}
 						<RemovalList remainingIds={tabs.map((tab) => tab.id)}>
 							{tabs.map((tab) => (
-								<RemovalRow key={tab.id} itemId={tab.id} className={`terminal-tab inline-flex max-w-[9rem] items-center gap-0.5 rounded-md px-0.5 pl-2${tab.id === activeTab?.id ? " active" : ""}`}>
+								<RemovalRow key={tab.id} itemId={tab.id} data-close-scope="local-tab" data-close-id={tab.id} className={`terminal-tab inline-flex max-w-[9rem] items-center gap-0.5 rounded-md px-0.5 pl-2${tab.id === activeTab?.id ? " active" : ""}`}>
 									<Button
 										variant="ghost"
 										size="sm"
@@ -609,10 +611,7 @@ export function TerminalDock(props: {
 							<Plus size={14} />
 						</Button>
 					</div>
-					{/* Shell 选择器：点击创建指定 shell 的终端。必须用 Portal 化的 Popover——
-				    dock 挂在 react-resizable-panels 的 Panel 里，Panel 内层是 overflow:auto
-				    容器，菜单向上弹出会被裁剪（表现为「下拉没有值」）；Popover 渲染到 body，
-				    不受任何祖先 overflow 影响，且自带碰撞翻转与外部点击关闭。 */}
+					{/* Portal keeps the shell menu outside the clipped tab strip. */}
 					{!remoteTerminal && (
 						<Popover open={shellMenuOpen} onOpenChange={setShellMenuOpen}>
 							<PopoverTrigger asChild>

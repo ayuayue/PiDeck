@@ -162,9 +162,7 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
 		group: "general",
 		labelKey: "settings.shortcuts.closeSessionTabLabel",
 		descriptionKey: "settings.shortcuts.closeSessionTabDesc",
-		// 浏览器/IDE 惯例：Cmd/Ctrl+W 关闭当前标签页（Chrome 同款）。主窗口没有原生菜单
-		// （Menu=null），Chromium 默认不会因该组合关窗，可安全接管；AI 回答进行中由渲染层
-		// 弹确认框（确认 = 停止回答 + 关闭，取消 = 保持），主进程只命中广播。
+		// 保留 id 以兼容用户已保存的键位。主进程匹配，渲染层按焦点选定关闭目标。
 		defaultAccelerator: { darwin: "Cmd+W", other: "Ctrl+W" },
 	},
 	{

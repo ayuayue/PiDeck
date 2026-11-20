@@ -54,7 +54,7 @@ function AutomationPageSurface(props: AutomationPageProps & { projectId?: string
 
 	return (
 		// inset-0 只覆盖会话列：侧栏、右侧抽屉、底部停靠栏保持可交互（与智能体页/插件页同约定）。
-		<div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !props.active && "hidden")} role="region" aria-label={t("automation.title")}>
+		<div data-close-scope="page" data-close-id="automation" className={cn("absolute inset-0 z-30 flex flex-col bg-background", !props.active && "hidden")} role="region" aria-label={t("automation.title")}>
 			<AutomationWorkspace route={route} projectId={props.projectId} onRouteChange={setRoute} onViewSession={handleViewSession} />
 		</div>
 	);

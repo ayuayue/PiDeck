@@ -51,6 +51,12 @@ test("关闭当前页面：回到会话（active=null）", () => {
 	assert.equal(closed.active, null);
 });
 
+test("without a session, closing the active page selects its visible neighbor", () => {
+	const state = { tabs: ["favorites", "settings", "automation"], active: "automation" };
+	assert.equal(closeWorkspacePage(state, "automation", false).active, "favorites");
+	assert.equal(closeWorkspacePage({ ...state, active: "favorites" }, "favorites", false).active, "automation");
+});
+
 test("关闭未打开的页面是 no-op（保持引用）", () => {
 	const state = openWorkspacePage(EMPTY_WORKSPACE_PAGE_TAB_STATE, "agents");
 	assert.equal(closeWorkspacePage(state, "automation"), state);

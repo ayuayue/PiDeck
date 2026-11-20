@@ -94,7 +94,7 @@ import { useSettingsUpdater } from "./hooks/settings/useSettingsUpdater";
 import { useTpsDisplayMode } from "./hooks/settings/useTpsDisplayMode";
 import { useSendShortcut } from "./hooks/settings/useSendShortcut";
 import { useSessionRunControl } from "./hooks/session/useSessionRunControl";
-import { useCloseSessionTabShortcut } from "./hooks/useCloseSessionTabShortcut";
+import { closeEditorWithConfirmation, useCloseSessionTabShortcut } from "./hooks/useCloseSessionTabShortcut";
 import { useProjectFileTreeController } from "./hooks/files/useProjectFileTreeController";
 import { useProjectServices } from "./hooks/useProjectServices";
 import { useSessionDurationTracking } from "./hooks/session/useSessionDurationTracking";
@@ -1060,6 +1060,7 @@ export function App() {
 		readEditorOriginalContent,
 		saveEditorFileContent,
 		closeEditorTab,
+		dirtyEditorTabIds,
 		selectEditorTab,
 		markEditorTabDirty,
 		isEditorTabDirty,
@@ -1218,10 +1219,6 @@ export function App() {
 		queuedPromptsRef: queue.queuedPromptsRef,
 		suppressQueueAutoDrain: queue.suppressSessionQueueAutoDrain,
 	});
-
-	// Cmd/Ctrl+W 关闭当前会话标签页：回答进行中先弹确认（确认 = 停止 + 关闭），空闲直接关。
-	// 会话目标解析/停止/确认框分别复用 runControl/overlays，本处仅装配。
-	useCloseSessionTabShortcut({ closeTab: workspaceChrome.closeTab, abortAgent, overlays });
 
 	// 终端 IPC 目标：Agent 会话优先绑定当前 runtime；未启动或已停止时回退到项目 cwd。
 	// 该计算必须放在 useSessionRunControl 之后，因为 runtime target resolver 是该 hook 的返回值。
@@ -1917,27 +1914,13 @@ export function App() {
 		if (workbench.hasGitDiff) dismissGitDiff();
 		selectEditorTab(id);
 	};
-	// 文件 tab 关闭保护（Wave 5）：dirty tab 直接关闭 = 静默丢改动。自动保存有 1.5s
-	// debounce 且可能失败（网络盘/权限），不能假设「关的时候已经存过了」。确认框文案
-	// 与 ConfigModal「放弃更改」同语义；dirty 集来自 FileDiffViewer 上报。
-	const requestCloseEditorTab = (id: string) => {
-		if (!isEditorTabDirty(id)) {
-			closeEditorTab(id);
-			return;
-		}
-		const tab = editorTabs.find((t) => t.id === id);
-		const label = tab?.label ?? tab?.filePath.split(/[/\\]/).pop() ?? id;
-		overlays.showConfirm({
-			title: t("editor.dirtyCloseTitle"),
-			message: t("editor.dirtyCloseMessage", { file: label }),
-			confirmLabel: t("config.discardChanges"),
-			danger: true,
-			onConfirm: () => {
-				overlays.clearConfirm();
-				closeEditorTab(id);
-			},
-		});
-	};
+	const requestCloseEditorTab = (id: string) =>
+		closeEditorWithConfirmation(
+			editorTabs.find((tab) => tab.id === id),
+			isEditorTabDirty,
+			closeEditorTab,
+			overlays,
+		);
 	const closeWorkbenchTab = (id: string) => {
 		if (id.startsWith("git-diff:")) {
 			if (simpleMode) dismissGitDiff();
@@ -1947,6 +1930,18 @@ export function App() {
 	// 页面式插件面板伪 Tab：tab 模式下挂进 SessionTabsBar（打开时会话 Tab 退非选中，
 	// 点任意会话 Tab 即收起）；simple 模式不挂（插件页直接铺满会话区，由 Overlay 承担）。
 	const hostPluginPageTab = useHostPluginPageTab();
+	useCloseSessionTabShortcut({
+		closeTab: workspaceChrome.closeTab,
+		abortAgent,
+		sessionTabIds: workspaceChrome.sessionTabIds,
+		pageTabs: workspacePageTabItems,
+		closeEditor: (id) => (id.startsWith("git-diff:") ? dismissGitDiff() : requestCloseEditorTab(id)),
+		activeEditorId: workbench.editorTabs.find((tab) => tab.active)?.id,
+		pluginClose: hostPluginPageTab?.onClose,
+		dirtyEditorCount: dirtyEditorTabIds.size,
+		overlays,
+		showToast,
+	});
 	const sessionTabsBarNode = (
 		<SessionTabsBar
 			{...sessionTabsProps}

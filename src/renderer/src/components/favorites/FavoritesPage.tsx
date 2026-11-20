@@ -31,7 +31,7 @@ export function FavoritesPage(props: { active: boolean }) {
 	if (!open) return null;
 
 	return (
-		<div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !props.active && "hidden")} role="region" aria-label={t("favorites.title")}>
+		<div data-close-scope="page" data-close-id="favorites" className={cn("absolute inset-0 z-30 flex flex-col bg-background", !props.active && "hidden")} role="region" aria-label={t("favorites.title")}>
 			<FavoritesWorkspace />
 		</div>
 	);

@@ -4,6 +4,7 @@ import { t } from "../../i18n";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { Button } from "../ui-shadcn/button";
 import { Input } from "../ui-shadcn/input";
+import { useBrowserTabCloseShortcut } from "./useBrowserTabCloseShortcut";
 
 // Button 收口状态（P0）：工具栏/导航/UA 菜单按钮已换 shadcn Button（ghost/outline + 原尺寸 class 保留）。
 // 保留原生：.browser-tab-close（16px 微型关闭钮，Button 最小档 icon-xs 24px 无法替代）。
@@ -371,9 +372,9 @@ export function BrowserPanel(props: {
 	}, [applyDeviceUserAgent]);
 
 	const closeTab = useCallback(
-		(tabId: string, event: React.MouseEvent) => {
-			event.stopPropagation();
+		(tabId: string) => {
 			const current = moduleState.tabs;
+			if (!current.some((tab) => tab.id === tabId)) return;
 			if (current.length <= 1) {
 				// 关闭最后一个 tab：清空 moduleState 与本地 tabs 状态，避免旧 tab 残留显示
 				// （onClose 触发的 state 更新可能是同值 no-op，React 会跳过重渲染，必须显式同步）。
@@ -394,10 +395,12 @@ export function BrowserPanel(props: {
 			}
 			persistTabs(nextTabs, nextActiveId);
 			const nextTab = nextTabs.find((tab) => tab.id === nextActiveId);
-			if (nextTab) loadUrl(nextTab.url);
+			if (tabId === activeTabId && nextTab) loadUrl(nextTab.url);
 		},
-		[loadUrl, onClose, persistTabs],
+		[activeTabId, loadUrl, onClose, persistTabs],
 	);
+
+	const { panelRef, confirmClose } = useBrowserTabCloseShortcut(activeTabId, isLoading, closeTab);
 
 	const selectDevice = useCallback(
 		(nextDevice: DeviceType) => {
@@ -423,13 +426,16 @@ export function BrowserPanel(props: {
 	const deviceIcon = device === "mobile" ? <Smartphone size={13} /> : device === "tablet" ? <Tablet size={13} /> : null;
 
 	return (
-		<div className={panelClass} onClick={(event) => event.stopPropagation()}>
+		<div ref={panelRef} data-close-scope="local" className={panelClass} onClick={(event) => event.stopPropagation()}>
+			{confirmClose}
 			<div className="flex shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden border-b border-border/40 px-2 py-1 [scrollbar-width:thin]" role="tablist" aria-label={t("browser.tabsAriaLabel")}>
 				{tabs.map((tab) => (
 					<div
 						key={tab.id}
 						/* 标签页可键盘到达：tablist/tab 语义 + Enter/Space 激活（焦点环沿仓库惯例 shadow-[var(--focus-ring)]） */
 						role="tab"
+						data-close-scope="local-tab"
+						data-close-id={tab.id}
 						aria-selected={tab.id === activeTabId}
 						tabIndex={0}
 						/* 外观对齐中间栏文件 tab（rounded + 选中底色，不用侧边框/下缘指示条） */
@@ -443,7 +449,16 @@ export function BrowserPanel(props: {
 						onClick={() => switchTab(tab.id)}
 					>
 						<span className="min-w-0 truncate">{tab.title || tab.url}</span>
-						<Button variant="ghost" size="icon-sm" className="browser-tab-close" onClick={(event) => closeTab(tab.id, event)} title={t("browser.closeTab")}>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							className="browser-tab-close"
+							onClick={(event) => {
+								event.stopPropagation();
+								closeTab(tab.id);
+							}}
+							title={t("browser.closeTab")}
+						>
 							<X size={12} />
 						</Button>
 					</div>

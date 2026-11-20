@@ -86,6 +86,7 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
 	const content = (
 		<div
 			ref={dialogRef}
+			data-close-scope="panel"
 			tabIndex={-1}
 			className="image-preview-modal overflow-hidden outline-none"
 			role="dialog"
@@ -101,7 +102,7 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
 			}}
 		>
 			{/* z-10：放大后的图片带 transform 会自建层叠上下文，与定位元素同层绘制；不加这一档关闭钮会被大图盖住 */}
-			<button ref={closeRef} type="button" className="image-preview-close z-10" onClick={onClose} aria-label={t("app.imagePreviewClose")}>
+			<button ref={closeRef} data-close-action="true" type="button" className="image-preview-close z-10" onClick={onClose} aria-label={t("app.imagePreviewClose")}>
 				<X size={20} strokeWidth={2.4} />
 			</button>
 			<img

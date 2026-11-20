@@ -45,9 +45,7 @@ test("useFileEditor：维护 dirtyEditorTabIds 集合，关闭 tab 时同步摘�
 });
 
 test("App：三条关闭路径都过 requestCloseEditorTab gate（dirty → 确认框）", () => {
-	assert.match(app, /const requestCloseEditorTab = \(id: string\) =>/);
-	assert.match(app, /if \(!isEditorTabDirty\(id\)\)/);
-	assert.match(app, /editor\.dirtyCloseTitle/);
+	assert.match(app, /const\s+requestCloseEditorTab\s*=\s*\(id:\s*string\)\s*=>\s*closeEditorWithConfirmation\(/);
 	// closeWorkbenchTab（simple X）、onCloseEditorTab（tab 模式 X）、onCloseEditor（内容区关闭钮）
 	const closeWorkbench = app.slice(app.indexOf("const closeWorkbenchTab"), app.indexOf("const closeWorkbenchTab") + 400);
 	assert.match(closeWorkbench, /requestCloseEditorTab\(id\)/);

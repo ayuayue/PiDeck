@@ -1,69 +1,204 @@
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 import { useStore } from "jotai";
-import { currentSessionIdAtom } from "../atoms";
-import { sessionSendStateByIdAtom } from "../atoms/composer-atoms";
-import { sessionRuntimeBySessionIdAtomFamily } from "../atoms/session-selectors";
+import { activeWorkspacePageAtom, currentSessionIdAtom, sessionRuntimeByIdAtom, settingsDirtyForWindowCloseAtom } from "../atoms";
+import { sessionDraftByIdAtom, sessionSendStateByIdAtom } from "../atoms/composer-atoms";
 import { toSessionRuntimeTarget } from "../utils/sessionCommands";
-import { isSessionRuntimeBusy } from "./useSessionTimelineController";
+import { isSessionRuntimeBusy } from "./session/timeline/timelineSurfacePolicy";
+import { CLOSE_CONFIRMATION, CLOSE_LAYER, CLOSE_SCOPE, createCloseShortcutGate, localCloseActions, resolveCloseScope } from "../utils/closeShortcut";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
+import type { useOverlayActions } from "./useOverlayActions";
 
-/** 确认弹窗最小切片（与 useSessionRunControl 的 RunControlConfirmOverlay 同构） */
-interface CloseTabConfirmOverlay {
-	showConfirm: (options: { title: string; message: string; danger?: boolean; confirmLabel?: string; onConfirm: () => void }) => void;
-	clearConfirm: () => void;
+type CloseOverlays = Pick<ReturnType<typeof useOverlayActions>, "showConfirm" | "clearConfirm" | "confirmDialog" | "trustRequest">;
+
+export function closeEditorWithConfirmation(tab: { id: string; label?: string; filePath: string } | undefined, isDirty: (id: string) => boolean, close: (id: string) => void, overlays: CloseOverlays) {
+	if (!tab) return;
+	const scope = document.activeElement?.closest(CLOSE_SCOPE);
+	const closeFile = () => {
+		close(tab.id);
+		focusRemainingTab(scope);
+	};
+	if (!isDirty(tab.id)) {
+		closeFile();
+		return;
+	}
+	overlays.showConfirm({
+		title: t("editor.dirtyCloseTitle"),
+		message: t("editor.dirtyCloseMessage", { file: tab.label ?? tab.filePath.split(/[/\\]/).pop() ?? tab.id }),
+		confirmLabel: t("config.discardChanges"),
+		danger: true,
+		onConfirm: () => {
+			overlays.clearConfirm();
+			closeFile();
+		},
+	});
 }
 
-export interface CloseSessionTabShortcutDeps {
-	/** 关闭会话 Tab（chrome 域，不含停止语义）：关闭后焦点/分屏邻居由 closeTab 内部处理 */
+interface CloseWorkspaceShortcutDeps {
 	closeTab: (sessionId: string) => void;
-	/** 停止当前回答（运行控制域 abortAgent）：失败 toast 与流式态清理已由其内部兜底，不抛异常 */
 	abortAgent: (agentId: string) => Promise<void>;
-	overlays: CloseTabConfirmOverlay;
+	sessionTabIds: readonly string[];
+	pageTabs: readonly { id: string; onClose: () => void }[];
+	closeEditor: (id: string) => void;
+	activeEditorId?: string;
+	pluginClose?: () => void;
+	dirtyEditorCount: number;
+	overlays: CloseOverlays;
+	showToast: (message: string) => void;
 }
 
-/**
- * Cmd/Ctrl+W 关闭当前会话标签页（Chrome 关标签页惯例）。
- *
- * 主进程 before-input-event 命中（键位可在设置页自定义）后广播 appShortcutTriggered，
- * 这里消费：AI 回答进行中先弹确认框——确认 = 停止当前回答并关闭 Tab，取消 = 原样保持；
- * 空闲会话直接关闭。关闭 Tab 不杀 Agent 进程，所以「回答中」必须先 abort 再关，
- * 否则 Agent 会在后台继续烧 token；会话记录与历史始终保留，重新打开即可恢复。
- */
-export function useCloseSessionTabShortcut({ closeTab, abortAgent, overlays }: CloseSessionTabShortcutDeps) {
+/** Keep focus in the workbench when the focused tab or its page is removed. */
+function focusRemainingTab(closedScope?: Element | null) {
+	requestAnimationFrame(() => {
+		const active = document.activeElement;
+		if ((active !== document.body && !closedScope?.contains(active)) || document.querySelector(CLOSE_CONFIRMATION)) return;
+		const tabs = Array.from(document.querySelectorAll<HTMLElement>('.session-tabs-scroll [role="tab"][aria-selected="true"], .simple-file-tabs [role="tab"][aria-selected="true"]'));
+		const next = tabs.find((tab) => !closedScope?.contains(tab) && tab.getClientRects().length > 0) ?? document.querySelector<HTMLElement>(".workbench-stage [data-close-focus-fallback]");
+		next?.focus({ preventScroll: true });
+	});
+}
+
+function isBusy(runtime: { status?: string; state?: Parameters<typeof isSessionRuntimeBusy>[1] } | undefined, sending: string | undefined) {
+	return sending === "activating" || sending === "sending" || isSessionRuntimeBusy(runtime?.status, runtime?.state);
+}
+
+/** The configured Electron shortcut is a single dispatch to the nearest focused close scope. */
+export function useCloseSessionTabShortcut(deps: CloseWorkspaceShortcutDeps) {
 	const store = useStore();
-
-	useEffect(
-		() =>
-			desktopApi.app.onShortcutTriggered((id) => {
-				if (id !== "closeSessionTab") return;
-				const sessionId = store.get(currentSessionIdAtom);
-				if (!sessionId) return;
-
-				const runtime = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
-				const sendStatus = store.get(sessionSendStateByIdAtom)[sessionId]?.status;
-				// 「AI 对话进行中」与时间线 isBusy 同口径：发送激活中/发送 IPC 在途/runtime 流式或执行工具。
-				// 终态（idle/error/closed）由 isSessionRuntimeBusy 权威早退，不受迟到 runtime-state 事件影响。
-				const busy = sendStatus === "activating" || sendStatus === "sending" || isSessionRuntimeBusy(runtime?.status, runtime?.state);
-				if (!busy) {
-					closeTab(sessionId);
+	const reportFailure = useEffectEvent(() => deps.showToast(t("tabs.closeShortcutFailed")));
+	const finishWindowClose = useEffectEvent((terminalCount: number | null) => {
+		const { overlays } = deps;
+		if (overlays.confirmDialog || overlays.trustRequest || document.querySelector(`${CLOSE_CONFIRMATION}, ${CLOSE_LAYER}`)) return;
+		const minimize = () => void desktopApi.app.minimizeWindow().catch(() => deps.showToast(t("tabs.minimizeFailed")));
+		const runtimes = store.get(sessionRuntimeByIdAtom);
+		const sendState = store.get(sessionSendStateByIdAtom);
+		const sessionCount = [...new Set([...Object.keys(runtimes), ...Object.keys(sendState)])].filter((id) => isBusy(runtimes[id], sendState[id]?.status)).length;
+		const draftCount = Object.values(store.get(sessionDraftByIdAtom)).filter(Boolean).length;
+		const dirtySettings = store.get(settingsDirtyForWindowCloseAtom);
+		const summary = [
+			deps.dirtyEditorCount > 0 && t("tabs.minimizeDirtyFiles", { count: deps.dirtyEditorCount }),
+			dirtySettings && t("tabs.minimizeDirtySettings"),
+			draftCount > 0 && t("tabs.minimizeDrafts", { count: draftCount }),
+			sessionCount > 0 && t("tabs.minimizeRunningSessions", { count: sessionCount }),
+			terminalCount === null ? t("tabs.minimizeUnknownTerminals") : terminalCount > 0 && t("tabs.minimizeTerminals", { count: terminalCount }),
+		].filter(Boolean);
+		if (!summary.length) {
+			minimize();
+			return;
+		}
+		overlays.showConfirm({
+			title: t("tabs.minimizeTitle"),
+			message: `${summary.join(" ")} ${t("tabs.minimizePreserve")}`,
+			confirmLabel: t("tabs.minimizeConfirm"),
+			onConfirm: () => {
+				overlays.clearConfirm();
+				minimize();
+			},
+		});
+	});
+	const closeFocused = useEffectEvent(async (scope: Element | null) => {
+		const { overlays } = deps;
+		if (overlays.confirmDialog || overlays.trustRequest || document.querySelector(CLOSE_CONFIRMATION)) return;
+		if (document.querySelector(CLOSE_LAYER)) {
+			// Radix owns dismissal and focus restoration for menus, popovers and non-confirmation dialogs.
+			document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+			return;
+		}
+		const id = scope?.getAttribute("data-close-id") ?? undefined;
+		switch (scope?.getAttribute("data-close-scope")) {
+			case "local-tab":
+			case "local": {
+				const owner = scope.closest('[data-close-scope="local"]');
+				if (owner) await localCloseActions.get(owner)?.(id);
+				return;
+			}
+			case "panel": {
+				const actions = scope.querySelectorAll<HTMLButtonElement>("[data-close-action]");
+				// A panel's close control cannot belong to a child scope (e.g. a browser tab inside a drawer).
+				Array.from(actions)
+					.find((button) => button.closest(CLOSE_SCOPE) === scope)
+					?.click();
+				return;
+			}
+			case "plugin":
+				deps.pluginClose?.();
+				focusRemainingTab(scope);
+				return;
+			case "editor": {
+				const editorId = id ?? deps.activeEditorId;
+				if (editorId) deps.closeEditor(editorId);
+				return;
+			}
+			case "page":
+				deps.pageTabs.find((tab) => tab.id === id)?.onClose();
+				focusRemainingTab(scope);
+				return;
+			case "session": {
+				if (!id || !deps.sessionTabIds.includes(id)) return;
+				const runtime = store.get(sessionRuntimeByIdAtom)[id];
+				const running = isBusy(runtime, store.get(sessionSendStateByIdAtom)[id]?.status);
+				const draft = Boolean(store.get(sessionDraftByIdAtom)[id]);
+				const close = () => {
+					deps.closeTab(id);
+					focusRemainingTab(scope);
+				};
+				if (!running && !draft) {
+					close();
 					return;
 				}
 				overlays.showConfirm({
-					title: t("tabs.closeRunningTitle"),
-					message: t("tabs.closeRunningBody"),
-					confirmLabel: t("tabs.closeRunningConfirm"),
-					danger: true,
+					title: t(running ? "tabs.closeRunningTitle" : "tabs.closeDraftTitle"),
+					message: [running && t("tabs.closeRunningBody"), draft && t("tabs.closeDraftBody")].filter(Boolean).join(" "),
+					confirmLabel: t(running ? "tabs.closeRunningConfirm" : "common.close"),
+					danger: running,
 					onConfirm: () => {
 						overlays.clearConfirm();
-						// 先停后关：abort 按 agentId 寻址（target 在 Tab 关闭后依然有效），无需等 IPC 返回；
-						// 尚无绑定的激活早期没有可停的回合，直接关即可。
-						const target = toSessionRuntimeTarget(sessionId, runtime);
-						if (target) void abortAgent(target.agentId);
-						closeTab(sessionId);
+						const liveRuntime = store.get(sessionRuntimeByIdAtom)[id];
+						const sameRun = !runtime || (runtime.agentId === liveRuntime?.agentId && runtime.runtimeGeneration === liveRuntime.runtimeGeneration);
+						const target = running && sameRun && toSessionRuntimeTarget(id, liveRuntime);
+						if (running && !sameRun) return;
+						if (target) void deps.abortAgent(target.agentId);
+						close();
 					},
 				});
-			}),
-		[store, closeTab, abortAgent, overlays],
-	);
+				return;
+			}
+		}
+
+		finishWindowClose(await desktopApi.terminal.liveCount().catch(() => null));
+	});
+
+	useEffect(() => {
+		const accept = createCloseShortcutGate();
+		let pointed: Element | null = null;
+		let dispatching = false;
+		const rememberPointer = (event: PointerEvent) => {
+			pointed = event.target instanceof Element ? event.target : null;
+		};
+		const clearPointer = () => {
+			pointed = null;
+		};
+		document.addEventListener("pointerdown", rememberPointer, true);
+		document.addEventListener("focusin", clearPointer, true);
+		const unsubscribe = desktopApi.app.onShortcutTriggered((id) => {
+			if (id !== "closeSessionTab" || !accept(performance.now()) || dispatching) return;
+			const scope = resolveCloseScope(document.activeElement, pointed, document.body);
+			dispatching = true;
+			void closeFocused(scope)
+				.catch(reportFailure)
+				.finally(() => {
+					dispatching = false;
+				});
+		});
+		const unsubscribeFocus = store.sub(activeWorkspacePageAtom, () => {
+			// Includes delayed Settings close after discard/save. The new page may focus itself first.
+			if (store.get(activeWorkspacePageAtom) === null || !store.get(currentSessionIdAtom)) focusRemainingTab();
+		});
+		return () => {
+			unsubscribe();
+			unsubscribeFocus();
+			document.removeEventListener("pointerdown", rememberPointer, true);
+			document.removeEventListener("focusin", clearPointer, true);
+		};
+	}, [store]);
 }

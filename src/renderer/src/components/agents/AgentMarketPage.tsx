@@ -45,7 +45,7 @@ export function AgentMarketPage({ active, onUseAgent }: AgentMarketPageProps) {
 
 	return (
 		// inset-0 只覆盖会话列：与 HostPluginPageOverlay/定时任务页同一层级约定，页面打开时会话树不卸载。
-		<div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !active && "hidden")} role="region" aria-label={t("agentMarket.title")}>
+		<div data-close-scope="page" data-close-id="agents" className={cn("absolute inset-0 z-30 flex flex-col bg-background", !active && "hidden")} role="region" aria-label={t("agentMarket.title")}>
 			<AgentMarketWorkspace initialEditingAgentId={editingAgentId} onUseAgent={onUseAgent} onClose={close} />
 		</div>
 	);

@@ -1,4 +1,5 @@
 import { atom } from "jotai";
+import { currentSessionIdAtom } from "./session-state-atoms";
 import { closeWorkspacePage, deactivateWorkspacePage, EMPTY_WORKSPACE_PAGE_TAB_STATE, openWorkspacePage, type WorkspacePageId, type WorkspacePageTabState } from "../utils/workspacePageTabs";
 
 /**
@@ -15,6 +16,9 @@ export const openWorkspacePageIdsAtom = atom((get) => get(workspacePageTabStateA
 /** 当前呈现的页面；null = 呈现会话（只读派生）。 */
 export const activeWorkspacePageAtom = atom((get) => get(workspacePageTabStateAtom).active);
 
+/** The Settings page owns its drafts even while hidden behind another tab. */
+export const settingsDirtyForWindowCloseAtom = atom(false);
+
 /** 打开/激活页面 Tab（侧栏入口与 Tab 点击共用）。 */
 export const openWorkspacePageAtom = atom(null, (_get, set, pageId: WorkspacePageId) => {
 	set(workspacePageTabStateAtom, (state) => openWorkspacePage(state, pageId));
@@ -26,6 +30,6 @@ export const deactivateWorkspacePageAtom = atom(null, (_get, set) => {
 });
 
 /** 关闭页面 Tab（页面子树随之卸载）。 */
-export const closeWorkspacePageAtom = atom(null, (_get, set, pageId: WorkspacePageId) => {
-	set(workspacePageTabStateAtom, (state) => closeWorkspacePage(state, pageId));
+export const closeWorkspacePageAtom = atom(null, (get, set, pageId: WorkspacePageId) => {
+	set(workspacePageTabStateAtom, (state) => closeWorkspacePage(state, pageId, Boolean(get(currentSessionIdAtom))));
 });
