@@ -452,7 +452,8 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
   pi 内置目录（`models-store.json`）里的供应商也列出来并标明「内置」
 - pi 凭据：列出 `auth.json` 里的供应商、类型、来源与掩码密钥——`api_key` 写明是写入文件、
   `$环境变量` 还是 `!命令`，OAuth 写明剩余（或已过期）时长与是否可续期；可检测、替换 `api_key`、
-  添加或删除。只写该供应商的 `type`/`key`，OAuth 等其他字段保持原样，文件权限 0600
+  添加或删除。只写该供应商的 `type`/`key`，OAuth 等其他字段保持原样，文件权限 0600。
+  `null` 等非对象条目不列入可编辑列表；文件根内容为 `null` 或目标条目不是对象时拒绝保存并保留原文件，可在原始 JSON 中修正
 - 供应商认证：供应商配置顶部显示认证状态、凭据来源（auth.json / models.json / 环境变量）与
   原因，可「登录…」（终端里跑 pi 自己的登录流程）、「检测」（让 pi 重新解析并续期）、
   「登出」（`pi auth logout`）与复制登录命令

@@ -103,7 +103,7 @@
 
 | 功能 | 状态 | 计划 |
 | --- | --- | --- |
-| models.json / auth.json / settings.json 可视化 | ✅ | 供应商三字段 + 模型条目增删改（id/名称/上下文/最大输出/推理/图片/价格/7 个 compat 开关）、余额模板、settings.json 常用项表单、pi 凭据列表（类型/来源/剩余时长、检测/掩码/替换/添加/删除/登出）、原始 JSON 编辑器 |
+| models.json / auth.json / settings.json 可视化 | ✅ | 供应商三字段 + 模型条目增删改（id/名称/上下文/最大输出/推理/图片/价格/7 个 compat 开关）、余额模板、settings.json 常用项表单、pi 凭据列表（类型/来源/剩余时长、检测/掩码/替换/添加/删除/登出）；auth.json 的 null 等非对象条目跳过展示，根内容为 null 或目标条目非对象时拒绝密钥写入并保留文件；原始 JSON 编辑器 |
 | 供应商认证状态 | ✅ | 列出 models.json、auth.json 与 pi 内置目录里的供应商；`pi auth check` 的状态/原因/凭据类型，凭据来源（auth.json / models.json / 环境变量）与 OAuth 到期时间；登录走内置终端里的 `pi auth login` |
 | TokenDance 内置供应商 | ✅ | OAuth 登录（PKCE + 本机回环收码）或手动填 Key，Key 落在 models.json；余额、目录拉取（全量模型，只写正的 contextWindow）、按元充值（支付宝聚合码 + 3 秒轮询，查询地址限平台域名） |
 | 请作者喝咖啡（爱猹收打赏） | ✅ | 经 PiDeck 的支付代理查权益快照（平台 Key 不下发客户端），出示购买二维码、唤起支付宝、5 秒轮询到账；安装级 `watchaUserId`，纯打赏不扣次数 |

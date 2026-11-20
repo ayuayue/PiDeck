@@ -2477,5 +2477,6 @@
   "翻译回复": "Traduire la réponse",
   "已有待处理的翻译": "Une traduction est déjà ouverte",
   "请先完成或关闭当前翻译，再打开新的原文。": "Terminez ou fermez la traduction actuelle avant d’ouvrir un autre texte.",
-  "请打开增强模板，检查文本后重新保存。": "Ouvrez le modèle de reformulation, vérifiez le texte et enregistrez-le à nouveau."
+  "请打开增强模板，检查文本后重新保存。": "Ouvrez le modèle de reformulation, vérifiez le texte et enregistrez-le à nouveau.",
+  "「%s」不是一个对象，先在原始 JSON 里改": "« %s » n’est pas un objet. Corrigez d’abord le JSON brut."
 }

@@ -2477,5 +2477,6 @@
   "翻译回复": "Translate reply",
   "已有待处理的翻译": "A translation is already open",
   "请先完成或关闭当前翻译，再打开新的原文。": "Finish or close the current translation before opening another source.",
-  "请打开增强模板，检查文本后重新保存。": "Open the enhancement template, check the text, and save it again."
+  "请打开增强模板，检查文本后重新保存。": "Open the enhancement template, check the text, and save it again.",
+  "「%s」不是一个对象，先在原始 JSON 里改": "“%s” is not an object. Fix it in the raw JSON first."
 }
