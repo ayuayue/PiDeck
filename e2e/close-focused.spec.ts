@@ -104,7 +104,12 @@ test.describe("terminal shortcut", () => {
 		await terminal.focus();
 		await window.keyboard.type(process.platform === "win32" ? "ping.exe -n 30 127.0.0.1" : "sleep 30");
 		await window.keyboard.press("Enter");
-		await expect.poll(() => window.evaluate(async (projectId) => (await globalThis.window.piDesktop.terminal.list({ kind: "project", projectId })).map((tab) => tab.frontProcess ?? ""), project.id)).toEqual([expect.stringMatching(/(?:sleep|ping)(?:\.exe)?$/i)]);
+		if (process.platform === "win32") {
+			// node-pty on Windows reports the terminal name as process, so wait for an actual ping reply.
+			await expect.poll(() => window.evaluate(async (projectId) => (await globalThis.window.piDesktop.terminal.list({ kind: "project", projectId })).map((tab) => tab.buffer ?? "").join(""), project.id)).toMatch(/TTL=\d+/i);
+		} else {
+			await expect.poll(() => window.evaluate(async (projectId) => (await globalThis.window.piDesktop.terminal.list({ kind: "project", projectId })).map((tab) => tab.frontProcess ?? ""), project.id)).toEqual([expect.stringMatching(/sleep$/i)]);
+		}
 		await pressClose(app, window);
 		const confirmation = window.getByRole("alertdialog", { name: "关闭此终端？" });
 		await expect(confirmation).toBeVisible();
