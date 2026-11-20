@@ -187,17 +187,24 @@ test("remote MCP facade: snapshot/save/list/logout go through the host channel",
 	same(await port.editor.config.mcpLogout("search"), { ok: true, output: "ok" });
 });
 
-test("remote MCP facade: project scope, probe and login answer with a reason instead of a raw code", async () => {
+test("remote MCP facade: project scope 明确拒绝，probe 给可读原因，login 直通主机结果", async () => {
 	const port = facade();
 	await assert.rejects(() => port.editor.config.getMcp({ scope: "project", projectId: "p" }), new RegExp(REMOTE_MCP_CODES.projectScopeUnsupported));
 	await assert.rejects(() => port.editor.config.mcpListStatus({ scope: "project", projectId: "p" }), new RegExp(REMOTE_MCP_CODES.projectScopeUnsupported));
+	await assert.rejects(() => port.editor.config.mcpLogin("search", 240, { scope: "project", projectId: "p" }), new RegExp(REMOTE_MCP_CODES.projectScopeUnsupported));
 
 	const probe = await port.editor.config.probeMcp({ url: "https://mcp.example.com/mcp" });
 	assert.equal(probe.ok, false);
 	assert.match(probe.error, /./, "探测失败要给可读文案，不能是空串");
 	assert.equal(probe.transport, "http");
 
-	const login = await port.editor.config.mcpLogin("search");
-	assert.equal(login.ok, false);
-	assert.match(login.output, /pi mcp login/);
+	// 登录在主机上跑（helper ≥1.36）：facade 只透传结果，超时与 operationId 一并下发。
+	// 授权 URL 走 onMcpLoginUrl 事件通道，绝不出现在返回值里（返回值会进日志与通用错误位）。
+	const loginPort = facade({ answer: () => ({ action: "login", ok: true, output: "authorized" }) });
+	same(await loginPort.editor.config.mcpLogin("search", 240, undefined, "op-1"), { ok: true, output: "authorized" });
+	same(loginPort.calls.at(-1), { hostId: HOST, input: { action: "login", server: "search", timeoutSec: 240, operationId: "op-1" } });
+
+	// 主机回了非登录形状（两边协议不一致）：不能当成功吞掉，要报明确错误码。
+	const wrongPort = facade({ answer: () => ({ action: "logout", ok: true, output: "x" }) });
+	await assert.rejects(() => wrongPort.editor.config.mcpLogin("search"), new RegExp(REMOTE_MCP_CODES.invalid));
 });

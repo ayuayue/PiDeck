@@ -129,7 +129,7 @@ export function createRemotePiMcpService(ports: RemotePiMcpPorts) {
 		const operation = typeof operationId === "string" && operationId.length > 0 && operationId.length <= 128 ? operationId : undefined;
 		const name = server.trim();
 		const facts = await ports.resolveFacts(hostId);
-		for (const value of [facts.home, facts.piPath, facts.nodePath]) if (typeof value !== "string" || !value.startsWith("/") || value.length > 4096 || /[\u0000-]/.test(value)) throw new Error(C.unavailable);
+		for (const value of [facts.home, facts.piPath, facts.nodePath]) if (typeof value !== "string" || !value.startsWith("/") || value.length > 4096 || /[\u0000-\u001f]/.test(value)) throw new Error(C.unavailable);
 		const result = await ports.request(
 			hostId,
 			"mcp.login",
