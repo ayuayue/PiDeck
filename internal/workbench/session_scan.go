@@ -23,10 +23,17 @@ package workbench
 // scanProject reads pi's own sessions for one project, the first time it
 // is opened. A project shows its own history, not the whole machine's.
 func (a *app) scanProject(ws *workspace) {
-	if ws == nil || a.st == nil || ws.Target.remote() || !a.cfg.ScanPi {
+	if ws == nil || a.st == nil {
 		return
 	}
 	if ws.piLoaded || ws.PiLoading.GetUntracked() {
+		return
+	}
+	if ws.Target.remote() {
+		a.scanTargetSessions(ws)
+		return
+	}
+	if !a.cfg.ScanPi {
 		return
 	}
 	ws.PiLoading.Set(true)

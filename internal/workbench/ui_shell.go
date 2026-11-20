@@ -38,8 +38,15 @@ func (a *app) view() core.Node {
 		a.skillStoreDialog(),
 		a.mcpDialog(),
 		a.imageDialog(),
-		a.browserApprovalDialog(),
+		a.transcriptImageDialog(),
+		a.trajectoryDialog(),
+		a.delegationDialog(),
+		a.filePreviewDialog(),
 		a.visionDialog(),
+		a.translationDialog(),
+		a.promptTemplateDialog(),
+		a.browserApprovalDialog(),
+		a.settingsSyncDialog(),
 		a.confirmDialog(),
 		a.remoteQRDialog(),
 		a.reviewPatchDialog(),
@@ -80,6 +87,8 @@ func (a *app) view() core.Node {
 		a.feedbackDialog(),
 		a.taskFormDialog(),
 		a.projectGroupDialog(),
+		a.projectRemoveDialog(),
+		a.sessionOrganizationPanel(),
 		a.workspaceRenameDialog(),
 		// Toasts sit at the top right, 16 under the header: the header's
 		// own height is the inset, and ui.Toasts adds the margin.
@@ -180,7 +189,7 @@ func (a *app) workArea() core.Node {
 // pane, when one shows, takes the whole area.
 func (a *app) mainPane() core.Node {
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0), AlignItems: core.AlignStretch}, Children: []core.Node{
-		core.Show{When: func() bool { return a.browser.open.Get() && a.activePane.Get() == paneBrowser }, Then: func(*core.Scope) core.Node { return a.browserPane() }},
+		core.Show{When: a.browser.open.Get, Then: func(*core.Scope) core.Node { return a.browserPane() }},
 		core.Show{When: func() bool { return a.activePane.Get() != paneBrowser }, Then: func(*core.Scope) core.Node {
 			return core.Show{When: a.paneVisible, Then: func(*core.Scope) core.Node { return a.paneView() },
 				Else: func(*core.Scope) core.Node { return a.sessionPane() }}

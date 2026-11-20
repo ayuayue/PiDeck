@@ -6,6 +6,8 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"slices"
+
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -14,8 +16,11 @@ func (a *app) remember() {
 	if a.st == nil {
 		return
 	}
-	tabs := a.tabs.GetUntracked()
+	tabs := slices.Concat(a.tabs.GetUntracked(), a.pendingTabs)
 	last := a.activeID.GetUntracked()
+	if a.pendingActive != "" {
+		last = a.pendingActive
+	}
 	open := a.sidebar.GetUntracked()
 	drawer := a.drawer.GetUntracked()
 	theme := a.theme.GetUntracked()
@@ -40,14 +45,19 @@ func (a *app) selectSession(s *session) {
 	if s == nil {
 		return
 	}
+	a.pendingActive = ""
 	if a.editor != nil {
 		a.editor.open.Set(false)
 	}
 	a.activePane.Set("")
 	a.activeID.Set(s.ID)
-	a.activeWS.Set(s.WS)
-	if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !ws.Expanded.GetUntracked() {
-		ws.Expanded.Set(true)
+	if ws := a.workspaceFor(s.Target, s.WS); ws != nil {
+		a.activeWS.Set(projectWireKey(ws))
+		if !ws.Expanded.GetUntracked() {
+			ws.Expanded.Set(true)
+		}
+	} else {
+		a.activeWS.Set("")
 	}
 	a.addTab(s.ID)
 	a.openSessionEager(s)
@@ -66,7 +76,7 @@ func (a *app) openWorkspaceKey(key string) {
 			continue
 		}
 		ws.Expanded.Set(true)
-		a.activeWS.Set(ws.Path)
+		a.activeWS.Set(projectWireKey(ws))
 		if list := ws.Sessions.GetUntracked(); len(list) > 0 {
 			a.selectSession(list[0])
 		}

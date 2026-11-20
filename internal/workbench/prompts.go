@@ -7,14 +7,17 @@ package workbench
 // is read again when it opens, so a hand-edited pack shows up at once.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"example.com/pideck-lite/assets"
 	"example.com/pideck-lite/internal/viewkit"
@@ -127,6 +130,15 @@ func (a *app) loadPrompts() []promptItem {
 // fetchPromptPack downloads a shared pack.
 func fetchPromptPack(rawURL string) (promptPack, error) {
 	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == communityPromptsURL {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		raw, err := downloadCatalogData(ctx, rawURL, 16<<20)
+		if err != nil {
+			return promptPack{}, err
+		}
+		return parseCommunityPrompts(raw)
+	}
 	if !strings.HasPrefix(rawURL, "https://") && !strings.HasPrefix(rawURL, "http://") {
 		return promptPack{}, errors.New("只支持 http(s) 链接")
 	}
@@ -138,9 +150,20 @@ func fetchPromptPack(rawURL string) (promptPack, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return promptPack{}, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	limit := int64(2 << 20)
+	if rawURL == communityPromptsURL {
+		limit = 16 << 20
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return promptPack{}, err
+	}
+	if int64(len(raw)) > limit {
+		return promptPack{}, errors.New("prompt pack exceeds size limit")
+	}
+	u, _ := url.Parse(rawURL)
+	if u != nil && strings.HasSuffix(strings.ToLower(u.Path), ".csv") {
+		return parseCommunityPrompts(raw)
 	}
 	return parsePromptPack(raw)
 }
@@ -190,8 +213,8 @@ func normalizePromptPack(pack promptPack) promptPack {
 	return pack
 }
 
-// importPromptPack merges a pack into prompts/user.json, skipping titles
-// the library already has.
+// importPromptPack merges small packs into prompts/user.json and keeps
+// large imports in bounded pack files, skipping titles already present.
 func (a *app) importPromptPack(pack promptPack) (int, int, error) {
 	dir := a.promptsDir()
 	if dir == "" {
@@ -210,6 +233,7 @@ func (a *app) importPromptPack(pack promptPack) (int, int, error) {
 	if user.Name == "" {
 		user.Name = "我的提示词"
 	}
+	originalCount := len(user.Prompts)
 	seen := map[string]bool{}
 	for _, p := range a.loadPrompts() {
 		seen[strings.ToLower(p.Title)] = true
@@ -236,6 +260,12 @@ func (a *app) importPromptPack(pack promptPack) (int, int, error) {
 		return 0, skipped, err
 	}
 	raw = append(raw, '\n')
+	if len(raw) > importedPromptPartLimit {
+		if err := writeImportedPromptParts(dir, promptPack{Name: pack.Name, Prompts: user.Prompts[originalCount:]}); err != nil {
+			return 0, skipped, err
+		}
+		return added, skipped, nil
+	}
 	if err := writeFileAtomic(path, raw, 0o644); err != nil {
 		return 0, skipped, err
 	}
@@ -247,11 +277,22 @@ func (a *app) openPromptLibrary() {
 	if a.st == nil {
 		return
 	}
-	a.ensurePromptLibrary()
-	a.prompts.Set(a.loadPrompts())
 	a.promptQuery.Set("")
 	a.promptCat.Set("")
+	a.promptWindow.Set(80)
 	a.promptOpen.Set(true)
+	if a.promptLoading.GetUntracked() {
+		return
+	}
+	a.promptLoading.Set(true)
+	go func() {
+		a.ensurePromptLibrary()
+		list := a.loadPrompts()
+		a.cx.Post(func() {
+			a.prompts.Set(list)
+			a.promptLoading.Set(false)
+		})
+	}()
 }
 
 // insertPrompt puts a prompt in the active composer, or the clipboard

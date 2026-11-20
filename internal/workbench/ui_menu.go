@@ -526,10 +526,10 @@ func (a *app) projectMenu(s *session, open *core.Signal[bool]) core.Node {
 		var rows []core.Node
 		for _, ws := range list {
 			w := ws
-			sel := func() bool { return a.activeWS.Get() == w.Path }
+			sel := func() bool { return a.activeWS.Get() == projectWireKey(w) }
 			rows = append(rows, core.View{
 				OnPress: func(core.PressEvent) {
-					a.activeWS.Set(w.Path)
+					a.activeWS.Set(projectWireKey(w))
 					if !w.Target.remote() {
 						a.files.watch(w.Path)
 					}
@@ -582,6 +582,9 @@ func (a *app) sessionMenuItems(sess func() *session) []core.Node {
 		a.menuRow(a.cx, lucide.Star, pinLabel(a, sess), "", false, func() { a.togglePin(sess()) }),
 		a.menuRow(a.cx, lucide.Star, sessionFavoriteLabel(a, sess), "", false, func() { a.toggleSessionFavorite(sess()) }),
 		a.menuRow(a.cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(sess()) }),
+		a.menuRow(a.cx, lucide.FolderInput, apptext.T("移动会话到分组"), "", false, func() { a.openSessionGroup(sess()) }),
+		a.menuRow(a.cx, lucide.Link, apptext.T("选择父会话"), "", false, func() { a.openSessionLink(sess()) }),
+		a.menuRow(a.cx, lucide.MessageSquarePlus, apptext.T("新建子会话"), "", false, func() { a.newLinkedSession(sess()) }),
 		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(sess().ID, "会话 ID") }),
 		a.menuRow(a.cx, lucide.CopyPlus, "复制会话", "", false, func() { a.duplicateSession(sess()) }),
 		a.menuRow(a.cx, lucide.FileDown, "导出…", "", false, func() { a.openExport(sess()) }),
@@ -648,7 +651,7 @@ func (a *app) trustMenuItem(w *workspace) string {
 
 func (a *app) projectMenuItems(w func() *workspace) []core.Node {
 	return []core.Node{
-		a.menuRow(a.cx, lucide.SquarePen, "在此新建会话", "", false, func() { a.newSession(w().Path) }),
+		a.menuRow(a.cx, lucide.SquarePen, "在此新建会话", "", false, func() { a.newProjectSession(w()) }),
 		a.menuRow(a.cx, lucide.SquareTerminal, "在此打开终端", "", false, func() { a.openTerminalFor(w()) }),
 		a.menuRow(a.cx, lucide.FileInput, apptext.T("导入会话…"), "", false, func() { a.openImportDialogFor(w()) }),
 		a.menuRow(a.cx, lucide.GitBranch, "查看 Git 变更", "", false, func() { a.openGitFor(w()) }),

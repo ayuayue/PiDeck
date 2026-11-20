@@ -34,7 +34,6 @@ func (a *app) setTerminalFont(size float64) {
 		size = 20
 	}
 	a.termFont.Set(size)
-	a.bumpSettings()
 	stored := size
 	if size == 12.5 {
 		stored = 0
@@ -54,7 +53,6 @@ func (a *app) setEditorFont(size float64) {
 		size = 20
 	}
 	a.editorFont.Set(size)
-	a.bumpSettings()
 	stored := int(size + 0.5)
 	if stored == 13 {
 		stored = 0

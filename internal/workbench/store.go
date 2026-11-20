@@ -16,12 +16,17 @@ import (
 
 // store holds the config file and the session directory.
 type store struct {
-	dir      string // app data
-	sessions string // private pi session directory
-	path     string // config.json
-	mu       sync.Mutex
-	writeMu  sync.Mutex
-	c        *config
+	dir                 string // app data
+	sessions            string // private pi session directory
+	path                string // config.json
+	mu                  sync.Mutex
+	writeMu             sync.Mutex
+	c                   *config
+	organizationMu      sync.Mutex
+	organizationWriteMu sync.Mutex
+	organization        sessionOrganization
+	draftMu             sync.Mutex
+	draftSeq            map[string]uint64
 	// metas caches the listing of each session file, keyed by path, so a
 	// rescan only reads files whose size or modification time changed.
 	metas map[string]metaCacheEntry
@@ -64,6 +69,7 @@ func newStore(dataDir string) (*store, error) {
 		return nil, err
 	}
 	s.loadMetaCache()
+	s.organization = readSessionOrganization(dataDir)
 	if raw, err := os.ReadFile(s.path); err == nil {
 		var c config
 		if json.Unmarshal(raw, &c) == nil {

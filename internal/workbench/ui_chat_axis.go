@@ -99,7 +99,10 @@ func (a *app) turnAxis(s *session) core.Node {
 					// to its full length, so the scale does not read as a picket
 					// fence at rest.
 					st := core.Style{Width: core.Pt(axisTickNarrow), Height: core.Pt(2.5), CornerRadius: 1.25,
-						Background: colors.Faint(), Transition: axisGrow}
+						Background: colors.Faint()}
+					if !a.reduceEffects.Get() && !ui.ReduceMotion(cx) {
+						st.Transition = axisGrow
+					}
 					if a.axisHover.Get() == pos {
 						st.Width = core.Pt(axisTickWidth)
 						st.Background = colors.Text()
@@ -173,8 +176,11 @@ func (a *app) axisHint(s *session, shown []int, box core.Points, pitch float64) 
 				BorderWidth: 1, BorderColor: colors.Border(), Shadows: []core.BoxShadow{ui.Shadow(0, 10, 26, 0, ui.Black(0.16))},
 				PointerEvents: core.PointerEventsNone},
 			StyleFunc: func() core.Style {
-				st := core.Style{Opacity: core.Alpha(1), Transition: core.Transition{Duration: 120 * time.Millisecond, Easing: core.EaseOut,
-					Properties: core.TransitionOpacity | core.TransitionTransform}}
+				st := core.Style{Opacity: core.Alpha(1)}
+				if !a.reduceEffects.Get() && !ui.ReduceMotion(cx) {
+					st.Transition = core.Transition{Duration: 120 * time.Millisecond, Easing: core.EaseOut,
+						Properties: core.TransitionOpacity | core.TransitionTransform}
+				}
 				if !a.axisHintIn.Get() {
 					st.Opacity = core.Alpha(0)
 					st.Transform = core.Transform{TranslateY: 2}

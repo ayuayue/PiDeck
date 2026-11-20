@@ -30,6 +30,8 @@ func (a *app) settingsEnv() core.Node {
 				}
 				return info.PiPath
 			}(), ui.Text(piVersionLine(info), 10.5, ui.Regular, colors.Faint)),
+			a.piUpdateSetting(piOK),
+			a.sessionLinkSetting(),
 			setDivider(),
 			setRow("pi 会话目录", info.SessionsDir, ui.Button{Text: apptext.T("打开"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() {
 				if info.SessionsDir != "" {

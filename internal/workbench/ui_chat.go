@@ -93,7 +93,7 @@ func (a *app) composerStack(s *session) core.Node {
 				When: func() bool { return s.showingAsk() != nil },
 				Then: func(*core.Scope) core.Node { return a.askPanel(s) },
 				Else: func(*core.Scope) core.Node {
-					return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.composer(s)}}
+					return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s)}}
 				},
 			},
 		}},

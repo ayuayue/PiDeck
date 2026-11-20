@@ -7,6 +7,7 @@ package workbench
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/viewkit"
@@ -26,7 +27,7 @@ func (a *app) loadMCPServers(force bool) {
 	a.mcpErr.Set("")
 	pi := a.piPath()
 	dir := ""
-	if ws := a.activeWorkspace(); ws != nil && !ws.Target.remote() {
+	if ws := a.activeWorkspace(); ws != nil && !ws.Target.remote() && a.projectTrusted(ws) {
 		dir = ws.Path
 	}
 	go func() {
@@ -71,9 +72,13 @@ func (a *app) addMCPServer() {
 	pi := a.piPath()
 	dir := ""
 	if a.mcpLocal.GetUntracked() {
-		if ws := a.activeWorkspace(); ws != nil && !ws.Target.remote() {
-			dir = ws.Path
+		ws := a.activeWorkspace()
+		if ws == nil || ws.Target.remote() || !a.projectTrusted(ws) {
+			a.mcpAddBusy.Set(false)
+			a.mcpAddErr.Set(apptext.T("请选择已信任的本机项目。"))
+			return
 		}
+		dir = ws.Path
 	}
 	go func() {
 		err := runMCP(pi, dir, args...)
@@ -96,8 +101,10 @@ func (a *app) removeMCPServer(s mcpServer) {
 		pi := a.piPath()
 		dir := ""
 		if s.Scope != "global" {
-			if ws := a.activeWorkspace(); ws != nil && !ws.Target.remote() {
-				dir = ws.Path
+			dir = s.project
+			if ws := a.workspaceOf(dir); ws == nil || !a.projectTrusted(ws) {
+				a.toast(ui.ToastWarning, "请选择已信任的本机项目。", "")
+				return
 			}
 		}
 		go func() {
@@ -112,6 +119,28 @@ func (a *app) removeMCPServer(s mcpServer) {
 			})
 		}()
 	})
+}
+
+func (a *app) mcpAuthorize(s mcpServer, action string) {
+	local := s.Scope != "global"
+	if local {
+		if ws := a.workspaceOf(s.project); ws == nil || !a.projectTrusted(ws) {
+			a.toast(ui.ToastWarning, "请选择已信任的本机项目。", "")
+			return
+		}
+	}
+	args, err := mcpAuthArgs(action, s.Name, local)
+	if err != nil {
+		a.toast(ui.ToastError, "配置失败", err.Error())
+		return
+	}
+	dir := loginDir()
+	if local {
+		dir = s.project
+	}
+	a.term.open.Set(true)
+	a.remember()
+	a.term.newCommandTab(dir, localTarget, "MCP · "+s.Name, piTerminalCommand(a.piPath(), args...), func() { a.loadMCPServers(true) })
 }
 
 // settingsMCP lists the servers with add and remove.
@@ -144,11 +173,17 @@ func (a *app) settingsMCP() core.Node {
 			if !srv.Enabled {
 				help = "已停用 · " + help
 			}
-			control := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+			controls := []core.Node{
 				ui.Text(srv.State, 10.5, ui.Medium, stateColor),
 				a.pressIcon(lucide.Trash, "移除 "+srv.Name, 24, 12, nil, func() { a.removeMCPServer(srv) },
 					fmt.Sprintf("mcp-remove-%d", i)),
-			}}
+			}
+			if srv.Transport == "http" || srv.Transport == "streamable-http" {
+				controls = append(controls,
+					ui.IconButton{Icon: lucide.LogIn, Label: apptext.T("登录"), TestID: "mcp-login-" + srv.Name, OnPress: func() { a.mcpAuthorize(srv, "login") }},
+					ui.IconButton{Icon: lucide.LogOut, Label: apptext.T("登出"), TestID: "mcp-logout-" + srv.Name, OnPress: func() { a.mcpAuthorize(srv, "logout") }})
+			}
+			control := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: controls}
 			rows = append(rows, setRow(srv.Name+" · "+srv.Scope, help, control))
 			if i < len(list)-1 {
 				rows = append(rows, setDivider())
@@ -159,6 +194,13 @@ func (a *app) settingsMCP() core.Node {
 		}
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+				setGroup("智能体记忆", setRow("会话记忆工具", "让已信任的本机 pi 会话搜索历史和读写项目记忆。开启后重启 Agent 生效。",
+					ui.Switch{Label: apptext.T("会话记忆工具"), TestID: "memory-tools-toggle", Checked: func() bool { return a.cfg.MemoryTools }, OnChange: func(on bool) {
+						a.cfg.MemoryTools = on
+						a.st.edit(func(c *config) { c.MemoryTools = on })
+						a.bumpSettings()
+					}}),
+					ui.Button{Text: apptext.T("管理记忆"), TestID: "memory-manage", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.openPane(paneMemory) }}),
 				setGroup("服务器", rows...),
 				core.Text{Content: apptext.T("列表来自 pi mcp list；服务器配置由 pi 保存在 mcp.json 里。"),
 					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
@@ -171,6 +213,19 @@ func (a *app) settingsMCP() core.Node {
 						OnPress: a.openMCPAdd},
 					ui.Button{Text: apptext.T("刷新"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 						Disabled: func() bool { return busy }, OnPress: func() { a.loadMCPServers(true) }},
+					ui.Button{Text: apptext.T("编辑 mcp.json"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mcp-edit-json",
+						OnPress: func() { a.openPiConfigFile("mcp.json") }},
+					core.Show{When: func() bool {
+						ws := a.activeWorkspace()
+						return ws != nil && !ws.Target.remote() && a.projectTrusted(ws)
+					},
+						Then: func(*core.Scope) core.Node {
+							return ui.Button{Text: apptext.T("编辑项目 MCP 配置"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "mcp-edit-project-json", OnPress: func() {
+								if ws := a.activeWorkspace(); ws != nil && !ws.Target.remote() && a.projectTrusted(ws) {
+									a.openEditorFile(ws.Path, filepath.Join(ws.Path, ".pi", "mcp.json"))
+								}
+							}}
+						}},
 				}},
 			}},
 		}}

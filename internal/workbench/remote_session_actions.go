@@ -150,21 +150,29 @@ func (h *remoteHost) sessionPin(w http.ResponseWriter, r *http.Request, id strin
 }
 
 // sessionDelete removes a session and moves its file to the trash.
-func (h *remoteHost) sessionDelete(w http.ResponseWriter, id string) {
-	var failure error
+func (h *remoteHost) sessionDelete(w http.ResponseWriter, r *http.Request, id string) {
+	done := make(chan error, 1)
 	ok := h.app.withUI(func() {
 		s := h.app.byID[id]
 		if s == nil {
-			failure = errors.New("找不到这个会话")
+			done <- errors.New("找不到这个会话")
 			return
 		}
 		if s.External {
-			failure = errors.New("这是 pi 自己的会话，不能在手机上删除")
+			done <- errors.New("这是 pi 自己的会话，不能在手机上删除")
 			return
 		}
-		h.app.removeSession(s)
+		h.app.removeSession(s, func(err error) { done <- err })
 	})
-	h.finishAction(w, ok, failure, map[string]any{"ok": true})
+	if !ok {
+		h.finishAction(w, false, nil, nil)
+		return
+	}
+	select {
+	case failure := <-done:
+		h.finishAction(w, true, failure, map[string]any{"ok": true})
+	case <-r.Context().Done():
+	}
 }
 
 // sessionOptions lists the models and levels of a session, starting pi

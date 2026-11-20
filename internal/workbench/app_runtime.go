@@ -6,6 +6,7 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -19,13 +20,13 @@ import (
 // activeWorkspace is the workspace the active session belongs to, or the
 // last one chosen in the rail.
 func (a *app) activeWorkspace() *workspace {
+	if ws := a.workspaceByWireKey(a.activeWS.Get()); ws != nil {
+		return ws
+	}
 	if s := a.active(); s != nil {
 		if ws := a.workspaceFor(s.Target, s.WS); ws != nil {
 			return ws
 		}
-	}
-	if ws := a.workspaceOf(a.activeWS.Get()); ws != nil {
-		return ws
 	}
 	if list := a.workspaces.Get(); len(list) > 0 {
 		return list[0]
@@ -62,15 +63,18 @@ func (a *app) workspaceOf(path string) *workspace { return a.workspaceFor(localT
 
 // cleanTargetPath normalises a workspace path for its target: cleaned for
 // this machine, kept as typed elsewhere.
-func cleanTargetPath(t target, path string) string {
-	path = strings.TrimSpace(path)
+func cleanTargetPath(t target, value string) string {
+	value = strings.TrimSpace(value)
 	if t.remote() {
-		return strings.TrimRight(path, "/")
+		if !strings.HasPrefix(value, "/") || strings.ContainsAny(value, "\x00\r\n") {
+			return ""
+		}
+		return path.Clean(value)
 	}
-	if path == "" {
+	if value == "" {
 		return ""
 	}
-	return filepath.Clean(path)
+	return filepath.Clean(value)
 }
 
 // samePath reports whether two local folder paths name the same folder.
@@ -142,7 +146,7 @@ func (a *app) tick() {
 // animateNextLayout eases the next batch's moves, inserts and deletes,
 // unless the user asked for less motion.
 func (a *app) animateNextLayout() {
-	if ui.ReduceMotion(a.cx) {
+	if a.reduceEffects.GetUntracked() || ui.ReduceMotion(a.cx) {
 		return
 	}
 	a.cx.AnimateLayout(core.LayoutEaseInEaseOutPreset)

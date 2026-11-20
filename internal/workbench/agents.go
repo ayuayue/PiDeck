@@ -225,7 +225,7 @@ func (a *app) newPersonaSession(p agentPersona) {
 		}
 		s = a.newACPSession(ws, *preset)
 	} else if ws := a.activeWorkspace(); ws != nil {
-		s = a.newSession(ws.Path)
+		s = a.newProjectSession(ws)
 	} else {
 		// No project yet: the built-in chat is a fine place to start.
 		s = a.openChat()

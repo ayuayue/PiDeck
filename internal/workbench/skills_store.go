@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 // skillIndexEntry is one skill in an index.
 type skillIndexEntry struct {
+	Snapshot    bool   `json:"snapshot,omitempty" yaml:"snapshot,omitempty"`
 	ID          string `json:"id" yaml:"id"`
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description" yaml:"description"`
@@ -43,6 +45,10 @@ func fetchSkillIndex(rawURL string) ([]skillIndexEntry, error) {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
+	}
+	u, _ := url.Parse(rawURL)
+	if u != nil && u.Hostname() == "skills.sh" && u.Path == "/api/search" {
+		return parseSkillsSearch(raw)
 	}
 	var index struct {
 		Skills []skillIndexEntry `json:"skills" yaml:"skills"`
@@ -77,7 +83,7 @@ func fetchSkillIndex(rawURL string) ([]skillIndexEntry, error) {
 
 // skillInstallDir is the folder a skill id installs into.
 func skillInstallDir(id string) (string, error) {
-	if !marketID.MatchString(id) {
+	if !marketID.MatchString(id) || id == "." || id == ".." {
 		return "", errors.New("技能 id 只能包含字母、数字、点、下划线和短横线")
 	}
 	dirs := skillsDirs()
@@ -89,6 +95,9 @@ func skillInstallDir(id string) (string, error) {
 
 // installSkill downloads one SKILL.md into pi's skills folder.
 func installSkill(e skillIndexEntry) (string, error) {
+	if e.Snapshot {
+		return installSkillSnapshot(e)
+	}
 	dir, err := skillInstallDir(e.ID)
 	if err != nil {
 		return "", err
@@ -115,7 +124,7 @@ func installSkill(e skillIndexEntry) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, "SKILL.md")
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
+	if err := writeFileAtomic(path, raw, 0o644); err != nil {
 		return "", err
 	}
 	return path, nil

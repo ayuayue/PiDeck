@@ -8,12 +8,37 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
+
+func TestDSHUsesPublishedACPProfile(t *testing.T) {
+	for _, preset := range acpPresets() {
+		if preset.ID == "dsh" {
+			if preset.Command != "dsh" || !slices.Equal(preset.Args, []string{"--profile", "acp"}) || preset.Install != "@deepseek-ai/dsh" {
+				t.Fatalf("DSH preset launches the wrong profile: %+v", preset)
+			}
+			return
+		}
+	}
+	t.Fatal("DSH ACP preset is missing")
+}
+
+func TestACPPresetInstallFromBuiltinOnly(t *testing.T) {
+	args, ok := acpPresetInstallArgs("dsh")
+	if want := []string{"install", "--global", "--no-audit", "--no-fund", "@deepseek-ai/dsh"}; !ok || !slices.Equal(args, want) {
+		t.Fatalf("install args = %v, %v, want %v", args, ok, want)
+	}
+	for _, id := range []string{"custom", "qoder", "claude", "--global", "@deepseek-ai/dsh"} {
+		if args, ok := acpPresetInstallArgs(id); ok || len(args) != 0 {
+			t.Errorf("%q can launch an installer: %v", id, args)
+		}
+	}
+}
 
 // TestACPPresetList checks files add presets, bad entries are skipped and
 // built-ins stay.

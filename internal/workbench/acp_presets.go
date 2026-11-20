@@ -14,12 +14,44 @@ import (
 	"path/filepath"
 	"strings"
 
+	"example.com/pideck-lite/internal/apptext"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // acpPresetFile is one file's presets.
 type acpPresetFile struct {
 	Presets []acpPreset `json:"presets"`
+}
+
+type acpPresetStatus struct {
+	label string
+	ready bool
+}
+
+type acpManagerSnapshot struct {
+	checked bool
+	npm     bool
+	custom  []acpPreset
+	status  map[string]acpPresetStatus
+}
+
+func (a *app) refreshACPManager() {
+	a.acpManageProbe++
+	probe := a.acpManageProbe
+	go func() {
+		custom := a.acpCustomPresets()
+		status := make(map[string]acpPresetStatus)
+		for _, p := range append(acpPresets(), custom...) {
+			label, ready := acpPresetState(p)
+			status[p.ID] = acpPresetStatus{label, ready}
+		}
+		_, npmErr := exec.LookPath("npm")
+		a.cx.Post(func() {
+			if probe == a.acpManageProbe {
+				a.acpManager.Set(acpManagerSnapshot{checked: true, npm: npmErr == nil, custom: custom, status: status})
+			}
+		})
+	}()
 }
 
 // acpDir is where custom presets live.
@@ -87,8 +119,16 @@ func (a *app) openACPDir() {
 	if dir == "" {
 		return
 	}
-	_ = os.MkdirAll(dir, 0o755)
-	a.cx.OpenURL(fileURL(dir), nil)
+	go func() {
+		err := os.MkdirAll(dir, 0o755)
+		a.cx.Post(func() {
+			if err != nil {
+				a.toast(ui.ToastError, "打开目录失败", err.Error())
+				return
+			}
+			a.cx.OpenURL(fileURL(dir), nil)
+		})
+	}()
 }
 
 // acpCustomFile is the file the preset manager reads and writes.
@@ -147,52 +187,75 @@ func (a *app) saveACPPresets(list []acpPreset) error {
 
 // addACPPreset appends one from the manager's fields.
 func (a *app) addACPPreset() {
+	if a.acpManageBusy.GetUntracked() {
+		return
+	}
 	id := strings.TrimSpace(a.acpNewID.GetUntracked())
 	name := strings.TrimSpace(a.acpNewName.GetUntracked())
 	command := strings.TrimSpace(a.acpNewCommand.GetUntracked())
 	args := strings.Fields(a.acpNewArgs.GetUntracked())
 	switch {
 	case id == "" || name == "" || command == "":
-		a.acpManageErr.Set("id、名称和命令都要填。")
+		a.acpManageErr.Set(apptext.T("id、名称和命令都要填。"))
 		return
 	case !marketID.MatchString(id):
-		a.acpManageErr.Set("id 只能包含字母、数字、点、下划线和短横线。")
+		a.acpManageErr.Set(apptext.T("id 只能包含字母、数字、点、下划线和短横线。"))
 		return
 	}
-	for _, p := range a.acpPresetList() {
-		if p.ID == id {
-			a.acpManageErr.Set("已经有这个 id 的预设。")
-			return
-		}
-	}
-	list := append(a.acpCustomPresets(), acpPreset{ID: id, Name: name, Command: command, Args: args})
-	if err := a.saveACPPresets(list); err != nil {
-		a.acpManageErr.Set(err.Error())
-		return
-	}
+	a.acpManageBusy.Set(true)
 	a.acpManageErr.Set("")
-	a.acpManageRev.Update(func(n int) int { return n + 1 })
-	a.acpNewID.Set("")
-	a.acpNewName.Set("")
-	a.acpNewCommand.Set("")
-	a.acpNewArgs.Set("")
-	a.toast(ui.ToastSuccess, "已添加 ACP 预设", name)
+	go func() {
+		var err error
+		for _, p := range a.acpPresetList() {
+			if p.ID == id {
+				err = fmt.Errorf("%s", apptext.T("已经有这个 id 的预设。"))
+				break
+			}
+		}
+		if err == nil {
+			list := append(a.acpCustomPresets(), acpPreset{ID: id, Name: name, Command: command, Args: args})
+			err = a.saveACPPresets(list)
+		}
+		a.cx.Post(func() {
+			a.acpManageBusy.Set(false)
+			if err != nil {
+				a.acpManageErr.Set(err.Error())
+				return
+			}
+			a.acpNewID.Set("")
+			a.acpNewName.Set("")
+			a.acpNewCommand.Set("")
+			a.acpNewArgs.Set("")
+			a.refreshACPManager()
+			a.toast(ui.ToastSuccess, "已添加 ACP 预设", name)
+		})
+	}()
 }
 
 // removeACPPreset deletes one editable preset.
 func (a *app) removeACPPreset(id string) {
-	var out []acpPreset
-	for _, p := range a.acpCustomPresets() {
-		if p.ID != id {
-			out = append(out, p)
-		}
-	}
-	if err := a.saveACPPresets(out); err != nil {
-		a.toast(ui.ToastError, "删除预设失败", err.Error())
+	if a.acpManageBusy.GetUntracked() {
 		return
 	}
-	a.acpManageRev.Update(func(n int) int { return n + 1 })
-	a.toast(ui.ToastInfo, "已删除预设", id)
+	a.acpManageBusy.Set(true)
+	go func() {
+		var out []acpPreset
+		for _, p := range a.acpCustomPresets() {
+			if p.ID != id {
+				out = append(out, p)
+			}
+		}
+		err := a.saveACPPresets(out)
+		a.cx.Post(func() {
+			a.acpManageBusy.Set(false)
+			if err != nil {
+				a.toast(ui.ToastError, "删除预设失败", err.Error())
+				return
+			}
+			a.refreshACPManager()
+			a.toast(ui.ToastInfo, "已删除预设", id)
+		})
+	}()
 }
 
 // acpPresetInstall is what the user runs to get a preset's CLI here.
@@ -222,13 +285,13 @@ func acpPresetState(p acpPreset) (string, bool) {
 	path, ok := acpPresetReady(p)
 	switch {
 	case ok && p.Npx:
-		return "npx 已就绪 · 首次运行会下载它", true
+		return apptext.T("npx 已就绪 · 首次运行会下载它"), true
 	case ok:
-		return "已安装 · " + shorten(filepath.Base(path), 40), true
+		return apptext.T("已安装 · %s", shorten(filepath.Base(path), 40)), true
 	case p.Npx:
-		return "需要 Node.js：找不到 npx", false
+		return apptext.T("需要 Node.js：找不到 npx"), false
 	case p.Install != "":
-		return "未安装 · " + acpPresetInstall(p), false
+		return apptext.T("未安装 · %s", acpPresetInstall(p)), false
 	}
-	return "未安装 · 按官网说明安装", false
+	return apptext.T("未安装 · 按官网说明安装"), false
 }

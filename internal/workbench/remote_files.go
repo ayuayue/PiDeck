@@ -8,12 +8,13 @@ package workbench
 // the LAN, over Tailscale or over EasyTier.
 
 import (
-	"bytes"
+	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
+	"time"
 
 	"example.com/pideck-lite/internal/remotewire"
 )
@@ -42,15 +43,32 @@ func (h *remoteHost) handleGit(w http.ResponseWriter, r *http.Request) {
 	writeRemoteJSON(w, http.StatusOK, remoteGitOf(readGitState(localTarget, path, 1)))
 }
 
-// projectPath resolves a request's project to a local folder.
-func (h *remoteHost) projectPath(project string) (string, bool) {
-	var path string
+func projectWireKey(ws *workspace) string {
+	if ws.Target.remote() {
+		return trustKey(ws)
+	}
+	return ws.Path
+}
+
+func (a *app) workspaceByWireKey(project string) *workspace {
+	for _, ws := range a.workspaces.GetUntracked() {
+		if projectWireKey(ws) == project || (!ws.Target.remote() && samePath(ws.Path, project)) {
+			return ws
+		}
+	}
+	return nil
+}
+
+func (h *remoteHost) remoteWorkspaceFile(project, rel string) (workspaceFile, bool, bool) {
+	var file workspaceFile
+	var writable bool
 	ok := h.app.withUI(func() {
-		if ws := h.app.workspaceOf(project); ws != nil && !ws.Target.remote() {
-			path = ws.Path
+		if ws := h.app.workspaceByWireKey(project); ws != nil {
+			file = workspaceFile{target: ws.Target, root: ws.Path, rel: rel}
+			writable = h.app.projectTrusted(ws)
 		}
 	})
-	return path, ok
+	return file, writable, ok
 }
 
 // remoteFileMax is the largest file the phone may read.
@@ -62,22 +80,41 @@ func (h *remoteHost) handleFiles(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	root, ok := h.projectPath(r.URL.Query().Get("project"))
+	file, _, ok := h.remoteWorkspaceFile(r.URL.Query().Get("project"), "")
 	if !ok {
 		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
 		return
 	}
-	if root == "" {
+	if file.root == "" {
 		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个项目"})
 		return
 	}
-	files := walkWorkspaceFiles(root)
-	sort.Strings(files)
+	var files []string
+	if file.target.remote() {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		var err error
+		files, err = file.target.targetFiles(ctx, file.root)
+		if err != nil {
+			writeRemoteJSON(w, http.StatusBadGateway, map[string]string{"error": fileEditorError(err)})
+			return
+		}
+	} else {
+		files = walkWorkspaceFiles(file.root)
+		sort.Strings(files)
+	}
 	out := make([]remotewire.File, 0, len(files))
 	for _, rel := range files {
+		if _, ok := workspaceFileRel(rel); !ok {
+			continue
+		}
 		var size int64
-		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
-			size = info.Size()
+		if !file.target.remote() {
+			if info, err := os.Lstat(filepath.Join(file.root, filepath.FromSlash(rel))); err == nil && info.Mode().IsRegular() {
+				size = info.Size()
+			} else {
+				continue
+			}
 		}
 		out = append(out, remotewire.File{Path: rel, Size: size})
 	}
@@ -86,60 +123,80 @@ func (h *remoteHost) handleFiles(w http.ResponseWriter, r *http.Request) {
 
 // handleFile reads one file's text, refusing what the editor refuses too.
 func (h *remoteHost) handleFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		h.handleFileWrite(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	root, ok := h.projectPath(r.URL.Query().Get("project"))
+	file, writable, ok := h.remoteWorkspaceFile(r.URL.Query().Get("project"), r.URL.Query().Get("path"))
 	if !ok {
 		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
 		return
 	}
-	if root == "" {
+	if file.root == "" {
 		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个项目"})
 		return
 	}
-	rel := r.URL.Query().Get("path")
-	full, ok := fileWithin(root, rel)
-	if !ok {
-		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": "路径不在这个项目里"})
-		return
-	}
-	info, err := os.Stat(full)
-	if err != nil || info.IsDir() {
-		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个文件"})
-		return
-	}
-	if info.Size() > remoteFileMax {
-		writeRemoteJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "文件太大，手机上只读 512 KB 以内的文件"})
-		return
-	}
-	data, err := os.ReadFile(full)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	data, err := file.read(ctx, remoteFileMax)
 	if err != nil {
-		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个文件"})
+		writeFileProblem(w, err)
 		return
 	}
-	if bytes.IndexByte(data[:min(len(data), 8000)], 0) >= 0 {
-		writeRemoteJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "这是二进制文件，不能当文本读"})
-		return
-	}
-	writeRemoteJSON(w, http.StatusOK, map[string]any{"path": filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel))), "text": string(data), "size": info.Size()})
+	writeRemoteJSON(w, http.StatusOK, remotewire.FileText{Path: file.rel, Text: string(data), Size: int64(len(data)),
+		Revision: workspaceRevision(data), Writable: writable})
 }
 
-// fileWithin resolves a request's relative path inside a root, refusing
-// anything that leaves it.
 func fileWithin(root, rel string) (string, bool) {
-	rel = strings.TrimSpace(rel)
-	if rel == "" {
+	if _, ok := workspaceFileRel(rel); !ok || !filepath.IsLocal(filepath.FromSlash(rel)) {
 		return "", false
 	}
-	clean := filepath.Clean(filepath.FromSlash(rel))
-	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", false
+	return filepath.Join(root, filepath.FromSlash(rel)), true
+}
+
+func (h *remoteHost) handleFileWrite(w http.ResponseWriter, r *http.Request) {
+	var req remotewire.FileWrite
+	if err := decodeRemoteBodyLimit(r, &req, 6*remoteFileMax+8192); err != nil {
+		writeRemoteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
-	full := filepath.Join(root, clean)
-	if inside, err := filepath.Rel(root, full); err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
-		return "", false
+	file, writable, ok := h.remoteWorkspaceFile(req.Project, req.Path)
+	switch {
+	case !ok:
+		writeRemoteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "界面正忙，请稍后再试"})
+	case file.root == "":
+		writeRemoteJSON(w, http.StatusNotFound, map[string]string{"error": "找不到这个项目"})
+	case !writable:
+		writeRemoteJSON(w, http.StatusForbidden, map[string]string{"error": "请先在电脑上信任这个项目。"})
+	default:
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		revision, err := file.save(ctx, req.Revision, []byte(req.Text), remoteFileMax)
+		if err != nil {
+			writeFileProblem(w, err)
+			return
+		}
+		writeRemoteJSON(w, http.StatusOK, remotewire.FileText{Path: file.rel, Size: int64(len(req.Text)), Revision: revision, Writable: true})
 	}
-	return full, true
+}
+
+func writeFileProblem(w http.ResponseWriter, err error) {
+	status, message := http.StatusBadGateway, "无法读取或保存文件"
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		status, message = http.StatusNotFound, "找不到这个文件"
+	case errors.Is(err, errFilePath):
+		status, message = http.StatusBadRequest, errFilePath.Error()
+	case errors.Is(err, errFileTooLarge):
+		status, message = http.StatusRequestEntityTooLarge, errFileTooLarge.Error()
+	case errors.Is(err, errFileBinary):
+		status, message = http.StatusUnsupportedMediaType, errFileBinary.Error()
+	case errors.Is(err, errFileConflict):
+		status, message = http.StatusConflict, errFileConflict.Error()
+	}
+	writeRemoteJSON(w, status, map[string]string{"error": message})
 }

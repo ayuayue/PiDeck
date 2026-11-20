@@ -6,6 +6,8 @@ package viewkit
 // markdown_desktop.go and markdown_client.go.
 
 import (
+	"unicode/utf8"
+
 	"example.com/pideck-lite/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
@@ -28,6 +30,11 @@ func MarkdownSized(text string, streaming func() bool, caret bool, size, line co
 // highlights its matches. size and line scale every part, so headings and
 // code follow the prose; 0 keeps the kit's sizes.
 func MarkdownSearch(search *textview.Search, text string, streaming func() bool, caret bool, size, line core.Points, tone core.Style) core.Node {
+	return MarkdownWithCodeWrap(search, text, streaming, caret, size, line, tone, nil)
+}
+
+// MarkdownWithCodeWrap lets a host choose the wrapping code renderer.
+func MarkdownWithCodeWrap(search *textview.Search, text string, streaming func() bool, caret bool, size, line core.Points, tone core.Style, wrapCode func() bool) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		styles := ui.TextViewStyles(cx)
 		if size > 0 {
@@ -65,7 +72,7 @@ func MarkdownSearch(search *textview.Search, text string, streaming func() bool,
 		styles[textview.PartSearchSelected] = core.Style{Background: ui.Alpha(colors.Accent(), 0.45)}
 		hl := newHighlighter(cx)
 		on := streaming()
-		return ui.TextView{
+		view := ui.TextView{
 			MarkdownFunc:         func() string { return text },
 			Options:              textview.Options{Streaming: on},
 			Styles:               styles,
@@ -78,5 +85,38 @@ func MarkdownSearch(search *textview.Search, text string, streaming func() bool,
 			NoCodeBlockScrollbar: true,
 			CodeBlockActions:     []textview.CodeAction{{ID: textview.CopyAction, Label: apptext.T("复制")}},
 		}
+		if wrapCode != nil && wrapCode() {
+			view.RenderCodeBlock = func(cx *core.Scope, code textview.CodeBlock) core.Node {
+				return wrappedCode(cx, code, hl, styles[textview.PartCodeBlock], styles[textview.PartCodeBlockCode])
+			}
+		}
+		return view
 	})
+}
+
+func wrappedCode(cx *core.Scope, code textview.CodeBlock, highlight textview.Highlighter, surface, text core.Style) core.Node {
+	return core.View{Style: surface.Merge(core.Style{Padding: core.Symmetric(8, 12), Gap: 4, MinWidth: core.Pt(0)}), Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyEnd}, Children: []core.Node{
+			ui.Button{Text: apptext.T("复制"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { cx.SetClipboard(code.Code) }},
+		}},
+		core.Text{SpansFunc: func() []core.Span {
+			var spans []core.Span
+			last := 0
+			for _, h := range highlight(code) {
+				if h.Start < last || h.End <= h.Start || h.End > len(code.Code) ||
+					!utf8.RuneStart(code.Code[h.Start]) || (h.End < len(code.Code) && !utf8.RuneStart(code.Code[h.End])) {
+					continue
+				}
+				if h.Start > last {
+					spans = append(spans, core.Span{Content: code.Code[last:h.Start]})
+				}
+				spans = append(spans, core.Span{Content: code.Code[h.Start:h.End], Class: h.Class, Style: h.Style})
+				last = h.End
+			}
+			if last < len(code.Code) {
+				spans = append(spans, core.Span{Content: code.Code[last:]})
+			}
+			return spans
+		}, Selectable: core.SelectableOn, Style: text.Merge(core.Style{WhiteSpace: core.WhiteSpaceNormal, MinWidth: core.Pt(0)})},
+	}}
 }

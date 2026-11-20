@@ -28,6 +28,7 @@ func (h *remoteHost) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ping", h.handlePing)
 	mux.HandleFunc("/api/state", h.handleState)
+	mux.HandleFunc("/api/transcript-image", h.handleTranscriptImage)
 	mux.HandleFunc("/api/session/", h.handleSession)
 	mux.HandleFunc("/api/sessions", h.handleCreateSession)
 	mux.HandleFunc("/api/agents", h.handleAgents)

@@ -94,6 +94,7 @@ func (s *store) config() config {
 	for k, v := range s.c.ForkParents {
 		c.ForkParents[k] = v
 	}
+	c.ACPChoices = cloneACPPreferences(s.c.ACPChoices)
 	c.Balances = make(map[string]balanceSpec, len(s.c.Balances))
 	for k, v := range s.c.Balances {
 		c.Balances[k] = v

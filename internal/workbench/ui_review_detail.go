@@ -100,65 +100,69 @@ func (a *app) reviewDetailMeta(colors ui.Colors, d *reviewDetail) core.Node {
 // reviewActions are the item's buttons: the AI hand-off, merge, and the
 // state change.
 func (a *app) reviewActions(colors ui.Colors, d *reviewDetail) core.Node {
-	item := d.Item
-	open := item.State == "OPEN"
-	busy := func() bool { return a.review.state.Get().Writing }
-	mergeOpen := func() bool { return a.review.mergeOpen.Get() }
-	reviewOpen := func() bool { return a.review.reviewOpen.Get() }
-	var mergeRow []core.Node
-	if item.Kind == reviewPR && open {
-		if mergeOpen() {
-			mergeRow = []core.Node{
-				ui.Button{Text: apptext.T("压缩合并"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
-					Disabled: busy, TestID: "review-merge-squash", OnPress: func() { a.reviewMerge(item, "squash") }},
-				ui.Button{Text: apptext.T("合并提交"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					Disabled: busy, OnPress: func() { a.reviewMerge(item, "merge") }},
-				ui.Button{Text: apptext.T("变基合并"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					Disabled: busy, OnPress: func() { a.reviewMerge(item, "rebase") }},
-				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.review.mergeOpen.Set(false) }},
+	// These pickers change independently of a GitHub detail refresh.
+	// Keep their state reads in a reactive region, not the Show constructor.
+	return core.Dynamic(func(*core.Scope) core.Node {
+		item := d.Item
+		open := item.State == "OPEN"
+		busy := func() bool { return a.review.state.Get().Writing }
+		mergeOpen := func() bool { return a.review.mergeOpen.Get() }
+		reviewOpen := func() bool { return a.review.reviewOpen.Get() }
+		var mergeRow []core.Node
+		if item.Kind == reviewPR && open {
+			if mergeOpen() {
+				mergeRow = []core.Node{
+					ui.Button{Text: apptext.T("压缩合并"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+						Disabled: busy, TestID: "review-merge-squash", OnPress: func() { a.reviewMerge(item, "squash") }},
+					ui.Button{Text: apptext.T("合并提交"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						Disabled: busy, OnPress: func() { a.reviewMerge(item, "merge") }},
+					ui.Button{Text: apptext.T("变基合并"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						Disabled: busy, OnPress: func() { a.reviewMerge(item, "rebase") }},
+					ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+						OnPress: func() { a.review.mergeOpen.Set(false) }},
+				}
+			} else {
+				mergeRow = []core.Node{ui.Button{Text: apptext.T("合并…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					Disabled: busy, TestID: "review-merge", OnPress: func() { a.review.mergeOpen.Set(true) }}}
 			}
-		} else {
-			mergeRow = []core.Node{ui.Button{Text: apptext.T("合并…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-				Disabled: busy, TestID: "review-merge", OnPress: func() { a.review.mergeOpen.Set(true) }}}
 		}
-	}
-	var reviewRow []core.Node
-	if item.Kind == reviewPR && open {
-		if reviewOpen() {
-			reviewRow = []core.Node{
-				ui.Button{Text: apptext.T("批准"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
-					Disabled: busy, TestID: "review-verdict-approve", OnPress: func() { a.reviewVerdict(item, verdictApprove) }},
-				ui.Button{Text: apptext.T("请求修改"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					Disabled: busy, TestID: "review-verdict-changes", OnPress: func() { a.reviewVerdict(item, verdictRequestChanges) }},
-				ui.Button{Text: apptext.T("只评论"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					Disabled: busy, TestID: "review-verdict-comment", OnPress: func() { a.reviewVerdict(item, verdictComment) }},
-				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.review.reviewOpen.Set(false) }},
+		var reviewRow []core.Node
+		if item.Kind == reviewPR && open {
+			if reviewOpen() {
+				reviewRow = []core.Node{
+					ui.Button{Text: apptext.T("批准"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+						Disabled: busy, TestID: "review-verdict-approve", OnPress: func() { a.reviewVerdict(item, verdictApprove) }},
+					ui.Button{Text: apptext.T("请求修改"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						Disabled: busy, TestID: "review-verdict-changes", OnPress: func() { a.reviewVerdict(item, verdictRequestChanges) }},
+					ui.Button{Text: apptext.T("只评论"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						Disabled: busy, TestID: "review-verdict-comment", OnPress: func() { a.reviewVerdict(item, verdictComment) }},
+					ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+						OnPress: func() { a.review.reviewOpen.Set(false) }},
+				}
+			} else {
+				reviewRow = []core.Node{ui.Button{Text: apptext.T("提交评审…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					Disabled: busy, TestID: "review-verdict", OnPress: func() { a.review.reviewOpen.Set(true) }}}
 			}
-		} else {
-			reviewRow = []core.Node{ui.Button{Text: apptext.T("提交评审…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-				Disabled: busy, TestID: "review-verdict", OnPress: func() { a.review.reviewOpen.Set(true) }}}
 		}
-	}
-	stateLabel, stateIcon := apptext.T("关闭"), lucide.CircleSlash
-	if !open {
-		stateLabel, stateIcon = apptext.T("重新打开"), lucide.RotateCcw
-	}
-	buttons := []core.Node{
-		ui.Button{Text: apptext.T("AI 评估"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, Icon: lucide.Sparkles,
-			Disabled: busy, TestID: "review-evaluate", OnPress: func() { a.evaluateReviewItem() }},
-	}
-	buttons = append(buttons, reviewRow...)
-	buttons = append(buttons, mergeRow...)
-	buttons = append(buttons, ui.Button{Text: stateLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Icon: stateIcon,
-		Disabled: busy, TestID: "review-state-change", OnPress: func() { a.reviewChangeState(item) }})
-	if item.URL != "" {
-		buttons = append(buttons, ui.Button{Text: apptext.T("浏览器"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-			Icon: lucide.ExternalLink, OnPress: func() { a.cx.OpenURL(item.URL, nil) }})
-	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Wrap: core.Wrap},
-		Children: buttons}
+		stateLabel, stateIcon := apptext.T("关闭"), lucide.CircleSlash
+		if !open {
+			stateLabel, stateIcon = apptext.T("重新打开"), lucide.RotateCcw
+		}
+		buttons := []core.Node{
+			ui.Button{Text: apptext.T("AI 评估"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, Icon: lucide.Sparkles,
+				Disabled: busy, TestID: "review-evaluate", OnPress: func() { a.evaluateReviewItem() }},
+		}
+		buttons = append(buttons, reviewRow...)
+		buttons = append(buttons, mergeRow...)
+		buttons = append(buttons, ui.Button{Text: stateLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Icon: stateIcon,
+			Disabled: busy, TestID: "review-state-change", OnPress: func() { a.reviewChangeState(item) }})
+		if item.URL != "" {
+			buttons = append(buttons, ui.Button{Text: apptext.T("浏览器"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				Icon: lucide.ExternalLink, OnPress: func() { a.cx.OpenURL(item.URL, nil) }})
+		}
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Wrap: core.Wrap},
+			Children: buttons}
+	})
 }
 
 // reviewChecks lists the checks, folded away when there are many.

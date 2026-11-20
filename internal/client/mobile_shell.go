@@ -606,6 +606,7 @@ func (a *mobileApp) settingsSheet() core.Node {
 					}},
 				}},
 				core.View{Style: core.Style{Gap: 2, Margin: core.Edges{Top: 2}}, Children: []core.Node{
+					a.notificationSettings(colors),
 					a.sheetRow(lucide.RefreshCw, apptext.T("刷新"), colors.Text, func() {
 						a.settingsOpen.Set(false)
 						a.refreshState()
@@ -710,7 +711,7 @@ func (a *mobileApp) chooseLanguage(code string) {
 func (a *mobileApp) saveLook() {
 	saveMobileSaved(a.cx, mobileSaved{Server: a.server.GetUntracked(), Token: a.token.GetUntracked(),
 		Recent: a.recent.GetUntracked(), Language: a.language.GetUntracked(), Appearance: a.appearance.GetUntracked(),
-		Project: a.initProject.GetUntracked(), Sound: a.soundOn.GetUntracked(), SoundName: a.soundName.GetUntracked()})
+		Project: a.initProject.GetUntracked(), Sound: a.soundOn.GetUntracked(), SoundName: a.soundName.GetUntracked(), Notify: a.notifyOn.GetUntracked()})
 }
 
 // projectCollapsed says the project's sessions are folded in the rail.

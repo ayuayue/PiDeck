@@ -8,6 +8,7 @@ package workbench
 import (
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -22,6 +23,7 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		status:         core.NewSignal(a.cx, statusIdle),
 		turns:          core.NewSignalFunc(a.cx, []turn{}, nil),
 		draft:          core.NewSignal(a.cx, ""),
+		draftChange:    core.NewSignal(a.cx, (*viewkit.DraftChange)(nil)),
 		images:         core.NewSignalFunc(a.cx, []remotewire.Image(nil), nil),
 		dropPending:    core.NewSignal(a.cx, 0),
 		model:          core.NewSignal(a.cx, modelInfo{}),
@@ -67,11 +69,14 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
 		acpMode:        core.NewSignal(a.cx, ""),
 		acpModes:       core.NewSignalFunc(a.cx, []acpMode(nil), nil),
+		acpOptions:     core.NewSignalFunc(a.cx, []acpConfigOption(nil), nil),
+		acpOptionBusy:  core.NewSignal(a.cx, false),
 		acpModeOpen:    core.NewSignal(a.cx, false),
 	}
 	s.conversation = newChatScroll(a.cx)
 	a.byID[s.ID] = s
 	a.all = append(a.all, s)
+	a.observeSessionDraft(s)
 	return s
 }
 
@@ -80,11 +85,10 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 func (a *app) newSession(path string) *session {
 	ws := a.activeWorkspace()
 	if path != "" {
-		for _, w := range a.workspaces.Get() {
-			if w.Path == path {
-				ws = w
-				break
-			}
+		if explicit := a.workspaceByWireKey(path); explicit != nil {
+			ws = explicit
+		} else if ws == nil || ws.Path != path {
+			ws = a.workspaceOf(path)
 		}
 	}
 	if ws == nil {
@@ -93,6 +97,10 @@ func (a *app) newSession(path string) *session {
 		a.pickNative("workspace")
 		return nil
 	}
+	return a.newProjectSession(ws)
+}
+
+func (a *app) newProjectSession(ws *workspace) *session {
 	title := "新会话"
 	if ws.Chat {
 		title = apptext.T("对话")

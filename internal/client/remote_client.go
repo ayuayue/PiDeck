@@ -440,12 +440,16 @@ func (c *remoteClient) files(project string) ([]remotewire.File, error) {
 }
 
 // file reads one file's text.
-func (c *remoteClient) file(project, path string) (string, error) {
-	var out struct {
-		Text string `json:"text"`
-	}
+func (c *remoteClient) file(project, path string) (remotewire.FileText, error) {
+	var out remotewire.FileText
 	err := c.do("/api/file?project="+url.QueryEscape(project)+"&path="+url.QueryEscape(path), &out)
-	return out.Text, err
+	return out, err
+}
+
+func (c *remoteClient) saveFile(req remotewire.FileWrite) (remotewire.FileText, error) {
+	var out remotewire.FileText
+	err := c.post("/api/file", req, &out)
+	return out, err
 }
 
 // gitDiff reads one changed file's patch.

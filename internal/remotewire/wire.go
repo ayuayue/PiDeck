@@ -15,6 +15,21 @@ type File struct {
 	Size int64  `json:"size"`
 }
 
+type FileText struct {
+	Path     string `json:"path"`
+	Text     string `json:"text"`
+	Size     int64  `json:"size"`
+	Revision string `json:"revision,omitempty"`
+	Writable bool   `json:"writable,omitempty"`
+}
+
+type FileWrite struct {
+	Project  string `json:"project"`
+	Path     string `json:"path"`
+	Text     string `json:"text"`
+	Revision string `json:"revision"`
+}
+
 // remoteWireGitFile is one changed path.
 type GitFile struct {
 	Path   string `json:"path"`
@@ -93,6 +108,8 @@ type Backend struct {
 type Project struct {
 	Path     string    `json:"path"`
 	Name     string    `json:"name"`
+	Target   string    `json:"target,omitempty"`
+	Root     string    `json:"root,omitempty"`
 	Sessions []Session `json:"sessions"`
 }
 
@@ -152,6 +169,8 @@ type Message struct {
 	// start. A client keeps the older pages it loaded by it while it
 	// refreshes the newest one.
 	Turn int `json:"turn,omitempty"`
+	// Image is an opaque reference for the transcript attachment endpoint.
+	Image string `json:"image,omitempty"`
 }
 
 type Transcript struct {

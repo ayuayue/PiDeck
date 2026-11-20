@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
@@ -19,7 +18,6 @@ import (
 func turnsFromMessages(msgs []piMessage) []turn {
 	var turns []turn
 	var cur *turn
-	results := map[string]toolRun{}
 	flush := func() {
 		if cur != nil {
 			turns = append(turns, *cur)
@@ -40,12 +38,10 @@ func turnsFromMessages(msgs []piMessage) []turn {
 		switch m.Role {
 		case "user":
 			flush()
-			cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Prompt: m.text(), Status: chat.Completed, Start: ts, End: ts}
-			for _, b := range m.blocks() {
-				if b.Type == "image" {
-					cur.Images = append(cur.Images, remotewire.Image{Name: "图片"})
-				}
-			}
+			blocks := m.blocks()
+			text := piBlockText(blocks)
+			cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), sourceEntryID: m.EntryID, sourcePrompt: text,
+				Prompt: text, Images: piBlockImages(blocks), Status: chat.Completed, Start: ts, End: ts}
 		case "assistant":
 			if cur == nil {
 				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts}
@@ -88,15 +84,9 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			}
 			if step.Text != "" || step.Thinking != "" || len(step.Tools) > 0 {
 				cur.Steps = append(cur.Steps, step)
-				for _, r := range step.Tools {
-					if r.CallID != "" {
-						// Later toolResult messages fill these in.
-						_ = r
-					}
-				}
 			}
 		case "toolResult":
-			run := toolRun{CallID: m.ToolCallID, Name: m.ToolName, Output: strings.TrimSpace(m.text()), IsError: m.IsError}
+			run := toolRunFromResult(m)
 			if cur != nil {
 				updated := false
 				for i := range cur.Steps {
@@ -112,7 +102,6 @@ func turnsFromMessages(msgs []piMessage) []turn {
 						Tools: []toolRun{mergeRun(toolRun{CallID: run.CallID, Name: run.Name, Action: "工具", Status: chat.Completed}, run)}})
 				}
 			}
-			results[m.ToolCallID] = run
 		case "bashExecution":
 			if cur == nil {
 				cur = &turn{ID: fmt.Sprintf("h%d", len(turns)), Status: chat.Completed, Start: ts, End: ts}

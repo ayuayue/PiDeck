@@ -50,6 +50,7 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 		running := run.Status == chat.Running
 		open := s.toolOpen(key, running)
 		body := toolBodyText(run)
+		hasBody := body != "" || len(run.Images) > 0
 		rowSize, detailSize := a.readingRowFont(), a.readingDetailFont()
 		header := []core.Node{
 			ui.IconOf(func() *core.SVG { return toolIcon(run) }, 14, func() core.Color {
@@ -61,7 +62,7 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 				}
 				return colors.Muted()
 			}),
-			core.Text{Content: run.Action, MaxLines: 1,
+			core.Text{Content: apptext.T(run.Action), MaxLines: 1,
 				Style:     core.Style{FontSize: rowSize, FontWeight: ui.Medium, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Muted)},
 			core.Text{Content: shorten(run.Detail, 140), MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
@@ -92,7 +93,7 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 			header = append(header, core.Text{Content: apptext.T("失败"), Style: core.Style{FontSize: detailSize, FontWeight: ui.Medium, FlexShrink: 0},
 				StyleFunc: ui.Colored(colors.Danger)})
 		}
-		if body != "" {
+		if hasBody {
 			header = append(header, ui.IconOf(func() *core.SVG {
 				if open {
 					return lucide.ChevronDown()
@@ -102,17 +103,25 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 		}
 		rows := []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(28),
 			Padding: core.Symmetric(2, 6), MinWidth: core.Pt(0)}, Children: header}}
-		if open && body != "" {
+		if open && hasBody {
+			children := a.toolBodyNodes(cx, run)
+			if len(run.Images) > 0 {
+				tiles := make([]core.Node, 0, len(run.Images))
+				for _, img := range run.Images {
+					tiles = append(tiles, a.transcriptImageTile(img))
+				}
+				children = append(children, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: tiles})
+			}
 			rows = append(rows, core.View{Style: core.Style{MinWidth: core.Pt(0), MaxHeight: core.Pt(320), Borders: core.Edges{Top: 1},
 				BorderColors: core.EdgeColors{Top: colors.Now().Line}}, Children: []core.Node{
 				core.Scroll{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
-					core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 4}, Children: a.toolBodyNodes(cx, run)},
+					core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 4}, Children: children},
 				}},
 			}})
 		}
 		return core.View{
 			OnPress: func(core.PressEvent) {
-				if body == "" {
+				if !hasBody {
 					return
 				}
 				s.toggleOpen(key)
@@ -120,7 +129,7 @@ func (a *app) toolRow(s *session, run toolRun) core.Node {
 			Role: core.RoleButton, Label: strings.TrimSpace(run.Action + " " + run.Detail),
 			StyleFunc: func() core.Style {
 				st := core.Style{MinWidth: core.Pt(0), CornerRadius: 8, Background: core.Transparent, Overflow: core.Hidden}
-				if body != "" {
+				if hasBody {
 					st.Hover = &core.Style{Background: ui.Mix(colors.Background(), colors.Text(), 0.04)}
 				}
 				if open {
@@ -160,7 +169,7 @@ func toolIcon(run toolRun) *core.SVG {
 		return lucide.Link()
 	case "todo", "todowrite":
 		return lucide.ListChecks()
-	case "task", "agent":
+	case "task", "agent", "Agent", "delegate", "acp_delegate", "subagent":
 		return lucide.Bot()
 	case "codemode":
 		return lucide.Code()

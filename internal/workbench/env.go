@@ -88,11 +88,9 @@ func (t target) command(piPath, dir, appSessions, id, sessionFile string, args [
 	if sessionFile != "" {
 		all = append(all, "--session", sessionFile)
 	} else {
-		folder := appSessions
-		if t.remote() {
-			folder = remoteDir
+		if !t.remote() {
+			all = append(all, "--session-dir", appSessions)
 		}
-		all = append(all, "--session-dir", folder)
 		if id != "" {
 			all = append(all, "--session-id", id)
 		}
@@ -113,16 +111,24 @@ func (t target) command(piPath, dir, appSessions, id, sessionFile string, args [
 		if runtime.GOOS != "windows" {
 			return nil, fmt.Errorf("WSL 只能在 Windows 上使用")
 		}
-		script := "exec " + shellJoin(append([]string{"pi"}, all...))
-		cmd := exec.Command("wsl.exe", "-d", t.Distro, "--cd", dir, "--", "sh", "-lc", script)
+		script := targetPiInvocation(all, sessionFile)
+		cmd := exec.Command("wsl.exe", "-d", t.Distro, "--cd", dir, "--exec", "sh", "-lc", script)
 		hideWindow(cmd)
 		return cmd, nil
 	default:
-		script := "cd " + shellQuote(dir) + " && exec " + shellJoin(append([]string{"pi"}, all...))
-		cmd := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T", t.Host, script)
+		script := "cd " + shellQuote(dir) + " && " + targetPiInvocation(all, sessionFile)
+		cmd := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T", "--", t.Host, script)
 		hideWindow(cmd)
 		return cmd, nil
 	}
+}
+
+func targetPiInvocation(args []string, sessionFile string) string {
+	script := "exec " + shellJoin(append([]string{"pi"}, args...))
+	if sessionFile == "" {
+		script += ` --session-dir "` + remoteDir + `"`
+	}
+	return script
 }
 
 // openFile builds a command that opens a path in the target's file manager.
@@ -287,7 +293,7 @@ func probePi(kind, where string) (path, version string, err error) {
 	script := "command -v pi && pi --version"
 	switch kind {
 	case "wsl":
-		cmd = exec.CommandContext(ctx, "wsl.exe", "-d", where, "--", "sh", "-lc", script)
+		cmd = exec.CommandContext(ctx, "wsl.exe", "-d", where, "--exec", "sh", "-lc", script)
 	case "ssh":
 		cmd = exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-T", where, script)
 	default:

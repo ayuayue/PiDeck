@@ -285,6 +285,12 @@ func (a *app) send() {
 	if s.filesLoading() {
 		return
 	}
+	if s != nil && !modeOn(s, modeImage) {
+		if script, ok := shellDraft(s.draft.GetUntracked()); ok {
+			a.runShellDraft(s, script)
+			return
+		}
+	}
 	a.sendDraft(s, "")
 }
 
@@ -307,7 +313,7 @@ func (a *app) sendDraft(s *session, behavior string) {
 		a.generateComposerImage(s, text)
 		return
 	}
-	if ws := a.workspaceOf(s.WS); ws != nil && !a.projectTrusted(ws) {
+	if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !a.projectTrusted(ws) {
 		a.askTrust(ws, func() {
 			s.draft.Set(text)
 			s.images.Set(images)

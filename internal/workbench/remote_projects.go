@@ -39,7 +39,7 @@ func (h *remoteHost) handleProject(w http.ResponseWriter, r *http.Request) {
 	if body.Remove {
 		var failure error
 		ok := h.app.withUI(func() {
-			ws := h.app.workspaceOf(path)
+			ws := h.app.workspaceByWireKey(path)
 			if ws == nil {
 				failure = errors.New("找不到这个项目")
 				return
@@ -79,12 +79,12 @@ func (h *remoteHost) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	var id, title string
 	var failure error
 	ok := h.app.withUI(func() {
-		ws := h.app.workspaceOf(project)
+		ws := h.app.workspaceByWireKey(project)
 		if ws == nil {
 			failure = errors.New("找不到这个项目")
 			return
 		}
-		s := h.app.newSession(ws.Path)
+		s := h.app.newProjectSession(ws)
 		if s == nil {
 			failure = errors.New("新建会话失败")
 			return

@@ -7,6 +7,7 @@ package workbench
 
 import (
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // Root builds the app once; signals drive everything after that. The
@@ -43,9 +44,15 @@ func Root(cx *core.Scope) core.Node {
 					return core.View{Style: fill.Merge(core.Style{Background: core.RGBA(base, veil),
 						PointerEvents: core.PointerEventsNone})}
 				})
+				wallpaperStyle := fill.Merge(core.Style{PointerEvents: core.PointerEventsNone})
+				var wallpaper core.Node = core.Image{Source: core.ImageSource{URI: img}, ResizeMode: core.Cover, Style: wallpaperStyle}
+				if wallpaperVideo(img) {
+					wallpaper = core.Video{Source: img, Muted: true, Repeat: true, ResizeMode: core.Cover, Style: wallpaperStyle,
+						PausedFunc: func() bool { return a.reduceEffects.Get() || cx.Env().ReduceMotion() || a.bgOpacity.Get() == 0 },
+						OnError:    func(err error) { a.toast(ui.ToastError, "视频壁纸播放失败", err.Error()) }, TestID: "video-wallpaper"}
+				}
 				return core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), FontFamily: font}, Children: []core.Node{
-					core.Image{Source: core.ImageSource{URI: img}, ResizeMode: core.Cover,
-						Style: fill.Merge(core.Style{PointerEvents: core.PointerEventsNone})},
+					wallpaper,
 					mask,
 					core.View{Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}, Children: []core.Node{a.view()}},
 				}}

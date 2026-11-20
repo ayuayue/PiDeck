@@ -16,7 +16,7 @@ import (
 
 // configVersion is the shape of config.json this build writes. A file
 // from an older build is migrated on load and written back once.
-const configVersion = 3
+const configVersion = 4
 
 // chatWidthPtMin and chatWidthPtMax were the old chat width slider's
 // range in points; they convert a config written before percentages.
@@ -93,6 +93,10 @@ func migrateConfig(c *config, raw []byte) bool {
 		c.Version = 3
 		changed = true
 	}
+	if c.Version < 4 {
+		c.Version = 4
+		changed = true
+	}
 	return normalizeConfig(c) || changed
 }
 
@@ -100,6 +104,16 @@ func migrateConfig(c *config, raw []byte) bool {
 // unknown choices, out-of-range sizes, and duplicate projects or tabs.
 func normalizeConfig(c *config) bool {
 	changed := normalizeBrandConfig(c)
+	if c.VoiceLocalURL != "" {
+		if _, err := whisperURL(c.VoiceLocalURL); err != nil {
+			c.VoiceLocalURL = ""
+			changed = true
+		}
+	}
+	if c.ACPSilenceSec != 0 && c.ACPSilenceSec != acpSilenceSeconds(c.ACPSilenceSec) {
+		c.ACPSilenceSec = 0
+		changed = true
+	}
 	trim := func(s *string) {
 		if v := strings.TrimSpace(*s); v != *s {
 			*s = v
@@ -113,6 +127,11 @@ func normalizeConfig(c *config) bool {
 	trim(&c.ProxyAgent)
 	trim(&c.ProxyBypass)
 	trim(&c.Theme)
+	trim(&c.BackgroundVideo)
+	if c.BackgroundVideo != "" && !wallpaperVideo(c.BackgroundVideo) {
+		c.BackgroundVideo = ""
+		changed = true
+	}
 	switch c.Theme {
 	case "classic":
 		c.Theme = "system"

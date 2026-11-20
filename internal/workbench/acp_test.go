@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+	"slices"
 	"testing"
 	"time"
 )
@@ -31,8 +32,24 @@ func TestFakeACPAgent(t *testing.T) {
 		}
 		switch msg.Method {
 		case "initialize":
+			result := map[string]any{"protocolVersion": 1}
+			if os.Getenv("PIDECK_FAKE_ACP_RESUME") == "1" {
+				result["agentCapabilities"] = map[string]any{"sessionCapabilities": map[string]any{"resume": map[string]any{}}}
+			}
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
-				"result": map[string]any{"protocolVersion": 1}})
+				"result": result})
+		case "session/resume":
+			var req struct {
+				SessionID string `json:"sessionId"`
+			}
+			if json.Unmarshal(msg.Params, &req) != nil || req.SessionID != "s1" {
+				os.Exit(2)
+			}
+			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
+				"result": map[string]any{"modes": map[string]any{"currentModeId": "resumed"}, "configOptions": []map[string]any{{
+					"id": "reasoning_effort", "name": "Reasoning effort", "category": "thought_level", "type": "select",
+					"currentValue": "high", "options": []map[string]string{{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}},
+				}}}})
 		case "session/new":
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
 				"result": map[string]any{"sessionId": "s1", "modes": map[string]any{
@@ -44,6 +61,9 @@ func TestFakeACPAgent(t *testing.T) {
 		case "session/set_mode":
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{}})
 		case "session/prompt":
+			if os.Getenv("PIDECK_FAKE_ACP_DROP") == "1" {
+				os.Exit(4)
+			}
 			ui := os.Getenv("PIDECK_FAKE_ACP_UI") == "1"
 			if !ui {
 				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update",
@@ -79,6 +99,50 @@ func TestFakeACPAgent(t *testing.T) {
 		}
 	}
 	os.Exit(0)
+}
+
+func TestACPDisconnectFinishesPendingPrompt(t *testing.T) {
+	t.Setenv("PIDECK_FAKE_ACP", "1")
+	t.Setenv("PIDECK_FAKE_ACP_DROP", "1")
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=^TestFakeACPAgent$"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.stop()
+	if _, err := c.initialize("PiDeck Lite", "test"); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() { _, err := c.prompt("s1", "hi"); result <- err }()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("a lost process reported success")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("disconnect left the prompt waiting for its ordinary timeout")
+	}
+}
+
+func TestACPResumeWithAdvertisedCapability(t *testing.T) {
+	t.Setenv("PIDECK_FAKE_ACP", "1")
+	t.Setenv("PIDECK_FAKE_ACP_RESUME", "1")
+	c, err := startACP(t.TempDir(), os.Args[0], []string{"-test.run=^TestFakeACPAgent$"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.stop()
+	if _, err := c.initialize("PiDeck Lite", "test"); err != nil {
+		t.Fatal(err)
+	}
+	state, err := c.loadSession("s1", t.TempDir())
+	if err != nil || state.CurrentModeID != "resumed" {
+		t.Fatalf("resume state = %+v, %v", state, err)
+	}
+	if len(state.Options) != 1 || state.Options[0].CurrentValue != "high" ||
+		!slices.EqualFunc(state.Options[0].Choices(), []string{"low", "high"}, func(o acpConfigChoice, v string) bool { return o.Value == v }) {
+		t.Fatalf("resume config options = %+v", state.Options)
+	}
 }
 
 // TestACPClient drives the handshake, a prompt and a permission request.

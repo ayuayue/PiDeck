@@ -104,20 +104,26 @@ func (a *mobileApp) runDraftTool(tool string) {
 		text, err := client.draftTool(id, tool, draft)
 		a.cx.Post(func() {
 			a.aiBusy.Set("")
-			if err != nil {
-				a.sendErr.Set(remoteErrorText(err))
+			if a.client != client {
 				return
 			}
-			a.sendErr.Set("")
+			if err != nil {
+				if a.active.GetUntracked() == id {
+					a.sendErr.Set(remoteErrorText(err))
+				}
+				return
+			}
+			if a.active.GetUntracked() == id {
+				a.sendErr.Set("")
+			}
 			text = strings.TrimSpace(text)
 			if text == "" {
 				return
 			}
 			if tool == "predict" {
-				a.draft.Set(strings.TrimRight(draft, " \n") + " " + text)
-				return
+				text = strings.TrimRight(draft, " \n") + " " + text
 			}
-			a.draft.Set(text)
+			a.offerDraftChange(client, id, draft, text)
 		})
 	}()
 }

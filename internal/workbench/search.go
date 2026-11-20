@@ -8,6 +8,7 @@ package workbench
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -16,7 +17,6 @@ import (
 	"time"
 
 	"example.com/pideck-lite/internal/viewkit"
-	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // searchDoc is one session in the index.
@@ -239,14 +239,18 @@ func readSearchDoc(path string) (searchDoc, bool) {
 }
 
 // matchSearch finds the query in titles and text, best first.
-func matchSearch(docs []searchDoc, query string, limit int) []searchHit {
+func matchSearch(ctx context.Context, docs []searchDoc, query string, limit int) []searchHit {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		return nil
 	}
 	var hits []searchHit
+	phonetic := pinyinQuery(q)
 	for _, d := range docs {
-		inTitle := strings.Contains(strings.ToLower(d.Title), q)
+		if ctx.Err() != nil {
+			return nil
+		}
+		inTitle := strings.Contains(strings.ToLower(d.Title), q) || matchesPinyin(d.Title, phonetic)
 		lower := strings.ToLower(d.Text)
 		count := strings.Count(lower, q)
 		if !inTitle && count == 0 {
@@ -291,169 +295,4 @@ func searchSnippet(text string, at, width int) string {
 		piece += "…"
 	}
 	return piece
-}
-
-// loadSearchIndex builds the index in the background and runs then on the
-// UI thread.
-func (a *app) loadSearchIndex(then func()) {
-	if a.searchIndexed {
-		if then != nil {
-			then()
-		}
-		return
-	}
-	if a.searchBuilding {
-		return
-	}
-	a.searchBuilding = true
-	a.searchBusy.Set(true)
-	roots := []string{}
-	if a.st != nil {
-		roots = append(roots, a.st.sessions)
-	}
-	projects := a.localProjectPaths()
-	go func() {
-		roots = uniqueSessionRoots(append(roots, piSessionRoots(projects)...)...)
-		docs := buildSearchIndex(roots, a.acpArchiveDir())
-		a.cx.Post(func() {
-			a.searchDocs = docs
-			a.searchIndexed = true
-			a.searchBuilding = false
-			a.searchBusy.Set(false)
-			if then != nil {
-				then()
-			} else {
-				a.runSearch()
-			}
-		})
-	}()
-}
-
-// openSearch shows the dialog and starts building the index.
-func (a *app) openSearch() {
-	a.searchText.Set("")
-	a.searchHits.Set(nil)
-	a.searchOpen.Set(true)
-	a.loadSearchIndex(nil)
-}
-
-// scheduleSearch runs the query after a short pause.
-func (a *app) scheduleSearch() {
-	a.searchGen++
-	gen := a.searchGen
-	time.AfterFunc(250*time.Millisecond, func() {
-		a.cx.Post(func() {
-			if gen != a.searchGen {
-				return
-			}
-			a.runSearch()
-		})
-	})
-}
-
-// runSearch filters the index now.
-func (a *app) runSearch() {
-	if !a.searchIndexed {
-		a.loadSearchIndex(func() { a.runSearch() })
-		return
-	}
-	q := a.searchText.GetUntracked()
-	a.searchHits.Set(matchSearch(a.searchDocs, q, 60))
-}
-
-// rememberSearch keeps a query among the recent ones, newest first.
-func (a *app) rememberSearch(query string) {
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return
-	}
-	list := []string{query}
-	for _, q := range a.cfg.RecentSearches {
-		if q != query {
-			list = append(list, q)
-		}
-	}
-	if len(list) > 8 {
-		list = list[:8]
-	}
-	a.cfg.RecentSearches = list
-	a.searchRev.Update(func(n int) int { return n + 1 })
-	if a.st != nil {
-		a.st.edit(func(c *config) { c.RecentSearches = append([]string(nil), list...) })
-	}
-}
-
-// clearSearches forgets the recent queries.
-func (a *app) clearSearches() {
-	a.cfg.RecentSearches = nil
-	a.searchRev.Update(func(n int) int { return n + 1 })
-	if a.st != nil {
-		a.st.edit(func(c *config) { c.RecentSearches = nil })
-	}
-}
-
-// openSearchHit opens the session a result names, creating it in the rail
-// when it is not there yet.
-func (a *app) openSearchHit(hit searchHit) {
-	a.rememberSearch(a.searchText.GetUntracked())
-	a.searchOpen.Set(false)
-	if s := a.byID[hit.ID]; s != nil {
-		a.selectSession(s)
-		return
-	}
-	if s := a.loadACPArchiveFile(hit.File); s != nil {
-		a.selectSession(s)
-		return
-	}
-	ws := a.workspaceOf(hit.Cwd)
-	if ws == nil {
-		a.addWorkspace(hit.Cwd)
-		ws = a.workspaceOf(hit.Cwd)
-	}
-	if ws == nil {
-		a.toast(ui.ToastError, "打不开这个会话", "它的项目目录不在本机。")
-		return
-	}
-	meta := sessionMeta{ID: hit.ID, Cwd: hit.Cwd, File: hit.File, Title: hit.Title,
-		Updated: hit.Updated, External: hit.External}
-	s := a.makeSession(meta, localTarget)
-	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
-	a.selectSession(s)
-}
-
-// searchVisible is the hits the dialog shows, after the scope chips.
-func (a *app) searchVisible() []searchHit {
-	return searchVisibleOf(a.searchHits.Get(), a.searchScope.Get())
-}
-
-// searchVisibleNow is the same list, read outside a render.
-func (a *app) searchVisibleNow() []searchHit {
-	return searchVisibleOf(a.searchHits.GetUntracked(), a.searchScope.GetUntracked())
-}
-
-func searchVisibleOf(hits []searchHit, scope string) []searchHit {
-	var out []searchHit
-	for _, h := range hits {
-		switch scope {
-		case "title":
-			if !h.InTitle {
-				continue
-			}
-		case "body":
-			if h.Count == 0 {
-				continue
-			}
-		}
-		out = append(out, h)
-	}
-	return out
-}
-
-// openSearchTop opens the first hit of the search, as Enter does.
-func (a *app) openSearchTop() {
-	hits := a.searchVisibleNow()
-	if len(hits) == 0 {
-		return
-	}
-	a.openSearchHit(hits[0])
 }

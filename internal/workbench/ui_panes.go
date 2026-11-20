@@ -19,12 +19,17 @@ import (
 
 // The panes, by id.
 const (
-	paneSettings  = "settings"
-	paneTasks     = "tasks"
-	paneAgents    = "agents"
-	paneFavorites = "favorites"
-	paneReview    = "review"
-	paneBrowser   = "browser"
+	paneSettings      = "settings"
+	paneTasks         = "tasks"
+	paneAgents        = "agents"
+	paneFavorites     = "favorites"
+	paneReview        = "review"
+	paneDrafts        = "drafts"
+	paneBrowser       = "browser"
+	paneActivity      = "activity"
+	paneMemory        = "memory"
+	paneNotifications = "notifications"
+	paneVideo         = "video"
 )
 
 // paneDef is one split pane: its tab, whether it is open, and its page.
@@ -44,6 +49,8 @@ func (a *app) panes() []paneDef {
 	return []paneDef{
 		{ID: paneSettings, Label: "设置", Icon: lucide.Settings, Open: a.settings.Get, Set: a.settings.Set,
 			TestID: "settings", Body: a.settingsPane},
+		{ID: paneActivity, Label: "活动", Icon: lucide.Activity, Open: a.activityOpen.Get, Set: a.activityOpen.Set,
+			TestID: "activity-pane", Body: a.activityPane},
 		{ID: paneTasks, Label: "定时任务", Icon: lucide.CalendarClock, Open: a.taskOpen.Get, Set: a.taskOpen.Set,
 			TestID: "tasks-dialog", Body: a.tasksPane},
 		{ID: paneAgents, Label: "智能体", Icon: lucide.Bot, Open: a.agentManageOpen.Get, Set: a.agentManageOpen.Set,
@@ -52,8 +59,14 @@ func (a *app) panes() []paneDef {
 			TestID: "favorites-dialog", Body: a.favoritesPane},
 		{ID: paneReview, Label: "评审", Icon: lucide.GitPullRequest, Open: a.reviewOpen.Get, Set: a.reviewOpen.Set,
 			TestID: "review-pane", Body: a.reviewPane},
-		{ID: paneBrowser, Label: "浏览器", Icon: lucide.Globe, Open: a.browser.open.Get, Set: a.browser.open.Set,
-			TestID: "browser-pane", Body: a.browserPane},
+		{ID: paneDrafts, Label: "草稿本", Icon: lucide.BookOpen, Open: a.drafts.open.Get, Set: a.drafts.open.Set,
+			TestID: "drafts-pane", Body: a.draftsPane},
+		{ID: paneBrowser, Label: "浏览器", Icon: lucide.Globe, Open: a.browser.open.Get, Set: a.browser.open.Set},
+		{ID: paneMemory, Label: "智能体记忆", Icon: lucide.BookOpen, Open: a.memory.open.Get, Set: a.memory.open.Set,
+			TestID: "memory-pane", Body: a.memoryPane},
+		{ID: paneNotifications, Label: "通知历史", Icon: lucide.Bell, Open: a.notifications.open.Get, Set: a.notifications.open.Set,
+			TestID: "notifications-pane", Body: a.notificationHistoryPane},
+		{ID: paneVideo, Label: "视频生成", Icon: lucide.Video, Open: a.video.open.Get, Set: a.video.open.Set, TestID: "video-pane", Body: a.videoPane},
 	}
 }
 

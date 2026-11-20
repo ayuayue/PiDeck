@@ -111,6 +111,24 @@ func TestNativeBrowserApprovalRoundTrip(t *testing.T) {
 	shot(screen, "supplement/browser-complete")
 }
 
+func TestNativeSupplementScreens(t *testing.T) {
+	if nsgotest.Target() == "" {
+		t.Skip("native screenshot fixture")
+	}
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	t.Setenv("PIDECK_LITE_PI_CONFIG", t.TempDir())
+	var a *app
+	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node { a = newApp(cx); return a.view() }, nsgotest.Size(1280, 860))
+	t.Cleanup(a.closeDiag)
+	for _, pane := range []string{paneMemory, paneDrafts, paneVideo} {
+		onNativeUI(t, screen, a, func() { a.openPane(pane) })
+		shot(screen, "supplement/"+pane)
+	}
+	onNativeUI(t, screen, a, a.openPromptLibrary)
+	screen.WaitFor("text:梳理项目结构", 10*time.Second)
+	shot(screen, "supplement/prompts")
+}
+
 // Native tests run outside the engine's goroutine. Keep fixture mutations
 // on the same owner as real event handlers and wait for their publication.
 func onNativeUI(t *testing.T, screen *nsgotest.App, a *app, fn func()) {

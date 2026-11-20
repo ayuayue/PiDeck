@@ -38,6 +38,7 @@ func (a *mobileApp) view() core.Node {
 			a.tasksSheet(),
 			a.favoritesSheet(),
 			a.favoriteTextSheet(),
+			a.transcriptImageDialog(),
 			a.reviewSheet(),
 			a.reviewDetailSheet(),
 			a.reviewPatchSheet(),

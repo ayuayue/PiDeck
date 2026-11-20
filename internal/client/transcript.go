@@ -7,8 +7,6 @@ package client
 
 import (
 	"fmt"
-	"strings"
-	"time"
 
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/remotewire"
@@ -43,18 +41,17 @@ func (a *mobileApp) olderMessagesRow(colors ui.Colors) core.Node {
 // transcriptView shows the messages of one session, with the composer
 // under them.
 func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		a.pageHeader(cx, a.activeTitle.Get(), "",
 			a.pressIcon(lucide.FolderOpen, apptext.T("浏览文件"), 34, 16, nil, a.openSessionFiles, "mobile-files"),
 			a.pressIcon(lucide.Search, apptext.T("搜索会话内容"), 34, 16, nil, func() {
 				a.findText.Set("")
+				a.findSelected.Set(transcriptRowKey{})
 				a.findOpen.Update(func(v bool) bool { return !v })
 			}, "mobile-find"),
 			a.pressIcon(lucide.Ellipsis, apptext.T("会话操作"), 34, 16, nil, func() { a.actionID.Set(a.active.Get()) }, "mobile-active-actions"),
 		),
 		a.appNotice(cx),
-		core.Show{When: a.findOpen.Get, Then: func(cx *core.Scope) core.Node { return a.findBar(cx) }},
 		core.Show{When: func() bool { return a.transcriptErr.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 			return a.errorBar(cx, a.transcriptErr.Get)
 		}},
@@ -62,76 +59,7 @@ func (a *mobileApp) transcriptView(cx *core.Scope) core.Node {
 			return a.errorBar(cx, a.sendErr.Get)
 		}},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Position: core.Relative}, Children: []core.Node{
-			core.Scroll{Ref: a.scroll, Style: ui.FillRest, ScrollEventThrottle: 120 * time.Millisecond,
-				OnScroll: func(e core.ScrollEvent) {
-					at := e.Offset.Y+e.Size.Height >= e.ContentSize.Height-90
-					if a.atBottom.GetUntracked() != at {
-						a.atBottom.Set(at)
-					}
-				}, Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-					msgs := a.messages.Get()
-					if a.transcriptBusy.Get() && len(msgs) == 0 {
-						return core.View{Style: core.Style{Padding: core.All(18), Gap: 14}, Children: []core.Node{
-							ui.Skeleton{Lines: 3, Avatar: true, Label: apptext.T("正在读取会话")},
-							ui.Skeleton{Lines: 4, Avatar: true, Label: apptext.T("正在读取会话")},
-						}}
-					}
-					query := strings.ToLower(strings.TrimSpace(a.findText.Get()))
-					matches := 0
-					if query != "" {
-						kept := make([]remotewire.Message, 0, len(msgs))
-						for _, m := range msgs {
-							if strings.Contains(strings.ToLower(m.Text), query) {
-								kept = append(kept, m)
-							}
-						}
-						matches = len(kept)
-						msgs = kept
-					}
-					var rows []core.Node
-					if query == "" && a.messagesBefore.Get() > 0 {
-						rows = append(rows, a.olderMessagesRow(colors))
-					}
-					if a.transcriptTruncated.Get() && query == "" {
-						rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
-							Padding: core.Symmetric(6, 10), CornerRadius: 9, Background: colors.Inset()}, Children: []core.Node{
-							ui.Icon(lucide.Scissors, 12, colors.Faint),
-							core.Text{Content: apptext.T("有一条消息太长，只带了前面一部分。"), MaxLines: 2,
-								Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
-						}})
-					}
-					if query != "" {
-						rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-							ui.Icon(lucide.Search, 12, colors.Faint),
-							ui.Text(apptext.T("匹配 %d 条", matches), 11, ui.Medium, colors.Faint),
-						}})
-					}
-					live := a.running.Get()
-					for i := 0; i < len(msgs); {
-						if msgs[i].Role == "tool" {
-							j := i
-							for j < len(msgs) && msgs[j].Role == "tool" {
-								j++
-							}
-							rows = append(rows, a.toolBlock(cx, msgs[i:j]))
-							i = j
-							continue
-						}
-						rows = append(rows, a.message(cx, msgs[i], live && i >= len(msgs)-2))
-						i++
-					}
-					if len(rows) == 0 || (query != "" && matches == 0) {
-						empty := "这个会话还没有消息"
-						if query != "" {
-							empty = "没有匹配的消息"
-						}
-						rows = append(rows, core.View{Style: core.Style{Padding: core.All(32), AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-							ui.Icon(lucide.MessageSquare, 26, colors.Faint),
-							ui.Text(empty, 12.5, ui.Regular, colors.Muted),
-						}})
-					}
-					return core.View{Selectable: true, Style: core.Style{Padding: core.Edges{Top: 14, Bottom: 20, Left: 14, Right: 14}, Gap: 12}, Children: rows}
-				})}},
+			a.transcriptList(),
 			core.Show{When: func() bool { return !a.atBottom.Get() && len(a.messages.Get()) > 0 }, Then: func(cx *core.Scope) core.Node {
 				colors := ui.ColorsOf(cx)
 				return core.View{OnPress: func(core.PressEvent) { a.scroll.ScrollToEnd(true) }, Role: core.RoleButton,
@@ -167,21 +95,33 @@ func (a *mobileApp) errorBar(cx *core.Scope, text func() string) core.Node {
 }
 
 // findBar searches the loaded messages of the open session.
-func (a *mobileApp) findBar(cx *core.Scope) core.Node {
+func (a *mobileApp) findBar(cx *core.Scope, matches func() []int, selected func() int, move func(int)) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{StyleFunc: func() core.Style {
 		return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(6, 10),
 			Background: colors.Surface(), Borders: core.Edges{Bottom: 1}, BorderColors: core.EdgeColors{Bottom: colors.Line()}}
 	}, Children: []core.Node{
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-			core.Input{Value: a.findText.Get, OnChange: a.findText.Set, Placeholder: apptext.T("在这个会话里搜索"), Label: apptext.T("搜索会话内容"), TestID: "mobile-find-input",
+			core.Input{Value: a.findText.Get, OnChange: func(query string) {
+				a.findSelected.Set(transcriptRowKey{})
+				a.findText.Set(query)
+			}, Placeholder: apptext.T("在这个会话里搜索"), Label: apptext.T("搜索会话内容"), TestID: "mobile-find-input",
 				Style: core.Style{Height: core.Pt(36), Padding: core.Symmetric(0, 10), FontSize: 13.5, Color: colors.Text(),
 					Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 9,
 					PlaceholderColor: colors.Faint(), CaretColor: colors.Text(), SelectionColor: colors.Now().Selection}},
 		}},
-		a.pressIcon(lucide.X, "结束搜索", 30, 14, nil, func() {
+		core.Text{ContentFunc: func() string {
+			if n := len(matches()); n > 0 {
+				return fmt.Sprintf("%d/%d", selected()+1, n)
+			}
+			return apptext.T("匹配 %d 条", 0)
+		}, TestID: "mobile-find-count", Style: core.Style{FontSize: 11}, StyleFunc: ui.Colored(colors.Faint)},
+		a.pressIcon(lucide.ChevronUp, apptext.T("上一个匹配"), 28, 14, func() bool { return len(matches()) == 0 }, func() { move(-1) }, "mobile-find-prev"),
+		a.pressIcon(lucide.ChevronDown, apptext.T("下一个匹配"), 28, 14, func() bool { return len(matches()) == 0 }, func() { move(1) }, "mobile-find-next"),
+		a.pressIcon(lucide.X, apptext.T("结束搜索"), 30, 14, nil, func() {
 			a.findOpen.Set(false)
 			a.findText.Set("")
+			a.findSelected.Set(transcriptRowKey{})
 		}, "mobile-find-close"),
 	}}
 }

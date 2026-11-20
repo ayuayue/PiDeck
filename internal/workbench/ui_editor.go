@@ -39,7 +39,7 @@ func (a *app) editorTabBar() core.Node {
 		core.Scroll{Horizontal: true, HideIndicator: true,
 			Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3}, Children: []core.Node{
-					core.Each(a.editor.files.Get, func(f *editorFile) string { return f.Path },
+					core.Each(a.editor.files.Get, func(f *editorFile) string { return f.Key },
 						func(cx *core.Scope, f func() *editorFile, _ func() int) core.Node {
 							return a.editorTab(f)
 						}),
@@ -53,11 +53,11 @@ func (a *app) editorTabBar() core.Node {
 func (a *app) editorTab(f func() *editorFile) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	file := func() *editorFile { return f() }
-	active := func() bool { return a.editor.active.Get() == file().Path }
+	active := func() bool { return a.editor.active.Get() == file().Key }
 	return core.View{
 		OnPress: func(core.PressEvent) {
 			if file() != nil {
-				a.editor.active.Set(file().Path)
+				a.editor.active.Set(file().Key)
 			}
 		},
 		Role: core.RoleTab, LabelFunc: func() string { return file().Name }, TestID: "editor-tab",
@@ -96,7 +96,7 @@ func (a *app) editorActions() core.Node {
 	colors := ui.ColorsOf(a.cx)
 	enabled := func() bool {
 		f := a.editor.activeFile()
-		return f != nil && !f.Loading.Get() && f.Err.Get() == ""
+		return f != nil && !f.Loading.Get() && !f.busy.Get() && f.Err.Get() == ""
 	}
 	dirty := func() bool {
 		f := a.editor.activeFile()
@@ -119,7 +119,7 @@ func (a *app) editorActions() core.Node {
 		hintOf(func() string { return apptext.T("重新读取") }, ui.IconButton{Icon: lucide.RotateCcw, Label: apptext.T("重新读取"), Size: 28, IconSize: 14, TestID: "editor-reload",
 			Disabled: func() bool { return !enabled() }, OnPress: func() { a.reloadActiveFile() }}),
 		hintOf(func() string { return apptext.T("在文件管理器中显示") }, ui.IconButton{Icon: lucide.ExternalLink, Label: apptext.T("在文件管理器中显示"), Size: 28, IconSize: 14,
-			Disabled: func() bool { return !enabled() }, OnPress: func() {
+			Disabled: func() bool { return !enabled() || a.editor.activeFile().file.target.remote() }, OnPress: func() {
 				if f := a.editor.activeFile(); f != nil {
 					if err := revealFile(localTarget, f.Path); err != nil {
 						a.toast(ui.ToastError, "打不开位置", err.Error())

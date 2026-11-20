@@ -9,6 +9,7 @@ package workbench
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
 )
 
@@ -41,6 +43,7 @@ type acpUpdate struct {
 	Status    string
 	Mode      string
 	Commands  []acpCommand
+	Options   []acpConfigOption
 	Raw       json.RawMessage
 }
 
@@ -54,8 +57,9 @@ type acpMode struct {
 // acpModeState is a session's mode state, as returned by session/new or
 // session/load.
 type acpModeState struct {
-	CurrentModeID  string    `json:"currentModeId"`
-	AvailableModes []acpMode `json:"availableModes"`
+	CurrentModeID  string            `json:"currentModeId"`
+	AvailableModes []acpMode         `json:"availableModes"`
+	Options        []acpConfigOption `json:"-"`
 }
 
 // acpPermissionOption is one answer a permission request offers.
@@ -67,10 +71,12 @@ type acpPermissionOption struct {
 
 // acpPermission is a request from the agent to use a tool.
 type acpPermission struct {
+	ID        int
 	SessionID string
 	ToolID    string
 	Title     string
 	Options   []acpPermissionOption
+	Done      <-chan struct{}
 }
 
 // acpClient is one agent process and its JSON-RPC connection.
@@ -79,10 +85,16 @@ type acpClient struct {
 	in     io.WriteCloser
 	stderr *ringBuffer
 
-	mu      sync.Mutex
-	seq     int
-	pending map[int]chan acpResponse
-	closed  bool
+	mu              sync.Mutex
+	writeMu         sync.Mutex
+	seq             int
+	pending         map[int]chan acpResponse
+	closed          bool
+	loadSupported   bool // immutable after initialize
+	resumeSupported bool
+	imageSupported  bool
+	done            chan struct{}
+	exited          chan struct{}
 
 	onUpdate     func(acpUpdate)
 	onPermission func(acpPermission) string
@@ -146,6 +158,7 @@ type acpPreset struct {
 //	cline --acp                        cline
 //	qodercli --acp --permission-mode bypass_permissions
 //	qoderclicn --acp --permission-mode bypass_permissions
+//	dsh --profile acp                  @deepseek-ai/dsh
 //
 // Qoder's adapter lists bypass permissions as a config option but refuses
 // to set it, so the flag has to be given at launch.
@@ -181,6 +194,8 @@ func acpPresets() []acpPreset {
 			Homepage: "https://docs.qoder.com/cli/acp"},
 		{ID: "qoder-cn", Name: "Qoder CLI CN", Command: "qoderclicn", Args: []string{"--acp", "--permission-mode", "bypass_permissions"},
 			Homepage: "https://docs.qoder.cn/cli/acp"},
+		{ID: "dsh", Name: "DeepSeek Harness", Command: "dsh", Args: []string{"--profile", "acp"},
+			Homepage: "https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/README.zh.md", Install: "@deepseek-ai/dsh"},
 	}
 }
 
@@ -189,11 +204,9 @@ func startACP(dir, command string, args []string, onUpdate func(acpUpdate), onPe
 	if strings.TrimSpace(command) == "" {
 		return nil, fmt.Errorf("没有 ACP 命令")
 	}
-	var cmd *exec.Cmd
-	if isBatch(command) {
-		cmd = batchCommand(command, args)
-	} else {
-		cmd = exec.Command(command, args...)
+	cmd, err := acpProcessCommand(context.Background(), command, args)
+	if err != nil {
+		return nil, err
 	}
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), agentProxy.env()...)
@@ -208,15 +221,19 @@ func startACP(dir, command string, args []string, onUpdate func(acpUpdate), onPe
 	}
 	stderr := &ringBuffer{limit: 64 << 10}
 	cmd.Stderr = stderr
-	hideWindow(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	c := &acpClient{cmd: cmd, in: in, stderr: stderr, pending: map[int]chan acpResponse{},
+		done: make(chan struct{}), exited: make(chan struct{}),
 		onUpdate: onUpdate, onPermission: onPermission, onExit: onExit}
 	trackACP(c)
 	go func() {
 		c.read(out)
+		// Reap the process when stdout closes, even if it exited by itself.
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		close(c.exited)
 		untrackACP(c)
 	}()
 	return c, nil
@@ -249,14 +266,17 @@ func (c *acpClient) read(r io.Reader) {
 			}
 		case msg.Method == "session/update":
 			c.dispatchUpdate(msg.Params)
-		case msg.Method == "session/request_permission":
-			c.dispatchPermission(*msg.ID, msg.Params)
+		case msg.Method == "session/request_permission" && msg.ID != nil:
+			go c.dispatchPermission(*msg.ID, msg.Params)
+		case msg.ID != nil && msg.Method != "":
+			c.respond(*msg.ID, nil, &acpError{Code: -32601, Message: "Method not found"})
 		}
 	}
 	c.mu.Lock()
 	closed := c.closed
 	c.closed = true
 	c.mu.Unlock()
+	close(c.done)
 	if c.onExit != nil {
 		if closed {
 			c.onExit(nil)
@@ -278,14 +298,15 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 	var params struct {
 		SessionID string `json:"sessionId"`
 		Update    struct {
-			SessionUpdate string          `json:"sessionUpdate"`
-			Content       json.RawMessage `json:"content"`
-			ToolCallID    string          `json:"toolCallId"`
-			Title         string          `json:"title"`
-			Name          string          `json:"name"`
-			ToolKind      string          `json:"kind"`
-			Status        string          `json:"status"`
-			CurrentModeID string          `json:"currentModeId"`
+			SessionUpdate string            `json:"sessionUpdate"`
+			Content       json.RawMessage   `json:"content"`
+			ToolCallID    string            `json:"toolCallId"`
+			Title         string            `json:"title"`
+			Name          string            `json:"name"`
+			ToolKind      string            `json:"kind"`
+			Status        string            `json:"status"`
+			CurrentModeID string            `json:"currentModeId"`
+			Options       []acpConfigOption `json:"configOptions"`
 			Locations     []struct {
 				Path string `json:"path"`
 			} `json:"locations"`
@@ -304,7 +325,7 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 	u := acpUpdate{SessionID: params.SessionID, Kind: params.Update.SessionUpdate,
 		Text: acpContentText(params.Update.Content), ToolID: params.Update.ToolCallID,
 		Title: params.Update.Title, ToolName: params.Update.Name, ToolKind: params.Update.ToolKind,
-		Status: params.Update.Status, Mode: params.Update.CurrentModeID, Raw: raw}
+		Status: params.Update.Status, Mode: params.Update.CurrentModeID, Options: params.Update.Options, Raw: raw}
 	for _, l := range params.Update.Locations {
 		if l.Path != "" {
 			u.Locations = append(u.Locations, l.Path)
@@ -337,7 +358,7 @@ func (c *acpClient) dispatchPermission(id int, raw json.RawMessage) {
 	if json.Unmarshal(raw, &params) != nil {
 		return
 	}
-	req := acpPermission{SessionID: params.SessionID, ToolID: params.ToolCall.ToolCallID, Title: params.ToolCall.Title}
+	req := acpPermission{ID: id, SessionID: params.SessionID, ToolID: params.ToolCall.ToolCallID, Title: params.ToolCall.Title, Done: c.done}
 	for _, o := range params.Options {
 		req.Options = append(req.Options, acpPermissionOption{ID: o.OptionID, Name: o.Name, Kind: o.Kind})
 	}
@@ -398,6 +419,11 @@ func (c *acpClient) call(method string, params any, out any, timeout time.Durati
 		timeout = 60 * time.Second
 	}
 	id, ch := c.next()
+	defer func() {
+		c.mu.Lock()
+		delete(c.pending, id)
+		c.mu.Unlock()
+	}()
 	payload := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
 	if params != nil {
 		payload["params"] = params
@@ -405,8 +431,7 @@ func (c *acpClient) call(method string, params any, out any, timeout time.Durati
 	if err := c.write(payload); err != nil {
 		return err
 	}
-	select {
-	case res := <-ch:
+	finish := func(res acpResponse) error {
 		if res.Err != nil {
 			return res.Err
 		}
@@ -414,7 +439,21 @@ func (c *acpClient) call(method string, params any, out any, timeout time.Durati
 			return json.Unmarshal(res.Result, out)
 		}
 		return nil
-	case <-time.After(timeout):
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case res := <-ch:
+		return finish(res)
+	case <-c.done:
+		// The final response may already have arrived just before EOF.
+		select {
+		case res := <-ch:
+			return finish(res)
+		default:
+			return fmt.Errorf("ACP 连接已关闭")
+		}
+	case <-timer.C:
 		return fmt.Errorf("ACP %s 超时", method)
 	}
 }
@@ -455,61 +494,73 @@ func (c *acpClient) write(v any) error {
 	if err != nil {
 		return err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	if c.isClosed() {
 		return fmt.Errorf("ACP 连接已关闭")
 	}
 	_, err = c.in.Write(append(data, '\n'))
 	return err
 }
 
+func (c *acpClient) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
 // initialize shakes hands with the agent.
 func (c *acpClient) initialize(name, version string) (int, error) {
 	var out struct {
 		ProtocolVersion int `json:"protocolVersion"`
+		Capabilities    struct {
+			Load     bool `json:"loadSession"`
+			Sessions struct {
+				Resume *struct{} `json:"resume"`
+			} `json:"sessionCapabilities"`
+			Prompt struct {
+				Image bool `json:"image"`
+			} `json:"promptCapabilities"`
+		} `json:"agentCapabilities"`
 	}
 	err := c.call("initialize", map[string]any{
-		"protocolVersion": 1,
-		"clientCapabilities": map[string]any{
-			"fs": map[string]bool{"readTextFile": true, "writeTextFile": false},
-		},
-		"clientInfo": map[string]string{"name": name, "version": version},
+		"protocolVersion":    1,
+		"clientCapabilities": map[string]any{},
+		"clientInfo":         map[string]string{"name": name, "version": version},
 	}, &out, 30*time.Second)
+	if err == nil {
+		c.loadSupported = out.Capabilities.Load
+		c.resumeSupported = out.Capabilities.Sessions.Resume != nil
+		c.imageSupported = out.Capabilities.Prompt.Image
+	}
 	return out.ProtocolVersion, err
 }
 
 // newSession starts a session in cwd and returns its id and mode state.
 func (c *acpClient) newSession(cwd string) (string, acpModeState, error) {
 	var out struct {
-		SessionID string        `json:"sessionId"`
-		Modes     *acpModeState `json:"modes"`
+		SessionID string `json:"sessionId"`
+		acpSessionConfig
 	}
 	err := c.call("session/new", map[string]any{"cwd": cwd, "mcpServers": []any{}}, &out, 60*time.Second)
 	if err == nil && out.SessionID == "" {
 		err = fmt.Errorf("ACP 没有返回会话 ID")
 	}
-	modes := acpModeState{}
-	if out.Modes != nil {
-		modes = *out.Modes
-	}
-	return out.SessionID, modes, err
+	return out.SessionID, out.modeState(), err
 }
 
 // loadSession reattaches to a session the CLI kept and returns its mode
 // state.
 func (c *acpClient) loadSession(sessionID, cwd string) (acpModeState, error) {
-	var out struct {
-		Modes *acpModeState `json:"modes"`
+	var out acpSessionConfig
+	method := "session/load"
+	if c.resumeSupported && !c.loadSupported {
+		method = "session/resume"
 	}
-	err := c.call("session/load", map[string]any{
+	err := c.call(method, map[string]any{
 		"sessionId": sessionID, "cwd": cwd, "mcpServers": []any{},
 	}, &out, 60*time.Second)
-	modes := acpModeState{}
-	if out.Modes != nil {
-		modes = *out.Modes
-	}
-	return modes, err
+	return out.modeState(), err
 }
 
 // setMode switches the agent's operating mode.
@@ -520,14 +571,15 @@ func (c *acpClient) setMode(sessionID, modeID string) error {
 }
 
 // prompt sends a prompt and waits for the turn's stop reason.
-func (c *acpClient) prompt(sessionID, text string) (string, error) {
+func (c *acpClient) prompt(sessionID, text string, images ...remotewire.Image) (string, error) {
 	var out struct {
 		StopReason string `json:"stopReason"`
 	}
+	prompt := append([]map[string]any{{"type": "text", "text": text}}, encodeImages(images)...)
 	err := c.call("session/prompt", map[string]any{
 		"sessionId": sessionID,
-		"prompt":    []map[string]string{{"type": "text", "text": text}},
-	}, &out, 10*time.Minute)
+		"prompt":    prompt,
+	}, &out, 6*time.Hour)
 	return out.StopReason, err
 }
 
@@ -550,24 +602,15 @@ func (c *acpClient) stop() {
 		return
 	}
 	c.mu.Lock()
-	closed := c.closed
 	c.closed = true
-	_ = c.in.Close()
 	c.mu.Unlock()
-	if closed || c.cmd == nil || c.cmd.Process == nil {
-		return
-	}
-	done := make(chan struct{})
-	go func() {
-		_ = c.cmd.Wait()
-		close(done)
-	}()
+	_ = c.in.Close()
 	select {
-	case <-done:
+	case <-c.exited:
 	case <-time.After(3 * time.Second):
 		_ = c.cmd.Process.Kill()
 		select {
-		case <-done:
+		case <-c.exited:
 		case <-time.After(2 * time.Second):
 		}
 	}

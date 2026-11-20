@@ -76,6 +76,7 @@ type toolRun struct {
 	Action string // a short verb: 运行, 读取, 编辑…
 	Detail string // its target: a command, a path, a query
 	Output string
+	Images []remotewire.Image `json:",omitempty"`
 	// Diff is what an edit changed, as lines beginning with - or +, and
 	// Added/Removed count them.
 	Diff    string
@@ -206,17 +207,19 @@ type turnStep struct {
 
 // turn is one request and everything pi did for it.
 type turn struct {
-	ID     string
-	Prompt string
-	Images []remotewire.Image
-	Status chat.Status
-	Start  time.Time
-	End    time.Time
-	Steps  []turnStep
-	Final  string
-	Err    string
-	Usage  usageInfo
-	Tools  int
+	ID            string
+	sourceEntryID string
+	sourcePrompt  string
+	Prompt        string
+	Images        []remotewire.Image
+	Status        chat.Status
+	Start         time.Time
+	End           time.Time
+	Steps         []turnStep
+	Final         string
+	Err           string
+	Usage         usageInfo
+	Tools         int
 	// Model is the model that answered this turn, as pi names it.
 	Model   string
 	Msgs    int    // messages committed, for the next step's ID
@@ -275,6 +278,7 @@ type extensionAsk struct {
 	Placeholder string
 	Questions   []askQuestion
 	Review      bool
+	ACPReply    func(string)
 }
 
 // todoItem is one line of the agent's task list, as its todo tool reports
@@ -445,9 +449,17 @@ func toolSummary(name string, raw json.RawMessage) (string, string) {
 	case "fetch_content", "webfetch", "web_fetch":
 		action = "抓取"
 		return action, shorten(str("url"), 90)
-	case "task", "agent", "delegate":
+	case "task", "agent", "Agent", "delegate", "acp_delegate", "subagent":
+		if name == "subagent" {
+			if str("workflowScript", "workflowScriptPath") != "" {
+				return "工作流", shorten(str("workflowScriptPath", "description", "task", "workflowScript"), 120)
+			}
+			if str("action") != "" {
+				break
+			}
+		}
 		action = "子代理"
-		return action, shorten(str("description", "prompt"), 90)
+		return action, shorten(strings.Trim(strings.Join([]string{str("agent", "subagent_type"), str("task", "description", "prompt")}, " · "), " ·"), 120)
 	case "todo", "todowrite":
 		action = "任务清单"
 		return action, ""

@@ -127,6 +127,14 @@ type config struct {
 	SessionPersonas map[string]string `json:"sessionPersonas,omitempty"`
 	// ForkParents maps a fork to the session it branched from.
 	ForkParents map[string]string `json:"forkParents,omitempty"`
+	// ACP silence protection and the last choices the user made for each preset.
+	ACPSilenceSec    int                      `json:"acpSilenceSec,omitempty"`
+	ACPChoices       map[string]acpPreference `json:"acpChoices,omitempty"`
+	MemoryTools      bool                     `json:"memoryTools,omitempty"`
+	RecordTrajectory bool                     `json:"recordTrajectory,omitempty"`
+	AutoModelCatalog bool                     `json:"autoModelCatalog,omitempty"`
+	ReduceEffects    bool                     `json:"reduceEffects,omitempty"`
+	CodeWrap         bool                     `json:"codeWrap,omitempty"`
 	// PluginIndexURL and PromptIndexURL are the markets' last links.
 	PluginIndexURL string `json:"pluginIndexUrl,omitempty"`
 	PromptIndexURL string `json:"promptIndexUrl,omitempty"`
@@ -184,6 +192,7 @@ type config struct {
 	// The token stays here; a phone never holds it.
 	VoiceAppID       string `json:"voiceAppId,omitempty"`
 	VoiceAccessToken string `json:"voiceAccessToken,omitempty"`
+	VoiceLocalURL    string `json:"voiceLocalUrl,omitempty"`
 	// Language is the interface's language: "" follows the system, else
 	// one of supportedLanguages.
 	Language string `json:"language,omitempty"`
@@ -197,6 +206,7 @@ type config struct {
 	FeishuInbound     bool   `json:"feishuInbound,omitempty"`
 	FeishuVerifyToken string `json:"feishuVerifyToken,omitempty"`
 	FeishuReply       bool   `json:"feishuReply,omitempty"`
+	WeChatEnabled     bool   `json:"weChatEnabled,omitempty"`
 	// RecentCommands are the palette commands used last, newest first.
 	RecentCommands []string `json:"recentCommands,omitempty"`
 	// RecentSearches are the last queries the search dialog opened.
@@ -227,6 +237,7 @@ type config struct {
 	ToolModels map[string]toolModelCfg `json:"toolModels,omitempty"`
 	// BackgroundImage is a local picture behind the app; empty uses none.
 	BackgroundImage string `json:"backgroundImage,omitempty"`
+	BackgroundVideo string `json:"backgroundVideo,omitempty"`
 	// BackgroundOpacity is how much of the picture shows, 0 to 1; nil reads 0.8.
 	BackgroundOpacity *float64 `json:"backgroundOpacity,omitempty"`
 	// PetEnabled and PetPackage are retained for config compatibility with

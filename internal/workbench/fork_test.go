@@ -105,3 +105,40 @@ func TestForkPastEnd(t *testing.T) {
 		t.Fatal("a turn past the end was forked")
 	}
 }
+
+func TestForkUsesSelectedPromptsAncestors(t *testing.T) {
+	st, err := newStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(st.dir, "branches.jsonl")
+	body := `{"type":"session","version":3,"id":"old","cwd":"C:/work/shop"}
+{"type":"message","id":"a1","parentId":null,"message":{"role":"user","content":"common prompt"}}
+{"type":"message","id":"a2","parentId":"a1","message":{"role":"assistant","content":"common reply"}}
+{"type":"message","id":"b1","parentId":"a2","message":{"role":"user","content":"discarded branch"}}
+{"type":"message","id":"c1","parentId":"a2","message":{"role":"user","content":"retry this"}}
+{"type":"message","id":"c2","parentId":"c1","message":{"role":"assistant","content":"the reply being retried"}}
+`
+	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	meta, prompt, err := st.branchSession(src, "new", branchPoint{entryID: "c1", text: "retry this"}, "Retry")
+	if err != nil || prompt.text() != "retry this" {
+		t.Fatalf("branch: %q, %v", prompt.text(), err)
+	}
+	data, err := os.ReadFile(meta.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, excluded := range []string{"discarded branch", "retry this", "the reply being retried"} {
+		if strings.Contains(string(data), excluded) {
+			t.Errorf("branch contains %q", excluded)
+		}
+	}
+	if !strings.Contains(string(data), "common reply") {
+		t.Fatal("branch lost the original context")
+	}
+	if _, _, err := st.branchSession(src, "wrong", branchPoint{ordinal: 1, text: "different prompt"}, "Wrong"); err == nil {
+		t.Fatal("accepted a prompt from a stale projection")
+	}
+}

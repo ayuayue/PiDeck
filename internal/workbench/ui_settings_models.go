@@ -24,14 +24,22 @@ func (a *app) settingsModels() core.Node {
 		// Redrawn when any setting changes: their values live in the config.
 		a.settingsTick()
 		colors := ui.ColorsOf(cx)
-		list := a.providers.Get()
+		query := strings.ToLower(strings.TrimSpace(a.providerQuery.Get()))
+		list := make([]providerInfo, 0, len(a.providers.Get()))
+		for _, p := range a.providers.Get() {
+			if strings.Contains(strings.ToLower(p.ID+" "+p.API+" "+authLabel(p)), query) {
+				list = append(list, p)
+			}
+		}
 		rank := map[string]int{}
 		for i, id := range a.providerOrder() {
 			rank[id] = i
 		}
 		sort.SliceStable(list, func(i, j int) bool { return rank[list[i].ID] < rank[list[j].ID] })
 		var rows []core.Node
-		if len(list) == 0 {
+		if len(list) == 0 && query != "" {
+			rows = append(rows, ui.Text(apptext.T("没有匹配的供应商"), 12, ui.Regular, colors.Muted))
+		} else if len(list) == 0 {
 			rows = append(rows, setRow("没有读到供应商", "pi 的 models.json 里没有自定义供应商，或者还没探测完。", nil))
 		}
 		for i, p := range list {
@@ -142,8 +150,13 @@ func (a *app) settingsModels() core.Node {
 		return core.Scroll{TestID: "settings-content", Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
 				setGroup("常用模型", core.View{Style: core.Style{Gap: 1}, Children: favRows}),
+				a.modelCatalogSettings(),
+				a.balanceAccountsSettings(),
 				a.toolModelsGroup(),
-				setGroup("供应商与认证", rows...),
+				setGroup("供应商与认证", append([]core.Node{
+					core.Input{Value: a.providerQuery.Get, OnChange: a.providerQuery.Set, Style: draftFieldStyle(colors),
+						Placeholder: apptext.T("筛选供应商"), Label: apptext.T("筛选供应商"), TestID: "provider-filter"},
+				}, rows...)...),
 				a.authGroup(),
 				a.tokenDanceGroup(),
 				a.piSettingsGroup(),
@@ -173,6 +186,7 @@ func (a *app) toolModelsGroup() core.Node {
 			{"commit", "提交摘要", "按暂存改动生成一条提交说明，写进提交框。"},
 			{"prompt", "提示词增强", "把输入框里的草稿改写得更清楚、更具体。"},
 			{"predict", "输入预测", "在输入框里续写草稿的下一句。"},
+			{"translate", "文本翻译", "翻译窗口使用的供应商与模型。"},
 		}
 		var rows []core.Node
 		for i, tool := range tools {
@@ -234,6 +248,8 @@ func (a *app) toolModelsGroup() core.Node {
 			rows = append(rows, core.Text{Content: apptext.T("还没有读到供应商；先在下面配置一个，或检查 pi 的 models.json。"),
 				Style: core.Style{FontSize: 11, LineHeight: 16, Padding: core.Symmetric(4, 2)}, StyleFunc: ui.Colored(colors.Faint)})
 		}
+		rows = append(rows, setDivider(), setRow("提示词增强模板", "桌面与手机共用增强指令；可编辑或恢复默认。",
+			ui.Button{Text: apptext.T("编辑模板…"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "settings-prompt-template", OnPress: a.openPromptTemplate}))
 		return setGroup("工具模型", rows...)
 	})
 }

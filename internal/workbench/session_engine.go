@@ -14,7 +14,7 @@ import (
 
 // ensureEngine starts pi for a session once, running then on the UI thread.
 func (a *app) ensureEngine(s *session, then func()) {
-	if s == nil {
+	if s == nil || s.deleting {
 		return
 	}
 	if s.backend == "acp" {
@@ -48,25 +48,20 @@ func (a *app) ensureEngine(s *session, then func()) {
 	}
 	s.starting = true
 	s.status.Set(statusStarting)
-	withBrowser := !s.Target.remote() && a.browserToolsExtension != "" && a.browser.owner.GetUntracked() == s.ID
-	go a.startEngine(s, withBrowser)
+	withMemory := a.cfg.MemoryTools && !s.Target.remote() && a.localToolsExtension != ""
+	withTrajectory := a.cfg.RecordTrajectory && !s.Target.remote() && !s.External && a.localToolsExtension != ""
+	withBrowser := !s.Target.remote() && a.localToolsExtension != "" && a.browser.owner.GetUntracked() == s.ID
+	go a.startEngine(s, withMemory, withTrajectory, withBrowser)
 }
 
 // restartAgent stops a session's pi and starts it again: the way to pick
 // up a changed model list or a stuck process without losing the tab.
 func (a *app) restartAgent(s *session) {
-	if s == nil {
+	if s == nil || s.deleting {
 		return
 	}
 	if s.backend == "acp" {
-		if s.acp != nil {
-			s.acp.stop()
-			s.acp = nil
-			s.acpSID = ""
-		}
-		s.readySig.Set(false)
-		s.status.Set(statusIdle)
-		a.ensureACPSession(s)
+		a.reconnectACP(s)
 		return
 	}
 	if s.engine == nil {
@@ -80,17 +75,11 @@ func (a *app) restartAgent(s *session) {
 // closeAgent stops a session's pi and keeps the transcript and tab; the
 // next message starts it again.
 func (a *app) closeAgent(s *session) {
-	if s == nil {
+	if s == nil || s.deleting {
 		return
 	}
 	if s.backend == "acp" {
-		if s.acp != nil {
-			s.acp.stop()
-			s.acp = nil
-			s.acpSID = ""
-		}
-		s.readySig.Set(false)
-		s.status.Set(statusIdle)
+		a.detachACP(s)
 		return
 	}
 	if s.engine == nil {
@@ -100,39 +89,47 @@ func (a *app) closeAgent(s *session) {
 }
 
 // startEngine spawns pi and reads its state, off the UI thread.
-func (a *app) startEngine(s *session, withBrowser bool) {
+func (a *app) startEngine(s *session, withMemory, withTrajectory, withBrowser bool) {
 	sessionFile := ""
-	if s.External {
+	if s.External || s.Target.remote() {
 		sessionFile = s.File
 	}
 	var local piLocalTools
-	var stopBrowser func()
-	if withBrowser {
-		url, token, stop, startErr := a.startBrowserTools(s)
-		if startErr != nil {
-			a.cx.Post(func() { a.browser.err.Set(startErr.Error()); a.revokeBrowser() })
-			withBrowser = false
-		} else {
-			local = piLocalTools{extension: a.browserToolsExtension, env: []string{
-				"PIDECK_LITE_BROWSER_URL=" + url,
-				"PIDECK_LITE_BROWSER_TOKEN=" + token,
-			}}
-			stopBrowser = stop
+	var listeners []func()
+	closeTools := func() {
+		for _, close := range listeners {
+			close()
 		}
+	}
+	if withMemory {
+		url, token, closeListener, err := a.startMemoryTools(s)
+		if err == nil {
+			local = piLocalTools{extension: a.localToolsExtension, env: []string{"PIDECK_LITE_MEMORY_URL=" + url, "PIDECK_LITE_MEMORY_TOKEN=" + token}}
+			listeners = append(listeners, closeListener)
+		}
+	}
+	if withBrowser {
+		url, token, closeListener, err := a.startPrivateTools(s, a.browserServer(s), func() bool {
+			return a.browser.owner.GetUntracked() == s.ID
+		})
+		if err == nil {
+			local.extension = a.localToolsExtension
+			local.env = append(local.env, "PIDECK_LITE_BROWSER_URL="+url, "PIDECK_LITE_BROWSER_TOKEN="+token)
+			listeners = append(listeners, closeListener)
+		} else {
+			a.cx.Post(func() { a.browser.err.Set(err.Error()); a.revokeBrowser() })
+		}
+	}
+	if withTrajectory {
+		local.extension = a.localToolsExtension
+		local.env = append(local.env, "PIDECK_LITE_TRACE=1")
 	}
 	c, err := startPi(s.Target, a.piPath(), s.WS, a.st.sessions, s.ID, sessionFile,
 		func(ev piEvent) { a.onPiEvent(s, ev) },
 		func(req uiRequest) { a.onPiUI(s, req) },
-		func(err error) {
-			if stopBrowser != nil {
-				stopBrowser()
-			}
-			a.onPiExit(s, err)
-		}, local)
+		func(err error) { closeTools(); a.onPiExit(s, err) }, local)
 	if err != nil {
-		if stopBrowser != nil {
-			stopBrowser()
-		}
+		closeTools()
 		a.cx.Post(func() { a.failSession(s, err.Error()) })
 		return
 	}
@@ -185,8 +182,11 @@ func (a *app) startEngine(s *session, withBrowser bool) {
 func (a *app) engineReady(s *session, c *piClient, model *modelInfo, thinking, file string, count int, streaming bool) {
 	s.engine = c
 	s.starting = false
-	s.readySig.Set(true)
 	s.File = file
+	if s.resumeDeletion() {
+		return
+	}
+	s.readySig.Set(true)
 	if model != nil {
 		s.model.Set(*model)
 	}
@@ -214,6 +214,9 @@ func (a *app) engineReady(s *session, c *piClient, model *modelInfo, thinking, f
 // historyReady lets a session's queued actions run, now that its transcript
 // can be seen. The messages came from the file or from get_messages.
 func (a *app) historyReady(s *session) {
+	if s.deleting || a.byID[s.ID] != s {
+		return
+	}
 	if !s.loaded.GetUntracked() && a.activeID.GetUntracked() == s.ID {
 		a.animateNextLayout()
 	}
@@ -230,9 +233,9 @@ func (a *app) historyReady(s *session) {
 
 // historyFromPi replaces the transcript with pi's copy, which is what a
 // compacted session (whose file holds more than its context) needs.
-func (a *app) historyFromPi(s *session, msgs []piMessage) {
-	if len(msgs) > 0 {
-		a.fillHistory(s, msgs, true)
+func (a *app) historyFromPi(s *session, history []turn, items []todoItem) {
+	if len(history) > 0 {
+		a.fillHistory(s, history, items, true)
 		s.histFile = 0 // the screen is pi's copy now, not the file's
 	}
 	a.historyReady(s)
@@ -244,7 +247,8 @@ func (a *app) fetchHistory(s *session, c *piClient) {
 		Messages []piMessage `json:"messages"`
 	}
 	if err := c.call(map[string]any{"type": "get_messages"}, &msgs, 40*time.Second); err == nil {
-		a.cx.Post(func() { a.historyFromPi(s, msgs.Messages) })
+		history, items := turnsFromMessages(msgs.Messages), todosFromMessages(msgs.Messages)
+		a.cx.Post(func() { a.historyFromPi(s, history, items) })
 		return
 	}
 	a.cx.Post(func() { a.historyReady(s) })
@@ -252,8 +256,7 @@ func (a *app) fetchHistory(s *session, c *piClient) {
 
 // fillHistory shows a session's messages, keeping anything that arrived
 // while they were loading.
-func (a *app) fillHistory(s *session, msgs []piMessage, replace bool) {
-	history := turnsFromMessages(msgs)
+func (a *app) fillHistory(s *session, history []turn, items []todoItem, replace bool) {
 	if !replace {
 		// A message can arrive from the phone before the history is in; it
 		// stays after what the session already had.
@@ -262,7 +265,7 @@ func (a *app) fillHistory(s *session, msgs []piMessage, replace bool) {
 		}
 	}
 	s.turns.Set(history)
-	if items := todosFromMessages(msgs); len(items) > 0 {
+	if len(items) > 0 {
 		s.todos.Set(items)
 	}
 }
@@ -270,15 +273,22 @@ func (a *app) fillHistory(s *session, msgs []piMessage, replace bool) {
 // loadHistoryFromFile paints a session's transcript from its file, so a tab
 // shows its history while pi is still starting.
 func (a *app) loadHistoryFromFile(s *session) {
-	if s == nil || s.File == "" || s.backend == "acp" || s.Target.remote() || s.loaded.GetUntracked() {
+	if s == nil || s.File == "" || s.backend == "acp" || s.loaded.GetUntracked() {
 		return
 	}
-	file := s.File
+	file, target := s.File, s.Target
 	go func() {
-		msgs, err := sessionFileMessages(file)
+		var msgs []piMessage
+		var err error
+		if target.remote() {
+			msgs, err = targetHistoryMessages(target, file)
+		} else {
+			msgs, err = sessionFileMessages(file)
+		}
 		if err != nil || len(msgs) == 0 {
 			return
 		}
+		history, items := turnsFromMessages(msgs), todosFromMessages(msgs)
 		a.cx.Post(func() {
 			if s.loaded.GetUntracked() || s.File != file {
 				return // pi answered first, or the tab moved on
@@ -286,7 +296,7 @@ func (a *app) loadHistoryFromFile(s *session) {
 			if a.activeID.GetUntracked() == s.ID {
 				a.animateNextLayout()
 			}
-			a.fillHistory(s, msgs, false)
+			a.fillHistory(s, history, items, false)
 			s.histFile = len(msgs)
 			a.historyReady(s)
 		})
@@ -296,6 +306,9 @@ func (a *app) loadHistoryFromFile(s *session) {
 // failSession ends a session that could not start.
 func (a *app) failSession(s *session, why string) {
 	s.starting = false
+	if s.resumeDeletion() {
+		return
+	}
 	s.readySig.Set(false)
 	s.runningSig.Set(false)
 	s.status.Set(statusFailed)

@@ -96,6 +96,7 @@ func (a *app) settingsDiagnostics() core.Node {
 						float64(mem.HeapAlloc)/(1<<20), runtime.NumGoroutine(), uptime), nil),
 				),
 				setGroup("崩溃", crashRows...),
+				a.trajectorySetting(),
 				setGroup("进程", procRows...),
 				setGroup("最近日志", core.View{Style: core.Style{Gap: 2, Padding: core.Symmetric(4, 2)}, Children: logRows}),
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{

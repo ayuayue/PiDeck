@@ -34,6 +34,7 @@ func TestBrowserLeaseRequiresVisibleTrustedOwnerAndOrigin(t *testing.T) {
 		func() { a.cfg.TrustedProjects = nil },
 		func() { a.browser.nav.Set(core.WebNavigation{URL: "https://evil.example/page"}) },
 		func() { a.browser.nav.Set(core.WebNavigation{URL: "https://example.com/page", Loading: true}) },
+		func() { s.deleting = true },
 	} {
 		change()
 		if a.browserReady(s) {
@@ -44,6 +45,7 @@ func TestBrowserLeaseRequiresVisibleTrustedOwnerAndOrigin(t *testing.T) {
 		a.activePane.Set(paneBrowser)
 		a.cfg.TrustedProjects = []string{trustKey(ws)}
 		a.browser.nav.Set(core.WebNavigation{URL: "https://example.com/page"})
+		s.deleting = false
 	}
 	p := &browserApproval{decision: make(chan bool, 1)}
 	a.browser.pending.Set(p)

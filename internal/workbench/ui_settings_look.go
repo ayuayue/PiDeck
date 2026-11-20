@@ -96,18 +96,22 @@ func (a *app) settingsLook() core.Node {
 		}
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
-				a.brandingGroup(colors),
-				setGroup("配色", rows...),
-				a.backgroundGroup(colors),
-				setRow("主题文件", "放在数据目录的 themes 里：JSON 或 YAML，写角色色、tokens、字体与圆角；也读 shadcn/ui 主题文件。",
-					ui.Button{Text: apptext.T("打开目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
-						a.openThemesDir()
-					}}),
-				setDivider(),
-				setRow("导出当前主题", "把当前配色、tokens、字体与圆角写成一个主题文件，可分享或继续改。",
-					ui.Button{Text: apptext.T("导出"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-export",
-						OnPress: a.exportTheme}),
-				setDivider(),
+				setRow("减弱动效", "关闭工作台布局和对话定位的动画。", ui.Switch{
+					Checked: a.reduceEffects.Get, Label: apptext.T("减弱动效"), TestID: "reduce-effects",
+					OnChange: func(on bool) {
+						a.reduceEffects.Set(on)
+						a.cfg.ReduceEffects = on
+						a.st.edit(func(c *config) { c.ReduceEffects = on })
+					},
+				}),
+				setRow("代码块自动换行", "长代码行按聊天栏宽度折行。", ui.Switch{
+					Checked: a.codeWrap.Get, Label: apptext.T("代码块自动换行"), TestID: "chat-code-wrap",
+					OnChange: func(on bool) {
+						a.codeWrap.Set(on)
+						a.cfg.CodeWrap = on
+						a.st.edit(func(c *config) { c.CodeWrap = on })
+					},
+				}),
 				setRow("终端字号", "底部终端面板的文字大小，8–20 pt；改完立即重绘。",
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(200)}, Children: []core.Node{
 						core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
@@ -161,8 +165,15 @@ func (a *app) settingsLook() core.Node {
 							a.st.edit(func(c *config) { c.MonoFont = a.cfg.MonoFont })
 						}
 					}, apptext.T("等宽字体"), "mono-font", apptext.T("留空用系统等宽字体"))),
-				core.Text{Content: apptext.T("角色：background surface border text textMuted accent danger warning success selection focus scrollbar inset raised field line faint code info track knob。"),
-					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
+				setDivider(),
+				setRow("导出当前主题", "把当前配色、tokens、字体与圆角写成一个主题文件，可分享或继续改。",
+					ui.Button{Text: apptext.T("导出"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "theme-export",
+						OnPress: a.exportTheme}),
+				setRow("主题文件", "放在数据目录的 themes 里：JSON 或 YAML，写角色色、tokens、字体与圆角；也读 shadcn/ui 主题文件。",
+					ui.Button{Text: apptext.T("打开目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.openThemesDir}),
+				a.brandingGroup(colors),
+				setGroup("配色", rows...),
+				a.backgroundGroup(colors),
 			}},
 		}}
 	})
@@ -171,9 +182,11 @@ func (a *app) settingsLook() core.Node {
 // backgroundGroup edits the picture behind the app and how much of it
 // shows.
 func (a *app) backgroundGroup(colors ui.Colors) core.Node {
-	path := a.cfg.BackgroundImage
+	path := a.cfg.wallpaper()
 	var preview core.Node
-	if path != "" {
+	if wallpaperVideo(path) {
+		preview = ui.Icon(lucide.Film, 20, colors.Muted)
+	} else if path != "" {
 		preview = core.Image{Source: core.ImageSource{URI: path}, ResizeMode: core.Cover,
 			Style: core.Style{Width: core.Pt(80), Height: core.Pt(46), CornerRadius: 6, BorderWidth: 1, BorderColor: colors.Border()}}
 	} else {
@@ -196,7 +209,7 @@ func (a *app) backgroundGroup(colors ui.Colors) core.Node {
 						}
 					})
 			}},
-		core.Show{When: func() bool { return a.cfg.BackgroundImage != "" }, Then: func(*core.Scope) core.Node {
+		core.Show{When: func() bool { return a.bgImage.Get() != "" }, Then: func(*core.Scope) core.Node {
 			return ui.Button{Text: apptext.T("清除"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "bg-image-clear",
 				OnPress: func() { a.setBackgroundImage("") }}
 		}},
@@ -219,6 +232,9 @@ func (a *app) backgroundGroup(colors ui.Colors) core.Node {
 	}}
 	return setGroup("背景",
 		setRow("背景图片", "从本机选一张图片铺满窗口，只保存路径。", choose),
+		setRow("视频壁纸", "选择本机视频或 Wallpaper Engine 视频项目的 project.json。", ui.Button{
+			Text: apptext.T("选择视频壁纸"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "video-wallpaper-choose", OnPress: a.pickVideoWallpaper,
+		}),
 		setDivider(),
 		setRow("背景透明度", "0% 完全遮住图片，100% 完全显示；面板会一起变透明。", opacity),
 	)

@@ -50,10 +50,13 @@ type piContent struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+	Data      string          `json:"data"`
+	MimeType  string          `json:"mimeType"`
 }
 
 // piMessage is an AgentMessage as the protocol sends and stores it.
 type piMessage struct {
+	EntryID    string          `json:"-"`
 	Role       string          `json:"role"`
 	Content    json.RawMessage `json:"content"`
 	Timestamp  int64           `json:"timestamp"`
@@ -104,8 +107,12 @@ func (m *piMessage) blocks() []piContent {
 
 // text is the message's plain text, blocks joined without separators.
 func (m *piMessage) text() string {
+	return piBlockText(m.blocks())
+}
+
+func piBlockText(blocks []piContent) string {
 	var parts []string
-	for _, b := range m.blocks() {
+	for _, b := range blocks {
 		if b.Type == "text" && b.Text != "" {
 			parts = append(parts, b.Text)
 		}
@@ -153,7 +160,8 @@ type piCompaction struct {
 
 // piEvent is one stdout record that is not a response or a UI request.
 type piEvent struct {
-	Type string `json:"type"`
+	Type         string `json:"type"`
+	finishedTool *toolRun
 
 	AssistantMessageEvent *struct {
 		Type         string          `json:"type"`
@@ -241,16 +249,14 @@ type piClient struct {
 	exitOnce sync.Once
 }
 
-// piLocalTools is an extension and environment bundle used only by a local
-// pi process. The browser MCP endpoint is loopback-only and per session.
+// startPi starts pi for one session: on this machine or through a target,
+// keeping the app's sessions under appSessions. onEvent, onUI and onExit
+// run on the reader goroutine.
 type piLocalTools struct {
 	extension string
 	env       []string
 }
 
-// startPi starts pi for one session: on this machine or through a target,
-// keeping the app's sessions under appSessions. onEvent, onUI and onExit
-// run on the reader goroutine.
 func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent func(piEvent), onUI func(uiRequest), onExit func(error), local ...piLocalTools) (*piClient, error) {
 	if piPath == "" {
 		piPath = "pi"
@@ -265,6 +271,9 @@ func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent
 	args := []string{"--mode", "rpc"}
 	if !t.remote() && askExtensionPath != "" {
 		args = append(args, "-e", askExtensionPath)
+	}
+	if !t.remote() && retryExtensionPath != "" {
+		args = append(args, "-e", retryExtensionPath)
 	}
 	var env []string
 	if !t.remote() && len(local) > 0 && local[0].extension != "" {

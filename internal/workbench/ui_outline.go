@@ -22,7 +22,7 @@ func (a *app) jumpToTurnIndex(s *session, i int) {
 	}
 	turns := s.turns.GetUntracked()
 	n := len(turns)
-	if n <= 1 || i < 0 || i >= n {
+	if i < 0 || i >= n {
 		return
 	}
 	// Where the turn was last laid out is where the jump should land; until
@@ -31,7 +31,7 @@ func (a *app) jumpToTurnIndex(s *session, i int) {
 		a.scrollToOffset(s, y)
 		return
 	}
-	a.jumpToTurn(s, float64(i)/float64(n-1))
+	a.jumpToTurn(s, float64(i)/float64(max(1, n-1)))
 }
 
 // outlineDialog lists a session's prompts.

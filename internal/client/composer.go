@@ -43,6 +43,7 @@ type composerSource struct {
 func (a *mobileApp) composer(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Padding: core.Edges{Top: 6, Right: 10, Bottom: 8, Left: 10},
 		PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard}}, Children: []core.Node{
+		a.draftChangeBar(),
 		a.composerCard(cx, composerSource{
 			draft: a.draft.Get, setDraft: a.draft.Set,
 			pending: a.pending.Get,

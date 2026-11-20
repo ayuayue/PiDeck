@@ -2,6 +2,7 @@ name: PiDeck Lite
 id: dev.nsgo.pidecklite
 version: 0.2.0
 appearance: light
+url_schemes: [pideck-lite]
 
 # Direct updates: the app reads appcast-<target>.xml next to the release
 # and verifies its EdDSA signature with the public key below; updates.pub
@@ -35,6 +36,7 @@ dev:
 apple:
   info:
     NSLocalNetworkUsageDescription: "连接同一局域网内电脑上的 PiDeck Lite。"
+    NSMicrophoneUsageDescription: "将你主动录制的语音转写到消息草稿。"
 
 android:
   # 手机端用麦克风录一段话交给电脑识别：运行时的录音前台服务要写进清单，

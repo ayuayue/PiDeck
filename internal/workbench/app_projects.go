@@ -7,6 +7,7 @@ package workbench
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -101,7 +102,7 @@ func (a *app) addWorkspaceFor(t target, path, name string) {
 	}
 	if ws := a.workspaceFor(t, path); ws != nil {
 		ws.Expanded.Set(true)
-		a.activeWS.Set(path)
+		a.activeWS.Set(projectWireKey(ws))
 		if !t.remote() {
 			a.files.watch(path)
 		}
@@ -117,7 +118,7 @@ func (a *app) addWorkspaceFor(t target, path, name string) {
 		PiLoading: core.NewSignal(a.cx, false),
 		Visible:   core.NewSignal(a.cx, 0)}
 	a.workspaces.Update(func(list []*workspace) []*workspace { return append(list, ws) })
-	a.activeWS.Set(path)
+	a.activeWS.Set(projectWireKey(ws))
 	if !t.remote() {
 		a.files.watch(path)
 	}
@@ -129,18 +130,13 @@ func (a *app) addWorkspaceFor(t target, path, name string) {
 		}
 		c.Workspaces = append(c.Workspaces, workspaceCfg{Path: path, Name: name, Target: t.key(), Expanded: true, Added: ws.Added})
 	})
-	if !t.remote() {
-		a.files.watch(path)
-	}
 	if a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
 		a.git.attach(ws)
 	}
 	a.toast(ui.ToastSuccess, "已添加工作区", t.label()+" · "+path)
 	a.rescanPi()
-	// A remote target gets a session at once: there are no stored sessions
-	// to show, and an empty project is a dead end.
 	if t.remote() {
-		a.newSession(path)
+		a.scanProject(ws)
 	}
 }
 
@@ -177,46 +173,52 @@ func (a *app) removeWorkspaceNow(ws *workspace) {
 	if ws == nil {
 		return
 	}
-	{
-		for _, s := range ws.Sessions.GetUntracked() {
-			a.closeTab(s.ID)
+	a.removeWorkspacesNow(map[string]bool{trustKey(ws): true})
+}
+
+func (a *app) removeWorkspacesNow(keys map[string]bool) {
+	if len(keys) == 0 || a.st == nil {
+		return
+	}
+	a.cx.Batch(func() {
+		removed := make(map[string]bool)
+		for _, s := range a.all {
+			if !keys[s.Target.key()+"|"+s.WS] {
+				continue
+			}
+			removed[s.ID] = true
 			delete(a.byID, s.ID)
-			for i, x := range a.all {
-				if x == s {
-					a.all = append(a.all[:i], a.all[i+1:]...)
-					break
-				}
+			if s.stopDraft != nil {
+				s.stopDraft()
+				s.stopDraft = nil
 			}
 			if s.engine != nil {
-				s.engine.stop()
+				go s.engine.stop()
 				s.engine = nil
 			}
-		}
-		a.workspaces.Update(func(list []*workspace) []*workspace {
-			out := list[:0]
-			for _, w := range list {
-				if w.Path != ws.Path {
-					out = append(out, w)
-				}
+			if s.backend == "acp" {
+				a.detachACP(s)
 			}
-			return out
+		}
+		a.all = slices.DeleteFunc(a.all, func(s *session) bool { return removed[s.ID] })
+		a.closedTabs = slices.DeleteFunc(a.closedTabs, func(id string) bool { return removed[id] })
+		a.workspaces.Update(func(list []*workspace) []*workspace {
+			return slices.DeleteFunc(slices.Clone(list), func(w *workspace) bool { return keys[trustKey(w)] })
 		})
 		a.st.edit(func(c *config) {
-			out := c.Workspaces[:0]
-			for _, w := range c.Workspaces {
-				if w.Path != ws.Path {
-					out = append(out, w)
-				}
-			}
-			c.Workspaces = out
+			c.Workspaces = slices.DeleteFunc(c.Workspaces, func(w workspaceCfg) bool { return keys[w.Target+"|"+w.Path] })
 		})
-		if a.activeWS.GetUntracked() == ws.Path {
-			a.activeWS.Set("")
-			a.activeID.Set("")
-		}
-		if a.gitPath() == ws.Path {
-			a.git.attach(nil)
+		kept := slices.DeleteFunc(slices.Clone(a.tabs.GetUntracked()), func(id string) bool { return removed[id] })
+		a.tabs.Set(kept)
+		if removed[a.activeID.GetUntracked()] {
+			if len(kept) > 0 {
+				a.selectSession(a.byID[kept[len(kept)-1]])
+			} else {
+				a.activeWS.Set("")
+				a.activeID.Set("")
+				a.git.attach(nil)
+			}
 		}
 		a.remember()
-	}
+	})
 }

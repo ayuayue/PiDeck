@@ -45,12 +45,18 @@ func (a *app) applyModel(s *session, provider, id string, remember bool) {
 // refreshModels asks pi for its model list again, after models.json or
 // auth changed outside the session.
 func (a *app) refreshModels(s *session) {
+	a.refreshSessionModels(s, true)
+}
+
+func (a *app) refreshSessionModels(s *session, announce bool) {
 	if s == nil || s.backend == "acp" || s.modelsBusy.GetUntracked() {
 		return
 	}
 	c := s.engine
 	if c == nil {
-		a.toast(ui.ToastInfo, "会话还没就绪", "等 Agent 启动后再刷新。")
+		if announce {
+			a.toast(ui.ToastInfo, "会话还没就绪", "等 Agent 启动后再刷新。")
+		}
 		return
 	}
 	s.modelsBusy.Set(true)
@@ -65,15 +71,22 @@ func (a *app) refreshModels(s *session) {
 		levelsErr := c.call(map[string]any{"type": "get_available_thinking_levels"}, &levels, 20*time.Second)
 		a.cx.Post(func() {
 			s.modelsBusy.Set(false)
+			if s.engine != c || s.deleting {
+				return
+			}
 			if err != nil {
-				a.toast(ui.ToastError, "刷新模型失败", err.Error())
+				if announce {
+					a.toast(ui.ToastError, "刷新模型失败", err.Error())
+				}
 				return
 			}
 			s.models.Set(models.Models)
 			if levelsErr == nil && len(levels.Levels) > 0 {
 				s.levels.Set(levels.Levels)
 			}
-			a.toast(ui.ToastSuccess, "模型列表已刷新", fmt.Sprintf("共 %d 个模型。", len(models.Models)))
+			if announce {
+				a.toast(ui.ToastSuccess, "模型列表已刷新", fmt.Sprintf("共 %d 个模型。", len(models.Models)))
+			}
 		})
 	}()
 }
