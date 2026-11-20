@@ -3,4 +3,9 @@
 package workbench
 
 // Shutdown closes all agent processes and terminals owned by the workbench.
-func Shutdown() { closeAllPi(); closeAllACP(); closeAllTerminals() }
+func Shutdown() {
+	closeAllPi()
+	closeAllACP()
+	closeAllTerminals()
+	favoriteWrites.Wait()
+}

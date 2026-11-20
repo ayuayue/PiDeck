@@ -127,7 +127,6 @@ func (a *app) favoritesPane() core.Node {
 						}},
 					core.View{OnPress: func(core.PressEvent) {
 						a.removeFavorite(entry.ID)
-						a.toast(ui.ToastInfo, "已取消收藏", "")
 					}, Role: core.RoleButton, Label: apptext.T("移除收藏"), TestID: "favorite-delete-" + entry.ID,
 						StyleFunc: func() core.Style {
 							return core.Style{Width: core.Pt(24), Height: core.Pt(24), CornerRadius: 5, AlignItems: core.AlignCenter,
@@ -159,7 +158,6 @@ func (a *app) favoritesPane() core.Node {
 					OnPress: func() {
 						a.askConfirm("清空收藏", "所有收藏都会删除，原会话不受影响。", "清空", func() {
 							a.clearFavorites()
-							a.toast(ui.ToastInfo, "已清空收藏", "")
 						})
 					}}),
 			core.View{Style: core.Style{Direction: core.Column, Gap: 8, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),

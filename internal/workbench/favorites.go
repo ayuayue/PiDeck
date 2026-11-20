@@ -8,9 +8,6 @@ package workbench
 // conversation. Everything lives in favorites.json beside the config.
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -51,80 +48,6 @@ type favoritesFile struct {
 	Entries []favoriteEntry `json:"entries"`
 }
 
-// favoritesPath is where the list lives.
-func (a *app) favoritesPath() string {
-	if a == nil || a.st == nil {
-		return ""
-	}
-	return filepath.Join(a.st.dir, "favorites.json")
-}
-
-// loadFavorites reads the list, dropping entries that lost their shape.
-func (a *app) loadFavorites() []favoriteEntry {
-	path := a.favoritesPath()
-	if path == "" {
-		return nil
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var file favoritesFile
-	if json.Unmarshal(raw, &file) != nil {
-		var list []favoriteEntry
-		if json.Unmarshal(raw, &list) != nil {
-			return nil
-		}
-		file.Entries = list
-	}
-	out := make([]favoriteEntry, 0, len(file.Entries))
-	for _, e := range file.Entries {
-		e.ID = strings.TrimSpace(e.ID)
-		e.SessionID = strings.TrimSpace(e.SessionID)
-		e.Kind = strings.TrimSpace(e.Kind)
-		if e.ID == "" {
-			continue
-		}
-		switch e.Kind {
-		case favoriteReply:
-			if strings.TrimSpace(e.Text) == "" {
-				continue
-			}
-		case favoriteSession:
-			if e.SessionID == "" {
-				continue
-			}
-		default:
-			continue
-		}
-		if len([]rune(e.Text)) > favoriteTextLimit {
-			e.Text = string([]rune(e.Text)[:favoriteTextLimit]) + "\n… 已截断"
-		}
-		if e.CreatedAt.IsZero() {
-			e.CreatedAt = time.Now()
-		}
-		out = append(out, e)
-		if len(out) >= favoriteLimit {
-			break
-		}
-	}
-	return out
-}
-
-// saveFavorites writes the list atomically. The caller holds favMu.
-func (a *app) saveFavoritesLocked() {
-	path := a.favoritesPath()
-	if path == "" {
-		return
-	}
-	data, err := json.MarshalIndent(favoritesFile{Version: 1, Entries: a.favorites}, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	_ = writeFileAtomic(path, data, 0o644)
-}
-
 // favoriteList is a copy of the list for the UI.
 func (a *app) favoriteList() []favoriteEntry {
 	a.favMu.Lock()
@@ -134,8 +57,8 @@ func (a *app) favoriteList() []favoriteEntry {
 	return out
 }
 
-// addFavorite puts one entry first and saves it.
-func (a *app) addFavorite(e favoriteEntry) (favoriteEntry, error) {
+// addFavorite puts one entry first after it has been saved.
+func (a *app) addFavorite(e favoriteEntry, after func(bool)) {
 	e.ID = strings.TrimSpace(e.ID)
 	if e.ID == "" {
 		e.ID = newSessionID()
@@ -146,51 +69,48 @@ func (a *app) addFavorite(e favoriteEntry) (favoriteEntry, error) {
 	if len([]rune(e.Text)) > favoriteTextLimit {
 		e.Text = string([]rune(e.Text)[:favoriteTextLimit]) + "\n… 已截断"
 	}
-	a.favMu.Lock()
-	a.favorites = append([]favoriteEntry{e}, a.favorites...)
-	if len(a.favorites) > favoriteLimit {
-		a.favorites = a.favorites[:favoriteLimit]
-	}
-	a.saveFavoritesLocked()
-	a.favMu.Unlock()
-	a.favRev.Update(func(n int) int { return n + 1 })
-	return e, nil
+	a.editFavorites(func(entries []favoriteEntry) ([]favoriteEntry, bool) {
+		for _, saved := range entries {
+			if saved.Kind == e.Kind && saved.SessionID == e.SessionID &&
+				(e.Kind == favoriteSession || saved.Text == e.Text) {
+				return entries, false
+			}
+		}
+		next := append([]favoriteEntry{e}, entries...)
+		return next[:min(len(next), favoriteLimit)], true
+	}, after)
 }
 
-// removeFavorite drops one entry.
-func (a *app) removeFavorite(id string) bool {
+// removeFavorite drops one entry only after the removal is saved.
+func (a *app) removeFavorite(id string) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return false
+		return
 	}
-	removed := false
-	a.favMu.Lock()
-	out := a.favorites[:0]
-	for _, e := range a.favorites {
-		if e.ID == id {
-			removed = true
-			continue
+	a.editFavorites(func(entries []favoriteEntry) ([]favoriteEntry, bool) {
+		next := make([]favoriteEntry, 0, len(entries))
+		for _, e := range entries {
+			if e.ID != id {
+				next = append(next, e)
+			}
 		}
-		out = append(out, e)
-	}
-	a.favorites = out
-	if removed {
-		a.saveFavoritesLocked()
-	}
-	a.favMu.Unlock()
-	if removed {
-		a.favRev.Update(func(n int) int { return n + 1 })
-	}
-	return removed
+		return next, len(next) != len(entries)
+	}, func(removed bool) {
+		if removed {
+			a.toast(ui.ToastInfo, "已取消收藏", "")
+		}
+	})
 }
 
-// clearFavorites forgets everything.
+// clearFavorites forgets everything only after the empty list is saved.
 func (a *app) clearFavorites() {
-	a.favMu.Lock()
-	a.favorites = nil
-	a.saveFavoritesLocked()
-	a.favMu.Unlock()
-	a.favRev.Update(func(n int) int { return n + 1 })
+	a.editFavorites(func(entries []favoriteEntry) ([]favoriteEntry, bool) {
+		return nil, len(entries) > 0
+	}, func(cleared bool) {
+		if cleared {
+			a.toast(ui.ToastInfo, "已清空收藏", "")
+		}
+	})
 }
 
 // favoriteReply saves a turn's answer, whole.
@@ -211,22 +131,15 @@ func (a *app) favoriteReply(s *session, tt turn) {
 		a.toast(ui.ToastInfo, "这条回复还没有内容", "等它答完再收藏。")
 		return
 	}
-	a.favMu.Lock()
-	for _, e := range a.favorites {
-		if e.Kind == favoriteReply && e.SessionID == s.ID && e.Text == text {
-			a.favMu.Unlock()
+	e := favoriteEntry{Kind: favoriteReply, SessionID: s.ID, SessionTitle: s.title.GetUntracked(),
+		Project: s.WS, Prompt: tt.Prompt, Text: text}
+	a.addFavorite(e, func(added bool) {
+		if !added {
 			a.toast(ui.ToastInfo, "已经收藏过这条回复", "")
 			return
 		}
-	}
-	a.favMu.Unlock()
-	e := favoriteEntry{Kind: favoriteReply, SessionID: s.ID, SessionTitle: s.title.GetUntracked(),
-		Project: s.WS, Prompt: tt.Prompt, Text: text}
-	if _, err := a.addFavorite(e); err != nil {
-		a.toast(ui.ToastError, "收藏失败", err.Error())
-		return
-	}
-	a.toast(ui.ToastSuccess, "已收藏回复", viewkit.FirstLine(text, 60))
+		a.toast(ui.ToastSuccess, "已收藏回复", viewkit.FirstLine(text, 60))
+	})
 }
 
 // favoriteSession saves a reference to the conversation.
@@ -234,21 +147,15 @@ func (a *app) favoriteSession(s *session) {
 	if s == nil {
 		return
 	}
-	a.favMu.Lock()
-	for _, e := range a.favorites {
-		if e.Kind == favoriteSession && e.SessionID == s.ID {
-			a.favMu.Unlock()
+	title := s.title.GetUntracked()
+	e := favoriteEntry{Kind: favoriteSession, SessionID: s.ID, SessionTitle: title, Project: s.WS}
+	a.addFavorite(e, func(added bool) {
+		if !added {
 			a.toast(ui.ToastInfo, "已经收藏过这个会话", "")
 			return
 		}
-	}
-	a.favMu.Unlock()
-	e := favoriteEntry{Kind: favoriteSession, SessionID: s.ID, SessionTitle: s.title.GetUntracked(), Project: s.WS}
-	if _, err := a.addFavorite(e); err != nil {
-		a.toast(ui.ToastError, "收藏失败", err.Error())
-		return
-	}
-	a.toast(ui.ToastSuccess, "已收藏会话", s.title.GetUntracked())
+		a.toast(ui.ToastSuccess, "已收藏会话", title)
+	})
 }
 
 // isSessionFavorite reports whether the conversation is saved.
@@ -271,19 +178,25 @@ func (a *app) toggleSessionFavorite(s *session) {
 	if s == nil {
 		return
 	}
-	a.favMu.Lock()
-	for i, e := range a.favorites {
-		if e.Kind == favoriteSession && e.SessionID == s.ID {
-			a.favorites = append(a.favorites[:i], a.favorites[i+1:]...)
-			a.saveFavoritesLocked()
-			a.favMu.Unlock()
-			a.favRev.Update(func(n int) int { return n + 1 })
-			a.toast(ui.ToastInfo, "已移出收藏夹", "")
-			return
+	e := favoriteEntry{ID: newSessionID(), Kind: favoriteSession, SessionID: s.ID,
+		SessionTitle: s.title.GetUntracked(), Project: s.WS, CreatedAt: a.cx.Now()}
+	removed := false
+	a.editFavorites(func(entries []favoriteEntry) ([]favoriteEntry, bool) {
+		for i, saved := range entries {
+			if saved.Kind == favoriteSession && saved.SessionID == e.SessionID {
+				removed = true
+				return append(entries[:i:i], entries[i+1:]...), true
+			}
 		}
-	}
-	a.favMu.Unlock()
-	a.favoriteSession(s)
+		next := append([]favoriteEntry{e}, entries...)
+		return next[:min(len(next), favoriteLimit)], true
+	}, func(bool) {
+		if removed {
+			a.toast(ui.ToastInfo, "已移出收藏夹", "")
+		} else {
+			a.toast(ui.ToastSuccess, "已收藏会话", e.SessionTitle)
+		}
+	})
 }
 
 // openFavorite jumps back to the conversation a favorite came from.

@@ -109,6 +109,7 @@ func TestTaskFavoritesAgentWindows(t *testing.T) {
 	s.turns.Set([]turn{{ID: "t1", Prompt: "问题", Status: chat.Completed, Final: "回答正文"}})
 	built.favoriteReply(s, s.turns.GetUntracked()[0])
 	built.favoriteSession(s)
+	screen.WaitUntil(5*time.Second, func() bool { return built.favoriteCount() == 2 })
 	if got := built.favoriteCount(); got != 2 {
 		t.Fatalf("favorites = %d", got)
 	}

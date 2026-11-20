@@ -58,6 +58,7 @@ type app struct {
 	favRev                *core.Signal[int]
 	favMu                 sync.Mutex
 	favorites             []favoriteEntry
+	favWriteTail          chan []favoriteEntry // UI thread; pending durable snapshots
 
 	// Scheduled tasks: the list, run history and the editor's fields.
 	// taskMu guards the list the ticker and the UI both touch.
