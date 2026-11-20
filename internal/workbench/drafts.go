@@ -4,6 +4,7 @@ package workbench
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -108,6 +110,10 @@ func (a *app) persistDraftLibrary(items []savedDraft, after func()) {
 			Version int          `json:"version"`
 			Drafts  []savedDraft `json:"drafts"`
 		}{Version: 1, Drafts: items}, "", "  ")
+		// Use the reader's encoded-byte limit so successful saves can reopen.
+		if err == nil && len(data) > draftFileLimit {
+			err = errors.New(apptext.T("草稿本已满"))
+		}
 		if err == nil {
 			err = writeFileAtomic(filepath.Join(a.st.dir, draftsFile), data, 0o600)
 		}
