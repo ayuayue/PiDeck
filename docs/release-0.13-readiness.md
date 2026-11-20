@@ -31,7 +31,7 @@
 ## 仍须完成
 
 1. **macOS / Linux 升级**：Windows 已完成上述 0.12 升级矩阵。Linux 仍须实测 `/proc` 回收与安装包启动；macOS 须验 Developer ID、公证、权限继承、本地网络和自动更新。
-2. **真实时间线与外部链路**：完成 [时间线五条手动验收](timeline-manual-qa.md)（大历史第一条、连续 20 页、停 30 秒、小会话、流式上翻）。Pi 1.5.1 仍有 [兼容账本](pi-compatibility.md) 中的真实会话待验项；SSH 配置为隔离模拟 IPC 验收，没有连接真实主机。旧 [远端发布记录](remote-release-readiness.md) 是历史基线证据。
+2. **真实时间线与外部链路**：完成 [时间线五条手动验收](timeline-manual-qa.md)（大历史第一条、连续 20 页、停 30 秒、小会话、流式上翻）。Pi 1.6.0 仍有 [兼容账本](pi-compatibility.md) 中的真实会话待验项；SSH 配置为隔离模拟 IPC 验收，没有连接真实主机。旧 [远端发布记录](remote-release-readiness.md) 是历史基线证据。
 3. **现有未全验收范围**：未重跑所有历史 Electron spec，也未验收远端 TTL、多 host 争用、soak、硬断网、ProxyJump、大文件独立矩阵。不能用定向通过覆盖这些范围。
 4. **最终合入树的门禁与 CI**：`dev` 上跑完整的 `npm run preflight` 与发行构建产物（`out/`、`runtime:pack` 归档、目标平台安装包）后，再跑 `release-core` / `smoke` 核心 E2E 集。
 5. **资源迁移与草稿的已知窗口**：资源 native 写入与迁移进度文件之间仍有跨文件崩溃窗口；草稿发布要求文件系统支持硬链接，不支持时保留源并记录错误。
