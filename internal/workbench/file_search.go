@@ -89,47 +89,56 @@ func (a *app) openFileSearch() {
 	a.fileSearchOpen.Set(true)
 }
 
-// runFileSearch searches the workspace off the UI thread, dropping a result
-// that a newer search replaced.
+// runFileSearch scans and searches off the UI thread, dropping results from
+// a replaced query or a workspace that is no longer active.
 func (a *app) runFileSearch() {
 	root := a.quickOpenRoot()
 	query := strings.TrimSpace(a.fileSearchQuery.GetUntracked())
 	if root == "" || query == "" {
 		a.fileSearchSeq++
 		a.fileSearchBusy.Set(false)
-		a.setFileSearch(nil)
+		a.setFileSearch(root, nil)
 		return
 	}
 	files := a.workspaceFiles(root)
-	if len(files) == 0 {
-		files = walkWorkspaceFiles(root)
-	}
 	a.fileSearchSeq++
 	seq := a.fileSearchSeq
 	a.fileSearchBusy.Set(true)
+	a.setFileSearch(root, nil)
 	go func() {
+		if len(files) == 0 {
+			files = walkWorkspaceFiles(root)
+		}
 		hits := searchWorkspace(root, files, query)
 		a.cx.Post(func() {
 			if seq != a.fileSearchSeq {
 				return
 			}
 			a.fileSearchBusy.Set(false)
-			a.setFileSearch(hits)
+			if root != a.quickOpenRoot() {
+				return
+			}
+			a.setFileSearch(root, hits)
 		})
 	}()
 }
 
-// setFileSearch replaces the hits and redraws the dialog.
-func (a *app) setFileSearch(hits []fileHit) {
+// setFileSearch replaces the hits and their owning workspace, then redraws.
+func (a *app) setFileSearch(root string, hits []fileHit) {
 	a.fileSearchMu.Lock()
+	a.fileSearchRoot = root
 	a.fileSearchHits = hits
 	a.fileSearchMu.Unlock()
 	a.fileSearchRev.Update(func(n int) int { return n + 1 })
 }
 
-// fileSearchResults copies the hits for the UI.
+// fileSearchResults copies only the current workspace's hits for the UI.
 func (a *app) fileSearchResults() []fileHit {
+	root := a.quickOpenRoot()
 	a.fileSearchMu.Lock()
 	defer a.fileSearchMu.Unlock()
+	if root != a.fileSearchRoot {
+		return nil
+	}
 	return append([]fileHit(nil), a.fileSearchHits...)
 }

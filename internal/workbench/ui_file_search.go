@@ -24,6 +24,7 @@ func (a *app) fileSearchDialog() core.Node {
 		_ = a.fileSearchRev.Get()
 		_ = a.fileSearchBusy.Get()
 		_ = a.langRev.Get()
+		root := a.quickOpenRoot()
 		hits := a.fileSearchResults()
 		query := a.fileSearchQuery.Get()
 		busy := a.fileSearchBusy.Get()
@@ -52,8 +53,7 @@ func (a *app) fileSearchDialog() core.Node {
 			}
 			rows = append(rows, core.View{
 				OnPress: func(core.PressEvent) {
-					root := a.quickOpenRoot()
-					if root == "" {
+					if root == "" || root != a.quickOpenRoot() {
 						return
 					}
 					a.fileSearchOpen.Set(false)

@@ -521,6 +521,7 @@ type app struct {
 	fileSearchBusy  *core.Signal[bool]
 	fileSearchRev   *core.Signal[int]
 	fileSearchMu    sync.Mutex
+	fileSearchRoot  string
 	fileSearchHits  []fileHit
 	fileSearchSeq   int
 	// gitDiffHash is the commit the diff dialog shows, empty for a file.
