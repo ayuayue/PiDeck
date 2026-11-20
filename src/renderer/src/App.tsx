@@ -1852,7 +1852,7 @@ export function App() {
 							onAddProject={() => void addProject()}
 							onSelectProject={selectProjectCommand}
 							onOpenTerminal={!isLanWeb && terminalTarget ? () => setTerminalOpenForOwner(true) : undefined}
-							onOpenFile={(target) => viewFilePath(target)}
+							onOpenFile={(target, openMode) => viewFilePath(target, openMode)}
 							onCreateSession={createSessionDraftWithTab}
 						/>
 					</ResizablePanel>

@@ -38,7 +38,7 @@ export function ProjectEmptyState(props: {
 	/** 远端空态的一键起会话；由 App 注入（与项目行「+」同一条 createDraft 链路）。 */
 	onCreateSession?: (projectId: string) => void;
 	/** 中央编辑器入口：远端文件与本机文件走同一条 Tab 主路径。 */
-	onOpenFile?: (target: { projectId: string; relativePath: string }) => void;
+	onOpenFile?: (target: { projectId: string; relativePath: string }, openMode?: "preview" | "permanent") => void;
 }) {
 	// 远端登记弹框由 App 统一挂载，这里只打开开关（与侧栏「+」同一条路径）。
 	// 入口与侧栏「+」共用同一条判据：远端能力可用，且已配好一台可用 SSH 主机。
@@ -83,7 +83,15 @@ export function ProjectEmptyState(props: {
 	if (isRemoteProject(remoteProject)) {
 		if (remoteFilesOpen) {
 			return (
-				<RemoteProjectPanel projectId={remoteProject.id} projectName={remoteProject.name} onOpenTerminal={props.onOpenTerminal} onBack={() => setRemoteFilesOpen(false)} onOpenFile={props.onOpenFile} onCreateSession={props.onCreateSession === undefined ? undefined : () => props.onCreateSession?.(remoteProject.id)} />
+				<RemoteProjectPanel
+					projectId={remoteProject.id}
+					projectName={remoteProject.name}
+					onOpenTerminal={props.onOpenTerminal}
+					onBack={() => setRemoteFilesOpen(false)}
+					onViewFile={props.onOpenFile}
+					onOpenFile={props.onOpenFile === undefined ? undefined : (target) => props.onOpenFile?.(target, "permanent")}
+					onCreateSession={props.onCreateSession === undefined ? undefined : () => props.onCreateSession?.(remoteProject.id)}
+				/>
 			);
 		}
 		return (

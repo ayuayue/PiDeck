@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 1c81aad077f27455458ab7ff665b0cbfaa27b01e12ae37529e158afbe26e4f4a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: efc958ef4dc7675d9072fee47fc0a28480c4fe5913b4f07922f2d621b84c305a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3519,6 +3519,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.dirtyCloseTitle": "關閉未儲存的檔案？",
 	"editor.dirtyCloseMessage": "{file} 有未儲存的更改，關閉後將丟失。仍要關閉嗎？",
 	"editor.saveFailedBanner": "儲存失敗：{error}",
+	"editor.remoteWriteTooLarge": "遠端檔案寫入上限為 256 KiB，本次未寫入。大檔案請用外部編輯器開啟，或拆分後再改。",
 	"editor.pdfPreview": "PDF 預覽",
 	"editor.playVideo": "播放",
 	"editor.openWithSystem": "用系統程式開啟",

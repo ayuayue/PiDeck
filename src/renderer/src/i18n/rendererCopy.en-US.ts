@@ -3531,6 +3531,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"editor.dirtyCloseTitle": "Close unsaved file?",
 	"editor.dirtyCloseMessage": "{file} has unsaved changes that will be lost. Close anyway?",
 	"editor.saveFailedBanner": "Save failed: {error}",
+	"editor.remoteWriteTooLarge": "Remote files are limited to 256 KiB per write, so nothing was written. Open large files in an external editor or split them first.",
 	"editor.pdfPreview": "PDF preview",
 	"editor.playVideo": "Play",
 	"editor.openWithSystem": "Open with system app",

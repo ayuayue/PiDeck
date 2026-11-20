@@ -18,6 +18,16 @@ import { isUncertainWrite } from "../remote/RemoteProjectWriteFacts";
 export type RemoteProjectTextPort = {
 	openText(senderId: number, projectId: string, path: string): Promise<{ content: string; version?: string }>;
 	saveText(senderId: number, projectId: string, path: string, content: string, version: string): Promise<void>;
+	/**
+	 * 最近一次 `openText` 签出的令牌：中央编辑器保存时用它，而不是现读一次再写。
+	 *
+	 * 为什么必须记住：远端令牌的 revision 就是「读到的那份内容」。写之前再 openText 一次，
+	 * 拿到的是**当下**磁盘内容的令牌，冲突检测恒成立——别人的改动被静默覆盖。抽屉内嵌编辑器
+	 * 一直用加载时的令牌，中央栏要同一条安全边界，只能把令牌留在 main（它不出进程）。
+	 */
+	lastTextVersion?(senderId: number, projectId: string, path: string): string | undefined;
+	/** 远端二进制读（图片/PDF/Office/压缩包预览）：裸 base64，超限抛 `FILE_TOO_LARGE:size:max`。 */
+	readBase64?(senderId: number, projectId: string, path: string, maxBytes: number): Promise<string>;
 };
 
 export function registerRemoteProjectFileIpc(input: {
@@ -39,6 +49,15 @@ export function registerRemoteProjectFileIpc(input: {
 		},
 	});
 	const senders = new Set<number>();
+	/** 中央编辑器最近一次读到的远端令牌（按发送方分组，随 sender 销毁清空）。 */
+	const openTokens = new Map<string, string>();
+	const tokenKey = (senderId: number, projectId: string, path: string) => `${senderId}\u0000${projectId}\u0000${path}`;
+	/** 端口方法共用的路径校验：回收站是文件面的保留命名空间，文本读/写与二进制读一律拒绝（§4.3）。 */
+	function portPath(path: string): string {
+		const relative = validateRemoteProjectTextPath(path);
+		if (isRemoteProjectTrashPath(relative)) throw new Error("REMOTE_FILE_PROTECTED_PATH");
+		return relative;
+	}
 	function validate(sender: Electron.WebContents, projectId: unknown, relative: unknown): { senderId: number; projectId: string; relative: string } {
 		if (!Number.isSafeInteger(sender.id) || sender.id < 1 || sender.isDestroyed() || typeof projectId !== "string" || !projectId.trim() || projectId.length > 256) throw new Error("REMOTE_FILE_INPUT_INVALID");
 		const path = validateRemoteProjectTextPath(relative);
@@ -49,6 +68,7 @@ export function registerRemoteProjectFileIpc(input: {
 			sender.once("destroyed", () => {
 				files.releaseSender(sender.id);
 				senders.delete(sender.id);
+				for (const key of openTokens.keys()) if (key.startsWith(`${sender.id}\u0000`)) openTokens.delete(key);
 			});
 		}
 		return { senderId: sender.id, projectId, relative: path };
@@ -90,10 +110,24 @@ export function registerRemoteProjectFileIpc(input: {
 	);
 	// 中央编辑器这条路走同一个服务实例：令牌表、256KiB 上限、事实失效钩子都只有一份。
 	return {
-		openText: (senderId, projectId, path) => files.open(senderId, projectId, validateRemoteProjectTextPath(path)),
+		openText: async (senderId, projectId, path) => {
+			const relative = portPath(path);
+			const opened = await files.open(senderId, projectId, relative);
+			const key = tokenKey(senderId, projectId, relative);
+			if (typeof opened.version === "string" && opened.version.length > 0) openTokens.set(key, opened.version);
+			else openTokens.delete(key);
+			return opened;
+		},
+		lastTextVersion: (senderId, projectId, path) => openTokens.get(tokenKey(senderId, projectId, path)),
+		readBase64: (senderId, projectId, path, maxBytes) => files.readBase64(senderId, projectId, portPath(path), maxBytes),
 		saveText: async (senderId, projectId, path, content, version) => {
-			await files.save(senderId, projectId, validateRemoteProjectTextPath(path), content, version);
-			input.afterWrite?.(projectId, [path]);
+			const relative = portPath(path);
+			const saved = await files.save(senderId, projectId, relative, content, version);
+			// 令牌是一次性的：接上新签的那一枚，同一 tab 继续打字不必重读整个文件。
+			const key = tokenKey(senderId, projectId, relative);
+			if (typeof saved.version === "string" && saved.version.length > 0) openTokens.set(key, saved.version);
+			else openTokens.delete(key);
+			input.afterWrite?.(projectId, [relative]);
 		},
 	};
 }

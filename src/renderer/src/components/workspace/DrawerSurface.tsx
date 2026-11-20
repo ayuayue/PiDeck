@@ -137,7 +137,9 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
 			{/* 工具面板共享抽屉开关；草稿本保留自身编辑工具行。 */}
 			{drawer === "files" && !drawerCollapsed && files.activeProject && isRemoteProject(files.activeProject) ? (
 				// 远端项目没有本机文件系统可列：文件抽屉改由远端面板承接（主机连接/root 状态/目录浏览）。
-				<RemoteProjectPanel projectId={files.activeProject.id} projectName={files.activeProject.name} />
+				// 远端文件点开与本地同一条主路径：进中间栏阅读面（预览/常驻 + contentOpenMode），
+				// 抽屉只做目录导航；行右键「在编辑器中打开」按常驻 tab 开。
+				<RemoteProjectPanel projectId={files.activeProject.id} projectName={files.activeProject.name} onViewFile={files.viewFilePath} onOpenFile={(target) => files.viewFilePath(target, "permanent")} />
 			) : drawer === "sideTask" && !drawerCollapsed ? (
 				<SideTaskPanel controller={sideTask.controller} paneServices={sideTask.paneServices} />
 			) : drawer === "scratchPad" && !drawerCollapsed ? (

@@ -14,8 +14,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 /**
  * 远端文件预览/编辑的宿主外框（抽屉文件栏的底部区域）。
  *
- * 为什么它必须自己拿高度而不能只写 `flex-1`：宿主以前是滚动区（`.files-panel`）里 `basis:0` 的 flex-1
- * 兄弟，目录树一旦超过抽屉高度，负剩余空间就把它压成 0 高——用户点远端文件看到的是「什么都没发生」。
+ * 谁还会走到这里：只剩**兜底宿主**——宿主没有注入中间栏入口时（`remoteFileOpenPlan` 的
+ * `hasWorkbench=false`）才在面板内预览。正常入口（文件抽屉、远端空态浏览）一律与本机文件同路：
+ * 进中间栏阅读面，二进制读通道见 `files:read-base64` 的远端分支。
+ *
+ * 为什么它必须自己拿高度而不能只写 `flex-1`：宿主是滚动区（`.files-panel`）里的兄弟，目录树
+ * 一旦超过抽屉高度，负剩余空间就把它压成 0 高——用户点远端文件看到的是「什么都没发生」。
  * 贴底悬挂（sticky）+ 自带占比与下限后，树再长也总能看见预览；不透明底色避免滑过的树行透出来。
  */
 export function RemoteFilePreviewPane(props: { services: ProjectServices; path: string; canWrite?: boolean }) {

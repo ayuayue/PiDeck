@@ -3512,6 +3512,7 @@ export const zhCN = {
 	"editor.dirtyCloseTitle": "关闭未保存的文件？",
 	"editor.dirtyCloseMessage": "{file} 有未保存的更改，关闭后将丢失。仍要关闭吗？",
 	"editor.saveFailedBanner": "保存失败：{error}",
+	"editor.remoteWriteTooLarge": "远端文件写入上限为 256 KiB，本次未写入。大文件请用外部编辑器打开，或拆分后再改。",
 	"editor.pdfPreview": "PDF 预览",
 	"editor.playVideo": "播放",
 	"editor.openWithSystem": "用系统程序打开",

@@ -406,7 +406,9 @@ export function FileDiffViewer(props: {
 				return false;
 			} catch (e) {
 				// 失败不清 dirty/缓冲；旧文件请求不能污染新 Tab。
-				const conflict = e instanceof Error && e.message.includes("PROJECT_FILE_CHANGED");
+				// 冲突类稳定码统一说人话：本机 sha256 乐观锁（PROJECT_FILE_CHANGED）与远端令牌
+				// （REMOTE_FILE_CHANGED / VERSION_INVALID，见 main/remote/RemoteProjectFileService）。
+				const conflict = e instanceof Error && /PROJECT_FILE_CHANGED|REMOTE_FILE_CHANGED|REMOTE_FILE_VERSION_INVALID/.test(e.message);
 				if (saveGeneration === saveGenerationRef.current) setSaveError(conflict ? t("editor.fileChangedOnDisk") : fileLoadErrorMessage(e));
 				return false;
 			} finally {
