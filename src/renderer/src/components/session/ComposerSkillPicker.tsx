@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import { ChevronLeft, CornerDownLeft, Eye, Loader2, Sparkles } from "lucide-react";
 import { toSkillInvocationToken } from "../../composerBehavior";
@@ -8,6 +8,9 @@ import { projectByIdAtomFamily } from "../../atoms";
 import type { AgentBackend, DshSkillView } from "../../../../shared/types";
 import { emptyProjectResourceDiscovery, type SkillCatalogEntry, mergePiSkillCatalog } from "../../../../shared/skillCatalog";
 import { isRendererVirtualSessionId } from "../../../../shared/rendererVirtualSessionId";
+import { createRemoteResourceEditorApi } from "../../config/remoteResourceEditorApi";
+import { useRemoteHostConnection } from "../../config/useRemoteHostConnection";
+import { resolveComposerPiSkillSource } from "./composerSkillSource";
 import { CommandItem } from "../ui-shadcn/command";
 import { CommandPickerGroup } from "../ui-shadcn/command-picker";
 import { Button } from "../ui-shadcn/button";
@@ -44,20 +47,38 @@ export function ComposerSkillPicker(props: {
 	const [error, setError] = useState<string | null>(null);
 	const [detail, setDetail] = useState<SkillDetailState | null>(null);
 
-	// 数据源随后端分叉：pi 走 projectResources.list（项目技能）+ skills.list
-	// （全局技能：~/.pi/agent/skills 与 ~/.agents/skills），DSH 走 listDshSkills
+	// 数据源随后端分叉：本地 pi 走 projectResources.list（项目技能）+ skills.list
+	// （全局技能：~/.pi/agent/skills 与 ~/.agents/skills），SSH pi 走远端 resources.list，DSH 走 listDshSkills
 	// （G7 skill.list 只读目录）。DSH 运行中会话传 agentId；草稿会话传 { sessionId }
 	// （主进程懒建/复用 host 会话，不启动 agent），已激活但无 runtime 的历史会话
 	// 仍要求先启动（不能换新 host id）。pi 无项目时仍能读全局技能（不整面板阻塞）。
 	// 内置聊天项目（builtin-chat）没有项目级资源目录：不发起 project-resources:list
 	// （后端虽已对 chat 返回空结果兜底，前端直接跳过可省一次 IPC 并避免把
 	// 「项目技能」这类概念混进纯聊天上下文）。inventory 未加载时 kind 未知，
-	// 仍按有项目处理，由后端空结果兜底，不会报错。
+	// 项目清单尚未到达时先等待，避免把 SSH 项目误路由到本机 project-resources:list。
 	const chatProject = useAtomValue(projectByIdAtomFamily(props.projectId ?? ""));
 	const isChatSessionProject = chatProject?.kind === "chat";
+	const piSkillSource = resolveComposerPiSkillSource(props.projectId, chatProject);
+	const projectInfoPending = piSkillSource.kind === "pending";
+	const remoteHostId = piSkillSource.kind === "remote" ? piSkillSource.hostId : undefined;
+	const { ensureConnected } = useRemoteHostConnection();
+	// SSH 项目没有本机项目资源目录。复用远端资源 facade，读取该主机的用户技能，
+	// 同时让正文预览/插入继续走同一份远端快照，而不是把远端路径交给本机 skills IPC。
+	const remoteResources = useMemo(
+		() =>
+			remoteHostId
+				? createRemoteResourceEditorApi(desktopApi, remoteHostId, async () => {
+						const outcome = await ensureConnected(remoteHostId);
+						if (!outcome.ok) throw new Error(outcome.code);
+					})
+				: undefined,
+		[ensureConnected, remoteHostId],
+	);
+	const skillApi = remoteResources ?? desktopApi;
+	const isRemoteSessionProject = remoteHostId !== undefined;
 	// 内置聊天项目没有项目级资源目录，不发起 project-resources:list；inventory 未加载时
 	// kind 未知，仍按有项目处理，由后端对 chat 返回空结果兜底，不会报错。
-	const hasProjectResources = Boolean(props.projectId) && !isChatSessionProject;
+	const hasProjectResources = piSkillSource.kind === "local";
 	// DSH 没有运行中 agent 时也能读目录：主进程先扫描本地技能根（通用 SKILL.md 逻辑），
 	// 能拿到 host 权威列表时再做并集（preset/插件技能不漏）。引导页等虚拟会话 id
 	// （renderer: 前缀）没有 catalog 记录，仍走「启动后可读」提示。
@@ -68,16 +89,18 @@ export function ComposerSkillPicker(props: {
 			setLoading(false);
 			return;
 		}
+		if (props.backend === "pi" && projectInfoPending) {
+			setLoading(true);
+			return;
+		}
 		let cancelled = false;
 		setLoading(true);
 		setError(null);
 		const load =
 			props.backend === "pi"
-				? Promise.all([
-						hasProjectResources ? desktopApi.projectResources.list(props.projectId as string).then((result) => result.skills) : Promise.resolve([]),
-						desktopApi.skills.list().then((result) => result.skills),
-						desktopApi.projectResources.discovery(props.projectId).catch(() => emptyProjectResourceDiscovery()),
-					]).then(([projectSkills, globalSkills, discovery]) => mergePiSkillCatalog({ projectSkills, globalSkills, discovery }))
+				? Promise.all([hasProjectResources ? skillApi.projectResources.list(props.projectId as string).then((result) => result.skills) : Promise.resolve([]), skillApi.skills.list().then((result) => result.skills), skillApi.projectResources.discovery(props.projectId).catch(() => emptyProjectResourceDiscovery())]).then(
+						([projectSkills, globalSkills, discovery]) => mergePiSkillCatalog({ projectSkills, globalSkills, discovery }),
+					)
 				: (async (): Promise<SkillItem[]> => {
 						// 运行中会话按 agentId 读（runtime 权威）；无 runtime 时按 catalog sessionId 读
 						// （文件扫描 + host 结果并集）。两者都没有时上面已提前 return。
@@ -104,12 +127,12 @@ export function ComposerSkillPicker(props: {
 		return () => {
 			cancelled = true;
 		};
-	}, [hasProjectResources, isChatSessionProject, props.backend, props.projectId, props.agentId, dshCatalogSessionId]);
+	}, [hasProjectResources, isChatSessionProject, isRemoteSessionProject, projectInfoPending, props.backend, props.projectId, props.agentId, dshCatalogSessionId, skillApi]);
 
 	/** 读技能正文：白名单校验在主进程（只允许全局/项目技能位置），渲染层只传 path。 */
 	function readContent(item: SkillItem): Promise<string | undefined> {
 		if (!item.path) return Promise.resolve(undefined);
-		return desktopApi.skills.readContent(item.path).then((result) => result.content);
+		return skillApi.skills.readContent(item.path).then((result) => result.content);
 	}
 
 	/** 点眼睛打开详情：懒加载正文，失败时内联展示原因（与列表加载失败同款 detail）。 */

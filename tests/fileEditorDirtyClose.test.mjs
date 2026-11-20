@@ -29,8 +29,8 @@ test("FileDiffViewer：dirty 翻转上报宿主（只在翻转时回调，不随
 
 test("FileDiffViewer：保存失败是 role=alert 横幅 + 显式重试，不再是静默 error div", () => {
 	assert.match(fileDiffViewer, /const \[saveError, setSaveError\] = useState<string \| null>\(null\);/);
-	// 冲突（PROJECT_FILE_CHANGED）与普通失败分开：冲突要求重新加载，不能被当成可重试的普通错误。
-	assert.match(fileDiffViewer, /const conflict = e instanceof Error && e\.message\.includes\("PROJECT_FILE_CHANGED"\)/);
+	// 本机乐观锁与远端版本冲突都要求重新加载，不能被当成可重试的普通错误。
+	assert.match(fileDiffViewer, /const\s+conflict\s*=\s*e\s+instanceof\s+Error\s*&&\s*\/PROJECT_FILE_CHANGED\|REMOTE_FILE_CHANGED\|REMOTE_FILE_VERSION_INVALID\/\.test\(e\.message\)/);
 	assert.match(fileDiffViewer, /setSaveError\(conflict \? t\("editor\.fileChangedOnDisk"\) : fileLoadErrorMessage\(e\)\)/);
 	assert.match(fileDiffViewer, /role="alert"/);
 	assert.match(fileDiffViewer, /editor\.saveFailedBanner/);
