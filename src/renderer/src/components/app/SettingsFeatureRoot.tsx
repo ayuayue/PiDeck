@@ -224,7 +224,7 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
 	// 页面宿主与其它工作区页面同构（绝对定位覆盖会话列、失活 hidden 保挂载），
 	// 区别只在于设置页自己管着一批内存草稿：关闭 Tab 前必须先走未保存确认。
 	return (
-		<div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !active && "hidden")} role="region" aria-label={t("settings.title")}>
+		<div data-close-scope="page" data-close-id="settings" className={cn("absolute inset-0 z-30 flex flex-col bg-background", !active && "hidden")} role="region" aria-label={t("settings.title")}>
 			<Suspense fallback={null}>
 				<SettingsModal {...modalProps} />
 			</Suspense>

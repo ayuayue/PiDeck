@@ -92,9 +92,10 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  *   gitRemoteCherryPick / gitRemoteRevert / gitRemoteReset / gitRemoteDropCommit（git 前缀 65 → 69），
  *   每个动作一枚 main 签发、按 (窗口, 项目, 动作, 仓库) 绑定的令牌；helper 未声明能力时不签发，入口缺席。
  */
-const CHANNEL_TOTAL = 866;
+// Cmd/Ctrl+W 收窗前汇总运行中终端，只暴露无参数的 terminal:live-count。
+const CHANNEL_TOTAL = 867;
 const PREFIX_COUNT = 96;
-const CHANNEL_DIGEST = "c0657e1008284e6dfe6f54429b507280fda38d74cdbfc7accb4776bc56355c28";
+const CHANNEL_DIGEST = "f9984ff89594610f8d619d929671d6bbf78dd1f15bea2418046ee0699a8b681e";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -113,11 +114,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 865", () => {
+test("F3-1 通道常量总数与快照一致", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 865（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数与快照一致（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 

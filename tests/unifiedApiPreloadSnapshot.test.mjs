@@ -77,7 +77,8 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const NS_LIST_SHA256 = "6932e90a8051354deb1e881b5acea04ff47ed41ebe75747e29328b79ab4f5a77";
 // #520：sessions 新增安全分享 prepare/save/release 三个方法，其他命名空间不变。
 // #546：sessions 新增 gtdState / gtdPatch（GTD 分诊账本），其他命名空间不变。
-const FULL_METHODS_SHA256 = "9dbc77f6b20edba293599e2983bd7e6f0691d7299a65c314a5b2d46ab59dcbeb";
+// Cmd/Ctrl+W 新增 terminal.liveCount，统计当前工作区实例的存活终端；其余暴露面不变。
+const FULL_METHODS_SHA256 = "aa3252e5167f5b459463b27252d261be49c3633d4ecdc690e0a2671de93a509b";
 const NAMESPACE_COUNT = 86;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */

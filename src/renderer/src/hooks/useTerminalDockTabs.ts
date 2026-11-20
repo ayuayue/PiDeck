@@ -209,21 +209,24 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 		}
 	}
 
-	async function closeTab(tab: TerminalTab) {
+	async function closeTab(tab: TerminalTab, source?: "shortcut") {
 		const scope = scopeRef.current;
 		if (!scope?.active) return;
-		const mode = latest.current.confirmClose;
+		const mode = source === "shortcut" && latest.current.confirmClose === "never" ? "running" : latest.current.confirmClose;
 		let frontProcess = tab.frontProcess;
 		if (mode === "running") {
 			try {
 				const fresh = await scope.terminal.list(scope.target);
-				frontProcess = fresh.find((item) => item.id === tab.id)?.frontProcess ?? frontProcess;
+				frontProcess = fresh.find((item) => item.id === tab.id)?.frontProcess ?? (source === "shortcut" ? undefined : frontProcess);
 			} catch {
-				// 前台进程探测失败沿用本地快照；真正关闭仍须等待 IPC 成功。
+				// A stale shell name cannot establish that the terminal is currently idle.
+				if (source === "shortcut") frontProcess = undefined;
 			}
 		}
 		if (!scope.active || !stateRef.current.tabs.some((item) => item.id === tab.id)) return;
-		if (shouldConfirmTerminalClose(mode, frontProcess, tab.shell)) {
+		// SSH does not report foreground process names. Treat unknown live processes conservatively for the shortcut.
+		const unknownLiveProcess = source === "shortcut" && !tab.exited && !frontProcess;
+		if (unknownLiveProcess || shouldConfirmTerminalClose(mode, frontProcess, tab.shell)) {
 			setPendingCloseTab(tab);
 			return;
 		}

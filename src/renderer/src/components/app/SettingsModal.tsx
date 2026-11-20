@@ -1,5 +1,6 @@
 import { Component, Fragment, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { getDefaultStore, useAtom, useAtomValue } from "jotai";
+import { useSettingsCloseRisk } from "../../hooks/settings/useSettingsCloseRisk";
 import { settingsFocusAtom, type SettingsPaneId, type SettingsSectionId, type SettingsTabId } from "../../atoms";
 import { hasPendingUpdateAtom, updateStatusAtom } from "../../atoms/update-atoms";
 import { useSettingsFocus } from "./settings/useSettingsFocus.ts";
@@ -516,15 +517,13 @@ function SettingsModalContent(props: SettingsModalProps) {
 	// 生图 tab 的取消：脏标记由子组件内部管理，取消时不主动重置（下次打开重新加载）；
 	// 若需强制重置可在子组件暴露 reset 方法，这里仅确保关闭流程不遗漏生图脏检查
 
-	/** 关闭弹框：系统设置草稿与配置管理草稿任一有未保存变化都统一弹确认（不再按分区委托），
-	 *  配置分区的脏状态由 ConfigPane 上报（onStateChange.hasDirty）；无任何脏直接关闭。 */
-	/** 关闭/安装前检查的全部独立草稿脏源（系统设置字段 + 视觉桥/生图/生视频/ACP）。
-	 *  videoGenDirty/acpDirty 此前漏算：改了生视频供应商或 ACP 工具表后直接关弹窗不会弹确认，草稿静默丢失。 */
+	// ConfigPane 与独立设置草稿共用关闭/安装保护，后台页面也需汇总。
 	const hasIndependentDraftsDirty = visionDraft.dirty || imageGenDirty || videoGenDirty || acpDirty;
+	const hasUnsavedChanges = dirtyFields.size > 0 || hasIndependentDraftsDirty || configPaneState.hasDirty;
+	useSettingsCloseRisk(hasUnsavedChanges || settingsSaving || configPaneState.saving);
 	const handleClose = () => {
 		if (settingsSaving || configPaneState.saving) return;
-		const settingsDirty = dirtyFields.size > 0 || hasIndependentDraftsDirty;
-		if (settingsDirty || configPaneState.hasDirty) {
+		if (hasUnsavedChanges) {
 			setCloseConfirmOpen(true);
 		} else {
 			props.onClose();
@@ -585,8 +584,7 @@ function SettingsModalContent(props: SettingsModalProps) {
 			props.onInstallUpdate();
 			return;
 		}
-		const settingsDirty = dirtyFields.size > 0 || hasIndependentDraftsDirty;
-		if (settingsDirty || configPaneState.hasDirty) {
+		if (hasUnsavedChanges) {
 			setInstallConfirmOpen(true);
 			return;
 		}

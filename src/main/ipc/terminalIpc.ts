@@ -105,6 +105,8 @@ export function registerTerminalIpc({ appLogger, projectStore, sessionRuntimeCoo
 		return target;
 	};
 
+	// Only expose a count. Reading it neither attaches to terminals nor accesses their output.
+	ipcMain.handle(ipcChannels.terminalLiveCount, (event) => terminalManager.liveCount() + (remoteTerminalManager?.liveCount(event.sender.id) ?? 0));
 	ipcMain.handle(ipcChannels.terminalList, (event, rawTarget: unknown) => {
 		const target = requireTerminalTarget(rawTarget);
 		const remoteId = remoteProjectId(target);

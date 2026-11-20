@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useWorkspacePageFocus } from "../../hooks/useWorkspacePageFocus";
 import { useAtomValue, useSetAtom } from "jotai";
 import { automationPageOpenAtom, automationPageProjectIdAtom, closeAutomationPageAtom } from "../../atoms/automation-atoms";
 import { deactivateWorkspacePageAtom } from "../../atoms/workspace-page-atoms";
@@ -31,6 +32,7 @@ export function AutomationPage({ active, onViewSession }: AutomationPageProps) {
 
 function AutomationPageSurface(props: AutomationPageProps & { projectId?: string }) {
 	const close = useSetAtom(closeAutomationPageAtom);
+	const pageRef = useWorkspacePageFocus(props.active);
 	const deactivate = useSetAtom(deactivateWorkspacePageAtom);
 	const [route, setRoute] = useState<AutomationWorkspaceRoute>(DEFAULT_AUTOMATION_WORKSPACE_ROUTE);
 
@@ -54,7 +56,7 @@ function AutomationPageSurface(props: AutomationPageProps & { projectId?: string
 
 	return (
 		// inset-0 只覆盖会话列：侧栏、右侧抽屉、底部停靠栏保持可交互（与智能体页/插件页同约定）。
-		<div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !props.active && "hidden")} role="region" aria-label={t("automation.title")}>
+		<div ref={pageRef} tabIndex={-1} data-close-scope="page" data-close-id="automation" className={cn("absolute inset-0 z-30 flex flex-col bg-background", !props.active && "hidden")} role="region" aria-label={t("automation.title")}>
 			<AutomationWorkspace route={route} projectId={props.projectId} onRouteChange={setRoute} onViewSession={handleViewSession} />
 		</div>
 	);

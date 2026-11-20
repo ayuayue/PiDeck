@@ -321,7 +321,7 @@ export function SessionView({
 	}, [availableTerminalHeight, terminalCollapsed, terminalDockVisible, terminalOpen, terminalRowHeight, timelineColumnMinSize]);
 
 	return (
-		<div className={splitPane ? `session-split-pane flex h-full min-h-0 flex-col${focused ? " session-split-pane-focused" : ""}` : "contents"} onMouseDown={splitPane ? () => onFocusPane?.() : undefined}>
+		<div data-close-scope="session" data-close-id={sessionId} className={splitPane ? `session-split-pane flex h-full min-h-0 flex-col${focused ? " session-split-pane-focused" : ""}` : "contents"} onMouseDown={splitPane ? () => onFocusPane?.() : undefined}>
 			{/* Tab 栏已统一外置；本栏头部显示会话状态徽章、分屏身份标题与运行控制工具条。 */}
 			{(!paneServices.simpleNavigation || splitPane) && (
 				<SessionHeader
