@@ -33,6 +33,7 @@ type mobileSaved struct {
 	// following the desktop's config.
 	Sound     bool   `json:"sound,omitempty"`
 	SoundName string `json:"soundName,omitempty"`
+	Notify    bool   `json:"notify,omitempty"`
 }
 
 type mobileRecent struct {
@@ -126,6 +127,7 @@ type mobileApp struct {
 	fileOpen     *core.Signal[bool]
 	fileTitle    *core.Signal[string]
 	fileText     *core.Signal[string]
+	fileEdit     mobileFileEditor
 	fileBusy     *core.Signal[bool]
 	fileErr      *core.Signal[string]
 	fileFind     *core.Signal[string]
@@ -153,6 +155,7 @@ type mobileApp struct {
 	// soundOn and soundName are the phone's alert settings, kept in
 	// remote.json beside the look; sounds plays them.
 	soundOn   *core.Signal[bool]
+	notifyOn  *core.Signal[bool]
 	soundName *core.Signal[string]
 	sounds    *alerts.Player
 	// voice is the microphone's state, idle, recording or busy; rec is the
@@ -181,17 +184,24 @@ type mobileApp struct {
 	favOpen       *core.Signal[string]
 
 	// query filters the session list, findText the open transcript.
-	query      *core.Signal[string]
-	searchOpen *core.Signal[bool]
-	findOpen   *core.Signal[bool]
-	findText   *core.Signal[string]
+	query                *core.Signal[string]
+	searchOpen           *core.Signal[bool]
+	findOpen             *core.Signal[bool]
+	findText             *core.Signal[string]
+	findSelected         *core.Signal[transcriptRowKey]
+	transcriptPicture    *core.Signal[transcriptPicture]
+	transcriptPictureSeq uint64
+	transcriptImages     transcriptImageCache
 
 	// draft is the composer's text, pending the pictures attached to it;
 	// sending covers one request in flight.
-	draft   *core.Signal[string]
-	pending *core.Signal[[]remotewire.Image]
-	sending *core.Signal[bool]
-	running *core.Signal[bool]
+	draft             *core.Signal[string]
+	draftChange       *core.Signal[*viewkit.DraftChange]
+	draftChangeOwner  string
+	draftChangeClient *remoteClient
+	pending           *core.Signal[[]remotewire.Image]
+	sending           *core.Signal[bool]
+	running           *core.Signal[bool]
 	// mode is what the open session's next turn asks for, echoed from the
 	// desktop: "" for a normal prompt, else "plan", "goal" or "imagegen".
 	mode *core.Signal[string]
@@ -323,6 +333,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		fileOpen:            core.NewSignal(cx, false),
 		fileTitle:           core.NewSignal(cx, ""),
 		fileText:            core.NewSignal(cx, ""),
+		fileEdit:            newMobileFileEditor(cx),
 		fileBusy:            core.NewSignal(cx, false),
 		fileErr:             core.NewSignal(cx, ""),
 		fileFind:            core.NewSignal(cx, ""),
@@ -331,7 +342,11 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		searchOpen:          core.NewSignal(cx, false),
 		findOpen:            core.NewSignal(cx, false),
 		findText:            core.NewSignal(cx, ""),
+		findSelected:        core.NewSignal(cx, transcriptRowKey{}),
+		transcriptPicture:   core.NewSignalFunc(cx, transcriptPicture{}, nil),
+		transcriptImages:    transcriptImageCache{ctx: cx.Context()},
 		draft:               core.NewSignal(cx, ""),
+		draftChange:         core.NewSignal(cx, (*viewkit.DraftChange)(nil)),
 		pending:             core.NewSignalFunc(cx, []remotewire.Image(nil), nil),
 		sending:             core.NewSignal(cx, false),
 		running:             core.NewSignal(cx, false),
@@ -371,6 +386,7 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		appearance:          core.NewSignal(cx, appearanceSystem),
 		language:            core.NewSignal(cx, apptext.LangZhCN),
 		soundOn:             core.NewSignal(cx, false),
+		notifyOn:            core.NewSignal(cx, false),
 		soundName:           core.NewSignal(cx, ""),
 		voice:               core.NewSignal(cx, voiceIdle),
 		agents:              core.NewSignalFunc(cx, []remotewire.Agent(nil), nil),
@@ -401,6 +417,8 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 	a.initProject.Set(saved.Project)
 	a.soundOn.Set(saved.Sound)
 	a.soundName.Set(saved.SoundName)
+	a.notifyOn.Set(saved.Notify)
+	a.installNotificationHandler()
 	a.sounds = alerts.New(cx)
 	// A page is served by a desktop, so its origin is the server and a link's
 	// ?token= the token; a saved connection wins only over the origin.

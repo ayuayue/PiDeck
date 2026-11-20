@@ -6,10 +6,12 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"example.com/pideck-lite/internal/remotewire"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"example.com/pideck-lite/extensions"
 	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/crashlog"
 	"example.com/pideck-lite/internal/sessionimport"
@@ -29,6 +31,7 @@ func newApp(cx *core.Scope) *app {
 		activeWS:               core.NewSignal(cx, ""),
 		tabs:                   core.NewSignalFunc(cx, []string{}, nil),
 		activeID:               core.NewSignal(cx, ""),
+		activityOpen:           core.NewSignal(cx, false),
 		activePane:             core.NewSignal(cx, ""),
 		filter:                 core.NewSignal(cx, ""),
 		sidebar:                core.NewSignal(cx, true),
@@ -41,6 +44,13 @@ func newApp(cx *core.Scope) *app {
 		chatLine:               core.NewSignal(cx, 0.0),
 		inputFont:              core.NewSignal(cx, 0.0),
 		toolRev:                core.NewSignal(cx, 0),
+		trajectory:             core.NewSignal(cx, (*trajectoryView)(nil)),
+		delegationSession:      core.NewSignal(cx, (*session)(nil)),
+		modelCatalogBusy:       core.NewSignal(cx, false),
+		piUpdateBusy:           core.NewSignal(cx, false),
+		providerQuery:          core.NewSignal(cx, ""),
+		reduceEffects:          core.NewSignal(cx, false),
+		codeWrap:               core.NewSignal(cx, false),
 		aiBusy:                 core.NewSignal(cx, ""),
 		bgImage:                core.NewSignal(cx, ""),
 		bgOpacity:              core.NewSignal(cx, 0.8),
@@ -100,6 +110,7 @@ func newApp(cx *core.Scope) *app {
 		marketList:             core.NewSignalFunc(cx, []marketEntry(nil), nil),
 		marketInstalling:       core.NewSignal(cx, ""),
 		imageOpen:              core.NewSignal(cx, false),
+		transcriptImage:        core.NewSignalFunc(cx, remotewire.Image{}, nil),
 		imagePrompt:            core.NewSignal(cx, ""),
 		imageModel:             core.NewSignal(cx, ""),
 		imageSize:              core.NewSignal(cx, "1024x1024"),
@@ -199,7 +210,13 @@ func newApp(cx *core.Scope) *app {
 		favModels:              core.NewSignalFunc(cx, []string(nil), nil),
 		favOpen:                core.NewSignal(cx, false),
 		reviewOpen:             core.NewSignal(cx, false),
+		drafts:                 newDraftLibrary(cx),
 		browser:                newBrowserState(cx),
+		preview:                core.NewSignal(cx, (*filePreview)(nil)),
+		notifications:          newNotificationHistory(cx),
+		translation:            core.NewSignal(cx, (*translationDraft)(nil)),
+		promptTemplate:         core.NewSignal(cx, (*promptTemplateForm)(nil)),
+		settingsSync:           core.NewSignal(cx, (*settingsSyncForm)(nil)),
 		favKind:                core.NewSignal(cx, ""),
 		favQuery:               core.NewSignal(cx, ""),
 		favRev:                 core.NewSignal(cx, 0),
@@ -243,7 +260,9 @@ func newApp(cx *core.Scope) *app {
 		acpNewCommand:          core.NewSignal(cx, ""),
 		acpNewArgs:             core.NewSignal(cx, ""),
 		acpManageErr:           core.NewSignal(cx, ""),
-		acpManageRev:           core.NewSignal(cx, 0),
+		acpManager:             core.NewSignalFunc(cx, acpManagerSnapshot{}, nil),
+		acpInstalling:          core.NewSignal(cx, ""),
+		acpManageBusy:          core.NewSignal(cx, false),
 		agentOpen:              core.NewSignal(cx, false),
 		agentManageOpen:        core.NewSignal(cx, false),
 		agentManageRev:         core.NewSignal(cx, 0),
@@ -256,6 +275,11 @@ func newApp(cx *core.Scope) *app {
 		agentBackend:           core.NewSignal(cx, "pi"),
 		agentApply:             core.NewSignal(cx, false),
 		projectGroupOpen:       core.NewSignal(cx, false),
+		projectRemoveOpen:      core.NewSignal(cx, false),
+		organization:           core.NewSignalFunc(cx, sessionOrganization{}, nil),
+		organizationDialog:     core.NewSignal(cx, sessionOrganizationDialog{}),
+		organizationInput:      core.NewSignal(cx, ""),
+		organizationCollapsed:  core.NewSignalFunc(cx, map[string]bool(nil), nil),
 		projectGroupPath:       core.NewSignal(cx, ""),
 		projectGroupText:       core.NewSignal(cx, ""),
 		wsRenameOpen:           core.NewSignal(cx, false),
@@ -267,16 +291,18 @@ func newApp(cx *core.Scope) *app {
 		searchText:             core.NewSignal(cx, ""),
 		searchScope:            core.NewSignal(cx, ""),
 		searchRev:              core.NewSignal(cx, 0),
-		searchHits:             core.NewSignalFunc(cx, []searchHit(nil), nil),
+		searchResults:          core.NewSignal(cx, (*searchResult)(nil)),
 		searchBusy:             core.NewSignal(cx, false),
 		prompts:                core.NewSignalFunc(cx, []promptItem(nil), nil),
 		promptOpen:             core.NewSignal(cx, false),
+		promptLoading:          core.NewSignal(cx, false),
 		promptQuery:            core.NewSignal(cx, ""),
 		promptImportOpen:       core.NewSignal(cx, false),
 		promptImportURL:        core.NewSignal(cx, ""),
 		promptImportBusy:       core.NewSignal(cx, false),
 		promptImportErr:        core.NewSignal(cx, ""),
 		promptCat:              core.NewSignal(cx, ""),
+		promptWindow:           core.NewSignal(cx, 80),
 		langRev:                core.NewSignal(cx, 0),
 		editorWrap:             core.NewSignal(cx, false),
 		termFont:               core.NewSignal(cx, 12.5),
@@ -368,12 +394,20 @@ func newApp(cx *core.Scope) *app {
 		return a
 	}
 	a.st = st
+	a.notifications.load(st.dir)
+	a.memory = newMemoryView(cx, newMemoryStore(st.dir))
+	a.localToolsExtension = installLocalToolsExtension(st.dir)
+	a.organization.Set(st.organization)
+	a.drafts.items.Set(readDraftLibrary(st.dir))
+	a.draftsAtStart = readSessionDrafts(st.dir)
 	// The ask extension travels with the app: pi loads it with -e, and its
 	// questions reach the card.
 	askExtensionPath = installAskExtension(st.dir)
-	a.browserToolsExtension = installBrowserToolsExtension(st.dir)
+	retryExtensionPath = installBundledExtension(st.dir, "pi-deck-retry-no-body.ts", extensions.RetryNoBody)
 	a.initDiag()
 	a.cfg = st.config()
+	a.reduceEffects.Set(a.cfg.ReduceEffects)
+	a.codeWrap.Set(a.cfg.CodeWrap)
 	a.sounds = alerts.New(cx)
 	a.speech = &volcvoice.Client{}
 	a.loadCustomSound()
@@ -383,7 +417,7 @@ func newApp(cx *core.Scope) *app {
 	a.chatFont.Set(a.cfg.ChatFont)
 	a.chatLine.Set(a.cfg.ChatLine)
 	a.inputFont.Set(a.cfg.InputFont)
-	a.bgImage.Set(strings.TrimSpace(a.cfg.BackgroundImage))
+	a.bgImage.Set(a.cfg.wallpaper())
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.loadAuth()
 	a.chatWidthPctSig.Set(a.cfg.ChatWidthPct)
@@ -473,25 +507,24 @@ func newApp(cx *core.Scope) *app {
 	}
 
 	a.loadACPArchives()
+	a.restoreDraftSessions()
 
 	// pi's own sessions are read in the background, with the rest of the
 	// environment probe.
 	a.reloadFrameworks()
 
-	// Restore tabs and the active session, falling back to the newest one.
+	// Restore only tabs the user left open. A project with closed history
+	// stays on the welcome page and its sessions can be exported from the rail.
 	var tabs []string
 	for _, id := range a.cfg.Tabs {
 		if a.byID[id] != nil {
 			tabs = append(tabs, id)
+		} else if len(a.pendingTabs) < 64 {
+			a.pendingTabs = append(a.pendingTabs, id)
 		}
 	}
 	if len(tabs) == 0 && a.cfg.LastSession != "" && a.byID[a.cfg.LastSession] != nil {
 		tabs = []string{a.cfg.LastSession}
-	}
-	if len(tabs) == 0 {
-		if newest := a.newestSession(); newest != nil {
-			tabs = []string{newest.ID}
-		}
 	}
 	a.tabs.Set(tabs)
 	active := ""
@@ -504,11 +537,24 @@ func newApp(cx *core.Scope) *app {
 		active = tabs[0]
 	}
 	a.activeID.Set(active)
+	if a.cfg.LastSession != "" && a.byID[a.cfg.LastSession] == nil && len(a.pendingTabs) > 0 {
+		a.pendingActive = a.cfg.LastSession
+	}
 	if sess := a.byID[active]; sess != nil {
-		a.activeWS.Set(sess.WS)
+		if ws := a.workspaceFor(sess.Target, sess.WS); ws != nil {
+			a.activeWS.Set(projectWireKey(ws))
+		}
 		a.openSessionEager(sess)
 	}
+	if len(a.pendingTabs) > 0 {
+		for _, ws := range list {
+			if ws.Target.remote() {
+				a.scanProject(ws)
+			}
+		}
+	}
 	a.pick = newPicker(cx)
+	a.initVideo()
 
 	a.ensureAddonDirs()
 	a.ensurePromptLibrary()
@@ -516,6 +562,8 @@ func newApp(cx *core.Scope) *app {
 	a.on(eventTurnDone, a.onGoalTurn)
 	a.on(eventTurnDone, a.onQueuedTurn)
 	a.on(eventTurnDone, a.onFeishuTurn)
+	a.on(eventTurnDone, a.linkedTurnDone)
+	a.initWechat()
 	a.remote = newRemoteHost(a)
 	a.remote.init()
 	a.qrOpen = core.NewSignal(cx, false)
@@ -528,8 +576,10 @@ func newApp(cx *core.Scope) *app {
 		a.newTerminalTab()
 	}
 	a.setupDesktop()
+	a.initVoiceCapture()
 	a.startTaskScheduler()
 	a.startAnnouncements()
+	a.startModelCatalogRefresh()
 	a.startTelemetry()
 	return a
 }

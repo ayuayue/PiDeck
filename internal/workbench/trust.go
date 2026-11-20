@@ -157,7 +157,7 @@ func (a *app) trustDialog() core.Node {
 // trustBar is the warning over an untrusted project's composer.
 func (a *app) trustBar(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		ws := a.workspaceOf(s.WS)
+		ws := a.workspaceFor(s.Target, s.WS)
 		if ws == nil || a.projectTrusted(ws) {
 			return nil
 		}

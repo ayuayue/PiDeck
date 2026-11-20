@@ -180,6 +180,10 @@ func (h *terminalHost) newCommandTab(cwd string, t target, title string, cmd []s
 	})
 }
 
+func (h *terminalHost) newShellCommandTab(cwd string, t target, title, script string) *termTab {
+	return h.newCommandTab(cwd, t, title, shellInvocation(t, cwd, script), nil)
+}
+
 // addTab creates a tab and starts it, letting setup adjust it first.
 func (h *terminalHost) addTab(cwd string, t target, setup func(*termTab)) *termTab {
 	h.count++
@@ -268,9 +272,9 @@ func (h *terminalHost) start(tab *termTab) {
 		opts.Dir = ""
 	default:
 		opts.Dir = tab.Cwd
-		if len(tab.startCommand) > 0 {
-			opts.Command = tab.startCommand
-		}
+	}
+	if len(tab.startCommand) > 0 {
+		opts.Command = tab.startCommand
 	}
 	go func() {
 		term, err := sgt.New(opts)
@@ -293,7 +297,9 @@ func (h *terminalHost) start(tab *termTab) {
 				return
 			}
 			tab.term = term
-			tab.state.Set(termRunning)
+			if tab.state.GetUntracked() == termStarting {
+				tab.state.Set(termRunning)
+			}
 			tab.gen.Update(func(n int) int { return n + 1 })
 		})
 	}()

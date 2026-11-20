@@ -67,10 +67,19 @@ jobs:
       - name: Version
         id: version
         shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          v="${{ github.event.inputs.version }}"
+          v="$REQUESTED_VERSION"
           if [ -z "$v" ]; then v="${GITHUB_REF_NAME#v}"; fi
           echo "value=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Select release profile
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          python3 scripts/release_profile.py "$RELEASE_VERSION"
 
       # -tags webassets embeds webassets/site/ into the binary, so every desktop
       # build also serves the browser client on the remote port.
@@ -94,16 +103,44 @@ jobs:
         env:
           NSGO_UPDATES_KEY: ${{ secrets.NSGO_UPDATES_KEY }}
           GOFLAGS: -tags=webassets
-        run: go tool nsgo build -target ${{ matrix.target }} -version ${{ steps.version.outputs.value }}
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_TARGET: ${{ matrix.target }}
+          MAC_CERT: ${{ secrets.MACOS_DEVELOPER_ID_P12_B64 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          MAC_IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_IDENTITY }}
+          MAC_NOTARY_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MAC_NOTARY_TEAM: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          MAC_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
+        run: |
+          args=(-target "$RELEASE_TARGET" -version "$RELEASE_VERSION")
+          if [[ "$RELEASE_TARGET" == macos_* && -n "$MAC_CERT" && -n "$MAC_IDENTITY" ]]; then
+            keychain="$RUNNER_TEMP/pideck-macos-signing.keychain-db"
+            keychain_password="$(openssl rand -hex 24)"
+            cert="$RUNNER_TEMP/pideck-macos-signing.p12"
+            trap 'security delete-keychain "$keychain" || true; rm -f "$cert"' EXIT
+            printf '%s' "$MAC_CERT" | base64 -D > "$cert"
+            security create-keychain -p "$keychain_password" "$keychain"
+            security unlock-keychain -p "$keychain_password" "$keychain"
+            security list-keychains -d user -s "$keychain" login.keychain-db
+            security import "$cert" -k "$keychain" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+            args+=(-sign "$MAC_IDENTITY")
+            if [ -n "$MAC_NOTARY_ID" ] && [ -n "$MAC_NOTARY_TEAM" ] && [ -n "$MAC_NOTARY_PASSWORD" ]; then
+              xcrun notarytool store-credentials pideck-lite-release --keychain "$keychain" \
+                --apple-id "$MAC_NOTARY_ID" --team-id "$MAC_NOTARY_TEAM" --password "$MAC_NOTARY_PASSWORD"
+              args+=(-notarize pideck-lite-release)
+            fi
+          fi
+          go tool nsgo build "${args[@]}"
 
       - name: Collect
         shell: bash
         run: |
           mkdir -p out
           if [ -d dist/releases ]; then cp -r dist/releases/* out/ 2>/dev/null || true; fi
-          if [ -d "dist/PiDeck Lite-${{ steps.version.outputs.value }}-${{ matrix.target }}" ]; then
-            cp -r "dist/PiDeck Lite-${{ steps.version.outputs.value }}-${{ matrix.target }}"/* out/ 2>/dev/null || true
-          fi
+          for target_dir in dist/*-${{ matrix.target }}; do
+            if [ -d "$target_dir" ]; then cp -r "$target_dir"/* out/ 2>/dev/null || true; fi
+          done
 
       - uses: actions/upload-artifact@v7
         with:
@@ -125,10 +162,18 @@ jobs:
       - name: Version
         id: version
         shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          v="${{ github.event.inputs.version }}"
+          v="$REQUESTED_VERSION"
           if [ -z "$v" ]; then v="${GITHUB_REF_NAME#v}"; fi
           echo "value=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Select release profile
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: python3 scripts/release_profile.py "$RELEASE_VERSION"
 
       # NSGo writes the APK itself: arm64 needs no Android SDK and no NDK.
       # Without a keystore it signs with a debug key, which cannot update an
@@ -171,10 +216,18 @@ jobs:
       - name: Version
         id: version
         shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          v="${{ github.event.inputs.version }}"
+          v="$REQUESTED_VERSION"
           if [ -z "$v" ]; then v="${GITHUB_REF_NAME#v}"; fi
           echo "value=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Select release profile
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: python3 scripts/release_profile.py "$RELEASE_VERSION"
 
       # The same code the phone build uses: it is a client of a desktop's
       # server. The simulator app needs nothing from Apple; an IPA that
@@ -276,6 +329,16 @@ jobs:
           cat SHA256SUMS
 
       - uses: softprops/action-gh-release@v3
+        if: '!contains(github.ref_name, ''-dev'')'
         with:
           files: artifacts/**
           generate_release_notes: true
+
+      - uses: softprops/action-gh-release@v3
+        if: contains(github.ref_name, '-dev')
+        with:
+          tag_name: dev
+          name: PiDeck Lite Dev
+          prerelease: true
+          make_latest: false
+          files: artifacts/**

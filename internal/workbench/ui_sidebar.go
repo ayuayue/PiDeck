@@ -200,9 +200,11 @@ func (a *app) railShortcuts() core.Node {
 		}
 	}
 	return core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
+		a.activityShortcut(),
 		entry(lucide.Bot, "智能体", "rail-agents", paneAgents, func() { a.openAgentManager() }),
 		entry(lucide.CalendarClock, "定时任务", "rail-tasks", paneTasks, func() { a.openTaskDialog() }),
 		entry(lucide.Star, "收藏夹", "rail-favorites", paneFavorites, func() { a.openFavorites() }),
+		entry(lucide.BookOpen, "草稿本", "rail-drafts", paneDrafts, func() { a.openDrafts(false) }),
 	}}
 }
 

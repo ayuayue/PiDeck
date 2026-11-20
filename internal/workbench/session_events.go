@@ -130,6 +130,10 @@ func (a *app) ensureTurn(s *session) {
 
 // messageEnded commits an assistant message once it is authoritative.
 func (a *app) messageEnded(s *session, ev piEvent) {
+	if ev.finishedTool != nil {
+		a.updateTool(s, *ev.finishedTool)
+		return
+	}
 	var msg piMessage
 	if len(ev.Message) == 0 || json.Unmarshal(ev.Message, &msg) != nil {
 		return
@@ -137,9 +141,6 @@ func (a *app) messageEnded(s *session, ev piEvent) {
 	switch msg.Role {
 	case "assistant":
 		a.commitAssistant(s, msg)
-	case "toolResult":
-		run := toolRun{CallID: msg.ToolCallID, Name: msg.ToolName, Output: strings.TrimSpace(msg.text()), IsError: msg.IsError}
-		a.updateTool(s, run)
 	}
 }
 

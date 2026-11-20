@@ -26,7 +26,7 @@ type toolModelCfg struct {
 }
 
 // toolNames are the tools that choose a model of their own.
-var toolNames = []string{"commit", "prompt", "predict"}
+var toolNames = []string{"commit", "prompt", "predict", "translate"}
 
 // toolModel is a tool's provider and model, the first model when only the
 // provider was chosen.

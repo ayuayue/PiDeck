@@ -7,10 +7,12 @@ package workbench
 // it, and a picture drawn from the phone's words.
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/remotewire"
@@ -144,7 +146,9 @@ func (h *remoteHost) sessionTool(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	// The model call is a network request: it stays off the UI thread.
-	answer, err := h.app.complete(tool, toolSystem(tool), text, toolTokens(tool))
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	answer, err := h.app.completeDraftTool(ctx, tool, text)
 	if err != nil {
 		writeRemoteJSON(w, http.StatusBadGateway, map[string]string{"error": viewkit.FirstLine(err.Error(), 220)})
 		return

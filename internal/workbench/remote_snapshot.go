@@ -44,12 +44,12 @@ func (a *app) remoteSnapshot() (remotewire.Snapshot, error) {
 	out.Name, out.Version, out.Host = "PiDeck Lite", pideckVersion, host
 	ok := a.withUI(func() {
 		for _, ws := range a.workspaces.GetUntracked() {
-			if ws.Target.remote() {
-				continue
-			}
 			a.scanProject(ws)
 			pinned, rest := a.projectSessions(ws)
-			project := remotewire.Project{Path: ws.Path, Name: ws.label()}
+			project := remotewire.Project{Path: projectWireKey(ws), Name: ws.label()}
+			if ws.Target.remote() {
+				project.Target, project.Root = ws.Target.shortLabel(), ws.Path
+			}
 			for _, s := range append(pinned, rest...) {
 				if s == nil {
 					continue
@@ -106,6 +106,7 @@ func remoteStatus(s sessionStatus) string {
 func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, error) {
 	var out remotewire.Transcript
 	var title, file string
+	var t target
 	var turns []turn
 	var found, loaded, running bool
 	var live, liveThinking string
@@ -116,11 +117,12 @@ func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, er
 			return
 		}
 		found, title, file, loaded = true, s.title.Get(), s.File, s.loaded.GetUntracked()
+		t = s.Target
 		running = s.busyNow()
 		ask = remoteAskOf(s)
 		live, liveThinking = s.streamText.GetUntracked(), s.streamThinking.GetUntracked()
 		if loaded {
-			turns = s.turns.GetUntracked()
+			turns = cloneTranscriptTurns(s.turns.GetUntracked())
 		}
 	})
 	if !ok {
@@ -136,7 +138,15 @@ func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, er
 			// an error.
 			return out, nil
 		}
-		history, err := readSessionTurns(file)
+		var history []turn
+		var err error
+		if t.remote() {
+			var msgs []piMessage
+			msgs, err = targetHistoryMessages(t, file)
+			history = turnsFromMessages(msgs)
+		} else {
+			history, err = readSessionTurns(file)
+		}
 		if err != nil {
 			out.Error = "读取会话失败：" + err.Error()
 			return out, nil
@@ -147,15 +157,16 @@ func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, er
 	out.Running = running
 	// The live buffers are what pi is saying right now; the turns only
 	// carry what it has finished.
-	if running {
+	if running && before <= 0 {
+		current := max(0, len(turns)-1)
 		if thinking := strings.TrimSpace(liveThinking); thinking != "" {
-			out.Messages = append(out.Messages, remotewire.Message{Role: "thinking", Text: thinking})
+			out.Messages = append(out.Messages, remotewire.Message{Role: "thinking", Text: thinking, Turn: current})
 		}
 		if text := strings.TrimSpace(live); text != "" {
 			last := len(out.Messages) > 0 && out.Messages[len(out.Messages)-1].Role == "assistant" &&
 				out.Messages[len(out.Messages)-1].Text == text
 			if !last {
-				out.Messages = append(out.Messages, remotewire.Message{Role: "assistant", Text: text})
+				out.Messages = append(out.Messages, remotewire.Message{Role: "assistant", Text: text, Turn: current})
 			}
 		}
 	}
@@ -166,14 +177,11 @@ func (a *app) remoteTranscript(id string, before int) (remotewire.Transcript, er
 // the desktop keeps, so a phone polling a long session does not read it
 // again on every request.
 func readSessionTurns(path string) ([]turn, error) {
-	msgs, err := sessionFileMessages(path)
+	entry, err := sessionFileHistory(path)
 	if err != nil {
 		return nil, err
 	}
-	if len(msgs) > 4000 {
-		msgs = msgs[len(msgs)-4000:]
-	}
-	return turnsFromMessages(msgs), nil
+	return entry.phone(), nil
 }
 
 // remotePageTurns is how many turns one reply carries: enough to read,
@@ -230,16 +238,25 @@ func remoteMessages(turns []turn, before int) ([]remotewire.Message, int, bool) 
 			}
 			out = append(out, remotewire.Message{Role: role, Text: text, Turn: i})
 		}
-		prompt := t.Prompt
-		if len(t.Images) > 0 {
-			prompt = strings.TrimSpace(prompt + " ［图片］")
+		add("user", t.Prompt)
+		remainingImages := 24
+		addImages := func(step, tool int, images []remotewire.Image) {
+			for index, img := range images[:min(len(images), remainingImages)] {
+				ref := ""
+				if len(img.Data) > 0 && len(img.Data) <= remotewire.MaxTranscriptImageBytes {
+					ref = transcriptImageRef(i, step, tool, index, t.Start)
+				}
+				out = append(out, remotewire.Message{Role: "image", Text: "［图片］", Turn: i, Image: ref})
+				remainingImages--
+			}
 		}
-		add("user", prompt)
-		for _, step := range t.Steps {
+		addImages(-1, -1, t.Images)
+		for stepIndex, step := range t.Steps {
 			add("note", step.Note)
 			add("thinking", step.Thinking)
-			for _, tool := range step.Tools {
+			for toolIndex, tool := range step.Tools {
 				add("tool", strings.TrimSpace(tool.Action+" "+tool.Detail))
+				addImages(stepIndex, toolIndex, tool.Images)
 			}
 			add("assistant", step.Text)
 		}

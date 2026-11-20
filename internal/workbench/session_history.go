@@ -29,6 +29,7 @@ type historyEntry struct {
 	modTime time.Time
 	msgs    []piMessage
 	tail    parsedTail
+	phone   func() []turn
 }
 
 // sessionHistoryCache keeps the last few parses, newest last.
@@ -42,14 +43,14 @@ type sessionHistoryCache struct {
 var sessionHistory = &sessionHistoryCache{items: map[string]historyEntry{}}
 
 // get returns the messages cached for a file, when it has not changed.
-func (c *sessionHistoryCache) get(path string, info os.FileInfo) []piMessage {
+func (c *sessionHistoryCache) get(path string, info os.FileInfo) (historyEntry, bool) {
 	c.Lock()
 	defer c.Unlock()
 	entry, ok := c.items[path]
 	if !ok || entry.size != info.Size() || !entry.modTime.Equal(info.ModTime()) {
-		return nil
+		return historyEntry{}, false
 	}
-	return entry.msgs
+	return entry, true
 }
 
 // previous returns what the last parse of a file left behind, so an append
@@ -94,12 +95,17 @@ func (c *sessionHistoryCache) put(path string, info os.FileInfo, entry historyEn
 // parse while the file is unchanged and reading only the new tail when it
 // grew. Callers treat the slice as read-only.
 func sessionFileMessages(path string) ([]piMessage, error) {
+	entry, err := sessionFileHistory(path)
+	return entry.msgs, err
+}
+
+func sessionFileHistory(path string) (historyEntry, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, err
+		return historyEntry{}, err
 	}
-	if msgs := sessionHistory.get(path, info); msgs != nil {
-		return msgs, nil
+	if entry, ok := sessionHistory.get(path, info); ok {
+		return entry, nil
 	}
 	prev, seen := sessionHistory.previous(path)
 	start := int64(0)
@@ -108,15 +114,18 @@ func sessionFileMessages(path string) ([]piMessage, error) {
 	}
 	msgs, tail, err := readSessionMessages(path, start)
 	if err != nil {
-		return nil, err
+		return historyEntry{}, err
 	}
 	if start > 0 {
 		joined := make([]piMessage, 0, len(prev.msgs)+len(msgs))
 		joined = append(joined, prev.msgs...)
 		msgs = append(joined, msgs...)
 	}
-	sessionHistory.put(path, info, historyEntry{msgs: msgs, tail: tail})
-	return msgs, nil
+	entry := historyEntry{msgs: msgs, tail: tail, phone: sync.OnceValue(func() []turn {
+		return turnsFromMessages(msgs[max(0, len(msgs)-4000):])
+	})}
+	sessionHistory.put(path, info, entry)
+	return entry, nil
 }
 
 // readSessionMessages reads the message entries of a pi session file from
@@ -124,18 +133,7 @@ func sessionFileMessages(path string) ([]piMessage, error) {
 func readSessionMessages(path string, start int64) ([]piMessage, parsedTail, error) {
 	var msgs []piMessage
 	tail, err := readTail(path, start, func(line []byte) error {
-		if len(line) == 0 {
-			return nil
-		}
-		var entry struct {
-			Type    string          `json:"type"`
-			Message json.RawMessage `json:"message"`
-		}
-		if json.Unmarshal(line, &entry) != nil || entry.Type != "message" || len(entry.Message) == 0 {
-			return nil
-		}
-		var msg piMessage
-		if json.Unmarshal(entry.Message, &msg) == nil {
+		if msg, ok := historyLineMessage(line); ok {
 			msgs = append(msgs, msg)
 		}
 		return nil
@@ -144,4 +142,21 @@ func readSessionMessages(path string, start int64) ([]piMessage, parsedTail, err
 		return nil, tail, err
 	}
 	return msgs, tail, nil
+}
+
+func historyLineMessage(line []byte) (piMessage, bool) {
+	var msg piMessage
+	if len(line) == 0 {
+		return msg, false
+	}
+	var entry struct {
+		Type    string          `json:"type"`
+		ID      string          `json:"id"`
+		Message json.RawMessage `json:"message"`
+	}
+	if json.Unmarshal(line, &entry) != nil || entry.Type != "message" || len(entry.Message) == 0 || json.Unmarshal(entry.Message, &msg) != nil {
+		return msg, false
+	}
+	msg.EntryID = entry.ID
+	return msg, true
 }

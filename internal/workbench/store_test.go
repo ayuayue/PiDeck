@@ -6,6 +6,7 @@ package workbench
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,7 +118,7 @@ func TestConfigMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"version": 3`) || strings.Contains(string(raw), "bogus") {
+	if !strings.Contains(string(raw), fmt.Sprintf(`"version": %d`, configVersion)) || strings.Contains(string(raw), "bogus") {
 		t.Fatalf("migrated file = %s", raw)
 	}
 }
@@ -125,7 +126,7 @@ func TestConfigMigration(t *testing.T) {
 // TestConfigValidIsNotRewritten keeps a valid file exactly as it was.
 func TestConfigValidIsNotRewritten(t *testing.T) {
 	dir := t.TempDir()
-	body := `{"version":3,"sessionSort":"name","scanPi":false,"scanAll":false,"closeToTray":false,"notifyOnDone":false,"notifyOnlyHidden":false}`
+	body := fmt.Sprintf(`{"version":%d,"sessionSort":"name","scanPi":false,"scanAll":false,"closeToTray":false,"notifyOnDone":false,"notifyOnlyHidden":false}`, configVersion)
 	path := filepath.Join(dir, "config.json")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -143,6 +144,30 @@ func TestConfigValidIsNotRewritten(t *testing.T) {
 	}
 	if string(raw) != body {
 		t.Fatalf("a valid config was rewritten:\n%s", raw)
+	}
+}
+
+func TestConfigMigrationACPSettings(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"version":3,"acpSilenceSec":15,"acpChoices":{"dsh":{"mode":"ask","values":{"model":"deepseek"}}}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := newStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := st.config()
+	if c.Version != configVersion || acpSilenceSeconds(c.ACPSilenceSec) != acpSilenceDefault {
+		t.Fatalf("version/timeout = %d/%d", c.Version, c.ACPSilenceSec)
+	}
+	pref := c.ACPChoices["dsh"]
+	if pref.Mode != "ask" || pref.Values["model"] != "deepseek" {
+		t.Fatalf("lost ACP preferences: %+v", pref)
+	}
+	pref.Values["model"] = "changed"
+	if got := st.config().ACPChoices["dsh"].Values["model"]; got != "deepseek" {
+		t.Fatalf("ACP preference aliased store: %q", got)
 	}
 }
 
@@ -186,7 +211,8 @@ func TestTrustMigration(t *testing.T) {
 		t.Fatalf("version/trusted = %d/%v", c.Version, c.TrustedProjects)
 	}
 	raw, _ := os.ReadFile(path)
-	if !strings.Contains(string(raw), `"version": 2`) || !strings.Contains(string(raw), "trustedProjects") {
+	var persisted config
+	if json.Unmarshal(raw, &persisted) != nil || persisted.Version != configVersion || !strings.Contains(string(raw), "trustedProjects") {
 		t.Fatalf("migrated config = %s", raw)
 	}
 

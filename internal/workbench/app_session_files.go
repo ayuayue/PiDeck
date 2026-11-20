@@ -6,7 +6,11 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"slices"
+	"strings"
+
 	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/sessionimport"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -86,10 +90,19 @@ func (a *app) duplicateSession(s *session) {
 // puts that turn's prompt back in the composer: the way to try another
 // answer without losing the original history.
 func (a *app) forkSession(s *session, turnID string) {
+	a.branchFromTurn(s, turnID, false)
+}
+
+func canBranchTurn(s *session, t turn) bool {
+	return s != nil && s.backend != "acp" && !s.Target.remote() && s.File != "" && !t.running() &&
+		(strings.TrimSpace(t.Prompt) != "" || len(t.Images) > 0)
+}
+
+func (a *app) branchFromTurn(s *session, turnID string, send bool) {
 	if s == nil || a.st == nil {
 		return
 	}
-	if s.Target.remote() {
+	if s.Target.remote() || s.backend == "acp" {
 		a.toast(ui.ToastInfo, "远程会话暂不支持分叉", "现在只分叉本机会话。")
 		return
 	}
@@ -98,43 +111,57 @@ func (a *app) forkSession(s *session, turnID string) {
 		return
 	}
 	turns := s.turns.GetUntracked()
-	idx := -1
-	for i, t := range turns {
-		if t.ID == turnID {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
+	idx := slices.IndexFunc(turns, func(t turn) bool { return t.ID == turnID })
+	if idx < 0 || !canBranchTurn(s, turns[idx]) {
 		return
 	}
+	prompt := turns[idx]
+	ordinal := 0
+	for _, t := range turns[:idx] {
+		if t.Prompt != "" || len(t.Images) > 0 || t.sourceEntryID != "" {
+			ordinal++
+		}
+	}
 	id := newSessionID()
-	title := s.title.GetUntracked() + " 分叉"
+	title := apptext.T("%s（分叉）", s.title.GetUntracked())
+	if send {
+		title = apptext.T("%s（重试）", s.title.GetUntracked())
+	}
 	src, st := s.File, a.st
 	go func() {
-		meta, prompt, err := st.forkSession(src, id, idx, title)
+		meta, source, err := st.branchSession(src, id, branchPoint{
+			ordinal: ordinal, entryID: prompt.sourceEntryID, text: prompt.sourcePrompt,
+		}, title)
+		images := slices.Clone(prompt.Images)
+		if len(images) == 0 {
+			images = piBlockImages(source.blocks())
+		}
+		images = slices.DeleteFunc(images, func(img remotewire.Image) bool { return len(img.Data) == 0 })
+		text := firstNonEmpty(prompt.Prompt, source.text())
 		a.cx.Post(func() {
 			if err != nil {
 				a.toast(ui.ToastError, "分叉会话失败", err.Error())
 				return
 			}
 			ns := a.makeSession(meta, s.Target)
-			if ws := a.workspaceOf(meta.Cwd); ws != nil {
+			if ws := a.workspaceFor(s.Target, s.WS); ws != nil {
 				ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{ns}, ss...) })
 			}
-			a.selectSession(ns)
-			if prompt == "" {
-				prompt = turns[idx].Prompt
-			}
-			ns.draft.Set(prompt)
-			st.edit(func(c *config) {
+			st.change(func(c *config) {
 				if c.ForkParents == nil {
 					c.ForkParents = map[string]string{}
 				}
 				c.ForkParents[ns.ID] = s.ID
 			})
 			a.cfg = st.config()
+			a.selectSession(ns)
 			a.sessionCreated(ns, "fork")
+			if send && (strings.TrimSpace(text) != "" || len(images) > 0) {
+				a.submitTurn(ns, text, images, prompt.Plan)
+				return
+			}
+			ns.draft.Set(text)
+			ns.images.Set(images)
 			a.toast(ui.ToastSuccess, "已分叉会话", "原提问已放回输入框，改完可以直接发。")
 		})
 	}()

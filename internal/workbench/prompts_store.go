@@ -27,6 +27,9 @@ type promptIndexEntry struct {
 // fetchPromptIndex reads an index of prompt packs.
 func fetchPromptIndex(rawURL string) ([]promptIndexEntry, error) {
 	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "https://prompts.chat" || rawURL == communityPromptsURL {
+		return []promptIndexEntry{{ID: "prompts-chat", Name: "prompts.chat", Author: "f/prompts.chat", URL: communityPromptsURL}}, nil
+	}
 	if !isHTTPURL(rawURL) {
 		return nil, errors.New("索引链接只支持 http(s)")
 	}

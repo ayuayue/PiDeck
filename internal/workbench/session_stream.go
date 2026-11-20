@@ -6,6 +6,7 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -15,7 +16,19 @@ func (a *app) onPiEvent(s *session, ev piEvent) {
 		a.onDelta(s, ev)
 		return
 	}
-	a.cx.Post(func() { a.applyEvent(s, ev) })
+	if ev.Type == "message_end" {
+		var msg piMessage
+		if json.Unmarshal(ev.Message, &msg) == nil && msg.Role == "toolResult" {
+			run := toolRunFromResult(msg)
+			ev.finishedTool = &run
+			ev.Message = nil
+		}
+	}
+	a.cx.Post(func() {
+		if !s.deleting && a.byID[s.ID] == s {
+			a.applyEvent(s, ev)
+		}
+	})
 }
 
 // onDelta buffers streaming text so the UI redraws at most ~25 times a

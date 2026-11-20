@@ -146,6 +146,7 @@ func (a *app) skillStoreDialog() core.Node {
 			TestID:       "skill-store",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(660)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
+				ui.Button{Text: apptext.T("搜索 skills.sh"), TestID: "skill-store-online", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Disabled: a.skillStoreBusy.Get, OnPress: a.searchOnlineSkills},
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.skillStoreURL.Get, OnChange: a.skillStoreURL.Set, Placeholder: "https://…/skills.json",

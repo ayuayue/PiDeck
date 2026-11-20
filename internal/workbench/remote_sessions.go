@@ -49,7 +49,7 @@ func (h *remoteHost) handleSessionAction(w http.ResponseWriter, r *http.Request)
 	case "thinking":
 		h.sessionThinking(w, r, id)
 	case "delete":
-		h.sessionDelete(w, id)
+		h.sessionDelete(w, r, id)
 	case "answer":
 		h.sessionAnswer(w, r, id)
 	case "mode":
@@ -115,7 +115,12 @@ func (h *remoteHost) sessionPrompt(w http.ResponseWriter, r *http.Request, id st
 			failure = errors.New("找不到这个会话")
 			return
 		}
-		if ws := h.app.workspaceOf(s.WS); ws != nil && !h.app.projectTrusted(ws) {
+		ws := h.app.workspaceFor(s.Target, s.WS)
+		if s.deleting {
+			failure = errors.New(apptext.T("正在删除会话…"))
+			return
+		}
+		if (s.Target.remote() && ws == nil) || !h.app.projectTrusted(ws) {
 			failure = errors.New(apptext.T("这个项目还没有在电脑上被信任"))
 			return
 		}

@@ -21,6 +21,7 @@ package workbench
 // Top-level "prompts" and "themes" are the older shape and still load.
 
 import (
+	"reflect"
 	"strings"
 	"time"
 
@@ -91,7 +92,7 @@ func (a *app) applyTheme() {
 	if viewkit.MonoFamily == "" {
 		viewkit.MonoFamily = core.FontMonospace
 	}
-	if strings.TrimSpace(a.cfg.BackgroundImage) != "" {
+	if a.cfg.wallpaper() != "" {
 		// PiDeck's wallpaper mode: panels show the picture through them at a
 		// fixed alpha, and the veil alone follows the opacity setting, so
 		// dragging that slider never has to swap the theme (which would end
@@ -109,7 +110,15 @@ func (a *app) applyTheme() {
 			}
 		}
 	}
-	a.cx.SetTheme(base)
+	// The SDK follows theme identity. Replacing an equal theme after a
+	// background environment/add-on probe would rebuild themed regions,
+	// discarding focus and in-flight pointer targets despite no visual
+	// change. Compare with the published theme without tracking this read.
+	unchanged := false
+	a.cx.Untrack(func() { unchanged = reflect.DeepEqual(a.cx.Theme(), base) })
+	if !unchanged {
+		a.cx.SetTheme(base)
+	}
 }
 
 // backgroundOpacity is how much of the background picture shows, 0.8
@@ -131,7 +140,11 @@ func withAlpha(c core.Color, alpha float32) core.Color {
 // transparency.
 func (a *app) setBackgroundImage(path string) {
 	path = strings.TrimSpace(path)
-	a.cfg.BackgroundImage = path
+	if wallpaperVideo(path) {
+		a.cfg.BackgroundVideo, a.cfg.BackgroundImage = path, ""
+	} else {
+		a.cfg.BackgroundImage, a.cfg.BackgroundVideo = path, ""
+	}
 	if path == "" {
 		a.cfg.BackgroundOpacity = nil
 	} else if a.cfg.BackgroundOpacity == nil {
@@ -142,9 +155,9 @@ func (a *app) setBackgroundImage(path string) {
 	a.bgOpacity.Set(a.backgroundOpacity())
 	a.bumpSettings()
 	if a.st != nil {
-		image, opacity := a.cfg.BackgroundImage, a.cfg.BackgroundOpacity
+		image, video, opacity := a.cfg.BackgroundImage, a.cfg.BackgroundVideo, a.cfg.BackgroundOpacity
 		a.st.edit(func(c *config) {
-			c.BackgroundImage = image
+			c.BackgroundImage, c.BackgroundVideo = image, video
 			if opacity == nil {
 				c.BackgroundOpacity = nil
 			} else {

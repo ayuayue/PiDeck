@@ -8,8 +8,9 @@ package workbench
 // refused with a reason rather than half-opened.
 
 import (
-	"bytes"
-	"os"
+	"context"
+	"errors"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,10 +26,13 @@ const maxEditorFile = 4 << 20
 
 // editorFile is one open file.
 type editorFile struct {
+	Key  string
 	Path string
 	Root string
 	Name string
 	Lang string
+	file workspaceFile
+	busy *core.Signal[bool]
 
 	Text    *core.Signal[string]
 	Dirty   *core.Signal[bool]
@@ -38,8 +42,8 @@ type editorFile struct {
 	caret *core.Signal[string]
 	ref   *editor.Ref
 
-	saved string
-	mode  os.FileMode
+	saved    string
+	revision string
 	// crlf says the file used CRLF newlines; the editor works in LF and the
 	// file gets its CRLF back on save, so Git does not see the whole file
 	// change.
@@ -71,7 +75,7 @@ func (h *editorHost) activeFile() *editorFile {
 	// View computations must follow tab changes as well as file contents.
 	path := h.active.Get()
 	for _, f := range h.files.Get() {
-		if f.Path == path {
+		if f.Key == path {
 			return f
 		}
 	}
@@ -84,18 +88,36 @@ func (h *editorHost) openFile(root, path string) {
 		return
 	}
 	path = filepath.Clean(path)
+	if root == "" {
+		root = filepath.Dir(path)
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return
+	}
+	h.openWorkspaceFile(path, workspaceFile{root: root, rel: filepath.ToSlash(rel)})
+}
+
+func (h *editorHost) openWorkspaceFile(display string, file workspaceFile) {
+	key := display
+	if file.target.remote() {
+		key = file.target.key() + "|" + display
+	}
 	for _, f := range h.files.GetUntracked() {
-		if f.Path == path {
+		if f.Key == key {
 			h.open.Set(true)
-			h.active.Set(path)
+			h.active.Set(key)
 			return
 		}
 	}
 	f := &editorFile{
-		Path:    path,
-		Root:    root,
-		Name:    filepath.Base(path),
-		Lang:    editorLanguage(path),
+		Key:     key,
+		Path:    display,
+		Root:    file.root,
+		Name:    path.Base(file.rel),
+		Lang:    editorLanguage(display),
+		file:    file,
+		busy:    core.NewSignal(h.cx, false),
 		Text:    core.NewSignal(h.cx, ""),
 		Dirty:   core.NewSignal(h.cx, false),
 		Loading: core.NewSignal(h.cx, true),
@@ -105,39 +127,24 @@ func (h *editorHost) openFile(root, path string) {
 	}
 	h.files.Update(func(list []*editorFile) []*editorFile { return append(list, f) })
 	h.open.Set(true)
-	h.active.Set(path)
+	h.active.Set(key)
 	h.load(f)
 }
 
 // load reads a file from disk, or says why it cannot.
 func (h *editorHost) load(f *editorFile) {
+	if f.busy.GetUntracked() {
+		return
+	}
 	f.Loading.Set(true)
 	f.Err.Set("")
-	path := f.Path
+	file := f.file
 	go func() {
-		info, err := os.Stat(path)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		data, err := file.read(ctx, maxEditorFile)
 		if err != nil {
-			h.cx.Post(func() { f.Loading.Set(false); f.Err.Set("读不到文件：" + err.Error()) })
-			return
-		}
-		if info.IsDir() {
-			h.cx.Post(func() { f.Loading.Set(false); f.Err.Set("这是一个文件夹") })
-			return
-		}
-		if info.Size() > maxEditorFile {
-			h.cx.Post(func() {
-				f.Loading.Set(false)
-				f.Err.Set("文件太大（超过 4 MB），没有在编辑器里打开")
-			})
-			return
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			h.cx.Post(func() { f.Loading.Set(false); f.Err.Set("读不到文件：" + err.Error()) })
-			return
-		}
-		if bytes.IndexByte(data[:min(len(data), 8000)], 0) >= 0 {
-			h.cx.Post(func() { f.Loading.Set(false); f.Err.Set("这是二进制文件，不能用文本编辑器打开") })
+			h.cx.Post(func() { f.Loading.Set(false); f.Err.Set(fileEditorError(err)) })
 			return
 		}
 		text := string(data)
@@ -148,10 +155,10 @@ func (h *editorHost) load(f *editorFile) {
 		if crlf {
 			text = strings.ReplaceAll(text, "\r\n", "\n")
 		}
-		mode := info.Mode()
+		revision := workspaceRevision(data)
 		h.cx.Post(func() {
 			f.saved = text
-			f.mode = mode
+			f.revision = revision
 			f.crlf = crlf
 			f.Text.Set(text)
 			f.Dirty.Set(false)
@@ -163,29 +170,31 @@ func (h *editorHost) load(f *editorFile) {
 
 // save writes a file back, keeping its permissions.
 func (h *editorHost) save(f *editorFile) {
-	if f == nil || f.Loading.GetUntracked() || f.Err.GetUntracked() != "" {
+	if f == nil || f.Loading.GetUntracked() || f.busy.GetUntracked() || f.Err.GetUntracked() != "" {
 		return
 	}
 	text := f.Text.GetUntracked()
-	path, mode := f.Path, f.mode
-	if mode == 0 {
-		mode = 0o644
-	}
+	file, expected := f.file, f.revision
 	crlf := f.crlf
+	f.busy.Set(true)
 	go func() {
 		out := text
 		if crlf {
 			out = strings.ReplaceAll(out, "\n", "\r\n")
 		}
-		err := os.WriteFile(path, []byte(out), mode)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		revision, err := file.save(ctx, expected, []byte(out), maxEditorFile)
 		h.cx.Post(func() {
+			f.busy.Set(false)
 			if err != nil {
 				if h.onResult != nil {
-					h.onResult("保存失败："+f.Name, err)
+					h.onResult("保存失败："+f.Name, errors.New(fileEditorError(err)))
 				}
 				return
 			}
 			f.saved = text
+			f.revision = revision
 			f.Dirty.Set(f.Text.GetUntracked() != text)
 			if h.onResult != nil {
 				h.onResult("已保存 "+f.Name, nil)
@@ -199,7 +208,7 @@ func (h *editorHost) close(path string) {
 	list := h.files.GetUntracked()
 	idx := -1
 	for i, f := range list {
-		if f.Path == path {
+		if f.Key == path {
 			idx = i
 			break
 		}
@@ -216,7 +225,7 @@ func (h *editorHost) close(path string) {
 	}
 	if h.active.GetUntracked() == path {
 		next := list[min(idx, len(list)-1)]
-		h.active.Set(next.Path)
+		h.active.Set(next.Key)
 	}
 }
 
@@ -256,6 +265,11 @@ func (a *app) openEditorFile(root, path string) {
 	if root == "" {
 		root = a.files.root.GetUntracked()
 	}
+	if kind := filePreviewKind(path); kind != "" {
+		a.openFilePreview(path, kind)
+		return
+	}
+	a.activePane.Set("")
 	a.editor.openFile(root, path)
 	a.rememberFile(path)
 }
@@ -346,11 +360,18 @@ func (h *editorHost) renamePath(old, next string) {
 		return p
 	}
 	for _, f := range h.files.GetUntracked() {
+		if f.file.target.remote() {
+			continue
+		}
 		updated := move(f.Path)
 		if updated == f.Path {
 			continue
 		}
 		f.Path = updated
+		f.Key = updated
+		if rel, err := filepath.Rel(f.Root, updated); err == nil {
+			f.file.rel = filepath.ToSlash(rel)
+		}
 		f.Name = filepath.Base(updated)
 		f.Lang = editorLanguage(updated)
 	}
@@ -365,10 +386,10 @@ func (a *app) closeEditorFile(f *editorFile) {
 		return
 	}
 	if f.Dirty.GetUntracked() {
-		a.askConfirm("关闭文件", f.Name+" 有未保存的修改。", "放弃修改", func() { a.editor.close(f.Path) })
+		a.askConfirm("关闭文件", f.Name+" 有未保存的修改。", "放弃修改", func() { a.editor.close(f.Key) })
 		return
 	}
-	a.editor.close(f.Path)
+	a.editor.close(f.Key)
 }
 
 // closeEditorPane goes back to the chat, asking when anything is unsaved.

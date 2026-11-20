@@ -12,5 +12,8 @@ import (
 //go:embed pi-deck-ask-question.ts
 var AskQuestion []byte
 
-//go:embed pi-deck-browser-tools.ts
-var BrowserTools []byte
+//go:embed pi-deck-local-tools.ts
+var LocalTools []byte
+
+//go:embed pi-deck-retry-no-body.ts
+var RetryNoBody []byte

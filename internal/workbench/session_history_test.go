@@ -121,7 +121,7 @@ func TestSessionPaintsFromFile(t *testing.T) {
 
 	// A session pi rewrote - a compacted one - takes pi's copy instead, and
 	// the file's count stops standing in for it.
-	built.historyFromPi(s, []piMessage{{Role: "user"}})
+	built.historyFromPi(s, turnsFromMessages([]piMessage{{Role: "user"}}), nil)
 	if got := len(s.turns.GetUntracked()); got != 1 {
 		t.Fatalf("turns after pi's copy = %d, want 1", got)
 	}

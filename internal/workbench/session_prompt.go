@@ -29,7 +29,10 @@ func planPrompt(text string) string {
 
 // submitTurn starts a turn, asking for a plan when plan is true.
 func (a *app) submitTurn(s *session, text string, images []remotewire.Image, plan bool) {
-	if ws := a.workspaceOf(s.WS); ws != nil && !a.projectTrusted(ws) {
+	if s.deleting || a.byID[s.ID] != s {
+		return
+	}
+	if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !a.projectTrusted(ws) {
 		a.askTrust(ws, func() { a.submitTurn(s, text, images, plan) })
 		return
 	}
@@ -62,7 +65,7 @@ func (a *app) submitTurn(s *session, text string, images []remotewire.Image, pla
 		}
 		turnID := fmt.Sprintf("t%d", a.cx.Now().UnixNano())
 		s.turns.Update(func(ts []turn) []turn {
-			return append(ts, turn{ID: turnID, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(),
+			return append(ts, turn{ID: turnID, sourcePrompt: text, Prompt: original, Images: images, Status: chat.Running, Start: a.cx.Now(),
 				Model: s.model.GetUntracked().ID, Plan: plan, Goal: goal})
 		})
 		s.status.Set(statusStarting)
@@ -71,7 +74,7 @@ func (a *app) submitTurn(s *session, text string, images []remotewire.Image, pla
 		s.conversation.JumpToLatest()
 		a.touch(s)
 		if s.backend == "acp" {
-			a.ensureEngine(s, func() { a.acpPrompt(s, turnID, text) })
+			a.ensureEngine(s, func() { a.acpPrompt(s, turnID, text, images) })
 		} else {
 			a.ensureEngine(s, func() { a.prompt(s, turnID, text, images) })
 		}
@@ -208,10 +211,7 @@ func (a *app) stop(s *session) {
 		if !s.busyNow() {
 			return
 		}
-		if s.acp != nil && s.acpSID != "" {
-			s.acp.cancel(s.acpSID)
-		}
-		s.status.Set(statusWaiting)
+		a.stopACPTurn(s, acpStopManual)
 		return
 	}
 	if s.engine == nil {

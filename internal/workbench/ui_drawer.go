@@ -22,9 +22,6 @@ func (a *app) drawerPanel() core.Node {
 		on := func() bool { return a.drawerTab.Get() == name }
 		return core.View{
 			OnPress: func(core.PressEvent) {
-				if a.drawerTab.Get() != name {
-					a.animateNextLayout()
-				}
 				a.setDrawerTab(name)
 				if name == "git" {
 					a.gitAttach()

@@ -42,6 +42,7 @@ func (a *app) setupDesktop() {
 		Menu:     a.trayMenu,
 	})
 	a.setupNotifications()
+	a.setupSessionLinks()
 	a.updateTray()
 	a.watchWindow()
 	// A second launch hands over to this instance instead of opening
@@ -200,6 +201,7 @@ func (a *app) notifyTurnDone(s *session) {
 	if !shouldNotify(a.cfg, visible) {
 		return
 	}
+	a.notifications.add(s, a.cx.Now())
 	body := viewkit.FirstLine(lastAnswer(s), 90)
 	if body == "" {
 		body = "这一轮已完成。"

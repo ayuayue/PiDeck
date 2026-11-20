@@ -11,6 +11,8 @@ import (
 	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
+	"strconv"
+	"strings"
 )
 
 // settingsIntegrations configures the Feishu group bot.
@@ -32,6 +34,7 @@ func (a *app) settingsIntegrations() core.Node {
 		}
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
+				a.wechatSettings(),
 				setGroup("飞书",
 					setRow("飞书机器人", "一轮结束时，把会话标题、状态和一句摘要发到群里的自定义机器人。",
 						ui.Switch{Checked: func() bool { return a.cfg.FeishuEnabled }, Label: apptext.T("飞书机器人"), TestID: "feishu-enabled",
@@ -74,6 +77,11 @@ func (a *app) settingsIntegrations() core.Node {
 							OnPress: a.testFeishu}),
 				),
 				setGroup("语音输入",
+					setRow("本地 Whisper", "填写本机兼容 OpenAI 的 Whisper 服务地址。留空使用火山语音。",
+						field(func() string { return a.cfg.VoiceLocalURL }, func(v string) {
+							setCfg(func(c *config) { c.VoiceLocalURL = strings.TrimSpace(v) })
+						}, "http://127.0.0.1:8080", "Whisper", "voice-local-url", false)),
+					setDivider(),
 					setRow("火山语音", "手机端录一段话，交给这台电脑调用火山引擎识别，结果显示在手机输入框里。凭据只存在这台电脑上。",
 						nil),
 					setDivider(),
@@ -90,9 +98,21 @@ func (a *app) settingsIntegrations() core.Node {
 					setRow("在手机上说话", "手机连上后，输入框那一行左边的麦克风按一次开始录音，再按一次结束并转成文字。", nil),
 				),
 				setGroup("ACP 预设",
-					setRow("自定义预设", "内置 Claude / Gemini / Codex；也可以在这里加任何 ACP 命令，写进数据目录的 acp/presets.json。",
+					setRow("自定义预设", "检测或安装内置 ACP 工具，也可以添加自己的启动命令。",
 						ui.Button{Text: apptext.T("管理预设…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-manage-open",
 							OnPress: func() { a.openACPPresetManager() }}),
+					setDivider(),
+					setRow("ACP 无输出超时", "运行中连续没有输出达到这个时长时，先请求停止；未响应则结束进程。等待你审批时不计时。",
+						choiceChips(acpSilenceChoices(), func() int { return acpSilenceSeconds(a.cfg.ACPSilenceSec) }, func(sec int) {
+							a.cfg.ACPSilenceSec = sec
+							a.st.change(func(c *config) { c.ACPSilenceSec = sec })
+							a.bumpSettings()
+							go func() {
+								if err := a.st.save(); err != nil {
+									a.cx.Post(func() { a.toast(ui.ToastError, "保存失败", err.Error()) })
+								}
+							}()
+						})),
 				),
 				setGroup("自动化与整理",
 					setRow("定时任务", "按 cron 在后台开始新会话并发送提示词；可选 pi 或 ACP，运行记录写进数据目录 tasks.json。",
@@ -112,4 +132,12 @@ func (a *app) settingsIntegrations() core.Node {
 			}},
 		}}
 	})
+}
+
+func acpSilenceChoices() []choice[int] {
+	var choices []choice[int]
+	for _, sec := range []int{30, 60, 120, 300, 600, 900} {
+		choices = append(choices, choice[int]{sec, strconv.Itoa(sec) + "s"})
+	}
+	return choices
 }

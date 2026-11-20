@@ -167,13 +167,16 @@ func (a *app) answerAskFor(s *session, ask *extensionAsk, value map[string]any) 
 	if s == nil || ask == nil {
 		return
 	}
-	if s.acpReply != nil {
+	if ask.ACPReply != nil || s.acpReply != nil {
 		name, _ := value["value"].(string)
 		if cancelled, _ := value["cancelled"].(bool); cancelled {
 			name = ""
 		}
-		reply := s.acpReply
-		s.acpReply = nil
+		reply := ask.ACPReply
+		if reply == nil {
+			reply = s.acpReply
+			s.acpReply = nil
+		}
 		reply(name)
 		return
 	}

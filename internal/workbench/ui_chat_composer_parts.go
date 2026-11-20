@@ -5,8 +5,10 @@ package workbench
 // The chat: turns with their tools, the composer, and the empty state.
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/remotewire"
@@ -21,6 +23,8 @@ import (
 func (a *app) composerAccessory(s *session) chat.View {
 	return func(cx *core.Scope) core.Node {
 		return core.Dynamic(func(cx *core.Scope) core.Node {
+			// Follow the mode and the agent's own changes, which live outside
+			// signals.
 			s.agentMode.Get()
 			var parts []core.Node
 			parts = append(parts, a.composerAddMenu(s))
@@ -66,8 +70,8 @@ func (a *app) enhanceDraft(s *session) {
 	if a.aiBusy.GetUntracked() != "" {
 		return
 	}
-	draft := strings.TrimSpace(s.draft.GetUntracked())
-	if draft == "" {
+	draft := s.draft.GetUntracked()
+	if strings.TrimSpace(draft) == "" {
 		return
 	}
 	if !a.toolConfigured("prompt") {
@@ -76,15 +80,21 @@ func (a *app) enhanceDraft(s *session) {
 	}
 	a.aiBusy.Set("prompt")
 	go func() {
-		text, err := a.complete("prompt", toolSystem("prompt"), draft, toolTokens("prompt"))
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		text, err := a.completeDraftTool(ctx, "prompt", draft)
 		a.cx.Post(func() {
 			a.aiBusy.Set("")
 			if err != nil {
 				a.toast(ui.ToastError, apptext.T("提示词增强失败"), viewkit.FirstLine(err.Error(), 160))
 				return
 			}
-			s.draft.Set(cleanLLMText(text))
-			a.toast(ui.ToastSuccess, apptext.T("提示词已增强"), "")
+			text = strings.TrimSpace(cleanLLMText(text))
+			if text == "" {
+				a.toast(ui.ToastWarning, "模型没有返回文字", "当前草稿已保留，请重试。")
+				return
+			}
+			a.offerDraftChange(s, draft, text)
 		})
 	}()
 }
@@ -104,7 +114,9 @@ func (a *app) predictDraft(s *session) {
 	}
 	a.aiBusy.Set("predict")
 	go func() {
-		text, err := a.complete("predict", toolSystem("predict"), draft, toolTokens("predict"))
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		text, err := a.completeDraftTool(ctx, "predict", draft)
 		a.cx.Post(func() {
 			a.aiBusy.Set("")
 			if err != nil {
@@ -115,8 +127,7 @@ func (a *app) predictDraft(s *session) {
 			if text == "" {
 				return
 			}
-			s.draft.Set(strings.TrimRight(draft, " \n") + " " + text)
-			a.toast(ui.ToastSuccess, apptext.T("已续写"), apptext.T("可以继续改。"))
+			a.offerDraftChange(s, draft, strings.TrimRight(draft, " \n")+" "+text)
 		})
 	}()
 }
@@ -129,6 +140,7 @@ func (a *app) composerTrailing(s *session) chat.View {
 			s.sendMode.Get()
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
 				a.composerToolsMenu(s, s.toolsOpen),
+				a.voiceCaptureButton(s),
 				a.contextMeterNode(s),
 				a.sendMenu(s),
 			}}

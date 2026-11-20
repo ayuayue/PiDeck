@@ -7,6 +7,7 @@ package workbench
 
 import (
 	"context"
+	"example.com/pideck-lite/internal/remotewire"
 	"os"
 	"sync"
 	"time"
@@ -21,6 +22,8 @@ import (
 
 // app is everything the window shows.
 type app struct {
+	// Capture while constructing the app: Scope.Context resolves the current
+	// reactive owner and must not be sampled from a transient control later.
 	lifetime context.Context
 	cx       *core.Scope
 	st       *store
@@ -51,16 +54,34 @@ type app struct {
 	favModels *core.Signal[[]string]
 	// Favorites are local snapshots of answers and references to sessions;
 	// favMu guards the list the dialog reads.
-	favOpen               *core.Signal[bool]
-	reviewOpen            *core.Signal[bool]
-	browser               browserState
-	browserToolsExtension string
-	favKind               *core.Signal[string]
-	favQuery              *core.Signal[string]
-	favRev                *core.Signal[int]
-	favMu                 sync.Mutex
-	favorites             []favoriteEntry
-	favWriteTail          chan []favoriteEntry // UI thread; pending durable snapshots
+	favOpen             *core.Signal[bool]
+	reviewOpen          *core.Signal[bool]
+	drafts              draftLibrary
+	draftsAtStart       map[string]storedSessionDraft
+	pendingTabs         []string // saved tabs waiting for their remote history scan
+	pendingActive       string
+	draftSeq            uint64
+	browser             browserState
+	memory              memoryViewState
+	localToolsExtension string
+	trajectory          *core.Signal[*trajectoryView]
+	delegationSession   *core.Signal[*session]
+	modelCatalogBusy    *core.Signal[bool]
+	piUpdateBusy        *core.Signal[bool]
+	providerQuery       *core.Signal[string]
+	reduceEffects       *core.Signal[bool]
+	codeWrap            *core.Signal[bool]
+	preview             *core.Signal[*filePreview]
+	notifications       *notificationHistory
+	translation         *core.Signal[*translationDraft]
+	promptTemplate      *core.Signal[*promptTemplateForm]
+	settingsSync        *core.Signal[*settingsSyncForm]
+	favKind             *core.Signal[string]
+	favQuery            *core.Signal[string]
+	favRev              *core.Signal[int]
+	favMu               sync.Mutex
+	favorites           []favoriteEntry
+	favWriteTail        chan []favoriteEntry // UI thread; pending durable snapshots
 
 	// Scheduled tasks: the list, run history and the editor's fields.
 	// taskMu guards the list the ticker and the UI both touch.
@@ -107,25 +128,33 @@ type app struct {
 	startedAt  time.Time
 
 	// projectsRev changes when a project is pinned, grouped or moved.
-	projectsRev      *core.Signal[int]
-	projectGroupOpen *core.Signal[bool]
-	projectGroupPath *core.Signal[string]
-	projectGroupText *core.Signal[string]
-	wsRenameOpen     *core.Signal[bool]
-	wsRenameKey      *core.Signal[string]
-	wsRenameText     *core.Signal[string]
+	projectsRev           *core.Signal[int]
+	projectGroupOpen      *core.Signal[bool]
+	projectRemoveOpen     *core.Signal[bool]
+	organization          *core.Signal[sessionOrganization]
+	organizationDialog    *core.Signal[sessionOrganizationDialog]
+	organizationInput     *core.Signal[string]
+	organizationCollapsed *core.Signal[map[string]bool]
+	projectGroupPath      *core.Signal[string]
+	projectGroupText      *core.Signal[string]
+	wsRenameOpen          *core.Signal[bool]
+	wsRenameKey           *core.Signal[string]
+	wsRenameText          *core.Signal[string]
 
 	// The ACP preset picker.
 	acpOpen *core.Signal[bool]
 	// The ACP preset manager.
-	acpManageOpen *core.Signal[bool]
-	acpNewID      *core.Signal[string]
-	acpNewName    *core.Signal[string]
-	acpNewCommand *core.Signal[string]
-	acpNewArgs    *core.Signal[string]
-	acpManageErr  *core.Signal[string]
-	acpManageRev  *core.Signal[int]
-	agentOpen     *core.Signal[bool]
+	acpManageOpen  *core.Signal[bool]
+	acpNewID       *core.Signal[string]
+	acpNewName     *core.Signal[string]
+	acpNewCommand  *core.Signal[string]
+	acpNewArgs     *core.Signal[string]
+	acpManageErr   *core.Signal[string]
+	acpManager     *core.Signal[acpManagerSnapshot]
+	acpInstalling  *core.Signal[string]
+	acpManageBusy  *core.Signal[bool]
+	acpManageProbe int
+	agentOpen      *core.Signal[bool]
 	// The agent manager: the list, the edit form and which agent is being
 	// edited. agentBackend picks what a new agent session runs on, and
 	// agentApply binds the picked agent to the active session instead of
@@ -163,26 +192,29 @@ type app struct {
 	shortcutsQuery *core.Signal[string]
 
 	// Global session search: its index, query and results.
-	searchOpen     *core.Signal[bool]
-	searchText     *core.Signal[string]
-	searchScope    *core.Signal[string]
-	searchRev      *core.Signal[int]
-	searchHits     *core.Signal[[]searchHit]
-	searchBusy     *core.Signal[bool]
-	searchDocs     []searchDoc
-	searchIndexed  bool
-	searchBuilding bool
-	searchGen      int
+	searchOpen    *core.Signal[bool]
+	searchText    *core.Signal[string]
+	searchScope   *core.Signal[string]
+	searchRev     *core.Signal[int]
+	searchResults *core.Signal[*searchResult]
+	searchBusy    *core.Signal[bool]
+	searchDocs    []searchDoc
+	searchIndexed bool
+	searchTimer   func() bool
+	searchCancel  context.CancelFunc
+	searchEnter   bool
 
 	// The prompt library: its packs, the dialog's query and category.
 	prompts          *core.Signal[[]promptItem]
 	promptOpen       *core.Signal[bool]
+	promptLoading    *core.Signal[bool]
 	promptQuery      *core.Signal[string]
 	promptImportOpen *core.Signal[bool]
 	promptImportURL  *core.Signal[string]
 	promptImportBusy *core.Signal[bool]
 	promptImportErr  *core.Signal[string]
 	promptCat        *core.Signal[string]
+	promptWindow     *core.Signal[int]
 
 	// The provider editor: which provider, its fields, and the result of
 	// a connection test.
@@ -278,10 +310,11 @@ type app struct {
 	events eventBus
 	inHook bool
 
-	workspaces *core.Signal[[]*workspace]
-	activeWS   *core.Signal[string]
-	tabs       *core.Signal[[]string]
-	activeID   *core.Signal[string]
+	workspaces   *core.Signal[[]*workspace]
+	activeWS     *core.Signal[string]
+	tabs         *core.Signal[[]string]
+	activeID     *core.Signal[string]
+	activityOpen *core.Signal[bool]
 	// activePane is the split pane filling the work area, "" for the
 	// session's own view.
 	activePane *core.Signal[string]
@@ -395,18 +428,19 @@ type app struct {
 	marketRequestGen    uint64
 	marketRequestCancel context.CancelFunc
 	// Image generation.
-	imageOpen     *core.Signal[bool]
-	imagePrompt   *core.Signal[string]
-	imageModel    *core.Signal[string]
-	imageSize     *core.Signal[string]
-	imageProvider *core.Signal[string]
-	imageBusy     *core.Signal[bool]
-	imageErr      *core.Signal[string]
-	imageResults  *core.Signal[[][]byte]
-	imageSelected *core.Signal[int]
-	imageType     *core.Signal[string]
-	imageCount    *core.Signal[int]
-	imageRef      *core.Signal[string]
+	imageOpen       *core.Signal[bool]
+	transcriptImage *core.Signal[remotewire.Image]
+	imagePrompt     *core.Signal[string]
+	imageModel      *core.Signal[string]
+	imageSize       *core.Signal[string]
+	imageProvider   *core.Signal[string]
+	imageBusy       *core.Signal[bool]
+	imageErr        *core.Signal[string]
+	imageResults    *core.Signal[[][]byte]
+	imageSelected   *core.Signal[int]
+	imageType       *core.Signal[string]
+	imageCount      *core.Signal[int]
+	imageRef        *core.Signal[string]
 	// The vision bridge.
 	visionOpen     *core.Signal[bool]
 	visionPath     *core.Signal[string]
@@ -564,11 +598,15 @@ type app struct {
 
 	// Desktop: the main window, the tray icon and whether the app is
 	// really quitting rather than hiding.
-	mainWin    *core.Window
-	tray       *core.Tray
-	quitting   bool
-	trayHinted bool
-	mainHooked bool
-	mainTries  int
-	lastTray   time.Time
+	mainWin         *core.Window
+	voiceCapture    desktopVoice
+	video           *videoHost
+	wechat          *wechatHost
+	balanceAccounts *balanceAccountsState
+	tray            *core.Tray
+	quitting        bool
+	trayHinted      bool
+	mainHooked      bool
+	mainTries       int
+	lastTray        time.Time
 }

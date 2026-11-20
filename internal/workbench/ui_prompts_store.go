@@ -147,6 +147,10 @@ func (a *app) promptStoreDialog() core.Node {
 			TestID:       "prompt-store",
 			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(660)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
+					ui.Button{Text: "prompts.chat", Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "prompt-source-community", OnPress: func() { a.promptStoreURL.Set("https://prompts.chat"); a.loadPromptIndex() }},
+					ui.Button{Text: apptext.T("中文在线库"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "prompt-source-chinese", Disabled: a.promptStoreBusy.Get, OnPress: a.importChinesePrompts},
+				}},
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Input{Value: a.promptStoreURL.Get, OnChange: a.promptStoreURL.Set, Placeholder: "https://…/prompts.json",

@@ -13,17 +13,22 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// retry re-sends a failed turn's prompt as a new turn.
+// retry starts a branch at the old prompt, so the rejected answer does not
+// feed back into the model. ACP agents without a branch API can resend.
 func (a *app) retry(s *session, t turn) {
-	if s == nil {
+	if s == nil || t.running() || (strings.TrimSpace(t.Prompt) == "" && len(t.Images) == 0) {
 		return
 	}
-	a.submit(s, t.Prompt, t.Images)
+	if canBranchTurn(s, t) {
+		a.branchFromTurn(s, t.ID, true)
+		return
+	}
+	a.resendTurn(s, t)
 }
 
 // resendTurn sends a turn's prompt again as a new turn.
 func (a *app) resendTurn(s *session, t turn) {
-	if s == nil || strings.TrimSpace(t.Prompt) == "" {
+	if s == nil || (strings.TrimSpace(t.Prompt) == "" && len(t.Images) == 0) {
 		return
 	}
 	if s.busyNow() {

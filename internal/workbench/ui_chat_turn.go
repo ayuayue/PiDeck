@@ -64,7 +64,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					tt := t()
 					var children []core.Node
 					for _, img := range tt.Images {
-						children = append(children, chat.AttachmentPreview{Label: img.Name, Image: core.ImageSource{Data: img.Data}})
+						children = append(children, a.transcriptImageTile(img))
 					}
 					if tt.Prompt != "" {
 						children = append(children, core.Text{Content: tt.Prompt, Selectable: core.SelectableOn,
@@ -86,7 +86,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			Steps: func() []chat.Step { return a.steps(s, t()) },
 			Final: func(cx *core.Scope) core.Node {
 				tt := t()
-				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{viewkit.MarkdownSearch(a.chatSearch, tt.Final, func() bool { return false }, false, a.readingFont(), a.readingLine(), core.Style{})}}
+				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{a.chatMarkdown(tt.Final, false, a.readingFont(), a.readingLine(), core.Style{})}}
 			},
 			HasFinal: func() bool {
 				tt := t()
@@ -141,15 +141,14 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 				}
 				actions := append(planActions, []core.Node{
 					chat.IconAction{Label: apptext.T("重新发送"), Icon: lucide.RefreshCw,
-						Disabled: func() bool { return tt.Prompt == "" || t().running() },
+						Disabled: func() bool { return (tt.Prompt == "" && len(tt.Images) == 0) || t().running() },
 						OnPress:  func() { a.resendTurn(s, tt) }},
 					chat.IconAction{Label: apptext.T("复制提问"), Icon: lucide.Quote, Disabled: func() bool { return tt.Prompt == "" },
 						OnPress: func() { a.copyText(tt.Prompt, "提问") }},
+					chat.IconAction{Label: apptext.T("修改提问"), Icon: lucide.SquarePen, TestID: "turn-edit-prompt",
+						Disabled: func() bool { return t().running() || tt.Prompt == "" }, OnPress: func() { a.editTurnPrompt(s, tt) }},
 					chat.IconAction{Label: apptext.T("把提问放回输入框"), Icon: lucide.PencilLine, Disabled: func() bool { return tt.Prompt == "" },
-						OnPress: func() {
-							s.draft.Set(tt.Prompt)
-							a.toast(ui.ToastInfo, "提问已放回输入框", "可以改完再发。")
-						}},
+						OnPress: func() { a.restoreTurnDraft(s, tt) }},
 					chat.IconAction{Label: apptext.T("复制回复"), Icon: lucide.Copy, OnPress: func() {
 						text := tt.Final
 						if text == "" {
@@ -162,12 +161,18 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 						}
 						a.copyText(text, "回复")
 					}},
+					chat.IconAction{Label: apptext.T("翻译回复"), Icon: lucide.Languages, TestID: "turn-translate",
+						Disabled: func() bool { return t().running() || tt.Final == "" }, OnPress: func() { a.openTranslationWith(tt.Final) }},
 					chat.IconAction{Label: apptext.T("收藏这条回复"), Icon: lucide.Star, TestID: "turn-favorite",
 						OnPress: func() { a.favoriteReply(s, t()) }},
-					chat.IconAction{Label: apptext.T("从这里分叉"), Icon: lucide.GitBranch, Disabled: func() bool { return tt.Prompt == "" },
+					chat.IconAction{Label: apptext.T("查看轨迹"), Icon: lucide.Activity, TestID: "turn-trajectory",
+						OnPress: func() { a.openTrajectory(s, t()) }},
+					chat.IconAction{Label: apptext.T("从这里分叉"), Icon: lucide.GitBranch, Disabled: func() bool { return !canBranchTurn(s, tt) },
 						OnPress: func() { a.forkSession(s, tt.ID) }},
-					chat.IconAction{Label: apptext.T("重试"), Icon: lucide.RefreshCw, OnPress: func() { a.retry(s, tt) }},
 				}...)
+				if canBranchTurn(s, tt) {
+					actions = append(actions, chat.IconAction{Label: apptext.T("在分支上重试"), Icon: lucide.RotateCcw, TestID: "turn-branch-retry", OnPress: func() { a.retry(s, tt) }})
+				}
 				// The reply's own line closes the row: when it came back, how
 				// long it took and which model answered.
 				return core.Group(append(actions, a.turnMeta(t, now)))

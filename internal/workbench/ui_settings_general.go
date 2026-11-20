@@ -164,6 +164,8 @@ func (a *app) settingsGeneral() core.Node {
 								}
 							})
 						}}),
+					setRow("通知历史", "查看最近提醒过的会话。", ui.Button{Text: apptext.T("查看"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+						TestID: "show-notification-history", OnPress: func() { a.openPane(paneNotifications) }}),
 				),
 				setGroup("提示音",
 					setRow("提示音", "一轮结束、出错或等待你确认时，用一段短声音提醒。",

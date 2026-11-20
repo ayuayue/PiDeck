@@ -3,6 +3,7 @@
 package workbench
 
 import (
+	"encoding/json"
 	"strings"
 
 	"example.com/pideck-lite/internal/apptext"
@@ -35,7 +36,7 @@ func (a *app) browserShareBar() core.Node {
 		} else if s != nil && s.backend != "acp" && !s.Target.remote() {
 			controls = append(controls, ui.Button{Text: apptext.T("共享给当前会话"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "browser-share",
 				Disabled: func() bool { return s.busy() || s.status.Get() == statusStarting }, OnPress: func() {
-					if s.starting || s.busyNow() || a.browser.nav.GetUntracked().Loading || browserOrigin(a.browser.nav.GetUntracked().URL) != origin {
+					if s.starting || s.busyNow() || s.deleting || a.browser.nav.GetUntracked().Loading || browserOrigin(a.browser.nav.GetUntracked().URL) != origin {
 						return
 					}
 					ws := a.workspaceFor(s.Target, s.WS)
@@ -50,7 +51,17 @@ func (a *app) browserShareBar() core.Node {
 					}
 				}})
 		}
-
+		controls = append(controls, ui.Button{Text: apptext.T("翻译选中文字"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "browser-translate",
+			OnPress: func() {
+				a.browser.view.Evaluate(`String(window.getSelection() || "").slice(0, 12000)`, func(raw string, err error) {
+					var text string
+					if err != nil || json.Unmarshal([]byte(raw), &text) != nil || strings.TrimSpace(text) == "" {
+						a.toast(ui.ToastInfo, "请先在网页上选中文字", "")
+						return
+					}
+					a.openTranslationWith(text)
+				})
+			}})
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(3, 10), Background: colors.Surface()}, Children: controls}
 	})
 }

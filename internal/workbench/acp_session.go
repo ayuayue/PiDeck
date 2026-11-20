@@ -8,16 +8,12 @@ package workbench
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"example.com/pideck-lite/internal/alerts"
 	"example.com/pideck-lite/internal/appinfo"
 	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
-	"github.com/nsgo-dev/nsgo/base"
-	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"example.com/pideck-lite/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/ui"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
@@ -67,60 +63,88 @@ func (a *app) clearACPPreset(ws *workspace) {
 
 // ensureACPSession starts the agent when it is not running.
 func (a *app) ensureACPSession(s *session) {
-	if s == nil || s.backend != "acp" {
+	if s == nil || s.backend != "acp" || s.deleting {
 		return
 	}
 	if s.acp != nil || s.starting {
 		return
 	}
 	s.starting = true
+	s.acpGeneration++
 	s.status.Set(statusStarting)
-	go a.startACPEngine(s)
+	go a.startACPEngine(s, s.acpGeneration, s.acpPreset, s.acpSID, s.WS)
 }
 
 // startACPEngine shakes hands and opens a session.
-func (a *app) startACPEngine(s *session) {
-	preset := a.acpPresetByID(s.acpPreset)
+func (a *app) startACPEngine(s *session, generation uint64, presetID, savedID, cwd string) {
+	fail := func(detail string) {
+		a.cx.Post(func() {
+			if s.acpGeneration == generation {
+				a.failSession(s, detail)
+			}
+		})
+	}
+	preset := a.acpPresetByID(presetID)
 	if preset == nil {
-		a.cx.Post(func() { a.failSession(s, "没有这个 ACP 预设") })
+		fail(apptext.T("没有这个 ACP 预设"))
 		return
 	}
-	c, err := startACP(s.WS, preset.Command, preset.Args,
-		func(u acpUpdate) { a.cx.Post(func() { a.applyACPUpdate(s, u) }) },
-		func(p acpPermission) string { return a.askACPPermission(s, p) },
-		func(err error) { a.cx.Post(func() { a.onACPExit(s, err) }) })
+	c, err := startACP(cwd, preset.Command, preset.Args,
+		func(u acpUpdate) {
+			a.cx.Post(func() {
+				if s.acpGeneration == generation {
+					a.applyACPUpdate(s, u)
+				}
+			})
+		},
+		func(p acpPermission) string { return a.askACPPermission(s, generation, p) },
+		func(err error) { a.cx.Post(func() { a.onACPExit(s, generation, err) }) })
 	if err != nil {
-		a.cx.Post(func() { a.failSession(s, "启动 ACP 失败："+err.Error()) })
+		fail(apptext.T("启动 ACP 失败：%s", err.Error()))
 		return
 	}
 	if _, err := c.initialize("PiDeck Lite", appinfo.Version); err != nil {
 		c.stop()
-		a.cx.Post(func() { a.failSession(s, "ACP 握手失败："+err.Error()) })
+		fail(apptext.T("ACP 握手失败：%s", err.Error()))
 		return
 	}
 	sid := ""
 	modes := acpModeState{}
-	if s.acpSID != "" {
-		if st, err := c.loadSession(s.acpSID, s.WS); err == nil {
-			sid = s.acpSID
+	if savedID != "" {
+		if st, err := c.loadSession(savedID, cwd); err == nil {
+			sid = savedID
 			modes = st
 		}
 	}
 	if sid == "" {
 		var err error
-		sid, modes, err = c.newSession(s.WS)
+		sid, modes, err = c.newSession(cwd)
 		if err != nil {
 			c.stop()
-			a.cx.Post(func() { a.failSession(s, "ACP 建会话失败："+err.Error()) })
+			fail(apptext.T("ACP 建会话失败：%s", err.Error()))
 			return
 		}
+		modes = a.restoreACPChoices(c, presetID, sid, modes)
 	}
 	a.cx.Post(func() {
+		if s.acpGeneration != generation || s.backend != "acp" {
+			go c.stop()
+			return
+		}
+		if c.isClosed() {
+			a.failSession(s, apptext.T("ACP 进程退出了"))
+			return
+		}
 		s.acp = c
 		s.acpSID = sid
+		s.starting = false
+		if s.resumeDeletion() {
+			return
+		}
 		s.acpModes.Set(modes.AvailableModes)
 		s.acpMode.Set(modes.CurrentModeID)
-		s.starting = false
+		s.acpOptions.Set(modes.Options)
+		s.acpOptionBusy.Set(false)
 		s.readySig.Set(true)
 		s.status.Set(statusIdle)
 		waiters := s.waiters
@@ -132,24 +156,28 @@ func (a *app) startACPEngine(s *session) {
 }
 
 // onACPExit tidies a session whose agent process ended.
-func (a *app) onACPExit(s *session, err error) {
-	if s == nil || s.acp == nil {
+func (a *app) onACPExit(s *session, generation uint64, err error) {
+	if s == nil || s.acpGeneration != generation || s.acp == nil {
 		return
 	}
 	s.acp = nil
 	s.starting = false
 	s.readySig.Set(false)
-	s.runningSig.Set(false)
+	s.acpOptionBusy.Set(false)
+	a.cancelAsks(s)
 	if err != nil {
 		s.status.Set(statusFailed)
 		s.notice.Set(err.Error())
-		a.diagf("error", "ACP 进程退出 %s：%v", s.title.GetUntracked(), err)
+		a.diagf("error", "ACP process disconnected")
 	} else {
 		s.status.Set(statusIdle)
 		s.notice.Set("")
 	}
 	if s.acpTurnID != "" {
 		a.acpFinish(s, s.acpTurnID, "cancelled", err)
+	}
+	if err != nil && a.activeID.GetUntracked() == s.ID {
+		a.ensureACPSession(s)
 	}
 }
 
@@ -158,34 +186,46 @@ func (a *app) reconnectACP(s *session) {
 	if s == nil || s.backend != "acp" {
 		return
 	}
-	if s.acp != nil {
-		s.acp.stop()
-		s.acp = nil
-	}
-	s.readySig.Set(false)
-	s.status.Set(statusIdle)
+	a.detachACP(s)
 	a.ensureACPSession(s)
 	a.toast(ui.ToastInfo, "正在重新连接 ACP", "")
 }
 
 // acpPrompt sends one turn and waits for its stop reason.
-func (a *app) acpPrompt(s *session, turnID, text string) {
+func (a *app) acpPrompt(s *session, turnID, text string, images []remotewire.Image) {
+	s.acpTurnID = turnID
 	if s.acp == nil || s.acpSID == "" {
-		a.acpFinish(s, turnID, "", fmt.Errorf("ACP 连接没有就绪"))
+		a.acpFinish(s, turnID, "", fmt.Errorf("%s", apptext.T("ACP 连接没有就绪")))
 		return
 	}
-	s.acpTurnID = turnID
+	c, sid := s.acp, s.acpSID
+	if len(images) > 0 && !c.imageSupported {
+		a.acpFinish(s, turnID, "", fmt.Errorf("%s", apptext.T("这个 ACP 工具没有声明支持图片输入。")))
+		return
+	}
 	a.saveACPArchive(s)
 	s.status.Set(statusRunning)
 	s.runningSig.Set(true)
+	a.armACPWatchdog(s, c, turnID)
 	go func() {
-		stop, err := s.acp.prompt(s.acpSID, text)
+		stop, err := c.prompt(sid, text, images...)
 		a.cx.Post(func() { a.acpFinish(s, turnID, stop, err) })
 	}()
 }
 
 // acpFinish closes the turn.
 func (a *app) acpFinish(s *session, turnID, stop string, err error) {
+	if s.acpTurnID != turnID {
+		return
+	}
+	switch s.acpStopReason {
+	case acpStopManual:
+		stop, err = "cancelled", nil
+	case acpStopTimeout:
+		err = fmt.Errorf("%s", apptext.T("ACP 长时间没有输出，本轮已停止。"))
+	}
+	s.acpStopReason = acpStopNone
+	a.cancelAsks(s)
 	a.flushACP(s)
 	s.acpTurnID = ""
 	s.runningSig.Set(false)
@@ -253,6 +293,20 @@ func (a *app) applyACPUpdate(s *session, u acpUpdate) {
 	if s.acpSID != "" && u.SessionID != "" && u.SessionID != s.acpSID {
 		return
 	}
+	if s.acpTurnID != "" {
+		s.acpProgress = a.cx.Now()
+	}
+	switch u.Kind {
+	case "config_option_update":
+		s.acpOptions.Set(u.Options)
+		return
+	case "current_mode_update":
+		s.acpMode.Set(u.Mode)
+		return
+	case "available_commands_update":
+		s.acpCommands.Set(u.Commands)
+		return
+	}
 	if s.acpTurnID == "" {
 		return
 	}
@@ -273,10 +327,6 @@ func (a *app) applyACPUpdate(s *session, u acpUpdate) {
 		if due {
 			a.cx.AfterFunc(40*time.Millisecond, func() { a.flushACP(s) })
 		}
-	case "current_mode_update":
-		s.acpMode.Set(u.Mode)
-	case "available_commands_update":
-		s.acpCommands.Set(u.Commands)
 	case "tool_call":
 		run := acpToolRun(u, chat.Running)
 		if run.Action == "" {
@@ -394,139 +444,9 @@ func (a *app) flushACP(s *session) {
 	})
 }
 
-// acpBadge names the ACP preset, its state and its mode, and opens the
-// agent's own panel: the mode list, what it was started with, its commands
-// and the way to reconnect.
-func (a *app) acpBadge(s *session) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		preset := a.acpPresetByID(s.acpPreset)
-		name := "ACP"
-		if preset != nil {
-			name = preset.Name
-		}
-		modes := s.acpModes.Get()
-		label := name
-		if mode := s.acpMode.Get(); mode != "" {
-			label += " · " + acpModeLabel(modes, mode)
-		}
-		dot := colors.Faint
-		switch {
-		case s.status.Get() == statusFailed:
-			dot = colors.Danger
-		case s.starting && !s.readySig.Get():
-			dot = colors.Warn
-		case s.readySig.Get():
-			dot = colors.Up
-		}
-		chip := core.View{OnPress: func(core.PressEvent) { s.acpModeOpen.Update(func(v bool) bool { return !v }) },
-			Role: core.RoleButton, Label: apptext.T("ACP · %s", label), TestID: "acp-mode-badge",
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(26), FlexShrink: 0,
-				Padding: core.Symmetric(0, 8), CornerRadius: 7, Background: colors.Inset(),
-				Hover: &core.Style{Background: colors.Hover()}},
-			Children: []core.Node{
-				core.View{StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: dot()}
-				}},
-				core.Text{Content: label, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FontSize: 11.5, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
-				ui.Icon(lucide.ChevronDown, 9.5, colors.Faint),
-			}}
-		trigger := hintOf(func() string {
-			if s.readySig.Get() {
-				return apptext.T("ACP · %s（点一下看模式与启动参数）", name)
-			}
-			return apptext.T("ACP · %s（启动中）", name)
-		}, chip)
-		return a.popoverCard(s.acpModeOpen, core.PlaceTop, core.AlignStart, 300, trigger, func(cx *core.Scope) core.Node {
-			colors := ui.ColorsOf(cx)
-			var rows []core.Node
-			if len(modes) > 0 {
-				current := s.acpMode.Get()
-				rows = append(rows, composerPanelTitle(cx, apptext.T("模式")))
-				for _, m := range modes {
-					mode := m
-					title := mode.Name
-					if title == "" {
-						title = mode.ID
-					}
-					rows = append(rows, composerRow(cx, nil, title, mode.Description, mode.ID == current, false, func() {
-						a.setACPMode(s, mode.ID)
-					}))
-				}
-				rows = append(rows, composerDivider(cx))
-			}
-			if s.starting && !s.readySig.Get() {
-				rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
-					Padding: core.Symmetric(4, 8)}, Children: []core.Node{
-					ui.Spinner{Size: 11},
-					ui.Text(apptext.T("正在启动 agent…"), 11, ui.Regular, colors.Muted),
-				}})
-			}
-			rows = append(rows, composerPanelTitle(cx, apptext.T("启动参数")))
-			param := func(label, value string) core.Node {
-				return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, Padding: core.Symmetric(2, 8)},
-					Children: []core.Node{
-						core.Text{Content: label, Style: core.Style{FontSize: 10.5, Width: core.Pt(64), FlexShrink: 0},
-							StyleFunc: ui.Colored(colors.Faint)},
-						core.Text{Content: value, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle, Selectable: core.SelectableOn,
-							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
-							StyleFunc: ui.Colored(colors.Muted)},
-					}}
-			}
-			cmd, args := "", ""
-			if preset != nil {
-				cmd, args = preset.Command, strings.Join(preset.Args, " ")
-			}
-			sessionID := s.acpSID
-			if sessionID == "" {
-				sessionID = apptext.T("（还没有建立）")
-			}
-			rows = append(rows,
-				param(apptext.T("命令"), firstNonEmpty(cmd, "—")),
-				param(apptext.T("参数"), firstNonEmpty(args, "—")),
-				param(apptext.T("工作目录"), s.WS),
-				param(apptext.T("会话"), sessionID),
-			)
-			if cmds := s.acpCommands.Get(); len(cmds) > 0 {
-				rows = append(rows, composerDivider(cx), composerPanelTitle(cx, apptext.T("命令（插入输入框）")))
-				for _, c := range cmds {
-					cmd := c
-					rows = append(rows, composerRow(cx, lucide.Command, "/"+cmd.Name, cmd.Description, false, false, func() {
-						draft := s.draft.GetUntracked()
-						if draft != "" && !strings.HasSuffix(draft, " ") && !strings.HasSuffix(draft, "\n") {
-							draft += " "
-						}
-						s.draft.Set(draft + "/" + cmd.Name + " ")
-						s.acpModeOpen.Set(false)
-					}))
-				}
-			}
-			rows = append(rows, composerDivider(cx), core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Symmetric(2, 0)},
-				Children: []core.Node{
-					ui.Button{Text: apptext.T("重连"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "acp-reconnect",
-						OnPress: func() { s.acpModeOpen.Set(false); a.reconnectACP(s) }},
-					ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-						OnPress: func() { s.acpModeOpen.Set(false) }},
-				}})
-			return core.View{Style: core.Style{Gap: 1}, Children: rows}
-		}, "acp-info-menu")
-	})
-}
-
-// acpModeLabel maps a mode id to the name the agent gave it.
-func acpModeLabel(modes []acpMode, id string) string {
-	for _, m := range modes {
-		if m.ID == id && m.Name != "" {
-			return m.Name
-		}
-	}
-	return id
-}
-
 // setACPMode switches the running agent to another operating mode.
 func (a *app) setACPMode(s *session, modeID string) {
-	if s == nil || s.acp == nil || s.acpSID == "" || modeID == "" {
+	if s == nil || s.acp == nil || s.acpSID == "" || modeID == "" || s.busyNow() || s.acpOptionBusy.GetUntracked() {
 		return
 	}
 	s.acpModeOpen.Set(false)
@@ -534,21 +454,27 @@ func (a *app) setACPMode(s *session, modeID string) {
 		return
 	}
 	c, sid := s.acp, s.acpSID
+	s.acpOptionBusy.Set(true)
 	go func() {
 		err := c.setMode(sid, modeID)
 		a.cx.Post(func() {
+			if s.acp != c {
+				return
+			}
+			s.acpOptionBusy.Set(false)
 			if err != nil {
 				a.toast(ui.ToastError, "切换模式失败", err.Error())
 				return
 			}
 			s.acpMode.Set(modeID)
+			a.rememberACPPreference(s.acpPreset, func(p *acpPreference) { p.Mode = modeID })
 		})
 	}()
 }
 
 // askACPPermission turns an agent's permission request into the app's
 // select dialog and waits for the answer, on the agent's reader goroutine.
-func (a *app) askACPPermission(s *session, req acpPermission) string {
+func (a *app) askACPPermission(s *session, generation uint64, req acpPermission) string {
 	if len(req.Options) == 0 {
 		return ""
 	}
@@ -566,17 +492,24 @@ func (a *app) askACPPermission(s *session, req acpPermission) string {
 		names = append(names, o.Name)
 	}
 	answer := make(chan string, 1)
-	a.cx.Post(func() {
-		s.acpReply = func(name string) {
+	ask := &extensionAsk{ID: fmt.Sprintf("acp-%d-%d", generation, req.ID), Method: "select",
+		Title: apptext.T("工具权限：") + req.Title, Message: apptext.T("允许这次工具调用吗？"), Options: names,
+		ACPReply: func(name string) {
 			select {
 			case answer <- name:
 			default:
 			}
+		}}
+	a.cx.Post(func() {
+		if s.acpGeneration != generation || s.acpTurnID == "" || (req.SessionID != "" && req.SessionID != s.acpSID) {
+			ask.ACPReply("")
+			return
 		}
-		s.ask.Set(&extensionAsk{ID: "acp", Method: "select", Title: apptext.T("工具权限：") + req.Title,
-			Message: "允许这次工具调用吗？", Options: names})
-		a.playAlert(alerts.KindWaiting)
+		a.enqueueAsk(s, ask)
 	})
+	defer a.cx.Post(func() { a.dropAsk(s, ask) })
+	timer := time.NewTimer(2 * time.Minute)
+	defer timer.Stop()
 	select {
 	case name := <-answer:
 		for _, o := range req.Options {
@@ -589,7 +522,9 @@ func (a *app) askACPPermission(s *session, req acpPermission) string {
 			}
 		}
 		return ""
-	case <-time.After(2 * time.Minute):
+	case <-timer.C:
+		return ""
+	case <-req.Done:
 		return ""
 	}
 }
@@ -655,69 +590,4 @@ func (s *session) acpClearPermissions() {
 	s.acpPermMu.Lock()
 	s.acpPerm = nil
 	s.acpPermMu.Unlock()
-}
-
-// acpOpenDialog shows the preset picker.
-func (a *app) acpOpenDialog() {
-	a.acpOpen.Set(true)
-}
-
-// acpDialog lists the presets.
-func (a *app) acpDialog() core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		def := ""
-		if ws := a.activeWorkspace(); ws != nil {
-			def = ws.ACPPreset
-		}
-		var rows []core.Node
-		for _, p := range a.acpPresetList() {
-			preset := p
-			rows = append(rows, core.View{
-				OnPress: func(core.PressEvent) {
-					a.acpOpen.Set(false)
-					if ws := a.activeWorkspace(); ws != nil {
-						a.newACPSession(ws, preset)
-					}
-				},
-				Role: core.RoleButton, Label: preset.Name, TestID: "acp-preset-" + preset.ID,
-				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, MinHeight: core.Pt(40),
-						Padding: core.Symmetric(4, 8), CornerRadius: 7, Hover: &core.Style{Background: colors.Hover()}}
-				},
-				Children: []core.Node{
-					ui.Icon(lucide.Bot, 14, colors.Muted),
-					core.View{Style: core.Style{FlexGrow: 1, Gap: 1}, Children: []core.Node{
-						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
-							core.Text{Content: preset.Name, Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
-							core.Show{When: func() bool { return preset.ID == def }, Then: func(*core.Scope) core.Node {
-								return ui.Icon(lucide.Star, 10, colors.Accent)
-							}},
-						}},
-						core.Text{Content: preset.Command + " " + strings.Join(preset.Args, " "), MaxLines: 1,
-							EllipsizeMode: core.EllipsizeMiddle, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5},
-							StyleFunc: ui.Colored(colors.Faint)},
-					}},
-				},
-			})
-		}
-		return ui.Dialog{
-			Open:         a.acpOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.acpOpen.Set(open) },
-			Title:        apptext.T("新建 ACP 会话"),
-			TestID:       "acp-dialog",
-			Style:        core.Style{Width: a.dialogWidth()},
-			Children:     []core.Node{core.View{Style: core.Style{Gap: 4}, Children: rows}},
-			Footer: []core.Node{
-				core.Show{When: func() bool { return def != "" }, Then: func(*core.Scope) core.Node {
-					return ui.Button{Text: apptext.T("清除默认"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-						OnPress: func() { a.clearACPPreset(a.activeWorkspace()) }}
-				}},
-				ui.Button{Text: apptext.T("打开预设目录"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: a.openACPDir},
-				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					OnPress: func() { a.acpOpen.Set(false) }},
-			},
-		}
-	})
 }

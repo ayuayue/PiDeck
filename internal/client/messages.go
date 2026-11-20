@@ -19,9 +19,8 @@ import (
 )
 
 // toolBlock folds a run of tool calls into one row that opens in place.
-func (a *mobileApp) toolBlock(cx *core.Scope, lines []remotewire.Message) core.Node {
+func (a *mobileApp) toolBlock(cx *core.Scope, lines []remotewire.Message, key string) core.Node {
 	colors := ui.ColorsOf(cx)
-	key := lines[0].Text
 	open := a.toolOpen.Get() == key
 	header := "调用了 " + fmt.Sprint(len(lines)) + " 个工具"
 	if len(lines) == 1 {
@@ -62,8 +61,11 @@ func (a *mobileApp) toolBlock(cx *core.Scope, lines []remotewire.Message) core.N
 
 // message draws one line of a remote transcript; holding it copies its
 // text.
-func (a *mobileApp) message(cx *core.Scope, m remotewire.Message, live bool) core.Node {
-	body := a.messageBody(cx, m, live)
+func (a *mobileApp) message(cx *core.Scope, m remotewire.Message, live, selected bool) core.Node {
+	if m.Role == "image" {
+		return a.transcriptImageRow(m)
+	}
+	body := a.messageBody(cx, m, live, selected)
 	if strings.TrimSpace(m.Text) == "" {
 		return body
 	}
@@ -160,7 +162,7 @@ func hasKey(list []string, key string) bool {
 }
 
 // messageBody draws one line, without the copy gesture.
-func (a *mobileApp) messageBody(cx *core.Scope, m remotewire.Message, live bool) core.Node {
+func (a *mobileApp) messageBody(cx *core.Scope, m remotewire.Message, live, selected bool) core.Node {
 	colors := ui.ColorsOf(cx)
 	switch m.Role {
 	case "user":
@@ -168,7 +170,7 @@ func (a *mobileApp) messageBody(cx *core.Scope, m remotewire.Message, live bool)
 		// show its head, and open it in place when asked.
 		text := m.Text
 		runes := []rune(text)
-		if len(runes) > 400 {
+		if len(runes) > 400 && !selected {
 			key := string(runes[:64])
 			if a.longOpen.Get() != key {
 				text = string(runes[:400]) + "…"
@@ -204,8 +206,8 @@ func (a *mobileApp) messageBody(cx *core.Scope, m remotewire.Message, live bool)
 		// Three levels: a line, its head, all of it. Long reasoning then
 		// costs one press rather than a screen.
 		key := thoughtKey(m.Text)
-		open := func() bool { return live || a.thoughtOpened(key) }
-		all := func() bool { return live || a.thoughtShowsAll(key) }
+		open := func() bool { return live || selected || a.thoughtOpened(key) }
+		all := func() bool { return live || selected || a.thoughtShowsAll(key) }
 		head, more := viewkit.Reveal(m.Text, thinkingReveal)
 		left := viewkit.LeftOver(m.Text, head)
 		header := []core.Node{

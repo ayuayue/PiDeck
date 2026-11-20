@@ -26,11 +26,16 @@ func (a *app) promptDialog() core.Node {
 		cat := a.promptCat.Get()
 		query := a.promptQuery.Get()
 		shown := filterPrompts(list, cat, query)
+		total := len(shown)
+		window := a.promptWindow.Get()
+		if len(shown) > window {
+			shown = shown[:window]
+		}
 		var cats []core.Node
 		addCat := func(id, label string, count int) core.Node {
 			on := func() bool { return cat == id }
 			return core.View{
-				OnPress: func(core.PressEvent) { a.promptCat.Set(id) },
+				OnPress: func(core.PressEvent) { a.promptWindow.Set(80); a.promptCat.Set(id) },
 				Role:    core.RoleRadio, Label: label, TestID: "prompt-cat-" + id,
 				StyleFunc: func() core.Style {
 					st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(28),
@@ -94,9 +99,16 @@ func (a *app) promptDialog() core.Node {
 				},
 			})
 		}
+		if total > len(shown) {
+			rows = append(rows, ui.Button{Text: apptext.T("加载更多"), TestID: "prompt-load-more", Size: ui.SizeSmall, Variant: ui.ButtonGhost, OnPress: func() { a.promptWindow.Update(func(n int) int { return n + 80 }) }})
+		}
 		if len(rows) == 0 {
+			label := apptext.T("没有匹配的提示词")
+			if a.promptLoading.Get() {
+				label = apptext.T("正在读取")
+			}
 			rows = append(rows, core.View{Style: core.Style{Padding: core.Symmetric(20, 8), AlignItems: core.AlignCenter},
-				Children: []core.Node{ui.Text(apptext.T("没有匹配的提示词"), 12, ui.Regular, colors.Faint)}})
+				Children: []core.Node{ui.Text(label, 12, ui.Regular, colors.Faint)}})
 		}
 		return ui.Dialog{
 			Open:         a.promptOpen.Get,
@@ -115,14 +127,14 @@ func (a *app) promptDialog() core.Node {
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 6}, Children: []core.Node{
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-								core.Input{Value: a.promptQuery.Get, OnChange: a.promptQuery.Set, Placeholder: apptext.T("搜索标题、正文或标签…"),
+								core.Input{Value: a.promptQuery.Get, OnChange: func(v string) { a.promptWindow.Set(80); a.promptQuery.Set(v) }, Placeholder: apptext.T("搜索标题、正文或标签…"),
 									Label: apptext.T("搜索提示词"), TestID: "prompt-search", AutoFocus: true,
 									Style: core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), CornerRadius: 7,
 										Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
 										Color: colors.Text(), FontSize: 12}},
 							}},
 							hintOf(func() string { return apptext.T("保存当前草稿为提示词") }, ui.IconButton{Icon: lucide.BookmarkPlus, Label: apptext.T("保存当前草稿为提示词"), Size: 32, IconSize: 14,
-								TestID: "prompt-save-draft", OnPress: func() { a.saveDraftPrompt() }}),
+								TestID: "prompt-save-draft", Disabled: a.promptLoading.Get, OnPress: func() { a.saveDraftPrompt() }}),
 							hintOf(func() string { return apptext.T("打开提示词目录") }, ui.IconButton{Icon: lucide.FolderOpen, Label: apptext.T("打开提示词目录"), Size: 32, IconSize: 14,
 								TestID: "prompt-open-dir", OnPress: func() {
 									a.promptOpen.Set(false)
@@ -136,9 +148,9 @@ func (a *app) promptDialog() core.Node {
 				}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("提示词商店…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "prompt-store-open",
-					OnPress: a.openPromptStore},
+					Disabled: a.promptLoading.Get, OnPress: a.openPromptStore},
 				ui.Button{Text: apptext.T("导入提示词包…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "prompt-import",
-					OnPress: a.openPromptImport},
+					Disabled: a.promptLoading.Get, OnPress: a.openPromptImport},
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "prompt-close",
 					OnPress: func() { a.promptOpen.Set(false) }},
 			},

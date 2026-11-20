@@ -70,6 +70,10 @@ func (a *app) settingsData() core.Node {
 						ui.Button{Text: apptext.T("选择…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-import",
 							OnPress: a.pickSettingsZip}),
 				),
+				setRow("加密同步", "通过目录、GitHub Gist 或 Google Drive 传输设置。", ui.Button{
+					Text: apptext.T("加密同步"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "settings-sync", OnPress: a.openSettingsSync,
+				}),
+				a.cacheCleanupSettings(),
 			}},
 		}}
 	})

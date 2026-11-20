@@ -72,6 +72,9 @@ func TestReviewPaneRenders(t *testing.T) {
 	screen.Press("id:review-verdict")
 	screen.Settle()
 	screen.WaitFor("text:只评论", 10*time.Second)
+	// Both pickers must react without a metadata refresh rebuilding them.
+	screen.Press("id:review-merge")
+	screen.WaitFor("id:review-merge-squash", 2*time.Second)
 
 	built.review.state.Set(reviewState{Checked: true, Missing: true})
 	screen.Settle()

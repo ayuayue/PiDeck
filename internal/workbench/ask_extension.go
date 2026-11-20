@@ -15,46 +15,35 @@ import (
 
 // askExtensionName is the file pi loads.
 const askExtensionName = "pi-deck-ask-question.ts"
-const browserExtensionName = "pi-deck-browser-tools.ts"
 
 // askExtensionPath is where this run installed the extension, "" when it
 // could not be written; startPi only adds it for local pi.
 var askExtensionPath string
-
-// installBrowserToolsExtension writes the browser MCP bridge for local pi.
-func installBrowserToolsExtension(dir string) string {
-	if dir == "" {
-		return ""
-	}
-	folder := filepath.Join(dir, "extensions")
-	path := filepath.Join(folder, browserExtensionName)
-	if cur, err := os.ReadFile(path); err == nil && string(cur) == string(extensions.BrowserTools) {
-		return path
-	}
-	if err := os.MkdirAll(folder, 0o755); err != nil {
-		return ""
-	}
-	if err := writeFileAtomic(path, extensions.BrowserTools, 0o644); err != nil {
-		return ""
-	}
-	return path
-}
+var retryExtensionPath string
 
 // installAskExtension writes the bundled extension under dir and returns
 // its path. A copy already holding what this build ships is left alone.
 func installAskExtension(dir string) string {
+	return installBundledExtension(dir, askExtensionName, extensions.AskQuestion)
+}
+
+func installLocalToolsExtension(dir string) string {
+	return installBundledExtension(dir, "pi-deck-local-tools.ts", extensions.LocalTools)
+}
+
+func installBundledExtension(dir, name string, contents []byte) string {
 	if dir == "" {
 		return ""
 	}
 	folder := filepath.Join(dir, "extensions")
-	path := filepath.Join(folder, askExtensionName)
-	if cur, err := os.ReadFile(path); err == nil && string(cur) == string(extensions.AskQuestion) {
+	path := filepath.Join(folder, name)
+	if cur, err := os.ReadFile(path); err == nil && string(cur) == string(contents) {
 		return path
 	}
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		return ""
 	}
-	if err := os.WriteFile(path, extensions.AskQuestion, 0o644); err != nil {
+	if err := writeFileAtomic(path, contents, 0o644); err != nil {
 		return ""
 	}
 	return path

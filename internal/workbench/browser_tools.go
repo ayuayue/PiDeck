@@ -62,7 +62,7 @@ func browserOrigin(raw string) string {
 func (a *app) browserReady(s *session) bool {
 	n := a.browser.nav.GetUntracked()
 	ws := a.workspaceFor(s.Target, s.WS)
-	return a.browser.owner.GetUntracked() == s.ID && a.byID[s.ID] == s &&
+	return a.browser.owner.GetUntracked() == s.ID && a.byID[s.ID] == s && !s.deleting &&
 		a.browser.open.GetUntracked() && a.activePane.GetUntracked() == paneBrowser && ws != nil && a.projectTrusted(ws) &&
 		!n.Loading && a.browser.origin != "" && browserOrigin(n.URL) == a.browser.origin
 }
@@ -248,7 +248,7 @@ func (a *app) startBrowserTools(s *session) (url, token string, stop func(), err
 			allowed := false
 			if !a.withUI(func() {
 				ws := a.workspaceFor(s.Target, s.WS)
-				allowed = a.byID[s.ID] == s && a.browser.owner.GetUntracked() == s.ID && ws != nil && a.projectTrusted(ws)
+				allowed = a.byID[s.ID] == s && !s.deleting && a.browser.owner.GetUntracked() == s.ID && ws != nil && a.projectTrusted(ws)
 			}) || !allowed {
 				http.Error(w, "browser tools are not enabled", http.StatusForbidden)
 				return

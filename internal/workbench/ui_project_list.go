@@ -106,7 +106,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 					}
 					var out []*session
 					for _, s := range list {
-						if strings.Contains(strings.ToLower(s.title.Get()), filter) {
+						if containsQuery(s.title.Get(), filter) {
 							out = append(out, s)
 						}
 					}
@@ -128,17 +128,7 @@ func (a *app) workspaceBlock(w func() *workspace) core.Node {
 				if filter == "" {
 					shown = min(shown, projectVisibleCount(ws))
 				}
-				visibleRest := rest[:shown]
-				if a.sessionSortMode() == "name" {
-					if len(visibleRest) > 0 {
-						children = append(children, a.groupLabel("名称"),
-							core.View{Style: core.Style{Gap: 1}, Children: rows(visibleRest)})
-					}
-				} else {
-					for _, g := range sessionBuckets(visibleRest, a.cx.Now()) {
-						children = append(children, a.groupLabel(g.Label), core.View{Style: core.Style{Gap: 1}, Children: rows(g.Rows)})
-					}
-				}
+				children = append(children, a.groupedSessionRows(ws, rest[:shown], filter != "")...)
 				loading := ws.PiLoading.Get()
 				if loading {
 					children = append(children, a.projectLoadingRows()...)

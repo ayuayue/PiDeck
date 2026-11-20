@@ -84,20 +84,27 @@ func (a *mobileApp) openFile(path string) {
 		return
 	}
 	a.fileTitle.Set(path)
+	a.fileEdit.reset(project, path)
+	request := a.fileEdit.request
 	a.fileText.Set("")
 	a.fileErr.Set("")
 	a.fileFind.Set("")
 	a.fileBusy.Set(true)
 	a.fileOpen.Set(true)
 	go func() {
-		text, err := client.file(project, path)
+		file, err := client.file(project, path)
 		a.cx.Post(func() {
+			if a.client != client || a.fileEdit.request != request {
+				return
+			}
 			a.fileBusy.Set(false)
 			if err != nil {
 				a.fileErr.Set(remoteErrorText(err))
 				return
 			}
-			a.fileText.Set(text)
+			a.fileText.Set(file.Text)
+			a.fileEdit.revision.Set(file.Revision)
+			a.fileEdit.writable.Set(file.Writable)
 		})
 	}()
 }
@@ -206,6 +213,7 @@ func (a *mobileApp) fileSheet() core.Node {
 		colors := ui.ColorsOf(cx)
 		busy := a.fileBusy.Get()
 		errText := a.fileErr.Get()
+		editing := a.fileEdit.open.Get()
 		var body core.Node
 		switch {
 		case busy:
@@ -213,26 +221,31 @@ func (a *mobileApp) fileSheet() core.Node {
 				Children: []core.Node{ui.Spinner{Size: 14, Label: apptext.T("读取文件")}, ui.Text(apptext.T("正在读取文件…"), 12, ui.Regular, colors.Muted)}}
 		case errText != "":
 			body = core.Text{Content: errText, Style: core.Style{FontSize: 12, Padding: core.All(8)}, StyleFunc: ui.Colored(colors.Danger)}
+		case editing:
+			body = a.fileEditorBody(colors)
 		default:
 			body = a.fileBody(colors)
 		}
 		var finder core.Node
-		if !busy && errText == "" {
+		if !busy && errText == "" && !editing {
 			finder = core.Input{Value: a.fileFind.Get, OnChange: a.fileFind.Set, Placeholder: apptext.T("在文件里查找…"),
 				Label: apptext.T("在文件里查找"), TestID: "mobile-file-find",
 				Style: core.Style{Height: core.Pt(38), Padding: core.Symmetric(0, 10), CornerRadius: 8, FontSize: 13,
 					Color: colors.Text(), Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder()}}
 		}
+		footer := a.fileEditorActions()
 		return ui.Dialog{
-			Open:         a.fileOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.fileOpen.Set(open) },
-			Title:        a.fileTitle.Get(),
-			TestID:       "mobile-file-view",
-			Style:        core.Style{Width: core.Pct(100), MaxWidth: core.Pt(640), Height: core.Pct(88)},
-			Children:     []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{finder, body}}},
-			Footer: []core.Node{
-				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.fileOpen.Set(false) }},
+			Open: a.fileOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) {
+				if !open {
+					a.closeFileView()
+				}
 			},
+			Title:    a.fileTitle.Get(),
+			TestID:   "mobile-file-view",
+			Style:    core.Style{Width: core.Pct(100), MaxWidth: core.Pt(640), Height: core.Pct(88)},
+			Children: []core.Node{core.View{Style: core.Style{Gap: 8}, Children: []core.Node{finder, body}}},
+			Footer:   footer,
 		}
 	})
 }

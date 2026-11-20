@@ -52,7 +52,7 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 				children = append(children, a.toolRows(s, tools))
 			}
 			if text != "" {
-				children = append(children, viewkit.MarkdownSearch(a.chatSearch, text, func() bool { return live }, live, a.readingFont(), a.readingLine(), core.Style{}))
+				children = append(children, a.chatMarkdown(text, live, a.readingFont(), a.readingLine(), core.Style{}))
 			}
 			if len(children) == 0 {
 				return nil
@@ -60,6 +60,10 @@ func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
 			return core.View{Style: core.Style{Gap: 12, MinWidth: core.Pt(0)}, Children: children}
 		})
 	}}
+}
+
+func (a *app) chatMarkdown(text string, live bool, size, line core.Points, tone core.Style) core.Node {
+	return viewkit.MarkdownWithCodeWrap(a.chatSearch, text, func() bool { return live }, live, size, line, tone, a.codeWrap.Get)
 }
 
 // thinkingReveal is how much of a long thinking row shows before its rest

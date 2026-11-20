@@ -219,6 +219,8 @@ func (a *mobileApp) openSession(id, title string) {
 	a.running.Set(false)
 	a.findOpen.Set(false)
 	a.findText.Set("")
+	a.findSelected.Set(transcriptRowKey{})
+	a.resetTranscriptPicture()
 	a.transcriptErr.Set("")
 	a.transcriptTruncated.Set(false)
 	a.messagesBefore.Set(0)
@@ -240,6 +242,8 @@ func (a *mobileApp) closeSession() {
 	a.mode.Set("")
 	a.findOpen.Set(false)
 	a.findText.Set("")
+	a.findSelected.Set(transcriptRowKey{})
+	a.resetTranscriptPicture()
 	a.transcriptErr.Set("")
 	a.transcriptTruncated.Set(false)
 	a.messagesBefore.Set(0)
@@ -292,8 +296,10 @@ func (a *mobileApp) refreshTranscript() {
 			switch {
 			case wasRunning && !t.Running:
 				a.playAlert(alerts.KindDone)
+				a.notifySession(id, false)
 			case !wasAsk && t.Ask != nil:
 				a.playAlert(alerts.KindWaiting)
+				a.notifySession(id, true)
 			}
 			a.transcriptErr.Set(t.Error)
 		})

@@ -5,6 +5,7 @@ go 1.27.3
 require (
 	github.com/andybalholm/brotli v1.3.0
 	github.com/liyue201/goqr v0.0.0-20200803022322-df443203d4ea
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/nsgo-dev/nsgo v0.1.1-0.20261117180649-a4a00f7f38b3
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	go.yaml.in/yaml/v3 v3.0.6
@@ -30,7 +31,6 @@ require (
 	github.com/google/pprof v0.0.0-20261016150608-1facf8f91b50 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/modelcontextprotocol/go-sdk v1.8.0 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.1.3 // indirect

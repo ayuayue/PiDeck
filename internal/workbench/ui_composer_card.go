@@ -164,9 +164,18 @@ func (a *app) composer(s *session) core.Node {
 		focused, dragging := core.NewSignal(cx, false), core.NewSignal(cx, false)
 		empty := func() bool { return strings.TrimSpace(s.draft.Get()) == "" }
 		imageBusy := func() bool { return a.aiBusy.Get() == "image" }
+		shell := func() (string, bool) {
+			if modeOf(s) == modeImage {
+				return "", false
+			}
+			return shellDraft(s.draft.Get())
+		}
 		canSend := func() bool {
 			if s.filesLoading() {
 				return false
+			}
+			if script, ok := shell(); ok {
+				return script != "" && len(s.images.Get()) == 0
 			}
 			return !empty() && !imageBusy()
 		}
@@ -237,6 +246,9 @@ func (a *app) composer(s *session) core.Node {
 							func() core.Color { return colors.Danger() }, func() { a.stop(s) })
 					}
 					label := apptext.T("发送")
+					if _, ok := shell(); ok {
+						label = apptext.T("运行命令")
+					}
 					if s.filesLoading() {
 						label = apptext.T("正在读取")
 					}

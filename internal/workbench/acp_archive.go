@@ -168,12 +168,3 @@ func (a *app) loadACPArchiveFile(path string) *session {
 	ws.Sessions.Update(func(ss []*session) []*session { return append([]*session{s}, ss...) })
 	return s
 }
-
-// deleteACPArchive removes a session's transcript.
-func (a *app) deleteACPArchive(id string) {
-	dir := a.acpArchiveDir()
-	if dir == "" || id == "" {
-		return
-	}
-	_ = os.Remove(filepath.Join(dir, archiveName(id)))
-}

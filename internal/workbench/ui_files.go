@@ -22,6 +22,11 @@ func (a *app) drawerFiles() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		s := a.active()
+		if s != nil && s.Target.remote() {
+			if ws := a.workspaceFor(s.Target, s.WS); ws != nil {
+				return a.targetFileList(ws)
+			}
+		}
 		root := a.files.root.Get()
 		if s != nil && s.WS != "" {
 			root = s.WS
@@ -41,10 +46,11 @@ func (a *app) drawerFiles() core.Node {
 				ui.Text(apptext.T("目录为空"), 11.5, ui.Regular, colors.Faint),
 			}}
 		}
-		filter := strings.ToLower(strings.TrimSpace(a.filesQuery.Get()))
-		_ = a.filesRev.Get()
-		marks := a.fileMarks()
-		dirs := changedDirs(marks, root)
+		// Polls and index completions update their own subtrees. Rebuilding
+		// the whole drawer here would discard the input's focus and file
+		// rows between a pointer-down and pointer-up.
+		marks := core.NewMemoFunc(cx, a.fileMarks, nil)
+		dirs := core.NewMemoFunc(cx, func() map[string]bool { return changedDirs(marks.Get(), root) }, nil)
 		markColor := func(mark string) core.Color {
 			switch gitMarkColor(mark) {
 			case "up":
@@ -80,7 +86,7 @@ func (a *app) drawerFiles() core.Node {
 							if !node.Dir {
 								return nil
 							}
-							if node.Expanded {
+							if n().Expanded {
 								return ui.Icon(lucide.ChevronDown, 10, colors.Faint)
 							}
 							return ui.Icon(lucide.ChevronRight, 10, colors.Faint)
@@ -88,7 +94,7 @@ func (a *app) drawerFiles() core.Node {
 					}},
 					ui.IconOf(func() *core.SVG {
 						if node.Dir {
-							if node.Expanded {
+							if n().Expanded {
 								return lucide.FolderOpen()
 							}
 							return lucide.Folder()
@@ -102,17 +108,21 @@ func (a *app) drawerFiles() core.Node {
 					}),
 					core.Text{Content: node.Name, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12}, StyleFunc: ui.Colored(colors.Text)},
-					core.Show{When: func() bool { return node.Dir && dirs[node.Path] }, Then: func(*core.Scope) core.Node {
+					core.Show{When: func() bool { return node.Dir && dirs.Get()[node.Path] }, Then: func(*core.Scope) core.Node {
 						return core.View{Style: core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3,
 							Background: colors.Warn(), FlexShrink: 0}}
 					}},
-					core.Show{When: func() bool { _, ok := marks[node.Path]; return !node.Dir && ok }, Then: func(*core.Scope) core.Node {
-						mark := marks[node.Path].mark()
-						return core.View{TestID: "file-git-mark", Accessible: true, Label: mark,
+					core.Dynamic(func(*core.Scope) core.Node {
+						mark, ok := marks.Get()[node.Path]
+						if node.Dir || !ok {
+							return nil
+						}
+						label := mark.mark()
+						return core.View{TestID: "file-git-mark", Accessible: true, Label: label,
 							Style: core.Style{Width: core.Pt(12), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-							Children: []core.Node{core.Text{Content: mark, Style: core.Style{FontFamily: viewkit.MonoFont(),
-								FontSize: 9.5, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(func() core.Color { return markColor(mark) })}}}
-					}},
+							Children: []core.Node{core.Text{Content: label, Style: core.Style{FontFamily: viewkit.MonoFont(),
+								FontSize: 9.5, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(func() core.Color { return markColor(label) })}}}
+					}),
 				},
 			}
 			return base.ContextMenu{
@@ -128,9 +138,11 @@ func (a *app) drawerFiles() core.Node {
 				FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
 				BorderWidth: 1, BorderColor: colors.FieldBorder()}}
 		hits := func() core.Node {
+			filter := strings.ToLower(strings.TrimSpace(a.filesQuery.Get()))
+			_ = a.filesRev.Get()
 			var rows []core.Node
 			for _, rel := range a.workspaceFiles(root) {
-				if !strings.Contains(strings.ToLower(rel), filter) {
+				if !containsQuery(rel, filter) {
 					continue
 				}
 				rel := rel
@@ -164,8 +176,8 @@ func (a *app) drawerFiles() core.Node {
 				head,
 				search,
 				core.Text{Content: apptext.T("点文件在编辑器里打开，点目录展开；右键可插入 @ 路径。"), Style: core.Style{FontSize: 10.5, LineHeight: 15}, StyleFunc: ui.Colored(colors.Faint)},
-				core.Show{When: func() bool { return filter != "" }, Then: func(*core.Scope) core.Node { return hits() }},
-				core.Show{When: func() bool { return filter == "" }, Then: func(*core.Scope) core.Node {
+				core.Show{When: func() bool { return strings.TrimSpace(a.filesQuery.Get()) != "" }, Then: func(*core.Scope) core.Node { return core.Dynamic(func(*core.Scope) core.Node { return hits() }) }},
+				core.Show{When: func() bool { return strings.TrimSpace(a.filesQuery.Get()) == "" }, Then: func(*core.Scope) core.Node {
 					return core.Group{
 						core.Show{When: func() bool { return len(a.files.nodes.Get()) == 0 }, Then: func(*core.Scope) core.Node { return empty() }},
 						list,

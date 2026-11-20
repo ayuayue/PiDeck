@@ -9,10 +9,11 @@ package workbench
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -52,16 +53,22 @@ func (h *remoteHost) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var targets []target
 	ok := h.app.withUI(func() {
 		for _, ws := range h.app.workspaces.GetUntracked() {
-			if ws.Target.remote() || (project != "" && ws.Path != project) {
+			if project != "" && projectWireKey(ws) != project {
 				continue
 			}
 			h.app.scanProject(ws)
 			pinned, rest := h.app.projectSessions(ws)
 			for _, s := range append(pinned, rest...) {
-				if s == nil || s.File == "" {
+				if s == nil {
 					continue
 				}
-				targets = append(targets, target{id: s.ID, title: s.title.Get(), project: ws.label(), file: s.File})
+				file := s.File
+				if s.backend == "acp" {
+					file = filepath.Join(h.app.acpArchiveDir(), archiveName(s.ID))
+				} else if s.Target.remote() {
+					file = ""
+				}
+				targets = append(targets, target{id: s.ID, title: s.title.Get(), project: ws.label(), file: file})
 			}
 		}
 	})
@@ -75,15 +82,19 @@ func (h *remoteHost) handleSearch(w http.ResponseWriter, r *http.Request) {
 		if len(hits) >= 30 {
 			break
 		}
-		text := h.searchText(t.file)
-		if text == "" {
-			continue
+		text := ""
+		if t.file != "" {
+			text = h.searchText(t.file)
 		}
 		at := strings.Index(text, query)
-		if at < 0 {
+		if at < 0 && !containsQuery(t.title, query) {
 			continue
 		}
-		hits = append(hits, remotewire.Hit{Session: t.id, Title: t.title, Project: t.project, Snippet: snippetAround(text, at, query)})
+		snippet := t.title
+		if at >= 0 {
+			snippet = snippetAround(text, at, query)
+		}
+		hits = append(hits, remotewire.Hit{Session: t.id, Title: t.title, Project: t.project, Snippet: snippet})
 	}
 	writeRemoteJSON(w, http.StatusOK, map[string]any{"hits": hits})
 }
@@ -94,25 +105,53 @@ func (h *remoteHost) searchText(file string) string {
 	if err != nil {
 		return ""
 	}
-	if h.search == nil {
-		h.search = &searchCache{entries: map[string]searchEntry{}}
-	}
 	h.search.mu.Lock()
 	entry, ok := h.search.entries[file]
 	h.search.mu.Unlock()
 	if ok && entry.mod.Equal(info.ModTime()) && entry.size == info.Size() {
 		return entry.text
 	}
-	raw, err := os.ReadFile(file)
+	f, err := os.Open(file)
 	if err != nil {
 		return ""
 	}
-	if len(raw) > 4<<20 {
-		raw = raw[:4<<20]
+	defer f.Close()
+	text := strings.ToLower(readSearchTranscript(f, filepath.Ext(file) == ".json"))
+	h.search.mu.Lock()
+	if len(h.search.entries) >= 1000 {
+		clear(h.search.entries)
 	}
+	h.search.entries[file] = searchEntry{mod: info.ModTime(), size: info.Size(), text: text}
+	h.search.mu.Unlock()
+	return text
+}
+
+func readSearchTranscript(r io.Reader, acp bool) string {
 	var b strings.Builder
-	sc := bufio.NewScanner(bytes.NewReader(raw))
-	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
+	const textLimit = 400 << 10
+	appendText := func(text string) {
+		n := min(len(text), textLimit-b.Len())
+		b.WriteString(text[:n])
+		if b.Len() < textLimit {
+			b.WriteByte('\n')
+		}
+	}
+	if acp {
+		var archive acpArchive
+		if json.NewDecoder(io.LimitReader(r, acpArchiveBytes)).Decode(&archive) != nil {
+			return ""
+		}
+		for _, t := range archive.Turns {
+			appendText(t.Prompt)
+			appendText(t.Final)
+			if b.Len() >= textLimit {
+				break
+			}
+		}
+		return b.String()
+	}
+	sc := bufio.NewScanner(io.LimitReader(r, 4<<20))
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for sc.Scan() {
 		var entry struct {
 			Type    string          `json:"type"`
@@ -122,20 +161,15 @@ func (h *remoteHost) searchText(file string) string {
 			continue
 		}
 		var msg piMessage
-		if json.Unmarshal(entry.Message, &msg) != nil {
+		if json.Unmarshal(entry.Message, &msg) != nil || (msg.Role != "user" && msg.Role != "assistant") {
 			continue
 		}
-		b.WriteString(msg.text())
-		b.WriteByte(10)
-		if b.Len() > 400<<10 {
+		appendText(msg.text())
+		if b.Len() >= textLimit {
 			break
 		}
 	}
-	text := strings.ToLower(b.String())
-	h.search.mu.Lock()
-	h.search.entries[file] = searchEntry{mod: info.ModTime(), size: info.Size(), text: text}
-	h.search.mu.Unlock()
-	return text
+	return b.String()
 }
 
 // snippetAround is the text around a match, on one line.

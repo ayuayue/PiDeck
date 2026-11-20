@@ -85,6 +85,7 @@ func (a *app) drawerOverview() core.Node {
 						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 				core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
+					a.delegationOverview(s),
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(24)}, Children: []core.Node{
 						core.Text{Content: apptext.T("模型"), Style: core.Style{FontSize: 12, Width: core.Pt(74)}, StyleFunc: ui.Colored(colors.Muted)},
 						core.Text{ContentFunc: models, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
@@ -159,6 +160,7 @@ func (a *app) drawerOverview() core.Node {
 						}}
 					}},
 				}},
+				a.sessionRelations(s),
 				core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
 						ui.Text(apptext.T("上下文"), 12, ui.Regular, colors.Muted),
@@ -185,6 +187,7 @@ func (a *app) drawerOverview() core.Node {
 					}),
 				}},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
+					ui.Button{Text: apptext.T("视频生成"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "session-videos", OnPress: func() { a.openPane(paneVideo) }},
 					ui.Button{Text: apptext.T("压缩上下文"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.compact(s) }},
 					ui.Button{Text: apptext.T("导出…"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "export-button",
 						OnPress: func() { a.openExport(s) }},
@@ -193,6 +196,7 @@ func (a *app) drawerOverview() core.Node {
 					ui.Button{Text: "Git", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.openGit() }},
 					ui.Button{Text: apptext.T("终端"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.toggleTerminal() }},
 				}},
+				a.videoSessionRows(s),
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap}, Children: []core.Node{
 					core.Text{ContentFunc: func() string { return shortPath(s.File, 46) }, MaxLines: 2, EllipsizeMode: core.EllipsizeMiddle,
 						Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, LineHeight: 14}, StyleFunc: ui.Colored(colors.Faint)},

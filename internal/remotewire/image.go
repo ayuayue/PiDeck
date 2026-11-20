@@ -1,9 +1,9 @@
 package remotewire
 
-// promptImage is an image sent with a prompt: the workbench attaches one,
-// the client sends it to its desktop.
+// MaxTranscriptImageBytes bounds one attachment fetched separately from a page.
+const MaxTranscriptImageBytes = 6 << 20
 
-// promptImage is an image sent with a prompt.
+// Image is an image sent with a prompt or found in a transcript.
 type Image struct {
 	Data     []byte
 	MimeType string

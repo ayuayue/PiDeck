@@ -7,6 +7,7 @@ package workbench
 
 import (
 	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -36,6 +37,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		status:         core.NewSignal(a.cx, statusIdle),
 		turns:          core.NewSignalFunc(a.cx, []turn{}, nil),
 		draft:          core.NewSignal(a.cx, ""),
+		draftChange:    core.NewSignal(a.cx, (*viewkit.DraftChange)(nil)),
 		images:         core.NewSignalFunc(a.cx, []remotewire.Image(nil), nil),
 		dropPending:    core.NewSignal(a.cx, 0),
 		model:          core.NewSignal(a.cx, modelInfo{}),
@@ -81,6 +83,8 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
 		acpMode:        core.NewSignal(a.cx, ""),
 		acpModes:       core.NewSignalFunc(a.cx, []acpMode(nil), nil),
+		acpOptions:     core.NewSignalFunc(a.cx, []acpConfigOption(nil), nil),
+		acpOptionBusy:  core.NewSignal(a.cx, false),
 		acpModeOpen:    core.NewSignal(a.cx, false),
 	}
 	if id := a.cfg.SessionPersonas[m.ID]; id != "" {
@@ -89,18 +93,8 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 	s.conversation = newChatScroll(a.cx)
 	a.byID[s.ID] = s
 	a.all = append(a.all, s)
+	a.observeSessionDraft(s)
 	return s
-}
-
-// newestSession is the most recently touched session.
-func (a *app) newestSession() *session {
-	var newest *session
-	for _, s := range a.all {
-		if newest == nil || s.updated.GetUntracked().After(newest.updated.GetUntracked()) {
-			newest = s
-		}
-	}
-	return newest
 }
 
 // sessionOf finds an open session by id.

@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -29,6 +28,7 @@ type mcpServer struct {
 	State     string   `json:"state"`
 	Tools     []string `json:"tools"`
 	Error     string   `json:"error"`
+	project   string   // the project whose configuration produced this row
 }
 
 // parseMCPServers reads pi mcp list --json's output.
@@ -42,24 +42,11 @@ func parseMCPServers(raw []byte) ([]mcpServer, error) {
 	return parsed.Servers, nil
 }
 
-// mcpCommand builds one pi mcp call.
-func mcpCommand(piPath string, args ...string) *exec.Cmd {
-	if isBatch(piPath) {
-		return batchCommand(piPath, args)
-	}
-	return exec.Command(piPath, args...)
-}
-
 // readMCPServers asks pi for its servers, in dir when one is given.
 func readMCPServers(piPath, dir string) ([]mcpServer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	var cmd *exec.Cmd
-	if isBatch(piPath) {
-		cmd = batchCommand(piPath, []string{"mcp", "list", "--json"})
-	} else {
-		cmd = exec.CommandContext(ctx, piPath, "mcp", "list", "--json")
-	}
+	cmd := piCommand(ctx, piPath, "mcp", "list", "--json")
 	cmd.Dir = dir
 	hideWindow(cmd)
 	out, err := cmd.Output()
@@ -76,6 +63,9 @@ func readMCPServers(piPath, dir string) ([]mcpServer, error) {
 			return nil, fmt.Errorf("%v：%s", err, viewkit.FirstLine(string(out), 200))
 		}
 		return nil, parseErr
+	}
+	for i := range servers {
+		servers[i].project = dir
 	}
 	return servers, nil
 }
@@ -117,7 +107,9 @@ func mcpRemoveArgs(name string, local bool) []string {
 
 // runMCP runs one pi mcp command and reports its answer on failure.
 func runMCP(piPath, dir string, args ...string) error {
-	cmd := mcpCommand(piPath, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	cmd := piCommand(ctx, piPath, args...)
 	cmd.Dir = dir
 	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
@@ -129,4 +121,15 @@ func runMCP(piPath, dir string, args ...string) error {
 		return err
 	}
 	return nil
+}
+
+func mcpAuthArgs(action, name string, local bool) ([]string, error) {
+	if (action != "login" && action != "logout") || name == "" || strings.HasPrefix(name, "-") || strings.ContainsAny(name, "\r\n\x00") {
+		return nil, errors.New("MCP server name or action is invalid")
+	}
+	args := []string{"mcp", action, name}
+	if local {
+		args = append(args, "--local")
+	}
+	return args, nil
 }

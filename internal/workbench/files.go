@@ -304,6 +304,7 @@ func skipMentionDir(name string) bool {
 // mentionMatches lists the files a partial @path matches, best first.
 func mentionMatches(files []string, token string, limit int) []string {
 	token = strings.ToLower(strings.TrimSpace(token))
+	phonetic := pinyinQuery(token)
 	var prefix, contains []string
 	for _, f := range files {
 		lower := strings.ToLower(f)
@@ -311,7 +312,7 @@ func mentionMatches(files []string, token string, limit int) []string {
 		switch {
 		case token == "" || strings.HasPrefix(lower, token) || strings.HasPrefix(base, token):
 			prefix = append(prefix, f)
-		case strings.Contains(lower, token):
+		case strings.Contains(lower, token) || matchesPinyin(f, phonetic):
 			contains = append(contains, f)
 		}
 		if len(prefix) >= limit {
@@ -336,15 +337,16 @@ func fileMatches(files []string, query string, limit int) []string {
 		return files
 	}
 	var byName, inName, inPath []string
+	phonetic := pinyinQuery(q)
 	for _, f := range files {
 		lower := strings.ToLower(f)
 		base := strings.ToLower(filepath.Base(f))
 		switch {
 		case strings.HasPrefix(base, q):
 			byName = append(byName, f)
-		case strings.Contains(base, q):
+		case strings.Contains(base, q) || matchesPinyin(base, phonetic):
 			inName = append(inName, f)
-		case strings.Contains(lower, q):
+		case strings.Contains(lower, q) || matchesPinyin(f, phonetic):
 			inPath = append(inPath, f)
 		}
 		if len(byName) >= limit {

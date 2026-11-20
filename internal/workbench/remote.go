@@ -108,6 +108,7 @@ func newRemoteHost(a *app) *remoteHost {
 			Relay:   remoteChannel{Installed: relayURL != "", Address: relayURL},
 		}, nil),
 		port: port, token: a.cfg.RemoteToken,
+		search:  &searchCache{entries: map[string]searchEntry{}},
 		relayOn: a.cfg.RemoteRelay, relayURL: relayURL,
 		relayEnv: a.cfg.RemoteRelayEnv, relayKey: a.cfg.RemoteRelayKey,
 		publicURL: normalizePublicURL(a.cfg.RemotePublicURL),

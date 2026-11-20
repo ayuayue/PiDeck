@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -18,26 +19,30 @@ import (
 // tab keeps the transcript and the draft, reopening it reattaches to the
 // session file.
 type session struct {
-	ID       string
-	WS       string
-	File     string
-	Target   target
-	External bool // a session in pi's own store, opened in place
+	deleting    bool   // the owning store is moving this session to its trash
+	deleteReady func() // a confirmed deletion waiting for startup to settle
+	stopDraft   func()
+	ID          string
+	WS          string
+	File        string
+	Target      target
+	External    bool // a session in pi's own store, opened in place
 
-	title      *core.Signal[string]
-	status     *core.Signal[sessionStatus]
-	turns      *core.Signal[[]turn]
-	draft      *core.Signal[string]
-	images     *core.Signal[[]remotewire.Image]
-	model      *core.Signal[modelInfo]
-	models     *core.Signal[[]modelInfo]
-	modelsBusy *core.Signal[bool]
-	thinking   *core.Signal[string]
-	levels     *core.Signal[[]string]
-	usage      *core.Signal[usageInfo]
-	stats      *core.Signal[sessionStats]
-	updated    *core.Signal[time.Time]
-	loaded     *core.Signal[bool]
+	title       *core.Signal[string]
+	status      *core.Signal[sessionStatus]
+	turns       *core.Signal[[]turn]
+	draft       *core.Signal[string]
+	draftChange *core.Signal[*viewkit.DraftChange]
+	images      *core.Signal[[]remotewire.Image]
+	model       *core.Signal[modelInfo]
+	models      *core.Signal[[]modelInfo]
+	modelsBusy  *core.Signal[bool]
+	thinking    *core.Signal[string]
+	levels      *core.Signal[[]string]
+	usage       *core.Signal[usageInfo]
+	stats       *core.Signal[sessionStats]
+	updated     *core.Signal[time.Time]
+	loaded      *core.Signal[bool]
 	// dropTail orders background file-drop batches before publishing them.
 	dropTail    <-chan struct{}
 	dropPending *core.Signal[int]
@@ -116,19 +121,24 @@ type session struct {
 	// personaID binds the session to a built-in or custom agent.
 	personaID string
 	// ACP sessions run an external agent CLI instead of pi.
-	backend     string
-	acpPreset   string
-	acp         *acpClient
-	acpSID      string
-	acpTurnID   string
-	acpText     strings.Builder
-	acpThink    strings.Builder
-	acpFlushDue bool
-	acpReply    func(string)
-	acpCommands *core.Signal[[]acpCommand]
-	acpMode     *core.Signal[string]
-	acpModes    *core.Signal[[]acpMode]
-	acpModeOpen *core.Signal[bool]
+	backend       string
+	acpPreset     string
+	acp           *acpClient
+	acpSID        string
+	acpGeneration uint64
+	acpTurnID     string
+	acpProgress   time.Time
+	acpStopReason acpStopReason
+	acpText       strings.Builder
+	acpThink      strings.Builder
+	acpFlushDue   bool
+	acpReply      func(string)
+	acpCommands   *core.Signal[[]acpCommand]
+	acpMode       *core.Signal[string]
+	acpModes      *core.Signal[[]acpMode]
+	acpOptions    *core.Signal[[]acpConfigOption]
+	acpOptionBusy *core.Signal[bool]
+	acpModeOpen   *core.Signal[bool]
 	// acpPerm remembers allow-always and reject-always by tool title.
 	acpPerm   map[string]string
 	acpPermMu sync.Mutex

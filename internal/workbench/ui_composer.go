@@ -71,7 +71,7 @@ func (c composerChip) node() core.Node {
 
 // composerRow is one row of the app's menu card, for the composer's
 // popovers: a glyph, a title over a detail, and a check on the choice.
-func composerRow(cx *core.Scope, icon func() *core.SVG, title, detail string, checked, disabled bool, onPress func()) core.Node {
+func composerRow(cx *core.Scope, icon func() *core.SVG, title, detail string, checked, disabled bool, onPress func()) core.View {
 	colors := ui.ColorsOf(cx)
 	var children []core.Node
 	if icon != nil {
@@ -142,14 +142,17 @@ func (a *app) composerBackendPicker(s *session) core.Node {
 		}
 		return lucide.Terminal()
 	}
-	trigger := hintOf(func() string {
-		if a.backendLocked(s) {
-			return apptext.T("后端 · %s（会话开始后不能再换）", label())
-		}
-		return apptext.T("后端 · %s（点一下换）", label())
-	}, composerChip{Icon: icon, Label: label, Caret: true, TestID: "backend-picker", OnPress: func() {
-		s.backendOpen.Update(func(v bool) bool { return !v })
-	}}.node())
+	trigger := core.Dynamic(func(cx *core.Scope) core.Node {
+		s.uiSeq.Get()
+		return hintOf(func() string {
+			if a.backendLocked(s) {
+				return apptext.T("后端 · %s（会话开始后不能再换）", label())
+			}
+			return apptext.T("后端 · %s（点一下换）", label())
+		}, composerChip{Icon: icon, Label: label, Caret: true, TestID: "backend-picker", OnPress: func() {
+			s.backendOpen.Update(func(v bool) bool { return !v })
+		}}.node())
+	})
 	return a.popoverCard(s.backendOpen, core.PlaceTop, core.AlignStart, 268, trigger, func(cx *core.Scope) core.Node {
 		locked := a.backendLocked(s)
 		rows := []core.Node{
@@ -167,6 +170,10 @@ func (a *app) composerBackendPicker(s *session) core.Node {
 		rows = append(rows, core.Scroll{Style: core.Style{MaxHeight: core.Pt(220), MinWidth: core.Pt(0)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: agents}}})
 		rows = append(rows, composerDivider(cx))
+		rows = append(rows, composerRow(cx, lucide.Mic, apptext.T("转写录音…"), apptext.T("导入 WAV 录音到输入框"), false, a.voiceCapture.state.Get() != "", func() {
+			s.modeOpen.Set(false)
+			a.pickVoiceRecording(s)
+		}))
 		note := apptext.T("发出第一条消息前可以换后端。")
 		if locked {
 			note = apptext.T("这个会话已经开始了：新建会话才能换后端。")
@@ -205,6 +212,8 @@ func (a *app) composerAddMenu(s *session) core.Node {
 			composerRow(cx, lucide.Target, apptext.T("目标模式"), apptext.T("没完成就自己继续，直到完成或停下"), mode == modeGoal, false, func() { toggle(modeGoal) }),
 			composerRow(cx, lucide.Image, apptext.T("生图模式"), apptext.T("把这句话画成一张图"), mode == modeImage, backendOf(s) == "acp", func() { toggle(modeImage) }),
 		}
+		rows = append(rows, composerDivider(cx))
+		rows = append(rows, a.composerDraftItems(cx, s)...)
 		return core.View{Style: core.Style{Gap: 1}, Children: rows}
 	}, "composer-add-menu")
 }
@@ -433,6 +442,13 @@ func (a *app) composerToolsMenu(s *session, open *core.Signal[bool]) core.Node {
 				composerRow(cx, lucide.TextCursorInput, apptext.T("续写"), "", false, busy || empty, func() {
 					open.Set(false)
 					a.predictDraft(s)
+				}),
+			}},
+			composerDivider(cx),
+			core.View{TestID: "prompt-template-open", Children: []core.Node{
+				composerRow(cx, lucide.Settings2, apptext.T("增强模板…"), "", false, false, func() {
+					open.Set(false)
+					a.openPromptTemplate()
 				}),
 			}},
 		}}
