@@ -15,6 +15,7 @@ import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
  */
 
 const webServiceSource = readFileSync("src/main/web/WebServiceManager.ts", "utf8");
+const webServiceContract = readFileSync("src/main/web/webServiceContract.ts", "utf8");
 const webEventStreamSource = readFileSync("src/main/web/WebEventStream.ts", "utf8");
 const dshManagerSource = dshAgentManagerSource;
 
@@ -370,7 +371,7 @@ test("index.ts 只把 DSH 网关接到 Web 通道源，避免与 pi 事件源重
 test("WebServiceManager 注册通道事件源并在停止时解绑", () => {
 	assert.match(webServiceSource, /bindChannelSource\(/);
 	assert.match(webServiceSource, /unbindChannelSource\(\)/);
-	assert.match(webServiceSource, /subscribeAgentChannelEvents\?:/);
+	assert.match(webServiceContract, /subscribeAgentChannelEvents\?:/);
 	// DSH 通道事件同样驱动状态推送：否则 Web 端 busy→idle 只能等 5s 兜底 tick
 	const bindIndex = webServiceSource.indexOf("this.eventStreamRouter.bindChannelSource(");
 	assert.ok(bindIndex > 0);
