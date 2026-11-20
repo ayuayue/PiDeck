@@ -22,8 +22,13 @@ package workbench
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
+	"sync"
+
+	"example.com/pideck-lite/internal/apptext"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // normalizePluginSettings checks a plugin's settings and returns the keys
@@ -51,6 +56,31 @@ func normalizePluginSettings(p *plugin) map[string]bool {
 		}
 		switch s.Type {
 		case "bool", "string", "number":
+			valid := false
+			switch s.Type {
+			case "bool":
+				if s.Default == nil {
+					s.Default = false
+				}
+				_, valid = s.Default.(bool)
+			case "string":
+				if s.Default == nil {
+					s.Default = ""
+				}
+				_, valid = s.Default.(string)
+			case "number":
+				if s.Default == nil {
+					s.Default = 0
+				}
+				switch s.Default.(type) {
+				case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+					valid = pluginSettingAccepts(s, settingText(s.Default))
+				}
+			}
+			if !valid {
+				p.Warnings = append(p.Warnings, apptext.T("设置 %s 的默认值与类型 %s 不匹配，已跳过。", s.Key, s.Type))
+				continue
+			}
 		case "select":
 			if len(s.Options) == 0 {
 				p.Warnings = append(p.Warnings, "设置 "+s.Key+" 是 select，但没有 options")
@@ -104,15 +134,39 @@ func settingText(v any) string {
 	return fmt.Sprint(v)
 }
 
-// pluginSettingValue is the saved value of one setting, or its default.
-func pluginSettingValue(saved map[string]string, p plugin, key string) string {
-	if saved != nil {
-		if v, ok := saved[p.ID+"/"+key]; ok {
-			return v
+// pluginSettingAccepts checks the persisted string against its declaration.
+// Numbers must be finite; select values must belong to the current options.
+func pluginSettingAccepts(s pluginSetting, value string) bool {
+	switch s.Type {
+	case "bool":
+		return value == "true" || value == "false"
+	case "number":
+		n, err := strconv.ParseFloat(value, 64)
+		return err == nil && !math.IsNaN(n) && !math.IsInf(n, 0)
+	case "select":
+		for _, opt := range s.Options {
+			if value == opt {
+				return true
+			}
 		}
+		return false
+	case "", "string":
+		return true
+	}
+	return false
+}
+
+// pluginSettingValue reads only declared keys. An invalid saved value falls
+// back to the normalized default without rewriting the user's configuration.
+func pluginSettingValue(saved map[string]string, p plugin, key string) string {
+	if p.Error != "" {
+		return ""
 	}
 	for _, s := range p.Contributes.Settings {
 		if s.Key == key {
+			if v, ok := saved[p.ID+"/"+key]; ok && pluginSettingAccepts(s, v) {
+				return v
+			}
 			return settingText(s.Default)
 		}
 	}
@@ -121,29 +175,57 @@ func pluginSettingValue(saved map[string]string, p plugin, key string) string {
 
 // pluginSetting reads one of a plugin's settings.
 func (a *app) pluginSetting(id, key string) string {
-	if a.plugins == nil {
-		return pluginSettingValue(a.cfg.PluginSettings, plugin{ID: id}, key)
+	if p := a.installedPlugin(id); p != nil {
+		return pluginSettingValue(a.cfg.PluginSettings, *p, key)
 	}
-	for _, p := range a.plugins.GetUntracked() {
-		if p.ID == id {
-			return pluginSettingValue(a.cfg.PluginSettings, p, key)
-		}
-	}
-	return pluginSettingValue(a.cfg.PluginSettings, plugin{ID: id}, key)
+	return ""
 }
 
-// setPluginSetting stores one setting and redraws the settings page.
-func (a *app) setPluginSetting(id, key, value string) {
+// setPluginSetting accepts only values allowed by a loaded declaration.
+func (a *app) setPluginSetting(id, key, value string) bool {
 	if a.st == nil {
-		return
+		return false
 	}
-	a.st.edit(func(c *config) {
+	p := a.installedPlugin(id)
+	if p == nil || p.Error != "" {
+		return false
+	}
+	valid := false
+	for _, s := range p.Contributes.Settings {
+		if s.Key == key {
+			valid = pluginSettingAccepts(s, value)
+			break
+		}
+	}
+	if !valid {
+		return false
+	}
+	a.st.change(func(c *config) {
 		if c.PluginSettings == nil {
 			c.PluginSettings = map[string]string{}
 		}
 		c.PluginSettings[id+"/"+key] = value
 	})
 	a.cfg = a.st.config()
+	a.savePluginConfig()
+	return true
+}
+
+// Shutdown waits for accepted plugin configuration writes before exiting.
+var pluginConfigWrites sync.WaitGroup
+
+// Plugin settings and the last accepted index URL share the existing store.
+// Only the in-memory change runs on the graph; file IO runs behind its write
+// lock, and failures are returned to the live UI scope.
+func (a *app) savePluginConfig() {
+	st := a.st
+	pluginConfigWrites.Add(1)
+	go func() {
+		defer pluginConfigWrites.Done()
+		if err := st.save(); err != nil {
+			a.cx.Post(func() { a.toast(ui.ToastError, "保存失败", err.Error()) })
+		}
+	}()
 }
 
 // expandPluginText fills a plugin action's ${setting:key} references.

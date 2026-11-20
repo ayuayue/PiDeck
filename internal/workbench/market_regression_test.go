@@ -4,6 +4,7 @@ package workbench
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -128,7 +129,7 @@ func TestMixedRegistryV2RequiresRuntime(t *testing.T) {
 		]}`))
 	}))
 	defer srv.Close()
-	list, err := fetchPluginIndex(srv.URL)
+	list, err := fetchPluginIndex(context.Background(), srv.URL)
 	if err != nil || len(list) != 2 || !list[0].External || list[1].External || list[1].ID != "lite" {
 		t.Fatalf("mixed registry=%+v, err=%v", list, err)
 	}

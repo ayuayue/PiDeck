@@ -27,6 +27,7 @@ import (
 	"sort"
 	"strings"
 
+	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/viewkit"
 	yaml "go.yaml.in/yaml/v3"
 )
@@ -44,7 +45,7 @@ func (a *app) loadPlugins() []plugin {
 		disabled[id] = true
 	}
 	var out []plugin
-	seen := map[string]int{}
+	seen := map[string][]int{}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		path, folder := "", ""
@@ -74,15 +75,22 @@ func (a *app) loadPlugins() []plugin {
 		if p.ID == "" {
 			p.ID = p.Name
 		}
-		if n, dup := seen[p.ID]; dup {
-			seen[p.ID] = n + 1
-			p.ID = fmt.Sprintf("%s-%d", p.ID, n+1)
-		} else {
-			seen[p.ID] = 1
-		}
 		p.Disabled = disabled[p.ID]
 		normalizePlugin(&p)
+		seen[p.ID] = append(seen[p.ID], len(out))
 		out = append(out, p)
+	}
+	// A duplicate is ambiguous for commands, settings, themes and personas.
+	// Block every copy; filesystem order must never select an active owner
+	// or change a plugin's stable identity by inventing a suffix.
+	for id, copies := range seen {
+		if len(copies) < 2 {
+			continue
+		}
+		for _, i := range copies {
+			conflict := apptext.T("插件 ID 冲突：%s；请保留一个清单后重新加载。", id)
+			out[i].Error = strings.TrimSpace(conflict + "\n" + out[i].Error)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

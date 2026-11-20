@@ -7,6 +7,8 @@ package workbench
 // sits at its end, so a section reads top to bottom.
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"sort"
 
 	"example.com/pideck-lite/internal/apptext"
@@ -23,6 +25,10 @@ func (a *app) settingsAddons() core.Node {
 		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		list := a.plugins.Get()
+		pluginIDs := map[string]int{}
+		for _, p := range list {
+			pluginIDs[p.ID]++
+		}
 		var rows []core.Node
 		if len(list) == 0 {
 			rows = append(rows, setRow("还没有插件",
@@ -56,8 +62,15 @@ func (a *app) settingsAddons() core.Node {
 			}
 			if plug.Path != "" {
 				dir, path := plug.Dir, plug.Path
+				openID := "plugin-open-" + plug.ID
+				if pluginIDs[plug.ID] > 1 {
+					// Conflicting manifests share the domain ID. Use their paths
+					// only to distinguish the repair controls, never plugin identity.
+					sum := sha256.Sum256([]byte(path))
+					openID += fmt.Sprintf("-%x", sum[:8])
+				}
 				open := hintOf(func() string { return apptext.T("查看插件清单") }, ui.IconButton{Icon: lucide.FileText, Label: apptext.T("查看插件清单"), Size: 24, IconSize: 12,
-					TestID: "plugin-open-" + plug.ID, OnPress: func() {
+					TestID: openID, OnPress: func() {
 						a.settings.Set(false)
 						a.openEditorFile(dir, path)
 					}})
@@ -108,7 +121,7 @@ func (a *app) settingsAddons() core.Node {
 			if len(lines) > 0 {
 				rows = append(rows, core.View{Style: core.Style{Padding: core.Edges{Left: 4, Bottom: 4}, Gap: 1}, Children: lines})
 			}
-			if len(plug.Contributes.Settings) > 0 {
+			if plug.Error == "" && len(plug.Contributes.Settings) > 0 {
 				var settingRows []core.Node
 				for _, st := range plug.Contributes.Settings {
 					setting := st
@@ -174,6 +187,36 @@ func (a *app) pluginSettingControl(p plugin, s pluginSetting) core.Node {
 					}})
 			}
 			return ui.RadioGroup{Horizontal: true, Children: radios, Label: s.Label}
+		case "number":
+			// Keep incomplete input local until confirmation. A leading minus
+			// or exponent is a useful editing state, never a persisted value.
+			value := core.NewSignal(cx, a.pluginSetting(p.ID, s.Key))
+			invalid := core.NewSignal(cx, false)
+			commit := func() {
+				v := value.GetUntracked()
+				if v == a.pluginSetting(p.ID, s.Key) {
+					invalid.Set(false)
+					return
+				}
+				if !a.setPluginSetting(p.ID, s.Key, v) {
+					invalid.Set(true)
+					return
+				}
+				invalid.Set(false)
+				a.bumpSettings()
+			}
+			return core.View{Style: core.Style{Gap: 3}, Children: []core.Node{
+				core.Input{Value: value.Get, Label: s.Label, TestID: testID, Placeholder: settingText(s.Default),
+					OnChange: func(v string) { value.Set(v); invalid.Set(false) },
+					OnSubmit: func(string) { commit() }, OnBlur: commit,
+					Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
+						FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
+						BorderWidth: 1, BorderColor: colors.FieldBorder(), MinWidth: core.Pt(150)}},
+				core.Show{When: invalid.Get, Then: func(*core.Scope) core.Node {
+					return core.Text{Content: apptext.T("请输入有效的有限数字。"), TestID: testID + "-error",
+						Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Danger)}
+				}},
+			}}
 		default:
 			return core.Input{
 				Value: func() string { return a.pluginSetting(p.ID, s.Key) }, Label: s.Label, TestID: testID,

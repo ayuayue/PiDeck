@@ -20,6 +20,7 @@ type store struct {
 	sessions string // private pi session directory
 	path     string // config.json
 	mu       sync.Mutex
+	writeMu  sync.Mutex
 	c        *config
 	// metas caches the listing of each session file, keyed by path, so a
 	// rescan only reads files whose size or modification time changed.

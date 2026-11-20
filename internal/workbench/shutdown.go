@@ -8,4 +8,5 @@ func Shutdown() {
 	closeAllACP()
 	closeAllTerminals()
 	favoriteWrites.Wait()
+	pluginConfigWrites.Wait()
 }

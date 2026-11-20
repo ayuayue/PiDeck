@@ -390,6 +390,10 @@ type app struct {
 	marketErr        *core.Signal[string]
 	marketList       *core.Signal[[]marketEntry]
 	marketInstalling *core.Signal[string]
+	// Request ownership is UI-only. Every replacement/close invalidates
+	// posted results; installation state remains owned by its signal.
+	marketRequestGen    uint64
+	marketRequestCancel context.CancelFunc
 	// Image generation.
 	imageOpen     *core.Signal[bool]
 	imagePrompt   *core.Signal[string]

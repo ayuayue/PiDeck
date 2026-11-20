@@ -37,12 +37,12 @@ type marketEntry struct {
 }
 
 // fetchPluginIndex reads an index of plugin manifests.
-func fetchPluginIndex(rawURL string) ([]marketEntry, error) {
+func fetchPluginIndex(ctx context.Context, rawURL string) ([]marketEntry, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if !isHTTPURL(rawURL) {
 		return nil, errors.New("索引链接只支持 http(s)")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	raw, err := downloadCatalogData(ctx, rawURL, 1<<20)
 	if err != nil {
@@ -133,7 +133,11 @@ func (a *app) installMarketPlugin(entry marketEntry) (plugin, error) {
 	if entry.Builtin {
 		raw, err = pluginExamples.ReadFile("plugin_examples/" + entry.ID + ".json")
 	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx := a.lifetime
+		if ctx == nil {
+			ctx = context.Background() // standalone manifest installation in tests
+		}
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		raw, err = downloadCatalogData(ctx, entry.URL, 512<<10)
 	}
@@ -178,6 +182,9 @@ func (a *app) installMarketPlugin(entry marketEntry) (plugin, error) {
 	}
 	if !out.hasContributions() {
 		return out, errors.New(apptext.T("插件没有可用的贡献项"))
+	}
+	if a.lifetime != nil && a.lifetime.Err() != nil {
+		return out, a.lifetime.Err()
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return out, err

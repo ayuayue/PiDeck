@@ -1,4 +1,7 @@
 {
+  "插件 ID 冲突：%s；请保留一个清单后重新加载。": "Conflit d’identifiant de plugin : %s. Gardez un seul manifeste et rechargez.",
+  "设置 %s 的默认值与类型 %s 不匹配，已跳过。": "La valeur par défaut du paramètre %s ne correspond pas au type %s ; le paramètre a été ignoré.",
+  "请输入有效的有限数字。": "Saisissez un nombre fini valide.",
   "事件 %s 不允许执行命令：%s": "L’événement %s ne peut pas exécuter la commande : %s",
   "插件清单不兼容：%s": "Manifeste de plugin incompatible : %s",
   "插件只能执行内置命令：%s": "Les plugins ne peuvent exécuter que les commandes intégrées : %s",

@@ -1,4 +1,7 @@
 {
+  "插件 ID 冲突：%s；请保留一个清单后重新加载。": "Plugin ID conflict: %s. Keep one manifest and reload.",
+  "设置 %s 的默认值与类型 %s 不匹配，已跳过。": "The default for setting %s does not match type %s; the setting was skipped.",
+  "请输入有效的有限数字。": "Enter a valid finite number.",
   "事件 %s 不允许执行命令：%s": "Event %s cannot run command: %s",
   "插件清单不兼容：%s": "Incompatible plugin manifest: %s",
   "插件只能执行内置命令：%s": "Plugins can only run built-in commands: %s",

@@ -5,6 +5,7 @@ package workbench
 // Checks the plugin market's index and one-click installs.
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,19 +28,19 @@ func TestPluginIndex(t *testing.T) {
 	}))
 	defer srv.Close()
 	body = `{"plugins":[{"id":"a","name":"A","url":"https://x/a.json"},{"id":"","name":"bad","url":"https://x"}]}`
-	list, err := fetchPluginIndex(srv.URL)
+	list, err := fetchPluginIndex(context.Background(), srv.URL)
 	if err != nil || len(list) != 1 || list[0].ID != "a" {
 		t.Fatalf("object = %+v, %v", list, err)
 	}
 	body = `[{"id":"b","name":"B","url":"https://x/b.json"}]`
-	list, err = fetchPluginIndex(srv.URL)
+	list, err = fetchPluginIndex(context.Background(), srv.URL)
 	if err != nil || len(list) != 1 || list[0].ID != "b" {
 		t.Fatalf("array = %+v, %v", list, err)
 	}
-	if _, err := fetchPluginIndex("ftp://x"); err == nil {
+	if _, err := fetchPluginIndex(context.Background(), "ftp://x"); err == nil {
 		t.Fatal("a non-http index should fail")
 	}
-	if _, err := fetchPluginIndex(srv.URL + "/404"); err == nil {
+	if _, err := fetchPluginIndex(context.Background(), srv.URL+"/404"); err == nil {
 		t.Fatal("a 404 index should fail")
 	}
 }

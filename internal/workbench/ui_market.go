@@ -16,65 +16,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// openPluginMarket shows the market with the last index link.
-func (a *app) openPluginMarket() {
-	a.marketURL.Set(a.cfg.PluginIndexURL)
-	a.marketList.Set(builtinPluginExamples())
-	a.marketErr.Set("")
-	a.marketBusy.Set(false)
-	a.marketInstalling.Set("")
-	a.marketOpen.Set(true)
-}
-
-// loadPluginIndex reads the index at the dialog's link.
-func (a *app) loadPluginIndex() {
-	if a.marketBusy.GetUntracked() {
-		return
-	}
-	url := strings.TrimSpace(a.marketURL.GetUntracked())
-	if url == "" {
-		a.marketErr.Set("先填一个索引链接")
-		return
-	}
-	a.marketBusy.Set(true)
-	a.marketErr.Set("")
-	go func() {
-		list, err := fetchPluginIndex(url)
-		a.cx.Post(func() {
-			a.marketBusy.Set(false)
-			if err != nil {
-				a.marketErr.Set(err.Error())
-				return
-			}
-			a.marketList.Set(list)
-			a.cfg.PluginIndexURL = url
-			if a.st != nil {
-				a.st.edit(func(c *config) { c.PluginIndexURL = url })
-			}
-		})
-	}()
-}
-
-// installFromMarket downloads and installs one manifest.
-func (a *app) installFromMarket(entry marketEntry) {
-	if a.marketInstalling.GetUntracked() != "" {
-		return
-	}
-	a.marketInstalling.Set(entry.ID)
-	go func() {
-		p, err := a.installMarketPlugin(entry)
-		a.cx.Post(func() {
-			a.marketInstalling.Set("")
-			if err != nil {
-				a.toast(ui.ToastError, "安装失败", err.Error())
-				return
-			}
-			a.toast(ui.ToastSuccess, "已安装 "+p.Name, "在 设置 → 扩展 里查看。")
-			a.reloadAddons()
-		})
-	}()
-}
-
 // pluginMarketDialog draws the market.
 func (a *app) pluginMarketDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -151,17 +92,21 @@ func (a *app) pluginMarketDialog() core.Node {
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: ui.Colored(colors.Faint)}
 		}
 		return ui.Dialog{
-			Open:         a.marketOpen.Get,
-			OnOpenChange: func(open bool, _ base.Reason) { a.marketOpen.Set(open) },
-			Title:        apptext.T("插件市场"),
-			TestID:       "plugin-market",
-			Style:        core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(660)},
+			Open: a.marketOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) {
+				if !open {
+					a.closePluginMarket()
+				}
+			},
+			Title:  apptext.T("插件市场"),
+			TestID: "plugin-market",
+			Style:  core.Style{Width: a.dialogWidth(), MaxHeight: core.Pt(660)},
 			Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
-					ui.Button{Text: apptext.T("内置示例"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-examples", Disabled: a.marketBusy.Get,
-						OnPress: func() { a.marketErr.Set(""); a.marketList.Set(builtinPluginExamples()) }},
-					ui.Button{Text: apptext.T("官方索引"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-official", Disabled: a.marketBusy.Get, OnPress: func() { a.discoverPlugins(false) }},
-					ui.Button{Text: apptext.T("GitHub 社区"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-community", Disabled: a.marketBusy.Get, OnPress: func() { a.discoverPlugins(true) }},
+					ui.Button{Text: apptext.T("内置示例"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-examples",
+						OnPress: a.showBuiltinPluginExamples},
+					ui.Button{Text: apptext.T("官方索引"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-official", OnPress: func() { a.discoverPlugins(false) }},
+					ui.Button{Text: apptext.T("GitHub 社区"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "market-community", OnPress: func() { a.discoverPlugins(true) }},
 				}},
 				ui.Text(apptext.T("Lite 条目可安装声明式清单；其他运行时仅打开项目。内置示例可离线安装。"), 11, ui.Regular, colors.Muted),
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
@@ -173,7 +118,7 @@ func (a *app) pluginMarketDialog() core.Node {
 								Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 7}},
 					}},
 					ui.Button{Text: apptext.T("加载"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "market-load",
-						Disabled: func() bool { return a.marketBusy.Get() }, OnPress: a.loadPluginIndex},
+						OnPress: a.loadPluginIndex},
 				}},
 				status,
 				core.Scroll{Style: core.Style{MaxHeight: core.Pt(400)}, Children: []core.Node{
@@ -181,7 +126,7 @@ func (a *app) pluginMarketDialog() core.Node {
 			}}},
 			Footer: []core.Node{
 				ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "market-close",
-					OnPress: func() { a.marketOpen.Set(false) }},
+					OnPress: a.closePluginMarket},
 			},
 		}
 	})

@@ -3,14 +3,12 @@
 package workbench
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
-	"time"
 )
 
 var officialPluginSources = []string{"https://raw.githubusercontent.com/ayuayue/pideck-plugins/main/registry.json", "https://api.atomgit.com/api/v5/repos/ayuayue/pideck-plugins/raw/registry.json?ref=main"}
@@ -98,14 +96,11 @@ func parseCommunityPlugins(raw []byte) ([]marketEntry, error) {
 }
 
 func (a *app) discoverPlugins(community bool) {
-	if a.marketBusy.GetUntracked() {
+	if !a.marketOpen.GetUntracked() {
 		return
 	}
-	a.marketBusy.Set(true)
-	a.marketErr.Set("")
-	ctx, cancel := context.WithTimeout(a.lifetime, 30*time.Second)
+	ctx, gen := a.startPluginMarketRequest()
 	go func() {
-		defer cancel()
 		var list []marketEntry
 		var err error
 		if community {
@@ -116,6 +111,10 @@ func (a *app) discoverPlugins(community bool) {
 			}
 		} else {
 			for _, source := range officialPluginSources {
+				if ctx.Err() != nil {
+					err = ctx.Err()
+					break
+				}
 				var raw []byte
 				raw, err = downloadCatalogData(ctx, source, 1<<20)
 				if err == nil {
@@ -127,12 +126,7 @@ func (a *app) discoverPlugins(community bool) {
 			}
 		}
 		a.cx.Post(func() {
-			a.marketBusy.Set(false)
-			if err != nil {
-				a.marketErr.Set(err.Error())
-				return
-			}
-			a.marketList.Set(list)
+			a.finishPluginMarketRequest(gen, list, err)
 		})
 	}()
 }

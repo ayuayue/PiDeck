@@ -13,6 +13,8 @@ import (
 
 // save writes the config as it is now.
 func (s *store) save() error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	s.mu.Lock()
 	raw, err := json.MarshalIndent(s.c, "", "  ")
 	path := s.path
@@ -101,8 +103,12 @@ func (s *store) config() config {
 
 // edit changes the config and writes it.
 func (s *store) edit(fn func(*config)) {
+	s.change(fn)
+	_ = s.save()
+}
+
+func (s *store) change(fn func(*config)) {
 	s.mu.Lock()
 	fn(s.c)
 	s.mu.Unlock()
-	_ = s.save()
 }
