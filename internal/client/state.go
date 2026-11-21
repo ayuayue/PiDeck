@@ -124,6 +124,7 @@ type mobileApp struct {
 	filesList    *core.Signal[[]remotewire.File]
 	filesBusy    *core.Signal[bool]
 	filesErr     *core.Signal[string]
+	filesSeq     int
 	fileOpen     *core.Signal[bool]
 	fileTitle    *core.Signal[string]
 	fileText     *core.Signal[string]

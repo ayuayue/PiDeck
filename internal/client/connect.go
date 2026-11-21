@@ -444,6 +444,7 @@ func (a *mobileApp) disconnect() { a.disconnectWith("") }
 func (a *mobileApp) disconnectWith(message string) {
 	a.gen++
 	a.sessionSeq++
+	a.disconnectFileViews()
 	a.client.close()
 	a.client = nil
 	a.busy.Set(false)

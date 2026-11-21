@@ -185,7 +185,7 @@ func (a *mobileApp) drawImage() {
 // insertMention puts an @path into the draft, so pi reads that file. The
 // new-session page keeps its text apart until the session exists.
 func (a *mobileApp) insertMention(path string) {
-	a.filesOpen.Set(false)
+	a.closeFilesView()
 	a.filesMention.Set(false)
 	if a.active.GetUntracked() == "" {
 		a.initDraft.Set(mention(a.initDraft.GetUntracked(), path))

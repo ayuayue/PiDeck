@@ -1645,6 +1645,7 @@
   "第 %d 轮": "Tourner %d",
   "第 %d 轮 · %s": "Tourner %d · %s",
   "电脑": "Ordinateur",
+  "电脑已断开，编辑文本保留在编辑框中；复制后再连接": "Connexion à l’ordinateur perdue. Le texte reste dans l’éditeur ; copiez-le avant de vous reconnecter.",
   "项目与会话": "Projets & sessions",
   "项目操作": "Actions de projet",
   "会话操作": "Actions de session",

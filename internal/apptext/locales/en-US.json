@@ -1457,6 +1457,7 @@
   "用量": "Usage",
   "用量与上下文": "Usage and context",
   "电脑": "Computer",
+  "电脑已断开，编辑文本保留在编辑框中；复制后再连接": "Computer disconnected. The editor text is still here; copy it before reconnecting.",
   "电脑上存下的回复和会话。": "The replies and sessions saved on the computer.",
   "电脑上的 cron 任务": "A cron task on the computer",
   "电脑上还没有会话": "No sessions on the desktop yet",
