@@ -11,6 +11,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -27,6 +28,10 @@ import (
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
+
+const maxScanImageBytes = 6 << 20
+
+var errScanImageTooLarge = errors.New("scan image exceeds limit")
 
 // connectView asks for the desktop's link and token.
 func (a *mobileApp) connectView(cx *core.Scope) core.Node {
@@ -161,8 +166,12 @@ func (a *mobileApp) scanImage() {
 		}
 		path := files[0].Path
 		go func() {
-			data, readErr := os.ReadFile(path)
+			data, readErr := readScanImage(path)
 			a.cx.Post(func() {
+				if errors.Is(readErr, errScanImageTooLarge) {
+					a.err.Set(apptext.T("图片太大，上限 6 MB"))
+					return
+				}
 				if readErr != nil || len(data) == 0 {
 					a.err.Set(apptext.T("读不到这张图片"))
 					return
@@ -171,6 +180,26 @@ func (a *mobileApp) scanImage() {
 			})
 		}()
 	})
+}
+
+// readScanImage bounds gallery input before decoding an untrusted image.
+func readScanImage(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err == nil && info.Size() > maxScanImageBytes {
+		return nil, errScanImageTooLarge
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxScanImageBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxScanImageBytes {
+		return nil, errScanImageTooLarge
+	}
+	return data, nil
 }
 
 // useScanned decodes a picture and connects to what it holds.
