@@ -213,6 +213,7 @@ func (a *mobileApp) syncMode(snap remotewire.Snapshot) {
 
 // openSession downloads a session's transcript.
 func (a *mobileApp) openSession(id, title string) {
+	a.sessionSeq++
 	a.active.Set(id)
 	a.activeTitle.Set(title)
 	a.messages.Set(nil)
@@ -236,6 +237,7 @@ func (a *mobileApp) openSession(id, title string) {
 }
 
 func (a *mobileApp) closeSession() {
+	a.sessionSeq++
 	a.active.Set("")
 	a.messages.Set(nil)
 	a.running.Set(false)
@@ -245,6 +247,7 @@ func (a *mobileApp) closeSession() {
 	a.findSelected.Set(transcriptRowKey{})
 	a.resetTranscriptPicture()
 	a.transcriptErr.Set("")
+	a.transcriptBusy.Set(false)
 	a.transcriptTruncated.Set(false)
 	a.messagesBefore.Set(0)
 	a.olderBusy.Set(false)
@@ -263,17 +266,15 @@ func (a *mobileApp) refreshTranscript() {
 	// poll that was already in flight.
 	a.transcriptSeq++
 	seq := a.transcriptSeq
+	visit := a.sessionSeq
 	a.transcriptBusy.Set(true)
 	go func() {
 		t, err := client.transcript(id, 0)
 		a.cx.Post(func() {
-			if seq != a.transcriptSeq {
+			if a.client != client || visit != a.sessionSeq || seq != a.transcriptSeq || a.active.GetUntracked() != id {
 				return
 			}
 			a.transcriptBusy.Set(false)
-			if a.active.GetUntracked() != id {
-				return
-			}
 			if err != nil {
 				if errors.Is(err, errRemoteAuth) {
 					a.disconnectWith(remoteErrorText(err))
@@ -314,14 +315,15 @@ func (a *mobileApp) loadOlderTranscript() {
 	if client == nil || id == "" || before <= 0 || a.olderBusy.Get() {
 		return
 	}
+	visit := a.sessionSeq
 	a.olderBusy.Set(true)
 	go func() {
 		t, err := client.transcript(id, before)
 		a.cx.Post(func() {
-			a.olderBusy.Set(false)
-			if a.active.GetUntracked() != id {
+			if a.client != client || visit != a.sessionSeq || a.active.GetUntracked() != id {
 				return
 			}
+			a.olderBusy.Set(false)
 			if err != nil {
 				if errors.Is(err, errRemoteAuth) {
 					a.disconnectWith(remoteErrorText(err))

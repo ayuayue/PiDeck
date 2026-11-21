@@ -178,10 +178,11 @@ func (a *mobileApp) loadOptions(id string) {
 	if client == nil || id == "" {
 		return
 	}
+	visit := a.sessionSeq
 	go func() {
 		opts, err := client.options(id)
 		a.cx.Post(func() {
-			if a.active.GetUntracked() != id || err != nil {
+			if a.client != client || visit != a.sessionSeq || a.active.GetUntracked() != id || err != nil {
 				return
 			}
 			a.options.Set(opts)

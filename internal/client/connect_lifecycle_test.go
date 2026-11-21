@@ -34,6 +34,7 @@ func newConnectionTestApp(t *testing.T) (*mobileApp, <-chan func()) {
 		messages:       core.NewSignalFunc(cx, []remotewire.Message(nil), nil),
 		transcriptErr:  core.NewSignal(cx, ""),
 		transcriptBusy: core.NewSignal(cx, false),
+		olderBusy:      core.NewSignal(cx, false),
 		ask:            core.NewSignalFunc(cx, (*remotewire.Ask)(nil), nil),
 		refreshing:     core.NewSignal(cx, false),
 		running:        core.NewSignal(cx, false),

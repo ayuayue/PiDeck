@@ -255,6 +255,9 @@ type mobileApp struct {
 	notice   *core.Signal[string]
 
 	stateLoading bool
+	// sessionSeq identifies each visit, including reopening the same session.
+	// Reads from an earlier visit cannot publish into the current one.
+	sessionSeq int
 	// transcriptSeq names the newest transcript read; an older reply that
 	// arrives after a switch is dropped instead of filling the page.
 	transcriptSeq int
