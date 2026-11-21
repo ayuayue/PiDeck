@@ -100,9 +100,14 @@ test("closing git diff dismisses the whole workbench reading surface", () => {
 	// 关 Diff 时一并清文件 tab，避免优先渲染切回 editor 像「关不掉」
 	assert.match(fileEditor, /dismissWorkbenchContent/);
 	assert.match(fileEditor, /closeGitDiff:\s*dismissWorkbenchContent/);
+	// 本机与远端共用同一个中间栏入口：位置/布局只在 showGitDiff 里决定，远端面板不再自带 displayMode。
+	const sharedEntry = fileEditor.slice(fileEditor.indexOf("const showGitDiff = useCallback"), fileEditor.indexOf("const dismissWorkbenchContent"));
+	assert.match(sharedEntry, /setActiveTabId\(null\)/);
+	assert.match(sharedEntry, /setEditorTabs\(\[\]\)/);
+	assert.match(sharedEntry, /contentOpenModeRef\.current/);
+	assert.match(sharedEntry, /setGitDiffDisplayMode\(mode\)/);
 	const openWorkspace = fileEditor.slice(fileEditor.indexOf("const openWorkspaceFileDiffFn"), fileEditor.indexOf("const openCommitFileDiffFn"));
-	assert.match(openWorkspace, /setActiveTabId\(null\)/);
-	assert.match(openWorkspace, /setEditorTabs\(\[\]\)/);
+	assert.match(openWorkspace, /showGitDiff\(\{/);
 });
 
 test("file viewer header repeats the current filename beside the actions", () => {

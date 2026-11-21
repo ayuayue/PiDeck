@@ -32,7 +32,11 @@ interface EditorTab {
 	lastAccess: number;
 }
 
-interface GitDrawerDiff {
+/**
+ * 中间栏 Git Diff 的载荷：本机（IPC 取内容）与远端（helper 取内容）共用同一个形状。
+ * 远端面板自己取内容后交给 `showGitDiff`，位置/布局规则因此只有一处。
+ */
+export interface GitDrawerDiff {
 	projectId: string;
 	target: ProjectFileTarget;
 	filePath: string;
@@ -128,6 +132,8 @@ export interface UseFileEditorOutput {
 	dismissGitDiff: () => void;
 	gitDiffDisplayMode: WorkspaceContentOpenMode;
 	gitDrawerDiff: GitDrawerDiff | null;
+	/** 中间栏展示一份 Git Diff（内容可由远端服务提供）；布局取设置内容打开方式。 */
+	showGitDiff: (diff: GitDrawerDiff) => void;
 	toggleGitDiffDisplayMode: () => void;
 	closeEditor: () => void;
 	prevDrawerPanelRef: React.MutableRefObject<DrawerPanel | null>;
@@ -200,6 +206,24 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 		gitDiffRequestSequenceRef.current += 1;
 		setGitDrawerDiff(null);
 		setGitDiffDisplayMode(contentOpenModeRef.current);
+	}, []);
+
+	/**
+	 * 在中间栏展示一份 Git Diff。本机与远端同一条出口：布局取设置里的 workspaceContentOpenMode，
+	 * 不再由调用方自带 displayMode（远端曾把 diff 塞进抽屉里一小块，与本机两种位置）。
+	 */
+	const showGitDiff = useCallback((diff: GitDrawerDiff) => {
+		const mode = contentOpenModeRef.current;
+		// Simple mode keeps file drafts beside Git; tabs retain the upstream exclusive surface.
+		if (!preserveTabsForGitRef.current) {
+			setActiveTabId(null);
+			setEditorTabs([]);
+			setPreviewEditorTabId(null);
+		}
+		editorModeRef.current = mode;
+		setEditorMode(mode);
+		setGitDiffDisplayMode(mode);
+		setGitDrawerDiff(diff);
 	}, []);
 
 	/** 关掉中间栏阅读面：Git Diff + 文件 tab 一并清掉，避免关 Diff 后又露出文件面 */
@@ -441,17 +465,7 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 					return;
 				}
 				const groupLabel = group === "index" ? t("git.stagedChanges") : group === "merge" ? t("git.mergeChanges") : t("git.changes");
-				const mode = contentOpenModeRef.current;
-				// Simple mode keeps file drafts beside Git; tabs retain the upstream exclusive surface.
-				if (!preserveTabsForGitRef.current) {
-					setActiveTabId(null);
-					setEditorTabs([]);
-					setPreviewEditorTabId(null);
-				}
-				editorModeRef.current = mode;
-				setEditorMode(mode);
-				setGitDiffDisplayMode(mode);
-				setGitDrawerDiff({
+				showGitDiff({
 					projectId,
 					target: diff.target,
 					filePath: diff.path,
@@ -465,7 +479,7 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 				}
 			}
 		},
-		[activeProjectId, activeProjectIdRef, workspaceFileDiff, showToast, t],
+		[activeProjectId, activeProjectIdRef, workspaceFileDiff, showToast, t, showGitDiff],
 	);
 
 	const openCommitFileDiffFn = useCallback(
@@ -480,16 +494,7 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 					showToast(t("git.fileDiffUnavailable"));
 					return;
 				}
-				const mode = contentOpenModeRef.current;
-				if (!preserveTabsForGitRef.current) {
-					setActiveTabId(null);
-					setEditorTabs([]);
-					setPreviewEditorTabId(null);
-				}
-				editorModeRef.current = mode;
-				setEditorMode(mode);
-				setGitDiffDisplayMode(mode);
-				setGitDrawerDiff({
+				showGitDiff({
 					projectId,
 					target: diff.target,
 					filePath: diff.path,
@@ -503,7 +508,7 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 				}
 			}
 		},
-		[activeProjectId, activeProjectIdRef, commitFileDiff, showToast, t],
+		[activeProjectId, activeProjectIdRef, commitFileDiff, showToast, t, showGitDiff],
 	);
 
 	return {
@@ -530,6 +535,7 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 		diffFilePath,
 		openWorkspaceFileDiff: openWorkspaceFileDiffFn,
 		openCommitFileDiff: openCommitFileDiffFn,
+		showGitDiff,
 		// 阅读面关闭钮：清 Diff + 文件 tab，避免「关不完」
 		closeGitDiff: dismissWorkbenchContent,
 		// 与新打开文件 tab 同时使用时只清 Diff：Diff 在阅读面独占优先级，不清的话新 tab 被压住看起来“打不开”。

@@ -309,7 +309,7 @@ describe("Git panel VS Code Source Control contract", () => {
 		assert.match(graph, /aria-label=\{t\("git\.openFileDiff"/);
 		assert.match(graph, /props\.onOpenCommitFileDiff\(commit, file\)/);
 		assert.match(app, /api\.git\.commitFileDiff/);
-		assert.match(app, /setGitDrawerDiff\(\{/);
+		assert.match(app, /showGitDiff\(\{/);
 		assert.match(app, /label: `\$\{diff\.displayPath\.split[\s\S]*?\$\{commit\.shortHash\}/);
 		assert.match(app, /WorkbenchContent/);
 		assert.match(preload, /gitCommitFileDiff/);
@@ -333,7 +333,7 @@ describe("Git panel VS Code Source Control contract", () => {
 		assert.match(resourceTree, /ctx\.groupType === "workingTree" \|\| ctx\.groupType === "untracked"/);
 		assert.match(resourceTree, /kind: "stage"/);
 		assert.match(app, /api\.git\.workspaceFileDiff/);
-		assert.match(app, /setGitDrawerDiff\(\{[\s\S]*?projectId,[\s\S]*?filePath: diff\.path/);
+		assert.match(app, /showGitDiff\(\{[\s\S]*?projectId,[\s\S]*?filePath: diff\.path/);
 		assert.match(app, /className="git-drawer-stack"/);
 		assert.match(app, /className="git-drawer-source"/);
 		assert.doesNotMatch(app, /className="git-drawer-detail"/);

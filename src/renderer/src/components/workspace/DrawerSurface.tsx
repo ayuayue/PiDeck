@@ -22,6 +22,7 @@ import { sessionPillOf, type SessionFilterPill } from "../../sessionFilterPills"
 import { t } from "../../i18n";
 import type { CommitEntry, FileTreeNode, GitBranchInfo, GitChangedFile, GitResourceGroupType, Project, ProjectFileTarget, SessionSummary } from "../../../../shared/types";
 import type { PiDesktopApi } from "../../../../preload";
+import type { GitDrawerDiff } from "../../hooks/useFileEditor";
 
 // ── port objects（字段类型直接取自消费组件的 props 契约：GitDrawerHost / DrawerContent）──
 
@@ -31,6 +32,8 @@ export interface DrawerGitPort {
 	gitDiffDisplayMode: string;
 	openCommitFileDiff: (commit: CommitEntry, file: GitChangedFile, repoTarget?: ProjectFileTarget) => void | Promise<void>;
 	openWorkspaceFileDiff: (group: GitResourceGroupType, target: ProjectFileTarget, repoTarget?: ProjectFileTarget) => void | Promise<void>;
+	/** 中间栏展示一份已取好内容的 Git Diff：远端面板自己取内容，位置与布局与本机同一条出口。 */
+	showGitDiff: (diff: GitDrawerDiff) => void;
 	toggleGitDiffDisplayMode: () => void;
 	closeGitDiff: () => void;
 	gitApi: GitDrawerApi;
@@ -177,6 +180,7 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
 								fallbackCreateBranch={git.createBranch}
 								onOpenCommitFileDiff={git.openCommitFileDiff}
 								onOpenWorkspaceFileDiff={git.openWorkspaceFileDiff}
+								onShowGitDiff={git.showGitDiff}
 								onOpenFile={files.openEditorTab}
 							/>
 						</div>

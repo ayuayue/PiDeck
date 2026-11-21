@@ -1,6 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { GitBranchInfo } from "../../../../shared/types";
 import type { ProjectFileTarget, RemoteProject } from "../../../../shared/types/project";
+import type { GitDrawerDiff } from "../../hooks/useFileEditor";
 import { useProjectServices } from "../../hooks/useProjectServices";
 import { useRemoteGitRepos } from "../../hooks/useRemoteGitRepos";
 import { t } from "../../i18n";
@@ -13,16 +14,13 @@ import { RemoteGitRecoverySection } from "./RemoteGitRecoverySection";
 import { RemoteGitTrustGate } from "./RemoteGitTrustGate";
 import { createRemoteGitPanelBridge } from "./remoteGitPanelBridge";
 
-const FileDiffViewer = lazy(() => import("../app/FileDiffViewer").then((module) => ({ default: module.FileDiffViewer })));
-
 const EMPTY_BRANCHES: GitBranchInfo = { current: null, branches: [] };
-/** diff 视图按面板自己的能力读内容；没有回退读路径，读不到就关掉窗口。 */
-const refuseFallbackRead = async (): Promise<string> => {
-	throw new Error("GIT_RESOURCE_CHANGED");
-};
-
-type PanelDiff = { key: string; filePath: string; fileTarget: ProjectFileTarget; originalContent: string; modifiedContent: string };
 type RemoteGitPanelView = ProjectServices["capabilities"]["git"];
+
+/** 中间栏 Diff 标签的尾注：与本机 Git Diff 同一套（文件名 + 分组 / 短 hash）。 */
+function diffLabel(displayPath: string, suffix: string): string {
+	return `${displayPath.split(/[/\\]/).pop() ?? displayPath} (${suffix})`;
+}
 
 /** 多仓时 Graph/Compare 只挂一份：记住上次选中的仓，仓库列表变化时落到仍存在的路径。 */
 function readStoredHistoryRepo(projectId: string): string | null {
@@ -56,6 +54,8 @@ function RemoteRepoPanel(props: {
 	git: RemoteGitPanelView;
 	blocked: ProjectServiceCapabilityReasons;
 	onOpenFile?: (target: ProjectFileTarget) => void;
+	/** Diff 内容由远端服务取，位置与布局统一交回中间栏阅读面（与本机同一条出口）。 */
+	onShowDiff: (diff: GitDrawerDiff) => void;
 	onReposChanged: () => Promise<void> | void;
 	history?: { path: string; options: { value: string; label: string }[]; onSelect: (path: string) => void };
 	footer?: ReactNode;
@@ -64,7 +64,6 @@ function RemoteRepoPanel(props: {
 	const repoTarget = useMemo<ProjectFileTarget | undefined>(() => (repoPath === "" ? undefined : { projectId: project.id, relativePath: repoPath }), [project.id, repoPath]);
 	const [branches, setBranches] = useState<GitBranchInfo>(EMPTY_BRANCHES);
 	const branchRequest = useRef(0);
-	const [diff, setDiff] = useState<PanelDiff | null>(null);
 
 	const reloadBranches = useCallback(async () => {
 		const request = ++branchRequest.current;
@@ -82,7 +81,6 @@ function RemoteRepoPanel(props: {
 
 	useEffect(() => {
 		setBranches(EMPTY_BRANCHES);
-		setDiff(null);
 		void reloadBranches();
 		return () => {
 			branchRequest.current += 1;
@@ -125,78 +123,71 @@ function RemoteRepoPanel(props: {
 
 	return (
 		<div data-testid="remote-git-repo-panel" data-repo-path={repoPath} className="flex min-h-0 flex-col">
-			{diff ? (
-				<div data-testid="remote-git-diff" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-					<Suspense fallback={<p className="px-2.5 py-2 text-micro text-[var(--git-desc-fg)]">{t("remoteGit.loading")}</p>}>
-						<FileDiffViewer key={diff.key} filePath={diff.filePath} fileTarget={diff.fileTarget} mode="diff" displayMode="drawer" originalContent={diff.originalContent} modifiedContent={diff.modifiedContent} readContent={refuseFallbackRead} onClose={() => setDiff(null)} />
-					</Suspense>
-				</div>
-			) : (
-				<GitPanel
-					projectId={project.id}
-					repoScopeKey={repoPath}
-					repositoryLabel={props.label}
-					layout={props.layout}
-					historyRepoPath={props.history?.path}
-					historyRepoOptions={props.history?.options}
-					onSelectHistoryRepo={props.history?.onSelect}
-					gitCapabilities={git}
-					blockedReasons={blocked}
-					commitLog={bridge.commitLog}
-					commitCount={upgraded ? bridge.commitCount : undefined}
-					historyRefFilter={upgraded}
-					commitDetail={bridge.commitDetail}
-					onOpenFile={props.onOpenFile}
-					generateCommitMessage={upgraded ? () => bridge.stagedDiff().then((staged) => (services.git.generateCommitMessage === undefined ? { ok: false as const, code: "GIT_COMMIT_GENERATE_FAILED", message: t("remoteGit.unsupported") } : services.git.generateCommitMessage(staged, repoTarget))) : undefined}
-					onOpenCommitFileDiff={(commit, file) => {
-						void services.git
-							.refFileDiff(commit.parents[0] ?? null, commit.hash, file.target, repoTarget)
-							.then((result) => setDiff({ key: `${result.head}:${result.path}`, filePath: result.displayPath, fileTarget: result.target, originalContent: result.originalContent, modifiedContent: result.modifiedContent }))
-							.catch((error: unknown) => showNotice(remoteGitErrorText(error), 6000, "error"));
-					}}
-					onOpenWorkspaceFileDiff={(group, target) => {
-						void services.git
-							.workspaceDiff(group, target, repoTarget)
-							.then((result) => {
-								if (result === null) {
-									showNotice(t("git.workspaceDiffUnavailable"), 4000, "warning");
-									return;
-								}
-								setDiff({ key: `${group}:${result.path}`, filePath: result.displayPath, fileTarget: result.target, originalContent: result.originalContent, modifiedContent: result.modifiedContent });
-							})
-							.catch((error: unknown) => showNotice(remoteGitErrorText(error), 6000, "error"));
-					}}
-					branchCompare={bridge.branchCompare}
-					getStatus={bridge.getStatus}
-					stageFiles={bridge.stageFiles}
-					unstageFiles={bridge.unstageFiles}
-					discardFile={bridge.discardFile}
-					discardFiles={bridge.discardFiles}
-					commit={bridge.commit}
-					cherryPick={historyWrite ? bridge.cherryPick : undefined}
-					revert={historyWrite ? bridge.revert : undefined}
-					reset={historyWrite ? bridge.reset : undefined}
-					dropCommit={historyWrite ? bridge.dropCommit : undefined}
-					deleteFiles={bridge.deleteFiles}
-					branches={branches.branches}
-					currentBranch={branches.current}
-					onSwitchBranch={switchBranch}
-					onCreateBranch={createBranch}
-					push={bridge.push}
-					pull={bridge.pull}
-					fetch={bridge.fetch}
-					aheadBehind={bridge.aheadBehind}
-					watchRefs={bridge.watchRefs}
-					unwatchRefs={bridge.unwatchRefs}
-					onRefsChanged={bridge.onRefsChanged}
-					gitInit={async () => {
-						await bridge.gitInit();
-						await props.onReposChanged();
-						await reloadBranches();
-					}}
-					footer={props.footer}
-				/>
-			)}
+			<GitPanel
+				projectId={project.id}
+				repoScopeKey={repoPath}
+				repositoryLabel={props.label}
+				layout={props.layout}
+				historyRepoPath={props.history?.path}
+				historyRepoOptions={props.history?.options}
+				onSelectHistoryRepo={props.history?.onSelect}
+				gitCapabilities={git}
+				blockedReasons={blocked}
+				commitLog={bridge.commitLog}
+				commitCount={upgraded ? bridge.commitCount : undefined}
+				historyRefFilter={upgraded}
+				commitDetail={bridge.commitDetail}
+				onOpenFile={props.onOpenFile}
+				generateCommitMessage={upgraded ? () => bridge.stagedDiff().then((staged) => (services.git.generateCommitMessage === undefined ? { ok: false as const, code: "GIT_COMMIT_GENERATE_FAILED", message: t("remoteGit.unsupported") } : services.git.generateCommitMessage(staged, repoTarget))) : undefined}
+				onOpenCommitFileDiff={(commit, file) => {
+					void services.git
+						.refFileDiff(commit.parents[0] ?? null, commit.hash, file.target, repoTarget)
+						.then((result) => props.onShowDiff({ projectId: project.id, target: result.target, filePath: result.displayPath, originalContent: result.originalContent, modifiedContent: result.modifiedContent, label: diffLabel(result.displayPath, commit.shortHash) }))
+						.catch((error: unknown) => showNotice(remoteGitErrorText(error), 6000, "error"));
+				}}
+				onOpenWorkspaceFileDiff={(group, target) => {
+					void services.git
+						.workspaceDiff(group, target, repoTarget)
+						.then((result) => {
+							if (result === null) {
+								showNotice(t("git.workspaceDiffUnavailable"), 4000, "warning");
+								return;
+							}
+							const groupLabel = group === "index" ? t("git.stagedChanges") : group === "merge" ? t("git.mergeChanges") : t("git.changes");
+							props.onShowDiff({ projectId: project.id, target: result.target, filePath: result.displayPath, originalContent: result.originalContent, modifiedContent: result.modifiedContent, label: diffLabel(result.displayPath, groupLabel) });
+						})
+						.catch((error: unknown) => showNotice(remoteGitErrorText(error), 6000, "error"));
+				}}
+				branchCompare={bridge.branchCompare}
+				getStatus={bridge.getStatus}
+				stageFiles={bridge.stageFiles}
+				unstageFiles={bridge.unstageFiles}
+				discardFile={bridge.discardFile}
+				discardFiles={bridge.discardFiles}
+				commit={bridge.commit}
+				cherryPick={historyWrite ? bridge.cherryPick : undefined}
+				revert={historyWrite ? bridge.revert : undefined}
+				reset={historyWrite ? bridge.reset : undefined}
+				dropCommit={historyWrite ? bridge.dropCommit : undefined}
+				deleteFiles={bridge.deleteFiles}
+				branches={branches.branches}
+				currentBranch={branches.current}
+				onSwitchBranch={switchBranch}
+				onCreateBranch={createBranch}
+				push={bridge.push}
+				pull={bridge.pull}
+				fetch={bridge.fetch}
+				aheadBehind={bridge.aheadBehind}
+				watchRefs={bridge.watchRefs}
+				unwatchRefs={bridge.unwatchRefs}
+				onRefsChanged={bridge.onRefsChanged}
+				gitInit={async () => {
+					await bridge.gitInit();
+					await props.onReposChanged();
+					await reloadBranches();
+				}}
+				footer={props.footer}
+			/>
 		</div>
 	);
 }
@@ -210,7 +201,7 @@ function RemoteRepoPanel(props: {
  *
  * 剩下三块远端前置条件仍在这里：trust 门、仓库发现截断说明、恢复区（仓库级插槽）。
  */
-export function RemoteGitPanel({ project, onOpenFile }: { project: RemoteProject; onOpenFile?: (target: ProjectFileTarget) => void }) {
+export function RemoteGitPanel({ project, onOpenFile, onShowDiff }: { project: RemoteProject; onOpenFile?: (target: ProjectFileTarget) => void; onShowDiff: (diff: GitDrawerDiff) => void }) {
 	const services = useProjectServices(project);
 	const git = services.capabilities.git;
 	const blocked = services.capabilities.blocked;
@@ -269,6 +260,7 @@ export function RemoteGitPanel({ project, onOpenFile }: { project: RemoteProject
 					git={git}
 					blocked={blocked}
 					onOpenFile={onOpenFile}
+					onShowDiff={onShowDiff}
 					onReposChanged={reloadRepos}
 					footer={
 						<RemoteGitRecoverySection
@@ -291,7 +283,7 @@ export function RemoteGitPanel({ project, onOpenFile }: { project: RemoteProject
 			<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
 				{(repos ?? []).map((repo) => (
 					<section key={repo.path} className="shrink-0 border-b border-[var(--git-panel-border)] last:border-b-0">
-						<RemoteRepoPanel project={project} services={services} repoPath={repo.path} layout="changesOnly" label={repo.path === "" ? t("remoteGit.repoScopeRoot") : repo.name} git={git} blocked={blocked} onOpenFile={onOpenFile} onReposChanged={reloadRepos} />
+						<RemoteRepoPanel project={project} services={services} repoPath={repo.path} layout="changesOnly" label={repo.path === "" ? t("remoteGit.repoScopeRoot") : repo.name} git={git} blocked={blocked} onOpenFile={onOpenFile} onShowDiff={onShowDiff} onReposChanged={reloadRepos} />
 					</section>
 				))}
 			</div>
@@ -306,6 +298,7 @@ export function RemoteGitPanel({ project, onOpenFile }: { project: RemoteProject
 						git={git}
 						blocked={blocked}
 						onOpenFile={onOpenFile}
+						onShowDiff={onShowDiff}
 						onReposChanged={reloadRepos}
 						history={{ path: historyRepo.path, options: repoOptions, onSelect: selectHistoryRepo }}
 						footer={
