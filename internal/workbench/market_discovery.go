@@ -3,15 +3,21 @@
 package workbench
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
+	"time"
 )
 
-var officialPluginSources = []string{"https://raw.githubusercontent.com/ayuayue/pideck-plugins/main/registry.json", "https://api.atomgit.com/api/v5/repos/ayuayue/pideck-plugins/raw/registry.json?ref=main"}
+var officialPluginSources = []string{
+	"https://pideck-plugins.caoayu.top/registry-v2.json",
+	"https://raw.githubusercontent.com/ayuayue/pideck-plugins/main/registry.json",
+	"https://api.atomgit.com/api/v5/repos/ayuayue/pideck-plugins/raw/registry.json?ref=main",
+}
 
 const communityPluginSource = "https://api.github.com/search/repositories?q=topic:pideck-plugin&sort=stars&order=desc&per_page=30"
 
@@ -95,6 +101,30 @@ func parseCommunityPlugins(raw []byte) ([]marketEntry, error) {
 	return out, nil
 }
 
+func fetchOfficialPlugins(ctx context.Context, sources []string) ([]marketEntry, error) {
+	last := errors.New("plugin registry has no sources")
+	for _, source := range sources {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		// Leave time for the compatibility feeds if the Pages origin stalls.
+		attempt, cancel := context.WithTimeout(ctx, 8*time.Second)
+		raw, err := downloadCatalogData(attempt, source, 1<<20)
+		cancel()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err == nil {
+			var list []marketEntry
+			if list, err = parseOfficialPlugins(raw); err == nil {
+				return list, nil
+			}
+		}
+		last = err
+	}
+	return nil, last
+}
+
 func (a *app) discoverPlugins(community bool) {
 	if !a.marketOpen.GetUntracked() {
 		return
@@ -110,20 +140,7 @@ func (a *app) discoverPlugins(community bool) {
 				list, err = parseCommunityPlugins(raw)
 			}
 		} else {
-			for _, source := range officialPluginSources {
-				if ctx.Err() != nil {
-					err = ctx.Err()
-					break
-				}
-				var raw []byte
-				raw, err = downloadCatalogData(ctx, source, 1<<20)
-				if err == nil {
-					list, err = parseOfficialPlugins(raw)
-				}
-				if err == nil {
-					break
-				}
-			}
+			list, err = fetchOfficialPlugins(ctx, officialPluginSources)
 		}
 		a.cx.Post(func() {
 			a.finishPluginMarketRequest(gen, list, err)

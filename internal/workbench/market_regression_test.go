@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -132,6 +133,69 @@ func TestMixedRegistryV2RequiresRuntime(t *testing.T) {
 	list, err := fetchPluginIndex(context.Background(), srv.URL)
 	if err != nil || len(list) != 2 || !list[0].External || list[1].External || list[1].ID != "lite" {
 		t.Fatalf("mixed registry=%+v, err=%v", list, err)
+	}
+}
+
+func TestOfficialRegistryPrefersMixedFeedAndFallsBackBeforePublish(t *testing.T) {
+	for _, published := range []bool{true, false} {
+		name := "legacy fallback"
+		if published {
+			name = "mixed feed"
+		}
+		t.Run(name, func(t *testing.T) {
+			requests := make(chan string, 3)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests <- r.URL.Path
+				switch r.URL.Path {
+				case "/registry-v2.json":
+					if !published {
+						http.NotFound(w, r)
+						return
+					}
+					_, _ = fmt.Fprintf(w, `{"schemaVersion":2,"plugins":[
+						{"id":"notes","name":"Notes","repo":"owner/plugins","runtime":"pideck-electron"},
+						{"id":"lite-notes","name":"Lite Notes","version":"1.0.0","repo":"owner/plugins","runtime":"pideck-lite","url":"http://%s/plugin.json"}
+					]}`, r.Host)
+				case "/registry.json":
+					_, _ = w.Write([]byte(`{"schemaVersion":1,"plugins":[{"id":"notes","name":"Notes","repo":"owner/plugins"}]}`))
+				case "/plugin.json":
+					_, _ = w.Write([]byte(`{"schemaVersion":2,"runtime":"pideck-lite","id":"lite-notes","version":"1.0.0","name":"Lite Notes","contributes":{"commands":[{"id":"note","title":"Note","action":{"type":"insert","prompt":"example"}}]}}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+			list, err := fetchOfficialPlugins(t.Context(), []string{srv.URL + "/registry-v2.json", srv.URL + "/registry.json"})
+			want := 1
+			if published {
+				want = 2
+			}
+			if err != nil || len(list) != want || !list[0].External {
+				t.Fatalf("official feed=%+v err=%v, want %d entries with Electron discovery", list, err, want)
+			}
+			wantRequests := 1
+			if !published {
+				wantRequests++
+			}
+			if len(requests) != wantRequests || <-requests != "/registry-v2.json" {
+				t.Fatal("did not try the mixed feed first and fall back only when needed")
+			}
+			if !published {
+				if got := <-requests; got != "/registry.json" {
+					t.Fatalf("fallback request=%q, want /registry.json", got)
+				}
+				return
+			}
+			st, err := newStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := &app{st: st, lifetime: t.Context()}
+			plugin, err := a.installMarketPlugin(list[1])
+			if err != nil || plugin.ID != "lite-notes" || len(plugin.Commands) != 1 {
+				t.Fatalf("official install=%+v err=%v", plugin, err)
+			}
+		})
 	}
 }
 

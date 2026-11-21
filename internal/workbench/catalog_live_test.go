@@ -65,21 +65,10 @@ func TestLivePublicCatalogs(t *testing.T) {
 		}
 	})
 	t.Run("plugins", func(t *testing.T) {
-		var last error
-		for _, source := range officialPluginSources {
-			raw, err := downloadCatalogData(ctx, source, 1<<20)
-			if err != nil {
-				last = err
-				continue
-			}
-			list, err := parseOfficialPlugins(raw)
-			if err != nil {
-				last = err
-				continue
-			}
-			t.Logf("official registry: %d plugins", len(list))
-			return
+		list, err := fetchOfficialPlugins(ctx, officialPluginSources)
+		if err != nil {
+			t.Fatal(err)
 		}
-		t.Fatal(last)
+		t.Logf("official registry: %d plugins", len(list))
 	})
 }
