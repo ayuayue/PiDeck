@@ -723,7 +723,7 @@ export class RemoteHostStore {
 		try {
 			const disk = await loadState(this.userDataDir, this.pinStore, pendingActivationHostId, pendingEndpointChangeHostId);
 			if (disk.status !== "ready") throw new Error("REMOTE_HOST_STORE_NEEDS_REPAIR");
-			if (disk.revision !== expectedRevision || JSON.stringify(disk.profiles) !== JSON.stringify(this.state.profiles) || JSON.stringify(disk.retiredHostIds) !== JSON.stringify(this.state.retiredHostIds)) throw new Error("REMOTE_HOST_REVISION_CONFLICT");
+			if (disk.revision !== expectedRevision || JSON.stringify(disk.profiles) !== JSON.stringify(this.state.profiles) || JSON.stringify(disk.retiredHostIds) !== JSON.stringify(this.state.retiredHostIds)) { if (pendingEndpointChangeHostId === undefined) this.state = disk; throw new Error("REMOTE_HOST_REVISION_CONFLICT"); }
 			const { next, result, write } = await change(disk);
 			if (write === false) return result;
 			const encoded = encodeRemoteHostSnapshot(next.profiles, next.retiredHostIds, expectedRevision + 1);
