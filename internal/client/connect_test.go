@@ -89,6 +89,56 @@ func TestMobileConnectUsesEnteredTokenOverLinkToken(t *testing.T) {
 	waitApp(app, "text:新令牌连接", 15*time.Second)
 }
 
+func TestMobilePasteConnectUsesTokenFromLink(t *testing.T) {
+	seenAuth := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth <- r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
+	app.WaitFor("id:mobile-token", 10*time.Second)
+	app.Type("id:mobile-token", "stale-token")
+	app.Clipboard = server.URL + "?token=link-token"
+	app.Press("id:mobile-paste-connect")
+	select {
+	case got := <-seenAuth:
+		if got != "Bearer link-token" {
+			t.Fatalf("authorization = %q, want pasted link token", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("pasted connection did not reach the server")
+	}
+}
+
+func TestMobilePasteAddressKeepsEnteredToken(t *testing.T) {
+	seenAuth := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth <- r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
+	app.WaitFor("id:mobile-token", 10*time.Second)
+	app.Type("id:mobile-token", "manual-token")
+	app.Clipboard = server.URL
+	app.Press("id:mobile-paste-connect")
+	select {
+	case got := <-seenAuth:
+		if got != "Bearer manual-token" {
+			t.Fatalf("authorization = %q, want manually entered token", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("pasted address did not reach the server")
+	}
+}
+
 // newTestHTTPServer is the desktop the mobile test connects to.
 func newTestHTTPServer(t *testing.T, token string, state remotewire.Snapshot, transcript remotewire.Transcript) *httptest.Server {
 	t.Helper()

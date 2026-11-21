@@ -138,6 +138,21 @@ func TestMobileStatePollAfterDisconnectStaysDisconnected(t *testing.T) {
 	}
 }
 
+func TestMobileDisconnectClearsPreviousConnectionNotice(t *testing.T) {
+	a, _ := newConnectionTestApp(t)
+	a.connected.Set(true)
+	a.err.Set("previous connection failed")
+
+	a.disconnect()
+
+	if a.connected.GetUntracked() {
+		t.Fatal("disconnect left the app connected")
+	}
+	if got := a.err.GetUntracked(); got != "" {
+		t.Fatalf("disconnect left stale notice %q", got)
+	}
+}
+
 func TestMobileStatePollCurrentConnection(t *testing.T) {
 	for _, status := range []int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden} {
 		t.Run(http.StatusText(status), func(t *testing.T) {

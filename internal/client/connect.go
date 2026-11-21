@@ -395,6 +395,12 @@ func (a *mobileApp) pasteAndConnect() {
 			a.err.Set(apptext.T("剪贴板里没有链接"))
 			return
 		}
+		if client, token, err := newRemoteClient(text, ""); err == nil {
+			client.close()
+			if token != "" {
+				a.token.Set(token)
+			}
+		}
 		a.server.Set(text)
 		a.connect()
 	})
@@ -449,9 +455,7 @@ func (a *mobileApp) disconnectWith(message string) {
 	a.transcriptBusy.Set(false)
 	a.ask.Set(nil)
 	a.state.Set(remotewire.Snapshot{})
-	if message != "" {
-		a.err.Set(message)
-	}
+	a.err.Set(message)
 }
 
 // startPolling keeps the project list and the open transcript current.
