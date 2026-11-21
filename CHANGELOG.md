@@ -31,7 +31,7 @@ The first three fixes below already shipped in v0.13.0. The fourth explains the 
 - **A non-absolute `identityFile` in an old host snapshot no longer drags the whole host list down** — the read side keeps only type and control-byte checks, so a legacy `~/.ssh/id_ed25519` stays in memory and the revision no longer falls back to `.backup`; the write side drops only that one unpersistable field and keeps endpoint identity intact; connecting still fails clearly with `INVALID_SSH_LOCAL_PATH` (#542).
 - **The provider page says when a key already lives in auth.json** — `models.json`'s `apiKey` is only an overlay, so an empty field does not mean nothing is configured; the card now shows the credential's source and last four characters when the field is empty and `auth.json` has that provider, instead of making you think the key was lost and write a second plaintext copy (#537).
 
-Thanks to **KingLingo** for the focus-aware close shortcut (#585) and **ZedingZhang** for the streaming speed fix (#587).
+Thanks to **KingLingo** for the focus-aware close shortcut (#585), **ZedingZhang** for the streaming speed fix (#583, #587), and **bfzha** for aligning the remote Git panel, queuing messages sent during compaction, restoring remote file previews and session-pane switching, improving process-group scrolling, and aligning with pi 1.6.0.
 
 ## v0.13.0 (2026-11-18)
 

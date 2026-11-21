@@ -36,7 +36,7 @@ function settingsWithSecrets() {
 	};
 	// 字段名对着 AppSettings 源文件校对（正则空白容忍）：改名后测试立刻红，而不是静默退化成「标记没被读到所以通过」。
 	// 不能改用 Object.hasOwn：可选字段（webServiceToken? / acpTools? 等）不在 createDefaultAppSettings 的返回值里。
-	const settingsSource = readFileSync(resolve(REPO_ROOT, "src/shared/types/settings.ts"), "utf8");
+	const settingsSource = ["settings.ts", "webRemoteSettings.ts"].map((name) => readFileSync(resolve(REPO_ROOT, "src/shared/types", name), "utf8")).join("\n");
 	for (const key of Object.keys(marked)) {
 		assert.match(settingsSource, new RegExp(`^[\\t ]*${key}\\??:`, "m"), `AppSettings 已无字段 ${key}，请更新本测试`);
 		settings[key] = marked[key];

@@ -182,7 +182,43 @@ test("type schema rejects text exceeding the length cap", async () => {
 
 test("list_windows includeInvisible superset covers visible-only listing", async () => {
 	const gate = new CuaGate({ enabled: true });
-	const engine = new CuaEngine({ defaultDelayMs: 10 }, gate);
+	const windows = [
+		{
+			window: {
+				hwnd: 10,
+				title: "Hidden fixture",
+				pid: 300,
+				zIndex: 0,
+				rect: { x: 0, y: 0, width: 200, height: 200 },
+				isVisible: false,
+				isForeground: false,
+				isTopmost: false,
+			},
+			occludedArea: 40000,
+			titleBarPoint: undefined,
+		},
+		{
+			window: {
+				hwnd: 11,
+				title: "Visible fixture",
+				pid: 301,
+				zIndex: 1,
+				rect: { x: 0, y: 0, width: 200, height: 200 },
+				isVisible: true,
+				isForeground: true,
+				isTopmost: false,
+			},
+			occludedArea: 0,
+			titleBarPoint: { x: 100, y: 20 },
+		},
+	];
+	const listCalls = [];
+	const engine = {
+		listWindows(includeInvisible = false) {
+			listCalls.push(includeInvisible);
+			return includeInvisible ? windows : windows.filter((info) => info.window.isVisible);
+		},
+	};
 	const host = new CuaMcpHttpHost({ port: 0, authToken: "tok" }, { engine, gate });
 	await host.start();
 
@@ -192,8 +228,17 @@ test("list_windows includeInvisible superset covers visible-only listing", async
 		const all = await client.callTool({ name: "cua_list_windows", arguments: { includeInvisible: true } });
 		assert.ok(!visibleOnly.isError);
 		assert.ok(!all.isError);
+		assert.deepStrictEqual(listCalls, [false, true], "includeInvisible must reach the engine");
 		const visibleWindows = JSON.parse(visibleOnly.content[0].text);
 		const allWindows = JSON.parse(all.content[0].text);
+		assert.deepStrictEqual(
+			visibleWindows.map((window) => window.hwnd),
+			[11],
+		);
+		assert.deepStrictEqual(
+			allWindows.map((window) => window.hwnd),
+			[10, 11],
+		);
 		assert.ok(allWindows.length >= visibleWindows.length, "includeInvisible must be a superset");
 		assert.ok(
 			visibleWindows.every((w) => w.isVisible === true),
