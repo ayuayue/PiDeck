@@ -112,3 +112,24 @@ go tool nsgo test -target windows -run '^TestTrustNotice$' -timeout 2m ./interna
 `EndDraw` / `backdrop` 路径发生访问异常，独立增量快照也能复现；鼠标和键盘分别运行
 均通过。最终回归在同一窗口保留完整草稿与状态转换流程，未跳过用例、放宽断言或添加
 重试。多窗口生命周期问题仍待单独定位，本轮没有修改 SDK 或升级依赖。
+
+## 2026-11-22 新会话起始页
+
+参考 PiDeck Electron 的起始页，将字号 22 pt 的项目标题、会话输入框和四个建议按钮
+集中到同一视线范围。窄窗口里建议按钮自然换行，高度不足时可滚动。删除了重复的
+模型说明和写死的 Mac 快捷键。法语、日语、韩语和俄语按钮采用更短的译文。
+
+项目建议填入当前会话的空草稿并聚焦输入框。开始输入后，建议隐藏并保留占位，避免
+输入框跳动。首条消息出现后，已挂载的输入框移到会话底部，两种布局共用阅读列的宽度
+设置。读取历史时仍显示加载占位。
+
+`TestChatStartKeepsComposerAcrossFirstTurn` 先复现了建议位于输入框上方的问题，再在
+同一窗口验证键盘和鼠标选择、填入后不发送、首条消息出现后保留草稿和焦点，以及
+760 pt 法语窄窗的布局。Windows 浅色、深色和法语窄窗截图保存在
+`internal/workbench/.nsgo/test/screenshots/windows/chat-start/`。会话切换用测试数据驱动，
+本机 Pi CLI 因 Node 版本不匹配无法启动。
+
+`go tool nsgo check` 和 `go tool nsgo build -target windows_x64` 均通过。独立工作树
+上的 Windows 原生回归通过两项，覆盖新会话和信任提示。完整短测 657 项通过、108 项
+跳过，`TestGitAbortMerge` 一次超时，定向复测通过。短测仅在测试进程的 PATH 中排除
+了无法启动的 Pi 安装。日志位于 `%TEMP%/pideck-chat-start-short-isolated.log`。

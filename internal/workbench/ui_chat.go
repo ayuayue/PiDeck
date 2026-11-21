@@ -32,21 +32,17 @@ func (a *app) chatPane() core.Node {
 				return a.welcome()
 			}
 			selection := newChatSelection(cx)
-			width := core.NewSignal(cx, core.Points(0))
 			return core.View{StyleFunc: func() core.Style {
 				// PiDeck's paper canvas sits between the white cards and rail;
 				// derive it from the palette so custom themes keep their hue.
 				return ui.FillRest.Merge(core.Style{Background: ui.Mix(colors.Surface(), colors.Inset(), 0.45), Color: colors.Text()})
 			}, Children: []core.Node{
-				a.chatSurface(s, selection, width),
+				a.chatSurface(cx, s, selection),
 				a.turnAxis(s),
 				core.Show{When: a.chatFindOpen.Get, Then: func(cx *core.Scope) core.Node { return a.chatFindBar(s) }},
 				core.Show{When: func() bool {
 					return len(s.turns.Get()) == 0 && !s.loaded.Get() && s.status.Get() != statusFailed
 				}, Then: func(cx *core.Scope) core.Node { return a.historySkeleton(s) }},
-				core.Show{When: func() bool {
-					return len(s.turns.Get()) == 0 && (s.loaded.Get() || s.status.Get() == statusFailed)
-				}, Then: func(cx *core.Scope) core.Node { return a.emptyChat(s) }},
 			}}
 		}),
 	}}
@@ -99,7 +95,7 @@ func (a *app) setChatWidthPct(pct int) {
 }
 
 // composerStack keeps the composer and its bars at the reading width.
-func (a *app) composerStack(s *session, width func() core.Length) core.Node {
+func (a *app) composerStack(s *session, width func() core.Length, editor *core.Ref) core.Node {
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0)},
 			StyleFunc: func() core.Style { return core.Style{MaxWidth: width()} }, Children: []core.Node{
@@ -110,7 +106,7 @@ func (a *app) composerStack(s *session, width func() core.Length) core.Node {
 					When: func() bool { return s.showingAsk() != nil },
 					Then: func(*core.Scope) core.Node { return a.askPanel(s) },
 					Else: func(*core.Scope) core.Node {
-						return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s)}}
+						return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s, editor)}}
 					},
 				},
 			}},

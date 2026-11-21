@@ -88,17 +88,23 @@ func (c *chatScroll) grown(core.Bounds) {
 	}
 }
 
-// chatSurface is the transcript, the blur and the composer floating over
-// it. The composer is as wide as the reading column, which the kit's own
-// floating layout could not widen. Its height is measured once and read
-// through StyleFuncs, so laying it out never rebuilds the tree it is in.
-func (a *app) chatSurface(s *session, selection *chatSelection, width *core.Signal[core.Points]) core.Node {
+// chatSurface shows the centered composer before the first turn and docks
+// it over the transcript afterward. Both placements use the reading width.
+// The dock's measured height reserves space at the end of the transcript.
+func (a *app) chatSurface(cx *core.Scope, s *session, selection *chatSelection) core.Node {
 	scroll := s.conversation.Scroll()
 	composer := func() core.Points { return s.conversation.ComposerHeight() }
-	column := func() core.Length { return a.chatColumnWidth(width.Get()) }
+	size := core.NewSignal(cx, core.Size{})
+	column := func() core.Length { return a.chatColumnWidth(size.Get().Width) }
+	start := core.NewMemo(cx, func() bool {
+		return len(s.turns.Get()) == 0 && (s.loaded.Get() || s.status.Get() == statusFailed)
+	}).Get
+	var editor core.Ref
+	// Moving the mounted input preserves its native caret, focus, and draft.
+	stack := core.NewHolder(cx, func(*core.Scope) core.Node { return a.composerStack(s, column, &editor) })
 	return core.View{TestID: "transcript", Style: ui.FillRest, OnLayout: func(b core.Bounds) {
 		selection.resized(b)
-		width.Set(b.Size.Width)
+		size.Set(b.Size)
 	}, Children: []core.Node{
 		core.Scroll{Ref: scroll, OnScroll: func(e core.ScrollEvent) {
 			if e.Offset.Y != s.conversation.lastY {
@@ -120,20 +126,24 @@ func (a *app) chatSurface(s *session, selection *chatSelection, width *core.Sign
 		core.View{EdgeBar: core.EdgeBar{Scroll: scroll, Side: core.SideBottom}, PointerEvents: core.PointerEventsNone,
 			Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0)},
 			StyleFunc: func() core.Style {
+				if start() {
+					return core.Style{Height: core.Pt(0)}
+				}
 				return core.Style{Height: core.Pt(max(0, composer()-6))}
 			}},
-		core.Show{When: func() bool { return !s.conversation.AtLatest() }, Then: func(cx *core.Scope) core.Node {
+		core.Show{When: func() bool { return !start() && !s.conversation.AtLatest() }, Then: func(cx *core.Scope) core.Node {
 			return a.jumpToLatest(s)
 		}},
-		core.View{PointerEvents: core.PointerEventsBoxNone, OnLayout: s.conversation.measured,
-			Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), AlignItems: core.AlignCenter},
-			StyleFunc: func() core.Style {
-				return core.Style{Padding: core.Edges{Right: chatSidePadding, Bottom: 8, Left: chatSidePadding}}
+		core.Show{When: start,
+			Then: func(*core.Scope) core.Node {
+				return a.emptyChat(s, stack.Place(), &editor, column, func() core.Points { return size.Get().Height })
 			},
-			// The column inside bounds itself by percentage; a second
-			// bound here would apply it twice and shrink the card.
-			Children: []core.Node{core.View{Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0)},
-				Children: []core.Node{a.composerStack(s, column)}}}},
+			Else: func(*core.Scope) core.Node {
+				return core.View{PointerEvents: core.PointerEventsBoxNone, OnLayout: s.conversation.measured,
+					Style: core.Style{Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0),
+						AlignItems: core.AlignCenter, Padding: core.Edges{Right: chatSidePadding, Bottom: 8, Left: chatSidePadding}},
+					Children: []core.Node{stack.Place()}}
+			}},
 		a.chatSelectionAction(selection),
 	}}
 }
@@ -165,7 +175,7 @@ type composerSuggestion struct {
 }
 
 // composer is the input card and its footer, floating under the transcript.
-func (a *app) composer(s *session) core.Node {
+func (a *app) composer(s *session, ref *core.Ref) core.Node {
 	return core.Func(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		font := a.composerFont()
@@ -198,7 +208,7 @@ func (a *app) composer(s *session) core.Node {
 		}
 		suggest, listed := core.NewSuggest(cx, core.SuggestOptions{}), core.NewSignal(cx, false)
 		var shown []composerSuggestion
-		editor := base.Input{Value: s.draft.Get, OnChange: s.draft.Set, Multiline: true, SubmitBehavior: core.SubmitBehaviorSubmit,
+		editor := base.Input{Ref: ref, Value: s.draft.Get, OnChange: s.draft.Set, Multiline: true, SubmitBehavior: core.SubmitBehaviorSubmit,
 			Label: apptext.T("消息"), PlaceholderFunc: a.composerPlaceholder(s), TestID: "composer", Suggest: suggest,
 			OnSubmit: func(string) { send() },
 			OnPaste: func(e core.PasteEvent) {
