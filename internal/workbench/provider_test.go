@@ -6,6 +6,8 @@ package workbench
 // key, and the connection test's answers.
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +20,72 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
+
+func TestCreateProviderInModelsFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "agent")
+	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
+	path := filepath.Join(dir, "models.json")
+	cfg := providerConfig{ID: "first", API: "openai-completions", BaseURL: "https://example.invalid/v1",
+		APIKey: "$TEST_PROVIDER_KEY", Models: []modelConfig{{ID: "chat-model"}}}
+	if err := writeProviderConfig(cfg, true); err != nil {
+		t.Fatal(err)
+	}
+	got := readProviderConfigs()
+	if len(got) != 1 || got[0].ID != cfg.ID || got[0].APIKey != cfg.APIKey ||
+		len(got[0].Models) != 1 || got[0].Models[0].ID != cfg.Models[0].ID {
+		t.Fatalf("created provider, first model, or environment reference is missing")
+	}
+
+	const existing = `{"unknown":{"future":true},"providers":{"custom":{"otherField":[1,2],"models":[{"id":"original"}]}}}`
+	if err := os.WriteFile(path, []byte(existing), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeProviderConfig(cfg, true); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	before := read()
+	var saved struct {
+		Unknown   struct{ Future bool }
+		Providers map[string]json.RawMessage
+	}
+	if err := json.Unmarshal([]byte(before), &saved); err != nil {
+		t.Fatal(err)
+	}
+	var custom struct {
+		OtherField []int
+		Models     []modelConfig
+	}
+	if err := json.Unmarshal(saved.Providers["custom"], &custom); err != nil {
+		t.Fatal(err)
+	}
+	if !saved.Unknown.Future || len(custom.OtherField) != 2 || custom.OtherField[0] != 1 || custom.OtherField[1] != 2 ||
+		len(custom.Models) != 1 || custom.Models[0].ID != "original" || len(saved.Providers) != 2 {
+		t.Fatalf("adding a provider changed an existing entry, lost unknown fields, or omitted the new entry")
+	}
+	cfg.BaseURL = "https://different.example.invalid/v1"
+	if err := writeProviderConfig(cfg, true); !errors.Is(err, errProviderExists) {
+		t.Fatalf("duplicate provider: got %v, want errProviderExists", err)
+	}
+	if read() != before {
+		t.Fatal("duplicate provider rewrote models.json")
+	}
+	for _, malformed := range []string{`{"providers":`, `{"providers":[]}`, `null`} {
+		if err := os.WriteFile(path, []byte(malformed), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeProviderConfig(cfg, true); err == nil || read() != malformed {
+			t.Fatalf("invalid models.json %q was accepted or overwritten", malformed)
+		}
+	}
+}
 
 // TestReadAndSaveProviderConfig checks only the three fields are written
 // back and the rest of models.json survives.

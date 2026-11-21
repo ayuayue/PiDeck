@@ -130,13 +130,13 @@ func TestMergeProviders(t *testing.T) {
 	for _, p := range list {
 		byID[p.ID] = p
 	}
-	if p := byID["acme"]; p.Builtin || p.Models != 3 || p.Credential.Kind != credentialModels || p.Credential.Detail != maskKey(mergeKey) {
+	if p := byID["acme"]; p.Builtin || !p.Configured || len(p.Models) != 3 || p.Credential.Kind != credentialModels || p.Credential.Detail != maskKey(mergeKey) {
 		t.Fatalf("acme = %+v", p)
 	}
-	if p := byID["openrouter"]; !p.Builtin || p.Models != 2 || p.BaseURL != "https://openrouter.ai/api/v1" {
+	if p := byID["openrouter"]; !p.Builtin || p.Configured || len(p.Models) != 2 || p.BaseURL != "https://openrouter.ai/api/v1" {
 		t.Fatalf("openrouter = %+v", p)
 	}
-	if p := byID["stored"]; p.Builtin || p.Models != 0 || p.Credential.Kind != credentialAuth {
+	if p := byID["stored"]; p.Builtin || p.Configured || len(p.Models) != 0 || p.Credential.Kind != credentialAuth {
 		t.Fatalf("stored = %+v", p)
 	}
 }

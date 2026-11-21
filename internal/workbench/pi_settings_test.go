@@ -72,7 +72,7 @@ func TestPiSettingsControls(t *testing.T) {
 	}
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
-	app.Press("id:settings-tab-models")
+	app.Press("id:settings-tab-pi")
 	app.WaitFor("id:pi-hide-thinking", 5*time.Second)
 	app.Press("id:pi-hide-thinking")
 	deadline := time.Now().Add(5 * time.Second)

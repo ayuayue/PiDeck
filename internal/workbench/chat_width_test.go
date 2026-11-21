@@ -196,33 +196,33 @@ func TestChatWidthStripsShareTheComposerColumn(t *testing.T) {
 	}
 }
 
-// TestPaneWidthSharesTheChatColumn checks the tab pages take their width
-// from the chat's setting too: the settings page and the tasks page are
-// as wide as the composer column, so switching tabs does not jump.
-func TestPaneWidthSharesTheChatColumn(t *testing.T) {
+// TestPaneWidthsFitTheirContent keeps configuration broad enough for its
+// provider rows while reading-oriented panes follow the chat column.
+func TestPaneWidthsFitTheirContent(t *testing.T) {
 	built, screen, _ := newAskApp(t)
 	built.chatWidthPctSig.Set(70)
 	screen.Advance(80 * time.Millisecond)
 	screen.WaitFor("id:composer-column", 5*time.Second)
 	want := float64(screen.Find("id:composer-column").Frame.Size.Width)
 
-	check := func(name string) {
+	check := func() float64 {
 		t.Helper()
 		screen.WaitFor("id:pane-column", 5*time.Second)
-		got := float64(screen.Find("id:pane-column").Frame.Size.Width)
-		if diff := math.Abs(got - want); diff > 2 {
-			t.Fatalf("%s pane column is %.1f wide, want the composer column's %.1f (off by %.1f)",
-				name, got, want, diff)
-		}
+		return float64(screen.Find("id:pane-column").Frame.Size.Width)
 	}
 
 	built.openSettingsPane()
 	screen.Advance(80 * time.Millisecond)
-	check("settings")
+	settingsWidth := check()
+	if settingsWidth <= want+2 {
+		t.Fatalf("settings pane is %.1f wide, want it to use more than the chat reading column %.1f", settingsWidth, want)
+	}
 
 	built.openTaskDialog()
 	screen.Advance(80 * time.Millisecond)
-	check("tasks")
+	if got := check(); math.Abs(got-want) > 2 {
+		t.Fatalf("tasks pane is %.1f wide, want the composer's %.1f (off by %.1f)", got, want, math.Abs(got-want))
+	}
 }
 
 // TestDialogWidthSharesTheChatColumn checks a modal takes the same share

@@ -167,9 +167,9 @@ func (a *app) openPaneIDs() []string {
 // the active pane: switching tabs swaps the page without a frame of the
 // session behind it.
 //
-// Every pane reads its width here, not in its own page: one centred
-// column, as wide as the chat's reading width, with the chat's 20-point
-// gutters so both columns measure the same share of the work area.
+// Most panes use the chat's reading width. Settings gets the work area's
+// full measure because provider rows and configuration controls need room
+// for their labels, status and actions together.
 func (a *app) paneView() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.langRev.Get()
@@ -178,13 +178,17 @@ func (a *app) paneView() core.Node {
 		if !ok || !p.Open() {
 			return core.View{Style: ui.FillRest}
 		}
+		maxWidth := core.Pct(float32(a.chatWidthPct()))
+		if p.ID == paneSettings {
+			maxWidth = core.Pt(1320)
+		}
 		return core.View{TestID: p.TestID, StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),
 				AlignItems: core.AlignCenter, Padding: core.Edges{Left: 20, Right: 20},
 				Background: colors.Background()}
 		}, Children: []core.Node{
 			core.View{TestID: "pane-column", StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Column, Width: core.Pct(100), MaxWidth: core.Pct(float32(a.chatWidthPct())),
+				return core.Style{Direction: core.Column, Width: core.Pct(100), MaxWidth: maxWidth,
 					FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0)}
 			}, Children: []core.Node{p.Body()}},
 		}}

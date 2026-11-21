@@ -217,6 +217,7 @@ type envInfo struct {
 	AppDir         string
 	WSL            []wslDistro
 	SSH            []sshHost
+	TerminalShells []terminalShell
 	Probed         bool
 	Probing        bool
 	TargetsProbing bool
@@ -237,6 +238,7 @@ func piSessionsDir() string {
 // probeLocal finds pi here: its path, its version, where its sessions are.
 func probeLocal(info envInfo) envInfo {
 	info.SessionsDir = piSessionsDir()
+	info.TerminalShells = localTerminalShells()
 	info.Probing = false
 	info.Probed = true
 	path, version, err := probePi("", "")

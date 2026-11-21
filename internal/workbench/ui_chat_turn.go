@@ -10,6 +10,7 @@ import (
 
 	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -59,10 +60,10 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 				}
 				return label + " · " + duration(tt.elapsed(now()))
 			},
-			Steps: func() []chat.Step { return a.steps(s, t()) },
+			Steps: a.steps(cx, s, t),
 			Final: func(cx *core.Scope) core.Node {
 				tt := t()
-				return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{a.chatMarkdown(tt.Final, false, a.readingFont(), a.readingLine(), core.Style{})}}
+				return a.replyContent(s, t, a.chatMarkdown(tt.Final, false, a.readingFont(), a.readingLine(), core.Style{}))
 			},
 			HasFinal: func() bool {
 				tt := t()
@@ -152,6 +153,21 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 24},
 			Children: []core.Node{a.turnPrompt(t), response}}
 	})
+}
+
+// replyContent offers the actions for this answer at the text itself.
+func (a *app) replyContent(s *session, t func() turn, content core.Node) core.Node {
+	return base.ContextMenu{
+		Trigger: core.View{TestID: "chat-reply", Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{content}},
+		TestID:  "chat-reply-menu", PopupStyleFunc: func() core.Style { return a.menuCard(a.cx) },
+		PopupStyle: a.menuPopup(a.cx),
+		Children: []core.Node{
+			a.menuRow(a.cx, lucide.Copy, "复制回复", "", false, func() { a.copyText(t().Final, "回复") }),
+			a.menuRow(a.cx, lucide.Languages, "翻译回复", "", false, func() { a.openTranslationWith(t().Final) }),
+			a.menuRow(a.cx, lucide.Star, "收藏这条回复", "", false, func() { a.favoriteReply(s, t()) }),
+			a.menuRow(a.cx, lucide.Activity, "查看轨迹", "", false, func() { a.openTrajectory(s, t()) }),
+		},
+	}
 }
 
 // turnMeta ends a finished reply: when it came back, how long the turn took

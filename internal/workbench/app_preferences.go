@@ -48,6 +48,20 @@ func (a *app) restoreSettingsScroll() {
 	})
 }
 
+// resetSettingsScroll starts a newly selected section at its heading rather
+// than carrying the previous section's offset into its different content.
+func (a *app) resetSettingsScroll() {
+	a.settingsOffset = core.Point{}
+	if a.settingsScroll == nil {
+		return
+	}
+	ref := a.settingsScroll
+	a.cx.Post(func() {
+		ref.ScrollTo(core.Point{}, false)
+		a.cx.Post(func() { ref.ScrollTo(core.Point{}, false) })
+	})
+}
+
 // setSessionSort changes how a project orders its sessions.
 func (a *app) setSessionSort(sort string) {
 	if sort != "name" {

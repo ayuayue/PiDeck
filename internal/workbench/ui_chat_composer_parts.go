@@ -51,16 +51,10 @@ func (a *app) composerModelControls(s *session) chat.View {
 			case backendOf(s) == "acp":
 				controls = append(controls, a.acpBadge(s))
 			default:
-				controls = append(controls, hintOf(func() string {
-					if m := s.model.Get(); m.ID != "" {
-						return apptext.T("模型 · %s", modelLabel(m))
-					}
-					return apptext.T("选择模型")
-				}, a.modelMenu(s, s.modelOpen)))
-				controls = append(controls, a.effortPicker(s))
+				controls = append(controls, a.modelMenu(s, s.modelOpen), a.effortPicker(s))
 			}
 			return core.View{TestID: "composer-model-controls",
-				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, FlexShrink: 0, MinWidth: core.Pt(0)}, Children: controls}
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, FlexShrink: 1, MinWidth: core.Pt(0), MaxWidth: core.Pct(100)}, Children: controls}
 		})
 	}
 }

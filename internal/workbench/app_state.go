@@ -85,29 +85,30 @@ type app struct {
 
 	// Scheduled tasks: the list, run history and the editor's fields.
 	// taskMu guards the list the ticker and the UI both touch.
-	taskMu         sync.Mutex
-	tasks          []*scheduledTask
-	taskRuns       []taskRun
-	taskRunning    map[string]bool
-	taskOpen       *core.Signal[bool]
-	taskFormOpen   *core.Signal[bool]
-	taskRev        *core.Signal[int]
-	taskErr        *core.Signal[string]
-	taskEditID     *core.Signal[string]
-	taskName       *core.Signal[string]
-	taskCron       *core.Signal[string]
-	taskPrompt     *core.Signal[string]
-	taskProject    *core.Signal[string]
-	taskBackend    *core.Signal[string]
-	taskPreset     *core.Signal[string]
-	taskPersona    *core.Signal[string]
-	taskEnabled    *core.Signal[bool]
-	taskTimeout    *core.Signal[string]
-	themes         *core.Signal[[]themeSpec]
-	plugins        *core.Signal[[]plugin]
-	pluginArchive  *core.Signal[pluginArchiveSnapshot]
-	pluginFileBusy *core.Signal[bool]
-	providers      *core.Signal[[]providerInfo]
+	taskMu          sync.Mutex
+	tasks           []*scheduledTask
+	taskRuns        []taskRun
+	taskRunning     map[string]bool
+	taskOpen        *core.Signal[bool]
+	taskFormOpen    *core.Signal[bool]
+	taskRev         *core.Signal[int]
+	taskErr         *core.Signal[string]
+	taskEditID      *core.Signal[string]
+	taskName        *core.Signal[string]
+	taskCron        *core.Signal[string]
+	taskPrompt      *core.Signal[string]
+	taskProject     *core.Signal[string]
+	taskBackend     *core.Signal[string]
+	taskPreset      *core.Signal[string]
+	taskPersona     *core.Signal[string]
+	taskEnabled     *core.Signal[bool]
+	taskTimeout     *core.Signal[string]
+	themes          *core.Signal[[]themeSpec]
+	plugins         *core.Signal[[]plugin]
+	pluginArchive   *core.Signal[pluginArchiveSnapshot]
+	pluginFileBusy  *core.Signal[bool]
+	providers       *core.Signal[[]providerInfo]
+	providerLoadSeq uint64
 	// usage is the local statistics report, read from the session files
 	// the first time the usage page opens.
 	usage        *core.Signal[usageReport]

@@ -63,14 +63,13 @@ func (a *app) reloadFrameworks() {
 		// This machine first: it is what opening a session needs.
 		info := probeLocal(envInfo{AppDir: dataDir, Probing: true, TargetsProbing: true})
 		addons := a.readAddonFiles(disabled)
-		providers := readProviderStatus(info.PiPath)
 		a.cx.Post(func() {
 			a.env.Set(info)
 			if gen != a.addonsGen {
 				return // a newer reload already answered
 			}
 			a.publishAddonFiles(addons)
-			a.providers.Set(providers)
+			a.loadProviders(info.PiPath)
 			a.reopenSavedTabs()
 			a.rescanPi()
 		})

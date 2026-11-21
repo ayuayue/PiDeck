@@ -15,51 +15,67 @@ import (
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
-// steps is a turn's work: one step per assistant message, streaming or
-// committed. The step an answer streams into keeps its ID when it commits,
-// so the same row becomes the finished one instead of being rebuilt.
-func (a *app) steps(s *session, tt turn) []chat.Step {
-	out := make([]chat.Step, 0, len(tt.Steps)+1)
-	for _, st := range tt.Steps {
-		out = append(out, a.stepView(s, tt, st, false))
+// steps keeps the row ID when an assistant message commits. NSGo keeps
+// the mounted message for that ID, so its content reads the current step.
+func (a *app) steps(cx *core.Scope, s *session, t func() turn) func() []chat.Step {
+	committed := core.NewMemoFunc(cx, func() map[string]turnStep {
+		steps := t().Steps
+		byID := make(map[string]turnStep, len(steps))
+		for _, st := range steps {
+			byID[st.ID] = st
+		}
+		return byID
+	}, nil)
+	step := func(id string) chat.Step {
+		return chat.Step{ID: id, Message: func(*core.Scope) core.Node {
+			return core.Dynamic(func(*core.Scope) core.Node {
+				st, ok := committed.Get()[id]
+				if !ok {
+					st = turnStep{ID: id, Start: t().Start}
+				}
+				return a.stepMessage(s, st, !ok)
+			})
+		}}
 	}
-	if tt.running() {
-		out = append(out, a.stepView(s, tt, turnStep{ID: stepID(&tt, tt.Msgs), Start: tt.Start}, true))
+	return func() []chat.Step {
+		tt := t()
+		out := make([]chat.Step, 0, len(tt.Steps)+1)
+		for _, st := range tt.Steps {
+			out = append(out, step(st.ID))
+		}
+		if tt.running() {
+			out = append(out, step(stepID(&tt, tt.Msgs)))
+		}
+		return out
 	}
-	return out
 }
 
-// stepView is one assistant message: what it thought, what it ran, what it
+// stepMessage is one assistant message: what it thought, what it ran, what it
 // said.
-func (a *app) stepView(s *session, tt turn, st turnStep, live bool) chat.Step {
-	return chat.Step{ID: st.ID, Message: func(cx *core.Scope) core.Node {
-		return core.Dynamic(func(cx *core.Scope) core.Node {
-			var children []core.Node
-			thinking, tools := st.Thinking, st.Tools
-			text := st.Text
-			if live {
-				thinking = s.streamThinking.Get()
-				tools = s.liveTools.Get()
-				text = s.streamText.Get()
-			}
-			if st.Note != "" {
-				children = append(children, a.noteBlock(st.Note, st.Text))
-			}
-			if strings.TrimSpace(thinking) != "" {
-				children = append(children, a.thinkRow(s, st, thinking, live))
-			}
-			if len(tools) > 0 {
-				children = append(children, a.toolRows(s, tools))
-			}
-			if text != "" {
-				children = append(children, a.chatMarkdown(text, live, a.readingFont(), a.readingLine(), core.Style{}))
-			}
-			if len(children) == 0 {
-				return nil
-			}
-			return core.View{Style: core.Style{Gap: 12, MinWidth: core.Pt(0)}, Children: children}
-		})
-	}}
+func (a *app) stepMessage(s *session, st turnStep, live bool) core.Node {
+	var children []core.Node
+	thinking, tools, text := st.Thinking, st.Tools, st.Text
+	if live {
+		thinking = s.streamThinking.Get()
+		tools = s.liveTools.Get()
+		text = s.streamText.Get()
+	}
+	if st.Note != "" {
+		children = append(children, a.noteBlock(st.Note, st.Text))
+	}
+	if strings.TrimSpace(thinking) != "" {
+		children = append(children, a.thinkRow(s, st, thinking, live))
+	}
+	if len(tools) > 0 {
+		children = append(children, a.toolRows(s, tools))
+	}
+	if text != "" {
+		children = append(children, a.chatMarkdown(text, live, a.readingFont(), a.readingLine(), core.Style{}))
+	}
+	if len(children) == 0 {
+		return nil
+	}
+	return core.View{Style: core.Style{Gap: 12, MinWidth: core.Pt(0)}, Children: children}
 }
 
 func (a *app) chatMarkdown(text string, live bool, size, line core.Points, tone core.Style) core.Node {

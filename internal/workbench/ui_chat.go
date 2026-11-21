@@ -18,6 +18,8 @@ const (
 	chatWidthPctMin     = 50
 	chatWidthPctMax     = 90
 	chatWidthPctDefault = 80
+	chatSidePadding     = 20
+	chatColumnMin       = 360
 )
 
 // chatPane is the conversation and its composer.
@@ -30,12 +32,13 @@ func (a *app) chatPane() core.Node {
 				return a.welcome()
 			}
 			selection := newChatSelection(cx)
+			width := core.NewSignal(cx, core.Points(0))
 			return core.View{StyleFunc: func() core.Style {
 				// PiDeck's paper canvas sits between the white cards and rail;
 				// derive it from the palette so custom themes keep their hue.
 				return ui.FillRest.Merge(core.Style{Background: ui.Mix(colors.Surface(), colors.Inset(), 0.45), Color: colors.Text()})
 			}, Children: []core.Node{
-				a.chatSurface(s, selection),
+				a.chatSurface(s, selection, width),
 				a.turnAxis(s),
 				core.Show{When: a.chatFindOpen.Get, Then: func(cx *core.Scope) core.Node { return a.chatFindBar(s) }},
 				core.Show{When: func() bool {
@@ -47,6 +50,16 @@ func (a *app) chatPane() core.Node {
 			}}
 		}),
 	}}
+}
+
+// chatColumnWidth eases the width limit when split panels leave less room
+// for the transcript and input. Both still fit inside the chat surface.
+func (a *app) chatColumnWidth(surface core.Points) core.Length {
+	pct := float32(a.chatWidthPct())
+	if available := surface - 2*chatSidePadding; available > 0 {
+		pct = min(100, max(pct, float32(100*chatColumnMin)/float32(available)))
+	}
+	return core.Pct(pct)
 }
 
 // chatWidthPct is the transcript and composer's share of the window, the
@@ -86,28 +99,30 @@ func (a *app) setChatWidthPct(pct int) {
 }
 
 // composerStack keeps the composer and its bars at the reading width.
-func (a *app) composerStack(s *session) core.Node {
+func (a *app) composerStack(s *session, width func() core.Length) core.Node {
 	return core.View{Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
-		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pct(float32(a.chatWidthPct())), MinWidth: core.Pt(0)}, Children: []core.Node{
-			a.trustBar(s), a.goalStrip(s), a.todoBar(s),
-			// An ask takes the composer's place while it waits: the answer
-			// is the only thing to send then.
-			core.Show{
-				When: func() bool { return s.showingAsk() != nil },
-				Then: func(*core.Scope) core.Node { return a.askPanel(s) },
-				Else: func(*core.Scope) core.Node {
-					return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s)}}
+		core.View{TestID: "composer-column", Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0)},
+			StyleFunc: func() core.Style { return core.Style{MaxWidth: width()} }, Children: []core.Node{
+				a.trustBar(s), a.goalStrip(s), a.todoBar(s),
+				// An ask takes the composer's place while it waits: the answer
+				// is the only thing to send then.
+				core.Show{
+					When: func() bool { return s.showingAsk() != nil },
+					Then: func(*core.Scope) core.Node { return a.askPanel(s) },
+					Else: func(*core.Scope) core.Node {
+						return core.View{Style: core.Style{Gap: 0}, Children: []core.Node{a.queuePanel(s), a.draftChangeBar(s), a.composer(s)}}
+					},
 				},
-			},
-		}},
+			}},
 	}}
 }
 
 // transcript is the keyed list of turns, bounded to a window of the newest.
-func (a *app) transcript(s *session, selection *chatSelection) core.Node {
+func (a *app) transcript(s *session, selection *chatSelection, width func() core.Length) core.Node {
 	return core.View{Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0, Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
 		core.View{Selectable: true, Ref: &selection.area, OnTextSelection: selection.changed, TestID: "transcript-column",
-			Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pct(float32(a.chatWidthPct())), MinWidth: core.Pt(0), Gap: 48}, Children: []core.Node{
+			Style:     core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Gap: 48},
+			StyleFunc: func() core.Style { return core.Style{MaxWidth: width()} }, Children: []core.Node{
 				core.Show{When: func() bool { return len(s.turns.Get()) > s.window.Get() }, Then: func(cx *core.Scope) core.Node {
 					return a.loadEarlier(s)
 				}},

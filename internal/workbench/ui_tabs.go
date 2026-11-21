@@ -47,7 +47,7 @@ func (a *app) tabBar() core.Node {
 func (a *app) tab(id func() string) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	sess := func() *session { return a.byID[id()] }
-	active := func() bool { return a.activeID.Get() == id() }
+	active := func() bool { return a.activeID.Get() == id() && !a.paneVisible() }
 	return base.ContextMenu{
 		Trigger: core.View{
 			TestID: "tab",
@@ -109,6 +109,9 @@ func (a *app) tabMenuItems(id func() string) []core.Node {
 		a.menuRow(a.cx, lucide.X, "关闭右侧标签", "", false, func() { a.closeTabsRight(id()) }),
 		a.menuRow(a.cx, lucide.X, "关闭全部标签", "", false, func() { a.closeAllTabs() }),
 		a.menuSeparator(a.cx),
+		a.menuRow(a.cx, lucide.Pencil, "重命名", "", false, func() { a.askRename(a.byID[id()]) }),
+		a.menuRow(a.cx, lucide.CopyPlus, "复制会话", "", false, func() { a.duplicateSession(a.byID[id()]) }),
+		a.menuRow(a.cx, lucide.FileDown, "导出…", "", false, func() { a.openExport(a.byID[id()]) }),
 		a.menuRow(a.cx, lucide.Copy, "复制会话 ID", "", false, func() { a.copyText(id(), "会话 ID") }),
 	}
 }

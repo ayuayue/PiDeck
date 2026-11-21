@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,7 +30,9 @@ type providerInfo struct {
 	ID      string
 	API     string
 	BaseURL string
-	Models  int
+	Models  []modelConfig
+	// Configured means the provider has an entry in models.json.
+	Configured bool
 	// Builtin says pi's own catalog knows the provider, so models.json
 	// does not have to describe it.
 	Builtin bool
@@ -248,7 +251,15 @@ func intField(v any) int {
 // saveProviderConfig writes a provider's fields back to models.json,
 // keeping every other field and provider as it was.
 func saveProviderConfig(id, api, baseURL, apiKey string) error {
-	id = strings.TrimSpace(id)
+	return writeProviderConfig(providerConfig{ID: id, API: api, BaseURL: baseURL, APIKey: apiKey}, false)
+}
+
+var errProviderExists = errors.New("provider already exists")
+
+// writeProviderConfig creates a new provider with its first model or edits
+// an existing provider's connection fields. Unknown JSON fields stay intact.
+func writeProviderConfig(cfg providerConfig, create bool) error {
+	id := strings.TrimSpace(cfg.ID)
 	if id == "" {
 		return fmt.Errorf("供应商 ID 不能为空")
 	}
@@ -257,29 +268,51 @@ func saveProviderConfig(id, api, baseURL, apiKey string) error {
 		return fmt.Errorf("找不到 pi 的配置目录")
 	}
 	raw, err := os.ReadFile(path)
-	if err != nil {
+	if err != nil && !(create && errors.Is(err, os.ErrNotExist)) {
 		return err
 	}
 	var root map[string]any
-	if err := json.Unmarshal(raw, &root); err != nil {
-		return fmt.Errorf("models.json 不是有效的 JSON：%w", err)
+	if err == nil {
+		if err := json.Unmarshal(raw, &root); err != nil {
+			return fmt.Errorf("models.json 不是有效的 JSON：%w", err)
+		}
+		if create && root == nil {
+			return errors.New("models.json: expected a JSON object")
+		}
+	} else if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
 	}
 	if root == nil {
 		root = map[string]any{}
 	}
 	providers, _ := root["providers"].(map[string]any)
 	if providers == nil {
+		if create && root["providers"] != nil {
+			return fmt.Errorf("models.json: providers must be an object")
+		}
 		providers = map[string]any{}
 		root["providers"] = providers
 	}
 	p, _ := providers[id].(map[string]any)
+	if _, exists := providers[id]; exists && create {
+		return errProviderExists
+	}
 	if p == nil {
 		p = map[string]any{"models": []any{}}
 		providers[id] = p
 	}
-	setOrDelete(p, "api", strings.TrimSpace(api))
-	setOrDelete(p, "baseUrl", strings.TrimSpace(baseURL))
-	setOrDelete(p, "apiKey", strings.TrimSpace(apiKey))
+	setOrDelete(p, "api", strings.TrimSpace(cfg.API))
+	setOrDelete(p, "baseUrl", strings.TrimSpace(cfg.BaseURL))
+	setOrDelete(p, "apiKey", strings.TrimSpace(cfg.APIKey))
+	if create {
+		models := make([]any, 0, len(cfg.Models))
+		for _, model := range cfg.Models {
+			entry := map[string]any{"id": model.ID}
+			applyModelEntry(entry, model)
+			models = append(models, entry)
+		}
+		p["models"] = models
+	}
 	data, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err

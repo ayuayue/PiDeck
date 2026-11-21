@@ -250,7 +250,7 @@ func (a *app) fileMenuItems(root string, node fileNode) []core.Node {
 			a.mentionFile(node.Path)
 		}),
 		a.menuSeparator(a.cx),
-		a.menuRow(a.cx, lucide.Code, "在编辑器中打开", "", false, func() { a.openPathInEditor(node.Path) }),
+		a.menuRow(a.cx, lucide.Code, "用外部编辑器打开", "", false, func() { a.openPathInEditor(node.Path) }),
 		a.menuRow(a.cx, lucide.FolderOpen, "在文件管理器中显示", "", false, func() {
 			if err := revealFile(localTarget, node.Path); err != nil {
 				a.toast(ui.ToastError, "打不开位置", err.Error())

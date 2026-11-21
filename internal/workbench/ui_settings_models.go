@@ -7,7 +7,6 @@ package workbench
 // sits at its end, so a section reads top to bottom.
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -18,8 +17,38 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// settingsModels lists the providers, their credentials and favourites.
+// settingsModels keeps the provider filter mounted while results change.
 func (a *app) settingsModels() core.Node {
+	colors := ui.ColorsOf(a.cx)
+	return a.providerSettingsPage("settings-content",
+		setGroup("供应商与认证",
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
+				ui.Input{Value: a.providerQuery.Get, OnChange: a.providerQuery.Set,
+					Style:       core.Style{FlexGrow: 1, MinWidth: core.Pt(110)},
+					Placeholder: apptext.T("筛选供应商"), Label: apptext.T("筛选供应商"), TestID: "provider-filter"},
+				ui.Button{Text: apptext.T("添加供应商"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "provider-add",
+					OnPress: func() { a.openProviderDialog("") }},
+			}},
+			a.providerRows(),
+			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
+				ui.Button{Text: apptext.T("编辑 models.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					OnPress: func() { a.openPiConfigFile("models.json") }},
+				ui.Button{Text: apptext.T("检测全部"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.refreshProviders},
+			}},
+		),
+		core.Text{Content: apptext.T("凭据由 pi 管理（~/.pi/agent/auth.json）。「登录…」在内置终端里跑 pi 自己的登录流程；改完点「检测全部」重新读状态。"),
+			Style: core.Style{FontSize: 11, LineHeight: 17, Margin: core.Edges{Bottom: 12}}, StyleFunc: ui.Colored(colors.Muted)},
+		a.favoriteModelSettings(), a.modelCatalogSettings(), a.balanceAccountsSettings(), a.toolModelsGroup(), a.tokenDanceGroup(),
+	)
+}
+
+func (a *app) providerSettingsPage(testID string, content ...core.Node) core.Node {
+	return core.Scroll{TestID: testID, Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
+		core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: content},
+	}}
+}
+
+func (a *app) providerRows() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		// Redrawn when any setting changes: their values live in the config.
 		a.settingsTick()
@@ -73,7 +102,7 @@ func (a *app) settingsModels() core.Node {
 			if prov.Credential.Kind != "" && !prov.Credential.Ready {
 				credential += " · " + apptext.T("未配置")
 			}
-			meta := fmt.Sprintf("%d 个模型", prov.Models)
+			meta := apptext.T("%d 个模型", len(prov.Models))
 			row := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinHeight: core.Pt(44),
 				Padding: core.Symmetric(4, 2)}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
@@ -115,6 +144,13 @@ func (a *app) settingsModels() core.Node {
 				rows = append(rows, setDivider())
 			}
 		}
+		return core.Group(rows)
+	})
+}
+
+func (a *app) favoriteModelSettings() core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		colors := ui.ColorsOf(cx)
 		var favRows []core.Node
 		favKeys := a.favModels.Get()
 		for i, key := range favKeys {
@@ -147,32 +183,7 @@ func (a *app) settingsModels() core.Node {
 			favRows = append(favRows, core.Text{Content: apptext.T("在输入框的模型菜单里点星标收藏；收藏的模型排在最前，可在这里调顺序。"),
 				Style: core.Style{FontSize: 11, LineHeight: 16, Padding: core.Symmetric(4, 2)}, StyleFunc: ui.Colored(colors.Faint)})
 		}
-		return core.Scroll{TestID: "settings-content", Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
-				setGroup("常用模型", core.View{Style: core.Style{Gap: 1}, Children: favRows}),
-				a.modelCatalogSettings(),
-				a.balanceAccountsSettings(),
-				a.toolModelsGroup(),
-				setGroup("供应商与认证", append([]core.Node{
-					core.Input{Value: a.providerQuery.Get, OnChange: a.providerQuery.Set, Style: draftFieldStyle(colors),
-						Placeholder: apptext.T("筛选供应商"), Label: apptext.T("筛选供应商"), TestID: "provider-filter"},
-				}, rows...)...),
-				a.authGroup(),
-				a.tokenDanceGroup(),
-				a.piSettingsGroup(),
-				core.Text{Content: apptext.T("凭据由 pi 管理（~/.pi/agent/auth.json）。「登录…」在内置终端里跑 pi 自己的登录流程；改完点「检测全部」重新读状态。"),
-					Style: core.Style{FontSize: 11, LineHeight: 17}, StyleFunc: ui.Colored(colors.Faint)},
-				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Margin: core.Edges{Top: 2}}, Children: []core.Node{
-					ui.Button{Text: apptext.T("编辑 models.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-						OnPress: func() { a.openPiConfigFile("models.json") }},
-					ui.Button{Text: apptext.T("编辑 settings.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-						OnPress: func() { a.openPiConfigFile("settings.json") }},
-					ui.Button{Text: apptext.T("编辑 auth.json"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-						OnPress: func() { a.openPiConfigFile("auth.json") }},
-					ui.Button{Text: apptext.T("检测全部"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.refreshProviders},
-				}},
-			}},
-		}}
+		return setGroup("常用模型", core.View{Style: core.Style{Gap: 1}, Children: favRows})
 	})
 }
 
@@ -181,7 +192,13 @@ func (a *app) toolModelsGroup() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = a.toolRev.Get()
 		colors := ui.ColorsOf(cx)
-		configs := readProviderConfigs()
+		providers := a.providers.Get()
+		var providerOpts []ui.Option[string]
+		for _, p := range providers {
+			if p.Configured {
+				providerOpts = append(providerOpts, ui.Option[string]{Value: p.ID, Label: p.ID})
+			}
+		}
 		tools := []struct{ ID, Name, Help string }{
 			{"commit", "提交摘要", "按暂存改动生成一条提交说明，写进提交框。"},
 			{"prompt", "提示词增强", "把输入框里的草稿改写得更清楚、更具体。"},
@@ -192,13 +209,9 @@ func (a *app) toolModelsGroup() core.Node {
 		for i, tool := range tools {
 			tool := tool
 			cfg := a.cfg.ToolModels[tool.ID]
-			var providerOpts []ui.Option[string]
-			for _, p := range configs {
-				providerOpts = append(providerOpts, ui.Option[string]{Value: p.ID, Label: p.ID})
-			}
 			var modelOpts []ui.Option[string]
-			for _, p := range configs {
-				if p.ID != cfg.Provider {
+			for _, p := range providers {
+				if !p.Configured || p.ID != cfg.Provider {
 					continue
 				}
 				for _, m := range p.Models {
@@ -216,8 +229,8 @@ func (a *app) toolModelsGroup() core.Node {
 					Style: core.Style{Width: core.Pt(108)},
 					OnChange: func(provider string) {
 						model := ""
-						for _, p := range configs {
-							if p.ID == provider && len(p.Models) > 0 {
+						for _, p := range providers {
+							if p.Configured && p.ID == provider && len(p.Models) > 0 {
 								model = p.Models[0].ID
 								break
 							}
@@ -244,8 +257,8 @@ func (a *app) toolModelsGroup() core.Node {
 				rows = append(rows, setDivider())
 			}
 		}
-		if len(configs) == 0 {
-			rows = append(rows, core.Text{Content: apptext.T("还没有读到供应商；先在下面配置一个，或检查 pi 的 models.json。"),
+		if len(providerOpts) == 0 {
+			rows = append(rows, core.Text{Content: apptext.T("还没有读到供应商；先配置供应商，或检查 pi 的 models.json。"),
 				Style: core.Style{FontSize: 11, LineHeight: 16, Padding: core.Symmetric(4, 2)}, StyleFunc: ui.Colored(colors.Faint)})
 		}
 		rows = append(rows, setDivider(), setRow("提示词增强模板", "桌面与手机共用增强指令；可编辑或恢复默认。",

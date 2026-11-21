@@ -92,13 +92,13 @@ func TestAuthKeyDialog(t *testing.T) {
 	}
 	app := startApp(t, workspace, 1280, 860)
 	app.Press("label:设置")
-	app.WaitFor("id:settings-tab-models", 5*time.Second)
-	app.Press("id:settings-tab-models")
+	app.WaitFor("id:settings-tab-credentials", 5*time.Second)
+	app.Press("id:settings-tab-credentials")
 	for i := 0; i < 3; i++ {
 		if len(app.Query("id:auth-replace-anthropic")) > 0 {
 			break
 		}
-		app.Press("id:settings-tab-models")
+		app.Press("id:settings-tab-credentials")
 		app.Settle()
 		time.Sleep(100 * time.Millisecond)
 	}

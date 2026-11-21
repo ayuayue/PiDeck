@@ -242,6 +242,7 @@ func TestBrandScreens(t *testing.T) {
 	screen.WaitFor("id:brand-image-choose", 5*time.Second)
 	shot(screen, "brand/05-custom-settings")
 	screen.Press("id:settings-tab-general")
+	screen.Press("id:language-select")
 	screen.Press("text:English")
 	screen.Press("id:settings-tab-look")
 	screen.Resize(960, 640)

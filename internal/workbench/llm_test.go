@@ -80,6 +80,7 @@ func TestToolModelsPerTool(t *testing.T) {
 	built.settingsTab.Set("models")
 	screen.Advance(300 * time.Millisecond)
 	screen.WaitFor("id:tool-commit-provider", 5*time.Second)
+	screen.WaitFor("id:provider-configure-fake", 10*time.Second)
 
 	screen.Press("id:tool-commit-provider")
 	screen.WaitFor("id:tool-commit-provider-0", 5*time.Second)

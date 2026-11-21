@@ -6,6 +6,7 @@ package workbench
 // settings and command palette rely on.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -67,22 +68,34 @@ func TestLanguageSwitch(t *testing.T) {
 	app.Press("label:设置")
 	app.Press("id:settings-tab-general")
 	app.WaitFor("id:settings-tab-general", 5*time.Second)
-	for _, code := range apptext.SupportedLanguages {
-		app.WaitFor("text:"+apptext.LanguageName(code), 5*time.Second)
-	}
-	app.Press("text:English")
+	app.WaitFor("id:language-select", 5*time.Second)
+	app.Press("id:language-select")
+	app.WaitFor("id:language-select-2", 5*time.Second)
+	app.Press("id:language-select-2")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Interface")) > 0 })
 	if len(app.Query("text:通用")) != 0 {
 		t.Fatal("the Chinese section label is still there after switching to English")
 	}
-	app.Press("text:简体中文")
+	app.Press("id:language-select")
+	app.WaitFor("id:language-select-1", 5*time.Second)
+	app.Press("id:language-select-1")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:界面")) > 0 })
 	for _, code := range []string{apptext.LangKoKR, apptext.LangJaJP, apptext.LangRuRU, apptext.LangFrFR} {
-		app.Press("text:" + apptext.LanguageName(code))
+		index := 0
+		for i, option := range languageOptions() {
+			if option.Value == code {
+				index = i
+				break
+			}
+		}
+		app.Press("id:language-select")
+		app.WaitFor(fmt.Sprintf("id:language-select-%d", index), 5*time.Second)
+		app.Press(fmt.Sprintf("id:language-select-%d", index))
 		app.WaitUntil(5*time.Second, func() bool { return apptext.CurrentLanguage() == code })
 		app.WaitFor("id:settings-tab-general", 5*time.Second)
 	}
-	app.Press("text:简体中文")
+	app.Press("id:language-select")
+	app.Press("id:language-select-1")
 }
 
 // TestMainUILabels checks the rail, welcome and composer strings have
@@ -125,6 +138,7 @@ func TestMainLanguageSwitch(t *testing.T) {
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	app.Press("label:设置")
 	app.Press("id:settings-tab-general")
+	app.Press("id:language-select")
 	app.Press("text:English")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Interface")) > 0 })
 	app.Key("escape")

@@ -71,9 +71,9 @@ func (a *app) settingsGeneral() core.Node {
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}}, Children: []core.Node{
 				setGroup("界面",
 					setRow("语言", "界面文案；切换后立即生效，未翻译的条目保留中文。",
-						core.View{Style: core.Style{Width: core.Pt(300), MaxWidth: core.Pct(100)}, Children: []core.Node{
-							choiceChips(languageChoices(), func() string { return a.cfg.Language }, a.setLanguage),
-						}}),
+						ui.Select[string]{Options: languageOptions(), Value: func() string { return a.cfg.Language }, OnChange: a.setLanguage,
+							Label: apptext.T("语言"), TestID: "language-select",
+							Style: core.Style{Width: core.Pt(220), Height: core.Pt(28), FontSize: 11}}),
 					setDivider(),
 					setRow("内容宽度", "对话正文与输入框占窗口宽度的比例；窄一些更好读，宽一些能放下更多代码。",
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(230)}, Children: []core.Node{

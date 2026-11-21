@@ -38,6 +38,10 @@ func (a *app) openProviderDialog(id string) {
 	a.providerBalPath.Set(spec.Path)
 	a.providerBalCur.Set(spec.Currency)
 	a.resetModelForm()
+	if id == "" {
+		a.providerOpen.Set(true)
+		return
+	}
 	for _, cfg := range readProviderConfigs() {
 		if cfg.ID != id {
 			continue
@@ -297,10 +301,7 @@ func (a *app) removeProviderModel(id string) {
 // pi about each one, off the UI thread.
 func (a *app) refreshProviders() {
 	a.loadAuth()
-	go func() {
-		probed := readProviderStatus(a.piPath())
-		a.cx.Post(func() { a.providers.Set(probed) })
-	}()
+	a.loadProviders(a.piPath())
 }
 
 // openPiConfigFile opens one of pi's own config files in the editor.
@@ -318,6 +319,9 @@ func (a *app) openPiConfigFile(name string) {
 // providerDialog edits one provider.
 func (a *app) providerDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		if a.providerID.Get() == "" {
+			return core.Func(a.providerCreateDialog)
+		}
 		colors := ui.ColorsOf(cx)
 		fieldStyle := core.Style{Height: core.Pt(32), Padding: core.Symmetric(0, 9), CornerRadius: 7,
 			Background: colors.Field(), BorderWidth: 1, BorderColor: colors.FieldBorder(),
@@ -331,9 +335,10 @@ func (a *app) providerDialog() core.Node {
 				input,
 			}}
 		}
-		// money is one price field, narrow enough for four in a row.
+		// Keep the price names visible after values replace the placeholders.
 		money := func(value *core.Signal[string], label, testID string) core.Node {
-			return core.View{Style: core.Style{Width: core.Pt(64)}, Children: []core.Node{
+			return core.View{Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Gap: 4}, Children: []core.Node{
+				ui.Text(label, 10.5, ui.Medium, colors.Muted),
 				core.Input{Value: value.Get, OnChange: value.Set, Placeholder: "0", Label: label, TestID: testID,
 					Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 7), CornerRadius: 6, FontSize: 11,
 						FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
@@ -451,43 +456,49 @@ func (a *app) providerDialog() core.Node {
 						}},
 						core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
 							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-								core.Input{Value: a.providerModelID.Get, OnChange: a.providerModelID.Set, Placeholder: "gpt-4o-mini",
+								field(apptext.T("模型 ID"), "", core.Input{Value: a.providerModelID.Get, OnChange: a.providerModelID.Set, Placeholder: "gpt-4o-mini",
 									Label: apptext.T("模型 ID"), TestID: "provider-model-id",
 									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
 										FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
-										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
+										BorderWidth: 1, BorderColor: colors.FieldBorder()}}),
 							}},
 							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-								core.Input{Value: a.providerModelName.Get, OnChange: a.providerModelName.Set, Placeholder: apptext.T("显示名称，可留空"),
+								field(apptext.T("模型名称"), "", core.Input{Value: a.providerModelName.Get, OnChange: a.providerModelName.Set, Placeholder: apptext.T("显示名称，可留空"),
 									Label: apptext.T("模型名称"), TestID: "provider-model-name",
 									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
 										Color: colors.Text(), Background: colors.Field(),
-										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
+										BorderWidth: 1, BorderColor: colors.FieldBorder()}}),
 							}},
 						}},
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-								core.Input{Value: a.providerModelContext.Get, OnChange: a.providerModelContext.Set, Placeholder: "128000",
+								field(apptext.T("上下文"), "", core.Input{Value: a.providerModelContext.Get, OnChange: a.providerModelContext.Set, Placeholder: "128000",
 									Label: apptext.T("上下文"), TestID: "provider-model-context",
 									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
 										FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
-										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
+										BorderWidth: 1, BorderColor: colors.FieldBorder()}}),
 							}},
 							core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-								core.Input{Value: a.providerModelMax.Get, OnChange: a.providerModelMax.Set, Placeholder: "8192",
+								field(apptext.T("最大输出"), "", core.Input{Value: a.providerModelMax.Get, OnChange: a.providerModelMax.Set, Placeholder: "8192",
 									Label: apptext.T("最大输出"), TestID: "provider-model-max",
 									Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FontSize: 11,
 										FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
-										BorderWidth: 1, BorderColor: colors.FieldBorder()}},
+										BorderWidth: 1, BorderColor: colors.FieldBorder()}}),
 							}},
+						}},
+						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
+							ui.Text(apptext.T("推理"), 11, ui.Regular, colors.Text),
 							ui.Switch{Checked: a.providerModelReasoning.Get, Label: apptext.T("推理"), TestID: "provider-model-reasoning",
 								OnChange: a.providerModelReasoning.Set},
+							ui.Text(apptext.T("图片输入"), 11, ui.Regular, colors.Text),
 							ui.Switch{Checked: a.providerModelImages.Get, Label: apptext.T("图片输入"), TestID: "provider-model-images",
 								OnChange: a.providerModelImages.Set},
 						}},
 						core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 							ui.Text(apptext.T("费用"), 10.5, ui.Medium, colors.Muted),
 							core.Text{Content: apptext.T("每百万 token 的美元价"), Style: core.Style{FontSize: 10}, StyleFunc: ui.Colored(colors.Faint)},
+						}},
+						core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
 							money(a.providerModelCostIn, apptext.T("输入"), "provider-model-cost-in"),
 							money(a.providerModelCostOut, apptext.T("输出"), "provider-model-cost-out"),
 							money(a.providerModelCostRead, apptext.T("缓存读"), "provider-model-cost-read"),
@@ -537,7 +548,7 @@ func (a *app) providerDialog() core.Node {
 					OnPress: func() { a.queryProviderBalance() }},
 				ui.Button{Text: apptext.T("测试连接"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "provider-test",
 					OnPress: func() { a.testProvider() }},
-				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: apptext.T("取消"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "provider-cancel",
 					OnPress: func() { a.providerOpen.Set(false) }},
 				ui.Button{Text: apptext.T("保存"), Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "provider-save",
 					OnPress: func() { a.saveProvider() }},

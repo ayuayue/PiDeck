@@ -20,7 +20,7 @@ RPC 模式。主界面用 NSGo 原生渲染，不依赖 Electron；内置浏览�
 
 新增持久化数据：`session-groups.json`（分组/关联）、`drafts.json`（草稿本）、`balance-accounts.yaml`（独立余额凭据）、`memory/`（记忆）、会话文字草稿文件、`video/jobs.yaml` 与 `video/blobs/`（视频记录与产物）、`wechat/connection.yaml`（微信凭据/游标）。配置类文件采用版本校验和原子写入；坏文件按空数据降级。设置包包含分组、草稿本、余额账户等配置，**可能包含凭据**，请妥善保管；微信令牌、会话内容、记忆、视频与缓存不进设置包或诊断包。云同步使用密码派生密钥和 AES-GCM 加密，密码至少 12 字符，服务凭据不会下发手机。
 
-功能边界及逐项状态见 [路线图](docs/ROADMAP.md)。本轮继续对照 v0.12.0；上游 2026-11-19 发布的 v0.13.0 尚未逐项验收。2026-11-21 另对 PiDeck dev v0.13.1 做了只读桌面 UI 对照，涵盖设置、模型配置、弹窗、会话、输入区、侧栏、右侧面板和终端；改动与截图路径见[对照记录](docs/PIDECK-UI-COMPARISON-2026-11-21.md)。
+功能边界及逐项状态见 [路线图](docs/ROADMAP.md)。本轮继续以 v0.12.0 为功能基线；上游 2026-11-19 发布的 v0.13.0 尚未逐项验收。2026-11-21 对 PiDeck dev v0.13.1 做了桌面 UI 对照，逐页查看系统设置、Pi 配置、弹窗、会话、输入区、右侧面板和终端，并按 Lite 的现有边界改进设置导航、配置流程、消息/菜单交互和 Windows 终端；范围、仍有差异的页面与截图入口见[对照记录](docs/PIDECK-UI-COMPARISON-2026-11-21.md)。
 
 验证命令、原生界面截图位置、真实目录数据与未验收项见 [本轮验收记录](docs/VALIDATION-2026-11-20.md)。
 
@@ -251,6 +251,7 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
 **终端**
 - 底部终端面板（`Ctrl+Shift+T` 或标题栏按钮），可拖动上沿改高度，关闭面板后 shell 继续运行
 - 多标签：新建、切换、关闭、重启、清屏；标签跟随程序标题（右键可重命名），右键可关闭其他/全部终端
+- Windows 本机可从终端栏选择已安装的 PowerShell、Windows PowerShell、cmd 或 Git Bash；WSL 与 SSH 仍使用目标自己的 shell
 - 真 PTY + Ghostty 终端模拟器（NSGo `base/terminal`）：颜色、宽字符、滚动回看、程序自绘 UI
 - 终端配色跟随应用主题：底色、文字、光标与 ANSI 常用色取自当前调色板，浅色/深色各自成立；
   字号在 设置 → 外观 里用滑块调（8–20 pt），立即重绘并记住
@@ -466,6 +467,7 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
   其余保持原样），可一键测试连接（先探 `/models`，再退到一次最小 chat 请求），
   也可查询余额（OpenRouter / Moonshot / DeepSeek / SiliconFlow 按 BaseURL 或供应商 ID 识别；
   其他供应商可在供应商配置里填「余额接口 / 余额字段 / 余额货币」，字段是 JSON 路径，支持数组下标）
+- 添加供应商：在 设置 → 模型与认证 中填写供应商 ID、API 类型、Base URL、可选 API Key 和首个模型，保存后立即出现在该页的工具模型选择中；pi 会话读取新供应商时按原有流程重启 Agent
 - 模型条目：供应商配置里可直接增删改 `models`（id / 名称 / 上下文 / 最大输出 / 推理 / 图片输入 /
   四项价格），并可视化编辑 7 个 `compat` 开关（自动/打开/关闭，pi 的内置目录给出的建议会显示出来）；
   只写这些字段，条目里的其余字段与其余 `compat` 键保持原样
