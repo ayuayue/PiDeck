@@ -1,7 +1,11 @@
-## Unreleased
+## v0.13.2 (2026-11-21)
+
+PiDeck 0.13.2 fixes remote Git requests timing out immediately in 0.13.1. It also includes the remote skill picker fix and all other improvements from 0.13.1.
 
 ### 🐛 Fixes
 - **Remote Git requests keep their admitted timeout** — pass the queue entry's deadline to the Git worker so asynchronous reads and writes no longer fail immediately with `REQUEST_TIMEOUT`. Queued requests still consume their original budget.
+
+The contributions shipped in 0.13.1 remain included: thanks to **KingLingo** for focus-aware tab closing (#585), **ZedingZhang** for streaming speed statistics (#583, #587), and **bfzha** for remote workspace, message delivery, navigation and pi 1.6.0 improvements.
 
 ## v0.13.1 (2026-11-21)
 

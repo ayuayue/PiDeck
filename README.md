@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.13.1-blue)
+![Version](https://img.shields.io/badge/version-0.13.2-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -50,7 +50,7 @@
   - [📑 目录](#-目录)
   - [✨ 核心亮点](#-核心亮点)
   - [📋 更新日志](#-更新日志)
-    - [v0.13.1 更新亮点](#v0131-更新亮点)
+    - [v0.13.2 更新亮点](#v0132-更新亮点)
   - [🧩 功能总览](#-功能总览)
     - [工作区与项目](#工作区与项目)
     - [会话与对话](#会话与对话)
@@ -92,17 +92,10 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.13.1**（2026-11-21）
+> **最新版本 v0.13.2**（2026-11-21）
 
-### v0.13.1 更新亮点
-- 🚀 **SSH 工作区和本机项目共用 Git 面板**
-- 🚀 **通过 SSH 管理 MCP 服务**
-- 🚀 **自定义公网地址与 PiDeck Lite 兼容**
-- 🚀 **按范围筛选智能体记忆**
-- ✨ **远端工作区的技能选择器恢复可用**
-- ✨ **远端文件在中间栏打开**
-- ✨ **压缩期间发送的消息会排队**
-- ✨ **Cmd/Ctrl+W 关闭当前聚焦的工作区标签**
+### v0.13.2 更新亮点
+- ✨ **远端 Git 请求保留受理时的超时预算**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 
