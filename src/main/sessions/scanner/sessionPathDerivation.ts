@@ -1,3 +1,4 @@
+import { dirname, posix, resolve } from "node:path";
 import type { SessionSummary } from "../../../shared/types";
 
 /** 路径归属推导需要的宿主持有面：本次扫描根与默认根。 */
@@ -119,4 +120,11 @@ export function sessionPathToken(path: string) {
 	const win = normalized.match(/^([A-Za-z]):\/(.*)$/);
 	if (win) return `--${win[1]}--${win[2].replace(/\//g, "-")}--`.toLowerCase();
 	return `--${normalized.replace(/^\//, "").replace(/\//g, "-")}--`.toLowerCase();
+}
+
+/** pi 的父会话引用以文件目录或会话 cwd 为基准；WSL 始终使用 POSIX 绝对路径语义。 */
+export function forkParentCandidates(filePath: string, parentSession: string, wsl: boolean, cwd?: string): string[] {
+	const fileDir = wsl ? posix.dirname(filePath) : dirname(filePath);
+	const resolveFrom = (base: string) => (wsl ? posix.resolve(base, parentSession.replace(/\\/g, "/")) : resolve(base, parentSession));
+	return [...new Set((cwd ? [fileDir, cwd] : [fileDir]).map(resolveFrom))];
 }

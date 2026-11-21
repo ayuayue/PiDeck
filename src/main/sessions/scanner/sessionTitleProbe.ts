@@ -214,7 +214,7 @@ export async function inferFirstMessageTitle(host: SessionTitleProbeHost, filePa
  * 判定：session header 带 parentSession 且会话名匹配 <agent>#<8hex>。
  * 只有该形态的平铺文件会命中；用户 fork（名字是用户命名）、普通会话不被误判。
  */
-async function detectFlatSubagentParentFromHead(host: SessionTitleProbeHost, filePath: string, raw: string): Promise<string | undefined> {
+function flatSubagentReference(raw: string): { parentSession: string; cwd?: string } | undefined {
 	// 头部截断产生的半行会被 JSON.parse 跳过，不影响本次探测。
 	let forkParentSession: string | undefined;
 	let latestSessionInfoName: string | undefined;
@@ -239,9 +239,14 @@ async function detectFlatSubagentParentFromHead(host: SessionTitleProbeHost, fil
 	// tintinweb 会话名 <agent>#<8hex>：名字必须落在 #8 位十六进制后缀，
 	// 否则视为用户 fork / 普通会话（fork 名由用户命名，通常不含该模式）。
 	if (!/^[^#]+#[0-9a-f]{8}$/i.test(latestSessionInfoName)) return undefined;
-	const isWsl = host.isWslPath(filePath);
+	return { parentSession: forkParentSession, cwd: sessionHeaderCwd };
+}
+
+async function detectFlatSubagentParentFromHead(host: SessionTitleProbeHost, filePath: string, raw: string): Promise<string | undefined> {
+	const ref = flatSubagentReference(raw);
+	if (!ref) return undefined;
 	// header cwd 缺失（旧文件）时回退按文件路径推断项目根，两种基准都覆盖不到才放弃。
-	return host.resolveForkParentPath(filePath, forkParentSession, isWsl, sessionHeaderCwd ?? inferProjectPathFromFile(filePath));
+	return host.resolveForkParentPath(filePath, ref.parentSession, host.isWslPath(filePath), ref.cwd ?? inferProjectPathFromFile(filePath));
 }
 
 /**
@@ -257,4 +262,10 @@ export async function probeTintinwebSubagentParent(host: SessionTitleProbeHost, 
 	const head = await readHeadAndInfer(host, filePath, false);
 	if (!head) return undefined;
 	return detectFlatSubagentParentFromHead(host, filePath, head.raw);
+}
+
+/** 归档保留的是原始 parentSession 引用，读取归档文件头后须相对原位置解析。 */
+export async function readArchivedSubagentReference(host: SessionTitleProbeHost, archivedPath: string) {
+	const head = await readHeadAndInfer(host, archivedPath, false);
+	return head ? flatSubagentReference(head.raw) : undefined;
 }
