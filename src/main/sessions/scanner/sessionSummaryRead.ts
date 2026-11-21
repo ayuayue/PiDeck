@@ -4,6 +4,7 @@ import { basename } from "node:path";
 import type { SessionLocator, SessionSummary } from "../../../shared/types";
 import { getCodexSessionThreadInfo } from "../../../shared/codexSessionMeta";
 import { replaceExpandedRefBlocksWithLabels } from "../../../shared/expandedRefBlocks";
+import { canonicalizeSessionPath } from "../../../shared/sessionIdentity";
 import { isRoleMessageRole } from "../../pi/sessionEntryIds";
 import type { SessionFileVersion, SessionSummaryCache } from "../sessionSummaryCache";
 import { extractTextFromContent, inferSessionTitleFromLines, isSessionScanLine, type SessionScanMessage } from "../sessionNameLine";
@@ -25,7 +26,6 @@ export type SessionSummaryReadHost = {
 	inferParentSessionFromPath(filePath: string): string | undefined;
 	inferWslParentSessionFromPath(filePath: string, signal?: AbortSignal): Promise<string | undefined>;
 	resolveForkParentPath(filePath: string, forkParentSession: string, isWsl: boolean, sessionCwd?: string, signal?: AbortSignal): Promise<string | undefined>;
-	canonicalProjectPath(path: string, wsl: boolean): string;
 	/** 路径比「sessions 根下的单层 jsonl」更深（父会话探测的门禁）。 */
 	looksLikeNestedSessionPath(filePath: string): boolean;
 	/** 无名称/无预览时的占位文案（宿主持有 i18n 注入）。 */
@@ -289,7 +289,7 @@ export async function readSessionSummary(host: SessionSummaryReadHost, filePath:
 		id: filePath,
 		filePath,
 		locator: host.sessionLocatorForPath(filePath, isWsl),
-		projectPath: projectPath ? host.canonicalProjectPath(projectPath, isWsl) : inferProjectPathFromFile(filePath),
+		projectPath: projectPath ? canonicalizeSessionPath(projectPath, isWsl ? "wsl" : "native") : inferProjectPathFromFile(filePath),
 		name: inferredName,
 		// 无名称时的会话占位文案不是权威名；有名称时透传来源供 catalog 定所有权（#266）。
 		nameFromSessionInfo: inferred.name ? inferred.fromSessionInfo : undefined,
