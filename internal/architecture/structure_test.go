@@ -74,8 +74,11 @@ func sources(t *testing.T) []source {
 		}
 		rel = filepath.ToSlash(rel)
 		if entry.IsDir() {
+			if entry.Name() == ".nsgo" {
+				return fs.SkipDir // generated tooling, including caches beside TSX examples
+			}
 			switch rel {
-			case ".git", ".nsgo", "dist", "webassets/site":
+			case ".git", "dist", "webassets/site":
 				return fs.SkipDir
 			}
 			return nil

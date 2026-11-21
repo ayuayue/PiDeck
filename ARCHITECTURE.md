@@ -30,7 +30,7 @@ as a Cloudflare Worker (the recommended deployment: no server, no fixed IP). Nei
 of the desktop or phone binaries. The relay copies bytes only: the desktop's TLS lives inside the
 tunnel, so the relay never reads the token or a session.
 
-`internal/architecture/structure_test.go` is the executable version of this table. Every package under `internal/` needs an explicit rule there. Add the rule and this table together before introducing a package.
+`internal/architecture/structure_test.go` is the executable version of this table. Every package under `internal/` needs an explicit rule there. Add the rule and this table together before introducing a package. NSGo's generated `.nsgo` caches may sit beside an example; they are outside the source scan.
 
 The workbench and client are separate application hosts. `client` must not import `workbench`, `sessionimport`, desktop services, SQLite, or process execution. Pure matching algorithms and DTOs move to packages below both hosts.
 

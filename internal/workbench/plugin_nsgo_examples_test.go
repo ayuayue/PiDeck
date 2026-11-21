@@ -24,7 +24,7 @@ import (
 // Source and signing tools belong to tests, not the shipped Lite runtime.
 // The keys below are generated in memory per test and never saved.
 //
-//go:embed plugin_examples/nsgo-ui/* plugin_examples/nsgo-functions/*
+//go:embed plugin_examples/nsgo-ui plugin_examples/nsgo-functions plugin_examples/nsgo-session-tools
 var nsgoPluginExampleSources embed.FS
 
 func verifiedNSGoExample(t *testing.T, dir, entry string) *pkg.Package {

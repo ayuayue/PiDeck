@@ -1,0 +1,6 @@
+name: Lite Session Tools Example
+id: dev.pideck.lite.examples.session-tools
+version: 1.0.0
+build_number: 1
+capabilities:
+  host: [sessions.list]

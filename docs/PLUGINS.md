@@ -5,10 +5,8 @@
 
 ## 结论与本轮边界
 
-现有实现是一套可用的**声明式扩展系统**，不是完整的 UI/功能代码插件平台。插件市场有 UI、
-自定义索引、官方/社区发现与单文件安装；此前更新按钮没有真正完成更新，官方发现也不等于
-Lite 兼容市场。沿用当前工程约束，本轮修复声明式链路并提供完整示例；TSX 宿主作为明确的下一阶段，
-不悄悄把现有“不执行插件代码”的契约改掉。
+当前桌面版开放了六类声明式贡献，市场支持单文件安装、更新和可恢复卸载，也能离线安装三套完整示例。
+共用市场的混合索引已在独立仓库准备发布。NSGo 自定义 UI 和函数由测试宿主验证，桌面应用的生产执行入口待接入。
 
 | 能力 | 当前状态 | 所有者 / 限制 |
 | --- | --- | --- |
@@ -17,7 +15,7 @@ Lite 兼容市场。沿用当前工程约束，本轮修复声明式链路并提
 | 主题 | 已开放 | 浅深角色色、token；本地相对文件或兼容的内联主题 |
 | 智能体 | 已开放 | 提示词 persona，适用于现有后端；不是新后端或自定义工具运行时 |
 | 事件 | 已开放 | 九类既有事件；同步事件通知与受限动作，不是持久化工作流引擎 |
-| 市场 | 部分完成 | 单文件安装/更新、可恢复卸载、回收区备份、内置例子、索引发现；上游 registry 仍为 v1，无资源包发布/摘要/签名 |
+| 市场 | 部分完成 | 单文件安装/更新、可恢复卸载、回收区备份、内置例子。共用仓库已准备混合索引的发布改动，线上仍提供 v1。资源包、摘要与签名待接入 |
 | 自定义 UI | 未在 Lite 开放 | 不能贡献 page/modal/popover/工具渲染器，也不能直接注册任意 NSGo 组件 |
 | 自定义函数 / 工具 | 未在 Lite 开放 | 不能提供自定义 JS 导出、shell、文件 API 或 MCP 工具 |
 | 移动端 / Web 插件 | 未开放 | 当前加载器在桌面宿主；客户端只走远程 API，不下发桌面能力 |
@@ -93,11 +91,9 @@ Lite 兼容市场。沿用当前工程约束，本轮修复声明式链路并提
 
 ## 复用 pideck-plugins 市场
 
-已核实上游目前是 registry v1，条目对应 `pideck-plugin.json` 的 HTML 宿主插件，schema 使用
-`additionalProperties: false`，收录脚本还会核对插件目录和派生字段。因此**只向现有文件加 runtime 会被拒绝**。
-本轮只修改 Lite 消费端，没有改写或发布市场仓库。
-
-建议保留同一个市场仓库与贡献流程，协调升级成混合 registry v2：
+当前线上 `registry.json` 对应 `pideck-plugin.json` 的 HTML 宿主插件，使用严格的 v1 schema。
+市场仓库的构建改动另发布 `registry-v2.json`，按运行时区分条目。Electron 和市场网站继续读取原入口。
+混合索引示意如下。
 
 ```json
 {
@@ -123,17 +119,13 @@ Lite 兼容市场。沿用当前工程约束，本轮修复声明式链路并提
 }
 ```
 
-上面是格式示意，第二条 URL 不是已发布下载源。Lite 侧已能消费此格式：v2 要求每条声明 runtime，
-仅明确的 pideck-lite + 合法清单 URL 出现安装按钮，其他运行时仅跳项目。旧官方 v1 无 runtime 的条目
-仍按 Electron 项目发现；旧自定义 `{plugins:[{id,name,url}]}` 和数组索引仍按原 Lite 格式处理。
+Lite 的「官方索引」优先取 GitHub Pages 的混合索引，失败时尝试原有 GitHub 和 AtomGit v1 源。
+混合索引要求每条声明 `runtime`。`pideck-lite` 条目带清单下载地址，可以安装、更新。
+`pideck-electron` 条目保留项目入口。旧官方 v1 和自定义 `{plugins:[{id,name,url}]}` 或数组仍可读取。
 
-市场仓库下一步要一起改：
-
-1. registry schema 增加 runtime，并按运行时区分清单位置、下载地址与允许的派生字段。
-2. 校验器按 runtime 分派给 Lite v2 与 Electron 校验器；保留每类的独立预算、模板和安装验证。
-3. Electron 消费端也按 runtime 筛选；先发布双版本读取，再切 v2 索引，防止旧客户端把 Lite 清单当 HTML 插件。
-4. CI 验证 manifest ID/版本与 registry 一致，拒绝跨运行时混装；同仓库多插件保留各自稳定身份。
-5. 后续资源包引入内容摘要/签名与确定版本的下载地址，再做自动更新；v2 清单现在没有签名验证。
+市场构建从原 v1 派生 Electron 条目，从 PiDeck Lite 公开仓库的固定提交派生三套 Lite 示例，下载地址同样固定到
+这个提交。市场侧检查清单标识、必填字段、ID 冲突和单文件分发条件，实际安装时由 Lite 校验 ID、版本和各项贡献。
+市场仓库发布后，在线官方索引即可显示这三套示例。资源包与自动更新仍需另行验证内容摘要、签名和更新策略。
 
 当前 HTTP 下载有超时与硬体积上限，写入是原子文件替换；**市场仍只下载一个清单**，不会顺带下载
 `contributes.themes` 的相对文件，更不会执行仓库安装脚本。基础示例使用现有内联主题格式解决单文件分发，
@@ -154,43 +146,64 @@ Lite 兼容市场。沿用当前工程约束，本轮修复声明式链路并提
 宿主的按钮、说明、错误和计数补齐六个翻译目录。三个例子的快捷键互不冲突，且只占空闲键。
 “基础界面”演示宿主已有控件，不能误称可动态加载任意 UI 组件。
 
+## Magpie 与 NSGo 的扩展方式
+
+以 Magpie `2a2a8d734210` 为准，社区插件已经可以定义自己的界面。内置扩展、社区界面和社区功能分别有各自的入口。
+
+| 扩展 | Magpie 已实现的能力 | Lite 可借鉴的做法 |
+| --- | --- | --- |
+| 内置插件 | Go `pluginrt` 管理服务依赖、配置 schema、启停和反向清理。Gateway、Sessions 等内置插件通过 `page` 插槽提供 Web 页面 | 在宿主整理清楚扩展点、状态归属和停用清理，再开放接口 |
+| 社区 UI | `package.json` 的 `magpie.page` 提供独立 HTML 页面，`magpie.panels` 可放进 Agents、Usage、Settings 或提供商编辑器。宿主通过沙箱 iframe、受限消息桥与读取权限提供主题、配置和数据。页面可按允许列表替换内置页 | 保留命名插槽、可预览的权限和单组件失败回退。Lite 用 NSGo 原生树承载首个面板 |
+| 社区功能 | OpenCode 兼容的 Bun/npm 宿主可提供 provider 与工具。工具可经受控 MCP 入口提供给智能体，插件进程按本机用户权限运行 | 先让 Lite 的函数由用户触发，复用宿主有界数据。单独处理智能体工具注册和授权 |
+
+Magpie 的社区页面可以独立安装，无需启动 Bun。以本机的 CodeBuddy 导入为例，它使用 provider 扩展点；同一市场还
+有 Day card 这类自定义界面。需要核对页面和面板的声明格式时，可直接查看上游的 `panel-plugin` fixture。
+
 ## NSGo 作为下一阶段的实现基础
 
 锁定版本已有完整的相关原语：
 
-- `tsx.View` 把已验证包放入原生 Go 视图树，`tsx.Load` / `Plugin.Call` 加载无界面的函数包。
-- `tsx/pkg.Trust.Verify`、签名证书、撤销列表和防回滚；验证在 UI 线程外，接受运行版本与授权必须由宿主管理。
-- `Sandbox.Grant` 缩小包声明的能力，独立 `core.Host` 桥接、按包 ID 分区的 Storage、时间/节点/请求预算；升级后增加默认 64 MiB 的部分内存分配预算、可选 `Limits.CallTotal` 总调用期限和 `Plugin.Interrupt`。
-- `core.Catch` 做 UI 异常边界，插件作用域销毁时回收回调、订阅和运行时，不能只从列表删掉名字。
+- `tsx.View{Export, Props}` 按导出名把已验证包里的组件放入 Go 视图树。宿主给定视图、尺寸和 JSON 参数，每次挂载拥有自己的 VM。
+  `tsx.Load` / `Plugin.Call` 可用同一个包运行命名函数。示例入口只导出组件和函数，函数加载时无需挂载 UI。
+- `Trust.Verify` 验证证书、签名、包哈希、最低运行时版本和撤销状态。在后台用 `OpenTrust` 持久化撤销列表和已接受的构建号。
+  `Trust.Accept` 在宿主确认候选版本可用时推进构建号下限，并复查撤销。当前 API 允许同一构建号出现不同包，授权仍需绑定签名者和包摘要。
+  若启用 `RequireFreshRevocations`，每个受信根都须有有效撤销列表。宿主决定何时刷新，并负责停掉之后被撤销的活跃实例。
+- `Sandbox.Grant` 与包声明取交集。每个活跃视图或函数实例使用独立 `core.Host`，因为一个通道在同一时间只有一个接收者。
+  Storage 按包 ID 分区，同包的视图可以共享持久化偏好，内存状态仍各自独立。`Limits.CallTotal` 可选，作用于 `tsx.Load`
+  创建的函数运行时。`Plugin.Interrupt` 可从后台停止函数，`Close` 由宿主引擎线程负责。
+- `core.Catch` 在宿主视图内捕获失败并回退。移除视图会释放该作用域的订阅和回调，宿主发起的后台工作仍由宿主负责取消。
 
-因此不建议自行发明 JSON UI 树或另一套 JS 引擎。推荐保留 v2 作为轻量零代码层，未来新增一个明确版本的
-“签名 NSGo 包层”，复用框架 UI 与函数运行时。它是新的外部契约，进入生产前需要更新项目的插件边界说明，
-不能默认把现有 v2 清单升级为有代码执行权的插件。
+Lite 可以保留 v2 的命令、设置、主题、键位、事件和智能体，再用独立运行时标识分发签名 NSGo 包。
+`pkg.Contents.Extra` 可以携带签名覆盖的 Lite Host API 版本与组件导出声明；权限申请由包的 `Capabilities` 声明。
+市场标识用于发现和选择安装流程。
+生产接入属于新的外部契约，需要更新项目的插件边界和运行授权流程。
 
-两个源码验证例子已放入同一目录的子目录；**它们只由测试宿主运行，不进入生产插件市场，也不启用 TSX 生产宿主**：
+下列源码示例由测试宿主编译、签名和运行。桌面市场目前提供声明式示例。
 
 - `nsgo-ui/App.tsx`：真实组件、响应式信号、一个受限 `context.read` host 调用、插件分区存储、状态/失败反馈。
   测试编译并签名，验证合法包，拒绝篡改包，挂载组件、点击两次、验证状态与宿主存储隔离；
   包声明的能力被宿主 `Grant` 收回后，Host handler 也不会收到调用。
 - `nsgo-functions/App.ts`：无 UI 的会话摘要函数，只消费调用方传入的有界摘要，验证类型/数量/计数，不读取文件或全局状态。
   测试验证包并 `tsx.Load`，检查 JSON 返回值、坏输入和缺失导出的失败路径。
+- `nsgo-session-tools/App.tsx`：一个包导出 `SessionPanel`、`SessionBadge` 和 `readSessionTotals`，分别验证宿主面板、紧凑组件和函数调用。
+  面板与徽标使用同一套统计逻辑。固定的 `sessions.list` 方法只返回测试会话的后端和消息数量，最多 200 条。
+  验证声明权限与实际授权的差异、实例隔离、关闭后丢弃旧回复、函数关闭时结束在途调用，以及缺失组件时兄弟面板仍能刷新。
 
 `nsgo.yaml` 是示例包身份、版本与最小能力的来源，测试直接读取它构包。测试密钥每次在内存生成，
 不写私钥、不依赖真实发布凭据。
-这证明锁定的 NSGo 接口可以承载两类插件，不代表生产授权、分发和生命周期已经实现。
+在仓库根目录可单独运行三套示例。所有会话数据、包和签名密钥均由测试提供。
+
+```powershell
+go test ./internal/workbench -run '^TestNSGoPlugin' -count=1
+```
 
 ### 生产接入的最小设计
 
-1. **UI 插槽固定**：先开放插件页、对话框、轻量弹出面板三个明确位置；宿主拥有打开/关闭、尺寸、焦点和异常边界。
-   先不让插件替换整个聊天树、编辑器或终端。
-2. **Host API 小而显式**：起步只提供 `context.read`、有界 `sessions.list`、用户触发的 `draft.replace` 和受限命令调用。
-   每个插件一条 channel，入参 schema、会话 ID、作用域、授权和限额都在 Go 侧重查；不暴露 `*app`、任意路径、exec 或令牌。
-3. **数据仍归宿主**：会话来自文件/pi 投影，函数包收副本；每次调用重新验证会话是否存在，不能缓存一个可变“第二会话库”。
-   插件自己的偏好进分区存储，文档与备份明确范围；凭据不能混入普通 Storage。
-4. **生命周期有验收条件**：用户授权 → 校验 → 安装 → 按需激活 → 禁用/重新加载释放；升级权限变化重新授权，失败保留可用旧版本。
-   未获授权的事件不下发完整回答、路径和图片。
-5. **先桌面、再客户端**：执行层留在 workbench；需要共享时只投影 DTO 到 remotewire，客户端走 HTTP。
-   不把 workbench、Goja 或打包器带入 Web，以免破坏包边界和 12 MB 预算。
+1. 从桌面插件详情里的单个面板插槽起步。宿主通过独立作用域控制打开、关闭、尺寸、焦点和错误回退；对话框和菜单等在有实际插件需要时再归位。
+2. 首个 `sessions.list` 仅提供当前项目有界的会话摘要。Go 侧校验入参、当前项目和授权。会话来源仍由 pi 文件和 ACP 投影决定，插件内的存储仅持有自己的偏好。
+3. 对安装或更新包先在后台验证，展示签名者和权限后按需激活。候选包通过健康检查前保留可运行的旧包，之后再接受新的构建号。
+   停用、撤销、切项目和重载都要让旧实例退出，取消后台工作并阻止旧结果进入新实例。撤销后恢复旧包时也要重新验证。
+4. 执行层留在 workbench。客户端需要显示结果时走 `remotewire` 和 HTTP。独立评估 Web 的隔离方式及 12 MB 体积预算后再决定是否开放执行。
 
 两个真实限制必须进入产品边界：升级后锁定的 NSGo 默认以 `Limits.Memory` 对原生目标的部分按大小分配内置操作
 设置 64 MiB 预算，但对象、逐个增长的数组、拼接与展开等内存不在完整计量范围，仍没有硬堆内存隔离。因此只能先
@@ -199,8 +212,8 @@ Lite 兼容市场。沿用当前工程约束，本轮修复声明式链路并提
 
 ## 实施顺序与验收
 
-- 第一阶段（本轮）：明确身份、修好声明式链路、三套离线例子、UI/函数验证例子与回归测试。
-- 第二阶段：在市场仓库和两端消费者中协调 registry v2，真正收录 Lite 例子；资源包、摘要和更新策略一起验收。
+- 第一阶段：明确身份、修好声明式链路、三套离线例子、UI/函数验证例子与回归测试。
+- 第二阶段：市场仓库按原 v1 与混合 v2 双入口分发，Lite 已接入优先读取与旧源回退。还需要发布市场仓库的提交，在线确认收录与安装。资源包、摘要和更新策略另行验收。
 - 第三阶段：经明确的 v3 契约设计接入受信签名 TSX UI 与函数宿主，加入权限、撤销、禁用清理、取消和失败恢复测试。
 - 第四阶段：按实际需求补充 API，而不是一次开放所有宿主能力；客户端/浏览器支持另做隔离与预算验收。
 
@@ -280,12 +293,27 @@ go test -mod=readonly ./internal/workbench -run '^TestTokenDanceSettingsRows$' -
 - `go tool nsgo build -target windows_x64 -output <验证目录>/build` 通过，产物 **63.5 MB**；
   未运行桌面程序、未生成 NSIS 安装器。本轮未改客户端代码，未执行 Web 或其他平台构建。
 
-本次提交不包含市场上游仓库的 schema/发布改动，也未开放生产 TSX 宿主；其余插件边界仍按上文设计。
+卸载恢复提交未修改市场上游仓库，也未开放生产 TSX 宿主。
+
+### 混合市场索引与命名视图验证（2026-11-21）
+
+- Lite 仓库的 `go tool nsgo check`、会话统计示例的独立类型检查、插件专项和 Windows x64 构建通过。
+  最终 `go tool nsgo test -- -short -count=1 -timeout=20m` 为 **675 通过、0 失败、55 跳过**。
+  最终门禁保留了示例生成的 `.nsgo` 缓存，架构扫描与测试嵌入都排除了它。首轮曾遇到 pi 认证测试的 Windows 临时目录清理失败；
+  基线和本次代码各独立复跑三次均通过，最终完整套件也通过。
+- `pideck-plugins` 的本地 `codex/lite-plugin-registry` 分支（`47cfe72`）通过原有插件校验、打包、混合索引测试和网站构建，
+  生成 4 个 Electron 条目及 3 个 Lite 条目。用实际生成的索引和 Lite 安装器验证了三套清单，六类贡献均可加载。
+  市场提交未推送，线上仍待部署。
 
 ## 一手参考
 
 - 市场 registry：<https://github.com/ayuayue/pideck-plugins/blob/main/registry.json>
 - 市场 schema：<https://github.com/ayuayue/pideck-plugins/blob/main/schema/registry.schema.json>
 - 市场收录契约：<https://github.com/ayuayue/pideck-plugins/blob/main/docs/registry.md>
+- Magpie 的内置运行时、社区页面和面板：<https://github.com/yetone/magpie/blob/2a2a8d734210dd22785280513bad64036c2063d3/docs/subsystems/plugin-runtime.md>
+- Magpie 的社区面板清单例子：<https://github.com/yetone/magpie/blob/2a2a8d734210dd22785280513bad64036c2063d3/internal/gui/testdata/panel-plugin/package.json>
+- Magpie 的 OpenCode 插件工具：<https://github.com/yetone/magpie/blob/2a2a8d734210dd22785280513bad64036c2063d3/docs/subsystems/plugin-tools.md>
 - NSGo 插件示例（当前锁定提交）：<https://github.com/nsgo-dev/nsgo/tree/c70af8a79201/examples/plugins>
 - NSGo 沙箱与签名设计（当前锁定提交）：<https://github.com/nsgo-dev/nsgo/blob/c70af8a79201/docs/architecture/tsx.md>
+- NSGo 命名组件与函数入口（当前锁定提交）：<https://github.com/nsgo-dev/nsgo/blob/c70af8a79201/tsx/view.go>
+- NSGo 签名包、能力约束与锁定版本的默认内存预算提交：<https://github.com/nsgo-dev/nsgo/commit/593206699920d77f036e8bed67fcbd7325034989>、<https://github.com/nsgo-dev/nsgo/commit/4e2f0da91a08d0007a4c90ab17638a9a9e457a40>、<https://github.com/nsgo-dev/nsgo/commit/c70af8a79201695f8b37d76fc4436430d08d6e64>

@@ -5,8 +5,7 @@
 *.syso
 
 # NSGo test and dev artifacts
-/.nsgo/
-/internal/workbench/.nsgo/
+.nsgo/
 
 # App data a test can leave in the working directory
 /config.json
