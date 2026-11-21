@@ -14,11 +14,8 @@ type SnapshotRead = { kind: "missing" } | { kind: "invalid" } | { kind: "valid";
 type PinEnrollment = Pick<SshHostPinStore, "offer" | "answer" | "readPin"> & Partial<Pick<SshHostPinStore, "deletePin" | "hasPendingOffer" | "pendingRoute">>;
 
 /**
- * Cleanup hook for references other stores hold to a host whose profile is being compressed into a
- * retired id. Called at the **same place and with the same retry semantics as pin deletion**: once
- * right after `retire()` commits, and again on every `open()`/`refresh()` for the ids in
- * `retiredHostIds` (so leftovers from a crash or a failed write get a second chance). Failures are
- * swallowed: a hygiene cleanup must never turn the catalog into `needs-repair`, and the next open retries.
+ * Clean `retiredHostIds` alongside pin deletion after `retire()` commits and on every `open()`/`refresh()`, retrying crashes and failed writes.
+ * Failures are swallowed: hygiene must not mark the catalog `needs-repair`; the next open retries.
  */
 export type HostRetiredHook = (hostId: string) => Promise<void>;
 
@@ -723,7 +720,10 @@ export class RemoteHostStore {
 		try {
 			const disk = await loadState(this.userDataDir, this.pinStore, pendingActivationHostId, pendingEndpointChangeHostId);
 			if (disk.status !== "ready") throw new Error("REMOTE_HOST_STORE_NEEDS_REPAIR");
-			if (disk.revision !== expectedRevision || JSON.stringify(disk.profiles) !== JSON.stringify(this.state.profiles) || JSON.stringify(disk.retiredHostIds) !== JSON.stringify(this.state.retiredHostIds)) { if (pendingEndpointChangeHostId === undefined) this.state = disk; throw new Error("REMOTE_HOST_REVISION_CONFLICT"); }
+			if (disk.revision !== expectedRevision || JSON.stringify(disk.profiles) !== JSON.stringify(this.state.profiles) || JSON.stringify(disk.retiredHostIds) !== JSON.stringify(this.state.retiredHostIds)) {
+				if (pendingEndpointChangeHostId === undefined) this.state = disk;
+				throw new Error("REMOTE_HOST_REVISION_CONFLICT");
+			}
 			const { next, result, write } = await change(disk);
 			if (write === false) return result;
 			const encoded = encodeRemoteHostSnapshot(next.profiles, next.retiredHostIds, expectedRevision + 1);
