@@ -78,7 +78,10 @@ func (a *app) brand() core.Node {
 				a.brandMark(28, "rail-brand-logo"),
 				core.View{Style: core.Style{Gap: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinWidth: core.Pt(0)}, Children: []core.Node{
-						core.Text{Content: resolveBrandName(a.cfg.AppDisplayName), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+						core.Text{ContentFunc: func() string {
+							_ = a.brandNameRev.Get()
+							return resolveBrandName(a.cfg.AppDisplayName)
+						}, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 							TestID: "rail-brand-name", Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 14, FontWeight: ui.Bold,
 								LetterSpacing: 0.4, MinWidth: core.Pt(0), FlexShrink: 1}, StyleFunc: ui.Colored(colors.Text)},
 						core.View{Style: core.Style{Padding: core.Symmetric(1, 5), CornerRadius: 4, FlexShrink: 0,
@@ -162,7 +165,10 @@ func (a *app) brandInfo(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
 			a.brandMark(40, "brand-info-logo"),
 			core.View{Style: core.Style{Gap: 3, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-				core.Text{Content: resolveBrandName(a.cfg.AppDisplayName), MaxLines: 2,
+				core.Text{ContentFunc: func() string {
+					_ = a.brandNameRev.Get()
+					return resolveBrandName(a.cfg.AppDisplayName)
+				}, MaxLines: 2,
 					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 16, LineHeight: 20, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
 				core.Text{Content: "PiDeck Lite · v" + brandVersion(), TestID: "brand-app-version",
 					Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10}, StyleFunc: ui.Colored(colors.Muted)},
@@ -185,6 +191,14 @@ func (a *app) brandInfo(cx *core.Scope) core.Node {
 // brandingGroup subscribes only the preview to brandRev. Typing a name
 // updates the rail and popover without rebuilding the focused input.
 func (a *app) brandingGroup(colors ui.Colors) core.Node {
+	nameDirty := false
+	saveName := func() {
+		if !nameDirty {
+			return
+		}
+		nameDirty = false
+		a.saveConfigAsync()
+	}
 	var options []core.Node
 	for _, choice := range []struct{ style, label string }{
 		{logoStyleTUI, "pi TUI 彩色"}, {logoStyleClassic, "pi 经典"}, {logoStyleCustom, "自定义图片"},
@@ -223,8 +237,10 @@ func (a *app) brandingGroup(colors ui.Colors) core.Node {
 		core.View{Style: core.Style{Gap: 7, Padding: core.Symmetric(6, 2)}, Children: []core.Node{
 			ui.Text(apptext.T("应用显示名称"), 12.5, ui.Regular, colors.Text),
 			ui.Text(apptext.T("左上角与品牌信息面板共用；最多 24 个字符，留空使用 PiDeck。"), 11, ui.Regular, colors.Muted),
-			core.Input{Value: func() string { _ = a.brandRev.Get(); return a.cfg.AppDisplayName },
-				OnChange: a.setBrandName, MaxLength: brandNameMax, Label: apptext.T("应用显示名称"), Placeholder: brandNameDefault,
+			core.Input{Value: func() string { _ = a.brandInputRev.Get(); return a.cfg.AppDisplayName },
+				OnChange: func(value string) { nameDirty = true; a.setBrandName(value) },
+				OnSubmit: func(string) { saveName() }, OnBlur: saveName,
+				MaxLength: brandNameMax, Label: apptext.T("应用显示名称"), Placeholder: brandNameDefault,
 				TestID: "brand-display-name", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(280), Height: core.Pt(30),
 					Padding: core.Symmetric(0, 9), FontSize: 12, CornerRadius: 6, BorderWidth: 1,
 					BorderColor: colors.FieldBorder(), Color: colors.Text(), Background: colors.Field(),
@@ -261,7 +277,7 @@ func (a *app) brandingGroup(colors ui.Colors) core.Node {
 		setDivider(),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(6, 2)}, Children: []core.Node{
 			a.brandMark(28, "brand-preview"),
-			core.Text{ContentFunc: func() string { _ = a.brandRev.Get(); return resolveBrandName(a.cfg.AppDisplayName) },
+			core.Text{ContentFunc: func() string { _ = a.brandNameRev.Get(); return resolveBrandName(a.cfg.AppDisplayName) },
 				MaxLines: 1, EllipsizeMode: core.EllipsizeTail, Style: core.Style{FontSize: 12, FontFamily: viewkit.MonoFont(), MinWidth: core.Pt(0), FlexShrink: 1, FlexGrow: 1},
 				StyleFunc: ui.Colored(colors.Text)},
 			ui.Button{Text: apptext.T("恢复默认品牌"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "brand-reset", OnPress: a.resetBrand},

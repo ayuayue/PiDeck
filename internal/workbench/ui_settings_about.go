@@ -30,7 +30,7 @@ func (a *app) settingsAbout() core.Node {
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
 					a.brandMark(44, "about-logo"),
 					core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
-						core.Text{ContentFunc: func() string { _ = a.brandRev.Get(); return resolveBrandName(a.cfg.AppDisplayName) },
+						core.Text{ContentFunc: func() string { _ = a.brandNameRev.Get(); return resolveBrandName(a.cfg.AppDisplayName) },
 							Style: core.Style{FontSize: 15, FontWeight: ui.Semibold}, StyleFunc: ui.Colored(colors.Text)},
 						ui.Text("PiDeck Lite · v"+brandVersion(), 11, ui.Regular, colors.Muted),
 						ui.Text(apptext.T("NSGo 原生窗口 · 只做 pi"), 11, ui.Regular, colors.Muted),

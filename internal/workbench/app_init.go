@@ -60,6 +60,8 @@ func newApp(cx *core.Scope) *app {
 		settingsRev:            core.NewSignal(cx, 0),
 		brandOpen:              core.NewSignal(cx, false),
 		brandRev:               core.NewSignal(cx, 0),
+		brandNameRev:           core.NewSignal(cx, 0),
+		brandInputRev:          core.NewSignal(cx, 0),
 		brandBusy:              core.NewSignal(cx, false),
 		brandError:             core.NewSignal(cx, ""),
 		settingsScroll:         &core.Ref{},

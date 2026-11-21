@@ -21,6 +21,21 @@ func (a *app) settingsEnv() core.Node {
 		a.settingsTick()
 		colors := ui.ColorsOf(cx)
 		info := a.env.Get()
+		editorDirty := false
+		saveEditor := func() {
+			if editorDirty {
+				editorDirty = false
+				a.saveConfigAsync()
+			}
+		}
+		proxyDirty := false
+		commitProxy := func() {
+			if proxyDirty {
+				proxyDirty = false
+				a.applyProxy()
+				a.saveConfigAsync()
+			}
+		}
 		piOK := info.PiPath != "" && info.PiError == ""
 		var rows []core.Node
 		rows = append(rows,
@@ -48,11 +63,11 @@ func (a *app) settingsEnv() core.Node {
 			setRow("外部编辑器", detectedEditorsText(), core.Input{
 				Value: func() string { return a.cfg.EditorCommand }, Placeholder: apptext.T("code / cursor / 自定义命令"),
 				Label: apptext.T("外部编辑器命令"), TestID: "editor-command",
+				OnSubmit: func(string) { saveEditor() }, OnBlur: saveEditor,
 				OnChange: func(v string) {
+					editorDirty = true
 					a.cfg.EditorCommand = v
-					a.st.edit(func(c *config) { c.EditorCommand = v })
-
-					a.bumpSettings()
+					a.st.change(func(c *config) { c.EditorCommand = v })
 				},
 				Style: core.Style{Width: core.Pt(170), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
 					FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
@@ -61,7 +76,8 @@ func (a *app) settingsEnv() core.Node {
 		)
 		proxyField := func(value func() string, set func(string), placeholder, label, testID string) core.Node {
 			return core.Input{Value: value, Placeholder: placeholder, Label: label, TestID: testID,
-				OnChange: set,
+				OnChange: func(v string) { proxyDirty = true; set(v) },
+				OnSubmit: func(string) { commitProxy() }, OnBlur: commitProxy,
 				Style: core.Style{Width: core.Pt(190), Height: core.Pt(28), Padding: core.Symmetric(0, 8), FontSize: 11,
 					FontFamily: viewkit.MonoFont(), Color: colors.Text(), Background: colors.Field(),
 					BorderWidth: 1, BorderColor: colors.FieldBorder(), CornerRadius: 6}}
@@ -71,24 +87,21 @@ func (a *app) settingsEnv() core.Node {
 				func() string { return a.cfg.ProxyApp },
 				func(v string) {
 					a.cfg.ProxyApp = v
-					a.st.edit(func(c *config) { c.ProxyApp = v })
-					a.applyProxy()
+					a.st.change(func(c *config) { c.ProxyApp = v })
 				}, "http://127.0.0.1:7890", "应用请求代理", "proxy-app")),
 			setDivider(),
 			setRow("Agent 代理", "启动 pi 与 ACP 时写入 HTTP(S)_PROXY；重启 Agent 后生效。", proxyField(
 				func() string { return a.cfg.ProxyAgent },
 				func(v string) {
 					a.cfg.ProxyAgent = v
-					a.st.edit(func(c *config) { c.ProxyAgent = v })
-					a.applyProxy()
+					a.st.change(func(c *config) { c.ProxyAgent = v })
 				}, "http://127.0.0.1:7890", "Agent 代理", "proxy-agent")),
 			setDivider(),
 			setRow("直连名单", "NO_PROXY，逗号分隔域名或网段；两侧共用。", proxyField(
 				func() string { return a.cfg.ProxyBypass },
 				func(v string) {
 					a.cfg.ProxyBypass = v
-					a.st.edit(func(c *config) { c.ProxyBypass = v })
-					a.applyProxy()
+					a.st.change(func(c *config) { c.ProxyBypass = v })
 				}, "localhost,127.0.0.1,.local", "直连名单", "proxy-bypass")),
 		}
 		var targets []core.Node

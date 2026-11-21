@@ -169,6 +169,10 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 	if built.cfg.LogoCustomImage != savedImage {
 		t.Fatal("invalid image replaced the existing logo")
 	}
+	screen.WaitUntil(5*time.Second, func() bool {
+		c := readConfig(t, dir)
+		return c.LogoCustomImage == savedImage && c.AppDisplayName == "我的 Pi 工作台"
+	})
 	if c := readConfig(t, dir); c.LogoCustomImage != savedImage || c.AppDisplayName != "我的 Pi 工作台" {
 		t.Fatal("custom branding was not saved")
 	}
@@ -182,6 +186,10 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 		t.Fatal("clearing an image did not fall back to TUI")
 	}
 	screen.Press("id:brand-reset")
+	screen.WaitUntil(5*time.Second, func() bool {
+		c := readConfig(t, dir)
+		return c.LogoStyle == "" && c.LogoCustomImage == "" && c.AppDisplayName == ""
+	})
 	if c := readConfig(t, dir); c.LogoStyle != "" || c.LogoCustomImage != "" || c.AppDisplayName != "" {
 		t.Fatal("reset did not restore all brand defaults")
 	}

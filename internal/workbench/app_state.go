@@ -352,6 +352,8 @@ type app struct {
 	settingsRev   *core.Signal[int]
 	brandOpen     *core.Signal[bool]
 	brandRev      *core.Signal[int]
+	brandNameRev  *core.Signal[int]
+	brandInputRev *core.Signal[int]
 	brandBusy     *core.Signal[bool]
 	brandError    *core.Signal[string]
 	customBrand   brandImage

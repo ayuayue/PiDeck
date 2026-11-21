@@ -7,9 +7,30 @@ package workbench
 
 import (
 	"sort"
+	"sync"
 
+	"example.com/pideck-lite/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
+
+var configWrites sync.WaitGroup
+
+// saveConfigAsync keeps config file IO off the UI thread. The store serializes
+// saves and snapshots its latest in-memory config when each save starts.
+func (a *app) saveConfigAsync() {
+	if a.st == nil {
+		return
+	}
+	st, cx := a.st, a.cx
+	configWrites.Add(1)
+	go func() {
+		defer configWrites.Done()
+		if err := st.save(); err != nil {
+			cx.Post(func() { a.toast(ui.ToastError, apptext.T("保存失败"), err.Error()) })
+		}
+	}()
+}
 
 // settingsTick subscribes the caller to settings changes; pages call it so a
 // switch redraws with the value it now holds.
