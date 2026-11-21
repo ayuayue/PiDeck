@@ -1,0 +1,40 @@
+name: Windows Unit Tests
+
+on:
+  workflow_call:
+  # 只在 dev 改动本工作流时额外运行，直接验证 Windows 门禁配置。
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/windows-unit-tests.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Windows unit tests (${{ matrix.shard }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        # 0.13.1/0.13.2 的全量串行作业都超过 45 分钟。Node 按文件把同一组
+        # glob 分成两片，在独立 runner 上运行。每片保持串行，避免同机并发挂起。
+        timeout-minutes: 45
+        run: npm run test:serial -- --test-shard=${{ matrix.shard }} --test-timeout=120000 --test-force-exit
