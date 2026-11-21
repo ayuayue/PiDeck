@@ -921,6 +921,7 @@
   "这台设备没有可用的相机，用下面的链接和令牌连接吧": "Cet appareil n’a pas de caméra disponible. Connectez-vous avec le lien et le jeton ci-dessous.",
   "这张图里没有二维码": "Aucun QR code trouvé dans cette image",
   "读不到这张图片": "Impossible de lire cette image",
+  "图片尺寸过大，无法识别二维码": "Cette image est trop grande pour lire un QR code",
   "扫码失败：%s": "Échec de la lecture du QR code : %s",
   "打开相机失败：%s": "Impossible d’ouvrir l’appareil photo : %s",
   "请填写访问令牌，或粘贴完整的连接链接": "Saisissez un jeton d’accès ou collez le lien de connexion complet",

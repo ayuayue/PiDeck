@@ -30,8 +30,10 @@ import (
 )
 
 const maxScanImageBytes = 6 << 20
+const maxScanImagePixels = 20_000_000
 
 var errScanImageTooLarge = errors.New("scan image exceeds limit")
+var errScanImageDimensionsTooLarge = errors.New("scan image dimensions exceed limit")
 
 // connectView asks for the desktop's link and token.
 func (a *mobileApp) connectView(cx *core.Scope) core.Node {
@@ -207,6 +209,14 @@ func (a *mobileApp) useScanned(data []byte) {
 	go func() {
 		link, err := decodeQRLink(data)
 		a.cx.Post(func() {
+			if errors.Is(err, errScanImageTooLarge) {
+				a.err.Set(apptext.T("图片太大，上限 6 MB"))
+				return
+			}
+			if errors.Is(err, errScanImageDimensionsTooLarge) {
+				a.err.Set(apptext.T("图片尺寸过大，无法识别二维码"))
+				return
+			}
 			if err != nil || link == "" {
 				a.err.Set(apptext.T("这张图里没有二维码"))
 				return
@@ -278,6 +288,16 @@ func (a *mobileApp) scanQRPhoto() {
 
 // decodeQRLink reads the first QR code in a JPEG or PNG.
 func decodeQRLink(data []byte) (string, error) {
+	if len(data) > maxScanImageBytes {
+		return "", errScanImageTooLarge
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > maxScanImagePixels {
+		return "", errScanImageDimensionsTooLarge
+	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return "", err

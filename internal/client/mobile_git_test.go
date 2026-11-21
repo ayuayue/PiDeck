@@ -134,9 +134,12 @@ func TestMobileGit(t *testing.T) {
 	app.Type("id:mobile-token", token)
 	app.Press("id:mobile-connect")
 	waitApp(app, "text:电脑项目", 15*time.Second)
-	app.WaitFor("id:mobile-git-0", 10*time.Second)
+	openPhoneRail(app)
+	app.WaitFor("id:mobile-project-more-0", 10*time.Second)
+	app.Press("id:mobile-project-more-0")
+	app.WaitFor("id:mobile-project-sheet", 5*time.Second)
+	app.Press("id:mobile-project-git")
 	for i := 0; i < 4; i++ {
-		app.Press("id:mobile-git-0")
 		if waitQuiet(app, "id:mobile-git", 2*time.Second) {
 			break
 		}

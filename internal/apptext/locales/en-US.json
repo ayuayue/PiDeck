@@ -286,6 +286,7 @@
   "这台设备没有可用的相机，用下面的链接和令牌连接吧": "This device has no camera. Connect with the link and token below.",
   "这张图里没有二维码": "No QR code found in this image",
   "读不到这张图片": "Could not read this image",
+  "图片尺寸过大，无法识别二维码": "This image is too large to scan for a QR code",
   "扫码失败：%s": "QR scan failed: %s",
   "打开相机失败：%s": "Could not open the camera: %s",
   "请填写访问令牌，或粘贴完整的连接链接": "Enter an access token, or paste the complete connection link",

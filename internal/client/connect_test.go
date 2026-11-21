@@ -4,8 +4,10 @@ package client
 // and the phone screen against a fake desktop.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"image"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -128,6 +130,24 @@ func TestQRRoundTrip(t *testing.T) {
 	}
 	if got != link {
 		t.Fatalf("decoded %q, want %q", got, link)
+	}
+}
+
+func TestDecodeQRLinkRejectsOversizedDimensionsBeforeDecode(t *testing.T) {
+	data := []byte{
+		0xff, 0xd8, // SOI
+		0xff, 0xc0, 0x00, 0x11, // baseline SOF, 17-byte segment
+		0x08, 0x27, 0x10, 0x27, 0x10, 0x03, // precision, 10000x10000, three components
+		0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00,
+		0xff, 0xda, 0x00, 0x0c, // SOS, 12-byte segment
+		0x03, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00, 0x3f, 0x00,
+		0xff, 0xd9, // EOI; no pixel data is present
+	}
+	if _, _, err := image.DecodeConfig(bytes.NewReader(data)); err != nil {
+		t.Fatalf("test JPEG header is invalid: %v", err)
+	}
+	if _, err := decodeQRLink(data); !errors.Is(err, errScanImageDimensionsTooLarge) {
+		t.Fatalf("oversized image error = %v, want %v", err, errScanImageDimensionsTooLarge)
 	}
 }
 
