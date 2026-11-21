@@ -4,14 +4,15 @@ package viewkit
 // same paper inverted in dark, color only where it means something.
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// The tones, from DESIGN.md.
+// Neutral tones from PiDeck's foundation.css.
 var (
-	ink      = core.RGB(0x18181b)
+	ink      = core.RGB(0x202124)
 	inkDeep  = core.RGB(0x09090b)
 	graphite = core.RGB(0x666666)
 	mist     = core.RGB(0x9a9a9a)
@@ -29,7 +30,14 @@ var (
 
 // pideckTheme is the app's look in both appearances.
 func Theme() *core.Theme {
-	t := &core.Theme{Radius: 8}
+	sans := SansFamily
+	if runtime.GOOS == "windows" {
+		// This SDK's DirectWrite adapter resolves one installed family,
+		// not a per-glyph CSS cascade. Start with a UI face covering CJK
+		// so Chinese body text does not fall through Segoe UI to SimSun.
+		sans = `"Microsoft YaHei UI", "Microsoft YaHei", ` + sans
+	}
+	t := &core.Theme{Radius: 8, Sans: sans, Mono: MonoStack}
 
 	t.Light = core.Palette{
 		Background:     core.RGB(0xffffff),
@@ -39,7 +47,7 @@ func Theme() *core.Theme {
 		Border:         hairline,
 		Text:           ink,
 		TextMuted:      graphite,
-		Accent:         ink,
+		Accent:         core.RGB(0x18181b),
 		AccentHover:    core.RGB(0x3f3f46),
 		AccentPressed:  inkDeep,
 		AccentText:     core.RGB(0xffffff),
@@ -56,8 +64,8 @@ func Theme() *core.Theme {
 		SurfaceHover:   core.RGBA(0xffffff, 0.06),
 		SurfacePressed: core.RGBA(0xffffff, 0.11),
 		Border:         core.RGBA(0xffffff, 0.13),
-		Text:           core.RGB(0xededed),
-		TextMuted:      core.RGB(0xa1a1a1),
+		Text:           core.RGB(0xecece7),
+		TextMuted:      core.RGB(0x9a9a94),
 		Accent:         core.RGB(0xe7e7e7),
 		AccentHover:    core.RGB(0xffffff),
 		AccentPressed:  core.RGB(0xd0d0d0),
@@ -77,8 +85,8 @@ func Theme() *core.Theme {
 		"fieldBorder": hairline,
 		"line":        softLine,
 		"faint":       mist,
-		"accentFill":  ink,
-		"light":       ink,
+		"accentFill":  core.RGB(0x18181b),
+		"light":       core.RGB(0x18181b),
 		"onLight":     core.RGB(0xffffff),
 		"track":       core.RGBA(0x0d0d0d, 0.16),
 		"knob":        core.RGB(0xffffff),
@@ -93,7 +101,7 @@ func Theme() *core.Theme {
 		"field":       core.RGB(0x171717),
 		"fieldBorder": core.RGBA(0xffffff, 0.14),
 		"line":        core.RGBA(0xffffff, 0.08),
-		"faint":       core.RGB(0x949494),
+		"faint":       core.RGB(0xa0a09a),
 		"accentFill":  core.RGB(0xe7e7e7),
 		"light":       core.RGB(0xe7e7e7),
 		"onLight":     core.RGB(0x121212),
@@ -110,7 +118,7 @@ func Theme() *core.Theme {
 	for name, c := range dark {
 		t.Dark.SetColor(name, c)
 	}
-	t.Tokens = map[string]string{"font-sans": "", "font-mono": ""}
+	t.Tokens = map[string]string{}
 	return t
 }
 

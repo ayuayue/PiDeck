@@ -80,7 +80,7 @@ func thinkingTone(cx *core.Scope) core.Color {
 }
 
 // thinkRow is what pi reasoned, folded to one line until opened. It sits a
-// step below the answer: row-sized text in the muted ink, a mono preview
+// step below the answer: row-sized text in the muted ink, a prose preview
 // for the folded line, and the duration in the faint detail size. While it
 // streams it stays open and counts.
 func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core.Node {
@@ -118,7 +118,7 @@ func (a *app) thinkRow(s *session, st turnStep, thinking string, live bool) core
 		} else {
 			header = append(header, core.Text{Content: shorten(thinking, 160), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: detailSize,
-					LineHeight: a.readingDetailLine(), FontFamily: viewkit.MonoFont()},
+					LineHeight: a.readingDetailLine()},
 				StyleFunc: ui.Colored(colors.Faint)})
 		}
 		if live {

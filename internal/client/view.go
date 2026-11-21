@@ -14,7 +14,7 @@ import (
 func (a *mobileApp) view() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		a.language.Get()
-		return core.View{Style: ui.FillRest, Children: []core.Node{
+		return core.View{Style: ui.FillRest, StyleFunc: func() core.Style { return core.Style{FontFamily: cx.Theme().Sans} }, Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				if a.connected.Get() {
 					return a.shell(cx)

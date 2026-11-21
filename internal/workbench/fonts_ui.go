@@ -58,11 +58,10 @@ func (a *app) readingRowFont() core.Points {
 	return readingRowSize(a.readingFont())
 }
 
-// readingRowSize is readingRowFont's rule: two points under the prose,
-// floored so a small setting stays readable and capped so the kit's fold
-// row (13.5) stays the larger line at the biggest settings.
+// readingRowSize follows PiDeck's process scale. A large reading setting
+// must also enlarge the process text, which carries essential information.
 func readingRowSize(chat core.Points) core.Points {
-	return min(core.Points(13.5), max(core.Points(12.5), chat-2))
+	return max(core.Points(13), chat-2)
 }
 
 // readingRowLine is a process row's line height.
@@ -76,14 +75,14 @@ func (a *app) readingDetailFont() core.Points {
 }
 
 // readingDetailSize is readingDetailFont's rule: four points under the
-// prose, with the same floor and cap.
+// prose, with a readable floor and no upper cap.
 func readingDetailSize(chat core.Points) core.Points {
-	return min(core.Points(12.5), max(core.Points(11.5), chat-4))
+	return max(core.Points(12), chat-4)
 }
 
 // readingDetailLine is a detail's line height.
 func (a *app) readingDetailLine() core.Points {
-	return core.Points(float64(a.readingDetailFont()) * 1.48)
+	return core.Points(float64(a.readingDetailFont()) * 1.5)
 }
 
 // setChatFont stores the transcript's text size and redraws the app with

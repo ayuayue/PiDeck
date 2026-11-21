@@ -44,7 +44,7 @@ var appSettingFields = []settingField{
 	{Key: "reduceEffects", Type: "bool", Default: false},
 	{Key: "codeWrap", Type: "bool", Default: false},
 	{Key: "backgroundVideo", Type: "text", Default: ""},
-	{Key: "chatWidthPct", Type: "number", Default: 60, Min: intPtr(chatWidthPctMin), Max: intPtr(chatWidthPctMax)},
+	{Key: "chatWidthPct", Type: "number", Default: chatWidthPctDefault, Min: intPtr(chatWidthPctMin), Max: intPtr(chatWidthPctMax)},
 	{Key: "imageCount", Type: "enum", Default: 1, Values: []string{"0", "1", "2", "4"}},
 	{Key: "imageProvider", Type: "text", Default: ""},
 	{Key: "imageModel", Type: "text", Default: ""},

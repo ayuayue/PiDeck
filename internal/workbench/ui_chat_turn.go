@@ -24,7 +24,7 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 		// never here: rebuilding the turn every second would reset the
 		// disclosures inside it.
 		now := func() time.Time { return a.clock.Get() }
-		return chat.Turn{
+		response := chat.Turn{
 			Status: func() chat.Status { return t().Status },
 			// The fold row says what the process did; the duration sits at
 			// the end of the turn instead, so it is not read twice.
@@ -58,30 +58,6 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					label = tt.Noticed
 				}
 				return label + " · " + duration(tt.elapsed(now()))
-			},
-			Prompt: func(cx *core.Scope) core.Node {
-				return core.Dynamic(func(cx *core.Scope) core.Node {
-					tt := t()
-					var children []core.Node
-					for _, img := range tt.Images {
-						children = append(children, a.transcriptImageTile(img))
-					}
-					if tt.Prompt != "" {
-						children = append(children, core.Text{Content: tt.Prompt, Selectable: core.SelectableOn,
-							Style: core.Style{FontSize: a.readingFont(), LineHeight: a.readingLine(), Color: colors.Text()}})
-					}
-					return core.View{Style: core.Style{Direction: core.Column, AlignItems: core.AlignEnd, Gap: 3},
-						Children: []core.Node{
-							core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: children},
-							// When it was sent, inside the bubble's foot, as a
-							// chat shows its own messages.
-							core.Show{When: func() bool { return !t().Start.IsZero() }, Then: func(cx *core.Scope) core.Node {
-								return ui.Tabular(core.Text{Content: clockTime(t().Start),
-									Style:     core.Style{FontSize: a.readingDetailFont(), LineHeight: a.readingDetailLine()},
-									StyleFunc: ui.Colored(colors.Faint)})
-							}},
-						}}
-				})
 			},
 			Steps: func() []chat.Step { return a.steps(s, t()) },
 			Final: func(cx *core.Scope) core.Node {
@@ -143,12 +119,8 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 					chat.IconAction{Label: apptext.T("重新发送"), Icon: lucide.RefreshCw,
 						Disabled: func() bool { return (tt.Prompt == "" && len(tt.Images) == 0) || t().running() },
 						OnPress:  func() { a.resendTurn(s, tt) }},
-					chat.IconAction{Label: apptext.T("复制提问"), Icon: lucide.Quote, Disabled: func() bool { return tt.Prompt == "" },
-						OnPress: func() { a.copyText(tt.Prompt, "提问") }},
 					chat.IconAction{Label: apptext.T("修改提问"), Icon: lucide.SquarePen, TestID: "turn-edit-prompt",
 						Disabled: func() bool { return t().running() || tt.Prompt == "" }, OnPress: func() { a.editTurnPrompt(s, tt) }},
-					chat.IconAction{Label: apptext.T("把提问放回输入框"), Icon: lucide.PencilLine, Disabled: func() bool { return tt.Prompt == "" },
-						OnPress: func() { a.restoreTurnDraft(s, tt) }},
 					chat.IconAction{Label: apptext.T("复制回复"), Icon: lucide.Copy, OnPress: func() {
 						text := tt.Final
 						if text == "" {
@@ -165,14 +137,8 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 						Disabled: func() bool { return t().running() || tt.Final == "" }, OnPress: func() { a.openTranslationWith(tt.Final) }},
 					chat.IconAction{Label: apptext.T("收藏这条回复"), Icon: lucide.Star, TestID: "turn-favorite",
 						OnPress: func() { a.favoriteReply(s, t()) }},
-					chat.IconAction{Label: apptext.T("查看轨迹"), Icon: lucide.Activity, TestID: "turn-trajectory",
-						OnPress: func() { a.openTrajectory(s, t()) }},
-					chat.IconAction{Label: apptext.T("从这里分叉"), Icon: lucide.GitBranch, Disabled: func() bool { return !canBranchTurn(s, tt) },
-						OnPress: func() { a.forkSession(s, tt.ID) }},
+					a.turnMoreActions(s, t),
 				}...)
-				if canBranchTurn(s, tt) {
-					actions = append(actions, chat.IconAction{Label: apptext.T("在分支上重试"), Icon: lucide.RotateCcw, TestID: "turn-branch-retry", OnPress: func() { a.retry(s, tt) }})
-				}
 				// The reply's own line closes the row: when it came back, how
 				// long it took and which model answered.
 				return core.Group(append(actions, a.turnMeta(t, now)))
@@ -183,6 +149,8 @@ func (a *app) turnView(s *session, t func() turn, index func() int) core.Node {
 			},
 			Conversation: s.conversation.Kit(),
 		}
+		return core.View{Style: core.Style{MinWidth: core.Pt(0), Gap: 24},
+			Children: []core.Node{a.turnPrompt(t), response}}
 	})
 }
 

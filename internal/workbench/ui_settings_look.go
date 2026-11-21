@@ -137,7 +137,7 @@ func (a *app) settingsLook() core.Node {
 				setDivider(),
 				setRow("聊天字号", "会话正文与提问的字号；标题、代码和列表按同一比例放大。",
 					choiceChips([]choice[float64]{
-						{13, apptext.T("紧凑")}, {viewkit.ChatFontDefault, apptext.T("标准")}, {17, apptext.T("大")}, {19, apptext.T("特大")},
+						{14, apptext.T("紧凑")}, {viewkit.ChatFontDefault, apptext.T("标准")}, {18, apptext.T("大")}, {20, apptext.T("特大")},
 					}, func() float64 { return a.chatFont.Get() }, a.setChatFont)),
 				setDivider(),
 				setRow("聊天行高", "正文的行距；宽松一些更好读。",
@@ -147,7 +147,7 @@ func (a *app) settingsLook() core.Node {
 				setDivider(),
 				setRow("输入框字号", "输入框里的文字大小；「跟随聊天」与聊天字号一致。",
 					choiceChips([]choice[float64]{
-						{0, apptext.T("跟随聊天")}, {13, apptext.T("紧凑")}, {viewkit.ChatFontDefault, apptext.T("标准")}, {17, apptext.T("大")},
+						{0, apptext.T("跟随聊天")}, {14, apptext.T("紧凑")}, {viewkit.ChatFontDefault, apptext.T("标准")}, {18, apptext.T("大")},
 					}, func() float64 { return a.inputFont.Get() }, a.setInputFont)),
 				setDivider(),
 				setRow("界面字体", "整个界面的字体（代码与等宽处除外）；系统已安装的字体名，如 Georgia。留空跟随主题，回车、失焦或点「应用」生效。",

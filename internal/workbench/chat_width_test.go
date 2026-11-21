@@ -135,7 +135,7 @@ func TestChatWidthPctSlider(t *testing.T) {
 	app.Press("id:welcome-chat")
 	app.WaitFor("id:composer-column", 10*time.Second)
 	openChatWidthSettings(app)
-	app.WaitFor("text:60%", 5*time.Second)
+	app.WaitFor("text:80%", 5*time.Second)
 
 	app.Drag("id:chat-width-thumb", core.Point{X: -60})
 	stored := 0

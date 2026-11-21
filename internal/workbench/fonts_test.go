@@ -35,14 +35,14 @@ func TestTextSizesNormalized(t *testing.T) {
 }
 
 // TestProcessSizesDerived checks the process layer follows the reading
-// size, floored and capped so it stays under the fold row.
+// size, with PiDeck's readable floors and without a large-text cap.
 func TestProcessSizesDerived(t *testing.T) {
 	cases := []struct{ chat, row, detail core.Points }{
-		{11, 12.5, 11.5},
-		{15, 13, 11.5},
-		{16, 13.5, 12},
-		{19, 13.5, 12.5},
-		{20, 13.5, 12.5},
+		{11, 13, 12},
+		{15, 13, 12},
+		{16, 14, 12},
+		{19, 17, 15},
+		{20, 18, 16},
 	}
 	for _, c := range cases {
 		if got := readingRowSize(c.chat); got != c.row {
@@ -83,7 +83,7 @@ func TestChatFontSetting(t *testing.T) {
 		if json.Unmarshal(raw, &c) != nil {
 			return false
 		}
-		return c.ChatFont == 19
+		return c.ChatFont == 20
 	})
 	// The reading surface picks the size up at once: the composer's line
 	// height grows with it.

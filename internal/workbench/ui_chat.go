@@ -17,7 +17,7 @@ import (
 const (
 	chatWidthPctMin     = 50
 	chatWidthPctMax     = 90
-	chatWidthPctDefault = 60
+	chatWidthPctDefault = 80
 )
 
 // chatPane is the conversation and its composer.
@@ -31,7 +31,9 @@ func (a *app) chatPane() core.Node {
 			}
 			selection := newChatSelection(cx)
 			return core.View{StyleFunc: func() core.Style {
-				return ui.FillRest.Merge(core.Style{Background: colors.Background(), Color: colors.Text()})
+				// PiDeck's paper canvas sits between the white cards and rail;
+				// derive it from the palette so custom themes keep their hue.
+				return ui.FillRest.Merge(core.Style{Background: ui.Mix(colors.Surface(), colors.Inset(), 0.45), Color: colors.Text()})
 			}, Children: []core.Node{
 				a.chatSurface(s, selection),
 				a.turnAxis(s),

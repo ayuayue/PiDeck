@@ -166,7 +166,7 @@ func (a *app) composer(s *session) core.Node {
 		colors := ui.ColorsOf(cx)
 		font := a.composerFont()
 		line := a.composerLine()
-		height := core.NewSignal(cx, line)
+		height := core.NewSignal(cx, max(core.Points(48), line))
 		focused, dragging := core.NewSignal(cx, false), core.NewSignal(cx, false)
 		empty := func() bool { return strings.TrimSpace(s.draft.Get()) == "" }
 		imageBusy := func() bool { return a.aiBusy.Get() == "image" }
@@ -208,12 +208,12 @@ func (a *app) composer(s *session) core.Node {
 			OnFocus: func() { focused.Set(true) },
 			OnBlur:  func() { focused.Set(false) },
 			OnContentSizeChange: func(size core.Size) {
-				height.Set(min(10*line, max(line, size.Height)))
+				height.Set(min(10*line, max(core.Points(48), max(line, size.Height))))
 			},
 			Style: core.Style{Padding: core.Edges{Top: 4, Right: 14, Left: 14}, MinHeight: core.Pt(line + 4),
 				FontSize: font, LineHeight: line, TextAlignVertical: core.TextAlignVerticalTop},
 			StyleFunc: func() core.Style {
-				return core.Style{Height: core.Pt(height.Get() + 4), Color: colors.Text(), PlaceholderColor: colors.Faint(),
+				return core.Style{Height: core.Pt(height.Get() + 4), Color: colors.Text(), PlaceholderColor: colors.Muted(),
 					SelectionColor: cx.Palette().Selection, CaretColor: colors.Accent()}
 			},
 			Role: core.RoleCombobox, Expanded: listed.Get,
@@ -275,14 +275,14 @@ func (a *app) composer(s *session) core.Node {
 				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, PointerEvents: core.PointerEventsBoxNone},
 				Children: []core.Node{core.Func(a.composerModelControls(s))}},
 		}})
-		card := core.View{TestID: "composer-card", Style: core.Style{MinWidth: core.Pt(0), Padding: core.Symmetric(10, 0), CornerRadius: 14,
+		card := core.View{TestID: "composer-card", Style: core.Style{MinWidth: core.Pt(0), MinHeight: core.Pt(112), Padding: core.Symmetric(10, 0), CornerRadius: 20,
 			BorderWidth: 1, FlexShrink: 0, Transition: viewkit.PressMotion},
 			StyleFunc: func() core.Style {
 				surface := ui.Alpha(colors.Surface(), 1)
 				if dragging.Get() {
 					surface = ui.Mix(surface, colors.Text(), 0.05)
 				}
-				border := ui.Mix(colors.Border(), colors.Text(), 0.14)
+				border := colors.Border()
 				switch {
 				case dragging.Get():
 					border = ui.Alpha(colors.Accent(), 0.8)
@@ -304,17 +304,17 @@ func (a *app) composer(s *session) core.Node {
 	})
 }
 
-// composerPill is Send or Stop: a capsule of text, disabled while it
+// composerPill is the compact Send or Stop action, disabled while it
 // cannot run.
 func composerPill(cx *core.Scope, label string, disabled func() bool, background, foreground func() core.Color, press func()) core.Node {
 	return base.Button{Label: label, Disabled: disabled, OnPress: func(core.PressEvent) { press() },
-		Style: core.Style{Height: core.Pt(26), Padding: core.Symmetric(0, 12), FlexShrink: 0, CornerRadius: 13,
+		Style: core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 12), FlexShrink: 0, CornerRadius: 8,
 			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Disabled: &core.Style{Cursor: core.CursorDefault}},
 		StyleFunc: func() core.Style {
 			return core.Style{Background: background(), Hover: &core.Style{Opacity: core.Alpha(0.9)},
 				Active: &core.Style{Opacity: core.Alpha(0.8)}, FocusVisible: ui.FocusRing(cx, 2)}
 		},
-		Children: []core.Node{core.Text{Content: label, Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold},
+		Children: []core.Node{core.Text{Content: label, Style: core.Style{FontSize: 13, FontWeight: ui.Medium},
 			StyleFunc: ui.Colored(foreground)}}}
 }
 

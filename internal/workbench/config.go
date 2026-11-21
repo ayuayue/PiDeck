@@ -93,7 +93,7 @@ type config struct {
 	TerminalOpen   bool    `json:"terminalOpen,omitempty"`
 	TerminalHeight float64 `json:"terminalHeight,omitempty"`
 	// ChatWidthPct is the transcript and composer's share of the window
-	// width, 50 to 90; 0 keeps the default of 60.
+	// width, 50 to 90; 0 keeps the default of 80.
 	ChatWidthPct int `json:"chatWidthPct,omitempty"`
 	// ChatWidth was that width in points before it became a percentage.
 	// It is read only to migrate an older file and is cleared on load.
