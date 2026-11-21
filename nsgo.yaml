@@ -37,8 +37,14 @@ apple:
   info:
     NSLocalNetworkUsageDescription: "连接同一局域网内电脑上的 PiDeck Lite。"
     NSMicrophoneUsageDescription: "将你主动录制的语音转写到消息草稿。"
+    NSCameraUsageDescription: "扫描你对准的二维码以连接电脑上的 PiDeck Lite。"
+
+i18n:
+  dir: locales
+  source: zh-Hans
 
 android:
+  permissions: [CAMERA]
   # 手机端用麦克风录一段话交给电脑识别：运行时的录音前台服务要写进清单，
   # 它同时声明 RECORD_AUDIO、FOREGROUND_SERVICE、FOREGROUND_SERVICE_MICROPHONE
   # 与 POST_NOTIFICATIONS。

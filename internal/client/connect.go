@@ -159,12 +159,17 @@ func (a *mobileApp) scanImage() {
 		if len(files) == 0 {
 			return
 		}
-		data, readErr := os.ReadFile(files[0].Path)
-		if readErr != nil || len(data) == 0 {
-			a.err.Set("读不到这张图片")
-			return
-		}
-		a.useScanned(data)
+		path := files[0].Path
+		go func() {
+			data, readErr := os.ReadFile(path)
+			a.cx.Post(func() {
+				if readErr != nil || len(data) == 0 {
+					a.err.Set(apptext.T("读不到这张图片"))
+					return
+				}
+				a.useScanned(data)
+			})
+		}()
 	})
 }
 
@@ -174,31 +179,65 @@ func (a *mobileApp) useScanned(data []byte) {
 		link, err := decodeQRLink(data)
 		a.cx.Post(func() {
 			if err != nil || link == "" {
-				a.err.Set("这张图里没有二维码")
+				a.err.Set(apptext.T("这张图里没有二维码"))
 				return
 			}
-			client, token, cerr := newRemoteClient(link, "")
-			if cerr != nil {
-				a.err.Set(cerr.Error())
-				return
-			}
-			a.server.Set(client.source)
-			a.token.Set(token)
-			a.connect()
+			a.connectScanned(link)
 		})
 	}()
 }
 
-// scanQR reads a connection link from a photo of the desktop's code.
-func (a *mobileApp) scanQR() {
-	if !a.cx.Env().CanTakePhoto() {
-		a.err.Set("这台设备没有可用的相机，用下面的链接和令牌连接吧")
+// connectScanned validates untrusted QR text before putting it in the form.
+func (a *mobileApp) connectScanned(text string) {
+	client, token, err := newRemoteClient(text, "")
+	if err != nil {
+		a.err.Set(err.Error())
 		return
 	}
+	if token == "" {
+		client.close()
+		a.err.Set(apptext.T("请填写访问令牌，或粘贴完整的连接链接"))
+		return
+	}
+	client.close()
+	a.server.Set(client.source)
+	a.token.Set(token)
+	a.connect()
+}
+
+// scanQR prefers the live scanner and keeps photo capture as a platform fallback.
+func (a *mobileApp) scanQR() {
 	a.err.Set("")
+	env := a.cx.Env()
+	if env.CanScanCode() {
+		a.cx.ScanCode(core.ScanOptions{}, func(code *core.ScannedCode, err error) {
+			if errors.Is(err, core.ErrNoScanner) && a.cx.Env().CanTakePhoto() {
+				a.scanQRPhoto()
+				return
+			}
+			if err != nil {
+				a.err.Set(apptext.T("扫码失败：%s", err.Error()))
+				return
+			}
+			if code == nil {
+				return
+			}
+			a.connectScanned(code.Text)
+		})
+		return
+	}
+	if !env.CanTakePhoto() {
+		a.err.Set(apptext.T("这台设备没有可用的相机，用下面的链接和令牌连接吧"))
+		return
+	}
+	a.scanQRPhoto()
+}
+
+// scanQRPhoto reads a code from a single photo on platforms without live scanning.
+func (a *mobileApp) scanQRPhoto() {
 	a.cx.TakePhoto(core.PhotoOptions{MaxDimension: 1600}, func(photo *core.PickedFile, err error) {
 		if err != nil {
-			a.err.Set("打开相机失败：" + err.Error())
+			a.err.Set(apptext.T("打开相机失败：%s", err.Error()))
 			return
 		}
 		if photo == nil || len(photo.Data) == 0 {
@@ -237,7 +276,7 @@ func (a *mobileApp) connect() {
 		return
 	}
 	if token == "" {
-		a.err.Set("请填写访问令牌，或粘贴完整的连接链接")
+		a.err.Set(apptext.T("请填写访问令牌，或粘贴完整的连接链接"))
 		return
 	}
 	gen := a.gen

@@ -109,3 +109,16 @@ NSGo 的主题按对象身份发布。后台环境/插件探测曾重新发布�
 - Impeccable 对活动页的机械检测无报告项（`ui_activity.go` 检测结果 `[]`）。
 
 主工作区仍有其他未提交改动，本次未暂存、提交、推送、发布或清理它们。外部账号、设备、SSH 主机、签名/公证等验收限制仍适用；本结果不表示这些真实环境已验收。
+
+## NSGo 主分支升级
+
+NSGo 从 `v0.1.1-0.20261117180649-a4a00f7f38b3` 升至 `v0.2.1-0.20261120132814-c70af8a79201`，固定到本轮查询时上游 `main` 的最新提交 [c70af8a](https://github.com/nsgo-dev/nsgo/commit/c70af8a79201695f8b37d76fc4436430d08d6e64)（2026-11-20）。新版 SDK 的扫码实现带入 `github.com/makiuchi-d/gozxing v0.1.1` 和 `golang.org/x/xerrors` 两个间接依赖；其他依赖版本保持不变，现有 API 调用无需兼容补丁。桌宠移除回归通过，旧桌宠继续停用。
+
+本轮从干净工作区开始，仅修改 `go.mod`、`go.sum` 和本节验收记录。由于 C 盘空间不足，验证在 `D:\pideck-lite-validation-1120\nsgo-upgrade-c70af8a\source` 的源码副本中串行执行；复制时逐文件校验 687 个受跟踪文件，SHA256 清单为同级 `source-manifest.json`。Go 编译缓存、`GOTMPDIR`、`TEMP` 和 `TMP` 均使用 D 盘目录。
+
+- `go tool nsgo check`：通过（`check.log`）。
+- `go tool nsgo test -- -short -count=1 -timeout=20m`：**627 通过、0 失败、54 跳过**（`short.log`）。
+- `go run ./scripts web`：Web 和嵌入 Web 的 Windows x64 宿主均构建通过（`web-windows.log`）。`app.e2106f6e16.wasm.br` 为 **9,184,820 字节（8.76 MiB）**，低于 **12,582,912 字节（12 MiB）**预算；尺寸记录为 `artifact-sizes.json`。
+- `go tool nsgo test -run 'WebAsset|WebClient' -- -tags webassets -count=1`：**3 通过、0 失败、1 跳过**（`webassets.log`）；跳过项为检查不嵌入 Web 资源的反向测试。
+
+上述日志、源码清单和产物均位于 `D:\pideck-lite-validation-1120\nsgo-upgrade-c70af8a\`。Windows 宿主为 `source\dist\PiDeck Lite-web-host.exe`，生成资源和二进制未提交。本次未执行其他平台构建、设备验收、安装器制作、签名或发布。

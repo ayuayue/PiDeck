@@ -5,6 +5,7 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"example.com/pideck-lite/internal/remotewire"
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -126,6 +128,134 @@ func TestQRRoundTrip(t *testing.T) {
 	}
 	if got != link {
 		t.Fatalf("decoded %q, want %q", got, link)
+	}
+}
+
+// TestMobileLiveScanConnects uses NSGo's native scanner result instead of
+// making the user take a separate photo first.
+func TestMobileLiveScanConnects(t *testing.T) {
+	const token = "scan-token"
+	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+		Path: "/tmp/project", Name: "扫码项目", Sessions: []remotewire.Session{{ID: "s1", Title: "扫码会话"}},
+	}}}
+	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
+	defer server.Close()
+
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
+		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
+	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
+		return &core.ScannedCode{Text: server.URL + "?token=" + token}, nil
+	}
+	app.WaitFor("id:mobile-scan", 5*time.Second)
+	app.Press("id:mobile-scan")
+	waitApp(app, "text:扫码项目", 15*time.Second)
+	if len(app.Scans) != 1 {
+		t.Fatalf("scan requests = %d, want 1", len(app.Scans))
+	}
+}
+
+// TestMobileLiveScanCancel keeps the connect form usable when the scanner is
+// closed without reading a code.
+func TestMobileLiveScanCancel(t *testing.T) {
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
+		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
+	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) { return nil, nil }
+	app.WaitFor("id:mobile-scan", 5*time.Second)
+	app.Press("id:mobile-scan")
+	app.Settle()
+	if len(app.Scans) != 1 {
+		t.Fatalf("scan requests = %d, want 1", len(app.Scans))
+	}
+	if len(app.Query("id:mobile-server")) != 1 {
+		t.Fatal("connect form disappeared after scanner cancel")
+	}
+	if len(app.Query("text:扫码失败")) != 0 {
+		t.Fatal("scanner cancel showed an error")
+	}
+}
+
+// TestMobileLiveScanError preserves a recoverable error and leaves paste and
+// photo-library alternatives on screen when camera permission is denied.
+func TestMobileLiveScanError(t *testing.T) {
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
+		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
+	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
+		return nil, errors.New("相机权限被拒绝")
+	}
+	app.WaitFor("id:mobile-scan", 5*time.Second)
+	app.Press("id:mobile-scan")
+	app.WaitFor("text:扫码失败：相机权限被拒绝", 5*time.Second)
+	if len(app.Query("id:mobile-paste-connect")) != 1 || len(app.Query("id:mobile-scan-library")) != 1 {
+		t.Fatal("fallback connection actions disappeared after scanner error")
+	}
+}
+
+// TestMobileLiveScanRejectsUntrustedText checks that a scanned payload goes
+// through the same URL parser as pasted text.
+func TestMobileLiveScanRejectsUntrustedText(t *testing.T) {
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
+		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
+	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
+		return &core.ScannedCode{Text: "ftp://example.com/?token=not-a-pideck-token"}, nil
+	}
+	app.WaitFor("id:mobile-scan", 5*time.Second)
+	app.Press("id:mobile-scan")
+	app.WaitFor("text:连接地址只支持 http 或 https", 5*time.Second)
+	if len(app.Query("id:mobile-server")) != 1 {
+		t.Fatal("invalid scanned link changed the connection form")
+	}
+}
+
+// TestMobilePhotoScanFallback keeps QR capture working on targets that have a
+// camera but do not expose NSGo's live scanner.
+func TestMobilePhotoScanFallback(t *testing.T) {
+	const token = "photo-scan-token"
+	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+		Path: "/tmp/project", Name: "拍照项目", Sessions: []remotewire.Session{{ID: "s1", Title: "拍照会话"}},
+	}}}
+	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
+	defer server.Close()
+	// goqr confuses digits in the loopback IPv4 host; localhost is still
+	// served by httptest and keeps this fallback test about scanning.
+	link := strings.Replace(server.URL, "127.0.0.1", "localhost", 1) + "?token=" + token
+	png, err := qrcode.Encode(link, qrcode.Medium, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
+		nsgotest.Environment(core.Environment{Camera: true, ScanCode: false}))
+	app.TakePhoto = func(core.PickRequest) (*core.PickedFile, error) {
+		return &core.PickedFile{Data: png, MIME: "image/png"}, nil
+	}
+	app.WaitFor("id:mobile-scan", 5*time.Second)
+	app.Press("id:mobile-scan")
+	waitApp(app, "text:拍照项目", 15*time.Second)
+	if len(app.Photos) != 1 || len(app.Scans) != 0 {
+		t.Fatalf("photo fallback requests = %d photos, %d scans", len(app.Photos), len(app.Scans))
+	}
+}
+
+func TestMobileScanWithoutCameraExplainsFallback(t *testing.T) {
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
+		nsgotest.Environment(core.Environment{}))
+	app.WaitFor("id:mobile-scan", 5*time.Second)
+	app.Press("id:mobile-scan")
+	app.WaitFor("text:这台设备没有可用的相机，用下面的链接和令牌连接吧", 5*time.Second)
+	if len(app.Scans) != 0 || len(app.Photos) != 0 {
+		t.Fatal("scan without camera requested a native camera service")
 	}
 }
 

@@ -92,11 +92,16 @@ func (c *chatScroll) grown(core.Bounds) {
 // it. The composer is as wide as the reading column, which the kit's own
 // floating layout could not widen. Its height is measured once and read
 // through StyleFuncs, so laying it out never rebuilds the tree it is in.
-func (a *app) chatSurface(s *session) core.Node {
+func (a *app) chatSurface(s *session, selection *chatSelection) core.Node {
 	scroll := s.conversation.Scroll()
 	composer := func() core.Points { return s.conversation.ComposerHeight() }
-	return core.View{TestID: "transcript", Style: ui.FillRest, Children: []core.Node{
-		core.Scroll{Ref: scroll, OnScroll: s.conversation.scrolled, TestID: "chat-transcript",
+	return core.View{TestID: "transcript", Style: ui.FillRest, OnLayout: selection.resized, Children: []core.Node{
+		core.Scroll{Ref: scroll, OnScroll: func(e core.ScrollEvent) {
+			if e.Offset.Y != s.conversation.lastY {
+				selection.clear()
+			}
+			s.conversation.scrolled(e)
+		}, TestID: "chat-transcript",
 			EdgeEffects: core.EdgeEffects{Bottom: core.EdgeEffectSoft},
 			Behavior:    core.ScrollBehavior{KeyboardDismissMode: core.KeyboardDismissInteractive},
 			Style:       ui.FillRest,
@@ -104,7 +109,7 @@ func (a *app) chatSurface(s *session) core.Node {
 				core.View{OnLayout: s.conversation.grown, StyleFunc: func() core.Style {
 					return core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), FlexShrink: 0, AlignItems: core.AlignCenter,
 						Padding: core.Edges{Top: 22, Right: 20, Left: 20, Bottom: composer() + 30}}
-				}, Children: []core.Node{a.transcript(s)}},
+				}, Children: []core.Node{a.transcript(s, selection)}},
 			}},
 		// What scrolls under the card fades into it, so the card's edges
 		// never cut a line of text.
@@ -125,6 +130,7 @@ func (a *app) chatSurface(s *session) core.Node {
 			// bound here would apply it twice and shrink the card.
 			Children: []core.Node{core.View{Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0)},
 				Children: []core.Node{a.composerStack(s)}}}},
+		a.chatSelectionAction(selection),
 	}}
 }
 

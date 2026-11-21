@@ -21,9 +21,10 @@ const module = "example.com/pideck-lite/"
 // Dependencies point from application hosts toward smaller reusable packages.
 // Tests follow the same rule so a test helper cannot reconnect isolated hosts.
 var dependencies = map[string][]string{
-	".":                      {"internal/client", "internal/crashlog", "internal/workbench"},
+	".":                      {"internal/client", "internal/crashlog", "internal/workbench", "locales"},
 	"assets":                 {},
 	"extensions":             {},
+	"locales":                {},
 	"webassets":              {},
 	"scripts":                {},
 	"cmd/pideck-relay":       {"internal/relay"},

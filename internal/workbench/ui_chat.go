@@ -29,10 +29,11 @@ func (a *app) chatPane() core.Node {
 			if s == nil {
 				return a.welcome()
 			}
+			selection := newChatSelection(cx)
 			return core.View{StyleFunc: func() core.Style {
 				return ui.FillRest.Merge(core.Style{Background: colors.Background(), Color: colors.Text()})
 			}, Children: []core.Node{
-				a.chatSurface(s),
+				a.chatSurface(s, selection),
 				a.turnAxis(s),
 				core.Show{When: a.chatFindOpen.Get, Then: func(cx *core.Scope) core.Node { return a.chatFindBar(s) }},
 				core.Show{When: func() bool {
@@ -101,38 +102,39 @@ func (a *app) composerStack(s *session) core.Node {
 }
 
 // transcript is the keyed list of turns, bounded to a window of the newest.
-func (a *app) transcript(s *session) core.Node {
+func (a *app) transcript(s *session, selection *chatSelection) core.Node {
 	return core.View{Style: core.Style{MinWidth: core.Pt(0), FlexShrink: 0, Width: core.Pct(100), AlignItems: core.AlignCenter}, Children: []core.Node{
-		core.View{Selectable: true, TestID: "transcript-column", Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pct(float32(a.chatWidthPct())), MinWidth: core.Pt(0), Gap: 48}, Children: []core.Node{
-			core.Show{When: func() bool { return len(s.turns.Get()) > s.window.Get() }, Then: func(cx *core.Scope) core.Node {
-				return a.loadEarlier(s)
-			}},
-			core.Each(func() []turn {
-				turns := s.turns.Get()
-				window := s.window.Get()
-				start := max(0, len(turns)-window)
-				list := turns[start:]
-				if q := a.findQuery(); q != "" {
-					kept := make([]turn, 0, len(list))
-					for _, t := range list {
-						if turnMatches(t, q) {
-							kept = append(kept, t)
+		core.View{Selectable: true, Ref: &selection.area, OnTextSelection: selection.changed, TestID: "transcript-column",
+			Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pct(float32(a.chatWidthPct())), MinWidth: core.Pt(0), Gap: 48}, Children: []core.Node{
+				core.Show{When: func() bool { return len(s.turns.Get()) > s.window.Get() }, Then: func(cx *core.Scope) core.Node {
+					return a.loadEarlier(s)
+				}},
+				core.Each(func() []turn {
+					turns := s.turns.Get()
+					window := s.window.Get()
+					start := max(0, len(turns)-window)
+					list := turns[start:]
+					if q := a.findQuery(); q != "" {
+						kept := make([]turn, 0, len(list))
+						for _, t := range list {
+							if turnMatches(t, q) {
+								kept = append(kept, t)
+							}
 						}
+						list = kept
 					}
-					list = kept
-				}
-				return list
-			}, func(t turn) string { return t.ID }, func(cx *core.Scope, t func() turn, ix func() int) core.Node {
-				// Each turn reports where it sits, so a mark on the ruler can
-				// scroll to the turn it stands for.
-				return core.View{OnLayout: func(b core.Bounds) {
-					if s.tops == nil {
-						s.tops = map[string]float64{}
-					}
-					s.tops[t().ID] = float64(b.Origin.Y)
-				}, Children: []core.Node{a.turnView(s, t, ix)}}
-			}),
-		}},
+					return list
+				}, func(t turn) string { return t.ID }, func(cx *core.Scope, t func() turn, ix func() int) core.Node {
+					// Each turn reports where it sits, so a mark on the ruler can
+					// scroll to the turn it stands for.
+					return core.View{OnLayout: func(b core.Bounds) {
+						if s.tops == nil {
+							s.tops = map[string]float64{}
+						}
+						s.tops[t().ID] = float64(b.Origin.Y)
+					}, Children: []core.Node{a.turnView(s, t, ix)}}
+				}),
+			}},
 	}}
 }
 

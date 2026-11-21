@@ -7,6 +7,7 @@ import (
 
 	"example.com/pideck-lite/internal/client"
 	"example.com/pideck-lite/internal/crashlog"
+	_ "example.com/pideck-lite/locales"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 )

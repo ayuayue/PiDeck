@@ -6,6 +6,7 @@
 
 # NSGo test and dev artifacts
 /.nsgo/
+/internal/workbench/.nsgo/
 
 # App data a test can leave in the working directory
 /config.json
