@@ -119,6 +119,8 @@ func chatDesignFixture(t *testing.T, size float64) (*app, *nsgotest.App, *sessio
 	}
 	var a *app
 	var sess *session
+	// Closing the test window flushes the draft, so join writes after close.
+	t.Cleanup(sessionDraftWrites.Wait)
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		a = newApp(cx)
 		sess = a.makeSession(sessionMeta{ID: "design-reference", Cwd: project, Title: "设计语言对齐"}, localTarget)
@@ -133,7 +135,6 @@ func chatDesignFixture(t *testing.T, size float64) (*app, *nsgotest.App, *sessio
 		return a.view()
 	}, nsgotest.Size(1320, 860), nsgotest.Environment(core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop}))
 	t.Cleanup(a.closeDiag)
-	t.Cleanup(sessionDraftWrites.Wait)
 	screen.WaitFor("text:正文保持清晰，过程安静退后。", 10*time.Second)
 	return a, screen, sess
 }

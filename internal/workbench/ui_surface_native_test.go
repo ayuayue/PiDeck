@@ -283,6 +283,8 @@ func startNativeSurfaceApp(t *testing.T) (*app, *nsgotest.App, *session) {
 	}
 	var built *app
 	var sess *session
+	// Dispose the window before waiting for the final draft write.
+	t.Cleanup(sessionDraftWrites.Wait)
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		built = newApp(cx)
 		ws := &workspace{Path: project, Name: "Fixture", Target: localTarget,
