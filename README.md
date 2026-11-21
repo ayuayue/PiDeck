@@ -730,8 +730,10 @@ knob code info down`。
 官方索引优先读取共用市场的 `registry-v2.json`。市场部署这份索引后，`pideck-lite` 条目可直接安装，
 旧官方索引仍可用于项目发现。
 
-开发者可以查看同一签名包里的原生统计面板、紧凑组件和函数，并在独立测试宿主里运行。当前桌面市场支持声明式清单。
-示例源码和运行命令见 [NSGo 会话统计示例](internal/workbench/plugin_examples/nsgo-session-tools/README.md)。
+设置 → 扩展 → 插件里的「NSGo 插件预览」可操作同一内置签名包的原生统计面板、徽标与函数。
+默认未授权，打开「允许读取演示摘要」后只读取三条固定演示摘要，不访问真实会话；关闭、离开页面或收回权限都会释放实例。
+桌面市场仍只安装声明式清单，外部 NSGo 包的安装授权与撤销尚未开放。
+示例源码、资源生成和测试命令见 [NSGo 会话统计示例](internal/workbench/plugin_examples/nsgo-session-tools/README.md)。
 
 ## 语言
 

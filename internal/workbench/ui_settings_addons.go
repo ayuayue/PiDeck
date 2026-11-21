@@ -164,6 +164,7 @@ func (a *app) settingsAddons() core.Node {
 					ui.Button{Text: apptext.T("重新加载"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.reloadAddons},
 				}},
 				a.pluginArchiveSection(),
+				pluginPreviewSection(),
 			}},
 		}}
 	})

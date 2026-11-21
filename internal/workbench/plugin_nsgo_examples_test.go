@@ -21,13 +21,30 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 )
 
-// Source and signing tools belong to tests, not the shipped Lite runtime.
-// The keys below are generated in memory per test and never saved.
+// Editable sources and signing tools belong to tests. Only the prebuilt
+// session-tools package ships in Lite; keys below are never saved.
 //
 //go:embed plugin_examples/nsgo-ui plugin_examples/nsgo-functions plugin_examples/nsgo-session-tools
 var nsgoPluginExampleSources embed.FS
 
 func verifiedNSGoExample(t *testing.T, dir, entry string) *pkg.Package {
+	t.Helper()
+	rootPublic, data := signedNSGoExample(t, dir, entry)
+	trust := pkg.NewTrust()
+	trust.AddRoot(rootPublic)
+	p, err := trust.Verify(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := append([]byte(nil), data...)
+	tampered[len(tampered)-1] ^= 1
+	if _, err := trust.Verify(tampered); err == nil {
+		t.Fatal("accepted a tampered example package")
+	}
+	return p
+}
+
+func signedNSGoExample(t *testing.T, dir, entry string) (ed25519.PublicKey, []byte) {
 	t.Helper()
 	src, err := fs.Sub(nsgoPluginExampleSources, "plugin_examples/"+dir)
 	if err != nil {
@@ -66,18 +83,7 @@ func verifiedNSGoExample(t *testing.T, dir, entry string) *pkg.Package {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trust := pkg.NewTrust()
-	trust.AddRoot(rootPublic)
-	p, err := trust.Verify(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tampered := append([]byte(nil), data...)
-	tampered[len(tampered)-1] ^= 1
-	if _, err := trust.Verify(tampered); err == nil {
-		t.Fatal("accepted a tampered example package")
-	}
-	return p
+	return rootPublic, data
 }
 
 func TestNSGoPluginUIExampleUsesGrantedHostAndPartitionedStorage(t *testing.T) {
