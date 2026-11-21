@@ -79,7 +79,7 @@ const piRetries = (errorMessage) => isRetryableAssistantError({ role: "assistant
 // 3. 真实故障样本（全部取自本机会话历史里「没被重试」的错误文案）
 // ---------------------------------------------------------------------------
 
-/** [原始文案, api] —— 断言：改写前两个运行时都不重试，改写后都重试。 */
+/** [原始文案, api] —— 至少一个运行时不重试的样本，改写后两个运行时都应重试。 */
 const RESCUED_CASES = [
 	["Error Code server_is_overloaded: Our servers are currently overloaded. Please try again later.", "openai-completions"],
 	['{"message":"Service temporarily unavailable","type":"api_error"}', "openai-completions"],
@@ -91,8 +91,12 @@ const RESCUED_CASES = [
 	["400 status code (no body)", "openai-completions"],
 	["413 status code (no body)", "openai-completions"],
 	["unexpected EOF", "openai-completions"],
-	["stream_read_error: connection reset by peer", "openai-completions"],
 ];
+
+/** pi-ai 1.6.0 and DSH already retry this transport failure without extension help. */
+const NATIVE_RETRY_CASES = [["stream_read_error: connection reset by peer", "openai-completions"]];
+
+const ERROR_CASES = [...RESCUED_CASES, ...NATIVE_RETRY_CASES];
 
 /** 确定性失败：扩展不得改写，否则会把「重试必然复现」变成无意义的重试风暴。 */
 const UNTOUCHED_CASES = [
@@ -108,9 +112,9 @@ const UNTOUCHED_CASES = [
 	"error code: 1027",
 ];
 
-test("真实故障：至少一个运行时不重试 → 改写后两个运行时都重试", () => {
+test("真实故障：未被两个运行时共同覆盖的文案会改写为双方可重试", () => {
 	for (const [raw, api] of RESCUED_CASES) {
-		// 历史事实：这些文案至少有一个运行时不重试（桌面端 8 类漏网，pi 侧漏 overloaded 之外的中文/边缘层）
+		// 每个样本都由下方断言确认仍存在运行时覆盖缺口。
 		assert.ok(!(dshRetries(raw) && piRetries(raw)), `两个运行时本来就重试，无需扩展: ${raw}`);
 
 		const rewritten = applyExtension({
@@ -125,6 +129,15 @@ test("真实故障：至少一个运行时不重试 → 改写后两个运行时
 	}
 });
 
+test("真实运行时已共同支持的传输故障保持可重试", () => {
+	for (const [raw, api] of NATIVE_RETRY_CASES) {
+		assert.equal(dshRetries(raw), true, `DSH 应原生重试: ${raw}`);
+		assert.equal(piRetries(raw), true, `pi-ai 应原生重试: ${raw}`);
+		const rewritten = applyExtension({ role: "assistant", stopReason: "error", api, errorMessage: raw });
+		if (rewritten) assertRetryableInBothRuntimes(raw, rewritten);
+	}
+});
+
 test("确定性失败：扩展不改写（避免重试风暴）", () => {
 	for (const raw of UNTOUCHED_CASES) {
 		assert.equal(applyExtension({ role: "assistant", stopReason: "error", api: "openai-completions", errorMessage: raw }), undefined, `不应改写: ${raw}`);
@@ -132,13 +145,14 @@ test("确定性失败：扩展不改写（避免重试风暴）", () => {
 });
 
 test("改写保留原始文案，便于会话历史诊断", () => {
-	for (const [raw] of RESCUED_CASES) {
+	for (const [raw, api] of ERROR_CASES) {
 		const rewritten = applyExtension({
 			role: "assistant",
 			stopReason: "error",
-			api: "openai-completions",
+			api,
 			errorMessage: raw,
 		});
+		if (!rewritten) continue;
 		// 400/413 空响应会把状态码降级为 4xx（桌面端分类器优先匹配 400/413），
 		// 其余文案必须原样保留在开头。
 		const body = rewritten.replace(/^transient upstream fault: /, "");
@@ -148,17 +162,18 @@ test("改写保留原始文案，便于会话历史诊断", () => {
 });
 
 test("幂等：同一消息重复进 message_end 不会叠加标注", () => {
-	for (const [raw] of RESCUED_CASES) {
+	for (const [raw, api] of ERROR_CASES) {
 		const once = applyExtension({
 			role: "assistant",
 			stopReason: "error",
-			api: "openai-completions",
+			api,
 			errorMessage: raw,
 		});
+		if (!once) continue;
 		const twice = applyExtension({
 			role: "assistant",
 			stopReason: "error",
-			api: "openai-completions",
+			api,
 			errorMessage: once,
 		});
 		// 第二次直接放行（返回 undefined）：宿主保留原消息，不会叠加前缀

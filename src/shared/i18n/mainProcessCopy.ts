@@ -28,6 +28,9 @@ export const mainProcessZhCN = {
 	"diagnostic.agentStopped": "Agent 进程已停止，请重启 Agent 后重试",
 	"diagnostic.messageRequired": "消息不能为空",
 	"diagnostic.promptRejected": "消息发送失败。",
+	// 压缩期间的投递：不是失败，消息会留在本地队列等压缩结束（见 shared/types/session.ts 的 PromptDeferral）。
+	// 桌面端不会直接把这条弹给用户（它有自己的排队提示），保留给 Web / 飞书这类只拿稳定文案的调用方。
+	"diagnostic.compactionInProgress": "会话正在压缩上下文，本次消息未发送，压缩结束后请重试。",
 	"diagnostic.promptModelMismatch": "会话选择的模型 {expected} 当前不可用，已阻止本次发送（运行时实际使用 {actual}）。请先在模型选择器里重新选择该会话的模型。",
 	"diagnostic.promptDeliveryUnknown": "消息接收结果未知。请先检查当前会话，避免重复发送；必要时重启 Agent。",
 	"diagnostic.commandFailed": "命令执行失败。",
@@ -341,6 +344,7 @@ export const mainProcessEnUS: Record<MainProcessTranslationKey, string> = {
 	"diagnostic.agentStopped": "The Agent process has stopped. Restart the Agent and try again.",
 	"diagnostic.messageRequired": "The message cannot be empty.",
 	"diagnostic.promptRejected": "Failed to send the message.",
+	"diagnostic.compactionInProgress": "The session is compacting its context. This message was not sent; retry once compaction finishes.",
 	"diagnostic.promptModelMismatch": "The model selected for this session ({expected}) is unavailable, so this send was blocked (the runtime is using {actual}). Re-select a model for this session first.",
 	"diagnostic.promptDeliveryUnknown": "The message delivery result is unknown. Check the current session before retrying to avoid sending it twice; restart the Agent if necessary.",
 	"diagnostic.commandFailed": "The command failed.",

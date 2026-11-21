@@ -438,10 +438,10 @@ export async function createMainWindow(deps: MainWindowDeps): Promise<BrowserWin
 			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "cycleSessionTabsReverse");
 			return;
 		}
-		// Cmd/Ctrl+W 关闭当前会话标签页：与 Ctrl+Tab 同链路；「回答中先弹确认、确认后停止并关闭」
-		// 由渲染层判定（main 不持有会话上下文）。
+		// 主进程只匹配键位，渲染层按焦点分发。吞掉长按重复，避免焦点切换后继续关闭。
 		if (isShortcutInput("closeSessionTab", input)) {
 			event.preventDefault();
+			if (input.isAutoRepeat) return;
 			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "closeSessionTab");
 			return;
 		}

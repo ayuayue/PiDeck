@@ -32,7 +32,7 @@ export function HostPluginPageOverlay({ projectId, sessionId }: { projectId?: st
 		// inset-0 只覆盖工作区会话列：侧栏、右侧抽屉、底部停靠栏保持可交互（非模态）。
 		// 不渲染页头：面板名已在会话 Tab 栏的伪 Tab 上，插件页自己也有范围/操作行，
 		// 再叠一条「标题 + 关闭」既重复又占高度；关闭走伪 Tab 的 ×（simple 模式用侧栏入口切换）。
-		<div className="absolute inset-0 z-30 flex flex-col bg-background" role="region" aria-label={`${plugin.manifest.name}: ${panel.title}`}>
+		<div data-close-scope="plugin" className="absolute inset-0 z-30 flex flex-col bg-background" role="region" aria-label={`${plugin.manifest.name}: ${panel.title}`}>
 			<HostPluginSurface key={`${plugin.manifest.id}:${panel.id}:${plugin.fingerprint}`} pluginId={plugin.manifest.id} panelId={panel.id} projectId={projectId} sessionId={sessionId} />
 		</div>
 	);

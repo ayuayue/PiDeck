@@ -16,5 +16,9 @@ export function fileLoadErrorMessage(error: unknown): string {
 	if (notText) return t("editor.fileNotText", { size: formatBytes(Number(notText[1])) });
 	const writeBlocked = /FILE_WRITE_BLOCKED_ENCRYPTED:(\d+)/.exec(raw);
 	if (writeBlocked) return t("editor.writeBlockedEncrypted", { size: formatBytes(Number(writeBlocked[1])) });
+	// 远端稳定码：远端没有本机 stat，靠服务端码区分「超写入上限 / 不是 UTF-8 文本 / 无权限」。
+	if (raw.includes("REMOTE_FILE_TOO_LARGE")) return t("editor.remoteWriteTooLarge");
+	if (/REMOTE_FILE_NOT_TEXT|REMOTE_FILE_LINE_ENDING_UNSUPPORTED/.test(raw)) return t("remoteFile.notText");
+	if (raw.includes("REMOTE_FILE_PERMISSION_DENIED")) return t("editor.fileAccessDenied", { code: "REMOTE_FILE_PERMISSION_DENIED" });
 	return raw;
 }

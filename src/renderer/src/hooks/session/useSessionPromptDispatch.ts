@@ -4,7 +4,7 @@ import { t, translateI18nDescriptor } from "../../i18n";
 import { desktopApi as api } from "../../desktopApi";
 import { applyDshGoalSendTransform, buildComposerPromptSubmission } from "../../composerBehavior";
 import { resolveBusySendDelivery } from "../../../../shared/busySendDelivery";
-import { PromptDeliveryUnknownError } from "../../utils/promptErrors";
+import { PromptDeliveryUnknownError, PromptDeferralError } from "../../utils/promptErrors";
 import { busySendDeliveryAtom, bumpNewTurnCollapseTickAtom, sessionDraftByIdAtom, sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily } from "../../atoms";
 import { isSessionRuntimeBusy } from "./timeline/timelineSurfacePolicy";
 import type { ImageContent, ComposerAgentMode } from "../../../../shared/types";
@@ -100,6 +100,11 @@ export function useSessionPromptDispatch({ store, setSessionDraft, currentSessio
 				if (result.delivery === "unknown") {
 					throw new PromptDeliveryUnknownError(localizedError);
 				}
+				// 宿主判定「此刻不可投递」（压缩上下文）：消息确定没送到，不能当失败，
+				// 也不能当未知——调用方据此把快照留在队列里等下一次投递机会。
+				if (result.deferral) {
+					throw new PromptDeferralError(localizedError);
+				}
 				throw new Error(localizedError);
 			}
 			// 排队投递（steer「插入当前回合」/ followUp 排队）同样构成「新一轮」：
@@ -130,6 +135,13 @@ export function useSessionPromptDispatch({ store, setSessionDraft, currentSessio
 				if (error instanceof PromptDeliveryUnknownError) {
 					showToast(t("app.queuedUnknown"), 6000);
 					return "unknown" as const;
+				}
+				if (error instanceof PromptDeferralError) {
+					// 压缩窗口：重置/重发这类历史改写已经截断过文件，不能当“已送达”。
+					// 返回 false 让调用方补「已回滚」提示；文案只说「正在压缩」，不提排队：
+					// 这条路径没进本地队列，用户需要压缩结束再点一次。
+					showToast(t("app.compactInProgress"), 4000);
+					return false;
 				}
 				showToast(error instanceof Error ? error.message : String(error), 4000);
 				return false;

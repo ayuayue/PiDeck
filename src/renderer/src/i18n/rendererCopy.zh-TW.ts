@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 1c81aad077f27455458ab7ff665b0cbfaa27b01e12ae37529e158afbe26e4f4a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: e3a06abb176ddb207098f8403ed3f75a6484d8fe108cd859fc53a0cf01bb7ec6（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -507,6 +507,21 @@ export const zhTW: Record<TranslationKey, string> = {
 	"tabs.close": "關閉標籤頁",
 	"tabs.closeOthers": "關閉其他標籤頁",
 	"tabs.closeAll": "關閉全部標籤頁",
+	"browser.closeLoadingTitle": "關閉正在載入的標籤頁？",
+	"browser.closeLoadingBody": "關閉此標籤頁會中斷當前網頁的載入。",
+	"tabs.closeDraftTitle": "關閉有草稿的會話？",
+	"tabs.closeDraftBody": "此會話有未傳送的草稿。重新開啟會話即可繼續編輯。",
+	"tabs.minimizeTitle": "收起 PiDeck 視窗？",
+	"tabs.minimizeConfirm": "收起視窗",
+	"tabs.minimizeDirtyFiles": "{count} 個檔案有未儲存的修改。",
+	"tabs.minimizeDirtySettings": "設定有未儲存的修改或正在儲存。",
+	"tabs.minimizeDrafts": "{count} 個會話有未傳送的草稿。",
+	"tabs.minimizeRunningSessions": "{count} 個會話有任務正在執行。",
+	"tabs.minimizeTerminals": "{count} 個終端仍在執行。",
+	"tabs.minimizeUnknownTerminals": "暫時無法檢查終端狀態。",
+	"tabs.minimizePreserve": "收起後，標籤頁和草稿會保留，執行中的任務會繼續。",
+	"tabs.minimizeFailed": "無法收起 PiDeck 視窗。",
+	"tabs.closeShortcutFailed": "無法關閉焦點所在單元。",
 	"tabs.closeRunningTitle": "關閉正在回答的會話？",
 	"tabs.closeRunningBody": "該會話正在生成回答，關閉標籤頁會停止當前回答。會話記錄與歷史訊息會保留，可隨時重新開啟。",
 	"tabs.closeRunningConfirm": "停止並關閉",
@@ -675,6 +690,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.compactNothingToDo": "上下文還很小，暫無可壓縮內容",
 	"app.compactSessionTooSmall": "會話內容過少，暫無需壓縮",
 	"app.compactInProgress": "正在壓縮，請稍候",
+	"app.promptQueuedForCompaction": "會話正在壓縮上下文，訊息已排隊，壓縮結束後自動傳送。",
 	"app.compactCancelled": "壓縮已取消",
 	"app.compactCancelledByOwner": "壓縮被會話內的擴充套件取消：該擴充套件接管了上下文管理（如上下文壓縮類外掛），PiDeck 的壓縮無法生效",
 	"app.compactCancelledByOwnerWithReason": "壓縮由擴充套件接管：{reason}",
@@ -3519,6 +3535,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.dirtyCloseTitle": "關閉未儲存的檔案？",
 	"editor.dirtyCloseMessage": "{file} 有未儲存的更改，關閉後將丟失。仍要關閉嗎？",
 	"editor.saveFailedBanner": "儲存失敗：{error}",
+	"editor.remoteWriteTooLarge": "遠端檔案寫入上限為 256 KiB，本次未寫入。大檔案請用外部編輯器開啟，或拆分後再改。",
 	"editor.pdfPreview": "PDF 預覽",
 	"editor.playVideo": "播放",
 	"editor.openWithSystem": "用系統程式開啟",
@@ -4971,8 +4988,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.shortcuts.cycleSessionTabsDesc": "按標籤欄順序迴圈切換會話（到末尾回到開頭）；輸入框聚焦時同樣生效。預設 Ctrl+Tab（macOS 為 ⌃Tab）。",
 	"settings.shortcuts.cycleSessionTabsReverseLabel": "切換到上一個會話標籤頁",
 	"settings.shortcuts.cycleSessionTabsReverseDesc": "反向迴圈切換會話標籤頁。預設 Ctrl+Shift+Tab（macOS 為 ⌃⇧Tab）。",
-	"settings.shortcuts.closeSessionTabLabel": "關閉當前會話標籤頁",
-	"settings.shortcuts.closeSessionTabDesc": "關閉當前聚焦的會話標籤頁（Chrome 關標籤頁慣例）。預設 Ctrl+W（macOS ⌘W）；AI 回答進行中會先彈確認框，確認後停止回答並關閉。",
+	"settings.shortcuts.closeSessionTabLabel": "關閉焦點所在單元",
+	"settings.shortcuts.closeSessionTabDesc": "關閉焦點所在的標籤頁、面板或彈層。焦點在視窗時收起視窗。預設 Ctrl+W（macOS ⌘W）。",
 	"settings.shortcuts.zoomInLabel": "放大視窗",
 	"settings.shortcuts.zoomInDesc": "放大整個視窗介面（含圖示與間距）。預設 Ctrl+=（macOS ⌘=）。",
 	"settings.shortcuts.zoomOutLabel": "縮小視窗",
@@ -5818,6 +5835,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryEntriesDesc": "逐條列出所有作用域的記憶檔案：全域、專案、本機裝置都在這裡。列表按記錄時間混排，行首徽標標明所屬作用域；懸停徽標能看到落盤檔案與該檔案預算。記憶是檢索式讀取——Agent 用 memory_search / memory_get 按需查，不會整份塞進上下文。刪除會留下墓碑，舊匯出包不會把它導回來。",
 	"settings.agentMemorySearchPlaceholder": "搜尋記憶內容或專案名",
 	"settings.agentMemorySearchClear": "清除搜尋",
+	"settings.agentMemoryScopeFilterLabel": "記憶範圍",
+	"settings.agentMemoryScopeAll": "全部範圍",
+	"settings.agentMemoryFiltersClear": "清除篩選",
 	"settings.agentMemoryTableContent": "內容",
 	"settings.agentMemorySourceAutoLearn": "自動學習",
 	"settings.agentMemoryTableUpdated": "記錄於",

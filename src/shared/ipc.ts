@@ -974,8 +974,8 @@ export const ipcChannels = {
 
 	/** RPC 日志，用于调试 */
 	agentsRpcLog: "agents:rpc-log",
-
 	terminalList: "terminal:list",
+	terminalLiveCount: "terminal:live-count",
 	terminalEnsure: "terminal:ensure",
 	terminalCreate: "terminal:create",
 	terminalInput: "terminal:input",

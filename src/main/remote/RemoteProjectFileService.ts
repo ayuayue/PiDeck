@@ -71,6 +71,29 @@ export function createRemoteProjectFileService(ports: { locator: (projectId: str
 			throw new Error("REMOTE_FILE_TRANSFER_INVALID");
 		}
 	}
+	/**
+	 * 一次完整快照读：snapshot → 分块 read → 摘要校验。
+	 *
+	 * 文本（open）与二进制（readBase64）共用同一条通道：既然读的是同一份字节，就不能有第二套
+	 * 校验逻辑。`maxBytes` 在**读第一个分块之前**拦截——先读完再判断等于把「文件多大」变成一次
+	 * 无界传输（图片/视频动辄几十 MB）。
+	 */
+	async function readSnapshot(session: RemoteProjectFileSession, locator: RemoteProjectFileTarget, relative: string, maxBytes?: number): Promise<{ bytes: Buffer; revision: RemoteSessionFileRevision }> {
+		const revision = readRevision((await run(session, locator, relative, { operation: "snapshot" })).revision);
+		if (maxBytes !== undefined && revision.size > maxBytes) throw new Error(`FILE_TOO_LARGE:${revision.size}:${Math.floor(maxBytes)}`);
+		const chunks: Buffer[] = [];
+		for (let offset = 0; offset < revision.size; offset += REMOTE_PROJECT_TEXT_READ_CHUNK) {
+			const count = Math.min(REMOTE_PROJECT_TEXT_READ_CHUNK, revision.size - offset);
+			const result = await run(session, locator, relative, { operation: "read", source: revision, offset, count });
+			if (typeof result.data !== "string" || result.data.length > Math.ceil(count / 3) * 4 || !/^[A-Za-z0-9+/=]*$/.test(result.data)) throw new Error("REMOTE_FILE_TRANSFER_INVALID");
+			const chunk = Buffer.from(result.data, "base64");
+			if (chunk.length !== count || chunk.toString("base64") !== result.data) throw new Error("REMOTE_FILE_TRANSFER_INVALID");
+			chunks.push(chunk);
+		}
+		const bytes = Buffer.concat(chunks);
+		if (createHash("sha256").update(bytes).digest("hex") !== revision.digest) throw new Error("REMOTE_FILE_CHANGED");
+		return { bytes, revision };
+	}
 	function text(bytes: Buffer): string {
 		let content: string;
 		try {
@@ -87,20 +110,21 @@ export function createRemoteProjectFileService(ports: { locator: (projectId: str
 		async open(sender: number, projectId: string, relative: string): Promise<RemoteTextDocument> {
 			const locator = target(sender, projectId, relative);
 			return ports.withProject(locator, async (session) => {
-				const revision = readRevision((await run(session, locator, relative, { operation: "snapshot" })).revision);
-				const chunks: Buffer[] = [];
-				for (let offset = 0; offset < revision.size; offset += REMOTE_PROJECT_TEXT_READ_CHUNK) {
-					const count = Math.min(REMOTE_PROJECT_TEXT_READ_CHUNK, revision.size - offset);
-					const result = await run(session, locator, relative, { operation: "read", source: revision, offset, count });
-					if (typeof result.data !== "string" || result.data.length > Math.ceil(count / 3) * 4 || !/^[A-Za-z0-9+/=]*$/.test(result.data)) throw new Error("REMOTE_FILE_TRANSFER_INVALID");
-					const chunk = Buffer.from(result.data, "base64");
-					if (chunk.length !== count || chunk.toString("base64") !== result.data) throw new Error("REMOTE_FILE_TRANSFER_INVALID");
-					chunks.push(chunk);
-				}
-				const bytes = Buffer.concat(chunks);
-				if (createHash("sha256").update(bytes).digest("hex") !== revision.digest) throw new Error("REMOTE_FILE_CHANGED");
+				const { bytes, revision } = await readSnapshot(session, locator, relative);
 				const content = text(bytes);
 				return { content, version: version({ sender, projectId, relative, target: locator, hostRevision: session.hostRevision, revision }) };
+			});
+		},
+		/**
+		 * 远端二进制读（图片/PDF/Office/压缩包预览）：同一条分块通道，**不做 UTF-8 解码**，
+		 * 直接回裸 base64（与 `files:read-base64` 本机分支同形，渲染层据此转 Blob URL）。
+		 */
+		async readBase64(sender: number, projectId: string, relative: string, maxBytes: number): Promise<string> {
+			const locator = target(sender, projectId, relative);
+			if (!Number.isFinite(maxBytes) || maxBytes <= 0) throw new Error("REMOTE_FILE_INPUT_INVALID");
+			return ports.withProject(locator, async (session) => {
+				const { bytes } = await readSnapshot(session, locator, relative, maxBytes);
+				return bytes.toString("base64");
 			});
 		},
 		async save(sender: number, projectId: string, relative: string, content: string, token: string): Promise<{ version: string }> {

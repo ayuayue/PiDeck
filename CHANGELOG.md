@@ -1,13 +1,37 @@
-## v0.13.1 (Unreleased)
+## v0.13.1 (2026-11-21)
 
-Records fixes missing from the 0.13.0 notes: three were already live in the 0.13.0 build but went unmentioned, and the fourth explains a hint that 0.13.0 added.
+PiDeck 0.13.1 improves remote workspaces, message delivery and navigation between workspace panes.
+
+### 🚀 New Features
+- **SSH workspaces use the same Git panel as local projects** — inspect staged diffs and commit details, compare branches and run history actions. Push and pull follow the branch's upstream when applicable, and failures explain what happened.
+- **Manage MCP servers over SSH** — edit the host's MCP settings, check connection status and sign in or out. Authorization links appear in the desktop app while sign-in is in progress.
+- **Custom public address and PiDeck Lite support** — use a public address you manage to generate a fixed Web service link and QR code. An optional compatibility setting lets PiDeck Lite connect to the same service.
+- **Filter agent memory by scope** — filter memories and lessons by global, project or device scope without losing your search term.
 
 ### 🐛 Fixes
+- **The skill picker works in remote workspaces** — the chat composer lists skills from the SSH host. Skill previews and content insertion read from the same host.
+- **Remote files open in the center pane** — files opened from the tree or search follow the split or full pane setting, including binary previews. Saving a remote text file reports a conflict if someone else changed it after you opened it.
+- **Messages sent during compaction wait in the queue** — Pi sessions send them after compaction finishes instead of marking them as failed.
+- **Cmd/Ctrl+W closes the focused workspace item** — the shortcut follows focus to a session, file, browser tab or terminal and keeps the relevant close confirmations (#585).
+- **Streaming speed ignores samples shorter than 200 ms** — replies that arrive all at once no longer inflate the per-turn or session streaming rate. The end-to-end rate is still available (#583, #587).
+- **Expanded execution groups scroll and reveal jump targets** — tall groups have their own scroll area and show which directions still have content. Jumping to a result reveals the row, and selecting or copying text leaves live following active.
+- **Selecting a session brings it back into view** — when a file fills the center pane, clicking a session tab or sidebar row returns to the conversation and keeps the file open.
+- **Links inside HTML and Markdown file previews open again** — web links follow the browser preference, and Ctrl/⌘ opens them in the system browser.
+- **One incompatible remote resource no longer hides the rest** — oversized, non-UTF-8 or vanished entries are skipped, and UTF-8 skills with a byte order mark can still be listed and read.
+
+### ✨ Improvements
+- **The Pi model catalog follows pi-ai 1.6.0** — model choices are refreshed, including the new Qwen Token Plan gateways.
+
+### Corrections to the v0.13.0 notes
+
+The first three fixes below already shipped in v0.13.0. The fourth explains the credential hint introduced in that release.
+
 - **The branch tree no longer hangs on "loading the branch tree"** — an undivided degenerate chain nests as deep as it has entries (2467 levels measured); nested objects overflow the stack during structured clone, and the IPC promise neither resolves nor rejects, which is why the panel never finished instead of loading slowly. The tree now crosses the wire as a flat node table in file-append order with no `children`, and the renderer rebuilds it by `parentId` in two passes, so the main process no longer recurses at all. The panel also gained a 30s timeout error, and the session index sidecar table is validated against this run's `stat`, so a stale table is no longer returned as an `elapsedMs=0` hit (#553).
 - **One "send now" instead of two identical entries** — on a busy pi/dsh session it inserts into the current turn without ending the running answer, and sends straight away when idle; promote-to-front and lifting the post-stop delivery suppression are folded into that single action, and the duplicate "add to current turn" is gone. ACP is unchanged (no steer in the protocol, so a busy session still stops the current turn and sends a new one) (#544).
 - **A non-absolute `identityFile` in an old host snapshot no longer drags the whole host list down** — the read side keeps only type and control-byte checks, so a legacy `~/.ssh/id_ed25519` stays in memory and the revision no longer falls back to `.backup`; the write side drops only that one unpersistable field and keeps endpoint identity intact; connecting still fails clearly with `INVALID_SSH_LOCAL_PATH` (#542).
 - **The provider page says when a key already lives in auth.json** — `models.json`'s `apiKey` is only an overlay, so an empty field does not mean nothing is configured; the card now shows the credential's source and last four characters when the field is empty and `auth.json` has that provider, instead of making you think the key was lost and write a second plaintext copy (#537).
-- **Links inside an HTML file preview open again** — the preview iframe is sandboxed without `allow-popups` and the renderer's `frame-src` has no `https`, so a click was silently dropped (no popup, no navigation, no error). Rather than widening the sandbox, the preview document now carries an injected capture-phase script that intercepts absolute `http(s)` links and posts them to the host; the host only accepts a message whose `event.source` is that iframe and whose URL is `http(s)`, then routes it through the same `openExternal` path as markdown messages (Ctrl/⌘ opens the system browser, otherwise the `linkOpenMode` setting decides). The markdown preview in the same pane stops passing an empty handler, so its links work too.
+
+Thanks to **KingLingo** for the focus-aware close shortcut (#585), **ZedingZhang** for the streaming speed fix (#583, #587), and **bfzha** for aligning the remote Git panel, queuing messages sent during compaction, restoring remote file previews and session-pane switching, improving process-group scrolling, and aligning with pi 1.6.0.
 
 ## v0.13.0 (2026-11-18)
 

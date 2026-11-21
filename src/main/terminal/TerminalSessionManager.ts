@@ -76,6 +76,15 @@ export class TerminalSessionManager {
 		return project.path;
 	}
 
+	/** Include shells owned by workspaces that are currently offscreen. */
+	liveCount(): number {
+		let count = 0;
+		for (const tabs of this.runtimes.values()) {
+			for (const { tab } of tabs.values()) if (!tab.exited) count++;
+		}
+		return count;
+	}
+
 	list(target: TerminalTarget) {
 		return [...(this.runtimes.get(terminalOwnerKeyFor(target))?.values() ?? [])].map((runtime) => this.snapshot(runtime));
 	}

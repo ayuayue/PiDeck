@@ -69,7 +69,7 @@ export function WorkspaceDrawerHost(props: WorkspaceDrawerHostProps) {
 	const rendered = visiblePanel ? props.renderPanel(visiblePanel) : null;
 	return (
 		<>
-			<aside className={props.className ?? "detail-drawer flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-bg-page-raised"} data-open={open} data-rendered={Boolean(visiblePanel)} data-pinned={Boolean(props.pinned)} style={props.style}>
+			<aside data-close-scope={open ? "panel" : undefined} className={props.className ?? "detail-drawer flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-bg-page-raised"} data-open={open} data-rendered={Boolean(visiblePanel)} data-pinned={Boolean(props.pinned)} style={props.style}>
 				{visiblePanel && (
 					<>
 						{/* 自定义标题栏：为右上角 fixed 的窗口控件让出 var(--window-drag-height) 顶部条。
@@ -89,7 +89,16 @@ export function WorkspaceDrawerHost(props: WorkspaceDrawerHostProps) {
 							    原生标题栏下本行高度为 0，按钮由活动栏左端的 .drawer-rail-close 兜底显示。 */}
 							{props.onClose && (
 								<div className="absolute top-1/2 left-0 z-[905] hidden -translate-y-1/2 workspace-titlebar:block">
-									<Button type="button" variant="ghost" size="icon" className="drawer-titlebar-close size-8 shrink-0 text-text-secondary [-webkit-app-region:no-drag] hover:text-text-primary" title={t("app.closeDrawer")} aria-label={t("app.closeDrawer")} onClick={props.onClose}>
+									<Button
+										data-close-action={!props.pinned ? "true" : undefined}
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="drawer-titlebar-close size-8 shrink-0 text-text-secondary [-webkit-app-region:no-drag] hover:text-text-primary"
+										title={t("app.closeDrawer")}
+										aria-label={t("app.closeDrawer")}
+										onClick={props.onClose}
+									>
 										<PanelRight size={16} aria-hidden="true" />
 									</Button>
 								</div>

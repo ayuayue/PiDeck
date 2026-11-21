@@ -23,6 +23,7 @@ import { LocalProjectFileBackend } from "../files/LocalProjectFileBackend";
 import { WslProjectFileBackend } from "../files/WslProjectFileBackend";
 import { assertTrustedStatSize, readTextFileGuarded } from "../files/textFileRead";
 import { writeTextFileGuarded } from "../files/textFileWrite";
+import type { RemoteFilePort } from "../files/remoteFilePort";
 import { LocalFileMutationAdapter } from "../files/LocalFileMutationAdapter";
 import { ProjectFileBackendRouter } from "../files/ProjectFileBackend";
 import type { FileSystemService } from "../fs/FileSystemService";
@@ -45,26 +46,10 @@ export type FilesIpcDeps = {
 	appLogger: Pick<AppLogger, "info" | "error">;
 	openExternalUrl: (url: string, forceSystem?: boolean) => Promise<void>;
 	/**
-	 * 远端文件读的公共入口（T6）：目录页与批量存在性都走只读 fs 面，不经过 entry 令牌。
-	 * 未装配时远端目标返回稳定码，不静默回退到本机。
+	 * 远端文件读/写的公共入口（T6）：目录页与批量存在性都走只读 fs 面，不经过 entry 令牌。
+	 * 未装配时远端目标返回稳定码，不静默回退到本机；逐条契约见 `files/remoteFilePort.ts`。
 	 */
-	remoteFiles?: {
-		directoryPage(projectId: string, path: string, force?: boolean): Promise<ProjectDirectoryPageResult>;
-		/**
-		 * 远端文件名搜索（收口第一片）：`files:search-page` 按位置路由到这里。
-		 * 未装配时该通道对 ssh 项目返回稳定码，不静默回退本机。
-		 */
-		searchProject?(projectId: string, path: string, query: string): Promise<RemoteProjectSearchResult>;
-		pathsExist(projectId: string, paths: readonly string[]): Promise<ProjectPathsExistResult>;
-		/**
-		 * 远端内容搜索：按连接 hello 的 `fs.searchContent` 能力路由，旧 helper 返回 `{ok:true,value:null}`
-		 * 而不是失败——"这个位置只支持文件名"是能力边界，不是错误。未装配该方法时同样按不支持处理。
-		 */
-		searchContent?(projectId: string, query: string): Promise<{ ok: true; value: FileContentSearchResult | null } | { ok: false; code: string }>;
-		/** 远端正文读/写（中央编辑器用）：与抽屉编辑器共用同一份远端文本服务与令牌表。 */
-		openText?(senderId: number, projectId: string, path: string): Promise<{ content: string; version?: string }>;
-		saveText?(senderId: number, projectId: string, path: string, content: string, version: string): Promise<void>;
-	};
+	remoteFiles?: RemoteFilePort;
 	/**
 	 * WSL 项目的发行版内 helper 会话池（Wave 1a）。未装配时 WSL 项目保持今天的 UNC 本机行为，
 	 * 便于单测与不启动 WSL 的场景维持既有语义。
@@ -618,8 +603,9 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 			if (remoteTextTarget(input.projectId)) {
 				if (!remoteFiles?.openText || !remoteFiles.saveText) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 				// 远端令牌是 main 现签的 32 位身份。渲染层可能带来本机的内容指纹（sha256:…）：那不是远端
-				// 令牌，不能混用——只有 32 位十六进制才当令牌，其余一律现读一次取令牌，绝不无版本硬写。
-				const remoteVersion = revision !== undefined && /^[a-f0-9]{32}$/.test(revision) ? revision : undefined;
+				// 令牌，不能混用——只有 32 位十六进制才当令牌。没有令牌时先取「读到这份内容时」签出的那一枚
+				// （lastTextVersion），最后才退回现读一次；现读会让冲突检测恒成立，别人的改动被静默覆盖。
+				const remoteVersion = revision !== undefined && /^[a-f0-9]{32}$/.test(revision) ? revision : remoteFiles.lastTextVersion?.(event.sender.id, input.projectId, input.relativePath);
 				const version = remoteVersion ?? (await remoteFiles.openText(event.sender.id, input.projectId, input.relativePath)).version;
 				if (typeof version !== "string" || version.length === 0) throw new Error("REMOTE_FILE_VERSION_REQUIRED");
 				await remoteFiles.saveText(event.sender.id, input.projectId, input.relativePath, content, version);
@@ -642,7 +628,7 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		});
 	});
 
-	ipcMain.handle(ipcChannels.filesReadBase64, async (_event, path: unknown, maxBytes?: unknown, scope?: unknown) => {
+	ipcMain.handle(ipcChannels.filesReadBase64, async (event, path: unknown, maxBytes?: unknown, scope?: unknown) => {
 		const input = parseFilePathInput(path);
 		const limit = parseOptionalMaxBytes(maxBytes);
 		// 二进制预览（图片/PDF 等）读为 base64 由渲染层转 Blob URL 显示。粘贴图片等场景传
@@ -651,6 +637,11 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		const effectiveMaxBytes = limit ?? MAX_BINARY_PREVIEW_BYTES;
 		if (typeof input !== "string") {
 			if (scope !== undefined) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
+			// 位置分派：ssh 项目没有本机 fs，走远端分块读（同一个上限）；未装配给稳定码，不回退本机。
+			if (remoteTextTarget(input.projectId)) {
+				if (!remoteFiles?.readBase64) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+				return remoteFiles.readBase64(event.sender.id, input.projectId, input.relativePath, effectiveMaxBytes);
+			}
 			return projectFileBackendRouter.forProject(input.projectId).readBase64(input, effectiveMaxBytes);
 		}
 		try {

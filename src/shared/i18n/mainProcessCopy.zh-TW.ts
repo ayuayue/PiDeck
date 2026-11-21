@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: bff8ed61c856b2de938cdfcd3c097e0b37485a398f82c2e7230d50084d077a76（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 6622f548b5027e7952145e06b8f98288103cab6d538e9eb25e35e32e2ae3851b（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import type { MainProcessTranslationKey } from "./mainProcessCopy";
 
@@ -33,6 +33,9 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"diagnostic.agentStopped": "Agent 程序已停止，請重啟 Agent 後重試",
 	"diagnostic.messageRequired": "訊息不能為空",
 	"diagnostic.promptRejected": "訊息傳送失敗。",
+	// 压缩期间的投递：不是失败，消息会留在本地队列等压缩结束（见 shared/types/session.ts 的 PromptDeferral）。
+	// 桌面端不会直接把这条弹给用户（它有自己的排队提示），保留给 Web / 飞书这类只拿稳定文案的调用方。
+	"diagnostic.compactionInProgress": "會話正在壓縮上下文，本次訊息未傳送，壓縮結束後請重試。",
 	"diagnostic.promptModelMismatch": "會話選擇的模型 {expected} 當前不可用，已阻止本次傳送（執行時實際使用 {actual}）。請先在模型選擇器裡重新選擇該會話的模型。",
 	"diagnostic.promptDeliveryUnknown": "訊息接收結果未知。請先檢查當前會話，避免重複傳送；必要時重啟 Agent。",
 	"diagnostic.commandFailed": "命令執行失敗。",

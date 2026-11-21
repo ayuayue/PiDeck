@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useWorkspacePageFocus } from "../../hooks/useWorkspacePageFocus";
 import { useAtomValue, useSetAtom } from "jotai";
 import type { AgentProfile } from "../../../../shared/types/agentProfile";
 import { agentMarketEditingAgentIdAtom, agentMarketPageOpenAtom, closeAgentMarketPageAtom } from "../../atoms/agent-atoms";
@@ -26,6 +27,7 @@ export function AgentMarketPage({ active, onUseAgent }: AgentMarketPageProps) {
 	const open = useAtomValue(agentMarketPageOpenAtom);
 	const editingAgentId = useAtomValue(agentMarketEditingAgentIdAtom);
 	const close = useSetAtom(closeAgentMarketPageAtom);
+	const pageRef = useWorkspacePageFocus(open && active);
 
 	// 只有当前呈现的页面响应 Esc：失活（隐藏）的页面不得抢走会话区的 Esc。
 	useEffect(() => {
@@ -45,7 +47,7 @@ export function AgentMarketPage({ active, onUseAgent }: AgentMarketPageProps) {
 
 	return (
 		// inset-0 只覆盖会话列：与 HostPluginPageOverlay/定时任务页同一层级约定，页面打开时会话树不卸载。
-		<div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !active && "hidden")} role="region" aria-label={t("agentMarket.title")}>
+		<div ref={pageRef} tabIndex={-1} data-close-scope="page" data-close-id="agents" className={cn("absolute inset-0 z-30 flex flex-col bg-background", !active && "hidden")} role="region" aria-label={t("agentMarket.title")}>
 			<AgentMarketWorkspace initialEditingAgentId={editingAgentId} onUseAgent={onUseAgent} onClose={close} />
 		</div>
 	);

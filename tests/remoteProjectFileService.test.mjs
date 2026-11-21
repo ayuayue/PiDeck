@@ -267,3 +267,16 @@ test("releasing a window revokes its save tokens", { skip: !POSIX }, async (t) =
 	f.service.releaseSender(1);
 	await assert.rejects(f.save(doc.version, "bad"), /REMOTE_FILE_VERSION_INVALID/);
 });
+
+test("binary preview reuses the chunked read channel and refuses over-limit before transferring", { skip: !POSIX }, async (t) => {
+	const f = await fixture(t);
+	// 二进制内容不做 UTF-8 解码：PNG 魔数原样回裸 base64（渲染层据此转 Blob URL）。
+	const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+	await writeFile(f.path, png);
+	assert.equal(await f.service.readBase64(1, "project", "code.ts", 1024), png.toString("base64"));
+	// 超限在**读第一个分块之前**拒绝：与本地 backend 同一个 FILE_TOO_LARGE:size:max 前缀，
+	// 且只发生一次 snapshot 命令（先读完再判断等于把一个超大文件完整传两遍）。
+	await assert.rejects(f.service.readBase64(1, "project", "code.ts", 4), /FILE_TOO_LARGE:8:4/);
+	await assert.rejects(f.service.readBase64(1, "project", "code.ts", 0), /REMOTE_FILE_INPUT_INVALID/);
+	assert.equal(f.commands.filter((command) => command.includes("'read'")).length, 1);
+});

@@ -156,6 +156,7 @@ export function createRuntimePreview(): Pick<PiDesktopApi, "logs" | "rpcLogs" | 
 		terminal: {
 			// 预览模式使用与主进程相同的 agent/project owner key
 			list: async (target) => terminalTabs.filter((tab) => tab.ownerKey === terminalOwnerKeyFor(target)),
+			liveCount: async () => terminalTabs.filter((tab) => !tab.exited).length,
 			ensure: async (target) => {
 				const ownerKey = terminalOwnerKeyFor(target);
 				const existing = terminalTabs.filter((tab) => tab.ownerKey === ownerKey);

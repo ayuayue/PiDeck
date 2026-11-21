@@ -10,6 +10,8 @@ const sessionSurfaceSource = readFileSync("src/renderer/src/components/session/S
 const sessionActionsSource = readFileSync("src/renderer/src/hooks/useSessionActions.ts", "utf8");
 const sessionHistoryMutationsSource = readFileSync("src/renderer/src/hooks/useSessionHistoryMutations.ts", "utf8");
 const sessionSendSource = readFileSync("src/renderer/src/hooks/useSessionSend.ts", "utf8");
+// 纯发送结果投影已拆到独立模块（useSessionSend 只再导出），回退判定在那边断言。
+const composerSendGuardsSource = readFileSync("src/renderer/src/hooks/session/composerSendGuards.ts", "utf8");
 const composerSource = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
 const drawerSurfaceSource = readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8");
 const outlineAtomsSource = readFileSync("src/renderer/src/atoms/session-outline-atoms.ts", "utf8");
@@ -64,7 +66,7 @@ test("first Session send is request-addressed and restores rejected snapshots", 
 	assert.match(sessionSendSource, /requestId = crypto\.randomUUID\(\)/);
 	assert.match(sessionSendSource, /options\.sendPrompt\(\{/);
 	assert.match(sessionSendSource, /sendingSessionIdsRef\.current\.add\(sourceSessionId\)/);
-	assert.match(sessionSendSource, /result\.delivery === "unknown"/);
+	assert.match(composerSendGuardsSource, /result\.delivery === "unknown"/);
 	assert.match(sessionSendSource, /\[message, current\]/);
 	assert.match(sessionSendSource, /\.\.\.imageSnapshot, \.\.\.current/);
 });

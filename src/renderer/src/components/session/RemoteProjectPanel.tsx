@@ -6,6 +6,7 @@ import type { RemoteEntryKind } from "../../../../shared/types/remoteFiles";
 import { isRemoteProject } from "../../../../shared/projectLocation";
 import type { RemoteProject } from "../../../../shared/types/project";
 import { projectByIdAtomFamily } from "../../atoms/project-atoms";
+import { activeEditorFileAtom } from "../../atoms/app-ui-atoms";
 import { useProjectServices } from "../../hooks/useProjectServices";
 import { useRemoteProjectEntries } from "../../hooks/useRemoteProjectEntries";
 import { useRemoteProjectSearch } from "../../hooks/useRemoteProjectSearch";
@@ -30,23 +31,17 @@ import { fileTreeNodeKey, projectFileKey } from "../../utils/fileTreeLazy";
 import type { RemoteSearchEntryView } from "./remoteProjectSearchState";
 import { RemoteProjectSearchBar } from "./RemoteProjectSearchBar";
 import { RemoteProjectTransferStatus } from "./RemoteProjectTransferStatus";
+import { openRemoteFile, type RemoteFileOpenHandler, type RemoteFileOpenMode } from "./remoteFileOpenPlan";
 
 /**
- * 远端项目目录浏览 + 文件名搜索 + 文本编辑 + 文件管理（Phase B：只消费 ProjectServices）。
- *
- * 与设置页的「远端工作区」不同：这个视图的根来自 ProjectStore 中该项目持有的 canonical remotePath，
- * 因此跨重启恢复；渲染层只给 projectId 与相对路径，主进程解析 host/root 并串行切换会话。
- *
- * 数据入口统一为 useProjectServices(project).files：目录页、搜索、读/写正文、新建/改名/删除都由
- * provider 负责位置差异；本组件只按 capabilities.files 决定入口可用性与内容检索，不再自己判断
- * isRemoteProject 去选通道。抽屉仍只传 projectId（公共装配交 I），这里按显式 id 取 Project 建服务。
- *
- * 文件管理只在远端项目面板出现：状态机在 useRemoteProjectEntries，失败与空目录分开呈现，
- * 未知结果消息保留到用户显式刷新；本机 FileTree/右键菜单不受影响。
- *
- * 仍保留的远端专属薄壳：回收站列表/恢复/清空、图片预览与跨目录移动。
+ * 远端项目目录浏览 + 文件名搜索 + 文件管理（Phase B：只消费 ProjectServices）。
+ * 根来自 ProjectStore 的 canonical remotePath（跨重启恢复）；渲染层只给 projectId 与相对路径，
+ * 主进程解析 host/root 并串行切换会话。数据入口统一为 `useProjectServices(project).files`：
+ * 位置差异由 provider 负责，本组件只按 capabilities.files 决定入口可用性；文件管理状态机在
+ * useRemoteProjectEntries（失败与空目录分开呈现），远端专属薄壳只剩回收站、图片预览与跨目录移动。
+ * 点开文件与本机同一条主路径（remoteFileOpenPlan）：进中间栏阅读面，宿主没给入口才退回面板内。
  */
-type RemoteProjectPanelProps = { projectId: string; projectName: string; onOpenTerminal?: () => void; onCreateSession?: () => void; onBack?: () => void; onOpenFile?: (target: { projectId: string; relativePath: string }) => void };
+type RemoteProjectPanelProps = { projectId: string; projectName: string; onOpenTerminal?: () => void; onCreateSession?: () => void; onBack?: () => void; onOpenFile?: RemoteFileOpenHandler; onViewFile?: RemoteFileOpenHandler };
 
 export function RemoteProjectPanel(props: RemoteProjectPanelProps) {
 	const project = useAtomValue(projectByIdAtomFamily(props.projectId));
@@ -80,6 +75,9 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 	const contentSearch = useRemoteContentSearch({ services, supported: contentSupported });
 	const canWrite = services.capabilities.files.write;
 	const canTrash = services.capabilities.files.trash;
+	// 行高亮跟随中间栏阅读面的活跃文件（与本地文件面板同一个 atom）；面板内兜底预览优先。
+	const workbenchActiveFile = useAtomValue(activeEditorFileAtom);
+	const activeFileKey = file !== null ? projectFileKey({ projectId: props.projectId, relativePath: file }) : workbenchActiveFile;
 
 	useEffect(
 		() => () => {
@@ -111,6 +109,16 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 		return isNotConnectedCode(code) ? t("project.remote.notConnectedHint") : t("project.remote.searchFailed", { code });
 	};
 
+	/** 点开一个远端文件：宿主判据在 remoteFileOpenPlan（纯函数 + 单测），这里只喂它三件事。 */
+	const viewRemoteFile = useCallback(
+		(relativePath: string, openMode: RemoteFileOpenMode = "preview") => {
+			gateRef.current.invalidate();
+			setError(null);
+			openRemoteFile({ target: { projectId: props.projectId, relativePath }, openMode, onViewFile: props.onViewFile, setInline: setFile });
+		},
+		[props.onViewFile, props.projectId],
+	);
+
 	/** 点开一条搜索结果：远端 path 本来就是相对项目根的，直接拆段导航；搜索态随之清空。 */
 	const openResult = useCallback(
 		(entry: RemoteSearchEntryView) => {
@@ -121,11 +129,9 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 				void tree.reveal(entry.path);
 				return;
 			}
-			gateRef.current.invalidate();
-			setError(null);
-			setFile(entry.path);
+			viewRemoteFile(entry.path);
 		},
-		[resetSearch, tree],
+		[resetSearch, tree, viewRemoteFile],
 	);
 
 	const bumpTrash = useCallback(() => setTrashReloadToken((value) => value + 1), []);
@@ -340,16 +346,14 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 							depth={0}
 							expandedDirs={tree.expanded}
 							// 活跃文件用项目作用域键比：远端没有本机绝对路径，之前传裸相对路径会让两边各用一套词。
-							activeEditorFile={file === null ? null : projectFileKey({ projectId: props.projectId, relativePath: file })}
+							activeEditorFile={activeFileKey}
 							onToggleDirectory={(key) => tree.toggle(key)}
 							onFileContextMenu={(target, x, y) => setRowMenu({ node: target, x, y })}
-							onViewFile={(target) => {
+							onViewFile={(target, openMode) => {
 								// 远端节点的打开凭据是 target（项目作用域相对路径），不是本机 path。
 								const relativePath = typeof target === "string" ? target : target.relativePath;
 								if (relativePath.length === 0) return;
-								gateRef.current.invalidate();
-								setError(null);
-								setFile(relativePath);
+								viewRemoteFile(relativePath, openMode);
 							}}
 							onMoveFiles={(sourcePaths, targetDirectory) => {
 								const source = sourcePaths[0];
@@ -408,9 +412,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 							resetSearch();
 							contentSearch.reset();
 							setQuery("");
-							gateRef.current.invalidate();
-							setError(null);
-							setFile(path);
+							viewRemoteFile(path);
 						}}
 						onHitContextMenu={(node, x, y) => setRowMenu({ node: { name: node.name, path: node.path, relativePath: node.relativePath, type: "file" }, x, y })}
 					/>
@@ -439,6 +441,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 				/>
 			) : null}
 			{!searching ? <RemoteTrashPanel projectId={props.projectId} open={trashOpen} reloadToken={trashReloadToken} busy={files.busy} outcome={trashOutcomeText} onRestore={restoreTrash} onRequestPrune={(ids, count) => setEntryDialog({ kind: "prune", ids, count })} /> : null}
+			{/* 兜底预览：只有宿主没给中间栏入口时才会出现（见 remoteFileOpenPlan）。 */}
 			{file !== null ? <RemoteFilePreviewPane key={JSON.stringify([props.projectId, file])} services={services} path={file} canWrite={canWrite} /> : null}
 			<RemoteProjectEntryDialogs dialog={entryDialog} busy={files.busy} errorText={dialogErrorText} onClose={() => setEntryDialog(null)} onCreate={submitNew} onRename={submitRename} onDelete={submitDelete} onPrune={submitPrune} />
 		</div>

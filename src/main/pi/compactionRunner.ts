@@ -94,6 +94,11 @@ export class CompactionRunner {
 		return this.host.contextOverflowByAgent;
 	}
 
+	/** 压缩中（手动请求占位 / pi 的 compaction_start）：prompt 派发据此把发送退回队列，而不是判失败。 */
+	isCompacting(agentId: string): boolean {
+		return this.pendingCompactProcesses.has(agentId) || this.compactingAgents.has(agentId) || this.rpcCompactingAgents.has(agentId);
+	}
+
 	/**
 	 * 手动触发上下文压缩。pi 会将历史消息摘要化以释放 context 空间，
 	 * 适用于长时间对话后 context 占比过高、但不想丢失关键信息的场景。

@@ -156,6 +156,7 @@ export function SessionFindOverlay(props: SessionFindOverlayProps) {
 	return createPortal(
 		<div
 			ref={panelRef}
+			data-close-scope="panel"
 			// 层级与 portal 浮层两块约定见 docs/ui-and-css.md：① 用语义 token 而不是裸 z-40
 			// （40 连 --z-sticky:100 都不如，sticky 头部/抽屉里会被压在下面）；② 非 Radix 的
 			// createPortal 浮层不在 `[data-radix-popper-content-wrapper] *` 的 no-drag 规则内，
@@ -192,7 +193,7 @@ export function SessionFindOverlay(props: SessionFindOverlayProps) {
 				<Button variant="ghost" size="icon" className="shrink-0" style={{ width: 24, height: 24 }} title={t("sessionFind.next")} aria-label={t("sessionFind.next")} disabled={matches.length === 0} onClick={() => step(1)}>
 					<ChevronDown size={14} aria-hidden="true" />
 				</Button>
-				<Button variant="ghost" size="icon" className="shrink-0" style={{ width: 24, height: 24 }} title={t("sessionFind.close")} aria-label={t("sessionFind.close")} onClick={close}>
+				<Button variant="ghost" size="icon" className="shrink-0" style={{ width: 24, height: 24 }} title={t("sessionFind.close")} aria-label={t("sessionFind.close")} data-close-action="true" onClick={close}>
 					<X size={14} aria-hidden="true" />
 				</Button>
 			</div>

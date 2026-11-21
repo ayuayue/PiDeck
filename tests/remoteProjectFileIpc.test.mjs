@@ -27,13 +27,17 @@ function setup(enabled = true) {
 						calls.push(args);
 						return { version: "b".repeat(32) };
 					},
+					readBase64: async (...args) => {
+						calls.push(["readBase64", ...args]);
+						return "UklGRg==";
+					},
 					releaseSender: (id) => calls.push(["released", id]),
 				}),
 			},
 		},
 	});
-	registerRemoteProjectFileIpc({ enabled, service: () => undefined, locator: () => undefined });
-	return { calls, sender, invoke: async (channel, ...args) => structuredClone(await handlers.get(channel)({ sender }, ...args)) };
+	const port = registerRemoteProjectFileIpc({ enabled, service: () => undefined, locator: () => undefined });
+	return { calls, sender, port, invoke: async (channel, ...args) => structuredClone(await handlers.get(channel)({ sender }, ...args)) };
 }
 
 test("editor IPC validates renderer input before touching remote service and returns stable envelopes", async () => {
@@ -59,6 +63,17 @@ test("disabled feature cannot read/write or register sender resources", async ()
 	assert.deepEqual(await f.invoke("remote:project-text-save", "project", "code.ts", "next", "a".repeat(32)), { ok: false, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" });
 	assert.equal(f.calls.length, 0);
 	assert.equal(f.sender.listenerCount("destroyed"), 0);
+});
+
+test("远端二进制读（中央编辑器预览）复用同一服务实例，回收站命名空间一律拒绝", async () => {
+	const f = setup();
+	// 图片/PDF/Office/压缩包在中间栏渲染时走这条：裸 base64 原样透出（与 files:read-base64 本机分支同形）。
+	assert.equal(await f.port.readBase64(1, "project", "docs/shot.png", 1024), "UklGRg==");
+	assert.deepEqual(f.calls.at(-1), ["readBase64", 1, "project", "docs/shot.png", 1024]);
+	// 回收站不是用户可读的项目文件；穿越段/绝对路径在校验层就拒绝，绝不落到服务。
+	assert.throws(() => f.port.readBase64(1, "project", ".pideck-trash/shot.png", 1024), /REMOTE_FILE_PROTECTED_PATH/);
+	assert.throws(() => f.port.readBase64(1, "project", "../secret.png", 1024), /REMOTE_FILE_PATH_INVALID/);
+	assert.equal(f.calls.filter((call) => call[0] === "readBase64").length, 1);
 });
 
 test("editor channels are wired through shared/preload/main/preview without local files fallback", () => {

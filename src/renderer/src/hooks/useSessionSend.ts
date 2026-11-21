@@ -33,6 +33,9 @@ import { sessionReloadingByIdAtom } from "../atoms/session-commands-atoms";
 import { logFromRenderer } from "../utils/rendererLog";
 import { shouldMarkRuntimeRunningAfterSend } from "../utils/sessionActivityClock";
 import { dshSendBlockReason } from "../../../shared/types/dshRuntime";
+import { classifySessionPromptResult, createSessionSendLock } from "./session/composerSendGuards";
+
+export { classifySessionPromptResult, createSessionSendLock };
 
 export type EnqueuePromptSnapshot = {
 	displayText: string;
@@ -101,10 +104,6 @@ export type UseSessionSendOptions = {
 	enqueue?: (sessionId: string, snapshot: EnqueuePromptSnapshot) => boolean;
 };
 
-export function normalizeComposerDomText(value: string): string {
-	return value.replace(/\u200B/g, "");
-}
-
 export function mergeRejectedComposerDraft(rejectedDraft: string, currentDraft: string): string {
 	return [rejectedDraft, currentDraft].filter((text) => text.trim()).join("\n\n");
 }
@@ -115,26 +114,6 @@ export function mergeRejectedComposerImages(rejectedImages: ImageContent[] | und
 
 export function hasComposerSubmission(message: string, images: ImageContent[] | undefined): boolean {
 	return Boolean(message.trim() || images?.length);
-}
-
-export function classifySessionPromptResult(result: SendSessionPromptResult): "accepted" | "rejected" | "unknown" {
-	if (result.accepted) return "accepted";
-	return result.delivery === "unknown" ? "unknown" : "rejected";
-}
-
-export function createSessionSendLock() {
-	const sessionIds = new Set<string>();
-	return {
-		has: (sessionId: string) => sessionIds.has(sessionId),
-		claim: (sessionId: string) => {
-			if (sessionIds.has(sessionId)) return false;
-			sessionIds.add(sessionId);
-			return true;
-		},
-		release: (sessionId: string) => {
-			sessionIds.delete(sessionId);
-		},
-	};
 }
 
 export function useSessionSend(options: UseSessionSendOptions) {
@@ -686,6 +665,25 @@ export function useSessionSend(options: UseSessionSendOptions) {
 				options.recordPromptHistory?.(sessionId, message);
 				setSendState({ sessionId, state: { status: "idle" } });
 				if (record) options.refreshProject?.(record.projectId);
+			} else if (outcome === "deferred") {
+				// 压缩窗口：宿主确实没收这条（它不会进会话日志），但用户按的是一次正常发送，
+				// 不该看到「发送失败」。撤掉乐观气泡后改排本地队列，压缩结束的 drain 自动补发；
+				// 队列不可用（未注入/已满）时把原文还给输入框，用户压缩结束后自己重发。
+				dropPendingUserMessage(sessionId, requestId);
+				const queued = options.enqueue?.(sessionId, {
+					displayText: message,
+					message: expandedMessage,
+					images: imageSnapshot,
+					agentMode: sendMode,
+					behavior: "followUp",
+				});
+				setSendState({ sessionId, state: { status: "idle" } });
+				if (queued) {
+					options.showError?.(t("app.promptQueuedForCompaction"), 4000);
+					return;
+				}
+				restoreRejectedPrompt(sessionId, keepDraft, rawDraft, imageSnapshot, quoteMap);
+				options.showError?.(t("app.compactInProgress"), 4000);
 			} else if (outcome === "unknown") {
 				setSendState({
 					sessionId,
