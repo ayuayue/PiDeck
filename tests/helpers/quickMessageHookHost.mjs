@@ -36,6 +36,12 @@ export function quickMessageHookHost() {
 			if (!sameDeps(slots[index]?.deps, deps)) slots[index] = { value: callback, deps };
 			return slots[index].value;
 		},
+		useEffectEvent(callback) {
+			const index = cursor++;
+			slots[index] ??= { invoke: (...args) => slots[index].callback(...args) };
+			slots[index].callback = callback;
+			return slots[index].invoke;
+		},
 		useEffect(effect, deps) {
 			const index = cursor++;
 			if (!sameDeps(slots[index]?.deps, deps))

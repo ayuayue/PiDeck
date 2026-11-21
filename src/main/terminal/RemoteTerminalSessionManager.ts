@@ -75,6 +75,11 @@ export class RemoteTerminalSessionManager {
 		return this.runtimes.has(id);
 	}
 
+	/** Remote shells do not expose foreground process names. */
+	liveCount(senderId: number): number {
+		return [...this.runtimes.values()].filter((runtime) => runtime.senderId === senderId && !runtime.closed && !runtime.tab.exited).length;
+	}
+
 	list(senderId: number, projectId: string): TerminalTab[] {
 		return [...this.runtimes.values()].filter((r) => r.senderId === senderId && r.target.projectId === projectId && r.published).map((r) => ({ ...r.tab, buffer: r.buffer, outputSequence: r.sequence }));
 	}

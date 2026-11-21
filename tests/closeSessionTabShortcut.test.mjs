@@ -5,7 +5,6 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
-import { rendererAppSource } from "./helpers/rendererAppSources.mjs";
 import { mainIpcSource } from "./helpers/mainIpcSources.mjs";
 
 const require = createRequire(import.meta.url);
@@ -58,27 +57,6 @@ test("主进程：主窗口与内置浏览器 webview 两处 before-input-event 
 	assert.equal(hits.length, 2, "主窗口与 webview guest 各一处转发");
 	const guards = main.match(/isShortcutInput\("closeSessionTab",\s*input\)\)\s*\{\s*event\.preventDefault\(\);/g) ?? [];
 	assert.equal(guards.length, 2, "两处命中后都要 preventDefault");
-});
-
-test("渲染层 hook：空闲直接关 Tab；回答中先弹确认，确认 = 停止回答 + 关闭，取消不动", () => {
-	const hook = readFileSync("src/renderer/src/hooks/useCloseSessionTabShortcut.ts", "utf8");
-	// 订阅快捷键广播并过滤 closeSessionTab
-	assert.match(hook, /onShortcutTriggered\(/);
-	assert.match(hook, /id\s*!==\s*"closeSessionTab"/);
-	// busy 判定与时间线 isBusy 同口径（activating/sending/runtime busy）
-	assert.match(hook, /isSessionRuntimeBusy/);
-	assert.match(hook, /"activating"/);
-	assert.match(hook, /"sending"/);
-	// 空闲：直接 closeTab，不弹确认
-	assert.match(hook, /if\s*\(!busy\)\s*\{\s*closeTab\(sessionId\);\s*return;/);
-	// 回答中：确认框文案走 i18n，确认后先 abort 再关（取消 = 保持，由 overlays 自身承担）
-	assert.match(hook, /showConfirm\(\{/);
-	assert.match(hook, /t\("tabs\.closeRunningTitle"\)/);
-	assert.match(hook, /t\("tabs\.closeRunningConfirm"\)/);
-	assert.match(hook, /abortAgent\(target\.agentId\)/);
-	// App.tsx 已装配（closeTab/abortAgent/overlays 三依赖齐全）
-	const app = rendererAppSource;
-	assert.match(app, /useCloseSessionTabShortcut\(\{\s*closeTab:\s*workspaceChrome\.closeTab,\s*abortAgent,\s*overlays\s*\}\)/);
 });
 
 test("词典：三语的确认框文案与快捷键说明键齐全", () => {

@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
-import { createStore } from "jotai/vanilla";
+import { atom, createStore } from "jotai/vanilla";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -26,6 +26,7 @@ function compileModule(filePath, imports = {}) {
  */
 function loadAtoms() {
 	const workspacePageAtoms = compileModule("src/renderer/src/atoms/workspace-page-atoms.ts", {
+		"./session-state-atoms": { currentSessionIdAtom: atom(undefined) },
 		"../utils/workspacePageTabs": compileModule("src/renderer/src/utils/workspacePageTabs.ts"),
 	});
 	const hostPluginAtoms = compileModule("src/renderer/src/atoms/host-plugin-atoms.ts", {

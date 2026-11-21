@@ -14,7 +14,7 @@ test("ThinkingStep typewriter follows only its live streaming entry", () => {
 });
 
 test("execution Collapsible onOpenChange sets open state instead of toggling", () => {
-	assert.match(turnRow, /onOpenChange=\{setStepsVisibleFromUser\}/);
+	assert.match(turnRow, /onOpenChange=\{\(open\)\s*=>\s*\{[\s\S]*?setStepsVisibleFromUser\(open\);[\s\S]*?\}\}/);
 	assert.doesNotMatch(turnRow, /onOpenChange=\{toggleSteps\}/);
 });
 

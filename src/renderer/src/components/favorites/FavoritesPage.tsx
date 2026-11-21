@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useWorkspacePageFocus } from "../../hooks/useWorkspacePageFocus";
 import { useAtomValue, useSetAtom } from "jotai";
 import { closeFavoritesPageAtom, favoriteDetailOpenAtom, favoritesPageOpenAtom } from "../../atoms/favorites-atoms";
 import { t } from "../../i18n";
@@ -15,6 +16,7 @@ export function FavoritesPage(props: { active: boolean }) {
 	const open = useAtomValue(favoritesPageOpenAtom);
 	const detailOpen = useAtomValue(favoriteDetailOpenAtom);
 	const close = useSetAtom(closeFavoritesPageAtom);
+	const pageRef = useWorkspacePageFocus(open && props.active);
 
 	useEffect(() => {
 		if (!open || !props.active) return;
@@ -31,7 +33,7 @@ export function FavoritesPage(props: { active: boolean }) {
 	if (!open) return null;
 
 	return (
-		<div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !props.active && "hidden")} role="region" aria-label={t("favorites.title")}>
+		<div ref={pageRef} tabIndex={-1} data-close-scope="page" data-close-id="favorites" className={cn("absolute inset-0 z-30 flex flex-col bg-background", !props.active && "hidden")} role="region" aria-label={t("favorites.title")}>
 			<FavoritesWorkspace />
 		</div>
 	);

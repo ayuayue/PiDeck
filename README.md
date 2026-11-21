@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.13.1-blue)
+![Version](https://img.shields.io/badge/version-0.13.2-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -50,7 +50,7 @@
   - [📑 目录](#-目录)
   - [✨ 核心亮点](#-核心亮点)
   - [📋 更新日志](#-更新日志)
-    - [v0.7.8 更新亮点](#v078-更新亮点)
+    - [v0.13.2 更新亮点](#v0132-更新亮点)
   - [🧩 功能总览](#-功能总览)
     - [工作区与项目](#工作区与项目)
     - [会话与对话](#会话与对话)
@@ -92,18 +92,10 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.13.1**（未发布）
+> **最新版本 v0.13.2**（2026-11-21）
 
-### v0.13.0 更新亮点
-- 🚀 **活动页 GTD 分诊**
-- 🚀 **ACP 附加工作目录**
-- 🚀 **通过 SSH 编辑 Pi 配置**
-- 🚀 **自定义提示词增强模板**
-- 🚀 **会话正文行距可调**
-- ✨ **内置技能合并成一个 pideck 入口**
-- ✨ **Web API 技能参考补全**
-- ✨ **回答与执行过程共用一条纵向滚动**
-- ✨ **重试过程保持紧凑**
+### v0.13.2 更新亮点
+- ✨ **远端 Git 请求保留受理时的超时预算**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 
@@ -256,7 +248,7 @@ PiDeck
 
 👉 **[GitHub Releases](https://github.com/ayuayue/PiDeck/releases)**
 
-> PiDeck 需要单独安装 `pi` CLI 并确保其加入系统 `PATH`。
+> 使用 Pi 后端时，需要单独安装 `pi` CLI 并确保其加入系统 `PATH`。
 
 ### 开发版（PiDeck Dev）
 
@@ -267,7 +259,7 @@ PiDeck
 - **数据模式二选一**：首次启动 PiDeck Dev 时可选择「与正式版共用数据」或「独立数据目录」，后续可在应用内切换并按引导迁移数据。
 - **协议差异**：开发版注册 `pideck-dev://` 深度链接协议，与正式版的 `pideck://` 互不抢占。
 
-环境要求：
+Pi 后端的环境要求：
 
 - 系统 `PATH` 中可访问 `pi` 命令
 - 已完成 pi 的 Provider / 登录 / API Key 配置

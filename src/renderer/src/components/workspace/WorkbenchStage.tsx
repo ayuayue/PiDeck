@@ -85,12 +85,14 @@ export function WorkbenchStage(props: WorkbenchStageProps) {
 					<ResizablePanel id="workbench-session" panelRef={sessionPanelRef} collapsible collapsedSize="0%" minSize="20%" defaultSize="48%" className="workbench-session-pane">
 						<div className="flex h-full min-h-0 flex-col">
 							{props.simple && props.chrome}
-							<div className="flex min-h-0 flex-1 flex-col">{props.session}</div>
+							<div tabIndex={-1} data-close-focus-fallback className="flex min-h-0 flex-1 flex-col">
+								{props.session}
+							</div>
 						</div>
 					</ResizablePanel>
 					<ResizableHandle withHandle className="workbench-stage-sash" disabled={!props.hasContent || props.layout === "maximize"} style={!props.hasContent ? { display: "none" } : undefined} />
 					<ResizablePanel id="workbench-content" panelRef={contentPanelRef} collapsible collapsedSize="0%" minSize="25%" defaultSize="52%" className="workbench-content-pane">
-						<div ref={contentFrameRef} className="workbench-content-frame">
+						<div ref={contentFrameRef} data-close-scope={props.hasContent ? "editor" : undefined} className="workbench-content-frame">
 							{props.simple && props.hasContent && props.contentChrome}
 							{props.content}
 						</div>

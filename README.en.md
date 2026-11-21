@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.13.1-blue)
+![Version](https://img.shields.io/badge/version-0.13.2-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -42,7 +42,7 @@
   - [📑 Table of Contents](#-table-of-contents)
   - [✨ Highlights](#-highlights)
   - [📋 Changelog](#-changelog)
-    - [v0.7.8 Release Highlights](#v078-release-highlights)
+    - [v0.13.2 Release Highlights](#v0132-release-highlights)
   - [🧩 Features](#-features)
     - [Workspace & Projects](#workspace--projects)
     - [Sessions & Conversation](#sessions--conversation)
@@ -83,18 +83,10 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.13.1** (unreleased)
+> **Latest: v0.13.2** (2026-11-21)
 
-### v0.13.0 Release Highlights
-- 🚀 **Activity triage with GTD**
-- 🚀 **ACP additional working directories**
-- 🚀 **Edit Pi configuration over SSH**
-- 🚀 **Custom prompt enhancement templates**
-- 🚀 **Adjustable conversation line spacing**
-- ✨ **Built-in skills merged into one pideck entry**
-- ✨ **Web API reference is complete again**
-- ✨ **One vertical scroller for answers and execution details**
-- ✨ **Retry progress stays compact**
+### v0.13.2 Release Highlights
+- ✨ **Remote Git requests keep their admitted timeout**
 
 [View Full Changelog →](CHANGELOG.md)
 
@@ -246,7 +238,7 @@ Prebuilt packages for **Windows**, **macOS**, and **Linux** are published on Git
 
 👉 **[GitHub Releases](https://github.com/ayuayue/PiDeck/releases)**
 
-> PiDeck requires the `pi` CLI to be installed separately and available in your system `PATH`.
+> To use the Pi backend, install the `pi` CLI separately and make sure it is available in your system `PATH`.
 
 ### Dev Edition (PiDeck Dev)
 
@@ -257,7 +249,7 @@ Besides the stable edition (PiDeck), the project also publishes **dev edition (P
 - **Data mode (choose one)**: on first launch PiDeck Dev asks whether to share data with the stable edition or use a separate data directory; you can switch later in-app and follow the guided migration.
 - **Protocol difference**: the dev edition registers the `pideck-dev://` deep-link protocol, which does not collide with the stable edition's `pideck://`.
 
-Requirements:
+Requirements for the Pi backend:
 
 - `pi` command available in system `PATH`
 - pi authentication configured (Provider / login / API keys)

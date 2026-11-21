@@ -46,6 +46,8 @@ export function WorkbenchFileTabs(props: { tabs: readonly WorkbenchEditorTabItem
 				<div
 					key={tab.id}
 					role="presentation"
+					data-close-scope="editor"
+					data-close-id={tab.id}
 					className={cn(
 						"group relative flex h-7 w-fit max-w-64 shrink-0 cursor-pointer select-none items-center gap-2 rounded-md px-2 text-xs has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring",
 						tab.active ? "bg-bg-active font-medium text-text-primary" : "text-muted-foreground hover:bg-accent-soft hover:text-foreground",

@@ -426,7 +426,7 @@ function FavoriteDetailDrawer(props: { entry: FavoriteEntry | null; onClose: () 
 			// 与 shadcn 弹窗共用一套层级 token（--z-drawer 980 高于 --z-dialog 950）
 			backdropClassName="z-[var(--z-drawer)]"
 			className="z-[var(--z-drawer)] w-[min(680px,92vw)]"
-			rootAttributes={{ "data-favorite-detail-drawer": "" }}
+			rootAttributes={{ "data-favorite-detail-drawer": "", "data-close-scope": "panel" }}
 		>
 			{entry && (
 				<>
@@ -435,7 +435,7 @@ function FavoriteDetailDrawer(props: { entry: FavoriteEntry | null; onClose: () 
 							<Star className="size-3.5" aria-hidden="true" />
 						</span>
 						<span className="min-w-0 truncate text-sm font-semibold text-foreground">{t("favorites.detailTitle")}</span>
-						<Button type="button" variant="ghost" size="icon-sm" className="ml-auto size-7 rounded-sm text-muted-foreground" title={t("common.close")} aria-label={t("common.close")} onClick={props.onClose}>
+						<Button data-close-action="true" type="button" variant="ghost" size="icon-sm" className="ml-auto size-7 rounded-sm text-muted-foreground" title={t("common.close")} aria-label={t("common.close")} onClick={props.onClose}>
 							<X size={14} />
 						</Button>
 					</div>

@@ -1,6 +1,6 @@
 import type { AgentRuntimeState } from "../../shared/types";
 import { agentEventTags } from "../../shared/ipc";
-import { calculateTokensPerSecond, calculateSessionTokensPerSecond, type TaskPerfSpan } from "../../shared/tps";
+import { calculateTokensPerSecond, calculateSessionTokensPerSecond, hasMeasurableStreamingWindow, type TaskPerfSpan } from "../../shared/tps";
 
 /** 最近一次 assistant 回复及会话级性能指标（结算后保留，供 getRuntimeState 合并展示）。 */
 export interface MessagePerfSnapshot {
@@ -188,7 +188,7 @@ export class MessagePerfTracker {
 	 * - ttftMs = 首字（正文首 delta，思考模式下用户感知的首字；无正文退回首 delta）− 请求发出时刻；
 	 * - totalMs = 终态 − 请求发出时刻（本轮回复总耗时）；
 	 * - tps = output tokens ÷ 首 delta → 终态；endToEndTps = 同一 output tokens ÷ totalMs。
-	 * 无 text/thinking delta 时不估算流式速度；只要用量和总耗时有效，端到端速度仍可计算。
+	 * 无 text/thinking delta 或流式窗口过短时不估算流式速度；只要用量和总耗时有效，端到端速度仍可计算。
 	 */
 	settle(agentId: string, emit: (channel: string, payload: unknown) => void, message?: unknown, log?: (message: string, detail: Record<string, unknown>) => void): void {
 		const perf = this.perfByAgent.get(agentId);
@@ -204,7 +204,7 @@ export class MessagePerfTracker {
 		// message_end 携带完整 assistant 消息，usage 兼容多种命名提取 output tokens
 		const usage = isRecord(message) && isRecord(message.usage) ? message.usage : undefined;
 		const outputTokens = [usage?.output, usage?.outputTokens, usage?.completion, usage?.completionTokens].find((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
-		const streamingMs = perf.firstDeltaAt > 0 ? now - perf.firstDeltaAt : undefined;
+		const streamingMs = hasMeasurableStreamingWindow(perf.firstDeltaAt, now) ? now - perf.firstDeltaAt : undefined;
 		const tps = calculateTokensPerSecond(outputTokens, streamingMs);
 		const endToEndTps = calculateTokensPerSecond(outputTokens, totalMs);
 

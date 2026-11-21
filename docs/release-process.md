@@ -9,6 +9,7 @@
 
 1. 核对 `README.md` / `README.en.md` 功能与安装说明仍准确。
 2. 架构级变更（如 session-first 切换）先发 pre-release 观察，再标正式版。
+3. 打正式版 tag 前，确认候选提交对应的 `CI / Linux unit tests (remote/SSH)` job 已成功（`conclusion=success`）。Windows 的 `preflight` 和核心 E2E 会跳过部分 Linux 专属行为，不能替代该门禁；Release 构建成功也不代表独立 CI 已通过。失败时先读该 job 的日志，按 `docs/ci-linux-known-failures.md` 的同版本 Node/Linux 命令复现，修复后再发布。
 
 ## 一键预检（npm run preflight）
 

@@ -10,6 +10,25 @@ description: PiDeck 每个版本的发布记录：新功能、问题修复与体
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
+## v0.13.2
+
+发布时间：2026-11-21
+
+- ✨ **远端 Git 请求保留受理时的超时预算**
+
+## v0.13.1
+
+发布时间：2026-11-21
+
+- 🚀 **SSH 工作区和本机项目共用 Git 面板**
+- 🚀 **通过 SSH 管理 MCP 服务**
+- 🚀 **自定义公网地址与 PiDeck Lite 兼容**
+- 🚀 **按范围筛选智能体记忆**
+- ✨ **远端工作区的技能选择器恢复可用**
+- ✨ **远端文件在中间栏打开**
+- ✨ **压缩期间发送的消息会排队**
+- ✨ **Cmd/Ctrl+W 关闭当前聚焦的工作区标签**
+
 ## v0.13.0
 
 发布时间：2026-11-18

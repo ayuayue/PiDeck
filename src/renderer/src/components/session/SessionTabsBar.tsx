@@ -798,15 +798,15 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
  */
 function EditorWorkbenchTab(props: { tab: WorkbenchEditorTabItem; onSelect?: (tabId: string) => void; onClose?: (tabId: string) => void; onPromotePreview?: (tabId: string) => void }) {
 	const { tab } = props;
-	// 只跟随悬停：切回窗口时浏览器把焦点还给上次聚焦的 Tab，Radix 默认会因此自动弹泡。
+	// 只在悬停时显示富提示，窗口还原焦点时不会自动弹泡。
 	const tip = useHoverOnlyTooltip();
-	// 工作台 Tab 富提示：第一行 tab 标题，第二行完整路径（tab.title 由装配层传入 filePath）。
-	// title 缺省时退化为单行，与旧原生 title 行为一致。
 	return (
 		<Tooltip delayDuration={500} open={tip.open} onOpenChange={tip.onOpenChange}>
 			<TooltipTrigger asChild>
 				<div
 					role="tab"
+					data-close-scope="editor"
+					data-close-id={tab.id}
 					aria-selected={Boolean(tab.active)}
 					aria-label={tab.title ?? tab.label}
 					{...tip.hoverProps}
@@ -849,9 +849,7 @@ function EditorWorkbenchTab(props: { tab: WorkbenchEditorTabItem; onSelect?: (ta
 							<X className="size-3" />
 						</button>
 					</span>
-					{/* 灰色选中背景：只属于激活 Tab 自身，切换时瞬时出现（无滑动动画），
-          替代旧的底部细条；内容包装层已 z-10 抬升到背景之上。
-          背景色用 inline 变量（var(--color-bg-active)）而非 bg-accent 类，同 SessionTab 一致。 */}
+					{/* 背景仅属于激活 Tab，内容层由 z-10 抬升。 */}
 					{tab.active && <span aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-md bg-accent" />}
 				</div>
 			</TooltipTrigger>
@@ -870,17 +868,14 @@ function EditorWorkbenchTab(props: { tab: WorkbenchEditorTabItem; onSelect?: (ta
 	);
 }
 
-/**
- * 页面式宿主插件面板伪 Tab：与 EditorWorkbenchTab 同一套 session-tab 皮。
- * 它在栏里始终是选中态（呈现的视图就是它），选中背景瞬时铺满（无滑动动画）。
- * 不可拖拽排序，唯一动作是关闭（即收起插件页）。
- */
+/** 页面式宿主插件伪 Tab 用同一套会话 Tab 外观，只提供关闭动作。 */
 function HostPluginTab(props: { tab: { title: string; icon?: React.ComponentType<{ className?: string }>; onClose: () => void } }) {
 	const { tab } = props;
 	const Icon = tab.icon;
 	return (
 		<div
 			role="tab"
+			data-close-scope="plugin"
 			aria-selected={true}
 			aria-label={tab.title}
 			tabIndex={0}
@@ -928,6 +923,8 @@ function WorkspacePageTab(props: { tab: WorkspacePageTabItem }) {
 	return (
 		<div
 			role="tab"
+			data-close-scope="page"
+			data-close-id={tab.id}
 			aria-selected={Boolean(tab.active)}
 			aria-label={tab.title}
 			title={tab.title}
@@ -1151,6 +1148,8 @@ function SessionTab(props: {
 					<ContextMenuTrigger asChild>
 						<div
 							role="tab"
+							data-close-scope="session"
+							data-close-id={sessionId}
 							aria-selected={active}
 							data-session-id={sessionId}
 							aria-label={workspaceName ? `${title} — ${workspaceName}` : title}

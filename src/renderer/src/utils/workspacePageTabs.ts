@@ -46,8 +46,11 @@ export function deactivateWorkspacePage(state: WorkspacePageTabState): Workspace
 	return state.active === null ? state : { ...state, active: null };
 }
 
-/** 关闭页面 Tab；关的正是当前呈现页面时回到会话。 */
-export function closeWorkspacePage(state: WorkspacePageTabState, pageId: WorkspacePageId): WorkspacePageTabState {
+/** Prefer the underlying session. Without a session, select the nearest surviving page tab. */
+export function closeWorkspacePage(state: WorkspacePageTabState, pageId: WorkspacePageId, hasSession = true): WorkspacePageTabState {
 	if (!state.tabs.includes(pageId)) return state;
-	return { tabs: state.tabs.filter((id) => id !== pageId), active: state.active === pageId ? null : state.active };
+	const tabs = state.tabs.filter((id) => id !== pageId);
+	if (state.active !== pageId) return { tabs, active: state.active };
+	const index = sortWorkspacePageIds(state.tabs).indexOf(pageId);
+	return { tabs, active: hasSession ? null : (sortWorkspacePageIds(tabs)[Math.min(index, tabs.length - 1)] ?? null) };
 }
