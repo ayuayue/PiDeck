@@ -218,6 +218,27 @@ func TestMobileConnectIgnoresCancelledAttempt(t *testing.T) {
 	}
 }
 
+func TestMobileScanWithoutTokenKeepsAddressAndClearsOldToken(t *testing.T) {
+	a, _ := newConnectionTestApp(t)
+	a.server.Set("http://old.example:8787")
+	a.token.Set("old-token")
+
+	a.connectScanned("http://new.example:8787")
+
+	if got := a.server.GetUntracked(); got != "http://new.example:8787" {
+		t.Fatalf("server = %q, want scanned address", got)
+	}
+	if got := a.token.GetUntracked(); got != "" {
+		t.Fatalf("token = %q, want empty token for scanned address", got)
+	}
+	if got := a.err.GetUntracked(); got == "" {
+		t.Fatal("missing token did not prompt the user")
+	}
+	if a.busy.GetUntracked() || a.connected.GetUntracked() {
+		t.Fatal("scan without token started a connection")
+	}
+}
+
 func TestMobileConnectCanRestartBeforeCancelledAttemptReturns(t *testing.T) {
 	a, posts := newConnectionTestApp(t)
 	old, started, releaseOld := delayedStateServer(t, http.StatusUnauthorized, "old")

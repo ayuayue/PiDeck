@@ -235,6 +235,8 @@ func (a *mobileApp) connectScanned(text string) {
 	}
 	if token == "" {
 		client.close()
+		a.server.Set(client.source)
+		a.token.Set("")
 		a.err.Set(apptext.T("请填写访问令牌，或粘贴完整的连接链接"))
 		return
 	}

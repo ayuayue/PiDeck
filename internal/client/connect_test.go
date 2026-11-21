@@ -203,6 +203,31 @@ func TestMobileLiveScanConnects(t *testing.T) {
 	}
 }
 
+// TestMobileLiveScanWithoutTokenKeepsAddress lets the user fill a token after
+// scanning an address-only code.
+func TestMobileLiveScanWithoutTokenKeepsAddress(t *testing.T) {
+	const token = "manual-scan-token"
+	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+		Path: "/tmp/project", Name: "手动令牌项目", Sessions: []remotewire.Session{{ID: "s1", Title: "扫码会话"}},
+	}}}
+	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
+	defer server.Close()
+
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
+		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
+	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
+		return &core.ScannedCode{Text: server.URL}, nil
+	}
+	app.WaitFor("id:mobile-scan", 5*time.Second)
+	app.Press("id:mobile-scan")
+	app.WaitFor("text:请填写访问令牌，或粘贴完整的连接链接", 5*time.Second)
+	app.Type("id:mobile-token", token)
+	app.Press("id:mobile-connect")
+	waitApp(app, "text:手动令牌项目", 15*time.Second)
+}
+
 // TestMobileLiveScanCancel keeps the connect form usable when the scanner is
 // closed without reading a code.
 func TestMobileLiveScanCancel(t *testing.T) {
