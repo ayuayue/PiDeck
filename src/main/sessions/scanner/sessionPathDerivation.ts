@@ -104,13 +104,8 @@ export function looksLikeNestedSessionPath(host: SessionScanRootsHost, filePath:
 	return relative.split("/").length > 2;
 }
 
-export function canonicalSessionPath(path: string, wsl: boolean) {
-	const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
-	return wsl ? normalized : normalized.toLowerCase();
-}
-
 export function normalizeSessionPath(path: string) {
-	return canonicalSessionPath(path, false);
+	return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 export function sessionPathToken(path: string) {

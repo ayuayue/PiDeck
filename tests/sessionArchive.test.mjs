@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { loadSessionScanner as loadProductionSessionScanner } from "./helpers/loadSessionScanner.mjs";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import ts from "typescript";
 import vm from "node:vm";
 
@@ -165,6 +166,37 @@ test("archive moves the session into .pideck-archive and list no longer returns 
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}
+});
+
+test("archived native POSIX sessions match the original project case after upgrading the summary cache", async (t) => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-archive-posix-cwd-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
+	const cwd = "/home/demo/Projects/MixedCase";
+	const sessionPath = join(home, ".pi", "agent", "sessions", "archive-me.jsonl");
+	writeSession(sessionPath, [{ ...healthySession[0], cwd }, ...healthySession.slice(1)]);
+
+	const { SessionScanner } = loadSessionScanner(home);
+	const scanner = new SessionScanner();
+	const archivedPath = await scanner.archive(sessionPath);
+	await scanner.listArchived();
+	await scanner.flushSummaryCache();
+
+	// 模拟升级前留下的 v3 摘要，保留原文件指纹，让旧缓存确实能命中。
+	const cachePath = join(home, "userData", "session-summary-cache.json");
+	const cache = JSON.parse(readFileSync(cachePath, "utf8"));
+	cache.version = 3;
+	cache.entries[archivedPath].value.projectPath = cwd.toLowerCase();
+	writeFileSync(cachePath, JSON.stringify(cache));
+
+	const restarted = new SessionScanner();
+	await restarted.list();
+	const items = await restarted.listArchived();
+	const { filterArchivedPiByFamily } = loadTsCommonJs("src/renderer/src/sessionManagerModel.ts");
+	const [match] = filterArchivedPiByFamily(items, [{ path: cwd }]);
+	assert.equal(match?.summary.filePath, archivedPath);
+	assert.equal(filterArchivedPiByFamily(items, [{ path: cwd.toLowerCase() }]).length, 0);
+	assert.equal(await restarted.unarchive(match.summary.filePath), sessionPath);
+	await restarted.flushSummaryCache();
 });
 
 test("readSummary preserves WSL cwd casing for archived project attribution", async () => {
