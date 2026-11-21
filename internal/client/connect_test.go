@@ -71,6 +71,24 @@ func TestMobileConnect(t *testing.T) {
 	shot(app, "66-mobile-tools")
 }
 
+func TestMobileConnectUsesEnteredTokenOverLinkToken(t *testing.T) {
+	const token = "fresh-connect-token"
+	state := remotewire.Snapshot{Name: "PiDeck Lite", Host: "desk", Projects: []remotewire.Project{{
+		Path: "/tmp/project", Name: "新令牌连接", Sessions: []remotewire.Session{{ID: "s1", Title: "连接会话"}},
+	}}}
+	server := newTestHTTPServer(t, token, state, remotewire.Transcript{ID: "s1"})
+	defer server.Close()
+
+	t.Setenv("PIDECK_LITE_MOBILE", "1")
+	t.Setenv("PIDECK_LITE_HOME", t.TempDir())
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860))
+	app.WaitFor("id:mobile-server", 10*time.Second)
+	app.Type("id:mobile-server", server.URL+"?token=expired-token")
+	app.Type("id:mobile-token", token)
+	app.Press("id:mobile-connect")
+	waitApp(app, "text:新令牌连接", 15*time.Second)
+}
+
 // newTestHTTPServer is the desktop the mobile test connects to.
 func newTestHTTPServer(t *testing.T, token string, state remotewire.Snapshot, transcript remotewire.Transcript) *httptest.Server {
 	t.Helper()

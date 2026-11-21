@@ -61,7 +61,7 @@ func newRemoteClient(raw, token string) (*remoteClient, string, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, "", errors.New("连接地址只支持 http 或 https")
 	}
-	if q := u.Query().Get("token"); q != "" {
+	if q := u.Query().Get("token"); q != "" && token == "" {
 		token = q
 	}
 	base := u.Scheme + "://" + u.Host
