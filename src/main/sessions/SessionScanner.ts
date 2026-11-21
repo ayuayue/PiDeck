@@ -36,12 +36,13 @@ import {
 import { SessionSummaryCache, type SessionFileVersion } from "./sessionSummaryCache";
 import { rewriteJsonlLines } from "./jsonlLineStream";
 import { readSessionChatMessages, readSessionMessages, type SessionMessageReadHost } from "./scanner/sessionMessageReads";
+import { restoreArchivedSubtree } from "./scanner/sessionArchiveRestore";
 import { createSessionInfoAppender } from "./scanner/sessionInfoAppender";
 import { exportSessionHtml, type SessionHtmlExportHost } from "./scanner/sessionHtmlExport";
 import { collectFromRootsLocal, collectFromRootsWsl, collectJsonl, collectWslJsonl, mapLimited, type SessionRootEnumerationHost } from "./scanner/sessionRootEnumeration";
 import { hasSessionHeader, isSessionFile, listPathSummary, optionalString, readLocalFileHead, readLocalFilePrefix, readLocalFileSuffix, readSessionSummary, type SessionSummaryReadHost } from "./scanner/sessionSummaryRead";
-import { FIRST_MESSAGE_TITLE_MAX_BYTES, inferFirstMessageTitle, inferSessionNameAndValidity, inferSessionNameFromFile, probeTintinwebSubagentParent, type SessionTitleProbeHost } from "./scanner/sessionTitleProbe";
-import { canonicalSessionPath, findSessionsRootForFile, inferProjectPathFromFile, isSameProject, isUnderProjectSessionDir, looksLikeNestedSessionPath, normalizeSessionPath, sessionPathToken, type SessionScanRootsHost } from "./scanner/sessionPathDerivation";
+import { FIRST_MESSAGE_TITLE_MAX_BYTES, inferFirstMessageTitle, inferSessionNameAndValidity, inferSessionNameFromFile, probeTintinwebSubagentParent, readArchivedSubagentReference, type SessionTitleProbeHost } from "./scanner/sessionTitleProbe";
+import { canonicalSessionPath, findSessionsRootForFile, forkParentCandidates, inferProjectPathFromFile, isSameProject, isUnderProjectSessionDir, looksLikeNestedSessionPath, normalizeSessionPath, sessionPathToken, type SessionScanRootsHost } from "./scanner/sessionPathDerivation";
 
 type SessionScannerCopyKey = Extract<MainProcessTranslationKey, "session.untitled" | "session.emptyPreview" | "session.copyTitle" | "session.fileTooLargeForWholeRead" | "session.deleteFileBusy">;
 
@@ -869,6 +870,17 @@ export class SessionScanner {
 	private static readonly ARCHIVE_DIR_NAME = ".pideck-archive";
 	/** 归档索引文件名：记录 归档路径 → 原始路径 映射，恢复时据此移回 */
 	private static readonly ARCHIVE_INDEX_NAME = "index.json";
+	private archiveQueue: Promise<void> = Promise.resolve();
+
+	/** 归档、恢复和删除共享同一索引；一次子树恢复期间不能交错移动文件或覆盖索引。 */
+	private queueArchiveChange<T>(change: () => Promise<T>): Promise<T> {
+		const result = this.archiveQueue.then(change);
+		this.archiveQueue = result.then(
+			() => undefined,
+			() => undefined,
+		);
+		return result;
+	}
 
 	/** 取 filePath 所在扫描根的归档目录；非扫描根内文件返回 undefined */
 	private archiveDirFor(filePath: string): string | undefined {
@@ -881,7 +893,11 @@ export class SessionScanner {
 	 * 归档会话：把 JSONL（连同同级子会话目录）移入归档目录，并写入索引。
 	 * 支持 WSL 路径；返回归档后的文件路径。
 	 */
-	async archive(filePath: string): Promise<string> {
+	archive(filePath: string): Promise<string> {
+		return this.queueArchiveChange(() => this.archiveUnqueued(filePath));
+	}
+
+	private async archiveUnqueued(filePath: string): Promise<string> {
 		const wsl = this.isWslPath(filePath);
 		const archiveDir = this.archiveDirFor(filePath);
 		if (!archiveDir) throw new Error("会话不在可扫描目录内，无法归档");
@@ -898,8 +914,8 @@ export class SessionScanner {
 		}
 		// 同级子会话目录（<stem>/）一并移入归档，保持子会话归属。
 		const siblingDir = this.getSiblingDir(filePath);
-		if (siblingDir) {
-			const targetSibling = this.joinRuntimePath(archiveDir, basename(siblingDir));
+		const targetSibling = this.getSiblingDir(finalTarget);
+		if (siblingDir && targetSibling) {
 			if (wsl) {
 				if (await this.existsWslDir(siblingDir)) await this.moveWsl(siblingDir, targetSibling);
 			} else if (existsSync(siblingDir)) {
@@ -916,32 +932,23 @@ export class SessionScanner {
 	 * 从归档恢复会话：按索引把文件移回原路径。
 	 * 原路径已存在（被新建会话占用）时抛错，避免覆盖。
 	 */
-	async unarchive(archivedPath: string): Promise<string> {
+	unarchive(archivedPath: string): Promise<string> {
+		return this.queueArchiveChange(() => this.unarchiveUnqueued(archivedPath));
+	}
+
+	private async unarchiveUnqueued(archivedPath: string): Promise<string> {
 		const wsl = this.isWslPath(archivedPath);
-		const originalPath = await this.lookupArchiveOriginal(archivedPath, wsl);
-		if (!originalPath) throw new Error("归档索引中找不到该会话");
-		if (wsl ? await this.existsWslFile(originalPath) : existsSync(originalPath)) {
-			throw new Error("原路径已被占用，无法恢复");
-		}
-		if (wsl) {
-			await this.moveWsl(archivedPath, originalPath);
-		} else {
-			await rename(archivedPath, originalPath);
-		}
-		// 子会话目录一并移回
-		const siblingDir = this.getSiblingDir(archivedPath);
-		if (siblingDir) {
-			const originalSibling = this.getSiblingDir(originalPath);
-			if (originalSibling) {
-				if (wsl ? await this.existsWslDir(siblingDir) : existsSync(siblingDir)) {
-					if (wsl) await this.moveWsl(siblingDir, originalSibling);
-					else await rename(siblingDir, originalSibling);
-				}
-			}
-		}
-		await this.removeArchiveEntry(archivedPath, wsl);
-		getAppLogger()?.info("session", "Session restored from archive", { archivedPath, originalPath });
-		return originalPath;
+		return restoreArchivedSubtree(archivedPath, await this.readArchiveIndex(wsl), {
+			wsl,
+			hostPath: (path) => this.hostPathFor(path),
+			siblingDir: (path) => this.getSiblingDir(path),
+			readReference: (path) => readArchivedSubagentReference(this.titleProbeHost, path),
+			move: (from, to) => (wsl ? this.moveWsl(from, to) : rename(from, to)),
+			forget: async (from, to) => {
+				await this.removeArchiveEntry(from, wsl);
+				getAppLogger()?.info("session", "Session restored from archive", { archivedPath: from, originalPath: to });
+			},
+		});
 	}
 
 	/**
@@ -985,7 +992,11 @@ export class SessionScanner {
 	 * 并从归档索引移除条目。只允许删除 .pideck-archive 目录内的文件，防路径穿越。
 	 * 幂等：归档文件已被外部清理时视为成功。
 	 */
-	async deleteArchived(archivedPath: string): Promise<void> {
+	deleteArchived(archivedPath: string): Promise<void> {
+		return this.queueArchiveChange(() => this.deleteArchivedUnqueued(archivedPath));
+	}
+
+	private async deleteArchivedUnqueued(archivedPath: string): Promise<void> {
 		const wsl = this.isWslPath(archivedPath);
 		const archiveDir = this.archiveDirFor(archivedPath);
 		if (!archiveDir) throw new Error("归档文件不在可扫描目录内，无法删除");
@@ -1067,12 +1078,6 @@ export class SessionScanner {
 		if (!(archivedPath in entries)) return;
 		delete entries[archivedPath];
 		await this.writeArchiveIndex(entries, wsl);
-	}
-
-	/** 按归档路径查原始路径 */
-	private async lookupArchiveOriginal(archivedPath: string, wsl: boolean): Promise<string | undefined> {
-		const entries = await this.readArchiveIndex(wsl);
-		return entries[archivedPath];
 	}
 
 	/** 通过 wsl.exe 递归列出目录下 *.jsonl（供归档目录扫描） */
@@ -1513,16 +1518,8 @@ export class SessionScanner {
 	 * 因此依次尝试「会话文件所在目录 → 会话 cwd」两个基准，返回第一个存在且在扫描根内的候选。
 	 */
 	private async resolveForkParentPath(filePath: string, forkParentSession: string, isWsl: boolean, sessionCwd?: string, signal?: AbortSignal): Promise<string | undefined> {
-		const normalizedForkParent = forkParentSession.replace(/\\/g, "/");
-		const candidates: string[] = [];
-		const fileDir = isWsl ? posixDirname(filePath) : dirname(filePath);
-		candidates.push(isWsl ? posixJoin(fileDir, normalizedForkParent) : resolve(fileDir, forkParentSession));
-		if (sessionCwd) {
-			// WSL 会话的 cwd 是发行版内 posix 路径；本地是 Windows 绝对路径，resolve 直接吃绝对 parentSession。
-			candidates.push(isWsl ? posixJoin(this.normalize(sessionCwd), normalizedForkParent) : resolve(sessionCwd, forkParentSession));
-		}
 		const normalizedSessionsRoot = this.normalize(this.findSessionsRootForFile(filePath));
-		for (const resolved of candidates) {
+		for (const resolved of forkParentCandidates(filePath, forkParentSession, isWsl, sessionCwd)) {
 			const normalizedResolved = this.normalize(resolved);
 			const isInsideSessionsRoot = normalizedResolved !== normalizedSessionsRoot && normalizedResolved.startsWith(`${normalizedSessionsRoot}/`);
 			if (!isInsideSessionsRoot) continue;
