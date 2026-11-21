@@ -25,7 +25,6 @@ func (a *app) pluginMarketDialog() core.Node {
 		if a.plugins != nil {
 			a.plugins.Get() // rebuild when an install finishes
 		}
-		installing := a.marketInstalling.Get()
 		var rows []core.Node
 		for _, e := range list {
 			entry := e
@@ -64,15 +63,12 @@ func (a *app) pluginMarketDialog() core.Node {
 					Children: []core.Node{ui.Text(label, 9, ui.Medium, colors.Faint)}})
 				if entry.Version != "" && installed.Version != "" && entry.Version != installed.Version {
 					row = append(row, ui.Button{Text: apptext.T("更新到 %s", entry.Version), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-						TestID: "market-update-" + entry.ID, Disabled: func() bool { return installing != "" },
+						TestID: "market-update-" + entry.ID, Disabled: a.pluginFileBusy.Get,
 						OnPress: func() { a.installFromMarket(entry) }})
 				}
 			} else {
 				row = append(row, ui.Button{Text: apptext.T("安装"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
-					TestID: "market-install-" + entry.ID,
-					Disabled: func() bool {
-						return installing != ""
-					},
+					TestID: "market-install-" + entry.ID, Disabled: a.pluginFileBusy.Get,
 					OnPress: func() { a.installFromMarket(entry) }})
 			}
 			rows = append(rows, core.View{TestID: "market-entry-" + entry.ID,

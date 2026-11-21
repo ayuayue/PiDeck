@@ -1,7 +1,7 @@
 # PiDeck Lite 插件审计与实现方案
 
-审计日期：2026-11-20。基于当前工作区与 `go.mod` 锁定的 NSGo `a4a00f7f38b3`，不把
-框架具备的能力算成 Lite 已经开放的 API。
+首轮审计日期：2026-11-20，使用 NSGo `a4a00f7f38b3`。2026-11-21 续作基于
+`go.mod` 当前锁定的 `c70af8a79201` 验证。不把框架具备的能力算成 Lite 已经开放的 API。
 
 ## 结论与本轮边界
 
@@ -17,7 +17,7 @@ Lite 兼容市场。沿用当前工程约束，本轮修复声明式链路并提
 | 主题 | 已开放 | 浅深角色色、token；本地相对文件或兼容的内联主题 |
 | 智能体 | 已开放 | 提示词 persona，适用于现有后端；不是新后端或自定义工具运行时 |
 | 事件 | 已开放 | 九类既有事件；同步事件通知与受限动作，不是持久化工作流引擎 |
-| 市场 | 部分完成 | 单文件安装/更新、内置例子、索引发现；无资源包发布/签名/完整卸载生命周期 |
+| 市场 | 部分完成 | 单文件安装/更新、可恢复卸载、回收区备份、内置例子、索引发现；上游 registry 仍为 v1，无资源包发布/摘要/签名 |
 | 自定义 UI | 未在 Lite 开放 | 不能贡献 page/modal/popover/工具渲染器，也不能直接注册任意 NSGo 组件 |
 | 自定义函数 / 工具 | 未在 Lite 开放 | 不能提供自定义 JS 导出、shell、文件 API 或 MCP 工具 |
 | 移动端 / Web 插件 | 未开放 | 当前加载器在桌面宿主；客户端只走远程 API，不下发桌面能力 |
@@ -58,6 +58,19 @@ Lite 兼容市场。沿用当前工程约束，本轮修复声明式链路并提
 对应回归测试在 `plugin_contract_test.go`、`market_regression_test.go`、`plugin_examples_test.go`、
 `plugin_identity_regression_test.go`、`plugin_settings_regression_test.go`、`market_lifecycle_test.go`。
 核心回归用例先在旧实现上复现，再验证修复，不依赖网络、真实账户或外部智能体。
+
+## 安装生命周期与设置残留
+
+插件设置与停用状态按稳定 ID 记录在 `config.json`。卸载和恢复都不清理它们；同 ID 再安装时原样继续使用，
+避免更新、修复或暂时移除造成设置丢失。移除操作将单文件清单或完整插件目录原子移至
+`trash/plugins/<slot>/<原文件名>`，同目录主题等资源一并保留。设置页从回收区恢复到原文件名和原位置；
+原路径被占用或已有相同 ID 时拒绝恢复，回收副本保留。坏清单和其他 runtime 的清单也能移出活动列表并原样恢复，
+恢复后仍遵循原有校验结果。回收区进入设置备份包，不进入诊断包（诊断仍只含活动插件的摘要）。
+损坏或不可读取的回收槽被忽略，不阻断启动；永久清理只能由用户在文件管理器中删除 `trash/plugins/`。
+
+市场安装、脚手架创建、移除与恢复共用单个插件文件写入状态，直到最新插件列表发布后再释放，防止应用内操作交错。
+同一插件多次卸载时各副本独立保留，并有独立恢复控件。插件文件改变时若清单字节
+与页面上看到的版本不同，卸载会拒绝并要求重新加载。卸载前如有清单或资源仍在编辑器里打开，也会拒绝。
 
 ## 清单 v2 身份与兼容
 
@@ -191,7 +204,7 @@ Lite 兼容市场。沿用当前工程约束，本轮修复声明式链路并提
 - 第三阶段：经明确的 v3 契约设计接入受信签名 TSX UI 与函数宿主，加入权限、撤销、禁用清理、取消和失败恢复测试。
 - 第四阶段：按实际需求补充 API，而不是一次开放所有宿主能力；客户端/浏览器支持另做隔离与预算验收。
 
-仍需后续处理的 v2 事项包括：卸载与设置残留策略、包资源与内容授权。
+仍需后续处理的 v2 事项包括：市场资源包发布、摘要校验与内容授权。
 当前设置契约没有 min/max 范围字段，本轮没有添加新字段；number 只承诺有限数值，业务范围仍由声明者说明。
 它们没有因本轮增加示例就自动完成。
 
@@ -255,10 +268,24 @@ go test -mod=readonly ./internal/workbench -run '^TestTokenDanceSettingsRows$' -
 
 本轮没有修改客户端或 Web 代码；其他平台、上游市场收录发布、生产 TSX 宿主仍未验证。
 
+### 卸载恢复续作验证记录（2026-11-21）
+
+基线为 `1eade54`。只把本次插件改动的暂存树导出到独立目录验证，未带入工作区其他设置页改动。
+
+- 新增回归先复现了“文件操作成功回调早于列表刷新”和“同一清单重复卸载的恢复控件 ID 重复”，
+  修复后验证通过；归档往返、主题资源、坏清单、路径/ID 冲突、设置保留和备份白名单边界均有回归覆盖。
+- 插件、市场、NSGo UI/函数示例、归档和备份专项测试通过（38.716s）。六语种文案与架构包测试通过。
+- `go tool nsgo check` 通过；框架自带目录的部分语言回退提示仍存在，不影响应用文案覆盖检查。
+- `go tool nsgo test -- -short -count=1 -timeout=20m` 通过：**668 通过、0 失败、55 跳过**。
+- `go tool nsgo build -target windows_x64 -output <验证目录>/build` 通过，产物 **63.5 MB**；
+  未运行桌面程序、未生成 NSIS 安装器。本轮未改客户端代码，未执行 Web 或其他平台构建。
+
+本次提交不包含市场上游仓库的 schema/发布改动，也未开放生产 TSX 宿主；其余插件边界仍按上文设计。
+
 ## 一手参考
 
 - 市场 registry：<https://github.com/ayuayue/pideck-plugins/blob/main/registry.json>
 - 市场 schema：<https://github.com/ayuayue/pideck-plugins/blob/main/schema/registry.schema.json>
 - 市场收录契约：<https://github.com/ayuayue/pideck-plugins/blob/main/docs/registry.md>
-- NSGo 插件示例（锁定提交）：<https://github.com/nsgo-dev/nsgo/tree/a4a00f7f38b3/examples/plugins>
-- NSGo 沙箱与签名设计（锁定提交）：<https://github.com/nsgo-dev/nsgo/blob/a4a00f7f38b3/docs/architecture/tsx.md>
+- NSGo 插件示例（当前锁定提交）：<https://github.com/nsgo-dev/nsgo/tree/c70af8a79201/examples/plugins>
+- NSGo 沙箱与签名设计（当前锁定提交）：<https://github.com/nsgo-dev/nsgo/blob/c70af8a79201/docs/architecture/tsx.md>

@@ -51,7 +51,7 @@ func TestLegacyPluginIdentityMigrationDoesNotRewriteManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{st: st, cfg: st.config()}
-	list := a.loadPlugins()
+	list := a.loadPlugins(nil)
 	if len(list) != 1 || list[0].Runtime != litePluginRuntime || list[0].SchemaVersion != litePluginSchema || len(list[0].Commands) != 1 {
 		t.Fatalf("legacy migration=%+v", list)
 	}

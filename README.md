@@ -429,7 +429,7 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
   `PIDECK_LITE_IMPORT_CLAUDE_DIR`、`_QODER_DIR`、`_CODEX_DIR`、`_CURSOR_DIR`、`_KIMI_DIR`、
   `_MINIMAX_DIR`、`_ZCODE_DIR`、`_OPENCODE_DIR`、`_WORKBUDDY_DIR`、`_CODEBUDDY_DIR`
 - 配置 `config.json`：工作区（含目标）、标签、收藏、默认模型与思考等级、主题、标题、键位、停用的插件、插件设置、智能体绑定、代理、生图供应商/模型/尺寸、编辑器与终端字号、提示音（开关、每种时刻的音、音量、导入的文件名）、火山语音凭据（App ID 与 Access Token）、匿名统计开关与安装 ID；旧文件读取时自动迁移并回写，越界的枚举/尺寸/端口会重置
-- 整理数据：收藏写 `favorites.json`（回复是正文快照、会话是引用，最多 200 条），定时任务与运行历史写 `tasks.json`（历史最多 200 条），自定义智能体写 `agents/custom.json`，导入的提示音放 `sounds/`（同一时间只保留一个，进设置备份包）；都是可读 JSON 或普通音频文件、原子写，坏了按空列表重建，不阻断启动
+- 整理数据：收藏写 `favorites.json`（回复是正文快照、会话是引用，最多 200 条），定时任务与运行历史写 `tasks.json`（历史最多 200 条），自定义智能体写 `agents/custom.json`，导入的提示音放 `sounds/`（同一时间只保留一个，进设置备份包）；插件卸载保留文件于 `trash/plugins/`，可在 设置 → 扩展 恢复，设置包也包含这份回收区；都是可读文件，坏数据不阻断启动
 - 增强模板保存在数据目录 `prompt-enhance.md`（UTF-8、非空、最多 24 KB），原子保存并纳入设置备份/同步；不放进诊断包。缺失时使用内置模板，损坏时提示并退回内置模板，不阻断启动；未保存的编辑、AI 结果预览与撤销快照不进入设置包。
 
 **目标：本机 / WSL / SSH**
@@ -485,7 +485,7 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
   把当前配色导出成主题文件（含 tokens、字体与圆角）、删除用户主题（移到回收站）；`Ctrl+Shift+L` 或命令面板「切换深浅色」
   在跟随系统/纸白/炭黑之间轮换
 - 环境：pi 路径与版本、pi 会话目录、WSL 发行版与 SSH Host 的检测结果、添加远程工作区；网络代理分「应用请求」与「Agent 进程」两栏，另可填直连名单
-- 扩展：插件列表与命令、插件声明式设置（开关/文本/数字/单选）、插件市场、「新建插件…」脚手架（生成可直接用的 plugin.json 与 README）、查看插件清单（在编辑器里打开）、打开插件目录、重新加载
+- 扩展：插件列表与命令、插件声明式设置（开关/文本/数字/单选）、插件市场、「新建插件…」脚手架（生成可直接用的 plugin.json 与 README）、查看插件清单（在编辑器里打开）、移入可恢复回收区与恢复、打开插件目录、重新加载；卸载后按稳定 ID 保留设置与启停状态
 - MCP：设置 → MCP 列出 pi 的 MCP 服务器（状态、传输、工具数、错误），可添加 HTTP 地址或启动命令、移除；配置由 pi 保存在 `mcp.json`
 - 集成：飞书群自定义机器人；一轮结束把标题、状态与一句摘要发到群里，可填签名密钥并测试；
   也可接收群消息（事件订阅指向 `/api/feishu`，校验 Verification Token），消息发给当前会话，
@@ -715,6 +715,10 @@ knob code info down`。
   重开仍保持安装互斥，退出应用取消下载。插件设置与最近索引地址在后台串行原子保存，失败会提示，退出会等待写入完成。
   支持消费带 `runtime` 的混合 registry v2；旧官方 registry v1 的未标记条目仍仅打开项目，
   不会装入 Lite。上游市场仓库的 schema/收录校验尚需配套升级，不能直接把新字段写进现有 v1 schema
+- 移入回收区：设置 → 扩展 点插件行末尾的移除图标；单文件清单或整个插件目录会原位移入 `trash/plugins/`。
+  相对主题等资源一起保留，可在页面的「已卸载的插件」区恢复；设置和停用记录留在 `config.json`，
+  同 ID 重新安装或恢复后继续生效。已打开的插件文件需先关闭。回收内容进入设置备份包，
+  由用户在文件管理器中清理 `trash/plugins/` 才会永久删除
 - 市场默认显示三套「内置示例」，无需网络、手动安装；每套都覆盖六类贡献点：
   [基础界面示例](internal/workbench/plugin_examples/lite-ui-basics.json)、
   [代码审查工具箱](internal/workbench/plugin_examples/lite-review-kit.json)、

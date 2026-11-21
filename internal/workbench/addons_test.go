@@ -112,7 +112,7 @@ func TestPluginAndThemeFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	app.st = st
-	plugins := app.loadPlugins()
+	plugins := app.loadPlugins(app.cfg.DisabledPlugins)
 	if len(plugins) != 1 || plugins[0].Name != "团队提示词" || len(plugins[0].Commands) != 1 {
 		t.Fatalf("plugins = %+v", plugins)
 	}
@@ -180,7 +180,7 @@ func TestPluginManifestV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	app.st = st
-	plugins := app.loadPlugins()
+	plugins := app.loadPlugins(app.cfg.DisabledPlugins)
 	if len(plugins) != 1 {
 		t.Fatalf("plugins = %+v", plugins)
 	}
@@ -232,7 +232,7 @@ func TestPluginDisabled(t *testing.T) {
 	}
 	st.edit(func(c *config) { c.DisabledPlugins = []string{"team"} })
 	app := &app{st: st, cfg: st.config()}
-	plugins := app.loadPlugins()
+	plugins := app.loadPlugins(app.cfg.DisabledPlugins)
 	if len(plugins) != 1 || !plugins[0].Disabled {
 		t.Fatalf("plugins = %+v", plugins)
 	}

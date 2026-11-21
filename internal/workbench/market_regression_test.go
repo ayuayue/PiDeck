@@ -239,7 +239,7 @@ func TestBuiltinPluginExamplesInstallOfflineAndCoverContributions(t *testing.T) 
 			t.Fatalf("saved example %s=%q, err=%v", entry.ID, raw, err)
 		}
 	}
-	if plugins := a.loadPlugins(); len(plugins) != len(entries) {
+	if plugins := a.loadPlugins(nil); len(plugins) != len(entries) {
 		t.Fatalf("loaded %d examples, want %d", len(plugins), len(entries))
 	}
 }

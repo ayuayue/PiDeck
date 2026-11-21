@@ -73,7 +73,7 @@ func TestInstallMarketPlugin(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("installed file: %v", err)
 	}
-	list := a.loadPlugins()
+	list := a.loadPlugins(nil)
 	if len(list) != 1 || list[0].ID != "team" || len(list[0].Commands) != 1 {
 		t.Fatalf("plugins = %+v", list)
 	}

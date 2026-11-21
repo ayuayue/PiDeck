@@ -23,7 +23,7 @@ import (
 )
 
 // backupItems are the data folder's entries a settings backup carries.
-var backupItems = []string{"config.json", sessionOrganizationFile, draftsFile, balanceAccountsFile, promptTemplateFile, "plugins", "themes", "prompts", "agents", "acp", "sounds"}
+var backupItems = []string{"config.json", sessionOrganizationFile, draftsFile, balanceAccountsFile, promptTemplateFile, "plugins", pluginArchiveDir, "themes", "prompts", "agents", "acp", "sounds"}
 
 const (
 	backupFileLimit  = 10 << 20
@@ -137,9 +137,9 @@ func backupPathAllowed(name string) bool {
 	if name == "config.json" || name == sessionOrganizationFile || name == draftsFile {
 		return true
 	}
-	head := strings.SplitN(name, "/", 2)[0]
 	for _, item := range backupItems {
-		if item != "config.json" && item != sessionOrganizationFile && item != draftsFile && head == item {
+		if item != "config.json" && item != sessionOrganizationFile && item != draftsFile &&
+			(name == item || strings.HasPrefix(name, item+"/")) {
 			return true
 		}
 	}

@@ -4,8 +4,8 @@ package workbench
 
 // Looks and add-ons. A theme is a set of palette roles and design tokens
 // over the app's own; a plugin is a folder of JSON that adds commands and
-// themes. Neither runs code, so a broken add-on can only be dull, not
-// dangerous, and both are read again without restarting.
+// themes. They do not run plugin code; commands still invoke approved host
+// actions. Both are read again without restarting.
 //
 // A plugin's manifest is its contract:
 //
@@ -20,6 +20,32 @@ package workbench
 //
 // Top-level "prompts" and "themes" are the older shape and still load.
 
+import "slices"
+
+type addonFiles struct {
+	plugins []plugin
+	themes  []themeSpec
+	archive pluginArchiveSnapshot
+}
+
+func (a *app) readAddonFiles(disabled []string) addonFiles {
+	plugins := a.loadPlugins(disabled)
+	archived, err := a.archivedPlugins()
+	return addonFiles{plugins, a.loadThemes(plugins), pluginArchiveSnapshot{archived, err}}
+}
+
+func (a *app) publishAddonFiles(files addonFiles) {
+	a.plugins.Set(files.plugins)
+	a.themes.Set(files.themes)
+	a.pluginArchive.Set(files.archive)
+	a.applyTheme()
+	a.applyKeybindings()
+	if done := a.pluginFilesReloaded; done != nil {
+		a.pluginFilesReloaded = nil
+		done()
+	}
+}
+
 // reloadFrameworks reads the environment, the add-ons, and pi's own
 // sessions under the projects again, off the UI thread.
 func (a *app) reloadFrameworks() {
@@ -30,24 +56,21 @@ func (a *app) reloadFrameworks() {
 	info.Probing = true
 	a.env.Set(info)
 	dataDir := a.st.dir
+	disabled := slices.Clone(a.cfg.DisabledPlugins)
 	a.addonsGen++
 	gen := a.addonsGen
 	go func() {
 		// This machine first: it is what opening a session needs.
 		info := probeLocal(envInfo{AppDir: dataDir, Probing: true, TargetsProbing: true})
-		plugins := a.loadPlugins()
-		themes := a.loadThemes(plugins)
+		addons := a.readAddonFiles(disabled)
 		providers := readProviderStatus(info.PiPath)
 		a.cx.Post(func() {
 			a.env.Set(info)
 			if gen != a.addonsGen {
 				return // a newer reload already answered
 			}
-			a.plugins.Set(plugins)
-			a.themes.Set(themes)
+			a.publishAddonFiles(addons)
 			a.providers.Set(providers)
-			a.applyTheme()
-			a.applyKeybindings()
 			a.reopenSavedTabs()
 			a.rescanPi()
 		})
@@ -63,19 +86,16 @@ func (a *app) reloadAddons() {
 	if a.st == nil {
 		return
 	}
+	disabled := slices.Clone(a.cfg.DisabledPlugins)
 	a.addonsGen++
 	gen := a.addonsGen
 	go func() {
-		plugins := a.loadPlugins()
-		themes := a.loadThemes(plugins)
+		addons := a.readAddonFiles(disabled)
 		a.cx.Post(func() {
 			if gen != a.addonsGen {
 				return // a newer reload already answered
 			}
-			a.plugins.Set(plugins)
-			a.themes.Set(themes)
-			a.applyTheme()
-			a.applyKeybindings()
+			a.publishAddonFiles(addons)
 		})
 	}()
 }
@@ -85,7 +105,7 @@ func (a *app) setPluginEnabled(id string, enabled bool) {
 	if a.st == nil {
 		return
 	}
-	a.st.edit(func(c *config) {
+	a.st.change(func(c *config) {
 		var kept []string
 		for _, v := range c.DisabledPlugins {
 			if v != id {
@@ -98,5 +118,6 @@ func (a *app) setPluginEnabled(id string, enabled bool) {
 		c.DisabledPlugins = kept
 	})
 	a.cfg = a.st.config()
+	a.savePluginConfig()
 	a.reloadAddons()
 }

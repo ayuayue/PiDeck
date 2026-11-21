@@ -9,6 +9,7 @@ func Shutdown() {
 	closeAllTerminals()
 	favoriteWrites.Wait()
 	pluginConfigWrites.Wait()
+	pluginFileWrites.Wait()
 	sessionDraftWrites.Wait()
 	notificationHistoryWrites.Wait()
 	videoJobWrites.Wait()

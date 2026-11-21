@@ -22,6 +22,7 @@ package workbench
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,46 +36,42 @@ import (
 // loadPlugins reads every plugin under the plugins folder: a folder with
 // plugin.json, or a single JSON file. Bad manifests are listed with their
 // error rather than dropped, so the settings page can say what is wrong.
-func (a *app) loadPlugins() []plugin {
+func (a *app) loadPlugins(disabledIDs []string) []plugin {
 	dir := a.pluginsDir()
 	if dir == "" {
 		return nil
 	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil
+	}
+	defer root.Close()
 	disabled := map[string]bool{}
-	for _, id := range a.cfg.DisabledPlugins {
+	for _, id := range disabledIDs {
 		disabled[id] = true
 	}
 	var out []plugin
 	seen := map[string][]int{}
-	entries, _ := os.ReadDir(dir)
+	entries, _ := fs.ReadDir(root.FS(), ".")
 	for _, e := range entries {
-		path, folder := "", ""
-		if e.IsDir() {
-			folder = filepath.Join(dir, e.Name())
-			path = filepath.Join(folder, "plugin.json")
-		} else if isJSONFile(e.Name()) {
-			path = filepath.Join(dir, e.Name())
-		} else {
+		if !pluginEntryName(e.Name()) || (!e.IsDir() && !isJSONFile(e.Name())) {
 			continue
 		}
-		raw, err := os.ReadFile(path)
+		raw, manifest, err := pluginManifestAt(root, e.Name())
+		path := filepath.Join(dir, manifest)
 		if err != nil {
 			out = append(out, plugin{Name: e.Name(), Path: path, Error: err.Error()})
 			continue
 		}
-		var p plugin
-		if err := yaml.Unmarshal(raw, &p); err != nil {
-			out = append(out, plugin{Name: e.Name(), Path: path, Error: err.Error()})
+		revision := workspaceRevision(raw)
+		p, err := decodeLocalPlugin(raw, e.Name())
+		if err != nil {
+			out = append(out, plugin{Name: e.Name(), Path: path, manifestRevision: revision, Error: err.Error()})
 			continue
 		}
 		p.Path = path
-		p.Dir = firstNonEmpty(folder, dir)
-		if p.Name == "" {
-			p.Name = fileBase(e.Name())
-		}
-		if p.ID == "" {
-			p.ID = p.Name
-		}
+		p.Dir = filepath.Dir(path)
+		p.manifestRevision = revision
 		p.Disabled = disabled[p.ID]
 		normalizePlugin(&p)
 		seen[p.ID] = append(seen[p.ID], len(out))
@@ -94,6 +91,20 @@ func (a *app) loadPlugins() []plugin {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+func decodeLocalPlugin(raw []byte, name string) (plugin, error) {
+	var p plugin
+	if err := yaml.Unmarshal(raw, &p); err != nil {
+		return plugin{}, err
+	}
+	if p.Name == "" {
+		p.Name = fileBase(name)
+	}
+	if p.ID == "" {
+		p.ID = p.Name
+	}
+	return p, nil
 }
 
 // normalizePlugin folds the older prompts and inline themes into the

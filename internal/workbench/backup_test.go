@@ -30,7 +30,15 @@ func TestSettingsBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	plugin := filepath.Join(dir, "plugins", "a.json")
-	if err := os.WriteFile(plugin, []byte(`{"id":"a","name":"A","contributes":{"commands":[]}}`), 0o644); err != nil {
+	pluginBody := []byte(`{"id":"a","name":"A","contributes":{"commands":[]}}`)
+	if err := os.WriteFile(plugin, pluginBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	archivedPlugin := filepath.Join(dir, pluginArchiveDir, "slot", "a.json")
+	if err := os.MkdirAll(filepath.Dir(archivedPlugin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archivedPlugin, pluginBody, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "sessions"), 0o755); err != nil {
@@ -52,7 +60,7 @@ func TestSettingsBackup(t *testing.T) {
 		names[f.Name] = true
 	}
 	zr.Close()
-	for _, want := range []string{"config.json", "plugins/a.json"} {
+	for _, want := range []string{"config.json", "plugins/a.json", "trash/plugins/slot/a.json"} {
 		if !names[want] {
 			t.Errorf("backup lacks %s", want)
 		}
@@ -63,6 +71,9 @@ func TestSettingsBackup(t *testing.T) {
 		}
 	}
 	if err := os.Remove(plugin); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(archivedPlugin); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.applySettingsZip(zipPath); err != nil {
@@ -78,6 +89,7 @@ func TestSettingsBackup(t *testing.T) {
 	if err != nil || !strings.Contains(string(raw), `"id":"a"`) {
 		t.Fatalf("restored plugin = %s, %v", raw, err)
 	}
+	assertPluginFile(t, archivedPlugin, string(pluginBody))
 }
 
 func TestSettingsZipRejectsTraversal(t *testing.T) {
@@ -99,6 +111,23 @@ func TestSettingsZipRejectsTraversal(t *testing.T) {
 	a := &app{st: &store{dir: dir}}
 	if _, err := a.settingsZipNames(path); err == nil {
 		t.Fatal("a traversal entry was accepted")
+	}
+}
+
+func TestSettingsBackupIncludesOnlyPluginTrash(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"trash/plugins/slot/plugin.json", true},
+		{"trash/plugins/slot/team/themes/blue.json", true},
+		{"trash/plugins-old/slot/plugin.json", false},
+		{"trash/sessions/private.jsonl", false},
+		{"trash/theme.json", false},
+	} {
+		if got := backupPathAllowed(tc.path); got != tc.want {
+			t.Errorf("backupPathAllowed(%q)=%v, want %v", tc.path, got, tc.want)
+		}
 	}
 }
 

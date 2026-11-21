@@ -48,6 +48,8 @@ type plugin struct {
 	// paths resolve in.
 	Path string `yaml:"-" json:"-"`
 	Dir  string `yaml:"-" json:"-"`
+	// manifestRevision ties a file operation to the manifest the user saw.
+	manifestRevision string
 
 	// Commands and ThemeSpecs are what the app actually uses: the
 	// manifest normalized, legacy entries folded in, bad ones dropped
