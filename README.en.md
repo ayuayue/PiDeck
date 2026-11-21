@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.13.1-blue)
+![Version](https://img.shields.io/badge/version-0.13.2-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -42,7 +42,7 @@
   - [📑 Table of Contents](#-table-of-contents)
   - [✨ Highlights](#-highlights)
   - [📋 Changelog](#-changelog)
-    - [v0.13.1 Release Highlights](#v0131-release-highlights)
+    - [v0.13.2 Release Highlights](#v0132-release-highlights)
   - [🧩 Features](#-features)
     - [Workspace & Projects](#workspace--projects)
     - [Sessions & Conversation](#sessions--conversation)
@@ -83,17 +83,10 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.13.1** (2026-11-21)
+> **Latest: v0.13.2** (2026-11-21)
 
-### v0.13.1 Release Highlights
-- 🚀 **SSH workspaces use the same Git panel as local projects**
-- 🚀 **Manage MCP servers over SSH**
-- 🚀 **Custom public address and PiDeck Lite support**
-- 🚀 **Filter agent memory by scope**
-- ✨ **The skill picker works in remote workspaces**
-- ✨ **Remote files open in the center pane**
-- ✨ **Messages sent during compaction wait in the queue**
-- ✨ **Cmd/Ctrl+W closes the focused workspace item**
+### v0.13.2 Release Highlights
+- ✨ **Remote Git requests keep their admitted timeout**
 
 [View Full Changelog →](CHANGELOG.md)
 
