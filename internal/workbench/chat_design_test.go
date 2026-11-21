@@ -131,7 +131,7 @@ func chatDesignFixture(t *testing.T, size float64) (*app, *nsgotest.App, *sessio
 		a.activeID.Set(sess.ID)
 		a.tabs.Set([]string{sess.ID})
 		return a.view()
-	}, nsgotest.Size(1320, 860))
+	}, nsgotest.Size(1320, 860), nsgotest.Environment(core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop}))
 	t.Cleanup(a.closeDiag)
 	t.Cleanup(sessionDraftWrites.Wait)
 	screen.WaitFor("text:正文保持清晰，过程安静退后。", 10*time.Second)

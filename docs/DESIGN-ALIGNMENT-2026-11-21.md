@@ -79,3 +79,36 @@ go test ./internal/viewkit ./internal/workbench ./internal/apptext ./internal/ar
 - SDK 仍拥有过程折叠、运行态与会话状态；固定 13.5 的摘要条保留，未复制其状态机。
 - 侧栏导航结构、设置页布局、文件/Git/终端的完整视觉对齐不是本轮完成项。
 - 工作区原有未提交改动独立保留，本轮提交只包含此次视觉校准的增量。
+
+## 2026-11-22：输入框上方的信任提示
+
+将黄底、顶部分隔线与实底按钮组成的横幅，收敛为阅读纸面上的轻提示：只有盾牌保留
+警示色，正文为 12 pt / 18 pt 行高，操作使用原生 ghost 按钮，与输入框留出 8 pt 间距。
+背景保持不透明，避免滚动内容或壁纸透过文字；长翻译可换行，操作保持可见。
+原文、信任范围、持久化格式和发送前的确认门禁均不变。
+
+回归同时复现了旧实现的交互缺陷：点击「信任」已更新配置，提示却没有立即收起。
+现在由现有项目修订信号通知信任状态的观察者，不额外维护一份内存信任状态；直接信任
+后提示消失，撤销后重新出现，两个操作都保留当前草稿。
+
+`TestTrustNotice` 在同一窗口内验证浅色、深色、760 pt 窄窗口、法语长文案、鼠标、
+键盘 Return、信任及撤销。会话截图 fixture 显式声明桌面环境，使无头测试也具备真实的
+按钮键盘焦点规则。验证命令：
+
+```text
+go test ./internal/workbench -run '^Test(Trust|ChatDesign)' -count=1 -timeout=90s
+go tool nsgo check
+go tool nsgo test -target windows -run '^TestTrustNotice$' -timeout 2m ./internal/workbench
+```
+
+以上均通过；原生截图位于 `internal/workbench/.nsgo/test/screenshots/windows/trust-notice/`
+下的 `light.png`、`dark.png`、`narrow.png`、`narrow-french.png`，已检查浅深色及长文案的
+排版。仅本轮增量另在 `%TEMP%/pideck-trust-verify-zgbw3gdm/` 验证：信任、会话设计及
+架构守护共 19 项定向测试通过；`^Test(TrustNotice|ChatDesign)` 的 5 项 Windows 原生
+测试通过，0 失败、0 跳过；`go tool nsgo build -target windows_x64` 构建通过。
+这些结果不依赖其余未提交改动。
+
+验证边界：最初按每个状态新建窗口的原生组合测试，在 NSGo Windows 的 Direct2D
+`EndDraw` / `backdrop` 路径发生访问异常，独立增量快照也能复现；鼠标和键盘分别运行
+均通过。最终回归在同一窗口保留完整草稿与状态转换流程，未跳过用例、放宽断言或添加
+重试。多窗口生命周期问题仍待单独定位，本轮没有修改 SDK 或升级依赖。

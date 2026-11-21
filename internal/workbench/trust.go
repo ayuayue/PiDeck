@@ -27,6 +27,9 @@ func (a *app) projectTrusted(ws *workspace) bool {
 	if ws == nil {
 		return true
 	}
+	if a.projectsRev != nil {
+		a.projectsRev.Get()
+	}
 	key := trustKey(ws)
 	for _, v := range a.cfg.TrustedProjects {
 		if v == key {
@@ -53,6 +56,9 @@ func (a *app) trustProject(ws *workspace) {
 			c.TrustedProjects = append(c.TrustedProjects, key)
 		})
 	}
+	if a.projectsRev != nil {
+		a.projectsRev.Update(func(n int) int { return n + 1 })
+	}
 }
 
 // untrustProject revokes a project's trust.
@@ -78,6 +84,9 @@ func (a *app) untrustProject(ws *workspace) {
 			}
 			c.TrustedProjects = out
 		})
+	}
+	if a.projectsRev != nil {
+		a.projectsRev.Update(func(n int) int { return n + 1 })
 	}
 }
 
@@ -154,7 +163,8 @@ func (a *app) trustDialog() core.Node {
 	})
 }
 
-// trustBar is the warning over an untrusted project's composer.
+// trustBar keeps the trust decision visible without joining a warning
+// banner to the composer's card.
 func (a *app) trustBar(s *session) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		ws := a.workspaceFor(s.Target, s.WS)
@@ -163,17 +173,16 @@ func (a *app) trustBar(s *session) core.Node {
 		}
 		colors := ui.ColorsOf(cx)
 		return core.View{TestID: "trust-bar", StyleFunc: func() core.Style {
-			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(7, 12),
-				// Opaque under the tint: the bar floats over the transcript,
-				// and a wallpaper's see-through panels would let it read
-				// through the words.
-				Background: ui.Mix(ui.Alpha(colors.Surface(), 1), colors.Warn(), 0.10),
-				Borders:    core.Edges{Top: 1}, BorderColors: core.EdgeColors{Top: ui.Alpha(colors.Warn(), 0.30)}}
+			return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinWidth: core.Pt(0), FlexShrink: 0,
+				Padding: core.Symmetric(4, 12), Margin: core.Edges{Bottom: 8}, CornerRadius: ui.RadiusControl,
+				// Match the reading paper, but keep it opaque: a scrolled
+				// reply must not show through the notice on a wallpaper.
+				Background: ui.Mix(ui.Alpha(colors.Surface(), 1), ui.Alpha(colors.Inset(), 1), 0.45)}
 		}, Children: []core.Node{
 			ui.Icon(lucide.ShieldAlert, 13, colors.Warn),
-			core.Text{Content: apptext.T("这个项目还没有被信任，pi 会在里面读写文件。"),
-				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 11}, StyleFunc: ui.Colored(colors.Muted)},
-			ui.Button{Text: apptext.T("信任"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "trust-project",
+			core.Text{Content: apptext.T("这个项目还没有被信任，pi 会在里面读写文件。"), TestID: "trust-message",
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12, LineHeight: 18}, StyleFunc: ui.Colored(colors.Muted)},
+			ui.Button{Text: apptext.T("信任"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "trust-project",
 				OnPress: func() { a.trustProject(ws) }},
 		}}
 	})
