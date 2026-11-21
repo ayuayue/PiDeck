@@ -426,7 +426,7 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
   转换保留文字、思考、工具调用与结果、图片（超过约 256KB 的图转占位）；从欢迎页 / 命令面板进来时按
   原目录归位（原目录已不在就用当前项目）；只写本应用自己的会话目录，原文件不动。产物头部带 `*_import` 标记
   （源路径、大小、修改时间、转换器版本），所以再导一次是幂等的，源变了才重导并覆盖同一份，
-  会话 ID 不变。pi 的 `.jsonl` 仍按原样复制；删除进 `trash/`
+  会话 ID 不变。pi 的 `.jsonl` 仍按原样复制，但头部 ID 必须是安全的文件名部分；删除进 `trash/`
 - 导入源的会话库位置可用环境变量覆盖（非标准安装或测试用）：
   `PIDECK_LITE_IMPORT_CLAUDE_DIR`、`_QODER_DIR`、`_CODEX_DIR`、`_CURSOR_DIR`、`_KIMI_DIR`、
   `_MINIMAX_DIR`、`_ZCODE_DIR`、`_OPENCODE_DIR`、`_WORKBUDDY_DIR`、`_CODEBUDDY_DIR`

@@ -82,6 +82,83 @@ func TestDuplicateSessionRefusesGarbage(t *testing.T) {
 	}
 }
 
+func TestImportSessionRejectsUnsafeIDs(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		id          string
+		escapedFile bool
+	}{
+		{name: "slash traversal", id: strings.Join([]string{"segment", "..", "..", "..", "..", "escape"}, "/"), escapedFile: true},
+		{name: "backslash traversal", id: strings.Join([]string{"segment", "..", "..", "..", "..", "escape"}, `\`), escapedFile: true},
+		{name: "colon", id: "bad:id"},
+		{name: "wildcard", id: "bad*id"},
+		{name: "glob character class", id: "bad[id]"},
+		{name: "control character", id: "bad\x7fid"},
+		{name: "too long", id: strings.Repeat("x", 129)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			dataDir := filepath.Join(root, "app-data")
+			st, err := newStore(dataDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			head, err := json.Marshal(map[string]string{"type": "session", "id": tc.id, "cwd": filepath.Join(root, "project")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := filepath.Join(root, "import.jsonl")
+			if err := os.WriteFile(source, append(head, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if meta, err := st.importSession(source); err == nil {
+				rel, _ := filepath.Rel(st.sessions, meta.File)
+				t.Fatalf("accepted an unsafe pi session ID and wrote %q (relative to session store: %q)", meta.File, rel)
+			}
+			if tc.escapedFile {
+				outside := filepath.Join(root, "escape.jsonl")
+				if raw, err := os.ReadFile(outside); err == nil {
+					t.Fatalf("import wrote session outside its store: %s", raw)
+				} else if !os.IsNotExist(err) {
+					t.Fatalf("checking escaped output: %v", err)
+				}
+			}
+			entries, err := filepath.Glob(filepath.Join(st.sessions, "*", "*.jsonl"))
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("unsafe session was imported: %v, %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestImportSessionAcceptsUUID(t *testing.T) {
+	root := t.TempDir()
+	st, err := newStore(filepath.Join(root, "app-data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "11111111-2222-4333-8444-555555555555"
+	head, err := json.Marshal(map[string]string{"type": "session", "id": id, "cwd": filepath.Join(root, "project")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "import.jsonl")
+	if err := os.WriteFile(source, append(head, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := st.importSession(source)
+	if err != nil {
+		t.Fatalf("a normal pi session ID was rejected: %v", err)
+	}
+	if meta.ID != id {
+		t.Fatalf("imported ID = %q, want %q", meta.ID, id)
+	}
+	rel, err := filepath.Rel(st.sessions, meta.File)
+	if err != nil || !filepath.IsLocal(rel) {
+		t.Fatalf("imported file escaped the session store: %q, %v", meta.File, err)
+	}
+}
+
 // TestConfigMigration repairs an old, hand-edited config and writes it back.
 func TestConfigMigration(t *testing.T) {
 	dir := t.TempDir()
