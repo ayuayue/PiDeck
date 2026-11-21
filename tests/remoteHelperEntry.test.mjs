@@ -88,7 +88,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "f99048d8aa8141d781b6e2237f5f6943e72a3a6f62ce1e2f7b98bc407a485214";
+const FROZEN_SHA256 = "4d4ce837c29ed2a3ef0df2e2a467e9c64a0ebf5c23876379093fcc5e7790147e";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -554,7 +554,7 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 helperTest("the exported entry identity matches the frozen source", () => {
 	assert.equal(REMOTE_HELPER_ENTRY_FILE_NAME, "helper.mjs");
 	assert.match(REMOTE_HELPER_ENTRY_VERSION, /^\d+\.\d+\.\d+$/);
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.36.0", "1.33.0 added upstream push/pull; 1.34.0 relays stderr; 1.35.0 adds the four commit-graph write verbs; 1.36.0 streams the MCP login authorization URL");
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.36.1", "1.36.1 passes the admitted deadline to Git workers");
 	// The frozen source cannot import the contract, so its literals are checked against it here.
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(`"${REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report REMOTE_HELPER_ENTRY_VERSION");
 	for (const token of [REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_STAT_MANY, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) {
@@ -585,6 +585,38 @@ helperTest("network verbs own the long request budget while other Git methods ke
 	assert.equal(Number(budget[2]), REMOTE_GIT_READ_TIMEOUT_MS, "every other Git method keeps the read deadline");
 	// The methods that take it are exactly the three network verbs, never a read.
 	for (const method of ["git.fetch", "git.push", "git.pull"]) assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes('"' + method + '"'), method);
+});
+
+helperTest("Git workers receive the admitted deadline immediately and after queueing", async (t) => {
+	const directory = mkdtempSync(join(tmpdir(), "pideck-helper-git-deadline-"));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const { entryPath } = materializeRemoteHelperArtifacts(directory);
+	const workerPath = join(directory, "git-read.mjs");
+	chmodSync(workerPath, 0o600);
+	// Observe the entry/worker boundary on every platform; native Git behavior has separate Linux coverage.
+	writeFileSync(
+		workerPath,
+		`export function createGitReadProgram() { return {
+		prepare(method, params) { return { method }; },
+		start(params, deadlineAt, done) {
+			done(null, { deadlineAt: deadlineAt ?? null, remainingMs: deadlineAt - Date.now() });
+			return function () {};
+		},
+		close() {}
+	}; }`,
+	);
+	const session = startHelper(t, { entryPath });
+	await call(session, REMOTE_HELPER_METHOD_HELLO);
+	const immediate = plain(await guard(session.client.request("git.status", {}, { timeoutMs: 2_000 }), "immediate Git deadline"));
+	assert.ok(Number.isSafeInteger(immediate.deadlineAt), "the worker must receive a finite absolute deadline");
+	assert.ok(immediate.remainingMs > 0 && immediate.remainingMs <= 2_000);
+	const holding = Array.from({ length: REMOTE_HELPER_MAX_CONCURRENT_REQUESTS }, () => session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "hold", delayMs: 250 }));
+	const queued = session.client.request("git.status", {}, { timeoutMs: 2_000 });
+	const later = session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "later" }, { timeoutMs: 10_000 });
+	const result = plain(await guard(queued, "queued Git deadline"));
+	assert.ok(Number.isSafeInteger(result.deadlineAt));
+	assert.ok(result.remainingMs > 0 && result.remainingMs < 1_900, "queue time must consume its own budget, even after a later frame");
+	await guard(Promise.all([...holding, later]), "scheduled echoes");
 });
 
 helperTest("hello answers the contract handshake through the production client", async (t) => {

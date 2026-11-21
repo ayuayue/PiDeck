@@ -1,3 +1,8 @@
+## Unreleased
+
+### 🐛 Fixes
+- **Remote Git requests keep their admitted timeout** — pass the queue entry's deadline to the Git worker so asynchronous reads and writes no longer fail immediately with `REQUEST_TIMEOUT`. Queued requests still consume their original budget.
+
 ## v0.13.1 (2026-11-21)
 
 PiDeck 0.13.1 improves remote workspaces, message delivery and navigation between workspace panes.
