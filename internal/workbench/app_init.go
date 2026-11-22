@@ -397,6 +397,7 @@ func newApp(cx *core.Scope) *app {
 		return a
 	}
 	a.st = st
+	exitStore.Store(st)
 	a.notifications.load(st.dir)
 	a.memory = newMemoryView(cx, newMemoryStore(st.dir))
 	a.localToolsExtension = installLocalToolsExtension(st.dir)

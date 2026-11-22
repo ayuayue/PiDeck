@@ -7,6 +7,7 @@ func Shutdown() {
 	closeAllPi()
 	closeAllACP()
 	closeAllTerminals()
+	flushConfigAtExit()
 	configWrites.Wait()
 	favoriteWrites.Wait()
 	pluginConfigWrites.Wait()

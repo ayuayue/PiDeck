@@ -208,6 +208,37 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 	}
 }
 
+// The name field saves when it is left, so quitting from inside it would
+// drop the edit; the exit path saves once more.
+func TestQuitSavesNameStillTypedInTheField(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("headless quit and persistence coverage")
+	}
+	dir := t.TempDir()
+	t.Setenv("PIDECK_LITE_HOME", dir)
+	var built *app
+	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		built = newApp(cx)
+		return built.view()
+	}, nsgotest.Size(1200, 800))
+	t.Cleanup(built.closeDiag)
+	screen.Press("id:rail-brand")
+	screen.Press("id:brand-customize")
+	screen.WaitFor("id:brand-display-name", 5*time.Second)
+	const typed = "离开输入框前退出"
+	screen.Type("id:brand-display-name", typed)
+	if got := built.st.config().AppDisplayName; got != typed {
+		t.Fatalf("typing did not reach the in-memory config: %q", got)
+	}
+	if raw, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil && strings.Contains(string(raw), typed) {
+		t.Fatal("the focused field saved before the quit, so the test proves nothing")
+	}
+	Shutdown()
+	if c := readConfig(t, dir); c.AppDisplayName != typed {
+		t.Fatalf("quitting from the focused field saved %q, want %q", c.AppDisplayName, typed)
+	}
+}
+
 // This is also the native screenshot fixture: a long name at the smallest
 // rail width, the version panel, and both shipped appearances.
 func TestBrandScreens(t *testing.T) {

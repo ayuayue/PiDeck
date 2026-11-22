@@ -269,5 +269,7 @@ func (a *app) openLogsFolder() {
 // restartApp relaunches the app, keeping the quit path's cleanup.
 func (a *app) restartApp() {
 	a.quitting = true
+	// A restart may never reach Shutdown, so save pending settings here.
+	flushConfigAtExit()
 	a.cx.Restart()
 }

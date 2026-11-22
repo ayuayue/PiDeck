@@ -8,6 +8,7 @@ package workbench
 import (
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"example.com/pideck-lite/internal/apptext"
 	"github.com/nsgo-dev/nsgo/core"
@@ -15,6 +16,19 @@ import (
 )
 
 var configWrites sync.WaitGroup
+
+// exitStore is the open workbench's config store, kept so the exit path can
+// save settings an input still holds: name, editor and proxy fields save when
+// the field is left, and quitting from a focused field never sends that blur.
+var exitStore atomic.Pointer[store]
+
+// flushConfigAtExit writes what the last open workbench still held in memory.
+// The app is past reporting failures, so a failed save is dropped.
+func flushConfigAtExit() {
+	if st := exitStore.Load(); st != nil {
+		_ = st.save()
+	}
+}
 
 // saveConfigAsync keeps config file IO off the UI thread. The store serializes
 // saves and snapshots its latest in-memory config when each save starts.
