@@ -18,13 +18,15 @@ import (
 )
 
 // settingsLook picks the palette.
+//
+// The palette list has its own subscription: themes load a moment after the
+// window opens, and rebuilding the whole page then would take the focus out
+// of a field the user has begun typing in.
 func (a *app) settingsLook() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		// Redrawn when any setting changes: their values live in the config.
 		a.settingsTick()
 		colors := ui.ColorsOf(cx)
-		_ = a.bgImage.Get()
-		var rows []core.Node
 		fontControl := func(value func() string, set func(string), label, testID, placeholder string) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 				core.Input{Value: value, OnChange: set, OnSubmit: func(string) { a.applyFonts() }, OnBlur: func() { a.applyFonts() },
@@ -34,66 +36,71 @@ func (a *app) settingsLook() core.Node {
 				ui.Button{Text: apptext.T("应用"), Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.applyFonts},
 			}}
 		}
-		visible := make([]themeSpec, 0, len(a.themes.Get()))
-		for _, spec := range a.themes.Get() {
-			// 纸白/炭黑 只是默认配色的明暗两半；不选它们时收起来，避免和跟随系统重复。
-			if (spec.ID == "light" || spec.ID == "dark") && a.theme.Get() != spec.ID {
-				continue
+		palette := core.Dynamic(func(cx *core.Scope) core.Node {
+			colors := ui.ColorsOf(cx)
+			var rows []core.Node
+			visible := make([]themeSpec, 0, len(a.themes.Get()))
+			for _, spec := range a.themes.Get() {
+				// 纸白/炭黑 只是默认配色的明暗两半；不选它们时收起来，避免和跟随系统重复。
+				if (spec.ID == "light" || spec.ID == "dark") && a.theme.Get() != spec.ID {
+					continue
+				}
+				visible = append(visible, spec)
 			}
-			visible = append(visible, spec)
-		}
-		for i, spec := range visible {
-			s := spec
-			on := func() bool { return a.theme.Get() == s.ID }
-			var note string
-			switch {
-			case s.Error != "":
-				note = "读取失败"
-			case s.Author != "":
-				note = s.Author
-			}
-			rows = append(rows, core.View{
-				OnPress: func(core.PressEvent) { a.setTheme(s.ID) },
-				Role:    core.RoleRadio, Label: s.Name, TestID: "theme-" + s.ID,
-				StyleFunc: func() core.Style {
-					return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, Height: core.Pt(34),
-						Padding: core.Symmetric(2, 2), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
-				},
-				Children: []core.Node{
-					themePreview(s),
-					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-						ui.Text(s.Name, 12.5, ui.Regular, colors.Text),
-						core.Show{When: func() bool { return note != "" }, Then: func(*core.Scope) core.Node {
-							return core.Text{Content: note, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-								Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+			for i, spec := range visible {
+				s := spec
+				on := func() bool { return a.theme.Get() == s.ID }
+				var note string
+				switch {
+				case s.Error != "":
+					note = "读取失败"
+				case s.Author != "":
+					note = s.Author
+				}
+				rows = append(rows, core.View{
+					OnPress: func(core.PressEvent) { a.setTheme(s.ID) },
+					Role:    core.RoleRadio, Label: s.Name, TestID: "theme-" + s.ID,
+					StyleFunc: func() core.Style {
+						return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, Height: core.Pt(34),
+							Padding: core.Symmetric(2, 2), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
+					},
+					Children: []core.Node{
+						themePreview(s),
+						core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+							ui.Text(s.Name, 12.5, ui.Regular, colors.Text),
+							core.Show{When: func() bool { return note != "" }, Then: func(*core.Scope) core.Node {
+								return core.Text{Content: note, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+									Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)}
+							}},
 						}},
-					}},
-					core.Show{When: func() bool { return s.Appearance == "light" || s.Appearance == "dark" },
-						Then: func(*core.Scope) core.Node {
-							label := "仅浅色"
-							if s.Appearance == "dark" {
-								label = "仅深色"
-							}
-							return ui.Text(label, 9.5, ui.Regular, colors.Faint)
+						core.Show{When: func() bool { return s.Appearance == "light" || s.Appearance == "dark" },
+							Then: func(*core.Scope) core.Node {
+								label := "仅浅色"
+								if s.Appearance == "dark" {
+									label = "仅深色"
+								}
+								return ui.Text(label, 9.5, ui.Regular, colors.Faint)
+							}},
+						core.Show{When: func() bool { return !s.Builtin && s.Source != "" }, Then: func(*core.Scope) core.Node {
+							return core.View{OnPress: func(core.PressEvent) { a.deleteTheme(s) }, Role: core.RoleButton,
+								Label: apptext.T("删除主题") + " " + s.Name, TestID: "theme-delete-" + strings.ReplaceAll(s.ID, ":", "-"),
+								StyleFunc: func() core.Style {
+									return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, AlignItems: core.AlignCenter,
+										JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
+								}, Children: []core.Node{ui.Icon(lucide.Trash, 11, colors.Faint)}}
 						}},
-					core.Show{When: func() bool { return !s.Builtin && s.Source != "" }, Then: func(*core.Scope) core.Node {
-						return core.View{OnPress: func(core.PressEvent) { a.deleteTheme(s) }, Role: core.RoleButton,
-							Label: apptext.T("删除主题") + " " + s.Name, TestID: "theme-delete-" + strings.ReplaceAll(s.ID, ":", "-"),
-							StyleFunc: func() core.Style {
-								return core.Style{Width: core.Pt(22), Height: core.Pt(22), CornerRadius: 5, AlignItems: core.AlignCenter,
-									JustifyContent: core.JustifyCenter, Hover: &core.Style{Background: colors.Pressed()}}
-							}, Children: []core.Node{ui.Icon(lucide.Trash, 11, colors.Faint)}}
-					}},
-					core.Show{When: on, Then: func(*core.Scope) core.Node { return ui.Icon(lucide.Check, 13, colors.Text) }},
-					core.Show{When: func() bool { return !s.Builtin }, Then: func(*core.Scope) core.Node {
-						return ui.Text(apptext.T("用户主题"), 9.5, ui.Regular, colors.Faint)
-					}},
-				},
-			})
-			if i < len(visible)-1 {
-				rows = append(rows, setDivider())
+						core.Show{When: on, Then: func(*core.Scope) core.Node { return ui.Icon(lucide.Check, 13, colors.Text) }},
+						core.Show{When: func() bool { return !s.Builtin }, Then: func(*core.Scope) core.Node {
+							return ui.Text(apptext.T("用户主题"), 9.5, ui.Regular, colors.Faint)
+						}},
+					},
+				})
+				if i < len(visible)-1 {
+					rows = append(rows, setDivider())
+				}
 			}
-		}
+			return setGroup("配色", rows...)
+		})
 		return core.Scroll{TestID: "settings-page", Ref: a.settingsScroll, OnScroll: a.settingsScrolled, Style: ui.FillRest, Children: []core.Node{
 			core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 20, Right: 2}, Gap: 4}, Children: []core.Node{
 				setRow("减弱动效", "关闭工作台布局和对话定位的动画。", ui.Switch{
@@ -172,7 +179,7 @@ func (a *app) settingsLook() core.Node {
 				setRow("主题文件", "放在数据目录的 themes 里：JSON 或 YAML，写角色色、tokens、字体与圆角；也读 shadcn/ui 主题文件。",
 					ui.Button{Text: apptext.T("打开目录"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: a.openThemesDir}),
 				a.brandingGroup(colors),
-				setGroup("配色", rows...),
+				palette,
 				a.backgroundGroup(colors),
 			}},
 		}}
