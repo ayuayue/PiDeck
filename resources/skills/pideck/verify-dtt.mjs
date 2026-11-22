@@ -39,8 +39,22 @@ export function check(files, root) {
     //   横排 —— 表头是 | # | 命题 | 引入 | 消去 | 反例 |
     //   竖排 —— 第一列是四件名：| 形成 | … | / | 引入 | … | / | 消去 | … | / | 反例 | … |
     // 2026-11-22 实测：9 份 web-api 用的是竖排（一段规则一张四行小卡），只认横排会误报 7 份。
-    const vertical = ["形成", "引入", "消去", "反例"].filter((k) => new RegExp("^\\| " + k + " \\|", "m").test(text)).length;
-    if (vertical >= 3) continue;
+    // 形状判定只看「形成 / 消去」：`| 反例 | … |` 在正文的「反例 / 后果」表里也出现，
+    // 拿它当竖排特征会把横排文档误判成竖排（2026-11-22 实测 connect.md 有两张这样的表）。
+    const vertical = ["形成", "引入", "消去"].filter((k) => new RegExp("^\\| " + k + " \\|", "m").test(text)).length;
+    if (vertical >= 2) {
+      // 竖排分支：四件必须齐、每件非空，反例不能写弱词。
+      // 2026-11-22 实测：改之前这里是「四个标题出现 ≥3 次就 continue」，于是删掉整行
+      // `| 反例 |`、或把它写成「视情况」，5 份竖排文档仍全绿——判据恒绿等于没写。
+      for (const k of ["形成", "引入", "消去", "反例"]) {
+        // 一行形如 `| 反例 | 内容 |`：split("|") 后 [1] 是件名，[2] 才是内容。
+        const values = (text.match(new RegExp("^\\| " + k + " \\|.*$", "gm")) || []).map((line) => (line.split("|")[2] || "").trim());
+        if (values.length === 0) problems.push(rel + "：竖排四件缺「" + k + "」");
+        if (values.some((v) => !v)) problems.push(rel + "：「" + k + "」写成了空行");
+        if (k === "反例") for (const v of values) for (const w of WEAK) if (v.includes(w)) problems.push(rel + "：反例写成「" + w + "」");
+      }
+      continue;
+    }
     {
     // 横排分支
     const headerLine = text.split("\n").find((l) => /^\|.*引入.*\|/.test(l));
@@ -90,6 +104,12 @@ if (process.argv.includes("--selftest")) {
     ["反例为空", "# x\n\n## 类型\n\n| # | 命题 | 引入 | 消去 | 反例 |\n| --- | --- | --- | --- | --- |\n| A1 | p | c | s |  |\n", 1],
     ["反例写视情况", "# x\n\n## 类型\n\n| # | 命题 | 引入 | 消去 | 反例 |\n| --- | --- | --- | --- | --- |\n| A1 | p | c | s | 视情况 |\n", 1],
     ["齐了", "# x\n\n## 类型\n\n| # | 命题 | 引入 | 消去 | 反例 |\n| --- | --- | --- | --- | --- |\n| A1 | p | 命令 → 0 | 第二入口 | 具体错法 |\n", 0],
+    // 竖排是 9 份 web-api 文档实际用的形状（一段规则一张四行小卡），坏样本必须在它上面跑一遍：
+    // 只在横排上验坏样本，竖排分支恒绿也发现不了。
+    ["竖排缺反例行", "# x\n\n## 类型\n\n| 件 | 形状 |\n| --- | --- |\n| 形成 | p |\n| 引入 | 命令 → 0 |\n| 消去 | 第二入口 |\n", 1],
+    ["竖排反例为空", "# x\n\n## 类型\n\n| 件 | 形状 |\n| --- | --- |\n| 形成 | p |\n| 引入 | 命令 → 0 |\n| 消去 | 第二入口 |\n| 反例 |  |\n", 1],
+    ["竖排反例写视情况", "# x\n\n## 类型\n\n| 件 | 形状 |\n| --- | --- |\n| 形成 | p |\n| 引入 | 命令 → 0 |\n| 消去 | 第二入口 |\n| 反例 | 视情况 |\n", 1],
+    ["竖排齐了", "# x\n\n## 类型\n\n| 件 | 形状 |\n| --- | --- |\n| 形成 | p |\n| 引入 | 命令 → 0 |\n| 消去 | 第二入口 |\n| 反例 | health 非 200 仍去发消息 |\n", 0],
   ];
   let bad = 0;
   for (const [name, body, want] of cases) {
@@ -101,7 +121,7 @@ if (process.argv.includes("--selftest")) {
     console.log((ok ? "PASS" : "FAIL") + "  " + name + "：得 " + got + "，期望 " + want);
   }
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log(bad === 0 ? "selftest: 五个坏样本都对" : "selftest: " + bad + " 条不符");
+  console.log(bad === 0 ? "selftest: " + cases.length + " 个样本都对" : "selftest: " + bad + " 条不符");
   process.exit(bad === 0 ? 0 : 1);
 }
 

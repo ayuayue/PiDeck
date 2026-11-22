@@ -12,31 +12,7 @@
 //
 // 为什么单独有 --selftest：真检查要读源码路由，只有源码克隆里才有。装了 PiDeck 的机器上
 // 只有技能副本，那里「判据自己还对不对」没法验证——判据坏了和判据不存在，后果相同。
-
-/** 本脚本自己遵守的规则，四件齐。判据见 check-rules.mjs：它拿这份数据验，不读散文注释。 */
-export const RULES = [
-	{
-		id: "P1",
-		claim: "文档里每个 /api 路径的每一段，都要在源码路由的段集合里出现过",
-		intro: "node check-paths.mjs → rc=0",
-		second: "check-doc.mjs 按整条路由比对，同一份文档也要 PASS",
-		counter: "文档写 /api/session（少一个 s）→ rc=1",
-	},
-	{
-		id: "P2",
-		claim: "组合式路由要拆段，不能按整条比",
-		intro: "源码出现 (update|delete|copy|export-html) → 拆成 4 个段",
-		second: "文档写其中任一个 → 通过；写别的 → 报缺失段",
-		counter: "整条比对：文档写 /api/sessions/<id>/update 被判「不存在」",
-	},
-	{
-		id: "P3",
-		claim: "本机绝对路径不能写进技能文档，三种写法都要认",
-		intro: "node check-paths.mjs → 命中 C:\\Users、C:/Users、/c/Users 三种",
-		second: "grep 这三种写法，命中数与本判据一致",
-		counter: "只认 C:\\Users：用 Git Bash 写法贴进去的路径静默通过",
-	},
-];
+// 本脚本自己遵守的规则（四件齐）登记在 rules.mjs，由 check-rules.mjs 判：只存一处，不在这里抄第二份。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
