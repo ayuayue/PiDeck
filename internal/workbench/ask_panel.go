@@ -110,6 +110,7 @@ func (a *app) dropAsk(s *session, ask *extensionAsk) {
 	if s == nil || ask == nil {
 		return
 	}
+	a.leavePlanOnCancel(s, ask)
 	if cur := s.showingAsk(); cur != nil && cur.ID == ask.ID {
 		a.popAsk(s, ask)
 		return
@@ -134,15 +135,25 @@ func (a *app) cancelAsks(s *session) {
 	s.asks = nil
 	if cur != nil {
 		s.ask.Set(nil)
+		a.leavePlanOnCancel(s, cur)
 		a.answerAskFor(s, cur, map[string]any{"cancelled": true})
 	}
 	for _, ask := range queued {
+		a.leavePlanOnCancel(s, ask)
 		a.answerAskFor(s, ask, map[string]any{"cancelled": true})
 	}
 	s.askUI.Set(askUIState{})
 	s.askTexts.Set(nil)
 	a.countAsks(s)
 	a.bumpAsk()
+}
+
+// leavePlanOnCancel mirrors the plan extension: closing its post-plan select
+// without an answer exits plan mode.
+func (a *app) leavePlanOnCancel(s *session, ask *extensionAsk) {
+	if s != nil && ask != nil && ask.PlanNext {
+		a.setAgentMode(s, modeNormal)
+	}
 }
 
 // chooseAskOption answers a select with one choice.
@@ -490,6 +501,7 @@ func (a *app) closeAsk(s *session, ask *extensionAsk) {
 		return
 	}
 	if ask.Method != remotewire.AskMethodBatch {
+		a.leavePlanOnCancel(s, ask)
 		a.respondAsk(s, ask, map[string]any{"cancelled": true})
 		return
 	}
