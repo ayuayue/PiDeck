@@ -51,7 +51,9 @@ jobs:
             git -c credential.helper='!f() { echo username=ayuayue; echo "password=${ATOMGIT_TOKEN}"; }; f' \
               push https://atomgit.com/ayuayue/PiDeck-Lite.git "$@"
           }
-          push "HEAD:refs/heads/main"
+          # 标签触发时 HEAD 是标签所在的提交；主分支按 origin/main 推。
+          git fetch --no-tags origin main
+          push "FETCH_HEAD:refs/heads/main"
           if git tag | grep -q .; then
             push 'refs/tags/*:refs/tags/*'
           fi
