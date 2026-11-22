@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 6622f548b5027e7952145e06b8f98288103cab6d538e9eb25e35e32e2ae3851b（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: b3b76f0d4b3a2024f66d40e0197388656ac41da0952c58783e300c5daf771c4b（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import type { MainProcessTranslationKey } from "./mainProcessCopy";
 
@@ -62,6 +62,7 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"sessionCommand.commandFailed": "會話操作失敗，請重試。",
 	"sessionCommand.modelNotFound": "模型未找到：{model}。該模型可能尚未在本地 models.json 中配置。",
 	"sessionCommand.fileTooLarge": "會話檔案過大（{sizeMb}MB，上限 {limitMb}MB），無法編輯訊息。請改用其他會話，或先匯出後歸檔該會話。",
+	"sessionCommand.draftTooLarge": "會話歷史未改動，但這條訊息的草稿（含圖片）超過重發上限，無法重新發送。請縮短訊息或改用其他會話。",
 	"git.commitMessageModelRequired": "未配置提交摘要生成模型，請前往 設定 > Git 配置供應商與模型後重試。",
 	"git.commitMessageBusy": "上一份提交摘要仍在生成中，請稍候再試。",
 	"git.commitMessageTimeout": "提交摘要生成超時，請重試。",

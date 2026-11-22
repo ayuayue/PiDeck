@@ -3,7 +3,7 @@ import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCop
 
 type SessionCommandCopyKey = Extract<
 	MainProcessTranslationKey,
-	"sessionCommand.sessionNotFound" | "sessionCommand.messageNotFound" | "sessionCommand.runtimeUnavailable" | "sessionCommand.runtimeChanged" | "sessionCommand.runtimeBusy" | "sessionCommand.commandFailed" | "sessionCommand.modelNotFound" | "sessionCommand.fileTooLarge"
+	"sessionCommand.sessionNotFound" | "sessionCommand.messageNotFound" | "sessionCommand.runtimeUnavailable" | "sessionCommand.runtimeChanged" | "sessionCommand.runtimeBusy" | "sessionCommand.commandFailed" | "sessionCommand.modelNotFound" | "sessionCommand.fileTooLarge" | "sessionCommand.draftTooLarge"
 >;
 
 type SessionCommandCopy = (key: SessionCommandCopyKey, params?: Record<string, string | number>) => string;
@@ -17,6 +17,7 @@ const SESSION_COMMAND_COPY_KEYS: Record<SessionCommandErrorCode, SessionCommandC
 	SESSION_COMMAND_FAILED: "sessionCommand.commandFailed",
 	SESSION_MODEL_NOT_FOUND: "sessionCommand.modelNotFound",
 	SESSION_FILE_TOO_LARGE: "sessionCommand.fileTooLarge",
+	SESSION_DRAFT_TOO_LARGE: "sessionCommand.draftTooLarge",
 };
 
 /** IPC exposes only the stable message; diagnostics remain available for local logging. */

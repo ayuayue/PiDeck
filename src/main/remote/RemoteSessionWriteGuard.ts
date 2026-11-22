@@ -1,9 +1,12 @@
-import { REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH } from "./RemoteHelperContract";
+import { REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH, REMOTE_SESSION_MAINTAIN_MAX_FILE_BYTES } from "./RemoteHelperContract";
 import { quotePosixArgument } from "./RemoteBootstrapContract";
 import { remoteSessionHistoryMarker, validateRemoteSessionHistoryPath } from "./RemoteSessionHistoryReader";
 
-/** 与会话写面同源的成本上界，守卫不会为了算摘要无界读取。 */
-export const REMOTE_SESSION_WRITE_MAX_BYTES = 256 * 1024;
+/**
+ * 快照的摘要上界。它不再是「可改写的文件大小」：写面已改成远端就地维护，本机只为 compare-and-swap
+ * 算一次身份与摘要，所以上界与会话维护的文件上界同源；守卫仍拒绝无界读取。
+ */
+export const REMOTE_SESSION_WRITE_MAX_BYTES = REMOTE_SESSION_MAINTAIN_MAX_FILE_BYTES;
 export const REMOTE_SESSION_WRITE_GUARD_CODES = {
 	fileChanged: "REMOTE_SESSION_HISTORY_WRITER_FILE_CHANGED",
 	fileInvalid: "REMOTE_SESSION_HISTORY_WRITER_FILE_INVALID",
@@ -58,7 +61,7 @@ function revision(file) {
 }
 let result;
 try {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 262144) fail("optionsInvalid");
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > ${REMOTE_SESSION_WRITE_MAX_BYTES}) fail("optionsInvalid");
   if (action === "snapshot") result = { ok: true, revision: revision(path) };
   else if (action === "commit") {
     const expected = JSON.parse(expectedJson);
@@ -119,8 +122,8 @@ const DIGEST = /^[0-9a-f]{64}$/;
 const INTEGER_ID = /^\d{1,40}$/;
 
 /** 严格重建快照，远端多余字段和不可信类型永不进入期望值。 */
-export function readRemoteSessionFileRevision(value: unknown): RemoteSessionFileRevision {
-	if (!isRecord(value) || typeof value.mode !== "number" || !Number.isSafeInteger(value.mode) || value.mode < 0 || value.mode > 0o7777 || typeof value.size !== "number" || !Number.isSafeInteger(value.size) || value.size < 0 || value.size > REMOTE_SESSION_WRITE_MAX_BYTES)
+export function readRemoteSessionFileRevision(value: unknown, maxBytes = REMOTE_SESSION_WRITE_MAX_BYTES): RemoteSessionFileRevision {
+	if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || !isRecord(value) || typeof value.mode !== "number" || !Number.isSafeInteger(value.mode) || value.mode < 0 || value.mode > 0o7777 || typeof value.size !== "number" || !Number.isSafeInteger(value.size) || value.size < 0 || value.size > maxBytes)
 		refuse(REMOTE_SESSION_WRITE_GUARD_CODES.transferInvalid);
 	const { dev, ino, uid, gid, mtimeNs, ctimeNs, digest } = value;
 	if (

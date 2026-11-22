@@ -249,11 +249,12 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 		: undefined;
 
 	/**
-	 * 远端会话的**受控改写**（P4.5c）：编辑消息 / 删除消息（写墓碑）/ 准备重发（截断该消息及其后继）。
+	 * 远端会话的**受控改写**（P4.5c）：编辑消息 / 删除消息 / 准备重发。
 	 *
-	 * 与远端历史读、远端归档**同一条** pinned SSH 短命令通道（同一 `runPinnedRemoteCommand`：每次都
-	 * 重新过 pin/指纹/路由摘要/严格配置，同一 `resolveRemoteSessionRoot`：会话根只有一个来源），
-	 * 零新增 helper op。实验开关关掉时端口不装配 ⇒ 协调器的 ssh 分支得到稳定码
+	 * 两条通道，各自只做一件事：**改写**走一条 host 级 helper 请求（`session.maintain`：远端在同一份
+	 * 文件上流式完成改写/删除/重发，main 只发操作、新正文、候选 id 与它读到的 revision），**快照**仍走
+	 * 既有 `runPinnedRemoteCommand`（同一 pin/指纹/路由摘要/严格配置）与 `resolveRemoteSessionRoot`
+	 * （会话根只有一个来源）。实验开关关掉时端口不装配 ⇒ 协调器的 ssh 分支得到稳定码
 	 * `REMOTE_SESSION_HISTORY_WRITER_UNAVAILABLE`，而**不会**落回本机路径分支（本机路径入口对 ssh
 	 * locator 抛稳定码，落回只会得到“本地文件缺失”这种错误原因）。
 	 */
@@ -261,13 +262,19 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 		remoteFeatureEnabled
 			? createRemoteSessionHistoryWriter({
 					transport: { runRemoteCommand: runPinnedRemoteCommand },
+					maintenance: {
+						request: async (hostId, method, params, options) => {
+							const port = await remoteHostServiceIfEnabled();
+							if (!port) throw new Error("REMOTE_CONNECTION_SERVICE_UNAVAILABLE");
+							return await port.request(hostId, method, params, options);
+						},
+					},
 					resolveSessionRoot: resolveRemoteSessionRoot,
 					resolveNodePath: async (hostId) => {
 						const port = await remoteHostServiceIfEnabled();
 						if (!port) throw new Error("REMOTE_CONNECTION_SERVICE_UNAVAILABLE");
 						return (await port.remotePiRuntimeFacts(hostId)).nodePath;
 					},
-					project: (rawMessages, activeEntryIds) => agentManager.projectRemoteHistoryMessages(rawMessages, activeEntryIds),
 				})
 			: undefined,
 	);
