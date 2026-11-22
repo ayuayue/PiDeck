@@ -115,15 +115,16 @@ go tool nsgo test -target windows -run '^TestTrustNotice$' -timeout 2m ./interna
 
 ## 2026-11-22 新会话起始页
 
-参考 PiDeck Electron 的起始页，将字号 22 pt 的项目标题、会话输入框和四个建议按钮
-集中到同一视线范围。窄窗口里建议按钮自然换行，高度不足时可滚动。删除了重复的
+参考 PiDeck Electron 的起始页，将字号 22 pt 的项目标题、四个建议按钮和会话输入框集中到
+同一视线范围。建议按钮位于标题与输入框之间：输入框底部已经承载目录、pi 与用量信息，
+按钮再放在下面会挤在页脚之下。窄窗口里建议按钮自然换行，高度不足时可滚动。删除了重复的
 模型说明和写死的 Mac 快捷键。法语、日语、韩语和俄语按钮采用更短的译文。
 
 项目建议填入当前会话的空草稿并聚焦输入框。开始输入后，建议隐藏并保留占位，避免
 输入框跳动。首条消息出现后，已挂载的输入框移到会话底部，两种布局共用阅读列的宽度
 设置。读取历史时仍显示加载占位。
 
-`TestChatStartKeepsComposerAcrossFirstTurn` 先复现了建议位于输入框上方的问题，再在
+`TestChatStartKeepsComposerAcrossFirstTurn` 校验建议行整体位于输入框卡片之上，再在
 同一窗口验证键盘和鼠标选择、填入后不发送、首条消息出现后保留草稿和焦点，以及
 760 pt 法语窄窗的布局。Windows 浅色、深色和法语窄窗截图保存在
 `internal/workbench/.nsgo/test/screenshots/windows/chat-start/`。会话切换用测试数据驱动，

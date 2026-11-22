@@ -20,13 +20,12 @@ func TestChatStartKeepsComposerAcrossFirstTurn(t *testing.T) {
 
 	const input = "id:composer"
 	const card = "id:composer-card"
-	const prompt = "看看这个项目"
 	const draft = "先看看当前目录里有什么，用一句话概括它是做什么的。"
 	const suggestions = "id:chat-starter-prompts"
 	before := screen.Find(input)
 	startCard := screen.Find(card).Bounds()
-	if screen.Find("text:"+prompt).Bounds().Origin.Y < startCard.Origin.Y+startCard.Size.Height {
-		t.Fatal("starter prompts should sit below the centered composer")
+	if prompts := screen.Find(suggestions).Bounds(); prompts.Origin.Y+prompts.Size.Height > startCard.Origin.Y {
+		t.Errorf("starter prompts %v should sit above the composer card %v", prompts, startCard)
 	}
 	viewport := screen.Find("id:transcript").Bounds()
 	if center := startCard.Origin.Y + startCard.Size.Height/2 - viewport.Origin.Y; center < viewport.Size.Height/3 || center > viewport.Size.Height*2/3 {

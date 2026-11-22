@@ -53,7 +53,7 @@ func (a *app) emptyChat(s *session, composer core.Node, editor *core.Ref, column
 			Padding: core.Symmetric(24, chatSidePadding)},
 			StyleFunc: func() core.Style { return core.Style{MinHeight: core.Pt(height())} },
 			Children: []core.Node{
-				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 14, Margin: core.Edges{Bottom: 24}}, Children: []core.Node{
+				core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 14, Margin: core.Edges{Bottom: 20}}, Children: []core.Node{
 					a.brandMark(64, "empty-chat-logo"),
 					core.Text{ContentFunc: func() string {
 						if ws := a.workspaceFor(s.Target, s.WS); ws != nil && !ws.Chat {
@@ -64,11 +64,11 @@ func (a *app) emptyChat(s *session, composer core.Node, editor *core.Ref, column
 						Style:     core.Style{FontSize: 22, FontWeight: ui.Medium, LineHeight: 30, TextAlign: core.TextAlignCenter},
 						StyleFunc: ui.Colored(colors.Text)},
 				}},
-				composer,
 				core.Show{When: func() bool {
 					ws := a.workspaceFor(s.Target, s.WS)
 					return ws != nil && !ws.Chat && s.agentMode.Get() == modeNormal && s.showingAsk() == nil
 				}, Then: func(*core.Scope) core.Node { return starterPrompts(s, editor, column) }},
+				composer,
 			}},
 	}}
 }
@@ -86,7 +86,7 @@ func starterPrompts(s *session, editor *core.Ref, column func() core.Length) cor
 	}
 	return core.View{TestID: "chat-starter-prompts",
 		Style: core.Style{Direction: core.Row, Wrap: core.Wrap, JustifyContent: core.JustifyCenter, Gap: 8,
-			Width: core.Pct(100), Margin: core.Edges{Top: 10}},
+			Width: core.Pct(100), Margin: core.Edges{Bottom: 10}},
 		StyleFunc: func() core.Style {
 			style := core.Style{MaxWidth: column()}
 			// Keep the composer in place as the user starts typing.
