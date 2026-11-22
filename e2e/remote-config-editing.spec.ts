@@ -105,7 +105,7 @@ test("SSH 共享表单、模型目录、源文件保存及主机隔离", async (
 				if (file === "models.json") for (const name of Object.keys(Reflect.get(data, "providers"))) secrets.push({ path: `providers.${name}.apiKey`, status: "configured" });
 				return { kind: "remote", hostId: id, file: file.replace(".json", ""), version: version(id, file), sha256: version(id, file), data, secrets };
 			};
-			for (const channel of ["remote:hosts-list", "remote:connect", "config:get-raw", "config:save-raw", "config:replace-remote-auth", "remote:pi-resources", "remote:pi-models"]) ipcMain.removeHandler(channel);
+			for (const channel of ["remote:hosts-list", "remote:connect", "config:get-raw", "config:save-raw", "config:replace-remote-auth", "remote:pi-resources", "remote:pi-mcp", "remote:pi-models"]) ipcMain.removeHandler(channel);
 			ipcMain.handle("remote:hosts-list", () => ({ ok: true, status: "ready", hosts: [host, other].map((id, index) => ({ id, label: `SSH fixture ${index + 1}`, sshHost: "example.invalid", verified: true, disabled: false })), states: { [host]: "ready", [other]: "ready" } }));
 			ipcMain.handle("remote:connect", () => ({ ok: true, status: "ready" }));
 			ipcMain.handle("config:get-raw", (_event, file: string, options: { target: { kind: string; hostId: string } }) => {
@@ -172,6 +172,34 @@ test("SSH 共享表单、模型目录、源文件保存及主机隔离", async (
 					return { output: "", extensions };
 				}
 				throw new Error("PI_RESOURCE_FILE_INVALID");
+			});
+			// SSH 的 MCP 页与本地共用同一套表单：快照/保存/检测/登录都按主机走这条通道。
+			const mcpState = { calls: [] as Array<{ hostId: string; input: Record<string, unknown> }> };
+			Reflect.set(globalThis, "remoteMcpFixture", mcpState);
+			ipcMain.handle("remote:pi-mcp", (_event, hostId: string, input: Record<string, unknown>) => {
+				if (hostId !== host && hostId !== other) throw new Error("REMOTE_MCP_TARGET_INVALID");
+				mcpState.calls.push({ hostId, input: structuredClone(input) });
+				const home = hostId === host ? "/home/ssh-fixture-1" : "/home/ssh-fixture-2";
+				if (input.action === "facts") return { action: "facts", home, piVersion: "1.5.2" };
+				if (input.action === "snapshot")
+					return {
+						action: "snapshot",
+						snapshot: {
+							writablePath: home + "/.pi/agent/mcp.json",
+							writableFile: { mcpServers: { docs: { url: "https://remote.invalid/mcp" } } },
+							writableRaw: "{}\n",
+							revision: version(hostId, "mcp.json"),
+							layers: [{ kind: "pi-agent", path: home + "/.pi/agent/mcp.json", exists: true, writable: true }],
+							servers: [{ name: "docs", state: "unknown" }],
+							invalidServers: [],
+							lowerLayerNames: [],
+							oauthCredentialNames: [],
+						},
+					};
+				if (input.action === "save") return { action: "save", valid: true, revision: version(hostId, "mcp.json") };
+				if (input.action === "list") return { action: "list", report: { servers: [{ name: "docs", state: "connected" }], errors: [] } };
+				if (input.action === "login") return { action: "login", ok: true, output: "authorized" };
+				return { action: "logout", ok: true, output: "ok" };
 			});
 			ipcMain.handle("remote:pi-models", (_event, id: string, force: boolean) => {
 				state.probes.push({ hostId: id, force });
@@ -279,14 +307,12 @@ test("SSH 共享表单、模型目录、源文件保存及主机隔离", async (
 	await trust.getByRole("button", { name: "添加目录", exact: true }).click();
 	await settings.getByRole("button", { name: "保存", exact: true }).first().click();
 	await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "remoteConfigFixture").writes.length)).toBe(4);
+	// MCP 页在 SSH 上也是同一套表单（不再是文本编辑器）：列表来自该主机的 mcp.json 快照。
 	await layout.getByRole("tab", { name: "MCP", exact: true }).click();
-	const mcp = layout.locator(".config-raw-tab:visible .cm-content");
-	await expect(mcp).toContainText("mcpServers");
-	await mcp.click();
-	await window.keyboard.press("ControlOrMeta+A");
-	await window.keyboard.insertText(JSON.stringify({ mcpServers: { docs: { url: "https://changed.remote.invalid/mcp" } } }, null, 2));
-	await settings.getByRole("button", { name: "保存", exact: true }).first().click();
-	await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "remoteConfigFixture").writes.length)).toBe(5);
+	await expect(layout.getByText("/home/ssh-fixture-1/.pi/agent/mcp.json").first()).toBeVisible({ timeout: 30_000 });
+	await expect(layout.locator(".config-raw-tab:visible")).toHaveCount(0);
+	await expect.poll(() => app.evaluate(() => (Reflect.get(globalThis, "remoteMcpFixture") as { calls: Array<{ hostId: string; input: Record<string, unknown> }> }).calls.filter((call) => call.input.action === "snapshot").length)).toBeGreaterThan(0);
+	await expect.poll(() => app.evaluate(() => (Reflect.get(globalThis, "remoteMcpFixture") as { calls: Array<{ hostId: string }> }).calls.every((call) => call.hostId === "11111111-1111-4111-8111-111111111111"))).toBe(true);
 
 	// Authentication uses the same form as local, but every mutation is bound to this host.
 	await layout.getByRole("tab", { name: "认证", exact: true }).click();
@@ -369,13 +395,13 @@ test("SSH 共享表单、模型目录、源文件保存及主机隔离", async (
 		[HOST, "models.json"],
 		[HOST, "settings.json"],
 		[HOST, "trust.json"],
-		[HOST, "mcp.json"],
 		[OTHER, "models.json"],
 	]);
 	expect(state.writes[1].data.explicitNull).toBeNull();
 	expect(state.writes[2].data.retry).toMatchObject({ maxRetries: 7 });
 	expect(state.writes[3].data["/srv/added-from-ui"]).toBe(true);
-	expect(state.writes[4].data.mcpServers).toEqual({ docs: { url: "https://changed.remote.invalid/mcp" } });
+	// MCP 走 remote:pi-mcp，不再混进 config:save-raw 的写入列表。
+	expect(state.writes.some((write) => write.file === "mcp.json")).toBe(false);
 	expect(state.authWrites.map((write) => write.hostId)).toEqual([HOST, HOST, HOST]);
 	expect(state.authWrites[0].entries).toHaveLength(1);
 	expect(state.authWrites[0].entries[0]).toMatchObject({ provider: "remote1" });

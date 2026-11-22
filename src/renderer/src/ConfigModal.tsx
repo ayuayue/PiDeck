@@ -538,8 +538,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		reconcileConfigDirty(next, "config:settings", settingsData, baselineSettingsRef.current);
 		reconcileConfigDirty(next, "config:trust", trustData, baselineTrustRef.current);
 		reconcileConfigDirty(next, "config:raw", { fileName: rawFileName, content: rawContent }, baselineRawRef.current);
-		// WSL 环境的 MCP 页是文本编辑：草稿按文本比较（本机 MCP 页由 McpTab 自己维护同一个 key）。
-		if (configTarget.kind !== "local") reconcileConfigDirty(next, "config:mcp", wslMcpRaw, baselineWslMcpRef.current);
+		// 只有 WSL 的 MCP 页是文本编辑：草稿按文本比较；本机与 SSH 的脏状态由 McpTab 自己上报同一个 key。
+		if (configTarget.kind === "wsl") reconcileConfigDirty(next, "config:mcp", wslMcpRaw, baselineWslMcpRef.current);
 		dirtyTabsRef.current = next;
 		// 只有真正增删了 key 才提交 state，避免每次键入都重建相同 Set 触发无关重渲染
 		const changed = next.size !== before.size || [...next].some((key) => !before.has(key));
@@ -1256,7 +1256,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						{/* forceMount：MCP 页自管草稿，切走再回来不能丢未保存编辑；inactive 必须 hidden，否则叠在别的 tab 上。 */}
 						<TabsContent value="config:mcp" forceMount className="config-main min-w-0 data-[state=inactive]:hidden">
 							<ConfigMcpTab
-								remoteTargetHostId={remoteTargetHostId}
 								wslTargetHost={wslTargetHost}
 								statusBlock={statusBlock}
 								configDiagnosticBlock={configDiagnosticBlock}
