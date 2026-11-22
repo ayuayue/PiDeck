@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { latestRemoteFolderReveal, publishRemoteFolderReveal, subscribeRemoteFolderReveal } from "../src/renderer/src/utils/remoteFolderReveal.ts";
+import { latestRemoteFolderReveal, publishRemoteFolderReveal, subscribeRemoteFolderReveal, subscribeRemoteFolderRevealForProject } from "../src/renderer/src/utils/remoteFolderReveal.ts";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-// 远端目录链接没有本机文件管理器入口：App 侧切到文件抽屉并发布「定位这个目录」请求，
-// 由该项目的远端目录树消费。请求必须带 projectId（抽屉跟随当前项目）与 nonce
-// （同一目录连点两次也要再次定位，只比路径会让第二次静默失效）。
+// 远端目录链接没有本机文件管理器入口：App 侧切到文件抽屉并发布「定位这个目录」请求。
+// 请求带 projectId（抽屉跟随当前项目）与 nonce（同一目录连点两次也要再次定位）。
 
 test("定位请求保留最近一次并通知订阅者，nonce 递增", () => {
 	const seen = [];
@@ -23,9 +22,7 @@ test("定位请求保留最近一次并通知订阅者，nonce 递增", () => {
 			["project-2", ""],
 		],
 	);
-	// 同一目录连点两次：nonce 必须不同，否则消费方会把它当成同一次请求吞掉
 	assert.ok(seen[1].nonce > seen[0].nonce);
-	// 面板可能在请求之后才挂载：最近一次请求可补消费
 	const latest = latestRemoteFolderReveal();
 	assert.equal(latest.projectId, "project-2");
 	assert.equal(latest.relativePath, "");
@@ -48,22 +45,65 @@ test("没有项目身份的请求直接丢弃，退订后不再投递", () => {
 	assert.equal(calls, 1);
 });
 
-const treeSource = readFileSync("src/renderer/src/hooks/useRemoteFileTree.ts", "utf8");
-const linkSource = readFileSync("src/renderer/src/hooks/workspace/useSessionFileLinks.ts", "utf8");
-const openerSource = readFileSync("src/renderer/src/hooks/useSessionFilePathOpener.ts", "utf8");
+test("目录树补消费最近请求，只展开匹配项目并在退订后停止", () => {
+	const seen = [];
+	publishRemoteFolderReveal("project-4", "queued/path");
+	const unsubscribe = subscribeRemoteFolderRevealForProject("project-4", (path) => seen.push(path));
+	assert.deepEqual(seen, ["queued/path"]);
 
-test("目录树只消费自己项目的请求：先补 recent 再订阅，同一 nonce 只展开一次", () => {
-	assert.match(treeSource, /const pending = latestRemoteFolderReveal\(\);/);
-	assert.match(treeSource, /return subscribeRemoteFolderReveal\(consume\);/);
-	assert.match(treeSource, /if \(request\.projectId !== projectId \|\| request\.nonce === handledNonce\) return;/);
-	assert.match(treeSource, /void reveal\(request\.relativePath\);/);
+	publishRemoteFolderReveal("project-5", "other-project");
+	publishRemoteFolderReveal("project-4", "src/main");
+	assert.deepEqual(seen, ["queued/path", "src/main"]);
+
+	unsubscribe();
+	publishRemoteFolderReveal("project-4", "after-unsubscribe");
+	assert.deepEqual(seen, ["queued/path", "src/main"]);
 });
 
-test("会话链接路由：远端目录切到文件抽屉并发布定位请求，opener 不再走 files:open", () => {
-	// 抽屉已是文件面板时不得再调 openDrawer（它是「再点一次收起」语义）
-	assert.match(linkSource, /if \(workspace\.drawer !== "files" \|\| workspace\.drawerCollapsed\) workspace\.openDrawer\("files"\);/);
-	assert.match(linkSource, /publishRemoteFolderReveal\(target\.projectId, target\.relativePath\);/);
-	assert.match(linkSource, /onOpenRemoteDirectory: openRemoteDirectory \}\)/);
-	// 远端目录在 opener 里被接管：不能再落到本机 shell.openPath（必然 UNSUPPORTED_CAPABILITY）
-	assert.match(openerSource, /if \(typeof path !== "string"\) \{\s*\n\s*onOpenRemoteDirectory\(path\);\s*\n\s*return;/);
+test("会话文件链接打开远端目录时切换文件抽屉并发布项目定位", async () => {
+	const published = [];
+	const { useSessionFileLinks } = loadTsCommonJs("src/renderer/src/hooks/workspace/useSessionFileLinks.ts", {
+		stubs: {
+			react: { useCallback: (callback) => callback },
+			"../../i18n": { t: (key) => key },
+			"../../utils/filePathLinks": { resolveFileLinkPath: () => null, isFilePathInsideRoot: () => false },
+			"../../../../shared/projectLocation": { isRemoteProject: () => true },
+			"../../utils/remoteProjectPath": { remoteProjectTarget: () => null },
+			"../../utils/remoteFolderReveal": { publishRemoteFolderReveal: (...args) => published.push(args) },
+			"../../utils/rendererHomeDir": { getRendererHomeDir: () => "/home/tester" },
+			"../useSessionFilePathOpener": {
+				useSessionFilePathOpener:
+					({ onOpenRemoteDirectory }) =>
+					async (target) =>
+						onOpenRemoteDirectory(target),
+			},
+			"../useExternalPathOpenGate": { useExternalPathOpenGate: () => ({ requestExternalPathOpen: async () => {}, dialog: null }) },
+		},
+	});
+	const opened = [];
+	const workspace = {
+		drawer: "git",
+		drawerCollapsed: false,
+		openDrawer: (panel) => opened.push(panel),
+		closeDrawer: () => {},
+	};
+	const links = useSessionFileLinks({
+		activeAgent: undefined,
+		activeProject: undefined,
+		projects: [],
+		currentSessionId: undefined,
+		activeProjectId: "project-4",
+		showToast: () => {},
+		setPreviewImage: () => {},
+		viewFilePath: () => {},
+		workspace,
+		gitDrawerDiff: null,
+		closeGitDiff: () => {},
+		refreshVisibleFiles: () => {},
+		restoreExpandedDirs: async () => false,
+	});
+
+	await links.openSessionFilePath({ projectId: "project-4", relativePath: "src/main" });
+	assert.deepEqual(opened, ["files"]);
+	assert.deepEqual(published, [["project-4", "src/main"]]);
 });

@@ -49,59 +49,14 @@ import { buildActiveBranchEntryIds } from "../pi/AgentMessageProjector";
 import { buildTimelineProjection, type ProjectedSessionEntry } from "../pi/sessionContextProjection";
 import { isRoleMessageRole } from "../pi/sessionEntryIds";
 import type { ChatMessage, SessionMessagePage } from "../../shared/types";
-
-/** 单次窗口的字节上界（硬上界：请求超过它即拒绝，不 clamp）。
- *
- * 2026-12 由 128 KiB 提到 1 MiB。依据是真实会话文件：pi 把「带截图/图片的用户消息」写成**一整行**
- * JSONL，实测单行 347 KiB、681 KiB。128 KiB 的旧上界会让整页窗口落在这类行内部，分页于是
- * 停在行中间并把「没有完整行」误当成「到文件头」——用户症状就是「远端项目里往上翻翻不上去、
- * 自己发过的消息全找不到」（那条超长行之前的全部历史永久不可达）。
- * 1 MiB 能整行容纳这类消息；顺带把 20 MB 会话的上翻次数从 159 次降到 20 次。 */
-export const REMOTE_SESSION_HISTORY_WINDOW_BYTES = 2 * 1024 * 1024;
-
-/**
- * 传输层单次输出的字节上界。
- *
- * `SshClientRuntime.run` 的 execFile 缺省只给 256 KiB；历史读取显式放宽到这条线（
- * `runPinnedRemoteCommand` 的 `maxBuffer`），否则一页 1 MiB 会被传输层判成输出超界。
- * 这个常量的唯一用途就是让「窗口上界 < 传输上界」成为可断言的算术，而不是注释里的口头承诺。
- */
-export const REMOTE_SESSION_HISTORY_TRANSPORT_BYTES = 4 * 1024 * 1024;
-
-/**
- * 一页最多连续跨过多少个「没有完整行的窗口」。
- *
- * 超过一页上界的单行（罕见的大图消息）永远读不全：窗口整块落在行内时没有可解析的行，但位置仍在往前。
- * 跨窗重试让它不堵住分页（每页最多再往前推这么多窗口），而不是把「读不到内容」说成「到文件头」。
- */
-export const REMOTE_SESSION_HISTORY_WINDOW_SKIPS = 4;
-
-/** 本模块的稳定码词汇（构造期错误码见 `REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID`）。 */
-export const REMOTE_SESSION_HISTORY_CODES = {
-	/** hostId 不是可用的诊断身份/传输键。 */
-	hostIdInvalid: "REMOTE_SESSION_HISTORY_HOST_ID_INVALID",
-	/** locator 不是合法 ssh 身份（含 remotePath 长度越界）。 */
-	locatorInvalid: "REMOTE_SESSION_HISTORY_LOCATOR_INVALID",
-	/** 远端路径既不是绝对路径、也推不出会话根（相对身份 + 没有根解析端口）。 */
-	pathUnresolved: "REMOTE_SESSION_HISTORY_PATH_UNRESOLVED",
-	/** 远端路径不可用（非绝对/控制字节/含单引号/超长）：绝不把它拼进命令行。 */
-	pathInvalid: "REMOTE_SESSION_HISTORY_PATH_INVALID",
-	/** 传输层失败（ssh 起不来、超时、输出超上界）且自身不带稳定码。 */
-	transportFailed: "REMOTE_SESSION_HISTORY_TRANSPORT_FAILED",
-	/** 远端命令退出码非 0（stderr 不外传）。 */
-	commandFailed: "REMOTE_SESSION_HISTORY_COMMAND_FAILED",
-	/** stdout 里找不到本次调用的标记：输出不可信（横幅/噪声/对端不是我们预期的 shell）。 */
-	markerMissing: "REMOTE_SESSION_HISTORY_MARKER_MISSING",
-	/** 标记之后的元数据（文件字节数）解析不出来。 */
-	metadataInvalid: "REMOTE_SESSION_HISTORY_METADATA_INVALID",
-	/** 读取期间文件换代且重读后仍变化：不把它伪装成文件头。 */
-	stale: "REMOTE_SESSION_HISTORY_STALE",
-	/** 装配没提供读端口（旧装配/正式包）。 */
-	readerUnavailable: "REMOTE_SESSION_HISTORY_UNAVAILABLE",
-} as const;
-
-/** 构造期参数不合法（与其它远端模块一致，构造即抛，不等到第一次读）。 */
-export const REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID = "REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID";
+import { REMOTE_SESSION_HISTORY_CODES, REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID, REMOTE_SESSION_HISTORY_WINDOW_BYTES, REMOTE_SESSION_HISTORY_TRANSPORT_BYTES, REMOTE_SESSION_HISTORY_WINDOW_SKIPS } from "./RemoteSessionHistoryWindow";
+export {
+	REMOTE_SESSION_HISTORY_CODES,
+	REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID,
+	REMOTE_SESSION_HISTORY_WINDOW_BYTES,
+	REMOTE_SESSION_HISTORY_TRANSPORT_BYTES,
+	REMOTE_SESSION_HISTORY_WINDOW_SKIPS,
+} from "./RemoteSessionHistoryWindow";
 
 /** 标记里允许出现的字符：本地随机 hex，命令与解析两侧共用同一形状。 */
 const NONCE = /^[A-Za-z0-9]{8,64}$/;

@@ -34,7 +34,7 @@
 		"src/main/projects/ProjectStore.ts": 827,
 		"src/main/prompts/XuePromptManager.ts": 623,
 		"src/main/remote/RemoteControlClient.ts": 722,
-		"src/main/remote/RemoteGitWriteSource.ts": 702,
+		"src/main/remote/RemoteGitWriteSource.ts": 524,
 		"src/main/remote/RemoteHelperContract.ts": 865,
 		"src/main/remote/RemoteHostConnectionService.ts": 1351,
 		"src/main/remote/RemoteHostStore.ts": 760,
@@ -101,7 +101,7 @@
 		"src/renderer/src/web/WebChatApp.tsx": 1828,
 		"src/renderer/src/web/WebTimeline.tsx": 990,
 		"src/shared/ipc.ts": 1492,
-		"src/shared/types/session.ts": 682,
+		"src/shared/types/session.ts": 652,
 		"src/shared/types/settings.ts": 1342
 	},
 	"soft": [

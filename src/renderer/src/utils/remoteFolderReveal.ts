@@ -35,6 +35,18 @@ export function latestRemoteFolderReveal(): RemoteFolderRevealRequest | null {
 	return latest;
 }
 
+export function subscribeRemoteFolderRevealForProject(projectId: string, reveal: (relativePath: string) => void | Promise<void>): () => void {
+	let handledNonce = -1;
+	const consume = (request: RemoteFolderRevealRequest) => {
+		if (request.projectId !== projectId || request.nonce === handledNonce) return;
+		handledNonce = request.nonce;
+		void reveal(request.relativePath);
+	};
+	const pending = latestRemoteFolderReveal();
+	if (pending !== null) consume(pending);
+	return subscribeRemoteFolderReveal(consume);
+}
+
 export function subscribeRemoteFolderReveal(listener: RemoteFolderRevealListener): () => void {
 	listeners.add(listener);
 	return () => {

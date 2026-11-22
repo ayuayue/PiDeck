@@ -524,3 +524,15 @@ const selectTab = useCallback((id: string) => {
 | **归档与记录**（`docs/archive/**`、验收日志、验证记录、review 记录） | **保持原样不动** | 它们是"某时点看到的是这行"的证据；改掉等于篡改历史 |
 
 判定失效的最省事办法：`行号 > 文件当前行数` 必定失效（脚本几十行，扫完 924 处约 0.5 秒）。行号仍在范围内但不指原内容的，只能靠人读——所以活动文档干脆别钉行号。
+
+## 增量拆分计划：远端历史与写入源码
+
+> 状态：实施中。目标是修复本次 `check:file-size` 的三项违规，保持运行行为与冻结 helper 部署字节不变。
+
+| 原文件 | 新边界 | Parity 核验 |
+|---|---|---|
+| `RemoteGitWriteSource.ts` | 将恢复清单、还原与删除程序移入 `RemoteGitRecoverySource.ts`；构建时仍拼成同一 `git-write.mjs` | `REMOTE_HELPER_GIT_WRITE_SHA256` 不变，远端 Git 恢复测试全绿 |
+| `RemoteSessionHistoryReader.ts` | 将窗口上界与稳定错误码移入 `RemoteSessionHistoryWindow.ts`，读取器继续转发原常量 | 既有窗口读取、HTML 导出与装配测试全绿；旧导出名可用 |
+| `shared/types/session.ts` | 将 `SessionHistoryUnavailableReason` 与 `SessionMessagePage` 移入 `sessionMessagePage.ts`，由原模块类型转发 | `shared/types` 和直接 session 模块导入保持兼容，typecheck 全绿 |
+
+完成条件：`check:file-size` 不再报这三项；不改 helper artifact hash；相关运行时测试、测试形状、格式与类型检查通过；Feishu SDK 压缩包与 manifest 的既有内容只按用户要求提交，不重写。
