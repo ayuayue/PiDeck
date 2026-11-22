@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type React from "react";
 import { isLocalPathRef, remarkLinkifyPaths } from "./MarkdownLinkCore";
+import { anchorIdFromHref } from "./markdownHeadingAnchors";
+import { scrollToMarkdownAnchor } from "../../utils/markdownAnchorScroll";
 import { useFileLinkContext, useFilePathExists, useRemoteFileLinkTarget } from "./FileLinkBase";
 import { extractFileLinkLocation, relativeFilePathWithinRoot, resolveFileLinkPath } from "../../utils/filePathLinks";
 import { getRendererHomeDir } from "../../utils/rendererHomeDir";
@@ -73,9 +75,18 @@ export function MarkdownLink(
 	// 「在资源管理器中打开」同理：本机文件管理器定位不到远端主机上的目录。
 	const canRevealInExplorer = remoteTarget === null;
 	const relativePath = remoteTarget !== null ? remoteTarget.relativePath : resolvedPath && projectRoot ? relativeFilePathWithinRoot(resolvedPath, projectRoot) : null;
+	// 页内锚点（README 目录 `[架构](#架构)`）：id 由 markdownHeadingAnchors 写进标题，
+	// 这里只负责滚动定位；非页内锚点（外链 / 本地路径）仍走下面原有分支。
+	const anchorId = anchorIdFromHref(props.href);
 	const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
 		e.preventDefault();
 		if (!props.href) return;
+		// 文档内跳转优先：`#` 锚点既不是外链也不是本地路径，交给滚动定位（目标暂未挂载时
+		// 由 scrollToMarkdownAnchor 自己按帧重试）
+		if (anchorId !== null) {
+			scrollToMarkdownAnchor(e.currentTarget, anchorId);
+			return;
+		}
 
 		// 处理文件路径链接（file:// 协议 + 无协议的本地路径引用）
 		if (isFileLink || isLocalRef) {
