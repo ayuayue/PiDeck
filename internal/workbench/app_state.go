@@ -432,6 +432,7 @@ type app struct {
 	piStoreInstalled    *core.Signal[[]piPackage]
 	piStoreInstalledErr *core.Signal[string]
 	piStoreActing       *core.Signal[string]
+	piStoreLocal        *core.Signal[bool]
 	// A new query or close invalidates posted catalog results.
 	piStoreGen    uint64
 	piStoreCancel context.CancelFunc

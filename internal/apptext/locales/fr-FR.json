@@ -2580,5 +2580,15 @@
   "新增 %d 个，跳过 %d 个已有文件。": "%d ajoutés, %d fichiers existants ignorés.",
   "跳过 %d 个已有文件。": "%d fichiers existants ignorés.",
   "安全策略保存失败": "Impossible d'enregistrer la politique de sécurité",
-  "策略快照没有写入，扩展仍按上一份文件执行。": "L'instantané n'a pas été écrit ; l'extension continue d'utiliser le fichier précédent."
+  "策略快照没有写入，扩展仍按上一份文件执行。": "L'instantané n'a pas été écrit ; l'extension continue d'utiliser le fichier précédent.",
+  "安装到当前项目": "Installer dans le projet actuel",
+  "当前项目：%s": "Projet actuel : %s",
+  "没有打开项目": "Aucun projet ouvert",
+  "没有打开项目，无法使用项目级安装。": "Aucun projet n'est ouvert ; l'installation dans le projet est indisponible.",
+  "没有打开项目，无法卸载项目级扩展。": "Aucun projet n'est ouvert ; impossible de supprimer une extension du projet.",
+  "没有打开项目，无法更新项目级扩展。": "Aucun projet n'est ouvert ; impossible de mettre à jour une extension du projet.",
+  "用户": "Utilisateur",
+  "扩展已更新": "Extension mise à jour",
+  "扩展来自 %s，会安装到当前项目（%s）。安装后 pi 会加载并运行它的代码，只安装你信任的来源。": "Cette extension provient de %s et sera installée dans le projet actuel (%s). pi charge et exécute son code, donc n'installez que des sources fiables.",
+  "「%s」会从当前项目配置中移除，扩展文件留在本机。": "« %s » est retiré de la configuration du projet actuel ; ses fichiers restent sur cette machine."
 }

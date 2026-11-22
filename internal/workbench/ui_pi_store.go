@@ -44,6 +44,10 @@ func (a *app) piExtensionStoreDialog() core.Node {
 		var installedRows []core.Node
 		for _, pkg := range installed {
 			p := pkg
+			scope := apptext.T("用户")
+			if p.Scope == "project" {
+				scope = apptext.T("项目")
+			}
 			installedRows = append(installedRows, core.View{
 				TestID: "pi-store-installed-" + piStoreTestID(p.Source),
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9, MinHeight: core.Pt(42),
@@ -58,6 +62,13 @@ func (a *app) piExtensionStoreDialog() core.Node {
 								Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9}, StyleFunc: ui.Colored(colors.Faint)}
 						}},
 					}},
+					core.View{Style: core.Style{Padding: core.Symmetric(1, 6), CornerRadius: 4, Background: colors.Inset()},
+						Children: []core.Node{ui.Text(scope, 9, ui.Medium, colors.Faint)}},
+					ui.Button{Text: apptext.T("更新"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+						TestID:   "pi-store-update-" + piStoreTestID(p.Source),
+						Busy:     func() bool { return acting == "update:"+p.Source },
+						Disabled: func() bool { return acting != "" },
+						OnPress:  func() { a.updatePiPackage(p) }},
 					ui.Button{Text: apptext.T("卸载"), Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 						TestID:   "pi-store-remove-" + piStoreTestID(p.Source),
 						Busy:     func() bool { return acting == p.Source },
@@ -186,6 +197,22 @@ func (a *app) piExtensionStoreDialog() core.Node {
 					}},
 					ui.Button{Text: apptext.T("搜索"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
 						TestID: "pi-store-search", Disabled: func() bool { return busy }, OnPress: a.searchPiCatalog},
+				}},
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+					ui.Switch{Checked: func() bool { return a.piStoreLocal.Get() }, Label: apptext.T("安装到当前项目"),
+						TestID: "pi-store-local", Disabled: func() bool { return a.piStoreProjectDir() == "" },
+						OnChange: func(on bool) {
+							a.piStoreLocal.Set(on)
+							a.loadPiInstalled()
+						}},
+					core.Text{ContentFunc: func() string {
+						dir := a.piStoreProjectDir()
+						if dir == "" {
+							return apptext.T("没有打开项目")
+						}
+						return apptext.T("当前项目：%s", shortPath(dir, 50))
+					}, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
+						Style: core.Style{FontSize: 9.5}, StyleFunc: ui.Colored(colors.Faint)},
 				}},
 				status,
 				pager,

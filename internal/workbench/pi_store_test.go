@@ -141,6 +141,7 @@ func piStoreTestApp(cx *core.Scope) *app {
 		piStoreInstalled:    core.NewSignalFunc(cx, []piPackage(nil), nil),
 		piStoreInstalledErr: core.NewSignal(cx, ""),
 		piStoreActing:       core.NewSignal(cx, ""),
+		piStoreLocal:        core.NewSignal(cx, false),
 	}
 	a.piStoreList.Set([]piCatalogItem{
 		{Name: "new-tool", Description: "A new tool.", Author: "alice", InstallSource: "npm:new-tool", PageURL: "https://pi.dev/packages/new-tool"},
@@ -161,6 +162,8 @@ func TestPiStoreDialogShowsInstallAndRemoveStates(t *testing.T) {
 	screen.WaitFor("id:pi-store-row-old-tool", 5*time.Second)
 	screen.WaitFor("id:pi-store-installed-npm-old-tool", 5*time.Second)
 	screen.WaitFor("id:pi-store-remove-npm-old-tool", 5*time.Second)
+	screen.WaitFor("id:pi-store-update-npm-old-tool", 5*time.Second)
+	screen.WaitFor("id:pi-store-local", 5*time.Second)
 	screen.WaitFor("id:pi-store-update-all", 5*time.Second)
 	if len(screen.Query("id:pi-store-install-old-tool")) != 0 {
 		t.Fatal("an installed package still offers install")

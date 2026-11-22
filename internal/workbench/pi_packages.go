@@ -100,10 +100,10 @@ func parsePiList(raw string) []piPackage {
 }
 
 // readPiPackages asks pi for its installed packages.
-func readPiPackages(piPath, dir string) ([]piPackage, error) {
+func readPiPackages(piPath, dir string, args ...string) ([]piPackage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := piCommand(ctx, piPath, "list")
+	cmd := piCommand(ctx, piPath, append([]string{"list"}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), agentProxy.env()...)
 	out, err := cmd.Output()

@@ -504,7 +504,8 @@ GOFLAGS=-tags=webassets go tool nsgo build -target windows_x64  # 网页已生�
   `{skills:[{id,name,url}]}` 索引一键安装 SKILL.md 到 pi 的 skills 目录。随包注入的 pi 扩展有
   ask_question、本地记忆/浏览器工具、实际系统轨迹、空响应重试、NUL 重定向、回收站守卫、
   请求体超限恢复、自动标题、todo 工具、计划模式只读工具、工具安全门、`/reload` 与 shell 代理隔离；pi 自己已有同名扩展时不覆盖、不重复注入。
-  「扩展商店…」读 pi.dev 目录和 `pi list`，安装、卸载、更新全部由 pi 自己的命令执行，安装前确认来源。
+  「扩展商店…」读 pi.dev 目录和 `pi list`，安装、卸载、更新全部由 pi 自己的命令执行，安装前确认来源；
+  可切「安装到当前项目」用 `-l` 写项目 `.pi/settings.json`，已装包可单独更新
   「更新内置扩展」按 PiDeck 的清单校验 sha256 后替换随包扩展；`mcp-setup` 与 Lite 版 `pideck`
   技能随包安装，已有同名技能不覆盖，`pideck` 只经 `--skill` 注入本机 pi
 - 数据：应用/会话/pi 会话目录、会话数量、配置版本；「导出设置包」把配置/插件/主题/提示词/智能体/ACP 预设打成 zip，「导入设置包」恢复（同名覆盖，部分设置重启后生效）

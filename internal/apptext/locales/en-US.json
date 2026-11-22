@@ -2580,5 +2580,15 @@
   "新增 %d 个，跳过 %d 个已有文件。": "Added %d, skipped %d existing files.",
   "跳过 %d 个已有文件。": "Skipped %d existing files.",
   "安全策略保存失败": "Could not save the security policy",
-  "策略快照没有写入，扩展仍按上一份文件执行。": "The snapshot was not written; the extension keeps using the previous file."
+  "策略快照没有写入，扩展仍按上一份文件执行。": "The snapshot was not written; the extension keeps using the previous file.",
+  "安装到当前项目": "Install into current project",
+  "当前项目：%s": "Current project: %s",
+  "没有打开项目": "No project open",
+  "没有打开项目，无法使用项目级安装。": "No project is open; project install is unavailable.",
+  "没有打开项目，无法卸载项目级扩展。": "No project is open; cannot remove a project extension.",
+  "没有打开项目，无法更新项目级扩展。": "No project is open; cannot update a project extension.",
+  "用户": "User",
+  "扩展已更新": "Extension updated",
+  "扩展来自 %s，会安装到当前项目（%s）。安装后 pi 会加载并运行它的代码，只安装你信任的来源。": "This extension comes from %s and will be installed into the current project (%s). pi loads and runs its code, so only install sources you trust.",
+  "「%s」会从当前项目配置中移除，扩展文件留在本机。": "\"%s\" is removed from the current project's configuration; its files stay on this machine."
 }

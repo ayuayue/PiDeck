@@ -115,6 +115,7 @@ func newApp(cx *core.Scope) *app {
 		piStoreInstalled:       core.NewSignalFunc(cx, []piPackage(nil), nil),
 		piStoreInstalledErr:    core.NewSignal(cx, ""),
 		piStoreActing:          core.NewSignal(cx, ""),
+		piStoreLocal:           core.NewSignal(cx, false),
 		piExtUpdateBusy:        core.NewSignal(cx, false),
 		marketOpen:             core.NewSignal(cx, false),
 		marketURL:              core.NewSignal(cx, ""),
