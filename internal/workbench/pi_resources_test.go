@@ -44,7 +44,7 @@ func TestReadSkills(t *testing.T) {
 func TestReadExtensions(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PIDECK_LITE_PI_CONFIG", dir)
-	settings := `{"extensions":["+builtin:codemode","+npm:pi-web-access"],"disabledExtensions":["npm:@samfp/pi-memory"],"theme":"dark"}`
+	settings := `{"extensions":["+builtin:codemode","+npm:pi-web-access"],"disabledExtensions":["npm:@samfp/pi-memory","npm:off-pkg"],"packages":["npm:pi-tracker","npm:off-pkg"],"theme":"dark"}`
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(settings), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +73,12 @@ func TestReadExtensions(t *testing.T) {
 	}
 	if e := bySource["local.ts"]; !e.Local || !e.Enabled || e.Toggleable {
 		t.Fatalf("local = %+v", e)
+	}
+	if e := bySource["npm:pi-tracker"]; !e.Enabled || e.Toggleable {
+		t.Fatalf("package = %+v", e)
+	}
+	if e := bySource["npm:off-pkg"]; e.Enabled || e.Toggleable {
+		t.Fatalf("disabled package = %+v", e)
 	}
 }
 

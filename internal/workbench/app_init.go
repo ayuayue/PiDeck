@@ -105,6 +105,17 @@ func newApp(cx *core.Scope) *app {
 		skillStoreErr:          core.NewSignal(cx, ""),
 		skillStoreList:         core.NewSignalFunc(cx, []skillIndexEntry(nil), nil),
 		skillStoreInstalling:   core.NewSignal(cx, ""),
+		piStoreOpen:            core.NewSignal(cx, false),
+		piStoreQuery:           core.NewSignal(cx, ""),
+		piStoreBusy:            core.NewSignal(cx, false),
+		piStoreErr:             core.NewSignal(cx, ""),
+		piStoreList:            core.NewSignalFunc(cx, []piCatalogItem(nil), nil),
+		piStorePage:            core.NewSignal(cx, 1),
+		piStoreLast:            core.NewSignal(cx, 1),
+		piStoreInstalled:       core.NewSignalFunc(cx, []piPackage(nil), nil),
+		piStoreInstalledErr:    core.NewSignal(cx, ""),
+		piStoreActing:          core.NewSignal(cx, ""),
+		piExtUpdateBusy:        core.NewSignal(cx, false),
 		marketOpen:             core.NewSignal(cx, false),
 		marketURL:              core.NewSignal(cx, ""),
 		marketBusy:             core.NewSignal(cx, false),
@@ -408,10 +419,13 @@ func newApp(cx *core.Scope) *app {
 	// questions reach the card.
 	askExtensionPath = installAskExtension(st.dir)
 	retryExtensionPath = installBundledExtension(st.dir, "pi-deck-retry-no-body.ts", extensions.RetryNoBody)
+	installBundledExtensions(st.dir)
+	installBundledSkills()
 	a.initDiag()
 	a.cfg = st.config()
 	a.reduceEffects.Set(a.cfg.ReduceEffects)
 	a.codeWrap.Set(a.cfg.CodeWrap)
+	securityPolicyPath = a.writeSecurityPolicy()
 	a.sounds = alerts.New(cx)
 	a.speech = &volcvoice.Client{}
 	a.loadCustomSound()

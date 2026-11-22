@@ -253,6 +253,21 @@ func (a *app) settingsGeneral() core.Node {
 								a.bumpSettings()
 							}}),
 				),
+				setGroup("安全",
+					setRow("工具安全门", "标准会先确认危险命令并保护敏感文件；严格再把文件访问限制在工作目录内，写操作也要逐一确认。",
+						ui.Select[string]{
+							Options: []ui.Option[string]{
+								{Value: "off", Label: apptext.T("安全门关闭")},
+								{Value: "standard", Label: apptext.T("标准")},
+								{Value: "strict", Label: apptext.T("严格")},
+							},
+							Value:    func() string { return a.securityLevelID() },
+							OnChange: a.setSecurityLevel,
+							Label:    apptext.T("工具安全门"),
+							TestID:   "security-level",
+							Style:    core.Style{Width: core.Pt(170), Height: core.Pt(28), FontSize: 11},
+						}),
+				),
 			}},
 		}}
 	})

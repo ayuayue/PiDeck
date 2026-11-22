@@ -73,4 +73,37 @@ func TestLivePublicCatalogs(t *testing.T) {
 		}
 		t.Logf("official registry: %d plugins", len(list))
 	})
+	t.Run("pi-packages", func(t *testing.T) {
+		catalogCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		page, err := fetchPiCatalog(catalogCtx, "", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) == 0 || page.Total < len(page.Items) {
+			t.Fatalf("pi.dev directory: %d items, total %d", len(page.Items), page.Total)
+		}
+		t.Logf("pi.dev directory: %d items, %d total, first %q (%s)",
+			len(page.Items), page.Total, page.Items[0].Name, page.Items[0].InstallSource)
+	})
+	t.Run("pi-extension-manifest", func(t *testing.T) {
+		manifestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		manifest, err := fetchPiExtensionManifest(manifestCtx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(manifest.Files) == 0 {
+			t.Fatal("remote manifest has no files")
+		}
+		file := manifest.Files[0]
+		data, err := fetchPiExtensionRepoFile(manifestCtx, "resources/extensions/"+file.Name, piExtensionFileMax)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !piExtensionContentMatches(data, file) {
+			t.Fatalf("%s does not match the manifest", file.Name)
+		}
+		t.Logf("pi extensions: version %s, %d files; verified %s", manifest.Version, len(manifest.Files), file.Name)
+	})
 }

@@ -85,6 +85,65 @@ func (a *app) installPromptPack(e promptIndexEntry) {
 	}()
 }
 
+// importOfficialPrompts merges PiDeck's bundled template pack.
+func (a *app) importOfficialPrompts() {
+	if a.promptStoreBusy.GetUntracked() || a.promptStoreInstalling.GetUntracked() != "" {
+		return
+	}
+	a.promptStoreInstalling.Set("official")
+	go func() {
+		pack, err := officialPromptPack()
+		added, skipped := 0, 0
+		if err == nil {
+			added, skipped, err = a.importPromptPack(pack)
+		}
+		var list []promptItem
+		if err == nil {
+			list = a.loadPrompts()
+		}
+		a.cx.Post(func() {
+			a.promptStoreInstalling.Set("")
+			if err != nil {
+				a.toast(ui.ToastError, "导入失败", err.Error())
+				return
+			}
+			a.prompts.Set(list)
+			if added == 0 {
+				a.toast(ui.ToastInfo, "没有新的提示词", fmt.Sprintf("已跳过 %d 条重复。", skipped))
+				return
+			}
+			a.toast(ui.ToastSuccess, fmt.Sprintf("已导入 %d 条", added), fmt.Sprintf("跳过 %d 条重复。", skipped))
+		})
+	}()
+}
+
+// installOfficialPromptsToPi installs the bundled templates as pi commands.
+func (a *app) installOfficialPromptTemplates() {
+	if a.promptStoreBusy.GetUntracked() || a.promptStoreInstalling.GetUntracked() != "" {
+		return
+	}
+	a.promptStoreInstalling.Set("official-pi")
+	go func() {
+		added, skipped := 0, 0
+		pack, err := officialPromptPack()
+		if err == nil {
+			added, skipped, err = installOfficialPromptsToPi(pack)
+		}
+		a.cx.Post(func() {
+			a.promptStoreInstalling.Set("")
+			if err != nil {
+				a.toast(ui.ToastError, "安装提示词失败", err.Error())
+				return
+			}
+			if added == 0 {
+				a.toast(ui.ToastInfo, "已安装到 pi 提示词", fmt.Sprintf("跳过 %d 个已有文件。", skipped))
+				return
+			}
+			a.toast(ui.ToastSuccess, "已安装到 pi 提示词", fmt.Sprintf("新增 %d 个，跳过 %d 个已有文件。", added, skipped))
+		})
+	}()
+}
+
 // promptStoreDialog draws the store.
 func (a *app) promptStoreDialog() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -150,6 +209,12 @@ func (a *app) promptStoreDialog() core.Node {
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
 					ui.Button{Text: "prompts.chat", Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "prompt-source-community", OnPress: func() { a.promptStoreURL.Set("https://prompts.chat"); a.loadPromptIndex() }},
 					ui.Button{Text: apptext.T("中文在线库"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "prompt-source-chinese", Disabled: a.promptStoreBusy.Get, OnPress: a.importChinesePrompts},
+					ui.Button{Text: apptext.T("官方模板"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "prompt-source-official",
+						Disabled: func() bool { return a.promptStoreBusy.Get() || a.promptStoreInstalling.Get() != "" },
+						OnPress:  a.importOfficialPrompts},
+					ui.Button{Text: apptext.T("安装到 pi 提示词"), Size: ui.SizeSmall, Variant: ui.ButtonGhost, TestID: "prompt-install-pi",
+						Disabled: func() bool { return a.promptStoreBusy.Get() || a.promptStoreInstalling.Get() != "" },
+						OnPress:  a.installOfficialPromptTemplates},
 				}},
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{

@@ -279,6 +279,9 @@ type extensionAsk struct {
 	Questions   []askQuestion
 	Review      bool
 	ACPReply    func(string)
+	// PlanNext marks PiDeck's post-plan select: choosing "start" returns the
+	// composer from plan mode to normal.
+	PlanNext bool
 }
 
 // todoItem is one line of the agent's task list, as its todo tool reports

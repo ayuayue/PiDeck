@@ -269,22 +269,41 @@ func startPi(t target, piPath, dir, appSessions, id, sessionFile string, onEvent
 		}
 	}
 	args := []string{"--mode", "rpc"}
-	if !t.remote() && askExtensionPath != "" {
-		args = append(args, "-e", askExtensionPath)
-	}
-	if !t.remote() && retryExtensionPath != "" {
-		args = append(args, "-e", retryExtensionPath)
+	if !t.remote() {
+		if path := extensionToInject(askExtensionPath); path != "" {
+			args = append(args, "-e", path)
+		}
+		if path := extensionToInject(retryExtensionPath); path != "" {
+			args = append(args, "-e", path)
+		}
 	}
 	var env []string
-	if !t.remote() && len(local) > 0 && local[0].extension != "" {
-		args = append(args, "-e", local[0].extension)
-		env = local[0].env
+	if !t.remote() && len(local) > 0 {
+		if path := extensionToInject(local[0].extension); path != "" {
+			args = append(args, "-e", path)
+			env = local[0].env
+		}
+	}
+	if !t.remote() {
+		args = append(args, bundledExtensionArgs()...)
+		if pideckSkillPath != "" {
+			args = append(args, "--skill", pideckSkillPath)
+		}
+		if securityPolicyPath != "" {
+			env = append(env, "PIDECK_SECURITY_CONFIG="+securityPolicyPath, "PIDECK_SESSION_ID="+id)
+		}
 	}
 	cmd, err := t.command(piPath, dir, appSessions, id, sessionFile, args)
 	if err != nil {
 		return nil, err
 	}
-	cmd.Env = append(append(os.Environ(), agentProxy.env()...), env...)
+	proxyEnv := agentProxy.env()
+	cmd.Env = append(append(os.Environ(), proxyEnv...), env...)
+	if !t.remote() && len(proxyEnv) > 0 {
+		// The shell-proxy extension clears these for bash only; the model
+		// client keeps using the proxy.
+		cmd.Env = append(cmd.Env, piProxyScopeEnv+"="+piProxyScopeModelOnly)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

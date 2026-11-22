@@ -114,6 +114,8 @@ func builtinCommands() []appCommand {
 			Run: func(a *app) { a.openTranslation() }},
 		{ID: "skill-store", Label: "技能商店…", Group: "工具", Icon: lucide.Sparkles,
 			Run: func(a *app) { a.openSkillStore() }},
+		{ID: "extension-store", Label: "扩展商店…", Group: "工具", Icon: lucide.Blocks,
+			Run: func(a *app) { a.openPiExtensionStore() }},
 		{ID: "fork-tree", Label: "查看分叉树…", Group: "会话", Icon: lucide.GitBranch,
 			When: func(a *app) bool { return a.active() != nil },
 			Run:  func(a *app) { a.openForkTree() }},

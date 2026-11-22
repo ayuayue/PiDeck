@@ -36,6 +36,7 @@ func (a *app) view() core.Node {
 		a.pluginNewDialog(),
 		a.promptStoreDialog(),
 		a.skillStoreDialog(),
+		a.piExtensionStoreDialog(),
 		a.mcpDialog(),
 		a.imageDialog(),
 		a.transcriptImageDialog(),

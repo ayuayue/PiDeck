@@ -38,6 +38,7 @@ type promptItem struct {
 // promptPackEntry is one prompt in a pack. Prompt is an alias for Body,
 // so a shared file can use whichever name it likes.
 type promptPackEntry struct {
+	Slug     string   `yaml:"slug" json:"slug"`
 	Title    string   `yaml:"title" json:"title"`
 	Body     string   `yaml:"body" json:"body"`
 	Prompt   string   `yaml:"prompt" json:"prompt"`

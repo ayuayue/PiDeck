@@ -67,6 +67,7 @@ var appSettingFields = []settingField{
 	{Key: "voiceAccessToken", Type: "text", Default: ""},
 	{Key: "voiceLocalUrl", Type: "text", Default: ""},
 	{Key: "telemetryEnabled", Type: "bool", Default: true},
+	{Key: "securityLevel", Type: "enum", Default: "off", Values: []string{"off", "standard", "strict"}},
 	{Key: "feishuEnabled", Type: "bool", Default: false},
 	{Key: "feishuInbound", Type: "bool", Default: false},
 	{Key: "feishuReply", Type: "bool", Default: false},

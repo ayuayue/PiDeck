@@ -6,10 +6,12 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 	"time"
 
+	"example.com/pideck-lite/internal/apptext"
 	"example.com/pideck-lite/internal/remotewire"
 	"example.com/pideck-lite/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -77,6 +79,7 @@ func askFromPi(req uiRequest) *extensionAsk {
 	ask := &extensionAsk{ID: req.ID, Method: req.Method, Title: req.Title, Message: req.Message,
 		Default: req.Prefill, Placeholder: req.Placeholder, Options: req.Options,
 		Timeout: time.Duration(req.Timeout) * time.Millisecond}
+	ask.PlanNext, ask.Title, ask.Message = extensionDialog(req.Title, req.Message)
 	if req.Method == "select" {
 		choices, other := askOptionsFromStrings(req.Options)
 		ask.Choices = choices
@@ -88,6 +91,30 @@ func askFromPi(req uiRequest) *extensionAsk {
 		}
 	}
 	return ask
+}
+
+// extensionDialog turns PiDeck's prefixed extension dialogs into the card's
+// own title and body. The prefixes are protocol, not something to show.
+func extensionDialog(head, body string) (planNext bool, title, message string) {
+	const (
+		planPrefix     = "[PI_DECK_PLAN_NEXT]"
+		securityPrefix = "[PI_DECK_SECURITY_CONFIRM]"
+	)
+	if strings.HasPrefix(head, planPrefix) {
+		return true, strings.TrimSpace(strings.TrimPrefix(head, planPrefix)), body
+	}
+	if strings.HasPrefix(head, securityPrefix) {
+		var payload struct{ Tool, Level, Detail string }
+		if json.Unmarshal([]byte(strings.TrimPrefix(head, securityPrefix)), &payload) == nil {
+			title = apptext.T("工具安全门")
+			message = apptext.T("工具：%s", payload.Tool) + "\n" + apptext.T("等级：%s", payload.Level)
+			if payload.Detail != "" {
+				message += "\n\n" + payload.Detail
+			}
+			return false, title, message
+		}
+	}
+	return false, head, body
 }
 
 // askQuestionLabels is the label list the phone shows for a batch: the

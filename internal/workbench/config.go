@@ -250,6 +250,8 @@ type config struct {
 	TelemetryEnabled           *bool  `json:"telemetryEnabled,omitempty"`
 	TelemetryInstallID         string `json:"telemetryInstallId,omitempty"`
 	TelemetryLastHeartbeatDate string `json:"telemetryLastHeartbeatDate,omitempty"`
+	// SecurityLevel is the tool gate's level: off, standard or strict.
+	SecurityLevel string `json:"securityLevel,omitempty"`
 	// EditorCommand opens files outside the app; empty detects one.
 	EditorCommand string `json:"editorCommand,omitempty"`
 }

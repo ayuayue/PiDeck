@@ -158,6 +158,9 @@ func (a *app) chooseAskOption(s *session, ask *extensionAsk, opt askOption) {
 		a.answerBatchQuestion(s, ask, *q, askAnswer{Value: opt.Value, Label: opt.Label})
 		return
 	}
+	if ask.PlanNext && strings.HasPrefix(opt.Value, "开始执行") {
+		a.setAgentMode(s, modeNormal)
+	}
 	a.respondAsk(s, ask, map[string]any{"value": opt.Value})
 }
 

@@ -160,6 +160,7 @@ func readExtensions() ([]extensionInfo, error) {
 	var root struct {
 		Extensions []string `json:"extensions"`
 		Disabled   []string `json:"disabledExtensions"`
+		Packages   []string `json:"packages"`
 	}
 	if err := json.Unmarshal(raw, &root); err != nil {
 		return nil, fmt.Errorf("settings.json 不是有效的 JSON：%w", err)
@@ -178,6 +179,16 @@ func readExtensions() ([]extensionInfo, error) {
 		seen[bare] = true
 		out = append(out, extensionInfo{Source: bare, Bare: bare, Builtin: builtin,
 			Enabled: enabled && !disabled[bare], Toggleable: true})
+	}
+	// Installed packages are listed under packages, not extensions. pi
+	// loads a package as a whole; its switch lives in pi's own config UI.
+	for _, source := range root.Packages {
+		bare := strings.TrimPrefix(source, "+")
+		if bare == "" || seen[bare] {
+			continue
+		}
+		seen[bare] = true
+		out = append(out, extensionInfo{Source: bare, Bare: bare, Enabled: !disabled[bare]})
 	}
 	for _, source := range root.Extensions {
 		enabled := strings.HasPrefix(source, "+")

@@ -23,6 +23,11 @@ func TestMain(m *testing.M) {
 	// UI tests must not scan the developer's real session library in the
 	// background. Tests of external sessions supply their own fixtures.
 	os.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(os.TempDir(), fmt.Sprintf("pideck-lite-test-%d", os.Getpid()), "pi-sessions"))
+	// Starting the app installs the bundled skills under pi's config dir;
+	// keep that out of the developer's real ~/.pi/agent.
+	if piConfig, err := os.MkdirTemp("", fmt.Sprintf("pideck-lite-pi-config-%d", os.Getpid())); err == nil {
+		os.Setenv("PIDECK_LITE_PI_CONFIG", piConfig)
+	}
 	nsgotest.Main(m)
 }
 

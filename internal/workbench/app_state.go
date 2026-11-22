@@ -421,6 +421,20 @@ type app struct {
 	skillStoreList       *core.Signal[[]skillIndexEntry]
 	skillStoreInstalling *core.Signal[string]
 	skillStoreDone       map[string]bool
+	// The pi extension store: `pi list` plus pi.dev's package directory.
+	piStoreOpen         *core.Signal[bool]
+	piStoreQuery        *core.Signal[string]
+	piStoreBusy         *core.Signal[bool]
+	piStoreErr          *core.Signal[string]
+	piStoreList         *core.Signal[[]piCatalogItem]
+	piStorePage         *core.Signal[int]
+	piStoreLast         *core.Signal[int]
+	piStoreInstalled    *core.Signal[[]piPackage]
+	piStoreInstalledErr *core.Signal[string]
+	piStoreActing       *core.Signal[string]
+	// A new query or close invalidates posted catalog results.
+	piStoreGen    uint64
+	piStoreCancel context.CancelFunc
 	// The plugin market.
 	marketOpen *core.Signal[bool]
 	marketURL  *core.Signal[string]
@@ -431,6 +445,8 @@ type app struct {
 	// posted results; installation state remains owned by its signal.
 	marketRequestGen    uint64
 	marketRequestCancel context.CancelFunc
+	// Hot update for the bundled pi extensions.
+	piExtUpdateBusy *core.Signal[bool]
 	// Image generation.
 	imageOpen       *core.Signal[bool]
 	transcriptImage *core.Signal[remotewire.Image]
@@ -458,6 +474,7 @@ type app struct {
 	confirmHead    *core.Signal[string]
 	confirmBody    *core.Signal[string]
 	confirmWhy     *core.Signal[string]
+	confirmPrimary bool
 	confirmFn      func()
 	// askSeq redraws the ask card when its request changes.
 	askSeq *core.Signal[int]
