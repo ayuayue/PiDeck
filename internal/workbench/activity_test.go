@@ -23,7 +23,11 @@ func TestActivityPaneTracksApprovalsAndRunningSessions(t *testing.T) {
 	var a *app
 	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		a = newApp(cx)
-		ws := &workspace{Path: t.TempDir(), Sessions: core.NewSignalFunc(cx, []*session(nil), nil)}
+		// Every signal a real project carries: the startup scan writes pi's
+		// history and its loading flag as soon as it lands.
+		ws := &workspace{Path: t.TempDir(), Expanded: core.NewSignal(cx, true), Sessions: core.NewSignalFunc(cx, []*session(nil), nil),
+			Pi: core.NewSignalFunc(cx, []*session(nil), nil), PiOpen: core.NewSignal(cx, true),
+			PiLoading: core.NewSignal(cx, false), Visible: core.NewSignal(cx, 0)}
 		a.workspaces.Set([]*workspace{ws})
 		waiting = a.blankSession("waiting", ws, "需要审批的会话")
 		waiting.askPending.Set(1)
