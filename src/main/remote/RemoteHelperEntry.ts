@@ -303,11 +303,11 @@ export { REMOTE_HELPER_SEARCH_CONTENT_SHA256 };
 /** File name of the frozen upload-commit scope imported by the entry. */
 export { REMOTE_HELPER_UPLOAD_COMMIT_SHA256, REMOTE_UPLOAD_COMMIT_FILE_NAME };
 /** Pin of git-sync.mjs. */
-export const REMOTE_HELPER_GIT_SYNC_SHA256 = "4fc9a727704c7c1986c9f90ca752129937cbab51789aa9bca7931381b08f56ad";
+export const REMOTE_HELPER_GIT_SYNC_SHA256 = "cfd713e543dfdb25b7633f125326ea63da0241677b94f51560990b7792423d26";
 /** Pin of git-read.mjs; a bundle whose worker differs from the reviewed bytes never activates. */
 export const REMOTE_HELPER_GIT_READ_SHA256 = "4671291b5c4c89f46e4056377cf40efbf52d6fa38e7a610b992aa34f8cffd841";
 /** Pin of git-write.mjs, kept separate so one file's change cannot hide inside a combined digest. */
-export const REMOTE_HELPER_GIT_WRITE_SHA256 = "1cecd73a3b77be4c07e2640d1b09a527d9edfc4818b1e393d5aad1e351d8b299";
+export const REMOTE_HELPER_GIT_WRITE_SHA256 = "3c868a86d1b85b10ce9e37e4f0772ead75d969e3274536744f30acb3647f80a2";
 
 /**
  * The helper is deployed as one bundle of several files: the protocol entry, the Git worker it imports and the

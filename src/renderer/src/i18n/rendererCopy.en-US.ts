@@ -7500,7 +7500,7 @@ export const enUS: Record<TranslationKey, string> = {
 		"Commits only the staged changes you confirmed above: working-tree edits are never staged automatically (no smart commit), and batch staging, AI-generated commit messages, amend, force, and signing are not available. The message is written exactly as typed, and an unknown result is never retried automatically.",
 	"remoteGit.writing": "Updating the remote index…",
 	"remoteGit.indexLocked": "Another operation owns the remote index lock. The index was not replaced. Inspect it in the terminal; do not simply delete the lock.",
-	"remoteGit.writeUnsupported": "Hooks, signing, configuration or an operation in progress prevents managed staging. Use the remote terminal.",
+	"remoteGit.writeUnsupported": "This remote Git operation is unsupported for the repository's current state or configuration. Inspect it in the remote terminal.",
 	"remoteGit.writeUnknown": "The remote write outcome is unconfirmed and may already have applied. Refresh manually or inspect it in the terminal. It will not be retried.",
 	"remoteGit.writeExpired": "The index action snapshot has expired. Refresh and review it before explicitly acting again.",
 	"remoteGit.nothingStaged": "There are no staged changes to commit. Stage files in the list above first.",

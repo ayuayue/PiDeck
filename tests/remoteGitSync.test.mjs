@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { fixture, options, successful } from "./helpers/remoteGitFixture.mjs";
@@ -60,6 +60,14 @@ function withRemote(f) {
 		},
 	};
 }
+function configureHooks(f) {
+	const hooks = join(f.root, ".githooks");
+	mkdirSync(hooks);
+	writeFileSync(join(hooks, "pre-push"), "#!/bin/sh\nprintf 'pre-push\\n' > pre-push-ran\n", { mode: 0o755 });
+	writeFileSync(join(hooks, "post-merge"), "#!/bin/sh\nprintf 'post-merge\\n' > post-merge-ran\n", { mode: 0o755 });
+	f.git("config", "core.hooksPath", ".githooks");
+}
+
 async function code(f, method, params) {
 	const frame = await f.request(method, params);
 	assert.equal(frame.ok, false, `expected ${method} to refuse, got ${JSON.stringify(frame.result)}`);
@@ -191,10 +199,29 @@ test("pull fast-forwards a clean tree and brings the remote file into the worktr
 	assert.equal(again.mode, "up-to-date");
 });
 
+test("pull honors hooks configured through core.hooksPath and runs them through native Git", options, async (t) => {
+	const f = fixture(t);
+	const remote = withRemote(f);
+	remote.commitHere("mine.txt", "local only\n");
+	remote.publish("theirs.txt", "remote only\n");
+	f.git("config", "pull.rebase", "false");
+	configureHooks(f);
+
+	const expectedRevision = await revision(f);
+	assert.equal(await code(f, "git.fetch", { remote: "origin", expectedRevision }), "GIT_WRITE_UNSUPPORTED", "fetch keeps its managed-write gate");
+	assert.equal(await code(f, "git.push", { remote: "origin", branch: remote.branch, expectedRevision }), "GIT_WRITE_UNSUPPORTED", "push keeps its managed-write gate");
+
+	const result = successful(await f.request("git.pull", { remote: "origin", branch: remote.branch, expectedRevision }));
+	assert.equal(result.mode, "merge");
+	assert.equal(readFileSync(join(f.root, "post-merge-ran"), "utf8"), "post-merge\n", "the configured post-merge hook must run");
+	assert.equal(existsSync(join(f.root, "pre-push-ran")), false, "pull must not run an unrelated pre-push hook");
+});
+
 test("pull refuses a dirty tree and a divergence it would have to resolve on its own", options, async (t) => {
 	const f = fixture(t);
 	const remote = withRemote(f);
 	remote.publish("incoming.txt", "incoming\n");
+	f.git("config", "core.hooksPath", ".githooks");
 	writeFileSync(join(f.root, "a.txt"), "my uncommitted work\n");
 	const dirty = await code(f, "git.pull", { remote: "origin", branch: remote.branch, expectedRevision: await revision(f) });
 	assert.equal(dirty, "GIT_SYNC_DIRTY");
@@ -207,6 +234,22 @@ test("pull refuses a dirty tree and a divergence it would have to resolve on its
 	assert.equal(await code(f, "git.pull", { remote: "origin", branch: remote.branch, expectedRevision: await revision(f) }), "GIT_PULL_STRATEGY_REQUIRED");
 	assert.equal(f.git("rev-parse", "HEAD").trim(), localHead, "a refused pull must not have moved HEAD");
 	assert.equal(f.git("status", "--porcelain=v1").trim(), "");
+});
+
+test("pull refuses an operation already in progress even when hooks are configured", options, async (t) => {
+	const f = fixture(t);
+	const remote = withRemote(f);
+	remote.publish("pending.txt", "incoming\n");
+	configureHooks(f);
+	const head = f.git("rev-parse", "HEAD").trim();
+	const trackingRef = `refs/remotes/origin/${remote.branch}`;
+	const trackingBefore = f.git("rev-parse", trackingRef).trim();
+	writeFileSync(join(f.root, ".git", "MERGE_HEAD"), head + "\n");
+	const before = witness(f);
+
+	assert.equal(await code(f, "git.pull", { remote: "origin", branch: remote.branch, expectedRevision: await revision(f) }), "GIT_WRITE_UNSUPPORTED");
+	assert.deepEqual(witness(f), before, "an in-progress operation must be refused before network or repository changes");
+	assert.equal(f.git("rev-parse", trackingRef).trim(), trackingBefore, "the in-progress gate must run before fetch");
 });
 
 test("pull merges when the repository itself configures a strategy", options, async (t) => {

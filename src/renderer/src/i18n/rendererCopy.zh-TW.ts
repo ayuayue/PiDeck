@@ -7478,7 +7478,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteGit.commitHint": "只提交上面已確認的暫存區：不會自動暫存工作區改動（無智慧提交），也不支援批次暫存、AI 生成提交摘要、amend、force 或簽名。提交資訊按輸入原樣寫入；結果未知時不會自動重試。",
 	"remoteGit.writing": "正在更新遠端暫存區…",
 	"remoteGit.indexLocked": "遠端 index 已被其他操作鎖定，未替換暫存區。請在終端核對，不要直接刪除鎖。",
-	"remoteGit.writeUnsupported": "該倉庫存在 hooks、簽名、配置或進行中的操作要求，暫不支援受控暫存。請使用遠端終端。",
+	"remoteGit.writeUnsupported": "該倉庫當前狀態或配置不支援此項遠端 Git 寫操作。請在遠端終端核對。",
 	"remoteGit.writeUnknown": "遠端寫操作結果未確認，可能已經生效。請手動重新整理或在終端核對；不會自動重試。",
 	"remoteGit.writeExpired": "暫存區操作快照已失效。請先重新整理核對，再明確執行操作。",
 	"remoteGit.nothingStaged": "沒有已暫存的改動可提交。先在上面的列表裡暫存檔案。",

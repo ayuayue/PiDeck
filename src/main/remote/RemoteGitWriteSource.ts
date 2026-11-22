@@ -1,14 +1,13 @@
 import { REMOTE_GIT_HISTORY_SOURCE } from "./RemoteGitHistorySource";
 /**
- * Managed Git writes, deployed as their own bundle file (git-write.mjs) and imported by git-read.mjs: native Git
- * runs in an owned private metadata context, never with live hooks/filters.
+ * Managed Git write programs, deployed as their own bundle file (`git-write.mjs`) and imported by `git-read.mjs`.
+ * Stage, unstage and commit run in an owned private metadata context; other managed writes keep the same full hooks gate.
  *
  * The frozen body keeps one-line invariants only (its ceiling is 96 KiB). The long-form rules behind them:
  *
- * - every write takes the official `.git/index.lock`, verifies the caller's confirmed fingerprint, and runs in a
- *   scratch metadata context (`GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE`/`GIT_OBJECT_DIRECTORY` plus
- *   `GIT_CONFIG_NOSYSTEM`/`GIT_CONFIG_GLOBAL=/dev/null`) whose configuration is frozen and whose hooks directory
- *   is empty; effective hooks/filter/signing requirements are refused before AND after, and no gate is bypassed;
+ * - `git.stage`, `git.unstage`, and `git.commit` use a private metadata context (`GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE`/`GIT_OBJECT_DIRECTORY` plus
+ *   `GIT_CONFIG_NOSYSTEM`/`GIT_CONFIG_GLOBAL=/dev/null`) whose hooks directory is empty; effective hooks/filter/signing requirements are refused before AND after;
+ * - `git.pull` lives in `git-sync.mjs`, uses native Git in the real repository context, and honors configured hooks and settings while still refusing in-progress operations;
  * - `git.stage`/`git.unstage` publish validated, path-scoped index bytes only; `git.commit` publishes no index bytes
  *   at all (the confirmed index already describes the next HEAD) and moves the ref with a native CAS;
  * - `git.createBranch` is a create-only CAS on `refs/heads/<name>` that can never move HEAD; a name is asked of
@@ -31,11 +30,15 @@ export const REMOTE_GIT_WRITE_SOURCE = (
 	function identity(stats) { return [stats.dev, stats.ino, stats.uid, stats.gid].map(String).join(":"); }
 	function owned(path, expected) { try { const stats = fs.lstatSync(path, { bigint: true }); return stats.isFile() && !stats.isSymbolicLink() && identity(stats) === expected; } catch { return false; } }
 	function fingerprint(ctx, first, head, status) { return crypto.createHash("sha256").update(JSON.stringify([ctx.rootIdentity, ctx.gitIdentity, first, head, status.bytes.toString("base64")])).digest("hex"); }
-	async function gates(ctx) {
+	function assertNoOperationInProgress(ctx) {
 		for (const name of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "BISECT_START", "rebase-apply", "rebase-merge", "sequencer"]) {
 			try { fs.lstatSync(ctx.cwd + "/.git/" + name); } catch (error) { if (error.code === "ENOENT") continue; throw error; }
 			throw fail("GIT_WRITE_UNSUPPORTED");
 		}
+	}
+	async function gates(ctx, mode) {
+		assertNoOperationInProgress(ctx);
+		if (mode === "native-pull") return;
 		for (const name of [".git/info/sparse-checkout"]) { try { fs.lstatSync(ctx.cwd + "/" + name); } catch (error) { if (error.code === "ENOENT") continue; throw error; } throw fail("GIT_WRITE_UNSUPPORTED"); }
 		const metadata = fs.opendirSync(ctx.cwd + "/.git");
 		try { let entry; while ((entry = metadata.readSync()) !== null) if (entry.name.startsWith("sharedindex.")) throw fail("GIT_WRITE_UNSUPPORTED"); } finally { metadata.closeSync(); }

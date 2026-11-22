@@ -7471,7 +7471,7 @@ export const zhCN = {
 	"remoteGit.commitHint": "只提交上面已确认的暂存区：不会自动暂存工作区改动（无智能提交），也不支持批量暂存、AI 生成提交摘要、amend、force 或签名。提交信息按输入原样写入；结果未知时不会自动重试。",
 	"remoteGit.writing": "正在更新远端暂存区…",
 	"remoteGit.indexLocked": "远端 index 已被其他操作锁定，未替换暂存区。请在终端核对，不要直接删除锁。",
-	"remoteGit.writeUnsupported": "该仓库存在 hooks、签名、配置或进行中的操作要求，暂不支持受控暂存。请使用远端终端。",
+	"remoteGit.writeUnsupported": "该仓库当前状态或配置不支持此项远程 Git 写操作。请在远端终端核对。",
 	"remoteGit.writeUnknown": "远端写操作结果未确认，可能已经生效。请手动刷新或在终端核对；不会自动重试。",
 	"remoteGit.writeExpired": "暂存区操作快照已失效。请先刷新核对，再明确执行操作。",
 	"remoteGit.nothingStaged": "没有已暂存的改动可提交。先在上面的列表里暂存文件。",
