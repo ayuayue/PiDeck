@@ -6,7 +6,6 @@ package workbench
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,13 +15,13 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// requirePi skips a test that drives a real pi when it is not installed:
+// requirePi skips a test that drives a real pi when its CLI cannot start:
 // everything a session shows comes from pi, and a CI runner has none. Tests
 // that check what the app does without pi do not ask for this.
 func requirePi(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("pi"); err != nil {
-		t.Skip("pi is not on PATH: this test drives a real pi")
+	if _, _, err := probePi("", ""); err != nil {
+		t.Skip("pi CLI cannot run --version: this test drives a real pi")
 	}
 }
 
