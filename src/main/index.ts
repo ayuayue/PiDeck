@@ -485,6 +485,7 @@ import { createRemoteSessionHistoryReader } from "./remote/RemoteSessionHistoryR
 import { createRemoteSessionArchive } from "./remote/RemoteSessionArchive";
 import { createRemoteSessionDelete } from "./remote/RemoteSessionDelete";
 import { createRemotePiConfigBackend } from "./config/RemotePiConfigBackend";
+import { createRemotePiConfigTransport } from "./config/RemotePiConfigTransport";
 import { createRemoteSessionHistoryWriter, type RemoteSessionMessageMutationPort } from "./remote/RemoteSessionHistoryWriter";
 import { exportRemoteSessionHtml, REMOTE_SESSION_EXPORT_LIMITS } from "./remote/RemoteSessionHtmlExport";
 import { createRemoteSessionScanner, type RemoteSessionCommandTransportPort } from "./sessions/RemoteSessionScanner";
@@ -3112,16 +3113,7 @@ function registerIpc() {
 	 * Phase 5 remote config scope (Batch A)：每个 ssh 目标都是某台就绪主机的一次 helper 请求，主机经与远端其它面
 	 * 相同的服务解析，断连/被替换时 fail closed 成 HOST_NOT_READY 而不是读本机；这一批只做路由与校验。
 	 */
-	const remotePiConfig = remoteFeatureEnabled
-		? createRemotePiConfigBackend({
-				request: async (hostId, method, params) => {
-					const pending = remoteHostServiceIfEnabled();
-					if (pending === undefined) throw new Error("REMOTE_CONFIG_UNAVAILABLE");
-					const service = await pending;
-					return service.request(hostId, method, params, { timeoutMs: 15_000 });
-				},
-			})
-		: undefined;
+	const remotePiConfig = remoteFeatureEnabled ? createRemotePiConfigBackend(createRemotePiConfigTransport(remoteHostServiceIfEnabled)) : undefined;
 
 	const { readRemoteSessionHistoryPage, remotePiModelCatalog, remoteModelCatalogForProject, exportRemoteCatalogSessionHtml, remoteSessionArchive, remoteSessionDelete, videoSessionStore } = registerMediaSessionStack({
 		agentManager,

@@ -1,6 +1,6 @@
 import type { PiDesktopApi } from "../../../preload";
-import type { PiExtensionListResult, PiExtensionSummary, PiPromptTemplateSummary, PiSkillListResult, PiSkillSummary } from "../../../shared/types";
-import { REMOTE_RESOURCE_CODES as C, type RemoteResourceFile, type RemoteResourceList, type RemoteResourceRequest, type RemoteResourceResult } from "../../../shared/types/remotePiManagement";
+import type { CreateProjectSkillInput, PiExtensionListResult, PiExtensionSummary, PiPromptTemplateListResult, PiPromptTemplateSummary, PiSkillListResult, PiSkillLocation, PiSkillSummary, ProjectInheritedResourceToggleInput, ProjectResourceDirectoryKind, ProjectResourceListResult } from "../../../shared/types";
+import { REMOTE_RESOURCE_CODES as C, type RemoteResourceFile, type RemoteResourceList, type RemoteResourceRequest, type RemoteResourceResult, type RemoteResourceScope } from "../../../shared/types/remotePiManagement";
 import { PI_BUILTIN_EXTENSIONS, PI_RESOURCE_KINDS } from "../../../shared/types/piResources";
 import { writeClipboard } from "../utils/clipboard";
 import { showNotice } from "../utils/notice";
@@ -8,7 +8,14 @@ import { t } from "../i18n";
 import { minimatch } from "minimatch";
 import { convertStoreVarsToPiVars } from "../../../shared/promptStoreVariables";
 
-const rootPaths = { skills: ".pi/agent/skills", "agents-skills": ".agents/skills", prompts: ".pi/agent/prompts", extensions: ".pi/agent/extensions" };
+/** Absolute sub-paths of each layer, relative to its base (host HOME or one project root). */
+const GLOBAL_PATHS = { skills: ".pi/agent/skills", "agents-skills": ".agents/skills", prompts: ".pi/agent/prompts", extensions: ".pi/agent/extensions" };
+const PROJECT_PATHS = { skills: ".pi/skills", "agents-skills": ".agents/skills", prompts: ".pi/prompts", extensions: ".pi/extensions" };
+const PROJECT_SKILL_LOCATIONS: PiSkillLocation[] = [
+	{ id: "project-pi", label: ".pi/skills", path: "", rootMarkdownEnabled: true },
+	{ id: "project-agents", label: ".agents/skills", path: "", rootMarkdownEnabled: false },
+];
+
 function isList(result: RemoteResourceResult): result is RemoteResourceList {
 	return "files" in result;
 }
@@ -40,19 +47,42 @@ function slug(value: string): string {
 	);
 }
 
-/** Host-bound resource facade. File operations accept only references obtained from this host's list. */
-export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string, connected: () => Promise<void>) {
+/** One listed file together with the layer it belongs to: the same relative reference names a different file per layer. */
+type ListedFile = { file: RemoteResourceFile; scope: RemoteResourceScope; base: string };
+
+/**
+ * Host-bound resource facade.
+ *
+ * Two layers are served from the same host: the host's global user resources (always) and — when the page was
+ * opened for one project — that project's own resources. File operations accept only references obtained from
+ * this host's list, and every request carries the layer explicitly: a project page can never mutate the
+ * host's global files by omitting it, because the layer is a required field of the reference map rather than
+ * a default the caller has to remember.
+ */
+export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string, connected: () => Promise<void>, projectId?: string) {
 	let snapshot: RemoteResourceList | undefined;
+	let projectSnapshot: RemoteResourceList | undefined;
 	let loading: Promise<RemoteResourceList> | undefined;
+	let projectLoading: Promise<RemoteResourceList> | undefined;
 	let epoch = 0;
-	const listed = new Map<string, RemoteResourceFile>();
-	const editing = new Map<string, RemoteResourceFile>();
+	const listed = new Map<string, ListedFile>();
+	const editing = new Map<string, ListedFile>();
 	const pending = new Set<string>();
 	const blocked = new Map<string, string>();
-	const pathOf = (file: RemoteResourceFile) => (snapshot?.home ?? "") + "/" + rootPaths[file.root] + "/" + file.path;
+	/** Requests carry only the closed `{ root, path }` reference; the version travels separately. */
+	const refOf = (file: RemoteResourceFile) => ({ root: file.root, path: file.path });
+	const pathOf = (entry: ListedFile) => entry.base + "/" + (entry.scope === "project" ? PROJECT_PATHS : GLOBAL_PATHS)[entry.file.root] + "/" + entry.file.path;
+	const projectRoot = () => {
+		const root = projectSnapshot?.projectRoot;
+		if (typeof root !== "string" || !root.startsWith("/")) throw new Error(C.fileInvalid);
+		return root;
+	};
 	async function call(input: RemoteResourceRequest): Promise<RemoteResourceResult> {
 		await connected();
-		return api.remotePiResources(hostId, input);
+		return api.remotePiResources(hostId, input.scope === "project" ? { ...input, projectId } : input);
+	}
+	function index(result: RemoteResourceList, scope: RemoteResourceScope, base: string): void {
+		for (const file of result.files) listed.set(base + "/" + (scope === "project" ? PROJECT_PATHS : GLOBAL_PATHS)[file.root] + "/" + file.path, { file, scope, base });
 	}
 	async function load(): Promise<RemoteResourceList> {
 		if (loading) return loading;
@@ -63,7 +93,8 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 			if (started !== epoch) throw new Error(C.conflict);
 			snapshot = result;
 			listed.clear();
-			for (const file of result.files) listed.set(pathOf(file), file);
+			index(result, "global", result.home);
+			if (projectSnapshot) index(projectSnapshot, "project", projectRoot());
 			return result;
 		})();
 		loading = operation;
@@ -73,10 +104,39 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 			if (loading === operation) loading = undefined;
 		}
 	}
-	function lookup(path: string) {
-		const file = listed.get(path);
-		if (!file) throw new Error(C.fileInvalid);
-		return file;
+	/** Project layer: only reachable when the page was opened for one enrolled project. */
+	async function loadProject(): Promise<RemoteResourceList> {
+		if (projectId === undefined) throw new Error(C.unsupported);
+		if (projectLoading) return projectLoading;
+		const started = epoch;
+		const operation = (async () => {
+			const result = await call({ action: "list", scope: "project" });
+			if (!isList(result)) throw new Error(C.fileInvalid);
+			if (started !== epoch) throw new Error(C.conflict);
+			if (result.projectRoot === null) throw new Error(C.fileInvalid);
+			projectSnapshot = result;
+			listed.clear();
+			index(result, "project", result.projectRoot);
+			if (snapshot) index(snapshot, "global", snapshot.home);
+			return result;
+		})();
+		projectLoading = operation;
+		try {
+			return await operation;
+		} finally {
+			if (projectLoading === operation) projectLoading = undefined;
+		}
+	}
+	async function refresh(): Promise<{ global: RemoteResourceList; project: RemoteResourceList | undefined }> {
+		const [global, project] = await Promise.all([load(), projectId === undefined ? Promise.resolve(undefined) : loadProject()]);
+		return { global, project };
+	}
+	/** 商店/导入的落点跟随当前页面的作用域：项目页写项目层，全局页写主机全局层。 */
+	const pageScope = (): RemoteResourceScope => (projectId === undefined ? "global" : "project");
+	function lookup(path: string): ListedFile {
+		const entry = listed.get(path);
+		if (!entry) throw new Error(C.fileInvalid);
+		return entry;
 	}
 	async function mutate(key: string, input: RemoteResourceRequest) {
 		if (blocked.has(key)) throw new Error(blocked.get(key));
@@ -92,28 +152,44 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 			pending.delete(key);
 		}
 	}
-	function enabled(kind: string, value: string): boolean {
-		const entries = snapshot?.settings[kind];
-		if (!Array.isArray(entries)) return true;
-		const base = (snapshot?.home ?? "") + "/.pi/agent/";
-		const normalized = (entry: string) => (entry.startsWith("~/") ? snapshot?.home + entry.slice(1) : entry.startsWith("/") || entry.startsWith("builtin:") ? entry : base + entry.replace(/^\.\//, ""));
+	/**
+	 * 原生过滤规则求值：`!pattern` 排除、`+path` 精确包含、`-path` 精确排除。
+	 * 项目页里的继承行（全局技能/扩展/提示词）再叠加项目层 `-<path>` 覆盖，与本地项目资源管理器同一套语义。
+	 */
+	function enabled(kind: string, value: string, scope: RemoteResourceScope = "global"): boolean {
+		const settings = scope === "project" ? projectSnapshot?.settings : snapshot?.settings;
+		const base = scope === "project" ? projectRoot() + "/.pi" : (snapshot?.home ?? "") + "/.pi/agent";
+		const entries = settings?.[kind];
+		const normalised = (entry: string) => (entry.startsWith("~/") ? (scope === "project" ? projectRoot() : snapshot?.home) + entry.slice(1) : entry.startsWith("/") || entry.startsWith("builtin:") ? entry : base + entry.replace(/^\.\//, ""));
 		const exact = (entry: string) => {
-			const item = normalized(entry);
+			const item = normalised(entry);
 			return item === value || (value.endsWith("/SKILL.md") && item === value.slice(0, -9));
 		};
 		let result = true;
-		for (const entry of entries)
-			if (typeof entry === "string" && entry.startsWith("!")) {
-				const pattern = entry.slice(1).startsWith("~/") ? normalized(entry.slice(1)) : entry.slice(1);
-				const parent = value.endsWith("/SKILL.md") ? value.slice(0, -9) : "";
-				if ([value, value.startsWith(base) ? value.slice(base.length) : value, value.split("/").at(-1) ?? "", parent, parent.startsWith(base) ? parent.slice(base.length) : parent, parent.split("/").at(-1) ?? ""].some((item) => item && minimatch(item, pattern))) result = false;
-			}
-		if (entries.some((entry) => typeof entry === "string" && entry.startsWith("+") && exact(entry.slice(1)))) result = true;
-		if (entries.some((entry) => typeof entry === "string" && entry.startsWith("-") && exact(entry.slice(1)))) result = false;
+		if (Array.isArray(entries))
+			for (const entry of entries)
+				if (typeof entry === "string" && entry.startsWith("!")) {
+					const pattern = entry.slice(1).startsWith("~/") ? normalised(entry.slice(1)) : entry.slice(1);
+					const parent = value.endsWith("/SKILL.md") ? value.slice(0, -9) : "";
+					if ([value, value.startsWith(base) ? value.slice(base.length) : value, value.split("/").at(-1) ?? "", parent, parent.startsWith(base) ? parent.slice(base.length) : parent, parent.split("/").at(-1) ?? ""].some((item) => item && minimatch(item, pattern))) result = false;
+				}
+		if (Array.isArray(entries)) {
+			if (entries.some((entry) => typeof entry === "string" && entry.startsWith("+") && exact(entry.slice(1)))) result = true;
+			if (entries.some((entry) => typeof entry === "string" && entry.startsWith("-") && exact(entry.slice(1)))) result = false;
+		}
+		// Inherited rows shown inside a project page also honour that project's own disable overrides.
+		if (scope === "global" && projectSnapshot) {
+			const overrides = projectSnapshot.discovery.overrides;
+			const disabled = kind === "skills" ? overrides.disabledGlobalSkills : kind === "prompts" ? overrides.disabledGlobalPrompts : kind === "extensions" ? overrides.disabledGlobalExtensions : [];
+			const parent = value.endsWith("/SKILL.md") ? value.slice(0, -9) : "";
+			const folded = kind === "extensions" ? [value, parent] : [value.toLowerCase(), parent.toLowerCase()];
+			if (disabled.some((item) => folded.includes(item))) result = false;
+		}
 		return result;
 	}
-	function skill(file: RemoteResourceFile): PiSkillSummary {
-		const path = pathOf(file),
+	function skill(entry: ListedFile): PiSkillSummary {
+		const path = pathOf(entry),
+			file = entry.file,
 			directory = file.path.endsWith("/SKILL.md");
 		const title = field(file.content, "name") || (directory ? (file.path.split("/").at(-2) ?? "") : file.path.replace(/\.md$/i, ""));
 		return {
@@ -122,61 +198,78 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 			description: field(file.content, "description"),
 			path,
 			dir: path.slice(0, path.lastIndexOf("/")),
-			sourceId: file.root === "agents-skills" ? "agents-global" : "pi-global",
-			sourceLabel: file.root === "agents-skills" ? "~/.agents/skills" : "~/.pi/agent/skills",
+			sourceId: entry.scope === "project" ? (file.root === "agents-skills" ? "project-agents" : "project-pi") : file.root === "agents-skills" ? "agents-global" : "pi-global",
+			sourceLabel: entry.scope === "project" ? (file.root === "agents-skills" ? ".agents/skills" : ".pi/skills") : file.root === "agents-skills" ? "~/.agents/skills" : "~/.pi/agent/skills",
 			type: directory ? "directory" : "markdown",
-			enabled: enabled("skills", path),
+			enabled: enabled("skills", path, entry.scope),
 			valid: !!field(file.content, "name") && !!field(file.content, "description"),
 			warnings: [],
 			userOnly: field(file.content, "disable-model-invocation") === "true",
 		};
 	}
-	function prompt(file: RemoteResourceFile): PiPromptTemplateSummary {
-		return { name: file.path.replace(/\.md$/i, ""), path: pathOf(file), description: field(file.content, "description"), content: file.content, userCreated: true, scope: "global", enabled: enabled("prompts", pathOf(file)) };
+	function prompt(entry: ListedFile): PiPromptTemplateSummary {
+		return {
+			name: entry.file.path.replace(/\.md$/i, ""),
+			path: pathOf(entry),
+			description: field(entry.file.content, "description"),
+			content: entry.file.content,
+			userCreated: true,
+			scope: entry.scope === "project" ? "project" : "global",
+			enabled: enabled("prompts", pathOf(entry), entry.scope),
+		};
+	}
+	function extension(entry: ListedFile): PiExtensionSummary {
+		const path = pathOf(entry);
+		return entry.scope === "project"
+			? { id: `project:${path}`, source: entry.file.path.split("/")[0] ?? entry.file.path, scope: "project", path, local: true, enabled: enabled("extensions", path, "project") }
+			: { id: path, source: entry.file.path, scope: "user", path, local: true, enabled: enabled("extensions", path, "global") };
 	}
 	async function readContent(path: string): Promise<string> {
-		const file = lookup(path);
-		const result = await call({ action: "read", ref: { root: file.root, path: file.path } });
-		if (!isFile(result) || result.root !== file.root || result.path !== file.path) throw new Error(C.fileInvalid);
+		const entry = lookup(path);
+		const result = await call({ action: "read", ref: refOf(entry.file), scope: entry.scope });
+		if (!isFile(result) || result.root !== entry.file.root || result.path !== entry.file.path) throw new Error(C.fileInvalid);
 		blocked.delete(path);
-		editing.set(path, result);
+		editing.set(path, { ...entry, file: result });
 		return result.content;
 	}
 	async function writeContent(path: string, content: string): Promise<void> {
-		const file = editing.get(path);
-		if (!file) throw new Error(C.conflict);
-		const result = await mutate(path, { action: "write", ref: { root: file.root, path: file.path }, expectedVersion: file.version, content });
+		const entry = editing.get(path);
+		if (!entry) throw new Error(C.conflict);
+		const result = await mutate(path, { action: "write", ref: refOf(entry.file), expectedVersion: entry.file.version, content, scope: entry.scope });
 		if (!isFile(result)) throw new Error(C.unconfirmed);
-		editing.set(path, result);
-		listed.set(path, result);
+		editing.set(path, { ...entry, file: result });
+		listed.set(path, { ...entry, file: result });
 	}
 	async function toggle(path: string, state: boolean) {
-		const file = lookup(path);
-		if (!snapshot) throw new Error(C.conflict);
-		await mutate("settings", { action: "toggle", ref: { root: file.root, path: file.path }, expectedVersion: snapshot.settingsVersion, enabled: state });
-		await load();
+		const entry = lookup(path);
+		const settingsVersion = entry.scope === "project" ? projectSnapshot?.settingsVersion : snapshot?.settingsVersion;
+		if (!settingsVersion) throw new Error(C.conflict);
+		await mutate("settings", { action: "toggle", ref: refOf(entry.file), expectedVersion: settingsVersion, enabled: state, scope: entry.scope });
+		await refresh();
 	}
 	async function remove(path: string) {
-		const file = lookup(path);
-		await mutate(path, { action: "delete", ref: { root: file.root, path: file.path }, expectedVersion: file.version });
+		const entry = lookup(path);
+		await mutate(path, { action: "delete", ref: refOf(entry.file), expectedVersion: entry.file.version, scope: entry.scope });
 		listed.delete(path);
 		editing.delete(path);
 	}
 	async function rename(path: string, title: string) {
-		const file = lookup(path);
-		const result = await mutate(path, { action: "rename", ref: { root: file.root, path: file.path }, expectedVersion: file.version, name: name(title) });
+		const entry = lookup(path);
+		const result = await mutate(path, { action: "rename", ref: refOf(entry.file), expectedVersion: entry.file.version, name: name(title), scope: entry.scope });
 		if (!isFile(result)) throw new Error(C.unconfirmed);
 		listed.delete(path);
-		listed.set(pathOf(result), result);
-		return result;
+		const moved: ListedFile = { ...entry, file: result };
+		listed.set(pathOf(moved), moved);
+		return moved;
 	}
-	async function create(root: "skills" | "agents-skills" | "prompts", path: string, content: string) {
-		if (!snapshot) await load();
-		const result = await mutate(root + "/" + path, { action: "create", ref: { root, path }, content });
+	async function create(root: "skills" | "agents-skills" | "prompts", path: string, content: string, scope: RemoteResourceScope) {
+		if (scope === "project" ? !projectSnapshot : !snapshot) await refresh();
+		const result = await mutate(root + "/" + path, { action: "create", ref: { root, path }, content, scope });
 		if (!isFile(result)) throw new Error(C.unconfirmed);
-		listed.set(pathOf(result), result);
-		editing.set(pathOf(result), result);
-		return result;
+		const created: ListedFile = { file: result, scope, base: scope === "project" ? projectRoot() : (snapshot?.home ?? "") };
+		listed.set(pathOf(created), created);
+		editing.set(pathOf(created), created);
+		return created;
 	}
 	async function packages(operation: "list" | "install" | "remove" | "update", source?: string) {
 		const input: RemoteResourceRequest = { action: "packages", operation, ...(source === undefined ? {} : { source }) };
@@ -189,6 +282,18 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 		await writeClipboard(path ?? snapshot?.home + "/.pi/agent");
 		showNotice(t("remoteResources.pathCopied"), 2500);
 	}
+	/** Project layer summary: the same shape the local project manager returns, so the pages need no branch. */
+	async function projectList(): Promise<ProjectResourceListResult> {
+		const data = await loadProject();
+		const root = projectRoot();
+		const entries = [...listed.values()].filter((entry) => entry.scope === "project");
+		return {
+			skills: entries.filter((entry) => entry.file.root === "skills" || entry.file.root === "agents-skills").map(skill),
+			extensions: entries.filter((entry) => entry.file.root === "extensions").map(extension),
+			skillLocations: PROJECT_SKILL_LOCATIONS.map((location) => ({ ...location, path: root + "/" + (location.id === "project-agents" ? ".agents/skills" : ".pi/skills") })),
+			overrides: data.discovery.overrides,
+		};
+	}
 	const unsupported = async (): Promise<never> => {
 		throw new Error(C.unsupported);
 	};
@@ -196,7 +301,9 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 		reset() {
 			epoch += 1;
 			snapshot = undefined;
+			projectSnapshot = undefined;
 			loading = undefined;
+			projectLoading = undefined;
 			listed.clear();
 			editing.clear();
 			blocked.clear();
@@ -210,20 +317,20 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 		skills: {
 			...api.skills,
 			list: async (): Promise<PiSkillListResult> => {
-				const data = await load();
+				await refresh();
 				return {
 					locations: [
-						{ id: "pi-global", label: "~/.pi/agent/skills", path: data.home + "/.pi/agent/skills", rootMarkdownEnabled: true },
-						{ id: "agents-global", label: "~/.agents/skills", path: data.home + "/.agents/skills", rootMarkdownEnabled: false },
+						{ id: "pi-global", label: "~/.pi/agent/skills", path: (snapshot?.home ?? "") + "/.pi/agent/skills", rootMarkdownEnabled: true },
+						{ id: "agents-global", label: "~/.agents/skills", path: (snapshot?.home ?? "") + "/.agents/skills", rootMarkdownEnabled: false },
 					],
-					skills: data.files.filter((file) => file.root === "skills" || file.root === "agents-skills").map(skill),
+					skills: [...listed.values()].filter((entry) => entry.scope === "global" && (entry.file.root === "skills" || entry.file.root === "agents-skills")).map(skill),
 				};
 			},
 			readContent: async (path: string) => ({ content: await readContent(path) }),
 			create: async (input: { name: string; description: string; locationId: string }) =>
-				skill(await create(input.locationId === "agents-global" ? "agents-skills" : "skills", name(input.name) + "/SKILL.md", "---\nname: " + JSON.stringify(input.name) + "\ndescription: " + JSON.stringify(input.description) + "\n---\n\n")),
+				skill(await create(input.locationId === "agents-global" ? "agents-skills" : "skills", name(input.name) + "/SKILL.md", "---\nname: " + JSON.stringify(input.name) + "\ndescription: " + JSON.stringify(input.description) + "\n---\n\n", "global")),
 			delete: remove,
-			rename: async (path: string, value: string) => skill(await rename(path, lookup(path).path.endsWith("/SKILL.md") ? name(value) : name(value) + ".md")),
+			rename: async (path: string, value: string) => skill(await rename(path, lookup(path).file.path.endsWith("/SKILL.md") ? name(value) : name(value) + ".md")),
 			toggle: async (path: string, state: boolean) => {
 				await toggle(path, state);
 				return skill(lookup(path));
@@ -232,17 +339,29 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 		},
 		prompts: {
 			...api.prompts,
-			list: async () => {
-				const data = await load();
-				return { templates: data.files.filter((file) => file.root === "prompts").map(prompt), globalDir: data.home + "/.pi/agent/prompts" };
+			list: async (): Promise<PiPromptTemplateListResult> => {
+				await refresh();
+				return { templates: [...listed.values()].filter((entry) => entry.scope === "global" && entry.file.root === "prompts").map(prompt), globalDir: (snapshot?.home ?? "") + "/.pi/agent/prompts" };
 			},
-			create: async (input: { name: string; description: string }) => prompt(await create("prompts", name(input.name) + ".md", "---\ndescription: " + JSON.stringify(input.description) + "\n---\n\n")),
+			listByProject: async (): Promise<PiPromptTemplateListResult> => ({ templates: (await projectList()).skills.length >= 0 ? [...listed.values()].filter((entry) => entry.scope === "project" && entry.file.root === "prompts").map(prompt) : [], globalDir: projectRoot() + "/.pi/prompts" }),
+			create: async (input: { name: string; description: string }) => prompt(await create("prompts", name(input.name) + ".md", "---\ndescription: " + JSON.stringify(input.description) + "\n---\n\n", "global")),
+			createInProject: async (_projectId: string, input: { name: string; description: string }) => prompt(await create("prompts", name(input.name) + ".md", "---\ndescription: " + JSON.stringify(input.description) + "\n---\n\n", "project")),
 			edit: (path: string, content?: string) => (content === undefined ? readContent(path) : writeContent(path, content)),
 			delete: remove,
+			deleteFromProject: async (_projectId: string, templateName: string) => {
+				const entry = [...listed.values()].find((candidate) => candidate.scope === "project" && candidate.file.root === "prompts" && candidate.file.path.replace(/\.md$/i, "") === templateName);
+				if (!entry) throw new Error(C.fileInvalid);
+				await remove(pathOf(entry));
+			},
 			rename: async (old: string, value: string) => {
-				const file = [...listed.values()].find((entry) => entry.root === "prompts" && entry.path.replace(/\.md$/i, "") === old);
-				if (!file) throw new Error(C.fileInvalid);
-				return prompt(await rename(pathOf(file), name(value) + ".md"));
+				const entry = [...listed.values()].find((candidate) => candidate.scope === "global" && candidate.file.root === "prompts" && candidate.file.path.replace(/\.md$/i, "") === old);
+				if (!entry) throw new Error(C.fileInvalid);
+				return prompt(await rename(pathOf(entry), name(value) + ".md"));
+			},
+			renameInProject: async (_projectId: string, old: string, value: string) => {
+				const entry = [...listed.values()].find((candidate) => candidate.scope === "project" && candidate.file.root === "prompts" && candidate.file.path.replace(/\.md$/i, "") === old);
+				if (!entry) throw new Error(C.fileInvalid);
+				return prompt(await rename(pathOf(entry), name(value) + ".md"));
 			},
 			toggle: async (path: string, state: boolean) => {
 				await toggle(path, state);
@@ -256,12 +375,11 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 		extensions: {
 			...api.extensions,
 			list: async (): Promise<PiExtensionListResult> => {
-				const [data, installed] = await Promise.all([load(), packages("list")]);
-				const files: PiExtensionSummary[] = data.files.filter((file) => file.root === "extensions" && /\.(?:[cm]?js|ts)$/i.test(file.path)).map((file) => ({ id: pathOf(file), source: file.path, scope: "user", path: pathOf(file), local: true, enabled: enabled("extensions", pathOf(file)) }));
+				const [, installed] = await Promise.all([refresh(), packages("list")]);
 				return {
 					extensions: [
 						...installed.extensions.map((entry) => {
-							const config = Array.isArray(data.settings.packages) ? data.settings.packages.find((value) => typeof value === "object" && value !== null && Reflect.get(value, "source") === entry.source) : undefined;
+							const config = Array.isArray(snapshot?.settings.packages) ? snapshot?.settings.packages.find((value) => typeof value === "object" && value !== null && Reflect.get(value, "source") === entry.source) : undefined;
 							const disabled =
 								config &&
 								PI_RESOURCE_KINDS.every((key) => {
@@ -270,14 +388,15 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 								});
 							return { ...entry, enabled: !disabled };
 						}),
-						...files,
+						...[...listed.values()].filter((entry) => entry.scope === "global" && entry.file.root === "extensions" && /\.(?:[cm]?js|ts)$/i.test(entry.file.path)).map(extension),
+						...[...listed.values()].filter((entry) => entry.scope === "project" && entry.file.root === "extensions" && /\.(?:[cm]?js|ts)$/i.test(entry.file.path)).map(extension),
 					],
 					raw: "",
 				};
 			},
 			install: async (source: string) => (await packages("install", source)).output,
 			uninstall: async (source: string) => {
-				const file = [...listed.values()].find((entry) => entry.root === "extensions" && entry.path === source);
+				const file = [...listed.values()].find((entry) => entry.file.root === "extensions" && entry.file.path === source);
 				if (file) await remove(pathOf(file));
 				else await packages("remove", source);
 			},
@@ -295,29 +414,65 @@ export function createRemoteResourceEditorApi(api: PiDesktopApi, hostId: string,
 			removeBuiltIn: unsupported,
 			restoreBuiltIn: unsupported,
 		},
-		projectResources: { ...api.projectResources, discovery: async () => (await load()).discovery },
+		projectResources: {
+			...api.projectResources,
+			list: projectList,
+			discovery: async (requested?: string) => (requested === undefined ? (await load()).discovery : (await loadProject()).discovery),
+			/** Remote paths are copied, not opened: the host's file manager is not this process. */
+			openDirectory: async (_projectId: string, kind: ProjectResourceDirectoryKind) => {
+				const directories = { "project-pi": ".pi/skills", "project-agents": ".agents/skills", prompts: ".pi/prompts" } as const;
+				await copyPath(projectRoot() + "/" + directories[kind]);
+			},
+			createSkill: async (input: CreateProjectSkillInput) => {
+				const location = input.locationId === "project-agents" ? "agents-skills" : "skills";
+				return skill(await create(location, name(input.name) + "/SKILL.md", "---\nname: " + JSON.stringify(input.name) + "\ndescription: " + JSON.stringify(input.description) + "\n---\n\n", "project"));
+			},
+			deleteSkill: async (_projectId: string, skillPath: string) => remove(skillPath),
+			deleteExtension: async (_projectId: string, extensionPath: string) => remove(extensionPath),
+			toggleSkill: async (_projectId: string, skillPath: string, state: boolean) => {
+				await toggle(skillPath, state);
+				return skill(lookup(skillPath));
+			},
+			toggleExtension: async (_projectId: string, extensionPath: string, state: boolean) => {
+				await toggle(extensionPath, state);
+			},
+			toggleInherited: async (input: ProjectInheritedResourceToggleInput) => {
+				await mutate("settings", { action: "toggleInherited", kind: input.kind, key: input.key, enabled: input.enabled, scope: "project" });
+				return (await loadProject()).discovery.overrides;
+			},
+			renameSkill: async (_projectId: string, skillPath: string, newName: string) => skill(await rename(skillPath, lookup(skillPath).file.path.endsWith("/SKILL.md") ? name(newName) : name(newName) + ".md")),
+		},
 		promptStore: {
 			...api.promptStore,
 			import: async (input: { title: string; description: string; content: string }) => {
 				const { converted, argumentHint } = convertStoreVarsToPiVars(input.content);
-				return prompt(await create("prompts", slug(input.title) + ".md", "---\ndescription: " + JSON.stringify(input.description) + "\nsource: prompts.chat\n" + (argumentHint ? "argument-hint: " + JSON.stringify(argumentHint) + "\n" : "") + "---\n\n" + converted));
+				return prompt(await create("prompts", slug(input.title) + ".md", "---\ndescription: " + JSON.stringify(input.description) + "\nsource: prompts.chat\n" + (argumentHint ? "argument-hint: " + JSON.stringify(argumentHint) + "\n" : "") + "---\n\n" + converted, pageScope()));
 			},
 		},
 		yaoPrompts: {
 			...api.yaoPrompts,
 			import: async (slugValue: string, category: string) => {
 				const detail = await api.yaoPrompts.detail(slugValue, category);
-				return prompt(await create("prompts", slug(slugValue) + ".md", "---\ndescription: " + JSON.stringify(detail.description) + "\n---\n\n" + detail.promptContent));
+				return prompt(await create("prompts", slug(slugValue) + ".md", "---\ndescription: " + JSON.stringify(detail.description) + "\n---\n\n" + detail.promptContent, pageScope()));
 			},
 		},
 		skillStore: {
 			...api.skillStore,
 			import: async (item: { title: string; description: string; content: string }, locationId?: string) =>
-				skill(await create(locationId === "agents-global" ? "agents-skills" : "skills", slug(item.title) + "/SKILL.md", "---\nname: " + JSON.stringify(slug(item.title)) + "\ndescription: " + JSON.stringify(item.description) + "\n---\n\n" + item.content)),
+				skill(
+					await create(
+						locationId === "agents-global" || locationId === "project-agents" ? "agents-skills" : "skills",
+						slug(item.title) + "/SKILL.md",
+						"---\nname: " + JSON.stringify(slug(item.title)) + "\ndescription: " + JSON.stringify(item.description) + "\n---\n\n" + item.content,
+						locationId?.startsWith("project") ? "project" : pageScope(),
+					),
+				),
 		},
 		skillHub: {
 			...api.skillHub,
 			install: async (slugValue: string) => {
+				// `skills add --global` 只能写主机全局层：项目页不冒充「装进本项目」。
+				if (projectId !== undefined) throw new Error(C.unsupported);
 				await mutate("skills-install", { action: "skillsInstall", slug: slugValue });
 				return { success: true, slug: slugValue, installDir: snapshot?.home + "/.pi/agent/skills" };
 			},

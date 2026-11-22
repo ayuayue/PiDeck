@@ -267,8 +267,9 @@ export function ExtensionsTab(props: {
 
 	return (
 		<div className="extensions-tab">
-			{/* pi 原生内置扩展开关：写 settings.json 的 builtin: 条目，全局/项目各自生效 */}
-			<PiBuiltinExtensionsPanel scope={props.scope} projectId={props.projectId} onChanged={props.onRefresh} />
+			{/* pi 原生内置扩展开关：写 settings.json 的 builtin: 条目，全局/项目各自生效。
+			    远端主机没有随包内置扩展可管（它在主机的全局页），项目页不显示本机专用面板。 */}
+			{!remote && <PiBuiltinExtensionsPanel scope={props.scope} projectId={props.projectId} onChanged={props.onRefresh} />}
 			{/* 一级 tab：已安装 / 扩展商店（shadcn Tabs，与 SkillsTab 的「本地/商店」结构对齐） */}
 			<div className="mb-3 flex items-center justify-between gap-3">
 				<ContentTabs

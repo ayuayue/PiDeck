@@ -2491,6 +2491,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.mcp.draftBlocked": "有未儲存的 MCP 修改。檢測與登入讀取的是磁碟配置，請先儲存再執行。",
 	"config.mcp.disableInstead": "停用",
 	"config.mcp.probe": "檢查可達性",
+	"config.mcp.remoteProjectUnsupported": "該專案不能作為遠端 MCP 配置目標：請從專案選單重新開啟專案管理，或在該專案終端裡直接編輯 .pi/mcp.json。",
 	"config.mcp.remoteProbeUnsupported": "SSH 主機上的伺服器不在本機網路內，本機探測的結論會失真。換用「檢測連線」：它在那臺主機上真實執行。",
 	"config.mcp.probing": "檢查中…",
 	"config.mcp.probeOk": "可達",

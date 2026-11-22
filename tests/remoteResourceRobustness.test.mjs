@@ -46,7 +46,7 @@ function fixture(t) {
 		},
 	});
 	const config = factory(REMOTE_CONFIG_SOURCE, "createConfigScope")(HOME, mappedFs, path.posix, crypto);
-	const resources = factory(REMOTE_RESOURCE_SOURCE, "createResourceScope")(HOME, mappedFs, path.posix, crypto, config);
+	const resources = factory(REMOTE_RESOURCE_SOURCE, "createResourceScope")(HOME, path.posix.join(HOME, "project"), mappedFs, path.posix, crypto, factory(REMOTE_CONFIG_SOURCE, "createConfigScope"), config);
 	const write = (rel, content) => {
 		const target = path.join(agent, rel);
 		fs.mkdirSync(path.dirname(target), { recursive: true });

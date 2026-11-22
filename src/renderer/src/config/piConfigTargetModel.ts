@@ -1,6 +1,6 @@
 import type { PiConfigTarget } from "../../../shared/piConfig";
 import { isRemoteProject } from "../../../shared/projectLocation";
-import type { Project } from "../../../shared/types";
+import type { Project, ProjectLocator } from "../../../shared/types";
 import type { RemoteHostListItem } from "../../../shared/types/remoteHost";
 
 /**
@@ -103,4 +103,14 @@ export function wslTargetHostOf(hosts: readonly PiConfigTargetHost[], target: Pi
  */
 export function providerOpsAllowed(target: PiConfigTarget): boolean {
 	return target.kind === "local";
+}
+
+/**
+ * 项目资源管理器（resourceOnly）的管理目标：远端项目固定到它所在的主机，本机项目固定本机。
+ *
+ * 从「入口项目的 locator」派生而不是继承上次的 Pi 环境——否则资源会被写到另一个环境里，
+ * 而远端项目还需要把 projectId 一并交给项目作用域的 IPC。
+ */
+export function resourceOnlyTarget(locator: ProjectLocator | undefined): PiConfigTarget {
+	return locator !== undefined && locator.kind === "ssh" ? { kind: "ssh", hostId: locator.hostId } : { kind: "local" };
 }

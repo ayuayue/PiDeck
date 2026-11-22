@@ -15,3 +15,14 @@ export function isProjectUntrustedError(error: unknown): boolean {
 	else if (error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string") message = String((error as { message: unknown }).message);
 	return PROJECT_UNTRUSTED_PATTERN.test(message);
 }
+
+/**
+ * 远端项目的 MCP 配置不在远端资源作用域里（只管理主机全局 mcp.json）。
+ * 稳定码换成可读引导，界面上不显示裸码。
+ */
+export function isRemoteMcpProjectScopeError(error: unknown): boolean {
+	let message = "";
+	if (typeof error === "string") message = error;
+	else if (error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string") message = String((error as { message: unknown }).message);
+	return message.includes("REMOTE_MCP_PROJECT_SCOPE_UNSUPPORTED");
+}

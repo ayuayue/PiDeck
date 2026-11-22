@@ -156,7 +156,10 @@ test("the existing config IPC/preload contract now routes an optional target wit
 	assert.match(systemIpc, /configFetchModels[\s\S]{0,600}?rejectRemotePiConfigTarget/);
 	assert.match(systemIpc, /configFetchUsage[\s\S]{0,600}?rejectRemotePiConfigTarget/);
 	// Assembly: the backend is built only behind the remote experiment switch and passed as a dependency.
-	assert.match(mainIndex, /createRemotePiConfigBackend\(\{/);
+	// 契约演进（2026-11 远端项目 MCP）：传输层收口到 RemotePiConfigTransport，两种层（主机文件 / 项目 .pi/mcp.json）
+	// 共用同一份 timeout 与会话规则，因此这里断言的是「注入传输模块」而不是内联对象。
+	assert.match(mainIndex, /createRemotePiConfigBackend\(createRemotePiConfigTransport\(/);
+	assert.match(mainIndex, /import \{ createRemotePiConfigTransport \} from "\.\/config\/RemotePiConfigTransport";/);
 	assert.match(mainIndex, /remotePiConfig,/);
 	assert.match(mainIndex, /remoteFeatureEnabled[\s\S]{0,200}?createRemotePiConfigBackend/);
 	// Batch B (after the A1/A2/A4 security fix) extends the four existing methods with optional options; no new channel.

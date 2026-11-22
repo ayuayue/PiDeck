@@ -2484,6 +2484,7 @@ export const zhCN = {
 	"config.mcp.draftBlocked": "有未保存的 MCP 修改。检测与登录读取的是磁盘配置，请先保存再运行。",
 	"config.mcp.disableInstead": "禁用",
 	"config.mcp.probe": "检查可达性",
+	"config.mcp.remoteProjectUnsupported": "该项目不能作为远端 MCP 配置目标：请从项目菜单重新打开项目管理，或在该项目终端里直接编辑 .pi/mcp.json。",
 	"config.mcp.remoteProbeUnsupported": "SSH 主机上的服务器不在本机网络内，本机探测的结论会失真。换用「检测连接」：它在那台主机上真实运行。",
 	"config.mcp.probing": "检查中…",
 	"config.mcp.probeOk": "可达",

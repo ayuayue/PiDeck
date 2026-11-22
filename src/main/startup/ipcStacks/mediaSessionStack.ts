@@ -134,9 +134,28 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 		: undefined;
 
 	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, catalog: remotePiModelCatalog });
-	registerRemotePiResourcesIpc({ enabled: remoteFeatureEnabled, service: remoteHostServiceIfEnabled, run: runPinnedRemoteCommand });
+	registerRemotePiResourcesIpc({
+		enabled: remoteFeatureEnabled,
+		service: remoteHostServiceIfEnabled,
+		run: runPinnedRemoteCommand,
+		// 项目作用域只认已登记的 SSH 项目：路径由 catalog 解析，渲染层只能传 projectId。
+		locator: (projectId) => {
+			const project = projectStore.get(projectId);
+			return project !== undefined && isRemoteProject(project) ? project.locator : undefined;
+		},
+	});
 	// 远端 MCP 与远端 Pi 资源共用同一份 config backend 与同一台主机：固定动词，argv 无自由文本。
-	registerRemotePiMcpIpc({ enabled: remoteFeatureEnabled, config: remotePiConfig, service: remoteHostServiceIfEnabled, run: runPinnedRemoteCommand });
+	registerRemotePiMcpIpc({
+		enabled: remoteFeatureEnabled,
+		config: remotePiConfig,
+		service: remoteHostServiceIfEnabled,
+		run: runPinnedRemoteCommand,
+		// 项目层只认已登记的 SSH 项目：路径由 catalog 解析，渲染层只能传 projectId。
+		locator: (projectId) => {
+			const project = projectStore.get(projectId);
+			return project !== undefined && isRemoteProject(project) ? project.locator : undefined;
+		},
+	});
 	/**
 	 * 按项目取远端模型目录：非远端项目返回 null（调用方据此走本机目录）。
 	 * 失败返回失败报告而不是空成功报告——空列表和「拿不到」在 UI 上必须是两种状态。

@@ -24,7 +24,7 @@ function fixture(t) {
 	});
 	fs.mkdirSync(path.join(directory, ".pi/agent"), { recursive: true });
 	const config = factory(REMOTE_CONFIG_SOURCE, "createConfigScope")(home, mappedFs, path.posix, crypto);
-	const resources = factory(REMOTE_RESOURCE_SOURCE, "createResourceScope")(home, mappedFs, path.posix, crypto, config);
+	const resources = factory(REMOTE_RESOURCE_SOURCE, "createResourceScope")(home, "/home/tester/project", mappedFs, path.posix, crypto, factory(REMOTE_CONFIG_SOURCE, "createConfigScope"), config);
 	return { config, resources, directory, home };
 }
 
@@ -80,7 +80,7 @@ test("SSH resources create/read/edit/rename/toggle and recoverable delete operat
 		{ root: "other", path: "x" },
 		{ root: "extensions", path: ".hidden/x" },
 	])
-		assert.throws(() => f.resources.read(target), /RESOURCE_PATH_INVALID/);
+		assert.throws(() => f.resources.read({ ref: target }), /RESOURCE_PATH_INVALID/);
 });
 
 test("SSH package disable/enable preserves selective filters and unrelated settings", (t) => {
@@ -160,7 +160,7 @@ test("host-bound resource facade exercises skills, prompts, stores and packages 
 			calls.push({ hostId, method, input });
 			const resource = hostId === HOST ? f.resources : other.resources;
 			const operation = method.slice("resources.".length);
-			return operation === "list" ? resource.list() : operation === "read" ? resource.read(input.ref) : resource[operation === "delete" ? "remove" : operation](input);
+			return operation === "list" ? resource.list(input) : operation === "read" ? resource.read(input) : resource[operation === "delete" ? "remove" : operation](input);
 		},
 		resolveFacts: async () => ({ home: f.home, nodePath: "/opt/node/bin/node", piPath: "/opt/pi/cli.js", version: "0.70.3" }),
 		run: async (input) => {
@@ -251,7 +251,7 @@ test("resource discovery lists package and settings resources with native filter
 	assert.equal(result.discovery.prompts.length, 2);
 	assert.ok(result.discovery.prompts.every((entry) => entry.managed && !entry.enabled));
 	assert.equal(result.files.length, 0, "discovered resources never enter the editable fixed-root map");
-	assert.throws(() => f.resources.read({ root: "extensions", path: "../../npm/node_modules/example/package.json" }), /PATH_INVALID/);
+	assert.throws(() => f.resources.read({ ref: { root: "extensions", path: "../../npm/node_modules/example/package.json" } }), /PATH_INVALID/);
 });
 
 test("resource backend rejects secret-bearing replies, mismatched files and lost mutation receipts", async () => {

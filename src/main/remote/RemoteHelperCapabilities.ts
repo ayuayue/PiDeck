@@ -53,6 +53,7 @@ export const REMOTE_HELPER_CAPABILITIES = [
 	"resources.rename",
 	"resources.delete",
 	"resources.toggle",
+	"resources.toggleInherited",
 	"resources.togglePackage",
 	"resources.builtin",
 	"mcp.login",

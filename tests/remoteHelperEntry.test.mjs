@@ -88,7 +88,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "4d4ce837c29ed2a3ef0df2e2a467e9c64a0ebf5c23876379093fcc5e7790147e";
+const FROZEN_SHA256 = "cfe550d0389f985f2596cfc18528ada206156e1accce0884bf99866f68314bf1";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -554,7 +554,7 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 helperTest("the exported entry identity matches the frozen source", () => {
 	assert.equal(REMOTE_HELPER_ENTRY_FILE_NAME, "helper.mjs");
 	assert.match(REMOTE_HELPER_ENTRY_VERSION, /^\d+\.\d+\.\d+$/);
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.36.1", "1.36.1 passes the admitted deadline to Git workers");
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.36.2", "1.36.2 adds the project resource scope");
 	// The frozen source cannot import the contract, so its literals are checked against it here.
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(`"${REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report REMOTE_HELPER_ENTRY_VERSION");
 	for (const token of [REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_STAT_MANY, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) {

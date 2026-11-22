@@ -12,7 +12,7 @@ import { Component, forwardRef, useRef, useState, useEffect, useCallback, useMem
 import { OAuthTab } from "./config/OAuthTab";
 import { ConfigBackendSwitch, ConfigEnvironmentStatus } from "./config/ConfigEnvironmentSwitch";
 import { configTabsForTarget, firstConfigTabForTarget, isConfigTabSupported, resourcePagesSupported, securityPageSupported } from "./config/configEnvironmentModel";
-import type { PiConfigTargetHost } from "./config/piConfigTargetModel";
+import { type PiConfigTargetHost, resourceOnlyTarget } from "./config/piConfigTargetModel";
 import { RemoteModelCatalogSection } from "./config/RemoteModelCatalogSection";
 import { ConfigEditorContext, useConfigEditorApi } from "./config/useConfigEditorApi";
 import { ConfigDiagnosticCard } from "./config/ConfigDiagnosticCard";
@@ -68,7 +68,7 @@ import { DshConfigTab, type DshConfigTabHandle } from "./config/DshConfigTab";
 import { t } from "./i18n";
 import { CodeMirrorEditor } from "./components/app/CodeMirrorEditor";
 import type { AuthFile, ConfigTab, ModelItem, ModelsFile, SettingsFile } from "./config/configTypes";
-import type { ConfigFileDiagnostic, PiExtensionListResult, PiExtensionSummary, PiSkillListResult, PiSkillLocation, PiSkillSummary, Project, ProjectResourceDiscoveryResult, ProjectResourceListResult } from "../../shared/types";
+import type { ConfigFileDiagnostic, PiExtensionListResult, PiExtensionSummary, PiSkillListResult, PiSkillLocation, PiSkillSummary, Project, ProjectResourceDiscoveryResult, ProjectResourceListResult, ProjectScopeOption } from "../../shared/types";
 import { isGlobalSkillSourceId } from "../../shared/resourceIdentity";
 import { emptyDiscoveryData, emptyProjectResourceData, GLOBAL_SKILL_SOURCES, isGlobalSkill, isProjectExtension, isProjectSkill, PROJECT_SKILL_SOURCES, type ResourceScope } from "./config/resourceScopeModel";
 import { getModelUserAgentOverride } from "./config/providerHeaders";
@@ -90,7 +90,7 @@ type ConfigModalProps = {
 	/** 当前项目身份：项目资源 IPC 只接受由主进程登记的 projectId。 */
 	projectId?: string;
 	/** PiDeck 当前加载的全部项目（作用域下拉展示；Chat 项目除外）。 */
-	projects?: Array<{ id: string; name: string; kind?: Project["kind"] }>;
+	projects?: ProjectScopeOption[];
 	/** Chat workspace has no project resource scope. */
 	projectKind?: Project["kind"];
 	/** 当前项目名称：仅用于作用域选择器显示。 */
@@ -117,7 +117,7 @@ export type ConfigPaneProps = {
 	/** 当前项目身份：项目资源 IPC 只接受由主进程登记的 projectId。 */
 	projectId?: string;
 	/** PiDeck 当前加载的全部项目（作用域下拉展示；Chat 项目除外）。 */
-	projects?: Array<{ id: string; name: string; kind?: Project["kind"] }>;
+	projects?: ProjectScopeOption[];
 	/** Chat workspace has no project resource scope. */
 	projectKind?: Project["kind"];
 	/** 当前项目名称：仅用于作用域选择器显示。 */
@@ -329,9 +329,9 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	 * Pi 环境（本次重构的唯一作用域开关）：本机 / 一台 SSH 主机 / 一个 WSL 发行版。
 	 * 整页按它加载：配置组、资源组、保存路由、导航可见性都从这里派生，页内不再各自放选择器。
 	 */
-	// 项目资源管理器只管理入口项目的本地资源：不继承「上次的 Pi 环境」，否则资源会被写到某个发行版里。
-	const [configTarget, setConfigTarget] = useState<PiConfigTarget>(() => (resourceOnly ? { kind: "local" } : loadLastConfigTarget()));
-	const editor = useConfigEditorApi(configTarget, window.piDesktop);
+	// 资源管理器的目标从入口项目 locator 派生（远端固定其主机），不继承上次环境：否则资源会写到别的环境。
+	const [configTarget, setConfigTarget] = useState<PiConfigTarget>(() => (resourceOnly ? resourceOnlyTarget(projects[0]?.locator) : loadLastConfigTarget()));
+	const editor = useConfigEditorApi(configTarget, window.piDesktop, resourceOnly ? projectId : undefined);
 	const api = editor.api;
 	const [remoteConfigHosts, setRemoteConfigHosts] = useState<PiConfigTargetHost[]>([]);
 	/** 主机清单是否已回来（用来区分「没加载」与「确实一个都没有」）。 */

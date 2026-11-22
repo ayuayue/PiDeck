@@ -22,12 +22,12 @@ export function useConfigEditor() {
 	return useContext(ConfigEditorContext);
 }
 
-export function useConfigEditorApi(target: PiConfigTarget, api: PiDesktopApi) {
+export function useConfigEditorApi(target: PiConfigTarget, api: PiDesktopApi, projectId?: string) {
 	const { ensureConnected } = useRemoteHostConnection();
 	const hostId = target.kind === "ssh" ? target.hostId : undefined;
 	return useMemo<ConfigEditor>(() => {
 		if (!hostId) return { api, rawApi: api, remote: false };
-		const remoteApi = createRemoteConfigEditorApi(api, hostId, ensureConnected);
+		const remoteApi = createRemoteConfigEditorApi(api, hostId, ensureConnected, projectId);
 		return { api: remoteApi, rawApi: remoteApi.rawApi, remote: true, reload: remoteApi.reloadRemoteConfig, loadRemoteModels: remoteApi.loadRemoteModels, fetchRemoteProviderModels: remoteApi.fetchRemoteProviderModels, copyProviderSecrets: remoteApi.copyProviderSecrets };
-	}, [api, hostId, ensureConnected]);
+	}, [api, hostId, projectId, ensureConnected]);
 }

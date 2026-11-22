@@ -21,8 +21,14 @@ import type { RemotePiConfigBackend } from "./RemotePiConfigBackend";
 
 export type RemotePiMcpFacts = { piPath: string; nodePath: string; version: string; home: string };
 
+/** Two closed layers on one host: the host's `~/.pi/agent/mcp.json` and one project's `.pi/mcp.json`. */
+type McpLayer = { scope: "global" } | { scope: "project"; root: string; projectId: string };
+const GLOBAL_LAYER: McpLayer = { scope: "global" };
+
 export type RemotePiMcpPorts = {
 	config: () => RemotePiConfigBackend | undefined;
+	/** Registered project id → the host it belongs to and the root its session is confined to. */
+	resolveProject(projectId: string): Promise<{ hostId: string; root: string } | { code: string }>;
 	resolveFacts(hostId: string): Promise<RemotePiMcpFacts>;
 	/** helper 请求通道：登录要按 requestId 接住 auth-url 事件，所以必须带回调而不是只等结果。 */
 	request(hostId: string, method: string, params: unknown, options?: { timeoutMs?: number; onAuthUrl?: (url: string) => void }): Promise<unknown>;
@@ -38,9 +44,11 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 /** `pi` 用主机上同一套已验证的 Node 运行：不带登录 shell，也不从 PATH 里挑可执行文件。 */
-function remotePiCommand(facts: RemotePiMcpFacts, args: string[]): string {
+/** `cwd` is the host home for the global layer and the project root for a project layer: `pi mcp` reads the
+ *  mcp.json of its working directory, so the layer is chosen by the directory rather than by a flag. */
+function remotePiCommand(facts: RemotePiMcpFacts, args: string[], cwd: string = facts.home): string {
 	const nodeDir = facts.nodePath.slice(0, facts.nodePath.lastIndexOf("/"));
-	return "cd " + quotePosixArgument(facts.home) + " && PATH=" + quotePosixArgument(nodeDir) + ':"$PATH" ' + [facts.nodePath, facts.piPath, ...args].map(quotePosixArgument).join(" ");
+	return "cd " + quotePosixArgument(cwd) + " && PATH=" + quotePosixArgument(nodeDir) + ':"$PATH" ' + [facts.nodePath, facts.piPath, ...args].map(quotePosixArgument).join(" ");
 }
 
 /** 远端文件只可能是 HOME 下的那一层：项目层 .pi/mcp.json 不在远端配置作用域里。 */
@@ -60,9 +68,10 @@ export function createRemotePiMcpService(ports: RemotePiMcpPorts) {
 		return config;
 	}
 
-	async function snapshot(hostId: string): Promise<McpConfigSnapshot> {
-		const [remote, facts] = await Promise.all([backend().read({ hostId, file: MCP_FILE }), ports.resolveFacts(hostId)]);
-		const path = facts.home + "/.pi/agent/mcp.json";
+	const projectRootOf = (layer: McpLayer) => (layer.scope === "project" ? layer.root : undefined);
+	async function snapshot(hostId: string, layer: McpLayer = GLOBAL_LAYER): Promise<McpConfigSnapshot> {
+		const [remote, facts] = await Promise.all([backend().read({ hostId, file: MCP_FILE, projectRoot: projectRootOf(layer) }), ports.resolveFacts(hostId)]);
+		const path = layer.scope === "project" ? layer.root + "/.pi/mcp.json" : facts.home + "/.pi/agent/mcp.json";
 		const writableFile = fileOf(remote.data);
 		const merged = mergeMcpServersWithErrors([{ path, kind: "pi-agent", file: writableFile }], path);
 		return {
@@ -82,15 +91,15 @@ export function createRemotePiMcpService(ports: RemotePiMcpPorts) {
 		};
 	}
 
-	async function save(hostId: string, file: unknown, expectedVersion: unknown): Promise<{ valid: boolean; error?: string; conflict?: boolean; revision?: string }> {
+	async function save(hostId: string, layer: McpLayer, file: unknown, expectedVersion: unknown): Promise<{ valid: boolean; error?: string; conflict?: boolean; revision?: string }> {
 		if (!record(file)) return { valid: false, error: C.fileInvalid };
 		if (expectedVersion !== undefined && (typeof expectedVersion !== "string" || !HEX64.test(expectedVersion))) return { valid: false, error: C.conflict, conflict: true };
 		const config = fileOf(file);
 		const invalid = validateMcpConfigFile(config);
 		if (invalid) return { valid: false, error: invalid };
-		const version = typeof expectedVersion === "string" ? expectedVersion : (await backend().read({ hostId, file: MCP_FILE })).version;
+		const version = typeof expectedVersion === "string" ? expectedVersion : (await backend().read({ hostId, file: MCP_FILE, projectRoot: projectRootOf(layer) })).version;
 		try {
-			const receipt = await backend().replace({ hostId, file: MCP_FILE, expectedVersion: version, data: config as Record<string, unknown>, secretSources: [] });
+			const receipt = await backend().replace({ hostId, file: MCP_FILE, expectedVersion: version, data: config as Record<string, unknown>, secretSources: [], projectRoot: projectRootOf(layer) });
 			return { valid: true, revision: receipt.version };
 		} catch (error) {
 			const code = error instanceof Error ? error.message : String(error);
@@ -100,9 +109,10 @@ export function createRemotePiMcpService(ports: RemotePiMcpPorts) {
 		}
 	}
 
-	async function list(hostId: string): Promise<McpCliListResult> {
+	async function list(hostId: string, layer: McpLayer = GLOBAL_LAYER): Promise<McpCliListResult> {
 		const facts = await ports.resolveFacts(hostId);
-		const result = await ports.run({ hostId, remoteCommand: remotePiCommand(facts, ["mcp", "list", "--json"]), timeoutMs: 60_000 });
+		const cwd = layer.scope === "project" ? layer.root : facts.home;
+		const result = await ports.run({ hostId, remoteCommand: remotePiCommand(facts, ["mcp", "list", "--json"], cwd), timeoutMs: 60_000 });
 		// pi 在「有 enabled 但未连接」时以 exit 1 结束，stdout 仍是合法报告：只有形状不成立才算失败。
 		const report = parseMcpListOutput(result.stdout);
 		if (report === null) {
@@ -112,10 +122,11 @@ export function createRemotePiMcpService(ports: RemotePiMcpPorts) {
 		return report;
 	}
 
-	async function logout(hostId: string, server: unknown): Promise<{ ok: boolean; output: string }> {
+	async function logout(hostId: string, layer: McpLayer, server: unknown): Promise<{ ok: boolean; output: string }> {
 		if (typeof server !== "string" || server.length > 128 || !isMcpServerName(server)) throw new Error(C.invalid);
 		const facts = await ports.resolveFacts(hostId);
-		const result = await ports.run({ hostId, remoteCommand: remotePiCommand(facts, ["mcp", "logout", server.trim()]), timeoutMs: 30_000 });
+		const cwd = layer.scope === "project" ? layer.root : facts.home;
+		const result = await ports.run({ hostId, remoteCommand: remotePiCommand(facts, ["mcp", "logout", server.trim()], cwd), timeoutMs: 30_000 });
 		return { ok: result.exitCode === 0, output: tail(result.stderr?.trim() || result.stdout.trim()) };
 	}
 
@@ -123,7 +134,7 @@ export function createRemotePiMcpService(ports: RemotePiMcpPorts) {
 	 * 远端 OAuth 登录：helper 侧跑 `pi mcp login <server>`，授权 URL 以事件帧实时回到这次请求。
 	 * 结果只报告退出码与尾部输出；URL 走 emit，绝不出现在返回值里（返回值会进日志/UI 的通用错误位）。
 	 */
-	async function login(hostId: string, server: unknown, timeoutSec: unknown, operationId: unknown, emit?: (payload: { server: string; operationId?: string; url: string }) => void): Promise<{ ok: boolean; output: string }> {
+	async function login(hostId: string, layer: McpLayer, server: unknown, timeoutSec: unknown, operationId: unknown, emit?: (payload: { server: string; operationId?: string; url: string; projectId?: string }) => void): Promise<{ ok: boolean; output: string }> {
 		if (typeof server !== "string" || server.length > 128 || !isMcpServerName(server)) throw new Error(C.invalid);
 		const seconds = typeof timeoutSec === "number" && Number.isInteger(timeoutSec) && timeoutSec > 0 ? Math.min(timeoutSec, 600) : 240;
 		const operation = typeof operationId === "string" && operationId.length > 0 && operationId.length <= 128 ? operationId : undefined;
@@ -133,12 +144,13 @@ export function createRemotePiMcpService(ports: RemotePiMcpPorts) {
 		const result = await ports.request(
 			hostId,
 			"mcp.login",
-			{ home: facts.home, nodePath: facts.nodePath, piPath: facts.piPath, server: name, timeoutSec: seconds },
+			{ home: facts.home, nodePath: facts.nodePath, piPath: facts.piPath, server: name, timeoutSec: seconds, ...(layer.scope === "project" ? { scope: "project" } : {}) },
 			{
 				timeoutMs: (seconds + 60) * 1000,
 				onAuthUrl: (url) => {
 					if (emit === undefined) return;
-					emit({ server: name, ...(operation === undefined ? {} : { operationId: operation }), url });
+					// 授权帧标明所属层：项目登录不会被当成主机全局登录。
+					emit({ server: name, ...(operation === undefined ? {} : { operationId: operation }), ...(layer.scope === "project" ? { projectId: layer.projectId } : {}), url });
 				},
 			},
 		);
@@ -149,13 +161,38 @@ export function createRemotePiMcpService(ports: RemotePiMcpPorts) {
 		return { ok: result.ok, output: reason === "" || result.ok ? output : `${reason}: ${output}` };
 	}
 
+	/**
+	 * Which layer this request addresses.
+	 *
+	 * A project layer must name a registered project; the renderer cannot supply a path, and a project that
+	 * lives on another host is refused rather than served by whichever session is warm. The host's own files
+	 * are never the fallback for a project request.
+	 */
+	async function resolveLayer(hostId: string, input: Record<string, unknown>): Promise<McpLayer> {
+		const scope = input.scope === undefined ? "global" : input.scope;
+		if (scope !== "global" && scope !== "project") throw new Error(C.invalid);
+		if (input.projectId !== undefined && (typeof input.projectId !== "string" || input.projectId.trim().length === 0 || input.projectId.length > 256)) throw new Error(C.invalid);
+		if (scope === "global") return GLOBAL_LAYER;
+		if (input.projectId === undefined) throw new Error(C.invalid);
+		let resolved: { hostId: string; root: string } | { code: string };
+		try {
+			resolved = await ports.resolveProject(String(input.projectId));
+		} catch (error) {
+			getAppLogger()?.warn("remoteMcp", "Remote project resolution failed", { hostId, reason: error instanceof Error ? error.message : String(error) });
+			throw new Error(C.unavailable);
+		}
+		if ("code" in resolved) throw new Error(C.invalid);
+		if (resolved.hostId !== hostId || typeof resolved.root !== "string" || !resolved.root.startsWith("/") || resolved.root.length > 4096 || /[\u0000-\u001f\u007f]/.test(resolved.root)) throw new Error(C.invalid);
+		return { scope: "project", root: resolved.root, projectId: String(input.projectId) };
+	}
+
 	async function facts(hostId: string): Promise<{ home: string; piVersion: string }> {
 		const resolved = await ports.resolveFacts(hostId);
 		return { home: resolved.home, piVersion: resolved.version };
 	}
 
 	return {
-		async execute(hostId: unknown, input: unknown, emit?: (payload: { server: string; operationId?: string; url: string }) => void): Promise<RemoteMcpResult> {
+		async execute(hostId: unknown, input: unknown, emit?: (payload: { server: string; operationId?: string; url: string; projectId?: string }) => void): Promise<RemoteMcpResult> {
 			if (typeof hostId !== "string" || !PROJECT_HOST_ID_PATTERN.test(hostId) || !record(input) || typeof input.action !== "string") throw new Error(C.invalid);
 			const action = input.action as RemoteMcpRequest["action"];
 			const shapes: Record<string, ReadonlyArray<string>> = {
@@ -167,13 +204,14 @@ export function createRemotePiMcpService(ports: RemotePiMcpPorts) {
 				save: ["action", "expectedVersion", "file"],
 			};
 			if (!Object.hasOwn(shapes, action)) throw new Error(C.invalid);
-			if (Object.keys(input).some((key) => !shapes[action].includes(key))) throw new Error(C.invalid);
+			if (Object.keys(input).some((key) => !shapes[action].includes(key) && key !== "scope" && key !== "projectId")) throw new Error(C.invalid);
+			const layer = await resolveLayer(hostId, input);
 			if (action === "facts") return { action, ...(await facts(hostId)) };
-			if (action === "snapshot") return { action, snapshot: await snapshot(hostId) };
-			if (action === "save") return { action, ...(await save(hostId, input.file, input.expectedVersion)) };
-			if (action === "list") return { action, report: await list(hostId) };
-			if (action === "login") return { action: "login", ...(await login(hostId, input.server, input.timeoutSec, input.operationId, emit)) };
-			return { action: "logout", ...(await logout(hostId, input.server)) };
+			if (action === "snapshot") return { action, snapshot: await snapshot(hostId, layer) };
+			if (action === "save") return { action, ...(await save(hostId, layer, input.file, input.expectedVersion)) };
+			if (action === "list") return { action, report: await list(hostId, layer) };
+			if (action === "login") return { action: "login", ...(await login(hostId, layer, input.server, input.timeoutSec, input.operationId, emit)) };
+			return { action: "logout", ...(await logout(hostId, layer, input.server)) };
 		},
 	};
 }

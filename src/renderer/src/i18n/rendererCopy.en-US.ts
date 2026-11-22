@@ -2490,6 +2490,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.mcp.draftBlocked": "You have unsaved MCP changes. Connection checks and sign-in read the saved file; save first.",
 	"config.mcp.disableInstead": "Disable",
 	"config.mcp.probe": "Check reachability",
+	"config.mcp.remoteProjectUnsupported": "This project cannot be managed as a remote MCP target: reopen the project resources page from its own menu, or edit .pi/mcp.json in that project terminal.",
 	"config.mcp.remoteProbeUnsupported": 'Servers on an SSH host are not on this machine\'s network, so probing from here would answer the wrong question. Use "Check status" instead: it really runs on that host.',
 	"config.mcp.probing": "Checking…",
 	"config.mcp.probeOk": "Reachable",

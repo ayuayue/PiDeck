@@ -4,6 +4,7 @@ import { REMOTE_MCP_CODES } from "../../shared/types/remotePiManagement";
 import { createRemotePiMcpService } from "../config/RemotePiMcpService";
 import type { RemotePiConfigBackend } from "../config/RemotePiConfigBackend";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
+import type { SshProjectLocator } from "../../shared/projectLocation";
 
 /** 远端 MCP 面：配置快照/保存 + 主机上的 `pi mcp list` / `pi mcp logout`，全部走已验证的那台主机。 */
 export function registerRemotePiMcpIpc(deps: {
@@ -11,6 +12,8 @@ export function registerRemotePiMcpIpc(deps: {
 	config: RemotePiConfigBackend | undefined;
 	service: () => Promise<RemoteHostConnectionService> | undefined;
 	run: (input: { hostId: string; remoteCommand: string; timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string; stderr?: string }>;
+	/** Registered project id → its SSH locator; a project layer is only served for an enrolled remote project. */
+	locator?: (projectId: string) => SshProjectLocator | undefined;
 }): void {
 	const mcp = createRemotePiMcpService({
 		config: () => (deps.enabled ? deps.config : undefined),
@@ -18,6 +21,12 @@ export function registerRemotePiMcpIpc(deps: {
 			const service = await deps.service();
 			if (!deps.enabled || !service) throw new Error(REMOTE_MCP_CODES.unavailable);
 			return service.request(hostId, method, params, options);
+		},
+		resolveProject: async (projectId) => {
+			if (!deps.enabled) throw new Error(REMOTE_MCP_CODES.unavailable);
+			const locator = deps.locator?.(projectId);
+			if (locator === undefined || locator.kind !== "ssh") return { code: REMOTE_MCP_CODES.invalid };
+			return { hostId: locator.hostId, root: locator.remotePath };
 		},
 		resolveFacts: async (hostId) => {
 			const service = await deps.service();
@@ -35,7 +44,8 @@ export function registerRemotePiMcpIpc(deps: {
 		return mcp.execute(hostId, input, (payload) => {
 			const sender = event.sender;
 			if (sender.isDestroyed()) return;
-			sender.send(ipcChannels.mcpLoginUrl, { server: payload.server, scope: { scope: "global" }, ...(payload.operationId === undefined ? {} : { operationId: payload.operationId }), url: payload.url });
+			const scope = payload.projectId === undefined ? { scope: "global" as const } : { scope: "project" as const, projectId: payload.projectId };
+			sender.send(ipcChannels.mcpLoginUrl, { server: payload.server, scope, ...(payload.operationId === undefined ? {} : { operationId: payload.operationId }), url: payload.url });
 		});
 	});
 }

@@ -57,7 +57,7 @@ test("the login runner maps a non-zero exit and a cancel to a bounded failure", 
 
 test("the frozen helper advertises mcp.login with the documented parameter set", () => {
 	assert.ok(REMOTE_HELPER_CAPABILITIES.includes("mcp.login"), "能力表必须包含 mcp.login（hello 按同一顺序声明）");
-	assert.equal(entry.REMOTE_HELPER_ENTRY_VERSION, "1.36.1", "helper 版本要跟着协议变化前进");
+	assert.equal(entry.REMOTE_HELPER_ENTRY_VERSION, "1.36.2", "helper 版本要跟着协议变化前进");
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"mcp.login"'), "hello 的能力表与实际分发必须同源");
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes("home,nodePath,piPath,server,timeoutSec"), "参数按闭集校验，多一个少一个都拒绝");
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('event: "auth-url"'), "URL 走无 id 的事件帧，并带上发起它的 requestId");

@@ -10,7 +10,7 @@
  * - the target file is opened with O_NOFOLLOW and must be a regular file; bytes are bounded at 1 MiB; malformed
  *   JSON is a refusal that never overwrites the file and never returns the raw text;
  * - read responses are sanitized recursively: any object key matching SECRET_KEY has its value replaced by
- *   `configured`/`missing` and the path/status is returned separately. A patch may replace a secret only with a
+ *   'configured'/'missing' and the path/status is returned separately. A patch may replace a secret only with a
  *   new explicit string; the placeholder strings (and null/absent) mean keep the existing value;
  * - patch is RFC 7396 merge-patch (objects merge, arrays replace, null deletes non-secret keys), re-reads and
  *   checks expectedVersion, is bounded by depth/node/byte caps, then writes with a 0600 sibling temp file +
@@ -20,7 +20,7 @@
  */
 
 export const REMOTE_CONFIG_SOURCE = String.raw`"use strict";
-export function createConfigScope(home, fs, path, crypto) {
+export function createConfigScope(home, fs, path, crypto, agentSubdir) {
 	const FILES = { models: "models.json", settings: "settings.json", trust: "trust.json", mcp: "mcp.json" };
 	/* auth.json has dedicated value-free read and reference-based replacement operations. */
 	const READ_AUTH = "auth.json";
@@ -60,12 +60,15 @@ export function createConfigScope(home, fs, path, crypto) {
 		}
 		if (stats.isDirectory() !== true || stats.isSymbolicLink() === true) throw failure("CONFIG_PATH_UNSUPPORTED");
 	}
+	/* 'agentSubdir' lets the project resource layer reuse this scope for a project's own '.pi/settings.json':
+	   the same versioned, atomic, secret-aware reader and writer with a different base directory. */
 	function agentDirectory() {
 		const root = homeRoot();
-		ensureDirectory(root + "/.pi");
-		const agent = root + "/.pi/agent";
-		ensureDirectory(agent);
-		return agent;
+		const parts = String(agentSubdir === undefined ? ".pi/agent" : agentSubdir).split("/");
+		if (parts.length === 0 || parts.some(function (part) { return /^[A-Za-z0-9._-]+$/.test(part) === false || part === "." || part === ".."; })) throw failure("CONFIG_PATH_UNSUPPORTED");
+		let current = root;
+		for (const part of parts) { current += "/" + part; ensureDirectory(current); }
+		return current;
 	}
 	function readBytes(target) {
 		let named = null;
@@ -404,4 +407,4 @@ export function createConfigScope(home, fs, path, crypto) {
 `.replace(/\r?\n[\t ]*/g, "");
 
 /** sha256 of REMOTE_CONFIG_SOURCE as UTF-8 bytes; pinned here and re-checked by the helper contract tests. */
-export const REMOTE_HELPER_CONFIG_SHA256 = "040d221e91bc4e913d523ebcf7ed39e2eba6f031c8e0b1956bbb77a74686915b";
+export const REMOTE_HELPER_CONFIG_SHA256 = "e97358029fd537242cce7f3b5407b8b093bc965380b00011d4b3f975455e36b9";

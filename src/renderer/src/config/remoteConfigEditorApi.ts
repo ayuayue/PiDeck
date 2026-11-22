@@ -12,7 +12,7 @@ import { createRemoteAuthEditor } from "./remoteAuthEditorApi";
 import { createRemoteResourceEditorApi } from "./remoteResourceEditorApi";
 
 /** One instance per selected SSH host. No configuration operation falls through to local APIs. */
-export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, ensureConnected: (hostId: string) => Promise<{ ok: boolean }>) {
+export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, ensureConnected: (hostId: string) => Promise<{ ok: boolean }>, projectId?: string) {
 	const snapshots = new Map<string, RemotePiConfigSnapshot>();
 	const reads = new Map<string, number>();
 	const secretSources: RemoteConfigSecretSource[] = [];
@@ -32,7 +32,7 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 		catalogPending = undefined;
 	}
 	const authEditor = createRemoteAuthEditor(api, hostId, connected, resetCatalog);
-	const resources = createRemoteResourceEditorApi(api, hostId, connected);
+	const resources = createRemoteResourceEditorApi(api, hostId, connected, projectId);
 	async function read(file: PiConfigFileKey, view = "form") {
 		const key = `${view}:${file}`;
 		const started = epoch;
@@ -108,9 +108,16 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 	const unsupported = async (): Promise<never> => {
 		throw new Error(REMOTE_CONFIG_CODES.providerOperationUnsupported);
 	};
-	/** 远端只有主机 HOME 下那一层：项目 .pi/mcp.json 不在远端配置作用域里。 */
-	function globalScopeOnly(scope?: McpConfigScope): void {
-		if (scope?.scope === "project") throw new Error(REMOTE_MCP_CODES.projectScopeUnsupported);
+	/**
+	 * 这次 MCP 调用属于哪一层。
+	 *
+	 * 项目层由同一台主机上「限定在该项目根」的会话服务，只读该项目的 .pi/mcp.json；项目 id 未知或与当前页
+	 * 不符时拒绝，而不是退回主机全局文件（那会让用户在项目页里改到主机的配置）。
+	 */
+	function mcpLayer(scope?: McpConfigScope): { scope: "project"; projectId: string } | Record<string, never> {
+		if (scope?.scope !== "project") return {};
+		if (projectId === undefined || scope.projectId !== projectId) throw new Error(REMOTE_MCP_CODES.projectScopeUnsupported);
+		return { scope: "project", projectId };
 	}
 	let homePath: Promise<string> | undefined;
 	function home(): Promise<string> {
@@ -126,31 +133,31 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 		return homePath;
 	}
 	async function mcpSnapshot(scope?: McpConfigScope): Promise<McpConfigSnapshot> {
-		globalScopeOnly(scope);
+		const layer = mcpLayer(scope);
 		await connected();
-		const result = await api.remotePiMcp(hostId, { action: "snapshot" });
+		const result = await api.remotePiMcp(hostId, { action: "snapshot", ...layer });
 		if (result.action !== "snapshot" || typeof result.snapshot !== "object" || result.snapshot === null) throw new Error(REMOTE_MCP_CODES.fileInvalid);
 		return result.snapshot as McpConfigSnapshot;
 	}
 	async function mcpSave(data: McpConfigFile, scope?: McpConfigScope, expectedRevision?: string): Promise<{ valid: boolean; error?: string; conflict?: boolean }> {
-		globalScopeOnly(scope);
+		const layer = mcpLayer(scope);
 		await connected();
-		const result = await api.remotePiMcp(hostId, { action: "save", file: data as Record<string, unknown>, expectedVersion: expectedRevision });
+		const result = await api.remotePiMcp(hostId, { action: "save", file: data as Record<string, unknown>, expectedVersion: expectedRevision, ...layer });
 		if (result.action !== "save") throw new Error(REMOTE_MCP_CODES.fileInvalid);
 		return result.valid ? { valid: true } : { valid: false, error: result.error, conflict: result.conflict };
 	}
 	async function mcpListStatus(scope?: McpConfigScope): Promise<McpCliListResult> {
-		globalScopeOnly(scope);
+		const layer = mcpLayer(scope);
 		await connected();
-		const result = await api.remotePiMcp(hostId, { action: "list" });
+		const result = await api.remotePiMcp(hostId, { action: "list", ...layer });
 		const report = result.action === "list" ? (result.report as McpCliListResult | undefined) : undefined;
 		if (!report || !Array.isArray(report.servers)) throw new Error(REMOTE_MCP_CODES.commandFailed);
 		return report;
 	}
 	async function mcpLogout(server: string, scope?: McpConfigScope): Promise<{ ok: boolean; output: string }> {
-		globalScopeOnly(scope);
+		const layer = mcpLayer(scope);
 		await connected();
-		const result = await api.remotePiMcp(hostId, { action: "logout", server });
+		const result = await api.remotePiMcp(hostId, { action: "logout", server, ...layer });
 		if (result.action !== "logout") throw new Error(REMOTE_MCP_CODES.invalid);
 		return { ok: result.ok, output: result.output };
 	}
@@ -228,13 +235,15 @@ export function createRemoteConfigEditorApi(api: PiDesktopApi, hostId: string, e
 			mcpListStatus,
 			// 登录在主机上跑，授权 URL 由主进程按 event.sender 回推到本窗口（McpTab 已有的 onMcpLoginUrl 订阅负责展示）。
 			mcpLogin: async (server: string, timeoutSec?: number, scope?: McpConfigScope, operationId?: string): Promise<{ ok: boolean; output: string }> => {
-				globalScopeOnly(scope);
+				const layer = mcpLayer(scope);
 				await connected();
-				const result = await api.remotePiMcp(hostId, { action: "login", server, timeoutSec: typeof timeoutSec === "number" && Number.isInteger(timeoutSec) && timeoutSec > 0 ? Math.min(timeoutSec, 600) : 240, ...(operationId === undefined ? {} : { operationId }) });
+				const result = await api.remotePiMcp(hostId, { action: "login", server, timeoutSec: typeof timeoutSec === "number" && Number.isInteger(timeoutSec) && timeoutSec > 0 ? Math.min(timeoutSec, 600) : 240, ...(operationId === undefined ? {} : { operationId }), ...layer });
 				if (result.action !== "login") throw new Error(REMOTE_MCP_CODES.invalid);
 				return { ok: result.ok, output: result.output };
 			},
 			mcpLogout,
+			// AI 设置技能是 PiDeck 随包/本机资源，远端主机上没有它可装：明确失败，不假装装到了主机上。
+			installMcpSetupSkill: async () => ({ success: false }),
 		},
 	};
 	/** Raw and structured drafts keep separate versions so one saved view cannot overwrite the other. */
