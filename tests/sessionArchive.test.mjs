@@ -345,3 +345,141 @@ test("summary messageCount ignores pi 0.86 system message entries", async () => 
 		rmSync(home, { recursive: true, force: true });
 	}
 });
+
+function writeSubagent(filePath, parentSession, cwd = dirname(filePath), name = "scout#1234abcd") {
+	writeSession(filePath, [
+		{ type: "session", cwd, parentSession },
+		{ type: "session_info", name },
+	]);
+}
+
+test("unarchive follows original flat and bundled parent paths but leaves independently archived forks", async (t) => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-unarchive-tree-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
+	const root = join(home, ".pi", "agent", "sessions");
+	const dir = join(root, "project");
+	const parent = join(dir, "parent.jsonl");
+	const child = join(dir, "child.jsonl");
+	const nested = join(dir, "child", "run", "nested.jsonl");
+	const grandchild = join(dir, "elsewhere", "grandchild.jsonl");
+	const leaf = join(dir, "leaf.jsonl");
+	const fork = join(dir, "fork.jsonl");
+	const forkChild = join(dir, "fork-child.jsonl");
+	writeSession(parent, healthySession);
+	writeSubagent(child, "parent.jsonl");
+	writeSession(nested, healthySession);
+	writeSubagent(grandchild, nested);
+	writeSubagent(leaf, join("elsewhere", "grandchild.jsonl"), dir);
+	writeSubagent(fork, parent, dir, "my fork");
+	writeSubagent(forkChild, fork);
+	const { SessionScanner } = loadSessionScanner(home);
+	const scanner = new SessionScanner();
+	const archivedParent = await scanner.archive(parent);
+	for (const file of [child, grandchild, leaf]) await scanner.archive(file);
+	const archivedFork = await scanner.archive(fork);
+	const archivedForkChild = await scanner.archive(forkChild);
+
+	assert.equal(await scanner.unarchive(archivedParent), parent);
+	for (const file of [parent, child, nested, grandchild, leaf]) assert.ok(existsSync(file), file);
+	assert.ok(!existsSync(fork) && !existsSync(forkChild));
+	assert.ok(existsSync(archivedFork) && existsSync(archivedForkChild));
+	assert.deepEqual(JSON.parse(readFileSync(join(dirname(archivedParent), "index.json"), "utf8")), { [archivedFork]: fork, [archivedForkChild]: forkChild });
+});
+
+test("unarchive checks every destination before moving any member of the subtree", async (t) => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-unarchive-conflict-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
+	const root = join(home, ".pi", "agent", "sessions");
+	const parent = join(root, "parent.jsonl");
+	const child = join(root, "child.jsonl");
+	const sibling = join(root, "child");
+	writeSession(parent, healthySession);
+	writeSubagent(child, parent);
+	writeSession(join(sibling, "nested.jsonl"), healthySession);
+	const { SessionScanner } = loadSessionScanner(home);
+	const scanner = new SessionScanner();
+	const archivedParent = await scanner.archive(parent);
+	const archivedChild = await scanner.archive(child);
+	const index = join(dirname(archivedParent), "index.json");
+	const before = readFileSync(index, "utf8");
+	for (const conflict of [child, sibling]) {
+		writeFileSync(conflict, "occupied");
+		await assert.rejects(scanner.unarchive(archivedParent), /原路径已被占用/);
+		assert.equal(readFileSync(conflict, "utf8"), "occupied");
+		assert.ok(!existsSync(parent) && existsSync(archivedParent) && existsSync(archivedChild));
+		assert.equal(readFileSync(index, "utf8"), before);
+		rmSync(conflict);
+	}
+	await scanner.unarchive(archivedParent);
+	assert.ok(existsSync(child) && existsSync(join(sibling, "nested.jsonl")));
+});
+
+test("same-named sessions keep their bundled directories with the corresponding archived file", async (t) => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-unarchive-name-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
+	const root = join(home, ".pi", "agent", "sessions");
+	const first = join(root, "first", "parent.jsonl");
+	const second = join(root, "second", "parent.jsonl");
+	const nested = join(root, "second", "parent", "nested.jsonl");
+	const flat = join(root, "second", "flat.jsonl");
+	writeSession(first, healthySession);
+	writeSession(second, healthySession);
+	writeSession(nested, healthySession);
+	writeSubagent(flat, nested);
+	const { SessionScanner } = loadSessionScanner(home);
+	const scanner = new SessionScanner();
+	const archivedFirst = await scanner.archive(first);
+	const archivedSecond = await scanner.archive(second);
+	await scanner.archive(flat);
+
+	await scanner.unarchive(archivedFirst);
+	assert.ok(!existsSync(join(root, "first", "parent")), "the first archive must not claim the second archive's directory");
+	await scanner.unarchive(archivedSecond);
+	assert.ok(existsSync(nested) && existsSync(flat));
+});
+
+test("restoring can be retried after a descendant finishes and the parent's index update fails", async (t) => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-unarchive-retry-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
+	const root = join(home, ".pi", "agent", "sessions");
+	const parent = join(root, "parent.jsonl");
+	const child = join(root, "child.jsonl");
+	const nested = join(root, "parent", "nested.jsonl");
+	writeSession(parent, healthySession);
+	writeSession(nested, healthySession);
+	writeSubagent(child, parent);
+	const { SessionScanner } = loadSessionScanner(home);
+	const scanner = new SessionScanner();
+	const archivedParent = await scanner.archive(parent);
+	await scanner.archive(child);
+	const remove = scanner.removeArchiveEntry.bind(scanner);
+	scanner.removeArchiveEntry = (file, wsl) => {
+		if (file === archivedParent) throw new Error("simulated index write failure");
+		return remove(file, wsl);
+	};
+	await assert.rejects(scanner.unarchive(archivedParent), /simulated index write failure/);
+	assert.ok(existsSync(child) && existsSync(archivedParent) && !existsSync(nested));
+	assert.deepEqual(JSON.parse(readFileSync(join(dirname(archivedParent), "index.json"), "utf8")), { [archivedParent]: parent });
+	scanner.removeArchiveEntry = remove;
+	await scanner.unarchive(archivedParent);
+	assert.ok(existsSync(parent) && existsSync(nested));
+});
+
+test("overlapping parent and child restore requests leave the index consistent", async (t) => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-unarchive-overlap-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
+	const root = join(home, ".pi", "agent", "sessions");
+	const parent = join(root, "parent.jsonl");
+	const child = join(root, "child.jsonl");
+	writeSession(parent, healthySession);
+	writeSubagent(child, parent);
+	const { SessionScanner } = loadSessionScanner(home);
+	const scanner = new SessionScanner();
+	const archivedParent = await scanner.archive(parent);
+	const archivedChild = await scanner.archive(child);
+	const [parentResult, childResult] = await Promise.allSettled([scanner.unarchive(archivedParent), scanner.unarchive(archivedChild)]);
+	assert.equal(parentResult.value, parent);
+	assert.equal(childResult.status, "rejected");
+	assert.ok(existsSync(parent) && existsSync(child));
+	assert.deepEqual(JSON.parse(readFileSync(join(dirname(archivedParent), "index.json"), "utf8")), {});
+});
