@@ -175,6 +175,7 @@
     "asarUnpack": [
       "node_modules/sql.js/dist/*.wasm",
       "out/main/hostEntry.js",
+      "out/main/runnerConsolePreload.js",
       "node_modules/node-pty/**",
       "node_modules/@deepseek-ai/dsh-subprocess-local/node_modules/node-pty/**",
       "node_modules/**/@img/sharp-*/**",

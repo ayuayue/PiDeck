@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
-import { installHiddenConsolePatch, installHostHiddenConsole, installRunnerNodeModeEnv, installRunnerPreloadEnv, getHiddenConsoleMode, configureDshRunnerNodeSidecar, getDshRunnerNodeSidecar } from "./hideChildConsoles";
+import { configureDshRunnerNodeSidecar, decideDshHostConsolePolicy, getDshRunnerNodeSidecar, getHiddenConsoleMode, installHiddenConsolePatch, installHostHiddenConsole, installRunnerNodeModeEnv, installRunnerPreloadEnv } from "./hideChildConsoles";
 import { DSH_RUNNER_NODE_ENV } from "./dshRunnerNodeSidecar";
 import { agentPresetsRow, agentTeamPresetPatchPath, dshSubagentModelSelectionSettingsRow, dshWebAgentPlaneDisableRows } from "./dshPresetComposition";
 import { prepareDshHostProfile } from "./dshHostProfile";
@@ -105,10 +105,10 @@ async function main(): Promise<void> {
 	//    **host 进程环境**经 IPC 下发，spawn 补丁够不着；不置该变量它就以 GUI 模式跑
 	//    → 事件循环永不退出 → 每条沙箱命令挂满 120s 工具超时（2026-09-12 进程树实证，
 	//    详见 hideChildConsoles.installRunnerNodeModeEnv）。
-	// 4) installRunnerPreloadEnv：把 runner preload 的 NODE_OPTIONS 同样写进 host
-	//    process.env（与 3) 同一缺口）：第二级 ACL runner 拿不到 preload 就没有
-	//    可继承的控制台，它用 CreateProcessAsUserW（无 CREATE_NO_WINDOW）拉起 pwsh
-	//    时 Windows 会新建【可见】控制台——命令秒回但每条弹黑窗口（2026-09-12 实测）。
+	// 4) installRunnerPreloadEnv：仅在无 CUI node sidecar 的兜底模式（injectRunnerPreloadEnv）
+	//    把 runner preload 的 NODE_OPTIONS 写进 host 自己的 process.env，供未改写的
+	//    第二级 electron ACL runner 自建隐藏控制台；sidecar 模式下两级 runner 均已
+	//    改写成 node.exe + CREATE_NO_WINDOW，跳过注入以避免 NODE_OPTIONS 污染沙箱子进程。
 	try {
 		const runtimeRequire = createRequire(join(fileURLToPath(nodeModulesUrl), "package.json"));
 		// npm 0.2 依赖树可能把 koffi 留在 subprocess-local 下；沿实际 consumer 解析，
@@ -121,10 +121,16 @@ async function main(): Promise<void> {
 		// 打包版从 asar 内 createRequire(__dirname) 可解析（native 落 asar.unpacked）。
 	}
 	configureDshRunnerNodeSidecar(process.env[DSH_RUNNER_NODE_ENV]);
+	const consolePolicy = decideDshHostConsolePolicy({
+		platform: process.platform,
+		sidecarPath: getDshRunnerNodeSidecar(),
+	});
 	installHostHiddenConsole();
 	installHiddenConsolePatch();
 	installRunnerNodeModeEnv();
-	installRunnerPreloadEnv();
+	if (consolePolicy.injectRunnerPreloadEnv) {
+		installRunnerPreloadEnv();
+	}
 	// 诊断（黑窗口排查入口）：host 的 stdout 不被 DshHostProcess 转发（只接 stderr），
 	// 因此这条也用 console.error 落主进程日志。mode=create-no-window 是现行策略；
 	// 若仍弹窗，下一步看 runner spawn policy 与 sidecar 是否解析到。
