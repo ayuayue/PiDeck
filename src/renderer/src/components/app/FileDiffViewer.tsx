@@ -747,7 +747,7 @@ export function FileDiffViewer(props: {
 						{!isDiffMode && preview && isMarkdown && (
 							// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 							<div className="markdown-body markdown-preview-chrome h-full overflow-y-auto px-6 py-6 text-body text-text-primary font-sans">
-								<FileLinkBaseProvider baseDir={markdownPreviewBaseDir} projectId={props.fileTarget?.projectId ?? fileLinkContext.scope?.projectId} projectRoot={markdownPreviewProjectRoot} sessionId={fileLinkContext.sessionId}>
+								<FileLinkBaseProvider baseDir={markdownPreviewBaseDir} projectId={props.fileTarget?.projectId ?? fileLinkContext.scope?.projectId} projectRoot={markdownPreviewProjectRoot} remoteRoot={fileLinkContext.remoteRoot} sessionId={fileLinkContext.sessionId}>
 									<MarkdownStream text={content} onOpenExternal={openPreviewExternal} remarkPlugins={FILE_PREVIEW_REMARK_PLUGINS} rehypePlugins={FILE_PREVIEW_REHYPE_PLUGINS} urlTransform={defaultUrlTransform} />
 								</FileLinkBaseProvider>
 							</div>

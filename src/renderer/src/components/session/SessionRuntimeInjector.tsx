@@ -6,6 +6,7 @@ import { claimSessionRuntimeUiResponseAtom, rollbackSessionRuntimeUiResponseAtom
 import { recordAskEchoAtom } from "../../atoms/ask-echo-atoms";
 import { sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily, sessionRuntimeUiBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { projectByIdAtomFamily } from "../../atoms/project-atoms";
+import { isRemoteProject } from "../../../../shared/projectLocation";
 import { useSessionRuntimeController } from "../../hooks/useSessionRuntimeController";
 import { createSessionRuntimeUiResponder, SessionRuntimeUiOverlay } from "../overlays/SessionRuntimeUiOverlay";
 import type { QueuedPrompt } from "../../hooks/useQueuedPrompt";
@@ -64,16 +65,18 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 	// owner 解析失败或目标不可落地时该栏不挂 dock。
 	const paneProjectId = currentSessionRuntime?.projectId ?? sessionRecord?.projectId ?? "";
 	const paneProject = useAtomValue(projectByIdAtomFamily(paneProjectId));
+	// 远端项目没有本机路径：项目根只能取 `locator.remotePath`（远端主机上的目录）。
+	const paneRemoteRoot = paneProject !== undefined && isRemoteProject(paneProject) ? paneProject.locator.remotePath : undefined;
 	const paneFileContext = React.useMemo(
 		() => ({
-			// runtime cwd 是该会话真正执行工具的目录；未启动时回退 catalog 项目根。
-			baseDir: currentSessionRuntime?.cwd ?? paneProject?.path,
+			// runtime cwd 是该会话真正执行工具的目录；未启动时回退 catalog 项目根（本机 path / 远端 remotePath）。
+			baseDir: currentSessionRuntime?.cwd ?? paneRemoteRoot ?? paneProject?.path,
 			projectId: paneProjectId || undefined,
 			projectRoot: paneProject?.path,
 			// 项目外路径的安全等级判定按本栏会话走，分屏两栏各自的安全等级互不干扰。
 			sessionId: currentSessionId,
 		}),
-		[currentSessionId, currentSessionRuntime?.cwd, paneProject?.path, paneProjectId],
+		[currentSessionId, currentSessionRuntime?.cwd, paneProject?.path, paneProjectId, paneRemoteRoot],
 	);
 	const openPaneFile = React.useCallback((path: string, line?: number) => services.onOpenFile(path, line, paneFileContext), [paneFileContext, services.onOpenFile]);
 	const paneTerminal = React.useMemo(
@@ -263,7 +266,7 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 	}, [currentSessionId, currentSessionRuntime, rewindConfirm, services, setHistoryMutationOverlay]);
 
 	return (
-		<FileLinkBaseProvider baseDir={paneFileContext.baseDir} projectId={paneFileContext.projectId} projectRoot={paneFileContext.projectRoot} sessionId={currentSessionId}>
+		<FileLinkBaseProvider baseDir={paneFileContext.baseDir} projectId={paneFileContext.projectId} projectRoot={paneFileContext.projectRoot} remoteRoot={paneRemoteRoot} sessionId={currentSessionId}>
 			<>
 				<SessionView
 					sessionId={currentSessionId}

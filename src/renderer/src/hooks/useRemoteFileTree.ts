@@ -9,6 +9,7 @@ import { acquireProjectFactSubscription } from "../services/projectServiceFactSu
 import { fileTreeIgnoredField } from "../utils/directoryPageNode";
 import { parseFileTreeKey, projectFileKey } from "../utils/fileTreeLazy";
 import { createLazyDirTreeController, lazyDirTreeInitialState, type LazyDirTreeController, type LazyDirTreeState } from "../utils/lazyDirTree";
+import { latestRemoteFolderReveal, subscribeRemoteFolderReveal, type RemoteFolderRevealRequest } from "../utils/remoteFolderReveal";
 import { readRemoteDirectoryPageWithRetry } from "../utils/remoteDirectoryPageRetry";
 
 /**
@@ -192,6 +193,23 @@ export function useRemoteFileTree(project: RemoteProject, services: ProjectServi
 	const setCurrentDir = useCallback((dir: string) => {
 		controller.current?.setCurrentDir(dir);
 	}, []);
+
+	/**
+	 * 外部「定位这个项目的某个目录」请求：远端目录链接在本机没有文件管理器入口，
+	 * 落地方式就是把这棵树展开到该目录。抽屉先打开、树后挂载，所以先用 latest 补一拍再订阅。
+	 * 项目身份 + nonce 双重判据：别的项目的请求不消费，同一次请求不会因重渲染重复展开。
+	 */
+	useEffect(() => {
+		let handledNonce = -1;
+		const consume = (request: RemoteFolderRevealRequest) => {
+			if (request.projectId !== projectId || request.nonce === handledNonce) return;
+			handledNonce = request.nonce;
+			void reveal(request.relativePath);
+		};
+		const pending = latestRemoteFolderReveal();
+		if (pending !== null) consume(pending);
+		return subscribeRemoteFolderReveal(consume);
+	}, [projectId, reveal]);
 
 	// 行组件的展开身份是 projectFileKey；controller 内部只认项目相对路径。
 	const expanded = useMemo(() => new Set([...state.expanded].map((dir) => projectFileKey({ projectId, relativePath: dir }))), [state.expanded, projectId]);

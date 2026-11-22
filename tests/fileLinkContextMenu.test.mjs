@@ -98,11 +98,12 @@ test("项目外路径：菜单系统动作也过安全等级门，项目内仍�
 
 test("可执行/脚本后缀对项目外不提供「默认方式打开」", () => {
 	// canOpenWithDefaultApp：项目内始终给；项目外由 isExecutableLikePath 把关（shell.openPath 等于执行）
-	assert.match(linkSource, /const\s+canOpenWithDefaultApp\s*=\s*resolvedPath\s*!==\s*null\s*\|\|\s*\(externalPath\s*!==\s*null\s*&&\s*!isExecutableLikePath\(externalPath\)\)/);
+	assert.match(linkSource, /const\s+canOpenWithDefaultApp\s*=\s*remoteTarget\s*===\s*null\s*&&\s*\(resolvedPath\s*!==\s*null\s*\|\|\s*\(externalPath\s*!==\s*null\s*&&\s*!isExecutableLikePath\(externalPath\)\)\)/);
 	assert.match(menuBlock(), /\{canOpenWithDefaultApp\s*&&\s*\(/);
 	assert.match(linkSource, /import\s*\{\s*isExecutableLikePath\s*\}\s*from\s*"\.\.\/\.\.\/utils\/externalPathAccessPolicy"/);
-	// 「在资源管理器中打开」无条件渲染（menuPath 保证菜单有目标），只唤起文件管理器、不读内容
-	assert.match(menuBlock(), /<DropdownMenuItem\s+onSelect=\{openInExplorer\}>/);
+	// 「在资源管理器中打开」只唤起文件管理器、不读内容；远端 target 在本机没有目录可定位，因此转为禁用
+	assert.match(menuBlock(), /<DropdownMenuItem\s+onSelect=\{openInExplorer\}\s+disabled=\{!canRevealInExplorer\}>/);
+	assert.match(linkSource, /const\s+canRevealInExplorer\s*=\s*remoteTarget\s*===\s*null;/);
 });
 
 test("复制相对路径在项目外禁用", () => {
@@ -127,13 +128,29 @@ test("适配键方案 C：Ctrl/⌘ + 左键走系统默认应用，普通左键�
 	assert.ok(start >= 0 && end > start, "MarkdownLink should keep handleClick before handleContextMenu");
 	const clickBlock = linkSource.slice(start, end);
 	// 同时接受 ctrlKey 与 metaKey：Windows/Linux 用 Ctrl、macOS 用 ⌘
-	assert.match(clickBlock, /if\s*\(\(e\.ctrlKey\s*\|\|\s*e\.metaKey\)\s*&&\s*resolvedPath\)\s*\{[\s\S]{0,80}?openWithDefaultApp\(\);\s*return;\s*\}/);
+	assert.match(clickBlock, /if\s*\(\(e\.ctrlKey\s*\|\|\s*e\.metaKey\)\s*&&\s*resolvedPath\s*&&\s*remoteTarget\s*===\s*null\)\s*\{[\s\S]{0,80}?openWithDefaultApp\(\);\s*return;\s*\}/);
+	// 远端 target 没有本机文件：修饰键不能让点击落到 shell.openPath 上
+	assert.match(linkSource, /remoteTarget\s*===\s*null\s*\)\s*\{\s*\n\s*openWithDefaultApp\(\);/);
 	// 修饰键分支必须先于内置编辑器跳转，否则两条链路都会触发
 	const modifierIndex = clickBlock.search(/if\s*\(\(e\.ctrlKey\s*\|\|\s*e\.metaKey\)/);
 	const editorIndex = clickBlock.indexOf("onOpenFile(fileLinkPath, fileLinkLine)");
 	assert.ok(editorIndex > modifierIndex, "the modifier branch must run before the built-in editor route");
 	// 无修饰键时仍走 onOpenFile（默认体验不退化）
 	assert.match(clickBlock, /if\s*\(onOpenFile\s*&&\s*fileLinkPath\)\s*\{[\s\S]{0,80}?onOpenFile\(fileLinkPath, fileLinkLine\)/);
+});
+
+// 远端（SSH）项目的文件链接：文件在远端主机上，本机既没有它也没有它的目录，
+// 所以系统动作不成立；但「复制相对路径」必须给出项目内身份（远端没有本机绝对路径可用）。
+test("远端项目链接：不出本机系统动作，复制相对路径用项目内身份", () => {
+	assert.match(linkSource, /import \{ useFileLinkContext, useFilePathExists, useRemoteFileLinkTarget \} from "\.\/FileLinkBase"/);
+	assert.match(linkSource, /const remoteTarget = useRemoteFileLinkTarget\(fileLinkPath\);/);
+	// 相对路径优先取远端 target（项目内身份），只有本机项目才退回词法剥离
+	assert.match(linkSource, /const relativePath = remoteTarget !== null \? remoteTarget\.relativePath : resolvedPath && projectRoot \? relativeFilePathWithinRoot\(resolvedPath, projectRoot\) : null;/);
+	// 远端 target 不提供「默认方式打开」「在资源管理器中打开」：本机 shell 打开的是另一台机器上的路径
+	assert.match(linkSource, /const canOpenWithDefaultApp = remoteTarget === null && \(/);
+	assert.match(linkSource, /const canRevealInExplorer = remoteTarget === null;/);
+	// hover 提示也不能再承诺修饰键手势
+	assert.match(linkSource, /title=\{isFileLink \? \(remoteTarget === null \?/);
 });
 
 test("修饰键文案平台化，且菜单快捷键与左键同源", () => {
