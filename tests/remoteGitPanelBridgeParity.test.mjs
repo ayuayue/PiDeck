@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { createRemoteGitPanelBridge } = loadTsCommonJs("src/renderer/src/components/workspace/remoteGitPanelBridge.ts");
+const { createRemoteGitPanelBridge, REMOTE_GIT_LOG_PAGE_LIMIT } = loadTsCommonJs("src/renderer/src/components/workspace/remoteGitPanelBridge.ts");
+const { REMOTE_GIT_LOG_MAX_COUNT } = loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
 const { zhCN } = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 
 const projectId = "project-1";
@@ -111,6 +112,18 @@ test("历史过滤：下拉短名同样补成全名，避免 helper 拒绝整块
 	const bridge = createRemoteGitPanelBridge(f.services, root);
 	await bridge.commitLog(projectId, { maxEntries: 30, ref: "release", allBranches: false });
 	assert.deepEqual(plain(f.calls.find(([name]) => name === "history")[1]), { maxCount: 30, ref: "refs/heads/release", all: false });
+});
+
+test("分页请求夹在 git.log 的 maxCount 上限内：连续点「加载更多」不会把整页打成失败", async () => {
+	const f = fakeService();
+	const bridge = createRemoteGitPanelBridge(f.services, root);
+	// 面板每点一次 +30，第 4 次是 120；helper 上限 100，超了整页 GIT_RESULT_INVALID。
+	await bridge.commitLog(projectId, { maxEntries: 120 });
+	assert.equal(plain(f.calls.find(([name]) => name === "history")[1]).maxCount, REMOTE_GIT_LOG_PAGE_LIMIT);
+	assert.equal(REMOTE_GIT_LOG_PAGE_LIMIT, REMOTE_GIT_LOG_MAX_COUNT, "上限必须与 main/helper 的常量一致");
+	// 未指定页大小时不补默认值，交给 helper 自己的缺省。
+	await bridge.commitLog(projectId, {});
+	assert.equal(f.calls.filter(([name]) => name === "history").at(-1)[1].maxCount, undefined);
 });
 
 test("旧版 helper：不发送新参数、不显示总数，历史保持 HEAD-only", async () => {

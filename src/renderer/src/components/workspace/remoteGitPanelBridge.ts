@@ -24,6 +24,18 @@ import { remoteGitErrorMessage, remoteGitErrorText } from "../../utils/gitErrorP
 const AHEAD_TTL_MS = 30_000;
 const REF_DECORATION_TTL_MS = 15_000;
 
+/**
+ * `git.log` 的 `maxCount` 硬上限：main 的 REMOTE_GIT_LOG_MAX_COUNT 与 helper 是同一个 100，超了整页
+ * 以 GIT_RESULT_INVALID 拒绝。面板「加载更多」每次 +30 且自己没有上限，第 4 次点击就会把图谱打成
+ * 一句通用失败文案（且请求夹不回来，刷新也只是重发同一次超限请求）。
+ */
+export const REMOTE_GIT_LOG_PAGE_LIMIT = 100;
+
+/** 请求页大小夹到协议上限；未指定页大小时保持缺失，让 helper 用自己的默认值。 */
+export function clampRemoteLogPageSize(requested?: number): number | undefined {
+	return requested === undefined ? undefined : Math.min(requested, REMOTE_GIT_LOG_PAGE_LIMIT);
+}
+
 /** 远端 ref 只有全名；面板下拉给的是短名（`main` / `v1.0`），比较入口必须先补成全名。 */
 const REF_NAMES = { heads: "refs/heads/", tags: "refs/tags/" } as const;
 
@@ -147,7 +159,8 @@ export function createRemoteGitPanelBridge(services: ProjectServices, repo: Proj
 			run(async () => {
 				const filtered = upgraded();
 				const ref = filtered && options?.ref !== undefined ? await fullRefOf(options.ref) : undefined;
-				const page = await services.git.history({ maxCount: options?.maxEntries, ...(ref === undefined ? {} : { ref }), ...(filtered && options?.allBranches !== undefined ? { all: options.allBranches } : {}) }, repo);
+				// 夹到上限后返回的条数 < 面板的 loadCount，按「等于 loadCount 才有更多」的判据按钮自然消失。
+				const page = await services.git.history({ maxCount: clampRemoteLogPageSize(options?.maxEntries), ...(ref === undefined ? {} : { ref }), ...(filtered && options?.allBranches !== undefined ? { all: options.allBranches } : {}) }, repo);
 				const decoration = page.commits.length === 0 ? undefined : await decorations().catch(() => undefined);
 				return page.commits.map((commit) => {
 					const entry = entryOf(commit);
