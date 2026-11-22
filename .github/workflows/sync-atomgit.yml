@@ -74,6 +74,7 @@ jobs:
             exit 1
           fi
           # 令牌走凭据助手，不拼进 URL：失败信息里不会带出它。
+          # shellcheck disable=SC2016  # 这段是 git 的凭据助手，$ATOMGIT_TOKEN 由它在运行时展开
           push() {
             git -c credential.helper='!f() { echo username=ayuayue; echo "password=${ATOMGIT_TOKEN}"; }; f' \
               push https://atomgit.com/ayuayue/PiDeck-Lite.git "$@"
