@@ -12,6 +12,7 @@
 //
 // 为什么单独有 --selftest：真检查要读源码路由，只有源码克隆里才有。装了 PiDeck 的机器上
 // 只有技能副本，那里「判据自己还对不对」没法验证——判据坏了和判据不存在，后果相同。
+// 本脚本自己遵守的规则（四件齐）登记在 rules.mjs，由 check-rules.mjs 判：只存一处，不在这里抄第二份。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
