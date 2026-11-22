@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { buildSessionProjection, buildContextEntries, buildSessionPath, collectEffectiveEdits, parseReplacement, parseSessionEntries } = loadTsCommonJs("src/main/pi/sessionContextProjection.ts");
+const { buildSessionProjection, buildTimelineProjection, buildContextEntries, buildSessionPath, collectEffectiveEdits, parseReplacement, parseSessionEntries } = loadTsCommonJs("src/main/pi/sessionContextProjection.ts");
 
 /**
  * 跨 realm 归一化：loadTsCommonJs 在 vm 沙箱里求值，返回的数组/对象原型与宿主
@@ -234,6 +234,16 @@ test("context_edit：compaction 之后的编辑照常生效", () => {
 	const entries = [msg("u1", null, "user", "archived"), compact("c1", "u1", "u2"), msg("u2", "c1", "user", "kept"), { type: "context_edit", id: "e1", parentId: "u2", timestamp: "2026-01-01T00:00:02.000Z", targetId: "u2", replacement: { content: "edited kept" } }];
 	const projection = buildSessionProjection(entries);
 	assert.ok(projection.messages.some((message) => message.content === "edited kept"));
+});
+
+test("buildTimelineProjection：时间线展示完整历史，不按 compaction 裁剪", () => {
+	// 远端分页只能看到一个窗口，看不到更新的那条 compaction；按窗口内旧 compaction 裁剪会把整段
+	// 用户自己的消息当成「已被摘要替代」而消失（真机：远端会话上翻时消息成段不见）。
+	const entries = [msg("u1", null, "user", "before-compaction"), compact("c1", "u1", "u2"), msg("u2", "c1", "user", "kept"), { type: "context_edit", id: "e1", parentId: "u2", timestamp: "2026-01-01T00:00:02.000Z", targetId: "u1", replacement: { content: "edited-before" } }];
+	// 上下文投影：u1 被压缩裁掉。
+	assert.deepEqual(plain(buildSessionProjection(entries).messages.map((message) => message.content)), ["kept"]);
+	// 时间线投影：同一套 context_edit 照常应用，但压缩前的历史不被隐藏。
+	assert.deepEqual(plain(buildTimelineProjection(entries).messages.map((message) => message.content)), ["edited-before", "kept"]);
 });
 
 test("parseReplacement：null=排除，含 content 的对象=替换，其余=无效（不当作排除）", () => {

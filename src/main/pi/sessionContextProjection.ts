@@ -224,10 +224,24 @@ function projectEntryMessages(entry: SessionEntryLike, edit?: EffectiveContextEd
  * 最后一条带 id 的条目）。
  */
 export function buildSessionProjection(entries: readonly SessionEntryLike[], leafId?: string): SessionProjection {
-	const byId = buildEntryIndex(entries);
-	const resolvedLeafId = leafId ?? findLastEntryId(entries);
-	const path = buildSessionPath(entries, resolvedLeafId, byId);
-	const contextEntries = buildContextEntries(path);
+	const path = buildSessionPath(entries, leafId ?? findLastEntryId(entries));
+	return projectPath(buildContextEntries(path), path);
+}
+
+/**
+ * 时间线投景：与 `buildSessionProjection` 同语义，但**不裁剪 compaction**。
+ *
+ * 为什么要单独一个入口：时间线展示的是「文件里曾经有什么」，压缩只改变模型上下文；
+ * 而远端分页只能看到一个窗口，窗口里看不到**最新**那条 compaction，按窗口内的旧 compaction
+ * 裁剪会把用户的历史成段掐掉（真机现象：远端会话上翻时整段自己的消息消失）。
+ * 本地历史页（`SessionHistoryReader`）也是完整展开，两个读路径必须一致。
+ */
+export function buildTimelineProjection(entries: readonly SessionEntryLike[], leafId?: string): SessionProjection {
+	const path = buildSessionPath(entries, leafId ?? findLastEntryId(entries));
+	return projectPath([...path], path);
+}
+
+function projectPath(contextEntries: SessionEntryLike[], path: SessionEntryLike[]): SessionProjection {
 	const edits = collectEffectiveEdits(contextEntries);
 	const projectedEntries: ProjectedSessionEntry[] = contextEntries.map((entry) => {
 		const id = entryIdOf(entry);

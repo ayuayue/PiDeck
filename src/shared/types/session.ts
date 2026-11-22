@@ -75,7 +75,7 @@ export type SessionMessagePage = {
 	 * 到顶（nextBefore === null）时缺省。
 	 */
 	nextBeforeEntryId?: string;
-	/** 会话文件版本（mtime:size）：渲染层比对检测压缩/外部改写，变化即丢弃已缓存的历史前缀。 */
+	/** 会话文件版本标识：本机为 `mtime:size`，远端为 `remote:<inode>:<mtime>:<size>`，用于跨页拒绝异代历史。 */
 	indexVersion?: string;
 };
 
@@ -603,7 +603,8 @@ export type SessionCommandErrorCode =
 	| "SESSION_COMMAND_FAILED"
 	| "SESSION_MODEL_NOT_FOUND"
 	/** 会话文件超出可安全编辑的上限（SessionFileEditor 的整读护栏，见 v8HeapLimits.ts）*/
-	| "SESSION_FILE_TOO_LARGE" | "SESSION_DRAFT_TOO_LARGE";
+	| "SESSION_FILE_TOO_LARGE"
+	| "SESSION_DRAFT_TOO_LARGE";
 
 export type SessionCommandError = {
 	code: SessionCommandErrorCode;

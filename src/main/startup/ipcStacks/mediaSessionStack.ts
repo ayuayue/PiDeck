@@ -19,7 +19,7 @@ import type { DshAgentManager } from "../../dsh/DshAgentManager";
 import type { SessionCatalog } from "../../sessions/SessionCatalog";
 import type { RemoteHostConnectionService } from "../../remote/RemoteHostConnectionService";
 import { REMOTE_MODEL_CATALOG_CODES, createRemoteModelCatalog } from "../../remote/RemotePiModelCatalog";
-import { createRemoteSessionHistoryReader } from "../../remote/RemoteSessionHistoryReader";
+import { createRemoteSessionHistoryReader, REMOTE_SESSION_HISTORY_TRANSPORT_BYTES } from "../../remote/RemoteSessionHistoryReader";
 import { createRemoteSessionArchive } from "../../remote/RemoteSessionArchive";
 import { createRemoteSessionDelete } from "../../remote/RemoteSessionDelete";
 import { createRemoteSessionHistoryWriter } from "../../remote/RemoteSessionHistoryWriter";
@@ -63,11 +63,11 @@ export interface MediaSessionStackContext {
 	readonly remoteFeatureEnabled: boolean;
 	readonly remoteHostServiceIfEnabled: () => Promise<import("../../remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
 	readonly remotePiConfig: import("../../config/RemotePiConfigBackend").RemotePiConfigBackend | undefined;
-	readonly runPinnedRemoteCommand: ({ hostId, remoteCommand }: { hostId: string; remoteCommand: string; timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+	readonly runPinnedRemoteCommand: ({ hostId, remoteCommand }: { hostId: string; remoteCommand: string; timeoutMs?: number; maxBuffer?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
 }
 
 export interface MediaSessionStackResult {
-	readonly readRemoteSessionHistoryPage: ((input: { hostId: string; locator: SshSessionLocator; before?: number }) => Promise<SessionMessagePage>) | undefined;
+	readonly readRemoteSessionHistoryPage: ((input: { hostId: string; locator: SshSessionLocator; before?: number; beforeEntryId?: string }) => Promise<SessionMessagePage>) | undefined;
 	readonly remotePiModelCatalog: RemoteModelCatalog | undefined;
 	readonly remoteModelCatalogForProject: ((projectId: string, sessionId: string, force: boolean) => Promise<import("../../../shared/types").ModelListReport | null>) | undefined;
 	readonly exportRemoteCatalogSessionHtml: ((sessionId: string) => Promise<Record<string, unknown> & { path: string }>) | undefined;
@@ -103,9 +103,11 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 	 * 那些机器上读错文件。
 	 */
 	const readRemoteSessionHistoryPage = remoteFeatureEnabled
-		? async (input: { hostId: string; locator: SshSessionLocator; before?: number }) => {
+		? async (input: { hostId: string; locator: SshSessionLocator; before?: number; beforeEntryId?: string }) => {
 				const reader = createRemoteSessionHistoryReader({
-					transport: { readRemoteWindow: runPinnedRemoteCommand },
+					// 一页 1 MiB，必须把传输层的输出缓冲从缺省 256 KiB 放宽到窗口上界之上；
+					// 其余远端短命令（扫描/Git/目录）仍用缺省。
+					transport: { readRemoteWindow: (input) => runPinnedRemoteCommand({ ...input, maxBuffer: REMOTE_SESSION_HISTORY_TRANSPORT_BYTES }) },
 					resolveSessionRoot: resolveRemoteSessionRoot,
 					project: (rawMessages, activeEntryIds) => agentManager.projectRemoteHistoryMessages(rawMessages, activeEntryIds),
 					logger: { warn: (message, details) => appLogger.warn("session", message, details) },

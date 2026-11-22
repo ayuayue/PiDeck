@@ -248,7 +248,14 @@ export function registerSessionMessageReadIpc(deps: SessionMessageReadIpcDeps): 
 			// 两者都是 number|null 的同一契约字段。`options.beforeEntryId` 是本地缓存路径的锚点，对远端不适用。
 			if (!readRemoteSessionHistoryPage) throw new Error("REMOTE_SESSION_HISTORY_UNAVAILABLE");
 			try {
-				return await readRemoteSessionHistoryPage({ hostId: remoteLocator.hostId, locator: remoteLocator, ...(typeof before === "number" ? { before } : {}) });
+				return await readRemoteSessionHistoryPage({
+					hostId: remoteLocator.hostId,
+					locator: remoteLocator,
+					...(typeof before === "number" ? { before } : {}),
+					// 跨页活动链种子（渲染层 `diskPage.nextBeforeEntryId`）：远端窗口最后一行未必在活动链上，
+					// 没有它下一页会把 rewind 掉的旧分支当正文（用户看到「顺序乱、夹着别处的对话」）。
+					...(options?.beforeEntryId ? { beforeEntryId: options.beforeEntryId } : {}),
+				});
 			} catch (error) {
 				// 失败必须是**可见的结构化失败**：渲染层靠 reject 显示明确错误态，而不是拿到空页
 				// 当成「这个会话没有历史」（远端路径/命令行/远端 stderr 都不进日志，只记稳定码与身份）。
