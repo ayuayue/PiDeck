@@ -57,5 +57,7 @@ export const REMOTE_HELPER_CAPABILITIES = [
 	"resources.togglePackage",
 	"resources.builtin",
 	"mcp.login",
+	/* Helper 1.38.0: in-place, revision-checked session JSONL maintenance (never the whole transcript over SSH). */
+	"session.maintain",
 ] as const;
 export type RemoteHelperCapability = (typeof REMOTE_HELPER_CAPABILITIES)[number];

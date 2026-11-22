@@ -17,6 +17,7 @@ function setup(enabled = true) {
 	const { registerRemoteProjectFileIpc } = loadTsCommonJs("src/main/ipc/remoteProjectFileIpc.ts", {
 		stubs: {
 			electron: { ipcMain: { handle: (channel, callback) => handlers.set(channel, callback) } },
+			"../remote/RemoteProjectTextTransfer": { createRemoteProjectTextTransfer: () => ({ download: async () => Buffer.alloc(0), replace: async () => ({ revision: {} }) }) },
 			"../remote/RemoteProjectFileService": {
 				createRemoteProjectFileService: () => ({
 					open: async (...args) => {
@@ -36,7 +37,7 @@ function setup(enabled = true) {
 			},
 		},
 	});
-	const port = registerRemoteProjectFileIpc({ enabled, service: () => undefined, locator: () => undefined });
+	const port = registerRemoteProjectFileIpc({ enabled, service: () => undefined, locator: () => undefined, textTransfer: {} });
 	return { calls, sender, port, invoke: async (channel, ...args) => structuredClone(await handlers.get(channel)({ sender }, ...args)) };
 }
 
@@ -44,7 +45,9 @@ test("editor IPC validates renderer input before touching remote service and ret
 	const f = setup();
 	for (const path of ["", "../secret", "/absolute", "x\n", "a\\b"]) assert.equal((await f.invoke("remote:project-text-open", "project", path)).ok, false);
 	assert.equal((await f.invoke("remote:project-text-save", "project", "code.ts", "text", "forged")).ok, false);
-	assert.equal((await f.invoke("remote:project-text-save", "project", "code.ts", "x".repeat(262145), "a".repeat(32))).code, "REMOTE_FILE_TOO_LARGE");
+	// 主进程重校验：8 MiB 上限按 UTF-8 字节算，超一个字节就拒绝，绝不把正文交给服务。
+	assert.equal((await f.invoke("remote:project-text-save", "project", "code.ts", "x".repeat(8 * 1024 * 1024 + 1), "a".repeat(32))).code, "REMOTE_FILE_TOO_LARGE");
+	assert.equal((await f.invoke("remote:project-text-save", "project", "code.ts", "中".repeat(3 * 1024 * 1024), "a".repeat(32))).code, "REMOTE_FILE_TOO_LARGE");
 	assert.equal(f.calls.length, 0);
 	const opened = await f.invoke("remote:project-text-open", "project", "code.ts");
 	assert.deepEqual(opened, { ok: true, value: { document: { content: "remote text", version: "a".repeat(32) } } });

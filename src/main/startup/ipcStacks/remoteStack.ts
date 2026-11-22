@@ -233,11 +233,9 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 	const resolveRemoteSftpBinary = (): Promise<RemoteSftpBinaryIdentity | undefined> => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }));
 	const remoteSftpCapabilityCache = createRemoteSftpCapabilityCache<RemoteSftpProbe>();
 	const remoteSftpCapabilityProbe = createRemoteSftpCapabilityProbe();
-	const remoteSftpDirectoryReader = createRemoteSftpDirectoryReader({
-		binary: resolveRemoteSftpBinary,
-		cache: remoteSftpCapabilityCache,
-		probe: remoteSftpCapabilityProbe,
-	});
+	/** 传输任务与文本正文（读/写）共用同一份执行器身份、能力缓存与探测：正文只走 SFTP。 */
+	const remoteSftpTransfer = { binary: resolveRemoteSftpBinary, cache: remoteSftpCapabilityCache, probe: remoteSftpCapabilityProbe };
+	const remoteSftpDirectoryReader = createRemoteSftpDirectoryReader(remoteSftpTransfer);
 	registerRemoteProjectTrustIpc({ enabled: remoteFeatureEnabled, trust: () => remoteProjectTrustService });
 	const remoteProjectIpc = registerRemoteProjectIpc({
 		enabled: remoteFeatureEnabled,
@@ -304,6 +302,7 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
+		textTransfer: remoteSftpTransfer,
 		// T4：一次文件写只走一份 owner 的失效矩阵（目录矩阵 + 全部已缓存仓库 status，一条通知）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
@@ -316,9 +315,7 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
-		binary: resolveRemoteSftpBinary,
-		cache: remoteSftpCapabilityCache,
-		probe: remoteSftpCapabilityProbe,
+		...remoteSftpTransfer,
 		// T4：上传下载完成/结果未知同样走单一 owner（目录 + Git status 一次标脏）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);

@@ -1,10 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { RemoteTextDocument } from "../../shared/types/remoteFiles";
-import { buildRemoteProjectFileCommand, REMOTE_PROJECT_TEXT_MAX_BYTES, REMOTE_PROJECT_TEXT_READ_CHUNK, REMOTE_PROJECT_TEXT_WRITE_CHUNK, validateRemoteProjectTextPath } from "./RemoteProjectFileCommands";
+import { buildRemoteProjectFileCommand, REMOTE_PROJECT_TEXT_MAX_BYTES, validateRemoteProjectTextPath } from "./RemoteProjectFileCommands";
+import type { RemoteProjectTextTransfer } from "./RemoteProjectTextTransfer";
+import type { RemoteProjectUploadSession } from "./RemoteProjectUploadTransaction";
 import { readRemoteSessionFileRevision, type RemoteSessionFileRevision } from "./RemoteSessionWriteGuard";
 
 export type RemoteProjectFileTarget = { hostId: string; remotePath: string };
-export type RemoteProjectFileSession = { nodePath: string; hostRevision: number; runCommand: (command: string) => Promise<{ exitCode: number; stdout: string }> };
+/** 文本命令 + SFTP 两条通道都要的那部分会话：命令只签发 revision，正文永远走 transfer。 */
+export type RemoteProjectFileSession = RemoteProjectUploadSession & { nodePath: string; runCommand: (command: string) => Promise<{ exitCode: number; stdout: string }> };
 type FileVersion = { sender: number; projectId: string; relative: string; target: RemoteProjectFileTarget; hostRevision: number; revision: RemoteSessionFileRevision; expires: number };
 const VERSION_TTL_MS = 30 * 60 * 1000;
 const MAX_VERSIONS = 128;
@@ -18,6 +21,7 @@ const CODES = new Set([
 	"REMOTE_FILE_PERMISSION_DENIED",
 	"REMOTE_FILE_COMMAND_FAILED",
 	"REMOTE_FILE_TRANSFER_INVALID",
+	"REMOTE_FILE_COMMIT_UNCONFIRMED",
 	"SSH_HOST_NOT_READY",
 	"SSH_HOST_DISCONNECTED",
 ]);
@@ -26,7 +30,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** 主进程持有版本快照；UI只拿不透明令牌，不可自报摘要/路径/归属。所有I/O走项目受控的pinned SSH。 */
-export function createRemoteProjectFileService(ports: { locator: (projectId: string) => RemoteProjectFileTarget | undefined; withProject: <T>(target: RemoteProjectFileTarget, work: (session: RemoteProjectFileSession) => Promise<T>) => Promise<T>; now?: () => number }) {
+export function createRemoteProjectFileService(ports: {
+	locator: (projectId: string) => RemoteProjectFileTarget | undefined;
+	withProject: <T>(target: RemoteProjectFileTarget, work: (session: RemoteProjectFileSession, capabilities: readonly string[] | undefined) => Promise<T>) => Promise<T>;
+	transfer: RemoteProjectTextTransfer;
+	now?: () => number;
+}) {
 	const versions = new Map<string, FileVersion>();
 	const now = ports.now ?? Date.now;
 	function prune() {
@@ -66,33 +75,22 @@ export function createRemoteProjectFileService(ports: { locator: (projectId: str
 	}
 	function readRevision(value: unknown): RemoteSessionFileRevision {
 		try {
-			return readRemoteSessionFileRevision(value);
+			return readRemoteSessionFileRevision(value, REMOTE_PROJECT_TEXT_MAX_BYTES);
 		} catch {
 			throw new Error("REMOTE_FILE_TRANSFER_INVALID");
 		}
 	}
 	/**
-	 * 一次完整快照读：snapshot → 分块 read → 摘要校验。
+	 * 一次完整的文本/二进制读：命令只取 revision 快照，正文由 SFTP 下载**一次**到本地私有临时文件。
 	 *
-	 * 文本（open）与二进制（readBase64）共用同一条通道：既然读的是同一份字节，就不能有第二套
-	 * 校验逻辑。`maxBytes` 在**读第一个分块之前**拦截——先读完再判断等于把「文件多大」变成一次
-	 * 无界传输（图片/视频动辄几十 MB）。
+	 * `maxBytes` 在**传输之前**拦截（快照已带 size）——先下载再判断等于把「文件多大」变成一次无界传输。
+	 * 下载完成后在本地算摘要并与快照比对：两者不符说明远端在快照与传输之间变了，那是冲突（拒绝覆盖），
+	 * 而不是「读坏了」。
 	 */
-	async function readSnapshot(session: RemoteProjectFileSession, locator: RemoteProjectFileTarget, relative: string, maxBytes?: number): Promise<{ bytes: Buffer; revision: RemoteSessionFileRevision }> {
+	async function readBytes(session: RemoteProjectFileSession, locator: RemoteProjectFileTarget, relative: string, maxBytes?: number): Promise<{ bytes: Buffer; revision: RemoteSessionFileRevision }> {
 		const revision = readRevision((await run(session, locator, relative, { operation: "snapshot" })).revision);
 		if (maxBytes !== undefined && revision.size > maxBytes) throw new Error(`FILE_TOO_LARGE:${revision.size}:${Math.floor(maxBytes)}`);
-		const chunks: Buffer[] = [];
-		for (let offset = 0; offset < revision.size; offset += REMOTE_PROJECT_TEXT_READ_CHUNK) {
-			const count = Math.min(REMOTE_PROJECT_TEXT_READ_CHUNK, revision.size - offset);
-			const result = await run(session, locator, relative, { operation: "read", source: revision, offset, count });
-			if (typeof result.data !== "string" || result.data.length > Math.ceil(count / 3) * 4 || !/^[A-Za-z0-9+/=]*$/.test(result.data)) throw new Error("REMOTE_FILE_TRANSFER_INVALID");
-			const chunk = Buffer.from(result.data, "base64");
-			if (chunk.length !== count || chunk.toString("base64") !== result.data) throw new Error("REMOTE_FILE_TRANSFER_INVALID");
-			chunks.push(chunk);
-		}
-		const bytes = Buffer.concat(chunks);
-		if (createHash("sha256").update(bytes).digest("hex") !== revision.digest) throw new Error("REMOTE_FILE_CHANGED");
-		return { bytes, revision };
+		return { bytes: await ports.transfer.download({ session, canonicalRoot: locator.remotePath, relative, revision }), revision };
 	}
 	function text(bytes: Buffer): string {
 		let content: string;
@@ -110,22 +108,18 @@ export function createRemoteProjectFileService(ports: { locator: (projectId: str
 		async open(sender: number, projectId: string, relative: string): Promise<RemoteTextDocument> {
 			const locator = target(sender, projectId, relative);
 			return ports.withProject(locator, async (session) => {
-				const { bytes, revision } = await readSnapshot(session, locator, relative);
-				const content = text(bytes);
-				return { content, version: version({ sender, projectId, relative, target: locator, hostRevision: session.hostRevision, revision }) };
+				const { bytes, revision } = await readBytes(session, locator, relative);
+				return { content: text(bytes), version: version({ sender, projectId, relative, target: locator, hostRevision: session.hostRevision, revision }) };
 			});
 		},
 		/**
-		 * 远端二进制读（图片/PDF/Office/压缩包预览）：同一条分块通道，**不做 UTF-8 解码**，
+		 * 远端二进制读（图片/PDF/Office/压缩包预览）：同一条通道，**不做 UTF-8 解码**，
 		 * 直接回裸 base64（与 `files:read-base64` 本机分支同形，渲染层据此转 Blob URL）。
 		 */
 		async readBase64(sender: number, projectId: string, relative: string, maxBytes: number): Promise<string> {
 			const locator = target(sender, projectId, relative);
 			if (!Number.isFinite(maxBytes) || maxBytes <= 0) throw new Error("REMOTE_FILE_INPUT_INVALID");
-			return ports.withProject(locator, async (session) => {
-				const { bytes } = await readSnapshot(session, locator, relative, maxBytes);
-				return bytes.toString("base64");
-			});
+			return ports.withProject(locator, async (session) => (await readBytes(session, locator, relative, maxBytes)).bytes.toString("base64"));
 		},
 		async save(sender: number, projectId: string, relative: string, content: string, token: string): Promise<{ version: string }> {
 			const locator = target(sender, projectId, relative);
@@ -139,7 +133,7 @@ export function createRemoteProjectFileService(ports: { locator: (projectId: str
 			if (!entry || entry.sender !== sender || entry.projectId !== projectId || entry.relative !== relative || entry.target.hostId !== locator.hostId || entry.target.remotePath !== locator.remotePath) throw new Error("REMOTE_FILE_VERSION_INVALID");
 			// 消耗令牌必须在任何await前：同一窗口重复保存/另一请求重用令牌都不能并行写。
 			versions.delete(token);
-			return ports.withProject(locator, async (session) => {
+			return ports.withProject(locator, async (session, capabilities) => {
 				if (session.hostRevision !== entry.hostRevision) throw new Error("REMOTE_FILE_VERSION_INVALID");
 				let observed: RemoteSessionFileRevision;
 				try {
@@ -149,12 +143,8 @@ export function createRemoteProjectFileService(ports: { locator: (projectId: str
 					throw error;
 				}
 				if (JSON.stringify(observed) !== JSON.stringify(entry.revision)) throw new Error("REMOTE_FILE_CHANGED");
-				const temporary = "." + randomBytes(16).toString("hex") + ".pideck-tmp";
-				for (let offset = 0; offset < bytes.length || offset === 0; offset += REMOTE_PROJECT_TEXT_WRITE_CHUNK) {
-					await run(session, locator, relative, { operation: "upload", temporary, first: offset === 0, data: bytes.subarray(offset, offset + REMOTE_PROJECT_TEXT_WRITE_CHUNK).toString("base64") });
-				}
-				const committed = await run(session, locator, relative, { operation: "commit", temporary, source: entry.revision, size: bytes.length, digest: createHash("sha256").update(bytes).digest("hex") });
-				const revision = readRevision(committed.revision);
+				// 整份正文经 SFTP 原子替换：helper 复核 expected，目标已变时明确拒绝，绝不重放。
+				const { revision } = await ports.transfer.replace({ session, capabilities, canonicalRoot: locator.remotePath, relative, bytes, expected: entry.revision });
 				if (revision.digest !== createHash("sha256").update(bytes).digest("hex") || revision.size !== bytes.length) throw new Error("REMOTE_FILE_TRANSFER_INVALID");
 				return { version: version({ ...entry, revision }) };
 			});

@@ -70,29 +70,37 @@ function RemoteTextFileEditor(props: { services: ProjectServices; path: string; 
 			? t("remoteFile.connection")
 			: code === "REMOTE_FILE_DRAFT_TOO_LARGE"
 				? t("remoteFile.inputTooLarge")
-				: code === "REMOTE_FILE_CHANGED"
-					? t("remoteFile.conflict")
-					: code === "REMOTE_FILE_VERSION_INVALID"
-						? t("remoteFile.expired")
-						: code === "PROJECT_SERVICE_VERSION_REQUIRED"
-							? t("remoteFile.expired")
-							: code === "PROJECT_SERVICE_GENERATION_STALE"
-								? t("remoteFile.connection")
-								: code === "REMOTE_FILE_TOO_LARGE"
-									? t("remoteFile.tooLarge")
-									: code === "REMOTE_FILE_NOT_TEXT" || code === "REMOTE_FILE_LINE_ENDING_UNSUPPORTED"
-										? t("remoteFile.notText")
-										: code === "REMOTE_FILE_NOT_FOUND"
-											? t("remoteFile.notFound")
-											: code === "REMOTE_FILE_PERMISSION_DENIED"
-												? t("remoteFile.permission")
-												: code === "REMOTE_FILE_PLATFORM_UNSUPPORTED"
-													? t("remoteFile.platform")
-													: code === "REMOTE_FILE_DRAFT_LIMIT"
-														? t("remoteFile.draftLimit")
-														: code
-															? t("remoteFile.failure", { code })
-															: null;
+				: code === "REMOTE_FILE_DRAFT_BUDGET_EXCEEDED"
+					? t("remoteFile.draftBudget")
+					: code === "REMOTE_FILE_COMMIT_UNCONFIRMED"
+						? t("remoteFile.commitUnconfirmed")
+						: code === "REMOTE_FILE_CHANGED"
+							? t("remoteFile.conflict")
+							: code === "REMOTE_FILE_VERSION_INVALID"
+								? t("remoteFile.expired")
+								: code === "PROJECT_SERVICE_VERSION_REQUIRED"
+									? t("remoteFile.expired")
+									: code === "PROJECT_SERVICE_GENERATION_STALE"
+										? t("remoteFile.connection")
+										: code === "REMOTE_FILE_TOO_LARGE"
+											? t("remoteFile.tooLarge")
+											: code === "REMOTE_FILE_NOT_TEXT" || code === "REMOTE_FILE_LINE_ENDING_UNSUPPORTED"
+												? t("remoteFile.notText")
+												: code === "REMOTE_FILE_NOT_FOUND"
+													? t("remoteFile.notFound")
+													: code === "REMOTE_FILE_PERMISSION_DENIED"
+														? t("remoteFile.permission")
+														: code === "REMOTE_FILE_PLATFORM_UNSUPPORTED"
+															? t("remoteFile.platform")
+															: code === "REMOTE_FILE_DRAFT_LIMIT"
+																? t("remoteFile.draftLimit")
+																: code === "REMOTE_FILE_DRAFT_BUDGET_EXCEEDED"
+																	? t("remoteFile.draftBudget")
+																	: code === "REMOTE_FILE_COMMIT_UNCONFIRMED"
+																		? t("remoteFile.commitUnconfirmed")
+																		: code
+																			? t("remoteFile.failure", { code })
+																			: null;
 	return (
 		<section
 			className="flex min-h-0 flex-1 flex-col overflow-hidden"

@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: e3a06abb176ddb207098f8403ed3f75a6484d8fe108cd859fc53a0cf01bb7ec6（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: ca58f29979e834a647925a8fa7a5e96335146e91bdab703576eae7ef606a50e3（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3536,7 +3536,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.dirtyCloseTitle": "關閉未儲存的檔案？",
 	"editor.dirtyCloseMessage": "{file} 有未儲存的更改，關閉後將丟失。仍要關閉嗎？",
 	"editor.saveFailedBanner": "儲存失敗：{error}",
-	"editor.remoteWriteTooLarge": "遠端檔案寫入上限為 256 KiB，本次未寫入。大檔案請用外部編輯器開啟，或拆分後再改。",
+	"editor.remoteWriteTooLarge": "遠端檔案寫入上限為 8 MiB，本次未寫入。更大的檔案請用外部編輯器開啟，或拆分後再改。",
 	"editor.pdfPreview": "PDF 預覽",
 	"editor.playVideo": "播放",
 	"editor.openWithSystem": "用系統程式開啟",
@@ -7609,10 +7609,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteFile.saved": "已儲存",
 	"remoteFile.loading": "正在讀取遠端檔案",
 	"remoteFile.readOnlyReason": "專案為只讀或當前能力不可用，改動不會儲存。",
-	"remoteFile.explicitSave": "僅編輯已有 UTF-8 文本檔案（最大 256 KiB）。不自動儲存；切換專案或檔案時保留草稿，可按 Ctrl/Cmd+S 儲存。草稿僅在記憶體中，退出應用前請儲存或複製。",
+	"remoteFile.explicitSave": "僅編輯已有 UTF-8 文本檔案（最大 8 MiB）。不自動儲存；切換專案或檔案時保留草稿，可按 Ctrl/Cmd+S 儲存。草稿僅在記憶體中，退出應用前請儲存或複製。",
 	"remoteFile.conflict": "遠端檔案已被其他程式修改，本次儲存已拒絕覆蓋。草稿仍保留，請複製需要的內容，再重新載入檔案。",
 	"remoteFile.expired": "檔案版本已失效。草稿仍保留，請重新載入後再編輯儲存。",
-	"remoteFile.tooLarge": "檔案或草稿超過 256 KiB，本次操作已拒絕。草稿仍保留。",
+	"remoteFile.tooLarge": "檔案或草稿超過 8 MiB，本次操作已拒絕。草稿仍保留。",
 	"remoteFile.imagePreview": "圖片預覽",
 	"remoteFile.imageFailed": "圖片讀取失敗：{code}",
 	"remoteFile.notText": "僅支援 UTF-8 文本及一致的 LF/CRLF 換行；不支援二進位制、無效編碼、混合換行或裸 CR。",
@@ -7620,6 +7620,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteFile.permission": "沒有足夠權限，或檔案歸屬無法保持；儲存未獲確認。草稿仍保留。",
 	"remoteFile.platform": "當前安全寫面僅支援 Linux 遠端，不會回落到本機儲存。",
 	"remoteFile.draftLimit": "已有 5 個檔案草稿或在途請求。請先儲存或重新載入其他檔案，不會自動丟棄未儲存內容。",
+	"remoteFile.draftBudget": "所有遠端草稿的合計正文已超過 32 MiB 上限，本次輸入未應用。請先儲存或關閉其他檔案；已有草稿與版本仍保留。",
+	"remoteFile.commitUnconfirmed": "結果未確認：遠端可能已經寫入。請重新載入核對，不自動重試。",
 	"remoteFile.failure": "遠端檔案操作未獲確認（{code}）。草稿仍保留；儲存可能已提交，請重新載入核對，不會自動重試。",
 	"remoteFile.reloadTitle": "重新載入遠端檔案",
 	"remoteFile.reloadBody": "讀取成功後將替換當前未儲存草稿。請先複製需要保留的內容；讀取失敗仍保留草稿。",

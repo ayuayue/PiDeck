@@ -144,7 +144,7 @@ export function localProjectFilePorts(projectId: string, api: ProjectServicesApi
 export function remoteProjectFilePorts(projectId: string, api: ProjectServicesApi): ProjectFileBackendPorts {
 	return {
 		async readText(target) {
-			// 远端正文有 main 自己的 256 KiB 上限；maxBytes 不进入远端协议。
+			// 远端正文有 main 自己的 8 MiB 上限；maxBytes 不进入远端协议。
 			const value = unwrapOp(await api.remoteHosts.openProjectText(projectId, target.relativePath), PROJECT_SERVICE_CODES.failed);
 			return { content: value.document.content, version: value.document.version };
 		},

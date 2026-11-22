@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { REMOTE_PROJECT_UPLOAD_JOB_CODES, inspectLocalUploadFile, uploadOneRemoteProjectFile } = loadTsCommonJs("src/main/remote/RemoteProjectUploadJob.ts");
+const { REMOTE_PROJECT_UPLOAD_JOB_CODES, inspectLocalUploadFile, replaceOneRemoteProjectFile, uploadOneRemoteProjectFile } = loadTsCommonJs("src/main/remote/RemoteProjectUploadJob.ts");
 
 const HOST = "11111111-1111-4111-8111-111111111111";
 const ROOT = "/srv/project";
@@ -21,6 +21,8 @@ const LOCAL_SNAPSHOT = Object.freeze({
 	identity: Object.freeze({ dev: 1n, ino: 2n, size: 5n, mtimeNs: 3n, ctimeNs: 4n, mode: 33188n, uid: 1000n, gid: 1000n }),
 });
 const REVISION = Object.freeze({ mode: 384, size: 5, dev: "1", ino: "7", uid: "1000", gid: "1000", mtimeNs: "30", ctimeNs: "40" });
+/** 打开文本时签出的那一版：身份 + 摘要，替换模式用它做乐观锁。 */
+const EXPECTED = Object.freeze({ ...REVISION, digest: SHA });
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 function stageSuccess(uploadId, patch = {}) {
@@ -94,7 +96,7 @@ function createHarness(options = {}) {
 			},
 		},
 	};
-	return { adapter, calls, service, sftp };
+	return { adapter, calls, service, session, sftp };
 }
 
 function input(harness, overrides = {}) {
@@ -234,5 +236,68 @@ test("local inspection accepts an empty regular file and rejects a relative path
 		await assert.rejects(inspectLocalUploadFile("relative.bin"), new RegExp(REMOTE_PROJECT_UPLOAD_JOB_CODES.localPathInvalid));
 	} finally {
 		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+/** 替换模式的输入：会话由调用方（文本服务）建立，事务本身与创建模式共用。 */
+async function runReplace(harness, overrides = {}, dependencies = {}) {
+	return replaceOneRemoteProjectFile(
+		{ session: harness.session, capabilities: harness.service.projectHelperCapabilities(), canonicalRoot: ROOT, binaryPath: BINARY, sftp: harness.sftp, relative: "docs/report.bin", localPath: LOCAL, expected: EXPECTED, ...overrides },
+		{ adapter: harness.adapter, inspectLocal: async () => LOCAL_SNAPSHOT, ...dependencies },
+	);
+}
+
+test("create mode sends policy create and no optimistic-lock credential", async () => {
+	const harness = createHarness();
+	await run(harness);
+	const prepare = harness.calls.requests.find((entry) => entry.method === "fs.uploadPrepare");
+	assert.equal(prepare.params.policy, "create");
+	assert.equal(Object.hasOwn(prepare.params, "expected"), false);
+});
+
+test("replace mode commits the same receipt with policy replace and the opened revision", async () => {
+	const harness = createHarness();
+	const receipt = await runReplace(harness);
+	assert.deepEqual(plain(receipt), { name: "report.bin", bytes: 5, sha256: SHA, relativePath: "docs/report.bin", revision: plain(REVISION) });
+	assert.deepEqual(
+		harness.calls.requests.map((entry) => entry.method),
+		["fs.uploadPrepare", "fs.uploadCommit"],
+	);
+	assert.deepEqual(plain(harness.calls.requests[0].params), { uploadId: harness.calls.requests[0].params.uploadId, path: "docs/report.bin", policy: "replace", size: 5, sha256: SHA, expected: plain(EXPECTED) });
+	assert.equal(harness.calls.stage.length, 1);
+	assert.equal(harness.calls.abort.length, 0);
+});
+
+test("replace mode refuses a stale expected revision without committing", async () => {
+	const harness = createHarness({ prepareError: new Error("FILE_UPLOAD_SOURCE_CHANGED") });
+	await assert.rejects(runReplace(harness), (error) => {
+		assert.equal(error.code, "FILE_UPLOAD_SOURCE_CHANGED");
+		assert.equal(error.outcome, "rejected");
+		return true;
+	});
+	assert.equal(harness.calls.stage.length, 0);
+	assert.equal(harness.calls.commit, 0);
+});
+
+test("replace mode surfaces a lost commit reply as unknown and never replays", async () => {
+	const harness = createHarness({ commitError: new Error("REQUEST_TIMEOUT") });
+	await assert.rejects(runReplace(harness), (error) => {
+		assert.equal(error.code, REMOTE_PROJECT_UPLOAD_JOB_CODES.commitUnconfirmed);
+		assert.equal(error.outcome, "unknown");
+		return true;
+	});
+	assert.equal(harness.calls.commit, 1);
+});
+
+test("replace mode refuses helper-less capabilities and invalid relative paths before any SFTP", async () => {
+	for (const [overrides, dependencies, pattern] of [
+		[{ capabilities: [] }, {}, new RegExp(REMOTE_PROJECT_UPLOAD_JOB_CODES.helperUnsupported)],
+		[{ relative: ".pideck-trash/x" }, {}, new RegExp(REMOTE_PROJECT_UPLOAD_JOB_CODES.pathInvalid)],
+		[{ relative: "" }, {}, new RegExp(REMOTE_PROJECT_UPLOAD_JOB_CODES.pathInvalid)],
+	]) {
+		const harness = createHarness();
+		await assert.rejects(runReplace(harness, overrides, dependencies), pattern);
+		assert.equal(harness.calls.stage.length, 0);
+		assert.equal(harness.calls.prepare, 0);
 	}
 });

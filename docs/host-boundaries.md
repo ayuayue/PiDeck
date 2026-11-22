@@ -92,6 +92,19 @@
 
 ## 侧车通用规则
 
+### SSH helper 的文件正文通道（SFTP spool）
+
+项目文件正文只走 SFTP 暂存（`<deployRoot>/upload-spool/<uploadId>.part`），不放进任何 SSH 命令行：单条远端命令上限仍是 8192 字符，正文膨胀不应靠拆命令解决。helper 的 `fs.uploadPrepare` / `fs.uploadCommit` 只承担两种发布语义：`policy: "create"` 只新建（`FILE_UPLOAD_TARGET_EXISTS` 拒绝覆盖），`policy: "replace"` 是**调用方读到的 revision 的比较交换**（`expected` 带 mode/size/dev/ino/uid/gid/mtimeNs/ctimeNs/digest，不符或目标消失即 `FILE_UPLOAD_SOURCE_CHANGED`，一个字节都不改）。rename 之后才发生的失败一律 `FILE_UPLOAD_COMMIT_UNCONFIRMED`，**不自动重放**，调用方重新读回核对。暂存目录名与 `.pideck-put` 临时名是同用户保留命名，不当用户文件处理。当前 helper 版本 1.38.0；新增写语义必须先改本文档并同步版本与 artifact 摘要 pin。
+
+### SSH 会话历史就地维护（`session.maintain`）
+
+远端会话 JSONL 的编辑 / 删除 / 重发**不再整文件下载再上传**（旧链路每 4 KiB 一条命令、整文件上界 256 KiB）。主进程只发一次宿主级请求 `session.maintain`：会话路径、操作、有序 id 候选（≤3）、新正文、`allowedRoots`（只有目标文件自己的目录）、读到的 revision 与限额。约束与禁止项：
+
+- **路径**：renderer 不提交路径也不提交代码；主进程按已登记 locator + 既有 `resolveRemoteSessionPath` 解析，远端再校验「父目录 realpath 等于自身、文件是 no-follow 普通文件、realpath 位于 allowedRoots 内」，且要求调用方就是文件所有者（否则 `PERMISSION_DENIED`）。
+- **并发**：revision（身份 + 摘要）是 compare-and-swap，在发布前再验一次；不符即 `SESSION_MAINTAIN_FILE_CHANGED`，目标文件一个字节不改。rename 之后的任何失败是 `SESSION_MAINTAIN_COMMIT_UNCONFIRMED`，必须重新读回核对，**禁止自动重试**。
+- **语义**：edit/delete 追加 pi 原生 `context_edit`，resend 改写为同形状 `deleted` 墓碑，把目标子树移出上下文并回传有界草稿；未改动的行逐字节保留（含原行尾）。重发草稿超过单次回传上限时历史**不改**，报 `SESSION_DRAFT_TOO_LARGE`，不得谎报成功。
+- **边界**：这是受约束的文件域，不是通用桥；不允许调用方指定任意路径、其他用户文件或把 `allowedRoots` 扩成 `$HOME`。能力在非 Linux 远端不上报。守卫测试：`remoteSessionMaintainScope` / `remoteSessionHistoryWrite` / `remoteSessionWriteGuard` / `remoteHelperEntry`。
+
 ### SSH 配置 helper 的固定文件域
 
 配置编辑只走既有 SSH helper 控制连接：`config.read` / `config.patch` / `config.replace` 仅接受 models/settings/trust/mcp 文件键，不接受路径或代码。`config.replace` 与 patch 使用同一版本检查、脱敏、大小上限、原子替换及读回确认；源文件编辑的密钥保留/同文件位置复制在远端完成，密钥原值不回传。`config.readAuth` 只回派生认证状态；专属 `config.replaceAuth` 按版本提交条目集合，允许新 API key、主机内保留/复制和删除，禁止返回原凭据或录入 OAuth token，auth 不加入通用文件白名单。模型清单复用 pinned SSH 的固定 `pi --list-models` 命令，不增加 pi 宿主桥。守卫见 `remoteConfigDocument`、`remotePiConfigBackend`、`remoteConfigContract`、`remoteConfigEditor` 与 `remoteAuthEditing` 测试。

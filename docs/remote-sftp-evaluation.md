@@ -6,6 +6,11 @@
 >
 > 2026-11-03 后续：SFTP-1 的新事务式上传/下载已通过真实 SSH + Electron 验收；SFTP-2
 > 普通目录读取的代码迁移已在 `codex/sftp-cleanup-sftp2` 完成，待最终集成 Agent 验收。
+>
+> 再后续（本轮）：项目文本**读/写已迁到 SFTP**——正文经 `upload-spool` 暂存，提交由 helper 按
+> 调用方读到的 revision 做 compare-and-swap（`policy: "replace"`），正文不再进 SSH argv；文本编辑
+> 上限随之是 8 MiB，草稿另有 32 MiB 合计预算。下面第 2 节的旧直连行（256 KiB / 1 MiB、base64 分块）
+> 保留为迁移前对照，不再描述当前生产接线。
 > 本文 1.1、2 节保留迁移前快照，用于对照旧直连路径，不再描述当前生产接线。
 
 ## 1. 结论
@@ -48,7 +53,7 @@
 | 展开目录、文件属性、普通文件读取 | SSH 承载自有 Node helper 协议，调用 `fs.list` / `fs.stat` / `fs.read`                    | 目录结果受预算约束；文件内容以 base64 分块；有项目与连接代检查        |
 | 下载到本地                       | `RemoteWorkspaceReader.readFile` 收齐字节，再由主进程保存对话框选路径并 `writeFile`      | 单文件上限 16 MiB，完整文件驻留内存；当前不是磁盘到磁盘的持续流       |
 | 上传本地文件                     | 主进程 `readFile` 读入完整文件，另开 pinned SSH，将 base64 行经 stdin 送给固定 Node 脚本 | 单文件上限 16 MiB；1 MiB 原始字节一块；支持背压，但本地源仍是整块内存 |
-| 编辑文本并保存                   | pinned SSH 执行固定 Node 命令；读取、临时写入、校验后提交                                | 文本上限 256 KiB；保存必须带读取时签发的 version；有版本冲突检查      |
+| 编辑文本并保存                   | pinned SSH 执行固定 Node 命令；读取、临时写入、校验后提交                                | 文本上限 1 MiB；保存必须带读取时签发的 version；有版本冲突检查      |
 | 创建、改名、移动、回收站、恢复   | pinned SSH 执行条目操作脚本                                                              | 带项目范围、令牌、结果收据及失败/未知结果语义                         |
 | 监听、搜索、Git                  | helper 或既有专项命令                                                                    | 不是标准文件传输协议的替代对象                                        |
 | 部署 helper 等运行资源           | pinned `scp`                                                                             | OpenSSH 9.0 起 scp 默认使用 SFTP；代码按客户端版本区分路径引用方式    |
