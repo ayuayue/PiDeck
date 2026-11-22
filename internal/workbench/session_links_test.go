@@ -1,3 +1,5 @@
+//go:build !js && !android && !ios
+
 package workbench
 
 import "testing"
