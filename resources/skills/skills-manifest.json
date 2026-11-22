@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "74879bf40843e1ac8bdaee29c2ba4cb42f4120a4a3b0d3ce6ff711794a90de30",
-  "fileCount": 14,
+  "bundleSha256": "0a71152606da301d23f0ffb64644ab8740c07f76ce5b51ebcf0c7f0ad862a514",
+  "fileCount": 16,
   "files": [
     {
       "name": "mcp-setup/SKILL.md",
@@ -31,8 +31,8 @@
     },
     {
       "name": "pideck/references/web-api/boundaries.md",
-      "sha256": "60e0f134e342f44af1845eebab1a3d0e5d44c69d0c76373dd8a24bd91a032212",
-      "bytes": 1742
+      "sha256": "51dd4b1bd676856789ddcf155abeb8b18b2bce0bd548188c59f7eb16453a0e03",
+      "bytes": 3138
     },
     {
       "name": "pideck/references/web-api/collaboration.md",
@@ -70,9 +70,19 @@
       "bytes": 6134
     },
     {
+      "name": "pideck/references/web-api/SIGN-OFF-DTT.md",
+      "sha256": "62afff69abe0f231396ec386b0e6fda41719cb85a297b848c2abd039aeaa59fd",
+      "bytes": 1343
+    },
+    {
+      "name": "pideck/references/web-api/verify-dtt.mjs",
+      "sha256": "b9bf452107cd16b6a2e4c4cceb27961174bba057b72379d52357fc0d7a1fa76b",
+      "bytes": 4820
+    },
+    {
       "name": "pideck/SKILL.md",
-      "sha256": "44650ada3e3b61903cff03f145612197d03ebb68420cb031914932c5e5427e7a",
-      "bytes": 2988
+      "sha256": "9065218d267eb8142f2292516476ca1df9c3f3e60267fc4db82e8d6c6f6f8e40",
+      "bytes": 3307
     }
   ]
 }
