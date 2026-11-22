@@ -91,15 +91,17 @@ test("afterPack cleanup preserves the Lark SDK package main entry", async () => 
 	}
 });
 
-test("repack unpack glob keeps native binaries and hostEntry, not every .js", () => {
+test("repack unpack glob keeps native binaries, hostEntry and runnerConsolePreload, not every .js", () => {
 	const glob = unpackGlobFromFiles([
 		"out/main/hostEntry.js",
+		"out/main/runnerConsolePreload.js",
 		"node_modules/node-pty/prebuilds/win32-x64/pty.node",
 		"node_modules/sql.js/dist/sql-wasm.wasm",
 		"node_modules/@img/sharp-win32-x64/lib/libvips-42.dll",
 		"node_modules/@deepseek-ai/dsh-attachment-local/node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.3",
 	]);
 	assert.match(String(glob), /hostEntry\.js/);
+	assert.match(String(glob), /runnerConsolePreload\.js/);
 	assert.match(String(glob), /\*\.node/);
 	assert.match(String(glob), /\*\.wasm/);
 	assert.match(String(glob), /\*\.dll/);
@@ -107,11 +109,12 @@ test("repack unpack glob keeps native binaries and hostEntry, not every .js", ()
 	assert.doesNotMatch(String(glob), /\*\.js/);
 });
 
-test("package.json unpacks node-pty so packaged terminal can load pty.node", () => {
+test("package.json unpacks node-pty, hostEntry and runnerConsolePreload", () => {
 	const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 	const unpack = pkg.build?.asarUnpack ?? [];
 	assert.ok(unpack.includes("node_modules/node-pty/**"), "asarUnpack must list node-pty; otherwise terminal:ensure fails in the installed app (#154)");
 	assert.ok(unpack.includes("node_modules/@deepseek-ai/dsh-subprocess-local/node_modules/node-pty/**"), "asarUnpack must list the nested DSH node-pty 1.2 prebuild used by dsh-subprocess-local");
+	assert.ok(unpack.includes("out/main/runnerConsolePreload.js"), "asarUnpack must list runnerConsolePreload.js so fallback plain node spawns can --require it");
 });
 
 test("package.json unpacks koffi platform packages for all build targets", () => {
@@ -272,12 +275,13 @@ test("afterPack cleanup removes node-pty build only when a target prebuild remai
 		await put(join(ptyDir, "prebuilds", hostPrebuild, "pty.node"), "NATIVE");
 		await put(join(ptyDir, "prebuilds", hostPrebuild, "conpty", "conpty.dll"), "DLL");
 		await put(join(sourceDir, "out", "main", "hostEntry.js"), "module.exports = {};\n");
+		await put(join(sourceDir, "out", "main", "runnerConsolePreload.js"), "module.exports = {};\n");
 		await put(join(sourceDir, "out", "main", "index.js"), "module.exports = {};\n");
 		await put(join(ptyDir, "README.md"), "fixture documentation that forces a repack\n");
 		await mkdir(dirname(archive), { recursive: true });
 		// 生产 asarUnpack 是 node-pty/**；这里用后缀匹配把 .node/.dll 标 unpacked。
 		await createAsarPackageWithOptions(sourceDir, archive, {
-			unpack: "{**/*.node,**/*.dll,hostEntry.js}",
+			unpack: "{**/*.node,**/*.dll,hostEntry.js,runnerConsolePreload.js}",
 		});
 		const unpackedPty = join(appOutDir, "resources", "app.asar.unpacked", "node_modules", "node-pty");
 		// asarUnpack 影子目录：源码树也会出现在 unpacked，afterPack 必须两边都清。
@@ -290,11 +294,13 @@ test("afterPack cleanup removes node-pty build only when a target prebuild remai
 
 		assert.equal(isUnpackedInHeader(archive, ptyNodeRel), true, "fixture must start with an unpacked pty.node so the test exercises the regression");
 		assert.equal(isUnpackedInHeader(archive, "out/main/hostEntry.js"), true, "fixture must start with unpacked hostEntry.js like electron-builder asarUnpack");
+		assert.equal(isUnpackedInHeader(archive, "out/main/runnerConsolePreload.js"), true, "fixture must start with unpacked runnerConsolePreload.js like electron-builder asarUnpack");
 
 		await afterPackCleanup({ appOutDir });
 
 		assert.equal(isUnpackedInHeader(archive, ptyNodeRel), true, "repacking asar must keep pty.node unpacked so Electron maps require() to app.asar.unpacked");
 		assert.equal(isUnpackedInHeader(archive, "out/main/hostEntry.js"), true, "repacking asar must keep hostEntry.js unpacked for utilityProcess");
+		assert.equal(isUnpackedInHeader(archive, "out/main/runnerConsolePreload.js"), true, "repacking asar must keep runnerConsolePreload.js unpacked for plain node --require");
 		assert.equal(isUnpackedInHeader(archive, "out/main/index.js"), false, "repacking must not unpack every .js just because hostEntry.js is unpacked");
 		assert.equal(normalizedEntries(archive).includes("node_modules/node-pty/README.md"), false, "the fixture must still exercise an asar repack through documentation cleanup");
 		const { existsSync } = await import("node:fs");

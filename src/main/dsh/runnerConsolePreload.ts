@@ -1,6 +1,9 @@
 import { createRequire, syncBuiltinESMExports } from "node:module";
-import { DSH_RUNNER_NODE_ENV } from "./dshRunnerNodeSidecar";
 import { allocHiddenConsole } from "./allocHiddenConsole";
+
+// 必须内联环境变量名而不是 import dshRunnerNodeSidecar（该模块还被 index/hostEntry 导入），
+// 确保 rollup 打出的 runnerConsolePreload.js 不拆出相对 chunk，plain node.exe 可单文件 --require。
+const DSH_RUNNER_NODE_ENV = "PIDECK_DSH_RUNNER_NODE";
 
 /**
  * 沙箱 runner 进程内的控制台治理（win32）。
@@ -41,7 +44,7 @@ function resolveKoffi(): KoffiLike | undefined {
 }
 
 function isElectronExec(): boolean {
-	return /(^|[\\/])electron(\.exe)?$/i.test(process.execPath);
+	return Boolean(process.versions?.electron) || /(^|[\\/])electron(\.exe)?$/i.test(process.execPath);
 }
 
 function isRunnerArgs(args: unknown): args is readonly string[] {
@@ -49,7 +52,9 @@ function isRunnerArgs(args: unknown): args is readonly string[] {
 }
 
 function isElectronCommand(command: unknown): command is string {
-	return typeof command === "string" && /(^|[\\/])electron(\.exe)?$/i.test(command);
+	if (typeof command !== "string") return false;
+	if (/(^|[\\/])electron(\.exe)?$/i.test(command)) return true;
+	return isElectronExec() && command === process.execPath;
 }
 
 /**
