@@ -2,9 +2,7 @@ import { REMOTE_GIT_HISTORY_SOURCE } from "./RemoteGitHistorySource";
 /**
  * Managed Git write programs, deployed as their own bundle file (`git-write.mjs`) and imported by `git-read.mjs`.
  * Stage, unstage and commit run in an owned private metadata context; other managed writes keep the same full hooks gate.
- *
  * The frozen body keeps one-line invariants only (its ceiling is 96 KiB). The long-form rules behind them:
- *
  * - `git.stage`, `git.unstage`, and `git.commit` use a private metadata context (`GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE`/`GIT_OBJECT_DIRECTORY` plus
  *   `GIT_CONFIG_NOSYSTEM`/`GIT_CONFIG_GLOBAL=/dev/null`) whose hooks directory is empty; effective hooks/filter/signing requirements are refused before AND after;
  * - `git.pull` lives in `git-sync.mjs`, uses native Git in the real repository context, and honors configured hooks and settings while still refusing in-progress operations;
@@ -17,8 +15,7 @@ import { REMOTE_GIT_HISTORY_SOURCE } from "./RemoteGitHistorySource";
  *   verbatim and runs no clean filter) go into a create-only `refs/pideck/recovery/<stamp>` ref authored by a
  *   fixed PiDeck identity, read back before the file is touched - so a failure before that leaves it alone and
  *   any failure after it is unconfirmed. A `" D"` resource needs no snapshot; nothing prunes those refs;
- * - scratch directories are 0700 with random names, unwound only while their identities match; unknown artifacts stay;
- * - an unreaped native writer keeps its lock, which is why cleanup waits for killed children first.
+ * - scratch directories are 0700 with random names, unwound only while their identities match; unknown artifacts are never guessed, and an unreaped native writer keeps its lock, which is why cleanup waits for killed children first.
  */
 export const REMOTE_GIT_WRITE_SOURCE = (
 	String.raw`export function createGitWriteProgram(fs, port) {
