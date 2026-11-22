@@ -136,38 +136,6 @@ export async function inferSessionNameFromFile(host: SessionTitleProbeHost, file
 }
 
 /**
- * 从有界头部 JSONL 文本探测 pi fork/branch 会话。
- * pi 的 fork/clone（createBranchedSession / newSession({parentSession})）都会在
- * session header 写 parentSession；子代理形态（tintinweb 平铺子代理）同样带该字段，
- * 但其会话名固定 <agent>#<8hex>，据此排除——只有真正的用户 fork/分支才返回 true。
- * 该探测只产生「fork 标记」，与 parentSessionPath（子代理父关系、列表折叠）语义分离。
- */
-function detectForkedFromHead(raw: string): boolean {
-	let hasParentSession = false;
-	let latestSessionInfoName: string | undefined;
-	for (const line of raw.split(/\r?\n/).filter(Boolean)) {
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(line);
-		} catch {
-			continue;
-		}
-		if (!isSessionScanLine(parsed)) continue;
-		const entry = parsed;
-		if (entry.type === "session") {
-			hasParentSession = Boolean(optionalString(entry.parentSession ?? entry.header?.parentSession));
-		} else if (entry.type === "session_info") {
-			latestSessionInfoName = optionalString(entry.name ?? entry.data?.name);
-		}
-	}
-	if (!hasParentSession) return false;
-	// tintinweb 子代理（名字 <agent>#<8hex>）不是用户 fork；名字缺省（落在窗口盲区）时
-	// 视为普通 fork——子代理形态会被 parentSessionPath/路径推断识别，不受影响。
-	if (latestSessionInfoName && /^[^#]+#[0-9a-f]{8}$/i.test(latestSessionInfoName)) return false;
-	return true;
-}
-
-/**
  * 读有界头部并同时校验会话头有效性：transcript 等无 type 头的产物会被标记
  * valid:false，供 catalog 在 mergeScanned 时拒绝索引（#168）。读不到文件时
  * 返回空对象（valid 缺省 = 不拒绝），兼容权限/锁定文件不被误删。
@@ -182,8 +150,9 @@ export async function inferSessionNameAndValidity(
 ): Promise<{ name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean; fallbackName?: string; fallbackKind?: SessionTitleFallbackKind; legacyFallbackName?: string; firstUserText?: string }> {
 	const head = await readHeadAndInfer(host, filePath, options.includeTitle !== false);
 	if (!head) return {};
-	const parentSessionPath = await detectFlatSubagentParentFromHead(host, filePath, head.raw);
-	const forked = detectForkedFromHead(head.raw);
+	const reference = readForkReference(head.raw);
+	const parentSessionPath = await resolveFlatSubagentParent(host, filePath, reference);
+	const forked = reference && !reference.flatSubagent;
 	// #266 存量自愈的第二指纹基准：只有真首句才和当年锁进 catalog 的标题可比。调用方仅在
 	// 「窗口兜底对不上目录标题」时才要（多一次有界读），默认不读。
 	const firstUserText = options.includeFirstUserText ? await inferFirstMessageTitle(host, filePath) : undefined;
@@ -209,13 +178,12 @@ export async function inferFirstMessageTitle(host: SessionTitleProbeHost, filePa
 	}
 }
 
-/**
- * 从有界头部 JSONL 文本中探测平铺子代理（@tintinweb/pi-subagents 形态）的父会话路径。
- * 判定：session header 带 parentSession 且会话名匹配 <agent>#<8hex>。
- * 只有该形态的平铺文件会命中；用户 fork（名字是用户命名）、普通会话不被误判。
- */
-async function detectFlatSubagentParentFromHead(host: SessionTitleProbeHost, filePath: string, raw: string): Promise<string | undefined> {
+type ForkReference = { parentSession: string; cwd?: string; flatSubagent: boolean };
+
+/** 平铺子代理与用户 fork 都写 parentSession；只用本会话的名称区分两者。 */
+function readForkReference(raw: string): ForkReference | undefined {
 	// 头部截断产生的半行会被 JSON.parse 跳过，不影响本次探测。
+	let boundary: ForkHistoryBoundary = { parentSession: false };
 	let forkParentSession: string | undefined;
 	let latestSessionInfoName: string | undefined;
 	let sessionHeaderCwd: string | undefined;
@@ -228,20 +196,22 @@ async function detectFlatSubagentParentFromHead(host: SessionTitleProbeHost, fil
 		}
 		if (!isSessionScanLine(parsed)) continue;
 		const entry = parsed;
-		if (entry.type === "session") {
-			forkParentSession ||= optionalString(entry.parentSession ?? entry.header?.parentSession);
-			sessionHeaderCwd ||= optionalString(entry.cwd ?? entry.header?.cwd);
-		} else if (entry.type === "session_info") {
+		if (entry.type === "session" && !forkParentSession) {
+			forkParentSession = optionalString(entry.parentSession ?? entry.header?.parentSession);
+			sessionHeaderCwd = optionalString(entry.cwd ?? entry.header?.cwd);
+			boundary = { parentSession: Boolean(forkParentSession), headerTimestamp: optionalString(entry.timestamp) };
+		} else if (entry.type === "session_info" && !isCopiedParentSessionInfo(entry, boundary)) {
 			latestSessionInfoName = optionalString(entry.name ?? entry.data?.name);
 		}
 	}
-	if (!forkParentSession || !latestSessionInfoName) return undefined;
-	// tintinweb 会话名 <agent>#<8hex>：名字必须落在 #8 位十六进制后缀，
-	// 否则视为用户 fork / 普通会话（fork 名由用户命名，通常不含该模式）。
-	if (!/^[^#]+#[0-9a-f]{8}$/i.test(latestSessionInfoName)) return undefined;
-	const isWsl = host.isWslPath(filePath);
+	if (!forkParentSession) return undefined;
+	return { parentSession: forkParentSession, cwd: sessionHeaderCwd, flatSubagent: /^[^#]+#[0-9a-f]{8}$/i.test(latestSessionInfoName ?? "") };
+}
+
+async function resolveFlatSubagentParent(host: SessionTitleProbeHost, filePath: string, ref: ForkReference | undefined): Promise<string | undefined> {
+	if (!ref?.flatSubagent) return undefined;
 	// header cwd 缺失（旧文件）时回退按文件路径推断项目根，两种基准都覆盖不到才放弃。
-	return host.resolveForkParentPath(filePath, forkParentSession, isWsl, sessionHeaderCwd ?? inferProjectPathFromFile(filePath));
+	return host.resolveForkParentPath(filePath, ref.parentSession, host.isWslPath(filePath), ref.cwd ?? inferProjectPathFromFile(filePath));
 }
 
 /**
@@ -256,5 +226,12 @@ async function detectFlatSubagentParentFromHead(host: SessionTitleProbeHost, fil
 export async function probeTintinwebSubagentParent(host: SessionTitleProbeHost, filePath: string): Promise<string | undefined> {
 	const head = await readHeadAndInfer(host, filePath, false);
 	if (!head) return undefined;
-	return detectFlatSubagentParentFromHead(host, filePath, head.raw);
+	return resolveFlatSubagentParent(host, filePath, readForkReference(head.raw));
+}
+
+/** 归档保留的是原始 parentSession 引用，读取归档文件头后须相对原位置解析。 */
+export async function readArchivedSubagentReference(host: SessionTitleProbeHost, archivedPath: string) {
+	const head = await readHeadAndInfer(host, archivedPath, false);
+	const reference = head ? readForkReference(head.raw) : undefined;
+	return reference?.flatSubagent ? reference : undefined;
 }
