@@ -1,6 +1,8 @@
-import { lstat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { lstat, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalizeSessionPath } from "../../../shared/sessionIdentity";
+import { renameWithRetry } from "../../utils/fsRetry";
 import { forkParentCandidates, inferProjectPathFromFile } from "./sessionPathDerivation";
 
 type RestoreHost = {
@@ -13,6 +15,24 @@ type RestoreHost = {
 };
 
 type ArchiveEntry = { archived: string; original: string };
+
+const localIndexWriter = {
+	write: (file: string, content: string) => writeFile(file, content, { encoding: "utf8", flag: "wx" }),
+	replace: renameWithRetry,
+	remove: (file: string) => rm(file, { force: true }),
+};
+
+/** 索引写入失败时保留旧索引，文件移动回滚后仍能按原记录重试。 */
+export async function replaceArchiveIndex(indexPath: string, entries: Record<string, string>, writer: typeof localIndexWriter = localIndexWriter): Promise<void> {
+	const temporary = `${indexPath}.${randomUUID()}.tmp`;
+	try {
+		await writer.write(temporary, JSON.stringify(entries, null, 2));
+		await writer.replace(temporary, indexPath);
+	} catch (error) {
+		await writer.remove(temporary).catch(() => undefined);
+		throw error;
+	}
+}
 
 /** lstat 也能识别被悬空链接占用的目标；权限或 I/O 错误必须阻止移动。 */
 async function statIfPresent(file: string) {
@@ -76,7 +96,7 @@ async function archivedSubtree(root: ArchiveEntry, index: Record<string, string>
 	return ordered;
 }
 
-/** 先检查整棵树的目标；逐项完成文件、同名目录和索引，以便中断后从父项重试。 */
+/** 先检查整棵树的目标；逐项完成文件、同名目录和索引，失败时回滚当前项。 */
 export async function restoreArchivedSubtree(archived: string, index: Record<string, string>, host: RestoreHost): Promise<string> {
 	const original = index[archived];
 	if (!original) throw new Error("归档索引中找不到该会话");

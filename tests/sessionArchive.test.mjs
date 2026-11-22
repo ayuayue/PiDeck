@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
@@ -365,6 +366,7 @@ test("unarchive follows original flat and bundled parent paths but leaves indepe
 	const leaf = join(dir, "leaf.jsonl");
 	const fork = join(dir, "fork.jsonl");
 	const forkChild = join(dir, "fork-child.jsonl");
+	const forkOfSubagent = join(dir, "fork-of-subagent.jsonl");
 	writeSession(parent, healthySession);
 	writeSubagent(child, "parent.jsonl");
 	writeSession(nested, healthySession);
@@ -372,18 +374,23 @@ test("unarchive follows original flat and bundled parent paths but leaves indepe
 	writeSubagent(leaf, join("elsewhere", "grandchild.jsonl"), dir);
 	writeSubagent(fork, parent, dir, "my fork");
 	writeSubagent(forkChild, fork);
+	writeSession(forkOfSubagent, [
+		{ type: "session", cwd: dir, parentSession: child, timestamp: "2026-11-21T12:00:00.000Z" },
+		{ type: "session_info", name: "scout#1234abcd", timestamp: "2026-11-21T11:00:00.000Z" },
+	]);
 	const { SessionScanner } = loadSessionScanner(home);
 	const scanner = new SessionScanner();
 	const archivedParent = await scanner.archive(parent);
 	for (const file of [child, grandchild, leaf]) await scanner.archive(file);
 	const archivedFork = await scanner.archive(fork);
 	const archivedForkChild = await scanner.archive(forkChild);
+	const archivedForkOfSubagent = await scanner.archive(forkOfSubagent);
 
 	assert.equal(await scanner.unarchive(archivedParent), parent);
 	for (const file of [parent, child, nested, grandchild, leaf]) assert.ok(existsSync(file), file);
-	assert.ok(!existsSync(fork) && !existsSync(forkChild));
-	assert.ok(existsSync(archivedFork) && existsSync(archivedForkChild));
-	assert.deepEqual(JSON.parse(readFileSync(join(dirname(archivedParent), "index.json"), "utf8")), { [archivedFork]: fork, [archivedForkChild]: forkChild });
+	for (const file of [fork, forkChild, forkOfSubagent]) assert.ok(!existsSync(file), file);
+	for (const file of [archivedFork, archivedForkChild, archivedForkOfSubagent]) assert.ok(existsSync(file), file);
+	assert.deepEqual(JSON.parse(readFileSync(join(dirname(archivedParent), "index.json"), "utf8")), { [archivedFork]: fork, [archivedForkChild]: forkChild, [archivedForkOfSubagent]: forkOfSubagent });
 });
 
 test("unarchive checks every destination before moving any member of the subtree", async (t) => {
@@ -445,23 +452,34 @@ test("restoring can be retried after a descendant finishes and the parent's inde
 	const parent = join(root, "parent.jsonl");
 	const child = join(root, "child.jsonl");
 	const nested = join(root, "parent", "nested.jsonl");
+	const indexPath = join(root, ".pideck-archive", "index.json");
 	writeSession(parent, healthySession);
 	writeSession(nested, healthySession);
 	writeSubagent(child, parent);
-	const { SessionScanner } = loadSessionScanner(home);
+	let writesBeforeFailure = Number.POSITIVE_INFINITY;
+	const { SessionScanner } = loadProductionSessionScanner(home, {
+		stubs: {
+			"node:fs/promises": {
+				...fsPromises,
+				async writeFile(file, content, options) {
+					if ((file === indexPath || file.startsWith(`${indexPath}.`)) && writesBeforeFailure-- === 0) {
+						await fsPromises.writeFile(file, content.slice(0, 1), options);
+						throw new Error("simulated partial index write");
+					}
+					return fsPromises.writeFile(file, content, options);
+				},
+			},
+		},
+	});
 	const scanner = new SessionScanner();
 	const archivedParent = await scanner.archive(parent);
 	await scanner.archive(child);
-	const remove = scanner.removeArchiveEntry.bind(scanner);
-	scanner.removeArchiveEntry = (file, wsl) => {
-		if (file === archivedParent) throw new Error("simulated index write failure");
-		return remove(file, wsl);
-	};
-	await assert.rejects(scanner.unarchive(archivedParent), /simulated index write failure/);
+	writesBeforeFailure = 1;
+	await assert.rejects(scanner.unarchive(archivedParent), /simulated partial index write/);
 	assert.ok(existsSync(child) && existsSync(archivedParent) && !existsSync(nested));
-	assert.deepEqual(JSON.parse(readFileSync(join(dirname(archivedParent), "index.json"), "utf8")), { [archivedParent]: parent });
-	scanner.removeArchiveEntry = remove;
-	await scanner.unarchive(archivedParent);
+	assert.deepEqual(JSON.parse(readFileSync(indexPath, "utf8")), { [archivedParent]: parent });
+	// 重建扫描器验证重试只依赖磁盘，没有内存中的归档快照也能恢复。
+	await new SessionScanner().unarchive(archivedParent);
 	assert.ok(existsSync(parent) && existsSync(nested));
 });
 
