@@ -36,7 +36,12 @@ if (process.argv.includes("--selftest")) {
 const srcArg = process.argv.find((a) => a.startsWith("--src="));
 const pick = (base) => (fs.existsSync(path.join(base, "web/WebApiRoutes.ts")) ? base : fs.existsSync(path.join(base, "main/web/WebApiRoutes.ts")) ? path.join(base, "main") : base);
 const SRC_BASE = pick(srcArg ? path.resolve(srcArg.slice(6)) : path.resolve(here, "../../../src/main"));
-const SKILL = process.argv.slice(2).find((a) => !a.startsWith("--")) || path.resolve(here, "../../..", "resources/skills/pideck/references/web-api/actions.md");
+// 2026-11-22：默认不再写死单个 actions.md。web-api 已按主题拆成 9 份，错误码表搬到 endpoints.md，
+// 写死单文件会让判据读不到拆分后的内容，报「文档缺 N 个错误码」——那是判据瞎了，不是文档错。
+// 现在默认读整个 web-api 目录拼合；仍可用位置参数指定单个文件。
+const WEBAPI_DIR = path.resolve(here, "../../..", "resources/skills/pideck/references/web-api");
+const docArg = process.argv.slice(2).find((a) => !a.startsWith("--"));
+const SKILL = docArg ? path.resolve(docArg) : path.join(WEBAPI_DIR, "actions.md");
 const SRC = path.join(SRC_BASE, "web/WebApiRoutes.ts");
 const EXTRA = path.join(SRC_BASE, "web/WebServiceManager.ts");
 // 路由实现按域拆在多个文件里（WebApiReadRoutes / WebApiSessionRoutes / WebApiRuntimeRoutes），
@@ -55,6 +60,8 @@ if (!fs.existsSync(SRC)) {
 	console.log("FAIL 找不到源码 " + SRC + "（用 --src= 指向完整 src 目录）；这是环境缺失，rc=2");
 	process.exit(2);
 }
+// 只读 actions.md：§7.1/§7.2 的表格边界靠「跑到文件末尾」切，拼合多份会把它撑成 42 行。
+// 跨文件的检查（错误码、路由覆盖）走下面已有的 CORPUS，那一份是目录拼合。
 const skill = fs.readFileSync(SKILL, "utf8");
 const BS = String.fromCharCode(92);
 const QUOTE = String.fromCharCode(34);

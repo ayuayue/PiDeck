@@ -1,5 +1,18 @@
 > 节号索引：§0–§2 `connect.md` · §3–§4 `read.md` · §5–§5.5、§8 `message.md` · §5.6、§9.1–§9.4 `collaboration.md` · §6 `restart.md` · §7 `actions.md` · §9–§10 `boundaries.md` · §11 `maintenance.md` · 其余端点 `endpoints.md`
 
+## 0 类型
+
+`Γ ⊢ 文档与源码一致 : Prop`
+
+| 件 | 形状 |
+| --- | --- |
+| 形成 | 在源码克隆根跑；`resources/skills/skills-manifest.json` 已重生成 |
+| 引入 | `npm run check:skills-manifest` rc=0 且 `npm run test:skills` rc=0 |
+| 消去 | `check-doc`/`check-paths`/`check-format`/`check-fields`/`check-self-contained` 各自 rc |
+| 反例 | 本地绿就以为能合——CI 还有 manifest drift 一步，PR 会 UNSTABLE |
+
+下面各节都是本节的实例。
+
 ## 11 改这套文档之前
 
 用技能的人：PiDeck 只用这一处 `~/.pi/agent/pideck-skills/pideck/`——每次启动从安装包写过去（`SKILL.md` 与整个 `references/`），装上就能用，不是给手改的地方（改了下次启动被覆盖）。
