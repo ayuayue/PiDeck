@@ -585,18 +585,17 @@ export function SourceControlGraph(props: GitGraphProps) {
 		try {
 			// 列表仍分页；总数单独 count。没有过滤器时只能读 HEAD（不能把当前分支标成“全部分支”）。
 			const filter = props.refFilter === false ? { ref: undefined, allBranches: false } : { ref: ref || undefined, allBranches: !ref };
-			const [next, count] = await Promise.all([
-				commitLogRef.current(projectId, {
-					maxEntries: loadCount,
-					...filter,
-				}),
-				// 能力缺席就不发 count 请求；徽章退回已加载页长度，不编造全仓总数。
-				commitCountRef.current === undefined ? Promise.resolve<number | null>(null) : commitCountRef.current(projectId, filter),
-			]);
+			const countLoader = commitCountRef.current;
+			const countPromise = Promise.resolve()
+				.then(() => countLoader?.(projectId, filter) ?? null)
+				.catch(() => null);
+			const next = await commitLogRef.current(projectId, { maxEntries: loadCount, ...filter });
 			if (request === loadSequence.current && projectId === props.projectId) {
 				setCommits(next);
-				setTotalCount(count ?? next.length);
+				setTotalCount(next.length);
 			}
+			const count = await countPromise;
+			if (request === loadSequence.current && projectId === props.projectId) setTotalCount(count ?? next.length);
 		} catch (caught) {
 			if (request === loadSequence.current && projectId === props.projectId) setError(errorMessage(caught));
 		} finally {
