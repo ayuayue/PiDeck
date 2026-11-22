@@ -41,7 +41,7 @@ import { exportSessionHtml, type SessionHtmlExportHost } from "./scanner/session
 import { collectFromRootsLocal, collectFromRootsWsl, collectJsonl, collectWslJsonl, mapLimited, type SessionRootEnumerationHost } from "./scanner/sessionRootEnumeration";
 import { hasSessionHeader, isSessionFile, listPathSummary, optionalString, readLocalFileHead, readLocalFilePrefix, readLocalFileSuffix, readSessionSummary, type SessionSummaryReadHost } from "./scanner/sessionSummaryRead";
 import { FIRST_MESSAGE_TITLE_MAX_BYTES, inferFirstMessageTitle, inferSessionNameAndValidity, inferSessionNameFromFile, probeTintinwebSubagentParent, type SessionTitleProbeHost } from "./scanner/sessionTitleProbe";
-import { canonicalSessionPath, findSessionsRootForFile, inferProjectPathFromFile, isSameProject, isUnderProjectSessionDir, looksLikeNestedSessionPath, normalizeSessionPath, sessionPathToken, type SessionScanRootsHost } from "./scanner/sessionPathDerivation";
+import { findSessionsRootForFile, inferProjectPathFromFile, isSameProject, isUnderProjectSessionDir, looksLikeNestedSessionPath, normalizeSessionPath, sessionPathToken, type SessionScanRootsHost } from "./scanner/sessionPathDerivation";
 
 type SessionScannerCopyKey = Extract<MainProcessTranslationKey, "session.untitled" | "session.emptyPreview" | "session.copyTitle" | "session.fileTooLargeForWholeRead" | "session.deleteFileBusy">;
 
@@ -139,7 +139,6 @@ export class SessionScanner {
 		inferParentSessionFromPath: (filePath) => this.inferParentSessionFromPath(filePath),
 		inferWslParentSessionFromPath: (filePath, signal) => this.inferWslParentSessionFromPath(filePath, signal),
 		resolveForkParentPath: (filePath, forkParentSession, isWsl, sessionCwd, signal) => this.resolveForkParentPath(filePath, forkParentSession, isWsl, sessionCwd, signal),
-		canonicalProjectPath: (path, wsl) => this.canonicalProjectPath(path, wsl),
 		looksLikeNestedSessionPath: (filePath) => this.looksLikeNestedSessionPath(filePath),
 		translate: (key) => this.translate(key),
 		codexRoot: this.codexRoot,
@@ -1559,10 +1558,6 @@ export class SessionScanner {
 
 	private isUnderProjectSessionDir(filePath: string, projectPath: string): boolean {
 		return isUnderProjectSessionDir(this.scanRoots, filePath, projectPath);
-	}
-
-	private canonicalProjectPath(path: string, wsl: boolean) {
-		return canonicalSessionPath(path, wsl);
 	}
 
 	private normalize(path: string) {
