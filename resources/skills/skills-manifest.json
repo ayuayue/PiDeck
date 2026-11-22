@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "231f8dd2f2c4d524ce4e6d34016b1db229175f6efc1f1d2ffad949297a808a5a",
+  "bundleSha256": "eeda6cbcfe5311aabbd8149aeaf668c9551788a7554525d7cedbfbf2c510aca5",
   "fileCount": 15,
   "files": [
     {
@@ -76,8 +76,8 @@
     },
     {
       "name": "pideck/verify-dtt.mjs",
-      "sha256": "1cf78652d307c58959c89a09454e29935a4d57b22d89e26a6adc177553c1cd0f",
-      "bytes": 6108
+      "sha256": "a30022a31c2f67fee77797f4dd1a5456c28ef4ca56d136f1de12ca105acff30d",
+      "bytes": 6427
     }
   ]
 }
