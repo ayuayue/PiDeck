@@ -62,7 +62,10 @@ export function check(files, root) {
     }
     for (const w of PROC_WORDS) if (text.includes(w)) problems.push(rel + "：含过程词「" + w + "」");
     // 点名的仓库内脚本必须存在于盘上
-    const refs = [...text.matchAll(/[\x60]([\w./-]+\.(?:mjs|js|sh))[\x60]/g)].map((m) => m[1]);
+    // 脚本存在性只在仓库副本里查：magpie 分发的副本只有 SKILL.md + references，
+    // 没有 scripts/ 与 .git，在那里查等于拿仓内路径问一个不存在的根（2026-11-22 实测 4 条误报）。
+    const inRepo = fs.existsSync(path.resolve(root, "..", "..", "..", ".git"));
+    const refs = inRepo ? [...text.matchAll(/[`]([w./-]+.(?:mjs|js|sh))[`]/g)].map((m) => m[1]) : [];
     for (const r of new Set(refs)) {
       if (r.startsWith("~") || r.startsWith("/")) continue;
       // 判据脚本住在 scripts/skills/pideck/，文档里通常只写文件名。
