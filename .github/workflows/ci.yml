@@ -211,5 +211,17 @@ jobs:
 
       # Every release target must compile from one machine, so a platform
       # break shows up in CI rather than in a tag's release run.
+      #
+      # macOS is the exception: the .app only gets built by Apple's own tools
+      # (ditto, codesign) when Sparkle is bundled, so on a Linux runner the
+      # darwin targets are compile-only. release.yml builds them on macOS.
       - name: Build
+        if: matrix.goos != 'darwin'
         run: go tool nsgo build -target "${{ matrix.target }}" -installers=false -version 0.0.1-ci
+
+      - name: Compile (darwin packaging needs Apple tools)
+        if: matrix.goos == 'darwin'
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -o "$RUNNER_TEMP/pideck-lite" .
