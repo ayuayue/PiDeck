@@ -1,0 +1,57 @@
+name: 同步到 AtomGit
+
+# AtomGit 上的 ayuayue/PiDeck-Lite 是国内可达的镜像：应用的公告读取先走它
+# （api.atomgit.com 的 contents 接口），GitHub raw 只在它读不到时兜底。
+# 仓库最初由 GitHub 导入，之后的提交由这里推送，避免两边分叉。
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一时间只跑一次：两次推送并发会互相抢占对远端的写。
+concurrency:
+  group: sync-atomgit
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: 推送 main 与标签
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 标签需要完整历史；浅克隆推不过去。
+          fetch-depth: 0
+
+      # AtomGit 官方的加速方案：runner 跨境直连对象存储很慢，固定解析到
+      # 官方代理 IP；只在本次 runner 内生效，不改仓库。
+      - name: AtomGit 代理解析加速
+        run: |
+          echo "159.138.147.37 api.atomgit.com" | sudo tee -a /etc/hosts
+          echo "159.138.147.37 file.atomgit.com" | sudo tee -a /etc/hosts
+          echo "159.138.147.37 file.gitcode.com" | sudo tee -a /etc/hosts
+          getent hosts api.atomgit.com file.atomgit.com file.gitcode.com
+
+      - name: 推送 main 与标签
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ATOMGIT_TOKEN}" ]; then
+            echo "::error::缺少 ATOMGIT_TOKEN：在仓库 Secrets 里添加 AtomGit 访问令牌（api、write_repository）。"
+            exit 1
+          fi
+          # 令牌走凭据助手，不拼进 URL：失败信息里不会带出它。
+          push() {
+            git -c credential.helper='!f() { echo username=ayuayue; echo "password=${ATOMGIT_TOKEN}"; }; f' \
+              push https://atomgit.com/ayuayue/PiDeck-Lite.git "$@"
+          }
+          push "HEAD:refs/heads/main"
+          if git tag | grep -q .; then
+            push 'refs/tags/*:refs/tags/*'
+          fi
