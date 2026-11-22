@@ -4,6 +4,8 @@
  * Only declared result shapes and bounds belong to the protocol and are enforced on both sides.
  */
 
+import { REMOTE_WRITE_ERROR_CODES } from "./RemoteWriteContract";
+
 /** Wire protocol version. A helper with a different version must not be used (structured refusal). */
 export const REMOTE_HELPER_PROTOCOL_VERSION = 1;
 
@@ -122,26 +124,12 @@ export const REMOTE_HELPER_ERROR_CODES = [
 	"FILE_UPLOAD_INPUT_INVALID",
 	"FILE_UPLOAD_TOKEN_INVALID",
 	"FILE_UPLOAD_TARGET_EXISTS",
-	/* `policy: "replace"` is compare-and-swap on the caller's revision: the target is missing or no longer the
-	 * file the caller read. Nothing was replaced, so the caller re-reads before deciding again. */
-	"FILE_UPLOAD_SOURCE_CHANGED",
+	...REMOTE_WRITE_ERROR_CODES,
 	"FILE_UPLOAD_STAGE_INVALID",
 	"FILE_UPLOAD_PATH_INVALID",
 	"FILE_UPLOAD_ROOT_CHANGED",
 	"FILE_UPLOAD_UNSUPPORTED",
 	"FILE_UPLOAD_COMMIT_UNCONFIRMED",
-	/* Remote session maintenance (helper 1.38.0): a bounded, revision-checked in-place edit of one session JSONL.
-	 * Every code here means the caller can tell "nothing changed" from "possibly published" — the latter is only
-	 * SESSION_MAINTAIN_COMMIT_UNCONFIRMED, which must be re-read, never replayed. */
-	"SESSION_MAINTAIN_INPUT_INVALID",
-	"SESSION_MAINTAIN_PATH_INVALID",
-	"SESSION_MAINTAIN_FILE_TOO_LARGE",
-	"SESSION_MAINTAIN_FILE_CHANGED",
-	"SESSION_MAINTAIN_FILE_INVALID",
-	"SESSION_MAINTAIN_MESSAGE_NOT_FOUND",
-	"SESSION_MAINTAIN_ROLE_INVALID",
-	"SESSION_MAINTAIN_DRAFT_TOO_LARGE",
-	"SESSION_MAINTAIN_COMMIT_UNCONFIRMED",
 ] as const;
 export type RemoteHelperErrorCode = (typeof REMOTE_HELPER_ERROR_CODES)[number];
 
@@ -415,6 +403,8 @@ export type RemoteGitWorkspaceDiffParams = { group: "merge" | "index" | "working
 export type RemoteGitWorkspaceDiffResult = { originalContent: string; modifiedContent: string };
 
 export { REMOTE_HELPER_CAPABILITIES, type RemoteHelperCapability } from "./RemoteHelperCapabilities";
+/** 写面契约（上传比较交换 + 会话就地维护）单独成模块；这里原样 re-export，调用方仍从契约模块取。 */
+export * from "./RemoteWriteContract";
 /**
  * Ceiling for one requested relative path. It is applied to the raw string before any filesystem access,
  * so an over-long path is a PROTOCOL_INVALID refusal rather than an ENAMETOOLONG round trip.
@@ -426,58 +416,7 @@ export const REMOTE_FILE_UPLOAD_TOKEN_TTL_MS = 120_000;
 export const REMOTE_FILE_UPLOAD_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 export const REMOTE_FILE_UPLOAD_ID_PATTERN = /^[0-9a-f]{32}$/;
 export const REMOTE_FILE_UPLOAD_SHA256_PATTERN = /^[0-9a-f]{64}$/;
-export type RemoteFileUploadPolicy = "create" | "replace";
-/**
- * Compare-and-swap identity for `policy: "replace"`. Structurally the session guard's revision, declared here
- * because `RemoteSessionWriteGuard` imports this module (importing it back would close a cycle).
- */
-export type RemoteFileRevisionWire = { mode: number; size: number; dev: string; ino: string; uid: string; gid: string; mtimeNs: string; ctimeNs: string; digest: string };
-export type RemoteFileUploadPrepareParams = {
-	uploadId: string;
-	path: string;
-	policy: RemoteFileUploadPolicy;
-	size: number;
-	sha256: string;
-	/** Required for `replace`: the target must still be exactly this revision, otherwise nothing is replaced. */
-	expected?: RemoteFileRevisionWire;
-};
 
-/**
- * Remote session maintenance (helper 1.38.0): one bounded, revision-checked in-place edit of a pi session
- * JSONL. The file stays on the host: callers send the operation, the id candidates and the revision they read,
- * never the whole transcript.
- */
-export const REMOTE_HELPER_METHOD_SESSION_MAINTAIN = "session.maintain";
-/** Generous because the transport no longer scales with the file; the worker still streams, never buffers it all. */
-export const REMOTE_SESSION_MAINTAIN_MAX_FILE_BYTES = 512 * 1024 * 1024;
-/** One JSONL record ceiling (a message with base64 images can be tens of MiB). */
-export const REMOTE_SESSION_MAINTAIN_MAX_LINE_BYTES = 32 * 1024 * 1024;
-export const REMOTE_SESSION_MAINTAIN_MAX_ENTRIES = 200_000;
-/** Must stay below one helper frame once base64 (×4/3) and the envelope are counted. */
-export const REMOTE_SESSION_MAINTAIN_MAX_DRAFT_BYTES = 5 * 1024 * 1024;
-export const REMOTE_SESSION_MAINTAIN_MAX_CANDIDATE_IDS = 3;
-export const REMOTE_SESSION_MAINTAIN_MAX_ALLOWED_ROOTS = 4;
-export const REMOTE_SESSION_MAINTAIN_REQUEST_TIMEOUT_MS = 120_000;
-export type RemoteSessionMaintainOperation = "edit" | "delete" | "resend";
-export type RemoteSessionMaintainLimits = {
-	maxFileBytes: number;
-	maxLineBytes: number;
-	maxEntries: number;
-	maxDraftBytes: number;
-};
-export type RemoteSessionMaintainParams = {
-	path: string;
-	operation: RemoteSessionMaintainOperation;
-	/** Most specific first; the worker picks the first id that is on the active branch and not tombstoned. */
-	candidateIds: readonly string[];
-	newText: string;
-	/** Directories the file's realpath must sit under; the worker refuses an empty list. */
-	allowedRoots: readonly string[];
-	expected: RemoteFileRevisionWire;
-	limits: RemoteSessionMaintainLimits;
-};
-export type RemoteSessionMaintainDraft = { text: string; images: ReadonlyArray<{ mime: string; dataBase64: string }> };
-export type RemoteSessionMaintainResult = { revision: RemoteFileRevisionWire; draft: RemoteSessionMaintainDraft | null };
 /** stageRef is the 32hex id the caller appends as `.part` inside the helper-owned upload-spool. */
 export type RemoteFileUploadPrepareResult = { token: string; stageRef: string; expiresAt: number };
 export type RemoteFileUploadCommitParams = { uploadId: string; token: string };

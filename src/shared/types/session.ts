@@ -603,12 +603,7 @@ export type SessionCommandErrorCode =
 	| "SESSION_COMMAND_FAILED"
 	| "SESSION_MODEL_NOT_FOUND"
 	/** 会话文件超出可安全编辑的上限（SessionFileEditor 的整读护栏，见 v8HeapLimits.ts）*/
-	| "SESSION_FILE_TOO_LARGE"
-	/**
-	 * 远端历史**没有被改写**，但这轮要重发的草稿（含图片）超过了单次回传上限：不能报成功，也不该
-	 * 复用「会话文件过大」那条码（那会把用户引向归档/换会话，而不是缩短这条消息）。
-	 */
-	| "SESSION_DRAFT_TOO_LARGE";
+	| "SESSION_FILE_TOO_LARGE" | "SESSION_DRAFT_TOO_LARGE";
 
 export type SessionCommandError = {
 	code: SessionCommandErrorCode;
