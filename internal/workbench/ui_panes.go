@@ -11,6 +11,7 @@ package workbench
 
 import (
 	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -36,6 +37,12 @@ const (
 	paneFileHistory = "file-history"
 	paneBlame       = "blame"
 	paneReviewPatch = "review-patch"
+	// A conversation's own material: a tool result's picture, the turn's
+	// trajectory, the agents it handed work to, and a translation.
+	paneTranscriptImage = "transcript-image"
+	paneTrajectory      = "trajectory"
+	paneDelegation      = "delegation"
+	paneTranslation     = "translation"
 )
 
 // paneDef is one split pane: its tab, whether it is open, and its page.
@@ -86,6 +93,34 @@ func (a *app) panes() []paneDef {
 			Set: a.gitBlameOpen.Set, TestID: "git-blame", Body: a.blamePane},
 		{ID: paneReviewPatch, Label: "补丁", Icon: lucide.FileDiff, Open: a.review.patchOpen.Get,
 			Set: a.review.patchOpen.Set, TestID: "review-patch-dialog", Body: a.reviewPatchPane},
+		{ID: paneTranscriptImage, Label: "图片", Icon: lucide.Image, Open: func() bool { return len(a.transcriptImage.Get().Data) > 0 },
+			Set: func(open bool) {
+				if !open {
+					a.transcriptImage.Set(remotewire.Image{})
+				}
+			},
+			TestID: "transcript-image-viewer", Body: a.transcriptImagePane},
+		{ID: paneTrajectory, Label: "轨迹", Icon: lucide.Compass, Open: func() bool { return a.trajectory.Get() != nil },
+			Set: func(open bool) {
+				if !open {
+					a.trajectory.Set(nil)
+				}
+			},
+			TestID: "trajectory-dialog", Body: a.trajectoryPane},
+		{ID: paneDelegation, Label: "子代理", Icon: lucide.Bot, Open: func() bool { return a.delegationSession.Get() != nil },
+			Set: func(open bool) {
+				if !open {
+					a.delegationSession.Set(nil)
+				}
+			},
+			TestID: "delegate-history", Body: a.delegationPane},
+		{ID: paneTranslation, Label: "翻译", Icon: lucide.Languages, Open: func() bool { return a.translation.Get() != nil },
+			Set: func(open bool) {
+				if !open {
+					a.closeTranslation()
+				}
+			},
+			TestID: "translate-dialog", Body: a.translationPane},
 	}
 }
 
@@ -199,10 +234,13 @@ func (a *app) paneView() core.Node {
 		}
 		maxWidth := core.Pct(float32(a.chatWidthPct()))
 		switch p.ID {
-		case paneSettings, paneDiff, panePreview, paneFileHistory, paneBlame, paneReviewPatch:
+		case paneSettings, paneDiff, panePreview, paneFileHistory, paneBlame, paneReviewPatch, paneTranscriptImage, paneDelegation:
 			// Pages that show content a conversation column is too narrow
-			// for: provider rows, patches, previews and long paths.
+			// for: provider rows, patches, previews, long paths and a
+			// delegate's records.
 			maxWidth = core.Pt(1320)
+		case paneTrajectory:
+			maxWidth = core.Pt(1100)
 		}
 		return core.View{TestID: p.TestID, StyleFunc: func() core.Style {
 			return core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0),

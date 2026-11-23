@@ -54,7 +54,12 @@ func TestDelegationHistoryShowsOriginalResults(t *testing.T) {
 			tools = append(tools, toolRun{CallID: fmt.Sprint(i), Name: "subagent", Action: "子代理", Detail: fmt.Sprintf("Task %d", i), Output: fmt.Sprintf("Original result %d", i), Status: chat.Completed})
 		}
 		s.turns.Set([]turn{{ID: "one", Steps: []turnStep{{Tools: tools}}}})
-		return core.View{Style: ui.FillRest, Children: []core.Node{a.delegationOverview(s), a.delegationDialog()}}
+		// The overview sits in a box of its own so the pane under it gets the
+		// rest of the fixture: a list in no height mounts nothing.
+		return core.View{Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{Height: core.Pt(120)}, Children: []core.Node{a.delegationOverview(s)}},
+			a.delegationPane(),
+		}}
 	}, nsgotest.Size(1100, 760))
 	screen.Press("id:delegate-show-all")
 	screen.WaitFor("id:delegate-history-list", 5*time.Second)

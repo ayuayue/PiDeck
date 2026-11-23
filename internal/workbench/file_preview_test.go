@@ -14,8 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"example.com/pideck-v2/assets"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // TestFilePreviewKinds checks the extension table.
@@ -213,4 +216,34 @@ func TestChangedFileShowsItsPatch(t *testing.T) {
 	if len(screen.Query("id:editor")) != 0 {
 		t.Fatal("a changed file opened in the editor instead of the diff pane")
 	}
+}
+
+// TestConversationMaterialPanes checks a tool result's picture and a turn's
+// trajectory open in the work area as tabs, and that closing the picture's
+// tab forgets it instead of keeping the bytes.
+func TestConversationMaterialPanes(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	t.Setenv("PIDECK_V2_HOME", t.TempDir())
+	var a *app
+	screen := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		a = newApp(cx)
+		// The tab bar carries the pane's tab and its close button.
+		return core.View{Style: ui.FillRest, Children: []core.Node{a.tabBar(), a.paneView()}}
+	}, nsgotest.Size(1200, 800))
+
+	a.transcriptImage.Set(remotewire.Image{Data: assets.LogoPNG, MimeType: "image/png"})
+	a.openPane(paneTranscriptImage)
+	screen.WaitFor("id:transcript-image-picture", 5*time.Second)
+	screen.Press("id:pane-tab-close-transcript-image")
+	screen.WaitForGone("id:transcript-image-picture", 5*time.Second)
+	if len(a.transcriptImage.GetUntracked().Data) != 0 {
+		t.Fatal("closing the picture's tab kept its bytes")
+	}
+
+	a.trajectory.Set(&trajectoryView{turn: turn{Model: "test-model", Usage: usageInfo{Input: 120, Output: 30}}})
+	a.openPane(paneTrajectory)
+	screen.WaitFor("id:trajectory-dialog", 5*time.Second)
+	screen.WaitFor("text:test-model", 5*time.Second)
 }

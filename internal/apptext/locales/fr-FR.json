@@ -2652,5 +2652,7 @@
   "还有 %d 个文件未显示": "%d fichiers masqués",
   "已同步": "À jour",
   "查看差异": "Voir les modifications",
-  "丢弃更改": "Abandonner les modifications"
+  "丢弃更改": "Abandonner les modifications",
+  "轨迹": "Trajectoire",
+  "子代理": "Sous-agents"
 }

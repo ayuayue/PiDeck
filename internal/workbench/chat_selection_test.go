@@ -54,7 +54,7 @@ func chatSelectionFixture(t *testing.T) (*nsgotest.App, *app, *session, *session
 			core.View{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Height: core.Pt(52)}}, a.chatPane(),
 			}},
-			a.translationDialog(),
+			a.translationPane(),
 		}}
 	}, nsgotest.Size(1280, 860), nsgotest.Environment(core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop}))
 	t.Cleanup(a.closeDiag)

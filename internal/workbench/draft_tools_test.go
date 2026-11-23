@@ -35,7 +35,7 @@ func draftToolFixture(t *testing.T) (*nsgotest.App, *app, *session) {
 			"prompt": {Provider: "fake", Model: "smart"}, "predict": {Provider: "fake", Model: "fast"},
 		}
 		s = a.makeSession(sessionMeta{ID: "draft-tool", Title: "Draft fixture"}, localTarget)
-		return core.View{Style: ui.FillRest, Children: []core.Node{a.draftChangeBar(s), a.promptTemplateDialog(), a.translationDialog()}}
+		return core.View{Style: ui.FillRest, Children: []core.Node{a.draftChangeBar(s), a.promptTemplateDialog(), a.translationPane()}}
 	}, nsgotest.Size(1100, 760))
 	t.Cleanup(a.closeDiag)
 	return screen, a, s

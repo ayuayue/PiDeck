@@ -7,7 +7,6 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/viewkit"
-	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -22,6 +21,7 @@ type trajectoryView struct {
 func (a *app) openTrajectory(s *session, t turn) {
 	v := &trajectoryView{turn: t, busy: s.File != "" && !s.Target.remote() && !s.External && s.backend != "acp"}
 	a.trajectory.Set(v)
+	a.openPane(paneTrajectory)
 	if !v.busy {
 		return
 	}
@@ -41,11 +41,13 @@ func (a *app) openTrajectory(s *session, t turn) {
 	}()
 }
 
-func (a *app) trajectoryDialog() core.Node {
+// trajectoryPane shows what a turn actually ran on: the system prompts it
+// was given, its usage and the tools it called.
+func (a *app) trajectoryPane() core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		v := a.trajectory.Get()
 		if v == nil {
-			return nil
+			return core.View{Style: ui.FillRest}
 		}
 		colors := ui.ColorsOf(cx)
 		t := v.turn
@@ -92,14 +94,13 @@ func (a *app) trajectoryDialog() core.Node {
 		if len(tools) > 0 {
 			rows = append(rows, setGroup("工具调用", tools...))
 		}
-		return ui.Dialog{Open: func() bool { return a.trajectory.Get() != nil }, OnOpenChange: func(open bool, _ base.Reason) {
-			if !open {
-				a.trajectory.Set(nil)
-			}
-		},
-			Title: apptext.T("查看轨迹"), TestID: "trajectory-dialog", Style: core.Style{Width: a.dialogWidth()},
-			Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(430)}, Children: []core.Node{core.View{Style: core.Style{Gap: 10}, Children: rows}}}},
-			Footer:   []core.Node{ui.Button{Text: apptext.T("关闭"), Variant: ui.ButtonSecondary, TestID: "trajectory-close", OnPress: func() { a.trajectory.Set(nil) }}}}
+		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+			Children: []core.Node{
+				a.paneHeader("查看轨迹", "这一轮实际使用的系统提示词、用量与工具调用"),
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(10, 0)},
+					Children: []core.Node{core.Scroll{Style: ui.FillRest, Children: []core.Node{
+						core.View{Style: core.Style{Gap: 10, Padding: core.Edges{Bottom: 16}}, Children: rows}}}}},
+			}}
 	})
 }
 

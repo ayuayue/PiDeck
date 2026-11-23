@@ -2652,5 +2652,7 @@
   "还有 %d 个文件未显示": "%d more files not shown",
   "已同步": "Up to date",
   "查看差异": "View diff",
-  "丢弃更改": "Discard changes"
+  "丢弃更改": "Discard changes",
+  "轨迹": "Trajectory",
+  "子代理": "Subagents"
 }
