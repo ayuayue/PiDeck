@@ -14,7 +14,7 @@ import (
 
 	"example.com/pideck-v2/internal/apptext"
 	"example.com/pideck-v2/internal/remotewire"
-	"example.com/pideck-v2/internal/viewkit"
+	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
 // remoteAskOf is the question a session is waiting on, if any.
@@ -24,14 +24,20 @@ func remoteAskOf(s *session) *remotewire.Ask {
 		return nil
 	}
 	if ask.Method == remotewire.AskMethodBatch {
-		// The phone has no card for several questions: it can only let the
-		// request go, and the desktop answers it.
+		// The phone draws the same card the desktop does: every question
+		// travels with its type and choices, so either side can answer it.
 		title := apptext.T("批量提问")
-		if len(ask.Questions) > 0 {
-			title += " · " + viewkit.FirstLine(ask.Questions[0].Question, 60)
+		out := &remotewire.Ask{Method: ask.Method, Title: title, Review: ask.Review,
+			Questions: make([]remotewire.AskQuestion, 0, len(ask.Questions))}
+		for _, q := range ask.Questions {
+			wire := remotewire.AskQuestion{ID: q.ID, Type: q.Type, Question: q.Question,
+				AllowOther: q.AllowOther, Placeholder: q.Placeholder, Prefill: q.Prefill}
+			for _, opt := range q.Options {
+				wire.Options = append(wire.Options, remotewire.AskOption{Label: opt.Label, Value: opt.Value, Description: opt.Description})
+			}
+			out.Questions = append(out.Questions, wire)
 		}
-		return &remotewire.Ask{Method: ask.Method, Title: title,
-			Message: apptext.T("共 %d 题，请到桌面端回答。", len(ask.Questions))}
+		return out
 	}
 	return &remotewire.Ask{Method: ask.Method, Title: ask.Title, Message: ask.Message,
 		Options: append([]string(nil), ask.Options...)}
@@ -222,7 +228,39 @@ func remoteMessages(turns []turn, before int) ([]remotewire.Message, int, bool) 
 		clip = remoteMessageRunes
 	}
 	truncated := false
+	// toolBudget is how much of a page tool output may take: the calls'
+	// own lines matter more than their output, and a page is one read.
+	toolBudget := remoteToolOutputBudget
 	var out []remotewire.Message
+	// addTool is one tool call, with the line it always had and the row
+	// the phone draws from it.
+	addTool := func(text string, run toolRun, turn int) {
+		if text == "" {
+			return
+		}
+		line := &remotewire.ToolLine{Name: run.Name, Action: run.Action, Detail: run.Detail, Added: run.Added, Removed: run.Removed,
+			DurationMs: run.DurationMs, Nested: len(run.Nested), Status: "done"}
+		switch {
+		case run.Status == chat.Running:
+			line.Status = "running"
+		case run.IsError:
+			line.Status = "error"
+		}
+		if output := strings.TrimSpace(toolBodyText(run)); output != "" && toolBudget > 0 {
+			if r := []rune(output); len(r) > toolBudget {
+				output = string(r[:toolBudget]) + "…"
+			}
+			toolBudget -= len([]rune(output))
+			line.Output = output
+		}
+		if clip > 0 {
+			if r := []rune(text); len(r) > clip {
+				text = string(r[:clip]) + "…"
+				truncated = true
+			}
+		}
+		out = append(out, remotewire.Message{Role: "tool", Text: text, Turn: turn, Tool: line})
+	}
 	for i := start; i < before; i++ {
 		t := turns[i]
 		add := func(role, text string) {
@@ -255,7 +293,7 @@ func remoteMessages(turns []turn, before int) ([]remotewire.Message, int, bool) 
 			add("note", step.Note)
 			add("thinking", step.Thinking)
 			for toolIndex, tool := range step.Tools {
-				add("tool", strings.TrimSpace(tool.Action+" "+tool.Detail))
+				addTool(strings.TrimSpace(tool.Action+" "+tool.Detail), tool, i)
 				addImages(stepIndex, toolIndex, tool.Images)
 			}
 			add("assistant", step.Text)
@@ -286,3 +324,8 @@ func turnTextSize(turns []turn) int {
 	}
 	return size
 }
+
+// remoteToolOutputBudget bounds what a page's tool calls may print between
+// them, in runes: a page is read whole by a phone, and a call's output is
+// a convenience rather than the transcript.
+const remoteToolOutputBudget = 24_000

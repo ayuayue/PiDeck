@@ -14,7 +14,6 @@ import (
 	"example.com/pideck-v2/internal/remotewire"
 	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/microphone"
 )
 
 // mobileSaved is the last connection the phone used, and the ones before
@@ -78,6 +77,12 @@ type mobileApp struct {
 	ask        *core.Signal[*remotewire.Ask]
 	askText    *core.Signal[string]
 	askSending *core.Signal[bool]
+	// askPicks are the batch's answered questions and askTexts what each
+	// field holds; askKey names the request they belong to, so another
+	// turn's questions never inherit them.
+	askPicks *core.Signal[[]remotewire.AskAnswer]
+	askTexts *core.Signal[map[string]string]
+	askKey   string
 
 	// git is one project's repository, read-only.
 	gitOpen         *core.Signal[bool]
@@ -159,12 +164,6 @@ type mobileApp struct {
 	notifyOn  *core.Signal[bool]
 	soundName *core.Signal[string]
 	sounds    *alerts.Player
-	// voice is the microphone's state, idle, recording or busy; rec is the
-	// recording it started, and voiceInsert puts a transcript into the
-	// composer that began it.
-	voice       *core.Signal[string]
-	rec         *microphone.Recording
-	voiceInsert func(string)
 
 	// The rail's lists: the ways of working a session can start with, the
 	// desktop's cron tasks and its favorites.
@@ -238,9 +237,11 @@ type mobileApp struct {
 	longOpen *core.Signal[string]
 	// thoughtOpen holds the thinking blocks the user opened, thoughtFull
 	// the ones whose rest they asked for: a long block opens to its head
-	// first, so one reasoning does not fill the screen.
+	// first, so one reasoning does not fill the screen. procOpen holds the
+	// finished turns whose process the user unfolded.
 	thoughtOpen *core.Signal[[]string]
 	thoughtFull *core.Signal[[]string]
+	procOpen    *core.Signal[[]string]
 
 	// hits are the message matches for the list's query; searchSeq drops
 	// answers for a query the user already changed.
@@ -294,6 +295,8 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		ask:                 core.NewSignalFunc(cx, (*remotewire.Ask)(nil), nil),
 		askText:             core.NewSignal(cx, ""),
 		askSending:          core.NewSignal(cx, false),
+		askPicks:            core.NewSignalFunc(cx, []remotewire.AskAnswer(nil), nil),
+		askTexts:            core.NewSignalFunc(cx, map[string]string(nil), nil),
 		reviewOpen:          core.NewSignal(cx, false),
 		reviewProject:       core.NewSignal(cx, ""),
 		reviewName:          core.NewSignal(cx, ""),
@@ -372,6 +375,8 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		toolOpen:            core.NewSignal(cx, ""),
 		longOpen:            core.NewSignal(cx, ""),
 		thoughtOpen:         core.NewSignalFunc(cx, []string(nil), nil),
+		thoughtFull:         core.NewSignalFunc(cx, []string(nil), nil),
+		procOpen:            core.NewSignalFunc(cx, []string(nil), nil),
 		hits:                core.NewSignalFunc(cx, []remotewire.Hit(nil), nil),
 		hitsBusy:            core.NewSignal(cx, false),
 		scroll:              &core.Ref{},
@@ -392,7 +397,6 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		soundOn:             core.NewSignal(cx, false),
 		notifyOn:            core.NewSignal(cx, false),
 		soundName:           core.NewSignal(cx, ""),
-		voice:               core.NewSignal(cx, voiceIdle),
 		agents:              core.NewSignalFunc(cx, []remotewire.Agent(nil), nil),
 		agentsBusy:          core.NewSignal(cx, false),
 		agentsErr:           core.NewSignal(cx, ""),
@@ -443,6 +447,10 @@ func newMobileApp(cx *core.Scope) *mobileApp {
 		}
 	}
 	cx.OnBackPress(func() bool {
+		if a.transcriptPicture.GetUntracked().Open {
+			a.closeTranscriptPicture()
+			return true
+		}
 		if a.drawerOpen.GetUntracked() {
 			a.openDrawer(false)
 			return true

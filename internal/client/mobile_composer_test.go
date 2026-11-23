@@ -275,12 +275,12 @@ func TestMobileComposerSends(t *testing.T) {
 		sent := desk.sentPrompts()
 		return len(sent) == 1 && sent[0] == "第二条消息"
 	})
-	// The field is emptied and the send says it went out, so a press is
-	// never silent.
+	// The field is emptied, and no notice stands in for the message: the
+	// transcript's own refresh is what shows it went out.
 	waitFor(t, app, 5*time.Second, func() bool { return draftValue(app) == "" })
 	app.Settle()
-	if len(app.Query("text:已发送")) == 0 {
-		t.Fatal("no 已发送 confirmation after send")
+	if len(app.Query("text:已发送")) != 0 {
+		t.Fatal("the send still shows a 已发送 notice")
 	}
 }
 

@@ -293,6 +293,7 @@ func (a *mobileApp) refreshTranscript() {
 			wasRunning := a.running.GetUntracked()
 			wasAsk := a.ask.GetUntracked() != nil
 			a.running.Set(t.Running)
+			a.resetAskDraft(t.Ask)
 			a.ask.Set(t.Ask)
 			switch {
 			case wasRunning && !t.Running:

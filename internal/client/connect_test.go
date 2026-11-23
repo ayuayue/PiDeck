@@ -65,8 +65,8 @@ func TestMobileConnect(t *testing.T) {
 	}
 	waitApp(app, "text:看到了，这是电脑上的会话。", 15*time.Second)
 	shot(app, "61-mobile-transcript")
-	// Tool calls fold into one row that opens in place.
-	app.Press("id:mobile-tools")
+	// A finished turn folds its process into one row that opens in place.
+	app.Press("id:mobile-process")
 	waitApp(app, "text:read src/app.ts", 5*time.Second)
 	shot(app, "66-mobile-tools")
 }

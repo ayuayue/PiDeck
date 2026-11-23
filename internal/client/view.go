@@ -38,7 +38,6 @@ func (a *mobileApp) view() core.Node {
 			a.tasksSheet(),
 			a.favoritesSheet(),
 			a.favoriteTextSheet(),
-			a.transcriptImageDialog(),
 			a.reviewSheet(),
 			a.reviewDetailSheet(),
 			a.reviewPatchSheet(),
@@ -47,6 +46,8 @@ func (a *mobileApp) view() core.Node {
 			a.gitBranchesSheet(),
 			a.filesSheet(),
 			a.fileSheet(),
+			// The picture covers the whole screen, so it is drawn last.
+			a.transcriptImageViewer(),
 		}}
 	})
 }

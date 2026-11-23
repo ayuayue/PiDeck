@@ -344,7 +344,7 @@ func (a *mobileApp) initView(cx *core.Scope) core.Node {
 		a.pageHeader(cx, "PiDeck V2", a.serverName.Get()),
 		a.appNotice(cx),
 		core.Scroll{Style: ui.FillRest, Children: []core.Node{
-			core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pct(100), Padding: core.Edges{Top: 24, Right: 20, Bottom: 20, Left: 20},
+			core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pct(100), Padding: core.Edges{Top: 24, Right: 20, Bottom: 6, Left: 20},
 				AlignItems: core.AlignCenter}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, Width: core.Pct(100), MaxWidth: core.Pt(520), AlignItems: core.AlignCenter,
 					JustifyContent: core.JustifyCenter, Gap: 12}, Children: []core.Node{
