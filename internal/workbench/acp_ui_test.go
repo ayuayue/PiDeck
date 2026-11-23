@@ -143,7 +143,7 @@ func TestResendTurn(t *testing.T) {
 	app := fakeACPApp(t)
 	newFakeACPSession(t, app)
 	app.WaitFor("text:hello", 20*time.Second)
-	app.Press("label:重新发送")
+	app.Press("label:重新生成")
 	app.WaitUntil(30*time.Second, func() bool { return len(app.Query("text:hello")) >= 2 })
 }
 

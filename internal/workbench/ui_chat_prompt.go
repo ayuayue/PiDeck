@@ -7,10 +7,10 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// turnPrompt is the user's side of a turn: a card on the paper, with the
-// time outside it. It is built once and reads its text in a binding, so a
-// later message in the same turn does not redraw it.
-func (a *app) turnPrompt(t func() turn) core.Node {
+// turnPrompt is the user's side of a turn: a card on the paper, the time
+// and the prompt's own actions under it. It is built once and reads its text
+// in a binding, so a later message in the same turn does not redraw it.
+func (a *app) turnPrompt(s *session, t func() turn) core.Node {
 	return core.Func(func(cx *core.Scope) core.Node {
 		colors := ui.ColorsOf(cx)
 		images := t().Images
@@ -36,9 +36,12 @@ func (a *app) turnPrompt(t func() turn) core.Node {
 						}
 						return core.Style{Background: surface, BorderColor: colors.Border()}
 					}, Children: content},
-				core.Show{When: func() bool { return !t().Start.IsZero() }, Then: func(*core.Scope) core.Node {
-					return ui.Tabular(core.Text{ContentFunc: func() string { return clockTime(t().Start) }, TestID: "chat-prompt-time",
-						Style: core.Style{FontSize: a.readingDetailFont(), LineHeight: a.readingDetailLine()}, StyleFunc: ui.Colored(colors.Faint)})
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+					core.Show{When: func() bool { return !t().Start.IsZero() }, Then: func(*core.Scope) core.Node {
+						return ui.Tabular(core.Text{ContentFunc: func() string { return clockTime(t().Start) }, TestID: "chat-prompt-time",
+							Style: core.Style{FontSize: a.readingDetailFont(), LineHeight: a.readingDetailLine()}, StyleFunc: ui.Colored(colors.Faint)})
+					}},
+					a.promptActions(s, t),
 				}},
 			}}
 		}}

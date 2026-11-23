@@ -84,7 +84,7 @@ func TestChatSelectionOpensOnlySelectedText(t *testing.T) {
 	textID := screen.Find("text:" + selectionParagraph).ID
 	box := selectChatParagraph(t, screen)
 	button := screen.Find("id:chat-selection-translate").Bounds()
-	actions := screen.Find("id:turn-translate").Bounds()
+	actions := screen.Find("id:turn-copy").Bounds()
 	if button.Origin.X+button.Size.Width > box.Origin.X || button.Origin.X < 180 || button.Origin.Y+button.Size.Height > actions.Origin.Y {
 		t.Fatalf("translation action %v is not in the transcript gutter beside %v or above reply actions %v", button, box, actions)
 	}
