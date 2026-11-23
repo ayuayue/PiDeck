@@ -99,7 +99,8 @@ test("project row renders the remote badge, host name and dot without losing hov
 	// mask id 必须实例级（同一屏挂很多项目行），且镂空是透空的：不能再垫固定底色的圆盘，
 	// 否则 hover / 选中行会露出一块对不上的圆片。
 	assert.match(badge, /useId\(\)/);
-	assert.doesNotMatch(badge, /bg-sidebar/);
+	// 只看真实 className：组件注释里会解释「旧做法垫过 bg-sidebar 圆盘」，那不是用法。
+	assert.doesNotMatch(badge, /className="[^"]*bg-sidebar/);
 });
 
 // 离开设置页再回来时没有任何推送可重放：列表必须把当前状态一起带回来，否则已连接的主机会显示成断开。

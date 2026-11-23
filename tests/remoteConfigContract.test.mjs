@@ -88,7 +88,7 @@ test("the entry re-pins the new artifact and reports the declared build", () => 
 	// 不写死版本号：hello 报的版本必须等于源码声明的常量，bump 时只改一处。
 	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes(`"${entry.REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report the declared build");
 	const artifacts = Array.from(entry.REMOTE_HELPER_ARTIFACTS, (artifact) => artifact.name);
-	assert.deepEqual(artifacts, ["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "resources.mjs", "mcp-login.mjs", "search-content.mjs", "upload-commit.mjs", "terminal-runner.mjs"]);
+	assert.deepEqual(artifacts, ["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "resources.mjs", "mcp-login.mjs", "search-content.mjs", "upload-commit.mjs", "session-maintain.mjs", "terminal-runner.mjs"]);
 	const packed = entry.REMOTE_HELPER_ARTIFACTS.find((artifact) => artifact.name === "config.mjs");
 	assert.equal(packed.sha256, config.REMOTE_HELPER_CONFIG_SHA256);
 	assert.equal(packed.source, config.REMOTE_CONFIG_SOURCE);

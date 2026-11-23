@@ -10,6 +10,19 @@ description: PiDeck 每个版本的发布记录：新功能、问题修复与体
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
+## v0.14.0
+
+发布时间：2026-11-23
+
+- 🚀 **远端文件读写走 SFTP，上传提交按版本替换**
+- 🚀 **远端会话历史在远端就地维护**
+- 🚀 **远端设置与 MCP 复用本地表单**
+- 🚀 **Markdown 预览的目录可以点击跳转**
+- ✨ **WSL 会话列表不再卡死（#588）**
+- ✨ **Windows 沙箱下命令不再 0xC0000142（#591、#582）**
+- ✨ **远端 Git 图谱恢复可用**
+- ✨ **归档会话恢复的回归修正（#581、#579）**
+
 ## v0.13.2
 
 发布时间：2026-11-21

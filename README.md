@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.13.2-blue)
+![Version](https://img.shields.io/badge/version-0.14.0-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -92,10 +92,17 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.13.2**（2026-11-21）
+> **最新版本 v0.14.0**（2026-11-23）
 
-### v0.13.2 更新亮点
-- ✨ **远端 Git 请求保留受理时的超时预算**
+### v0.14.0 更新亮点
+- 🚀 **远端文件读写走 SFTP，上传提交按版本替换**
+- 🚀 **远端会话历史在远端就地维护**
+- 🚀 **远端设置与 MCP 复用本地表单**
+- 🚀 **Markdown 预览的目录可以点击跳转**
+- ✨ **WSL 会话列表不再卡死（#588）**
+- ✨ **Windows 沙箱下命令不再 0xC0000142（#591、#582）**
+- ✨ **远端 Git 图谱恢复可用**
+- ✨ **归档会话恢复的回归修正（#581、#579）**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

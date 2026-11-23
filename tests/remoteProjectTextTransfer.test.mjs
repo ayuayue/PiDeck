@@ -53,7 +53,8 @@ test("replace writes the exact bytes through stage/commit with policy replace", 
 	const bytes = Buffer.from("replaced body\n");
 	const { revision } = await f.transfer.replace({ ...target(f), capabilities: f.host.capabilities, bytes, expected });
 	assert.equal(await readFile(f.path, "utf8"), "replaced body\n");
-	assert.equal((await stat(f.path)).mode & 0o7777, 0o640, "替换保留原文件模式");
+	// Windows 的 stat 没有 POSIX 权限位（文件恒 0o666），「保留原模式」只在 POSIX 上可验。
+	if (process.platform !== "win32") assert.equal((await stat(f.path)).mode & 0o7777, 0o640, "替换保留原文件模式");
 	assert.equal(revision.digest, sha256(bytes));
 	assert.equal(revision.size, bytes.length);
 	assert.equal(f.host.calls.prepare.length, 1);

@@ -40,6 +40,7 @@ import { replaceArchiveIndex, restoreArchivedSubtree } from "./scanner/sessionAr
 import { createSessionInfoAppender } from "./scanner/sessionInfoAppender";
 import { exportSessionHtml, type SessionHtmlExportHost } from "./scanner/sessionHtmlExport";
 import { collectFromRootsLocal, collectFromRootsWsl, collectJsonl, collectWslJsonl, mapLimited, type SessionRootEnumerationHost } from "./scanner/sessionRootEnumeration";
+import { WslFileVersionBatch } from "./scanner/wslFileStatBatch";
 import { hasSessionHeader, isSessionFile, listPathSummary, optionalString, readLocalFileHead, readLocalFilePrefix, readLocalFileSuffix, readSessionSummary, type SessionSummaryReadHost } from "./scanner/sessionSummaryRead";
 import { FIRST_MESSAGE_TITLE_MAX_BYTES, inferFirstMessageTitle, inferSessionNameAndValidity, inferSessionNameFromFile, probeTintinwebSubagentParent, readArchivedSubagentReference, type SessionTitleProbeHost } from "./scanner/sessionTitleProbe";
 import { findSessionsRootForFile, forkParentCandidates, inferProjectPathFromFile, isSameProject, isUnderProjectSessionDir, looksLikeNestedSessionPath, normalizeSessionPath, sessionPathToken, type SessionScanRootsHost } from "./scanner/sessionPathDerivation";
@@ -94,6 +95,15 @@ export class SessionScanner {
 	private scanTimeoutMs = 18_000;
 	/** 摘要扫描并发：打包正式目录可有数百 JSONL，Promise.all 全开会占满主线程，点击/输入跟着卡。 */
 	private static readonly SUMMARY_READ_CONCURRENCY = 4;
+	/**
+	 * WSL 文件指纹（批量预热 + 单文件回退 + 本轮快照）全部收在 scanner/wslFileStatBatch.ts：
+	 * 巨文件只准降，新逻辑放新模块。
+	 */
+	private readonly wslFileVersions = new WslFileVersionBatch({
+		config: () => this.wslConfig,
+		resolveWslExe: () => this.resolveWslExe(),
+		mapLimited: (items, concurrency, mapper) => this.mapLimited(items, concurrency, mapper),
+	});
 	/**
 	 * 整文件读入的体量上限：超过即拒绝（抛可读错误）。
 	 *
@@ -411,29 +421,14 @@ export class SessionScanner {
 		});
 	}
 
-	/** 通过 wsl.exe 获取缓存判定所需的修改时间和大小。 */
+	/** 本轮扫描的文件指纹批量预热（实现与量级论证见 scanner/wslFileStatBatch.ts）。 */
+	private primeWslFileVersions(files: readonly string[], signal?: AbortSignal): Promise<void> {
+		return this.wslFileVersions.prime(files, signal);
+	}
+
+	/** 通过 wsl.exe 获取缓存判定所需的修改时间和大小（批量未覆盖的路径才真起子进程）。 */
 	private readWslFileVersion(wslPath: string, signal?: AbortSignal): Promise<SessionFileVersion> {
-		return new Promise((resolve, reject) => {
-			execFile(
-				this.wslExePath,
-				["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "stat", "-c", "%Y %s", wslPath],
-				{
-					shell: this.wslShell,
-					encoding: "utf8",
-					timeout: 5_000,
-					signal,
-					windowsHide: true,
-				},
-				(err, stdout) => {
-					if (err) {
-						reject(err);
-						return;
-					}
-					const [mtimeSeconds, size] = stdout.trim().split(/\s+/).map(Number);
-					resolve({ mtimeMs: mtimeSeconds * 1000, size });
-				},
-			);
-		});
+		return this.wslFileVersions.readVersion(wslPath, signal);
 	}
 
 	/** 通过 wsl.exe 删除文件 */
@@ -590,6 +585,8 @@ export class SessionScanner {
 
 			// WSL 模式 vs 本地模式：互斥扫描，不会同时展示两个环境的会话。
 			const files = this.wslConfig ? await this.collectFromRootsWsl(scanRoots, signal).catch(rethrowAbort([] as string[])) : await this.collectFromRootsLocal(scanRoots);
+			// WSL：先把全部文件的指纹一次批量取回，随后逐文件读取只查内存（见 primeWslFileVersions）。
+			if (this.wslConfig) await this.primeWslFileVersions(files, signal).catch(rethrowAbort(undefined));
 			const fileSetKey = [...files].sort().join("\n");
 			if (fileSetKey !== this.summaryCacheFileSetKey) {
 				// 仅修剪当前环境下已消失文件，保留未变化会话的摘要命中（含磁盘恢复的条目）。
@@ -611,6 +608,8 @@ export class SessionScanner {
 			return filtered;
 		} finally {
 			if (scanTimer) clearTimeout(scanTimer);
+			// 指纹快照只在本次扫描内有效：留着会让下次点击读到上一轮的旧版本。
+			this.wslFileVersions.clear();
 		}
 	}
 
