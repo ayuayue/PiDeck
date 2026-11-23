@@ -6,8 +6,8 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -46,6 +46,7 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		thinking:       core.NewSignal(a.cx, ""),
 		levels:         core.NewSignalFunc(a.cx, []string(nil), nil),
 		usage:          core.NewSignal(a.cx, usageInfo{}),
+		perf:           core.NewSignal(a.cx, replyPerf{}),
 		stats:          core.NewSignal(a.cx, sessionStats{}),
 		updated:        core.NewSignal(a.cx, m.Updated),
 		loaded:         core.NewSignal(a.cx, false),
@@ -79,6 +80,8 @@ func (a *app) makeSession(m sessionMeta, t target) *session {
 		liveTools:      core.NewSignalFunc(a.cx, []toolRun(nil), nil),
 		extStatus:      map[string]string{},
 		openTools:      map[string]bool{},
+		openProc:       map[string]bool{},
+		openFold:       map[string]bool{},
 		uiSeq:          core.NewSignal(a.cx, 0),
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
 		acpMode:        core.NewSignal(a.cx, ""),
@@ -120,37 +123,42 @@ func (s *session) toggleOpen(key string) {
 	}
 }
 
-// thinkingRowOpen reports the user's choice for a thinking row; auto is the
-// default while the user has not chosen.
-func (s *session) thinkingRowOpen(key string, auto bool) bool {
-	if v, ok := s.openThink[key]; ok {
+// procOpen reports whether a process group is open: the user's choice
+// once they made one, and otherwise auto, which is whether the group is
+// the one still running.
+func (s *session) procOpen(key string, auto bool) bool {
+	if v, ok := s.openProc[key]; ok {
 		return v
 	}
 	return auto
 }
 
-// toggleThink opens or closes a thinking row.
-func (s *session) toggleThink(key string, auto bool) {
-	if s.openThink == nil {
-		s.openThink = map[string]bool{}
+// toggleProc opens or closes a process group and keeps the choice.
+func (s *session) toggleProc(key string, auto bool) {
+	if s.openProc == nil {
+		s.openProc = map[string]bool{}
 	}
-	s.openThink[key] = !s.thinkingRowOpen(key, auto)
+	s.openProc[key] = !s.procOpen(key, auto)
 	if s.uiSeq != nil {
 		s.uiSeq.Update(func(n int) int { return n + 1 })
 	}
 }
 
-// thinkShowsAll says a long thinking row was asked to show its rest.
-func (s *session) thinkShowsAll(key string) bool {
-	return s.thinkFull[key]
+// foldOpen reports whether a turn's process is unfolded: the user's choice
+// once they made one, and otherwise auto.
+func (s *session) foldOpen(key string, auto bool) bool {
+	if v, ok := s.openFold[key]; ok {
+		return v
+	}
+	return auto
 }
 
-// toggleThinkFull shows the rest of a long thinking row, or folds it back.
-func (s *session) toggleThinkFull(key string) {
-	if s.thinkFull == nil {
-		s.thinkFull = map[string]bool{}
+// toggleFold unfolds or folds a turn's process and keeps the choice.
+func (s *session) toggleFold(key string, auto bool) {
+	if s.openFold == nil {
+		s.openFold = map[string]bool{}
 	}
-	s.thinkFull[key] = !s.thinkFull[key]
+	s.openFold[key] = !s.foldOpen(key, auto)
 	if s.uiSeq != nil {
 		s.uiSeq.Update(func(n int) int { return n + 1 })
 	}

@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -396,104 +396,6 @@ func modelLabel(m modelInfo) string {
 		name = name[:i]
 	}
 	return name
-}
-
-// usageMenu is the composer's usage panel: what the context holds, what the
-// session has spent, and the actions that follow from it.
-func (a *app) usageMenu(s *session, open *core.Signal[bool]) core.Node {
-	trigger := core.Dynamic(func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		u := s.usage.Get()
-		total := viewkit.Tokens(u.Total)
-		if u.Total == 0 {
-			total = apptext.T("用量")
-		}
-		return core.View{OnPress: func(core.PressEvent) { open.Update(func(v bool) bool { return !v }) },
-			Role: core.RoleButton, Label: apptext.T("用量"), TestID: "usage-chip",
-			StyleFunc: func() core.Style {
-				return core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Height: core.Pt(24),
-					Padding: core.Symmetric(0, 7), CornerRadius: 6, Hover: &core.Style{Background: colors.Hover()}}
-			},
-			Children: []core.Node{
-				ui.Icon(lucide.Gauge, 12, colors.Muted),
-				core.Text{Content: total, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Muted)},
-				core.Text{Content: viewkit.Credits(u.Cost), Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)},
-			}}
-	})
-	return a.popoverCard(open, core.PlaceTop, core.AlignEnd, 300, trigger, func(cx *core.Scope) core.Node {
-		colors := ui.ColorsOf(cx)
-		st := s.stats.Get()
-		u := s.usage.Get()
-		m := s.model.Get()
-		ctxTokens, ctxWindow := st.ContextTokens, st.ContextWindow
-		if ctxWindow == 0 && m.ContextWindow > 0 {
-			ctxWindow = m.ContextWindow
-		}
-		fraction := 0.0
-		if ctxWindow > 0 {
-			fraction = min(1, float64(ctxTokens)/float64(ctxWindow))
-		}
-		row := func(label, value string, accent func() core.Color) core.Node {
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Height: core.Pt(24)}, Children: []core.Node{
-				core.Text{Content: label, Style: core.Style{FontSize: 12, FlexGrow: 1}, StyleFunc: ui.Colored(colors.Muted)},
-				core.Text{Content: value, Style: core.Style{FontFamily: viewkit.MonoFont(), FontSize: 11}, StyleFunc: ui.Colored(accent)},
-			}}
-		}
-		turns, tools := 0, 0
-		for _, t := range s.turns.Get() {
-			turns++
-			tools += t.Tools
-		}
-		return core.View{Style: core.Style{Width: core.Pt(288), Gap: 8}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				ui.Text(apptext.T("用量"), 12.5, ui.Semibold, colors.Text),
-				core.View{Style: core.Style{FlexGrow: 1}},
-				ui.Text(modelLabel(m), 10.5, ui.Regular, colors.Faint),
-			}},
-			core.View{Style: core.Style{Gap: 4}, Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
-					ui.Text(apptext.T("上下文"), 12, ui.Regular, colors.Muted),
-					core.View{Style: core.Style{FlexGrow: 1}},
-					ui.Textf(func() string {
-						if ctxWindow == 0 {
-							return apptext.T("未测量")
-						}
-						return fmt.Sprintf("%s / %s · %.0f%%", viewkit.Tokens(ctxTokens), viewkit.Tokens(ctxWindow), fraction*100)
-					}, 10.5, ui.Regular, colors.Faint),
-				}},
-				core.View{Style: core.Style{Height: core.Pt(5), CornerRadius: 3, Background: colors.Track(), Overflow: core.Hidden},
-					Children: []core.Node{core.View{StyleFunc: func() core.Style {
-						c := colors.Accent()
-						if fraction >= 0.95 {
-							c = colors.Danger()
-						} else if fraction >= 0.8 {
-							c = colors.Warn()
-						}
-						return core.Style{Width: core.Pct(float32(fraction * 100)), Height: core.Pt(5), Background: c}
-					}}}},
-			}},
-			core.View{Style: core.Style{Height: core.Pt(1)}, StyleFunc: ui.Filled(colors.Line)},
-			core.View{Style: core.Style{Gap: 1}, Children: []core.Node{
-				row("输入", viewkit.Tokens(u.Input), colors.Text),
-				row("输出", viewkit.Tokens(u.Output), colors.Text),
-				row("缓存读", viewkit.Tokens(u.CacheRead), colors.Muted),
-				row("费用", viewkit.Credits(u.Cost), colors.Text),
-				row(apptext.T("轮次 / 工具"), fmt.Sprintf("%d / %d", turns, tools), colors.Muted),
-			}},
-			core.View{Style: core.Style{Height: core.Pt(1)}, StyleFunc: ui.Filled(colors.Line)},
-			core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
-				ui.Button{Text: apptext.T("压缩上下文"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
-					open.Set(false)
-					a.compact(s)
-				}},
-				ui.Button{Text: apptext.T("会话面板"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() {
-					open.Set(false)
-					a.drawer.Set(true)
-					a.setDrawerTab("overview")
-				}},
-			}},
-		}}
-	}, "usage-menu")
 }
 
 // projectMenu switches the session's project from the composer.

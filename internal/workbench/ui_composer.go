@@ -10,8 +10,8 @@ package workbench
 import (
 	"strings"
 
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -212,8 +212,6 @@ func (a *app) composerAddMenu(s *session) core.Node {
 			composerRow(cx, lucide.Target, apptext.T("目标模式"), apptext.T("没完成就自己继续，直到完成或停下"), mode == modeGoal, false, func() { toggle(modeGoal) }),
 			composerRow(cx, lucide.Image, apptext.T("生图模式"), apptext.T("把这句话画成一张图"), mode == modeImage, backendOf(s) == "acp", func() { toggle(modeImage) }),
 		}
-		rows = append(rows, composerDivider(cx))
-		rows = append(rows, a.composerDraftItems(cx, s)...)
 		return core.View{Style: core.Style{Gap: 1}, Children: rows}
 	}, "composer-add-menu")
 }
@@ -542,13 +540,12 @@ func (a *app) queuePanel(s *session) core.Node {
 	})
 }
 
-// contextMeterNode wraps the ring with the app's own hint.
+// contextMeterNode is the ring beside the send button, and the panel it
+// opens: the same facts PiDeck's gauge shows, in the same place.
 func (a *app) contextMeterNode(s *session) core.Node {
-	meter := chat.ContextMeter{
-		Label: apptext.T("上下文"), Title: apptext.T("上下文用量"),
-		Value:    func() string { return a.contextValue(s) },
-		Fraction: func() float64 { return a.contextFraction(s) },
-		TestID:   "context-meter",
-	}
-	return hintOf(func() string { return apptext.T("上下文 · %s", a.contextValue(s)) }, meter)
+	trigger := hintOf(a.usageHint(s), a.contextRing(s, s.usageOpen))
+	return a.popoverCard(s.usageOpen, core.PlaceTop, core.AlignEnd, contextPanelWidth, trigger,
+		func(cx *core.Scope) core.Node {
+			return a.contextPanel(s, func() { s.usageOpen.Set(false) })
+		}, "usage-popover")
 }

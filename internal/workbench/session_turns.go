@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
@@ -52,11 +52,18 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			step := turnStep{ID: fmt.Sprintf("h%d-%d", len(turns), len(cur.Steps))}
 			var prose strings.Builder
 			var calls []piContent
+			proseAt := -1
 			for _, b := range m.blocks() {
 				switch b.Type {
 				case "thinking":
 					step.Thinking += b.Thinking
 				case "text":
+					if proseAt < 0 {
+						proseAt = len(calls)
+					}
+					if prose.Len() > 0 {
+						prose.WriteString("\n\n")
+					}
 					prose.WriteString(b.Text)
 				case "toolCall":
 					calls = append(calls, b)
@@ -64,6 +71,7 @@ func turnsFromMessages(msgs []piMessage) []turn {
 			}
 			if prose.Len() > 0 && len(calls) > 0 {
 				step.Text = prose.String()
+				step.TextAt = max(0, proseAt)
 			}
 			for _, c := range calls {
 				action, detail := toolSummary(c.Name, c.Arguments)

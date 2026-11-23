@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
+	"example.com/pideck-v2/internal/remotewire"
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
@@ -202,7 +202,10 @@ type turnStep struct {
 	Text     string
 	Note     string // a system note: compaction, a summary
 	Tools    []toolRun
-	Start    time.Time
+	// TextAt is how many tool calls came before the prose, so the step reads
+	// in the order pi wrote it: prose, calls, or calls and then prose.
+	TextAt int
+	Start  time.Time
 }
 
 // turn is one request and everything pi did for it.
@@ -244,6 +247,41 @@ func (t turn) elapsed(now time.Time) time.Duration {
 		return 0
 	}
 	return end.Sub(t.Start)
+}
+
+// replyPerf is the last reply's pace and the session's cache-hit record:
+// the ring and its panel show both, and pi reports neither.
+type replyPerf struct {
+	TTFT   time.Duration // the first token, from the request
+	Total  time.Duration // the whole reply
+	Output int           // the tokens it wrote
+	// LastPrompt is the last message's tokens: what the context held when it
+	// answered, the fallback when pi has no context count yet.
+	LastPrompt int
+	// HitLast is the last reply's cached share of its prompt, and HitSum
+	// with HitCount average it over the session, as pi's footer does.
+	HitLast       float64
+	HitSum        float64
+	HitCount      int
+	HasHit        bool
+	HasTTFT       bool
+	HasReplySpeed bool
+}
+
+// rate is the reply's tokens a second, 0 when it is unknown.
+func (p replyPerf) rate() float64 {
+	if !p.HasReplySpeed || p.Total <= 0 || p.Output <= 0 {
+		return 0
+	}
+	return float64(p.Output) / p.Total.Seconds()
+}
+
+// averageHit is the session's mean cache-hit share, -1 when it has none.
+func (p replyPerf) averageHit() float64 {
+	if p.HitCount <= 0 {
+		return -1
+	}
+	return p.HitSum / float64(p.HitCount)
 }
 
 // sessionStats is what pi reports for the session's totals.

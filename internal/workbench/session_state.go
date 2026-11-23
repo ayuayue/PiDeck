@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -39,10 +39,13 @@ type session struct {
 	modelsBusy  *core.Signal[bool]
 	thinking    *core.Signal[string]
 	levels      *core.Signal[[]string]
-	usage       *core.Signal[usageInfo]
-	stats       *core.Signal[sessionStats]
-	updated     *core.Signal[time.Time]
-	loaded      *core.Signal[bool]
+	// usage is what the session has spent, and perf how fast its last
+	// reply came and how much of every prompt the cache served.
+	usage   *core.Signal[usageInfo]
+	perf    *core.Signal[replyPerf]
+	stats   *core.Signal[sessionStats]
+	updated *core.Signal[time.Time]
+	loaded  *core.Signal[bool]
 	// dropTail orders background file-drop batches before publishing them.
 	dropTail    <-chan struct{}
 	dropPending *core.Signal[int]
@@ -158,12 +161,15 @@ type session struct {
 	live      bool
 	extStatus map[string]string
 
-	// openTools and openThink remember which rows the user opened or
-	// closed, by key; uiSeq changes so the rows redraw.
+	// openTools, openProc and openFold remember which rows, process groups
+	// and turn folds the user opened or closed, by key; uiSeq changes so
+	// the rows redraw.
 	openTools map[string]bool
-	openThink map[string]bool
-	// thinkFull holds the thinking rows whose rest the user asked for: a
-	// long one opens to its head first.
-	thinkFull map[string]bool
+	openProc  map[string]bool
+	openFold  map[string]bool
 	uiSeq     *core.Signal[int]
+	// replyStart is when the current assistant message began, and replyTTFT
+	// when its first token showed: the reply pace is counted from both.
+	replyStart time.Time
+	replyTTFT  time.Duration
 }

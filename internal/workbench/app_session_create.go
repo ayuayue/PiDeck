@@ -6,9 +6,9 @@ package workbench
 // views read; pi's events are folded in here, on the UI thread.
 
 import (
-	"example.com/pideck-lite/internal/apptext"
-	"example.com/pideck-lite/internal/remotewire"
-	"example.com/pideck-lite/internal/viewkit"
+	"example.com/pideck-v2/internal/apptext"
+	"example.com/pideck-v2/internal/remotewire"
+	"example.com/pideck-v2/internal/viewkit"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -16,25 +16,28 @@ import (
 // blankSession builds a session's signals and registers it.
 func (a *app) blankSession(id string, ws *workspace, title string) *session {
 	s := &session{
-		ID:             id,
-		WS:             ws.Path,
-		Target:         ws.Target,
-		title:          core.NewSignal(a.cx, title),
-		status:         core.NewSignal(a.cx, statusIdle),
-		turns:          core.NewSignalFunc(a.cx, []turn{}, nil),
-		draft:          core.NewSignal(a.cx, ""),
-		draftChange:    core.NewSignal(a.cx, (*viewkit.DraftChange)(nil)),
-		images:         core.NewSignalFunc(a.cx, []remotewire.Image(nil), nil),
-		dropPending:    core.NewSignal(a.cx, 0),
-		model:          core.NewSignal(a.cx, modelInfo{}),
-		models:         core.NewSignalFunc(a.cx, []modelInfo(nil), nil),
-		modelsBusy:     core.NewSignal(a.cx, false),
-		thinking:       core.NewSignal(a.cx, ""),
-		levels:         core.NewSignalFunc(a.cx, []string(nil), nil),
-		usage:          core.NewSignal(a.cx, usageInfo{}),
-		stats:          core.NewSignal(a.cx, sessionStats{}),
-		updated:        core.NewSignal(a.cx, a.cx.Now()),
-		loaded:         core.NewSignal(a.cx, false),
+		ID:          id,
+		WS:          ws.Path,
+		Target:      ws.Target,
+		title:       core.NewSignal(a.cx, title),
+		status:      core.NewSignal(a.cx, statusIdle),
+		turns:       core.NewSignalFunc(a.cx, []turn{}, nil),
+		draft:       core.NewSignal(a.cx, ""),
+		draftChange: core.NewSignal(a.cx, (*viewkit.DraftChange)(nil)),
+		images:      core.NewSignalFunc(a.cx, []remotewire.Image(nil), nil),
+		dropPending: core.NewSignal(a.cx, 0),
+		model:       core.NewSignal(a.cx, modelInfo{}),
+		models:      core.NewSignalFunc(a.cx, []modelInfo(nil), nil),
+		modelsBusy:  core.NewSignal(a.cx, false),
+		thinking:    core.NewSignal(a.cx, ""),
+		levels:      core.NewSignalFunc(a.cx, []string(nil), nil),
+		usage:       core.NewSignal(a.cx, usageInfo{}),
+		perf:        core.NewSignal(a.cx, replyPerf{}),
+		stats:       core.NewSignal(a.cx, sessionStats{}),
+		updated:     core.NewSignal(a.cx, a.cx.Now()),
+		// A new session has no transcript to read: it is shown empty at once,
+		// instead of waiting behind the history skeleton for pi to start.
+		loaded:         core.NewSignal(a.cx, true),
 		notice:         core.NewSignal(a.cx, ""),
 		steering:       core.NewSignalFunc(a.cx, []string(nil), nil),
 		sending:        core.NewSignalFunc(a.cx, []queuedMessage(nil), nil),
@@ -65,6 +68,8 @@ func (a *app) blankSession(id string, ws *workspace, title string) *session {
 		liveTools:      core.NewSignalFunc(a.cx, []toolRun(nil), nil),
 		extStatus:      map[string]string{},
 		openTools:      map[string]bool{},
+		openProc:       map[string]bool{},
+		openFold:       map[string]bool{},
 		uiSeq:          core.NewSignal(a.cx, 0),
 		acpCommands:    core.NewSignalFunc(a.cx, []acpCommand(nil), nil),
 		acpMode:        core.NewSignal(a.cx, ""),

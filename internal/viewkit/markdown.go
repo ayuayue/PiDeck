@@ -8,7 +8,7 @@ package viewkit
 import (
 	"unicode/utf8"
 
-	"example.com/pideck-lite/internal/apptext"
+	"example.com/pideck-v2/internal/apptext"
 	"github.com/nsgo-dev/nsgo/base/textview"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -35,6 +35,14 @@ func MarkdownSearch(search *textview.Search, text string, streaming func() bool,
 
 // MarkdownWithCodeWrap lets a host choose the wrapping code renderer.
 func MarkdownWithCodeWrap(search *textview.Search, text string, streaming func() bool, caret bool, size, line core.Points, tone core.Style, wrapCode func() bool) core.Node {
+	return MarkdownLive(search, func() string { return text }, streaming, size, line, tone, wrapCode)
+}
+
+// MarkdownLive is MarkdownWithCodeWrap over text a binding reads: the
+// document is parsed again as the text it returns changes, without the
+// view around it being rebuilt. A streaming answer uses this so a delta
+// updates the prose instead of remounting it.
+func MarkdownLive(search *textview.Search, text func() string, streaming func() bool, size, line core.Points, tone core.Style, wrapCode func() bool) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		styles := ui.TextViewStyles(cx)
 		font := size
@@ -86,10 +94,19 @@ func MarkdownWithCodeWrap(search *textview.Search, text string, streaming func()
 		styles[textview.PartSearch] = core.Style{Background: ui.Alpha(colors.Accent(), 0.18)}
 		styles[textview.PartSearchSelected] = core.Style{Background: ui.Alpha(colors.Accent(), 0.45)}
 		hl := newHighlighter(cx)
-		on := streaming()
+		// The repair belongs to the text, not to the view: a document still
+		// arriving closes its open syntax, and the finished one parses as it
+		// was written. Reading the stream here would rebuild the whole view
+		// when the answer ends instead of parsing it once more in place.
+		markdown := func() string {
+			s := text()
+			if streaming != nil && streaming() {
+				return textview.RepairStreaming(s)
+			}
+			return s
+		}
 		view := ui.TextView{
-			MarkdownFunc:         func() string { return text },
-			Options:              textview.Options{Streaming: on},
+			MarkdownFunc:         markdown,
 			Styles:               styles,
 			Search:               search,
 			Selectable:           true,

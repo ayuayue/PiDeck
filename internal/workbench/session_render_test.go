@@ -63,9 +63,25 @@ func TestSessionStreamRendersWithToolsAndErrors(t *testing.T) {
 	screen.WaitForGone("label:停止", 5*time.Second)
 	screen.WaitFor("id:chat-reply", 5*time.Second)
 	screen.Press("text:1 个工具调用")
+	screen.Press("text:执行过程 · 1 个工具调用 · 思考")
 	screen.Press("label:读取 readme.md")
 	screen.WaitFor("text:fixture-tool-output", 5*time.Second)
 	shot(screen, "comparison/session-tool-complete")
+	// The ring beside Send explains what the session spent and how fast it
+	// answered; the fixture fills in what pi would report.
+	onNativeUI(t, screen, built, func() {
+		sess.stats.Set(sessionStats{Known: true, UserMessages: 3, AssistantMessages: 7, ToolCalls: 12,
+			ContextTokens: 122000, ContextWindow: 272000, ContextPercent: 44.8,
+			Tokens: usageInfo{Input: 128000, Output: 9000, CacheRead: 420000, CacheWrite: 33000, Total: 590000}})
+		sess.usage.Set(usageInfo{Input: 128000, Output: 9000, CacheRead: 420000, CacheWrite: 33000, Total: 590000, Cost: 0.42})
+		sess.perf.Set(replyPerf{TTFT: 480 * time.Millisecond, Total: 7 * time.Second, Output: 620, LastPrompt: 122000,
+			HitLast: 82.4, HitSum: 312.8, HitCount: 4, HasHit: true, HasTTFT: true, HasReplySpeed: true})
+	})
+	screen.Press("id:context-meter")
+	screen.WaitFor("id:usage-panel", 5*time.Second)
+	shot(screen, "comparison/usage-panel")
+	screen.Press("id:context-meter")
+	screen.WaitForGone("id:usage-panel", 5*time.Second)
 
 	begin("fixture-error", "检查错误提示")
 	emit(`{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"Fixture connection failed"}}`)
