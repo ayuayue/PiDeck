@@ -101,7 +101,7 @@ func (a *app) importRowView(row sessionimport.Row, here bool) core.Node {
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 					ui.Text(label, 9.5, ui.Medium, colors.Faint),
 					core.Show{When: func() bool { return here }, Then: func(*core.Scope) core.Node {
-						return ui.Badge{Text: apptext.T("本项目"), Variant: ui.BadgeInfo}
+						return ui.Badge{Text: apptext.T("本项目"), Variant: ui.BadgeAccent}
 					}},
 					core.Text{Content: where, MaxLines: 1, EllipsizeMode: core.EllipsizeMiddle,
 						Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 9.5, FlexShrink: 1, MinWidth: core.Pt(0)},

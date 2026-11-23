@@ -151,7 +151,7 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 	}
 	screen.Press("id:brand-logo-custom")
 	screen.WaitFor("id:brand-image-choose", 5*time.Second)
-	screen.PickFiles = func(core.FilesRequest) []core.File {
+	screen.PickFiles = func(nsgotest.FilePick) []core.File {
 		return []core.File{{Name: "logo.png", Opener: func() (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(assets.LogoPNG)), nil
 		}}}
@@ -159,7 +159,7 @@ func TestBrandPopoverAndSettings(t *testing.T) {
 	screen.Press("id:brand-image-choose")
 	screen.WaitUntil(5*time.Second, func() bool { return built.cfg.LogoCustomImage != "" && !built.brandBusy.GetUntracked() })
 	savedImage := built.cfg.LogoCustomImage
-	screen.PickFiles = func(core.FilesRequest) []core.File {
+	screen.PickFiles = func(nsgotest.FilePick) []core.File {
 		return []core.File{{Name: "invalid.png", Opener: func() (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader("not an image")), nil
 		}}}

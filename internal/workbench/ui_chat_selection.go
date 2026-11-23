@@ -3,6 +3,7 @@
 package workbench
 
 import (
+	"slices"
 	"strings"
 
 	"example.com/pideck-v2/internal/apptext"
@@ -24,12 +25,21 @@ type chatSelection struct {
 }
 
 func newChatSelection(cx *core.Scope) *chatSelection {
-	return &chatSelection{value: core.NewSignal(cx, core.TextSelection{})}
+	// A selection carries slices, so it is not comparable: compare the text
+	// and the ranges that decide what the actions show.
+	return &chatSelection{value: core.NewSignalFunc(cx, core.TextSelection{}, sameTextSelection)}
 }
 
 func (s *chatSelection) clear() {
 	s.overAction, s.cleared = false, false
 	s.value.Set(core.TextSelection{})
+}
+
+// sameTextSelection reports whether two selections read the same, which a
+// signal needs now that a selection carries slices.
+func sameTextSelection(a, b core.TextSelection) bool {
+	return a.Text == b.Text && a.Markdown == b.Markdown && a.HTML == b.HTML &&
+		a.Bounds == b.Bounds && slices.Equal(a.Ranges, b.Ranges)
 }
 
 func (s *chatSelection) changed(selection core.TextSelection) {

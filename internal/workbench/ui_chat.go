@@ -24,6 +24,15 @@ const (
 	chatColumnMin       = 360
 )
 
+// A session tab's width, as a share of the window: narrow enough that
+// several fit, wide enough that a real title reads. The minimum keeps a
+// short title from being clipped to nothing.
+const (
+	tabWidthPctMin     = 8
+	tabWidthPctMax     = 30
+	tabWidthPctDefault = 22
+)
+
 // chatPane is the conversation and its composer.
 func (a *app) chatPane() core.Node {
 	return core.View{Style: ui.FillRest, Children: []core.Node{
@@ -103,6 +112,65 @@ func (a *app) setChatWidthPct(pct int) {
 			return // still moving: the last value will be kept
 		}
 		a.st.edit(func(c *config) { c.ChatWidthPct = stored })
+	})
+}
+
+// tabWidthPct is one session tab's share of the window, the default until
+// the user narrows or widens it.
+func (a *app) tabWidthPct() int {
+	pct := a.tabWidthPctSig.Get()
+	if pct < tabWidthPctMin || pct > tabWidthPctMax {
+		pct = tabWidthPctDefault
+	}
+	return pct
+}
+
+// tabWidth is a session tab's own width limit: a share of the window, with
+// a floor so a narrow window does not squeeze a title to nothing. Read on
+// the scope that draws the tab, so a window resize follows.
+func (a *app) tabWidth(cx *core.Scope) core.Length {
+	return core.Pt(tabWidthPoints(cx.Env().Window().Width, a.tabWidthPct()))
+}
+
+// tabWidthPoints is the width a share of a window works out to, with the
+// floor that keeps a short title from being clipped to nothing.
+func tabWidthPoints(window core.Points, pct int) core.Points {
+	if window <= 0 {
+		window = 1200
+	}
+	width := core.Points(float32(window) * float32(pct) / 100)
+	if width < 96 {
+		return 96
+	}
+	return width
+}
+
+// setTabWidthPct narrows or widens the session tabs; the default is stored
+// as unset. The views read the signal, so they follow a drag at once, and
+// only the file write waits for the value to rest.
+func (a *app) setTabWidthPct(pct int) {
+	if pct < tabWidthPctMin {
+		pct = tabWidthPctMin
+	}
+	if pct > tabWidthPctMax {
+		pct = tabWidthPctMax
+	}
+	a.tabWidthPctSig.Set(pct)
+	stored := pct
+	if pct == tabWidthPctDefault {
+		stored = 0
+	}
+	a.cfg.TabWidthPct = stored
+	if a.st == nil {
+		return
+	}
+	a.tabWidthSeq++
+	seq := a.tabWidthSeq
+	a.cx.AfterFunc(300*time.Millisecond, func() {
+		if a.tabWidthSeq != seq || a.st == nil {
+			return // still moving: the last value will be kept
+		}
+		a.st.edit(func(c *config) { c.TabWidthPct = stored })
 	})
 }
 

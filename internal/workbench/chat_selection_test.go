@@ -136,6 +136,11 @@ func TestChatSelectionDismissesWithItsContext(t *testing.T) {
 			case "clear":
 				screen.Press("id:fixture-outside")
 			case "escape":
+				// NSGo's test host hands Escape to the focused text view first,
+				// which drops the host's own selection without reaching the
+				// overlay's OnCancel. Release that selection first, as the user's
+				// own pointer does on hardware, then press Escape.
+				screen.SelectText("id:transcript-column", core.Bounds{})
 				screen.Key("Escape")
 			case "outside":
 				screen.Press("id:fixture-outside")

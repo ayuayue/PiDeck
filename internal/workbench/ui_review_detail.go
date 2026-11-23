@@ -351,7 +351,7 @@ func (a *app) reviewCommentBox(colors ui.Colors, item reviewItem) core.Node {
 
 // reviewStateBadge is the item's state as one chip.
 func reviewStateBadge(item reviewItem) core.Node {
-	label, variant := apptext.T("打开"), ui.BadgeInfo
+	label, variant := apptext.T("打开"), ui.BadgeAccent
 	switch item.State {
 	case "MERGED":
 		label, variant = apptext.T("已合并"), ui.BadgeAccent
@@ -368,7 +368,7 @@ func reviewStateBadge(item reviewItem) core.Node {
 func reviewReviewBadge(state string) core.Node {
 	switch state {
 	case "APPROVED":
-		return ui.Badge{Text: apptext.T("已批准"), Variant: ui.BadgeInfo}
+		return ui.Badge{Text: apptext.T("已批准"), Variant: ui.BadgeAccent}
 	case "CHANGES_REQUESTED":
 		return ui.Badge{Text: apptext.T("请求修改"), Variant: ui.BadgeWarn}
 	case "DISMISSED":

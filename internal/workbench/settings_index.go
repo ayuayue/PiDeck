@@ -23,6 +23,7 @@ type settingEntry struct {
 var settingsIndex = []settingEntry{
 	{"general", "语言", "language locale english chinese traditional korean japanese russian french 简体 繁体 韩文 日文 俄语 法语 한국어 日本語 Русский Français"},
 	{"general", "内容宽度", "chat width content reading column narrow wide percentage percent 宽度 百分比"},
+	{"general", "Tab 栏宽度", "tab width bar label title percentage percent 标签 宽度 百分比"},
 	{"general", "项目排序", "project sort order recent created title"},
 	{"general", "排序", "session sort name updated"},
 	{"general", "列出 pi 本地会话", "scan pi sessions history"},

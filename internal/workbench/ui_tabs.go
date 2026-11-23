@@ -26,9 +26,9 @@ func (a *app) tabBar() core.Node {
 		core.Scroll{Horizontal: true, HideIndicator: true, TestID: "tab-bar", Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Symmetric(0, 2)}, Children: []core.Node{
 				core.Each(a.tabs.Get, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
-					return a.tab(id)
+					return a.tab(cx, id)
 				}),
-				hint("新建会话", ui.IconButton{Icon: lucide.Plus, Label: apptext.T("新建会话"), Size: 26, IconSize: 13, OnPress: func() {
+				hint("新建会话", ui.IconButton{Icon: lucide.Plus, Label: apptext.T("新建会话"), Size: 28, IconSize: 14, OnPress: func() {
 					a.newSession(a.activeWS.Get())
 				}}),
 				// A line keeps the panes' tabs apart from the sessions'.
@@ -51,7 +51,7 @@ func (a *app) tabBar() core.Node {
 }
 
 // tab is one open session.
-func (a *app) tab(id func() string) core.Node {
+func (a *app) tab(cx *core.Scope, id func() string) core.Node {
 	colors := ui.ColorsOf(a.cx)
 	sess := func() *session { return a.byID[id()] }
 	active := func() bool { return a.activeID.Get() == id() && !a.paneVisible() }
@@ -66,8 +66,8 @@ func (a *app) tab(id func() string) core.Node {
 			},
 			Role: core.RoleButton, LabelFunc: func() string { return sess().title.Get() },
 			StyleFunc: func() core.Style {
-				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(28), MaxWidth: core.Pt(220),
-					Padding: core.Edges{Left: 9, Right: 5}, CornerRadius: 7, BorderWidth: 1, BorderColor: core.Transparent,
+				st := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Height: core.Pt(30), MaxWidth: a.tabWidth(cx),
+					Padding: core.Edges{Left: 10, Right: 6}, CornerRadius: 8, BorderWidth: 1, BorderColor: core.Transparent,
 					Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Hover()}, Active: &core.Style{Background: colors.Pressed()}}
 				if active() {
 					st.Background = colors.Surface()
@@ -78,16 +78,16 @@ func (a *app) tab(id func() string) core.Node {
 			},
 			Children: []core.Node{
 				core.View{TestID: "tab-status-" + id(), StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3,
+					return core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3,
 						Background: statusDot(colors, sess()), FlexShrink: 0}
 				}},
 				core.Text{ContentFunc: func() string { return sess().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
-					Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},
+					Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 13, LineHeight: 18}, StyleFunc: ui.Colored(colors.Text)},
 				core.View{OnPress: func(core.PressEvent) { a.closeTab(id()) }, Role: core.RoleButton, Label: apptext.T("关闭标签页"),
 					StyleFunc: func() core.Style {
-						return core.Style{Width: core.Pt(18), Height: core.Pt(18), CornerRadius: 5, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+						return core.Style{Width: core.Pt(19), Height: core.Pt(19), CornerRadius: 5, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 							Transition: viewkit.PressMotion, Hover: &core.Style{Background: colors.Pressed()}, Active: &core.Style{Background: colors.Pressed()}}
-					}, Children: []core.Node{ui.Icon(lucide.X, 11, colors.Faint)}},
+					}, Children: []core.Node{ui.Icon(lucide.X, 12, colors.Faint)}},
 			},
 		},
 		Children:   a.tabMenuItems(id),

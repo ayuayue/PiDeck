@@ -80,7 +80,7 @@ func TestAddingAndRemovingProjectRefreshRail(t *testing.T) {
 	app.Press("text:" + filepath.Base(first))
 
 	name := filepath.Base(second)
-	app.PickDirectories = func(core.DirectoriesRequest) []core.Directory {
+	app.PickDirectories = func(nsgotest.DirectoryPick) []core.Directory {
 		return []core.Directory{{Name: name, Path: second}}
 	}
 	app.Press("id:add-project")

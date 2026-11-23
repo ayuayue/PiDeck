@@ -260,7 +260,7 @@ func TestMobileLiveScanConnects(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
-	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
+	app.ScanCode = func(nsgotest.CodeScan) (*core.ScannedCode, error) {
 		return &core.ScannedCode{Text: server.URL + "?token=" + token}, nil
 	}
 	app.WaitFor("id:mobile-scan", 5*time.Second)
@@ -285,7 +285,7 @@ func TestMobileLiveScanWithoutTokenKeepsAddress(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
-	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
+	app.ScanCode = func(nsgotest.CodeScan) (*core.ScannedCode, error) {
 		return &core.ScannedCode{Text: server.URL}, nil
 	}
 	app.WaitFor("id:mobile-scan", 5*time.Second)
@@ -303,7 +303,7 @@ func TestMobileLiveScanCancel(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
-	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) { return nil, nil }
+	app.ScanCode = func(nsgotest.CodeScan) (*core.ScannedCode, error) { return nil, nil }
 	app.WaitFor("id:mobile-scan", 5*time.Second)
 	app.Press("id:mobile-scan")
 	app.Settle()
@@ -325,7 +325,7 @@ func TestMobileLiveScanError(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
-	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
+	app.ScanCode = func(nsgotest.CodeScan) (*core.ScannedCode, error) {
 		return nil, errors.New("相机权限被拒绝")
 	}
 	app.WaitFor("id:mobile-scan", 5*time.Second)
@@ -343,7 +343,7 @@ func TestMobileLiveScanRejectsUntrustedText(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: true}))
-	app.ScanCode = func(core.ScanRequest) (*core.ScannedCode, error) {
+	app.ScanCode = func(nsgotest.CodeScan) (*core.ScannedCode, error) {
 		return &core.ScannedCode{Text: "ftp://example.com/?token=not-a-pideck-token"}, nil
 	}
 	app.WaitFor("id:mobile-scan", 5*time.Second)
@@ -375,7 +375,7 @@ func TestMobilePhotoScanFallback(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", t.TempDir())
 	app := nsgotest.Start(t, Root, nsgotest.Size(420, 860),
 		nsgotest.Environment(core.Environment{Camera: true, ScanCode: false}))
-	app.TakePhoto = func(core.PickRequest) (*core.PickedFile, error) {
+	app.TakePhoto = func(nsgotest.ImagePick) (*core.PickedFile, error) {
 		return &core.PickedFile{Data: png, MIME: "image/png"}, nil
 	}
 	app.WaitFor("id:mobile-scan", 5*time.Second)

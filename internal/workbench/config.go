@@ -95,6 +95,10 @@ type config struct {
 	// ChatWidthPct is the transcript and composer's share of the window
 	// width, 50 to 90; 0 keeps the default of 80.
 	ChatWidthPct int `json:"chatWidthPct,omitempty"`
+	// TabWidthPct is how wide one session tab may grow, as a share of the
+	// window width; 0 keeps the default. Long titles are the reason to
+	// widen it.
+	TabWidthPct int `json:"tabWidthPct,omitempty"`
 	// GitChangesView lists the Git drawer's changes as a tree ("tree",
 	// the default) or as a flat list ("flat").
 	GitChangesView string `json:"gitChangesView,omitempty"`

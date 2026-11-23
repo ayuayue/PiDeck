@@ -48,7 +48,7 @@ func TestWorkspacePicker(t *testing.T) {
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
 	// The system's picker answers with the current folder (headless only:
 	// a real window opens the platform's own dialog).
-	app.PickDirectories = func(core.DirectoriesRequest) []core.Directory {
+	app.PickDirectories = func(nsgotest.DirectoryPick) []core.Directory {
 		dir, err := os.Getwd()
 		if err != nil {
 			t.Fatal(err)
@@ -95,7 +95,7 @@ func TestSessionScreens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.PickDirectories = func(core.DirectoriesRequest) []core.Directory {
+	app.PickDirectories = func(nsgotest.DirectoryPick) []core.Directory {
 		return []core.Directory{{Name: filepath.Base(dir), Path: dir}}
 	}
 	app.Press("id:welcome-primary")

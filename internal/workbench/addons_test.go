@@ -294,7 +294,7 @@ func TestPiSessionsInRail(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", piSessions)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
-	app.PickDirectories = func(core.DirectoriesRequest) []core.Directory {
+	app.PickDirectories = func(nsgotest.DirectoryPick) []core.Directory {
 		return []core.Directory{{Name: filepath.Base(workspace), Path: workspace}}
 	}
 	app.Press("id:welcome-primary")
@@ -360,7 +360,7 @@ func TestSessionGroups(t *testing.T) {
 	t.Setenv("PIDECK_V2_HOME", home)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", piSessions)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 800))
-	app.PickDirectories = func(core.DirectoriesRequest) []core.Directory {
+	app.PickDirectories = func(nsgotest.DirectoryPick) []core.Directory {
 		return []core.Directory{{Name: filepath.Base(workspace), Path: workspace}}
 	}
 	app.Press("id:welcome-primary")

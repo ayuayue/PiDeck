@@ -170,6 +170,10 @@ func normalizeConfig(c *config) bool {
 		c.ChatWidthPct = 0
 		changed = true
 	}
+	if c.TabWidthPct != 0 && (c.TabWidthPct < tabWidthPctMin || c.TabWidthPct > tabWidthPctMax) {
+		c.TabWidthPct = 0
+		changed = true
+	}
 	// The point width is only migration input; a file that still carries
 	// one has already been converted, so drop it.
 	if c.ChatWidth != 0 {

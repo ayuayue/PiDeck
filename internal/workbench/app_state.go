@@ -315,6 +315,10 @@ type app struct {
 	// chatWidthSeq drops a pending write while the drag moves.
 	chatWidthPctSig *core.Signal[int]
 	chatWidthSeq    int
+	// tabWidthPctSig is a session tab's share of the window, read the same
+	// way: the drag redraws the tab bar, the file write waits.
+	tabWidthPctSig *core.Signal[int]
+	tabWidthSeq    int
 	// axisHover is the ruler tick the pointer rests on, -1 for none, and
 	// axisHintIn whether its summary has had its first frame to ease in.
 	axisHover  *core.Signal[int]
@@ -340,6 +344,9 @@ type app struct {
 	addProjectOpen *core.Signal[bool]
 	// railMoreOpen folds 更多 open and shut.
 	railMoreOpen *core.Signal[bool]
+	// overviewMore is the overview path whose actions menu is open, by key:
+	// its trigger stays out while the menu is, so the pointer can reach it.
+	overviewMore *core.Signal[string]
 	// activePane is the split pane filling the work area, "" for the
 	// session's own view.
 	activePane *core.Signal[string]

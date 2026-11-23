@@ -117,7 +117,7 @@ func (a *app) diagProcessGroup() core.Node {
 // diagProcRow is one process: what kind it is, what it runs, its state and
 // the button that ends it.
 func (a *app) diagProcRow(p procInfo, colors ui.Colors) core.Node {
-	kind, variant := "pi", ui.BadgeInfo
+	kind, variant := "pi", ui.BadgeAccent
 	if p.Kind == "shell" {
 		kind, variant = "shell", ui.BadgeNeutral
 	}

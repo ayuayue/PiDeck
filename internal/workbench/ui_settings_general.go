@@ -92,6 +92,22 @@ func (a *app) settingsGeneral() core.Node {
 								StyleFunc: ui.Colored(colors.Muted)},
 						}}),
 				),
+				setRow("Tab 栏宽度", "单个会话标签页最多能宽到窗口的几分之几；标题长就调宽一些，窄了会截断。",
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pt(230)}, Children: []core.Node{
+						core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+							ui.Slider{Min: tabWidthPctMin, Max: tabWidthPctMax, Step: 1,
+								Value:     func() float64 { return float64(a.tabWidthPct()) },
+								Label:     apptext.T("标签页宽度"),
+								ValueText: func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
+								TestID:    "tab-width",
+								OnChange: func(v float64) {
+									a.setTabWidthPct(int(v))
+								}},
+						}},
+						core.Text{ContentFunc: func() string { return fmt.Sprintf("%.0f%%", float64(a.tabWidthPct())) },
+							Style:     core.Style{FontFamily: viewkit.MonoFont(), FontSize: 10.5, MinWidth: core.Pt(44), TextAlign: core.TextAlignRight},
+							StyleFunc: ui.Colored(colors.Muted)},
+					}}),
 				setGroup("新会话默认模型", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
 					Children: modelChips}),
 				setGroup("新会话默认思考等级", core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Padding: core.Symmetric(4, 2)},
