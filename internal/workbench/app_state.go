@@ -652,4 +652,7 @@ type app struct {
 	// lastHeapRelease is when idle heap last went back to the system, so a
 	// big transcript release costs one pause and not one per tick.
 	lastHeapRelease time.Time
+	// releasing guards one collection at a time, so a second press does not
+	// queue another full GC behind the first.
+	releasing bool
 }

@@ -2668,5 +2668,10 @@
   "%s 的 pi 进程会被结束，正在执行的回合会中断；会话与转录保留，下次发消息会重新启动。": "Le processus pi de %s s’arrête et le tour en cours est interrompu ; la session et sa transcription restent, et le prochain message le relance.",
   "关闭终端": "Fermer le terminal",
   "%s 的终端会被关闭，正在运行的命令会中断。": "Le terminal de %s se ferme et la commande en cours est interrompue.",
-  "只显示最近 %d 条；完整日志在 logs/pideck.log。": "Seules les %d dernières lignes sont affichées ; le journal complet est dans logs/pideck.log."
+  "只显示最近 %d 条；完整日志在 logs/pideck.log。": "Seules les %d dernières lignes sont affichées ; le journal complet est dans logs/pideck.log.",
+  "释放内存": "Libérer la mémoire",
+  "没有可释放的内存": "Rien à libérer",
+  "堆里没有空闲页；关掉大会话或大文件预览后再试。": "Le tas n’a pas de pages libres ; fermez une grande session ou un aperçu de fichier et réessayez.",
+  "已释放内存": "Mémoire libérée",
+  "归还了 %.0f MB 给系统。": "%.0f Mo rendus au système."
 }

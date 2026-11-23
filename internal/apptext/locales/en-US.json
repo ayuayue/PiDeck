@@ -2668,5 +2668,10 @@
   "%s 的 pi 进程会被结束，正在执行的回合会中断；会话与转录保留，下次发消息会重新启动。": "The pi process for %s ends and the running turn is interrupted; the session and its transcript stay, and the next message starts it again.",
   "关闭终端": "Close the terminal",
   "%s 的终端会被关闭，正在运行的命令会中断。": "The terminal for %s closes and the running command is interrupted.",
-  "只显示最近 %d 条；完整日志在 logs/pideck.log。": "Showing the last %d lines; the whole log is in logs/pideck.log."
+  "只显示最近 %d 条；完整日志在 logs/pideck.log。": "Showing the last %d lines; the whole log is in logs/pideck.log.",
+  "释放内存": "Free memory",
+  "没有可释放的内存": "Nothing to free",
+  "堆里没有空闲页；关掉大会话或大文件预览后再试。": "The heap holds no idle pages; close a large session or a file preview and try again.",
+  "已释放内存": "Memory freed",
+  "归还了 %.0f MB 给系统。": "Returned %.0f MB to the system."
 }

@@ -62,7 +62,13 @@ func (a *app) diagRuntimeGroup() core.Node {
 					diagFigure("goroutine", fmt.Sprint(m.Goroutines), colors.Text, colors.Faint),
 					diagFigure("已运行", duration(m.Uptime), colors.Text, colors.Faint),
 				}},
-				ui.Progress{Value: func() float32 { return share }, Label: apptext.T("堆占用"), TestID: "diag-heap"},
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
+					core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+						ui.Progress{Value: func() float32 { return share }, Label: apptext.T("堆占用"), TestID: "diag-heap"},
+					}},
+					ui.Button{Text: apptext.T("释放内存"), Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+						TestID: "diag-release", OnPress: a.releaseMemory},
+				}},
 			}}
 		}),
 	)
