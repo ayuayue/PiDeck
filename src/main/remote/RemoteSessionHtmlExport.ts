@@ -25,14 +25,14 @@ import { renderDshSessionHtml, sanitizeExportFileName } from "../dsh/dshSessionH
 /**
  * 导出上限。
  *
- * 页数上限为什么是 20：每页是一次 pinned SSH 短命令往返（窗口 ≤128 KiB，见
- * `REMOTE_SESSION_HISTORY_WINDOW_BYTES`），20 页 ≈ 2.5 MiB 远端读取——够覆盖绝大多数会话尾部，
- * 又不会让一次导出变成几十次 ssh 往返（每次都要复查 pin/指纹/路由）。
+ * 页数上限为什么是 20：每页是一次 pinned SSH 短命令往返（窗口 ≤ 2 MiB，见
+ * `REMOTE_SESSION_HISTORY_WINDOW_BYTES`）。实际先命中的通常是下面的文本预算（8 MiB），
+ * 两者都按「从新往旧」截断，命中时 `truncated: true` 并在 HTML 里显式说明。
  */
 export const REMOTE_SESSION_EXPORT_LIMITS = {
 	maxPages: 20,
 	maxMessages: 5000,
-	/** 投影文本字节上限（HTML 体积的代理量）；单页越界由页自身的 128 KiB 窗口上界兜住。 */
+	/** 投影文本字节上限（HTML 体积的代理量）；单页越界由页自身的 2 MiB 窗口上界兜住。 */
 	maxTextBytes: 8 * 1024 * 1024,
 } as const;
 

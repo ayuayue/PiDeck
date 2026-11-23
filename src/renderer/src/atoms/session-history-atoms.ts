@@ -59,9 +59,14 @@ export const prependSessionMessagePageAtom = atom(
 		},
 	) => {
 		const current = get(sessionMessagesCacheAtom)[input.sessionId];
-		if (!current || current.source !== "disk" || current.revision !== input.expectedRevision || current.page?.nextBefore !== input.before) {
+		if (!current || (current.source !== "disk" && current.source !== "remote") || current.revision !== input.expectedRevision || current.page?.nextBefore !== input.before) {
 			return false;
 		}
+		const remotePage = current.source === "remote";
+		// 远端非空页必须带版本；无版本的消息无法证明与已缓存内容同代。
+		if (remotePage && input.page.messages.length > 0 && !input.page.indexVersion) return false;
+		// 远端页按 inode、mtime 与体积识别代际：原子替换、同体积原位重写或截断都拒绝；普通追加允许继续。
+		if (remotePage && current.page?.indexVersion && input.page.indexVersion && !isSameSessionFileGeneration(current.page.indexVersion, input.page.indexVersion)) return false;
 		// 重叠防御：游标回退/并发翻页返回的页与已驻留段重复时按 entryId 滤掉页尾重叠部分
 		// （正常路径无重叠，过滤是幂等保险）。
 		const existingKeys = new Set(current.messages.map(messageEntryKey));
@@ -74,7 +79,11 @@ export const prependSessionMessagePageAtom = atom(
 		if (overflow > 0 && freshMessages.length > 0) {
 			const dropCount = Math.min(overflow, freshMessages.length);
 			messages.splice(0, dropCount);
-			if (overflow >= freshMessages.length) {
+			if (remotePage) {
+				// 远端 nextBefore 是字节偏移，不能像本地消息下标那样按 dropCount 做加法。
+				// 驻留预算触顶时停止继续翻页，避免重读同一页或跳过未知字节边界。
+				nextBefore = null;
+			} else if (overflow >= freshMessages.length) {
 				// 整页都被预算丢掉：**不能**把游标退回请求游标 —— 退回去下次只会取到同一页，
 				// 而同一页每次都会被同样丢掉，形成「一直在加载、永远加载不出来」的死循环
 				// （2026-11 真机）。预算耗尽即更早的历史不可取，明确置空让「加载更多」消失。
@@ -85,12 +94,23 @@ export const prependSessionMessagePageAtom = atom(
 			}
 		}
 		releaseSessionOutlineProjection(input.sessionId);
+		// 续页游标必须四个字段一起留住：只写回 total/nextBefore 会静默丢掉
+		// `nextBeforeEntryId`（主进程缓存锚点 + 远端跨页活动链叶子种子）与 `indexVersion`
+		// （同代证明，体积串被后续比对）——翻过一页之后就必须还能续页、还能证明同代。
+		// 这是 2026-12 远端上翻“第二页之后又乱又缺”的直接成因：卡在 atom 的字段重建里。
+		const nextBeforeEntryId = overflow > 0 ? (firstHistoryEntryId(messages) ?? input.page.nextBeforeEntryId) : input.page.nextBeforeEntryId;
+		const indexVersion = input.page.indexVersion ?? current.page?.indexVersion;
 		set(sessionMessagesCacheAtom, {
 			...get(sessionMessagesCacheAtom),
 			[input.sessionId]: {
 				...current,
 				messages,
-				page: { total: input.page.total, nextBefore },
+				page: {
+					total: input.page.total,
+					nextBefore,
+					...(nextBefore !== null && nextBeforeEntryId !== undefined ? { nextBeforeEntryId } : {}),
+					...(indexVersion !== undefined ? { indexVersion } : {}),
+				},
 				updatedAt: Date.now(),
 				outlineRevision: allocateSessionMessageOutlineRevision(),
 				outlineLastUserIndex: findLastUserMessageIndex(messages),
@@ -108,16 +128,14 @@ function messageEntryKey(message: ChatMessage): string {
 /**
  * 历史前缀是否仍与当前会话文件同代。
  *
- * 版本串是 `mtime:size`（主进程 stat 与分页 indexVersion 同口径）。不能用「字符串不等」
- * 判异代：pi 每落盘一条消息都会**追加**写入，用户发一条消息 size 就会变——按不等即丢弃，
- * 已加载的历史前缀会在发送瞬间整段消失（2026-10-21 用户诊断包：历史只在回复结束后才回来）。
- * 同一分支的追加只会让文件变大；只有体积变小才说明历史被重写（压缩把历史换成摘要），
- * 此时前缀下标空间失效必须丢弃。版本缺失/无法解析一律按异代处理（宁缺勿串）。
+ * 版本串：本机为 `mtime:size`，远端为 `remote:<inode>:<mtime>:<size>`。普通追加会增大体积并允许续页；远端 inode 变化、体积缩小，或同体积 mtime 变化时必须丢弃旧前缀。
  */
 export function isSameSessionFileGeneration(prefixVersion: string | undefined, flushVersion: string | undefined): boolean {
 	if (!flushVersion) return true;
 	if (!prefixVersion) return false;
 	if (prefixVersion === flushVersion) return true;
+	const prefixRemote = prefixVersion.startsWith("remote:");
+	const flushRemote = flushVersion.startsWith("remote:");
 	const readSize = (version: string): number | undefined => {
 		const size = Number(version.slice(version.lastIndexOf(":") + 1));
 		return Number.isFinite(size) ? size : undefined;
@@ -125,7 +143,23 @@ export function isSameSessionFileGeneration(prefixVersion: string | undefined, f
 	const prefixSize = readSize(prefixVersion);
 	const flushSize = readSize(flushVersion);
 	if (prefixSize === undefined || flushSize === undefined) return false;
-	// 追加：文件只会变大（mtime 变化不影响同代判定）。变小 = 被重写。
+	if (prefixRemote && flushRemote) {
+		const parseRemoteVersion = (version: string): { identity?: string; modifiedAt?: string; size: number } | undefined => {
+			const parts = version.split(":").slice(1);
+			if (parts.length < 1 || parts.length > 3 || !parts.slice(0, -1).every((part) => /^\d+$/.test(part))) return undefined;
+			const size = Number(parts.at(-1));
+			if (!Number.isSafeInteger(size)) return undefined;
+			if (parts.length === 1) return { size };
+			if (parts.length === 2) return { identity: parts[0], size };
+			return { identity: parts[0], modifiedAt: parts[1], size };
+		};
+		const prefix = parseRemoteVersion(prefixVersion);
+		const flush = parseRemoteVersion(flushVersion);
+		if (!prefix || !flush) return false;
+		if (prefix.identity !== undefined && flush.identity !== undefined && prefix.identity !== flush.identity) return false;
+		if (prefix.size === flush.size && prefix.modifiedAt !== undefined && flush.modifiedAt !== undefined && prefix.modifiedAt !== flush.modifiedAt) return false;
+	}
+	// 追加：本机文件只需体积不缩小；远端还需 inode 不变，且同体积 mtime 相同。
 	return flushSize >= prefixSize;
 }
 
@@ -242,10 +276,8 @@ export function stabilizeRuntimeMessageIds(current: SessionMessageCacheEntry | u
  * 首个 flush 若是 0 条空窗口（后台历史还没读出来 / 读取失败，日志里的
  * "Agent recent history file load failed"），画面更会直接变成空会话。
  *
- * 版本守卫：version 取磁盘页的 indexVersion（与主进程 flush 的 fileVersion 同口径
- * mtime:size）。普通追加（发消息落盘）不算重写；只有文件被重写（体积缩小，压缩把历史
- * 换成摘要）时 reconcileHistoryPrefix 才整段丢弃——宁缺勿串。磁盘页没有版本时不冒险
- * 保留（无法证明同代）。
+ * 版本守卫：version 取磁盘页的 indexVersion（本机 `mtime:size`，远端 `remote:<inode>:<mtime>:<size>`）。普通追加
+ * 不算重写；版本可识别时压缩/替换的旧前缀会整段丢弃——宁缺勿串。磁盘页没有版本时不冒险保留。
  */
 export function historyPrefixFromDiskPage(current: SessionMessageCacheEntry | undefined): SessionMessageCacheEntry["history"] | undefined {
 	if (!current || current.source !== "disk" || current.messages.length === 0) return undefined;

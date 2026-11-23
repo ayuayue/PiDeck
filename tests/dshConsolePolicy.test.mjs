@@ -10,18 +10,23 @@ test("decideDshHostConsolePolicy：非 win32 不注入、不改写", () => {
 	assert.equal(policy.allocHostConsole, false);
 	assert.equal(policy.injectWindowsHide, false);
 	assert.equal(policy.rewriteRunnerToSidecar, false);
+	assert.equal(policy.injectRunnerPreloadEnv, false);
 });
 
-test("decideDshHostConsolePolicy：win32 永不 AllocConsole，子进程走 CREATE_NO_WINDOW", () => {
+test("decideDshHostConsolePolicy：win32 永不 AllocConsole，有 sidecar 时不注入 NODE_OPTIONS preload", () => {
 	const withoutSidecar = decideDshHostConsolePolicy({ platform: "win32" });
 	assert.equal(withoutSidecar.allocHostConsole, false);
 	assert.equal(withoutSidecar.injectWindowsHide, true);
 	assert.equal(withoutSidecar.rewriteRunnerToSidecar, false);
+	assert.equal(withoutSidecar.injectRunnerPreloadEnv, true);
 	const withSidecar = decideDshHostConsolePolicy({ platform: "win32", sidecarPath: "C:\\app\\node.exe" });
 	assert.equal(withSidecar.allocHostConsole, false);
 	assert.equal(withSidecar.injectWindowsHide, true);
 	assert.equal(withSidecar.rewriteRunnerToSidecar, true);
-	assert.equal(decideDshHostConsolePolicy({ platform: "win32", sidecarPath: "   " }).rewriteRunnerToSidecar, false, "空白 sidecar 不算可用");
+	assert.equal(withSidecar.injectRunnerPreloadEnv, false);
+	const blankSidecar = decideDshHostConsolePolicy({ platform: "win32", sidecarPath: "   " });
+	assert.equal(blankSidecar.rewriteRunnerToSidecar, false, "空白 sidecar 不算可用");
+	assert.equal(blankSidecar.injectRunnerPreloadEnv, true);
 });
 
 test("hideChildConsoles 源码不得再调用 AllocConsole（策略回归）", () => {

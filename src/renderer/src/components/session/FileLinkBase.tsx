@@ -1,13 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import type { ProjectFileAccessScope } from "../../../../shared/types";
+import type { ProjectFileAccessScope, ProjectFileTarget } from "../../../../shared/types";
 import { getFilePathVerdict, requestFilePathVerdicts, subscribeFilePathVerdicts } from "../../utils/filePathVerdictStore";
 import { resolveFileLinkPath } from "../../utils/filePathLinks";
+import { remoteProjectRelativePath } from "../../utils/remoteProjectPath";
 import { getRendererHomeDir } from "../../utils/rendererHomeDir";
 
 type FileLinkBase = {
 	baseDir?: string;
 	projectRoot?: string;
+	/** 远端项目的根（`locator.remotePath`）：远端项目没有本机路径，链接目标只能落到项目内身份上 */
+	remoteRoot?: string;
 	scope?: ProjectFileAccessScope;
 	/** 会话身份：右键菜单里的系统动作要与左键点击走同一道安全等级门（会话级覆盖优先于全局默认） */
 	sessionId?: string;
@@ -21,15 +24,16 @@ type FileLinkBase = {
  */
 const FileLinkBaseContext = createContext<FileLinkBase>({});
 
-export function FileLinkBaseProvider(props: { baseDir: string | undefined; projectRoot?: string; projectId?: string; sessionId?: string; children: ReactNode }) {
+export function FileLinkBaseProvider(props: { baseDir: string | undefined; projectRoot?: string; remoteRoot?: string; projectId?: string; sessionId?: string; children: ReactNode }) {
 	const value = useMemo<FileLinkBase>(
 		() => ({
 			baseDir: props.baseDir,
 			projectRoot: props.projectRoot,
+			remoteRoot: props.remoteRoot,
 			scope: props.projectId ? { projectId: props.projectId } : undefined,
 			sessionId: props.sessionId,
 		}),
-		[props.baseDir, props.projectId, props.projectRoot, props.sessionId],
+		[props.baseDir, props.projectId, props.projectRoot, props.remoteRoot, props.sessionId],
 	);
 	return <FileLinkBaseContext.Provider value={value}>{props.children}</FileLinkBaseContext.Provider>;
 }
@@ -45,6 +49,21 @@ export function useFileLinkBaseDir(): string | undefined {
  */
 export function useFileLinkContext(): FileLinkBase {
 	return useContext(FileLinkBaseContext);
+}
+
+/**
+ * 远端项目里的文件链接身份：`null` 表示本机项目（或本栏不是远端项目）。
+ * 远端项目没有本机路径，`resolvedPath` / stat / 系统打开都不成立，只能落到项目内相对路径上。
+ */
+export function useRemoteFileLinkTarget(rawPath: string | undefined): ProjectFileTarget | null {
+	const { baseDir, remoteRoot, scope } = useContext(FileLinkBaseContext);
+	return useMemo(() => {
+		if (rawPath === undefined || remoteRoot === undefined || scope === undefined) return null;
+		const absolutePath = resolveFileLinkPath(rawPath, baseDir, undefined, getRendererHomeDir());
+		if (absolutePath === null) return null;
+		const relativePath = remoteProjectRelativePath(absolutePath, remoteRoot);
+		return relativePath === null ? null : { projectId: scope.projectId, relativePath };
+	}, [rawPath, baseDir, remoteRoot, scope]);
 }
 
 /**

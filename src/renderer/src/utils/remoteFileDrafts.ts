@@ -13,6 +13,7 @@ export type RemoteFileDraft = {
 	/** 该路径（或其所在目录）已被 rename/delete：脏草稿保留并标记，干净草稿已回收。 */
 	stale?: boolean;
 };
+export { REMOTE_FILE_DRAFT_MAX_CHARS, REMOTE_FILE_DRAFT_TOTAL_MAX_CHARS, editRemoteFileDraft, remoteFileDraftHeldChars } from "./remoteFileDraftBudget";
 export const REMOTE_FILE_DRAFT_LIMIT = 5;
 export const remoteFileDraftKey = (projectId: string, path: string) => JSON.stringify([projectId, path]);
 export const remoteFileDraftDirty = (draft: RemoteFileDraft) => draft.content !== draft.savedContent;
@@ -33,12 +34,6 @@ export function beginRemoteFileLoad(current: ReadonlyMap<string, RemoteFileDraft
 	// 重载失败也不丢旧正文：只有读成功才会替换，失败仍可复制草稿。
 	next.set(key, { projectId, path, content: held?.content ?? "", savedContent: held?.savedContent ?? "", version: "", generation: (held?.generation ?? 0) + 1, phase: "loading" });
 	return next;
-}
-
-/** 单草稿字符预算限制堆占用；超过时拒绝此次输入，保留已接收内容与版本，不静默截断。 */
-export function editRemoteFileDraft(draft: RemoteFileDraft, content: string): RemoteFileDraft {
-	if (content.length > 256 * 1024) return { ...draft, errorCode: "REMOTE_FILE_DRAFT_TOO_LARGE", rejectedEdits: (draft.rejectedEdits ?? 0) + 1 };
-	return { ...draft, content, errorCode: draft.errorCode === "REMOTE_FILE_DRAFT_TOO_LARGE" ? undefined : draft.errorCode };
 }
 
 /** 对指定文件及代数应用结果；换项目/文件或后续重载的结果互不污染。 */

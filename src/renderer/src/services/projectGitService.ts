@@ -14,7 +14,7 @@ import {
 	type ProjectServicesApi,
 } from "./projectServiceContracts";
 import type { ProjectServiceFence } from "./projectServiceContracts";
-import { assertProjectTarget, assertProjectTargets, assertRepoScope, fenceProjectGitService } from "./projectServiceFence";
+import { assertProjectTarget, assertProjectTargets, assertRepoScope, fenceProjectGitService, toHistoryPagePayload } from "./projectServiceFence";
 import { createLocalGitHistoryMethods, createRemoteGitHistoryMethods } from "./projectGitHistoryExtras";
 import { createRemoteProjectGitExtras, remoteSyncTarget } from "./remoteProjectGitExtras";
 import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitReadSnapshot, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceFileDiff, RemoteGitCommitDetail, RemoteGitRefFileDiff, WorktreeEntry } from "../../../shared/types/git";
@@ -55,7 +55,7 @@ function createReadFace(projectId: string, api: ProjectServicesApi): Pick<Projec
 		},
 		async history(options, repoPath): Promise<GitHistoryPage> {
 			assertRepoScope(projectId, repoPath);
-			return unwrapOp(await api.git.historyPage(projectId, options, repoPath), PROJECT_SERVICE_CODES.failed);
+			return unwrapOp(await api.git.historyPage(projectId, toHistoryPagePayload(options), repoPath), PROJECT_SERVICE_CODES.failed);
 		},
 		async repos(): Promise<GitRepositoryListing> {
 			return unwrapOp(await api.git.repositoryList(projectId), PROJECT_SERVICE_CODES.failed);

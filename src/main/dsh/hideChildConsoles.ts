@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import type * as childProcessModule from "node:child_process";
@@ -33,11 +34,11 @@ type SpawnOptions = childProcessModule.SpawnOptions;
  * 现行策略（见 decideDshHostConsolePolicy / installHiddenConsolePatch）：
  * 1) host（utilityProcess）不 AllocConsole，自身不需要控制台。
  * 2) host 所有 child_process 注入 windowsHide（CREATE_NO_WINDOW）。
- * 3) 沙箱 runner 有 CUI node sidecar 时改写成 node.exe + windowsHide：
- *    runner 自建无窗口可继承控制台；第二级 ACL runner 由 host env 的 preload
- *    兜住（它仍是 electron.exe），pwsh 经 CreateProcessAsUserW 继承即可。
- * 4) sidecar 不可用时仍走 electron.exe + runnerConsolePreload AllocConsole
- *    兜底（可能闪一帧；只覆盖老 runtime）。
+ * 3) 沙箱 runner 有 CUI node sidecar 时，第一级与嵌套第二级 ACL runner 一并改写成
+ *    node.exe + windowsHide：两级共享无窗口可继承控制台，pwsh 经 CreateProcessAsUserW
+ *    继承即可；host env 不注入 preload NODE_OPTIONS，避免污染沙箱内普通 node 进程。
+ * 4) sidecar 不可用时仍走 electron.exe + unpacked runnerConsolePreload AllocConsole
+ *    兜底（可能闪一帧；只覆盖老 runtime / 未装 Node 24 的兜底场景）。
  */
 
 /** koffi 运行时 FFI 接口子集（测试注入假实现，避免依赖真实原生模块）。 */
@@ -105,17 +106,33 @@ export interface DshHostConsolePolicy {
 	injectWindowsHide: boolean;
 	/** 是否把 electron.exe runner 改写成 CUI node sidecar。 */
 	rewriteRunnerToSidecar: boolean;
+	/** 是否向 host env 注入 preload NODE_OPTIONS（仅无 sidecar 兜底路径需要）。 */
+	injectRunnerPreloadEnv: boolean;
 }
 
 export function decideDshHostConsolePolicy(input: { platform: NodeJS.Platform; sidecarPath?: string }): DshHostConsolePolicy {
 	if (input.platform !== "win32") {
-		return { allocHostConsole: false, injectWindowsHide: false, rewriteRunnerToSidecar: false };
+		return { allocHostConsole: false, injectWindowsHide: false, rewriteRunnerToSidecar: false, injectRunnerPreloadEnv: false };
 	}
+	const hasSidecar = Boolean(input.sidecarPath?.trim());
 	return {
 		allocHostConsole: false,
 		injectWindowsHide: true,
-		rewriteRunnerToSidecar: Boolean(input.sidecarPath?.trim()),
+		rewriteRunnerToSidecar: hasSidecar,
+		injectRunnerPreloadEnv: !hasSidecar,
 	};
+}
+
+/**
+ * 打包版中 `runnerConsolePreload.js` 位于 `app.asar.unpacked`，普通 node.exe 无法读取
+ * `.asar` 虚拟目录；当对应的 `app.asar.unpacked` 文件存在时映射到真实磁盘路径。
+ */
+export function resolveRunnerPreloadPath(preloadPath: string = join(__dirname, "runnerConsolePreload.js"), fileExists: (path: string) => boolean = existsSync): string {
+	const unpacked = preloadPath.replace(/([\\/])app\.asar([\\/])/i, "$1app.asar.unpacked$2");
+	if (unpacked !== preloadPath && fileExists(unpacked)) {
+		return unpacked;
+	}
+	return preloadPath;
 }
 
 /**
@@ -242,18 +259,18 @@ export function installRunnerNodeModeEnv(env: NodeJS.ProcessEnv = process.env, p
  * 幂等跳过——host env 带 preload 后，第一级 runner 的 options.env（由 host env
  * 派生）也会带上它，不能在 withRunnerPreload 里再叠一份。
  *
- * 副作用（已知、可接受）：沙箱内命令的 env 也带 NODE_OPTIONS——pwsh/cmd 等非
- * Node 程序忽略它；模型在沙箱里跑的 node 进程会加载 preload（自建隐藏控制台，
- * 行为与 runner 一致，无可见窗口）。preload 文件缺失时 node 子进程会启动失败，
- * 与第一级 runner 的既有注入共享同一前提（preload 随 out/main 分发）。
+ * 第二级 runner 启动并加载 preload 后，会移除自身 require 片段，再启动用户命令；
+ * 否则环境会泄漏给沙箱内 node.exe，而普通 Node 无法解析 app.asar 内的 preload。
+ * 原有 NODE_OPTIONS 中其它用户选项保留。
  *
  * @returns 还原函数（测试用；生产调用方不还原）。
  */
 export function installRunnerPreloadEnv(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, runnerPreloadPath: string = join(__dirname, "runnerConsolePreload.js")): () => void {
 	if (platform !== "win32") return () => undefined;
+	const resolvedPreloadPath = resolveRunnerPreloadPath(runnerPreloadPath);
 	const previous = env.NODE_OPTIONS;
-	if (!includesRunnerPreload(previous, runnerPreloadPath)) {
-		const preload = runnerPreloadFlag(runnerPreloadPath);
+	if (!includesRunnerPreload(previous, resolvedPreloadPath)) {
+		const preload = runnerPreloadFlag(resolvedPreloadPath);
 		env.NODE_OPTIONS = previous ? `${previous} ${preload}` : preload;
 	}
 	return () => {
@@ -354,7 +371,29 @@ function isElectronLikeExec(command: string): boolean {
 }
 
 /**
- * 沙箱 runner 若仍由 electron.exe 拉起，改写成 CUI node sidecar。
+ * 第一级 Job runner 的 `--` 后面紧跟嵌套第二级 ACL runner（`[electronExe, ..., runner.js/ts, ..., "--", targetCmd]`）。
+ * 第一级用 Koffi `CreateProcessW` 拉起第二级，绕过 `child_process.spawn` 补丁；
+ * 因此必须在这里一并把嵌套的 Electron 可执行文件改写成 CUI sidecar，让两级共享无窗口控制台。
+ */
+function rewriteNestedRunnerArgs(args: readonly string[], sidecar: string): readonly string[] {
+	const sep = args.indexOf("--");
+	if (sep < 0 || sep + 2 >= args.length) return args;
+	const nestedCommand = args[sep + 1];
+	if (!isElectronLikeExec(nestedCommand)) return args;
+	const nextSep = args.indexOf("--", sep + 2);
+	const end = nextSep === -1 ? args.length : nextSep;
+	let scriptIdx = sep + 2;
+	while (scriptIdx + 1 < end && args[scriptIdx] === "--import") {
+		scriptIdx += 2;
+	}
+	if (scriptIdx >= end || !RUNNER_SCRIPT_RE.test(args[scriptIdx])) return args;
+	const nextArgs = [...args];
+	nextArgs[sep + 1] = sidecar;
+	return nextArgs;
+}
+
+/**
+ * 沙箱 runner 若仍由 electron.exe 拉起，一并把第一级和嵌套第二级改写成 CUI node sidecar。
  * sidecar 未配置或 command 已经是 node 时原样返回。
  */
 function rewriteRunnerExecutable(command: string, args: readonly string[]): { command: string; args: readonly string[] } {
@@ -362,8 +401,11 @@ function rewriteRunnerExecutable(command: string, args: readonly string[]): { co
 		return { command, args };
 	}
 	if (!isRunnerSpawn(command, args)) return { command, args };
-	if (!isElectronLikeExec(command)) return { command, args };
-	return { command: dshRunnerNodeSidecarPath as string, args };
+	const sidecar = dshRunnerNodeSidecarPath as string;
+	return {
+		command: isElectronLikeExec(command) ? sidecar : command,
+		args: rewriteNestedRunnerArgs(args, sidecar),
+	};
 }
 
 /**
@@ -383,6 +425,7 @@ function rewriteRunnerExecutable(command: string, args: readonly string[]): { co
  */
 export function installHiddenConsolePatch(platform: NodeJS.Platform = process.platform, runnerPreloadPath: string = join(__dirname, "runnerConsolePreload.js")): () => void {
 	if (platform !== "win32") return () => undefined;
+	const resolvedPreloadPath = resolveRunnerPreloadPath(runnerPreloadPath);
 	const originals = {
 		spawn: childProcess.spawn,
 		spawnSync: childProcess.spawnSync,
@@ -410,19 +453,14 @@ export function installHiddenConsolePatch(platform: NodeJS.Platform = process.pl
 			// 诊断（一次性）：确认沙箱 runner spawn 的可执行文件与控制台策略。
 			if (!runnerPolicyLogged) {
 				runnerPolicyLogged = true;
-				console.error(`[dsh-host-entry] runner spawn policy: hostHiddenConsoleActive=${String(hostHiddenConsoleActive)} ` + `sidecar=${dshRunnerNodeSidecarPath ?? "none"} ` + `command=${command} preload=${runnerPreloadPath}`);
+				console.error(`[dsh-host-entry] runner spawn policy: hostHiddenConsoleActive=${String(hostHiddenConsoleActive)} ` + `sidecar=${dshRunnerNodeSidecarPath ?? "none"} ` + `command=${command} preload=${dshRunnerNodeSidecarPath ? "none" : resolvedPreloadPath}`);
 			}
-			// CUI node sidecar：CREATE_NO_WINDOW 自建无窗口可继承控制台，不再依赖 host AllocConsole。
-			// 也不注入 preload：sidecar 是真 node.exe，没有 Electron 的 asar 读取能力，
-			// 打包后 preload 落在 app.asar 内 → --require 直接 MODULE_NOT_FOUND，第一级
-			// runner 启动即 exit 1（2026-10 线上实证：PTC run_code 与全部沙箱命令 6/6 失败，
-			// 报 `Windows Job runner exited with exit code 1 before proving its managed
-			// range empty`）。隐藏控制台由 host env 里的 preload（installRunnerPreloadEnv）
-			// 兜第二级 ACL runner —— 它仍是 electron.exe，能读 asar。
+			// CUI node sidecar：第一级与嵌套第二级 ACL runner 均已改写成 node.exe + CREATE_NO_WINDOW，
+			// 共享无窗口可继承控制台，不再注入 preload（sidecar 是真 node.exe，且避免 NODE_OPTIONS 污染子进程）。
 			if (dshRunnerNodeSidecarPath) {
 				return withPwshStartupEnv({ ...(options ?? {}), windowsHide: true }, true);
 			}
-			return withRunnerPreload(withRunnerRunAsNode(withPwshStartupEnv(hostHiddenConsoleActive ? options : withHiddenOptions(options), true)), runnerPreloadPath);
+			return withRunnerPreload(withRunnerRunAsNode(withPwshStartupEnv(hostHiddenConsoleActive ? options : withHiddenOptions(options), true)), resolvedPreloadPath);
 		}
 		if (isPwshCommand(command)) {
 			return withPwshStartupEnv(hostHiddenConsoleActive ? options : withHiddenOptions(options), true);

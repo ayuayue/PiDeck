@@ -15,8 +15,9 @@
  *   一系的 pin/指纹校验（禁止 ssh-keyscan、禁止把远端路径交给本机 fs）。
  *
  * 不变量：
- * - **字节上界**：单次窗口 ≤ `REMOTE_SESSION_HISTORY_WINDOW_BYTES`（默认 128 KiB），命令参数只出现这个
+ * - **字节上界**：单次窗口 ≤ `REMOTE_SESSION_HISTORY_WINDOW_BYTES`（2 MiB），命令参数只出现这个
  *   上界，绝不出现「整文件大小」；请求越界是**拒绝**（构造期 `..._OPTIONS_INVALID`），不是悄悄截断。
+ *   一页可以连续取多个窗口（`REMOTE_SESSION_HISTORY_WINDOW_SKIPS`），但每个窗口各自仍受此上界。
  * - **窗口边界对齐行**：起点落在行中间丢半截行（当页不再显示它），终点被窗口截断时同样丢掉尾巴——
  *   半行 JSON 解析出来只会是脏数据。
  * - **失败结构化**：ssh/命令失败、输出里找不到标记、元数据畸形各有稳定码，绝不把裸异常或路径外传；
@@ -31,7 +32,11 @@
  *   `total` 在远端不成立；「还有更早历史」只由 `nextBefore !== null` 决定（渲染层也是这么用的）。
  * - `activeBranch` 只按**窗口内**的 parentId 链回溯（`buildActiveBranchEntryIds`）：窗口之外的祖先不可见，
  *   因此窗口首条之后的分支归属与本地整文件索引可能不同。
- * - 传输层是本机 ssh 客户端的 `execFile`（`SshClientRuntime.run`，`encoding: "utf8"`，maxBuffer 256 KiB）：
+ * - **单行比一页上界还大时仍不可见**（罕见的超大图片消息）：一个窗口装不下整行就无法 JSON 解析，
+ *   而它的缺失会断开 parentId 链，使更早的消息取不到。窗口上界现在是 2 MiB，能整行容纳本机实测的
+ *   984 KiB 最大行及超过旧上界的截图消息；更大的单行仍需分段解析才能消除这条限制。
+ * - 传输层是本机 ssh 客户端的 `execFile`（`SshClientRuntime.run`，`encoding: "utf8"`，缺省 maxBuffer
+ *   256 KiB，历史读取显式放宽到 `REMOTE_SESSION_HISTORY_TRANSPORT_BYTES`）：
  *   文件里的非法 UTF-8 字节会被解码成替换字符（该行因此解析失败并被跳过，仍属 fail-soft），而按字节
  *   计算游标时以 `Buffer.byteLength` 回算——合法 UTF-8 下逐字节精确，含非法字节的极端文件可能偏移几个
  *   字节，表现为边界行被当成半行丢掉（不会串行、不会越界读）。
@@ -41,46 +46,17 @@ import { randomBytes } from "node:crypto";
 // hostId 与 ssh 身份判据只允许有一份：与持久化边界共用 shared 的权威取值域。
 import { PROJECT_HOST_ID_PATTERN, readSshSessionLocator, type SshSessionLocator } from "../../shared/projectLocation";
 import { buildActiveBranchEntryIds } from "../pi/AgentMessageProjector";
-import { buildSessionProjection, type ProjectedSessionEntry } from "../pi/sessionContextProjection";
+import { buildTimelineProjection, type ProjectedSessionEntry } from "../pi/sessionContextProjection";
 import { isRoleMessageRole } from "../pi/sessionEntryIds";
 import type { ChatMessage, SessionMessagePage } from "../../shared/types";
-
-/** 单次窗口的字节上界（硬上界：请求超过它即拒绝，不 clamp）。 */
-export const REMOTE_SESSION_HISTORY_WINDOW_BYTES = 128 * 1024;
-
-/**
- * 传输层单次输出的字节上界。
- *
- * 依据：`SshClientRuntime.run` 用 `execFile` 且 `maxBuffer = 256 KiB`，越界时它自己抛
- * `SSH_HOST_COMMAND_OUTPUT_TOO_LARGE`。窗口上界必须留在它之下，否则一次有界读会被传输层判成失败。
- * 这个常量的唯一用途就是让「窗口上界 < 传输上界」成为可断言的算术，而不是注释里的口头承诺。
- */
-export const REMOTE_SESSION_HISTORY_TRANSPORT_BYTES = 256 * 1024;
-
-/** 本模块的稳定码词汇（构造期错误码见 `REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID`）。 */
-export const REMOTE_SESSION_HISTORY_CODES = {
-	/** hostId 不是可用的诊断身份/传输键。 */
-	hostIdInvalid: "REMOTE_SESSION_HISTORY_HOST_ID_INVALID",
-	/** locator 不是合法 ssh 身份（含 remotePath 长度越界）。 */
-	locatorInvalid: "REMOTE_SESSION_HISTORY_LOCATOR_INVALID",
-	/** 远端路径既不是绝对路径、也推不出会话根（相对身份 + 没有根解析端口）。 */
-	pathUnresolved: "REMOTE_SESSION_HISTORY_PATH_UNRESOLVED",
-	/** 远端路径不可用（非绝对/控制字节/含单引号/超长）：绝不把它拼进命令行。 */
-	pathInvalid: "REMOTE_SESSION_HISTORY_PATH_INVALID",
-	/** 传输层失败（ssh 起不来、超时、输出超上界）且自身不带稳定码。 */
-	transportFailed: "REMOTE_SESSION_HISTORY_TRANSPORT_FAILED",
-	/** 远端命令退出码非 0（stderr 不外传）。 */
-	commandFailed: "REMOTE_SESSION_HISTORY_COMMAND_FAILED",
-	/** stdout 里找不到本次调用的标记：输出不可信（横幅/噪声/对端不是我们预期的 shell）。 */
-	markerMissing: "REMOTE_SESSION_HISTORY_MARKER_MISSING",
-	/** 标记之后的元数据（文件字节数）解析不出来。 */
-	metadataInvalid: "REMOTE_SESSION_HISTORY_METADATA_INVALID",
-	/** 装配没提供读端口（旧装配/正式包）。 */
-	readerUnavailable: "REMOTE_SESSION_HISTORY_UNAVAILABLE",
-} as const;
-
-/** 构造期参数不合法（与其它远端模块一致，构造即抛，不等到第一次读）。 */
-export const REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID = "REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID";
+import { REMOTE_SESSION_HISTORY_CODES, REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID, REMOTE_SESSION_HISTORY_WINDOW_BYTES, REMOTE_SESSION_HISTORY_TRANSPORT_BYTES, REMOTE_SESSION_HISTORY_WINDOW_SKIPS } from "./RemoteSessionHistoryWindow";
+export {
+	REMOTE_SESSION_HISTORY_CODES,
+	REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID,
+	REMOTE_SESSION_HISTORY_WINDOW_BYTES,
+	REMOTE_SESSION_HISTORY_TRANSPORT_BYTES,
+	REMOTE_SESSION_HISTORY_WINDOW_SKIPS,
+} from "./RemoteSessionHistoryWindow";
 
 /** 标记里允许出现的字符：本地随机 hex，命令与解析两侧共用同一形状。 */
 const NONCE = /^[A-Za-z0-9]{8,64}$/;
@@ -162,11 +138,13 @@ export function joinRemoteSessionRoot(root: string, relative: string): string | 
  * 构造一次有界窗口读取的远端命令（纯函数，测试直接断言它的参数）。
  *
  * 形状一（`endOffset` 省略）：读到文件尾——
- *   `printf '<marker>'; wc -c < '<path>'; tail -c <windowBytes> -- '<path>'`
+ *   `printf '<marker>'; (stat -c '%i|%s|%y' '<path>' 2>/dev/null || stat -f '%i|%z|%m' '<path>'); tail -c <windowBytes> -- '<path>'; readStatus=$?; printf '<marker>_END'; (stat -c '%i|%s|%y' '<path>' 2>/dev/null || stat -f '%i|%z|%m' '<path>'); exit "$readStatus"`
  * 形状二（给了 `endOffset`，1-based 含端）：读 [start, endOffset] 这一段——
- *   `printf '<marker>'; tail -c +<start> -- '<path>' | head -c <count>`
+ *   `printf '<marker>'; (stat -c '%i|%s|%y' '<path>' 2>/dev/null || stat -f '%i|%z|%m' '<path>'); tail -c +<start> -- '<path>' | head -c <count>; readStatus=$?; printf '<marker>_END'; (stat -c '%i|%s|%y' '<path>' 2>/dev/null || stat -f '%i|%z|%m' '<path>'); exit "$readStatus"`
  *
- * 为什么把 `wc -c` 和 `tail` 放进**同一条**命令：窗口起点（也就是下一页的游标）要用文件大小才能算出来，
+ * 两种形状都带远端 stat（GNU/BSD 两种格式取当前系统可用的一种）：inode 用于发现原子替换，mtime 用于发现同体积原位重写，size 用于发现截断。
+ *
+ * 为什么把 stat 和 `tail` 放进**同一条**命令：窗口起点（也就是下一页的游标）要用文件大小才能算出来，
  * 而每次 `buildPinnedSshInvocation` 都要跑几次 `ssh -G` 校验路由——两次往返换一个可以本地算出的数字不划算。
  * 标记放在最前，是因为远端 shell 可能在 stdout 里混入登录横幅（`ssh` 非交互会话下 `~/.bashrc` 仍可能
  * 被 source，nvm 初始化就是这种），前缀噪声因此不会走进解析。
@@ -178,11 +156,13 @@ export function buildRemoteSessionWindowCommand(input: { remotePath: string; win
 	if (remotePath === undefined) throw stable(REMOTE_SESSION_HISTORY_CODES.pathInvalid);
 	if (!Number.isSafeInteger(input?.windowBytes) || input.windowBytes <= 0 || input.windowBytes > REMOTE_SESSION_HISTORY_WINDOW_BYTES) throw stable(REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID);
 	const marker = `printf '${remoteSessionHistoryMarker(input?.nonce)}'`;
-	if (input.endOffset === undefined) return `${marker}; wc -c < '${remotePath}'; tail -c ${input.windowBytes} -- '${remotePath}'`;
+	const stat = `(stat -c '%i|%s|%y' '${remotePath}' 2>/dev/null || stat -f '%i|%z|%m' '${remotePath}')`;
+	const trailer = `readStatus=$?; printf '${remoteSessionHistoryMarker(input?.nonce)}_END'; ${stat}; exit "$readStatus"`;
+	if (input.endOffset === undefined) return `${marker}; ${stat}; tail -c ${input.windowBytes} -- '${remotePath}'; ${trailer}`;
 	if (!Number.isSafeInteger(input.endOffset) || input.endOffset < 1) throw stable(REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID);
 	const start = Math.max(1, input.endOffset - input.windowBytes + 1);
 	const count = input.endOffset - start + 1;
-	return `${marker}; tail -c +${start} -- '${remotePath}' | head -c ${count}`;
+	return `${marker}; ${stat}; tail -c +${start} -- '${remotePath}' | head -c ${count}; ${trailer}`;
 }
 
 /** 一条**完整**行（含它在文件里的 1-based 起始偏移，用于下一页游标）。 */
@@ -193,52 +173,69 @@ export type RemoteSessionHistoryWindow = {
 	windowStart: number;
 	/** 完整行的起始偏移（不含被丢掉的半截行）。 */
 	lines: RemoteSessionHistoryLine[];
-	/** 下一段更早历史的游标（1-based 起始偏移）> 1 时为窗口首行的偏移；否则 undefined（没有更早历史）。 */
+	/** 下一段更早历史的游标（1-based 起始偏移）：通常是窗口首完整行的偏移；整窗口无完整行时
+	 *  退化为窗口起点（读不到内容不等于到文件头）。undefined = 确实没有更早历史。 */
 	nextBefore: number | undefined;
 	/** 起点落在行中间：当页丢掉了半截首行。 */
 	droppedLeadingPartial: boolean;
 	/** 终点被窗口截断：当页丢掉了半截尾行。 */
 	droppedTrailingPartial: boolean;
-	/** 这一页对应的文件字节数（形状一取 wc -c，形状二取游标前的长度）：只用于代际比较。 */
-	size?: number;
+	/** 文件在远端文件系统里的 inode。 */
+	fileIdentity: string;
+	/** mtime 的数字指纹；追加会变化，但同体积 mtime 变化说明文件被原位重写。 */
+	modifiedAt: string;
+	/** 文件身份或可见文件代际在窗口读取期间变化；调用方丢弃本页并重读一次。 */
+	changedDuringRead: boolean;
+	/** 文件字节数，用于发现截断与识别追加。 */
+	size: number;
 };
 
 /**
  * 解析一次窗口读取的 stdout（纯函数）。
  *
- * 两种命令形状共用本函数，差别只有「是否知道文件大小」：
- * - 形状一（`knownSize`）：`<marker><size>\n<payload>`，payload 直到文件尾 ⇒ 尾行即使没有换行也是完整的；
- * - 形状二（`knownEnd`）：`<marker><payload>`，payload 的终点是**下一页已经展示过的内容**前面 ⇒
+ * 两种命令形状输出**同一形状**：`<marker><inode>|<size>|<mtime>\n<payload><marker>_END<inode>|<size>|<mtime>\n`（Linux/GNU 的 mtime 带亚秒精度，BSD stat 退化为秒）。
+ * 差别只在 payload 的终点：
+ * - 形状一（`windowEnd` 缺省）：payload 直到文件尾 ⇒ 尾行即使没有换行也是完整的；
+ * - 形状二（`windowEnd` = 本窗口末字节）：payload 的终点是**下一页已经展示过的内容**前面 ⇒
  *   payload 不以换行结尾时尾行必是半截（它的后半段在上一次读的窗口里）。
  *
  * 起点落在行中间（`windowStart > 1`）时首行必是半截：它属于上一行，不能当一个新行解析。
+ * `windowEnd` 超过文件大小（文件在往回读的这段时间被截断/重写）时按真实大小夹住，
+ * 调用方据 `size` 与请求位置的关系判定「跨代」并重读。
  */
-export function parseRemoteSessionWindow(stdout: string, input: { marker: string; windowBytes: number; knownSize?: number; knownEnd?: number }): RemoteSessionHistoryWindow {
+export function parseRemoteSessionWindow(stdout: string, input: { marker: string; windowBytes: number; windowEnd?: number }): RemoteSessionHistoryWindow {
 	if (typeof stdout !== "string") throw stable(REMOTE_SESSION_HISTORY_CODES.markerMissing);
 	if (!Number.isSafeInteger(input?.windowBytes) || input.windowBytes <= 0 || input.windowBytes > REMOTE_SESSION_HISTORY_WINDOW_BYTES) throw stable(REMOTE_SESSION_HISTORY_READER_OPTIONS_INVALID);
 	const markerIndex = input?.marker === undefined ? -1 : stdout.indexOf(input.marker);
 	if (markerIndex < 0) throw stable(REMOTE_SESSION_HISTORY_CODES.markerMissing);
-	let rest = stdout.slice(markerIndex + input.marker.length);
-	let size: number | undefined;
-	// 形状一才带元数据（`wc -c`）：形状二的起点由游标推出，payload 直接跟在标记后面——那里**不能**再
-	// 按「第一行是文件大小」解析，否则窗口内容本身会被当成元数据。
-	if (input.knownSize === undefined && input.knownEnd === undefined) {
-		const newline = rest.indexOf("\n");
-		if (newline < 0 || !/^\d{1,20}$/.test(rest.slice(0, newline))) throw stable(REMOTE_SESSION_HISTORY_CODES.metadataInvalid);
-		size = Number(rest.slice(0, newline));
-		if (!Number.isSafeInteger(size)) throw stable(REMOTE_SESSION_HISTORY_CODES.metadataInvalid);
-		rest = rest.slice(newline + 1);
-	} else {
-		size = input.knownSize;
-	}
-	const payload = rest;
+	const rest = stdout.slice(markerIndex + input.marker.length);
+	const parseMetadata = (line: string) => /^(\d+)\|(\d{1,20})\|(.+)$/.exec(line);
+	const metadataEnd = rest.indexOf("\n");
+	const metadata = metadataEnd < 0 ? null : parseMetadata(rest.slice(0, metadataEnd));
+	const size = metadata?.[2] === undefined ? Number.NaN : Number(metadata[2]);
+	const modifiedAt = metadata?.[3]?.replace(/\D/g, "");
+	if (metadata === null || !Number.isSafeInteger(size) || !modifiedAt) throw stable(REMOTE_SESSION_HISTORY_CODES.metadataInvalid);
+	const trailerMarker = `${input.marker}_END`;
+	const trailerIndex = stdout.indexOf(trailerMarker, markerIndex + input.marker.length + metadataEnd + 1);
+	if (trailerIndex < 0) throw stable(REMOTE_SESSION_HISTORY_CODES.metadataInvalid);
+	const trailerStart = trailerIndex + trailerMarker.length;
+	const trailerEnd = stdout.indexOf("\n", trailerStart);
+	const trailer = parseMetadata(stdout.slice(trailerStart, trailerEnd < 0 ? undefined : trailerEnd));
+	const trailerSize = trailer?.[2] === undefined ? Number.NaN : Number(trailer[2]);
+	const trailerModifiedAt = trailer?.[3]?.replace(/\D/g, "");
+	if (trailer === null || !Number.isSafeInteger(trailerSize) || !trailerModifiedAt) throw stable(REMOTE_SESSION_HISTORY_CODES.metadataInvalid);
+	const fileIdentity = trailer[1];
+	const payloadStart = metadataEnd + 1;
+	const payload = stdout.slice(markerIndex + input.marker.length + payloadStart, trailerIndex);
+	const changedDuringRead = fileIdentity !== metadata[1] || trailerSize < size || (trailerSize === size && trailerModifiedAt !== modifiedAt) || (input.windowEnd === undefined && trailerSize !== size);
 	const payloadBytes = Buffer.byteLength(payload, "utf8");
-	// 形状二的起点由调用方给出（= 上一页首行偏移 − 窗口上界 + 1，clamp 到 1）。
-	const windowStart = input.knownEnd !== undefined ? Math.max(1, input.knownEnd - input.windowBytes + 1) : Math.max(1, (size ?? 0) - payloadBytes + 1);
+	// 窗口起点：本窗口末字节（缺省 = 文件尾）向前推 payload 长度。用实际 payload 长度而不是请求长度：
+	// 文件被截断时远端 `head -c` 只会少给，算出来的起点仍是真实起点。
+	const requestedEnd = input.windowEnd === undefined ? trailerSize : Math.min(input.windowEnd, trailerSize);
+	const windowStart = Math.max(1, requestedEnd - payloadBytes + 1);
 	const windowEnd = windowStart + payloadBytes - 1;
-	// 形状二下窗口终点是「下一页之前」，payload 未以换行结尾 ⇒ 尾行被截断；
-	// 形状一下窗口读到文件尾 ⇒ 尾行完整（即使文件没有尾换行）。
-	const reachedEof = input.knownEnd === undefined ? windowEnd >= (size ?? 0) : false;
+	// 读到（或越过）文件尾时尾行是完整的：即便文件没有尾换行。
+	const reachedEof = windowEnd >= trailerSize;
 	// 以换行结尾的 payload 末尾会多出一个空段：它不是行。同时这也说明**尾行是完整的**——
 	// 形状二的窗口终点就是下一条已展示行的换行符，那里恰好是一行的结尾。
 	const payloadEndsWithNewline = payload.endsWith("\n");
@@ -266,15 +263,18 @@ export function parseRemoteSessionWindow(stdout: string, input: { marker: string
 		offset += segmentBytes + 1;
 	}
 	// 游标 = 最早一条完整行的起始偏移；等于 1 说明窗口已经贴到文件头，没有更早的历史。
-	// 一条完整行都没有（整个窗口落在一条超长行内部）时**不给**游标：否则渲染层的「加载更早」会一直
-	// 点出空页却看不到任何新内容（让路径丢失是诚实的，无限翻页不是）。
-	const cursor = lines[0]?.offset;
+	// 一条完整行都没有（整个窗口落在一条超长行内部）时退化为**窗口起点**：读不到内容不等于到了文件头。
+	// 旧实现这里返回 undefined（= 到顶），于是渲染层的「加载更早」在那条超长行之前永久消失——
+	// 用户的真实症状是「往上翻翻不上去，我发过的消息都找不到」（带图消息就是这种超长行）。
+	const cursor = lines[0]?.offset ?? (windowStart > 1 ? windowStart : undefined);
 	return {
 		windowStart,
 		lines,
 		nextBefore: cursor !== undefined && cursor > 1 ? cursor : undefined,
-		// 文件字节数（形状一由 wc -c 取到；形状二等于游标前的长度），作为这一页的尺寸段。
-		size,
+		fileIdentity,
+		size: trailerSize,
+		modifiedAt: trailerModifiedAt,
+		changedDuringRead,
 		droppedLeadingPartial,
 		droppedTrailingPartial,
 	};
@@ -315,7 +315,8 @@ export async function resolveRemoteSessionPath(input: { hostId: string; locator:
 /**
  * 远端窗口读取端口：由装配注入（生产实现走 pinned SSH 短命令）。
  *
- * 超时**归传输层**：生产传输是 `SshClientRuntime.run`，它的 `execFile` 自带 30 s 上限与 256 KiB 输出上限
+ * 超时**归传输层**：生产传输是 `SshClientRuntime.run`，它的 `execFile` 自带 30 s 上限；输出缓冲缺省
+ * 256 KiB，装配处（`mediaSessionStack`）把历史读取显式放宽到 `REMOTE_SESSION_HISTORY_TRANSPORT_BYTES`
  * （窗口上界就是为后者留的余量）。端口不另给一个调用侧 deadline——两个 deadline 只会互相掩盖。
  */
 export type RemoteSessionHistoryTransportPort = {
@@ -339,13 +340,13 @@ export type RemoteSessionHistoryReaderPorts = {
 	resolveSessionRoot?: RemoteSessionHistoryRootPort;
 	/** 只记录诊断（损坏行计数、失败码），不记录路径与命令行。 */
 	logger?: { warn(message: string, details?: Record<string, unknown>): void };
-	/** 只允许调小（测试用）；缺省 128 KiB。 */
+	/** 只允许调小（测试用）；缺省 `REMOTE_SESSION_HISTORY_WINDOW_BYTES`。 */
 	windowBytes?: number;
 };
 
 export type RemoteSessionHistoryReader = {
 	/** 读一页远端历史（有界窗口）。任何失败都返回/抛出稳定码，绝不裸异常。 */
-	readPage(input: { hostId: string; locator: SshSessionLocator; before?: number }): Promise<SessionMessagePage>;
+	readPage(input: { hostId: string; locator: SshSessionLocator; before?: number; beforeEntryId?: string }): Promise<SessionMessagePage>;
 };
 
 /** 一行的解析结果：原始 pi 消息 + 它所在的条目（parentId 链要用）。 */
@@ -370,37 +371,101 @@ function createReader(ports: RemoteSessionHistoryReaderPorts): RemoteSessionHist
 			if (locator === undefined) throw stable(REMOTE_SESSION_HISTORY_CODES.locatorInvalid);
 			if (typeof hostId !== "string" || !PROJECT_HOST_ID_PATTERN.test(hostId) || locator.hostId !== hostId) throw stable(REMOTE_SESSION_HISTORY_CODES.hostIdInvalid);
 			const before = Number.isSafeInteger(input?.before) && (input.before as number) > 0 ? (input.before as number) : undefined;
+			// 上一页递来的活动链叶子种子（与本地 `nextBeforeEntryId` 同义）：窗口最后一行未必在活动链上，
+			// 没有它，跨页的分支归属就会回退成「拿窗口尾行的回溯结果当活动链」（旧分支被当成正文）。
+			const seedEntryId = typeof input?.beforeEntryId === "string" && input.beforeEntryId.trim().length > 0 && input.beforeEntryId.length <= 256 ? input.beforeEntryId : undefined;
 			// 游标 1（= 文件首字节）意味着没有更早的历史：不发起任何远端请求，直接答「到顶」。
 			// 否则 `endOffset = 0` 会变成一个看起来像装配错误的稳定码，而它其实是一个合法查询结果。
 			if (before === 1) return { messages: [], total: 0, nextBefore: null };
 			const remotePath = await resolveRemotePath(hostId, locator);
-			const nonce = randomBytes(16).toString("hex");
-			const remoteCommand = buildRemoteSessionWindowCommand({ remotePath, windowBytes, nonce, ...(before !== undefined ? { endOffset: before - 1 } : {}) });
-			const marker = remoteSessionHistoryMarker(nonce);
-			let result: { exitCode: number; stdout: string };
-			try {
-				result = await ports.transport.readRemoteWindow({ hostId, remoteCommand });
-			} catch (error) {
-				// 连接层自己的稳定码（SSH_HOST_NOT_READY / SSH_HOST_ROUTE_CHANGED …）原样转述。
-				throw stable(codeOf(error, REMOTE_SESSION_HISTORY_CODES.transportFailed));
-			}
-			if (!isRecord(result) || typeof result.stdout !== "string") throw stable(REMOTE_SESSION_HISTORY_CODES.transportFailed);
-			if (result.exitCode !== 0) throw stable(REMOTE_SESSION_HISTORY_CODES.commandFailed);
-			const window = parseRemoteSessionWindow(result.stdout, { marker, windowBytes, ...(before === undefined ? {} : { knownEnd: before - 1 }) });
-			const parsed = parseWindowEntries(window.lines);
-			if (parsed.corruptLines > 0) ports.logger?.warn("remote session history has unparsable lines", { hostId, corruptLines: parsed.corruptLines, lines: window.lines.length });
-			const messages = parsed.rawMessages.length === 0 ? [] : ports.project(parsed.rawMessages, parsed.activeEntryIds);
-			return {
+			// 一页 = 连续的若干窗口（最多 1 + REMOTE_SESSION_HISTORY_WINDOW_SKIPS 个）。页边界按字节对齐，
+			// 单个超长行（带图用户消息）可能把整窗口吞掉：这种窗口没有可解析的行，但**位置仍然往前**。
+			// 继续向前读直到带回可呈现的消息或真正到文件头，否则渲染层看到的就是「点一次毫无变化」，
+			// 极端情况下（窗口全在一条行内）永远停在那一页。
+			const lines: RemoteSessionHistoryLine[] = [];
+			let cursor = before;
+			// indexVersion 用 inode + mtime + **真实文件体积**：原子替换换 inode，同体积原位重写改 mtime，截断会缩小体积，追加只增大体积。
+			let fileIdentity: string | undefined;
+			let fileModifiedAt: string | undefined;
+			let fileSize: number | undefined;
+			let generationRetried = false;
+			const pageOf = (messages: ChatMessage[], nextBefore: number | undefined, anchorParentId: string | undefined) => ({
 				messages,
 				// 说明见文件头「已知取舍」：远端不读整文件就只能给出窗口计数（下界），
 				// 「还有更早历史」只由 nextBefore 决定（渲染层同样只看它）。
 				total: messages.length,
-				nextBefore: window.nextBefore ?? null,
+				nextBefore: nextBefore ?? null,
+				// 跨页活动链：把「链在窗口外的第一个祖先」交给下一页当叶子种子。
+				// 没有它，下一页只能从窗口尾行回溯；尾行恰好是 rewind 掉的旧分支时，
+				// 那一页就会显示旧分支、并把大量本该显示的消息排除在外。
+				...(typeof anchorParentId === "string" ? { nextBeforeEntryId: anchorParentId } : {}),
 				// 没有它，渲染层的 disk → runtime 交接会因「无法证明同代」把整页历史丢掉：
 				// 会话被运行时接管后只剩窗口段（用户实拍：重开远端会话只看得到最后一条）。
-				// 版本串只比较体积（`isSameSessionFileGeneration` 取最后一段数字），追加不算异代。
-				// 空页不带版本：没有消息可当前缀，带上反而会让「空页」与「有历史的页」形状不一致。
-				...(messages.length === 0 ? {} : { indexVersion: `remote:${window.size ?? (before !== undefined ? before - 1 : 0)}` }),
+				// 空页同样带版本：renderer 必须校验每个游标页，不能让中间的空页抹掉代际证据。
+				...(fileIdentity !== undefined && fileModifiedAt !== undefined && fileSize !== undefined ? { indexVersion: `remote:${fileIdentity}:${fileModifiedAt}:${fileSize}` } : {}),
+			});
+			for (let attempt = 0; attempt <= REMOTE_SESSION_HISTORY_WINDOW_SKIPS; attempt += 1) {
+				const nonce = randomBytes(16).toString("hex");
+				const remoteCommand = buildRemoteSessionWindowCommand({ remotePath, windowBytes, nonce, ...(cursor !== undefined ? { endOffset: cursor - 1 } : {}) });
+				const marker = remoteSessionHistoryMarker(nonce);
+				let result: { exitCode: number; stdout: string };
+				try {
+					result = await ports.transport.readRemoteWindow({ hostId, remoteCommand });
+				} catch (error) {
+					// 连接层自己的稳定码（SSH_HOST_NOT_READY / SSH_HOST_ROUTE_CHANGED …）原样转述。
+					throw stable(codeOf(error, REMOTE_SESSION_HISTORY_CODES.transportFailed));
+				}
+				if (!isRecord(result) || typeof result.stdout !== "string") throw stable(REMOTE_SESSION_HISTORY_CODES.transportFailed);
+				if (result.exitCode !== 0) throw stable(REMOTE_SESSION_HISTORY_CODES.commandFailed);
+				const window = parseRemoteSessionWindow(result.stdout, { marker, windowBytes, ...(cursor === undefined ? {} : { windowEnd: cursor - 1 }) });
+				// 文件被替换、截断，或读取期间跨到另一代：之前算出的偏移可能失效，不能拼接。
+				if (window.changedDuringRead || (fileSize !== undefined && (window.fileIdentity !== fileIdentity || window.size < fileSize || (window.size === fileSize && window.modifiedAt !== fileModifiedAt)))) {
+					if (generationRetried) throw stable(REMOTE_SESSION_HISTORY_CODES.stale);
+					generationRetried = true;
+					lines.length = 0;
+					cursor = before;
+					fileIdentity = undefined;
+					fileModifiedAt = undefined;
+					fileSize = undefined;
+					continue;
+				}
+				fileIdentity = window.fileIdentity;
+				fileModifiedAt = window.modifiedAt;
+				fileSize = window.size;
+				// 每轮读的是「更早」的一段：串起来要保持文件顺序（更早的在前），且两轮的行区间不重叠
+				// （游标是首完整行的偏移，上一轮丢掉的半行会在下一轮尾部完整读回）。
+				lines.unshift(...window.lines);
+				const parsed = parseWindowEntries(lines, seedEntryId);
+				if (parsed.corruptLines > 0) ports.logger?.warn("remote session history has unparsable lines", { hostId, corruptLines: parsed.corruptLines, lines: lines.length });
+				const messages = parsed.rawMessages.length === 0 ? [] : ports.project(parsed.rawMessages, parsed.activeEntryIds);
+				const next = window.nextBefore;
+				// 到文件头：没有更早内容可读，到此为止（页首可能是半轮，这是文件边界）。
+				if (next === undefined) return pageOf(messages, next, parsed.branchAnchorParentId);
+				// 种子还没出现在累积行里（窗口边界把上一页的链根切在更早的位置）：继续往前读，
+				// 不能用窗口尾行代替叶子——那正是「旧分支被当成正文」的成因。
+				if (typeof seedEntryId === "string" && !parsed.seedApplied) {
+					cursor = next;
+					continue;
+				}
+				// 本页还没有可呈现内容（整窗口落在一行内、窗口里全是非角色条目）：继续往前。
+				if (messages.length === 0) {
+					cursor = next;
+					continue;
+				}
+				// 有可呈现内容就交页：页边界按字节/行切分，**不**强行对齐到「轮起点」——
+				// 实测工具输出密集的会话里两条 user 常隔开不止 2 MiB，对齐只会多读窗口而仍对不齐
+				// （ZCode 能做到是因为它的 row 自带 turnHeader 标签）。跨页连续性由渲染层按消息顺序拼接，
+				// 扩窗按页内实际轮数（max(1, turns)）承接。
+				return pageOf(messages, next, parsed.branchAnchorParentId);
+			}
+			// 连续跨完预算仍然没有可呈现的行（单行比一页上界还大，或整段都是非角色条目）：
+			// 给出**推进后的游标**而不是 null，让下一次「加载更早」接着往前走，不再永久卡在同一位置。
+			return {
+				messages: [],
+				total: 0,
+				nextBefore: cursor ?? null,
+				...(typeof seedEntryId === "string" ? { nextBeforeEntryId: seedEntryId } : {}),
+				...(fileIdentity !== undefined && fileModifiedAt !== undefined && fileSize !== undefined ? { indexVersion: `remote:${fileIdentity}:${fileModifiedAt}:${fileSize}` } : {}),
 			};
 		},
 	};
@@ -410,15 +475,21 @@ function createReader(ports: RemoteSessionHistoryReaderPorts): RemoteSessionHist
  * 窗口内的完整行 → pi 条目 + 投影输入。
  *
  * - 单行 JSON 坏掉（截断、非法 UTF-8 被替换、非对象、缺 id）：跳过并计数（fail-soft，当页照常返回）；
- * - 只有 `type === "message"` 且 role 是角色消息的行进入投影输入，且必须能在**窗口内**的 parentId 链上
- *   走通（`buildActiveBranchEntryIds`，与本地显示分支同一份实现）：被 rewind/fork 甩掉的旧分支条目
+ * - 只有 `type === "message"` 且 role 是角色消息的行进入投影输入，且必须能在 parentId 链上走通
+ *   （`buildActiveBranchEntryIds`，与本地显示分支同一份实现）：被 rewind/fork 甩掉的旧分支条目
  *   不会混进当页。
- * - **必须用 `buildSessionProjection` 应用 `context_edit`**：远端编辑/删除是追加 context_edit（原文行
- *   保留），只把消息行原样交给消息投影器会让编辑后的正文永远停在原文、删除的消息继续显示。这里复用
- *   与本地/离线 Viewer 同一份投影纯函数，再按活动链把已生效的消息交给消息投影器；entryId 槽位同步
- *   只包含实际投影的消息，避免被排除的消息让后续 meta.entryId 整体错位。
+ * - **叶子可以是上一页递来的 `seedEntryId`**：窗口的最后一行未必在活动链上（它可能是 rewind 之前的
+ *   旧分支条目，文件是 append-only 的，旧分支就在中间）。上一页把「链在窗口外的第一个祖先 id」递下来，
+ *   这一页从它回溯，活动链才能跨页连续——否则那一页会把旧分支当活动链，用户看到的是「顺序乱、
+ *   夹着别处的对话」以及一大批本来该显示的消息被排除。
+ * - **必须用 `buildTimelineProjection` 应用 `context_edit`（但不裁剪 compaction）**：远端编辑/删除是追加
+ *   context_edit（原文行保留），只把消息行原样交给消息投影器会让编辑后的正文永远停在原文、删除的
+ *   消息继续显示。这里复用与本地/离线 Viewer 同一份投影纯函数，再按活动链把已生效的消息交给消息
+ *   投影器；entryId 槽位同步只包含实际投影的消息，避免被排除的消息让后续 meta.entryId 整体错位。
+ *   不能用 `buildSessionProjection`：它会按「窗口内最后一条 compaction」裁剪，而窗口里看不到更新的那条
+ *   compaction 时，那段历史就被错误地当成「已被摘要替代」——真机现象是远端上翻时整段自己的消息消失。
  */
-function parseWindowEntries(lines: readonly RemoteSessionHistoryLine[]): { rawMessages: unknown[]; activeEntryIds: string[] | undefined; corruptLines: number } {
+function parseWindowEntries(lines: readonly RemoteSessionHistoryLine[], seedEntryId?: string): { rawMessages: unknown[]; activeEntryIds: string[] | undefined; corruptLines: number; branchAnchorParentId: string | undefined; seedApplied: boolean } {
 	const entries: ParsedEntry[] = [];
 	let corruptLines = 0;
 	for (const line of lines) {
@@ -442,14 +513,17 @@ function parseWindowEntries(lines: readonly RemoteSessionHistoryLine[]): { rawMe
 			raw: record,
 		});
 	}
-	const leaf = entries[entries.length - 1];
+	const seed = typeof seedEntryId === "string" && seedEntryId.length > 0 && entries.some((entry) => entry.id === seedEntryId) ? seedEntryId : undefined;
+	const leaf = seed === undefined ? entries[entries.length - 1] : entries.find((entry) => entry.id === seed);
+	// 链在窗口外的第一个祖先：交给下一页当叶子种子（无就不传，下一页退回自己的最后一行）。
+	const branchAnchorParentId = leaf === undefined ? seedEntryId : traceBranchAnchorParent(entries, leaf.id);
 	const activeEntryIds = leaf === undefined ? undefined : buildActiveBranchEntryIds(entries, leaf.id);
 	const activeSet = activeEntryIds === undefined ? undefined : new Set(activeEntryIds);
 	// 窗口内叶节点的上下文投影：应用 context_edit（替换正文 / 移出时间线），与本地读同一套语义。
 	const projection =
 		leaf === undefined
 			? undefined
-			: buildSessionProjection(
+			: buildTimelineProjection(
 					entries.flatMap((entry) => (isRecord(entry.raw) ? [entry.raw] : [])),
 					leaf.id,
 				);
@@ -469,7 +543,28 @@ function parseWindowEntries(lines: readonly RemoteSessionHistoryLine[]): { rawMe
 		rawMessages.push(projected.messages[0]);
 		projectedEntryIds.push(entry.id);
 	}
-	return { rawMessages, activeEntryIds: projectedEntryIds, corruptLines };
+	return { rawMessages, activeEntryIds: projectedEntryIds, corruptLines, branchAnchorParentId, seedApplied: seed !== undefined };
+}
+
+/**
+ * 从叶子回溯，返回「第一个落在窗口外的祖先 id」。
+ *
+ * 这个 id 是下一页的叶子种子：本页的链走到窗口边界就断了，下一页接着往下走，活动链才能跨页连续。
+ * 走到 parentId=null 说明真到了文件头；碰到环（脏文件）时放弃种子，不冒死循环风险。
+ */
+function traceBranchAnchorParent(entries: readonly ParsedEntry[], leafId: string): string | undefined {
+	const entryById = new Map<string, ParsedEntry>();
+	for (const entry of entries) entryById.set(entry.id, entry);
+	const seen = new Set<string>();
+	let current: string | null = leafId;
+	while (current !== null) {
+		if (seen.has(current)) return undefined;
+		seen.add(current);
+		const entry = entryById.get(current);
+		if (entry === undefined) return current;
+		current = entry.parentId;
+	}
+	return undefined;
 }
 
 /** 构造远端历史读取器（构造期校验端口，任何非法装配立刻抛出）。 */

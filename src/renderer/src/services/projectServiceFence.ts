@@ -113,3 +113,22 @@ export function fenceProjectGitService(fence: ProjectServiceFence, service: Proj
 		...(service.unwatchRefs === undefined ? {} : { unwatchRefs: fenced(fence, service.unwatchRefs) }),
 	};
 }
+
+/**
+ * 历史页参数的两套词汇在这里翻译一次。
+ *
+ * 服务契约跟随 helper（`all` / `withCount`），IPC 通道用面板词汇（`allBranches` / `withTotal`）。
+ * 原样透传会让主进程按“未知参数”整页拒绝（`INVALID_GIT_HISTORY_OPTIONS`），远端图谱只剩一句
+ * 通用失败文案——而且只在能力位到齐、`all` 真的被发出时才出现，看起来像“时好时坏”。
+ * 缺省的键保持缺席，不替调用方补 false/0：缺省语义由主进程契约决定。
+ */
+export function toHistoryPagePayload(options: { maxCount?: number; skip?: number; ref?: string; all?: boolean; withCount?: boolean } | undefined): {
+	maxCount?: number;
+	skip?: number;
+	ref?: string;
+	allBranches?: boolean;
+	withTotal?: boolean;
+} {
+	const { all, withCount, ...rest } = options ?? {};
+	return { ...rest, ...(all === undefined ? {} : { allBranches: all }), ...(withCount === undefined ? {} : { withTotal: withCount }) };
+}

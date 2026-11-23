@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createRequire, syncBuiltinESMExports } from "node:module";
+import { resolve } from "node:path";
 import * as esmChildProcess from "node:child_process";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
@@ -9,7 +13,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const require = createRequire(import.meta.url);
 const childProcess = require("node:child_process");
 
-const { hiddenConsoleOptions, installHiddenConsolePatch, installHostHiddenConsole, installRunnerNodeModeEnv, installRunnerPreloadEnv, getHiddenConsoleMode, configureDshRunnerNodeSidecar, getDshRunnerNodeSidecar } = loadTsCommonJs("src/main/dsh/hideChildConsoles.ts");
+const { hiddenConsoleOptions, installHiddenConsolePatch, installHostHiddenConsole, installRunnerNodeModeEnv, installRunnerPreloadEnv, getHiddenConsoleMode, configureDshRunnerNodeSidecar, getDshRunnerNodeSidecar, resolveRunnerPreloadPath } = loadTsCommonJs("src/main/dsh/hideChildConsoles.ts");
 
 /** 构造假 koffi：getResults 依次返回 GetConsoleWindow 结果（单元素则恒定返回）。 */
 function makeFfi({ getResults = [0], allocResult = 1, lastErrorResult } = {}) {
@@ -234,6 +238,11 @@ test("runner preload 同步提前加载的 ESM spawn 和 spawnSync", () => {
 	const originalSpawnSync = childProcess.spawnSync;
 	const calls = [];
 	const sidecar = "C:\\app\\node.exe";
+	const preloadPath = resolve("src/main/dsh/runnerConsolePreload.ts").replace(/\.ts$/i, ".js");
+	const runnerEnv = {
+		PIDECK_DSH_RUNNER_NODE: sidecar,
+		NODE_OPTIONS: `--no-warnings --max-old-space-size=2048 --require="${preloadPath.replace(/\\/g, "\\\\")}"`,
+	};
 	try {
 		childProcess.spawn = (...args) => {
 			calls.push(args);
@@ -245,8 +254,15 @@ test("runner preload 同步提前加载的 ESM spawn 和 spawnSync", () => {
 		};
 		syncBuiltinESMExports();
 		loadTsCommonJs("src/main/dsh/runnerConsolePreload.ts", {
-			globals: { process: { platform: "win32", execPath: sidecar, env: { PIDECK_DSH_RUNNER_NODE: sidecar } } },
+			globals: {
+				process: {
+					platform: "win32",
+					execPath: sidecar,
+					env: runnerEnv,
+				},
+			},
 		});
+		assert.equal(runnerEnv.NODE_OPTIONS, "--no-warnings --max-old-space-size=2048", "保留其它 Node 选项，只从后代进程环境移除 PiDeck preload");
 		assert.equal(esmChildProcess.spawn, childProcess.spawn, "preload 必须同步 ESM spawn");
 		assert.equal(esmChildProcess.spawnSync, childProcess.spawnSync, "preload 必须同步 ESM spawnSync");
 		for (const spawn of [esmChildProcess.spawn, esmChildProcess.spawnSync]) spawn("C:\\app\\electron.exe", ["C:\\runtime\\runner.js"], { windowsHide: false, env: { PATH: "test" } });
@@ -613,4 +629,156 @@ test("CUI sidecar：host 无 AllocConsole 时仍改写（靠 CREATE_NO_WINDOW，
 	assert.equal(calls[0][0], "C:\\app\\resources\\dsh-runner-node\\node.exe");
 	assert.equal(calls[0][2].windowsHide, true);
 	assert.equal("ELECTRON_RUN_AS_NODE" in calls[0][2].env, false);
+});
+
+test("CUI sidecar：打包 PiDeck.exe 改写一级与嵌套二级 ACL runner，不注入 NODE_OPTIONS 且不误改非 runner 命令", () => {
+	const sidecar = "C:\\Program Files\\PiDeck\\resources\\dsh-runner-node\\node.exe";
+	const packagedExe = "C:\\Program Files\\PiDeck\\PiDeck.exe";
+	const l1Runner = "C:\\Program Files\\PiDeck\\resources\\app.asar.unpacked\\node_modules\\@deepseek-ai\\dsh-subprocess-local\\lib\\runner.js";
+	const l2AclRunner = "C:\\Program Files\\PiDeck\\resources\\app.asar.unpacked\\node_modules\\@deepseek-ai\\dsh-sandbox-windows-acl\\lib\\runner.js";
+	const calls = [];
+	const fakeCp = {
+		...childProcess,
+		spawn(...args) {
+			calls.push(args);
+			return {};
+		},
+		spawnSync() {
+			return { status: 0 };
+		},
+	};
+	const fakeProcess = {
+		...process,
+		platform: "win32",
+		execPath: packagedExe,
+		versions: { ...process.versions, electron: "43.8.7" },
+		env: { PATH: "x" },
+	};
+	const mod = loadTsCommonJs("src/main/dsh/hideChildConsoles.ts", {
+		globals: { process: fakeProcess },
+		stubs: {
+			"node:child_process": fakeCp,
+			"node:module": {
+				...require("node:module"),
+				createRequire: () => (specifier) => (specifier === "node:child_process" ? fakeCp : require(specifier)),
+				syncBuiltinESMExports() {},
+			},
+		},
+	});
+	assert.equal(mod.decideDshHostConsolePolicy({ platform: "win32", sidecarPath: sidecar }).injectRunnerPreloadEnv, false);
+	mod.installHostHiddenConsole("win32");
+	mod.configureDshRunnerNodeSidecar(sidecar);
+	const restore = mod.installHiddenConsolePatch("win32", "C:\\Program Files\\PiDeck\\resources\\app.asar\\out\\main\\runnerConsolePreload.js");
+	try {
+		fakeCp.spawn(packagedExe, [l1Runner, "--stdio", "--", packagedExe, l2AclRunner, "--workspace", "C:\\ws", "--mode", "workspace-write", "--", "C:\\Program Files\\PowerShell\\7\\pwsh.exe", "-Command", "ok"], { env: { PATH: "x" } });
+		fakeCp.spawn(packagedExe, [l1Runner, "--", packagedExe, "--import", "tsx/esm", "C:\\repo\\runner.ts", "--", packagedExe, "C:\\repo\\app.js"], { env: { PATH: "x" } });
+	} finally {
+		restore();
+		mod.configureDshRunnerNodeSidecar(undefined);
+	}
+	assert.equal(calls[0][0], sidecar);
+	assert.equal(calls[0][1][3], sidecar, "nested L2 ACL runner executable must be rewritten to CUI sidecar");
+	assert.equal(calls[0][1][10], "C:\\Program Files\\PowerShell\\7\\pwsh.exe", "sandbox target pwsh.exe must not be rewritten");
+	assert.equal(calls[0][2].windowsHide, true);
+	assert.equal("NODE_OPTIONS" in calls[0][2].env, false, "sidecar path must not leak asar NODE_OPTIONS preload");
+	assert.equal("ELECTRON_RUN_AS_NODE" in calls[0][2].env, false);
+
+	assert.equal(calls[1][0], sidecar);
+	assert.equal(calls[1][1][2], sidecar, "nested runner behind --import <loader> must be rewritten");
+	assert.equal(calls[1][1][7], packagedExe, "non-runner command after -- must remain untouched");
+});
+
+test("resolveRunnerPreloadPath 与 installRunnerPreloadEnv：app.asar 自动映射到 app.asar.unpacked", () => {
+	const asarPath = "C:\\app\\resources\\app.asar\\out\\main\\runnerConsolePreload.js";
+	const unpackedPath = "C:\\app\\resources\\app.asar.unpacked\\out\\main\\runnerConsolePreload.js";
+	assert.equal(
+		resolveRunnerPreloadPath(asarPath, (p) => p === unpackedPath),
+		unpackedPath,
+	);
+	assert.equal(
+		resolveRunnerPreloadPath(asarPath, () => false),
+		asarPath,
+	);
+	assert.equal(
+		resolveRunnerPreloadPath(unpackedPath, () => true),
+		unpackedPath,
+	);
+
+	const tmpRoot = mkdtempSync(join(tmpdir(), "pideck-preload-"));
+	try {
+		const fakeAsarPreload = join(tmpRoot, "resources", "app.asar", "out", "main", "runnerConsolePreload.js");
+		const realUnpackedPreload = join(tmpRoot, "resources", "app.asar.unpacked", "out", "main", "runnerConsolePreload.js");
+		mkdirSync(join(tmpRoot, "resources", "app.asar.unpacked", "out", "main"), { recursive: true });
+		writeFileSync(realUnpackedPreload, "// preload fixture\n", "utf8");
+		const env = { PATH: "x" };
+		installRunnerPreloadEnv(env, "win32", fakeAsarPreload);
+		assert.equal(env.NODE_OPTIONS, `--require="${realUnpackedPreload.replaceAll("\\", "\\\\")}"`);
+	} finally {
+		rmSync(tmpRoot, { recursive: true, force: true });
+	}
+});
+
+test("runnerConsolePreload：打包 PiDeck.exe 走兜底 AllocConsole，普通 node.exe 跳过并保持 sidecar 改写", () => {
+	const loadPreload = ({ execPath, versions, env }) => {
+		const allocCalls = [];
+		const spawnCalls = [];
+		const fakeCp = {
+			spawn(...args) {
+				spawnCalls.push(args);
+				return {};
+			},
+			spawnSync() {
+				return { status: 0 };
+			},
+		};
+		const fakeProcess = {
+			...process,
+			platform: "win32",
+			execPath,
+			versions,
+			env,
+		};
+		loadTsCommonJs("src/main/dsh/runnerConsolePreload.ts", {
+			globals: { process: fakeProcess },
+			stubs: {
+				"./allocHiddenConsole": {
+					allocHiddenConsole(platform, koffi) {
+						allocCalls.push({ platform, hasKoffi: Boolean(koffi) });
+						return true;
+					},
+				},
+				"node:module": {
+					createRequire() {
+						return (specifier) => {
+							if (specifier === "node:child_process") return fakeCp;
+							if (specifier === "koffi") return { load: () => ({ func: () => () => 0 }) };
+							throw new Error(`unexpected require: ${specifier}`);
+						};
+					},
+					syncBuiltinESMExports() {},
+				},
+			},
+		});
+		return { allocCalls, fakeCp, spawnCalls };
+	};
+
+	const packagedFallback = loadPreload({
+		execPath: "C:\\Program Files\\PiDeck\\PiDeck.exe",
+		versions: { node: "24.0.0", electron: "43.8.7" },
+		env: {},
+	});
+	assert.equal(packagedFallback.allocCalls.length, 1, "packaged PiDeck.exe without sidecar must trigger allocHiddenConsole");
+	packagedFallback.fakeCp.spawn("C:\\Program Files\\PiDeck\\PiDeck.exe", ["C:\\app\\runner.js"], { env: {} });
+	assert.equal(packagedFallback.spawnCalls[0][2].windowsHide, false, "fallback nested runner keeps windowsHide:false to inherit hidden console");
+
+	const sidecar = "C:\\Program Files\\PiDeck\\resources\\dsh-runner-node\\node.exe";
+	const sidecarRun = loadPreload({
+		execPath: sidecar,
+		versions: { node: "24.21.0" },
+		env: { PIDECK_DSH_RUNNER_NODE: sidecar },
+	});
+	assert.equal(sidecarRun.allocCalls.length, 0, "plain CUI node.exe must skip allocHiddenConsole");
+	sidecarRun.fakeCp.spawn("C:\\app\\electron.exe", ["C:\\app\\runner.js"], { env: {} });
+	assert.equal(sidecarRun.spawnCalls[0][0], sidecar);
+	assert.equal(sidecarRun.spawnCalls[0][2].windowsHide, true);
 });

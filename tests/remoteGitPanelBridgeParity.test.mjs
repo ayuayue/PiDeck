@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { createRemoteGitPanelBridge } = loadTsCommonJs("src/renderer/src/components/workspace/remoteGitPanelBridge.ts");
+const { createRemoteGitPanelBridge, REMOTE_GIT_LOG_PAGE_LIMIT } = loadTsCommonJs("src/renderer/src/components/workspace/remoteGitPanelBridge.ts");
+const { REMOTE_GIT_LOG_MAX_COUNT } = loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
 const { zhCN } = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 
 const projectId = "project-1";
@@ -113,6 +114,18 @@ test("历史过滤：下拉短名同样补成全名，避免 helper 拒绝整块
 	assert.deepEqual(plain(f.calls.find(([name]) => name === "history")[1]), { maxCount: 30, ref: "refs/heads/release", all: false });
 });
 
+test("分页请求夹在 git.log 的 maxCount 上限内：连续点「加载更多」不会把整页打成失败", async () => {
+	const f = fakeService();
+	const bridge = createRemoteGitPanelBridge(f.services, root);
+	// 面板每点一次 +30，第 4 次是 120；helper 上限 100，超了整页 GIT_RESULT_INVALID。
+	await bridge.commitLog(projectId, { maxEntries: 120 });
+	assert.equal(plain(f.calls.find(([name]) => name === "history")[1]).maxCount, REMOTE_GIT_LOG_PAGE_LIMIT);
+	assert.equal(REMOTE_GIT_LOG_PAGE_LIMIT, REMOTE_GIT_LOG_MAX_COUNT, "上限必须与 main/helper 的常量一致");
+	// 未指定页大小时不补默认值，交给 helper 自己的缺省。
+	await bridge.commitLog(projectId, {});
+	assert.equal(f.calls.filter(([name]) => name === "history").at(-1)[1].maxCount, undefined);
+});
+
 test("旧版 helper：不发送新参数、不显示总数，历史保持 HEAD-only", async () => {
 	const f = fakeService({ capabilities: [] });
 	const bridge = createRemoteGitPanelBridge(f.services, root);
@@ -210,7 +223,8 @@ test("远端原文优先：helper 带回的 stderr 摘要直接展示，没有�
 	await assert.rejects(
 		() => createRemoteGitPanelBridge(withoutDetail.services, root).push(),
 		(error) => {
-			assert.equal(error.message, zhCN["remoteGit.failed"]);
+			// 新契约：未入词典的码要附在兜底文案后面（渲染层拦下的失败不会进主进程日志）。
+			assert.equal(error.message, `${zhCN["remoteGit.failed"]}（GIT_HOOK_REJECTED）`);
 			assert.equal(error.code, "GIT_HOOK_REJECTED");
 			return true;
 		},
@@ -242,4 +256,68 @@ test("图谱写动词：四个动作各自委派，失败时把 helper 的原文
 		},
 	});
 	await assert.rejects(createRemoteGitPanelBridge(failing.services, undefined).cherryPick("p", oid("a")), (error) => error.message.includes("could not apply") && error.code === "GIT_COMMAND_FAILED");
+});
+
+test("冷启动：主机还在连（SSH_HOST_NOT_READY）时历史读会等预热，不把图谱永久打成空白", async () => {
+	let attempts = 0;
+	const f = fakeService({
+		overrides: {
+			history: async (options) => {
+				attempts += 1;
+				f.calls.push(["history", options]);
+				// 前的两次正好落在窗口打开到 SSH ready 之间（实测差 4 秒）。
+				if (attempts <= 2) throw Object.assign(new Error("SSH_HOST_NOT_READY"), { code: "SSH_HOST_NOT_READY", outcome: "rejected" });
+				return { commits: [{ oid: oid("a"), parents: [], subject: "tip", authorName: "A", authorEmail: "a@e", authorTimeMs: 10 }], hasMore: false };
+			},
+		},
+	});
+	const commits = await createRemoteGitPanelBridge(f.services, root).commitLog(projectId, { maxEntries: 30, allBranches: true });
+	assert.equal(commits.length, 1);
+	assert.equal(attempts, 3, "连接类失败要重试到成功");
+});
+
+test("非连接类失败不重试：参数/回包形状错误立刻上抛，稳定码原样保留", async () => {
+	let attempts = 0;
+	const f = fakeService({
+		overrides: {
+			history: async () => {
+				attempts += 1;
+				throw Object.assign(new Error("GIT_RESULT_INVALID"), { code: "GIT_RESULT_INVALID", outcome: "rejected" });
+			},
+		},
+	});
+	await assert.rejects(
+		() => createRemoteGitPanelBridge(f.services, root).commitLog(projectId, { maxEntries: 30 }),
+		(error) => error.code === "GIT_RESULT_INVALID",
+	);
+	assert.equal(attempts, 1, "非连接类失败不能靠重试掩盖");
+});
+
+test("未入词典的稳定码要附在文案后面：这类失败常在渲染层被拦下，日志里没有记录", async () => {
+	const f = fakeService({
+		overrides: {
+			history: async () => {
+				// 服务换代后旧实例的调用会在触达 IPC 之前被拒：主进程日志里什么都不会留下。
+				throw Object.assign(new Error("PROJECT_SERVICE_GENERATION_STALE"), { code: "PROJECT_SERVICE_GENERATION_STALE", outcome: "rejected" });
+			},
+		},
+	});
+	await assert.rejects(
+		() => createRemoteGitPanelBridge(f.services, root).commitLog(projectId, { maxEntries: 30 }),
+		(error) => error.code === "PROJECT_SERVICE_GENERATION_STALE" && error.message.includes("PROJECT_SERVICE_GENERATION_STALE") && error.message.includes(zhCN["remoteGit.failed"]),
+	);
+});
+
+test("已入词典的码保持原文案，不把码拼进用户文案", async () => {
+	const f = fakeService({
+		overrides: {
+			history: async () => {
+				throw Object.assign(new Error("GIT_TRUST_REQUIRED"), { code: "GIT_TRUST_REQUIRED", outcome: "rejected" });
+			},
+		},
+	});
+	await assert.rejects(
+		() => createRemoteGitPanelBridge(f.services, root).commitLog(projectId, { maxEntries: 30 }),
+		(error) => error.message === zhCN["remoteGit.trustRequired"],
+	);
 });

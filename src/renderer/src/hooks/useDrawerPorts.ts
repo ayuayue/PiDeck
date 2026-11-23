@@ -14,7 +14,7 @@ import type { DrawerBrowserPort, DrawerChromePort, DrawerFilesPort, DrawerGitPor
 type OpenEditorTabFn = (path: string | ProjectFileTarget, mode: "view" | "diff", originalContent?: string, modifiedContent?: string, allowSave?: boolean, tabKey?: string, label?: string, preserveDrawer?: boolean, openMode?: EditorTabOpenMode, initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => void;
 
 /** Git port 的直通字段：类型直接取自 DrawerGitPort，避免两处漂移 */
-type GitPortInput = Pick<DrawerGitPort, "enableGitManagement" | "activeProjectId" | "gitDiffDisplayMode" | "openCommitFileDiff" | "openWorkspaceFileDiff" | "toggleGitDiffDisplayMode" | "closeGitDiff" | "gitApi" | "gitInfo" | "switchBranch" | "createBranch">;
+type GitPortInput = Pick<DrawerGitPort, "enableGitManagement" | "activeProjectId" | "gitDiffDisplayMode" | "openCommitFileDiff" | "openWorkspaceFileDiff" | "showGitDiff" | "toggleGitDiffDisplayMode" | "closeGitDiff" | "gitApi" | "gitInfo" | "switchBranch" | "createBranch">;
 
 /** 文件/会话 port 的直通字段：类型直接取自 DrawerFilesPort */
 type FilesPortInput = Pick<
@@ -87,6 +87,7 @@ export function useDrawerPorts(input: UseDrawerPortsInput) {
 			gitDiffDisplayMode: input.gitDiffDisplayMode,
 			openCommitFileDiff: input.openCommitFileDiff,
 			openWorkspaceFileDiff: input.openWorkspaceFileDiff,
+			showGitDiff: input.showGitDiff,
 			toggleGitDiffDisplayMode: input.toggleGitDiffDisplayMode,
 			closeGitDiff: input.closeGitDiff,
 			gitApi: input.gitApi,
@@ -168,6 +169,7 @@ export function useDrawerPorts(input: UseDrawerPortsInput) {
 		input.gitDiffDisplayMode,
 		input.openCommitFileDiff,
 		input.openWorkspaceFileDiff,
+		input.showGitDiff,
 		input.toggleGitDiffDisplayMode,
 		input.closeGitDiff,
 		input.dismissGitDiff,

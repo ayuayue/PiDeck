@@ -3,6 +3,7 @@ import type { GitHistoryCommit, RemoteGitCommitDetail } from "../../../../shared
 import type { ProjectServices } from "../../services/projectServiceContracts";
 import type { CompareChangesResult } from "../app/git/GitCompareChanges";
 import { remoteGitErrorMessage, remoteGitErrorText } from "../../utils/gitErrorPresentation";
+import { t } from "../../i18n";
 
 /**
  * 远端项目的 Git 面板数据面：把 `ProjectGitService`（按位置分派）接到本机 `GitPanel` 的 props 上。
@@ -24,8 +25,51 @@ import { remoteGitErrorMessage, remoteGitErrorText } from "../../utils/gitErrorP
 const AHEAD_TTL_MS = 30_000;
 const REF_DECORATION_TTL_MS = 15_000;
 
+/**
+ * `git.log` 的 `maxCount` 硬上限：main 的 REMOTE_GIT_LOG_MAX_COUNT 与 helper 是同一个 100，超了整页
+ * 以 GIT_RESULT_INVALID 拒绝。面板「加载更多」每次 +30 且自己没有上限，第 4 次点击就会把图谱打成
+ * 一句通用失败文案（且请求夹不回来，刷新也只是重发同一次超限请求）。
+ */
+export const REMOTE_GIT_LOG_PAGE_LIMIT = 100;
+
+/** 请求页大小夹到协议上限；未指定页大小时保持缺失，让 helper 用自己的默认值。 */
+export function clampRemoteLogPageSize(requested?: number): number | undefined {
+	return requested === undefined ? undefined : Math.min(requested, REMOTE_GIT_LOG_PAGE_LIMIT);
+}
+
 /** 远端 ref 只有全名；面板下拉给的是短名（`main` / `v1.0`），比较入口必须先补成全名。 */
 const REF_NAMES = { heads: "refs/heads/", tags: "refs/tags/" } as const;
+
+/**
+ * 冷启动竞态：窗口打开时 SSH 主机常常还在连接（实测差 4 秒才 ready）。读路径按设计
+ * `requireReady: true`——没 ready 就当场失败、不自动拨号，而历史没有事实缓存（status 有），
+ * 所以那唯一一次失败会让图谱永久空白：没有任何东西会重新触发它。
+ *
+ * 这里只等**已经在进行**的预热：不发起连接、不重连，有上限，且只重试连接类码。
+ * 其它失败（参数 / 回包形状 / 权限）立刻上抛，不被重试掩盖。
+ */
+const HOST_WARMING_CODES = new Set(["SSH_HOST_NOT_READY", "SSH_HOST_DISCONNECTED", "REMOTE_CONNECTION_LOST"]);
+const HOST_WARMING_RETRY_MS = 1000;
+const HOST_WARMING_DEADLINE_MS = 15_000;
+
+function failureCodeOf(error: unknown): string | undefined {
+	const code = (error as { code?: unknown } | null)?.code;
+	return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+/** 主机热身期间重试同一个读；超出上限或非连接类失败按原错误上抛。 */
+async function whileHostWarms<T>(task: () => Promise<T>): Promise<T> {
+	const deadline = Date.now() + HOST_WARMING_DEADLINE_MS;
+	for (;;) {
+		try {
+			return await task();
+		} catch (error) {
+			const code = failureCodeOf(error);
+			if (code === undefined || !HOST_WARMING_CODES.has(code) || Date.now() >= deadline) throw error;
+			await new Promise((resolve) => setTimeout(resolve, HOST_WARMING_RETRY_MS));
+		}
+	}
+}
 
 export function createRemoteGitPanelBridge(services: ProjectServices, repo: ProjectFileTarget | undefined) {
 	const projectId = services.projectId;
@@ -49,7 +93,12 @@ export function createRemoteGitPanelBridge(services: ProjectServices, repo: Proj
 	 */
 	const fail = (error: unknown): never => {
 		const source = error as { code?: unknown; outcome?: unknown; internal?: unknown } | null;
-		throw Object.assign(new Error(remoteGitErrorText(error)), { code: source?.code, outcome: source?.outcome, internal: source?.internal });
+		const code = typeof source?.code === "string" && source.code.length > 0 ? source.code : undefined;
+		const text = remoteGitErrorText(error);
+		// 未入词典的码只会得到一句通用兜底文案，且这类失败常常发生在渲染层（不过主进程日志）：
+		// 把码附在后面，否则“图谱空白”既查不到日志、也无从在界面或截图里看出是哪一步被拒。
+		const message = code !== undefined && text === t("remoteGit.failed") ? `${text}（${code}）` : text;
+		throw Object.assign(new Error(message), { code: source?.code, outcome: source?.outcome, internal: source?.internal });
 	};
 	const run = async <T>(task: () => Promise<T>): Promise<T> => {
 		try {
@@ -147,7 +196,8 @@ export function createRemoteGitPanelBridge(services: ProjectServices, repo: Proj
 			run(async () => {
 				const filtered = upgraded();
 				const ref = filtered && options?.ref !== undefined ? await fullRefOf(options.ref) : undefined;
-				const page = await services.git.history({ maxCount: options?.maxEntries, ...(ref === undefined ? {} : { ref }), ...(filtered && options?.allBranches !== undefined ? { all: options.allBranches } : {}) }, repo);
+				// 夹到上限后返回的条数 < 面板的 loadCount，按「等于 loadCount 才有更多」的判据按钮自然消失。
+				const page = await whileHostWarms(() => services.git.history({ maxCount: clampRemoteLogPageSize(options?.maxEntries), ...(ref === undefined ? {} : { ref }), ...(filtered && options?.allBranches !== undefined ? { all: options.allBranches } : {}) }, repo));
 				const decoration = page.commits.length === 0 ? undefined : await decorations().catch(() => undefined);
 				return page.commits.map((commit) => {
 					const entry = entryOf(commit);
@@ -159,7 +209,7 @@ export function createRemoteGitPanelBridge(services: ProjectServices, repo: Proj
 		commitCount: (_projectId: string, options?: { ref?: string; allBranches?: boolean }) =>
 			run(async () => {
 				const ref = options?.ref === undefined ? undefined : await fullRefOf(options.ref);
-				const page = await services.git.history({ maxCount: 1, ...(ref === undefined ? {} : { ref }), ...(options?.allBranches === undefined ? {} : { all: options.allBranches }), withCount: true }, repo);
+				const page = await whileHostWarms(() => services.git.history({ maxCount: 1, ...(ref === undefined ? {} : { ref }), ...(options?.allBranches === undefined ? {} : { all: options.allBranches }), withCount: true }, repo));
 				return page.totalCount ?? 0;
 			}),
 		commitDetail: (_projectId: string, ref: string) =>

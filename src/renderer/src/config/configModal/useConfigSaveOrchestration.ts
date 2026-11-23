@@ -155,7 +155,8 @@ export function useConfigSaveOrchestration(deps: ConfigSaveOrchestrationDeps) {
 			case "config:trust":
 				return handleSaveTrust();
 			case "config:mcp": {
-				if (configTargetOption) return handleSaveWslMcp();
+				// 只有 WSL 是文本编辑；本机与 SSH 主机都经 McpTab.save()（同一套表单与校验）。
+				if (configTarget.kind === "wsl") return handleSaveWslMcp();
 				const ok = (await mcpTabRef.current?.save()) ?? false;
 				if (ok) {
 					clearDirty("config:mcp");

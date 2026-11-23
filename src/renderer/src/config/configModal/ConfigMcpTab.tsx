@@ -6,7 +6,6 @@ import { WslConfigSourceHint } from "../WslConfigSourceHint";
 import type { WslConfigTargetHost } from "../piConfigTargetModel";
 
 export type ConfigMcpTabProps = {
-	remoteTargetHostId: string | null;
 	/** WSL 目标：按文件编辑该发行版的 mcp.json（探测/登录/模板仍只在本机执行）。 */
 	wslTargetHost: WslConfigTargetHost | undefined;
 	statusBlock: ReactNode;
@@ -26,13 +25,14 @@ export type ConfigMcpTabProps = {
 };
 
 /**
- * MCP 页：SSH/WSL 文件编辑，本机使用 McpTab 的探测与登录能力。
+ * MCP 页：本机与 SSH 主机共用同一套表单（探测/连接检测/OAuth 登录），只有 WSL 按文件编辑——
+ * 发行版里的 `pi mcp` 只能在该发行版内运行，本机没有对应通道。
  * forceMount 由调用方的 TabsContent 负责（面板自管草稿，切走再回来不能丢未保存编辑）。
  */
-export function ConfigMcpTab({ remoteTargetHostId, wslTargetHost, statusBlock, configDiagnosticBlock, loading, saving, wslMcpRaw, setWslMcpRaw, markDirty, onSaveWslMcp, projectId, mcpTabRef, onGoToExtensions, onDirtyChange }: ConfigMcpTabProps) {
+export function ConfigMcpTab({ wslTargetHost, statusBlock, configDiagnosticBlock, loading, saving, wslMcpRaw, setWslMcpRaw, markDirty, onSaveWslMcp, projectId, mcpTabRef, onGoToExtensions, onDirtyChange }: ConfigMcpTabProps) {
 	return (
 		<div className="config-content flex min-h-0 flex-col">
-			{remoteTargetHostId || wslTargetHost ? (
+			{wslTargetHost ? (
 				<>
 					{/* WSL：探测/登录/模板仍只在本机执行，这里按文件编辑该发行版的 mcp.json */}
 					{wslTargetHost ? <WslConfigSourceHint host={wslTargetHost} file="mcp" /> : null}

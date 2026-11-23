@@ -9,6 +9,7 @@ import { acquireProjectFactSubscription } from "../services/projectServiceFactSu
 import { fileTreeIgnoredField } from "../utils/directoryPageNode";
 import { parseFileTreeKey, projectFileKey } from "../utils/fileTreeLazy";
 import { createLazyDirTreeController, lazyDirTreeInitialState, type LazyDirTreeController, type LazyDirTreeState } from "../utils/lazyDirTree";
+import { subscribeRemoteFolderRevealForProject } from "../utils/remoteFolderReveal";
 import { readRemoteDirectoryPageWithRetry } from "../utils/remoteDirectoryPageRetry";
 
 /**
@@ -192,6 +193,8 @@ export function useRemoteFileTree(project: RemoteProject, services: ProjectServi
 	const setCurrentDir = useCallback((dir: string) => {
 		controller.current?.setCurrentDir(dir);
 	}, []);
+
+	useEffect(() => subscribeRemoteFolderRevealForProject(projectId, reveal), [projectId, reveal]);
 
 	// 行组件的展开身份是 projectFileKey；controller 内部只认项目相对路径。
 	const expanded = useMemo(() => new Set([...state.expanded].map((dir) => projectFileKey({ projectId, relativePath: dir }))), [state.expanded, projectId]);

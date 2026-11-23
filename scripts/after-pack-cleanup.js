@@ -56,13 +56,13 @@ function readUnpackedPatterns(asarPath) {
  * `app.asar.tmp.unpacked`（上万文件）。便携 NSIS 启动先解压这堆，表现为
  * 「后台有进程、没有窗口」。
  *
- * 只保留原生后缀 + utilityProcess 入口文件名。
+ * 只保留原生后缀 + utilityProcess 入口与 runner preload 文件名。
  */
 // ELF 共享库经常使用带 ABI 版本的文件名，例如 libvips-cpp.so.8.18.3。
 // 仅匹配 `.so` 会让 afterPack 重打包时把它们重新塞回 app.asar。
 const NATIVE_UNPACK_SUFFIXES = new Set([".node", ".dll", ".exe", ".wasm", ".dylib"]);
 const ELF_SHARED_LIBRARY_PATTERN = /\.so(?:\.\d+)*$/i;
-const ALWAYS_UNPACK_BASENAMES = new Set(["hostentry.js"]);
+const ALWAYS_UNPACK_BASENAMES = new Set(["hostentry.js", "runnerconsolepreload.js"]);
 
 function unpackGlobFromFiles(files) {
 	const patterns = new Set();

@@ -245,18 +245,37 @@ test("a stale confirmation fails before authentication or pin publication", asyn
 	await assert.rejects(readFile(join(directory, "ssh-host-keys", profile.id)), { code: "ENOENT" });
 });
 
-test("stale instances, held lock files, and malformed snapshots do not overwrite newer data", async (t) => {
+test("a stale instance refreshes from disk after a revision conflict so a retry can use the new revision", async (t) => {
 	const directory = await fixture(t);
 	const first = await RemoteHostStore.open(directory);
 	const stale = await RemoteHostStore.open(directory);
 	await first.createDraft({ label: "Build Pi", sshHost: "build-pi", connectTimeoutMs: 15000 }, 0);
 	await assert.rejects(stale.createDraft({ label: "Other", sshHost: "other", connectTimeoutMs: 15000 }, 0), /REMOTE_HOST_REVISION_CONFLICT/);
+	assert.equal(stale.getSnapshot().revision, 1, "the failed write must refresh the stale in-memory snapshot");
+	assert.deepEqual(
+		Array.from(stale.getSnapshot().profiles, (profile) => profile.label),
+		["Build Pi"],
+		"refreshing must preserve the concurrent writer's data",
+	);
+
+	await stale.createDraft({ label: "Other", sshHost: "other", connectTimeoutMs: 15000 }, stale.getSnapshot().revision);
+	const disk = JSON.parse(await readFile(join(directory, "remote-hosts.json"), "utf8"));
+	assert.equal(disk.revision, 2);
+	assert.deepEqual(
+		disk.profiles.map((profile) => profile.label),
+		["Build Pi", "Other"],
+	);
+});
+
+test("held lock files and malformed snapshots do not overwrite newer data", async (t) => {
+	const directory = await fixture(t);
+	const store = await RemoteHostStore.open(directory);
 	const lockPath = join(directory, "remote-hosts.json.lock");
 	await writeFile(lockPath, "held");
-	await assert.rejects(first.createDraft({ label: "Third", sshHost: "third", connectTimeoutMs: 15000 }, 1), /REMOTE_HOST_STORE_BUSY/);
+	await assert.rejects(store.createDraft({ label: "Third", sshHost: "third", connectTimeoutMs: 15000 }, 0), /REMOTE_HOST_STORE_BUSY/);
 	await rm(lockPath);
-	await assert.rejects(first.createDraft({ label: "Still stale", sshHost: "other", connectTimeoutMs: 15000 }, 0), /REMOTE_HOST_REVISION_CONFLICT/);
-	assert.equal(JSON.parse(await readFile(join(directory, "remote-hosts.json"), "utf8")).revision, 1);
+	assert.equal(store.getSnapshot().revision, 0, "a busy lock must not advance the in-memory revision");
+
 	await writeFile(join(directory, "remote-hosts.json"), "not json");
 	await writeFile(join(directory, "remote-hosts.json.bak"), "also broken");
 	const broken = await RemoteHostStore.open(directory);

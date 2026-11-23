@@ -1206,7 +1206,7 @@ test.describe("远端会话功能级验收（真机 · Phase 4 P4.2）", () => {
 				expect(undecided, "未决策时不得带任何 trust flag（零行为变更）").not.toContain("--no-approve");
 				// 用户从提示条点「信任该项目」：决策落盘，**下一次 spawn** 才生效（当前进程不会换参数）。
 				await notice.getByRole("button", { name: "信任该项目", exact: true }).click();
-				await expect(notice).toContainText("已信任远端项目", { timeout: timeouts.helperMs });
+				await expect(notice).toBeHidden({ timeout: timeouts.helperMs });
 				await openTabsActionMenu(window);
 				await expect(window.getByRole("menuitem", { name: "关闭 Agent", exact: true })).toBeVisible({ timeout: timeouts.helperMs });
 				await window.getByRole("menuitem", { name: "关闭 Agent", exact: true }).click();

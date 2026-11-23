@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-43.8.7-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.13.2-blue)
+![Version](https://img.shields.io/badge/version-0.14.0-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -83,10 +83,17 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.13.2** (2026-11-21)
+> **Latest: v0.14.0** (2026-11-23)
 
-### v0.13.2 Release Highlights
-- ✨ **Remote Git requests keep their admitted timeout**
+### v0.14.0 Release Highlights
+- 🚀 **Remote files over SFTP with version-checked commits**
+- 🚀 **Remote session history maintained on the host**
+- 🚀 **Remote settings and MCP reuse the local forms**
+- 🚀 **Markdown previews jump to headings from their table of contents**
+- ✨ **The WSL session list no longer freezes (#588)**
+- ✨ **Commands in the Windows sandbox no longer fail with `0xC0000142` (#591, #582)**
+- ✨ **The remote Git graph works again**
+- ✨ **Archived session restore regressions fixed (#581, #579)**
 
 [View Full Changelog →](CHANGELOG.md)
 

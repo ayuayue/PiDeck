@@ -90,9 +90,11 @@ test("App 路由：项目外路径走安全等级门，放行后只读且不带�
 test("项目外确认后不经系统默认应用执行，只读打开进编辑器", () => {
 	// 项目外路径永远不走 shell.openPath（对可执行文件等于执行），只走只读编辑器 / 图片预览 / 目录定位
 	assert.doesNotMatch(openerSource, /openWithDefaultApp/);
-	// scope 由调用方决定：项目外为 undefined（打开已获用户确认，主进程无项目边界）
-	assert.match(openerSource, /api\.files\.stat\(path,\s*options\.scope\)/);
-	assert.match(openerSource, /viewFilePath\(path,\s*undefined,\s*options\.line,\s*options\.scope,\s*options\.readOnly === true\)/);
+	// scope 由调用方决定：项目外为 undefined（打开已获用户确认，主进程无项目边界）；
+	// 远端 target 自带项目边界，同样只能不带 scope。
+	assert.match(openerSource, /const scope = typeof path === "string" \? options\.scope : undefined;/);
+	assert.match(openerSource, /api\.files\.stat\(path,\s*scope\)/);
+	assert.match(openerSource, /viewFilePath\(path,\s*undefined,\s*options\.line,\s*scope,\s*options\.readOnly === true\)/);
 });
 
 test("目录与「文件管理器定位」不弹确认：门先 stat 定类，再带 targetKind 求值", () => {

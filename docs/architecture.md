@@ -36,6 +36,11 @@
   否则界面只能显示 `(error)`；身份类稳定码经 `remoteSessionCopy.ts` 给可读文案。
 - **未知进程环境仍不可知**：`PI_CODING_AGENT_SESSION_DIR` / `--session-dir` 指走的会话文件会被如实拒绝
   （`REMOTE_SESSION_LOCATOR_UNRESOLVED`），不猜、也不静默当成默认根下的会话。
+- **会话里的文件路径属于会话所在位置**：远端会话正文与工具参数给的是远端主机上的绝对路径，打开前必须先按项目根
+  （`locator.remotePath`）归一成 `ProjectFileTarget`（`utils/remoteProjectPath.ts`）再走 `files:*` 的位置分派；
+  直接当本机路径 stat 会把远端主机上存在的文件报成「路径不存在或已失效」。本机系统动作（默认应用 / 文件管理器 /
+  Ctrl+“左键打开”）在远端没有对应物，右键菜单只保留复制类项；目录链接的落点是文件抽屉里的远端目录树
+  （`utils/remoteFolderReveal.ts` 携带 `projectId + nonce`，由该项目的 `useRemoteFileTree` 消费）。
 - 新增后端不是加一个 `if`：先实现 `SessionRuntimeCoordinator` 的窄接口（capabilities 声明能做什么），再在 `CompositeAgentGateway` 注册；不支持的能力（如 DSH/ACP 的 `reloadResources`）必须显式缺席，让 UI 自然不渲染入口。
 
 ## 目录与依赖方向

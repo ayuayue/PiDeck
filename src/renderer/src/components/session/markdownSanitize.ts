@@ -3,6 +3,7 @@ import type { StreamdownProps } from "streamdown";
 // 版本随 streamdown 走；streamdown 根导出只有 import 条件，Node 侧 require 拿不到，故直接引这两个包。
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import { rehypeHeadingAnchors } from "./markdownHeadingAnchors";
 
 /**
  * 不可信 Markdown 的 HTML 净化管线（会话正文 / 文件预览 / 公告等共用）。
@@ -134,7 +135,9 @@ export function rehypeDropDangerousHtml() {
 type RehypePlugins = NonNullable<StreamdownProps["rehypePlugins"]>;
 
 /**
- * 不可信 Markdown 的标准 rehype 插件序列：raw（渲染 HTML）→ 摘除危险子树 → sanitize（白名单）。
+ * 不可信 Markdown 的标准 rehype 插件序列：raw（渲染 HTML）→ 摘除危险子树 → sanitize（白名单）
+ * → 标题 slug id（README 目录跳转，见 markdownHeadingAnchors.ts；排在 sanitize 之后，
+ * 写进去的 id 不再受白名单约束，也就不需要为它放宽 schema）。
  * 顺序固定在模块级（引用稳定）：streamdown 以插件列表为 key 缓存解析产物，每次渲染新建数组会让缓存失效。
  */
-export const UNTRUSTED_MARKDOWN_REHYPE_PLUGINS: RehypePlugins = [rehypeRaw, rehypeDropDangerousHtml, [rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA]];
+export const UNTRUSTED_MARKDOWN_REHYPE_PLUGINS: RehypePlugins = [rehypeRaw, rehypeDropDangerousHtml, [rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA], rehypeHeadingAnchors];

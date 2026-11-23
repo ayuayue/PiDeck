@@ -22,9 +22,12 @@ test("远端面板挂的就是本机 GitPanel：不再自带变更区/历史/引
 	assert.match(panel, /<GitPanel\b/);
 	assert.doesNotMatch(panel, /RemoteGitChangesSection|RemoteGitCompareSection/);
 	assert.doesNotMatch(panel, /data-testid="remote-git-sync"|data-testid="remote-git-history"|data-testid="remote-git-refs"/);
-	// diff 仍复用同一个渲染器（远端由宿主提供内容，路径/作用域留在服务里）。
-	assert.match(panel, /import\("\.\.\/app\/FileDiffViewer"\)/);
-	assert.match(panel, /<FileDiffViewer\b/);
+	// diff 仍复用同一个渲染器，但只在中间栏阅读面里渲染：远端面板自己取内容后交给宿主统一的
+	// showGitDiff（布局取设置），不再把 FileDiffViewer 塞进抽屉内部。
+	assert.doesNotMatch(panel, /FileDiffViewer/);
+	assert.doesNotMatch(panel, /displayMode="drawer"/);
+	assert.match(panel, /props\.onShowDiff\(\{ projectId: project\.id, target: result\.target/);
+	assert.match(panel, /onShowDiff: \(diff: GitDrawerDiff\) => void/);
 });
 
 test("数据面只有一个入口：ProjectGitService 桥；面板不碰令牌、不自持快照", () => {

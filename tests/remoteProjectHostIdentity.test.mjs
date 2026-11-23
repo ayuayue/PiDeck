@@ -80,7 +80,7 @@ test("push before the directory keeps its state when the list arrives", () => {
 
 test("project row renders the remote badge, host name and dot without losing hover clearance", () => {
 	const tree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
-	// 远端项目才换成带蓝色地球角标的文件夹；本机项目保持原样。
+	// 远端项目才换成带云朵角标的文件夹；本机项目保持原样。
 	assert.match(tree, /\{isRemoteProject\(project\) \? \(\s*<RemoteProjectFolderIcon collapsed=\{collapsed\} \/>/);
 	assert.match(tree, /\{isRemoteProject\(project\) \? <RemoteProjectHostTag hostId=\{project\.locator\.hostId\} \/> : null\}/);
 	// 行尾身份不能破坏既有的 hover 让位契约（+ / 筛选 / ⋯ 不得叠到文字上）。
@@ -91,9 +91,16 @@ test("project row renders the remote badge, host name and dot without losing hov
 	assert.match(tag, /data-tone=\{tone\}/);
 	assert.doesNotMatch(tag, /state === "ready"/);
 
+	// 角标从 lucide 地球换成自绘云朵（2026-11 视觉调整）：仍然是 `text-info` 语义色。
 	const badge = readFileSync("src/renderer/src/components/sidebar/RemoteProjectFolderIcon.tsx", "utf8");
-	assert.match(badge, /Globe2/);
+	assert.match(badge, /<mask\b/);
 	assert.match(badge, /text-info/);
+	assert.doesNotMatch(badge, /Globe2/);
+	// mask id 必须实例级（同一屏挂很多项目行），且镂空是透空的：不能再垫固定底色的圆盘，
+	// 否则 hover / 选中行会露出一块对不上的圆片。
+	assert.match(badge, /useId\(\)/);
+	// 只看真实 className：组件注释里会解释「旧做法垫过 bg-sidebar 圆盘」，那不是用法。
+	assert.doesNotMatch(badge, /className="[^"]*bg-sidebar/);
 });
 
 // 离开设置页再回来时没有任何推送可重放：列表必须把当前状态一起带回来，否则已连接的主机会显示成断开。

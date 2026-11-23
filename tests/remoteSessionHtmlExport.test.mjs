@@ -25,8 +25,10 @@ const FOOTER = "Exported from PiDeck (SSH remote session)";
 const NOTICE = "PARTIAL: got the {pages}/{messages} limit";
 
 // 命令形状（唯一解析点，与 RemoteSessionHistoryReader 的两条命令形状一一对应）。
-const TAIL_SHAPE = /^printf '([A-Za-z0-9_]+)'; wc -c < '([^'\\]+)'; tail -c (\d+) -- '([^'\\]+)'$/;
-const RANGE_SHAPE = /^printf '([A-Za-z0-9_]+)'; tail -c \+(\d+) -- '([^'\\]+)' \| head -c (\d+)$/;
+const TAIL_SHAPE =
+	/^printf '([A-Za-z0-9_]+)'; \(stat -c '%i\|%s\|%y' '([^'\\]+)' 2>\/dev\/null \|\| stat -f '%i\|%z\|%m' '([^'\\]+)'\); tail -c (\d+) -- '([^'\\]+)'; readStatus=\$\?; printf '([A-Za-z0-9_]+)_END'; \(stat -c '%i\|%s\|%y' '([^'\\]+)' 2>\/dev\/null \|\| stat -f '%i\|%z\|%m' '([^'\\]+)'\); exit "\$readStatus"$/;
+const RANGE_SHAPE =
+	/^printf '([A-Za-z0-9_]+)'; \(stat -c '%i\|%s\|%y' '([^'\\]+)' 2>\/dev\/null \|\| stat -f '%i\|%z\|%m' '([^'\\]+)'\); tail -c \+(\d+) -- '([^'\\]+)' \| head -c (\d+); readStatus=\$\?; printf '([A-Za-z0-9_]+)_END'; \(stat -c '%i\|%s\|%y' '([^'\\]+)' 2>\/dev\/null \|\| stat -f '%i\|%z\|%m' '([^'\\]+)'\); exit "\$readStatus"$/;
 
 /** 跨 realm 归一：生产模块经 vm 加载，返回的数组/对象原型与测试 realm 不同。 */
 function plain(value) {
@@ -45,13 +47,13 @@ function fakeRemote(content) {
 				commands.push(remoteCommand);
 				const tail = TAIL_SHAPE.exec(remoteCommand);
 				if (tail) {
-					const from = Math.max(0, bytes.length - Number(tail[3]));
-					return { exitCode: 0, stdout: `${tail[1]}${bytes.length}\n${bytes.subarray(from).toString("utf8")}` };
+					const from = Math.max(0, bytes.length - Number(tail[4]));
+					return { exitCode: 0, stdout: `${tail[1]}42|${bytes.length}|1700000000\n${bytes.subarray(from).toString("utf8")}${tail[6]}_END42|${bytes.length}|1700000000\n` };
 				}
 				const range = RANGE_SHAPE.exec(remoteCommand);
 				if (!range) throw new Error(`UNEXPECTED_COMMAND: ${remoteCommand}`);
-				const from = Number(range[2]) - 1;
-				return { exitCode: 0, stdout: `${range[1]}${bytes.subarray(from, from + Number(range[4])).toString("utf8")}` };
+				const from = Number(range[4]) - 1;
+				return { exitCode: 0, stdout: `${range[1]}42|${bytes.length}|1700000000\n${bytes.subarray(from, from + Number(range[6])).toString("utf8")}${range[7]}_END42|${bytes.length}|1700000000\n` };
 			},
 		},
 	};

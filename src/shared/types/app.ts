@@ -174,6 +174,8 @@ export type ProjectResourceDiscoveryResult = {
 	}>;
 };
 
+/** 作用域下拉里的项目摘要：远端项目带 locator，资源页据此把管理目标绑到它的主机。 */
+export type ProjectScopeOption = { id: string; name: string; kind?: "chat"; locator?: import("./project").ProjectLocator };
 export type ProjectResourceDirectoryKind = "project-pi" | "project-agents" | "prompts";
 
 export type CreateProjectSkillInput = {

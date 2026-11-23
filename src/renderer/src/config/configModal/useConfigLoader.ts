@@ -285,9 +285,9 @@ export function useConfigLoader(deps: ConfigLoaderDeps) {
 					}
 					setConfigDiagnostic(trustRaw?.diagnostic ?? null);
 				} else if (target === "mcp") {
-					if (configTargetOption) {
+					/* 只有 WSL 的 MCP 页是文本编辑，需要这份草稿；本机与 SSH 由 McpTab 自己加载快照。 */
+					if (configTargetOption?.target.kind === "wsl") {
 						if (skipMcp) return;
-						// SSH/WSL 的 MCP 页编辑所属环境的 mcp.json；探测/登录/模板只在本机执行。
 						const res = await api.config.getRaw("mcp.json", configTargetOption);
 						if (!current()) return;
 						if (!skipMcp) {

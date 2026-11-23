@@ -25,15 +25,18 @@ import type { RemoteAuthReplaceInput, RemoteAuthReplaceResult } from "../../shar
 export type RemotePiConfigTransportPort = {
 	/** Send one helper request on an already-ready host; rethrows the transport's structured error. */
 	request(hostId: string, method: string, params: unknown): Promise<unknown>;
+	/** Same request on the session confined to one project root (only the project layer's `.pi/mcp.json` uses it). */
+	requestProject?(hostId: string, root: string, method: string, params: unknown): Promise<unknown>;
 };
 
 export type RemotePiConfigBackend = {
-	read(input: { hostId: string; file: PiConfigFileKey }): Promise<RemotePiConfigSnapshot>;
+	/** `projectRoot` selects that project's own `.pi/mcp.json`; every other file stays host-level. */
+	read(input: { hostId: string; file: PiConfigFileKey; projectRoot?: string }): Promise<RemotePiConfigSnapshot>;
 	/** Derived, value-free view of the host's auth.json (never a document and never a credential). */
 	readAuth(input: { hostId: string }): Promise<RemotePiAuthSnapshot>;
 	replaceAuth(input: RemoteAuthReplaceInput): Promise<RemoteAuthReplaceResult>;
 	patch(input: { hostId: string; file: PiConfigFileKey; expectedVersion: string; patch: Record<string, unknown> }): Promise<RemotePiConfigWriteReceipt>;
-	replace(input: { hostId: string; file: PiConfigFileKey; expectedVersion: string } & RemoteConfigDocument): Promise<RemotePiConfigWriteReceipt>;
+	replace(input: { hostId: string; file: PiConfigFileKey; expectedVersion: string; projectRoot?: string } & RemoteConfigDocument): Promise<RemotePiConfigWriteReceipt>;
 };
 
 const HELPER_METHOD_READ = "config.read";
@@ -200,10 +203,21 @@ function validatePatch(patch: Record<string, unknown>): void {
 export function createRemotePiConfigBackend(transport: RemotePiConfigTransportPort): RemotePiConfigBackend {
 	if (!isRecord(transport) || typeof transport.request !== "function") throw stable(REMOTE_CONFIG_CODES.unavailable);
 
-	async function call(hostId: string, method: string, params: unknown): Promise<unknown> {
+	/**
+	 * One helper call, optionally on the project layer.
+	 *
+	 * `projectRoot` is resolved by the caller from a registered project id; it is not a renderer value and never
+	 * reaches a file path here — it only selects which session answers. Only `mcp` has a project layer, so every
+	 * other file key is refused instead of silently reading the host's copy.
+	 */
+	async function call(hostId: string, method: string, params: unknown, projectRoot?: string): Promise<unknown> {
 		if (typeof hostId !== "string" || !PROJECT_HOST_ID_PATTERN.test(hostId)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+		if (projectRoot !== undefined && (typeof projectRoot !== "string" || !projectRoot.startsWith("/") || projectRoot.length > 4096)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+		const layers = projectRoot === undefined ? undefined : { params: { ...(params as Record<string, unknown>), scope: "project" } };
 		try {
-			return await transport.request(hostId, method, params);
+			if (projectRoot === undefined) return await transport.request(hostId, method, params);
+			if (typeof transport.requestProject !== "function") throw stable(REMOTE_CONFIG_CODES.unavailable);
+			return await transport.requestProject(hostId, projectRoot, method, layers?.params ?? params);
 		} catch (error) {
 			const code = errorCode(error);
 			const mapped = mapHelperCode(code);
@@ -235,6 +249,7 @@ export function createRemotePiConfigBackend(transport: RemotePiConfigTransportPo
 		},
 		async replace(input) {
 			if (!isPiConfigFileKey(input.file)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+			if (input.projectRoot !== undefined && input.file !== "mcp") throw stable(REMOTE_CONFIG_CODES.targetInvalid);
 			if (typeof input.expectedVersion !== "string" || !HEX64.test(input.expectedVersion)) throw stable(REMOTE_CONFIG_CODES.versionConflict);
 			if (!isRecord(input.data) || !Array.isArray(input.secretSources) || input.secretSources.length > 200) throw stable(REMOTE_CONFIG_CODES.fileInvalid);
 			const destinations = new Set<string>();
@@ -249,7 +264,7 @@ export function createRemotePiConfigBackend(transport: RemotePiConfigTransportPo
 				destinations.add(destination);
 			}
 			validatePatch({ data: input.data, secretSources: input.secretSources });
-			const result = await call(input.hostId, "config.replace", { file: input.file, expectedVersion: input.expectedVersion, data: input.data, secretSources: input.secretSources });
+			const result = await call(input.hostId, "config.replace", { file: input.file, expectedVersion: input.expectedVersion, data: input.data, secretSources: input.secretSources }, input.projectRoot);
 			let snapshot: RemotePiConfigSnapshot;
 			try {
 				snapshot = validateSnapshot(input.file, input.hostId, result);
@@ -260,7 +275,8 @@ export function createRemotePiConfigBackend(transport: RemotePiConfigTransportPo
 		},
 		async read(input) {
 			if (!isPiConfigFileKey(input.file)) throw stable(REMOTE_CONFIG_CODES.targetInvalid);
-			return validateSnapshot(input.file, input.hostId, await call(input.hostId, HELPER_METHOD_READ, { file: input.file }));
+			if (input.projectRoot !== undefined && input.file !== "mcp") throw stable(REMOTE_CONFIG_CODES.targetInvalid);
+			return validateSnapshot(input.file, input.hostId, await call(input.hostId, HELPER_METHOD_READ, { file: input.file }, input.projectRoot));
 		},
 		async readAuth(input) {
 			return validateAuthSnapshot(input.hostId, await call(input.hostId, HELPER_METHOD_READ_AUTH, {}));

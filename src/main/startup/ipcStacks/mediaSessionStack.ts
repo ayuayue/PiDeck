@@ -19,7 +19,7 @@ import type { DshAgentManager } from "../../dsh/DshAgentManager";
 import type { SessionCatalog } from "../../sessions/SessionCatalog";
 import type { RemoteHostConnectionService } from "../../remote/RemoteHostConnectionService";
 import { REMOTE_MODEL_CATALOG_CODES, createRemoteModelCatalog } from "../../remote/RemotePiModelCatalog";
-import { createRemoteSessionHistoryReader } from "../../remote/RemoteSessionHistoryReader";
+import { createRemoteSessionHistoryReader, REMOTE_SESSION_HISTORY_TRANSPORT_BYTES } from "../../remote/RemoteSessionHistoryReader";
 import { createRemoteSessionArchive } from "../../remote/RemoteSessionArchive";
 import { createRemoteSessionDelete } from "../../remote/RemoteSessionDelete";
 import { createRemoteSessionHistoryWriter } from "../../remote/RemoteSessionHistoryWriter";
@@ -63,11 +63,11 @@ export interface MediaSessionStackContext {
 	readonly remoteFeatureEnabled: boolean;
 	readonly remoteHostServiceIfEnabled: () => Promise<import("../../remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
 	readonly remotePiConfig: import("../../config/RemotePiConfigBackend").RemotePiConfigBackend | undefined;
-	readonly runPinnedRemoteCommand: ({ hostId, remoteCommand }: { hostId: string; remoteCommand: string; timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+	readonly runPinnedRemoteCommand: ({ hostId, remoteCommand }: { hostId: string; remoteCommand: string; timeoutMs?: number; maxBuffer?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
 }
 
 export interface MediaSessionStackResult {
-	readonly readRemoteSessionHistoryPage: ((input: { hostId: string; locator: SshSessionLocator; before?: number }) => Promise<SessionMessagePage>) | undefined;
+	readonly readRemoteSessionHistoryPage: ((input: { hostId: string; locator: SshSessionLocator; before?: number; beforeEntryId?: string }) => Promise<SessionMessagePage>) | undefined;
 	readonly remotePiModelCatalog: RemoteModelCatalog | undefined;
 	readonly remoteModelCatalogForProject: ((projectId: string, sessionId: string, force: boolean) => Promise<import("../../../shared/types").ModelListReport | null>) | undefined;
 	readonly exportRemoteCatalogSessionHtml: ((sessionId: string) => Promise<Record<string, unknown> & { path: string }>) | undefined;
@@ -103,9 +103,11 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 	 * 那些机器上读错文件。
 	 */
 	const readRemoteSessionHistoryPage = remoteFeatureEnabled
-		? async (input: { hostId: string; locator: SshSessionLocator; before?: number }) => {
+		? async (input: { hostId: string; locator: SshSessionLocator; before?: number; beforeEntryId?: string }) => {
 				const reader = createRemoteSessionHistoryReader({
-					transport: { readRemoteWindow: runPinnedRemoteCommand },
+					// 一页 1 MiB，必须把传输层的输出缓冲从缺省 256 KiB 放宽到窗口上界之上；
+					// 其余远端短命令（扫描/Git/目录）仍用缺省。
+					transport: { readRemoteWindow: (input) => runPinnedRemoteCommand({ ...input, maxBuffer: REMOTE_SESSION_HISTORY_TRANSPORT_BYTES }) },
 					resolveSessionRoot: resolveRemoteSessionRoot,
 					project: (rawMessages, activeEntryIds) => agentManager.projectRemoteHistoryMessages(rawMessages, activeEntryIds),
 					logger: { warn: (message, details) => appLogger.warn("session", message, details) },
@@ -134,9 +136,28 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 		: undefined;
 
 	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, catalog: remotePiModelCatalog });
-	registerRemotePiResourcesIpc({ enabled: remoteFeatureEnabled, service: remoteHostServiceIfEnabled, run: runPinnedRemoteCommand });
+	registerRemotePiResourcesIpc({
+		enabled: remoteFeatureEnabled,
+		service: remoteHostServiceIfEnabled,
+		run: runPinnedRemoteCommand,
+		// 项目作用域只认已登记的 SSH 项目：路径由 catalog 解析，渲染层只能传 projectId。
+		locator: (projectId) => {
+			const project = projectStore.get(projectId);
+			return project !== undefined && isRemoteProject(project) ? project.locator : undefined;
+		},
+	});
 	// 远端 MCP 与远端 Pi 资源共用同一份 config backend 与同一台主机：固定动词，argv 无自由文本。
-	registerRemotePiMcpIpc({ enabled: remoteFeatureEnabled, config: remotePiConfig, service: remoteHostServiceIfEnabled, run: runPinnedRemoteCommand });
+	registerRemotePiMcpIpc({
+		enabled: remoteFeatureEnabled,
+		config: remotePiConfig,
+		service: remoteHostServiceIfEnabled,
+		run: runPinnedRemoteCommand,
+		// 项目层只认已登记的 SSH 项目：路径由 catalog 解析，渲染层只能传 projectId。
+		locator: (projectId) => {
+			const project = projectStore.get(projectId);
+			return project !== undefined && isRemoteProject(project) ? project.locator : undefined;
+		},
+	});
 	/**
 	 * 按项目取远端模型目录：非远端项目返回 null（调用方据此走本机目录）。
 	 * 失败返回失败报告而不是空成功报告——空列表和「拿不到」在 UI 上必须是两种状态。
@@ -230,11 +251,12 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 		: undefined;
 
 	/**
-	 * 远端会话的**受控改写**（P4.5c）：编辑消息 / 删除消息（写墓碑）/ 准备重发（截断该消息及其后继）。
+	 * 远端会话的**受控改写**（P4.5c）：编辑消息 / 删除消息 / 准备重发。
 	 *
-	 * 与远端历史读、远端归档**同一条** pinned SSH 短命令通道（同一 `runPinnedRemoteCommand`：每次都
-	 * 重新过 pin/指纹/路由摘要/严格配置，同一 `resolveRemoteSessionRoot`：会话根只有一个来源），
-	 * 零新增 helper op。实验开关关掉时端口不装配 ⇒ 协调器的 ssh 分支得到稳定码
+	 * 两条通道，各自只做一件事：**改写**走一条 host 级 helper 请求（`session.maintain`：远端在同一份
+	 * 文件上流式完成改写/删除/重发，main 只发操作、新正文、候选 id 与它读到的 revision），**快照**仍走
+	 * 既有 `runPinnedRemoteCommand`（同一 pin/指纹/路由摘要/严格配置）与 `resolveRemoteSessionRoot`
+	 * （会话根只有一个来源）。实验开关关掉时端口不装配 ⇒ 协调器的 ssh 分支得到稳定码
 	 * `REMOTE_SESSION_HISTORY_WRITER_UNAVAILABLE`，而**不会**落回本机路径分支（本机路径入口对 ssh
 	 * locator 抛稳定码，落回只会得到“本地文件缺失”这种错误原因）。
 	 */
@@ -242,13 +264,19 @@ export function registerMediaSessionStack(ctx: MediaSessionStackContext): MediaS
 		remoteFeatureEnabled
 			? createRemoteSessionHistoryWriter({
 					transport: { runRemoteCommand: runPinnedRemoteCommand },
+					maintenance: {
+						request: async (hostId, method, params, options) => {
+							const port = await remoteHostServiceIfEnabled();
+							if (!port) throw new Error("REMOTE_CONNECTION_SERVICE_UNAVAILABLE");
+							return await port.request(hostId, method, params, options);
+						},
+					},
 					resolveSessionRoot: resolveRemoteSessionRoot,
 					resolveNodePath: async (hostId) => {
 						const port = await remoteHostServiceIfEnabled();
 						if (!port) throw new Error("REMOTE_CONNECTION_SERVICE_UNAVAILABLE");
 						return (await port.remotePiRuntimeFacts(hostId)).nodePath;
 					},
-					project: (rawMessages, activeEntryIds) => agentManager.projectRemoteHistoryMessages(rawMessages, activeEntryIds),
 				})
 			: undefined,
 	);

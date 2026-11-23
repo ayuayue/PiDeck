@@ -9,6 +9,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Trash2, PlugZap, RefreshCw, TriangleAlert, ChevronRight, Copy, LogIn, LogOut } from "lucide-react";
 import { t } from "../i18n";
+import { useConfigEditor } from "./useConfigEditorApi";
 import { showNotice } from "../utils/notice";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
@@ -21,7 +22,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../componen
 import { detectThirdPartyMcpExtensions, hasLegacyDisabledField, inferMcpTransport, isMcpServerDisabled, McpServerListPane, usesMcpOAuth, usesProviderAuth, type ThirdPartyMcpExtension } from "./McpResourceViews";
 import { argsToText, applyEnabledToggle, buildMcpDisplayServers, isMcpServerName, recordToText, sanitizeLoginOutput, textToArgs, textToRecord } from "./mcpForm";
 import { resolveExposureAliases } from "../../../shared/mcpExposure";
-import { isProjectUntrustedError } from "./projectResourceErrors";
+import { isProjectUntrustedError, isRemoteMcpProjectScopeError } from "./projectResourceErrors";
 import type { McpCliListResult, McpConfigFile, McpConfigScope, McpConfigSnapshot, McpExposure, McpOAuth, McpProbeResult, McpServerDefinition, McpServerListItem, McpServerTransport } from "../../../shared/types/mcp";
 import { ResourceImportDialog } from "./ResourceImportDialog";
 import { McpSmartAdd, type SmartAddEntry } from "./McpSmartAdd";
@@ -29,28 +30,6 @@ import { McpServiceTemplateForm } from "./McpServiceTemplateForm";
 import { PiDeckMcpPanel } from "./PiDeckMcpPanel";
 import { addPiDeckMcpDefinition } from "./piDeckMcpConfigMerge";
 import { MCP_SERVICE_CATALOG } from "./mcpServiceCatalog";
-
-const api = (
-	window as unknown as {
-		piDesktop: {
-			config: {
-				getMcp: (scope?: McpConfigScope) => Promise<McpConfigSnapshot>;
-				getAuth: () => Promise<{ raw: string; parsed: Record<string, unknown>; diagnostic?: unknown }>;
-				installMcpSetupSkill: () => Promise<{ success: boolean; path?: string; error?: string }>;
-				saveMcp: (data: McpConfigFile, scope?: McpConfigScope, expectedRevision?: string) => Promise<{ valid: boolean; error?: string; conflict?: boolean }>;
-				probeMcp: (definition: McpServerDefinition) => Promise<McpProbeResult>;
-				/** pi mcp CLI：真实连接检测 + OAuth 登录/登出（仅命令路线，见计划 M2）。 */
-				mcpListStatus: (scope?: McpConfigScope) => Promise<McpCliListResult>;
-				mcpLogin: (server: string, timeoutSec?: number, scope?: McpConfigScope, operationId?: string) => Promise<{ ok: boolean; output: string }>;
-				mcpLogout: (server: string, scope?: McpConfigScope) => Promise<{ ok: boolean; output: string }>;
-				onMcpLoginUrl: (callback: (payload: { server: string; scope?: McpConfigScope; operationId?: string; url: string }) => void) => () => void;
-			};
-			app: {
-				openExternal: (url: string, forceSystem?: boolean) => Promise<void> | void;
-			};
-		};
-	}
-).piDesktop;
 
 const MCP_DOCS = "https://earendil-works.github.io/pi/docs/mcp";
 const EMPTY_FILE: McpConfigFile = { mcpServers: {} };
@@ -125,6 +104,8 @@ export const McpTab = forwardRef<
 		onDirtyChange: (dirty: boolean) => void;
 	}
 >(function McpTab(props, ref) {
+	// 作用域随页面（本机 / WSL / SSH 主机 / 远端项目）：经编辑器 facade 走，不再直接抓本机 window.piDesktop。
+	const { api } = useConfigEditor();
 	const { projectId, projectName, activeProjectId, onDirtyChange } = props;
 	/**
 	 * 作用域对象：主进程按注册 projectId 解析，渲染层不传路径。
@@ -180,7 +161,7 @@ export const McpTab = forwardRef<
 	 */
 	const probeThirdParty = useCallback(async (): Promise<ThirdPartyMcpExtension[] | null> => {
 		try {
-			const list = await window.piDesktop.extensions.list();
+			const list = await api.extensions.list();
 			return detectThirdPartyMcpExtensions(list.extensions);
 		} catch {
 			// 扩展 API 不可用时（如预览环境）不阻塞配置浏览或编辑。
@@ -207,8 +188,8 @@ export const McpTab = forwardRef<
 			setSelected((current) => (current && names.includes(current) ? current : (names[0] ?? null)));
 		} catch (caught) {
 			if (generation === loadGenerationRef.current) {
-				// 未信任项目：configGetMcp 项目分支会拒读（正确门禁），裸异常换成引导文案
-				setError(isProjectUntrustedError(caught) ? t("config.projectUntrusted.notice") : caught instanceof Error ? caught.message : String(caught));
+				// 未信任项目：configGetMcp 项目分支会拒读（正确门禁），裸异常换成引导文案；远端项目的 MCP 配置也走可读引导。
+				setError(isProjectUntrustedError(caught) ? t("config.projectUntrusted.notice") : isRemoteMcpProjectScopeError(caught) ? t("config.mcp.remoteProjectUnsupported") : caught instanceof Error ? caught.message : String(caught));
 			}
 		} finally {
 			if (generation === loadGenerationRef.current) setLoading(false);

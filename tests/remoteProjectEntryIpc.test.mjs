@@ -128,12 +128,13 @@ test("window destruction revokes BOTH token classes (text save + entry)", () => 
 	const { registerRemoteProjectFileIpc } = loadTsCommonJs("src/main/ipc/remoteProjectFileIpc.ts", {
 		stubs: {
 			electron: { ipcMain: { handle: (channel, callback) => handlers.set(channel, callback) } },
+			"../remote/RemoteProjectTextTransfer": { createRemoteProjectTextTransfer: () => ({}) },
 			"../remote/RemoteProjectFileService": {
 				createRemoteProjectFileService: () => ({ open: async () => ({ content: "", version: "a".repeat(32) }), save: async () => ({ version: "b".repeat(32) }), releaseSender: (id) => releasedText.push(id) }),
 			},
 		},
 	});
-	registerRemoteProjectFileIpc({ enabled: true, service: () => undefined, locator: () => undefined });
+	registerRemoteProjectFileIpc({ enabled: true, service: () => undefined, locator: () => undefined, textTransfer: {} });
 	const { registerRemoteProjectEntryIpc } = loadTsCommonJs("src/main/ipc/remoteProjectEntryIpc.ts", {
 		stubs: {
 			electron: { ipcMain: { handle: (channel, callback) => handlers.set(channel, callback) } },

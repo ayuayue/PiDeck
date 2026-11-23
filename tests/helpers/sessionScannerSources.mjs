@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
  */
 export const sessionScannerSourceFiles = [
 	"src/main/sessions/SessionScanner.ts",
+	"src/main/sessions/scanner/sessionArchiveRestore.ts",
 	"src/main/sessions/scanner/sessionHtmlExport.ts",
 	"src/main/sessions/scanner/sessionInfoAppender.ts",
 	"src/main/sessions/scanner/sessionMessageReads.ts",

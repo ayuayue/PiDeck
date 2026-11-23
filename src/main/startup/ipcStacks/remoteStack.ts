@@ -73,7 +73,7 @@ export interface RemoteStackHandles {
 	readonly remoteProjectIpc: ReturnType<typeof registerRemoteProjectIpc>;
 	readonly remoteProjectTextPort: ReturnType<typeof registerRemoteProjectFileIpc>;
 	readonly remoteProjectTransfers: ReturnType<typeof registerRemoteProjectTransferJobIpc>;
-	readonly runPinnedRemoteCommand: (input: { hostId: string; remoteCommand: string; timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+	readonly runPinnedRemoteCommand: (input: { hostId: string; remoteCommand: string; timeoutMs?: number; maxBuffer?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
 }
 
 export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles {
@@ -233,11 +233,9 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 	const resolveRemoteSftpBinary = (): Promise<RemoteSftpBinaryIdentity | undefined> => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }));
 	const remoteSftpCapabilityCache = createRemoteSftpCapabilityCache<RemoteSftpProbe>();
 	const remoteSftpCapabilityProbe = createRemoteSftpCapabilityProbe();
-	const remoteSftpDirectoryReader = createRemoteSftpDirectoryReader({
-		binary: resolveRemoteSftpBinary,
-		cache: remoteSftpCapabilityCache,
-		probe: remoteSftpCapabilityProbe,
-	});
+	/** 传输任务与文本正文（读/写）共用同一份执行器身份、能力缓存与探测：正文只走 SFTP。 */
+	const remoteSftpTransfer = { binary: resolveRemoteSftpBinary, cache: remoteSftpCapabilityCache, probe: remoteSftpCapabilityProbe };
+	const remoteSftpDirectoryReader = createRemoteSftpDirectoryReader(remoteSftpTransfer);
 	registerRemoteProjectTrustIpc({ enabled: remoteFeatureEnabled, trust: () => remoteProjectTrustService });
 	const remoteProjectIpc = registerRemoteProjectIpc({
 		enabled: remoteFeatureEnabled,
@@ -304,6 +302,7 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
+		textTransfer: remoteSftpTransfer,
 		// T4：一次文件写只走一份 owner 的失效矩阵（目录矩阵 + 全部已缓存仓库 status，一条通知）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
@@ -316,9 +315,7 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
-		binary: resolveRemoteSftpBinary,
-		cache: remoteSftpCapabilityCache,
-		probe: remoteSftpCapabilityProbe,
+		...remoteSftpTransfer,
 		// T4：上传下载完成/结果未知同样走单一 owner（目录 + Git status 一次标脏）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
@@ -346,14 +343,16 @@ export function registerRemoteStack(ctx: RemoteStackContext): RemoteStackHandles
 	/**
 	 * 远端短命令的统一执行入口（会话读取/写入/归档/扫描四条链共用）：每次重新过 `buildPinnedSshInvocation`
 	 * （pin 文件/指纹、路由摘要、严格配置复查）。超时归传输层：`SshClientRuntime.run` 的 execFile 自带
-	 * 30 s 上限与 256 KiB 输出上限（远端历史窗口上界 128 KiB 就是为后者留的余量）。
+	 * 30 s 上限；输出缓冲缺省 256 KiB，只有会话历史窗口读取（一页 1 MiB）显式放宽到
+	 * `REMOTE_SESSION_HISTORY_TRANSPORT_BYTES`，其余路径维持缺省。
 	 *
 	 * 定义在装配点之前（而不是就地定义）：会话扫描/登记也走它（R1a），而它们的装配代码在下面靠前的位置。
 	 */
-	const runPinnedRemoteCommand = async ({ hostId, remoteCommand, timeoutMs }: { hostId: string; remoteCommand: string; timeoutMs?: number }) => {
+	const runPinnedRemoteCommand = async ({ hostId, remoteCommand, timeoutMs, maxBuffer }: { hostId: string; remoteCommand: string; timeoutMs?: number; maxBuffer?: number }) => {
 		const client = await remoteSshClientIfEnabled();
 		const invocation = await buildPinnedSshInvocation(app.getPath("userData"), hostId, "ssh-batch", { client, remoteCommand });
-		const result = await client.run(invocation.executable, invocation.args, timeoutMs === undefined ? undefined : { timeoutMs });
+		const options = { ...(timeoutMs === undefined ? {} : { timeoutMs }), ...(maxBuffer === undefined ? {} : { maxBuffer }) };
+		const result = await client.run(invocation.executable, invocation.args, Object.keys(options).length === 0 ? undefined : options);
 		// stderr 也要回传：pi 对未知旗标的抱怨随版本在 stdout 或 stderr（模型目录的降级判据要用它），
 		// 丢掉就等于把「不认这个旗标」误判成「远端没有模型」。
 		return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr ?? "" };

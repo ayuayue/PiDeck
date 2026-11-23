@@ -118,7 +118,8 @@ test("退役失败只记 warn，不影响新技能安装", async () => {
 test("pideck 路由表指向的 references 都真实存在", async () => {
 	const dir = new URL("../resources/skills/pideck/", import.meta.url);
 	const raw = readFileSync(new URL("SKILL.md", dir), "utf8");
-	const refs = [...raw.matchAll(/`(references\/[^`]+)`/g)].map((match) => match[1]);
+	// 占位符行（如 `references/<那一份>`）是在讲「命中哪一份就读哪一份」的判据，不是真路径。
+	const refs = [...raw.matchAll(/`(references\/[^`]+)`/g)].map((match) => match[1]).filter((rel) => !rel.includes("<") && !rel.includes(">"));
 	assert.ok(refs.length >= 4, "路由表至少应指向四份参考（生图 / 用量 / 诊断 / web-api）");
 	for (const rel of refs) {
 		assert.equal(existsSync(new URL(rel, dir)), true, `路由指向不存在的文件：${rel}`);

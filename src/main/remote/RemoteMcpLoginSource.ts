@@ -55,7 +55,9 @@ export function createMcpLoginRunner(spawn) {
 		timer = setTimeout(function () { done({ ok: false, output: tail(output), reason: "timeout" }); }, seconds * 1000 + TAIL_MS);
 		try {
 			child = spawn(options.nodePath, [options.piPath, "mcp", "login", options.server, "--timeout", String(seconds)], {
-				cwd: options.home,
+				/* The project layer logs in with the project as cwd while HOME stays the host home, so pi still
+				   reads/writes its credentials in ~/.pi/agent and only the project-level mcp.json is selected. */
+				cwd: options.cwd === undefined ? options.home : options.cwd,
 				env: Object.assign({}, process.env, { HOME: options.home, PATH: nodeDir + ":" + (process.env.PATH || "/usr/local/bin:/usr/bin:/bin") }),
 				stdio: ["ignore", "pipe", "pipe"],
 			});
@@ -75,4 +77,4 @@ export function createMcpLoginRunner(spawn) {
 `.replace(/\r?\n[\t ]*/g, "");
 
 /** sha256 of REMOTE_MCP_LOGIN_SOURCE as UTF-8 bytes; a bundle whose runner differs never activates. */
-export const REMOTE_HELPER_MCP_LOGIN_SHA256 = "38242ab87e6a4b9017c07c6cbf601add4317f5a89296248f0410e98f84f84ccc";
+export const REMOTE_HELPER_MCP_LOGIN_SHA256 = "7dd76c6287c87ed675e79b83391445074591d49c79c309db79902f46b85f8681";

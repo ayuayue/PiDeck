@@ -24,7 +24,7 @@ function fixture(t) {
 	});
 	fs.mkdirSync(path.join(directory, ".pi/agent"), { recursive: true });
 	const config = factory(REMOTE_CONFIG_SOURCE, "createConfigScope")(home, mappedFs, path.posix, crypto);
-	const resources = factory(REMOTE_RESOURCE_SOURCE, "createResourceScope")(home, mappedFs, path.posix, crypto, config);
+	const resources = factory(REMOTE_RESOURCE_SOURCE, "createResourceScope")(home, "/home/tester/project", mappedFs, path.posix, crypto, factory(REMOTE_CONFIG_SOURCE, "createConfigScope"), config);
 	return { config, resources, directory, home };
 }
 
@@ -80,7 +80,7 @@ test("SSH resources create/read/edit/rename/toggle and recoverable delete operat
 		{ root: "other", path: "x" },
 		{ root: "extensions", path: ".hidden/x" },
 	])
-		assert.throws(() => f.resources.read(target), /RESOURCE_PATH_INVALID/);
+		assert.throws(() => f.resources.read({ ref: target }), /RESOURCE_PATH_INVALID/);
 });
 
 test("SSH package disable/enable preserves selective filters and unrelated settings", (t) => {
@@ -139,7 +139,7 @@ test("auth editor copies retain references, isolates raw versions, and locks wri
 	await editor.write({});
 });
 
-test("host-bound resource facade exercises skills, prompts, stores and packages without local calls", async (t) => {
+test("host-bound resource facade confines resource operations to the host, with shared PiDeck built-in settings", async (t) => {
 	const f = fixture(t);
 	const otherHost = "22222222-2222-4222-8222-222222222222";
 	const other = fixture(t);
@@ -160,12 +160,12 @@ test("host-bound resource facade exercises skills, prompts, stores and packages 
 			calls.push({ hostId, method, input });
 			const resource = hostId === HOST ? f.resources : other.resources;
 			const operation = method.slice("resources.".length);
-			return operation === "list" ? resource.list() : operation === "read" ? resource.read(input.ref) : resource[operation === "delete" ? "remove" : operation](input);
+			return operation === "list" ? resource.list(input) : operation === "read" ? resource.read(input) : resource[operation === "delete" ? "remove" : operation](input);
 		},
 		resolveFacts: async () => ({ home: f.home, nodePath: "/opt/node/bin/node", piPath: "/opt/pi/cli.js", version: "0.70.3" }),
 		run: async (input) => {
 			commands.push(input);
-			return { exitCode: 0, stdout: "not exposed logs", stderr: "not exposed secret" };
+			return { exitCode: 0, stdout: input.remoteCommand.includes("'-e'") ? JSON.stringify([{ currentVersion: "1.0.0", latestVersion: "1.2.0" }, {}]) : "not exposed logs", stderr: "not exposed secret" };
 		},
 	});
 	const { createRemoteResourceEditorApi } = loadTsCommonJs("src/renderer/src/config/remoteResourceEditorApi.ts", { stubs: { "../utils/clipboard": { writeClipboard: async () => {} }, "../utils/notice": { showNotice: () => {} }, "../i18n": { t: (key) => key } } });
@@ -181,7 +181,8 @@ test("host-bound resource facade exercises skills, prompts, stores and packages 
 		remotePiResources: (host, request) => backend.execute(host, request),
 		skills: trap,
 		prompts: trap,
-		extensions: trap,
+		extensions: new Proxy({ builtInStatus: async () => ({ effectiveVersion: "1.0.0" }) }, { get: (target, key) => (key in target ? target[key] : trap[key]) }),
+		settings: { get: async () => ({ removedBuiltInExtensions: [] }) },
 		files: trap,
 		config: trap,
 		projectResources: trap,
@@ -218,19 +219,43 @@ test("host-bound resource facade exercises skills, prompts, stores and packages 
 	assert.equal((await secondEditor.skills.list()).skills.length, 0);
 	await assert.rejects(() => secondEditor.files.readContent(imported.path), /FILE_INVALID/);
 	const extensions = await editor.extensions.list();
-	assert.equal(extensions.extensions.length, 2, "remote local-path packages must remain visible");
+	assert.equal(extensions.extensions.filter((entry) => !entry.builtIn).length, 2, "remote local-path packages must remain visible");
+	assert.ok(
+		extensions.extensions.some((entry) => entry.builtIn),
+		"shared PiDeck built-ins are visible",
+	);
+	assert.equal(extensions.extensions[0].latestVersion, "1.2.0");
+	const refreshed = await editor.extensions.list(false);
+	assert.equal(refreshed.extensions[0].latestVersion, "1.2.0", "a lightweight refresh retains the last version results");
+	assert.equal(commands.length, 3, "the lightweight refresh does not run another version query");
 	await editor.extensions.install("npm:new-package");
 	await editor.extensions.update();
 	await editor.extensions.updateOne("npm:new-package");
 	await editor.extensions.uninstall("npm:new-package");
 	await editor.skillHub.install("owner/repo/sample");
-	assert.equal(commands.length, 6);
+	assert.equal(commands.length, 8);
 	assert.ok(commands.every((input) => input.hostId === HOST));
-	assert.match(commands[2].remoteCommand, /'update' '--extensions'/, "0.70.3 already supports Pi self-update; package updates must exclude it");
-	assert.match(commands[5].remoteCommand, /'--copy'/, "editable installed skills cannot be symlinks");
+	assert.match(commands[4].remoteCommand, /'update' '--extensions'/, "0.70.3 already supports Pi self-update; package updates must exclude it");
+	assert.match(commands[7].remoteCommand, /'--copy'/, "editable installed skills cannot be symlinks");
 	assert.ok(calls.some((input) => input.hostId === otherHost));
 	await assert.rejects(() => backend.execute(HOST, { action: "packages", operation: "install", source: "--help" }), /FILE_INVALID/);
 	await assert.rejects(() => backend.execute(HOST, { action: "read", ref: { root: "skills", path: "../../auth.json" } }), /FILE_INVALID/);
+});
+
+test("remote pi built-in switches persist on the host, respect filters and reject project writes", async (t) => {
+	const f = fixture(t);
+	fs.writeFileSync(path.join(f.directory, ".pi/agent/settings.json"), JSON.stringify({ extensions: ["!builtin:*", "+builtin:codemode"], defaultTools: ["+codemode"] }));
+	const { createRemoteResourceEditorApi } = loadTsCommonJs("src/renderer/src/config/remoteResourceEditorApi.ts", { stubs: { "../utils/clipboard": { writeClipboard: async () => {} }, "../utils/notice": { showNotice: () => {} }, "../i18n": { t: (key) => key } } });
+	const editor = createRemoteResourceEditorApi({ remotePiResources: async (_host, { action, ...input }) => (action === "list" ? f.resources.list(input) : f.resources.builtin(input)) }, HOST, async () => {});
+	let summary = await editor.config.piResourcesSummary({ scope: "global" });
+	assert.equal(summary.builtins.find((item) => item.name === "mcp").enabled, false);
+	assert.equal(summary.builtins.find((item) => item.name === "codemode").toolEnabled, true);
+	await editor.config.piResourcesSetBuiltin({ scope: { scope: "global" }, name: "mcp", enabled: true, expectedRevision: summary.revision });
+	summary = await editor.config.piResourcesSummary({ scope: "global" });
+	assert.equal(summary.builtins.find((item) => item.name === "mcp").enabled, true);
+	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.directory, ".pi/agent/settings.json"), "utf8")).extensions, ["!builtin:*", "+builtin:codemode", "+builtin:mcp"]);
+	await assert.rejects(() => editor.config.piResourcesSetBuiltin({ scope: { scope: "project", projectId: "p" }, name: "mcp", enabled: false }), /UNSUPPORTED/);
+	await assert.rejects(() => editor.config.piResourcesSummary({ scope: "project", projectId: "p" }), /UNSUPPORTED/);
 });
 
 test("resource discovery lists package and settings resources with native filters, without granting edits", (t) => {
@@ -251,7 +276,7 @@ test("resource discovery lists package and settings resources with native filter
 	assert.equal(result.discovery.prompts.length, 2);
 	assert.ok(result.discovery.prompts.every((entry) => entry.managed && !entry.enabled));
 	assert.equal(result.files.length, 0, "discovered resources never enter the editable fixed-root map");
-	assert.throws(() => f.resources.read({ root: "extensions", path: "../../npm/node_modules/example/package.json" }), /PATH_INVALID/);
+	assert.throws(() => f.resources.read({ ref: { root: "extensions", path: "../../npm/node_modules/example/package.json" } }), /PATH_INVALID/);
 });
 
 test("resource backend rejects secret-bearing replies, mismatched files and lost mutation receipts", async () => {

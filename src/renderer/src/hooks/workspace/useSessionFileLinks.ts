@@ -1,11 +1,15 @@
 import { useCallback } from "react";
 import { t } from "../../i18n";
 import { resolveFileLinkPath, isFilePathInsideRoot } from "../../utils/filePathLinks";
+import { isRemoteProject } from "../../../../shared/projectLocation";
+import { remoteProjectTarget } from "../../utils/remoteProjectPath";
+import { publishRemoteFolderReveal } from "../../utils/remoteFolderReveal";
 import { getRendererHomeDir } from "../../utils/rendererHomeDir";
+import type { EditorTabOpenMode } from "../../utils/editorTabs";
 import type { SessionFileOpenContext } from "../../components/session/SessionPaneServices";
-import { useSessionFilePathOpener } from "../useSessionFilePathOpener";
+import { useSessionFilePathOpener, type SessionFileOpenTarget } from "../useSessionFilePathOpener";
 import { useExternalPathOpenGate } from "../useExternalPathOpenGate";
-import type { ImageContent, Project } from "../../../../shared/types";
+import type { ImageContent, Project, ProjectFileTarget } from "../../../../shared/types";
 import type { AgentTab } from "../../../../shared/types";
 import type { WorkspaceDrawerPanel } from "../useWorkspacePanels";
 
@@ -18,7 +22,8 @@ export interface SessionFileLinksDeps {
 	activeProjectId: string | undefined;
 	showToast: (message: string, duration?: number) => void;
 	setPreviewImage: (image: ImageContent | null) => void;
-	viewFilePath: (path: string) => void;
+	/** 中间栏阅读面入口：本机路径或远端项目 target（远端编辑不靠本机 fs） */
+	viewFilePath: (path: SessionFileOpenTarget, openMode?: EditorTabOpenMode) => void;
 	/** 抽屉面板域（useWorkspacePanels）的打开/关闭与状态 */
 	workspace: {
 		drawer: WorkspaceDrawerPanel | null;
@@ -40,8 +45,21 @@ export interface SessionFileLinksDeps {
  * 4) handleToolDrawerAction：工具抽屉（files/git/browser）统一切换语义，浮动按钮与活动栏共用。
  */
 export function useSessionFileLinks({ activeAgent, activeProject, projects, currentSessionId, activeProjectId, showToast, setPreviewImage, viewFilePath, workspace, gitDrawerDiff, closeGitDiff, refreshVisibleFiles, restoreExpandedDirs }: SessionFileLinksDeps) {
-	const openSessionFilePath = useSessionFilePathOpener({ onPreviewImage: setPreviewImage, viewFilePath });
 	const { requestExternalPathOpen, dialog: externalPathOpenDialog } = useExternalPathOpenGate();
+	/**
+	 * 远端目录链接的落点：本机没有那台机器上的文件管理器，只能定位到文件抽屉里的远端目录树。
+	 * 抽屉跟随当前项目，所以目标可能是「另一个项目」的目录——请求带 projectId 留在 atom 里，
+	 * 等那个项目的面板挂载时再消费，不在这里悄悄切项目。
+	 */
+	const openRemoteDirectory = useCallback(
+		(target: ProjectFileTarget) => {
+			// 抽屉已在文件面板时不重复切换：openDrawer 是「再点一次收起」语义。
+			if (workspace.drawer !== "files" || workspace.drawerCollapsed) workspace.openDrawer("files");
+			publishRemoteFolderReveal(target.projectId, target.relativePath);
+		},
+		[workspace.drawer, workspace.drawerCollapsed, workspace.openDrawer],
+	);
+	const openSessionFilePath = useSessionFilePathOpener({ onPreviewImage: setPreviewImage, viewFilePath, onOpenRemoteDirectory: openRemoteDirectory });
 
 	// 会话内文件链接打开路由：项目内 → 直接按扩展名分级打开；项目外 → 交安全等级门。
 	// 图片 → 弹窗预览（readBase64 → ImagePreviewModal）；markdown/html → 中间栏查看
@@ -56,6 +74,22 @@ export function useSessionFileLinks({ activeAgent, activeProject, projects, curr
 			// 会话内入口必须携带稳定 projectId；缺失时不能降级成通用读取绕开主进程项目边界。
 			if (context && !projectId) {
 				showToast(t("app.fileLinkCannotResolve", { path }));
+				return;
+			}
+			// 远端（SSH）项目在本机没有路径：会话里的绝对路径只能按项目根归一成项目内身份，
+			// 否则下面的本机 stat 必然 ENOENT，远端主机上存在的文件被报成「路径不存在或已失效」。
+			const paneProject = projectId ? projects.find((project) => project.id === projectId) : undefined;
+			if (paneProject && isRemoteProject(paneProject)) {
+				// 历史会话没有 runtime.cwd 时用远端项目根兜底：远端项目的根就是远端主机上的目录。
+				const remoteBaseDir = baseDir ?? paneProject.locator.remotePath;
+				const absolutePath = resolveFileLinkPath(path, remoteBaseDir, undefined, getRendererHomeDir());
+				const target = absolutePath === null ? null : remoteProjectTarget(projects, absolutePath, projectId);
+				if (absolutePath === null || target === null) {
+					showToast(t("app.fileLinkCannotResolve", { path }));
+					return;
+				}
+				// 成功路径不再带 scope：target 自带项目边界，提示文案用远端主机上的绝对路径。
+				await openSessionFilePath(target, { line, displayPath: absolutePath });
 				return;
 			}
 			// `~` 先按家目录展开（issue #426）：不展开的话 `~/x` 在有 projectRoot 的会话里

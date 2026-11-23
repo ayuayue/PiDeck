@@ -1,6 +1,7 @@
 import { Activity, FolderOpen, GitBranch, Globe, History, ListTree, Pencil, Rocket, ScrollText } from "lucide-react";
 import type { ComponentProps, ReactNode, RefObject } from "react";
 import { type SessionStatusPlacement, placementShowsSidebarPanel } from "../../../../shared/sessionStatusPlacement";
+import { isRemoteProject } from "../../../../shared/projectLocation";
 import type { AgentTab, AppInfo, AppSettings, Project, SessionRecord } from "../../../../shared/types";
 import { desktopApi as api } from "../../desktopApi";
 import type { useDrawerPorts } from "../../hooks/useDrawerPorts";
@@ -118,10 +119,13 @@ export function WorkbenchShell({ identity, chrome, events, children, rootDialogs
 	const { workspace, drawer, drawerCollapsed, drawerWidth, drawerPorts, scratchPad, sideTasks, forkAtEntry } = drawerSlot;
 	const { bootstrapProps, quickTask, sessionPaneServices, chatPaneRef, terminalRowHeight, workbenchContentWidth, sidebarContentNode, chatPaneContentNode, sessionStatusPlacement } = panes;
 	const { showToast, setListCollapsed, setListWidth, setDrawerCollapsed, setDrawerWidth, toggleListCollapsed, toggleRightDrawer, handleToolDrawerAction, focusSessionPane, createSessionDraftWithTab, openSidebarSessionByIdWithTab } = events;
+	// 远端项目的根：远端项目没有本机 path，文件链接的基准与身份只能取 `locator.remotePath`。
+	const activeRemoteRoot = activeProject !== undefined && isRemoteProject(activeProject) ? activeProject.locator.remotePath : undefined;
 
 	return (
 		// 非会话静态区域使用当前焦点作为兜底；每个 SessionRuntimeInjector 会用本栏 cwd/project 覆盖。
-		<FileLinkBaseProvider baseDir={activeAgent?.cwd ?? activeProject?.path} projectId={activeProject?.id} projectRoot={activeProject?.path} sessionId={currentSessionId}>
+		// 远端项目没有本机 path：项目根用 remotePath 兜底，否则相对路径解析不出基准。
+		<FileLinkBaseProvider baseDir={activeAgent?.cwd ?? activeProject?.path ?? activeRemoteRoot} projectId={activeProject?.id} projectRoot={activeProject?.path} remoteRoot={activeRemoteRoot} sessionId={currentSessionId}>
 			<>
 				<WallpaperVideoLayer settings={settings} />
 				<AppBootstrap {...bootstrapProps} />

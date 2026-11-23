@@ -30,13 +30,19 @@ test("the persisted-session predicate counts remote (ssh) identities as file-bac
 	assert.match(block, /if\s*\(!record\s*\|\|\s*record\.noSession\)\s*return\s+false/, "noSession must stay unsupported");
 });
 
-test("the remote message-mutation write plane reuses the pinned ssh short-command channel", () => {
-	// 与远端读取（readRemoteSessionHistoryPage）/远端归档（archiveRemoteSession）**同一**传输端口：
-	// 另起一条通道（或直接 ssh）就绕过了每次调用重新过的 pin / 指纹 / 路由摘要 / 严格配置复查。
+test("the remote message-mutation write plane reuses the pinned ssh channel and the host-level helper request", () => {
+	// 两条通道各自只做一件事，都不能另起：**改写**是一条 host 级 helper 请求（`session.maintain`：远端在
+	// 自己那份文件上流式完成，main 不收发正文）；**快照**仍是既有的 pinned SSH 短命令（`runPinnedRemoteCommand`：
+	// 每次都重新过 pin/指纹/路由摘要/严格配置）与唯一的会话根判据（`resolveSessionRoot`）。
 	const wiring = main.slice(main.indexOf("createRemoteSessionHistoryWriter("));
-	const block = wiring.slice(0, wiring.indexOf(")") + 1);
-	assert.match(block, /runPinnedRemoteCommand/, "the writer must use the shared pinned command runner");
+	// 装配体里有嵌套的箭头函数（`request: async (...) =>`），所以不能按第一个 `)` 截断。
+	const block = wiring.slice(0, 1200);
+	assert.match(block, /runPinnedRemoteCommand/, "the snapshot must use the shared pinned command runner");
 	assert.match(block, /resolveSessionRoot/, "the writer must reuse the single session-root resolver");
+	assert.match(block, /maintenance:\s*\{[\s\S]*?request:/, "the rewrite must go through the host-level helper request port");
+	assert.match(block, /port\.request\(hostId,\s*method,\s*params,\s*options\)/, "the request port must be the connection service's own request()");
+	// 整份下载/上传的旧通道不能再出现：留下它就是第二条写路径（两套冲突规则迟早各漂各的）。
+	assert.equal(/readChunkBytes|writeChunkBytes/.test(block), false, "the whole-file transport must be gone");
 	// 实验开关关闭时不装配端口（fail-closed：协调器得到稳定码，而不是落回本机路径分支）。
 	assert.match(main, /remoteFeatureEnabled\s*\?\s*createRemoteSessionHistoryWriter/, "the port must only exist when the remote feature is available");
 });

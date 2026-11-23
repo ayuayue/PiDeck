@@ -187,11 +187,16 @@ test("remote MCP facade: snapshot/save/list/logout go through the host channel",
 	same(await port.editor.config.mcpLogout("search"), { ok: true, output: "ok" });
 });
 
-test("remote MCP facade: project scope 明确拒绝，probe 给可读原因，login 直通主机结果", async () => {
+test("remote MCP facade: 项目作用域只服务本页项目，probe 给可读原因，login 直通主机结果", async () => {
+	// 没有入口项目的 facade（全局配置页）收到项目作用域请求：拒绝，而不是读主机全局 mcp.json。
 	const port = facade();
 	await assert.rejects(() => port.editor.config.getMcp({ scope: "project", projectId: "p" }), new RegExp(REMOTE_MCP_CODES.projectScopeUnsupported));
 	await assert.rejects(() => port.editor.config.mcpListStatus({ scope: "project", projectId: "p" }), new RegExp(REMOTE_MCP_CODES.projectScopeUnsupported));
 	await assert.rejects(() => port.editor.config.mcpLogin("search", 240, { scope: "project", projectId: "p" }), new RegExp(REMOTE_MCP_CODES.projectScopeUnsupported));
+
+	// 项目页的 facade 只服务本页项目：拿别的 projectId 来问必须拒绝（不跨项目读配置）。
+	const projectPort = facade({ projectId: "p" });
+	await assert.rejects(() => projectPort.editor.config.getMcp({ scope: "project", projectId: "other" }), new RegExp(REMOTE_MCP_CODES.projectScopeUnsupported));
 
 	const probe = await port.editor.config.probeMcp({ url: "https://mcp.example.com/mcp" });
 	assert.equal(probe.ok, false);
@@ -207,4 +212,71 @@ test("remote MCP facade: project scope 明确拒绝，probe 给可读原因，lo
 	// 主机回了非登录形状（两边协议不一致）：不能当成功吞掉，要报明确错误码。
 	const wrongPort = facade({ answer: () => ({ action: "logout", ok: true, output: "x" }) });
 	await assert.rejects(() => wrongPort.editor.config.mcpLogin("search"), new RegExp(REMOTE_MCP_CODES.invalid));
+});
+
+// ── 项目层（scope: "project"）：同一台主机、限定在该项目根的会话 ────────────
+
+test("远端 MCP 项目层：快照/保存在项目根上，缺少或跨主机的项目被拒绝", async () => {
+	const calls = { read: [], replace: [] };
+	const ROOT = "/srv/app";
+	const config = {
+		read: async (input) => {
+			calls.read.push(input);
+			return { kind: "remote", hostId: input.hostId, file: input.file, version: VERSION, sha256: VERSION, data: { mcpServers: { search: GOOGLE } }, secrets: [] };
+		},
+		replace: async (input) => {
+			calls.replace.push(input);
+			return { kind: "remote", hostId: input.hostId, file: input.file, version: "b".repeat(64), sha256: "b".repeat(64) };
+		},
+	};
+	const { instance } = service({
+		ports: {
+			config: () => config,
+			resolveFacts: async () => ({ piPath: "/usr/local/bin/pi", nodePath: "/usr/local/bin/node", version: "1.5.2", home: HOME }),
+			resolveProject: async (projectId) => (projectId === "p-a" ? { hostId: HOST, root: ROOT } : { code: "REMOTE_MCP_TARGET_INVALID" }),
+		},
+	});
+
+	const snapshot = await instance.execute(HOST, { action: "snapshot", scope: "project", projectId: "p-a" });
+	assert.equal(snapshot.snapshot.writablePath, ROOT + "/.pi/mcp.json", "项目层的真实路径是该项目的 .pi/mcp.json");
+	same(calls.read.at(-1), { hostId: HOST, file: "mcp", projectRoot: ROOT });
+
+	await instance.execute(HOST, { action: "save", scope: "project", projectId: "p-a", expectedVersion: VERSION, file: { mcpServers: {} } });
+	assert.equal(calls.replace.at(-1).projectRoot, ROOT, "写入同样落在项目根上");
+
+	// 没有 projectId / 未知项目 / 另一台主机的项目：一律拒绝，绝不退回主机全局层。
+	await assert.rejects(() => instance.execute(HOST, { action: "snapshot", scope: "project" }), new RegExp(REMOTE_MCP_CODES.invalid));
+	await assert.rejects(() => instance.execute(HOST, { action: "snapshot", scope: "project", projectId: "missing" }), new RegExp(REMOTE_MCP_CODES.invalid));
+	await assert.rejects(() => instance.execute("22222222-2222-4222-8222-222222222222", { action: "snapshot", scope: "project", projectId: "p-a" }), new RegExp(REMOTE_MCP_CODES.invalid));
+	// facts 是主机级事实（HOME / pi 版本），不因项目层而变：页面的远端路径仍取主机 HOME。
+	same(await instance.execute(HOST, { action: "facts", scope: "project", projectId: "p-a" }), { action: "facts", home: HOME, piVersion: "1.5.2" });
+});
+
+test("远端 MCP 项目层：检测与登录在项目目录里跑，授权帧标出所属层", async () => {
+	const runs = [];
+	const logins = [];
+	const { instance } = service({
+		ports: {
+			resolveFacts: async () => ({ piPath: "/usr/local/bin/pi", nodePath: "/usr/local/bin/node", version: "1.5.2", home: HOME }),
+			resolveProject: async () => ({ hostId: HOST, root: "/srv/app" }),
+			request: async (hostId, method, params) => {
+				logins.push({ method, params });
+				return method === "mcp.login" ? { ok: true, output: "authorized" } : undefined;
+			},
+			run: async (input) => {
+				runs.push(input.remoteCommand);
+				return { exitCode: 0, stdout: '{"servers":[]}', stderr: "" };
+			},
+		},
+	});
+	await instance.execute(HOST, { action: "list", scope: "project", projectId: "p-a" });
+	assert.match(runs.at(-1), /cd '\/srv\/app' &&/, "检测命令在项目目录里执行");
+	await instance.execute(HOST, { action: "logout", scope: "project", projectId: "p-a", server: "search" });
+	assert.match(runs.at(-1), /cd '\/srv\/app' &&/, "登出同样按项目目录执行");
+
+	const frames = [];
+	await instance.execute(HOST, { action: "login", scope: "project", projectId: "p-a", server: "search", timeoutSec: 60, operationId: "op-1" }, (payload) => frames.push(payload));
+	assert.equal(logins.at(-1).method, "mcp.login");
+	assert.equal(logins.at(-1).params.scope, "project", "helper 只在项目根里执行登录，路径不由渲染层提供");
+	assert.equal("projectId" in logins.at(-1).params, false);
 });

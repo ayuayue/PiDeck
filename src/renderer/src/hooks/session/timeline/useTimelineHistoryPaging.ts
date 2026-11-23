@@ -247,7 +247,11 @@ export function useTimelineHistoryPaging(options: TimelineHistoryPagingOptions):
 				setIsLoadingMessagePage(true);
 				// 重试时先清掉上一次的错误行
 				setLoadMoreError(null);
-				void readRecordMessagePage(sessionId, before, pageSize)
+				// 续页锚点：`nextBeforeEntryId` 跨下标空间稳定（主进程缓存命中路径靠它），远端页还用它
+				// 作为**跨页活动链的叶子种子**（远端窗口尾行未必在活动链上，只传字节游标会让那一页
+				// 把旧分支当正文）。本地路径同义于 nextBefore 指向的条目。
+				const pageOptions = diskPage.nextBeforeEntryId === undefined ? undefined : { beforeEntryId: diskPage.nextBeforeEntryId };
+				void readRecordMessagePage(sessionId, before, pageSize, pageOptions)
 					.then((page: SessionMessagePage) => {
 						if (getLatestLoad(sessionId) !== sequence) return;
 						// 翻页期间 host 被停：保留已加载内容，出可辨识的失败行（静默丢弃这一页

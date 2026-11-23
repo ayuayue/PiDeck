@@ -114,7 +114,7 @@ export function ExtensionTableRow(props: {
 							})}
 				{extension.hasUpdate && <span className="ml-1 text-text-primary">{t("config.extensionUpdateAvailable")}</span>}
 				{/* 有更新时提供单扩展更新与复制更新指令（npm 包专属；内置扩展走包级热更新面板） */}
-				{(extension.hasUpdate || (remote && isPackageSource(extension.source))) && !extension.builtIn && (
+				{extension.hasUpdate && !extension.builtIn && (
 					<div className="mt-1.5 flex items-center gap-1.5">
 						<Button size="xs" variant="outline" onClick={() => props.onUpdateOne(extension)} disabled={props.updatingOne} aria-busy={props.updatingOne}>
 							{props.updatingOne ? t("config.extensionUpdatingOne") : t("config.extensionUpdateOne")}
@@ -140,12 +140,12 @@ export function ExtensionTableRow(props: {
 					<Switch
 						checked={effectiveEnabled}
 						onCheckedChange={(checked) => props.onToggle(extension, checked)}
-						disabled={props.toggling || props.uninstalling || (inherited && extension.enabled === false)}
-						title={props.toggling ? t("config.extensionToggling") : effectiveEnabled ? t("config.extensionDisable") : t("config.extensionEnable")}
+						disabled={props.toggling || props.uninstalling || (inherited && (extension.enabled === false || (remote && extension.builtIn)))}
+						title={remote && inherited && extension.builtIn ? t("config.remoteSharedBuiltInsProjectReadOnly") : props.toggling ? t("config.extensionToggling") : effectiveEnabled ? t("config.extensionDisable") : t("config.extensionEnable")}
 						aria-busy={props.toggling}
 					/>
 					{/* 内置行卸载（removeBuiltIn）：不限于启用态——已禁用的内置扩展同样可移除，避免「先禁用就再也即不掉」 */}
-					{extension.builtIn && !inherited && (
+					{extension.builtIn && !inherited && !remote && (
 						<Button variant="ghost" size="icon-sm" className="size-7" disabled={props.removingBuiltIn} onClick={() => props.onRemoveBuiltIn(extension)} title={props.removingBuiltIn ? t("config.uninstalling") : t("config.uninstall")}>
 							<Trash2 size={14} strokeWidth={1.8} />
 						</Button>

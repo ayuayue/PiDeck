@@ -4,8 +4,14 @@ import { dirname, isAbsolute, join } from "node:path";
 import { parseSshResolvedRoute } from "./SshRouteDigest";
 
 export type SshCommandResult = { exitCode: number; stdout: string; stderr?: string };
-/** Per-invocation options. `signal` aborts the child process (used to cancel a running probe/upload attempt). */
-export type SshCommandOptions = { signal?: AbortSignal; timeoutMs?: number };
+/** Per-invocation options. `signal` aborts the child process (used to cancel a running probe/upload attempt).
+ *  `maxBuffer` 只在调用方确实要输出大块已校验内容时放宽（远端会话历史的一页窗口）。 */
+export type SshCommandOptions = { signal?: AbortSignal; timeoutMs?: number; maxBuffer?: number };
+
+/** stdout/stderr 缓冲区的缺省上界：不传 `maxBuffer` 的所有命令都停在这条线上。 */
+export const SSH_COMMAND_DEFAULT_MAX_BUFFER_BYTES = 256 * 1024;
+/** 调用方可以放宽到的硬上界（2 MiB 历史窗口留足余量）：再大就不是「有界读」而是内存风险。 */
+export const SSH_COMMAND_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 export type SshCommandRunner = (executable: string, args: string[], options?: SshCommandOptions) => Promise<SshCommandResult>;
 
 /**
@@ -131,7 +137,9 @@ function createRunner(executable: string, env: NodeJS.ProcessEnv, timeoutMs: num
 		if (signal?.aborted === true) throw new Error("SSH_HOST_COMMAND_CANCELLED");
 		return new Promise((resolve, reject) => {
 			const budget = options?.timeoutMs === undefined || !Number.isFinite(options.timeoutMs) ? timeoutMs : Math.min(600000, Math.max(1000, Math.trunc(options.timeoutMs)));
-			execFile(executable, args, { encoding: "utf8", timeout: budget, maxBuffer: 256 * 1024, windowsHide: true, shell: false, env, ...(signal === undefined ? {} : { signal }) }, (error, stdout, stderr) => {
+			// 缺省仍是 256 KiB；放宽只允许到硬上界（非法值一律退回缺省，不给「传 Infinity 就无界」留口子）。
+			const maxBuffer = typeof options?.maxBuffer === "number" && Number.isFinite(options.maxBuffer) && options.maxBuffer > 0 ? Math.min(SSH_COMMAND_MAX_BUFFER_BYTES, Math.trunc(options.maxBuffer)) : SSH_COMMAND_DEFAULT_MAX_BUFFER_BYTES;
+			execFile(executable, args, { encoding: "utf8", timeout: budget, maxBuffer, windowsHide: true, shell: false, env, ...(signal === undefined ? {} : { signal }) }, (error, stdout, stderr) => {
 				const mapped = mapProcessError(error);
 				if (mapped) return reject(mapped);
 				resolve({ exitCode: error ? (typeof error.code === "number" ? error.code : -1) : 0, stdout, stderr });

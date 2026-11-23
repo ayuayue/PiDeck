@@ -1,7 +1,9 @@
 import { useState } from "react";
 import type React from "react";
 import { isLocalPathRef, remarkLinkifyPaths } from "./MarkdownLinkCore";
-import { useFileLinkContext, useFilePathExists } from "./FileLinkBase";
+import { anchorIdFromHref } from "./markdownHeadingAnchors";
+import { scrollToMarkdownAnchor } from "../../utils/markdownAnchorScroll";
+import { useFileLinkContext, useFilePathExists, useRemoteFileLinkTarget } from "./FileLinkBase";
 import { extractFileLinkLocation, relativeFilePathWithinRoot, resolveFileLinkPath } from "../../utils/filePathLinks";
 import { getRendererHomeDir } from "../../utils/rendererHomeDir";
 import { isExecutableLikePath } from "../../utils/externalPathAccessPolicy";
@@ -53,6 +55,9 @@ export function MarkdownLink(
 	const pathExists = useFilePathExists(fileLinkPath);
 	// 右键菜单用：与存在性校验/点击打开同一份基准解析，保证三个入口拿到同一绝对路径
 	const { baseDir, projectRoot, scope, sessionId } = useFileLinkContext();
+	// 远端（SSH）项目：本机没有这个文件，系统动作（默认应用 / 资源管理器）无从下手，
+	// 只能是项目内身份 + 远端主机上的绝对路径。具体分流见下面的 menu 条件。
+	const remoteTarget = useRemoteFileLinkTarget(fileLinkPath);
 	// 项目外路径的系统动作（默认应用 / 文件管理器）也要过安全等级门：门实例挂在链接自身上
 	//（右键菜单本来就是本组件的局部 UI 状态），与 App 侧左键那份共用同一套判定函数，
 	// 同时只可能有一个处于 pending，因此不会出现两扇确认窗。
@@ -65,11 +70,23 @@ export function MarkdownLink(
 	const menuPath = resolvedPath ?? externalPath;
 	// 「用系统默认方式打开」= shell.openPath：项目内是用户自己的工程文件，直接给；
 	// 项目外要对可执行/脚本后缀收回入口（对这些后缀等于执行代码），其余后缀仍可经等级门打开。
-	const canOpenWithDefaultApp = resolvedPath !== null || (externalPath !== null && !isExecutableLikePath(externalPath));
-	const relativePath = resolvedPath && projectRoot ? relativeFilePathWithinRoot(resolvedPath, projectRoot) : null;
+	// 远端项目：文件在远端主机上，本机没有任何应用能打开它——不提供这一项。
+	const canOpenWithDefaultApp = remoteTarget === null && (resolvedPath !== null || (externalPath !== null && !isExecutableLikePath(externalPath)));
+	// 「在资源管理器中打开」同理：本机文件管理器定位不到远端主机上的目录。
+	const canRevealInExplorer = remoteTarget === null;
+	const relativePath = remoteTarget !== null ? remoteTarget.relativePath : resolvedPath && projectRoot ? relativeFilePathWithinRoot(resolvedPath, projectRoot) : null;
+	// 页内锚点（README 目录 `[架构](#架构)`）：id 由 markdownHeadingAnchors 写进标题，
+	// 这里只负责滚动定位；非页内锚点（外链 / 本地路径）仍走下面原有分支。
+	const anchorId = anchorIdFromHref(props.href);
 	const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
 		e.preventDefault();
 		if (!props.href) return;
+		// 文档内跳转优先：`#` 锚点既不是外链也不是本地路径，交给滚动定位（目标暂未挂载时
+		// 由 scrollToMarkdownAnchor 自己按帧重试）
+		if (anchorId !== null) {
+			scrollToMarkdownAnchor(e.currentTarget, anchorId);
+			return;
+		}
 
 		// 处理文件路径链接（file:// 协议 + 无协议的本地路径引用）
 		if (isFileLink || isLocalRef) {
@@ -78,7 +95,8 @@ export function MarkdownLink(
 			// 不加修饰键时行为完全不变（文本进内置编辑器，保留行号定位与只读 diff）。
 			// openWithDefaultApp 定义在下方：点击发生在渲染之后，闭包取值时已初始化。
 			// 解析不出路径（空 href / 项目外）时退回默认左键行为，避免「点了没反应」。
-			if ((e.ctrlKey || e.metaKey) && resolvedPath) {
+			// 远端 target 没有本机文件：修饰键的「系统默认应用」不成立，一律走中间欄打开。
+			if ((e.ctrlKey || e.metaKey) && resolvedPath && remoteTarget === null) {
 				openWithDefaultApp();
 				return;
 			}
@@ -190,8 +208,8 @@ export function MarkdownLink(
 				onClick={handleClick}
 				onContextMenu={isFileLink || isLocalRef ? handleContextMenu : undefined}
 				// 文件链接 hover 展示解码后的完整路径 + 修饰键提示（右键菜单之外的快路径）；
-				// 普通链接不传 title，保留 markdown 自带 title 语法的原行为
-				title={isFileLink ? `${fileLinkPath}\n${t("fileLink.modifierOpenHint", { modifier: FILE_LINK_MODIFIER })}` : title}
+				// 远端 target 没有可用的系统打开手势，不展示修饰键提示，只给远端绝对路径。
+				title={isFileLink ? (remoteTarget === null ? `${fileLinkPath}\n${t("fileLink.modifierOpenHint", { modifier: FILE_LINK_MODIFIER })}` : fileLinkPath) : title}
 			>
 				{children}
 			</a>
@@ -230,7 +248,9 @@ export function MarkdownLink(
 								<DropdownMenuShortcut>{t("fileLink.modifierClickShortcut", { modifier: FILE_LINK_MODIFIER })}</DropdownMenuShortcut>
 							</DropdownMenuItem>
 						)}
-						<DropdownMenuItem onSelect={openInExplorer}>{t("fileLink.openInExplorer")}</DropdownMenuItem>
+						<DropdownMenuItem onSelect={openInExplorer} disabled={!canRevealInExplorer}>
+							{t("fileLink.openInExplorer")}
+						</DropdownMenuItem>
 						<DropdownMenuItem onSelect={copyRelativePath} disabled={!relativePath}>
 							{t("fileLink.copyRelativePath")}
 						</DropdownMenuItem>

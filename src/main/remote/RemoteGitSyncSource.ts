@@ -124,7 +124,7 @@ export const REMOTE_GIT_SYNC_SOURCE = String.raw`export function createGitSyncPr
 	}
 	/* Pull fetches first, then decides: a divergence without a configured strategy is refused, never guessed. */
 	async function pull(ctx, params, first, firstHead) {
-		await gates(ctx);
+		await gates(ctx, "native-pull");
 		const explicit = params.remote !== null, before = await port.head(ctx);
 		const remote = explicit ? await known(ctx, remoteName(params.remote)) : null;
 		const branch = explicit ? branchName(params.branch) : before.branch;

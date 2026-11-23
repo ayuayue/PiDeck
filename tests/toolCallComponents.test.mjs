@@ -92,7 +92,10 @@ test("edit/write diff cards expose an accessible open-file action", () => {
 	assert.match(readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8"), /"tool\.openFile": "Open file"/);
 	// 每个分屏栏在 injector 绑定自己的 runtime cwd/project；App 只消费这份上下文。
 	assert.match(runtimeInjector, /paneProjectId = currentSessionRuntime\?\.projectId \?\? sessionRecord\?\.projectId/);
-	assert.match(runtimeInjector, /baseDir: currentSessionRuntime\?\.cwd \?\? paneProject\?\.path/);
+	// 远端项目的项目根是 locator.remotePath（没有本机 path）：baseDir 与链接上下文都要带上它，
+	// 否则远端会话里的相对路径解析不出基准。
+	assert.match(runtimeInjector, /baseDir: currentSessionRuntime\?\.cwd \?\? paneRemoteRoot \?\? paneProject\?\.path/);
+	assert.match(runtimeInjector, /remoteRoot=\{paneRemoteRoot\}/);
 	assert.match(runtimeInjector, /projectId: paneProjectId \|\| undefined/);
 	assert.match(runtimeInjector, /services\.onOpenFile\(path, line, paneFileContext\)/);
 	assert.match(app, /if \(context && !projectId\)/);
@@ -101,18 +104,37 @@ test("edit/write diff cards expose an accessible open-file action", () => {
 	assert.match(app, /resolveFileLinkPath\(path, baseDir, undefined, getRendererHomeDir\(\)\)/);
 	// 打开方式已抽到 hook：既校验 App 传递本栏授权，也校验 hook 消费同一份快照，
 	// 不能继续只扫描旧 App 闭包，或只证明 hook 存在而漏掉实际接线。
-	assert.match(app, /const\s+openSessionFilePath\s*=\s*useSessionFilePathOpener\(\{\s*onPreviewImage:\s*setPreviewImage,\s*viewFilePath\s*\}\)/);
+	assert.match(app, /const\s+openSessionFilePath\s*=\s*useSessionFilePathOpener\(\{\s*onPreviewImage:\s*setPreviewImage,\s*viewFilePath,\s*onOpenRemoteDirectory:\s*openRemoteDirectory\s*\}\)/);
 	assert.match(app, /await\s+openSessionFilePath\(\s*resolved,\s*\{\s*line,\s*scope:\s*projectId\s*\?\s*\{\s*projectId\s*\}\s*:\s*undefined\s*\}\s*\)/);
-	assert.match(sessionFilePathOpener, /viewFilePath\(\s*path,\s*undefined,\s*options\.line,\s*options\.scope,\s*options\.readOnly\s*===\s*true\s*\)/);
+	// 远端（SSH）项目没有本机路径：会话里的远端绝对路径先归一成 ProjectFileTarget 再打开，
+	// 否则本机 stat 必然 ENOENT，远端主机上存在的文件被报成「路径不存在或已失效」。
+	assert.match(app, /if \(paneProject && isRemoteProject\(paneProject\)\)/);
+	assert.match(app, /remoteProjectTarget\(projects, absolutePath, projectId\)/);
+	assert.match(app, /openSessionFilePath\(target, \{ line, displayPath: absolutePath \}\)/);
+	// target 自带项目边界：再带 scope 会被主进程判成 INVALID_PROJECT_FILE_ACCESS_SCOPE。
+	assert.match(sessionFilePathOpener, /const scope = typeof path === "string" \? options\.scope : undefined;/);
+	assert.match(sessionFilePathOpener, /viewFilePath\(\s*path,\s*undefined,\s*options\.line,\s*scope,\s*options\.readOnly\s*===\s*true\s*\)/);
 	// 预览读图必须带字节上界（COMPOSER_IMAGE_MAX_BYTES），不能无界 readBase64。
-	assert.match(sessionFilePathOpener, /readBase64\(\s*path,\s*COMPOSER_IMAGE_MAX_BYTES,\s*options\.scope\s*\)/);
-	assert.match(sessionFilePathOpener, /mimeType:\s*imageMimeTypeFromPath\(\s*path\s*\)/);
+	assert.match(sessionFilePathOpener, /readBase64\(\s*path,\s*COMPOSER_IMAGE_MAX_BYTES,\s*scope\s*\)/);
+	assert.match(sessionFilePathOpener, /mimeType:\s*imageMimeTypeFromPath\(\s*localPath\s*\)/);
 	assert.doesNotMatch(sessionFilePathOpener, /dataUrl\.match\(\/\^data:/);
 	// 授权随 editor tab 固化，异步加载不能改用后来聚焦的项目。
 	assert.match(fileEditor, /fileAccessScope\?: ProjectFileAccessScope/);
 	assert.match(fileEditor, /readFileContent\(path, maxBytes, scope\)/);
 	// 保存现在带第 4 个参数（内容指纹，用于本机乐观锁）。
 	assert.match(fileEditor, /writeFileContent\(path, content, scope, expectedRevision\)/);
+});
+
+// 远端目录没有本机文件管理器入口（`files:open` 对远端 target 必然 UNSUPPORTED_CAPABILITY）：
+// 点击只能落到文件抽屉的远端目录树，因此 opener 把这一支交给宿主，App 侧负责切抽屉 + 发布定位请求。
+test("remote directory links land in the file drawer instead of shell.openPath", () => {
+	assert.match(sessionFilePathOpener, /onOpenRemoteDirectory: \(target: ProjectFileTarget\) => void/);
+	assert.match(sessionFilePathOpener, /if \(typeof path !== "string"\) \{\s*\n\s*onOpenRemoteDirectory\(path\);\s*\n\s*return;/);
+	// 抽屉已是文件面板时不得再调 openDrawer（它是「再点一次收起」语义）
+	assert.match(app, /if \(workspace\.drawer !== "files" \|\| workspace\.drawerCollapsed\) workspace\.openDrawer\("files"\);/);
+	// 定位请求带 projectId：抽屉跟随当前项目，别的项目的目录等它自己的面板挂载时再消费
+	assert.match(app, /publishRemoteFolderReveal\(target\.projectId, target\.relativePath\)/);
+	assert.match(app, /import \{ publishRemoteFolderReveal \} from "\.\.\/\.\.\/utils\/remoteFolderReveal"/);
 });
 
 test("thinking and tool logos keep a distinct color even on the default zinc theme", () => {

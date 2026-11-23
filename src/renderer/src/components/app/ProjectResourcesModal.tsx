@@ -1,6 +1,7 @@
 import { FolderOpen, X } from "lucide-react";
 import { ConfigPane } from "../../ConfigModal";
 import { isChatProject } from "../../rendererUtils";
+import { isRemoteProject } from "../../../../shared/projectLocation";
 import type { Project } from "../../../../shared/types";
 import { t } from "../../i18n";
 import { Alert, AlertDescription } from "../ui-shadcn/alert";
@@ -15,6 +16,8 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, Di
  */
 export function ProjectResourcesModal(props: { project: Project; onClose: () => void }) {
 	const chatProject = isChatProject(props.project);
+	/** 远端项目没有本机 path：头部展示的是它在主机上的绝对路径。 */
+	const location = isRemoteProject(props.project) ? props.project.locator.remotePath : props.project.path;
 
 	return (
 		<Dialog open onOpenChange={(next) => !next && props.onClose()}>
@@ -28,8 +31,8 @@ export function ProjectResourcesModal(props: { project: Project; onClose: () => 
 								</span>
 								{t("projectResources.title")}
 							</DialogTitle>
-							<DialogDescription className="mt-1 truncate font-mono text-micro" title={props.project.path}>
-								{props.project.path}
+							<DialogDescription className="mt-1 truncate font-mono text-micro" title={location}>
+								{location}
 							</DialogDescription>
 						</div>
 						<DialogClose asChild>

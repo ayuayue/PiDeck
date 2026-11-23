@@ -1,6 +1,9 @@
 import { createRequire, syncBuiltinESMExports } from "node:module";
-import { DSH_RUNNER_NODE_ENV } from "./dshRunnerNodeSidecar";
 import { allocHiddenConsole } from "./allocHiddenConsole";
+
+// 必须内联环境变量名而不是 import dshRunnerNodeSidecar（该模块还被 index/hostEntry 导入），
+// 确保 rollup 打出的 runnerConsolePreload.js 不拆出相对 chunk，plain node.exe 可单文件 --require。
+const DSH_RUNNER_NODE_ENV = "PIDECK_DSH_RUNNER_NODE";
 
 /**
  * 沙箱 runner 进程内的控制台治理（win32）。
@@ -41,7 +44,7 @@ function resolveKoffi(): KoffiLike | undefined {
 }
 
 function isElectronExec(): boolean {
-	return /(^|[\\/])electron(\.exe)?$/i.test(process.execPath);
+	return Boolean(process.versions?.electron) || /(^|[\\/])electron(\.exe)?$/i.test(process.execPath);
 }
 
 function isRunnerArgs(args: unknown): args is readonly string[] {
@@ -49,7 +52,9 @@ function isRunnerArgs(args: unknown): args is readonly string[] {
 }
 
 function isElectronCommand(command: unknown): command is string {
-	return typeof command === "string" && /(^|[\\/])electron(\.exe)?$/i.test(command);
+	if (typeof command !== "string") return false;
+	if (/(^|[\\/])electron(\.exe)?$/i.test(command)) return true;
+	return isElectronExec() && command === process.execPath;
 }
 
 /**
@@ -105,5 +110,25 @@ function installRunnerHiddenConsole(): void {
 	allocHiddenConsole(process.platform, resolveKoffi());
 }
 
+/**
+ * This preload is injected into the Windows ACL runner so restricted children inherit its hidden console.
+ * Once loaded, remove only its own trailing --require flag: user commands inherit this process environment,
+ * and an ordinary node.exe cannot resolve a preload path inside app.asar.
+ */
+function removeRunnerPreloadFromNodeOptions(): void {
+	if (process.platform !== "win32") return;
+	const existing = process.env.NODE_OPTIONS;
+	if (!existing) return;
+	const preloadPath = __filename.replace(/\.ts$/i, ".js");
+	const preloadFlag = `--require="${preloadPath.replace(/\\/g, "\\\\")}"`;
+	let next = existing;
+	while (next === preloadFlag || next.endsWith(` ${preloadFlag}`)) {
+		next = next === preloadFlag ? "" : next.slice(0, -preloadFlag.length - 1);
+	}
+	if (next) process.env.NODE_OPTIONS = next;
+	else Reflect.deleteProperty(process.env, "NODE_OPTIONS");
+}
+
 patchNestedRunnerWindowsHide();
 installRunnerHiddenConsole();
+removeRunnerPreloadFromNodeOptions();

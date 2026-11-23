@@ -71,10 +71,10 @@ test("extension scope table keeps three columns and horizontal state toggles", (
 	// 内置扩展也使用同一启停开关；仅保留全局范围下的独立移除入口（不限于启用态：已禁用的内置同样可移除）。
 	assert.match(rows, /启停开关：Switch 轨道着色[\s\S]*?内置扩展也复用 extensions:toggle/);
 	assert.match(rows, /onCheckedChange=\{\(checked\) => props\.onToggle\(extension, checked\)\}/);
-	assert.match(rows, /extension\.builtIn && !inherited && \(/);
+	assert.match(rows, /extension\.builtIn && !inherited && !remote && \(/);
 	assert.doesNotMatch(rows, /onRestoreBuiltIn|restoringBuiltIn/);
-	// 继承的全局行只读：全局禁用项不可在项目视图重新启用，卸载/移除均隐藏
-	assert.match(rows, /\(inherited && extension\.enabled === false\)/);
+	// 继承的全局行只读：全局禁用项不可在项目视图重新启用；远端共享内置也不可在项目视图切换。
+	assert.match(rows, /inherited && \(extension\.enabled === false \|\| \(remote && extension\.builtIn\)\)/);
 	assert.match(rows, /!extension\.builtIn && !inherited && \(\s*<Button[\s\S]*?onUninstall/);
 });
 

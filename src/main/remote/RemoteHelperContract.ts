@@ -4,6 +4,8 @@
  * Only declared result shapes and bounds belong to the protocol and are enforced on both sides.
  */
 
+import { REMOTE_WRITE_ERROR_CODES } from "./RemoteWriteContract";
+
 /** Wire protocol version. A helper with a different version must not be used (structured refusal). */
 export const REMOTE_HELPER_PROTOCOL_VERSION = 1;
 
@@ -122,6 +124,7 @@ export const REMOTE_HELPER_ERROR_CODES = [
 	"FILE_UPLOAD_INPUT_INVALID",
 	"FILE_UPLOAD_TOKEN_INVALID",
 	"FILE_UPLOAD_TARGET_EXISTS",
+	...REMOTE_WRITE_ERROR_CODES,
 	"FILE_UPLOAD_STAGE_INVALID",
 	"FILE_UPLOAD_PATH_INVALID",
 	"FILE_UPLOAD_ROOT_CHANGED",
@@ -400,6 +403,8 @@ export type RemoteGitWorkspaceDiffParams = { group: "merge" | "index" | "working
 export type RemoteGitWorkspaceDiffResult = { originalContent: string; modifiedContent: string };
 
 export { REMOTE_HELPER_CAPABILITIES, type RemoteHelperCapability } from "./RemoteHelperCapabilities";
+/** 写面契约（上传比较交换 + 会话就地维护）单独成模块；这里原样 re-export，调用方仍从契约模块取。 */
+export * from "./RemoteWriteContract";
 /**
  * Ceiling for one requested relative path. It is applied to the raw string before any filesystem access,
  * so an over-long path is a PROTOCOL_INVALID refusal rather than an ENAMETOOLONG round trip.
@@ -411,14 +416,7 @@ export const REMOTE_FILE_UPLOAD_TOKEN_TTL_MS = 120_000;
 export const REMOTE_FILE_UPLOAD_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 export const REMOTE_FILE_UPLOAD_ID_PATTERN = /^[0-9a-f]{32}$/;
 export const REMOTE_FILE_UPLOAD_SHA256_PATTERN = /^[0-9a-f]{64}$/;
-export type RemoteFileUploadPolicy = "create";
-export type RemoteFileUploadPrepareParams = {
-	uploadId: string;
-	path: string;
-	policy: RemoteFileUploadPolicy;
-	size: number;
-	sha256: string;
-};
+
 /** stageRef is the 32hex id the caller appends as `.part` inside the helper-owned upload-spool. */
 export type RemoteFileUploadPrepareResult = { token: string; stageRef: string; expiresAt: number };
 export type RemoteFileUploadCommitParams = { uploadId: string; token: string };

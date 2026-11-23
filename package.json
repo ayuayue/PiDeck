@@ -1,6 +1,6 @@
 {
   "name": "pideck",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "dshRuntimeVersion": "0.2.1-rc.5",
   "packageManager": "npm@11.6.2",
   "engines": {
@@ -129,7 +129,7 @@
     "e2e": "playwright test",
     "verify": "npm run typecheck && npm test && npm run test:e2e",
     "probe:dsh": "node scripts/dsh-embed-probe.mjs",
-    "test:skills": "node scripts/run-skills-checks.mjs",
+    "test:skills": "node scripts/run-skills-checks.mjs && node resources/skills/pideck/verify-dtt.mjs && node scripts/skills/pideck/check-rules.mjs",
     "check:version-not-lower": "node scripts/check-version-not-lower.mjs"
   },
   "dependencies": {
@@ -175,6 +175,7 @@
     "asarUnpack": [
       "node_modules/sql.js/dist/*.wasm",
       "out/main/hostEntry.js",
+      "out/main/runnerConsolePreload.js",
       "node_modules/node-pty/**",
       "node_modules/@deepseek-ai/dsh-subprocess-local/node_modules/node-pty/**",
       "node_modules/**/@img/sharp-*/**",

@@ -1,3 +1,25 @@
+## v0.14.0 (2026-11-23)
+
+PiDeck 0.14 makes remote workspaces usable day to day: files move over SFTP, remote session history is maintained on the host, and remote settings and MCP reuse the same forms as local projects. It also fixes the Windows sandbox `0xC0000142` failure and the WSL session list freeze.
+
+### 🚀 New Features
+- **Remote files over SFTP with version-checked commits** — remote reads and writes use the SFTP channel, and an upload commit only replaces the file when the version still matches, so someone else's fresh edit is not overwritten.
+- **Remote session history maintained on the host** — the whole-file round trip and its 256 KiB ceiling are gone, and history paging and cross-host consistency are fixed along the way.
+- **Remote settings and MCP reuse the local forms** — remote projects now wire up project-level resources and MCP with the same editing experience as local ones.
+- **Markdown previews jump to headings from their table of contents** — anchor links scroll to the matching heading, with GitHub-compatible slugs (Chinese headings included).
+
+### 🐛 Fixes
+- **The WSL session list no longer freezes (#588)** — one `wsl.exe` call now fetches every file fingerprint instead of one child process per session, and any batch failure falls back to per-file reads so the list still loads.
+- **Commands in the Windows sandbox no longer fail with `0xC0000142` (#591, #582)** — the preload path inside the asar is no longer injected into `NODE_OPTIONS`; both runner levels now use the node sidecar with a hidden console, and the preload strips its own `--require` after loading.
+- **The remote Git graph works again** — history page arguments are translated to the IPC vocabulary, the SSH cold-start window waits for warm-up, load-more no longer exceeds `git.log`'s maxCount, and the commit list no longer depends on the count request succeeding.
+- **Archived session restore regressions fixed (#581, #579)** — restoring an archived parent session brings its flattened subagent sessions back, and POSIX project casing is preserved.
+- **File links in remote sessions open against the remote project** — the open-file action on tool cards no longer reports that the path does not exist.
+- **The bundled Feishu SDK keeps its file permissions and checksum** — the shipped `feishu-sdk-1.67.0.tar.gz` and its `manifest.json` are resynced, so extracted files keep their POSIX permissions and the runtime sha256 / byte checks match the archive again.
+- **Remote extension updates and built-in toggles use the right scope** — both entries in an SSH project used to resolve against the local scope, disagreeing with the remote extension snapshot; they now act on the remote project/host identity, and built-in toggle state follows that snapshot too.
+- **Running process groups keep following live output** — new members and member-window swaps no longer drag a scrolled-up reading position back to the bottom; only a group parked at the bottom keeps sticking.
+
+Thanks to **ZedingZhang** for fixing archived session restore (#581, #579) and the Windows sandbox `0xC0000142` / asar `NODE_OPTIONS` leak (#591), to **op15066212** for restructuring the pideck skill docs and their judge scripts, and to **bfzha** for resyncing the bundled Feishu SDK permissions and checksum, aligning remote extension updates and built-in toggles, and fixing process-group live following.
+
 ## v0.13.2 (2026-11-21)
 
 PiDeck 0.13.2 fixes remote Git requests timing out immediately in 0.13.1. It also includes the remote skill picker fix and all other improvements from 0.13.1.

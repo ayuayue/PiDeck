@@ -63,6 +63,7 @@ function fileHarness(fileService) {
 	const { registerRemoteProjectFileIpc } = loadTsCommonJs("src/main/ipc/remoteProjectFileIpc.ts", {
 		stubs: {
 			electron: { ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) } },
+			"../remote/RemoteProjectTextTransfer": { createRemoteProjectTextTransfer: () => ({}) },
 			"../remote/RemoteProjectFileService": { createRemoteProjectFileService: () => fileService },
 		},
 	});
@@ -70,13 +71,14 @@ function fileHarness(fileService) {
 		enabled: true,
 		service: async () => ({}),
 		locator: () => ({ kind: "ssh", hostId: "host", remotePath: "/srv/app" }),
+		textTransfer: {},
 		afterWrite: (projectId, paths) => afterWrite.push([projectId, [...paths]]),
 	});
 	return { handlers, afterWrite };
 }
 
 test("isUncertainWrite：未知结果与传输中断算「可能已落地」，明确失败不算", () => {
-	for (const code of ["REMOTE_FILE_RESULT_UNCONFIRMED", "GIT_WRITE_RESULT_UNCONFIRMED", "SSH_HOST_DISCONNECTED", "SSH_HOST_NOT_READY", "REMOTE_CONNECTION_LOST", "REQUEST_TIMEOUT"]) {
+	for (const code of ["REMOTE_FILE_RESULT_UNCONFIRMED", "REMOTE_FILE_COMMIT_UNCONFIRMED", "GIT_WRITE_RESULT_UNCONFIRMED", "SSH_HOST_DISCONNECTED", "SSH_HOST_NOT_READY", "REMOTE_CONNECTION_LOST", "REQUEST_TIMEOUT"]) {
 		assert.equal(isUncertainWrite(new Error(code)), true, code + " 可能已经执行");
 	}
 	for (const code of ["REMOTE_FILE_INPUT_INVALID", "REMOTE_FILE_CHANGED", "REMOTE_FILE_TARGET_EXISTS", "REMOTE_FILE_VERSION_INVALID", "REMOTE_FILE_COMMAND_FAILED", "REMOTE_FILE_NOT_FOUND"]) {

@@ -35,7 +35,9 @@ test("未信任引导文案双语齐全，且两个错误面都接入识别器",
 
 	for (const file of ["src/renderer/src/config/PiBuiltinExtensionsPanel.tsx", "src/renderer/src/config/McpTab.tsx"]) {
 		const source = readFileSync(file, "utf8");
-		assert.match(source, /import \{ isProjectUntrustedError \} from "\.\/projectResourceErrors";/, `${file} 未接入识别器`);
+		// 契约演进：McpTab 现在同时把「远端项目 MCP 作用域未接入」的稳定码映射成可读引导，
+		// 因此导入行允许附带其它同源错误判定函数，但识别器本身必须仍在。
+		assert.match(source, /import \{[^}]*\bisProjectUntrustedError\b[^}]*\} from "\.\/projectResourceErrors";/, `${file} 未接入识别器`);
 		assert.match(source, /isProjectUntrustedError\(caught\) \? t\("config\.projectUntrusted\.notice"\)/, `${file} 未把未信任错误映射为引导文案`);
 	}
 });

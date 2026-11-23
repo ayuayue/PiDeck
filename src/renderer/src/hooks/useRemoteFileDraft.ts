@@ -5,7 +5,7 @@ import type { ProjectFileTarget } from "../../../shared/types";
 import { remoteFileDraftsAtom } from "../atoms/remote-file-atoms";
 import { updateInstallPreflightTasksAtom } from "../atoms/update-install-preflight";
 import type { ProjectServices } from "../services/projectServiceContracts";
-import { beginRemoteFileLoad, editRemoteFileDraft, completeRemoteFileSave, remoteFileDraftDirty, remoteFileDraftKey, updateRemoteFileDraft } from "../utils/remoteFileDrafts";
+import { beginRemoteFileLoad, editRemoteFileDraft, completeRemoteFileSave, remoteFileDraftDirty, remoteFileDraftHeldChars, remoteFileDraftKey, updateRemoteFileDraft } from "../utils/remoteFileDrafts";
 
 /**
  * 远端文本 IO 单一 owner（Phase B）：读/写都走 `ProjectFileService`。
@@ -63,7 +63,7 @@ export function useRemoteFileDraft(services: ProjectServices, path: string) {
 		(content: string) => {
 			setDrafts((held) => {
 				const entry = held.get(key);
-				return entry ? updateRemoteFileDraft(held, key, entry.generation, (value) => editRemoteFileDraft(value, content)) : held;
+				return entry ? updateRemoteFileDraft(held, key, entry.generation, (value) => editRemoteFileDraft(value, content, remoteFileDraftHeldChars(held, key))) : held;
 			});
 		},
 		[key, setDrafts],

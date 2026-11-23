@@ -41,7 +41,7 @@ export const cacheSessionMessagesAtom = atom(
 			// 本地页与 runtime 更新只写 disk/runtime，这里放宽是为了让远端历史页能原样转存。
 			source: "disk" | "runtime" | "remote";
 			expectedRevision?: number;
-			page?: Pick<SessionMessagePage, "total" | "nextBefore">;
+			page?: Pick<SessionMessagePage, "total" | "nextBefore" | "nextBeforeEntryId" | "indexVersion">;
 			/** runtime 窗口协议字段（2026-08 激活分页） */
 			windowStart?: number;
 			/** 窗口段头部的系统摘要卡片数（全量 flush 推导，增量合并偏移用） */

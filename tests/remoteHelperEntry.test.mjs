@@ -79,6 +79,7 @@ const {
 	REMOTE_HELPER_INLINE_SOURCE,
 } = loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
 const { REMOTE_TERMINAL_RUNNER_ENTRY_SHA256 } = loadTsCommonJs("src/main/remote/RemoteTerminalRunnerEntry.ts");
+const { REMOTE_HELPER_SESSION_MAINTAIN_SHA256, REMOTE_SESSION_MAINTAIN_FILE_NAME } = loadTsCommonJs("src/main/remote/RemoteSessionMaintainSource.ts");
 const { REMOTE_GIT_READ_SOURCE } = loadTsCommonJs("src/main/remote/RemoteGitReadSource.ts");
 const { materializeRemoteHelperArtifacts } = await import("./helpers/remoteHelperArtifacts.mjs");
 const { REMOTE_FRAME_DIAGNOSTIC_CODES, createRemoteControlClient } = loadTsCommonJs("src/main/remote/RemoteControlClient.ts");
@@ -88,12 +89,17 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "4d4ce837c29ed2a3ef0df2e2a467e9c64a0ebf5c23876379093fcc5e7790147e";
+const FROZEN_SHA256 = "33ba1321473233ce07356b6ebad7bf5865662d93935e62b30bad54eb440b12a4";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
 const DROP_CODES = new Set(Object.values(REMOTE_FRAME_DIAGNOSTIC_CODES));
 const UPLOAD_CAPABILITIES = new Set(["fs.uploadPrepare", "fs.uploadCommit", "fs.uploadAbort"]);
+/**
+ * 本平台实际会公布的能力：`session.maintain` 靠 /proc/self/fd 改名，仅 Linux 主机公布，
+ * 其余平台 hello 里不会出现（见 RemoteHelperEntry 的 helperCapabilities）。
+ */
+const PLATFORM_CAPABILITIES = process.platform === "linux" ? REMOTE_HELPER_CAPABILITIES : REMOTE_HELPER_CAPABILITIES.filter((capability) => capability !== "session.maintain");
 const withoutUploadCapabilities = (capabilities) => Array.from(capabilities).filter((capability) => UPLOAD_CAPABILITIES.has(capability) === false);
 /** The token a refusal must never have read: it exists only outside the root. */
 const DECOY = "pideck-decoy-7f3a1c";
@@ -459,7 +465,7 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 	// programs that worker imports - and each one is content-addressed and pinned on its own. A change is only
 	// legitimate together with a deliberate update of that file's digest.
 	const expected = new Map([
-		["helper.mjs", { sha256: FROZEN_SHA256, builtins: ["node:fs", "node:path", "node:crypto", "node:child_process"], imports: ["upload-commit.mjs", "git-read.mjs", "config.mjs", "resources.mjs", "mcp-login.mjs", "search-content.mjs"] }],
+		["helper.mjs", { sha256: FROZEN_SHA256, builtins: ["node:fs", "node:path", "node:crypto", "node:child_process"], imports: ["upload-commit.mjs", "git-read.mjs", "config.mjs", "resources.mjs", "mcp-login.mjs", "search-content.mjs", "session-maintain.mjs"] }],
 		["git-read.mjs", { sha256: REMOTE_HELPER_GIT_READ_SHA256, builtins: ["node:child_process", "node:crypto"], imports: ["git-write.mjs", "git-sync.mjs"] }],
 		["git-write.mjs", { sha256: REMOTE_HELPER_GIT_WRITE_SHA256, builtins: [], imports: [] }],
 		["git-sync.mjs", { sha256: REMOTE_HELPER_GIT_SYNC_SHA256, builtins: [], imports: [] }],
@@ -468,6 +474,7 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 		["mcp-login.mjs", { sha256: REMOTE_HELPER_MCP_LOGIN_SHA256, builtins: [], imports: [] }],
 		["search-content.mjs", { sha256: REMOTE_HELPER_SEARCH_CONTENT_SHA256, builtins: [], imports: [] }],
 		[REMOTE_UPLOAD_COMMIT_FILE_NAME, { sha256: REMOTE_HELPER_UPLOAD_COMMIT_SHA256, builtins: [], imports: [] }],
+		[REMOTE_SESSION_MAINTAIN_FILE_NAME, { sha256: REMOTE_HELPER_SESSION_MAINTAIN_SHA256, builtins: [], imports: [] }],
 		["terminal-runner.mjs", { sha256: REMOTE_TERMINAL_RUNNER_ENTRY_SHA256, builtins: ["node:fs", "node:path", "node:child_process"], imports: [] }],
 	]);
 	assert.deepEqual(
@@ -554,7 +561,7 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 helperTest("the exported entry identity matches the frozen source", () => {
 	assert.equal(REMOTE_HELPER_ENTRY_FILE_NAME, "helper.mjs");
 	assert.match(REMOTE_HELPER_ENTRY_VERSION, /^\d+\.\d+\.\d+$/);
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.36.1", "1.36.1 passes the admitted deadline to Git workers");
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.38.0", "1.38.0 adds in-place session maintenance");
 	// The frozen source cannot import the contract, so its literals are checked against it here.
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(`"${REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report REMOTE_HELPER_ENTRY_VERSION");
 	for (const token of [REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_STAT_MANY, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) {
@@ -635,7 +642,7 @@ helperTest("hello answers the contract handshake through the production client",
 		// The canonical root it confined itself to: main uses this to prove the --root it asked for is the
 		// one that took effect, instead of assuming the path was not a symlink to somewhere else.
 		root: session.root,
-		capabilities: withoutUploadCapabilities(REMOTE_HELPER_CAPABILITIES),
+		capabilities: withoutUploadCapabilities(PLATFORM_CAPABILITIES),
 		helperVersion: REMOTE_HELPER_ENTRY_VERSION,
 		nodeVersion: process.versions.node,
 		pid: session.child.pid,
@@ -772,7 +779,7 @@ helperTest("a helper started without --root is a legal host-only session that se
 	assert.equal(hello.root, null);
 	// The capabilities are reported as this build really has them: fs.* is still a capability, it is only the
 	// paths that are unreachable, so a client must never read the host-only mode as a downgraded build.
-	assert.deepEqual(hello.capabilities, withoutUploadCapabilities(REMOTE_HELPER_CAPABILITIES), "a host-only helper advertises no filesystem write capability");
+	assert.deepEqual(hello.capabilities, withoutUploadCapabilities(PLATFORM_CAPABILITIES), "a host-only helper advertises no filesystem write capability");
 	assert.equal(hello.helperVersion, REMOTE_HELPER_ENTRY_VERSION);
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "host-only" }), "echo without a root")), { text: "host-only", delayMs: 0 });
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_CANCEL, { requestId: "req-never-seen" }), "cancel without a root")), {
@@ -1606,7 +1613,7 @@ helperTest("the uploaded helper.mjs runs the same frozen source", async (t) => {
 	const result = plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello from the uploaded entry"));
 	assert.equal(result.helperVersion, REMOTE_HELPER_ENTRY_VERSION);
 	assert.equal(result.home, HELPER_HOME);
-	assert.deepEqual(result.capabilities, withoutUploadCapabilities(REMOTE_HELPER_CAPABILITIES), "the uploaded flat fixture has no deploy spool");
+	assert.deepEqual(result.capabilities, withoutUploadCapabilities(PLATFORM_CAPABILITIES), "the uploaded flat fixture has no deploy spool");
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "file" }), "echo from the uploaded entry")), { text: "file", delayMs: 0 });
 	// The ES module artifact loads its two builtins and confines itself to the same root.
 	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "." }), { entries: [{ name: "entry.txt", kind: "file", bytes: "uploaded".length }] });

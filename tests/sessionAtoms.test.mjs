@@ -2427,3 +2427,91 @@ test("聊天栏卸载清 live 正文：只删本会话，不动其它会话", ()
 	assert.equal(store.get(atoms.streamingTextByIdAtom)["session-a"], undefined);
 	assert.equal(store.get(atoms.streamingTextByIdAtom)["session-b"].content, "b");
 });
+
+test("prependSessionMessagePageAtom accepts remote pages and preserves continuation metadata", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
+	store.set(atoms.cacheSessionMessagesAtom, {
+		sessionId: "session-a",
+		messages: [{ id: "m2", role: "user", text: "m2", meta: { entryId: "e2" } }],
+		source: "remote",
+		page: { total: 3, nextBefore: 2000, nextBeforeEntryId: "e1", indexVersion: "remote:42:1700000000:900" },
+	});
+	assert.equal(
+		store.set(atoms.prependSessionMessagePageAtom, {
+			sessionId: "session-a",
+			expectedRevision: entry().revision,
+			before: 2000,
+			page: {
+				messages: [{ id: "m1", role: "user", text: "m1", meta: { entryId: "e1" } }],
+				total: 3,
+				nextBefore: 1000,
+				nextBeforeEntryId: "e0",
+				indexVersion: "remote:42:1700000001:950",
+			},
+		}),
+		true,
+	);
+	assert.deepEqual([...entry().messages.map((message) => message.meta.entryId)], ["e1", "e2"]);
+	assert.equal(entry().page.nextBefore, 1000);
+	assert.equal(entry().page.nextBeforeEntryId, "e0");
+	assert.equal(entry().page.indexVersion, "remote:42:1700000001:950", "同 inode 追加时允许续页并更新真实体积");
+});
+
+test("prependSessionMessagePageAtom rejects a remote page from another file generation", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
+	store.set(atoms.cacheSessionMessagesAtom, {
+		sessionId: "session-a",
+		messages: [{ id: "newer", role: "assistant", text: "newer", meta: { entryId: "a2" } }],
+		source: "remote",
+		page: { total: 3, nextBefore: 2000, nextBeforeEntryId: "a1", indexVersion: "remote:42:1700000000:900" },
+	});
+	const revision = entry().revision;
+	for (const version of ["remote:43:1700000000:1200", "remote:42:1700000000:899", "remote:42:1700000001:900"]) {
+		assert.equal(
+			store.set(atoms.prependSessionMessagePageAtom, {
+				sessionId: "session-a",
+				expectedRevision: revision,
+				before: 2000,
+				page: {
+					messages: [{ id: "older", role: "user", text: "older", meta: { entryId: "a1" } }],
+					total: 3,
+					nextBefore: 1000,
+					nextBeforeEntryId: "a0",
+					indexVersion: version,
+				},
+			}),
+			false,
+			`reject stale remote generation ${version}`,
+		);
+	}
+	assert.deepEqual([...entry().messages.map((message) => message.meta.entryId)], ["a2"]);
+	assert.equal(entry().page.nextBefore, 2000);
+	assert.equal(entry().page.indexVersion, "remote:42:1700000000:900");
+});
+
+test("remote message-budget trimming never adds message counts to a byte cursor", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	const limit = atoms.DISK_HISTORY_MESSAGE_LIMIT;
+	const makeMessages = (start, count) => Array.from({ length: count }, (_, i) => ({ id: `m${start + i}`, role: "user", text: `m${start + i}`, meta: { entryId: `e${start + i}` } }));
+	store.set(atoms.cacheSessionMessagesAtom, {
+		sessionId: "session-a",
+		messages: makeMessages(0, limit),
+		source: "remote",
+		page: { total: limit + 2, nextBefore: 9000, nextBeforeEntryId: "e0", indexVersion: "remote:42:1700000000:10000" },
+	});
+	assert.equal(
+		store.set(atoms.prependSessionMessagePageAtom, {
+			sessionId: "session-a",
+			expectedRevision: store.get(atoms.sessionMessagesCacheAtom)["session-a"].revision,
+			before: 9000,
+			page: { messages: makeMessages(-2, 2), total: limit + 2, nextBefore: 8000, nextBeforeEntryId: "root", indexVersion: "remote:42:1700000001:11000" },
+		}),
+		true,
+	);
+	assert.equal(store.get(atoms.sessionMessagesCacheAtom)["session-a"].page.nextBefore, null, "字节游标不可按消息溢出量做算术");
+});

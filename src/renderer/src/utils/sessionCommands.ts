@@ -18,6 +18,7 @@ const SESSION_COMMAND_ERROR_KEYS: Record<SessionCommandError["code"], Translatio
 	SESSION_COMMAND_FAILED: "sessionCommand.commandFailed",
 	SESSION_MODEL_NOT_FOUND: "sessionCommand.modelNotFound",
 	SESSION_FILE_TOO_LARGE: "sessionCommand.fileTooLarge",
+	SESSION_DRAFT_TOO_LARGE: "sessionCommand.draftTooLarge",
 };
 
 /** F5: stable remote-write debugDetails get dedicated copy (only for SESSION_COMMAND_FAILED). */

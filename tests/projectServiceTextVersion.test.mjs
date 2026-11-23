@@ -47,29 +47,26 @@ function textFixture(initial = "hello\n") {
 		const args = JSON.parse(raw);
 		state.ops.push(operation);
 		if (operation === "snapshot") return marker + JSON.stringify({ ok: true, revision: identity(state) });
-		if (operation === "read") {
-			const bytes = Buffer.from(state.content, "utf8");
-			return marker + JSON.stringify({ ok: true, data: bytes.subarray(args.offset, args.offset + args.count).toString("base64") });
-		}
-		if (operation === "upload") {
-			const previous = state.temporary.get(args.temporary) ?? Buffer.alloc(0);
-			state.temporary.set(args.temporary, Buffer.concat([previous, Buffer.from(args.data, "base64")]));
-			return marker + JSON.stringify({ ok: true });
-		}
-		if (operation === "commit") {
-			const uploaded = state.temporary.get(args.temporary);
-			if (uploaded === undefined || uploaded.length !== args.size || sha256(uploaded) !== args.digest) return marker + JSON.stringify({ ok: false, code: "REMOTE_FILE_TRANSFER_INVALID" });
-			state.content = uploaded.toString("utf8");
-			state.ino += 1;
-			state.mtime += 1;
-			state.temporary.delete(args.temporary);
-			return marker + JSON.stringify({ ok: true, revision: identity(state) });
-		}
 		return marker + JSON.stringify({ ok: false, code: "REMOTE_FILE_INPUT_INVALID" });
 	}
+	// 正文只走 SFTP：这里假的是那一层（下载一次、整份替换），命令通道只剩 revision 快照。
+	const transfer = {
+		async download({ revision }) {
+			if (JSON.stringify(revision) !== JSON.stringify(identity(state))) throw new Error("REMOTE_FILE_CHANGED");
+			return Buffer.from(state.content, "utf8");
+		},
+		async replace({ bytes, expected }) {
+			if (JSON.stringify(expected) !== JSON.stringify(identity(state))) throw new Error("REMOTE_FILE_CHANGED");
+			state.content = bytes.toString("utf8");
+			state.ino += 1;
+			state.mtime += 1;
+			return { revision: identity(state) };
+		},
+	};
 	const service = createMainTextService({
 		locator: (id) => (id === "project" ? target : id === "other" ? { hostId, remotePath: otherRoot } : undefined),
-		withProject: async (_target, work) => work({ nodePath: "/usr/bin/node", hostRevision: state.hostRevision, runCommand: async (command) => ({ exitCode: 0, stdout: dispatch(command) }) }),
+		withProject: async (_target, work) => work({ nodePath: "/usr/bin/node", hostRevision: state.hostRevision, runCommand: async (command) => ({ exitCode: 0, stdout: dispatch(command) }) }, ["fs.uploadPrepare", "fs.uploadCommit", "fs.uploadAbort"]),
+		transfer,
 		now: () => state.now,
 	});
 	return { state, service };
@@ -106,7 +103,7 @@ test("有效文本 version：原样传给 save，保存成功并返回新 versio
 	assert.match(saved.version, /^[a-f0-9]{32}$/);
 	assert.notEqual(saved.version, document.version);
 	assert.equal(fixture.state.content, "next\n");
-	assert.deepEqual(fixture.state.ops, ["snapshot", "read", "snapshot", "upload", "commit"]);
+	assert.deepEqual(fixture.state.ops, ["snapshot", "snapshot"], "读一次快照 + 写一次快照，正文不经过命令");
 	// 旧文本 version 不能重放：main 消费令牌并拒绝第二次。
 	await assert.rejects(fixture.service.save(1, "project", "code.ts", "again\n", document.version), /REMOTE_FILE_VERSION_INVALID/);
 	assert.equal(fixture.state.content, "next\n");

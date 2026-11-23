@@ -172,14 +172,17 @@ export class RemoteMessageMutation {
 	 * 远端写面的稳定码 → 会话命令错误码。
 	 *
 	 * 为什么按码显式映射，而不是沿用 `commandFailure` 的文案匹配：远端写面本来就只回稳定码（路径、
-	 * 命令行、stderr 都不外传），匹配自由文本既不稳也没必要。体积参数必须跟着错误一起走 —— 远端的
-	 * 整读上界（默认 256 KiB）远小于本机 32MB，用本机兜底数字渲染文案就是骗人。
+	 * 正文、stderr 都不外传），匹配自由文本既不稳也没必要。体积参数必须跟着错误一起走 —— 远端发请求前
+	 * 的 revision 快照上界（256 KiB）远小于本机 32MB，用本机兜底数字渲染文案就是骗人。
 	 */
 	private remoteMessageMutationCommandError(error: unknown): SessionRuntimeCommandError {
 		const failure = remoteSessionHistoryWriteFailure(error);
 		if (failure.code === REMOTE_SESSION_HISTORY_WRITER_CODES.fileTooLarge) return new SessionRuntimeCommandError("SESSION_FILE_TOO_LARGE", failure.code, failure.details);
 		if (failure.code === REMOTE_SESSION_HISTORY_WRITER_CODES.messageNotFound) return new SessionRuntimeCommandError("MESSAGE_NOT_FOUND", failure.code);
-		// F5：提交 rename 已发生但回执丢失（REMOTE_SESSION_HISTORY_WRITER_RESULT_UNCONFIRMED）也落在这里，
+		// 「历史没改，只是重发草稿太大」是三种结果里的第三种：既不是成功（草稿丢了），也不是「写失败可重试」
+		// （文件确实没变，重试还是同一份草稿）。必须单独一个可读码，否则用户会以为重发的是原文。
+		if (failure.code === REMOTE_SESSION_HISTORY_WRITER_CODES.draftTooLarge) return new SessionRuntimeCommandError("SESSION_DRAFT_TOO_LARGE", failure.code);
+		// F5：改写可能已生效但回执丢失（REMOTE_SESSION_HISTORY_WRITER_RESULT_UNCONFIRMED）也落在这里，
 		// 但 debugDetails 保留独立稳定码——渲染层必须据此显示「结果未确认，重新加载核对，不自动重试」，
 		// 不能显示通用的「会话操作失败，请重试」（与远端 Git / 远端文本保存同一条产品口径）。
 		// 语义方向：本机不知道远端是否已经替换，宁可让用户核对，也不谎报成功或提示重试。

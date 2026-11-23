@@ -12,8 +12,12 @@ permissions:
   contents: read
 
 jobs:
+  windows-unit:
+    uses: ./.github/workflows/windows-unit-tests.yml
+
   build:
     name: Test, type-check and build
+    needs: windows-unit
     runs-on: windows-latest
 
     steps:
@@ -91,16 +95,6 @@ jobs:
         #   JSON 仍合法、npm ci 不报错，三笔 CI 红在 ERR_MODULE_NOT_FOUND）。
         run: npm run check:ipc-wiring && npm run check:test-shape && npm run check:file-size && npm run check:scroll-containers && npm run check:package-json
 
-      - name: Test
-        # 串行执行：并发模式（--test-concurrency=4）下测试文件共享进程全局状态，
-        # Windows runner 偶发死锁挂起（二分定位：546 文件串行全过、并发偶发挂）；
-        # --test-timeout/--test-force-exit 兜底单测超时与 open handle。
-        # 2026-10：串行模式也出现间歇性整文件挂起（sessionScannerSubagents 在 CI 上
-        # 单文件 47 分钟无输出，本地同文件 2.3s；10-01 曾 6h 空烧）——绿套件约 20-25 分钟，
-        # 45 分钟上限兜底：挂起快速红灯重跑，不再占用 runner 六小时。
-        timeout-minutes: 45
-        run: npm run test:serial -- --test-timeout=120000 --test-force-exit
-
       - name: Generate app icon
         run: npm run make-icon
 
@@ -171,7 +165,7 @@ jobs:
   linux-unit-remote:
     name: Linux unit tests (remote/SSH)
     runs-on: ubuntu-latest
-    # 为什么单独一个 Linux 单测 job：主 CI 的单测只在 windows-latest 上跑（build job），
+    # 为什么单独一个 Linux 单测 job：主 CI 的全量单测只在 Windows 上跑（windows-unit），
     # 而远端/SSH 域里大量行为只在 POSIX 上才走得到——路径分隔与大小写、权限位、
     # symlink/fifo、以及真实 spawn 的 ssh/helper 进程。这些分支在 Windows 上要么被 skip、
     # 要么走另一条实现，Windows 绿灯证明不了 Linux 正确。这里只补这块缺口，不复刻全量套件。
@@ -182,7 +176,7 @@ jobs:
     # 2) 跟踪：remote*/ssh* 全扫，continue-on-error。当前既有红已清零；保留跟踪是为了让
     #    runner 与本地环境差异留下失败清单。任何新红按缺陷处理，不能拿非阻断当免修理由。
     # 超时：硬门禁在本机 Linux 实测约 1 分钟（最慢 remoteProjectDirFacts ~15s），给 15 分钟；
-    # 全扫给 25 分钟；job 45 分钟与 Windows job 同量级，兜底整文件挂起（见 build job 注释）。
+    # 全扫给 25 分钟；job 45 分钟兜底整文件挂起。
     timeout-minutes: 45
 
     steps:
