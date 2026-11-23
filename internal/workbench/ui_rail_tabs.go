@@ -85,6 +85,7 @@ func (a *app) railMore() core.Node {
 			}
 		}
 		children = append(children,
+			entry(lucide.GitPullRequest, "评审", "rail-review", paneReview, func() { a.openReviewPane() }),
 			entry(lucide.Bot, "智能体", "rail-agents", paneAgents, func() { a.openAgentManager() }),
 			entry(lucide.CalendarClock, "定时任务", "rail-tasks", paneTasks, func() { a.openTaskDialog() }),
 			entry(lucide.Star, "收藏夹", "rail-favorites", paneFavorites, func() { a.openFavorites() }))

@@ -93,12 +93,14 @@ type reviewDetail struct {
 type reviewState struct {
 	Checked bool
 	Loading bool
-	// Missing says the target refused the command: no gh, or no login.
-	Missing bool
-	Error   string
-	Repo    string
-	Items   []reviewItem
-	Limit   int
+	// Missing says the machine has no GitHub CLI, NeedsLogin that it has one
+	// with no account: either way nothing can be read until that is fixed.
+	Missing    bool
+	NeedsLogin bool
+	Error      string
+	Repo       string
+	Items      []reviewItem
+	Limit      int
 
 	Open        string
 	Detail      *reviewDetail
