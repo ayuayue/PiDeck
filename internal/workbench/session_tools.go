@@ -11,12 +11,14 @@ import (
 	"github.com/nsgo-dev/nsgo/ui/chat"
 )
 
-// updateTodos takes the task list a todo tool call carries.
+// updateTodos folds a todo tool call into the session's task list: a call
+// with the whole list replaces it, and one that creates or marks a single
+// item patches the list it leaves.
 func (a *app) updateTodos(s *session, toolName string, args json.RawMessage) {
 	if s == nil || !isTodoTool(toolName) {
 		return
 	}
-	if items, ok := parseTodoArgs(args); ok {
+	if items, ok := applyTodoArgs(s.todos.GetUntracked(), args); ok {
 		s.todos.Set(items)
 	}
 }
@@ -48,6 +50,13 @@ func (a *app) toolEnded(s *session, ev piEvent) {
 		run.Status = chat.Failed
 	}
 	a.updateTool(s, run)
+	// A tool that answers with the whole plan leaves the list there, which
+	// is the newest word even when its calls only patched one item.
+	if isTodoTool(ev.ToolName) {
+		if plan, ok := todoPlanFromText(resultText(&res)); ok {
+			s.todos.Set(plan)
+		}
+	}
 }
 
 // updateTool merges a run into the live list or a committed step.

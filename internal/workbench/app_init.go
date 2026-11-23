@@ -276,10 +276,14 @@ func newApp(cx *core.Scope) *app {
 		filesQuery:             core.NewSignal(cx, ""),
 		acpOpen:                core.NewSignal(cx, false),
 		acpManageOpen:          core.NewSignal(cx, false),
-		acpNewID:               core.NewSignal(cx, ""),
-		acpNewName:             core.NewSignal(cx, ""),
-		acpNewCommand:          core.NewSignal(cx, ""),
-		acpNewArgs:             core.NewSignal(cx, ""),
+		acpPresetSel:           core.NewSignal(cx, ""),
+		acpPresetTab:           core.NewSignal(cx, "launch"),
+		acpEditID:              core.NewSignal(cx, ""),
+		acpEditName:            core.NewSignal(cx, ""),
+		acpEditCommand:         core.NewSignal(cx, ""),
+		acpEditArgs:            core.NewSignal(cx, ""),
+		acpEditEnv:             core.NewSignal(cx, ""),
+		acpEditBypass:          core.NewSignal(cx, false),
 		acpManageErr:           core.NewSignal(cx, ""),
 		acpManager:             core.NewSignalFunc(cx, acpManagerSnapshot{}, nil),
 		acpInstalling:          core.NewSignal(cx, ""),
@@ -616,5 +620,7 @@ func newApp(cx *core.Scope) *app {
 	a.startAnnouncements()
 	a.startModelCatalogRefresh()
 	a.startTelemetry()
+	// Where the app draws the window's buttons, the platform's are hidden.
+	hideSystemWindowControls(cx)
 	return a
 }

@@ -107,11 +107,25 @@ type acpResponse struct {
 }
 
 type acpError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-func (e *acpError) Error() string { return fmt.Sprintf("ACP 错误 %d：%s", e.Code, e.Message) }
+func (e *acpError) Error() string {
+	// Agents often put the real reason ("unknown permission_mode: yolo")
+	// in data.details while message stays "Internal error".
+	var data struct {
+		Details string `json:"details"`
+	}
+	if len(e.Data) > 0 && json.Unmarshal(e.Data, &data) == nil {
+		details := strings.TrimSpace(data.Details)
+		if details != "" && !strings.Contains(e.Message, details) {
+			return fmt.Sprintf("ACP 错误 %d：%s：%s", e.Code, e.Message, details)
+		}
+	}
+	return fmt.Sprintf("ACP 错误 %d：%s", e.Code, e.Message)
+}
 
 type acpMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -131,6 +145,15 @@ type acpPreset struct {
 	Name    string   `json:"name"`
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
+	// Env adds variables to the agent's process, so a CLI that reads its
+	// key from the environment needs no shell wrapper. Values are secrets:
+	// they are stored, never logged.
+	Env map[string]string `json:"env,omitempty"`
+	// BypassPermissions asks a new session to switch to the CLI's own
+	// "stop asking" permission mode after the handshake. Some adapters
+	// only accept that mode at launch, which is why Qoder's preset
+	// carries --permission-mode instead.
+	BypassPermissions bool `json:"bypassPermissions,omitempty"`
 	// Homepage is the CLI's documentation.
 	Homepage string `json:"homepage,omitempty"`
 	// Install is the npm package that provides the command, empty when the
@@ -139,6 +162,22 @@ type acpPreset struct {
 	// Npx marks presets npx fetches on demand: they need Node.js, not the
 	// CLI itself.
 	Npx bool `json:"npx,omitempty"`
+	// Builtin and Edited are the manager's flags: a shipped preset, and a
+	// shipped one the user's file overrides. Neither is written to a file.
+	Builtin bool `json:"-"`
+	Edited  bool `json:"-"`
+}
+
+// envList is the preset's variables in the form a process wants.
+func (p acpPreset) envList() []string {
+	if len(p.Env) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(p.Env))
+	for key, value := range p.Env {
+		out = append(out, key+"="+value)
+	}
+	return out
 }
 
 // acpPresets is the built-in list, checked against each CLI's ACP docs:
@@ -163,7 +202,7 @@ type acpPreset struct {
 // Qoder's adapter lists bypass permissions as a config option but refuses
 // to set it, so the flag has to be given at launch.
 func acpPresets() []acpPreset {
-	return []acpPreset{
+	list := []acpPreset{
 		{ID: "gemini", Name: "Gemini CLI", Command: "gemini", Args: []string{"--acp"},
 			Homepage: "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/acp-mode.md", Install: "@google/gemini-cli"},
 		{ID: "claude", Name: "Claude Agent", Command: "npx", Args: []string{"-y", "@agentclientprotocol/claude-agent-acp"},
@@ -197,10 +236,14 @@ func acpPresets() []acpPreset {
 		{ID: "dsh", Name: "DeepSeek Harness", Command: "dsh", Args: []string{"--profile", "acp"},
 			Homepage: "https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/README.zh.md", Install: "@deepseek-ai/dsh"},
 	}
+	for i := range list {
+		list[i].Builtin = true
+	}
+	return list
 }
 
 // startACP spawns an agent in dir and connects to it.
-func startACP(dir, command string, args []string, onUpdate func(acpUpdate), onPermission func(acpPermission) string, onExit func(error)) (*acpClient, error) {
+func startACP(dir, command string, args, env []string, onUpdate func(acpUpdate), onPermission func(acpPermission) string, onExit func(error)) (*acpClient, error) {
 	if strings.TrimSpace(command) == "" {
 		return nil, fmt.Errorf("没有 ACP 命令")
 	}
@@ -210,6 +253,7 @@ func startACP(dir, command string, args []string, onUpdate func(acpUpdate), onPe
 	}
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), agentProxy.env()...)
+	cmd.Env = append(cmd.Env, env...)
 	cmd.Env = append(cmd.Env, "PIDECK_V2=1")
 	in, err := cmd.StdinPipe()
 	if err != nil {
@@ -298,15 +342,15 @@ func (c *acpClient) dispatchUpdate(raw json.RawMessage) {
 	var params struct {
 		SessionID string `json:"sessionId"`
 		Update    struct {
-			SessionUpdate string            `json:"sessionUpdate"`
-			Content       json.RawMessage   `json:"content"`
-			ToolCallID    string            `json:"toolCallId"`
-			Title         string            `json:"title"`
-			Name          string            `json:"name"`
-			ToolKind      string            `json:"kind"`
-			Status        string            `json:"status"`
-			CurrentModeID string            `json:"currentModeId"`
-			Options       []acpConfigOption `json:"configOptions"`
+			SessionUpdate string           `json:"sessionUpdate"`
+			Content       json.RawMessage  `json:"content"`
+			ToolCallID    string           `json:"toolCallId"`
+			Title         string           `json:"title"`
+			Name          string           `json:"name"`
+			ToolKind      string           `json:"kind"`
+			Status        string           `json:"status"`
+			CurrentModeID string           `json:"currentModeId"`
+			Options       acpConfigOptions `json:"configOptions"`
 			Locations     []struct {
 				Path string `json:"path"`
 			} `json:"locations"`
@@ -524,9 +568,13 @@ func (c *acpClient) initialize(name, version string) (int, error) {
 		} `json:"agentCapabilities"`
 	}
 	err := c.call("initialize", map[string]any{
-		"protocolVersion":    1,
-		"clientCapabilities": map[string]any{},
-		"clientInfo":         map[string]string{"name": name, "version": version},
+		"protocolVersion": 1,
+		// Switches are part of the option contract: CodeBuddy sends them
+		// (and validates a set with the type field), so they are declared.
+		"clientCapabilities": map[string]any{
+			"session": map[string]any{"configOptions": map[string]any{"boolean": map[string]any{}}},
+		},
+		"clientInfo": map[string]string{"name": name, "version": version},
 	}, &out, 30*time.Second)
 	if err == nil {
 		c.loadSupported = out.Capabilities.Load

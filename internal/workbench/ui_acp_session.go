@@ -79,16 +79,26 @@ func (a *app) acpBadge(s *session) core.Node {
 				rows = append(rows, composerDivider(cx))
 			}
 			for _, opt := range s.acpOptions.Get() {
-				values := opt.Choices()
-				if opt.ID == "" || len(values) == 0 {
+				option := opt
+				if option.ID == "" {
 					continue
 				}
-				rows = append(rows, composerPanelTitle(cx, firstNonEmpty(opt.Name, opt.ID)))
+				if option.isBool() {
+					rows = append(rows, composerPanelTitle(cx, firstNonEmpty(option.Name, option.ID)),
+						a.acpSwitchRow(cx, s, option, changing), composerDivider(cx))
+					continue
+				}
+				values := option.Choices()
+				if len(values) == 0 {
+					continue
+				}
+				rows = append(rows, composerPanelTitle(cx, firstNonEmpty(option.Name, option.ID)))
 				choices := make([]core.Node, 0, len(values))
 				for _, choice := range values {
-					row := composerRow(cx, nil, firstNonEmpty(choice.Name, choice.Value), choice.Description,
-						choice.Value == opt.CurrentValue, changing, func() { a.chooseACPOption(s, opt.ID, choice.Value) })
-					row.TestID = "acp-option-" + opt.ID + "-" + choice.Value
+					value := choice.Value
+					row := composerRow(cx, nil, firstNonEmpty(choice.Name, value), choice.Description,
+						value == option.CurrentValue.text(), changing, func() { a.chooseACPOption(s, option.ID, acpTextValue(value)) })
+					row.TestID = "acp-option-" + option.ID + "-" + value
 					choices = append(choices, row)
 				}
 				rows = append(rows, core.Scroll{Style: core.Style{MaxHeight: core.Pt(130)}, Children: choices}, composerDivider(cx))
@@ -149,6 +159,26 @@ func (a *app) acpBadge(s *session) core.Node {
 			return core.View{Style: core.Style{Gap: 1}, Children: rows}
 		}, "acp-info-menu")
 	})
+}
+
+// acpSwitchRow is an on/off option in the ACP panel: some agents keep the
+// approvals toggle there instead of in the mode list.
+func (a *app) acpSwitchRow(cx *core.Scope, s *session, option acpConfigOption, disabled bool) core.Node {
+	colors := ui.ColorsOf(cx)
+	label := firstNonEmpty(option.Name, option.ID)
+	title := []core.Node{core.Text{Content: label, MaxLines: 1, Style: core.Style{FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)}}
+	if option.Description != "" {
+		title = append(title, core.Text{Content: option.Description, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
+			Style: core.Style{FontSize: 10.5}, StyleFunc: ui.Colored(colors.Faint)})
+	}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinHeight: core.Pt(30),
+		Padding: core.Symmetric(2, 8)}, Children: []core.Node{
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: title},
+		ui.Switch{Checked: func() bool { return option.CurrentValue.truthy() },
+			OnChange: func(on bool) { a.chooseACPOption(s, option.ID, acpBoolValue(on)) },
+			Label:    label, Size: ui.SizeSmall, Disabled: func() bool { return disabled },
+			TestID: "acp-option-" + option.ID},
+	}}
 }
 
 // acpModeLabel maps a mode id to the name the agent gave it.

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +107,32 @@ func TestACPModePicker(t *testing.T) {
 		}
 	}
 	waitApp(app, `text:"Fake Agent · Code"`, 10*time.Second)
+}
+
+// TestACPPanelSwitch flips the agent's own approvals switch and checks the
+// choice is remembered for the preset.
+func TestACPPanelSwitch(t *testing.T) {
+	if testing.Short() || nsgotest.Target() != "" {
+		t.Skip("driven headless; a platform run is for pixels")
+	}
+	app := fakeACPApp(t)
+	newFakeACPSession(t, app)
+	waitApp(app, "id:acp-mode-badge", 60*time.Second)
+	// The badge and its menu can still be settling under load; try again.
+	for i := 0; i < 4; i++ {
+		app.Press("id:acp-mode-badge")
+		if waitQuiet(app, "id:acp-option-auto_approve", 2*time.Second) {
+			break
+		}
+	}
+	app.Press("id:acp-option-auto_approve")
+	// The choice is written to config.json for this preset, which only
+	// happens once the agent accepted it — a bare boolean is rejected.
+	path := filepath.Join(os.Getenv("PIDECK_V2_HOME"), "config.json")
+	app.WaitUntil(10*time.Second, func() bool {
+		raw, err := os.ReadFile(path)
+		return err == nil && strings.Contains(string(raw), `"auto_approve": "true"`)
+	})
 }
 
 // TestResendTurn sends a finished turn's prompt again as a new turn.

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/ui"
@@ -13,16 +15,100 @@ import (
 
 const acpConfigTimeout = 20 * time.Second
 
-// ACP agents can expose selects such as model, mode and thought level.
-// A server may send a flat list or groups of the same option values.
+// ACP agents can expose selects such as model, mode and thought level,
+// and on/off switches such as approvals. ACP declares which per option;
+// a server may send a flat list or groups of the same option values.
 type acpConfigOption struct {
 	ID           string          `json:"id"`
 	Name         string          `json:"name"`
 	Description  string          `json:"description"`
 	Category     string          `json:"category"`
 	Type         string          `json:"type"`
-	CurrentValue string          `json:"currentValue"`
+	CurrentValue acpConfigValue  `json:"currentValue"`
 	Values       json.RawMessage `json:"options"`
+}
+
+// acpConfigKind is what a config value holds.
+type acpConfigKind uint8
+
+const (
+	acpValueNone acpConfigKind = iota
+	acpValueText
+	acpValueBool
+)
+
+// acpConfigValue is one configuration value on the wire: a value id, or a
+// boolean. The shape travels with the value because agents disagree about
+// which options are switches, and a mismatched read used to fail the whole
+// session/new response.
+type acpConfigValue struct {
+	str  string
+	flag bool
+	kind acpConfigKind
+}
+
+func acpTextValue(text string) acpConfigValue { return acpConfigValue{str: text, kind: acpValueText} }
+func acpBoolValue(on bool) acpConfigValue     { return acpConfigValue{flag: on, kind: acpValueBool} }
+
+func (v acpConfigValue) isSet() bool  { return v.kind != acpValueNone }
+func (v acpConfigValue) isBool() bool { return v.kind == acpValueBool }
+func (v acpConfigValue) text() string { return v.str }
+func (v acpConfigValue) truthy() bool { return v.kind == acpValueBool && v.flag }
+func (v acpConfigValue) equal(o acpConfigValue) bool {
+	return v.kind == o.kind && v.str == o.str && v.flag == o.flag
+}
+
+// String is what a value reads as in the transcript-free UI.
+func (v acpConfigValue) String() string {
+	switch {
+	case v.kind == acpValueBool:
+		if v.flag {
+			return "true"
+		}
+		return "false"
+	case v.kind == acpValueText:
+		return v.str
+	}
+	return ""
+}
+
+// MarshalJSON writes the value in the shape it arrived in.
+func (v acpConfigValue) MarshalJSON() ([]byte, error) {
+	switch v.kind {
+	case acpValueBool:
+		return json.Marshal(v.flag)
+	case acpValueText:
+		return json.Marshal(v.str)
+	}
+	return []byte("null"), nil
+}
+
+// UnmarshalJSON reads a string, a boolean or (for the odd server that
+// sends one) a number; anything else leaves the value unset instead of
+// failing its option.
+func (v *acpConfigValue) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(string(data))
+	*v = acpConfigValue{}
+	switch {
+	case raw == "" || raw == "null":
+		return nil
+	case raw == "true", raw == "false":
+		v.flag = raw == "true"
+		v.kind = acpValueBool
+	case raw[0] == '"':
+		var text string
+		if err := json.Unmarshal(data, &text); err != nil {
+			return nil
+		}
+		v.str, v.kind = text, acpValueText
+	default:
+		var number json.Number
+		if json.Unmarshal(data, &number) != nil {
+			return nil
+		}
+		v.str, v.kind = number.String(), acpValueText
+	}
+	return nil
 }
 
 type acpConfigChoice struct {
@@ -31,8 +117,41 @@ type acpConfigChoice struct {
 	Description string `json:"description"`
 }
 
+// acpConfigOptions reads an option list entry by entry: the protocol says
+// a reader skips an entry it cannot read rather than fail the response. A
+// CodeBuddy boolean once made every session/new unreadable that way.
+type acpConfigOptions []acpConfigOption
+
+func (l *acpConfigOptions) UnmarshalJSON(data []byte) error {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		*l = nil
+		return nil
+	}
+	out := make(acpConfigOptions, 0, len(raw))
+	for _, item := range raw {
+		var option acpConfigOption
+		if json.Unmarshal(item, &option) != nil || option.ID == "" {
+			continue
+		}
+		out = append(out, option)
+	}
+	*l = out
+	return nil
+}
+
+// isBool reports whether the option is an on/off switch. Agents that send
+// a boolean without declaring it are handled too.
+func (o acpConfigOption) isBool() bool {
+	if o.Type == "boolean" {
+		return true
+	}
+	return o.Type == "" && o.CurrentValue.isBool()
+}
+
+// Choices are the values of a select, groups flattened. A switch has none.
 func (o acpConfigOption) Choices() []acpConfigChoice {
-	if o.Type != "select" {
+	if o.isBool() {
 		return nil
 	}
 	var wire []struct {
@@ -56,9 +175,24 @@ func (o acpConfigOption) Choices() []acpConfigChoice {
 	return out
 }
 
+func (o acpConfigOption) hasValue(value acpConfigValue) bool {
+	if o.isBool() {
+		return value.isBool()
+	}
+	if !value.isSet() || value.isBool() {
+		return false
+	}
+	for _, choice := range o.Choices() {
+		if choice.Value == value.text() {
+			return true
+		}
+	}
+	return false
+}
+
 type acpSessionConfig struct {
-	Modes   acpModeState      `json:"modes"`
-	Options []acpConfigOption `json:"configOptions"`
+	Modes   acpModeState     `json:"modes"`
+	Options acpConfigOptions `json:"configOptions"`
 }
 
 func (c acpSessionConfig) modeState() acpModeState {
@@ -66,17 +200,47 @@ func (c acpSessionConfig) modeState() acpModeState {
 	return c.Modes
 }
 
-func (c *acpClient) setConfigOption(sessionID, id, value string) ([]acpConfigOption, error) {
+// setConfigOption writes one option and returns the full table the agent
+// answers with. A switch is sent with its declared type: several agents
+// validate the value against that field and reject a bare boolean.
+func (c *acpClient) setConfigOption(sessionID string, option acpConfigOption, value acpConfigValue) ([]acpConfigOption, error) {
+	params := map[string]any{"sessionId": sessionID, "configId": option.ID, "value": value}
+	if value.isBool() || option.isBool() {
+		params["type"] = "boolean"
+	}
 	var out acpSessionConfig
-	err := c.call("session/set_config_option", map[string]string{
-		"sessionId": sessionID, "configId": id, "value": value,
-	}, &out, acpConfigTimeout)
+	err := c.call("session/set_config_option", params, &out, acpConfigTimeout)
 	return out.Options, err
 }
 
 type acpPreference struct {
 	Mode   string            `json:"mode,omitempty"`
 	Values map[string]string `json:"values,omitempty"`
+}
+
+// acpPreferenceText is a choice as config.json keeps it. Booleans are kept
+// as "true"/"false" text so the file keeps the shape older builds read.
+func acpPreferenceText(value acpConfigValue) string {
+	if value.isBool() {
+		return strconv.FormatBool(value.truthy())
+	}
+	return value.text()
+}
+
+// acpPreferredValue turns a stored choice back into a wire value for this
+// option, or an unset value when it cannot apply.
+func acpPreferredValue(option acpConfigOption, stored string) acpConfigValue {
+	if stored == "" {
+		return acpConfigValue{}
+	}
+	if option.isBool() {
+		on, err := strconv.ParseBool(stored)
+		if err != nil {
+			return acpConfigValue{}
+		}
+		return acpBoolValue(on)
+	}
+	return acpTextValue(stored)
 }
 
 func (a *app) rememberACPPreference(preset string, update func(*acpPreference)) {
@@ -98,56 +262,179 @@ func (a *app) rememberACPPreference(preset string, update func(*acpPreference)) 
 	}()
 }
 
-func (o acpConfigOption) hasValue(value string) bool {
-	return value != "" && slices.ContainsFunc(o.Choices(), func(c acpConfigChoice) bool { return c.Value == value })
-}
-
-// Do not replay arbitrary agent-specific options (in particular approvals).
+// remembered says whether a choice is replayed into the next session of
+// the same preset. Models and model parameters stay with the CLI's own
+// defaults (they are a project concern, and agents reset them per session);
+// the rest — mode, thought level, permissions — is the user's preference.
 func (o acpConfigOption) remembered() bool {
-	switch o.Category {
-	case "model", "thought_level", "mode", "reasoning_effort":
-		return true
+	switch strings.ToLower(strings.TrimSpace(o.Category)) {
+	case "model", "model_config":
+		return false
 	}
-	return false
+	return !strings.EqualFold(strings.TrimSpace(o.ID), "model")
 }
 
-func (a *app) restoreACPChoices(c *acpClient, preset, sid string, state acpModeState) acpModeState {
+// acpModeOptionIndex finds the option that carries the session mode, which is
+// also where most agents keep their permission mode.
+func acpModeOptionIndex(options []acpConfigOption) int {
+	for i, option := range options {
+		if option.isBool() {
+			continue
+		}
+		category := strings.ToLower(strings.TrimSpace(option.Category))
+		if category == "mode" || strings.EqualFold(strings.TrimSpace(option.ID), "mode") {
+			return i
+		}
+	}
+	return -1
+}
+
+// acpNoBypassNotice tells the user a preset's bypass switch cannot apply:
+// the agent offers no such mode, so its sessions keep asking.
+const acpNoBypassNotice = "这个 ACP 没有旁路权限档，预设里的旁路权限不会生效。"
+
+// acpBypassModes are the mode values that mean "stop asking", strongest
+// first. CodeBuddy's fullAccess also allows dangerous commands, so it wins
+// over bypassPermissions; Claude, Qoder and the rest name their own.
+var acpBypassModes = []string{"fullaccess", "bypasspermissions", "bypass_permissions", "bypass", "yolo"}
+
+// acpBypassChoice is the skip-approvals choice of a mode option, if the
+// agent offers one.
+func acpBypassChoice(option acpConfigOption) acpConfigValue {
+	choices := option.Choices()
+	for _, want := range acpBypassModes {
+		for _, choice := range choices {
+			if strings.EqualFold(strings.TrimSpace(choice.Value), want) {
+				return acpTextValue(choice.Value)
+			}
+		}
+	}
+	return acpConfigValue{}
+}
+
+func (a *app) restoreACPChoices(c *acpClient, preset, sid string, state acpModeState, pinnedMode string) acpModeState {
 	if a.st == nil {
 		return state
 	}
 	pref := a.st.config().ACPChoices[preset]
-	if pref.Mode != "" && pref.Mode != state.CurrentModeID && slices.ContainsFunc(state.AvailableModes, func(m acpMode) bool { return m.ID == pref.Mode }) {
+	// A preset's bypass mode wins over an older remembered mode: replaying
+	// it would quietly turn approvals back on.
+	if pref.Mode != "" && pinnedMode == "" && pref.Mode != state.CurrentModeID &&
+		slices.ContainsFunc(state.AvailableModes, func(m acpMode) bool { return m.ID == pref.Mode }) {
 		if err := c.setMode(sid, pref.Mode); err == nil {
 			state.CurrentModeID = pref.Mode
 		}
 	}
-	// A model change can change the available reasoning settings, so
-	// validate every choice against the most recent response.
-	for _, category := range []string{"model", "mode", "thought_level", "reasoning_effort"} {
-		for _, opt := range state.Options {
-			if opt.Category != category {
-				continue
-			}
-			value := pref.Values[opt.ID]
-			if value == opt.CurrentValue || !opt.hasValue(value) {
-				continue
-			}
-			if options, err := c.setConfigOption(sid, opt.ID, value); err == nil && options != nil {
-				state.Options = options
-			}
-			break
+	// A model change can change the available reasoning settings, so every
+	// choice is validated against the most recent response.
+	snapshot := append([]acpConfigOption(nil), state.Options...)
+	for _, option := range snapshot {
+		if option.ID == pinnedMode || !option.remembered() {
+			continue
+		}
+		live := state.optionByID(option.ID)
+		if live == nil {
+			continue
+		}
+		value := acpPreferredValue(*live, pref.Values[option.ID])
+		if !live.hasValue(value) || live.CurrentValue.equal(value) {
+			continue
+		}
+		if options, err := c.setConfigOption(sid, *live, value); err == nil && options != nil {
+			state.Options = options
 		}
 	}
 	return state
 }
 
-func (a *app) chooseACPOption(s *session, id, value string) {
+// optionByID is the live table's copy of an option, or nil when the agent
+// dropped it after another choice.
+func (c *acpModeState) optionByID(id string) *acpConfigOption {
+	for i := range c.Options {
+		if c.Options[i].ID == id {
+			return &c.Options[i]
+		}
+	}
+	return nil
+}
+
+// applyACPAccess switches a session to the preset's own "stop asking"
+// permission mode. It has to happen after the handshake — Claude reads the
+// initial mode from its settings, Qoder refuses the call outright — so a
+// refusal is logged and never blocks the session. The returned notice is
+// for the UI when the agent has no such mode at all.
+func (a *app) applyACPAccess(c *acpClient, preset acpPreset, sid string, state acpModeState) (acpModeState, string) {
+	if !preset.BypassPermissions {
+		return state, ""
+	}
+	if idx := acpModeOptionIndex(state.Options); idx >= 0 {
+		option := state.Options[idx]
+		bypass := acpBypassChoice(option)
+		if !bypass.isSet() {
+			return state, acpNoBypassNotice
+		}
+		if option.CurrentValue.equal(bypass) {
+			return state, ""
+		}
+		options, err := c.setConfigOption(sid, option, bypass)
+		if err != nil {
+			a.diagf("warn", "ACP bypass permission rejected: %v", err)
+			return state, ""
+		}
+		if options != nil {
+			state.Options = options
+		} else {
+			state.Options[idx].CurrentValue = bypass
+		}
+		return state, ""
+	}
+	for _, mode := range state.AvailableModes {
+		if !acpBypassModeID(mode.ID) {
+			continue
+		}
+		if err := c.setMode(sid, mode.ID); err != nil {
+			a.diagf("warn", "ACP bypass mode rejected: %v", err)
+			return state, ""
+		}
+		state.CurrentModeID = mode.ID
+		return state, ""
+	}
+	return state, acpNoBypassNotice
+}
+
+func acpBypassModeID(id string) bool {
+	for _, want := range acpBypassModes {
+		if strings.EqualFold(strings.TrimSpace(id), want) {
+			return true
+		}
+	}
+	return false
+}
+
+// acpPinnedMode is the option a preset's bypass pins: replaying an older
+// remembered mode over it would silently turn approvals back on.
+func acpPinnedMode(state acpModeState, preset acpPreset) string {
+	if !preset.BypassPermissions {
+		return ""
+	}
+	idx := acpModeOptionIndex(state.Options)
+	if idx < 0 {
+		return ""
+	}
+	option := state.Options[idx]
+	if bypass := acpBypassChoice(option); bypass.isSet() && option.CurrentValue.equal(bypass) {
+		return option.ID
+	}
+	return ""
+}
+
+func (a *app) chooseACPOption(s *session, id string, value acpConfigValue) {
 	if s.acp == nil || s.acpSID == "" || s.busyNow() || s.acpOptionBusy.GetUntracked() {
 		return
 	}
 	var option acpConfigOption
 	for _, opt := range s.acpOptions.GetUntracked() {
-		if opt.ID == id && opt.CurrentValue != value && opt.hasValue(value) {
+		if opt.ID == id && !opt.CurrentValue.equal(value) && opt.hasValue(value) {
 			option = opt
 			break
 		}
@@ -158,7 +445,7 @@ func (a *app) chooseACPOption(s *session, id, value string) {
 	s.acpOptionBusy.Set(true)
 	c, sid, preset := s.acp, s.acpSID, s.acpPreset
 	go func() {
-		options, err := c.setConfigOption(sid, id, value)
+		options, err := c.setConfigOption(sid, option, value)
 		a.cx.Post(func() {
 			if s.acp != c {
 				return
@@ -171,15 +458,29 @@ func (a *app) chooseACPOption(s *session, id, value string) {
 			if options != nil {
 				s.acpOptions.Set(options)
 			}
-			if option.remembered() && slices.ContainsFunc(options, func(o acpConfigOption) bool { return o.ID == id && o.CurrentValue == value }) {
+			if option.remembered() && option.hasValue(value) {
+				text := acpPreferenceText(value)
 				a.rememberACPPreference(preset, func(p *acpPreference) {
 					if p.Values == nil {
 						p.Values = map[string]string{}
 					}
-					p.Values[id] = value
+					p.Values[id] = text
 				})
 			}
 		})
+	}()
+}
+
+// clearACPPreference forgets every remembered choice of one preset.
+func (a *app) clearACPPreference(preset string) {
+	if a.st == nil || preset == "" {
+		return
+	}
+	a.st.change(func(c *config) { delete(c.ACPChoices, preset) })
+	go func() {
+		if err := a.st.save(); err != nil {
+			a.cx.Post(func() { a.toast(ui.ToastError, "保存失败", err.Error()) })
+		}
 	}()
 }
 
