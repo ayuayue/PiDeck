@@ -60,6 +60,32 @@ func (a *app) watchWindow() {
 	})
 }
 
+// windowRestoreDelay is how long the platform's own restore of a hidden
+// window takes to run after the app asks for the window back.
+const windowRestoreDelay = 250 * time.Millisecond
+
+// restoreWindowMaximized puts back the maximized state the app remembers,
+// which the platform's restore of a hidden window drops: showing a window
+// again goes through ShowWindow(SW_RESTORE) there, and that un-maximizes a
+// maximized window. The remembered frame is the app's to keep, so a window
+// that was maximized comes back maximized instead of at its old size.
+func (a *app) restoreWindowMaximized() {
+	if !desktop.IsAvailable(a.cx) {
+		return
+	}
+	if windowWantsMaximize(a.cfg.Window, a.cx.Env().Maximized()) {
+		desktop.ToggleMaximize(a.cx)
+	}
+}
+
+// windowWantsMaximize reports whether the platform's restore dropped the
+// maximized state of a window the app remembers. A first run, whose saved
+// frame is too small to be a window, and one the user left windowed, stay as
+// they are.
+func windowWantsMaximize(w windowCfg, maximized bool) bool {
+	return w.Maximized && w.W >= 640 && w.H >= 480 && !maximized
+}
+
 // saveWindowFrame stores a frame once the window stops moving. A maximized
 // window keeps the size it had before, so restoring it later is not a jump
 // back to a maximized-sized window.

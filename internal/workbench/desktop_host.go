@@ -129,11 +129,16 @@ func (a *app) runningSessions() []*session {
 }
 
 // showMainWindow brings the window back from the tray.
+//
+// A clicked notification and a second launch show a hidden window with the
+// platform's restore, which un-maximizes it; the app puts back the state it
+// remembers once that has run.
 func (a *app) showMainWindow() {
 	if w := a.window(); w != nil {
 		w.Show()
 		w.Focus()
 	}
+	a.cx.AfterFunc(windowRestoreDelay, a.restoreWindowMaximized)
 }
 
 // quitApp ends the app even when close-to-tray would keep it.
