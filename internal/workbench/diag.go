@@ -197,8 +197,9 @@ func (a *app) diagnosticText() string {
 	}
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	fmt.Fprintf(&b, "goroutine：%d · 堆：%.1f MB · 启动于 %s\n",
-		runtime.NumGoroutine(), float64(mem.HeapAlloc)/(1<<20), a.startedAt.Format(time.RFC3339))
+	fmt.Fprintf(&b, "goroutine：%d · 堆：%.1f MB · 已提交：%.1f MB · 空闲：%.1f MB · 启动于 %s\n",
+		runtime.NumGoroutine(), float64(mem.HeapAlloc)/(1<<20), float64(mem.Sys)/(1<<20),
+		float64(mem.HeapIdle)/(1<<20), a.startedAt.Format(time.RFC3339))
 	b.WriteString("\n进程：\n")
 	procs := a.processList()
 	if len(procs) == 0 {

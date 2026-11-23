@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -139,6 +140,9 @@ func (a *app) tick() {
 			a.lastTray = now
 			a.updateTray()
 		}
+		if beats%60 == 0 {
+			a.releaseIdleHeap(now)
+		}
 		// pi writes its sessions into its own store; a pass now and then
 		// brings in the ones started in a terminal or another app, which
 		// nothing else would ever tell the rail about.
@@ -148,6 +152,32 @@ func (a *app) tick() {
 		a.cx.AfterFunc(time.Second, loop)
 	}
 	a.cx.Post(loop)
+}
+
+// heapReleaseIdle is how much collected heap is worth handing back, and
+// heapReleaseEvery the least time between releases: a full collection costs
+// one pause, so it only runs when there is a lot to return.
+const (
+	heapReleaseIdle  = 1 << 30
+	heapReleaseEvery = 2 * time.Minute
+)
+
+// releaseIdleHeap returns pages the heap no longer needs. Go gives them up on
+// its own schedule and slowly, so a window that once held a few gigabytes of
+// transcript keeps showing that peak long after it was closed.
+func (a *app) releaseIdleHeap(now time.Time) {
+	if now.Sub(a.lastHeapRelease) < heapReleaseEvery {
+		return
+	}
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	if mem.HeapIdle < heapReleaseIdle {
+		return
+	}
+	a.lastHeapRelease = now
+	// The collection runs here, off the interface thread: the next frame is
+	// drawn from the state already published.
+	go debug.FreeOSMemory()
 }
 
 // animateNextLayout eases the next batch's moves, inserts and deletes,

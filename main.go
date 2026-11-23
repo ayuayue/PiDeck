@@ -22,6 +22,7 @@ func main() {
 			panic(r)
 		}
 	}()
+	limitHeap()
 	var opts []nsgo.Option
 	if !client.Mode() {
 		opts = append(opts, nsgo.WindowConstraints(core.WindowConstraints{MinWidth: 960, MinHeight: 640}))
@@ -34,4 +35,18 @@ func main() {
 	}
 	nsgo.Run(Root, opts...)
 	shutdownHosts()
+}
+
+// desktopHeapLimit caps a long desktop session's heap. Go collects only after
+// the heap doubles, so a transcript that once filled several gigabytes leaves
+// that peak in Task Manager long after it is closed; a soft limit ties the peak
+// to what is actually live. A GOMEMLIMIT the user set wins, and the mobile and
+// web clients keep their own budget.
+const desktopHeapLimit = 3 << 30
+
+func limitHeap() {
+	if client.Mode() || os.Getenv("GOMEMLIMIT") != "" {
+		return
+	}
+	debug.SetMemoryLimit(desktopHeapLimit)
 }

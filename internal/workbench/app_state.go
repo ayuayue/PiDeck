@@ -644,4 +644,7 @@ type app struct {
 	mainHooked      bool
 	mainTries       int
 	lastTray        time.Time
+	// lastHeapRelease is when idle heap last went back to the system, so a
+	// big transcript release costs one pause and not one per tick.
+	lastHeapRelease time.Time
 }

@@ -697,7 +697,7 @@
   "在输入框里续写草稿的下一句。": "Continue the composer's draft with its next sentence.",
   "在这个会话里搜索": "Search this session",
   "在项目下显示终端里 pi 用过的会话，点开即继续。": "Show the sessions pi used in a terminal under their project; open one to continue it.",
-  "堆 %.1f MB · %d 个 goroutine · 已运行 %s": "Heap %.1f MB · %d goroutines · up %s",
+  "堆 %.1f MB · 已提交 %.1f MB · 空闲 %.1f MB · %d 个 goroutine · 已运行 %s": "Heap %.1f MB · committed %.1f MB · idle %.1f MB · %d goroutines · up %s",
   "填一个 http(s) 链接：JSON 或 YAML，可以是 {prompts:[…]} 或直接一个数组；每条要有 title 和 body（或 prompt）。": "An http(s) link to JSON or YAML: {prompts:[…]} or a bare array; each entry needs title and body (or prompt).",
   "填一个从 1 开始的行号。": "Use a line number starting from 1.",
   "填一个模型名，例如 gpt-4o-mini。": "Enter a model name, such as gpt-4o-mini.",
