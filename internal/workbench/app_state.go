@@ -374,15 +374,20 @@ type app struct {
 	settingsScroll *core.Ref
 	settingsOffset core.Point
 	settingsTab    *core.Signal[string]
-	addWS          *core.Signal[bool]
-	addTarget      *core.Signal[bool]
-	addKind        *core.Signal[int]
-	addWhere       *core.Signal[string]
-	addPath        *core.Signal[string]
-	importOpen     *core.Signal[bool]
-	renameOpen     *core.Signal[bool]
-	renameText     *core.Signal[string]
-	renameID       string
+	// The diagnostics page reads these, and a slow tick fills them, so
+	// showing what is running never rebuilds the page's scroll view.
+	diagMem    *core.Signal[diagMemory]
+	diagProcs  *core.Signal[*diagProcs]
+	diagLog    *core.Signal[*diagLogEvents]
+	addWS      *core.Signal[bool]
+	addTarget  *core.Signal[bool]
+	addKind    *core.Signal[int]
+	addWhere   *core.Signal[string]
+	addPath    *core.Signal[string]
+	importOpen *core.Signal[bool]
+	renameOpen *core.Signal[bool]
+	renameText *core.Signal[string]
+	renameID   string
 	// The file name dialog: new file, new folder or rename.
 	fileOpOpen   *core.Signal[bool]
 	fileOpTitle  *core.Signal[string]

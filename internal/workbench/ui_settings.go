@@ -194,6 +194,10 @@ func (a *app) loadSettingsSection(id string) {
 		a.loadResources(false)
 	case "mcp":
 		a.loadMCPServers(true)
+	case "diagnostics":
+		// The page reads figures the tick fills, so fill them before it
+		// shows rather than after the first pass.
+		a.diagRefresh()
 	}
 }
 

@@ -143,6 +143,13 @@ func (a *app) tick() {
 		if beats%60 == 0 {
 			a.releaseIdleHeap(now)
 		}
+		// The diagnostics page shows live figures: three seconds between
+		// passes keeps them current without redrawing the page on every
+		// beat, which would push the reader back to the top.
+		if beats%3 == 0 && a.paneVisible() && a.activePaneID() == paneSettings &&
+			a.settingsTab.GetUntracked() == "diagnostics" {
+			a.diagRefresh()
+		}
 		// pi writes its sessions into its own store; a pass now and then
 		// brings in the ones started in a terminal or another app, which
 		// nothing else would ever tell the rail about.
