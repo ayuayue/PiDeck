@@ -14,8 +14,9 @@ PiDeck 0.14 makes remote workspaces usable day to day: files move over SFTP, rem
 - **The remote Git graph works again** — history page arguments are translated to the IPC vocabulary, the SSH cold-start window waits for warm-up, load-more no longer exceeds `git.log`'s maxCount, and the commit list no longer depends on the count request succeeding.
 - **Archived session restore regressions fixed (#581, #579)** — restoring an archived parent session brings its flattened subagent sessions back, and POSIX project casing is preserved.
 - **File links in remote sessions open against the remote project** — the open-file action on tool cards no longer reports that the path does not exist.
+- **The bundled Feishu SDK keeps its file permissions and checksum** — the shipped `feishu-sdk-1.67.0.tar.gz` and its `manifest.json` are resynced, so extracted files keep their POSIX permissions and the runtime sha256 / byte checks match the archive again.
 
-Thanks to **ZedingZhang** for fixing archived session restore (#581, #579) and the Windows sandbox `0xC0000142` / asar `NODE_OPTIONS` leak (#591), and to **op15066212** for restructuring the pideck skill docs and their judge scripts.
+Thanks to **ZedingZhang** for fixing archived session restore (#581, #579) and the Windows sandbox `0xC0000142` / asar `NODE_OPTIONS` leak (#591), to **op15066212** for restructuring the pideck skill docs and their judge scripts, and to **bfzha** for resyncing the bundled Feishu SDK permissions and checksum.
 
 ## v0.13.2 (2026-11-21)
 

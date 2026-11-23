@@ -14,6 +14,7 @@
 | 发版核心 E2E（`docs/release-process.md` 的核心集） | 11/11 通过（1.5min）：`release-core`（pi mock CLI / ACP 真 stdio / DSH 真 host + 离线 runtime 导入）各首发+续发，另有 `smoke`、`session-bootstrap-tabs`、`git-panel`、`settings`、`drawer`、`file-tree-dom-budget` |
 | 构建产物 | `npm run build:fast` 用当前源码重建 `out/`；`dist-runtime/dsh-runtime-win32-x64.tgz`（147 MB）与 linux-x64（28 MB）在库 |
 | 发布一致性 | 版本/CHANGELOG/README 徽章与最新版行一致（0 提醒）；workflow tag 下拉 5 处已同步；README 亮点、docs-site/changelog 由 `sync-release-notes --apply` 生成 |
+| 最后入口的远程提交（bfzha `e20345fd4`） | 只改 `resources/feishu-sdk/`（tar.gz + manifest 的 sha256/字节数）：实体与清单哈希对得上，`tests/feishuSdkPackaging` + `tests/feishuSdkRuntime` 13/13 通过；不涉源码，不需重建 `out/` |
 
 ## 本版同时收口的开发树红灯（均为测试侧陈旧断言，非产品缺陷）
 
