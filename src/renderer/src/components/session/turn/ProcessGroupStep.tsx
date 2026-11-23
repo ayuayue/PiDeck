@@ -326,7 +326,9 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 							<div
 								ref={stickScrollRef}
 								data-process-group-scroller=""
-								className="flex max-h-[min(640px,60vh)] flex-col overflow-y-auto [scrollbar-width:none] focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
+								// 锁底时禁用浏览器锚定：预算替换顶部旧成员而总高度不变时，锚定会把视口挪离底部。
+								// 上滚阅读后恢复锚定，旧成员移出窗口时继续保留正在看的行。
+								className={`flex max-h-[min(640px,60vh)] flex-col overflow-y-auto [scrollbar-width:none] focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)] ${stick.isAtBottom ? "[overflow-anchor:none]" : ""}`}
 								onWheel={(event) => stickNoteWheel(event.deltaY, event.target)}
 								// 隐藏滚动条后键盘是另一条入口：仅当真有可滚内容时才能 Tab 进来（不占无谓标签位）。
 								tabIndex={overflow.up || overflow.down ? 0 : undefined}

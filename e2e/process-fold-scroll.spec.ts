@@ -190,6 +190,56 @@ test("运行中的组体自己贴底：新增成员可见，上滚后的阅读�
 	await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(readingPosition);
 });
 
+test("成员窗口替换时保持跟底，主动上滚后保留阅读位置", async ({ page }) => {
+	await page.setViewportSize({ width: 1000, height: 760 });
+	await page.goto(`${baseUrl}?live&count=33&height=360`);
+	const body = groupBody(page);
+	const gap = () => body.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+	await expect.poll(gap).toBeLessThanOrEqual(2);
+
+	// 预算为 32：同时移除最早成员、追加等高成员时内容总高度不变，不能依赖 ResizeObserver。
+	for (let count = 34; count <= 37; count++) {
+		await page.getByTestId("grow").click();
+		await expect(body.locator(".tool-card").last()).toHaveAttribute("data-message-id", `tool-${count - 1}`);
+		await expect.poll(gap).toBeLessThanOrEqual(2);
+	}
+
+	// 主动上滚后，窗口继续替换早期成员时应保持正在阅读的行，而不是拉回末尾。
+	await body.locator(".tool-card").last().hover();
+	await page.mouse.wheel(0, -180);
+	await expect.poll(gap).toBeGreaterThan(100);
+	const readingRow = body.locator('.tool-card[data-message-id="tool-20"]');
+	const rowOffset = () => readingRow.evaluate((element) => element.getBoundingClientRect().top - element.closest("[data-process-group-scroller]")!.getBoundingClientRect().top);
+	const before = await rowOffset();
+	await page.getByTestId("grow").click();
+	await expect(body.locator(".tool-card").last()).toHaveAttribute("data-message-id", "tool-37");
+	await expect.poll(rowOffset).toBeCloseTo(before, 0);
+	await expect.poll(gap).toBeGreaterThan(100);
+
+	// 用户滚回组底后重新跟随，后续窗口替换仍不能再次脱底。
+	await body.hover({ position: { x: 40, y: 40 } });
+	await page.mouse.wheel(0, 1000);
+	await expect.poll(gap).toBeLessThanOrEqual(2);
+	await page.getByTestId("grow").click();
+	await expect(body.locator(".tool-card").last()).toHaveAttribute("data-message-id", "tool-38");
+	await expect.poll(gap).toBeLessThanOrEqual(2);
+});
+
+test("新成员比移除的成员短时仍保持跟底", async ({ page }) => {
+	await page.goto(`${baseUrl}?live&count=33&height=360`);
+	const body = groupBody(page);
+	const gap = () => body.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+	await expect.poll(gap).toBeLessThanOrEqual(2);
+	// 首个成员高于新成员：替换后总高度缩小，也不能让浏览器把视口留在旧内容上。
+	await body.locator('.tool-card[data-message-id="tool-1"]').evaluate((element) => {
+		element.style.minHeight = "100px";
+	});
+	await expect.poll(gap).toBeLessThanOrEqual(2);
+	await page.getByTestId("grow").click();
+	await expect(body.locator(".tool-card").last()).toHaveAttribute("data-message-id", "tool-33");
+	await expect.poll(gap).toBeLessThanOrEqual(2);
+});
+
 test("手动重开过程组从组体开头读，保留组头位置", async ({ page }) => {
 	await page.goto(`${baseUrl}?live&count=20&height=360`);
 	const head = page.locator("[data-process-group-head]");
