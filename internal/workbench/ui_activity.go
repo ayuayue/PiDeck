@@ -38,7 +38,7 @@ func (a *app) activityRow(item activityItem, colors ui.Colors) core.Node {
 				if item.waiting > 0 {
 					return colors.Warn()
 				}
-				return colors.Accent()
+				return viewkit.Working
 			}),
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 				core.Text{Content: s.title.Get(), MaxLines: 1, EllipsizeMode: core.EllipsizeTail,

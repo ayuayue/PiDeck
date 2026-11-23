@@ -8,6 +8,7 @@ package workbench
 import (
 	"slices"
 
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -60,6 +61,7 @@ func (a *app) selectSession(s *session) {
 		a.activeWS.Set("")
 	}
 	a.addTab(s.ID)
+	a.revealTab(s.ID)
 	a.openSessionEager(s)
 	if a.drawer.GetUntracked() && a.drawerTab.GetUntracked() == "git" {
 		a.git.attach(a.workspaceFor(s.Target, s.WS))
@@ -98,6 +100,34 @@ func (a *app) addTab(id string) {
 	}
 }
 
+// tabRef is one tab's element, made on first use.
+func (a *app) tabRef(key string) *core.Ref {
+	if a.tabRefs == nil {
+		a.tabRefs = map[string]*core.Ref{}
+	}
+	ref := a.tabRefs[key]
+	if ref == nil {
+		ref = new(core.Ref)
+		a.tabRefs[key] = ref
+	}
+	return ref
+}
+
+// revealTab scrolls the tab bar until a tab shows. The tab is revealed
+// after the commit that mounted it, so a tab made in the same turn (a new
+// session, a pane opening) lands in sight in the bar above the content.
+func (a *app) revealTab(key string) {
+	a.cx.Post(func() {
+		if ref := a.tabRefs[key]; ref != nil {
+			ref.Reveal(core.RevealOptions{Horizontal: core.ScrollAlignNearest, Animated: true,
+				Margin: core.Edges{Left: 6, Right: 6}})
+		}
+	})
+}
+
+// forgetTab drops a closed tab's element.
+func (a *app) forgetTab(key string) { delete(a.tabRefs, key) }
+
 // closeTab closes a tab, keeping the session and its engine running.
 func (a *app) closeTab(id string) {
 	tabs := a.tabs.GetUntracked()
@@ -113,6 +143,7 @@ func (a *app) closeTab(id string) {
 	}
 	next := append(append([]string(nil), tabs[:ix]...), tabs[ix+1:]...)
 	a.tabs.Set(next)
+	a.forgetTab(id)
 	if a.byID[id] != nil {
 		a.closedTabs = append(a.closedTabs, id)
 		if len(a.closedTabs) > 10 {

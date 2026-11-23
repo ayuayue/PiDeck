@@ -18,7 +18,7 @@ import (
 // at its end.
 func (a *app) tabBar() core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-		core.Scroll{Horizontal: true, HideIndicator: true, Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+		core.Scroll{Horizontal: true, HideIndicator: true, TestID: "tab-bar", Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Symmetric(0, 2)}, Children: []core.Node{
 				core.Each(a.tabs.Get, func(id string) string { return id }, func(cx *core.Scope, id func() string, _ func() int) core.Node {
 					return a.tab(id)
@@ -51,6 +51,7 @@ func (a *app) tab(id func() string) core.Node {
 	return base.ContextMenu{
 		Trigger: core.View{
 			TestID: "tab",
+			Ref:    a.tabRef(id()),
 			OnPress: func(core.PressEvent) {
 				if s := sess(); s != nil {
 					a.selectSession(s)
@@ -69,20 +70,9 @@ func (a *app) tab(id func() string) core.Node {
 				return st
 			},
 			Children: []core.Node{
-				core.View{StyleFunc: func() core.Style {
-					c := colors.Faint()
-					s := sess()
-					if s != nil {
-						switch s.status.Get() {
-						case statusRunning:
-							c = viewkit.Thinking
-						case statusWaiting:
-							c = viewkit.Warning
-						case statusFailed:
-							c = colors.Danger()
-						}
-					}
-					return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: c, FlexShrink: 0}
+				core.View{TestID: "tab-status-" + id(), StyleFunc: func() core.Style {
+					return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3,
+						Background: statusDot(colors, sess()), FlexShrink: 0}
 				}},
 				core.Text{ContentFunc: func() string { return sess().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 					Style: core.Style{FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5}, StyleFunc: ui.Colored(colors.Text)},

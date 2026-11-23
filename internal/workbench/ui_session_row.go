@@ -19,6 +19,31 @@ func (a *app) sessionRowOf(sess *session, pinned bool) core.Node {
 	return a.sessionRowFn(func() *session { return sess })
 }
 
+// started reports whether a session has an agent behind it: one that was
+// opened in this run, so its tab says more than "never started".
+func (s *session) started() bool {
+	return s.engine != nil || s.acp != nil || s.readySig.Get() || s.status.Get() != statusIdle
+}
+
+// statusDot is a session's dot, the same everywhere it is listed: grey
+// before it starts, blue once its agent is up with no turn in flight,
+// amber while a turn or an approval is, and red when it failed.
+func statusDot(colors ui.Colors, s *session) core.Color {
+	if s == nil {
+		return colors.Faint()
+	}
+	switch s.status.Get() {
+	case statusFailed:
+		return colors.Danger()
+	case statusStarting, statusRunning, statusWaiting:
+		return viewkit.Working
+	}
+	if s.started() {
+		return viewkit.Idle
+	}
+	return colors.Faint()
+}
+
 // sessionRowFn is one session in the rail.
 func (a *app) sessionRowFn(s func() *session) core.Node {
 	colors := ui.ColorsOf(a.cx)
@@ -37,19 +62,9 @@ func (a *app) sessionRowFn(s func() *session) core.Node {
 				return st
 			},
 			Children: []core.Node{
-				core.View{StyleFunc: func() core.Style {
-					c := colors.Faint()
-					switch s().status.Get() {
-					case statusRunning:
-						c = viewkit.Thinking
-					case statusWaiting:
-						c = viewkit.Warning
-					case statusFailed:
-						c = colors.Danger()
-					case statusStarting:
-						c = colors.Accent()
-					}
-					return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3, Background: c, FlexShrink: 0}
+				core.View{TestID: "session-status-" + s().ID, StyleFunc: func() core.Style {
+					return core.Style{Width: core.Pt(5), Height: core.Pt(5), CornerRadius: 3,
+						Background: statusDot(colors, s()), FlexShrink: 0}
 				}},
 				core.Text{ContentFunc: func() string { return s().title.Get() }, MaxLines: 1, EllipsizeMode: core.EllipsizeTail,
 					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), FontSize: 12.5, LineHeight: 18},

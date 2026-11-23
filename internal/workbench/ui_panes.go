@@ -146,6 +146,7 @@ func (a *app) openPane(id string) {
 	}
 	p.Set(true)
 	a.activePane.Set(id)
+	a.revealTab(paneTabKey(id))
 	if id == paneReview {
 		a.reviewAttach()
 	}
@@ -159,6 +160,7 @@ func (a *app) closePane(id string) {
 		return
 	}
 	p.Set(false)
+	a.forgetTab(paneTabKey(id))
 	if id == paneSettings {
 		// The page's search starts empty next time, as the dialog's did.
 		a.settingsQuery.Set("")
@@ -255,6 +257,9 @@ func (a *app) paneView() core.Node {
 	})
 }
 
+// paneTabKey is a pane tab's ref key, apart from a session's id.
+func paneTabKey(id string) string { return "pane:" + id }
+
 // paneTab is one pane's tab: its icon and name, and a close button.
 func (a *app) paneTab(def paneDef) core.Node {
 	colors := ui.ColorsOf(a.cx)
@@ -262,6 +267,7 @@ func (a *app) paneTab(def paneDef) core.Node {
 	label := apptext.T(def.Label)
 	return core.View{
 		TestID:  "pane-tab-" + def.ID,
+		Ref:     a.tabRef(paneTabKey(def.ID)),
 		OnPress: func(core.PressEvent) { a.openPane(def.ID) },
 		Role:    core.RoleTab, Label: label,
 		StyleFunc: func() core.Style {

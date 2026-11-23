@@ -576,6 +576,11 @@ func newApp(cx *core.Scope) *app {
 		}
 		a.openSessionEager(sess)
 	}
+	if active != "" {
+		// A restored bar can be longer than the window: show the tab it
+		// left on.
+		a.revealTab(active)
+	}
 	if len(a.pendingTabs) > 0 {
 		for _, ws := range list {
 			if ws.Target.remote() {

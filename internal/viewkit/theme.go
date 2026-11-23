@@ -26,6 +26,12 @@ var (
 	// Thinking and Warning are read by both application hosts.
 	Thinking = core.RGB(0x6366f1)
 	Warning  = warning
+
+	// Idle and Working are a session's status dot: blue once its agent is
+	// up with no turn in flight, amber while a turn (or an approval) is.
+	// Both hosts read them, as they do Thinking.
+	Idle    = core.RGB(0x6366f1)
+	Working = core.RGB(0xd99524)
 )
 
 // pideckTheme is the app's look in both appearances.

@@ -42,6 +42,9 @@ func railFixture(t *testing.T, projects ...string) (*app, *nsgotest.App) {
 	if built == nil {
 		t.Fatal("the app was not built")
 	}
+	// Session drafts write in the background: join them before the temp
+	// home is removed, as the other fixtures do.
+	t.Cleanup(sessionDraftWrites.Wait)
 	t.Cleanup(built.closeDiag)
 	return built, screen
 }

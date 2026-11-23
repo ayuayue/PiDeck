@@ -374,6 +374,9 @@ type app struct {
 	settingsScroll *core.Ref
 	settingsOffset core.Point
 	settingsTab    *core.Signal[string]
+	// tabRefs are the open tabs' elements, by tab id: the bar scrolls the
+	// focused one into sight so a full bar never hides it.
+	tabRefs map[string]*core.Ref
 	// The diagnostics page reads these, and a slow tick fills them, so
 	// showing what is running never rebuilds the page's scroll view.
 	diagMem    *core.Signal[diagMemory]
