@@ -1,27 +1,48 @@
 # Build output
 /dist/
-/pideck-v2.exe
+/*.exe
+/pideck-lite
 /pideck-v2
 *.syso
+*.test
+
+# Profiles and coverage
+/*.prof
+/coverage.out
 
 # NSGo test and dev artifacts
 .nsgo/
 
-# App data a test can leave in the working directory
+# App data a test can leave in the working directory (PIDECK_LITE_HOME=.)
 /config.json
+/session-groups.json
+/favorites.json
+/tasks.json
+/notifications.yaml
+/balance-accounts.yaml
+/announcements-cache.json
+/models-store.json
 /agents/
 /plugins/
 /prompts/
 /themes/
-/logs/
+/acp/
 /sessions/
 /acp-sessions/
+/session-drafts/
+/chat/
+/video/
+/wechat/
+/cache/
+/exports/
+/logs/
 /crashes/
 /trash/
 
-# OS files
+# OS and tool files
 .DS_Store
 Thumbs.db
+.codebuddy/
 
 # Update signing key: the public half (updates.pub) is committed, this is not
 /updates.key
